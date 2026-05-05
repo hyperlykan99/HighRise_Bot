@@ -110,6 +110,16 @@ from modules.permissions         import (
     is_owner, is_admin, is_manager, is_moderator,
     can_moderate, can_manage_games, can_manage_economy, can_audit,
 )
+from modules.profile import (
+    handle_profile_cmd,
+    handle_stats_cmd,
+    handle_badges_cmd,
+    handle_casino_profile,
+    handle_privacy,
+    handle_profileadmin,
+    handle_profileprivacy,
+    handle_resetprofileprivacy,
+)
 from modules.audit import (
     handle_audithelp, handle_audit,
     handle_auditbank, handle_auditcasino, handle_auditeconomy,
@@ -189,7 +199,12 @@ from modules.gold import (
 # ---------------------------------------------------------------------------
 
 ECONOMY_COMMANDS     = {"balance", "daily", "leaderboard"}
-PROFILE_COMMANDS     = {"profile", "level", "xpleaderboard"}
+PROFILE_COMMANDS     = {
+    "profile", "me", "whois", "pinfo",
+    "stats", "badges", "titles",
+    "privacy",
+    "level", "xpleaderboard",
+}
 GAME_COMMANDS        = {"trivia", "scramble", "riddle", "coinflip"}
 SHOP_COMMANDS        = {"shop", "buy", "equip", "myitems", "badgeinfo", "titleinfo"}
 ACHIEVEMENT_COMMANDS = {"achievements", "claimachievements"}
@@ -218,6 +233,7 @@ MOD_ONLY_CMDS = {
     "allstaff",
     "subscribers",
     "mute", "unmute", "mutes",
+    "profileprivacy",
 }
 
 MANAGER_ONLY_CMDS = {
@@ -252,6 +268,7 @@ ADMIN_ONLY_CMDS = {
     "addmoderator", "removemoderator",
     "bankblock", "bankunblock",
     "ledger",
+    "profileadmin", "resetprofileprivacy",
     "allcommands",
     "checkcommands",
     "setdailycoins", "setgamereward", "settransferfee",
@@ -324,6 +341,8 @@ ALL_KNOWN_COMMANDS = (
         "goldhelp", "confirmcasinoreset",
         "tiprate", "tipstats", "tipleaderboard", "debugtips",
         "vipshop", "buyvip", "vipstatus",
+        "me", "whois", "pinfo", "stats", "badges", "titles", "privacy",
+        "profileadmin", "profileprivacy", "resetprofileprivacy",
         "allstaff", "allcommands", "checkcommands",
         "notifications", "clearnotifications",
         "delivernotifications", "pendingnotifications",
@@ -452,12 +471,12 @@ SHOP_HELP = SHOP_HELP_PAGES[0]
 
 PROFILE_HELP = (
     "⭐ Profile\n"
-    "/profile\n"
-    "/level\n"
-    "/xpleaderboard\n"
-    "/myitems\n"
-    "/reputation\n"
-    "/toprep"
+    "/profile [user] [1-6]\n"
+    "/whois <user> | /me\n"
+    "/stats [user] | /badges [user]\n"
+    "/privacy [field] [on/off]\n"
+    "/level | /xpleaderboard\n"
+    "/reputation | /toprep"
 )
 
 PROGRESS_HELP = (
@@ -1525,6 +1544,12 @@ class HangoutBot(BaseBot):
                 await handle_closereport(self, user, args)
             elif cmd == "reportwatch":
                 await handle_reportwatch(self, user, args)
+            elif cmd == "profileadmin":
+                await handle_profileadmin(self, user, args)
+            elif cmd == "profileprivacy":
+                await handle_profileprivacy(self, user, args)
+            elif cmd == "resetprofileprivacy":
+                await handle_resetprofileprivacy(self, user, args)
             elif cmd == "replog":
                 await handle_replog(self, user, args)
             elif cmd == "addrep":
@@ -1686,7 +1711,9 @@ class HangoutBot(BaseBot):
             "help", "casinohelp", "gamehelp", "coinhelp", "profilehelp",
             "shophelp", "progresshelp", "bankhelp", "staffhelp", "modhelp",
             "managerhelp", "adminhelp", "ownerhelp", "questhelp",
-            "profile", "level", "balance", "myitems",
+            "profile", "me", "whois", "pinfo",
+            "stats", "badges", "titles", "privacy",
+            "level", "balance", "myitems",
             "myreports", "report", "bug",
             "botstatus", "maintenance",
             "rules", "warnings",
@@ -1721,8 +1748,17 @@ class HangoutBot(BaseBot):
         elif cmd == "leaderboard":
             await handle_leaderboard(self, user)
 
-        elif cmd == "profile":
-            await handle_profile(self, user)
+        elif cmd in {"profile", "me", "whois", "pinfo"}:
+            await handle_profile_cmd(self, user, args)
+
+        elif cmd == "stats":
+            await handle_stats_cmd(self, user, args)
+
+        elif cmd in {"badges", "titles"}:
+            await handle_badges_cmd(self, user, args)
+
+        elif cmd == "privacy":
+            await handle_privacy(self, user, args)
 
         elif cmd == "level":
             await handle_level(self, user)
@@ -2036,7 +2072,12 @@ class HangoutBot(BaseBot):
             await handle_claimquest(self, user, args)
 
         elif cmd == "casino":
-            await _handle_casino_cmd(self, user, args)
+            _casino_known = {"modes", "on", "off", "reset", "leaderboard"}
+            _casino_sub   = args[1].lower().lstrip("@") if len(args) > 1 else ""
+            if _casino_sub and _casino_sub not in _casino_known:
+                await handle_casino_profile(self, user, args[1])
+            else:
+                await _handle_casino_cmd(self, user, args)
 
         elif cmd == "owners":
             await _cmd_owners(self, user)

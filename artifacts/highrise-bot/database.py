@@ -879,6 +879,18 @@ def init_db():
         )
     """)
 
+    # ── Profile privacy settings ────────────────────────────────────────────
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS profile_privacy (
+            username          TEXT PRIMARY KEY,
+            show_money        INTEGER NOT NULL DEFAULT 1,
+            show_casino       INTEGER NOT NULL DEFAULT 1,
+            show_achievements INTEGER NOT NULL DEFAULT 1,
+            show_inventory    INTEGER NOT NULL DEFAULT 1,
+            updated_at        TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+    """)
+
     conn.commit()
     conn.close()
     _migrate_db()
@@ -1106,6 +1118,76 @@ def owns_item(user_id: str, item_id: str) -> bool:
     ).fetchone()
     conn.close()
     return row is not None
+
+
+# ---------------------------------------------------------------------------
+# Profile privacy helpers
+# ---------------------------------------------------------------------------
+
+def get_profile_privacy(username: str) -> dict:
+    """Return the profile_privacy row for username, inserting defaults if missing."""
+    conn = get_connection()
+    conn.execute(
+        """
+        INSERT OR IGNORE INTO profile_privacy (username)
+        VALUES (?)
+        """,
+        (username.lower(),),
+    )
+    conn.commit()
+    row = conn.execute(
+        "SELECT * FROM profile_privacy WHERE username = ?",
+        (username.lower(),),
+    ).fetchone()
+    conn.close()
+    if row:
+        return dict(row)
+    return {
+        "username": username.lower(),
+        "show_money": 1,
+        "show_casino": 1,
+        "show_achievements": 1,
+        "show_inventory": 1,
+    }
+
+
+def set_profile_privacy(username: str, field: str, value: int) -> None:
+    """Set a single privacy field (show_money / show_casino / show_achievements / show_inventory)."""
+    _allowed = {"show_money", "show_casino", "show_achievements", "show_inventory"}
+    if field not in _allowed:
+        return
+    conn = get_connection()
+    conn.execute(
+        "INSERT OR IGNORE INTO profile_privacy (username) VALUES (?)",
+        (username.lower(),),
+    )
+    conn.execute(
+        f"UPDATE profile_privacy SET {field} = ?, updated_at = datetime('now') WHERE username = ?",
+        (value, username.lower()),
+    )
+    conn.commit()
+    conn.close()
+
+
+def reset_profile_privacy(username: str) -> None:
+    """Reset all privacy fields to their default (visible) state."""
+    conn = get_connection()
+    conn.execute(
+        """
+        INSERT INTO profile_privacy
+            (username, show_money, show_casino, show_achievements, show_inventory, updated_at)
+        VALUES (?, 1, 1, 1, 1, datetime('now'))
+        ON CONFLICT(username) DO UPDATE SET
+            show_money        = 1,
+            show_casino       = 1,
+            show_achievements = 1,
+            show_inventory    = 1,
+            updated_at        = datetime('now')
+        """,
+        (username.lower(),),
+    )
+    conn.commit()
+    conn.close()
 
 
 def buy_item(user_id: str, username: str, item_id: str,

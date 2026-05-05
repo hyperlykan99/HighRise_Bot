@@ -1,0 +1,483 @@
+Add a complete public player profile system.
+
+Goal:
+Everyone can check anyone’s profile, but players can choose whether to show private info like coin balance.
+
+IMPORTANT:
+- Do not remove existing features.
+- Keep coins, XP, bank, shop, badges, titles, VIP, casino, BJ, RBJ, poker, quests, achievements, reputation, gold, reports, notifications, and staff roles.
+- Use SQLite.
+- Use get_display_name(username).
+- Keep every Highrise message under 250 characters.
+- Split long profiles into pages.
+- Prevent crashes from bad inputs.
+- Add explicit command routing before unknown-command fallback.
+
+==================================================
+PROFILE COMMANDS
+==================================================
+
+Public commands:
+- /profile
+- /profile <username>
+- /pinfo <username>
+- /whois <username>
+- /stats
+- /stats <username>
+- /badges <username>
+- /titles <username>
+- /achievements <username>
+- /casino <username>
+- /privacy
+- /privacy money on/off
+- /privacy casino on/off
+- /privacy achievements on/off
+- /privacy inventory on/off
+
+Aliases:
+- /me = /profile
+- /whois <username> = /profile <username>
+- /pinfo <username> = /profile <username>
+
+Staff commands:
+- /profileadmin <username>
+- /profileprivacy <username>
+- /resetprofileprivacy <username>
+
+Permissions:
+- Everyone can view public profile info.
+- Players control their own privacy settings.
+- Owner/admin can view full staff profile details using /profileadmin.
+- Owner/admin can reset privacy settings only if needed.
+
+==================================================
+PROFILE PAGES
+==================================================
+
+Use pages to keep messages readable:
+
+/profile <username>
+Shows page 1 by default.
+
+/profile <username> 1
+Basic identity.
+
+/profile <username> 2
+Economy and progression.
+
+/profile <username> 3
+Casino stats.
+
+/profile <username> 4
+Shop/inventory.
+
+/profile <username> 5
+Achievements/reputation.
+
+/profile <username> 6
+Bank/social info if public.
+
+/profile pages should show:
+"More: /profile @user 2"
+
+==================================================
+PROFILE PAGE 1: IDENTITY
+==================================================
+
+Show:
+- Display name with badge/title format
+- Username
+- Staff role
+- VIP status
+- Level
+- XP
+- Reputation rank
+- First seen
+- Last seen
+
+Example:
+"👤 💎 [Elite] @Marion
+Role: Owner | VIP: YES
+Lvl 12 | XP 340/500
+Rep: Popular 58"
+
+If user not found:
+"User not found in bot database."
+
+==================================================
+PROFILE PAGE 2: ECONOMY
+==================================================
+
+Show:
+- Coin balance if privacy allows
+- Total earned
+- Total spent
+- Total sent
+- Total received
+- Daily streak if available
+
+Privacy:
+If player has money privacy OFF:
+"Coins: Hidden by player."
+
+Example:
+"💰 Economy
+Coins: 25,500c
+Earned: 80,000c | Spent: 20,000c
+Sent/Recv: 5,000/7,500c"
+
+Default:
+- show_money = true
+
+==================================================
+PROFILE PAGE 3: CASINO
+==================================================
+
+Show:
+- BJ wins/losses/pushes/net
+- RBJ wins/losses/pushes/net
+- Poker wins/losses/net
+- Biggest poker pot if available
+- Casino rank
+
+Privacy:
+If casino privacy OFF:
+"Casino stats hidden by player."
+
+Example:
+"🎰 Casino
+BJ: 12W/8L | Net +900c
+RBJ: 5W/7L | Net -300c
+Poker: 3W/2L | Net +1500c"
+
+Default:
+- show_casino = true
+
+==================================================
+PROFILE PAGE 4: BADGES, TITLES, INVENTORY
+==================================================
+
+Show:
+- Equipped badge
+- Equipped title
+- Owned badge count
+- Owned title count
+- VIP title if unlocked
+- Rarest title if possible
+
+Privacy:
+If inventory privacy OFF:
+"Inventory hidden by player."
+
+Example:
+"🛒 Items
+Badge: 💎
+Title: [Elite]
+Badges owned: 5
+Titles owned: 8"
+
+Default:
+- show_inventory = true
+
+==================================================
+PROFILE PAGE 5: ACHIEVEMENTS AND REPUTATION
+==================================================
+
+Show:
+- Achievement count
+- Latest achievement
+- Quest progress summary
+- Reputation received
+- Social rank
+
+Privacy:
+If achievements privacy OFF:
+"Achievements hidden by player."
+
+Example:
+"🏆 Progress
+Achievements: 12
+Latest: High Roller
+Rep: 58 | Rank: Popular"
+
+Default:
+- show_achievements = true
+
+==================================================
+PROFILE PAGE 6: BANK AND SOCIAL
+==================================================
+
+Show:
+- Total sent/received if money privacy allows
+- Bank blocked status only to self/staff
+- Notification subscribed status only to self/staff
+- Reports count only to staff
+- Warnings/mutes only to staff
+
+For normal viewers:
+"🏦 Social
+Sent/Recv: 5,000/7,500c
+Rep: 58 | VIP: YES"
+
+For staff:
+"Staff view: BankBlocked NO | Reports 1 | Warnings 0"
+
+==================================================
+PRIVACY SETTINGS
+==================================================
+
+Create profile_privacy table:
+
+profile_privacy:
+- username TEXT PRIMARY KEY
+- show_money INTEGER DEFAULT 1
+- show_casino INTEGER DEFAULT 1
+- show_achievements INTEGER DEFAULT 1
+- show_inventory INTEGER DEFAULT 1
+- updated_at TEXT
+
+Commands:
+
+/privacy
+Shows:
+"🔒 Privacy
+Money ON | Casino ON
+Achievements ON | Inventory ON"
+
+/privacy money off
+Hides coin balance/economy from public profile.
+
+/privacy money on
+Shows coin balance/economy.
+
+/privacy casino off/on
+Toggles casino stats.
+
+/privacy achievements off/on
+Toggles achievements.
+
+/privacy inventory off/on
+Toggles badges/titles inventory.
+
+Messages:
+"✅ Money privacy OFF. Coins are hidden."
+"✅ Casino stats are now visible."
+"Use /privacy money on/off."
+
+Rules:
+- Privacy affects public viewers.
+- Player can always see their own full profile.
+- Owner/admin can view full profile with /profileadmin.
+- Staff should not expose hidden info publicly.
+
+==================================================
+PROFILEADMIN
+==================================================
+
+/profileadmin <username>
+Owner/admin only.
+
+Shows full profile ignoring privacy:
+- Coins
+- Total earned/spent
+- Bank sent/received
+- Casino net
+- Bank blocked status
+- Reports/warnings count
+- Staff role
+- Last seen
+
+Keep under 250 characters, split pages if needed:
+/profileadmin <username> 1
+/profileadmin <username> 2
+
+==================================================
+DATA SOURCES
+==================================================
+
+Pull data from existing tables if they exist:
+- users / player_stats
+- balances / economy
+- xp / levels
+- shop owned items
+- equipped badge/title
+- achievements
+- quests
+- reputation
+- bank_user_stats
+- bank_transactions
+- casino stats
+- bj stats
+- rbj stats
+- poker_stats
+- user_vip
+- staff roles
+- subscriber_users
+- reports
+- moderation_warnings
+- moderation_mutes
+
+If a table does not exist:
+- Do not crash.
+- Show "N/A" or skip that field.
+
+==================================================
+USERNAME LOOKUP
+==================================================
+
+Normalize usernames:
+- remove @
+- trim spaces
+- case-insensitive lookup
+
+/profile @AngelKisses
+/profile angelkisses
+/profile ANGELKISSES
+
+All should find the same user.
+
+If no username is provided:
+/profile shows the requester’s own profile.
+
+If target does not exist:
+"User not found. They may need to chat first."
+
+Optional:
+If target not found but command is /profileadmin, create a placeholder user only if admin confirms later. Do not auto-create for normal public profile checks.
+
+==================================================
+DISPLAY NAME FORMAT
+==================================================
+
+Use existing display format:
+Emoji > Title > Username
+
+Example:
+"💎 [Elite] @Marion"
+
+If no badge/title:
+"@Marion"
+
+Show role separately:
+"Role: Owner"
+"Role: Admin"
+"Role: Manager"
+"Role: Moderator"
+"Role: Player"
+
+==================================================
+RANKS
+==================================================
+
+Add profile ranks if not existing:
+
+Level rank:
+- Newbie: level 0-2
+- Regular: level 3-9
+- Grinder: level 10-24
+- Veteran: level 25-49
+- Legend: level 50+
+
+Casino rank:
+- New Gambler: net 0
+- Lucky: net +1,000
+- High Roller: net +10,000
+- Whale: net +100,000
+- Bankrupt: net below -10,000
+
+Social/Reputation rank:
+- New Face: 0 rep
+- Friendly: 10 rep
+- Known: 25 rep
+- Popular: 50 rep
+- Loved: 100 rep
+- Icon: 250 rep
+- Celebrity: 500+ rep
+
+Important:
+- Do NOT use "Legend" as a reputation/social rank.
+- The highest reputation/social rank should be "Celebrity".
+- "Legend" can still be used only for level rank if level is 50+.
+
+==================================================
+SHORTCUT COMMANDS
+==================================================
+
+Add:
+/me
+Shows own profile.
+
+/whois <username>
+Shows target profile.
+
+/badges <username>
+Shows target public badges/inventory page if allowed.
+
+/titles <username>
+Shows target public titles/inventory page if allowed.
+
+/casino <username>
+Shows target casino page if allowed.
+
+/stats <username>
+Shows profile page 2 or combined stats summary.
+
+Make sure these do not conflict with poker aliases.
+Do not use /p for profile because poker uses /p <buyin>.
+
+==================================================
+HELP UPDATE
+==================================================
+
+Update /profilehelp:
+
+"👤 Profile
+/profile
+/profile <user>
+/whois <user>
+/stats <user>
+/privacy"
+
+Update /profilehelp 2:
+"🔒 Privacy
+/privacy money on/off
+/privacy casino on/off
+/privacy achievements on/off
+/privacy inventory on/off"
+
+Update /allcommands:
+Add:
+- /profile <user>
+- /whois <user>
+- /privacy
+- /stats <user>
+- /badges <user>
+- /titles <user>
+
+==================================================
+TESTS
+==================================================
+
+Test:
+/profile
+/profile Marion
+/profile @angelkisses18
+/profile @angelkisses18 2
+/profile @angelkisses18 3
+/whois angelkisses18
+/stats angelkisses18
+/privacy
+/privacy money off
+/profile Marion from another account
+/privacy money on
+/profileadmin angelkisses18
+
+Expected:
+- Anyone can view public profile.
+- Money hides when privacy is OFF.
+- Player can still see their own money.
+- Owner/admin can view full profile with /profileadmin.
+- Reputation rank uses Celebrity as the highest rank.
+- Reputation rank does not show Legend.
+- Missing tables do not crash.
+- Every message stays under 250 characters.
