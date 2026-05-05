@@ -211,7 +211,9 @@ ACHIEVEMENT_COMMANDS = {"achievements", "claimachievements"}
 BJ_COMMANDS          = {
     "bj", "rbj",
     "bjoin", "bt", "bh", "bs", "bd", "bsp", "blimits", "bstats", "bhand",
+    "bjh", "bjs", "bjd", "bjsp", "bjhand",
     "rjoin", "rt", "rh", "rs", "rd", "rsp", "rshoe", "rlimits", "rstats", "rhand",
+    "rbjh", "rbjs", "rbjd", "rbjsp", "rbjhand",
 }
 BANK_PLAYER_COMMANDS = {"bank", "send", "transactions", "bankstats", "banknotify"}
 
@@ -511,9 +513,11 @@ BJ_HELP_PAGES = [
     (
         "🃏 BJ\n"
         "/bjoin <bet>\n"
-        "/bh hit | /bs stand\n"
-        "/bd double | /bsp split\n"
-        "/bt table | /bhand"
+        "/bh or /bjh — hit\n"
+        "/bs or /bjs — stand\n"
+        "/bd or /bjd — double\n"
+        "/bsp or /bjsp — split\n"
+        "/bt table | /bhand or /bjhand"
     ),
     (
         "🃏 BJ 2\n"
@@ -530,9 +534,11 @@ RBJ_HELP_PAGES = [
     (
         "🃏 RBJ\n"
         "/rjoin <bet>\n"
-        "/rh hit | /rs stand\n"
-        "/rd double | /rsp split\n"
-        "/rt table | /rhand | /rshoe"
+        "/rh or /rbjh — hit\n"
+        "/rs or /rbjs — stand\n"
+        "/rd or /rbjd — double\n"
+        "/rsp or /rbjsp — split\n"
+        "/rt table | /rhand or /rbjhand | /rshoe"
     ),
     (
         "🃏 RBJ 2\n"
@@ -1893,6 +1899,38 @@ class HangoutBot(BaseBot):
             await handle_rbj(self, user, ["rbj", "stats"])
 
         elif cmd == "rhand":
+            await handle_rbj(self, user, ["rbj", "hand"])
+
+        # BJ full-prefix aliases (bjh, bjs, bjd, bjsp, bjhand)
+        elif cmd == "bjh":
+            await handle_bj(self, user, ["bj", "hit"])
+
+        elif cmd == "bjs":
+            await handle_bj(self, user, ["bj", "stand"])
+
+        elif cmd == "bjd":
+            await handle_bj(self, user, ["bj", "double"])
+
+        elif cmd == "bjsp":
+            await handle_bj(self, user, ["bj", "split"])
+
+        elif cmd == "bjhand":
+            await handle_bj(self, user, ["bj", "hand"])
+
+        # RBJ full-prefix aliases (rbjh, rbjs, rbjd, rbjsp, rbjhand)
+        elif cmd == "rbjh":
+            await handle_rbj(self, user, ["rbj", "hit"])
+
+        elif cmd == "rbjs":
+            await handle_rbj(self, user, ["rbj", "stand"])
+
+        elif cmd == "rbjd":
+            await handle_rbj(self, user, ["rbj", "double"])
+
+        elif cmd == "rbjsp":
+            await handle_rbj(self, user, ["rbj", "split"])
+
+        elif cmd == "rbjhand":
             await handle_rbj(self, user, ["rbj", "hand"])
 
         elif cmd == "confirmcasinoreset":

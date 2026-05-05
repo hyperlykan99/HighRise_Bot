@@ -317,6 +317,21 @@ async def _start_action_phase(bot: BaseBot):
     await bot.highrise.chat(
         f"🃏 RBJ action open! Act within {timer}s: /rh /rs /rd /rsp"
     )
+
+    for p in _state.players:
+        if not p.is_done():
+            try:
+                parts = [
+                    f"H{i+1} {hand_str(h['cards'])}={hand_value(h['cards'])} {h['status']}"
+                    for i, h in enumerate(p.hands)
+                ]
+                await bot.highrise.send_whisper(
+                    p.user_id,
+                    f"🃏 Your RBJ hand: {' | '.join(parts)}"[:249]
+                )
+            except Exception:
+                pass
+
     print(f"[RBJ] Action timer started ({timer}s)")
     _state.action_task = asyncio.create_task(_action_timeout(bot, timer))
 
@@ -331,7 +346,11 @@ async def _action_timeout(bot: BaseBot, seconds: int):
     for p in _state.players:
         for h in p.hands:
             if h["status"] == "active":
-                h["status"] = "stood"
+                if len(h["cards"]) < 2:
+                    h["status"] = "refunded"
+                    print(f"[RBJ] @{p.username} hand has {len(h['cards'])} cards — marking refunded")
+                else:
+                    h["status"] = "stood"
         _save_player_state(p)
 
     _state.action_task     = None
@@ -416,6 +435,17 @@ async def _finalize_round(bot: BaseBot):
 
                     if round_id and db.is_result_paid("rbj", round_id, hkey):
                         print(f"[RBJ] Skipping already-paid {hkey}")
+                        continue
+
+                    if len(h["cards"]) < 2 or hst == "refunded":
+                        db.adjust_balance(p.user_id, hbet)
+                        db.add_ledger_entry(p.user_id, p.username, hbet, "rbj_deal_refund")
+                        result_parts.append(f"H{i+1} refund(no cards)")
+                        print(f"[RBJ] @{p.username} H{i+1} refunded {hbet}c (cards={len(h['cards'])})")
+                        if round_id:
+                            db.save_round_result("rbj", round_id, hkey, p.user_id,
+                                                 hbet, "refund", hbet, 0)
+                            db.mark_result_paid("rbj", round_id, hkey)
                         continue
 
                     if hst == "bust":

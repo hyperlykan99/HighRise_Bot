@@ -1,0 +1,275 @@
+Fix RBJ/BJ dealing bug where player loses without receiving cards.
+
+Problem:
+When I joined an RBJ table, the round started and the action timer opened, but I did not receive/show any player cards. Then the timer ended, dealer played, and I lost the bet.
+
+Goal:
+A BJ/RBJ round must never start action phase unless every joined player has a valid hand saved and visible through /rbj hand or /rhand.
+
+IMPORTANT:
+- Apply to both BJ and RBJ.
+- Do not remove existing features.
+- Keep simultaneous action mode.
+- Keep split, double, recovery, shoe saving, and short aliases.
+- Use SQLite.
+- Keep messages under 250 characters.
+- Prevent silent failures.
+- Never let players lose coins because cards failed to deal.
+
+==================================================
+PART 1: VALIDATE PLAYER HANDS BEFORE ACTION PHASE
+==================================================
+
+Before announcing:
+"RBJ action open!"
+
+The bot must check:
+- table has active players
+- each active player has at least one hand
+- each player hand has exactly 2 starting cards
+- dealer has 2 cards
+- RBJ shoe/deck was saved after dealing
+- player bet is recorded
+- player status is playing/active
+- action timer exists
+
+If any player is missing cards:
+- Do NOT start action timer.
+- Do NOT resolve as a loss.
+- Immediately pause the table and attempt repair.
+
+Message:
+"⚠️ RBJ deal error. Repairing table..."
+
+If repair succeeds:
+"✅ RBJ cards restored. Action starts now."
+
+If repair fails:
+"⚠️ RBJ deal failed. Bets refunded."
+
+Then refund all unresolved bets and clear table.
+
+==================================================
+PART 2: DEALING MUST SAVE IMMEDIATELY
+==================================================
+
+When BJ/RBJ round starts:
+1. Create round_id.
+2. Load joined players.
+3. Deduct/confirm bets already deducted.
+4. Deal two cards to each player.
+5. Deal two cards to dealer.
+6. Save player hands to SQLite immediately.
+7. Save dealer hand to SQLite immediately.
+8. For RBJ, save shoe_json immediately after every card dealt.
+9. Only after successful save, announce action phase.
+
+Critical:
+If saving cards fails, cancel the round and refund bets.
+Do not continue to action phase.
+
+==================================================
+PART 3: PLAYER HAND COMMAND MUST ALWAYS WORK
+==================================================
+
+Make sure these commands work during active BJ/RBJ:
+
+BJ:
+- /bj hand
+- /bhand
+- /bjhand
+
+RBJ:
+- /rbj hand
+- /rhand
+- /rbjhand
+
+RBJ message example:
+"🃏 Your RBJ: H1 8♠ K♦ = 18 active"
+
+If player is in the table but hand is missing:
+"⚠️ Your hand is missing. Staff notified."
+
+Then log the error and pause/repair/refund.
+
+If player is not in table:
+"You are not in RBJ."
+
+==================================================
+PART 4: ACTION PHASE CARD ANNOUNCEMENT
+==================================================
+
+When action phase starts, whisper/private each player their hand if possible:
+
+"🃏 Your RBJ: 8♠ K♦ = 18. Use /rh hit or /rs stand."
+
+If whisper fails, public message:
+"@user, use /rhand to see your cards."
+
+Also update the public action message:
+"🃏 RBJ action open! 30s. Use /rhand, /rh, /rs, /rd, /rsp."
+
+For BJ:
+"🃏 BJ action open! 30s. Use /bhand, /bh, /bs, /bd, /bsp."
+
+==================================================
+PART 5: DO NOT AUTO-LOSE MISSING HANDS
+==================================================
+
+If action timer expires and a player has no valid hand:
+- Do NOT mark loss.
+- Do NOT charge bet as loss.
+- Mark table recovery_required.
+- Refund that player or pause table.
+
+Message:
+"⚠️ RBJ hand error. Bet refunded."
+
+If multiple players have missing hands:
+- Refund affected players.
+- Continue resolving only valid hands if safe.
+- If unsafe, refund all unresolved hands and clear table.
+
+==================================================
+PART 6: ADD DEAL VALIDATION FUNCTION
+==================================================
+
+Add helper:
+validate_blackjack_deal(mode)
+
+It should check:
+- active table exists
+- dealer hand has 2 cards
+- every active player has hands_json
+- each hand has cards
+- starting hand has 2 cards
+- bet > 0
+- status valid
+- RBJ shoe_json exists if mode = rbj
+
+Return:
+- ok true/false
+- list of errors
+
+Use it:
+- before action timer starts
+- before action timer expires resolves table
+- before dealer plays
+- in /bj state
+- in /rbj state
+- in /healthcheck
+
+==================================================
+PART 7: ADD STAFF REPAIR COMMANDS
+==================================================
+
+Add/fix:
+- /rbj state
+- /bj state
+- /rbj repair
+- /bj repair
+- /rbj refund
+- /bj refund
+
+Permissions:
+- Owner/admin/manager only.
+
+ /rbj state should show:
+"RBJ active | Players 1 | Dealer 2 cards | Hands OK YES | Shoe 287"
+
+If missing cards:
+"RBJ recovery needed | Missing hand: @user"
+
+/rbj repair:
+- tries to reload active table from SQLite
+- if player hand missing before action phase, redeal only if no cards were shown and shoe state is safe
+- if unsafe, refund unresolved bets and clear table
+
+/rbj refund:
+- refunds unresolved active bets
+- clears table
+- logs reason rbj_deal_error_refund
+
+Same for BJ.
+
+==================================================
+PART 8: RBJ SHOE SAFETY
+==================================================
+
+For RBJ:
+- Every dealt card must be removed from shoe_json.
+- shoe_json must be saved immediately after each card.
+- If hand exists but shoe did not update, mark recovery_required.
+- Do not reshuffle mid-round unless table is refunded.
+- On restart, load same shoe_json.
+
+==================================================
+PART 9: SHORT ALIASES STILL WORK
+==================================================
+
+Make sure these RBJ commands work:
+- /rjoin <bet>
+- /rh
+- /rs
+- /rd
+- /rsp
+- /rhand
+- /rbjh
+- /rbjs
+- /rbjd
+- /rbjsp
+- /rbjhand
+- /rt
+- /rshoe
+
+Make sure these BJ commands work:
+- /bjoin <bet>
+- /bh
+- /bs
+- /bd
+- /bsp
+- /bhand
+- /bjh
+- /bjs
+- /bjd
+- /bjsp
+- /bjhand
+- /bt
+
+==================================================
+PART 10: TESTS
+==================================================
+
+Test 1:
+- /rjoin 100
+- wait for round start
+Expected:
+- player receives 2 cards
+- /rhand shows cards
+- action phase starts only after cards are saved
+
+Test 2:
+- During RBJ action phase, type /rhand
+Expected:
+"Your RBJ: H1 cards = total active"
+
+Test 3:
+- Simulate missing hand if possible
+Expected:
+- action phase does not start
+- bet is refunded
+- table clears or recovery_required
+
+Test 4:
+- /softrestart during RBJ after cards dealt
+Expected:
+- same player hand, dealer hand, shoe, and bet restored
+
+Test 5:
+- action timer expires
+Expected:
+- only valid hands resolve
+- missing hands are refunded, not lost
+
+Final rule:
+BJ/RBJ must never make a player lose a bet if their hand was not dealt, saved, and viewable with /bhand or /rhand.
