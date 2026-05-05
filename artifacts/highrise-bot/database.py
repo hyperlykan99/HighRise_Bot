@@ -120,6 +120,38 @@ def init_db():
         )
     """)
 
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS bj_stats (
+            user_id        TEXT PRIMARY KEY,
+            bj_wins        INTEGER NOT NULL DEFAULT 0,
+            bj_losses      INTEGER NOT NULL DEFAULT 0,
+            bj_pushes      INTEGER NOT NULL DEFAULT 0,
+            bj_blackjacks  INTEGER NOT NULL DEFAULT 0,
+            bj_total_bet   INTEGER NOT NULL DEFAULT 0,
+            bj_total_won   INTEGER NOT NULL DEFAULT 0,
+            bj_total_lost  INTEGER NOT NULL DEFAULT 0
+        )
+    """)
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS bj_settings (
+            id                  INTEGER PRIMARY KEY DEFAULT 1,
+            min_bet             INTEGER NOT NULL DEFAULT 10,
+            max_bet             INTEGER NOT NULL DEFAULT 1000,
+            win_payout          REAL    NOT NULL DEFAULT 2.0,
+            blackjack_payout    REAL    NOT NULL DEFAULT 2.5,
+            push_rule           TEXT    NOT NULL DEFAULT 'refund',
+            dealer_hits_soft_17 INTEGER NOT NULL DEFAULT 1,
+            lobby_countdown     INTEGER NOT NULL DEFAULT 60,
+            turn_timer          INTEGER NOT NULL DEFAULT 30,
+            max_players         INTEGER NOT NULL DEFAULT 6
+        )
+    """)
+    # Ensure the default settings row exists
+    conn.execute("""
+        INSERT OR IGNORE INTO bj_settings (id) VALUES (1)
+    """)
+
     conn.commit()
     conn.close()
     _migrate_db()
@@ -578,6 +610,73 @@ def claim_achievement(user_id: str, achievement_id: str) -> bool:
     conn.commit()
     conn.close()
     return changed > 0
+
+
+# ---------------------------------------------------------------------------
+# Blackjack helpers
+# ---------------------------------------------------------------------------
+
+def get_bj_settings() -> dict:
+    """Return the single bj_settings row as a plain dict."""
+    conn = get_connection()
+    row  = conn.execute("SELECT * FROM bj_settings WHERE id = 1").fetchone()
+    conn.close()
+    if row is None:
+        return {
+            "min_bet": 10, "max_bet": 1000,
+            "win_payout": 2.0, "blackjack_payout": 2.5,
+            "push_rule": "refund", "dealer_hits_soft_17": 1,
+            "lobby_countdown": 60, "turn_timer": 30, "max_players": 6,
+        }
+    return dict(row)
+
+
+def get_bj_stats(user_id: str) -> dict:
+    """Return a player's blackjack stats row, creating it if needed."""
+    conn = get_connection()
+    conn.execute(
+        "INSERT OR IGNORE INTO bj_stats (user_id) VALUES (?)", (user_id,)
+    )
+    row = conn.execute(
+        "SELECT * FROM bj_stats WHERE user_id = ?", (user_id,)
+    ).fetchone()
+    conn.commit()
+    conn.close()
+    return dict(row) if row else {
+        "bj_wins": 0, "bj_losses": 0, "bj_pushes": 0, "bj_blackjacks": 0,
+        "bj_total_bet": 0, "bj_total_won": 0, "bj_total_lost": 0,
+    }
+
+
+def update_bj_stats(
+    user_id: str,
+    *,
+    win:  int = 0,
+    loss: int = 0,
+    push: int = 0,
+    bj:   int = 0,
+    bet:  int = 0,
+    won:  int = 0,
+    lost: int = 0,
+):
+    """Increment a player's blackjack stats by the given deltas."""
+    conn = get_connection()
+    conn.execute(
+        "INSERT OR IGNORE INTO bj_stats (user_id) VALUES (?)", (user_id,)
+    )
+    conn.execute("""
+        UPDATE bj_stats
+        SET bj_wins       = bj_wins       + ?,
+            bj_losses     = bj_losses     + ?,
+            bj_pushes     = bj_pushes     + ?,
+            bj_blackjacks = bj_blackjacks + ?,
+            bj_total_bet  = bj_total_bet  + ?,
+            bj_total_won  = bj_total_won  + ?,
+            bj_total_lost = bj_total_lost + ?
+        WHERE user_id = ?
+    """, (win, loss, push, bj, bet, won, lost, user_id))
+    conn.commit()
+    conn.close()
 
 
 # ---------------------------------------------------------------------------

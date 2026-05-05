@@ -1,0 +1,254 @@
+Add a lobby/table blackjack system to my existing Highrise Mini Game Bot.
+
+Important:
+- Do not remove my existing mini games, coins, XP, shop, badges, titles, achievements, or profiles.
+- Use the existing coin economy.
+- Use the existing SQLite database.
+- Use the existing get_display_name(username) format:
+  <badge> <title> @username
+- Keep every Highrise chat message under 250 characters.
+- Prevent bad inputs from crashing the bot.
+
+Goal:
+Blackjack should be lobby-style. Players join a table, a countdown starts, then the round begins for everyone who joined.
+
+Commands:
+- /bj join <bet>
+- /bj leave
+- /bj players
+- /bj table
+- /bj hit
+- /bj stand
+- /bj double
+- /bj rules
+- /bj stats
+- /bj cancel admin only
+- /bj settings admin only
+
+Lobby rules:
+- When the first player types /bj join <bet>, open a blackjack lobby.
+- Start a 60-second countdown.
+- Other players can join during the countdown.
+- Minimum players: 1.
+- Maximum players: 6.
+- One blackjack lobby/table active at a time.
+- Validate the bet before joining.
+- Minimum bet default: 10 coins.
+- Maximum bet default: 1000 coins.
+- Player must have enough coins to join.
+- Deduct the bet when the player joins.
+- If the player uses /bj leave before the round starts, refund their bet.
+- Once the round starts, no more players can join.
+- If admin uses /bj cancel, cancel the lobby/round and refund all active bets.
+
+Round rules:
+- Deal 2 cards to each player.
+- Deal 2 cards to the dealer.
+- Show only 1 dealer card at first.
+- Players take turns one at a time.
+- On their turn, a player can use:
+  /bj hit
+  /bj stand
+  /bj double
+- /bj double requires the player to have enough coins to match the bet.
+- If player doubles:
+  deduct the extra bet,
+  double their total bet,
+  give exactly 1 card,
+  then auto-stand.
+- If player busts, move to the next player.
+- If player gets blackjack on the first 2 cards, mark it as blackjack.
+- After all players finish, dealer reveals hidden card.
+- Dealer hits until 17 or higher.
+- Compare each player against dealer.
+- Pay winners.
+- Refund pushes.
+- Losses keep the deducted bet.
+
+Payouts:
+- Normal win pays 2.0x total bet.
+- Blackjack pays 2.5x total bet.
+- Push refunds the total bet.
+- Loss pays nothing.
+- Bet is already deducted when joining.
+- Example:
+  Bet 100, lose = 0 returned.
+  Bet 100, win = 200 returned.
+  Bet 100, push = 100 returned.
+  Bet 100, blackjack = 250 returned.
+
+Card rules:
+- 2-10 = face value.
+- J, Q, K = 10.
+- A = 11 or 1, whichever is best without busting.
+- Blackjack means A + 10-value card on the first 2 cards only.
+
+Turn timer:
+- Each player has 30 seconds to act.
+- If the player does not act, auto-stand.
+- Use asyncio.create_task for lobby countdown and turn timers.
+- Do not block the whole bot while timers run.
+- Cancel timers safely when:
+  lobby is cancelled,
+  round ends,
+  player acts,
+  bot restarts.
+
+Blackjack settings:
+Create admin settings stored in SQLite.
+
+Default settings:
+- mode: normal
+- min_bet: 10
+- max_bet: 1000
+- win_payout: 2.0
+- blackjack_payout: 2.5
+- push_rule: refund
+- dealer_hits_soft_17: true
+- lobby_countdown: 60 seconds
+- turn_timer: 30 seconds
+- max_players: 6
+
+Admin command:
+/bj settings
+Shows current blackjack settings.
+
+Admin command:
+/bj cancel
+Cancels current lobby or round and refunds active bets.
+
+Public command:
+/bj rules
+Shows short current blackjack rules:
+min bet, max bet, win payout, blackjack payout, push rule, dealer rule.
+
+Do not add secret rigging.
+Do not secretly change odds per player.
+Do not force dealer wins.
+Keep blackjack fair and rule-based.
+
+Stats:
+Store blackjack stats in SQLite:
+- bj_wins
+- bj_losses
+- bj_pushes
+- bj_blackjacks
+- bj_total_bet
+- bj_total_won
+- bj_total_lost
+
+/bj stats shows the user's blackjack stats.
+
+Cosmetic bonuses:
+Use equipped badges/titles if they already exist.
+If the player has casino payout bonus from title/badge, apply it only to winning payouts.
+Cap casino payout bonus at 5% for blackjack so the economy does not break.
+Do not apply casino bonus to push refunds.
+Do not apply casino bonus to losses.
+
+Messages:
+Keep messages short and Highrise-friendly.
+
+Example messages:
+
+Lobby opened:
+"🃏 BJ lobby open! /bj join <bet>. Starts in 60s."
+
+Player joined:
+"✅ @username joined BJ with 100c. Players: 2/6"
+
+Player left:
+"↩️ @username left BJ. Bet refunded."
+
+Round start:
+"🃏 BJ started! Dealer shows: 8♣"
+
+Player turn:
+"➡️ @username: 10♠ 7♥ = 17. /bj hit or /bj stand"
+
+Hit:
+"🃏 @username drew 5♣. Total: 22"
+
+Bust:
+"💥 @username busts at 22."
+
+Stand:
+"✋ @username stands at 18."
+
+Double:
+"⚡ @username doubled to 200c, drew 4♦, stands at 20."
+
+Dealer reveal:
+"Dealer reveals: 8♣ 9♥ = 17"
+
+Win:
+"✅ @username wins! Paid 200c."
+
+Blackjack win:
+"🤑 @username blackjack! Paid 250c."
+
+Loss:
+"❌ @username loses 100c."
+
+Push:
+"↔️ @username pushes. 100c refunded."
+
+No table:
+"No blackjack table active. Use /bj join <bet>."
+
+Not your turn:
+"Not your turn yet."
+
+Invalid bet:
+"Invalid bet. Use /bj join <amount>."
+
+Not enough coins:
+"Not enough coins."
+
+Safety:
+- If user types /bj hit when no game exists, show a short error.
+- If user types /bj stand when not in the game, show a short error.
+- If user types /bj double without enough coins, show a short error.
+- If user tries to join twice, show they are already in lobby/table.
+- If table is full, show table is full.
+- If bet is below min or above max, show allowed range.
+- Do not crash from missing database fields.
+- Add database migrations if needed.
+- Log real errors in console, but do not show internal errors in chat.
+
+Implementation structure:
+If possible, keep code modular:
+- blackjack.py for blackjack logic and state
+- cards.py for deck/hand scoring if needed
+- economy.py for coin functions
+- database.py for database/stat functions
+- main.py for command routing
+
+Update /help:
+Include blackjack commands in short form:
+"🃏 BJ: /bj join <bet>, /bj hit, /bj stand, /bj table, /bj rules"
+
+After implementation, make sure these test flows work:
+
+Test 1:
+- /balance
+- /bj join 100
+- wait for countdown
+- /bj table
+- /bj hit
+- /bj stand
+- /bj stats
+
+Test 2:
+- Player joins with invalid bet.
+- Player joins without enough coins.
+- Player tries /bj hit when it is not their turn.
+- Player leaves before round starts and gets refunded.
+- Admin uses /bj cancel and everyone gets refunded.
+
+Test 3:
+- Multiple players join.
+- Countdown starts only once.
+- Turns move from player to player.
+- Dealer plays after all players finish.
+- Winners, losers, pushes, and blackjacks are paid correctly.

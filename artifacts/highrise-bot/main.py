@@ -46,6 +46,7 @@ from modules.shop         import (
     handle_badgeinfo, handle_titleinfo,
 )
 from modules.achievements import handle_achievements, handle_claim_achievements
+from modules.blackjack    import handle_bj
 
 
 # ---------------------------------------------------------------------------
@@ -59,6 +60,7 @@ PROFILE_COMMANDS = {"profile", "level", "xpleaderboard"}
 GAME_COMMANDS    = {"trivia", "scramble", "riddle", "coinflip"}
 SHOP_COMMANDS        = {"shop", "buy", "equip", "myitems", "badgeinfo", "titleinfo"}
 ACHIEVEMENT_COMMANDS = {"achievements", "claimachievements"}
+BJ_COMMANDS          = {"bj"}
 
 # /answer is handled separately (routes to whichever game is active)
 
@@ -72,6 +74,7 @@ ALL_KNOWN_COMMANDS = (
     | GAME_COMMANDS
     | SHOP_COMMANDS
     | ACHIEVEMENT_COMMANDS
+    | BJ_COMMANDS
     | ADMIN_COMMANDS
 )
 
@@ -103,6 +106,13 @@ HELP_TEXT_3 = (
     "-- Achievements --\n"
     "/achievements  /achievements all\n"
     "/claimachievements"
+)
+
+HELP_TEXT_4 = (
+    "-- Blackjack --\n"
+    "🃏 /bj join <bet>  /bj hit  /bj stand  /bj double\n"
+    "/bj leave  /bj table  /bj players\n"
+    "/bj rules  /bj stats"
 )
 
 
@@ -144,6 +154,7 @@ class HangoutBot(BaseBot):
             await self.highrise.send_whisper(user.id, HELP_TEXT_1)
             await self.highrise.send_whisper(user.id, HELP_TEXT_2)
             await self.highrise.send_whisper(user.id, HELP_TEXT_3)
+            await self.highrise.send_whisper(user.id, HELP_TEXT_4)
             return
 
         # ── Admin gate ────────────────────────────────────────────────────────
@@ -198,6 +209,10 @@ class HangoutBot(BaseBot):
 
         elif cmd == "claimachievements":
             await handle_claim_achievements(self, user)
+
+        # ── Blackjack ─────────────────────────────────────────────────────────
+        elif cmd == "bj":
+            await handle_bj(self, user, args)
 
         # ── /answer ───────────────────────────────────────────────────────────
         elif cmd == "answer":
