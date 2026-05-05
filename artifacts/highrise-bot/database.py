@@ -52,9 +52,8 @@ def init_db():
         )
     """)
 
-    # If upgrading from an older version that didn't have the 'priority' column,
-    # add it now. SQLite raises OperationalError if the column already exists,
-    # so we just catch and ignore that case.
+    # Migration: add 'priority' to song_queue if upgrading from an older version.
+    # SQLite raises OperationalError if the column already exists — we ignore that.
     try:
         cursor.execute("ALTER TABLE song_queue ADD COLUMN priority INTEGER NOT NULL DEFAULT 0")
     except sqlite3.OperationalError:
@@ -71,6 +70,12 @@ def init_db():
             requested_at TEXT NOT NULL DEFAULT (datetime('now'))
         )
     """)
+
+    # Migration: add 'priority' to request_history if upgrading from an older version.
+    try:
+        cursor.execute("ALTER TABLE request_history ADD COLUMN priority INTEGER NOT NULL DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass  # column already exists — nothing to do
 
     # Daily claims: tracks the last date a user claimed free tokens
     cursor.execute("""
