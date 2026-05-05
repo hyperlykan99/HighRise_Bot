@@ -51,6 +51,7 @@ from modules.realistic_blackjack import handle_rbj, handle_rbj_set, reset_table 
 from modules.permissions         import can_manage_games, can_manage_economy
 from modules.bank import (
     handle_bank, handle_send, handle_transactions, handle_bankstats,
+    handle_banknotify,
     handle_viewtx, handle_bankwatch, handle_bankblock, handle_banksettings,
     handle_bank_set, handle_ledger,
 )
@@ -68,7 +69,7 @@ GAME_COMMANDS    = {"trivia", "scramble", "riddle", "coinflip"}
 SHOP_COMMANDS        = {"shop", "buy", "equip", "myitems", "badgeinfo", "titleinfo"}
 ACHIEVEMENT_COMMANDS = {"achievements", "claimachievements"}
 BJ_COMMANDS          = {"bj", "rbj"}
-BANK_PLAYER_COMMANDS = {"bank", "send", "transactions", "bankstats"}
+BANK_PLAYER_COMMANDS = {"bank", "send", "transactions", "bankstats", "banknotify"}
 BANK_STAFF_COMMANDS  = {"viewtx", "bankwatch", "bankblock", "bankunblock",
                         "banksettings", "ledger"}
 BANK_ADMIN_SET_CMDS  = {"setsendlimit", "setnewaccountdays", "setminlevelsend",
@@ -464,6 +465,9 @@ class HangoutBot(BaseBot):
 
         elif cmd == "bankstats":
             await handle_bankstats(self, user)
+
+        elif cmd == "banknotify":
+            await handle_banknotify(self, user, args)
 
         elif cmd == "bankhelp":
             await self.highrise.send_whisper(user.id, BANK_HELP)

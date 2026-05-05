@@ -290,17 +290,19 @@ async def handle_send(bot: BaseBot, user: User, args: list[str]):
         await _w(bot, user.id, f"✅ Sent {amount_received:,}c to {recv_display}.")
 
     # ── Notify receiver (whisper; fall back to public if they're not in room) ─
-    fee_note = f" Fee: {fee}c." if fee > 0 else ""
-    recv_msg = f"🏦 You received {amount_received:,}c from {sender_display}.{fee_note}"
-    try:
-        await bot.highrise.send_whisper(receiver["user_id"], recv_msg[:249])
-    except Exception as whisper_err:
-        print(f"[BANK] Could not whisper @{receiver['username']}: {whisper_err}")
+    recv_bus = db.get_bank_user_stats(receiver["user_id"])
+    if recv_bus.get("bank_notify", 1):
+        fee_note = f" Fee: {fee}c." if fee > 0 else ""
+        recv_msg = f"🏦 You received {amount_received:,}c from {sender_display}.{fee_note}"
         try:
-            pub_msg = f"🏦 @{receiver['username']} received {amount_received:,}c."
-            await bot.highrise.chat(pub_msg[:249])
-        except Exception as chat_err:
-            print(f"[BANK] Fallback public notify also failed: {chat_err}")
+            await bot.highrise.send_whisper(receiver["user_id"], recv_msg[:249])
+        except Exception as whisper_err:
+            print(f"[BANK] Could not whisper @{receiver['username']}: {whisper_err}")
+            try:
+                pub_msg = f"🏦 @{receiver['username']} received {amount_received:,}c."
+                await bot.highrise.chat(pub_msg[:249])
+            except Exception as chat_err:
+                print(f"[BANK] Fallback public notify also failed: {chat_err}")
 
     if risk_level == "MEDIUM":
         print(f"[BANK] MEDIUM: {user.username}→{receiver['username']} "
@@ -500,6 +502,23 @@ async def handle_bank_set(bot: BaseBot, user: User, cmd: str, args: list[str]):
 # ---------------------------------------------------------------------------
 # Ledger command
 # ---------------------------------------------------------------------------
+
+async def handle_banknotify(bot: BaseBot, user: User, args: list[str]):
+    """/banknotify [on|off]"""
+    db.ensure_user(user.id, user.username)
+    db.ensure_bank_user(user.id)
+    sub = args[1].lower() if len(args) > 1 else ""
+    if sub == "on":
+        db.set_bank_notify(user.id, True)
+        await _w(bot, user.id, "🏦 Bank notifications turned ON.")
+    elif sub == "off":
+        db.set_bank_notify(user.id, False)
+        await _w(bot, user.id, "🏦 Bank notifications turned OFF.")
+    else:
+        bus = db.get_bank_user_stats(user.id)
+        state = "ON" if bus.get("bank_notify", 1) else "OFF"
+        await _w(bot, user.id, f"🏦 Bank notifications: {state}")
+
 
 async def handle_ledger(bot: BaseBot, user: User, args: list[str]):
     """/ledger <username> [page]  — manager+"""

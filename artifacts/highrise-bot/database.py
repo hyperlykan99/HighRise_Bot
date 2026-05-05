@@ -308,6 +308,7 @@ def _migrate_db():
         "ALTER TABLE rbj_settings ADD COLUMN rbj_daily_loss_limit  INTEGER NOT NULL DEFAULT 3000",
         "ALTER TABLE users         ADD COLUMN first_seen TEXT",
         "ALTER TABLE daily_claims  ADD COLUMN last_claim_ts TEXT",
+        "ALTER TABLE bank_user_stats ADD COLUMN bank_notify INTEGER NOT NULL DEFAULT 1",
     ]:
         try:
             conn.execute(sql)
@@ -1418,6 +1419,17 @@ def increment_suspicious_count(user_id: str):
         SET suspicious_transfer_count = suspicious_transfer_count + 1
         WHERE user_id = ?
     """, (user_id,))
+    conn.commit()
+    conn.close()
+
+
+def set_bank_notify(user_id: str, enabled: bool):
+    ensure_bank_user(user_id)
+    conn = get_connection()
+    conn.execute(
+        "UPDATE bank_user_stats SET bank_notify = ? WHERE user_id = ?",
+        (int(enabled), user_id)
+    )
     conn.commit()
     conn.close()
 
