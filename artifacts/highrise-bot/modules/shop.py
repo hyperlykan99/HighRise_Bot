@@ -64,7 +64,7 @@ TITLES: dict[str, dict] = {
     "casino_rat":  {"display": "[Casino Rat]",    "price": 20_000,  "description": "+5% coinflip payout",         "benefits": {"coinflip_payout_pct": 5.0}},
     "high_roller": {"display": "[High Roller]",   "price": 50_000,  "description": "+10% coinflip payout",        "benefits": {"coinflip_payout_pct": 10.0}},
     "millionaire": {"display": "[Millionaire]",   "price": 100_000, "description": "+25 daily coins +25 XP/daily","benefits": {"daily_coins_bonus": 25, "daily_xp_bonus": 25}},
-    "room_legend": {"display": "[Room Legend]",   "price": 250_000, "description": "+15% all game rewards",       "benefits": {"game_reward_pct": 15.0}},
+    "elite":       {"display": "[Elite]",           "price": 250_000, "description": "+15% all game rewards",       "benefits": {"game_reward_pct": 15.0}},
     "immortal":    {"display": "[Immortal]",      "price": 500_000, "description": "+20% game rewards +50 daily", "benefits": {"game_reward_pct": 20.0, "daily_coins_bonus": 50}},
 }
 

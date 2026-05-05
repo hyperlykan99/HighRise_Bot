@@ -132,6 +132,11 @@ def _migrate_db():
             conn.execute(sql)
         except sqlite3.OperationalError:
             pass
+
+    # Data migrations — safe no-ops if already applied or no matching rows exist
+    conn.execute("UPDATE owned_items      SET item_id = 'elite'                                              WHERE item_id = 'room_legend'")
+    conn.execute("UPDATE purchase_history SET item_id = 'elite'                                              WHERE item_id = 'room_legend'")
+    conn.execute("UPDATE users            SET equipped_title = '[Elite]', equipped_title_id = 'elite'        WHERE equipped_title_id = 'room_legend'")
     conn.commit()
     conn.close()
 
