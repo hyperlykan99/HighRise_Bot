@@ -38,7 +38,7 @@ async def handle_daily(bot: BaseBot, user: User):
     if not db.can_claim_daily(user.id):
         await bot.highrise.send_whisper(
             user.id,
-            "You already claimed your daily coins today! Come back tomorrow."
+            "⏰ Already claimed today! Come back tomorrow for more coins."
         )
         return
 
@@ -48,7 +48,7 @@ async def handle_daily(bot: BaseBot, user: User):
 
     await bot.highrise.send_whisper(
         user.id,
-        f"You claimed {config.DAILY_REWARD} daily coins! New balance: {new_balance} coins."
+        f"🎁 Daily reward! +{config.DAILY_REWARD} coins. Balance: {new_balance} 🪙"
     )
 
 

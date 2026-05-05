@@ -83,7 +83,7 @@ async def start_game(bot: BaseBot, user: User):
     if _active is not None:
         await bot.highrise.send_whisper(
             user.id,
-            "A trivia question is already active! Type /answer <your answer> to play."
+            "❓ Trivia is already going! Type /answer to play."
         )
         return
 
@@ -98,8 +98,9 @@ async def start_game(bot: BaseBot, user: User):
 
     # Announce it to the whole room
     await bot.highrise.chat(
-        f"[TRIVIA] {_active['question']}\n"
-        "Type /answer <your answer> to win 25 coins!"
+        f"🎯 TRIVIA TIME!\n"
+        f"{_active['question']}\n"
+        f"Type /answer to win {config.TRIVIA_REWARD} coins! 🪙"
     )
 
 
@@ -131,12 +132,12 @@ async def handle_answer(bot: BaseBot, user: User, answer_text: str):
 
         # Announce the win to the whole room
         await bot.highrise.chat(
-            f"[TRIVIA] Correct! @{user.username} wins {config.TRIVIA_REWARD} coins! "
-            f"Answer: {_active['answers'][0]}"
+            f"🎉 @{user.username} got it! Answer: {_active['answers'][0]} "
+            f"| +{config.TRIVIA_REWARD} coins 🪙"
         )
 
         # Clear the active game
         _active = None
     else:
         # Wrong answer — whisper privately so we don't flood the room
-        await bot.highrise.send_whisper(user.id, "Wrong answer! Keep trying.")
+        await bot.highrise.send_whisper(user.id, "❌ Not quite! Keep guessing.")

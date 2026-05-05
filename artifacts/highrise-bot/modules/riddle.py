@@ -136,7 +136,7 @@ async def start_game(bot: BaseBot, user: User):
     if _active is not None:
         await bot.highrise.send_whisper(
             user.id,
-            "A riddle is already active! Type /answer <your answer> to play."
+            "🤔 A riddle is already out there! Type /answer to solve it."
         )
         return
 
@@ -150,8 +150,9 @@ async def start_game(bot: BaseBot, user: User):
 
     # Post publicly to the room
     await bot.highrise.chat(
-        f"[RIDDLE] {_active['riddle']}\n"
-        "Type /answer <your answer> to win 25 coins!"
+        f"🤔 RIDDLE TIME!\n"
+        f"{_active['riddle']}\n"
+        f"Type /answer to win {config.RIDDLE_REWARD} coins! 🪙"
     )
 
 
@@ -179,10 +180,10 @@ async def handle_answer(bot: BaseBot, user: User, answer_text: str):
         db.record_game_win(user.id, user.username, "riddle")
 
         await bot.highrise.chat(
-            f"[RIDDLE] Correct! @{user.username} solved the riddle and wins "
-            f"{config.RIDDLE_REWARD} coins! Answer: {_active['answers'][0]}"
+            f"🎉 @{user.username} cracked it! Answer: {_active['answers'][0]} "
+            f"| +{config.RIDDLE_REWARD} coins 🪙"
         )
 
         _active = None
     else:
-        await bot.highrise.send_whisper(user.id, "Hmm, that's not it. Keep thinking!")
+        await bot.highrise.send_whisper(user.id, "❌ Not it! Keep thinking. 💭")

@@ -78,7 +78,10 @@ async def handle_answer(bot: BaseBot, user: User, answer_text: str):
         await riddle.handle_answer(bot, user, answer_text)
 
     else:
-        await bot.highrise.send_whisper(user.id, "No active game right now.")
+        await bot.highrise.send_whisper(
+            user.id,
+            "😴 No game running right now! Try /trivia, /scramble, or /riddle."
+        )
 
 
 # ---------------------------------------------------------------------------

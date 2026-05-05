@@ -79,8 +79,7 @@ async def handle_coinflip(bot: BaseBot, user: User, args: list[str]):
     if balance < bet:
         await bot.highrise.send_whisper(
             user.id,
-            f"Not enough coins! You have {balance} but you bet {bet}. "
-            "Use /daily to earn more."
+            f"💸 Not enough coins! You have {balance} but need {bet}. Try /daily!"
         )
         return
 
@@ -115,11 +114,11 @@ async def handle_coinflip(bot: BaseBot, user: User, args: list[str]):
 
     if won:
         await bot.highrise.chat(
-            f"[COINFLIP] @{user.username} bet {bet} coins on {choice_raw.upper()} "
-            f"— it landed {coin_emoji}!  Won {bet} coins!  Balance: {new_balance}"
+            f"🪙 @{user.username} chose {choice_raw.upper()} — {coin_emoji}! "
+            f"WIN! +{bet} coins 🎉  Balance: {new_balance}"
         )
     else:
         await bot.highrise.chat(
-            f"[COINFLIP] @{user.username} bet {bet} coins on {choice_raw.upper()} "
-            f"— it landed {coin_emoji}.  Lost {bet} coins.  Balance: {new_balance}"
+            f"🪙 @{user.username} chose {choice_raw.upper()} — {coin_emoji}. "
+            f"Lost {bet} coins 😬  Balance: {new_balance}"
         )

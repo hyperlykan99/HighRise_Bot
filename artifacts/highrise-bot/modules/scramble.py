@@ -83,7 +83,7 @@ async def start_game(bot: BaseBot, user: User):
     if _active is not None:
         await bot.highrise.send_whisper(
             user.id,
-            "A scramble game is already active! Type /answer <word> to play."
+            "🔀 Scramble is already going! Type /answer to guess."
         )
         return
 
@@ -99,8 +99,9 @@ async def start_game(bot: BaseBot, user: User):
 
     # Post it publicly
     await bot.highrise.chat(
-        f"[SCRAMBLE] Unscramble this word:  {scrambled.upper()}\n"
-        "Type /answer <word> to win 25 coins!"
+        f"🔀 WORD SCRAMBLE!\n"
+        f"Unscramble this: {scrambled.upper()}\n"
+        f"Type /answer to win {config.SCRAMBLE_REWARD} coins! 🪙"
     )
 
 
@@ -127,10 +128,11 @@ async def handle_answer(bot: BaseBot, user: User, answer_text: str):
         db.record_game_win(user.id, user.username, "scramble")
 
         await bot.highrise.chat(
-            f"[SCRAMBLE] Correct! @{user.username} unscrambled '{_active['scrambled'].upper()}' "
-            f"→ '{_active['word']}' and wins {config.SCRAMBLE_REWARD} coins!"
+            f"🎉 @{user.username} got it! "
+            f"{_active['scrambled'].upper()} = {_active['word'].upper()} "
+            f"| +{config.SCRAMBLE_REWARD} coins 🪙"
         )
 
         _active = None
     else:
-        await bot.highrise.send_whisper(user.id, "Not quite! Keep trying.")
+        await bot.highrise.send_whisper(user.id, "❌ Nope! Keep unscrambling.")
