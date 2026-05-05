@@ -1,0 +1,155 @@
+Add Subscriber Announcement System.
+
+Goal:
+Owners/admins can send announcements to players who subscribed to bot notifications.
+
+IMPORTANT:
+- Do not remove existing features.
+- Use existing subscriber_users table if it exists.
+- Use SQLite.
+- Keep every Highrise message under 250 characters.
+- Respect unsubscribe settings.
+- Do not spam users.
+- Prevent crashes from bad inputs.
+
+Commands:
+- /subscribe
+- /unsubscribe
+- /substatus
+- /subscribers
+- /announce_subs <message>
+- /announce_vip <message>
+- /announce_staff <message>
+- /dmnotify <username> <message>
+
+Permissions:
+- /subscribe, /unsubscribe, /substatus are public.
+- /subscribers is owner/admin/manager only.
+- /announce_subs is owner/admin only.
+- /announce_vip is owner/admin only.
+- /announce_staff is owner/admin only.
+- /dmnotify is owner/admin only.
+
+Subscription behavior:
+- /subscribe marks the user as subscribed.
+- /unsubscribe marks the user as unsubscribed.
+- /substatus shows:
+  "Subscribed: YES | DM connected: YES"
+  or
+  "Subscribed: YES | DM connected: NO. DM bot 'subscribe'."
+  or
+  "Subscribed: NO"
+
+Outside-room DM requirement:
+- If the bot has a conversation_id for the user, send the announcement through Highrise conversation DM.
+- If no conversation_id exists, save the announcement as pending.
+- Tell users:
+  "DM the bot 'subscribe' once to get outside-room alerts."
+
+DM event behavior:
+- When a user sends the bot a direct message with "subscribe", save their conversation_id and set subscribed = true.
+- Reply:
+  "✅ Subscribed to bot alerts. Stop alerts: reply unsubscribe."
+
+Unsubscribe behavior:
+If user sends DM:
+- unsubscribe
+- unsub
+- stop
+- stop alerts
+- opt out
+- optout
+
+Then set subscribed = false and reply:
+"✅ Unsubscribed. You will no longer receive bot alerts."
+
+Announcement commands:
+
+/announce_subs <message>
+- Sends the message to all subscribed users.
+- Only send to users with subscribed = true.
+- If conversation_id exists, send DM.
+- If conversation_id missing, save pending announcement.
+- Add unsubscribe footer to every DM:
+  "Stop alerts: reply unsubscribe."
+- Rate limit sending: 1 DM per second.
+- Summary:
+  "📣 Announcement sent: 42 delivered, 5 pending, 3 failed."
+
+/announce_vip <message>
+- Sends only to subscribed VIP users.
+- Requires subscribed = true.
+- Uses VIP table/status if available.
+
+/announce_staff <message>
+- Sends only to subscribed staff users:
+  owners, admins, managers, moderators.
+
+/dmnotify <username> <message>
+- Sends a DM to one subscribed user if conversation_id exists.
+- If no conversation_id, save pending notification and say:
+  "No DM connected. Saved pending."
+
+Database:
+Create subscriber_announcements table if missing:
+- id INTEGER PRIMARY KEY AUTOINCREMENT
+- timestamp TEXT
+- sender_username TEXT
+- target_type TEXT
+  Values: all, vip, staff, single
+- target_username TEXT
+- message TEXT
+- delivered_count INTEGER
+- pending_count INTEGER
+- failed_count INTEGER
+
+Create pending_subscriber_messages table if missing:
+- id INTEGER PRIMARY KEY AUTOINCREMENT
+- receiver_username TEXT
+- message TEXT
+- created_at TEXT
+- delivered INTEGER DEFAULT 0
+- delivered_at TEXT
+- delivery_attempts INTEGER DEFAULT 0
+- last_error TEXT
+- message_type TEXT
+
+Pending delivery:
+- When user joins the room, check pending_subscriber_messages.
+- When user chats, check pending_subscriber_messages.
+- When user DMs the bot, check pending_subscriber_messages.
+- If conversation_id exists, send pending DM.
+- Mark delivered only after successful send.
+
+Message formatting:
+- Keep DMs under 250 characters.
+- If message is too long, reject it:
+  "Announcement too long. Max 200 characters."
+- Add footer only to private/outside-room DM:
+  "Stop alerts: reply unsubscribe."
+- Do not add footer to public room chat.
+
+Help updates:
+Update /substatus, /bankhelp, /eventhelp, /staffhelp, and /adminhelp if needed.
+
+Add /subhelp:
+"🔔 Subscribe
+/subscribe
+/unsubscribe
+/substatus
+DM bot 'subscribe' for outside-room alerts."
+
+For owner/admin:
+/subhelp 2:
+"📣 Announce
+/announce_subs <msg>
+/announce_vip <msg>
+/announce_staff <msg>
+/dmnotify <user> <msg>"
+
+Safety:
+- Respect unsubscribe.
+- Do not send announcements to unsubscribed users.
+- Do not allow managers/mods to mass DM subscribers.
+- Log failed DM sends in console.
+- Do not expose raw errors in chat.

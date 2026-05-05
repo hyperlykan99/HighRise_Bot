@@ -65,8 +65,11 @@ from modules.casino_settings     import (
 )
 from modules.subscribers         import (
     handle_subscribe, handle_unsubscribe, handle_substatus,
+    handle_subhelp,
     handle_subscribers, handle_dmnotify, handle_announce_subs,
+    handle_announce_vip, handle_announce_staff,
     process_incoming_dm,
+    deliver_pending_subscriber_messages,
 )
 from modules.maintenance         import (
     handle_botstatus, handle_dbstats, handle_backup,
@@ -209,7 +212,7 @@ ADMIN_ONLY_CMDS = {
     "eventstart", "eventstop",
     "clearwarnings",
     "addrep", "removerep",
-    "dmnotify", "announce_subs",
+    "dmnotify", "announce_subs", "announce_vip", "announce_staff",
     "healthcheck",
 } | BANK_ADMIN_SET_CMDS | TIP_ADMIN_CMDS
 
@@ -259,7 +262,9 @@ ALL_KNOWN_COMMANDS = (
         "allstaff", "allcommands", "checkcommands",
         "notifications", "clearnotifications",
         "delivernotifications", "pendingnotifications",
-        "subscribe", "unsubscribe", "substatus",
+        "subscribe", "unsubscribe", "substatus", "subhelp",
+        "announce_subs", "announce_vip", "announce_staff", "dmnotify",
+        "subscribers",
     }
     | ECONOMY_COMMANDS | PROFILE_COMMANDS | GAME_COMMANDS
     | SHOP_COMMANDS | ACHIEVEMENT_COMMANDS | BJ_COMMANDS
@@ -1281,10 +1286,11 @@ class HangoutBot(BaseBot):
         cmd  = parts[0].lower()
         args = parts
 
-        # ── Deliver queued bank notifications on first command this session ──
+        # ── Deliver queued bank/subscriber notifications on first command ──
         _uname = user.username.lower().strip()
         if _uname not in _notif_delivered_this_session:
             asyncio.create_task(_deliver_pending_bank_notifications(self, user))
+            asyncio.create_task(deliver_pending_subscriber_messages(self, _uname))
 
         # ── /help ─────────────────────────────────────────────────────────────
         if cmd == "help":
@@ -1456,6 +1462,10 @@ class HangoutBot(BaseBot):
                 await handle_restartbot(self, user)
             elif cmd == "healthcheck":
                 await handle_healthcheck(self, user)
+            elif cmd == "announce_vip":
+                await handle_announce_vip(self, user, args)
+            elif cmd == "announce_staff":
+                await handle_announce_staff(self, user, args)
             else:
                 await handle_admin_command(self, user, cmd, args)
             return
@@ -1649,6 +1659,9 @@ class HangoutBot(BaseBot):
 
         elif cmd == "announce_subs":
             await handle_announce_subs(self, user, args)
+
+        elif cmd == "subhelp":
+            await handle_subhelp(self, user, args)
 
         elif cmd == "bankhelp":
             await _handle_bankhelp(self, user, args)
@@ -1853,8 +1866,9 @@ class HangoutBot(BaseBot):
             f"Welcome, @{user.username}! Type /help to see what you can do. "
             "Use /daily to grab your free coins!"
         )
-        # Deliver any queued bank notifications
+        # Deliver any queued bank and subscriber notifications
         asyncio.create_task(_deliver_pending_bank_notifications(self, user))
+        asyncio.create_task(deliver_pending_subscriber_messages(self, user.username.lower()))
 
     async def on_tip(self, sender: User, receiver: User, tip) -> None:
         """

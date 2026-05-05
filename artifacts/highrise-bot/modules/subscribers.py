@@ -2,14 +2,12 @@
 modules/subscribers.py
 Subscriber DM notification system for the Highrise Mini Game Bot.
 
-Allows players to opt in to outside-room DM notifications via Highrise
-conversation messages. The bot can only DM a player if they have first
-sent the bot a DM (which creates a conversation_id in the SDK).
-
 Commands (public):
   /subscribe       — opt in to DM notifications
   /unsubscribe     — opt out
   /substatus       — show your subscription state
+  /subhelp         — show subscription help
+  /subhelp 2       — show admin announcement commands
 
 Commands (staff):
   /subscribers     — list all subscriber records (mod+)
@@ -17,27 +15,32 @@ Commands (staff):
 Commands (admin+):
   /dmnotify <username> <message>   — DM a specific subscriber
   /announce_subs <message>         — DM all active subscribers
+  /announce_vip <message>          — DM subscribed VIP users
+  /announce_staff <message>        — DM subscribed staff members
 
 Event hook:
   process_incoming_dm(bot, user_id, conversation_id, content, is_new)
-  — called from on_message; saves conversation_id, handles "subscribe"/"unsubscribe" keywords.
+  deliver_pending_subscriber_messages(bot, username, conversation_id)
 """
 from __future__ import annotations
 
 import asyncio
 import database as db
 from highrise import BaseBot, User
-from modules.permissions import is_owner, is_admin, can_moderate
+from modules.permissions import (
+    is_owner, is_admin, can_moderate, is_manager, is_moderator,
+)
 
 
 # ── Unsubscribe footer ────────────────────────────────────────────────────────
 
 _UNSUB_FOOTER = "\nStop alerts: reply unsubscribe."
 
+
 def add_unsubscribe_footer(message: str) -> str:
     """
     Append the unsubscribe footer to an outside-room DM message.
-    Shortens the main message first if needed to keep the total under 249 chars.
+    Shortens the main message first if needed to keep total under 249 chars.
     Do NOT use this for room chat or in-room whispers.
     """
     if len(message) + len(_UNSUB_FOOTER) <= 249:
@@ -50,12 +53,11 @@ def add_unsubscribe_footer(message: str) -> str:
 
 _UNSUB_TRIGGERS = ("unsubscribe", "unsub", "stop alerts", "opt out", "optout")
 
+
 def _is_unsubscribe_request(content: str) -> bool:
-    """Return True if the DM content is an unsubscribe request."""
     c = content.lower().strip()
     if any(kw in c for kw in _UNSUB_TRIGGERS):
         return True
-    # "stop" alone (not as part of another word) counts
     if c == "stop":
         return True
     return False
@@ -71,11 +73,7 @@ async def _w(bot: BaseBot, uid: str, msg: str) -> None:
 
 
 async def send_dm(bot: BaseBot, conversation_id: str, message: str) -> bool:
-    """
-    Send a Highrise conversation/inbox DM.
-    Returns True on success, False on failure.
-    Logs real errors to console.
-    """
+    """Send a Highrise conversation DM. Returns True on success."""
     try:
         await bot.highrise.send_message(conversation_id, message[:249])
         return True
@@ -86,6 +84,97 @@ async def send_dm(bot: BaseBot, conversation_id: str, message: str) -> bool:
 
 def _is_admin_or_owner(username: str) -> bool:
     return is_owner(username) or is_admin(username)
+
+
+def _is_staff(username: str) -> bool:
+    """True for any staff tier (owner/admin/manager/mod)."""
+    return can_moderate(username)
+
+
+# ── Pending subscriber message delivery ───────────────────────────────────────
+
+async def deliver_pending_subscriber_messages(
+    bot: BaseBot, username: str, conversation_id: str | None = None
+) -> None:
+    """
+    Deliver any queued pending subscriber messages to *username*.
+    If conversation_id is not provided, looks it up from the subscriber record.
+    Called on user DM (live conv_id), user join, or first chat command.
+    """
+    try:
+        uname = username.lower().strip()
+        pending = db.get_pending_sub_messages(uname)
+        if not pending:
+            return
+
+        # Resolve conversation_id if not provided
+        conv = conversation_id
+        if not conv:
+            sub = db.get_subscriber(uname)
+            if not sub or not sub.get("conversation_id") or not sub.get("dm_available"):
+                return
+            conv = sub["conversation_id"]
+
+        for msg in pending:
+            ok = await send_dm(bot, conv, msg["message"])
+            if ok:
+                db.mark_pending_sub_delivered(msg["id"])
+                db.set_subscriber_last_dm(uname)
+                print(f"[SUBS] Pending message delivered to @{username} (id={msg['id']}).")
+            else:
+                db.record_pending_sub_failed(msg["id"], "send_message failed")
+                print(f"[SUBS] Pending delivery failed for @{username} (id={msg['id']}).")
+            await asyncio.sleep(0.5)
+    except Exception as exc:
+        print(f"[SUBS] deliver_pending error for @{username}: {exc!r}")
+
+
+# ── Shared broadcast helper ────────────────────────────────────────────────────
+
+async def _broadcast(
+    bot: BaseBot,
+    sender_username: str,
+    target_subs: list[dict],
+    raw_message: str,
+    target_type: str,
+) -> tuple[int, int, int]:
+    """
+    DM each subscriber in target_subs, queue pending for those without DM.
+    Returns (sent, pending, failed).
+    """
+    message = add_unsubscribe_footer(raw_message)
+    sent = pending = failed = 0
+
+    for sub in target_subs:
+        uname = sub["username"]
+        conv_id = sub.get("conversation_id")
+        has_dm = conv_id and sub.get("dm_available")
+
+        if has_dm:
+            ok = await send_dm(bot, conv_id, message)
+            if ok:
+                sent += 1
+                db.set_subscriber_last_dm(uname)
+            else:
+                db.set_dm_available(uname, False)
+                db.add_pending_sub_message(uname, message, target_type)
+                pending += 1
+                print(f"[SUBS] DM failed for @{uname} — queued pending.")
+        else:
+            db.add_pending_sub_message(uname, message, target_type)
+            pending += 1
+
+        await asyncio.sleep(1)
+
+    try:
+        db.log_subscriber_announcement(
+            sender_username, target_type, message,
+            sent, pending, failed,
+        )
+    except Exception as exc:
+        print(f"[SUBS] announce log error: {exc!r}")
+
+    return sent, pending, failed
 
 
 # ── on_message event handler ──────────────────────────────────────────────────
@@ -99,21 +188,12 @@ async def process_incoming_dm(
 ) -> None:
     """
     Called from on_message when the bot receives a DM.
-
-    1. Looks up the user by user_id in the users table.
-    2. Saves/updates their conversation_id in subscriber_users.
-    3. If content contains 'subscribe' → mark subscribed, reply confirmation.
-    4. If content contains 'unsubscribe' → mark unsubscribed, reply confirmation.
-    5. Otherwise acknowledge with instructions.
+    Saves conversation_id, handles subscribe/unsubscribe keywords,
+    and delivers any pending subscriber messages.
     """
-    # Resolve username from DB by user_id
     user_row = db.get_user_by_username_via_id(user_id)
     if user_row is None:
-        # User not yet in room/DB — store minimal record keyed by user_id only
-        # We can't link to bank notifications without a username, but save the
-        # conversation_id so we can update it once they join the room.
         print(f"[SUBS] DM from unknown user_id={user_id[:12]}... conv={conversation_id[:12]}...")
-        # Still reply so they aren't left hanging
         await send_dm(bot, conversation_id,
                       "👋 Hi! Join the room and type /subscribe to get notifications.")
         return
@@ -121,8 +201,10 @@ async def process_incoming_dm(
     username = user_row["username"]
     uname_lower = username.lower()
 
-    # Upsert subscriber record with conversation_id
     db.upsert_subscriber(uname_lower, user_id, conversation_id)
+
+    # Deliver any queued pending messages now that we have a conversation
+    await deliver_pending_subscriber_messages(bot, uname_lower, conversation_id)
 
     content_lower = content.lower().strip()
 
@@ -142,7 +224,6 @@ async def process_incoming_dm(
         print(f"[SUBS] @{username} subscribed via DM.")
         return
 
-    # Generic DM — just acknowledge
     await send_dm(bot, conversation_id,
                   "👋 Reply 'subscribe' for outside-room alerts, or 'unsubscribe' to opt out.")
 
@@ -154,7 +235,6 @@ async def handle_subscribe(bot: BaseBot, user: User, args: list[str]) -> None:
     db.ensure_user(user.id, user.username)
     sub = db.get_subscriber(user.username)
 
-    # Create or refresh record
     db.upsert_subscriber(user.username.lower(), user.id)
 
     if sub and sub.get("subscribed"):
@@ -167,7 +247,6 @@ async def handle_subscribe(bot: BaseBot, user: User, args: list[str]) -> None:
         return
 
     db.set_subscribed(user.username.lower(), True)
-
     sub = db.get_subscriber(user.username)
     has_dm = bool(sub and sub.get("conversation_id"))
 
@@ -188,7 +267,7 @@ async def handle_unsubscribe(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "You are not currently subscribed.")
         return
     db.set_subscribed(user.username.lower(), False)
-    await _w(bot, user.id, "❌ Unsubscribed. You won't receive outside-room notifications.")
+    await _w(bot, user.id, "✅ Unsubscribed. You won't receive outside-room notifications.")
 
 
 # ── /substatus ────────────────────────────────────────────────────────────────
@@ -204,7 +283,6 @@ async def handle_substatus(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Subscribed: NO")
         return
 
-    # Subscribed — show DM connection status
     if has_dm:
         dm_label = "YES"
     elif sub and sub.get("conversation_id"):
@@ -213,6 +291,32 @@ async def handle_substatus(bot: BaseBot, user: User, args: list[str]) -> None:
         dm_label = "NO (DM bot 'subscribe' to connect)"
 
     await _w(bot, user.id, f"Subscribed: YES | DM connected: {dm_label}")
+
+
+# ── /subhelp ──────────────────────────────────────────────────────────────────
+
+async def handle_subhelp(bot: BaseBot, user: User, args: list[str]) -> None:
+    """/subhelp [2] — subscription help; page 2 shows admin announce commands."""
+    page = args[1].strip() if len(args) > 1 else "1"
+
+    if page == "2":
+        if not _is_admin_or_owner(user.username):
+            await _w(bot, user.id, "Page 2 is for admins only.")
+            return
+        await _w(bot, user.id,
+                 "📣 Announce\n"
+                 "/announce_subs <msg>\n"
+                 "/announce_vip <msg>\n"
+                 "/announce_staff <msg>\n"
+                 "/dmnotify <user> <msg>")
+        return
+
+    await _w(bot, user.id,
+             "🔔 Subscribe\n"
+             "/subscribe\n"
+             "/unsubscribe\n"
+             "/substatus\n"
+             "DM bot 'subscribe' for outside-room alerts.")
 
 
 # ── /subscribers (staff) ──────────────────────────────────────────────────────
@@ -227,9 +331,12 @@ async def handle_subscribers(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "No subscribers yet.")
         return
     total = len(rows)
-    active = sum(1 for r in rows if r.get("subscribed") and r.get("conversation_id") and r.get("dm_available"))
-    # Show summary + first 5
-    lines = [f"📬 {total} subscriber(s), {active} DM-ready:"]
+    active = sum(
+        1 for r in rows
+        if r.get("subscribed") and r.get("conversation_id") and r.get("dm_available")
+    )
+    pending_count = sum(1 for r in rows if r.get("subscribed") and not r.get("conversation_id"))
+    lines = [f"📬 {total} record(s) | {active} DM-ready | {pending_count} pending DM:"]
     for r in rows[:5]:
         sub_icon = "✅" if r.get("subscribed") else "❌"
         dm_icon  = "📩" if (r.get("conversation_id") and r.get("dm_available")) else "🔕"
@@ -242,7 +349,7 @@ async def handle_subscribers(bot: BaseBot, user: User, args: list[str]) -> None:
 # ── /dmnotify (admin+) ────────────────────────────────────────────────────────
 
 async def handle_dmnotify(bot: BaseBot, user: User, args: list[str]) -> None:
-    """/dmnotify <username> <message> — send a DM to a specific subscriber."""
+    """/dmnotify <username> <message> — DM a specific subscriber."""
     if not _is_admin_or_owner(user.username):
         await _w(bot, user.id, "Admins and owners only.")
         return
@@ -250,15 +357,27 @@ async def handle_dmnotify(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Usage: /dmnotify <username> <message>")
         return
     target_name = args[1].lstrip("@").lower().strip()
-    message = " ".join(args[2:])[:200]
-    sub = db.get_subscriber(target_name)
-    if not sub or not sub.get("conversation_id"):
-        await _w(bot, user.id,
-                 f"No DM conversation for @{target_name}. Ask them to DM the bot 'subscribe'.")
+    raw_msg = " ".join(args[2:])
+    if len(raw_msg) > 200:
+        await _w(bot, user.id, "Message too long. Max 200 characters.")
         return
+    message = add_unsubscribe_footer(raw_msg)
+    sub = db.get_subscriber(target_name)
+
+    if not sub:
+        await _w(bot, user.id, f"@{target_name} has no subscriber record.")
+        return
+
+    if not sub.get("conversation_id"):
+        db.add_pending_sub_message(target_name, message, "single")
+        await _w(bot, user.id, f"No DM connected for @{target_name}. Saved as pending.")
+        print(f"[SUBS] /dmnotify to @{target_name} queued as pending (no conv_id).")
+        return
+
     if not sub.get("dm_available"):
         await _w(bot, user.id,
                  f"@{target_name}'s DM channel was previously unreachable. Trying anyway...")
+
     ok = await send_dm(bot, sub["conversation_id"], message)
     if ok:
         db.set_subscriber_last_dm(target_name)
@@ -266,36 +385,115 @@ async def handle_dmnotify(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, f"✅ DM sent to @{target_name}.")
     else:
         db.set_dm_available(target_name, False)
-        await _w(bot, user.id, f"❌ DM to @{target_name} failed. Channel may be unavailable.")
+        db.add_pending_sub_message(target_name, message, "single")
+        await _w(bot, user.id, f"❌ DM failed. Saved as pending for @{target_name}.")
+        print(f"[SUBS] /dmnotify to @{target_name} failed — queued pending.")
 
 
 # ── /announce_subs (admin+) ───────────────────────────────────────────────────
 
 async def handle_announce_subs(bot: BaseBot, user: User, args: list[str]) -> None:
-    """/announce_subs <message> — DM all active subscribers (rate-limited)."""
+    """/announce_subs <message> — DM all subscribed users (rate-limited)."""
     if not _is_admin_or_owner(user.username):
         await _w(bot, user.id, "Admins and owners only.")
         return
     if len(args) < 2:
         await _w(bot, user.id, "Usage: /announce_subs <message>")
         return
-    message = add_unsubscribe_footer(" ".join(args[1:])[:200])
-    subscribers = db.get_all_subscribed_with_dm()
-    if not subscribers:
-        await _w(bot, user.id, "No active subscribers with DM connections.")
+    raw_msg = " ".join(args[1:])
+    if len(raw_msg) > 200:
+        await _w(bot, user.id, "Announcement too long. Max 200 characters.")
         return
-    await _w(bot, user.id, f"📤 Sending to {len(subscribers)} subscriber(s)...")
-    sent = 0
-    failed = 0
-    for sub in subscribers:
-        ok = await send_dm(bot, sub["conversation_id"], message)
-        if ok:
-            sent += 1
-            db.set_subscriber_last_dm(sub["username"])
-        else:
-            failed += 1
-            db.set_dm_available(sub["username"], False)
-        # Rate limit: 1 DM per second
-        await asyncio.sleep(1)
-    await _w(bot, user.id, f"✅ Sent to {sent} subscriber(s). Failed: {failed}.")
-    print(f"[SUBS] announce_subs by @{user.username}: {sent} sent, {failed} failed.")
+
+    # All subscribed users with DM + those without DM (will queue pending)
+    dm_subs  = db.get_all_subscribed_with_dm()
+    no_dm    = db.get_all_subscribed_no_dm()
+    all_subs = dm_subs + no_dm
+
+    if not all_subs:
+        await _w(bot, user.id, "No subscribed users found.")
+        return
+
+    await _w(bot, user.id, f"📤 Sending to {len(all_subs)} subscriber(s)...")
+    sent, pending, failed = await _broadcast(
+        bot, user.username, all_subs, raw_msg, "all"
+    )
+    await _w(bot, user.id,
+             f"📣 Announcement sent: {sent} delivered, {pending} pending, {failed} failed.")
+    print(f"[SUBS] announce_subs by @{user.username}: {sent} sent, {pending} pending, {failed} failed.")
+
+
+# ── /announce_vip (admin+) ────────────────────────────────────────────────────
+
+async def handle_announce_vip(bot: BaseBot, user: User, args: list[str]) -> None:
+    """/announce_vip <message> — DM subscribed VIP users."""
+    if not _is_admin_or_owner(user.username):
+        await _w(bot, user.id, "Admins and owners only.")
+        return
+    if len(args) < 2:
+        await _w(bot, user.id, "Usage: /announce_vip <message>")
+        return
+    raw_msg = " ".join(args[1:])
+    if len(raw_msg) > 200:
+        await _w(bot, user.id, "Announcement too long. Max 200 characters.")
+        return
+
+    # Filter all subscribed users through VIP check
+    all_subs = db.get_all_subscribed_with_dm() + db.get_all_subscribed_no_dm()
+    vip_subs: list[dict] = []
+    for sub in all_subs:
+        try:
+            conn = db.get_connection()
+            row = conn.execute(
+                "SELECT 1 FROM vip_users WHERE username = ? LIMIT 1",
+                (sub["username"].lower(),),
+            ).fetchone()
+            conn.close()
+            if row:
+                vip_subs.append(sub)
+        except Exception:
+            pass
+
+    if not vip_subs:
+        await _w(bot, user.id,
+                 "No subscribed VIP users found. (VIP system may not be configured.)")
+        return
+
+    await _w(bot, user.id, f"📤 Sending to {len(vip_subs)} VIP subscriber(s)...")
+    sent, pending, failed = await _broadcast(
+        bot, user.username, vip_subs, raw_msg, "vip"
+    )
+    await _w(bot, user.id,
+             f"📣 VIP announcement: {sent} delivered, {pending} pending, {failed} failed.")
+    print(f"[SUBS] announce_vip by @{user.username}: {sent} sent, {pending} pending, {failed} failed.")
+
+
+# ── /announce_staff (admin+) ──────────────────────────────────────────────────
+
+async def handle_announce_staff(bot: BaseBot, user: User, args: list[str]) -> None:
+    """/announce_staff <message> — DM subscribed staff members."""
+    if not _is_admin_or_owner(user.username):
+        await _w(bot, user.id, "Admins and owners only.")
+        return
+    if len(args) < 2:
+        await _w(bot, user.id, "Usage: /announce_staff <message>")
+        return
+    raw_msg = " ".join(args[1:])
+    if len(raw_msg) > 200:
+        await _w(bot, user.id, "Announcement too long. Max 200 characters.")
+        return
+
+    all_subs = db.get_all_subscribed_with_dm() + db.get_all_subscribed_no_dm()
+    staff_subs = [s for s in all_subs if _is_staff(s["username"])]
+
+    if not staff_subs:
+        await _w(bot, user.id, "No subscribed staff members found.")
+        return
+
+    await _w(bot, user.id, f"📤 Sending to {len(staff_subs)} staff subscriber(s)...")
+    sent, pending, failed = await _broadcast(
+        bot, user.username, staff_subs, raw_msg, "staff"
+    )
+    await _w(bot, user.id,
+             f"📣 Staff announcement: {sent} delivered, {pending} pending, {failed} failed.")
+    print(f"[SUBS] announce_staff by @{user.username}: {sent} sent, {pending} pending, {failed} failed.")

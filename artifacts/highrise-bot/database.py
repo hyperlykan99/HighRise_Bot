@@ -601,6 +601,36 @@ def init_db():
         )
     """)
 
+    # ── Subscriber announcements log ──────────────────────────────────────
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS subscriber_announcements (
+            id               INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp        TEXT NOT NULL DEFAULT (datetime('now')),
+            sender_username  TEXT NOT NULL,
+            target_type      TEXT NOT NULL,
+            target_username  TEXT,
+            message          TEXT NOT NULL,
+            delivered_count  INTEGER NOT NULL DEFAULT 0,
+            pending_count    INTEGER NOT NULL DEFAULT 0,
+            failed_count     INTEGER NOT NULL DEFAULT 0
+        )
+    """)
+
+    # ── Pending subscriber messages ───────────────────────────────────────
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS pending_subscriber_messages (
+            id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            receiver_username TEXT NOT NULL,
+            message           TEXT NOT NULL,
+            created_at        TEXT NOT NULL DEFAULT (datetime('now')),
+            delivered         INTEGER NOT NULL DEFAULT 0,
+            delivered_at      TEXT,
+            delivery_attempts INTEGER NOT NULL DEFAULT 0,
+            last_error        TEXT,
+            message_type      TEXT NOT NULL DEFAULT 'general'
+        )
+    """)
+
     # ── Bank pending notifications ────────────────────────────────────────
     conn.execute("""
         CREATE TABLE IF NOT EXISTS bank_notifications (
@@ -3751,6 +3781,108 @@ def mark_tip_auto_subscribed(username: str) -> None:
     )
     conn.commit()
     conn.close()
+
+
+def log_subscriber_announcement(
+    sender_username: str,
+    target_type: str,
+    message: str,
+    delivered_count: int,
+    pending_count: int,
+    failed_count: int,
+    target_username: str | None = None,
+) -> None:
+    """Record a subscriber announcement in the audit log."""
+    conn = get_connection()
+    conn.execute(
+        """
+        INSERT INTO subscriber_announcements
+            (sender_username, target_type, target_username, message,
+             delivered_count, pending_count, failed_count)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        (sender_username.lower(), target_type, target_username, message[:249],
+         delivered_count, pending_count, failed_count),
+    )
+    conn.commit()
+    conn.close()
+
+
+def add_pending_sub_message(
+    receiver_username: str, message: str, message_type: str = "general"
+) -> None:
+    """Queue an outside-room message for delivery when the user next DMs the bot."""
+    conn = get_connection()
+    conn.execute(
+        """
+        INSERT INTO pending_subscriber_messages
+            (receiver_username, message, message_type)
+        VALUES (?, ?, ?)
+        """,
+        (receiver_username.lower().strip(), message[:249], message_type),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_pending_sub_messages(username: str) -> list[dict]:
+    """Return all undelivered pending subscriber messages for *username*."""
+    conn = get_connection()
+    rows = conn.execute(
+        """
+        SELECT * FROM pending_subscriber_messages
+        WHERE receiver_username = ? AND delivered = 0
+        ORDER BY created_at ASC
+        """,
+        (username.lower().strip(),),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def mark_pending_sub_delivered(msg_id: int) -> None:
+    """Mark a pending subscriber message as delivered."""
+    conn = get_connection()
+    conn.execute(
+        """
+        UPDATE pending_subscriber_messages
+        SET delivered = 1, delivered_at = datetime('now')
+        WHERE id = ?
+        """,
+        (msg_id,),
+    )
+    conn.commit()
+    conn.close()
+
+
+def record_pending_sub_failed(msg_id: int, error: str) -> None:
+    """Increment delivery_attempts and store last_error for a pending sub message."""
+    conn = get_connection()
+    conn.execute(
+        """
+        UPDATE pending_subscriber_messages
+        SET delivery_attempts = delivery_attempts + 1, last_error = ?
+        WHERE id = ?
+        """,
+        (str(error)[:200], msg_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_all_subscribed_no_dm() -> list[dict]:
+    """Return subscribed users who have no usable DM channel."""
+    conn = get_connection()
+    rows = conn.execute(
+        """
+        SELECT * FROM subscriber_users
+        WHERE subscribed = 1
+          AND (conversation_id IS NULL OR dm_available = 0)
+        ORDER BY username ASC
+        """
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
 
 
 def get_all_subscribers_staff() -> list[dict]:
