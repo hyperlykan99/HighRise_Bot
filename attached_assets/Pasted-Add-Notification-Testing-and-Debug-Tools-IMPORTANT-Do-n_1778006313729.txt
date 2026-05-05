@@ -1,0 +1,121 @@
+Add Notification Testing and Debug Tools.
+
+IMPORTANT:
+- Do not remove existing features.
+- Keep subscriber system, notification preferences, bank, gold, events, VIP, staff roles, and announcements.
+- Use SQLite.
+- Keep all messages under 250 characters.
+- Owner/admin only for debug tools.
+- Prevent crashes from bad inputs.
+
+Goal:
+I need easy commands to test if a player is subscribed, DM connected, and receiving notifications.
+
+Commands:
+- /notifystats
+- /notifyprefs <username>
+- /debugnotify <username>
+- /testnotify <username> <type>
+- /testnotifyall <type>
+- /pendingnotify <username>
+- /clearpendingnotify <username>
+
+Permissions:
+- Owner/admin can use all commands.
+- Manager can use /notifystats and /notifyprefs only.
+- Normal players cannot use debug commands.
+
+Behavior:
+
+/notifystats:
+Shows:
+- total subscribers
+- DM connected count
+- unsubscribed count
+- pending notifications count
+
+Example:
+"🔔 Subs 25 | DM 14 | Off 3 | Pending 8"
+
+/notifyprefs <username>:
+Shows that user’s notification settings.
+
+Example:
+"@user: Bank ON | Events ON | Gold ON | VIP ON | DM YES"
+
+/debugnotify <username>:
+Shows:
+- subscribed yes/no
+- dm_available yes/no
+- conversation_id exists yes/no
+- manually_unsubscribed yes/no
+- last_dm_at
+- pending count
+
+Do not show the raw conversation_id in chat.
+
+/testnotify <username> <type>:
+Sends a test notification to that user using send_notification().
+
+Supported types:
+- bank
+- events
+- gold
+- vip
+- casino
+- quests
+- shop
+- announcements
+- staff
+
+Example:
+"/testnotify angelkisses18 bank"
+
+Message sent:
+"🔔 Test bank alert. Reply unsubscribe to stop alerts."
+
+If user is not subscribed or that type is OFF:
+Show:
+"Notification skipped: user unsubscribed or type OFF."
+
+If DM is not connected and user is not in room:
+Save as pending and show:
+"Notification saved as pending."
+
+/testnotifyall <type>:
+Owner only.
+Sends a test notification to all subscribed users with that type ON.
+Rate limit 1 DM per second.
+Summary:
+"Test sent: 10 delivered, 3 pending, 1 skipped."
+
+/pendingnotify <username>:
+Shows pending notifications count and latest 3 types.
+
+/clearpendingnotify <username>:
+Owner/admin only.
+Marks pending notifications as delivered/cleared for that user.
+
+Integration:
+Use the same send_notification(username, notification_type, message) helper used by:
+- bank alerts
+- event alerts
+- gold alerts
+- VIP alerts
+- announcements
+
+Do not create a separate notification sending path.
+
+Update /subhelp 3:
+"Debug: /debugnotify <user>, /testnotify <user> <type> staff only"
+
+Logging:
+Log every test notification in notification_logs with status:
+sent, pending, skipped, failed.
+
+Tests:
+- /notifystats
+- /debugnotify angelkisses18
+- /notifyprefs angelkisses18
+- /testnotify angelkisses18 bank
+- /pendingnotify angelkisses18

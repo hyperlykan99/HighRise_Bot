@@ -374,6 +374,18 @@ async def handle_subhelp(bot: BaseBot, user: User, args: list[str]) -> None:
                  "/dmnotify <user> <msg>")
         return
 
+    if page == "3":
+        if not _is_admin_or_owner(user.username):
+            await _w(bot, user.id, "Page 3 is for staff only.")
+            return
+        await _w(bot, user.id,
+                 "Debug: /debugnotify <user>\n"
+                 "/testnotify <user> <type>\n"
+                 "/testnotifyall <type> (owner)\n"
+                 "/pendingnotify <user>\n"
+                 "/clearpendingnotify <user>")
+        return
+
     await _w(bot, user.id,
              "🔔 Subscribe\n"
              "/subscribe\n"

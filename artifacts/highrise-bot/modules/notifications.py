@@ -487,3 +487,174 @@ async def handle_broadcasttest(bot: BaseBot, user: User, args: list[str]) -> Non
     await _w(bot, user.id,
              f"📣 Test done: {sent} sent, {pending} pending, {skipped} skipped.")
     print(f"[NOTIFY] broadcasttest {ntype} by @{user.username}: {sent}s {pending}p {skipped}sk")
+
+
+# ── /debugnotify <username> (admin+) ─────────────────────────────────────────
+
+async def handle_debugnotify(bot: BaseBot, user: User, args: list[str]) -> None:
+    """/debugnotify <username> — full diagnostic view for a subscriber."""
+    if not _is_admin_or_owner(user.username):
+        await _w(bot, user.id, "Admins and owners only.")
+        return
+    if len(args) < 2:
+        await _w(bot, user.id, "Usage: /debugnotify <username>")
+        return
+
+    target = args[1].lstrip("@").lower().strip()
+    sub = db.get_subscriber(target)
+
+    if not sub:
+        await _w(bot, user.id, f"No subscriber record for @{target}.")
+        return
+
+    sub_flag    = "YES" if sub.get("subscribed") else "NO"
+    dm_flag     = "YES" if sub.get("dm_available") else "NO"
+    conv_flag   = "YES" if sub.get("conversation_id") else "NO"
+    manual_unsub = "YES" if sub.get("manually_unsubscribed") else "NO"
+    last_dm     = (sub.get("last_dm_at") or "never")[:16]
+
+    pending = db.get_pending_notifications(target)
+    pend_count = len(pending)
+
+    lines = [
+        f"🔍 @{target} notify debug:",
+        f"Sub: {sub_flag} | DM avail: {dm_flag} | Conv saved: {conv_flag}",
+        f"Manual unsub: {manual_unsub}",
+        f"Last DM: {last_dm}",
+        f"Pending: {pend_count}",
+    ]
+    await _w(bot, user.id, "\n".join(lines)[:249])
+
+
+# ── /testnotify <username> <type> (admin+) ────────────────────────────────────
+
+async def handle_testnotify(bot: BaseBot, user: User, args: list[str]) -> None:
+    """/testnotify <username> <type> — send a test notification to one user."""
+    if not _is_admin_or_owner(user.username):
+        await _w(bot, user.id, "Admins and owners only.")
+        return
+    if len(args) < 3:
+        await _w(bot, user.id,
+                 "Usage: /testnotify <username> <type>\n"
+                 "Types: bank events gold vip casino quests shop announcements staff")
+        return
+
+    target = args[1].lstrip("@").lower().strip()
+    ntype  = args[2].lower().strip()
+
+    if ntype not in _PREF_COLUMN:
+        await _w(bot, user.id,
+                 "Unknown type. Use: bank events gold vip casino quests shop announcements staff")
+        return
+
+    sub = db.get_subscriber(target)
+    if not sub:
+        await _w(bot, user.id, f"No subscriber record for @{target}.")
+        return
+
+    test_msg = f"🔔 Test {ntype} alert."
+    result = await send_notification(bot, target, ntype, test_msg)
+
+    if result in ("sent", "whispered"):
+        await _w(bot, user.id, f"✅ Test {ntype} alert sent to @{target}.")
+    elif result == "pending":
+        await _w(bot, user.id,
+                 f"✅ Test saved as pending for @{target} (no DM/whisper available).")
+    else:
+        await _w(bot, user.id,
+                 f"Notification skipped: @{target} unsubscribed or {ntype} alerts OFF.")
+
+    print(f"[NOTIFY] testnotify {ntype} → @{target} by @{user.username}: {result}")
+
+
+# ── /testnotifyall <type> (owner only) ────────────────────────────────────────
+
+async def handle_testnotifyall(bot: BaseBot, user: User, args: list[str]) -> None:
+    """/testnotifyall <type> — owner: send test notification to all matching subscribers."""
+    if not is_owner(user.username):
+        await _w(bot, user.id, "Owner only.")
+        return
+    if len(args) < 2:
+        await _w(bot, user.id,
+                 "Usage: /testnotifyall <type>\n"
+                 "Types: bank events gold vip casino quests shop announcements staff")
+        return
+
+    ntype = args[1].lower().strip()
+    if ntype not in _PREF_COLUMN:
+        await _w(bot, user.id,
+                 "Unknown type. Use: bank events gold vip casino quests shop announcements staff")
+        return
+
+    all_subs = db.get_all_subscribed_with_dm() + db.get_all_subscribed_no_dm()
+    if not all_subs:
+        await _w(bot, user.id, "No subscribers found.")
+        return
+
+    await _w(bot, user.id, f"📤 Sending {ntype} test to {len(all_subs)} subscriber(s)...")
+    test_msg = f"🔔 Test {ntype} alert."
+    sent = pending = skipped = 0
+
+    for sub in all_subs:
+        uname = sub["username"]
+        result = await send_notification(bot, uname, ntype, test_msg)
+        if result in ("sent", "whispered"):
+            sent += 1
+        elif result == "pending":
+            pending += 1
+        else:
+            skipped += 1
+        await asyncio.sleep(1.0)
+
+    await _w(bot, user.id,
+             f"Test sent: {sent} delivered, {pending} pending, {skipped} skipped.")
+    print(f"[NOTIFY] testnotifyall {ntype} by @{user.username}: {sent}s {pending}p {skipped}sk")
+
+
+# ── /pendingnotify <username> (admin+) ────────────────────────────────────────
+
+async def handle_pendingnotify(bot: BaseBot, user: User, args: list[str]) -> None:
+    """/pendingnotify <username> — show pending notification count + latest types."""
+    if not _is_admin_or_owner(user.username):
+        await _w(bot, user.id, "Admins and owners only.")
+        return
+    if len(args) < 2:
+        await _w(bot, user.id, "Usage: /pendingnotify <username>")
+        return
+
+    target  = args[1].lstrip("@").lower().strip()
+    pending = db.get_pending_notifications(target)
+
+    if not pending:
+        await _w(bot, user.id, f"📭 No pending notifications for @{target}.")
+        return
+
+    count  = len(pending)
+    latest = pending[-3:]  # newest 3
+    types  = ", ".join(n.get("notification_type", "?") for n in latest)
+    await _w(bot, user.id,
+             f"🔔 @{target}: {count} pending\nLatest types: {types}"[:249])
+
+
+# ── /clearpendingnotify <username> (admin+) ───────────────────────────────────
+
+async def handle_clearpendingnotify(bot: BaseBot, user: User, args: list[str]) -> None:
+    """/clearpendingnotify <username> — clear all pending notifications for a user."""
+    if not _is_admin_or_owner(user.username):
+        await _w(bot, user.id, "Admins and owners only.")
+        return
+    if len(args) < 2:
+        await _w(bot, user.id, "Usage: /clearpendingnotify <username>")
+        return
+
+    target  = args[1].lstrip("@").lower().strip()
+    pending = db.get_pending_notifications(target)
+    count   = len(pending)
+
+    if not count:
+        await _w(bot, user.id, f"📭 No pending notifications for @{target}.")
+        return
+
+    db.mark_all_pending_notifications_read(target)
+    await _w(bot, user.id, f"✅ Cleared {count} pending notification(s) for @{target}.")
+    print(f"[NOTIFY] clearpendingnotify @{target} by @{user.username}: {count} cleared.")

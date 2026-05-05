@@ -79,6 +79,8 @@ from modules.notifications import (
     handle_notifications, handle_clearnotifications,
     handle_notifystats, handle_notifyprefs,
     handle_notifyuser, handle_broadcasttest,
+    handle_debugnotify, handle_testnotify,
+    handle_testnotifyall, handle_pendingnotify, handle_clearpendingnotify,
 )
 from modules.maintenance         import (
     handle_botstatus, handle_dbstats, handle_backup,
@@ -229,6 +231,7 @@ ADMIN_ONLY_CMDS = {
     "dmnotify", "announce_subs", "announce_vip", "announce_staff",
     "healthcheck",
     "notifyuser", "broadcasttest",
+    "debugnotify", "testnotify", "pendingnotify", "clearpendingnotify",
 } | BANK_ADMIN_SET_CMDS | TIP_ADMIN_CMDS
 
 MANAGER_ONLY_CMDS = MANAGER_ONLY_CMDS | {"notifystats", "notifyprefs"}
@@ -245,6 +248,7 @@ OWNER_ONLY_CMDS = {
     "restarthelp", "restartstatus",
     "softrestart",
     "restartbot",
+    "testnotifyall",
 }
 
 STAFF_CMDS = MOD_ONLY_CMDS | MANAGER_ONLY_CMDS | ADMIN_ONLY_CMDS | OWNER_ONLY_CMDS
@@ -284,6 +288,8 @@ ALL_KNOWN_COMMANDS = (
         "subscribe", "unsubscribe", "substatus", "subhelp",
         "notifysettings", "notify", "notifyhelp",
         "notifystats", "notifyprefs", "notifyuser", "broadcasttest",
+        "debugnotify", "testnotify", "testnotifyall",
+        "pendingnotify", "clearpendingnotify",
         "announce_subs", "announce_vip", "announce_staff", "dmnotify",
         "subscribers",
     }
@@ -1509,6 +1515,16 @@ class HangoutBot(BaseBot):
                 await handle_notifystats(self, user, args)
             elif cmd == "notifyprefs":
                 await handle_notifyprefs(self, user, args)
+            elif cmd == "debugnotify":
+                await handle_debugnotify(self, user, args)
+            elif cmd == "testnotify":
+                await handle_testnotify(self, user, args)
+            elif cmd == "testnotifyall":
+                await handle_testnotifyall(self, user, args)
+            elif cmd == "pendingnotify":
+                await handle_pendingnotify(self, user, args)
+            elif cmd == "clearpendingnotify":
+                await handle_clearpendingnotify(self, user, args)
             else:
                 await handle_admin_command(self, user, cmd, args)
             return
