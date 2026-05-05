@@ -19,9 +19,9 @@ DAILY_REWARD:      int = 10    # free tokens from /daily
 QUEUE_DISPLAY_SIZE: int = 5    # how many songs /queue shows
 SKIP_VOTE_THRESHOLD: int = 3   # number of votes needed to auto-skip
 
-# ── Admin user IDs ───────────────────────────────────────────────────────────
-# Add the Highrise user IDs of anyone who should have admin commands.
-# You can find your user ID by checking the Highrise app or API.
-ADMIN_IDS: list[str] = [
-    "66e6d8aa5f46e3ac67e12392",  # 4ktreyMarion
+# ── Admin usernames ──────────────────────────────────────────────────────────
+# Add Highrise usernames (case-insensitive) for anyone who should have
+# access to admin commands: /skip /remove /addtokens /refund
+ADMIN_USERS: list[str] = [
+    "4ktreymarion",
 ]

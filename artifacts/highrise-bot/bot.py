@@ -96,8 +96,9 @@ class HangoutBot(BaseBot):
             return
 
         # ── Admin-only commands ────────────────────────────────────────────
+        # Check by username (case-insensitive) against the ADMIN_USERS list
         if cmd in ADMIN_DJ_COMMANDS or cmd in ADMIN_ECONOMY_COMMANDS:
-            if user.id not in config.ADMIN_IDS:
+            if user.username.lower() not in config.ADMIN_USERS:
                 await self.highrise.send_whisper(user.id, "That command is for admins only.")
                 return
 
