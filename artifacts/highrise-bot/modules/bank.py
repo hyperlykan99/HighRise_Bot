@@ -259,9 +259,14 @@ async def handle_send(bot: BaseBot, user: User, args: list[str]):
               f"{amount}c | {risk_reason}")
         return
 
-    # Fee & atomic transfer
-    tax_pct  = int(settings.get("send_tax_percent", 5))
-    fee      = max(0, round(amount * tax_pct / 100))
+    # Fee & atomic transfer  (tax_free_bank event waives the fee entirely)
+    from modules.events import get_event_effect
+    _ev = get_event_effect()
+    if _ev["tax_free"]:
+        fee = 0
+    else:
+        tax_pct = int(settings.get("send_tax_percent", 5))
+        fee     = max(0, round(amount * tax_pct / 100))
     amount_received = amount - fee
 
     _send_cooldown[user.id] = time.monotonic()

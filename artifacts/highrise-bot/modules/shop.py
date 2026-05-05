@@ -276,23 +276,34 @@ async def handle_buy(bot: BaseBot, user: User, args: list[str]):
         )
         return
 
+    # Apply shop_sale event discount if active
+    from modules.events import get_event_effect
+    _ev       = get_event_effect()
+    raw_price = item["price"]
+    if _ev["shop_discount"] > 0:
+        price = max(1, int(raw_price * (1.0 - _ev["shop_discount"])))
+    else:
+        price = raw_price
+
     balance = db.get_balance(user.id)
-    if balance < item["price"]:
+    if balance < price:
+        discount_note = f" (sale: {int(_ev['shop_discount']*100)}% off)" if _ev["shop_discount"] > 0 else ""
         await bot.highrise.send_whisper(
             user.id,
-            f"Not enough coins!  {item['display']} costs {item['price']:,} coins "
+            f"Not enough coins!  {item['display']} costs {price:,} coins{discount_note} "
             f"but you only have {balance:,}."
         )
         return
 
-    success = db.buy_item(user.id, user.username, item_id, item_type, item["price"])
+    success = db.buy_item(user.id, user.username, item_id, item_type, price)
     if success:
-        new_balance = db.get_balance(user.id)
+        new_balance   = db.get_balance(user.id)
+        discount_note = f" 🏷️ {int(_ev['shop_discount']*100)}% sale!" if _ev["shop_discount"] > 0 else ""
         await bot.highrise.send_whisper(
             user.id,
-            f"✅ Purchased {item['display']}  {item_id}!\n"
-            f"Balance: {new_balance:,} coins\n"
-            f"Equip with: /equip {item_type} {item_id}"
+            f"✅ Purchased {item['display']}  {item_id}!{discount_note}\n"
+            f"Paid: {price:,}c | Balance: {new_balance:,}c\n"
+            f"Equip: /equip {item_type} {item_id}"
         )
         await check_achievements(bot, user, "purchase")
         from modules.quests import track_quest

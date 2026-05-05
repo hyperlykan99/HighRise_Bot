@@ -159,6 +159,7 @@ async def handle_answer(bot: BaseBot, user: User, answer_text: str):
     # Use the shared flexible matcher — handles case, punctuation, and whitespace
     if check_answer(answer_text, [_active["word"]]):
         # Compute reward with any equipped cosmetic bonuses
+        from modules.events import get_event_effect
         benefits      = get_player_benefits(user.id)
         base_reward   = db.get_economy_settings()["scramble_reward"]
         actual_reward = (
@@ -167,13 +168,20 @@ async def handle_answer(bot: BaseBot, user: User, answer_text: str):
             + benefits["scramble_bonus"]
         )
 
+        # Apply active event effects
+        _ev = get_event_effect()
+        actual_reward = int(actual_reward * _ev["coins"])
+        if _ev["trivia_coins_pct"] > 0:
+            actual_reward = int(actual_reward * (1.0 + _ev["trivia_coins_pct"]))
+        xp_amount = int(config.XP_SCRAMBLE * _ev["xp"])
+
         actual_reward = db.adjust_balance_capped(user.id, actual_reward)
         db.record_game_win(user.id, user.username, "scramble")
         track_quest(user.id, "game_win")
         track_quest(user.id, "earn_coins", actual_reward)
         if db.is_event_active():
             db.add_event_points(user.id, 1)
-        await leveling.award_xp(bot, user, config.XP_SCRAMBLE, actual_reward)
+        await leveling.award_xp(bot, user, xp_amount, actual_reward)
         await check_achievements(bot, user, "scramble_win")
         await check_achievements(bot, user, "game_win")
 

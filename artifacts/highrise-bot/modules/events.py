@@ -122,6 +122,49 @@ ALL_EVENT_ITEMS: dict[str, dict] = {**EVENT_BADGES, **EVENT_TITLES}
 
 
 # ---------------------------------------------------------------------------
+# Event effect helper  (imported by games, bank, shop, blackjack)
+# ---------------------------------------------------------------------------
+
+def get_event_effect() -> dict:
+    """
+    Return active event multipliers. Safe to call from any module.
+
+    Keys (defaults when no event is active):
+      coins           float  1.0   — multiply game coin rewards by this
+      xp              float  1.0   — multiply game XP awards by this
+      trivia_coins_pct float 0.0   — extra % on trivia/scramble/riddle coins
+      tax_free        bool  False  — zero /send tax when True
+      shop_discount   float 0.0   — fraction to subtract from shop prices
+      casino_bet_mult float 1.0   — multiply BJ/RBJ max_bet by this
+    """
+    info = db.get_active_event()
+    base: dict = {
+        "coins":           1.0,
+        "xp":              1.0,
+        "trivia_coins_pct": 0.0,
+        "tax_free":        False,
+        "shop_discount":   0.0,
+        "casino_bet_mult": 1.0,
+    }
+    if not info:
+        return base
+    eid = info["event_id"]
+    if eid == "double_xp":
+        base["xp"] = 2.0
+    elif eid == "double_coins":
+        base["coins"] = 2.0
+    elif eid == "casino_hour":
+        base["casino_bet_mult"] = 2.0
+    elif eid == "tax_free_bank":
+        base["tax_free"] = True
+    elif eid == "trivia_party":
+        base["trivia_coins_pct"] = 0.5   # +50% coins on game wins
+    elif eid == "shop_sale":
+        base["shop_discount"] = 0.20     # 20% off shop items
+    return base
+
+
+# ---------------------------------------------------------------------------
 # Asyncio timer
 # ---------------------------------------------------------------------------
 

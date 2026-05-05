@@ -423,9 +423,15 @@ async def _cmd_join(bot: BaseBot, user: User, args: list[str]):
     min_bet = int(s.get("min_bet", 10))
     max_bet = int(s.get("max_bet", 1000))
 
-    if bet < min_bet or bet > max_bet:
+    # casino_hour event doubles the max bet
+    from modules.events import get_event_effect as _gee
+    _ev_rbj      = _gee()
+    eff_max_bet  = int(max_bet * _ev_rbj["casino_bet_mult"])
+
+    if bet < min_bet or bet > eff_max_bet:
+        limit_note = f" (Casino Hour 2x limit!)" if _ev_rbj["casino_bet_mult"] > 1 else ""
         await bot.highrise.send_whisper(
-            user.id, f"Bet must be {min_bet:,}–{max_bet:,} coins."
+            user.id, f"Bet must be {min_bet:,}–{eff_max_bet:,} coins.{limit_note}"
         )
         return
 
