@@ -119,18 +119,29 @@ async def process_tip_event(bot: BaseBot, sender: User, receiver: User, tip) -> 
     try:
         from highrise import CurrencyItem  # local import avoids circular at module level
 
-        # ── Debug log: full event data ────────────────────────────────────
+        # ── Structured debug log (safe — never echoed to room chat) ─────────
+        is_currency = isinstance(tip, CurrencyItem)
+        _tip_class  = type(tip).__name__
+        _tip_kind   = getattr(tip, "type",   "?")
+        _tip_amt    = getattr(tip, "amount", "?")
+        _tip_iid    = getattr(tip, "id",     None)
         print(
-            f"[TIP] Event: sender=@{sender.username}({sender.id}) "
-            f"receiver=@{receiver.username}({receiver.id}) "
-            f"tip={tip!r}"
+            f"[TIP:DETAIL] "
+            f"event_class={_tip_class} | "
+            f"is_currency={is_currency} | "
+            f"currency_type={_tip_kind} | "
+            f"amount={_tip_amt}"
+            + (f" | item_id={_tip_iid}" if _tip_iid else "")
+            + f" | sender=@{sender.username}({sender.id})"
+            + f" | receiver=@{receiver.username}({receiver.id})"
+            + f" | raw={tip!r}"
         )
 
         if not isinstance(tip, CurrencyItem):
-            print(f"[TIP] Ignored — not CurrencyItem (type={type(tip).__name__})")
+            print(f"[TIP] Skip — not a CurrencyItem (got {_tip_class})")
             return
         if tip.type != "gold":
-            print(f"[TIP] Ignored — currency type '{tip.type}' (not gold)")
+            print(f"[TIP] Skip — currency_type='{tip.type}' (only 'gold' is converted)")
             return
 
         gold = tip.amount
@@ -140,7 +151,10 @@ async def process_tip_event(bot: BaseBot, sender: User, receiver: User, tip) -> 
         daily_cap = int(s.get("daily_cap_gold", 10000))
         rate      = int(s.get("coins_per_gold", 10))
 
-        print(f"[TIP] @{sender.username} tipped {gold}g (min={min_gold}, cap={daily_cap}, rate={rate})")
+        print(
+            f"[TIP] Processing: @{sender.username} | "
+            f"gold={gold} | min={min_gold} | daily_cap={daily_cap} | rate={rate}c/g"
+        )
 
         # ── Below minimum ─────────────────────────────────────────────────
         if gold < min_gold:

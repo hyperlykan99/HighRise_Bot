@@ -1232,10 +1232,29 @@ class HangoutBot(BaseBot):
 
     async def on_tip(self, sender: User, receiver: User, tip) -> None:
         """Convert incoming Highrise gold tips to in-game coins."""
+        # Raw entry log — fires unconditionally so event presence is always visible
+        try:
+            tip_type   = type(tip).__name__
+            tip_amount = getattr(tip, "amount", "?")
+            tip_kind   = getattr(tip, "type",   "?")   # "gold", "bubbles", etc.
+            tip_id     = getattr(tip, "id",     None)   # Item tips have an id
+            print(
+                f"[TIP:RAW] on_tip fired | "
+                f"event_class={tip_type} | "
+                f"currency_type={tip_kind} | "
+                f"amount={tip_amount}"
+                + (f" | item_id={tip_id}" if tip_id else "")
+                + f" | sender=@{sender.username}({sender.id})"
+                + f" | receiver=@{receiver.username}({receiver.id})"
+                + f" | raw={tip!r}"
+            )
+        except Exception as _log_err:
+            print(f"[TIP:RAW] on_tip fired (log error: {_log_err})")
+
         try:
             await process_tip_event(self, sender, receiver, tip)
         except Exception as e:
-            print(f"[TIP] Error processing tip from @{sender.username}: {e}")
+            print(f"[TIP] Error in process_tip_event for @{sender.username}: {e!r}")
 
     async def on_user_leave(self, user: User) -> None:
         """Log when a player leaves and remove from gold room cache."""
