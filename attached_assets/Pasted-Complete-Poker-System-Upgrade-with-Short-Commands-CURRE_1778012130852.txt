@@ -1,0 +1,1446 @@
+Complete Poker System Upgrade with Short Commands.
+
+CURRENT ISSUES:
+- Poker game can be lost after bot crash/restart.
+- Active poker table sometimes does not save.
+- Players have to scroll up to see their private cards.
+- Players want /poker hand to show current cards, board, and hand strength.
+- Players want /poker odds or /poker chance.
+- Poker needs leaderboards.
+- Poker needs all-in.
+- Poker needs raise limit ON/OFF.
+- Poker needs full settings like BJ/RBJ.
+- Poker needs shorter player commands like /p 1000, /check, /call, /r 100, /fold, /ai.
+- Poker must never get stuck after timeout, auto-fold, showdown, cancel, reset, refund, or restart.
+
+IMPORTANT:
+- Do not remove existing bot features.
+- Keep coins, XP, bank, shop, blackjack, RBJ, gold, VIP, notifications, reports, events, quests, staff roles, profiles, and maintenance tools.
+- Use SQLite.
+- Keep every Highrise message under 250 characters.
+- Prevent crashes from bad inputs.
+- Poker must use coins only.
+- Add explicit command routing before unknown-command fallback.
+- Poker must never deduct coins without either continuing, resolving, or refunding.
+- Short poker aliases must call the same existing poker functions. Do not duplicate poker logic inside aliases.
+
+==================================================
+PART 1: POKER MODE COMMANDS
+==================================================
+
+Player commands:
+- /poker join <buyin>
+- /poker leave
+- /poker players
+- /poker table
+- /poker hand
+- /poker cards
+- /poker odds
+- /poker chance
+- /poker check
+- /poker call
+- /poker raise <amount>
+- /poker fold
+- /poker allin
+- /poker all-in
+- /poker shove
+- /poker rules
+- /poker stats
+- /pokerstats
+- /pokerstats <username>
+- /poker leaderboard
+- /pokerleaderboard
+- /pokerlb
+- /pokerlb profit
+- /pokerlb wins
+- /pokerlb pots
+- /pokerlb streak
+- /pokerlb hands
+- /pokerlb allins
+- /pokerlb daily
+- /pokerlb weekly
+- /poker limits
+- /poker settings
+- /pokerhelp
+
+Staff commands:
+- /poker on
+- /poker off
+- /poker cancel
+- /poker reset
+- /poker state
+- /poker recover
+- /poker refund
+- /poker forcefinish
+- /pokerdebug
+- /pokerdebug players
+- /pokerdebug table
+- /pokerdebug state
+- /pokerfix
+- /pokerrefundall
+
+Settings commands:
+- /setpokertimer <seconds>
+- /setpokerturntimer <seconds>
+- /setpokerlobbytimer <seconds>
+- /setpokerbuyin <min> <max>
+- /setpokerraise <min> <max>
+- /setpokerplayers <min> <max>
+- /setpokerdailywinlimit <amount>
+- /setpokerdailylosslimit <amount>
+- /setpokerlimits <minbuyin> <maxbuyin> <minraise> <maxraise> <winlimit> <losslimit>
+- /resetpokerlimits <username>
+- /poker winlimit on
+- /poker winlimit off
+- /poker losslimit on
+- /poker losslimit off
+- /poker raiselimit on
+- /poker raiselimit off
+- /poker allin on
+- /poker allin off
+
+Permissions:
+- Players can use player commands.
+- Owner/admin/manager can use staff and settings commands.
+- Normal players trying staff/settings commands should see: "Staff only."
+- Owner/admin/manager only for debug, recovery, refund, reset, forcefinish, and settings.
+
+==================================================
+PART 2: SHORT POKER COMMANDS
+==================================================
+
+Add short aliases:
+
+Join:
+- /p <buyin>
+- /pj <buyin>
+Both act like /poker join <buyin>.
+
+Table:
+- /pt
+- /ptable
+Both act like /poker table.
+
+Hand/cards:
+- /ph
+- /pcards
+Both act like /poker hand.
+
+Odds:
+- /po
+- /podds
+Both act like /poker odds.
+
+Check:
+- /check
+- /ch
+Both act like /poker check.
+
+Call:
+- /call
+- /ca
+Both act like /poker call.
+
+Raise:
+- /raise <amount>
+- /r <amount>
+Both act like /poker raise <amount>.
+
+Fold:
+- /fold
+- /f
+Both act like /poker fold.
+
+All-in:
+- /allin
+- /all-in
+- /shove
+- /ai
+All act like /poker allin.
+
+Players:
+- /pp
+- /pplayers
+Both act like /poker players, but only if /pp does not already exist.
+
+Stats:
+- /pstats
+Acts like /pokerstats.
+If /ps already exists, do not use /ps.
+
+Leaderboard:
+- /plb
+- /pleaderboard
+Both act like /pokerlb.
+
+Help:
+- /phelp
+Acts like /pokerhelp.
+
+Interference prevention:
+1. /p <number> should only mean poker join if the second token is a valid positive number.
+   - /p 1000 = poker join 1000
+   - /p hello = "Use /p <buyin>."
+2. /r <number> should only mean poker raise if the second token is a valid positive number.
+   - /r 100 = poker raise 100
+   - /r hello = "Use /r <amount>."
+3. /check, /call, /raise, /fold, /allin should only work for poker if:
+   - there is an active poker table, and
+   - the user is in the active poker hand.
+   Otherwise reply:
+   "No poker hand active. Use /p <buyin>."
+4. /f should only fold if the user is currently in an active poker hand.
+   If not in poker, say:
+   "You are not in poker."
+5. Do not use /b, /s, /h, /c as aliases because they may conflict with balance, shop, help, casino, or other commands.
+6. Do not override existing commands:
+   - /help
+   - /shop
+   - /balance
+   - /bank
+   - /bj
+   - /rbj
+   - /send
+   - /profile
+   - /daily
+   - /event
+   - /report
+   - /rules
+   - /gold
+   - /vip
+   - /quest
+
+Implement helper:
+normalize_poker_alias(command, args, username)
+
+Examples:
+- /p 1000 -> /poker join 1000
+- /pj 1000 -> /poker join 1000
+- /pt -> /poker table
+- /ph -> /poker hand
+- /po -> /poker odds
+- /check -> /poker check
+- /call -> /poker call
+- /raise 100 -> /poker raise 100
+- /r 100 -> /poker raise 100
+- /fold -> /poker fold
+- /allin -> /poker allin
+- /ai -> /poker allin
+- /plb -> /pokerlb
+
+Routing:
+- Check exact aliases before unknown-command fallback.
+- Validate arguments before calling poker logic.
+- All aliases should call the same existing poker functions.
+- Do not duplicate poker game logic inside aliases.
+
+Alias error messages:
+- /p without amount: "Use /p <buyin>. Example: /p 1000"
+- /r without amount: "Use /r <amount>. Example: /r 100"
+- /raise without amount: "Use /raise <amount>."
+- /check outside poker: "No poker hand active. Use /p <buyin>."
+- /fold but not in hand: "You are not in poker."
+- Not their turn: "Not your turn."
+
+==================================================
+PART 3: DEFAULT SETTINGS
+==================================================
+
+Use/create poker_settings table:
+- key TEXT PRIMARY KEY
+- value TEXT
+
+Default settings if missing:
+- poker_enabled = true
+- min_buyin = 100
+- max_buyin = 5000
+- min_players = 2
+- max_players = 6
+- lobby_countdown = 15
+- turn_timer = 20
+- min_raise = 50
+- max_raise = 1000
+- raise_limit_enabled = true
+- allin_enabled = true
+- daily_win_limit = 10000
+- daily_loss_limit = 5000
+- win_limit_enabled = true
+- loss_limit_enabled = true
+- poker_buyin_to_pot = false
+
+Validation:
+- min_buyin must be at least 1.
+- max_buyin must be >= min_buyin.
+- min_players must be at least 2.
+- max_players must be between 2 and 6.
+- min_players cannot be greater than max_players.
+- lobby_countdown must be 5 to 120 seconds.
+- turn_timer must be 10 to 60 seconds.
+- min_raise must be at least 1.
+- max_raise must be >= min_raise.
+- daily win/loss limits must be positive.
+
+==================================================
+PART 4: SETTINGS COMMAND BEHAVIOR
+==================================================
+
+/setpokertimer <seconds>
+- Alias for /setpokerturntimer.
+- Sets poker turn timer.
+- Message: "✅ Poker turn timer set to 30s."
+
+/setpokerturntimer <seconds>
+- Sets poker turn timer.
+- Message: "✅ Poker turn timer set to 30s."
+
+/setpokerlobbytimer <seconds>
+- Sets poker lobby countdown.
+- Message: "✅ Poker lobby timer set to 15s."
+
+/setpokerbuyin <min> <max>
+- Sets min/max buy-in.
+- Message: "✅ Poker buy-in set: 100-5000c."
+
+/setpokerraise <min> <max>
+- Sets min/max raise.
+- Message: "✅ Poker raise set: 50-1000c."
+
+/setpokerplayers <min> <max>
+- Sets min/max players.
+- Message: "✅ Poker players set: 2-6."
+
+/setpokerdailywinlimit <amount>
+- Sets poker daily win/profit limit.
+- Message: "✅ Poker win limit set to 10000c."
+
+/setpokerdailylosslimit <amount>
+- Sets poker daily loss limit.
+- Message: "✅ Poker loss limit set to 5000c."
+
+/setpokerlimits <minbuyin> <maxbuyin> <minraise> <maxraise> <winlimit> <losslimit>
+- Sets all main limits at once.
+- Message: "✅ Poker limits updated."
+
+/poker winlimit on/off
+- Enables/disables daily win limit.
+- Messages:
+"✅ Poker win limit ON."
+"⛔ Poker win limit OFF."
+
+/poker losslimit on/off
+- Enables/disables daily loss limit.
+- Messages:
+"✅ Poker loss limit ON."
+"⛔ Poker loss limit OFF."
+
+/poker raiselimit on/off
+- Enables/disables raise min/max enforcement.
+- Messages:
+"✅ Poker raise limit ON."
+"⛔ Poker raise limit OFF."
+
+/poker allin on/off
+- Enables/disables all-in.
+- Messages:
+"✅ Poker all-in ON."
+"⛔ Poker all-in OFF."
+
+/resetpokerlimits <username>
+- Resets that user's daily poker net for today.
+- Does not change lifetime stats.
+- Message: "✅ Poker daily limits reset for @username."
+
+/poker settings:
+"♠️ Poker ON | All-in ON | RaiseLimit ON | Turn 30s"
+
+/poker settings 2:
+"♠️ Poker 2 | Lobby 15s | Players 2-6 | Buy 100-5000c"
+
+/poker limits:
+"♠️ Buy 100-5000c | Raise 50-1000c ON | W/L 10000/5000 ON/ON"
+
+If raise limit is OFF:
+"♠️ Buy 100-5000c | Raise limit OFF | W/L 10000/5000 ON/ON"
+
+==================================================
+PART 5: DATABASE TABLES
+==================================================
+
+Create/fix SQLite tables and migrations safely.
+
+poker_active_table:
+- id INTEGER PRIMARY KEY CHECK (id = 1)
+- active INTEGER DEFAULT 0
+- phase TEXT
+  Values: idle, lobby, preflop, flop, turn, river, showdown, finished, recovery_required
+- round_id TEXT
+- created_at TEXT
+- updated_at TEXT
+- lobby_started_at TEXT
+- lobby_ends_at TEXT
+- round_started_at TEXT
+- turn_ends_at TEXT
+- current_player_index INTEGER DEFAULT 0
+- dealer_button_index INTEGER DEFAULT 0
+- deck_json TEXT
+- community_cards_json TEXT
+- pot INTEGER DEFAULT 0
+- current_bet INTEGER DEFAULT 0
+- last_raiser_username TEXT
+- side_pots_json TEXT
+- settings_snapshot_json TEXT
+- restored_after_restart INTEGER DEFAULT 0
+
+poker_active_players:
+- id INTEGER PRIMARY KEY AUTOINCREMENT
+- round_id TEXT
+- username TEXT
+- user_id TEXT
+- buyin INTEGER
+- stack INTEGER
+- current_bet INTEGER DEFAULT 0
+- total_contributed INTEGER DEFAULT 0
+- hole_cards_json TEXT
+- status TEXT
+  Values: lobby, active, folded, allin, busted, done, left
+- allin_amount INTEGER DEFAULT 0
+- acted INTEGER DEFAULT 0
+- joined_at TEXT
+- acted_at TEXT
+- result TEXT
+- payout INTEGER DEFAULT 0
+- UNIQUE(round_id, username)
+
+poker_round_results:
+- id INTEGER PRIMARY KEY AUTOINCREMENT
+- round_id TEXT
+- username TEXT
+- buyin INTEGER
+- result TEXT
+- payout INTEGER
+- net INTEGER
+- paid INTEGER DEFAULT 0
+- timestamp TEXT
+- UNIQUE(round_id, username)
+
+poker_stats:
+- username TEXT PRIMARY KEY
+- hands_played INTEGER DEFAULT 0
+- wins INTEGER DEFAULT 0
+- losses INTEGER DEFAULT 0
+- folds INTEGER DEFAULT 0
+- showdowns INTEGER DEFAULT 0
+- allins INTEGER DEFAULT 0
+- total_buyin INTEGER DEFAULT 0
+- total_pot_won INTEGER DEFAULT 0
+- total_won INTEGER DEFAULT 0
+- total_lost INTEGER DEFAULT 0
+- net_profit INTEGER DEFAULT 0
+- biggest_pot INTEGER DEFAULT 0
+- biggest_win INTEGER DEFAULT 0
+- current_win_streak INTEGER DEFAULT 0
+- best_win_streak INTEGER DEFAULT 0
+- last_played_at TEXT
+
+poker_daily_limits:
+- username TEXT
+- date TEXT
+- net INTEGER DEFAULT 0
+- PRIMARY KEY(username, date)
+
+poker_daily_stats:
+- username TEXT
+- date TEXT
+- hands_played INTEGER DEFAULT 0
+- wins INTEGER DEFAULT 0
+- losses INTEGER DEFAULT 0
+- net_profit INTEGER DEFAULT 0
+- biggest_pot INTEGER DEFAULT 0
+- PRIMARY KEY(username, date)
+
+poker_recovery_logs:
+- id INTEGER PRIMARY KEY AUTOINCREMENT
+- timestamp TEXT
+- action TEXT
+- round_id TEXT
+- phase TEXT
+- details TEXT
+
+==================================================
+PART 6: BUY-IN, STACK, AND POT SYSTEM
+==================================================
+
+Fix buy-in and pot logic.
+
+Rules:
+- When a player joins with /poker join <buyin> or /p <buyin>, deduct buyin immediately from their coin balance.
+- Save player to poker_active_players immediately.
+- Save active table immediately.
+- The buyin becomes player's poker stack for the round.
+- Pot starts at 0 by default.
+- Do NOT add entire buyin to pot unless poker_buyin_to_pot is true.
+- Default poker_buyin_to_pot = false.
+- Chips go into pot only through call/raise/all-in.
+- Player stack is separate from coin balance.
+- At hand end:
+  - Winner receives pot or side pot shares.
+  - Each player receives uncommitted remaining stack back.
+  - Folded players lose contributed chips but get uncommitted stack back.
+- Never deduct buy-in without saved table state.
+
+Example:
+Player joins with 1000c:
+- coin balance -1000
+- poker stack = 1000
+- pot = 0
+
+Player raises 100:
+- stack = 900
+- current_bet = 100
+- total_contributed += 100
+- pot += 100
+
+Player folds:
+- contributed chips stay in pot
+- remaining stack is returned at hand end
+
+==================================================
+PART 7: BETTING RULES
+==================================================
+
+Betting rounds:
+- preflop
+- flop
+- turn
+- river
+
+Actions:
+- /poker check, /check, /ch
+  Allowed only if table current_bet == player current_bet.
+- /poker call, /call, /ca
+  Player contributes difference between table current_bet and player current_bet.
+- /poker raise <amount>, /raise <amount>, /r <amount>
+  Amount means raise by amount above current_bet.
+- /poker fold, /fold, /f
+  Player folds and cannot win pot.
+- /poker allin, /allin, /ai, /shove
+  Player commits all remaining stack.
+
+Raise rules:
+- If raise_limit_enabled is true:
+  - raise must be between min_raise and max_raise.
+- If raise_limit_enabled is false:
+  - ignore max_raise.
+  - still require amount >= 1.
+  - still require player has enough stack unless using all-in.
+- Player cannot raise more than stack unless using /poker allin.
+- If raise amount equals remaining stack, allow and mark all-in.
+
+Messages:
+If below min: "Minimum raise is 50c."
+If above max: "Maximum raise is 1000c."
+If not enough stack: "Not enough poker chips."
+
+==================================================
+PART 8: ALL-IN FEATURE
+==================================================
+
+Add:
+- /poker allin
+- /poker all-in
+- /poker shove
+- /allin
+- /all-in
+- /shove
+- /ai
+
+Rules:
+- Only on player's turn.
+- Player must be active in hand.
+- Player cannot be folded/done.
+- If allin_enabled is false, say: "All-in is currently disabled."
+- All-in commits entire remaining poker stack.
+- Add stack to pot.
+- Add stack to total_contributed.
+- Set allin_amount.
+- Set stack = 0.
+- Set status = allin.
+- Set acted = 1.
+- Save state immediately.
+- Then call advance_turn_or_round().
+
+Message:
+"🔥 @user is ALL-IN for 900c! Pot: 1500c."
+
+If player has 0 stack:
+"Already all-in."
+
+If not turn:
+"Not your turn."
+
+Calling all-in:
+- If player does not have enough stack to fully call:
+  - Treat call as all-in call.
+  - Commit remaining stack.
+  - Set status = allin.
+  - Message: "🔥 @user calls all-in for 300c."
+- Prefer side pot support.
+
+Turn flow with all-in:
+- All-in players do not act again.
+- Skip all-in players in turn rotation.
+- All-in players remain eligible for showdown.
+- If all remaining active players are all-in or matched current_bet:
+  - Auto-deal remaining community cards to showdown.
+  - Resolve showdown.
+- If everyone is all-in before river:
+  - Announce: "🔥 All-in showdown! Dealing remaining cards."
+
+==================================================
+PART 9: SIDE POT SUPPORT
+==================================================
+
+Implement side pots if possible.
+
+Store side_pots_json in poker_active_table.
+
+Each side pot:
+- amount
+- eligible_usernames
+
+Rules:
+- Calculate side pots from total_contributed.
+- A player can only win pots they are eligible for.
+- Folded players cannot win any pot.
+- At showdown, evaluate winners for each pot separately.
+- Split tied pots evenly.
+- Remainder coin goes to first winner by table order.
+
+If full side pot support is too complex:
+- Implement safe All-In Lite.
+- Allow all-in only when no side pot is needed.
+- If side pot is needed, block and say:
+"All-in side pots coming soon."
+But preferred behavior is full side pot support.
+
+==================================================
+PART 10: ADVANCE TURN OR ROUND
+==================================================
+
+Create one reliable function:
+advance_turn_or_round()
+
+It must:
+1. Load latest table/player state.
+2. Save state before and after changes.
+3. Check active non-folded players.
+4. If only one active non-folded player remains:
+   - finish hand immediately using reason everyone_folded.
+5. Skip folded, done, and all-in players.
+6. If all active non-folded/non-allin players matched current_bet and acted:
+   - advance phase.
+7. Phase advance:
+   - preflop -> flop: deal 3 community cards
+   - flop -> turn: deal 1 card
+   - turn -> river: deal 1 card
+   - river -> showdown
+8. Reset table current_bet to 0 at new street.
+9. Reset each active player's current_bet to 0 at new street.
+10. Reset acted = 0 for active non-allin players at new street.
+11. If all remaining players are all-in, deal remaining board and showdown.
+12. Start next player turn.
+13. Save to SQLite after each step.
+
+Use this function after:
+- check
+- call
+- raise
+- fold
+- allin
+- auto-fold
+- auto-check
+- timeout
+- leave before start
+- forcefinish
+
+Do not duplicate poker flow logic across commands.
+
+==================================================
+PART 11: TABLE CLEANUP AND PAYOUT SAFETY
+==================================================
+
+Create helper:
+finish_poker_hand(reason)
+
+Reasons:
+- showdown
+- everyone_folded
+- cancelled
+- forcefinish
+- recovery_refund
+- not_enough_players
+
+When hand ends:
+- Pay winner(s).
+- Return uncommitted stacks.
+- Update stats.
+- Update daily limits.
+- Mark round results paid.
+- Clear poker_active_table or set active = 0 and phase = idle.
+- Clear poker_active_players for that round only after payouts/refunds are logged.
+- Cancel timers.
+- Allow new /poker join.
+
+Prevent duplicate payouts:
+- Use poker_round_results.
+- Never pay same round_id + username twice.
+- If bot crashes during payout:
+  - recovery continues unpaid results only.
+  - completed payouts are not repeated.
+- Log every payout/refund in economy ledger.
+
+Payout calculations:
+- Winner payout = pot/side pot share + uncommitted stack return.
+- Loser/folded payout = uncommitted stack return only.
+- Net = payout - original buyin.
+- Update poker daily limit net using final net.
+
+Never leave phase active after hand is done.
+
+==================================================
+PART 12: HAND EVALUATION
+==================================================
+
+Evaluate best 5-card hand from:
+- 2 hole cards
+- 5 community cards
+
+Hand rankings:
+1. Royal Flush
+2. Straight Flush
+3. Four of a Kind
+4. Full House
+5. Flush
+6. Straight
+7. Three of a Kind
+8. Two Pair
+9. Pair
+10. High Card
+
+Ties:
+- Split pot evenly.
+- Remainder coin goes to first winner by table order.
+
+Showdown message:
+"🏆 Winner: @user with Flush. Pot: 500c."
+
+If split:
+"🤝 Split pot: @u1, @u2 each get 250c."
+
+==================================================
+PART 13: PRIVATE CARDS AND HAND DISPLAY
+==================================================
+
+Add/fix:
+- /poker hand
+- /poker cards
+- /ph
+- /pcards
+
+All show the requesting player's:
+- private cards
+- current board
+- current hand strength
+- draw info if possible
+
+Examples:
+"🂡 A♠ K♦ | Board: A♥ 7♣ 2♦ | Pair of Aces"
+
+With draw:
+"🂡 J♠ 10♠ | Board: 2♠ 7♠ K♦ | High Card + Flush Draw"
+
+Never reveal private cards publicly.
+
+When it is a player's turn:
+Public:
+"➡️ @user turn. Pot 300c | To call 100c. Use /ph."
+
+Whisper/private if possible:
+"🂡 A♠ K♦ | Board: A♥ 7♣ 2♦ | Pair of Aces"
+
+If whisper fails:
+"@user, use /ph to see your cards."
+
+==================================================
+PART 14: HAND STRENGTH AND DRAWS
+==================================================
+
+Add evaluator for current hand strength using:
+- player's 2 hole cards
+- current community cards
+
+Show:
+- High Card
+- Pair
+- Two Pair
+- Three of a Kind
+- Straight
+- Flush
+- Full House
+- Four of a Kind
+- Straight Flush
+- Royal Flush
+
+Also detect draws:
+- Flush Draw
+- Straight Draw
+- Open-ended Straight Draw
+- Gutshot Straight Draw
+- Overcards if possible
+
+Do not show other players' hole cards.
+
+==================================================
+PART 15: ODDS / WIN CHANCE
+==================================================
+
+Add:
+- /poker odds
+- /poker chance
+- /po
+- /podds
+
+Preferred:
+Use lightweight Monte Carlo simulation.
+
+Monte Carlo rules:
+- Use remaining deck from deck_json.
+- Simulate remaining community cards.
+- Compare all active non-folded players.
+- Run 200-500 simulations to avoid lag.
+- Return approximate win percentage.
+- Only include active players.
+- Do not reveal other players' cards.
+
+Message:
+"📊 Pair of Aces | Win chance: ~42%"
+
+If simulation is too slow/not implemented:
+"📊 Pair of Aces | Chance unavailable."
+
+Also show odds privately on player turn if possible:
+"📊 Pair of Aces | Win chance ~42%"
+
+==================================================
+PART 16: PUBLIC TABLE DISPLAY
+==================================================
+
+/poker table, /pt, /ptable should show public info only.
+
+Examples:
+"♠️ Flop | Board A♥ 7♣ 2♦ | Pot 300c | Turn @Marion"
+
+Include:
+- phase
+- board
+- pot
+- to call
+- current turn
+
+Do not show private player cards.
+
+==================================================
+PART 17: READABLE POKER MESSAGES
+==================================================
+
+Use short clear messages.
+
+Lobby opened:
+"♠️ Poker lobby open! /p <buyin>. Starts in 15s."
+
+Player joined:
+"✅ @user joined Poker with 1000c. Players: 2/6"
+
+Not enough players:
+"Poker cancelled. Need 2+ players. Buy-ins refunded."
+
+Hand started:
+"♠️ Poker started! Pot: 0c. Check /ph."
+
+Flop:
+"🃏 Flop: A♠ 7♦ 2♣ | Pot: 300c"
+
+Turn:
+"🃏 Turn: K♥ | Board: A♠ 7♦ 2♣ K♥"
+
+River:
+"🃏 River: 9♣ | Board: A♠ 7♦ 2♣ K♥ 9♣"
+
+Player turn:
+"➡️ @user turn | Pot 300c | To call 100c | /call, /r, /fold"
+
+Free check:
+"➡️ @user turn | Pot 300c | Free check | /check or /r"
+
+Check:
+"✅ @user checks."
+
+Call:
+"✅ @user calls 100c. Pot: 400c."
+
+Raise:
+"⬆️ @user raises 200c. To call: 200c."
+
+Fold:
+"🂠 @user folds."
+
+All-in:
+"🔥 @user is ALL-IN for 900c! Pot: 1500c."
+
+Auto-fold:
+"⏰ @user timed out and folded."
+
+Auto-check:
+"⏰ @user timed out and checked."
+
+Win by folds:
+"🏆 @user wins 500c. Everyone else folded."
+
+Showdown:
+"👀 Showdown! Board: A♠ 7♦ 2♣ K♥ 9♣"
+
+Winner:
+"🏆 @user wins 800c with Two Pair."
+
+Restored:
+"♻️ Poker restored. Cards, pot, and bets loaded."
+
+Table cleared:
+"♠️ Poker table closed. New game: /p <buyin>"
+
+All messages under 250 characters.
+
+==================================================
+PART 18: TIMERS
+==================================================
+
+Use asyncio.create_task.
+Do not use time.sleep.
+
+Lobby timer:
+- Start when first player joins.
+- Save lobby_ends_at in SQLite.
+- If not enough players at end, cancel and refund.
+- If enough players, start hand.
+
+Turn timer:
+- Save turn_ends_at in SQLite.
+- If player acts, cancel timer.
+- If timer fires:
+  - auto-check if no call required.
+  - auto-fold if call required.
+  - then advance_turn_or_round().
+
+Safety:
+- If timer fires but table not active, do nothing.
+- If timer fires but not that player's turn, do nothing.
+- If hand already ended, do nothing.
+
+==================================================
+PART 19: CRASH / RESTART RECOVERY
+==================================================
+
+Poker must recover like RBJ.
+
+Save poker state after every important action:
+- deck_json
+- community_cards_json
+- hole_cards_json
+- pot
+- side_pots_json
+- stacks
+- current_bets
+- total_contributed
+- statuses
+- all-in state
+- acted flags
+- phase
+- current player
+- timers
+- round_id
+
+On bot startup/reconnect/softrestart:
+1. Check poker_active_table.
+2. If active = 1 and phase is lobby:
+   - restore players and buy-ins.
+   - continue countdown.
+   - if expired, start if enough players, else refund.
+3. If active = 1 and phase is preflop/flop/turn/river/showdown:
+   - restore deck, board, hole cards, pot, side pots, stacks, bets, statuses, turn, timers.
+   - announce:
+"♻️ Poker restored. Cards, pot, and bets loaded."
+   - whisper active players:
+"♻️ Poker restored. Use /ph."
+   - if turn timer expired, auto-check or auto-fold.
+   - if all remaining players are all-in, continue to showdown.
+4. If state corrupted:
+   - mark recovery_required.
+   - do not erase bets.
+   - tell staff:
+"⚠️ Poker recovery needed. Use /poker recover or /poker refund."
+
+Recovery commands:
+- /poker state
+- /poker recover
+- /poker refund
+- /poker forcefinish
+
+/poker state:
+"Poker active | Flop | Pot 500c | Turn @user"
+
+/poker recover:
+- reloads from SQLite.
+- continues game.
+- message:
+"♻️ Poker recovered. Previous cards loaded."
+
+/poker refund:
+- refunds unresolved stacks/contributions safely.
+- clears table.
+- logs reason poker_recovery_refund.
+
+/poker forcefinish:
+- attempts to finish hand from saved state.
+- if impossible, say use /poker refund.
+
+==================================================
+PART 20: /SOFTRESTART INTEGRATION
+==================================================
+
+Update /softrestart:
+- Save active poker state before cancelling timers.
+- Cancel poker lobby/turn timers safely.
+- Reload poker settings.
+- Recover poker active state from SQLite.
+- If poker was active, announce:
+"♻️ Poker restored. Cards, pot, and bets loaded."
+- Do not refund/clear poker unless staff uses /poker refund/reset.
+
+Update /restartstatus:
+- Include "Poker idle", "Poker active", or "Poker recovery needed".
+
+Update /healthcheck:
+- Include poker state and recovery_required.
+
+==================================================
+PART 21: DAILY LIMITS
+==================================================
+
+Poker daily limits:
+- /poker limits
+- /setpokerdailywinlimit <amount>
+- /setpokerdailylosslimit <amount>
+- /poker winlimit on/off
+- /poker losslimit on/off
+- /resetpokerlimits <username>
+
+Rules:
+- Track daily net poker profit/loss.
+- If winlimit ON and player reached daily win limit, block /poker join.
+- If losslimit ON and player reached daily loss limit, block /poker join.
+- If buyin could exceed remaining daily loss limit, block.
+- If limit is OFF, do not block.
+- Store in SQLite.
+
+Messages:
+"Poker win limit reached. Try tomorrow."
+"Poker loss limit reached. Try tomorrow."
+"Buy-in too high for daily loss limit."
+
+==================================================
+PART 22: POKER STATS AND LEADERBOARDS
+==================================================
+
+Update poker stats whenever a hand finishes:
+- Every player gets hands_played +1.
+- Winner(s) get wins +1.
+- Losers get losses +1.
+- Folded players get folds +1.
+- All-in players get allins +1 when they go all-in.
+- Showdown players get showdowns +1.
+- total_buyin updates.
+- total_won updates from payouts.
+- total_lost updates from losses.
+- net_profit updates from hand net.
+- biggest_pot updates if player wins larger pot.
+- biggest_win updates if single hand net is larger.
+- streak updates.
+
+Commands:
+- /poker leaderboard
+- /pokerleaderboard
+- /pokerlb
+- /plb
+- /pokerlb profit
+- /pokerlb wins
+- /pokerlb pots
+- /pokerlb streak
+- /pokerlb hands
+- /pokerlb allins
+- /pokerlb daily
+- /pokerlb weekly
+- /pokerstats
+- /pokerstats <username>
+- /pstats
+- /poker stats
+- /poker stats <username>
+
+Default /pokerlb and /plb = profit.
+
+Show top 5 only.
+
+Messages:
+/pokerlb profit:
+"♠️ Poker Profit
+1. @A +5000c
+2. @B +3200c
+3. @C +900c"
+
+/pokerlb wins:
+"♠️ Poker Wins
+1. @A 12W
+2. @B 9W
+3. @C 5W"
+
+/pokerlb pots:
+"♠️ Biggest Pots
+1. @A 8000c
+2. @B 5000c
+3. @C 3000c"
+
+/pokerlb streak:
+"♠️ Win Streaks
+1. @A 5
+2. @B 3
+3. @C 2"
+
+/pokerlb hands:
+"♠️ Poker Hands
+1. @A 120
+2. @B 80
+3. @C 50"
+
+/pokerlb allins:
+"♠️ All-In Kings
+1. @A 12
+2. @B 9
+3. @C 5"
+
+/pokerstats:
+"♠️ Poker: 12W/8L | Net +2500c | All-ins 3"
+
+/pokerlb daily:
+"♠️ Daily Poker
+1. @A +1200c
+2. @B +900c"
+
+/pokerlb weekly:
+If weekly is too complex:
+"Weekly poker leaderboard coming soon."
+Otherwise derive from daily stats.
+
+==================================================
+PART 23: DEBUG COMMANDS
+==================================================
+
+Fix/add:
+- /pokerdebug
+- /pokerdebug players
+- /pokerdebug table
+- /pokerdebug state
+- /pokerfix
+- /pokerrefundall
+
+Permissions:
+- Owner/admin/manager only.
+
+/pokerdebug:
+"♠️ Debug | Phase flop | Pot 500c | Bet 100c | Turn @user | Deck 45"
+
+/pokerdebug players:
+Show:
+- username
+- stack
+- current_bet
+- contributed
+- status
+- acted
+
+If too long, paginate:
+/pokerdebug players 1
+/pokerdebug players 2
+
+/pokerdebug state:
+"State: DB yes | Memory yes | Match yes | Recovery no | Active yes"
+
+/pokerfix:
+- If memory missing but DB active exists, recover.
+- If only one active player remains, finish hand.
+- If all acted and matched current_bet, advance phase.
+- If impossible, tell staff to use /poker refund.
+
+/pokerrefundall:
+- Refund unresolved active poker buy-ins/stacks/contributions.
+- Clear active table.
+- Cancel timers.
+- Do not erase stats.
+
+==================================================
+PART 24: ON/OFF, CANCEL, RESET
+==================================================
+
+/poker on:
+"✅ Poker is now ON."
+
+/poker off:
+"⛔ Poker is now OFF."
+- Blocks new lobbies.
+- Existing table can continue unless staff cancels.
+
+/poker cancel:
+- Staff only.
+- Cancels lobby/hand.
+- Refunds unresolved chips safely.
+- Clears table.
+- Cancels timers.
+
+/poker reset:
+- Staff only.
+- Strong cleanup for stuck poker.
+- Refunds unresolved chips.
+- Clears active table.
+- Does not erase poker stats.
+
+==================================================
+PART 25: HELP UPDATE
+==================================================
+
+Update /pokerhelp:
+
+/pokerhelp 1:
+"♠️ Poker
+Join: /p 1000
+Hand: /ph
+Table: /pt
+/check /call /raise 100 /fold"
+
+/pokerhelp 2:
+"♠️ Poker 2
+All-in: /allin or /ai
+Odds: /po
+Stats: /pstats
+LB: /plb"
+
+/pokerhelp 3 staff only:
+"♠️ Poker Staff
+/poker settings
+/setpokertimer <sec>
+/setpokerbuyin min max
+/setpokerraise min max"
+
+/pokerhelp 4 staff only:
+"♠️ Poker Limits
+/setpokerdailywinlimit <amt>
+/setpokerdailylosslimit <amt>
+/poker winlimit on/off
+/poker losslimit on/off"
+
+/pokerhelp 5 staff only:
+"♠️ Poker Advanced
+/poker state
+/poker recover
+/poker refund
+/pokerdebug
+/pokerfix"
+
+/pokerhelp 6 staff only:
+"♠️ Poker All-In
+/poker allin on/off
+/poker raiselimit on/off
+/pokerrefundall"
+
+Update /casinohelp:
+"Poker quick: /p <buyin>, /ph, /pt, /check, /call, /raise, /fold"
+
+Update /managerhelp and /allcommands:
+Include poker settings, recovery, debug, leaderboard, all-in, and aliases.
+
+==================================================
+PART 26: ROUTING REQUIREMENT
+==================================================
+
+Add explicit routing before unknown-command fallback for all poker commands and aliases listed in this prompt, especially:
+- /p
+- /pj
+- /pt
+- /ptable
+- /ph
+- /pcards
+- /po
+- /podds
+- /check
+- /ch
+- /call
+- /ca
+- /raise
+- /r
+- /fold
+- /f
+- /allin
+- /all-in
+- /shove
+- /ai
+- /pp
+- /pplayers
+- /pstats
+- /plb
+- /phelp
+- /setpokertimer
+- /setpokerturntimer
+- /setpokerlobbytimer
+- /setpokerbuyin
+- /setpokerraise
+- /setpokerplayers
+- /setpokerdailywinlimit
+- /setpokerdailylosslimit
+- /setpokerlimits
+- /resetpokerlimits
+- /poker winlimit on/off
+- /poker losslimit on/off
+- /poker raiselimit on/off
+- /poker allin on/off
+- /poker odds
+- /poker chance
+- /poker hand
+- /poker cards
+- /pokerlb
+- /pokerstats
+- /pokerdebug
+- /pokerfix
+- /pokerrefundall
+
+No poker command should fail silently. If parsing fails, reply with usage.
+
+==================================================
+PART 27: TESTS
+==================================================
+
+Test aliases:
+- /p 1000
+- /pj 1000
+- /pt
+- /ph
+- /po
+- /check
+- /call
+- /raise 100
+- /r 100
+- /fold
+- /f
+- /allin
+- /ai
+- /pstats
+- /plb
+- /phelp
+
+Test invalid aliases:
+- /p
+- /p hello
+- /r
+- /r hello
+- /check when no poker table is active
+- /fold when not in poker
+
+Test settings:
+- /setpokertimer 30
+- /setpokerlobbytimer 20
+- /setpokerbuyin 100 10000
+- /setpokerraise 100 2000
+- /poker raiselimit off
+- /poker raiselimit on
+- /poker allin on
+- /poker settings
+- /poker limits
+
+Test save state:
+- /p 1000 with 2 players
+- game starts
+- /ph
+- /pt
+- /pokerdebug state
+Expected:
+- DB active yes
+- player cards saved
+- deck saved
+- pot saved
+
+Test crash recovery:
+- start poker
+- make a raise/call
+- /softrestart
+Expected:
+- poker restored
+- same cards
+- same board
+- same pot
+- same turn
+- message says previous cards loaded
+
+Test player card display:
+- /ph
+Expected:
+- private cards, board, and hand strength shown
+
+Test odds:
+- /po
+Expected:
+- hand type and approximate win chance or simple strength
+
+Test auto-fold:
+- player times out when call required
+Expected:
+- auto-fold
+- table continues
+- if one player remains, hand finishes and clears
+
+Test all-in:
+- /ai
+Expected:
+- stack goes to 0
+- pot updates
+- status allin
+- all-in player skipped in future turns
+
+Test all players all-in:
+Expected:
+- bot deals remaining board
+- showdown resolves
+- table clears
+
+Test leaderboards:
+- finish at least one hand
+- /pokerstats
+- /pokerlb
+- /pokerlb wins
+- /pokerlb pots
+- /pokerlb allins
+
+Final requirements:
+- Poker must never lose active game after crash/restart.
+- Poker must save cards/deck/pot/bets/all-in state like RBJ.
+- Poker must notify players when previous cards are restored.
+- Players can check current cards using /ph or /poker hand anytime.
+- Players can see hand strength and estimated win chance using /po or /poker odds.
+- Poker stats and leaderboards update after every completed hand.
+- All-in must never create stuck tables, duplicate payouts, lost chips, or impossible turns.
+- Short aliases must not interfere with existing non-poker commands.

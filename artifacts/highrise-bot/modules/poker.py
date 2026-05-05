@@ -810,8 +810,7 @@ async def _start_hand(bot: BaseBot, tbl: dict, players: list[dict]) -> None:
     )
 
     await _chat(bot,
-        f"♠️ Poker started! Pot:{initial_pot}c. "
-        f"Use /poker hand for your cards.")
+        f"♠️ Poker started! Pot:{initial_pot}c. Check /ph for your cards.")
 
     # Find first active player
     players = _get_players(round_id)
@@ -1100,7 +1099,7 @@ async def _handle_join(bot: BaseBot, user: User, args: list[str]) -> None:
 
     if is_new_lobby:
         await _chat(bot,
-            f"♠️ Poker lobby open! /poker join <buyin>. Starts in {lob_sec}s.")
+            f"♠️ Poker lobby open! /p <buyin>. Starts in {lob_sec}s.")
         await _chat(bot,
             f"✅ @{user.username} joined Poker with {buyin}c. Players:{count}/{max_pl}")
         _lobby_task = asyncio.create_task(
@@ -1195,7 +1194,7 @@ async def startup_poker_recovery(bot: BaseBot) -> None:
 
         _save_table(restored_after_restart=1)
         await _chat(bot,
-            "♻️ Poker table restored. Previous cards loaded.")
+            "♻️ Poker restored. Cards, pot, and bets loaded.")
 
         # Whisper each active player their cards
         for p in active:
@@ -1204,7 +1203,7 @@ async def startup_poker_recovery(bot: BaseBot) -> None:
                 try:
                     await bot.highrise.send_whisper(
                         p["user_id"],
-                        f"♻️ Poker restored. Your hand: {_fcs(cards)}"
+                        f"♻️ Poker restored. Use /ph."
                     )
                 except Exception:
                     pass
@@ -1267,30 +1266,43 @@ async def _dispatch(bot: BaseBot, user: User, args: list[str]) -> None:
                  f"/check /call /raise /fold /allin. All-in {ai_on}.")
         return
 
-    if sub in ("stats", "leaderboard"):
-        if sub == "leaderboard":
-            await handle_pokerlb(bot, user, args[2:] if len(args) > 2 else [])
+    if sub == "stats":
+        # /poker stats [username]
+        target_name = args[2] if len(args) >= 3 else None
+        if target_name:
+            s = db.get_poker_stats_by_username(target_name)
+            if not s:
+                await _w(bot, user.id, f"No poker stats found for @{target_name}.")
+                return
+            net = s.get("net_profit", 0)
+            net_s = f"+{net}c" if net >= 0 else f"{net}c"
+            await _w(bot, user.id,
+                     f"♠️ @{target_name}: {s['wins']}W/{s['losses']}L | "
+                     f"Net {net_s} | All-ins {s.get('allins', 0)}")
         else:
             db.ensure_poker_stats(user.id, user.username)
             s = db.get_poker_stats(user.id)
             net = s.get("net_profit", 0)
-            net_str = f"+{net}c" if net >= 0 else f"{net}c"
+            net_s = f"+{net}c" if net >= 0 else f"{net}c"
             await _w(bot, user.id,
                      f"♠️ {user.username}: {s['wins']}W/{s['losses']}L | "
-                     f"Net {net_str} | All-ins {s.get('allins', 0)}")
+                     f"Net {net_s} | All-ins {s.get('allins', 0)}")
         return
 
     if sub == "limits":
         min_b  = _s("min_buyin", 100);  max_b = _s("max_buyin", 5000)
         min_r  = _s("min_raise", 50);   max_r = _s("max_raise", 1000)
-        rl_on  = "ON" if _s("raise_limit_enabled", 1) else "OFF"
+        rl_on  = _s("raise_limit_enabled", 1)
         wl     = _s("table_daily_win_limit", 10000)
         ll     = _s("table_daily_loss_limit", 5000)
         we     = "ON" if _s("win_limit_enabled", 1) else "OFF"
         le     = "ON" if _s("loss_limit_enabled", 1) else "OFF"
+        if rl_on:
+            raise_str = f"Raise {min_r}-{max_r}c ON"
+        else:
+            raise_str = "Raise limit OFF"
         await _w(bot, user.id,
-                 f"♠️ Buy {min_b}-{max_b}c | Raise {min_r}-{max_r}c {rl_on} | "
-                 f"W/L {wl}/{ll} {we}/{le}")
+                 f"♠️ Buy {min_b}-{max_b}c | {raise_str} | W/L {wl}/{ll} {we}/{le}")
         return
 
     if sub == "players":
@@ -1377,6 +1389,26 @@ async def _dispatch(bot: BaseBot, user: User, args: list[str]) -> None:
         await _handle_leave(bot, user)
         return
 
+    # ── /poker allin on|off (settings toggle — checked BEFORE betting block) ─
+    if sub == "allin" and len(args) >= 3 and args[2].lower() in ("on", "off"):
+        if not can_manage_games(user.username):
+            await _w(bot, user.id, "Managers+ only.")
+            return
+        val = args[2].lower()
+        if val == "on":
+            _set("allin_enabled", 1)
+            await _w(bot, user.id, "✅ Poker all-in ON.")
+        else:
+            _set("allin_enabled", 0)
+            await _w(bot, user.id, "⛔ Poker all-in OFF.")
+        return
+
+    # ── /poker leaderboard [mode] ─────────────────────────────────────────────
+    if sub == "leaderboard":
+        mode_args = args[2:] if len(args) > 2 else []
+        await handle_pokerlb(bot, user, mode_args)
+        return
+
     # ── Betting actions (check/call/raise/fold/allin) ────────────────────────
     if sub in ("check", "call", "raise", "fold", "allin", "all-in", "shove"):
         tbl = _get_table()
@@ -1447,23 +1479,20 @@ async def _dispatch(bot: BaseBot, user: User, args: list[str]) -> None:
     if sub == "settings":
         page = int(args[2]) if len(args) >= 3 and args[2].isdigit() else 1
         if page == 2:
-            min_r  = _s("min_raise", 50);  max_r = _s("max_raise", 1000)
-            rl_on  = "ON" if _s("raise_limit_enabled", 1) else "OFF"
-            we     = "ON" if _s("win_limit_enabled", 1) else "OFF"
-            le     = "ON" if _s("loss_limit_enabled", 1) else "OFF"
-            ai_on  = "ON" if _s("allin_enabled", 1) else "OFF"
-            await _w(bot, user.id,
-                     f"♠️ Settings 2 | Raise {min_r}-{max_r}c ({rl_on}) | "
-                     f"All-in {ai_on} | WinLimit {we} | LossLimit {le}")
-        else:
-            en    = "ON" if _s("poker_enabled", 1) else "OFF"
             min_p = _s("min_players", 2);  max_p = _s("max_players", 6)
             lc    = _s("lobby_countdown", 15)
-            tt    = _s("turn_timer", 20)
             min_b = _s("min_buyin", 100);  max_b = _s("max_buyin", 5000)
             await _w(bot, user.id,
-                     f"♠️ Settings 1 | Poker {en} | Players {min_p}-{max_p} | "
-                     f"Lobby {lc}s | Turn {tt}s | Buy {min_b}-{max_b}c | /poker settings 2")
+                     f"♠️ Poker 2 | Lobby {lc}s | Players {min_p}-{max_p} | "
+                     f"Buy {min_b}-{max_b}c")
+        else:
+            en    = "ON" if _s("poker_enabled", 1) else "OFF"
+            ai_on = "ON" if _s("allin_enabled", 1) else "OFF"
+            rl_on = "ON" if _s("raise_limit_enabled", 1) else "OFF"
+            tt    = _s("turn_timer", 20)
+            await _w(bot, user.id,
+                     f"♠️ Poker {en} | All-in {ai_on} | RaiseLimit {rl_on} | "
+                     f"Turn {tt}s | /poker settings 2")
         return
 
     # ── Staff: cancel ──────────────────────────────────────────────────────────
@@ -1821,7 +1850,7 @@ POKER_HELP_PAGES = [
         "♠️ Poker 4/6 — Staff\n"
         "/poker on | off | cancel\n"
         "/poker raiselimit on|off\n"
-        "/poker allintoggle on|off\n"
+        "/poker allin on|off\n"
         "/poker winlimit on|off\n"
         "/poker losslimit on|off"
     ),
@@ -2082,25 +2111,36 @@ async def handle_pokerrefundall(bot: BaseBot, user: User, args: list[str]) -> No
 
 
 async def handle_pokerstats(bot: BaseBot, user: User, args: list[str]) -> None:
-    """Public /pokerstats — shows the calling user's personal poker stats."""
-    db.ensure_poker_stats(user.id, user.username)
-    s = db.get_poker_stats(user.id)
-    net   = s.get("net_profit", 0)
-    net_s = f"+{net}c" if net >= 0 else f"{net}c"
+    """Public /pokerstats [username] — personal or named player's poker stats."""
+    target_name = args[1] if len(args) >= 2 else None
+    if target_name:
+        s = db.get_poker_stats_by_username(target_name)
+        if not s:
+            await _w(bot, user.id, f"No poker stats found for @{target_name}.")
+            return
+        name = target_name
+    else:
+        db.ensure_poker_stats(user.id, user.username)
+        s = db.get_poker_stats(user.id)
+        name = user.username
+    net    = s.get("net_profit", 0)
+    net_s  = f"+{net}c" if net >= 0 else f"{net}c"
     streak = s.get("current_win_streak", 0)
     best   = s.get("best_win_streak", 0)
     await _w(bot, user.id,
-             f"♠️ {user.username} Poker Stats | "
-             f"{s['hands_played']} hands | "
+             f"♠️ @{name}: {s['hands_played']} hands | "
              f"{s['wins']}W {s['losses']}L {s.get('folds', 0)}F | "
              f"Net {net_s} | All-ins {s.get('allins', 0)} | "
              f"Streak {streak} (best {best})")
 
 
 async def handle_pokerlb(bot: BaseBot, user: User, args: list[str]) -> None:
-    """Public /pokerlb [wins|pots|allins|hands|profit|daily] — leaderboard."""
+    """Public /pokerlb [wins|pots|allins|hands|profit|daily|weekly|streak]."""
     mode = args[0].lower() if args else "profit"
     valid = {"wins", "pots", "allins", "hands", "profit", "daily", "streak"}
+    if mode == "weekly":
+        await _w(bot, user.id, "Weekly poker leaderboard coming soon.")
+        return
     if mode not in valid:
         mode = "profit"
     rows = db.get_poker_leaderboard(mode=mode, limit=5)
@@ -2108,15 +2148,25 @@ async def handle_pokerlb(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "♠️ No poker leaderboard data yet.")
         return
     titles = {
-        "wins": "Most Wins", "pots": "Biggest Pots", "allins": "Most All-ins",
-        "hands": "Most Hands", "profit": "Top Profit",
-        "daily": "Today's Profit", "streak": "Best Streak",
+        "wins":   "Poker Wins",
+        "pots":   "Biggest Pots",
+        "allins": "All-In Kings",
+        "hands":  "Poker Hands",
+        "profit": "Poker Profit",
+        "daily":  "Daily Poker",
+        "streak": "Win Streaks",
     }
-    header = f"♠️ Poker LB — {titles.get(mode, mode.title())}"
-    parts  = [f"#{i+1} @{r[0]} {r[1]}c" if isinstance(r[1], int)
-              else f"#{i+1} @{r[0]} {r[1]}"
-              for i, r in enumerate(rows)]
-    await _w(bot, user.id, (header + " | " + "  ".join(parts))[:249])
+    header = f"♠️ {titles.get(mode, mode.title())}"
+    parts  = []
+    for i, r in enumerate(rows):
+        val = r[1]
+        if isinstance(val, int):
+            suffix = "c" if mode in ("profit", "pots", "daily") else ""
+            sign   = "+" if mode in ("profit", "daily") and val > 0 else ""
+            parts.append(f"#{i+1} @{r[0]} {sign}{val}{suffix}")
+        else:
+            parts.append(f"#{i+1} @{r[0]} {val}")
+    await _w(bot, user.id, (header + "\n" + "\n".join(parts))[:249])
 
 
 # ── Public API for main.py / maintenance.py ────────────────────────────────────

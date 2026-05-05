@@ -22,6 +22,7 @@ Column notes for equipped cosmetics:
 import math
 import sqlite3
 from datetime import date
+from typing import Optional
 
 import config
 
@@ -2855,6 +2856,16 @@ def get_poker_stats(user_id: str) -> dict:
         "user_id": user_id, "username": "", "hands_played": 0,
         "wins": 0, "losses": 0, "folds": 0, "total_won": 0, "biggest_pot": 0,
     }
+
+
+def get_poker_stats_by_username(username: str) -> Optional[dict]:
+    """Fetch poker stats for any player by username (case-insensitive)."""
+    conn = get_connection()
+    row  = conn.execute(
+        "SELECT * FROM poker_stats WHERE LOWER(username) = LOWER(?)", (username,)
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
 
 
 def update_poker_stats(

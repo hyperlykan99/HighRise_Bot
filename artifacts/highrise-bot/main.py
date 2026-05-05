@@ -305,11 +305,11 @@ ALL_KNOWN_COMMANDS = (
         "setpokerdailywinlimit", "setpokerdailylosslimit",
         "resetpokerlimits", "setpokerlimits",
         # Poker — short aliases
-        "p", "pj", "pt", "ph", "po",
+        "p", "pj", "pt", "ptable", "ph", "pcards", "po", "podds",
         "check", "ch", "call", "ca", "raise", "r", "fold", "f",
-        "allin", "ai", "shove",
+        "allin", "all-in", "ai", "shove",
         "pp", "pplayers", "pstats", "plb", "pleaderboard",
-        "phelp", "pokerlb", "pleaderboard",
+        "phelp", "pokerlb", "pokerleaderboard", "pleaderboard",
         "botstatus", "dbstats", "backup",
         "maintenance", "reloadsettings", "cleanup",
         "restarthelp", "restartstatus", "softrestart", "restartbot",
@@ -2074,14 +2074,25 @@ class HangoutBot(BaseBot):
         elif cmd in ("allin", "ai", "shove"):
             await handle_poker(self, user, ["poker", "allin"])
 
+        elif cmd in ("ptable",):
+            await handle_poker(self, user, ["poker", "table"])
+
+        elif cmd in ("pcards",):
+            await handle_poker(self, user, ["poker", "hand"])
+
+        elif cmd in ("podds",):
+            await handle_poker(self, user, ["poker", "odds"])
+
+        elif cmd in ("all-in",):
+            await handle_poker(self, user, ["poker", "allin"])
+
         elif cmd in ("pp", "pplayers"):
             await handle_poker(self, user, ["poker", "players"])
 
         elif cmd in ("pstats", "pokerstats"):
             await handle_pokerstats(self, user, args)
 
-        elif cmd in ("plb", "pleaderboard", "pokerlb"):
-            # Pass leaderboard mode if provided: /plb wins etc.
+        elif cmd in ("plb", "pleaderboard", "pokerlb", "pokerleaderboard"):
             mode_args = args[1:] if len(args) >= 2 else []
             await handle_pokerlb(self, user, mode_args)
 
