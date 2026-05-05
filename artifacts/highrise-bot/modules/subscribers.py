@@ -26,6 +26,7 @@ from __future__ import annotations
 import asyncio
 import database as db
 from highrise import BaseBot, User
+from modules.notifications import send_notification
 from modules.permissions import (
     is_owner, is_admin, can_moderate, is_manager, is_moderator,
 )
@@ -469,34 +470,44 @@ async def handle_dmnotify(bot: BaseBot, user: User, args: list[str]) -> None:
 # ── /announce_subs (admin+) ───────────────────────────────────────────────────
 
 async def handle_announce_subs(bot: BaseBot, user: User, args: list[str]) -> None:
-    """/announce_subs <message> — DM all subscribed users (rate-limited)."""
+    """/announce_subs <message> — DM all subscribed users via send_notification()."""
     if not _is_admin_or_owner(user.username):
         await _w(bot, user.id, "Admins and owners only.")
         return
     if len(args) < 2:
         await _w(bot, user.id, "Usage: /announce_subs <message>")
         return
-    raw_msg = " ".join(args[1:])
-    if len(raw_msg) > 200:
-        await _w(bot, user.id, "Announcement too long. Max 200 characters.")
+
+    raw_msg = " ".join(args[1:]).strip()
+    if not raw_msg:
+        await _w(bot, user.id, "Usage: /announce_subs <message>")
+        return
+    if len(raw_msg) > 220:
+        await _w(bot, user.id, "Announcement too long. Max 220 characters.")
         return
 
-    # All subscribed users with DM + those without DM (will queue pending)
-    dm_subs  = db.get_all_subscribed_with_dm()
-    no_dm    = db.get_all_subscribed_no_dm()
-    all_subs = dm_subs + no_dm
-
+    all_subs = db.get_all_subscribed_with_dm() + db.get_all_subscribed_no_dm()
     if not all_subs:
         await _w(bot, user.id, "No subscribed users found.")
         return
 
     await _w(bot, user.id, f"📤 Sending to {len(all_subs)} subscriber(s)...")
-    sent, pending, failed = await _broadcast(
-        bot, user.username, all_subs, raw_msg, "all"
-    )
+    sent = pending = skipped = 0
+
+    for sub in all_subs:
+        uname = sub["username"]
+        result = await send_notification(bot, uname, "announcements", raw_msg)
+        if result in ("sent", "whispered"):
+            sent += 1
+        elif result == "pending":
+            pending += 1
+        else:
+            skipped += 1
+        await asyncio.sleep(1.0)
+
     await _w(bot, user.id,
-             f"📣 Announcement sent: {sent} delivered, {pending} pending, {failed} failed.")
-    print(f"[SUBS] announce_subs by @{user.username}: {sent} sent, {pending} pending, {failed} failed.")
+             f"📣 Done: {sent} delivered, {pending} pending, {skipped} skipped.")
+    print(f"[SUBS] announce_subs by @{user.username}: {sent}s {pending}p {skipped}sk")
 
 
 # ── /announce_vip (admin+) ────────────────────────────────────────────────────
