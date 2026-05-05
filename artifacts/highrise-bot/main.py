@@ -141,6 +141,7 @@ ADMIN_ONLY_CMDS = {
     "bankblock", "bankunblock",
     "ledger",
     "allcommands",
+    "checkcommands",
     "setdailycoins", "setgamereward", "settransferfee",
     "eventstart", "eventstop",
     "clearwarnings",
@@ -653,6 +654,39 @@ async def _cmd_allcommands(bot, user, args):
         await bot.highrise.send_whisper(user.id, f"Use /allcommands 1-{n}.")
 
 
+async def _cmd_checkcommands(bot, user):
+    """Show which command modules are installed and routed."""
+    _g = globals()
+
+    def ok(name: str) -> str:
+        try:
+            obj = _g.get(name)
+            return "✅" if (obj is not None) else "❌"
+        except Exception:
+            return "❌"
+
+    checks = [
+        ("Help",    "HELP_TEXT"),
+        ("Games",   "handle_game_command"),
+        ("Economy", "handle_balance"),
+        ("Shop",    "handle_shop"),
+        ("Bank",    "handle_bank"),
+        ("Casino",  "handle_bj"),
+        ("RBJ",     "handle_rbj"),
+        ("Events",  "handle_event"),
+        ("Quests",  "handle_quests"),
+        ("Achieve", "handle_achievements"),
+        ("Rep",     "handle_rep"),
+        ("Reports", "handle_report"),
+        ("Staff",   "is_owner"),
+        ("Maint",   "handle_botstatus"),
+    ]
+
+    parts = [f"{ok(sym)} {label}" for label, sym in checks]
+    msg = " ".join(parts)
+    await bot.highrise.send_whisper(user.id, msg[:245])
+
+
 # ---------------------------------------------------------------------------
 # Bot class
 # ---------------------------------------------------------------------------
@@ -730,6 +764,8 @@ class HangoutBot(BaseBot):
                 await _cmd_allstaff(self, user, args)
             elif cmd == "allcommands":
                 await _cmd_allcommands(self, user, args)
+            elif cmd == "checkcommands":
+                await _cmd_checkcommands(self, user)
             elif cmd == "bankblock":
                 await handle_bankblock(self, user, args, block=True)
             elif cmd == "bankunblock":
