@@ -1,0 +1,95 @@
+Add a Reputation System to my existing Highrise Mini Game Bot.
+
+IMPORTANT:
+- Do not remove existing features.
+- Keep coins, XP, shop, bank, blackjack, quests, events, reports, staff roles, and profiles.
+- Use existing SQLite database.
+- Use get_display_name(username).
+- Keep every Highrise message under 250 characters.
+- Prevent bad inputs from crashing the bot.
+
+Goal:
+Players can give reputation points to other players once per day. Reputation is social status, not currency.
+
+Commands:
+- /rep <username>
+- /reputation
+- /repstats
+- /toprep
+- /repleaderboard
+
+Rules:
+- Players can give 1 rep to another player once every 24 hours.
+- Players cannot rep themselves.
+- Rep cannot be sent like coins.
+- Rep cannot be bought.
+- Rep cannot be transferred.
+- Rep is permanent unless staff removes it.
+- Use cooldowns to prevent spam.
+
+Player messages:
+"/rep Claire" gives Claire +1 reputation.
+Reply:
+"⭐ You gave +1 rep to @Claire."
+
+Receiver notification:
+If private message is supported:
+"⭐ @Marion gave you +1 reputation!"
+
+/reputation or /repstats shows:
+- Total reputation
+- Rep given
+- Rep received
+- Daily rep status
+- Social rank
+
+/toprep shows top 10 reputation players.
+
+Social ranks:
+- New Face: 0 rep
+- Friendly: 10 rep
+- Known: 25 rep
+- Popular: 50 rep
+- Loved: 100 rep
+- Icon: 250 rep
+- Celebrity: 500 rep
+- Legend: 1000 rep
+
+Database:
+Create reputation table:
+- username
+- rep_received
+- rep_given
+- last_rep_given_at
+
+Create reputation_logs table:
+- id
+- timestamp
+- giver_username
+- receiver_username
+- amount
+- reason
+
+Staff commands:
+- /addrep <username> <amount> admin/owner only
+- /removerep <username> <amount> admin/owner only
+- /replog <username> staff only
+
+Permissions:
+- Moderators/managers/admins/owners can use /replog.
+- Only admin/owner can manually add/remove rep.
+
+Anti-abuse:
+- Do not allow self-rep.
+- Do not allow repeated rep farming from the same account.
+- Flag if many new/low-level accounts rep the same user.
+- Add risk notes to reputation logs if sender is new or below level 3.
+
+Update /profile:
+Show reputation and social rank.
+
+Update /profilehelp:
+Add:
+/rep <user>
+/reputation
+/toprep

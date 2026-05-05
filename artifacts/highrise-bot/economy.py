@@ -23,6 +23,7 @@ import modules.leveling as leveling
 from modules.shop         import get_player_benefits
 from modules.achievements import check_achievements
 from modules.quests       import track_quest
+from modules.reputation   import get_rank
 
 
 async def handle_balance(bot: BaseBot, user: User):
@@ -95,16 +96,17 @@ async def handle_profile(bot: BaseBot, user: User):
     xp_needed = db.xp_for_level(level + 1) - xp
     badge     = p.get("equipped_badge") or "none"
     title_    = p.get("equipped_title") or "none"
-    await bot.highrise.send_whisper(user.id,
+    rep_row   = db.get_reputation(user.id)
+    rep       = rep_row["rep_received"] if rep_row else 0
+    rank      = get_rank(rep)
+    await bot.highrise.send_whisper(user.id, (
         f"-- {p['username']} --\n"
-        f"💰 Coins:        {p['balance']}\n"
-        f"⭐ Level:        {level}\n"
-        f"✨ XP:           {xp}  (need {xp_needed} more for Lv {level + 1})\n"
-        f"🏆 Games won:    {p['total_games_won']}\n"
-        f"🪙 Coins earned: {p['total_coins_earned']}\n"
-        f"🎨 Badge:        {badge}\n"
-        f"🏷️  Title:        {title_}"
-    )
+        f"💰 {p['balance']} coins | Lv {level}\n"
+        f"✨ {xp} XP (need {xp_needed} for Lv {level + 1})\n"
+        f"🏆 {p['total_games_won']} wins | 🪙 {p['total_coins_earned']} earned\n"
+        f"⭐ Rep: {rep} ({rank})\n"
+        f"🎨 {badge} | 🏷️ {title_}"
+    )[:249])
 
 
 async def handle_level(bot: BaseBot, user: User):

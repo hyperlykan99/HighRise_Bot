@@ -337,6 +337,29 @@ def init_db():
     )
 
     conn.execute("""
+        CREATE TABLE IF NOT EXISTS reputation (
+            user_id           TEXT    PRIMARY KEY,
+            username          TEXT    NOT NULL,
+            rep_received      INTEGER NOT NULL DEFAULT 0,
+            rep_given         INTEGER NOT NULL DEFAULT 0,
+            last_rep_given_at TEXT    NOT NULL DEFAULT ''
+        )
+    """)
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS reputation_logs (
+            id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp         TEXT    NOT NULL DEFAULT (datetime('now')),
+            giver_id          TEXT    NOT NULL DEFAULT '',
+            giver_username    TEXT    NOT NULL,
+            receiver_username TEXT    NOT NULL,
+            amount            INTEGER NOT NULL DEFAULT 1,
+            reason            TEXT    NOT NULL DEFAULT '',
+            risk_note         TEXT    NOT NULL DEFAULT ''
+        )
+    """)
+
+    conn.execute("""
         CREATE TABLE IF NOT EXISTS mutes (
             user_id    TEXT    PRIMARY KEY,
             username   TEXT    NOT NULL,
@@ -1834,6 +1857,165 @@ def buy_event_item(user_id: str, username: str,
         return "error"
     finally:
         conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Reputation helpers
+# ---------------------------------------------------------------------------
+
+def ensure_reputation(user_id: str, username: str) -> None:
+    conn = get_connection()
+    conn.execute(
+        "INSERT OR IGNORE INTO reputation (user_id, username) VALUES (?, ?)",
+        (user_id, username),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_reputation(user_id: str) -> dict | None:
+    conn = get_connection()
+    row  = conn.execute(
+        "SELECT * FROM reputation WHERE user_id = ?", (user_id,)
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def get_reputation_by_username(username: str) -> dict | None:
+    conn = get_connection()
+    row  = conn.execute(
+        "SELECT * FROM reputation WHERE LOWER(username) = ?", (username.lower(),)
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def get_rep_cooldown_remaining(user_id: str) -> int | None:
+    """Return remaining seconds of the 24 h give-rep cooldown, or None if ready."""
+    from datetime import datetime, timezone as _tz2
+    conn = get_connection()
+    row  = conn.execute(
+        "SELECT last_rep_given_at FROM reputation WHERE user_id = ?", (user_id,)
+    ).fetchone()
+    conn.close()
+    if row is None or not row[0]:
+        return None
+    last      = datetime.strptime(row[0], "%Y-%m-%d %H:%M:%S").replace(tzinfo=_tz2.utc)
+    elapsed   = (datetime.now(_tz2.utc) - last).total_seconds()
+    remaining = 86400 - elapsed
+    return max(1, int(remaining)) if remaining > 0 else None
+
+
+def give_rep(giver_id: str, giver_username: str,
+             receiver_id: str, receiver_username: str,
+             risk_note: str = "") -> None:
+    """Give +1 rep from giver to receiver and update both records + log."""
+    from datetime import datetime, timezone as _tz2
+    now_str = datetime.now(_tz2.utc).strftime("%Y-%m-%d %H:%M:%S")
+    conn    = get_connection()
+    conn.execute(
+        "INSERT OR IGNORE INTO reputation (user_id, username) VALUES (?, ?)",
+        (giver_id, giver_username),
+    )
+    conn.execute(
+        "INSERT OR IGNORE INTO reputation (user_id, username) VALUES (?, ?)",
+        (receiver_id, receiver_username),
+    )
+    conn.execute(
+        "UPDATE reputation SET rep_given = rep_given + 1, last_rep_given_at = ? WHERE user_id = ?",
+        (now_str, giver_id),
+    )
+    conn.execute(
+        "UPDATE reputation SET rep_received = rep_received + 1 WHERE user_id = ?",
+        (receiver_id,),
+    )
+    conn.execute(
+        """INSERT INTO reputation_logs
+               (giver_id, giver_username, receiver_username, amount, reason, risk_note)
+           VALUES (?, ?, ?, ?, ?, ?)""",
+        (giver_id, giver_username, receiver_username, 1, "", risk_note),
+    )
+    conn.commit()
+    conn.close()
+
+
+def add_rep_staff(username: str, amount: int, by_username: str) -> int:
+    """Add rep as a staff action. Returns new total, or -1 if user not found."""
+    conn = get_connection()
+    row  = conn.execute(
+        "SELECT user_id FROM reputation WHERE LOWER(username) = ?", (username.lower(),)
+    ).fetchone()
+    if row is None:
+        conn.close()
+        return -1
+    conn.execute(
+        "UPDATE reputation SET rep_received = rep_received + ? WHERE LOWER(username) = ?",
+        (amount, username.lower()),
+    )
+    conn.execute(
+        """INSERT INTO reputation_logs
+               (giver_id, giver_username, receiver_username, amount, reason)
+           VALUES (?, ?, ?, ?, ?)""",
+        ("staff", by_username, username, amount, "staff_add"),
+    )
+    conn.commit()
+    new_total = conn.execute(
+        "SELECT rep_received FROM reputation WHERE LOWER(username) = ?", (username.lower(),)
+    ).fetchone()[0]
+    conn.close()
+    return new_total
+
+
+def remove_rep_staff(username: str, amount: int, by_username: str) -> int:
+    """Remove rep as a staff action (floor 0). Returns new total, or -1 if not found."""
+    conn = get_connection()
+    row  = conn.execute(
+        "SELECT user_id FROM reputation WHERE LOWER(username) = ?", (username.lower(),)
+    ).fetchone()
+    if row is None:
+        conn.close()
+        return -1
+    conn.execute(
+        "UPDATE reputation SET rep_received = MAX(0, rep_received - ?) WHERE LOWER(username) = ?",
+        (amount, username.lower()),
+    )
+    conn.execute(
+        """INSERT INTO reputation_logs
+               (giver_id, giver_username, receiver_username, amount, reason)
+           VALUES (?, ?, ?, ?, ?)""",
+        ("staff", by_username, username, -amount, "staff_remove"),
+    )
+    conn.commit()
+    new_total = conn.execute(
+        "SELECT rep_received FROM reputation WHERE LOWER(username) = ?", (username.lower(),)
+    ).fetchone()[0]
+    conn.close()
+    return new_total
+
+
+def get_rep_logs(username: str, limit: int = 5) -> list[dict]:
+    """Return rep log entries where the user is giver or receiver (newest first)."""
+    conn  = get_connection()
+    uname = username.lower()
+    rows  = conn.execute(
+        """SELECT * FROM reputation_logs
+           WHERE LOWER(giver_username) = ? OR LOWER(receiver_username) = ?
+           ORDER BY id DESC LIMIT ?""",
+        (uname, uname, limit),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_top_rep(limit: int = 10) -> list[dict]:
+    """Return top players sorted by rep_received descending."""
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT * FROM reputation ORDER BY rep_received DESC LIMIT ?", (limit,)
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
 
 
 # ---------------------------------------------------------------------------

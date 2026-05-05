@@ -77,6 +77,10 @@ from modules.moderation import (
     handle_mute, handle_unmute, handle_mutes,
     handle_warn, handle_warnings, handle_clearwarnings,
 )
+from modules.reputation import (
+    handle_rep, handle_reputation, handle_toprep,
+    handle_replog, handle_addrep, handle_removerep,
+)
 from modules.bank import (
     handle_bank, handle_send, handle_transactions, handle_bankstats,
     handle_banknotify,
@@ -109,6 +113,7 @@ MOD_ONLY_CMDS = {
     "economysettings",
     "reports", "reportinfo", "closereport", "reportwatch",
     "warn", "warnings",
+    "replog",
 }
 
 MANAGER_ONLY_CMDS = {
@@ -131,6 +136,7 @@ ADMIN_ONLY_CMDS = {
     "setdailycoins", "setgamereward", "settransferfee",
     "eventstart", "eventstop",
     "clearwarnings",
+    "addrep", "removerep",
 } | BANK_ADMIN_SET_CMDS
 
 OWNER_ONLY_CMDS = {"addadmin", "removeadmin", "admins", "setmaxbalance"}
@@ -148,6 +154,7 @@ ALL_KNOWN_COMMANDS = (
         "dailyquests", "weeklyquests", "questhelp",
         "eventpoints", "eventshop", "buyevent",
         "report", "bug", "myreports",
+        "rep", "reputation", "repstats", "toprep", "repleaderboard",
     }
     | ECONOMY_COMMANDS | PROFILE_COMMANDS | GAME_COMMANDS
     | SHOP_COMMANDS | ACHIEVEMENT_COMMANDS | BJ_COMMANDS
@@ -219,7 +226,10 @@ PROFILE_HELP = (
     "/profile\n"
     "/level\n"
     "/xpleaderboard\n"
-    "/myitems"
+    "/myitems\n"
+    "/rep <user>\n"
+    "/reputation\n"
+    "/toprep"
 )
 
 PROGRESS_HELP = (
@@ -584,6 +594,12 @@ class HangoutBot(BaseBot):
                 await handle_closereport(self, user, args)
             elif cmd == "reportwatch":
                 await handle_reportwatch(self, user, args)
+            elif cmd == "replog":
+                await handle_replog(self, user, args)
+            elif cmd == "addrep":
+                await handle_addrep(self, user, args)
+            elif cmd == "removerep":
+                await handle_removerep(self, user, args)
             else:
                 await handle_admin_command(self, user, cmd, args)
             return
@@ -782,6 +798,16 @@ class HangoutBot(BaseBot):
 
         elif cmd == "reportwatch":
             await handle_reportwatch(self, user, args)
+
+        # ── Reputation commands ───────────────────────────────────────────────
+        elif cmd == "rep":
+            await handle_rep(self, user, args)
+
+        elif cmd in {"reputation", "repstats"}:
+            await handle_reputation(self, user)
+
+        elif cmd in {"toprep", "repleaderboard"}:
+            await handle_toprep(self, user)
 
         # ── Game commands ─────────────────────────────────────────────────────
         elif cmd in GAME_COMMANDS:
