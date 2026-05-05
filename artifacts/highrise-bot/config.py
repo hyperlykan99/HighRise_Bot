@@ -1,41 +1,45 @@
 """
 config.py
 ---------
-Central configuration for the bot.
-Edit these values to tune bot behaviour without touching other files.
+Central configuration for the Mini Game Bot.
+Edit values here to tune the bot without touching any other file.
 """
 
 import os
 
-# ── Highrise credentials (loaded from environment secrets) ──────────────────
+# ---------------------------------------------------------------------------
+# Highrise credentials — loaded from environment secrets
+# ---------------------------------------------------------------------------
 BOT_TOKEN: str = os.environ["BOT_TOKEN"]
 ROOM_ID:   str = os.environ["ROOM_ID"]
 
-# ── YouTube Data API v3 ──────────────────────────────────────────────────────
-YOUTUBE_API_KEY: str = os.environ.get("YOUTUBE_API_KEY", "")
+# ---------------------------------------------------------------------------
+# Coin economy
+# ---------------------------------------------------------------------------
+STARTING_BALANCE: int = 100   # coins every new player starts with
+DAILY_REWARD:     int = 50    # coins from /daily (claimable once per 24 hours)
 
-# ── Token economy ────────────────────────────────────────────────────────────
-SONG_REQUEST_COST:    int = 20   # tokens for a normal /request
-PRIORITY_REQUEST_COST: int = 50  # tokens for a /priority request (jumps to #2 in queue)
-DAILY_REWARD:         int = 10   # free tokens from /daily
+# ---------------------------------------------------------------------------
+# Mini-game rewards
+# ---------------------------------------------------------------------------
+TRIVIA_REWARD:   int = 25     # coins for winning /trivia
+SCRAMBLE_REWARD: int = 25     # coins for winning /scramble
+RIDDLE_REWARD:   int = 25     # coins for winning /riddle
 
-# ── DJ system ────────────────────────────────────────────────────────────────
-QUEUE_DISPLAY_SIZE:   int = 5    # how many songs /queue shows
-QUEUE_MAX_SIZE:       int = 20   # maximum songs allowed in the queue at once
-USER_QUEUE_LIMIT:     int = 3    # max songs one user can have in the queue at once
-SONG_TITLE_MAX_LEN:   int = 120  # maximum characters in a song title/link
-SKIP_VOTE_THRESHOLD:  int = 3    # votes needed to auto-skip
+# ---------------------------------------------------------------------------
+# Leaderboard
+# ---------------------------------------------------------------------------
+LEADERBOARD_SIZE: int = 10    # how many players /leaderboard shows
 
-# ── Content filter ───────────────────────────────────────────────────────────
-# Song titles containing any of these words (case-insensitive) will be rejected.
-# Add or remove words here — no other file needs to change.
-BANNED_WORDS: list[str] = [
-    "nigga", "nigger", "faggot", "fag", "retard", "cunt",
-]
-
-# ── Admin usernames ──────────────────────────────────────────────────────────
-# Add Highrise usernames (case-insensitive) for anyone who should have
-# access to admin commands: /skip /remove /addtokens /refund /clearqueue
+# ---------------------------------------------------------------------------
+# Admin usernames (case-insensitive Highrise usernames)
+# Add anyone who should have access to /addcoins, /removecoins, /resetgame, /announce
+# ---------------------------------------------------------------------------
 ADMIN_USERS: list[str] = [
     "4ktreymarion",
 ]
+
+# ---------------------------------------------------------------------------
+# Database file path
+# ---------------------------------------------------------------------------
+DB_PATH: str = "hangout.db"

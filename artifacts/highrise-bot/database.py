@@ -1,87 +1,90 @@
 """
 database.py
 -----------
-Handles all SQLite database operations for the bot.
+All SQLite database logic for the Mini Game Bot.
+
 Tables:
-  - users          : stores user info and token balances
-  - song_queue     : stores the current song request queue
-  - request_history: stores all past song requests
-  - daily_claims   : tracks when users last claimed their daily tokens
+  users          — one row per player (user_id, username, balance)
+  daily_claims   — tracks the last date each player claimed /daily
+  game_wins      — running win count per player per game type
+  coinflip_history — log of every /coinflip result
+
+All functions open their own connection and close it when done.
+This keeps the code simple and safe for a single-threaded async bot.
 """
 
 import sqlite3
-import os
 from datetime import date
 
-# The database file will be stored next to this file
-DB_PATH = os.path.join(os.path.dirname(__file__), "bot_data.db")
+import config
 
+
+# ---------------------------------------------------------------------------
+# Connection helper
+# ---------------------------------------------------------------------------
 
 def get_connection() -> sqlite3.Connection:
-    """Open and return a SQLite connection with row factory set."""
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row  # allows dict-like access to rows
+    """
+    Open and return a connection to the SQLite database.
+    Row factory is set so we can access columns by name (row["balance"])
+    instead of by index (row[0]).
+    """
+    conn = sqlite3.connect(config.DB_PATH)
+    conn.row_factory = sqlite3.Row
     return conn
 
 
+# ---------------------------------------------------------------------------
+# Database initialisation
+# ---------------------------------------------------------------------------
+
 def init_db():
-    """Create all tables if they don't already exist. Call this on startup."""
+    """
+    Create all tables if they don't already exist.
+    Safe to call every time the bot starts — it never deletes existing data.
+    """
     conn = get_connection()
-    cursor = conn.cursor()
 
-    # Users table: stores username and token balance
-    cursor.execute("""
+    # users: one row per Highrise player
+    conn.execute("""
         CREATE TABLE IF NOT EXISTS users (
-            user_id   TEXT PRIMARY KEY,
-            username  TEXT NOT NULL,
-            balance   INTEGER NOT NULL DEFAULT 0
+            user_id  TEXT PRIMARY KEY,
+            username TEXT NOT NULL,
+            balance  INTEGER NOT NULL DEFAULT 0
         )
     """)
 
-    # Song queue table: holds pending song requests in order.
-    # The 'priority' column (1 = priority, 0 = normal) controls ordering:
-    # current song → priority songs (by id) → normal songs (by id).
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS song_queue (
-            id           INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id      TEXT NOT NULL,
-            username     TEXT NOT NULL,
-            song         TEXT NOT NULL,
-            priority     INTEGER NOT NULL DEFAULT 0,
-            requested_at TEXT NOT NULL DEFAULT (datetime('now'))
-        )
-    """)
-
-    # Migration: add 'priority' to song_queue if upgrading from an older version.
-    # SQLite raises OperationalError if the column already exists — we ignore that.
-    try:
-        cursor.execute("ALTER TABLE song_queue ADD COLUMN priority INTEGER NOT NULL DEFAULT 0")
-    except sqlite3.OperationalError:
-        pass  # column already exists — nothing to do
-
-    # Request history: every song that was ever requested
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS request_history (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id     TEXT NOT NULL,
-            username    TEXT NOT NULL,
-            song        TEXT NOT NULL,
-            priority    INTEGER NOT NULL DEFAULT 0,
-            requested_at TEXT NOT NULL DEFAULT (datetime('now'))
-        )
-    """)
-
-    # Migration: add 'priority' to request_history if upgrading from an older version.
-    try:
-        cursor.execute("ALTER TABLE request_history ADD COLUMN priority INTEGER NOT NULL DEFAULT 0")
-    except sqlite3.OperationalError:
-        pass  # column already exists — nothing to do
-
-    # Daily claims: tracks the last date a user claimed free tokens
-    cursor.execute("""
+    # daily_claims: tracks the calendar date of each player's last /daily claim
+    conn.execute("""
         CREATE TABLE IF NOT EXISTS daily_claims (
             user_id    TEXT PRIMARY KEY,
             last_claim TEXT NOT NULL
+        )
+    """)
+
+    # game_wins: total wins per player per mini-game
+    # game_type is one of: 'trivia', 'scramble', 'riddle', 'coinflip'
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS game_wins (
+            user_id   TEXT NOT NULL,
+            username  TEXT NOT NULL,
+            game_type TEXT NOT NULL,
+            wins      INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (user_id, game_type)
+        )
+    """)
+
+    # coinflip_history: log of every coinflip for stats / review
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS coinflip_history (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id    TEXT NOT NULL,
+            username   TEXT NOT NULL,
+            choice     TEXT NOT NULL,
+            result     TEXT NOT NULL,
+            bet        INTEGER NOT NULL,
+            won        INTEGER NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
         )
     """)
 
@@ -94,23 +97,23 @@ def init_db():
 # ---------------------------------------------------------------------------
 
 def ensure_user(user_id: str, username: str):
-    """Create a user record if it doesn't exist yet."""
+    """
+    Register a player if they don't exist yet.
+    New players start with STARTING_BALANCE coins.
+    Also updates the stored username in case it changed.
+    """
     conn = get_connection()
-    conn.execute(
-        "INSERT OR IGNORE INTO users (user_id, username, balance) VALUES (?, ?, 0)",
-        (user_id, username)
-    )
-    # Always keep username up to date in case it changed
-    conn.execute(
-        "UPDATE users SET username = ? WHERE user_id = ?",
-        (username, user_id)
-    )
+    conn.execute("""
+        INSERT INTO users (user_id, username, balance)
+        VALUES (?, ?, ?)
+        ON CONFLICT(user_id) DO UPDATE SET username = excluded.username
+    """, (user_id, username, config.STARTING_BALANCE))
     conn.commit()
     conn.close()
 
 
 def get_balance(user_id: str) -> int:
-    """Return the token balance for a user (0 if not found)."""
+    """Return the coin balance for a player. Returns 0 if not found."""
     conn = get_connection()
     row = conn.execute(
         "SELECT balance FROM users WHERE user_id = ?", (user_id,)
@@ -120,30 +123,32 @@ def get_balance(user_id: str) -> int:
 
 
 def adjust_balance(user_id: str, amount: int):
-    """Add (or subtract if negative) tokens from a user's balance."""
+    """
+    Add (or subtract, if amount is negative) coins from a player's balance.
+    The balance is clamped to a minimum of 0 — it can never go negative.
+    """
     conn = get_connection()
-    conn.execute(
-        "UPDATE users SET balance = balance + ? WHERE user_id = ?",
-        (amount, user_id)
-    )
+    conn.execute("""
+        UPDATE users
+        SET balance = MAX(0, balance + ?)
+        WHERE user_id = ?
+    """, (amount, user_id))
     conn.commit()
     conn.close()
 
 
-def set_balance_by_username(username: str, amount: int) -> bool:
+def get_user_by_username(username: str) -> dict | None:
     """
-    Add tokens to a user found by username (case-insensitive).
-    Returns True if the user was found, False otherwise.
+    Look up a player by their Highrise username (case-insensitive).
+    Returns a dict with 'user_id', 'username', 'balance', or None if not found.
     """
     conn = get_connection()
-    cursor = conn.execute(
-        "UPDATE users SET balance = balance + ? WHERE LOWER(username) = LOWER(?)",
-        (amount, username)
-    )
-    found = cursor.rowcount > 0
-    conn.commit()
+    row = conn.execute(
+        "SELECT user_id, username, balance FROM users WHERE LOWER(username) = LOWER(?)",
+        (username,)
+    ).fetchone()
     conn.close()
-    return found
+    return dict(row) if row else None
 
 
 # ---------------------------------------------------------------------------
@@ -151,191 +156,92 @@ def set_balance_by_username(username: str, amount: int) -> bool:
 # ---------------------------------------------------------------------------
 
 def can_claim_daily(user_id: str) -> bool:
-    """Return True if the user hasn't claimed tokens today."""
+    """
+    Return True if the player has NOT claimed their daily reward today.
+    The 'day' resets at midnight (UTC).
+    """
     conn = get_connection()
     row = conn.execute(
         "SELECT last_claim FROM daily_claims WHERE user_id = ?", (user_id,)
     ).fetchone()
     conn.close()
     if row is None:
-        return True
+        return True  # never claimed before
     return row["last_claim"] != str(date.today())
 
 
 def record_daily_claim(user_id: str):
-    """Record that a user claimed their daily tokens today."""
+    """Save today's date as the player's last /daily claim."""
     conn = get_connection()
-    conn.execute(
-        "INSERT OR REPLACE INTO daily_claims (user_id, last_claim) VALUES (?, ?)",
-        (user_id, str(date.today()))
-    )
+    conn.execute("""
+        INSERT INTO daily_claims (user_id, last_claim) VALUES (?, ?)
+        ON CONFLICT(user_id) DO UPDATE SET last_claim = excluded.last_claim
+    """, (user_id, str(date.today())))
     conn.commit()
     conn.close()
 
 
 # ---------------------------------------------------------------------------
-# Song queue helpers
+# Leaderboard helper
 # ---------------------------------------------------------------------------
 
-# Queue ordering rule (used in every SELECT from song_queue):
-#   1. The current song (lowest id) always stays first.
-#   2. Priority songs come next, ordered by the time they were added (id ASC).
-#   3. Normal songs come last, also ordered by id ASC.
-_QUEUE_ORDER = """
-    ORDER BY
-        CASE
-            WHEN id = (SELECT MIN(id) FROM song_queue) THEN 0
-            WHEN priority = 1                          THEN 1
-            ELSE                                            2
-        END,
-        id ASC
-"""
-
-
-def get_user_queue_count(user_id: str) -> int:
-    """Return how many songs the given user currently has in the queue."""
+def get_leaderboard(limit: int = 10) -> list[dict]:
+    """
+    Return the top `limit` players sorted by balance (highest first).
+    Each entry is a dict with 'rank', 'username', and 'balance'.
+    """
     conn = get_connection()
-    row = conn.execute(
-        "SELECT COUNT(*) as cnt FROM song_queue WHERE user_id = ?", (user_id,)
-    ).fetchone()
+    rows = conn.execute("""
+        SELECT username, balance
+        FROM users
+        ORDER BY balance DESC
+        LIMIT ?
+    """, (limit,)).fetchall()
     conn.close()
-    return row["cnt"]
+    return [
+        {"rank": i + 1, "username": r["username"], "balance": r["balance"]}
+        for i, r in enumerate(rows)
+    ]
 
 
-def get_next_song() -> dict | None:
+# ---------------------------------------------------------------------------
+# Game win tracking
+# ---------------------------------------------------------------------------
+
+def record_game_win(user_id: str, username: str, game_type: str):
     """
-    Return the song at position #2 in the ordered queue (the 'up next' song).
-    Returns None if the queue has fewer than 2 songs.
-    """
-    conn = get_connection()
-    rows = conn.execute(
-        f"SELECT id, username, song, priority FROM song_queue {_QUEUE_ORDER} LIMIT 2"
-    ).fetchall()
-    conn.close()
-    return dict(rows[1]) if len(rows) >= 2 else None
-
-
-def is_song_in_queue(song: str) -> bool:
-    """
-    Return True if an identical song title/link is already in the queue.
-    Comparison is case-insensitive and trims extra whitespace.
+    Increment the win counter for a player for a specific game type.
+    Creates the row if it doesn't exist yet.
     """
     conn = get_connection()
-    row = conn.execute(
-        "SELECT COUNT(*) as cnt FROM song_queue WHERE LOWER(TRIM(song)) = LOWER(TRIM(?))",
-        (song,)
-    ).fetchone()
-    conn.close()
-    return row["cnt"] > 0
-
-
-def get_queue_length() -> int:
-    """Return the total number of songs currently in the queue."""
-    conn = get_connection()
-    row = conn.execute("SELECT COUNT(*) as cnt FROM song_queue").fetchone()
-    conn.close()
-    return row["cnt"]
-
-
-def add_to_queue(user_id: str, username: str, song: str, priority: bool = False) -> int:
-    """
-    Add a song to the queue and history.
-    If priority=True the song is flagged so it sorts after the current song
-    but before all normal requests.
-    Returns the visible queue position of the new song (1-indexed).
-    """
-    conn = get_connection()
-    priority_val = 1 if priority else 0
-
-    conn.execute(
-        "INSERT INTO song_queue (user_id, username, song, priority) VALUES (?, ?, ?, ?)",
-        (user_id, username, song, priority_val)
-    )
-    conn.execute(
-        "INSERT INTO request_history (user_id, username, song, priority) VALUES (?, ?, ?, ?)",
-        (user_id, username, song, priority_val)
-    )
-    conn.commit()
-
-    # Calculate the visible position of the newly added song
-    rows = conn.execute(f"SELECT id FROM song_queue {_QUEUE_ORDER}").fetchall()
-    conn.close()
-
-    # Find the new row (it will have the largest id)
-    new_id = max(r["id"] for r in rows)
-    for pos, row in enumerate(rows, start=1):
-        if row["id"] == new_id:
-            return pos
-    return get_queue_length()  # fallback
-
-
-def get_queue(limit: int = 5) -> list:
-    """Return the next `limit` songs from the queue in display order."""
-    conn = get_connection()
-    rows = conn.execute(
-        f"SELECT id, username, song, priority FROM song_queue {_QUEUE_ORDER} LIMIT ?",
-        (limit,)
-    ).fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
-
-
-def get_current_song() -> dict | None:
-    """Return the song at the front of the queue (the 'now playing' song)."""
-    conn = get_connection()
-    row = conn.execute(
-        f"SELECT id, username, song, priority FROM song_queue {_QUEUE_ORDER} LIMIT 1"
-    ).fetchone()
-    conn.close()
-    return dict(row) if row else None
-
-
-def remove_from_queue(queue_position: int) -> dict | None:
-    """
-    Remove a song by its visible queue position (1-indexed).
-    Returns the removed song dict, or None if position is invalid.
-    """
-    conn = get_connection()
-    rows = conn.execute(
-        f"SELECT id, username, song, priority FROM song_queue {_QUEUE_ORDER}"
-    ).fetchall()
-
-    if queue_position < 1 or queue_position > len(rows):
-        conn.close()
-        return None
-
-    target = rows[queue_position - 1]
-    conn.execute("DELETE FROM song_queue WHERE id = ?", (target["id"],))
+    conn.execute("""
+        INSERT INTO game_wins (user_id, username, game_type, wins) VALUES (?, ?, ?, 1)
+        ON CONFLICT(user_id, game_type) DO UPDATE SET wins = wins + 1
+    """, (user_id, username, game_type))
     conn.commit()
     conn.close()
-    return dict(target)
 
 
-def skip_current_song() -> dict | None:
-    """Remove and return the first song in the ordered queue."""
-    conn = get_connection()
-    row = conn.execute(
-        f"SELECT id, username, song, priority FROM song_queue {_QUEUE_ORDER} LIMIT 1"
-    ).fetchone()
+# ---------------------------------------------------------------------------
+# Coinflip history
+# ---------------------------------------------------------------------------
 
-    if row is None:
-        conn.close()
-        return None
-
-    conn.execute("DELETE FROM song_queue WHERE id = ?", (row["id"],))
-    conn.commit()
-    conn.close()
-    return dict(row)
-
-
-def clear_queue() -> int:
+def record_coinflip(user_id: str, username: str, choice: str,
+                    result: str, bet: int, won: bool):
     """
-    Remove every song from the queue.
-    Returns the number of songs that were deleted.
+    Log a coinflip result to the history table.
+
+    Parameters
+    ----------
+    choice  : what the player chose ('heads' or 'tails')
+    result  : what the coin landed on ('heads' or 'tails')
+    bet     : how many coins were wagered
+    won     : True if the player won, False if they lost
     """
     conn = get_connection()
-    count = conn.execute("SELECT COUNT(*) as cnt FROM song_queue").fetchone()["cnt"]
-    conn.execute("DELETE FROM song_queue")
+    conn.execute("""
+        INSERT INTO coinflip_history (user_id, username, choice, result, bet, won)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """, (user_id, username, choice, result, bet, int(won)))
     conn.commit()
     conn.close()
-    return count

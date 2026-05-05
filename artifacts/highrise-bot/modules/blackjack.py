@@ -1,19 +1,18 @@
 """
 modules/blackjack.py
 --------------------
-PLACEHOLDER — Blackjack Bot module.
+PLACEHOLDER — Blackjack game module.
 
-This file is ready for you to build out. Wire it into bot.py
-the same way the DJ and economy modules are connected.
+This file is reserved for a future blackjack implementation.
+When you're ready to build it, replace this file with the full game logic.
 
-To activate:
-  1. Add blackjack commands to the routing tables in bot.py
-  2. Implement game logic below
+Planned commands:
+  /blackjack <bet>   - start a blackjack hand against the bot
+  /hit               - draw another card
+  /stand             - hold your current hand
+
+To wire it up once built:
+  1. Import handle_blackjack_command in bot.py
+  2. Add "blackjack", "hit", "stand" to GAME_COMMANDS in bot.py
+  3. Add routing in the on_chat handler
 """
-
-from highrise import BaseBot, User
-
-
-async def handle_blackjack_command(bot: BaseBot, user: User, args: list[str]):
-    """Entry point for all /blackjack commands."""
-    await bot.highrise.send_whisper(user.id, "🃏 Blackjack bot coming soon!")
