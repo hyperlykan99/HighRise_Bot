@@ -1604,6 +1604,46 @@ class HangoutBot(BaseBot):
                 await handle_clearpendingnotify(self, user, args)
             elif cmd == "dailyadmin":
                 await handle_dailyadmin(self, user, args)
+
+            # ── Poker staff commands ──────────────────────────────────────────
+            elif cmd == "setpokertimer" or cmd == "setpokerturntimer":
+                print(f"[POKER TIMER] COMMAND RECEIVED | cmd={cmd} user={user.username}")
+                await handle_setpokertimer(self, user, args)
+
+            elif cmd == "setpokerlobbytimer":
+                print(f"[POKER TIMER] COMMAND RECEIVED | cmd={cmd} user={user.username}")
+                await handle_setpokerlobbytimer(self, user, args)
+
+            elif cmd == "setpokerbuyin":
+                await handle_setpokerbuyin(self, user, args)
+
+            elif cmd == "setpokerplayers":
+                await handle_setpokerplayers(self, user, args)
+
+            elif cmd == "setpokerraise":
+                await handle_setpokerraise(self, user, args)
+
+            elif cmd == "setpokerdailywinlimit":
+                await handle_setpokerdailywinlimit(self, user, args)
+
+            elif cmd == "setpokerdailylosslimit":
+                await handle_setpokerdailylosslimit(self, user, args)
+
+            elif cmd == "resetpokerlimits":
+                await handle_resetpokerlimits(self, user, args)
+
+            elif cmd == "setpokerlimits":
+                await handle_setpokerlimits(self, user, args)
+
+            elif cmd == "pokerdebug":
+                await handle_pokerdebug(self, user, args)
+
+            elif cmd == "pokerfix":
+                await handle_pokerfix(self, user, args)
+
+            elif cmd == "pokerrefundall":
+                await handle_pokerrefundall(self, user, args)
+
             else:
                 await handle_admin_command(self, user, cmd, args)
             return

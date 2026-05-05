@@ -1385,31 +1385,41 @@ async def handle_setpokerplayers(bot: BaseBot, user: User, args: list[str]) -> N
 
 
 async def handle_setpokerlobbytimer(bot: BaseBot, user: User, args: list[str]) -> None:
-    if not can_manage_games(user.username):
-        await _w(bot, user.id, "Managers+ only.")
+    perm = can_manage_games(user.username)
+    print(f"[POKER TIMER] setpokerlobbytimer | user={user.username} "
+          f"args={args[1:]} perm={perm}")
+    if not perm:
+        await _w(bot, user.id, "Staff only.")
         return
     if len(args) < 2 or not args[1].isdigit():
-        await _w(bot, user.id, "Usage: /setpokerlobbytimer <seconds>")
+        await _w(bot, user.id, "Use /setpokerlobbytimer 20.")
         return
     secs = int(args[1])
+    print(f"[POKER TIMER] setpokerlobbytimer parsed secs={secs}")
     if not (5 <= secs <= 120):
-        await _w(bot, user.id, "Must be 5-120 seconds."); return
+        await _w(bot, user.id, "Lobby timer must be 5-120 seconds.")
+        return
     _set("lobby_countdown", secs)
-    await _w(bot, user.id, f"✅ Poker lobby timer: {secs}s")
+    await _w(bot, user.id, f"✅ Poker lobby timer set to {secs}s.")
 
 
 async def handle_setpokertimer(bot: BaseBot, user: User, args: list[str]) -> None:
-    if not can_manage_games(user.username):
-        await _w(bot, user.id, "Managers+ only.")
+    perm = can_manage_games(user.username)
+    print(f"[POKER TIMER] setpokertimer | user={user.username} "
+          f"args={args[1:]} perm={perm}")
+    if not perm:
+        await _w(bot, user.id, "Staff only.")
         return
     if len(args) < 2 or not args[1].isdigit():
-        await _w(bot, user.id, "Usage: /setpokertimer <seconds>")
+        await _w(bot, user.id, "Use /setpokertimer 30.")
         return
     secs = int(args[1])
+    print(f"[POKER TIMER] setpokertimer parsed secs={secs}")
     if not (10 <= secs <= 60):
-        await _w(bot, user.id, "Must be 10-60 seconds."); return
+        await _w(bot, user.id, "Turn timer must be 10-60 seconds.")
+        return
     _set("turn_timer", secs)
-    await _w(bot, user.id, f"✅ Poker turn timer: {secs}s")
+    await _w(bot, user.id, f"✅ Poker turn timer set to {secs}s.")
 
 
 async def handle_setpokerraise(bot: BaseBot, user: User, args: list[str]) -> None:
@@ -1471,18 +1481,8 @@ async def handle_resetpokerlimits(bot: BaseBot, user: User, args: list[str]) -> 
 
 
 async def handle_setpokerturntimer(bot: BaseBot, user: User, args: list[str]) -> None:
-    """Alias for /setpokertimer."""
-    if not can_manage_games(user.username):
-        await _w(bot, user.id, "Staff only.")
-        return
-    if len(args) < 2 or not args[1].isdigit():
-        await _w(bot, user.id, "Use /setpokerturntimer <seconds>.")
-        return
-    secs = int(args[1])
-    if not (10 <= secs <= 60):
-        await _w(bot, user.id, "Must be 10-60 seconds."); return
-    _set("turn_timer", secs)
-    await _w(bot, user.id, f"✅ Poker turn timer set to {secs}s.")
+    """Alias for /setpokertimer — routed through handle_setpokertimer."""
+    await handle_setpokertimer(bot, user, args)
 
 
 async def handle_setpokerlimits(bot: BaseBot, user: User, args: list[str]) -> None:
