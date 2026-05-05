@@ -1,0 +1,87 @@
+Add owner/admin maintenance tools to my existing Highrise Mini Game Bot.
+
+IMPORTANT:
+- Do not remove existing features.
+- Keep coins, XP, shop, bank, blackjack, quests, events, reports, reputation, and staff roles.
+- Use existing SQLite database.
+- Keep all messages under 250 characters.
+- Prevent crashes from bad inputs.
+
+Goal:
+Owners/admins need tools to inspect, backup, and maintain the bot.
+
+Commands:
+- /botstatus
+- /dbstats
+- /backup
+- /maintenance on
+- /maintenance off
+- /maintenance
+- /reloadsettings
+- /cleanup
+
+Permissions:
+- /botstatus public
+- /maintenance public
+- /dbstats owner/admin only
+- /backup owner only
+- /maintenance on/off owner/admin only
+- /reloadsettings owner/admin only
+- /cleanup owner/admin only
+
+Features:
+
+/botstatus shows:
+- bot online
+- uptime
+- active event
+- casino modes
+- active BJ/RBJ/Poker tables if any
+
+/dbstats shows:
+- total users
+- total coins in economy
+- total bank transactions
+- total reports open
+- total shop purchases
+- total blackjack rounds
+
+/backup:
+- Creates a timestamped backup copy of the SQLite database.
+- Backup filename example:
+  backup_highrise_hangout_YYYYMMDD_HHMMSS.db
+- Do not expose file paths in public chat.
+- Message:
+  "✅ Database backup created."
+
+/maintenance on:
+- Turns maintenance mode ON.
+- Normal players cannot use economy/game/casino/bank commands.
+- Staff commands still work.
+- /help, /profile, /botstatus still work.
+
+/maintenance off:
+- Turns maintenance mode OFF.
+
+/maintenance:
+- Shows whether maintenance is ON or OFF.
+
+/reloadsettings:
+- Reloads bot settings from SQLite/config without restarting if possible.
+
+/cleanup:
+- Clears expired cooldowns, expired mutes, expired events, old temporary search data, and finished game states.
+- Does not delete user coins, XP, shop items, transactions, or stats.
+
+Safety:
+- Never reset or erase the database unless owner explicitly uses a future reset command.
+- Do not add any command that wipes player data.
+- Log maintenance actions in the economy/admin ledger if available.
+
+Update /adminhelp or /ownerhelp to include:
+- /botstatus
+- /dbstats
+- /backup
+- /maintenance on/off
+- /reloadsettings
+- /cleanup

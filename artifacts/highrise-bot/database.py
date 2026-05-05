@@ -2101,6 +2101,50 @@ def update_poker_stats(
 
 
 # ---------------------------------------------------------------------------
+# Maintenance helpers
+# ---------------------------------------------------------------------------
+
+def get_db_stats() -> dict:
+    """Row-count snapshot for /dbstats."""
+    conn = get_connection()
+    users        = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+    total_coins  = conn.execute(
+        "SELECT COALESCE(SUM(balance), 0) FROM users"
+    ).fetchone()[0]
+    transactions = conn.execute(
+        "SELECT COUNT(*) FROM bank_transactions"
+    ).fetchone()[0]
+    open_reports = conn.execute(
+        "SELECT COUNT(*) FROM reports WHERE status = 'open'"
+    ).fetchone()[0]
+    purchases    = conn.execute(
+        "SELECT COUNT(*) FROM purchase_history"
+    ).fetchone()[0]
+    bj_rounds    = conn.execute(
+        "SELECT COALESCE(SUM(bj_wins + bj_losses + bj_pushes), 0) FROM bj_stats"
+    ).fetchone()[0]
+    conn.close()
+    return {
+        "users":        users,
+        "total_coins":  total_coins,
+        "transactions": transactions,
+        "open_reports": open_reports,
+        "purchases":    purchases,
+        "bj_rounds":    bj_rounds,
+    }
+
+
+def cleanup_expired_data() -> dict:
+    """Remove expired mutes and other safely-purgeable stale rows."""
+    conn = get_connection()
+    cur  = conn.execute("DELETE FROM mutes WHERE expires_at < datetime('now')")
+    mutes_removed = cur.rowcount
+    conn.commit()
+    conn.close()
+    return {"mutes": mutes_removed}
+
+
+# ---------------------------------------------------------------------------
 # Moderation helpers — mutes
 # ---------------------------------------------------------------------------
 

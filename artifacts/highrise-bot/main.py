@@ -49,6 +49,11 @@ from modules.achievements import handle_achievements, handle_claim_achievements
 from modules.blackjack           import handle_bj, handle_bj_set, reset_table as bj_reset_table
 from modules.realistic_blackjack import handle_rbj, handle_rbj_set, reset_table as rbj_reset_table
 from modules.poker               import handle_poker, reset_table as poker_reset_table
+from modules.maintenance         import (
+    handle_botstatus, handle_dbstats, handle_backup,
+    handle_maintenance, handle_reloadsettings, handle_cleanup,
+    is_maintenance,
+)
 from modules.permissions         import (
     is_owner, is_admin, can_moderate,
     can_manage_games, can_manage_economy,
@@ -157,6 +162,8 @@ ALL_KNOWN_COMMANDS = (
         "report", "bug", "myreports",
         "rep", "reputation", "repstats", "toprep", "repleaderboard",
         "poker",
+        "botstatus", "dbstats", "backup",
+        "maintenance", "reloadsettings", "cleanup",
     }
     | ECONOMY_COMMANDS | PROFILE_COMMANDS | GAME_COMMANDS
     | SHOP_COMMANDS | ACHIEVEMENT_COMMANDS | BJ_COMMANDS
@@ -295,6 +302,15 @@ ADMIN_HELP_3 = (
     "/removemoderator <user>"
 )
 
+ADMIN_HELP_4 = (
+    "👑 Admin 4 — Maintenance\n"
+    "/maintenance on/off\n"
+    "/reloadsettings\n"
+    "/cleanup\n"
+    "/dbstats\n"
+    "/botstatus"
+)
+
 OWNER_HELP_1 = (
     "👑 Owner\n"
     "/addadmin <user>\n"
@@ -309,7 +325,8 @@ OWNER_HELP_2 = (
     "/casino reset\n"
     "/ledger <user>\n"
     "/allcommands\n"
-    "Full control over bot settings."
+    "/backup\n"
+    "/dbstats  /botstatus"
 )
 
 ALLCMDS = [
@@ -420,6 +437,7 @@ async def _handle_adminhelp(bot, user):
     await bot.highrise.send_whisper(user.id, ADMIN_HELP_1)
     await bot.highrise.send_whisper(user.id, ADMIN_HELP_2)
     await bot.highrise.send_whisper(user.id, ADMIN_HELP_3)
+    await bot.highrise.send_whisper(user.id, ADMIN_HELP_4)
 
 
 async def _handle_ownerhelp(bot, user):
@@ -607,6 +625,20 @@ class HangoutBot(BaseBot):
                 await handle_admin_command(self, user, cmd, args)
             return
 
+        # ── Maintenance gate — block gameplay/economy during maintenance ──────
+        _MAINT_BLOCKED = (
+            GAME_COMMANDS | BJ_COMMANDS
+            | {"poker", "daily", "send", "buy",
+               "claimachievements", "claimquest", "buyevent"}
+        )
+        if is_maintenance() and cmd in _MAINT_BLOCKED:
+            if not can_moderate(user.username):
+                await self.highrise.send_whisper(
+                    user.id,
+                    "🔧 Maintenance mode is ON. This feature is temporarily unavailable."
+                )
+                return
+
         # ── Mute gate — block muted players from economy/game commands ────────
         _MUTE_EXEMPT = {
             "help", "casinohelp", "gamehelp", "coinhelp", "profilehelp",
@@ -614,6 +646,7 @@ class HangoutBot(BaseBot):
             "managerhelp", "adminhelp", "ownerhelp", "questhelp",
             "profile", "level", "balance", "myitems",
             "myreports", "report", "bug",
+            "botstatus", "maintenance",
         }
         if cmd not in _MUTE_EXEMPT:
             _mute = db.get_active_mute(user.id)
@@ -815,6 +848,25 @@ class HangoutBot(BaseBot):
         # ── Poker ─────────────────────────────────────────────────────────────
         elif cmd == "poker":
             await handle_poker(self, user, args)
+
+        # ── Maintenance tools ─────────────────────────────────────────────────
+        elif cmd == "botstatus":
+            await handle_botstatus(self, user)
+
+        elif cmd == "dbstats":
+            await handle_dbstats(self, user)
+
+        elif cmd == "backup":
+            await handle_backup(self, user)
+
+        elif cmd == "maintenance":
+            await handle_maintenance(self, user, args)
+
+        elif cmd == "reloadsettings":
+            await handle_reloadsettings(self, user)
+
+        elif cmd == "cleanup":
+            await handle_cleanup(self, user)
 
         # ── Game commands ─────────────────────────────────────────────────────
         elif cmd in GAME_COMMANDS:
