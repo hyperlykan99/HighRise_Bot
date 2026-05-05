@@ -38,16 +38,27 @@ def init_db():
         )
     """)
 
-    # Song queue table: holds pending song requests in order
+    # Song queue table: holds pending song requests in order.
+    # The 'priority' column (1 = priority, 0 = normal) controls ordering:
+    # current song → priority songs (by id) → normal songs (by id).
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS song_queue (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id     TEXT NOT NULL,
-            username    TEXT NOT NULL,
-            song        TEXT NOT NULL,
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id      TEXT NOT NULL,
+            username     TEXT NOT NULL,
+            song         TEXT NOT NULL,
+            priority     INTEGER NOT NULL DEFAULT 0,
             requested_at TEXT NOT NULL DEFAULT (datetime('now'))
         )
     """)
+
+    # If upgrading from an older version that didn't have the 'priority' column,
+    # add it now. SQLite raises OperationalError if the column already exists,
+    # so we just catch and ignore that case.
+    try:
+        cursor.execute("ALTER TABLE song_queue ADD COLUMN priority INTEGER NOT NULL DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass  # column already exists — nothing to do
 
     # Request history: every song that was ever requested
     cursor.execute("""
@@ -56,6 +67,7 @@ def init_db():
             user_id     TEXT NOT NULL,
             username    TEXT NOT NULL,
             song        TEXT NOT NULL,
+            priority    INTEGER NOT NULL DEFAULT 0,
             requested_at TEXT NOT NULL DEFAULT (datetime('now'))
         )
     """)
@@ -83,7 +95,7 @@ def ensure_user(user_id: str, username: str):
         "INSERT OR IGNORE INTO users (user_id, username, balance) VALUES (?, ?, 0)",
         (user_id, username)
     )
-    # Always keep username up to date
+    # Always keep username up to date in case it changed
     conn.execute(
         "UPDATE users SET username = ? WHERE user_id = ?",
         (username, user_id)
@@ -160,35 +172,80 @@ def record_daily_claim(user_id: str):
 # Song queue helpers
 # ---------------------------------------------------------------------------
 
-def add_to_queue(user_id: str, username: str, song: str) -> int:
+# Queue ordering rule (used in every SELECT from song_queue):
+#   1. The current song (lowest id) always stays first.
+#   2. Priority songs come next, ordered by the time they were added (id ASC).
+#   3. Normal songs come last, also ordered by id ASC.
+_QUEUE_ORDER = """
+    ORDER BY
+        CASE
+            WHEN id = (SELECT MIN(id) FROM song_queue) THEN 0
+            WHEN priority = 1                          THEN 1
+            ELSE                                            2
+        END,
+        id ASC
+"""
+
+
+def is_song_in_queue(song: str) -> bool:
     """
-    Add a song to the queue and history.
-    Returns the position number in the queue (1-indexed).
+    Return True if an identical song title/link is already in the queue.
+    Comparison is case-insensitive and trims extra whitespace.
     """
     conn = get_connection()
-    conn.execute(
-        "INSERT INTO song_queue (user_id, username, song) VALUES (?, ?, ?)",
-        (user_id, username, song)
-    )
-    conn.execute(
-        "INSERT INTO request_history (user_id, username, song) VALUES (?, ?, ?)",
-        (user_id, username, song)
-    )
-    conn.commit()
-
-    # Figure out the position of the newly added song
     row = conn.execute(
-        "SELECT COUNT(*) as cnt FROM song_queue"
+        "SELECT COUNT(*) as cnt FROM song_queue WHERE LOWER(TRIM(song)) = LOWER(TRIM(?))",
+        (song,)
     ).fetchone()
+    conn.close()
+    return row["cnt"] > 0
+
+
+def get_queue_length() -> int:
+    """Return the total number of songs currently in the queue."""
+    conn = get_connection()
+    row = conn.execute("SELECT COUNT(*) as cnt FROM song_queue").fetchone()
     conn.close()
     return row["cnt"]
 
 
+def add_to_queue(user_id: str, username: str, song: str, priority: bool = False) -> int:
+    """
+    Add a song to the queue and history.
+    If priority=True the song is flagged so it sorts after the current song
+    but before all normal requests.
+    Returns the visible queue position of the new song (1-indexed).
+    """
+    conn = get_connection()
+    priority_val = 1 if priority else 0
+
+    conn.execute(
+        "INSERT INTO song_queue (user_id, username, song, priority) VALUES (?, ?, ?, ?)",
+        (user_id, username, song, priority_val)
+    )
+    conn.execute(
+        "INSERT INTO request_history (user_id, username, song, priority) VALUES (?, ?, ?, ?)",
+        (user_id, username, song, priority_val)
+    )
+    conn.commit()
+
+    # Calculate the visible position of the newly added song
+    rows = conn.execute(f"SELECT id FROM song_queue {_QUEUE_ORDER}").fetchall()
+    conn.close()
+
+    # Find the new row (it will have the largest id)
+    new_id = max(r["id"] for r in rows)
+    for pos, row in enumerate(rows, start=1):
+        if row["id"] == new_id:
+            return pos
+    return get_queue_length()  # fallback
+
+
 def get_queue(limit: int = 5) -> list:
-    """Return the next `limit` songs from the front of the queue."""
+    """Return the next `limit` songs from the queue in display order."""
     conn = get_connection()
     rows = conn.execute(
-        "SELECT id, username, song FROM song_queue ORDER BY id ASC LIMIT ?",
+        f"SELECT id, username, song, priority FROM song_queue {_QUEUE_ORDER} LIMIT ?",
         (limit,)
     ).fetchall()
     conn.close()
@@ -199,7 +256,7 @@ def get_current_song() -> dict | None:
     """Return the song at the front of the queue (the 'now playing' song)."""
     conn = get_connection()
     row = conn.execute(
-        "SELECT id, username, song FROM song_queue ORDER BY id ASC LIMIT 1"
+        f"SELECT id, username, song, priority FROM song_queue {_QUEUE_ORDER} LIMIT 1"
     ).fetchone()
     conn.close()
     return dict(row) if row else None
@@ -212,7 +269,7 @@ def remove_from_queue(queue_position: int) -> dict | None:
     """
     conn = get_connection()
     rows = conn.execute(
-        "SELECT id, username, song FROM song_queue ORDER BY id ASC"
+        f"SELECT id, username, song, priority FROM song_queue {_QUEUE_ORDER}"
     ).fetchall()
 
     if queue_position < 1 or queue_position > len(rows):
@@ -227,10 +284,10 @@ def remove_from_queue(queue_position: int) -> dict | None:
 
 
 def skip_current_song() -> dict | None:
-    """Remove and return the first song in the queue (skip it)."""
+    """Remove and return the first song in the ordered queue."""
     conn = get_connection()
     row = conn.execute(
-        "SELECT id, username, song FROM song_queue ORDER BY id ASC LIMIT 1"
+        f"SELECT id, username, song, priority FROM song_queue {_QUEUE_ORDER} LIMIT 1"
     ).fetchone()
 
     if row is None:
@@ -243,9 +300,14 @@ def skip_current_song() -> dict | None:
     return dict(row)
 
 
-def get_queue_length() -> int:
-    """Return the total number of songs currently in the queue."""
+def clear_queue() -> int:
+    """
+    Remove every song from the queue.
+    Returns the number of songs that were deleted.
+    """
     conn = get_connection()
-    row = conn.execute("SELECT COUNT(*) as cnt FROM song_queue").fetchone()
+    count = conn.execute("SELECT COUNT(*) as cnt FROM song_queue").fetchone()["cnt"]
+    conn.execute("DELETE FROM song_queue")
+    conn.commit()
     conn.close()
-    return row["cnt"]
+    return count

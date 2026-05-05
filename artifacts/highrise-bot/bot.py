@@ -3,7 +3,7 @@ bot.py
 ------
 Main bot entry point.
 
-This file wires everything together:
+Wires everything together:
   - Connects to Highrise using BOT_TOKEN and ROOM_ID from environment variables
   - Initialises the SQLite database
   - Listens for chat messages and routes them to the correct module
@@ -13,7 +13,6 @@ How to add a new module (e.g. trivia):
   2. Import it here
   3. Add its command names to the sets below
   4. Add a routing branch in on_chat()
-  5. That's it — no other files need to change
 """
 
 import asyncio
@@ -23,35 +22,34 @@ from highrise.__main__ import BotDefinition, main as highrise_main
 import database as db
 import config
 
-# Import each feature module
 from modules.dj import handle_dj_command, handle_dj_admin_command
 from modules.economy import handle_economy_command, handle_economy_admin_command
 
 # ---------------------------------------------------------------------------
 # Command routing tables
 # ---------------------------------------------------------------------------
-# List the slash-command names each module owns (without the /).
 
-DJ_COMMANDS            = {"dj", "request", "queue", "now", "skipvote"}
+DJ_COMMANDS            = {"dj", "request", "priority", "queue", "now", "skipvote"}
 ECONOMY_COMMANDS       = {"balance", "daily"}
-ADMIN_DJ_COMMANDS      = {"skip", "remove"}
+ADMIN_DJ_COMMANDS      = {"skip", "remove", "clearqueue"}
 ADMIN_ECONOMY_COMMANDS = {"addtokens", "refund"}
 
+# Help text is split into two messages to stay within Highrise's character limit.
 HELP_TEXT_1 = (
     "-- DJ System --\n"
-    f"/request <song> - add a song ({config.SONG_REQUEST_COST} tokens)\n"
+    f"/request <song>  - {config.SONG_REQUEST_COST} tokens, adds to queue\n"
+    f"/priority <song> - {config.PRIORITY_REQUEST_COST} tokens, jumps to #2\n"
     "/queue - next 5 songs\n"
     "/now - current song\n"
-    "/skipvote - vote to skip\n"
-    "/dj - about the DJ system"
+    "/skipvote - vote to skip"
 )
 
 HELP_TEXT_2 = (
     "-- Tokens --\n"
-    "/balance - your token balance\n"
+    "/balance - your balance\n"
     f"/daily - claim {config.DAILY_REWARD} free tokens (once/day)\n"
     "-- Admin --\n"
-    "/skip  /remove <#>\n"
+    "/skip  /remove <#>  /clearqueue\n"
     "/addtokens <user> <amt>\n"
     "/refund <user> <amt>"
 )
@@ -60,43 +58,40 @@ HELP_TEXT_2 = (
 class HangoutBot(BaseBot):
     """
     Main bot class.
-
-    Inherits from Highrise BaseBot and overrides the event hooks we care about.
-    Add new on_* methods here as you need more Highrise events.
+    Inherits from BaseBot and overrides event hooks.
     """
 
     async def on_start(self, session_metadata) -> None:
         """Called once when the bot successfully connects to the room."""
-        db.init_db()  # create tables if they don't exist
+        db.init_db()
         print(f"[Bot] Connected to room {config.ROOM_ID}")
         await self.highrise.chat("Bot is online! Type /help to see commands.")
 
     async def on_chat(self, user: User, message: str) -> None:
         """
-        Called every time someone sends a public chat message in the room.
-        We only react to messages that start with '/'.
+        Called for every public chat message.
+        Only acts on messages that start with '/'.
         """
         message = message.strip()
 
         if not message.startswith("/"):
-            return  # not a command — ignore it
+            return
 
-        # Split "/request Blinding Lights" into ["request", "Blinding", "Lights"]
+        # e.g. "/request Blinding Lights" → ["request", "Blinding", "Lights"]
         parts = message[1:].split()
         if not parts:
             return
 
         cmd  = parts[0].lower()
-        args = parts  # pass full list; handlers use args[0] as the command name
+        args = parts
 
-        # ── /help ──────────────────────────────────────────────────────────
+        # /help — two whispers to stay within Highrise's message size limit
         if cmd == "help":
             await self.highrise.send_whisper(user.id, HELP_TEXT_1)
             await self.highrise.send_whisper(user.id, HELP_TEXT_2)
             return
 
-        # ── Admin-only commands ────────────────────────────────────────────
-        # Check by username (case-insensitive) against the ADMIN_USERS list
+        # Admin-only commands — check username (case-insensitive)
         if cmd in ADMIN_DJ_COMMANDS or cmd in ADMIN_ECONOMY_COMMANDS:
             if user.username.lower() not in config.ADMIN_USERS:
                 await self.highrise.send_whisper(user.id, "That command is for admins only.")
@@ -108,7 +103,7 @@ class HangoutBot(BaseBot):
                 await handle_economy_admin_command(self, user, args)
             return
 
-        # ── Public commands ────────────────────────────────────────────────
+        # Public commands
         if cmd in DJ_COMMANDS:
             await handle_dj_command(self, user, args)
 
@@ -121,12 +116,12 @@ class HangoutBot(BaseBot):
             )
 
     async def on_user_join(self, user: User, position) -> None:
-        """Called when a user enters the room. Register them in the DB."""
+        """Register new users and greet them."""
         db.ensure_user(user.id, user.username)
-        await self.highrise.chat(f"Welcome, @{user.username}! Type /help to see what I can do.")
+        await self.highrise.chat(f"Welcome, @{user.username}! Type /help to see commands.")
 
     async def on_user_leave(self, user: User) -> None:
-        """Called when a user leaves the room."""
+        """Log when a user leaves."""
         print(f"[Bot] {user.username} left the room.")
 
 
@@ -135,7 +130,7 @@ class HangoutBot(BaseBot):
 # ---------------------------------------------------------------------------
 
 def run():
-    """Start the bot using the Highrise SDK BotDefinition runner."""
+    """Start the bot using the Highrise SDK."""
     asyncio.run(
         highrise_main(
             [BotDefinition(

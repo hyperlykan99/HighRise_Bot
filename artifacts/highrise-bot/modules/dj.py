@@ -3,40 +3,44 @@ modules/dj.py
 -------------
 DJ Request System module.
 
-Handles all DJ-related commands:
-  /dj       - explain the DJ system
-  /request  - add a song to the queue (costs tokens)
-  /queue    - show next 5 songs
-  /now      - show current song
-  /skipvote - vote to skip the current song
+User commands:
+  /dj                - explain the DJ system
+  /request  <song>  - add a song to the queue (20 tokens)
+  /priority <song>  - jump to #2 in queue     (50 tokens)
+  /queue            - show next 5 songs
+  /now              - show current song
+  /skipvote         - vote to skip the current song
 
 Admin commands:
-  /skip           - force skip current song
-  /remove <pos>   - remove a song by queue position (1-indexed)
+  /skip             - force skip current song
+  /remove <pos>     - remove song by queue position (1-indexed)
+  /clearqueue       - wipe the entire queue
 """
 
 from highrise import BaseBot, User
 import database as db
 import config
 
-# Tracks which users have voted to skip the current song this round.
-# Cleared whenever the song at the front of the queue changes.
+# ---------------------------------------------------------------------------
+# Skip-vote state (in-memory; resets when the bot restarts)
+# ---------------------------------------------------------------------------
+
+# Set of user IDs who have voted to skip the current song
 _skip_votes: set[str] = set()
 
-# The database row ID of the song the current skip votes are aimed at.
-# Used to detect when the current song has changed between vote calls.
+# DB row ID of the song the current votes are targeting.
+# Used to detect when the song at the front has changed.
 _skip_vote_song_id: int | None = None
 
+
+# ---------------------------------------------------------------------------
+# Public routing functions (called from bot.py)
+# ---------------------------------------------------------------------------
 
 async def handle_dj_command(bot: BaseBot, user: User, args: list[str]):
     """
     Route a DJ user command to the correct handler.
-
-    Parameters
-    ----------
-    bot  : running bot instance (used to send messages via bot.highrise)
-    user : the Highrise user who typed the command
-    args : words after the '/', e.g. ["request", "Blinding", "Lights"]
+    args[0] is the command name, args[1:] are its arguments.
     """
     if not args:
         return
@@ -47,7 +51,10 @@ async def handle_dj_command(bot: BaseBot, user: User, args: list[str]):
         await _cmd_dj_info(bot, user)
     elif cmd == "request":
         song = " ".join(args[1:]).strip()
-        await _cmd_request(bot, user, song)
+        await _cmd_request(bot, user, song, priority=False)
+    elif cmd == "priority":
+        song = " ".join(args[1:]).strip()
+        await _cmd_request(bot, user, song, priority=True)
     elif cmd == "queue":
         await _cmd_queue(bot, user)
     elif cmd == "now":
@@ -57,15 +64,7 @@ async def handle_dj_command(bot: BaseBot, user: User, args: list[str]):
 
 
 async def handle_dj_admin_command(bot: BaseBot, user: User, args: list[str]):
-    """
-    Route an admin-only DJ command.
-
-    Parameters
-    ----------
-    bot  : running bot instance
-    user : the admin user who typed the command
-    args : words after the '/', e.g. ["skip"] or ["remove", "2"]
-    """
+    """Route an admin-only DJ command."""
     if not args:
         return
 
@@ -75,6 +74,49 @@ async def handle_dj_admin_command(bot: BaseBot, user: User, args: list[str]):
         await _cmd_admin_skip(bot, user)
     elif cmd == "remove":
         await _cmd_admin_remove(bot, user, args[1:])
+    elif cmd == "clearqueue":
+        await _cmd_admin_clearqueue(bot, user)
+
+
+# ---------------------------------------------------------------------------
+# Content validation helpers
+# ---------------------------------------------------------------------------
+
+def _contains_banned_word(text: str) -> str | None:
+    """
+    Check if the text contains any banned word (case-insensitive).
+    Returns the matched banned word if found, otherwise None.
+    """
+    lower = text.lower()
+    for word in config.BANNED_WORDS:
+        if word.lower() in lower:
+            return word
+    return None
+
+
+def _validate_request(song: str) -> str | None:
+    """
+    Run all pre-add checks on a song title.
+    Returns an error message string if the request should be rejected,
+    or None if everything is fine.
+    """
+    if not song:
+        return "Please include a song name or link."
+
+    # Banned word check
+    bad_word = _contains_banned_word(song)
+    if bad_word:
+        return "That song title contains a banned word and cannot be requested."
+
+    # Duplicate check
+    if db.is_song_in_queue(song):
+        return "That song is already in the queue!"
+
+    # Queue full check
+    if db.get_queue_length() >= config.QUEUE_MAX_SIZE:
+        return f"The queue is full ({config.QUEUE_MAX_SIZE} songs max). Try again soon!"
+
+    return None  # all good
 
 
 # ---------------------------------------------------------------------------
@@ -85,58 +127,66 @@ async def _cmd_dj_info(bot: BaseBot, user: User):
     """Whisper an explanation of the DJ system to the requesting user."""
     msg = (
         "DJ Request System\n"
-        f"Use /request <song name or link> to add a song to the queue.\n"
-        f"Each request costs {config.SONG_REQUEST_COST} tokens.\n"
-        "Use /queue to see upcoming songs, /now to see what's playing.\n"
-        "Earn free tokens daily with /daily!"
+        f"/request <song> - {config.SONG_REQUEST_COST} tokens, adds to queue\n"
+        f"/priority <song> - {config.PRIORITY_REQUEST_COST} tokens, jumps to #2\n"
+        f"Queue limit: {config.QUEUE_MAX_SIZE} songs. No duplicates.\n"
+        "Use /queue, /now, /skipvote, /balance, /daily"
     )
     await bot.highrise.send_whisper(user.id, msg)
 
 
-async def _cmd_request(bot: BaseBot, user: User, song: str):
+async def _cmd_request(bot: BaseBot, user: User, song: str, priority: bool):
     """
-    Add a song to the queue if the user has enough tokens.
-    Deducts the cost from their balance and saves the request to the DB.
-    Announces the new addition in the public room chat.
+    Shared handler for both /request (normal) and /priority.
+
+    Validates the song, checks the user's balance, deducts tokens,
+    and adds the song to the queue. Priority songs sort to position #2
+    (right after whatever is currently playing).
+
+    Parameters
+    ----------
+    priority : True  → /priority command (costs PRIORITY_REQUEST_COST)
+               False → /request command  (costs SONG_REQUEST_COST)
     """
     global _skip_votes, _skip_vote_song_id
 
     db.ensure_user(user.id, user.username)
 
-    if not song:
-        await bot.highrise.send_whisper(user.id, "Usage: /request <song name or link>")
+    # Run all content / queue-state checks first
+    error = _validate_request(song)
+    if error:
+        await bot.highrise.send_whisper(user.id, error)
         return
 
+    cost = config.PRIORITY_REQUEST_COST if priority else config.SONG_REQUEST_COST
     balance = db.get_balance(user.id)
 
-    if balance < config.SONG_REQUEST_COST:
+    if balance < cost:
         await bot.highrise.send_whisper(
             user.id,
-            f"Not enough tokens! You have {balance} but need {config.SONG_REQUEST_COST}. "
+            f"Not enough tokens! You have {balance} but need {cost}. "
             "Use /daily for free tokens."
         )
         return
 
-    # Deduct tokens first, then add to queue
-    db.adjust_balance(user.id, -config.SONG_REQUEST_COST)
-    position   = db.add_to_queue(user.id, user.username, song)
+    # All checks passed — deduct and add to queue
+    db.adjust_balance(user.id, -cost)
+    position    = db.add_to_queue(user.id, user.username, song, priority=priority)
     new_balance = db.get_balance(user.id)
 
-    # Public announcement so the room sees the request
+    label = "PRIORITY" if priority else "added"
     await bot.highrise.chat(
-        f"@{user.username} added: {song} (queue position #{position})"
+        f"[{label}] @{user.username}: {song} (position #{position})"
     )
-    # Private confirmation with balance info
     await bot.highrise.send_whisper(
         user.id,
-        f"Added to queue at position #{position}. "
-        f"Spent {config.SONG_REQUEST_COST} tokens. Balance: {new_balance}"
+        f"Queued at #{position}. Spent {cost} tokens. Balance: {new_balance}"
     )
 
-    # If this is the only song, initialise skip-vote tracking for it
+    # If this is the first song ever added, initialise skip-vote tracking
     if position == 1:
-        _skip_votes = set()
-        current = db.get_current_song()
+        _skip_votes       = set()
+        current           = db.get_current_song()
         _skip_vote_song_id = current["id"] if current else None
 
 
@@ -146,17 +196,18 @@ async def _cmd_queue(bot: BaseBot, user: User):
 
     if not songs:
         await bot.highrise.send_whisper(
-            user.id, "The queue is empty. Be the first to /request a song!"
+            user.id, "The queue is empty. Use /request to add a song!"
         )
         return
 
-    lines = ["Upcoming songs:"]
-    for i, song in enumerate(songs, start=1):
-        lines.append(f"  {i}. {song['song']}  (by @{song['username']})")
+    lines = [f"Queue ({db.get_queue_length()}/{config.QUEUE_MAX_SIZE}):"]
+    for i, s in enumerate(songs, start=1):
+        tag = " [P]" if s["priority"] and i > 1 else ""
+        lines.append(f"  {i}. {s['song']}{tag}  (@{s['username']})")
 
     total = db.get_queue_length()
     if total > config.QUEUE_DISPLAY_SIZE:
-        lines.append(f"  ...and {total - config.QUEUE_DISPLAY_SIZE} more in the queue.")
+        lines.append(f"  ...and {total - config.QUEUE_DISPLAY_SIZE} more.")
 
     await bot.highrise.send_whisper(user.id, "\n".join(lines))
 
@@ -167,21 +218,20 @@ async def _cmd_now(bot: BaseBot, user: User):
 
     if not song:
         await bot.highrise.send_whisper(
-            user.id, "Nothing is playing right now. Use /request to add a song!"
+            user.id, "Nothing is playing. Use /request to add a song!"
         )
         return
 
     await bot.highrise.send_whisper(
         user.id,
-        f"Now playing: {song['song']}  (requested by @{song['username']})"
+        f"Now playing: {song['song']}  (by @{song['username']})"
     )
 
 
 async def _cmd_skipvote(bot: BaseBot, user: User):
     """
     Cast a skip vote for the current song.
-    When the threshold is reached the song is removed from the queue
-    and the next one is announced publicly.
+    When SKIP_VOTE_THRESHOLD votes accumulate the song is auto-skipped.
     """
     global _skip_votes, _skip_vote_song_id
 
@@ -189,12 +239,12 @@ async def _cmd_skipvote(bot: BaseBot, user: User):
     current = db.get_current_song()
 
     if not current:
-        await bot.highrise.send_whisper(user.id, "There is nothing playing to skip!")
+        await bot.highrise.send_whisper(user.id, "Nothing is playing to skip!")
         return
 
-    # If the song changed since the last vote round, reset the vote set
+    # Reset votes if the song at the front changed since the last vote
     if _skip_vote_song_id != current["id"]:
-        _skip_votes       = set()
+        _skip_votes        = set()
         _skip_vote_song_id = current["id"]
 
     if user.id in _skip_votes:
@@ -206,23 +256,18 @@ async def _cmd_skipvote(bot: BaseBot, user: User):
     needed       = config.SKIP_VOTE_THRESHOLD
 
     if votes_so_far >= needed:
-        # Threshold reached — skip automatically
-        skipped   = db.skip_current_song()
-        _skip_votes       = set()
-        next_song = db.get_current_song()
+        skipped            = db.skip_current_song()
+        _skip_votes        = set()
+        next_song          = db.get_current_song()
         _skip_vote_song_id = next_song["id"] if next_song else None
 
-        await bot.highrise.chat(
-            f"'{skipped['song']}' was voted to skip by the room!"
-        )
+        await bot.highrise.chat(f"'{skipped['song']}' was voted to skip!")
         if next_song:
             await bot.highrise.chat(
-                f"Up next: {next_song['song']}  (by @{next_song['username']})"
+                f"Up next: {next_song['song']}  (@{next_song['username']})"
             )
         else:
-            await bot.highrise.chat(
-                "The queue is now empty. Use /request to add a song!"
-            )
+            await bot.highrise.chat("Queue is empty. Use /request to add a song!")
     else:
         remaining = needed - votes_so_far
         await bot.highrise.chat(
@@ -235,7 +280,7 @@ async def _cmd_skipvote(bot: BaseBot, user: User):
 # ---------------------------------------------------------------------------
 
 async def _cmd_admin_skip(bot: BaseBot, user: User):
-    """Force-skip the current song without needing votes (admin only)."""
+    """Force-skip the current song (admin only)."""
     global _skip_votes, _skip_vote_song_id
 
     skipped = db.skip_current_song()
@@ -244,26 +289,21 @@ async def _cmd_admin_skip(bot: BaseBot, user: User):
         await bot.highrise.send_whisper(user.id, "The queue is already empty.")
         return
 
-    _skip_votes       = set()
-    next_song = db.get_current_song()
+    _skip_votes        = set()
+    next_song          = db.get_current_song()
     _skip_vote_song_id = next_song["id"] if next_song else None
 
-    await bot.highrise.chat(
-        f"[Admin] @{user.username} skipped: {skipped['song']}"
-    )
+    await bot.highrise.chat(f"[Admin] Skipped: {skipped['song']}")
     if next_song:
         await bot.highrise.chat(
-            f"Up next: {next_song['song']}  (by @{next_song['username']})"
+            f"Up next: {next_song['song']}  (@{next_song['username']})"
         )
     else:
-        await bot.highrise.chat("The queue is now empty.")
+        await bot.highrise.chat("Queue is now empty.")
 
 
 async def _cmd_admin_remove(bot: BaseBot, user: User, args: list[str]):
-    """
-    Remove a specific song from the queue by its 1-indexed position (admin only).
-    Usage: /remove <queue number>
-    """
+    """Remove a song by its visible queue position (admin only). Usage: /remove <#>"""
     if not args or not args[0].isdigit():
         await bot.highrise.send_whisper(user.id, "Usage: /remove <queue number>")
         return
@@ -273,11 +313,26 @@ async def _cmd_admin_remove(bot: BaseBot, user: User, args: list[str]):
 
     if not removed:
         await bot.highrise.send_whisper(
-            user.id,
-            f"No song at position #{position}. Use /queue to see current positions."
+            user.id, f"No song at position #{position}. Use /queue to check."
         )
         return
 
     await bot.highrise.chat(
         f"[Admin] @{user.username} removed #{position}: {removed['song']}"
     )
+
+
+async def _cmd_admin_clearqueue(bot: BaseBot, user: User):
+    """Wipe every song from the queue (admin only)."""
+    global _skip_votes, _skip_vote_song_id
+
+    count = db.clear_queue()
+    _skip_votes        = set()
+    _skip_vote_song_id = None
+
+    if count == 0:
+        await bot.highrise.send_whisper(user.id, "The queue was already empty.")
+    else:
+        await bot.highrise.chat(
+            f"[Admin] @{user.username} cleared the queue ({count} song(s) removed)."
+        )
