@@ -863,6 +863,44 @@ def add_rbj_daily_net(user_id: str, delta: int):
     conn.close()
 
 
+def get_bj_leaderboard(limit: int = 5) -> list:
+    """Top players by BJ net profit (total_won - total_bet)."""
+    conn = get_connection()
+    rows = conn.execute("""
+        SELECT s.user_id, u.username,
+               s.bj_total_bet  AS total_bet,
+               s.bj_total_won  AS total_won,
+               s.bj_total_lost AS total_lost,
+               (s.bj_total_won - s.bj_total_bet) AS net
+        FROM bj_stats s
+        JOIN users u ON s.user_id = u.user_id
+        WHERE s.bj_total_bet > 0
+        ORDER BY net DESC
+        LIMIT ?
+    """, (limit,)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_rbj_leaderboard(limit: int = 5) -> list:
+    """Top players by RBJ net profit (total_won - total_bet)."""
+    conn = get_connection()
+    rows = conn.execute("""
+        SELECT s.user_id, u.username,
+               s.rbj_total_bet  AS total_bet,
+               s.rbj_total_won  AS total_won,
+               s.rbj_total_lost AS total_lost,
+               (s.rbj_total_won - s.rbj_total_bet) AS net
+        FROM rbj_stats s
+        JOIN users u ON s.user_id = u.user_id
+        WHERE s.rbj_total_bet > 0
+        ORDER BY net DESC
+        LIMIT ?
+    """, (limit,)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
 def get_rbj_stats(user_id: str) -> dict:
     """Return a player's realistic blackjack stats row, creating it if needed."""
     conn = get_connection()

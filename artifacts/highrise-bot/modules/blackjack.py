@@ -313,6 +313,8 @@ async def handle_bj(bot: BaseBot, user: User, args: list[str]):
             await _cmd_cancel(bot, user)
         elif sub == "limits":
             await _cmd_limits(bot, user)
+        elif sub == "leaderboard":
+            await _cmd_leaderboard(bot, user)
         elif sub == "settings":
             await _cmd_settings(bot, user)
         elif sub == "on":
@@ -599,6 +601,20 @@ async def _cmd_limits(bot: BaseBot, user: User):
         f"Win limit: {wlim:,}c  Loss limit: {llim:,}c\n"
         f"Your today: {sign}{net:,}c"
     )
+
+
+async def _cmd_leaderboard(bot: BaseBot, user: User):
+    rows = db.get_bj_leaderboard()
+    if not rows:
+        await bot.highrise.send_whisper(user.id, "No BJ stats yet. Play some games!")
+        return
+    lines = ["-- BJ Top 5 (Net Profit) --"]
+    for i, r in enumerate(rows, 1):
+        name = db.get_display_name(r["user_id"], r["username"])
+        net  = r["net"]
+        sign = "+" if net >= 0 else ""
+        lines.append(f"{i}. {name}  {sign}{net:,}c")
+    await bot.highrise.send_whisper(user.id, "\n".join(lines))
 
 
 async def _cmd_cancel(bot: BaseBot, user: User):

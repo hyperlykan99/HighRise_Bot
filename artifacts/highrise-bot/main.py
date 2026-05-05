@@ -226,11 +226,33 @@ async def _handle_casino_cmd(bot, user, args):
         rbj_reset_table()
         await bot.highrise.chat("✅ Casino tables reset.")
 
+    elif sub == "leaderboard":
+        await _send_casino_leaderboard(bot, user)
+
     else:
         await bot.highrise.send_whisper(
             user.id,
-            "Usage: /casino modes | /casino on | /casino off | /casino reset"
+            "Usage: /casino modes | /casino on | /casino off\n"
+            "/casino reset | /casino leaderboard"
         )
+
+
+async def _send_casino_leaderboard(bot, user):
+    """Send BJ then RBJ top-5 leaderboards as two whispers."""
+    for rows, header in [
+        (db.get_bj_leaderboard(),  "-- BJ Top 5 (Net Profit) --"),
+        (db.get_rbj_leaderboard(), "-- RBJ Top 5 (Net Profit) --"),
+    ]:
+        if not rows:
+            await bot.highrise.send_whisper(user.id, f"{header}\nNo data yet.")
+        else:
+            lines = [header]
+            for i, r in enumerate(rows, 1):
+                name = db.get_display_name(r["user_id"], r["username"])
+                net  = r["net"]
+                sign = "+" if net >= 0 else ""
+                lines.append(f"{i}. {name}  {sign}{net:,}c")
+            await bot.highrise.send_whisper(user.id, "\n".join(lines))
 
 
 async def _handle_adminhelp(bot, user):
