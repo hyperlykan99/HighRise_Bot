@@ -30,6 +30,37 @@ from highrise import BaseBot, User
 from modules.permissions import is_owner, is_admin, can_moderate
 
 
+# ── Unsubscribe footer ────────────────────────────────────────────────────────
+
+_UNSUB_FOOTER = "\nStop alerts: reply unsubscribe."
+
+def add_unsubscribe_footer(message: str) -> str:
+    """
+    Append the unsubscribe footer to an outside-room DM message.
+    Shortens the main message first if needed to keep the total under 249 chars.
+    Do NOT use this for room chat or in-room whispers.
+    """
+    if len(message) + len(_UNSUB_FOOTER) <= 249:
+        return message + _UNSUB_FOOTER
+    available = 249 - len(_UNSUB_FOOTER)
+    return message[:available] + _UNSUB_FOOTER
+
+
+# ── Unsubscribe keyword detection ─────────────────────────────────────────────
+
+_UNSUB_TRIGGERS = ("unsubscribe", "unsub", "stop alerts", "opt out", "optout")
+
+def _is_unsubscribe_request(content: str) -> bool:
+    """Return True if the DM content is an unsubscribe request."""
+    c = content.lower().strip()
+    if any(kw in c for kw in _UNSUB_TRIGGERS):
+        return True
+    # "stop" alone (not as part of another word) counts
+    if c == "stop":
+        return True
+    return False
+
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 async def _w(bot: BaseBot, uid: str, msg: str) -> None:
@@ -95,23 +126,25 @@ async def process_incoming_dm(
 
     content_lower = content.lower().strip()
 
-    if "unsubscribe" in content_lower:
+    if _is_unsubscribe_request(content_lower):
         db.set_subscribed(uname_lower, False)
         await send_dm(bot, conversation_id,
-                      "❌ Unsubscribed. You won't receive outside-room notifications.")
-        print(f"[SUBS] @{username} unsubscribed via DM.")
+                      "✅ Unsubscribed. You will no longer receive bot alerts.")
+        print(f"[SUBS] @{username} unsubscribed via DM (keyword: {content_lower[:20]!r}).")
         return
 
     if "subscribe" in content_lower:
         db.set_subscribed(uname_lower, True)
-        await send_dm(bot, conversation_id,
-                      "✅ Subscribed. I can now notify you outside the room.")
+        await send_dm(
+            bot, conversation_id,
+            add_unsubscribe_footer("✅ Subscribed to bot alerts.")
+        )
         print(f"[SUBS] @{username} subscribed via DM.")
         return
 
     # Generic DM — just acknowledge
     await send_dm(bot, conversation_id,
-                  "👋 Hi! Reply 'subscribe' to get outside-room alerts, or 'unsubscribe' to opt out.")
+                  "👋 Reply 'subscribe' for outside-room alerts, or 'unsubscribe' to opt out.")
 
 
 # ── /subscribe ────────────────────────────────────────────────────────────────
@@ -167,18 +200,19 @@ async def handle_substatus(bot: BaseBot, user: User, args: list[str]) -> None:
     subscribed = sub and sub.get("subscribed")
     has_dm = sub and bool(sub.get("conversation_id")) and sub.get("dm_available")
 
-    sub_label = "YES" if subscribed else "NO"
+    if not subscribed:
+        await _w(bot, user.id, "Subscribed: NO")
+        return
+
+    # Subscribed — show DM connection status
     if has_dm:
         dm_label = "YES"
     elif sub and sub.get("conversation_id"):
-        dm_label = "PENDING"
+        dm_label = "PENDING (DM bot 'subscribe' to activate)"
     else:
-        dm_label = "NO"
+        dm_label = "NO (DM bot 'subscribe' to connect)"
 
-    msg = f"Subscribed: {sub_label} | DM connected: {dm_label}"
-    if subscribed and not has_dm:
-        msg += ". DM me 'subscribe' to connect."
-    await _w(bot, user.id, msg)
+    await _w(bot, user.id, f"Subscribed: YES | DM connected: {dm_label}")
 
 
 # ── /subscribers (staff) ──────────────────────────────────────────────────────
@@ -245,7 +279,7 @@ async def handle_announce_subs(bot: BaseBot, user: User, args: list[str]) -> Non
     if len(args) < 2:
         await _w(bot, user.id, "Usage: /announce_subs <message>")
         return
-    message = " ".join(args[1:])[:200]
+    message = add_unsubscribe_footer(" ".join(args[1:])[:200])
     subscribers = db.get_all_subscribed_with_dm()
     if not subscribers:
         await _w(bot, user.id, "No active subscribers with DM connections.")

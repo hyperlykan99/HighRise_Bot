@@ -328,10 +328,11 @@ async def handle_send(bot: BaseBot, user: User, args: list[str]):
             sub = db.get_subscriber(receiver["username"])
             if (sub and sub.get("conversation_id")
                     and sub.get("subscribed") and sub.get("dm_available")):
-                dm_msg = (
+                from modules.subscribers import add_unsubscribe_footer
+                dm_msg = add_unsubscribe_footer(
                     f"🏦 You received {amount_received:,}c from @{user.username}. "
                     "Use /transactions."
-                )[:249]
+                )
                 try:
                     await bot.highrise.send_message(sub["conversation_id"], dm_msg)
                     delivered = True
