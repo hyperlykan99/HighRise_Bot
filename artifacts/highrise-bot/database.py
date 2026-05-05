@@ -449,6 +449,20 @@ def init_db():
             (_key, _val),
         )
 
+    # ── Tip transactions log (spec-required table with dedup hash) ────────
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS tip_transactions (
+            id               INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp        TEXT    NOT NULL DEFAULT (datetime('now')),
+            username         TEXT    NOT NULL DEFAULT '',
+            gold_amount      INTEGER NOT NULL DEFAULT 0,
+            coins_awarded    INTEGER NOT NULL DEFAULT 0,
+            bonus_percent    INTEGER NOT NULL DEFAULT 0,
+            status           TEXT    NOT NULL DEFAULT 'success',
+            event_id_or_hash TEXT    NOT NULL DEFAULT ''
+        )
+    """)
+
     conn.execute("""
         CREATE TABLE IF NOT EXISTS auto_game_settings (
             key   TEXT PRIMARY KEY,
@@ -2924,6 +2938,39 @@ def get_ledger_for(user_id: str, page: int = 1, limit: int = 5) -> list:
 # ---------------------------------------------------------------------------
 # Tip system helpers
 # ---------------------------------------------------------------------------
+
+def is_tip_duplicate(event_hash: str) -> bool:
+    """Return True if a tip with this hash was already processed (DB-level dedup)."""
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT id FROM tip_transactions WHERE event_id_or_hash = ? LIMIT 1",
+        (event_hash,),
+    ).fetchone()
+    conn.close()
+    return row is not None
+
+
+def log_tip_transaction(
+    username: str,
+    gold_amount: int,
+    coins_awarded: int,
+    bonus_percent: int,
+    status: str,
+    event_hash: str,
+) -> None:
+    """Insert one row into tip_transactions (spec-required log table)."""
+    conn = get_connection()
+    conn.execute(
+        """
+        INSERT INTO tip_transactions
+            (username, gold_amount, coins_awarded, bonus_percent, status, event_id_or_hash)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (username, gold_amount, coins_awarded, bonus_percent, status, event_hash),
+    )
+    conn.commit()
+    conn.close()
+
 
 def get_tip_settings() -> dict:
     """Return all tip settings as a plain dict."""
