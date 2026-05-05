@@ -1,0 +1,194 @@
+Add random Highrise gold tipping and specific player gold tipping.
+
+IMPORTANT:
+- This uses real Highrise gold from the bot wallet.
+- Only owners can send gold.
+- Admins, managers, and moderators cannot send gold.
+- Do not fake gold tipping if the SDK does not support it.
+- Keep all messages under 250 characters.
+- Log every gold transaction.
+
+Commands:
+- /goldtip <username> <amount>
+- /goldrefund <username> <amount> <reason>
+- /goldrain <amount>
+- /goldrain <amount> <count>
+- /goldrainall <amount>
+- /goldwallet
+- /goldtips
+- /goldtx <username>
+- /pendinggold
+- /confirmgoldtip <code>
+
+Permissions:
+- Owner only:
+  /goldtip
+  /goldrefund
+  /goldrain
+  /goldrainall
+  /confirmgoldtip
+  /sendpendinggold
+  /cancelgold
+
+Specific player tipping:
+/goldtip <username> <amount>
+- Tips a specific player gold.
+- Target must be currently in the room.
+- Use Highrise SDK tip_user if available.
+- If target is not in room, save as pending gold refund/tip.
+- Do not allow tipping the bot itself.
+- Do not allow non-owners to send gold.
+
+Example:
+/goldtip angelkisses18 100
+
+Random gold tipping:
+/goldrain <amount>
+- Randomly selects 1 player currently in the room.
+- Tips that player the amount.
+
+Example:
+/goldrain 10
+This tips 10 gold to 1 random player.
+
+/goldrain <amount> <count>
+- Randomly selects <count> different players currently in the room.
+- Tips each selected player <amount> gold.
+- Do not select the same player twice.
+- Exclude the bot.
+- Optional: exclude owners/admins/managers/moderators if setting is enabled.
+
+Example:
+/goldrain 10 5
+This tips 10 gold each to 5 random players.
+
+/goldrainall <amount>
+- Tips every eligible player currently in the room.
+- Exclude the bot.
+- Owner only.
+- Require confirmation always.
+
+Example:
+/goldrainall 5
+This tips 5 gold to every eligible player in the room.
+
+Safety confirmation:
+- Any total gold send of 100 gold or more requires confirmation.
+- Any /goldrainall requires confirmation.
+- Generate a random confirmation code.
+- Owner must type:
+  /confirmgoldtip <code>
+- Confirmation expires after 60 seconds.
+
+Examples:
+If owner types:
+/goldrain 10 5
+
+Bot replies:
+"Confirm 50g rain to 5 players: /confirmgoldtip ABC123"
+
+If owner confirms:
+"🌧️ Gold rain sent: 10g x 5 players."
+
+Eligibility settings:
+Add settings:
+- goldrain_include_staff default false
+- goldrain_min_players default 1
+- goldrain_max_total default 1000 gold
+- goldrain_require_confirm_above default 100 gold
+
+Commands:
+- /setgoldrainstaff on/off owner only
+- /setgoldrainmax <amount> owner only
+
+Behavior:
+- If goldrain_include_staff is false, exclude owners/admins/managers/moderators from random selection.
+- If not enough eligible players are in room, say:
+  "Not enough eligible players in room."
+- If requested count is higher than eligible players, say:
+  "Only X eligible players available."
+
+Gold denomination handling:
+- Convert amount into valid Highrise gold bar denominations.
+- Supported denominations:
+  gold_bar_1
+  gold_bar_5
+  gold_bar_10
+  gold_bar_50
+  gold_bar_100
+  gold_bar_500
+  gold_bar_1k
+  gold_bar_5000
+  gold_bar_10k
+- Use the fewest bars possible.
+- If exact amount cannot be formed, reject it.
+- Do not round up or down.
+
+Database:
+Create or update gold_transactions table:
+- id
+- timestamp
+- action_type
+- sender_owner
+- receiver_username
+- receiver_user_id
+- amount_gold
+- reason
+- status
+- denominations
+- batch_id
+- error_message
+
+action_type values:
+- goldtip
+- goldrefund
+- goldrain
+- goldrainall
+- pending
+- failed
+- denied
+
+For goldrain/goldrainall:
+- Use one batch_id for the group.
+- Log each receiver separately.
+- If one tip fails, log that one as failed but continue others if safe.
+- Show final summary:
+  "Gold rain done: 4 sent, 1 failed."
+
+Room user lookup:
+- Gold tipping requires current room user IDs.
+- Maintain a current room user cache from join/leave events if possible.
+- If the SDK has a room users/list method, use it.
+- Normalize usernames:
+  remove @
+  case-insensitive lookup
+  display clean username
+
+Messages:
+- Successful specific tip:
+  "✅ Sent 100g to @user."
+- Random rain:
+  "🌧️ Gold rain! 10g sent to @user."
+- Multi rain summary:
+  "🌧️ Gold rain done: 5 players got 10g."
+- Not owner:
+  "Only owners can send gold."
+- Target not found:
+  "Player must be in room for gold tip."
+- Unsupported SDK:
+  "Gold tipping is not supported by this SDK setup."
+
+Help:
+Update /goldhelp:
+"👑 Gold Owner
+/goldtip <user> <amt>
+/goldrefund <user> <amt> <reason>
+/goldrain <amt> [count]
+/goldrainall <amt>
+/goldwallet"
+
+Important:
+- Do not let admins/managers/moderators send real gold.
+- Do not send gold without owner confirmation when required.
+- Log denied attempts.
+- Keep all messages under 250 characters.

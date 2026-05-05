@@ -481,6 +481,42 @@ def init_db():
             (_k, _v),
         )
 
+    # ── Gold transactions log ─────────────────────────────────────────────
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS gold_transactions (
+            id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp         TEXT    NOT NULL DEFAULT (datetime('now')),
+            action_type       TEXT    NOT NULL,
+            sender_owner      TEXT    NOT NULL DEFAULT '',
+            receiver_username TEXT    NOT NULL DEFAULT '',
+            receiver_user_id  TEXT    NOT NULL DEFAULT '',
+            amount_gold       INTEGER NOT NULL DEFAULT 0,
+            reason            TEXT    NOT NULL DEFAULT '',
+            status            TEXT    NOT NULL DEFAULT '',
+            denominations     TEXT    NOT NULL DEFAULT '',
+            batch_id          TEXT    NOT NULL DEFAULT '',
+            error_message     TEXT    NOT NULL DEFAULT ''
+        )
+    """)
+
+    # ── Gold settings (key/value store) ──────────────────────────────────
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS gold_settings (
+            key   TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        )
+    """)
+    for _k, _v in [
+        ("goldrain_include_staff",          "false"),
+        ("goldrain_min_players",            "1"),
+        ("goldrain_max_total",              "1000"),
+        ("goldrain_require_confirm_above",  "100"),
+    ]:
+        conn.execute(
+            "INSERT OR IGNORE INTO gold_settings (key, value) VALUES (?, ?)",
+            (_k, _v),
+        )
+
     conn.commit()
     conn.close()
     _migrate_db()
@@ -3070,6 +3106,117 @@ def set_auto_event_setting(key: str, value: int) -> None:
     conn.execute(
         "INSERT OR REPLACE INTO auto_event_settings (key, value) VALUES (?, ?)",
         (key, str(value)),
+    )
+    conn.commit()
+    conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Gold transaction logging
+# ---------------------------------------------------------------------------
+
+def log_gold_tx(
+    action_type: str,
+    sender_owner: str,
+    receiver_username: str,
+    receiver_user_id: str,
+    amount_gold: int,
+    reason: str,
+    status: str,
+    denominations: str,
+    batch_id: str,
+    error_message: str,
+) -> None:
+    """Insert one row into gold_transactions."""
+    conn = get_connection()
+    conn.execute(
+        """
+        INSERT INTO gold_transactions
+            (action_type, sender_owner, receiver_username, receiver_user_id,
+             amount_gold, reason, status, denominations, batch_id, error_message)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            action_type, sender_owner, receiver_username, receiver_user_id,
+            amount_gold, reason, status, denominations, batch_id, error_message,
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_gold_transactions(limit: int = 10) -> list[dict]:
+    """Return the most recent gold transactions, newest first."""
+    conn = get_connection()
+    rows = conn.execute(
+        """
+        SELECT id, timestamp, action_type, sender_owner, receiver_username,
+               receiver_user_id, amount_gold, reason, status, denominations,
+               batch_id, error_message
+        FROM gold_transactions
+        ORDER BY id DESC
+        LIMIT ?
+        """,
+        (limit,),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_gold_transactions_by_user(username: str, limit: int = 5) -> list[dict]:
+    """Return recent transactions where receiver_username matches (case-insensitive)."""
+    conn = get_connection()
+    rows = conn.execute(
+        """
+        SELECT id, timestamp, action_type, sender_owner, receiver_username,
+               amount_gold, status
+        FROM gold_transactions
+        WHERE LOWER(receiver_username) = LOWER(?)
+        ORDER BY id DESC
+        LIMIT ?
+        """,
+        (username, limit),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_pending_gold_transactions() -> list[dict]:
+    """Return transactions logged with status='pending'."""
+    conn = get_connection()
+    rows = conn.execute(
+        """
+        SELECT id, timestamp, action_type, sender_owner, receiver_username,
+               amount_gold, reason, denominations, batch_id
+        FROM gold_transactions
+        WHERE status = 'pending'
+        ORDER BY id DESC
+        """,
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Gold settings helpers
+# ---------------------------------------------------------------------------
+
+def get_gold_setting(key: str) -> str | None:
+    """Return the stored value for a gold setting key, or None if not set."""
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT value FROM gold_settings WHERE key = ?", (key,)
+    ).fetchone()
+    conn.close()
+    return row["value"] if row else None
+
+
+def set_gold_setting(key: str, value: str) -> None:
+    """Upsert a gold setting."""
+    conn = get_connection()
+    conn.execute(
+        "INSERT OR REPLACE INTO gold_settings (key, value) VALUES (?, ?)",
+        (key, value),
     )
     conn.commit()
     conn.close()

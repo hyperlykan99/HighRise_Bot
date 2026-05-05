@@ -107,6 +107,16 @@ from modules.auto_games import (
     handle_setautoeventinterval, handle_setautoeventduration,
     handle_gameconfig,
 )
+from modules.gold import (
+    handle_goldtip, handle_goldrefund,
+    handle_goldrain, handle_goldrainall,
+    handle_goldwallet, handle_goldtips, handle_goldtx,
+    handle_pendinggold, handle_confirmgoldtip,
+    handle_setgoldrainstaff, handle_setgoldrainmax,
+    handle_goldhelp,
+    set_bot_identity, add_to_room_cache, remove_from_room_cache,
+    refresh_room_cache,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -172,6 +182,9 @@ ADMIN_ONLY_CMDS = {
 OWNER_ONLY_CMDS = {
     "addadmin", "removeadmin", "admins", "setmaxbalance",
     "addowner", "removeowner",
+    "goldtip", "goldrefund", "goldrain", "goldrainall",
+    "goldwallet", "goldtips", "goldtx", "pendinggold",
+    "confirmgoldtip", "setgoldrainstaff", "setgoldrainmax",
 }
 
 STAFF_CMDS = MOD_ONLY_CMDS | MANAGER_ONLY_CMDS | ADMIN_ONLY_CMDS | OWNER_ONLY_CMDS
@@ -195,6 +208,8 @@ ALL_KNOWN_COMMANDS = (
         "poker",
         "botstatus", "dbstats", "backup",
         "maintenance", "reloadsettings", "cleanup",
+        "goldhelp",
+        "tiprate", "tipstats", "tipleaderboard",
     }
     | ECONOMY_COMMANDS | PROFILE_COMMANDS | GAME_COMMANDS
     | SHOP_COMMANDS | ACHIEVEMENT_COMMANDS | BJ_COMMANDS
@@ -744,6 +759,10 @@ class HangoutBot(BaseBot):
         """Called once when the bot successfully connects to the room."""
         db.init_db()
         print(f"[HangoutBot] Connected — room {config.ROOM_ID} | DB: {config.DB_PATH}")
+        # Store bot identity so gold rain can exclude the bot itself
+        set_bot_identity(session_metadata.user_id)
+        # Seed the room user cache from the live room list
+        asyncio.create_task(refresh_room_cache(self))
         await self.highrise.chat("Mini Game Bot is online! Type /help for commands.")
         # Recover any event that was running before a bot restart
         asyncio.create_task(startup_event_check(self))
@@ -890,6 +909,28 @@ class HangoutBot(BaseBot):
                 await handle_setautoeventduration(self, user, args)
             elif cmd == "gameconfig":
                 await handle_gameconfig(self, user)
+            elif cmd == "goldtip":
+                await handle_goldtip(self, user, args)
+            elif cmd == "goldrefund":
+                await handle_goldrefund(self, user, args)
+            elif cmd == "goldrain":
+                await handle_goldrain(self, user, args)
+            elif cmd == "goldrainall":
+                await handle_goldrainall(self, user, args)
+            elif cmd == "goldwallet":
+                await handle_goldwallet(self, user, args)
+            elif cmd == "goldtips":
+                await handle_goldtips(self, user, args)
+            elif cmd == "goldtx":
+                await handle_goldtx(self, user, args)
+            elif cmd == "pendinggold":
+                await handle_pendinggold(self, user, args)
+            elif cmd == "confirmgoldtip":
+                await handle_confirmgoldtip(self, user, args)
+            elif cmd == "setgoldrainstaff":
+                await handle_setgoldrainstaff(self, user, args)
+            elif cmd == "setgoldrainmax":
+                await handle_setgoldrainmax(self, user, args)
             else:
                 await handle_admin_command(self, user, cmd, args)
             return
@@ -1065,6 +1106,9 @@ class HangoutBot(BaseBot):
         elif cmd == "ownerhelp":
             await _handle_ownerhelp(self, user, args)
 
+        elif cmd == "goldhelp":
+            await handle_goldhelp(self, user, args)
+
         elif cmd == "questhelp":
             await handle_questhelp(self, user)
 
@@ -1180,6 +1224,7 @@ class HangoutBot(BaseBot):
     async def on_user_join(self, user: User, position) -> None:
         """Register new players and greet them when they enter the room."""
         db.ensure_user(user.id, user.username)
+        add_to_room_cache(user.id, user.username)
         await self.highrise.chat(
             f"Welcome, @{user.username}! Type /help to see what you can do. "
             "Use /daily to grab your free coins!"
@@ -1193,7 +1238,8 @@ class HangoutBot(BaseBot):
             print(f"[TIP] Error processing tip from @{sender.username}: {e}")
 
     async def on_user_leave(self, user: User) -> None:
-        """Log when a player leaves."""
+        """Log when a player leaves and remove from gold room cache."""
+        remove_from_room_cache(user.id)
         print(f"[HangoutBot] {user.username} left.")
 
 
