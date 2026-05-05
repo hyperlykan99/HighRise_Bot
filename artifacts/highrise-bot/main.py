@@ -76,7 +76,13 @@ ADMIN_COMMANDS = {
 }
 
 ALL_KNOWN_COMMANDS = (
-    {"help", "answer", "casinohelp", "casino", "managers"}
+    {
+        "help", "answer",
+        "casinohelp", "gamehelp", "coinhelp", "profilehelp",
+        "shophelp", "progresshelp", "adminhelp",
+        "casino", "managers",
+        "quests", "claimquest",
+    }
     | ECONOMY_COMMANDS
     | PROFILE_COMMANDS
     | GAME_COMMANDS
@@ -88,39 +94,94 @@ ALL_KNOWN_COMMANDS = (
 
 
 # ---------------------------------------------------------------------------
-# Help text — 3 short messages to stay inside Highrise's character limit
+# Help texts
 # ---------------------------------------------------------------------------
 
-HELP_TEXT_1 = (
-    "🎮 Games: /trivia /scramble /riddle\n"
-    "/coinflip <heads/tails> <bet>"
+HELP_TEXT = (
+    "🤖 Help Menu\n"
+    "🎮 Games: /gamehelp\n"
+    "🎰 Casino: /casinohelp\n"
+    "💰 Coins: /coinhelp\n"
+    "⭐ Profile: /profilehelp\n"
+    "🛒 Shop: /shophelp\n"
+    "🏆 Progress: /progresshelp"
 )
 
-HELP_TEXT_2 = (
-    f"💰 Coins: /daily +{config.DAILY_REWARD}  /balance  /leaderboard\n"
-    "/profile  /level  /xpleaderboard"
-)
-
-HELP_TEXT_3 = (
-    "🛒 Shop: /shop badges  /shop titles\n"
-    "/buy badge <id>  /equip badge <id>\n"
-    "/achievements  /claimachievements"
-)
-
-HELP_TEXT_4 = (
-    "🎰 Casino: /bj join <bet> | /rbj join <bet>\n"
-    "/casinohelp — casino commands"
+GAME_HELP = (
+    "🎮 Games\n"
+    "/trivia\n"
+    "/scramble\n"
+    "/riddle\n"
+    "/answer <answer>\n"
+    "Win games to earn coins + XP."
 )
 
 CASINO_HELP = (
-    "-- Casino --\n"
+    "🎰 Casino\n"
     "/casino modes\n"
-    "/bj join <bet>  casual BJ\n"
-    "/rbj join <bet>  realistic BJ\n"
-    "/bj hit or /rbj hit\n"
-    "/bj stand or /rbj stand\n"
-    "/bj table or /rbj table\n"
-    "/bj rules or /rbj rules"
+    "/bj join <bet> - casual BJ\n"
+    "/rbj join <bet> - realistic BJ\n"
+    "/bj table | /rbj table\n"
+    "/bj hit | /rbj hit\n"
+    "/bj stand | /rbj stand"
+)
+
+COIN_HELP = (
+    "💰 Coins\n"
+    "/daily - claim coins\n"
+    "/balance - check coins\n"
+    "/leaderboard - richest players\n"
+    "/coinflip heads/tails <bet>"
+)
+
+PROFILE_HELP = (
+    "⭐ Profile\n"
+    "/profile\n"
+    "/level\n"
+    "/xpleaderboard\n"
+    "/myitems\n"
+    "Equip badges/titles to flex."
+)
+
+SHOP_HELP = (
+    "🛒 Shop\n"
+    "/shop titles\n"
+    "/shop badges\n"
+    "/titleinfo <id>\n"
+    "/badgeinfo <id>\n"
+    "/buy title <id>\n"
+    "/buy badge <id>\n"
+    "/equip title <id>\n"
+    "/equip badge <id>"
+)
+
+PROGRESS_HELP = (
+    "🏆 Progress\n"
+    "/achievements\n"
+    "/achievements all\n"
+    "/claimachievements\n"
+    "/quests\n"
+    "/claimquest"
+)
+
+MANAGER_HELP = (
+    "⚙️ Manager\n"
+    "/casino modes\n"
+    "/bj on/off\n"
+    "/rbj on/off\n"
+    "/casino on/off\n"
+    "/bj cancel\n"
+    "/rbj cancel\n"
+    "/announce <msg>"
+)
+
+ADMIN_HELP_EXTRA = (
+    "👑 Admin\n"
+    "/addcoins <user> <amt>\n"
+    "/removecoins <user> <amt>\n"
+    "/addmanager <user>\n"
+    "/removemanager <user>\n"
+    "/managers"
 )
 
 
@@ -158,6 +219,15 @@ async def _handle_casino_cmd(bot, user, args):
             user.id,
             "Usage: /casino modes | /casino on | /casino off"
         )
+
+
+async def _handle_adminhelp(bot, user):
+    if not can_manage_games(user.username):
+        await bot.highrise.send_whisper(user.id, "Admin help is for staff only.")
+        return
+    await bot.highrise.send_whisper(user.id, MANAGER_HELP)
+    if can_manage_economy(user.username):
+        await bot.highrise.send_whisper(user.id, ADMIN_HELP_EXTRA)
 
 
 async def _handle_manager_cmd(bot, user, cmd, args):
@@ -218,10 +288,7 @@ class HangoutBot(BaseBot):
 
         # ── /help ─────────────────────────────────────────────────────────────
         if cmd == "help":
-            await self.highrise.send_whisper(user.id, HELP_TEXT_1)
-            await self.highrise.send_whisper(user.id, HELP_TEXT_2)
-            await self.highrise.send_whisper(user.id, HELP_TEXT_3)
-            await self.highrise.send_whisper(user.id, HELP_TEXT_4)
+            await self.highrise.send_whisper(user.id, HELP_TEXT)
             return
 
         # ── Admin gate ────────────────────────────────────────────────────────
@@ -307,6 +374,27 @@ class HangoutBot(BaseBot):
 
         elif cmd == "casinohelp":
             await self.highrise.send_whisper(user.id, CASINO_HELP)
+
+        elif cmd == "gamehelp":
+            await self.highrise.send_whisper(user.id, GAME_HELP)
+
+        elif cmd == "coinhelp":
+            await self.highrise.send_whisper(user.id, COIN_HELP)
+
+        elif cmd == "profilehelp":
+            await self.highrise.send_whisper(user.id, PROFILE_HELP)
+
+        elif cmd == "shophelp":
+            await self.highrise.send_whisper(user.id, SHOP_HELP)
+
+        elif cmd == "progresshelp":
+            await self.highrise.send_whisper(user.id, PROGRESS_HELP)
+
+        elif cmd == "adminhelp":
+            await _handle_adminhelp(self, user)
+
+        elif cmd in {"quests", "claimquest"}:
+            await self.highrise.send_whisper(user.id, "Quests are coming soon! 🏆")
 
         elif cmd == "casino":
             await _handle_casino_cmd(self, user, args)
