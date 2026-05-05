@@ -23,5 +23,5 @@ SKIP_VOTE_THRESHOLD: int = 3   # number of votes needed to auto-skip
 # Add the Highrise user IDs of anyone who should have admin commands.
 # You can find your user ID by checking the Highrise app or API.
 ADMIN_IDS: list[str] = [
-    # "your_user_id_here",
+    "66e6d8aa5f46e3ac67e12392",  # 4ktreyMarion
 ]
