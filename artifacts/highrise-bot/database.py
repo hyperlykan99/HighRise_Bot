@@ -414,6 +414,41 @@ def init_db():
         )
     """)
 
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS tip_conversions (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp     TEXT    NOT NULL DEFAULT (datetime('now')),
+            user_id       TEXT    NOT NULL,
+            username      TEXT    NOT NULL,
+            gold_amount   INTEGER NOT NULL,
+            bonus_pct     INTEGER NOT NULL DEFAULT 0,
+            coins_awarded INTEGER NOT NULL
+        )
+    """)
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS tip_settings (
+            key   TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        )
+    """)
+
+    # Seed tip setting defaults (safe: ON CONFLICT DO NOTHING)
+    for _key, _val in [
+        ("coins_per_gold",    "10"),
+        ("min_tip_gold",      "10"),
+        ("daily_cap_gold",    "10000"),
+        ("tier_100_bonus",    "10"),
+        ("tier_500_bonus",    "20"),
+        ("tier_1000_bonus",   "30"),
+        ("tier_5000_bonus",   "50"),
+    ]:
+        conn.execute(
+            "INSERT INTO tip_settings (key, value) VALUES (?, ?) "
+            "ON CONFLICT(key) DO NOTHING",
+            (_key, _val),
+        )
+
     conn.commit()
     conn.close()
     _migrate_db()
@@ -2772,5 +2807,122 @@ def get_ledger_for(user_id: str, page: int = 1, limit: int = 5) -> list:
         FROM ledger WHERE user_id = ?
         ORDER BY id DESC LIMIT ? OFFSET ?
     """, (user_id, limit, offset)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Tip system helpers
+# ---------------------------------------------------------------------------
+
+def get_tip_settings() -> dict:
+    """Return all tip settings as a plain dict."""
+    conn = get_connection()
+    rows = conn.execute("SELECT key, value FROM tip_settings").fetchall()
+    conn.close()
+    return {r["key"]: r["value"] for r in rows}
+
+
+def set_tip_setting(key: str, value: str) -> None:
+    """Upsert a single tip setting."""
+    conn = get_connection()
+    conn.execute(
+        "INSERT INTO tip_settings (key, value) VALUES (?, ?) "
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        (key, value),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_daily_gold_converted(user_id: str) -> int:
+    """Total gold already converted to coins by this user today (UTC date)."""
+    from datetime import date as _date
+    conn  = get_connection()
+    today = str(_date.today())
+    row   = conn.execute("""
+        SELECT COALESCE(SUM(gold_amount), 0) AS total
+        FROM tip_conversions
+        WHERE user_id = ? AND DATE(timestamp) = ?
+    """, (user_id, today)).fetchone()
+    conn.close()
+    return row["total"] if row else 0
+
+
+def record_tip_conversion(
+    user_id: str,
+    username: str,
+    gold_amount: int,
+    bonus_pct: int,
+    coins_awarded: int,
+) -> None:
+    """
+    Persist a tip conversion, credit the player's balance (capped at
+    max_balance), increment total_coins_earned, and write a ledger entry.
+    """
+    from datetime import datetime as _dt
+    now_ts  = _dt.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+    max_bal = get_max_balance()
+
+    conn = get_connection()
+    conn.execute("""
+        INSERT INTO tip_conversions
+            (timestamp, user_id, username, gold_amount, bonus_pct, coins_awarded)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """, (now_ts, user_id, username, gold_amount, bonus_pct, coins_awarded))
+
+    # Credit balance (capped) and record earned coins
+    conn.execute("""
+        UPDATE users
+        SET balance            = MIN(balance + ?, ?),
+            total_coins_earned = total_coins_earned + ?
+        WHERE user_id = ?
+    """, (coins_awarded, max_bal, coins_awarded, user_id))
+
+    conn.commit()
+    conn.close()
+
+    # Ledger entry (calls add_ledger_entry which opens its own connection)
+    add_ledger_entry(user_id, username, coins_awarded, "gold_tip")
+
+
+def get_tip_stats(user_id: str) -> dict:
+    """Return total and today gold/coins for a single user."""
+    from datetime import date as _date
+    today = str(_date.today())
+    conn  = get_connection()
+
+    total = conn.execute("""
+        SELECT COALESCE(SUM(gold_amount), 0) AS gold,
+               COALESCE(SUM(coins_awarded), 0) AS coins
+        FROM tip_conversions WHERE user_id = ?
+    """, (user_id,)).fetchone()
+
+    today_gold = conn.execute("""
+        SELECT COALESCE(SUM(gold_amount), 0) AS gold
+        FROM tip_conversions
+        WHERE user_id = ? AND DATE(timestamp) = ?
+    """, (user_id, today)).fetchone()
+
+    conn.close()
+    return {
+        "total_gold":  total["gold"]       if total      else 0,
+        "total_coins": total["coins"]      if total      else 0,
+        "today_gold":  today_gold["gold"]  if today_gold else 0,
+    }
+
+
+def get_tip_leaderboard(limit: int = 10) -> list[dict]:
+    """Top tippers ordered by total gold converted."""
+    conn = get_connection()
+    rows = conn.execute("""
+        SELECT username,
+               SUM(gold_amount)   AS total_gold,
+               SUM(coins_awarded) AS total_coins
+        FROM tip_conversions
+        GROUP BY user_id
+        ORDER BY total_gold DESC
+        LIMIT ?
+    """, (limit,)).fetchall()
     conn.close()
     return [dict(r) for r in rows]

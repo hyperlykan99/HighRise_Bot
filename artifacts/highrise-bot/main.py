@@ -94,6 +94,11 @@ from modules.bank import (
     handle_viewtx, handle_bankwatch, handle_bankblock, handle_banksettings,
     handle_bank_set, handle_ledger,
 )
+from modules.tips import (
+    process_tip_event,
+    handle_tiprate, handle_tipstats, handle_tipleaderboard,
+    handle_settiprate, handle_settipcap, handle_settiptier,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -136,6 +141,9 @@ MANAGER_ONLY_CMDS = {
     "setrbjdailywinlimit", "setrbjdailylosslimit",
 }
 
+TIP_COMMANDS = {"tiprate", "tipstats", "tipleaderboard"}
+TIP_ADMIN_CMDS = {"settiprate", "settipcap", "settiptier"}
+
 ADMIN_ONLY_CMDS = {
     "addcoins", "removecoins",
     "addmanager", "removemanager",
@@ -148,7 +156,7 @@ ADMIN_ONLY_CMDS = {
     "eventstart", "eventstop",
     "clearwarnings",
     "addrep", "removerep",
-} | BANK_ADMIN_SET_CMDS
+} | BANK_ADMIN_SET_CMDS | TIP_ADMIN_CMDS
 
 OWNER_ONLY_CMDS = {
     "addadmin", "removeadmin", "admins", "setmaxbalance",
@@ -834,6 +842,12 @@ class HangoutBot(BaseBot):
                 await handle_addrep(self, user, args)
             elif cmd == "removerep":
                 await handle_removerep(self, user, args)
+            elif cmd == "settiprate":
+                await handle_settiprate(self, user, args)
+            elif cmd == "settipcap":
+                await handle_settipcap(self, user, args)
+            elif cmd == "settiptier":
+                await handle_settiptier(self, user, args)
             else:
                 await handle_admin_command(self, user, cmd, args)
             return
@@ -1073,6 +1087,16 @@ class HangoutBot(BaseBot):
         elif cmd in {"toprep", "repleaderboard"}:
             await handle_toprep(self, user)
 
+        # ── Tip system ───────────────────────────────────────────────────────
+        elif cmd == "tiprate":
+            await handle_tiprate(self, user, args)
+
+        elif cmd == "tipstats":
+            await handle_tipstats(self, user, args)
+
+        elif cmd == "tipleaderboard":
+            await handle_tipleaderboard(self, user, args)
+
         # ── Poker ─────────────────────────────────────────────────────────────
         elif cmd == "poker":
             await handle_poker(self, user, args)
@@ -1111,6 +1135,13 @@ class HangoutBot(BaseBot):
             f"Welcome, @{user.username}! Type /help to see what you can do. "
             "Use /daily to grab your free coins!"
         )
+
+    async def on_tip(self, sender: User, receiver: User, tip) -> None:
+        """Convert incoming Highrise gold tips to in-game coins."""
+        try:
+            await process_tip_event(self, sender, receiver, tip)
+        except Exception as e:
+            print(f"[TIP] Error processing tip from @{sender.username}: {e}")
 
     async def on_user_leave(self, user: User) -> None:
         """Log when a player leaves."""
