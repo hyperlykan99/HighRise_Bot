@@ -40,6 +40,8 @@ ADMIN_USERS: list[str] = [
 ]
 
 # ---------------------------------------------------------------------------
-# Database file path
+# Shared database file path
+# All bot modes (GameBot, DJBot, BlackjackBot, HostBot, etc.) must use this
+# same path so player coins, stats, and daily rewards are shared across bots.
 # ---------------------------------------------------------------------------
-DB_PATH: str = "hangout.db"
+DB_PATH: str = "highrise_hangout.db"
