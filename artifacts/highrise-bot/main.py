@@ -142,6 +142,7 @@ from modules.auto_games import (
 from modules.gold import (
     handle_goldtip, handle_goldrefund,
     handle_goldrain, handle_goldrainall,
+    handle_goldraineligible,
     handle_goldwallet, handle_goldtips, handle_goldtx,
     handle_pendinggold, handle_confirmgoldtip,
     handle_setgoldrainstaff, handle_setgoldrainmax,
@@ -219,7 +220,7 @@ ADMIN_ONLY_CMDS = {
 OWNER_ONLY_CMDS = {
     "addadmin", "removeadmin", "admins", "setmaxbalance",
     "addowner", "removeowner",
-    "goldtip", "goldrefund", "goldrain", "goldrainall",
+    "goldtip", "goldrefund", "goldrain", "goldrainall", "goldraineligible",
     "goldwallet", "goldtips", "goldtx", "pendinggold",
     "confirmgoldtip", "setgoldrainstaff", "setgoldrainmax",
     "debugtips",
@@ -1436,6 +1437,8 @@ class HangoutBot(BaseBot):
                 await handle_goldrain(self, user, args)
             elif cmd == "goldrainall":
                 await handle_goldrainall(self, user, args)
+            elif cmd == "goldraineligible":
+                await handle_goldraineligible(self, user, args)
             elif cmd == "goldwallet":
                 await handle_goldwallet(self, user, args)
             elif cmd == "goldtips":

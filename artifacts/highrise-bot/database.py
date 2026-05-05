@@ -521,7 +521,7 @@ def init_db():
         )
     """)
     for _k, _v in [
-        ("goldrain_include_staff",          "false"),
+        ("goldrain_include_staff",          "true"),
         ("goldrain_min_players",            "1"),
         ("goldrain_max_total",              "1000"),
         ("goldrain_require_confirm_above",  "100"),

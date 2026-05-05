@@ -175,7 +175,7 @@ def _get_setting(key: str, default: str) -> str:
 
 
 def _include_staff() -> bool:
-    return _get_setting("goldrain_include_staff", "false") == "true"
+    return _get_setting("goldrain_include_staff", "true") == "true"
 
 
 def _confirm_above() -> int:
@@ -241,6 +241,7 @@ async def _execute_goldtip(
 
 async def _execute_goldrain(
     bot, user, amount: int, bars: list[str], chosen: list[tuple[str, str]],
+    action_type: str = "goldrain",
 ) -> None:
     batch_id = str(uuid.uuid4())[:8]
     sent = failed = 0
@@ -248,26 +249,30 @@ async def _execute_goldrain(
         ok, err = await _send_gold_bars(bot, uid, bars)
         status = "success" if ok else "failed"
         db.log_gold_tx(
-            "goldrain", user.username, uname, uid,
+            action_type, user.username, uname, uid,
             amount, "", status, ",".join(bars), batch_id, err,
         )
         if ok:
             sent += 1
-            await bot.highrise.chat(f"🌧️ Gold rain! {amount}g sent to @{uname}.")
+            if len(chosen) <= 3:
+                await bot.highrise.chat(f"🌧️ {amount}g sent to @{uname}!")
         else:
             failed += 1
-            print(f"[GOLD] rain FAILED → @{uname}: {err}")
-    if len(chosen) > 1:
-        if failed:
-            summary = f"🌧️ Gold rain done: {sent} sent, {failed} failed."
-        else:
-            summary = f"🌧️ Gold rain done: {sent} players got {amount}g."
-        await bot.highrise.chat(summary)
+            print(
+                f"[GOLD] {action_type} FAILED → @{uname} (id={uid}) "
+                f"amount={amount}g bars={bars} err={err!r}"
+            )
+    if failed:
+        summary = f"🌧️ Gold rain done: {sent} sent, {failed} failed. Check console."
+    else:
+        summary = f"🌧️ Gold rain done: {sent} players got {amount}g."
+    await bot.highrise.chat(summary[:249])
 
 
 async def _execute_goldrainall(
     bot, sender_username: str, sender_id: str,
     amount: int, bars: list[str], eligible: list[tuple[str, str]],
+    action_type: str = "goldrainall",
 ) -> None:
     batch_id = str(uuid.uuid4())[:8]
     sent = failed = 0
@@ -275,19 +280,22 @@ async def _execute_goldrainall(
         ok, err = await _send_gold_bars(bot, uid, bars)
         status = "success" if ok else "failed"
         db.log_gold_tx(
-            "goldrainall", sender_username, uname, uid,
+            action_type, sender_username, uname, uid,
             amount, "", status, ",".join(bars), batch_id, err,
         )
         if ok:
             sent += 1
         else:
             failed += 1
-            print(f"[GOLD] rainall FAILED → @{uname}: {err}")
+            print(
+                f"[GOLD] {action_type} FAILED → @{uname} (id={uid}) "
+                f"amount={amount}g bars={bars} err={err!r}"
+            )
     if failed:
-        summary = f"🌧️ Gold rain done: {sent} sent, {failed} failed."
+        summary = f"🌧️ Gold rain done: {sent} sent, {failed} failed. Check console."
     else:
         summary = f"🌧️ Gold rain done: {sent} players got {amount}g."
-    await bot.highrise.chat(summary)
+    await bot.highrise.chat(summary[:249])
 
 
 # ---------------------------------------------------------------------------
@@ -421,22 +429,6 @@ async def handle_goldrain(bot, user, args: list[str]) -> None:
         total = amount * count
 
     chosen = random.sample(eligible, count)
-
-    if total >= _confirm_above():
-        code = _store_pending("goldrain", {
-            "amount":    amount,
-            "count":     count,
-            "chosen":    chosen,
-            "bars":      bars,
-            "sender":    user.username,
-            "sender_id": user.id,
-        })
-        await bot.highrise.send_whisper(
-            user.id,
-            f"Confirm {total}g rain to {count} players: /confirmgoldtip {code} (60s)"
-        )
-        return
-
     await _execute_goldrain(bot, user, amount, bars, chosen)
 
 
@@ -483,17 +475,10 @@ async def handle_goldrainall(bot, user, args: list[str]) -> None:
         )
         return
 
-    code = _store_pending("goldrainall", {
-        "amount":      amount,
-        "eligible":    eligible,
-        "bars":        bars,
-        "sender":      user.username,
-        "sender_id":   user.id,
-    })
     await bot.highrise.send_whisper(
-        user.id,
-        f"Confirm {total}g to ALL {len(eligible)} players: /confirmgoldtip {code} (60s)"
+        user.id, f"🌧️ Sending {amount}g to {len(eligible)} players..."
     )
+    await _execute_goldrainall(bot, user.username, user.id, amount, bars, eligible)
 
 
 # ---------------------------------------------------------------------------
@@ -666,6 +651,24 @@ async def handle_setgoldrainmax(bot, user, args: list[str]) -> None:
 
 
 # ---------------------------------------------------------------------------
+# /goldraineligible
+# ---------------------------------------------------------------------------
+async def handle_goldraineligible(bot, user, args: list[str]) -> None:
+    """Show who is currently eligible for gold rain."""
+    if not is_owner(user.username):
+        await bot.highrise.send_whisper(user.id, "Only owners can use this.")
+        return
+    await refresh_room_cache(bot)
+    eligible = _get_eligible_players(_include_staff())
+    if not eligible:
+        await bot.highrise.send_whisper(user.id, "No eligible players in room.")
+        return
+    names = ", ".join(f"@{uname}" for _, uname in eligible)
+    msg = f"Eligible ({len(eligible)}): {names}"
+    await bot.highrise.send_whisper(user.id, msg[:249])
+
+
+# ---------------------------------------------------------------------------
 # /goldhelp
 # ---------------------------------------------------------------------------
 async def handle_goldhelp(bot, user, args: list[str]) -> None:
@@ -673,9 +676,9 @@ async def handle_goldhelp(bot, user, args: list[str]) -> None:
         "👑 Gold Cmds (Owner only)\n"
         "/goldtip <user> <amt>\n"
         "/goldrefund <user> <amt> [reason]\n"
-        "/goldrain <amt> [count]\n"
-        "/goldrainall <amt>\n"
-        "/goldwallet  /goldtips  /goldtx <user>\n"
-        "/pendinggold  /confirmgoldtip <code>"
+        "/goldrain <amt> [count]  /goldrainall <amt>\n"
+        "/goldraineligible\n"
+        "/setgoldrainstaff on|off  /setgoldrainmax <amt>\n"
+        "/goldwallet  /goldtips  /goldtx <user>"
     )
-    await bot.highrise.send_whisper(user.id, msg)
+    await bot.highrise.send_whisper(user.id, msg[:249])

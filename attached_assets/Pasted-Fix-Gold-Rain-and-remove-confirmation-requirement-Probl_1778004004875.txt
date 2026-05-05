@@ -1,0 +1,119 @@
+Fix Gold Rain and remove confirmation requirement.
+
+Problem:
+Direct /goldtip works:
+- /goldtip @angelkisses18 10 successfully sends 10g.
+
+But /goldrainall 10 fails:
+- It says "Gold rain done: 0 sent, 1 failed."
+
+Goal:
+Gold rain should use the exact same successful send logic as /goldtip.
+
+IMPORTANT:
+- Only owners can use real Highrise gold commands.
+- Since only owners can use goldrain, remove confirmation requirement.
+- Do not require /confirmgoldtip for:
+  /goldrain
+  /goldrainall
+  /goldrainvip
+  /goldrainrole
+  /goldraintitle
+  /goldrainbadge
+- Keep confirmation only optional for future if needed, but disabled by default.
+
+Commands:
+- /goldtip <username> <amount>
+- /goldrain <amount>
+- /goldrain <amount> <count>
+- /goldrainall <amount>
+- /goldrainvip <amount> [count]
+- /goldrainrole <role> <amount> [count]
+- /goldraintitle <title_id> <amount> [count]
+- /goldrainbadge <badge_id> <amount> [count]
+
+Fix requirements:
+1. Goldrain should use the same helper function as /goldtip.
+   Example helper:
+   send_gold_to_user(username, amount, reason, batch_id=None)
+
+2. If /goldtip can send to @angelkisses18, then /goldrainall should also be able to send to @angelkisses18.
+
+3. Do not use a separate broken send method for goldrain.
+
+4. For every failed goldrain send, log the real error in console:
+   - target username
+   - target user id
+   - amount
+   - denomination list
+   - exception/error message
+
+5. In chat, show a short summary:
+   "🌧️ Gold rain done: 1 sent, 0 failed."
+
+6. If there are failures, show:
+   "🌧️ Gold rain done: 4 sent, 1 failed. Check console."
+
+Eligibility:
+- /goldrainall should include all eligible players currently in the room.
+- Exclude the bot itself.
+- Do not exclude moderators/managers/admins unless a setting says so.
+- Default setting:
+  goldrain_include_staff = true
+- Owners may be excluded by default if desired, but moderators should be eligible.
+
+Add command:
+- /setgoldrainstaff on/off
+
+Behavior:
+- /setgoldrainstaff on = include staff in gold rain.
+- /setgoldrainstaff off = exclude staff.
+- Default should be ON.
+
+Also add:
+- /goldraineligible
+Shows who is eligible for gold rain in the room.
+
+Example message:
+"Eligible: @angelkisses18, @player2"
+
+Room user lookup:
+- Use the same room user cache or lookup that /goldtip uses.
+- Normalize usernames:
+  remove @
+  trim spaces
+  case-insensitive
+
+Gold amount:
+- Validate amount is positive.
+- Convert amount to supported Highrise gold bars.
+- 10 gold should use gold_bar_10.
+- If exact amount cannot be formed, reject with:
+  "Cannot send that exact gold amount."
+
+Remove confirmation:
+- /goldrainall 10 should immediately send.
+- /goldrain 10 should immediately send to 1 random player.
+- /goldrain 10 5 should immediately send 10g to 5 random players.
+- /goldrainvip 10 should immediately send to eligible VIPs.
+- No /confirmgoldtip needed for owner gold rain.
+
+Keep /confirmgoldtip only for old pending confirmations, but goldrain should not require it.
+
+Logging:
+- Log every goldrain transaction in gold_transactions.
+- action_type should be:
+  goldrain
+  goldrainall
+  goldrain_vip
+  goldrain_role
+  goldrain_title
+  goldrain_badge
+- Use batch_id for group rains.
+- Log each receiver separately.
+
+Safety:
+- Only owners can use goldrain commands.
+- Admins, managers, and moderators cannot send real gold.
+- Keep messages under 250 characters.
+- Do not crash if one player fails; continue to next player.
