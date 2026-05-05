@@ -331,12 +331,12 @@ async def handle_send(bot: BaseBot, user: User, args: list[str]):
             if fee > 0:
                 offline_msg = (
                     f"✅ Sent {amount_received:,}c to {recv_display_name}. "
-                    f"Fee: {fee}c. They'll be notified later."
+                    f"Fee: {fee}c. They'll be notified when they return."
                 )[:249]
             else:
                 offline_msg = (
                     f"✅ Sent {amount_received:,}c to {recv_display_name}. "
-                    f"They'll be notified later."
+                    f"They'll be notified when they return."
                 )[:249]
             # Replace the sender confirmation that was already sent
             await _w(bot, user.id, offline_msg)
@@ -664,6 +664,83 @@ async def handle_clearnotifications(bot: BaseBot, user: User):
         return
     db.mark_bank_notifications_delivered(user.username)
     await _w(bot, user.id, f"✅ Cleared {len(pending)} pending bank notification(s).")
+
+
+async def handle_delivernotifications(bot: BaseBot, user: User, args: list[str]):
+    """/delivernotifications <username> — staff: attempt delivery for an online user."""
+    if not is_manager(user.username):
+        await _w(bot, user.id, "Staff only.")
+        return
+    if len(args) < 2:
+        await _w(bot, user.id, "Usage: /delivernotifications <username>")
+        return
+    target_name = args[1].lstrip("@").lower().strip()
+    pending = db.get_pending_notifications_for_staff(target_name)
+    if not pending:
+        await _w(bot, user.id, f"No pending notifications for @{target_name}.")
+        return
+    target = db.get_user_by_username(target_name)
+    if target is None:
+        await _w(bot, user.id, f"@{target_name} not found in DB.")
+        return
+    target_id = target["user_id"]
+    total = sum(r["amount_received"] for r in pending)
+    try:
+        if len(pending) == 1:
+            r = pending[0]
+            fee_note = f" Fee: {r['fee']}c." if r["fee"] else ""
+            msg = (
+                f"🏦 You received {r['amount_received']:,}c "
+                f"from @{r['sender_username']}.{fee_note}"
+            )[:249]
+        elif len(pending) <= 3:
+            lines = [f"🏦 {len(pending)} deposits:"]
+            for r in pending:
+                fee_note = f" Fee:{r['fee']}c" if r["fee"] else ""
+                lines.append(f"+{r['amount_received']:,}c from @{r['sender_username']}{fee_note}")
+            msg = "\n".join(lines)[:249]
+        else:
+            msg = (
+                f"🏦 You have {len(pending)} deposits. "
+                f"Total: {total:,}c. Use /transactions."
+            )[:249]
+        await bot.highrise.send_whisper(target_id, msg)
+        db.mark_bank_notifications_delivered(target_name)
+        await _w(bot, user.id,
+                 f"✅ Delivered {len(pending)} notification(s) to @{target_name}.")
+    except Exception as exc:
+        for r in pending:
+            db.record_notification_attempt_failed(r["id"], str(exc))
+        await _w(bot, user.id,
+                 f"❌ Could not deliver to @{target_name}: {str(exc)[:100]}")
+
+
+async def handle_pendingnotifications(bot: BaseBot, user: User, args: list[str]):
+    """/pendingnotifications <username> — staff: view pending notifications."""
+    if not is_manager(user.username):
+        await _w(bot, user.id, "Staff only.")
+        return
+    if len(args) < 2:
+        await _w(bot, user.id, "Usage: /pendingnotifications <username>")
+        return
+    target_name = args[1].lstrip("@").lower().strip()
+    pending = db.get_pending_notifications_for_staff(target_name)
+    if not pending:
+        await _w(bot, user.id, f"No pending notifications for @{target_name}.")
+        return
+    total = sum(r["amount_received"] for r in pending)
+    lines = [f"📬 @{target_name}: {len(pending)} pending (total {total:,}c)"]
+    for r in pending[:4]:
+        fee_note = f" Fee:{r['fee']}c" if r["fee"] else ""
+        ts = r["timestamp"][:10] if r.get("timestamp") else "?"
+        attempts = r.get("delivery_attempts", 0)
+        lines.append(
+            f"+{r['amount_received']:,}c from @{r['sender_username']}{fee_note} "
+            f"{ts} (attempts:{attempts})"
+        )
+    if len(pending) > 4:
+        lines.append(f"...and {len(pending) - 4} more.")
+    await _w(bot, user.id, "\n".join(lines)[:249])
 
 
 async def handle_ledger(bot: BaseBot, user: User, args: list[str]):

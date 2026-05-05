@@ -596,7 +596,9 @@ def init_db():
             fee               INTEGER NOT NULL DEFAULT 0,
             timestamp         TEXT NOT NULL DEFAULT (datetime('now')),
             delivered         INTEGER NOT NULL DEFAULT 0,
-            delivered_at      TEXT
+            delivered_at      TEXT,
+            delivery_attempts INTEGER NOT NULL DEFAULT 0,
+            last_error        TEXT
         )
     """)
 
@@ -635,6 +637,8 @@ def _migrate_db():
         "ALTER TABLE bj_settings  ADD COLUMN bj_loss_limit_enabled INTEGER NOT NULL DEFAULT 1",
         "ALTER TABLE rbj_settings ADD COLUMN rbj_win_limit_enabled  INTEGER NOT NULL DEFAULT 1",
         "ALTER TABLE rbj_settings ADD COLUMN rbj_loss_limit_enabled INTEGER NOT NULL DEFAULT 1",
+        "ALTER TABLE bank_notifications ADD COLUMN delivery_attempts INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE bank_notifications ADD COLUMN last_error        TEXT",
     ]:
         try:
             conn.execute(sql)
@@ -3592,6 +3596,37 @@ def get_recent_bank_notifications(username: str, limit: int = 10) -> list[dict]:
         LIMIT ?
         """,
         (username.lower().lstrip("@").strip(), limit),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def record_notification_attempt_failed(notif_id: int, error: str) -> None:
+    """Increment delivery_attempts and store last_error for a notification."""
+    conn = get_connection()
+    conn.execute(
+        """
+        UPDATE bank_notifications
+        SET delivery_attempts = delivery_attempts + 1,
+            last_error = ?
+        WHERE id = ?
+        """,
+        (str(error)[:200], notif_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_pending_notifications_for_staff(username: str) -> list[dict]:
+    """Return all undelivered notifications for *username* (staff view)."""
+    conn = get_connection()
+    rows = conn.execute(
+        """
+        SELECT * FROM bank_notifications
+        WHERE receiver_username = ? AND delivered = 0
+        ORDER BY timestamp ASC
+        """,
+        (username.lower().lstrip("@").strip(),),
     ).fetchall()
     conn.close()
     return [dict(r) for r in rows]

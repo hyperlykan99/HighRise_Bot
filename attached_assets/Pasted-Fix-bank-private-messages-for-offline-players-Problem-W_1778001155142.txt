@@ -1,0 +1,94 @@
+Fix bank private messages for offline players.
+
+Problem:
+When coins are sent to a player who is not in the room, the bot cannot send them a private message immediately.
+
+Goal:
+Do not fail the notification. Save it as pending and deliver it later when the player joins the room or chats.
+
+Important:
+Highrise may not allow private messages to users who are not currently in the room/reachable. If the receiver is offline, store the notification in SQLite.
+
+Behavior after /send succeeds:
+
+If receiver is in room:
+- Send private message/whisper immediately:
+"🏦 You received 950c from @Marion. Fee: 50c."
+
+If receiver is not in room:
+- Save notification to SQLite.
+- Sender sees:
+"✅ Sent 950c to @Player. They’ll be notified when they return."
+
+When receiver joins the room:
+- Check pending notifications for their username.
+- Send private message if possible.
+- Mark notification delivered only after successful private message.
+
+When receiver chats:
+- Check pending notifications for their username.
+- Send private message if possible.
+- Mark notification delivered only after successful private message.
+
+Database:
+Create bank_notifications table if missing:
+- id INTEGER PRIMARY KEY AUTOINCREMENT
+- receiver_username TEXT
+- sender_username TEXT
+- amount_received INTEGER
+- fee INTEGER
+- timestamp TEXT
+- delivered INTEGER DEFAULT 0
+- delivered_at TEXT
+- delivery_attempts INTEGER DEFAULT 0
+- last_error TEXT
+
+Username handling:
+- Remove @ from usernames.
+- Trim spaces.
+- Lookup case-insensitively.
+- Do not create duplicate notification records because of capitalization.
+
+Commands:
+- /notifications
+Shows the user’s pending/recent bank notifications.
+
+- /clearnotifications
+Marks user’s pending notifications as read.
+
+- /delivernotifications <username>
+Owner/admin/manager only. Attempts to deliver pending notifications if the user is currently in room.
+
+- /pendingnotifications <username>
+Owner/admin/manager only. Shows pending notifications for a user.
+
+Delivery rules:
+- Do not mark delivered if whisper/private message fails.
+- If private message fails, keep it pending and try again later.
+- If multiple pending notifications exist, combine them:
+"🏦 You have 3 deposits. Total received: 2,500c. Use /transactions."
+- If combined message is too long, send latest 3 only.
+- Keep all messages under 250 characters.
+
+Bank notify setting:
+- /banknotify on
+- /banknotify off
+- /banknotify
+
+Default: ON.
+
+If receiver has /banknotify off:
+- Do not private message.
+- Still log the transfer.
+- /transactions should still show it.
+
+Event hooks:
+Add notification delivery checks to:
+- on_user_join
+- on_chat
+
+Important:
+- Do not rely on private messaging offline users.
+- Offline users should be notified later when they return.
+- Do not crash if whisper/private message is unsupported.
+- Log private message failures in console.

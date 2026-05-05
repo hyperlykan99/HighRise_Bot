@@ -111,6 +111,7 @@ from modules.bank import (
     handle_viewtx, handle_bankwatch, handle_bankblock, handle_banksettings,
     handle_bank_set, handle_ledger,
     handle_notifications, handle_clearnotifications,
+    handle_delivernotifications, handle_pendingnotifications,
 )
 from modules.tips import (
     process_tip_event,
@@ -244,6 +245,7 @@ ALL_KNOWN_COMMANDS = (
         "vipshop", "buyvip", "vipstatus",
         "allstaff", "allcommands", "checkcommands",
         "notifications", "clearnotifications",
+        "delivernotifications", "pendingnotifications",
     }
     | ECONOMY_COMMANDS | PROFILE_COMMANDS | GAME_COMMANDS
     | SHOP_COMMANDS | ACHIEVEMENT_COMMANDS | BJ_COMMANDS
@@ -1166,11 +1168,16 @@ _notif_delivered_this_session: set[str] = set()
 
 
 async def _deliver_pending_bank_notifications(bot, user: User) -> None:
-    """Deliver any queued bank notifications to *user* via whisper."""
+    """Deliver any queued bank notifications to *user* via whisper.
+
+    Only marks delivered after a successful send.
+    On failure, increments delivery_attempts and logs last_error.
+    """
     username = user.username.lower().strip()
     pending = db.get_pending_bank_notifications(username)
     if not pending:
         return
+    # Build the message
     try:
         if len(pending) == 1:
             r = pending[0]
@@ -1179,25 +1186,29 @@ async def _deliver_pending_bank_notifications(bot, user: User) -> None:
                 f"🏦 You received {r['amount_received']:,}c from @{r['sender_username']}."
                 f"{fee_note}"
             )[:249]
-            await bot.highrise.send_whisper(user.id, msg)
         elif len(pending) <= 3:
-            total = sum(r["amount_received"] for r in pending)
             lines = [f"🏦 {len(pending)} deposits while you were away:"]
             for r in pending:
                 fee_note = f" Fee:{r['fee']}c" if r["fee"] else ""
-                lines.append(f"+{r['amount_received']:,}c from @{r['sender_username']}{fee_note}")
-            await bot.highrise.send_whisper(user.id, "\n".join(lines)[:249])
+                lines.append(
+                    f"+{r['amount_received']:,}c from @{r['sender_username']}{fee_note}"
+                )
+            msg = "\n".join(lines)[:249]
         else:
             total = sum(r["amount_received"] for r in pending)
             msg = (
-                f"🏦 You have {len(pending)} bank deposits. "
-                f"Total: {total:,}c. Use /notifications or /transactions."
+                f"🏦 You have {len(pending)} deposits. "
+                f"Total: {total:,}c. Use /transactions."
             )[:249]
-            await bot.highrise.send_whisper(user.id, msg)
+        await bot.highrise.send_whisper(user.id, msg)
+        # Only mark delivered after the whisper succeeded
         db.mark_bank_notifications_delivered(username)
         _notif_delivered_this_session.add(username)
     except Exception as exc:
-        print(f"[BANK] Could not deliver pending notification to @{username}: {exc}")
+        err_str = str(exc)
+        print(f"[BANK] Could not deliver pending notification to @{username}: {err_str}")
+        for r in pending:
+            db.record_notification_attempt_failed(r["id"], err_str)
 
 
 # ---------------------------------------------------------------------------
@@ -1585,6 +1596,12 @@ class HangoutBot(BaseBot):
 
         elif cmd == "clearnotifications":
             await handle_clearnotifications(self, user)
+
+        elif cmd == "delivernotifications":
+            await handle_delivernotifications(self, user, args)
+
+        elif cmd == "pendingnotifications":
+            await handle_pendingnotifications(self, user, args)
 
         elif cmd == "bankhelp":
             await _handle_bankhelp(self, user, args)
