@@ -60,9 +60,14 @@ async def handle_dj_command(bot: BaseBot, user: User, args: list[str]):
         song = " ".join(args[1:]).strip()
         await _cmd_request(bot, user, song, priority=True)
     elif cmd == "queue":
-        await _cmd_queue(bot, user)
+        # /queue      → next 5 songs
+        # /queue all  → up to 20 songs
+        show_all = len(args) > 1 and args[1].lower() == "all"
+        await _cmd_queue(bot, user, show_all=show_all)
     elif cmd == "now":
         await _cmd_now(bot, user)
+    elif cmd == "next":
+        await _cmd_next(bot, user)
     elif cmd == "skipvote":
         await _cmd_skipvote(bot, user)
 
@@ -98,27 +103,47 @@ def _contains_banned_word(text: str) -> str | None:
     return None
 
 
-def _validate_request(song: str) -> str | None:
+def _validate_request(song: str, user_id: str) -> str | None:
     """
-    Run all pre-add checks on a song title.
+    Run all pre-add checks on a song title/link.
     Returns an error message string if the request should be rejected,
     or None if everything is fine.
+
+    Checks (in order):
+      1. Song must not be empty
+      2. Title must not exceed SONG_TITLE_MAX_LEN characters
+      3. Title must not contain a banned word
+      4. Song must not already be in the queue (prevents duplicates & re-queued YT links)
+      5. The overall queue must not be full (QUEUE_MAX_SIZE)
+      6. This user must not already have USER_QUEUE_LIMIT songs in the queue
     """
     if not song:
         return "Please include a song name or link."
+
+    # Title length check
+    if len(song) > config.SONG_TITLE_MAX_LEN:
+        return f"Song title is too long (max {config.SONG_TITLE_MAX_LEN} characters)."
 
     # Banned word check
     bad_word = _contains_banned_word(song)
     if bad_word:
         return "That song title contains a banned word and cannot be requested."
 
-    # Duplicate check
+    # Duplicate check — works for both plain titles and YouTube links
     if db.is_song_in_queue(song):
         return "That song is already in the queue!"
 
-    # Queue full check
+    # Overall queue size check
     if db.get_queue_length() >= config.QUEUE_MAX_SIZE:
         return f"The queue is full ({config.QUEUE_MAX_SIZE} songs max). Try again soon!"
+
+    # Per-user queue limit check
+    user_count = db.get_user_queue_count(user_id)
+    if user_count >= config.USER_QUEUE_LIMIT:
+        return (
+            f"You already have {user_count} song(s) in the queue "
+            f"(max {config.USER_QUEUE_LIMIT} per user)."
+        )
 
     return None  # all good
 
@@ -166,7 +191,7 @@ async def _cmd_request(bot: BaseBot, user: User, song: str, priority: bool):
         return
 
     # Run all content / queue-state checks first
-    error = _validate_request(song)
+    error = _validate_request(song, user.id)
     if error:
         await bot.highrise.send_whisper(user.id, error)
         return
@@ -206,9 +231,15 @@ async def _cmd_request(bot: BaseBot, user: User, song: str, priority: bool):
         _skip_vote_song_id = current["id"] if current else None
 
 
-async def _cmd_queue(bot: BaseBot, user: User):
-    """Whisper the next N songs in the queue to the requesting user."""
-    songs = db.get_queue(config.QUEUE_DISPLAY_SIZE)
+async def _cmd_queue(bot: BaseBot, user: User, show_all: bool = False):
+    """
+    Whisper the queue to the requesting user.
+      /queue     → next 5 songs  (QUEUE_DISPLAY_SIZE)
+      /queue all → up to 20 songs (QUEUE_MAX_SIZE)
+    """
+    limit = config.QUEUE_MAX_SIZE if show_all else config.QUEUE_DISPLAY_SIZE
+    songs = db.get_queue(limit)
+    total = db.get_queue_length()
 
     if not songs:
         await bot.highrise.send_whisper(
@@ -216,14 +247,16 @@ async def _cmd_queue(bot: BaseBot, user: User):
         )
         return
 
-    lines = [f"Queue ({db.get_queue_length()}/{config.QUEUE_MAX_SIZE}):"]
+    label = "Full queue" if show_all else "Queue"
+    lines = [f"{label} ({total}/{config.QUEUE_MAX_SIZE}):"]
     for i, s in enumerate(songs, start=1):
         tag = " [P]" if s["priority"] and i > 1 else ""
         lines.append(f"  {i}. {s['song']}{tag}  (@{s['username']})")
 
-    total = db.get_queue_length()
-    if total > config.QUEUE_DISPLAY_SIZE:
-        lines.append(f"  ...and {total - config.QUEUE_DISPLAY_SIZE} more.")
+    if not show_all and total > config.QUEUE_DISPLAY_SIZE:
+        lines.append(
+            f"  ...and {total - config.QUEUE_DISPLAY_SIZE} more. Use /queue all to see everything."
+        )
 
     await bot.highrise.send_whisper(user.id, "\n".join(lines))
 
@@ -241,6 +274,29 @@ async def _cmd_now(bot: BaseBot, user: User):
     await bot.highrise.send_whisper(
         user.id,
         f"Now playing: {song['song']}  (by @{song['username']})"
+    )
+
+
+async def _cmd_next(bot: BaseBot, user: User):
+    """Whisper which song is up next (position #2 in the queue)."""
+    song = db.get_next_song()
+
+    if not song:
+        current = db.get_current_song()
+        if current:
+            await bot.highrise.send_whisper(
+                user.id, "No song queued after the current one. Use /request to add one!"
+            )
+        else:
+            await bot.highrise.send_whisper(
+                user.id, "The queue is empty. Use /request to add a song!"
+            )
+        return
+
+    tag = " [PRIORITY]" if song["priority"] else ""
+    await bot.highrise.send_whisper(
+        user.id,
+        f"Up next{tag}: {song['song']}  (by @{song['username']})"
     )
 
 

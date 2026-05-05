@@ -192,6 +192,29 @@ _QUEUE_ORDER = """
 """
 
 
+def get_user_queue_count(user_id: str) -> int:
+    """Return how many songs the given user currently has in the queue."""
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT COUNT(*) as cnt FROM song_queue WHERE user_id = ?", (user_id,)
+    ).fetchone()
+    conn.close()
+    return row["cnt"]
+
+
+def get_next_song() -> dict | None:
+    """
+    Return the song at position #2 in the ordered queue (the 'up next' song).
+    Returns None if the queue has fewer than 2 songs.
+    """
+    conn = get_connection()
+    rows = conn.execute(
+        f"SELECT id, username, song, priority FROM song_queue {_QUEUE_ORDER} LIMIT 2"
+    ).fetchall()
+    conn.close()
+    return dict(rows[1]) if len(rows) >= 2 else None
+
+
 def is_song_in_queue(song: str) -> bool:
     """
     Return True if an identical song title/link is already in the queue.

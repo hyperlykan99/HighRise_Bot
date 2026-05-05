@@ -30,7 +30,7 @@ from modules.ytsearch import handle_ytsearch_command, handle_pick_command
 # Command routing tables
 # ---------------------------------------------------------------------------
 
-DJ_COMMANDS            = {"dj", "request", "priority", "queue", "now", "skipvote", "ytsearch", "pick"}
+DJ_COMMANDS            = {"dj", "request", "priority", "queue", "now", "next", "skipvote", "ytsearch", "pick"}
 ECONOMY_COMMANDS       = {"balance", "daily"}
 ADMIN_DJ_COMMANDS      = {"skip", "remove", "clearqueue"}
 ADMIN_ECONOMY_COMMANDS = {"addtokens", "refund"}
@@ -42,8 +42,8 @@ HELP_TEXT_1 = (
     f"/priority <song> - {config.PRIORITY_REQUEST_COST} tokens, jumps to #2\n"
     "/ytsearch <name> - search YouTube, get top 3 links\n"
     "/pick 1/2/3 - queue a result from /ytsearch\n"
-    "/queue - next 5 songs\n"
-    "/now - current song\n"
+    "/queue - next 5 songs | /queue all - full queue\n"
+    "/now - current song | /next - up next\n"
     "/skipvote - vote to skip"
 )
 

@@ -20,9 +20,11 @@ PRIORITY_REQUEST_COST: int = 50  # tokens for a /priority request (jumps to #2 i
 DAILY_REWARD:         int = 10   # free tokens from /daily
 
 # ── DJ system ────────────────────────────────────────────────────────────────
-QUEUE_DISPLAY_SIZE:  int = 5    # how many songs /queue shows
-QUEUE_MAX_SIZE:      int = 20   # maximum songs allowed in the queue at once
-SKIP_VOTE_THRESHOLD: int = 3    # votes needed to auto-skip
+QUEUE_DISPLAY_SIZE:   int = 5    # how many songs /queue shows
+QUEUE_MAX_SIZE:       int = 20   # maximum songs allowed in the queue at once
+USER_QUEUE_LIMIT:     int = 3    # max songs one user can have in the queue at once
+SONG_TITLE_MAX_LEN:   int = 120  # maximum characters in a song title/link
+SKIP_VOTE_THRESHOLD:  int = 3    # votes needed to auto-skip
 
 # ── Content filter ───────────────────────────────────────────────────────────
 # Song titles containing any of these words (case-insensitive) will be rejected.
