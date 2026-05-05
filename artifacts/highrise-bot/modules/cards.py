@@ -17,6 +17,13 @@ def make_deck() -> list[tuple[str, str]]:
     return deck
 
 
+def make_shoe(decks: int = 6) -> list[tuple[str, str]]:
+    """Return a shuffled multi-deck shoe (default 6 decks = 312 cards)."""
+    shoe = [(r, s) for _ in range(decks) for s in SUITS for r in RANKS]
+    random.shuffle(shoe)
+    return shoe
+
+
 def card_str(card: tuple[str, str]) -> str:
     return f"{card[0]}{card[1]}"
 

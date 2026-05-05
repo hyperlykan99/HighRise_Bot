@@ -1,0 +1,779 @@
+"""
+modules/realistic_blackjack.py
+-------------------------------
+Realistic Blackjack for the Highrise Mini Game Bot.
+
+Uses a persistent shared shoe (default 6 decks) that carries across rounds.
+Reshuffles when >= shuffle_used_percent% is dealt OR < 52 cards remain.
+
+Public:  /rbj join <bet>  /rbj leave  /rbj players  /rbj table
+         /rbj hit  /rbj stand  /rbj double  /rbj rules  /rbj stats  /rbj shoe
+Admin:   /rbj cancel  /rbj settings
+         /setrbjdecks  /setrbjminbet  /setrbjmaxbet  /setrbjshuffle
+         /setrbjblackjackpayout  /setrbjwinpayout
+"""
+
+import asyncio
+from dataclasses import dataclass, field
+from highrise import BaseBot, User
+
+import config
+import database as db
+from modules.cards import make_shoe, hand_str, hand_value, is_blackjack, card_str
+from modules.shop  import get_player_benefits
+
+_RBJ_CASINO_CAP = 5.0    # max % casino bonus applied to winning payouts
+
+
+# ─── Persistent shoe ─────────────────────────────────────────────────────────
+
+class _Shoe:
+    """Multi-deck shoe that persists across rounds."""
+
+    def __init__(self, decks: int = 6):
+        self._decks  = decks
+        self._cards: list = []
+        self._total  = 0
+        self._reshuffle(decks)
+
+    def _reshuffle(self, decks: int):
+        self._decks  = decks
+        self._total  = decks * 52
+        self._cards  = make_shoe(decks)
+
+    # ── Public read-only properties ──────────────────────────────────────────
+
+    @property
+    def remaining(self) -> int:
+        return len(self._cards)
+
+    @property
+    def total(self) -> int:
+        return self._total
+
+    @property
+    def used(self) -> int:
+        return self._total - self.remaining
+
+    @property
+    def used_pct(self) -> float:
+        return (self.used / self._total * 100) if self._total else 0.0
+
+    @property
+    def decks_used(self) -> float:
+        return round(self.used / 52, 1)
+
+    # ── Shuffle control ──────────────────────────────────────────────────────
+
+    def needs_shuffle(self, threshold_pct: float = 75.0) -> bool:
+        return self.used_pct >= threshold_pct or self.remaining < 52
+
+    def shuffle_now(self, decks: int | None = None):
+        self._reshuffle(decks if decks is not None else self._decks)
+
+    def pop(self) -> tuple:
+        if not self._cards:          # safety net — should never be needed
+            self._reshuffle(self._decks)
+        return self._cards.pop()
+
+
+_shoe = _Shoe(6)
+
+
+# ─── In-memory game state ────────────────────────────────────────────────────
+
+@dataclass
+class _Player:
+    user_id:  str
+    username: str
+    bet:      int
+    hand:     list = field(default_factory=list)
+    status:   str  = "playing"   # playing | stood | bust | bj
+    doubled:  bool = False
+
+
+class _RBJState:
+    def __init__(self):
+        self.reset()
+
+    def reset(self):
+        self.phase:        str  = "idle"   # idle | lobby | round
+        self.players:      list = []
+        self.dealer_hand:  list = []
+        self.current_idx:  int  = 0
+        self.lobby_task          = None
+        self.turn_task           = None
+
+    def get_player(self, user_id: str):
+        for p in self.players:
+            if p.user_id == user_id:
+                return p
+        return None
+
+    def in_game(self, user_id: str) -> bool:
+        return self.get_player(user_id) is not None
+
+
+_state = _RBJState()
+
+
+# ─── Helpers ─────────────────────────────────────────────────────────────────
+
+def _settings() -> dict:
+    return db.get_rbj_settings()
+
+
+def _cancel_task(task):
+    if task and not task.done():
+        task.cancel()
+
+
+def _is_soft_17(hand: list) -> bool:
+    if hand_value(hand) != 17:
+        return False
+    hard = sum(
+        10 if r in ("J", "Q", "K") else (1 if r == "A" else int(r))
+        for r, _ in hand
+    )
+    return hard != 17
+
+
+def _current_player():
+    if _state.current_idx < len(_state.players):
+        return _state.players[_state.current_idx]
+    return None
+
+
+# ─── Lobby countdown ─────────────────────────────────────────────────────────
+
+async def _lobby_countdown(bot: BaseBot, seconds: int):
+    try:
+        await asyncio.sleep(seconds)
+        await _start_round(bot)
+    except asyncio.CancelledError:
+        pass
+
+
+# ─── Round start ─────────────────────────────────────────────────────────────
+
+async def _start_round(bot: BaseBot):
+    if _state.phase != "lobby" or not _state.players:
+        _state.reset()
+        return
+
+    s = _settings()
+    threshold = float(s.get("shuffle_used_percent", 75))
+    decks     = int(s.get("decks", 6))
+
+    if _shoe.needs_shuffle(threshold):
+        _shoe.shuffle_now(decks)
+        await bot.highrise.chat(
+            f"🔀 Shoe reshuffled! {_shoe.total} cards ({decks} decks) ready."
+        )
+
+    _state.phase = "round"
+
+    # Deal 2 cards alternating
+    for _ in range(2):
+        for p in _state.players:
+            p.hand.append(_shoe.pop())
+        _state.dealer_hand.append(_shoe.pop())
+
+    # Mark initial blackjacks
+    for p in _state.players:
+        if is_blackjack(p.hand):
+            p.status = "bj"
+
+    _state.current_idx = 0
+    await bot.highrise.chat(
+        f"🃏 RBJ started! Dealer shows: {card_str(_state.dealer_hand[0])}"
+    )
+    await _advance_turn(bot)
+
+
+# ─── Turn management ─────────────────────────────────────────────────────────
+
+async def _advance_turn(bot: BaseBot):
+    _cancel_task(_state.turn_task)
+    _state.turn_task = None
+
+    while _state.current_idx < len(_state.players):
+        p = _state.players[_state.current_idx]
+        if p.status == "playing":
+            break
+        if p.status == "bj":
+            await bot.highrise.chat(f"🤑 @{p.username} has Blackjack!")
+        _state.current_idx += 1
+    else:
+        await _dealer_play(bot)
+        return
+
+    p     = _state.players[_state.current_idx]
+    total = hand_value(p.hand)
+    await bot.highrise.chat(
+        f"➡️ @{p.username}: {hand_str(p.hand)} = {total}. /rbj hit or /rbj stand"
+    )
+    timer = int(_settings().get("turn_timer", 30))
+    _state.turn_task = asyncio.create_task(
+        _turn_timeout(bot, p.user_id, timer)
+    )
+
+
+async def _turn_timeout(bot: BaseBot, user_id: str, seconds: int):
+    try:
+        await asyncio.sleep(seconds)
+        p = _state.get_player(user_id)
+        if p and p.status == "playing":
+            p.status = "stood"
+            await bot.highrise.chat(
+                f"⏱️ @{p.username} timed out. Auto-stand at {hand_value(p.hand)}."
+            )
+            _state.current_idx += 1
+            await _advance_turn(bot)
+    except asyncio.CancelledError:
+        pass
+
+
+# ─── Dealer play ─────────────────────────────────────────────────────────────
+
+async def _dealer_play(bot: BaseBot):
+    total = hand_value(_state.dealer_hand)
+    await bot.highrise.chat(
+        f"Dealer reveals: {hand_str(_state.dealer_hand)} = {total}"
+    )
+
+    s           = _settings()
+    hits_soft17 = bool(int(s.get("dealer_hits_soft_17", 1)))
+
+    while True:
+        total = hand_value(_state.dealer_hand)
+        if total > 17:
+            break
+        if total == 17 and not hits_soft17:
+            break
+        if total == 17 and not _is_soft_17(_state.dealer_hand):
+            break
+        card = _shoe.pop()
+        _state.dealer_hand.append(card)
+        total = hand_value(_state.dealer_hand)
+        await bot.highrise.chat(
+            f"Dealer hits {card_str(card)}. "
+            f"Hand: {hand_str(_state.dealer_hand)} = {total}"
+        )
+
+    await _settle(bot)
+
+
+# ─── Settlement ──────────────────────────────────────────────────────────────
+
+async def _settle(bot: BaseBot):
+    s            = _settings()
+    win_payout   = float(s.get("win_payout", 2.0))
+    bj_payout    = float(s.get("blackjack_payout", 2.5))
+    push_rule    = s.get("push_rule", "refund")
+    dealer_total = hand_value(_state.dealer_hand)
+    dealer_bust  = dealer_total > 21
+
+    for p in _state.players:
+        try:
+            ptotal    = hand_value(p.hand)
+            benefits  = get_player_benefits(p.user_id)
+            bonus_pct = min(
+                float(benefits.get("coinflip_payout_pct", 0.0)),
+                _RBJ_CASINO_CAP
+            ) / 100.0
+
+            if p.status == "bust":
+                db.update_rbj_stats(p.user_id, loss=1, bet=p.bet, lost=p.bet)
+                await bot.highrise.chat(f"❌ @{p.username} loses {p.bet:,}c.")
+
+            elif p.status == "bj":
+                payout = int(p.bet * bj_payout * (1.0 + bonus_pct))
+                db.adjust_balance(p.user_id, payout)
+                db.add_coins_earned(p.user_id, payout - p.bet)
+                db.update_rbj_stats(p.user_id, win=1, bj=1, bet=p.bet, won=payout)
+                await bot.highrise.chat(
+                    f"🤑 @{p.username} blackjack! Paid {payout:,}c."
+                )
+
+            elif dealer_bust or ptotal > dealer_total:
+                payout = int(p.bet * win_payout * (1.0 + bonus_pct))
+                db.adjust_balance(p.user_id, payout)
+                db.add_coins_earned(p.user_id, payout - p.bet)
+                db.update_rbj_stats(p.user_id, win=1, bet=p.bet, won=payout)
+                await bot.highrise.chat(f"✅ @{p.username} wins! Paid {payout:,}c.")
+
+            elif ptotal == dealer_total:
+                if push_rule == "refund":
+                    db.adjust_balance(p.user_id, p.bet)
+                db.update_rbj_stats(p.user_id, push=1, bet=p.bet)
+                await bot.highrise.chat(
+                    f"↔️ @{p.username} pushes. {p.bet:,}c refunded."
+                )
+
+            else:
+                db.update_rbj_stats(p.user_id, loss=1, bet=p.bet, lost=p.bet)
+                await bot.highrise.chat(f"❌ @{p.username} loses {p.bet:,}c.")
+
+        except Exception as exc:
+            print(f"[RBJ] settle error for {p.username}: {exc}")
+
+    _state.reset()
+
+
+# ─── Top-level router ────────────────────────────────────────────────────────
+
+async def handle_rbj(bot: BaseBot, user: User, args: list[str]):
+    """Route /rbj <subcommand> [args]."""
+    sub = args[1].lower() if len(args) > 1 else ""
+
+    try:
+        if sub == "join":
+            await _cmd_join(bot, user, args)
+        elif sub == "leave":
+            await _cmd_leave(bot, user)
+        elif sub == "players":
+            await _cmd_players(bot, user)
+        elif sub == "table":
+            await _cmd_table(bot, user)
+        elif sub == "hit":
+            await _cmd_hit(bot, user)
+        elif sub == "stand":
+            await _cmd_stand(bot, user)
+        elif sub == "double":
+            await _cmd_double(bot, user)
+        elif sub == "rules":
+            await _cmd_rules(bot, user)
+        elif sub == "stats":
+            await _cmd_stats(bot, user)
+        elif sub == "shoe":
+            await _cmd_shoe(bot, user)
+        elif sub == "cancel":
+            await _cmd_cancel(bot, user)
+        elif sub == "settings":
+            await _cmd_settings_show(bot, user)
+        else:
+            await bot.highrise.send_whisper(
+                user.id,
+                "🃏 RBJ: /rbj join <bet>  /rbj hit  /rbj stand  /rbj double\n"
+                "/rbj leave  /rbj table  /rbj players  /rbj shoe\n"
+                "/rbj rules  /rbj stats"
+            )
+    except Exception as exc:
+        print(f"[RBJ] /{' '.join(args)} error for {user.username}: {exc}")
+        try:
+            await bot.highrise.send_whisper(
+                user.id, "Realistic BJ error. Try again!"
+            )
+        except Exception:
+            pass
+
+
+# ─── Sub-command handlers ────────────────────────────────────────────────────
+
+async def _cmd_join(bot: BaseBot, user: User, args: list[str]):
+    s = _settings()
+
+    if len(args) < 3 or not args[2].isdigit():
+        await bot.highrise.send_whisper(user.id, "Invalid bet. Use /rbj join <amount>.")
+        return
+
+    bet     = int(args[2])
+    min_bet = int(s.get("min_bet", 10))
+    max_bet = int(s.get("max_bet", 1000))
+
+    if bet < min_bet or bet > max_bet:
+        await bot.highrise.send_whisper(
+            user.id, f"Bet must be {min_bet:,}–{max_bet:,} coins."
+        )
+        return
+
+    if _state.phase == "round":
+        await bot.highrise.send_whisper(
+            user.id, "Round in progress. Wait for the next game."
+        )
+        return
+
+    if _state.in_game(user.id):
+        await bot.highrise.send_whisper(user.id, "You're already in the lobby.")
+        return
+
+    max_players = int(s.get("max_players", 6))
+    if len(_state.players) >= max_players:
+        await bot.highrise.send_whisper(user.id, "Table is full.")
+        return
+
+    db.ensure_user(user.id, user.username)
+    if db.get_balance(user.id) < bet:
+        await bot.highrise.send_whisper(user.id, "Not enough coins.")
+        return
+
+    db.adjust_balance(user.id, -bet)
+    _state.players.append(
+        _Player(user_id=user.id, username=user.username, bet=bet)
+    )
+
+    count   = len(_state.players)
+    display = db.get_display_name(user.id, user.username)
+    await bot.highrise.chat(
+        f"✅ {display} joined RBJ with {bet:,}c. Players: {count}/{max_players}"
+    )
+
+    if _state.phase == "idle":
+        _state.phase      = "lobby"
+        countdown         = int(s.get("lobby_countdown", 60))
+        _state.lobby_task = asyncio.create_task(_lobby_countdown(bot, countdown))
+        await bot.highrise.chat(
+            f"🃏 RBJ lobby open! /rbj join <bet>. Starts in {countdown}s."
+        )
+
+
+async def _cmd_leave(bot: BaseBot, user: User):
+    if _state.phase == "round":
+        await bot.highrise.send_whisper(user.id, "Can't leave during a round.")
+        return
+
+    p = _state.get_player(user.id)
+    if p is None:
+        await bot.highrise.send_whisper(user.id, "You're not in the RBJ lobby.")
+        return
+
+    db.adjust_balance(user.id, p.bet)
+    _state.players.remove(p)
+    display = db.get_display_name(user.id, user.username)
+    await bot.highrise.chat(f"↩️ {display} left RBJ. Bet refunded.")
+
+    if not _state.players:
+        _cancel_task(_state.lobby_task)
+        _state.reset()
+        await bot.highrise.chat("RBJ lobby closed — no players.")
+
+
+async def _cmd_players(bot: BaseBot, user: User):
+    if _state.phase == "idle":
+        await bot.highrise.send_whisper(
+            user.id, "No RBJ table active. Use /rbj join <bet>."
+        )
+        return
+
+    lines = [f"-- RBJ Players ({_state.phase}) --"]
+    for p in _state.players:
+        lines.append(f"  @{p.username}  {p.bet:,}c")
+    if not _state.players:
+        lines.append("  (none)")
+    await bot.highrise.send_whisper(user.id, "\n".join(lines))
+
+
+async def _cmd_table(bot: BaseBot, user: User):
+    if _state.phase == "idle":
+        await bot.highrise.send_whisper(
+            user.id, "No RBJ table active. Use /rbj join <bet>."
+        )
+        return
+
+    if _state.phase == "lobby":
+        count = len(_state.players)
+        names = ", ".join(f"@{p.username}" for p in _state.players) or "none"
+        await bot.highrise.send_whisper(
+            user.id,
+            f"🃏 RBJ Lobby — {count} player(s)\n{names}"
+        )
+        return
+
+    lines = [f"Dealer: {card_str(_state.dealer_hand[0])} ?"]
+    for i, p in enumerate(_state.players):
+        arrow = "➡️" if i == _state.current_idx and p.status == "playing" else "  "
+        total = hand_value(p.hand)
+        lines.append(
+            f"{arrow}@{p.username}: {hand_str(p.hand)}={total}[{p.status}]"
+        )
+    msg = "\n".join(lines)
+    if len(msg) > 245:
+        msg = msg[:242] + "..."
+    await bot.highrise.send_whisper(user.id, msg)
+
+
+async def _cmd_hit(bot: BaseBot, user: User):
+    if _state.phase != "round":
+        await bot.highrise.send_whisper(user.id, "No RBJ round active.")
+        return
+    p = _current_player()
+    if p is None or p.user_id != user.id or p.status != "playing":
+        await bot.highrise.send_whisper(user.id, "Not your turn yet.")
+        return
+
+    _cancel_task(_state.turn_task)
+    card  = _shoe.pop()
+    p.hand.append(card)
+    total = hand_value(p.hand)
+
+    await bot.highrise.chat(
+        f"🃏 @{p.username} drew {card_str(card)}. Total: {total}"
+    )
+
+    if total > 21:
+        p.status = "bust"
+        await bot.highrise.chat(f"💥 @{p.username} busts at {total}.")
+        _state.current_idx += 1
+        await _advance_turn(bot)
+    else:
+        timer = int(_settings().get("turn_timer", 30))
+        _state.turn_task = asyncio.create_task(
+            _turn_timeout(bot, p.user_id, timer)
+        )
+
+
+async def _cmd_stand(bot: BaseBot, user: User):
+    if _state.phase != "round":
+        await bot.highrise.send_whisper(user.id, "No RBJ round active.")
+        return
+    p = _current_player()
+    if p is None or p.user_id != user.id or p.status != "playing":
+        await bot.highrise.send_whisper(user.id, "Not your turn yet.")
+        return
+
+    _cancel_task(_state.turn_task)
+    p.status = "stood"
+    await bot.highrise.chat(f"✋ @{p.username} stands at {hand_value(p.hand)}.")
+    _state.current_idx += 1
+    await _advance_turn(bot)
+
+
+async def _cmd_double(bot: BaseBot, user: User):
+    if _state.phase != "round":
+        await bot.highrise.send_whisper(user.id, "No RBJ round active.")
+        return
+    p = _current_player()
+    if p is None or p.user_id != user.id or p.status != "playing":
+        await bot.highrise.send_whisper(user.id, "Not your turn yet.")
+        return
+
+    if db.get_balance(user.id) < p.bet:
+        await bot.highrise.send_whisper(user.id, "Not enough coins to double.")
+        return
+
+    _cancel_task(_state.turn_task)
+    db.adjust_balance(user.id, -p.bet)
+    p.bet    *= 2
+    p.doubled = True
+
+    card  = _shoe.pop()
+    p.hand.append(card)
+    total = hand_value(p.hand)
+
+    if total > 21:
+        p.status = "bust"
+        await bot.highrise.chat(
+            f"⚡ @{p.username} doubled to {p.bet:,}c, "
+            f"drew {card_str(card)}, busts at {total}."
+        )
+    else:
+        p.status = "stood"
+        await bot.highrise.chat(
+            f"⚡ @{p.username} doubled to {p.bet:,}c, "
+            f"drew {card_str(card)}, stands at {total}."
+        )
+
+    _state.current_idx += 1
+    await _advance_turn(bot)
+
+
+async def _cmd_rules(bot: BaseBot, user: User):
+    s = _settings()
+    await bot.highrise.send_whisper(user.id,
+        f"🃏 RBJ Rules\n"
+        f"Shoe: {s.get('decks',6)} decks  Reshuffle at: {s.get('shuffle_used_percent',75)}%\n"
+        f"Bet: {s.get('min_bet',10):,}–{s.get('max_bet',1000):,}c\n"
+        f"Win: {s.get('win_payout',2.0)}x  BJ: {s.get('blackjack_payout',2.5)}x\n"
+        f"Push: {s.get('push_rule','refund')}  "
+        f"Soft17: {'hit' if s.get('dealer_hits_soft_17',1) else 'stand'}"
+    )
+
+
+async def _cmd_stats(bot: BaseBot, user: User):
+    db.ensure_user(user.id, user.username)
+    s = db.get_rbj_stats(user.id)
+    await bot.highrise.send_whisper(user.id,
+        f"-- {user.username} RBJ Stats --\n"
+        f"W:{s['rbj_wins']} L:{s['rbj_losses']} "
+        f"P:{s['rbj_pushes']} BJ:{s['rbj_blackjacks']}\n"
+        f"Bet:{s['rbj_total_bet']:,}c  "
+        f"Won:{s['rbj_total_won']:,}c  "
+        f"Lost:{s['rbj_total_lost']:,}c"
+    )
+
+
+async def _cmd_shoe(bot: BaseBot, user: User):
+    s         = _settings()
+    threshold = float(s.get("shuffle_used_percent", 75))
+    pct       = round(_shoe.used_pct, 1)
+    soon      = _shoe.needs_shuffle(threshold)
+    await bot.highrise.send_whisper(user.id,
+        f"-- RBJ Shoe --\n"
+        f"Cards left: {_shoe.remaining}/{_shoe.total}\n"
+        f"Decks used: {_shoe.decks_used}  Shuffle at: {threshold}%\n"
+        f"Used: {pct}%  {'⚠️ Reshuffle coming!' if soon else '✅ Shoe fresh'}"
+    )
+
+
+async def _cmd_cancel(bot: BaseBot, user: User):
+    if user.username.lower() not in config.ADMIN_USERS:
+        await bot.highrise.send_whisper(user.id, "That command is for admins only.")
+        return
+
+    if _state.phase == "idle":
+        await bot.highrise.send_whisper(user.id, "No active RBJ game to cancel.")
+        return
+
+    for p in _state.players:
+        db.adjust_balance(p.user_id, p.bet)
+
+    _cancel_task(_state.lobby_task)
+    _cancel_task(_state.turn_task)
+    _state.reset()
+    await bot.highrise.chat("🃏 RBJ cancelled by admin. All bets refunded.")
+
+
+async def _cmd_settings_show(bot: BaseBot, user: User):
+    if user.username.lower() not in config.ADMIN_USERS:
+        await bot.highrise.send_whisper(user.id, "That command is for admins only.")
+        return
+
+    s = _settings()
+    await bot.highrise.send_whisper(user.id,
+        f"-- RBJ Settings --\n"
+        f"decks:{s.get('decks',6)}  shuffle:{s.get('shuffle_used_percent',75)}%\n"
+        f"min:{s.get('min_bet',10):,}c  max:{s.get('max_bet',1000):,}c\n"
+        f"win:{s.get('win_payout',2.0)}x  bj:{s.get('blackjack_payout',2.5)}x\n"
+        f"push:{s.get('push_rule','refund')}  "
+        f"soft17:{'yes' if s.get('dealer_hits_soft_17',1) else 'no'}\n"
+        f"lobby:{s.get('lobby_countdown',60)}s  "
+        f"turn:{s.get('turn_timer',30)}s  "
+        f"max:{s.get('max_players',6)}p"
+    )
+
+
+# ─── Admin setting commands (/setrbjXXX) ─────────────────────────────────────
+
+async def handle_rbj_set(bot: BaseBot, user: User, cmd: str, args: list[str]):
+    """
+    Handle all /setrbjXXX admin commands.
+    cmd is the command name (e.g. 'setrbjdecks'), args[1] is the value.
+    Admin gate is enforced in main.py before this is called.
+    """
+    try:
+        if len(args) < 2:
+            await bot.highrise.send_whisper(
+                user.id, f"Usage: /{cmd} <value>"
+            )
+            return
+
+        raw = args[1]
+
+        if cmd == "setrbjdecks":
+            if not raw.isdigit() or not (1 <= int(raw) <= 8):
+                await bot.highrise.send_whisper(
+                    user.id, "Decks must be 1–8."
+                )
+                return
+            val = int(raw)
+            db.set_rbj_setting("decks", val)
+            await bot.highrise.send_whisper(
+                user.id,
+                f"✅ RBJ decks set to {val}. "
+                f"Shoe will use {val} decks on next reshuffle."
+            )
+
+        elif cmd == "setrbjminbet":
+            if not raw.isdigit() or int(raw) < 1:
+                await bot.highrise.send_whisper(user.id, "Min bet must be >= 1.")
+                return
+            val = int(raw)
+            s = _settings()
+            if val >= int(s.get("max_bet", 1000)):
+                await bot.highrise.send_whisper(
+                    user.id, "Min bet must be less than max bet."
+                )
+                return
+            db.set_rbj_setting("min_bet", val)
+            await bot.highrise.send_whisper(
+                user.id, f"✅ RBJ min bet set to {val:,}c."
+            )
+
+        elif cmd == "setrbjmaxbet":
+            if not raw.isdigit() or int(raw) < 1:
+                await bot.highrise.send_whisper(user.id, "Max bet must be >= 1.")
+                return
+            val = int(raw)
+            s = _settings()
+            if val <= int(s.get("min_bet", 10)):
+                await bot.highrise.send_whisper(
+                    user.id, "Max bet must be greater than min bet."
+                )
+                return
+            db.set_rbj_setting("max_bet", val)
+            await bot.highrise.send_whisper(
+                user.id, f"✅ RBJ max bet set to {val:,}c."
+            )
+
+        elif cmd == "setrbjshuffle":
+            if not raw.isdigit() or not (50 <= int(raw) <= 95):
+                await bot.highrise.send_whisper(
+                    user.id, "Shuffle percent must be 50–95."
+                )
+                return
+            val = int(raw)
+            db.set_rbj_setting("shuffle_used_percent", val)
+            await bot.highrise.send_whisper(
+                user.id, f"✅ RBJ shuffle threshold set to {val}%."
+            )
+
+        elif cmd == "setrbjblackjackpayout":
+            try:
+                val = float(raw)
+            except ValueError:
+                await bot.highrise.send_whisper(
+                    user.id, "Payout must be a number (e.g. 2.5)."
+                )
+                return
+            if not (1.0 <= val <= 5.0):
+                await bot.highrise.send_whisper(
+                    user.id, "BJ payout must be 1.0–5.0."
+                )
+                return
+            db.set_rbj_setting("blackjack_payout", val)
+            await bot.highrise.send_whisper(
+                user.id, f"✅ RBJ blackjack payout set to {val}x."
+            )
+
+        elif cmd == "setrbjwinpayout":
+            try:
+                val = float(raw)
+            except ValueError:
+                await bot.highrise.send_whisper(
+                    user.id, "Payout must be a number (e.g. 2.0)."
+                )
+                return
+            if not (1.0 <= val <= 5.0):
+                await bot.highrise.send_whisper(
+                    user.id, "Win payout must be 1.0–5.0."
+                )
+                return
+            db.set_rbj_setting("win_payout", val)
+            await bot.highrise.send_whisper(
+                user.id, f"✅ RBJ win payout set to {val}x."
+            )
+
+        else:
+            await bot.highrise.send_whisper(
+                user.id,
+                "RBJ settings: /setrbjdecks /setrbjminbet /setrbjmaxbet\n"
+                "/setrbjshuffle /setrbjblackjackpayout /setrbjwinpayout"
+            )
+
+    except Exception as exc:
+        print(f"[RBJ] {cmd} error for {user.username}: {exc}")
+        try:
+            await bot.highrise.send_whisper(user.id, "Setting update failed. Try again!")
+        except Exception:
+            pass

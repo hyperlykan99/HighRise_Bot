@@ -1,0 +1,154 @@
+Add a second blackjack mode called Realistic Blackjack.
+
+Do not remove the existing /bj lobby blackjack.
+
+Keep existing:
+/bj join <bet>
+/bj hit
+/bj stand
+/bj double
+/bj table
+/bj rules
+/bj stats
+
+Add new realistic blackjack commands:
+- /rbj join <bet>
+- /rbj leave
+- /rbj players
+- /rbj table
+- /rbj hit
+- /rbj stand
+- /rbj double
+- /rbj rules
+- /rbj stats
+- /rbj shoe
+- /rbj cancel admin only
+- /rbj settings admin only
+
+Goal:
+Realistic Blackjack should use a real blackjack shoe.
+
+Shoe rules:
+- Use 6 decks by default.
+- 6 decks means 312 cards total.
+- Create a shuffled shoe at bot startup or when the first realistic blackjack game starts.
+- Every card dealt must be removed from the shoe.
+- The shoe continues across multiple realistic blackjack rounds.
+- Do not reset the shoe every round.
+- Reshuffle when 75% of the shoe has been used or when fewer than 52 cards remain.
+- /rbj shoe shows:
+  cards remaining,
+  decks used,
+  shuffle percentage,
+  whether reshuffle is coming soon.
+
+Realistic lobby rules:
+- When first player uses /rbj join <bet>, open a realistic blackjack lobby.
+- Start a 60-second countdown.
+- Other players can join during countdown.
+- Minimum players: 1.
+- Maximum players: 6.
+- Deduct bet when player joins.
+- If player leaves before round starts, refund bet.
+- Once round starts, no more players can join.
+- Admin /rbj cancel refunds active bets and cancels the lobby or round.
+
+Realistic round rules:
+- Deal cards from the shared shoe only.
+- Deal 2 cards to each player.
+- Deal 2 cards to dealer.
+- Show only 1 dealer card at first.
+- Players take turns.
+- Player commands during turn:
+  /rbj hit
+  /rbj stand
+  /rbj double
+- /rbj double requires enough coins to match the bet.
+- If player doubles:
+  deduct extra bet,
+  double total bet,
+  deal exactly one card,
+  auto-stand.
+- If player busts, move to next player.
+- After all players finish, dealer reveals hidden card.
+- Dealer hits until 17 or higher.
+- Dealer hits soft 17 if the setting is enabled.
+- Compare each player against dealer.
+
+Payouts:
+- Normal win pays 2.0x total bet.
+- Blackjack pays 2.5x total bet.
+- Push refunds total bet.
+- Loss pays nothing.
+- Bet is already deducted when joining.
+
+Card rules:
+- 2-10 = face value.
+- J, Q, K = 10.
+- A = 11 or 1.
+- Blackjack means Ace + 10-value card on the first 2 cards only.
+
+Settings:
+Store realistic blackjack settings in SQLite.
+
+Default realistic blackjack settings:
+- decks: 6
+- shuffle_used_percent: 75
+- min_bet: 10
+- max_bet: 1000
+- win_payout: 2.0
+- blackjack_payout: 2.5
+- push_rule: refund
+- dealer_hits_soft_17: true
+- lobby_countdown: 60
+- turn_timer: 30
+- max_players: 6
+
+Admin commands:
+- /rbj settings
+- /rbj cancel
+- /setrbjdecks <1-8>
+- /setrbjminbet <amount>
+- /setrbjmaxbet <amount>
+- /setrbjshuffle <percent>
+- /setrbjblackjackpayout <multiplier>
+- /setrbjwinpayout <multiplier>
+
+Safety:
+- Only ADMIN_USERS can change realistic blackjack settings.
+- Keep every Highrise message under 250 characters.
+- Prevent crashes from bad inputs.
+- If shoe runs low during a round, finish the round if possible, then reshuffle.
+- If shoe cannot finish a round safely, reshuffle before the round starts.
+- Do not expose internal errors in chat.
+- Log errors in console.
+
+Stats:
+Store separate realistic blackjack stats in SQLite:
+- rbj_wins
+- rbj_losses
+- rbj_pushes
+- rbj_blackjacks
+- rbj_total_bet
+- rbj_total_won
+- rbj_total_lost
+
+/rbj stats shows realistic blackjack stats.
+
+Cosmetic bonuses:
+- Use existing equipped badges and titles.
+- Apply casino payout bonus only to winning payouts.
+- Cap realistic blackjack casino payout bonus at 5%.
+- Do not apply bonus to push refunds.
+
+Help:
+Update /help to show:
+"🃏 BJ: /bj join <bet> casual | /rbj join <bet> realistic"
+
+Add /casinohelp:
+Show both blackjack modes:
+- Casual BJ: /bj join <bet>
+- Realistic BJ: /rbj join <bet>
+- Hit: /bj hit or /rbj hit
+- Stand: /bj stand or /rbj stand
+- Table: /bj table or /rbj table

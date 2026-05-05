@@ -46,7 +46,8 @@ from modules.shop         import (
     handle_badgeinfo, handle_titleinfo,
 )
 from modules.achievements import handle_achievements, handle_claim_achievements
-from modules.blackjack    import handle_bj
+from modules.blackjack           import handle_bj
+from modules.realistic_blackjack import handle_rbj, handle_rbj_set
 
 
 # ---------------------------------------------------------------------------
@@ -60,15 +61,19 @@ PROFILE_COMMANDS = {"profile", "level", "xpleaderboard"}
 GAME_COMMANDS    = {"trivia", "scramble", "riddle", "coinflip"}
 SHOP_COMMANDS        = {"shop", "buy", "equip", "myitems", "badgeinfo", "titleinfo"}
 ACHIEVEMENT_COMMANDS = {"achievements", "claimachievements"}
-BJ_COMMANDS          = {"bj"}
+BJ_COMMANDS          = {"bj", "rbj"}
 
 # /answer is handled separately (routes to whichever game is active)
 
 # Commands only players in config.ADMIN_USERS can use
-ADMIN_COMMANDS = {"addcoins", "removecoins", "resetgame", "announce"}
+ADMIN_COMMANDS = {
+    "addcoins", "removecoins", "resetgame", "announce",
+    "setrbjdecks", "setrbjminbet", "setrbjmaxbet", "setrbjshuffle",
+    "setrbjblackjackpayout", "setrbjwinpayout",
+}
 
 ALL_KNOWN_COMMANDS = (
-    {"help", "answer"}
+    {"help", "answer", "casinohelp"}
     | ECONOMY_COMMANDS
     | PROFILE_COMMANDS
     | GAME_COMMANDS
@@ -109,10 +114,18 @@ HELP_TEXT_3 = (
 )
 
 HELP_TEXT_4 = (
-    "-- Blackjack --\n"
-    "🃏 /bj join <bet>  /bj hit  /bj stand  /bj double\n"
-    "/bj leave  /bj table  /bj players\n"
-    "/bj rules  /bj stats"
+    "🃏 Blackjack\n"
+    "Casual: /bj join <bet>  |  Realistic: /rbj join <bet>\n"
+    "/casinohelp — full casino commands"
+)
+
+CASINO_HELP = (
+    "-- Casino --\n"
+    "Casual BJ: /bj join <bet>\n"
+    "Realistic BJ: /rbj join <bet>\n"
+    "Hit: /bj hit or /rbj hit\n"
+    "Stand: /bj stand or /rbj stand\n"
+    "Table: /bj table or /rbj table"
 )
 
 
@@ -162,7 +175,10 @@ class HangoutBot(BaseBot):
             if user.username.lower() not in config.ADMIN_USERS:
                 await self.highrise.send_whisper(user.id, "That command is for admins only.")
                 return
-            await handle_admin_command(self, user, cmd, args)
+            if cmd.startswith("setrbj"):
+                await handle_rbj_set(self, user, cmd, args)
+            else:
+                await handle_admin_command(self, user, cmd, args)
             return
 
         # ── Economy commands ──────────────────────────────────────────────────
@@ -213,6 +229,12 @@ class HangoutBot(BaseBot):
         # ── Blackjack ─────────────────────────────────────────────────────────
         elif cmd == "bj":
             await handle_bj(self, user, args)
+
+        elif cmd == "rbj":
+            await handle_rbj(self, user, args)
+
+        elif cmd == "casinohelp":
+            await self.highrise.send_whisper(user.id, CASINO_HELP)
 
         # ── /answer ───────────────────────────────────────────────────────────
         elif cmd == "answer":
