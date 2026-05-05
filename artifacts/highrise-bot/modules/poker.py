@@ -1532,10 +1532,11 @@ POKER_HELP_PAGES = [
     ),
     (
         "♠️ Poker Staff\n"
-        "/poker settings [2]\n"
-        "/setpokertimer <sec>\n"
-        "/setpokerbuyin min max\n"
-        "/setpokerraise min max"
+        "/pokerdebug [players|table|state]\n"
+        "/pokerfix\n"
+        "/pokerrefundall\n"
+        "/poker state\n"
+        "/poker recover"
     ),
     (
         "♠️ Poker Limits\n"
@@ -1560,13 +1561,13 @@ async def handle_pokerhelp(bot: BaseBot, user: User, args: list[str]) -> None:
 
 async def handle_pokerdebug(bot: BaseBot, user: User, args: list[str]) -> None:
     if not can_manage_games(user.username):
-        await _w(bot, user.id, "Managers+ only.")
+        await _w(bot, user.id, "Staff only.")
         return
 
-    sub = args[1].lower() if len(args) >= 2 else ""
+    sub  = args[1].lower() if len(args) >= 2 else ""
+    tbl  = _get_table()
 
-    tbl = _get_table()
-
+    # ── /pokerdebug players [page] ────────────────────────────────────────────
     if sub == "players":
         if not tbl or not tbl["active"]:
             await _w(bot, user.id, "No active poker table.")
@@ -1575,61 +1576,81 @@ async def handle_pokerdebug(bot: BaseBot, user: User, args: list[str]) -> None:
         if not players:
             await _w(bot, user.id, "No players in round.")
             return
-        for p in players:
-            acted = "yes" if p["acted"] else "no"
-            msg = (f"@{p['username']} | stack:{p['stack']}c "
-                   f"bet:{p['current_bet']}c contrib:{p['total_contributed']}c "
-                   f"status:{p['status']} acted:{acted}")
-            await _w(bot, user.id, msg[:249])
+
+        page_size = 3
+        page_arg  = args[2] if len(args) >= 3 and args[2].isdigit() else "1"
+        page      = max(1, int(page_arg))
+        total_pages = max(1, (len(players) + page_size - 1) // page_size)
+        page      = min(page, total_pages)
+        start     = (page - 1) * page_size
+        chunk     = players[start:start + page_size]
+
+        parts = []
+        for p in chunk:
+            a = "Y" if p["acted"] else "N"
+            parts.append(
+                f"@{p['username']} s{p['stack']} b{p['current_bet']} "
+                f"{p['status']} a{a}"
+            )
+        body = " | ".join(parts)
+        hdr  = f"Players {page}/{total_pages}: "
+        msg  = (hdr + body)[:249]
+        await _w(bot, user.id, msg)
+        if page < total_pages:
+            await _w(bot, user.id,
+                     f"More: /pokerdebug players {page + 1}")
         return
 
+    # ── /pokerdebug table ─────────────────────────────────────────────────────
     if sub == "table":
         if not tbl or not tbl["active"]:
             await _w(bot, user.id, "No active poker table.")
             return
         community = json.loads(tbl["community_cards_json"] or "[]")
-        board = _fcs(community) if community else "—"
-        msg = (f"Phase:{tbl['phase']} | Board:{board}\n"
-               f"Dealer:{tbl['dealer_button_index']} "
-               f"CurIdx:{tbl['current_player_index']}\n"
-               f"TurnEnds:{(tbl['turn_ends_at'] or '—')[:19]}")
+        board     = _fcs(community) if community else "—"
+        te        = (tbl["turn_ends_at"] or "—")[:16]
+        msg = (f"Table: {tbl['phase'].title()} {board} | "
+               f"Pot {tbl['pot']}c | Bet {tbl['current_bet']} | "
+               f"Btn {tbl['dealer_button_index']} | "
+               f"TurnIdx {tbl['current_player_index']} | Ends {te}")
         await _w(bot, user.id, msg[:249])
         return
 
+    # ── /pokerdebug state ─────────────────────────────────────────────────────
     if sub == "state":
-        db_active = bool(tbl and tbl["active"])
-        phase     = tbl["phase"] if tbl else "—"
-        rid       = (tbl["round_id"] or "—")[:16] if tbl else "—"
+        db_exists   = tbl is not None
+        db_active   = bool(tbl and tbl["active"])
+        phase       = tbl["phase"] if tbl else "—"
         lobby_alive = _lobby_task is not None and not _lobby_task.done()
         turn_alive  = _turn_task  is not None and not _turn_task.done()
+        mem_alive   = lobby_alive or turn_alive
         recovery    = phase == "recovery_required"
-        msg = (f"DB active:{db_active} phase:{phase}\n"
-               f"round:{rid}\n"
-               f"LobbyTimer:{'alive' if lobby_alive else 'dead'} "
-               f"TurnTimer:{'alive' if turn_alive else 'dead'}\n"
-               f"recovery_required:{recovery}")
+        match       = db_exists and (db_active == mem_alive or phase == "lobby")
+        msg = (f"State: DB {'yes' if db_exists else 'no'} | "
+               f"Memory {'yes' if mem_alive else 'no'} | "
+               f"Match {'yes' if match else 'no'} | "
+               f"Recovery {'yes' if recovery else 'no'} | "
+               f"Active {'yes' if db_active else 'no'}")
         await _w(bot, user.id, msg[:249])
         return
 
-    # Default: overview
-    enabled   = bool(_s("poker_enabled", 1))
-    db_active = bool(tbl and tbl["active"])
-    phase     = tbl["phase"] if tbl else "idle"
-    rid       = (tbl["round_id"] or "—")[:14] if tbl else "—"
-    pot       = tbl["pot"] if tbl else 0
-    cbet      = tbl["current_bet"] if tbl else 0
-    players   = _get_players(tbl["round_id"]) if tbl and tbl["active"] and tbl["round_id"] else []
-    deck      = json.loads(tbl["deck_json"] or "[]") if tbl else []
-    idx       = tbl["current_player_index"] if tbl else 0
-    cur_name  = players[idx]["username"] if players and 0 <= idx < len(players) else "—"
-    lobby_alive = _lobby_task is not None and not _lobby_task.done()
-    turn_alive  = _turn_task  is not None and not _turn_task.done()
-    msg = (f"♠️ Debug | enabled:{enabled} active:{db_active}\n"
-           f"phase:{phase} rid:{rid}\n"
-           f"pot:{pot}c bet:{cbet}c turn:@{cur_name}\n"
-           f"players:{len(players)} deck:{len(deck)}\n"
-           f"lobby_timer:{'on' if lobby_alive else 'off'} "
-           f"turn_timer:{'on' if turn_alive else 'off'}")
+    # ── /pokerdebug (overview) ────────────────────────────────────────────────
+    enabled  = "ON" if _s("poker_enabled", 1) else "OFF"
+    phase    = tbl["phase"].title() if tbl else "Idle"
+    pot      = tbl["pot"] if tbl else 0
+    cbet     = tbl["current_bet"] if tbl else 0
+    players  = (_get_players(tbl["round_id"])
+                if tbl and tbl["active"] and tbl["round_id"] else [])
+    deck_ct  = len(json.loads(tbl["deck_json"] or "[]")) if tbl else 0
+    idx      = tbl["current_player_index"] if tbl else 0
+    cur_name = (players[idx]["username"]
+                if players and 0 <= idx < len(players) else "—")
+    timers   = []
+    if _lobby_task and not _lobby_task.done(): timers.append("Lobby")
+    if _turn_task  and not _turn_task.done():  timers.append("Turn")
+    t_str    = "+".join(timers) if timers else "none"
+    msg = (f"♠️ Debug: {enabled} | {phase} | Pot {pot}c | Bet {cbet}c | "
+           f"Turn @{cur_name} | P {len(players)} | Deck {deck_ct} | T:{t_str}")
     await _w(bot, user.id, msg[:249])
 
 

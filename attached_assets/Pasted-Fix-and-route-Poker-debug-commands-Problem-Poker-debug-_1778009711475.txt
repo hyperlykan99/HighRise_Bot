@@ -1,0 +1,143 @@
+Fix and route Poker debug commands.
+
+Problem:
+Poker debug does not work. The commands may be missing, not routed, or not connected to the poker state.
+
+Goal:
+Add complete poker debug tools so staff can inspect and fix stuck poker tables.
+
+IMPORTANT:
+- Do not remove existing features.
+- Do not reset poker data.
+- Do not wipe player coins, stats, hands, pot, deck, or table state.
+- Use existing SQLite poker tables if they exist.
+- Keep every Highrise message under 250 characters.
+- Prevent crashes from bad inputs.
+- Add explicit command routing before the unknown-command fallback.
+
+Commands to add/fix:
+- /pokerdebug
+- /pokerdebug players
+- /pokerdebug table
+- /pokerdebug state
+- /pokerfix
+- /pokerrefundall
+
+Permissions:
+- Owner/admin/manager only.
+- Normal players should see: "Staff only."
+
+/pokerdebug should show:
+- poker enabled ON/OFF
+- phase
+- round_id shortened if long
+- pot
+- current bet
+- current player
+- player count
+- deck count
+- timer status
+
+Example:
+"♠️ Debug: ON | Flop | Pot 500c | Bet 100c | Turn @Marion | P 2 | Deck 45"
+
+/pokerdebug players should show each active player:
+- username
+- stack
+- current_bet
+- total_contributed
+- status
+- acted yes/no
+
+If too long, show first 3 players and say:
+"More: /pokerdebug players 2"
+
+Add pagination:
+- /pokerdebug players 1
+- /pokerdebug players 2
+
+Example:
+"Players 1/2: @A stack900 bet100 active actedY | @B stack900 bet100 active actedY"
+
+/pokerdebug table should show:
+- phase
+- community cards
+- pot
+- current_bet
+- dealer/button index
+- current_player_index
+- turn_ends_at
+
+Example:
+"Table: Flop A♠ 7♦ 2♣ | Pot 200c | Bet 0 | Btn 0 | TurnIdx 1"
+
+/pokerdebug state should show:
+- whether SQLite active table exists
+- whether in-memory table exists
+- whether they match
+- recovery_required yes/no
+- active yes/no
+
+Example:
+"State: DB yes | Memory yes | Match yes | Recovery no | Active yes"
+
+/pokerfix:
+Attempts to continue or repair a stuck poker table safely.
+
+Behavior:
+1. Load current poker state from memory and SQLite.
+2. If memory state missing but SQLite active exists, recover from SQLite.
+3. If only one active non-folded player remains, finish hand and award pot.
+4. If all active players acted and matched current_bet, advance phase.
+5. If phase is showdown, finish hand.
+6. If no valid active players remain, refund unresolved chips and clear table.
+7. Cancel or restart turn timer as needed.
+8. Never duplicate payouts.
+9. Log action in console and poker_recovery_logs.
+
+Message examples:
+"✅ Poker fix: advanced table."
+"✅ Poker fix: hand finished."
+"✅ Poker fix: table recovered."
+"⚠️ Poker fix failed. Use /poker refund."
+
+/pokerrefundall:
+Refunds all unresolved active poker buy-ins/stacks/contributions safely.
+
+Behavior:
+- Refund each active player's remaining stack plus any unresolved contributions if appropriate.
+- Clear active poker table.
+- Cancel poker timers.
+- Do not erase poker lifetime stats.
+- Log every refund in economy ledger.
+- Do not duplicate refunds if already paid.
+- Message:
+"✅ Poker refunded and table cleared."
+
+Important:
+If /poker refund already exists, /pokerrefundall can call the same safe refund function.
+
+Routing:
+Add explicit routes for:
+- /pokerdebug
+- /pokerdebug players
+- /pokerdebug table
+- /pokerdebug state
+- /pokerfix
+- /pokerrefundall
+
+Also update:
+/pokerhelp 3 staff page should include:
+"/pokerdebug
+/pokerfix
+/pokerrefundall
+/poker state
+/poker recover"
+
+Safety:
+- If no active poker table exists, say:
+"No active poker table."
+- If poker tables do not exist yet in SQLite, create them safely or say:
+"Poker tables not installed."
+- Do not crash from missing columns.
+- Log real errors in console only.
