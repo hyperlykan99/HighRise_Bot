@@ -1,0 +1,282 @@
+Add short poker commands and aliases without interfering with other bot commands.
+
+Goal:
+Make poker easier for players to type during fast turns.
+
+IMPORTANT:
+- Do not remove existing poker commands.
+- Existing commands like /poker join, /poker check, /poker call, /poker raise, /poker fold, /poker allin must still work.
+- Short aliases must not interfere with existing bot commands.
+- Add explicit routing before unknown-command fallback.
+- Keep every Highrise message under 250 characters.
+- Prevent crashes from bad inputs.
+
+==================================================
+SHORT POKER COMMANDS
+==================================================
+
+Add these aliases:
+
+Join:
+- /p <buyin>
+- /pj <buyin>
+
+Examples:
+- /p 1000
+- /pj 1000
+
+Both should act like:
+/poker join 1000
+
+Table:
+- /pt
+- /ptable
+
+Both act like:
+/poker table
+
+Hand/cards:
+- /ph
+- /pcards
+
+Both act like:
+/poker hand
+
+Odds:
+- /po
+- /podds
+
+Both act like:
+/poker odds
+
+Check:
+- /check
+- /ch
+
+Both act like:
+/poker check
+
+Call:
+- /call
+- /ca
+
+Both act like:
+/poker call
+
+Raise:
+- /raise <amount>
+- /r <amount>
+
+Examples:
+- /raise 100
+- /r 100
+
+Both act like:
+/poker raise 100
+
+Fold:
+- /fold
+- /f
+
+Both act like:
+/poker fold
+
+All-in:
+- /allin
+- /all-in
+- /shove
+- /ai
+
+All act like:
+/poker allin
+
+Players:
+- /pp
+- /pplayers
+
+Both act like:
+/poker players
+
+Stats:
+- /ps
+- /pstats
+
+Both act like:
+/pokerstats
+
+Leaderboard:
+- /plb
+- /pleaderboard
+
+Both act like:
+/pokerlb
+
+Help:
+- /phelp
+
+Acts like:
+/pokerhelp
+
+==================================================
+INTERFERENCE PREVENTION
+==================================================
+
+Very important:
+Do not let these aliases break existing commands.
+
+Rules:
+1. /p <number> should only mean poker join if the second token is a valid positive number.
+   Example:
+   /p 1000 = poker join 1000
+   /p hello = show "Use /p <buyin>."
+
+2. /r <number> should only mean poker raise if the second token is a valid positive number.
+   Example:
+   /r 100 = poker raise 100
+   /r hello = show "Use /r <amount>."
+
+3. /ps should not override any existing profile/settings command if one exists.
+   If /ps already exists, do not use /ps. Use /pstats only.
+
+4. /pp should not override any existing command if one exists.
+   If /pp already exists, do not use /pp. Use /pplayers only.
+
+5. /f should only fold if the user is currently in an active poker hand.
+   If user is not in poker, say:
+   "You are not in poker."
+
+6. /check, /call, /raise, /fold, /allin should only work for poker if:
+   - there is an active poker table, and
+   - the user is in the active poker hand.
+   Otherwise reply:
+   "No poker hand active. Use /p <buyin>."
+
+7. Do not use /b, /s, /h, /c as aliases because they may conflict with balance, shop, help, casino, or other commands.
+
+8. Do not override:
+   - /help
+   - /shop
+   - /balance
+   - /bank
+   - /bj
+   - /rbj
+   - /send
+   - /profile
+   - /daily
+   - /event
+   - /report
+   - /rules
+   - /gold
+   - /vip
+   - /quest
+
+==================================================
+COMMAND ROUTING DESIGN
+==================================================
+
+Implement a helper function:
+normalize_poker_alias(command, args, username)
+
+This should convert safe aliases to full poker commands.
+
+Examples:
+- /p 1000 -> /poker join 1000
+- /pj 1000 -> /poker join 1000
+- /pt -> /poker table
+- /ph -> /poker hand
+- /po -> /poker odds
+- /check -> /poker check
+- /call -> /poker call
+- /raise 100 -> /poker raise 100
+- /r 100 -> /poker raise 100
+- /fold -> /poker fold
+- /allin -> /poker allin
+- /ai -> /poker allin
+- /plb -> /pokerlb
+
+Routing:
+- Check exact aliases before unknown-command fallback.
+- Validate arguments before calling poker logic.
+- All aliases should call the same existing poker functions.
+- Do not duplicate poker game logic inside aliases.
+
+==================================================
+HELP UPDATE
+==================================================
+
+Update /pokerhelp 1:
+
+"♠️ Poker
+Join: /p 1000
+Hand: /ph
+Table: /pt
+/check /call /raise 100 /fold"
+
+Update /pokerhelp 2:
+
+"♠️ Poker 2
+All-in: /allin or /ai
+Odds: /po
+Stats: /pstats
+LB: /plb"
+
+Update /casinohelp:
+Add:
+"Poker quick: /p <buyin>, /ph, /pt, /check, /call, /raise, /fold"
+
+==================================================
+READABLE ERROR MESSAGES
+==================================================
+
+If player types /p without amount:
+"Use /p <buyin>. Example: /p 1000"
+
+If player types /r without amount:
+"Use /r <amount>. Example: /r 100"
+
+If player types /raise without amount:
+"Use /raise <amount>."
+
+If player types /check outside poker:
+"No poker hand active. Use /p <buyin>."
+
+If player types /fold but is not in hand:
+"You are not in poker."
+
+If not their turn:
+"Not your turn."
+
+==================================================
+TESTS
+==================================================
+
+Test these:
+- /p 1000
+- /pj 1000
+- /pt
+- /ph
+- /po
+- /check
+- /call
+- /raise 100
+- /r 100
+- /fold
+- /f
+- /allin
+- /ai
+- /pstats
+- /plb
+- /phelp
+
+Also test invalid:
+- /p
+- /p hello
+- /r
+- /r hello
+- /check when no poker table is active
+- /fold when not in poker
+
+Expected:
+- No silent failures.
+- No interference with non-poker commands.
+- All aliases call existing poker functions.
