@@ -252,21 +252,21 @@ async def handle_softrestart(bot: BaseBot, user: User) -> None:
     except Exception as exc:
         print(f"[MAINT] softrestart: auto event loop cancel error: {exc}")
 
-    # ── 4. Reset BJ table (cancels timers, refunds buy-ins) ───────────────────
+    # ── 4. Soft-reset BJ (saves state to DB, no refund — recovery on next start) ──
     try:
-        from modules.blackjack import reset_table as _bj_reset
-        _bj_reset()
-        print("[MAINT] softrestart: BJ table reset.")
+        from modules.blackjack import soft_reset_table as _bj_soft_reset
+        _bj_soft_reset()
+        print("[MAINT] softrestart: BJ table soft-reset (state saved).")
     except Exception as exc:
-        print(f"[MAINT] softrestart: BJ reset error: {exc}")
+        print(f"[MAINT] softrestart: BJ soft-reset error: {exc}")
 
-    # ── 5. Reset RBJ table ────────────────────────────────────────────────────
+    # ── 5. Soft-reset RBJ ─────────────────────────────────────────────────────
     try:
-        from modules.realistic_blackjack import reset_table as _rbj_reset
-        _rbj_reset()
-        print("[MAINT] softrestart: RBJ table reset.")
+        from modules.realistic_blackjack import soft_reset_table as _rbj_soft_reset
+        _rbj_soft_reset()
+        print("[MAINT] softrestart: RBJ table soft-reset (state saved).")
     except Exception as exc:
-        print(f"[MAINT] softrestart: RBJ reset error: {exc}")
+        print(f"[MAINT] softrestart: RBJ soft-reset error: {exc}")
 
     # ── 6. Reset Poker table ──────────────────────────────────────────────────
     try:
@@ -304,9 +304,20 @@ async def handle_softrestart(bot: BaseBot, user: User) -> None:
     except Exception as exc:
         print(f"[MAINT] softrestart: loop restart error: {exc}")
 
+    # ── 10. Recover any BJ/RBJ tables saved during soft-reset ────────────────
+    try:
+        import asyncio as _asyncio
+        from modules.blackjack           import startup_bj_recovery
+        from modules.realistic_blackjack import startup_rbj_recovery
+        _asyncio.create_task(startup_bj_recovery(bot))
+        _asyncio.create_task(startup_rbj_recovery(bot))
+        print("[MAINT] softrestart: BJ/RBJ recovery tasks launched.")
+    except Exception as exc:
+        print(f"[MAINT] softrestart: recovery launch error: {exc}")
+
     print("[MAINT] /softrestart complete.")
     await bot.highrise.chat("🔄 Bot soft restart complete.")
-    await _w(bot, user.id, "🔄 Soft restart done. Loops running, tables cleared, DB safe.")
+    await _w(bot, user.id, "🔄 Soft restart done. Loops running, tables restored, DB safe.")
 
 
 # ── /restartbot ────────────────────────────────────────────────────────────────

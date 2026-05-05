@@ -46,8 +46,18 @@ from modules.shop         import (
     handle_badgeinfo, handle_titleinfo,
 )
 from modules.achievements import handle_achievements, handle_claim_achievements
-from modules.blackjack           import handle_bj, handle_bj_set, reset_table as bj_reset_table
-from modules.realistic_blackjack import handle_rbj, handle_rbj_set, reset_table as rbj_reset_table
+from modules.blackjack           import (
+    handle_bj, handle_bj_set,
+    reset_table as bj_reset_table,
+    soft_reset_table as bj_soft_reset_table,
+    startup_bj_recovery,
+)
+from modules.realistic_blackjack import (
+    handle_rbj, handle_rbj_set,
+    reset_table as rbj_reset_table,
+    soft_reset_table as rbj_soft_reset_table,
+    startup_rbj_recovery,
+)
 from modules.poker               import handle_poker, reset_table as poker_reset_table
 from modules.casino_settings     import (
     handle_casinosettings, handle_casinolimits, handle_casinotoggles,
@@ -369,35 +379,42 @@ MANAGER_HELP_PAGES = [
         "/casino reset"
     ),
     (
-        "🧰 Manager 2\n"
+        "🧰 Manager 2 — Recovery\n"
+        "/bj state  /bj recover\n"
+        "/bj refund  /bj forcefinish\n"
+        "/rbj state  /rbj recover\n"
+        "/rbj refund  /rbj forcefinish"
+    ),
+    (
+        "🧰 Manager 3\n"
         "/setbjturntimer <sec>\n"
         "/setrbjturntimer <sec>\n"
         "/bj settings\n"
         "/rbj settings"
     ),
     (
-        "🧰 Manager 3\n"
+        "🧰 Manager 4\n"
         "/setbjdailywinlimit <amt>\n"
         "/setbjdailylosslimit <amt>\n"
         "/setrbjdailywinlimit <amt>\n"
         "/setrbjdailylosslimit <amt>"
     ),
     (
-        "🧰 Manager 4\n"
+        "🧰 Manager 5\n"
         "/startevent <id>\n"
         "/stopevent\n"
         "/eventstatus\n"
         "/announce <msg>"
     ),
     (
-        "🧰 Manager 5\n"
+        "🧰 Manager 6\n"
         "/autogames on/off/status\n"
         "/autoevents on/off/status\n"
         "/gameconfig\n"
         "/setgametimer <s>"
     ),
     (
-        "🧰 Manager 6\n"
+        "🧰 Manager 7\n"
         "/setautogameinterval <min>\n"
         "/setautoeventinterval <min>\n"
         "/setautoeventduration <min>"
@@ -488,6 +505,10 @@ ALLCMDS = [
 # Module-level helpers for casino and manager commands
 # ---------------------------------------------------------------------------
 
+# Pending /casino reset confirmations: {user_id: {"code": str, "ts": float}}
+_pending_casino_reset: dict = {}
+
+
 async def _handle_casino_cmd(bot, user, args):
     sub = args[1].lower() if len(args) > 1 else ""
     if sub == "modes":
@@ -517,6 +538,31 @@ async def _handle_casino_cmd(bot, user, args):
     elif sub == "reset":
         if not can_moderate(user.username):
             await bot.highrise.send_whisper(user.id, "Staff only.")
+            return
+        # If either BJ or RBJ has an active table, require confirmation
+        from modules.blackjack           import _state as _bj_state
+        from modules.realistic_blackjack import _state as _rbj_state
+        bj_active  = _bj_state.phase  != "idle"
+        rbj_active = _rbj_state.phase != "idle"
+        if bj_active or rbj_active:
+            import random, string
+            code = "".join(random.choices(string.digits, k=4))
+            _pending_casino_reset[user.id] = {
+                "code": code,
+                "ts":   asyncio.get_event_loop().time(),
+            }
+            tables = []
+            if bj_active:
+                tables.append(f"BJ ({_bj_state.phase})")
+            if rbj_active:
+                tables.append(f"RBJ ({_rbj_state.phase})")
+            await bot.highrise.send_whisper(
+                user.id,
+                f"⚠️ Active tables: {', '.join(tables)}.\n"
+                f"To confirm reset+refund, type:\n"
+                f"/confirmcasinoreset {code}\n"
+                "(expires in 60s)"
+            )
             return
         bj_reset_table()
         rbj_reset_table()
@@ -794,6 +840,9 @@ class HangoutBot(BaseBot):
         await self.highrise.chat("Mini Game Bot is online! Type /help for commands.")
         # Recover any event that was running before a bot restart
         asyncio.create_task(startup_event_check(self))
+        # Recover any BJ/RBJ tables that were active before last shutdown
+        asyncio.create_task(startup_bj_recovery(self))
+        asyncio.create_task(startup_rbj_recovery(self))
         # Start background automation loops (idempotent — safe on reconnect)
         start_auto_game_loop(self)
         start_auto_event_loop(self)
@@ -1093,6 +1142,31 @@ class HangoutBot(BaseBot):
 
         elif cmd == "rbj":
             await handle_rbj(self, user, args)
+
+        elif cmd == "confirmcasinoreset":
+            if not can_moderate(user.username):
+                await self.highrise.send_whisper(user.id, "Staff only.")
+            else:
+                pending = _pending_casino_reset.get(user.id)
+                if not pending:
+                    await self.highrise.send_whisper(
+                        user.id, "No pending casino reset. Use /casino reset first."
+                    )
+                elif asyncio.get_event_loop().time() - pending["ts"] > 60:
+                    _pending_casino_reset.pop(user.id, None)
+                    await self.highrise.send_whisper(
+                        user.id, "Confirmation expired. Use /casino reset again."
+                    )
+                elif len(args) < 2 or args[1] != pending["code"]:
+                    await self.highrise.send_whisper(
+                        user.id, f"Wrong code. Expected: /confirmcasinoreset {pending['code']}"
+                    )
+                else:
+                    _pending_casino_reset.pop(user.id, None)
+                    bj_reset_table()
+                    rbj_reset_table()
+                    poker_reset_table()
+                    await self.highrise.chat("✅ Casino tables reset (BJ, RBJ, Poker). Bets refunded.")
 
         # ── Bank player commands ───────────────────────────────────────────────
         elif cmd == "bank":

@@ -531,6 +531,61 @@ def init_db():
             (_k, _v),
         )
 
+    # ── Casino state persistence tables ──────────────────────────────────
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS casino_active_tables (
+            mode                 TEXT PRIMARY KEY,
+            phase                TEXT NOT NULL DEFAULT 'idle',
+            round_id             TEXT NOT NULL DEFAULT '',
+            current_player_index INTEGER NOT NULL DEFAULT 0,
+            dealer_hand_json     TEXT NOT NULL DEFAULT '[]',
+            deck_json            TEXT NOT NULL DEFAULT '[]',
+            shoe_json            TEXT NOT NULL DEFAULT '[]',
+            shoe_cards_remaining INTEGER NOT NULL DEFAULT 0,
+            countdown_ends_at    TEXT NOT NULL DEFAULT '',
+            turn_ends_at         TEXT NOT NULL DEFAULT '',
+            active               INTEGER NOT NULL DEFAULT 0,
+            recovery_required    INTEGER NOT NULL DEFAULT 0,
+            created_at           TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at           TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+    """)
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS casino_active_players (
+            id        INTEGER PRIMARY KEY AUTOINCREMENT,
+            mode      TEXT NOT NULL,
+            username  TEXT NOT NULL,
+            user_id   TEXT NOT NULL,
+            bet       INTEGER NOT NULL DEFAULT 0,
+            hand_json TEXT NOT NULL DEFAULT '[]',
+            status    TEXT NOT NULL DEFAULT 'lobby',
+            doubled   INTEGER NOT NULL DEFAULT 0,
+            joined_at TEXT NOT NULL DEFAULT (datetime('now')),
+            acted_at  TEXT NOT NULL DEFAULT '',
+            payout    INTEGER NOT NULL DEFAULT 0,
+            result    TEXT NOT NULL DEFAULT '',
+            UNIQUE(mode, username)
+        )
+    """)
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS casino_round_results (
+            id        INTEGER PRIMARY KEY AUTOINCREMENT,
+            mode      TEXT NOT NULL,
+            round_id  TEXT NOT NULL,
+            username  TEXT NOT NULL,
+            user_id   TEXT NOT NULL DEFAULT '',
+            bet       INTEGER NOT NULL DEFAULT 0,
+            result    TEXT NOT NULL DEFAULT '',
+            payout    INTEGER NOT NULL DEFAULT 0,
+            net       INTEGER NOT NULL DEFAULT 0,
+            paid      INTEGER NOT NULL DEFAULT 0,
+            timestamp TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE(mode, round_id, username)
+        )
+    """)
+
     conn.commit()
     conn.close()
     _migrate_db()
@@ -3273,3 +3328,187 @@ def set_gold_setting(key: str, value: str) -> None:
     )
     conn.commit()
     conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Casino state persistence helpers
+# ---------------------------------------------------------------------------
+
+def save_casino_table(mode: str, data: dict) -> None:
+    """Upsert casino_active_tables row for the given mode."""
+    from datetime import datetime as _dt
+    conn = get_connection()
+    now  = _dt.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+    conn.execute(
+        """
+        INSERT INTO casino_active_tables
+            (mode, updated_at, created_at, phase, round_id,
+             current_player_index, dealer_hand_json, deck_json, shoe_json,
+             shoe_cards_remaining, countdown_ends_at, turn_ends_at,
+             active, recovery_required)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(mode) DO UPDATE SET
+            updated_at           = excluded.updated_at,
+            phase                = excluded.phase,
+            round_id             = excluded.round_id,
+            current_player_index = excluded.current_player_index,
+            dealer_hand_json     = excluded.dealer_hand_json,
+            deck_json            = excluded.deck_json,
+            shoe_json            = excluded.shoe_json,
+            shoe_cards_remaining = excluded.shoe_cards_remaining,
+            countdown_ends_at    = excluded.countdown_ends_at,
+            turn_ends_at         = excluded.turn_ends_at,
+            active               = excluded.active,
+            recovery_required    = excluded.recovery_required
+        """,
+        (
+            mode, now, now,
+            data.get("phase", "idle"),
+            data.get("round_id", ""),
+            int(data.get("current_player_index", 0)),
+            data.get("dealer_hand_json", "[]"),
+            data.get("deck_json", "[]"),
+            data.get("shoe_json", "[]"),
+            int(data.get("shoe_cards_remaining", 0)),
+            data.get("countdown_ends_at", ""),
+            data.get("turn_ends_at", ""),
+            int(data.get("active", 0)),
+            int(data.get("recovery_required", 0)),
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+
+def load_casino_table(mode: str) -> dict | None:
+    """Return casino_active_tables row for mode, or None."""
+    conn = get_connection()
+    row  = conn.execute(
+        "SELECT * FROM casino_active_tables WHERE mode = ?", (mode,)
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def clear_casino_table(mode: str) -> None:
+    """Delete casino_active_tables AND all casino_active_players for mode."""
+    conn = get_connection()
+    conn.execute("DELETE FROM casino_active_tables  WHERE mode = ?", (mode,))
+    conn.execute("DELETE FROM casino_active_players WHERE mode = ?", (mode,))
+    conn.commit()
+    conn.close()
+
+
+def save_casino_player(mode: str, data: dict) -> None:
+    """Upsert a player row in casino_active_players."""
+    from datetime import datetime as _dt
+    conn = get_connection()
+    conn.execute(
+        """
+        INSERT INTO casino_active_players
+            (mode, username, user_id, bet, hand_json, status, doubled,
+             joined_at, acted_at, payout, result)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?)
+        ON CONFLICT(mode, username) DO UPDATE SET
+            user_id   = excluded.user_id,
+            bet       = excluded.bet,
+            hand_json = excluded.hand_json,
+            status    = excluded.status,
+            doubled   = excluded.doubled,
+            payout    = excluded.payout,
+            result    = excluded.result,
+            acted_at  = datetime('now')
+        """,
+        (
+            mode,
+            data.get("username", ""),
+            data.get("user_id", ""),
+            int(data.get("bet", 0)),
+            data.get("hand_json", "[]"),
+            data.get("status", "lobby"),
+            int(data.get("doubled", 0)),
+            _dt.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
+            int(data.get("payout", 0)),
+            data.get("result", ""),
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+
+def load_casino_players(mode: str) -> list[dict]:
+    """Return all casino_active_players for mode, ordered by id."""
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT * FROM casino_active_players WHERE mode = ? ORDER BY id ASC",
+        (mode,),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def clear_casino_players(mode: str) -> None:
+    """Delete all casino_active_players rows for mode."""
+    conn = get_connection()
+    conn.execute("DELETE FROM casino_active_players WHERE mode = ?", (mode,))
+    conn.commit()
+    conn.close()
+
+
+def save_round_result(
+    mode: str, round_id: str, username: str, user_id: str,
+    bet: int, result: str, payout: int, net: int,
+) -> None:
+    """INSERT OR IGNORE a single round result (dedup key: mode+round_id+username)."""
+    from datetime import datetime as _dt
+    conn = get_connection()
+    conn.execute(
+        """
+        INSERT OR IGNORE INTO casino_round_results
+            (mode, round_id, username, user_id, bet, result, payout, net, paid, timestamp)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
+        """,
+        (
+            mode, round_id, username, user_id,
+            int(bet), result, int(payout), int(net),
+            _dt.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+
+def mark_result_paid(mode: str, round_id: str, username: str) -> None:
+    """Mark a round result as paid=1."""
+    conn = get_connection()
+    conn.execute(
+        "UPDATE casino_round_results SET paid = 1 "
+        "WHERE mode = ? AND round_id = ? AND username = ?",
+        (mode, round_id, username),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_unpaid_results(mode: str, round_id: str) -> list[dict]:
+    """Return all casino_round_results for the round that are not yet paid."""
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT * FROM casino_round_results "
+        "WHERE mode = ? AND round_id = ? AND paid = 0",
+        (mode, round_id),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def is_result_paid(mode: str, round_id: str, username: str) -> bool:
+    """Return True if the result for this mode+round+player is already paid."""
+    conn = get_connection()
+    row  = conn.execute(
+        "SELECT paid FROM casino_round_results "
+        "WHERE mode = ? AND round_id = ? AND username = ?",
+        (mode, round_id, username),
+    ).fetchone()
+    conn.close()
+    return bool(row and row["paid"])

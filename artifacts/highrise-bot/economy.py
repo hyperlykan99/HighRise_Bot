@@ -79,9 +79,10 @@ async def handle_leaderboard(bot: BaseBot, user: User):
 
     lines = [f"-- Top {len(top)} Players --"]
     for entry in top:
-        lines.append(f"  #{entry['rank']}  {entry['username']}  —  {entry['balance']} coins")
+        lines.append(f"#{entry['rank']} {entry['username']} {entry['balance']}c")
 
-    await bot.highrise.send_whisper(user.id, "\n".join(lines))
+    msg = "\n".join(lines)
+    await bot.highrise.send_whisper(user.id, msg[:249])
 
 
 async def handle_profile(bot: BaseBot, user: User):
