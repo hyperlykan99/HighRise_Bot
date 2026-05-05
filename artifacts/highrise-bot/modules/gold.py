@@ -35,7 +35,7 @@ from typing import Optional
 
 import database as db
 from modules.permissions import (
-    is_owner, is_admin, is_manager, is_moderator,
+    is_owner, is_admin, is_manager, is_moderator, can_moderate,
 )
 
 # ---------------------------------------------------------------------------
@@ -687,6 +687,352 @@ async def handle_setgoldrainmax(bot, user, args: list[str]) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Role / title / badge filter helpers
+# ---------------------------------------------------------------------------
+_VALID_ROLES = frozenset({
+    "owner", "admin", "manager", "moderator", "staff", "player", "vip",
+})
+
+
+def _get_players_by_role(role: str) -> list[tuple[str, str]]:
+    """
+    Return [(uid, uname)] in room matching *role*.
+    Excludes this bot and any known bots.
+    Roles: owner | admin | manager | moderator | staff | player | vip
+    """
+    result: list[tuple[str, str]] = []
+    for _key, (uid, uname) in _room_cache.items():
+        if uid == _bot_user_id or uid in _known_bot_ids:
+            continue
+        if role == "owner":
+            match = is_owner(uname)
+        elif role == "admin":
+            match = is_admin(uname)
+        elif role == "manager":
+            match = is_manager(uname)
+        elif role == "moderator":
+            match = is_moderator(uname)
+        elif role == "staff":
+            match = can_moderate(uname)
+        elif role == "player":
+            match = not can_moderate(uname) and not is_owner(uname)
+        elif role == "vip":
+            sub = db.get_subscriber(uname.lower())
+            match = bool(sub and sub.get("subscribed"))
+        else:
+            match = False
+        if match:
+            result.append((uid, uname))
+    return result
+
+
+def _get_players_by_title(title_id: str) -> list[tuple[str, str]]:
+    """Return [(uid, uname)] in room whose equipped_title_id matches (case-insensitive)."""
+    result: list[tuple[str, str]] = []
+    tid = title_id.lower().strip()
+    for _key, (uid, uname) in _room_cache.items():
+        if uid == _bot_user_id or uid in _known_bot_ids:
+            continue
+        info = db.get_equipped_ids(uid)
+        if (info.get("title_id") or "").lower() == tid:
+            result.append((uid, uname))
+    return result
+
+
+def _get_players_by_badge(badge_id: str) -> list[tuple[str, str]]:
+    """Return [(uid, uname)] in room whose equipped_badge_id matches (case-insensitive)."""
+    result: list[tuple[str, str]] = []
+    bid = badge_id.lower().strip()
+    for _key, (uid, uname) in _room_cache.items():
+        if uid == _bot_user_id or uid in _known_bot_ids:
+            continue
+        info = db.get_equipped_ids(uid)
+        if (info.get("badge_id") or "").lower() == bid:
+            result.append((uid, uname))
+    return result
+
+
+async def _handle_targeted_rain(
+    bot, user, eligible: list[tuple[str, str]],
+    amount: int, bars: list[str], count: int | None,
+    action_type: str, label: str,
+) -> None:
+    """
+    Shared executor for role/vip/title/badge goldrain.
+    count=None  → rain on every player in *eligible* list.
+    count=N     → randomly sample N from *eligible* list.
+    """
+    if not eligible:
+        await bot.highrise.send_whisper(user.id, f"No {label} players currently in room.")
+        return
+
+    if count is None:
+        # Rain on the whole group
+        total = amount * len(eligible)
+        if total > _max_total():
+            await bot.highrise.send_whisper(
+                user.id,
+                f"Total {total}g ({len(eligible)} players) exceeds the {_max_total()}g limit."
+            )
+            return
+        await bot.highrise.send_whisper(
+            user.id, f"🌧️ Sending {amount}g to {len(eligible)} {label} players..."
+        )
+        await _execute_goldrainall(
+            bot, user.username, user.id, amount, bars, eligible, action_type
+        )
+    else:
+        # Rain on a random subset
+        if count > len(eligible):
+            await bot.highrise.send_whisper(
+                user.id, f"Only {len(eligible)} {label} players available."
+            )
+            count = len(eligible)
+        total = amount * count
+        if total > _max_total():
+            await bot.highrise.send_whisper(
+                user.id,
+                f"Total {total}g ({count} players) exceeds the {_max_total()}g limit."
+            )
+            return
+        chosen = random.sample(eligible, count)
+        await _execute_goldrain(bot, user, amount, bars, chosen, action_type)
+
+
+# ---------------------------------------------------------------------------
+# /goldrainrole <role> <amount> [count]
+# ---------------------------------------------------------------------------
+async def handle_goldrainrole(bot, user, args: list[str]) -> None:
+    if not is_owner(user.username):
+        await bot.highrise.send_whisper(user.id, "Only owners can send gold.")
+        return
+    if len(args) < 3:
+        await bot.highrise.send_whisper(
+            user.id,
+            f"Usage: /goldrainrole <role> <amount> [count]\n"
+            f"Roles: {', '.join(sorted(_VALID_ROLES))}"
+        )
+        return
+
+    role = args[1].lower()
+    if role not in _VALID_ROLES:
+        await bot.highrise.send_whisper(
+            user.id,
+            f"Unknown role '{role}'. Valid: {', '.join(sorted(_VALID_ROLES))}"
+        )
+        return
+
+    try:
+        amount = int(args[2])
+        count  = int(args[3]) if len(args) > 3 else None
+    except ValueError:
+        await bot.highrise.send_whisper(user.id, "Amount and count must be whole numbers.")
+        return
+
+    if amount <= 0 or (count is not None and count <= 0):
+        await bot.highrise.send_whisper(user.id, "Amount and count must be positive.")
+        return
+
+    bars = decompose_gold(amount)
+    if bars is None:
+        await bot.highrise.send_whisper(
+            user.id, f"Cannot form exact {amount}g from valid denominations."
+        )
+        return
+
+    await refresh_room_cache(bot)
+    eligible = _get_players_by_role(role)
+    await _handle_targeted_rain(
+        bot, user, eligible, amount, bars, count,
+        f"goldrain_{role}", role,
+    )
+
+
+# ---------------------------------------------------------------------------
+# /goldrainvip <amount> [count]
+# ---------------------------------------------------------------------------
+async def handle_goldrainvip(bot, user, args: list[str]) -> None:
+    if not is_owner(user.username):
+        await bot.highrise.send_whisper(user.id, "Only owners can send gold.")
+        return
+    if len(args) < 2:
+        await bot.highrise.send_whisper(user.id, "Usage: /goldrainvip <amount> [count]")
+        return
+
+    try:
+        amount = int(args[1])
+        count  = int(args[2]) if len(args) > 2 else None
+    except ValueError:
+        await bot.highrise.send_whisper(user.id, "Amount and count must be whole numbers.")
+        return
+
+    if amount <= 0 or (count is not None and count <= 0):
+        await bot.highrise.send_whisper(user.id, "Amount and count must be positive.")
+        return
+
+    bars = decompose_gold(amount)
+    if bars is None:
+        await bot.highrise.send_whisper(
+            user.id, f"Cannot form exact {amount}g from valid denominations."
+        )
+        return
+
+    await refresh_room_cache(bot)
+    eligible = _get_players_by_role("vip")
+    await _handle_targeted_rain(
+        bot, user, eligible, amount, bars, count, "goldrain_vip", "VIP",
+    )
+
+
+# ---------------------------------------------------------------------------
+# /goldraintitle <title_id> <amount> [count]
+# ---------------------------------------------------------------------------
+async def handle_goldraintitle(bot, user, args: list[str]) -> None:
+    if not is_owner(user.username):
+        await bot.highrise.send_whisper(user.id, "Only owners can send gold.")
+        return
+    if len(args) < 3:
+        await bot.highrise.send_whisper(
+            user.id, "Usage: /goldraintitle <title_id> <amount> [count]"
+        )
+        return
+
+    title_id = args[1].lower()
+    try:
+        amount = int(args[2])
+        count  = int(args[3]) if len(args) > 3 else None
+    except ValueError:
+        await bot.highrise.send_whisper(user.id, "Amount and count must be whole numbers.")
+        return
+
+    if amount <= 0 or (count is not None and count <= 0):
+        await bot.highrise.send_whisper(user.id, "Amount and count must be positive.")
+        return
+
+    bars = decompose_gold(amount)
+    if bars is None:
+        await bot.highrise.send_whisper(
+            user.id, f"Cannot form exact {amount}g from valid denominations."
+        )
+        return
+
+    await refresh_room_cache(bot)
+    eligible = _get_players_by_title(title_id)
+    await _handle_targeted_rain(
+        bot, user, eligible, amount, bars, count,
+        "goldrain_title", f"[{title_id}] title",
+    )
+
+
+# ---------------------------------------------------------------------------
+# /goldrainbadge <badge_id> <amount> [count]
+# ---------------------------------------------------------------------------
+async def handle_goldrainbadge(bot, user, args: list[str]) -> None:
+    if not is_owner(user.username):
+        await bot.highrise.send_whisper(user.id, "Only owners can send gold.")
+        return
+    if len(args) < 3:
+        await bot.highrise.send_whisper(
+            user.id, "Usage: /goldrainbadge <badge_id> <amount> [count]"
+        )
+        return
+
+    badge_id = args[1].lower()
+    try:
+        amount = int(args[2])
+        count  = int(args[3]) if len(args) > 3 else None
+    except ValueError:
+        await bot.highrise.send_whisper(user.id, "Amount and count must be whole numbers.")
+        return
+
+    if amount <= 0 or (count is not None and count <= 0):
+        await bot.highrise.send_whisper(user.id, "Amount and count must be positive.")
+        return
+
+    bars = decompose_gold(amount)
+    if bars is None:
+        await bot.highrise.send_whisper(
+            user.id, f"Cannot form exact {amount}g from valid denominations."
+        )
+        return
+
+    await refresh_room_cache(bot)
+    eligible = _get_players_by_badge(badge_id)
+    await _handle_targeted_rain(
+        bot, user, eligible, amount, bars, count,
+        "goldrain_badge", f"{badge_id} badge",
+    )
+
+
+# ---------------------------------------------------------------------------
+# /goldrainlist <type> [id]
+# ---------------------------------------------------------------------------
+async def handle_goldrainlist(bot, user, args: list[str]) -> None:
+    """
+    Preview who would receive a targeted gold rain without sending anything.
+    Usage:
+      /goldrainlist role <role>
+      /goldrainlist title <title_id>
+      /goldrainlist badge <badge_id>
+      /goldrainlist vip
+    """
+    if not is_owner(user.username):
+        await bot.highrise.send_whisper(user.id, "Only owners can use this.")
+        return
+    if len(args) < 2:
+        await bot.highrise.send_whisper(
+            user.id,
+            "Usage: /goldrainlist role <role> | title <id> | badge <id> | vip"
+        )
+        return
+
+    list_type = args[1].lower()
+    await refresh_room_cache(bot)
+
+    if list_type == "vip":
+        eligible = _get_players_by_role("vip")
+        label = "VIP"
+    elif list_type == "role":
+        if len(args) < 3:
+            await bot.highrise.send_whisper(
+                user.id, f"Usage: /goldrainlist role <role>\nRoles: {', '.join(sorted(_VALID_ROLES))}"
+            )
+            return
+        role = args[2].lower()
+        if role not in _VALID_ROLES:
+            await bot.highrise.send_whisper(
+                user.id, f"Unknown role '{role}'. Valid: {', '.join(sorted(_VALID_ROLES))}"
+            )
+            return
+        eligible = _get_players_by_role(role)
+        label = role
+    elif list_type == "title":
+        if len(args) < 3:
+            await bot.highrise.send_whisper(user.id, "Usage: /goldrainlist title <title_id>")
+            return
+        eligible = _get_players_by_title(args[2])
+        label = f"[{args[2]}] title"
+    elif list_type == "badge":
+        if len(args) < 3:
+            await bot.highrise.send_whisper(user.id, "Usage: /goldrainlist badge <badge_id>")
+            return
+        eligible = _get_players_by_badge(args[2])
+        label = f"{args[2]} badge"
+    else:
+        await bot.highrise.send_whisper(
+            user.id, "Type must be: role | title | badge | vip"
+        )
+        return
+
+    if not eligible:
+        await bot.highrise.send_whisper(user.id, f"No {label} players currently in room.")
+        return
+    names = ", ".join(f"@{uname}" for _, uname in eligible)
+    msg = f"{label} ({len(eligible)}): {names}"
+    await bot.highrise.send_whisper(user.id, msg[:249])
+
+
+# ---------------------------------------------------------------------------
 # /goldraineligible
 # ---------------------------------------------------------------------------
 async def handle_goldraineligible(bot, user, args: list[str]) -> None:
@@ -710,11 +1056,12 @@ async def handle_goldraineligible(bot, user, args: list[str]) -> None:
 async def handle_goldhelp(bot, user, args: list[str]) -> None:
     msg = (
         "👑 Gold Cmds (Owner only)\n"
-        "/goldtip <user> <amt>\n"
-        "/goldrefund <user> <amt> [reason]\n"
+        "/goldtip <user> <amt>  /goldrefund <user> <amt>\n"
         "/goldrain <amt> [count]  /goldrainall <amt>\n"
-        "/goldraineligible\n"
-        "/setgoldrainstaff on|off  /setgoldrainmax <amt>\n"
-        "/goldwallet  /goldtips  /goldtx <user>"
+        "/goldrainrole <role> <amt> [count]\n"
+        "/goldrainvip <amt> [count]\n"
+        "/goldraintitle <id> <amt>  /goldrainbadge <id> <amt>\n"
+        "/goldraineligible  /goldrainlist role|title|badge|vip\n"
+        "/setgoldrainstaff on|off  /setgoldrainmax <amt>"
     )
     await bot.highrise.send_whisper(user.id, msg[:249])

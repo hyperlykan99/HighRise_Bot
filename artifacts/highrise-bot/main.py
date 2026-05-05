@@ -143,6 +143,9 @@ from modules.gold import (
     handle_goldtip, handle_goldrefund,
     handle_goldrain, handle_goldrainall,
     handle_goldraineligible,
+    handle_goldrainrole, handle_goldrainvip,
+    handle_goldraintitle, handle_goldrainbadge,
+    handle_goldrainlist,
     handle_goldwallet, handle_goldtips, handle_goldtx,
     handle_pendinggold, handle_confirmgoldtip,
     handle_setgoldrainstaff, handle_setgoldrainmax,
@@ -221,6 +224,7 @@ OWNER_ONLY_CMDS = {
     "addadmin", "removeadmin", "admins", "setmaxbalance",
     "addowner", "removeowner",
     "goldtip", "goldrefund", "goldrain", "goldrainall", "goldraineligible",
+    "goldrainrole", "goldrainvip", "goldraintitle", "goldrainbadge", "goldrainlist",
     "goldwallet", "goldtips", "goldtx", "pendinggold",
     "confirmgoldtip", "setgoldrainstaff", "setgoldrainmax",
     "debugtips",
@@ -1439,6 +1443,16 @@ class HangoutBot(BaseBot):
                 await handle_goldrainall(self, user, args)
             elif cmd == "goldraineligible":
                 await handle_goldraineligible(self, user, args)
+            elif cmd == "goldrainrole":
+                await handle_goldrainrole(self, user, args)
+            elif cmd == "goldrainvip":
+                await handle_goldrainvip(self, user, args)
+            elif cmd == "goldraintitle":
+                await handle_goldraintitle(self, user, args)
+            elif cmd == "goldrainbadge":
+                await handle_goldrainbadge(self, user, args)
+            elif cmd == "goldrainlist":
+                await handle_goldrainlist(self, user, args)
             elif cmd == "goldwallet":
                 await handle_goldwallet(self, user, args)
             elif cmd == "goldtips":
