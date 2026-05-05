@@ -1,0 +1,793 @@
+Update ALL help menus, command menus, role menus, and module help for the entire Highrise bot.
+
+IMPORTANT:
+- Do not remove existing features.
+- Do not change game logic unless needed for help routing.
+- Keep every Highrise chat message under 250 characters.
+- Split long menus into pages.
+- Add explicit command routing before the unknown-command fallback.
+- Prevent crashes from bad inputs.
+- Normal players should not see staff-only commands unless the help menu says “Staff only.”
+- Staff menus should only show commands the user’s role can access.
+
+Current bot modules/features include:
+- Mini games: trivia, scramble, riddle, answer timer, auto games
+- Coin economy: daily, balance, leaderboard, XP, levels
+- Shop: badges, titles, VIP, item info, equip, myitems
+- Bank: send coins, transactions, bank settings, anti-abuse, bank notifications
+- Casino: casual blackjack /bj
+- Casino: realistic blackjack /rbj with shoe
+- Casino control panel
+- Blackjack crash/restart recovery
+- Gold system: owner-only gold tips, refunds, gold rain, VIP/role/title/badge gold rain
+- Events: manual events and auto events
+- Quests and achievements
+- Reputation system
+- Reports and moderation
+- Staff roles: owner, admin, manager, moderator
+- Maintenance: backup, cleanup, softrestart, botstatus, dbstats, maintenance mode
+
+==================================================
+MAIN HELP
+==================================================
+
+Update /help:
+
+For normal players:
+"🤖 Help
+🎮 /gamehelp
+🎰 /casinohelp
+💰 /coinhelp
+🏦 /bankhelp
+🛒 /shophelp
+⭐ /profilehelp
+More: /progresshelp /eventhelp"
+
+If user is staff, also send a second message:
+"⚙️ Staff: /staffhelp
+Owner/Admin: /adminhelp
+Gold: /goldhelp"
+
+==================================================
+PLAYER HELP MENUS
+==================================================
+
+/gamehelp:
+"🎮 Games
+/trivia /scramble /riddle
+/answer <answer>
+/coinflip heads/tails <bet>
+Auto games: /autogames status"
+
+/gamehelp 2:
+"🎮 Game Timers
+Games have answer timers.
+Staff: /setgametimer <sec>
+Auto: /autogames on/off"
+
+/casinohelp:
+"🎰 Casino
+/bj join <bet> - casual BJ
+/rbj join <bet> - realistic BJ
+/bj hit | /rbj hit
+/bj stand | /rbj stand"
+
+/casinohelp 2:
+"🎰 Casino 2
+/bj table | /rbj table
+/bj rules | /rbj rules
+/bj stats | /rbj stats
+/bj limits | /rbj limits"
+
+/casinohelp 3:
+"🎰 Casino Settings
+Players: /casino modes
+Staff: /casinosettings
+Staff: /casinolimits
+Staff: /casinotoggles"
+
+/coinhelp:
+"💰 Coins
+/daily
+/balance
+/leaderboard
+/tiprate
+/tipstats
+/tipleaderboard"
+
+/bankhelp:
+"🏦 Bank
+/send <user> <amt>
+/bank
+/bankstats
+/transactions
+/banknotify on/off"
+
+/bankhelp 2:
+"🏦 Bank 2
+Players can send coins if eligible.
+Staff: /banksettings
+Staff: /viewtx <user>
+Staff: /bankwatch <user>"
+
+/shophelp:
+"🛒 Shop
+/shop titles
+/shop badges
+/titleinfo <id>
+/badgeinfo <id>
+/buy title <id>
+/buy badge <id>"
+
+/shophelp 2:
+"🛒 Shop 2
+/equip title <id>
+/equip badge <id>
+/myitems
+/vipshop
+/buyvip
+/vipstatus"
+
+/profilehelp:
+"⭐ Profile
+/profile
+/level
+/xpleaderboard
+/myitems
+/reputation
+/toprep"
+
+/progresshelp:
+"🏆 Progress
+/quests
+/dailyquests
+/weeklyquests
+/claimquest
+/achievements
+/claimachievements"
+
+/eventhelp:
+"🎉 Events
+/event
+/events
+/eventstatus
+/eventpoints
+/eventshop
+Staff: /startevent <id>"
+
+/eventhelp 2:
+"🎉 Auto Events
+/autoevents status
+Staff: /autoevents on/off
+Staff: /setautoeventinterval <min>
+Staff: /setautoeventduration <min>"
+
+/rephelp:
+"⭐ Reputation
+/rep <user>
+/reputation
+/repstats
+/toprep
+/repleaderboard"
+
+==================================================
+AUTO GAME / AUTO EVENT HELP
+==================================================
+
+Add /autohelp:
+
+"🤖 Auto Systems
+/autogames status
+/autoevents status
+/gameconfig
+Staff can enable/disable."
+
+Add /gameconfig help if missing:
+- /gameconfig shows game timer, auto games, auto events, intervals, durations.
+
+==================================================
+CASINO CONTROL HELP
+==================================================
+
+Add /casinoadminhelp for owner/admin/manager only.
+
+Page 1:
+"🎰 Casino Admin 1
+/casinosettings
+/casinolimits
+/casinotoggles
+/bj on/off
+/rbj on/off"
+
+Page 2:
+"🎰 Casino Admin 2
+/setbjlimits min max win loss
+/setrbjlimits min max win loss
+/setbjturntimer <sec>
+/setrbjturntimer <sec>"
+
+Page 3:
+"🎰 Casino Admin 3
+/bj state
+/rbj state
+/bj recover
+/rbj recover
+/bj refund
+/rbj refund"
+
+Page 4:
+"🎰 Casino Admin 4
+/bj forcefinish
+/rbj forcefinish
+/casino reset
+/confirmcasinoreset <code>"
+
+==================================================
+BLACKJACK HELP
+==================================================
+
+Add /bjhelp:
+
+"🃏 BJ Help
+/bj join <bet>
+/bj hit
+/bj stand
+/bj double
+/bj table
+/bj rules
+/bj stats"
+
+/bjhelp 2:
+"🃏 BJ Limits
+/bj limits
+Staff: /setbjlimits
+Staff: /bj state
+Staff: /bj recover/refund"
+
+Add /rbjhelp:
+
+"🃏 RBJ Help
+/rbj join <bet>
+/rbj hit
+/rbj stand
+/rbj double
+/rbj table
+/rbj rules
+/rbj shoe"
+
+/rbjhelp 2:
+"🃏 RBJ 2
+/rbj stats
+/rbj limits
+Staff: /setrbjlimits
+Staff: /rbj state
+Staff: /rbj recover/refund"
+
+==================================================
+GOLD HELP
+==================================================
+
+Add /goldhelp.
+
+Only owners should see sending commands.
+Admins can view logs if allowed.
+Managers/moderators should not see send commands.
+
+If user is not owner/admin:
+"Gold help is staff only."
+
+If admin but not owner:
+"👑 Gold Logs
+/goldtips
+/goldtx <user>
+/pendinggold
+Only owners can send gold."
+
+If owner, split pages:
+
+/goldhelp or /goldhelp 1:
+"👑 Gold 1
+/goldwallet
+/goldtip <user> <amt>
+/goldrefund <user> <amt> <reason>
+/confirmgoldtip <code>"
+
+/goldhelp 2:
+"👑 Gold 2
+/goldrain <amt> [count]
+/goldrainall <amt>
+/goldrainvip <amt> [count]
+/goldrainrole <role> <amt> [count]"
+
+/goldhelp 3:
+"👑 Gold 3
+/goldraintitle <id> <amt> [count]
+/goldrainbadge <id> <amt> [count]
+/goldrainlist <type> <id>"
+
+/goldhelp 4:
+"👑 Gold 4
+/goldtips
+/goldtx <user>
+/pendinggold
+/sendpendinggold <id>
+/cancelgold <id>"
+
+/goldhelp 5:
+"👑 Gold Settings
+/setgoldrainstaff on/off
+/setgoldrainmax <amt>
+/setgoldlogaccess owner_only/admin_only"
+
+==================================================
+BANK STAFF HELP
+==================================================
+
+Add /bankadminhelp.
+
+Visible to moderator, manager, admin, owner.
+Split by role permissions.
+
+/bankadminhelp 1:
+"🏦 Bank Staff 1
+/viewtx <user>
+/bankwatch <user>
+/ledger <user>
+/auditbank <user>"
+
+For admin/owner only, also pages:
+
+/bankadminhelp 2:
+"🏦 Bank Admin 2
+/bankblock <user>
+/bankunblock <user>
+/banksettings
+/setsendlimit <amt>"
+
+/bankadminhelp 3:
+"🏦 Bank Admin 3
+/setminsend <amt>
+/setmaxsend <amt>
+/setnewaccountdays <days>
+/setminlevelsend <lvl>"
+
+/bankadminhelp 4:
+"🏦 Bank Admin 4
+/setmintotalearned <amt>
+/setmindailyclaims <amt>
+/setsendtax <percent>
+/sethighriskblocks on/off"
+
+==================================================
+STAFF HELP
+==================================================
+
+Update /staffhelp:
+
+If not staff:
+"Staff help is for staff only."
+
+If staff:
+"⚙️ Staff Menus
+/modhelp
+/managerhelp
+/adminhelp
+/ownerhelp
+/casinoadminhelp
+/bankadminhelp"
+
+Also show:
+"Gold: /goldhelp
+Audit: /audithelp
+Reports: /reporthelp
+Maintenance: /maintenancehelp"
+
+==================================================
+MODERATOR HELP
+==================================================
+
+/modhelp or /modhelp 1:
+"🔨 Mod 1
+/announce <msg>
+/resetgame
+/casino reset
+/bj cancel
+/rbj cancel"
+
+/modhelp 2:
+"🔨 Mod 2
+/reports
+/reportinfo <id>
+/closereport <id>
+/reportwatch <user>"
+
+/modhelp 3:
+"🔨 Mod 3
+/viewtx <user>
+/bankwatch <user>
+/ledger <user>
+/audit <user>"
+
+/modhelp 4:
+"🔨 Mod 4
+/warn <user> <reason>
+/warnings <user>
+/mute <user> <min>
+/unmute <user>
+/mutes"
+
+==================================================
+MANAGER HELP
+==================================================
+
+/managerhelp 1:
+"🧰 Manager 1
+/bj on/off
+/rbj on/off
+/casino on/off
+/casino modes
+/casino reset"
+
+/managerhelp 2:
+"🧰 Manager 2
+/casinosettings
+/casinolimits
+/casinotoggles
+/setbjturntimer <sec>
+/setrbjturntimer <sec>"
+
+/managerhelp 3:
+"🧰 Manager 3
+/setbjlimits min max win loss
+/setrbjlimits min max win loss
+/bj settings
+/rbj settings"
+
+/managerhelp 4:
+"🧰 Manager 4
+/startevent <id>
+/stopevent
+/autogames on/off
+/autoevents on/off
+/gameconfig"
+
+==================================================
+ADMIN HELP
+==================================================
+
+/adminhelp 1:
+"🛡️ Admin 1
+/addcoins <user> <amt>
+/removecoins <user> <amt>
+/bankblock <user>
+/bankunblock <user>"
+
+/adminhelp 2:
+"🛡️ Admin 2
+/banksettings
+/setsendlimit <amt>
+/setnewaccountdays <days>
+/setminlevelsend <lvl>"
+
+/adminhelp 3:
+"🛡️ Admin 3
+/addmanager <user>
+/removemanager <user>
+/managers
+/addmoderator <user>
+/removemoderator <user>"
+
+/adminhelp 4:
+"🛡️ Admin 4
+/dbstats
+/maintenance on/off
+/reloadsettings
+/cleanup
+/audithelp"
+
+Important:
+Admins cannot send real Highrise gold unless they are also owner.
+
+==================================================
+OWNER HELP
+==================================================
+
+/ownerhelp 1:
+"👑 Owner 1
+/addowner <user>
+/removeowner <user>
+/owners
+/addadmin <user>
+/removeadmin <user>"
+
+/ownerhelp 2:
+"👑 Owner 2
+/admins
+/allstaff
+/allcommands
+/backup
+/softrestart
+/restartbot"
+
+/ownerhelp 3:
+"👑 Owner 3
+/goldhelp
+/goldtip
+/goldrain
+/goldrefund
+Full bot control."
+
+==================================================
+ALL STAFF / ROLES
+==================================================
+
+Update /allstaff:
+- /allstaff
+- /allstaff owners
+- /allstaff admins
+- /allstaff managers
+- /allstaff moderators
+
+Messages:
+"👑 Owners: @user1, @user2"
+"🛡️ Admins: @user1, @user2"
+"🧰 Managers: @user1, @user2"
+"🔨 Mods: @user1, @user2"
+
+Add /roleshelp:
+"Roles
+Owner: all
+Admin: economy/staff
+Manager: games/events
+Mod: reports/reset
+Use /allstaff"
+
+==================================================
+AUDIT HELP
+==================================================
+
+Add /audithelp for staff:
+
+"🔍 Audit
+/audit <user>
+/auditbank <user>
+/auditcasino <user>
+/auditeconomy <user>
+/ledger <user>"
+
+==================================================
+REPORT HELP
+==================================================
+
+Add /reporthelp:
+
+For players:
+"🚩 Reports
+/report <user> <reason>
+/bug <message>
+/myreports"
+
+For staff, second page:
+"🚩 Staff Reports
+/reports
+/reportinfo <id>
+/closereport <id>
+/reportwatch <user>"
+
+==================================================
+MAINTENANCE HELP
+==================================================
+
+Add /maintenancehelp.
+
+Owner/admin only:
+
+"🛠️ Maintenance
+/botstatus
+/dbstats
+/backup
+/maintenance on/off
+/reloadsettings
+/cleanup
+/softrestart"
+
+Players can use:
+/botstatus
+/maintenance
+
+If player uses /maintenancehelp and is not admin/owner:
+"Maintenance help is admin only."
+
+==================================================
+VIP HELP
+==================================================
+
+Add /viphelp:
+
+"💎 VIP
+/vipshop
+/buyvip
+/vipstatus
+VIP can join VIP gold rain.
+Staff: /addvip /removevip /vips"
+
+Staff page:
+"💎 VIP Staff
+/addvip <user>
+/removevip <user>
+/vips
+Owner: /goldrainvip <amt>"
+
+==================================================
+TIP HELP
+==================================================
+
+Add /tiphelp:
+
+"💰 Tips
+Tip the bot gold to get coins.
+/tiprate
+/tipstats
+/tipleaderboard
+Min tip reward: 10g"
+
+==================================================
+ALL COMMANDS
+==================================================
+
+Update /allcommands for owner/admin only.
+
+Because messages must stay under 250 characters, use pages:
+
+/allcommands:
+"Use /allcommands 1-10."
+
+/allcommands 1:
+"Cmds 1 Help
+/help /gamehelp /casinohelp
+/coinhelp /bankhelp
+/shophelp /profilehelp"
+
+/allcommands 2:
+"Cmds 2 Games
+/trivia /scramble /riddle
+/answer /coinflip
+/autogames status
+/gameconfig"
+
+/allcommands 3:
+"Cmds 3 Casino
+/bj join/hit/stand/table
+/rbj join/hit/stand/table
+/bj rules /rbj rules"
+
+/allcommands 4:
+"Cmds 4 Casino Staff
+/casinosettings
+/casinolimits
+/casinotoggles
+/setbjlimits
+/setrbjlimits"
+
+/allcommands 5:
+"Cmds 5 Bank
+/send /bank /bankstats
+/transactions
+/banknotify
+/tiprate /tipstats"
+
+/allcommands 6:
+"Cmds 6 Shop/Profile
+/shop titles/badges
+/titleinfo /badgeinfo
+/buy /equip
+/profile /level"
+
+/allcommands 7:
+"Cmds 7 Progress
+/quests /dailyquests
+/weeklyquests
+/claimquest
+/achievements
+/reputation"
+
+/allcommands 8:
+"Cmds 8 Events
+/event /events
+/eventstatus
+/startevent
+/stopevent
+/autoevents status"
+
+/allcommands 9:
+"Cmds 9 Staff
+/staffhelp /modhelp
+/managerhelp /adminhelp
+/ownerhelp /allstaff"
+
+/allcommands 10:
+"Cmds 10 Gold/Owner
+/goldhelp
+/goldtip
+/goldrain
+/goldrefund
+/backup
+/softrestart"
+
+==================================================
+UNKNOWN COMMAND
+==================================================
+
+Update unknown command response:
+"Unknown command. Type /help."
+
+If command starts with /gold and user is not owner/admin:
+"Gold commands are staff only."
+
+If command is staff-related and user is not staff:
+"Staff command unavailable. Type /help."
+
+==================================================
+ROUTING REQUIREMENT
+==================================================
+
+Make sure every help command has explicit routing:
+- /help
+- /gamehelp
+- /casinohelp
+- /coinhelp
+- /bankhelp
+- /shophelp
+- /profilehelp
+- /progresshelp
+- /eventhelp
+- /rephelp
+- /autohelp
+- /casinoadminhelp
+- /bjhelp
+- /rbjhelp
+- /goldhelp
+- /bankadminhelp
+- /staffhelp
+- /modhelp
+- /managerhelp
+- /adminhelp
+- /ownerhelp
+- /audithelp
+- /reporthelp
+- /maintenancehelp
+- /viphelp
+- /tiphelp
+- /roleshelp
+- /allcommands
+- /allstaff
+
+==================================================
+TESTS
+==================================================
+
+After updating, test:
+- /help
+- /gamehelp
+- /casinohelp
+- /casinohelp 2
+- /bjhelp
+- /rbjhelp
+- /goldhelp
+- /staffhelp
+- /managerhelp 1
+- /adminhelp 1
+- /ownerhelp 1
+- /allcommands
+- /allcommands 10
+- /allstaff
+- /bankadminhelp
+- /maintenancehelp
+
+Make sure:
+- Normal players cannot view owner-only gold commands.
+- Admins cannot send real gold.
+- Managers can view casino admin help.
+- Owners can see gold commands.
+- No message is too long.
+- No command says Unknown command if listed in help.
