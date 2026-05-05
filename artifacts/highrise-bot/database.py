@@ -336,6 +336,21 @@ def init_db():
         "INSERT OR IGNORE INTO event_settings (key, value) VALUES ('event_active', '0')"
     )
 
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS reports (
+            id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp         TEXT    NOT NULL DEFAULT (datetime('now')),
+            reporter_id       TEXT    NOT NULL,
+            reporter_username TEXT    NOT NULL,
+            target_username   TEXT    NOT NULL DEFAULT '',
+            report_type       TEXT    NOT NULL,
+            reason            TEXT    NOT NULL,
+            status            TEXT    NOT NULL DEFAULT 'open',
+            handled_by        TEXT    NOT NULL DEFAULT '',
+            resolution_note   TEXT    NOT NULL DEFAULT ''
+        )
+    """)
+
     conn.commit()
     conn.close()
     _migrate_db()
@@ -1798,6 +1813,86 @@ def buy_event_item(user_id: str, username: str,
         return "error"
     finally:
         conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Report system helpers
+# ---------------------------------------------------------------------------
+
+def create_report(reporter_id: str, reporter_username: str,
+                  target_username: str, report_type: str, reason: str) -> int:
+    """Insert a new report and return its auto-assigned ID."""
+    conn = get_connection()
+    cur  = conn.execute("""
+        INSERT INTO reports (reporter_id, reporter_username, target_username,
+                             report_type, reason)
+        VALUES (?, ?, ?, ?, ?)
+    """, (reporter_id, reporter_username, target_username, report_type, reason))
+    report_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return report_id
+
+
+def get_open_reports(limit: int = 5) -> list[dict]:
+    """Return the newest `limit` open reports."""
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT * FROM reports WHERE status = 'open' ORDER BY id DESC LIMIT ?",
+        (limit,)
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_report_by_id(report_id: int) -> dict | None:
+    conn = get_connection()
+    row  = conn.execute(
+        "SELECT * FROM reports WHERE id = ?", (report_id,)
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def close_report(report_id: int, handled_by: str) -> bool:
+    """Mark a report as closed. Returns True on success."""
+    conn = get_connection()
+    try:
+        conn.execute(
+            "UPDATE reports SET status = 'closed', handled_by = ? WHERE id = ?",
+            (handled_by, report_id)
+        )
+        conn.commit()
+        return True
+    except Exception:
+        return False
+    finally:
+        conn.close()
+
+
+def get_reports_for_username(username: str, limit: int = 5) -> list[dict]:
+    """Return reports where the given username is reporter OR target."""
+    conn  = get_connection()
+    uname = username.lower()
+    rows  = conn.execute("""
+        SELECT * FROM reports
+        WHERE LOWER(reporter_username) = ?
+           OR LOWER(target_username)   = ?
+        ORDER BY id DESC LIMIT ?
+    """, (uname, uname, limit)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_my_reports(reporter_id: str, limit: int = 5) -> list[dict]:
+    """Return reports submitted by this player."""
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT * FROM reports WHERE reporter_id = ? ORDER BY id DESC LIMIT ?",
+        (reporter_id, limit)
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
 
 
 # ---------------------------------------------------------------------------

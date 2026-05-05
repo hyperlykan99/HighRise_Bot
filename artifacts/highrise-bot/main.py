@@ -69,6 +69,10 @@ from modules.events import (
     handle_eventpoints, handle_eventshop, handle_buyevent,
     handle_eventstart, handle_eventstop,
 )
+from modules.reports import (
+    handle_report, handle_bug, handle_myreports,
+    handle_reports, handle_reportinfo, handle_closereport, handle_reportwatch,
+)
 from modules.bank import (
     handle_bank, handle_send, handle_transactions, handle_bankstats,
     handle_banknotify,
@@ -99,6 +103,7 @@ MOD_ONLY_CMDS = {
     "resetgame", "announce", "viewtx", "bankwatch",
     "audit", "auditbank", "auditcasino", "auditeconomy", "audithelp",
     "economysettings",
+    "reports", "reportinfo", "closereport", "reportwatch",
 }
 
 MANAGER_ONLY_CMDS = {
@@ -135,6 +140,7 @@ ALL_KNOWN_COMMANDS = (
         "quests", "claimquest",
         "dailyquests", "weeklyquests", "questhelp",
         "eventpoints", "eventshop", "buyevent",
+        "report", "bug", "myreports",
     }
     | ECONOMY_COMMANDS | PROFILE_COMMANDS | GAME_COMMANDS
     | SHOP_COMMANDS | ACHIEVEMENT_COMMANDS | BJ_COMMANDS
@@ -710,6 +716,28 @@ class HangoutBot(BaseBot):
                 await self.highrise.send_whisper(user.id, "Usage: /answer <your answer>")
                 return
             await games_handle_answer(self, user, answer_text)
+
+        # ── Report commands ───────────────────────────────────────────────────
+        elif cmd == "report":
+            await handle_report(self, user, args)
+
+        elif cmd == "bug":
+            await handle_bug(self, user, args)
+
+        elif cmd == "myreports":
+            await handle_myreports(self, user)
+
+        elif cmd == "reports":
+            await handle_reports(self, user)
+
+        elif cmd == "reportinfo":
+            await handle_reportinfo(self, user, args)
+
+        elif cmd == "closereport":
+            await handle_closereport(self, user, args)
+
+        elif cmd == "reportwatch":
+            await handle_reportwatch(self, user, args)
 
         # ── Game commands ─────────────────────────────────────────────────────
         elif cmd in GAME_COMMANDS:
