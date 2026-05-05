@@ -142,8 +142,10 @@ async def handle_bank(bot: BaseBot, user: User, _args: list[str]):
     bus     = db.get_bank_user_stats(user.id)
     settings = db.get_bank_settings()
 
-    bal     = profile.get("balance", 0)
-    earned  = profile.get("total_coins_earned", 0)
+    bal        = profile.get("balance", 0)
+    earned     = profile.get("total_coins_earned", 0)
+    tip_earned = profile.get("tip_coins_earned", 0)
+    organic    = earned - tip_earned
     sent    = bus.get("total_sent", 0)
     recv    = bus.get("total_received", 0)
     daily_limit = int(settings.get("daily_send_limit", 3000))
@@ -162,7 +164,7 @@ async def handle_bank(bot: BaseBot, user: User, _args: list[str]):
         f"🏦 {display}\n"
         f"Bal: {bal:,}c | Daily left: {daily_left:,}c\n"
         f"Sent: {sent:,}c | Recv: {recv:,}c\n"
-        f"Earned: {earned:,}c\n"
+        f"Earned: {organic:,}c | Tips: {tip_earned:,}c\n"
         f"Status: {status}"
     )
     await _w(bot, user.id, msg)
@@ -352,8 +354,10 @@ async def handle_bankstats(bot: BaseBot, user: User):
     bj_row   = db.get_bj_stats(user.id)
     rbj_row  = db.get_rbj_stats(user.id)
 
-    bal     = profile.get("balance", 0)
-    earned  = profile.get("total_coins_earned", 0)
+    bal        = profile.get("balance", 0)
+    earned     = profile.get("total_coins_earned", 0)
+    tip_earned = profile.get("tip_coins_earned", 0)
+    organic    = earned - tip_earned
     sent    = bus.get("total_sent", 0)
     recv    = bus.get("total_received", 0)
 
@@ -366,7 +370,7 @@ async def handle_bankstats(bot: BaseBot, user: User):
     display = db.get_display_name(user.id, user.username)
     msg = (
         f"📊 {display}\n"
-        f"Bal: {bal:,}c | Earned: {earned:,}c\n"
+        f"Bal: {bal:,}c | Gameplay: {organic:,}c | Tips: {tip_earned:,}c\n"
         f"Sent: {sent:,}c | Recv: {recv:,}c\n"
         f"BJ net: {bj_sign}{bj_net:,}c | RBJ: {rbj_sign}{rbj_net:,}c"
     )
@@ -425,12 +429,14 @@ async def handle_bankwatch(bot: BaseBot, user: User, args: list[str]):
         await _w(bot, user.id, f"❌ @{clean_name} not found.")
         return
 
-    blocked = "Yes" if info["bank_blocked"] else "No"
+    blocked   = "Yes" if info["bank_blocked"] else "No"
+    org_e     = info.get("organic_earned", info["total_earned"])
+    tip_e     = info.get("tip_earned", 0)
     msg = (
         f"-- 👀 @{info['username']} --\n"
         f"Bal: {info['balance']:,}c Lvl: {info['level']}\n"
         f"Sent: {info['total_sent']:,}c Recv: {info['total_received']:,}c\n"
-        f"Daily: {info['daily_sent']:,}c Earned: {info['total_earned']:,}c\n"
+        f"Daily: {info['daily_sent']:,}c Org: {org_e:,}c Tip: {tip_e:,}c\n"
         f"1st: {info['first_seen']} Claims: {info['total_claims']}\n"
         f"Flags: {info['suspicious_count']} Blocked: {blocked}"
     )

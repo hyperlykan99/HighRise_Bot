@@ -173,16 +173,21 @@ async def handle_tiprate(bot: BaseBot, user: User, _args) -> None:
 async def handle_tipstats(bot: BaseBot, user: User, _args) -> None:
     """/tipstats — personal tip conversion summary."""
     db.ensure_user(user.id, user.username)
-    s     = db.get_tip_settings()
-    cap   = int(s.get("daily_cap_gold", 10000))
-    stats = db.get_tip_stats(user.id)
+    s       = db.get_tip_settings()
+    cap     = int(s.get("daily_cap_gold", 10000))
+    stats   = db.get_tip_stats(user.id)
+    profile = db.get_profile(user.id)
     remaining = max(0, cap - stats["today_gold"])
+
+    # tip_coins_earned from the users table is the authoritative running total
+    tip_coins = profile.get("tip_coins_earned", stats["total_coins"])
 
     display = db.get_display_name(user.id, user.username)
     msg = (
         f"💛 {display} Tips\n"
-        f"Total: {stats['total_gold']:,}g → {stats['total_coins']:,}c\n"
-        f"Today: {stats['today_gold']:,}g | Cap left: {remaining:,}g"
+        f"Total: {stats['total_gold']:,}g → {tip_coins:,}c\n"
+        f"Today: {stats['today_gold']:,}g | Cap left: {remaining:,}g\n"
+        f"Note: tip coins don't count toward send eligibility."
     )
     await _w(bot, user.id, msg)
 

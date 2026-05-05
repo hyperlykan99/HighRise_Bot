@@ -478,7 +478,8 @@ def _migrate_db():
         "ALTER TABLE rbj_settings ADD COLUMN rbj_daily_loss_limit  INTEGER NOT NULL DEFAULT 3000",
         "ALTER TABLE users         ADD COLUMN first_seen TEXT",
         "ALTER TABLE daily_claims  ADD COLUMN last_claim_ts TEXT",
-        "ALTER TABLE bank_user_stats ADD COLUMN bank_notify INTEGER NOT NULL DEFAULT 1",
+        "ALTER TABLE bank_user_stats ADD COLUMN bank_notify    INTEGER NOT NULL DEFAULT 1",
+        "ALTER TABLE users           ADD COLUMN tip_coins_earned INTEGER NOT NULL DEFAULT 0",
     ]:
         try:
             conn.execute(sql)
@@ -549,7 +550,8 @@ def add_coins_earned(user_id: str, amount: int):
 def get_profile(user_id: str) -> dict:
     conn = get_connection()
     row = conn.execute("""
-        SELECT username, balance, xp, level, total_games_won, total_coins_earned,
+        SELECT username, balance, xp, level, total_games_won,
+               total_coins_earned, tip_coins_earned,
                equipped_badge, equipped_title
         FROM users WHERE user_id = ?
     """, (user_id,)).fetchone()
@@ -1642,7 +1644,8 @@ def check_send_eligibility(user_id: str, settings: dict) -> dict:
     # 1. Account age
     new_account_days = int(settings.get("new_account_days", 3))
     u_row = conn.execute(
-        "SELECT first_seen, level, total_coins_earned FROM users WHERE user_id = ?",
+        "SELECT first_seen, level, total_coins_earned, tip_coins_earned "
+        "FROM users WHERE user_id = ?",
         (user_id,)
     ).fetchone()
     if u_row and u_row["first_seen"]:
@@ -1661,12 +1664,14 @@ def check_send_eligibility(user_id: str, settings: dict) -> dict:
         conn.close()
         return {"eligible": False, "reason": f"Need Level {min_level} to send coins."}
 
-    # 3. Total earned
-    min_earned = int(settings.get("min_total_earned_to_send", 500))
-    if u_row and (u_row["total_coins_earned"] or 0) < min_earned:
+    # 3. Organic earned (tip coins excluded — tipping gold cannot bypass this gate)
+    min_earned     = int(settings.get("min_total_earned_to_send", 500))
+    tip_earned_so  = (u_row["tip_coins_earned"] or 0) if u_row else 0
+    organic_earned = (u_row["total_coins_earned"] or 0) - tip_earned_so
+    if u_row and organic_earned < min_earned:
         conn.close()
         return {"eligible": False,
-                "reason": f"Must earn {min_earned}c from games first."}
+                "reason": f"Must earn {min_earned}c from gameplay first."}
 
     # 4. Daily claim count
     min_claims = int(settings.get("min_daily_claim_days_to_send", 2))
@@ -1953,7 +1958,8 @@ def get_bank_watch_info(username: str) -> dict | None:
     """Full bank-watch details for a given username."""
     conn = get_connection()
     u = conn.execute(
-        "SELECT user_id, username, balance, level, total_coins_earned, first_seen "
+        "SELECT user_id, username, balance, level, "
+        "       total_coins_earned, tip_coins_earned, first_seen "
         "FROM users WHERE LOWER(username) = LOWER(?)", (username,)
     ).fetchone()
     if u is None:
@@ -1971,19 +1977,23 @@ def get_bank_watch_info(username: str) -> dict | None:
         "SELECT total_claims FROM daily_claims WHERE user_id = ?", (uid,)
     ).fetchone()
     conn.close()
+    _total_e = u["total_coins_earned"] or 0
+    _tip_e   = u["tip_coins_earned"]   or 0
     return {
-        "user_id":       uid,
-        "username":      u["username"],
-        "balance":       u["balance"] or 0,
-        "level":         u["level"] or 1,
-        "total_earned":  u["total_coins_earned"] or 0,
-        "first_seen":    (u["first_seen"] or "unknown")[:10],
-        "total_sent":    bus["total_sent"] if bus else 0,
-        "total_received":bus["total_received"] if bus else 0,
-        "daily_sent":    daily_sent,
-        "bank_blocked":  bool(bus["bank_blocked"]) if bus else False,
+        "user_id":        uid,
+        "username":       u["username"],
+        "balance":        u["balance"] or 0,
+        "level":          u["level"] or 1,
+        "total_earned":   _total_e,
+        "tip_earned":     _tip_e,
+        "organic_earned": _total_e - _tip_e,
+        "first_seen":     (u["first_seen"] or "unknown")[:10],
+        "total_sent":     bus["total_sent"] if bus else 0,
+        "total_received": bus["total_received"] if bus else 0,
+        "daily_sent":     daily_sent,
+        "bank_blocked":   bool(bus["bank_blocked"]) if bus else False,
         "suspicious_count": bus["suspicious_transfer_count"] if bus else 0,
-        "total_claims":  (ds_row["total_claims"] or 0) if ds_row else 0,
+        "total_claims":   (ds_row["total_claims"] or 0) if ds_row else 0,
     }
 
 
@@ -2871,13 +2881,14 @@ def record_tip_conversion(
         VALUES (?, ?, ?, ?, ?, ?)
     """, (now_ts, user_id, username, gold_amount, bonus_pct, coins_awarded))
 
-    # Credit balance (capped) and record earned coins
+    # Credit balance (capped), record total earned, and track tip-sourced coins separately
     conn.execute("""
         UPDATE users
-        SET balance            = MIN(balance + ?, ?),
-            total_coins_earned = total_coins_earned + ?
+        SET balance             = MIN(balance + ?, ?),
+            total_coins_earned  = total_coins_earned  + ?,
+            tip_coins_earned    = tip_coins_earned    + ?
         WHERE user_id = ?
-    """, (coins_awarded, max_bal, coins_awarded, user_id))
+    """, (coins_awarded, max_bal, coins_awarded, coins_awarded, user_id))
 
     conn.commit()
     conn.close()
