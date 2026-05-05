@@ -58,7 +58,18 @@ from modules.realistic_blackjack import (
     soft_reset_table as rbj_soft_reset_table,
     startup_rbj_recovery,
 )
-from modules.poker               import handle_poker, reset_table as poker_reset_table
+from modules.poker import (
+    handle_poker, handle_pokerhelp,
+    handle_setpokerbuyin, handle_setpokerplayers,
+    handle_setpokerlobbytimer, handle_setpokertimer,
+    handle_setpokerraise,
+    handle_setpokerdailywinlimit, handle_setpokerdailylosslimit,
+    handle_resetpokerlimits,
+    startup_poker_recovery,
+    soft_reset_table as poker_soft_reset_table,
+    reset_table as poker_reset_table,
+    get_poker_state_str,
+)
 from modules.casino_settings     import (
     handle_casinosettings, handle_casinolimits, handle_casinotoggles,
     handle_setbjlimits, handle_setrbjlimits,
@@ -204,6 +215,10 @@ MOD_ONLY_CMDS = {
 
 MANAGER_ONLY_CMDS = {
     "automod",
+    "setpokerbuyin", "setpokerplayers", "setpokerlobbytimer",
+    "setpokertimer", "setpokerraise",
+    "setpokerdailywinlimit", "setpokerdailylosslimit",
+    "resetpokerlimits",
     "banksettings",
     "setbjminbet", "setbjmaxbet", "setbjcountdown", "setbjturntimer",
     "setbjdailywinlimit", "setbjdailylosslimit",
@@ -278,7 +293,11 @@ ALL_KNOWN_COMMANDS = (
         "autogames", "autoevents", "gameconfig",
         "report", "bug", "myreports",
         "rep", "reputation", "repstats", "toprep", "repleaderboard",
-        "poker",
+        "poker", "pokerhelp",
+        "setpokerbuyin", "setpokerplayers", "setpokerlobbytimer",
+        "setpokertimer", "setpokerraise",
+        "setpokerdailywinlimit", "setpokerdailylosslimit",
+        "resetpokerlimits",
         "botstatus", "dbstats", "backup",
         "maintenance", "reloadsettings", "cleanup",
         "restarthelp", "restartstatus", "softrestart", "restartbot",
@@ -500,7 +519,8 @@ CASINO_ADMIN_HELP_PAGES = [
         "/casinolimits\n"
         "/casinotoggles\n"
         "/bj on/off\n"
-        "/rbj on/off"
+        "/rbj on/off\n"
+        "/poker on/off"
     ),
     (
         "🎰 Casino Admin 2\n"
@@ -522,8 +542,24 @@ CASINO_ADMIN_HELP_PAGES = [
         "🎰 Casino Admin 4\n"
         "/bj forcefinish\n"
         "/rbj forcefinish\n"
-        "/casino reset\n"
-        "/confirmcasinoreset <code>"
+        "/poker cancel/refund\n"
+        "/poker forcefinish\n"
+        "/casino reset"
+    ),
+    (
+        "🎰 Casino Admin 5 — Poker\n"
+        "/setpokerbuyin <min> <max>\n"
+        "/setpokerplayers <min> <max>\n"
+        "/setpokertimer <sec>\n"
+        "/setpokerraise <min> <max>"
+    ),
+    (
+        "🎰 Casino Admin 6 — Poker\n"
+        "/setpokerdailywinlimit <amt>\n"
+        "/setpokerdailylosslimit <amt>\n"
+        "/poker winlimit on/off\n"
+        "/poker losslimit on/off\n"
+        "/resetpokerlimits <user>"
     ),
 ]
 
@@ -1324,6 +1360,7 @@ class HangoutBot(BaseBot):
         # Recover any BJ/RBJ tables that were active before last shutdown
         asyncio.create_task(startup_bj_recovery(self))
         asyncio.create_task(startup_rbj_recovery(self))
+        asyncio.create_task(startup_poker_recovery(self))
         # Start background automation loops (idempotent — safe on reconnect)
         start_auto_game_loop(self)
         start_auto_event_loop(self)
@@ -1943,6 +1980,33 @@ class HangoutBot(BaseBot):
         # ── Poker ─────────────────────────────────────────────────────────────
         elif cmd == "poker":
             await handle_poker(self, user, args)
+
+        elif cmd == "pokerhelp":
+            await handle_pokerhelp(self, user, args)
+
+        elif cmd == "setpokerbuyin":
+            await handle_setpokerbuyin(self, user, args)
+
+        elif cmd == "setpokerplayers":
+            await handle_setpokerplayers(self, user, args)
+
+        elif cmd == "setpokerlobbytimer":
+            await handle_setpokerlobbytimer(self, user, args)
+
+        elif cmd == "setpokertimer":
+            await handle_setpokertimer(self, user, args)
+
+        elif cmd == "setpokerraise":
+            await handle_setpokerraise(self, user, args)
+
+        elif cmd == "setpokerdailywinlimit":
+            await handle_setpokerdailywinlimit(self, user, args)
+
+        elif cmd == "setpokerdailylosslimit":
+            await handle_setpokerdailylosslimit(self, user, args)
+
+        elif cmd == "resetpokerlimits":
+            await handle_resetpokerlimits(self, user, args)
 
         # ── Maintenance tools ─────────────────────────────────────────────────
         elif cmd == "botstatus":

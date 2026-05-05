@@ -1,0 +1,824 @@
+Rebuild and solidify the Poker system into a complete, stable, crash-safe Texas Hold’em Lite system.
+
+Current problems:
+- Poker table can get stuck after a user auto-folds.
+- Active table does not finish properly after players fold/lose.
+- Player buy-ins/bets are not being added to the pot correctly.
+- Bot messages are confusing.
+- Poker needs limit settings like BJ/RBJ.
+- Poker must survive bot crash/restart/softrestart.
+- Poker hands, cards, pot, deck, bets, and player turns must be saved like RBJ.
+- When bot restarts, it should notify players that the previous poker table/cards were restored.
+
+IMPORTANT:
+- Do not remove existing bot features.
+- Keep coins, XP, bank, shop, blackjack, RBJ, gold, VIP, notifications, reports, events, quests, reputation, staff roles, and maintenance tools.
+- Use SQLite.
+- Keep every Highrise message under 250 characters.
+- Prevent crashes from bad inputs.
+- Poker must use coins only.
+- Add explicit command routing before unknown-command fallback.
+- Poker must never deduct coins without either continuing, resolving, or refunding.
+
+==================================================
+PART 1: POKER MODE DESIGN
+==================================================
+
+Poker mode:
+Texas Hold’em Lite.
+
+Commands:
+- /poker join <buyin>
+- /poker leave
+- /poker players
+- /poker table
+- /poker hand
+- /poker check
+- /poker call
+- /poker raise <amount>
+- /poker fold
+- /poker rules
+- /poker stats
+- /poker limits
+- /poker settings
+- /poker on
+- /poker off
+- /poker cancel
+- /poker reset
+- /poker state
+- /poker recover
+- /poker refund
+- /poker forcefinish
+- /pokerhelp
+
+Permissions:
+- Players can use join, leave, players, table, hand, check, call, raise, fold, rules, stats, limits, pokerhelp.
+- Owner/admin/manager can use settings, on, off, cancel, reset, state, recover, refund, forcefinish.
+
+Default settings:
+- poker_enabled = true
+- min_buyin = 100 coins
+- max_buyin = 5000 coins
+- min_players = 2
+- max_players = 6
+- lobby_countdown = 15 seconds
+- turn_timer = 20 seconds
+- min_raise = 50 coins
+- max_raise = 1000 coins
+- table_daily_win_limit = 10000 coins
+- table_daily_loss_limit = 5000 coins
+- win_limit_enabled = true
+- loss_limit_enabled = true
+- poker_buyin_to_pot = false
+
+==================================================
+PART 2: POKER SETTINGS COMMANDS
+==================================================
+
+Add staff settings commands:
+- /setpokerbuyin <min> <max>
+- /setpokerplayers <min> <max>
+- /setpokerlobbytimer <seconds>
+- /setpokertimer <seconds>
+- /setpokerraise <min> <max>
+- /setpokerdailywinlimit <amount>
+- /setpokerdailylosslimit <amount>
+- /poker winlimit on
+- /poker winlimit off
+- /poker losslimit on
+- /poker losslimit off
+
+Validation:
+- min_buyin must be at least 1.
+- max_buyin must be >= min_buyin.
+- min_players must be 2 or higher.
+- max_players must be between 2 and 6.
+- lobby_countdown must be 5 to 120 seconds.
+- turn_timer must be 10 to 60 seconds.
+- min_raise must be at least 1.
+- max_raise must be >= min_raise.
+- daily limits must be positive.
+- Store settings in SQLite.
+
+Messages:
+/poker limits:
+"♠️ Poker Limits
+Buy-in: 100-5000c
+Raise: 50-1000c
+Daily W/L: 10000/5000"
+
+/poker settings:
+"♠️ Poker ON | Players 2-6 | Timer 20s | Buy-in 100-5000c"
+
+==================================================
+PART 3: DATABASE TABLES
+==================================================
+
+Create poker_settings table if missing:
+- key TEXT PRIMARY KEY
+- value TEXT
+
+Create poker_active_table table:
+- id INTEGER PRIMARY KEY CHECK (id = 1)
+- active INTEGER DEFAULT 0
+- phase TEXT
+  Values: idle, lobby, preflop, flop, turn, river, showdown, finished, recovery_required
+- round_id TEXT
+- created_at TEXT
+- updated_at TEXT
+- lobby_started_at TEXT
+- lobby_ends_at TEXT
+- round_started_at TEXT
+- turn_ends_at TEXT
+- current_player_index INTEGER DEFAULT 0
+- dealer_button_index INTEGER DEFAULT 0
+- deck_json TEXT
+- community_cards_json TEXT
+- pot INTEGER DEFAULT 0
+- current_bet INTEGER DEFAULT 0
+- last_raiser_username TEXT
+- settings_snapshot_json TEXT
+- restored_after_restart INTEGER DEFAULT 0
+
+Create poker_active_players:
+- id INTEGER PRIMARY KEY AUTOINCREMENT
+- round_id TEXT
+- username TEXT
+- user_id TEXT
+- buyin INTEGER
+- stack INTEGER
+- current_bet INTEGER DEFAULT 0
+- total_contributed INTEGER DEFAULT 0
+- hole_cards_json TEXT
+- status TEXT
+  Values: lobby, active, folded, allin, busted, done, left
+- acted INTEGER DEFAULT 0
+- joined_at TEXT
+- acted_at TEXT
+- result TEXT
+- payout INTEGER DEFAULT 0
+- UNIQUE(round_id, username)
+
+Create poker_stats:
+- username TEXT PRIMARY KEY
+- hands_played INTEGER DEFAULT 0
+- wins INTEGER DEFAULT 0
+- losses INTEGER DEFAULT 0
+- folds INTEGER DEFAULT 0
+- total_buyin INTEGER DEFAULT 0
+- total_won INTEGER DEFAULT 0
+- total_lost INTEGER DEFAULT 0
+- biggest_pot INTEGER DEFAULT 0
+
+Create poker_round_results:
+- id INTEGER PRIMARY KEY AUTOINCREMENT
+- round_id TEXT
+- username TEXT
+- buyin INTEGER
+- result TEXT
+- payout INTEGER
+- net INTEGER
+- paid INTEGER DEFAULT 0
+- timestamp TEXT
+- UNIQUE(round_id, username)
+
+Create poker_daily_limits:
+- username TEXT
+- date TEXT
+- net INTEGER DEFAULT 0
+- PRIMARY KEY(username, date)
+
+Create poker_recovery_logs:
+- id INTEGER PRIMARY KEY AUTOINCREMENT
+- timestamp TEXT
+- action TEXT
+- round_id TEXT
+- phase TEXT
+- details TEXT
+
+==================================================
+PART 4: BUY-IN, STACK, AND POT FIX
+==================================================
+
+Fix the pot/buy-in system.
+
+Rules:
+- When a player joins lobby with /poker join <buyin>, deduct buyin immediately from their coin balance.
+- Save buyin in poker_active_players.
+- The buyin becomes the player’s poker stack for this round.
+- Pot starts at 0 by default.
+- Do NOT add entire buyin to the pot unless poker_buyin_to_pot is true.
+- Default poker_buyin_to_pot = false.
+- Chips go into pot only when player calls/raises/bets.
+- Player stack is separate from coin balance.
+- At the end of the hand:
+  - Winner receives pot.
+  - Each player receives their uncommitted remaining stack back.
+  - Folded players lose only chips they already contributed to pot.
+  - Folded players should still get uncommitted stack refunded.
+- This prevents players from losing full buy-in unless they actually bet it.
+
+Example:
+Player joins with 1000c:
+- coin balance decreases by 1000
+- poker stack = 1000
+- pot = 0
+
+Player raises 100:
+- stack = 900
+- current_bet = 100
+- total_contributed += 100
+- pot += 100
+
+Player folds:
+- contributed chips stay in pot
+- remaining stack is returned at hand end
+
+==================================================
+PART 5: SIMPLE BETTING RULES
+==================================================
+
+Use simple stable betting.
+
+Betting rounds:
+- preflop
+- flop
+- turn
+- river
+
+Actions:
+- /poker check
+  Allowed only if current_bet == player.current_bet.
+- /poker call
+  Player contributes difference between table current_bet and player.current_bet.
+- /poker raise <amount>
+  Amount means raise by amount above current_bet.
+  Must be between min_raise and max_raise.
+  Player must have enough stack.
+- /poker fold
+  Player folds and cannot win the pot.
+
+No all-in for first stable version:
+- If player does not have enough stack to call/raise, say:
+"Not enough poker chips."
+- Do not allow all-in yet.
+- No side pots yet.
+
+Round advances when:
+- All active non-folded players have acted.
+- All active non-folded players have matched current_bet.
+- Or only one non-folded player remains.
+
+If only one non-folded player remains:
+- Immediately finish hand.
+- Award pot to remaining player.
+- Return uncommitted stacks.
+- Clear table.
+- Do not get stuck.
+
+Auto-fold:
+- If player times out and current_bet > player.current_bet, auto-fold.
+- If player times out and current_bet == player.current_bet, auto-check.
+- After auto-fold/check, immediately call advance_turn_or_round().
+- If only one player remains, finish immediately.
+
+==================================================
+PART 6: TURN FLOW
+==================================================
+
+Create one reliable function:
+advance_turn_or_round()
+
+It must:
+1. Check active non-folded players.
+2. If only one active player remains:
+   - finish hand immediately using reason everyone_folded.
+3. If all active players matched current_bet and acted:
+   - advance to next phase.
+4. Phase advance:
+   - preflop -> flop: deal 3 community cards
+   - flop -> turn: deal 1 card
+   - turn -> river: deal 1 card
+   - river -> showdown
+5. Reset current_bet to 0 at each new street.
+6. Reset each active player current_bet to 0 at each new street.
+7. Reset acted = 0 for active players at each new street.
+8. Start next player turn.
+9. Save table state to SQLite after each step.
+
+This function must be used after:
+- check
+- call
+- raise
+- fold
+- auto-fold
+- auto-check
+- timeout
+- player leaves before start
+- forcefinish
+
+Do not duplicate poker flow logic across commands.
+
+==================================================
+PART 7: TABLE CLEANUP
+==================================================
+
+Fix stuck active table.
+
+When hand ends:
+- Pay winner(s).
+- Return uncommitted stacks.
+- Update stats.
+- Update daily limits.
+- Mark round results paid.
+- Clear poker_active_table or set active = 0 and phase = idle.
+- Clear poker_active_players for that round only after successful payouts/refunds are logged.
+- Cancel timers.
+- Allow new /poker join.
+
+Add helper:
+finish_poker_hand(reason)
+
+Reasons:
+- showdown
+- everyone_folded
+- cancelled
+- forcefinish
+- recovery_refund
+- not_enough_players
+
+Never leave phase active after hand is done.
+
+==================================================
+PART 8: HAND EVALUATION
+==================================================
+
+Evaluate best 5-card hand from:
+- 2 hole cards
+- 5 community cards
+
+Hand rankings:
+1. Royal Flush
+2. Straight Flush
+3. Four of a Kind
+4. Full House
+5. Flush
+6. Straight
+7. Three of a Kind
+8. Two Pair
+9. Pair
+10. High Card
+
+Ties:
+- Split pot evenly.
+- Remainder coin goes to first winner by table order.
+
+Showdown message:
+"🏆 Winner: @user with Flush. Pot: 500c."
+
+If split:
+"🤝 Split pot: @u1, @u2 each get 250c."
+
+==================================================
+PART 9: PRIVATE HANDS
+==================================================
+
+Private cards:
+- When hand starts, send each player their 2 hole cards privately if possible.
+- If whisper/DM fails, tell them:
+"Use /poker hand to view your cards."
+- /poker hand only shows the requesting player’s cards.
+- Never reveal hole cards publicly until showdown if needed.
+
+Message:
+/poker hand:
+"🂡 Your hand: A♠ K♦"
+
+If not in hand:
+"You are not in the poker hand."
+
+==================================================
+PART 10: CRASH/RESTART RECOVERY
+==================================================
+
+Poker must work like RBJ recovery.
+
+Persist poker state after every important action:
+- player joins
+- player leaves
+- lobby starts
+- hand starts
+- hole cards dealt
+- community cards dealt
+- deck changes
+- pot changes
+- stack changes
+- current_bet changes
+- player action
+- player status changes
+- current turn changes
+- timer end time changes
+- phase changes
+- payout starts
+- payout completes
+
+Save:
+- deck_json
+- community_cards_json
+- each player hole_cards_json
+- each player stack
+- each player current_bet
+- each player total_contributed
+- pot
+- current_bet
+- current_player_index
+- phase
+- round_id
+- lobby_ends_at
+- turn_ends_at
+
+On bot startup/on_start:
+- Check poker_active_table.
+- If active = 1 and phase is lobby:
+  - Restore lobby players and buy-ins.
+  - If lobby_ends_at still has time left, restart countdown with remaining time.
+  - If lobby_ends_at expired, start the hand if enough players.
+  - If not enough players, refund and clear table.
+
+- If active = 1 and phase is preflop/flop/turn/river/showdown:
+  - Restore all hands, deck, board, pot, bets, stacks, statuses, turn, timers.
+  - Announce:
+    "♻️ Poker table restored after restart. Previous cards loaded."
+  - If it is a player's turn and turn_ends_at has time left, restart turn timer with remaining time.
+  - If turn_ends_at expired, auto-check or auto-fold and continue.
+  - If all active players are done, advance_turn_or_round().
+  - If only one active player remains, finish hand immediately.
+
+- If active = 1 but state is corrupted:
+  - Mark phase = recovery_required.
+  - Do NOT erase bets.
+  - Announce to staff:
+    "⚠️ Poker recovery needed. Use /poker recover or /poker refund."
+
+Notify players after recovery:
+- Public room message:
+"♻️ Poker table restored. Cards, pot, and bets were loaded."
+- If possible, whisper each active poker player:
+"♻️ Poker restored. Use /poker hand to view your cards."
+
+Add recovery log:
+- When recovered successfully, insert poker_recovery_logs:
+  action = recovered
+  round_id
+  phase
+  details
+
+==================================================
+PART 11: RECOVERY COMMANDS
+==================================================
+
+Add staff recovery commands:
+- /poker state
+- /poker recover
+- /poker refund
+- /poker forcefinish
+
+Permissions:
+- Owner/admin/manager only.
+
+/poker state:
+Shows:
+- phase
+- players
+- current turn
+- pot
+- current bet
+
+Example:
+"Poker active | Flop | Pot 500c | Turn @Marion"
+
+/poker recover:
+- Reloads poker active table from SQLite and continues.
+- Announces:
+"♻️ Poker recovered. Previous cards loaded."
+
+/poker refund:
+- Cancels poker table.
+- Refunds unresolved stacks and contributions safely.
+- Clears table.
+- Logs reason poker_recovery_refund.
+- Does not erase poker stats.
+
+/poker forcefinish:
+- Forces hand to finish from saved state if possible.
+- If impossible, tells staff to use /poker refund.
+
+==================================================
+PART 12: PAYOUT SAFETY
+==================================================
+
+Prevent duplicate payouts.
+
+Rules:
+- Generate unique round_id when lobby starts or hand starts.
+- Save round_id in poker_active_table and poker_active_players.
+- Before paying a player, check poker_round_results.
+- Never pay same round_id + username twice.
+- If bot crashes during payout:
+  - recovery continues unpaid results only.
+  - completed payouts are not repeated.
+- Log every payout/refund in economy ledger.
+
+Payout calculations:
+- Winner payout = pot share + uncommitted stack return.
+- Loser/folded payout = uncommitted stack return only.
+- Net = payout - original buyin.
+- Update poker daily limit net using final net.
+
+==================================================
+PART 13: DAILY LIMITS
+==================================================
+
+Add poker daily win/loss limits like BJ/RBJ.
+
+Commands:
+- /poker limits
+- /setpokerdailywinlimit <amount>
+- /setpokerdailylosslimit <amount>
+- /poker winlimit on
+- /poker winlimit off
+- /poker losslimit on
+- /poker losslimit off
+- /resetpokerlimits <username>
+
+Rules:
+- Track daily net poker profit/loss.
+- If player reaches daily win limit, block /poker join.
+- If player reaches daily loss limit, block /poker join.
+- If joining with buyin could exceed loss limit, block it.
+- Staff can reset a player’s daily poker limits.
+- Store in SQLite.
+
+Messages:
+"Poker win limit reached. Try tomorrow."
+"Poker loss limit reached. Try tomorrow."
+"Buy-in too high for daily loss limit."
+
+==================================================
+PART 14: READABLE BOT MESSAGES
+==================================================
+
+Redesign poker messages to be short and clear.
+
+Lobby opened:
+"♠️ Poker lobby open! /poker join <buyin>. Starts in 15s."
+
+Player joined:
+"✅ @user joined Poker with 1000c. Players: 2/6"
+
+Not enough players:
+"Poker cancelled. Need 2+ players. Buy-ins refunded."
+
+Hand started:
+"♠️ Poker started! Pot: 0c. Check /poker hand."
+
+Flop:
+"🃏 Flop: A♠ 7♦ 2♣ | Pot: 300c"
+
+Turn:
+"🃏 Turn: K♥ | Board: A♠ 7♦ 2♣ K♥"
+
+River:
+"🃏 River: 9♣ | Board: A♠ 7♦ 2♣ K♥ 9♣"
+
+Player turn:
+"➡️ @user turn. Pot: 300c | To call: 100c | /poker call, raise, fold"
+
+Check:
+"✅ @user checks."
+
+Call:
+"✅ @user calls 100c. Pot: 400c."
+
+Raise:
+"⬆️ @user raises 200c. To call: 200c."
+
+Fold:
+"🂠 @user folds."
+
+Auto-fold:
+"⏰ @user timed out and folded."
+
+Auto-check:
+"⏰ @user timed out and checked."
+
+Win by folds:
+"🏆 @user wins 500c. Everyone else folded."
+
+Showdown:
+"👀 Showdown! Board: A♠ 7♦ 2♣ K♥ 9♣"
+
+Winner:
+"🏆 @user wins 800c with Two Pair."
+
+Restored:
+"♻️ Poker table restored. Previous cards loaded."
+
+Table cleared:
+"♠️ Poker table closed. New game: /poker join <buyin>"
+
+All messages must be under 250 characters.
+
+==================================================
+PART 15: TIMERS
+==================================================
+
+Use asyncio.create_task.
+Do not use time.sleep.
+
+Lobby timer:
+- Start when first player joins.
+- Save lobby_ends_at in SQLite.
+- If not enough players at end, cancel and refund.
+- If enough players, start hand.
+
+Turn timer:
+- Default 20 seconds.
+- Save turn_ends_at in SQLite.
+- If player acts, cancel timer.
+- If timer fires:
+  - auto-check if no call required
+  - auto-fold if call required
+  - then advance_turn_or_round()
+
+Safety:
+- If timer fires but table is no longer active, do nothing.
+- If timer fires but it is not that player's turn, do nothing.
+- If hand already ended, do nothing.
+
+==================================================
+PART 16: ON/OFF, CANCEL, RESET
+==================================================
+
+/poker on:
+"✅ Poker is now ON."
+
+/poker off:
+"⛔ Poker is now OFF."
+- Blocks new lobbies.
+- Existing active hand can continue unless cancelled.
+
+/poker cancel:
+- Staff only.
+- Cancels lobby/hand.
+- Refunds unresolved buy-ins/stacks/contributions safely.
+- Clears table.
+- Cancels timers.
+
+/poker reset:
+- Staff only.
+- Strong cleanup for stuck poker.
+- Refunds unresolved chips.
+- Clears active table.
+- Does not erase poker stats.
+
+==================================================
+PART 17: SOFTRESTART INTEGRATION
+==================================================
+
+Update /softrestart:
+- Save active poker state before cancelling in-memory timers.
+- Cancel poker lobby/turn timers safely.
+- Reload poker settings.
+- Recover poker active state from SQLite.
+- If poker was active, announce:
+"♻️ Poker table restored. Previous cards loaded."
+- Do not refund or clear poker unless staff uses /poker refund or /poker reset.
+
+Update /restartstatus:
+Include poker state:
+"Poker idle" or "Poker active".
+
+Update /healthcheck:
+Include poker state and recovery_required if active.
+
+==================================================
+PART 18: HELP UPDATE
+==================================================
+
+Update /casinohelp:
+Add:
+"Poker: /poker join <buyin>, /poker table, /poker hand"
+
+Add /pokerhelp:
+
+/pokerhelp 1:
+"♠️ Poker
+/poker join <buyin>
+/poker hand
+/poker table
+/poker check/call/fold"
+
+/pokerhelp 2:
+"♠️ Poker 2
+/poker raise <amt>
+/poker players
+/poker stats
+/poker rules
+/poker limits"
+
+/pokerhelp 3:
+"♠️ Poker Staff
+/poker settings
+/poker on/off
+/poker cancel
+/poker state
+/poker recover/refund"
+
+Update /managerhelp:
+Add poker staff commands.
+
+Update /allcommands:
+Add poker commands.
+
+==================================================
+PART 19: TESTS TO RUN
+==================================================
+
+Test 1: Lobby cancel
+- /poker join 100
+- wait 15 seconds with only 1 player
+Expected:
+- cancelled
+- buy-in refunded
+- table cleared
+
+Test 2: Two players start
+- player1 /poker join 1000
+- player2 /poker join 1000
+Expected:
+- lobby starts
+- both buy-ins deducted
+- both stacks = 1000
+- pot = 0
+- hand starts
+- /poker hand shows correct private hand for each player
+
+Test 3: Betting pot
+- player1 raises 100
+- player2 calls 100
+Expected:
+- pot = 200
+- each stack = 900
+- current_bet resets after street
+
+Test 4: Auto-fold
+- player times out when call required
+Expected:
+- auto-fold
+- game continues
+- if one player remains, winner gets pot
+- table clears
+
+Test 5: Auto-check
+- player times out when no call required
+Expected:
+- auto-check
+- game continues
+
+Test 6: Everyone folds
+Expected:
+- remaining player wins pot
+- uncommitted stacks returned
+- table clears
+- new /poker join allowed
+
+Test 7: Showdown
+Expected:
+- winner determined
+- pot paid once
+- uncommitted stacks returned
+- stats updated
+- table clears
+
+Test 8: Restart recovery
+- start poker
+- make a bet
+- /softrestart
+Expected:
+- same table recovers
+- same hole cards, deck, board, pot, stacks, bets, phase, and turn preserved
+- bot announces previous cards loaded
+
+Test 9: Staff refund
+- start poker
+- /poker refund
+Expected:
+- unresolved chips refunded
+- table clears
+
+Final requirements:
+- Poker must never leave an active table stuck after timeout, fold, auto-fold, showdown, cancel, reset, refund, or restart.
+- Poker must never deduct buy-ins without either continuing, resolving, or refunding.
+- Poker must save hands/cards/deck/pot/bets like RBJ.
+- Poker must notify players after restart that previous cards were loaded.

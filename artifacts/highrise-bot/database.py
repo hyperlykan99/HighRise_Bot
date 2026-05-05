@@ -410,7 +410,127 @@ def init_db():
             losses       INTEGER NOT NULL DEFAULT 0,
             folds        INTEGER NOT NULL DEFAULT 0,
             total_won    INTEGER NOT NULL DEFAULT 0,
+            total_lost   INTEGER NOT NULL DEFAULT 0,
+            total_buyin  INTEGER NOT NULL DEFAULT 0,
             biggest_pot  INTEGER NOT NULL DEFAULT 0
+        )
+    """)
+
+    # Migrate poker_stats: add new columns if they don't exist yet
+    for _col, _def in [("total_lost", "INTEGER NOT NULL DEFAULT 0"),
+                        ("total_buyin", "INTEGER NOT NULL DEFAULT 0")]:
+        try:
+            conn.execute(f"ALTER TABLE poker_stats ADD COLUMN {_col} {_def}")
+        except Exception:
+            pass
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS poker_settings (
+            key   TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        )
+    """)
+    for _k, _v in [
+        ("poker_enabled",          "1"),
+        ("min_buyin",              "100"),
+        ("max_buyin",              "5000"),
+        ("min_players",            "2"),
+        ("max_players",            "6"),
+        ("lobby_countdown",        "15"),
+        ("turn_timer",             "20"),
+        ("min_raise",              "50"),
+        ("max_raise",              "1000"),
+        ("table_daily_win_limit",  "10000"),
+        ("table_daily_loss_limit", "5000"),
+        ("win_limit_enabled",      "1"),
+        ("loss_limit_enabled",     "1"),
+        ("poker_buyin_to_pot",     "0"),
+    ]:
+        conn.execute(
+            "INSERT OR IGNORE INTO poker_settings (key, value) VALUES (?, ?)",
+            (_k, _v),
+        )
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS poker_active_table (
+            id                     INTEGER PRIMARY KEY CHECK (id = 1),
+            active                 INTEGER DEFAULT 0,
+            phase                  TEXT    DEFAULT 'idle',
+            round_id               TEXT,
+            created_at             TEXT,
+            updated_at             TEXT,
+            lobby_started_at       TEXT,
+            lobby_ends_at          TEXT,
+            round_started_at       TEXT,
+            turn_ends_at           TEXT,
+            current_player_index   INTEGER DEFAULT 0,
+            dealer_button_index    INTEGER DEFAULT 0,
+            deck_json              TEXT    DEFAULT '[]',
+            community_cards_json   TEXT    DEFAULT '[]',
+            pot                    INTEGER DEFAULT 0,
+            current_bet            INTEGER DEFAULT 0,
+            last_raiser_username   TEXT,
+            settings_snapshot_json TEXT,
+            restored_after_restart INTEGER DEFAULT 0
+        )
+    """)
+    conn.execute(
+        "INSERT OR IGNORE INTO poker_active_table (id, active, phase) VALUES (1, 0, 'idle')"
+    )
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS poker_active_players (
+            id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            round_id          TEXT    NOT NULL,
+            username          TEXT    NOT NULL,
+            user_id           TEXT    NOT NULL,
+            buyin             INTEGER NOT NULL,
+            stack             INTEGER NOT NULL,
+            current_bet       INTEGER DEFAULT 0,
+            total_contributed INTEGER DEFAULT 0,
+            hole_cards_json   TEXT    DEFAULT '[]',
+            status            TEXT    DEFAULT 'lobby',
+            acted             INTEGER DEFAULT 0,
+            joined_at         TEXT,
+            acted_at          TEXT,
+            result            TEXT,
+            payout            INTEGER DEFAULT 0,
+            UNIQUE(round_id, username)
+        )
+    """)
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS poker_round_results (
+            id        INTEGER PRIMARY KEY AUTOINCREMENT,
+            round_id  TEXT    NOT NULL,
+            username  TEXT    NOT NULL,
+            buyin     INTEGER DEFAULT 0,
+            result    TEXT,
+            payout    INTEGER DEFAULT 0,
+            net       INTEGER DEFAULT 0,
+            paid      INTEGER DEFAULT 0,
+            timestamp TEXT,
+            UNIQUE(round_id, username)
+        )
+    """)
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS poker_daily_limits (
+            username TEXT NOT NULL,
+            date     TEXT NOT NULL,
+            net      INTEGER DEFAULT 0,
+            PRIMARY KEY(username, date)
+        )
+    """)
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS poker_recovery_logs (
+            id        INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT,
+            action    TEXT,
+            round_id  TEXT,
+            phase     TEXT,
+            details   TEXT
         )
     """)
 
@@ -2713,6 +2833,8 @@ def update_poker_stats(
     losses: int = 0,
     folds: int = 0,
     total_won: int = 0,
+    total_lost: int = 0,
+    total_buyin: int = 0,
     biggest_pot: int = 0,
     hands: int = 0,
 ) -> None:
@@ -2728,9 +2850,12 @@ def update_poker_stats(
             losses       = losses + ?,
             folds        = folds + ?,
             total_won    = total_won + ?,
+            total_lost   = total_lost + ?,
+            total_buyin  = total_buyin + ?,
             biggest_pot  = MAX(biggest_pot, ?)
         WHERE user_id = ?
-    """, (hands, wins, losses, folds, total_won, biggest_pot, user_id))
+    """, (hands, wins, losses, folds, total_won, total_lost, total_buyin,
+          biggest_pot, user_id))
     conn.commit()
     conn.close()
 

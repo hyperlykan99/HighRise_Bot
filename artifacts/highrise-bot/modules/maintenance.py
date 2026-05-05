@@ -251,6 +251,13 @@ async def handle_healthcheck(bot: BaseBot, user: User) -> None:
     except Exception:
         parts.append("RBJ:ERR")
 
+    # Poker state
+    try:
+        from modules.poker import get_poker_state_str
+        parts.append(f"Poker:{get_poker_state_str()}")
+    except Exception:
+        parts.append("Poker:ERR")
+
     # Bank settings
     try:
         bs = db.get_bank_settings()
@@ -322,6 +329,12 @@ async def handle_restartstatus(bot: BaseBot, user: User) -> None:
     except Exception:
         bj_phase = rbj_phase = "?"
 
+    try:
+        from modules.poker import get_poker_state_str
+        poker_state = get_poker_state_str()
+    except Exception:
+        poker_state = "ERR"
+
     lines = [
         "🔄 Restart Status",
         "✅ /softrestart installed",
@@ -329,6 +342,7 @@ async def handle_restartstatus(bot: BaseBot, user: User) -> None:
         f"AutoGames:{ag_en}(loop:{'alive' if ag_alive else 'dead'})",
         f"AutoEvents:{ae_en}(loop:{'alive' if ae_alive else 'dead'})",
         f"BJ:{bj_phase} | RBJ:{rbj_phase}",
+        f"Poker:{poker_state}",
         f"Uptime:{_uptime()}",
     ]
     await _w(bot, user.id, "\n".join(lines)[:249])
@@ -411,13 +425,13 @@ async def handle_softrestart(bot: BaseBot, user: User) -> None:
     except Exception as exc:
         print(f"[MAINT] softrestart: RBJ soft-reset error: {exc}")
 
-    # ── 6. Reset Poker table ──────────────────────────────────────────────────
+    # ── 6. Soft-reset Poker (save DB state, cancel timers — no refund) ────────
     try:
-        from modules.poker import reset_table as _poker_reset
-        _poker_reset()
-        print("[MAINT] softrestart: Poker table reset.")
+        from modules.poker import soft_reset_table as _poker_soft_reset
+        _poker_soft_reset()
+        print("[MAINT] softrestart: Poker table soft-reset (state saved).")
     except Exception as exc:
-        print(f"[MAINT] softrestart: Poker reset error: {exc}")
+        print(f"[MAINT] softrestart: Poker soft-reset error: {exc}")
 
     # ── 7. Cancel active event countdown task ─────────────────────────────────
     try:
