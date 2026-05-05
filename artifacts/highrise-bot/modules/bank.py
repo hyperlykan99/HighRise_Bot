@@ -280,11 +280,27 @@ async def handle_send(bot: BaseBot, user: User, args: list[str]):
             await _w(bot, user.id, "❌ Transfer failed. Try again.")
         return
 
-    recv_display = db.get_display_name(receiver["user_id"], receiver["username"])
+    recv_display   = db.get_display_name(receiver["user_id"], receiver["username"])
+    sender_display = db.get_display_name(user.id, user.username)
+
+    # ── Notify sender ────────────────────────────────────────────────────────
     if fee > 0:
         await _w(bot, user.id, f"✅ Sent {amount_received:,}c to {recv_display}. Fee: {fee}c.")
     else:
         await _w(bot, user.id, f"✅ Sent {amount_received:,}c to {recv_display}.")
+
+    # ── Notify receiver (whisper; fall back to public if they're not in room) ─
+    fee_note = f" Fee: {fee}c." if fee > 0 else ""
+    recv_msg = f"🏦 You received {amount_received:,}c from {sender_display}.{fee_note}"
+    try:
+        await bot.highrise.send_whisper(receiver["user_id"], recv_msg[:249])
+    except Exception as whisper_err:
+        print(f"[BANK] Could not whisper @{receiver['username']}: {whisper_err}")
+        try:
+            pub_msg = f"🏦 @{receiver['username']} received {amount_received:,}c."
+            await bot.highrise.chat(pub_msg[:249])
+        except Exception as chat_err:
+            print(f"[BANK] Fallback public notify also failed: {chat_err}")
 
     if risk_level == "MEDIUM":
         print(f"[BANK] MEDIUM: {user.username}→{receiver['username']} "
