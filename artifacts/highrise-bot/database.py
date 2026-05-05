@@ -395,6 +395,19 @@ def init_db():
         )
     """)
 
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS poker_stats (
+            user_id      TEXT    PRIMARY KEY,
+            username     TEXT    NOT NULL,
+            hands_played INTEGER NOT NULL DEFAULT 0,
+            wins         INTEGER NOT NULL DEFAULT 0,
+            losses       INTEGER NOT NULL DEFAULT 0,
+            folds        INTEGER NOT NULL DEFAULT 0,
+            total_won    INTEGER NOT NULL DEFAULT 0,
+            biggest_pot  INTEGER NOT NULL DEFAULT 0
+        )
+    """)
+
     conn.commit()
     conn.close()
     _migrate_db()
@@ -2025,6 +2038,64 @@ def award_rep_title(user_id: str, title_id: str) -> None:
         "INSERT OR IGNORE INTO owned_items (user_id, item_id, item_type) VALUES (?, ?, ?)",
         (user_id, title_id, "title"),
     )
+    conn.commit()
+    conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Poker helpers
+# ---------------------------------------------------------------------------
+
+def ensure_poker_stats(user_id: str, username: str) -> None:
+    conn = get_connection()
+    conn.execute(
+        "INSERT OR IGNORE INTO poker_stats (user_id, username) VALUES (?, ?)",
+        (user_id, username),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_poker_stats(user_id: str) -> dict:
+    conn  = get_connection()
+    row   = conn.execute(
+        "SELECT * FROM poker_stats WHERE user_id = ?", (user_id,)
+    ).fetchone()
+    conn.close()
+    if row:
+        return dict(row)
+    return {
+        "user_id": user_id, "username": "", "hands_played": 0,
+        "wins": 0, "losses": 0, "folds": 0, "total_won": 0, "biggest_pot": 0,
+    }
+
+
+def update_poker_stats(
+    user_id: str,
+    username: str,
+    *,
+    wins: int = 0,
+    losses: int = 0,
+    folds: int = 0,
+    total_won: int = 0,
+    biggest_pot: int = 0,
+    hands: int = 0,
+) -> None:
+    conn = get_connection()
+    conn.execute(
+        "INSERT OR IGNORE INTO poker_stats (user_id, username) VALUES (?, ?)",
+        (user_id, username),
+    )
+    conn.execute("""
+        UPDATE poker_stats SET
+            hands_played = hands_played + ?,
+            wins         = wins + ?,
+            losses       = losses + ?,
+            folds        = folds + ?,
+            total_won    = total_won + ?,
+            biggest_pot  = MAX(biggest_pot, ?)
+        WHERE user_id = ?
+    """, (hands, wins, losses, folds, total_won, biggest_pot, user_id))
     conn.commit()
     conn.close()
 

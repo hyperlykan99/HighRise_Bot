@@ -1,0 +1,111 @@
+Add a Texas Hold’em Lite poker game to my existing Highrise Mini Game Bot.
+
+IMPORTANT:
+- Do not remove existing features.
+- Keep coins, XP, shop, bank, blackjack, events, quests, reputation, reports, and staff roles.
+- Use existing SQLite database.
+- Use get_display_name(username).
+- Keep all Highrise messages under 250 characters.
+- Use coins only.
+- Prevent bad inputs from crashing the bot.
+
+Goal:
+Add a lobby-style poker game using Texas Hold’em Lite.
+
+Commands:
+- /poker join <buyin>
+- /poker leave
+- /poker players
+- /poker table
+- /poker hand
+- /poker check
+- /poker call
+- /poker raise <amount>
+- /poker fold
+- /poker rules
+- /poker stats
+- /poker cancel staff only
+- /poker on staff only
+- /poker off staff only
+
+Lobby rules:
+- First player joining opens poker lobby.
+- Start 15-second countdown.
+- Minimum players: 2.
+- Maximum players: 6.
+- Buy-in minimum: 100 coins.
+- Buy-in maximum: 5000 coins.
+- Deduct buy-in when player joins.
+- If player leaves before round starts, refund buy-in.
+- If not enough players when countdown ends, cancel and refund.
+- One poker table active at a time.
+
+Private cards:
+- Deal 2 private hole cards to each player.
+- Send hole cards privately if Highrise whisper/private message is supported.
+- If private message fails, tell player to use /poker hand.
+- /poker hand should only show that player's private hand.
+
+Community cards:
+- Deal 3 flop cards.
+- Deal 1 turn card.
+- Deal 1 river card.
+
+Betting:
+- Lite version only.
+- No blinds yet.
+- No side pots yet.
+- No all-in yet.
+- Players can check if no bet is required.
+- Players can call if there is a bet.
+- Players can raise <amount>.
+- Players can fold.
+- Turn timer: 20 seconds.
+- If player times out:
+  - auto-check if no bet is required
+  - auto-fold if a bet is required
+- Pot is winner-take-all for first version.
+
+Showdown:
+- After river betting ends, evaluate best 5-card hand from 2 hole cards + 5 community cards.
+- Winner gets the pot.
+- If tie, split pot evenly if easy to implement; otherwise mark as push and split evenly.
+- Store poker stats:
+  wins, losses, folds, hands_played, total_won, total_lost, biggest_pot.
+
+Hand rankings:
+- Royal Flush
+- Straight Flush
+- Four of a Kind
+- Full House
+- Flush
+- Straight
+- Three of a Kind
+- Two Pair
+- Pair
+- High Card
+
+Staff controls:
+- /poker on
+- /poker off
+- /poker cancel
+- /poker settings
+
+Permissions:
+- Manager/admin/owner can turn poker on/off and cancel.
+- Normal players can only play.
+
+Safety:
+- Keep messages under 250 characters.
+- Use asyncio.create_task for countdown and turn timers.
+- Do not use time.sleep().
+- Cancel timers safely.
+- Do not leave table stuck in progress.
+- Add /casino reset to also reset poker table if it exists.
+
+Update help:
+- /casinohelp should include:
+  /poker join <buyin>
+  /poker hand
+  /poker table
+  /poker check/call/fold

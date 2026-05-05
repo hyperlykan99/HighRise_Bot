@@ -48,6 +48,7 @@ from modules.shop         import (
 from modules.achievements import handle_achievements, handle_claim_achievements
 from modules.blackjack           import handle_bj, handle_bj_set, reset_table as bj_reset_table
 from modules.realistic_blackjack import handle_rbj, handle_rbj_set, reset_table as rbj_reset_table
+from modules.poker               import handle_poker, reset_table as poker_reset_table
 from modules.permissions         import (
     is_owner, is_admin, can_moderate,
     can_manage_games, can_manage_economy,
@@ -155,6 +156,7 @@ ALL_KNOWN_COMMANDS = (
         "eventpoints", "eventshop", "buyevent",
         "report", "bug", "myreports",
         "rep", "reputation", "repstats", "toprep", "repleaderboard",
+        "poker",
     }
     | ECONOMY_COMMANDS | PROFILE_COMMANDS | GAME_COMMANDS
     | SHOP_COMMANDS | ACHIEVEMENT_COMMANDS | BJ_COMMANDS
@@ -187,11 +189,11 @@ GAME_HELP = (
 CASINO_HELP = (
     "🎰 Casino\n"
     "/casino modes\n"
-    "/bj join <bet>\n"
-    "/rbj join <bet>\n"
-    "/bj hit | /rbj hit\n"
-    "/bj stand | /rbj stand\n"
-    "/bj table | /rbj table"
+    "/bj join <bet> | /rbj join <bet>\n"
+    "/bj hit/stand/table\n"
+    "/poker join <buyin> (100-5000c)\n"
+    "/poker hand | /poker table\n"
+    "/poker check | call | raise <amt> | fold"
 )
 
 COIN_HELP = (
@@ -355,7 +357,8 @@ async def _handle_casino_cmd(bot, user, args):
             return
         bj_reset_table()
         rbj_reset_table()
-        await bot.highrise.chat("✅ Casino tables reset.")
+        poker_reset_table()
+        await bot.highrise.chat("✅ Casino tables reset (BJ, RBJ, Poker).")
 
     elif sub == "leaderboard":
         await _send_casino_leaderboard(bot, user)
@@ -808,6 +811,10 @@ class HangoutBot(BaseBot):
 
         elif cmd in {"toprep", "repleaderboard"}:
             await handle_toprep(self, user)
+
+        # ── Poker ─────────────────────────────────────────────────────────────
+        elif cmd == "poker":
+            await handle_poker(self, user, args)
 
         # ── Game commands ─────────────────────────────────────────────────────
         elif cmd in GAME_COMMANDS:
