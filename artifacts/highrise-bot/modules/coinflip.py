@@ -20,6 +20,7 @@ import database as db
 import config
 from modules.cooldowns import check_user_cooldown, set_user_cooldown
 import modules.leveling as leveling
+from modules.shop import get_player_benefits
 
 
 # Minimum and maximum bet amounts (feel free to tune in config.py later)
@@ -102,10 +103,14 @@ async def handle_coinflip(bot: BaseBot, user: User, args: list[str]):
 
     # ── Apply the result ──────────────────────────────────────────────────────
 
+    benefits    = get_player_benefits(user.id)
+    bonus_coins = int(bet * benefits["coinflip_payout_pct"] / 100) if won else 0
+    actual_win  = bet + bonus_coins
+
     if won:
-        db.adjust_balance(user.id, bet)              # win: add the bet amount
+        db.adjust_balance(user.id, actual_win)
         db.record_game_win(user.id, user.username, "coinflip")
-        await leveling.award_xp(bot, user, config.XP_COINFLIP, bet)
+        await leveling.award_xp(bot, user, config.XP_COINFLIP, actual_win)
     else:
         db.adjust_balance(user.id, -bet)             # lose: remove the bet amount
 
@@ -117,7 +122,7 @@ async def handle_coinflip(bot: BaseBot, user: User, args: list[str]):
         bet=bet,
         won=won,
     )
-    set_user_cooldown("coinflip", user.id)  # start the 10 s per-user gap
+    set_user_cooldown("coinflip", user.id, reduction=benefits["cooldown_reduction"])
 
     new_balance = db.get_balance(user.id)
 
@@ -127,9 +132,12 @@ async def handle_coinflip(bot: BaseBot, user: User, args: list[str]):
 
     display = db.get_display_name(user.id, user.username)
     if won:
+        payout_str = f"+{actual_win} coins"
+        if bonus_coins:
+            payout_str += f" (+{bonus_coins} bonus)"
         await bot.highrise.chat(
             f"🪙 {display} chose {choice_raw.upper()} — {coin_emoji}! "
-            f"WIN! +{bet} coins 🎉  Balance: {new_balance}"
+            f"WIN! {payout_str} 🎉  Balance: {new_balance}"
         )
     else:
         await bot.highrise.chat(

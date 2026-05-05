@@ -18,6 +18,7 @@ import config
 from modules.utils import check_answer
 from modules.cooldowns import check_room_cooldown, set_room_cooldown
 import modules.leveling as leveling
+from modules.shop import get_player_benefits
 
 
 # ---------------------------------------------------------------------------
@@ -155,16 +156,23 @@ async def handle_answer(bot: BaseBot, user: User, answer_text: str):
 
     # Use the shared flexible matcher — handles case, punctuation, and whitespace
     if check_answer(answer_text, [_active["word"]]):
-        # Correct!
-        db.adjust_balance(user.id, config.SCRAMBLE_REWARD)
+        # Compute reward with any equipped cosmetic bonuses
+        benefits      = get_player_benefits(user.id)
+        actual_reward = (
+            config.SCRAMBLE_REWARD
+            + int(config.SCRAMBLE_REWARD * benefits["game_reward_pct"] / 100)
+            + benefits["scramble_bonus"]
+        )
+
+        db.adjust_balance(user.id, actual_reward)
         db.record_game_win(user.id, user.username, "scramble")
-        await leveling.award_xp(bot, user, config.XP_SCRAMBLE, config.SCRAMBLE_REWARD)
+        await leveling.award_xp(bot, user, config.XP_SCRAMBLE, actual_reward)
 
         display = db.get_display_name(user.id, user.username)
         await bot.highrise.chat(
             f"🎉 {display} got it! "
             f"{_active['scrambled'].upper()} = {_active['word'].upper()} "
-            f"| +{config.SCRAMBLE_REWARD} coins 🪙"
+            f"| +{actual_reward} coins 🪙"
         )
 
         _active = None

@@ -74,11 +74,19 @@ def check_user_cooldown(key: str, user_id: str, seconds: int) -> int | None:
         return None
 
 
-def set_user_cooldown(key: str, user_id: str) -> None:
-    """Record the current moment as this player's last use of an action."""
+def set_user_cooldown(key: str, user_id: str, reduction: int = 0) -> None:
+    """
+    Record the current moment as this player's last use of an action.
+
+    Parameters
+    ----------
+    reduction : seconds to subtract from the stored timestamp, which makes
+                the cooldown effectively shorter.  For example, a 10 s cooldown
+                with reduction=5 will expire after only 5 real seconds.
+    """
     try:
         if key not in _user:
             _user[key] = {}
-        _user[key][user_id] = time.time()
+        _user[key][user_id] = time.time() - max(0, reduction)
     except Exception:
         pass

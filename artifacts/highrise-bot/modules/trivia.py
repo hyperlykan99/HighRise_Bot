@@ -18,6 +18,7 @@ import config
 from modules.utils import check_answer
 from modules.cooldowns import check_room_cooldown, set_room_cooldown
 import modules.leveling as leveling
+from modules.shop import get_player_benefits
 
 
 # ---------------------------------------------------------------------------
@@ -188,17 +189,23 @@ async def handle_answer(bot: BaseBot, user: User, answer_text: str):
     correct = check_answer(answer_text, _active["answers"])
 
     if correct:
-        # Award the coins
-        db.adjust_balance(user.id, config.TRIVIA_REWARD)
+        # Compute reward with any equipped cosmetic bonuses
+        benefits      = get_player_benefits(user.id)
+        actual_reward = (
+            config.TRIVIA_REWARD
+            + int(config.TRIVIA_REWARD * benefits["game_reward_pct"] / 100)
+            + benefits["trivia_bonus"]
+        )
+
+        db.adjust_balance(user.id, actual_reward)
         db.record_game_win(user.id, user.username, "trivia")
-        await leveling.award_xp(bot, user, config.XP_TRIVIA, config.TRIVIA_REWARD)
-        new_balance = db.get_balance(user.id)
+        await leveling.award_xp(bot, user, config.XP_TRIVIA, actual_reward)
 
         # Announce the win to the whole room
         display = db.get_display_name(user.id, user.username)
         await bot.highrise.chat(
             f"🎉 {display} got it! Answer: {_active['answers'][0]} "
-            f"| +{config.TRIVIA_REWARD} coins 🪙"
+            f"| +{actual_reward} coins 🪙"
         )
 
         # Clear the active game

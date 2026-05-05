@@ -1,0 +1,51 @@
+Add these badge shop items:
+
+Cheap badges:
+- star_badge | ⭐ | Star | 250 coins | +1 XP bonus from game wins
+- fire_badge | 🔥 | Fire | 500 coins | +2 XP bonus from game wins
+- music_badge | 🎵 | Music | 500 coins | cosmetic only
+- dice_badge | 🎲 | Dice | 750 coins | +2% coinflip win bonus payout
+- heart_badge | 💖 | Heart | cosmetic only
+
+Mid badges:
+- skull_badge | 💀 | Skull | 1,500 coins | +3 XP bonus from game wins
+- lightning_badge | ⚡ | Lightning | 2,000 coins | -5 seconds game cooldown
+- gem_badge | 💎 | Gem | 3,000 coins | +5 coins on daily claim
+- crown_badge | 👑 | Crown | 5,000 coins | +5 XP bonus from game wins
+
+Rare badges:
+- dragon_badge | 🐉 | Dragon | 10,000 coins | +10 XP bonus from game wins
+- angel_badge | 😇 | Angel | +10 daily coins
+- demon_badge | 😈 | Demon | +5% coinflip win bonus payout
+- trophy_badge | 🏆 | Trophy | +15 XP bonus from game wins
+
+Fix any missing prices if needed and keep all prices balanced.
+
+Add these title shop items:
+
+Starter titles:
+- rookie | [Rookie] | 1,000 coins | +5 daily coins
+- lucky | [Lucky] | 2,500 coins | +2% coinflip win bonus payout
+- grinder | [Grinder] | 5,000 coins | +10 XP bonus from game wins
+
+Hard titles:
+- trivia_king | [Trivia King] | 15,000 coins | +10 coins per trivia win
+- word_master | [Word Master] | 15,000 coins | +10 coins per scramble win
+- riddle_lord | [Riddle Lord] | 15,000 coins | +10 coins per riddle win
+- casino_rat | [Casino Rat] | 20,000 coins | +5% casino payout bonus
+
+Very hard titles:
+- high_roller | [High Roller] | 50,000 coins | +10% casino payout bonus
+- millionaire | [Millionaire] | 100,000 coins | +25 daily coins and +25 XP from daily
+- room_legend | [Room Legend] | 250,000 coins | +15% all game coin rewards
+- immortal | [Immortal] | 500,000 coins | +20% all game coin rewards and +50 daily coins
+
+Rules for benefits:
+- Only the equipped badge and equipped title give benefits.
+- Benefits should stack, but keep them capped:
+  - Max daily bonus from cosmetics: +100 coins
+  - Max XP bonus per game win: +50 XP
+  - Max casino payout bonus: +15%
+  - Max game reward bonus: +20%
+- Cosmetic-only items give no benefit.
+- Show the benefit text in /shop badges and /shop titles.

@@ -20,6 +20,7 @@ from highrise import BaseBot, User
 import database as db
 import config
 import modules.leveling as leveling
+from modules.shop import get_player_benefits
 
 
 async def handle_balance(bot: BaseBot, user: User):
@@ -43,15 +44,22 @@ async def handle_daily(bot: BaseBot, user: User):
         )
         return
 
-    db.adjust_balance(user.id, config.DAILY_REWARD)
+    benefits     = get_player_benefits(user.id)
+    bonus_coins  = benefits["daily_coins_bonus"]
+    bonus_xp     = benefits["daily_xp_bonus"]
+    actual_coins = config.DAILY_REWARD + bonus_coins
+    actual_xp    = config.XP_DAILY + bonus_xp
+
+    db.adjust_balance(user.id, actual_coins)
     db.record_daily_claim(user.id)
-    await leveling.award_xp(bot, user, config.XP_DAILY, config.DAILY_REWARD)
+    await leveling.award_xp(bot, user, actual_xp, actual_coins, is_game_win=False)
     new_balance = db.get_balance(user.id)
 
-    await bot.highrise.send_whisper(
-        user.id,
-        f"🎁 Daily reward! +{config.DAILY_REWARD} coins. Balance: {new_balance} 🪙"
-    )
+    msg = f"🎁 Daily reward! +{config.DAILY_REWARD} coins"
+    if bonus_coins:
+        msg += f" +{bonus_coins} bonus"
+    msg += f".  Balance: {new_balance} 🪙"
+    await bot.highrise.send_whisper(user.id, msg)
 
 
 async def handle_leaderboard(bot: BaseBot, user: User):
