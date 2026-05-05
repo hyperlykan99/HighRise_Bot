@@ -68,6 +68,7 @@ from modules.subscribers         import (
     handle_subhelp,
     handle_subscribers, handle_dmnotify, handle_announce_subs,
     handle_announce_vip, handle_announce_staff,
+    handle_debugsub,
     process_incoming_dm,
     deliver_pending_subscriber_messages,
 )
@@ -227,6 +228,7 @@ OWNER_ONLY_CMDS = {
     "goldrainrole", "goldrainvip", "goldraintitle", "goldrainbadge", "goldrainlist",
     "goldwallet", "goldtips", "goldtx", "pendinggold",
     "confirmgoldtip", "setgoldrainstaff", "setgoldrainmax",
+    "debugsub",
     "debugtips",
     "restarthelp", "restartstatus",
     "softrestart",
@@ -1483,6 +1485,8 @@ class HangoutBot(BaseBot):
                 await handle_announce_vip(self, user, args)
             elif cmd == "announce_staff":
                 await handle_announce_staff(self, user, args)
+            elif cmd == "debugsub":
+                await handle_debugsub(self, user, args)
             else:
                 await handle_admin_command(self, user, cmd, args)
             return
@@ -1963,17 +1967,33 @@ class HangoutBot(BaseBot):
         """
         Fires when the bot receives a Highrise inbox/DM message.
         Saves the conversation_id and processes subscribe/unsubscribe keywords.
+
+        NOTE: The MessageEvent carries no message text — we must call get_messages.
+        A short sleep avoids a race condition where the new message hasn't been
+        indexed on the platform yet when we fetch the history.
         """
         try:
+            print(f"[DM] EVENT RECEIVED user_id={user_id[:12]}... conv={conversation_id[:12]}... new={is_new_conversation}")
+            # Wait briefly so the platform indexes the new message before we fetch
+            await asyncio.sleep(0.5)
             resp = await self.highrise.get_messages(conversation_id)
             messages = getattr(resp, "messages", []) or []
-            # Find the most recent message sent by this user
+
             content = ""
-            for msg in reversed(messages):
-                if getattr(msg, "sender_id", None) == user_id:
-                    content = getattr(msg, "content", "").strip()
-                    break
-            print(f"[DM] on_message user_id={user_id[:12]}... conv={conversation_id[:12]}... content={content[:40]!r}")
+            if messages:
+                # Messages are oldest-first; the last entry is the one that triggered
+                # this event. Prefer it directly — fall back to sender_id scan if needed.
+                last_msg = messages[-1]
+                if getattr(last_msg, "sender_id", None) == user_id:
+                    content = getattr(last_msg, "content", "").strip()
+                else:
+                    # Race or ordering issue — scan newest-first for this user's message
+                    for msg in reversed(messages):
+                        if getattr(msg, "sender_id", None) == user_id:
+                            content = getattr(msg, "content", "").strip()
+                            break
+
+            print(f"[DM] content={content[:60]!r} (fetched {len(messages)} msgs)")
             await process_incoming_dm(self, user_id, conversation_id, content, is_new_conversation)
         except Exception as exc:
             print(f"[DM] on_message error: {exc}")

@@ -1,0 +1,121 @@
+Fix DM subscribe/unsubscribe processing.
+
+Problem:
+When a player DMs the bot:
+subscribe
+'subscribe'
+/subscribe
+
+The bot keeps replying:
+"Reply 'subscribe' for outside-room alerts, or 'unsubscribe' to opt out."
+
+It does not actually subscribe them.
+
+Goal:
+When the bot receives a direct message/conversation message, it should recognize subscribe/unsubscribe commands and save the user's conversation_id.
+
+IMPORTANT:
+- Do not remove existing features.
+- Keep all messages under 250 characters.
+- Use SQLite.
+- Prevent crashes from bad inputs.
+
+Fix the DM/conversation message handler.
+
+When a user sends a DM to the bot, normalize the message:
+- lowercase
+- trim spaces
+- remove surrounding quotes
+- remove leading slash
+- remove punctuation around the word
+
+These should all count as subscribe:
+subscribe
+'subscribe'
+"subscribe"
+/subscribe
+Subscribe
+SUBSCRIBE
+
+These should all count as unsubscribe:
+unsubscribe
+'unsubscribe'
+"unsubscribe"
+/unsubscribe
+unsub
+stop
+stop alerts
+optout
+opt out
+
+Subscribe behavior:
+- Save username
+- Save user_id if available
+- Save conversation_id
+- Set subscribed = true
+- Set dm_available = true
+- Set subscribed_at timestamp
+- Set last_dm_at timestamp
+
+Reply in DM:
+"✅ Subscribed. Outside-room alerts are ON.
+Stop alerts: reply unsubscribe."
+
+Unsubscribe behavior:
+- Set subscribed = false
+- Keep conversation_id saved
+- Set dm_available = true
+
+Reply in DM:
+"✅ Unsubscribed. Alerts are OFF."
+
+If message is not subscribe/unsubscribe:
+- Do not spam the same instruction every time.
+- Only show the instruction if they are not subscribed.
+- If already subscribed, reply:
+"✅ You are subscribed. Stop alerts: reply unsubscribe."
+
+Add /substatus:
+- In room or DM, show:
+"Subscribed: YES | DM connected: YES"
+or
+"Subscribed: YES | DM connected: NO. DM bot subscribe."
+or
+"Subscribed: NO"
+
+Database:
+Use or create subscriber_users table:
+- username TEXT PRIMARY KEY
+- user_id TEXT
+- conversation_id TEXT
+- subscribed INTEGER DEFAULT 0
+- subscribed_at TEXT
+- last_dm_at TEXT
+- last_seen_at TEXT
+- dm_available INTEGER DEFAULT 0
+- auto_subscribed_from_tip INTEGER DEFAULT 0
+
+Critical:
+The DM handler must save the conversation_id from the incoming DM event.
+Outside-room messages cannot work without conversation_id.
+
+Add debug command owner only:
+/debugsub <username>
+
+It should show:
+- username
+- subscribed yes/no
+- dm_available yes/no
+- conversation_id exists yes/no
+- last_dm_at
+- last error if any
+
+Add console logs:
+- "DM EVENT RECEIVED"
+- username
+- conversation_id
+- normalized message
+- subscribe/unsubscribe action taken
+
+Do not expose raw conversation_id in public chat.
+Keep all Highrise messages under 250 characters.

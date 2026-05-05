@@ -49,18 +49,39 @@ def add_unsubscribe_footer(message: str) -> str:
     return message[:available] + _UNSUB_FOOTER
 
 
+# ── Message normalisation ──────────────────────────────────────────────────────
+
+def _normalize_dm(content: str) -> str:
+    """
+    Normalise a raw DM message for keyword matching:
+      - strip whitespace
+      - lowercase
+      - remove surrounding single/double quotes
+      - remove a leading slash
+    """
+    c = content.strip().lower()
+    # Strip surrounding quotes (one pair only)
+    if len(c) >= 2 and c[0] in ('"', "'") and c[-1] == c[0]:
+        c = c[1:-1].strip()
+    # Strip leading slash
+    if c.startswith("/"):
+        c = c[1:].strip()
+    return c
+
+
 # ── Unsubscribe keyword detection ─────────────────────────────────────────────
 
-_UNSUB_TRIGGERS = ("unsubscribe", "unsub", "stop alerts", "opt out", "optout")
+_UNSUB_TRIGGERS = ("unsubscribe", "unsub", "stop alerts", "opt out", "optout", "stop")
 
 
-def _is_unsubscribe_request(content: str) -> bool:
-    c = content.lower().strip()
-    if any(kw in c for kw in _UNSUB_TRIGGERS):
-        return True
-    if c == "stop":
-        return True
-    return False
+def _is_unsubscribe_request(norm: str) -> bool:
+    """norm must already be lowercased and stripped via _normalize_dm."""
+    return any(norm == kw or norm.startswith(kw) for kw in _UNSUB_TRIGGERS)
+
+
+def _is_subscribe_request(norm: str) -> bool:
+    """norm must already be lowercased and stripped via _normalize_dm."""
+    return norm == "subscribe" or norm.startswith("subscribe")
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -191,41 +212,58 @@ async def process_incoming_dm(
     Saves conversation_id, handles subscribe/unsubscribe keywords,
     and delivers any pending subscriber messages.
     """
+    norm = _normalize_dm(content)
+    print(f"[DM] PROCESSING user_id={user_id[:12]}... conv={conversation_id[:12]}...")
+    print(f"[DM] raw={content[:60]!r}  normalized={norm[:60]!r}")
+
+    # Look up user by Highrise user_id
     user_row = db.get_user_by_username_via_id(user_id)
     if user_row is None:
-        print(f"[SUBS] DM from unknown user_id={user_id[:12]}... conv={conversation_id[:12]}...")
+        print(f"[DM] Unknown user_id={user_id[:12]}... — prompting to join room.")
         await send_dm(bot, conversation_id,
-                      "👋 Hi! Join the room and type /subscribe to get notifications.")
+                      "👋 Hi! Join the room first, then reply 'subscribe' for notifications.")
         return
 
     username = user_row["username"]
     uname_lower = username.lower()
+    print(f"[DM] Identified as @{username}")
 
+    # Always save/update conversation_id and mark dm_available
     db.upsert_subscriber(uname_lower, user_id, conversation_id)
 
-    # Deliver any queued pending messages now that we have a conversation
+    # Deliver any queued pending messages now that we have an active conversation
     await deliver_pending_subscriber_messages(bot, uname_lower, conversation_id)
 
-    content_lower = content.lower().strip()
+    # ── Keyword routing ───────────────────────────────────────────────────────
 
-    if _is_unsubscribe_request(content_lower):
+    if _is_unsubscribe_request(norm):
         db.set_subscribed(uname_lower, False)
-        await send_dm(bot, conversation_id,
-                      "✅ Unsubscribed. You will no longer receive bot alerts.")
-        print(f"[SUBS] @{username} unsubscribed via DM (keyword: {content_lower[:20]!r}).")
+        reply = "✅ Unsubscribed. Alerts are OFF."
+        await send_dm(bot, conversation_id, reply)
+        db.set_subscriber_last_dm(uname_lower)
+        print(f"[DM] @{username} unsubscribed (keyword: {norm!r}).")
         return
 
-    if "subscribe" in content_lower:
+    if _is_subscribe_request(norm):
         db.set_subscribed(uname_lower, True)
-        await send_dm(
-            bot, conversation_id,
-            add_unsubscribe_footer("✅ Subscribed to bot alerts.")
-        )
-        print(f"[SUBS] @{username} subscribed via DM.")
+        db.set_dm_available(uname_lower, True)
+        reply = "✅ Subscribed. Outside-room alerts are ON.\nStop alerts: reply unsubscribe."
+        await send_dm(bot, conversation_id, reply[:249])
+        db.set_subscriber_last_dm(uname_lower)
+        print(f"[DM] @{username} subscribed (keyword: {norm!r}).")
         return
 
-    await send_dm(bot, conversation_id,
-                  "👋 Reply 'subscribe' for outside-room alerts, or 'unsubscribe' to opt out.")
+    # Unknown message — check if already subscribed to avoid repeating the pitch
+    sub = db.get_subscriber(uname_lower)
+    is_subscribed = bool(sub and sub.get("subscribed"))
+
+    if is_subscribed:
+        reply = "✅ You are subscribed. Stop alerts: reply unsubscribe."
+    else:
+        reply = "👋 Reply 'subscribe' for outside-room alerts, or 'unsubscribe' to opt out."
+
+    await send_dm(bot, conversation_id, reply)
+    print(f"[DM] @{username} sent unknown msg (subscribed={is_subscribed}). Replied with status.")
 
 
 # ── /subscribe ────────────────────────────────────────────────────────────────
@@ -497,3 +535,51 @@ async def handle_announce_staff(bot: BaseBot, user: User, args: list[str]) -> No
     await _w(bot, user.id,
              f"📣 Staff announcement: {sent} delivered, {pending} pending, {failed} failed.")
     print(f"[SUBS] announce_staff by @{user.username}: {sent} sent, {pending} pending, {failed} failed.")
+
+
+# ── /debugsub <username> (owner only) ────────────────────────────────────────
+
+async def handle_debugsub(bot: BaseBot, user: User, args: list[str]) -> None:
+    """/debugsub <username> — owner: show full subscriber record for diagnostics."""
+    if not is_owner(user.username):
+        await _w(bot, user.id, "Owner only.")
+        return
+    if len(args) < 2:
+        await _w(bot, user.id, "Usage: /debugsub <username>")
+        return
+
+    target = args[1].lstrip("@").lower().strip()
+    sub = db.get_subscriber(target)
+
+    if not sub:
+        await _w(bot, user.id, f"No subscriber record for @{target}.")
+        return
+
+    sub_flag   = "YES" if sub.get("subscribed") else "NO"
+    dm_flag    = "YES" if sub.get("dm_available") else "NO"
+    conv_flag  = "YES" if sub.get("conversation_id") else "NO"
+    last_dm    = sub.get("last_dm_at") or "never"
+    sub_at     = sub.get("subscribed_at") or "unknown"
+    auto_sub   = "YES" if sub.get("auto_subscribed_from_tip") else "NO"
+
+    # Pull latest delivery error from pending_subscriber_messages
+    last_err = ""
+    try:
+        pending = db.get_pending_sub_messages(target)
+        errs = [m.get("last_error") for m in pending if m.get("last_error")]
+        if errs:
+            last_err = errs[-1][:60]
+    except Exception:
+        pass
+
+    lines = [
+        f"🔍 @{target} subscriber debug:",
+        f"Subscribed: {sub_flag}  DM available: {dm_flag}",
+        f"Conv ID saved: {conv_flag}  Auto-sub: {auto_sub}",
+        f"Subscribed at: {sub_at[:16]}",
+        f"Last DM sent: {last_dm[:16]}",
+    ]
+    if last_err:
+        lines.append(f"Last error: {last_err}")
+
+    await _w(bot, user.id, "\n".join(lines)[:249])
