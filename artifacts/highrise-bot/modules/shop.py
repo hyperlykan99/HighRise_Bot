@@ -129,10 +129,14 @@ def get_player_benefits(user_id: str) -> dict:
 # ---------------------------------------------------------------------------
 
 def _get_item(item_type: str, item_id: str) -> dict | None:
-    from modules.events import EVENT_BADGES, EVENT_TITLES
+    from modules.events     import EVENT_BADGES, EVENT_TITLES
+    from modules.reputation import REP_TITLES
     catalog       = BADGES       if item_type == "badge" else TITLES
     event_catalog = EVENT_BADGES if item_type == "badge" else EVENT_TITLES
-    return catalog.get(item_id) or event_catalog.get(item_id)
+    rep_catalog   = {}           if item_type == "badge" else REP_TITLES
+    return (catalog.get(item_id)
+            or event_catalog.get(item_id)
+            or rep_catalog.get(item_id))
 
 
 # ---------------------------------------------------------------------------
@@ -328,6 +332,8 @@ async def handle_equip(bot: BaseBot, user: User, args: list[str]):
     if not db.owns_item(user.id, item_id):
         if item.get("event_cost") is not None:
             hint = f"Get it from the event shop: /buyevent {item_id}"
+        elif item.get("rep_threshold") is not None:
+            hint = f"Earn {item['rep_threshold']} reputation to unlock it."
         else:
             hint = f"Buy it first: /buy {item_type} {item_id}  ({item['price']:,} coins)"
         await bot.highrise.send_whisper(
@@ -355,11 +361,15 @@ async def handle_myitems(bot: BaseBot, user: User):
         badge_id = equipped.get("badge_id") or ""
         title_id = equipped.get("title_id") or ""
 
-        badge_disp = f"{BADGES[badge_id]['display']} {badge_id}" if badge_id in BADGES else "none"
-        title_disp = f"{TITLES[title_id]['display']} {title_id}" if title_id in TITLES else "none"
+        def _disp(itype: str, iid: str) -> str:
+            it = _get_item(itype, iid) if iid else None
+            return f"{it['display']} {iid}" if it else "none"
 
-        my_badges = [o["item_id"] for o in owned if o["item_type"] == "badge" and o["item_id"] in BADGES]
-        my_titles = [o["item_id"] for o in owned if o["item_type"] == "title" and o["item_id"] in TITLES]
+        badge_disp = _disp("badge", badge_id)
+        title_disp = _disp("title", title_id)
+
+        my_badges = [o["item_id"] for o in owned if o["item_type"] == "badge" and _get_item("badge", o["item_id"])]
+        my_titles = [o["item_id"] for o in owned if o["item_type"] == "title" and _get_item("title", o["item_id"])]
 
         def _compact(items: list[str], limit: int = 3) -> str:
             shown = items[:limit]

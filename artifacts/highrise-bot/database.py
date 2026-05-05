@@ -2018,6 +2018,17 @@ def get_top_rep(limit: int = 10) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def award_rep_title(user_id: str, title_id: str) -> None:
+    """Grant a reputation-unlocked title. INSERT OR IGNORE prevents duplicates."""
+    conn = get_connection()
+    conn.execute(
+        "INSERT OR IGNORE INTO owned_items (user_id, item_id, item_type) VALUES (?, ?, ?)",
+        (user_id, title_id, "title"),
+    )
+    conn.commit()
+    conn.close()
+
+
 # ---------------------------------------------------------------------------
 # Moderation helpers — mutes
 # ---------------------------------------------------------------------------

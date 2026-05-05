@@ -52,6 +52,47 @@ def get_rank(rep: int) -> str:
     return "New Face"
 
 
+# ---------------------------------------------------------------------------
+# Reputation-unlocked titles  (no price — earned, not bought)
+# ---------------------------------------------------------------------------
+
+REP_TITLES: dict[str, dict] = {
+    "rep_friendly":  {"display": "[Friendly]",  "description": "Rep title — unlock at 10 rep",   "rep_threshold": 10},
+    "rep_popular":   {"display": "[Popular]",   "description": "Rep title — unlock at 50 rep",   "rep_threshold": 50},
+    "rep_loved":     {"display": "[Loved]",     "description": "Rep title — unlock at 100 rep",  "rep_threshold": 100},
+    "rep_icon":      {"display": "[Icon]",      "description": "Rep title — unlock at 250 rep",  "rep_threshold": 250},
+    "rep_celebrity": {"display": "[Celebrity]", "description": "Rep title — unlock at 500 rep",  "rep_threshold": 500},
+    "rep_legend":    {"display": "[Legend]",    "description": "Rep title — unlock at 1000 rep", "rep_threshold": 1000},
+}
+
+# Sorted lowest→highest so we announce in order when multiple unlock at once
+_REP_THRESHOLDS: list[tuple[int, str]] = sorted(
+    [(data["rep_threshold"], tid) for tid, data in REP_TITLES.items()]
+)
+
+
+async def check_and_award_rep_titles(
+    bot: BaseBot, receiver_id: str, receiver_username: str
+) -> None:
+    """
+    Called after every rep transaction.  Awards any newly crossed title
+    thresholds and announces them publicly in the room.
+    Duplicate-safe: INSERT OR IGNORE prevents double-awarding.
+    """
+    rep_row = db.get_reputation(receiver_id)
+    if rep_row is None:
+        return
+    new_rep = rep_row["rep_received"]
+
+    for threshold, title_id in _REP_THRESHOLDS:
+        if new_rep >= threshold and not db.owns_item(receiver_id, title_id):
+            db.award_rep_title(receiver_id, title_id)
+            display = REP_TITLES[title_id]["display"]
+            await bot.highrise.chat(
+                f"⭐ @{receiver_username} unlocked {display}!"
+            )
+
+
 def _fmt_secs(seconds: int) -> str:
     h = seconds // 3600
     m = (seconds % 3600) // 60
@@ -100,6 +141,9 @@ async def handle_rep(bot: BaseBot, user: User, args: list[str]) -> None:
         receiver_username = target["username"],
         risk_note         = risk_note,
     )
+
+    # Check and announce any newly unlocked rep titles for the receiver
+    await check_and_award_rep_titles(bot, target["user_id"], target["username"])
 
     await _w(bot, user.id,    f"⭐ You gave +1 rep to @{target['username']}.")
     await _w(bot, target["user_id"], f"⭐ @{user.username} gave you +1 rep!")
