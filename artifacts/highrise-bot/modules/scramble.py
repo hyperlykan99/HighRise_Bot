@@ -15,6 +15,7 @@ import random
 from highrise import BaseBot, User
 import database as db
 import config
+from modules.utils import check_answer
 
 
 # ---------------------------------------------------------------------------
@@ -93,6 +94,9 @@ async def start_game(bot: BaseBot, user: User):
     scrambled = _scramble_word(word)
     _active   = {"word": word, "scrambled": scrambled}
 
+    # Log the answer to the console for testing — never shown in the room
+    print(f"[SCRAMBLE] Correct answer: {_active['word']}")
+
     # Post it publicly
     await bot.highrise.chat(
         f"[SCRAMBLE] Unscramble this word:  {scrambled.upper()}\n"
@@ -116,8 +120,8 @@ async def handle_answer(bot: BaseBot, user: User, answer_text: str):
 
     db.ensure_user(user.id, user.username)
 
-    # Case-insensitive comparison
-    if answer_text.strip().lower() == _active["word"].lower():
+    # Use the shared flexible matcher — handles case, punctuation, and whitespace
+    if check_answer(answer_text, [_active["word"]]):
         # Correct!
         db.adjust_balance(user.id, config.SCRAMBLE_REWARD)
         db.record_game_win(user.id, user.username, "scramble")

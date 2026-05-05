@@ -15,6 +15,7 @@ import random
 from highrise import BaseBot, User
 import database as db
 import config
+from modules.utils import check_answer
 
 
 # ---------------------------------------------------------------------------
@@ -92,6 +93,9 @@ async def start_game(bot: BaseBot, user: User):
     question_data = random.choice(_QUESTIONS)
     _active = question_data.copy()   # store a copy so the original list is unchanged
 
+    # Log the answer to the console for testing — never shown in the room
+    print(f"[TRIVIA] Correct answer: {_active['answers'][0]}")
+
     # Announce it to the whole room
     await bot.highrise.chat(
         f"[TRIVIA] {_active['question']}\n"
@@ -116,9 +120,8 @@ async def handle_answer(bot: BaseBot, user: User, answer_text: str):
 
     db.ensure_user(user.id, user.username)
 
-    # Compare case-insensitively, also strip extra spaces
-    player_answer = answer_text.strip().lower()
-    correct       = any(player_answer == a.lower() for a in _active["answers"])
+    # Use the shared flexible matcher — handles case, punctuation, and articles
+    correct = check_answer(answer_text, _active["answers"])
 
     if correct:
         # Award the coins

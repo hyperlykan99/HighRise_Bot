@@ -204,10 +204,7 @@ class HangoutBot(BaseBot):
         elif riddle_active():
             await riddle_answer(self, user, answer_text)
         else:
-            await self.highrise.send_whisper(
-                user.id,
-                "No game is active right now! Try /trivia, /scramble, or /riddle."
-            )
+            await self.highrise.send_whisper(user.id, "No active game right now.")
 
     async def _handle_admin(self, user: User, cmd: str, args: list[str]):
         """Route admin-only commands."""

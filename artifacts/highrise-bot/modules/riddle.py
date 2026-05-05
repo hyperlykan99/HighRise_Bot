@@ -15,6 +15,7 @@ import random
 from highrise import BaseBot, User
 import database as db
 import config
+from modules.utils import check_answer
 
 
 # ---------------------------------------------------------------------------
@@ -144,6 +145,9 @@ async def start_game(bot: BaseBot, user: User):
     # Pick a random riddle
     _active = random.choice(_RIDDLES).copy()
 
+    # Log the accepted answers to the console for testing — never shown in the room
+    print(f"[RIDDLE] Accepted answers: {_active['answers']}")
+
     # Post publicly to the room
     await bot.highrise.chat(
         f"[RIDDLE] {_active['riddle']}\n"
@@ -167,8 +171,8 @@ async def handle_answer(bot: BaseBot, user: User, answer_text: str):
 
     db.ensure_user(user.id, user.username)
 
-    player_answer = answer_text.strip().lower()
-    correct       = any(player_answer == a.lower() for a in _active["answers"])
+    # Use the shared flexible matcher — handles case, punctuation, and articles
+    correct = check_answer(answer_text, _active["answers"])
 
     if correct:
         db.adjust_balance(user.id, config.RIDDLE_REWARD)
