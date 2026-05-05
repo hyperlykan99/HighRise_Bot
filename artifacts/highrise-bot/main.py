@@ -75,6 +75,7 @@ from modules.events import (
     handle_event, handle_events, handle_eventhelp, handle_eventstatus,
     handle_startevent, handle_stopevent,
     handle_eventpoints, handle_eventshop, handle_buyevent,
+    startup_event_check,
 )
 from modules.reports import (
     handle_report, handle_bug, handle_myreports,
@@ -718,6 +719,8 @@ class HangoutBot(BaseBot):
         db.init_db()
         print(f"[HangoutBot] Connected — room {config.ROOM_ID} | DB: {config.DB_PATH}")
         await self.highrise.chat("Mini Game Bot is online! Type /help for commands.")
+        # Recover any event that was running before a bot restart
+        asyncio.create_task(startup_event_check(self))
 
     async def on_chat(self, user: User, message: str) -> None:
         """

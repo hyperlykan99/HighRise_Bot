@@ -2071,12 +2071,8 @@ def add_event_points(user_id: str, amount: int) -> None:
 
 
 def is_event_active() -> bool:
-    conn = get_connection()
-    row  = conn.execute(
-        "SELECT value FROM event_settings WHERE key = 'event_active'"
-    ).fetchone()
-    conn.close()
-    return row is not None and row["value"] == "1"
+    """Return True only if an event is active AND has not yet expired."""
+    return get_active_event() is not None
 
 
 def set_event_active(active: bool) -> None:
@@ -2107,11 +2103,47 @@ def set_active_event(event_id: str, expires_at: str) -> None:
     conn.close()
 
 
+def check_event_expired() -> bool:
+    """
+    Check whether the currently-active event has passed its wall-clock expiry.
+    If yes: clear it from the DB and return True.
+    If no active event or still within its window: return False.
+    Called automatically by get_active_event() so all callers stay in sync.
+    """
+    from datetime import datetime as _dt, timezone as _tz
+    conn = get_connection()
+    rows = {
+        r["key"]: r["value"]
+        for r in conn.execute("SELECT key, value FROM event_settings").fetchall()
+    }
+    conn.close()
+    if rows.get("event_active") != "1":
+        return False
+    expires_at_str = rows.get("event_expires_at", "")
+    if not expires_at_str:
+        return False
+    try:
+        exp = _dt.fromisoformat(expires_at_str)
+        if exp.tzinfo is None:
+            exp = exp.replace(tzinfo=_tz.utc)
+        if _dt.now(_tz.utc) >= exp:
+            clear_active_event()
+            print(f"[EVENTS] check_event_expired: event cleared (expired {expires_at_str}).")
+            return True
+    except Exception:
+        pass
+    return False
+
+
 def get_active_event() -> dict | None:
     """
-    Return {"event_id": str, "expires_at": str} if an event is active,
-    otherwise None.
+    Return {"event_id": str, "expires_at": str} if an event is active
+    and has not yet expired, otherwise None.
+    Auto-clears the DB flag when the event window has passed.
     """
+    # Wall-clock expiry guard — clears stale events before any caller acts on them
+    if check_event_expired():
+        return None
     conn = get_connection()
     rows = {
         r["key"]: r["value"]

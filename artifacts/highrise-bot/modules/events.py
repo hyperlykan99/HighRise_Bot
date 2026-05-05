@@ -178,12 +178,18 @@ def _cancel_event_task() -> None:
     _event_task = None
 
 
-async def _event_timer(bot: BaseBot, event_id: str) -> None:
-    """Auto-stop the event after EVENT_DURATION seconds."""
+async def _event_timer(
+    bot: BaseBot, event_id: str, sleep_seconds: float = EVENT_DURATION
+) -> None:
+    """
+    Auto-stop the event after sleep_seconds.
+    Accepts a shorter duration when resuming after a bot restart.
+    """
     try:
-        await asyncio.sleep(EVENT_DURATION)
+        await asyncio.sleep(sleep_seconds)
         db.clear_active_event()
         name = EVENTS.get(event_id, {}).get("name", event_id)
+        print(f"[EVENTS] Timer expired: '{event_id}' ended naturally.")
         try:
             await bot.highrise.chat(
                 f"⏰ {name} event has ended! Thanks for participating. "
@@ -306,7 +312,7 @@ async def handle_startevent(bot: BaseBot, user: User, args: list[str]) -> None:
     db.set_active_event(event_id, expires_at)
 
     global _event_task
-    _event_task = asyncio.create_task(_event_timer(bot, event_id))
+    _event_task = asyncio.create_task(_event_timer(bot, event_id, EVENT_DURATION))
 
     ev   = EVENTS[event_id]
     name = ev["name"]
@@ -339,6 +345,80 @@ async def handle_stopevent(bot: BaseBot, user: User) -> None:
         await bot.highrise.chat(f"🛑 {name} event stopped by staff.")
     except Exception as exc:
         print(f"[EVENTS] stopevent announce error: {exc}")
+
+
+# ---------------------------------------------------------------------------
+# Startup recovery — called from HangoutBot.on_start
+# ---------------------------------------------------------------------------
+
+async def startup_event_check(bot: BaseBot) -> None:
+    """
+    Called once at bot startup (after DB is initialised).
+
+    Reads raw event_settings from SQLite and decides:
+      - If no event was flagged active → nothing to do.
+      - If active but expires_at has already passed → clear DB, log.
+      - If active and time remains → restart the async timer for the
+        remaining seconds so the event ends cleanly.
+
+    Does NOT call get_active_event() because that auto-clears the DB
+    before we can compute how much time is left.
+    """
+    global _event_task
+
+    conn = db.get_connection()
+    rows = {
+        r["key"]: r["value"]
+        for r in conn.execute("SELECT key, value FROM event_settings").fetchall()
+    }
+    conn.close()
+
+    if rows.get("event_active") != "1":
+        return  # no lingering event
+
+    event_id   = rows.get("event_name", "")
+    expires_at = rows.get("event_expires_at", "")
+
+    if not event_id or not expires_at:
+        db.clear_active_event()
+        print("[EVENTS] Startup: malformed event record, cleared.")
+        return
+
+    try:
+        exp = datetime.fromisoformat(expires_at)
+        if exp.tzinfo is None:
+            exp = exp.replace(tzinfo=timezone.utc)
+    except Exception:
+        db.clear_active_event()
+        print("[EVENTS] Startup: unparseable expires_at, cleared.")
+        return
+
+    now       = datetime.now(timezone.utc)
+    remaining = (exp - now).total_seconds()
+
+    if remaining <= 0:
+        # Event expired during downtime
+        db.clear_active_event()
+        name = EVENTS.get(event_id, {}).get("name", event_id)
+        print(f"[EVENTS] Startup: '{event_id}' expired during downtime, cleared.")
+        try:
+            await bot.highrise.chat(
+                f"🎉 Event ended: {name}. Use /eventshop to spend your pts!"
+            )
+        except Exception as exc:
+            print(f"[EVENTS] Startup announce error: {exc}")
+        return
+
+    # Event is still live — restart the countdown timer
+    _cancel_event_task()
+    _event_task = asyncio.create_task(
+        _event_timer(bot, event_id, remaining)
+    )
+    name = EVENTS.get(event_id, {}).get("name", event_id)
+    m, s = divmod(int(remaining), 60)
+    h, m = divmod(m, 60)
+    left = f"{h}h {m}m" if h else f"{m}m {s}s"
+    print(f"[EVENTS] Startup: resumed '{event_id}' — {left} remaining.")
 
 
 # ---------------------------------------------------------------------------
