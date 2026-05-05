@@ -189,6 +189,24 @@ def init_db():
         )
     """)
 
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS bj_daily (
+            user_id TEXT NOT NULL,
+            date    TEXT NOT NULL,
+            net     INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (user_id, date)
+        )
+    """)
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS rbj_daily (
+            user_id TEXT NOT NULL,
+            date    TEXT NOT NULL,
+            net     INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (user_id, date)
+        )
+    """)
+
     conn.commit()
     conn.close()
     _migrate_db()
@@ -210,8 +228,12 @@ def _migrate_db():
         "ALTER TABLE daily_claims ADD COLUMN total_claims  INTEGER NOT NULL DEFAULT 1",
         "ALTER TABLE bj_settings  ADD COLUMN bj_enabled     INTEGER NOT NULL DEFAULT 1",
         "ALTER TABLE rbj_settings ADD COLUMN rbj_enabled    INTEGER NOT NULL DEFAULT 1",
-        "ALTER TABLE bj_settings  ADD COLUMN bj_turn_timer  INTEGER NOT NULL DEFAULT 20",
-        "ALTER TABLE rbj_settings ADD COLUMN rbj_turn_timer INTEGER NOT NULL DEFAULT 20",
+        "ALTER TABLE bj_settings  ADD COLUMN bj_turn_timer         INTEGER NOT NULL DEFAULT 20",
+        "ALTER TABLE rbj_settings ADD COLUMN rbj_turn_timer        INTEGER NOT NULL DEFAULT 20",
+        "ALTER TABLE bj_settings  ADD COLUMN bj_daily_win_limit    INTEGER NOT NULL DEFAULT 5000",
+        "ALTER TABLE bj_settings  ADD COLUMN bj_daily_loss_limit   INTEGER NOT NULL DEFAULT 3000",
+        "ALTER TABLE rbj_settings ADD COLUMN rbj_daily_win_limit   INTEGER NOT NULL DEFAULT 5000",
+        "ALTER TABLE rbj_settings ADD COLUMN rbj_daily_loss_limit  INTEGER NOT NULL DEFAULT 3000",
     ]:
         try:
             conn.execute(sql)
@@ -671,6 +693,7 @@ def get_bj_settings() -> dict:
             "push_rule": "refund", "dealer_hits_soft_17": 1,
             "lobby_countdown": 15, "turn_timer": 30, "bj_turn_timer": 20,
             "max_players": 6, "bj_enabled": 1,
+            "bj_daily_win_limit": 5000, "bj_daily_loss_limit": 3000,
         }
     return dict(row)
 
@@ -679,6 +702,7 @@ _BJ_SETTING_COLS = {
     "min_bet", "max_bet", "win_payout", "blackjack_payout", "push_rule",
     "dealer_hits_soft_17", "lobby_countdown", "turn_timer", "bj_turn_timer",
     "max_players", "bj_enabled",
+    "bj_daily_win_limit", "bj_daily_loss_limit",
 }
 
 
@@ -750,6 +774,7 @@ _RBJ_SETTING_COLS = {
     "win_payout", "blackjack_payout", "push_rule",
     "dealer_hits_soft_17", "lobby_countdown", "turn_timer", "rbj_turn_timer",
     "max_players", "rbj_enabled",
+    "rbj_daily_win_limit", "rbj_daily_loss_limit",
 }
 
 
@@ -766,6 +791,7 @@ def get_rbj_settings() -> dict:
             "push_rule": "refund", "dealer_hits_soft_17": 1,
             "lobby_countdown": 15, "turn_timer": 30, "rbj_turn_timer": 20,
             "max_players": 6, "rbj_enabled": 1,
+            "rbj_daily_win_limit": 5000, "rbj_daily_loss_limit": 3000,
         }
     return dict(row)
 
@@ -779,6 +805,62 @@ def set_rbj_setting(key: str, value) -> bool:
     conn.commit()
     conn.close()
     return True
+
+
+# ---------------------------------------------------------------------------
+# Daily profit/loss tracking
+# ---------------------------------------------------------------------------
+
+def _today() -> str:
+    """Return today's UTC date as ISO string YYYY-MM-DD."""
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+
+def get_bj_daily_net(user_id: str) -> int:
+    """Return today's BJ net coins for a player (+win / -loss)."""
+    conn = get_connection()
+    row  = conn.execute(
+        "SELECT net FROM bj_daily WHERE user_id = ? AND date = ?",
+        (user_id, _today())
+    ).fetchone()
+    conn.close()
+    return row["net"] if row else 0
+
+
+def add_bj_daily_net(user_id: str, delta: int):
+    """Add delta to today's BJ net for a player (atomic upsert)."""
+    conn = get_connection()
+    conn.execute(
+        "INSERT INTO bj_daily (user_id, date, net) VALUES (?, ?, ?)"
+        " ON CONFLICT(user_id, date) DO UPDATE SET net = net + excluded.net",
+        (user_id, _today(), delta)
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_rbj_daily_net(user_id: str) -> int:
+    """Return today's RBJ net coins for a player (+win / -loss)."""
+    conn = get_connection()
+    row  = conn.execute(
+        "SELECT net FROM rbj_daily WHERE user_id = ? AND date = ?",
+        (user_id, _today())
+    ).fetchone()
+    conn.close()
+    return row["net"] if row else 0
+
+
+def add_rbj_daily_net(user_id: str, delta: int):
+    """Add delta to today's RBJ net for a player (atomic upsert)."""
+    conn = get_connection()
+    conn.execute(
+        "INSERT INTO rbj_daily (user_id, date, net) VALUES (?, ?, ?)"
+        " ON CONFLICT(user_id, date) DO UPDATE SET net = net + excluded.net",
+        (user_id, _today(), delta)
+    )
+    conn.commit()
+    conn.close()
 
 
 def get_rbj_stats(user_id: str) -> dict:

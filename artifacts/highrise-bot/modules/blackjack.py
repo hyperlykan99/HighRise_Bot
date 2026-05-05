@@ -221,6 +221,7 @@ async def _finalize_round(bot: BaseBot):
 
                 if p.status == "bust":
                     db.update_bj_stats(p.user_id, loss=1, bet=p.bet, lost=p.bet)
+                    db.add_bj_daily_net(p.user_id, -p.bet)
                     await bot.highrise.chat(f"❌ @{p.username} loses {p.bet:,}c.")
 
                 elif p.status == "bj":
@@ -228,6 +229,7 @@ async def _finalize_round(bot: BaseBot):
                     db.adjust_balance(p.user_id, payout)
                     db.add_coins_earned(p.user_id, payout - p.bet)
                     db.update_bj_stats(p.user_id, win=1, bj=1, bet=p.bet, won=payout)
+                    db.add_bj_daily_net(p.user_id, payout - p.bet)
                     await bot.highrise.chat(
                         f"🤑 @{p.username} blackjack! Paid {payout:,}c."
                     )
@@ -237,6 +239,7 @@ async def _finalize_round(bot: BaseBot):
                     db.adjust_balance(p.user_id, payout)
                     db.add_coins_earned(p.user_id, payout - p.bet)
                     db.update_bj_stats(p.user_id, win=1, bet=p.bet, won=payout)
+                    db.add_bj_daily_net(p.user_id, payout - p.bet)
                     await bot.highrise.chat(f"✅ @{p.username} wins! Paid {payout:,}c.")
 
                 elif ptotal == dealer_total:
@@ -249,6 +252,7 @@ async def _finalize_round(bot: BaseBot):
 
                 else:
                     db.update_bj_stats(p.user_id, loss=1, bet=p.bet, lost=p.bet)
+                    db.add_bj_daily_net(p.user_id, -p.bet)
                     await bot.highrise.chat(f"❌ @{p.username} loses {p.bet:,}c.")
 
             except Exception as exc:
@@ -307,6 +311,8 @@ async def handle_bj(bot: BaseBot, user: User, args: list[str]):
             await _cmd_stats(bot, user)
         elif sub == "cancel":
             await _cmd_cancel(bot, user)
+        elif sub == "limits":
+            await _cmd_limits(bot, user)
         elif sub == "settings":
             await _cmd_settings(bot, user)
         elif sub == "on":
@@ -368,6 +374,19 @@ async def _cmd_join(bot: BaseBot, user: User, args: list[str]):
     db.ensure_user(user.id, user.username)
     if db.get_balance(user.id) < bet:
         await bot.highrise.send_whisper(user.id, "Not enough coins.")
+        return
+
+    net      = db.get_bj_daily_net(user.id)
+    win_lim  = int(s.get("bj_daily_win_limit", 5000))
+    loss_lim = int(s.get("bj_daily_loss_limit", 3000))
+    if net >= win_lim:
+        await bot.highrise.send_whisper(user.id, "BJ win limit reached. Try again tomorrow.")
+        return
+    if net <= -loss_lim:
+        await bot.highrise.send_whisper(user.id, "BJ loss limit reached. Try again tomorrow.")
+        return
+    if max(0, -net) + bet > loss_lim:
+        await bot.highrise.send_whisper(user.id, "Bet too high for your daily loss limit.")
         return
 
     db.adjust_balance(user.id, -bet)
@@ -568,6 +587,20 @@ async def _cmd_stats(bot: BaseBot, user: User):
     )
 
 
+async def _cmd_limits(bot: BaseBot, user: User):
+    db.ensure_user(user.id, user.username)
+    s    = _settings()
+    net  = db.get_bj_daily_net(user.id)
+    wlim = int(s.get("bj_daily_win_limit", 5000))
+    llim = int(s.get("bj_daily_loss_limit", 3000))
+    sign = "+" if net >= 0 else ""
+    await bot.highrise.send_whisper(user.id,
+        f"-- BJ Daily Limits --\n"
+        f"Win limit: {wlim:,}c  Loss limit: {llim:,}c\n"
+        f"Your today: {sign}{net:,}c"
+    )
+
+
 async def _cmd_cancel(bot: BaseBot, user: User):
     if not can_manage_games(user.username):
         await bot.highrise.send_whisper(user.id, "Admins and managers only.")
@@ -602,7 +635,9 @@ async def _cmd_settings(bot: BaseBot, user: User):
         f"soft17:{'yes' if s.get('dealer_hits_soft_17',1) else 'no'}\n"
         f"lobby:{s.get('lobby_countdown',15)}s  "
         f"turn:{s.get('bj_turn_timer',20)}s  "
-        f"max:{s.get('max_players',6)}p"
+        f"max:{s.get('max_players',6)}p\n"
+        f"daily win:{s.get('bj_daily_win_limit',5000):,}c  "
+        f"loss:{s.get('bj_daily_loss_limit',3000):,}c"
     )
 
 
@@ -684,11 +719,36 @@ async def handle_bj_set(bot: BaseBot, user: User, cmd: str, args: list[str]):
                 user.id, f"✅ BJ turn timer set to {val}s."
             )
 
+        elif cmd == "setbjdailywinlimit":
+            if not raw.isdigit() or not (100 <= int(raw) <= 1_000_000):
+                await bot.highrise.send_whisper(
+                    user.id, "Use /setbjdailywinlimit <amount>."
+                )
+                return
+            val = int(raw)
+            db.set_bj_setting("bj_daily_win_limit", val)
+            await bot.highrise.send_whisper(
+                user.id, f"✅ BJ daily win limit set to {val:,}c."
+            )
+
+        elif cmd == "setbjdailylosslimit":
+            if not raw.isdigit() or not (100 <= int(raw) <= 1_000_000):
+                await bot.highrise.send_whisper(
+                    user.id, "Use /setbjdailylosslimit <amount>."
+                )
+                return
+            val = int(raw)
+            db.set_bj_setting("bj_daily_loss_limit", val)
+            await bot.highrise.send_whisper(
+                user.id, f"✅ BJ daily loss limit set to {val:,}c."
+            )
+
         else:
             await bot.highrise.send_whisper(
                 user.id,
                 "BJ settings: /setbjminbet /setbjmaxbet\n"
-                "/setbjcountdown /setbjturntimer"
+                "/setbjcountdown /setbjturntimer\n"
+                "/setbjdailywinlimit /setbjdailylosslimit"
             )
 
     except Exception as exc:

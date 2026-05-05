@@ -71,8 +71,10 @@ ADMIN_COMMANDS = {
     "addcoins", "removecoins", "resetgame", "announce",
     "addmanager", "removemanager",
     "setbjminbet", "setbjmaxbet", "setbjcountdown", "setbjturntimer",
+    "setbjdailywinlimit", "setbjdailylosslimit",
     "setrbjdecks", "setrbjminbet", "setrbjmaxbet", "setrbjcountdown",
     "setrbjshuffle", "setrbjblackjackpayout", "setrbjwinpayout", "setrbjturntimer",
+    "setrbjdailywinlimit", "setrbjdailylosslimit",
 }
 
 ALL_KNOWN_COMMANDS = (
@@ -123,7 +125,8 @@ CASINO_HELP = (
     "/rbj join <bet> - realistic BJ\n"
     "/bj table | /rbj table\n"
     "/bj hit | /rbj hit\n"
-    "/bj stand | /rbj stand"
+    "/bj stand | /rbj stand\n"
+    "/bj limits | /rbj limits"
 )
 
 COIN_HELP = (

@@ -1,0 +1,95 @@
+Add daily blackjack profit/loss limits for both Casual BJ and Realistic BJ.
+
+Goal:
+Owners/admins/managers can control how much a player can win or lose from blackjack per day so the casino economy stays balanced.
+
+Apply to:
+- Casual Blackjack /bj
+- Realistic Blackjack /rbj
+
+Default settings:
+- bj_daily_win_limit = 5000 coins
+- bj_daily_loss_limit = 3000 coins
+- rbj_daily_win_limit = 5000 coins
+- rbj_daily_loss_limit = 3000 coins
+
+Commands:
+- /setbjdailywinlimit <amount>
+- /setbjdailylosslimit <amount>
+- /setrbjdailywinlimit <amount>
+- /setrbjdailylosslimit <amount>
+- /bj limits
+- /rbj limits
+
+Permissions:
+- Only owner/admin/manager can use set limit commands.
+- /bj limits and /rbj limits can be public.
+
+Rules:
+- If a player reaches the daily blackjack profit limit, they cannot join that blackjack mode again until tomorrow.
+- If a player reaches the daily blackjack loss limit, they cannot join that blackjack mode again until tomorrow.
+- Track Casual BJ and Realistic BJ separately.
+- Profit/loss should reset daily.
+- Store daily blackjack profit/loss in SQLite.
+- Store settings in SQLite so they persist after restart.
+
+Tracking:
+- Daily profit means net coins won from blackjack today.
+- Daily loss means net coins lost from blackjack today.
+- Example:
+  Player bets 100 and wins 200 payout.
+  Since the 100 bet was deducted earlier, net profit is +100.
+- Example:
+  Player bets 100 and loses.
+  Net loss is -100.
+- Example:
+  Player pushes.
+  Net change is 0.
+
+Join blocking:
+- When player uses /bj join <bet>, check their Casual BJ daily net.
+- When player uses /rbj join <bet>, check their Realistic BJ daily net.
+- If player is at or above win limit, say:
+  "BJ win limit reached. Try again tomorrow."
+- If player is at or below negative loss limit, say:
+  "BJ loss limit reached. Try again tomorrow."
+- For RBJ say:
+  "RBJ win limit reached. Try again tomorrow."
+  "RBJ loss limit reached. Try again tomorrow."
+
+Optional bet protection:
+- If the player's current daily loss plus the new bet would exceed the daily loss limit, block the join.
+- Example:
+  loss limit = 3000
+  player already lost 2900 today
+  player tries to bet 500
+  block because losing would exceed the limit.
+- Message:
+  "Bet too high for your daily loss limit."
+
+Validation:
+- Limits must be positive numbers.
+- Minimum limit: 100 coins.
+- Maximum limit: 1,000,000 coins.
+- If bad input, show:
+  "Use /setbjdailywinlimit <amount>."
+  or the matching command.
+- Prevent crashes from bad inputs.
+
+Display:
+- /bj limits should show:
+  current BJ win limit, loss limit, and the player's current daily net.
+- /rbj limits should show:
+  current RBJ win limit, loss limit, and the player's current daily net.
+- Keep messages under 250 characters.
+
+Update:
+- /bj settings should include daily win/loss limits.
+- /rbj settings should include daily win/loss limits.
+- /casinohelp should mention /bj limits and /rbj limits.
+
+Important:
+- Do not erase existing player data.
+- Add safe database migrations if needed.
+- Keep every Highrise message under 250 characters.
+- Log real errors in console but show safe short chat errors.
