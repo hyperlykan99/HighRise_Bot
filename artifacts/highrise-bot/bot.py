@@ -37,19 +37,23 @@ ECONOMY_COMMANDS       = {"balance", "daily"}
 ADMIN_DJ_COMMANDS      = {"skip", "remove"}
 ADMIN_ECONOMY_COMMANDS = {"addtokens", "refund"}
 
-HELP_TEXT = (
-    "Bot Commands\n"
+HELP_TEXT_1 = (
     "-- DJ System --\n"
-    "  /dj                      - about the DJ system\n"
-    f"  /request <song>          - request a song ({config.SONG_REQUEST_COST} tokens)\n"
-    "  /queue                   - show next 5 songs\n"
-    "  /now                     - show current song\n"
-    "  /skipvote                - vote to skip current song\n"
+    f"/request <song> - add a song ({config.SONG_REQUEST_COST} tokens)\n"
+    "/queue - next 5 songs\n"
+    "/now - current song\n"
+    "/skipvote - vote to skip\n"
+    "/dj - about the DJ system"
+)
+
+HELP_TEXT_2 = (
     "-- Tokens --\n"
-    "  /balance                 - check your token balance\n"
-    f"  /daily                   - claim {config.DAILY_REWARD} free tokens (once/day)\n"
-    "-- Admin only --\n"
-    "  /skip  /remove <#>  /addtokens <user> <amt>  /refund <user> <amt>"
+    "/balance - your token balance\n"
+    f"/daily - claim {config.DAILY_REWARD} free tokens (once/day)\n"
+    "-- Admin --\n"
+    "/skip  /remove <#>\n"
+    "/addtokens <user> <amt>\n"
+    "/refund <user> <amt>"
 )
 
 
@@ -87,7 +91,8 @@ class HangoutBot(BaseBot):
 
         # ── /help ──────────────────────────────────────────────────────────
         if cmd == "help":
-            await self.highrise.send_whisper(user.id, HELP_TEXT)
+            await self.highrise.send_whisper(user.id, HELP_TEXT_1)
+            await self.highrise.send_whisper(user.id, HELP_TEXT_2)
             return
 
         # ── Admin-only commands ────────────────────────────────────────────
