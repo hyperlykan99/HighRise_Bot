@@ -65,6 +65,7 @@ from modules.poker import (
     handle_setpokerraise,
     handle_setpokerdailywinlimit, handle_setpokerdailylosslimit,
     handle_resetpokerlimits,
+    handle_pokerdebug, handle_pokerfix, handle_pokerrefundall,
     startup_poker_recovery,
     soft_reset_table as poker_soft_reset_table,
     reset_table as poker_reset_table,
@@ -219,6 +220,7 @@ MANAGER_ONLY_CMDS = {
     "setpokertimer", "setpokerraise",
     "setpokerdailywinlimit", "setpokerdailylosslimit",
     "resetpokerlimits",
+    "pokerdebug", "pokerfix", "pokerrefundall",
     "banksettings",
     "setbjminbet", "setbjmaxbet", "setbjcountdown", "setbjturntimer",
     "setbjdailywinlimit", "setbjdailylosslimit",
@@ -298,6 +300,7 @@ ALL_KNOWN_COMMANDS = (
         "setpokertimer", "setpokerraise",
         "setpokerdailywinlimit", "setpokerdailylosslimit",
         "resetpokerlimits",
+        "pokerdebug", "pokerfix", "pokerrefundall",
         "botstatus", "dbstats", "backup",
         "maintenance", "reloadsettings", "cleanup",
         "restarthelp", "restartstatus", "softrestart", "restartbot",
@@ -2007,6 +2010,15 @@ class HangoutBot(BaseBot):
 
         elif cmd == "resetpokerlimits":
             await handle_resetpokerlimits(self, user, args)
+
+        elif cmd == "pokerdebug":
+            await handle_pokerdebug(self, user, args)
+
+        elif cmd == "pokerfix":
+            await handle_pokerfix(self, user, args)
+
+        elif cmd == "pokerrefundall":
+            await handle_pokerrefundall(self, user, args)
 
         # ── Maintenance tools ─────────────────────────────────────────────────
         elif cmd == "botstatus":

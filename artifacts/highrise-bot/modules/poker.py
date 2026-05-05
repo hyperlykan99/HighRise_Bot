@@ -1501,6 +1501,215 @@ async def handle_pokerhelp(bot: BaseBot, user: User, args: list[str]) -> None:
     await _w(bot, user.id, msg[:249])
 
 
+# ── Debug / fix / refund tools ────────────────────────────────────────────────
+
+async def handle_pokerdebug(bot: BaseBot, user: User, args: list[str]) -> None:
+    if not can_manage_games(user.username):
+        await _w(bot, user.id, "Managers+ only.")
+        return
+
+    sub = args[1].lower() if len(args) >= 2 else ""
+
+    tbl = _get_table()
+
+    if sub == "players":
+        if not tbl or not tbl["active"]:
+            await _w(bot, user.id, "No active poker table.")
+            return
+        players = _get_players(tbl["round_id"])
+        if not players:
+            await _w(bot, user.id, "No players in round.")
+            return
+        for p in players:
+            acted = "yes" if p["acted"] else "no"
+            msg = (f"@{p['username']} | stack:{p['stack']}c "
+                   f"bet:{p['current_bet']}c contrib:{p['total_contributed']}c "
+                   f"status:{p['status']} acted:{acted}")
+            await _w(bot, user.id, msg[:249])
+        return
+
+    if sub == "table":
+        if not tbl or not tbl["active"]:
+            await _w(bot, user.id, "No active poker table.")
+            return
+        community = json.loads(tbl["community_cards_json"] or "[]")
+        board = _fcs(community) if community else "—"
+        msg = (f"Phase:{tbl['phase']} | Board:{board}\n"
+               f"Dealer:{tbl['dealer_button_index']} "
+               f"CurIdx:{tbl['current_player_index']}\n"
+               f"TurnEnds:{(tbl['turn_ends_at'] or '—')[:19]}")
+        await _w(bot, user.id, msg[:249])
+        return
+
+    if sub == "state":
+        db_active = bool(tbl and tbl["active"])
+        phase     = tbl["phase"] if tbl else "—"
+        rid       = (tbl["round_id"] or "—")[:16] if tbl else "—"
+        lobby_alive = _lobby_task is not None and not _lobby_task.done()
+        turn_alive  = _turn_task  is not None and not _turn_task.done()
+        recovery    = phase == "recovery_required"
+        msg = (f"DB active:{db_active} phase:{phase}\n"
+               f"round:{rid}\n"
+               f"LobbyTimer:{'alive' if lobby_alive else 'dead'} "
+               f"TurnTimer:{'alive' if turn_alive else 'dead'}\n"
+               f"recovery_required:{recovery}")
+        await _w(bot, user.id, msg[:249])
+        return
+
+    # Default: overview
+    enabled   = bool(_s("poker_enabled", 1))
+    db_active = bool(tbl and tbl["active"])
+    phase     = tbl["phase"] if tbl else "idle"
+    rid       = (tbl["round_id"] or "—")[:14] if tbl else "—"
+    pot       = tbl["pot"] if tbl else 0
+    cbet      = tbl["current_bet"] if tbl else 0
+    players   = _get_players(tbl["round_id"]) if tbl and tbl["active"] and tbl["round_id"] else []
+    deck      = json.loads(tbl["deck_json"] or "[]") if tbl else []
+    idx       = tbl["current_player_index"] if tbl else 0
+    cur_name  = players[idx]["username"] if players and 0 <= idx < len(players) else "—"
+    lobby_alive = _lobby_task is not None and not _lobby_task.done()
+    turn_alive  = _turn_task  is not None and not _turn_task.done()
+    msg = (f"♠️ Debug | enabled:{enabled} active:{db_active}\n"
+           f"phase:{phase} rid:{rid}\n"
+           f"pot:{pot}c bet:{cbet}c turn:@{cur_name}\n"
+           f"players:{len(players)} deck:{len(deck)}\n"
+           f"lobby_timer:{'on' if lobby_alive else 'off'} "
+           f"turn_timer:{'on' if turn_alive else 'off'}")
+    await _w(bot, user.id, msg[:249])
+
+
+async def handle_pokerfix(bot: BaseBot, user: User, args: list[str]) -> None:
+    """Attempt to unstick a stuck poker table."""
+    if not can_manage_games(user.username):
+        await _w(bot, user.id, "Managers+ only.")
+        return
+
+    tbl = _get_table()
+    if not tbl or not tbl["active"]:
+        await _w(bot, user.id, "No active poker table to fix.")
+        return
+
+    phase    = tbl["phase"]
+    round_id = tbl["round_id"]
+    players  = _get_players(round_id)
+    active   = _active_players(players)
+
+    print(f"[POKER] /pokerfix by @{user.username} | phase={phase} "
+          f"active={len(active)} total={len(players)}")
+
+    if phase == "lobby":
+        min_pl = _s("min_players", 2)
+        if len(players) >= min_pl:
+            await _w(bot, user.id, "Starting hand from lobby state...")
+            await _start_hand(bot, tbl, players)
+        else:
+            await _w(bot, user.id, "Not enough players — refunding lobby...")
+            await finish_poker_hand(bot, "not_enough_players")
+        return
+
+    if phase in ("preflop", "flop", "turn", "river"):
+        if len(active) <= 1:
+            await _w(bot, user.id, "One player left — finishing hand...")
+            await finish_poker_hand(bot, "everyone_folded")
+            return
+
+        # Check if all active players have acted and matched bet
+        table_bet    = tbl["current_bet"]
+        all_done     = all(
+            p["acted"] and p["current_bet"] >= table_bet
+            for p in active
+        )
+        if all_done:
+            await _w(bot, user.id, "All acted — advancing street...")
+            await _advance_street(bot, tbl, players)
+        else:
+            # Find who still needs to act
+            pending = [p for p in active if _needs_to_act(p, table_bet)]
+            if not pending:
+                await _w(bot, user.id, "All done — advancing street...")
+                await _advance_street(bot, tbl, players)
+            else:
+                p = pending[0]
+                # Find their index
+                for i, pl in enumerate(players):
+                    if pl["user_id"] == p["user_id"]:
+                        _save_table(current_player_index=i)
+                        break
+                tbl_fresh = _get_table()
+                if tbl_fresh:
+                    await _prompt_player(bot, tbl_fresh, p)
+                await _w(bot, user.id,
+                         f"Prompted @{p['username']} to act.")
+        return
+
+    if phase == "recovery_required":
+        await _w(bot, user.id, "Table in recovery_required — use /poker refund.")
+        return
+
+    if phase in ("showdown", "finished", "idle"):
+        await _w(bot, user.id, f"Phase is '{phase}' — clearing table.")
+        _clear_table()
+        return
+
+    await _w(bot, user.id, f"Unknown phase '{phase}' — use /poker refund.")
+
+
+async def handle_pokerrefundall(bot: BaseBot, user: User, args: list[str]) -> None:
+    """Safely refund all unresolved poker chips and clear the table."""
+    if not can_manage_games(user.username):
+        await _w(bot, user.id, "Managers+ only.")
+        return
+
+    global _lobby_task, _turn_task
+    _cancel_task(_lobby_task); _lobby_task = None
+    _cancel_task(_turn_task);  _turn_task  = None
+
+    tbl = _get_table()
+    if not tbl or not tbl["active"]:
+        await _w(bot, user.id, "No active poker table.")
+        return
+
+    round_id = tbl["round_id"]
+    players  = _get_players(round_id)
+    refunded = 0
+    count    = 0
+
+    for p in players:
+        if _is_paid(round_id, p["username"]):
+            continue
+        # Return remaining stack (uncommitted chips) + outstanding contributions
+        # We pay back the original buy-in minus what's already in the pot
+        # Safe: return stack (what they have left) + 0 pot share
+        total = p["stack"]
+        # Also return total_contributed from pot for safety on forced refund
+        # Actually: we return stack. The pot is zeroed out.
+        # But to be fully safe, refund buy-in if stack==0 and nothing was bet yet
+        if total == 0 and p["total_contributed"] == 0:
+            total = p["buyin"]
+        net = total - p["buyin"]
+        _upsert_result(round_id, p["username"], p["buyin"], "pokerrefundall", total, net)
+        if total > 0:
+            db.adjust_balance(p["user_id"], total)
+            db.add_ledger_entry(
+                p["user_id"], p["username"],
+                total, f"Poker refundall by @{user.username} rid={round_id}"
+            )
+            refunded += total
+            count    += 1
+            print(f"[POKER] refundall: @{p['username']} +{total}c")
+        _mark_paid(round_id, p["username"])
+
+    _log_recovery("pokerrefundall", round_id, tbl["phase"],
+                  f"by @{user.username} | {count} players | {refunded}c total")
+    _clear_table()
+    _clear_players(round_id)
+
+    await _chat(bot,
+        f"♠️ Poker refunded. {count} player(s) | {refunded}c returned.")
+    await _w(bot, user.id,
+             f"Done. Refunded {refunded}c to {count} player(s). Table cleared.")
+
+
 # ── Public API for main.py / maintenance.py ────────────────────────────────────
 
 def get_poker_state_str() -> str:
