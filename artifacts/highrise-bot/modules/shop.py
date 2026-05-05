@@ -368,3 +368,67 @@ async def handle_myitems(bot: BaseBot, user: User):
         lines.append("Titles: none  — /shop titles")
 
     await bot.highrise.send_whisper(user.id, "\n".join(lines))
+
+
+async def handle_badgeinfo(bot: BaseBot, user: User, args: list[str]) -> None:
+    """/badgeinfo <badge_id> — full details for a single badge."""
+    try:
+        badge_id = args[1].lower() if len(args) > 1 else ""
+        item = BADGES.get(badge_id)
+        if item is None:
+            await bot.highrise.send_whisper(
+                user.id, "Item not found. Check /shop badges or /shop titles."
+            )
+            return
+
+        db.ensure_user(user.id, user.username)
+        owned    = db.owns_item(user.id, badge_id)
+        equipped = db.get_equipped_ids(user.id)["badge_id"] == badge_id
+
+        await bot.highrise.send_whisper(user.id,
+            f"-- {item['display']} {badge_id} --\n"
+            f"Price: {item['price']:,}c\n"
+            f"Benefit: {item.get('description', 'Cosmetic only')}\n"
+            f"Owned: {'Yes' if owned else 'No'}  "
+            f"Equipped: {'Yes' if equipped else 'No'}"
+        )
+    except Exception as exc:
+        print(f"[SHOP] badgeinfo error for {user.username}: {exc}")
+        try:
+            await bot.highrise.send_whisper(
+                user.id, "Item not found. Check /shop badges or /shop titles."
+            )
+        except Exception:
+            pass
+
+
+async def handle_titleinfo(bot: BaseBot, user: User, args: list[str]) -> None:
+    """/titleinfo <title_id> — full details for a single title."""
+    try:
+        title_id = args[1].lower() if len(args) > 1 else ""
+        item = TITLES.get(title_id)
+        if item is None:
+            await bot.highrise.send_whisper(
+                user.id, "Item not found. Check /shop badges or /shop titles."
+            )
+            return
+
+        db.ensure_user(user.id, user.username)
+        owned    = db.owns_item(user.id, title_id)
+        equipped = db.get_equipped_ids(user.id)["title_id"] == title_id
+
+        await bot.highrise.send_whisper(user.id,
+            f"-- {item['display']} {title_id} --\n"
+            f"Price: {item['price']:,}c\n"
+            f"Benefit: {item.get('description', 'Cosmetic only')}\n"
+            f"Owned: {'Yes' if owned else 'No'}  "
+            f"Equipped: {'Yes' if equipped else 'No'}"
+        )
+    except Exception as exc:
+        print(f"[SHOP] titleinfo error for {user.username}: {exc}")
+        try:
+            await bot.highrise.send_whisper(
+                user.id, "Item not found. Check /shop badges or /shop titles."
+            )
+        except Exception:
+            pass

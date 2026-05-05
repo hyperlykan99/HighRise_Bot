@@ -41,7 +41,10 @@ from economy import (
 )
 from games        import handle_game_command, handle_answer as games_handle_answer
 from admin        import handle_admin_command
-from modules.shop         import handle_shop, handle_buy, handle_equip, handle_myitems
+from modules.shop         import (
+    handle_shop, handle_buy, handle_equip, handle_myitems,
+    handle_badgeinfo, handle_titleinfo,
+)
 from modules.achievements import handle_achievements, handle_claim_achievements
 
 
@@ -54,7 +57,7 @@ from modules.achievements import handle_achievements, handle_claim_achievements
 ECONOMY_COMMANDS = {"balance", "daily", "leaderboard"}
 PROFILE_COMMANDS = {"profile", "level", "xpleaderboard"}
 GAME_COMMANDS    = {"trivia", "scramble", "riddle", "coinflip"}
-SHOP_COMMANDS        = {"shop", "buy", "equip", "myitems"}
+SHOP_COMMANDS        = {"shop", "buy", "equip", "myitems", "badgeinfo", "titleinfo"}
 ACHIEVEMENT_COMMANDS = {"achievements", "claimachievements"}
 
 # /answer is handled separately (routes to whichever game is active)
@@ -182,6 +185,12 @@ class HangoutBot(BaseBot):
 
         elif cmd == "myitems":
             await handle_myitems(self, user)
+
+        elif cmd == "badgeinfo":
+            await handle_badgeinfo(self, user, args)
+
+        elif cmd == "titleinfo":
+            await handle_titleinfo(self, user, args)
 
         # ── Achievement commands ───────────────────────────────────────────────
         elif cmd == "achievements":
