@@ -195,8 +195,9 @@ async def handle_answer(bot: BaseBot, user: User, answer_text: str):
         new_balance = db.get_balance(user.id)
 
         # Announce the win to the whole room
+        display = db.get_display_name(user.id, user.username)
         await bot.highrise.chat(
-            f"🎉 @{user.username} got it! Answer: {_active['answers'][0]} "
+            f"🎉 {display} got it! Answer: {_active['answers'][0]} "
             f"| +{config.TRIVIA_REWARD} coins 🪙"
         )
 

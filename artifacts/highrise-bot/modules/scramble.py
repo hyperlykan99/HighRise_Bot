@@ -160,8 +160,9 @@ async def handle_answer(bot: BaseBot, user: User, answer_text: str):
         db.record_game_win(user.id, user.username, "scramble")
         await leveling.award_xp(bot, user, config.XP_SCRAMBLE, config.SCRAMBLE_REWARD)
 
+        display = db.get_display_name(user.id, user.username)
         await bot.highrise.chat(
-            f"🎉 @{user.username} got it! "
+            f"🎉 {display} got it! "
             f"{_active['scrambled'].upper()} = {_active['word'].upper()} "
             f"| +{config.SCRAMBLE_REWARD} coins 🪙"
         )

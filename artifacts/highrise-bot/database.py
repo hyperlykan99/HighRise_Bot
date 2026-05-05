@@ -4,13 +4,15 @@ database.py
 All SQLite database logic for the Mini Game Bot.
 
 Tables:
-  users            — one row per player (id, username, balance, xp, level, wins, coins)
+  users            — one row per player (id, username, balance, xp, level,
+                     wins, coins_earned, equipped_badge, equipped_title)
   daily_claims     — tracks the last date each player claimed /daily
   game_wins        — running win count per player per game type
   coinflip_history — log of every /coinflip result
+  owned_items      — shop items each player has purchased
+  purchase_history — log of every shop purchase
 
 All functions open their own connection and close it when done.
-This keeps the code simple and safe for a single-threaded async bot.
 """
 
 import math
@@ -40,13 +42,11 @@ def get_connection() -> sqlite3.Connection:
 
 def init_db():
     """
-    Create all tables if they don't already exist, then run migrations
-    to add any new columns to existing tables.
+    Create all tables if they don't already exist, then run migrations.
     Safe to call every time the bot starts — never deletes existing data.
     """
     conn = get_connection()
 
-    # users: one row per Highrise player
     conn.execute("""
         CREATE TABLE IF NOT EXISTS users (
             user_id            TEXT PRIMARY KEY,
@@ -55,11 +55,12 @@ def init_db():
             xp                 INTEGER NOT NULL DEFAULT 0,
             level              INTEGER NOT NULL DEFAULT 1,
             total_games_won    INTEGER NOT NULL DEFAULT 0,
-            total_coins_earned INTEGER NOT NULL DEFAULT 0
+            total_coins_earned INTEGER NOT NULL DEFAULT 0,
+            equipped_badge     TEXT,
+            equipped_title     TEXT
         )
     """)
 
-    # daily_claims: tracks the calendar date of each player's last /daily claim
     conn.execute("""
         CREATE TABLE IF NOT EXISTS daily_claims (
             user_id    TEXT PRIMARY KEY,
@@ -67,7 +68,6 @@ def init_db():
         )
     """)
 
-    # game_wins: total wins per player per mini-game
     conn.execute("""
         CREATE TABLE IF NOT EXISTS game_wins (
             user_id   TEXT NOT NULL,
@@ -78,7 +78,6 @@ def init_db():
         )
     """)
 
-    # coinflip_history: log of every coinflip for stats / review
     conn.execute("""
         CREATE TABLE IF NOT EXISTS coinflip_history (
             id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -92,10 +91,29 @@ def init_db():
         )
     """)
 
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS owned_items (
+            user_id   TEXT NOT NULL,
+            item_id   TEXT NOT NULL,
+            item_type TEXT NOT NULL,
+            PRIMARY KEY (user_id, item_id)
+        )
+    """)
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS purchase_history (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id    TEXT NOT NULL,
+            username   TEXT NOT NULL,
+            item_id    TEXT NOT NULL,
+            price      INTEGER NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+    """)
+
     conn.commit()
     conn.close()
 
-    # Add new columns to existing databases that pre-date this schema
     _migrate_db()
 
 
@@ -110,11 +128,13 @@ def _migrate_db():
         "ALTER TABLE users ADD COLUMN level              INTEGER NOT NULL DEFAULT 1",
         "ALTER TABLE users ADD COLUMN total_games_won    INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE users ADD COLUMN total_coins_earned INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE users ADD COLUMN equipped_badge     TEXT",
+        "ALTER TABLE users ADD COLUMN equipped_title     TEXT",
     ]:
         try:
             conn.execute(sql)
         except sqlite3.OperationalError:
-            pass   # column already exists — that's fine
+            pass   # column already exists
     conn.commit()
     conn.close()
 
@@ -129,11 +149,8 @@ def _xp_to_level(xp: int) -> int:
 
     Level formula — total XP required to REACH level n:
         xp_for_level(n) = 50 * n * (n - 1)
-        Level 1 =    0 XP
-        Level 2 =  100 XP
-        Level 3 =  300 XP
-        Level 4 =  600 XP
-        Level 5 = 1000 XP
+        Level 1 =    0 XP  |  Level 2 =  100 XP
+        Level 3 =  300 XP  |  Level 4 =  600 XP  |  Level 5 = 1000 XP
 
     Inverse:  n = floor( (1 + sqrt(1 + 2*xp/25)) / 2 )
     """
@@ -152,9 +169,7 @@ def xp_for_level(level: int) -> int:
 def add_xp(user_id: str, amount: int) -> tuple[int, int, int]:
     """
     Add `amount` XP to a player and recompute their level.
-
     Returns (total_xp, old_level, new_level).
-    If old_level != new_level the caller should announce a level-up.
     """
     conn = get_connection()
     row = conn.execute(
@@ -193,7 +208,8 @@ def get_profile(user_id: str) -> dict:
     """Return a dict with the player's full profile, or {} if not found."""
     conn = get_connection()
     row = conn.execute("""
-        SELECT username, balance, xp, level, total_games_won, total_coins_earned
+        SELECT username, balance, xp, level, total_games_won, total_coins_earned,
+               equipped_badge, equipped_title
         FROM users
         WHERE user_id = ?
     """, (user_id,)).fetchone()
@@ -205,16 +221,129 @@ def get_xp_leaderboard(limit: int = 10) -> list[dict]:
     """Return the top `limit` players sorted by XP (highest first)."""
     conn = get_connection()
     rows = conn.execute("""
-        SELECT username, xp, level
+        SELECT username, xp, level, equipped_badge, equipped_title
         FROM users
         ORDER BY xp DESC
         LIMIT ?
     """, (limit,)).fetchall()
     conn.close()
     return [
-        {"rank": i + 1, "username": r["username"], "xp": r["xp"], "level": r["level"]}
+        {
+            "rank":     i + 1,
+            "username": r["username"],
+            "xp":       r["xp"],
+            "level":    r["level"],
+            "display":  _build_display(r["equipped_badge"], r["username"], r["equipped_title"]),
+        }
         for i, r in enumerate(rows)
     ]
+
+
+# ---------------------------------------------------------------------------
+# Shop / cosmetics helpers
+# ---------------------------------------------------------------------------
+
+def _build_display(badge: str | None, username: str, title: str | None) -> str:
+    """Assemble the display string from badge, username, and title."""
+    parts = []
+    if badge:
+        parts.append(badge)
+    parts.append(f"@{username}")
+    if title:
+        parts.append(title)
+    return " ".join(parts)
+
+
+def get_display_name(user_id: str, username: str) -> str:
+    """
+    Return the player's display string with equipped badge and title.
+
+    Format:   <badge> @username <title>
+    Example:  🔥 @Marion [High Roller]
+
+    If nothing is equipped, returns @username.
+    """
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT equipped_badge, equipped_title FROM users WHERE user_id = ?",
+        (user_id,)
+    ).fetchone()
+    conn.close()
+    if row is None:
+        return f"@{username}"
+    return _build_display(row["equipped_badge"], username, row["equipped_title"])
+
+
+def get_owned_items(user_id: str) -> list[dict]:
+    """Return all shop items owned by a player as a list of dicts."""
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT item_id, item_type FROM owned_items WHERE user_id = ?",
+        (user_id,)
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def owns_item(user_id: str, item_id: str) -> bool:
+    """Return True if the player already owns this item."""
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT 1 FROM owned_items WHERE user_id = ? AND item_id = ?",
+        (user_id, item_id)
+    ).fetchone()
+    conn.close()
+    return row is not None
+
+
+def buy_item(user_id: str, username: str, item_id: str,
+             item_type: str, price: int) -> bool:
+    """
+    Deduct `price` coins and record the purchase.
+    Uses a single transaction so balance and ownership stay in sync.
+    Returns True on success, False if the player can't afford it.
+    """
+    conn = get_connection()
+    try:
+        row = conn.execute(
+            "SELECT balance FROM users WHERE user_id = ?", (user_id,)
+        ).fetchone()
+        if row is None or row["balance"] < price:
+            return False
+        conn.execute(
+            "UPDATE users SET balance = balance - ? WHERE user_id = ?",
+            (price, user_id)
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO owned_items (user_id, item_id, item_type) VALUES (?, ?, ?)",
+            (user_id, item_id, item_type)
+        )
+        conn.execute(
+            "INSERT INTO purchase_history (user_id, username, item_id, price) VALUES (?, ?, ?, ?)",
+            (user_id, username, item_id, price)
+        )
+        conn.commit()
+        return True
+    except Exception:
+        conn.rollback()
+        return False
+    finally:
+        conn.close()
+
+
+def equip_item(user_id: str, item_id: str, item_type: str, display: str):
+    """
+    Set the player's equipped badge or title.
+    `display` is the emoji (badge) or bracket text like "[High Roller]" (title).
+    """
+    column = "equipped_badge" if item_type == "badge" else "equipped_title"
+    conn = get_connection()
+    conn.execute(
+        f"UPDATE users SET {column} = ? WHERE user_id = ?",
+        (display, user_id)
+    )
+    conn.commit()
+    conn.close()
 
 
 # ---------------------------------------------------------------------------
@@ -249,7 +378,7 @@ def get_balance(user_id: str) -> int:
 def adjust_balance(user_id: str, amount: int):
     """
     Add (or subtract, if negative) coins from a player's balance.
-    Balance is clamped to a minimum of 0 — it can never go negative.
+    Balance is clamped to a minimum of 0.
     """
     conn = get_connection()
     conn.execute("""
@@ -262,10 +391,7 @@ def adjust_balance(user_id: str, amount: int):
 
 
 def get_user_by_username(username: str) -> dict | None:
-    """
-    Look up a player by their Highrise username (case-insensitive).
-    Returns a dict with 'user_id', 'username', 'balance', or None if not found.
-    """
+    """Look up a player by Highrise username (case-insensitive)."""
     conn = get_connection()
     row = conn.execute(
         "SELECT user_id, username, balance FROM users WHERE LOWER(username) = LOWER(?)",
@@ -310,14 +436,19 @@ def get_leaderboard(limit: int = 10) -> list[dict]:
     """Return the top `limit` players sorted by coin balance (highest first)."""
     conn = get_connection()
     rows = conn.execute("""
-        SELECT username, balance
+        SELECT username, balance, equipped_badge, equipped_title
         FROM users
         ORDER BY balance DESC
         LIMIT ?
     """, (limit,)).fetchall()
     conn.close()
     return [
-        {"rank": i + 1, "username": r["username"], "balance": r["balance"]}
+        {
+            "rank":     i + 1,
+            "username": r["username"],
+            "balance":  r["balance"],
+            "display":  _build_display(r["equipped_badge"], r["username"], r["equipped_title"]),
+        }
         for i, r in enumerate(rows)
     ]
 
@@ -328,8 +459,8 @@ def get_leaderboard(limit: int = 10) -> list[dict]:
 
 def record_game_win(user_id: str, username: str, game_type: str):
     """
-    Increment the per-game-type win counter and the overall total_games_won
-    counter for a player. Creates the game_wins row if it doesn't exist yet.
+    Increment the per-game-type win counter and the overall total_games_won.
+    Creates the game_wins row if it doesn't exist yet.
     """
     conn = get_connection()
     conn.execute("""

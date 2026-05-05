@@ -247,8 +247,9 @@ async def handle_answer(bot: BaseBot, user: User, answer_text: str):
         db.record_game_win(user.id, user.username, "riddle")
         await leveling.award_xp(bot, user, config.XP_RIDDLE, config.RIDDLE_REWARD)
 
+        display = db.get_display_name(user.id, user.username)
         await bot.highrise.chat(
-            f"🎉 @{user.username} cracked it! Answer: {_active['answers'][0]} "
+            f"🎉 {display} cracked it! Answer: {_active['answers'][0]} "
             f"| +{config.RIDDLE_REWARD} coins 🪙"
         )
 

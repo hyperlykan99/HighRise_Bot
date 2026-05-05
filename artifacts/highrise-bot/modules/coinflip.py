@@ -125,13 +125,14 @@ async def handle_coinflip(bot: BaseBot, user: User, args: list[str]):
 
     coin_emoji = "HEADS" if result == "heads" else "TAILS"
 
+    display = db.get_display_name(user.id, user.username)
     if won:
         await bot.highrise.chat(
-            f"🪙 @{user.username} chose {choice_raw.upper()} — {coin_emoji}! "
+            f"🪙 {display} chose {choice_raw.upper()} — {coin_emoji}! "
             f"WIN! +{bet} coins 🎉  Balance: {new_balance}"
         )
     else:
         await bot.highrise.chat(
-            f"🪙 @{user.username} chose {choice_raw.upper()} — {coin_emoji}. "
+            f"🪙 {display} chose {choice_raw.upper()} — {coin_emoji}. "
             f"Lost {bet} coins 😬  Balance: {new_balance}"
         )

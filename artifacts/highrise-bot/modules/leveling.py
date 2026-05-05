@@ -34,8 +34,9 @@ async def award_xp(bot, user, xp_amount: int, coins_earned: int = 0) -> None:
         total_xp, old_level, new_level = db.add_xp(user.id, xp_amount)
 
         if new_level > old_level:
+            display = db.get_display_name(user.id, user.username)
             await bot.highrise.chat(
-                f"🎉 @{user.username} leveled up to Level {new_level}! 🌟"
+                f"🎉 {display} leveled up to Level {new_level}! 🌟"
             )
     except Exception as exc:
         print(f"[LEVELING] Error awarding XP to {user.username}: {exc}")

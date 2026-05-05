@@ -39,8 +39,9 @@ from economy import (
     handle_balance, handle_daily, handle_leaderboard,
     handle_profile, handle_level, handle_xp_leaderboard,
 )
-from games   import handle_game_command, handle_answer as games_handle_answer
-from admin   import handle_admin_command
+from games        import handle_game_command, handle_answer as games_handle_answer
+from admin        import handle_admin_command
+from modules.shop import handle_shop, handle_buy, handle_equip, handle_myitems
 
 
 # ---------------------------------------------------------------------------
@@ -52,6 +53,7 @@ from admin   import handle_admin_command
 ECONOMY_COMMANDS = {"balance", "daily", "leaderboard"}
 PROFILE_COMMANDS = {"profile", "level", "xpleaderboard"}
 GAME_COMMANDS    = {"trivia", "scramble", "riddle", "coinflip"}
+SHOP_COMMANDS    = {"shop", "buy", "equip", "myitems"}
 
 # /answer is handled separately (routes to whichever game is active)
 
@@ -59,36 +61,39 @@ GAME_COMMANDS    = {"trivia", "scramble", "riddle", "coinflip"}
 ADMIN_COMMANDS = {"addcoins", "removecoins", "resetgame", "announce"}
 
 ALL_KNOWN_COMMANDS = (
-    {"help", "answer"} | ECONOMY_COMMANDS | PROFILE_COMMANDS | GAME_COMMANDS | ADMIN_COMMANDS
+    {"help", "answer"}
+    | ECONOMY_COMMANDS
+    | PROFILE_COMMANDS
+    | GAME_COMMANDS
+    | SHOP_COMMANDS
+    | ADMIN_COMMANDS
 )
 
 
 # ---------------------------------------------------------------------------
-# Help text — split into two messages to stay inside Highrise's size limit
+# Help text — 3 short messages to stay inside Highrise's character limit
 # ---------------------------------------------------------------------------
 
 HELP_TEXT_1 = (
-    "-- Mini Game Bot --\n"
-    "/trivia   - trivia question, win 25 coins\n"
-    "/scramble - unscramble a word, win 25 coins\n"
-    "/riddle   - solve a riddle, win 25 coins\n"
-    "/coinflip <heads/tails> <bet> - flip a coin\n"
-    "/answer <text> - answer the active game"
+    "-- Games --\n"
+    "/trivia  /scramble  /riddle  (win 25 coins)\n"
+    "/coinflip <heads/tails> <bet>\n"
+    "/answer <text>  answer active game"
 )
 
 HELP_TEXT_2 = (
-    "-- Economy --\n"
-    f"/daily       - claim {config.DAILY_REWARD} free coins (once/day)\n"
-    "/balance     - check your coins\n"
-    "/leaderboard - top 10 richest players\n"
-    "-- Levelling --\n"
-    "/profile      - your stats (level, XP, coins, wins)\n"
-    "/level        - level & XP progress\n"
-    "/xpleaderboard - top 10 by XP\n"
-    "-- Admin --\n"
-    "/addcoins <user> <amount>\n"
-    "/removecoins <user> <amount>\n"
-    "/resetgame  /announce <message>"
+    "-- Economy & Levels --\n"
+    f"/daily  +{config.DAILY_REWARD} coins/day\n"
+    "/balance  /leaderboard\n"
+    "/profile  /level  /xpleaderboard"
+)
+
+HELP_TEXT_3 = (
+    "-- Shop --\n"
+    "/shop  /shop badges  /shop titles\n"
+    "/buy badge <id>  /buy title <id>\n"
+    "/equip badge <id>  /equip title <id>\n"
+    "/myitems  see what you own"
 )
 
 
@@ -129,6 +134,7 @@ class HangoutBot(BaseBot):
         if cmd == "help":
             await self.highrise.send_whisper(user.id, HELP_TEXT_1)
             await self.highrise.send_whisper(user.id, HELP_TEXT_2)
+            await self.highrise.send_whisper(user.id, HELP_TEXT_3)
             return
 
         # ── Admin gate ────────────────────────────────────────────────────────
@@ -157,6 +163,19 @@ class HangoutBot(BaseBot):
 
         elif cmd == "xpleaderboard":
             await handle_xp_leaderboard(self, user)
+
+        # ── Shop commands ─────────────────────────────────────────────────────
+        elif cmd == "shop":
+            await handle_shop(self, user, args)
+
+        elif cmd == "buy":
+            await handle_buy(self, user, args)
+
+        elif cmd == "equip":
+            await handle_equip(self, user, args)
+
+        elif cmd == "myitems":
+            await handle_myitems(self, user)
 
         # ── /answer ───────────────────────────────────────────────────────────
         elif cmd == "answer":

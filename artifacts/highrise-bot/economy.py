@@ -79,13 +79,17 @@ async def handle_profile(bot: BaseBot, user: User):
     level     = p["level"]
     xp        = p["xp"]
     xp_needed = db.xp_for_level(level + 1) - xp
+    badge     = p.get("equipped_badge") or "none"
+    title_    = p.get("equipped_title") or "none"
     await bot.highrise.send_whisper(user.id,
         f"-- {p['username']} --\n"
         f"💰 Coins:        {p['balance']}\n"
         f"⭐ Level:        {level}\n"
         f"✨ XP:           {xp}  (need {xp_needed} more for Lv {level + 1})\n"
         f"🏆 Games won:    {p['total_games_won']}\n"
-        f"🪙 Coins earned: {p['total_coins_earned']}"
+        f"🪙 Coins earned: {p['total_coins_earned']}\n"
+        f"🎨 Badge:        {badge}\n"
+        f"🏷️  Title:        {title_}"
     )
 
 
