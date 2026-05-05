@@ -28,6 +28,7 @@ Commands handled here:
     /myitems           — show owned badges and titles
 """
 
+import math
 from highrise import BaseBot, User
 import database as db
 
@@ -134,59 +135,74 @@ def _get_item(item_type: str, item_id: str) -> dict | None:
 # Command handlers
 # ---------------------------------------------------------------------------
 
+_PAGE_SIZE = 5
+
+
+async def _send_catalog_page(
+    bot, user, catalog: dict, item_type: str, args: list[str]
+) -> None:
+    """Send one page of 5 items from a badge or title catalog."""
+    try:
+        page = int(args[2]) if len(args) > 2 and args[2].isdigit() else 1
+    except (ValueError, IndexError):
+        page = 1
+
+    items       = list(catalog.items())
+    total_pages = max(1, math.ceil(len(items) / _PAGE_SIZE))
+    page        = max(1, min(page, total_pages))
+    start       = (page - 1) * _PAGE_SIZE
+    chunk       = items[start : start + _PAGE_SIZE]
+
+    label = "Badges (before @name)" if item_type == "badge" else "Titles (after @name)"
+    lines = [f"-- {label}  {page}/{total_pages} --"]
+
+    for item_id, data in chunk:
+        display = data.get("display", "?")
+        price   = data.get("price", 0)
+        desc    = data.get("description", "")
+        lines.append(f"  {display} {item_id}  {price}c  {desc}")
+
+    if page < total_pages:
+        lines.append(f"More: /shop {item_type}s {page + 1}")
+    else:
+        lines.append(f"Buy: /buy {item_type} <id>   Equip: /equip {item_type} <id>")
+
+    await bot.highrise.send_whisper(user.id, "\n".join(lines))
+
+
 async def handle_shop(bot: BaseBot, user: User, args: list[str]):
     """
     /shop              — top-level help
-    /shop badges       — list all badges (2 messages)
-    /shop titles       — list all titles (2 messages)
+    /shop badges [n]   — page n of badges  (5 per page, default 1)
+    /shop titles [n]   — page n of titles  (5 per page, default 1)
     """
-    sub = args[1].lower() if len(args) > 1 else ""
+    try:
+        sub = args[1].lower() if len(args) > 1 else ""
 
-    if sub == "badges":
-        badge_items = list(BADGES.items())
-        mid = len(badge_items) // 2 + 1
+        if sub == "badges":
+            await _send_catalog_page(bot, user, BADGES, "badge", args)
 
-        def badge_line(bid: str, data: dict) -> str:
-            return f"  {data['display']} {bid:<16} {data['price']:>6}c  {data['description']}"
+        elif sub == "titles":
+            await _send_catalog_page(bot, user, TITLES, "title", args)
 
-        part1 = ["-- Badges 1/2 (before @name) --"]
-        for bid, data in badge_items[:mid]:
-            part1.append(badge_line(bid, data))
-        await bot.highrise.send_whisper(user.id, "\n".join(part1))
+        else:
+            await bot.highrise.send_whisper(user.id,
+                "-- Shop --\n"
+                "/shop badges    browse badges  (before your name)\n"
+                "/shop titles    browse titles  (after your name)\n"
+                "/myitems        see what you own & have equipped\n"
+                "Buy:   /buy badge <id>    /buy title <id>\n"
+                "Equip: /equip badge <id>  /equip title <id>"
+            )
 
-        part2 = ["-- Badges 2/2 --"]
-        for bid, data in badge_items[mid:]:
-            part2.append(badge_line(bid, data))
-        part2.append("Buy: /buy badge <id>   Equip: /equip badge <id>")
-        await bot.highrise.send_whisper(user.id, "\n".join(part2))
-
-    elif sub == "titles":
-        title_items = list(TITLES.items())
-        mid = len(title_items) // 2 + 1
-
-        def title_line(tid: str, data: dict) -> str:
-            return f"  {data['display']:<20} {tid:<14} {data['price']:>7}c  {data['description']}"
-
-        part1 = ["-- Titles 1/2 (after @name) --"]
-        for tid, data in title_items[:mid]:
-            part1.append(title_line(tid, data))
-        await bot.highrise.send_whisper(user.id, "\n".join(part1))
-
-        part2 = ["-- Titles 2/2 --"]
-        for tid, data in title_items[mid:]:
-            part2.append(title_line(tid, data))
-        part2.append("Buy: /buy title <id>   Equip: /equip title <id>")
-        await bot.highrise.send_whisper(user.id, "\n".join(part2))
-
-    else:
-        await bot.highrise.send_whisper(user.id,
-            "-- Shop --\n"
-            "/shop badges    browse badges  (emojis before your name)\n"
-            "/shop titles    browse titles  (text after your name)\n"
-            "/myitems        see what you own & have equipped\n"
-            "Buy:   /buy badge <id>    /buy title <id>\n"
-            "Equip: /equip badge <id>  /equip title <id>"
-        )
+    except Exception as exc:
+        print(f"[SHOP] handle_shop error for {user.username}: {exc}")
+        try:
+            await bot.highrise.send_whisper(
+                user.id, "Shop badges had an error. Please tell the owner."
+            )
+        except Exception:
+            pass
 
 
 async def handle_buy(bot: BaseBot, user: User, args: list[str]):
