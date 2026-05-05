@@ -119,9 +119,11 @@ def _settings() -> dict:
     return db.get_rbj_settings()
 
 
-def _cancel_task(task):
+def _cancel_task(task, label: str = ""):
     if task and not task.done():
         task.cancel()
+        if label:
+            print(f"[RBJ] {label} cancelled")
 
 
 def _is_soft_17(hand: list) -> bool:
@@ -143,11 +145,13 @@ def _current_player():
 # ─── Lobby countdown ─────────────────────────────────────────────────────────
 
 async def _lobby_countdown(bot: BaseBot, seconds: int):
+    print(f"[RBJ] Countdown started ({seconds}s)")
     try:
         await asyncio.sleep(seconds)
         await _start_round(bot)
     except asyncio.CancelledError:
-        pass
+        print("[RBJ] Countdown cancelled")
+        raise
 
 
 # ─── Round start ─────────────────────────────────────────────────────────────
@@ -188,7 +192,7 @@ async def _start_round(bot: BaseBot):
 # ─── Turn management ─────────────────────────────────────────────────────────
 
 async def _advance_turn(bot: BaseBot):
-    _cancel_task(_state.turn_task)
+    _cancel_task(_state.turn_task, "Turn timer")
     _state.turn_task = None
 
     while _state.current_idx < len(_state.players):
@@ -208,6 +212,7 @@ async def _advance_turn(bot: BaseBot):
         f"➡️ @{p.username}: {hand_str(p.hand)} = {total}. /rbj hit or /rbj stand"
     )
     timer = int(_settings().get("turn_timer", 30))
+    print(f"[RBJ] Turn timer started ({timer}s) for @{p.username}")
     _state.turn_task = asyncio.create_task(
         _turn_timeout(bot, p.user_id, timer)
     )
@@ -225,7 +230,7 @@ async def _turn_timeout(bot: BaseBot, user_id: str, seconds: int):
             _state.current_idx += 1
             await _advance_turn(bot)
     except asyncio.CancelledError:
-        pass
+        raise
 
 
 # ─── Dealer play ─────────────────────────────────────────────────────────────
@@ -424,6 +429,7 @@ async def _cmd_join(bot: BaseBot, user: User, args: list[str]):
     if _state.phase == "idle":
         _state.phase      = "lobby"
         countdown         = int(s.get("lobby_countdown", 15))
+        _cancel_task(_state.lobby_task, "Countdown")
         _state.lobby_task = asyncio.create_task(_lobby_countdown(bot, countdown))
         await bot.highrise.chat(
             f"🃏 RBJ lobby open! /rbj join <bet>. Starts in {countdown}s."
@@ -446,7 +452,7 @@ async def _cmd_leave(bot: BaseBot, user: User):
     await bot.highrise.chat(f"↩️ {display} left RBJ. Bet refunded.")
 
     if not _state.players:
-        _cancel_task(_state.lobby_task)
+        _cancel_task(_state.lobby_task, "Countdown")
         _state.reset()
         await bot.highrise.chat("RBJ lobby closed — no players.")
 
@@ -504,7 +510,7 @@ async def _cmd_hit(bot: BaseBot, user: User):
         await bot.highrise.send_whisper(user.id, "Not your turn yet.")
         return
 
-    _cancel_task(_state.turn_task)
+    _cancel_task(_state.turn_task, "Turn timer")
     card  = _shoe.pop()
     p.hand.append(card)
     total = hand_value(p.hand)
@@ -520,6 +526,7 @@ async def _cmd_hit(bot: BaseBot, user: User):
         await _advance_turn(bot)
     else:
         timer = int(_settings().get("turn_timer", 30))
+        print(f"[RBJ] Turn timer started ({timer}s) for @{p.username}")
         _state.turn_task = asyncio.create_task(
             _turn_timeout(bot, p.user_id, timer)
         )
@@ -534,7 +541,7 @@ async def _cmd_stand(bot: BaseBot, user: User):
         await bot.highrise.send_whisper(user.id, "Not your turn yet.")
         return
 
-    _cancel_task(_state.turn_task)
+    _cancel_task(_state.turn_task, "Turn timer")
     p.status = "stood"
     await bot.highrise.chat(f"✋ @{p.username} stands at {hand_value(p.hand)}.")
     _state.current_idx += 1
@@ -554,7 +561,7 @@ async def _cmd_double(bot: BaseBot, user: User):
         await bot.highrise.send_whisper(user.id, "Not enough coins to double.")
         return
 
-    _cancel_task(_state.turn_task)
+    _cancel_task(_state.turn_task, "Turn timer")
     db.adjust_balance(user.id, -p.bet)
     p.bet    *= 2
     p.doubled = True
@@ -630,8 +637,8 @@ async def _cmd_cancel(bot: BaseBot, user: User):
     for p in _state.players:
         db.adjust_balance(p.user_id, p.bet)
 
-    _cancel_task(_state.lobby_task)
-    _cancel_task(_state.turn_task)
+    _cancel_task(_state.lobby_task, "Countdown")
+    _cancel_task(_state.turn_task, "Turn timer")
     _state.reset()
     await bot.highrise.chat("🃏 RBJ cancelled. All bets refunded.")
 
