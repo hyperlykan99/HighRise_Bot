@@ -586,6 +586,20 @@ def init_db():
         )
     """)
 
+    # ── Subscriber DM users ───────────────────────────────────────────────
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS subscriber_users (
+            username        TEXT PRIMARY KEY,
+            user_id         TEXT,
+            conversation_id TEXT,
+            subscribed      INTEGER NOT NULL DEFAULT 0,
+            subscribed_at   TEXT,
+            last_dm_at      TEXT,
+            last_seen_at    TEXT,
+            dm_available    INTEGER NOT NULL DEFAULT 0
+        )
+    """)
+
     # ── Bank pending notifications ────────────────────────────────────────
     conn.execute("""
         CREATE TABLE IF NOT EXISTS bank_notifications (
@@ -3596,6 +3610,131 @@ def get_recent_bank_notifications(username: str, limit: int = 10) -> list[dict]:
         LIMIT ?
         """,
         (username.lower().lstrip("@").strip(), limit),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+# ── Subscriber DM functions ────────────────────────────────────────────────────
+
+def upsert_subscriber(username: str, user_id: str, conversation_id: str | None = None) -> None:
+    """Create or update a subscriber record. Preserves subscribed flag."""
+    uname = username.lower().lstrip("@").strip()
+    conn = get_connection()
+    existing = conn.execute(
+        "SELECT subscribed FROM subscriber_users WHERE username = ?", (uname,)
+    ).fetchone()
+    if existing:
+        if conversation_id:
+            conn.execute(
+                """UPDATE subscriber_users
+                   SET user_id = ?, conversation_id = ?, dm_available = 1,
+                       last_seen_at = datetime('now')
+                   WHERE username = ?""",
+                (user_id, conversation_id, uname),
+            )
+        else:
+            conn.execute(
+                "UPDATE subscriber_users SET user_id = ?, last_seen_at = datetime('now') WHERE username = ?",
+                (user_id, uname),
+            )
+    else:
+        conn.execute(
+            """INSERT INTO subscriber_users
+               (username, user_id, conversation_id, subscribed, last_seen_at, dm_available)
+               VALUES (?, ?, ?, 0, datetime('now'), ?)""",
+            (uname, user_id, conversation_id, 1 if conversation_id else 0),
+        )
+    conn.commit()
+    conn.close()
+
+
+def get_user_by_username_via_id(user_id: str) -> dict | None:
+    """Return users row (user_id, username, balance) for a given user_id."""
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT user_id, username, balance FROM users WHERE user_id = ?", (user_id,)
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def get_subscriber(username: str) -> dict | None:
+    """Lookup subscriber by username (case-insensitive)."""
+    uname = username.lower().lstrip("@").strip()
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT * FROM subscriber_users WHERE username = ?", (uname,)
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def get_subscriber_by_user_id(user_id: str) -> dict | None:
+    """Lookup subscriber by Highrise user_id."""
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT * FROM subscriber_users WHERE user_id = ?", (user_id,)
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def set_subscribed(username: str, subscribed: bool) -> None:
+    """Enable or disable subscription for a user."""
+    uname = username.lower().lstrip("@").strip()
+    conn = get_connection()
+    conn.execute(
+        """UPDATE subscriber_users
+           SET subscribed = ?, subscribed_at = CASE WHEN ? = 1 THEN datetime('now') ELSE subscribed_at END
+           WHERE username = ?""",
+        (1 if subscribed else 0, 1 if subscribed else 0, uname),
+    )
+    conn.commit()
+    conn.close()
+
+
+def set_dm_available(username: str, available: bool) -> None:
+    """Mark whether a subscriber's DM channel is working."""
+    uname = username.lower().lstrip("@").strip()
+    conn = get_connection()
+    conn.execute(
+        "UPDATE subscriber_users SET dm_available = ? WHERE username = ?",
+        (1 if available else 0, uname),
+    )
+    conn.commit()
+    conn.close()
+
+
+def set_subscriber_last_dm(username: str) -> None:
+    """Record when a DM was last sent to a subscriber."""
+    uname = username.lower().lstrip("@").strip()
+    conn = get_connection()
+    conn.execute(
+        "UPDATE subscriber_users SET last_dm_at = datetime('now') WHERE username = ?",
+        (uname,),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_all_subscribed_with_dm() -> list[dict]:
+    """Return all subscribers who have subscribed=1, conversation_id, and dm_available=1."""
+    conn = get_connection()
+    rows = conn.execute(
+        """SELECT * FROM subscriber_users
+           WHERE subscribed = 1 AND conversation_id IS NOT NULL AND dm_available = 1
+           ORDER BY subscribed_at ASC""",
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_all_subscribers_staff() -> list[dict]:
+    """Return all subscriber records for staff view."""
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT * FROM subscriber_users ORDER BY subscribed DESC, username ASC"
     ).fetchall()
     conn.close()
     return [dict(r) for r in rows]

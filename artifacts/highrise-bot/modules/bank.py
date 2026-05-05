@@ -321,7 +321,26 @@ async def handle_send(bot: BaseBot, user: User, args: list[str]):
             await bot.highrise.send_whisper(receiver["user_id"], recv_msg)
             delivered = True
         except Exception:
-            print(f"[BANK] Receiver @{receiver['username']} offline; queuing notification.")
+            print(f"[BANK] Receiver @{receiver['username']} offline; trying subscriber DM...")
+
+        # Try inbox DM via conversation if whisper failed and user is subscribed
+        if not delivered:
+            sub = db.get_subscriber(receiver["username"])
+            if (sub and sub.get("conversation_id")
+                    and sub.get("subscribed") and sub.get("dm_available")):
+                dm_msg = (
+                    f"🏦 You received {amount_received:,}c from @{user.username}. "
+                    "Use /transactions."
+                )[:249]
+                try:
+                    await bot.highrise.send_message(sub["conversation_id"], dm_msg)
+                    delivered = True
+                    db.set_subscriber_last_dm(receiver["username"])
+                    print(f"[BANK] DM delivered to subscriber @{receiver['username']}.")
+                except Exception as exc:
+                    db.set_dm_available(receiver["username"], False)
+                    print(f"[BANK] Subscriber DM to @{receiver['username']} failed: {exc}")
+
         if not delivered:
             db.add_bank_notification(
                 receiver["username"], user.username, amount_received, fee

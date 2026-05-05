@@ -63,6 +63,11 @@ from modules.casino_settings     import (
     handle_casinosettings, handle_casinolimits, handle_casinotoggles,
     handle_setbjlimits, handle_setrbjlimits,
 )
+from modules.subscribers         import (
+    handle_subscribe, handle_unsubscribe, handle_substatus,
+    handle_subscribers, handle_dmnotify, handle_announce_subs,
+    process_incoming_dm,
+)
 from modules.maintenance         import (
     handle_botstatus, handle_dbstats, handle_backup,
     handle_maintenance, handle_reloadsettings, handle_cleanup,
@@ -169,6 +174,7 @@ MOD_ONLY_CMDS = {
     "warn", "warnings",
     "replog",
     "allstaff",
+    "subscribers",
 }
 
 MANAGER_ONLY_CMDS = {
@@ -201,6 +207,7 @@ ADMIN_ONLY_CMDS = {
     "eventstart", "eventstop",
     "clearwarnings",
     "addrep", "removerep",
+    "dmnotify", "announce_subs",
 } | BANK_ADMIN_SET_CMDS | TIP_ADMIN_CMDS
 
 OWNER_ONLY_CMDS = {
@@ -249,6 +256,7 @@ ALL_KNOWN_COMMANDS = (
         "allstaff", "allcommands", "checkcommands",
         "notifications", "clearnotifications",
         "delivernotifications", "pendingnotifications",
+        "subscribe", "unsubscribe", "substatus",
     }
     | ECONOMY_COMMANDS | PROFILE_COMMANDS | GAME_COMMANDS
     | SHOP_COMMANDS | ACHIEVEMENT_COMMANDS | BJ_COMMANDS
@@ -1607,6 +1615,24 @@ class HangoutBot(BaseBot):
         elif cmd == "pendingnotifications":
             await handle_pendingnotifications(self, user, args)
 
+        elif cmd == "subscribe":
+            await handle_subscribe(self, user, args)
+
+        elif cmd == "unsubscribe":
+            await handle_unsubscribe(self, user, args)
+
+        elif cmd == "substatus":
+            await handle_substatus(self, user, args)
+
+        elif cmd == "subscribers":
+            await handle_subscribers(self, user, args)
+
+        elif cmd == "dmnotify":
+            await handle_dmnotify(self, user, args)
+
+        elif cmd == "announce_subs":
+            await handle_announce_subs(self, user, args)
+
         elif cmd == "bankhelp":
             await _handle_bankhelp(self, user, args)
 
@@ -1896,6 +1922,25 @@ class HangoutBot(BaseBot):
         # unless explicitly tip-related
         if "tip" in emote_id.lower() or "gold" in emote_id.lower():
             print(f"DEBUG EVENT FIRED: on_emote | {raw}")
+
+    async def on_message(self, user_id: str, conversation_id: str, is_new_conversation: bool) -> None:
+        """
+        Fires when the bot receives a Highrise inbox/DM message.
+        Saves the conversation_id and processes subscribe/unsubscribe keywords.
+        """
+        try:
+            resp = await self.highrise.get_messages(conversation_id)
+            messages = getattr(resp, "messages", []) or []
+            # Find the most recent message sent by this user
+            content = ""
+            for msg in reversed(messages):
+                if getattr(msg, "sender_id", None) == user_id:
+                    content = getattr(msg, "content", "").strip()
+                    break
+            print(f"[DM] on_message user_id={user_id[:12]}... conv={conversation_id[:12]}... content={content[:40]!r}")
+            await process_incoming_dm(self, user_id, conversation_id, content, is_new_conversation)
+        except Exception as exc:
+            print(f"[DM] on_message error: {exc}")
 
     async def on_whisper(self, user: User, message: str) -> None:
         """

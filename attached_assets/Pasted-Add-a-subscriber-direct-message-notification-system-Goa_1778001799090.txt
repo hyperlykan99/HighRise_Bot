@@ -1,0 +1,93 @@
+Add a subscriber direct-message notification system.
+
+Goal:
+Allow the bot to notify players outside the room, but only if the bot has an existing Highrise conversation/DM with that player.
+
+Important:
+Highrise room whispers only work for players in the room.
+For outside-room notifications, use Highrise conversation messages with conversation_id.
+Do not promise inbox delivery unless conversation_id exists.
+
+Commands:
+- /subscribe
+- /unsubscribe
+- /substatus
+- /subscribers staff only
+- /dmnotify <username> <message> owner/admin only
+- /announce_subs <message> owner/admin only
+
+Behavior:
+1. When a player types /subscribe in the room:
+   - Mark them as subscribed.
+   - If no conversation_id exists yet, tell them:
+     "DM me 'subscribe' once so I can notify you outside the room."
+
+2. When a player sends the bot a direct message:
+   - Detect the conversation message event.
+   - Save conversation_id, username, user_id.
+   - If message contains "subscribe", mark subscribed = true.
+   - Reply in DM:
+     "✅ Subscribed. I can now notify you outside the room."
+
+3. /unsubscribe:
+   - Mark subscribed = false.
+   - If used in DM, reply in DM.
+   - If used in room, reply in room/whisper.
+
+4. /substatus:
+   - Shows whether user is subscribed.
+   - Shows whether DM/inbox conversation is connected.
+
+Database:
+Create subscriber_users table:
+- username TEXT PRIMARY KEY
+- user_id TEXT
+- conversation_id TEXT
+- subscribed INTEGER DEFAULT 0
+- subscribed_at TEXT
+- last_dm_at TEXT
+- last_seen_at TEXT
+- dm_available INTEGER DEFAULT 0
+
+Sending outside-room messages:
+- Use Highrise SDK send_message(conversation_id, message, type="text") if available.
+- If conversation_id is missing, do not attempt inbox DM.
+- If send_message fails, log error and mark dm_available = 0.
+- Keep messages under 250 characters.
+
+Bank notifications:
+Update bank notifications:
+- If receiver is in room, whisper them.
+- Else if receiver has conversation_id and subscribed = true, send DM/inbox message.
+- Else save pending notification and deliver when they join/chat/DM.
+
+Bank DM message:
+"🏦 You received 950c from @Marion. Use /transactions."
+
+Gold/event/subscriber announcements:
+- /announce_subs <message> sends a DM to all subscribed users with conversation_id.
+- Add rate limit: 1 DM per second to avoid spam/rate limits.
+- Show summary:
+"Sent to 42 subscribers. Failed: 3."
+
+Owner/admin direct DM:
+- /dmnotify <username> <message>
+Sends DM only if that user has a saved conversation_id.
+If not, say:
+"No DM conversation found. Ask them to DM the bot 'subscribe'."
+
+Help:
+Update /help or /bankhelp:
+"Outside-room alerts require /subscribe + DM bot once."
+
+Update /substatus message:
+"Subscribed: YES | DM connected: YES"
+or
+"Subscribed: YES | DM connected: NO. DM me 'subscribe'."
+
+Safety:
+- Do not spam users.
+- Respect /unsubscribe.
+- Owner/admin only for mass subscriber messages.
+- Keep every message under 250 characters.
+- Log real send errors in console.
