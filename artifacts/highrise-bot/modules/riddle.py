@@ -140,16 +140,28 @@ _RIDDLES = [
         "answers": ["silence"],
     },
     {
-        "riddle":  "I fly without wings and light up the dark. What am I?",
-        "answers": ["light", "sun", "the sun", "lightning", "star"],
-    },
-    {
         "riddle":  "What has a thumb and four fingers but is not alive?",
         "answers": ["glove", "a glove"],
     },
     {
-        "riddle":  "I have no legs but I can run. I have no mouth but I can roar. What am I?",
-        "answers": ["river", "a river", "wind", "fire"],
+        "riddle":  "I have a ring but no finger. I have a screen but no windows. What am I?",
+        "answers": ["phone", "a phone", "mobile", "mobile phone"],
+    },
+    {
+        "riddle":  "What do you call a bear with no teeth?",
+        "answers": ["gummy bear", "a gummy bear"],
+    },
+    {
+        "riddle":  "I can be cracked, made, told, and played. What am I?",
+        "answers": ["joke", "a joke"],
+    },
+    {
+        "riddle":  "What has ears but cannot hear?",
+        "answers": ["corn", "an ear of corn"],
+    },
+    {
+        "riddle":  "What kind of room has no walls, floor, or ceiling?",
+        "answers": ["mushroom", "a mushroom"],
     },
 ]
 

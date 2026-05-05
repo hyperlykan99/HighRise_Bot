@@ -38,13 +38,17 @@ _WORDS = [
     "cloud",   "ocean",   "storm",   "river",   "flame",
     "frost",   "bloom",   "jungle",  "forest",  "desert",
     "island",  "valley",  "canyon",  "breeze",
-    # Objects / Action
+    # Objects / Vibes
     "music",   "dance",   "magic",   "dream",   "smile",
     "brave",   "castle",  "dragon",  "rocket",  "puzzle",
     "candle",  "mirror",  "bridge",  "planet",  "lantern",
     # Colors / Qualities
     "purple",  "silver",  "golden",  "shadow",  "crystal",
-    # Longer / International
+    # Fun / Pop Culture
+    "anime",   "pixel",   "disco",   "remix",   "squad",
+    "quest",   "level",   "bonus",   "spell",   "cheat",
+    "swipe",   "theme",   "gamer",   "badge",   "emoji",
+    # Longer Words
     "garden",  "winter",  "summer",  "spring",  "marble",
     "thunder", "balloon", "diamond", "blanket", "captain",
     "rainbow", "mystery", "weekend", "kitchen", "freedom",
