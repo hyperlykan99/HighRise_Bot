@@ -169,8 +169,7 @@ async def _send_catalog_page(
     for item_id, data in chunk:
         display = data.get("display", "?")
         price   = data.get("price", 0)
-        desc    = data.get("description", "")
-        lines.append(f"  {display} {item_id}  {price}c  {desc}")
+        lines.append(f"  {display} {item_id}  {price:,}c")
 
     if page < total_pages:
         lines.append(f"More: /shop {item_type}s {page + 1}")
