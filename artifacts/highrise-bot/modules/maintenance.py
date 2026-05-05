@@ -11,6 +11,7 @@ Commands:
   /reloadsettings     — owner/admin: confirm settings loaded from DB
   /cleanup            — owner/admin: purge expired mutes & stale data
   /softrestart        — owner only: reset in-memory state without losing DB data
+  /restartbot         — owner only: fully restart the bot process via os.execv
 """
 from __future__ import annotations
 import time
@@ -306,3 +307,66 @@ async def handle_softrestart(bot: BaseBot, user: User) -> None:
     print("[MAINT] /softrestart complete.")
     await bot.highrise.chat("🔄 Bot soft restart complete.")
     await _w(bot, user.id, "🔄 Soft restart done. Loops running, tables cleared, DB safe.")
+
+
+# ── /restartbot ────────────────────────────────────────────────────────────────
+
+async def handle_restartbot(bot: BaseBot, user: User) -> None:
+    """
+    Owner only — fully restart the bot Python process using os.execv.
+
+    os.execv replaces the current process in-place with a fresh Python
+    interpreter running bot.py — no Replit auto-restart needed.
+
+    WARNING: /restartbot requires Replit auto-restart/deployment to be
+    enabled if os.execv is unavailable on the platform. In that case the
+    command falls back to sys.exit(0), which will stop the bot unless the
+    Replit workflow is configured to restart on exit.
+    """
+    if not is_owner(user.username):
+        await _w(bot, user.id, "Owner only.")
+        return
+
+    print(f"[MAINT] /restartbot initiated by @{user.username}")
+
+    # Announce before any shutdown work so the message gets through
+    try:
+        await bot.highrise.chat("🔄 Restarting bot...")
+    except Exception as exc:
+        print(f"[MAINT] restartbot: chat announce error: {exc}")
+
+    # Cancel in-memory timers and loops safely (best-effort)
+    try:
+        import modules.auto_games as _ag
+        _ag.cancel_answer_timer()
+        for attr in ("_auto_game_task", "_auto_event_loop_task"):
+            t = getattr(_ag, attr, None)
+            if t and not t.done():
+                t.cancel()
+            setattr(_ag, attr, None)
+    except Exception as exc:
+        print(f"[MAINT] restartbot: loop cancel error: {exc}")
+
+    try:
+        from modules.events import _cancel_event_task
+        _cancel_event_task()
+    except Exception as exc:
+        print(f"[MAINT] restartbot: event task cancel error: {exc}")
+
+    # Brief pause so the "Restarting bot..." room message is delivered
+    import asyncio
+    await asyncio.sleep(1)
+
+    # Replace this process with a fresh bot.py — os.execv never returns
+    import os, sys
+    script = "bot.py"
+    interpreter = sys.executable
+    print(f"[MAINT] restartbot: exec {interpreter} {script}")
+    try:
+        os.execv(interpreter, [interpreter, script])
+    except Exception as exc:
+        # execv failed (unusual on Replit) — fall back to exit and let
+        # the workflow runner restart the process automatically.
+        print(f"[MAINT] restartbot: os.execv failed ({exc}), falling back to sys.exit(0)")
+        print("[MAINT] WARNING: sys.exit(0) requires Replit auto-restart to be enabled.")
+        sys.exit(0)

@@ -53,6 +53,7 @@ from modules.maintenance         import (
     handle_botstatus, handle_dbstats, handle_backup,
     handle_maintenance, handle_reloadsettings, handle_cleanup,
     handle_softrestart,
+    handle_restartbot,
     is_maintenance,
 )
 from modules.permissions         import (
@@ -191,6 +192,7 @@ OWNER_ONLY_CMDS = {
     "confirmgoldtip", "setgoldrainstaff", "setgoldrainmax",
     "debugtips",
     "softrestart",
+    "restartbot",
 }
 
 STAFF_CMDS = MOD_ONLY_CMDS | MANAGER_ONLY_CMDS | ADMIN_ONLY_CMDS | OWNER_ONLY_CMDS
@@ -213,7 +215,7 @@ ALL_KNOWN_COMMANDS = (
         "rep", "reputation", "repstats", "toprep", "repleaderboard",
         "poker",
         "botstatus", "dbstats", "backup",
-        "maintenance", "reloadsettings", "cleanup", "softrestart",
+        "maintenance", "reloadsettings", "cleanup", "softrestart", "restartbot",
         "goldhelp",
         "tiprate", "tipstats", "tipleaderboard", "debugtips",
     }
@@ -451,7 +453,8 @@ OWNER_HELP_PAGES = [
         "/backup\n"
         "/dbstats\n"
         "/maintenance on/off\n"
-        "/softrestart"
+        "/softrestart\n"
+        "/restartbot"
     ),
     (
         "👑 Owner 3\n"
@@ -1234,6 +1237,9 @@ class HangoutBot(BaseBot):
 
         elif cmd == "softrestart":
             await handle_softrestart(self, user)
+
+        elif cmd == "restartbot":
+            await handle_restartbot(self, user)
 
         # ── Game commands ─────────────────────────────────────────────────────
         elif cmd in GAME_COMMANDS:
