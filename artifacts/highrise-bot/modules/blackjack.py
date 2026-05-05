@@ -19,7 +19,7 @@ from highrise import BaseBot, User
 import database as db
 from modules.cards       import make_deck, hand_str, hand_value, is_blackjack, card_str
 from modules.shop        import get_player_benefits
-from modules.permissions import can_manage_games
+from modules.permissions import can_manage_games, can_moderate
 
 _BJ_CASINO_CAP = 5.0   # max % casino bonus applied to BJ winning payouts
 
@@ -618,8 +618,8 @@ async def _cmd_leaderboard(bot: BaseBot, user: User):
 
 
 async def _cmd_cancel(bot: BaseBot, user: User):
-    if not can_manage_games(user.username):
-        await bot.highrise.send_whisper(user.id, "Admins and managers only.")
+    if not can_moderate(user.username):
+        await bot.highrise.send_whisper(user.id, "Staff only.")
         return
 
     if _state.phase == "idle":

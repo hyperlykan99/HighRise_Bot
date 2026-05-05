@@ -48,7 +48,10 @@ from modules.shop         import (
 from modules.achievements import handle_achievements, handle_claim_achievements
 from modules.blackjack           import handle_bj, handle_bj_set, reset_table as bj_reset_table
 from modules.realistic_blackjack import handle_rbj, handle_rbj_set, reset_table as rbj_reset_table
-from modules.permissions         import can_manage_games, can_manage_economy
+from modules.permissions         import (
+    is_owner, is_admin, can_moderate,
+    can_manage_games, can_manage_economy,
+)
 from modules.bank import (
     handle_bank, handle_send, handle_transactions, handle_bankstats,
     handle_banknotify,
@@ -59,117 +62,108 @@ from modules.bank import (
 
 # ---------------------------------------------------------------------------
 # Command sets
-# Adding a name here makes the bot recognise it in on_chat().
 # ---------------------------------------------------------------------------
 
-# Commands any player can use
-ECONOMY_COMMANDS = {"balance", "daily", "leaderboard"}
-PROFILE_COMMANDS = {"profile", "level", "xpleaderboard"}
-GAME_COMMANDS    = {"trivia", "scramble", "riddle", "coinflip"}
+ECONOMY_COMMANDS     = {"balance", "daily", "leaderboard"}
+PROFILE_COMMANDS     = {"profile", "level", "xpleaderboard"}
+GAME_COMMANDS        = {"trivia", "scramble", "riddle", "coinflip"}
 SHOP_COMMANDS        = {"shop", "buy", "equip", "myitems", "badgeinfo", "titleinfo"}
 ACHIEVEMENT_COMMANDS = {"achievements", "claimachievements"}
 BJ_COMMANDS          = {"bj", "rbj"}
 BANK_PLAYER_COMMANDS = {"bank", "send", "transactions", "bankstats", "banknotify"}
-BANK_STAFF_COMMANDS  = {"viewtx", "bankwatch", "bankblock", "bankunblock",
-                        "banksettings", "ledger"}
-BANK_ADMIN_SET_CMDS  = {"setsendlimit", "setnewaccountdays", "setminlevelsend",
-                        "setmintotalearned", "setsendtax"}
 
-# /answer is handled separately (routes to whichever game is active)
+BANK_ADMIN_SET_CMDS = {
+    "setsendlimit", "setnewaccountdays", "setminlevelsend",
+    "setmintotalearned", "setsendtax",
+}
 
-# Commands only players in config.ADMIN_USERS can use
-ADMIN_COMMANDS = {
-    "addcoins", "removecoins", "resetgame", "announce",
-    "addmanager", "removemanager",
+# Staff command tiers
+MOD_ONLY_CMDS = {"resetgame", "announce", "viewtx", "bankwatch"}
+
+MANAGER_ONLY_CMDS = {
+    "banksettings",
     "setbjminbet", "setbjmaxbet", "setbjcountdown", "setbjturntimer",
     "setbjdailywinlimit", "setbjdailylosslimit",
     "setrbjdecks", "setrbjminbet", "setrbjmaxbet", "setrbjcountdown",
     "setrbjshuffle", "setrbjblackjackpayout", "setrbjwinpayout", "setrbjturntimer",
     "setrbjdailywinlimit", "setrbjdailylosslimit",
-} | BANK_STAFF_COMMANDS | BANK_ADMIN_SET_CMDS
+}
+
+ADMIN_ONLY_CMDS = {
+    "addcoins", "removecoins",
+    "addmanager", "removemanager",
+    "addmoderator", "removemoderator",
+    "bankblock", "bankunblock",
+    "ledger",
+    "allcommands",
+} | BANK_ADMIN_SET_CMDS
+
+OWNER_ONLY_CMDS = {"addadmin", "removeadmin", "admins"}
+
+STAFF_CMDS = MOD_ONLY_CMDS | MANAGER_ONLY_CMDS | ADMIN_ONLY_CMDS | OWNER_ONLY_CMDS
 
 ALL_KNOWN_COMMANDS = (
     {
         "help", "answer",
         "casinohelp", "gamehelp", "coinhelp", "profilehelp",
-        "shophelp", "progresshelp", "adminhelp", "bankhelp",
-        "casino", "managers",
+        "shophelp", "progresshelp", "bankhelp",
+        "staffhelp", "modhelp", "managerhelp", "adminhelp", "ownerhelp",
+        "casino", "managers", "moderators",
         "quests", "claimquest",
     }
-    | ECONOMY_COMMANDS
-    | PROFILE_COMMANDS
-    | GAME_COMMANDS
-    | SHOP_COMMANDS
-    | ACHIEVEMENT_COMMANDS
-    | BJ_COMMANDS
-    | BANK_PLAYER_COMMANDS
-    | ADMIN_COMMANDS
+    | ECONOMY_COMMANDS | PROFILE_COMMANDS | GAME_COMMANDS
+    | SHOP_COMMANDS | ACHIEVEMENT_COMMANDS | BJ_COMMANDS
+    | BANK_PLAYER_COMMANDS | STAFF_CMDS
 )
 
 
 # ---------------------------------------------------------------------------
-# Help texts
+# Help texts  (all ≤ 249 chars)
 # ---------------------------------------------------------------------------
 
 HELP_TEXT = (
-    "🤖 Help Menu\n"
-    "🎮 Games: /gamehelp\n"
-    "🎰 Casino: /casinohelp\n"
-    "💰 Coins: /coinhelp\n"
-    "🏦 Bank: /bankhelp\n"
-    "⭐ Profile: /profilehelp\n"
-    "🛒 Shop: /shophelp\n"
-    "🏆 Progress: /progresshelp"
+    "🤖 Help\n"
+    "🎮 /gamehelp\n"
+    "🎰 /casinohelp\n"
+    "💰 /coinhelp\n"
+    "🏦 /bankhelp\n"
+    "🛒 /shophelp\n"
+    "⭐ /profilehelp\n"
+    "Staff: /staffhelp"
 )
 
 GAME_HELP = (
     "🎮 Games\n"
-    "/trivia\n"
-    "/scramble\n"
-    "/riddle\n"
+    "/trivia /scramble /riddle\n"
     "/answer <answer>\n"
-    "Win games to earn coins + XP."
+    "/coinflip heads/tails <bet>"
 )
 
 CASINO_HELP = (
     "🎰 Casino\n"
     "/casino modes\n"
-    "/bj join <bet> - casual BJ\n"
-    "/rbj join <bet> - realistic BJ\n"
-    "/bj table | /rbj table\n"
+    "/bj join <bet>\n"
+    "/rbj join <bet>\n"
     "/bj hit | /rbj hit\n"
     "/bj stand | /rbj stand\n"
-    "/bj limits | /rbj limits"
+    "/bj table | /rbj table"
 )
 
 COIN_HELP = (
     "💰 Coins\n"
-    "/daily - claim coins\n"
-    "/balance - check coins\n"
-    "/send <user> <amt> - send coins\n"
-    "/bank - your bank info\n"
-    "/transactions - transfer history\n"
-    "/leaderboard - richest players"
+    "/daily /balance\n"
+    "/leaderboard\n"
+    "/send <user> <amount>\n"
+    "/bank /transactions"
 )
 
 BANK_HELP = (
     "🏦 Bank\n"
-    "/send <user> <amt> - send coins\n"
-    "/bank - balance + status\n"
-    "/transactions - history\n"
-    "/transactions sent\n"
-    "/transactions received\n"
-    "/bankstats - full stats\n"
-    "Staff: /viewtx <user>"
-)
-
-PROFILE_HELP = (
-    "⭐ Profile\n"
-    "/profile\n"
-    "/level\n"
-    "/xpleaderboard\n"
-    "/myitems\n"
-    "Equip badges/titles to flex."
+    "/send <user> <amt>\n"
+    "/bank\n"
+    "/bankstats\n"
+    "/transactions\n"
+    "/banknotify on/off"
 )
 
 SHOP_HELP = (
@@ -178,43 +172,102 @@ SHOP_HELP = (
     "/shop badges\n"
     "/titleinfo <id>\n"
     "/badgeinfo <id>\n"
-    "/buy title <id>\n"
-    "/buy badge <id>\n"
-    "/equip title <id>\n"
-    "/equip badge <id>"
+    "/buy title/badge <id>\n"
+    "/equip title/badge <id>"
+)
+
+PROFILE_HELP = (
+    "⭐ Profile\n"
+    "/profile\n"
+    "/level\n"
+    "/xpleaderboard\n"
+    "/myitems"
 )
 
 PROGRESS_HELP = (
     "🏆 Progress\n"
     "/achievements\n"
-    "/achievements all\n"
     "/claimachievements\n"
     "/quests\n"
     "/claimquest"
 )
 
-MANAGER_HELP = (
-    "⚙️ Manager\n"
-    "/casino modes\n"
+MOD_HELP = (
+    "🛡️ Moderator\n"
+    "/announce <msg>\n"
+    "/resetgame\n"
+    "/casino reset\n"
+    "/bj cancel\n"
+    "/rbj cancel\n"
+    "/bankwatch <user>\n"
+    "/viewtx <user>"
+)
+
+MANAGER_HELP_1 = (
+    "🧰 Manager\n"
     "/bj on/off\n"
     "/rbj on/off\n"
     "/casino on/off\n"
-    "/bj cancel\n"
-    "/rbj cancel\n"
-    "/announce <msg>"
+    "/casino modes\n"
+    "/setbjturntimer <sec>"
 )
 
-ADMIN_HELP_EXTRA = (
+MANAGER_HELP_2 = (
+    "🧰 Manager 2\n"
+    "/setrbjturntimer <sec>\n"
+    "/setbjdailywinlimit <amt>\n"
+    "/setbjdailylosslimit <amt>\n"
+    "/bankwatch <user>"
+)
+
+ADMIN_HELP_1 = (
     "👑 Admin\n"
     "/addcoins <user> <amt>\n"
     "/removecoins <user> <amt>\n"
+    "/bankblock <user>\n"
+    "/bankunblock <user>"
+)
+
+ADMIN_HELP_2 = (
+    "👑 Admin 2\n"
+    "/setsendlimit <amt>\n"
+    "/setnewaccountdays <days>\n"
+    "/setminlevelsend <lvl>\n"
+    "/setsendtax <percent>"
+)
+
+ADMIN_HELP_3 = (
+    "👑 Admin 3\n"
     "/addmanager <user>\n"
     "/removemanager <user>\n"
-    "/managers\n"
-    "/viewtx <user>  /bankwatch <user>\n"
-    "/bankblock <user>  /bankunblock <user>\n"
-    "/ledger <user>"
+    "/addmoderator <user>\n"
+    "/removemoderator <user>"
 )
+
+OWNER_HELP_1 = (
+    "👑 Owner\n"
+    "/addadmin <user>\n"
+    "/removeadmin <user>\n"
+    "/admins\n"
+    "/managers\n"
+    "/moderators"
+)
+
+OWNER_HELP_2 = (
+    "👑 Owner 2\n"
+    "/casino reset\n"
+    "/ledger <user>\n"
+    "/allcommands\n"
+    "Full control over bot settings."
+)
+
+ALLCMDS = [
+    "Commands 1\n/help /gamehelp /casinohelp\n/coinhelp /bankhelp /shophelp\n/profilehelp /progresshelp",
+    "Commands 2\n/trivia /scramble /riddle\n/answer\n/daily /balance /leaderboard\n/profile /level /myitems",
+    "Commands 3\n/bj join /bj hit /bj stand\n/rbj join /rbj hit /rbj stand\n/bj table /rbj table\n/bj rules /rbj rules",
+    "Commands 4\n/send /bank /transactions\n/shop titles /shop badges\n/titleinfo /badgeinfo\n/buy /equip",
+    "Staff Commands\n/staffhelp /modhelp\n/managerhelp /adminhelp\n/ownerhelp\n/casino reset /viewtx /bankwatch",
+]
 
 
 # ---------------------------------------------------------------------------
@@ -248,8 +301,8 @@ async def _handle_casino_cmd(bot, user, args):
         await bot.highrise.chat("⛔ Casino is now CLOSED. Both BJ modes disabled.")
 
     elif sub == "reset":
-        if not can_manage_games(user.username):
-            await bot.highrise.send_whisper(user.id, "Admins and managers only.")
+        if not can_moderate(user.username):
+            await bot.highrise.send_whisper(user.id, "Staff only.")
             return
         bj_reset_table()
         rbj_reset_table()
@@ -284,36 +337,90 @@ async def _send_casino_leaderboard(bot, user):
             await bot.highrise.send_whisper(user.id, "\n".join(lines))
 
 
-async def _handle_adminhelp(bot, user):
-    if not can_manage_games(user.username):
-        await bot.highrise.send_whisper(user.id, "Admin help is for staff only.")
+async def _handle_staffhelp(bot, user):
+    if not can_moderate(user.username):
+        await bot.highrise.send_whisper(user.id, "Staff help is for staff only.")
         return
-    await bot.highrise.send_whisper(user.id, MANAGER_HELP)
-    if can_manage_economy(user.username):
-        await bot.highrise.send_whisper(user.id, ADMIN_HELP_EXTRA)
+    await bot.highrise.send_whisper(
+        user.id, "⚙️ Staff Help\n/modhelp\n/managerhelp\n/adminhelp\n/ownerhelp"
+    )
 
 
-async def _handle_manager_cmd(bot, user, cmd, args):
+async def _handle_modhelp(bot, user):
+    if not can_moderate(user.username):
+        await bot.highrise.send_whisper(user.id, "Staff only.")
+        return
+    await bot.highrise.send_whisper(user.id, MOD_HELP)
+
+
+async def _handle_managerhelp(bot, user):
+    if not can_manage_games(user.username):
+        await bot.highrise.send_whisper(user.id, "Managers and above only.")
+        return
+    await bot.highrise.send_whisper(user.id, MANAGER_HELP_1)
+    await bot.highrise.send_whisper(user.id, MANAGER_HELP_2)
+
+
+async def _handle_adminhelp(bot, user):
+    if not can_manage_economy(user.username):
+        await bot.highrise.send_whisper(user.id, "Admins and owners only.")
+        return
+    await bot.highrise.send_whisper(user.id, ADMIN_HELP_1)
+    await bot.highrise.send_whisper(user.id, ADMIN_HELP_2)
+    await bot.highrise.send_whisper(user.id, ADMIN_HELP_3)
+
+
+async def _handle_ownerhelp(bot, user):
+    if not is_owner(user.username):
+        await bot.highrise.send_whisper(user.id, "Owner only.")
+        return
+    await bot.highrise.send_whisper(user.id, OWNER_HELP_1)
+    await bot.highrise.send_whisper(user.id, OWNER_HELP_2)
+
+
+async def _handle_staff_cmd(bot, user, cmd, args):
+    if len(args) < 2:
+        await bot.highrise.send_whisper(user.id, f"Usage: /{cmd} <username>")
+        return
+    target = args[1].lstrip("@").lower()
     if cmd == "addmanager":
-        if len(args) < 2:
-            await bot.highrise.send_whisper(user.id, "Usage: /addmanager <username>")
-            return
-        target = args[1].lstrip("@").lower()
-        result = db.add_manager(target)
-        if result == "exists":
-            await bot.highrise.send_whisper(user.id, f"@{target} is already a manager.")
-        else:
-            await bot.highrise.send_whisper(user.id, f"✅ @{target} is now a manager.")
+        r = db.add_manager(target)
+        msg = f"@{target} is already a manager." if r == "exists" else f"✅ @{target} is now a manager."
     elif cmd == "removemanager":
-        if len(args) < 2:
-            await bot.highrise.send_whisper(user.id, "Usage: /removemanager <username>")
-            return
-        target = args[1].lstrip("@").lower()
-        result = db.remove_manager(target)
-        if result == "not_found":
-            await bot.highrise.send_whisper(user.id, f"@{target} is not a manager.")
-        else:
-            await bot.highrise.send_whisper(user.id, f"❌ @{target} is no longer a manager.")
+        r = db.remove_manager(target)
+        msg = f"@{target} is not a manager." if r == "not_found" else f"❌ @{target} removed as manager."
+    elif cmd == "addmoderator":
+        r = db.add_moderator(target)
+        msg = f"@{target} is already a moderator." if r == "exists" else f"✅ @{target} is now a moderator."
+    elif cmd == "removemoderator":
+        r = db.remove_moderator(target)
+        msg = f"@{target} is not a moderator." if r == "not_found" else f"❌ @{target} removed as moderator."
+    elif cmd == "addadmin":
+        r = db.add_admin_user(target)
+        msg = f"@{target} is already an admin." if r == "exists" else f"✅ @{target} is now an admin."
+    elif cmd == "removeadmin":
+        r = db.remove_admin_user(target)
+        msg = f"@{target} is not an admin." if r == "not_found" else f"❌ @{target} removed as admin."
+    else:
+        return
+    await bot.highrise.send_whisper(user.id, msg)
+
+
+async def _cmd_admins(bot, user):
+    owner_set = {u.lower() for u in config.OWNER_USERS}
+    config_admins = [u.lower() for u in config.ADMIN_USERS if u.lower() not in owner_set]
+    dynamic = db.get_admin_users()
+    all_admins = sorted(set(config_admins + dynamic))
+    msg = "Admins: " + ", ".join(f"@{a}" for a in all_admins) if all_admins else "No admins set."
+    await bot.highrise.send_whisper(user.id, msg[:245])
+
+
+async def _cmd_allcommands(bot, user, args):
+    page = int(args[1]) if len(args) > 1 and args[1].isdigit() else 1
+    if 1 <= page <= len(ALLCMDS):
+        await bot.highrise.send_whisper(user.id, ALLCMDS[page - 1])
+    else:
+        await bot.highrise.send_whisper(user.id, f"Usage: /allcommands 1-{len(ALLCMDS)}")
 
 
 # ---------------------------------------------------------------------------
@@ -354,39 +461,36 @@ class HangoutBot(BaseBot):
             await self.highrise.send_whisper(user.id, HELP_TEXT)
             return
 
-        # ── Admin gate ────────────────────────────────────────────────────────
-        if cmd in ADMIN_COMMANDS:
-            _eco_only = {
-                "addcoins", "removecoins", "resetgame", "announce",
-                "addmanager", "removemanager",
-            }
-            if cmd in _eco_only:
-                if not can_manage_economy(user.username):
-                    await self.highrise.send_whisper(
-                        user.id, "Admins and owners only."
-                    )
+        # ── Staff gate ────────────────────────────────────────────────────────
+        if cmd in STAFF_CMDS:
+            if cmd in OWNER_ONLY_CMDS:
+                if not is_owner(user.username):
+                    await self.highrise.send_whisper(user.id, "Owner only.")
                     return
-            # bank staff/admin cmds handle their own permission checks internally
-            elif cmd in BANK_STAFF_COMMANDS or cmd in BANK_ADMIN_SET_CMDS:
-                pass  # permission enforced inside handler
-            else:
+            elif cmd in ADMIN_ONLY_CMDS:
+                if not can_manage_economy(user.username):
+                    await self.highrise.send_whisper(user.id, "Admins and owners only.")
+                    return
+            elif cmd in MANAGER_ONLY_CMDS:
                 if not can_manage_games(user.username):
-                    await self.highrise.send_whisper(
-                        user.id, "Admins and managers only."
-                    )
+                    await self.highrise.send_whisper(user.id, "Managers and above only.")
+                    return
+            elif cmd in MOD_ONLY_CMDS:
+                if not can_moderate(user.username):
+                    await self.highrise.send_whisper(user.id, "Staff only.")
                     return
 
             if cmd.startswith("setrbj"):
                 await handle_rbj_set(self, user, cmd, args)
             elif cmd.startswith("setbj"):
                 await handle_bj_set(self, user, cmd, args)
-            elif cmd in {"addmanager", "removemanager"}:
-                await _handle_manager_cmd(self, user, cmd, args)
-            # ── Bank staff / admin-set commands ───────────────────────────────
-            elif cmd == "viewtx":
-                await handle_viewtx(self, user, args)
-            elif cmd == "bankwatch":
-                await handle_bankwatch(self, user, args)
+            elif cmd in {"addmanager", "removemanager", "addmoderator",
+                         "removemoderator", "addadmin", "removeadmin"}:
+                await _handle_staff_cmd(self, user, cmd, args)
+            elif cmd == "admins":
+                await _cmd_admins(self, user)
+            elif cmd == "allcommands":
+                await _cmd_allcommands(self, user, args)
             elif cmd == "bankblock":
                 await handle_bankblock(self, user, args, block=True)
             elif cmd == "bankunblock":
@@ -395,6 +499,10 @@ class HangoutBot(BaseBot):
                 await handle_banksettings(self, user)
             elif cmd == "ledger":
                 await handle_ledger(self, user, args)
+            elif cmd == "viewtx":
+                await handle_viewtx(self, user, args)
+            elif cmd == "bankwatch":
+                await handle_bankwatch(self, user, args)
             elif cmd in BANK_ADMIN_SET_CMDS:
                 await handle_bank_set(self, user, cmd, args)
             else:
@@ -490,8 +598,20 @@ class HangoutBot(BaseBot):
         elif cmd == "progresshelp":
             await self.highrise.send_whisper(user.id, PROGRESS_HELP)
 
+        elif cmd == "staffhelp":
+            await _handle_staffhelp(self, user)
+
+        elif cmd == "modhelp":
+            await _handle_modhelp(self, user)
+
+        elif cmd == "managerhelp":
+            await _handle_managerhelp(self, user)
+
         elif cmd == "adminhelp":
             await _handle_adminhelp(self, user)
+
+        elif cmd == "ownerhelp":
+            await _handle_ownerhelp(self, user)
 
         elif cmd in {"quests", "claimquest"}:
             await self.highrise.send_whisper(user.id, "Quests are coming soon! 🏆")
@@ -501,13 +621,13 @@ class HangoutBot(BaseBot):
 
         elif cmd == "managers":
             mgrs = db.get_managers()
-            if mgrs:
-                msg = "Managers: " + ", ".join(f"@{m}" for m in mgrs)
-                if len(msg) > 245:
-                    msg = msg[:242] + "..."
-            else:
-                msg = "No managers set."
-            await self.highrise.send_whisper(user.id, msg)
+            msg = "Managers: " + ", ".join(f"@{m}" for m in mgrs) if mgrs else "No managers set."
+            await self.highrise.send_whisper(user.id, msg[:245])
+
+        elif cmd == "moderators":
+            mods = db.get_moderators()
+            msg = "Moderators: " + ", ".join(f"@{m}" for m in mods) if mods else "No moderators set."
+            await self.highrise.send_whisper(user.id, msg[:245])
 
         # ── /answer ───────────────────────────────────────────────────────────
         elif cmd == "answer":
@@ -523,9 +643,7 @@ class HangoutBot(BaseBot):
 
         # ── Unknown command ───────────────────────────────────────────────────
         else:
-            await self.highrise.send_whisper(
-                user.id, "Unknown command. Type /help to see all commands."
-            )
+            await self.highrise.send_whisper(user.id, "Unknown command. Type /help.")
 
     async def on_user_join(self, user: User, position) -> None:
         """Register new players and greet them when they enter the room."""

@@ -1,0 +1,302 @@
+Update the bot help/menu system with role-based command menus.
+
+Goal:
+Players should see normal commands.
+Moderators, managers, admins, and owners should see the commands they are allowed to use.
+
+Important:
+- Keep every Highrise message under 250 characters.
+- Do not crash from bad inputs.
+- Do not show high-level admin commands to normal players.
+- Use existing permission functions if available:
+  is_owner(username)
+  is_admin(username)
+  is_manager(username)
+  is_moderator(username)
+  can_manage_games(username)
+  can_manage_economy(username)
+
+If moderator role does not exist yet, add it.
+
+Roles:
+1. Owner
+2. Admin
+3. Manager
+4. Moderator
+5. Player
+
+Permission logic:
+- Owner can do everything.
+- Admin can manage economy, staff, casino, games, bank, and announcements.
+- Manager can manage games, casino, bank viewing, and announcements, but cannot edit coins.
+- Moderator can reset games, make announcements, view limited bank/watch info, but cannot edit coins or staff roles.
+- Player can only use normal player commands.
+
+Add these help commands:
+- /help
+- /gamehelp
+- /casinohelp
+- /coinhelp
+- /bankhelp
+- /shophelp
+- /profilehelp
+- /progresshelp
+- /staffhelp
+- /modhelp
+- /managerhelp
+- /adminhelp
+- /ownerhelp
+- /allcommands staff only
+
+Main /help should show:
+
+"🤖 Help
+🎮 /gamehelp
+🎰 /casinohelp
+💰 /coinhelp
+🏦 /bankhelp
+🛒 /shophelp
+⭐ /profilehelp
+Staff: /staffhelp"
+
+Normal player help menus:
+
+/gamehelp:
+"🎮 Games
+/trivia /scramble /riddle
+/answer <answer>
+/coinflip heads/tails <bet>"
+
+/casinohelp:
+"🎰 Casino
+/casino modes
+/bj join <bet>
+/rbj join <bet>
+/bj hit | /rbj hit
+/bj stand | /rbj stand
+/bj table | /rbj table"
+
+/coinhelp:
+"💰 Coins
+/daily /balance
+/leaderboard
+/send <user> <amount>
+/bank /transactions"
+
+/bankhelp:
+"🏦 Bank
+/send <user> <amt>
+/bank
+/bankstats
+/transactions
+/banknotify on/off"
+
+/shophelp:
+"🛒 Shop
+/shop titles
+/shop badges
+/titleinfo <id>
+/badgeinfo <id>
+/buy title/badge <id>
+/equip title/badge <id>"
+
+/profilehelp:
+"⭐ Profile
+/profile
+/level
+/xpleaderboard
+/myitems"
+
+/progresshelp:
+"🏆 Progress
+/achievements
+/claimachievements
+/quests
+/claimquest"
+
+Staff menu routing:
+
+/staffhelp:
+- If player is moderator, manager, admin, or owner, show:
+"⚙️ Staff Help
+/modhelp
+/managerhelp
+/adminhelp
+/ownerhelp"
+- If normal player, say:
+"Staff help is for staff only."
+
+Moderator help:
+/modhelp should show only if user is moderator, manager, admin, or owner.
+
+Message:
+"🛡️ Moderator
+/announce <msg>
+/resetgame
+/casino reset
+/bj cancel
+/rbj cancel
+/bankwatch <user>
+/viewtx <user>"
+
+Manager help:
+/managerhelp should show only if user is manager, admin, or owner.
+
+Message 1:
+"🧰 Manager
+/bj on/off
+/rbj on/off
+/casino on/off
+/casino modes
+/setbjturntimer <sec>"
+
+Message 2:
+"🧰 Manager 2
+/setrbjturntimer <sec>
+/setbjdailywinlimit <amt>
+/setbjdailylosslimit <amt>
+/bankwatch <user>"
+
+Admin help:
+/adminhelp should show only if user is admin or owner.
+
+Message 1:
+"👑 Admin
+/addcoins <user> <amt>
+/removecoins <user> <amt>
+/bankblock <user>
+/bankunblock <user>"
+
+Message 2:
+"👑 Admin 2
+/setsendlimit <amt>
+/setnewaccountdays <days>
+/setminlevelsend <lvl>
+/setsendtax <percent>"
+
+Message 3:
+"👑 Admin 3
+/addmanager <user>
+/removemanager <user>
+/addmoderator <user>
+/removemoderator <user>"
+
+Owner help:
+/ownerhelp should show only if user is owner.
+
+Message 1:
+"👑 Owner
+/addadmin <user>
+/removeadmin <user>
+/admins
+/managers
+/moderators"
+
+Message 2:
+"👑 Owner 2
+/casino reset
+/ledger <user>
+/allcommands
+Full control over bot settings."
+
+All commands:
+/allcommands should only work for owner/admin.
+
+Because messages must stay under 250 characters, split /allcommands into pages:
+- /allcommands 1
+- /allcommands 2
+- /allcommands 3
+- /allcommands 4
+
+/allcommands 1:
+"Commands 1
+/help /gamehelp /casinohelp
+/coinhelp /bankhelp /shophelp
+/profilehelp /progresshelp"
+
+/allcommands 2:
+"Commands 2
+/trivia /scramble /riddle
+/answer
+/daily /balance /leaderboard
+/profile /level /myitems"
+
+/allcommands 3:
+"Commands 3
+/bj join /bj hit /bj stand
+/rbj join /rbj hit /rbj stand
+/bj table /rbj table
+/bj rules /rbj rules"
+
+/allcommands 4:
+"Commands 4
+/send /bank /transactions
+/shop titles /shop badges
+/titleinfo /badgeinfo
+/buy /equip"
+
+/allcommands 5:
+"Staff Commands
+/staffhelp /modhelp
+/managerhelp /adminhelp
+/ownerhelp
+/casino reset /viewtx /bankwatch"
+
+Add moderator role system if missing:
+- /addmoderator <username> admin/owner only
+- /removemoderator <username> admin/owner only
+- /moderators shows moderators
+
+Moderator permissions:
+- can_moderate(username) returns true for moderator, manager, admin, owner
+- can_manage_games(username) returns true for manager, admin, owner
+- can_manage_economy(username) returns true for admin, owner
+- can_manage_staff(username) returns true for owner, or admin if adding/removing moderators/managers only
+
+Update command permission checks:
+Moderator can use:
+- /announce
+- /resetgame
+- /casino reset
+- /bj cancel
+- /rbj cancel
+- /viewtx <user>
+- /bankwatch <user>
+
+Manager can use:
+- all moderator commands
+- /bj on/off
+- /rbj on/off
+- /casino on/off
+- /setbjturntimer
+- /setrbjturntimer
+- /setbjdailywinlimit
+- /setbjdailylosslimit
+- /setrbjdailywinlimit
+- /setrbjdailylosslimit
+
+Admin can use:
+- all manager commands
+- /addcoins
+- /removecoins
+- /bankblock
+- /bankunblock
+- /setsendlimit
+- /setnewaccountdays
+- /setminlevelsend
+- /setmintotalearned
+- /setsendtax
+- /addmanager
+- /removemanager
+- /addmoderator
+- /removemoderator
+
+Owner can use:
+- all commands
+- /addadmin
+- /removeadmin
+- /admins
+- any dangerous/global settings
+
+Make unknown commands suggest:
+"Unknown command. Type /help."

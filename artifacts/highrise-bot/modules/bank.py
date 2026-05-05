@@ -33,7 +33,7 @@ from datetime import datetime
 from highrise import BaseBot, User
 
 import database as db
-from modules.permissions import is_admin, is_manager, can_manage_economy
+from modules.permissions import is_admin, can_moderate, can_manage_economy
 
 # ---------------------------------------------------------------------------
 # In-memory send cooldown  (10 s per user)
@@ -365,8 +365,8 @@ async def handle_bankstats(bot: BaseBot, user: User):
 # ---------------------------------------------------------------------------
 
 async def handle_viewtx(bot: BaseBot, user: User, args: list[str]):
-    """/viewtx <username> [sent|received] [page]  — manager+"""
-    if not is_manager(user.username):
+    """/viewtx <username> [sent|received] [page]  — moderator+"""
+    if not can_moderate(user.username):
         await _w(bot, user.id, "Staff only.")
         return
     if len(args) < 2:
@@ -397,8 +397,8 @@ async def handle_viewtx(bot: BaseBot, user: User, args: list[str]):
 
 
 async def handle_bankwatch(bot: BaseBot, user: User, args: list[str]):
-    """/bankwatch <username>  — manager+"""
-    if not is_manager(user.username):
+    """/bankwatch <username>  — moderator+"""
+    if not can_moderate(user.username):
         await _w(bot, user.id, "Staff only.")
         return
     if len(args) < 2:

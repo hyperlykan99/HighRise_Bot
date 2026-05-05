@@ -190,6 +190,18 @@ def init_db():
     """)
 
     conn.execute("""
+        CREATE TABLE IF NOT EXISTS moderators (
+            username TEXT PRIMARY KEY
+        )
+    """)
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS admin_users (
+            username TEXT PRIMARY KEY
+        )
+    """)
+
+    conn.execute("""
         CREATE TABLE IF NOT EXISTS bj_daily (
             user_id TEXT NOT NULL,
             date    TEXT NOT NULL,
@@ -1074,6 +1086,102 @@ def get_managers() -> list:
     conn = get_connection()
     rows = conn.execute(
         "SELECT username FROM managers ORDER BY username"
+    ).fetchall()
+    conn.close()
+    return [r["username"] for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Moderator helpers
+# ---------------------------------------------------------------------------
+
+def is_moderator_db(username: str) -> bool:
+    conn = get_connection()
+    row  = conn.execute(
+        "SELECT 1 FROM moderators WHERE username = ?", (username.lower(),)
+    ).fetchone()
+    conn.close()
+    return row is not None
+
+
+def add_moderator(username: str) -> str:
+    conn = get_connection()
+    if conn.execute(
+        "SELECT 1 FROM moderators WHERE username = ?", (username.lower(),)
+    ).fetchone():
+        conn.close()
+        return "exists"
+    conn.execute("INSERT INTO moderators (username) VALUES (?)", (username.lower(),))
+    conn.commit()
+    conn.close()
+    return "added"
+
+
+def remove_moderator(username: str) -> str:
+    conn = get_connection()
+    if not conn.execute(
+        "SELECT 1 FROM moderators WHERE username = ?", (username.lower(),)
+    ).fetchone():
+        conn.close()
+        return "not_found"
+    conn.execute("DELETE FROM moderators WHERE username = ?", (username.lower(),))
+    conn.commit()
+    conn.close()
+    return "removed"
+
+
+def get_moderators() -> list:
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT username FROM moderators ORDER BY username"
+    ).fetchall()
+    conn.close()
+    return [r["username"] for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Dynamic admin helpers
+# ---------------------------------------------------------------------------
+
+def is_admin_db(username: str) -> bool:
+    conn = get_connection()
+    row  = conn.execute(
+        "SELECT 1 FROM admin_users WHERE username = ?", (username.lower(),)
+    ).fetchone()
+    conn.close()
+    return row is not None
+
+
+def add_admin_user(username: str) -> str:
+    conn = get_connection()
+    if conn.execute(
+        "SELECT 1 FROM admin_users WHERE username = ?", (username.lower(),)
+    ).fetchone():
+        conn.close()
+        return "exists"
+    conn.execute("INSERT INTO admin_users (username) VALUES (?)", (username.lower(),))
+    conn.commit()
+    conn.close()
+    return "added"
+
+
+def remove_admin_user(username: str) -> str:
+    conn = get_connection()
+    if not conn.execute(
+        "SELECT 1 FROM admin_users WHERE username = ?", (username.lower(),)
+    ).fetchone():
+        conn.close()
+        return "not_found"
+    conn.execute("DELETE FROM admin_users WHERE username = ?", (username.lower(),))
+    conn.commit()
+    conn.close()
+    return "removed"
+
+
+def get_admin_users() -> list:
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT username FROM admin_users ORDER BY username"
     ).fetchall()
     conn.close()
     return [r["username"] for r in rows]
