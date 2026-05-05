@@ -17,11 +17,15 @@ Manager/admin commands:
   /banksettings
 
 Owner/admin-only settings:
-  /setsendlimit <amt>
-  /setnewaccountdays <days>
-  /setminlevelsend <level>
-  /setmintotalearned <amt>
-  /setsendtax <pct>
+  /setminsend <amt>          — minimum transfer amount
+  /setmaxsend <amt>          — maximum per transfer
+  /setsendlimit <amt>        — daily send cap
+  /setnewaccountdays <days>  — account age gate
+  /setminlevelsend <level>   — level gate
+  /setmintotalearned <amt>   — earned-coins gate
+  /setmindailyclaims <n>     — daily-claim count gate
+  /setsendtax <pct>          — transfer tax %
+  /sethighriskblocks on|off  — block HIGH-risk transfers
 
 Ledger (manager+):
   /ledger <user> [page]
@@ -459,17 +463,17 @@ async def handle_banksettings(bot: BaseBot, user: User):
     if not is_manager(user.username):
         await _w(bot, user.id, "Staff only.")
         return
-    s = db.get_bank_settings()
-    hr_blocks = "yes" if s.get("high_risk_blocks", "true").lower() == "true" else "no"
+    s  = db.get_bank_settings()
+    hr = "ON" if s.get("high_risk_blocks", "true").lower() == "true" else "OFF"
     msg = (
-        "-- Bank Settings --\n"
-        f"Min/max send: {s.get('min_send_amount','10')}c / {s.get('max_send_amount','1000')}c\n"
-        f"Daily limit: {int(s.get('daily_send_limit','3000')):,}c\n"
-        f"New acc days: {s.get('new_account_days','3')} | "
-        f"Min level: {s.get('min_level_to_send','3')}\n"
-        f"Min earned: {s.get('min_total_earned_to_send','500')}c | "
-        f"Tax: {s.get('send_tax_percent','5')}%\n"
-        f"Block HIGH risk: {hr_blocks}"
+        "🏦 Bank Settings\n"
+        f"Min/Max: {s.get('min_send_amount','10')}c/{s.get('max_send_amount','1000')}c\n"
+        f"Daily: {int(s.get('daily_send_limit','3000')):,}c\n"
+        f"Age: {s.get('new_account_days','3')}d | "
+        f"Lvl: {s.get('min_level_to_send','3')}\n"
+        f"Earned: {int(s.get('min_total_earned_to_send','500')):,}c | "
+        f"Claims: {s.get('min_daily_claim_days_to_send','2')}\n"
+        f"Tax: {s.get('send_tax_percent','5')}% | Risk block: {hr}"
     )
     await _w(bot, user.id, msg)
 
@@ -479,35 +483,82 @@ async def handle_banksettings(bot: BaseBot, user: User):
 # ---------------------------------------------------------------------------
 
 async def handle_bank_set(bot: BaseBot, user: User, cmd: str, args: list[str]):
-    """Route /set<bank…> commands. All require admin+."""
+    """
+    Route all /set<bank…> commands. All require admin+.
+
+    Cross-field validation rules:
+      setminsend  ≤ max_send_amount
+      setmaxsend  ≥ min_send_amount  AND  ≤ daily_send_limit
+      setsendlimit ≥ max_send_amount
+    """
     if not is_admin(user.username):
         await _w(bot, user.id, "Admins only.")
         return
 
+    # ── on/off toggle ───────────────────────────────────────────────────────
+    if cmd == "sethighriskblocks":
+        if len(args) < 2 or args[1].lower() not in ("on", "off"):
+            await _w(bot, user.id, "Usage: /sethighriskblocks on|off")
+            return
+        val_str = "true" if args[1].lower() == "on" else "false"
+        db.set_bank_setting("high_risk_blocks", val_str)
+        state = "ON" if val_str == "true" else "OFF"
+        await _w(bot, user.id, f"✅ High risk blocking: {state}.")
+        return
+
+    # ── integer commands ─────────────────────────────────────────────────────
+    # (db_key, min, max, unit_fmt, label)
     _INT_CMDS = {
-        "setsendlimit":       ("daily_send_limit",             10, 100_000, "Daily send limit"),
-        "setnewaccountdays":  ("new_account_days",             0,  365,     "New account days"),
-        "setminlevelsend":    ("min_level_to_send",            1,  100,     "Min level to send"),
-        "setmintotalearned":  ("min_total_earned_to_send",     0,  1_000_000, "Min earned to send"),
-        "setsendtax":         ("send_tax_percent",             0,  50,      "Send tax %"),
+        "setminsend":        ("min_send_amount",              1, 1_000_000, "{:,}c",   "Min send amount"),
+        "setmaxsend":        ("max_send_amount",              1, 1_000_000, "{:,}c",   "Max send amount"),
+        "setsendlimit":      ("daily_send_limit",             1, 10_000_000,"{:,}c",   "Daily send limit"),
+        "setnewaccountdays": ("new_account_days",             0,  365,      "{} days", "New account wait"),
+        "setminlevelsend":   ("min_level_to_send",            0,  100,      "lvl {}",  "Min level to send"),
+        "setmintotalearned": ("min_total_earned_to_send",     0, 10_000_000,"{:,}c",   "Min total earned"),
+        "setmindailyclaims": ("min_daily_claim_days_to_send", 0,  365,      "{} days", "Min daily claims"),
+        "setsendtax":        ("send_tax_percent",             0,   50,      "{}%",     "Send tax"),
     }
 
     if cmd not in _INT_CMDS:
-        await _w(bot, user.id, f"Unknown bank setting: /{cmd}")
+        await _w(bot, user.id, f"❌ Unknown bank setting: /{cmd}")
         return
 
-    db_key, mn, mx, label = _INT_CMDS[cmd]
+    db_key, mn, mx, unit_fmt, label = _INT_CMDS[cmd]
+
     if len(args) < 2 or not args[1].isdigit():
         await _w(bot, user.id, f"Usage: /{cmd} <number>")
         return
 
     val = int(args[1])
     if not (mn <= val <= mx):
-        await _w(bot, user.id, f"❌ Value must be {mn}–{mx}.")
+        await _w(bot, user.id, f"❌ Value must be {mn:,}–{mx:,}.")
         return
 
+    # Cross-field validation
+    s = db.get_bank_settings()
+    if cmd == "setminsend":
+        cur_max = int(s.get("max_send_amount", 1000))
+        if val > cur_max:
+            await _w(bot, user.id, f"❌ Min ({val:,}c) must be ≤ max send ({cur_max:,}c).")
+            return
+    elif cmd == "setmaxsend":
+        cur_min   = int(s.get("min_send_amount", 10))
+        cur_limit = int(s.get("daily_send_limit", 3000))
+        if val < cur_min:
+            await _w(bot, user.id, f"❌ Max ({val:,}c) must be ≥ min send ({cur_min:,}c).")
+            return
+        if val > cur_limit:
+            await _w(bot, user.id, f"❌ Max ({val:,}c) must be ≤ daily limit ({cur_limit:,}c).")
+            return
+    elif cmd == "setsendlimit":
+        cur_max = int(s.get("max_send_amount", 1000))
+        if val < cur_max:
+            await _w(bot, user.id, f"❌ Daily limit ({val:,}c) must be ≥ max send ({cur_max:,}c).")
+            return
+
     db.set_bank_setting(db_key, str(val))
-    await _w(bot, user.id, f"✅ {label} set to {val}.")
+    unit_str = unit_fmt.format(val)
+    await _w(bot, user.id, f"✅ {label} set to {unit_str}.")
 
 
 # ---------------------------------------------------------------------------

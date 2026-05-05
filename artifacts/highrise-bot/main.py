@@ -109,8 +109,10 @@ BJ_COMMANDS          = {"bj", "rbj"}
 BANK_PLAYER_COMMANDS = {"bank", "send", "transactions", "bankstats", "banknotify"}
 
 BANK_ADMIN_SET_CMDS = {
+    "setminsend", "setmaxsend",
     "setsendlimit", "setnewaccountdays", "setminlevelsend",
-    "setmintotalearned", "setsendtax",
+    "setmintotalearned", "setmindailyclaims",
+    "setsendtax", "sethighriskblocks",
 }
 
 # Staff command tiers
@@ -338,31 +340,37 @@ MANAGER_HELP_PAGES = [
 
 ADMIN_HELP_PAGES = [
     (
-        "🛡️ Admin 1\n"
+        "🛡️ Admin 1 — Coins & Block\n"
         "/addcoins <user> <amt>\n"
         "/removecoins <user> <amt>\n"
         "/bankblock <user>\n"
         "/bankunblock <user>"
     ),
     (
-        "🛡️ Admin 2\n"
+        "🛡️ Admin 2 — Send Limits\n"
+        "/setminsend <amt>\n"
+        "/setmaxsend <amt>\n"
         "/setsendlimit <amt>\n"
+        "/setsendtax <pct>\n"
+        "/sethighriskblocks on|off"
+    ),
+    (
+        "🛡️ Admin 3 — Requirements\n"
         "/setnewaccountdays <days>\n"
         "/setminlevelsend <lvl>\n"
         "/setmintotalearned <amt>\n"
-        "/setsendtax <percent>"
+        "/setmindailyclaims <n>\n"
+        "/banksettings"
     ),
     (
-        "🛡️ Admin 3\n"
+        "🛡️ Admin 4 — Staff\n"
         "/addmanager <user>\n"
         "/removemanager <user>\n"
-        "/managers\n"
         "/addmoderator <user>\n"
-        "/removemoderator <user>\n"
-        "/moderators"
+        "/removemoderator <user>"
     ),
     (
-        "🛡️ Admin 4\n"
+        "🛡️ Admin 5 — Maintenance\n"
         "/dbstats\n"
         "/maintenance on/off\n"
         "/reloadsettings\n"

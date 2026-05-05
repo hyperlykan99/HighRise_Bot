@@ -1,0 +1,86 @@
+Add bank restriction settings commands.
+
+Goal:
+Owners/admins can edit bank restrictions like sending limits, account age requirement, level requirement, earned coin requirement, daily claim requirement, and transfer tax.
+
+Do not remove existing bank features.
+Use existing SQLite bank_settings table.
+Keep messages under 250 characters.
+Prevent bad inputs from crashing the bot.
+
+Commands:
+
+/banksettings
+Shows current bank restrictions.
+
+/setminsend <amount>
+Sets minimum transfer amount.
+
+/setmaxsend <amount>
+Sets maximum amount per transfer.
+
+/setsendlimit <amount>
+Sets daily send limit.
+
+/setnewaccountdays <days>
+Sets how many days old the account must be before sending.
+
+/setminlevelsend <level>
+Sets minimum level required to send coins.
+
+/setmintotalearned <amount>
+Sets minimum total earned coins required before sending.
+
+/setmindailyclaims <amount>
+Sets minimum number of different daily claims required before sending.
+
+/setsendtax <percent>
+Sets transfer tax percentage.
+
+/sethighriskblocks <on/off>
+Turns high-risk transfer blocking on or off.
+
+Permissions:
+- Owner/admin can use all settings commands.
+- Manager/moderator can view /banksettings only.
+- Normal players cannot use these commands.
+
+Default values:
+- min_send_amount = 10
+- max_send_amount = 1000
+- daily_send_limit = 3000
+- new_account_days = 3
+- min_level_to_send = 3
+- min_total_earned_to_send = 500
+- min_daily_claim_days_to_send = 2
+- send_tax_percent = 5
+- high_risk_blocks = true
+
+Validation:
+- min_send_amount must be at least 1.
+- max_send_amount must be greater than or equal to min_send_amount.
+- daily_send_limit must be greater than or equal to max_send_amount.
+- new_account_days can be 0 to 365.
+- min_level_to_send can be 0 to 100.
+- min_total_earned_to_send can be 0 to 10000000.
+- min_daily_claim_days_to_send can be 0 to 365.
+- send_tax_percent can be 0 to 50.
+- high_risk_blocks must be on or off.
+
+Messages:
+- After changing a setting, reply with a short confirmation.
+Example:
+"✅ Daily send limit set to 5000c."
+"✅ New account wait set to 7 days."
+"✅ Send tax set to 3%."
+
+/banksettings should show:
+"🏦 Bank Settings
+Min/Max: 10c/1000c
+Daily: 3000c
+Age: 3d | Lvl: 3
+Earned: 500c | Claims: 2
+Tax: 5% | Risk block: ON"
+
+Make sure /send uses these settings dynamically from SQLite, not hardcoded values.
+Update /adminhelp to include these bank setting commands.
