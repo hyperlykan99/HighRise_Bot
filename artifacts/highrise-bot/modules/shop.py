@@ -334,40 +334,41 @@ async def handle_equip(bot: BaseBot, user: User, args: list[str]):
 
 async def handle_myitems(bot: BaseBot, user: User):
     """Show the player's owned badges and titles, and which are equipped."""
-    db.ensure_user(user.id, user.username)
-    owned   = db.get_owned_items(user.id)
-    profile = db.get_profile(user.id)
+    try:
+        db.ensure_user(user.id, user.username)
+        owned    = db.get_owned_items(user.id)
+        equipped = db.get_equipped_ids(user.id)
 
-    badge_eq = profile.get("equipped_badge") or "none"
-    title_eq = profile.get("equipped_title") or "none"
+        badge_id = equipped.get("badge_id") or ""
+        title_id = equipped.get("title_id") or ""
 
-    my_badges = [o for o in owned if o["item_type"] == "badge"]
-    my_titles = [o for o in owned if o["item_type"] == "title"]
+        badge_disp = f"{BADGES[badge_id]['display']} {badge_id}" if badge_id in BADGES else "none"
+        title_disp = f"{TITLES[title_id]['display']} {title_id}" if title_id in TITLES else "none"
 
-    lines = [f"-- {user.username}'s Items --"]
-    lines.append(f"Equipped badge: {badge_eq}")
-    lines.append(f"Equipped title: {title_eq}")
-    lines.append("")
+        my_badges = [o["item_id"] for o in owned if o["item_type"] == "badge" and o["item_id"] in BADGES]
+        my_titles = [o["item_id"] for o in owned if o["item_type"] == "title" and o["item_id"] in TITLES]
 
-    if my_badges:
-        badge_str = "  ".join(
-            f"{BADGES[o['item_id']]['display']}({o['item_id']})"
-            for o in my_badges if o["item_id"] in BADGES
-        )
-        lines.append(f"Badges: {badge_str}")
-    else:
-        lines.append("Badges: none  — /shop badges")
+        def _compact(items: list[str], limit: int = 3) -> str:
+            shown = items[:limit]
+            rest  = len(items) - limit
+            text  = ", ".join(shown)
+            return text + (f" +{rest}" if rest > 0 else "")
 
-    if my_titles:
-        title_str = "  |  ".join(
-            TITLES[o["item_id"]]["display"]
-            for o in my_titles if o["item_id"] in TITLES
-        )
-        lines.append(f"Titles: {title_str}")
-    else:
-        lines.append("Titles: none  — /shop titles")
+        b_list = _compact(my_badges) if my_badges else "none — /shop badges"
+        t_list = _compact(my_titles) if my_titles else "none — /shop titles"
 
-    await bot.highrise.send_whisper(user.id, "\n".join(lines))
+        await bot.highrise.send_whisper(user.id, "\n".join([
+            f"-- {user.username}'s Items --",
+            f"Badge: {badge_disp}  Title: {title_disp}",
+            f"Badges({len(my_badges)}): {b_list}",
+            f"Titles({len(my_titles)}): {t_list}",
+        ]))
+    except Exception as exc:
+        print(f"[SHOP] myitems error for {user.username}: {exc}")
+        try:
+            await bot.highrise.send_whisper(user.id, "Could not load your items. Try again!")
+        except Exception:
+            pass
 
 
 async def handle_badgeinfo(bot: BaseBot, user: User, args: list[str]) -> None:
