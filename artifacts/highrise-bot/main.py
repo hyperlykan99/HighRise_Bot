@@ -70,9 +70,9 @@ BJ_COMMANDS          = {"bj", "rbj"}
 ADMIN_COMMANDS = {
     "addcoins", "removecoins", "resetgame", "announce",
     "addmanager", "removemanager",
-    "setbjminbet", "setbjmaxbet", "setbjcountdown",
+    "setbjminbet", "setbjmaxbet", "setbjcountdown", "setbjturntimer",
     "setrbjdecks", "setrbjminbet", "setrbjmaxbet", "setrbjcountdown",
-    "setrbjshuffle", "setrbjblackjackpayout", "setrbjwinpayout",
+    "setrbjshuffle", "setrbjblackjackpayout", "setrbjwinpayout", "setrbjturntimer",
 }
 
 ALL_KNOWN_COMMANDS = (

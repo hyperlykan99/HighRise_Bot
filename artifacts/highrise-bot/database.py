@@ -208,8 +208,10 @@ def _migrate_db():
         "ALTER TABLE users ADD COLUMN equipped_title_id    TEXT",
         "ALTER TABLE daily_claims ADD COLUMN streak        INTEGER NOT NULL DEFAULT 1",
         "ALTER TABLE daily_claims ADD COLUMN total_claims  INTEGER NOT NULL DEFAULT 1",
-        "ALTER TABLE bj_settings  ADD COLUMN bj_enabled   INTEGER NOT NULL DEFAULT 1",
-        "ALTER TABLE rbj_settings ADD COLUMN rbj_enabled  INTEGER NOT NULL DEFAULT 1",
+        "ALTER TABLE bj_settings  ADD COLUMN bj_enabled     INTEGER NOT NULL DEFAULT 1",
+        "ALTER TABLE rbj_settings ADD COLUMN rbj_enabled    INTEGER NOT NULL DEFAULT 1",
+        "ALTER TABLE bj_settings  ADD COLUMN bj_turn_timer  INTEGER NOT NULL DEFAULT 20",
+        "ALTER TABLE rbj_settings ADD COLUMN rbj_turn_timer INTEGER NOT NULL DEFAULT 20",
     ]:
         try:
             conn.execute(sql)
@@ -667,16 +669,16 @@ def get_bj_settings() -> dict:
             "min_bet": 10, "max_bet": 1000,
             "win_payout": 2.0, "blackjack_payout": 2.5,
             "push_rule": "refund", "dealer_hits_soft_17": 1,
-            "lobby_countdown": 15, "turn_timer": 30, "max_players": 6,
-            "bj_enabled": 1,
+            "lobby_countdown": 15, "turn_timer": 30, "bj_turn_timer": 20,
+            "max_players": 6, "bj_enabled": 1,
         }
     return dict(row)
 
 
 _BJ_SETTING_COLS = {
     "min_bet", "max_bet", "win_payout", "blackjack_payout", "push_rule",
-    "dealer_hits_soft_17", "lobby_countdown", "turn_timer", "max_players",
-    "bj_enabled",
+    "dealer_hits_soft_17", "lobby_countdown", "turn_timer", "bj_turn_timer",
+    "max_players", "bj_enabled",
 }
 
 
@@ -746,8 +748,8 @@ def update_bj_stats(
 _RBJ_SETTING_COLS = {
     "decks", "shuffle_used_percent", "min_bet", "max_bet",
     "win_payout", "blackjack_payout", "push_rule",
-    "dealer_hits_soft_17", "lobby_countdown", "turn_timer", "max_players",
-    "rbj_enabled",
+    "dealer_hits_soft_17", "lobby_countdown", "turn_timer", "rbj_turn_timer",
+    "max_players", "rbj_enabled",
 }
 
 
@@ -762,8 +764,8 @@ def get_rbj_settings() -> dict:
             "min_bet": 10, "max_bet": 1000,
             "win_payout": 2.0, "blackjack_payout": 2.5,
             "push_rule": "refund", "dealer_hits_soft_17": 1,
-            "lobby_countdown": 15, "turn_timer": 30, "max_players": 6,
-            "rbj_enabled": 1,
+            "lobby_countdown": 15, "turn_timer": 30, "rbj_turn_timer": 20,
+            "max_players": 6, "rbj_enabled": 1,
         }
     return dict(row)
 

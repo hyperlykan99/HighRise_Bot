@@ -148,11 +148,11 @@ async def _advance_turn(bot: BaseBot):
 
     p     = _state.players[_state.current_idx]
     total = hand_value(p.hand)
-    await bot.highrise.chat(
-        f"➡️ @{p.username}: {hand_str(p.hand)} = {total}. /bj hit or /bj stand"
-    )
     s     = _settings()
-    timer = int(s.get("turn_timer", 30))
+    timer = int(s.get("bj_turn_timer", 20))
+    await bot.highrise.chat(
+        f"➡️ @{p.username}: {hand_str(p.hand)} = {total}. Act in {timer}s."
+    )
     print(f"[BJ] Turn timer started ({timer}s) for @{p.username}")
     _state.turn_task = asyncio.create_task(_turn_timeout(bot, p.user_id, timer))
 
@@ -164,7 +164,7 @@ async def _turn_timeout(bot: BaseBot, user_id: str, seconds: int):
         if p and p.status == "playing":
             p.status = "stood"
             await bot.highrise.chat(
-                f"⏱️ @{p.username} timed out. Auto-stand at {hand_value(p.hand)}."
+                f"⏳ @{p.username} timed out. Auto-stand."
             )
             _state.current_idx += 1
             _state.turn_task = None  # clear self-reference before advancing
@@ -481,7 +481,7 @@ async def _cmd_hit(bot: BaseBot, user: User):
         await _advance_turn(bot)
     else:
         s     = _settings()
-        timer = int(s.get("turn_timer", 30))
+        timer = int(s.get("bj_turn_timer", 20))
         print(f"[BJ] Turn timer started ({timer}s) for @{p.username}")
         _state.turn_task = asyncio.create_task(
             _turn_timeout(bot, p.user_id, timer)
@@ -601,7 +601,7 @@ async def _cmd_settings(bot: BaseBot, user: User):
         f"push:{s.get('push_rule','refund')}  "
         f"soft17:{'yes' if s.get('dealer_hits_soft_17',1) else 'no'}\n"
         f"lobby:{s.get('lobby_countdown',15)}s  "
-        f"turn:{s.get('turn_timer',30)}s  "
+        f"turn:{s.get('bj_turn_timer',20)}s  "
         f"max:{s.get('max_players',6)}p"
     )
 
@@ -672,10 +672,23 @@ async def handle_bj_set(bot: BaseBot, user: User, cmd: str, args: list[str]):
                 user.id, f"✅ BJ lobby countdown set to {val}s."
             )
 
+        elif cmd == "setbjturntimer":
+            if not raw.isdigit() or not (10 <= int(raw) <= 60):
+                await bot.highrise.send_whisper(
+                    user.id, "Turn timer must be 10–60 seconds."
+                )
+                return
+            val = int(raw)
+            db.set_bj_setting("bj_turn_timer", val)
+            await bot.highrise.send_whisper(
+                user.id, f"✅ BJ turn timer set to {val}s."
+            )
+
         else:
             await bot.highrise.send_whisper(
                 user.id,
-                "BJ settings: /setbjminbet /setbjmaxbet /setbjcountdown"
+                "BJ settings: /setbjminbet /setbjmaxbet\n"
+                "/setbjcountdown /setbjturntimer"
             )
 
     except Exception as exc:
