@@ -71,6 +71,7 @@ from modules.subscribers         import (
 from modules.maintenance         import (
     handle_botstatus, handle_dbstats, handle_backup,
     handle_maintenance, handle_reloadsettings, handle_cleanup,
+    handle_healthcheck,
     handle_restarthelp, handle_restartstatus,
     handle_softrestart,
     handle_restartbot,
@@ -209,6 +210,7 @@ ADMIN_ONLY_CMDS = {
     "clearwarnings",
     "addrep", "removerep",
     "dmnotify", "announce_subs",
+    "healthcheck",
 } | BANK_ADMIN_SET_CMDS | TIP_ADMIN_CMDS
 
 OWNER_ONLY_CMDS = {
@@ -1452,6 +1454,8 @@ class HangoutBot(BaseBot):
                 await handle_softrestart(self, user)
             elif cmd == "restartbot":
                 await handle_restartbot(self, user)
+            elif cmd == "healthcheck":
+                await handle_healthcheck(self, user)
             else:
                 await handle_admin_command(self, user, cmd, args)
             return

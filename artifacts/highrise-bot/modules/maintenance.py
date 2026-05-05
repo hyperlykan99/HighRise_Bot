@@ -196,6 +196,86 @@ async def handle_cleanup(bot: BaseBot, user: User) -> None:
         await _w(bot, user.id, "Error during cleanup.")
 
 
+# ── /healthcheck ──────────────────────────────────────────────────────────────
+
+async def handle_healthcheck(bot: BaseBot, user: User) -> None:
+    """Owner/admin — quick health snapshot of all major systems."""
+    if not _is_admin_or_owner(user.username):
+        await _w(bot, user.id, "Owner/admin only.")
+        return
+
+    parts: list[str] = []
+
+    # Database connection
+    try:
+        db.get_economy_settings()
+        parts.append("DB:OK")
+    except Exception:
+        parts.append("DB:FAIL")
+
+    # Active event
+    try:
+        event_on = db.is_event_active()
+        parts.append(f"Event:{'active' if event_on else 'none'}")
+    except Exception:
+        parts.append("Event:ERR")
+
+    # Auto-games / auto-events loop
+    try:
+        import modules.auto_games as _ag
+        ag_task = getattr(_ag, "_auto_game_task", None)
+        ae_task = getattr(_ag, "_auto_event_loop_task", None)
+        ag_s    = db.get_auto_game_settings()
+        ae_s    = db.get_auto_event_settings()
+        ag_en   = int(ag_s.get("enabled", 0))
+        ae_en   = int(ae_s.get("enabled", 0))
+        ag_live = ag_task is not None and not ag_task.done()
+        ae_live = ae_task is not None and not ae_task.done()
+        parts.append(f"AutoGames:{'ON' if ag_en else 'OFF'}[{'live' if ag_live else 'dead'}]")
+        parts.append(f"AutoEvents:{'ON' if ae_en else 'OFF'}[{'live' if ae_live else 'dead'}]")
+    except Exception:
+        parts.append("AutoGames:ERR")
+        parts.append("AutoEvents:ERR")
+
+    # BJ state
+    try:
+        from modules.blackjack import _state as _bj
+        parts.append(f"BJ:{getattr(_bj, 'phase', '?')}")
+    except Exception:
+        parts.append("BJ:ERR")
+
+    # RBJ state
+    try:
+        from modules.realistic_blackjack import _state as _rbj
+        parts.append(f"RBJ:{getattr(_rbj, 'phase', '?')}")
+    except Exception:
+        parts.append("RBJ:ERR")
+
+    # Bank settings
+    try:
+        bs = db.get_bank_settings()
+        parts.append(f"Bank:{'OK' if bs else 'EMPTY'}")
+    except Exception:
+        parts.append("Bank:ERR")
+
+    # Gold / tip settings
+    try:
+        gs = db.get_tip_settings()
+        parts.append(f"Gold:{'OK' if gs else 'EMPTY'}")
+    except Exception:
+        parts.append("Gold:ERR")
+
+    # Staff roles
+    try:
+        owners = db.get_staff_by_role("owner")
+        parts.append(f"Staff:{'OK' if owners is not None else 'EMPTY'}")
+    except Exception:
+        parts.append("Staff:ERR")
+
+    msg = "✅ Health | " + " | ".join(parts)
+    await _w(bot, user.id, msg[:249])
+
+
 # ── /restarthelp ───────────────────────────────────────────────────────────────
 
 async def handle_restarthelp(bot: BaseBot, user: User) -> None:
