@@ -25,6 +25,9 @@ Individual game logic lives in:
 
 from highrise import BaseBot, User
 
+import config
+from modules.cooldowns import check_user_cooldown, set_user_cooldown
+
 # Import each game module so we can call their functions and read their state
 import modules.trivia   as trivia
 import modules.scramble as scramble
@@ -68,6 +71,15 @@ async def handle_answer(bot: BaseBot, user: User, answer_text: str):
     Only one game can be active at a time.
     If no game is running, whisper the player.
     """
+    # Per-user cooldown — prevents rapid-fire answer spam
+    remaining = check_user_cooldown("answer", user.id, config.ANSWER_COOLDOWN)
+    if remaining is not None:
+        await bot.highrise.send_whisper(
+            user.id, f"⏳ Wait {remaining}s before answering again."
+        )
+        return
+    set_user_cooldown("answer", user.id)   # record this attempt immediately
+
     if trivia.is_active():
         await trivia.handle_answer(bot, user, answer_text)
 

@@ -16,6 +16,7 @@ from highrise import BaseBot, User
 import database as db
 import config
 from modules.utils import check_answer
+from modules.cooldowns import check_room_cooldown, set_room_cooldown
 
 
 # ---------------------------------------------------------------------------
@@ -87,12 +88,21 @@ async def start_game(bot: BaseBot, user: User):
         )
         return
 
+    # Room-wide cooldown — prevents back-to-back games
+    remaining = check_room_cooldown("scramble", config.SCRAMBLE_COOLDOWN)
+    if remaining is not None:
+        await bot.highrise.send_whisper(
+            user.id, f"⏳ Scramble on cooldown! Try again in {remaining}s."
+        )
+        return
+
     db.ensure_user(user.id, user.username)
 
     # Pick and scramble a word
     word      = random.choice(_WORDS)
     scrambled = _scramble_word(word)
     _active   = {"word": word, "scrambled": scrambled}
+    set_room_cooldown("scramble")    # start the 30 s gap
 
     # Log the answer to the console for testing — never shown in the room
     print(f"[SCRAMBLE] Correct answer: {_active['word']}")

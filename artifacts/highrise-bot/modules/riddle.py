@@ -16,6 +16,7 @@ from highrise import BaseBot, User
 import database as db
 import config
 from modules.utils import check_answer
+from modules.cooldowns import check_room_cooldown, set_room_cooldown
 
 
 # ---------------------------------------------------------------------------
@@ -140,10 +141,19 @@ async def start_game(bot: BaseBot, user: User):
         )
         return
 
+    # Room-wide cooldown — prevents back-to-back games
+    remaining = check_room_cooldown("riddle", config.RIDDLE_COOLDOWN)
+    if remaining is not None:
+        await bot.highrise.send_whisper(
+            user.id, f"⏳ Riddle on cooldown! Try again in {remaining}s."
+        )
+        return
+
     db.ensure_user(user.id, user.username)
 
     # Pick a random riddle
     _active = random.choice(_RIDDLES).copy()
+    set_room_cooldown("riddle")      # start the 30 s gap
 
     # Log the accepted answers to the console for testing — never shown in the room
     print(f"[RIDDLE] Accepted answers: {_active['answers']}")

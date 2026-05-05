@@ -17,6 +17,8 @@ Example:
 import random
 from highrise import BaseBot, User
 import database as db
+import config
+from modules.cooldowns import check_user_cooldown, set_user_cooldown
 
 
 # Minimum and maximum bet amounts (feel free to tune in config.py later)
@@ -36,6 +38,14 @@ async def handle_coinflip(bot: BaseBot, user: User, args: list[str]):
     args = ["coinflip", "heads", "50"]
     """
     db.ensure_user(user.id, user.username)
+
+    # Per-user cooldown — prevents rapid-fire coinflips
+    remaining = check_user_cooldown("coinflip", user.id, config.COINFLIP_COOLDOWN)
+    if remaining is not None:
+        await bot.highrise.send_whisper(
+            user.id, f"⏳ Wait {remaining}s before flipping again."
+        )
+        return
 
     # ── Validate arguments ────────────────────────────────────────────────────
 
@@ -105,6 +115,7 @@ async def handle_coinflip(bot: BaseBot, user: User, args: list[str]):
         bet=bet,
         won=won,
     )
+    set_user_cooldown("coinflip", user.id)  # start the 10 s per-user gap
 
     new_balance = db.get_balance(user.id)
 

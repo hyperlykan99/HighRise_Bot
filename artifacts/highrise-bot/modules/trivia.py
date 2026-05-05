@@ -16,6 +16,7 @@ from highrise import BaseBot, User
 import database as db
 import config
 from modules.utils import check_answer
+from modules.cooldowns import check_room_cooldown, set_room_cooldown
 
 
 # ---------------------------------------------------------------------------
@@ -87,11 +88,20 @@ async def start_game(bot: BaseBot, user: User):
         )
         return
 
+    # Room-wide cooldown — prevents back-to-back games
+    remaining = check_room_cooldown("trivia", config.TRIVIA_COOLDOWN)
+    if remaining is not None:
+        await bot.highrise.send_whisper(
+            user.id, f"⏳ Trivia on cooldown! Try again in {remaining}s."
+        )
+        return
+
     db.ensure_user(user.id, user.username)
 
     # Pick a random question
     question_data = random.choice(_QUESTIONS)
     _active = question_data.copy()   # store a copy so the original list is unchanged
+    set_room_cooldown("trivia")      # start the 30 s gap
 
     # Log the answer to the console for testing — never shown in the room
     print(f"[TRIVIA] Correct answer: {_active['answers'][0]}")
