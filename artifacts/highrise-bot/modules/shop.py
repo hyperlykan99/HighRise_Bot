@@ -177,16 +177,34 @@ async def handle_shop(bot: BaseBot, user: User, args: list[str]):
     /shop badges [n]   — page n of badges  (5 per page, default 1)
     /shop titles [n]   — page n of titles  (5 per page, default 1)
     """
-    try:
-        sub = args[1].lower() if len(args) > 1 else ""
+    sub = args[1].lower() if len(args) > 1 else ""
 
-        if sub == "badges":
+    if sub == "badges":
+        try:
             await _send_catalog_page(bot, user, BADGES, "badge", args)
+        except Exception as exc:
+            print(f"[SHOP] /shop badges error for {user.username}: {exc}")
+            try:
+                await bot.highrise.send_whisper(
+                    user.id, "Shop badges had an error. Please tell the owner."
+                )
+            except Exception:
+                pass
 
-        elif sub == "titles":
+    elif sub == "titles":
+        try:
             await _send_catalog_page(bot, user, TITLES, "title", args)
+        except Exception as exc:
+            print(f"[SHOP] /shop titles error for {user.username}: {exc}")
+            try:
+                await bot.highrise.send_whisper(
+                    user.id, "Shop titles had an error. Please tell the owner."
+                )
+            except Exception:
+                pass
 
-        else:
+    else:
+        try:
             await bot.highrise.send_whisper(user.id,
                 "-- Shop --\n"
                 "/shop badges    browse badges  (before your name)\n"
@@ -195,15 +213,8 @@ async def handle_shop(bot: BaseBot, user: User, args: list[str]):
                 "Buy:   /buy badge <id>    /buy title <id>\n"
                 "Equip: /equip badge <id>  /equip title <id>"
             )
-
-    except Exception as exc:
-        print(f"[SHOP] handle_shop error for {user.username}: {exc}")
-        try:
-            await bot.highrise.send_whisper(
-                user.id, "Shop badges had an error. Please tell the owner."
-            )
-        except Exception:
-            pass
+        except Exception as exc:
+            print(f"[SHOP] /shop help error for {user.username}: {exc}")
 
 
 async def handle_buy(bot: BaseBot, user: User, args: list[str]):
