@@ -663,6 +663,11 @@ async def handle_bj(bot: BaseBot, user: User, args: list[str]):
                 await _cmd_toggle_splitaces(bot, user, args[2].lower() == "on")
             else:
                 await bot.highrise.send_whisper(user.id, "Usage: /bj splitaces on|off")
+        elif sub == "betlimit":
+            if len(args) > 2 and args[2].lower() in ("on", "off"):
+                await _cmd_toggle_betlimit(bot, user, args[2].lower() == "on")
+            else:
+                await bot.highrise.send_whisper(user.id, "Usage: /bj betlimit on|off")
         elif sub == "rules":
             await _cmd_rules(bot, user)
         elif sub == "stats":
@@ -722,7 +727,8 @@ async def _cmd_join(bot: BaseBot, user: User, args: list[str]):
     _ev_bj      = _gee()
     eff_max_bet = int(max_bet * _ev_bj["casino_bet_mult"])
 
-    if bet < min_bet or bet > eff_max_bet:
+    bet_limit_on = int(s.get("bj_betlimit_enabled", 1))
+    if bet_limit_on and (bet < min_bet or bet > eff_max_bet):
         note = " (Casino Hour 2x limit!)" if _ev_bj["casino_bet_mult"] > 1 else ""
         await bot.highrise.send_whisper(
             user.id, f"Bet must be {min_bet:,}–{eff_max_bet:,} coins.{note}"
@@ -1085,6 +1091,17 @@ async def _cmd_toggle_splitaces(bot: BaseBot, user: User, enabled: bool):
         f"✅ BJ split aces one-card rule is now {'ON' if enabled else 'OFF'}.")
 
 
+async def _cmd_toggle_betlimit(bot: BaseBot, user: User, enabled: bool):
+    if not can_manage_games(user.username):
+        await bot.highrise.send_whisper(user.id, "Managers and above only.")
+        return
+    db.set_bj_setting("bj_betlimit_enabled", 1 if enabled else 0)
+    if enabled:
+        await bot.highrise.chat("✅ BJ bet limit ON.")
+    else:
+        await bot.highrise.chat("⛔ BJ bet limit OFF.")
+
+
 async def _cmd_rules(bot: BaseBot, user: User):
     s = _settings()
     await bot.highrise.send_whisper(user.id,
@@ -1120,10 +1137,14 @@ async def _cmd_limits(bot: BaseBot, user: User):
     llim = int(s.get("bj_daily_loss_limit", 3000))
     won  = "ON" if int(s.get("bj_win_limit_enabled", 1)) else "OFF"
     lon  = "ON" if int(s.get("bj_loss_limit_enabled", 1)) else "OFF"
+    blon = int(s.get("bj_betlimit_enabled", 1))
     sign = "+" if net >= 0 else ""
+    if blon:
+        bet_str = f"BJ bet {s.get('min_bet',10):,}–{s.get('max_bet',1000):,}c ON"
+    else:
+        bet_str = "BJ bet limit OFF"
     await bot.highrise.send_whisper(user.id,
-        f"BJ bet {s.get('min_bet',10):,}–{s.get('max_bet',1000):,}c "
-        f"| W/L {wlim:,}/{llim:,} {won}/{lon}\n"
+        f"{bet_str} | W/L {wlim:,}/{llim:,} {won}/{lon}\n"
         f"Today: {sign}{net:,}c"
     )
 
