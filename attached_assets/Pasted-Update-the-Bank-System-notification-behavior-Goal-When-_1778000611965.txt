@@ -1,0 +1,72 @@
+Update the Bank System notification behavior.
+
+Goal:
+When a player sends coins to another player, notify the receiver privately.
+
+Current issue:
+If the receiver is not in the room, I still want them to get a private message/notification if possible.
+
+Requirements:
+- After /send <username> <amount> succeeds, notify the receiver.
+- If receiver is currently in the room, send a private message/whisper immediately.
+- If receiver is not in the room, save a pending bank notification in SQLite.
+- When that receiver joins the room or sends any chat message later, deliver their pending notification privately.
+- If private message/whisper is not supported by the SDK, do not crash.
+- If private message fails, keep the pending notification and try again later.
+
+Private message format:
+"🏦 You received 950c from @Marion. Fee: 50c."
+
+Sender public confirmation:
+"✅ Sent 950c to @Player. Fee: 50c."
+
+If receiver is offline:
+Sender should see:
+"✅ Sent 950c to @Player. They’ll be notified later."
+
+Database:
+Create bank_notifications table if missing:
+- id INTEGER PRIMARY KEY AUTOINCREMENT
+- receiver_username TEXT
+- sender_username TEXT
+- amount_received INTEGER
+- fee INTEGER
+- timestamp TEXT
+- delivered INTEGER DEFAULT 0
+- delivered_at TEXT
+
+Delivery rules:
+- On user join, check pending bank notifications for that username.
+- On user chat, check pending bank notifications for that username.
+- Normalize usernames:
+  - remove @
+  - trim spaces
+  - case-insensitive lookup
+- Deliver only undelivered notifications.
+- After successful private message, mark delivered = 1.
+- If multiple notifications exist, combine them if possible:
+  "🏦 You have 3 bank deposits. Total received: 2,500c."
+- If combining is not easy, send the latest 3 only and say:
+  "More deposits: check /transactions."
+
+Commands:
+- /notifications
+Shows pending or recent bank notifications for the user.
+
+- /clearnotifications
+Marks user's pending bank notifications as read/delivered.
+
+- /banknotify on
+Turns private bank notifications ON.
+
+- /banknotify off
+Turns private bank notifications OFF.
+
+Rules:
+- Default bank notifications are ON.
+- If receiver has /banknotify off, do not send private message, but still log the transaction.
+- /transactions should still show all received/sent transfers.
+- Do not notify for failed, blocked, or refunded transfers.
+- Keep every Highrise message under 250 characters.
+- Prevent crashes from bad inputs.
+- Log private message failures in console only.

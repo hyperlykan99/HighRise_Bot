@@ -586,6 +586,20 @@ def init_db():
         )
     """)
 
+    # ── Bank pending notifications ────────────────────────────────────────
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS bank_notifications (
+            id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            receiver_username TEXT NOT NULL,
+            sender_username   TEXT NOT NULL,
+            amount_received   INTEGER NOT NULL DEFAULT 0,
+            fee               INTEGER NOT NULL DEFAULT 0,
+            timestamp         TEXT NOT NULL DEFAULT (datetime('now')),
+            delivered         INTEGER NOT NULL DEFAULT 0,
+            delivered_at      TEXT
+        )
+    """)
+
     conn.commit()
     conn.close()
     _migrate_db()
@@ -3512,3 +3526,72 @@ def is_result_paid(mode: str, round_id: str, username: str) -> bool:
     ).fetchone()
     conn.close()
     return bool(row and row["paid"])
+
+
+# ---------------------------------------------------------------------------
+# Bank pending notifications
+# ---------------------------------------------------------------------------
+
+def add_bank_notification(receiver_username: str, sender_username: str,
+                           amount_received: int, fee: int) -> None:
+    """Save a pending bank notification for an offline receiver."""
+    conn = get_connection()
+    conn.execute(
+        """
+        INSERT INTO bank_notifications
+            (receiver_username, sender_username, amount_received, fee,
+             timestamp, delivered, delivered_at)
+        VALUES (?, ?, ?, ?, datetime('now'), 0, NULL)
+        """,
+        (receiver_username.lower().lstrip("@").strip(),
+         sender_username.lower().lstrip("@").strip(),
+         amount_received, fee),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_pending_bank_notifications(username: str) -> list[dict]:
+    """Return all undelivered notifications for *username*."""
+    conn = get_connection()
+    rows = conn.execute(
+        """
+        SELECT * FROM bank_notifications
+        WHERE receiver_username = ? AND delivered = 0
+        ORDER BY timestamp ASC
+        """,
+        (username.lower().lstrip("@").strip(),),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def mark_bank_notifications_delivered(username: str) -> None:
+    """Mark every pending notification for *username* as delivered."""
+    conn = get_connection()
+    conn.execute(
+        """
+        UPDATE bank_notifications
+        SET delivered = 1, delivered_at = datetime('now')
+        WHERE receiver_username = ? AND delivered = 0
+        """,
+        (username.lower().lstrip("@").strip(),),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_recent_bank_notifications(username: str, limit: int = 10) -> list[dict]:
+    """Return the most recent notifications (delivered or not) for *username*."""
+    conn = get_connection()
+    rows = conn.execute(
+        """
+        SELECT * FROM bank_notifications
+        WHERE receiver_username = ?
+        ORDER BY timestamp DESC
+        LIMIT ?
+        """,
+        (username.lower().lstrip("@").strip(), limit),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]

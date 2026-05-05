@@ -309,15 +309,37 @@ async def handle_send(bot: BaseBot, user: User, args: list[str]):
     else:
         await _w(bot, user.id, f"✅ Sent {amount_received:,}c to {recv_display}.")
 
-    # ── Notify receiver (whisper only; no public fallback) ───────────────────
+    # ── Notify receiver (whisper if online, else queue for later) ────────────
     recv_bus = db.get_bank_user_stats(receiver["user_id"])
     if recv_bus.get("bank_notify", 1):
         fee_note = f" Fee: {fee}c." if fee > 0 else ""
-        recv_msg = f"🏦 You received {amount_received:,}c from {sender_display}.{fee_note}"
+        recv_msg = (
+            f"🏦 You received {amount_received:,}c from @{user.username}.{fee_note}"
+        )[:249]
+        delivered = False
         try:
-            await bot.highrise.send_whisper(receiver["user_id"], recv_msg[:249])
+            await bot.highrise.send_whisper(receiver["user_id"], recv_msg)
+            delivered = True
         except Exception:
-            print(f"[BANK] Receiver @{receiver['username']} offline; notification skipped.")
+            print(f"[BANK] Receiver @{receiver['username']} offline; queuing notification.")
+        if not delivered:
+            db.add_bank_notification(
+                receiver["username"], user.username, amount_received, fee
+            )
+            # Rewrite sender message to mention offline delivery
+            recv_display_name = recv_display
+            if fee > 0:
+                offline_msg = (
+                    f"✅ Sent {amount_received:,}c to {recv_display_name}. "
+                    f"Fee: {fee}c. They'll be notified later."
+                )[:249]
+            else:
+                offline_msg = (
+                    f"✅ Sent {amount_received:,}c to {recv_display_name}. "
+                    f"They'll be notified later."
+                )[:249]
+            # Replace the sender confirmation that was already sent
+            await _w(bot, user.id, offline_msg)
 
     if risk_level == "MEDIUM":
         print(f"[BANK] MEDIUM: {user.username}→{receiver['username']} "
@@ -586,6 +608,62 @@ async def handle_banknotify(bot: BaseBot, user: User, args: list[str]):
         bus = db.get_bank_user_stats(user.id)
         state = "ON" if bus.get("bank_notify", 1) else "OFF"
         await _w(bot, user.id, f"🏦 Bank notifications: {state}")
+
+
+async def handle_notifications(bot: BaseBot, user: User):
+    """/notifications — show pending and recent bank notifications."""
+    db.ensure_user(user.id, user.username)
+    rows = db.get_recent_bank_notifications(user.username, limit=10)
+    if not rows:
+        await _w(bot, user.id, "🏦 No bank notifications.")
+        return
+    pending = [r for r in rows if not r["delivered"]]
+    if len(rows) == 1:
+        r = rows[0]
+        fee_note = f" Fee: {r['fee']}c." if r["fee"] else ""
+        ts = r["timestamp"][:10] if r.get("timestamp") else ""
+        status = "⏳" if not r["delivered"] else "✅"
+        msg = (
+            f"{status} 🏦 +{r['amount_received']:,}c from @{r['sender_username']}"
+            f"{fee_note} {ts}"
+        )[:249]
+        await _w(bot, user.id, msg)
+    elif pending:
+        total = sum(r["amount_received"] for r in pending)
+        if len(pending) <= 3:
+            lines = [f"🏦 {len(pending)} pending deposit(s):"]
+            for r in pending:
+                fee_note = f" Fee:{r['fee']}c" if r["fee"] else ""
+                lines.append(
+                    f"+{r['amount_received']:,}c from @{r['sender_username']}{fee_note}"
+                )
+            msg = "\n".join(lines)[:249]
+        else:
+            msg = (
+                f"🏦 You have {len(pending)} pending deposits. "
+                f"Total: {total:,}c. More: /transactions"
+            )[:249]
+        await _w(bot, user.id, msg)
+    else:
+        r = rows[0]
+        fee_note = f" Fee: {r['fee']}c." if r["fee"] else ""
+        ts = r["timestamp"][:10] if r.get("timestamp") else ""
+        msg = (
+            f"✅ Last deposit: +{r['amount_received']:,}c from @{r['sender_username']}"
+            f"{fee_note} {ts}. Use /transactions for full history."
+        )[:249]
+        await _w(bot, user.id, msg)
+
+
+async def handle_clearnotifications(bot: BaseBot, user: User):
+    """/clearnotifications — mark all pending bank notifications as read."""
+    db.ensure_user(user.id, user.username)
+    pending = db.get_pending_bank_notifications(user.username)
+    if not pending:
+        await _w(bot, user.id, "🏦 No pending bank notifications to clear.")
+        return
+    db.mark_bank_notifications_delivered(user.username)
+    await _w(bot, user.id, f"✅ Cleared {len(pending)} pending bank notification(s).")
 
 
 async def handle_ledger(bot: BaseBot, user: User, args: list[str]):

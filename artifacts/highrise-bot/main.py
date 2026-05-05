@@ -110,6 +110,7 @@ from modules.bank import (
     handle_banknotify,
     handle_viewtx, handle_bankwatch, handle_bankblock, handle_banksettings,
     handle_bank_set, handle_ledger,
+    handle_notifications, handle_clearnotifications,
 )
 from modules.tips import (
     process_tip_event,
@@ -242,6 +243,7 @@ ALL_KNOWN_COMMANDS = (
         "tiprate", "tipstats", "tipleaderboard", "debugtips",
         "vipshop", "buyvip", "vipstatus",
         "allstaff", "allcommands", "checkcommands",
+        "notifications", "clearnotifications",
     }
     | ECONOMY_COMMANDS | PROFILE_COMMANDS | GAME_COMMANDS
     | SHOP_COMMANDS | ACHIEVEMENT_COMMANDS | BJ_COMMANDS
@@ -1156,6 +1158,49 @@ async def _cmd_checkcommands(bot, user):
 
 
 # ---------------------------------------------------------------------------
+# Bank notification delivery helper
+# ---------------------------------------------------------------------------
+
+# Track per-user delivery to avoid spamming on every chat message
+_notif_delivered_this_session: set[str] = set()
+
+
+async def _deliver_pending_bank_notifications(bot, user: User) -> None:
+    """Deliver any queued bank notifications to *user* via whisper."""
+    username = user.username.lower().strip()
+    pending = db.get_pending_bank_notifications(username)
+    if not pending:
+        return
+    try:
+        if len(pending) == 1:
+            r = pending[0]
+            fee_note = f" Fee: {r['fee']}c." if r["fee"] else ""
+            msg = (
+                f"🏦 You received {r['amount_received']:,}c from @{r['sender_username']}."
+                f"{fee_note}"
+            )[:249]
+            await bot.highrise.send_whisper(user.id, msg)
+        elif len(pending) <= 3:
+            total = sum(r["amount_received"] for r in pending)
+            lines = [f"🏦 {len(pending)} deposits while you were away:"]
+            for r in pending:
+                fee_note = f" Fee:{r['fee']}c" if r["fee"] else ""
+                lines.append(f"+{r['amount_received']:,}c from @{r['sender_username']}{fee_note}")
+            await bot.highrise.send_whisper(user.id, "\n".join(lines)[:249])
+        else:
+            total = sum(r["amount_received"] for r in pending)
+            msg = (
+                f"🏦 You have {len(pending)} bank deposits. "
+                f"Total: {total:,}c. Use /notifications or /transactions."
+            )[:249]
+            await bot.highrise.send_whisper(user.id, msg)
+        db.mark_bank_notifications_delivered(username)
+        _notif_delivered_this_session.add(username)
+    except Exception as exc:
+        print(f"[BANK] Could not deliver pending notification to @{username}: {exc}")
+
+
+# ---------------------------------------------------------------------------
 # Bot class
 # ---------------------------------------------------------------------------
 
@@ -1209,6 +1254,11 @@ class HangoutBot(BaseBot):
 
         cmd  = parts[0].lower()
         args = parts
+
+        # ── Deliver queued bank notifications on first command this session ──
+        _uname = user.username.lower().strip()
+        if _uname not in _notif_delivered_this_session:
+            asyncio.create_task(_deliver_pending_bank_notifications(self, user))
 
         # ── /help ─────────────────────────────────────────────────────────────
         if cmd == "help":
@@ -1530,6 +1580,12 @@ class HangoutBot(BaseBot):
         elif cmd == "banknotify":
             await handle_banknotify(self, user, args)
 
+        elif cmd == "notifications":
+            await handle_notifications(self, user)
+
+        elif cmd == "clearnotifications":
+            await handle_clearnotifications(self, user)
+
         elif cmd == "bankhelp":
             await _handle_bankhelp(self, user, args)
 
@@ -1739,6 +1795,8 @@ class HangoutBot(BaseBot):
             f"Welcome, @{user.username}! Type /help to see what you can do. "
             "Use /daily to grab your free coins!"
         )
+        # Deliver any queued bank notifications
+        asyncio.create_task(_deliver_pending_bank_notifications(self, user))
 
     async def on_tip(self, sender: User, receiver: User, tip) -> None:
         """
