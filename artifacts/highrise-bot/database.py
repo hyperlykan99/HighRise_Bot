@@ -308,6 +308,17 @@ def init_db():
             "INSERT OR IGNORE INTO economy_settings (key, value) VALUES (?, ?)", (k, v)
         )
 
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS quest_progress (
+            user_id    TEXT    NOT NULL,
+            quest_id   TEXT    NOT NULL,
+            period_key TEXT    NOT NULL,
+            progress   INTEGER NOT NULL DEFAULT 0,
+            claimed    INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (user_id, quest_id, period_key)
+        )
+    """)
+
     conn.commit()
     conn.close()
     _migrate_db()
@@ -1638,6 +1649,56 @@ def get_bank_watch_info(username: str) -> dict | None:
         "suspicious_count": bus["suspicious_transfer_count"] if bus else 0,
         "total_claims":  (ds_row["total_claims"] or 0) if ds_row else 0,
     }
+
+
+# ---------------------------------------------------------------------------
+# Quest progress helpers
+# ---------------------------------------------------------------------------
+
+def get_quest_progress(user_id: str, quest_id: str, period_key: str) -> int:
+    conn = get_connection()
+    row  = conn.execute(
+        "SELECT progress FROM quest_progress "
+        "WHERE user_id = ? AND quest_id = ? AND period_key = ?",
+        (user_id, quest_id, period_key)
+    ).fetchone()
+    conn.close()
+    return row["progress"] if row else 0
+
+
+def increment_quest_progress(user_id: str, quest_id: str, period_key: str, amount: int = 1):
+    conn = get_connection()
+    conn.execute("""
+        INSERT INTO quest_progress (user_id, quest_id, period_key, progress)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(user_id, quest_id, period_key)
+        DO UPDATE SET progress = progress + excluded.progress
+    """, (user_id, quest_id, period_key, amount))
+    conn.commit()
+    conn.close()
+
+
+def is_quest_claimed(user_id: str, quest_id: str, period_key: str) -> bool:
+    conn = get_connection()
+    row  = conn.execute(
+        "SELECT claimed FROM quest_progress "
+        "WHERE user_id = ? AND quest_id = ? AND period_key = ?",
+        (user_id, quest_id, period_key)
+    ).fetchone()
+    conn.close()
+    return bool(row["claimed"]) if row else False
+
+
+def mark_quest_claimed(user_id: str, quest_id: str, period_key: str):
+    conn = get_connection()
+    conn.execute("""
+        INSERT INTO quest_progress (user_id, quest_id, period_key, claimed)
+        VALUES (?, ?, ?, 1)
+        ON CONFLICT(user_id, quest_id, period_key)
+        DO UPDATE SET claimed = 1
+    """, (user_id, quest_id, period_key))
+    conn.commit()
+    conn.close()
 
 
 # ---------------------------------------------------------------------------

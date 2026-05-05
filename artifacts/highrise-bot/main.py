@@ -61,6 +61,10 @@ from modules.economy_settings import (
     handle_setdailycoins, handle_setgamereward,
     handle_setmaxbalance, handle_settransferfee,
 )
+from modules.quests import (
+    handle_questhelp, handle_quests,
+    handle_dailyquests, handle_weeklyquests, handle_claimquest,
+)
 from modules.bank import (
     handle_bank, handle_send, handle_transactions, handle_bankstats,
     handle_banknotify,
@@ -124,6 +128,7 @@ ALL_KNOWN_COMMANDS = (
         "staffhelp", "modhelp", "managerhelp", "adminhelp", "ownerhelp",
         "casino", "managers", "moderators",
         "quests", "claimquest",
+        "dailyquests", "weeklyquests", "questhelp",
     }
     | ECONOMY_COMMANDS | PROFILE_COMMANDS | GAME_COMMANDS
     | SHOP_COMMANDS | ACHIEVEMENT_COMMANDS | BJ_COMMANDS
@@ -200,10 +205,11 @@ PROFILE_HELP = (
 
 PROGRESS_HELP = (
     "🏆 Progress\n"
-    "/achievements\n"
-    "/claimachievements\n"
     "/quests\n"
-    "/claimquest"
+    "/dailyquests\n"
+    "/weeklyquests\n"
+    "/claimquest\n"
+    "/achievements"
 )
 
 MOD_HELP = (
@@ -647,8 +653,20 @@ class HangoutBot(BaseBot):
         elif cmd == "ownerhelp":
             await _handle_ownerhelp(self, user)
 
-        elif cmd in {"quests", "claimquest"}:
-            await self.highrise.send_whisper(user.id, "Quests are coming soon! 🏆")
+        elif cmd == "questhelp":
+            await handle_questhelp(self, user)
+
+        elif cmd == "quests":
+            await handle_quests(self, user)
+
+        elif cmd == "dailyquests":
+            await handle_dailyquests(self, user)
+
+        elif cmd == "weeklyquests":
+            await handle_weeklyquests(self, user)
+
+        elif cmd == "claimquest":
+            await handle_claimquest(self, user, args)
 
         elif cmd == "casino":
             await _handle_casino_cmd(self, user, args)

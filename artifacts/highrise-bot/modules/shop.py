@@ -282,6 +282,8 @@ async def handle_buy(bot: BaseBot, user: User, args: list[str]):
             f"Equip with: /equip {item_type} {item_id}"
         )
         await check_achievements(bot, user, "purchase")
+        from modules.quests import track_quest
+        track_quest(user.id, "shop_buy")
     else:
         await bot.highrise.send_whisper(user.id, "Purchase failed. Try again!")
 

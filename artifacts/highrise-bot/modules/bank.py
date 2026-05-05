@@ -280,6 +280,9 @@ async def handle_send(bot: BaseBot, user: User, args: list[str]):
             await _w(bot, user.id, "❌ Transfer failed. Try again.")
         return
 
+    from modules.quests import track_quest
+    track_quest(user.id, "bank_send")
+
     recv_display   = db.get_display_name(receiver["user_id"], receiver["username"])
     sender_display = db.get_display_name(user.id, user.username)
 

@@ -22,6 +22,7 @@ import config
 import modules.leveling as leveling
 from modules.shop         import get_player_benefits
 from modules.achievements import check_achievements
+from modules.quests       import track_quest
 
 
 async def handle_balance(bot: BaseBot, user: User):
@@ -54,6 +55,8 @@ async def handle_daily(bot: BaseBot, user: User):
 
     actual_coins = db.adjust_balance_capped(user.id, actual_coins)
     db.record_daily_claim(user.id)
+    track_quest(user.id, "daily_claim")
+    track_quest(user.id, "earn_coins", actual_coins)
     await leveling.award_xp(bot, user, actual_xp, actual_coins, is_game_win=False)
     await check_achievements(bot, user, "daily")
     new_balance = db.get_balance(user.id)

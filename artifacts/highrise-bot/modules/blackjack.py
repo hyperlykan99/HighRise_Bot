@@ -18,6 +18,7 @@ from highrise import BaseBot, User
 
 import database as db
 from modules.cards       import make_deck, hand_str, hand_value, is_blackjack, card_str
+from modules.quests      import track_quest
 from modules.shop        import get_player_benefits
 from modules.permissions import can_manage_games, can_moderate
 
@@ -213,6 +214,7 @@ async def _finalize_round(bot: BaseBot):
         for p in _state.players:
             try:
                 ptotal    = hand_value(p.hand)
+                track_quest(p.user_id, "bj_round")
                 benefits  = get_player_benefits(p.user_id)
                 bonus_pct = min(
                     float(benefits.get("coinflip_payout_pct", 0.0)),

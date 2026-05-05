@@ -20,6 +20,7 @@ from modules.cooldowns import check_room_cooldown, set_room_cooldown
 import modules.leveling as leveling
 from modules.shop         import get_player_benefits
 from modules.achievements import check_achievements
+from modules.quests       import track_quest
 
 
 # ---------------------------------------------------------------------------
@@ -201,6 +202,8 @@ async def handle_answer(bot: BaseBot, user: User, answer_text: str):
 
         actual_reward = db.adjust_balance_capped(user.id, actual_reward)
         db.record_game_win(user.id, user.username, "trivia")
+        track_quest(user.id, "game_win")
+        track_quest(user.id, "earn_coins", actual_reward)
         await leveling.award_xp(bot, user, config.XP_TRIVIA, actual_reward)
         await check_achievements(bot, user, "trivia_win")
         await check_achievements(bot, user, "game_win")

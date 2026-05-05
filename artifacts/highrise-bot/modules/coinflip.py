@@ -22,6 +22,7 @@ from modules.cooldowns import check_user_cooldown, set_user_cooldown
 import modules.leveling as leveling
 from modules.shop         import get_player_benefits
 from modules.achievements import check_achievements
+from modules.quests       import track_quest
 
 
 # Minimum and maximum bet amounts (feel free to tune in config.py later)
@@ -125,6 +126,9 @@ async def handle_coinflip(bot: BaseBot, user: User, args: list[str]):
         bet=bet,
         won=won,
     )
+    track_quest(user.id, "coinflip")
+    if won:
+        track_quest(user.id, "earn_coins", actual_win)
     set_user_cooldown("coinflip", user.id, reduction=benefits["cooldown_reduction"])
 
     new_balance = db.get_balance(user.id)

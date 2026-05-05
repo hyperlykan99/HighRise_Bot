@@ -27,6 +27,7 @@ from highrise import BaseBot, User
 
 import config
 from modules.cooldowns import check_user_cooldown, set_user_cooldown
+from modules.quests    import track_quest
 
 # Import each game module so we can call their functions and read their state
 import modules.trivia   as trivia
@@ -79,6 +80,7 @@ async def handle_answer(bot: BaseBot, user: User, answer_text: str):
         )
         return
     set_user_cooldown("answer", user.id)   # record this attempt immediately
+    track_quest(user.id, "answer")
 
     if trivia.is_active():
         await trivia.handle_answer(bot, user, answer_text)
