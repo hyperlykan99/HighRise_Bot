@@ -20,7 +20,8 @@ import database as db
 import config
 from modules.cooldowns import check_user_cooldown, set_user_cooldown
 import modules.leveling as leveling
-from modules.shop import get_player_benefits
+from modules.shop         import get_player_benefits
+from modules.achievements import check_achievements
 
 
 # Minimum and maximum bet amounts (feel free to tune in config.py later)
@@ -111,6 +112,8 @@ async def handle_coinflip(bot: BaseBot, user: User, args: list[str]):
         db.adjust_balance(user.id, actual_win)
         db.record_game_win(user.id, user.username, "coinflip")
         await leveling.award_xp(bot, user, config.XP_COINFLIP, actual_win)
+        await check_achievements(bot, user, "coinflip_win")
+        await check_achievements(bot, user, "game_win")
     else:
         db.adjust_balance(user.id, -bet)             # lose: remove the bet amount
 

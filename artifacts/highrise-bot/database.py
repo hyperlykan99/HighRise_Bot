@@ -110,6 +110,16 @@ def init_db():
         )
     """)
 
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS achievements (
+            user_id        TEXT NOT NULL,
+            achievement_id TEXT NOT NULL,
+            unlocked_at    TEXT NOT NULL DEFAULT (datetime('now')),
+            claimed        INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (user_id, achievement_id)
+        )
+    """)
+
     conn.commit()
     conn.close()
     _migrate_db()
@@ -127,6 +137,8 @@ def _migrate_db():
         "ALTER TABLE users ADD COLUMN equipped_title       TEXT",
         "ALTER TABLE users ADD COLUMN equipped_badge_id    TEXT",
         "ALTER TABLE users ADD COLUMN equipped_title_id    TEXT",
+        "ALTER TABLE daily_claims ADD COLUMN streak        INTEGER NOT NULL DEFAULT 1",
+        "ALTER TABLE daily_claims ADD COLUMN total_claims  INTEGER NOT NULL DEFAULT 1",
     ]:
         try:
             conn.execute(sql)
@@ -397,11 +409,33 @@ def can_claim_daily(user_id: str) -> bool:
 
 
 def record_daily_claim(user_id: str):
-    conn = get_connection()
+    from datetime import timedelta
+    conn  = get_connection()
+    today     = str(date.today())
+    yesterday = str(date.today() - timedelta(days=1))
+
+    row = conn.execute(
+        "SELECT last_claim, streak, total_claims FROM daily_claims WHERE user_id = ?",
+        (user_id,)
+    ).fetchone()
+
+    if row is None:
+        streak = 1
+        total  = 1
+    else:
+        old_streak = row["streak"] or 1
+        old_total  = row["total_claims"] or 1
+        streak = (old_streak + 1) if row["last_claim"] == yesterday else 1
+        total  = old_total + 1
+
     conn.execute("""
-        INSERT INTO daily_claims (user_id, last_claim) VALUES (?, ?)
-        ON CONFLICT(user_id) DO UPDATE SET last_claim = excluded.last_claim
-    """, (user_id, str(date.today())))
+        INSERT INTO daily_claims (user_id, last_claim, streak, total_claims)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(user_id) DO UPDATE
+          SET last_claim   = excluded.last_claim,
+              streak       = excluded.streak,
+              total_claims = excluded.total_claims
+    """, (user_id, today, streak, total))
     conn.commit()
     conn.close()
 
@@ -443,6 +477,107 @@ def record_game_win(user_id: str, username: str, game_type: str):
     """, (user_id,))
     conn.commit()
     conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Achievement helpers
+# ---------------------------------------------------------------------------
+
+def get_game_wins(user_id: str, game_type: str) -> int:
+    """Return win count for a specific game type."""
+    conn = get_connection()
+    row  = conn.execute(
+        "SELECT wins FROM game_wins WHERE user_id = ? AND game_type = ?",
+        (user_id, game_type)
+    ).fetchone()
+    conn.close()
+    return row["wins"] if row else 0
+
+
+def get_daily_stats(user_id: str) -> dict:
+    """Return current daily streak and total claim count."""
+    conn = get_connection()
+    row  = conn.execute(
+        "SELECT streak, total_claims FROM daily_claims WHERE user_id = ?",
+        (user_id,)
+    ).fetchone()
+    conn.close()
+    if row is None:
+        return {"streak": 0, "total_claims": 0}
+    return {"streak": row["streak"] or 0, "total_claims": row["total_claims"] or 0}
+
+
+def get_owned_item_counts(user_id: str) -> dict:
+    """Return total, badge, and title counts of owned shop items."""
+    conn   = get_connection()
+    total  = conn.execute(
+        "SELECT COUNT(*) as c FROM owned_items WHERE user_id = ?", (user_id,)
+    ).fetchone()["c"]
+    badges = conn.execute(
+        "SELECT COUNT(*) as c FROM owned_items WHERE user_id = ? AND item_type = 'badge'",
+        (user_id,)
+    ).fetchone()["c"]
+    titles = conn.execute(
+        "SELECT COUNT(*) as c FROM owned_items WHERE user_id = ? AND item_type = 'title'",
+        (user_id,)
+    ).fetchone()["c"]
+    conn.close()
+    return {"total": total, "badges": badges, "titles": titles}
+
+
+def unlock_achievement(user_id: str, achievement_id: str) -> bool:
+    """Record a newly unlocked achievement. Returns True if it was new."""
+    conn = get_connection()
+    existing = conn.execute(
+        "SELECT 1 FROM achievements WHERE user_id = ? AND achievement_id = ?",
+        (user_id, achievement_id)
+    ).fetchone()
+    if existing:
+        conn.close()
+        return False
+    conn.execute(
+        "INSERT INTO achievements (user_id, achievement_id) VALUES (?, ?)",
+        (user_id, achievement_id)
+    )
+    conn.commit()
+    conn.close()
+    return True
+
+
+def get_unlocked_achievements(user_id: str) -> list[str]:
+    """Return all achievement IDs the player has unlocked (claimed or not)."""
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT achievement_id FROM achievements WHERE user_id = ?", (user_id,)
+    ).fetchall()
+    conn.close()
+    return [r["achievement_id"] for r in rows]
+
+
+def get_claimable_achievements(user_id: str) -> list[str]:
+    """Return unlocked-but-unclaimed achievement IDs."""
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT achievement_id FROM achievements WHERE user_id = ? AND claimed = 0",
+        (user_id,)
+    ).fetchall()
+    conn.close()
+    return [r["achievement_id"] for r in rows]
+
+
+def claim_achievement(user_id: str, achievement_id: str) -> bool:
+    """Mark an achievement as claimed. Returns True if a row was updated."""
+    conn   = get_connection()
+    before = conn.total_changes
+    conn.execute(
+        "UPDATE achievements SET claimed = 1 "
+        "WHERE user_id = ? AND achievement_id = ? AND claimed = 0",
+        (user_id, achievement_id)
+    )
+    changed = conn.total_changes - before
+    conn.commit()
+    conn.close()
+    return changed > 0
 
 
 # ---------------------------------------------------------------------------

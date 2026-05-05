@@ -1,0 +1,124 @@
+Rebalance the achievement system so achievements are harder and rewards are lower.
+
+Goal:
+Achievements should feel like long-term goals, not easy money.
+Players should not get rich too fast from achievements.
+
+Update achievements to this:
+
+Beginner Achievements:
+1. First Win
+- Requirement: win any mini game once
+- Reward: 50 coins, 10 XP
+
+2. Getting Started
+- Requirement: claim /daily 3 times
+- Reward: 100 coins, 25 XP
+
+3. First Purchase
+- Requirement: buy any shop item
+- Reward: 100 coins, 25 XP
+
+Game Achievements:
+4. Trivia Rookie
+- Requirement: win 10 trivia games
+- Reward: 250 coins, 50 XP
+
+5. Trivia Master
+- Requirement: win 50 trivia games
+- Reward: 1,000 coins, 150 XP
+
+6. Trivia Legend
+- Requirement: win 200 trivia games
+- Reward: 3,000 coins, 500 XP
+
+7. Word Solver
+- Requirement: win 25 scramble games
+- Reward: 500 coins, 100 XP
+
+8. Word Master
+- Requirement: win 100 scramble games
+- Reward: 2,000 coins, 300 XP
+
+9. Riddle Brain
+- Requirement: win 25 riddle games
+- Reward: 500 coins, 100 XP
+
+10. Riddle Lord
+- Requirement: win 100 riddle games
+- Reward: 2,000 coins, 300 XP
+
+Daily/Streak Achievements:
+11. Daily Grinder
+- Requirement: reach a 7-day daily streak
+- Reward: 500 coins, 100 XP
+
+12. Loyal Player
+- Requirement: reach a 30-day daily streak
+- Reward: 3,000 coins, 500 XP
+
+13. Room Addict
+- Requirement: reach a 100-day daily streak
+- Reward: 10,000 coins, 1,500 XP
+
+Economy Achievements:
+14. Coin Collector
+- Requirement: reach 10,000 coins balance
+- Reward: 500 coins, 100 XP
+
+15. Rich Player
+- Requirement: reach 50,000 coins balance
+- Reward: 2,000 coins, 300 XP
+
+16. Millionaire Mindset
+- Requirement: reach 250,000 coins balance
+- Reward: 5,000 coins, 1,000 XP
+
+Shop Achievements:
+17. Shop Collector
+- Requirement: own 5 shop items
+- Reward: 750 coins, 150 XP
+
+18. Cosmetic Hunter
+- Requirement: own 10 shop items
+- Reward: 2,000 coins, 300 XP
+
+19. Badge Collector
+- Requirement: own 8 badges
+- Reward: 2,500 coins, 400 XP
+
+20. Title Collector
+- Requirement: own 5 titles
+- Reward: 5,000 coins, 750 XP
+
+Casino/Coinflip Achievements:
+21. Coinflip Rookie
+- Requirement: win 25 coinflips
+- Reward: 500 coins, 100 XP
+
+22. Coinflip Grinder
+- Requirement: win 100 coinflips
+- Reward: 2,000 coins, 300 XP
+
+23. High Roller
+- Requirement: win 250 coinflips
+- Reward: 7,500 coins, 1,000 XP
+
+Elite Achievements:
+24. Elite Status
+- Requirement: buy the [Elite] title
+- Reward: 5,000 coins, 1,000 XP
+
+25. Immortal Status
+- Requirement: buy the [Immortal] title
+- Reward: 10,000 coins, 2,000 XP
+
+Rules:
+- Achievements can only be claimed once.
+- Achievement rewards should not be affected by title/badge coin reward bonuses.
+- Use get_display_name(username) in achievement announcements.
+- Add /achievements to show unlocked achievements.
+- Add /achievements all to show all achievements.
+- Add /claimachievements to claim completed achievements.
+- Prevent duplicate claims.
+- Prevent bad inputs from crashing the bot.

@@ -20,7 +20,8 @@ from highrise import BaseBot, User
 import database as db
 import config
 import modules.leveling as leveling
-from modules.shop import get_player_benefits
+from modules.shop         import get_player_benefits
+from modules.achievements import check_achievements
 
 
 async def handle_balance(bot: BaseBot, user: User):
@@ -53,6 +54,7 @@ async def handle_daily(bot: BaseBot, user: User):
     db.adjust_balance(user.id, actual_coins)
     db.record_daily_claim(user.id)
     await leveling.award_xp(bot, user, actual_xp, actual_coins, is_game_win=False)
+    await check_achievements(bot, user, "daily")
     new_balance = db.get_balance(user.id)
 
     msg = f"🎁 Daily reward! +{config.DAILY_REWARD} coins"

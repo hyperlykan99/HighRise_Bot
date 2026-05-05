@@ -31,6 +31,7 @@ Commands handled here:
 import math
 from highrise import BaseBot, User
 import database as db
+from modules.achievements import check_achievements
 
 
 # ---------------------------------------------------------------------------
@@ -261,6 +262,7 @@ async def handle_buy(bot: BaseBot, user: User, args: list[str]):
             f"Balance: {new_balance:,} coins\n"
             f"Equip with: /equip {item_type} {item_id}"
         )
+        await check_achievements(bot, user, "purchase")
     else:
         await bot.highrise.send_whisper(user.id, "Purchase failed. Try again!")
 

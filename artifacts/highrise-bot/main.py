@@ -41,7 +41,8 @@ from economy import (
 )
 from games        import handle_game_command, handle_answer as games_handle_answer
 from admin        import handle_admin_command
-from modules.shop import handle_shop, handle_buy, handle_equip, handle_myitems
+from modules.shop         import handle_shop, handle_buy, handle_equip, handle_myitems
+from modules.achievements import handle_achievements, handle_claim_achievements
 
 
 # ---------------------------------------------------------------------------
@@ -53,7 +54,8 @@ from modules.shop import handle_shop, handle_buy, handle_equip, handle_myitems
 ECONOMY_COMMANDS = {"balance", "daily", "leaderboard"}
 PROFILE_COMMANDS = {"profile", "level", "xpleaderboard"}
 GAME_COMMANDS    = {"trivia", "scramble", "riddle", "coinflip"}
-SHOP_COMMANDS    = {"shop", "buy", "equip", "myitems"}
+SHOP_COMMANDS        = {"shop", "buy", "equip", "myitems"}
+ACHIEVEMENT_COMMANDS = {"achievements", "claimachievements"}
 
 # /answer is handled separately (routes to whichever game is active)
 
@@ -66,6 +68,7 @@ ALL_KNOWN_COMMANDS = (
     | PROFILE_COMMANDS
     | GAME_COMMANDS
     | SHOP_COMMANDS
+    | ACHIEVEMENT_COMMANDS
     | ADMIN_COMMANDS
 )
 
@@ -93,7 +96,10 @@ HELP_TEXT_3 = (
     "/shop  /shop badges  /shop titles\n"
     "/buy badge <id>  /buy title <id>\n"
     "/equip badge <id>  /equip title <id>\n"
-    "/myitems  see what you own"
+    "/myitems  see what you own\n"
+    "-- Achievements --\n"
+    "/achievements  /achievements all\n"
+    "/claimachievements"
 )
 
 
@@ -176,6 +182,13 @@ class HangoutBot(BaseBot):
 
         elif cmd == "myitems":
             await handle_myitems(self, user)
+
+        # ── Achievement commands ───────────────────────────────────────────────
+        elif cmd == "achievements":
+            await handle_achievements(self, user, args)
+
+        elif cmd == "claimachievements":
+            await handle_claim_achievements(self, user)
 
         # ── /answer ───────────────────────────────────────────────────────────
         elif cmd == "answer":
