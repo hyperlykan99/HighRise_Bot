@@ -1,93 +1,68 @@
 # Highrise Hangout Room Bot
 
-A modular Python bot for Highrise using the `highrise-bot-sdk`. Built to run 24/7 in a hangout room with a DJ request queue, token economy, and a clean module system for adding new features later.
+A modular Python bot for Highrise using the `highrise-bot-sdk`. Runs 24/7 with casino games (BJ, RBJ, Poker), economy, DJ queue, events, shop, and a clean module system.
 
-## Project Structure
+## Run & Operate
 
-```
-artifacts/highrise-bot/
-├── bot.py              # Main entry point — connects to Highrise and routes all commands
-├── config.py           # Central config: costs, rewards, admin IDs, thresholds
-├── database.py         # All SQLite database logic (users, queue, history, daily claims)
-├── requirements.txt    # Python dependencies
-├── bot_data.db         # SQLite database (auto-created on first run)
-└── modules/
-    ├── __init__.py
-    ├── dj.py           # DJ request system (active)
-    ├── economy.py      # Token balance and daily rewards (active)
-    ├── trivia.py       # Placeholder — ready to build out
-    ├── blackjack.py    # Placeholder — ready to build out
-    ├── pets.py         # Placeholder — ready to build out
-    └── minigames.py    # Placeholder — ready to build out
-```
-
-## Environment Secrets
-
-| Secret | Purpose |
-|---|---|
-| `BOT_TOKEN` | Highrise API token for the bot account |
-| `ROOM_ID` | Highrise room ID the bot connects to |
-
-## Running the Bot
-
-The bot runs via the **Highrise Bot** workflow:
 ```
 cd artifacts/highrise-bot && python3 bot.py
 ```
 
-## Commands
+Required secrets: `BOT_TOKEN`, `ROOM_ID`
 
-### User Commands
-| Command | Description | Cost |
-|---|---|---|
-| `/help` | Show all commands | Free |
-| `/dj` | Explain the DJ system | Free |
-| `/request <song>` | Add song to queue | 20 tokens |
-| `/queue` | Show next 5 songs | Free |
-| `/now` | Show current song | Free |
-| `/skipvote` | Vote to skip (3 votes = auto skip) | Free |
-| `/balance` | Show token balance | Free |
-| `/daily` | Claim 10 free tokens (once/day) | Free |
+## Stack
 
-### Admin Commands (add your user ID to `ADMIN_IDS` in `config.py`)
-| Command | Description |
-|---|---|
-| `/skip` | Force skip current song |
-| `/remove <#>` | Remove song by queue position |
-| `/addtokens <user> <amount>` | Give tokens to a user |
-| `/refund <user> <amount>` | Refund tokens to a user |
+- Python 3.11, `highrise-bot-sdk` 25.1.0, `aiohttp`, `sqlite3` (built-in)
+- Entry: `artifacts/highrise-bot/main.py`
+- DB: `artifacts/highrise-bot/highrise_hangout.db` (SQLite, auto-created)
 
-## Configuration (`config.py`)
+## Where things live
 
-```python
-SONG_REQUEST_COST  = 20   # tokens per song request
-DAILY_REWARD       = 10   # tokens from /daily
-QUEUE_DISPLAY_SIZE = 5    # songs shown by /queue
-SKIP_VOTE_THRESHOLD = 3   # votes needed to auto-skip
-ADMIN_IDS          = []   # list your Highrise user IDs here
+```
+artifacts/highrise-bot/
+├── main.py             # Entry point — on_chat routing, all command sets, help pages
+├── config.py           # Central config (costs, rewards, admin IDs, thresholds)
+├── database.py         # All SQLite logic — schema, migrations, helpers
+└── modules/
+    ├── blackjack.py        # BJ — simultaneous action timer, split, double, multi-hand
+    ├── realistic_blackjack.py  # RBJ — same + persistent shoe (_Shoe class)
+    ├── poker.py            # Poker game module
+    ├── dj.py               # DJ request queue
+    ├── economy.py          # Token balance, daily rewards, limits
+    ├── cards.py            # Shared card helpers (make_deck, make_shoe, hand_value…)
+    ├── casino_settings.py  # /casinosettings, /casinolimits, /casinotoggles
+    ├── subscribers.py      # Subscription/notification system
+    └── …                   # events, shop, trivia, scramble, bank, etc.
 ```
 
-## Database (SQLite)
+DB schema source of truth: `database.py` (`_MIGRATIONS` list + `init_db()`)
 
-Tables:
-- `users` — user IDs, usernames, token balances
-- `song_queue` — current queue (in order)
-- `request_history` — all past requests ever made
-- `daily_claims` — tracks daily claim dates per user
+## Architecture decisions
 
-## Adding a New Module
+- **Simultaneous action model for BJ/RBJ**: all players act freely during a shared action-timer (`asyncio.Task`); no per-player turn order. Timer set via `/setbjactiontimer` / `/setrbjactiontimer`.
+- **Per-hand split support**: `_Player` holds a `hands` list; `active_hand_idx` tracks which hand is being played. DB stores `hand_json = {"hands":[…], "split_count":N}`, repurposes `doubled` column for `active_hand_idx`.
+- **RBJ shoe persistence**: `_Shoe` is serialized to `shoe_json` in `rbj_game_state` and restored on recovery.
+- **Short command aliases**: `bjoin bh bs bd bsp bt bhand blimits bstats` and `rjoin rh rs rd rsp rt rhand rshoe rlimits rstats` all route to `handle_bj` / `handle_rbj` in `main.py`.
+- **DB migrations**: append-only `_MIGRATIONS` list in `database.py`; each ALTER TABLE is idempotent (wrapped in try/except).
 
-1. Create `modules/yourmodule.py` with a `handle_yourmodule_command(bot, user, args)` function
-2. Import it at the top of `bot.py`
-3. Add the command names to a new set (e.g. `YOURMODULE_COMMANDS = {"yourcommand"}`)
-4. Add a routing branch in `on_chat()` in `bot.py`
-5. Done — no other files need to change
+## Product
 
-Planned modules: trivia, blackjack, pets, mini games
+Casino games (BJ, RBJ with split/double/shoe, Poker), DJ queue, token economy, daily rewards, bank/send, shop (titles/badges), quests, achievements, events, subscriber DM system, leaderboards, staff management tiers.
 
-## Dependencies
+## User preferences
 
-- Python 3.11
-- `highrise-bot-sdk` 25.1.0
-- `aiohttp`
-- `sqlite3` (built-in)
+- All chat messages must be ≤ 249 characters.
+- New settings commands follow pattern `/setbj<thing>` / `/setrbj<thing>` and are manager-only.
+- Short aliases preferred for in-room play; full `/bj <sub>` commands still supported.
+
+## Gotchas
+
+- Never hardcode ports — bot uses Highrise WebSocket, not HTTP.
+- `database.py` `_MIGRATIONS` list is append-only; never reorder or remove entries.
+- BJ/RBJ `doubled` DB column repurposed as `active_hand_idx` (int); `bet` column stores `total_bet()` sum across all hands.
+- `make_shoe` is in `cards.py` — import from there, not redefined in module files.
+
+## Pointers
+
+- Adding a new setting: add ALTER TABLE to `_MIGRATIONS`, add key to `_BJ_SETTING_COLS` / `_RBJ_SETTING_COLS`, add fallback value in `get_bj_settings()` / `get_rbj_settings()`, add routing in `main.py` `setbj*` block, add to `MANAGER_ONLY_CMDS` + `ALL_KNOWN_COMMANDS`.
+- Adding a new module: create `modules/yourmodule.py`, import in `main.py`, add command set, add routing branch in `on_chat()`.

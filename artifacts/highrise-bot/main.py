@@ -193,7 +193,11 @@ PROFILE_COMMANDS     = {"profile", "level", "xpleaderboard"}
 GAME_COMMANDS        = {"trivia", "scramble", "riddle", "coinflip"}
 SHOP_COMMANDS        = {"shop", "buy", "equip", "myitems", "badgeinfo", "titleinfo"}
 ACHIEVEMENT_COMMANDS = {"achievements", "claimachievements"}
-BJ_COMMANDS          = {"bj", "rbj"}
+BJ_COMMANDS          = {
+    "bj", "rbj",
+    "bjoin", "bt", "bh", "bs", "bd", "bsp", "blimits", "bstats", "bhand",
+    "rjoin", "rt", "rh", "rs", "rd", "rsp", "rshoe", "rlimits", "rstats", "rhand",
+}
 BANK_PLAYER_COMMANDS = {"bank", "send", "transactions", "bankstats", "banknotify"}
 
 BANK_ADMIN_SET_CMDS = {
@@ -225,9 +229,11 @@ MANAGER_ONLY_CMDS = {
     "pokerdebug", "pokerfix", "pokerrefundall",
     "banksettings",
     "setbjminbet", "setbjmaxbet", "setbjcountdown", "setbjturntimer",
+    "setbjactiontimer", "setbjmaxsplits",
     "setbjdailywinlimit", "setbjdailylosslimit",
     "setrbjdecks", "setrbjminbet", "setrbjmaxbet", "setrbjcountdown",
     "setrbjshuffle", "setrbjblackjackpayout", "setrbjwinpayout", "setrbjturntimer",
+    "setrbjactiontimer", "setrbjmaxsplits",
     "setrbjdailywinlimit", "setrbjdailylosslimit",
     "setgametimer", "setautogameinterval",
     "setautoeventinterval", "setautoeventduration",
@@ -372,17 +378,16 @@ GAME_HELP = GAME_HELP_PAGES[0]
 CASINO_HELP_PAGES = [
     (
         "🎰 Casino\n"
-        "/bj join <bet> - casual BJ\n"
-        "/rbj join <bet> - realistic BJ\n"
-        "/bj hit | /rbj hit\n"
-        "/bj stand | /rbj stand"
+        "BJ: /bjoin <bet>, /bh, /bs, /bd, /bsp\n"
+        "RBJ: /rjoin <bet>, /rh, /rs, /rd, /rsp\n"
+        "Poker: /p <buyin>"
     ),
     (
         "🎰 Casino 2\n"
-        "/bj table | /rbj table\n"
+        "/bt table | /rt table\n"
+        "/bhand | /rhand | /rshoe\n"
         "/bj rules | /rbj rules\n"
-        "/bj stats | /rbj stats\n"
-        "/bj limits | /rbj limits"
+        "/bstats | /rstats"
     ),
     (
         "🎰 Casino Settings\n"
@@ -485,18 +490,17 @@ EVENT_HELP_PAGES = [
 
 BJ_HELP_PAGES = [
     (
-        "🃏 BJ Help\n"
-        "/bj join <bet>\n"
-        "/bj hit\n"
-        "/bj stand\n"
-        "/bj double\n"
-        "/bj table\n"
-        "/bj rules\n"
-        "/bj stats"
+        "🃏 BJ\n"
+        "/bjoin <bet>\n"
+        "/bh hit | /bs stand\n"
+        "/bd double | /bsp split\n"
+        "/bt table | /bhand"
     ),
     (
-        "🃏 BJ Limits\n"
-        "/bj limits\n"
+        "🃏 BJ 2\n"
+        "/bj rules\n"
+        "/bstats\n"
+        "/blimits\n"
         "Staff: /setbjlimits\n"
         "Staff: /bj state\n"
         "Staff: /bj recover/refund"
@@ -505,19 +509,17 @@ BJ_HELP_PAGES = [
 
 RBJ_HELP_PAGES = [
     (
-        "🃏 RBJ Help\n"
-        "/rbj join <bet>\n"
-        "/rbj hit\n"
-        "/rbj stand\n"
-        "/rbj double\n"
-        "/rbj table\n"
-        "/rbj rules\n"
-        "/rbj shoe"
+        "🃏 RBJ\n"
+        "/rjoin <bet>\n"
+        "/rh hit | /rs stand\n"
+        "/rd double | /rsp split\n"
+        "/rt table | /rhand | /rshoe"
     ),
     (
         "🃏 RBJ 2\n"
-        "/rbj stats\n"
-        "/rbj limits\n"
+        "/rbj rules\n"
+        "/rstats\n"
+        "/rlimits\n"
         "Staff: /setrbjlimits\n"
         "Staff: /rbj state\n"
         "Staff: /rbj recover/refund"
@@ -538,8 +540,17 @@ CASINO_ADMIN_HELP_PAGES = [
         "🎰 Casino Admin 2\n"
         "/setbjlimits min max win loss\n"
         "/setrbjlimits min max win loss\n"
-        "/setbjturntimer <sec>\n"
-        "/setrbjturntimer <sec>"
+        "/setbjactiontimer <sec>\n"
+        "/setrbjactiontimer <sec>"
+    ),
+    (
+        "🎰 Casino Admin 2b\n"
+        "/bj double on/off\n"
+        "/rbj double on/off\n"
+        "/bj split on/off\n"
+        "/rbj split on/off\n"
+        "/setbjmaxsplits <n>\n"
+        "/setrbjmaxsplits <n>"
     ),
     (
         "🎰 Casino Admin 3\n"
@@ -872,8 +883,8 @@ OWNER_HELP_PAGES = [
 ALLCMDS = [
     "Cmds 1 Help\n/help /gamehelp /casinohelp\n/coinhelp /bankhelp\n/shophelp /profilehelp",
     "Cmds 2 Games\n/trivia /scramble /riddle\n/answer /coinflip\n/autogames status\n/gameconfig",
-    "Cmds 3 Casino\n/bj join/hit/stand/table\n/rbj join/hit/stand/table\n/bj rules /rbj rules",
-    "Cmds 4 Casino Staff\n/casinosettings\n/casinolimits\n/casinotoggles\n/setbjlimits\n/setrbjlimits",
+    "Cmds 3 Casino\n/bjoin /bh /bs /bd /bsp /bt /bhand\n/rjoin /rh /rs /rd /rsp /rt /rhand",
+    "Cmds 4 Casino Staff\n/casinosettings\n/casinolimits\n/casinotoggles\n/setbjlimits\n/setrbjlimits\n/setbjactiontimer\n/setrbjactiontimer",
     "Cmds 5 Bank\n/send /bank /bankstats\n/transactions\n/banknotify\n/tiprate /tipstats",
     "Cmds 6 Shop/Profile\n/shop titles/badges\n/titleinfo /badgeinfo\n/buy /equip\n/profile /level",
     "Cmds 7 Progress\n/quests /dailyquests\n/weeklyquests\n/claimquest\n/achievements\n/reputation",
@@ -1786,6 +1797,67 @@ class HangoutBot(BaseBot):
 
         elif cmd == "rbj":
             await handle_rbj(self, user, args)
+
+        # BJ short aliases
+        elif cmd == "bjoin":
+            bet_arg = args[1] if len(args) > 1 else ""
+            await handle_bj(self, user, ["bj", "join", bet_arg] if bet_arg else ["bj", "join"])
+
+        elif cmd == "bt":
+            await handle_bj(self, user, ["bj", "table"])
+
+        elif cmd == "bh":
+            await handle_bj(self, user, ["bj", "hit"])
+
+        elif cmd == "bs":
+            await handle_bj(self, user, ["bj", "stand"])
+
+        elif cmd == "bd":
+            await handle_bj(self, user, ["bj", "double"])
+
+        elif cmd == "bsp":
+            await handle_bj(self, user, ["bj", "split"])
+
+        elif cmd == "blimits":
+            await handle_bj(self, user, ["bj", "limits"])
+
+        elif cmd == "bstats":
+            await handle_bj(self, user, ["bj", "stats"])
+
+        elif cmd == "bhand":
+            await handle_bj(self, user, ["bj", "hand"])
+
+        # RBJ short aliases
+        elif cmd == "rjoin":
+            bet_arg = args[1] if len(args) > 1 else ""
+            await handle_rbj(self, user, ["rbj", "join", bet_arg] if bet_arg else ["rbj", "join"])
+
+        elif cmd == "rt":
+            await handle_rbj(self, user, ["rbj", "table"])
+
+        elif cmd == "rh":
+            await handle_rbj(self, user, ["rbj", "hit"])
+
+        elif cmd == "rs":
+            await handle_rbj(self, user, ["rbj", "stand"])
+
+        elif cmd == "rd":
+            await handle_rbj(self, user, ["rbj", "double"])
+
+        elif cmd == "rsp":
+            await handle_rbj(self, user, ["rbj", "split"])
+
+        elif cmd == "rshoe":
+            await handle_rbj(self, user, ["rbj", "shoe"])
+
+        elif cmd == "rlimits":
+            await handle_rbj(self, user, ["rbj", "limits"])
+
+        elif cmd == "rstats":
+            await handle_rbj(self, user, ["rbj", "stats"])
+
+        elif cmd == "rhand":
+            await handle_rbj(self, user, ["rbj", "hand"])
 
         elif cmd == "confirmcasinoreset":
             if not can_moderate(user.username):

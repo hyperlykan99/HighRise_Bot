@@ -1,0 +1,553 @@
+Upgrade Blackjack and Realistic Blackjack to simultaneous player action, add split, and add short safe commands.
+
+GOAL:
+Change BJ/RBJ so players do NOT wait for turns after cards are dealt.
+After the round starts, every active player can act anytime during the action timer:
+- hit
+- stand
+- double
+- split
+
+Also add short commands that are easy to type and do not interfere with poker or other games.
+
+IMPORTANT:
+- Do not remove existing features.
+- Keep coins, XP, bank, shop, poker, gold, VIP, events, notifications, reports, roles, and profiles.
+- Apply to both Casual Blackjack /bj and Realistic Blackjack /rbj.
+- Use SQLite.
+- Keep every Highrise message under 250 characters.
+- Prevent crashes from bad inputs.
+- Add explicit routing before unknown-command fallback.
+- Maintain BJ/RBJ crash recovery and saved table state.
+- Never deduct bets without recovery/refund option.
+
+==================================================
+PART 1: CHANGE BJ/RBJ FROM TURN-BASED TO SIMULTANEOUS ACTION
+==================================================
+
+Current issue:
+BJ/RBJ waits for each player turn. I want everyone in the table to act anytime after cards are dealt.
+
+New flow:
+1. Players join lobby.
+2. Lobby countdown ends.
+3. Bot deals cards to all players and dealer.
+4. Bot starts a shared action timer.
+5. During the action timer, any player can:
+   - hit
+   - stand
+   - double
+   - split
+6. A player can keep hitting until they stand, bust, double, split-hand resolves, or timer expires.
+7. When all players are done OR timer expires:
+   - dealer reveals cards
+   - dealer plays
+   - bot resolves all player hands
+   - bot pays/refunds/losses
+   - table clears
+
+Default shared action timer:
+- bj_action_timer = 30 seconds
+- rbj_action_timer = 30 seconds
+
+Settings commands:
+- /setbjactiontimer <seconds>
+- /setrbjactiontimer <seconds>
+
+Validation:
+- Minimum 10 seconds
+- Maximum 90 seconds
+- Owner/admin/manager only
+
+Messages:
+When action phase starts:
+"🃏 BJ action open! Act within 30s: hit, stand, double, split."
+
+RBJ:
+"🃏 RBJ action open! Act within 30s: hit, stand, double, split."
+
+When timer expires:
+"⏰ Action time over. Dealer plays."
+
+==================================================
+PART 2: PLAYER STATUS SYSTEM
+==================================================
+
+Each player should have status:
+- playing
+- stood
+- busted
+- doubled
+- split
+- blackjack
+- done
+
+Each hand should have status:
+- active
+- stood
+- busted
+- doubled
+- blackjack
+- done
+
+Because split creates multiple hands, store player hands as a list.
+
+Example player state:
+{
+  "username": "Marion",
+  "bet": 100,
+  "hands": [
+    {"cards": ["8♠", "8♦"], "bet": 100, "status": "active"},
+    {"cards": ["8♥", "K♣"], "bet": 100, "status": "stood"}
+  ],
+  "active_hand_index": 0
+}
+
+Rules:
+- If player has no active hands, player is done.
+- If all players are done, resolve immediately before timer ends.
+- If timer ends, auto-stand all non-busted active hands.
+- Bust hands resolve as losses.
+- Stood/doubled hands wait for dealer resolution.
+
+==================================================
+PART 3: HIT RULES
+==================================================
+
+Commands:
+- /bj hit
+- /rbj hit
+- short aliases listed later
+
+Behavior:
+- Player can hit anytime during action phase if they have an active hand.
+- Add one card to their current active hand.
+- Save state immediately.
+- If hand total > 21:
+  - mark hand busted
+  - move to next active split hand if any
+  - if no active hands left, player done
+- If hand total == 21:
+  - auto-stand that hand
+  - move to next active split hand if any
+
+Messages:
+"🃏 @user hits: 8♠ 7♦ 5♣ = 20"
+"💥 @user busts: 24."
+
+Keep under 250 characters.
+
+==================================================
+PART 4: STAND RULES
+==================================================
+
+Commands:
+- /bj stand
+- /rbj stand
+- short aliases listed later
+
+Behavior:
+- Player can stand anytime during action phase if they have an active hand.
+- Mark current hand stood.
+- Move to next active split hand if any.
+- If no active hands, player done.
+- If all players done, resolve round immediately.
+
+Message:
+"✅ @user stands at 18."
+
+==================================================
+PART 5: DOUBLE RULES
+==================================================
+
+Commands:
+- /bj double
+- /rbj double
+- short aliases listed later
+
+Behavior:
+- Player can double only if:
+  - hand has exactly 2 cards
+  - hand is active
+  - player has enough coins to add another bet equal to hand bet
+  - double is not disabled
+- Deduct extra bet.
+- Add extra bet to hand bet.
+- Deal exactly one card.
+- Mark hand doubled/done unless bust.
+- Move to next active split hand if any.
+- Save state immediately.
+- If all players done, resolve.
+
+Messages:
+"💰 @user doubles to 200c and draws 6♣. Total: 18."
+"❌ Double allowed only on first 2 cards."
+"❌ Not enough coins to double."
+
+Settings:
+- /bj double on/off
+- /rbj double on/off
+Owner/admin/manager only.
+
+Defaults:
+- bj_double_enabled = true
+- rbj_double_enabled = true
+
+==================================================
+PART 6: ADD SPLIT FEATURE
+==================================================
+
+Commands:
+- /bj split
+- /rbj split
+- short aliases listed later
+
+Behavior:
+Player can split if:
+- current active hand has exactly 2 cards
+- both cards have same rank
+  Examples: 8+8, K+Q? No. Same rank only by default.
+- player has enough coins to place an additional bet equal to original hand bet
+- split is enabled
+- player has not exceeded max splits
+
+Default:
+- max_splits_per_player = 1
+- split_enabled = true
+- split_aces_one_card = true
+
+Settings:
+- /bj split on/off
+- /rbj split on/off
+- /setbjmaxsplits <amount>
+- /setrbjmaxsplits <amount>
+
+Validation:
+- max splits 0 to 3
+- Owner/admin/manager only
+
+Split rules:
+1. Deduct additional bet equal to current hand bet.
+2. Separate the two cards into two hands.
+3. Deal one card to each split hand.
+4. Player continues playing the first active split hand.
+5. After first hand stands/busts/doubles, move to next split hand.
+6. Save state immediately.
+
+Split aces:
+- If split_aces_one_card = true:
+  - split aces receive one card each
+  - both hands auto-stand
+- Add setting:
+  /bj splitaces on/off
+  /rbj splitaces on/off
+Where ON means one-card split aces rule is active.
+
+Messages:
+"✂️ @user splits 8s. New bet: 100c each."
+"❌ Split needs two matching ranks."
+"❌ Not enough coins to split."
+
+==================================================
+PART 7: SIMULTANEOUS ROUND RESOLUTION
+==================================================
+
+Round should resolve when:
+- all players have no active hands
+OR
+- shared action timer expires
+
+Resolution:
+1. Auto-stand remaining active hands if timer expired.
+2. Dealer reveals.
+3. Dealer hits according to rules.
+4. Compare each player hand to dealer.
+5. Pay each hand separately.
+6. Blackjack, bust, win, loss, push are calculated per hand.
+7. Update stats and daily limits.
+8. Prevent duplicate payouts.
+9. Clear table and timers.
+
+Dealer rules:
+- Dealer hits until 17.
+- If existing settings for soft 17 exist, respect them.
+- Otherwise stand on all 17.
+
+Messages:
+"Dealer: A♠ 6♦ K♣ = 17."
+"@user H1 wins +100c. H2 push."
+"@user lost 100c."
+"BJ round ended."
+
+Keep messages short. If many players/hands, send multiple short messages.
+
+==================================================
+PART 8: RECOVERY / RESTART SAFETY
+==================================================
+
+Update BJ/RBJ active table SQLite save state to include:
+- action_phase
+- action_timer_ends_at
+- player hands JSON
+- active_hand_index
+- split count
+- per-hand bet
+- per-hand status
+- doubled hands
+- split hands
+- dealer hand
+- deck/shoe state
+- round_id
+- paid result flags
+
+Important for RBJ:
+- Continue saving shoe_json exactly after every card dealt.
+- Splits and doubles must remove cards from the saved shoe.
+- On restart, reload same shoe_json and continue.
+
+On startup/softrestart:
+- If BJ/RBJ was in action phase:
+  - restore table
+  - announce:
+    "♻️ BJ restored. Cards and bets loaded."
+    or
+    "♻️ RBJ restored. Cards, shoe, and bets loaded."
+  - restart shared action timer with remaining time
+  - if timer expired, auto-stand unresolved hands and resolve dealer
+
+If corrupted:
+- mark recovery_required
+- do not erase bets
+- staff can use existing:
+/bj recover
+/rbj recover
+/bj refund
+/rbj refund
+/bj forcefinish
+/rbj forcefinish
+
+==================================================
+PART 9: SHORT SAFE COMMANDS
+==================================================
+
+Add shorter commands without interfering with poker.
+
+BJ short aliases:
+- /bjoin <bet> -> /bj join <bet>
+- /bt -> /bj table
+- /bh -> /bj hit
+- /bs -> /bj stand
+- /bd -> /bj double
+- /bsp -> /bj split
+- /blimits -> /bj limits
+- /bstats -> /bj stats
+
+RBJ short aliases:
+- /rjoin <bet> -> /rbj join <bet>
+- /rt -> /rbj table
+- /rh -> /rbj hit
+- /rs -> /rbj stand
+- /rd -> /rbj double
+- /rsp -> /rbj split
+- /rshoe -> /rbj shoe
+- /rlimits -> /rbj limits
+- /rstats -> /rbj stats
+
+Do NOT use these aliases because they conflict with poker:
+- /h
+- /s
+- /d
+- /sp
+- /hit
+- /stand
+- /double
+- /split
+
+Reason:
+Poker already uses /check, /call, /raise, /fold, /ai. Do not create generic aliases that could confuse game context.
+
+Alias safety:
+- /bh should only work if user is in an active BJ round.
+- /rh should only work if user is in an active RBJ round.
+- If not in that table:
+  "You are not in BJ."
+  or
+  "You are not in RBJ."
+
+Join alias validation:
+- /bjoin 100 requires positive number.
+- /rjoin 100 requires positive number.
+- If missing:
+  "Use /bjoin <bet>."
+  "Use /rjoin <bet>."
+
+Routing:
+- Add explicit routes before unknown-command fallback.
+- Short aliases must call the same BJ/RBJ functions.
+- Do not duplicate game logic.
+
+==================================================
+PART 10: UPDATE TABLE DISPLAY
+==================================================
+
+/bj table should show:
+- dealer visible card
+- action timer remaining
+- players and hand statuses
+
+Example:
+"BJ | Dealer: A♠ ? | 22s left
+@A 18 active | @B H1 20 stood H2 15 active"
+
+If too long, split into pages.
+
+For RBJ:
+/rbj table should also show shoe count:
+"RBJ | Dealer: 9♦ ? | Shoe 287 | 22s left"
+
+Player hand command:
+Add:
+- /bj hand
+- /rbj hand
+Aliases:
+- /bhand
+- /rhand
+
+Shows only that player's hands:
+"Your BJ: H1 8♠ K♦=18 active | H2 A♣ 7♥=18 stood"
+
+==================================================
+PART 11: SETTINGS DISPLAY
+==================================================
+
+Update:
+/bj settings
+/rbj settings
+/casinosettings
+/casinolimits
+/casinotoggles
+
+Show:
+- BJ/RBJ enabled
+- min/max bet
+- action timer
+- double ON/OFF
+- split ON/OFF
+- max splits
+- win/loss limits ON/OFF
+
+Short examples:
+
+/bj settings:
+"BJ ON | Timer 30s | Double ON | Split ON | MaxSplits 1"
+
+/rbj settings:
+"RBJ ON | Timer 30s | Double ON | Split ON | MaxSplits 1"
+
+/bj limits:
+"BJ bet 10-1000c | W/L 5000/3000 ON/ON"
+
+/rbj limits:
+"RBJ bet 50-5000c | W/L 10000/5000 ON/ON"
+
+==================================================
+PART 12: HELP UPDATE
+==================================================
+
+Update /casinohelp:
+"🎰 Casino
+BJ: /bjoin <bet>, /bh, /bs, /bd, /bsp
+RBJ: /rjoin <bet>, /rh, /rs, /rd, /rsp
+Poker: /p <buyin>"
+
+Update /bjhelp:
+"🃏 BJ
+/bjoin <bet>
+/bh hit | /bs stand
+/bd double | /bsp split
+/bt table | /bhand"
+
+Update /rbjhelp:
+"🃏 RBJ
+/rjoin <bet>
+/rh hit | /rs stand
+/rd double | /rsp split
+/rt table | /rhand | /rshoe"
+
+Update /casinoadminhelp:
+Add:
+- /setbjactiontimer <sec>
+- /setrbjactiontimer <sec>
+- /bj split on/off
+- /rbj split on/off
+- /bj double on/off
+- /rbj double on/off
+- /setbjmaxsplits <amount>
+- /setrbjmaxsplits <amount>
+
+==================================================
+PART 13: TESTS
+==================================================
+
+Test simultaneous BJ:
+1. Player A /bjoin 100
+2. Player B /bjoin 100
+3. Round starts
+4. Both players use /bh, /bs anytime
+Expected:
+- no turn waiting
+- both actions work
+- round resolves when all done or timer ends
+
+Test RBJ:
+1. /rjoin 100
+2. action phase starts
+3. /rh, /rs
+Expected:
+- no turn waiting
+- shoe count decreases correctly
+- recovery saves shoe
+
+Test double:
+1. Start BJ/RBJ
+2. Use /bd or /rd on 2-card hand
+Expected:
+- extra bet deducted
+- one card drawn
+- hand done
+
+Test split:
+1. Force/test pair if possible
+2. Use /bsp or /rsp
+Expected:
+- extra bet deducted
+- two hands created
+- one card dealt to each
+- hand statuses work
+- payouts per hand
+
+Test timer:
+1. Start round
+2. No actions
+Expected:
+- timer expires
+- active hands auto-stand
+- dealer resolves
+- table clears
+
+Test recovery:
+1. Start RBJ
+2. Split or double
+3. /softrestart
+Expected:
+- table restored
+- same hands, bets, shoe, statuses loaded
+
+Final requirements:
+- BJ/RBJ must not be turn-based after initial deal.
+- Every player can act anytime during action phase.
+- Split must work safely.
+- Double must work safely.
+- RBJ shoe must persist through splits/doubles.
+- Short commands must not interfere with poker or other commands.
+- No stuck table after timer, split, double, bust, stand, recovery, or payout.

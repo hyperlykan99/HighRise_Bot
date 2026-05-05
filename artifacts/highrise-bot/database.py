@@ -914,6 +914,16 @@ def _migrate_db():
         "ALTER TABLE bj_settings  ADD COLUMN bj_loss_limit_enabled INTEGER NOT NULL DEFAULT 1",
         "ALTER TABLE rbj_settings ADD COLUMN rbj_win_limit_enabled  INTEGER NOT NULL DEFAULT 1",
         "ALTER TABLE rbj_settings ADD COLUMN rbj_loss_limit_enabled INTEGER NOT NULL DEFAULT 1",
+        "ALTER TABLE bj_settings  ADD COLUMN bj_action_timer        INTEGER NOT NULL DEFAULT 30",
+        "ALTER TABLE rbj_settings ADD COLUMN rbj_action_timer       INTEGER NOT NULL DEFAULT 30",
+        "ALTER TABLE bj_settings  ADD COLUMN bj_double_enabled      INTEGER NOT NULL DEFAULT 1",
+        "ALTER TABLE rbj_settings ADD COLUMN rbj_double_enabled     INTEGER NOT NULL DEFAULT 1",
+        "ALTER TABLE bj_settings  ADD COLUMN bj_split_enabled       INTEGER NOT NULL DEFAULT 1",
+        "ALTER TABLE rbj_settings ADD COLUMN rbj_split_enabled      INTEGER NOT NULL DEFAULT 1",
+        "ALTER TABLE bj_settings  ADD COLUMN bj_max_splits          INTEGER NOT NULL DEFAULT 1",
+        "ALTER TABLE rbj_settings ADD COLUMN rbj_max_splits         INTEGER NOT NULL DEFAULT 1",
+        "ALTER TABLE bj_settings  ADD COLUMN bj_split_aces_one_card  INTEGER NOT NULL DEFAULT 1",
+        "ALTER TABLE rbj_settings ADD COLUMN rbj_split_aces_one_card INTEGER NOT NULL DEFAULT 1",
         "ALTER TABLE bank_notifications ADD COLUMN delivery_attempts INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE bank_notifications ADD COLUMN last_error        TEXT",
         "ALTER TABLE subscriber_users   ADD COLUMN auto_subscribed_from_tip       INTEGER NOT NULL DEFAULT 0",
@@ -1540,6 +1550,10 @@ def get_bj_settings() -> dict:
             "lobby_countdown": 15, "turn_timer": 30, "bj_turn_timer": 20,
             "max_players": 6, "bj_enabled": 1,
             "bj_daily_win_limit": 5000, "bj_daily_loss_limit": 3000,
+            "bj_win_limit_enabled": 1, "bj_loss_limit_enabled": 1,
+            "bj_action_timer": 30,
+            "bj_double_enabled": 1, "bj_split_enabled": 1,
+            "bj_max_splits": 1, "bj_split_aces_one_card": 1,
         }
     return dict(row)
 
@@ -1550,6 +1564,9 @@ _BJ_SETTING_COLS = {
     "max_players", "bj_enabled",
     "bj_daily_win_limit", "bj_daily_loss_limit",
     "bj_win_limit_enabled", "bj_loss_limit_enabled",
+    "bj_action_timer",
+    "bj_double_enabled", "bj_split_enabled",
+    "bj_max_splits", "bj_split_aces_one_card",
 }
 
 
@@ -1623,6 +1640,9 @@ _RBJ_SETTING_COLS = {
     "max_players", "rbj_enabled",
     "rbj_daily_win_limit", "rbj_daily_loss_limit",
     "rbj_win_limit_enabled", "rbj_loss_limit_enabled",
+    "rbj_action_timer",
+    "rbj_double_enabled", "rbj_split_enabled",
+    "rbj_max_splits", "rbj_split_aces_one_card",
 }
 
 
@@ -1640,6 +1660,10 @@ def get_rbj_settings() -> dict:
             "lobby_countdown": 15, "turn_timer": 30, "rbj_turn_timer": 20,
             "max_players": 6, "rbj_enabled": 1,
             "rbj_daily_win_limit": 5000, "rbj_daily_loss_limit": 3000,
+            "rbj_win_limit_enabled": 1, "rbj_loss_limit_enabled": 1,
+            "rbj_action_timer": 30,
+            "rbj_double_enabled": 1, "rbj_split_enabled": 1,
+            "rbj_max_splits": 1, "rbj_split_aces_one_card": 1,
         }
     return dict(row)
 
