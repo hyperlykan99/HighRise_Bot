@@ -11,6 +11,9 @@ import os
 BOT_TOKEN: str = os.environ["BOT_TOKEN"]
 ROOM_ID:   str = os.environ["ROOM_ID"]
 
+# ── YouTube Data API v3 ──────────────────────────────────────────────────────
+YOUTUBE_API_KEY: str = os.environ.get("YOUTUBE_API_KEY", "")
+
 # ── Token economy ────────────────────────────────────────────────────────────
 SONG_REQUEST_COST:    int = 20   # tokens for a normal /request
 PRIORITY_REQUEST_COST: int = 50  # tokens for a /priority request (jumps to #2 in queue)

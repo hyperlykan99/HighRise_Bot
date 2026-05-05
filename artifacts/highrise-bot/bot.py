@@ -24,12 +24,13 @@ import config
 
 from modules.dj import handle_dj_command, handle_dj_admin_command
 from modules.economy import handle_economy_command, handle_economy_admin_command
+from modules.ytsearch import handle_ytsearch_command
 
 # ---------------------------------------------------------------------------
 # Command routing tables
 # ---------------------------------------------------------------------------
 
-DJ_COMMANDS            = {"dj", "request", "priority", "queue", "now", "skipvote"}
+DJ_COMMANDS            = {"dj", "request", "priority", "queue", "now", "skipvote", "ytsearch"}
 ECONOMY_COMMANDS       = {"balance", "daily"}
 ADMIN_DJ_COMMANDS      = {"skip", "remove", "clearqueue"}
 ADMIN_ECONOMY_COMMANDS = {"addtokens", "refund"}
@@ -39,6 +40,7 @@ HELP_TEXT_1 = (
     "-- DJ System --\n"
     f"/request <song>  - {config.SONG_REQUEST_COST} tokens, adds to queue\n"
     f"/priority <song> - {config.PRIORITY_REQUEST_COST} tokens, jumps to #2\n"
+    "/ytsearch <name> - search YouTube, get top 3 links\n"
     "/queue - next 5 songs\n"
     "/now - current song\n"
     "/skipvote - vote to skip"
@@ -104,7 +106,10 @@ class HangoutBot(BaseBot):
             return
 
         # Public commands
-        if cmd in DJ_COMMANDS:
+        if cmd == "ytsearch":
+            await handle_ytsearch_command(self, user, args)
+
+        elif cmd in DJ_COMMANDS:
             await handle_dj_command(self, user, args)
 
         elif cmd in ECONOMY_COMMANDS:
