@@ -1613,6 +1613,101 @@ def get_bank_watch_info(username: str) -> dict | None:
     }
 
 
+# ---------------------------------------------------------------------------
+# Audit query helpers
+# ---------------------------------------------------------------------------
+
+def get_audit_full(username: str) -> dict | None:
+    """All fields needed for /audit <username>."""
+    conn = get_connection()
+    u = conn.execute(
+        "SELECT user_id, username, balance, level, total_coins_earned "
+        "FROM users WHERE LOWER(username) = LOWER(?)", (username,)
+    ).fetchone()
+    if not u:
+        conn.close()
+        return None
+    uid = u["user_id"]
+    bus = conn.execute(
+        "SELECT total_sent, total_received, bank_blocked, suspicious_transfer_count "
+        "FROM bank_user_stats WHERE user_id = ?", (uid,)
+    ).fetchone()
+    bj = conn.execute(
+        "SELECT bj_total_won, bj_total_bet FROM bj_stats WHERE user_id = ?", (uid,)
+    ).fetchone()
+    rbj = conn.execute(
+        "SELECT rbj_total_won, rbj_total_bet FROM rbj_stats WHERE user_id = ?", (uid,)
+    ).fetchone()
+    conn.close()
+    bj_net  = (bj["bj_total_won"]  - bj["bj_total_bet"])  if bj  else 0
+    rbj_net = (rbj["rbj_total_won"] - rbj["rbj_total_bet"]) if rbj else 0
+    return {
+        "username":       u["username"],
+        "balance":        u["balance"] or 0,
+        "level":          u["level"] or 1,
+        "total_earned":   u["total_coins_earned"] or 0,
+        "total_sent":     bus["total_sent"] if bus else 0,
+        "total_received": bus["total_received"] if bus else 0,
+        "casino_net":     bj_net + rbj_net,
+        "bank_blocked":   bool(bus["bank_blocked"]) if bus else False,
+        "risk_count":     bus["suspicious_transfer_count"] if bus else 0,
+    }
+
+
+def get_audit_casino_data(user_id: str) -> dict:
+    """Casino stats for /auditcasino."""
+    today = str(date.today())
+    conn  = get_connection()
+    bj  = conn.execute("SELECT * FROM bj_stats  WHERE user_id = ?", (user_id,)).fetchone()
+    rbj = conn.execute("SELECT * FROM rbj_stats WHERE user_id = ?", (user_id,)).fetchone()
+    bj_day  = conn.execute(
+        "SELECT net FROM bj_daily  WHERE user_id = ? AND date = ?", (user_id, today)
+    ).fetchone()
+    rbj_day = conn.execute(
+        "SELECT net FROM rbj_daily WHERE user_id = ? AND date = ?", (user_id, today)
+    ).fetchone()
+    conn.close()
+    bj_net  = (bj["bj_total_won"]  - bj["bj_total_bet"])  if bj  else 0
+    rbj_net = (rbj["rbj_total_won"] - rbj["rbj_total_bet"]) if rbj else 0
+    return {
+        "bj_wins":   bj["bj_wins"]   if bj  else 0,
+        "bj_losses": bj["bj_losses"] if bj  else 0,
+        "bj_pushes": bj["bj_pushes"] if bj  else 0,
+        "bj_net":    bj_net,
+        "rbj_wins":   rbj["rbj_wins"]   if rbj else 0,
+        "rbj_losses": rbj["rbj_losses"] if rbj else 0,
+        "rbj_pushes": rbj["rbj_pushes"] if rbj else 0,
+        "rbj_net":    rbj_net,
+        "casino_net": bj_net + rbj_net,
+        "bj_daily":  bj_day["net"]  if bj_day  else 0,
+        "rbj_daily": rbj_day["net"] if rbj_day else 0,
+    }
+
+
+def get_audit_economy_data(user_id: str) -> dict:
+    """Ledger extremes + recent entries for /auditeconomy."""
+    conn = get_connection()
+    recent = conn.execute("""
+        SELECT change_amount, reason, timestamp
+        FROM ledger WHERE user_id = ?
+        ORDER BY id DESC LIMIT 5
+    """, (user_id,)).fetchall()
+    best_gain = conn.execute(
+        "SELECT MAX(change_amount) AS v FROM ledger WHERE user_id = ? AND change_amount > 0",
+        (user_id,)
+    ).fetchone()
+    biggest_loss = conn.execute(
+        "SELECT MIN(change_amount) AS v FROM ledger WHERE user_id = ? AND change_amount < 0",
+        (user_id,)
+    ).fetchone()
+    conn.close()
+    return {
+        "recent":       [dict(r) for r in recent],
+        "best_gain":    best_gain["v"]    if best_gain    and best_gain["v"]    is not None else 0,
+        "biggest_loss": biggest_loss["v"] if biggest_loss and biggest_loss["v"] is not None else 0,
+    }
+
+
 def get_ledger_for(user_id: str, page: int = 1, limit: int = 5) -> list:
     offset = (page - 1) * limit
     conn   = get_connection()

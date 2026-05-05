@@ -52,6 +52,10 @@ from modules.permissions         import (
     is_owner, is_admin, can_moderate,
     can_manage_games, can_manage_economy,
 )
+from modules.audit import (
+    handle_audithelp, handle_audit,
+    handle_auditbank, handle_auditcasino, handle_auditeconomy,
+)
 from modules.bank import (
     handle_bank, handle_send, handle_transactions, handle_bankstats,
     handle_banknotify,
@@ -78,7 +82,10 @@ BANK_ADMIN_SET_CMDS = {
 }
 
 # Staff command tiers
-MOD_ONLY_CMDS = {"resetgame", "announce", "viewtx", "bankwatch"}
+MOD_ONLY_CMDS = {
+    "resetgame", "announce", "viewtx", "bankwatch",
+    "audit", "auditbank", "auditcasino", "auditeconomy", "audithelp",
+}
 
 MANAGER_ONLY_CMDS = {
     "banksettings",
@@ -505,6 +512,16 @@ class HangoutBot(BaseBot):
                 await handle_bankwatch(self, user, args)
             elif cmd in BANK_ADMIN_SET_CMDS:
                 await handle_bank_set(self, user, cmd, args)
+            elif cmd == "audithelp":
+                await handle_audithelp(self, user)
+            elif cmd == "audit":
+                await handle_audit(self, user, args)
+            elif cmd == "auditbank":
+                await handle_auditbank(self, user, args)
+            elif cmd == "auditcasino":
+                await handle_auditcasino(self, user, args)
+            elif cmd == "auditeconomy":
+                await handle_auditeconomy(self, user, args)
             else:
                 await handle_admin_command(self, user, cmd, args)
             return
