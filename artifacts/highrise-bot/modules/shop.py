@@ -57,17 +57,17 @@ BADGES: dict[str, dict] = {
 }
 
 TITLES: dict[str, dict] = {
-    "rookie":      {"display": "[Rookie]",       "price": 1_000,   "description": "+5 daily coins",               "benefits": {"daily_coins_bonus": 5}},
-    "lucky":       {"display": "[Lucky]",         "price": 2_500,   "description": "+2% coinflip payout",         "benefits": {"coinflip_payout_pct": 2.0}},
-    "grinder":     {"display": "[Grinder]",       "price": 5_000,   "description": "+10 XP/win",                  "benefits": {"xp_bonus": 10}},
-    "trivia_king": {"display": "[Trivia King]",   "price": 15_000,  "description": "+10 coins per trivia win",    "benefits": {"trivia_bonus": 10}},
-    "word_master": {"display": "[Word Master]",   "price": 15_000,  "description": "+10 coins per scramble win",  "benefits": {"scramble_bonus": 10}},
-    "riddle_lord": {"display": "[Riddle Lord]",   "price": 15_000,  "description": "+10 coins per riddle win",    "benefits": {"riddle_bonus": 10}},
-    "casino_rat":  {"display": "[Casino Rat]",    "price": 20_000,  "description": "+5% coinflip payout",         "benefits": {"coinflip_payout_pct": 5.0}},
-    "high_roller": {"display": "[High Roller]",   "price": 50_000,  "description": "+10% coinflip payout",        "benefits": {"coinflip_payout_pct": 10.0}},
-    "millionaire": {"display": "[Millionaire]",   "price": 100_000, "description": "+25 daily coins +25 XP/daily","benefits": {"daily_coins_bonus": 25, "daily_xp_bonus": 25}},
-    "elite":       {"display": "[Elite]",           "price": 250_000, "description": "+15% all game rewards",       "benefits": {"game_reward_pct": 15.0}},
-    "immortal":    {"display": "[Immortal]",      "price": 500_000, "description": "+20% game rewards +50 daily", "benefits": {"game_reward_pct": 20.0, "daily_coins_bonus": 50}},
+    "rookie":      {"display": "[Rookie]",       "price": 1_000,   "description": "+5 daily coins",                          "benefits": {"daily_coins_bonus": 5}},
+    "lucky":       {"display": "[Lucky]",         "price": 2_500,   "description": "+2% coinflip win bonus payout",           "benefits": {"coinflip_payout_pct": 2.0}},
+    "grinder":     {"display": "[Grinder]",       "price": 5_000,   "description": "+10 XP bonus from game wins",             "benefits": {"xp_bonus": 10}},
+    "trivia_king": {"display": "[Trivia King]",   "price": 15_000,  "description": "+10 coins per trivia win",                "benefits": {"trivia_bonus": 10}},
+    "word_master": {"display": "[Word Master]",   "price": 15_000,  "description": "+10 coins per scramble win",              "benefits": {"scramble_bonus": 10}},
+    "riddle_lord": {"display": "[Riddle Lord]",   "price": 15_000,  "description": "+10 coins per riddle win",                "benefits": {"riddle_bonus": 10}},
+    "casino_rat":  {"display": "[Casino Rat]",    "price": 20_000,  "description": "+5% casino payout bonus",                 "benefits": {"coinflip_payout_pct": 5.0}},
+    "high_roller": {"display": "[High Roller]",   "price": 50_000,  "description": "+10% casino payout bonus",                "benefits": {"coinflip_payout_pct": 10.0}},
+    "millionaire": {"display": "[Millionaire]",   "price": 100_000, "description": "+25 daily coins and +25 XP from daily",   "benefits": {"daily_coins_bonus": 25, "daily_xp_bonus": 25}},
+    "elite":       {"display": "[Elite]",         "price": 250_000, "description": "+15% all game coin rewards",              "benefits": {"game_reward_pct": 15.0}},
+    "immortal":    {"display": "[Immortal]",      "price": 500_000, "description": "+20% all game coin rewards +50 daily",    "benefits": {"game_reward_pct": 20.0, "daily_coins_bonus": 50}},
 }
 
 
@@ -143,16 +143,25 @@ async def _send_catalog_page(
     bot, user, catalog: dict, item_type: str, args: list[str]
 ) -> None:
     """Send one page of 5 items from a badge or title catalog."""
-    try:
-        page = int(args[2]) if len(args) > 2 and args[2].isdigit() else 1
-    except (ValueError, IndexError):
-        page = 1
-
     items       = list(catalog.items())
     total_pages = max(1, math.ceil(len(items) / _PAGE_SIZE))
-    page        = max(1, min(page, total_pages))
-    start       = (page - 1) * _PAGE_SIZE
-    chunk       = items[start : start + _PAGE_SIZE]
+
+    # Parse the optional page number
+    raw_page = args[2] if len(args) > 2 else "1"
+    if not raw_page.isdigit():
+        await bot.highrise.send_whisper(
+            user.id, f"Invalid page. Use /shop {item_type}s 1 to {total_pages}."
+        )
+        return
+    page = int(raw_page)
+    if page < 1 or page > total_pages:
+        await bot.highrise.send_whisper(
+            user.id, f"Pages 1-{total_pages}. Use /shop {item_type}s <page>."
+        )
+        return
+
+    start = (page - 1) * _PAGE_SIZE
+    chunk = items[start : start + _PAGE_SIZE]
 
     label = "Badges (before @name)" if item_type == "badge" else "Titles (after @name)"
     lines = [f"-- {label}  {page}/{total_pages} --"]
