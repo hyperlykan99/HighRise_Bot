@@ -115,7 +115,7 @@ from modules.gold import (
     handle_pendinggold, handle_confirmgoldtip,
     handle_setgoldrainstaff, handle_setgoldrainmax,
     handle_goldhelp,
-    set_bot_identity, add_to_room_cache, remove_from_room_cache,
+    set_bot_identity, get_bot_user_id, add_to_room_cache, remove_from_room_cache,
     refresh_room_cache,
 )
 
@@ -761,8 +761,16 @@ class HangoutBot(BaseBot):
         """Called once when the bot successfully connects to the room."""
         db.init_db()
         print(f"[HangoutBot] Connected — room {config.ROOM_ID} | DB: {config.DB_PATH}")
-        # Store bot identity so gold rain can exclude the bot itself
+        # Store bot identity so gold rain / tip receiver-check can use it
         set_bot_identity(session_metadata.user_id)
+        print(f"[HangoutBot] Bot user ID: {session_metadata.user_id}")
+        # Log which events this session is subscribed to
+        try:
+            from highrise.__main__ import gather_subscriptions
+            subs = gather_subscriptions(self)
+            print(f"[HangoutBot] Event subscriptions: {subs or '(all)'}")
+        except Exception:
+            pass
         # Seed the room user cache from the live room list
         asyncio.create_task(refresh_room_cache(self))
         await self.highrise.chat("Mini Game Bot is online! Type /help for commands.")
@@ -1235,30 +1243,41 @@ class HangoutBot(BaseBot):
         )
 
     async def on_tip(self, sender: User, receiver: User, tip) -> None:
-        """Convert incoming Highrise gold tips to in-game coins."""
-        # Raw entry log — fires unconditionally so event presence is always visible
-        try:
-            tip_type   = type(tip).__name__
-            tip_amount = getattr(tip, "amount", "?")
-            tip_kind   = getattr(tip, "type",   "?")   # "gold", "bubbles", etc.
-            tip_id     = getattr(tip, "id",     None)   # Item tips have an id
-            print(
-                f"[TIP:RAW] on_tip fired | "
-                f"event_class={tip_type} | "
-                f"currency_type={tip_kind} | "
-                f"amount={tip_amount}"
-                + (f" | item_id={tip_id}" if tip_id else "")
-                + f" | sender=@{sender.username}({sender.id})"
-                + f" | receiver=@{receiver.username}({receiver.id})"
-                + f" | raw={tip!r}"
-            )
-        except Exception as _log_err:
-            print(f"[TIP:RAW] on_tip fired (log error: {_log_err})")
+        """
+        Official Highrise tip handler — maps to the tip_reaction websocket event.
 
+        Fires for BOTH:
+          • CurrencyItem(type='gold', amount=X)  — direct gold currency tip
+          • Item(type='clothing', id='gold_bar_*') — gold bar item from inventory
+
+        Console output is intentionally verbose to confirm the handler fires.
+        Nothing here is ever echoed to room chat.
+        """
+        # ── Step 1: UNCONDITIONAL entry print — if this never appears, the
+        #            Highrise server is not delivering tip_reaction events. ──
+        print("=== ON_TIP FIRED ===")
+        print(f"  sender:    {sender.username} ({sender.id})")
+        print(f"  receiver:  {receiver.username} ({receiver.id})")
+        print(f"  tip raw:   {tip!r}")
+        print(f"  tip class: {type(tip).__name__}")
+        print(f"  tip.type:  {getattr(tip, 'type',   '?')}")
+        print(f"  tip.amount:{getattr(tip, 'amount', '?')}")
+        print(f"  tip.id:    {getattr(tip, 'id',     'n/a')}")
+
+        # ── Step 2: Receiver check — only process tips sent TO this bot ──
+        bot_uid = get_bot_user_id()
+        if bot_uid and receiver.id != bot_uid:
+            print(
+                f"  [TIP] Receiver {receiver.username}({receiver.id}) "
+                f"!= bot ({bot_uid}) — ignoring (tip between players)."
+            )
+            return
+
+        # ── Step 3: Delegate all conversion logic to process_tip_event ──
         try:
             await process_tip_event(self, sender, receiver, tip)
-        except Exception as e:
-            print(f"[TIP] Error in process_tip_event for @{sender.username}: {e!r}")
+        except Exception as exc:
+            print(f"  [TIP] EXCEPTION in process_tip_event: {exc!r}")
 
     async def on_user_leave(self, user: User) -> None:
         """Log when a player leaves and remove from gold room cache."""

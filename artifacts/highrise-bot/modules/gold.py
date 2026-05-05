@@ -88,6 +88,11 @@ def set_bot_identity(user_id: str, username: str = "") -> None:
     _bot_username = username
 
 
+def get_bot_user_id() -> str:
+    """Return the bot's own Highrise user ID (set at on_start)."""
+    return _bot_user_id
+
+
 def add_to_room_cache(user_id: str, username: str) -> None:
     _room_cache[username.lower()] = (user_id, username)
 
