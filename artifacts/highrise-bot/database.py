@@ -1823,6 +1823,45 @@ def add_rbj_daily_net(user_id: str, delta: int):
     conn.close()
 
 
+def get_poker_settings() -> dict:
+    """Return all poker settings as a flat dict (key → coerced value)."""
+    conn = get_connection()
+    rows = conn.execute("SELECT key, value FROM poker_settings").fetchall()
+    conn.close()
+    result: dict = {}
+    for row in rows:
+        try:
+            result[row["key"]] = int(row["value"])
+        except (ValueError, TypeError):
+            try:
+                result[row["key"]] = float(row["value"])
+            except (ValueError, TypeError):
+                result[row["key"]] = row["value"]
+    return result
+
+
+def reset_bj_daily_limits(user_id: str) -> None:
+    """Reset today's BJ daily net for a player to 0."""
+    conn = get_connection()
+    conn.execute(
+        "DELETE FROM bj_daily WHERE user_id = ? AND date = ?",
+        (user_id, _today())
+    )
+    conn.commit()
+    conn.close()
+
+
+def reset_rbj_daily_limits(user_id: str) -> None:
+    """Reset today's RBJ daily net for a player to 0."""
+    conn = get_connection()
+    conn.execute(
+        "DELETE FROM rbj_daily WHERE user_id = ? AND date = ?",
+        (user_id, _today())
+    )
+    conn.commit()
+    conn.close()
+
+
 def get_bj_leaderboard(limit: int = 5) -> list:
     """Top players by BJ net profit (total_won - total_bet)."""
     conn = get_connection()

@@ -668,6 +668,32 @@ async def handle_bj(bot: BaseBot, user: User, args: list[str]):
                 await _cmd_toggle_betlimit(bot, user, args[2].lower() == "on")
             else:
                 await bot.highrise.send_whisper(user.id, "Usage: /bj betlimit on|off")
+        elif sub == "winlimit":
+            if not can_manage_games(user.username):
+                await bot.highrise.send_whisper(user.id, "Staff only.")
+                return
+            val = args[2].lower() if len(args) > 2 else ""
+            if val == "on":
+                db.set_bj_setting("bj_win_limit_enabled", 1)
+                await bot.highrise.chat("✅ BJ win limit ON.")
+            elif val == "off":
+                db.set_bj_setting("bj_win_limit_enabled", 0)
+                await bot.highrise.chat("⛔ BJ win limit OFF.")
+            else:
+                await bot.highrise.send_whisper(user.id, "Use /bj winlimit on/off.")
+        elif sub == "losslimit":
+            if not can_manage_games(user.username):
+                await bot.highrise.send_whisper(user.id, "Staff only.")
+                return
+            val = args[2].lower() if len(args) > 2 else ""
+            if val == "on":
+                db.set_bj_setting("bj_loss_limit_enabled", 1)
+                await bot.highrise.chat("✅ BJ loss limit ON.")
+            elif val == "off":
+                db.set_bj_setting("bj_loss_limit_enabled", 0)
+                await bot.highrise.chat("⛔ BJ loss limit OFF.")
+            else:
+                await bot.highrise.send_whisper(user.id, "Use /bj losslimit on/off.")
         elif sub == "rules":
             await _cmd_rules(bot, user)
         elif sub == "stats":

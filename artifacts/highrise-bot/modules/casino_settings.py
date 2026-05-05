@@ -143,10 +143,12 @@ async def handle_casinolimits(bot: BaseBot, user: User) -> None:
         f"🎰 Limits\n"
         f"BJ bet {_fmt(bj.get('min_bet', 10))}-{_fmt(bj.get('max_bet', 1000))} | "
         f"W/L {_fmt(bj.get('bj_daily_win_limit', 5000))}/"
-        f"{_fmt(bj.get('bj_daily_loss_limit', 3000))}\n"
+        f"{_fmt(bj.get('bj_daily_loss_limit', 3000))} "
+        f"{_on(bj.get('bj_win_limit_enabled', 1))}/{_on(bj.get('bj_loss_limit_enabled', 1))}\n"
         f"RBJ bet {_fmt(rbj.get('min_bet', 10))}-{_fmt(rbj.get('max_bet', 1000))} | "
         f"W/L {_fmt(rbj.get('rbj_daily_win_limit', 5000))}/"
-        f"{_fmt(rbj.get('rbj_daily_loss_limit', 3000))}"
+        f"{_fmt(rbj.get('rbj_daily_loss_limit', 3000))} "
+        f"{_on(rbj.get('rbj_win_limit_enabled', 1))}/{_on(rbj.get('rbj_loss_limit_enabled', 1))}"
     )
 
 
@@ -198,15 +200,19 @@ async def handle_casinotoggles(bot: BaseBot, user: User, args: list[str]) -> Non
     # Viewer mode
     bj  = db.get_bj_settings()
     rbj = db.get_rbj_settings()
-    bj_win  = _on(bj.get("bj_win_limit_enabled",  1))
-    bj_loss = _on(bj.get("bj_loss_limit_enabled", 1))
+    bj_win   = _on(bj.get("bj_win_limit_enabled",   1))
+    bj_loss  = _on(bj.get("bj_loss_limit_enabled",  1))
     rbj_win  = _on(rbj.get("rbj_win_limit_enabled",  1))
     rbj_loss = _on(rbj.get("rbj_loss_limit_enabled", 1))
+    pk = db.get_poker_settings()
+    pk_win  = _on(pk.get("win_limit_enabled",  1))
+    pk_loss = _on(pk.get("loss_limit_enabled", 1))
     await _w(bot, user.id,
         f"🎰 Toggles\n"
         f"BJ {_on(bj.get('bj_enabled', 1))} | RBJ {_on(rbj.get('rbj_enabled', 1))}\n"
-        f"BJ win/loss {bj_win}/{bj_loss}\n"
-        f"RBJ win/loss {rbj_win}/{rbj_loss}"
+        f"BJ W/L {bj_win}/{bj_loss}\n"
+        f"RBJ W/L {rbj_win}/{rbj_loss}\n"
+        f"Poker W/L {pk_win}/{pk_loss}"
     )
 
 

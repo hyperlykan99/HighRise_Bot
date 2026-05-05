@@ -1,0 +1,309 @@
+Fix BJ, RBJ, and Poker daily win/loss limit toggle settings.
+
+Problem:
+Win and loss limits still do not have working ON/OFF toggle settings.
+Commands like:
+/bj winlimit off
+/rbj losslimit off
+/poker winlimit off
+do not properly disable the limits, or the settings are not saved/used.
+
+Goal:
+Add reliable ON/OFF toggles for daily win and loss limits for BJ, RBJ, and Poker.
+
+IMPORTANT:
+- Do not remove existing features.
+- Keep BJ, RBJ, Poker, bank, shop, gold, VIP, events, notifications, profiles, and staff roles.
+- Use SQLite.
+- Keep every Highrise message under 250 characters.
+- Add explicit routing before unknown-command fallback.
+- Never fail silently.
+- These toggles must actually affect gameplay blocking.
+
+==================================================
+COMMANDS TO SUPPORT
+==================================================
+
+BJ:
+- /bj winlimit on
+- /bj winlimit off
+- /bj losslimit on
+- /bj losslimit off
+
+RBJ:
+- /rbj winlimit on
+- /rbj winlimit off
+- /rbj losslimit on
+- /rbj losslimit off
+
+Poker:
+- /poker winlimit on
+- /poker winlimit off
+- /poker losslimit on
+- /poker losslimit off
+
+Permissions:
+- Owner/admin/manager only.
+- Normal players should see:
+"Staff only."
+
+==================================================
+DATABASE SETTINGS
+==================================================
+
+Store these in SQLite settings tables.
+
+If you already have casino_settings or game_settings, use that.
+If not, create:
+
+casino_settings:
+- key TEXT PRIMARY KEY
+- value TEXT
+
+Required keys:
+- bj_win_limit_enabled
+- bj_loss_limit_enabled
+- rbj_win_limit_enabled
+- rbj_loss_limit_enabled
+- poker_win_limit_enabled
+- poker_loss_limit_enabled
+
+Default values:
+- bj_win_limit_enabled = true
+- bj_loss_limit_enabled = true
+- rbj_win_limit_enabled = true
+- rbj_loss_limit_enabled = true
+- poker_win_limit_enabled = true
+- poker_loss_limit_enabled = true
+
+Also keep existing amount settings:
+- bj_daily_win_limit
+- bj_daily_loss_limit
+- rbj_daily_win_limit
+- rbj_daily_loss_limit
+- poker_daily_win_limit
+- poker_daily_loss_limit
+
+==================================================
+COMMAND BEHAVIOR
+==================================================
+
+/bj winlimit off:
+- Set bj_win_limit_enabled = false.
+- Reply:
+"⛔ BJ win limit OFF."
+
+/bj winlimit on:
+- Set bj_win_limit_enabled = true.
+- Reply:
+"✅ BJ win limit ON."
+
+/bj losslimit off:
+- Set bj_loss_limit_enabled = false.
+- Reply:
+"⛔ BJ loss limit OFF."
+
+/bj losslimit on:
+- Set bj_loss_limit_enabled = true.
+- Reply:
+"✅ BJ loss limit ON."
+
+/rbj winlimit off:
+- Set rbj_win_limit_enabled = false.
+- Reply:
+"⛔ RBJ win limit OFF."
+
+/rbj winlimit on:
+- Set rbj_win_limit_enabled = true.
+- Reply:
+"✅ RBJ win limit ON."
+
+/rbj losslimit off:
+- Set rbj_loss_limit_enabled = false.
+- Reply:
+"⛔ RBJ loss limit OFF."
+
+/rbj losslimit on:
+- Set rbj_loss_limit_enabled = true.
+- Reply:
+"✅ RBJ loss limit ON."
+
+/poker winlimit off:
+- Set poker_win_limit_enabled = false.
+- Reply:
+"⛔ Poker win limit OFF."
+
+/poker winlimit on:
+- Set poker_win_limit_enabled = true.
+- Reply:
+"✅ Poker win limit ON."
+
+/poker losslimit off:
+- Set poker_loss_limit_enabled = false.
+- Reply:
+"⛔ Poker loss limit OFF."
+
+/poker losslimit on:
+- Set poker_loss_limit_enabled = true.
+- Reply:
+"✅ Poker loss limit ON."
+
+If input is invalid:
+- /bj winlimit maybe
+Reply:
+"Use /bj winlimit on/off."
+
+Same for losslimit.
+
+==================================================
+GAMEPLAY ENFORCEMENT
+==================================================
+
+Critical:
+The toggle must actually be checked before blocking a player.
+
+BJ join:
+- If bj_win_limit_enabled = false, do NOT block for daily win/profit limit.
+- If bj_loss_limit_enabled = false, do NOT block for daily loss limit.
+- If enabled, use the stored daily limit amount.
+
+RBJ join:
+- If rbj_win_limit_enabled = false, do NOT block for daily win/profit limit.
+- If rbj_loss_limit_enabled = false, do NOT block for daily loss limit.
+- If enabled, use the stored daily limit amount.
+
+Poker join:
+- If poker_win_limit_enabled = false, do NOT block for daily win/profit limit.
+- If poker_loss_limit_enabled = false, do NOT block for daily loss limit.
+- If enabled, use the stored daily limit amount.
+
+Important:
+If loss limit is OFF, do not show:
+"Bet too high for daily loss limit."
+
+If win limit is OFF, do not show:
+"Daily win limit reached."
+
+==================================================
+DISPLAY COMMANDS
+==================================================
+
+Update these commands to show ON/OFF status:
+
+/bj limits:
+"BJ bet 10-1000c | W/L 5000/3000 ON/OFF"
+
+/rbj limits:
+"RBJ bet 50-5000c | W/L 10000/5000 OFF/OFF"
+
+/poker limits:
+"Poker W/L 10000/5000 OFF/OFF | Raise 50-1000c"
+
+Also update:
+/bj settings
+/rbj settings
+/poker settings
+/casinolimits
+/casinotoggles
+/casinosettings
+
+/casinotoggles should show:
+"🎰 Toggles
+BJ W/L ON/OFF
+RBJ W/L OFF/OFF
+Poker W/L ON/OFF"
+
+Keep all messages under 250 characters.
+
+==================================================
+RESET COMMANDS
+==================================================
+
+Make sure these still work:
+- /resetbjlimits <username>
+- /resetrbjlimits <username>
+- /resetpokerlimits <username>
+
+Behavior:
+- Reset daily tracked net/win/loss for today only.
+- Do not change coins.
+- Do not change lifetime stats.
+- Do not turn the limit settings on/off.
+
+Messages:
+"✅ BJ daily limits reset for @username."
+"✅ RBJ daily limits reset for @username."
+"✅ Poker daily limits reset for @username."
+
+==================================================
+HELP UPDATE
+==================================================
+
+Update /casinoadminhelp:
+/casinoadminhelp 2:
+"Limits:
+/bj winlimit on/off
+/bj losslimit on/off
+/rbj winlimit on/off
+/rbj losslimit on/off"
+
+/pokerhelp staff page:
+"Poker limits:
+/poker winlimit on/off
+/poker losslimit on/off
+/resetpokerlimits <user>"
+
+Update /allcommands if needed.
+
+==================================================
+ROUTING REQUIREMENT
+==================================================
+
+Add explicit routing before unknown-command fallback for:
+- /bj winlimit on
+- /bj winlimit off
+- /bj losslimit on
+- /bj losslimit off
+- /rbj winlimit on
+- /rbj winlimit off
+- /rbj losslimit on
+- /rbj losslimit off
+- /poker winlimit on
+- /poker winlimit off
+- /poker losslimit on
+- /poker losslimit off
+
+No command should fail silently.
+
+==================================================
+TESTS
+==================================================
+
+Test RBJ:
+1. /rbj losslimit off
+Expected: "RBJ loss limit OFF."
+
+2. /rbj winlimit off
+Expected: "RBJ win limit OFF."
+
+3. /rbj limits
+Expected: W/L shows OFF/OFF.
+
+4. /rjoin 10000
+Expected:
+- Should not block with "Bet too high for daily loss limit" if player has enough coins and bet limit allows it.
+
+Test BJ:
+1. /bj losslimit off
+2. /bj winlimit off
+3. /bj limits
+Expected: OFF/OFF.
+
+Test Poker:
+1. /poker losslimit off
+2. /poker winlimit off
+3. /poker limits
+Expected: OFF/OFF.
+
+Final requirement:
+If a limit toggle says OFF, that limit must not block gameplay.

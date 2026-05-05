@@ -258,6 +258,7 @@ MANAGER_ONLY_CMDS = {
     "gameconfig",
     "casinosettings", "casinolimits", "casinotoggles",
     "setbjlimits", "setrbjlimits",
+    "resetbjlimits", "resetrbjlimits",
 }
 
 TIP_COMMANDS = {"tiprate", "tipstats", "tipleaderboard"}
@@ -563,13 +564,22 @@ CASINO_ADMIN_HELP_PAGES = [
     ),
     (
         "🎰 Casino Admin 2\n"
+        "/bj winlimit on/off\n"
+        "/bj losslimit on/off\n"
+        "/rbj winlimit on/off\n"
+        "/rbj losslimit on/off\n"
+        "/resetbjlimits <user>\n"
+        "/resetrbjlimits <user>"
+    ),
+    (
+        "🎰 Casino Admin 2b\n"
         "/setbjlimits min max win loss\n"
         "/setrbjlimits min max win loss\n"
         "/setbjactiontimer <sec>\n"
         "/setrbjactiontimer <sec>"
     ),
     (
-        "🎰 Casino Admin 2b\n"
+        "🎰 Casino Admin 2c\n"
         "/bj double on/off\n"
         "/rbj double on/off\n"
         "/bj split on/off\n"
@@ -1681,6 +1691,24 @@ class HangoutBot(BaseBot):
 
             elif cmd == "resetpokerlimits":
                 await handle_resetpokerlimits(self, user, args)
+
+            elif cmd == "resetbjlimits":
+                target = args[1].lstrip("@") if len(args) > 1 else ""
+                if not target:
+                    await self.highrise.send_whisper(user.id, "Usage: /resetbjlimits <username>")
+                else:
+                    rec = db.find_or_stub_user(target)
+                    db.reset_bj_daily_limits(rec["user_id"])
+                    await self.highrise.send_whisper(user.id, f"✅ BJ daily limits reset for @{target}.")
+
+            elif cmd == "resetrbjlimits":
+                target = args[1].lstrip("@") if len(args) > 1 else ""
+                if not target:
+                    await self.highrise.send_whisper(user.id, "Usage: /resetrbjlimits <username>")
+                else:
+                    rec = db.find_or_stub_user(target)
+                    db.reset_rbj_daily_limits(rec["user_id"])
+                    await self.highrise.send_whisper(user.id, f"✅ RBJ daily limits reset for @{target}.")
 
             elif cmd == "setpokerlimits":
                 await handle_setpokerlimits(self, user, args)
