@@ -229,9 +229,9 @@ def _build_display(badge: str | None, username: str, title: str | None) -> str:
     parts = []
     if badge:
         parts.append(badge)
-    parts.append(f"@{username}")
     if title:
         parts.append(title)
+    parts.append(f"@{username}")
     return " ".join(parts)
 
 
