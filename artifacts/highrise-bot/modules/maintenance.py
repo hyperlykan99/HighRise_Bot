@@ -10,6 +10,8 @@ Commands:
   /maintenance on/off — owner/admin: toggle maintenance mode
   /reloadsettings     — owner/admin: confirm settings loaded from DB
   /cleanup            — owner/admin: purge expired mutes & stale data
+  /restarthelp        — owner only: show restart command overview
+  /restartstatus      — owner only: diagnostic snapshot of restart readiness
   /softrestart        — owner only: reset in-memory state without losing DB data
   /restartbot         — owner only: fully restart the bot process via os.execv
 """
@@ -194,6 +196,64 @@ async def handle_cleanup(bot: BaseBot, user: User) -> None:
         await _w(bot, user.id, "Error during cleanup.")
 
 
+# ── /restarthelp ───────────────────────────────────────────────────────────────
+
+async def handle_restarthelp(bot: BaseBot, user: User) -> None:
+    """Owner only — show restart command overview."""
+    if not is_owner(user.username):
+        await _w(bot, user.id, "Owner only.")
+        return
+    await _w(bot, user.id,
+             "🔄 Restart\n"
+             "/softrestart - reload systems\n"
+             "/restartbot - full process restart\n"
+             "Owner only.")
+
+
+# ── /restartstatus ─────────────────────────────────────────────────────────────
+
+async def handle_restartstatus(bot: BaseBot, user: User) -> None:
+    """Owner only — diagnostic snapshot of restart readiness."""
+    if not is_owner(user.username):
+        await _w(bot, user.id, "Owner only.")
+        return
+
+    # Timer / task inspection
+    try:
+        import modules.auto_games as _ag
+        ag_task   = getattr(_ag, "_auto_game_task",    None)
+        ae_task   = getattr(_ag, "_auto_event_loop_task", None)
+        ag_alive  = ag_task  is not None and not ag_task.done()
+        ae_alive  = ae_task  is not None and not ae_task.done()
+        ag_s      = db.get_auto_game_settings()
+        ae_s      = db.get_auto_event_settings()
+        ag_en     = "ON"  if int(ag_s.get("enabled", 0)) else "OFF"
+        ae_en     = "ON"  if int(ae_s.get("enabled", 0)) else "OFF"
+    except Exception:
+        ag_alive = ae_alive = False
+        ag_en = ae_en = "?"
+
+    # BJ/RBJ table state
+    try:
+        from modules.blackjack           import _state as _bj
+        from modules.realistic_blackjack import _state as _rbj
+        bj_phase  = getattr(_bj,  "phase", "?")
+        rbj_phase = getattr(_rbj, "phase", "?")
+    except Exception:
+        bj_phase = rbj_phase = "?"
+
+    lines = [
+        "🔄 Restart Status",
+        "✅ /softrestart installed",
+        "✅ /restartbot installed",
+        f"AutoGames:{ag_en}(loop:{'alive' if ag_alive else 'dead'})",
+        f"AutoEvents:{ae_en}(loop:{'alive' if ae_alive else 'dead'})",
+        f"BJ:{bj_phase} | RBJ:{rbj_phase}",
+        f"Uptime:{_uptime()}",
+    ]
+    await _w(bot, user.id, "\n".join(lines)[:249])
+
+
 # ── /softrestart ───────────────────────────────────────────────────────────────
 
 async def handle_softrestart(bot: BaseBot, user: User) -> None:
@@ -216,6 +276,9 @@ async def handle_softrestart(bot: BaseBot, user: User) -> None:
         return
 
     print(f"[MAINT] /softrestart initiated by @{user.username}")
+
+    # ── Announce before any work so the owner knows it started ────────────────
+    await _chat(bot, "🔄 Soft restarting...")
 
     # ── 1. Cancel mini-game answer timer & clear active game state ────────────
     try:
@@ -316,8 +379,8 @@ async def handle_softrestart(bot: BaseBot, user: User) -> None:
         print(f"[MAINT] softrestart: recovery launch error: {exc}")
 
     print("[MAINT] /softrestart complete.")
-    await bot.highrise.chat("🔄 Bot soft restart complete.")
-    await _w(bot, user.id, "🔄 Soft restart done. Loops running, tables restored, DB safe.")
+    await _chat(bot, "✅ Soft restart complete.")
+    await _w(bot, user.id, "✅ Soft restart done. Loops running, tables restored, DB safe.")
 
 
 # ── /restartbot ────────────────────────────────────────────────────────────────

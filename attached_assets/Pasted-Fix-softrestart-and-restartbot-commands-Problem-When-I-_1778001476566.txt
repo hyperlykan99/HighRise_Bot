@@ -1,0 +1,111 @@
+Fix /softrestart and /restartbot commands.
+
+Problem:
+When I type /softrestart or /restartbot, they do not work.
+
+Goal:
+Add reliable owner-only restart tools.
+
+Commands:
+- /softrestart
+- /restartbot
+- /restarthelp
+
+Permissions:
+- Owner only.
+- Admins, managers, and moderators cannot restart the bot.
+
+Behavior:
+
+/restarthelp should show:
+"🔄 Restart
+/softrestart - reload systems
+/restartbot - full process restart
+Owner only."
+
+/softrestart:
+This should NOT kill the Replit process.
+It should safely reload the bot’s in-memory systems.
+
+Soft restart should:
+1. Announce: "🔄 Soft restarting..."
+2. Save active BJ/RBJ state to SQLite if active.
+3. Cancel active timers safely:
+   - mini game answer timer
+   - auto game loop
+   - auto event loop
+   - event timer
+   - BJ countdown timer
+   - BJ turn timer
+   - RBJ countdown timer
+   - RBJ turn timer
+4. Clear temporary caches only.
+5. Reload settings from SQLite.
+6. Restart auto game loop if enabled.
+7. Restart auto event loop if enabled.
+8. Recover active BJ/RBJ table state from SQLite if any.
+9. Announce: "✅ Soft restart complete."
+
+Do NOT delete:
+- coins
+- XP
+- player profiles
+- bank transactions
+- blackjack stats
+- shop items
+- badges/titles
+- quests
+- achievements
+- staff roles
+- reports
+- ledger
+- gold logs
+
+/restartbot:
+This should attempt a full Python process restart.
+
+Behavior:
+1. Announce: "🔄 Restarting bot..."
+2. Save active BJ/RBJ state to SQLite.
+3. Cancel timers safely.
+4. Close database connections if needed.
+5. Restart the Python process.
+
+Implementation:
+- Prefer os.execv(sys.executable, [sys.executable] + sys.argv)
+- If os.execv is not safe in this Replit setup, use sys.exit(0) only if Replit deployment/runner auto-restarts the process.
+- If auto-restart is not configured, do NOT use sys.exit(0). Instead say:
+"Full restart is not available. Use Replit restart button."
+
+Routing:
+- Add explicit command routing for:
+  /softrestart
+  /restartbot
+  /restarthelp
+before the unknown-command fallback.
+
+Safety:
+- Do not use time.sleep().
+- Use asyncio task cancellation safely.
+- Wrap task cancellation in try/except asyncio.CancelledError.
+- Prevent crashes from missing timers/tasks.
+- Log restart steps in console.
+- Keep Highrise messages under 250 characters.
+
+Debug:
+Add /restartstatus owner only.
+It should show:
+- whether softrestart command is installed
+- whether restartbot command is installed
+- active timer count if available
+- auto games enabled
+- auto events enabled
+- active BJ/RBJ table state
+- last restart error if any
+
+Test:
+- /restarthelp
+- /restartstatus
+- /softrestart
+- /restartstatus
+- /restartbot

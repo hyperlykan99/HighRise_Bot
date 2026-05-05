@@ -66,6 +66,7 @@ from modules.casino_settings     import (
 from modules.maintenance         import (
     handle_botstatus, handle_dbstats, handle_backup,
     handle_maintenance, handle_reloadsettings, handle_cleanup,
+    handle_restarthelp, handle_restartstatus,
     handle_softrestart,
     handle_restartbot,
     is_maintenance,
@@ -209,6 +210,7 @@ OWNER_ONLY_CMDS = {
     "goldwallet", "goldtips", "goldtx", "pendinggold",
     "confirmgoldtip", "setgoldrainstaff", "setgoldrainmax",
     "debugtips",
+    "restarthelp", "restartstatus",
     "softrestart",
     "restartbot",
 }
@@ -237,7 +239,8 @@ ALL_KNOWN_COMMANDS = (
         "rep", "reputation", "repstats", "toprep", "repleaderboard",
         "poker",
         "botstatus", "dbstats", "backup",
-        "maintenance", "reloadsettings", "cleanup", "softrestart", "restartbot",
+        "maintenance", "reloadsettings", "cleanup",
+        "restarthelp", "restartstatus", "softrestart", "restartbot",
         "casinosettings", "casinolimits", "casinotoggles",
         "setbjlimits", "setrbjlimits",
         "goldhelp", "confirmcasinoreset",
@@ -729,6 +732,7 @@ OWNER_HELP_PAGES = [
         "/allstaff\n"
         "/allcommands\n"
         "/backup\n"
+        "/restarthelp\n"
         "/softrestart\n"
         "/restartbot"
     ),
@@ -1784,6 +1788,12 @@ class HangoutBot(BaseBot):
 
         elif cmd == "cleanup":
             await handle_cleanup(self, user)
+
+        elif cmd == "restarthelp":
+            await handle_restarthelp(self, user)
+
+        elif cmd == "restartstatus":
+            await handle_restartstatus(self, user)
 
         elif cmd == "softrestart":
             await handle_softrestart(self, user)
