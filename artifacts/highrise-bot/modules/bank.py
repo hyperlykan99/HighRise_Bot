@@ -170,7 +170,8 @@ async def handle_send(bot: BaseBot, user: User, args: list[str]):
         await _w(bot, user.id, "Usage: /send <username> <amount>")
         return
 
-    target_name = args[1]
+    # Normalize username immediately (strips @, trims spaces)
+    target_name = args[1].lstrip("@").strip()
     try:
         amount = int(args[2])
     except (ValueError, IndexError):
@@ -181,7 +182,11 @@ async def handle_send(bot: BaseBot, user: User, args: list[str]):
         await _w(bot, user.id, "❌ Amount must be positive.")
         return
 
-    # Self-send
+    if not target_name:
+        await _w(bot, user.id, "❌ Invalid username.")
+        return
+
+    # Self-send (compare normalized names)
     if target_name.lower() == user.username.lower():
         await _w(bot, user.id, "❌ You cannot send coins to yourself.")
         return
@@ -233,10 +238,11 @@ async def handle_send(bot: BaseBot, user: User, args: list[str]):
         await _w(bot, user.id, "❌ Not enough coins.")
         return
 
-    # Find receiver
-    receiver = db.get_user_by_username(target_name)
+    # Find receiver — normalize username, auto-create placeholder if offline/unknown
+    target_name = target_name.lstrip("@").strip()
+    receiver = db.resolve_or_create_user(target_name)
     if receiver is None:
-        await _w(bot, user.id, f"❌ Player @{target_name} not found in bot records.")
+        await _w(bot, user.id, "❌ Invalid username.")
         return
     if receiver["user_id"] == user.id:
         await _w(bot, user.id, "❌ You cannot send coins to yourself.")
@@ -297,20 +303,15 @@ async def handle_send(bot: BaseBot, user: User, args: list[str]):
     else:
         await _w(bot, user.id, f"✅ Sent {amount_received:,}c to {recv_display}.")
 
-    # ── Notify receiver (whisper; fall back to public if they're not in room) ─
+    # ── Notify receiver (whisper only; no public fallback) ───────────────────
     recv_bus = db.get_bank_user_stats(receiver["user_id"])
     if recv_bus.get("bank_notify", 1):
         fee_note = f" Fee: {fee}c." if fee > 0 else ""
         recv_msg = f"🏦 You received {amount_received:,}c from {sender_display}.{fee_note}"
         try:
             await bot.highrise.send_whisper(receiver["user_id"], recv_msg[:249])
-        except Exception as whisper_err:
-            print(f"[BANK] Could not whisper @{receiver['username']}: {whisper_err}")
-            try:
-                pub_msg = f"🏦 @{receiver['username']} received {amount_received:,}c."
-                await bot.highrise.chat(pub_msg[:249])
-            except Exception as chat_err:
-                print(f"[BANK] Fallback public notify also failed: {chat_err}")
+        except Exception:
+            print(f"[BANK] Receiver @{receiver['username']} offline; notification skipped.")
 
     if risk_level == "MEDIUM":
         print(f"[BANK] MEDIUM: {user.username}→{receiver['username']} "
@@ -381,10 +382,10 @@ async def handle_viewtx(bot: BaseBot, user: User, args: list[str]):
         await _w(bot, user.id, "Usage: /viewtx <username> [sent|received] [page]")
         return
 
-    target_name = args[1]
-    target = db.get_user_by_username(target_name)
+    target_name = args[1].lstrip("@").strip()
+    target = db.resolve_or_create_user(target_name)
     if target is None:
-        await _w(bot, user.id, f"@{target_name} not found.")
+        await _w(bot, user.id, "❌ Invalid username.")
         return
 
     direction, page = _parse_tx_args(args, offset=2)
@@ -413,9 +414,11 @@ async def handle_bankwatch(bot: BaseBot, user: User, args: list[str]):
         await _w(bot, user.id, "Usage: /bankwatch <username>")
         return
 
-    info = db.get_bank_watch_info(args[1])
+    clean_name = args[1].lstrip("@").strip()
+    db.resolve_or_create_user(clean_name)   # ensure user exists first
+    info = db.get_bank_watch_info(clean_name)
     if info is None:
-        await _w(bot, user.id, f"@{args[1]} not found.")
+        await _w(bot, user.id, f"❌ @{clean_name} not found.")
         return
 
     blocked = "Yes" if info["bank_blocked"] else "No"
@@ -440,9 +443,9 @@ async def handle_bankblock(bot: BaseBot, user: User, args: list[str], block: boo
         await _w(bot, user.id, f"Usage: /{cmd} <username>")
         return
 
-    target = db.get_user_by_username(args[1])
+    target = db.resolve_or_create_user(args[1].lstrip("@").strip())
     if target is None:
-        await _w(bot, user.id, f"@{args[1]} not found.")
+        await _w(bot, user.id, "❌ Invalid username.")
         return
 
     db.ensure_bank_user(target["user_id"])

@@ -3,20 +3,17 @@ admin.py
 --------
 Admin commands shared across all bot modes.
 
-Any bot that needs admin functionality imports handle_admin_command from here.
-Checking whether the caller is an admin is done in main.py (or each bot's
-entry point) before calling these functions — this module does not re-check.
-
 Commands handled:
-  /addcoins    <username> <amount>  — give coins to any player
-  /removecoins <username> <amount>  — take coins from any player
+  /addcoins    <username> <amount>  — gift coins to any player (offline-safe)
+  /removecoins <username> <amount>  — take coins from any player (offline-safe)
   /resetgame                        — clear any stuck active game
   /announce    <message>            — post a room-wide announcement
 
-To add a new admin command:
-  1. Write an async function here (e.g. async def _cmd_ban(...))
-  2. Add it as a branch in handle_admin_command()
-  3. Add the command name to ADMIN_COMMANDS in your bot's main.py
+Username lookup rules (all commands):
+  - Strips leading @, trims whitespace, case-insensitive.
+  - If the username is not in the DB a placeholder record is auto-created
+    (id = "offline_<username_lower>") and merged when the player next joins.
+  - Player does NOT need to be in the room or have chatted this session.
 """
 
 from highrise import BaseBot, User
@@ -25,14 +22,7 @@ import games   # needed so /resetgame can clear active game state
 
 
 async def handle_admin_command(bot: BaseBot, user: User, cmd: str, args: list[str]):
-    """
-    Dispatch an admin command to the correct private handler.
-
-    Parameters
-    ----------
-    cmd  : the command name in lowercase
-    args : the full parsed argument list (args[0] == cmd)
-    """
+    """Dispatch an admin command to the correct private handler."""
     if cmd == "addcoins":
         await _cmd_addcoins(bot, user, args)
 
@@ -52,88 +42,132 @@ async def handle_admin_command(bot: BaseBot, user: User, cmd: str, args: list[st
 
 async def _cmd_addcoins(bot: BaseBot, user: User, args: list[str]):
     """
-    Give coins to a registered player.
+    Admin gift: add coins to any player, online or offline.
     Usage: /addcoins <username> <amount>
+
+    - Username is normalised (strips @, trimmed, case-insensitive lookup).
+    - If not in DB, a placeholder record is created automatically.
+    - Transaction is written to the ledger as reason 'admin_addcoins'.
+    - Recipient is notified by whisper; if offline, the error is logged and
+      the transfer still completes.
     """
-    # args = ["addcoins", "playername", "100"]
-    if len(args) < 3 or not args[2].isdigit():
+    if len(args) < 3:
         await bot.highrise.send_whisper(user.id, "Usage: /addcoins <username> <amount>")
         return
 
-    target_username = args[1]
-    amount          = int(args[2])
+    raw_name = args[1]
+    raw_amt  = args[2]
 
+    if not raw_amt.isdigit():
+        await bot.highrise.send_whisper(user.id, "❌ Amount must be a whole number.")
+        return
+
+    target_username = raw_name.lstrip("@").strip()
+    amount          = int(raw_amt)
+
+    if not target_username:
+        await bot.highrise.send_whisper(user.id, "❌ Invalid username.")
+        return
     if amount <= 0:
-        await bot.highrise.send_whisper(user.id, "Amount must be greater than 0.")
+        await bot.highrise.send_whisper(user.id, "❌ Amount must be greater than 0.")
         return
 
-    target = db.get_user_by_username(target_username)
-    if not target:
-        await bot.highrise.send_whisper(
-            user.id,
-            f"Player '{target_username}' not found. They need to chat in the room first."
-        )
+    # Resolve or create (offline placeholder if unknown)
+    target = db.resolve_or_create_user(target_username)
+    if target is None:
+        await bot.highrise.send_whisper(user.id, "❌ Invalid username.")
         return
 
+    bal_before = db.get_balance(target["user_id"])
     db.adjust_balance(target["user_id"], amount)
-    new_balance = db.get_balance(target["user_id"])
+    bal_after = db.get_balance(target["user_id"])
+    db.add_ledger_entry(
+        target["user_id"], target["username"],
+        amount, "admin_addcoins",
+        related_user=user.username,
+        balance_before=bal_before,
+    )
 
     await bot.highrise.send_whisper(
         user.id,
-        f"Added {amount} coins to {target['username']}. Their balance is now {new_balance}."
+        f"✅ Added {amount:,}c to @{target['username']}. Balance: {bal_after:,}c."
     )
+
+    # Notify recipient (best-effort; offline is fine)
+    try:
+        await bot.highrise.send_whisper(
+            target["user_id"],
+            f"🎁 @{user.username} gave you {amount:,}c! Balance: {bal_after:,}c."
+        )
+    except Exception:
+        print(f"[ADMIN] @{target['username']} offline; addcoins notification skipped.")
 
 
 async def _cmd_removecoins(bot: BaseBot, user: User, args: list[str]):
     """
-    Remove coins from a registered player. Balance is clamped to 0.
+    Admin command: remove coins from a player (balance clamped to 0).
     Usage: /removecoins <username> <amount>
+
+    - Username is normalised (strips @, trimmed, case-insensitive lookup).
+    - If not in DB, a placeholder record is created automatically.
+    - Actual deduction is logged to the ledger as 'admin_removecoins'.
     """
-    if len(args) < 3 or not args[2].isdigit():
+    if len(args) < 3:
         await bot.highrise.send_whisper(user.id, "Usage: /removecoins <username> <amount>")
         return
 
-    target_username = args[1]
-    amount          = int(args[2])
+    raw_name = args[1]
+    raw_amt  = args[2]
 
+    if not raw_amt.isdigit():
+        await bot.highrise.send_whisper(user.id, "❌ Amount must be a whole number.")
+        return
+
+    target_username = raw_name.lstrip("@").strip()
+    amount          = int(raw_amt)
+
+    if not target_username:
+        await bot.highrise.send_whisper(user.id, "❌ Invalid username.")
+        return
     if amount <= 0:
-        await bot.highrise.send_whisper(user.id, "Amount must be greater than 0.")
+        await bot.highrise.send_whisper(user.id, "❌ Amount must be greater than 0.")
         return
 
-    target = db.get_user_by_username(target_username)
-    if not target:
-        await bot.highrise.send_whisper(
-            user.id,
-            f"Player '{target_username}' not found."
+    target = db.resolve_or_create_user(target_username)
+    if target is None:
+        await bot.highrise.send_whisper(user.id, "❌ Invalid username.")
+        return
+
+    bal_before      = db.get_balance(target["user_id"])
+    db.adjust_balance(target["user_id"], -amount)   # MAX(0, balance - amount) via DB
+    bal_after       = db.get_balance(target["user_id"])
+    actually_removed = bal_before - bal_after       # reflects the clamp
+
+    if actually_removed > 0:
+        db.add_ledger_entry(
+            target["user_id"], target["username"],
+            -actually_removed, "admin_removecoins",
+            related_user=user.username,
+            balance_before=bal_before,
         )
-        return
-
-    db.adjust_balance(target["user_id"], -amount)
-    new_balance = db.get_balance(target["user_id"])
 
     await bot.highrise.send_whisper(
         user.id,
-        f"Removed {amount} coins from {target['username']}. Their balance is now {new_balance}."
+        f"✅ Removed {actually_removed:,}c from @{target['username']}. "
+        f"Balance: {bal_after:,}c."
     )
 
 
 async def _cmd_resetgame(bot: BaseBot, user: User):
-    """
-    Clear all active mini-game state.
-    Useful if a game got stuck and nobody can start a new one.
-    """
+    """Clear all active mini-game state."""
     games.reset_all_games()
     await bot.highrise.chat("[Admin] All active games have been reset.")
 
 
 async def _cmd_announce(bot: BaseBot, user: User, args: list[str]):
-    """
-    Post a public announcement to the room.
-    Usage: /announce <message>
-    """
+    """Post a public announcement. Usage: /announce <message>"""
     message_text = " ".join(args[1:]).strip()
     if not message_text:
         await bot.highrise.send_whisper(user.id, "Usage: /announce <message>")
         return
-
     await bot.highrise.chat(f"[Announcement] {message_text}")

@@ -91,9 +91,12 @@ async def handle_audit(bot: BaseBot, user: User, args: list[str]):
         await _w(bot, user.id, "Usage: /audit <username>")
         return
 
+    # Ensure user exists in DB (creates placeholder if first lookup)
+    db.resolve_or_create_user(target_name)
+
     data = db.get_audit_full(target_name)
     if not data:
-        await _w(bot, user.id, f"Player '{target_name}' not found.")
+        await _w(bot, user.id, f"@{target_name} has no audit data yet.")
         return
 
     blocked  = "Yes" if data["bank_blocked"] else "No"
@@ -122,9 +125,9 @@ async def handle_auditbank(bot: BaseBot, user: User, args: list[str]):
         await _w(bot, user.id, "Usage: /auditbank <username>")
         return
 
-    target = db.get_user_by_username(target_name)
+    target = db.resolve_or_create_user(target_name)
     if not target:
-        await _w(bot, user.id, f"Player '{target_name}' not found.")
+        await _w(bot, user.id, f"❌ Invalid username.")
         return
 
     uid = target["user_id"]
@@ -169,9 +172,9 @@ async def handle_auditcasino(bot: BaseBot, user: User, args: list[str]):
         await _w(bot, user.id, "Usage: /auditcasino <username>")
         return
 
-    target = db.get_user_by_username(target_name)
+    target = db.resolve_or_create_user(target_name)
     if not target:
-        await _w(bot, user.id, f"Player '{target_name}' not found.")
+        await _w(bot, user.id, "❌ Invalid username.")
         return
 
     c = db.get_audit_casino_data(target["user_id"])
@@ -200,7 +203,7 @@ async def handle_auditeconomy(bot: BaseBot, user: User, args: list[str]):
         await _w(bot, user.id, "Usage: /auditeconomy <username>")
         return
 
-    target = db.get_user_by_username(target_name)
+    target = db.resolve_or_create_user(target_name)
     if not target:
         await _w(bot, user.id, f"Player '{target_name}' not found.")
         return

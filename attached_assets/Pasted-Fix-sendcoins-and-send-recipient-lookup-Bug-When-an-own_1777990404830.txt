@@ -1,0 +1,57 @@
+Fix /sendcoins and /send recipient lookup.
+
+Bug:
+When an owner types /sendcoins @angelkisses 10000, the bot says "no angelkisses found in room needs to chat."
+
+Problem:
+The command is only checking room/current-session users.
+
+Required behavior:
+- /sendcoins and /send should look up recipients in the bot database first.
+- Recipients do NOT need to be currently in the room.
+- Recipients do NOT need to chat in the current session if they already exist in the database.
+- If recipient does not exist in the database, create a user record for them automatically using the typed username.
+- Normalize usernames:
+  - remove leading @
+  - trim spaces
+  - make lookup case-insensitive
+  - store/display clean username
+
+Commands affected:
+- /send <username> <amount>
+- /sendcoins <username> <amount>
+- /addcoins <username> <amount>
+- /removecoins <username> <amount>
+- /bankwatch <username>
+- /viewtx <username>
+- /audit <username>
+- /profile <username> if supported
+
+Rules:
+- Do not require the target player to be in the room.
+- Do not require the target player to chat first.
+- If the target username is new, create their user/bank stats record safely.
+- Never create duplicate users because of capitalization differences.
+  Example:
+  AngelKisses, angelkisses, @angelkisses should all point to the same user.
+
+For /send and /sendcoins:
+- Sender must still pass anti-abuse and balance checks.
+- Receiver can be offline.
+- Receiver private notification should be attempted only if they are currently reachable.
+- If receiver is offline/not reachable, do not fail the transfer.
+- Log: "Receiver offline; notification skipped."
+
+For /sendcoins owner/admin command:
+- Owner/admin should be able to send coins to any valid username.
+- It should still log the transaction in ledger and bank_transactions.
+- If /sendcoins is meant as admin gift, label reason as "admin_sendcoins".
+- If /sendcoins is meant as player transfer alias, apply the same rules as /send.
+- Make this clear in code comments.
+
+Safety:
+- Validate amount is positive.
+- Prevent negative balances.
+- Use SQLite transaction/rollback for transfers.
+- Keep Highrise messages under 250 characters.
+- Prevent crashes from bad inputs.

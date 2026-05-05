@@ -662,13 +662,84 @@ def equip_item(user_id: str, item_id: str, item_type: str, display: str):
 # User helpers
 # ---------------------------------------------------------------------------
 
+# Tables whose rows reference user_id and need re-pointing when an offline
+# placeholder is merged into a real user record.
+_PLACEHOLDER_TABLES = [
+    ("bank_user_stats",   "user_id"),
+    ("ledger",            "user_id"),
+    ("game_wins",         "user_id"),
+    ("daily_claims",      "user_id"),
+    ("quest_progress",    "user_id"),
+    ("coinflip_history",  "user_id"),
+    ("bank_transactions", "sender_id"),
+    ("bank_transactions", "receiver_id"),
+    ("event_points",      "user_id"),
+    ("achievements",      "user_id"),
+    ("purchase_history",  "user_id"),
+    ("warnings",          "user_id"),
+    ("mutes",             "user_id"),
+    ("reputation",        "user_id"),
+    ("bj_stats",          "user_id"),
+    ("rbj_stats",         "user_id"),
+    ("bj_daily",          "user_id"),
+    ("rbj_daily",         "user_id"),
+]
+
+
 def ensure_user(user_id: str, username: str):
-    conn = get_connection()
+    """
+    Register or update a user.
+    - If already present by user_id → refresh display name only.
+    - If an offline placeholder exists for the same username → merge all data
+      into the real record and delete the placeholder.
+    - Otherwise → insert brand-new user row.
+    """
+    conn  = get_connection()
+    clean = username.strip()
+
+    # Already in DB by real user_id — just keep username fresh
+    if conn.execute(
+        "SELECT 1 FROM users WHERE user_id = ?", (user_id,)
+    ).fetchone():
+        conn.execute(
+            "UPDATE users SET username = ? WHERE user_id = ?", (clean, user_id)
+        )
+        conn.commit()
+        conn.close()
+        return
+
+    # Merge offline placeholder if one was created before real join
+    placeholder_id = f"offline_{clean.lower()}"
+    placeholder = conn.execute(
+        "SELECT balance FROM users WHERE user_id = ?", (placeholder_id,)
+    ).fetchone()
+
+    if placeholder:
+        merged_bal = placeholder["balance"]
+        for table, col in _PLACEHOLDER_TABLES:
+            try:
+                conn.execute(
+                    f"UPDATE {table} SET {col} = ? WHERE {col} = ?",
+                    (user_id, placeholder_id),
+                )
+            except Exception:
+                pass
+        conn.execute("DELETE FROM users WHERE user_id = ?", (placeholder_id,))
+        conn.execute("""
+            INSERT INTO users (user_id, username, balance, first_seen)
+            VALUES (?, ?, ?, datetime('now'))
+        """, (user_id, clean, merged_bal))
+        conn.commit()
+        conn.close()
+        print(f"[DB] Merged offline placeholder @{clean} → real id {user_id}")
+        return
+
+    # Brand-new user
     conn.execute("""
         INSERT INTO users (user_id, username, balance, first_seen)
         VALUES (?, ?, ?, datetime('now'))
         ON CONFLICT(user_id) DO UPDATE SET username = excluded.username
-    """, (user_id, username, config.STARTING_BALANCE))
+    """, (user_id, clean, config.STARTING_BALANCE))
     conn.commit()
     conn.close()
 
@@ -699,6 +770,81 @@ def get_user_by_username(username: str) -> dict | None:
     ).fetchone()
     conn.close()
     return dict(row) if row else None
+
+
+def resolve_or_create_user(username: str) -> dict | None:
+    """
+    Case-insensitive lookup by username (strips leading @, trims whitespace).
+
+    - If found in DB → return existing record.
+    - If not found → create a placeholder record with id 'offline_<username_lower>'
+      and starting balance; the placeholder is automatically merged into the real
+      record by ensure_user() when the player next joins the room.
+    - Returns dict(user_id, username, balance) or None if username is blank.
+    """
+    clean = username.lstrip("@").strip()
+    if not clean:
+        return None
+
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT user_id, username, balance FROM users WHERE LOWER(username) = LOWER(?)",
+        (clean,),
+    ).fetchone()
+    conn.close()
+    if row:
+        return dict(row)
+
+    # Not in DB — create offline placeholder
+    synthetic_id = f"offline_{clean.lower()}"
+    conn = get_connection()
+    conn.execute("""
+        INSERT INTO users (user_id, username, balance, first_seen)
+        VALUES (?, ?, ?, datetime('now'))
+        ON CONFLICT(user_id) DO NOTHING
+    """, (synthetic_id, clean, config.STARTING_BALANCE))
+    conn.commit()
+    conn.close()
+    ensure_bank_user(synthetic_id)
+    print(f"[DB] Offline placeholder created: @{clean} (id={synthetic_id})")
+    return {"user_id": synthetic_id, "username": clean, "balance": get_balance(synthetic_id)}
+
+
+def add_ledger_entry(
+    user_id: str,
+    username: str,
+    change_amount: int,
+    reason: str,
+    related_user: str | None = None,
+    balance_before: int | None = None,
+) -> None:
+    """
+    Write a single ledger row (for admin gifts, penalties, etc.).
+
+    If balance_before is supplied it is used directly; otherwise the function
+    reads the current balance and back-computes balance_before from it
+    (call AFTER adjust_balance so the current value is already the after-state).
+    """
+    from datetime import datetime as _dt
+
+    conn = get_connection()
+    if balance_before is None:
+        bal_row = conn.execute(
+            "SELECT balance FROM users WHERE user_id = ?", (user_id,)
+        ).fetchone()
+        current = bal_row["balance"] if bal_row else 0
+        balance_before = current - change_amount
+    balance_after = balance_before + change_amount
+    now_ts = _dt.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+    conn.execute("""
+        INSERT INTO ledger
+            (timestamp, user_id, username, change_amount, reason,
+             balance_before, balance_after, related_user)
+        VALUES (?,?,?,?,?,?,?,?)
+    """, (now_ts, user_id, username, change_amount, reason,
+          balance_before, balance_after, related_user))
+    conn.commit()
+    conn.close()
 
 
 # ---------------------------------------------------------------------------
