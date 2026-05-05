@@ -99,6 +99,7 @@ from modules.tips import (
     process_tip_event,
     handle_tiprate, handle_tipstats, handle_tipleaderboard,
     handle_settiprate, handle_settipcap, handle_settiptier,
+    handle_debugtips,
 )
 from modules.auto_games import (
     start_auto_game_loop, start_auto_event_loop,
@@ -185,6 +186,7 @@ OWNER_ONLY_CMDS = {
     "goldtip", "goldrefund", "goldrain", "goldrainall",
     "goldwallet", "goldtips", "goldtx", "pendinggold",
     "confirmgoldtip", "setgoldrainstaff", "setgoldrainmax",
+    "debugtips",
 }
 
 STAFF_CMDS = MOD_ONLY_CMDS | MANAGER_ONLY_CMDS | ADMIN_ONLY_CMDS | OWNER_ONLY_CMDS
@@ -209,7 +211,7 @@ ALL_KNOWN_COMMANDS = (
         "botstatus", "dbstats", "backup",
         "maintenance", "reloadsettings", "cleanup",
         "goldhelp",
-        "tiprate", "tipstats", "tipleaderboard",
+        "tiprate", "tipstats", "tipleaderboard", "debugtips",
     }
     | ECONOMY_COMMANDS | PROFILE_COMMANDS | GAME_COMMANDS
     | SHOP_COMMANDS | ACHIEVEMENT_COMMANDS | BJ_COMMANDS
@@ -931,6 +933,8 @@ class HangoutBot(BaseBot):
                 await handle_setgoldrainstaff(self, user, args)
             elif cmd == "setgoldrainmax":
                 await handle_setgoldrainmax(self, user, args)
+            elif cmd == "debugtips":
+                await handle_debugtips(self, user, args)
             else:
                 await handle_admin_command(self, user, cmd, args)
             return
@@ -1260,6 +1264,27 @@ class HangoutBot(BaseBot):
         """Log when a player leaves and remove from gold room cache."""
         remove_from_room_cache(user.id)
         print(f"[HangoutBot] {user.username} left.")
+
+    async def on_reaction(self, user: User, reaction: str, receiver: User) -> None:
+        """Debug hook: log all reaction events to check if gold tips arrive here."""
+        print(
+            f"[REACTION:DEBUG] handler=on_reaction "
+            f"| reaction={reaction!r} "
+            f"| from=@{user.username}({user.id}) "
+            f"| to=@{receiver.username}({receiver.id})"
+        )
+
+    async def on_channel(self, sender_id: str, message: str, tags: set) -> None:
+        """Debug hook: log all channel events to catch any tip-related messages."""
+        # Only log if it looks tip/gold-related to avoid console spam
+        msg_lower = message.lower()
+        if any(kw in msg_lower for kw in ("gold", "tip", "coin", "pay", "send")):
+            print(
+                f"[CHANNEL:DEBUG] handler=on_channel "
+                f"| sender_id={sender_id} "
+                f"| tags={tags} "
+                f"| message={message[:120]!r}"
+            )
 
 
 # ---------------------------------------------------------------------------

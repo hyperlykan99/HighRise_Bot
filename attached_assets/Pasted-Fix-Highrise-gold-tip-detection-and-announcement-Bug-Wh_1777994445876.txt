@@ -1,0 +1,95 @@
+Fix Highrise gold tip detection and announcement.
+
+Bug:
+When I tip the bot Highrise gold, the bot does not show any message and does not confirm the tip.
+
+Goal:
+When someone tips the bot gold, the bot should:
+1. Detect the tip event.
+2. Convert gold to coins.
+3. Add coins to the player balance.
+4. Save it in SQLite.
+5. Announce the conversion in chat.
+
+Expected message:
+"💰 @username tipped 100g and received 1,100 coins!"
+
+Important:
+Use the correct highrise-bot-sdk event handler for tips.
+
+Please inspect the installed highrise-bot-sdk version and implement the correct method name. Try common event hooks such as:
+- on_tip
+- on_user_tip
+- on_reaction
+- on_transaction
+- on_channel_event
+- on_room_event
+
+Add debug logging:
+When any event related to tips/payments/reactions happens, print to console:
+- event handler name
+- raw event object
+- sender username
+- sender user id
+- gold amount
+- item id or tip type
+
+Do not expose raw event data in Highrise chat.
+
+Tip conversion rules:
+- Base rate: 1 gold = 10 coins.
+- Minimum rewarded tip: 10 gold.
+- Daily conversion cap per player: 10,000 gold.
+- Bonus tiers:
+  10-99 gold: no bonus
+  100-499 gold: +10%
+  500-999 gold: +20%
+  1000-4999 gold: +30%
+  5000+ gold: +50%
+
+Examples:
+- 10g = 100c
+- 100g = 1,100c
+- 500g = 6,000c
+- 1000g = 13,000c
+- 5000g = 75,000c
+
+If tip is below minimum:
+"🙏 Thanks for the tip! Minimum for coins is 10g."
+
+Database:
+Create or use tip_transactions table:
+- id
+- timestamp
+- username
+- user_id
+- gold_amount
+- coins_awarded
+- bonus_percent
+- status
+- event_id_or_hash
+
+Prevent duplicate rewards:
+- Store event ID if available.
+- If no event ID, create a safe hash from username + amount + timestamp bucket.
+- Do not process the same tip twice.
+
+Commands:
+- /tiprate
+- /tipstats
+- /tipleaderboard
+- /debugtips owner only
+
+/debugtips should show:
+- whether tip handler is enabled
+- last detected tip event time
+- last detected tip username
+- last detected gold amount
+- last error if any
+
+Safety:
+- If the SDK does not support detecting tips to bots, make /debugtips say:
+"Tip detection not supported by this SDK setup."
+- Do not fake tip rewards without an actual event.
+- Keep all Highrise messages under 250 characters.
+- Log real errors in console.
