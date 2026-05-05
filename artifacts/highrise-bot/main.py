@@ -49,6 +49,10 @@ from modules.achievements import handle_achievements, handle_claim_achievements
 from modules.blackjack           import handle_bj, handle_bj_set, reset_table as bj_reset_table
 from modules.realistic_blackjack import handle_rbj, handle_rbj_set, reset_table as rbj_reset_table
 from modules.poker               import handle_poker, reset_table as poker_reset_table
+from modules.casino_settings     import (
+    handle_casinosettings, handle_casinolimits, handle_casinotoggles,
+    handle_setbjlimits, handle_setrbjlimits,
+)
 from modules.maintenance         import (
     handle_botstatus, handle_dbstats, handle_backup,
     handle_maintenance, handle_reloadsettings, handle_cleanup,
@@ -165,6 +169,8 @@ MANAGER_ONLY_CMDS = {
     "setgametimer", "setautogameinterval",
     "setautoeventinterval", "setautoeventduration",
     "gameconfig",
+    "casinosettings", "casinolimits", "casinotoggles",
+    "setbjlimits", "setrbjlimits",
 }
 
 TIP_COMMANDS = {"tiprate", "tipstats", "tipleaderboard"}
@@ -216,6 +222,8 @@ ALL_KNOWN_COMMANDS = (
         "poker",
         "botstatus", "dbstats", "backup",
         "maintenance", "reloadsettings", "cleanup", "softrestart", "restartbot",
+        "casinosettings", "casinolimits", "casinotoggles",
+        "setbjlimits", "setrbjlimits",
         "goldhelp",
         "tiprate", "tipstats", "tipleaderboard", "debugtips",
     }
@@ -836,7 +844,11 @@ class HangoutBot(BaseBot):
                     await self.highrise.send_whisper(user.id, "Staff only.")
                     return
 
-            if cmd.startswith("setrbj"):
+            if cmd == "setrbjlimits":
+                await handle_setrbjlimits(self, user, args)
+            elif cmd == "setbjlimits":
+                await handle_setbjlimits(self, user, args)
+            elif cmd.startswith("setrbj"):
                 await handle_rbj_set(self, user, cmd, args)
             elif cmd.startswith("setbj"):
                 await handle_bj_set(self, user, cmd, args)
@@ -859,6 +871,12 @@ class HangoutBot(BaseBot):
                 await handle_bankblock(self, user, args, block=False)
             elif cmd == "banksettings":
                 await handle_banksettings(self, user)
+            elif cmd == "casinosettings":
+                await handle_casinosettings(self, user, args)
+            elif cmd == "casinolimits":
+                await handle_casinolimits(self, user)
+            elif cmd == "casinotoggles":
+                await handle_casinotoggles(self, user, args)
             elif cmd == "ledger":
                 await handle_ledger(self, user, args)
             elif cmd == "viewtx":

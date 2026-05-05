@@ -392,13 +392,15 @@ async def _cmd_join(bot: BaseBot, user: User, args: list[str]):
     net      = db.get_bj_daily_net(user.id)
     win_lim  = int(s.get("bj_daily_win_limit", 5000))
     loss_lim = int(s.get("bj_daily_loss_limit", 3000))
-    if net >= win_lim:
+    win_on   = int(s.get("bj_win_limit_enabled", 1))
+    loss_on  = int(s.get("bj_loss_limit_enabled", 1))
+    if win_on and net >= win_lim:
         await bot.highrise.send_whisper(user.id, "BJ win limit reached. Try again tomorrow.")
         return
-    if net <= -loss_lim:
+    if loss_on and net <= -loss_lim:
         await bot.highrise.send_whisper(user.id, "BJ loss limit reached. Try again tomorrow.")
         return
-    if max(0, -net) + bet > loss_lim:
+    if loss_on and max(0, -net) + bet > loss_lim:
         await bot.highrise.send_whisper(user.id, "Bet too high for your daily loss limit.")
         return
 

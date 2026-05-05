@@ -562,6 +562,10 @@ def _migrate_db():
         "ALTER TABLE daily_claims  ADD COLUMN last_claim_ts TEXT",
         "ALTER TABLE bank_user_stats ADD COLUMN bank_notify    INTEGER NOT NULL DEFAULT 1",
         "ALTER TABLE users           ADD COLUMN tip_coins_earned INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE bj_settings  ADD COLUMN bj_win_limit_enabled  INTEGER NOT NULL DEFAULT 1",
+        "ALTER TABLE bj_settings  ADD COLUMN bj_loss_limit_enabled INTEGER NOT NULL DEFAULT 1",
+        "ALTER TABLE rbj_settings ADD COLUMN rbj_win_limit_enabled  INTEGER NOT NULL DEFAULT 1",
+        "ALTER TABLE rbj_settings ADD COLUMN rbj_loss_limit_enabled INTEGER NOT NULL DEFAULT 1",
     ]:
         try:
             conn.execute(sql)
@@ -1181,6 +1185,7 @@ _BJ_SETTING_COLS = {
     "dealer_hits_soft_17", "lobby_countdown", "turn_timer", "bj_turn_timer",
     "max_players", "bj_enabled",
     "bj_daily_win_limit", "bj_daily_loss_limit",
+    "bj_win_limit_enabled", "bj_loss_limit_enabled",
 }
 
 
@@ -1253,6 +1258,7 @@ _RBJ_SETTING_COLS = {
     "dealer_hits_soft_17", "lobby_countdown", "turn_timer", "rbj_turn_timer",
     "max_players", "rbj_enabled",
     "rbj_daily_win_limit", "rbj_daily_loss_limit",
+    "rbj_win_limit_enabled", "rbj_loss_limit_enabled",
 }
 
 
