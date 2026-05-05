@@ -16,7 +16,10 @@ import database as db
 
 
 def is_owner(username: str) -> bool:
-    return username.lower() in [u.lower() for u in config.OWNER_USERS]
+    return (
+        username.lower() in [u.lower() for u in config.OWNER_USERS]
+        or db.is_owner_db(username)
+    )
 
 
 def is_admin(username: str) -> bool:
@@ -55,3 +58,8 @@ def can_manage_economy(username: str) -> bool:
 def can_manage_staff(username: str) -> bool:
     """Only admin or owner — can add/remove moderators and managers."""
     return is_admin(username)
+
+
+def can_audit(username: str) -> bool:
+    """Moderator, manager, admin, or owner — can view audit/report data."""
+    return can_moderate(username)

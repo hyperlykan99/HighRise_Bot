@@ -202,6 +202,12 @@ def init_db():
     """)
 
     conn.execute("""
+        CREATE TABLE IF NOT EXISTS owner_users (
+            username TEXT PRIMARY KEY
+        )
+    """)
+
+    conn.execute("""
         CREATE TABLE IF NOT EXISTS bj_daily (
             user_id TEXT NOT NULL,
             date    TEXT NOT NULL,
@@ -1299,6 +1305,66 @@ def get_admin_users() -> list:
     conn = get_connection()
     rows = conn.execute(
         "SELECT username FROM admin_users ORDER BY username"
+    ).fetchall()
+    conn.close()
+    return [r["username"] for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Dynamic owner helpers
+# ---------------------------------------------------------------------------
+
+def is_owner_db(username: str) -> bool:
+    conn = get_connection()
+    row  = conn.execute(
+        "SELECT 1 FROM owner_users WHERE username = ?", (username.lower(),)
+    ).fetchone()
+    conn.close()
+    return row is not None
+
+
+def add_owner_user(username: str) -> str:
+    """Add an owner. Returns 'exists' or 'added'."""
+    conn = get_connection()
+    if conn.execute(
+        "SELECT 1 FROM owner_users WHERE username = ?", (username.lower(),)
+    ).fetchone():
+        conn.close()
+        return "exists"
+    conn.execute("INSERT INTO owner_users (username) VALUES (?)", (username.lower(),))
+    conn.commit()
+    conn.close()
+    return "added"
+
+
+def remove_owner_user(username: str) -> str:
+    """Remove an owner. Returns 'not_found', 'last_owner', or 'removed'."""
+    import config as _cfg
+    conn = get_connection()
+    if not conn.execute(
+        "SELECT 1 FROM owner_users WHERE username = ?", (username.lower(),)
+    ).fetchone():
+        conn.close()
+        return "not_found"
+    db_owners   = [r["username"] for r in conn.execute(
+        "SELECT username FROM owner_users"
+    ).fetchall()]
+    cfg_owners  = [u.lower() for u in _cfg.OWNER_USERS]
+    all_owners  = set(db_owners) | set(cfg_owners)
+    if len(all_owners) <= 1:
+        conn.close()
+        return "last_owner"
+    conn.execute("DELETE FROM owner_users WHERE username = ?", (username.lower(),))
+    conn.commit()
+    conn.close()
+    return "removed"
+
+
+def get_owner_users() -> list:
+    """Return all DB-stored owner usernames sorted alphabetically."""
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT username FROM owner_users ORDER BY username"
     ).fetchall()
     conn.close()
     return [r["username"] for r in rows]

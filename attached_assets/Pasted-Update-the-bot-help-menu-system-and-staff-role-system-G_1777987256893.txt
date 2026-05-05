@@ -1,0 +1,531 @@
+Update the bot help/menu system and staff role system.
+
+Goal:
+- /help should show all player command categories.
+- Staff can see every command available to their role.
+- Owner/admin/manager/moderator command menus should be complete.
+- Add a command to see all players with staff roles.
+- Owners can add/remove another owner.
+
+IMPORTANT:
+- Do not remove existing features.
+- Keep coins, XP, shop, bank, blackjack, RBJ, events, quests, reputation, reports, staff roles, and profiles.
+- Use existing SQLite database.
+- Use get_display_name(username).
+- Keep all Highrise messages under 250 characters.
+- Split long menus into pages.
+- Prevent bad inputs from crashing the bot.
+
+==================================================
+PART 1: ROLE HIERARCHY
+==================================================
+
+Roles:
+1. Owner
+2. Admin
+3. Manager
+4. Moderator
+5. Player
+
+Permission rules:
+- Owner can do everything.
+- Admin can manage economy, bank, casino, staff below owner, events, reports, and moderation.
+- Manager can manage games, casino, events, reports, announcements, and view bank/audit info.
+- Moderator can announce, warn, reset games, cancel games, view reports, and view limited bank/audit info.
+- Player can only use player commands.
+
+Use or create helper functions:
+- is_owner(username)
+- is_admin(username)
+- is_manager(username)
+- is_moderator(username)
+- can_manage_staff(username)
+- can_manage_economy(username)
+- can_manage_games(username)
+- can_moderate(username)
+- can_audit(username)
+
+Suggested logic:
+- can_manage_staff = owner or admin
+- can_manage_economy = owner or admin
+- can_manage_games = owner/admin/manager
+- can_moderate = owner/admin/manager/moderator
+- can_audit = owner/admin/manager/moderator
+
+==================================================
+PART 2: OWNER MANAGEMENT
+==================================================
+
+Add owner role storage in SQLite if not already stored.
+
+Commands:
+- /addowner <username>
+- /removeowner <username>
+- /owners
+
+Permissions:
+- Only existing owners can use /addowner.
+- Only existing owners can use /removeowner.
+- Do not allow the last owner to remove themselves.
+- Do not allow removing the final owner.
+- Store owners in SQLite so they persist after restart.
+- Keep OWNER_USERS config as fallback/bootstrap owner list.
+
+Messages:
+"👑 @username is now an owner."
+"❌ @username is no longer an owner."
+"Owners: @user1, @user2"
+"Cannot remove the final owner."
+
+==================================================
+PART 3: STAFF ROLE COMMANDS
+==================================================
+
+Make sure these commands exist:
+
+Owner commands:
+- /addowner <username>
+- /removeowner <username>
+- /owners
+- /addadmin <username>
+- /removeadmin <username>
+- /admins
+- /allstaff
+- /allcommands
+- /backup
+- /dbstats
+- /maintenance on
+- /maintenance off
+- /reloadsettings
+- /cleanup
+
+Admin commands:
+- /addmanager <username>
+- /removemanager <username>
+- /managers
+- /addmoderator <username>
+- /removemoderator <username>
+- /moderators
+- /addcoins <username> <amount>
+- /removecoins <username> <amount>
+- /bankblock <username>
+- /bankunblock <username>
+- /setsendlimit <amount>
+- /setnewaccountdays <days>
+- /setminlevelsend <level>
+- /setmintotalearned <amount>
+- /setsendtax <percent>
+
+Manager commands:
+- /bj on
+- /bj off
+- /rbj on
+- /rbj off
+- /casino on
+- /casino off
+- /casino reset
+- /bj cancel
+- /rbj cancel
+- /setbjturntimer <seconds>
+- /setrbjturntimer <seconds>
+- /setbjdailywinlimit <amount>
+- /setbjdailylosslimit <amount>
+- /setrbjdailywinlimit <amount>
+- /setrbjdailylosslimit <amount>
+- /startevent <event_id>
+- /stopevent
+- /announce <message>
+
+Moderator commands:
+- /announce <message>
+- /resetgame
+- /casino reset
+- /bj cancel
+- /rbj cancel
+- /reports
+- /reportinfo <id>
+- /closereport <id>
+- /reportwatch <username>
+- /viewtx <username>
+- /bankwatch <username>
+- /ledger <username>
+- /audit <username>
+- /auditbank <username>
+- /auditcasino <username>
+- /auditeconomy <username>
+- /warn <username> <reason>
+- /warnings <username>
+- /mute <username> <minutes>
+- /unmute <username>
+- /mutes
+
+==================================================
+PART 4: ALL STAFF LIST
+==================================================
+
+Add command:
+- /allstaff
+
+Permissions:
+- Moderator, manager, admin, and owner can use /allstaff.
+- Normal players cannot use it.
+
+Behavior:
+/allstaff shows all users with staff roles grouped by role.
+
+Because message limit is short, split into pages:
+- /allstaff
+- /allstaff 1
+- /allstaff 2
+- /allstaff owners
+- /allstaff admins
+- /allstaff managers
+- /allstaff moderators
+
+Examples:
+"👑 Owners: @Marion, @Claire"
+"🛡️ Admins: @user1, @user2"
+"🧰 Managers: @user1, @user2"
+"🔨 Mods: @user1, @user2"
+
+If list is too long, paginate.
+Keep every message under 250 characters.
+
+==================================================
+PART 5: MAIN HELP MENU
+==================================================
+
+Update /help to show:
+
+"🤖 Help
+🎮 /gamehelp
+🎰 /casinohelp
+💰 /coinhelp
+🏦 /bankhelp
+🛒 /shophelp
+⭐ /profilehelp
+🏆 /progresshelp
+🎉 /eventhelp
+Staff: /staffhelp"
+
+If the user is staff, also whisper:
+"Staff menus: /modhelp /managerhelp /adminhelp /ownerhelp /allstaff"
+
+Normal players should not see private admin commands in /help.
+
+==================================================
+PART 6: PLAYER HELP MENUS
+==================================================
+
+/gamehelp:
+"🎮 Games
+/trivia /scramble /riddle
+/answer <answer>
+/coinflip heads/tails <bet>"
+
+/casinohelp:
+"🎰 Casino
+/casino modes
+/bj join <bet>
+/rbj join <bet>
+/bj hit | /rbj hit
+/bj stand | /rbj stand
+/bj table | /rbj table
+/bj rules | /rbj rules"
+
+/coinhelp:
+"💰 Coins
+/daily /balance
+/leaderboard
+/send <user> <amount>
+/bank /transactions"
+
+/bankhelp:
+"🏦 Bank
+/send <user> <amt>
+/bank /bankstats
+/transactions
+/banknotify on/off"
+
+/shophelp:
+"🛒 Shop
+/shop titles
+/shop badges
+/titleinfo <id>
+/badgeinfo <id>
+/buy title/badge <id>
+/equip title/badge <id>"
+
+/profilehelp:
+"⭐ Profile
+/profile
+/level
+/xpleaderboard
+/myitems
+/reputation /toprep"
+
+/progresshelp:
+"🏆 Progress
+/quests /dailyquests
+/weeklyquests
+/claimquest
+/achievements
+/claimachievements"
+
+/eventhelp:
+"🎉 Events
+/event /events
+/eventstatus
+/eventpoints
+/eventshop
+Staff: /startevent <id>, /stopevent"
+
+==================================================
+PART 7: STAFF HELP MENUS
+==================================================
+
+/staffhelp:
+If not staff:
+"Staff help is for staff only."
+
+If staff:
+"⚙️ Staff Menus
+/modhelp
+/managerhelp
+/adminhelp
+/ownerhelp
+/allstaff"
+
+/modhelp:
+Visible to moderator, manager, admin, owner.
+Split into pages.
+
+/modhelp or /modhelp 1:
+"🔨 Mod 1
+/announce <msg>
+/resetgame
+/casino reset
+/bj cancel
+/rbj cancel"
+
+/modhelp 2:
+"🔨 Mod 2
+/reports
+/reportinfo <id>
+/closereport <id>
+/reportwatch <user>"
+
+/modhelp 3:
+"🔨 Mod 3
+/viewtx <user>
+/bankwatch <user>
+/ledger <user>
+/audit <user>"
+
+/modhelp 4:
+"🔨 Mod 4
+/warn <user> <reason>
+/warnings <user>
+/mute <user> <min>
+/unmute <user>
+/mutes"
+
+/managerhelp:
+Visible to manager, admin, owner.
+Split into pages.
+
+/managerhelp 1:
+"🧰 Manager 1
+/bj on/off
+/rbj on/off
+/casino on/off
+/casino modes
+/casino reset"
+
+/managerhelp 2:
+"🧰 Manager 2
+/setbjturntimer <sec>
+/setrbjturntimer <sec>
+/bj settings
+/rbj settings"
+
+/managerhelp 3:
+"🧰 Manager 3
+/setbjdailywinlimit <amt>
+/setbjdailylosslimit <amt>
+/setrbjdailywinlimit <amt>
+/setrbjdailylosslimit <amt>"
+
+/managerhelp 4:
+"🧰 Manager 4
+/startevent <id>
+/stopevent
+/eventstatus
+/announce <msg>"
+
+/adminhelp:
+Visible to admin and owner.
+Split into pages.
+
+/adminhelp 1:
+"🛡️ Admin 1
+/addcoins <user> <amt>
+/removecoins <user> <amt>
+/bankblock <user>
+/bankunblock <user>"
+
+/adminhelp 2:
+"🛡️ Admin 2
+/setsendlimit <amt>
+/setnewaccountdays <days>
+/setminlevelsend <lvl>
+/setmintotalearned <amt>
+/setsendtax <percent>"
+
+/adminhelp 3:
+"🛡️ Admin 3
+/addmanager <user>
+/removemanager <user>
+/managers
+/addmoderator <user>
+/removemoderator <user>
+/moderators"
+
+/adminhelp 4:
+"🛡️ Admin 4
+/dbstats
+/maintenance on/off
+/reloadsettings
+/cleanup"
+
+/ownerhelp:
+Visible to owner only.
+Split into pages.
+
+/ownerhelp 1:
+"👑 Owner 1
+/addowner <user>
+/removeowner <user>
+/owners
+/addadmin <user>
+/removeadmin <user>
+/admins"
+
+/ownerhelp 2:
+"👑 Owner 2
+/allstaff
+/allcommands
+/backup
+/dbstats
+/maintenance on/off"
+
+/ownerhelp 3:
+"👑 Owner 3
+Full access:
+economy, bank, casino,
+events, reports,
+staff, backup."
+
+==================================================
+PART 8: ALL COMMANDS
+==================================================
+
+Add /allcommands for owner/admin only.
+
+Because message limit is short, use pages:
+- /allcommands
+- /allcommands 1
+- /allcommands 2
+- /allcommands 3
+- /allcommands 4
+- /allcommands 5
+- /allcommands 6
+- /allcommands 7
+
+/allcommands should say:
+"Use /allcommands 1-7."
+
+/allcommands 1:
+"Cmds 1 Player
+/help /gamehelp /casinohelp
+/coinhelp /bankhelp
+/shophelp /profilehelp"
+
+/allcommands 2:
+"Cmds 2 Games
+/trivia /scramble /riddle
+/answer
+/coinflip
+/daily /balance"
+
+/allcommands 3:
+"Cmds 3 Casino
+/bj join/hit/stand/table
+/rbj join/hit/stand/table
+/bj rules /rbj rules"
+
+/allcommands 4:
+"Cmds 4 Bank/Shop
+/send /bank
+/transactions
+/shop titles/badges
+/titleinfo /badgeinfo
+/buy /equip"
+
+/allcommands 5:
+"Cmds 5 Progress
+/profile /level
+/xpleaderboard
+/quests /claimquest
+/achievements /reputation"
+
+/allcommands 6:
+"Cmds 6 Staff
+/staffhelp /modhelp
+/managerhelp /adminhelp
+/ownerhelp /allstaff"
+
+/allcommands 7:
+"Cmds 7 Owner/Admin
+/addowner /removeowner
+/addadmin /removeadmin
+/addmanager /addmoderator
+/backup /dbstats"
+
+==================================================
+PART 9: UNKNOWN COMMAND
+==================================================
+
+Update unknown command response:
+"Unknown command. Type /help."
+
+If command looks staff-related and user is not staff:
+"Staff command unavailable. Type /help."
+
+==================================================
+PART 10: TESTS
+==================================================
+
+Test:
+- /help
+- /staffhelp as normal player
+- /staffhelp as owner
+- /modhelp 1
+- /managerhelp 1
+- /adminhelp 1
+- /ownerhelp 1
+- /allstaff
+- /allstaff owners
+- /owners
+- /addowner username
+- /removeowner username
+- /allcommands 1
+- /allcommands 7
+
+Make sure:
+- Normal players cannot see/use staff commands.
+- Managers cannot add coins.
+- Admins cannot add/remove owners.
+- Only owners can add/remove owners.
+- Final owner cannot be removed.
+- All messages stay under 250 characters.
