@@ -35,7 +35,10 @@ import database as db
 import config
 
 # Shared root-level modules (reusable by any future bot)
-from economy import handle_balance, handle_daily, handle_leaderboard
+from economy import (
+    handle_balance, handle_daily, handle_leaderboard,
+    handle_profile, handle_level, handle_xp_leaderboard,
+)
 from games   import handle_game_command, handle_answer as games_handle_answer
 from admin   import handle_admin_command
 
@@ -47,6 +50,7 @@ from admin   import handle_admin_command
 
 # Commands any player can use
 ECONOMY_COMMANDS = {"balance", "daily", "leaderboard"}
+PROFILE_COMMANDS = {"profile", "level", "xpleaderboard"}
 GAME_COMMANDS    = {"trivia", "scramble", "riddle", "coinflip"}
 
 # /answer is handled separately (routes to whichever game is active)
@@ -55,7 +59,7 @@ GAME_COMMANDS    = {"trivia", "scramble", "riddle", "coinflip"}
 ADMIN_COMMANDS = {"addcoins", "removecoins", "resetgame", "announce"}
 
 ALL_KNOWN_COMMANDS = (
-    {"help", "answer"} | ECONOMY_COMMANDS | GAME_COMMANDS | ADMIN_COMMANDS
+    {"help", "answer"} | ECONOMY_COMMANDS | PROFILE_COMMANDS | GAME_COMMANDS | ADMIN_COMMANDS
 )
 
 
@@ -77,6 +81,10 @@ HELP_TEXT_2 = (
     f"/daily       - claim {config.DAILY_REWARD} free coins (once/day)\n"
     "/balance     - check your coins\n"
     "/leaderboard - top 10 richest players\n"
+    "-- Levelling --\n"
+    "/profile      - your stats (level, XP, coins, wins)\n"
+    "/level        - level & XP progress\n"
+    "/xpleaderboard - top 10 by XP\n"
     "-- Admin --\n"
     "/addcoins <user> <amount>\n"
     "/removecoins <user> <amount>\n"
@@ -140,6 +148,15 @@ class HangoutBot(BaseBot):
 
         elif cmd == "leaderboard":
             await handle_leaderboard(self, user)
+
+        elif cmd == "profile":
+            await handle_profile(self, user)
+
+        elif cmd == "level":
+            await handle_level(self, user)
+
+        elif cmd == "xpleaderboard":
+            await handle_xp_leaderboard(self, user)
 
         # ── /answer ───────────────────────────────────────────────────────────
         elif cmd == "answer":

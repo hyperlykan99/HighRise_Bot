@@ -19,6 +19,7 @@ economy.py stays purely about the player-facing experience.
 from highrise import BaseBot, User
 import database as db
 import config
+import modules.leveling as leveling
 
 
 async def handle_balance(bot: BaseBot, user: User):
@@ -44,6 +45,7 @@ async def handle_daily(bot: BaseBot, user: User):
 
     db.adjust_balance(user.id, config.DAILY_REWARD)
     db.record_daily_claim(user.id)
+    await leveling.award_xp(bot, user, config.XP_DAILY, config.DAILY_REWARD)
     new_balance = db.get_balance(user.id)
 
     await bot.highrise.send_whisper(
@@ -64,4 +66,58 @@ async def handle_leaderboard(bot: BaseBot, user: User):
     for entry in top:
         lines.append(f"  #{entry['rank']}  {entry['username']}  —  {entry['balance']} coins")
 
+    await bot.highrise.send_whisper(user.id, "\n".join(lines))
+
+
+async def handle_profile(bot: BaseBot, user: User):
+    """Whisper the player's full profile: level, XP, coins, games won, coins earned."""
+    db.ensure_user(user.id, user.username)
+    p = db.get_profile(user.id)
+    if not p:
+        await bot.highrise.send_whisper(user.id, "Profile not found. Try again!")
+        return
+    level     = p["level"]
+    xp        = p["xp"]
+    xp_needed = db.xp_for_level(level + 1) - xp
+    await bot.highrise.send_whisper(user.id,
+        f"-- {p['username']} --\n"
+        f"💰 Coins:        {p['balance']}\n"
+        f"⭐ Level:        {level}\n"
+        f"✨ XP:           {xp}  (need {xp_needed} more for Lv {level + 1})\n"
+        f"🏆 Games won:    {p['total_games_won']}\n"
+        f"🪙 Coins earned: {p['total_coins_earned']}"
+    )
+
+
+async def handle_level(bot: BaseBot, user: User):
+    """Whisper the player's current level and XP progress toward the next level."""
+    db.ensure_user(user.id, user.username)
+    p = db.get_profile(user.id)
+    if not p:
+        await bot.highrise.send_whisper(user.id, "Profile not found. Try again!")
+        return
+    level    = p["level"]
+    xp       = p["xp"]
+    xp_this  = db.xp_for_level(level)
+    xp_next  = db.xp_for_level(level + 1)
+    progress = xp - xp_this
+    needed   = xp_next - xp
+    await bot.highrise.send_whisper(user.id,
+        f"⭐ Level {level}  |  {xp} XP total\n"
+        f"Progress: {progress} / {xp_next - xp_this} XP into this level\n"
+        f"Need {needed} more XP to reach Level {level + 1}"
+    )
+
+
+async def handle_xp_leaderboard(bot: BaseBot, user: User):
+    """Whisper the top players sorted by XP."""
+    top = db.get_xp_leaderboard(config.LEADERBOARD_SIZE)
+    if not top:
+        await bot.highrise.send_whisper(user.id, "No players on the XP leaderboard yet!")
+        return
+    lines = [f"-- Top {len(top)} by XP --"]
+    for entry in top:
+        lines.append(
+            f"  #{entry['rank']}  {entry['username']}  —  Lv {entry['level']}  ({entry['xp']} XP)"
+        )
     await bot.highrise.send_whisper(user.id, "\n".join(lines))

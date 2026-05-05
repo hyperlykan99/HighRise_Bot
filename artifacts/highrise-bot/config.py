@@ -40,6 +40,15 @@ ADMIN_USERS: list[str] = [
 ]
 
 # ---------------------------------------------------------------------------
+# XP rewards
+# ---------------------------------------------------------------------------
+XP_TRIVIA:   int = 10  # XP for a correct trivia answer
+XP_SCRAMBLE: int = 10  # XP for a correct scramble answer
+XP_RIDDLE:   int = 10  # XP for solving a riddle
+XP_COINFLIP: int = 5   # XP for winning a coinflip
+XP_DAILY:    int = 5   # XP for claiming the daily reward
+
+# ---------------------------------------------------------------------------
 # Cooldowns
 # ---------------------------------------------------------------------------
 TRIVIA_COOLDOWN:   int = 30   # seconds between /trivia starts (room-wide)

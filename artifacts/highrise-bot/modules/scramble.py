@@ -17,6 +17,7 @@ import database as db
 import config
 from modules.utils import check_answer
 from modules.cooldowns import check_room_cooldown, set_room_cooldown
+import modules.leveling as leveling
 
 
 # ---------------------------------------------------------------------------
@@ -157,6 +158,7 @@ async def handle_answer(bot: BaseBot, user: User, answer_text: str):
         # Correct!
         db.adjust_balance(user.id, config.SCRAMBLE_REWARD)
         db.record_game_win(user.id, user.username, "scramble")
+        await leveling.award_xp(bot, user, config.XP_SCRAMBLE, config.SCRAMBLE_REWARD)
 
         await bot.highrise.chat(
             f"🎉 @{user.username} got it! "

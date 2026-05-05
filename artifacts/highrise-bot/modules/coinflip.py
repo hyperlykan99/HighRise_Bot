@@ -19,6 +19,7 @@ from highrise import BaseBot, User
 import database as db
 import config
 from modules.cooldowns import check_user_cooldown, set_user_cooldown
+import modules.leveling as leveling
 
 
 # Minimum and maximum bet amounts (feel free to tune in config.py later)
@@ -104,6 +105,7 @@ async def handle_coinflip(bot: BaseBot, user: User, args: list[str]):
     if won:
         db.adjust_balance(user.id, bet)              # win: add the bet amount
         db.record_game_win(user.id, user.username, "coinflip")
+        await leveling.award_xp(bot, user, config.XP_COINFLIP, bet)
     else:
         db.adjust_balance(user.id, -bet)             # lose: remove the bet amount
 
