@@ -934,7 +934,7 @@ def add_ledger_entry(
     username: str,
     change_amount: int,
     reason: str,
-    related_user: str | None = None,
+    related_user: str = "",
     balance_before: int | None = None,
 ) -> None:
     """

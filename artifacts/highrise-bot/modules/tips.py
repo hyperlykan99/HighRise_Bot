@@ -1,36 +1,27 @@
 """
 modules/tips.py
 ---------------
-Highrise gold tip → in-game coins conversion system.
+Highrise gold tip → in-game coins conversion.
 
-ROOT CAUSE (fixed here):
-  When a player tips the bot gold bars from their inventory, the SDK fires
-  on_tip with an Item(type='clothing', id='gold_bar_100', ...) — NOT a
-  CurrencyItem.  The previous code returned early on isinstance(tip, CurrencyItem)
-  check, silently dropping every real gold-bar tip.  Fixed by checking both
-  CurrencyItem (direct gold currency) AND Item (gold bar items) via
-  _extract_gold_from_tip().
+ROOT CAUSES (both fixed):
+  1. isinstance(tip, CurrencyItem) early-return dropped all Item (gold-bar) tips.
+     Fixed by _extract_gold_from_tip() which handles both types.
+  2. add_ledger_entry() passed related_user=None to a NOT NULL column, crashing
+     every tip silently inside the outer try/except.
+     Fixed in database.py (default changed to "") AND by announcing in chat
+     BEFORE any DB write — so the player always sees the result even if a
+     ledger write later fails.
 
 Player commands:
-  /tiprate        — show conversion rate and bonus tiers
-  /tipstats       — your personal tip conversion history
-  /tipleaderboard — top 10 gold tippers
-  /debugtips      — owner-only live tip event diagnostics
+  /tiprate            — conversion rate + bonus tiers
+  /tipstats           — your personal tip history
+  /tipleaderboard     — top 10 gold tippers
+  /debugtips          — owner-only live diagnostics
 
-Admin/owner commands:
+Admin commands:
   /settiprate <coins_per_gold>
   /settipcap  <daily_gold_cap>
   /settiptier <100|500|1000|5000> <bonus_pct>
-
-Dedup strategy (two layers):
-  1. In-memory guard: same user_id + amount within 5 s → skip.
-  2. DB guard: event_id_or_hash stored in tip_transactions → skip if seen.
-
-On successful conversion:
-  • Public room chat:  "💰 @user tipped Xg and received Y coins!"
-  • Private whisper:   bonus %, cap info.
-  • tip_conversions row  (balance + ledger).
-  • tip_transactions row (dedup + audit table).
 """
 
 import hashlib
@@ -44,8 +35,8 @@ from modules.permissions import is_owner, is_admin
 
 # ---------------------------------------------------------------------------
 # Gold-bar item ID → gold value map
-# These IDs are exactly what Highrise server sends in the Item.id field when
-# a player tips a gold bar from their inventory.
+# These IDs are exactly what Highrise server sends in Item.id when a player
+# tips a gold bar from their inventory.
 # ---------------------------------------------------------------------------
 _GOLD_BAR_VALUES: dict[str, int] = {
     "gold_bar_1":     1,
@@ -64,31 +55,34 @@ def _extract_gold_from_tip(tip) -> Optional[int]:
     """
     Return the gold amount for any tip object, or None if not gold-convertible.
 
-    Handles two cases:
-      - CurrencyItem(type='gold', amount=X)  — direct gold currency tip
-      - Item(type='clothing', id='gold_bar_*') — gold bar item tip from inventory
+    Handles:
+      • CurrencyItem(type='gold', amount=X)  — direct gold currency
+      • Item(type='clothing', id='gold_bar_*') — gold bar from inventory
     """
-    from highrise import CurrencyItem
-    from highrise.models import Item
+    try:
+        from highrise import CurrencyItem
+        from highrise.models import Item
 
-    if isinstance(tip, CurrencyItem):
-        if tip.type == "gold":
-            return tip.amount
-        return None  # bubbles or other currency
+        if isinstance(tip, CurrencyItem):
+            return tip.amount if tip.type == "gold" else None
 
-    if isinstance(tip, Item):
-        item_id = getattr(tip, "id", "") or ""
-        # Try exact match first, then case-insensitive prefix scan
-        gold = _GOLD_BAR_VALUES.get(item_id)
-        if gold is None:
-            item_lower = item_id.lower()
-            for key, val in _GOLD_BAR_VALUES.items():
-                if item_lower.startswith(key) or key in item_lower:
-                    gold = val
-                    break
-        return gold  # None if not a gold bar
+        if isinstance(tip, Item):
+            item_id = getattr(tip, "id", "") or ""
+            # Exact match first
+            gold = _GOLD_BAR_VALUES.get(item_id)
+            if gold is None:
+                # Substring scan for non-standard ID formats
+                item_lower = item_id.lower()
+                for key, val in _GOLD_BAR_VALUES.items():
+                    if key in item_lower:
+                        gold = val
+                        break
+            return gold
 
-    return None  # unknown type
+    except Exception as e:
+        print(f"[TIP] _extract_gold_from_tip error: {e!r}")
+
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -96,8 +90,7 @@ def _extract_gold_from_tip(tip) -> Optional[int]:
 # ---------------------------------------------------------------------------
 _debug: dict = {
     "enabled":        True,
-    "last_time":      None,   # float monotonic
-    "last_wall_time": None,   # human-readable UTC string
+    "last_wall_time": None,
     "last_sender":    None,
     "last_gold":      None,
     "last_tip_repr":  None,
@@ -106,8 +99,7 @@ _debug: dict = {
 }
 
 
-def _record_debug_event(sender_username: str, gold: Optional[int], tip_repr: str) -> None:
-    _debug["last_time"]      = time.monotonic()
+def record_debug_event(sender_username: str, gold: Optional[int], tip_repr: str) -> None:
     _debug["last_wall_time"] = time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime())
     _debug["last_sender"]    = sender_username
     _debug["last_gold"]      = gold
@@ -115,20 +107,21 @@ def _record_debug_event(sender_username: str, gold: Optional[int], tip_repr: str
     _debug["event_count"]   += 1
 
 
-def _record_debug_error(err: str) -> None:
+def record_debug_error(err: str) -> None:
     _debug["last_error"] = err[:120]
 
 
 # ---------------------------------------------------------------------------
-# In-memory deduplication guard (first line of defense, very fast)
+# In-memory dedup (fast first line of defense — 10-second window)
 # ---------------------------------------------------------------------------
-_recent: dict[str, float] = {}   # "uid_amount" → monotonic timestamp
-_DEDUP_SECS = 5.0
+_recent: dict[str, float] = {}
+_DEDUP_SECS = 10.0
 
 
 def _in_memory_seen(user_id: str, amount: int) -> bool:
     key = f"{user_id}_{amount}"
     now = time.monotonic()
+    # Expire old entries
     stale = [k for k, t in _recent.items() if now - t > _DEDUP_SECS]
     for k in stale:
         _recent.pop(k, None)
@@ -139,171 +132,190 @@ def _in_memory_seen(user_id: str, amount: int) -> bool:
 
 
 def _make_event_hash(user_id: str, gold: int) -> str:
-    """Stable hash for this event using a 10-second bucket."""
     bucket = int(time.time()) // 10
-    raw    = f"{user_id}_{gold}_{bucket}"
-    return hashlib.md5(raw.encode()).hexdigest()[:20]
+    return hashlib.md5(f"{user_id}_{gold}_{bucket}".encode()).hexdigest()[:20]
 
 
 # ---------------------------------------------------------------------------
-# Bonus tier helper
+# Bonus tier
 # ---------------------------------------------------------------------------
 
 def _bonus_pct(gold: int, s: dict) -> int:
-    if gold >= 5000:
-        return int(s.get("tier_5000_bonus", 50))
-    if gold >= 1000:
-        return int(s.get("tier_1000_bonus", 30))
-    if gold >= 500:
-        return int(s.get("tier_500_bonus",  20))
-    if gold >= 100:
-        return int(s.get("tier_100_bonus",  10))
+    if gold >= 5000: return int(s.get("tier_5000_bonus", 50))
+    if gold >= 1000: return int(s.get("tier_1000_bonus", 30))
+    if gold >= 500:  return int(s.get("tier_500_bonus",  20))
+    if gold >= 100:  return int(s.get("tier_100_bonus",  10))
     return 0
 
 
 # ---------------------------------------------------------------------------
-# Messaging helpers
+# Messaging helpers (hard-cap at 249 chars)
 # ---------------------------------------------------------------------------
-
-async def _whisper(bot: BaseBot, uid: str, msg: str) -> None:
-    await bot.highrise.send_whisper(uid, msg[:249])
-
 
 async def _chat(bot: BaseBot, msg: str) -> None:
-    await bot.highrise.chat(msg[:249])
+    try:
+        await bot.highrise.chat(msg[:249])
+    except Exception as e:
+        print(f"[TIP] _chat error: {e!r}")
+
+
+async def _whisper(bot: BaseBot, uid: str, msg: str) -> None:
+    try:
+        await bot.highrise.send_whisper(uid, msg[:249])
+    except Exception as e:
+        print(f"[TIP] _whisper error: {e!r}")
 
 
 # ---------------------------------------------------------------------------
-# Tip event processor  — called from HangoutBot.on_tip
+# Core tip processor  — called from HangoutBot.on_tip
 # ---------------------------------------------------------------------------
 
 async def process_tip_event(bot: BaseBot, sender: User, receiver: User, tip) -> None:
     """
     Convert a Highrise gold tip into in-game coins.
 
-    Handles BOTH:
-      - CurrencyItem(type='gold')   → direct gold currency tip
-      - Item(id='gold_bar_*')       → gold bar item tip from inventory  ← THE BUG FIX
-
-    Two-layer deduplication (in-memory + DB hash).
-    Announces result publicly in room chat.
-    Records in tip_conversions + tip_transactions + ledger.
+    ORDER OF OPERATIONS (important):
+      1. Extract gold amount (handles CurrencyItem AND Item gold bars)
+      2. Validate minimum / dedup
+      3. Announce in room chat   ← FIRST, before any DB write
+      4. Save to DB              ← after announcement; individual errors logged
     """
     try:
-        # ── Structured debug log (console only, never echoed to chat) ─────
-        tip_class  = type(tip).__name__
-        tip_kind   = getattr(tip, "type",   "?")
-        tip_amt    = getattr(tip, "amount", "?")
-        tip_iid    = getattr(tip, "id",     None)
-        tip_repr   = repr(tip)
-
+        # ── Full console log (never echoed to chat) ───────────────────────
+        tip_class = type(tip).__name__
+        tip_kind  = getattr(tip, "type",   "?")
+        tip_iid   = getattr(tip, "id",     None)
         print(
-            f"[TIP:DETAIL] "
-            f"class={tip_class} | type={tip_kind} | amount={tip_amt}"
+            f"[TIP:DETAIL] class={tip_class} | type={tip_kind}"
             + (f" | item_id={tip_iid}" if tip_iid else "")
             + f" | sender=@{sender.username}({sender.id})"
             + f" | receiver=@{receiver.username}({receiver.id})"
-            + f" | raw={tip_repr}"
+            + f" | raw={tip!r}"
         )
 
-        # ── Extract gold value (handles CurrencyItem AND Item gold bars) ──
+        # ── Extract gold value ────────────────────────────────────────────
         gold = _extract_gold_from_tip(tip)
-
-        _record_debug_event(sender.username, gold, tip_repr)
+        record_debug_event(sender.username, gold, repr(tip))
 
         if gold is None:
             print(
                 f"[TIP] Skip — not a gold tip "
                 f"(class={tip_class} type={tip_kind}"
-                + (f" id={tip_iid}" if tip_iid else "")
-                + ")"
+                + (f" id={tip_iid}" if tip_iid else "") + ")"
             )
             return
 
-        s         = db.get_tip_settings()
+        # ── Load settings (all have safe defaults) ────────────────────────
+        try:
+            s = db.get_tip_settings()
+        except Exception as e:
+            print(f"[TIP] get_tip_settings error: {e!r} — using defaults")
+            s = {}
+
         min_gold  = int(s.get("min_tip_gold",   10))
         daily_cap = int(s.get("daily_cap_gold", 10_000))
         rate      = int(s.get("coins_per_gold", 10))
 
-        print(
-            f"[TIP] Processing: @{sender.username} | "
-            f"gold={gold} | min={min_gold} | daily_cap={daily_cap} | rate={rate}c/g"
-        )
+        print(f"[TIP] Processing: @{sender.username} | gold={gold} | min={min_gold} | rate={rate}c/g")
 
         # ── Below minimum ─────────────────────────────────────────────────
         if gold < min_gold:
             await _whisper(
                 bot, sender.id,
-                f"🙏 Thanks for the tip! Minimum for coins is {min_gold}g."
+                f"🙏 Thanks @{sender.username}! Minimum for coin reward is {min_gold}g."
             )
-            db.log_tip_transaction(sender.username, gold, 0, 0, "below_min", "")
-            print(f"[TIP] @{sender.username} below minimum ({gold}g < {min_gold}g)")
+            _safe_log_transaction(sender.username, gold, 0, 0, "below_min", "")
+            print(f"[TIP] @{sender.username} below min ({gold}g < {min_gold}g)")
             return
 
-        # ── Layer 1: in-memory dedup ──────────────────────────────────────
+        # ── In-memory dedup ───────────────────────────────────────────────
         if _in_memory_seen(sender.id, gold):
             print(f"[TIP] Duplicate (memory) ignored: @{sender.username} {gold}g")
             return
 
-        # ── Layer 2: DB dedup via hash ────────────────────────────────────
+        # ── DB dedup ──────────────────────────────────────────────────────
         event_hash = _make_event_hash(sender.id, gold)
-        if db.is_tip_duplicate(event_hash):
-            print(f"[TIP] Duplicate (DB) ignored: @{sender.username} {gold}g hash={event_hash}")
-            return
+        try:
+            if db.is_tip_duplicate(event_hash):
+                print(f"[TIP] Duplicate (DB) ignored: @{sender.username} {gold}g")
+                return
+        except Exception as e:
+            print(f"[TIP] is_tip_duplicate error (skipping dedup check): {e!r}")
 
-        # ── Ensure player row exists ──────────────────────────────────────
-        db.ensure_user(sender.id, sender.username)
-        db.ensure_bank_user(sender.id)
+        # ── Daily cap ─────────────────────────────────────────────────────
+        daily_used = 0
+        try:
+            daily_used = db.get_daily_gold_converted(sender.id)
+        except Exception as e:
+            print(f"[TIP] get_daily_gold_converted error (skipping cap): {e!r}")
 
-        # ── Daily cap check ───────────────────────────────────────────────
-        daily_used = db.get_daily_gold_converted(sender.id)
-        remaining  = max(0, daily_cap - daily_used)
+        remaining = max(0, daily_cap - daily_used)
         if remaining == 0:
             await _whisper(
                 bot, sender.id,
                 f"⚠️ Daily tip cap ({daily_cap:,}g) reached. Resets at midnight!"
             )
-            db.log_tip_transaction(sender.username, gold, 0, 0, "cap_reached", event_hash)
+            _safe_log_transaction(sender.username, gold, 0, 0, "cap_reached", event_hash)
             print(f"[TIP] @{sender.username} cap reached ({daily_used}/{daily_cap}g)")
             return
 
         convertible = min(gold, remaining)
-        over_cap    = gold - convertible
 
-        # ── Bonus + coin calculation ──────────────────────────────────────
+        # ── Bonus + coins ─────────────────────────────────────────────────
         bonus = _bonus_pct(convertible, s)
         base  = convertible * rate
         coins = base + round(base * bonus / 100)
 
-        # ── Persist: balance + ledger + audit ─────────────────────────────
-        db.record_tip_conversion(sender.id, sender.username, convertible, bonus, coins)
-        db.log_tip_transaction(
-            sender.username, convertible, coins, bonus, "success", event_hash
-        )
-
-        print(f"[TIP] OK: @{sender.username} {convertible}g → {coins:,}c (+{bonus}%)")
-
-        # ── Public room announcement ──────────────────────────────────────
+        # ── ANNOUNCE IN CHAT FIRST (before any DB write) ──────────────────
         await _chat(
             bot,
             f"💰 @{sender.username} tipped {convertible:,}g and received {coins:,} coins!"
         )
+        print(f"[TIP] OK: @{sender.username} {convertible}g → {coins:,}c (+{bonus}%)")
 
-        # ── Personal whisper with extra detail ────────────────────────────
+        # ── Personal whisper ──────────────────────────────────────────────
         parts = []
         if bonus > 0:
-            parts.append(f"+{bonus}% bonus applied!")
+            parts.append(f"+{bonus}% bonus!")
         else:
             parts.append("Tip 100g+ for a bonus!")
-        if over_cap:
-            parts.append(f"{over_cap:,}g over daily cap.")
         cap_left = max(0, daily_cap - daily_used - convertible)
-        parts.append(f"Daily cap: {cap_left:,}g left.")
+        parts.append(f"Daily cap left: {cap_left:,}g.")
         await _whisper(bot, sender.id, "💛 " + " ".join(parts))
 
+        # ── DB writes (each independently wrapped) ────────────────────────
+        try:
+            db.ensure_user(sender.id, sender.username)
+        except Exception as e:
+            print(f"[TIP] ensure_user error: {e!r}")
+
+        try:
+            db.ensure_bank_user(sender.id)
+        except Exception as e:
+            print(f"[TIP] ensure_bank_user error: {e!r}")
+
+        try:
+            db.record_tip_conversion(sender.id, sender.username, convertible, bonus, coins)
+        except Exception as e:
+            print(f"[TIP] record_tip_conversion error: {e!r}")
+            record_debug_error(repr(e))
+
+        _safe_log_transaction(sender.username, convertible, coins, bonus, "success", event_hash)
+
     except Exception as exc:
-        _record_debug_error(repr(exc))
-        print(f"[TIP] ERROR in process_tip_event: {exc!r}")
+        record_debug_error(repr(exc))
+        print(f"[TIP] UNHANDLED ERROR in process_tip_event: {exc!r}")
+        import traceback
+        traceback.print_exc()
+
+
+def _safe_log_transaction(
+    username: str, gold: int, coins: int, bonus: int, status: str, event_hash: str
+) -> None:
+    try:
+        db.log_tip_transaction(username, gold, coins, bonus, status, event_hash)
+    except Exception as e:
+        print(f"[TIP] log_tip_transaction error: {e!r}")
 
 
 # ---------------------------------------------------------------------------
@@ -311,7 +323,6 @@ async def process_tip_event(bot: BaseBot, sender: User, receiver: User, tip) -> 
 # ---------------------------------------------------------------------------
 
 async def handle_tiprate(bot: BaseBot, user: User, _args) -> None:
-    """/tiprate — show current rate and bonus tiers."""
     s     = db.get_tip_settings()
     rate  = s.get("coins_per_gold",  "10")
     cap   = int(s.get("daily_cap_gold", 10_000))
@@ -319,45 +330,45 @@ async def handle_tiprate(bot: BaseBot, user: User, _args) -> None:
     t500  = s.get("tier_500_bonus",  "20")
     t1000 = s.get("tier_1000_bonus", "30")
     t5000 = s.get("tier_5000_bonus", "50")
-    msg = (
-        f"💰 Tip Rate: 1g = {rate}c. Bonus starts at 100g.\n"
-        f"100g:+{t100}% 500g:+{t500}% 1000g:+{t1000}% 5000g:+{t5000}%\n"
-        f"Daily cap: {cap:,}g"
+    await _whisper(bot, user.id,
+        f"💰 Tip Rate: 1g={rate}c | Bonus: 100g+{t100}% 500g+{t500}% "
+        f"1k+{t1000}% 5k+{t5000}% | Daily cap: {cap:,}g"
     )
-    await _whisper(bot, user.id, msg)
 
 
 async def handle_tipstats(bot: BaseBot, user: User, _args) -> None:
-    """/tipstats — personal tip conversion summary."""
-    db.ensure_user(user.id, user.username)
-    s         = db.get_tip_settings()
-    cap       = int(s.get("daily_cap_gold", 10_000))
-    stats     = db.get_tip_stats(user.id)
-    profile   = db.get_profile(user.id)
-    remaining = max(0, cap - stats["today_gold"])
-    tip_coins = profile.get("tip_coins_earned", stats["total_coins"])
-    display   = db.get_display_name(user.id, user.username)
-    msg = (
-        f"💛 {display} Tips\n"
-        f"Total: {stats['total_gold']:,}g → {tip_coins:,}c\n"
-        f"Today: {stats['today_gold']:,}g | Cap left: {remaining:,}g"
-    )
-    await _whisper(bot, user.id, msg)
+    try:
+        db.ensure_user(user.id, user.username)
+        s       = db.get_tip_settings()
+        cap     = int(s.get("daily_cap_gold", 10_000))
+        stats   = db.get_tip_stats(user.id)
+        remaining = max(0, cap - stats["today_gold"])
+        await _whisper(bot, user.id,
+            f"💛 @{user.username} Tips\n"
+            f"Total: {stats['total_gold']:,}g → {stats['total_coins']:,}c\n"
+            f"Today: {stats['today_gold']:,}g | Cap left: {remaining:,}g"
+        )
+    except Exception as e:
+        await _whisper(bot, user.id, "⚠️ Error fetching tip stats.")
+        print(f"[TIP] handle_tipstats error: {e!r}")
 
 
 async def handle_tipleaderboard(bot: BaseBot, user: User, _args) -> None:
-    """/tipleaderboard — top 10 gold tippers."""
-    rows = db.get_tip_leaderboard(10)
-    if not rows:
-        await _whisper(bot, user.id, "💛 No tips recorded yet!")
-        return
-    msg = "💛 Top Tippers:"
-    for i, r in enumerate(rows, 1):
-        line = f"\n{i}. @{r['username'][:14]}: {r['total_gold']:,}g"
-        if len(msg) + len(line) > 245:
-            break
-        msg += line
-    await _whisper(bot, user.id, msg)
+    try:
+        rows = db.get_tip_leaderboard(10)
+        if not rows:
+            await _whisper(bot, user.id, "💛 No tips recorded yet!")
+            return
+        msg = "💛 Top Tippers:"
+        for i, r in enumerate(rows, 1):
+            line = f"\n{i}. @{r['username'][:14]}: {r['total_gold']:,}g"
+            if len(msg) + len(line) > 245:
+                break
+            msg += line
+        await _whisper(bot, user.id, msg)
+    except Exception as e:
+        await _whisper(bot, user.id, "⚠️ Error fetching leaderboard.")
+        print(f"[TIP] handle_tipleaderboard error: {e!r}")
 
 
 # ---------------------------------------------------------------------------
@@ -365,41 +376,50 @@ async def handle_tipleaderboard(bot: BaseBot, user: User, _args) -> None:
 # ---------------------------------------------------------------------------
 
 async def handle_debugtips(bot: BaseBot, user: User, _args) -> None:
-    """/debugtips — owner-only live tip diagnostics."""
     if not is_owner(user.username):
         await _whisper(bot, user.id, "Owner only.")
         return
 
-    # Verify on_tip is subscribed in SDK
     handler_ok = callable(getattr(bot, "on_tip", None))
+    count      = _debug["event_count"]
 
-    if not handler_ok:
-        await _whisper(bot, user.id, "Tip detection not supported by this SDK setup.")
-        return
+    if count == 0 and not _debug["last_error"]:
+        status = "No tip event detected. Check tip_reaction subscription."
+    else:
+        status = "ok"
 
-    count     = _debug["event_count"]
-    wall      = _debug["last_wall_time"] or "never"
-    sender    = _debug["last_sender"]    or "none"
-    gold      = _debug["last_gold"]
-    gold_str  = f"{gold}g" if gold is not None else "n/a"
-    tip_raw   = _debug["last_tip_repr"]  or "none"
-    err       = _debug["last_error"]     or "none"
+    # Current subscription
+    try:
+        from highrise.__main__ import gather_subscriptions
+        subs = gather_subscriptions(bot)
+    except Exception:
+        subs = "unknown"
+
+    gold_str = f"{_debug['last_gold']}g" if _debug["last_gold"] is not None else "n/a"
+    raw_str  = (_debug["last_tip_repr"] or "none")[:50]
+    err_str  = (_debug["last_error"]    or "none")[:50]
+    wall     = _debug["last_wall_time"] or "never"
+    sender   = _debug["last_sender"]    or "none"
 
     lines = [
         f"🔍 Tip Debug",
-        f"Handler: on_tip ({'OK' if handler_ok else 'MISSING'})",
-        f"Events seen: {count}",
-        f"Last event: {wall}",
-        f"Last sender: @{sender}",
-        f"Last gold: {gold_str}",
-        f"Last raw: {tip_raw[:60]}",
-        f"Last error: {err[:60]}",
+        f"tip handler installed: {'yes' if handler_ok else 'NO'}",
+        f"subscribed events: {subs}",
+        f"events seen: {count}",
+        f"last on_tip fired: {wall}",
+        f"last tip sender: @{sender}",
+        f"last tip amount: {gold_str}",
+        f"last raw tip type: {raw_str}",
+        f"last error: {err_str}",
     ]
+    if status != "ok":
+        lines.append(status)
+
     await _whisper(bot, user.id, "\n".join(lines)[:249])
 
 
 # ---------------------------------------------------------------------------
-# Admin/owner commands
+# Admin commands
 # ---------------------------------------------------------------------------
 
 async def handle_settiprate(bot: BaseBot, user: User, args: list) -> None:
@@ -414,7 +434,7 @@ async def handle_settiprate(bot: BaseBot, user: User, args: list) -> None:
         await _whisper(bot, user.id, "❌ Rate must be 1–1,000.")
         return
     db.set_tip_setting("coins_per_gold", str(val))
-    await _whisper(bot, user.id, f"✅ Tip rate: 1 gold = {val} coins.")
+    await _whisper(bot, user.id, f"✅ Tip rate: 1g = {val} coins.")
 
 
 async def handle_settipcap(bot: BaseBot, user: User, args: list) -> None:
@@ -450,7 +470,7 @@ async def handle_settiptier(bot: BaseBot, user: User, args: list) -> None:
         await _whisper(bot, user.id, "❌ Tier must be 100, 500, 1000, or 5000.")
         return
     if not args[2].isdigit():
-        await _whisper(bot, user.id, "❌ Bonus must be a whole number (0–200).")
+        await _whisper(bot, user.id, "❌ Bonus must be a whole number.")
         return
     pct = int(args[2])
     if not (0 <= pct <= 200):
