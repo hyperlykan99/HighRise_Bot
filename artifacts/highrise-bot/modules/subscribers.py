@@ -5,9 +5,8 @@ Subscriber DM notification system for the Highrise Mini Game Bot.
 Commands (public):
   /subscribe       — opt in to DM notifications
   /unsubscribe     — opt out
-  /substatus       — show your subscription state
-  /subhelp         — show subscription help
-  /subhelp 2       — show admin announcement commands
+  /substatus       — show your subscription state + pref preview
+  /subhelp [2]     — show subscription help
 
 Commands (staff):
   /subscribers     — list all subscriber records (mod+)
@@ -161,13 +160,33 @@ async def _broadcast(
 ) -> tuple[int, int, int]:
     """
     DM each subscriber in target_subs, queue pending for those without DM.
+    Respects announcement_alerts preference.
     Returns (sent, pending, failed).
     """
     message = add_unsubscribe_footer(raw_message)
     sent = pending = failed = 0
 
+    # Map target_type to the relevant pref column
+    _type_to_pref = {
+        "all":   "announcement_alerts",
+        "vip":   "vip_alerts",
+        "staff": "staff_alerts",
+        "single": "announcement_alerts",
+    }
+    pref_col = _type_to_pref.get(target_type, "announcement_alerts")
+
     for sub in target_subs:
         uname = sub["username"]
+
+        # Check notification preference before sending
+        try:
+            prefs = db.get_notify_prefs(uname)
+            if not prefs.get(pref_col, 1):
+                print(f"[SUBS] @{uname} has {pref_col} OFF — skipping broadcast.")
+                continue
+        except Exception:
+            pass
+
         conv_id = sub.get("conversation_id")
         has_dm = conv_id and sub.get("dm_available")
 
@@ -238,19 +257,22 @@ async def process_incoming_dm(
 
     if _is_unsubscribe_request(norm):
         db.set_subscribed(uname_lower, False)
-        reply = "✅ Unsubscribed. Alerts are OFF."
+        db.set_subscriber_manually_unsubscribed(uname_lower, True)
+        reply = "✅ Unsubscribed. All bot alerts are OFF."
         await send_dm(bot, conversation_id, reply)
         db.set_subscriber_last_dm(uname_lower)
-        print(f"[DM] @{username} unsubscribed (keyword: {norm!r}).")
+        print(f"[DM] @{username} unsubscribed via DM (keyword: {norm!r}).")
         return
 
     if _is_subscribe_request(norm):
         db.set_subscribed(uname_lower, True)
         db.set_dm_available(uname_lower, True)
-        reply = "✅ Subscribed. Outside-room alerts are ON.\nStop alerts: reply unsubscribe."
+        db.set_subscriber_manually_unsubscribed(uname_lower, False)
+        db.ensure_notify_prefs(uname_lower)
+        reply = "✅ Subscribed. Outside-room alerts are ON. Use notifysettings to choose alerts."
         await send_dm(bot, conversation_id, reply[:249])
         db.set_subscriber_last_dm(uname_lower)
-        print(f"[DM] @{username} subscribed (keyword: {norm!r}).")
+        print(f"[DM] @{username} subscribed via DM (keyword: {norm!r}).")
         return
 
     # Unknown message — check if already subscribed to avoid repeating the pitch
@@ -258,9 +280,9 @@ async def process_incoming_dm(
     is_subscribed = bool(sub and sub.get("subscribed"))
 
     if is_subscribed:
-        reply = "✅ You are subscribed. Stop alerts: reply unsubscribe."
+        reply = "✅ Alerts ON. Use notifysettings to choose alerts. Stop: reply unsubscribe."
     else:
-        reply = "👋 Reply 'subscribe' for outside-room alerts, or 'unsubscribe' to opt out."
+        reply = "Reply 'subscribe' for alerts, or 'unsubscribe' to opt out."
 
     await send_dm(bot, conversation_id, reply)
     print(f"[DM] @{username} sent unknown msg (subscribed={is_subscribed}). Replied with status.")
@@ -271,28 +293,23 @@ async def process_incoming_dm(
 async def handle_subscribe(bot: BaseBot, user: User, args: list[str]) -> None:
     """/subscribe — opt in to DM notifications."""
     db.ensure_user(user.id, user.username)
-    sub = db.get_subscriber(user.username)
+    uname = user.username.lower()
 
-    db.upsert_subscriber(user.username.lower(), user.id)
+    db.upsert_subscriber(uname, user.id)
+    db.set_subscribed(uname, True)
+    db.set_subscriber_manually_unsubscribed(uname, False)
+    db.ensure_notify_prefs(uname)
 
-    if sub and sub.get("subscribed"):
-        has_dm = bool(sub.get("conversation_id"))
-        if has_dm:
-            await _w(bot, user.id, "✅ Already subscribed with DM connected.")
-        else:
-            await _w(bot, user.id,
-                     "✅ Already subscribed. DM me 'subscribe' once so I can notify you outside the room.")
-        return
-
-    db.set_subscribed(user.username.lower(), True)
-    sub = db.get_subscriber(user.username)
-    has_dm = bool(sub and sub.get("conversation_id"))
+    sub = db.get_subscriber(uname)
+    has_dm = bool(sub and sub.get("conversation_id") and sub.get("dm_available"))
 
     if has_dm:
-        await _w(bot, user.id, "✅ Subscribed! You'll receive outside-room notifications.")
+        await _w(bot, user.id,
+                 "✅ Subscribed! Use /notifysettings to choose alert types.")
     else:
         await _w(bot, user.id,
-                 "✅ Subscribed! DM me 'subscribe' once so I can notify you outside the room.")
+                 "✅ Subscribed. DM me 'subscribe' for outside-room alerts. "
+                 "Use /notifysettings to choose types.")
 
 
 # ── /unsubscribe ──────────────────────────────────────────────────────────────
@@ -300,35 +317,43 @@ async def handle_subscribe(bot: BaseBot, user: User, args: list[str]) -> None:
 async def handle_unsubscribe(bot: BaseBot, user: User, args: list[str]) -> None:
     """/unsubscribe — opt out of DM notifications."""
     db.ensure_user(user.id, user.username)
-    sub = db.get_subscriber(user.username)
+    uname = user.username.lower()
+    sub = db.get_subscriber(uname)
     if not sub or not sub.get("subscribed"):
         await _w(bot, user.id, "You are not currently subscribed.")
         return
-    db.set_subscribed(user.username.lower(), False)
-    await _w(bot, user.id, "✅ Unsubscribed. You won't receive outside-room notifications.")
+    db.set_subscribed(uname, False)
+    db.set_subscriber_manually_unsubscribed(uname, True)
+    await _w(bot, user.id, "✅ Unsubscribed. All bot alerts are OFF.")
 
 
 # ── /substatus ────────────────────────────────────────────────────────────────
 
 async def handle_substatus(bot: BaseBot, user: User, args: list[str]) -> None:
-    """/substatus — show subscription state."""
+    """/substatus — show subscription state + top pref preview."""
     db.ensure_user(user.id, user.username)
-    sub = db.get_subscriber(user.username)
+    uname = user.username.lower()
+    sub = db.get_subscriber(uname)
     subscribed = sub and sub.get("subscribed")
     has_dm = sub and bool(sub.get("conversation_id")) and sub.get("dm_available")
 
     if not subscribed:
-        await _w(bot, user.id, "Subscribed: NO")
+        await _w(bot, user.id,
+                 "Subscribed: NO\nUse /subscribe to opt in.")
         return
 
-    if has_dm:
-        dm_label = "YES"
-    elif sub and sub.get("conversation_id"):
-        dm_label = "PENDING (DM bot 'subscribe' to activate)"
-    else:
-        dm_label = "NO (DM bot 'subscribe' to connect)"
+    dm_label = "YES" if has_dm else "NO (DM bot 'subscribe' to connect)"
 
-    await _w(bot, user.id, f"Subscribed: YES | DM connected: {dm_label}")
+    prefs = db.get_notify_prefs(uname)
+    def _yn(col: str) -> str:
+        return "ON" if prefs.get(col, 1) else "OFF"
+
+    msg = (
+        f"Subscribed: YES | DM: {dm_label}\n"
+        f"Bank {_yn('bank_alerts')} | Events {_yn('event_alerts')} | "
+        f"Gold {_yn('gold_alerts')} | Announce {_yn('announcement_alerts')}"
+    )
+    await _w(bot, user.id, msg[:249])
 
 
 # ── /subhelp ──────────────────────────────────────────────────────────────────
@@ -354,7 +379,8 @@ async def handle_subhelp(bot: BaseBot, user: User, args: list[str]) -> None:
              "/subscribe\n"
              "/unsubscribe\n"
              "/substatus\n"
-             "DM bot 'subscribe' for outside-room alerts.")
+             "/notifysettings\n"
+             "/notify <type> on/off")
 
 
 # ── /subscribers (staff) ──────────────────────────────────────────────────────

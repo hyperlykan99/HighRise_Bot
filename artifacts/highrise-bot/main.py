@@ -72,6 +72,14 @@ from modules.subscribers         import (
     process_incoming_dm,
     deliver_pending_subscriber_messages,
 )
+from modules.notifications import (
+    send_notification,
+    deliver_pending_notifications,
+    handle_notifysettings, handle_notify, handle_notifyhelp,
+    handle_notifications, handle_clearnotifications,
+    handle_notifystats, handle_notifyprefs,
+    handle_notifyuser, handle_broadcasttest,
+)
 from modules.maintenance         import (
     handle_botstatus, handle_dbstats, handle_backup,
     handle_maintenance, handle_reloadsettings, handle_cleanup,
@@ -121,7 +129,8 @@ from modules.bank import (
     handle_banknotify,
     handle_viewtx, handle_bankwatch, handle_bankblock, handle_banksettings,
     handle_bank_set, handle_ledger,
-    handle_notifications, handle_clearnotifications,
+    handle_notifications as handle_bank_notifications,
+    handle_clearnotifications as handle_bank_clearnotifications,
     handle_delivernotifications, handle_pendingnotifications,
 )
 from modules.tips import (
@@ -219,7 +228,10 @@ ADMIN_ONLY_CMDS = {
     "addrep", "removerep",
     "dmnotify", "announce_subs", "announce_vip", "announce_staff",
     "healthcheck",
+    "notifyuser", "broadcasttest",
 } | BANK_ADMIN_SET_CMDS | TIP_ADMIN_CMDS
+
+MANAGER_ONLY_CMDS = MANAGER_ONLY_CMDS | {"notifystats", "notifyprefs"}
 
 OWNER_ONLY_CMDS = {
     "addadmin", "removeadmin", "admins", "setmaxbalance",
@@ -270,6 +282,8 @@ ALL_KNOWN_COMMANDS = (
         "notifications", "clearnotifications",
         "delivernotifications", "pendingnotifications",
         "subscribe", "unsubscribe", "substatus", "subhelp",
+        "notifysettings", "notify", "notifyhelp",
+        "notifystats", "notifyprefs", "notifyuser", "broadcasttest",
         "announce_subs", "announce_vip", "announce_staff", "dmnotify",
         "subscribers",
     }
@@ -1487,6 +1501,14 @@ class HangoutBot(BaseBot):
                 await handle_announce_staff(self, user, args)
             elif cmd == "debugsub":
                 await handle_debugsub(self, user, args)
+            elif cmd == "notifyuser":
+                await handle_notifyuser(self, user, args)
+            elif cmd == "broadcasttest":
+                await handle_broadcasttest(self, user, args)
+            elif cmd == "notifystats":
+                await handle_notifystats(self, user, args)
+            elif cmd == "notifyprefs":
+                await handle_notifyprefs(self, user, args)
             else:
                 await handle_admin_command(self, user, cmd, args)
             return
@@ -1652,10 +1674,19 @@ class HangoutBot(BaseBot):
             await handle_banknotify(self, user, args)
 
         elif cmd == "notifications":
-            await handle_notifications(self, user)
+            await handle_notifications(self, user, args)
 
         elif cmd == "clearnotifications":
-            await handle_clearnotifications(self, user)
+            await handle_clearnotifications(self, user, args)
+
+        elif cmd == "notifysettings":
+            await handle_notifysettings(self, user, args)
+
+        elif cmd == "notify":
+            await handle_notify(self, user, args)
+
+        elif cmd == "notifyhelp":
+            await handle_notifyhelp(self, user, args)
 
         elif cmd == "delivernotifications":
             await handle_delivernotifications(self, user, args)
@@ -1887,9 +1918,10 @@ class HangoutBot(BaseBot):
             f"Welcome, @{user.username}! Type /help to see what you can do. "
             "Use /daily to grab your free coins!"
         )
-        # Deliver any queued bank and subscriber notifications
+        # Deliver any queued bank, subscriber, and typed notifications
         asyncio.create_task(_deliver_pending_bank_notifications(self, user))
         asyncio.create_task(deliver_pending_subscriber_messages(self, user.username.lower()))
+        asyncio.create_task(deliver_pending_notifications(self, user.username.lower()))
 
     async def on_tip(self, sender: User, receiver: User, tip) -> None:
         """
@@ -2000,16 +2032,29 @@ class HangoutBot(BaseBot):
 
     async def on_whisper(self, user: User, message: str) -> None:
         """
-        Debug hook — overriding BaseBot adds whisper to 'chat' subscription.
-        Whispers do not go through on_chat; this is the dedicated handler.
+        Dedicated whisper handler. Auto-subscribes the whispering player to
+        notifications (if tip_auto_sub is ON and they haven't manually unsubbed).
         Does NOT process bot commands (whispers are not a command surface).
         """
         raw = f"from=@{user.username}({user.id}) message={message[:60]!r}"
         record_debug_any_event("on_whisper", raw)
-        # Log whispers silently; only print if gold/tip related
         msg_lower = message.lower()
         if any(kw in msg_lower for kw in ("gold", "tip", "coin")):
             print(f"DEBUG EVENT FIRED: on_whisper | {raw}")
+
+        # Auto-subscribe whisperer (respects manually_unsubscribed flag)
+        try:
+            newly_subbed = db.auto_subscribe_whisper(
+                user.username, user.id
+            )
+            if newly_subbed:
+                await self.highrise.send_whisper(
+                    user.id,
+                    "✅ Alerts subscribed. Use /notifysettings to choose alerts."
+                )
+                print(f"[WHISPER] @{user.username} auto-subscribed from whisper.")
+        except Exception as exc:
+            print(f"[WHISPER] auto-subscribe error: {exc!r}")
 
 
 # ---------------------------------------------------------------------------

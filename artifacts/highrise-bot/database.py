@@ -647,6 +647,53 @@ def init_db():
         )
     """)
 
+    # ── Notification preferences ───────────────────────────────────────────
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS notification_preferences (
+            username              TEXT PRIMARY KEY,
+            bank_alerts           INTEGER NOT NULL DEFAULT 1,
+            event_alerts          INTEGER NOT NULL DEFAULT 1,
+            gold_alerts           INTEGER NOT NULL DEFAULT 1,
+            vip_alerts            INTEGER NOT NULL DEFAULT 1,
+            casino_alerts         INTEGER NOT NULL DEFAULT 1,
+            quest_alerts          INTEGER NOT NULL DEFAULT 1,
+            shop_alerts           INTEGER NOT NULL DEFAULT 1,
+            announcement_alerts   INTEGER NOT NULL DEFAULT 1,
+            staff_alerts          INTEGER NOT NULL DEFAULT 1,
+            dm_alerts             INTEGER NOT NULL DEFAULT 1,
+            room_whisper_alerts   INTEGER NOT NULL DEFAULT 1
+        )
+    """)
+
+    # ── Notification audit log ─────────────────────────────────────────────
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS notification_logs (
+            id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp         TEXT NOT NULL DEFAULT (datetime('now')),
+            username          TEXT NOT NULL DEFAULT '',
+            notification_type TEXT NOT NULL DEFAULT '',
+            channel           TEXT NOT NULL DEFAULT '',
+            message           TEXT NOT NULL DEFAULT '',
+            status            TEXT NOT NULL DEFAULT '',
+            error_message     TEXT NOT NULL DEFAULT ''
+        )
+    """)
+
+    # ── Pending typed notifications (per-type, separate from broadcasts) ───
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS pending_notifications (
+            id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            receiver_username TEXT NOT NULL,
+            notification_type TEXT NOT NULL DEFAULT 'general',
+            message           TEXT NOT NULL,
+            created_at        TEXT NOT NULL DEFAULT (datetime('now')),
+            delivered         INTEGER NOT NULL DEFAULT 0,
+            delivered_at      TEXT,
+            delivery_attempts INTEGER NOT NULL DEFAULT 0,
+            last_error        TEXT
+        )
+    """)
+
     conn.commit()
     conn.close()
     _migrate_db()
@@ -684,7 +731,11 @@ def _migrate_db():
         "ALTER TABLE rbj_settings ADD COLUMN rbj_loss_limit_enabled INTEGER NOT NULL DEFAULT 1",
         "ALTER TABLE bank_notifications ADD COLUMN delivery_attempts INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE bank_notifications ADD COLUMN last_error        TEXT",
-        "ALTER TABLE subscriber_users   ADD COLUMN auto_subscribed_from_tip INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE subscriber_users   ADD COLUMN auto_subscribed_from_tip       INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE subscriber_users   ADD COLUMN unsubscribed_at                TEXT",
+        "ALTER TABLE subscriber_users   ADD COLUMN auto_subscribed_from_dm        INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE subscriber_users   ADD COLUMN auto_subscribed_from_whisper   INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE subscriber_users   ADD COLUMN manually_unsubscribed          INTEGER NOT NULL DEFAULT 0",
     ]:
         try:
             conn.execute(sql)
@@ -3924,3 +3975,267 @@ def get_pending_notifications_for_staff(username: str) -> list[dict]:
     ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Notification preferences
+# ---------------------------------------------------------------------------
+
+_DEFAULT_PREFS: dict = {
+    "bank_alerts": 1, "event_alerts": 1, "gold_alerts": 1,
+    "vip_alerts": 1, "casino_alerts": 1, "quest_alerts": 1,
+    "shop_alerts": 1, "announcement_alerts": 1, "staff_alerts": 1,
+    "dm_alerts": 1, "room_whisper_alerts": 1,
+}
+
+
+def ensure_notify_prefs(username: str) -> None:
+    """Create default notification preferences row if not present."""
+    uname = username.lower().lstrip("@").strip()
+    conn = get_connection()
+    conn.execute(
+        "INSERT OR IGNORE INTO notification_preferences (username) VALUES (?)", (uname,)
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_notify_prefs(username: str) -> dict:
+    """Return notification prefs dict for *username*. Returns all-ON defaults if missing."""
+    uname = username.lower().lstrip("@").strip()
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT * FROM notification_preferences WHERE username = ?", (uname,)
+    ).fetchone()
+    conn.close()
+    if row:
+        return dict(row)
+    return {"username": uname, **_DEFAULT_PREFS}
+
+
+def set_notify_pref(username: str, column: str, value: int) -> None:
+    """Set a single notification preference column (must be a valid column name)."""
+    _VALID = {
+        "bank_alerts", "event_alerts", "gold_alerts", "vip_alerts",
+        "casino_alerts", "quest_alerts", "shop_alerts", "announcement_alerts",
+        "staff_alerts", "dm_alerts", "room_whisper_alerts",
+    }
+    if column not in _VALID:
+        raise ValueError(f"Invalid pref column: {column!r}")
+    uname = username.lower().lstrip("@").strip()
+    conn = get_connection()
+    conn.execute(
+        f"INSERT OR IGNORE INTO notification_preferences (username) VALUES (?)", (uname,)
+    )
+    conn.execute(
+        f"UPDATE notification_preferences SET {column} = ? WHERE username = ?",
+        (value, uname),
+    )
+    conn.commit()
+    conn.close()
+
+
+def set_all_notify_prefs(username: str, value: int) -> None:
+    """Set all notification preference columns to *value* (0 or 1)."""
+    uname = username.lower().lstrip("@").strip()
+    conn = get_connection()
+    conn.execute(
+        "INSERT OR IGNORE INTO notification_preferences (username) VALUES (?)", (uname,)
+    )
+    conn.execute(
+        """UPDATE notification_preferences
+           SET bank_alerts=?, event_alerts=?, gold_alerts=?, vip_alerts=?,
+               casino_alerts=?, quest_alerts=?, shop_alerts=?,
+               announcement_alerts=?, staff_alerts=?, dm_alerts=?,
+               room_whisper_alerts=?
+           WHERE username=?""",
+        (value,) * 11 + (uname,),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_notify_stats() -> dict:
+    """Return aggregate subscriber stats for /notifystats."""
+    conn = get_connection()
+    total = conn.execute(
+        "SELECT COUNT(*) FROM subscriber_users"
+    ).fetchone()[0]
+    dm_connected = conn.execute(
+        "SELECT COUNT(*) FROM subscriber_users WHERE subscribed=1 AND dm_available=1 AND conversation_id IS NOT NULL"
+    ).fetchone()[0]
+    unsubscribed = conn.execute(
+        "SELECT COUNT(*) FROM subscriber_users WHERE subscribed=0"
+    ).fetchone()[0]
+    pending = conn.execute(
+        "SELECT COUNT(*) FROM pending_notifications WHERE delivered=0"
+    ).fetchone()[0]
+    pending += conn.execute(
+        "SELECT COUNT(*) FROM pending_subscriber_messages WHERE delivered=0"
+    ).fetchone()[0]
+    conn.close()
+    return {
+        "total": total,
+        "dm_connected": dm_connected,
+        "unsubscribed": unsubscribed,
+        "pending": pending,
+    }
+
+
+def set_subscriber_manually_unsubscribed(username: str, value: bool) -> None:
+    """Set manually_unsubscribed flag and record unsubscribed_at timestamp."""
+    uname = username.lower().lstrip("@").strip()
+    conn = get_connection()
+    if value:
+        conn.execute(
+            """UPDATE subscriber_users
+               SET manually_unsubscribed = 1, unsubscribed_at = datetime('now')
+               WHERE username = ?""",
+            (uname,),
+        )
+    else:
+        conn.execute(
+            "UPDATE subscriber_users SET manually_unsubscribed = 0 WHERE username = ?",
+            (uname,),
+        )
+    conn.commit()
+    conn.close()
+
+
+def auto_subscribe_whisper(username: str, user_id: str) -> bool:
+    """
+    Auto-subscribe a user from a whisper event.
+    Respects manually_unsubscribed + tip_resubscribe setting.
+    Returns True if the user was newly subscribed.
+    """
+    uname = username.lower().lstrip("@").strip()
+    conn = get_connection()
+    existing = conn.execute(
+        "SELECT subscribed, manually_unsubscribed FROM subscriber_users WHERE username = ?",
+        (uname,)
+    ).fetchone()
+    conn.close()
+
+    if existing:
+        if existing["manually_unsubscribed"]:
+            return False
+        if existing["subscribed"]:
+            upsert_subscriber(uname, user_id)
+            return False
+
+    upsert_subscriber(uname, user_id)
+    set_subscribed(uname, True)
+    conn2 = get_connection()
+    conn2.execute(
+        "UPDATE subscriber_users SET auto_subscribed_from_whisper = 1 WHERE username = ?",
+        (uname,),
+    )
+    conn2.commit()
+    conn2.close()
+    ensure_notify_prefs(uname)
+    return True
+
+
+# ---------------------------------------------------------------------------
+# Pending notifications (typed, per-notification-type)
+# ---------------------------------------------------------------------------
+
+def add_pending_notification(
+    receiver_username: str, notification_type: str, message: str
+) -> None:
+    """Queue a typed notification for later delivery."""
+    conn = get_connection()
+    conn.execute(
+        """INSERT INTO pending_notifications
+               (receiver_username, notification_type, message)
+           VALUES (?, ?, ?)""",
+        (receiver_username.lower().strip(), notification_type, message[:249]),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_pending_notifications(username: str) -> list[dict]:
+    """Return all undelivered pending_notifications for *username*."""
+    conn = get_connection()
+    rows = conn.execute(
+        """SELECT * FROM pending_notifications
+           WHERE receiver_username = ? AND delivered = 0
+           ORDER BY created_at ASC""",
+        (username.lower().strip(),),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def mark_pending_notification_delivered(notif_id: int) -> None:
+    """Mark a pending_notification as delivered."""
+    conn = get_connection()
+    conn.execute(
+        """UPDATE pending_notifications
+           SET delivered=1, delivered_at=datetime('now')
+           WHERE id=?""",
+        (notif_id,),
+    )
+    conn.commit()
+    conn.close()
+
+
+def mark_pending_notification_failed(notif_id: int, error: str) -> None:
+    """Increment attempts and store error for a pending_notification."""
+    conn = get_connection()
+    conn.execute(
+        """UPDATE pending_notifications
+           SET delivery_attempts = delivery_attempts + 1, last_error = ?
+           WHERE id = ?""",
+        (str(error)[:200], notif_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+def mark_all_pending_notifications_read(username: str) -> None:
+    """Mark all pending_notifications for *username* as delivered (cleared)."""
+    conn = get_connection()
+    conn.execute(
+        """UPDATE pending_notifications
+           SET delivered=1, delivered_at=datetime('now')
+           WHERE receiver_username=? AND delivered=0""",
+        (username.lower().strip(),),
+    )
+    conn.commit()
+    conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Notification audit log
+# ---------------------------------------------------------------------------
+
+def log_notification(
+    username: str,
+    notification_type: str,
+    channel: str,
+    message: str,
+    status: str,
+    error_message: str = "",
+) -> None:
+    """Insert one row into notification_logs."""
+    try:
+        conn = get_connection()
+        conn.execute(
+            """INSERT INTO notification_logs
+                   (username, notification_type, channel, message, status, error_message)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (
+                username.lower().strip(),
+                notification_type,
+                channel,
+                message[:249],
+                status,
+                (error_message or "")[:200],
+            ),
+        )
+        conn.commit()
+        conn.close()
+    except Exception as exc:
+        print(f"[DB] log_notification error: {exc!r}")

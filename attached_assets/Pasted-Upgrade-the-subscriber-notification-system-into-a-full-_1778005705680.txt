@@ -1,0 +1,536 @@
+Upgrade the subscriber notification system into a full notification preferences system.
+
+Goal:
+Players should automatically become subscribed and DM-connected when they:
+- tip the bot
+- whisper the bot
+- DM the bot
+- use /subscribe
+
+Players can choose which notifications they want ON or OFF.
+
+IMPORTANT:
+- Do not remove existing features.
+- Keep bank, casino, events, gold, VIP, staff roles, shop, quests, reputation, and profiles.
+- Use SQLite.
+- Keep every Highrise message under 250 characters.
+- Respect unsubscribe preferences.
+- Prevent crashes from bad inputs.
+
+==================================================
+PART 1: AUTO SUBSCRIBE + DM CONNECT
+==================================================
+
+Auto-subscribe players when:
+
+1. Player tips the bot
+- Mark subscribed = true.
+- Save username and user_id.
+- If conversation_id exists, set dm_available = true.
+- If no conversation_id exists, set dm_available = false.
+- Message:
+"✅ Alerts subscribed. DM me 'subscribe' for outside-room alerts."
+
+2. Player whispers the bot
+- Mark subscribed = true.
+- Save username and user_id.
+- If whisper provides conversation_id, save it.
+- If not, keep dm_available based on available data.
+- Message:
+"✅ Alerts subscribed. Use /notifysettings to choose alerts."
+
+3. Player DMs the bot
+- Save conversation_id.
+- Mark subscribed = true.
+- Set dm_available = true.
+- Reply:
+"✅ Subscribed. Outside-room alerts are ON. Use notifysettings to choose alerts."
+
+4. Player uses /subscribe
+- Mark subscribed = true.
+- If DM conversation exists, dm_available = true.
+- If no DM conversation exists, tell them:
+"✅ Subscribed. DM me 'subscribe' for outside-room alerts."
+
+Unsubscribe:
+If player sends in DM or room:
+- unsubscribe
+- unsub
+- stop
+- stop alerts
+- optout
+- opt out
+- /unsubscribe
+
+Set subscribed = false.
+Keep conversation_id saved.
+Reply:
+"✅ Unsubscribed. All bot alerts are OFF."
+
+Do not auto-resubscribe users who manually unsubscribed unless:
+- They use /subscribe again, OR
+- setting auto_resubscribe_after_tip is ON.
+
+Default:
+auto_resubscribe_after_tip = OFF.
+
+==================================================
+PART 2: DATABASE
+==================================================
+
+Create or update subscriber_users table:
+
+subscriber_users:
+- username TEXT PRIMARY KEY
+- user_id TEXT
+- conversation_id TEXT
+- subscribed INTEGER DEFAULT 1
+- dm_available INTEGER DEFAULT 0
+- subscribed_at TEXT
+- unsubscribed_at TEXT
+- last_dm_at TEXT
+- last_seen_at TEXT
+- auto_subscribed_from_tip INTEGER DEFAULT 0
+- auto_subscribed_from_dm INTEGER DEFAULT 0
+- auto_subscribed_from_whisper INTEGER DEFAULT 0
+- manually_unsubscribed INTEGER DEFAULT 0
+
+Create notification_preferences table:
+
+notification_preferences:
+- username TEXT PRIMARY KEY
+- bank_alerts INTEGER DEFAULT 1
+- event_alerts INTEGER DEFAULT 1
+- gold_alerts INTEGER DEFAULT 1
+- vip_alerts INTEGER DEFAULT 1
+- casino_alerts INTEGER DEFAULT 1
+- quest_alerts INTEGER DEFAULT 1
+- shop_alerts INTEGER DEFAULT 1
+- announcement_alerts INTEGER DEFAULT 1
+- staff_alerts INTEGER DEFAULT 1
+- dm_alerts INTEGER DEFAULT 1
+- room_whisper_alerts INTEGER DEFAULT 1
+
+Meaning:
+- bank_alerts: coin received, bank transfer, pending deposit
+- event_alerts: double XP, casino hour, auto events
+- gold_alerts: gold rain, gold refund, gold tip notices
+- vip_alerts: VIP gold rain, VIP events
+- casino_alerts: BJ/RBJ table reminders, casino limits, casino events
+- quest_alerts: completed quests, weekly rewards
+- shop_alerts: shop sale, new items, VIP shop
+- announcement_alerts: owner/admin announcements
+- staff_alerts: staff-only alerts
+- dm_alerts: allow outside-room DM messages
+- room_whisper_alerts: allow room whispers
+
+Create notification_logs table:
+
+notification_logs:
+- id INTEGER PRIMARY KEY AUTOINCREMENT
+- timestamp TEXT
+- username TEXT
+- notification_type TEXT
+- channel TEXT
+  Values: room, whisper, dm, pending
+- message TEXT
+- status TEXT
+  Values: sent, pending, skipped, failed
+- error_message TEXT
+
+Create pending_notifications table if missing:
+
+pending_notifications:
+- id INTEGER PRIMARY KEY AUTOINCREMENT
+- receiver_username TEXT
+- notification_type TEXT
+- message TEXT
+- created_at TEXT
+- delivered INTEGER DEFAULT 0
+- delivered_at TEXT
+- delivery_attempts INTEGER DEFAULT 0
+- last_error TEXT
+
+==================================================
+PART 3: PLAYER COMMANDS
+==================================================
+
+Add commands:
+- /subscribe
+- /unsubscribe
+- /substatus
+- /notifysettings
+- /notifyhelp
+- /notify <type> on
+- /notify <type> off
+- /notify all on
+- /notify all off
+- /notifications
+- /clearnotifications
+
+/notifysettings:
+Shows short preference summary.
+
+Example:
+"🔔 Alerts: Bank ON | Events ON | Gold ON | VIP ON | Announce ON"
+
+/notifysettings 2:
+"🔔 More: Casino ON | Quests ON | Shop ON | DM ON | Whisper ON"
+
+/notifyhelp:
+"🔔 Notify
+/notifysettings
+/notify bank on/off
+/notify events on/off
+/notify gold on/off
+/notify all on/off"
+
+/notify <type> on/off:
+Supported types:
+- bank
+- events
+- gold
+- vip
+- casino
+- quests
+- shop
+- announcements
+- staff
+- dm
+- whisper
+- all
+
+Examples:
+- /notify bank off
+- /notify events on
+- /notify gold off
+- /notify all on
+- /notify all off
+
+/substatus:
+Show:
+"Subscribed: YES | DM: YES | Bank ON | Events ON"
+or
+"Subscribed: NO"
+
+/notifications:
+Shows pending or recent notifications for the user.
+
+/clearnotifications:
+Marks pending notifications as read/delivered.
+
+==================================================
+PART 4: STAFF COMMANDS
+==================================================
+
+Add staff commands:
+- /notifystats
+- /notifyprefs <username>
+- /notifyuser <username> <type> on/off
+- /broadcasttest <type>
+
+Permissions:
+- /notifystats owner/admin/manager only
+- /notifyprefs owner/admin/manager only
+- /notifyuser owner/admin only
+- /broadcasttest owner/admin only
+
+/notifystats:
+Shows:
+- total subscribers
+- DM connected count
+- unsubscribed count
+- pending notifications count
+
+Example:
+"🔔 Subs: 42 | DM: 30 | Off: 5 | Pending: 12"
+
+/notifyprefs <username>:
+Shows that player's notification settings.
+
+/notifyuser <username> <type> on/off:
+Admin/owner can change a user's notification preference if needed.
+
+/broadcasttest <type>:
+Sends a small test to subscribed users of that notification type.
+Example:
+/broadcasttest events
+Message:
+"Test event alert."
+
+==================================================
+PART 5: DELIVERY LOGIC
+==================================================
+
+Create helper function:
+send_notification(username, notification_type, message, prefer_dm=True)
+
+It should:
+
+1. Normalize username:
+- remove @
+- trim spaces
+- case-insensitive lookup
+
+2. Check subscriber_users:
+- If subscribed = false, skip.
+- If notification type preference is OFF, skip.
+- If notification type is staff and user is not staff, skip.
+
+3. Choose delivery channel:
+- If dm_alerts ON and conversation_id exists and dm_available = true:
+  send outside-room DM.
+- Else if user is currently in room and room_whisper_alerts ON:
+  send whisper/private room message.
+- Else:
+  save to pending_notifications.
+
+4. Add unsubscribe footer only to DMs:
+"Stop alerts: reply unsubscribe."
+
+5. Keep messages under 250 characters.
+If too long, shorten main message first.
+
+6. Log all attempts in notification_logs.
+
+==================================================
+PART 6: NOTIFICATION TYPES
+==================================================
+
+Use these notification_type names:
+
+bank:
+- coin received
+- bank transfer received
+- pending bank deposits
+
+events:
+- event started
+- event ended
+- auto event started
+
+gold:
+- gold rain received
+- gold refund
+- gold tip sent/received
+
+vip:
+- VIP gold rain
+- VIP event
+- VIP status changed
+
+casino:
+- casino hour
+- BJ/RBJ table reminders
+- casino settings changes if staff
+
+quests:
+- quest completed
+- weekly chest available
+
+shop:
+- shop sale
+- new title/badge
+- VIP shop updates
+
+announcements:
+- /announce_subs
+- owner/admin broadcast
+
+staff:
+- staff alerts only
+
+==================================================
+PART 7: INTEGRATION WITH EXISTING SYSTEMS
+==================================================
+
+Bank:
+When user receives coins:
+send_notification(receiver, "bank", "🏦 You received 950c from @Marion. Use /transactions.")
+
+If no DM/whisper possible:
+save pending.
+
+Events:
+When event starts:
+send_notification(user, "events", "🎉 Double XP started for 30m!")
+
+Gold rain:
+When player receives gold rain:
+send_notification(user, "gold", "🌧️ You received 10g from Gold Rain!")
+
+VIP gold rain:
+Use type vip:
+send_notification(user, "vip", "💎 VIP Gold Rain: you received 10g!")
+
+Announcements:
+Update /announce_subs:
+- Send only to users with announcement_alerts ON.
+- Use send_notification type "announcements".
+
+Staff announcements:
+Update /announce_staff:
+- Send only to staff with staff_alerts ON.
+- Use notification_type "staff".
+
+Quest completion:
+If quest is completed:
+send_notification(user, "quests", "🏆 Quest ready! Use /claimquest.")
+
+Shop sale:
+If shop_sale event starts:
+send_notification(user, "shop", "🛒 Shop Sale active: 20% off!")
+
+Casino:
+If casino_hour starts:
+send_notification(user, "casino", "🎰 Casino Hour started!")
+
+==================================================
+PART 8: PENDING DELIVERY
+==================================================
+
+Deliver pending notifications when:
+- user joins room
+- user chats in room
+- user DMs the bot
+
+On delivery:
+- Check their preferences again.
+- If still allowed, send.
+- If preference now OFF or unsubscribed, mark skipped or leave undelivered with status skipped.
+- Mark delivered only after successful send.
+
+If multiple pending notifications:
+- Combine if possible:
+"🔔 You have 3 alerts. Use /notifications."
+- Or send latest 3.
+
+==================================================
+PART 9: DM HANDLER FIX
+==================================================
+
+Fix DM handler so it processes:
+- subscribe
+- /subscribe
+- 'subscribe'
+- "subscribe"
+- unsubscribe
+- /unsubscribe
+- stop
+- opt out
+
+Normalize:
+- lowercase
+- trim
+- remove quotes
+- remove leading slash
+
+If message is subscribe:
+- save conversation_id
+- set subscribed = true
+- set dm_available = true
+- set manually_unsubscribed = false
+- create default notification preferences if missing
+
+If message is unsubscribe:
+- set subscribed = false
+- set manually_unsubscribed = true
+
+If message is anything else:
+- If subscribed, reply:
+"✅ Alerts ON. Use notifysettings to choose alerts."
+- If not subscribed:
+"Reply subscribe for alerts, or unsubscribe to opt out."
+
+==================================================
+PART 10: SETTINGS
+==================================================
+
+Add owner/admin settings:
+- /settipautosub on/off
+- /settipresubscribe on/off
+
+Defaults:
+- tip_auto_subscribe = ON
+- tip_resubscribe = OFF
+
+Behavior:
+- If tip_auto_subscribe ON, tipping bot subscribes player.
+- If tip_resubscribe OFF and user manually unsubscribed, do not auto subscribe them from tip.
+
+==================================================
+PART 11: HELP UPDATE
+==================================================
+
+Update /subhelp:
+"🔔 Subscribe
+/subscribe
+/unsubscribe
+/substatus
+/notifysettings
+/notify <type> on/off"
+
+Update /subhelp 2:
+"Types:
+bank events gold vip
+casino quests shop
+announcements dm whisper"
+
+/bankhelp:
+Add:
+"Bank alerts: /notify bank on/off"
+
+/eventhelp:
+Add:
+"Event alerts: /notify events on/off"
+
+/goldhelp:
+Add:
+"Gold alerts: /notify gold on/off"
+
+==================================================
+PART 12: TESTS
+==================================================
+
+Test:
+1. Player DMs bot:
+subscribe
+Expected:
+"Subscribed. Outside-room alerts are ON."
+
+2. Player checks:
+/substatus
+/notifysettings
+
+3. Player turns off bank:
+/notify bank off
+
+4. Someone sends them coins.
+Expected:
+No bank DM if bank OFF.
+
+5. Player turns bank back on:
+/notify bank on
+
+6. Send coins again.
+Expected:
+Bank notification sent or pending.
+
+7. Player turns all off:
+/notify all off
+Expected:
+No alerts except direct command responses.
+
+8. Player tips bot.
+Expected:
+Auto subscribe only if they did not manually unsubscribe.
+
+9. Owner sends:
+/announce_subs test
+Expected:
+Only subscribed users with announcement alerts ON get it.
+
+10. User DMs:
+unsubscribe
+Expected:
+All alerts OFF.
