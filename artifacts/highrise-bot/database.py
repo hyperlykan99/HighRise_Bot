@@ -465,6 +465,7 @@ def init_db():
         ("poker_buyin_to_pot",     "0"),
         ("raise_limit_enabled",    "1"),
         ("allin_enabled",          "1"),
+        ("buyin_limit_enabled",    "0"),
     ]:
         conn.execute(
             "INSERT OR IGNORE INTO poker_settings (key, value) VALUES (?, ?)",

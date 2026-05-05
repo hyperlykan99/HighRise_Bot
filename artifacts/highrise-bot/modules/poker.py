@@ -1044,11 +1044,15 @@ async def _handle_join(bot: BaseBot, user: User, args: list[str]) -> None:
     max_pl  = _s("max_players", 6)
     lob_sec = _s("lobby_countdown", 15)
 
-    if buyin < min_b:
-        await _w(bot, user.id, f"Min buy-in is {min_b}c.")
-        return
-    if buyin > max_b:
-        await _w(bot, user.id, f"Max buy-in is {max_b:,}c.")
+    if _s("buyin_limit_enabled", 0):
+        if buyin < min_b:
+            await _w(bot, user.id, f"Min buy-in is {min_b}c.")
+            return
+        if buyin > max_b:
+            await _w(bot, user.id, f"Max buy-in is {max_b:,}c.")
+            return
+    elif buyin < 1:
+        await _w(bot, user.id, "Buy-in must be at least 1c.")
         return
 
     err = _check_daily_limits(user.username, buyin)
@@ -1291,18 +1295,17 @@ async def _dispatch(bot: BaseBot, user: User, args: list[str]) -> None:
 
     if sub == "limits":
         min_b  = _s("min_buyin", 100);  max_b = _s("max_buyin", 5000)
+        bl_on  = "ON" if _s("buyin_limit_enabled", 0) else "OFF"
         min_r  = _s("min_raise", 50);   max_r = _s("max_raise", 1000)
         rl_on  = _s("raise_limit_enabled", 1)
         wl     = _s("table_daily_win_limit", 10000)
         ll     = _s("table_daily_loss_limit", 5000)
         we     = "ON" if _s("win_limit_enabled", 1) else "OFF"
         le     = "ON" if _s("loss_limit_enabled", 1) else "OFF"
-        if rl_on:
-            raise_str = f"Raise {min_r}-{max_r}c ON"
-        else:
-            raise_str = "Raise limit OFF"
+        raise_str = f"Raise {min_r}-{max_r}c ON" if rl_on else "Raise limit OFF"
         await _w(bot, user.id,
-                 f"♠️ Buy {min_b}-{max_b}c | {raise_str} | W/L {wl}/{ll} {we}/{le}")
+                 f"♠️ Buy {min_b}-{max_b}c {bl_on} | {raise_str} | "
+                 f"W/L {wl}/{ll} {we}/{le}")
         return
 
     if sub == "players":
@@ -1387,6 +1390,20 @@ async def _dispatch(bot: BaseBot, user: User, args: list[str]) -> None:
 
     if sub == "leave":
         await _handle_leave(bot, user)
+        return
+
+    # ── /poker buyinlimit on|off ──────────────────────────────────────────────
+    if sub == "buyinlimit" and len(args) >= 3 and args[2].lower() in ("on", "off"):
+        if not can_manage_games(user.username):
+            await _w(bot, user.id, "Managers+ only.")
+            return
+        val = args[2].lower()
+        if val == "on":
+            _set("buyin_limit_enabled", 1)
+            await _w(bot, user.id, "✅ Poker buy-in limit ON.")
+        else:
+            _set("buyin_limit_enabled", 0)
+            await _w(bot, user.id, "⛔ Poker buy-in limit OFF.")
         return
 
     # ── /poker allin on|off (settings toggle — checked BEFORE betting block) ─
@@ -1482,9 +1499,10 @@ async def _dispatch(bot: BaseBot, user: User, args: list[str]) -> None:
             min_p = _s("min_players", 2);  max_p = _s("max_players", 6)
             lc    = _s("lobby_countdown", 15)
             min_b = _s("min_buyin", 100);  max_b = _s("max_buyin", 5000)
+            bl_on = "ON" if _s("buyin_limit_enabled", 0) else "OFF"
             await _w(bot, user.id,
                      f"♠️ Poker 2 | Lobby {lc}s | Players {min_p}-{max_p} | "
-                     f"Buy {min_b}-{max_b}c")
+                     f"Buy {min_b}-{max_b}c ({bl_on})")
         else:
             en    = "ON" if _s("poker_enabled", 1) else "OFF"
             ai_on = "ON" if _s("allin_enabled", 1) else "OFF"
@@ -1670,7 +1688,7 @@ async def handle_setpokerbuyin(bot: BaseBot, user: User, args: list[str]) -> Non
     if mx < mn:
         await _w(bot, user.id, "Max must be >= min."); return
     _set("min_buyin", mn); _set("max_buyin", mx)
-    await _w(bot, user.id, f"✅ Poker buy-in set: {mn}-{mx}c")
+    await _w(bot, user.id, f"✅ Poker buy-in set: {mn}-{mx}c.")
 
 
 async def handle_setpokerplayers(bot: BaseBot, user: User, args: list[str]) -> None:
