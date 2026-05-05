@@ -79,6 +79,8 @@ def decompose_gold(amount: int) -> Optional[list[str]]:
 _room_cache: dict[str, tuple[str, str]] = {}
 _bot_user_id: str = ""
 _bot_username: str = ""
+# Other bots discovered in room — excluded from gold rain targets
+_known_bot_ids: set[str] = set()
 
 
 def set_bot_identity(user_id: str, username: str = "") -> None:
@@ -115,11 +117,15 @@ async def refresh_room_cache(bot) -> None:
         print(f"[GOLD] refresh_room_cache error: {exc}")
 
 
-def _get_eligible_players(include_staff: bool = False) -> list[tuple[str, str]]:
-    """Return [(user_id, username)] eligible for gold rain, excluding bot."""
+def _get_eligible_players(include_staff: bool = True) -> list[tuple[str, str]]:
+    """Return [(user_id, username)] eligible for gold rain.
+    Excludes: this bot, any other known bots, and (optionally) staff roles.
+    """
     result: list[tuple[str, str]] = []
     for _key, (uid, uname) in _room_cache.items():
         if uid == _bot_user_id:
+            continue
+        if uid in _known_bot_ids:
             continue
         if not include_staff:
             if (is_owner(uname) or is_admin(uname)
@@ -127,6 +133,16 @@ def _get_eligible_players(include_staff: bool = False) -> list[tuple[str, str]]:
                 continue
         result.append((uid, uname))
     return result
+
+
+def _register_bot_id(user_id: str, username: str) -> None:
+    """Mark a user as a bot so they are excluded from future gold rain targets."""
+    _known_bot_ids.add(user_id)
+    # Also evict from room cache so /goldraineligible doesn't show them
+    key = username.lower()
+    if key in _room_cache and _room_cache[key][0] == user_id:
+        del _room_cache[key]
+    print(f"[GOLD] Detected bot in room: @{username} (id={user_id}) — excluded from gold rain.")
 
 
 # ---------------------------------------------------------------------------
@@ -192,21 +208,29 @@ def _max_total() -> int:
 async def _send_gold_bars(bot, user_id: str, bars: list[str]) -> tuple[bool, str]:
     """
     Call tip_user once per bar.
-    Returns (True, "") on full success, or (False, reason) on first failure.
+    Returns (True, "")           — full success
+            (False, "insufficient_funds") — out of gold
+            (False, "bot_user")           — target is another bot (skip silently)
+            (False, <reason>)             — other failure
     """
     for bar in bars:
         try:
             result = await bot.highrise.tip_user(user_id, bar)
-            # result is "success" | "insufficient_funds" | Error object
             if result == "insufficient_funds":
                 return False, "insufficient_funds"
             if hasattr(result, "result") and result.result == "insufficient_funds":
                 return False, "insufficient_funds"
-            # Any other non-string Error object
+            # Detect "Bots can't tip other bots" from Error object or string
+            result_str = str(result)
+            if "can't tip other bots" in result_str.lower() or "bots can" in result_str.lower():
+                return False, "bot_user"
             if not isinstance(result, str):
-                return False, str(result)
+                return False, result_str
         except Exception as exc:
-            return False, str(exc)
+            exc_str = str(exc)
+            if "can't tip other bots" in exc_str.lower() or "bots can" in exc_str.lower():
+                return False, "bot_user"
+            return False, exc_str
     return True, ""
 
 
@@ -244,9 +268,13 @@ async def _execute_goldrain(
     action_type: str = "goldrain",
 ) -> None:
     batch_id = str(uuid.uuid4())[:8]
-    sent = failed = 0
+    sent = failed = skipped = 0
     for uid, uname in chosen:
         ok, err = await _send_gold_bars(bot, uid, bars)
+        if err == "bot_user":
+            _register_bot_id(uid, uname)
+            skipped += 1
+            continue
         status = "success" if ok else "failed"
         db.log_gold_tx(
             action_type, user.username, uname, uid,
@@ -262,6 +290,10 @@ async def _execute_goldrain(
                 f"[GOLD] {action_type} FAILED → @{uname} (id={uid}) "
                 f"amount={amount}g bars={bars} err={err!r}"
             )
+    real_targets = len(chosen) - skipped
+    if real_targets == 0:
+        await bot.highrise.send_whisper(user.id, "No eligible players to rain on (only bots found).")
+        return
     if failed:
         summary = f"🌧️ Gold rain done: {sent} sent, {failed} failed. Check console."
     else:
@@ -275,9 +307,13 @@ async def _execute_goldrainall(
     action_type: str = "goldrainall",
 ) -> None:
     batch_id = str(uuid.uuid4())[:8]
-    sent = failed = 0
+    sent = failed = skipped = 0
     for uid, uname in eligible:
         ok, err = await _send_gold_bars(bot, uid, bars)
+        if err == "bot_user":
+            _register_bot_id(uid, uname)
+            skipped += 1
+            continue
         status = "success" if ok else "failed"
         db.log_gold_tx(
             action_type, sender_username, uname, uid,

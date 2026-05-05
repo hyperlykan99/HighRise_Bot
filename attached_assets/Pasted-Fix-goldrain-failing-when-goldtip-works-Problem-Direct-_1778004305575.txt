@@ -1,0 +1,75 @@
+Fix /goldrain failing when /goldtip works.
+
+Problem:
+Direct gold tip works:
+/goldtip @angelkisses18 10
+✅ Sent 10g to @angelkisses18.
+
+But random gold rain fails:
+/goldrain 10
+Gold rain done: 0 sent, 1 failed. Check console.
+
+Goal:
+Make /goldrain use the exact same successful send function as /goldtip.
+
+Requirements:
+1. Find the function used by /goldtip that successfully sends gold.
+2. Use that same function for:
+   - /goldrain <amount>
+   - /goldrain <amount> <count>
+   - /goldrainall <amount>
+   - /goldrainvip <amount> [count]
+   - /goldrainrole <role> <amount> [count]
+   - /goldraintitle <title_id> <amount> [count]
+   - /goldrainbadge <badge_id> <amount> [count]
+
+3. Do not use a separate broken batch tip method.
+
+4. Fix room player selection:
+   - /goldrain 10 should randomly choose 1 eligible player currently in the room.
+   - Exclude the bot.
+   - Do not exclude moderators by default.
+   - Default goldrain_include_staff = true.
+   - If only @angelkisses18 is eligible, /goldrain 10 should select @angelkisses18.
+
+5. Use the same user object/user_id that /goldtip uses.
+   - If /goldtip can find @angelkisses18, /goldrain should also be able to find @angelkisses18.
+   - Normalize usernames: remove @, trim spaces, case-insensitive.
+
+6. Add /goldraineligible.
+   - Shows eligible players currently in room.
+   - Example: "Eligible: @angelkisses18"
+   - If none: "No eligible players found."
+
+7. Remove confirmation for gold rain.
+   - Owner only commands do not need confirmation.
+   - /goldrain 10 should send immediately.
+   - /goldrainall 10 should send immediately.
+   - /goldrainvip 10 should send immediately.
+   - Keep /confirmgoldtip only for old pending direct confirmations if still needed.
+
+8. Add detailed console logging for failed goldrain sends:
+   - selected username
+   - selected user_id
+   - amount
+   - gold bar denominations
+   - action type
+   - exact exception/error
+
+9. Chat messages:
+   - If success: "🌧️ Gold rain done: 1 sent, 0 failed."
+   - If failed: "🌧️ Gold rain done: 0 sent, 1 failed. Check console."
+
+10. Log every goldrain attempt in gold_transactions:
+   - action_type = goldrain
+   - receiver_username
+   - receiver_user_id
+   - amount_gold
+   - status completed/failed
+   - error_message if failed
+
+Safety:
+- Only owners can use real gold rain.
+- Admins/managers/mods cannot send real gold.
+- Keep every message under 250 characters.
+- Do not crash if one player fails.
