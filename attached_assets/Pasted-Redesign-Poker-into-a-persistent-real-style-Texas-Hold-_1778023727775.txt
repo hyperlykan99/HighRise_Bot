@@ -1,0 +1,594 @@
+Redesign Poker into a persistent real-style Texas Hold’em table.
+
+GOAL:
+Make poker feel more like a real poker table.
+
+Current system:
+- Players join one poker hand.
+- Hand ends.
+- Table clears.
+
+New system:
+- Players sit at the poker table with a buy-in stack.
+- The poker table stays active across multiple hands.
+- Players keep playing until they leave, sit out, or their table stack reaches 0.
+- Small blind and big blind are posted each hand.
+- Dealer button rotates.
+- Bot must save the current poker table if the bot crashes/restarts.
+- Bot must show players’ table stacks/balances every round so everyone can track chips.
+
+IMPORTANT:
+- Do not remove existing features.
+- Keep coins, XP, bank, shop, BJ, RBJ, gold, VIP, notifications, reports, events, roles, and profiles.
+- Poker uses coins only.
+- Use SQLite.
+- Keep messages under 250 characters.
+- Prevent crashes from bad inputs.
+- Add explicit command routing before unknown-command fallback.
+- Poker must never deduct coins without saving state.
+- Poker must never lose an active table after crash/restart.
+
+==================================================
+PART 1: NEW POKER TABLE DESIGN
+==================================================
+
+Poker should become a persistent table.
+
+Player flow:
+1. Player joins table with /p <buyin>.
+2. Coins are deducted from wallet.
+3. Buy-in becomes their poker table stack.
+4. Table starts when enough seated players are ready.
+5. Hand plays.
+6. At hand end:
+   - winnings/losses update table stacks.
+   - players with stack > 0 stay seated.
+   - players with stack = 0 are busted and removed or marked busted.
+   - table starts next hand after a short delay.
+7. Table only closes when:
+   - fewer than min players remain, or
+   - staff cancels table, or
+   - everyone leaves/busts.
+
+Do NOT return unused stack after every hand.
+Only return stack when player leaves the table.
+
+Commands:
+- /p <buyin>
+- /poker join <buyin>
+- /poker leave
+- /poker sitout
+- /poker sitin
+- /poker table
+- /pt
+- /poker stacks
+- /pstacks
+- /poker hand
+- /ph
+- /poker odds
+- /po
+- /check
+- /call
+- /raise <amount>
+- /r <amount>
+- /fold
+- /f
+- /allin
+- /ai
+
+==================================================
+PART 2: PERSISTENT STACKS
+==================================================
+
+Create/update poker_seated_players table:
+
+poker_seated_players:
+- username TEXT PRIMARY KEY
+- user_id TEXT
+- table_stack INTEGER DEFAULT 0
+- buyin_total INTEGER DEFAULT 0
+- status TEXT
+  Values: seated, active, folded, allin, sitting_out, busted, left
+- seat_number INTEGER
+- joined_at TEXT
+- last_action_at TEXT
+- hands_played_at_table INTEGER DEFAULT 0
+
+Rules:
+- Wallet coins are deducted only when buying in.
+- Table stack is used for poker hands.
+- Player wins/losses affect table_stack, not wallet directly.
+- When player leaves:
+  - remaining table_stack is returned to wallet.
+  - remove from table or mark left.
+- If player table_stack reaches 0:
+  - mark busted.
+  - remove before next hand unless rebuy is enabled.
+
+Messages:
+"/p 1000" response:
+"♠️ @user joined Poker with 1000c stack."
+
+/poker leave:
+"👋 @user left Poker. Returned 850c."
+
+If stack is 0:
+"💀 @user busted out."
+
+==================================================
+PART 3: SMALL BLIND / BIG BLIND
+==================================================
+
+Add blinds.
+
+Default:
+- small_blind = 50
+- big_blind = 100
+- ante = 0
+- blinds_enabled = true
+- auto_start_next_hand = true
+- next_hand_delay = 10 seconds
+
+Settings commands:
+- /setpokerblinds <small> <big>
+- /setpokerante <amount>
+- /poker blinds on
+- /poker blinds off
+- /setpokernexthandtimer <seconds>
+
+Permissions:
+- Owner/admin/manager only.
+
+Validation:
+- small blind must be >= 1.
+- big blind must be >= small blind.
+- ante must be >= 0.
+- next hand timer must be 5 to 60 seconds.
+
+Messages:
+"/setpokerblinds 50 100"
+"✅ Poker blinds set: SB 50c | BB 100c."
+
+/poker settings should show:
+"♠️ Poker ON | Blinds 50/100 | Ante 0 | Next 10s"
+
+/poker limits should show:
+"♠️ Raise 50-1000c ON | W/L OFF/OFF"
+
+==================================================
+PART 4: DEALER BUTTON AND BLIND ROTATION
+==================================================
+
+Add dealer button rotation.
+
+Store in poker_active_table:
+- dealer_button_index INTEGER
+- small_blind_username TEXT
+- big_blind_username TEXT
+- hand_number INTEGER DEFAULT 0
+- next_hand_starts_at TEXT
+
+Hand start:
+1. Get seated players with table_stack > 0 and not sitting_out.
+2. Rotate dealer button each hand.
+3. Assign small blind to next active player after dealer.
+4. Assign big blind to next active player after small blind.
+5. Deduct blinds from table stacks.
+6. Add blinds to pot.
+7. Set current_bet = big blind.
+8. Deal hole cards.
+9. First action preflop starts after big blind.
+
+For 2-player heads-up:
+- Dealer is small blind.
+- Other player is big blind.
+- Small blind acts first preflop.
+- Big blind acts first after flop.
+
+Messages:
+"♠️ Hand #12 | Dealer @A | SB @B 50c | BB @C 100c"
+
+If player does not have enough for blind:
+- If all-in is enabled, post remaining stack as all-in blind.
+- If all-in disabled, mark busted/sitting out.
+
+==================================================
+PART 5: POT, STACKS, AND BALANCE DISPLAY
+==================================================
+
+Every hand start should show table stacks.
+
+Command:
+- /poker stacks
+- /pstacks
+
+Message:
+"Stacks: @A 1200c | @B 850c | @C 2300c"
+
+If too many:
+Paginate or show top/current active players only.
+
+At hand start, bot should send:
+"Stacks: @A 1200c | @B 850c | @C 2300c"
+
+At each betting round:
+"Flop A♠ 7♦ 2♣ | Pot 300c | To call 100c | Turn @A"
+
+At hand end:
+"🏆 @A wins 900c. Stack: 2100c."
+
+After hand end:
+"Next hand in 10s. Leave: /poker leave"
+
+==================================================
+PART 6: REBUY / ADD CHIPS
+==================================================
+
+Add optional rebuy system.
+
+Commands:
+- /poker rebuy <amount>
+- /rebuy <amount>
+- /poker addchips <amount>
+
+Rules:
+- Player can rebuy only between hands or while sitting out.
+- Deduct coins from wallet.
+- Add to table_stack.
+- Save immediately.
+- Cannot rebuy during active hand unless setting allows it.
+
+Settings:
+- /poker rebuy on/off
+- /setpokermaxstack <amount>
+- /poker maxstack on/off
+
+Defaults:
+- rebuy_enabled = true
+- max_stack_enabled = false
+- max_table_stack = 100000
+
+Messages:
+"✅ Rebuy complete. Stack: 5000c."
+
+If rebuy disabled:
+"Rebuy is disabled."
+
+==================================================
+PART 7: SIT OUT / SIT IN
+==================================================
+
+Add:
+- /poker sitout
+- /sitout
+- /poker sitin
+- /sitin
+
+Rules:
+- Sitting out means player stays seated but skips future hands.
+- If player sits out during active hand, they fold current hand.
+- Sitting out player keeps table_stack at table.
+- Sitting in means they rejoin next hand if they have stack > 0.
+
+Messages:
+"⏸️ @user is sitting out."
+"▶️ @user will join next hand."
+
+If all but one player sits out:
+- Finish current hand if needed.
+- Pause table until 2+ active players.
+
+==================================================
+PART 8: LEAVING TABLE
+==================================================
+
+/poker leave:
+- If no active hand:
+  - return table_stack to wallet
+  - remove player
+- If active hand:
+  - fold player immediately
+  - return uncommitted remaining stack after hand ends
+  - mark leaving_after_hand = true
+
+Add column:
+- leaving_after_hand INTEGER DEFAULT 0
+
+Message:
+"👋 @user will leave after this hand."
+
+After hand:
+"👋 @user left Poker. Returned 850c."
+
+==================================================
+PART 9: ACTIVE HAND VS ACTIVE TABLE
+==================================================
+
+Separate table state from hand state.
+
+poker_active_table:
+- active INTEGER
+- table_status TEXT
+  Values: idle, waiting, active_hand, between_hands, paused, recovery_required
+- hand_phase TEXT
+  Values: none, preflop, flop, turn, river, showdown
+- hand_number INTEGER
+- round_id TEXT
+- dealer_button_index INTEGER
+- small_blind_username TEXT
+- big_blind_username TEXT
+- deck_json TEXT
+- community_cards_json TEXT
+- pot INTEGER
+- side_pots_json TEXT
+- current_bet INTEGER
+- current_player_index INTEGER
+- action_timer_ends_at TEXT
+- next_hand_starts_at TEXT
+
+Important:
+- Table can stay active even when no hand is active.
+- Active hand resets each round.
+- Seated player stacks persist across hands.
+
+==================================================
+PART 10: CRASH / RESTART RECOVERY
+==================================================
+
+Poker must save and restore:
+- seated players
+- table stacks
+- sitout status
+- dealer button
+- small blind/big blind
+- current hand number
+- active round_id
+- hole cards
+- deck
+- board
+- pot
+- side pots
+- current bet
+- current player
+- all-in status
+- timers
+- next hand timer
+
+Save after every action:
+- join
+- leave
+- rebuy
+- sitout/sitin
+- blind posting
+- cards dealt
+- check/call/raise/fold/allin
+- phase change
+- hand end
+- stack update
+- next hand scheduled
+
+On bot startup/softrestart:
+- If table_status = active_hand:
+  - restore current hand exactly
+  - announce:
+"♻️ Poker restored. Table, stacks, and cards loaded."
+- If table_status = between_hands:
+  - restore seated players and next hand timer
+  - announce:
+"♻️ Poker table restored. Next hand soon."
+- If state corrupted:
+  - mark recovery_required
+  - do not delete stacks
+  - staff can use /poker recover or /poker refund
+
+Important:
+Never lose table stacks on crash.
+Never silently clear seated players.
+Never duplicate payouts.
+
+==================================================
+PART 11: STAFF RECOVERY
+==================================================
+
+Add/fix:
+- /poker state
+- /poker recover
+- /poker refund
+- /poker forcefinish
+- /poker close
+
+/poker state:
+"Poker active | Hand #12 Flop | Pot 900c | Turn @A | Seated 4"
+
+/poker recover:
+- reloads table from SQLite
+- continues hand or next hand timer
+
+/poker refund:
+- safely returns all table stacks to wallets
+- clears active table
+- logs reason poker_staff_refund
+
+/poker close:
+- closes table after current hand
+- no new hands start
+- returns stacks when safe
+
+/poker forcefinish:
+- attempts to finish current hand from saved state
+
+Permissions:
+- Owner/admin/manager only.
+
+==================================================
+PART 12: REALISTIC FEATURES TO ADD
+==================================================
+
+Add these realistic features if not already present:
+
+1. Auto-muck:
+- Do not reveal losing player cards at showdown unless needed.
+- Winner hand may be shown.
+
+2. Hand history:
+Commands:
+- /poker last
+- /pokerhistory
+Shows last hand result:
+"Last hand: @A won 900c with Two Pair."
+
+3. Table buy-in summary:
+At table start:
+"Buy-ins: @A 1000c | @B 1000c"
+
+4. Player stack command:
+- /mystack
+- /stack
+Shows:
+"Your poker stack: 1200c."
+
+5. Minimum players:
+- /setpokerminplayers <amount>
+Default 2.
+Validation 2-6.
+
+6. Max seats:
+- /setpokermaxplayers <amount>
+Default 6.
+Validation 2-9 if supported, otherwise 2-6.
+
+7. Blind warnings:
+If a player has less than big blind:
+"⚠️ @user is short-stacked."
+
+8. Auto-remove idle players:
+If player times out/folds 3 hands in a row, auto sit out.
+Setting:
+- /poker autositout on/off
+- /setpokeridlestrikes <amount>
+
+==================================================
+PART 13: COMMANDS SUMMARY
+==================================================
+
+Player commands:
+- /p <buyin> join table
+- /rebuy <amount>
+- /sitout
+- /sitin
+- /poker leave
+- /stack
+- /mystack
+- /pstacks
+- /pt
+- /ph
+- /po
+- /check
+- /call
+- /r <amount>
+- /fold
+- /ai
+- /plb
+- /poker last
+
+Staff settings:
+- /setpokerblinds <small> <big>
+- /setpokerante <amount>
+- /poker blinds on/off
+- /setpokernexthandtimer <seconds>
+- /poker rebuy on/off
+- /setpokermaxstack <amount>
+- /poker maxstack on/off
+- /setpokerminplayers <amount>
+- /setpokermaxplayers <amount>
+- /poker autositout on/off
+- /setpokeridlestrikes <amount>
+
+==================================================
+PART 14: HELP UPDATE
+==================================================
+
+Update /pokerhelp 1:
+"♠️ Poker
+Join: /p 1000
+Cards: /ph | Table: /pt
+/check /call /r 100 /fold /ai"
+
+Update /pokerhelp 2:
+"♠️ Table
+/stack
+/pstacks
+/rebuy <amt>
+/sitout
+/sitin
+/poker leave"
+
+Update /pokerhelp 3 staff:
+"♠️ Poker Staff
+/setpokerblinds SB BB
+/setpokerante <amt>
+/poker blinds on/off
+/setpokernexthandtimer <sec>"
+
+Update /pokerhelp 4 staff:
+"♠️ Staff 2
+/poker state
+/poker recover
+/poker refund
+/poker close
+/poker forcefinish"
+
+==================================================
+PART 15: TESTS
+==================================================
+
+Test persistent table:
+1. Player A /p 1000
+2. Player B /p 1000
+3. Hand starts
+4. Hand ends
+Expected:
+- table does not close
+- stacks update
+- next hand starts after delay
+
+Test blinds:
+1. Set /setpokerblinds 50 100
+2. Start hand
+Expected:
+- SB and BB posted
+- pot starts at 150
+- current bet = 100
+
+Test leave:
+1. /poker leave between hands
+Expected:
+- stack returned to wallet
+- player removed
+
+Test rebuy:
+1. /rebuy 1000
+Expected:
+- wallet decreases
+- table stack increases
+
+Test crash recovery:
+1. Active hand with pot/cards
+2. /softrestart
+Expected:
+- table, stacks, cards, blinds, pot restored
+
+Test between hands recovery:
+1. Hand ends, next hand timer starts
+2. /softrestart
+Expected:
+- seated players and stacks restored
+- next hand continues
+
+Final requirements:
+- Poker table stays active across hands.
+- Blinds rotate correctly.
+- Stacks persist until leave/bust.
+- Bot shows stacks every round.
+- Crash/restart never loses table state.
+- Commands stay easy for players.

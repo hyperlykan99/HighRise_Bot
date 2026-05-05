@@ -466,6 +466,18 @@ def init_db():
         ("raise_limit_enabled",    "1"),
         ("allin_enabled",          "1"),
         ("buyin_limit_enabled",    "0"),
+        ("small_blind",            "50"),
+        ("big_blind",              "100"),
+        ("ante",                   "0"),
+        ("blinds_enabled",         "1"),
+        ("auto_start_next_hand",   "1"),
+        ("next_hand_delay",        "10"),
+        ("rebuy_enabled",          "1"),
+        ("max_stack_enabled",      "0"),
+        ("max_table_stack",        "100000"),
+        ("autositout_enabled",     "0"),
+        ("idle_strikes_limit",     "3"),
+        ("table_closing",          "0"),
     ]:
         conn.execute(
             "INSERT OR IGNORE INTO poker_settings (key, value) VALUES (?, ?)",
@@ -565,6 +577,22 @@ def init_db():
             round_id  TEXT,
             phase     TEXT,
             details   TEXT
+        )
+    """)
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS poker_seated_players (
+            username           TEXT    PRIMARY KEY,
+            user_id            TEXT    NOT NULL,
+            table_stack        INTEGER NOT NULL DEFAULT 0,
+            buyin_total        INTEGER NOT NULL DEFAULT 0,
+            status             TEXT    NOT NULL DEFAULT 'seated',
+            seat_number        INTEGER NOT NULL DEFAULT 0,
+            joined_at          TEXT    NOT NULL,
+            last_action_at     TEXT,
+            hands_at_table     INTEGER NOT NULL DEFAULT 0,
+            leaving_after_hand INTEGER NOT NULL DEFAULT 0,
+            idle_strikes       INTEGER NOT NULL DEFAULT 0
         )
     """)
 
@@ -945,6 +973,11 @@ def _migrate_db():
         "ALTER TABLE subscriber_users   ADD COLUMN manually_unsubscribed          INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE bj_settings  ADD COLUMN bj_betlimit_enabled  INTEGER NOT NULL DEFAULT 1",
         "ALTER TABLE rbj_settings ADD COLUMN rbj_betlimit_enabled INTEGER NOT NULL DEFAULT 1",
+        "ALTER TABLE poker_active_table ADD COLUMN hand_number          INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE poker_active_table ADD COLUMN small_blind_username TEXT",
+        "ALTER TABLE poker_active_table ADD COLUMN big_blind_username   TEXT",
+        "ALTER TABLE poker_active_table ADD COLUMN next_hand_starts_at  TEXT",
+        "ALTER TABLE poker_active_table ADD COLUMN table_closing        INTEGER NOT NULL DEFAULT 0",
     ]:
         try:
             conn.execute(sql)

@@ -67,6 +67,9 @@ from modules.poker import (
     handle_setpokerdailywinlimit, handle_setpokerdailylosslimit,
     handle_resetpokerlimits,
     handle_setpokerturntimer, handle_setpokerlimits,
+    handle_setpokerblinds, handle_setpokerante,
+    handle_setpokernexthandtimer, handle_setpokermaxstack,
+    handle_setpokeridlestrikes,
     handle_pokerdebug, handle_pokerfix, handle_pokerrefundall,
     startup_poker_recovery,
     soft_reset_table as poker_soft_reset_table,
@@ -244,6 +247,8 @@ MANAGER_ONLY_CMDS = {
     "setpokertimer", "setpokerturntimer", "setpokerraise",
     "setpokerdailywinlimit", "setpokerdailylosslimit",
     "resetpokerlimits", "setpokerlimits",
+    "setpokerblinds", "setpokerante", "setpokernexthandtimer",
+    "setpokermaxstack", "setpokeridlestrikes",
     "pokerdebug", "pokerfix", "pokerrefundall",
     "banksettings",
     "setbjminbet", "setbjmaxbet", "setbjcountdown", "setbjturntimer",
@@ -330,12 +335,15 @@ ALL_KNOWN_COMMANDS = (
         "setpokertimer", "setpokerturntimer", "setpokerraise",
         "setpokerdailywinlimit", "setpokerdailylosslimit",
         "resetpokerlimits", "setpokerlimits",
-        # Poker — short aliases
+        "setpokerblinds", "setpokerante", "setpokernexthandtimer",
+        "setpokermaxstack", "setpokeridlestrikes",
+        # Poker — short aliases + persistent-table commands
         "p", "pj", "pt", "ptable", "ph", "pcards", "po", "podds",
         "check", "ch", "call", "ca", "raise", "r", "fold", "f",
         "allin", "all-in", "ai", "shove",
         "pp", "pplayers", "pstats", "plb", "pleaderboard",
         "phelp", "pokerlb", "pokerleaderboard", "pleaderboard",
+        "sitout", "sitin", "rebuy", "pstacks", "mystack",
         "botstatus", "dbstats", "backup",
         "maintenance", "reloadsettings", "cleanup",
         "restarthelp", "restartstatus", "softrestart", "restartbot",
@@ -2278,6 +2286,22 @@ class HangoutBot(BaseBot):
         elif cmd in ("phelp",):
             await handle_pokerhelp(self, user, args)
 
+        # ── Poker — persistent-table shortcuts ───────────────────────────────
+        elif cmd == "sitout":
+            await handle_poker(self, user, ["poker", "sitout"])
+
+        elif cmd == "sitin":
+            await handle_poker(self, user, ["poker", "sitin"])
+
+        elif cmd == "rebuy":
+            await handle_poker(self, user, ["poker", "rebuy"] + args[1:])
+
+        elif cmd in ("pstacks",):
+            await handle_poker(self, user, ["poker", "stacks"])
+
+        elif cmd in ("mystack",):
+            await handle_poker(self, user, ["poker", "mystack"])
+
         # ── Poker — full commands ────────────────────────────────────────────
         elif cmd == "poker":
             await handle_poker(self, user, args)
@@ -2314,6 +2338,21 @@ class HangoutBot(BaseBot):
 
         elif cmd == "setpokerlimits":
             await handle_setpokerlimits(self, user, args)
+
+        elif cmd == "setpokerblinds":
+            await handle_setpokerblinds(self, user, args)
+
+        elif cmd == "setpokerante":
+            await handle_setpokerante(self, user, args)
+
+        elif cmd == "setpokernexthandtimer":
+            await handle_setpokernexthandtimer(self, user, args)
+
+        elif cmd == "setpokermaxstack":
+            await handle_setpokermaxstack(self, user, args)
+
+        elif cmd == "setpokeridlestrikes":
+            await handle_setpokeridlestrikes(self, user, args)
 
         elif cmd == "pokerdebug":
             await handle_pokerdebug(self, user, args)
