@@ -72,8 +72,9 @@ from modules.quests import (
     handle_dailyquests, handle_weeklyquests, handle_claimquest,
 )
 from modules.events import (
+    handle_event, handle_events, handle_eventhelp, handle_eventstatus,
+    handle_startevent, handle_stopevent,
     handle_eventpoints, handle_eventshop, handle_buyevent,
-    handle_eventstart, handle_eventstop,
 )
 from modules.reports import (
     handle_report, handle_bug, handle_myreports,
@@ -158,6 +159,8 @@ ALL_KNOWN_COMMANDS = (
         "casino", "managers", "moderators",
         "quests", "claimquest",
         "dailyquests", "weeklyquests", "questhelp",
+        "event", "events", "eventhelp", "eventstatus",
+        "startevent", "stopevent",
         "eventpoints", "eventshop", "buyevent",
         "report", "bug", "myreports",
         "rep", "reputation", "repstats", "toprep", "repleaderboard",
@@ -696,6 +699,24 @@ class HangoutBot(BaseBot):
             await handle_titleinfo(self, user, args)
 
         # ── Event commands ────────────────────────────────────────────────────
+        elif cmd == "event":
+            await handle_event(self, user)
+
+        elif cmd == "events":
+            await handle_events(self, user)
+
+        elif cmd == "eventhelp":
+            await handle_eventhelp(self, user)
+
+        elif cmd == "eventstatus":
+            await handle_eventstatus(self, user)
+
+        elif cmd == "startevent":
+            await handle_startevent(self, user, args)
+
+        elif cmd == "stopevent":
+            await handle_stopevent(self, user)
+
         elif cmd == "eventpoints":
             await handle_eventpoints(self, user)
 
@@ -704,12 +725,6 @@ class HangoutBot(BaseBot):
 
         elif cmd == "buyevent":
             await handle_buyevent(self, user, args)
-
-        elif cmd == "eventstart":
-            await handle_eventstart(self, user)
-
-        elif cmd == "eventstop":
-            await handle_eventstop(self, user)
 
         # ── Achievement commands ───────────────────────────────────────────────
         elif cmd == "achievements":

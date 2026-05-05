@@ -1833,6 +1833,54 @@ def set_event_active(active: bool) -> None:
     conn.close()
 
 
+def set_active_event(event_id: str, expires_at: str) -> None:
+    """Start a named event: store event_id, expiry, and mark active."""
+    conn = get_connection()
+    for key, val in [
+        ("event_active",     "1"),
+        ("event_name",       event_id),
+        ("event_expires_at", expires_at),
+    ]:
+        conn.execute(
+            "INSERT INTO event_settings (key, value) VALUES (?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (key, val),
+        )
+    conn.commit()
+    conn.close()
+
+
+def get_active_event() -> dict | None:
+    """
+    Return {"event_id": str, "expires_at": str} if an event is active,
+    otherwise None.
+    """
+    conn = get_connection()
+    rows = {
+        r["key"]: r["value"]
+        for r in conn.execute("SELECT key, value FROM event_settings").fetchall()
+    }
+    conn.close()
+    if rows.get("event_active") != "1":
+        return None
+    event_id   = rows.get("event_name", "")
+    expires_at = rows.get("event_expires_at", "")
+    if not event_id or not expires_at:
+        return None
+    return {"event_id": event_id, "expires_at": expires_at}
+
+
+def clear_active_event() -> None:
+    """Stop the active event (mark inactive, keep name/expiry rows)."""
+    conn = get_connection()
+    conn.execute(
+        "INSERT INTO event_settings (key, value) VALUES ('event_active', '0') "
+        "ON CONFLICT(key) DO UPDATE SET value = '0'"
+    )
+    conn.commit()
+    conn.close()
+
+
 def buy_event_item(user_id: str, username: str,
                    item_id: str, item_type: str, cost: int) -> str:
     """
