@@ -26,6 +26,11 @@ from highrise import BaseBot, User
 
 import config
 from modules.dj import handle_dj_command
+from modules.cooldowns import check_cooldown, set_cooldown
+
+# Cooldown durations for YouTube commands
+YTSEARCH_COOLDOWN = 30   # seconds between /ytsearch uses
+PICK_COOLDOWN     = 10   # seconds between /pick uses
 
 # ---------------------------------------------------------------------------
 # Per-user result cache (in-memory, with expiry timestamps)
@@ -94,6 +99,15 @@ async def handle_ytsearch_command(bot: BaseBot, user: User, args: list[str]):
             )
             return
 
+        # Cooldown check — set immediately to prevent API spam even on slow connections
+        remaining = check_cooldown("ytsearch", user.id, YTSEARCH_COOLDOWN)
+        if remaining:
+            await bot.highrise.send_whisper(
+                user.id, f"Please wait {remaining}s before searching again."
+            )
+            return
+        set_cooldown("ytsearch", user.id)
+
         query = " ".join(args[1:])
         await bot.highrise.send_whisper(user.id, f'Searching for "{query}"...')
 
@@ -152,6 +166,14 @@ async def handle_pick_command(bot: BaseBot, user: User, args: list[str]):
             await bot.highrise.send_whisper(user.id, "Usage: /pick 1, /pick 2, or /pick 3")
             return
 
+        # ── Cooldown check ───────────────────────────────────────────────────
+        remaining = check_cooldown("pick", user.id, PICK_COOLDOWN)
+        if remaining:
+            await bot.highrise.send_whisper(
+                user.id, f"Please wait {remaining}s before picking again."
+            )
+            return
+
         number = int(args[1])
 
         # ── Look up cached results (also checks expiry) ──────────────────────
@@ -191,7 +213,10 @@ async def handle_pick_command(bot: BaseBot, user: User, args: list[str]):
         # duplicate detection, and queue size limit.
         await handle_dj_command(bot, user, ["request", picked["url"]])
 
-        # Clear the cache after a successful pick
+        # Record the pick cooldown and clear the cache after a successful pick.
+        # Note: handle_dj_command also sets the "request" 30s cooldown on success,
+        # so both cooldowns are active after a successful /pick.
+        set_cooldown("pick", user.id)
         _clear_results(user.id)
 
     except Exception as e:

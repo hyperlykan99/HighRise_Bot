@@ -20,6 +20,10 @@ Admin commands:
 from highrise import BaseBot, User
 import database as db
 import config
+from modules.cooldowns import check_cooldown, set_cooldown
+
+# Cooldown duration (in seconds) applied to /request and /priority on success
+REQUEST_COOLDOWN = 30
 
 # ---------------------------------------------------------------------------
 # Skip-vote state (in-memory; resets when the bot restarts)
@@ -152,6 +156,15 @@ async def _cmd_request(bot: BaseBot, user: User, song: str, priority: bool):
 
     db.ensure_user(user.id, user.username)
 
+    # Cooldown check — applied to both /request and /priority
+    # Uses a shared "request" key so both commands share the same 30-second window
+    remaining = check_cooldown("request", user.id, REQUEST_COOLDOWN)
+    if remaining:
+        await bot.highrise.send_whisper(
+            user.id, f"Please wait {remaining}s before requesting another song."
+        )
+        return
+
     # Run all content / queue-state checks first
     error = _validate_request(song)
     if error:
@@ -173,6 +186,9 @@ async def _cmd_request(bot: BaseBot, user: User, song: str, priority: bool):
     db.adjust_balance(user.id, -cost)
     position    = db.add_to_queue(user.id, user.username, song, priority=priority)
     new_balance = db.get_balance(user.id)
+
+    # Record cooldown only after a successful request (failed attempts don't penalise)
+    set_cooldown("request", user.id)
 
     label = "PRIORITY" if priority else "added"
     await bot.highrise.chat(
