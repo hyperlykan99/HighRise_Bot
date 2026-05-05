@@ -1,0 +1,95 @@
+Add a Daily Admin Checklist system.
+
+IMPORTANT:
+- Do not remove existing features.
+- Keep bank, casino, gold, events, auto games, notifications, VIP, shop, reports, errors, and staff roles.
+- Use SQLite.
+- Keep all Highrise messages under 250 characters.
+- Prevent crashes from bad inputs.
+
+Goal:
+Owners/admins/managers should have one command that shows what needs attention today.
+
+Commands:
+- /dailyadmin
+- /dailyadmin bank
+- /dailyadmin casino
+- /dailyadmin events
+- /dailyadmin notify
+- /dailyadmin reports
+- /dailyadmin errors
+
+Permissions:
+- Owner/admin/manager can use /dailyadmin.
+- Moderators can use /dailyadmin reports and /dailyadmin errors only.
+- Normal players cannot use daily admin commands.
+
+Behavior:
+
+/dailyadmin:
+Shows short summary:
+"📋 Admin Today
+Reports: 2 open | Errors: 1
+Bank flags: 3 | Pending DMs: 5
+BJ/RBJ: idle/idle | Event: none"
+
+/dailyadmin bank:
+Shows:
+- suspicious transfers today
+- blocked transfers today
+- pending bank notifications
+- top sender today
+- top receiver today
+
+/dailyadmin casino:
+Shows:
+- active BJ/RBJ state
+- stuck recovery_required tables
+- daily casino net
+- players at win/loss limit
+
+/dailyadmin events:
+Shows:
+- current event
+- auto events ON/OFF
+- auto games ON/OFF
+- next auto game/event time if available
+
+/dailyadmin notify:
+Shows:
+- total subscribers
+- DM connected count
+- unsubscribed count
+- pending notifications
+- failed notifications today
+
+/dailyadmin reports:
+Shows:
+- open reports
+- newest report ID
+- unresolved warnings/mutes if available
+
+/dailyadmin errors:
+Shows:
+- unresolved bot errors
+- latest error ID
+- latest error command
+- use /errors or /lasterror
+
+Add daily_admin_logs table:
+- id
+- timestamp
+- username
+- section
+- summary_text
+
+Rules:
+- Do not expose private transaction details in public chat.
+- Keep each summary under 250 characters.
+- If a module/table does not exist, show "module not installed" instead of crashing.
+- Add explicit command routing before unknown-command fallback.
+
+Update /adminhelp and /managerhelp:
+Add /dailyadmin.
+Update /modhelp:
+Add /dailyadmin reports and /dailyadmin errors.

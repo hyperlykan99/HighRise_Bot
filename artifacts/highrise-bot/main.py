@@ -72,6 +72,7 @@ from modules.subscribers         import (
     process_incoming_dm,
     deliver_pending_subscriber_messages,
 )
+from modules.daily_admin import handle_dailyadmin
 from modules.notifications import (
     send_notification,
     deliver_pending_notifications,
@@ -234,7 +235,7 @@ ADMIN_ONLY_CMDS = {
     "debugnotify", "testnotify", "pendingnotify", "clearpendingnotify",
 } | BANK_ADMIN_SET_CMDS | TIP_ADMIN_CMDS
 
-MANAGER_ONLY_CMDS = MANAGER_ONLY_CMDS | {"notifystats", "notifyprefs"}
+MANAGER_ONLY_CMDS = MANAGER_ONLY_CMDS | {"notifystats", "notifyprefs", "dailyadmin"}
 
 OWNER_ONLY_CMDS = {
     "addadmin", "removeadmin", "admins", "setmaxbalance",
@@ -290,6 +291,7 @@ ALL_KNOWN_COMMANDS = (
         "notifystats", "notifyprefs", "notifyuser", "broadcasttest",
         "debugnotify", "testnotify", "testnotifyall",
         "pendingnotify", "clearpendingnotify",
+        "dailyadmin",
         "announce_subs", "announce_vip", "announce_staff", "dmnotify",
         "subscribers",
     }
@@ -691,6 +693,11 @@ MOD_HELP_PAGES = [
         "/unmute <user>\n"
         "/mutes"
     ),
+    (
+        "🔨 Mod 5\n"
+        "/dailyadmin reports\n"
+        "/dailyadmin errors"
+    ),
 ]
 
 MANAGER_HELP_PAGES = [
@@ -725,6 +732,14 @@ MANAGER_HELP_PAGES = [
         "/autoevents on/off\n"
         "/gameconfig"
     ),
+    (
+        "🧰 Manager 5\n"
+        "/dailyadmin\n"
+        "/dailyadmin bank\n"
+        "/dailyadmin casino\n"
+        "/dailyadmin events\n"
+        "/dailyadmin notify"
+    ),
 ]
 
 ADMIN_HELP_PAGES = [
@@ -757,6 +772,16 @@ ADMIN_HELP_PAGES = [
         "/reloadsettings\n"
         "/cleanup\n"
         "/audithelp"
+    ),
+    (
+        "🛡️ Admin 5\n"
+        "/dailyadmin\n"
+        "/dailyadmin bank\n"
+        "/dailyadmin casino\n"
+        "/dailyadmin events\n"
+        "/dailyadmin notify\n"
+        "/dailyadmin reports\n"
+        "/dailyadmin errors"
     ),
 ]
 
@@ -1525,6 +1550,8 @@ class HangoutBot(BaseBot):
                 await handle_pendingnotify(self, user, args)
             elif cmd == "clearpendingnotify":
                 await handle_clearpendingnotify(self, user, args)
+            elif cmd == "dailyadmin":
+                await handle_dailyadmin(self, user, args)
             else:
                 await handle_admin_command(self, user, cmd, args)
             return

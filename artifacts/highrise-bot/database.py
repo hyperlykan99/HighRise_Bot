@@ -694,6 +694,17 @@ def init_db():
         )
     """)
 
+    # ── Daily admin checklist log ──────────────────────────────────────────
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS daily_admin_logs (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp    TEXT NOT NULL DEFAULT (datetime('now')),
+            username     TEXT NOT NULL DEFAULT '',
+            section      TEXT NOT NULL DEFAULT '',
+            summary_text TEXT NOT NULL DEFAULT ''
+        )
+    """)
+
     conn.commit()
     conn.close()
     _migrate_db()
