@@ -57,7 +57,7 @@ _RIDDLES = [
     },
     {
         "riddle":  "I have keys but no locks. I have space but no room. You can enter but can't go inside. What am I?",
-        "answers": ["keyboard", "a keyboard", "piano", "a piano"],
+        "answers": ["keyboard", "a keyboard"],
     },
     {
         "riddle":  "What goes up but never comes down?",
@@ -88,7 +88,7 @@ _RIDDLES = [
         "answers": ["comb", "a comb"],
     },
     {
-        "riddle":  "I'm light as a feather, but even the strongest person can't hold me for more than a few minutes. What am I?",
+        "riddle":  "I am light as a feather, yet even the strongest person cannot hold me for more than a few minutes. What am I?",
         "answers": ["breath", "your breath", "air"],
     },
     {
@@ -100,12 +100,56 @@ _RIDDLES = [
         "answers": ["bank", "a bank"],
     },
     {
-        "riddle":  "What can fill a room but takes up no space?",
-        "answers": ["light", "silence"],
-    },
-    {
         "riddle":  "What has four legs in the morning, two at noon, and three in the evening?",
         "answers": ["human", "a human", "man", "a man", "person"],
+    },
+    {
+        "riddle":  "What can travel around the world while staying in a corner?",
+        "answers": ["stamp", "a stamp"],
+    },
+    {
+        "riddle":  "What goes up and down but never moves?",
+        "answers": ["stairs", "a staircase"],
+    },
+    {
+        "riddle":  "What comes down but never goes up?",
+        "answers": ["rain"],
+    },
+    {
+        "riddle":  "What gets bigger the more you take away from it?",
+        "answers": ["hole", "a hole"],
+    },
+    {
+        "riddle":  "I am full of holes but I can still hold water. What am I?",
+        "answers": ["sponge", "a sponge"],
+    },
+    {
+        "riddle":  "What word becomes shorter when you add two letters to it?",
+        "answers": ["short"],
+    },
+    {
+        "riddle":  "What invention lets you look right through a wall?",
+        "answers": ["window", "a window"],
+    },
+    {
+        "riddle":  "What is orange and sounds like a parrot?",
+        "answers": ["carrot", "a carrot"],
+    },
+    {
+        "riddle":  "What is so fragile that just saying its name breaks it?",
+        "answers": ["silence"],
+    },
+    {
+        "riddle":  "I fly without wings and light up the dark. What am I?",
+        "answers": ["light", "sun", "the sun", "lightning", "star"],
+    },
+    {
+        "riddle":  "What has a thumb and four fingers but is not alive?",
+        "answers": ["glove", "a glove"],
+    },
+    {
+        "riddle":  "I have no legs but I can run. I have no mouth but I can roar. What am I?",
+        "answers": ["river", "a river", "wind", "fire"],
     },
 ]
 

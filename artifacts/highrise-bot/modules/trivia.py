@@ -27,31 +27,91 @@ from modules.cooldowns import check_room_cooldown, set_room_cooldown
 # ---------------------------------------------------------------------------
 
 _QUESTIONS = [
-    {"question": "What is the capital of France?",                          "answers": ["paris"]},
-    {"question": "How many sides does a hexagon have?",                     "answers": ["6", "six"]},
-    {"question": "What planet is known as the Red Planet?",                 "answers": ["mars"]},
-    {"question": "What is the largest ocean on Earth?",                     "answers": ["pacific", "pacific ocean"]},
-    {"question": "Who painted the Mona Lisa?",                              "answers": ["leonardo da vinci", "da vinci", "leonardo"]},
-    {"question": "What is 7 × 8?",                                          "answers": ["56", "fifty-six", "fifty six"]},
-    {"question": "What is the chemical symbol for gold?",                   "answers": ["au"]},
-    {"question": "In what year did World War II end?",                      "answers": ["1945"]},
-    {"question": "What is the fastest land animal?",                        "answers": ["cheetah"]},
-    {"question": "How many colors are in a rainbow?",                       "answers": ["7", "seven"]},
-    {"question": "What is the largest planet in our solar system?",         "answers": ["jupiter"]},
-    {"question": "What language is spoken in Brazil?",                      "answers": ["portuguese"]},
-    {"question": "What is the square root of 144?",                         "answers": ["12", "twelve"]},
-    {"question": "What year was the Eiffel Tower completed?",               "answers": ["1889"]},
-    {"question": "How many continents are on Earth?",                       "answers": ["7", "seven"]},
-    {"question": "What is the smallest country in the world?",              "answers": ["vatican", "vatican city"]},
-    {"question": "How many strings does a standard guitar have?",           "answers": ["6", "six"]},
-    {"question": "What is the hardest natural substance on Earth?",         "answers": ["diamond"]},
-    {"question": "What gas do plants absorb from the air?",                 "answers": ["carbon dioxide", "co2"]},
-    {"question": "How many players are on a basketball team on the court?", "answers": ["5", "five"]},
-    {"question": "What is the capital of Japan?",                           "answers": ["tokyo"]},
-    {"question": "How many hours are in a day?",                            "answers": ["24", "twenty-four", "twenty four"]},
-    {"question": "What is the longest river in the world?",                 "answers": ["nile", "nile river"]},
-    {"question": "What element does 'O' stand for on the periodic table?",  "answers": ["oxygen"]},
-    {"question": "How many sides does a triangle have?",                    "answers": ["3", "three"]},
+    # ── Science & Nature ──────────────────────────────────────────────────────
+    {"question": "What is the largest planet in our solar system?",              "answers": ["jupiter"]},
+    {"question": "What gas do plants absorb from the air?",                      "answers": ["carbon dioxide", "co2"]},
+    {"question": "What is the chemical symbol for water?",                       "answers": ["h2o"]},
+    {"question": "What force keeps us on the ground?",                           "answers": ["gravity"]},
+    {"question": "What planet is known as the Red Planet?",                      "answers": ["mars"]},
+    {"question": "What is the fastest land animal?",                             "answers": ["cheetah"]},
+    {"question": "How many colors are in a rainbow?",                            "answers": ["7", "seven"]},
+    {"question": "What element does O stand for on the periodic table?",         "answers": ["oxygen"]},
+    {"question": "What is the chemical symbol for gold?",                        "answers": ["au"]},
+    {"question": "How many bones are in the adult human body?",                  "answers": ["206"]},
+
+    # ── Geography ─────────────────────────────────────────────────────────────
+    {"question": "What is the capital of France?",                               "answers": ["paris"]},
+    {"question": "What is the largest ocean on Earth?",                          "answers": ["pacific", "pacific ocean"]},
+    {"question": "How many continents are there on Earth?",                      "answers": ["7", "seven"]},
+    {"question": "What is the longest river in the world?",                      "answers": ["nile", "nile river"]},
+    {"question": "What is the smallest country in the world?",                   "answers": ["vatican", "vatican city"]},
+    {"question": "What language is spoken in Brazil?",                           "answers": ["portuguese"]},
+    {"question": "What is the capital of Japan?",                                "answers": ["tokyo"]},
+    {"question": "What country has the largest population?",                     "answers": ["china"]},
+    {"question": "What is the tallest mountain in the world?",                   "answers": ["everest", "mount everest"]},
+    {"question": "What continent is Egypt in?",                                  "answers": ["africa"]},
+
+    # ── Math ──────────────────────────────────────────────────────────────────
+    {"question": "What is 7 times 8?",                                           "answers": ["56", "fifty-six", "fifty six"]},
+    {"question": "What is the square root of 144?",                              "answers": ["12", "twelve"]},
+    {"question": "How many hours are in a day?",                                 "answers": ["24", "twenty-four", "twenty four"]},
+    {"question": "What is half of 200?",                                         "answers": ["100", "one hundred"]},
+    {"question": "How many sides does a hexagon have?",                          "answers": ["6", "six"]},
+    {"question": "What is 15 plus 27?",                                          "answers": ["42", "forty-two", "forty two"]},
+    {"question": "What is 100 divided by 4?",                                    "answers": ["25", "twenty-five", "twenty five"]},
+    {"question": "How many sides does a triangle have?",                         "answers": ["3", "three"]},
+
+    # ── Music ─────────────────────────────────────────────────────────────────
+    {"question": "Which band performed Bohemian Rhapsody?",                      "answers": ["queen"]},
+    {"question": "Who is known as the King of Pop?",                             "answers": ["michael jackson", "mj"]},
+    {"question": "What instrument has 88 keys?",                                 "answers": ["piano"]},
+    {"question": "Which country does K-pop music come from?",                    "answers": ["south korea", "korea"]},
+    {"question": "How many strings does a standard guitar have?",                "answers": ["6", "six"]},
+    {"question": "Which artist is known for the song Shape of You?",             "answers": ["ed sheeran"]},
+
+    # ── Movies & TV ───────────────────────────────────────────────────────────
+    {"question": "What animated film features the lion cub Simba?",             "answers": ["lion king", "the lion king"]},
+    {"question": "Who played Iron Man in the Marvel movies?",                    "answers": ["robert downey jr", "robert downey"]},
+    {"question": "What is the highest-grossing movie of all time?",              "answers": ["avatar"]},
+    {"question": "What Disney movie features a mermaid princess?",               "answers": ["the little mermaid", "little mermaid"]},
+    {"question": "What movie is about a shark terrorizing a beach town?",        "answers": ["jaws"]},
+    {"question": "What show features the chemistry teacher Walter White?",       "answers": ["breaking bad"]},
+
+    # ── Gaming ────────────────────────────────────────────────────────────────
+    {"question": "What is the best-selling video game of all time?",             "answers": ["minecraft"]},
+    {"question": "What is the name of Marios main turtle villain?",              "answers": ["bowser"]},
+    {"question": "What color is Sonic the Hedgehog?",                            "answers": ["blue"]},
+    {"question": "What is the first Pokemon in the Pokedex?",                    "answers": ["bulbasaur"]},
+    {"question": "What game features a soldier hero called Master Chief?",       "answers": ["halo"]},
+
+    # ── Internet & Culture ────────────────────────────────────────────────────
+    {"question": "What does LOL stand for?",                                     "answers": ["laugh out loud"]},
+    {"question": "What does GG mean in gaming?",                                 "answers": ["good game"]},
+    {"question": "What is the most watched YouTube video of all time?",          "answers": ["baby shark"]},
+    {"question": "What does BRB stand for?",                                     "answers": ["be right back"]},
+    {"question": "What app uses a ghost as its logo?",                           "answers": ["snapchat"]},
+
+    # ── Food ──────────────────────────────────────────────────────────────────
+    {"question": "What is the main ingredient in guacamole?",                    "answers": ["avocado"]},
+    {"question": "What country is sushi originally from?",                       "answers": ["japan"]},
+    {"question": "What fruit is used to make wine?",                             "answers": ["grape", "grapes"]},
+    {"question": "What is the most popular pizza topping worldwide?",            "answers": ["cheese", "pepperoni"]},
+    {"question": "What yellow fruit do monkeys famously love?",                  "answers": ["banana"]},
+
+    # ── Animals ───────────────────────────────────────────────────────────────
+    {"question": "What is the largest animal on Earth?",                         "answers": ["blue whale", "whale"]},
+    {"question": "What is the only mammal that can truly fly?",                  "answers": ["bat"]},
+    {"question": "What do you call a baby dog?",                                 "answers": ["puppy"]},
+    {"question": "What do you call a baby cat?",                                 "answers": ["kitten"]},
+    {"question": "How many legs does an insect have?",                           "answers": ["6", "six"]},
+    {"question": "What animal is known as mans best friend?",                    "answers": ["dog"]},
+
+    # ── Sports ────────────────────────────────────────────────────────────────
+    {"question": "How many players are on a soccer team on the field?",          "answers": ["11", "eleven"]},
+    {"question": "In which sport would you perform a slam dunk?",                "answers": ["basketball"]},
+    {"question": "How many rings are on the Olympic flag?",                      "answers": ["5", "five"]},
+    {"question": "What sport uses a shuttlecock?",                               "answers": ["badminton"]},
+    {"question": "How many players are on each side in volleyball?",             "answers": ["6", "six"]},
 ]
 
 

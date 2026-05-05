@@ -26,13 +26,30 @@ from modules.cooldowns import check_room_cooldown, set_room_cooldown
 # ---------------------------------------------------------------------------
 
 _WORDS = [
-    "planet", "puzzle", "castle", "dragon", "magic",
-    "ocean",  "tiger",  "flame",  "crystal", "dance",
-    "music",  "cloud",  "brave",  "bloom",   "storm",
-    "river",  "night",  "water",  "light",   "happy",
-    "orange", "silver", "jungle", "candle",  "rocket",
-    "bridge", "forest", "mirror", "garden",  "island",
-    "falcon", "cobalt", "marble", "shadow",  "winter",
+    # Animals
+    "tiger",   "shark",   "horse",   "eagle",   "panda",
+    "snake",   "whale",   "camel",   "koala",   "zebra",
+    "parrot",  "rabbit",  "monkey",  "turtle",  "spider",
+    # Food & Drink
+    "pizza",   "mango",   "bread",   "grape",   "lemon",
+    "apple",   "bacon",   "sushi",   "pasta",   "tacos",
+    "coffee",  "butter",  "cheese",  "orange",  "melon",
+    # Nature
+    "cloud",   "ocean",   "storm",   "river",   "flame",
+    "frost",   "bloom",   "jungle",  "forest",  "desert",
+    "island",  "valley",  "canyon",  "breeze",
+    # Objects / Action
+    "music",   "dance",   "magic",   "dream",   "smile",
+    "brave",   "castle",  "dragon",  "rocket",  "puzzle",
+    "candle",  "mirror",  "bridge",  "planet",  "lantern",
+    # Colors / Qualities
+    "purple",  "silver",  "golden",  "shadow",  "crystal",
+    # Longer / International
+    "garden",  "winter",  "summer",  "spring",  "marble",
+    "thunder", "balloon", "diamond", "blanket", "captain",
+    "rainbow", "mystery", "weekend", "kitchen", "freedom",
+    "pattern", "shelter", "tornado", "unicorn", "champion",
+    "falcon",  "compass", "pilgrim", "sunrise", "harbor",
 ]
 
 
