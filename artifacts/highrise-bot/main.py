@@ -49,6 +49,11 @@ from modules.achievements import handle_achievements, handle_claim_achievements
 from modules.blackjack           import handle_bj, handle_bj_set, reset_table as bj_reset_table
 from modules.realistic_blackjack import handle_rbj, handle_rbj_set, reset_table as rbj_reset_table
 from modules.permissions         import can_manage_games, can_manage_economy
+from modules.bank import (
+    handle_bank, handle_send, handle_transactions, handle_bankstats,
+    handle_viewtx, handle_bankwatch, handle_bankblock, handle_banksettings,
+    handle_bank_set, handle_ledger,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -63,6 +68,11 @@ GAME_COMMANDS    = {"trivia", "scramble", "riddle", "coinflip"}
 SHOP_COMMANDS        = {"shop", "buy", "equip", "myitems", "badgeinfo", "titleinfo"}
 ACHIEVEMENT_COMMANDS = {"achievements", "claimachievements"}
 BJ_COMMANDS          = {"bj", "rbj"}
+BANK_PLAYER_COMMANDS = {"bank", "send", "transactions", "bankstats"}
+BANK_STAFF_COMMANDS  = {"viewtx", "bankwatch", "bankblock", "bankunblock",
+                        "banksettings", "ledger"}
+BANK_ADMIN_SET_CMDS  = {"setsendlimit", "setnewaccountdays", "setminlevelsend",
+                        "setmintotalearned", "setsendtax"}
 
 # /answer is handled separately (routes to whichever game is active)
 
@@ -75,13 +85,13 @@ ADMIN_COMMANDS = {
     "setrbjdecks", "setrbjminbet", "setrbjmaxbet", "setrbjcountdown",
     "setrbjshuffle", "setrbjblackjackpayout", "setrbjwinpayout", "setrbjturntimer",
     "setrbjdailywinlimit", "setrbjdailylosslimit",
-}
+} | BANK_STAFF_COMMANDS | BANK_ADMIN_SET_CMDS
 
 ALL_KNOWN_COMMANDS = (
     {
         "help", "answer",
         "casinohelp", "gamehelp", "coinhelp", "profilehelp",
-        "shophelp", "progresshelp", "adminhelp",
+        "shophelp", "progresshelp", "adminhelp", "bankhelp",
         "casino", "managers",
         "quests", "claimquest",
     }
@@ -91,6 +101,7 @@ ALL_KNOWN_COMMANDS = (
     | SHOP_COMMANDS
     | ACHIEVEMENT_COMMANDS
     | BJ_COMMANDS
+    | BANK_PLAYER_COMMANDS
     | ADMIN_COMMANDS
 )
 
@@ -104,6 +115,7 @@ HELP_TEXT = (
     "🎮 Games: /gamehelp\n"
     "🎰 Casino: /casinohelp\n"
     "💰 Coins: /coinhelp\n"
+    "🏦 Bank: /bankhelp\n"
     "⭐ Profile: /profilehelp\n"
     "🛒 Shop: /shophelp\n"
     "🏆 Progress: /progresshelp"
@@ -133,8 +145,21 @@ COIN_HELP = (
     "💰 Coins\n"
     "/daily - claim coins\n"
     "/balance - check coins\n"
-    "/leaderboard - richest players\n"
-    "/coinflip heads/tails <bet>"
+    "/send <user> <amt> - send coins\n"
+    "/bank - your bank info\n"
+    "/transactions - transfer history\n"
+    "/leaderboard - richest players"
+)
+
+BANK_HELP = (
+    "🏦 Bank\n"
+    "/send <user> <amt> - send coins\n"
+    "/bank - balance + status\n"
+    "/transactions - history\n"
+    "/transactions sent\n"
+    "/transactions received\n"
+    "/bankstats - full stats\n"
+    "Staff: /viewtx <user>"
 )
 
 PROFILE_HELP = (
@@ -184,7 +209,10 @@ ADMIN_HELP_EXTRA = (
     "/removecoins <user> <amt>\n"
     "/addmanager <user>\n"
     "/removemanager <user>\n"
-    "/managers"
+    "/managers\n"
+    "/viewtx <user>  /bankwatch <user>\n"
+    "/bankblock <user>  /bankunblock <user>\n"
+    "/ledger <user>"
 )
 
 
@@ -337,6 +365,9 @@ class HangoutBot(BaseBot):
                         user.id, "Admins and owners only."
                     )
                     return
+            # bank staff/admin cmds handle their own permission checks internally
+            elif cmd in BANK_STAFF_COMMANDS or cmd in BANK_ADMIN_SET_CMDS:
+                pass  # permission enforced inside handler
             else:
                 if not can_manage_games(user.username):
                     await self.highrise.send_whisper(
@@ -350,6 +381,21 @@ class HangoutBot(BaseBot):
                 await handle_bj_set(self, user, cmd, args)
             elif cmd in {"addmanager", "removemanager"}:
                 await _handle_manager_cmd(self, user, cmd, args)
+            # ── Bank staff / admin-set commands ───────────────────────────────
+            elif cmd == "viewtx":
+                await handle_viewtx(self, user, args)
+            elif cmd == "bankwatch":
+                await handle_bankwatch(self, user, args)
+            elif cmd == "bankblock":
+                await handle_bankblock(self, user, args, block=True)
+            elif cmd == "bankunblock":
+                await handle_bankblock(self, user, args, block=False)
+            elif cmd == "banksettings":
+                await handle_banksettings(self, user)
+            elif cmd == "ledger":
+                await handle_ledger(self, user, args)
+            elif cmd in BANK_ADMIN_SET_CMDS:
+                await handle_bank_set(self, user, cmd, args)
             else:
                 await handle_admin_command(self, user, cmd, args)
             return
@@ -405,6 +451,22 @@ class HangoutBot(BaseBot):
 
         elif cmd == "rbj":
             await handle_rbj(self, user, args)
+
+        # ── Bank player commands ───────────────────────────────────────────────
+        elif cmd == "bank":
+            await handle_bank(self, user, args)
+
+        elif cmd == "send":
+            await handle_send(self, user, args)
+
+        elif cmd == "transactions":
+            await handle_transactions(self, user, args)
+
+        elif cmd == "bankstats":
+            await handle_bankstats(self, user)
+
+        elif cmd == "bankhelp":
+            await self.highrise.send_whisper(user.id, BANK_HELP)
 
         elif cmd == "casinohelp":
             await self.highrise.send_whisper(user.id, CASINO_HELP)

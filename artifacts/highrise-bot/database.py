@@ -207,6 +207,78 @@ def init_db():
         )
     """)
 
+    # ── Bank tables ──────────────────────────────────────────────────────────
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS bank_transactions (
+            id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp               TEXT NOT NULL DEFAULT (datetime('now')),
+            sender_id               TEXT NOT NULL,
+            sender_username         TEXT NOT NULL,
+            receiver_id             TEXT NOT NULL,
+            receiver_username       TEXT NOT NULL,
+            amount_sent             INTEGER NOT NULL,
+            fee                     INTEGER NOT NULL DEFAULT 0,
+            amount_received         INTEGER NOT NULL,
+            sender_balance_before   INTEGER NOT NULL DEFAULT 0,
+            sender_balance_after    INTEGER NOT NULL DEFAULT 0,
+            receiver_balance_before INTEGER NOT NULL DEFAULT 0,
+            receiver_balance_after  INTEGER NOT NULL DEFAULT 0,
+            risk_level              TEXT NOT NULL DEFAULT 'LOW',
+            risk_reason             TEXT NOT NULL DEFAULT '',
+            status                  TEXT NOT NULL DEFAULT 'completed'
+        )
+    """)
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS bank_user_stats (
+            user_id                   TEXT PRIMARY KEY,
+            total_sent                INTEGER NOT NULL DEFAULT 0,
+            total_received            INTEGER NOT NULL DEFAULT 0,
+            total_transfer_fees_paid  INTEGER NOT NULL DEFAULT 0,
+            daily_sent                INTEGER NOT NULL DEFAULT 0,
+            daily_sent_date           TEXT NOT NULL DEFAULT '',
+            bank_blocked              INTEGER NOT NULL DEFAULT 0,
+            suspicious_transfer_count INTEGER NOT NULL DEFAULT 0
+        )
+    """)
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS bank_settings (
+            key   TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        )
+    """)
+
+    for k, v in [
+        ("min_send_amount",              "10"),
+        ("max_send_amount",              "1000"),
+        ("daily_send_limit",             "3000"),
+        ("new_account_days",             "3"),
+        ("min_level_to_send",            "3"),
+        ("min_total_earned_to_send",     "500"),
+        ("min_daily_claim_days_to_send", "2"),
+        ("send_tax_percent",             "5"),
+        ("high_risk_blocks",             "true"),
+    ]:
+        conn.execute(
+            "INSERT OR IGNORE INTO bank_settings (key, value) VALUES (?, ?)", (k, v)
+        )
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS ledger (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp     TEXT NOT NULL DEFAULT (datetime('now')),
+            user_id       TEXT NOT NULL,
+            username      TEXT NOT NULL,
+            change_amount INTEGER NOT NULL,
+            reason        TEXT NOT NULL,
+            balance_before INTEGER NOT NULL DEFAULT 0,
+            balance_after  INTEGER NOT NULL DEFAULT 0,
+            related_user  TEXT NOT NULL DEFAULT '',
+            metadata      TEXT NOT NULL DEFAULT ''
+        )
+    """)
+
     conn.commit()
     conn.close()
     _migrate_db()
@@ -234,6 +306,8 @@ def _migrate_db():
         "ALTER TABLE bj_settings  ADD COLUMN bj_daily_loss_limit   INTEGER NOT NULL DEFAULT 3000",
         "ALTER TABLE rbj_settings ADD COLUMN rbj_daily_win_limit   INTEGER NOT NULL DEFAULT 5000",
         "ALTER TABLE rbj_settings ADD COLUMN rbj_daily_loss_limit  INTEGER NOT NULL DEFAULT 3000",
+        "ALTER TABLE users         ADD COLUMN first_seen TEXT",
+        "ALTER TABLE daily_claims  ADD COLUMN last_claim_ts TEXT",
     ]:
         try:
             conn.execute(sql)
@@ -241,6 +315,7 @@ def _migrate_db():
             pass
 
     # Data migrations — safe no-ops if already applied or no matching rows exist
+    conn.execute("UPDATE users SET first_seen = datetime('now') WHERE first_seen IS NULL")
     conn.execute("UPDATE bj_settings  SET lobby_countdown = 15 WHERE id = 1 AND lobby_countdown = 60")
     conn.execute("UPDATE rbj_settings SET lobby_countdown = 15 WHERE id = 1 AND lobby_countdown = 60")
     conn.execute("UPDATE owned_items      SET item_id = 'elite'                                              WHERE item_id = 'room_legend'")
@@ -454,8 +529,8 @@ def equip_item(user_id: str, item_id: str, item_type: str, display: str):
 def ensure_user(user_id: str, username: str):
     conn = get_connection()
     conn.execute("""
-        INSERT INTO users (user_id, username, balance)
-        VALUES (?, ?, ?)
+        INSERT INTO users (user_id, username, balance, first_seen)
+        VALUES (?, ?, ?, datetime('now'))
         ON CONFLICT(user_id) DO UPDATE SET username = excluded.username
     """, (user_id, username, config.STARTING_BALANCE))
     conn.commit()
@@ -525,14 +600,16 @@ def record_daily_claim(user_id: str):
         streak = (old_streak + 1) if row["last_claim"] == yesterday else 1
         total  = old_total + 1
 
+    now_ts = __import__("datetime").datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
     conn.execute("""
-        INSERT INTO daily_claims (user_id, last_claim, streak, total_claims)
-        VALUES (?, ?, ?, ?)
+        INSERT INTO daily_claims (user_id, last_claim, streak, total_claims, last_claim_ts)
+        VALUES (?, ?, ?, ?, ?)
         ON CONFLICT(user_id) DO UPDATE
-          SET last_claim   = excluded.last_claim,
-              streak       = excluded.streak,
-              total_claims = excluded.total_claims
-    """, (user_id, today, streak, total))
+          SET last_claim    = excluded.last_claim,
+              streak        = excluded.streak,
+              total_claims  = excluded.total_claims,
+              last_claim_ts = excluded.last_claim_ts
+    """, (user_id, today, streak, total, now_ts))
     conn.commit()
     conn.close()
 
@@ -1014,3 +1091,415 @@ def record_coinflip(user_id: str, username: str, choice: str,
     """, (user_id, username, choice, result, bet, int(won)))
     conn.commit()
     conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Bank helpers
+# ---------------------------------------------------------------------------
+
+def get_bank_settings() -> dict:
+    conn = get_connection()
+    rows = conn.execute("SELECT key, value FROM bank_settings").fetchall()
+    conn.close()
+    return {r["key"]: r["value"] for r in rows}
+
+
+def set_bank_setting(key: str, value: str):
+    conn = get_connection()
+    conn.execute(
+        "INSERT INTO bank_settings (key, value) VALUES (?, ?) "
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        (key, value)
+    )
+    conn.commit()
+    conn.close()
+
+
+def ensure_bank_user(user_id: str):
+    """Create bank_user_stats row if it doesn't exist."""
+    conn = get_connection()
+    conn.execute(
+        "INSERT OR IGNORE INTO bank_user_stats (user_id) VALUES (?)", (user_id,)
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_bank_user_stats(user_id: str) -> dict:
+    ensure_bank_user(user_id)
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT * FROM bank_user_stats WHERE user_id = ?", (user_id,)
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else {}
+
+
+def get_daily_sent_today(user_id: str) -> int:
+    """Return how many coins the user has sent today (resets at UTC midnight)."""
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT daily_sent, daily_sent_date FROM bank_user_stats WHERE user_id = ?",
+        (user_id,)
+    ).fetchone()
+    conn.close()
+    if row is None:
+        return 0
+    today = str(date.today())
+    if row["daily_sent_date"] != today:
+        return 0
+    return row["daily_sent"] or 0
+
+
+def check_send_eligibility(user_id: str, settings: dict) -> dict:
+    """Return {'eligible': bool, 'reason': str}."""
+    from datetime import datetime as _dt
+    conn = get_connection()
+
+    # 1. Account age
+    new_account_days = int(settings.get("new_account_days", 3))
+    u_row = conn.execute(
+        "SELECT first_seen, level, total_coins_earned FROM users WHERE user_id = ?",
+        (user_id,)
+    ).fetchone()
+    if u_row and u_row["first_seen"]:
+        try:
+            age_days = (_dt.utcnow() - _dt.fromisoformat(u_row["first_seen"])).days
+            if age_days < new_account_days:
+                conn.close()
+                return {"eligible": False,
+                        "reason": f"Account must be {new_account_days}d old to send."}
+        except Exception:
+            pass
+
+    # 2. Level
+    min_level = int(settings.get("min_level_to_send", 3))
+    if u_row and (u_row["level"] or 1) < min_level:
+        conn.close()
+        return {"eligible": False, "reason": f"Need Level {min_level} to send coins."}
+
+    # 3. Total earned
+    min_earned = int(settings.get("min_total_earned_to_send", 500))
+    if u_row and (u_row["total_coins_earned"] or 0) < min_earned:
+        conn.close()
+        return {"eligible": False,
+                "reason": f"Must earn {min_earned}c from games first."}
+
+    # 4. Daily claim count
+    min_claims = int(settings.get("min_daily_claim_days_to_send", 2))
+    dc_row = conn.execute(
+        "SELECT total_claims FROM daily_claims WHERE user_id = ?", (user_id,)
+    ).fetchone()
+    claims = (dc_row["total_claims"] or 0) if dc_row else 0
+    if claims < min_claims:
+        conn.close()
+        return {"eligible": False,
+                "reason": f"Claim /daily {min_claims}x first to send coins."}
+
+    # 5. Game activity (5 game wins OR 5 casino/coinflip rounds)
+    gw_row = conn.execute(
+        "SELECT total_games_won FROM users WHERE user_id = ?", (user_id,)
+    ).fetchone()
+    game_wins = (gw_row["total_games_won"] or 0) if gw_row else 0
+    bj_row = conn.execute(
+        "SELECT COALESCE(bj_wins+bj_losses+bj_pushes, 0) AS r FROM bj_stats WHERE user_id = ?",
+        (user_id,)
+    ).fetchone()
+    rbj_row = conn.execute(
+        "SELECT COALESCE(rbj_wins+rbj_losses+rbj_pushes, 0) AS r FROM rbj_stats WHERE user_id = ?",
+        (user_id,)
+    ).fetchone()
+    cf_row = conn.execute(
+        "SELECT COUNT(*) AS c FROM coinflip_history WHERE user_id = ?", (user_id,)
+    ).fetchone()
+    casino = ((bj_row["r"] if bj_row else 0)
+              + (rbj_row["r"] if rbj_row else 0)
+              + (cf_row["c"] if cf_row else 0))
+    if game_wins < 5 and casino < 5:
+        conn.close()
+        return {"eligible": False,
+                "reason": "Win 5 games or play 5 casino rounds to send."}
+
+    conn.close()
+    return {"eligible": True, "reason": ""}
+
+
+def get_last_daily_claim_ts(user_id: str) -> str | None:
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT last_claim_ts FROM daily_claims WHERE user_id = ?", (user_id,)
+    ).fetchone()
+    conn.close()
+    return row["last_claim_ts"] if row else None
+
+
+def get_recent_sends_count_to(sender_id: str, receiver_id: str, hours: int = 24) -> int:
+    conn = get_connection()
+    row = conn.execute("""
+        SELECT COUNT(*) AS c FROM bank_transactions
+        WHERE sender_id = ? AND receiver_id = ?
+          AND status = 'completed'
+          AND timestamp >= datetime('now', ?)
+    """, (sender_id, receiver_id, f"-{hours} hours")).fetchone()
+    conn.close()
+    return row["c"] if row else 0
+
+
+def count_low_level_senders_to(receiver_id: str, hours: int = 24) -> int:
+    """Count distinct senders to receiver in last N hours who are level < 3."""
+    conn = get_connection()
+    row = conn.execute("""
+        SELECT COUNT(DISTINCT bt.sender_id) AS c
+        FROM bank_transactions bt
+        JOIN users u ON bt.sender_id = u.user_id
+        WHERE bt.receiver_id = ?
+          AND bt.status = 'completed'
+          AND bt.timestamp >= datetime('now', ?)
+          AND (u.level IS NULL OR u.level < 3)
+    """, (receiver_id, f"-{hours} hours")).fetchone()
+    conn.close()
+    return row["c"] if row else 0
+
+
+def get_recent_received_amount(user_id: str, hours: int = 24) -> int:
+    """Total coins received by user in the last N hours."""
+    conn = get_connection()
+    row = conn.execute("""
+        SELECT COALESCE(SUM(amount_received), 0) AS total
+        FROM bank_transactions
+        WHERE receiver_id = ? AND status = 'completed'
+          AND timestamp >= datetime('now', ?)
+    """, (user_id, f"-{hours} hours")).fetchone()
+    conn.close()
+    return row["total"] if row else 0
+
+
+def do_bank_transfer(sender_id: str, sender_username: str,
+                     receiver_id: str, receiver_username: str,
+                     amount_sent: int, fee: int,
+                     risk_level: str, risk_reason: str) -> dict:
+    """Atomic coin transfer. Returns dict with 'success' bool and details."""
+    from datetime import datetime as _dt
+    amount_received = amount_sent - fee
+    conn = get_connection()
+    try:
+        sb_row = conn.execute(
+            "SELECT balance FROM users WHERE user_id = ?", (sender_id,)
+        ).fetchone()
+        if sb_row is None or sb_row["balance"] < amount_sent:
+            conn.close()
+            return {"success": False, "reason": "insufficient_funds"}
+        sb_before = sb_row["balance"]
+
+        rb_row = conn.execute(
+            "SELECT balance FROM users WHERE user_id = ?", (receiver_id,)
+        ).fetchone()
+        rb_before = rb_row["balance"] if rb_row else 0
+
+        # Deduct sender
+        conn.execute(
+            "UPDATE users SET balance = balance - ? WHERE user_id = ? AND balance >= ?",
+            (amount_sent, sender_id, amount_sent)
+        )
+        if conn.execute(
+            "SELECT changes() AS c"
+        ).fetchone()["c"] == 0:
+            conn.rollback()
+            conn.close()
+            return {"success": False, "reason": "insufficient_funds"}
+
+        # Credit receiver
+        conn.execute(
+            "UPDATE users SET balance = balance + ? WHERE user_id = ?",
+            (amount_received, receiver_id)
+        )
+
+        sb_after = conn.execute(
+            "SELECT balance FROM users WHERE user_id = ?", (sender_id,)
+        ).fetchone()["balance"]
+        rb_after = conn.execute(
+            "SELECT balance FROM users WHERE user_id = ?", (receiver_id,)
+        ).fetchone()["balance"]
+
+        now_ts = _dt.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+        today  = str(date.today())
+
+        conn.execute("""
+            INSERT INTO bank_transactions
+              (timestamp, sender_id, sender_username, receiver_id, receiver_username,
+               amount_sent, fee, amount_received,
+               sender_balance_before, sender_balance_after,
+               receiver_balance_before, receiver_balance_after,
+               risk_level, risk_reason, status)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,'completed')
+        """, (now_ts, sender_id, sender_username, receiver_id, receiver_username,
+              amount_sent, fee, amount_received,
+              sb_before, sb_after, rb_before, rb_after,
+              risk_level, risk_reason))
+
+        # Sender bank stats
+        conn.execute("""
+            INSERT INTO bank_user_stats (user_id, total_sent, total_transfer_fees_paid,
+                                         daily_sent, daily_sent_date)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(user_id) DO UPDATE SET
+              total_sent               = total_sent + ?,
+              total_transfer_fees_paid = total_transfer_fees_paid + ?,
+              daily_sent               = CASE WHEN daily_sent_date = ?
+                                              THEN daily_sent + ? ELSE ? END,
+              daily_sent_date          = ?
+        """, (sender_id, amount_sent, fee, amount_sent, today,
+              amount_sent, fee, today, amount_sent, amount_sent, today))
+
+        # Receiver bank stats
+        conn.execute("""
+            INSERT INTO bank_user_stats (user_id, total_received) VALUES (?, ?)
+            ON CONFLICT(user_id) DO UPDATE SET total_received = total_received + ?
+        """, (receiver_id, amount_received, amount_received))
+
+        # Ledger entries
+        conn.execute("""
+            INSERT INTO ledger (timestamp, user_id, username, change_amount, reason,
+                                balance_before, balance_after, related_user)
+            VALUES (?,?,?,?,?,?,?,?)
+        """, (now_ts, sender_id, sender_username, -amount_sent, "bank_send",
+              sb_before, sb_after, receiver_username))
+        conn.execute("""
+            INSERT INTO ledger (timestamp, user_id, username, change_amount, reason,
+                                balance_before, balance_after, related_user)
+            VALUES (?,?,?,?,?,?,?,?)
+        """, (now_ts, receiver_id, receiver_username, amount_received, "bank_receive",
+              rb_before, rb_after, sender_username))
+
+        conn.commit()
+        conn.close()
+        return {
+            "success":         True,
+            "amount_sent":     amount_sent,
+            "fee":             fee,
+            "amount_received": amount_received,
+        }
+    except Exception as exc:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        conn.close()
+        print(f"[BANK] Transfer error: {exc}")
+        return {"success": False, "reason": "error"}
+
+
+def record_blocked_transaction(sender_id: str, sender_username: str,
+                                receiver_id: str, receiver_username: str,
+                                amount_sent: int, risk_level: str, risk_reason: str):
+    from datetime import datetime as _dt
+    conn = get_connection()
+    sb = conn.execute(
+        "SELECT balance FROM users WHERE user_id = ?", (sender_id,)
+    ).fetchone()
+    sb_before = sb["balance"] if sb else 0
+    conn.execute("""
+        INSERT INTO bank_transactions
+          (sender_id, sender_username, receiver_id, receiver_username,
+           amount_sent, fee, amount_received,
+           sender_balance_before, risk_level, risk_reason, status)
+        VALUES (?,?,?,?,?,0,0,?,?,?,'blocked')
+    """, (sender_id, sender_username, receiver_id, receiver_username,
+          amount_sent, sb_before, risk_level, risk_reason))
+    conn.commit()
+    conn.close()
+
+
+def increment_suspicious_count(user_id: str):
+    ensure_bank_user(user_id)
+    conn = get_connection()
+    conn.execute("""
+        UPDATE bank_user_stats
+        SET suspicious_transfer_count = suspicious_transfer_count + 1
+        WHERE user_id = ?
+    """, (user_id,))
+    conn.commit()
+    conn.close()
+
+
+def set_bank_blocked(user_id: str, blocked: bool):
+    ensure_bank_user(user_id)
+    conn = get_connection()
+    conn.execute(
+        "UPDATE bank_user_stats SET bank_blocked = ? WHERE user_id = ?",
+        (int(blocked), user_id)
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_transactions_for(user_id: str, direction: str | None = None,
+                         page: int = 1, limit: int = 5) -> list:
+    """Return paginated transactions for user_id. direction: None/sent/received."""
+    offset = (page - 1) * limit
+    conn   = get_connection()
+    if direction == "sent":
+        clause = "WHERE sender_id = ?"
+        params = (user_id, limit, offset)
+    elif direction == "received":
+        clause = "WHERE receiver_id = ?"
+        params = (user_id, limit, offset)
+    else:
+        clause = "WHERE sender_id = ? OR receiver_id = ?"
+        params = (user_id, user_id, limit, offset)
+    rows = conn.execute(f"""
+        SELECT * FROM bank_transactions {clause}
+        ORDER BY id DESC LIMIT ? OFFSET ?
+    """, params).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_bank_watch_info(username: str) -> dict | None:
+    """Full bank-watch details for a given username."""
+    conn = get_connection()
+    u = conn.execute(
+        "SELECT user_id, username, balance, level, total_coins_earned, first_seen "
+        "FROM users WHERE LOWER(username) = LOWER(?)", (username,)
+    ).fetchone()
+    if u is None:
+        conn.close()
+        return None
+    uid = u["user_id"]
+    bus = conn.execute(
+        "SELECT * FROM bank_user_stats WHERE user_id = ?", (uid,)
+    ).fetchone()
+    daily_sent = 0
+    if bus:
+        today = str(date.today())
+        daily_sent = bus["daily_sent"] if bus["daily_sent_date"] == today else 0
+    ds_row = conn.execute(
+        "SELECT total_claims FROM daily_claims WHERE user_id = ?", (uid,)
+    ).fetchone()
+    conn.close()
+    return {
+        "user_id":       uid,
+        "username":      u["username"],
+        "balance":       u["balance"] or 0,
+        "level":         u["level"] or 1,
+        "total_earned":  u["total_coins_earned"] or 0,
+        "first_seen":    (u["first_seen"] or "unknown")[:10],
+        "total_sent":    bus["total_sent"] if bus else 0,
+        "total_received":bus["total_received"] if bus else 0,
+        "daily_sent":    daily_sent,
+        "bank_blocked":  bool(bus["bank_blocked"]) if bus else False,
+        "suspicious_count": bus["suspicious_transfer_count"] if bus else 0,
+        "total_claims":  (ds_row["total_claims"] or 0) if ds_row else 0,
+    }
+
+
+def get_ledger_for(user_id: str, page: int = 1, limit: int = 5) -> list:
+    offset = (page - 1) * limit
+    conn   = get_connection()
+    rows   = conn.execute("""
+        SELECT timestamp, change_amount, reason, balance_before, balance_after, related_user
+        FROM ledger WHERE user_id = ?
+        ORDER BY id DESC LIMIT ? OFFSET ?
+    """, (user_id, limit, offset)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]

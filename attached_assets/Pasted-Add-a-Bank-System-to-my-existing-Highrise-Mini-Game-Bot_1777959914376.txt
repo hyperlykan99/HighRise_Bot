@@ -1,0 +1,390 @@
+Add a Bank System to my existing Highrise Mini Game Bot.
+
+IMPORTANT:
+- Do not remove existing features.
+- Keep coins, XP, shop, badges, titles, achievements, blackjack, profiles, and games.
+- Use the existing SQLite database.
+- Use get_display_name(username).
+- Keep all Highrise messages under 250 characters.
+- Prevent crashes from bad inputs.
+
+Goal:
+Players can send coins to each other, but the system must reduce abuse from alternate/new accounts farming free coins and transferring to a main account.
+
+==================================================
+BANK COMMANDS
+==================================================
+
+Player commands:
+- /bank
+- /send <username> <amount>
+- /transactions
+- /transactions sent
+- /transactions received
+- /bankstats
+
+Admin/manager commands:
+- /viewtx <username>
+- /viewtx <username> sent
+- /viewtx <username> received
+- /bankwatch <username>
+- /bankblock <username>
+- /bankunblock <username>
+- /banksettings
+
+Owner/admin only commands:
+- /setsendlimit <amount>
+- /setnewaccountdays <days>
+- /setminlevelsend <level>
+- /setmintotalearned <amount>
+- /setsendtax <percent>
+
+==================================================
+PLAYER BANK FEATURES
+==================================================
+
+/bank shows:
+- Current coin balance
+- Total sent
+- Total received
+- Total earned
+- Transfer status: allowed or blocked
+- Daily send limit remaining
+
+/bankstats shows:
+- Coins balance
+- Total sent
+- Total received
+- Total earned
+- Total spent
+- Total won from games
+- Total lost from casino
+- Net blackjack profit/loss if available
+
+/transactions shows recent 5 transactions involving the player.
+/transactions sent shows recent sent transactions.
+/transactions received shows recent received transactions.
+
+Keep messages short.
+If too long, add pagination:
+- /transactions 1
+- /transactions 2
+
+==================================================
+SEND COINS FEATURE
+==================================================
+
+Command:
+- /send <username> <amount>
+
+Rules:
+- Sender cannot send to themselves.
+- Amount must be a positive whole number.
+- Sender must have enough coins.
+- Minimum send amount: 10 coins.
+- Maximum send amount per transaction: 1000 coins by default.
+- Daily send limit: 3000 coins by default.
+- Apply transfer tax if enabled.
+- Default transfer tax: 5%.
+- Tax is removed from the amount received.
+- Example:
+  /send Claire 100
+  sender loses 100
+  Claire receives 95
+  tax burned = 5
+
+Messages:
+"✅ Sent 95c to @Claire. Fee: 5c."
+"❌ Not enough coins."
+"❌ You cannot send coins to yourself."
+"❌ Transfer blocked. Check /bank."
+
+==================================================
+ANTI-ABUSE RULES
+==================================================
+
+Add transfer eligibility requirements.
+
+Default requirements:
+- Account must be seen by the bot for at least 3 days before sending.
+- Player must be at least Level 3 to send.
+- Player must have earned at least 500 total coins from games/daily/shop rewards before sending.
+- Player must have claimed /daily at least 2 different days.
+- Player must have won at least 5 mini games OR played at least 5 blackjack/coinflip rounds.
+- Player cannot send more than 3000 coins per day.
+- Player cannot send more than 1000 coins in one transaction.
+- Player cannot send coins if bankblocked.
+
+Receiving rules:
+- New accounts can receive coins, but cannot send until eligible.
+- If receiving account is suspicious/new, log the transaction as high risk.
+
+Important:
+These rules should reduce alt-account abuse but not break normal players.
+
+==================================================
+ALT ABUSE DETECTION / RISK FLAGS
+==================================================
+
+Add a risk scoring system for each transaction.
+
+Flag a transaction as suspicious if:
+- Sender account age in bot database is less than 3 days.
+- Sender level is below 3.
+- Sender has mostly coins from /daily and very few game wins.
+- Sender sends more than 80% of their balance.
+- Sender sends coins to the same receiver repeatedly.
+- Multiple low-level users send coins to the same receiver.
+- Sender has received coins and quickly forwards them to another user.
+- Sender sends coins within 10 minutes of claiming /daily.
+
+Risk levels:
+- LOW
+- MEDIUM
+- HIGH
+
+Store risk_level and risk_reason in transaction history.
+
+If HIGH risk:
+- Block the transfer by default.
+- Tell player: "Transfer blocked by bank safety rules."
+- Log it for staff.
+
+If MEDIUM risk:
+- Allow transfer but log it.
+- Optional: reduce daily send limit.
+
+==================================================
+STAFF TRANSACTION VIEWING
+==================================================
+
+Permissions:
+- Owner/admin/manager can use:
+  /viewtx <username>
+  /bankwatch <username>
+- Owner/admin only can use:
+  /bankblock <username>
+  /bankunblock <username>
+  /setsendlimit
+  /setnewaccountdays
+  /setminlevelsend
+  /setmintotalearned
+  /setsendtax
+
+/viewtx <username> shows recent 5 transactions for that user:
+- Sent/received
+- Amount
+- Fee
+- Other player
+- Date/time
+- Risk level
+
+/viewtx <username> sent shows recent sent transfers.
+/viewtx <username> received shows recent received transfers.
+
+Keep messages short.
+Add pagination if needed:
+- /viewtx <username> 1
+- /viewtx <username> 2
+
+/bankwatch <username> shows:
+- Balance
+- Total sent
+- Total received
+- Daily sent today
+- Total earned
+- Account first seen date
+- Level
+- Risk count
+- Bank blocked status
+
+/bankblock <username>:
+- Blocks that player from sending coins.
+
+/bankunblock <username>:
+- Allows that player to send again if eligible.
+
+==================================================
+DATABASE TABLES
+==================================================
+
+Add safe SQLite migrations.
+
+Create bank_transactions table:
+- id INTEGER PRIMARY KEY AUTOINCREMENT
+- timestamp TEXT
+- sender_username TEXT
+- receiver_username TEXT
+- amount_sent INTEGER
+- fee INTEGER
+- amount_received INTEGER
+- sender_balance_before INTEGER
+- sender_balance_after INTEGER
+- receiver_balance_before INTEGER
+- receiver_balance_after INTEGER
+- risk_level TEXT
+- risk_reason TEXT
+- status TEXT
+
+Status values:
+- completed
+- blocked
+- refunded
+- failed
+
+Create bank_user_stats table if needed:
+- username TEXT PRIMARY KEY
+- first_seen TEXT
+- total_sent INTEGER DEFAULT 0
+- total_received INTEGER DEFAULT 0
+- total_transfer_fees_paid INTEGER DEFAULT 0
+- daily_sent INTEGER DEFAULT 0
+- daily_sent_date TEXT
+- bank_blocked INTEGER DEFAULT 0
+- suspicious_transfer_count INTEGER DEFAULT 0
+
+Create bank_settings table:
+- key TEXT PRIMARY KEY
+- value TEXT
+
+Default settings:
+- min_send_amount = 10
+- max_send_amount = 1000
+- daily_send_limit = 3000
+- new_account_days = 3
+- min_level_to_send = 3
+- min_total_earned_to_send = 500
+- min_daily_claim_days_to_send = 2
+- send_tax_percent = 5
+- high_risk_blocks = true
+
+==================================================
+TOTAL GOLD / TOTAL COINS TRACKING
+==================================================
+
+The user asked for "total gold." In this bot, use "coins" unless an existing gold system exists.
+
+Track:
+- current coins
+- total earned coins
+- total spent coins
+- total sent coins
+- total received coins
+- total fees paid
+- casino net profit/loss
+- game earnings
+
+If the code already has "gold", support both names:
+- /gold
+- /coins
+- /balance
+
+But the main currency should stay coins unless the project already uses gold.
+
+==================================================
+ECONOMY LEDGER
+==================================================
+
+Create an economy ledger if one does not exist.
+
+Every coin change should be logged:
+- daily reward
+- trivia reward
+- scramble reward
+- riddle reward
+- coinflip win/loss
+- blackjack win/loss/push
+- shop purchase
+- bank send
+- bank receive
+- bank fee
+- admin addcoins
+- admin removecoins
+
+Ledger table:
+- id
+- timestamp
+- username
+- change_amount
+- reason
+- balance_before
+- balance_after
+- related_user
+- metadata
+
+This helps staff audit coin abuse.
+
+Commands:
+- /ledger <username> admin/manager only
+Shows recent 5 coin changes for a user.
+
+==================================================
+SAFETY
+==================================================
+
+- Never allow negative balances.
+- Use database transactions when sending coins.
+- If any step fails, rollback the whole transfer.
+- Do not deduct from sender unless receiver is credited successfully.
+- Prevent duplicate sends from spam.
+- Add cooldown:
+  /send cooldown 10 seconds per user.
+- Validate usernames and amounts.
+- Do not crash if the receiver has never used the bot.
+- Create receiver user record if missing.
+- Keep all messages under 250 characters.
+- Log real errors in console only.
+
+==================================================
+HELP UPDATE
+==================================================
+
+Update /coinhelp:
+"💰 Coins
+/daily /balance
+/send <user> <amt>
+/bank
+/transactions
+/leaderboard"
+
+Add /bankhelp:
+"🏦 Bank
+/send <user> <amt>
+/bank - your stats
+/transactions - history
+Staff: /viewtx <user>"
+
+Add /adminhelp for staff:
+Include:
+- /viewtx <user>
+- /bankwatch <user>
+- /bankblock <user>
+- /bankunblock <user>
+- /ledger <user>
+
+==================================================
+TEST CASES
+==================================================
+
+Make sure these work:
+- /bank
+- /send Claire 100
+- /transactions
+- /transactions sent
+- /transactions received
+- /bankstats
+- /viewtx Marion
+- /bankwatch Marion
+- /bankblock Marion
+- /bankunblock Marion
+
+Make sure these fail safely:
+- /send
+- /send user abc
+- /send user -10
+- /send myself 100
+- /send user 999999999
+- new/low-level player tries to send
+- bankblocked player tries to send
+
+Do not delete any existing data.

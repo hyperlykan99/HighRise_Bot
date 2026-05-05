@@ -1,0 +1,521 @@
+"""
+modules/bank.py
+---------------
+Bank system for the Highrise Mini Game Bot.
+
+Player commands:
+  /bank              — balance + bank overview
+  /send <user> <amt> — send coins (with anti-abuse checks)
+  /transactions [sent|received] [page]
+  /bankstats         — full economy stats
+
+Manager/admin commands:
+  /viewtx <user> [sent|received] [page]
+  /bankwatch <user>
+  /bankblock <user>
+  /bankunblock <user>
+  /banksettings
+
+Owner/admin-only settings:
+  /setsendlimit <amt>
+  /setnewaccountdays <days>
+  /setminlevelsend <level>
+  /setmintotalearned <amt>
+  /setsendtax <pct>
+
+Ledger (manager+):
+  /ledger <user> [page]
+"""
+
+import time
+from datetime import datetime
+
+from highrise import BaseBot, User
+
+import database as db
+from modules.permissions import is_admin, is_manager, can_manage_economy
+
+# ---------------------------------------------------------------------------
+# In-memory send cooldown  (10 s per user)
+# ---------------------------------------------------------------------------
+_send_cooldown: dict[str, float] = {}
+_COOLDOWN_SECS = 10
+
+
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
+
+def _w(bot: BaseBot, uid: str, msg: str):
+    """Shorthand whisper — truncates to 249 chars for safety."""
+    return bot.highrise.send_whisper(uid, msg[:249])
+
+
+def _tx_line(tx: dict, viewer_id: str) -> str:
+    """Single compact transaction line for a viewer."""
+    direction = "→" if tx["sender_id"] == viewer_id else "←"
+    other = tx["receiver_username"] if tx["sender_id"] == viewer_id else tx["sender_username"]
+    amt   = tx["amount_sent"] if tx["sender_id"] == viewer_id else tx["amount_received"]
+    fee   = f" fee:{tx['fee']}c" if tx["fee"] > 0 and tx["sender_id"] == viewer_id else ""
+    risk  = tx["risk_level"][:3]  # LOW/MED/HIG
+    ts    = tx["timestamp"][:10] if tx["timestamp"] else "?"
+    status = "" if tx["status"] == "completed" else f" [{tx['status']}]"
+    return f"{direction} @{other[:14]} {amt:,}c{fee} {risk} {ts}{status}"
+
+
+def _compute_risk(sender_id: str, sender_balance: int, amount: int,
+                  receiver_id: str) -> tuple[str, str]:
+    """Return (risk_level, risk_reason). Uses DB helper queries."""
+    flags = []
+    score = 0  # 0=low 1=medium 2=high
+
+    def bump(n, reason):
+        nonlocal score
+        score = max(score, n)
+        flags.append(reason)
+
+    # Flag: sends >80% of balance
+    if sender_balance > 0 and amount > sender_balance * 0.8:
+        bump(1, ">80% balance")
+
+    # Flag: sent within 10 min of daily claim
+    try:
+        last_ts = db.get_last_daily_claim_ts(sender_id)
+        if last_ts:
+            elapsed = (datetime.utcnow() - datetime.fromisoformat(last_ts)).total_seconds()
+            if elapsed < 600:
+                bump(1, "<10min after daily")
+    except Exception:
+        pass
+
+    # Flag: repeated sends to same receiver
+    recent_to = db.get_recent_sends_count_to(sender_id, receiver_id, hours=24)
+    if recent_to >= 5:
+        bump(2, "5+ sends same user/24h")
+    elif recent_to >= 3:
+        bump(1, "3+ sends same user/24h")
+
+    # Flag: many low-level senders funneling to same receiver
+    low_senders = db.count_low_level_senders_to(receiver_id, hours=24)
+    if low_senders >= 3:
+        bump(1, "3+ low-lvl senders→recv")
+
+    # Flag: forwarding recently received coins
+    recent_recv = db.get_recent_received_amount(sender_id, hours=24)
+    if recent_recv > 0 and amount >= recent_recv * 0.8:
+        bump(1, "forwarding received coins")
+
+    levels = ["LOW", "MEDIUM", "HIGH"]
+    return levels[min(score, 2)], (", ".join(flags) if flags else "clean")
+
+
+def _parse_tx_args(args: list[str], offset: int = 1):
+    """Parse [sent|received] [page] from args starting at offset.
+    Returns (direction, page) where direction is None/'sent'/'received'."""
+    direction = None
+    page = 1
+    for a in args[offset:]:
+        al = a.lower()
+        if al in ("sent", "send"):
+            direction = "sent"
+        elif al in ("received", "receive", "recv"):
+            direction = "received"
+        elif al.isdigit():
+            page = max(1, int(a))
+    return direction, page
+
+
+# ---------------------------------------------------------------------------
+# Player commands
+# ---------------------------------------------------------------------------
+
+async def handle_bank(bot: BaseBot, user: User, _args: list[str]):
+    """/bank — show overview."""
+    db.ensure_user(user.id, user.username)
+    db.ensure_bank_user(user.id)
+
+    profile = db.get_profile(user.id)
+    bus     = db.get_bank_user_stats(user.id)
+    settings = db.get_bank_settings()
+
+    bal     = profile.get("balance", 0)
+    earned  = profile.get("total_coins_earned", 0)
+    sent    = bus.get("total_sent", 0)
+    recv    = bus.get("total_received", 0)
+    daily_limit = int(settings.get("daily_send_limit", 3000))
+    daily_used  = db.get_daily_sent_today(user.id)
+    daily_left  = max(0, daily_limit - daily_used)
+
+    blocked = bool(bus.get("bank_blocked", 0))
+    if blocked:
+        status = "❌ Blocked"
+    else:
+        elig = db.check_send_eligibility(user.id, settings)
+        status = "✅ Eligible" if elig["eligible"] else f"🔒 {elig['reason'][:40]}"
+
+    display = db.get_display_name(user.id, user.username)
+    msg = (
+        f"🏦 {display}\n"
+        f"Bal: {bal:,}c | Daily left: {daily_left:,}c\n"
+        f"Sent: {sent:,}c | Recv: {recv:,}c\n"
+        f"Earned: {earned:,}c\n"
+        f"Status: {status}"
+    )
+    await _w(bot, user.id, msg)
+
+
+async def handle_send(bot: BaseBot, user: User, args: list[str]):
+    """/send <username> <amount>"""
+    if len(args) < 3:
+        await _w(bot, user.id, "Usage: /send <username> <amount>")
+        return
+
+    target_name = args[1]
+    try:
+        amount = int(args[2])
+    except (ValueError, IndexError):
+        await _w(bot, user.id, "❌ Amount must be a whole number.")
+        return
+
+    if amount <= 0:
+        await _w(bot, user.id, "❌ Amount must be positive.")
+        return
+
+    # Self-send
+    if target_name.lower() == user.username.lower():
+        await _w(bot, user.id, "❌ You cannot send coins to yourself.")
+        return
+
+    # Cooldown
+    now = time.monotonic()
+    if now - _send_cooldown.get(user.id, 0) < _COOLDOWN_SECS:
+        wait = int(_COOLDOWN_SECS - (now - _send_cooldown.get(user.id, 0)))
+        await _w(bot, user.id, f"⏳ Wait {wait}s before sending again.")
+        return
+
+    db.ensure_user(user.id, user.username)
+    db.ensure_bank_user(user.id)
+
+    settings = db.get_bank_settings()
+    min_amt  = int(settings.get("min_send_amount", 10))
+    max_amt  = int(settings.get("max_send_amount", 1000))
+
+    if amount < min_amt:
+        await _w(bot, user.id, f"❌ Minimum send is {min_amt}c.")
+        return
+    if amount > max_amt:
+        await _w(bot, user.id, f"❌ Maximum per send is {max_amt:,}c.")
+        return
+
+    # Bank blocked?
+    bus = db.get_bank_user_stats(user.id)
+    if bus.get("bank_blocked"):
+        await _w(bot, user.id, "❌ Transfer blocked. Check /bank.")
+        return
+
+    # Eligibility
+    elig = db.check_send_eligibility(user.id, settings)
+    if not elig["eligible"]:
+        await _w(bot, user.id, f"❌ {elig['reason']}")
+        return
+
+    # Daily limit
+    daily_limit = int(settings.get("daily_send_limit", 3000))
+    daily_used  = db.get_daily_sent_today(user.id)
+    if daily_used + amount > daily_limit:
+        remaining = max(0, daily_limit - daily_used)
+        await _w(bot, user.id, f"❌ Daily limit reached. Remaining: {remaining:,}c.")
+        return
+
+    # Balance
+    sender_bal = db.get_balance(user.id)
+    if sender_bal < amount:
+        await _w(bot, user.id, "❌ Not enough coins.")
+        return
+
+    # Find receiver
+    receiver = db.get_user_by_username(target_name)
+    if receiver is None:
+        await _w(bot, user.id, f"❌ Player @{target_name} not found in bot records.")
+        return
+    if receiver["user_id"] == user.id:
+        await _w(bot, user.id, "❌ You cannot send coins to yourself.")
+        return
+    db.ensure_bank_user(receiver["user_id"])
+
+    # Risk scoring
+    risk_level, risk_reason = _compute_risk(user.id, sender_bal, amount, receiver["user_id"])
+
+    high_risk_blocks = settings.get("high_risk_blocks", "true").lower() == "true"
+    if risk_level == "HIGH" and high_risk_blocks:
+        db.record_blocked_transaction(
+            user.id, user.username,
+            receiver["user_id"], receiver["username"],
+            amount, risk_level, risk_reason
+        )
+        db.increment_suspicious_count(user.id)
+        await _w(bot, user.id, "❌ Transfer blocked by bank safety rules.")
+        print(f"[BANK] HIGH RISK blocked: {user.username}→{receiver['username']} "
+              f"{amount}c | {risk_reason}")
+        return
+
+    # Fee & atomic transfer
+    tax_pct  = int(settings.get("send_tax_percent", 5))
+    fee      = max(0, round(amount * tax_pct / 100))
+    amount_received = amount - fee
+
+    _send_cooldown[user.id] = time.monotonic()
+
+    result = db.do_bank_transfer(
+        user.id, user.username,
+        receiver["user_id"], receiver["username"],
+        amount, fee, risk_level, risk_reason
+    )
+
+    if not result["success"]:
+        reason = result.get("reason", "error")
+        if reason == "insufficient_funds":
+            await _w(bot, user.id, "❌ Not enough coins.")
+        else:
+            await _w(bot, user.id, "❌ Transfer failed. Try again.")
+        return
+
+    recv_display = db.get_display_name(receiver["user_id"], receiver["username"])
+    if fee > 0:
+        await _w(bot, user.id, f"✅ Sent {amount_received:,}c to {recv_display}. Fee: {fee}c.")
+    else:
+        await _w(bot, user.id, f"✅ Sent {amount_received:,}c to {recv_display}.")
+
+    if risk_level == "MEDIUM":
+        print(f"[BANK] MEDIUM: {user.username}→{receiver['username']} "
+              f"{amount}c | {risk_reason}")
+
+
+async def handle_transactions(bot: BaseBot, user: User, args: list[str]):
+    """/transactions [sent|received] [page]"""
+    db.ensure_user(user.id, user.username)
+    direction, page = _parse_tx_args(args, offset=1)
+    rows = db.get_transactions_for(user.id, direction=direction, page=page)
+
+    label = {"sent": "Sent", "received": "Recv", None: "All"}.get(direction, "All")
+    if not rows:
+        await _w(bot, user.id, f"No {label.lower()} transactions yet.")
+        return
+
+    lines = [f"-- {label} Transfers (p{page}) --"]
+    for tx in rows:
+        lines.append(_tx_line(tx, user.id))
+    msg = "\n".join(lines)
+    if len(msg) > 248:
+        msg = msg[:245] + "..."
+    await _w(bot, user.id, msg)
+
+
+async def handle_bankstats(bot: BaseBot, user: User):
+    """/bankstats — full economy breakdown."""
+    db.ensure_user(user.id, user.username)
+    db.ensure_bank_user(user.id)
+
+    profile  = db.get_profile(user.id)
+    bus      = db.get_bank_user_stats(user.id)
+    bj_row   = db.get_bj_stats(user.id)
+    rbj_row  = db.get_rbj_stats(user.id)
+
+    bal     = profile.get("balance", 0)
+    earned  = profile.get("total_coins_earned", 0)
+    sent    = bus.get("total_sent", 0)
+    recv    = bus.get("total_received", 0)
+
+    bj_net  = bj_row.get("bj_total_won", 0) - bj_row.get("bj_total_bet", 0)
+    rbj_net = rbj_row.get("rbj_total_won", 0) - rbj_row.get("rbj_total_bet", 0)
+
+    bj_sign  = "+" if bj_net  >= 0 else ""
+    rbj_sign = "+" if rbj_net >= 0 else ""
+
+    display = db.get_display_name(user.id, user.username)
+    msg = (
+        f"📊 {display}\n"
+        f"Bal: {bal:,}c | Earned: {earned:,}c\n"
+        f"Sent: {sent:,}c | Recv: {recv:,}c\n"
+        f"BJ net: {bj_sign}{bj_net:,}c | RBJ: {rbj_sign}{rbj_net:,}c"
+    )
+    await _w(bot, user.id, msg)
+
+
+# ---------------------------------------------------------------------------
+# Staff commands
+# ---------------------------------------------------------------------------
+
+async def handle_viewtx(bot: BaseBot, user: User, args: list[str]):
+    """/viewtx <username> [sent|received] [page]  — manager+"""
+    if not is_manager(user.username):
+        await _w(bot, user.id, "Staff only.")
+        return
+    if len(args) < 2:
+        await _w(bot, user.id, "Usage: /viewtx <username> [sent|received] [page]")
+        return
+
+    target_name = args[1]
+    target = db.get_user_by_username(target_name)
+    if target is None:
+        await _w(bot, user.id, f"@{target_name} not found.")
+        return
+
+    direction, page = _parse_tx_args(args, offset=2)
+    rows = db.get_transactions_for(target["user_id"], direction=direction, page=page)
+
+    label = {"sent": "Sent", "received": "Recv", None: "All"}.get(direction, "All")
+    if not rows:
+        await _w(bot, user.id, f"No {label.lower()} TX for @{target_name}.")
+        return
+
+    lines = [f"-- @{target_name} {label} TX (p{page}) --"]
+    for tx in rows:
+        lines.append(_tx_line(tx, target["user_id"]))
+    msg = "\n".join(lines)
+    if len(msg) > 248:
+        msg = msg[:245] + "..."
+    await _w(bot, user.id, msg)
+
+
+async def handle_bankwatch(bot: BaseBot, user: User, args: list[str]):
+    """/bankwatch <username>  — manager+"""
+    if not is_manager(user.username):
+        await _w(bot, user.id, "Staff only.")
+        return
+    if len(args) < 2:
+        await _w(bot, user.id, "Usage: /bankwatch <username>")
+        return
+
+    info = db.get_bank_watch_info(args[1])
+    if info is None:
+        await _w(bot, user.id, f"@{args[1]} not found.")
+        return
+
+    blocked = "Yes" if info["bank_blocked"] else "No"
+    msg = (
+        f"-- 👀 @{info['username']} --\n"
+        f"Bal: {info['balance']:,}c Lvl: {info['level']}\n"
+        f"Sent: {info['total_sent']:,}c Recv: {info['total_received']:,}c\n"
+        f"Daily: {info['daily_sent']:,}c Earned: {info['total_earned']:,}c\n"
+        f"1st: {info['first_seen']} Claims: {info['total_claims']}\n"
+        f"Flags: {info['suspicious_count']} Blocked: {blocked}"
+    )
+    await _w(bot, user.id, msg)
+
+
+async def handle_bankblock(bot: BaseBot, user: User, args: list[str], block: bool = True):
+    """/bankblock or /bankunblock <username>  — admin+"""
+    if not is_admin(user.username):
+        await _w(bot, user.id, "Admins only.")
+        return
+    if len(args) < 2:
+        cmd = "bankblock" if block else "bankunblock"
+        await _w(bot, user.id, f"Usage: /{cmd} <username>")
+        return
+
+    target = db.get_user_by_username(args[1])
+    if target is None:
+        await _w(bot, user.id, f"@{args[1]} not found.")
+        return
+
+    db.ensure_bank_user(target["user_id"])
+    db.set_bank_blocked(target["user_id"], block)
+    state = "BLOCKED" if block else "UNBLOCKED"
+    await _w(bot, user.id, f"✅ @{target['username']} is now bank {state}.")
+
+
+async def handle_banksettings(bot: BaseBot, user: User):
+    """/banksettings  — manager+"""
+    if not is_manager(user.username):
+        await _w(bot, user.id, "Staff only.")
+        return
+    s = db.get_bank_settings()
+    hr_blocks = "yes" if s.get("high_risk_blocks", "true").lower() == "true" else "no"
+    msg = (
+        "-- Bank Settings --\n"
+        f"Min/max send: {s.get('min_send_amount','10')}c / {s.get('max_send_amount','1000')}c\n"
+        f"Daily limit: {int(s.get('daily_send_limit','3000')):,}c\n"
+        f"New acc days: {s.get('new_account_days','3')} | "
+        f"Min level: {s.get('min_level_to_send','3')}\n"
+        f"Min earned: {s.get('min_total_earned_to_send','500')}c | "
+        f"Tax: {s.get('send_tax_percent','5')}%\n"
+        f"Block HIGH risk: {hr_blocks}"
+    )
+    await _w(bot, user.id, msg)
+
+
+# ---------------------------------------------------------------------------
+# Owner/admin setting commands  (/set…)
+# ---------------------------------------------------------------------------
+
+async def handle_bank_set(bot: BaseBot, user: User, cmd: str, args: list[str]):
+    """Route /set<bank…> commands. All require admin+."""
+    if not is_admin(user.username):
+        await _w(bot, user.id, "Admins only.")
+        return
+
+    _INT_CMDS = {
+        "setsendlimit":       ("daily_send_limit",             10, 100_000, "Daily send limit"),
+        "setnewaccountdays":  ("new_account_days",             0,  365,     "New account days"),
+        "setminlevelsend":    ("min_level_to_send",            1,  100,     "Min level to send"),
+        "setmintotalearned":  ("min_total_earned_to_send",     0,  1_000_000, "Min earned to send"),
+        "setsendtax":         ("send_tax_percent",             0,  50,      "Send tax %"),
+    }
+
+    if cmd not in _INT_CMDS:
+        await _w(bot, user.id, f"Unknown bank setting: /{cmd}")
+        return
+
+    db_key, mn, mx, label = _INT_CMDS[cmd]
+    if len(args) < 2 or not args[1].isdigit():
+        await _w(bot, user.id, f"Usage: /{cmd} <number>")
+        return
+
+    val = int(args[1])
+    if not (mn <= val <= mx):
+        await _w(bot, user.id, f"❌ Value must be {mn}–{mx}.")
+        return
+
+    db.set_bank_setting(db_key, str(val))
+    await _w(bot, user.id, f"✅ {label} set to {val}.")
+
+
+# ---------------------------------------------------------------------------
+# Ledger command
+# ---------------------------------------------------------------------------
+
+async def handle_ledger(bot: BaseBot, user: User, args: list[str]):
+    """/ledger <username> [page]  — manager+"""
+    if not is_manager(user.username):
+        await _w(bot, user.id, "Staff only.")
+        return
+    if len(args) < 2:
+        await _w(bot, user.id, "Usage: /ledger <username> [page]")
+        return
+
+    target_name = args[1]
+    page = 1
+    if len(args) >= 3 and args[2].isdigit():
+        page = max(1, int(args[2]))
+
+    target = db.get_user_by_username(target_name)
+    if target is None:
+        await _w(bot, user.id, f"@{target_name} not found.")
+        return
+
+    rows = db.get_ledger_for(target["user_id"], page=page)
+    if not rows:
+        await _w(bot, user.id, f"No ledger entries for @{target_name} (p{page}).")
+        return
+
+    lines = [f"-- 📒 @{target_name} Ledger (p{page}) --"]
+    for r in rows:
+        sign = "+" if r["change_amount"] >= 0 else ""
+        ts   = r["timestamp"][:10] if r["timestamp"] else "?"
+        rel  = f" ←@{r['related_user']}" if r["related_user"] else ""
+        lines.append(f"{sign}{r['change_amount']:,}c {r['reason']}{rel} {ts}")
+    msg = "\n".join(lines)
+    if len(msg) > 248:
+        msg = msg[:245] + "..."
+    await _w(bot, user.id, msg)
