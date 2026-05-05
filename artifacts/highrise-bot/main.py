@@ -1444,6 +1444,14 @@ class HangoutBot(BaseBot):
                 await handle_setgoldrainmax(self, user, args)
             elif cmd == "debugtips":
                 await handle_debugtips(self, user, args)
+            elif cmd == "restarthelp":
+                await handle_restarthelp(self, user)
+            elif cmd == "restartstatus":
+                await handle_restartstatus(self, user)
+            elif cmd == "softrestart":
+                await handle_softrestart(self, user)
+            elif cmd == "restartbot":
+                await handle_restartbot(self, user)
             else:
                 await handle_admin_command(self, user, cmd, args)
             return
@@ -1819,18 +1827,6 @@ class HangoutBot(BaseBot):
 
         elif cmd == "cleanup":
             await handle_cleanup(self, user)
-
-        elif cmd == "restarthelp":
-            await handle_restarthelp(self, user)
-
-        elif cmd == "restartstatus":
-            await handle_restartstatus(self, user)
-
-        elif cmd == "softrestart":
-            await handle_softrestart(self, user)
-
-        elif cmd == "restartbot":
-            await handle_restartbot(self, user)
 
         # ── Game commands ─────────────────────────────────────────────────────
         elif cmd in GAME_COMMANDS:

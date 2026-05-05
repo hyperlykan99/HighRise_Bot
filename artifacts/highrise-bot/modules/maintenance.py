@@ -392,10 +392,8 @@ async def handle_restartbot(bot: BaseBot, user: User) -> None:
     os.execv replaces the current process in-place with a fresh Python
     interpreter running bot.py — no Replit auto-restart needed.
 
-    WARNING: /restartbot requires Replit auto-restart/deployment to be
-    enabled if os.execv is unavailable on the platform. In that case the
-    command falls back to sys.exit(0), which will stop the bot unless the
-    Replit workflow is configured to restart on exit.
+    If os.execv fails, the bot stays alive and instructs the owner to use
+    the Replit Restart button manually.
     """
     if not is_owner(user.username):
         await _w(bot, user.id, "Owner only.")
@@ -437,10 +435,11 @@ async def handle_restartbot(bot: BaseBot, user: User) -> None:
     interpreter = sys.executable
     print(f"[MAINT] restartbot: exec {interpreter} {script}")
     try:
+        print("[MAINT] RESTARTBOT EXECV ATTEMPT")
         os.execv(interpreter, [interpreter, script])
     except Exception as exc:
-        # execv failed (unusual on Replit) — fall back to exit and let
-        # the workflow runner restart the process automatically.
-        print(f"[MAINT] restartbot: os.execv failed ({exc}), falling back to sys.exit(0)")
-        print("[MAINT] WARNING: sys.exit(0) requires Replit auto-restart to be enabled.")
-        sys.exit(0)
+        print(f"[MAINT] RESTARTBOT FAILED: {exc!r}")
+        try:
+            await bot.highrise.chat("Full restart failed. Use Replit Restart button.")
+        except Exception:
+            pass

@@ -1,0 +1,234 @@
+Fix /softrestart and /restartbot completely.
+
+Problem:
+Typing /softrestart and /restartbot still does not work.
+
+Goal:
+Make /softrestart reliable inside the current running bot.
+Make /restartbot either restart the process safely or clearly say manual Replit restart is required.
+
+Important:
+- Do not remove existing features.
+- Do not delete player data.
+- Keep all Highrise messages under 250 characters.
+- Owner only for restart commands.
+- Add explicit command routing before the unknown-command fallback.
+
+Commands:
+- /restarthelp
+- /restartstatus
+- /softrestart
+- /restartbot
+
+Permissions:
+- Owner only.
+- Admin, manager, moderator, and normal players cannot use these.
+
+==================================================
+1. ROUTING FIX
+==================================================
+
+Search the main command handler/router.
+
+Add explicit routes for:
+/restarthelp
+/restartstatus
+/softrestart
+/restartbot
+
+These routes must be before:
+- unknown command fallback
+- generic /restart matching bugs
+- any staff permission fallback
+
+If non-owner uses them, reply:
+"Only owners can restart the bot."
+
+==================================================
+2. /restarthelp
+==================================================
+
+/restarthelp should reply:
+
+"🔄 Restart
+/softrestart - reload systems
+/restartbot - full restart if supported
+Owner only."
+
+==================================================
+3. /restartstatus
+==================================================
+
+/restartstatus should show:
+- softrestart installed: YES
+- restartbot installed: YES
+- bot uptime
+- auto games enabled
+- auto events enabled
+- active event
+- BJ state
+- RBJ state
+- last restart error if any
+
+Example under 250 chars:
+"Restart OK | Up: 2h | AutoGames ON | AutoEvents ON | BJ idle | RBJ active | Last error: none"
+
+==================================================
+4. /softrestart MUST WORK WITHOUT KILLING PROCESS
+==================================================
+
+/softrestart should NOT exit Python.
+It should safely reload in-memory bot systems.
+
+Steps:
+1. Send:
+"🔄 Soft restarting..."
+
+2. Save active BJ/RBJ table state to SQLite if active.
+Do not refund or clear bets.
+
+3. Cancel timers/tasks safely:
+- mini game answer timer
+- auto game loop
+- auto event loop
+- event end timer
+- BJ countdown timer
+- BJ turn timer
+- RBJ countdown timer
+- RBJ turn timer
+- any poker timers if poker exists
+
+4. Clear only temporary in-memory caches:
+- cooldown caches if safe
+- temporary search results
+- temporary confirmation codes that expired
+- stale room user cache if it can rebuild
+Do NOT clear active player data.
+
+5. Reload settings from SQLite:
+- bank settings
+- casino settings
+- event settings
+- auto game settings
+- role settings
+- gold settings
+
+6. Check expired events and clear them if needed.
+
+7. Recover active BJ/RBJ state from SQLite:
+- if BJ/RBJ was active, restore the same table
+- if RBJ was active, restore the same shoe_json
+- restart remaining turn/lobby timers if needed
+
+8. Restart auto loops if enabled:
+- auto mini games
+- auto events
+
+9. Send:
+"✅ Soft restart complete."
+
+Important:
+Softrestart must never delete:
+- coins
+- XP
+- profiles
+- bank transactions
+- blackjack stats
+- active BJ/RBJ bets
+- RBJ shoe state
+- shop items
+- badges/titles
+- quests
+- achievements
+- staff roles
+- reports
+- ledger
+- gold logs
+
+Use helper functions if needed:
+- save_active_casino_states()
+- cancel_all_timers()
+- reload_all_settings()
+- recover_active_casino_states()
+- start_background_loops_once()
+
+Prevent duplicate loops:
+Before starting auto game/event loops, check if an existing task exists and is not done.
+Cancel old loop before starting a new one.
+
+==================================================
+5. /restartbot FULL RESTART
+==================================================
+
+/restartbot should attempt a full process restart only if supported.
+
+Steps:
+1. Send:
+"🔄 Restarting bot..."
+
+2. Save BJ/RBJ active states to SQLite.
+
+3. Cancel timers safely.
+
+4. Flush/close database connection if needed.
+
+5. Try process restart using:
+os.execv(sys.executable, [sys.executable] + sys.argv)
+
+If os.execv fails:
+- catch the exception
+- save last restart error
+- reply:
+"Full restart failed. Use Replit Restart button."
+
+If this Replit setup cannot support os.execv:
+- do NOT use sys.exit(0) unless the project is deployed with auto-restart
+- reply:
+"Full restart not available here. Use Replit Restart button."
+
+Do not leave the bot dead if it cannot auto-restart.
+
+==================================================
+6. DEBUG LOGGING
+==================================================
+
+Add console logs:
+- "SOFTRESTART STARTED"
+- "Saving casino states"
+- "Cancelling timers"
+- "Reloading settings"
+- "Recovering casino states"
+- "Restarting auto loops"
+- "SOFTRESTART COMPLETE"
+- "RESTARTBOT STARTED"
+- "RESTARTBOT EXECV ATTEMPT"
+- "RESTARTBOT FAILED: <error>"
+
+Do not show raw errors publicly unless short and safe.
+
+==================================================
+7. TESTS
+==================================================
+
+After implementation, these must work:
+
+/restarthelp
+Expected:
+shows restart commands.
+
+/restartstatus
+Expected:
+shows installed and current states.
+
+/softrestart
+Expected:
+shows "Soft restarting..." then "Soft restart complete."
+
+/restartbot
+Expected:
+either restarts process OR safely says:
+"Full restart not available here. Use Replit Restart button."
+
+If /softrestart still says unknown command, the command router is not updated.
+If /softrestart sends a message but does nothing, fix the softrestart function body.
+If /restartbot kills the bot and it does not come back, disable sys.exit and use manual Replit restart message instead.
