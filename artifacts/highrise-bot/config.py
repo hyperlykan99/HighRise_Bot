@@ -32,8 +32,15 @@ RIDDLE_REWARD:   int = 25     # coins for winning /riddle
 LEADERBOARD_SIZE: int = 10    # how many players /leaderboard shows
 
 # ---------------------------------------------------------------------------
+# Owner usernames — highest privilege, inherits all admin rights
+# ---------------------------------------------------------------------------
+OWNER_USERS: list[str] = [
+    "4ktreymarion",
+]
+
+# ---------------------------------------------------------------------------
 # Admin usernames (case-insensitive Highrise usernames)
-# Add anyone who should have access to /addcoins, /removecoins, /resetgame, /announce
+# Can manage economy, casino, and games. Can add/remove managers.
 # ---------------------------------------------------------------------------
 ADMIN_USERS: list[str] = [
     "4ktreymarion",

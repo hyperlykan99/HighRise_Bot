@@ -1,0 +1,471 @@
+Implement the full casino permission system and blackjack system in my existing Highrise Mini Game Bot.
+
+IMPORTANT:
+- Do not delete my existing features.
+- Do not remove mini games, coins, XP, shop, badges, titles, achievements, quests, profiles, or database data.
+- Use the existing SQLite database.
+- Use the existing coin economy.
+- Use the existing get_display_name(username) function with this format:
+  <badge> <title> @username
+- Keep every Highrise chat message under 250 characters.
+- Add database migrations safely if tables/columns are missing.
+- Prevent bad inputs from crashing the bot.
+- Log real errors in console, but show short safe errors in Highrise chat.
+
+==================================================
+PART 1: OWNER / ADMIN / MANAGER PERMISSIONS
+==================================================
+
+Add a permission system.
+
+Roles:
+1. Owner
+2. Admin
+3. Manager
+4. Normal player
+
+Owner:
+- Highest permission.
+- Can do everything.
+- Use OWNER_USERS list in config or main file.
+- Example:
+  OWNER_USERS = ["4ktreyMarion"]
+
+Admin:
+- Can manage economy, casino, games, announcements.
+- Use ADMIN_USERS list if it already exists.
+- Admins can add/remove managers.
+
+Manager:
+- Can manage games and casino, but cannot edit player coins.
+- Stored in SQLite.
+
+Normal player:
+- Can play games only.
+
+Create helper functions:
+- is_owner(username)
+- is_admin(username)
+- is_manager(username)
+- can_manage_games(username)
+- can_manage_economy(username)
+
+Permission rules:
+- can_manage_games = owner, admin, or manager
+- can_manage_economy = owner or admin only
+- Only owner/admin can add or remove managers
+- Only owner/admin can add/remove coins
+- Owner/admin/manager can turn casino modes on/off
+- Owner/admin/manager can cancel blackjack games
+
+Manager commands:
+- /addmanager <username>
+- /removemanager <username>
+- /managers
+
+Rules:
+- /addmanager and /removemanager are owner/admin only.
+- /managers shows the manager list.
+- Store managers in SQLite.
+- Prevent duplicate managers.
+- Keep messages short.
+
+Example messages:
+"✅ @user is now a manager."
+"❌ @user is no longer a manager."
+"Managers: @user1, @user2"
+
+==================================================
+PART 2: CASINO MODE TOGGLES
+==================================================
+
+Add settings stored in SQLite:
+- bj_enabled default true
+- rbj_enabled default true
+
+Commands:
+- /casino modes
+- /casino on
+- /casino off
+- /bj on
+- /bj off
+- /rbj on
+- /rbj off
+
+Permissions:
+- /casino modes is public.
+- /casino on/off is owner/admin/manager only.
+- /bj on/off is owner/admin/manager only.
+- /rbj on/off is owner/admin/manager only.
+
+Behavior:
+- /casino on turns both bj_enabled and rbj_enabled true.
+- /casino off turns both bj_enabled and rbj_enabled false.
+- /bj on turns casual blackjack on.
+- /bj off turns casual blackjack off.
+- /rbj on turns realistic blackjack on.
+- /rbj off turns realistic blackjack off.
+
+If a mode is off:
+- Block new /bj join if bj_enabled is false.
+- Block new /rbj join if rbj_enabled is false.
+- Existing active games can continue unless cancelled.
+- /bj rules, /bj stats, /bj table still work.
+- /rbj rules, /rbj stats, /rbj table still work.
+
+Messages:
+"🎰 Modes: Casual BJ ON | Realistic BJ OFF"
+"✅ Casual BJ is now ON."
+"⛔ Casual BJ is now OFF."
+"✅ Realistic BJ is now ON."
+"⛔ Realistic BJ is now OFF."
+"Casual BJ is currently closed."
+"Realistic BJ is currently closed."
+
+==================================================
+PART 3: CASUAL BLACKJACK /bj
+==================================================
+
+Add casual lobby blackjack.
+
+Commands:
+- /bj join <bet>
+- /bj leave
+- /bj players
+- /bj table
+- /bj hit
+- /bj stand
+- /bj double
+- /bj rules
+- /bj stats
+- /bj cancel
+- /bj settings
+
+Permissions:
+- /bj cancel is owner/admin/manager only.
+- /bj settings is owner/admin/manager only.
+- Other /bj commands are public.
+
+Default casual blackjack settings:
+- min_bet: 10
+- max_bet: 1000
+- win_payout: 2.0
+- blackjack_payout: 2.5
+- push_rule: refund
+- dealer_hits_soft_17: true
+- lobby_countdown: 15 seconds
+- turn_timer: 30 seconds
+- max_players: 6
+
+Lobby rules:
+- When first player uses /bj join <bet>, open BJ lobby.
+- Start a 15-second countdown.
+- Other players can join during countdown.
+- Minimum players: 1.
+- Maximum players: 6.
+- One casual blackjack lobby/table active at a time.
+- Validate bet amount.
+- Player must have enough coins.
+- Deduct bet when player joins.
+- If player uses /bj leave before round starts, refund bet.
+- Once round starts, no more players can join.
+- If /bj cancel is used, cancel lobby/round and refund active bets.
+
+Round rules:
+- Casual BJ can create a fresh shuffled deck each round.
+- Deal 2 cards to each player.
+- Deal 2 cards to dealer.
+- Show only 1 dealer card at first.
+- Players take turns one at a time.
+- Player can /bj hit, /bj stand, or /bj double.
+- /bj double requires enough coins to match the bet.
+- If player doubles:
+  deduct extra bet,
+  double total bet,
+  deal exactly 1 card,
+  auto-stand.
+- If player busts, move to next player.
+- If player gets blackjack on first 2 cards, mark blackjack.
+- After all players finish, dealer reveals hidden card.
+- Dealer hits until 17 or higher.
+- Dealer hits soft 17 if setting is true.
+- Compare each player against dealer.
+- Pay winners.
+- Refund pushes.
+- Losses keep deducted bet.
+
+Payouts:
+- Normal win pays 2.0x total bet.
+- Blackjack pays 2.5x total bet.
+- Push refunds total bet.
+- Loss pays nothing.
+- Bet is deducted when joining.
+
+Card rules:
+- 2-10 = face value
+- J, Q, K = 10
+- A = 11 or 1
+- Blackjack = Ace + 10-value card on first 2 cards only
+
+Timer rules:
+- Lobby countdown is 15 seconds.
+- Each player turn is 30 seconds.
+- If player does not act, auto-stand.
+- Use asyncio.create_task for countdown and turn timers.
+- Do not block the bot.
+- Cancel timers safely when game ends or player acts.
+
+Messages:
+"🃏 BJ lobby open! /bj join <bet>. Starts in 15s."
+"✅ @username joined BJ with 100c. Players: 2/6"
+"↩️ @username left BJ. Bet refunded."
+"🃏 BJ started! Dealer shows: 8♣"
+"➡️ @username: 10♠ 7♥ = 17. /bj hit or /bj stand"
+"🃏 @username drew 5♣. Total: 22"
+"💥 @username busts at 22."
+"✋ @username stands at 18."
+"⚡ @username doubled to 200c and stands."
+"✅ @username wins! Paid 200c."
+"🤑 @username blackjack! Paid 250c."
+"❌ @username loses 100c."
+"↔️ @username pushes. 100c refunded."
+
+Stats:
+Store casual BJ stats in SQLite:
+- bj_wins
+- bj_losses
+- bj_pushes
+- bj_blackjacks
+- bj_total_bet
+- bj_total_won
+- bj_total_lost
+
+/bj stats shows user casual blackjack stats.
+
+==================================================
+PART 4: REALISTIC BLACKJACK /rbj
+==================================================
+
+Add a second blackjack mode called Realistic Blackjack.
+
+Do not remove casual blackjack.
+
+Commands:
+- /rbj join <bet>
+- /rbj leave
+- /rbj players
+- /rbj table
+- /rbj hit
+- /rbj stand
+- /rbj double
+- /rbj rules
+- /rbj stats
+- /rbj shoe
+- /rbj cancel
+- /rbj settings
+
+Permissions:
+- /rbj cancel is owner/admin/manager only.
+- /rbj settings is owner/admin/manager only.
+- Other /rbj commands are public.
+
+Default realistic blackjack settings:
+- decks: 6
+- shuffle_used_percent: 75
+- min_bet: 10
+- max_bet: 1000
+- win_payout: 2.0
+- blackjack_payout: 2.5
+- push_rule: refund
+- dealer_hits_soft_17: true
+- lobby_countdown: 15 seconds
+- turn_timer: 30 seconds
+- max_players: 6
+
+Realistic shoe rules:
+- Use 6 decks by default.
+- 6 decks = 312 cards.
+- Create a shuffled shoe when first realistic blackjack game starts.
+- Every dealt card is removed from the shoe.
+- The shoe continues across multiple RBJ rounds.
+- Do not reset the shoe every round.
+- Reshuffle when 75% of shoe has been used or fewer than 52 cards remain.
+- If shoe is too low before a round starts, reshuffle.
+- If shoe runs low during a round, finish the round if possible, then reshuffle.
+
+/rbj shoe shows:
+- cards remaining
+- decks used
+- shuffle percentage
+- whether reshuffle is coming soon
+
+Realistic lobby rules:
+- When first player uses /rbj join <bet>, open RBJ lobby.
+- Start a 15-second countdown.
+- Other players can join during countdown.
+- Minimum players: 1.
+- Maximum players: 6.
+- Deduct bet when player joins.
+- Refund bet if player leaves before round starts.
+- Once round starts, no more joins.
+- /rbj cancel refunds active bets and cancels lobby/round.
+
+Realistic round rules:
+- Deal cards from the shared shoe only.
+- Deal 2 cards to each player.
+- Deal 2 cards to dealer.
+- Show only 1 dealer card at first.
+- Players take turns.
+- Commands during turn:
+  /rbj hit
+  /rbj stand
+  /rbj double
+- /rbj double requires enough coins.
+- If player doubles:
+  deduct extra bet,
+  double total bet,
+  deal exactly 1 card from shoe,
+  auto-stand.
+- Dealer hits until 17 or higher.
+- Dealer hits soft 17 if setting enabled.
+- Compare each player against dealer.
+
+Payouts:
+- Normal win pays 2.0x total bet.
+- Blackjack pays 2.5x total bet.
+- Push refunds total bet.
+- Loss pays nothing.
+
+Stats:
+Store separate realistic blackjack stats:
+- rbj_wins
+- rbj_losses
+- rbj_pushes
+- rbj_blackjacks
+- rbj_total_bet
+- rbj_total_won
+- rbj_total_lost
+
+/rbj stats shows realistic blackjack stats.
+
+==================================================
+PART 5: COSMETIC BONUSES
+==================================================
+
+Use equipped badges and titles if they already exist.
+
+Rules:
+- Casino payout bonuses apply only to winning payouts.
+- Casino payout bonus cap is 5% for blackjack.
+- Do not apply bonus to push refunds.
+- Do not apply bonus to losses.
+- Do not apply bonus to the original bet deduction.
+- If bonus is applied, keep message short.
+
+Example:
+Base win payout = 200c
+5% bonus = 10c
+Total paid = 210c
+
+Do not let casino bonuses break the economy.
+
+==================================================
+PART 6: ADMIN SETTINGS COMMANDS
+==================================================
+
+Add settings display:
+
+/bj settings
+Shows casual blackjack settings:
+enabled, min bet, max bet, payout, blackjack payout, dealer rule, countdown, max players.
+
+/rbj settings
+Shows realistic blackjack settings:
+enabled, decks, cards remaining, min bet, max bet, payout, blackjack payout, dealer rule, countdown.
+
+Keep messages under 250 characters.
+
+Optional admin setting commands if easy to implement:
+- /setbjminbet <amount>
+- /setbjmaxbet <amount>
+- /setbjcountdown <seconds>
+- /setrbjminbet <amount>
+- /setrbjmaxbet <amount>
+- /setrbjcountdown <seconds>
+- /setrbjdecks <1-8>
+
+Validation:
+- Minimum bet cannot be below 1.
+- Maximum bet cannot be below minimum bet.
+- Countdown must be 5-120 seconds.
+- Decks must be 1-8.
+- Prevent bad inputs from crashing the bot.
+
+==================================================
+PART 7: HELP COMMANDS
+==================================================
+
+Update /help to stay short:
+
+"🎮 Games: /trivia /scramble /riddle"
+"🎰 Casino: /bj join <bet> | /rbj join <bet>"
+"💰 Coins: /daily /balance /leaderboard"
+"🛒 Shop: /shop titles /shop badges"
+"More: /casinohelp"
+
+Add /casinohelp:
+Show:
+- /casino modes
+- /bj join <bet> casual BJ
+- /rbj join <bet> realistic BJ
+- /bj hit or /rbj hit
+- /bj stand or /rbj stand
+- /bj table or /rbj table
+- /bj rules or /rbj rules
+
+Keep /casinohelp short.
+
+==================================================
+PART 8: SAFETY TESTS
+==================================================
+
+Make sure these do not crash:
+
+Casual BJ:
+- /bj join
+- /bj join abc
+- /bj join 0
+- /bj join 999999999
+- /bj hit when no game exists
+- /bj stand when no game exists
+- /bj double when not player's turn
+- /bj leave when not in lobby
+- /bj cancel by normal player
+- /bj off by normal player
+
+Realistic BJ:
+- /rbj join
+- /rbj join abc
+- /rbj hit when no game exists
+- /rbj stand when no game exists
+- /rbj shoe before any game
+- /rbj cancel by normal player
+- /rbj off by normal player
+
+Permissions:
+- normal player cannot add manager
+- manager can turn BJ/RBJ on or off
+- manager cannot add/remove coins
+- admin can add/remove manager
+- owner can do everything
+
+Database:
+- Existing users must keep coins, XP, titles, badges, achievements.
+- Missing tables/columns should be created automatically.
+- Bot should start without manual database reset.
+
+Final reminder:
+Keep all messages short under 250 characters.
+Do not secretly rig blackjack.
+Do not force dealer wins.
+Do not remove existing features.

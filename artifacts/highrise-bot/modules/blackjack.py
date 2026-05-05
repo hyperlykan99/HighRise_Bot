@@ -1,24 +1,25 @@
 """
 modules/blackjack.py
 --------------------
-Lobby-style blackjack for the Highrise Mini Game Bot.
+Casual lobby-style blackjack for the Highrise Mini Game Bot.
 
 State lifecycle:
   idle ──► lobby (first /bj join) ──► round (countdown ends) ──► idle (round ends)
 
 Public:  /bj join <bet>  /bj leave  /bj players  /bj table
          /bj hit  /bj stand  /bj double  /bj rules  /bj stats
-Admin:   /bj cancel  /bj settings
+Manager: /bj on  /bj off  /bj cancel  /bj settings
+Admin:   /setbjminbet  /setbjmaxbet  /setbjcountdown
 """
 
 import asyncio
 from dataclasses import dataclass, field
 from highrise import BaseBot, User
 
-import config
 import database as db
-from modules.cards import make_deck, hand_str, hand_value, is_blackjack, card_str
-from modules.shop  import get_player_benefits
+from modules.cards       import make_deck, hand_str, hand_value, is_blackjack, card_str
+from modules.shop        import get_player_benefits
+from modules.permissions import can_manage_games
 
 _BJ_CASINO_CAP = 5.0   # max % casino bonus applied to BJ winning payouts
 
@@ -40,7 +41,7 @@ class _BJState:
         self.reset()
 
     def reset(self):
-        self.phase:        str  = "idle"   # idle | lobby | round
+        self.phase:        str  = "idle"
         self.players:      list = []
         self.dealer_hand:  list = []
         self.deck:         list = []
@@ -108,13 +109,11 @@ async def _start_round(bot: BaseBot):
     _state.phase = "round"
     _state.deck  = make_deck()
 
-    # Deal 2 cards alternating: each player then dealer
     for _ in range(2):
         for p in _state.players:
             p.hand.append(_state.deck.pop())
         _state.dealer_hand.append(_state.deck.pop())
 
-    # Mark initial blackjacks
     for p in _state.players:
         if is_blackjack(p.hand):
             p.status = "bj"
@@ -129,11 +128,9 @@ async def _start_round(bot: BaseBot):
 # ─── Turn management ─────────────────────────────────────────────────────────
 
 async def _advance_turn(bot: BaseBot):
-    """Find next player who needs to act, announce their hand, start timer."""
     _cancel_task(_state.turn_task)
     _state.turn_task = None
 
-    # Skip non-playing players; announce any BJ players we pass
     while _state.current_idx < len(_state.players):
         p = _state.players[_state.current_idx]
         if p.status == "playing":
@@ -142,7 +139,6 @@ async def _advance_turn(bot: BaseBot):
             await bot.highrise.chat(f"🤑 @{p.username} has Blackjack!")
         _state.current_idx += 1
     else:
-        # All players processed — dealer's turn
         await _dealer_play(bot)
         return
 
@@ -285,6 +281,10 @@ async def handle_bj(bot: BaseBot, user: User, args: list[str]):
             await _cmd_cancel(bot, user)
         elif sub == "settings":
             await _cmd_settings(bot, user)
+        elif sub == "on":
+            await _cmd_bj_mode(bot, user, True)
+        elif sub == "off":
+            await _cmd_bj_mode(bot, user, False)
         else:
             await bot.highrise.send_whisper(
                 user.id,
@@ -303,6 +303,10 @@ async def handle_bj(bot: BaseBot, user: User, args: list[str]):
 
 async def _cmd_join(bot: BaseBot, user: User, args: list[str]):
     s = _settings()
+
+    if not int(s.get("bj_enabled", 1)):
+        await bot.highrise.send_whisper(user.id, "Casual BJ is currently closed.")
+        return
 
     if len(args) < 3 or not args[2].isdigit():
         await bot.highrise.send_whisper(user.id, "Invalid bet. Use /bj join <amount>.")
@@ -351,7 +355,7 @@ async def _cmd_join(bot: BaseBot, user: User, args: list[str]):
 
     if _state.phase == "idle":
         _state.phase      = "lobby"
-        countdown         = int(s.get("lobby_countdown", 60))
+        countdown         = int(s.get("lobby_countdown", 15))
         _state.lobby_task = asyncio.create_task(_lobby_countdown(bot, countdown))
         await bot.highrise.chat(
             f"🃏 BJ lobby open! /bj join <bet>. Starts in {countdown}s."
@@ -410,7 +414,6 @@ async def _cmd_table(bot: BaseBot, user: User):
         )
         return
 
-    # Round active
     lines = [f"Dealer: {card_str(_state.dealer_hand[0])} ?"]
     for i, p in enumerate(_state.players):
         arrow = "➡️" if i == _state.current_idx and p.status == "playing" else "  "
@@ -535,8 +538,8 @@ async def _cmd_stats(bot: BaseBot, user: User):
 
 
 async def _cmd_cancel(bot: BaseBot, user: User):
-    if user.username.lower() not in config.ADMIN_USERS:
-        await bot.highrise.send_whisper(user.id, "That command is for admins only.")
+    if not can_manage_games(user.username):
+        await bot.highrise.send_whisper(user.id, "Admins and managers only.")
         return
 
     if _state.phase == "idle":
@@ -549,22 +552,104 @@ async def _cmd_cancel(bot: BaseBot, user: User):
     _cancel_task(_state.lobby_task)
     _cancel_task(_state.turn_task)
     _state.reset()
-    await bot.highrise.chat("🃏 BJ cancelled by admin. All bets refunded.")
+    await bot.highrise.chat("🃏 BJ cancelled. All bets refunded.")
 
 
 async def _cmd_settings(bot: BaseBot, user: User):
-    if user.username.lower() not in config.ADMIN_USERS:
-        await bot.highrise.send_whisper(user.id, "That command is for admins only.")
+    if not can_manage_games(user.username):
+        await bot.highrise.send_whisper(user.id, "Admins and managers only.")
         return
 
     s = _settings()
+    enabled = "ON" if int(s.get("bj_enabled", 1)) else "OFF"
     await bot.highrise.send_whisper(user.id,
         f"-- BJ Settings --\n"
+        f"enabled:{enabled}\n"
         f"min:{s.get('min_bet',10):,}c  max:{s.get('max_bet',1000):,}c\n"
         f"win:{s.get('win_payout',2.0)}x  bj:{s.get('blackjack_payout',2.5)}x\n"
         f"push:{s.get('push_rule','refund')}  "
         f"soft17:{'yes' if s.get('dealer_hits_soft_17',1) else 'no'}\n"
-        f"lobby:{s.get('lobby_countdown',60)}s  "
+        f"lobby:{s.get('lobby_countdown',15)}s  "
         f"turn:{s.get('turn_timer',30)}s  "
         f"max:{s.get('max_players',6)}p"
     )
+
+
+async def _cmd_bj_mode(bot: BaseBot, user: User, enabled: bool):
+    if not can_manage_games(user.username):
+        await bot.highrise.send_whisper(user.id, "Admins and managers only.")
+        return
+    db.set_bj_setting("bj_enabled", 1 if enabled else 0)
+    status = "ON" if enabled else "OFF"
+    await bot.highrise.chat(
+        f"{'✅' if enabled else '⛔'} Casual BJ is now {status}."
+    )
+
+
+# ─── Admin setting commands (/setbjXXX) ──────────────────────────────────────
+
+async def handle_bj_set(bot: BaseBot, user: User, cmd: str, args: list[str]):
+    """Handle /setbjXXX admin commands. Permission gate enforced in main.py."""
+    try:
+        if len(args) < 2:
+            await bot.highrise.send_whisper(user.id, f"Usage: /{cmd} <value>")
+            return
+
+        raw = args[1]
+
+        if cmd == "setbjminbet":
+            if not raw.isdigit() or int(raw) < 1:
+                await bot.highrise.send_whisper(user.id, "Min bet must be >= 1.")
+                return
+            val = int(raw)
+            s = _settings()
+            if val >= int(s.get("max_bet", 1000)):
+                await bot.highrise.send_whisper(
+                    user.id, "Min bet must be less than max bet."
+                )
+                return
+            db.set_bj_setting("min_bet", val)
+            await bot.highrise.send_whisper(
+                user.id, f"✅ BJ min bet set to {val:,}c."
+            )
+
+        elif cmd == "setbjmaxbet":
+            if not raw.isdigit() or int(raw) < 1:
+                await bot.highrise.send_whisper(user.id, "Max bet must be >= 1.")
+                return
+            val = int(raw)
+            s = _settings()
+            if val <= int(s.get("min_bet", 10)):
+                await bot.highrise.send_whisper(
+                    user.id, "Max bet must be greater than min bet."
+                )
+                return
+            db.set_bj_setting("max_bet", val)
+            await bot.highrise.send_whisper(
+                user.id, f"✅ BJ max bet set to {val:,}c."
+            )
+
+        elif cmd == "setbjcountdown":
+            if not raw.isdigit() or not (5 <= int(raw) <= 120):
+                await bot.highrise.send_whisper(
+                    user.id, "Countdown must be 5–120 seconds."
+                )
+                return
+            val = int(raw)
+            db.set_bj_setting("lobby_countdown", val)
+            await bot.highrise.send_whisper(
+                user.id, f"✅ BJ lobby countdown set to {val}s."
+            )
+
+        else:
+            await bot.highrise.send_whisper(
+                user.id,
+                "BJ settings: /setbjminbet /setbjmaxbet /setbjcountdown"
+            )
+
+    except Exception as exc:
+        print(f"[BJ] {cmd} error for {user.username}: {exc}")
+        try:
+            await bot.highrise.send_whisper(user.id, "Setting update failed. Try again!")
+        except Exception:
+            pass

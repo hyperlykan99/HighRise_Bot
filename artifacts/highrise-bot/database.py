@@ -183,6 +183,12 @@ def init_db():
     """)
     conn.execute("INSERT OR IGNORE INTO rbj_settings (id) VALUES (1)")
 
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS managers (
+            username TEXT PRIMARY KEY
+        )
+    """)
+
     conn.commit()
     conn.close()
     _migrate_db()
@@ -202,6 +208,8 @@ def _migrate_db():
         "ALTER TABLE users ADD COLUMN equipped_title_id    TEXT",
         "ALTER TABLE daily_claims ADD COLUMN streak        INTEGER NOT NULL DEFAULT 1",
         "ALTER TABLE daily_claims ADD COLUMN total_claims  INTEGER NOT NULL DEFAULT 1",
+        "ALTER TABLE bj_settings  ADD COLUMN bj_enabled   INTEGER NOT NULL DEFAULT 1",
+        "ALTER TABLE rbj_settings ADD COLUMN rbj_enabled  INTEGER NOT NULL DEFAULT 1",
     ]:
         try:
             conn.execute(sql)
@@ -209,6 +217,8 @@ def _migrate_db():
             pass
 
     # Data migrations — safe no-ops if already applied or no matching rows exist
+    conn.execute("UPDATE bj_settings  SET lobby_countdown = 15 WHERE id = 1 AND lobby_countdown = 60")
+    conn.execute("UPDATE rbj_settings SET lobby_countdown = 15 WHERE id = 1 AND lobby_countdown = 60")
     conn.execute("UPDATE owned_items      SET item_id = 'elite'                                              WHERE item_id = 'room_legend'")
     conn.execute("UPDATE purchase_history SET item_id = 'elite'                                              WHERE item_id = 'room_legend'")
     conn.execute("UPDATE users            SET equipped_title = '[Elite]', equipped_title_id = 'elite'        WHERE equipped_title_id = 'room_legend'")
@@ -657,9 +667,28 @@ def get_bj_settings() -> dict:
             "min_bet": 10, "max_bet": 1000,
             "win_payout": 2.0, "blackjack_payout": 2.5,
             "push_rule": "refund", "dealer_hits_soft_17": 1,
-            "lobby_countdown": 60, "turn_timer": 30, "max_players": 6,
+            "lobby_countdown": 15, "turn_timer": 30, "max_players": 6,
+            "bj_enabled": 1,
         }
     return dict(row)
+
+
+_BJ_SETTING_COLS = {
+    "min_bet", "max_bet", "win_payout", "blackjack_payout", "push_rule",
+    "dealer_hits_soft_17", "lobby_countdown", "turn_timer", "max_players",
+    "bj_enabled",
+}
+
+
+def set_bj_setting(key: str, value) -> bool:
+    """Update a single BJ setting by column name. Returns False for invalid keys."""
+    if key not in _BJ_SETTING_COLS:
+        return False
+    conn = get_connection()
+    conn.execute(f"UPDATE bj_settings SET {key} = ? WHERE id = 1", (value,))
+    conn.commit()
+    conn.close()
+    return True
 
 
 def get_bj_stats(user_id: str) -> dict:
@@ -718,6 +747,7 @@ _RBJ_SETTING_COLS = {
     "decks", "shuffle_used_percent", "min_bet", "max_bet",
     "win_payout", "blackjack_payout", "push_rule",
     "dealer_hits_soft_17", "lobby_countdown", "turn_timer", "max_players",
+    "rbj_enabled",
 }
 
 
@@ -732,7 +762,8 @@ def get_rbj_settings() -> dict:
             "min_bet": 10, "max_bet": 1000,
             "win_payout": 2.0, "blackjack_payout": 2.5,
             "push_rule": "refund", "dealer_hits_soft_17": 1,
-            "lobby_countdown": 60, "turn_timer": 30, "max_players": 6,
+            "lobby_countdown": 15, "turn_timer": 30, "max_players": 6,
+            "rbj_enabled": 1,
         }
     return dict(row)
 
@@ -794,6 +825,58 @@ def update_rbj_stats(
     """, (win, loss, push, bj, bet, won, lost, user_id))
     conn.commit()
     conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Manager role helpers
+# ---------------------------------------------------------------------------
+
+def is_manager_db(username: str) -> bool:
+    """Return True if username is stored in the managers table."""
+    conn = get_connection()
+    row  = conn.execute(
+        "SELECT 1 FROM managers WHERE username = ?", (username.lower(),)
+    ).fetchone()
+    conn.close()
+    return row is not None
+
+
+def add_manager(username: str) -> str:
+    """Add a manager. Returns 'exists' or 'added'."""
+    conn = get_connection()
+    if conn.execute(
+        "SELECT 1 FROM managers WHERE username = ?", (username.lower(),)
+    ).fetchone():
+        conn.close()
+        return "exists"
+    conn.execute("INSERT INTO managers (username) VALUES (?)", (username.lower(),))
+    conn.commit()
+    conn.close()
+    return "added"
+
+
+def remove_manager(username: str) -> str:
+    """Remove a manager. Returns 'not_found' or 'removed'."""
+    conn = get_connection()
+    if not conn.execute(
+        "SELECT 1 FROM managers WHERE username = ?", (username.lower(),)
+    ).fetchone():
+        conn.close()
+        return "not_found"
+    conn.execute("DELETE FROM managers WHERE username = ?", (username.lower(),))
+    conn.commit()
+    conn.close()
+    return "removed"
+
+
+def get_managers() -> list:
+    """Return all manager usernames sorted alphabetically."""
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT username FROM managers ORDER BY username"
+    ).fetchall()
+    conn.close()
+    return [r["username"] for r in rows]
 
 
 # ---------------------------------------------------------------------------

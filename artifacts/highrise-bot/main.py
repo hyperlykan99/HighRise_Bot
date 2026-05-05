@@ -46,8 +46,9 @@ from modules.shop         import (
     handle_badgeinfo, handle_titleinfo,
 )
 from modules.achievements import handle_achievements, handle_claim_achievements
-from modules.blackjack           import handle_bj
+from modules.blackjack           import handle_bj, handle_bj_set
 from modules.realistic_blackjack import handle_rbj, handle_rbj_set
+from modules.permissions         import can_manage_games, can_manage_economy
 
 
 # ---------------------------------------------------------------------------
@@ -68,12 +69,14 @@ BJ_COMMANDS          = {"bj", "rbj"}
 # Commands only players in config.ADMIN_USERS can use
 ADMIN_COMMANDS = {
     "addcoins", "removecoins", "resetgame", "announce",
-    "setrbjdecks", "setrbjminbet", "setrbjmaxbet", "setrbjshuffle",
-    "setrbjblackjackpayout", "setrbjwinpayout",
+    "addmanager", "removemanager",
+    "setbjminbet", "setbjmaxbet", "setbjcountdown",
+    "setrbjdecks", "setrbjminbet", "setrbjmaxbet", "setrbjcountdown",
+    "setrbjshuffle", "setrbjblackjackpayout", "setrbjwinpayout",
 }
 
 ALL_KNOWN_COMMANDS = (
-    {"help", "answer", "casinohelp"}
+    {"help", "answer", "casinohelp", "casino", "managers"}
     | ECONOMY_COMMANDS
     | PROFILE_COMMANDS
     | GAME_COMMANDS
@@ -89,44 +92,95 @@ ALL_KNOWN_COMMANDS = (
 # ---------------------------------------------------------------------------
 
 HELP_TEXT_1 = (
-    "-- Games --\n"
-    "/trivia  /scramble  /riddle  (win 25 coins)\n"
-    "/coinflip <heads/tails> <bet>\n"
-    "/answer <text>  answer active game"
+    "🎮 Games: /trivia /scramble /riddle\n"
+    "/coinflip <heads/tails> <bet>"
 )
 
 HELP_TEXT_2 = (
-    "-- Economy & Levels --\n"
-    f"/daily  +{config.DAILY_REWARD} coins/day\n"
-    "/balance  /leaderboard\n"
+    f"💰 Coins: /daily +{config.DAILY_REWARD}  /balance  /leaderboard\n"
     "/profile  /level  /xpleaderboard"
 )
 
 HELP_TEXT_3 = (
-    "-- Shop --\n"
-    "/shop  /shop badges  /shop titles\n"
-    "/buy badge <id>  /buy title <id>\n"
-    "/equip badge <id>  /equip title <id>\n"
-    "/myitems  see what you own\n"
-    "-- Achievements --\n"
-    "/achievements  /achievements all\n"
-    "/claimachievements"
+    "🛒 Shop: /shop badges  /shop titles\n"
+    "/buy badge <id>  /equip badge <id>\n"
+    "/achievements  /claimachievements"
 )
 
 HELP_TEXT_4 = (
-    "🃏 Blackjack\n"
-    "Casual: /bj join <bet>  |  Realistic: /rbj join <bet>\n"
-    "/casinohelp — full casino commands"
+    "🎰 Casino: /bj join <bet> | /rbj join <bet>\n"
+    "/casinohelp — casino commands"
 )
 
 CASINO_HELP = (
     "-- Casino --\n"
-    "Casual BJ: /bj join <bet>\n"
-    "Realistic BJ: /rbj join <bet>\n"
-    "Hit: /bj hit or /rbj hit\n"
-    "Stand: /bj stand or /rbj stand\n"
-    "Table: /bj table or /rbj table"
+    "/casino modes\n"
+    "/bj join <bet>  casual BJ\n"
+    "/rbj join <bet>  realistic BJ\n"
+    "/bj hit or /rbj hit\n"
+    "/bj stand or /rbj stand\n"
+    "/bj table or /rbj table\n"
+    "/bj rules or /rbj rules"
 )
+
+
+# ---------------------------------------------------------------------------
+# Module-level helpers for casino and manager commands
+# ---------------------------------------------------------------------------
+
+async def _handle_casino_cmd(bot, user, args):
+    sub = args[1].lower() if len(args) > 1 else ""
+    if sub == "modes":
+        s_bj  = db.get_bj_settings()
+        s_rbj = db.get_rbj_settings()
+        bj_on  = "ON"  if int(s_bj.get("bj_enabled",  1)) else "OFF"
+        rbj_on = "ON"  if int(s_rbj.get("rbj_enabled", 1)) else "OFF"
+        await bot.highrise.send_whisper(
+            user.id,
+            f"🎰 Modes: Casual BJ {bj_on} | Realistic BJ {rbj_on}"
+        )
+    elif sub == "on":
+        if not can_manage_games(user.username):
+            await bot.highrise.send_whisper(user.id, "Admins and managers only.")
+            return
+        db.set_bj_setting("bj_enabled", 1)
+        db.set_rbj_setting("rbj_enabled", 1)
+        await bot.highrise.chat("✅ Casino is now OPEN. Both BJ modes enabled.")
+    elif sub == "off":
+        if not can_manage_games(user.username):
+            await bot.highrise.send_whisper(user.id, "Admins and managers only.")
+            return
+        db.set_bj_setting("bj_enabled", 0)
+        db.set_rbj_setting("rbj_enabled", 0)
+        await bot.highrise.chat("⛔ Casino is now CLOSED. Both BJ modes disabled.")
+    else:
+        await bot.highrise.send_whisper(
+            user.id,
+            "Usage: /casino modes | /casino on | /casino off"
+        )
+
+
+async def _handle_manager_cmd(bot, user, cmd, args):
+    if cmd == "addmanager":
+        if len(args) < 2:
+            await bot.highrise.send_whisper(user.id, "Usage: /addmanager <username>")
+            return
+        target = args[1].lstrip("@").lower()
+        result = db.add_manager(target)
+        if result == "exists":
+            await bot.highrise.send_whisper(user.id, f"@{target} is already a manager.")
+        else:
+            await bot.highrise.send_whisper(user.id, f"✅ @{target} is now a manager.")
+    elif cmd == "removemanager":
+        if len(args) < 2:
+            await bot.highrise.send_whisper(user.id, "Usage: /removemanager <username>")
+            return
+        target = args[1].lstrip("@").lower()
+        result = db.remove_manager(target)
+        if result == "not_found":
+            await bot.highrise.send_whisper(user.id, f"@{target} is not a manager.")
+        else:
+            await bot.highrise.send_whisper(user.id, f"❌ @{target} is no longer a manager.")
 
 
 # ---------------------------------------------------------------------------
@@ -172,11 +226,29 @@ class HangoutBot(BaseBot):
 
         # ── Admin gate ────────────────────────────────────────────────────────
         if cmd in ADMIN_COMMANDS:
-            if user.username.lower() not in config.ADMIN_USERS:
-                await self.highrise.send_whisper(user.id, "That command is for admins only.")
-                return
+            _eco_only = {
+                "addcoins", "removecoins", "resetgame", "announce",
+                "addmanager", "removemanager",
+            }
+            if cmd in _eco_only:
+                if not can_manage_economy(user.username):
+                    await self.highrise.send_whisper(
+                        user.id, "Admins and owners only."
+                    )
+                    return
+            else:
+                if not can_manage_games(user.username):
+                    await self.highrise.send_whisper(
+                        user.id, "Admins and managers only."
+                    )
+                    return
+
             if cmd.startswith("setrbj"):
                 await handle_rbj_set(self, user, cmd, args)
+            elif cmd.startswith("setbj"):
+                await handle_bj_set(self, user, cmd, args)
+            elif cmd in {"addmanager", "removemanager"}:
+                await _handle_manager_cmd(self, user, cmd, args)
             else:
                 await handle_admin_command(self, user, cmd, args)
             return
@@ -235,6 +307,19 @@ class HangoutBot(BaseBot):
 
         elif cmd == "casinohelp":
             await self.highrise.send_whisper(user.id, CASINO_HELP)
+
+        elif cmd == "casino":
+            await _handle_casino_cmd(self, user, args)
+
+        elif cmd == "managers":
+            mgrs = db.get_managers()
+            if mgrs:
+                msg = "Managers: " + ", ".join(f"@{m}" for m in mgrs)
+                if len(msg) > 245:
+                    msg = msg[:242] + "..."
+            else:
+                msg = "No managers set."
+            await self.highrise.send_whisper(user.id, msg)
 
         # ── /answer ───────────────────────────────────────────────────────────
         elif cmd == "answer":
