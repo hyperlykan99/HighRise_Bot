@@ -322,6 +322,25 @@ async def _finalize_round(bot: BaseBot):
         _state.reset()
 
 
+# ─── Public reset (called by /casino reset) ──────────────────────────────────
+
+def reset_table() -> str:
+    """Cancel active RBJ game, refund all bets, reset to idle.
+    Returns 'idle' (nothing to do) or 'reset' (game cleared)."""
+    if _state.phase == "idle":
+        return "idle"
+    for p in _state.players:
+        try:
+            db.adjust_balance(p.user_id, p.bet)
+        except Exception as exc:
+            print(f"[RBJ] reset_table refund error for {p.username}: {exc}")
+    _cancel_task(_state.lobby_task, "Countdown")
+    _cancel_task(_state.turn_task, "Turn timer")
+    _state.reset()
+    print("[RBJ] Table reset by admin")
+    return "reset"
+
+
 # ─── Top-level router ────────────────────────────────────────────────────────
 
 async def handle_rbj(bot: BaseBot, user: User, args: list[str]):

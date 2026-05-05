@@ -46,8 +46,8 @@ from modules.shop         import (
     handle_badgeinfo, handle_titleinfo,
 )
 from modules.achievements import handle_achievements, handle_claim_achievements
-from modules.blackjack           import handle_bj, handle_bj_set
-from modules.realistic_blackjack import handle_rbj, handle_rbj_set
+from modules.blackjack           import handle_bj, handle_bj_set, reset_table as bj_reset_table
+from modules.realistic_blackjack import handle_rbj, handle_rbj_set, reset_table as rbj_reset_table
 from modules.permissions         import can_manage_games, can_manage_economy
 
 
@@ -214,10 +214,19 @@ async def _handle_casino_cmd(bot, user, args):
         db.set_bj_setting("bj_enabled", 0)
         db.set_rbj_setting("rbj_enabled", 0)
         await bot.highrise.chat("⛔ Casino is now CLOSED. Both BJ modes disabled.")
+
+    elif sub == "reset":
+        if not can_manage_games(user.username):
+            await bot.highrise.send_whisper(user.id, "Admins and managers only.")
+            return
+        bj_reset_table()
+        rbj_reset_table()
+        await bot.highrise.chat("✅ Casino tables reset.")
+
     else:
         await bot.highrise.send_whisper(
             user.id,
-            "Usage: /casino modes | /casino on | /casino off"
+            "Usage: /casino modes | /casino on | /casino off | /casino reset"
         )
 
 
