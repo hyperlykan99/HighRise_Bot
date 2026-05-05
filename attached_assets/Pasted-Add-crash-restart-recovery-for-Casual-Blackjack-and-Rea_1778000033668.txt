@@ -1,0 +1,188 @@
+Add crash/restart recovery for Casual Blackjack and Realistic Blackjack.
+
+Goal:
+If the bot crashes, restarts, reconnects, or soft restarts while BJ/RBJ is active, the game should recover the last table state instead of losing player bets and causing complaints.
+
+IMPORTANT:
+- Do not remove existing features.
+- Do not wipe player coins, casino stats, bank data, shop items, titles, badges, quests, or staff roles.
+- Use SQLite for persistent table state.
+- Keep every Highrise message under 250 characters.
+- Prevent crashes from bad or missing data.
+
+Apply to:
+- Casual Blackjack /bj
+- Realistic Blackjack /rbj
+
+Important for RBJ:
+The realistic blackjack shoe must be saved exactly as-is after every card dealt. On restart, reload the same shoe_json and continue dealing from the remaining cards. Do not create a new shoe unless no active RBJ round exists or staff manually reshuffles.
+
+Create SQLite tables if missing:
+
+casino_active_tables:
+- mode TEXT PRIMARY KEY
+  Values: "bj" or "rbj"
+- phase TEXT
+  Values: "idle", "lobby", "active", "dealer", "finished", "recovery_required"
+- round_id TEXT
+- created_at TEXT
+- updated_at TEXT
+- lobby_started_at TEXT
+- round_started_at TEXT
+- current_player_index INTEGER
+- dealer_hand_json TEXT
+- dealer_hidden INTEGER
+- deck_json TEXT
+- shoe_json TEXT
+- shoe_cards_remaining INTEGER
+- settings_snapshot_json TEXT
+- countdown_ends_at TEXT
+- turn_ends_at TEXT
+- active INTEGER DEFAULT 0
+
+casino_active_players:
+- id INTEGER PRIMARY KEY AUTOINCREMENT
+- mode TEXT
+- round_id TEXT
+- username TEXT
+- user_id TEXT
+- bet INTEGER
+- hand_json TEXT
+- status TEXT
+  Values: "lobby", "playing", "stood", "busted", "blackjack", "done", "left"
+- joined_at TEXT
+- acted_at TEXT
+- payout INTEGER DEFAULT 0
+- result TEXT
+- UNIQUE(mode, username)
+
+Rules:
+- Whenever a player joins BJ/RBJ, save them to casino_active_players.
+- Whenever a card is dealt, save updated hand/deck/shoe immediately.
+- Whenever a player hits/stands/doubles/busts, save immediately.
+- Whenever dealer draws, save immediately.
+- Whenever current player changes, save current_player_index immediately.
+- Whenever timer changes, save countdown_ends_at or turn_ends_at.
+- Use database transactions when changing bets/cards/state.
+
+On bot startup/on_start:
+- Load casino_active_tables for bj and rbj.
+- If phase is "lobby":
+  - Restore lobby players and bets.
+  - If countdown_ends_at still has time left, restart countdown with remaining time.
+  - If countdown already expired, start the round immediately.
+- If phase is "active" or "dealer":
+  - Restore player hands, dealer hand, deck/shoe, current player index, bets, statuses.
+  - Announce:
+    "♻️ BJ table restored after restart."
+    or
+    "♻️ RBJ table restored after restart."
+  - If it is a player's turn and turn_ends_at still has time left, restart turn timer with remaining time.
+  - If turn timer already expired, auto-stand that player and continue.
+  - If all players are done, finalize the round.
+- If phase is "finished":
+  - Finalize cleanup if needed.
+- If state is corrupted:
+  - Do NOT erase bets silently.
+  - Mark table as recovery_required.
+  - Tell staff:
+    "⚠️ BJ recovery needed. Use /bj recover or /bj refund."
+    or
+    "⚠️ RBJ recovery needed. Use /rbj recover or /rbj refund."
+
+Add staff recovery commands:
+- /bj recover
+- /rbj recover
+- /bj refund
+- /rbj refund
+- /bj state
+- /rbj state
+- /bj forcefinish
+- /rbj forcefinish
+
+Permissions:
+- Owner/admin/manager only.
+
+Command behavior:
+- /bj state and /rbj state show phase, players, current turn, dealer shown card, and total bets.
+- /bj recover reloads BJ active table from SQLite and continues.
+- /rbj recover reloads RBJ active table from SQLite and continues.
+- /bj refund cancels BJ active table and refunds unresolved active bets.
+- /rbj refund cancels RBJ active table and refunds unresolved active bets.
+- /bj forcefinish forces BJ dealer resolution using saved state if possible.
+- /rbj forcefinish forces RBJ dealer resolution using saved state if possible.
+
+Create casino_round_results table if missing:
+- id INTEGER PRIMARY KEY AUTOINCREMENT
+- mode TEXT
+- round_id TEXT
+- username TEXT
+- bet INTEGER
+- result TEXT
+- payout INTEGER
+- net INTEGER
+- paid INTEGER DEFAULT 0
+- timestamp TEXT
+- UNIQUE(mode, round_id, username)
+
+Payout safety:
+- Generate a unique round_id when a round starts.
+- Save round_id in casino_active_tables.
+- Before paying a player, check casino_round_results.
+- Never pay the same mode + round_id + username twice.
+- If bot crashes during payout, recovery should continue unpaid results only.
+
+Bet safety:
+- Bets are deducted when joining.
+- If bot crashes after deduction, persisted table must know who paid and how much.
+- If recovery fails, /bj refund or /rbj refund must return active bets.
+- Refund should not duplicate payouts.
+- Log all refunds in economy ledger.
+
+RBJ shoe recovery:
+- Persist the shoe after every card dealt.
+- Do not reshuffle after restart unless shoe state is missing/corrupted.
+- /rbj shoe should show recovered shoe cards remaining.
+- If shoe state is corrupted before round starts, reshuffle and continue.
+- If shoe state is corrupted during an active round, mark recovery_required and require staff /rbj refund or /rbj forcefinish.
+
+Timer recovery:
+- Persist lobby countdown end time.
+- Persist current turn end time.
+- After restart, calculate remaining seconds from stored end time.
+- If remaining time > 0, restart timer with remaining time.
+- If remaining time <= 0:
+  - For lobby, start round.
+  - For player turn, auto-stand and continue.
+- Use asyncio.create_task.
+- Do not use time.sleep().
+- Cancel timers safely.
+
+Update /softrestart:
+- Before clearing in-memory BJ/RBJ states, save them to SQLite.
+- Cancel timers.
+- Reload settings.
+- Recover active BJ/RBJ states from SQLite.
+- Do not refund or clear active bets unless staff uses /bj refund or /rbj refund.
+
+Update /casino reset:
+- It should ask for confirmation if BJ/RBJ active table exists.
+- Add /confirmcasinoreset <code>.
+- If confirmed, refund active bets and clear state.
+- Do not silently wipe active tables.
+
+Logging:
+Log round started, player joined, bet deducted, card dealt, player action, dealer action, payout, refund, recovery started, recovery completed, and recovery failed.
+
+Help update:
+Update /managerhelp or /casinohelp staff section to include:
+/bj state, /rbj state, /bj recover, /rbj recover, /bj refund, /rbj refund, /bj forcefinish, /rbj forcefinish.
+
+Tests:
+1. /bj join 100, round starts, restart or /softrestart. Expected: same BJ table restores.
+2. /rbj join 100, round starts, player hits, restart. Expected: same RBJ hand/dealer/shoe/cards remaining restores.
+3. Crash during payout. Expected: no duplicate payout.
+4. Corrupted state. Expected: staff sees recovery warning and can use /bj refund or /rbj refund.
+
+Final rule:
+Never leave players with deducted bets and no recover/refund option.
