@@ -1088,11 +1088,11 @@ async def _dispatch(bot: BaseBot, user: User, args: list[str]) -> None:
         min_r = _s("min_raise",50);  max_r = _s("max_raise",1000)
         wl    = _s("table_daily_win_limit",10000)
         ll    = _s("table_daily_loss_limit",5000)
+        we    = "ON" if _s("win_limit_enabled",1) else "OFF"
+        le    = "ON" if _s("loss_limit_enabled",1) else "OFF"
         await _w(bot, user.id,
-                 f"♠️ Poker Limits\n"
-                 f"Buy-in: {min_b}-{max_b}c\n"
-                 f"Raise: {min_r}-{max_r}c\n"
-                 f"Daily W/L: {wl}/{ll}")
+                 f"♠️ Limits: Buy {min_b}-{max_b}c | "
+                 f"Raise {min_r}-{max_r}c | W/L {wl}/{ll} {we}/{le}")
         return
 
     if sub == "players":
@@ -1202,18 +1202,25 @@ async def _dispatch(bot: BaseBot, user: User, args: list[str]) -> None:
         await _chat(bot, "⛔ Poker is now OFF.")
         return
 
-    # ── Staff: settings display ────────────────────────────────────────────────
+    # ── Settings display (public) ──────────────────────────────────────────────
     if sub == "settings":
-        if not can_manage_games(user.username):
-            await _w(bot, user.id, "Managers+ only.")
-            return
-        en    = "ON" if _s("poker_enabled",1) else "OFF"
-        min_p = _s("min_players",2); max_p = _s("max_players",6)
-        tt    = _s("turn_timer",20)
-        min_b = _s("min_buyin",100); max_b = _s("max_buyin",5000)
-        await _w(bot, user.id,
-                 f"♠️ Poker {en} | Players {min_p}-{max_p} | "
-                 f"Timer {tt}s | Buy-in {min_b}-{max_b}c")
+        page2 = len(args) >= 3 and args[2] == "2"
+        if page2:
+            min_r = _s("min_raise",50); max_r = _s("max_raise",1000)
+            we    = "ON" if _s("win_limit_enabled",1) else "OFF"
+            le    = "ON" if _s("loss_limit_enabled",1) else "OFF"
+            await _w(bot, user.id,
+                     f"♠️ Poker 2 | Raise {min_r}-{max_r}c | "
+                     f"WinLimit {we} | LossLimit {le}")
+        else:
+            en    = "ON" if _s("poker_enabled",1) else "OFF"
+            min_p = _s("min_players",2); max_p = _s("max_players",6)
+            lc    = _s("lobby_countdown",15)
+            tt    = _s("turn_timer",20)
+            min_b = _s("min_buyin",100); max_b = _s("max_buyin",5000)
+            await _w(bot, user.id,
+                     f"♠️ Poker {en} | Players {min_p}-{max_p} | "
+                     f"Lobby {lc}s | Turn {tt}s | Buy {min_b}-{max_b}c")
         return
 
     # ── Staff: cancel ──────────────────────────────────────────────────────────
@@ -1312,28 +1319,28 @@ async def _dispatch(bot: BaseBot, user: User, args: list[str]) -> None:
     # ── Staff: winlimit / losslimit ────────────────────────────────────────────
     if sub == "winlimit":
         if not can_manage_games(user.username):
-            await _w(bot, user.id, "Managers+ only.")
+            await _w(bot, user.id, "Staff only.")
             return
         if len(args) >= 3 and args[2].lower() == "on":
             _set("win_limit_enabled", 1)
-            await _w(bot, user.id, "Poker win limit: ON")
+            await _w(bot, user.id, "✅ Poker win limit ON.")
         elif len(args) >= 3 and args[2].lower() == "off":
             _set("win_limit_enabled", 0)
-            await _w(bot, user.id, "Poker win limit: OFF")
+            await _w(bot, user.id, "⛔ Poker win limit OFF.")
         else:
             await _w(bot, user.id, "Usage: /poker winlimit on|off")
         return
 
     if sub == "losslimit":
         if not can_manage_games(user.username):
-            await _w(bot, user.id, "Managers+ only.")
+            await _w(bot, user.id, "Staff only.")
             return
         if len(args) >= 3 and args[2].lower() == "on":
             _set("loss_limit_enabled", 1)
-            await _w(bot, user.id, "Poker loss limit: ON")
+            await _w(bot, user.id, "✅ Poker loss limit ON.")
         elif len(args) >= 3 and args[2].lower() == "off":
             _set("loss_limit_enabled", 0)
-            await _w(bot, user.id, "Poker loss limit: OFF")
+            await _w(bot, user.id, "⛔ Poker loss limit OFF.")
         else:
             await _w(bot, user.id, "Usage: /poker losslimit on|off")
         return
@@ -1463,6 +1470,48 @@ async def handle_resetpokerlimits(bot: BaseBot, user: User, args: list[str]) -> 
     await _w(bot, user.id, f"✅ Poker daily limits reset for @{target}")
 
 
+async def handle_setpokerturntimer(bot: BaseBot, user: User, args: list[str]) -> None:
+    """Alias for /setpokertimer."""
+    if not can_manage_games(user.username):
+        await _w(bot, user.id, "Staff only.")
+        return
+    if len(args) < 2 or not args[1].isdigit():
+        await _w(bot, user.id, "Use /setpokerturntimer <seconds>.")
+        return
+    secs = int(args[1])
+    if not (10 <= secs <= 60):
+        await _w(bot, user.id, "Must be 10-60 seconds."); return
+    _set("turn_timer", secs)
+    await _w(bot, user.id, f"✅ Poker turn timer set to {secs}s.")
+
+
+async def handle_setpokerlimits(bot: BaseBot, user: User, args: list[str]) -> None:
+    """Bulk setter: /setpokerlimits <minbuyin> <maxbuyin> <minraise> <maxraise> <winlimit> <losslimit>"""
+    if not can_manage_games(user.username):
+        await _w(bot, user.id, "Staff only.")
+        return
+    usage = "Use /setpokerlimits 100 5000 50 1000 10000 5000."
+    if len(args) < 7 or not all(a.isdigit() for a in args[1:7]):
+        await _w(bot, user.id, usage); return
+    min_b, max_b, min_r, max_r, wl, ll = (int(a) for a in args[1:7])
+    errors = []
+    if min_b < 1:         errors.append("min_buyin≥1")
+    if max_b < min_b:     errors.append("max_buyin≥min_buyin")
+    if min_r < 1:         errors.append("min_raise≥1")
+    if max_r < min_r:     errors.append("max_raise≥min_raise")
+    if wl < 1:            errors.append("winlimit≥1")
+    if ll < 1:            errors.append("losslimit≥1")
+    if errors:
+        await _w(bot, user.id, "Invalid: " + ", ".join(errors)); return
+    _set("min_buyin",              min_b)
+    _set("max_buyin",              max_b)
+    _set("min_raise",              min_r)
+    _set("max_raise",              max_r)
+    _set("table_daily_win_limit",  wl)
+    _set("table_daily_loss_limit", ll)
+    await _w(bot, user.id, "✅ Poker limits updated.")
+
+
 # ── Help pages ─────────────────────────────────────────────────────────────────
 
 POKER_HELP_PAGES = [
@@ -1483,11 +1532,17 @@ POKER_HELP_PAGES = [
     ),
     (
         "♠️ Poker Staff\n"
-        "/poker settings\n"
-        "/poker on/off\n"
-        "/poker cancel\n"
-        "/poker state\n"
-        "/poker recover/refund"
+        "/poker settings [2]\n"
+        "/setpokertimer <sec>\n"
+        "/setpokerbuyin min max\n"
+        "/setpokerraise min max"
+    ),
+    (
+        "♠️ Poker Limits\n"
+        "/setpokerdailywinlimit <amt>\n"
+        "/setpokerdailylosslimit <amt>\n"
+        "/poker winlimit on/off\n"
+        "/poker losslimit on/off"
     ),
 ]
 

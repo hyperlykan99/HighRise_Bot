@@ -1,0 +1,364 @@
+Fix and complete all Poker settings commands.
+
+Problem:
+Some poker settings like /setpokertimer are not working, and I need full control over poker limits like BJ/RBJ.
+
+Goal:
+Owners/admins/managers can edit all poker settings from commands:
+- turn timer
+- lobby timer
+- buy-in limits
+- raise limits
+- daily win limit
+- daily loss limit
+- turn win/loss limits ON or OFF
+- enable/disable poker
+
+IMPORTANT:
+- Do not remove existing bot features.
+- Keep poker, BJ, RBJ, bank, shop, gold, VIP, events, notifications, reports, staff roles, and profiles.
+- Use SQLite.
+- Add explicit command routing before the unknown-command fallback.
+- Keep all Highrise messages under 250 characters.
+- Prevent crashes from bad inputs.
+
+==================================================
+POKER SETTINGS COMMANDS
+==================================================
+
+Add/fix these commands:
+
+Basic poker control:
+- /poker on
+- /poker off
+- /poker settings
+- /poker limits
+
+Timer settings:
+- /setpokertimer <seconds>
+- /setpokerturntimer <seconds>
+- /setpokerlobbytimer <seconds>
+
+Alias:
+- /setpokertimer should do the same thing as /setpokerturntimer.
+
+Buy-in settings:
+- /setpokerbuyin <min> <max>
+
+Raise settings:
+- /setpokerraise <min> <max>
+
+Player count settings:
+- /setpokerplayers <min> <max>
+
+Daily limit settings:
+- /setpokerdailywinlimit <amount>
+- /setpokerdailylosslimit <amount>
+- /poker winlimit on
+- /poker winlimit off
+- /poker losslimit on
+- /poker losslimit off
+- /resetpokerlimits <username>
+
+Shortcut:
+- /setpokerlimits <minbuyin> <maxbuyin> <minraise> <maxraise> <winlimit> <losslimit>
+
+Example:
+- /setpokerlimits 100 5000 50 1000 10000 5000
+
+==================================================
+PERMISSIONS
+==================================================
+
+Only owner/admin/manager can use setting commands:
+- /poker on
+- /poker off
+- /setpokertimer
+- /setpokerturntimer
+- /setpokerlobbytimer
+- /setpokerbuyin
+- /setpokerraise
+- /setpokerplayers
+- /setpokerdailywinlimit
+- /setpokerdailylosslimit
+- /poker winlimit on/off
+- /poker losslimit on/off
+- /resetpokerlimits
+- /setpokerlimits
+
+Players can use:
+- /poker settings
+- /poker limits
+- /poker rules
+- /poker stats
+
+If a normal player tries to edit settings:
+"Staff only."
+
+==================================================
+DEFAULT SETTINGS
+==================================================
+
+Use these defaults if missing:
+- poker_enabled = true
+- min_buyin = 100
+- max_buyin = 5000
+- min_raise = 50
+- max_raise = 1000
+- min_players = 2
+- max_players = 6
+- lobby_countdown = 15
+- turn_timer = 20
+- daily_win_limit = 10000
+- daily_loss_limit = 5000
+- win_limit_enabled = true
+- loss_limit_enabled = true
+
+Store all settings in SQLite poker_settings table.
+
+==================================================
+VALIDATION
+==================================================
+
+Validation rules:
+- min_buyin must be at least 1.
+- max_buyin must be greater than or equal to min_buyin.
+- min_raise must be at least 1.
+- max_raise must be greater than or equal to min_raise.
+- min_players must be at least 2.
+- max_players must be between 2 and 6.
+- min_players cannot be greater than max_players.
+- poker turn timer must be 10 to 60 seconds.
+- poker lobby timer must be 5 to 120 seconds.
+- daily win limit must be positive.
+- daily loss limit must be positive.
+
+If invalid, show short usage message.
+
+Examples:
+"Use /setpokertimer 30."
+"Use /setpokerbuyin 100 5000."
+"Use /setpokerraise 50 1000."
+"Use /setpokerlimits 100 5000 50 1000 10000 5000."
+
+==================================================
+COMMAND BEHAVIOR
+==================================================
+
+/setpokertimer <seconds>
+- Sets poker turn timer.
+- Same as /setpokerturntimer.
+- Message:
+"✅ Poker turn timer set to 30s."
+
+/setpokerturntimer <seconds>
+- Sets poker turn timer.
+- Message:
+"✅ Poker turn timer set to 30s."
+
+/setpokerlobbytimer <seconds>
+- Sets lobby countdown.
+- Message:
+"✅ Poker lobby timer set to 15s."
+
+/setpokerbuyin <min> <max>
+- Sets min/max buy-in.
+- Message:
+"✅ Poker buy-in set: 100-5000c."
+
+/setpokerraise <min> <max>
+- Sets min/max raise.
+- Message:
+"✅ Poker raise set: 50-1000c."
+
+/setpokerplayers <min> <max>
+- Sets min/max players.
+- Message:
+"✅ Poker players set: 2-6."
+
+/setpokerdailywinlimit <amount>
+- Sets daily poker win/profit limit.
+- Message:
+"✅ Poker win limit set to 10000c."
+
+/setpokerdailylosslimit <amount>
+- Sets daily poker loss limit.
+- Message:
+"✅ Poker loss limit set to 5000c."
+
+/poker winlimit on
+- Enables poker daily win limit.
+- Message:
+"✅ Poker win limit ON."
+
+/poker winlimit off
+- Disables poker daily win limit.
+- Message:
+"⛔ Poker win limit OFF."
+
+/poker losslimit on
+- Enables poker daily loss limit.
+- Message:
+"✅ Poker loss limit ON."
+
+/poker losslimit off
+- Disables poker daily loss limit.
+- Message:
+"⛔ Poker loss limit OFF."
+
+/resetpokerlimits <username>
+- Resets that user’s daily poker net win/loss tracking for today.
+- Does not change lifetime stats.
+- Message:
+"✅ Poker daily limits reset for @username."
+
+/setpokerlimits <minbuyin> <maxbuyin> <minraise> <maxraise> <winlimit> <losslimit>
+- Sets all important poker limits at once.
+- Message:
+"✅ Poker limits updated."
+
+/poker on
+- Enables poker.
+- Message:
+"✅ Poker is now ON."
+
+/poker off
+- Disables new poker lobbies.
+- Existing active table may continue unless staff cancels.
+- Message:
+"⛔ Poker is now OFF."
+
+==================================================
+DISPLAY COMMANDS
+==================================================
+
+/poker settings should show:
+"♠️ Poker ON | Players 2-6 | Lobby 15s | Turn 30s | Buy 100-5000c"
+
+/poker limits should show:
+"♠️ Limits: Buy 100-5000c | Raise 50-1000c | W/L 10000/5000 ON/ON"
+
+If too long, split:
+- /poker settings
+- /poker settings 2
+- /poker limits
+- /poker limits 2
+
+/poker settings 2:
+"♠️ Poker 2 | Raise 50-1000c | WinLimit ON | LossLimit ON"
+
+==================================================
+DAILY LIMIT ENFORCEMENT
+==================================================
+
+When player uses /poker join <buyin>:
+- If poker winlimit is ON and player reached daily win limit, block joining.
+- If poker losslimit is ON and player reached daily loss limit, block joining.
+- If loss limit is ON and buyin could exceed remaining daily loss limit, block joining.
+- If limit is OFF, do not block for that limit.
+
+Messages:
+"Poker win limit reached. Try tomorrow."
+"Poker loss limit reached. Try tomorrow."
+"Buy-in too high for daily loss limit."
+
+==================================================
+RAISE LIMIT ENFORCEMENT
+==================================================
+
+When player uses /poker raise <amount>:
+- Check min_raise and max_raise from SQLite.
+- If below min, say:
+"Minimum raise is 50c."
+- If above max, say:
+"Maximum raise is 1000c."
+- If player does not have enough poker stack, say:
+"Not enough poker chips."
+
+Important:
+Use updated settings dynamically from SQLite, not hardcoded values.
+
+==================================================
+HELP UPDATE
+==================================================
+
+Update /pokerhelp 2:
+"♠️ Poker 2
+/poker raise <amt>
+/poker players
+/poker stats
+/poker rules
+/poker limits"
+
+Update /pokerhelp 3 staff only:
+"♠️ Poker Staff
+/poker settings
+/setpokertimer <sec>
+/setpokerbuyin min max
+/setpokerraise min max"
+
+Update /pokerhelp 4 staff only:
+"♠️ Poker Limits
+/setpokerdailywinlimit <amt>
+/setpokerdailylosslimit <amt>
+/poker winlimit on/off
+/poker losslimit on/off"
+
+Update /managerhelp and /allcommands to include these settings.
+
+==================================================
+ROUTING REQUIREMENT
+==================================================
+
+Add explicit routing before unknown-command fallback for:
+- /setpokertimer
+- /setpokerturntimer
+- /setpokerlobbytimer
+- /setpokerbuyin
+- /setpokerraise
+- /setpokerplayers
+- /setpokerdailywinlimit
+- /setpokerdailylosslimit
+- /setpokerlimits
+- /resetpokerlimits
+- /poker winlimit on
+- /poker winlimit off
+- /poker losslimit on
+- /poker losslimit off
+- /poker on
+- /poker off
+- /poker settings
+- /poker limits
+
+==================================================
+TESTS
+==================================================
+
+After implementing, test:
+
+/setpokertimer 30
+/poker settings
+
+/setpokerlobbytimer 20
+/poker settings
+
+/setpokerbuyin 100 10000
+/poker limits
+
+/setpokerraise 100 2000
+/poker limits
+
+/setpokerdailywinlimit 50000
+/setpokerdailylosslimit 25000
+/poker limits
+
+/poker winlimit off
+/poker losslimit off
+/poker limits
+
+/poker winlimit on
+/poker losslimit on
+/poker limits
+
+/setpokerlimits 100 5000 50 1000 10000 5000
+/poker limits

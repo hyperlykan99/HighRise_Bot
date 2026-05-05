@@ -65,6 +65,7 @@ from modules.poker import (
     handle_setpokerraise,
     handle_setpokerdailywinlimit, handle_setpokerdailylosslimit,
     handle_resetpokerlimits,
+    handle_setpokerturntimer, handle_setpokerlimits,
     handle_pokerdebug, handle_pokerfix, handle_pokerrefundall,
     startup_poker_recovery,
     soft_reset_table as poker_soft_reset_table,
@@ -217,9 +218,9 @@ MOD_ONLY_CMDS = {
 MANAGER_ONLY_CMDS = {
     "automod",
     "setpokerbuyin", "setpokerplayers", "setpokerlobbytimer",
-    "setpokertimer", "setpokerraise",
+    "setpokertimer", "setpokerturntimer", "setpokerraise",
     "setpokerdailywinlimit", "setpokerdailylosslimit",
-    "resetpokerlimits",
+    "resetpokerlimits", "setpokerlimits",
     "pokerdebug", "pokerfix", "pokerrefundall",
     "banksettings",
     "setbjminbet", "setbjmaxbet", "setbjcountdown", "setbjturntimer",
@@ -297,9 +298,9 @@ ALL_KNOWN_COMMANDS = (
         "rep", "reputation", "repstats", "toprep", "repleaderboard",
         "poker", "pokerhelp",
         "setpokerbuyin", "setpokerplayers", "setpokerlobbytimer",
-        "setpokertimer", "setpokerraise",
+        "setpokertimer", "setpokerturntimer", "setpokerraise",
         "setpokerdailywinlimit", "setpokerdailylosslimit",
-        "resetpokerlimits",
+        "resetpokerlimits", "setpokerlimits",
         "pokerdebug", "pokerfix", "pokerrefundall",
         "botstatus", "dbstats", "backup",
         "maintenance", "reloadsettings", "cleanup",
@@ -2010,6 +2011,12 @@ class HangoutBot(BaseBot):
 
         elif cmd == "resetpokerlimits":
             await handle_resetpokerlimits(self, user, args)
+
+        elif cmd == "setpokerturntimer":
+            await handle_setpokerturntimer(self, user, args)
+
+        elif cmd == "setpokerlimits":
+            await handle_setpokerlimits(self, user, args)
 
         elif cmd == "pokerdebug":
             await handle_pokerdebug(self, user, args)
