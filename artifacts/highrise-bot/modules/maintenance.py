@@ -10,6 +10,7 @@ Commands:
   /maintenance on/off — owner/admin: toggle maintenance mode
   /reloadsettings     — owner/admin: confirm settings loaded from DB
   /cleanup            — owner/admin: purge expired mutes & stale data
+  /softrestart        — owner only: reset in-memory state without losing DB data
 """
 from __future__ import annotations
 import time
@@ -190,3 +191,118 @@ async def handle_cleanup(bot: BaseBot, user: User) -> None:
     except Exception as exc:
         print(f"[MAINT] cleanup error: {exc}")
         await _w(bot, user.id, "Error during cleanup.")
+
+
+# ── /softrestart ───────────────────────────────────────────────────────────────
+
+async def handle_softrestart(bot: BaseBot, user: User) -> None:
+    """
+    Owner only — reset all in-memory game state and restart auto loops.
+
+    Safe to call at any time:
+      - Cancels answer timer, auto game loop, auto event loop.
+      - Resets BJ / RBJ / Poker tables (refunds buy-ins automatically).
+      - Clears stuck trivia / scramble / riddle state.
+      - Cancels any running event countdown task.
+      - Warms settings cache from SQLite.
+      - Restarts auto game and auto event loops.
+
+    Does NOT touch coins, XP, profiles, badges, titles, bank, BJ stats,
+    event history, staff roles, or any other persisted database data.
+    """
+    if not is_owner(user.username):
+        await _w(bot, user.id, "Owner only.")
+        return
+
+    print(f"[MAINT] /softrestart initiated by @{user.username}")
+
+    # ── 1. Cancel mini-game answer timer & clear active game state ────────────
+    try:
+        import modules.auto_games as _ag
+        _ag.cancel_answer_timer()
+    except Exception as exc:
+        print(f"[MAINT] softrestart: answer timer cancel error: {exc}")
+
+    try:
+        import games as _games
+        _games.reset_all_games()
+    except Exception as exc:
+        print(f"[MAINT] softrestart: game state clear error: {exc}")
+
+    # ── 2. Cancel auto game loop ───────────────────────────────────────────────
+    try:
+        import modules.auto_games as _ag
+        t = _ag._auto_game_task
+        if t and not t.done():
+            t.cancel()
+        _ag._auto_game_task = None
+        print("[MAINT] softrestart: auto game loop cancelled.")
+    except Exception as exc:
+        print(f"[MAINT] softrestart: auto game loop cancel error: {exc}")
+
+    # ── 3. Cancel auto event loop ──────────────────────────────────────────────
+    try:
+        import modules.auto_games as _ag
+        t = _ag._auto_event_loop_task
+        if t and not t.done():
+            t.cancel()
+        _ag._auto_event_loop_task = None
+        print("[MAINT] softrestart: auto event loop cancelled.")
+    except Exception as exc:
+        print(f"[MAINT] softrestart: auto event loop cancel error: {exc}")
+
+    # ── 4. Reset BJ table (cancels timers, refunds buy-ins) ───────────────────
+    try:
+        from modules.blackjack import reset_table as _bj_reset
+        _bj_reset()
+        print("[MAINT] softrestart: BJ table reset.")
+    except Exception as exc:
+        print(f"[MAINT] softrestart: BJ reset error: {exc}")
+
+    # ── 5. Reset RBJ table ────────────────────────────────────────────────────
+    try:
+        from modules.realistic_blackjack import reset_table as _rbj_reset
+        _rbj_reset()
+        print("[MAINT] softrestart: RBJ table reset.")
+    except Exception as exc:
+        print(f"[MAINT] softrestart: RBJ reset error: {exc}")
+
+    # ── 6. Reset Poker table ──────────────────────────────────────────────────
+    try:
+        from modules.poker import reset_table as _poker_reset
+        _poker_reset()
+        print("[MAINT] softrestart: Poker table reset.")
+    except Exception as exc:
+        print(f"[MAINT] softrestart: Poker reset error: {exc}")
+
+    # ── 7. Cancel active event countdown task ─────────────────────────────────
+    try:
+        from modules.events import _cancel_event_task
+        _cancel_event_task()
+        print("[MAINT] softrestart: event task cancelled.")
+    except Exception as exc:
+        print(f"[MAINT] softrestart: event task cancel error: {exc}")
+
+    # ── 8. Warm settings from DB (no persistent cache exists, confirms DB ok) ──
+    try:
+        db.get_economy_settings()
+        db.get_bj_settings()
+        db.get_rbj_settings()
+        db.get_auto_game_settings()
+        db.get_auto_event_settings()
+        print("[MAINT] softrestart: settings confirmed from DB.")
+    except Exception as exc:
+        print(f"[MAINT] softrestart: settings reload error: {exc}")
+
+    # ── 9. Restart auto loops ──────────────────────────────────────────────────
+    try:
+        from modules.auto_games import start_auto_game_loop, start_auto_event_loop
+        start_auto_game_loop(bot)
+        start_auto_event_loop(bot)
+        print("[MAINT] softrestart: auto loops restarted.")
+    except Exception as exc:
+        print(f"[MAINT] softrestart: loop restart error: {exc}")
+
+    print("[MAINT] /softrestart complete.")
+    await bot.highrise.chat("🔄 Bot soft restart complete.")
+    await _w(bot, user.id, "🔄 Soft restart done. Loops running, tables cleared, DB safe.")

@@ -52,6 +52,7 @@ from modules.poker               import handle_poker, reset_table as poker_reset
 from modules.maintenance         import (
     handle_botstatus, handle_dbstats, handle_backup,
     handle_maintenance, handle_reloadsettings, handle_cleanup,
+    handle_softrestart,
     is_maintenance,
 )
 from modules.permissions         import (
@@ -189,6 +190,7 @@ OWNER_ONLY_CMDS = {
     "goldwallet", "goldtips", "goldtx", "pendinggold",
     "confirmgoldtip", "setgoldrainstaff", "setgoldrainmax",
     "debugtips",
+    "softrestart",
 }
 
 STAFF_CMDS = MOD_ONLY_CMDS | MANAGER_ONLY_CMDS | ADMIN_ONLY_CMDS | OWNER_ONLY_CMDS
@@ -211,7 +213,7 @@ ALL_KNOWN_COMMANDS = (
         "rep", "reputation", "repstats", "toprep", "repleaderboard",
         "poker",
         "botstatus", "dbstats", "backup",
-        "maintenance", "reloadsettings", "cleanup",
+        "maintenance", "reloadsettings", "cleanup", "softrestart",
         "goldhelp",
         "tiprate", "tipstats", "tipleaderboard", "debugtips",
     }
@@ -448,7 +450,8 @@ OWNER_HELP_PAGES = [
         "/allcommands\n"
         "/backup\n"
         "/dbstats\n"
-        "/maintenance on/off"
+        "/maintenance on/off\n"
+        "/softrestart"
     ),
     (
         "👑 Owner 3\n"
@@ -1228,6 +1231,9 @@ class HangoutBot(BaseBot):
 
         elif cmd == "cleanup":
             await handle_cleanup(self, user)
+
+        elif cmd == "softrestart":
+            await handle_softrestart(self, user)
 
         # ── Game commands ─────────────────────────────────────────────────────
         elif cmd in GAME_COMMANDS:
