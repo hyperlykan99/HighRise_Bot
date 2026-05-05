@@ -100,6 +100,8 @@ from modules.tips import (
     handle_tiprate, handle_tipstats, handle_tipleaderboard,
     handle_settiprate, handle_settipcap, handle_settiptier,
     handle_debugtips,
+    record_debug_any_event,
+    _SDK_VERSION as _TIP_SDK_VERSION,
 )
 from modules.auto_games import (
     start_auto_game_loop, start_auto_event_loop,
@@ -761,10 +763,12 @@ class HangoutBot(BaseBot):
         """Called once when the bot successfully connects to the room."""
         db.init_db()
         print(f"[HangoutBot] Connected — room {config.ROOM_ID} | DB: {config.DB_PATH}")
+        print(f"[HangoutBot] SDK version: {_TIP_SDK_VERSION}")
+        print(f"[HangoutBot] Run command: cd artifacts/highrise-bot && python3 bot.py")
         # Store bot identity so gold rain / tip receiver-check can use it
         set_bot_identity(session_metadata.user_id)
         print(f"[HangoutBot] Bot user ID: {session_metadata.user_id}")
-        # Log which events this session is subscribed to
+        # Log which events this session is subscribed to (only overridden hooks)
         try:
             from highrise.__main__ import gather_subscriptions
             subs = gather_subscriptions(self)
@@ -1244,18 +1248,15 @@ class HangoutBot(BaseBot):
 
     async def on_tip(self, sender: User, receiver: User, tip) -> None:
         """
-        Official Highrise tip handler — maps to the tip_reaction websocket event.
+        Official Highrise SDK tip handler.
+        Maps to the 'tip_reaction' WebSocket event.
+        SDK: on_tip(sender, receiver, tip: CurrencyItem | Item)
 
-        Fires for BOTH:
-          • CurrencyItem(type='gold', amount=X)  — direct gold currency tip
-          • Item(type='clothing', id='gold_bar_*') — gold bar item from inventory
-
-        Console output is intentionally verbose to confirm the handler fires.
-        Nothing here is ever echoed to room chat.
+        If this NEVER prints, Highrise is not delivering tip_reaction to the bot.
+        Nothing here is echoed to room chat.
         """
-        # ── Step 1: UNCONDITIONAL entry print — if this never appears, the
-        #            Highrise server is not delivering tip_reaction events. ──
-        print("=== ON_TIP FIRED ===")
+        # ABSOLUTE FIRST LINE — no try/except wrapping, runs unconditionally
+        print("DEBUG EVENT FIRED: on_tip")
         print(f"  sender:    {sender.username} ({sender.id})")
         print(f"  receiver:  {receiver.username} ({receiver.id})")
         print(f"  tip raw:   {tip!r}")
@@ -1264,7 +1265,9 @@ class HangoutBot(BaseBot):
         print(f"  tip.amount:{getattr(tip, 'amount', '?')}")
         print(f"  tip.id:    {getattr(tip, 'id',     'n/a')}")
 
-        # ── Step 2: Receiver check — only process tips sent TO this bot ──
+        record_debug_any_event("on_tip", repr(tip))
+
+        # Only process tips directed at this bot
         bot_uid = get_bot_user_id()
         if bot_uid and receiver.id != bot_uid:
             print(
@@ -1273,7 +1276,6 @@ class HangoutBot(BaseBot):
             )
             return
 
-        # ── Step 3: Delegate all conversion logic to process_tip_event ──
         try:
             await process_tip_event(self, sender, receiver, tip)
         except Exception as exc:
@@ -1285,25 +1287,49 @@ class HangoutBot(BaseBot):
         print(f"[HangoutBot] {user.username} left.")
 
     async def on_reaction(self, user: User, reaction: str, receiver: User) -> None:
-        """Debug hook: log all reaction events to check if gold tips arrive here."""
-        print(
-            f"[REACTION:DEBUG] handler=on_reaction "
-            f"| reaction={reaction!r} "
-            f"| from=@{user.username}({user.id}) "
-            f"| to=@{receiver.username}({receiver.id})"
-        )
+        """
+        Debug hook — subscribed so the Highrise server sends reaction events.
+        Logs every reaction so we can see if gold tips arrive here instead of on_tip.
+        """
+        raw = f"reaction={reaction!r} from=@{user.username}({user.id}) to=@{receiver.username}({receiver.id})"
+        print(f"DEBUG EVENT FIRED: on_reaction | {raw}")
+        record_debug_any_event("on_reaction", raw)
 
     async def on_channel(self, sender_id: str, message: str, tags: set) -> None:
-        """Debug hook: log all channel events to catch any tip-related messages."""
-        # Only log if it looks tip/gold-related to avoid console spam
+        """
+        Debug hook — subscribed so the Highrise server sends channel events.
+        Only logs gold/tip/coin-related messages to avoid console spam.
+        """
+        raw = f"sender_id={sender_id} tags={tags} message={message[:80]!r}"
+        record_debug_any_event("on_channel", raw)
         msg_lower = message.lower()
-        if any(kw in msg_lower for kw in ("gold", "tip", "coin", "pay", "send")):
-            print(
-                f"[CHANNEL:DEBUG] handler=on_channel "
-                f"| sender_id={sender_id} "
-                f"| tags={tags} "
-                f"| message={message[:120]!r}"
-            )
+        if any(kw in msg_lower for kw in ("gold", "tip", "coin", "pay", "send", "reward")):
+            print(f"DEBUG EVENT FIRED: on_channel | {raw}")
+
+    async def on_emote(self, user: User, emote_id: str, receiver) -> None:
+        """
+        Debug hook — overriding BaseBot adds 'emote' to subscriptions.
+        Logs emotes silently; only prints if emote ID looks tip-related.
+        """
+        raw = f"user=@{user.username}({user.id}) emote_id={emote_id!r} receiver={receiver!r}"
+        record_debug_any_event("on_emote", raw)
+        # Only log emote events to console; very high volume, keep quiet
+        # unless explicitly tip-related
+        if "tip" in emote_id.lower() or "gold" in emote_id.lower():
+            print(f"DEBUG EVENT FIRED: on_emote | {raw}")
+
+    async def on_whisper(self, user: User, message: str) -> None:
+        """
+        Debug hook — overriding BaseBot adds whisper to 'chat' subscription.
+        Whispers do not go through on_chat; this is the dedicated handler.
+        Does NOT process bot commands (whispers are not a command surface).
+        """
+        raw = f"from=@{user.username}({user.id}) message={message[:60]!r}"
+        record_debug_any_event("on_whisper", raw)
+        # Log whispers silently; only print if gold/tip related
+        msg_lower = message.lower()
+        if any(kw in msg_lower for kw in ("gold", "tip", "coin")):
+            print(f"DEBUG EVENT FIRED: on_whisper | {raw}")
 
 
 # ---------------------------------------------------------------------------

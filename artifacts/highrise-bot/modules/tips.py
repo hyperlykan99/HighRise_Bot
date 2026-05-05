@@ -64,7 +64,10 @@ def _extract_gold_from_tip(tip) -> Optional[int]:
         from highrise.models import Item
 
         if isinstance(tip, CurrencyItem):
-            return tip.amount if tip.type == "gold" else None
+            # Highrise sends type='earned_gold' for gold bar tips, not 'gold'
+            if tip.type in ("gold", "earned_gold"):
+                return tip.amount
+            return None
 
         if isinstance(tip, Item):
             item_id = getattr(tip, "id", "") or ""
@@ -86,25 +89,49 @@ def _extract_gold_from_tip(tip) -> Optional[int]:
 
 
 # ---------------------------------------------------------------------------
+# SDK / runtime constants (read once at import time)
+# ---------------------------------------------------------------------------
+try:
+    import importlib.metadata as _imeta
+    _SDK_VERSION: str = _imeta.version("highrise-bot-sdk")
+except Exception:
+    _SDK_VERSION = "unknown"
+
+_RUN_COMMAND: str = "cd artifacts/highrise-bot && python3 bot.py  (bot.py → main.run())"
+
+
+# ---------------------------------------------------------------------------
 # /debugtips state  (in-memory — resets on bot restart)
 # ---------------------------------------------------------------------------
 _debug: dict = {
-    "enabled":        True,
-    "last_wall_time": None,
-    "last_sender":    None,
-    "last_gold":      None,
-    "last_tip_repr":  None,
-    "last_error":     None,
-    "event_count":    0,
+    # tip-specific
+    "event_count":       0,
+    "last_wall_time":    None,
+    "last_sender":       None,
+    "last_gold":         None,
+    "last_tip_repr":     None,
+    "last_error":        None,
+    # cross-handler: tracks which handler fired most recently
+    "last_handler_name": None,
+    "last_handler_time": None,
+    "last_handler_repr": None,
 }
 
 
 def record_debug_event(sender_username: str, gold: Optional[int], tip_repr: str) -> None:
+    """Called from process_tip_event when a valid tip arrives."""
     _debug["last_wall_time"] = time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime())
     _debug["last_sender"]    = sender_username
     _debug["last_gold"]      = gold
     _debug["last_tip_repr"]  = tip_repr[:120]
     _debug["event_count"]   += 1
+
+
+def record_debug_any_event(handler_name: str, raw_repr: str) -> None:
+    """Called from every event hook so /debugtips can show the last handler fired."""
+    _debug["last_handler_name"] = handler_name
+    _debug["last_handler_time"] = time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime())
+    _debug["last_handler_repr"] = raw_repr[:120]
 
 
 def record_debug_error(err: str) -> None:
@@ -376,46 +403,72 @@ async def handle_tipleaderboard(bot: BaseBot, user: User, _args) -> None:
 # ---------------------------------------------------------------------------
 
 async def handle_debugtips(bot: BaseBot, user: User, _args) -> None:
+    """
+    /debugtips  (owner only)
+    Shows SDK version, run command, event subscription, all handler statuses,
+    last event fired across all hooks, last tip details, and last error.
+    Split into two whispers to stay under 249 chars each.
+    """
     if not is_owner(user.username):
         await _whisper(bot, user.id, "Owner only.")
         return
 
-    handler_ok = callable(getattr(bot, "on_tip", None))
-    count      = _debug["event_count"]
-
-    if count == 0 and not _debug["last_error"]:
-        status = "No tip event detected. Check tip_reaction subscription."
-    else:
-        status = "ok"
-
-    # Current subscription
+    # ── SDK / subscription info ───────────────────────────────────────────
     try:
         from highrise.__main__ import gather_subscriptions
         subs = gather_subscriptions(bot)
     except Exception:
         subs = "unknown"
 
-    gold_str = f"{_debug['last_gold']}g" if _debug["last_gold"] is not None else "n/a"
-    raw_str  = (_debug["last_tip_repr"] or "none")[:50]
-    err_str  = (_debug["last_error"]    or "none")[:50]
+    # ── Handler availability ──────────────────────────────────────────────
+    handlers = ["on_tip", "on_reaction", "on_channel", "on_emote", "on_whisper"]
+    handler_status = " ".join(
+        f"{h.replace('on_', '')}:{'✓' if callable(getattr(bot, h, None)) else '✗'}"
+        for h in handlers
+    )
+    on_tip_ok = callable(getattr(bot, "on_tip", None))
+
+    # ── Tip-specific state ────────────────────────────────────────────────
+    count    = _debug["event_count"]
     wall     = _debug["last_wall_time"] or "never"
     sender   = _debug["last_sender"]    or "none"
+    gold_str = f"{_debug['last_gold']}g" if _debug["last_gold"] is not None else "n/a"
+    raw_str  = (_debug["last_tip_repr"] or "none")[:40]
+    err_str  = (_debug["last_error"]    or "none")[:40]
 
-    lines = [
-        f"🔍 Tip Debug",
-        f"tip handler installed: {'yes' if handler_ok else 'NO'}",
-        f"subscribed events: {subs}",
-        f"events seen: {count}",
-        f"last on_tip fired: {wall}",
-        f"last tip sender: @{sender}",
-        f"last tip amount: {gold_str}",
-        f"last raw tip type: {raw_str}",
-        f"last error: {err_str}",
-    ]
-    if status != "ok":
-        lines.append(status)
+    # ── Cross-handler last event ──────────────────────────────────────────
+    lh_name  = _debug["last_handler_name"] or "none"
+    lh_time  = _debug["last_handler_time"] or "never"
 
-    await _whisper(bot, user.id, "\n".join(lines)[:249])
+    no_tip_warning = (
+        "\n⚠️ No tip detected. Check tip_reaction sub."
+        if count == 0 else ""
+    )
+
+    # Whisper 1: system info
+    msg1 = (
+        f"🔍 TipDebug (1/2)\n"
+        f"SDK: {_SDK_VERSION}\n"
+        f"cmd: python3 bot.py\n"
+        f"subs: {subs}\n"
+        f"handlers: {handler_status}\n"
+        f"on_tip installed: {'yes' if on_tip_ok else 'NO'}"
+    )
+    await _whisper(bot, user.id, msg1)
+
+    # Whisper 2: live state
+    msg2 = (
+        f"🔍 TipDebug (2/2)\n"
+        f"tips seen: {count}\n"
+        f"last on_tip: {wall}\n"
+        f"last sender: @{sender}\n"
+        f"last amount: {gold_str}\n"
+        f"last raw: {raw_str}\n"
+        f"last handler: {lh_name} @ {lh_time}\n"
+        f"last error: {err_str}"
+        f"{no_tip_warning}"
+    )
+    await _whisper(bot, user.id, msg2)
 
 
 # ---------------------------------------------------------------------------
