@@ -1,0 +1,71 @@
+Finish and verify the Casino Control Panel update.
+
+I already asked you to add:
+/casinosettings
+/casinosettings bj
+/casinosettings rbj
+/casinolimits
+/casinotoggles
+/setbjlimits <minbet> <maxbet> <winlimit> <losslimit>
+/setrbjlimits <minbet> <maxbet> <winlimit> <losslimit>
+
+Now make sure the implementation is complete and routed correctly.
+
+Requirements:
+- Add explicit command routing before the unknown-command fallback.
+- /casinosettings should work.
+- /casinosettings 1 should work.
+- /casinosettings 2 should work.
+- /casinosettings bj should show only Casual BJ settings.
+- /casinosettings rbj should show only Realistic BJ settings.
+- /casinolimits should work.
+- /casinotoggles should work.
+- /setbjlimits should update BJ min bet, max bet, daily win limit, and daily loss limit.
+- /setrbjlimits should update RBJ min bet, max bet, daily win limit, and daily loss limit.
+- Store all settings in SQLite.
+- /bj settings should show the same updated BJ values.
+- /rbj settings should show the same updated RBJ values.
+
+Permissions:
+- Owner/admin/manager can view and edit casino settings.
+- Normal players cannot edit casino settings.
+- Normal players can still use /bj rules, /rbj rules, /bj limits, and /rbj limits.
+
+Validation:
+- Minimum bet must be at least 1.
+- Max bet must be greater than or equal to min bet.
+- Win limit must be positive.
+- Loss limit must be positive.
+- If bad input is entered, show the correct usage.
+- Do not crash from bad inputs.
+
+Message limits:
+- Keep every Highrise message under 250 characters.
+- If /casinosettings is too long, split into /casinosettings 1 and /casinosettings 2.
+
+Suggested short messages:
+
+/casinosettings 1:
+"🎰 Casino 1
+BJ: ON | RBJ: ON
+BJ bet: 10-1000c
+RBJ bet: 50-5000c"
+
+/casinosettings 2:
+"🎰 Casino 2
+BJ W/L: 5000/3000
+RBJ W/L: 10000/5000
+Timers: BJ 20s | RBJ 20s"
+
+/casinolimits:
+"🎰 Limits
+BJ bet 10-1000 | W/L 5000/3000
+RBJ bet 50-5000 | W/L 10000/5000"
+
+/casinotoggles:
+"🎰 Toggles
+BJ ON | RBJ ON
+BJ win/loss ON/ON
+RBJ win/loss ON/ON"
+
+After implementation, check for duplicate or conflicting casino settings code and make sure all casino commands read from the same SQLite settings source.

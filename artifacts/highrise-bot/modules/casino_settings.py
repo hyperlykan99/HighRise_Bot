@@ -1,15 +1,22 @@
 """
 modules/casino_settings.py
-Casino Control Panel commands for the Highrise Mini Game Bot.
+Casino Control Panel for the Highrise Mini Game Bot.
 
 Commands (manager / admin / owner only):
-  /casinosettings [bj|rbj|1|2]           — view BJ/RBJ settings (both if no arg)
-  /casinolimits                           — bet + daily win/loss limits at a glance
-  /casinotoggles [bj|rbj] [win|loss] [on|off] — view or set enable/limit toggles
+  /casinosettings          — send overview page 1 + page 2
+  /casinosettings 1        — page 1: enabled status + bet ranges (both games)
+  /casinosettings 2        — page 2: win/loss limits + timers (both games)
+  /casinosettings bj       — Casual BJ detail only
+  /casinosettings rbj      — Realistic BJ detail only
+  /casinolimits            — bet ranges + daily win/loss limits at a glance
+  /casinotoggles           — enabled + win/loss limit toggle states
+  /casinotoggles <bj|rbj> <winlimit|losslimit> <on|off>  — set a toggle
   /setbjlimits  <minbet> <maxbet> <winlimit> <losslimit>
   /setrbjlimits <minbet> <maxbet> <winlimit> <losslimit>
 
-All messages kept under 250 characters.
+All messages are kept under 250 characters.
+All settings are read from and written to SQLite via database.py.
+/bj settings and /rbj settings read from the same DB functions.
 """
 from __future__ import annotations
 
@@ -29,71 +36,117 @@ def _on(val) -> str:
     return "ON" if int(val) else "OFF"
 
 
-# ── /casinosettings [bj|rbj|1|2] ──────────────────────────────────────────────
+def _fmt(n) -> str:
+    """Format integer without commas (short style for compact messages)."""
+    return str(int(n))
+
+
+# ── overview pages ────────────────────────────────────────────────────────────
+
+def _page1(bj: dict, rbj: dict) -> str:
+    """
+    Page 1: enabled status + bet ranges for both games.
+    Example:
+      🎰 Casino 1
+      BJ: ON | RBJ: ON
+      BJ bet: 10-1000c
+      RBJ bet: 50-5000c
+    """
+    return (
+        f"🎰 Casino 1\n"
+        f"BJ: {_on(bj.get('bj_enabled', 1))} | "
+        f"RBJ: {_on(rbj.get('rbj_enabled', 1))}\n"
+        f"BJ bet: {_fmt(bj.get('min_bet', 10))}-{_fmt(bj.get('max_bet', 1000))}c\n"
+        f"RBJ bet: {_fmt(rbj.get('min_bet', 10))}-{_fmt(rbj.get('max_bet', 1000))}c"
+    )
+
+
+def _page2(bj: dict, rbj: dict) -> str:
+    """
+    Page 2: daily win/loss limits + turn timers for both games.
+    Example:
+      🎰 Casino 2
+      BJ W/L: 5000/3000
+      RBJ W/L: 10000/5000
+      Timers: BJ 20s | RBJ 20s
+    """
+    return (
+        f"🎰 Casino 2\n"
+        f"BJ W/L: {_fmt(bj.get('bj_daily_win_limit', 5000))}/"
+        f"{_fmt(bj.get('bj_daily_loss_limit', 3000))}\n"
+        f"RBJ W/L: {_fmt(rbj.get('rbj_daily_win_limit', 5000))}/"
+        f"{_fmt(rbj.get('rbj_daily_loss_limit', 3000))}\n"
+        f"Timers: BJ {bj.get('bj_turn_timer', 20)}s | "
+        f"RBJ {rbj.get('rbj_turn_timer', 20)}s"
+    )
+
+
+# ── /casinosettings [1|2|bj|rbj] ──────────────────────────────────────────────
 
 async def handle_casinosettings(bot: BaseBot, user: User, args: list[str]) -> None:
     if not can_manage_games(user.username):
-        await _w(bot, user.id, "Manager/admin/owner only.")
+        await _w(bot, user.id, "Managers and above only.")
         return
 
     sub = args[1].lower() if len(args) > 1 else ""
+    bj  = db.get_bj_settings()
+    rbj = db.get_rbj_settings()
 
-    if sub in ("bj", "1"):
-        s = db.get_bj_settings()
+    if sub == "1":
+        await _w(bot, user.id, _page1(bj, rbj))
+
+    elif sub == "2":
+        await _w(bot, user.id, _page2(bj, rbj))
+
+    elif sub == "bj":
+        # Casual BJ detail view
         await _w(bot, user.id,
-            f"🎰 BJ Settings\n"
-            f"Status: {_on(s.get('bj_enabled', 1))} | Timer: {s.get('bj_turn_timer', 20)}s\n"
-            f"Bet: {int(s.get('min_bet', 10)):,}c–{int(s.get('max_bet', 1000)):,}c\n"
-            f"Win limit: {int(s.get('bj_daily_win_limit', 5000)):,}c ({_on(s.get('bj_win_limit_enabled', 1))})\n"
-            f"Loss limit: {int(s.get('bj_daily_loss_limit', 3000)):,}c ({_on(s.get('bj_loss_limit_enabled', 1))})"
+            f"🎰 Casual BJ\n"
+            f"Status: {_on(bj.get('bj_enabled', 1))} | "
+            f"Timer: {bj.get('bj_turn_timer', 20)}s\n"
+            f"Bet: {_fmt(bj.get('min_bet', 10))}c-{_fmt(bj.get('max_bet', 1000))}c\n"
+            f"Win cap: {_fmt(bj.get('bj_daily_win_limit', 5000))}c "
+            f"({_on(bj.get('bj_win_limit_enabled', 1))}) | "
+            f"Loss cap: {_fmt(bj.get('bj_daily_loss_limit', 3000))}c "
+            f"({_on(bj.get('bj_loss_limit_enabled', 1))})"
         )
 
-    elif sub in ("rbj", "2"):
-        s = db.get_rbj_settings()
+    elif sub == "rbj":
+        # Realistic BJ detail view
         await _w(bot, user.id,
-            f"🎰 RBJ Settings\n"
-            f"Status: {_on(s.get('rbj_enabled', 1))} | Timer: {s.get('rbj_turn_timer', 20)}s\n"
-            f"Bet: {int(s.get('min_bet', 10)):,}c–{int(s.get('max_bet', 1000)):,}c\n"
-            f"Win limit: {int(s.get('rbj_daily_win_limit', 5000)):,}c ({_on(s.get('rbj_win_limit_enabled', 1))})\n"
-            f"Loss limit: {int(s.get('rbj_daily_loss_limit', 3000)):,}c ({_on(s.get('rbj_loss_limit_enabled', 1))})"
+            f"🎰 Realistic BJ\n"
+            f"Status: {_on(rbj.get('rbj_enabled', 1))} | "
+            f"Timer: {rbj.get('rbj_turn_timer', 20)}s\n"
+            f"Bet: {_fmt(rbj.get('min_bet', 10))}c-{_fmt(rbj.get('max_bet', 1000))}c\n"
+            f"Win cap: {_fmt(rbj.get('rbj_daily_win_limit', 5000))}c "
+            f"({_on(rbj.get('rbj_win_limit_enabled', 1))}) | "
+            f"Loss cap: {_fmt(rbj.get('rbj_daily_loss_limit', 3000))}c "
+            f"({_on(rbj.get('rbj_loss_limit_enabled', 1))})"
         )
 
     else:
-        bj  = db.get_bj_settings()
-        rbj = db.get_rbj_settings()
-        await _w(bot, user.id,
-            f"🎰 BJ Settings (1/2)\n"
-            f"Status: {_on(bj.get('bj_enabled', 1))} | Timer: {bj.get('bj_turn_timer', 20)}s\n"
-            f"Bet: {int(bj.get('min_bet', 10)):,}c–{int(bj.get('max_bet', 1000)):,}c\n"
-            f"Win: {int(bj.get('bj_daily_win_limit', 5000)):,}c | "
-            f"Loss: {int(bj.get('bj_daily_loss_limit', 3000)):,}c/day"
-        )
-        await _w(bot, user.id,
-            f"🎰 RBJ Settings (2/2)\n"
-            f"Status: {_on(rbj.get('rbj_enabled', 1))} | Timer: {rbj.get('rbj_turn_timer', 20)}s\n"
-            f"Bet: {int(rbj.get('min_bet', 10)):,}c–{int(rbj.get('max_bet', 1000)):,}c\n"
-            f"Win: {int(rbj.get('rbj_daily_win_limit', 5000)):,}c | "
-            f"Loss: {int(rbj.get('rbj_daily_loss_limit', 3000)):,}c/day"
-        )
+        # No argument: send both overview pages
+        await _w(bot, user.id, _page1(bj, rbj))
+        await _w(bot, user.id, _page2(bj, rbj))
 
 
 # ── /casinolimits ──────────────────────────────────────────────────────────────
 
 async def handle_casinolimits(bot: BaseBot, user: User) -> None:
     if not can_manage_games(user.username):
-        await _w(bot, user.id, "Manager/admin/owner only.")
+        await _w(bot, user.id, "Managers and above only.")
         return
 
     bj  = db.get_bj_settings()
     rbj = db.get_rbj_settings()
     await _w(bot, user.id,
-        f"🎰 Casino Limits\n"
-        f"BJ:  {int(bj.get('min_bet', 10)):,}c–{int(bj.get('max_bet', 1000)):,}c | "
-        f"Win: {int(bj.get('bj_daily_win_limit', 5000)):,}c | "
-        f"Loss: {int(bj.get('bj_daily_loss_limit', 3000)):,}c\n"
-        f"RBJ: {int(rbj.get('min_bet', 10)):,}c–{int(rbj.get('max_bet', 1000)):,}c | "
-        f"Win: {int(rbj.get('rbj_daily_win_limit', 5000)):,}c | "
-        f"Loss: {int(rbj.get('rbj_daily_loss_limit', 3000)):,}c"
+        f"🎰 Limits\n"
+        f"BJ bet {_fmt(bj.get('min_bet', 10))}-{_fmt(bj.get('max_bet', 1000))} | "
+        f"W/L {_fmt(bj.get('bj_daily_win_limit', 5000))}/"
+        f"{_fmt(bj.get('bj_daily_loss_limit', 3000))}\n"
+        f"RBJ bet {_fmt(rbj.get('min_bet', 10))}-{_fmt(rbj.get('max_bet', 1000))} | "
+        f"W/L {_fmt(rbj.get('rbj_daily_win_limit', 5000))}/"
+        f"{_fmt(rbj.get('rbj_daily_loss_limit', 3000))}"
     )
 
 
@@ -101,10 +154,10 @@ async def handle_casinolimits(bot: BaseBot, user: User) -> None:
 
 async def handle_casinotoggles(bot: BaseBot, user: User, args: list[str]) -> None:
     if not can_manage_games(user.username):
-        await _w(bot, user.id, "Manager/admin/owner only.")
+        await _w(bot, user.id, "Managers and above only.")
         return
 
-    # Setter: /casinotoggles <bj|rbj> <winlimit|losslimit> <on|off>
+    # Setter mode: /casinotoggles <bj|rbj> <winlimit|losslimit> <on|off>
     if len(args) >= 4:
         game   = args[1].lower()
         toggle = args[2].lower()
@@ -122,7 +175,9 @@ async def handle_casinotoggles(bot: BaseBot, user: User, args: list[str]) -> Non
                 db.set_bj_setting("bj_loss_limit_enabled", val)
                 await _w(bot, user.id, f"✅ BJ loss limit: {state.upper()}.")
             else:
-                await _w(bot, user.id, "Toggle must be: winlimit or losslimit.")
+                await _w(bot, user.id,
+                    "Toggle: winlimit or losslimit. "
+                    "Example: /casinotoggles bj winlimit off")
         elif game == "rbj":
             if toggle in ("winlimit", "win"):
                 db.set_rbj_setting("rbj_win_limit_enabled", val)
@@ -131,21 +186,27 @@ async def handle_casinotoggles(bot: BaseBot, user: User, args: list[str]) -> Non
                 db.set_rbj_setting("rbj_loss_limit_enabled", val)
                 await _w(bot, user.id, f"✅ RBJ loss limit: {state.upper()}.")
             else:
-                await _w(bot, user.id, "Toggle must be: winlimit or losslimit.")
+                await _w(bot, user.id,
+                    "Toggle: winlimit or losslimit. "
+                    "Example: /casinotoggles rbj losslimit on")
         else:
-            await _w(bot, user.id, "Game must be: bj or rbj.")
+            await _w(bot, user.id,
+                "Game must be bj or rbj. "
+                "Example: /casinotoggles bj winlimit off")
         return
 
-    # Viewer
+    # Viewer mode
     bj  = db.get_bj_settings()
     rbj = db.get_rbj_settings()
+    bj_win  = _on(bj.get("bj_win_limit_enabled",  1))
+    bj_loss = _on(bj.get("bj_loss_limit_enabled", 1))
+    rbj_win  = _on(rbj.get("rbj_win_limit_enabled",  1))
+    rbj_loss = _on(rbj.get("rbj_loss_limit_enabled", 1))
     await _w(bot, user.id,
-        f"🎰 Casino Toggles\n"
-        f"BJ: {_on(bj.get('bj_enabled', 1))} | RBJ: {_on(rbj.get('rbj_enabled', 1))}\n"
-        f"BJ  wins: {_on(bj.get('bj_win_limit_enabled', 1))}  | "
-        f"losses: {_on(bj.get('bj_loss_limit_enabled', 1))}\n"
-        f"RBJ wins: {_on(rbj.get('rbj_win_limit_enabled', 1))} | "
-        f"losses: {_on(rbj.get('rbj_loss_limit_enabled', 1))}"
+        f"🎰 Toggles\n"
+        f"BJ {_on(bj.get('bj_enabled', 1))} | RBJ {_on(rbj.get('rbj_enabled', 1))}\n"
+        f"BJ win/loss {bj_win}/{bj_loss}\n"
+        f"RBJ win/loss {rbj_win}/{rbj_loss}"
     )
 
 
@@ -153,7 +214,7 @@ async def handle_casinotoggles(bot: BaseBot, user: User, args: list[str]) -> Non
 
 async def handle_setbjlimits(bot: BaseBot, user: User, args: list[str]) -> None:
     if not can_manage_games(user.username):
-        await _w(bot, user.id, "Manager/admin/owner only.")
+        await _w(bot, user.id, "Managers and above only.")
         return
 
     if len(args) < 5 or not all(a.isdigit() for a in args[1:5]):
@@ -182,9 +243,8 @@ async def handle_setbjlimits(bot: BaseBot, user: User, args: list[str]) -> None:
     db.set_bj_setting("bj_daily_loss_limit", losslim)
 
     await _w(bot, user.id,
-        f"✅ BJ limits saved:\n"
-        f"Bet: {minbet:,}c–{maxbet:,}c | "
-        f"Win: {winlim:,}c | Loss: {losslim:,}c/day"
+        f"✅ BJ limits saved.\n"
+        f"Bet: {minbet}-{maxbet}c | W/L: {winlim}/{losslim}"
     )
 
 
@@ -192,7 +252,7 @@ async def handle_setbjlimits(bot: BaseBot, user: User, args: list[str]) -> None:
 
 async def handle_setrbjlimits(bot: BaseBot, user: User, args: list[str]) -> None:
     if not can_manage_games(user.username):
-        await _w(bot, user.id, "Manager/admin/owner only.")
+        await _w(bot, user.id, "Managers and above only.")
         return
 
     if len(args) < 5 or not all(a.isdigit() for a in args[1:5]):
@@ -221,7 +281,6 @@ async def handle_setrbjlimits(bot: BaseBot, user: User, args: list[str]) -> None
     db.set_rbj_setting("rbj_daily_loss_limit", losslim)
 
     await _w(bot, user.id,
-        f"✅ RBJ limits saved:\n"
-        f"Bet: {minbet:,}c–{maxbet:,}c | "
-        f"Win: {winlim:,}c | Loss: {losslim:,}c/day"
+        f"✅ RBJ limits saved.\n"
+        f"Bet: {minbet}-{maxbet}c | W/L: {winlim}/{losslim}"
     )
