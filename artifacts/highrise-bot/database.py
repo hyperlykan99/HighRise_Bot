@@ -291,6 +291,23 @@ def init_db():
         )
     """)
 
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS economy_settings (
+            key   TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        )
+    """)
+    for k, v in [
+        ("daily_coins",     "50"),
+        ("trivia_reward",   "20"),
+        ("scramble_reward", "20"),
+        ("riddle_reward",   "25"),
+        ("max_balance",     "1000000"),
+    ]:
+        conn.execute(
+            "INSERT OR IGNORE INTO economy_settings (key, value) VALUES (?, ?)", (k, v)
+        )
+
     conn.commit()
     conn.close()
     _migrate_db()
@@ -1213,6 +1230,16 @@ def get_bank_settings() -> dict:
     return {r["key"]: r["value"] for r in rows}
 
 
+def get_bank_setting(key: str, default: str = "0") -> str:
+    """Return a single bank_settings value by key."""
+    conn = get_connection()
+    row  = conn.execute(
+        "SELECT value FROM bank_settings WHERE key = ?", (key,)
+    ).fetchone()
+    conn.close()
+    return row["value"] if row else default
+
+
 def set_bank_setting(key: str, value: str):
     conn = get_connection()
     conn.execute(
@@ -1611,6 +1638,71 @@ def get_bank_watch_info(username: str) -> dict | None:
         "suspicious_count": bus["suspicious_transfer_count"] if bus else 0,
         "total_claims":  (ds_row["total_claims"] or 0) if ds_row else 0,
     }
+
+
+# ---------------------------------------------------------------------------
+# Economy-settings helpers
+# ---------------------------------------------------------------------------
+
+_ECONOMY_DEFAULTS: dict[str, int] = {
+    "daily_coins":     50,
+    "trivia_reward":   20,
+    "scramble_reward": 20,
+    "riddle_reward":   25,
+    "max_balance":     1_000_000,
+}
+
+
+def get_economy_settings() -> dict[str, int]:
+    """Return all economy settings as a dict of int values."""
+    conn = get_connection()
+    rows = conn.execute("SELECT key, value FROM economy_settings").fetchall()
+    conn.close()
+    settings = {r["key"]: int(r["value"]) for r in rows}
+    for k, v in _ECONOMY_DEFAULTS.items():
+        settings.setdefault(k, v)
+    return settings
+
+
+def set_economy_setting(key: str, value: str):
+    conn = get_connection()
+    conn.execute(
+        "INSERT INTO economy_settings (key, value) VALUES (?, ?) "
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        (key, value)
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_max_balance() -> int:
+    """Return the current max balance cap."""
+    return get_economy_settings()["max_balance"]
+
+
+def adjust_balance_capped(user_id: str, amount: int) -> int:
+    """
+    Credit amount to user_id's balance, capped at max_balance.
+    Returns the actual amount credited (may be less if cap was hit).
+    Negative amounts are ignored (use adjust_balance for deductions).
+    """
+    if amount <= 0:
+        return 0
+    max_bal = get_max_balance()
+    conn    = get_connection()
+    row     = conn.execute(
+        "SELECT balance FROM users WHERE user_id = ?", (user_id,)
+    ).fetchone()
+    current = row["balance"] if row else 0
+    actual  = min(amount, max(0, max_bal - current))
+    if actual > 0:
+        conn.execute(
+            "UPDATE users SET balance = balance + ? WHERE user_id = ?",
+            (actual, user_id)
+        )
+        conn.commit()
+    conn.close()
+    return actual
 
 
 # ---------------------------------------------------------------------------

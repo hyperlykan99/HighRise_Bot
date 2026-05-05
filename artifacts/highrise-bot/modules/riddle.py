@@ -221,7 +221,7 @@ async def start_game(bot: BaseBot, user: User):
     await bot.highrise.chat(
         f"🤔 RIDDLE TIME!\n"
         f"{_active['riddle']}\n"
-        f"Type /answer to win {config.RIDDLE_REWARD} coins! 🪙"
+        f"Type /answer to win {db.get_economy_settings()['riddle_reward']} coins! 🪙"
     )
 
 
@@ -247,13 +247,14 @@ async def handle_answer(bot: BaseBot, user: User, answer_text: str):
     if correct:
         # Compute reward with any equipped cosmetic bonuses
         benefits      = get_player_benefits(user.id)
+        base_reward   = db.get_economy_settings()["riddle_reward"]
         actual_reward = (
-            config.RIDDLE_REWARD
-            + int(config.RIDDLE_REWARD * benefits["game_reward_pct"] / 100)
+            base_reward
+            + int(base_reward * benefits["game_reward_pct"] / 100)
             + benefits["riddle_bonus"]
         )
 
-        db.adjust_balance(user.id, actual_reward)
+        actual_reward = db.adjust_balance_capped(user.id, actual_reward)
         db.record_game_win(user.id, user.username, "riddle")
         await leveling.award_xp(bot, user, config.XP_RIDDLE, actual_reward)
         await check_achievements(bot, user, "riddle_win")

@@ -56,6 +56,11 @@ from modules.audit import (
     handle_audithelp, handle_audit,
     handle_auditbank, handle_auditcasino, handle_auditeconomy,
 )
+from modules.economy_settings import (
+    handle_economysettings,
+    handle_setdailycoins, handle_setgamereward,
+    handle_setmaxbalance, handle_settransferfee,
+)
 from modules.bank import (
     handle_bank, handle_send, handle_transactions, handle_bankstats,
     handle_banknotify,
@@ -85,6 +90,7 @@ BANK_ADMIN_SET_CMDS = {
 MOD_ONLY_CMDS = {
     "resetgame", "announce", "viewtx", "bankwatch",
     "audit", "auditbank", "auditcasino", "auditeconomy", "audithelp",
+    "economysettings",
 }
 
 MANAGER_ONLY_CMDS = {
@@ -103,9 +109,10 @@ ADMIN_ONLY_CMDS = {
     "bankblock", "bankunblock",
     "ledger",
     "allcommands",
+    "setdailycoins", "setgamereward", "settransferfee",
 } | BANK_ADMIN_SET_CMDS
 
-OWNER_ONLY_CMDS = {"addadmin", "removeadmin", "admins"}
+OWNER_ONLY_CMDS = {"addadmin", "removeadmin", "admins", "setmaxbalance"}
 
 STAFF_CMDS = MOD_ONLY_CMDS | MANAGER_ONLY_CMDS | ADMIN_ONLY_CMDS | OWNER_ONLY_CMDS
 
@@ -522,6 +529,16 @@ class HangoutBot(BaseBot):
                 await handle_auditcasino(self, user, args)
             elif cmd == "auditeconomy":
                 await handle_auditeconomy(self, user, args)
+            elif cmd == "economysettings":
+                await handle_economysettings(self, user)
+            elif cmd == "setdailycoins":
+                await handle_setdailycoins(self, user, args)
+            elif cmd == "setgamereward":
+                await handle_setgamereward(self, user, args)
+            elif cmd == "setmaxbalance":
+                await handle_setmaxbalance(self, user, args)
+            elif cmd == "settransferfee":
+                await handle_settransferfee(self, user, args)
             else:
                 await handle_admin_command(self, user, cmd, args)
             return

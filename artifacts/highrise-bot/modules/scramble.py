@@ -135,7 +135,7 @@ async def start_game(bot: BaseBot, user: User):
     await bot.highrise.chat(
         f"🔀 WORD SCRAMBLE!\n"
         f"Unscramble this: {scrambled.upper()}\n"
-        f"Type /answer to win {config.SCRAMBLE_REWARD} coins! 🪙"
+        f"Type /answer to win {db.get_economy_settings()['scramble_reward']} coins! 🪙"
     )
 
 
@@ -159,13 +159,14 @@ async def handle_answer(bot: BaseBot, user: User, answer_text: str):
     if check_answer(answer_text, [_active["word"]]):
         # Compute reward with any equipped cosmetic bonuses
         benefits      = get_player_benefits(user.id)
+        base_reward   = db.get_economy_settings()["scramble_reward"]
         actual_reward = (
-            config.SCRAMBLE_REWARD
-            + int(config.SCRAMBLE_REWARD * benefits["game_reward_pct"] / 100)
+            base_reward
+            + int(base_reward * benefits["game_reward_pct"] / 100)
             + benefits["scramble_bonus"]
         )
 
-        db.adjust_balance(user.id, actual_reward)
+        actual_reward = db.adjust_balance_capped(user.id, actual_reward)
         db.record_game_win(user.id, user.username, "scramble")
         await leveling.award_xp(bot, user, config.XP_SCRAMBLE, actual_reward)
         await check_achievements(bot, user, "scramble_win")

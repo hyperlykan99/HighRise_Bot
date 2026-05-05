@@ -165,7 +165,7 @@ async def start_game(bot: BaseBot, user: User):
     await bot.highrise.chat(
         f"🎯 TRIVIA TIME!\n"
         f"{_active['question']}\n"
-        f"Type /answer to win {config.TRIVIA_REWARD} coins! 🪙"
+        f"Type /answer to win {db.get_economy_settings()['trivia_reward']} coins! 🪙"
     )
 
 
@@ -192,13 +192,14 @@ async def handle_answer(bot: BaseBot, user: User, answer_text: str):
     if correct:
         # Compute reward with any equipped cosmetic bonuses
         benefits      = get_player_benefits(user.id)
+        base_reward   = db.get_economy_settings()["trivia_reward"]
         actual_reward = (
-            config.TRIVIA_REWARD
-            + int(config.TRIVIA_REWARD * benefits["game_reward_pct"] / 100)
+            base_reward
+            + int(base_reward * benefits["game_reward_pct"] / 100)
             + benefits["trivia_bonus"]
         )
 
-        db.adjust_balance(user.id, actual_reward)
+        actual_reward = db.adjust_balance_capped(user.id, actual_reward)
         db.record_game_win(user.id, user.username, "trivia")
         await leveling.award_xp(bot, user, config.XP_TRIVIA, actual_reward)
         await check_achievements(bot, user, "trivia_win")

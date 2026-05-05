@@ -48,19 +48,20 @@ async def handle_daily(bot: BaseBot, user: User):
     benefits     = get_player_benefits(user.id)
     bonus_coins  = benefits["daily_coins_bonus"]
     bonus_xp     = benefits["daily_xp_bonus"]
-    actual_coins = config.DAILY_REWARD + bonus_coins
+    base_daily   = db.get_economy_settings()["daily_coins"]
+    actual_coins = base_daily + bonus_coins
     actual_xp    = config.XP_DAILY + bonus_xp
 
-    db.adjust_balance(user.id, actual_coins)
+    actual_coins = db.adjust_balance_capped(user.id, actual_coins)
     db.record_daily_claim(user.id)
     await leveling.award_xp(bot, user, actual_xp, actual_coins, is_game_win=False)
     await check_achievements(bot, user, "daily")
     new_balance = db.get_balance(user.id)
 
-    msg = f"🎁 Daily reward! +{config.DAILY_REWARD} coins"
+    msg = f"🎁 Daily reward! +{actual_coins}c"
     if bonus_coins:
-        msg += f" +{bonus_coins} bonus"
-    msg += f".  Balance: {new_balance} 🪙"
+        msg += f" (incl. +{bonus_coins} bonus)"
+    msg += f". Balance: {new_balance}🪙"
     await bot.highrise.send_whisper(user.id, msg)
 
 
