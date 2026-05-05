@@ -40,6 +40,15 @@ ADMIN_USERS: list[str] = [
 ]
 
 # ---------------------------------------------------------------------------
+# Cooldowns
+# ---------------------------------------------------------------------------
+TRIVIA_COOLDOWN:   int = 30   # seconds between /trivia starts (room-wide)
+SCRAMBLE_COOLDOWN: int = 30   # seconds between /scramble starts (room-wide)
+RIDDLE_COOLDOWN:   int = 30   # seconds between /riddle starts (room-wide)
+COINFLIP_COOLDOWN: int = 10   # seconds between /coinflip uses (per user)
+ANSWER_COOLDOWN:   int = 3    # seconds between /answer attempts (per user)
+
+# ---------------------------------------------------------------------------
 # Shared database file path
 # All bot modes (GameBot, DJBot, BlackjackBot, HostBot, etc.) must use this
 # same path so player coins, stats, and daily rewards are shared across bots.
