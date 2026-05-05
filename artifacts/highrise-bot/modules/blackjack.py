@@ -143,7 +143,7 @@ async def _advance_turn(bot: BaseBot):
             await bot.highrise.chat(f"🤑 @{p.username} has Blackjack!")
         _state.current_idx += 1
     else:
-        await _dealer_play(bot)
+        await _finalize_round(bot)
         return
 
     p     = _state.players[_state.current_idx]
@@ -167,94 +167,98 @@ async def _turn_timeout(bot: BaseBot, user_id: str, seconds: int):
                 f"⏱️ @{p.username} timed out. Auto-stand at {hand_value(p.hand)}."
             )
             _state.current_idx += 1
+            _state.turn_task = None  # clear self-reference before advancing
             await _advance_turn(bot)
     except asyncio.CancelledError:
         raise
 
 
-# ─── Dealer play ─────────────────────────────────────────────────────────────
+# ─── Finalize round (dealer play + settle + cleanup) ─────────────────────────
 
-async def _dealer_play(bot: BaseBot):
-    total = hand_value(_state.dealer_hand)
-    await bot.highrise.chat(
-        f"Dealer reveals: {hand_str(_state.dealer_hand)} = {total}"
-    )
+async def _finalize_round(bot: BaseBot):
+    """Dealer plays to completion, settles all bets, always resets state."""
+    _cancel_task(_state.turn_task, "Turn timer")
+    _state.turn_task = None
+    try:
+        s           = _settings()
+        hits_soft17 = bool(int(s.get("dealer_hits_soft_17", 1)))
+        win_payout  = float(s.get("win_payout", 2.0))
+        bj_payout   = float(s.get("blackjack_payout", 2.5))
+        push_rule   = s.get("push_rule", "refund")
 
-    s           = _settings()
-    hits_soft17 = bool(int(s.get("dealer_hits_soft_17", 1)))
-
-    while True:
-        total = hand_value(_state.dealer_hand)
-        if total > 17:
-            break
-        if total == 17 and not hits_soft17:
-            break
-        if total == 17 and not _is_soft_17(_state.dealer_hand):
-            break
-        card = _state.deck.pop()
-        _state.dealer_hand.append(card)
         total = hand_value(_state.dealer_hand)
         await bot.highrise.chat(
-            f"Dealer hits {card_str(card)}. "
-            f"Hand: {hand_str(_state.dealer_hand)} = {total}"
+            f"Dealer reveals: {hand_str(_state.dealer_hand)} = {total}"
         )
 
-    await _settle(bot)
+        while True:
+            total = hand_value(_state.dealer_hand)
+            if total > 17:
+                break
+            if total == 17 and not hits_soft17:
+                break
+            if total == 17 and not _is_soft_17(_state.dealer_hand):
+                break
+            card = _state.deck.pop()
+            _state.dealer_hand.append(card)
+            total = hand_value(_state.dealer_hand)
+            await bot.highrise.chat(
+                f"Dealer hits {card_str(card)}. "
+                f"Hand: {hand_str(_state.dealer_hand)} = {total}"
+            )
 
+        dealer_total = hand_value(_state.dealer_hand)
+        dealer_bust  = dealer_total > 21
 
-# ─── Settlement ──────────────────────────────────────────────────────────────
+        for p in _state.players:
+            try:
+                ptotal    = hand_value(p.hand)
+                benefits  = get_player_benefits(p.user_id)
+                bonus_pct = min(
+                    float(benefits.get("coinflip_payout_pct", 0.0)),
+                    _BJ_CASINO_CAP
+                ) / 100.0
 
-async def _settle(bot: BaseBot):
-    s            = _settings()
-    win_payout   = float(s.get("win_payout", 2.0))
-    bj_payout    = float(s.get("blackjack_payout", 2.5))
-    push_rule    = s.get("push_rule", "refund")
-    dealer_total = hand_value(_state.dealer_hand)
-    dealer_bust  = dealer_total > 21
+                if p.status == "bust":
+                    db.update_bj_stats(p.user_id, loss=1, bet=p.bet, lost=p.bet)
+                    await bot.highrise.chat(f"❌ @{p.username} loses {p.bet:,}c.")
 
-    for p in _state.players:
-        try:
-            ptotal    = hand_value(p.hand)
-            benefits  = get_player_benefits(p.user_id)
-            bonus_pct = min(
-                float(benefits.get("coinflip_payout_pct", 0.0)),
-                _BJ_CASINO_CAP
-            ) / 100.0
+                elif p.status == "bj":
+                    payout = int(p.bet * bj_payout * (1.0 + bonus_pct))
+                    db.adjust_balance(p.user_id, payout)
+                    db.add_coins_earned(p.user_id, payout - p.bet)
+                    db.update_bj_stats(p.user_id, win=1, bj=1, bet=p.bet, won=payout)
+                    await bot.highrise.chat(
+                        f"🤑 @{p.username} blackjack! Paid {payout:,}c."
+                    )
 
-            if p.status == "bust":
-                db.update_bj_stats(p.user_id, loss=1, bet=p.bet, lost=p.bet)
-                await bot.highrise.chat(f"❌ @{p.username} loses {p.bet:,}c.")
+                elif dealer_bust or ptotal > dealer_total:
+                    payout = int(p.bet * win_payout * (1.0 + bonus_pct))
+                    db.adjust_balance(p.user_id, payout)
+                    db.add_coins_earned(p.user_id, payout - p.bet)
+                    db.update_bj_stats(p.user_id, win=1, bet=p.bet, won=payout)
+                    await bot.highrise.chat(f"✅ @{p.username} wins! Paid {payout:,}c.")
 
-            elif p.status == "bj":
-                payout = int(p.bet * bj_payout * (1.0 + bonus_pct))
-                db.adjust_balance(p.user_id, payout)
-                db.add_coins_earned(p.user_id, payout - p.bet)
-                db.update_bj_stats(p.user_id, win=1, bj=1, bet=p.bet, won=payout)
-                await bot.highrise.chat(f"🤑 @{p.username} blackjack! Paid {payout:,}c.")
+                elif ptotal == dealer_total:
+                    if push_rule == "refund":
+                        db.adjust_balance(p.user_id, p.bet)
+                    db.update_bj_stats(p.user_id, push=1, bet=p.bet)
+                    await bot.highrise.chat(
+                        f"↔️ @{p.username} pushes. {p.bet:,}c refunded."
+                    )
 
-            elif dealer_bust or ptotal > dealer_total:
-                payout = int(p.bet * win_payout * (1.0 + bonus_pct))
-                db.adjust_balance(p.user_id, payout)
-                db.add_coins_earned(p.user_id, payout - p.bet)
-                db.update_bj_stats(p.user_id, win=1, bet=p.bet, won=payout)
-                await bot.highrise.chat(f"✅ @{p.username} wins! Paid {payout:,}c.")
+                else:
+                    db.update_bj_stats(p.user_id, loss=1, bet=p.bet, lost=p.bet)
+                    await bot.highrise.chat(f"❌ @{p.username} loses {p.bet:,}c.")
 
-            elif ptotal == dealer_total:
-                if push_rule == "refund":
-                    db.adjust_balance(p.user_id, p.bet)
-                db.update_bj_stats(p.user_id, push=1, bet=p.bet)
-                await bot.highrise.chat(
-                    f"↔️ @{p.username} pushes. {p.bet:,}c refunded."
-                )
+            except Exception as exc:
+                print(f"[BJ] settle error for {p.username}: {exc}")
 
-            else:
-                db.update_bj_stats(p.user_id, loss=1, bet=p.bet, lost=p.bet)
-                await bot.highrise.chat(f"❌ @{p.username} loses {p.bet:,}c.")
-
-        except Exception as exc:
-            print(f"[BJ] settle error for {p.username}: {exc}")
-
-    _state.reset()
+    except Exception as exc:
+        print(f"[BJ] finalize_round error: {exc}")
+    finally:
+        print("[BJ] Round ended")
+        _state.reset()
 
 
 # ─── Top-level router ────────────────────────────────────────────────────────
