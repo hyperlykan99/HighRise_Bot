@@ -122,7 +122,9 @@ from modules.reports import (
 from modules.moderation import (
     handle_mute, handle_unmute, handle_mutes,
     handle_warn, handle_warnings, handle_clearwarnings,
+    handle_rules, handle_setrules, handle_automod,
 )
+from modules.automod import automod_check
 from modules.reputation import (
     handle_rep, handle_reputation, handle_toprep,
     handle_replog, handle_addrep, handle_removerep,
@@ -197,10 +199,11 @@ MOD_ONLY_CMDS = {
     "replog",
     "allstaff",
     "subscribers",
+    "mute", "unmute", "mutes",
 }
 
 MANAGER_ONLY_CMDS = {
-    "mute", "unmute", "mutes",
+    "automod",
     "banksettings",
     "setbjminbet", "setbjmaxbet", "setbjcountdown", "setbjturntimer",
     "setbjdailywinlimit", "setbjdailylosslimit",
@@ -218,6 +221,7 @@ TIP_COMMANDS = {"tiprate", "tipstats", "tipleaderboard"}
 TIP_ADMIN_CMDS = {"settiprate", "settipcap", "settiptier", "settipautosub", "settipresubscribe"}
 
 ADMIN_ONLY_CMDS = {
+    "setrules",
     "addcoins", "removecoins",
     "addmanager", "removemanager",
     "addmoderator", "removemoderator",
@@ -292,6 +296,7 @@ ALL_KNOWN_COMMANDS = (
         "debugnotify", "testnotify", "testnotifyall",
         "pendingnotify", "clearpendingnotify",
         "dailyadmin",
+        "rules", "setrules", "automod",
         "announce_subs", "announce_vip", "announce_staff", "dmnotify",
         "subscribers",
     }
@@ -695,6 +700,7 @@ MOD_HELP_PAGES = [
     ),
     (
         "🔨 Mod 5\n"
+        "/rules\n"
         "/dailyadmin reports\n"
         "/dailyadmin errors"
     ),
@@ -734,6 +740,7 @@ MANAGER_HELP_PAGES = [
     ),
     (
         "🧰 Manager 5\n"
+        "/automod on/off\n"
         "/dailyadmin\n"
         "/dailyadmin bank\n"
         "/dailyadmin casino\n"
@@ -1446,6 +1453,10 @@ class HangoutBot(BaseBot):
                 await handle_warnings(self, user, args)
             elif cmd == "clearwarnings":
                 await handle_clearwarnings(self, user, args)
+            elif cmd == "setrules":
+                await handle_setrules(self, user, args)
+            elif cmd == "automod":
+                await handle_automod(self, user, args)
             elif cmd == "reports":
                 await handle_reports(self, user)
             elif cmd == "reportinfo":
@@ -1578,15 +1589,27 @@ class HangoutBot(BaseBot):
             "profile", "level", "balance", "myitems",
             "myreports", "report", "bug",
             "botstatus", "maintenance",
+            "rules", "warnings",
         }
         if cmd not in _MUTE_EXEMPT:
             _mute = db.get_active_mute(user.id)
             if _mute:
                 await self.highrise.send_whisper(
                     user.id,
-                    f"🔇 You are muted for {_mute['mins_left']} more min."
+                    "🔇 You are bot-muted. Try again later."
                 )
                 return
+
+        # ── AutoMod check (spam / abuse detection) ─────────────────────────
+        if cmd not in _MUTE_EXEMPT:
+            _blocked = await automod_check(self, user, cmd, message)
+            if _blocked:
+                return
+
+        # ── Public: /rules ────────────────────────────────────────────────────
+        if cmd == "rules":
+            await handle_rules(self, user)
+            return
 
         # ── Economy commands ──────────────────────────────────────────────────
         if cmd == "balance":

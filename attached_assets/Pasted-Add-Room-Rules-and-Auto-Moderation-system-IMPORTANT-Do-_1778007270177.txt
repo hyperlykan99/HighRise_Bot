@@ -1,0 +1,99 @@
+Add Room Rules and Auto Moderation system.
+
+IMPORTANT:
+- Do not remove existing features.
+- Keep reports, bank, casino, gold, notifications, VIP, events, shop, and staff roles.
+- Use SQLite.
+- Keep all Highrise messages under 250 characters.
+- Prevent crashes from bad inputs.
+
+Goal:
+Let staff set room rules and automatically handle spam or abuse.
+
+Commands:
+- /rules
+- /setrules <message>
+- /automod
+- /automod on
+- /automod off
+- /warn <username> <reason>
+- /warnings <username>
+- /clearwarnings <username>
+- /mute <username> <minutes>
+- /unmute <username>
+- /mutes
+
+Permissions:
+- /rules is public.
+- Moderator/manager/admin/owner can warn, mute, unmute, view warnings.
+- Admin/owner can clear warnings and set rules.
+- Manager/admin/owner can turn automod on/off.
+
+Rules:
+- /rules shows the current room rules.
+- /setrules changes the rules message.
+- Store rules in SQLite.
+
+Auto moderation:
+- Detect repeated spam commands.
+- Detect repeated same message.
+- Detect command spam.
+- Detect bank/send spam.
+- Detect casino join spam.
+- Detect report spam.
+
+Default automod settings:
+- automod_enabled = true
+- max_same_message = 3 within 30 seconds
+- max_commands = 8 within 30 seconds
+- max_reports = 3 within 10 minutes
+
+Actions:
+- First offense: warning
+- Second offense: temporary bot mute for 5 minutes
+- Third offense: temporary bot mute for 30 minutes
+
+Bot mute:
+- Muted users cannot use game, casino, bank, shop, send, report, or economy commands.
+- Muted users can still use /help, /rules, /profile, /warnings.
+- Mutes expire automatically.
+
+Database:
+Create moderation_warnings table:
+- id INTEGER PRIMARY KEY AUTOINCREMENT
+- timestamp TEXT
+- username TEXT
+- reason TEXT
+- warned_by TEXT
+- active INTEGER DEFAULT 1
+
+Create moderation_mutes table:
+- username TEXT PRIMARY KEY
+- muted_by TEXT
+- reason TEXT
+- muted_until TEXT
+- created_at TEXT
+
+Create moderation_settings table:
+- key TEXT PRIMARY KEY
+- value TEXT
+
+Messages:
+/rules:
+"📜 Rules: Be respectful. No spam. No scams. Staff decisions are final."
+
+/warn:
+"⚠️ @user warned: reason"
+
+/mute:
+"🔇 @user muted for 5m."
+
+/unmute:
+"🔊 @user unmuted."
+
+If muted user tries command:
+"🔇 You are bot-muted. Try again later."
+
+Help update:
+- /modhelp should include /rules, /warn, /mute, /unmute, /warnings.
+- /reporthelp should mention /report.

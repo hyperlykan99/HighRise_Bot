@@ -694,6 +694,26 @@ def init_db():
         )
     """)
 
+    # ── Moderation settings (rules, automod config) ───────────────────────
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS moderation_settings (
+            key   TEXT PRIMARY KEY,
+            value TEXT NOT NULL DEFAULT ''
+        )
+    """)
+    _DEFAULT_MOD_SETTINGS = {
+        "room_rules":       "📜 Rules: Be respectful. No spam. No scams. Staff decisions are final.",
+        "automod_enabled":  "1",
+        "max_same_message": "3",
+        "max_commands":     "8",
+        "max_reports":      "3",
+    }
+    for _k, _v in _DEFAULT_MOD_SETTINGS.items():
+        conn.execute(
+            "INSERT OR IGNORE INTO moderation_settings (key, value) VALUES (?, ?)",
+            (_k, _v),
+        )
+
     # ── Daily admin checklist log ──────────────────────────────────────────
     conn.execute("""
         CREATE TABLE IF NOT EXISTS daily_admin_logs (

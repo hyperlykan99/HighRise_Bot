@@ -23,7 +23,32 @@ All messages ≤ 249 characters.
 from highrise import BaseBot, User
 
 import database as db
-from modules.permissions import can_moderate, can_manage_games, can_manage_economy
+from modules.permissions import can_moderate, can_manage_games, can_manage_economy, is_admin, is_owner
+
+
+def _get_mod_setting(key: str, default: str = "") -> str:
+    try:
+        conn = db.get_connection()
+        row  = conn.execute(
+            "SELECT value FROM moderation_settings WHERE key = ?", (key,)
+        ).fetchone()
+        conn.close()
+        return row["value"] if row else default
+    except Exception:
+        return default
+
+
+def _set_mod_setting(key: str, value: str) -> None:
+    try:
+        conn = db.get_connection()
+        conn.execute(
+            "INSERT OR REPLACE INTO moderation_settings (key, value) VALUES (?, ?)",
+            (key, value),
+        )
+        conn.commit()
+        conn.close()
+    except Exception as exc:
+        print(f"[MOD] set_mod_setting error: {exc!r}")
 
 
 async def _w(bot: BaseBot, uid: str, msg: str) -> None:
@@ -197,3 +222,73 @@ async def handle_clearwarnings(bot: BaseBot, user: User, args: list[str]) -> Non
         await _w(bot, user.id, f"✅ Cleared {cleared} warning(s) for @{target_name}.")
     else:
         await _w(bot, user.id, f"@{target_name} has no warnings to clear.")
+
+
+# ---------------------------------------------------------------------------
+# /rules   (public)
+# ---------------------------------------------------------------------------
+
+async def handle_rules(bot: BaseBot, user: User) -> None:
+    rules = _get_mod_setting(
+        "room_rules",
+        "📜 Rules: Be respectful. No spam. No scams. Staff decisions are final.",
+    )
+    await _w(bot, user.id, rules[:249])
+
+
+# ---------------------------------------------------------------------------
+# /setrules <message>   (admin+)
+# ---------------------------------------------------------------------------
+
+async def handle_setrules(bot: BaseBot, user: User, args: list[str]) -> None:
+    if not (is_admin(user.username) or is_owner(user.username)):
+        await _w(bot, user.id, "Admins and owners only.")
+        return
+    if len(args) < 2:
+        await _w(bot, user.id, "Usage: /setrules <message>")
+        return
+
+    new_rules = " ".join(args[1:]).strip()
+    if not new_rules:
+        await _w(bot, user.id, "Rules message cannot be empty.")
+        return
+    if len(new_rules) > 220:
+        await _w(bot, user.id, "Rules message too long. Max 220 characters.")
+        return
+
+    _set_mod_setting("room_rules", new_rules)
+    await _w(bot, user.id, f"✅ Room rules updated: {new_rules[:80]}...")
+
+
+# ---------------------------------------------------------------------------
+# /automod [on|off]   (manager+)
+# ---------------------------------------------------------------------------
+
+async def handle_automod(bot: BaseBot, user: User, args: list[str]) -> None:
+    if not can_manage_games(user.username):
+        await _w(bot, user.id, "Managers and above only.")
+        return
+
+    if len(args) < 2:
+        # Show current status
+        enabled   = _get_mod_setting("automod_enabled", "1") == "1"
+        max_cmds  = _get_mod_setting("max_commands", "8")
+        max_same  = _get_mod_setting("max_same_message", "3")
+        max_rep   = _get_mod_setting("max_reports", "3")
+        status    = "ON" if enabled else "OFF"
+        await _w(bot, user.id,
+                 f"🛡️ AutoMod: {status}\n"
+                 f"Max cmds/30s: {max_cmds} | Same msg: {max_same}\n"
+                 f"Max reports/10m: {max_rep}\n"
+                 f"Use /automod on or /automod off")
+        return
+
+    sub = args[1].lower().strip()
+    if sub == "on":
+        _set_mod_setting("automod_enabled", "1")
+        await _w(bot, user.id, "🛡️ AutoMod enabled.")
+    elif sub == "off":
+        _set_mod_setting("automod_enabled", "0")
+        await _w(bot, user.id, "🛡️ AutoMod disabled.")
+    else:
+        await _w(bot, user.id, "Usage: /automod on | /automod off")
