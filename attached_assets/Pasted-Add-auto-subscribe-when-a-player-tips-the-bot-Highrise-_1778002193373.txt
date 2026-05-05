@@ -1,0 +1,70 @@
+Add auto-subscribe when a player tips the bot Highrise gold.
+
+Goal:
+If a player tips the bot gold, automatically subscribe them to bot notifications so they can receive future bank/event alerts.
+
+Important:
+Tipping the bot may not automatically create an outside-room DM conversation_id.
+If the bot does not have a conversation_id for that user, mark them subscribed but DM status should be "not connected."
+
+Behavior when player tips the bot:
+1. Detect the tip event.
+2. Convert gold to coins if tip conversion is enabled.
+3. Mark the player as subscribed in subscriber_users table.
+4. Save username and user_id.
+5. If conversation_id already exists:
+   - dm_available = 1
+   - They can receive outside-room DM alerts.
+6. If conversation_id does not exist:
+   - dm_available = 0
+   - Bot should tell them in room or whisper:
+     "✅ Subscribed! To get alerts outside the room, DM me 'subscribe' once."
+
+Tip message:
+"💰 @user tipped 10g and received 100c. Alerts subscribed."
+
+If no DM connected:
+"📩 DM me 'subscribe' once to get alerts outside the room."
+
+Database:
+Use or create subscriber_users table:
+- username TEXT PRIMARY KEY
+- user_id TEXT
+- conversation_id TEXT
+- subscribed INTEGER DEFAULT 0
+- subscribed_at TEXT
+- last_dm_at TEXT
+- last_seen_at TEXT
+- dm_available INTEGER DEFAULT 0
+- auto_subscribed_from_tip INTEGER DEFAULT 0
+
+Commands:
+- /subscribe
+- /unsubscribe
+- /substatus
+
+/substatus should show:
+"Subscribed: YES | DM connected: NO. DM bot 'subscribe'."
+
+Bank notifications:
+When someone sends coins:
+- If receiver is in room, whisper.
+- Else if receiver is subscribed and dm_available = 1, send outside-room DM.
+- Else save pending notification.
+
+Safety:
+- Do not claim outside-room DM works unless conversation_id exists.
+- Respect /unsubscribe.
+- If user unsubscribed before, do not auto-resubscribe from future tips unless setting allows it.
+
+Add setting:
+- /settipautosub on/off owner/admin only
+Default: ON.
+
+Add setting:
+- /settipresubscribe on/off owner/admin only
+Default: OFF.
+If OFF, tipping does not resubscribe users who manually unsubscribed.
+
+Keep all Highrise messages under 250 characters.
+Prevent crashes from missing tip data or missing conversation_id.

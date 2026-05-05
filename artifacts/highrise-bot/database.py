@@ -589,14 +589,15 @@ def init_db():
     # ── Subscriber DM users ───────────────────────────────────────────────
     conn.execute("""
         CREATE TABLE IF NOT EXISTS subscriber_users (
-            username        TEXT PRIMARY KEY,
-            user_id         TEXT,
-            conversation_id TEXT,
-            subscribed      INTEGER NOT NULL DEFAULT 0,
-            subscribed_at   TEXT,
-            last_dm_at      TEXT,
-            last_seen_at    TEXT,
-            dm_available    INTEGER NOT NULL DEFAULT 0
+            username                TEXT PRIMARY KEY,
+            user_id                 TEXT,
+            conversation_id         TEXT,
+            subscribed              INTEGER NOT NULL DEFAULT 0,
+            subscribed_at           TEXT,
+            last_dm_at              TEXT,
+            last_seen_at            TEXT,
+            dm_available            INTEGER NOT NULL DEFAULT 0,
+            auto_subscribed_from_tip INTEGER NOT NULL DEFAULT 0
         )
     """)
 
@@ -653,10 +654,20 @@ def _migrate_db():
         "ALTER TABLE rbj_settings ADD COLUMN rbj_loss_limit_enabled INTEGER NOT NULL DEFAULT 1",
         "ALTER TABLE bank_notifications ADD COLUMN delivery_attempts INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE bank_notifications ADD COLUMN last_error        TEXT",
+        "ALTER TABLE subscriber_users   ADD COLUMN auto_subscribed_from_tip INTEGER NOT NULL DEFAULT 0",
     ]:
         try:
             conn.execute(sql)
         except sqlite3.OperationalError:
+            pass
+
+    # Seed new tip settings defaults (INSERT OR IGNORE — safe to run every boot)
+    for key, val in [("tip_auto_sub", "1"), ("tip_resubscribe", "0")]:
+        try:
+            conn.execute(
+                "INSERT OR IGNORE INTO tip_settings (key, value) VALUES (?, ?)", (key, val)
+            )
+        except Exception:
             pass
 
     # Data migrations — safe no-ops if already applied or no matching rows exist
@@ -3728,6 +3739,18 @@ def get_all_subscribed_with_dm() -> list[dict]:
     ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+
+def mark_tip_auto_subscribed(username: str) -> None:
+    """Set auto_subscribed_from_tip=1 for a subscriber (called after gold tip)."""
+    uname = username.lower().lstrip("@").strip()
+    conn = get_connection()
+    conn.execute(
+        "UPDATE subscriber_users SET auto_subscribed_from_tip = 1 WHERE username = ?",
+        (uname,),
+    )
+    conn.commit()
+    conn.close()
 
 
 def get_all_subscribers_staff() -> list[dict]:

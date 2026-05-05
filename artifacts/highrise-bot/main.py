@@ -123,6 +123,7 @@ from modules.tips import (
     process_tip_event,
     handle_tiprate, handle_tipstats, handle_tipleaderboard,
     handle_settiprate, handle_settipcap, handle_settiptier,
+    handle_settipautosub, handle_settipresubscribe,
     handle_debugtips,
     record_debug_any_event,
     _SDK_VERSION as _TIP_SDK_VERSION,
@@ -193,7 +194,7 @@ MANAGER_ONLY_CMDS = {
 }
 
 TIP_COMMANDS = {"tiprate", "tipstats", "tipleaderboard"}
-TIP_ADMIN_CMDS = {"settiprate", "settipcap", "settiptier"}
+TIP_ADMIN_CMDS = {"settiprate", "settipcap", "settiptier", "settipautosub", "settipresubscribe"}
 
 ADMIN_ONLY_CMDS = {
     "addcoins", "removecoins",
@@ -1405,6 +1406,10 @@ class HangoutBot(BaseBot):
                 await handle_settipcap(self, user, args)
             elif cmd == "settiptier":
                 await handle_settiptier(self, user, args)
+            elif cmd == "settipautosub":
+                await handle_settipautosub(self, user, args)
+            elif cmd == "settipresubscribe":
+                await handle_settipresubscribe(self, user, args)
             elif cmd == "setgametimer":
                 await handle_setgametimer(self, user, args)
             elif cmd == "setautogameinterval":
