@@ -337,6 +337,27 @@ def init_db():
     )
 
     conn.execute("""
+        CREATE TABLE IF NOT EXISTS mutes (
+            user_id    TEXT    PRIMARY KEY,
+            username   TEXT    NOT NULL,
+            muted_by   TEXT    NOT NULL,
+            muted_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+            expires_at TEXT    NOT NULL
+        )
+    """)
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS warnings (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id    TEXT    NOT NULL,
+            username   TEXT    NOT NULL,
+            warned_by  TEXT    NOT NULL,
+            reason     TEXT    NOT NULL,
+            created_at TEXT    NOT NULL DEFAULT (datetime('now'))
+        )
+    """)
+
+    conn.execute("""
         CREATE TABLE IF NOT EXISTS reports (
             id                INTEGER PRIMARY KEY AUTOINCREMENT,
             timestamp         TEXT    NOT NULL DEFAULT (datetime('now')),
@@ -1813,6 +1834,126 @@ def buy_event_item(user_id: str, username: str,
         return "error"
     finally:
         conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Moderation helpers — mutes
+# ---------------------------------------------------------------------------
+
+from datetime import datetime, timedelta, timezone as _tz
+
+
+def mute_user(user_id: str, username: str, muted_by: str, duration_minutes: int) -> None:
+    """Insert or replace an active mute record."""
+    expires_at = (
+        datetime.now(_tz.utc) + timedelta(minutes=duration_minutes)
+    ).strftime("%Y-%m-%d %H:%M:%S")
+    conn = get_connection()
+    conn.execute(
+        "INSERT OR REPLACE INTO mutes (user_id, username, muted_by, expires_at) VALUES (?, ?, ?, ?)",
+        (user_id, username, muted_by, expires_at),
+    )
+    conn.commit()
+    conn.close()
+
+
+def unmute_user(user_id: str) -> bool:
+    """Remove a mute. Returns True if a record was deleted."""
+    conn = get_connection()
+    cur  = conn.execute("DELETE FROM mutes WHERE user_id = ?", (user_id,))
+    conn.commit()
+    conn.close()
+    return cur.rowcount > 0
+
+
+def get_active_mute(user_id: str) -> dict | None:
+    """
+    Return mute info (with 'mins_left' key) if the user is still muted,
+    otherwise None. Expired mutes are cleaned up automatically.
+    """
+    conn = get_connection()
+    row  = conn.execute("SELECT * FROM mutes WHERE user_id = ?", (user_id,)).fetchone()
+    if row is None:
+        conn.close()
+        return None
+    r       = dict(row)
+    now     = datetime.now(_tz.utc)
+    expires = datetime.strptime(r["expires_at"], "%Y-%m-%d %H:%M:%S").replace(tzinfo=_tz.utc)
+    if now >= expires:
+        conn.execute("DELETE FROM mutes WHERE user_id = ?", (user_id,))
+        conn.commit()
+        conn.close()
+        return None
+    r["mins_left"] = max(1, int((expires - now).total_seconds() / 60) + 1)
+    conn.close()
+    return r
+
+
+def get_all_active_mutes(limit: int = 5) -> list[dict]:
+    """Return up to `limit` active mutes, cleaning expired ones first."""
+    now_str = datetime.now(_tz.utc).strftime("%Y-%m-%d %H:%M:%S")
+    conn    = get_connection()
+    conn.execute("DELETE FROM mutes WHERE expires_at <= ?", (now_str,))
+    conn.commit()
+    rows = conn.execute(
+        "SELECT * FROM mutes WHERE expires_at > ? ORDER BY expires_at ASC LIMIT ?",
+        (now_str, limit),
+    ).fetchall()
+    conn.close()
+    now    = datetime.now(_tz.utc)
+    result = []
+    for row in rows:
+        r       = dict(row)
+        expires = datetime.strptime(r["expires_at"], "%Y-%m-%d %H:%M:%S").replace(tzinfo=_tz.utc)
+        r["mins_left"] = max(1, int((expires - now).total_seconds() / 60) + 1)
+        result.append(r)
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Moderation helpers — warnings
+# ---------------------------------------------------------------------------
+
+
+def add_warning(user_id: str, username: str, warned_by: str, reason: str) -> int:
+    """Add a warning and return the new total warning count for this user."""
+    conn = get_connection()
+    conn.execute(
+        "INSERT INTO warnings (user_id, username, warned_by, reason) VALUES (?, ?, ?, ?)",
+        (user_id, username, warned_by, reason),
+    )
+    conn.commit()
+    total = conn.execute(
+        "SELECT COUNT(*) FROM warnings WHERE user_id = ?", (user_id,)
+    ).fetchone()[0]
+    conn.close()
+    return total
+
+
+def get_warnings(username: str, limit: int = 5) -> tuple[list[dict], int]:
+    """Return (last N warnings newest-first, total count) for the given username."""
+    conn  = get_connection()
+    uname = username.lower()
+    total = conn.execute(
+        "SELECT COUNT(*) FROM warnings WHERE LOWER(username) = ?", (uname,)
+    ).fetchone()[0]
+    rows  = conn.execute(
+        "SELECT * FROM warnings WHERE LOWER(username) = ? ORDER BY id DESC LIMIT ?",
+        (uname, limit),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows], total
+
+
+def clear_warnings(username: str) -> int:
+    """Delete all warnings for the given username. Returns number deleted."""
+    conn = get_connection()
+    cur  = conn.execute(
+        "DELETE FROM warnings WHERE LOWER(username) = ?", (username.lower(),)
+    )
+    conn.commit()
+    conn.close()
+    return cur.rowcount
 
 
 # ---------------------------------------------------------------------------

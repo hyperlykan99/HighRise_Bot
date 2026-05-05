@@ -73,6 +73,10 @@ from modules.reports import (
     handle_report, handle_bug, handle_myreports,
     handle_reports, handle_reportinfo, handle_closereport, handle_reportwatch,
 )
+from modules.moderation import (
+    handle_mute, handle_unmute, handle_mutes,
+    handle_warn, handle_warnings, handle_clearwarnings,
+)
 from modules.bank import (
     handle_bank, handle_send, handle_transactions, handle_bankstats,
     handle_banknotify,
@@ -104,9 +108,11 @@ MOD_ONLY_CMDS = {
     "audit", "auditbank", "auditcasino", "auditeconomy", "audithelp",
     "economysettings",
     "reports", "reportinfo", "closereport", "reportwatch",
+    "warn", "warnings",
 }
 
 MANAGER_ONLY_CMDS = {
+    "mute", "unmute", "mutes",
     "banksettings",
     "setbjminbet", "setbjmaxbet", "setbjcountdown", "setbjturntimer",
     "setbjdailywinlimit", "setbjdailylosslimit",
@@ -124,6 +130,7 @@ ADMIN_ONLY_CMDS = {
     "allcommands",
     "setdailycoins", "setgamereward", "settransferfee",
     "eventstart", "eventstop",
+    "clearwarnings",
 } | BANK_ADMIN_SET_CMDS
 
 OWNER_ONLY_CMDS = {"addadmin", "removeadmin", "admins", "setmaxbalance"}
@@ -557,9 +564,46 @@ class HangoutBot(BaseBot):
                 await handle_setmaxbalance(self, user, args)
             elif cmd == "settransferfee":
                 await handle_settransferfee(self, user, args)
+            elif cmd == "mute":
+                await handle_mute(self, user, args)
+            elif cmd == "unmute":
+                await handle_unmute(self, user, args)
+            elif cmd == "mutes":
+                await handle_mutes(self, user)
+            elif cmd == "warn":
+                await handle_warn(self, user, args)
+            elif cmd == "warnings":
+                await handle_warnings(self, user, args)
+            elif cmd == "clearwarnings":
+                await handle_clearwarnings(self, user, args)
+            elif cmd == "reports":
+                await handle_reports(self, user)
+            elif cmd == "reportinfo":
+                await handle_reportinfo(self, user, args)
+            elif cmd == "closereport":
+                await handle_closereport(self, user, args)
+            elif cmd == "reportwatch":
+                await handle_reportwatch(self, user, args)
             else:
                 await handle_admin_command(self, user, cmd, args)
             return
+
+        # ── Mute gate — block muted players from economy/game commands ────────
+        _MUTE_EXEMPT = {
+            "help", "casinohelp", "gamehelp", "coinhelp", "profilehelp",
+            "shophelp", "progresshelp", "bankhelp", "staffhelp", "modhelp",
+            "managerhelp", "adminhelp", "ownerhelp", "questhelp",
+            "profile", "level", "balance", "myitems",
+            "myreports", "report", "bug",
+        }
+        if cmd not in _MUTE_EXEMPT:
+            _mute = db.get_active_mute(user.id)
+            if _mute:
+                await self.highrise.send_whisper(
+                    user.id,
+                    f"🔇 You are muted for {_mute['mins_left']} more min."
+                )
+                return
 
         # ── Economy commands ──────────────────────────────────────────────────
         if cmd == "balance":
