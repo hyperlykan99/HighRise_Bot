@@ -246,38 +246,68 @@ async def handle_answer(bot: BaseBot, user: User, answer_text: str):
     correct = check_answer(answer_text, _active["answers"])
 
     if correct:
-        # Compute reward with any equipped cosmetic bonuses
+        # ── Compute intended reward ───────────────────────────────────────────
         from modules.events import get_event_effect
-        benefits      = get_player_benefits(user.id)
-        base_reward   = db.get_economy_settings()["riddle_reward"]
-        actual_reward = (
-            base_reward
-            + int(base_reward * benefits["game_reward_pct"] / 100)
+        benefits    = get_player_benefits(user.id)
+        base_reward = db.get_economy_settings()["riddle_reward"]
+        cosm_bonus  = (
+            int(base_reward * benefits["game_reward_pct"] / 100)
             + benefits["riddle_bonus"]
         )
+        intended = base_reward + cosm_bonus
 
-        # Apply active event effects
         _ev = get_event_effect()
-        actual_reward = int(actual_reward * _ev["coins"])
+        intended  = int(intended * _ev["coins"])
         if _ev["trivia_coins_pct"] > 0:
-            actual_reward = int(actual_reward * (1.0 + _ev["trivia_coins_pct"]))
+            intended = int(intended * (1.0 + _ev["trivia_coins_pct"]))
         xp_amount = int(config.XP_RIDDLE * _ev["xp"])
 
-        actual_reward = db.adjust_balance_capped(user.id, actual_reward)
+        # ── Credit coins (do NOT overwrite 'intended' with the return value) ─
+        credited = db.adjust_balance_capped(user.id, intended)
+
+        # ── Console logging ───────────────────────────────────────────────────
+        print(
+            f"[RIDDLE] @{user.username} reward:"
+            f" base={base_reward}"
+            f" cosm_bonus={cosm_bonus}"
+            f" event_coins_mult={_ev['coins']}"
+            f" event_tp_pct={_ev['trivia_coins_pct']}"
+            f" intended={intended}"
+            f" credited={credited}"
+            f" xp={xp_amount}"
+        )
+
         db.record_game_win(user.id, user.username, "riddle")
         track_quest(user.id, "game_win")
-        track_quest(user.id, "earn_coins", actual_reward)
+        track_quest(user.id, "earn_coins", credited)
         if db.is_event_active():
             db.add_event_points(user.id, 1)
-        await leveling.award_xp(bot, user, xp_amount, actual_reward)
+        await leveling.award_xp(bot, user, xp_amount, credited)
         await check_achievements(bot, user, "riddle_win")
         await check_achievements(bot, user, "game_win")
 
+        # ── Announce win ──────────────────────────────────────────────────────
         display = db.get_display_name(user.id, user.username)
-        await bot.highrise.chat(
-            f"🎉 {display} cracked it! Answer: {_active['answers'][0]} "
-            f"| +{actual_reward} coins 🪙"
-        )
+        xp_tag  = " Double XP!" if _ev["xp"] >= 2 else ""
+
+        if credited == 0 and intended > 0:
+            await bot.highrise.chat(
+                f"🎉 {display} cracked it! Answer: {_active['answers'][0]}"
+            )
+            await bot.highrise.send_whisper(
+                user.id,
+                "Reward capped. You are at max balance. Spend some coins first!"
+            )
+        elif credited < intended:
+            await bot.highrise.chat(
+                f"🎉 {display} cracked it! Ans: {_active['answers'][0]} "
+                f"| +{credited}c +{xp_amount}XP (capped){xp_tag}"
+            )
+        else:
+            await bot.highrise.chat(
+                f"🎉 {display} cracked it! Ans: {_active['answers'][0]} "
+                f"| +{intended}c +{xp_amount}XP{xp_tag}"
+            )
 
         _active = None
     else:
