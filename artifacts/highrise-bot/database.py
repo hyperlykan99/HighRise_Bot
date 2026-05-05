@@ -319,6 +319,23 @@ def init_db():
         )
     """)
 
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS event_points (
+            user_id TEXT    PRIMARY KEY,
+            points  INTEGER NOT NULL DEFAULT 0
+        )
+    """)
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS event_settings (
+            key   TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        )
+    """)
+    conn.execute(
+        "INSERT OR IGNORE INTO event_settings (key, value) VALUES ('event_active', '0')"
+    )
+
     conn.commit()
     conn.close()
     _migrate_db()
@@ -1699,6 +1716,88 @@ def mark_quest_claimed(user_id: str, quest_id: str, period_key: str):
     """, (user_id, quest_id, period_key))
     conn.commit()
     conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Event system helpers
+# ---------------------------------------------------------------------------
+
+def get_event_points(user_id: str) -> int:
+    conn = get_connection()
+    row  = conn.execute(
+        "SELECT points FROM event_points WHERE user_id = ?", (user_id,)
+    ).fetchone()
+    conn.close()
+    return row["points"] if row else 0
+
+
+def add_event_points(user_id: str, amount: int) -> None:
+    conn = get_connection()
+    conn.execute("""
+        INSERT INTO event_points (user_id, points) VALUES (?, ?)
+        ON CONFLICT(user_id) DO UPDATE SET points = MAX(0, points + excluded.points)
+    """, (user_id, amount))
+    conn.commit()
+    conn.close()
+
+
+def is_event_active() -> bool:
+    conn = get_connection()
+    row  = conn.execute(
+        "SELECT value FROM event_settings WHERE key = 'event_active'"
+    ).fetchone()
+    conn.close()
+    return row is not None and row["value"] == "1"
+
+
+def set_event_active(active: bool) -> None:
+    conn = get_connection()
+    conn.execute(
+        "INSERT INTO event_settings (key, value) VALUES ('event_active', ?) "
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        ("1" if active else "0",)
+    )
+    conn.commit()
+    conn.close()
+
+
+def buy_event_item(user_id: str, username: str,
+                   item_id: str, item_type: str, cost: int) -> str:
+    """
+    Atomically spend event points and record ownership.
+    Returns: "ok" | "no_points" | "duplicate" | "error"
+    """
+    conn = get_connection()
+    try:
+        dup = conn.execute(
+            "SELECT 1 FROM owned_items WHERE user_id = ? AND item_id = ?",
+            (user_id, item_id)
+        ).fetchone()
+        if dup:
+            return "duplicate"
+
+        row     = conn.execute(
+            "SELECT points FROM event_points WHERE user_id = ?", (user_id,)
+        ).fetchone()
+        current = row["points"] if row else 0
+        if current < cost:
+            return "no_points"
+
+        conn.execute(
+            "UPDATE event_points SET points = points - ? WHERE user_id = ?",
+            (cost, user_id)
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO owned_items (user_id, item_id, item_type) VALUES (?, ?, ?)",
+            (user_id, item_id, item_type)
+        )
+        conn.commit()
+        return "ok"
+    except Exception:
+        conn.rollback()
+        return "error"
+    finally:
+        conn.close()
 
 
 # ---------------------------------------------------------------------------

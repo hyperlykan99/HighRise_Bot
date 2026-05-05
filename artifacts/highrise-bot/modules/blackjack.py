@@ -208,13 +208,16 @@ async def _finalize_round(bot: BaseBot):
                 f"Hand: {hand_str(_state.dealer_hand)} = {total}"
             )
 
-        dealer_total = hand_value(_state.dealer_hand)
-        dealer_bust  = dealer_total > 21
+        dealer_total  = hand_value(_state.dealer_hand)
+        dealer_bust   = dealer_total > 21
+        _bj_event_pts = db.is_event_active() and bool(int(db.get_bj_settings().get("bj_enabled", 1)))
 
         for p in _state.players:
             try:
                 ptotal    = hand_value(p.hand)
                 track_quest(p.user_id, "bj_round")
+                if _bj_event_pts:
+                    db.add_event_points(p.user_id, 1)
                 benefits  = get_player_benefits(p.user_id)
                 bonus_pct = min(
                     float(benefits.get("coinflip_payout_pct", 0.0)),

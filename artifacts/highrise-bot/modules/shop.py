@@ -129,7 +129,10 @@ def get_player_benefits(user_id: str) -> dict:
 # ---------------------------------------------------------------------------
 
 def _get_item(item_type: str, item_id: str) -> dict | None:
-    return (BADGES if item_type == "badge" else TITLES).get(item_id)
+    from modules.events import EVENT_BADGES, EVENT_TITLES
+    catalog       = BADGES       if item_type == "badge" else TITLES
+    event_catalog = EVENT_BADGES if item_type == "badge" else EVENT_TITLES
+    return catalog.get(item_id) or event_catalog.get(item_id)
 
 
 # ---------------------------------------------------------------------------
@@ -253,6 +256,12 @@ async def handle_buy(bot: BaseBot, user: User, args: list[str]):
         )
         return
 
+    if item.get("event_cost") is not None:
+        await bot.highrise.send_whisper(
+            user.id, f"Use /buyevent {item_id} to get this event item."
+        )
+        return
+
     db.ensure_user(user.id, user.username)
 
     if db.owns_item(user.id, item_id):
@@ -317,10 +326,12 @@ async def handle_equip(bot: BaseBot, user: User, args: list[str]):
     db.ensure_user(user.id, user.username)
 
     if not db.owns_item(user.id, item_id):
+        if item.get("event_cost") is not None:
+            hint = f"Get it from the event shop: /buyevent {item_id}"
+        else:
+            hint = f"Buy it first: /buy {item_type} {item_id}  ({item['price']:,} coins)"
         await bot.highrise.send_whisper(
-            user.id,
-            f"You don't own {item['display']} {item_id}!  "
-            f"Buy it first: /buy {item_type} {item_id}  ({item['price']:,} coins)"
+            user.id, f"You don't own {item['display']} {item_id}!  {hint}"
         )
         return
 

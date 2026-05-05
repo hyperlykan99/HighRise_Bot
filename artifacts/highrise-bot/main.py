@@ -65,6 +65,10 @@ from modules.quests import (
     handle_questhelp, handle_quests,
     handle_dailyquests, handle_weeklyquests, handle_claimquest,
 )
+from modules.events import (
+    handle_eventpoints, handle_eventshop, handle_buyevent,
+    handle_eventstart, handle_eventstop,
+)
 from modules.bank import (
     handle_bank, handle_send, handle_transactions, handle_bankstats,
     handle_banknotify,
@@ -114,6 +118,7 @@ ADMIN_ONLY_CMDS = {
     "ledger",
     "allcommands",
     "setdailycoins", "setgamereward", "settransferfee",
+    "eventstart", "eventstop",
 } | BANK_ADMIN_SET_CMDS
 
 OWNER_ONLY_CMDS = {"addadmin", "removeadmin", "admins", "setmaxbalance"}
@@ -129,6 +134,7 @@ ALL_KNOWN_COMMANDS = (
         "casino", "managers", "moderators",
         "quests", "claimquest",
         "dailyquests", "weeklyquests", "questhelp",
+        "eventpoints", "eventshop", "buyevent",
     }
     | ECONOMY_COMMANDS | PROFILE_COMMANDS | GAME_COMMANDS
     | SHOP_COMMANDS | ACHIEVEMENT_COMMANDS | BJ_COMMANDS
@@ -586,6 +592,22 @@ class HangoutBot(BaseBot):
 
         elif cmd == "titleinfo":
             await handle_titleinfo(self, user, args)
+
+        # ── Event commands ────────────────────────────────────────────────────
+        elif cmd == "eventpoints":
+            await handle_eventpoints(self, user)
+
+        elif cmd == "eventshop":
+            await handle_eventshop(self, user)
+
+        elif cmd == "buyevent":
+            await handle_buyevent(self, user, args)
+
+        elif cmd == "eventstart":
+            await handle_eventstart(self, user)
+
+        elif cmd == "eventstop":
+            await handle_eventstop(self, user)
 
         # ── Achievement commands ───────────────────────────────────────────────
         elif cmd == "achievements":

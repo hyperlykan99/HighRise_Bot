@@ -33,7 +33,7 @@ from datetime import datetime
 from highrise import BaseBot, User
 
 import database as db
-from modules.permissions import is_admin, can_moderate, can_manage_economy
+from modules.permissions import is_admin, is_manager, can_moderate, can_manage_economy
 
 # ---------------------------------------------------------------------------
 # In-memory send cooldown  (10 s per user)

@@ -259,6 +259,8 @@ async def handle_answer(bot: BaseBot, user: User, answer_text: str):
         db.record_game_win(user.id, user.username, "riddle")
         track_quest(user.id, "game_win")
         track_quest(user.id, "earn_coins", actual_reward)
+        if db.is_event_active():
+            db.add_event_points(user.id, 1)
         await leveling.award_xp(bot, user, config.XP_RIDDLE, actual_reward)
         await check_achievements(bot, user, "riddle_win")
         await check_achievements(bot, user, "game_win")
