@@ -98,6 +98,25 @@ def is_active() -> bool:
     return _active is not None
 
 
+def get_current_answer() -> str | None:
+    """Return the correct word for the active scramble, or None."""
+    if _active is None:
+        return None
+    return _active["word"]
+
+
+async def _post_scramble(bot: BaseBot) -> None:
+    """Post the active scramble challenge to the room."""
+    settings = db.get_auto_game_settings()
+    timer    = settings["game_answer_timer"]
+    reward   = db.get_economy_settings()["scramble_reward"]
+    await bot.highrise.chat(
+        f"🔀 WORD SCRAMBLE! ({timer}s)\n"
+        f"Unscramble: {_active['scrambled'].upper()}\n"
+        f"Type /answer to win {reward} coins! 🪙"
+    )
+
+
 async def start_game(bot: BaseBot, user: User):
     """
     Start a new word-scramble game.
@@ -133,11 +152,20 @@ async def start_game(bot: BaseBot, user: User):
     print(f"[SCRAMBLE] Correct answer: {_active['word']}")
 
     # Post it publicly
-    await bot.highrise.chat(
-        f"🔀 WORD SCRAMBLE!\n"
-        f"Unscramble this: {scrambled.upper()}\n"
-        f"Type /answer to win {db.get_economy_settings()['scramble_reward']} coins! 🪙"
-    )
+    await _post_scramble(bot)
+
+
+async def auto_start(bot: BaseBot) -> None:
+    """Start scramble automatically (no user, no cooldown check)."""
+    global _active
+    if _active is not None:
+        return
+    word      = random.choice(_WORDS)
+    scrambled = _scramble_word(word)
+    _active   = {"word": word, "scrambled": scrambled}
+    set_room_cooldown("scramble")
+    print(f"[SCRAMBLE][AUTO] Correct answer: {_active['word']}")
+    await _post_scramble(bot)
 
 
 async def handle_answer(bot: BaseBot, user: User, answer_text: str):

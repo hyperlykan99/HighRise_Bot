@@ -159,9 +159,9 @@ async def _cmd_removecoins(bot: BaseBot, user: User, args: list[str]):
 
 
 async def _cmd_resetgame(bot: BaseBot, user: User):
-    """Clear all active mini-game state."""
-    games.reset_all_games()
-    await bot.highrise.chat("[Admin] All active games have been reset.")
+    """Clear all active mini-game state — routed to auto_games for full reset."""
+    from modules.auto_games import handle_resetgame
+    await handle_resetgame(bot, user)
 
 
 async def _cmd_announce(bot: BaseBot, user: User, args: list[str]):

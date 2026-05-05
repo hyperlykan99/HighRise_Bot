@@ -129,6 +129,25 @@ def is_active() -> bool:
     return _active is not None
 
 
+def get_current_answer() -> str | None:
+    """Return the first accepted answer for the active question, or None."""
+    if _active is None:
+        return None
+    return _active["answers"][0]
+
+
+async def _post_trivia(bot: BaseBot) -> None:
+    """Post the active trivia question to the room."""
+    settings = db.get_auto_game_settings()
+    timer    = settings["game_answer_timer"]
+    reward   = db.get_economy_settings()["trivia_reward"]
+    await bot.highrise.chat(
+        f"🎯 TRIVIA TIME! ({timer}s)\n"
+        f"{_active['question']}\n"
+        f"Type /answer to win {reward} coins! 🪙"
+    )
+
+
 async def start_game(bot: BaseBot, user: User):
     """
     Start a new trivia game.
@@ -163,11 +182,19 @@ async def start_game(bot: BaseBot, user: User):
     print(f"[TRIVIA] Correct answer: {_active['answers'][0]}")
 
     # Announce it to the whole room
-    await bot.highrise.chat(
-        f"🎯 TRIVIA TIME!\n"
-        f"{_active['question']}\n"
-        f"Type /answer to win {db.get_economy_settings()['trivia_reward']} coins! 🪙"
-    )
+    await _post_trivia(bot)
+
+
+async def auto_start(bot: BaseBot) -> None:
+    """Start trivia automatically (no user, no cooldown check)."""
+    global _active
+    if _active is not None:
+        return
+    question_data = random.choice(_QUESTIONS)
+    _active = question_data.copy()
+    set_room_cooldown("trivia")
+    print(f"[TRIVIA][AUTO] Correct answer: {_active['answers'][0]}")
+    await _post_trivia(bot)
 
 
 async def handle_answer(bot: BaseBot, user: User, answer_text: str):

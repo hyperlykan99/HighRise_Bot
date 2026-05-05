@@ -255,13 +255,12 @@ async def handle_events(bot: BaseBot, user: User) -> None:
 async def handle_eventhelp(bot: BaseBot, user: User) -> None:
     """/eventhelp — show event command reference."""
     await _w(bot, user.id,
-             "🎪 Event Commands:\n"
-             "/event — active event & time left\n"
-             "/events — available event IDs\n"
-             "/eventstatus — full event details\n"
-             "/eventpoints — your event pts\n"
-             "/eventshop — spend pts\n"
-             "/buyevent <id>")
+             "🎉 Events\n"
+             "/event /events\n"
+             "Auto events every 1h.\n"
+             "Staff: /startevent /stopevent /autoevents\n"
+             "/eventstatus /eventpoints\n"
+             "/eventshop /buyevent <id>")
 
 
 async def handle_eventstatus(bot: BaseBot, user: User) -> None:

@@ -100,6 +100,13 @@ from modules.tips import (
     handle_tiprate, handle_tipstats, handle_tipleaderboard,
     handle_settiprate, handle_settipcap, handle_settiptier,
 )
+from modules.auto_games import (
+    start_auto_game_loop, start_auto_event_loop,
+    handle_autogames, handle_autoevents,
+    handle_setgametimer, handle_setautogameinterval,
+    handle_setautoeventinterval, handle_setautoeventduration,
+    handle_gameconfig,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -140,6 +147,9 @@ MANAGER_ONLY_CMDS = {
     "setrbjdecks", "setrbjminbet", "setrbjmaxbet", "setrbjcountdown",
     "setrbjshuffle", "setrbjblackjackpayout", "setrbjwinpayout", "setrbjturntimer",
     "setrbjdailywinlimit", "setrbjdailylosslimit",
+    "setgametimer", "setautogameinterval",
+    "setautoeventinterval", "setautoeventduration",
+    "gameconfig",
 }
 
 TIP_COMMANDS = {"tiprate", "tipstats", "tipleaderboard"}
@@ -179,6 +189,7 @@ ALL_KNOWN_COMMANDS = (
         "event", "events", "eventhelp", "eventstatus",
         "startevent", "stopevent",
         "eventpoints", "eventshop", "buyevent",
+        "autogames", "autoevents",
         "report", "bug", "myreports",
         "rep", "reputation", "repstats", "toprep", "repleaderboard",
         "poker",
@@ -212,6 +223,8 @@ GAME_HELP = (
     "🎮 Games\n"
     "/trivia /scramble /riddle\n"
     "/answer <answer>\n"
+    "Auto games every 10m.\n"
+    "Answer timer: 60s.\n"
     "/coinflip heads/tails <bet>"
 )
 
@@ -344,6 +357,19 @@ MANAGER_HELP_PAGES = [
         "/stopevent\n"
         "/eventstatus\n"
         "/announce <msg>"
+    ),
+    (
+        "🧰 Manager 5\n"
+        "/autogames on/off/status\n"
+        "/autoevents on/off/status\n"
+        "/gameconfig\n"
+        "/setgametimer <s>"
+    ),
+    (
+        "🧰 Manager 6\n"
+        "/setautogameinterval <min>\n"
+        "/setautoeventinterval <min>\n"
+        "/setautoeventduration <min>"
     ),
 ]
 
@@ -721,6 +747,9 @@ class HangoutBot(BaseBot):
         await self.highrise.chat("Mini Game Bot is online! Type /help for commands.")
         # Recover any event that was running before a bot restart
         asyncio.create_task(startup_event_check(self))
+        # Start background automation loops (idempotent — safe on reconnect)
+        start_auto_game_loop(self)
+        start_auto_event_loop(self)
 
     async def on_chat(self, user: User, message: str) -> None:
         """
@@ -851,6 +880,16 @@ class HangoutBot(BaseBot):
                 await handle_settipcap(self, user, args)
             elif cmd == "settiptier":
                 await handle_settiptier(self, user, args)
+            elif cmd == "setgametimer":
+                await handle_setgametimer(self, user, args)
+            elif cmd == "setautogameinterval":
+                await handle_setautogameinterval(self, user, args)
+            elif cmd == "setautoeventinterval":
+                await handle_setautoeventinterval(self, user, args)
+            elif cmd == "setautoeventduration":
+                await handle_setautoeventduration(self, user, args)
+            elif cmd == "gameconfig":
+                await handle_gameconfig(self, user)
             else:
                 await handle_admin_command(self, user, cmd, args)
             return
@@ -952,6 +991,13 @@ class HangoutBot(BaseBot):
 
         elif cmd == "buyevent":
             await handle_buyevent(self, user, args)
+
+        # ── Auto game / event toggle commands (public status, manager+ on/off) ─
+        elif cmd == "autogames":
+            await handle_autogames(self, user, args)
+
+        elif cmd == "autoevents":
+            await handle_autoevents(self, user, args)
 
         # ── Achievement commands ───────────────────────────────────────────────
         elif cmd == "achievements":

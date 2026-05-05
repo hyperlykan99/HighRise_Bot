@@ -186,6 +186,25 @@ def is_active() -> bool:
     return _active is not None
 
 
+def get_current_answer() -> str | None:
+    """Return the first accepted answer for the active riddle, or None."""
+    if _active is None:
+        return None
+    return _active["answers"][0]
+
+
+async def _post_riddle(bot: BaseBot) -> None:
+    """Post the active riddle to the room."""
+    settings = db.get_auto_game_settings()
+    timer    = settings["game_answer_timer"]
+    reward   = db.get_economy_settings()["riddle_reward"]
+    await bot.highrise.chat(
+        f"🤔 RIDDLE TIME! ({timer}s)\n"
+        f"{_active['riddle']}\n"
+        f"Type /answer to win {reward} coins! 🪙"
+    )
+
+
 async def start_game(bot: BaseBot, user: User):
     """
     Start a new riddle game.
@@ -219,11 +238,18 @@ async def start_game(bot: BaseBot, user: User):
     print(f"[RIDDLE] Accepted answers: {_active['answers']}")
 
     # Post publicly to the room
-    await bot.highrise.chat(
-        f"🤔 RIDDLE TIME!\n"
-        f"{_active['riddle']}\n"
-        f"Type /answer to win {db.get_economy_settings()['riddle_reward']} coins! 🪙"
-    )
+    await _post_riddle(bot)
+
+
+async def auto_start(bot: BaseBot) -> None:
+    """Start a riddle automatically (no user, no cooldown check)."""
+    global _active
+    if _active is not None:
+        return
+    _active = random.choice(_RIDDLES).copy()
+    set_room_cooldown("riddle")
+    print(f"[RIDDLE][AUTO] Accepted answers: {_active['answers']}")
+    await _post_riddle(bot)
 
 
 async def handle_answer(bot: BaseBot, user: User, answer_text: str):

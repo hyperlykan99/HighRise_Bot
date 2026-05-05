@@ -9,18 +9,14 @@ point) and the individual game modules in modules/.
 What it does:
   - Routes /trivia, /scramble, /riddle, /coinflip to the right module
   - Routes /answer to whichever game is currently active
-  - Provides reset_all_games() so admin.py can clear stuck games
+  - Starts the answer timer whenever a new mini game begins
+  - Cancels the timer when a game is answered correctly
+  - Provides reset_all_games() so admin.py / auto_games.py can clear stuck games
   - Provides any_game_active() so the entry point can guard against
     starting a second game mid-round
 
 Future bots that want to run games just import from here:
     from games import handle_game_command, handle_answer
-
-Individual game logic lives in:
-  modules/trivia.py    — question bank + answer state
-  modules/scramble.py  — word bank + scramble state
-  modules/riddle.py    — riddle bank + answer state
-  modules/coinflip.py  — coin-flip logic
 """
 
 from highrise import BaseBot, User
@@ -34,6 +30,9 @@ import modules.trivia   as trivia
 import modules.scramble as scramble
 import modules.riddle   as riddle
 from modules.coinflip import handle_coinflip
+
+# Auto-games: answer timer management (imported after modules to avoid circular)
+import modules.auto_games as auto_games
 
 
 # ---------------------------------------------------------------------------
@@ -49,14 +48,32 @@ async def handle_game_command(bot: BaseBot, user: User, cmd: str, args: list[str
     cmd  : the command name in lowercase ("trivia", "scramble", "riddle", "coinflip")
     args : the full parsed argument list (args[0] == cmd)
     """
+    if cmd in {"trivia", "scramble", "riddle"}:
+        # Global guard: only one mini game at a time
+        if any_game_active():
+            await bot.highrise.send_whisper(
+                user.id,
+                "🎮 A game is already active! Answer or wait for the timer."
+            )
+            return
+
     if cmd == "trivia":
         await trivia.start_game(bot, user)
+        if trivia.is_active():
+            ans = trivia.get_current_answer() or ""
+            auto_games.start_answer_timer(bot, "trivia", ans)
 
     elif cmd == "scramble":
         await scramble.start_game(bot, user)
+        if scramble.is_active():
+            ans = scramble.get_current_answer() or ""
+            auto_games.start_answer_timer(bot, "scramble", ans)
 
     elif cmd == "riddle":
         await riddle.start_game(bot, user)
+        if riddle.is_active():
+            ans = riddle.get_current_answer() or ""
+            auto_games.start_answer_timer(bot, "riddle", ans)
 
     elif cmd == "coinflip":
         await handle_coinflip(bot, user, args)
@@ -69,7 +86,7 @@ async def handle_game_command(bot: BaseBot, user: User, cmd: str, args: list[str
 async def handle_answer(bot: BaseBot, user: User, answer_text: str):
     """
     Route /answer to whichever game is currently active.
-    Only one game can be active at a time.
+    Cancels the answer timer if the player guesses correctly.
     If no game is running, whisper the player.
     """
     # Per-user cooldown — prevents rapid-fire answer spam
@@ -84,12 +101,18 @@ async def handle_answer(bot: BaseBot, user: User, answer_text: str):
 
     if trivia.is_active():
         await trivia.handle_answer(bot, user, answer_text)
+        if not trivia.is_active():          # correct answer → game just ended
+            auto_games.cancel_answer_timer()
 
     elif scramble.is_active():
         await scramble.handle_answer(bot, user, answer_text)
+        if not scramble.is_active():
+            auto_games.cancel_answer_timer()
 
     elif riddle.is_active():
         await riddle.handle_answer(bot, user, answer_text)
+        if not riddle.is_active():
+            auto_games.cancel_answer_timer()
 
     else:
         await bot.highrise.send_whisper(
@@ -110,8 +133,8 @@ def any_game_active() -> bool:
 def reset_all_games():
     """
     Clear the active state for every game module.
-    Called by admin.py when an admin uses /resetgame.
+    Called by admin.py / auto_games.py when a moderator uses /resetgame.
     """
-    trivia._active  = None
+    trivia._active   = None
     scramble._active = None
     riddle._active   = None

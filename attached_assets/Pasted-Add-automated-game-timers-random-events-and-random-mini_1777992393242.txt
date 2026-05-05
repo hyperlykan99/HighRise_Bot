@@ -1,0 +1,326 @@
+Add automated game timers, random events, and random mini game hosting.
+
+IMPORTANT:
+- Do not remove existing features.
+- Keep coins, XP, shop, bank, blackjack, RBJ, events, quests, reputation, reports, staff roles, and profiles.
+- Use existing SQLite database.
+- Use existing event system.
+- Use get_display_name(username).
+- Keep all Highrise messages under 250 characters.
+- Use asyncio.create_task.
+- Do not use time.sleep().
+- Prevent bad inputs from crashing the bot.
+
+==================================================
+PART 1: MINI GAME ANSWER TIMER
+==================================================
+
+Add a 60-second timer for active mini games:
+- trivia
+- scramble
+- riddle
+- any future mini game that uses /answer
+
+Behavior:
+- When /trivia starts, start a 60-second answer timer.
+- When /scramble starts, start a 60-second answer timer.
+- When /riddle starts, start a 60-second answer timer.
+- If someone answers correctly before 60 seconds:
+  - cancel the timer safely
+  - award coins/XP
+  - clear active game
+- If nobody answers correctly after 60 seconds:
+  - reveal the correct answer
+  - clear active game
+  - allow a new game to start
+
+Messages:
+When game starts, include timer:
+"🎯 TRIVIA TIME! Answer in 60s. Type /answer <answer>."
+
+When time expires:
+"⏰ Time's up! Answer: Michael Jackson."
+
+Safety:
+- If timer fires but active game is already cleared, do nothing.
+- If another game replaced it, do nothing.
+- Cancel old timer before starting a new game.
+- Store active_game_id or timestamp so old timers cannot reveal the wrong answer.
+- Do not leave active_game stuck.
+
+Add setting:
+- game_answer_timer = 60 seconds
+
+Admin command:
+- /setgametimer <seconds>
+
+Permission:
+- Owner/admin/manager only.
+
+Validation:
+- Minimum 15 seconds.
+- Maximum 180 seconds.
+- Default 60 seconds.
+
+==================================================
+PART 2: RANDOM MINI GAME EVERY 10 MINUTES
+==================================================
+
+Add automatic random mini game hosting.
+
+Goal:
+The bot should randomly host a mini game every 10 minutes if no game is currently active and if no human/staff-hosted game is running.
+
+Auto mini games:
+- trivia
+- scramble
+- riddle
+
+Default:
+- auto_minigames_enabled = true
+- auto_minigame_interval = 10 minutes
+- auto_minigame_respects_manual_games = true
+
+Behavior:
+- Every 10 minutes, check if auto mini games are enabled.
+- If no active mini game exists, randomly start trivia, scramble, or riddle.
+- If a manual game is active, do not start an auto game.
+- If a game was started by a player or staff, skip the auto trigger.
+- If blackjack/RBJ is active, auto mini games can still start unless a mini game is active.
+- If maintenance mode is ON, do not auto-start games.
+- If bot is muted/paused, do not auto-start games.
+
+Messages:
+"🎲 Random mini game started!"
+Then start the selected game.
+
+Commands:
+- /autogames on
+- /autogames off
+- /autogames status
+- /setautogameinterval <minutes>
+
+Permissions:
+- /autogames status is public.
+- /autogames on/off owner/admin/manager only.
+- /setautogameinterval owner/admin/manager only.
+
+Validation:
+- Minimum interval: 5 minutes.
+- Maximum interval: 120 minutes.
+- Default interval: 10 minutes.
+
+Technical:
+- Use asyncio.create_task for the auto mini game loop.
+- Start the loop when bot starts.
+- Do not create duplicate loops on reconnect/restart.
+- Log auto game starts and skips in console.
+- If an error happens inside the loop, log it but keep bot alive.
+
+==================================================
+PART 3: RANDOM EVENT EVERY 1 HOUR
+==================================================
+
+Add automatic random events.
+
+Goal:
+Every 1 hour, the bot can start a random event if no event is active.
+
+Random event pool:
+- double_xp
+- double_coins
+- casino_hour
+- tax_free_bank
+- trivia_party
+- shop_sale
+
+Default:
+- auto_events_enabled = true
+- auto_event_interval = 60 minutes
+- auto_event_duration = 30 minutes
+- only_one_event_active = true
+
+Behavior:
+- Every 60 minutes, check if auto events are enabled.
+- If no active event exists, randomly choose one event and start it.
+- If an event is already active, skip.
+- If maintenance mode is ON, skip.
+- If the last event expired, clear it before checking.
+- Auto events should use the same event effects as /startevent.
+- Auto events should expire properly.
+- Do not let events get stuck at 0m 0s.
+
+Messages:
+When auto event starts:
+"🎉 Random Event: Double XP for 30m!"
+
+When event ends:
+"🎉 Event ended."
+
+Commands:
+- /autoevents on
+- /autoevents off
+- /autoevents status
+- /setautoeventinterval <minutes>
+- /setautoeventduration <minutes>
+
+Permissions:
+- /autoevents status is public.
+- /autoevents on/off owner/admin/manager only.
+- /setautoeventinterval owner/admin/manager only.
+- /setautoeventduration owner/admin/manager only.
+
+Validation:
+- Auto event interval minimum: 30 minutes.
+- Auto event interval maximum: 1440 minutes.
+- Auto event duration minimum: 5 minutes.
+- Auto event duration maximum: 180 minutes.
+- Default interval: 60 minutes.
+- Default duration: 30 minutes.
+
+Technical:
+- Use asyncio.create_task for the auto event loop.
+- Start the loop when bot starts.
+- Do not create duplicate loops on reconnect/restart.
+- Store settings in SQLite.
+- Check event expiration before starting new event.
+- If event expired, mark inactive.
+- Log auto event starts/skips in console.
+
+==================================================
+PART 4: HOSTED GAME LOCK
+==================================================
+
+Add a hosted game lock so auto games do not interrupt manual/hosted games.
+
+Track active mini game:
+- game_type
+- correct_answer
+- started_by
+- started_at
+- source: manual or auto
+- active_game_id
+
+Manual sources:
+- user starts /trivia
+- user starts /scramble
+- user starts /riddle
+- staff starts any game
+
+Auto source:
+- random mini game loop
+
+Rules:
+- If active game exists, auto mini game loop must skip.
+- If manual game is active, auto trigger skips.
+- If auto game is active, manual players can still answer.
+- If manual player tries to start another mini game while active game exists:
+  "A game is already active. Answer or wait for timer."
+
+When active game ends:
+- correct answer
+- timeout
+- resetgame
+- cleanup
+Clear active game and cancel timer.
+
+==================================================
+PART 5: STAFF COMMANDS
+==================================================
+
+Add or update:
+/resetgame
+- Owner/admin/manager/moderator only.
+- Cancels active mini game.
+- Reveals answer if possible.
+- Cancels game timer.
+- Clears active game.
+- Message: "✅ Active mini game reset."
+
+/gameconfig
+- Owner/admin/manager only.
+- Shows:
+  game timer
+  auto games on/off
+  auto game interval
+  auto events on/off
+  auto event interval
+  auto event duration
+
+Keep under 250 characters.
+
+==================================================
+PART 6: HELP UPDATE
+==================================================
+
+Update /gamehelp:
+"🎮 Games
+/trivia /scramble /riddle
+/answer <answer>
+Auto games every 10m.
+Answer timer: 60s."
+
+Update /eventhelp:
+"🎉 Events
+/event /events
+Auto events every 1h.
+Staff: /startevent, /stopevent, /autoevents"
+
+Update /managerhelp:
+Include:
+- /autogames on/off
+- /autoevents on/off
+- /setgametimer
+- /setautogameinterval
+- /setautoeventinterval
+- /setautoeventduration
+- /gameconfig
+
+==================================================
+PART 7: TESTS
+==================================================
+
+Test these:
+
+1. Manual trivia timer:
+- /trivia
+- wait 60 seconds
+Expected:
+- bot reveals answer
+- active game clears
+
+2. Correct answer before timer:
+- /trivia
+- /answer <correct>
+Expected:
+- player gets reward
+- timer cancels
+- answer is not revealed later
+
+3. Auto mini game:
+- /autogames on
+- /setautogameinterval 5
+- wait 5 minutes
+Expected:
+- random trivia/scramble/riddle starts if no active game
+
+4. Manual game blocks auto game:
+- /trivia
+- wait for auto interval
+Expected:
+- auto game skips because manual game is active
+
+5. Auto event:
+- /autoevents on
+- /setautoeventinterval 30
+- /setautoeventduration 5
+Expected:
+- random event starts every 30 minutes if none active
+- event ends after duration
+
+6. Event cleanup:
+- /event
+Expected:
+- expired events do not show as active with 0m 0s
+
+Do not remove any existing commands.

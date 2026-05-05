@@ -449,6 +449,38 @@ def init_db():
             (_key, _val),
         )
 
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS auto_game_settings (
+            key   TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        )
+    """)
+    for _k, _v in [
+        ("game_answer_timer",      "60"),
+        ("auto_minigames_enabled", "1"),
+        ("auto_minigame_interval", "10"),
+    ]:
+        conn.execute(
+            "INSERT OR IGNORE INTO auto_game_settings (key, value) VALUES (?, ?)",
+            (_k, _v),
+        )
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS auto_event_settings (
+            key   TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        )
+    """)
+    for _k, _v in [
+        ("auto_events_enabled",  "1"),
+        ("auto_event_interval",  "60"),
+        ("auto_event_duration",  "30"),
+    ]:
+        conn.execute(
+            "INSERT OR IGNORE INTO auto_event_settings (key, value) VALUES (?, ?)",
+            (_k, _v),
+        )
+
     conn.commit()
     conn.close()
     _migrate_db()
@@ -2969,3 +3001,75 @@ def get_tip_leaderboard(limit: int = 10) -> list[dict]:
     """, (limit,)).fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Auto game settings helpers
+# ---------------------------------------------------------------------------
+
+_AUTO_GAME_DEFAULTS: dict[str, int] = {
+    "game_answer_timer":      60,
+    "auto_minigames_enabled":  1,
+    "auto_minigame_interval": 10,
+}
+
+
+def get_auto_game_settings() -> dict[str, int]:
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT key, value FROM auto_game_settings"
+    ).fetchall()
+    conn.close()
+    result = dict(_AUTO_GAME_DEFAULTS)
+    for r in rows:
+        try:
+            result[r["key"]] = int(r["value"])
+        except (ValueError, TypeError):
+            pass
+    return result
+
+
+def set_auto_game_setting(key: str, value: int) -> None:
+    conn = get_connection()
+    conn.execute(
+        "INSERT OR REPLACE INTO auto_game_settings (key, value) VALUES (?, ?)",
+        (key, str(value)),
+    )
+    conn.commit()
+    conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Auto event settings helpers
+# ---------------------------------------------------------------------------
+
+_AUTO_EVENT_DEFAULTS: dict[str, int] = {
+    "auto_events_enabled": 1,
+    "auto_event_interval": 60,
+    "auto_event_duration": 30,
+}
+
+
+def get_auto_event_settings() -> dict[str, int]:
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT key, value FROM auto_event_settings"
+    ).fetchall()
+    conn.close()
+    result = dict(_AUTO_EVENT_DEFAULTS)
+    for r in rows:
+        try:
+            result[r["key"]] = int(r["value"])
+        except (ValueError, TypeError):
+            pass
+    return result
+
+
+def set_auto_event_setting(key: str, value: int) -> None:
+    conn = get_connection()
+    conn.execute(
+        "INSERT OR REPLACE INTO auto_event_settings (key, value) VALUES (?, ?)",
+        (key, str(value)),
+    )
+    conn.commit()
+    conn.close()

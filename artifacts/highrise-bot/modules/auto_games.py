@@ -1,0 +1,501 @@
+"""
+modules/auto_games.py
+---------------------
+Automated game timers, random mini game hosting, and random events.
+
+Features:
+  - Configurable answer timer for trivia / scramble / riddle (default 60 s)
+  - Auto random mini game loop (default every 10 minutes)
+  - Auto random event loop (default every 60 minutes)
+
+Commands:
+  /resetgame                      — mod+; cancel active game, reveal answer
+  /gameconfig                     — manager+; show all auto settings
+  /setgametimer <seconds>         — manager+; answer timer 15–180 s
+  /autogames on|off|status        — on/off: manager+; status: public
+  /setautogameinterval <minutes>  — manager+; 5–120 min
+  /autoevents on|off|status       — on/off: manager+; status: public
+  /setautoeventinterval <minutes> — manager+; 30–1440 min
+  /setautoeventduration <minutes> — manager+; 5–180 min
+"""
+from __future__ import annotations
+
+import asyncio
+import random
+from datetime import datetime, timezone, timedelta
+
+from highrise import BaseBot, User
+
+import database as db
+from modules.maintenance import is_maintenance
+from modules.permissions  import can_manage_games, can_moderate
+import modules.trivia   as trivia
+import modules.scramble as scramble
+import modules.riddle   as riddle
+
+
+# ---------------------------------------------------------------------------
+# Answer timer
+# ---------------------------------------------------------------------------
+
+_answer_timer_task: asyncio.Task | None = None
+_answer_timer_game_id: int = 0
+_game_counter: int = 0
+
+
+def _next_game_id() -> int:
+    global _game_counter
+    _game_counter += 1
+    return _game_counter
+
+
+def cancel_answer_timer() -> None:
+    """Cancel any running answer timer without revealing the answer."""
+    global _answer_timer_task
+    if _answer_timer_task and not _answer_timer_task.done():
+        _answer_timer_task.cancel()
+    _answer_timer_task = None
+
+
+async def _answer_timer_coro(
+    bot: BaseBot, game_type: str, answer: str, game_id: int, seconds: int
+) -> None:
+    try:
+        await asyncio.sleep(seconds)
+    except asyncio.CancelledError:
+        return
+
+    # Stale-timer guard: if a new game started, IDs won't match
+    if _answer_timer_game_id != game_id:
+        return
+
+    # Check the correct module's _active reference
+    if game_type == "trivia"   and trivia._active   is None:
+        return
+    if game_type == "scramble" and scramble._active is None:
+        return
+    if game_type == "riddle"   and riddle._active   is None:
+        return
+
+    # Clear the active game
+    if game_type == "trivia":
+        trivia._active   = None
+    elif game_type == "scramble":
+        scramble._active = None
+    elif game_type == "riddle":
+        riddle._active   = None
+
+    print(f"[AUTO_GAMES] Timer expired for {game_type}. Answer: {answer}")
+    try:
+        await bot.highrise.chat(
+            f"⏰ Time's up! The answer was: {answer}"
+        )
+    except Exception as e:
+        print(f"[AUTO_GAMES] Timer chat error: {e}")
+
+
+def start_answer_timer(bot: BaseBot, game_type: str, answer: str) -> None:
+    """Start (or restart) the answer countdown for the current game."""
+    global _answer_timer_task, _answer_timer_game_id
+    cancel_answer_timer()
+    game_id = _next_game_id()
+    _answer_timer_game_id = game_id
+    settings = db.get_auto_game_settings()
+    seconds  = settings["game_answer_timer"]
+    _answer_timer_task = asyncio.create_task(
+        _answer_timer_coro(bot, game_type, answer, game_id, seconds)
+    )
+    print(f"[AUTO_GAMES] Answer timer: {seconds}s for {game_type}.")
+
+
+# ---------------------------------------------------------------------------
+# Auto mini game loop
+# ---------------------------------------------------------------------------
+
+_auto_game_task: asyncio.Task | None = None
+
+
+def _any_game_active() -> bool:
+    return trivia.is_active() or scramble.is_active() or riddle.is_active()
+
+
+async def _auto_game_loop(bot: BaseBot) -> None:
+    print("[AUTO_GAMES] Auto mini game loop started.")
+    try:
+        while True:
+            settings = db.get_auto_game_settings()
+            interval = max(5, settings["auto_minigame_interval"]) * 60
+            await asyncio.sleep(interval)
+
+            settings = db.get_auto_game_settings()
+            if not settings["auto_minigames_enabled"]:
+                print("[AUTO_GAMES] Auto games OFF, skipping.")
+                continue
+            if is_maintenance():
+                print("[AUTO_GAMES] Maintenance ON, skipping auto game.")
+                continue
+            if _any_game_active():
+                print("[AUTO_GAMES] Game already active, skipping auto game.")
+                continue
+
+            game_type = random.choice(["trivia", "scramble", "riddle"])
+            print(f"[AUTO_GAMES] Auto-starting {game_type}.")
+
+            try:
+                await bot.highrise.chat("🎲 Random mini game starting!")
+            except Exception as e:
+                print(f"[AUTO_GAMES] Announce error: {e}")
+
+            try:
+                if game_type == "trivia":
+                    await trivia.auto_start(bot)
+                    if trivia.is_active():
+                        ans = trivia.get_current_answer() or ""
+                        start_answer_timer(bot, "trivia", ans)
+                elif game_type == "scramble":
+                    await scramble.auto_start(bot)
+                    if scramble.is_active():
+                        ans = scramble.get_current_answer() or ""
+                        start_answer_timer(bot, "scramble", ans)
+                elif game_type == "riddle":
+                    await riddle.auto_start(bot)
+                    if riddle.is_active():
+                        ans = riddle.get_current_answer() or ""
+                        start_answer_timer(bot, "riddle", ans)
+            except Exception as e:
+                print(f"[AUTO_GAMES] Error starting auto {game_type}: {e}")
+
+    except asyncio.CancelledError:
+        pass
+    except Exception as e:
+        print(f"[AUTO_GAMES] Auto game loop crashed: {e}")
+    finally:
+        print("[AUTO_GAMES] Auto mini game loop ended.")
+
+
+def start_auto_game_loop(bot: BaseBot) -> None:
+    """Start the auto mini game background loop (idempotent)."""
+    global _auto_game_task
+    if _auto_game_task and not _auto_game_task.done():
+        print("[AUTO_GAMES] Auto game loop already running.")
+        return
+    _auto_game_task = asyncio.create_task(_auto_game_loop(bot))
+
+
+# ---------------------------------------------------------------------------
+# Auto event loop
+# ---------------------------------------------------------------------------
+
+_auto_event_loop_task: asyncio.Task | None = None
+
+
+async def _auto_event_loop(bot: BaseBot) -> None:
+    from modules.events import _cancel_event_task, _event_timer, EVENTS
+    import modules.events as events_mod
+
+    print("[AUTO_GAMES] Auto event loop started.")
+    try:
+        while True:
+            settings = db.get_auto_event_settings()
+            interval = max(30, settings["auto_event_interval"]) * 60
+            await asyncio.sleep(interval)
+
+            settings = db.get_auto_event_settings()
+            if not settings["auto_events_enabled"]:
+                print("[AUTO_GAMES] Auto events OFF, skipping.")
+                continue
+            if is_maintenance():
+                print("[AUTO_GAMES] Maintenance ON, skipping auto event.")
+                continue
+            if db.is_event_active():
+                print("[AUTO_GAMES] Event already active, skipping.")
+                continue
+
+            from modules.events import EVENTS as _EVENTS
+            event_id = random.choice(list(_EVENTS.keys()))
+            dur_min  = max(5, settings["auto_event_duration"])
+            duration = dur_min * 60  # seconds
+
+            expires_at = (
+                datetime.now(timezone.utc) + timedelta(seconds=duration)
+            ).isoformat()
+            db.set_active_event(event_id, expires_at)
+
+            _cancel_event_task()
+            events_mod._event_task = asyncio.create_task(
+                _event_timer(bot, event_id, duration)
+            )
+
+            ev = _EVENTS[event_id]
+            print(f"[AUTO_GAMES] Auto event: {event_id} for {dur_min}m.")
+            try:
+                msg = (
+                    f"🎉 Random Event: {ev['name']} for {dur_min}m!\n"
+                    f"{ev['desc']}"
+                )
+                await bot.highrise.chat(msg[:249])
+            except Exception as e:
+                print(f"[AUTO_GAMES] Auto event announce error: {e}")
+
+    except asyncio.CancelledError:
+        pass
+    except Exception as e:
+        print(f"[AUTO_GAMES] Auto event loop crashed: {e}")
+    finally:
+        print("[AUTO_GAMES] Auto event loop ended.")
+
+
+def start_auto_event_loop(bot: BaseBot) -> None:
+    """Start the auto event background loop (idempotent)."""
+    global _auto_event_loop_task
+    if _auto_event_loop_task and not _auto_event_loop_task.done():
+        print("[AUTO_GAMES] Auto event loop already running.")
+        return
+    _auto_event_loop_task = asyncio.create_task(_auto_event_loop(bot))
+
+
+# ---------------------------------------------------------------------------
+# /resetgame
+# ---------------------------------------------------------------------------
+
+async def handle_resetgame(bot: BaseBot, user: User) -> None:
+    """/resetgame — mod+; cancel timer, reveal answer, clear game."""
+    if not can_moderate(user.username):
+        await bot.highrise.send_whisper(user.id, "Staff only.")
+        return
+
+    cancel_answer_timer()
+
+    answer:    str | None = None
+    game_type: str | None = None
+    if trivia.is_active():
+        answer    = trivia.get_current_answer()
+        game_type = "trivia"
+    elif scramble.is_active():
+        answer    = scramble.get_current_answer()
+        game_type = "scramble"
+    elif riddle.is_active():
+        answer    = riddle.get_current_answer()
+        game_type = "riddle"
+
+    trivia._active   = None
+    scramble._active = None
+    riddle._active   = None
+
+    if answer and game_type:
+        try:
+            await bot.highrise.chat(
+                f"🔧 Game reset! ({game_type}) Answer: {answer}"
+            )
+        except Exception:
+            pass
+    try:
+        await bot.highrise.send_whisper(user.id, "✅ Active mini game reset.")
+    except Exception:
+        pass
+
+
+# ---------------------------------------------------------------------------
+# /gameconfig
+# ---------------------------------------------------------------------------
+
+async def handle_gameconfig(bot: BaseBot, user: User) -> None:
+    """/gameconfig — manager+; display all automation settings."""
+    if not can_manage_games(user.username):
+        await bot.highrise.send_whisper(user.id, "Manager/admin/owner only.")
+        return
+
+    gs = db.get_auto_game_settings()
+    es = db.get_auto_event_settings()
+    ag = "ON"  if gs["auto_minigames_enabled"] else "OFF"
+    ae = "ON"  if es["auto_events_enabled"]    else "OFF"
+
+    msg = (
+        f"⚙️ Game Config\n"
+        f"Answer timer: {gs['game_answer_timer']}s\n"
+        f"Auto games: {ag} / {gs['auto_minigame_interval']}m\n"
+        f"Auto events: {ae} / {es['auto_event_interval']}m\n"
+        f"Event duration: {es['auto_event_duration']}m"
+    )
+    await bot.highrise.send_whisper(user.id, msg[:249])
+
+
+# ---------------------------------------------------------------------------
+# /setgametimer <seconds>
+# ---------------------------------------------------------------------------
+
+async def handle_setgametimer(bot: BaseBot, user: User, args: list[str]) -> None:
+    if not can_manage_games(user.username):
+        await bot.highrise.send_whisper(user.id, "Manager/admin/owner only.")
+        return
+    if len(args) < 2:
+        await bot.highrise.send_whisper(user.id, "Usage: /setgametimer <15–180>")
+        return
+    try:
+        secs = int(args[1])
+    except ValueError:
+        await bot.highrise.send_whisper(user.id, "Must be a number (15–180).")
+        return
+    if secs < 15 or secs > 180:
+        await bot.highrise.send_whisper(user.id, "Timer must be 15–180 seconds.")
+        return
+    db.set_auto_game_setting("game_answer_timer", secs)
+    await bot.highrise.send_whisper(
+        user.id, f"✅ Game answer timer set to {secs}s."
+    )
+
+
+# ---------------------------------------------------------------------------
+# /autogames on|off|status
+# ---------------------------------------------------------------------------
+
+async def handle_autogames(bot: BaseBot, user: User, args: list[str]) -> None:
+    sub = args[1].lower() if len(args) > 1 else "status"
+
+    if sub == "status":
+        gs     = db.get_auto_game_settings()
+        status = "ON" if gs["auto_minigames_enabled"] else "OFF"
+        await bot.highrise.send_whisper(
+            user.id,
+            f"🎲 Auto games: {status} | Every {gs['auto_minigame_interval']}m"
+        )
+        return
+
+    if not can_manage_games(user.username):
+        await bot.highrise.send_whisper(user.id, "Manager/admin/owner only.")
+        return
+
+    if sub == "on":
+        db.set_auto_game_setting("auto_minigames_enabled", 1)
+        await bot.highrise.send_whisper(user.id, "✅ Auto mini games enabled.")
+    elif sub == "off":
+        db.set_auto_game_setting("auto_minigames_enabled", 0)
+        await bot.highrise.send_whisper(user.id, "✅ Auto mini games disabled.")
+    else:
+        await bot.highrise.send_whisper(
+            user.id, "Usage: /autogames on|off|status"
+        )
+
+
+# ---------------------------------------------------------------------------
+# /setautogameinterval <minutes>
+# ---------------------------------------------------------------------------
+
+async def handle_setautogameinterval(
+    bot: BaseBot, user: User, args: list[str]
+) -> None:
+    if not can_manage_games(user.username):
+        await bot.highrise.send_whisper(user.id, "Manager/admin/owner only.")
+        return
+    if len(args) < 2:
+        await bot.highrise.send_whisper(
+            user.id, "Usage: /setautogameinterval <5–120>"
+        )
+        return
+    try:
+        mins = int(args[1])
+    except ValueError:
+        await bot.highrise.send_whisper(user.id, "Must be a number (5–120).")
+        return
+    if mins < 5 or mins > 120:
+        await bot.highrise.send_whisper(user.id, "Interval must be 5–120 min.")
+        return
+    db.set_auto_game_setting("auto_minigame_interval", mins)
+    await bot.highrise.send_whisper(
+        user.id, f"✅ Auto game interval set to {mins}m."
+    )
+
+
+# ---------------------------------------------------------------------------
+# /autoevents on|off|status
+# ---------------------------------------------------------------------------
+
+async def handle_autoevents(bot: BaseBot, user: User, args: list[str]) -> None:
+    sub = args[1].lower() if len(args) > 1 else "status"
+
+    if sub == "status":
+        es     = db.get_auto_event_settings()
+        status = "ON" if es["auto_events_enabled"] else "OFF"
+        await bot.highrise.send_whisper(
+            user.id,
+            f"🎉 Auto events: {status} | Every {es['auto_event_interval']}m"
+            f" | Duration: {es['auto_event_duration']}m"
+        )
+        return
+
+    if not can_manage_games(user.username):
+        await bot.highrise.send_whisper(user.id, "Manager/admin/owner only.")
+        return
+
+    if sub == "on":
+        db.set_auto_event_setting("auto_events_enabled", 1)
+        await bot.highrise.send_whisper(user.id, "✅ Auto events enabled.")
+    elif sub == "off":
+        db.set_auto_event_setting("auto_events_enabled", 0)
+        await bot.highrise.send_whisper(user.id, "✅ Auto events disabled.")
+    else:
+        await bot.highrise.send_whisper(
+            user.id, "Usage: /autoevents on|off|status"
+        )
+
+
+# ---------------------------------------------------------------------------
+# /setautoeventinterval <minutes>
+# ---------------------------------------------------------------------------
+
+async def handle_setautoeventinterval(
+    bot: BaseBot, user: User, args: list[str]
+) -> None:
+    if not can_manage_games(user.username):
+        await bot.highrise.send_whisper(user.id, "Manager/admin/owner only.")
+        return
+    if len(args) < 2:
+        await bot.highrise.send_whisper(
+            user.id, "Usage: /setautoeventinterval <30–1440>"
+        )
+        return
+    try:
+        mins = int(args[1])
+    except ValueError:
+        await bot.highrise.send_whisper(user.id, "Must be a number (30–1440).")
+        return
+    if mins < 30 or mins > 1440:
+        await bot.highrise.send_whisper(
+            user.id, "Interval must be 30–1440 minutes."
+        )
+        return
+    db.set_auto_event_setting("auto_event_interval", mins)
+    await bot.highrise.send_whisper(
+        user.id, f"✅ Auto event interval set to {mins}m."
+    )
+
+
+# ---------------------------------------------------------------------------
+# /setautoeventduration <minutes>
+# ---------------------------------------------------------------------------
+
+async def handle_setautoeventduration(
+    bot: BaseBot, user: User, args: list[str]
+) -> None:
+    if not can_manage_games(user.username):
+        await bot.highrise.send_whisper(user.id, "Manager/admin/owner only.")
+        return
+    if len(args) < 2:
+        await bot.highrise.send_whisper(
+            user.id, "Usage: /setautoeventduration <5–180>"
+        )
+        return
+    try:
+        mins = int(args[1])
+    except ValueError:
+        await bot.highrise.send_whisper(user.id, "Must be a number (5–180).")
+        return
+    if mins < 5 or mins > 180:
+        await bot.highrise.send_whisper(
+            user.id, "Duration must be 5–180 minutes."
+        )
+        return
+    db.set_auto_event_setting("auto_event_duration", mins)
+    await bot.highrise.send_whisper(
+        user.id, f"✅ Auto event duration set to {mins}m."
+    )
