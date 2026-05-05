@@ -417,12 +417,29 @@ def init_db():
     """)
 
     # Migrate poker_stats: add new columns if they don't exist yet
-    for _col, _def in [("total_lost", "INTEGER NOT NULL DEFAULT 0"),
-                        ("total_buyin", "INTEGER NOT NULL DEFAULT 0")]:
+    for _col, _def in [
+        ("total_lost",          "INTEGER NOT NULL DEFAULT 0"),
+        ("total_buyin",         "INTEGER NOT NULL DEFAULT 0"),
+        ("allins",              "INTEGER NOT NULL DEFAULT 0"),
+        ("net_profit",          "INTEGER NOT NULL DEFAULT 0"),
+        ("biggest_win",         "INTEGER NOT NULL DEFAULT 0"),
+        ("current_win_streak",  "INTEGER NOT NULL DEFAULT 0"),
+        ("best_win_streak",     "INTEGER NOT NULL DEFAULT 0"),
+        ("showdowns",           "INTEGER NOT NULL DEFAULT 0"),
+        ("last_played_at",      "TEXT"),
+    ]:
         try:
             conn.execute(f"ALTER TABLE poker_stats ADD COLUMN {_col} {_def}")
         except Exception:
             pass
+
+    # Migrate poker_active_players: add allin_amount if missing
+    try:
+        conn.execute(
+            "ALTER TABLE poker_active_players ADD COLUMN allin_amount INTEGER DEFAULT 0"
+        )
+    except Exception:
+        pass
 
     conn.execute("""
         CREATE TABLE IF NOT EXISTS poker_settings (
@@ -445,6 +462,8 @@ def init_db():
         ("win_limit_enabled",      "1"),
         ("loss_limit_enabled",     "1"),
         ("poker_buyin_to_pot",     "0"),
+        ("raise_limit_enabled",    "1"),
+        ("allin_enabled",          "1"),
     ]:
         conn.execute(
             "INSERT OR IGNORE INTO poker_settings (key, value) VALUES (?, ?)",
@@ -519,6 +538,19 @@ def init_db():
             username TEXT NOT NULL,
             date     TEXT NOT NULL,
             net      INTEGER DEFAULT 0,
+            PRIMARY KEY(username, date)
+        )
+    """)
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS poker_daily_stats (
+            username     TEXT NOT NULL,
+            date         TEXT NOT NULL,
+            hands_played INTEGER DEFAULT 0,
+            wins         INTEGER DEFAULT 0,
+            losses       INTEGER DEFAULT 0,
+            net_profit   INTEGER DEFAULT 0,
+            biggest_pot  INTEGER DEFAULT 0,
             PRIMARY KEY(username, date)
         )
     """)
@@ -2832,12 +2864,18 @@ def update_poker_stats(
     wins: int = 0,
     losses: int = 0,
     folds: int = 0,
+    showdowns: int = 0,
+    allins: int = 0,
     total_won: int = 0,
     total_lost: int = 0,
     total_buyin: int = 0,
     biggest_pot: int = 0,
+    biggest_win: int = 0,
+    net_delta: int = 0,
     hands: int = 0,
 ) -> None:
+    from datetime import date as _date_cls
+    today = _date_cls.today().isoformat()
     conn = get_connection()
     conn.execute(
         "INSERT OR IGNORE INTO poker_stats (user_id, username) VALUES (?, ?)",
@@ -2845,19 +2883,93 @@ def update_poker_stats(
     )
     conn.execute("""
         UPDATE poker_stats SET
-            hands_played = hands_played + ?,
-            wins         = wins + ?,
-            losses       = losses + ?,
-            folds        = folds + ?,
-            total_won    = total_won + ?,
-            total_lost   = total_lost + ?,
-            total_buyin  = total_buyin + ?,
-            biggest_pot  = MAX(biggest_pot, ?)
+            hands_played       = hands_played + ?,
+            wins               = wins + ?,
+            losses             = losses + ?,
+            folds              = folds + ?,
+            showdowns          = showdowns + ?,
+            allins             = allins + ?,
+            total_won          = total_won + ?,
+            total_lost         = total_lost + ?,
+            total_buyin        = total_buyin + ?,
+            biggest_pot        = MAX(biggest_pot, ?),
+            biggest_win        = MAX(biggest_win, ?),
+            net_profit         = net_profit + ?,
+            last_played_at     = ?
         WHERE user_id = ?
-    """, (hands, wins, losses, folds, total_won, total_lost, total_buyin,
-          biggest_pot, user_id))
+    """, (hands, wins, losses, folds, showdowns, allins,
+          total_won, total_lost, total_buyin,
+          biggest_pot, biggest_win, net_delta, today, user_id))
+    # Update streak: wins > 0 → increment; losses > 0 → reset
+    if wins > 0:
+        conn.execute("""
+            UPDATE poker_stats SET
+                current_win_streak = current_win_streak + 1,
+                best_win_streak    = MAX(best_win_streak, current_win_streak + 1)
+            WHERE user_id = ?
+        """, (user_id,))
+    elif losses > 0:
+        conn.execute(
+            "UPDATE poker_stats SET current_win_streak=0 WHERE user_id=?",
+            (user_id,)
+        )
+    # Update daily stats table
+    conn.execute("""
+        INSERT INTO poker_daily_stats (username, date, hands_played, wins, losses, net_profit, biggest_pot)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(username, date) DO UPDATE SET
+            hands_played = hands_played + excluded.hands_played,
+            wins         = wins + excluded.wins,
+            losses       = losses + excluded.losses,
+            net_profit   = net_profit + excluded.net_profit,
+            biggest_pot  = MAX(biggest_pot, excluded.biggest_pot)
+    """, (username, today, hands, wins, losses, net_delta, biggest_pot))
     conn.commit()
     conn.close()
+
+
+def get_poker_leaderboard(mode: str = "profit", limit: int = 5) -> list:
+    """Return top players for a given leaderboard mode."""
+    from datetime import date as _date_cls
+    today = _date_cls.today().isoformat()
+    conn = get_connection()
+    if mode == "wins":
+        rows = conn.execute(
+            "SELECT username, wins FROM poker_stats ORDER BY wins DESC LIMIT ?",
+            (limit,)
+        ).fetchall()
+    elif mode == "pots":
+        rows = conn.execute(
+            "SELECT username, biggest_pot FROM poker_stats ORDER BY biggest_pot DESC LIMIT ?",
+            (limit,)
+        ).fetchall()
+    elif mode == "streak":
+        rows = conn.execute(
+            "SELECT username, best_win_streak FROM poker_stats ORDER BY best_win_streak DESC LIMIT ?",
+            (limit,)
+        ).fetchall()
+    elif mode == "hands":
+        rows = conn.execute(
+            "SELECT username, hands_played FROM poker_stats ORDER BY hands_played DESC LIMIT ?",
+            (limit,)
+        ).fetchall()
+    elif mode == "allins":
+        rows = conn.execute(
+            "SELECT username, allins FROM poker_stats ORDER BY allins DESC LIMIT ?",
+            (limit,)
+        ).fetchall()
+    elif mode == "daily":
+        rows = conn.execute(
+            "SELECT username, net_profit FROM poker_daily_stats WHERE date=? ORDER BY net_profit DESC LIMIT ?",
+            (today, limit)
+        ).fetchall()
+    else:  # profit
+        rows = conn.execute(
+            "SELECT username, net_profit FROM poker_stats ORDER BY net_profit DESC LIMIT ?",
+            (limit,)
+        ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
 
 
 # ---------------------------------------------------------------------------

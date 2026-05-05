@@ -60,6 +60,7 @@ from modules.realistic_blackjack import (
 )
 from modules.poker import (
     handle_poker, handle_pokerhelp,
+    handle_pokerstats, handle_pokerlb,
     handle_setpokerbuyin, handle_setpokerplayers,
     handle_setpokerlobbytimer, handle_setpokertimer,
     handle_setpokerraise,
@@ -296,12 +297,19 @@ ALL_KNOWN_COMMANDS = (
         "autogames", "autoevents", "gameconfig",
         "report", "bug", "myreports",
         "rep", "reputation", "repstats", "toprep", "repleaderboard",
-        "poker", "pokerhelp",
+        # Poker — full commands
+        "poker", "pokerhelp", "pokerstats", "pokerlb", "pokerdebug",
+        "pokerfix", "pokerrefundall",
         "setpokerbuyin", "setpokerplayers", "setpokerlobbytimer",
         "setpokertimer", "setpokerturntimer", "setpokerraise",
         "setpokerdailywinlimit", "setpokerdailylosslimit",
         "resetpokerlimits", "setpokerlimits",
-        "pokerdebug", "pokerfix", "pokerrefundall",
+        # Poker — short aliases
+        "p", "pj", "pt", "ph", "po",
+        "check", "ch", "call", "ca", "raise", "r", "fold", "f",
+        "allin", "ai", "shove",
+        "pp", "pplayers", "pstats", "plb", "pleaderboard",
+        "phelp", "pokerlb", "pleaderboard",
         "botstatus", "dbstats", "backup",
         "maintenance", "reloadsettings", "cleanup",
         "restarthelp", "restartstatus", "softrestart", "restartbot",
@@ -2021,7 +2029,66 @@ class HangoutBot(BaseBot):
         elif cmd == "tipleaderboard":
             await handle_tipleaderboard(self, user, args)
 
-        # ── Poker ─────────────────────────────────────────────────────────────
+        # ── Poker — short aliases ────────────────────────────────────────────
+        # /p <num>  → poker join
+        elif cmd == "p":
+            if len(args) >= 2 and args[1].isdigit() and int(args[1]) > 0:
+                await handle_poker(self, user, ["poker", "join"] + args[1:])
+            else:
+                await self.highrise.send_whisper(
+                    user.id, "Use /p <buyin> to join poker. E.g. /p 500")
+
+        # /pj <num>  → poker join
+        elif cmd == "pj":
+            if len(args) >= 2 and args[1].isdigit() and int(args[1]) > 0:
+                await handle_poker(self, user, ["poker", "join"] + args[1:])
+            else:
+                await self.highrise.send_whisper(
+                    user.id, "Use /pj <buyin> to join poker. E.g. /pj 500")
+
+        elif cmd == "pt":
+            await handle_poker(self, user, ["poker", "table"])
+
+        elif cmd == "ph":
+            await handle_poker(self, user, ["poker", "hand"])
+
+        elif cmd == "po":
+            await handle_poker(self, user, ["poker", "odds"])
+
+        elif cmd in ("check", "ch"):
+            await handle_poker(self, user, ["poker", "check"])
+
+        elif cmd in ("call", "ca"):
+            await handle_poker(self, user, ["poker", "call"])
+
+        elif cmd in ("raise", "r"):
+            if len(args) >= 2 and args[1].isdigit() and int(args[1]) > 0:
+                await handle_poker(self, user, ["poker", "raise"] + args[1:])
+            else:
+                await self.highrise.send_whisper(
+                    user.id, "Use /r <amount> to raise. E.g. /r 200")
+
+        elif cmd in ("fold", "f"):
+            await handle_poker(self, user, ["poker", "fold"])
+
+        elif cmd in ("allin", "ai", "shove"):
+            await handle_poker(self, user, ["poker", "allin"])
+
+        elif cmd in ("pp", "pplayers"):
+            await handle_poker(self, user, ["poker", "players"])
+
+        elif cmd in ("pstats", "pokerstats"):
+            await handle_pokerstats(self, user, args)
+
+        elif cmd in ("plb", "pleaderboard", "pokerlb"):
+            # Pass leaderboard mode if provided: /plb wins etc.
+            mode_args = args[1:] if len(args) >= 2 else []
+            await handle_pokerlb(self, user, mode_args)
+
+        elif cmd in ("phelp",):
+            await handle_pokerhelp(self, user, args)
+
+        # ── Poker — full commands ────────────────────────────────────────────
         elif cmd == "poker":
             await handle_poker(self, user, args)
 
