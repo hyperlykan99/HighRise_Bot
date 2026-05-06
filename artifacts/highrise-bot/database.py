@@ -1021,6 +1021,59 @@ def _migrate_db():
         "code TEXT PRIMARY KEY, username TEXT, shop_type TEXT, "
         "item_id TEXT, item_name TEXT, price INTEGER, currency TEXT, "
         "listing_id INTEGER, created_at TEXT, expires_at TEXT)",
+        # Room utility + bot mode tables
+        "CREATE TABLE IF NOT EXISTS room_settings ("
+        "key TEXT PRIMARY KEY, value TEXT)",
+        "CREATE TABLE IF NOT EXISTS room_spawns ("
+        "spawn_name TEXT PRIMARY KEY, x REAL DEFAULT 0, y REAL DEFAULT 0, z REAL DEFAULT 0, "
+        "facing TEXT DEFAULT 'FrontLeft', created_by TEXT, created_at TEXT)",
+        "CREATE TABLE IF NOT EXISTS room_bans ("
+        "username TEXT PRIMARY KEY, banned_by TEXT, reason TEXT, "
+        "banned_until TEXT, permanent INTEGER DEFAULT 0, created_at TEXT)",
+        "CREATE TABLE IF NOT EXISTS room_warnings ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT, warned_by TEXT, "
+        "reason TEXT, created_at TEXT, active INTEGER DEFAULT 1)",
+        "CREATE TABLE IF NOT EXISTS room_welcome_seen ("
+        "username TEXT PRIMARY KEY, welcomed INTEGER DEFAULT 0, "
+        "welcomed_at TEXT, last_seen_at TEXT)",
+        "CREATE TABLE IF NOT EXISTS room_interval_messages ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, message TEXT, "
+        "interval_minutes INTEGER DEFAULT 10, enabled INTEGER DEFAULT 1, "
+        "created_by TEXT, created_at TEXT, last_sent_at TEXT)",
+        "CREATE TABLE IF NOT EXISTS room_social_logs ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp TEXT, "
+        "actor_username TEXT, target_username TEXT, action TEXT, message TEXT)",
+        "CREATE TABLE IF NOT EXISTS room_follow_state ("
+        "bot_id TEXT PRIMARY KEY, target_username TEXT, "
+        "enabled INTEGER DEFAULT 0, updated_at TEXT)",
+        "CREATE TABLE IF NOT EXISTS room_emote_loops ("
+        "username TEXT PRIMARY KEY, emote_id TEXT, started_by TEXT, "
+        "enabled INTEGER DEFAULT 1, created_at TEXT)",
+        "CREATE TABLE IF NOT EXISTS room_action_logs ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp TEXT, "
+        "actor_username TEXT, target_username TEXT, action TEXT, details TEXT)",
+        "CREATE TABLE IF NOT EXISTS room_hearts ("
+        "giver_username TEXT, receiver_username TEXT, count INTEGER DEFAULT 0, "
+        "last_given_at TEXT, PRIMARY KEY(giver_username, receiver_username))",
+        "CREATE TABLE IF NOT EXISTS room_heart_totals ("
+        "username TEXT PRIMARY KEY, hearts_received INTEGER DEFAULT 0, "
+        "hearts_given INTEGER DEFAULT 0)",
+        "CREATE TABLE IF NOT EXISTS social_preferences ("
+        "username TEXT PRIMARY KEY, social_enabled INTEGER DEFAULT 1)",
+        "CREATE TABLE IF NOT EXISTS social_blocks ("
+        "username TEXT, blocked_username TEXT, "
+        "PRIMARY KEY(username, blocked_username))",
+        "CREATE TABLE IF NOT EXISTS bot_modes ("
+        "mode_id TEXT PRIMARY KEY, mode_name TEXT, prefix TEXT, title TEXT, "
+        "description TEXT, outfit_name TEXT, outfit_data_json TEXT, "
+        "enabled INTEGER DEFAULT 1, created_by TEXT, created_at TEXT, updated_at TEXT)",
+        "CREATE TABLE IF NOT EXISTS bot_mode_assignments ("
+        "bot_id TEXT PRIMARY KEY, bot_username TEXT, mode_id TEXT, "
+        "active INTEGER DEFAULT 1, assigned_by TEXT, assigned_at TEXT)",
+        "CREATE TABLE IF NOT EXISTS bot_outfit_logs ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp TEXT, "
+        "actor_username TEXT, bot_username TEXT, mode_id TEXT, "
+        "outfit_name TEXT, action TEXT, details TEXT)",
         # Mining game tables
         "CREATE TABLE IF NOT EXISTS mining_players ("
         "id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE NOT NULL, "
@@ -1060,6 +1113,9 @@ def _migrate_db():
 
     # Seed default emoji badge catalog (idempotent)
     seed_emoji_badges()
+    seed_room_settings()
+    from modules.bot_modes import seed_bot_modes as _seed_bot_modes
+    _seed_bot_modes()
 
     # Seed mining ore catalog (idempotent)
     seed_mining_items()
@@ -6078,5 +6134,425 @@ def start_mining_event(event_id: str, started_by: str, duration_minutes: int = 6
 def stop_mining_event() -> None:
     conn = get_connection()
     conn.execute("UPDATE mining_events SET active=0 WHERE active=1")
+    conn.commit()
+    conn.close()
+
+
+# ===========================================================================
+# ROOM UTILITY + BOT MODE — DB TABLES + HELPERS
+# ===========================================================================
+
+def get_room_setting(key: str, default: str = "") -> str:
+    try:
+        conn = get_connection()
+        row  = conn.execute("SELECT value FROM room_settings WHERE key=?", (key,)).fetchone()
+        conn.close()
+        return row["value"] if row else default
+    except Exception:
+        return default
+
+
+def set_room_setting(key: str, value: str) -> None:
+    conn = get_connection()
+    conn.execute("INSERT OR REPLACE INTO room_settings (key, value) VALUES (?, ?)", (key, value))
+    conn.commit()
+    conn.close()
+
+
+# ── Spawns ───────────────────────────────────────────────────────────────────
+
+def get_spawn(name: str) -> dict | None:
+    conn = get_connection()
+    row  = conn.execute(
+        "SELECT * FROM room_spawns WHERE lower(spawn_name)=lower(?)", (name,)
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def save_spawn(name: str, x: float, y: float, z: float, facing: str, created_by: str) -> None:
+    conn = get_connection()
+    conn.execute(
+        """INSERT OR REPLACE INTO room_spawns
+           (spawn_name, x, y, z, facing, created_by, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, datetime('now'))""",
+        (name, x, y, z, facing, created_by),
+    )
+    conn.commit()
+    conn.close()
+
+
+def delete_spawn(name: str) -> None:
+    conn = get_connection()
+    conn.execute("DELETE FROM room_spawns WHERE lower(spawn_name)=lower(?)", (name,))
+    conn.commit()
+    conn.close()
+
+
+def get_all_spawns() -> list:
+    conn = get_connection()
+    rows = conn.execute("SELECT * FROM room_spawns ORDER BY spawn_name").fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+# ── Room bans ─────────────────────────────────────────────────────────────────
+
+def room_ban_user(username: str, banned_by: str, reason: str,
+                  minutes: int | None = None) -> None:
+    conn  = get_connection()
+    perm  = 0 if minutes else 1
+    until = None
+    if minutes:
+        until = f"datetime('now', '+{minutes} minutes')"
+    conn.execute(
+        f"""INSERT OR REPLACE INTO room_bans
+            (username, banned_by, reason, banned_until, permanent, created_at)
+            VALUES (lower(?), ?, ?, {("datetime('now', '+' || ? || ' minutes')" if minutes else 'NULL')}, ?, datetime('now'))""",
+        ((username, banned_by, reason, str(minutes), perm) if minutes else (username, banned_by, reason, perm)),
+    )
+    conn.commit()
+    conn.close()
+
+
+def room_unban_user(username: str) -> None:
+    conn = get_connection()
+    conn.execute("DELETE FROM room_bans WHERE lower(username)=lower(?)", (username,))
+    conn.commit()
+    conn.close()
+
+
+def is_room_banned(username: str) -> bool:
+    conn = get_connection()
+    row  = conn.execute(
+        """SELECT 1 FROM room_bans WHERE lower(username)=lower(?)
+           AND (permanent=1 OR datetime(banned_until) > datetime('now'))""",
+        (username,),
+    ).fetchone()
+    conn.close()
+    return row is not None
+
+
+def get_all_room_bans() -> list:
+    conn = get_connection()
+    rows = conn.execute(
+        """SELECT * FROM room_bans
+           WHERE permanent=1 OR datetime(banned_until) > datetime('now')
+           ORDER BY created_at DESC LIMIT 20""",
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+# ── Room warnings ─────────────────────────────────────────────────────────────
+
+def add_room_warning(username: str, warned_by: str, reason: str) -> int:
+    conn = get_connection()
+    conn.execute(
+        """INSERT INTO room_warnings (username, warned_by, reason, created_at, active)
+           VALUES (lower(?), ?, ?, datetime('now'), 1)""",
+        (username, warned_by, reason),
+    )
+    conn.commit()
+    count = conn.execute(
+        "SELECT COUNT(*) FROM room_warnings WHERE lower(username)=lower(?) AND active=1",
+        (username,),
+    ).fetchone()[0]
+    conn.close()
+    return count
+
+
+def get_room_warnings(username: str) -> list:
+    conn = get_connection()
+    rows = conn.execute(
+        """SELECT * FROM room_warnings WHERE lower(username)=lower(?) AND active=1
+           ORDER BY created_at DESC LIMIT 10""",
+        (username,),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+# ── Hearts ────────────────────────────────────────────────────────────────────
+
+def give_heart(giver: str, receiver: str) -> dict:
+    conn = get_connection()
+    conn.execute(
+        """INSERT INTO room_hearts (giver_username, receiver_username, count, last_given_at)
+           VALUES (lower(?), lower(?), 1, datetime('now'))
+           ON CONFLICT(giver_username, receiver_username)
+           DO UPDATE SET count=count+1, last_given_at=datetime('now')""",
+        (giver, receiver),
+    )
+    conn.execute(
+        """INSERT INTO room_heart_totals (username, hearts_received, hearts_given)
+           VALUES (lower(?), 1, 0)
+           ON CONFLICT(username) DO UPDATE SET hearts_received=hearts_received+1""",
+        (receiver,),
+    )
+    conn.execute(
+        """INSERT INTO room_heart_totals (username, hearts_received, hearts_given)
+           VALUES (lower(?), 0, 1)
+           ON CONFLICT(username) DO UPDATE SET hearts_given=hearts_given+1""",
+        (giver,),
+    )
+    total = conn.execute(
+        "SELECT hearts_received FROM room_heart_totals WHERE lower(username)=lower(?)",
+        (receiver,),
+    ).fetchone()
+    conn.commit()
+    conn.close()
+    return {"total": total["hearts_received"] if total else 1}
+
+
+def get_heart_totals(username: str) -> dict:
+    conn = get_connection()
+    row  = conn.execute(
+        "SELECT * FROM room_heart_totals WHERE lower(username)=lower(?)", (username,)
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else {"hearts_received": 0, "hearts_given": 0}
+
+
+def get_heart_leaderboard(limit: int = 5) -> list:
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT username, hearts_received FROM room_heart_totals ORDER BY hearts_received DESC LIMIT ?",
+        (limit,),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_heart_cooldown_remaining(giver: str, receiver: str) -> float:
+    cooldown = int(get_room_setting("heart_cooldown_seconds", "60"))
+    conn     = get_connection()
+    row      = conn.execute(
+        "SELECT last_given_at FROM room_hearts WHERE lower(giver_username)=lower(?) AND lower(receiver_username)=lower(?)",
+        (giver, receiver),
+    ).fetchone()
+    conn.close()
+    if not row or not row["last_given_at"]:
+        return 0
+    import time
+    from datetime import datetime, timezone
+    try:
+        dt   = datetime.strptime(row["last_given_at"], "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+        sec  = (datetime.now(timezone.utc) - dt).total_seconds()
+        return max(0, cooldown - sec)
+    except Exception:
+        return 0
+
+
+# ── Social ────────────────────────────────────────────────────────────────────
+
+def is_social_enabled(username: str) -> bool:
+    conn = get_connection()
+    row  = conn.execute(
+        "SELECT social_enabled FROM social_preferences WHERE lower(username)=lower(?)", (username,)
+    ).fetchone()
+    conn.close()
+    return row["social_enabled"] == 1 if row else True
+
+
+def set_social_enabled(username: str, enabled: bool) -> None:
+    conn = get_connection()
+    conn.execute(
+        """INSERT OR REPLACE INTO social_preferences (username, social_enabled)
+           VALUES (lower(?), ?)""",
+        (username, 1 if enabled else 0),
+    )
+    conn.commit()
+    conn.close()
+
+
+def is_social_blocked(username: str, blocked_by: str) -> bool:
+    conn = get_connection()
+    row  = conn.execute(
+        "SELECT 1 FROM social_blocks WHERE lower(username)=lower(?) AND lower(blocked_username)=lower(?)",
+        (blocked_by, username),
+    ).fetchone()
+    conn.close()
+    return row is not None
+
+
+def set_social_block(blocker: str, target: str, blocked: bool) -> None:
+    conn = get_connection()
+    if blocked:
+        conn.execute(
+            "INSERT OR IGNORE INTO social_blocks (username, blocked_username) VALUES (lower(?), lower(?))",
+            (blocker, target),
+        )
+    else:
+        conn.execute(
+            "DELETE FROM social_blocks WHERE lower(username)=lower(?) AND lower(blocked_username)=lower(?)",
+            (blocker, target),
+        )
+    conn.commit()
+    conn.close()
+
+
+# ── Welcome ────────────────────────────────────────────────────────────────────
+
+def has_been_welcomed(username: str) -> bool:
+    conn = get_connection()
+    row  = conn.execute(
+        "SELECT welcomed FROM room_welcome_seen WHERE lower(username)=lower(?)", (username,)
+    ).fetchone()
+    conn.close()
+    return bool(row and row["welcomed"])
+
+
+def mark_welcomed(username: str) -> None:
+    conn = get_connection()
+    conn.execute(
+        """INSERT OR REPLACE INTO room_welcome_seen
+           (username, welcomed, welcomed_at, last_seen_at)
+           VALUES (lower(?), 1, datetime('now'), datetime('now'))""",
+        (username,),
+    )
+    conn.commit()
+    conn.close()
+
+
+def reset_welcome_seen(username: str) -> None:
+    conn = get_connection()
+    conn.execute(
+        "UPDATE room_welcome_seen SET welcomed=0 WHERE lower(username)=lower(?)", (username,)
+    )
+    conn.commit()
+    conn.close()
+
+
+# ── Intervals ─────────────────────────────────────────────────────────────────
+
+def get_all_intervals() -> list:
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT * FROM room_interval_messages ORDER BY id"
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def add_interval(message: str, minutes: int, created_by: str) -> int:
+    conn = get_connection()
+    cur  = conn.execute(
+        """INSERT INTO room_interval_messages (message, interval_minutes, enabled, created_by, created_at)
+           VALUES (?, ?, 1, ?, datetime('now'))""",
+        (message, minutes, created_by),
+    )
+    new_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return new_id
+
+
+def delete_interval(interval_id: int) -> None:
+    conn = get_connection()
+    conn.execute("DELETE FROM room_interval_messages WHERE id=?", (interval_id,))
+    conn.commit()
+    conn.close()
+
+
+def toggle_interval(interval_id: int, enabled: bool) -> None:
+    conn = get_connection()
+    conn.execute("UPDATE room_interval_messages SET enabled=? WHERE id=?",
+                 (1 if enabled else 0, interval_id))
+    conn.commit()
+    conn.close()
+
+
+def mark_interval_sent(interval_id: int) -> None:
+    conn = get_connection()
+    conn.execute("UPDATE room_interval_messages SET last_sent_at=datetime('now') WHERE id=?",
+                 (interval_id,))
+    conn.commit()
+    conn.close()
+
+
+# ── Room action log ───────────────────────────────────────────────────────────
+
+def log_room_action(actor: str, target: str, action: str, details: str = "") -> None:
+    try:
+        conn = get_connection()
+        conn.execute(
+            """INSERT INTO room_action_logs (timestamp, actor_username, target_username, action, details)
+               VALUES (datetime('now'), ?, ?, ?, ?)""",
+            (actor, target, action, details),
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+
+def get_room_action_logs(username: str = "", limit: int = 10) -> list:
+    conn = get_connection()
+    if username:
+        rows = conn.execute(
+            """SELECT * FROM room_action_logs
+               WHERE lower(actor_username)=lower(?) OR lower(target_username)=lower(?)
+               ORDER BY id DESC LIMIT ?""",
+            (username, username, limit),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT * FROM room_action_logs ORDER BY id DESC LIMIT ?", (limit,)
+        ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+# ── Follow state ──────────────────────────────────────────────────────────────
+
+def get_follow_state() -> dict | None:
+    conn = get_connection()
+    row  = conn.execute(
+        "SELECT * FROM room_follow_state WHERE bot_id='main' AND enabled=1"
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def set_follow_state(target_username: str, enabled: bool) -> None:
+    conn = get_connection()
+    conn.execute(
+        """INSERT OR REPLACE INTO room_follow_state
+           (bot_id, target_username, enabled, updated_at)
+           VALUES ('main', ?, ?, datetime('now'))""",
+        (target_username if enabled else "", 1 if enabled else 0),
+    )
+    conn.commit()
+    conn.close()
+
+
+def seed_room_settings() -> None:
+    defaults = [
+        ("self_teleport_enabled",   "false"),
+        ("group_teleport_enabled",  "true"),
+        ("public_emotes_enabled",   "true"),
+        ("force_emotes_enabled",    "true"),
+        ("loop_emotes_enabled",     "true"),
+        ("sync_dance_enabled",      "true"),
+        ("emote_loop_interval_seconds", "8"),
+        ("bot_follow_enabled",      "true"),
+        ("follow_interval_seconds", "3"),
+        ("welcome_enabled",         "true"),
+        ("welcome_message",         "👋 Welcome to the Lounge! Type /help to get started."),
+        ("welcome_interval_enabled","false"),
+        ("welcome_interval_minutes","30"),
+        ("heart_cooldown_seconds",  "60"),
+        ("bot_prefix_enabled",      "true"),
+        ("category_prefix_enabled", "true"),
+        ("bot_mode_switch_allowed", "true"),
+        ("social_enabled",          "true"),
+        ("min_interval_minutes",    "10"),
+        ("repeat_max_count",        "5"),
+        ("repeat_min_seconds",      "10"),
+    ]
+    conn = get_connection()
+    for k, v in defaults:
+        conn.execute("INSERT OR IGNORE INTO room_settings (key, value) VALUES (?, ?)", (k, v))
     conn.commit()
     conn.close()

@@ -262,6 +262,53 @@ from modules.mining import (
     handle_orelist, handle_minehelp,
     MINE_HELP_PAGES,
 )
+from modules.bot_modes import (
+    handle_botmode, handle_botmodes, handle_botprofile,
+    handle_botprefix, handle_categoryprefix,
+    handle_setbotprefix, handle_setbotdesc, handle_setbotoutfit,
+    handle_botoutfit, handle_botoutfits,
+    handle_dressbot, handle_savebotoutfit,
+    handle_createbotmode, handle_deletebotmode, handle_assignbotmode,
+    handle_bots, handle_botinfo, handle_botoutfitlogs,
+    handle_botmodehelp,
+)
+from modules.room_utils import (
+    handle_tpme, handle_tp, handle_tphere, handle_goto,
+    handle_bring, handle_bringall, handle_tpall,
+    handle_tprole, handle_tpvip, handle_tpstaff,
+    handle_selftp, handle_groupteleport,
+    handle_spawns, handle_spawn, handle_setspawn, handle_delspawn,
+    handle_spawninfo, handle_setspawncoords, handle_savepos,
+    handle_emotes, handle_emote, handle_stopemote,
+    handle_dance, handle_wave, handle_sit, handle_clap,
+    handle_forceemote, handle_forceemoteall,
+    handle_loopemote, handle_stoploop, handle_stopallloops,
+    handle_synchost, handle_syncdance, handle_stopsync,
+    handle_publicemotes, handle_forceemotes, handle_setemoteloopinterval,
+    handle_heart, handle_hearts, handle_heartlb,
+    handle_giveheart, handle_reactheart,
+    handle_hug, handle_kiss, handle_slap, handle_punch,
+    handle_highfive, handle_boop, handle_waveat, handle_cheer,
+    handle_social, handle_blocksocial, handle_unblocksocial,
+    handle_followme, handle_follow, handle_stopfollow, handle_followstatus,
+    handle_alert, handle_staffalert, handle_vipalert, handle_clearalerts,
+    handle_welcome, handle_setwelcome, handle_welcometest,
+    handle_resetwelcome, handle_welcomeinterval,
+    handle_intervals, handle_addinterval, handle_delinterval,
+    handle_interval, handle_intervaltest,
+    handle_repeatmsg, handle_stoprepeat, handle_repeatstatus,
+    handle_players, handle_roomlist, handle_online,
+    handle_staffonline, handle_vipsinroom, handle_rolelist,
+    handle_kick, handle_ban, handle_tempban, handle_unban,
+    handle_bans, handle_modlog,
+    handle_roomsettings, handle_setroomsetting,
+    handle_roomlogs,
+    handle_boostroom, handle_startmic, handle_micstatus,
+    handle_roomhelp, handle_teleporthelp, handle_emotehelp,
+    handle_alerthelp, handle_welcomehelp, handle_socialhelp,
+    send_welcome_if_needed, update_user_position,
+    start_interval_loop,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -528,6 +575,38 @@ ALL_KNOWN_COMMANDS = (
         "addminexp", "setminexp",
         "resetmining", "miningadmin",
         "miningroomrequired",
+        # ── Room utility — public ─────────────────────────────────────────────
+        "players", "roomlist", "online", "staffonline", "vipsinroom", "rolelist",
+        "emotes", "emote", "stopemote", "dance", "wave", "sit", "clap",
+        "heart", "hearts", "heartlb", "giveheart", "reactheart",
+        "hug", "kiss", "slap", "punch", "highfive", "boop", "waveat", "cheer",
+        "social", "blocksocial", "unblocksocial", "socialhelp",
+        "spawns", "spawn",
+        "roomhelp", "teleporthelp", "emotehelp", "alerthelp", "welcomehelp",
+        # ── Room utility — staff ──────────────────────────────────────────────
+        "tpme", "tp", "tphere", "goto", "bring", "bringall", "tpall",
+        "tprole", "tpvip", "tpstaff", "selftp", "groupteleport",
+        "setspawn", "savepos", "delspawn", "spawninfo", "setspawncoords",
+        "forceemote", "forceemoteall", "loopemote", "stoploop", "stopallloops",
+        "synchost", "syncdance", "stopsync",
+        "publicemotes", "forceemotes", "setemoteloopinterval",
+        "followme", "follow", "stopfollow", "followstatus",
+        "alert", "staffalert", "vipalert", "roomalert", "clearalerts",
+        "welcome", "setwelcome", "welcometest", "resetwelcome", "welcomeinterval",
+        "intervals", "addinterval", "delinterval", "interval", "intervaltest",
+        "repeatmsg", "stoprepeat", "repeatstatus",
+        "roomsettings", "setroomsetting", "roomlogs",
+        "kick", "ban", "tempban", "unban", "bans", "modlog",
+        "boostroom", "roomboost", "startmic", "micstart", "micstatus",
+        # ── Bot modes — public ────────────────────────────────────────────────
+        "botmode", "botmodes", "botprofile", "bots", "botinfo",
+        "botoutfit", "botoutfits", "botmodehelp",
+        # ── Bot modes — staff ─────────────────────────────────────────────────
+        "botprefix", "categoryprefix",
+        "setbotprefix", "setbotdesc", "setbotoutfit",
+        "dressbot", "savebotoutfit",
+        "createbotmode", "deletebotmode", "assignbotmode",
+        "botoutfitlogs",
     }
     | ECONOMY_COMMANDS | PROFILE_COMMANDS | GAME_COMMANDS
     | SHOP_COMMANDS | ACHIEVEMENT_COMMANDS | BJ_COMMANDS
@@ -1666,6 +1745,8 @@ class HangoutBot(BaseBot):
         # Start background automation loops (idempotent — safe on reconnect)
         start_auto_game_loop(self)
         start_auto_event_loop(self)
+        # Start room interval message loop
+        await start_interval_loop(self)
 
     async def on_chat(self, user: User, message: str) -> None:
         """
@@ -2123,6 +2204,9 @@ class HangoutBot(BaseBot):
             "myreports", "report", "bug",
             "botstatus", "maintenance",
             "rules", "warnings", "vipstatus",
+            # Room utility exempt
+            "roomhelp", "teleporthelp", "emotehelp", "alerthelp", "welcomehelp",
+            "socialhelp", "botmodehelp", "spawns",
         }
         if cmd not in _MUTE_EXEMPT:
             _mute = db.get_active_mute(user.id)
@@ -2132,6 +2216,18 @@ class HangoutBot(BaseBot):
                     "🔇 You are bot-muted. Try again later."
                 )
                 return
+
+        # ── Room-ban gate — block room-banned users ─────────────────────────
+        _BAN_EXEMPT = _MUTE_EXEMPT | {"unban"}
+        if cmd not in _BAN_EXEMPT and not can_moderate(user.username):
+            try:
+                if db.is_room_banned(user.username):
+                    await self.highrise.send_whisper(
+                        user.id, "⛔ You are banned from using bot commands."
+                    )
+                    return
+            except Exception:
+                pass
 
         # ── AutoMod check (spam / abuse detection) ─────────────────────────
         if cmd not in _MUTE_EXEMPT:
@@ -3003,6 +3099,262 @@ class HangoutBot(BaseBot):
         elif cmd in GAME_COMMANDS:
             await handle_game_command(self, user, cmd, args)
 
+        # ── Room utility — player lists ───────────────────────────────────────
+        elif cmd in {"players", "roomlist", "online"}:
+            await handle_players(self, user)
+        elif cmd == "staffonline":
+            await handle_staffonline(self, user)
+        elif cmd == "vipsinroom":
+            await handle_vipsinroom(self, user)
+        elif cmd == "rolelist":
+            await handle_rolelist(self, user, args)
+
+        # ── Spawns ────────────────────────────────────────────────────────────
+        elif cmd == "spawns":
+            await handle_spawns(self, user)
+        elif cmd == "spawn":
+            await handle_spawn(self, user, args)
+        elif cmd == "setspawn":
+            await handle_setspawn(self, user, args)
+        elif cmd == "savepos":
+            await handle_savepos(self, user, args)
+        elif cmd == "delspawn":
+            await handle_delspawn(self, user, args)
+        elif cmd == "spawninfo":
+            await handle_spawninfo(self, user, args)
+        elif cmd == "setspawncoords":
+            await handle_setspawncoords(self, user, args)
+
+        # ── Teleport ──────────────────────────────────────────────────────────
+        elif cmd == "tpme":
+            await handle_tpme(self, user, args)
+        elif cmd == "tp":
+            await handle_tp(self, user, args)
+        elif cmd in {"tphere", "bring"}:
+            await handle_tphere(self, user, args)
+        elif cmd == "goto":
+            await handle_goto(self, user, args)
+        elif cmd == "bringall":
+            await handle_bringall(self, user)
+        elif cmd == "tpall":
+            await handle_tpall(self, user, args)
+        elif cmd == "tprole":
+            await handle_tprole(self, user, args)
+        elif cmd == "tpvip":
+            await handle_tpvip(self, user, args)
+        elif cmd == "tpstaff":
+            await handle_tpstaff(self, user, args)
+        elif cmd == "selftp":
+            await handle_selftp(self, user, args)
+        elif cmd == "groupteleport":
+            await handle_groupteleport(self, user, args)
+
+        # ── Emotes ────────────────────────────────────────────────────────────
+        elif cmd == "emotes":
+            await handle_emotes(self, user)
+        elif cmd == "emote":
+            await handle_emote(self, user, args)
+        elif cmd == "stopemote":
+            await handle_stopemote(self, user)
+        elif cmd == "dance":
+            await handle_dance(self, user)
+        elif cmd == "wave":
+            await handle_wave(self, user)
+        elif cmd == "sit":
+            await handle_sit(self, user)
+        elif cmd == "clap":
+            await handle_clap(self, user)
+        elif cmd == "forceemote":
+            await handle_forceemote(self, user, args)
+        elif cmd == "forceemoteall":
+            await handle_forceemoteall(self, user, args)
+        elif cmd == "loopemote":
+            await handle_loopemote(self, user, args)
+        elif cmd == "stoploop":
+            await handle_stoploop(self, user, args)
+        elif cmd == "stopallloops":
+            await handle_stopallloops(self, user)
+        elif cmd in {"synchost", "syncdance"}:
+            await handle_synchost(self, user, args)
+        elif cmd == "stopsync":
+            await handle_stopsync(self, user)
+        elif cmd == "publicemotes":
+            await handle_publicemotes(self, user, args)
+        elif cmd == "forceemotes":
+            await handle_forceemotes(self, user, args)
+        elif cmd == "setemoteloopinterval":
+            await handle_setemoteloopinterval(self, user, args)
+
+        # ── Hearts ────────────────────────────────────────────────────────────
+        elif cmd in {"heart", "giveheart", "reactheart"}:
+            await handle_heart(self, user, args)
+        elif cmd == "hearts":
+            await handle_hearts(self, user, args)
+        elif cmd == "heartlb":
+            await handle_heartlb(self, user)
+
+        # ── Social actions ────────────────────────────────────────────────────
+        elif cmd == "hug":
+            await handle_hug(self, user, args)
+        elif cmd == "kiss":
+            await handle_kiss(self, user, args)
+        elif cmd == "slap":
+            await handle_slap(self, user, args)
+        elif cmd == "punch":
+            await handle_punch(self, user, args)
+        elif cmd == "highfive":
+            await handle_highfive(self, user, args)
+        elif cmd == "boop":
+            await handle_boop(self, user, args)
+        elif cmd == "waveat":
+            await handle_waveat(self, user, args)
+        elif cmd == "cheer":
+            await handle_cheer(self, user, args)
+        elif cmd == "social":
+            await handle_social(self, user, args)
+        elif cmd == "blocksocial":
+            await handle_blocksocial(self, user, args)
+        elif cmd == "unblocksocial":
+            await handle_unblocksocial(self, user, args)
+        elif cmd == "socialhelp":
+            await handle_socialhelp(self, user)
+
+        # ── Bot follow ────────────────────────────────────────────────────────
+        elif cmd == "followme":
+            await handle_followme(self, user)
+        elif cmd == "follow":
+            await handle_follow(self, user, args)
+        elif cmd == "stopfollow":
+            await handle_stopfollow(self, user)
+        elif cmd == "followstatus":
+            await handle_followstatus(self, user)
+
+        # ── Alerts ────────────────────────────────────────────────────────────
+        elif cmd == "alert":
+            await handle_alert(self, user, args)
+        elif cmd in {"roomalert"}:
+            await handle_alert(self, user, args)
+        elif cmd == "staffalert":
+            await handle_staffalert(self, user, args)
+        elif cmd == "vipalert":
+            await handle_vipalert(self, user, args)
+        elif cmd == "clearalerts":
+            await handle_clearalerts(self, user)
+
+        # ── Welcome ───────────────────────────────────────────────────────────
+        elif cmd == "welcome":
+            await handle_welcome(self, user, args)
+        elif cmd == "setwelcome":
+            await handle_setwelcome(self, user, args)
+        elif cmd == "welcometest":
+            await handle_welcometest(self, user)
+        elif cmd == "resetwelcome":
+            await handle_resetwelcome(self, user, args)
+        elif cmd == "welcomeinterval":
+            await handle_welcomeinterval(self, user, args)
+
+        # ── Interval messages ─────────────────────────────────────────────────
+        elif cmd == "intervals":
+            await handle_intervals(self, user)
+        elif cmd == "addinterval":
+            await handle_addinterval(self, user, args)
+        elif cmd == "delinterval":
+            await handle_delinterval(self, user, args)
+        elif cmd == "interval":
+            await handle_interval(self, user, args)
+        elif cmd == "intervaltest":
+            await handle_intervaltest(self, user, args)
+
+        # ── Repeat message ────────────────────────────────────────────────────
+        elif cmd == "repeatmsg":
+            await handle_repeatmsg(self, user, args)
+        elif cmd == "stoprepeat":
+            await handle_stoprepeat(self, user)
+        elif cmd == "repeatstatus":
+            await handle_repeatstatus(self, user)
+
+        # ── Room settings & logs ──────────────────────────────────────────────
+        elif cmd == "roomsettings":
+            await handle_roomsettings(self, user, args)
+        elif cmd == "setroomsetting":
+            await handle_setroomsetting(self, user, args)
+        elif cmd == "roomlogs":
+            await handle_roomlogs(self, user, args)
+
+        # ── Extended moderation ───────────────────────────────────────────────
+        elif cmd == "kick":
+            await handle_kick(self, user, args)
+        elif cmd == "ban":
+            await handle_ban(self, user, args)
+        elif cmd == "tempban":
+            await handle_tempban(self, user, args)
+        elif cmd == "unban":
+            await handle_unban(self, user, args)
+        elif cmd == "bans":
+            await handle_bans(self, user)
+        elif cmd == "modlog":
+            await handle_modlog(self, user, args)
+
+        # ── Boost / mic ───────────────────────────────────────────────────────
+        elif cmd in {"boostroom", "roomboost"}:
+            await handle_boostroom(self, user)
+        elif cmd in {"startmic", "micstart"}:
+            await handle_startmic(self, user)
+        elif cmd == "micstatus":
+            await handle_micstatus(self, user)
+
+        # ── Bot modes ─────────────────────────────────────────────────────────
+        elif cmd == "botmode":
+            await handle_botmode(self, user, args)
+        elif cmd == "botmodes":
+            await handle_botmodes(self, user)
+        elif cmd == "botprofile":
+            await handle_botprofile(self, user)
+        elif cmd == "botprefix":
+            await handle_botprefix(self, user, args)
+        elif cmd == "categoryprefix":
+            await handle_categoryprefix(self, user, args)
+        elif cmd == "setbotprefix":
+            await handle_setbotprefix(self, user, args)
+        elif cmd == "setbotdesc":
+            await handle_setbotdesc(self, user, args)
+        elif cmd == "setbotoutfit":
+            await handle_setbotoutfit(self, user, args)
+        elif cmd == "botoutfit":
+            await handle_botoutfit(self, user)
+        elif cmd == "botoutfits":
+            await handle_botoutfits(self, user)
+        elif cmd == "dressbot":
+            await handle_dressbot(self, user, args)
+        elif cmd == "savebotoutfit":
+            await handle_savebotoutfit(self, user, args)
+        elif cmd == "createbotmode":
+            await handle_createbotmode(self, user, args)
+        elif cmd == "deletebotmode":
+            await handle_deletebotmode(self, user, args)
+        elif cmd == "assignbotmode":
+            await handle_assignbotmode(self, user, args)
+        elif cmd == "bots":
+            await handle_bots(self, user)
+        elif cmd == "botinfo":
+            await handle_botinfo(self, user, args)
+        elif cmd == "botoutfitlogs":
+            await handle_botoutfitlogs(self, user)
+        elif cmd == "botmodehelp":
+            await handle_botmodehelp(self, user)
+
+        # ── Room help pages ───────────────────────────────────────────────────
+        elif cmd == "roomhelp":
+            await handle_roomhelp(self, user)
+        elif cmd == "teleporthelp":
+            await handle_teleporthelp(self, user)
+        elif cmd == "emotehelp":
+            await handle_emotehelp(self, user)
+        elif cmd == "alerthelp":
+            await handle_alerthelp(self, user)
+        elif cmd == "welcomehelp":
+            await handle_welcomehelp(self, user)
+
         # ── Unknown command ───────────────────────────────────────────────────
         else:
             if cmd.startswith("gold") and not can_manage_economy(user.username):
@@ -3024,10 +3376,15 @@ class HangoutBot(BaseBot):
         """Register new players and greet them when they enter the room."""
         db.ensure_user(user.id, user.username)
         add_to_room_cache(user.id, user.username)
-        await self.highrise.chat(
-            f"Welcome, @{user.username}! Type /help to see what you can do. "
-            "Use /daily to grab your free coins!"
-        )
+        # Update position cache for follow/teleport
+        try:
+            from highrise.models import Position as _Pos
+            if isinstance(position, _Pos):
+                update_user_position(user.id, position)
+        except Exception:
+            pass
+        # Send custom welcome message if configured (whisper, once per user)
+        asyncio.create_task(send_welcome_if_needed(self, user))
         # Deliver any queued bank, subscriber, and typed notifications
         asyncio.create_task(_deliver_pending_bank_notifications(self, user))
         asyncio.create_task(deliver_pending_subscriber_messages(self, user.username.lower()))
@@ -3067,6 +3424,15 @@ class HangoutBot(BaseBot):
             await process_tip_event(self, sender, receiver, tip)
         except Exception as exc:
             print(f"  [TIP] EXCEPTION in process_tip_event: {exc!r}")
+
+    async def on_user_move(self, user: User, position) -> None:
+        """Update position cache for teleport / follow features."""
+        try:
+            from highrise.models import Position as _Pos
+            if isinstance(position, _Pos):
+                update_user_position(user.id, position)
+        except Exception:
+            pass
 
     async def on_user_leave(self, user: User) -> None:
         """Log when a player leaves and remove from gold room cache."""

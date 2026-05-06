@@ -1,0 +1,1092 @@
+Redo and upgrade the Room Utility Core Module with Bot Outfit / Bot Mode system.
+
+GOAL:
+Add all basic room bot features plus a bot dress-up system.
+
+Room utility features:
+- teleport commands
+- spawn system
+- roles and permissions
+- titles integration
+- moderation: mute, ban, kick, warnings
+- player lists
+- emotes
+- force emotes for staff
+- looping emotes
+- sync dance from host
+- heart reactions
+- social actions: hug, kiss, slap, punch
+- bot follow user
+- room alerts
+- welcome messages
+- recurring interval messages
+- safe repeat messages
+- staff utilities
+
+New bot outfit features:
+- Bot can have different modes/personas.
+- Each bot mode has a prefix, title, description, outfit name, and optional role.
+- Staff can manually pick the bot’s look/mode.
+- Later, multiple bots can use different outfits/modes like Miner, Banker, DJ, Casino Dealer, Host, Security, etc.
+
+IMPORTANT:
+- Do not remove existing features.
+- Keep coins, bank, shop, badges, titles, VIP, casino, BJ, RBJ, poker, mining, profiles, reports, notifications, and roles.
+- Use SQLite.
+- Keep all Highrise messages under 250 characters.
+- Split long outputs into pages.
+- Add explicit command routing before unknown-command fallback.
+- Prevent crashes from bad inputs.
+- Every command must reply with success, usage, permission error, unsupported API, or clear error.
+- If Highrise API does not support an action, reply:
+"This action is not supported by the current API."
+- Do not fake success for outfit changing, mic, kick, ban, boost, teleport, or emote control.
+
+==================================================
+PART 1: ROLE PERMISSIONS
+==================================================
+
+Use existing role hierarchy:
+
+Owner
+Admin
+Manager
+Moderator
+VIP
+Player
+
+Owner:
+- Full control.
+- Can use all room utility commands.
+- Can create/edit/delete bot outfits and bot modes.
+- Can assign bot mode to any bot.
+
+Admin:
+- Can use moderation, teleport, alerts, emotes, welcome, intervals.
+- Can switch bot mode/outfit if allowed.
+- Cannot remove owners.
+
+Manager:
+- Can use room utility, teleport, alerts, emotes, welcome, events.
+- Can switch bot mode if allowed.
+- Cannot ban owners/admins.
+
+Moderator:
+- Can warn, mute, kick if supported, view reports, use staff alerts.
+- Cannot edit bot outfits.
+
+VIP:
+- Fun social commands and special emotes only.
+
+Player:
+- Public social commands, help, lists, profile, game commands.
+
+==================================================
+PART 2: DATABASE TABLES
+==================================================
+
+Create room_settings table:
+- key TEXT PRIMARY KEY
+- value TEXT
+
+Create room_spawns table:
+- spawn_name TEXT PRIMARY KEY
+- x REAL
+- y REAL
+- z REAL
+- facing TEXT
+- created_by TEXT
+- created_at TEXT
+
+Create room_mutes table:
+- username TEXT PRIMARY KEY
+- muted_by TEXT
+- reason TEXT
+- muted_until TEXT
+- created_at TEXT
+
+Create room_bans table:
+- username TEXT PRIMARY KEY
+- banned_by TEXT
+- reason TEXT
+- banned_until TEXT
+- permanent INTEGER DEFAULT 0
+- created_at TEXT
+
+Create room_warnings table:
+- id INTEGER PRIMARY KEY AUTOINCREMENT
+- username TEXT
+- warned_by TEXT
+- reason TEXT
+- created_at TEXT
+- active INTEGER DEFAULT 1
+
+Create room_welcome_seen table:
+- username TEXT PRIMARY KEY
+- welcomed INTEGER DEFAULT 0
+- welcomed_at TEXT
+- last_seen_at TEXT
+
+Create room_interval_messages table:
+- id INTEGER PRIMARY KEY AUTOINCREMENT
+- message TEXT
+- interval_minutes INTEGER
+- enabled INTEGER DEFAULT 1
+- created_by TEXT
+- created_at TEXT
+- last_sent_at TEXT
+
+Create room_social_logs table:
+- id INTEGER PRIMARY KEY AUTOINCREMENT
+- timestamp TEXT
+- actor_username TEXT
+- target_username TEXT
+- action TEXT
+- message TEXT
+
+Create room_follow_state table:
+- bot_id TEXT PRIMARY KEY
+- target_username TEXT
+- enabled INTEGER DEFAULT 0
+- updated_at TEXT
+
+Create room_emote_loops table:
+- username TEXT PRIMARY KEY
+- emote_id TEXT
+- started_by TEXT
+- enabled INTEGER DEFAULT 1
+- created_at TEXT
+
+Create room_action_logs table:
+- id INTEGER PRIMARY KEY AUTOINCREMENT
+- timestamp TEXT
+- actor_username TEXT
+- target_username TEXT
+- action TEXT
+- details TEXT
+
+==================================================
+PART 3: BOT OUTFIT / BOT MODE DATABASE
+==================================================
+
+Create bot_modes table:
+
+bot_modes:
+- mode_id TEXT PRIMARY KEY
+- mode_name TEXT
+- prefix TEXT
+- title TEXT
+- description TEXT
+- outfit_name TEXT
+- outfit_data_json TEXT
+- enabled INTEGER DEFAULT 1
+- created_by TEXT
+- created_at TEXT
+- updated_at TEXT
+
+Create bot_mode_assignments table:
+
+bot_mode_assignments:
+- bot_id TEXT PRIMARY KEY
+- bot_username TEXT
+- mode_id TEXT
+- active INTEGER DEFAULT 1
+- assigned_by TEXT
+- assigned_at TEXT
+
+Create bot_outfit_logs table:
+
+bot_outfit_logs:
+- id INTEGER PRIMARY KEY AUTOINCREMENT
+- timestamp TEXT
+- actor_username TEXT
+- bot_username TEXT
+- mode_id TEXT
+- outfit_name TEXT
+- action TEXT
+- details TEXT
+
+==================================================
+PART 4: DEFAULT BOT MODES
+==================================================
+
+Create these default bot modes if missing:
+
+1. host
+- mode_name: Lounge Host
+- prefix: 🎙️ Host
+- title: Lounge Host
+- description: Welcomes players and helps with room commands.
+- outfit_name: Host Outfit
+
+2. miner
+- mode_name: Miner
+- prefix: ⛏️ Miner
+- title: Mining Guide
+- description: Helps players with mining, ores, tools, and contracts.
+- outfit_name: Miner Outfit
+
+3. banker
+- mode_name: Banker
+- prefix: 🏦 Banker
+- title: Bank Assistant
+- description: Handles coins, bank, balances, and transfers.
+- outfit_name: Banker Outfit
+
+4. dj
+- mode_name: DJ
+- prefix: 🎧 DJ
+- title: Lounge DJ
+- description: Handles music vibe, events, emotes, dancing, and announcements.
+- outfit_name: DJ Outfit
+
+5. dealer
+- mode_name: Casino Dealer
+- prefix: 🎰 Dealer
+- title: Casino Dealer
+- description: Handles BJ, RBJ, poker, and casino settings.
+- outfit_name: Dealer Outfit
+
+6. security
+- mode_name: Security
+- prefix: 🛡️ Security
+- title: Lounge Security
+- description: Handles moderation, reports, warnings, and safety.
+- outfit_name: Security Outfit
+
+7. shopkeeper
+- mode_name: Shopkeeper
+- prefix: 🛒 Shop
+- title: Shopkeeper
+- description: Handles badge shop, title shop, VIP shop, and markets.
+- outfit_name: Shopkeeper Outfit
+
+8. eventhost
+- mode_name: Event Host
+- prefix: 🎉 Event
+- title: Event Host
+- description: Handles events, gold rain, room games, and announcements.
+- outfit_name: Event Host Outfit
+
+Important:
+- These are logical bot modes even if actual outfit changing is not supported.
+- Prefix should be used in bot messages when mode prefixing is enabled.
+- Outfit changing should only call API if Highrise supports it.
+
+==================================================
+PART 5: BOT MODE COMMANDS
+==================================================
+
+Commands:
+- /botmode
+- /botmode <mode_id>
+- /botmodes
+- /botprofile
+- /botprefix
+- /botprefix on
+- /botprefix off
+- /setbotprefix <mode_id> <prefix>
+- /setbotdesc <mode_id> <description>
+- /setbotoutfit <mode_id> <outfit_name>
+- /botoutfit
+- /botoutfits
+- /dressbot <mode_id>
+- /dressbot manual <outfit_name>
+- /savebotoutfit <mode_id>
+- /deletebotmode <mode_id>
+- /createbotmode <mode_id> <mode_name>
+- /assignbotmode <bot_username> <mode_id>
+- /botmodehelp
+
+Permissions:
+- /botmode and /botprofile public view current mode.
+- /botmodes public list enabled modes.
+- /botmode <mode_id> manager/admin/owner if bot_mode_switch_allowed = true.
+- /dressbot, /savebotoutfit, /setbotoutfit owner/admin only.
+- /createbotmode, /deletebotmode owner only.
+- /assignbotmode owner/admin only.
+
+Behavior:
+/botmode
+Shows current bot mode:
+"🤖 Mode: 🎙️ Host | Lounge Host"
+
+/botmodes
+Shows:
+"Bot Modes: host, miner, banker, dj, dealer, security"
+
+/botmode miner
+Switches mode:
+"✅ Bot mode set to ⛏️ Miner."
+
+/botprofile
+Shows:
+"🤖 🎙️ Host | Lounge Host | Helps with room commands."
+
+/botprefix on
+Enables prefixes in bot messages.
+Message:
+"✅ Bot prefixes ON."
+
+/botprefix off
+Message:
+"⛔ Bot prefixes OFF."
+
+/setbotprefix miner ⛏️ Miner
+Updates prefix.
+Message:
+"✅ Miner prefix updated."
+
+/setbotoutfit miner Miner Outfit
+Saves outfit name text.
+Message:
+"✅ Miner outfit name saved."
+
+/dressbot miner
+- Switches bot logical mode to miner.
+- If Highrise API supports changing outfit, apply outfit_data_json.
+- If not supported:
+"Mode changed. Outfit change not supported by API."
+
+/savebotoutfit miner
+- If API can read current bot outfit, save it to outfit_data_json.
+- If not:
+"Saving current outfit is not supported by API."
+
+/assignbotmode BotMiner miner
+Assigns mode to bot username for future multi-bot setup.
+Message:
+"✅ BotMiner assigned to Miner mode."
+
+==================================================
+PART 6: BOT MESSAGE PREFIX SYSTEM
+==================================================
+
+Add helper:
+format_bot_message(message, category=None)
+
+If bot prefixes are ON:
+- Use current bot mode prefix.
+- Example:
+"⛏️ Miner: You mined Iron Ore x2."
+
+If category-specific prefix exists:
+- mining messages can use miner prefix.
+- bank messages can use banker prefix.
+- casino messages can use dealer prefix.
+- events can use event prefix.
+- moderation can use security prefix.
+- shop messages can use shopkeeper prefix.
+
+Category mapping:
+- mining -> miner prefix
+- bank/economy -> banker prefix
+- casino/BJ/RBJ/poker -> dealer prefix
+- events/announcements -> eventhost prefix
+- moderation/reports -> security prefix
+- shop/badges/titles/VIP shop -> shopkeeper prefix
+- welcome/help/general -> host prefix
+- emotes/dance/music -> dj prefix
+
+Settings:
+- bot_prefix_enabled default true
+- category_prefix_enabled default true
+
+Commands:
+- /categoryprefix on
+- /categoryprefix off
+
+Messages:
+"✅ Category prefixes ON."
+"⛔ Category prefixes OFF."
+
+Examples:
+Mining:
+"⛏️ Miner: You mined Iron Ore x2."
+
+Bank:
+"🏦 Banker: Sent 5,000c / 5K to @user."
+
+Casino:
+"🎰 Dealer: RBJ action open! 30s."
+
+DJ:
+"🎧 DJ: Dance sync started."
+
+Security:
+"🛡️ Security: @user muted for 5m."
+
+Shop:
+"🛒 Shop: Bought 💎 Diamond."
+
+Host:
+"🎙️ Host: Welcome to the Lounge!"
+
+Keep under 250 characters.
+
+==================================================
+PART 7: MULTI-BOT READY DESIGN
+==================================================
+
+Prepare for future multiple bots:
+- Miner bot
+- Banker bot
+- DJ bot
+- Dealer bot
+- Security bot
+- Shopkeeper bot
+- Event bot
+
+Add helper:
+get_bot_mode(bot_username)
+set_bot_mode(bot_username, mode_id)
+
+If current bot username is unknown, use default bot_id = "main".
+
+Commands:
+- /bots
+- /botinfo <bot_username>
+- /assignbotmode <bot_username> <mode_id>
+
+Behavior:
+/bots
+Shows assigned bot modes:
+"🤖 Bots: Main=Host | MinerBot=Miner | DJBot=DJ"
+
+/botinfo MinerBot
+"MinerBot: ⛏️ Miner | Mining Guide"
+
+If only one bot exists:
+"Only main bot registered."
+
+Do not require multiple bots now.
+Just make the design ready.
+
+==================================================
+PART 8: TELEPORT COMMANDS
+==================================================
+
+Player/self commands:
+- /tpme <spawn>
+- /spawn
+- /spawns
+
+Staff commands:
+- /tp <username> <spawn>
+- /tphere <username>
+- /goto <username>
+- /bring <username>
+- /bringall
+- /tpall <spawn>
+- /tprole <role> <spawn>
+- /tpvip <spawn>
+- /tpstaff <spawn>
+- /savepos <spawn_name>
+- /setspawn <spawn_name>
+- /delspawn <spawn_name>
+- /spawninfo <spawn_name>
+- /setspawncoords <name> <x> <y> <z>
+
+Permissions:
+- /tpme public if self_teleport_enabled = true.
+- /tp, /tphere, /goto manager/admin/owner.
+- /bringall, /tpall owner/admin only.
+- /tprole owner/admin/manager.
+- /setspawn owner/admin/manager.
+- /delspawn owner/admin.
+
+Settings:
+- self_teleport_enabled default false.
+- group_teleport_enabled default true.
+
+Commands:
+- /selftp on/off
+- /groupteleport on/off
+
+Messages:
+"✅ Teleported @user to lounge."
+"✅ Sent 5 players to stage."
+"Spawn not found. Use /spawns."
+"Self teleport is OFF."
+
+==================================================
+PART 9: SPAWN SYSTEM
+==================================================
+
+Commands:
+- /spawns
+- /spawn
+- /spawn <name>
+- /setspawn <name>
+- /delspawn <name>
+- /spawninfo <name>
+- /setspawncoords <name> <x> <y> <z>
+
+Default spawn names:
+- lounge
+- stage
+- game
+- casino
+- mining
+- vip
+- afk
+
+Messages:
+/spawns:
+"📍 Spawns: lounge, stage, casino, mining, vip"
+
+/spawn:
+"Default spawn: lounge. Use /spawn <name>."
+
+If API cannot save position:
+"This API cannot save position automatically. Use /setspawncoords."
+
+==================================================
+PART 10: MODERATION COMMANDS
+==================================================
+
+Commands:
+- /warn <username> <reason>
+- /warnings <username>
+- /clearwarnings <username>
+- /mute <username> <minutes> <reason>
+- /unmute <username>
+- /mutes
+- /kick <username> <reason>
+- /ban <username> <reason>
+- /tempban <username> <minutes> <reason>
+- /unban <username>
+- /bans
+- /modlog <username>
+- /modhelp
+
+Rules:
+- Bot mute blocks user from most bot commands except /help, /rules, /profile, /report.
+- Kick/ban only works if Highrise API supports it.
+- If API does not support actual room ban/kick, save the ban/mute and block bot interactions.
+- Prevent staff from moderating higher role.
+- Do not allow removing/ban last owner.
+
+Messages:
+"⚠️ @user warned: reason"
+"🔇 @user muted for 10m."
+"🔊 @user unmuted."
+"⛔ @user banned."
+"Kick not supported by current API."
+
+==================================================
+PART 11: PLAYER LISTS
+==================================================
+
+Commands:
+- /players
+- /roomlist
+- /online
+- /staffonline
+- /vipsinroom
+- /rolelist <role>
+- /owners
+- /admins
+- /managers
+- /moderators
+- /vips
+- /allstaff
+
+Messages:
+"👥 Room: @A, @B, @C. Total 3."
+"🛡️ Staff online: @Owner, @Mod."
+
+==================================================
+PART 12: EMOTE SYSTEM
+==================================================
+
+Public commands:
+- /emote <emote_id>
+- /emotes
+- /stopemote
+- /dance
+- /wave
+- /sit
+- /clap
+
+Staff commands:
+- /forceemote <username> <emote_id>
+- /forceemoteall <emote_id>
+- /forceemoterole <role> <emote_id>
+- /loopemote <emote_id>
+- /loopemote <username> <emote_id>
+- /stoploop
+- /stoploop <username>
+- /stopallloops
+- /synchost <username>
+- /syncdance <username>
+- /stopsync
+
+Settings:
+- public_emotes_enabled default true
+- force_emotes_enabled default true
+- loop_emotes_enabled default true
+- sync_dance_enabled default true
+- emote_loop_interval_seconds default 8
+
+Commands:
+- /publicemotes on/off
+- /forceemotes on/off
+- /syncdance on/off
+- /setemoteloopinterval <seconds>
+
+Messages:
+"💃 Emote started."
+"🔁 Looping emote. Stop: /stoploop."
+"✅ Sync host set to @user."
+"Emote control not supported by current API."
+
+==================================================
+PART 13: HEART REACTIONS
+==================================================
+
+Commands:
+- /heart <username>
+- /hearts <username>
+- /heartlb
+- /giveheart <username>
+- /reactheart <username>
+
+Create room_hearts table:
+- giver_username TEXT
+- receiver_username TEXT
+- count INTEGER DEFAULT 0
+- last_given_at TEXT
+- PRIMARY KEY(giver_username, receiver_username)
+
+Create room_heart_totals table:
+- username TEXT PRIMARY KEY
+- hearts_received INTEGER DEFAULT 0
+- hearts_given INTEGER DEFAULT 0
+
+Cooldown:
+- heart_cooldown_seconds default 60
+
+Messages:
+"💖 @user sent a heart to @target."
+"💖 @target has 25 hearts."
+
+==================================================
+PART 14: SOCIAL ACTIONS
+==================================================
+
+Commands:
+- /hug <username>
+- /kiss <username>
+- /slap <username>
+- /punch <username>
+- /highfive <username>
+- /boop <username>
+- /waveat <username>
+- /cheer <username>
+- /socialhelp
+
+Opt-out:
+- /social on
+- /social off
+- /blocksocial <username>
+- /unblocksocial <username>
+
+Create social_preferences table:
+- username TEXT PRIMARY KEY
+- social_enabled INTEGER DEFAULT 1
+
+Create social_blocks table:
+- username TEXT
+- blocked_username TEXT
+- PRIMARY KEY(username, blocked_username)
+
+Messages:
+"🤗 @A hugged @B."
+"😘 @A kissed @B."
+"👋 @A slapped @B playfully."
+"🥊 @A playfully punched @B."
+"@user has social actions OFF."
+
+==================================================
+PART 15: BOT FOLLOW USER
+==================================================
+
+Commands:
+- /followme
+- /follow <username>
+- /stopfollow
+- /followstatus
+
+Permissions:
+- /followme owner/admin/manager by default.
+- /follow <username> owner/admin.
+- /stopfollow manager/admin/owner.
+
+Settings:
+- bot_follow_enabled default true
+- follow_interval_seconds default 3
+
+Messages:
+"🤖 Following @user."
+"🛑 Bot follow stopped."
+"Bot follow is not supported by current API."
+
+==================================================
+PART 16: ROOM ALERTS AND ANNOUNCEMENTS
+==================================================
+
+Commands:
+- /alert <message>
+- /announce <message>
+- /announce_subs <message>
+- /dmnotify <username> <message>
+- /staffalert <message>
+- /vipalert <message>
+- /roomalert <message>
+- /clearalerts
+
+Permissions:
+- /announce manager/admin/owner.
+- /alert admin/owner.
+- /announce_subs admin/owner.
+- /dmnotify admin/owner.
+- /staffalert moderator+.
+- /vipalert manager+.
+
+Messages:
+"📣 Announcement: message"
+"🚨 Alert: message"
+"✅ Sent to X subscribers. Pending Y."
+
+==================================================
+PART 17: WELCOME MESSAGE SYSTEM
+==================================================
+
+Commands:
+- /welcome
+- /setwelcome <message>
+- /welcome on
+- /welcome off
+- /welcometest
+- /resetwelcome <username>
+- /welcomeinterval <minutes>
+- /welcomeinterval on
+- /welcomeinterval off
+
+Default welcome:
+"👋 Welcome to the Lounge! Type /tutorial or /help to get started."
+
+Rules:
+- Send once per user.
+- Prefer whisper/private if possible.
+- If whisper unavailable, use public short welcome.
+- Interval welcome default OFF.
+- Minimum interval 10 minutes.
+
+Messages:
+"✅ Welcome message updated."
+"✅ Welcome ON."
+"⛔ Welcome OFF."
+
+==================================================
+PART 18: INTERVAL / RECURRING MESSAGES
+==================================================
+
+Commands:
+- /intervals
+- /addinterval <minutes> <message>
+- /delinterval <id>
+- /interval on <id>
+- /interval off <id>
+- /intervaltest <id>
+
+Rules:
+- Minimum interval default 10 minutes.
+- Prevent spammy intervals.
+- Messages rotate if multiple enabled.
+
+Messages:
+"✅ Interval #2 added every 15m."
+"✅ Interval #2 disabled."
+
+==================================================
+PART 19: BOOST ROOM / MIC FEATURES
+==================================================
+
+Commands:
+- /boostroom
+- /roomboost
+- /startmic
+- /micstart
+- /micstatus
+
+Permissions:
+- Owner/admin only.
+
+Behavior:
+- If Highrise API supports it, call it.
+- If not:
+"Room boost is not supported by current API."
+"Mic control is not supported by current API."
+
+==================================================
+PART 20: SAFE REPEAT MESSAGE CONTROL
+==================================================
+
+Do NOT add uncontrolled spam.
+
+Add controlled repeat:
+- /repeatmsg <count> <seconds> <message>
+- /stoprepeat
+- /repeatstatus
+
+Permissions:
+- Owner only.
+
+Safety:
+- count max 5
+- seconds minimum 10
+- message max 120 characters
+- only one repeat at a time
+- logs action
+
+Messages:
+"✅ Repeat started: 3 messages every 10s."
+"🛑 Repeat stopped."
+
+==================================================
+PART 21: ROOM SETTINGS COMMANDS
+==================================================
+
+Commands:
+- /roomsettings
+- /roomsettings 2
+- /setroomsetting <key> <value>
+
+Show:
+- welcome ON/OFF
+- intervals ON/OFF
+- self teleport ON/OFF
+- group teleport ON/OFF
+- public emotes ON/OFF
+- force emotes ON/OFF
+- social actions ON/OFF
+- heart cooldown
+- bot follow ON/OFF
+- bot prefix ON/OFF
+- current bot mode
+
+Example:
+"Room: Welcome ON | SelfTP OFF | Emotes ON | Bot Host"
+
+==================================================
+PART 22: HELP MENUS
+==================================================
+
+Add:
+/roomhelp
+/teleporthelp
+/emotehelp
+/socialhelp
+/modhelp
+/alerthelp
+/welcomehelp
+/botmodehelp
+
+/roomhelp:
+"🏠 Room
+/players - room list
+/spawns - spawn list
+/roomsettings - settings
+/welcome - welcome info"
+
+/teleporthelp:
+"📍 Teleport
+/tpme spawn - self TP
+/tp user spawn - staff TP
+/bring user - bring
+/tpall spawn - all"
+
+/emotehelp:
+"💃 Emotes
+/emotes - list
+/emote id - use
+/loopemote id - loop
+/syncdance user - sync"
+
+/socialhelp:
+"💬 Social
+/hug user
+/kiss user
+/slap user
+/punch user
+/heart user
+/social off"
+
+/alerthelp:
+"📣 Alerts
+/announce msg - room
+/alert msg - urgent
+/announce_subs msg - subs
+/dmnotify user msg - DM"
+
+/welcomehelp:
+"👋 Welcome
+/welcome on/off
+/setwelcome msg
+/welcometest
+/welcomeinterval min"
+
+/botmodehelp:
+"🤖 Bot Modes
+/botmode - current
+/botmodes - list
+/botmode miner - switch
+/dressbot mode - outfit"
+
+Update:
+/help
+/mycommands
+/allcommands
+/adminhelp
+/managerhelp
+/ownerhelp
+/modhelp
+
+Every command in help must have a short description.
+
+==================================================
+PART 23: AUDIT AND LOGGING
+==================================================
+
+Log actions in room_action_logs:
+- teleports
+- moderation
+- force emotes
+- alerts
+- welcome edits
+- interval edits
+- follow changes
+- bot mode changes
+
+Log bot outfit actions in bot_outfit_logs.
+
+Add:
+- /roomlogs
+- /roomlogs <username>
+- /botoutfitlogs
+
+Permissions:
+- Owner/admin only.
+
+Messages:
+"Log #12: @admin used /tpall lounge"
+"Outfit #3: @owner set bot mode Miner"
+
+==================================================
+PART 24: ANTI-ABUSE
+==================================================
+
+Rules:
+- Cooldowns for social actions and hearts.
+- No uncontrolled spam command.
+- Interval messages minimum 10 minutes.
+- Do not allow players to target opted-out users with social commands.
+- Do not allow staff to moderate higher role.
+- Do not expose hidden owner commands to players.
+- Commands must respect mute/ban status.
+- Muted users cannot use social, casino, mining, bank, shop, or spammy commands.
+- Muted users can still use /help, /rules, /profile, /report.
+
+==================================================
+PART 25: COMMAND ROUTING
+==================================================
+
+Add explicit routing before unknown-command fallback for every command in this prompt.
+
+No command should fail silently.
+
+If feature is unsupported by API, reply clearly.
+
+==================================================
+PART 26: TESTS
+==================================================
+
+Test bot modes:
+- /botmode
+- /botmodes
+- /botmode miner
+- /botprofile
+- /botprefix on
+- /categoryprefix on
+- /setbotprefix miner ⛏️ Miner
+- /setbotoutfit miner Miner Outfit
+- /dressbot miner
+- /bots
+
+Expected:
+- Logical mode switches.
+- Prefixes show in messages.
+- If outfit API unsupported, bot says unsupported clearly.
+
+Test room commands:
+- /players
+- /roomhelp
+- /spawns
+- /roomsettings
+
+Test teleport:
+- /setspawn lounge
+- /spawns
+- /tpme lounge
+- /tp user lounge
+- /bring user
+- /tpall lounge
+
+Test moderation:
+- /warn user test
+- /mute user 5 test
+- /unmute user
+- /kick user test
+- /ban user test
+- /unban user
+
+Test emotes:
+- /emotes
+- /emote wave
+- /forceemote user wave
+- /loopemote wave
+- /stoploop
+- /syncdance user
+
+Test social:
+- /hug user
+- /kiss user
+- /slap user
+- /punch user
+- /heart user
+- /social off
+- /social on
+
+Test welcome:
+- /setwelcome Welcome to the Lounge!
+- /welcome on
+- /welcometest
+- /welcomeinterval 15
+
+Test alerts:
+- /announce Test
+- /alert Test
+- /staffalert Staff test
+- /vipalert VIP test
+
+Test interval:
+- /addinterval 15 Type /mine to collect ores!
+- /intervals
+- /intervaltest 1
+- /delinterval 1
+
+Final requirement:
+The bot should support room utilities and also be ready for multiple themed bots:
+Miner, Banker, DJ, Dealer, Security, Shopkeeper, Event Host, and Lounge Host.
