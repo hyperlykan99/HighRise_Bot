@@ -1,0 +1,857 @@
+Add a complete realistic ore-based Mining grind game for room retention.
+
+GOAL:
+Create a unique mining/grinding game that keeps players active in the room.
+Players mine realistic ores, minerals, and gemstones, upgrade pickaxes, sell ores, craft rewards, earn mining XP, and compete on leaderboards.
+
+Theme:
+Chill Lounge Mine.
+Relaxing and welcoming for all players, but the materials should be realistic ores/minerals/gems.
+
+IMPORTANT:
+- Do not remove existing features.
+- Keep coins, XP, event coins, bank, shop, badges, titles, VIP, casino, BJ, RBJ, poker, events, notifications, profiles, roles, admin tools, and all current systems.
+- Use SQLite.
+- Use the existing number formatter with commas and short values.
+- Keep every Highrise message under 250 characters.
+- Split long messages into pages.
+- Add explicit command routing before unknown-command fallback.
+- Prevent crashes from bad inputs.
+- Mining must not give unlimited coins too fast.
+- Log major rewards in economy ledger/admin logs if available.
+- Commands must always reply with success, usage, permission error, cooldown, or clear error.
+- No silent failures.
+
+==================================================
+PART 1: PLAYER COMMANDS
+==================================================
+
+Add these player commands:
+
+Main:
+- /mine
+- /m
+- /dig
+- /tool
+- /pickaxe
+- /upgradetool
+- /upick
+- /mineprofile
+- /mp
+- /mineinv
+- /ores
+- /sellores
+- /sellore <ore_id> <amount>
+- /sellore all
+- /minelb
+- /minelb level
+- /minelb ores
+- /minelb rare
+- /minelb coins
+- /minelb meteorite
+- /mineshop
+- /minebuy <number>
+- /useenergy
+- /useluckboost
+- /usexpboost
+- /craft
+- /craft <item_id>
+- /minedaily
+- /minehelp
+
+Aliases:
+- /minerank = /mineprofile
+
+==================================================
+PART 2: CORE GAME LOOP
+==================================================
+
+When player uses:
+/mine
+
+The bot checks:
+- mining_enabled
+- player is in room if mining_requires_room = true
+- cooldown
+- energy
+- mining level
+- pickaxe/tool level
+- active mining event bonus
+- VIP mining bonus if any
+- boost effects if active
+
+Then the bot gives:
+- random realistic ore/mineral/gem drop
+- mining XP called MXP
+- rare drop chance
+- small coin bonus chance if enabled
+
+Example messages:
+"⛏️ You mined Iron Ore x2 | +15 MXP."
+"⛏️ You mined Quartz x1 | +20 MXP."
+"💎 @user found Diamond x1! +300 MXP."
+"☄️ @user found a Meteorite Fragment! Ultra rare!"
+
+If cooldown active:
+"⏳ Mine ready in 35s."
+
+If no energy:
+"⚡ No energy. Come back later or use /mineshop."
+
+If not in room and room required:
+"Join the room to mine."
+
+==================================================
+PART 3: DATABASE
+==================================================
+
+Create mining_players table:
+
+mining_players:
+- username TEXT PRIMARY KEY
+- mining_level INTEGER DEFAULT 1
+- mining_xp INTEGER DEFAULT 0
+- tool_level INTEGER DEFAULT 1
+- energy INTEGER DEFAULT 100
+- max_energy INTEGER DEFAULT 100
+- total_mines INTEGER DEFAULT 0
+- total_ores INTEGER DEFAULT 0
+- rare_finds INTEGER DEFAULT 0
+- coins_earned INTEGER DEFAULT 0
+- last_mine_at TEXT
+- last_energy_reset TEXT
+- streak_days INTEGER DEFAULT 0
+- last_daily_bonus TEXT
+- luck_boost_until TEXT
+- xp_boost_until TEXT
+- created_at TEXT
+- updated_at TEXT
+
+Create mining_inventory table:
+
+mining_inventory:
+- username TEXT
+- item_id TEXT
+- quantity INTEGER DEFAULT 0
+- PRIMARY KEY(username, item_id)
+
+Create mining_items table:
+
+mining_items:
+- item_id TEXT PRIMARY KEY
+- name TEXT
+- emoji TEXT
+- rarity TEXT
+- item_type TEXT
+  Values: ore, mineral, gemstone, relic, material, consumable, craft_item
+- sell_value INTEGER
+- drop_enabled INTEGER DEFAULT 1
+- created_at TEXT
+
+Create mining_settings table:
+
+mining_settings:
+- key TEXT PRIMARY KEY
+- value TEXT
+
+Create mining_logs table:
+
+mining_logs:
+- id INTEGER PRIMARY KEY AUTOINCREMENT
+- timestamp TEXT
+- username TEXT
+- action TEXT
+- item_id TEXT
+- quantity INTEGER
+- coins INTEGER
+- details TEXT
+
+Create mining_events table if needed:
+
+mining_events:
+- id INTEGER PRIMARY KEY AUTOINCREMENT
+- event_id TEXT
+- started_by TEXT
+- started_at TEXT
+- ends_at TEXT
+- active INTEGER DEFAULT 1
+
+==================================================
+PART 4: DEFAULT MINING SETTINGS
+==================================================
+
+Default settings:
+- mining_enabled = true
+- base_cooldown_seconds = 60
+- base_energy_cost = 5
+- daily_energy_reset = true
+- rare_announce_enabled = true
+- mining_coin_rewards_enabled = true
+- mining_xp_multiplier = 1
+- mining_drop_multiplier = 1
+- vip_mining_bonus_percent = 10
+- mining_requires_room = true
+
+Energy:
+- max_energy = 100
+- /mine costs 5 energy
+- energy resets daily
+- VIP max_energy bonus +25
+
+Cooldown by pickaxe level:
+- Level 1: 60s
+- Level 2: 55s
+- Level 3: 50s
+- Level 4: 45s
+- Level 5: 40s
+- Level 6: 35s
+- Level 7: 30s
+- Level 8: 25s
+- Level 9: 20s
+- Level 10: 15s
+
+==================================================
+PART 5: REALISTIC ORE / GEM DROP TABLE
+==================================================
+
+Create these default mining items:
+
+Common:
+- stone | Stone | 🪨 | sell 5c
+- coal | Coal | ⚫ | sell 8c
+- copper_ore | Copper Ore | 🟠 | sell 15c
+- iron_ore | Iron Ore | ⛓️ | sell 20c
+
+Uncommon:
+- tin_ore | Tin Ore | ◽ | sell 30c
+- lead_ore | Lead Ore | ▪️ | sell 35c
+- zinc_ore | Zinc Ore | 🔘 | sell 40c
+- quartz | Quartz | 🔹 | sell 60c
+
+Rare:
+- silver_ore | Silver Ore | ⚪ | sell 120c
+- gold_ore | Gold Ore | 🟡 | sell 250c
+- amethyst | Amethyst | 💜 | sell 400c
+- garnet | Garnet | 🔴 | sell 450c
+
+Epic:
+- nickel_ore | Nickel Ore | 🩶 | sell 700c
+- bauxite | Bauxite | 🟤 | sell 800c
+- jade | Jade | 🟢 | sell 1,200c
+- topaz | Topaz | 🟨 | sell 1,500c
+
+Legendary:
+- platinum_ore | Platinum Ore | ⚙️ | sell 3,000c
+- emerald | Emerald | 💚 | sell 5,000c
+- ruby | Ruby | ❤️ | sell 5,000c
+- sapphire | Sapphire | 💙 | sell 5,000c
+
+Mythic:
+- diamond | Diamond | 💎 | sell 15,000c
+- opal | Opal | 🌈 | sell 20,000c
+- black_opal | Black Opal | 🌑 | sell 35,000c
+
+Ultra rare:
+- alexandrite | Alexandrite | ✨ | sell 75,000c
+- meteorite_fragment | Meteorite Fragment | ☄️ | sell 150,000c
+
+Base drop chances:
+- common: 68%
+- uncommon: 20%
+- rare: 8%
+- epic: 2.5%
+- legendary: 1%
+- mythic: 0.4%
+- ultra rare: 0.1%
+
+Rules:
+- Tool level slightly improves rare chance.
+- VIP adds +10% MXP and +10% rare chance relative, not +10 percentage points.
+- Rare public announcements should happen only for legendary, mythic, and ultra rare by default.
+
+Rare announcement examples:
+"💎 @user found Diamond!"
+"🌑 @user found Black Opal!"
+"☄️ @user found a Meteorite Fragment! Ultra rare!"
+
+==================================================
+PART 6: MINING XP AND LEVELS
+==================================================
+
+Mining XP is called MXP.
+
+MXP rewards:
+- Common drop: 5 to 15 MXP
+- Uncommon: 15 to 30 MXP
+- Rare: 50 to 100 MXP
+- Epic: 150 to 300 MXP
+- Legendary: 500 to 1,000 MXP
+- Mythic: 2,500 MXP
+- Ultra rare: 10,000 MXP
+
+Level formula:
+- XP required = level * level * 100
+
+Example:
+- Level 1 -> 100 MXP needed
+- Level 10 -> 10,000 MXP needed
+- Level 50 -> 250,000 MXP needed
+
+/mineprofile or /mp:
+"⛏️ Mining Lv 7 | MXP 450/4,900 | Pickaxe Lv 3 | Energy 75/100"
+
+Also show:
+- total mines
+- rare finds
+- coins earned if room allows
+
+If too long, split:
+/mineprofile
+/mineprofile 2
+
+==================================================
+PART 7: REALISTIC PICKAXE UPGRADE SYSTEM
+==================================================
+
+Pickaxe levels:
+
+1. Worn Pickaxe
+2. Copper Pickaxe
+3. Iron Pickaxe
+4. Steel Pickaxe
+5. Silver Pickaxe
+6. Gold Pickaxe
+7. Tungsten Pickaxe
+8. Platinum Pickaxe
+9. Titanium Pickaxe
+10. Master Pickaxe
+
+/tool or /pickaxe:
+"⛏️ Pickaxe Lv 4 Steel Pickaxe | Cooldown 45s | Luck +4%"
+
+/upgradetool or /upick:
+Checks required coins and ores.
+If enough, deduct coins/materials and upgrade.
+
+Upgrade requirements:
+Lv2: 1,000c + copper_ore x20
+Lv3: 5,000c + iron_ore x20
+Lv4: 15,000c + silver_ore x15
+Lv5: 50,000c + gold_ore x10
+Lv6: 120,000c + platinum_ore x5 + quartz x20
+Lv7: 300,000c + jade x10 + topaz x10
+Lv8: 750,000c + emerald x3 + ruby x3 + sapphire x3
+Lv9: 1,500,000c + diamond x2 + opal x2
+Lv10: 3,000,000c + black_opal x1 + alexandrite x1 + meteorite_fragment x1
+
+Success message:
+"✅ Pickaxe upgraded to Lv 4 Steel Pickaxe."
+
+Missing requirement message:
+"Need: 15,000c, silver_ore x15."
+
+If max level:
+"Your pickaxe is already max level."
+
+==================================================
+PART 8: INVENTORY AND SELLING
+==================================================
+
+/mineinv or /ores:
+Shows ore inventory.
+
+Example:
+"🎒 Ores: Stone x25 | Iron Ore x10 | Gold Ore x2 | Diamond x1"
+
+If too long, paginate:
+/ores
+/ores 2
+
+/sellores:
+Sells all sellable ores/gems.
+
+Message:
+"✅ Sold ores for 15,500c / 15.5K."
+
+/sellore <ore_id> <amount>:
+Sells specific ore.
+
+Example:
+/sellore gold_ore 2
+"✅ Sold Gold Ore x2 for 500c."
+
+/sellore all:
+Same as /sellores.
+
+Rules:
+- Cannot sell negative amount.
+- Cannot sell more than owned.
+- Quantity cannot go below 0.
+- Use SQLite transaction.
+- Add coins to balance.
+- Log sale in mining_logs/economy ledger.
+
+==================================================
+PART 9: MINING SHOP
+==================================================
+
+/mineshop:
+Shows useful mining items.
+
+Items:
+1. Energy Tea 🍵 — restores 25 energy — 5,000c
+2. Energy Smoothie 🥤 — restores 100 energy — 15,000c
+3. Lucky Charm 🍀 — +25% rare chance for 15m — 25,000c
+4. Focus Music 🎵 — 2x MXP for 15m — 25,000c
+
+Commands:
+- /mineshop
+- /minebuy <number>
+- /useenergy
+- /useluckboost
+- /usexpboost
+
+If numbered shop system exists:
+- /mineshop should save shop session
+- /buy <number> can buy mining item
+
+Messages:
+"✅ Bought Energy Tea for 5,000c / 5K."
+"🍀 Lucky Charm active for 15m."
+"🎵 Focus Music active for 15m."
+
+Rules:
+- Boost timers must save in SQLite.
+- Boosts survive restart.
+- Do not stack infinitely; refreshing duration is okay.
+- Energy cannot exceed max_energy unless owner setting allows.
+
+==================================================
+PART 10: CRAFTING REWARDS
+==================================================
+
+/craft:
+Shows craftable mining rewards.
+
+Craft items:
+
+1. miner_badge
+Requires:
+- iron_ore x50
+- silver_ore x20
+Reward:
+- badge ⛏️
+
+2. gem_hunter_badge
+Requires:
+- emerald x1
+- ruby x1
+- sapphire x1
+Reward:
+- badge 💎
+
+3. lounge_miner_title
+Requires:
+- gold_ore x25
+- diamond x1
+Reward:
+- title [Lounge Miner]
+
+4. master_miner_title
+Requires:
+- platinum_ore x10
+- diamond x2
+- black_opal x1
+Reward:
+- title [Master Miner]
+
+5. starfinder_title
+Requires:
+- meteorite_fragment x1
+Reward:
+- title [Starfinder]
+
+/craft <item_id>:
+- Check requirements.
+- Deduct materials.
+- Grant badge/title/item.
+- Log the craft.
+- Message:
+"✅ Crafted [Starfinder]."
+
+If missing materials:
+"Missing: meteorite_fragment x1."
+
+If already owns reward:
+"You already own this reward."
+
+==================================================
+PART 11: MINING LEADERBOARDS
+==================================================
+
+/minelb:
+Default total mines.
+
+Leaderboards:
+- /minelb level
+- /minelb ores
+- /minelb rare
+- /minelb coins
+- /minelb meteorite
+
+Messages:
+"⛏️ Top Miners
+1 @A Lv50
+2 @B Lv42
+3 @C Lv30"
+
+"💎 Rare Finders
+1 @A 25
+2 @B 18
+3 @C 10"
+
+"☄️ Meteorite Finds
+1 @A 3
+2 @B 1"
+
+Show top 5 only.
+Use pagination if needed.
+Use number formatter.
+
+==================================================
+PART 12: MINING EVENTS
+==================================================
+
+Add mining events:
+- double_ore
+- double_mxp
+- lucky_hour
+- energy_free
+- meteor_rush
+
+Commands:
+- /miningevent
+- /startminingevent <event_id>
+- /stopminingevent
+- /miningevents
+
+Permissions:
+- Owner/admin/manager only for start/stop.
+- Players can view /miningevent and /miningevents.
+
+Event effects:
+double_ore:
+- Drop quantities x2
+
+double_mxp:
+- Mining XP x2
+
+lucky_hour:
+- Rare chance +50% relative
+
+energy_free:
+- /mine costs 0 energy
+
+meteor_rush:
+- Ultra rare chance x2 relative
+
+Messages:
+"⛏️ Mining Event: Lucky Hour active! Rare finds boosted."
+"☄️ Mining Event: Meteor Rush active!"
+
+==================================================
+PART 13: DAILY MINING BONUS
+==================================================
+
+/minedaily:
+Gives daily mining reward.
+
+Reward:
+- +50 energy
+- +500c
+- +50 MXP
+
+Streak:
+Day 3: +1 Lucky Charm
+Day 7: +1 Energy Smoothie
+Day 30: title [Chill Miner]
+
+Message:
+"🎁 Mining daily: +50 energy, +500c, +50 MXP. Streak 3."
+
+Rules:
+- Claim once per day.
+- Save streak.
+- Reset streak if missed day if your daily system supports it.
+- Do not duplicate rewards after restart.
+- Log coins in economy ledger.
+
+==================================================
+PART 14: ROOM RETENTION FEATURE
+==================================================
+
+Room presence:
+If player is currently in room and mines:
+- normal rewards.
+
+If user is not detected in room:
+- block mining by default.
+
+Default:
+- mining_requires_room = true
+
+Message:
+"Join the room to mine."
+
+Owner/admin commands:
+- /miningroomrequired on
+- /miningroomrequired off
+
+Messages:
+"✅ Mining now requires room presence."
+"⛔ Mining no longer requires room presence."
+
+==================================================
+PART 15: ADMIN COMMANDS
+==================================================
+
+Owner/admin commands:
+- /miningadmin
+- /mining on
+- /mining off
+- /setminecooldown <seconds>
+- /setmineenergycost <amount>
+- /setminingenergy <username> <amount>
+- /addore <username> <ore_id> <amount>
+- /removeore <username> <ore_id> <amount>
+- /settoollevel <username> <level>
+- /setminelevel <username> <level>
+- /addminexp <username> <amount>
+- /setminexp <username> <amount>
+- /resetmining <username>
+- /miningroomrequired on
+- /miningroomrequired off
+
+Messages:
+"✅ Mining ON."
+"⛔ Mining OFF."
+"✅ @user pickaxe level set to 5."
+"✅ Added Diamond x5 to @user."
+
+Validation:
+- Tool level 1 to 10.
+- Mining level cannot be below 1.
+- Energy cannot be below 0.
+- Ore amount must be positive.
+- Unknown ore IDs should show:
+"Unknown ore ID. Use /orelist."
+
+Add:
+/orelist
+Shows valid ore IDs.
+
+Owner/admin:
+/miningadmin:
+"Mining Admin: /mining on/off | /setminecooldown sec | /addore user ore amt"
+
+==================================================
+PART 16: SAFE MIGRATION FROM OLD FANTASY ITEMS
+==================================================
+
+If old fantasy/chill items already exist in inventory, migrate safely.
+
+Mapping:
+- stone -> stone
+- coal_ore -> coal
+- lounge_ore -> quartz
+- ruby_ore -> ruby
+- emerald_ore -> emerald
+- sapphire_ore -> sapphire
+- diamond_ore -> diamond
+- crown_ore -> platinum_ore
+- dragonstone_ore -> jade
+- aurora_ore -> opal
+- phoenix_ore -> alexandrite
+- peace_crystal -> black_opal
+- lounge_relic -> meteorite_fragment
+- neon_crystal -> opal
+- void_core -> meteorite_fragment
+- hex_relic -> meteorite_fragment
+
+Rules:
+- Do not delete player inventories.
+- Convert quantities to new IDs.
+- Merge duplicate quantities safely.
+- Log migration once.
+- Do not run destructive migration repeatedly.
+- Add setting:
+  mining_realistic_migration_done = true
+
+==================================================
+PART 17: HELP UPDATE
+==================================================
+
+Update /help:
+Add:
+"/mine - mine ores"
+
+Update /minehelp 1:
+"⛏️ Mining
+/mine - mine ores
+/tool - view pickaxe
+/upgradetool - upgrade
+/ores - inventory
+/sellores - sell all"
+
+Update /minehelp 2:
+"⛏️ Mining 2
+/minelb - leaderboard
+/mineshop - boosts
+/craft - craft rewards
+/minedaily - daily bonus"
+
+Update /minehelp 3 staff:
+"⛏️ Staff
+/mining on/off
+/startminingevent id
+/setminecooldown sec
+/addore user ore amt"
+
+Update /allcommands and /mycommands.
+Make sure command descriptions are short and role-based.
+
+==================================================
+PART 18: QUEST / BATTLEPASS HOOKS
+==================================================
+
+If quest system exists, update progress:
+- /mine increments mining quest
+- rare find increments rare quest
+- tool upgrade increments upgrade quest
+- craft increments craft quest
+- /minedaily increments daily quest if needed
+
+If battle pass exists:
+- mining gives small BP XP if enabled:
+  1 to 5 BP XP per mine
+- rare drops give more BP XP
+
+Do not crash if those systems do not exist.
+
+==================================================
+PART 19: ANTI-ABUSE
+==================================================
+
+Rules:
+- Cooldown enforced server-side.
+- Energy enforced server-side.
+- Room presence enforced if enabled.
+- No negative item quantities.
+- No negative coins.
+- All inventory and coin updates use SQLite transactions.
+- Prevent duplicate rewards on crash.
+- Do not allow /mine if mining disabled.
+- Do not allow repeated /mine spam to bypass cooldown.
+- Do not allow selling missing ores.
+- Do not allow admin commands for non-admins.
+
+==================================================
+PART 20: COMMAND ROUTING
+==================================================
+
+Add explicit routing before unknown-command fallback for:
+- /mine
+- /m
+- /dig
+- /tool
+- /pickaxe
+- /upgradetool
+- /upick
+- /mineprofile
+- /mp
+- /mineinv
+- /ores
+- /sellores
+- /sellore
+- /minelb
+- /mineshop
+- /minebuy
+- /useenergy
+- /useluckboost
+- /usexpboost
+- /craft
+- /minedaily
+- /minehelp
+- /miningadmin
+- /mining on
+- /mining off
+- /setminecooldown
+- /setmineenergycost
+- /setminingenergy
+- /addore
+- /removeore
+- /settoollevel
+- /setminelevel
+- /addminexp
+- /setminexp
+- /resetmining
+- /miningroomrequired on
+- /miningroomrequired off
+- /orelist
+- /miningevent
+- /startminingevent
+- /stopminingevent
+- /miningevents
+
+No mining command should fail silently.
+
+==================================================
+PART 21: TESTS
+==================================================
+
+Test as player:
+- /mine
+- /m
+- /dig
+- /tool
+- /upgradetool
+- /ores
+- /sellore iron_ore 1
+- /sellores
+- /mineprofile
+- /minelb
+- /mineshop
+- /craft
+- /minedaily
+- /minehelp
+
+Expected:
+- Mining gives realistic ores/gems.
+- Cooldown works.
+- Energy decreases.
+- Inventory updates.
+- Selling adds coins.
+- Tool upgrades work.
+- Crafting works.
+- Rare ore finds announce.
+- Leaderboards update.
+- Commands never fail silently.
+
+Admin test:
+- /mining off
+- /mine
+- /mining on
+- /setminecooldown 10
+- /setmineenergycost 5
+- /addore 4ktreyMarion diamond 5
+- /settoollevel 4ktreyMarion 5
+- /startminingevent lucky_hour
+- /mine
+- /orelist
+
+Expected:
+- Admin settings save.
+- Mining disabled blocks mining.
+- Mining enabled allows mining.
+- Added ores appear in /ores.
+- Event affects mining.

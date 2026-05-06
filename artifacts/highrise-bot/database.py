@@ -1021,6 +1021,37 @@ def _migrate_db():
         "code TEXT PRIMARY KEY, username TEXT, shop_type TEXT, "
         "item_id TEXT, item_name TEXT, price INTEGER, currency TEXT, "
         "listing_id INTEGER, created_at TEXT, expires_at TEXT)",
+        # Mining game tables
+        "CREATE TABLE IF NOT EXISTS mining_players ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE NOT NULL, "
+        "mining_level INTEGER NOT NULL DEFAULT 1, mining_xp INTEGER NOT NULL DEFAULT 0, "
+        "tool_level INTEGER NOT NULL DEFAULT 1, "
+        "energy INTEGER NOT NULL DEFAULT 100, max_energy INTEGER NOT NULL DEFAULT 100, "
+        "total_mines INTEGER NOT NULL DEFAULT 0, total_ores INTEGER NOT NULL DEFAULT 0, "
+        "rare_finds INTEGER NOT NULL DEFAULT 0, coins_earned INTEGER NOT NULL DEFAULT 0, "
+        "streak_days INTEGER NOT NULL DEFAULT 0, "
+        "last_mine_at TEXT, last_daily_bonus TEXT, last_energy_reset TEXT, "
+        "luck_boost_until TEXT, xp_boost_until TEXT, "
+        "created_at TEXT, updated_at TEXT)",
+        "CREATE TABLE IF NOT EXISTS mining_inventory ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL, "
+        "item_id TEXT NOT NULL, quantity INTEGER NOT NULL DEFAULT 0, "
+        "UNIQUE(username, item_id))",
+        "CREATE TABLE IF NOT EXISTS mining_items ("
+        "item_id TEXT PRIMARY KEY, name TEXT NOT NULL, emoji TEXT NOT NULL DEFAULT '', "
+        "rarity TEXT NOT NULL DEFAULT 'common', item_type TEXT NOT NULL DEFAULT 'ore', "
+        "sell_value INTEGER NOT NULL DEFAULT 0, drop_enabled INTEGER NOT NULL DEFAULT 1, "
+        "created_at TEXT)",
+        "CREATE TABLE IF NOT EXISTS mining_settings ("
+        "key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '')",
+        "CREATE TABLE IF NOT EXISTS mining_logs ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp TEXT, username TEXT, "
+        "action TEXT, item_id TEXT, quantity INTEGER DEFAULT 0, "
+        "coins INTEGER DEFAULT 0, details TEXT)",
+        "CREATE TABLE IF NOT EXISTS mining_events ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, event_id TEXT NOT NULL, "
+        "started_by TEXT, started_at TEXT, ends_at TEXT, "
+        "active INTEGER NOT NULL DEFAULT 0)",
     ]:
         try:
             conn.execute(sql)
@@ -1029,6 +1060,9 @@ def _migrate_db():
 
     # Seed default emoji badge catalog (idempotent)
     seed_emoji_badges()
+
+    # Seed mining ore catalog (idempotent)
+    seed_mining_items()
 
     # Seed new tip settings defaults (INSERT OR IGNORE — safe to run every boot)
     for key, val in [("tip_auto_sub", "1"), ("tip_resubscribe", "0")]:
@@ -5695,3 +5729,354 @@ def delete_pending_purchase(code: str) -> None:
         conn.close()
     except Exception:
         pass
+
+
+# ===========================================================================
+# MINING GAME — DB TABLES + HELPERS
+# ===========================================================================
+
+_MINING_ITEMS_SEED = [
+    # item_id, name, emoji, rarity, item_type, sell_value
+    ("stone",               "Stone",              "🪨", "common",    "ore", 5),
+    ("coal",                "Coal",               "⚫", "common",    "ore", 8),
+    ("copper_ore",          "Copper Ore",         "🟠", "common",    "ore", 15),
+    ("iron_ore",            "Iron Ore",           "⛓️", "common",    "ore", 20),
+    ("tin_ore",             "Tin Ore",            "◽", "uncommon",  "ore", 30),
+    ("lead_ore",            "Lead Ore",           "▪️", "uncommon",  "ore", 35),
+    ("zinc_ore",            "Zinc Ore",           "🔘", "uncommon",  "ore", 40),
+    ("quartz",              "Quartz",             "🔹", "uncommon",  "mineral", 60),
+    ("silver_ore",          "Silver Ore",         "⚪", "rare",      "ore", 120),
+    ("gold_ore",            "Gold Ore",           "🟡", "rare",      "ore", 250),
+    ("amethyst",            "Amethyst",           "💜", "rare",      "gemstone", 400),
+    ("garnet",              "Garnet",             "🔴", "rare",      "gemstone", 450),
+    ("nickel_ore",          "Nickel Ore",         "🩶", "epic",      "ore", 700),
+    ("bauxite",             "Bauxite",            "🟤", "epic",      "mineral", 800),
+    ("jade",                "Jade",               "🟢", "epic",      "gemstone", 1200),
+    ("topaz",               "Topaz",              "🟨", "epic",      "gemstone", 1500),
+    ("platinum_ore",        "Platinum Ore",       "⚙️", "legendary", "ore", 3000),
+    ("emerald",             "Emerald",            "💚", "legendary", "gemstone", 5000),
+    ("ruby",                "Ruby",               "❤️", "legendary", "gemstone", 5000),
+    ("sapphire",            "Sapphire",           "💙", "legendary", "gemstone", 5000),
+    ("diamond",             "Diamond",            "💎", "mythic",    "gemstone", 15000),
+    ("opal",                "Opal",               "🌈", "mythic",    "gemstone", 20000),
+    ("black_opal",          "Black Opal",         "🌑", "mythic",    "gemstone", 35000),
+    ("alexandrite",         "Alexandrite",        "✨", "ultra_rare","gemstone", 75000),
+    ("meteorite_fragment",  "Meteorite Fragment", "☄️", "ultra_rare","relic",    150000),
+]
+
+
+def ensure_miner_row(username: str) -> None:
+    """Ensure a mining_players row exists for this username (no-op if already present)."""
+    get_or_create_miner(username)
+
+
+def seed_mining_items() -> None:
+    conn = get_connection()
+    for row in _MINING_ITEMS_SEED:
+        conn.execute(
+            """INSERT OR IGNORE INTO mining_items
+               (item_id, name, emoji, rarity, item_type, sell_value, drop_enabled, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, 1, datetime('now'))""",
+            row,
+        )
+    conn.commit()
+    conn.close()
+
+
+# ── Player record ────────────────────────────────────────────────────────────
+
+def get_or_create_miner(username: str) -> dict:
+    conn = get_connection()
+    key  = username.lower()
+    row  = conn.execute(
+        "SELECT * FROM mining_players WHERE lower(username)=?", (key,)
+    ).fetchone()
+    if row is None:
+        conn.execute(
+            """INSERT OR IGNORE INTO mining_players (username, created_at, updated_at)
+               VALUES (?, datetime('now'), datetime('now'))""",
+            (username,),
+        )
+        conn.commit()
+        row = conn.execute(
+            "SELECT * FROM mining_players WHERE lower(username)=?", (key,)
+        ).fetchone()
+    conn.close()
+    return dict(row)
+
+
+def update_miner(username: str, **kwargs) -> None:
+    if not kwargs:
+        return
+    fields = ", ".join(f"{k}=?" for k in kwargs)
+    values = list(kwargs.values()) + [username.lower()]
+    conn   = get_connection()
+    conn.execute(
+        f"UPDATE mining_players SET {fields}, updated_at=datetime('now') WHERE lower(username)=?",
+        values,
+    )
+    conn.commit()
+    conn.close()
+
+
+# ── Settings ─────────────────────────────────────────────────────────────────
+
+def get_mine_setting(key: str, default: str = "") -> str:
+    conn = get_connection()
+    row  = conn.execute(
+        "SELECT value FROM mining_settings WHERE key=?", (key,)
+    ).fetchone()
+    conn.close()
+    return row["value"] if row else default
+
+
+def set_mine_setting(key: str, value: str) -> None:
+    conn = get_connection()
+    conn.execute(
+        "INSERT OR REPLACE INTO mining_settings (key, value) VALUES (?, ?)",
+        (key, value),
+    )
+    conn.commit()
+    conn.close()
+
+
+# ── Inventory ─────────────────────────────────────────────────────────────────
+
+def add_ore(username: str, item_id: str, qty: int) -> None:
+    conn = get_connection()
+    conn.execute(
+        """INSERT INTO mining_inventory (username, item_id, quantity)
+           VALUES (lower(?), ?, ?)
+           ON CONFLICT(username, item_id) DO UPDATE SET quantity=quantity+?""",
+        (username, item_id, qty, qty),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_ore_qty(username: str, item_id: str) -> int:
+    conn = get_connection()
+    row  = conn.execute(
+        "SELECT quantity FROM mining_inventory WHERE lower(username)=lower(?) AND item_id=?",
+        (username, item_id),
+    ).fetchone()
+    conn.close()
+    return row["quantity"] if row else 0
+
+
+def get_inventory(username: str) -> list:
+    conn = get_connection()
+    rows = conn.execute(
+        """SELECT mi.item_id, mi.quantity, it.name, it.emoji, it.sell_value, it.rarity
+           FROM mining_inventory mi
+           JOIN mining_items it ON mi.item_id=it.item_id
+           WHERE lower(mi.username)=lower(?) AND mi.quantity>0
+           ORDER BY it.sell_value DESC""",
+        (username,),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def remove_ore(username: str, item_id: str, qty: int) -> bool:
+    """Remove qty of ore; returns False if not enough."""
+    conn = get_connection()
+    try:
+        row = conn.execute(
+            "SELECT quantity FROM mining_inventory WHERE lower(username)=lower(?) AND item_id=?",
+            (username, item_id),
+        ).fetchone()
+        if not row or row["quantity"] < qty:
+            return False
+        conn.execute(
+            """UPDATE mining_inventory SET quantity=quantity-?
+               WHERE lower(username)=lower(?) AND item_id=?""",
+            (qty, username, item_id),
+        )
+        conn.commit()
+        return True
+    except Exception:
+        conn.rollback()
+        return False
+    finally:
+        conn.close()
+
+
+def sell_all_ores(username: str, user_id: str) -> dict:
+    """Sell all ores atomically. Returns {coins, count}."""
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            """SELECT mi.item_id, mi.quantity, it.sell_value
+               FROM mining_inventory mi
+               JOIN mining_items it ON mi.item_id=it.item_id
+               WHERE lower(mi.username)=lower(?) AND mi.quantity>0""",
+            (username,),
+        ).fetchall()
+        total = sum(r["quantity"] * r["sell_value"] for r in rows)
+        count = sum(r["quantity"] for r in rows)
+        if total == 0:
+            return {"coins": 0, "count": 0}
+        conn.execute(
+            "UPDATE mining_inventory SET quantity=0 WHERE lower(username)=lower(?)",
+            (username,),
+        )
+        conn.execute(
+            "UPDATE users SET balance=balance+? WHERE user_id=?",
+            (total, user_id),
+        )
+        conn.execute(
+            """INSERT INTO mining_logs (timestamp, username, action, item_id, quantity, coins, details)
+               VALUES (datetime('now'), lower(?), 'sellall', '', ?, ?, 'sell all ores')""",
+            (username, count, total),
+        )
+        conn.commit()
+        return {"coins": total, "count": count}
+    except Exception:
+        conn.rollback()
+        return {"coins": 0, "count": 0}
+    finally:
+        conn.close()
+
+
+def sell_ore_item(username: str, user_id: str, item_id: str, qty: int) -> dict:
+    """Sell specific ore atomically. Returns {coins, ok, error}."""
+    conn = get_connection()
+    try:
+        irow = conn.execute(
+            "SELECT sell_value FROM mining_items WHERE item_id=?", (item_id,)
+        ).fetchone()
+        if not irow:
+            return {"ok": False, "error": "unknown_item"}
+        inv = conn.execute(
+            "SELECT quantity FROM mining_inventory WHERE lower(username)=lower(?) AND item_id=?",
+            (username, item_id),
+        ).fetchone()
+        have = inv["quantity"] if inv else 0
+        if have < qty:
+            return {"ok": False, "error": "not_enough", "have": have}
+        total = qty * irow["sell_value"]
+        conn.execute(
+            "UPDATE mining_inventory SET quantity=quantity-? WHERE lower(username)=lower(?) AND item_id=?",
+            (qty, username, item_id),
+        )
+        conn.execute(
+            "UPDATE users SET balance=balance+? WHERE user_id=?",
+            (total, user_id),
+        )
+        conn.execute(
+            """INSERT INTO mining_logs (timestamp, username, action, item_id, quantity, coins, details)
+               VALUES (datetime('now'), lower(?), 'sell', ?, ?, ?, '')""",
+            (username, item_id, qty, total),
+        )
+        conn.commit()
+        return {"ok": True, "coins": total}
+    except Exception:
+        conn.rollback()
+        return {"ok": False, "error": "db_error"}
+    finally:
+        conn.close()
+
+
+# ── Mining items catalog ──────────────────────────────────────────────────────
+
+def get_mining_item(item_id: str) -> dict | None:
+    conn = get_connection()
+    row  = conn.execute(
+        "SELECT * FROM mining_items WHERE item_id=?", (item_id,)
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def get_all_mining_items(drop_enabled: bool = True) -> list:
+    conn  = get_connection()
+    q     = "SELECT * FROM mining_items"
+    if drop_enabled:
+        q += " WHERE drop_enabled=1"
+    q += " ORDER BY sell_value"
+    rows  = conn.execute(q).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+# ── Logging ───────────────────────────────────────────────────────────────────
+
+def log_mine(username: str, action: str, item_id: str = "", qty: int = 0,
+             coins: int = 0, details: str = "") -> None:
+    try:
+        conn = get_connection()
+        conn.execute(
+            """INSERT INTO mining_logs (timestamp, username, action, item_id, quantity, coins, details)
+               VALUES (datetime('now'), lower(?), ?, ?, ?, ?, ?)""",
+            (username, action, item_id, qty, coins, details),
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+
+# ── Leaderboard ───────────────────────────────────────────────────────────────
+
+def get_mine_leaderboard(field: str, limit: int = 5) -> list:
+    _VALID = {
+        "mining_level", "mining_xp", "total_mines",
+        "total_ores", "rare_finds", "coins_earned",
+    }
+    if field not in _VALID:
+        field = "total_mines"
+    conn = get_connection()
+    rows = conn.execute(
+        f"SELECT username, {field} as val FROM mining_players ORDER BY {field} DESC LIMIT ?",
+        (limit,),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_meteorite_leaderboard(limit: int = 5) -> list:
+    """Count meteorite_fragment ownership from mining_inventory."""
+    conn = get_connection()
+    rows = conn.execute(
+        """SELECT username, quantity as val FROM mining_inventory
+           WHERE item_id='meteorite_fragment' AND quantity>0
+           ORDER BY quantity DESC LIMIT ?""",
+        (limit,),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+# ── Mining events ─────────────────────────────────────────────────────────────
+
+def get_active_mining_event() -> dict | None:
+    conn = get_connection()
+    row  = conn.execute(
+        """SELECT * FROM mining_events
+           WHERE active=1 AND datetime(ends_at) > datetime('now')
+           ORDER BY id DESC LIMIT 1""",
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def start_mining_event(event_id: str, started_by: str, duration_minutes: int = 60) -> None:
+    conn = get_connection()
+    conn.execute(
+        "UPDATE mining_events SET active=0 WHERE active=1",
+    )
+    conn.execute(
+        """INSERT INTO mining_events (event_id, started_by, started_at, ends_at, active)
+           VALUES (?, ?, datetime('now'), datetime('now', ?), 1)""",
+        (event_id, started_by, f"+{duration_minutes} minutes"),
+    )
+    conn.commit()
+    conn.close()
+
+
+def stop_mining_event() -> None:
+    conn = get_connection()
+    conn.execute("UPDATE mining_events SET active=0 WHERE active=1")
+    conn.commit()
+    conn.close()

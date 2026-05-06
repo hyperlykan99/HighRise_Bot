@@ -245,6 +245,23 @@ from modules.gold import (
     set_bot_identity, get_bot_user_id, add_to_room_cache, remove_from_room_cache,
     refresh_room_cache,
 )
+from modules.mining import (
+    handle_mine, handle_tool, handle_upgradetool,
+    handle_mineprofile, handle_mineinv, handle_sellores, handle_sellore,
+    handle_minelb, handle_mineshop, handle_minebuy,
+    handle_useluckboost, handle_usexpboost,
+    handle_craft, handle_minedaily,
+    handle_miningevent, handle_miningevents,
+    handle_startminingevent, handle_stopminingevent,
+    handle_miningadmin, handle_mining_toggle,
+    handle_setminecooldown, handle_setmineenergycost, handle_setminingenergy,
+    handle_addore, handle_removeore,
+    handle_settoollevel, handle_setminelevel,
+    handle_addminexp, handle_setminexp, handle_resetmining,
+    handle_miningroomrequired,
+    handle_orelist, handle_minehelp,
+    MINE_HELP_PAGES,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -487,6 +504,30 @@ ALL_KNOWN_COMMANDS = (
         "mycommands", "helpsearch",
         # Paged coin help
         "pokerhelp",
+        # Mining game — player commands
+        "mine", "m", "dig",
+        "tool", "pickaxe",
+        "upgradetool", "upick",
+        "mineprofile", "mp", "minerank",
+        "mineinv", "ores",
+        "sellores", "sellore",
+        "minelb",
+        "mineshop", "minebuy",
+        "useluckboost", "usexpboost",
+        "craft",
+        "minedaily",
+        "miningevent", "miningevents",
+        "orelist",
+        "minehelp",
+        # Mining game — staff commands
+        "mining",
+        "startminingevent", "stopminingevent",
+        "setminecooldown", "setmineenergycost", "setminingenergy",
+        "addore", "removeore",
+        "settoollevel", "setminelevel",
+        "addminexp", "setminexp",
+        "resetmining", "miningadmin",
+        "miningroomrequired",
     }
     | ECONOMY_COMMANDS | PROFILE_COMMANDS | GAME_COMMANDS
     | SHOP_COMMANDS | ACHIEVEMENT_COMMANDS | BJ_COMMANDS
@@ -2838,6 +2879,106 @@ class HangoutBot(BaseBot):
 
         elif cmd == "pokercleanup":
             await handle_pokercleanup(self, user, args)
+
+        # ── Mining game ───────────────────────────────────────────────────────
+        elif cmd in {"mine", "m", "dig"}:
+            await handle_mine(self, user)
+
+        elif cmd in {"tool", "pickaxe"}:
+            await handle_tool(self, user)
+
+        elif cmd in {"upgradetool", "upick"}:
+            await handle_upgradetool(self, user)
+
+        elif cmd in {"mineprofile", "mp", "minerank"}:
+            await handle_mineprofile(self, user, args)
+
+        elif cmd in {"mineinv", "ores"}:
+            await handle_mineinv(self, user, args)
+
+        elif cmd == "sellores":
+            await handle_sellores(self, user)
+
+        elif cmd == "sellore":
+            await handle_sellore(self, user, args)
+
+        elif cmd == "minelb":
+            await handle_minelb(self, user, args)
+
+        elif cmd == "mineshop":
+            await handle_mineshop(self, user)
+
+        elif cmd == "minebuy":
+            await handle_minebuy(self, user, args)
+
+        elif cmd == "useluckboost":
+            await handle_useluckboost(self, user)
+
+        elif cmd == "usexpboost":
+            await handle_usexpboost(self, user)
+
+        elif cmd == "craft":
+            await handle_craft(self, user, args)
+
+        elif cmd == "minedaily":
+            await handle_minedaily(self, user)
+
+        elif cmd == "miningevent":
+            await handle_miningevent(self, user)
+
+        elif cmd == "miningevents":
+            await handle_miningevents(self, user)
+
+        elif cmd == "startminingevent":
+            await handle_startminingevent(self, user, args)
+
+        elif cmd == "stopminingevent":
+            await handle_stopminingevent(self, user)
+
+        elif cmd == "mining":
+            await handle_mining_toggle(self, user, args)
+
+        elif cmd == "miningadmin":
+            await handle_miningadmin(self, user)
+
+        elif cmd == "setminecooldown":
+            await handle_setminecooldown(self, user, args)
+
+        elif cmd == "setmineenergycost":
+            await handle_setmineenergycost(self, user, args)
+
+        elif cmd == "setminingenergy":
+            await handle_setminingenergy(self, user, args)
+
+        elif cmd == "addore":
+            await handle_addore(self, user, args)
+
+        elif cmd == "removeore":
+            await handle_removeore(self, user, args)
+
+        elif cmd == "settoollevel":
+            await handle_settoollevel(self, user, args)
+
+        elif cmd == "setminelevel":
+            await handle_setminelevel(self, user, args)
+
+        elif cmd == "addminexp":
+            await handle_addminexp(self, user, args)
+
+        elif cmd == "setminexp":
+            await handle_setminexp(self, user, args)
+
+        elif cmd == "resetmining":
+            await handle_resetmining(self, user, args)
+
+        elif cmd == "miningroomrequired":
+            await handle_miningroomrequired(self, user, args)
+
+        elif cmd == "orelist":
+            await handle_orelist(self, user)
+
+        elif cmd == "minehelp":
+            await handle_minehelp(self, user, args)
 
         # ── Maintenance tools ─────────────────────────────────────────────────
         elif cmd == "botstatus":

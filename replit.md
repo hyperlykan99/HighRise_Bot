@@ -51,7 +51,7 @@ DB schema source of truth: `database.py` (`_MIGRATIONS` list + `init_db()`)
 
 ## Product
 
-Casino games (BJ, RBJ with split/double/shoe, Poker), DJ queue, token economy, daily rewards, bank/send, shop (titles/emoji badges), quests, achievements, events, subscriber DM system, leaderboards, staff management tiers, 6-page public player profiles with privacy controls, **emoji badge market** (player-to-player trading with atomic SQLite transactions and configurable market fee).
+Casino games (BJ, RBJ with split/double/shoe, Poker), DJ queue, token economy, daily rewards, bank/send, shop (titles/emoji badges), quests, achievements, events, subscriber DM system, leaderboards, staff management tiers, 6-page public player profiles with privacy controls, **emoji badge market** (player-to-player trading with atomic SQLite transactions and configurable market fee), **Mining game** (ore drops, pickaxe upgrades, crafting, leaderboards, daily bonus, mining events).
 
 **Admin power commands** (admin+, logged to `admin_action_logs`): `setcoins/editcoins/resetcoins`, `addeventcoins/removeeventcoins/seteventcoins/reseteventcoins`, `addxp/removexp/setxp/resetxp/setlevel/addlevel`, `setrep/resetrep`, `givetitle/removetitle`, `givebadge/removebadge/giveemojibadge`, `addvip/removevip/vips`, `resetbjstats/resetrbjstats/resetpokerstats/resetcasinostats`, `adminpanel`, `adminlogs`, `addbadge/editbadgeprice/setbadgepurchasable/setbadgetradeable/setbadgesellable`, `badgecatalog/badgeadmin/setbadgemarketfee/badgemarketlogs`.
 
@@ -92,6 +92,18 @@ Casino page shortcut: `/casino <username>` (when arg is not modes/on/off/reset/l
 **Ownership markers**: ✅ shown inline when player already owns the item  
 **Legacy unchanged**: `/buy badge <id>` · `/buy title <id>` · `/buyevent <id>` · `/eventshop buy <id>` all still work
 
+## Mining Game (modules/mining.py)
+
+**Tables**: `mining_players` (stats, tool, energy, boosts, streaks), `mining_inventory` (ore qty per user), `mining_items` (25-ore catalog seeded), `mining_settings` (key/value), `mining_logs`, `mining_events`  
+**Player commands**: `/mine` `/m` `/dig` — roll ore drop with cooldown + energy cost · `/tool` `/pickaxe` — view pickaxe · `/upgradetool` `/upick` — upgrade (coins + ore mats) · `/ores` `/mineinv [page]` · `/sellores` sell all · `/sellore <id> <qty>` · `/mineprofile` `/mp` `/minerank` — 2-page stats · `/minelb [mines|level|ores|rare|coins|meteorite]` · `/mineshop` — consumables · `/minebuy <#>` · `/craft [item_id]` — craft badges+titles · `/minedaily` — daily bonus (energy+coins+MXP) · `/minehelp`  
+**Pickaxes**: 10 levels (Worn→Master). Upgrade requires coins + specific ores. Lv 10 = 30s cooldown, +4.5% rare boost.  
+**Ores**: 25 items across 7 rarities (common→ultra_rare). Rare+ finds announced to room. Meteorite Fragment (ultra_rare) has dedicated leaderboard.  
+**Boosts**: 🍀 Lucky Charm (+25% rare chance, 15m) · 🎵 Focus Music (2x MXP, 15m) — bought via /mineshop, timed via `luck_boost_until`/`xp_boost_until` ISO columns.  
+**Mining events**: `double_ore` `double_mxp` `lucky_hour` `energy_free` `meteor_rush` — started by `/startminingevent <id> [mins]`, auto-expire by `ends_at`.  
+**Crafting**: `miner_badge` `gem_hunter_badge` `lounge_miner` `master_miner` `starfinder` titles/badges from ore recipes.  
+**Admin**: `/mining on|off` · `/setminecooldown` · `/setmineenergycost` · `/setminingenergy <user> <amt>` · `/addore <user> <ore> <qty>` · `/removeore` · `/settoollevel <user> <1-10>` · `/setminelevel` · `/addminexp` · `/setminexp` · `/resetmining <user>` · `/miningroomrequired on|off` · `/orelist`  
+**DB helpers**: `get_or_create_miner` / `ensure_miner_row` (alias) · `update_miner(**kwargs)` · `add_ore` / `remove_ore` / `sell_all_ores` / `sell_ore_item` · `get_inventory` · `get_mine_leaderboard(field)` · `start/stop_mining_event`
+
 ## Gotchas
 
 - Never hardcode ports — bot uses Highrise WebSocket, not HTTP.
@@ -100,7 +112,9 @@ Casino page shortcut: `/casino <username>` (when arg is not modes/on/off/reset/l
 - `make_shoe` is in `cards.py` — import from there, not redefined in module files.
 - `profile_privacy` is keyed by `username.lower()` — always lowercase before DB calls.
 - Emoji badge ownership lives in `user_badges` (keyed by `lower(username)`); `owned_items` is for legacy badges + titles only.
-- `seed_emoji_badges()` is called in `_migrate_db()` — every new badge uses `INSERT OR IGNORE` so it's safe to run on every startup.
+- `seed_emoji_badges()` and `seed_mining_items()` both called in `_migrate_db()` — all inserts use `INSERT OR IGNORE`.
+- Mining inventory keyed by `lower(username)` in `mining_inventory`; all helper calls normalise case.
+- `ensure_miner_row(username)` is an alias for `get_or_create_miner(username)` — use either.
 
 ## Pointers
 
