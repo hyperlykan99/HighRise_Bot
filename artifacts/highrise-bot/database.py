@@ -1197,6 +1197,45 @@ def _migrate_db():
         "ALTER TABLE poker_card_delivery ADD COLUMN display_name TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE poker_card_delivery ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE poker_card_delivery ADD COLUMN last_attempt_at TEXT NOT NULL DEFAULT ''",
+        # ── Poker player presence (leave-room detection) ──────────────────────
+        "CREATE TABLE IF NOT EXISTS poker_player_presence ("
+        "username_key TEXT PRIMARY KEY, "
+        "display_name TEXT NOT NULL DEFAULT '', "
+        "in_room INTEGER NOT NULL DEFAULT 1, "
+        "last_seen_at TEXT NOT NULL DEFAULT (datetime('now')), "
+        "last_checked_at TEXT NOT NULL DEFAULT '')",
+        # ── Poker AFK tracking ────────────────────────────────────────────────
+        "CREATE TABLE IF NOT EXISTS poker_afk_tracking ("
+        "username_key TEXT PRIMARY KEY, "
+        "display_name TEXT NOT NULL DEFAULT '', "
+        "missed_actions INTEGER NOT NULL DEFAULT 0, "
+        "last_action_at TEXT NOT NULL DEFAULT '', "
+        "sitting_out INTEGER NOT NULL DEFAULT 0)",
+        # ── Poker AI simulation logs ──────────────────────────────────────────
+        "CREATE TABLE IF NOT EXISTS poker_ai_logs ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "timestamp TEXT NOT NULL DEFAULT (datetime('now')), "
+        "hand_no INTEGER NOT NULL DEFAULT 0, "
+        "error_type TEXT NOT NULL DEFAULT '', "
+        "details TEXT NOT NULL DEFAULT '')",
+        # ── Poker debug access logs ───────────────────────────────────────────
+        "CREATE TABLE IF NOT EXISTS poker_debug_logs ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "timestamp TEXT NOT NULL DEFAULT (datetime('now')), "
+        "actor_username TEXT NOT NULL DEFAULT '', "
+        "action TEXT NOT NULL DEFAULT '', "
+        "round_id TEXT NOT NULL DEFAULT '', "
+        "details TEXT NOT NULL DEFAULT '')",
+        # ── New poker mode/speed/AFK settings (idempotent seeds) ─────────────
+        "INSERT OR IGNORE INTO room_settings (key, value) VALUES ('poker_mode', 'normal')",
+        "INSERT OR IGNORE INTO room_settings (key, value) VALUES ('poker_stakes_mode', 'normal')",
+        "INSERT OR IGNORE INTO room_settings (key, value) VALUES ('poker_rules_mode', 'casual')",
+        "INSERT OR IGNORE INTO room_settings (key, value) VALUES ('poker_afk_enabled', '1')",
+        "INSERT OR IGNORE INTO room_settings (key, value) VALUES ('poker_afk_missed_before_sitout', '2')",
+        "INSERT OR IGNORE INTO room_settings (key, value) VALUES ('poker_afk_missed_before_remove', '3')",
+        "INSERT OR IGNORE INTO room_settings (key, value) VALUES ('poker_left_allin_policy', 'fold')",
+        "INSERT OR IGNORE INTO room_settings (key, value) VALUES ('poker_ai_enabled', '0')",
+        "INSERT OR IGNORE INTO room_settings (key, value) VALUES ('poker_revealdebug_enabled', '0')",
     ]:
         try:
             conn.execute(sql)
@@ -6948,6 +6987,64 @@ def rebuild_delivery_rows(round_id: str) -> int:
     conn.commit()
     conn.close()
     return created
+
+
+# ── Poker debug / AI log helpers ──────────────────────────────────────────────
+
+def poker_debug_log(actor: str, action: str,
+                    round_id: str = "", details: str = "") -> None:
+    """Write an entry to poker_debug_logs."""
+    conn = get_connection()
+    conn.execute(
+        "INSERT INTO poker_debug_logs "
+        "(actor_username, action, round_id, details) VALUES (?, ?, ?, ?)",
+        (actor[:60], action[:60], round_id[:40], details[:200]),
+    )
+    conn.commit()
+    conn.close()
+
+
+def poker_ai_log(hand_no: int, error_type: str, details: str = "") -> None:
+    """Write an entry to poker_ai_logs."""
+    conn = get_connection()
+    conn.execute(
+        "INSERT INTO poker_ai_logs (hand_no, error_type, details) VALUES (?, ?, ?)",
+        (hand_no, error_type[:60], details[:200]),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_poker_ai_logs(limit: int = 10) -> list:
+    """Return most recent poker_ai_logs entries (newest first)."""
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT timestamp, hand_no, error_type, details "
+        "FROM poker_ai_logs ORDER BY id DESC LIMIT ?",
+        (limit,),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def clear_poker_ai_logs() -> None:
+    """Delete all entries from poker_ai_logs."""
+    conn = get_connection()
+    conn.execute("DELETE FROM poker_ai_logs")
+    conn.commit()
+    conn.close()
+
+
+def get_poker_debug_logs(limit: int = 10) -> list:
+    """Return most recent poker_debug_logs entries (newest first)."""
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT timestamp, actor_username, action, round_id, details "
+        "FROM poker_debug_logs ORDER BY id DESC LIMIT ?",
+        (limit,),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
 
 
 def save_hole_cards(round_id: str, username_key: str, display_name: str,

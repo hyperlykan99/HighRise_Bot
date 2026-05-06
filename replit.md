@@ -59,6 +59,8 @@ DB schema source of truth: `database.py` (`_MIGRATIONS` list + `init_db()`).
 
 Casino games (Blackjack, Realistic Blackjack, Poker), DJ queue, token economy, daily rewards, in-game shop, quests, achievements, events, subscriber DMs, leaderboards, staff management, public player profiles with privacy controls, emoji badge market, mining game, a comprehensive room utility system, a bot mode/outfit system with multiple personas, and a multi-bot system for distributed command handling and high availability. It also includes a Casino Integrity Checker for verifying game logic and card visibility.
 
+**Poker upgrade (fault-safe spec):** Leave-room auto-fold (`handle_poker_player_left` called from `on_user_leave`), 3-strike AFK tracking with auto-removal/refund (`_turn_timeout`), speed modes (`/pokermode`), buy-in/stakes modes (`/pokerstakes`), rule modes (`/pokerrules`), AI simulation (`/poker ai`, `_run_ai_simulation`), owner debug card reveal (`/poker revealdebug`, `/poker allcards`), AFK remove/sitout toggles (`/setpokerafkremove`, `/setpokerafksitout`), enhanced debug sub-commands (`/pokerdebug delivery|timers|settings|pots|locks`), and 8-page help rewrite (`/pokerhelp`). New DB tables: `poker_player_presence`, `poker_afk_tracking`, `poker_ai_logs`, `poker_debug_logs`.
+
 ## User preferences
 
 - All chat messages must be ≤ 249 characters.
@@ -86,3 +88,6 @@ Casino games (Blackjack, Realistic Blackjack, Poker), DJ queue, token economy, d
 - To manage multi-bot command ownership: Edit `_DEFAULT_COMMAND_OWNERS` in `multi_bot.py` or use `/setcommandowner`.
 - To guard a new module's startup tasks: call `should_this_bot_run_module("modulename")` before any `asyncio.create_task(startup_...)` in `on_start`. Add the module to `_MODULE_OWNER_MODES` in `multi_bot.py`.
 - New task/restore commands: `/taskowners`, `/activetasks`, `/taskconflicts`, `/fixtaskowners`, `/restoreannounce on|off`, `/restorestatus` (all admin/owner-only).
+- Poker AFK/mode/stakes/rules settings are stored in `room_settings` via `db.get_room_setting()` / `db.set_room_setting()`.
+- `poker_player_presence` tracks join/leave timestamps; `poker_afk_tracking` tracks strike counts per hand.
+- `/poker ai` toggles `_ai_sim_state["enabled"]`; AI hands are logged to `poker_ai_logs` table.

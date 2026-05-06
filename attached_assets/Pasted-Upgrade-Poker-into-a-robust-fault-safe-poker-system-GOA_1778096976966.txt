@@ -1,0 +1,775 @@
+Upgrade Poker into a robust, fault-safe poker system.
+
+GOAL:
+Make Poker stable, realistic, easy to manage, and hard to break.
+
+Main fixes/features:
+- No stuck hands.
+- No missing card whispers.
+- No unresolved pots.
+- Players leaving room auto-fold and leave table.
+- AFK players are removed from table after missed actions.
+- Table credits/stacks are safely refunded.
+- Better help commands with short descriptions.
+- Better debug commands with short descriptions.
+- Add poker speed modes: normal, long, fast, custom.
+- Add buy-in modes: low, normal, high roller, custom.
+- Add owner-only AI poker simulation/debug mode to stress-test poker.
+- Owner can view all AI/debug cards only in debug mode.
+
+IMPORTANT:
+- Do not remove existing poker features.
+- Keep Poker Bot ownership.
+- Keep multi-bot routing.
+- Keep shared SQLite database.
+- Keep player balances safe.
+- Keep all messages under 250 characters.
+- No silent failures.
+- Every command must reply with success, usage, permission error, or clear error.
+- Never leak real player private cards.
+- Owner all-card view is allowed only in AI/debug simulation mode or explicit owner debug command.
+
+==================================================
+PART 1: PLAYER LEAVES ROOM AUTO-FOLD
+==================================================
+
+When a player leaves the Highrise room:
+
+If player is seated at poker table:
+1. If player is in active hand:
+   - Auto-fold them.
+   - Mark fold reason = "left_room".
+   - Remove them from current hand.
+   - If only one active player remains, resolve pot immediately.
+2. Refund their remaining table stack to main wallet.
+3. Remove them from the table seat.
+4. Clear pending turn/action for them.
+5. Announce:
+"🚪 @user left. Auto-folded and stack refunded."
+
+If player is seated but not in active hand:
+- Refund remaining table stack.
+- Remove from table.
+- Message:
+"🚪 @user left poker table. Stack refunded."
+
+Rules:
+- Do not refund active bets already committed to pot.
+- Refund only remaining table stack.
+- Use SQLite transaction.
+- Log action in poker_logs.
+- If room leave event is unavailable, detect using periodic room presence check.
+
+Create/update:
+poker_player_presence:
+- username_key TEXT PRIMARY KEY
+- display_name TEXT
+- in_room INTEGER DEFAULT 1
+- last_seen_at TEXT
+- last_checked_at TEXT
+
+==================================================
+PART 2: AFK AUTO-FOLD AND REMOVE
+==================================================
+
+If a player fails to act before action timer expires:
+
+First missed action:
+- Auto-check if possible.
+- If cannot check, auto-fold.
+- Increment missed_actions.
+
+Second missed action:
+- Auto-fold.
+- Mark player as sitting out.
+- Message:
+"⏳ @user timed out and is sitting out."
+
+Third missed action or setting threshold:
+- Remove player from table.
+- Refund remaining table stack.
+- Message:
+"💤 @user removed for AFK. Stack refunded."
+
+Settings:
+- poker_afk_enabled = true
+- poker_afk_missed_before_sitout = 2
+- poker_afk_missed_before_remove = 3
+- poker_afk_refund_stack = true
+
+Commands:
+- /poker afk on
+- /poker afk off
+- /setpokerafkremove <misses>
+- /setpokerafksitout <misses>
+
+Messages:
+"✅ Poker AFK removal ON."
+"✅ AFK remove threshold set to 3."
+
+==================================================
+PART 3: SAFE REFUND RULES
+==================================================
+
+When leaving/AFK/removing player:
+
+Refund:
+- player’s remaining table stack
+
+Do not refund:
+- chips already bet in current pot
+- blinds already posted
+- antes already posted
+
+If hand is not active:
+- refund full table stack.
+
+If active hand:
+- auto-fold first
+- refund remaining stack
+- keep committed pot in pot
+
+If player is all-in:
+- do not remove until hand resolves unless they left room.
+- If they left room, keep their all-in hand eligible only if poker rules allow disconnected all-in.
+- Add setting:
+  poker_left_allin_policy = fold
+  allowed values: fold, keep_allin
+
+Default:
+- fold
+
+Command:
+- /poker leftallin fold
+- /poker leftallin keep
+
+==================================================
+PART 4: ROBUST HAND STATE MACHINE
+==================================================
+
+Create clear poker states:
+
+table_status:
+- closed
+- waiting
+- lobby
+- active
+- showdown
+- between_hands
+- stuck
+
+hand_phase:
+- none
+- preflop
+- flop
+- turn
+- river
+- showdown
+- finished
+
+Every state transition must validate:
+- active players
+- pot
+- current bet
+- cards saved
+- board cards
+- current turn
+- timers
+
+If validation fails:
+- set table_status = stuck
+- recommend recovery with /poker recoverystatus
+- do not crash.
+
+==================================================
+PART 5: AUTO-RECOVERY GUARDS
+==================================================
+
+Before every action:
+- verify table is valid.
+- verify player is in hand.
+- verify it is their turn unless command is info.
+- verify pot >= 0.
+- verify stacks >= 0.
+- verify cards exist.
+
+If invalid:
+- reject action with clear message.
+- do not continue corrupt hand.
+
+Examples:
+"Poker hand is stuck. Staff: /poker recoverystatus."
+"Not your turn."
+"You are not in this hand."
+"No active poker hand."
+
+==================================================
+PART 6: CARD DELIVERY GUARANTEE
+==================================================
+
+Keep/fix guaranteed delivery:
+
+At hand start:
+- save hole cards for every in-hand player.
+- create poker_card_delivery rows.
+- whisper every player their own cards.
+- retry failed whispers once.
+- /ph always works.
+- /poker resendcards can resend saved cards.
+- /poker cardstatus shows delivery status.
+
+Commands:
+- /poker cardstatus
+- /poker rebuilddelivery
+- /poker resendcards
+- /poker resendcards <username>
+
+Expected:
+"Cards: 2/2 sent."
+
+==================================================
+PART 7: POKER SPEED MODES
+==================================================
+
+Add poker speed modes:
+
+normal:
+- turn_timer_seconds = 45
+- lobby_timer_seconds = 20
+- next_hand_timer_seconds = 10
+- afk_remove_misses = 3
+
+long:
+- turn_timer_seconds = 90
+- lobby_timer_seconds = 45
+- next_hand_timer_seconds = 20
+- afk_remove_misses = 4
+
+fast:
+- turn_timer_seconds = 20
+- lobby_timer_seconds = 10
+- next_hand_timer_seconds = 5
+- afk_remove_misses = 2
+
+custom:
+- uses manually set timers
+
+Commands:
+- /pokermode
+- /pokermode normal
+- /pokermode long
+- /pokermode fast
+- /pokermode custom
+
+Messages:
+"✅ Poker mode set to Normal."
+"✅ Poker mode set to Fast."
+"Poker mode: Normal | Turn 45s | Lobby 20s"
+
+When any timer is manually changed, set mode to custom:
+"✅ Turn timer set to 60s. Mode: Custom."
+
+==================================================
+PART 8: BUY-IN MODES
+==================================================
+
+Add poker buy-in modes:
+
+low:
+- min_buyin = 100
+- max_buyin = 10,000
+- small_blind = 10
+- big_blind = 20
+- ante = 0
+
+normal:
+- min_buyin = 1,000
+- max_buyin = 1,000,000
+- small_blind = 50
+- big_blind = 100
+- ante = 0
+
+highroller:
+- min_buyin = 100,000
+- max_buyin = 100,000,000
+- small_blind = 5,000
+- big_blind = 10,000
+- ante = 0
+
+custom:
+- uses manually set buy-in/blinds
+
+Commands:
+- /pokerstakes
+- /pokerstakes low
+- /pokerstakes normal
+- /pokerstakes highroller
+- /pokerstakes custom
+
+Aliases:
+- /pokerstake
+- /pokerlimitmode
+
+Messages:
+"✅ Poker stakes set to Low."
+"✅ Poker stakes set to High Roller."
+"Stakes: Normal | Buy-in 1K-1M | Blinds 50/100"
+
+When buy-in/blinds are manually changed:
+- set stakes mode to custom.
+
+==================================================
+PART 9: ADDITIONAL RECOMMENDED MODES
+==================================================
+
+Add optional table rule modes:
+
+casual:
+- no ante
+- normal blinds
+- friendly timers
+- best for public room
+
+turbo:
+- fast timers
+- higher blinds
+- faster games
+
+practice:
+- no real coins
+- fake chips only
+- stats do not count
+- great for testing
+
+Commands:
+- /pokerrules casual
+- /pokerrules turbo
+- /pokerrules practice
+
+Default:
+- casual
+
+Message:
+"✅ Poker rules set to Casual."
+
+Practice mode:
+- Uses fake test chips.
+- Does not affect real balances.
+- Clearly label:
+"Practice poker ON. No real coins."
+
+==================================================
+PART 10: AI POKER DEBUG SIMULATION
+==================================================
+
+Add owner-only AI poker simulation mode.
+
+Purpose:
+Owners can run fake AI poker games to find bugs without real players.
+
+Commands:
+- /poker ai on
+- /poker ai off
+- /poker ai start
+- /poker ai stop
+- /poker ai status
+- /poker ai players <amount>
+- /poker ai hands <amount>
+- /poker ai speed <slow|normal|fast>
+- /poker ai reset
+- /poker ai report
+- /poker ai cards on
+- /poker ai cards off
+
+Permissions:
+- Owner only.
+
+Behavior:
+- Creates simulated AI players:
+  AI_1, AI_2, AI_3, etc.
+- Uses fake chips.
+- Does not affect real balances.
+- Does not count real stats.
+- Can run many hands to find bugs.
+- Logs errors, stuck states, bad pots, missing cards, side pot issues, invalid turns.
+
+Owner card visibility:
+- /poker ai cards on
+Allows owner to see all AI cards during AI simulation only.
+
+Example:
+"AI_1: A♠️ K♦️ | AI_2: 7♣️ 7♥️ | Board: 2♠️ 9♦️ J♣️"
+
+Must never reveal real player cards unless:
+- owner uses explicit owner debug command outside real game
+- and it whispers only to owner
+- and logs the access
+
+Default:
+- AI all-card view OFF
+
+==================================================
+PART 11: AI SIMULATION CHECKS
+==================================================
+
+AI simulation should detect:
+
+- missing hole cards
+- duplicate impossible cards
+- wrong turn order
+- skipped blinds
+- pot mismatch
+- negative stack
+- side pot mismatch
+- player acts after folding
+- all-in player asked to act
+- game stuck
+- wrong winner
+- payout mismatch
+- card delivery table missing
+- hand not clearing
+- timer stuck
+- active player count wrong
+
+After simulation:
+"AI Poker: 100 hands | 0 errors | 0 stuck"
+
+If errors:
+"AI Poker: 100 hands | 3 errors. Use /poker ai report."
+
+/poker ai report:
+Shows first errors:
+"Err #1: sidepot mismatch hand 12"
+"Err #2: negative stack AI_3"
+
+==================================================
+PART 12: OWNER ALL-CARDS DEBUG FOR REAL GAMES
+==================================================
+
+Add optional owner-only command:
+
+- /poker revealdebug
+- /poker revealdebug on
+- /poker revealdebug off
+- /poker allcards
+
+Default:
+- OFF
+
+If /poker revealdebug on:
+- Only owner can use /poker allcards.
+- Output must be whispered to owner.
+- Must log access.
+- Must warn:
+"Owner debug only. Do not use during fair real games."
+
+/poker allcards:
+Shows all hole cards only to owner:
+"Owner debug: @A A♠️ K♦️ | @B 7♣️ 7♥️"
+
+Rules:
+- Owner only.
+- Whisper only.
+- Log to poker_debug_logs.
+- Never public.
+- Off by default.
+- If table has real players, warn:
+"Real game active. Use only for bug testing."
+
+==================================================
+PART 13: POKER DEBUG LOGS
+==================================================
+
+Create poker_debug_logs table:
+
+poker_debug_logs:
+- id INTEGER PRIMARY KEY AUTOINCREMENT
+- timestamp TEXT
+- actor_username TEXT
+- action TEXT
+- round_id TEXT
+- details TEXT
+
+Log:
+- AI simulation start/stop
+- AI errors
+- owner allcards access
+- recovery commands
+- forced table clears
+- card resend/rebuild
+
+==================================================
+PART 14: HELP COMMANDS REWRITE
+==================================================
+
+Make Poker help easy and short.
+
+Player help:
+
+/pokerhelp:
+"♠️ Poker
+/p buyin - join
+/ph - cards
+/pt - table
+/check - check
+/call - call"
+
+/pokerhelp 2:
+"♠️ Actions
+/r amt - raise
+/f - fold
+/ai - all-in
+/stack - your stack
+/rebuy amt - add"
+
+/pokerhelp 3:
+"♠️ More
+/sitout - pause
+/sitin - return
+/plb - leaderboard
+/pstats - stats"
+
+Staff help:
+
+/pokerhelp 4:
+"♠️ Staff
+/poker settings
+/poker state
+/poker recoverystatus
+/poker cardstatus"
+
+/pokerhelp 5:
+"♠️ Settings
+/pokermode normal|long|fast
+/pokerstakes low|normal|highroller
+/setpokertimer sec"
+
+/pokerhelp 6:
+"♠️ Recovery
+/poker hardrefund
+/poker clearhand
+/poker closeforce
+/poker resendcards"
+
+/pokerhelp 7:
+"♠️ Debug
+/pokerdebug state
+/pokerdebug players
+/pokerdebug delivery
+/poker integrity cards"
+
+/pokerhelp 8:
+"♠️ AI Debug
+/poker ai start
+/poker ai hands 100
+/poker ai report
+/poker ai cards on"
+
+==================================================
+PART 15: DEBUG COMMANDS WITH SHORT DETAILS
+==================================================
+
+Update /pokerdebug to show:
+
+"♠️ Debug
+state - table status
+players - seats/stacks
+hand - cards/board
+delivery - card whispers"
+
+/pokerdebug 2:
+"Debug 2
+pots - pot/sidepots
+timers - active timers
+settings - rules
+locks - DB locks"
+
+Commands:
+- /pokerdebug state
+- /pokerdebug players
+- /pokerdebug table
+- /pokerdebug hand
+- /pokerdebug cards
+- /pokerdebug delivery
+- /pokerdebug pots
+- /pokerdebug timers
+- /pokerdebug settings
+- /pokerdebug locks
+- /pokerdebug cleanup
+
+Each debug command must reply clearly.
+
+Examples:
+"/pokerdebug players"
+"Players: @A stack 900 in | @B stack 1000 in"
+
+/pokerdebug delivery:
+"Cards: 2/2 sent | Missing none"
+
+/pokerdebug timers:
+"Turn timer: @A 32s left | Lobby none"
+
+==================================================
+PART 16: ROBUST RECOVERY COMMANDS
+==================================================
+
+Make sure these work:
+
+- /poker recoverystatus
+- /poker cleanup
+- /poker refund
+- /poker hardrefund
+- /poker clearhand
+- /poker forcefinish
+- /poker closeforce
+- /poker cleartable
+- /confirmclosepoker <code>
+
+No recovery command should point in a loop.
+Every stuck state should recommend one command.
+
+==================================================
+PART 17: SETTINGS COMMANDS
+==================================================
+
+Make sure these work:
+
+- /poker settings
+- /pokermode
+- /pokermode normal
+- /pokermode long
+- /pokermode fast
+- /pokermode custom
+- /pokerstakes
+- /pokerstakes low
+- /pokerstakes normal
+- /pokerstakes highroller
+- /pokerstakes custom
+- /setpokertimer <sec>
+- /setpokerturntimer <sec>
+- /setpokerlobbytimer <sec>
+- /setpokernexthandtimer <sec>
+- /setpokerblinds <sb> <bb>
+- /setpokerante <amount>
+- /setpokerminplayers <amount>
+- /setpokermaxplayers <amount>
+- /setpokerminbuyin <amount>
+- /setpokermaxbuyin <amount>
+- /setpokerraise <amount>
+- /poker allin on/off
+- /poker raiselimit on/off
+- /poker winlimit on/off
+- /poker losslimit on/off
+- /poker buyinlimit on/off
+
+==================================================
+PART 18: DATABASE TABLES
+==================================================
+
+Create/update:
+
+poker_settings:
+- key TEXT PRIMARY KEY
+- value TEXT
+- updated_by TEXT
+- updated_at TEXT
+
+Add settings:
+- poker_mode
+- poker_stakes_mode
+- poker_rules_mode
+- poker_afk_enabled
+- poker_afk_missed_before_sitout
+- poker_afk_missed_before_remove
+- poker_left_allin_policy
+- poker_ai_enabled
+- poker_ai_cards_visible
+- poker_revealdebug_enabled
+
+poker_afk_tracking:
+- username_key TEXT PRIMARY KEY
+- display_name TEXT
+- missed_actions INTEGER DEFAULT 0
+- last_action_at TEXT
+- sitting_out INTEGER DEFAULT 0
+
+poker_ai_logs:
+- id INTEGER PRIMARY KEY AUTOINCREMENT
+- timestamp TEXT
+- hand_no INTEGER
+- error_type TEXT
+- details TEXT
+
+poker_debug_logs:
+- id INTEGER PRIMARY KEY AUTOINCREMENT
+- timestamp TEXT
+- actor_username TEXT
+- action TEXT
+- round_id TEXT
+- details TEXT
+
+==================================================
+PART 19: INTEGRITY CHECK UPDATE
+==================================================
+
+Update:
+/poker integrity full
+/casinointegrity full
+
+Add checks for:
+- leave-room auto-fold handler
+- AFK auto-fold/remove
+- poker mode settings
+- poker stakes settings
+- card delivery
+- recovery commands
+- AI simulation route
+- debug commands
+- no negative stacks
+- no stuck timers
+
+Expected:
+"Poker Integrity: 100/100 pass"
+
+==================================================
+PART 20: TESTS
+==================================================
+
+Run these after update:
+
+Settings:
+/pokermode normal
+/pokerstakes normal
+/poker settings
+
+Card delivery:
+/poker cardstatus
+/poker resendcards
+/ph
+
+AFK:
+/poker afk on
+/setpokerafkremove 3
+
+Recovery:
+/poker recoverystatus
+/poker hardrefund
+/poker clearhand
+
+AI:
+/poker ai players 4
+/poker ai hands 100
+/poker ai start
+/poker ai report
+
+Integrity:
+/poker integrity full
+/casinointegrity full
+
+Expected:
+- No stuck table.
+- No missing cards.
+- Leaving player auto-folds and exits.
+- AFK player gets removed.
+- AI simulation finds/report bugs.
+- Help pages are easy to understand.

@@ -119,6 +119,9 @@ from modules.poker import (
     soft_reset_table as poker_soft_reset_table,
     reset_table as poker_reset_table,
     get_poker_state_str,
+    handle_pokermode, handle_pokerstakes, handle_pokerrules,
+    handle_setpokerafkremove, handle_setpokerafksitout,
+    handle_poker_player_left,
 )
 from modules.casino_settings     import (
     handle_casinosettings, handle_casinolimits, handle_casinotoggles,
@@ -401,6 +404,8 @@ MANAGER_ONLY_CMDS = {
     "resetpokerlimits", "setpokerlimits",
     "setpokerblinds", "setpokerante", "setpokernexthandtimer",
     "setpokermaxstack", "setpokeridlestrikes",
+    "pokermode", "pokerstakes", "pokerstake", "pokerlimitmode",
+    "pokerrules", "setpokerafkremove", "setpokerafksitout",
     "pokerdebug", "pokerfix", "pokerrefundall", "pokercleanup",
     "confirmclosepoker",
     "casinointegrity", "integritylogs", "carddeliverycheck",
@@ -523,6 +528,8 @@ ALL_KNOWN_COMMANDS = (
         "rep", "reputation", "repstats", "toprep", "repleaderboard",
         # Poker — full commands
         "poker", "pokerhelp", "pokerstats", "pokerlb", "pokerdebug",
+        "pokermode", "pokerstakes", "pokerstake", "pokerlimitmode",
+        "pokerrules", "setpokerafkremove", "setpokerafksitout",
         "pokerfix", "pokerrefundall", "pokercleanup",
         "setpokerbuyin", "setpokerplayers", "setpokerlobbytimer",
         "setpokertimer", "setpokerturntimer", "setpokerraise",
@@ -3135,6 +3142,21 @@ class HangoutBot(BaseBot):
         elif cmd == "confirmclosepoker":
             await handle_confirmclosepoker(self, user, args)
 
+        elif cmd == "pokermode":
+            await handle_pokermode(self, user, args)
+
+        elif cmd in ("pokerstakes", "pokerstake", "pokerlimitmode"):
+            await handle_pokerstakes(self, user, args)
+
+        elif cmd == "pokerrules":
+            await handle_pokerrules(self, user, args)
+
+        elif cmd == "setpokerafkremove":
+            await handle_setpokerafkremove(self, user, args)
+
+        elif cmd == "setpokerafksitout":
+            await handle_setpokerafksitout(self, user, args)
+
         elif cmd == "casinointegrity":
             if not can_manage_games(user.username):
                 await self.highrise.send_whisper(user.id, "Staff only.")
@@ -3721,9 +3743,13 @@ class HangoutBot(BaseBot):
             pass
 
     async def on_user_leave(self, user: User) -> None:
-        """Log when a player leaves and remove from gold room cache."""
+        """Log when a player leaves; handle poker auto-fold if seated."""
         remove_from_room_cache(user.id)
         print(f"[HangoutBot] {user.username} left.")
+        try:
+            await handle_poker_player_left(self, user)
+        except Exception as _ple:
+            print(f"[POKER] on_user_leave error: {_ple}")
 
     async def on_reaction(self, user: User, reaction: str, receiver: User) -> None:
         """
