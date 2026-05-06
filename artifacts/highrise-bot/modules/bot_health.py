@@ -958,8 +958,15 @@ async def handle_fixbotmodes(bot, user) -> None:
     except Exception as _e:
         lines.append(f"  (instance query failed: {_e})")
 
+    # Step 3: clear in-memory ownership cache so next command uses fresh defaults
+    try:
+        from modules.multi_bot import invalidate_ownership_cache as _inval
+        _inval()
+    except Exception as _ce:
+        print(f"[FIXBOTMODES] cache clear error: {_ce}")
+
     summary = "; ".join(lines) if lines else "no instances found"
-    msg1 = f"✅ Bot modes reset. {cleared} ownership override(s) cleared."
+    msg1 = f"✅ Bot modes reset. {cleared} DB override(s) cleared. Cache refreshed."
     msg2 = f"Current: {summary}"
     await _w(bot, user.id, msg1[:249])
     await _w(bot, user.id, msg2[:249])

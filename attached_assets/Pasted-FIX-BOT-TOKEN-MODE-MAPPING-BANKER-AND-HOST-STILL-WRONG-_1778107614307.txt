@@ -1,0 +1,222 @@
+FIX BOT TOKEN MODE MAPPING — BANKER AND HOST STILL WRONG.
+
+Current problem:
+Commands are working again, but bot roles are still wrong.
+
+/ping all shows:
+- BankingBot = id=shop | mode=shopkeeper ❌
+- EmceeBot = id=event | mode=eventhost ❌
+- TestDJBot is replying to /help, so legacy BOT_TOKEN may still be running as Host.
+
+Because BankingBot is shopkeeper, /bal does not work.
+Because Host mapping is confused, /commandtest /bal does not respond.
+
+GOAL:
+Fix bot role mapping based on secret names, not username order.
+
+IMPORTANT:
+- Do not touch poker game logic.
+- Do not touch blackjack logic.
+- Do not add AI.
+- Keep SAFE_BOOT on.
+- Fix only token mapping, bot_instances, command routing, and ownership.
+- Existing slash commands must work.
+- No duplicate replies.
+
+==================================================
+PART 1: TOKEN SECRET NAME MUST DECIDE BOT MODE
+==================================================
+
+Use exact mapping:
+
+HOST_BOT_TOKEN:
+bot_id=host
+bot_mode=host
+expected username=EmceeBot
+
+BANKER_BOT_TOKEN:
+bot_id=banker
+bot_mode=banker
+expected username=BankingBot
+
+SHOP_BOT_TOKEN:
+bot_id=shop
+bot_mode=shopkeeper
+expected username=ShopBot
+
+EVENT_BOT_TOKEN:
+bot_id=event
+bot_mode=eventhost
+expected username=EventBot
+
+POKER_BOT_TOKEN:
+bot_id=poker
+bot_mode=poker
+expected username=ChipSoprano
+
+BLACKJACK_BOT_TOKEN:
+bot_id=blackjack
+bot_mode=blackjack
+expected username=AceSinatra
+
+MINER_BOT_TOKEN:
+bot_id=miner
+bot_mode=miner
+expected username=GreatestProspector
+
+SECURITY_BOT_TOKEN:
+bot_id=security
+bot_mode=security
+expected username=KeanuShield
+
+DJ_BOT_TOKEN:
+bot_id=dj
+bot_mode=dj
+expected username=DJ_DUDU
+
+Do not assign modes by list order.
+Do not assign modes by username guesses.
+The secret name is the source of truth.
+
+==================================================
+PART 2: LEGACY BOT_TOKEN RULE
+==================================================
+
+If HOST_BOT_TOKEN exists:
+- Do not start BOT_TOKEN.
+- Ignore legacy BOT_TOKEN completely.
+- Console:
+"[RUNNER] HOST_BOT_TOKEN found. Ignoring legacy BOT_TOKEN."
+
+If HOST_BOT_TOKEN does not exist but BOT_TOKEN exists:
+- BOT_TOKEN can run as host fallback.
+
+This should stop TestDJBot from acting as Host if HOST_BOT_TOKEN exists.
+
+==================================================
+PART 3: FIX CURRENT WRONG ASSIGNMENTS
+==================================================
+
+On startup, force repair bot_instances:
+
+If username is BankingBot:
+- bot_id=banker
+- bot_mode=banker
+
+If username is EmceeBot:
+- bot_id=host
+- bot_mode=host
+
+If username is TestDJBot and HOST_BOT_TOKEN exists:
+- mark disabled/offline
+- do not route commands to TestDJBot
+
+If username is ChipSoprano:
+- poker
+
+If username is AceSinatra:
+- blackjack
+
+If username is GreatestProspector:
+- miner
+
+If username is KeanuShield:
+- security
+
+If username is DJ_DUDU:
+- dj
+
+==================================================
+PART 4: FIX /FIXBOTMODES
+==================================================
+
+Make /fixbotmodes actually repair live and DB modes.
+
+Behavior:
+- repair bot_instances
+- repair command ownership defaults
+- clear stale wrong ownership
+- reload router ownership cache
+- reply:
+"✅ Bot modes repaired."
+
+It must not require the full broken router if possible.
+Host or emergency handler should allow it.
+
+==================================================
+PART 5: FIX COMMAND OWNERSHIP
+==================================================
+
+After repair:
+
+/help -> host
+/commandtest -> host
+/bots -> host
+/bothealth -> host
+
+/bal -> banker
+/balance -> banker
+/coins -> banker
+/wallet -> banker
+/daily -> banker
+/send -> banker
+/tip -> banker
+
+/shop -> shopkeeper
+/buy -> shopkeeper
+/vipshop -> shopkeeper
+
+/events -> eventhost
+/announce -> eventhost
+/autogames -> eventhost
+
+/p, /pt, /ph, /pokerhelp -> poker
+/rjoin, /bjoin, /bjhelp, /rbjhelp -> blackjack
+/mine, /ores, /minehelp -> miner
+
+==================================================
+PART 6: UPDATE /PING ALL OUTPUT
+==================================================
+
+/ping all should show real username and real mapped bot id/mode:
+
+Expected:
+EmceeBot: id=host | mode=host
+BankingBot: id=banker | mode=banker
+ChipSoprano: id=poker | mode=poker
+AceSinatra: id=blackjack | mode=blackjack
+GreatestProspector: id=miner | mode=miner
+KeanuShield: id=security | mode=security
+DJ_DUDU: id=dj | mode=dj
+
+If SHOP_BOT_TOKEN or EVENT_BOT_TOKEN are missing, do not fake them using BankingBot or EmceeBot.
+
+==================================================
+PART 7: TESTS
+==================================================
+
+After update and restart, run:
+
+/ping all
+
+Expected:
+BankingBot id=banker mode=banker
+EmceeBot id=host mode=host
+
+Then run:
+/fixbotmodes
+/help
+/commandtest /bal
+/bal
+/bankerhelp
+/pokerhelp
+
+Expected:
+- /help replies from EmceeBot or Host only.
+- /commandtest /bal says owner Banker route YES handler YES.
+- /bal replies from BankingBot only.
+- /pokerhelp replies from ChipSoprano only.
+
+Final requirement:
+BankingBot must never be shopkeeper unless it is using SHOP_BOT_TOKEN.
+EmceeBot must never be eventhost unless it is using EVENT_BOT_TOKEN.

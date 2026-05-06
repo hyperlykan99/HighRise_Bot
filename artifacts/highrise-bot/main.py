@@ -1929,6 +1929,65 @@ class HangoutBot(BaseBot):
 
     async def on_start(self, session_metadata) -> None:
         """Called once when the bot successfully connects to the room."""
+        # ── Runtime username-based mode fix ───────────────────────────────────
+        # Correct BOT_MODE/BOT_ID if the Highrise API token was stored in the wrong
+        # secret slot (e.g. EmceeBot's token in EVENT_BOT_TOKEN → would get mode=eventhost).
+        # We call get_room_users() immediately (the SDK connection is live at on_start),
+        # find our own user_id, and remap the mode based on actual username.
+        global BOT_MODE, BOT_ID, BOT_USERNAME
+        try:
+            _fix_resp = await self.highrise.get_room_users()
+            _my_uid   = session_metadata.user_id
+            _found_uname = ""
+            if hasattr(_fix_resp, "content"):
+                for _fu, _ in _fix_resp.content:
+                    if _fu.id == _my_uid:
+                        _found_uname = _fu.username
+                        break
+            # Canonical username → (bot_id, bot_mode) mapping.
+            # Keys are compared case-insensitively.
+            _UFIX_RAW: dict[str, tuple[str, str]] = {
+                "EmceeBot":           ("host",      "host"),
+                "BankingBot":         ("banker",    "banker"),
+                "ChipSoprano":        ("poker",     "poker"),
+                "AceSinatra":         ("blackjack", "blackjack"),
+                "GreatestProspector": ("miner",     "miner"),
+                "KeanuShield":        ("security",  "security"),
+                "DJ_DUDU":            ("dj",        "dj"),
+                "ShopBot":            ("shop",      "shopkeeper"),
+                "EventBot":           ("event",     "eventhost"),
+            }
+            _UFIX = {k.lower(): v for k, v in _UFIX_RAW.items()}
+            _u_key = _found_uname.strip().lower()
+            if _u_key and _u_key in _UFIX:
+                _new_id, _new_mode = _UFIX[_u_key]
+                if _new_mode != config.BOT_MODE or _new_id != config.BOT_ID:
+                    print(f"[MODE FIX] username={_found_uname}: "
+                          f"{config.BOT_MODE}/{config.BOT_ID} → {_new_mode}/{_new_id}")
+                    # Patch config module (used by all code reading config.BOT_MODE at call time)
+                    config.BOT_MODE    = _new_mode
+                    config.BOT_ID      = _new_id
+                    config.BOT_USERNAME = _found_uname
+                    # Patch multi_bot module exports (used by should_this_bot_handle etc.)
+                    import modules.multi_bot as _mb_ref
+                    _mb_ref.BOT_MODE    = _new_mode
+                    _mb_ref.BOT_ID      = _new_id
+                    _mb_ref.BOT_USERNAME = _found_uname
+                    # Patch main.py globals (used by local BOT_MODE/BOT_ID checks)
+                    BOT_MODE    = _new_mode
+                    BOT_ID      = _new_id
+                    BOT_USERNAME = _found_uname
+                else:
+                    print(f"[MODE FIX] {_found_uname} already correct: mode={_new_mode}")
+            elif _found_uname:
+                print(f"[MODE FIX] {_found_uname}: no fix rule, keeping mode={config.BOT_MODE}")
+            else:
+                print(f"[MODE FIX] could not identify own username (id={_my_uid}), "
+                      f"keeping env mode={config.BOT_MODE}")
+        except Exception as _ufix_err:
+            print(f"[MODE FIX] skipped ({type(_ufix_err).__name__}: {_ufix_err})")
+        # ──────────────────────────────────────────────────────────────────────
+
         _bid = config.BOT_ID
         print(f"[BOT START] id={_bid} mode={BOT_MODE}")
 

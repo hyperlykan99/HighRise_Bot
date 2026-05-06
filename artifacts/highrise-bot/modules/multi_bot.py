@@ -248,6 +248,15 @@ _MODE_NAMES: dict[str, str] = {
 
 _owner_cache: dict[str, str] = {}
 _owner_cache_ts: float = 0.0
+
+
+def invalidate_ownership_cache() -> None:
+    """Clear the in-memory command-ownership cache so the next lookup re-reads defaults."""
+    global _owner_cache_ts
+    _owner_cache.clear()
+    _owner_cache_ts = 0.0
+
+
 _OWNER_CACHE_TTL = 60.0
 
 _online_cache: dict[str, bool] = {}

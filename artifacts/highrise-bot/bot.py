@@ -86,6 +86,14 @@ def _collect_bots() -> list[_BotSpec]:
         primary_env   = None
         primary_token = ""
 
+    # If HOST_BOT_TOKEN is set, the legacy BOT_TOKEN/MAIN_BOT_TOKEN is suppressed.
+    # This prevents a TestDJBot (or any other legacy single-bot account) from
+    # running in parallel and acting as host when a dedicated host is configured.
+    if primary_token and primary_env in ("BOT_TOKEN", "MAIN_BOT_TOKEN"):
+        if os.environ.get("HOST_BOT_TOKEN", ""):
+            print(f"[RUNNER] HOST_BOT_TOKEN found. Ignoring legacy {primary_env}.")
+            primary_token = ""
+
     if primary_token:
         spec = _BotSpec(
             token_env    = primary_env,
