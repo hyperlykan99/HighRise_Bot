@@ -1944,7 +1944,9 @@ class HangoutBot(BaseBot):
         print(f"[SELFTEST] Bot connected")
         print(f"[CMD] message handler registered for {_bid}")
         print(f"[SELFTEST] Message listener registered")
-        print(f"[SELFTEST] Emergency /ping ready")
+        print(f"[SELFTEST] emergency ping handler ready")
+        print(f"[SELFTEST] emergency crashlogs handler ready")
+        print(f"[SELFTEST] normal router loaded or skipped")
         # Self-test: verify the router would handle these key commands correctly.
         # Uses should_this_bot_handle() — the real routing function — not just ownership lookup.
         # For non-host bots these commands are owned by host, so [SELFTEST SKIP] is correct.
@@ -2050,27 +2052,38 @@ class HangoutBot(BaseBot):
         except Exception as _e:
             print(f"[STARTUP] announce skipped: {_e}")
 
+    async def _safe_send(self, user_id: str, msg: str) -> None:
+        """Whisper msg to user_id, truncating to 249 chars. Never raises."""
+        try:
+            await self.highrise.send_whisper(user_id, msg[:249])
+        except Exception as _se:
+            print(f"[CMD] safe_send failed: {_se}")
+
     async def on_chat(self, user: User, message: str) -> None:
-        """SDK entry point — wraps _on_chat_body with top-level error handling (Part 9)."""
+        """SDK entry point — wraps _on_chat_body with top-level error handling."""
         try:
             await self._on_chat_body(user, message)
         except Exception as _top_err:
             import traceback as _tb
             _raw = message.strip()
             _ec = _raw.lstrip("/").split()[0].lower() if _raw.startswith("/") else "non_cmd"
+            _tb_str = _tb.format_exc()
             print(f"[CMD ERROR] bot={BOT_MODE} cmd=/{_ec}: {_top_err}")
-            print(_tb.format_exc())
+            print(_tb_str)
             try:
-                db.log_bot_crash(BOT_ID, BOT_MODE, "command", _ec,
-                                 type(_top_err).__name__, str(_top_err),
-                                 _tb.format_exc())
+                db.log_bot_crash(BOT_ID, BOT_MODE, "command",
+                                 type(_top_err).__name__,
+                                 f"/{_ec}: {str(_top_err)[:400]}",
+                                 _tb_str)
             except Exception:
                 pass
-            try:
-                await self.highrise.send_whisper(
-                    user.id, "Command error. Staff: /crashlogs latest")
-            except Exception:
-                pass
+            # Only host replies with error — prevent all 8 bots flooding user
+            if BOT_MODE in ("host", "all"):
+                try:
+                    await self.highrise.send_whisper(
+                        user.id, "Command error. Staff: /crashlogs latest")
+                except Exception:
+                    pass
 
     async def _on_chat_body(self, user: User, message: str) -> None:
         """
@@ -2099,44 +2112,70 @@ class HangoutBot(BaseBot):
         print(f"[CMD RX] username={user.username} text={message}")
 
         # ══════════════════════════════════════════════════════════════════════
-        # EMERGENCY BYPASS — these commands respond BEFORE any ownership gate,
-        # routing check, or permission check.  Any online bot may answer.
-        # This ensures /ping always works even if the host bot is reconnecting.
+        # EMERGENCY BYPASS — Zero DB calls. Zero routing. Zero ownership gate.
+        # Every section is wrapped in its own try/except — nothing can escape.
         # ══════════════════════════════════════════════════════════════════════
-        _mode_label = {
-            "host": "Host", "banker": "Banker", "blackjack": "Blackjack",
-            "poker": "Poker", "miner": "Miner", "shopkeeper": "Shop",
-            "security": "Security", "dj": "DJ", "eventhost": "Events",
-            "all": "Main",
-        }.get(BOT_MODE, BOT_MODE.title())
 
+        # /ping ── ONLY host bot replies. ALL other bots return silently.
+        # NO database, NO _is_mode_online, NO ownership table lookup.
         if cmd == "ping":
-            _ping_target = args[1].lower() if len(args) > 1 else ""
-            if _ping_target == "all":
-                # /ping all — every bot whispers once (owner/admin only)
-                from modules.permissions import is_owner, is_admin
-                if is_owner(user.username) or is_admin(user.username):
+            try:
+                _ping_target = args[1].lower() if len(args) > 1 else ""
+                if _ping_target == "all":
+                    # /ping all — every bot replies; try role check but never crash
+                    _allowed = False
                     try:
-                        await self.highrise.send_whisper(
-                            user.id, f"pong | {_mode_label} online")
+                        from modules.permissions import is_owner as _iow, is_admin as _iadm
+                        _allowed = _iow(user.username) or _iadm(user.username)
                     except Exception:
-                        pass
-            else:
-                # /ping — only host/all responds, or any bot as last-resort fallback
-                _is_host_mode = BOT_MODE in ("host", "all")
-                _host_online = _is_mode_online("host")
-                if _is_host_mode or not _host_online:
-                    try:
-                        _reply = "pong | Host online" if _is_host_mode else f"pong | {_mode_label} online (host fallback)"
-                        await self.highrise.send_whisper(user.id, _reply)
-                    except Exception:
-                        pass
-            return
+                        _allowed = BOT_MODE in ("host", "all")
+                    if _allowed:
+                        _lbl = {"host": "Host", "banker": "Banker",
+                                "blackjack": "Blackjack", "poker": "Poker",
+                                "miner": "Miner", "shopkeeper": "Shop",
+                                "security": "Security", "dj": "DJ",
+                                "eventhost": "Events", "all": "Main"
+                                }.get(BOT_MODE, BOT_MODE.title())
+                        await self._safe_send(user.id, f"pong | {_lbl} online")
+                else:
+                    # Basic /ping — host only. Others are SILENT.
+                    if BOT_MODE in ("host", "all"):
+                        await self._safe_send(user.id, "pong | Host online")
+            except Exception as _pe:
+                print(f"[CMD ERROR] ping handler: {_pe}")
+                if BOT_MODE in ("host", "all"):
+                    await self._safe_send(user.id, "pong | Host online | handler err")
+            return  # ALL ping variants return — never reaches router
 
-        if cmd == "help" and BOT_MODE in ("host", "all"):
-            # Emergency /help is handled below in the normal dispatcher.
-            # Do NOT short-circuit here — fall through so the full help text is sent.
-            pass
+        # /crashlogs — emergency read before router; host only
+        if cmd == "crashlogs" and BOT_MODE in ("host", "all"):
+            try:
+                _show_latest = len(args) > 1 and args[1].lower() == "latest"
+                try:
+                    _logs = db.get_bot_crash_logs(limit=1 if _show_latest else 5)
+                except Exception as _dbe:
+                    await self._safe_send(user.id, f"Crashlogs DB error: {str(_dbe)[:180]}")
+                    return
+                if not _logs:
+                    await self._safe_send(user.id, "No crash logs found.")
+                    return
+                if _show_latest:
+                    _r = _logs[0]
+                    _msg = (f"Latest crash: bot={_r.get('bot_id','?')} "
+                            f"phase={_r.get('bot_mode','?')} "
+                            f"err={_r.get('error_type','?')}: "
+                            f"{_r.get('error_message','')[:80]}")
+                    await self._safe_send(user.id, _msg[:249])
+                else:
+                    _lines = [f"{_r.get('bot_id','?')}:{_r.get('error_type','?')}"
+                              for _r in _logs]
+                    await self._safe_send(
+                        user.id,
+                        (f"Crash logs ({len(_logs)}): " + " | ".join(_lines))[:249])
+            except Exception as _ce:
+                print(f"[CMD ERROR] emergency crashlogs handler: {_ce}")
+                await self._safe_send(user.id, "Crashlogs error. Check console.")
+            return
 
         # ── Command debug logging ─────────────────────────────────────────────
         if get_cmd_debug():
