@@ -166,6 +166,11 @@ _online_cache: dict[str, bool] = {}
 _online_cache_ts: float = 0.0
 _ONLINE_CACHE_TTL = 30.0
 
+# Runtime effective-mode cache (allows /setmainmode to change behaviour without restart)
+_effective_mode_cache: str | None = None
+_effective_mode_ts: float = 0.0
+_EFFECTIVE_MODE_TTL = 30.0
+
 
 def _refresh_owner_cache() -> None:
     global _owner_cache, _owner_cache_ts
@@ -227,6 +232,33 @@ def _fallback_enabled() -> bool:
         return True
 
 
+def _effective_bot_mode() -> str:
+    """
+    Returns this bot's effective operating mode.
+    Normally BOT_MODE from config.  When BOT_ID == 'main', a /setmainmode
+    command can store an override in room_settings that is respected here
+    (cached 30 s to avoid per-message DB hits).
+    """
+    global _effective_mode_cache, _effective_mode_ts
+    now = time.monotonic()
+    if _effective_mode_cache is None or now - _effective_mode_ts > _EFFECTIVE_MODE_TTL:
+        if BOT_ID == "main":
+            try:
+                override = db.get_room_setting("main_bot_mode_override", "")
+            except Exception:
+                override = ""
+            _effective_mode_cache = override if override else BOT_MODE
+        else:
+            _effective_mode_cache = BOT_MODE
+        _effective_mode_ts = now
+    return _effective_mode_cache
+
+
+def is_bot_mode_active(mode: str) -> bool:
+    """Public helper — True if a bot with this mode heartbeated within 90 s."""
+    return _is_mode_online(mode)
+
+
 # ---------------------------------------------------------------------------
 # Main gate — called in on_chat before any processing
 # ---------------------------------------------------------------------------
@@ -234,31 +266,42 @@ def _fallback_enabled() -> bool:
 def should_this_bot_handle(cmd: str) -> bool:
     """
     Returns True if this bot instance should respond to cmd.
-    When BOT_MODE == "all" (default single-bot), always True.
+
+    Key rules:
+    - BOT_MODE=all: handle everything UNLESS a dedicated live bot owns the cmd.
+    - BOT_MODE=host: handle help/room/unknown only; never game commands.
+    - Dedicated modes (blackjack, poker, …): own their command set only.
+    - Fallback: host/all may handle offline-owner commands if fallback ON.
     """
-    if BOT_MODE == "all":
+    mode = _effective_bot_mode()
+
+    # ── all mode: defer to any dedicated online bot ──────────────────────────
+    if mode == "all":
+        owner_mode = _resolve_command_owner(cmd)
+        if owner_mode and owner_mode not in ("host", "all") and _is_mode_online(owner_mode):
+            return False    # dedicated bot is live — stay silent
         return True
 
     owner_mode = _resolve_command_owner(cmd)
 
     # Unowned / unknown command — only host or all handles it
     if owner_mode is None:
-        return BOT_MODE in ("host", "all")
+        return mode in ("host", "all")
 
     # This bot owns the command
-    if owner_mode == BOT_MODE:
+    if owner_mode == mode:
         return True
 
     # Legacy dealer mode: handles BJ/RBJ/Poker if dedicated bots are offline
-    if BOT_MODE == "dealer" and owner_mode in ("blackjack", "poker"):
+    if mode == "dealer" and owner_mode in ("blackjack", "poker"):
         return not _is_mode_online(owner_mode)
 
-    # Owner mode is online — let it handle; we ignore
+    # Owner mode is online — defer silently
     if _is_mode_online(owner_mode):
         return False
 
     # Owner mode offline — host/all may fall back
-    if _fallback_enabled() and BOT_MODE in ("host", "all"):
+    if _fallback_enabled() and mode in ("host", "all"):
         return True
 
     return False
@@ -269,7 +312,8 @@ def get_offline_message(cmd: str) -> str | None:
     Returns a user-facing message when the owning bot is offline and fallback is OFF.
     Only host/all mode should call this (others silently ignore).
     """
-    if BOT_MODE not in ("host", "all"):
+    mode = _effective_bot_mode()
+    if mode not in ("host", "all"):
         return None
     owner_mode = _resolve_command_owner(cmd)
     if owner_mode is None:
@@ -442,12 +486,24 @@ async def handle_botstatus_cluster(bot, user, args: list[str]) -> None:
 # ---------------------------------------------------------------------------
 
 async def handle_botmodules(bot, user) -> None:
-    if BOT_MODE == "all":
+    mode = _effective_bot_mode()
+    if mode == "all":
         await _w(bot, user.id, "🤖 Single bot mode — main handles all modules.")
         return
-    await _w(bot, user.id,
-             "Modules: BJ/RBJ=Blackjack | Poker=Poker | Economy=Banker"
-             " | Mining=Miner | Shop=Shop | Mod=Security | Emotes=DJ | Events=Events")
+    _refresh_online_cache()
+    module_rows = [
+        ("BJ/RBJ", "blackjack"), ("Poker", "poker"),
+        ("Bank",   "banker"),    ("Mining", "miner"),
+        ("Shop",   "shopkeeper"), ("Mod",  "security"),
+        ("Emotes", "dj"),        ("Events", "eventhost"),
+        ("Help",   "host"),
+    ]
+    parts = []
+    for label, m in module_rows:
+        name = _MODE_NAMES.get(m, m.title())
+        flag = "✅" if _is_mode_online(m) else "·"
+        parts.append(f"{label}={name}{flag}")
+    await _w(bot, user.id, ("Modules: " + " | ".join(parts))[:249])
 
 
 # ---------------------------------------------------------------------------
@@ -521,6 +577,33 @@ async def handle_setcommandowner(bot, user, args: list[str]) -> None:
     _refresh_owner_cache()
     name = _MODE_NAMES.get(bot_mode, bot_mode.title())
     await _w(bot, user.id, f"✅ /{cmd_name} owner set to {name}.")
+
+
+async def handle_setmainmode(bot, user, args: list[str]) -> None:
+    """
+    /setmainmode host|all
+    Changes the effective operating mode of the main/all bot at runtime.
+    Stored in room_settings so it survives the cache but NOT a full restart
+    (bot.py re-applies env-var defaults on startup).
+    Admin+ only.
+    """
+    if not can_manage_economy(user.username):
+        await _w(bot, user.id, "Admin and owner only.")
+        return
+    if len(args) < 2 or args[1].lower() not in ("host", "all"):
+        await _w(bot, user.id, "Usage: /setmainmode host | all")
+        return
+    global _effective_mode_cache, _effective_mode_ts
+    new_mode = args[1].lower()
+    try:
+        db.set_room_setting("main_bot_mode_override", new_mode)
+    except Exception as e:
+        await _w(bot, user.id, f"DB error: {str(e)[:40]}")
+        return
+    # Immediately apply in-process
+    _effective_mode_cache = new_mode
+    _effective_mode_ts = time.monotonic()
+    await _w(bot, user.id, f"✅ Main bot mode set to {new_mode}.")
 
 
 async def handle_botfallback(bot, user, args: list[str]) -> None:

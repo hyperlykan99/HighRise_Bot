@@ -477,11 +477,17 @@ def _collect_conflicts(instances: list) -> list[str]:
     for mode, count in mode_count.items():
         if count > 1:
             conflicts.append(f"Duplicate mode '{mode}' ({count} bots)")
-    # 2. BOT_MODE=all + dedicated split bots both active
+    # 2. BOT_MODE=all + dedicated split bots both active (causes duplicate replies)
     all_active = _bot_is_online("all", instances)
-    split_active = any(_bot_is_online(m, instances) for m in ("blackjack", "poker"))
-    if all_active and split_active:
-        conflicts.append("BOT_MODE=all active alongside split bots")
+    split_active_modes = [m for m in ("blackjack", "poker", "miner", "banker",
+                                      "shopkeeper", "security", "dj", "eventhost")
+                          if _bot_is_online(m, instances)]
+    if all_active and split_active_modes:
+        conflicts.append(
+            f"BOT_MODE=all active with split bots "
+            f"({', '.join(split_active_modes)}). "
+            f"Use /setmainmode host to fix."
+        )
     # 3. Legacy dealer + dedicated bots both active
     dealer_active = _bot_is_online("dealer", instances)
     if dealer_active and split_active:

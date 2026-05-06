@@ -277,6 +277,7 @@ from modules.multi_bot import (
     handle_enablebot, handle_disablebot,
     handle_setbotmodule, handle_setcommandowner, handle_botfallback,
     handle_botstartupannounce, handle_multibothelp,
+    handle_setmainmode,
 )
 from modules.bot_health import (
     handle_bothealth, handle_modulehealth, handle_deploymentcheck,
@@ -637,6 +638,8 @@ ALL_KNOWN_COMMANDS = (
         "botmodules", "commandowners", "multibothelp",
         "enablebot", "disablebot", "setbotmodule",
         "setcommandowner", "botfallback", "botstartupannounce",
+        # ── Multi-bot mode control ────────────────────────────────────────────
+        "setmainmode",
         # ── Bot health / deployment checks ────────────────────────────────────
         "bothealth", "modulehealth", "deploymentcheck",
         "botlocks", "clearstalebotlocks",
@@ -3454,6 +3457,8 @@ class HangoutBot(BaseBot):
             await handle_botstartupannounce(self, user, args)
         elif cmd == "multibothelp":
             await handle_multibothelp(self, user, args)
+        elif cmd == "setmainmode":
+            await handle_setmainmode(self, user, args)
 
         # ── Bot health / deployment checks ─────────────────────────────────────
         elif cmd == "bothealth":

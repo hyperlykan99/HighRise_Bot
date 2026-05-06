@@ -114,6 +114,28 @@ def _collect_bots() -> list[_BotSpec]:
         print(f"[RUNNER] {token_env} set -> starting {label} mode {spec.bot_mode}")
         specs.append(spec)
 
+    # ── Auto-switch main bot to host mode when split bots exist ─────────────
+    # If MAIN_BOT_MODE was not explicitly set and any game-module bot is present,
+    # the main bot demotes itself to host so it never duplicates game replies.
+    _game_modes = {"blackjack", "poker", "miner", "banker",
+                   "shopkeeper", "security", "dj", "eventhost"}
+    has_game_split = any(s.bot_mode in _game_modes for s in specs[1:])
+
+    if (has_game_split
+            and specs                         # main bot present
+            and specs[0].bot_mode == "all"    # currently all-mode
+            and not os.environ.get("MAIN_BOT_MODE")):   # not explicitly overridden
+        old = specs[0]
+        specs[0] = _BotSpec(
+            token_env    = old.token_env,
+            label        = "Host Bot",
+            token        = old.token,
+            bot_id       = "host",
+            bot_mode     = "host",
+            bot_username = old.bot_username,
+        )
+        print("[RUNNER] Split bots detected. Main bot set to host mode.")
+
     return specs
 
 

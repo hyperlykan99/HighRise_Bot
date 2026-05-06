@@ -1,0 +1,240 @@
+Fix duplicate Blackjack replies from Main Bot and Blackjack Bot.
+
+Problem:
+Main Bot and Blackjack Bot are both replying to Blackjack/RBJ commands.
+Example:
+When a player uses /rjoin or /bjoin, both bots send game messages.
+
+Cause:
+Main Bot is still running in BOT_MODE=all while BLACKJACK_BOT_TOKEN is also running.
+Dedicated Blackjack Bot should own BJ/RBJ commands.
+
+GOAL:
+Prevent duplicate replies.
+Only Blackjack Bot should handle BJ/RBJ commands when BLACKJACK_BOT_TOKEN exists and Blackjack Bot is online.
+Main Bot should act as Host only when split bots are active.
+
+IMPORTANT:
+- Do not remove any features.
+- Keep single-bot mode working if only BOT_TOKEN exists.
+- Keep multi-bot mode working when BLACKJACK_BOT_TOKEN and POKER_BOT_TOKEN exist.
+- Do not let both bots answer the same command.
+- Keep messages under 250 characters.
+- No silent crashes.
+
+==================================================
+PART 1: AUTO CHANGE MAIN BOT MODE
+==================================================
+
+If BOT_TOKEN exists alone:
+- Main Bot should run as:
+  BOT_ID=main
+  BOT_MODE=all
+
+If BOT_TOKEN exists AND any split bot token exists:
+- Main Bot should run as:
+  BOT_ID=host
+  BOT_MODE=host
+
+Split bot tokens include:
+- BLACKJACK_BOT_TOKEN
+- POKER_BOT_TOKEN
+- MINER_BOT_TOKEN
+- BANKER_BOT_TOKEN
+- SHOP_BOT_TOKEN
+- SECURITY_BOT_TOKEN
+- DJ_BOT_TOKEN
+- EVENT_BOT_TOKEN
+
+Console should show:
+"[RUNNER] Split bots detected. Main bot set to host mode."
+
+==================================================
+PART 2: BLACKJACK COMMAND OWNERSHIP
+==================================================
+
+When Blackjack Bot is active, only BOT_MODE=blackjack should handle these:
+
+BJ:
+- /bj
+- /bjhelp
+- /bjoin
+- /bj join
+- /bh
+- /bs
+- /bd
+- /bsp
+- /bjh
+- /bjs
+- /bjd
+- /bjsp
+- /bt
+- /bhand
+- /bjhand
+- /setbjactiontimer
+- /setbjmaxsplits
+- /resetbjlimits
+- /bj recover
+- /bj refund
+- /bj forcefinish
+
+RBJ:
+- /rbj
+- /rbjhelp
+- /rjoin
+- /rbj join
+- /rh
+- /rs
+- /rd
+- /rsp
+- /rbjh
+- /rbjs
+- /rbjd
+- /rbjsp
+- /rt
+- /rhand
+- /rbjhand
+- /rshoe
+- /setrbjactiontimer
+- /setrbjmaxsplits
+- /resetrbjlimits
+- /rbj recover
+- /rbj refund
+- /rbj forcefinish
+
+Main/Host Bot must ignore these commands if Blackjack Bot is online.
+
+==================================================
+PART 3: UPDATE SHOULD_THIS_BOT_HANDLE
+==================================================
+
+Fix should_this_bot_handle(command, bot_mode, bot_id).
+
+Rules:
+1. If bot_mode = blackjack:
+   - handle BJ/RBJ commands only.
+2. If bot_mode = poker:
+   - handle Poker commands only.
+3. If bot_mode = host:
+   - handle help, tutorial, profile, welcome, room utility only.
+   - do NOT handle BJ/RBJ/Poker game commands.
+4. If bot_mode = all:
+   - handle all commands only when no split bot owns that command.
+5. If command owner bot is active:
+   - all other bots ignore silently.
+6. Unknown command:
+   - only Host or all-mode bot replies.
+
+Important:
+If Blackjack Bot is active, Main/all bot must not answer /bj, /rbj, /bjoin, /rjoin, /bh, /rh, etc.
+
+==================================================
+PART 4: ACTIVE BOT CHECK
+==================================================
+
+Add helper:
+is_bot_mode_active(mode)
+
+It checks bot_instances heartbeat:
+- active if last_seen_at is within 90 seconds
+- enabled = true
+- mode matches
+
+Use:
+- is_bot_mode_active("blackjack")
+- is_bot_mode_active("poker")
+
+If blackjack active:
+- Main/all ignores blackjack commands.
+
+If poker active:
+- Main/all ignores poker commands.
+
+If blackjack offline and fallback ON:
+- Host/main may handle blackjack commands.
+If fallback OFF:
+- Host says:
+"Blackjack bot is offline."
+
+==================================================
+PART 5: ADD EMERGENCY COMMANDS
+==================================================
+
+Add owner/admin commands:
+
+/setmainmode host
+Sets main/original bot to host mode.
+
+/setmainmode all
+Sets main/original bot to all mode.
+
+/botfallback on
+Allows Host/Main to handle commands if module bot is offline.
+
+/botfallback off
+Prevents Host/Main fallback.
+
+Messages:
+"✅ Main bot mode set to host."
+"✅ Main bot mode set to all."
+"✅ Bot fallback ON."
+"⛔ Bot fallback OFF."
+
+==================================================
+PART 6: BOT STATUS DISPLAY
+==================================================
+
+Update /bots:
+If split bots active:
+"🤖 Host ON | Blackjack ON | Poker ON"
+
+Update /botmodules:
+"BJ=Blackjack | RBJ=Blackjack | Poker=Poker | Help=Host"
+
+Update /botconflicts:
+Detect:
+- Main/all bot answering BJ while Blackjack bot active
+- Dealer/all bot answering Poker while Poker bot active
+
+Message:
+"Conflict: Main/all and Blackjack both own BJ. Use /setmainmode host."
+
+If fixed:
+"No bot conflicts found."
+
+==================================================
+PART 7: TESTS
+==================================================
+
+After restart, test:
+
+/bots
+Expected:
+Host/Main ON | Blackjack ON | Poker ON
+
+/botmodules
+Expected:
+BJ=Blackjack | RBJ=Blackjack | Poker=Poker
+
+/botconflicts
+Expected:
+No bot conflicts found.
+
+/commandtest /rjoin
+Expected:
+owner Blackjack | handler YES
+
+/rjoin 100
+Expected:
+Only Blackjack Bot replies.
+
+/bjoin 100
+Expected:
+Only Blackjack Bot replies.
+
+/p 1000
+Expected:
+Only Poker Bot replies if Poker Bot is active.
+
+Final rule:
+If Blackjack Bot is online, Main Bot must never reply to BJ/RBJ game commands.
