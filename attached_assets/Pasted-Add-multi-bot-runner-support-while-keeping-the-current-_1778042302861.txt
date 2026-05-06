@@ -1,0 +1,273 @@
+Add multi-bot runner support while keeping the current single test bot working.
+
+Current situation:
+Only one original test bot is running right now.
+
+Goal:
+Keep the current bot working in BOT_MODE=all, but prepare the project so I can plug in multiple bot accounts later:
+- Host Bot
+- Blackjack Bot
+- Poker Bot
+- Miner Bot
+- Banker Bot
+- Shop Bot
+- Security Bot
+- DJ Bot
+- Event Bot
+
+IMPORTANT:
+- Do not break the current bot.
+- If only one bot token exists, run one bot in all mode.
+- If multiple bot tokens exist, start each bot with its assigned BOT_MODE.
+- All bots must share the same SQLite database.
+- No duplicate replies.
+- Each bot should only answer commands owned by its module.
+- Keep messages under 250 characters.
+- Prevent crashes from missing tokens.
+
+==================================================
+PART 1: SINGLE BOT DEFAULT
+==================================================
+
+If only the original bot token exists, run:
+
+BOT_ID=main
+BOT_MODE=all
+BOT_USERNAME=MainBot
+
+This bot handles everything like normal.
+
+Do not require multiple bots to run.
+
+Message in console:
+"Starting single bot mode: main/all"
+
+==================================================
+PART 2: MULTI-BOT ENVIRONMENT VARIABLES
+==================================================
+
+Support these optional environment variables:
+
+Original/main bot:
+MAIN_BOT_TOKEN
+MAIN_BOT_USERNAME
+MAIN_BOT_ID=main
+MAIN_BOT_MODE=all
+
+Host bot:
+HOST_BOT_TOKEN
+HOST_BOT_USERNAME
+HOST_BOT_ID=host
+HOST_BOT_MODE=host
+
+Blackjack bot:
+BLACKJACK_BOT_TOKEN
+BLACKJACK_BOT_USERNAME
+BLACKJACK_BOT_ID=blackjack
+BLACKJACK_BOT_MODE=blackjack
+
+Poker bot:
+POKER_BOT_TOKEN
+POKER_BOT_USERNAME
+POKER_BOT_ID=poker
+POKER_BOT_MODE=poker
+
+Miner bot:
+MINER_BOT_TOKEN
+MINER_BOT_USERNAME
+MINER_BOT_ID=miner
+MINER_BOT_MODE=miner
+
+Banker bot:
+BANKER_BOT_TOKEN
+BANKER_BOT_USERNAME
+BANKER_BOT_ID=banker
+BANKER_BOT_MODE=banker
+
+Shop bot:
+SHOP_BOT_TOKEN
+SHOP_BOT_USERNAME
+SHOP_BOT_ID=shop
+SHOP_BOT_MODE=shopkeeper
+
+Security bot:
+SECURITY_BOT_TOKEN
+SECURITY_BOT_USERNAME
+SECURITY_BOT_ID=security
+SECURITY_BOT_MODE=security
+
+DJ bot:
+DJ_BOT_TOKEN
+DJ_BOT_USERNAME
+DJ_BOT_ID=dj
+DJ_BOT_MODE=dj
+
+Event bot:
+EVENT_BOT_TOKEN
+EVENT_BOT_USERNAME
+EVENT_BOT_ID=event
+EVENT_BOT_MODE=eventhost
+
+Shared database:
+SHARED_DB_PATH=casino_bot.db
+
+==================================================
+PART 3: MULTI-BOT RUNNER
+==================================================
+
+Create a multi-bot runner.
+
+Behavior:
+1. Read all bot token env vars.
+2. If only MAIN_BOT_TOKEN or original token exists:
+   - start one bot in BOT_MODE=all.
+3. If multiple bot tokens exist:
+   - start one bot client per token.
+   - assign each bot_id and bot_mode.
+   - all clients share SHARED_DB_PATH.
+4. Start all bots using asyncio.gather or safe async tasks.
+5. If one bot fails, log error but do not crash all bots if possible.
+
+Console examples:
+"Starting Host Bot | mode host"
+"Starting Blackjack Bot | mode blackjack"
+"Starting Poker Bot | mode poker"
+
+==================================================
+PART 4: COMMAND HANDLING
+==================================================
+
+Every bot client must call:
+
+should_this_bot_handle(command, bot_mode, bot_id)
+
+Before replying.
+
+Rules:
+- BOT_MODE=all handles everything.
+- BOT_MODE=blackjack handles BJ/RBJ only.
+- BOT_MODE=poker handles poker only.
+- BOT_MODE=miner handles mining only.
+- BOT_MODE=banker handles coins/bank only.
+- BOT_MODE=host handles help/profile/tutorial/welcome only.
+- BOT_MODE=shopkeeper handles shop/badges/titles/VIP.
+- BOT_MODE=security handles moderation/reports.
+- BOT_MODE=dj handles emotes/social/dance.
+- BOT_MODE=eventhost handles events/announcements.
+
+If command is not owned by this bot:
+- ignore silently.
+- do not say unknown.
+
+Only Host or all-mode bot should say:
+"Unknown command. Type /help."
+
+==================================================
+PART 5: BOT STATUS
+==================================================
+
+Each bot should register itself in bot_instances:
+
+bot_id
+bot_username
+bot_mode
+enabled
+last_seen_at
+status
+db_connected
+last_error
+
+Heartbeat:
+- update every 30 seconds.
+
+Commands:
+- /bots
+- /bothealth
+- /botmodules
+- /deploymentcheck
+
+If only one bot is running:
+/bots:
+"🤖 Main bot ON | Mode all"
+
+If split bots are running:
+/bots:
+"🤖 Host ON | Blackjack ON | Poker ON | Miner OFF"
+
+==================================================
+PART 6: SAFE DATABASE SHARING
+==================================================
+
+All bots use the same SQLite DB file.
+
+Important:
+- Use transactions for economy/game payouts.
+- Use module locks for BJ, RBJ, and Poker.
+- Never let two bots resolve the same game.
+- If database is locked, retry briefly instead of crashing.
+
+Use:
+- bot_module_locks table
+- lock module before resolving game action
+- release lock after save/payout
+- clear stale locks with /clearstalebotlocks
+
+==================================================
+PART 7: REPLIT SECRETS SETUP
+==================================================
+
+Add comments or README section explaining:
+
+For one bot:
+Set only:
+MAIN_BOT_TOKEN
+SHARED_DB_PATH
+
+For split bots:
+Set:
+HOST_BOT_TOKEN
+BLACKJACK_BOT_TOKEN
+POKER_BOT_TOKEN
+
+Later add:
+MINER_BOT_TOKEN
+BANKER_BOT_TOKEN
+SHOP_BOT_TOKEN
+SECURITY_BOT_TOKEN
+DJ_BOT_TOKEN
+EVENT_BOT_TOKEN
+
+Do not hardcode tokens.
+Use Replit Secrets/env vars only.
+
+==================================================
+PART 8: TESTS
+==================================================
+
+Test current setup:
+Only original token exists.
+Expected:
+- one bot starts
+- BOT_MODE=all
+- /bal works
+- /rjoin works
+- /p works
+- /mine works
+
+Test split setup later:
+Add BLACKJACK_BOT_TOKEN and POKER_BOT_TOKEN.
+Expected:
+- Blackjack bot responds to /rjoin
+- Poker bot responds to /p
+- Main/Host does not duplicate replies
+
+Test:
+/bots
+/bothealth
+/botmodules
+/deploymentcheck
+/commandtest /rjoin
+/commandtest /p
+
+Final requirement:
+The project must work with one bot now, and later support multiple bot accounts by adding their tokens in Replit Secrets.

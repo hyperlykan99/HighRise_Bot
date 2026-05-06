@@ -8,19 +8,39 @@ A modular Python bot for Highrise using the `highrise-bot-sdk`. Runs 24/7 with c
 cd artifacts/highrise-bot && python3 bot.py
 ```
 
-Required secrets: `BOT_TOKEN`, `ROOM_ID`
+**Single bot** (current): set only `BOT_TOKEN` + `ROOM_ID` → runs one bot in `all` mode.  
+**Multi-bot** (add later): set any split-bot token secrets alongside `BOT_TOKEN`/`MAIN_BOT_TOKEN`:
+
+| Secret | Bot | Mode |
+|---|---|---|
+| `MAIN_BOT_TOKEN` | Main | `all` |
+| `HOST_BOT_TOKEN` | Host | `host` |
+| `BLACKJACK_BOT_TOKEN` | Blackjack | `blackjack` |
+| `POKER_BOT_TOKEN` | Poker | `poker` |
+| `MINER_BOT_TOKEN` | Miner | `miner` |
+| `BANKER_BOT_TOKEN` | Banker | `banker` |
+| `SHOP_BOT_TOKEN` | Shop | `shopkeeper` |
+| `SECURITY_BOT_TOKEN` | Security | `security` |
+| `DJ_BOT_TOKEN` | DJ | `dj` |
+| `EVENT_BOT_TOKEN` | Event | `eventhost` |
+
+Each token key also has `_ID`, `_MODE`, `_USERNAME` variants for overrides (e.g. `BLACKJACK_BOT_ID`).  
+`SHARED_DB_PATH` sets the shared SQLite file (default: `highrise_hangout.db`).
+
+Required secrets always: `BOT_TOKEN` (or `MAIN_BOT_TOKEN`), `ROOM_ID`
 
 ## Stack
 
 - Python 3.11, `highrise-bot-sdk` 25.1.0, `aiohttp`, `sqlite3` (built-in)
-- Entry: `artifacts/highrise-bot/main.py`
-- DB: `artifacts/highrise-bot/highrise_hangout.db` (SQLite, auto-created)
+- Entry: `artifacts/highrise-bot/bot.py` (runner) → `main.py` (bot logic)
+- DB: `artifacts/highrise-bot/highrise_hangout.db` (SQLite, auto-created, shared across all bots)
 
 ## Where things live
 
 ```
 artifacts/highrise-bot/
-├── main.py             # Entry point — on_chat routing, all command sets, help pages
+├── bot.py              # Runner — single-bot shim or multi-bot subprocess orchestrator
+├── main.py             # Bot logic — HangoutBot class, on_chat routing, all command sets
 ├── config.py           # Central config (costs, rewards, admin IDs, thresholds)
 ├── database.py         # All SQLite logic — schema, migrations, helpers
 └── modules/
