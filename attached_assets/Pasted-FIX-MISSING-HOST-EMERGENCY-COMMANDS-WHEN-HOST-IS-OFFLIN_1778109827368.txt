@@ -1,0 +1,203 @@
+FIX MISSING HOST + EMERGENCY COMMANDS WHEN HOST IS OFFLINE.
+
+Current status:
+/ping all only shows:
+- BankingBot | id=banker | mode=banker
+- ChipSoprano | id=poker | mode=poker
+- AceSinatra | id=blackjack | mode=blackjack
+
+Missing:
+- host
+- miner
+- security
+- dj
+- shop
+- event
+
+Also these do not respond:
+- /missingbots
+- /startupstatus
+- /help
+- /commandtest /bal
+- /bal
+
+Goal:
+1. Make /missingbots and /startupstatus work even when Host is missing.
+2. Make /bal work from Banker.
+3. Clearly show why Host/Miner/Security/DJ are not starting.
+4. Do not touch poker/blackjack game logic.
+5. Keep SAFE_BOOT on.
+
+==================================================
+PART 1: EMERGENCY COMMANDS CAN BE HANDLED BY ANY BOT
+==================================================
+
+These commands must be handled before the normal router by ANY running project bot:
+
+- /ping
+- /ping all
+- /missingbots
+- /startupstatus
+- /crashlogs latest
+- /safeboot status
+
+Do not require Host for these.
+
+To prevent duplicate replies:
+- For /missingbots and /startupstatus, only the first running bot should reply.
+- If no Host exists, choose banker as emergency responder.
+- If banker is missing, choose first bot alphabetically.
+
+Emergency responder priority:
+1. host
+2. banker
+3. poker
+4. blackjack
+5. miner
+6. security
+7. dj
+8. shop
+9. event
+
+/missingbots output example:
+"Missing: host, miner, security, dj, shop, event"
+
+/startupstatus output example:
+"Started: banker,poker,blackjack | Missing: host,miner,security,dj,shop,event"
+
+==================================================
+PART 2: FIX /BAL EMERGENCY ROUTING
+==================================================
+
+Since BankingBot is online and correctly mapped:
+BankingBot must handle:
+- /bal
+- /balance
+- /coins
+- /wallet
+- /daily
+- /send
+- /tip
+- /bankerhelp
+
+SAFE_BOOT must not block these commands.
+
+If /bal fails because database/table missing:
+Reply:
+"Balance unavailable. Staff: /crashlogs latest"
+
+Do not silently ignore /bal.
+
+==================================================
+PART 3: HOST MISSING DIAGNOSTIC
+==================================================
+
+On startup, console must print:
+
+[CONFIG] HOST_BOT_TOKEN found/missing
+[CONFIG] HOST_BOT_TOKEN empty yes/no
+[CONFIG] HOST_BOT_TOKEN duplicate yes/no
+[CONFIG] Starting host bot...
+[CONFIG] Host skipped: <reason>
+
+Never print the token value.
+
+If HOST_BOT_TOKEN exists:
+- Start it as id=host, mode=host.
+- Do not start legacy BOT_TOKEN.
+- Do not skip host silently.
+
+If HOST_BOT_TOKEN is missing:
+- If BOT_TOKEN exists, start BOT_TOKEN as host fallback.
+- If both missing, /missingbots should show "host missing token".
+
+==================================================
+PART 4: STARTUP STATUS FOR EVERY TOKEN
+==================================================
+
+Track status for every bot token:
+
+HOST_BOT_TOKEN
+BANKER_BOT_TOKEN
+POKER_BOT_TOKEN
+BLACKJACK_BOT_TOKEN
+MINER_BOT_TOKEN
+SECURITY_BOT_TOKEN
+DJ_BOT_TOKEN
+SHOP_BOT_TOKEN
+EVENT_BOT_TOKEN
+
+For each one store:
+- token_source
+- expected_bot_id
+- expected_mode
+- status: started, missing, empty, duplicate, crashed, skipped
+- reason
+
+Use this for /startupstatus and /missingbots.
+
+==================================================
+PART 5: FIX NORMAL ROUTER WHEN HOST IS MISSING
+==================================================
+
+Normal command routing must not stop just because Host is offline.
+
+Examples:
+- /bal should still go to banker
+- /pokerhelp should still go to poker
+- /bjhelp should still go to blackjack
+- /minehelp should go to miner if miner online
+
+Host-only commands like /help and /commandtest may be unavailable if Host missing, but emergency fallback should reply:
+"Host offline. Use /startupstatus."
+
+For /help while Host missing:
+Emergency responder replies:
+"Host offline. Try module help: /pokerhelp /bjhelp /bankerhelp"
+
+For /commandtest while Host missing:
+Emergency responder replies:
+"Host offline. Use /startupstatus first."
+
+==================================================
+PART 6: CRASH LOGS FOR MISSING BOTS
+==================================================
+
+If a bot token is found but bot fails to start:
+- log to bot_crash_logs
+- include token_source and phase=startup
+- show short reason in /startupstatus
+
+Example:
+"host crashed startup: auth failed"
+"miner skipped: token missing"
+"dj skipped: duplicate token"
+
+==================================================
+PART 7: TESTS
+==================================================
+
+After update and restart, run:
+
+/ping all
+/startupstatus
+/missingbots
+/bal
+/bankerhelp
+/pokerhelp
+/bjhelp
+
+Expected if Host is still missing:
+/startupstatus replies from BankingBot:
+"Started: banker,poker,blackjack | Missing: host,miner,security,dj,shop,event"
+
+/missingbots replies from BankingBot.
+
+/bal replies from BankingBot.
+
+If HOST_BOT_TOKEN exists and works:
+/ping all should include:
+EmceeBot | id=host | mode=host | token=HOST_BOT_TOKEN
+
+Final requirement:
+Even if Host is missing, emergency diagnostics and Banker commands must still work.

@@ -46,7 +46,7 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "coins": "banker", "coin": "banker", "money": "banker",
     "send": "banker", "bank": "banker",
     "transactions": "banker", "bankstats": "banker",
-    "bankhelp": "banker", "banknotify": "banker",
+    "bankhelp": "banker", "bankerhelp": "banker", "banknotify": "banker",
     "daily": "banker", "leaderboard": "banker", "lb": "banker",
     "addcoins": "banker", "setcoins": "banker", "removecoins": "banker",
     "resetcoins": "banker", "editcoins": "banker",
@@ -199,7 +199,7 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "tip": "banker", "gift": "banker",
     "addcoins": "banker", "removecoins": "banker",
     "bankstats": "banker", "banknotify": "banker",
-    "bankhelp": "banker", "coinhelp": "banker",
+    "bankhelp": "banker", "bankerhelp": "banker", "coinhelp": "banker",
     # ── host (audit / status commands) ───────────────────────────────────────
     "checkcommands": "host", "checkhelp": "host",
     "missingcommands": "host", "routecheck": "host",
