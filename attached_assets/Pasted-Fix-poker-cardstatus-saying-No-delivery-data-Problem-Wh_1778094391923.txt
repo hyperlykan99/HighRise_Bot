@@ -1,0 +1,218 @@
+Fix /poker cardstatus saying "No delivery data."
+
+Problem:
+When I run /poker cardstatus, it says:
+"No delivery data."
+
+But a poker hand exists and players have cards. This means the bot is not creating poker_card_delivery rows when the hand starts, or /poker cardstatus is looking at the wrong round_id.
+
+Goal:
+Every poker hand must create delivery tracking data for every in-hand player.
+
+IMPORTANT:
+- Do not remove existing poker features.
+- Keep Poker Bot ownership.
+- Keep saved hole cards.
+- Do not redeal cards.
+- Do not leak private cards.
+- Use SQLite.
+- Keep messages under 250 characters.
+- No silent failures.
+
+==================================================
+PART 1: CREATE DELIVERY ROWS WHEN HAND STARTS
+==================================================
+
+When a new poker hand starts, after hole cards are saved:
+
+1. Get current round_id / hand_id.
+2. Get every active in-hand player.
+3. For each player, insert or ignore into poker_card_delivery:
+
+poker_card_delivery:
+- round_id TEXT
+- username_key TEXT
+- display_name TEXT
+- cards_sent INTEGER DEFAULT 0
+- attempts INTEGER DEFAULT 0
+- sent_at TEXT
+- last_attempt_at TEXT
+- failed_reason TEXT
+- PRIMARY KEY(round_id, username_key)
+
+Use normalized username_key:
+- lowercase
+- strip @
+- trim spaces
+
+Important:
+Create delivery rows BEFORE sending card whispers.
+
+==================================================
+PART 2: MARK DELIVERY AFTER WHISPER
+==================================================
+
+When private cards are whispered successfully:
+- cards_sent = 1
+- attempts = attempts + 1
+- sent_at = current time
+- last_attempt_at = current time
+- failed_reason = NULL
+
+If whisper fails:
+- cards_sent = 0
+- attempts = attempts + 1
+- last_attempt_at = current time
+- failed_reason = short error
+
+Log:
+"[POKER] Card delivery rows created: 2"
+"[POKER] Card delivery sent: 2/2"
+
+==================================================
+PART 3: FIX /POKER CARDSTATUS ROUND LOOKUP
+==================================================
+
+/poker cardstatus should find the current hand in this order:
+
+1. active poker round_id from active hand table
+2. current table round_id
+3. latest unfinished poker round
+4. latest round with poker_hole_cards
+5. latest round with poker_card_delivery
+
+If no delivery rows exist but hole cards exist:
+- auto-rebuild delivery rows from poker_hole_cards
+- set cards_sent = 0
+- reply:
+"Delivery data rebuilt. Use /poker resendcards."
+
+If no hole cards and no delivery data:
+"No active card delivery data."
+
+==================================================
+PART 4: ADD DELIVERY REBUILD COMMAND
+==================================================
+
+Add:
+- /poker rebuilddelivery
+
+Permissions:
+- Owner/admin/manager only.
+
+Behavior:
+- Finds current active round_id.
+- Reads poker_hole_cards.
+- Creates missing poker_card_delivery rows.
+- Does not redeal.
+- Does not change cards.
+- Reply:
+"✅ Delivery tracking rebuilt for 2 players."
+
+If no cards found:
+"No saved poker cards found."
+
+==================================================
+PART 5: FIX /POKER RESENDCARDS
+==================================================
+
+/poker resendcards should work even if delivery data is missing.
+
+Behavior:
+1. Find current round_id.
+2. If delivery rows missing, rebuild from poker_hole_cards.
+3. Resend saved cards to all in-hand players.
+4. Mark delivery rows.
+5. Reply:
+"✅ Resent cards to 2 players."
+
+If a specific user:
+/poker resendcards DeluluDuh
+- Find that user's saved hole cards.
+- Rebuild delivery row if missing.
+- Send only to that user.
+- Reply:
+"✅ Resent cards to @DeluluDuh."
+
+==================================================
+PART 6: FIX /PH
+==================================================
+
+/ph must not depend on poker_card_delivery existing.
+
+Behavior:
+- Find current active round_id.
+- Load requester’s saved cards from poker_hole_cards.
+- Whisper requester their own cards.
+- If delivery row missing, create it.
+- Mark cards_sent = 1 after successful /ph.
+
+If cards exist:
+"🃏 Hand #1 | Your cards: A♠️ K♦️ | Stack: 900c"
+
+If cards missing:
+"Cards not found. Ask staff to use /poker rebuilddelivery or check hand state."
+
+==================================================
+PART 7: CARDSTATUS OUTPUT
+==================================================
+
+/poker cardstatus should show:
+
+If all sent:
+"Cards: 2/2 sent."
+
+If missing:
+"Cards: 1/2 sent | Missing: @DeluluDuh"
+
+If rebuilt:
+"Delivery rebuilt: 0/2 sent. Use /poker resendcards."
+
+If no hand:
+"No active poker hand."
+
+==================================================
+PART 8: INTEGRITY CHECK UPDATE
+==================================================
+
+Update:
+/poker integrity cards
+
+Add checks:
+- delivery rows created at hand start
+- cardstatus reads current round
+- cardstatus does not say "No delivery data" when hole cards exist
+- rebuilddelivery works
+- resendcards works after rebuild
+- /ph creates missing delivery row if needed
+
+Expected:
+"♠️ Poker Cards: delivery tracking OK"
+
+==================================================
+PART 9: TESTS
+==================================================
+
+Test active hand:
+
+1. Start poker with 2 players.
+2. Run:
+/poker cardstatus
+
+Expected:
+"Cards: 2/2 sent."
+or
+"Cards: 1/2 sent | Missing: @user"
+
+If it says no delivery:
+Run:
+/poker rebuilddelivery
+/poker cardstatus
+/poker resendcards
+/poker cardstatus
+
+Expected:
+Delivery rows rebuild and cards resend.
+
+Final requirement:
+If a poker hand has saved hole cards, /poker cardstatus must never say "No delivery data." It should rebuild delivery tracking or show sent/missing players.

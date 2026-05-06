@@ -6905,6 +6905,51 @@ def add_balance(user_id: str, amount: int) -> None:
 
 # ── Poker hole-card secure storage ────────────────────────────────────────────
 
+def ensure_delivery_row(round_id: str, username: str,
+                        display_name: str = "") -> None:
+    """INSERT OR IGNORE a skeleton delivery row (cards_sent=0) for a player.
+
+    Called before whispers so cardstatus always has rows even if delivery fails.
+    """
+    conn = get_connection()
+    conn.execute(
+        "INSERT OR IGNORE INTO poker_card_delivery "
+        "(round_id, username, display_name, cards_sent, attempts, "
+        "sent_at, last_attempt_at, failed_reason) "
+        "VALUES (?, LOWER(?), ?, 0, 0, '', '', '')",
+        (round_id, username, (display_name or username)[:60]),
+    )
+    conn.commit()
+    conn.close()
+
+
+def rebuild_delivery_rows(round_id: str) -> int:
+    """Create missing poker_card_delivery rows from poker_hole_cards.
+
+    Does not overwrite existing rows.  Returns number of rows created.
+    """
+    conn = get_connection()
+    hc_rows = conn.execute(
+        "SELECT username_key, display_name FROM poker_hole_cards "
+        "WHERE round_id=?",
+        (round_id,),
+    ).fetchall()
+    created = 0
+    for row in hc_rows:
+        result = conn.execute(
+            "INSERT OR IGNORE INTO poker_card_delivery "
+            "(round_id, username, display_name, cards_sent, attempts, "
+            "sent_at, last_attempt_at, failed_reason) "
+            "VALUES (?, ?, ?, 0, 0, '', '', '')",
+            (round_id, row["username_key"], row["display_name"] or row["username_key"]),
+        )
+        if result.rowcount > 0:
+            created += 1
+    conn.commit()
+    conn.close()
+    return created
+
+
 def save_hole_cards(round_id: str, username_key: str, display_name: str,
                     card1: str, card2: str) -> None:
     """Save hole cards for a player (INSERT OR IGNORE — never overwrites)."""

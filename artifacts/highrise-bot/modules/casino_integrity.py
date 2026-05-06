@@ -121,7 +121,7 @@ _POKER_FNS  = [
 _POKER_SUBS = [
     "settings", "state", "cleanup", "refund", "hardrefund",
     "forcefinish", "recoverystatus", "clearhand", "closeforce",
-    "status", "emergency", "cardstatus", "resendcards",
+    "status", "emergency", "cardstatus", "resendcards", "rebuilddelivery",
 ]
 
 
@@ -770,6 +770,48 @@ def _check_cards_poker() -> list:
         except Exception:
             _hc_ok = False
         checks.append(_chk("pk_vis:hole_cards_save_retrieve", _hc_ok))
+
+        # 15. ensure_delivery_row creates skeleton row (cards_sent=0)
+        _edr_ok  = True
+        _edr_rid = "__integrity_ensuredr__"
+        try:
+            db.ensure_delivery_row(_edr_rid, "TestPlayer", "TestPlayer")
+            # Second call must not fail (INSERT OR IGNORE)
+            db.ensure_delivery_row(_edr_rid, "TestPlayer", "TestPlayer")
+            _edr_rows = db.get_card_delivery_status(_edr_rid)
+            _edr_ok   = (len(_edr_rows) == 1
+                         and _edr_rows[0]["cards_sent"] == 0
+                         and _edr_rows[0]["attempts"]   == 0)
+            _edrc = db.get_connection()
+            _edrc.execute(
+                "DELETE FROM poker_card_delivery WHERE round_id=?", (_edr_rid,))
+            _edrc.commit(); _edrc.close()
+        except Exception:
+            _edr_ok = False
+        checks.append(_chk("pk_vis:ensure_delivery_row", _edr_ok))
+
+        # 16. rebuild_delivery_rows creates rows from poker_hole_cards
+        _rdr_ok  = True
+        _rdr_rid = "__integrity_rebuilddr__"
+        try:
+            db.save_hole_cards(_rdr_rid, "rdr_p1", "RDR_P1", "Qh", "Jd")
+            db.save_hole_cards(_rdr_rid, "rdr_p2", "RDR_P2", "8s", "3c")
+            created  = db.rebuild_delivery_rows(_rdr_rid)
+            # Second rebuild must not create duplicates
+            created2 = db.rebuild_delivery_rows(_rdr_rid)
+            _rdr_rows = db.get_card_delivery_status(_rdr_rid)
+            _rdr_ok   = (created == 2 and created2 == 0
+                         and len(_rdr_rows) == 2
+                         and all(r["cards_sent"] == 0 for r in _rdr_rows))
+            _rdrc = db.get_connection()
+            _rdrc.execute(
+                "DELETE FROM poker_hole_cards WHERE round_id=?", (_rdr_rid,))
+            _rdrc.execute(
+                "DELETE FROM poker_card_delivery WHERE round_id=?", (_rdr_rid,))
+            _rdrc.commit(); _rdrc.close()
+        except Exception:
+            _rdr_ok = False
+        checks.append(_chk("pk_vis:rebuild_delivery_rows", _rdr_ok))
 
     except Exception as e:
         checks.append(_chk("pk_vis:exception", False, str(e)[:60]))

@@ -1313,6 +1313,11 @@ async def _start_hand(bot: BaseBot) -> None:
         db.save_hole_cards(round_id, pr["username"].lower(),
                            pr["username"], h[0], h[1])
 
+    # ── Create skeleton delivery rows BEFORE whispers ────────────────────
+    for pr in player_rows:
+        db.ensure_delivery_row(round_id, pr["username"].lower(), pr["username"])
+    print(f"[POKER] Card delivery rows created: {len(player_rows)}")
+
     # ── Part 3: VALIDATE every player has exactly 2 cards ─────────────────
     err = _validate_deal(round_id, len(seated))
     if err:
@@ -2522,6 +2527,8 @@ async def _dispatch(bot: BaseBot, user: User, args: list[str]) -> None:
         try:
             await bot.highrise.send_whisper(user.id, ph_msg[:249])
             if tbl.get("round_id"):
+                db.ensure_delivery_row(
+                    tbl["round_id"], user.username, user.username)
                 db.mark_card_delivered(tbl["round_id"], user.username)
         except Exception:
             pass
@@ -3129,15 +3136,64 @@ async def _dispatch(bot: BaseBot, user: User, args: list[str]) -> None:
         if not can_manage_games(user.username):
             await _w(bot, user.id, "Staff only.")
             return
-        tbl = _get_table()
-        if not tbl or not tbl.get("round_id"):
-            await _w(bot, user.id, "No active hand.")
+
+        # ── 5-level round_id fallback ─────────────────────────────────────
+        if len(args) > 2:
+            round_id = args[2].strip()
+        else:
+            tbl      = _get_table()
+            round_id = tbl["round_id"] if (tbl and tbl.get("round_id")) else None
+
+        if not round_id:
+            conn2 = db.get_connection()
+            # level 3: poker_active_table any row
+            r3 = conn2.execute(
+                "SELECT round_id FROM poker_active_table "
+                "WHERE round_id IS NOT NULL AND round_id != '' LIMIT 1"
+            ).fetchone()
+            if r3:
+                round_id = r3["round_id"]
+            else:
+                # level 4: latest poker_hole_cards
+                r4 = conn2.execute(
+                    "SELECT round_id FROM poker_hole_cards "
+                    "ORDER BY rowid DESC LIMIT 1"
+                ).fetchone()
+                if r4:
+                    round_id = r4["round_id"]
+                else:
+                    # level 5: latest poker_card_delivery
+                    r5 = conn2.execute(
+                        "SELECT round_id FROM poker_card_delivery "
+                        "ORDER BY rowid DESC LIMIT 1"
+                    ).fetchone()
+                    if r5:
+                        round_id = r5["round_id"]
+            conn2.close()
+
+        if not round_id:
+            await _w(bot, user.id, "No active poker hand.")
             return
-        round_id = args[2] if len(args) > 2 else tbl["round_id"]
+
         rows = db.get_card_delivery_status(round_id)
+
+        # ── Auto-rebuild if hole cards exist but delivery rows don't ──────
         if not rows:
-            await _w(bot, user.id, f"No delivery data for hand {round_id[:8]}.")
+            hcc = db.get_connection()
+            hc_cnt = hcc.execute(
+                "SELECT COUNT(*) FROM poker_hole_cards WHERE round_id=?",
+                (round_id,),
+            ).fetchone()[0]
+            hcc.close()
+            if hc_cnt > 0:
+                rebuilt = db.rebuild_delivery_rows(round_id)
+                await _w(bot, user.id,
+                    (f"Delivery rebuilt: 0/{rebuilt} sent. "
+                     f"Use /poker resendcards.")[:249])
+            else:
+                await _w(bot, user.id, "No active card delivery data.")
             return
+
         sent    = [r for r in rows if r["cards_sent"]]
         missing = [r["username"] for r in rows if not r["cards_sent"]]
         if not missing:
@@ -3146,6 +3202,37 @@ async def _dispatch(bot: BaseBot, user: User, args: list[str]) -> None:
             miss_str = " ".join(f"@{u}" for u in missing[:5])
             await _w(bot, user.id,
                 f"Cards: {len(sent)}/{len(rows)} sent | Missing: {miss_str}"[:249])
+        return
+
+    # ── rebuilddelivery ────────────────────────────────────────────────────────
+    if sub == "rebuilddelivery":
+        if not can_manage_games(user.username):
+            await _w(bot, user.id, "Staff only.")
+            return
+        tbl = _get_table()
+        round_id = tbl["round_id"] if (tbl and tbl.get("round_id")) else None
+        if not round_id:
+            conn3 = db.get_connection()
+            r_hc = conn3.execute(
+                "SELECT round_id FROM poker_hole_cards "
+                "ORDER BY rowid DESC LIMIT 1"
+            ).fetchone()
+            conn3.close()
+            round_id = r_hc["round_id"] if r_hc else None
+        if not round_id:
+            await _w(bot, user.id, "No saved poker cards found.")
+            return
+        rebuilt = db.rebuild_delivery_rows(round_id)
+        if rebuilt == 0:
+            existing = db.get_card_delivery_status(round_id)
+            if existing:
+                await _w(bot, user.id,
+                    f"Delivery rows already exist ({len(existing)} players).")
+            else:
+                await _w(bot, user.id, "No saved poker cards found.")
+        else:
+            await _w(bot, user.id,
+                f"✅ Delivery tracking rebuilt for {rebuilt} player(s).")
         return
 
     # ── resendcards ────────────────────────────────────────────────────────────
@@ -3162,6 +3249,10 @@ async def _dispatch(bot: BaseBot, user: User, args: list[str]) -> None:
         hn          = tbl.get("hand_number", 0)
         players     = _get_players(round_id)
         target_name = args[2].lstrip("@").strip() if len(args) > 2 else None
+
+        # Auto-rebuild delivery rows if missing (safety net)
+        if not db.get_card_delivery_status(round_id):
+            db.rebuild_delivery_rows(round_id)
 
         if target_name:
             p = _get_player_by_name(round_id, target_name)
