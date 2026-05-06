@@ -185,8 +185,14 @@ async def handle_bothealth(bot, user, args: list[str]) -> None:
             crash_suffix = f" | last crash {r.get('bot_mode','?')} {ts}"
     except Exception:
         pass
+    try:
+        _sb = db.get_room_setting("safeboot", "true")
+        _sb_label = "SafeBoot ON" if _sb == "true" else "SafeBoot OFF"
+    except Exception:
+        _sb_label = "SafeBoot ?"
+    crash_count = len(db.get_bot_crash_logs(limit=99)) if not crash_suffix else 1
     await _w(bot, user.id,
-             (f"Health: {' | '.join(parts)} | {db_str}"
+             (f"Health: {' | '.join(parts)} | {db_str} | {_sb_label}"
               f" | Conflicts {conflict_count}{crash_suffix}")[:249])
 
 
@@ -725,6 +731,113 @@ async def handle_fixbotowners(bot, user, args: list[str]) -> None:
 # /emergencystop
 # ---------------------------------------------------------------------------
 
+async def handle_safeboot(bot, user, args: list[str]) -> None:
+    """
+    /safeboot on|off|status
+    Controls safe-boot mode. When ON, background loops are disabled at startup.
+    Admin/owner only. Restart recommended after changing.
+    """
+    if not can_manage_economy(user.username):
+        await _w(bot, user.id, "Admin and owner only.")
+        return
+    sub = args[1].lower() if len(args) > 1 else "status"
+    if sub == "on":
+        db.set_room_setting("safeboot", "true")
+        await _w(bot, user.id, "✅ Safe boot ON. Restart recommended.")
+    elif sub == "off":
+        db.set_room_setting("safeboot", "false")
+        await _w(bot, user.id, "⛔ Safe boot OFF. Restart recommended.")
+    else:
+        val = db.get_room_setting("safeboot", "true")
+        env_val = "ON" if __import__("config").SAFE_BOOT else "OFF"
+        label = "ON" if val == "true" else "OFF"
+        await _w(bot, user.id,
+                 f"Safe boot: {label} (DB) | env={env_val}. /safeboot on|off")
+
+
+async def handle_recoverbots(bot, user) -> None:
+    """
+    /recoverbots — Admin/owner only.
+    Marks stale bot_instances offline, clears stale locks, fixes room presence,
+    and keeps safe boot ON. Does not restart bots.
+    """
+    if not can_manage_economy(user.username):
+        await _w(bot, user.id, "Admin and owner only.")
+        return
+    repaired = 0
+    try:
+        conn = db.get_connection()
+        cur = conn.execute(
+            "UPDATE bot_instances SET status='offline' "
+            "WHERE last_seen_at < datetime('now', '-120 seconds')"
+        )
+        repaired += cur.rowcount
+        cur2 = conn.execute(
+            "DELETE FROM bot_module_locks WHERE expires_at < datetime('now')"
+        )
+        repaired += cur2.rowcount
+        conn.commit()
+        conn.close()
+    except Exception as _e:
+        print(f"[RECOVERBOTS] DB error: {_e}")
+    try:
+        db.fix_room_presence()
+    except Exception as _e:
+        print(f"[RECOVERBOTS] room presence fix error: {_e}")
+    await _w(bot, user.id,
+             f"✅ Bot recovery complete. {repaired} row(s) fixed. Safe boot remains ON.")
+
+
+async def handle_enablepokerloops(bot, user) -> None:
+    """
+    /enablepokerloops — Poker Bot only (or admin). Turns on poker AFK + leave-fold.
+    Only use after confirming the poker table is stable.
+    """
+    if not can_manage_games(user.username):
+        await _w(bot, user.id, "Manager and above only.")
+        return
+    db.set_room_setting("poker_afk_enabled",          "true")
+    db.set_room_setting("poker_leaveremove_enabled",   "true")
+    db.set_room_setting("poker_paused",                "false")
+    await _w(bot, user.id,
+             "✅ Poker loops ON: AFK tracking + leave-fold enabled. Table unpaused.")
+
+
+async def handle_enableautogames(bot, user) -> None:
+    """
+    /enableautogames — Event Bot only (or admin). Turns on autogames loop.
+    """
+    if not can_manage_games(user.username):
+        await _w(bot, user.id, "Manager and above only.")
+        return
+    db.set_room_setting("autogames_enabled", "true")
+    await _w(bot, user.id, "✅ Autogames enabled. Takes effect on next loop tick.")
+
+
+async def handle_enablewelcomeintervals(bot, user) -> None:
+    """
+    /enablewelcomeintervals — Host Bot only (or admin).
+    Turns on welcome messages and room interval messages.
+    """
+    if not can_manage_games(user.username):
+        await _w(bot, user.id, "Manager and above only.")
+        return
+    db.set_room_setting("welcome_interval_enabled", "true")
+    await _w(bot, user.id,
+             "✅ Welcome intervals ON. Takes effect on next bot restart.")
+
+
+async def handle_enablebotspawn(bot, user) -> None:
+    """
+    /enablebotspawn — Admin only. Enables bot auto-spawn on startup.
+    """
+    if not can_manage_economy(user.username):
+        await _w(bot, user.id, "Admin and owner only.")
+        return
+    db.set_room_setting("bot_auto_spawn_enabled", "true")
+    await _w(bot, user.id, "✅ Bot auto-spawn enabled. Takes effect on next restart.")
+
+
 async def handle_emergencystop(bot, user) -> None:
     """
     /emergencystop — Admin/owner only.
@@ -760,7 +873,12 @@ async def handle_emergencystop(bot, user) -> None:
         db.fix_room_presence()
     except Exception as _e:
         print(f"[EMERGENCYSTOP] room presence fix error: {_e}")
-    await _w(bot, user.id, "🛑 Emergency stop active. Poker loops off. Autogames off. Locks cleared.")
+    try:
+        db.set_room_setting("safeboot", "true")
+        db.set_room_setting("welcome_interval_enabled", "false")
+    except Exception as _e:
+        print(f"[EMERGENCYSTOP] extra settings error: {_e}")
+    await _w(bot, user.id, "🛑 Emergency stop active. Restart recommended.")
 
 
 # ---------------------------------------------------------------------------

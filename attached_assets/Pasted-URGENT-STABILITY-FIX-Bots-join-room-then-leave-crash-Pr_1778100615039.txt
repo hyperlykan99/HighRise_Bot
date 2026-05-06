@@ -1,0 +1,451 @@
+URGENT STABILITY FIX: Bots join room then leave/crash.
+
+Problem:
+All bots are still joining the Highrise room then leaving. I do not know why.
+This means the bots connect successfully, but something crashes after startup.
+
+Goal:
+Make the bots stay online first. Disable all risky startup/background systems by default, isolate crashes per bot, and log exact errors.
+
+IMPORTANT:
+- Do not add AI features right now.
+- Do not remove existing commands.
+- Do not remove poker, blackjack, mining, bank, shop, event, or room systems.
+- Stability first.
+- Bots must stay in the room.
+- No startup task should crash the bot.
+- One bot crashing must not kill every bot.
+- Keep shared SQLite database.
+- Do not print token values.
+- Keep messages under 250 characters.
+
+==================================================
+PART 1: ADD SAFE BOOT MODE DEFAULT ON
+==================================================
+
+Add setting and env support:
+
+SAFE_BOOT=true
+
+If SAFE_BOOT is true, bots should start with ONLY:
+- login/connect
+- command routing
+- heartbeat
+- basic database connection
+- /bots
+- /bothealth
+- /crashlogs
+- /deploymentcheck
+- /safeboot commands
+
+Disable these on startup:
+- poker restore
+- poker timers
+- poker AFK loop
+- poker presence/leave watcher
+- poker AI simulation
+- poker cleanup/recovery loop
+- blackjack/rbj restore loops
+- autogames
+- mining event loops
+- welcome intervals
+- emote loops
+- bot auto-spawn
+- outfit auto-apply
+- sync dance loops
+- room boost/mic checks
+- any repeating background task except heartbeat
+
+Console:
+"[SAFE_BOOT] Background loops disabled. Commands available."
+
+Commands:
+- /safeboot on
+- /safeboot off
+- /safeboot status
+
+Owner/admin only.
+
+Messages:
+"✅ Safe boot ON. Restart recommended."
+"⛔ Safe boot OFF. Restart recommended."
+"Safe boot: ON"
+
+Default:
+SAFE_BOOT should be ON unless explicitly set false.
+
+==================================================
+PART 2: CRASH-PROOF MULTI-BOT RUNNER
+==================================================
+
+Each bot client must run in its own protected async task.
+
+Rules:
+- If one bot crashes, log it.
+- Do not kill the other bots.
+- Restart only the crashed bot after delay.
+- Use backoff: 5s, 10s, 30s, 60s max.
+- Do not let asyncio.gather crash everything.
+- Use return_exceptions=True or individual task wrappers.
+
+Pseudo behavior:
+run_bot_forever(bot_config):
+    while True:
+        try:
+            await start_bot(bot_config)
+        except Exception as e:
+            log_crash(bot_config, e)
+            mark bot restarting
+            sleep backoff
+            continue
+
+Console:
+"[CRASH] Poker bot crashed in startup: <error>"
+"[RESTART] Poker bot restarting in 10s"
+
+==================================================
+PART 3: WRAP ALL STARTUP TASKS
+==================================================
+
+Every startup function must be wrapped in try/except.
+
+Startup tasks include:
+- database init
+- register bot instance
+- heartbeat
+- restore poker table
+- restore blackjack/rbj
+- restore mining events
+- restore events/autogames
+- welcome interval loop
+- bot spawn
+- outfit apply
+- emote loop
+- task registry
+- room presence repair
+
+If any task fails:
+- log to console
+- log to bot_crash_logs
+- skip that task
+- keep bot connected
+
+Never allow startup task exception to disconnect bot.
+
+==================================================
+PART 4: MODULE OWNER GUARD
+==================================================
+
+Only the owner bot can even attempt module startup tasks.
+
+Rules:
+- Poker startup/tasks only BOT_MODE=poker
+- Blackjack/RBJ startup/tasks only BOT_MODE=blackjack
+- Mining startup/tasks only BOT_MODE=miner
+- Bank startup/tasks only BOT_MODE=banker
+- Shop startup/tasks only BOT_MODE=shopkeeper
+- Security startup/tasks only BOT_MODE=security
+- DJ/emote startup/tasks only BOT_MODE=dj
+- Event/autogames startup/tasks only BOT_MODE=eventhost
+- Host/welcome startup/tasks only BOT_MODE=host
+
+All other bots must skip:
+"[SKIP] poker startup skipped on banker"
+
+Heartbeat is the only background task allowed on every bot.
+
+==================================================
+PART 5: TURN OFF RISKY FEATURES BY DEFAULT
+==================================================
+
+Set these defaults:
+
+bot_startup_announce_enabled = false
+module_startup_announce_enabled = false
+module_restore_announce_enabled = false
+autogames_enabled = false
+bot_auto_spawn_enabled = false
+outfit_auto_apply_enabled = false
+emote_loops_enabled_on_startup = false
+welcome_interval_enabled = false
+
+Poker defaults:
+poker_afk_enabled = false
+poker_ai_enabled = false
+poker_presence_auto_remove_enabled = false
+poker_auto_recovery_enabled = false
+poker_cleanup_loop_enabled = false
+poker_paused = true
+
+Important:
+Poker commands can still work, but no poker background loop should start until manually enabled.
+
+==================================================
+PART 6: SQLITE SAFETY
+==================================================
+
+Fix SQLite for multi-bot:
+
+On every DB connection:
+PRAGMA journal_mode=WAL;
+PRAGMA busy_timeout=5000;
+PRAGMA synchronous=NORMAL;
+
+Rules:
+- Do not hold DB transactions while awaiting Highrise API calls.
+- Retry "database is locked" up to 3 times.
+- Log DB lock errors.
+- Never crash bot on DB lock during startup.
+
+Console:
+"[DB] database locked retry 1/3"
+
+==================================================
+PART 7: TOKEN AND BOT CONFIG VALIDATION
+==================================================
+
+Before starting bots:
+- Read all bot tokens.
+- Skip missing/empty tokens.
+- Detect duplicate tokens.
+- Detect duplicate bot_id.
+- Never print token values.
+
+Expected secrets:
+HOST_BOT_TOKEN
+BLACKJACK_BOT_TOKEN
+POKER_BOT_TOKEN
+MINER_BOT_TOKEN
+BANKER_BOT_TOKEN
+SHOP_BOT_TOKEN
+SECURITY_BOT_TOKEN
+DJ_BOT_TOKEN
+EVENT_BOT_TOKEN
+SHARED_DB_PATH
+
+If duplicate token:
+"[CONFIG] Duplicate token detected for DJ. Skipping duplicate."
+
+If token missing:
+"[CONFIG] MINER_BOT_TOKEN missing. Skipping Miner."
+
+==================================================
+PART 8: CRASH LOGS
+==================================================
+
+Create/fix table:
+
+bot_crash_logs:
+- id INTEGER PRIMARY KEY AUTOINCREMENT
+- timestamp TEXT
+- bot_id TEXT
+- bot_username TEXT
+- bot_mode TEXT
+- phase TEXT
+  Values: startup, command, task, db, api, unknown
+- task_name TEXT
+- error_type TEXT
+- error_message TEXT
+- traceback TEXT
+
+Commands:
+- /crashlogs
+- /crashlogs <bot_id>
+- /crashlogs latest
+- /clearcrashlogs
+
+Messages:
+"/crashlogs: #12 poker startup TypeError | #11 host db locked"
+
+"/crashlogs latest":
+"Latest: poker startup restore_poker_table TypeError: none round_id"
+
+==================================================
+PART 9: CONSOLE LOGGING MUST SHOW EXACT CRASH
+==================================================
+
+Add clear console logs:
+
+At runner start:
+"[RUNNER] Starting bots..."
+"[RUNNER] Host token found"
+"[RUNNER] Poker token found"
+
+At bot start:
+"[BOT START] id=poker mode=poker username=ChipSoprano"
+
+At connected:
+"[BOT ONLINE] poker connected"
+
+At startup task:
+"[TASK START] poker heartbeat"
+"[TASK SKIP] poker_restore skipped because SAFE_BOOT=true"
+
+At crash:
+"[BOT CRASH] id=poker phase=startup task=poker_restore error=<error>"
+
+==================================================
+PART 10: ROOM COUNT FIX
+==================================================
+
+Room count must never be negative.
+
+Fix presence tracking:
+- Use room_presence table.
+- One row per normalized username.
+- On join, set in_room=1.
+- On leave, set in_room=0.
+- Do not increment/decrement raw counts blindly.
+- Display count = max(0, count of in_room=1).
+
+Commands:
+- /roomcount
+- /fixroomcount
+
+/roomcount:
+"Room count: 8 users | bots 7"
+
+/fixroomcount:
+"✅ Room count repaired."
+
+On startup:
+- If stored room count < 0, repair to 0 or actual present count.
+
+==================================================
+PART 11: EMERGENCY COMMANDS
+==================================================
+
+Add/fix:
+
+/emergencystop
+
+Owner/admin only.
+
+Behavior:
+- safe boot ON
+- poker paused
+- poker background loops OFF
+- autogames OFF
+- bot auto-spawn OFF
+- outfit auto-apply OFF
+- emote loops OFF
+- welcome intervals OFF
+- clear stale locks
+- fix room count
+
+Reply:
+"🛑 Emergency stop active. Restart recommended."
+
+/recoverbots
+
+Owner/admin only.
+
+Behavior:
+- mark stale bot_instances offline
+- clear stale module locks
+- fix room count
+- clear duplicate task registrations
+- keep safe boot ON
+
+Reply:
+"✅ Bot recovery complete."
+
+==================================================
+PART 12: BOT HEALTH
+==================================================
+
+Update:
+/bots
+/bothealth
+/deploymentcheck
+/taskconflicts
+/botconflicts
+
+/bots:
+"Host ON | BJ ON | Poker restarting | Miner OFF"
+
+/bothealth:
+"DB OK | SafeBoot ON | Bots 8 | Crashes 1"
+
+/deploymentcheck:
+"Deploy: DB OK | SafeBoot ON | Room OK | Tasks OFF"
+
+/taskconflicts:
+If safe boot ON:
+"Safe boot ON. Background tasks disabled."
+
+==================================================
+PART 13: MINIMAL STARTUP TEST
+==================================================
+
+With SAFE_BOOT=true:
+
+After restart, only these should run:
+- bot connections
+- heartbeat
+- command routing
+- health commands
+
+No other background loops.
+
+Test:
+- bots should stay in room for at least 5 minutes
+- no join/leave loop
+- room count not negative
+- /bots works
+- /bothealth works
+- /crashlogs works
+
+==================================================
+PART 14: CONTROLLED RE-ENABLE LATER
+==================================================
+
+Add commands to turn systems back on one at a time:
+
+/enablepokerloops
+- Poker Bot only.
+- Enables poker timers/restore after safe boot is off.
+
+/enableautogames
+- Event Bot only.
+
+/enablewelcomeintervals
+- Host Bot only.
+
+/enablebotspawn
+- enables bot auto-spawn.
+
+Each command must validate owner bot and log.
+
+Do not auto-enable anything.
+
+==================================================
+PART 15: TESTS
+==================================================
+
+After update:
+
+1. Set Replit secret:
+SAFE_BOOT = true
+
+2. Restart workflow.
+
+3. Run:
+/bots
+/bothealth
+/crashlogs latest
+/roomcount
+/fixroomcount
+/taskconflicts
+/botconflicts
+/deploymentcheck
+
+Expected:
+- Bots stay in room.
+- No negative room count.
+- SafeBoot ON.
+- Background tasks disabled.
+- Crash logs show exact issue if any.
+
+Final requirement:
+Bots must stop joining/leaving repeatedly. The project must boot in safe mode first, then features can be re-enabled one at a time.

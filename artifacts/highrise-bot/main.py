@@ -301,6 +301,9 @@ from modules.bot_health import (
     handle_botheartbeat, handle_moduleowners,
     handle_botconflicts, handle_fixbotowners,
     handle_emergencystop, handle_roomcount, handle_fixroomcount,
+    handle_safeboot, handle_recoverbots,
+    handle_enablepokerloops, handle_enableautogames,
+    handle_enablewelcomeintervals, handle_enablebotspawn,
 )
 from modules.bot_modes import (
     handle_botmode, handle_botmodes, handle_botprofile,
@@ -680,6 +683,9 @@ ALL_KNOWN_COMMANDS = (
         "botconflicts", "fixbotowners",
         "crashlogs", "clearcrashlogs", "safemode",
         "emergencystop", "roomcount", "fixroomcount",
+        "safeboot", "recoverbots",
+        "enablepokerloops", "enableautogames",
+        "enablewelcomeintervals", "enablebotspawn",
         # ── Task ownership / restore announce ─────────────────────────────────
         "taskowners", "activetasks", "taskconflicts", "fixtaskowners",
         "restoreannounce", "restorestatus",
@@ -1827,82 +1833,142 @@ class HangoutBot(BaseBot):
 
     async def on_start(self, session_metadata) -> None:
         """Called once when the bot successfully connects to the room."""
-        db.init_db()
-        print(f"[HangoutBot] Connected — room {config.ROOM_ID} | DB: {config.DB_PATH}")
+        _bid = config.BOT_ID
+        print(f"[BOT START] id={_bid} mode={BOT_MODE}")
+
+        # ── DB init — never crash the bot if this fails ───────────────────────
+        try:
+            db.init_db()
+        except Exception as _dbe:
+            print(f"[BOT CRASH] id={_bid} phase=startup task=db_init error={_dbe}")
+            try:
+                db.log_bot_crash(_bid, BOT_MODE, "startup", "db_init",
+                                 type(_dbe).__name__, str(_dbe), "")
+            except Exception:
+                pass
+
+        print(f"[BOT ONLINE] {_bid} connected | room {config.ROOM_ID} | DB: {config.DB_PATH}")
         print(f"[HangoutBot] SDK version: {_TIP_SDK_VERSION}")
-        print(f"[HangoutBot] Run command: cd artifacts/highrise-bot && python3 bot.py")
-        # Store bot identity so gold rain / tip receiver-check can use it
-        set_bot_identity(session_metadata.user_id)
-        print(f"[HangoutBot] Bot user ID: {session_metadata.user_id}")
-        # Log which events this session is subscribed to (only overridden hooks)
+
+        # ── Bot identity ──────────────────────────────────────────────────────
+        try:
+            set_bot_identity(session_metadata.user_id)
+            print(f"[BOT START] id={_bid} user_id={session_metadata.user_id}")
+        except Exception as _e:
+            print(f"[STARTUP] set_bot_identity error: {_e}")
+
+        # ── Event subscriptions ───────────────────────────────────────────────
         try:
             from highrise.__main__ import gather_subscriptions
             subs = gather_subscriptions(self)
             print(f"[HangoutBot] Event subscriptions: {subs or '(all)'}")
         except Exception:
             pass
-        # Seed the room user cache from the live room list
-        asyncio.create_task(refresh_room_cache(self))
-        # ── Check safe mode — disables dangerous startup loops if ON ──────────
-        _safe_mode = db.get_room_setting("safe_mode_enabled", "false") == "true"
-        if _safe_mode:
-            print(f"[STARTUP] Safe mode ON — skipping auto-spawn/outfit/emote/interval loops.")
 
-        # ── Events recovery — events bot only ────────────────────────────────
+        # ── Room cache ────────────────────────────────────────────────────────
+        try:
+            asyncio.create_task(refresh_room_cache(self))
+            print(f"[TASK START] {_bid} refresh_room_cache")
+        except Exception as _e:
+            print(f"[STARTUP] room cache skipped: {_e}")
+
+        # ── Determine safe-boot state ─────────────────────────────────────────
+        # Priority: SAFE_BOOT env var > safeboot DB setting
+        _env_safe = config.SAFE_BOOT
+        try:
+            _db_safe = db.get_room_setting("safeboot", "true") == "true"
+        except Exception:
+            _db_safe = True
+        _safe_boot = _env_safe or _db_safe
+
+        if _safe_boot:
+            print(f"[SAFE_BOOT] {_bid} background loops disabled. Commands available.")
+        else:
+            print(f"[STARTUP] {_bid} safe boot OFF — starting background loops for {BOT_MODE}.")
+
+        # ── Multi-bot heartbeat (always runs — it is cheap and safe) ──────────
+        try:
+            asyncio.create_task(start_multibot_heartbeat(self))
+            print(f"[TASK START] {_bid} heartbeat")
+        except Exception as _e:
+            print(f"[STARTUP] heartbeat skipped: {_e}")
+
+        # ── Skip everything else if safe boot is ON ───────────────────────────
+        if _safe_boot:
+            try:
+                check_startup_safety()
+            except Exception as _e:
+                print(f"[STARTUP] safety check error: {_e}")
+            return
+
+        # ══════════════════════════════════════════════════════════════════════
+        # Below: Only runs when SAFE_BOOT=false AND safeboot DB setting=false
+        # ══════════════════════════════════════════════════════════════════════
+
+        # ── Events recovery — eventhost bot only ─────────────────────────────
         try:
             if should_this_bot_run_module("events"):
+                print(f"[TASK START] {_bid} startup_event_check")
                 asyncio.create_task(startup_event_check(self))
             else:
-                print(f"[EVENTS] Startup check skipped — not events bot ({BOT_MODE}).")
+                print(f"[TASK SKIP] {_bid} startup_event_check — not events bot ({BOT_MODE})")
         except Exception as _e:
-            print(f"[STARTUP] events restore skipped on {BOT_MODE}: {_e}")
+            print(f"[BOT CRASH] id={_bid} phase=startup task=events_check error={_e}")
+            try:
+                db.log_bot_crash(_bid, BOT_MODE, "startup", "startup_event_check",
+                                 type(_e).__name__, str(_e), "")
+            except Exception:
+                pass
 
-        # ── BJ/RBJ recovery — blackjack bot only ────────────────────────────
+        # ── BJ/RBJ recovery — blackjack bot only ─────────────────────────────
         try:
             if should_this_bot_run_module("blackjack"):
+                print(f"[TASK START] {_bid} startup_bj_recovery")
                 asyncio.create_task(startup_bj_recovery(self))
                 asyncio.create_task(startup_rbj_recovery(self))
             else:
-                print(f"[BJ] Recovery skipped — not blackjack bot ({BOT_MODE}).")
+                print(f"[TASK SKIP] {_bid} startup_bj_recovery — not blackjack bot ({BOT_MODE})")
         except Exception as _e:
-            print(f"[STARTUP] blackjack restore skipped on {BOT_MODE}: {_e}")
+            print(f"[BOT CRASH] id={_bid} phase=startup task=bj_recovery error={_e}")
+            try:
+                db.log_bot_crash(_bid, BOT_MODE, "startup", "startup_bj_recovery",
+                                 type(_e).__name__, str(_e), "")
+            except Exception:
+                pass
 
         # ── Poker recovery — poker bot only ──────────────────────────────────
         try:
             if should_this_bot_run_module("poker"):
+                print(f"[TASK START] {_bid} startup_poker_recovery")
                 asyncio.create_task(startup_poker_recovery(self))
             else:
-                print(f"[POKER] Recovery skipped — not poker bot ({BOT_MODE}).")
+                print(f"[TASK SKIP] {_bid} startup_poker_recovery — not poker bot ({BOT_MODE})")
         except Exception as _e:
-            print(f"[STARTUP] poker restore skipped on {BOT_MODE}: {_e}")
+            print(f"[BOT CRASH] id={_bid} phase=startup task=poker_recovery error={_e}")
+            try:
+                db.log_bot_crash(_bid, BOT_MODE, "startup", "startup_poker_recovery",
+                                 type(_e).__name__, str(_e), "")
+            except Exception:
+                pass
 
         # ── Auto game/event loops ─────────────────────────────────────────────
-        if not _safe_mode:
-            try:
-                start_auto_game_loop(self)
-            except Exception as _e:
-                print(f"[STARTUP] autogame loop skipped: {_e}")
-            try:
-                start_auto_event_loop(self)
-            except Exception as _e:
-                print(f"[STARTUP] autoevent loop skipped: {_e}")
-        else:
-            print(f"[STARTUP] autogames/autoevent loops skipped (safe mode).")
+        try:
+            start_auto_game_loop(self)
+            print(f"[TASK START] {_bid} auto_game_loop")
+        except Exception as _e:
+            print(f"[STARTUP] autogame loop skipped: {_e}")
+        try:
+            start_auto_event_loop(self)
+            print(f"[TASK START] {_bid} auto_event_loop")
+        except Exception as _e:
+            print(f"[STARTUP] autoevent loop skipped: {_e}")
 
         # ── Room interval messages ────────────────────────────────────────────
-        if not _safe_mode:
-            try:
-                await start_interval_loop(self)
-            except Exception as _e:
-                print(f"[STARTUP] interval loop skipped: {_e}")
-        else:
-            print(f"[STARTUP] interval loop skipped (safe mode).")
-
-        # ── Multi-bot heartbeat ───────────────────────────────────────────────
         try:
-            asyncio.create_task(start_multibot_heartbeat(self))
+            await start_interval_loop(self)
+            print(f"[TASK START] {_bid} interval_loop")
         except Exception as _e:
-            print(f"[STARTUP] heartbeat task skipped: {_e}")
+            print(f"[STARTUP] interval loop skipped: {_e}")
 
         # ── Startup safety checks ─────────────────────────────────────────────
         try:
@@ -3229,6 +3295,24 @@ class HangoutBot(BaseBot):
         elif cmd == "fixroomcount":
             await handle_fixroomcount(self, user)
 
+        elif cmd == "safeboot":
+            await handle_safeboot(self, user, args)
+
+        elif cmd == "recoverbots":
+            await handle_recoverbots(self, user)
+
+        elif cmd == "enablepokerloops":
+            await handle_enablepokerloops(self, user)
+
+        elif cmd == "enableautogames":
+            await handle_enableautogames(self, user)
+
+        elif cmd == "enablewelcomeintervals":
+            await handle_enablewelcomeintervals(self, user)
+
+        elif cmd == "enablebotspawn":
+            await handle_enablebotspawn(self, user)
+
         elif cmd == "pokermode":
             await handle_pokermode(self, user, args)
 
@@ -3738,6 +3822,24 @@ class HangoutBot(BaseBot):
         elif cmd == "fixroomcount":
             await handle_fixroomcount(self, user)
 
+        elif cmd == "safeboot":
+            await handle_safeboot(self, user, args)
+
+        elif cmd == "recoverbots":
+            await handle_recoverbots(self, user)
+
+        elif cmd == "enablepokerloops":
+            await handle_enablepokerloops(self, user)
+
+        elif cmd == "enableautogames":
+            await handle_enableautogames(self, user)
+
+        elif cmd == "enablewelcomeintervals":
+            await handle_enablewelcomeintervals(self, user)
+
+        elif cmd == "enablebotspawn":
+            await handle_enablebotspawn(self, user)
+
         # ── Task ownership / restore announce ─────────────────────────────────
         elif cmd == "taskowners":
             await handle_taskowners(self, user)
@@ -3787,7 +3889,10 @@ class HangoutBot(BaseBot):
 
     async def on_user_join(self, user: User, position) -> None:
         """Register new players and greet them when they enter the room."""
-        db.ensure_user(user.id, user.username)
+        try:
+            db.ensure_user(user.id, user.username)
+        except Exception as _e:
+            print(f"[on_user_join] ensure_user error: {_e}")
         add_to_room_cache(user.id, user.username)
         # Update position cache for follow/teleport
         try:

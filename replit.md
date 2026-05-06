@@ -70,22 +70,27 @@ Casino games (Blackjack, Realistic Blackjack, Poker), DJ queue, token economy, d
 - Short aliases preferred for in-room play; full `/bj <sub>` commands still supported.
 - Rep rank cap: Celebrity (500+). No "Legend" rep rank. Level rank Legend = 50+.
 
-## Crash-safe poker fix (applied)
+## SAFE_BOOT system (applied)
 
-**Root cause:** `handle_poker_player_left` ran on all 8 bots on every leave event; `poker_afk_enabled` was seeded as `'1'` (ON). Both now fixed.
+**SAFE_BOOT is ON by default.** All background loops are disabled at startup. Bots connect, heartbeat, and handle commands — nothing else runs until explicitly enabled.
 
-- `poker_leaveremove_enabled=false` (new setting) gates `handle_poker_player_left` — leave-fold is OFF unless explicitly turned ON with `/poker leaveremove on`.
-- `on_user_leave` in `main.py` now checks `should_this_bot_run_module("poker")` before calling `handle_poker_player_left` — only Poker Bot ever runs it.
-- `poker_afk_enabled` migration updated to `'0'`; a new migration unconditionally resets it to `'0'` (fixes existing installs).
-- All new poker settings default to OFF: `poker_leaveremove_enabled`, `poker_presence_auto_remove_enabled`, `poker_auto_recovery_enabled`, `poker_cleanup_loop_enabled`. `poker_notes_enabled=true` (notes are command-only, no loop).
+- `config.SAFE_BOOT`: env var `SAFE_BOOT=true` (default). Set `SAFE_BOOT=false` to disable.
+- `safeboot` DB setting: checked on every `on_start`. Both must be `false` for loops to run.
+- `on_start` fully crash-proofed: each step in its own try/except; `[BOT START]`/`[BOT ONLINE]`/`[TASK START]`/`[TASK SKIP]`/`[BOT CRASH]` console logging.
+- `on_user_join` DB errors gracefully caught — no longer crashes the bot.
 
-**New commands added:**
-- `/poker leaveremove on|off` — enable/disable auto-fold when player leaves room
-- `/poker safemode on|off|status` — admin: disable all poker background loops + pause table
-- `/emergencystop` — admin: one-shot brake; disables all loops, poker loops, autogames, clears stale locks, fixes room count
-- `/roomcount` — shows room_presence tracked in-room count (never negative)
-- `/fixroomcount` — repairs stale/invalid room_presence rows
-- `/deploymentcheck` now shows: room count, poker loops safe status, pass/fail summary
+**Safe boot commands (admin/owner only):**
+- `/safeboot on|off|status` — toggle safe boot; restart recommended after change
+- `/recoverbots` — mark stale bot_instances offline, clear expired locks, fix room presence
+- `/enablepokerloops` — turn on poker AFK tracking + leave-fold (poker bot/manager)
+- `/enableautogames` — turn on autogames loop (event bot/manager)
+- `/enablewelcomeintervals` — turn on welcome/interval messages (host bot/manager)
+- `/enablebotspawn` — turn on bot auto-spawn on startup (admin only)
+
+**Crash-safe poker fix (applied):**
+- `poker_leaveremove_enabled=false` gates leave-fold; `poker_afk_enabled` reset to `false`.
+- `on_user_leave` guarded by `should_this_bot_run_module("poker")`.
+- `/poker leaveremove on|off`, `/poker safemode`, `/emergencystop`, `/roomcount`, `/fixroomcount`.
 
 ## Gotchas
 
@@ -99,7 +104,9 @@ Casino games (Blackjack, Realistic Blackjack, Poker), DJ queue, token economy, d
 - The `_user_positions` dictionary in `room_utils.py` is volatile and resets on bot restart.
 - `get_connection()` now enables WAL mode + busy_timeout=5000ms on every connection. Use `_execute_with_retry()` for hot-path writes.
 - `safe_mode_enabled=true` skips autogames, interval, and emote loops at startup. Use `/safemode on` if bots keep crashing.
+- **SAFE_BOOT=true (env) + safeboot=true (DB)** — both must be `false` for background loops to start. Change DB setting with `/safeboot off` then restart.
 - All startup tasks in `on_start` are individually try/except wrapped — one task failure never kills the bot.
+- `on_user_join` `ensure_user` DB errors are caught and logged — never crash the bot on join storm.
 - Duplicate tokens and bot_ids are now detected and skipped in `bot.py` before launching subprocesses.
 
 ## Pointers

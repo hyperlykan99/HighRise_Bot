@@ -7505,6 +7505,7 @@ def seed_room_settings() -> None:
         ("outfit_auto_apply_enabled",         "false"),
         ("emote_loops_enabled_on_startup",    "false"),
         ("safe_mode_enabled",                 "false"),
+        ("safeboot",                          "true"),
         ("poker_paused",                      "false"),
         ("poker_table_locked",                "false"),
         ("poker_waitlist_enabled",            "true"),
