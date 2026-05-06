@@ -120,10 +120,12 @@ def _collect_bots() -> list[_BotSpec]:
     _game_modes = {"blackjack", "poker", "miner", "banker",
                    "shopkeeper", "security", "dj", "eventhost"}
     has_game_split = any(s.bot_mode in _game_modes for s in specs[1:])
+    has_host_split = any(s.bot_mode == "host" for s in specs[1:])
 
     if (has_game_split
             and specs                         # main bot present
             and specs[0].bot_mode == "all"    # currently all-mode
+            and not has_host_split            # don't demote if dedicated host exists
             and not os.environ.get("MAIN_BOT_MODE")):   # not explicitly overridden
         old = specs[0]
         specs[0] = _BotSpec(

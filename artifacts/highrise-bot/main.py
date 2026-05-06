@@ -176,6 +176,7 @@ from modules.cmd_audit import (
     handle_checkhelp_audit as _audit_checkhelp,
     handle_missingcommands, handle_routecheck,
     handle_silentcheck, handle_commandtest,
+    handle_fixcommands, handle_testcommands,
 )
 from modules.economy_settings import (
     handle_economysettings,
@@ -453,6 +454,7 @@ ADMIN_ONLY_CMDS = {
     "allcommands",
     "checkcommands", "checkhelp",
     "missingcommands", "routecheck", "silentcheck", "commandtest",
+    "fixcommands", "testcommands",
     # ── Economy settings ─────────────────────────────────────────────────────
     "setdailycoins", "setgamereward", "settransferfee",
     # ── Event aliases ────────────────────────────────────────────────────────
@@ -536,6 +538,7 @@ ALL_KNOWN_COMMANDS = (
         "profileadmin", "profileprivacy", "resetprofileprivacy",
         "allstaff", "allcommands", "checkcommands",
         "missingcommands", "routecheck", "silentcheck", "commandtest",
+        "fixcommands", "testcommands",
         "notifications", "clearnotifications",
         "delivernotifications", "pendingnotifications",
         "subscribe", "unsubscribe", "substatus", "subhelp",
@@ -1905,6 +1908,10 @@ class HangoutBot(BaseBot):
                 await handle_silentcheck(self, user, ALL_KNOWN_COMMANDS)
             elif cmd == "commandtest":
                 await handle_commandtest(self, user, args)
+            elif cmd == "fixcommands":
+                await handle_fixcommands(self, user)
+            elif cmd == "testcommands":
+                await handle_testcommands(self, user)
             elif cmd == "bankblock":
                 await handle_bankblock(self, user, args, block=True)
             elif cmd == "bankunblock":

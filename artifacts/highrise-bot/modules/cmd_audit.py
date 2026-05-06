@@ -137,6 +137,7 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     "adminpanel", "adminlogs", "adminloginfo",
     "checkcommands", "checkhelp",
     "missingcommands", "routecheck", "silentcheck", "commandtest",
+    "fixcommands", "testcommands",
     # ── via handle_admin_command (always replies) ─────────────────────────────
     "addcoins", "removecoins", "announce", "resetgame",
     # ── event aliases ─────────────────────────────────────────────────────────
@@ -474,3 +475,77 @@ async def handle_commandtest(bot: BaseBot, user: User, args: list[str]) -> None:
         pass
     print(f"[COMMANDTEST] /{cmd} route={route_s} help={help_s} hidden={hidden} silent={silent}")
     await _w(bot, user.id, f"/{cmd} route:{route_s} | help:{help_s}{extra}")
+
+
+# ---------------------------------------------------------------------------
+# /fixcommands  — refresh command registry, report coverage
+# ---------------------------------------------------------------------------
+
+async def handle_fixcommands(bot: BaseBot, user: User) -> None:
+    """/fixcommands  — refresh command ownership cache and report coverage."""
+    if not _can_audit(user.username):
+        await _w(bot, user.id, "Admin and owner only.")
+        return
+    try:
+        from modules.multi_bot import _refresh_owner_cache, _DEFAULT_COMMAND_OWNERS
+        _refresh_owner_cache()
+        owned = len(_DEFAULT_COMMAND_OWNERS)
+    except Exception:
+        owned = -1
+    try:
+        import database as db
+        overrides = len(db.get_all_command_owners() or [])
+    except Exception:
+        overrides = 0
+    routed   = len(ROUTED_COMMANDS)
+    in_help  = len(HELP_CMDS)
+    missing  = len(HELP_CMDS - ROUTED_COMMANDS)
+    print(f"[FIXCMDS] @{user.username}: routed={routed} help={in_help} "
+          f"missing={missing} owned={owned} overrides={overrides}")
+    await _w(bot, user.id,
+             f"✅ Registry refreshed: {routed} routed | {in_help} help-listed | "
+             f"{missing} gaps | {owned} owned | {overrides} DB overrides.")
+
+
+# ---------------------------------------------------------------------------
+# /testcommands  — spot-check ownership map per module
+# ---------------------------------------------------------------------------
+
+_MODULE_SPOT_CHECKS: list[tuple[str, str, list[str]]] = [
+    ("Banker",   "banker",     ["bal", "send", "daily", "bank", "transactions"]),
+    ("BJ",       "blackjack",  ["bj", "bjoin", "bh", "bs", "rjoin", "rh"]),
+    ("Poker",    "poker",      ["p", "check", "call", "fold", "allin"]),
+    ("Miner",    "miner",      ["mine", "tool", "sellores", "minelb"]),
+    ("Shop",     "shopkeeper", ["shop", "buy", "equip", "badgemarket"]),
+    ("Security", "security",   ["report", "warn", "mute", "kick"]),
+    ("DJ",       "dj",         ["emote", "dance", "hug", "heart"]),
+    ("Events",   "eventhost",  ["announce", "goldrain", "startevent"]),
+    ("Host",     "host",       ["help", "commandtest", "fixcommands"]),
+]
+
+
+async def handle_testcommands(bot: BaseBot, user: User) -> None:
+    """/testcommands  — spot-check ownership map for every module."""
+    if not _can_audit(user.username):
+        await _w(bot, user.id, "Admin and owner only.")
+        return
+    try:
+        from modules.multi_bot import _DEFAULT_COMMAND_OWNERS
+    except Exception as exc:
+        await _w(bot, user.id, f"❌ Import error: {str(exc)[:80]}")
+        return
+
+    results: list[str] = []
+    all_pass = True
+    for label, mode, cmds in _MODULE_SPOT_CHECKS:
+        bad = [c for c in cmds if _DEFAULT_COMMAND_OWNERS.get(c) != mode]
+        if bad:
+            all_pass = False
+            results.append(f"{label}❌({','.join(bad[:2])})")
+        else:
+            results.append(f"{label}✅")
+
+    summary = " | ".join(results)
+    status  = "All OK" if all_pass else "ISSUES FOUND"
+    print(f"[TESTCMDS] @{user.username}: {status} — {summary}")
+    await _w(bot, user.id, f"CmdTest [{status}]: {summary}"[:249])

@@ -1,0 +1,900 @@
+Fix all commands, routing, ownership, help, and silent failures for the full multi-bot system.
+
+PROBLEM:
+I now have multiple bots running:
+- Host Bot
+- Blackjack Bot
+- Poker Bot
+- Miner Bot
+- Banker Bot
+- Shop Bot
+- Security Bot
+- DJ Bot
+- Event Bot
+
+Some commands are not working, some commands are duplicated, some commands still say unknown, and some bots may answer commands they should not handle.
+
+GOAL:
+Make every command work correctly with the correct bot owner.
+Every command should either:
+- work successfully
+- show usage
+- show permission error
+- show unsupported API message
+- show clear error
+
+No command should fail silently.
+No command should be listed in help if it is not routed.
+No command should show route YES in /commandtest but say Unknown when typed.
+
+IMPORTANT:
+- Do not remove existing features.
+- Keep shared SQLite database.
+- Keep all bots sharing coins, roles, profiles, XP, event coins, VIP, badges, titles, casino stats, poker, mining, bank, shop, reports, notifications, logs.
+- Keep all Highrise messages under 250 characters.
+- Split long outputs into pages.
+- Prevent duplicate replies.
+- Unknown command should only be answered by Host Bot.
+- Module bots should ignore commands they do not own.
+- If an API feature is unsupported, reply clearly:
+"This action is not supported by the current API."
+
+==================================================
+PART 1: REBUILD COMMAND REGISTRY
+==================================================
+
+Create one centralized command registry.
+
+Each command entry must include:
+- command
+- aliases
+- module
+- owner_bot_mode
+- required_role
+- usage
+- short_description
+- handler_function
+- hidden/internal true/false
+
+Example:
+{
+  command: "/send",
+  aliases: ["/tip", "/gift"],
+  module: "bank",
+  owner_bot_mode: "banker",
+  required_role: "player",
+  usage: "/send <user> <amount>",
+  short_description: "Send coins.",
+  handler_function: handle_send
+}
+
+Every routed command must exist in registry unless hidden/internal.
+Every help-listed command must exist in registry and have handler_function.
+
+==================================================
+PART 2: BOT OWNERSHIP RULES
+==================================================
+
+Command ownership:
+
+HOST BOT owns:
+- /help
+- /mycommands
+- /allcommands
+- /tutorial
+- /guide
+- /start
+- /new
+- /newbiehelp
+- /profile
+- /me
+- /whois
+- /privacy
+- /dashboard
+- /players
+- /roomhelp
+- /welcome
+- /rules
+- /bots
+- /botstatus
+- /botmodules
+- /bothealth
+- /deploymentcheck
+- /commandowners
+- /botconflicts
+- /control
+- /adminpanel
+- /ownerpanel
+- /managerpanel
+
+BANKER BOT owns:
+- /bal
+- /b if not conflicting
+- /balance
+- /coins
+- /coin
+- /money
+- /wallet
+- /daily
+- /send
+- /tip
+- /gift
+- /bank
+- /transactions
+- /bankhelp
+- /leaderboard
+- /addcoins
+- /removecoins
+- /setcoins
+- /editcoins
+- /resetcoins
+- /viewtx
+- /bankblock
+- /bankunblock
+- /resetbanklimits
+
+BLACKJACK BOT owns:
+- /bj
+- /bjhelp
+- /bjoin
+- /bj join
+- /bh
+- /bs
+- /bd
+- /bsp
+- /bjh
+- /bjs
+- /bjd
+- /bjsp
+- /bt
+- /bhand
+- /bjhand
+- /bj limits
+- /bj settings
+- /bj winlimit on/off
+- /bj losslimit on/off
+- /bj betlimit on/off
+- /bj split on/off
+- /bj double on/off
+- /bj splitaces on/off
+- /setbjactiontimer
+- /setbjmaxsplits
+- /resetbjlimits
+- /bj recover
+- /bj refund
+- /bj forcefinish
+
+RBJ also belongs to Blackjack Bot:
+- /rbj
+- /rbjhelp
+- /rjoin
+- /rbj join
+- /rh
+- /rs
+- /rd
+- /rsp
+- /rbjh
+- /rbjs
+- /rbjd
+- /rbjsp
+- /rt
+- /rhand
+- /rbjhand
+- /rshoe
+- /rbj limits
+- /rbj settings
+- /rbj winlimit on/off
+- /rbj losslimit on/off
+- /rbj betlimit on/off
+- /rbj split on/off
+- /rbj double on/off
+- /rbj splitaces on/off
+- /setrbjactiontimer
+- /setrbjmaxsplits
+- /resetrbjlimits
+- /rbj recover
+- /rbj refund
+- /rbj forcefinish
+
+POKER BOT owns:
+- /poker
+- /pokerhelp
+- /p
+- /pj
+- /pt
+- /ptable
+- /ph
+- /pcards
+- /po
+- /podds
+- /check
+- /ch
+- /call
+- /ca
+- /raise
+- /r
+- /fold
+- /f
+- /allin
+- /all-in
+- /shove
+- /ai
+- /stack
+- /mystack
+- /pstacks
+- /rebuy
+- /sitout
+- /sitin
+- /plb
+- /pstats
+- /pokerstats
+- /pokerlb
+- /poker last
+- /pokerhistory
+- /setpokertimer
+- /setpokerturntimer
+- /setpokerlobbytimer
+- /setpokernexthandtimer
+- /setpokerblinds
+- /setpokerante
+- /setpokerraise
+- /setpokerminplayers
+- /setpokermaxplayers
+- /poker blinds on/off
+- /poker winlimit on/off
+- /poker losslimit on/off
+- /poker raiselimit on/off
+- /poker allin on/off
+- /poker cleanup
+- /pokercleanup
+- /poker refund
+- /poker refundtable
+- /poker forcefinish
+- /pokerdebug
+- /pokerdebug state
+- /pokerdebug players
+- /pokerdebug table
+- /pokerdebug hand
+- /pokerdebug cleanup
+- /pokerfix
+- /poker state
+- /poker recover
+- /poker close
+- /poker on
+- /poker off
+
+MINER BOT owns:
+- /mine
+- /m
+- /dig
+- /tool
+- /pickaxe
+- /upgradetool
+- /upick
+- /mineprofile
+- /mp
+- /mineinv
+- /ores
+- /sellores
+- /sellore
+- /minelb
+- /mineshop
+- /minebuy
+- /useenergy
+- /useluckboost
+- /usexpboost
+- /craft
+- /minedaily
+- /minehelp
+- /orebook
+- /oremastery
+- /claimoremastery
+- /orestats
+- /contracts
+- /miningjobs
+- /job
+- /deliver
+- /claimjob
+- /rerolljob
+- /miningadmin
+- /mining on/off
+- /setminecooldown
+- /setmineenergycost
+- /setminingenergy
+- /addore
+- /removeore
+- /settoollevel
+- /setminelevel
+- /addminexp
+- /setminexp
+- /resetmining
+- /orelist
+- /miningevent
+- /startminingevent
+- /stopminingevent
+- /miningevents
+
+SHOP BOT owns:
+- /shop
+- /shop badges
+- /shop titles
+- /shophelp
+- /buy
+- /buyitem
+- /purchase
+- /vipshop
+- /buyvip
+- /vipstatus
+- /vips
+- /badges
+- /titles
+- /mybadges
+- /myitems
+- /badgeinfo
+- /badgemarket
+- /badgelist
+- /badgebuy
+- /badgecancel
+- /mybadgelistings
+- /badgeprices
+- /equip
+- /equip badge
+- /equip title
+- /unequip badge
+- /addbadge
+- /editbadgeprice
+- /setbadgepurchasable
+- /setbadgetradeable
+- /setbadgesellable
+- /givebadge
+- /removebadgefrom
+- /giveemojibadge
+- /givetitle
+- /removetitle
+- /settitle
+- /cleartitle
+- /listtitles
+- /listbadges
+
+SECURITY BOT owns:
+- /report
+- /reports
+- /reporthelp
+- /bug
+- /myreports
+- /warn
+- /warnings
+- /clearwarnings
+- /mute
+- /unmute
+- /mutes
+- /kick
+- /ban
+- /tempban
+- /unban
+- /bans
+- /modlog
+- /modhelp
+- /staffhelp
+- /audit
+- /roomlogs
+
+DJ BOT owns:
+- /emote
+- /emotes
+- /stopemote
+- /dance
+- /wave
+- /sit
+- /clap
+- /forceemote
+- /forceemoteall
+- /forceemoterole
+- /loopemote
+- /stoploop
+- /stopallloops
+- /synchost
+- /syncdance
+- /stopsync
+- /hug
+- /kiss
+- /slap
+- /punch
+- /highfive
+- /boop
+- /waveat
+- /cheer
+- /heart
+- /hearts
+- /heartlb
+- /social
+- /blocksocial
+- /unblocksocial
+- /socialhelp
+
+EVENT BOT owns:
+- /events
+- /event
+- /eventhelp
+- /eventpoints
+- /addeventcoins
+- /removeeventcoins
+- /seteventcoins
+- /editeventcoins
+- /reseteventcoins
+- /eventshop
+- /startevent
+- /eventstart
+- /stopevent
+- /eventstop
+- /announce
+- /alert
+- /announce_subs
+- /dmnotify
+- /staffalert
+- /vipalert
+- /roomalert
+- /goldtip
+- /goldrain
+- /goldrainall
+
+ROOM UTILITY / BOT SYSTEM:
+Owner can choose Host Bot ownership for:
+- /setspawn
+- /setspawncoords
+- /spawns
+- /spawninfo
+- /delspawn
+- /setbotspawn
+- /botspawn
+- /botspawns
+- /movebot
+- /moveallbots
+- /botautospawn
+- /botmode
+- /botmodes
+- /botprofile
+- /botprefix
+- /categoryprefix
+- /dressbot
+- /assignbotmode
+- /botmodehelp
+- /botoutfits
+- /startupannounce
+- /modulestartup
+- /startupstatus
+
+AUDIT COMMANDS owned by Host:
+- /checkcommands
+- /checkhelp
+- /missingcommands
+- /routecheck
+- /silentcheck
+- /commandtest
+
+==================================================
+PART 3: PREVENT DUPLICATE REPLIES
+==================================================
+
+Implement/fix should_this_bot_handle(command, bot_mode, bot_id).
+
+Rules:
+1. Every incoming message gets normalized:
+   - trim spaces
+   - lowercase command token
+   - preserve arguments
+   - support @username normalization
+2. Determine command owner from registry.
+3. If current bot_mode matches owner_bot_mode, handle.
+4. If current bot_mode = all, handle only if no dedicated owner bot is active.
+5. If current bot_mode = host, handle only host commands and unknown fallback.
+6. If command belongs to another active bot, ignore silently.
+7. Unknown command:
+   - only Host Bot replies:
+   "Unknown command. Type /help."
+8. Module bots should never say unknown for commands outside their module.
+
+==================================================
+PART 4: ACTIVE BOT CHECK
+==================================================
+
+Fix is_bot_mode_active(mode):
+
+Use bot_instances:
+- enabled = 1
+- status = online
+- last_seen_at within 90 seconds
+- bot_mode matches
+
+If dedicated bot active:
+- main/all/host must not duplicate its commands.
+
+If dedicated bot offline:
+- If botfallback ON, Host/Main can handle.
+- If botfallback OFF, Host says:
+"<Module> bot is offline."
+
+==================================================
+PART 5: ROUTER MUST MATCH COMMANDTEST
+==================================================
+
+/commandtest must test the same router path as real commands.
+
+Output format:
+"/send route YES | owner Banker | handler YES"
+"/rjoin route YES | owner Blackjack | handler YES"
+"/p route YES | owner Poker | handler YES"
+
+If /commandtest says route YES, then typing the command must not say unknown.
+
+Fix false positives:
+- Do not mark route YES just because command is in help.
+- route YES only if actual router/handler exists.
+- handler YES only if handler function is callable.
+
+==================================================
+PART 6: FIX ALL SILENT COMMANDS
+==================================================
+
+Run through all registry commands and make sure each handler returns a message.
+
+Common silent-risk commands to fix:
+- /addcoins
+- /removecoins
+- /setcoins
+- /setlevel
+- /setrep
+- /addeventcoins
+- /announce
+- /announce_subs
+- /dmnotify
+- /eventstart
+- /eventstop
+- /setbotspawn
+- /movebot
+- /moveallbots
+- /setspawn
+- /setspawncoords
+- /dressbot
+- /startupannounce
+- /modulestartup
+- /botfallback
+- /mining on/off
+- /poker cleanup
+- /poker forcefinish
+- /bj recover
+- /rbj recover
+
+Every command should reply:
+- "Use /command <args>."
+- "Staff only."
+- "Owner/admin only."
+- "✅ Done."
+- "Unsupported by current API."
+- or a clear error.
+
+==================================================
+PART 7: HELP MUST MATCH ROUTER
+==================================================
+
+Update all help menus from command registry:
+- /help
+- /mycommands
+- /allcommands
+- /coinhelp
+- /bankhelp
+- /casinohelp
+- /bjhelp
+- /rbjhelp
+- /pokerhelp
+- /minehelp
+- /shophelp
+- /viphelp
+- /profilehelp
+- /eventhelp
+- /modhelp
+- /socialhelp
+- /emotehelp
+- /roomhelp
+- /teleporthelp
+- /botmodehelp
+- /multibothelp
+- /ownerhelp
+- /adminhelp
+- /managerhelp
+- /staffhelp
+
+Rules:
+- Player only sees player commands.
+- Moderator sees mod commands.
+- Manager sees manager commands.
+- Admin sees admin commands.
+- Owner sees all.
+- Do not list a command if handler is missing.
+- Every listed command must have short description.
+
+==================================================
+PART 8: FIX COMMANDS BY MODULE
+==================================================
+
+BANKER:
+Make sure these work:
+- /bal
+- /balance
+- /send <user> <amount>
+- /tip <user> <amount>
+- /gift <user> <amount>
+- /daily
+- /wallet
+- /transactions
+- /addcoins
+- /removecoins
+- /setcoins
+
+EVENT:
+Make sure these work:
+- /eventpoints
+- /eventpoints <user>
+- /addeventcoins
+- /removeeventcoins
+- /seteventcoins
+- /announce
+- /announce_subs
+- /dmnotify
+- /goldrain
+- /goldtip
+
+BLACKJACK:
+Make sure these work:
+- /bjoin
+- /rjoin
+- /bh /bs /bd /bsp
+- /rh /rs /rd /rsp
+- /bhand /rhand
+- /bj limits
+- /rbj limits
+- /bj winlimit off
+- /rbj losslimit off
+
+POKER:
+Make sure these work:
+- /p
+- /ph
+- /pt
+- /check
+- /call
+- /r
+- /fold
+- /ai
+- /poker state
+- /poker cleanup
+- /poker refundtable
+
+MINER:
+Make sure these work:
+- /mine
+- /ores
+- /tool
+- /upgradetool
+- /sellores
+- /mineprofile
+- /minelb
+
+SHOP:
+Make sure these work:
+- /shop
+- /shop badges
+- /buy number
+- /badgemarket
+- /vipshop
+- /buyvip
+- /equip badge
+- /equip title
+
+SECURITY:
+Make sure these work:
+- /report
+- /reports
+- /warn
+- /mute
+- /unmute
+- /kick
+- /ban
+- /modlog
+
+DJ:
+Make sure these work:
+- /emote
+- /dance
+- /syncdance
+- /hug
+- /kiss
+- /slap
+- /punch
+- /heart
+
+HOST:
+Make sure these work:
+- /help
+- /profile
+- /tutorial
+- /bots
+- /botmodules
+- /deploymentcheck
+- /commandtest
+- /checkcommands
+- /missingcommands
+- /silentcheck
+
+==================================================
+PART 9: BOT STARTUP MESSAGES
+==================================================
+
+Fix startup spam:
+- default bot_startup_announce_enabled = false
+- default module_startup_announce_enabled = false
+- no bot should say "Mini Game Bot is online!" by default
+- console logs are okay
+- only Host may announce if /startupannounce on
+
+==================================================
+PART 10: BOT STATUS AND DEPLOYMENT
+==================================================
+
+Fix these:
+- /bots
+- /botmodules
+- /bothealth
+- /modulehealth
+- /deploymentcheck
+- /botconflicts
+- /commandowners
+
+Expected:
+/bots:
+"🤖 Host ON | BJ ON | Poker ON | Miner ON | Banker ON | Shop ON | Security ON | DJ ON | Event ON"
+
+/botmodules:
+"Modules: Bank=Banker | BJ=Blackjack | Poker=Poker | Mine=Miner"
+
+/botconflicts:
+"No bot conflicts found."
+
+If conflicts exist, show exact issue:
+"Conflict: Host and Banker both handle /send."
+
+==================================================
+PART 11: BOT SPAWNS
+==================================================
+
+Fix these:
+- /setspawncoords
+- /spawns
+- /spawninfo
+- /setbotspawn
+- /botspawn
+- /botspawns
+- /movebot
+- /moveallbots
+
+If movement API unsupported:
+"This action is not supported by the current API."
+
+If move request queued:
+"✅ Move request sent to Banker Bot."
+
+Do not say moved unless moved.
+
+==================================================
+PART 12: API UNSUPPORTED FEATURES
+==================================================
+
+These may be unsupported by Highrise API:
+- force emote
+- kick
+- ban
+- bot outfit change
+- mic start
+- room boost
+- one bot moving another bot
+
+If unsupported, commands must reply clearly:
+"This action is not supported by the current API."
+
+Do not crash.
+Do not claim success.
+
+==================================================
+PART 13: AUDIT COMMANDS
+==================================================
+
+Fix and route:
+- /checkcommands
+- /checkhelp
+- /missingcommands
+- /routecheck
+- /silentcheck
+- /commandtest <command>
+
+Expected:
+- /checkcommands shows counts.
+- /missingcommands paginates.
+- /routecheck paginates.
+- /silentcheck shows actual commands with missing responses.
+- /checkhelp must not say unknown.
+
+Add:
+/fixcommands
+Owner/admin only.
+Runs a repair pass:
+- rebuild command registry defaults
+- repair command owners
+- remove missing help entries
+- refresh command ownership
+- reply:
+"✅ Command registry repaired."
+
+==================================================
+PART 14: TEST SCRIPT COMMAND
+==================================================
+
+Add:
+/testcommands
+Owner/admin only.
+
+It should test route presence without executing dangerous actions.
+
+Output:
+"Tests: Bank OK | BJ OK | Poker OK | Mine OK | Shop OK | Security OK"
+
+If issues:
+"Tests: Poker /ph missing | Event /announce silent"
+
+Do not execute destructive commands like /setcoins or /ban.
+
+==================================================
+PART 15: REQUIRED TESTS
+==================================================
+
+After fix, I will run:
+
+/fixcommands
+/checkcommands
+/checkhelp
+/missingcommands
+/silentcheck
+/botconflicts
+/deploymentcheck
+/commandtest /send
+/commandtest /rjoin
+/commandtest /p
+/commandtest /mine
+/commandtest /shop
+/commandtest /report
+/commandtest /heart
+/commandtest /announce
+
+Expected:
+- No unknown command.
+- No false route YES.
+- No duplicate replies.
+- Commands show correct owner bot.
+
+Gameplay tests:
+/bal
+/send user 10
+/rjoin 100
+/p 1000
+/mine
+/shop
+/report user test
+/heart user
+/announce test
+
+Expected:
+- Correct bot replies.
+- Other bots ignore silently.
+- No duplicate messages.
+
+FINAL REQUIREMENT:
+All commands across the multi-bot system must be routed, owned by exactly one bot, shown correctly in help, and must never silently fail.

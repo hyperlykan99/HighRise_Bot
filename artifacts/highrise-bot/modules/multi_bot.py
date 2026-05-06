@@ -144,6 +144,42 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "alert": "eventhost", "staffalert": "eventhost",
     "vipalert": "eventhost", "roomalert": "eventhost",
     "announce_subs": "eventhost", "dmnotify": "eventhost",
+    "announce": "eventhost", "announce_vip": "eventhost",
+    "announce_staff": "eventhost",
+    "eventstart": "eventhost", "eventstop": "eventhost",
+    "addeventcoins": "eventhost", "removeeventcoins": "eventhost",
+    "seteventcoins": "eventhost", "editeventcoins": "eventhost",
+    "reseteventcoins": "eventhost",
+    "goldtip": "eventhost", "goldrain": "eventhost",
+    "goldrainall": "eventhost", "goldrefund": "eventhost",
+    "goldraineligible": "eventhost", "goldrainrole": "eventhost",
+    "goldrainvip": "eventhost", "goldraintitle": "eventhost",
+    "goldrainbadge": "eventhost", "goldrainlist": "eventhost",
+    "goldhelp": "eventhost", "goldwallet": "eventhost",
+    "goldtips": "eventhost", "goldtx": "eventhost",
+    "pendinggold": "eventhost", "confirmgoldtip": "eventhost",
+    "setgoldrainstaff": "eventhost", "setgoldrainmax": "eventhost",
+    # ── security (additions) ─────────────────────────────────────────────────
+    "clearwarnings": "security",
+    "reportinfo": "security", "closereport": "security",
+    "reportwatch": "security",
+    "audit": "security", "audithelp": "security",
+    "auditbank": "security", "auditcasino": "security",
+    "auditeconomy": "security",
+    # ── banker (additions) ───────────────────────────────────────────────────
+    "tip": "banker", "gift": "banker",
+    "addcoins": "banker", "removecoins": "banker",
+    "bankstats": "banker", "banknotify": "banker",
+    "bankhelp": "banker", "coinhelp": "banker",
+    # ── host (audit / status commands) ───────────────────────────────────────
+    "checkcommands": "host", "checkhelp": "host",
+    "missingcommands": "host", "routecheck": "host",
+    "silentcheck": "host", "commandtest": "host",
+    "fixcommands": "host", "testcommands": "host",
+    "deploymentcheck": "host", "bothealth": "host",
+    "botconflicts": "host", "botmodules": "host",
+    "startupannounce": "host", "modulestartup": "host",
+    "startupstatus": "host", "setmainmode": "host",
 }
 
 # Friendly display names for modes
@@ -278,7 +314,10 @@ def should_this_bot_handle(cmd: str) -> bool:
     # ── all mode: defer to any dedicated online bot ──────────────────────────
     if mode == "all":
         owner_mode = _resolve_command_owner(cmd)
-        if owner_mode and owner_mode not in ("host", "all") and _is_mode_online(owner_mode):
+        if owner_mode is None:
+            # Unknown / unowned command — defer to dedicated host bot if online
+            return not _is_mode_online("host")
+        if owner_mode not in ("all",) and _is_mode_online(owner_mode):
             return False    # dedicated bot is live — stay silent
         return True
 
