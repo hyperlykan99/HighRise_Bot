@@ -1682,6 +1682,8 @@ async def _turn_timeout(bot: BaseBot, uid: str, uname: str,
                 await _chat(bot,
                     (f"💤 @{uname} removed (AFK). "
                      f"{remaining:,}c refunded.")[:249])
+                db.add_poker_note("afk", uname, uname, round_id,
+                                  "Removed after 3 missed actions.", "system")
             elif strikes >= sitout_at:
                 _update_seated(uname, status="sitting_out", idle_strikes=strikes)
                 await _chat(bot, f"⏳ @{uname} timed out and is sitting out.")
@@ -1911,6 +1913,15 @@ async def _handle_join(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Table is closing after this hand. Try again soon.")
         return
 
+    # Check table lock
+    if db.get_room_setting("poker_table_locked", "false") == "true":
+        wl_on = db.get_room_setting("poker_waitlist_enabled", "true") == "true"
+        if wl_on:
+            await _w(bot, user.id, "Poker table is locked. Try /poker waitlist.")
+        else:
+            await _w(bot, user.id, "Poker table is locked. Wait for staff.")
+        return
+
     # Check if already seated
     sp = _get_seated(user.username)
     if sp:
@@ -1949,7 +1960,12 @@ async def _handle_join(bot: BaseBot, user: User, args: list[str]) -> None:
     # Check table not full
     current_count = _seated_count()
     if current_count >= max_pl:
-        await _w(bot, user.id, f"Table full ({max_pl} players max).")
+        wl_on = db.get_room_setting("poker_waitlist_enabled", "true") == "true"
+        if wl_on:
+            await _w(bot, user.id,
+                f"Table full. Join waitlist: /poker waitlist {buyin}")
+        else:
+            await _w(bot, user.id, f"Table full ({max_pl} players max).")
         return
 
     err = _check_daily_limits(user.username, buyin)
@@ -2722,6 +2738,9 @@ async def _dispatch(bot: BaseBot, user: User, args: list[str]) -> None:
 
     # ── Betting actions (check/call/raise/fold/allin) ────────────────────────
     if sub in ("check", "call", "raise", "fold", "allin", "all-in", "shove"):
+        if db.get_room_setting("poker_paused", "false") == "true":
+            await _w(bot, user.id, "Poker is paused. Wait for staff to resume.")
+            return
         tbl = _get_table()
         if not tbl or not tbl["active"]:
             await _w(bot, user.id, "No poker hand active.")
@@ -2789,15 +2808,23 @@ async def _dispatch(bot: BaseBot, user: User, args: list[str]) -> None:
     if sub == "settings":
         page = int(args[2]) if len(args) >= 3 and args[2].isdigit() else 1
         if page == 2:
+            wl_on  = "ON" if db.get_room_setting("poker_waitlist_enabled", "true") == "true" else "OFF"
+            sp_on  = "ON" if db.get_room_setting("poker_spectate_enabled", "true") == "true" else "OFF"
+            afk_on = "ON" if _s("poker_afk_enabled", 1) else "OFF"
+            ai_on2 = "ON" if _s("allin_enabled", 1) else "OFF"
+            await _w(bot, user.id,
+                f"♠️ Poker 2 | Waitlist {wl_on} | Spectate {sp_on} | "
+                f"AFK {afk_on} | All-in {ai_on2} | /poker settings 3")
+        elif page == 3:
             min_p  = _s("min_players", 2);  max_p = _s("max_players", 6)
             min_b  = _s("min_buyin", 100);   max_b = _s("max_buyin", 5000)
             sb     = _s("small_blind", 50);  bb    = _s("big_blind", 100)
             ante   = _s("ante", 0)
             bl_en  = "ON" if _s("blinds_enabled", 1) else "OFF"
             await _w(bot, user.id,
-                f"♠️ Poker 2 | Players {min_p}-{max_p} | "
+                f"♠️ Poker 3 | Players {min_p}-{max_p} | "
                 f"Buy {min_b}-{max_b}c | Blinds {bl_en} SB:{sb} BB:{bb} A:{ante}")
-        elif page == 3:
+        elif page == 4:
             rb     = "ON" if _s("rebuy_enabled", 1) else "OFF"
             ms_en  = "ON" if _s("max_stack_enabled", 0) else "OFF"
             ms     = _s("max_table_stack", 100000)
@@ -2805,17 +2832,18 @@ async def _dispatch(bot: BaseBot, user: User, args: list[str]) -> None:
             auto   = "ON" if _s("auto_start_next_hand", 1) else "OFF"
             ao     = "ON" if _s("autositout_enabled", 0) else "OFF"
             await _w(bot, user.id,
-                f"♠️ Poker 3 | Rebuy {rb} | MaxStack {ms_en}({ms}c) | "
+                f"♠️ Poker 4 | Rebuy {rb} | MaxStack {ms_en}({ms}c) | "
                 f"NextHand {delay}s Auto:{auto} | AutoSitOut {ao}")
         else:
             en     = "ON" if _s("poker_enabled", 1) else "OFF"
-            ai_on  = "ON" if _s("allin_enabled", 1) else "OFF"
-            rl_on  = "ON" if _s("raise_limit_enabled", 1) else "OFF"
-            tt     = _s("turn_timer", 20)
-            cl     = "Closing" if _s("table_closing", 0) else "Open"
+            paused = "ON" if db.get_room_setting("poker_paused", "false") == "true" else "OFF"
+            locked = "ON" if db.get_room_setting("poker_table_locked", "false") == "true" else "OFF"
+            mode   = db.get_room_setting("poker_speed_mode", "Normal").title()
+            stakes = db.get_room_setting("poker_stakes_mode", "Normal").title()
             await _w(bot, user.id,
-                f"♠️ Poker {en} {cl} | All-in {ai_on} | "
-                f"RaiseLimit {rl_on} | Turn {tt}s | /poker settings 2")
+                (f"♠️ Poker: {mode} | Stakes {stakes} | "
+                 f"Paused {paused} | Lock {locked} | "
+                 f"/poker settings 2")[:249])
         return
 
     # ── cancel ─────────────────────────────────────────────────────────────────
@@ -3012,8 +3040,11 @@ async def _dispatch(bot: BaseBot, user: User, args: list[str]) -> None:
             await _w(bot, user.id, "No active poker table.")
             return
         print(f"[POKER] /poker hardrefund by @{user.username}")
+        round_id_hr = tbl.get("round_id", "") or ""
         msg = await _hard_refund_hand(user.username)
         await _w(bot, user.id, msg)
+        db.add_poker_note("refund", user.username, user.username,
+                          round_id_hr, f"hardrefund by @{user.username}", user.username)
         return
 
     # ── clearhand ──────────────────────────────────────────────────────────────
@@ -3039,6 +3070,8 @@ async def _dispatch(bot: BaseBot, user: User, args: list[str]) -> None:
         _log_recovery("clearhand", round_id or "", tbl.get("phase", "?"),
                       f"by @{user.username}")
         await _w(bot, user.id, "✅ Poker hand cleared.")
+        db.add_poker_note("recovery", user.username, user.username,
+                          round_id or "", f"clearhand by @{user.username}", user.username)
         return
 
     # ── closeforce ─────────────────────────────────────────────────────────────
@@ -3053,6 +3086,10 @@ async def _dispatch(bot: BaseBot, user: User, args: list[str]) -> None:
         import secrets
         code = secrets.token_hex(3).upper()
         _close_confirm_codes[code] = user.username
+        round_id_cf = tbl.get("round_id", "") or ""
+        db.add_poker_note("recovery", user.username, user.username,
+                          round_id_cf,
+                          f"closeforce initiated by @{user.username}", user.username)
         await _w(bot, user.id,
             f"Confirm table close: /confirmclosepoker {code} (expires 60s)")
         async def _expire_code(c: str = code) -> None:
@@ -3148,6 +3185,8 @@ async def _dispatch(bot: BaseBot, user: User, args: list[str]) -> None:
             await _w(bot, user.id, "✅ Poker cleanup done. Table ready. Next hand starting.")
         else:
             await _w(bot, user.id, "✅ Poker cleanup done. Table ready.")
+        db.add_poker_note("recovery", user.username, user.username,
+                          round_id, f"cleanup by @{user.username}", user.username)
         return
 
     # ── testcards ────────────────────────────────────────────────────────────
@@ -3509,6 +3548,162 @@ async def _dispatch(bot: BaseBot, user: User, args: list[str]) -> None:
             pass
         db.poker_debug_log(user.username, "allcards_view",
                            tbl_ac["round_id"], f"n={len(players_ac)}")
+        return
+
+    # ── pause ─────────────────────────────────────────────────────────────────
+    if sub == "pause":
+        if not can_manage_games(user.username):
+            await _w(bot, user.id, "Managers+ only.")
+            return
+        if db.get_room_setting("poker_paused", "false") == "true":
+            await _w(bot, user.id, "Poker is already paused.")
+            return
+        db.set_room_setting("poker_paused", "true")
+        tbl_p   = _get_table()
+        rid_p   = (tbl_p.get("round_id") or "") if tbl_p else ""
+        db.add_poker_note("admin", user.username, user.username,
+                          rid_p, "Table paused.", user.username)
+        await _w(bot, user.id, "⏸️ Poker paused. Current table saved.")
+        return
+
+    # ── resume ────────────────────────────────────────────────────────────────
+    if sub == "resume":
+        if not can_manage_games(user.username):
+            await _w(bot, user.id, "Managers+ only.")
+            return
+        if db.get_room_setting("poker_paused", "false") != "true":
+            await _w(bot, user.id, "Poker is not paused.")
+            return
+        broken_r = detect_poker_inconsistent_state()
+        if broken_r and len(broken_r) > 1:
+            await _w(bot, user.id,
+                "Poker needs recovery. Use /poker recoverystatus.")
+            return
+        db.set_room_setting("poker_paused", "false")
+        tbl_r   = _get_table()
+        rid_r   = (tbl_r.get("round_id") or "") if tbl_r else ""
+        db.add_poker_note("admin", user.username, user.username,
+                          rid_r, "Table resumed.", user.username)
+        await _w(bot, user.id, "▶️ Poker resumed.")
+        return
+
+    # ── tablelock ─────────────────────────────────────────────────────────────
+    if sub == "tablelock":
+        if not can_manage_games(user.username):
+            await _w(bot, user.id, "Managers+ only.")
+            return
+        val_tl = args[2].lower() if len(args) > 2 else ""
+        if val_tl == "on":
+            db.set_room_setting("poker_table_locked", "true")
+            tbl_tl = _get_table()
+            rid_tl = (tbl_tl.get("round_id") or "") if tbl_tl else ""
+            db.add_poker_note("admin", user.username, user.username,
+                              rid_tl, "Table locked.", user.username)
+            await _w(bot, user.id, "🔒 Poker table locked. New joins disabled.")
+        elif val_tl == "off":
+            db.set_room_setting("poker_table_locked", "false")
+            await _w(bot, user.id, "🔓 Poker table unlocked. New joins enabled.")
+            nxt = db.get_poker_waitlist_next()
+            if (nxt and
+                    db.get_room_setting("poker_waitlist_auto_notify", "true") == "true"):
+                await _chat(bot,
+                    (f"♠️ @{nxt['display_name']}, poker seat open. "
+                     f"Join: /p {nxt['requested_buyin']}")[:249])
+        else:
+            locked_tl = (
+                "ON" if db.get_room_setting("poker_table_locked", "false") == "true"
+                else "OFF"
+            )
+            await _w(bot, user.id,
+                f"♠️ Table lock: {locked_tl} | /poker tablelock on|off")
+        return
+
+    # ── spectate ──────────────────────────────────────────────────────────────
+    if sub in ("spectate", "spectating"):
+        val_sp = args[2].lower() if len(args) > 2 else ""
+        if val_sp == "off":
+            db.remove_poker_spectator(user.username)
+            await _w(bot, user.id, "✅ You stopped spectating.")
+            return
+        if db.get_room_setting("poker_spectate_enabled", "true") != "true":
+            await _w(bot, user.id, "Poker spectate is OFF.")
+            return
+        db.add_poker_spectator(user.username, user.username)
+        await _w(bot, user.id, "👀 You are spectating poker. Use /pt for table.")
+        return
+
+    # ── waitlist ──────────────────────────────────────────────────────────────
+    if sub == "waitlist":
+        wl_en = db.get_room_setting("poker_waitlist_enabled", "true") == "true"
+        if not wl_en and not can_manage_games(user.username):
+            await _w(bot, user.id, "Poker waitlist is disabled.")
+            return
+        if len(args) > 2 and args[2].isdigit():
+            requested = int(args[2])
+            pos = db.add_poker_waitlist(user.username, user.username, requested)
+            await _w(bot, user.id, f"✅ Added to poker waitlist. Position #{pos}.")
+        else:
+            wl_entries = db.get_poker_waitlist()
+            if not wl_entries:
+                await _w(bot, user.id, "Poker waitlist is empty.")
+                return
+            parts_wl = [
+                f"{i+1} @{e['display_name']} {e['requested_buyin']}c"
+                for i, e in enumerate(wl_entries[:8])
+            ]
+            await _w(bot, user.id, ("Waitlist: " + " | ".join(parts_wl))[:249])
+        return
+
+    # ── notes / addnote / clearnotes ──────────────────────────────────────────
+    if sub in ("notes", "addnote", "clearnotes"):
+        if not can_manage_games(user.username):
+            await _w(bot, user.id, "Managers+ only.")
+            return
+        if sub == "addnote":
+            if len(args) < 4:
+                await _w(bot, user.id,
+                    "Usage: /poker addnote <username> <message>")
+                return
+            target_un = args[2]
+            note_text = " ".join(args[3:])[:200]
+            tbl_n  = _get_table()
+            rid_n  = (tbl_n.get("round_id") or "") if tbl_n else ""
+            db.add_poker_note("admin", target_un, target_un,
+                              rid_n, note_text, user.username)
+            await _w(bot, user.id, f"✅ Poker note added for @{target_un}.")
+        elif sub == "clearnotes":
+            if len(args) > 2:
+                target_cn = args[2]
+                db.clear_poker_notes(target_cn)
+                await _w(bot, user.id,
+                    f"✅ Poker notes cleared for @{target_cn}.")
+            else:
+                if not (is_admin(user.username) or is_owner(user.username)):
+                    await _w(bot, user.id, "Owner/admin only.")
+                    return
+                db.clear_poker_notes()
+                await _w(bot, user.id, "✅ Poker notes cleared.")
+        else:
+            target_nv = args[2] if len(args) > 2 else None
+            notes_list = db.get_poker_notes(target_nv, limit=10)
+            if not notes_list:
+                who = f"@{target_nv}" if target_nv else "poker"
+                await _w(bot, user.id, f"No notes for {who}.")
+                return
+            if target_nv:
+                counts: dict[str, int] = {}
+                for n in notes_list:
+                    counts[n["note_type"]] = counts.get(n["note_type"], 0) + 1
+                parts_n = [f"{t} x{c}" for t, c in counts.items()]
+                await _w(bot, user.id,
+                    (f"@{target_nv} notes: " + " | ".join(parts_n))[:249])
+            else:
+                parts_rv = [
+                    f"#{n['id']} {n['note_type']} @{n['display_name'] or n['username_key']}"
+                    for n in notes_list[:5]
+                ]
+                await _w(bot, user.id,
+                    ("📝 Notes: " + " | ".join(parts_rv))[:249])
         return
 
     # ── integrity ─────────────────────────────────────────────────────────────
@@ -3953,6 +4148,9 @@ async def handle_poker_player_left(bot: BaseBot, user: User) -> None:
         await _chat(bot,
             (f"🚪 @{user.username} left. Auto-folded. "
              f"{refunded:,}c refunded.")[:249])
+        db.add_poker_note("leave", user.username, user.username,
+                          tbl.get("round_id", "") if tbl else "",
+                          "Left room, auto-folded, stack refunded.", "system")
         tbl2 = _get_table()
         if tbl2 and tbl2["active"] and tbl2.get("round_id"):
             players2  = _get_players(tbl2["round_id"])
@@ -4086,26 +4284,23 @@ POKER_HELP_PAGES = [
     (
         "♠️ Poker 3/8 — Info & Stats\n"
         "/pt  — table info  /ph  — your cards\n"
-        "/po  — win odds estimate\n"
-        "/pstats  or  /pokerstats [user]\n"
         "/plb wins|pots|allins|hands|profit\n"
-        "/poker settings  /poker rules"
+        "/poker spectate  — watch table\n"
+        "/sitout  /sitin  — pause/return seat"
     ),
     (
         "♠️ Poker 4/8 — Staff Cmds\n"
-        "/poker on|off|close|cancel|start\n"
-        "/poker afk on|off\n"
-        "/poker leftallin fold|keep\n"
-        "/poker cardstatus  /poker resendcards\n"
-        "/poker recoverystatus"
+        "/poker pause  — pause table\n"
+        "/poker resume  — resume table\n"
+        "/poker tablelock on|off\n"
+        "/poker notes  — issues log"
     ),
     (
-        "♠️ Poker 5/8 — Speed & Stakes\n"
-        "/pokermode normal|long|fast|custom\n"
-        "/pokerstakes low|normal|highroller\n"
-        "/pokerrules casual|turbo|practice\n"
-        "/setpokertimer <sec>\n"
-        "/setpokerblinds <SB> <BB>"
+        "♠️ Poker 5/8 — Queue & Speed\n"
+        "/poker waitlist <buyin>  — join queue\n"
+        "/leavewaitlist  — leave queue\n"
+        "/spectators  — show watchers\n"
+        "/pokermode  /pokerstakes  /pokerrules"
     ),
     (
         "♠️ Poker 6/8 — Settings (Mgr+)\n"
@@ -4882,3 +5077,40 @@ async def handle_setpokerafksitout(bot: BaseBot, user: User,
     n = max(1, min(10, int(args[1])))
     _set("poker_afk_missed_before_sitout", n)
     await _w(bot, user.id, f"✅ AFK sitout threshold set to {n}.")
+
+
+# ── Waitlist / Spectate top-level handlers ────────────────────────────────────
+
+async def handle_waitpoker(bot: BaseBot, user: User, args: list[str]) -> None:
+    """Alias: /waitpoker <buyin>  →  /poker waitlist <buyin>"""
+    new_args = ["poker", "waitlist"] + list(args[1:])
+    await _dispatch(bot, user, new_args)
+
+
+async def handle_leavewaitlist(bot: BaseBot, user: User,
+                                args: list[str]) -> None:
+    """Remove caller from the poker waitlist."""
+    if db.cancel_poker_waitlist(user.username):
+        await _w(bot, user.id, "✅ Removed from poker waitlist.")
+    else:
+        await _w(bot, user.id, "You are not on the poker waitlist.")
+
+
+async def handle_spectatepoker(bot: BaseBot, user: User,
+                                args: list[str]) -> None:
+    """Alias: /spectatepoker  →  /poker spectate"""
+    new_args = ["poker", "spectate"]
+    await _dispatch(bot, user, new_args)
+
+
+async def handle_spectators(bot: BaseBot, user: User,
+                             args: list[str]) -> None:
+    """Show active poker spectators."""
+    specs = db.get_poker_spectators()
+    if not specs:
+        await _w(bot, user.id, "No active spectators.")
+        return
+    names = ", ".join(
+        f"@{s['display_name'] or s['username_key']}" for s in specs[:10]
+    )
+    await _w(bot, user.id, (f"👀 Spectators: {names}")[:249])

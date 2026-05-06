@@ -59,7 +59,9 @@ DB schema source of truth: `database.py` (`_MIGRATIONS` list + `init_db()`).
 
 Casino games (Blackjack, Realistic Blackjack, Poker), DJ queue, token economy, daily rewards, in-game shop, quests, achievements, events, subscriber DMs, leaderboards, staff management, public player profiles with privacy controls, emoji badge market, mining game, a comprehensive room utility system, a bot mode/outfit system with multiple personas, and a multi-bot system for distributed command handling and high availability. It also includes a Casino Integrity Checker for verifying game logic and card visibility.
 
-**Poker upgrade (fault-safe spec):** Leave-room auto-fold (`handle_poker_player_left` called from `on_user_leave`), 3-strike AFK tracking with auto-removal/refund (`_turn_timeout`), speed modes (`/pokermode`), buy-in/stakes modes (`/pokerstakes`), rule modes (`/pokerrules`), AI simulation (`/poker ai`, `_run_ai_simulation`), owner debug card reveal (`/poker revealdebug`, `/poker allcards`), AFK remove/sitout toggles (`/setpokerafkremove`, `/setpokerafksitout`), enhanced debug sub-commands (`/pokerdebug delivery|timers|settings|pots|locks`), and 8-page help rewrite (`/pokerhelp`). New DB tables: `poker_player_presence`, `poker_afk_tracking`, `poker_ai_logs`, `poker_debug_logs`.
+**Poker upgrade (fault-safe spec):** Leave-room auto-fold, 3-strike AFK tracking with auto-removal/refund, speed modes (`/pokermode`), buy-in/stakes modes (`/pokerstakes`), rule modes (`/pokerrules`), AI simulation (`/poker ai`), owner debug card reveal, AFK remove/sitout toggles, 8-page help. DB tables: `poker_player_presence`, `poker_afk_tracking`, `poker_ai_logs`, `poker_debug_logs`.
+
+**Poker pause/resume/waitlist/tablelock/spectate/notes spec:** `/poker pause` (⏸️ sets `poker_paused=true`, blocks betting actions), `/poker resume` (▶️ with state validation), `/poker tablelock on|off` (🔒/🔓, blocks joins, notifies waitlist next), `/poker waitlist [buyin]` + `/waitpoker` + `/leavewaitlist` (queue with auto-notify), `/poker spectate on|off` + `/spectatepoker` + `/spectators` (watch-only, no hole cards), `/poker notes|addnote|clearnotes [user]` (staff note log). Auto-notes logged for AFK removal, leave-room, hardrefund, clearhand, closeforce, cleanup. DB tables: `poker_waitlist`, `poker_spectators`, `poker_notes`. Settings: `poker_paused`, `poker_table_locked`, `poker_waitlist_enabled`, `poker_spectate_enabled`.
 
 ## User preferences
 
@@ -98,3 +100,8 @@ Casino games (Blackjack, Realistic Blackjack, Poker), DJ queue, token economy, d
 - Crash logs: `db.log_bot_crash()` writes to `bot_crash_logs`. View with `/crashlogs`, clear with `/clearcrashlogs`.
 - Safe mode: `/safemode on` sets `safe_mode_enabled=true` and disables autogames/spawn/outfit/emote/interval startup loops.
 - New startup defaults (all `false`): `module_startup_announce_enabled`, `autogames_enabled`, `bot_auto_spawn_enabled`, `outfit_auto_apply_enabled`, `emote_loops_enabled_on_startup`, `safe_mode_enabled`.
+- Pause/resume checks `poker_paused` room_setting. Betting actions blocked while paused.
+- `poker_settings` page 1 now shows Mode/Stakes/Paused/Lock; page 2 shows Waitlist/Spectate/AFK/All-in.
+- Waitlist helpers: `db.add_poker_waitlist()`, `db.get_poker_waitlist()`, `db.cancel_poker_waitlist()`, `db.get_poker_waitlist_next()`.
+- Spectator helpers: `db.add_poker_spectator()`, `db.remove_poker_spectator()`, `db.get_poker_spectators()`, `db.is_poker_spectator()`.
+- Note helpers: `db.add_poker_note()`, `db.get_poker_notes()`, `db.clear_poker_notes()`.

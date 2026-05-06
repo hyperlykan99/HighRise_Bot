@@ -1,0 +1,365 @@
+Fix the “Upgrade Poker into a robust, fault-safe poker system” update.
+
+Problem:
+After adding the robust poker update, bots started joining the room then crashing/leaving. The room count also became negative.
+
+Likely cause:
+The new poker background systems are starting on every bot or crashing during startup:
+- poker AFK loop
+- leave-room auto-fold watcher
+- poker AI simulation
+- waitlist/spectate checks
+- poker restore logic
+- room presence tracking
+- poker recovery/cleanup loop
+
+GOAL:
+Keep the robust poker features, but make them safe.
+Bots must not crash.
+Only the Poker Bot can run poker background systems.
+All new poker systems must be disabled by default unless manually enabled.
+
+IMPORTANT:
+- Do not remove poker features.
+- Keep Poker Bot ownership.
+- Keep multi-bot system.
+- Keep shared SQLite database.
+- Keep /poker pause, resume, waitlist, tablelock, spectate, notes, AFK, AI debug.
+- But do not allow these features to crash startup.
+- No poker background task should run on Host, Banker, Blackjack, Miner, Shop, Security, DJ, or Event Bot.
+- Keep messages under 250 characters.
+- No silent failures.
+
+==================================================
+PART 1: DISABLE NEW POKER BACKGROUND LOOPS BY DEFAULT
+==================================================
+
+Set default settings:
+
+poker_afk_enabled = false
+poker_ai_enabled = false
+poker_presence_auto_remove_enabled = false
+poker_auto_recovery_enabled = false
+poker_cleanup_loop_enabled = false
+
+Keep command-based features ON:
+poker_waitlist_enabled = true
+poker_spectate_enabled = true
+poker_notes_enabled = true
+poker_table_locked = false
+poker_paused = false
+
+Meaning:
+- /poker waitlist works.
+- /poker spectate works.
+- /poker notes works.
+- But no new poker loop starts unless enabled.
+
+==================================================
+PART 2: POKER BOT ONLY GUARD
+==================================================
+
+Before starting any poker task, check:
+
+if BOT_MODE != "poker":
+    skip task
+
+Poker-only tasks:
+- poker restore
+- poker turn timer
+- poker next-hand timer
+- poker AFK checker
+- room-leave auto-fold watcher
+- poker cleanup loop
+- poker AI simulation
+- poker waitlist notifier
+- poker spectate notifier
+- poker recovery loop
+
+Other bots must log only:
+"[SKIP] poker task skipped on <bot_mode>"
+
+They must not crash or speak in room.
+
+==================================================
+PART 3: SAFE STARTUP FOR POKER BOT
+==================================================
+
+On Poker Bot startup:
+
+Allowed:
+- register heartbeat
+- load settings
+- register command routes
+- load table state safely
+
+Not allowed by default:
+- starting AI
+- starting AFK loop
+- starting auto cleanup loop
+- auto-removing players
+- auto-folding based on presence
+- starting waitlist loop
+- starting spectator loop
+
+Only start these if setting is explicitly ON:
+- poker_afk_enabled
+- poker_presence_auto_remove_enabled
+- poker_auto_recovery_enabled
+- poker_cleanup_loop_enabled
+
+==================================================
+PART 4: WRAP ALL NEW POKER FEATURES IN TRY/EXCEPT
+==================================================
+
+Wrap every new poker feature so it cannot crash the bot:
+
+- handle_player_left_room
+- check_poker_afk_players
+- remove_afk_player
+- refund_player_stack
+- run_poker_ai_simulation
+- update_poker_presence
+- process_waitlist
+- process_spectators
+- poker_notes_insert
+- poker_pause
+- poker_resume
+- poker_tablelock
+- poker_recoverystatus
+
+If error:
+- log it to poker_debug_logs and bot_crash_logs
+- return a clear message if command-triggered
+- keep bot online
+
+Never allow exception to bubble up and disconnect the bot.
+
+==================================================
+PART 5: ROOM COUNT FIX FROM POKER PRESENCE
+==================================================
+
+The robust poker update added presence tracking. Fix it.
+
+Room count must never go negative.
+
+Rules:
+- Use room_presence table with one row per username_key.
+- Do not decrement a raw count blindly.
+- On join:
+  if in_room already 1, do not increment.
+- On leave:
+  if in_room already 0, do not decrement.
+- Displayed room count = max(0, actual users marked in_room).
+
+Add/fix commands:
+- /roomcount
+- /fixroomcount
+
+/roomcount:
+"Room count: 8 users | bots 7"
+
+/fixroomcount:
+Repairs negative/stale count.
+"✅ Room count repaired."
+
+==================================================
+PART 6: MAKE AUTO-FOLD ON LEAVE SAFE
+==================================================
+
+Do not enable leave-room auto-fold by default.
+
+Setting:
+poker_presence_auto_remove_enabled = false
+
+Commands:
+- /poker leaveremove on
+- /poker leaveremove off
+
+When OFF:
+- do not auto-fold/remove on leave event.
+- just update presence.
+
+When ON:
+- only Poker Bot processes it.
+- wrap in try/except.
+- if player is seated:
+  - auto-fold if active
+  - refund remaining table stack
+  - remove from table
+  - log note
+
+Message:
+"🚪 @user left. Auto-folded and stack refunded."
+
+==================================================
+PART 7: MAKE AFK SAFE
+==================================================
+
+AFK should not start until enabled.
+
+Commands:
+- /poker afk on
+- /poker afk off
+- /setpokerafkremove <misses>
+- /setpokerafksitout <misses>
+
+When OFF:
+- no AFK background loop.
+- no auto-removal.
+
+When ON:
+- Poker Bot only.
+- check only active poker hand.
+- do not crash if no table/hand/player/timer.
+
+==================================================
+PART 8: MAKE AI DEBUG SAFE
+==================================================
+
+AI simulation should never start on startup.
+
+Only start when owner runs:
+- /poker ai start
+
+Default:
+poker_ai_enabled = false
+
+Rules:
+- owner only
+- fake chips only
+- no real balances
+- no public spam
+- stop safely with /poker ai stop
+- if AI crashes, log and stop AI only, not bot
+
+==================================================
+PART 9: SAFE MODE COMMANDS
+==================================================
+
+Add/fix:
+
+/poker safemode on
+/poker safemode off
+/poker safemode status
+
+When poker safemode ON:
+- poker_afk_enabled = false
+- poker_ai_enabled = false
+- poker_presence_auto_remove_enabled = false
+- poker_auto_recovery_enabled = false
+- poker_cleanup_loop_enabled = false
+- poker_paused = true
+- keep info/recovery commands working
+
+Message:
+"✅ Poker safe mode ON. Background poker loops disabled."
+
+Also add global:
+/emergencystop
+
+It should:
+- turn poker safemode ON
+- stop autogames
+- stop emote loops
+- disable bot auto-spawn
+- clear stale locks
+- fix room count
+
+Message:
+"🛑 Emergency stop active."
+
+==================================================
+PART 10: STARTUP TASK REGISTRY FIX
+==================================================
+
+Create a task registry so duplicate poker tasks cannot run.
+
+Only one active task per module:
+- poker_turn_timer
+- poker_afk_loop
+- poker_presence_loop
+- poker_ai_loop
+- poker_cleanup_loop
+
+Use module locks or in-memory task registry.
+
+If duplicate task exists:
+- skip new one
+- log:
+"[POKER] duplicate task skipped: poker_afk_loop"
+
+==================================================
+PART 11: UPDATE DEPLOYMENT CHECK
+==================================================
+
+/deploymentcheck should show:
+- DB OK
+- Bots OK
+- Room count OK
+- Poker safe mode status
+- Poker loops status
+- Task conflicts
+
+Example:
+"Deploy: DB OK | Bots 8 | Room OK | Poker safe ON | Tasks OK"
+
+If issue:
+"Deploy: Poker AFK loop running on banker."
+
+==================================================
+PART 12: CRASH LOGS
+==================================================
+
+Add/fix:
+- /crashlogs
+- /crashlogs poker
+- /clearcrashlogs
+
+Crash logs must show:
+- bot_id
+- bot_mode
+- task_name
+- error message
+- timestamp
+
+Example:
+"Crash #5 poker_afk_loop: NoneType has no attr username"
+
+==================================================
+PART 13: TESTS
+==================================================
+
+After update, restart workflow.
+
+Immediately run:
+- /emergencystop
+- /poker safemode on
+- /fixroomcount
+- /bots
+- /bothealth
+- /crashlogs
+- /taskconflicts
+- /deploymentcheck
+
+Expected:
+- Bots stay in room.
+- Room count is not negative.
+- Poker Bot stays online.
+- No poker tasks run on non-poker bots.
+- No startup crash loop.
+
+Then test safe commands:
+- /poker settings
+- /poker state
+- /poker pause
+- /poker resume
+- /poker waitlist
+- /poker spectate
+- /poker notes
+
+Expected:
+Commands work, but background loops stay disabled unless manually turned on.
+
+Final requirement:
+The robust poker features must exist, but they must not crash bots on startup. New background features must be Poker Bot only and disabled by default.

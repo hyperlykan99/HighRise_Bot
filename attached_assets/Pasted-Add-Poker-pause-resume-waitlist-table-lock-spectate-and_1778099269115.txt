@@ -1,0 +1,455 @@
+Add Poker pause, resume, waitlist, table lock, spectate, and notes system.
+
+GOAL:
+Add staff-safe poker table controls and player-friendly features:
+1. /poker pause
+2. /poker resume
+3. /poker waitlist
+4. /poker tablelock on/off
+5. /poker spectate
+6. /poker notes
+
+Do NOT add poker insurance yet.
+
+IMPORTANT:
+- Do not remove existing poker features.
+- Keep Poker Bot ownership.
+- Keep multi-bot routing.
+- Keep persistent poker table, blinds, all-in, AFK removal, card delivery, recovery, AI debug, and integrity checker.
+- Use SQLite.
+- Keep messages under 250 characters.
+- No silent failures.
+- Every command must reply with success, usage, permission error, or clear error.
+- Do not leak private player cards to spectators.
+
+==================================================
+PART 1: DATABASE
+==================================================
+
+Create/update poker_settings with these settings:
+
+- poker_paused = false
+- poker_table_locked = false
+- poker_waitlist_enabled = true
+- poker_spectate_enabled = true
+
+Create poker_waitlist table:
+
+poker_waitlist:
+- id INTEGER PRIMARY KEY AUTOINCREMENT
+- username_key TEXT
+- display_name TEXT
+- requested_buyin INTEGER
+- joined_at TEXT
+- status TEXT DEFAULT 'waiting'
+  Values: waiting, seated, cancelled, expired
+- UNIQUE(username_key, status)
+
+Create poker_spectators table:
+
+poker_spectators:
+- username_key TEXT PRIMARY KEY
+- display_name TEXT
+- joined_at TEXT
+- active INTEGER DEFAULT 1
+
+Create poker_notes table:
+
+poker_notes:
+- id INTEGER PRIMARY KEY AUTOINCREMENT
+- timestamp TEXT
+- note_type TEXT
+  Values: afk, refund, stuck, recovery, leave, timeout, card_delivery, admin, error
+- username_key TEXT
+- display_name TEXT
+- round_id TEXT
+- details TEXT
+- created_by TEXT
+
+==================================================
+PART 2: /POKER PAUSE
+==================================================
+
+Command:
+- /poker pause
+
+Permissions:
+- Owner/admin/manager only.
+
+Behavior:
+- Safely pauses the poker table.
+- Prevents new hands from starting.
+- Pauses turn timers if possible.
+- Does not delete seated players.
+- Does not clear current hand.
+- Does not refund automatically.
+- If hand is active:
+  - pause after current action if needed
+  - or pause immediately but preserve turn state
+- Set poker_paused = true.
+
+Message:
+"⏸️ Poker paused. Current table saved."
+
+If already paused:
+"Poker is already paused."
+
+While paused:
+- Players can use /pt, /ph, /stack.
+- Players cannot /p join unless tablelock is off and staff allows.
+- Betting actions should say:
+"Poker is paused. Wait for staff to resume."
+
+==================================================
+PART 3: /POKER RESUME
+==================================================
+
+Command:
+- /poker resume
+
+Permissions:
+- Owner/admin/manager only.
+
+Behavior:
+- Unpauses table.
+- Restores timers if hand is active.
+- Allows next hand to start if table is waiting and enough players are seated.
+- Set poker_paused = false.
+
+Message:
+"▶️ Poker resumed."
+
+If not paused:
+"Poker is not paused."
+
+Safety:
+- Before resume, validate table state.
+- If corrupted:
+"Poker needs recovery. Use /poker recoverystatus."
+
+==================================================
+PART 4: /POKER TABLELOCK ON/OFF
+==================================================
+
+Commands:
+- /poker tablelock on
+- /poker tablelock off
+- /poker tablelock
+
+Permissions:
+- Owner/admin/manager only.
+
+Behavior:
+- tablelock ON prevents new players from joining.
+- Existing seated players can keep playing unless poker is paused.
+- Waitlist can still be allowed if enabled.
+- Useful during recovery/debug.
+
+Messages:
+"🔒 Poker table locked. New joins disabled."
+"🔓 Poker table unlocked. New joins enabled."
+
+If player tries /p buyin while locked:
+"Poker table is locked. Try /poker waitlist."
+
+==================================================
+PART 5: /POKER WAITLIST
+==================================================
+
+Commands:
+- /poker waitlist
+- /poker waitlist <buyin>
+- /waitpoker <buyin>
+- /leavewaitlist
+
+Player behavior:
+- If table is full or locked, players can join waitlist.
+- If they type /p buyin while full:
+  - offer waitlist:
+  "Table full. Join waitlist: /poker waitlist 1000"
+
+- /poker waitlist <buyin>:
+  - Adds player to waitlist.
+  - Does not remove coins yet.
+  - Saves requested_buyin.
+  - Message:
+  "✅ Added to poker waitlist. Position #2."
+
+- /poker waitlist:
+  - Shows waitlist:
+  "Waitlist: 1 @A 1K | 2 @B 5K"
+
+- /leavewaitlist:
+  - Cancels user's waitlist entry.
+  - Message:
+  "✅ Removed from poker waitlist."
+
+Staff behavior:
+- When a seat opens, bot should notify next waitlisted player:
+  "@user, poker seat open. Join: /p <buyin>"
+- Optional auto-seat if setting enabled later, but default manual join.
+
+Settings:
+- poker_waitlist_enabled = true
+- poker_waitlist_auto_notify = true
+- poker_waitlist_expire_minutes = 30
+
+Do not auto-charge coins until player actually joins.
+
+==================================================
+PART 6: /POKER SPECTATE
+==================================================
+
+Commands:
+- /poker spectate
+- /poker spectate off
+- /spectatepoker
+- /spectators
+
+Behavior:
+- Lets players watch table status without joining.
+- Spectators do not receive private cards.
+- Spectators can see:
+  - pot
+  - board cards
+  - players seated
+  - stacks
+  - current turn
+  - public actions
+- Spectators cannot act, bet, or see hole cards.
+
+Messages:
+/poker spectate:
+"👀 You are spectating poker. Use /pt for table."
+
+/poker spectate off:
+"✅ You stopped spectating."
+
+/spectators:
+"👀 Spectators: @A, @B"
+
+If spectate disabled:
+"Poker spectate is OFF."
+
+Privacy:
+- Do not send /ph to spectators.
+- Do not show private cards in spectator messages.
+- Showdown only reveals cards according to poker rules.
+
+==================================================
+PART 7: /POKER NOTES
+==================================================
+
+Commands:
+- /poker notes
+- /poker notes <username>
+- /poker addnote <username> <message>
+- /poker clearnotes
+- /poker clearnotes <username>
+
+Permissions:
+- Owner/admin/manager only.
+
+Behavior:
+- Shows recent poker issues and staff notes.
+- Auto-log important events:
+  - AFK removal
+  - player left room
+  - auto-fold
+  - refunds
+  - hardrefunds
+  - stuck hands
+  - recovery commands
+  - card delivery failures
+  - table closeforce
+  - AI debug errors
+
+/poker notes:
+"📝 Notes: #12 AFK @A | #11 hardrefund 150c | #10 cards miss @B"
+
+/poker notes username:
+"@user notes: AFK x2 | left x1 | refunds x1"
+
+/poker addnote user msg:
+Adds manual staff note.
+Message:
+"✅ Poker note added for @user."
+
+/poker clearnotes:
+Owner/admin only.
+Clears all poker notes.
+Message:
+"✅ Poker notes cleared."
+
+/poker clearnotes username:
+Clears target notes.
+Message:
+"✅ Poker notes cleared for @user."
+
+==================================================
+PART 8: INTEGRATE WITH EXISTING SYSTEMS
+==================================================
+
+AFK:
+- When player is removed for AFK, add poker note:
+  note_type = afk
+  details = "Removed after 3 missed actions."
+
+Leave room:
+- Add note:
+  note_type = leave
+  details = "Left room, auto-folded, stack refunded."
+
+Recovery:
+- /poker hardrefund, clearhand, closeforce, cleanup must add notes.
+
+Card delivery:
+- If a player misses card delivery, add note:
+  note_type = card_delivery
+
+Table lock:
+- /poker tablelock on should add admin note.
+
+Pause/resume:
+- /poker pause and /poker resume should add admin note.
+
+==================================================
+PART 9: ROUTING AND OWNERSHIP
+==================================================
+
+Poker Bot owns:
+- /poker pause
+- /poker resume
+- /poker tablelock
+- /poker tablelock on
+- /poker tablelock off
+- /poker waitlist
+- /waitpoker
+- /leavewaitlist
+- /poker spectate
+- /poker spectate off
+- /spectatepoker
+- /spectators
+- /poker notes
+- /poker addnote
+- /poker clearnotes
+
+Add all to command registry:
+- module = poker
+- owner_bot_mode = poker
+- proper required_role
+- short descriptions
+
+Commandtest expected:
+"/poker pause route:YES | help:YES | owner:Poker"
+"/poker waitlist route:YES | help:YES | owner:Poker"
+"/poker spectate route:YES | help:YES | owner:Poker"
+
+==================================================
+PART 10: HELP UPDATE
+==================================================
+
+Update /pokerhelp 3:
+"♠️ More
+/sitout - pause seat
+/sitin - return
+/plb - leaderboard
+/poker spectate - watch"
+
+Update /pokerhelp 4:
+"♠️ Staff
+/poker pause - pause table
+/poker resume - resume
+/poker tablelock on/off
+/poker notes - issues"
+
+Update /pokerhelp 5:
+"♠️ Queue
+/poker waitlist buyin - queue
+/leavewaitlist - leave queue
+/spectators - watchers"
+
+Update /control casino:
+"Poker: /poker pause | /poker resume | /poker tablelock on"
+
+==================================================
+PART 11: SETTINGS DISPLAY
+==================================================
+
+Update /poker settings to show:
+- mode
+- stakes
+- paused ON/OFF
+- tablelock ON/OFF
+- waitlist ON/OFF
+- spectate ON/OFF
+
+Example:
+"♠️ Poker: Normal | Stakes Normal | Paused OFF | Lock OFF"
+
+/poker settings 2:
+"Waitlist ON | Spectate ON | AFK ON | All-in ON"
+
+==================================================
+PART 12: INTEGRITY CHECK UPDATE
+==================================================
+
+Update:
+- /poker integrity full
+- /casinointegrity full
+
+Add checks:
+- /poker pause route/handler
+- /poker resume route/handler
+- /poker tablelock on/off
+- waitlist insert/list/cancel dry-run
+- spectate join/leave dry-run
+- notes insert/list dry-run
+- paused state blocks actions
+- resume validates table
+- tablelock blocks joins
+- spectators do not receive cards
+
+Expected:
+"Poker Integrity: pause OK | waitlist OK | spectate OK | notes OK"
+
+==================================================
+PART 13: TESTS
+==================================================
+
+Run:
+
+/commandtest /poker pause
+/commandtest /poker waitlist
+/commandtest /poker spectate
+/commandtest /poker notes
+
+/poker pause
+/poker settings
+/poker resume
+
+/poker tablelock on
+/p 1000
+Expected:
+"Poker table is locked. Try /poker waitlist."
+
+/poker waitlist 1000
+/poker waitlist
+/leavewaitlist
+
+/poker spectate
+/pt
+/poker spectate off
+
+/poker addnote testuser testing
+/poker notes
+/poker notes testuser
+
+/poker integrity full
+
+Expected:
+- Commands work.
+- No silent failures.
+- Poker Bot replies.
+- No duplicate bot replies.
+- No private cards leaked to spectators.

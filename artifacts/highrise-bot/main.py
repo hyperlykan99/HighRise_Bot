@@ -122,6 +122,8 @@ from modules.poker import (
     handle_pokermode, handle_pokerstakes, handle_pokerrules,
     handle_setpokerafkremove, handle_setpokerafksitout,
     handle_poker_player_left,
+    handle_waitpoker, handle_leavewaitlist,
+    handle_spectatepoker, handle_spectators,
 )
 from modules.casino_settings     import (
     handle_casinosettings, handle_casinolimits, handle_casinotoggles,
@@ -534,6 +536,7 @@ ALL_KNOWN_COMMANDS = (
         "pokermode", "pokerstakes", "pokerstake", "pokerlimitmode",
         "pokerrules", "setpokerafkremove", "setpokerafksitout",
         "pokerfix", "pokerrefundall", "pokercleanup",
+        "waitpoker", "leavewaitlist", "spectatepoker", "spectators",
         "setpokerbuyin", "setpokerplayers", "setpokerlobbytimer",
         "setpokertimer", "setpokerturntimer", "setpokerraise",
         "setpokerdailywinlimit", "setpokerdailylosslimit",
@@ -2239,6 +2242,18 @@ class HangoutBot(BaseBot):
             elif cmd == "confirmclosepoker":
                 await handle_confirmclosepoker(self, user, args)
 
+            elif cmd == "waitpoker":
+                await handle_waitpoker(self, user, args)
+
+            elif cmd == "leavewaitlist":
+                await handle_leavewaitlist(self, user, args)
+
+            elif cmd == "spectatepoker":
+                await handle_spectatepoker(self, user, args)
+
+            elif cmd == "spectators":
+                await handle_spectators(self, user, args)
+
             elif cmd == "casinointegrity":
                 if not can_manage_games(user.username):
                     await self.highrise.send_whisper(user.id, "Staff only.")
@@ -3190,6 +3205,18 @@ class HangoutBot(BaseBot):
 
         elif cmd == "confirmclosepoker":
             await handle_confirmclosepoker(self, user, args)
+
+        elif cmd == "waitpoker":
+            await handle_waitpoker(self, user, args)
+
+        elif cmd == "leavewaitlist":
+            await handle_leavewaitlist(self, user, args)
+
+        elif cmd == "spectatepoker":
+            await handle_spectatepoker(self, user, args)
+
+        elif cmd == "spectators":
+            await handle_spectators(self, user, args)
 
         elif cmd == "pokermode":
             await handle_pokermode(self, user, args)

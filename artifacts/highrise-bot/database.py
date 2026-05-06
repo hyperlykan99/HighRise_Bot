@@ -950,6 +950,42 @@ def init_db():
         )
     """)
 
+    # ── Poker waitlist ────────────────────────────────────────────────────────
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS poker_waitlist (
+            id               INTEGER PRIMARY KEY AUTOINCREMENT,
+            username_key     TEXT NOT NULL,
+            display_name     TEXT NOT NULL DEFAULT '',
+            requested_buyin  INTEGER NOT NULL DEFAULT 0,
+            joined_at        TEXT NOT NULL DEFAULT (datetime('now')),
+            status           TEXT NOT NULL DEFAULT 'waiting'
+        )
+    """)
+
+    # ── Poker spectators ──────────────────────────────────────────────────────
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS poker_spectators (
+            username_key  TEXT PRIMARY KEY,
+            display_name  TEXT NOT NULL DEFAULT '',
+            joined_at     TEXT NOT NULL DEFAULT (datetime('now')),
+            active        INTEGER NOT NULL DEFAULT 1
+        )
+    """)
+
+    # ── Poker notes ───────────────────────────────────────────────────────────
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS poker_notes (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp    TEXT NOT NULL DEFAULT (datetime('now')),
+            note_type    TEXT NOT NULL DEFAULT 'admin',
+            username_key TEXT NOT NULL DEFAULT '',
+            display_name TEXT NOT NULL DEFAULT '',
+            round_id     TEXT NOT NULL DEFAULT '',
+            details      TEXT NOT NULL DEFAULT '',
+            created_by   TEXT NOT NULL DEFAULT 'system'
+        )
+    """)
+
     conn.commit()
     conn.close()
     _migrate_db()
@@ -7243,6 +7279,158 @@ def clear_bot_crash_logs(bot_id: str = "") -> int:
         return 0
 
 
+# ── Poker notes helpers ───────────────────────────────────────────────────────
+
+def add_poker_note(note_type: str, username_key: str, display_name: str,
+                   round_id: str, details: str,
+                   created_by: str = "system") -> None:
+    conn = get_connection()
+    conn.execute(
+        "INSERT INTO poker_notes "
+        "(note_type, username_key, display_name, round_id, details, created_by) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (note_type, username_key.lower(), display_name,
+         round_id, details[:500], created_by)
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_poker_notes(username_key: str = None, limit: int = 20) -> list:
+    conn = get_connection()
+    if username_key:
+        rows = conn.execute(
+            "SELECT * FROM poker_notes WHERE username_key = ? "
+            "ORDER BY id DESC LIMIT ?",
+            (username_key.lower(), limit)
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT * FROM poker_notes ORDER BY id DESC LIMIT ?",
+            (limit,)
+        ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def clear_poker_notes(username_key: str = None) -> int:
+    conn = get_connection()
+    if username_key:
+        cur = conn.execute(
+            "DELETE FROM poker_notes WHERE username_key = ?",
+            (username_key.lower(),)
+        )
+    else:
+        cur = conn.execute("DELETE FROM poker_notes")
+    deleted = cur.rowcount
+    conn.commit()
+    conn.close()
+    return deleted
+
+
+# ── Poker waitlist helpers ────────────────────────────────────────────────────
+
+def add_poker_waitlist(username_key: str, display_name: str,
+                       requested_buyin: int) -> int:
+    """Add player to waitlist (cancels any prior waiting entry). Returns pos."""
+    conn = get_connection()
+    conn.execute(
+        "UPDATE poker_waitlist SET status='cancelled' "
+        "WHERE username_key = ? AND status = 'waiting'",
+        (username_key.lower(),)
+    )
+    conn.execute(
+        "INSERT INTO poker_waitlist "
+        "(username_key, display_name, requested_buyin, status) "
+        "VALUES (?, ?, ?, 'waiting')",
+        (username_key.lower(), display_name, requested_buyin)
+    )
+    conn.commit()
+    pos = conn.execute(
+        "SELECT COUNT(*) FROM poker_waitlist WHERE status = 'waiting'"
+    ).fetchone()[0]
+    conn.close()
+    return pos
+
+
+def get_poker_waitlist() -> list:
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT * FROM poker_waitlist WHERE status = 'waiting' ORDER BY id ASC"
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def cancel_poker_waitlist(username_key: str) -> bool:
+    conn = get_connection()
+    cur = conn.execute(
+        "UPDATE poker_waitlist SET status='cancelled' "
+        "WHERE username_key = ? AND status = 'waiting'",
+        (username_key.lower(),)
+    )
+    changed = cur.rowcount > 0
+    conn.commit()
+    conn.close()
+    return changed
+
+
+def get_poker_waitlist_next() -> dict | None:
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT * FROM poker_waitlist WHERE status = 'waiting' "
+        "ORDER BY id ASC LIMIT 1"
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+# ── Poker spectators helpers ──────────────────────────────────────────────────
+
+def add_poker_spectator(username_key: str, display_name: str) -> None:
+    conn = get_connection()
+    conn.execute(
+        "INSERT OR REPLACE INTO poker_spectators "
+        "(username_key, display_name, joined_at, active) "
+        "VALUES (?, ?, datetime('now'), 1)",
+        (username_key.lower(), display_name)
+    )
+    conn.commit()
+    conn.close()
+
+
+def remove_poker_spectator(username_key: str) -> bool:
+    conn = get_connection()
+    cur = conn.execute(
+        "UPDATE poker_spectators SET active = 0 WHERE username_key = ?",
+        (username_key.lower(),)
+    )
+    changed = cur.rowcount > 0
+    conn.commit()
+    conn.close()
+    return changed
+
+
+def get_poker_spectators() -> list:
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT * FROM poker_spectators WHERE active = 1 "
+        "ORDER BY joined_at ASC"
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def is_poker_spectator(username_key: str) -> bool:
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT 1 FROM poker_spectators WHERE username_key = ? AND active = 1",
+        (username_key.lower(),)
+    ).fetchone()
+    conn.close()
+    return row is not None
+
+
 def seed_room_settings() -> None:
     defaults = [
         ("self_teleport_enabled",   "false"),
@@ -7276,6 +7464,12 @@ def seed_room_settings() -> None:
         ("outfit_auto_apply_enabled",         "false"),
         ("emote_loops_enabled_on_startup",    "false"),
         ("safe_mode_enabled",                 "false"),
+        ("poker_paused",                      "false"),
+        ("poker_table_locked",                "false"),
+        ("poker_waitlist_enabled",            "true"),
+        ("poker_spectate_enabled",            "true"),
+        ("poker_waitlist_auto_notify",        "true"),
+        ("poker_waitlist_expire_minutes",     "30"),
     ]
     conn = get_connection()
     for k, v in defaults:

@@ -88,6 +88,8 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "pokerhistory": "poker", "pokerdebug": "poker",
     "pokerfix": "poker", "pokercleanup": "poker",
     "confirmclosepoker": "poker",
+    "waitpoker": "poker", "leavewaitlist": "poker",
+    "spectatepoker": "poker", "spectators": "poker",
     "casinointegrity": "host", "integritylogs": "host", "carddeliverycheck": "host",
     "setpokercardmarker": "poker",
     "setpokertimer": "poker", "setpokerturntimer": "poker",
