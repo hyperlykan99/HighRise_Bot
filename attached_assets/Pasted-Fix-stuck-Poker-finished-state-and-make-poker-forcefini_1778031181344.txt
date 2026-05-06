@@ -1,0 +1,288 @@
+Fix stuck Poker finished state and make /poker forcefinish work safely.
+
+Problem:
+Poker state shows:
+"Poker | finished | Seated:2 Active:2 InHand:2 | Hand#1"
+
+But I do not have a hand, and /poker forcefinish says:
+"Poker error. Please try again."
+
+This means poker hand is marked finished but active players/in-hand rows were not cleaned up.
+
+Goal:
+Make poker recovery/forcefinish/refund handle this broken state safely.
+
+IMPORTANT:
+- Do not remove existing poker features.
+- Do not wipe player coins.
+- Do not delete seated players unless refund/close requires it.
+- Keep persistent poker table system.
+- Use SQLite.
+- Keep messages under 250 characters.
+- Add explicit routing before unknown-command fallback.
+- Never let /poker forcefinish fail with generic "Poker error" only.
+- Log the real error in console.
+
+==================================================
+PART 1: DETECT BROKEN FINISHED STATE
+==================================================
+
+Add helper:
+detect_poker_inconsistent_state()
+
+It should detect:
+- table_status or phase = finished but active players still exist
+- hand_phase = finished but poker_active_players still has active/inhand players
+- seated players active but no valid current hand
+- round_id exists but some players have no hole_cards_json
+- active table says finished but pot not resolved
+- players in poker_active_players but no active hand should be running
+
+If detected, /poker state should show:
+"Poker recovery needed | Finished hand stuck | Use /poker cleanup or /poker refund"
+
+Do not show:
+"finished | Active:2 InHand:2"
+without explaining recovery needed.
+
+==================================================
+PART 2: ADD /POKER CLEANUP
+==================================================
+
+Add staff command:
+- /poker cleanup
+- /pokercleanup
+
+Permissions:
+- Owner/admin/manager only.
+
+Purpose:
+Fix stuck finished poker hands without wiping seated table stacks.
+
+Behavior:
+If hand is finished but active hand rows remain:
+1. Check if payouts were already completed in poker_round_results.
+2. If payouts completed:
+   - clear poker_active_players for that round_id
+   - set hand_phase = none
+   - set table_status = between_hands or waiting
+   - keep poker_seated_players and table_stack
+   - schedule next hand if 2+ active seated players
+3. If payouts not completed but pot = 0:
+   - safely clear active hand rows
+   - keep seated stacks
+   - move to next hand/waiting
+4. If payouts not completed and pot > 0:
+   - do not guess payout
+   - tell staff:
+"Pot unresolved. Use /poker forcefinish or /poker refund."
+
+Message after cleanup:
+"✅ Poker cleanup done. Table ready."
+
+If no cleanup needed:
+"No stuck poker hand found."
+
+==================================================
+PART 3: FIX /POKER FORCEFINISH
+==================================================
+
+/poker forcefinish should never crash/generic error.
+
+Behavior:
+1. Load latest poker table from SQLite.
+2. If no active hand and table is waiting/between_hands:
+   - say:
+"No active hand to finish."
+3. If hand is marked finished but active hand rows remain:
+   - call cleanup if payouts completed or pot = 0.
+4. If active hand has valid cards:
+   - finish hand using saved state.
+   - evaluate winners if possible.
+   - pay pot once.
+   - clear active hand.
+   - keep seated players.
+   - schedule next hand if 2+ players.
+5. If active hand is missing cards or corrupted:
+   - say:
+"Hand corrupted. Use /poker refund."
+6. If exception happens:
+   - log full traceback in console
+   - save error to bot_errors if table exists
+   - reply:
+"Forcefinish failed. Use /poker refund."
+
+Do not reply only:
+"Poker error. Please try again."
+
+==================================================
+PART 4: FIX /POKER REFUND
+==================================================
+
+/poker refund should safely handle any stuck hand state.
+
+Behavior:
+- Refund unresolved active hand contributions/pot if needed.
+- Keep seated table stacks if possible.
+- If player has committed chips but hand corrupted:
+  - return unresolved contribution to table_stack, not wallet, if they remain seated.
+- Clear poker_active_players for current round_id.
+- Set hand_phase = none.
+- Set table_status = waiting or between_hands.
+- Cancel hand timer.
+- If fewer than 2 active seated players:
+  - pause table
+- If 2+ active seated players:
+  - schedule next hand.
+
+Message:
+"✅ Poker hand refunded. Table safe."
+
+Add separate command:
+- /poker refundtable
+
+Behavior:
+- Returns all seated table stacks to wallets.
+- Clears full poker table.
+- Use only when closing table.
+- Owner/admin/manager only.
+
+Message:
+"✅ Poker table refunded and closed."
+
+==================================================
+PART 5: FIX /PH WHEN HAND IS FINISHED
+==================================================
+
+If player types /ph while hand_phase is finished or none:
+- Do not say "Join with /p" if they are seated.
+- Say:
+"No active hand. Your table stack: 999,900c. Next hand soon."
+
+If player is not seated:
+"Join poker with /p <buyin>."
+
+If player is seated but sitting out:
+"You are sitting out. Use /sitin."
+
+==================================================
+PART 6: BETTER /POKER STATE
+==================================================
+
+Update /poker state to show clear states.
+
+If broken:
+"Poker recovery needed | Finished stuck | Seated 2 | InHand 2"
+
+If between hands:
+"Poker between hands | Seated 2 | Next hand soon"
+
+If active:
+"Poker active | Hand #1 Flop | Pot 500c | Turn @user"
+
+If waiting:
+"Poker waiting | Seated 1 | Need 2 players"
+
+==================================================
+PART 7: ADD STAFF DEBUG
+==================================================
+
+Add/fix:
+- /pokerdebug state
+- /pokerdebug hand
+- /pokerdebug cleanup
+
+/pokerdebug state shows:
+- table_status
+- hand_phase
+- round_id
+- pot
+- seated count
+- active hand rows
+- players missing cards
+- payouts completed yes/no
+- recovery_required yes/no
+
+/pokerdebug cleanup shows what /poker cleanup would do but does not change data.
+
+Message example:
+"Cleanup preview: clear finished hand rows, keep 2 seated, next hand yes"
+
+==================================================
+PART 8: AUTO-REPAIR ON COMMANDS
+==================================================
+
+Before handling:
+- /ph
+- /pt
+- /poker table
+- /poker state
+- /poker join
+- /poker leave
+- /rebuy
+- /sitout
+- /sitin
+
+Run lightweight check:
+If table is finished but active hand rows remain:
+- mark recovery_required
+- staff commands can clean
+- player commands should say:
+"Poker table is recovering. Staff: /poker cleanup"
+
+Do not let new hand start until cleanup/refund completes.
+
+==================================================
+PART 9: ROUTING
+==================================================
+
+Add explicit routing before unknown-command fallback for:
+- /poker cleanup
+- /pokercleanup
+- /poker refundtable
+- /pokerdebug cleanup
+
+Make sure existing works:
+- /poker forcefinish
+- /poker refund
+- /poker state
+- /pokerdebug state
+
+==================================================
+PART 10: TESTS
+==================================================
+
+Test current stuck state:
+1. /poker state
+Expected:
+"Poker recovery needed | Finished stuck..."
+
+2. /pokerdebug cleanup
+Expected:
+Shows cleanup preview.
+
+3. /poker cleanup
+Expected:
+Clears stuck hand rows, keeps seated players/stacks.
+
+4. /poker state
+Expected:
+"between hands" or "waiting", not "finished Active:2 InHand:2"
+
+5. /ph
+Expected:
+If seated but no active hand:
+"No active hand. Your table stack: X. Next hand soon."
+
+6. Start next hand.
+Expected:
+Both seated players get cards.
+
+7. If cleanup cannot fix because pot unresolved:
+Use /poker refund
+Expected:
+Hand refunded and table safe.
+
+Final requirement:
+Poker must never stay in "finished" state with active players/in-hand rows.
+Forcefinish, cleanup, and refund must always give clear responses and never generic poker errors only.

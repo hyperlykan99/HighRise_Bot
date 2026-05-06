@@ -86,6 +86,7 @@ from modules.poker import (
     handle_setpokernexthandtimer, handle_setpokermaxstack,
     handle_setpokeridlestrikes,
     handle_pokerdebug, handle_pokerfix, handle_pokerrefundall,
+    handle_pokercleanup,
     startup_poker_recovery,
     soft_reset_table as poker_soft_reset_table,
     reset_table as poker_reset_table,
@@ -265,7 +266,7 @@ MANAGER_ONLY_CMDS = {
     "resetpokerlimits", "setpokerlimits",
     "setpokerblinds", "setpokerante", "setpokernexthandtimer",
     "setpokermaxstack", "setpokeridlestrikes",
-    "pokerdebug", "pokerfix", "pokerrefundall",
+    "pokerdebug", "pokerfix", "pokerrefundall", "pokercleanup",
     "banksettings",
     "setbjminbet", "setbjmaxbet", "setbjcountdown", "setbjturntimer",
     "setbjactiontimer", "setbjmaxsplits",
@@ -346,7 +347,7 @@ ALL_KNOWN_COMMANDS = (
         "rep", "reputation", "repstats", "toprep", "repleaderboard",
         # Poker — full commands
         "poker", "pokerhelp", "pokerstats", "pokerlb", "pokerdebug",
-        "pokerfix", "pokerrefundall",
+        "pokerfix", "pokerrefundall", "pokercleanup",
         "setpokerbuyin", "setpokerplayers", "setpokerlobbytimer",
         "setpokertimer", "setpokerturntimer", "setpokerraise",
         "setpokerdailywinlimit", "setpokerdailylosslimit",
@@ -1804,6 +1805,9 @@ class HangoutBot(BaseBot):
             elif cmd == "pokerrefundall":
                 await handle_pokerrefundall(self, user, args)
 
+            elif cmd == "pokercleanup":
+                await handle_pokercleanup(self, user, args)
+
             # ── New admin power commands ──────────────────────────────────────
             elif cmd in ("setcoins", "editcoins"):
                 await handle_setcoins(self, user, args)
@@ -2518,6 +2522,9 @@ class HangoutBot(BaseBot):
 
         elif cmd == "pokerrefundall":
             await handle_pokerrefundall(self, user, args)
+
+        elif cmd == "pokercleanup":
+            await handle_pokercleanup(self, user, args)
 
         # ── Maintenance tools ─────────────────────────────────────────────────
         elif cmd == "botstatus":
