@@ -1,0 +1,861 @@
+Rebuild and update the full command/help system with detailed descriptions, role-based visibility, and complete owner control commands.
+
+GOAL:
+I want every help menu to show commands with short descriptions.
+Commands shown should depend on the user’s assigned role.
+Owners should have full power to give, remove, edit, promote, demote, reset, and manage coins, event coins, XP, levels, titles, badges, roles, casino, poker, bank, events, notifications, and everything else.
+
+IMPORTANT:
+- Do not remove existing features.
+- Keep coins, XP, event coins, bank, shop, titles, badges, VIP, BJ, RBJ, poker, gold, events, notifications, profiles, achievements, quests, reputation, reports, automod, and staff roles.
+- Use SQLite.
+- Keep every Highrise message under 250 characters.
+- Split long help menus into pages.
+- Add explicit command routing before the unknown-command fallback.
+- Prevent silent failures.
+- Every command must reply with success, usage, permission error, or clear error.
+- Do not show owner-only commands to normal players.
+- Staff menus should show only commands their role can access.
+- Owners should be able to view all commands.
+
+==================================================
+PART 1: ROLE HIERARCHY
+==================================================
+
+Use this role hierarchy:
+
+1. Owner
+2. Admin
+3. Manager
+4. Moderator
+5. VIP
+6. Player
+
+Role permissions:
+
+Owner:
+- Full control.
+- Can add/remove owners.
+- Can add/remove admins, managers, moderators.
+- Can edit coins, event coins, XP, levels, titles, badges, VIP, inventory, bank blocks, casino limits, poker settings, events, reports, and system settings.
+- Can use real gold commands.
+
+Admin:
+- Can manage most economy, bank, reports, moderation, events, VIP, titles/badges, and casino settings.
+- Cannot add/remove owners.
+- Cannot send real Highrise gold unless also owner.
+- Cannot demote/remove owners.
+
+Manager:
+- Can manage games, casino, events, poker, reports, and some moderation.
+- Cannot edit player balances unless explicitly allowed.
+- Cannot manage owners/admins.
+
+Moderator:
+- Can manage reports, warnings, mutes, basic resets, and view limited bank/report info.
+- Cannot edit economy, roles, or real gold.
+
+VIP:
+- Player with perks only.
+- No staff powers.
+
+Player:
+- Normal user.
+
+Add helper:
+get_user_role(username)
+has_permission(username, required_role)
+is_owner(username)
+is_admin_or_higher(username)
+is_manager_or_higher(username)
+is_mod_or_higher(username)
+
+Use role hierarchy consistently across all commands.
+
+==================================================
+PART 2: NEW HELP SYSTEM DESIGN
+==================================================
+
+Add a centralized command registry.
+
+Each command should have:
+- command name
+- aliases
+- short description
+- usage
+- required role
+- category
+- module
+- enabled yes/no
+
+Example command registry entry:
+{
+  "command": "/bal",
+  "aliases": ["/balance", "/coins"],
+  "description": "Check your coin balance.",
+  "usage": "/bal [username]",
+  "role": "player",
+  "category": "coins"
+}
+
+Use this registry for help menus.
+
+==================================================
+PART 3: MAIN HELP COMMANDS
+==================================================
+
+Commands:
+- /help
+- /help 1
+- /help 2
+- /commands
+- /commands <category>
+- /commands staff
+- /allcommands
+- /allcommands <page>
+- /mycommands
+- /rolehelp
+- /helpsearch <keyword>
+
+Behavior:
+
+/help:
+Shows a short menu based on role.
+
+For players:
+"🤖 Help
+/coinhelp - coins
+/profilehelp - profiles
+/shophelp - shop
+/casinohelp - games
+/bankhelp - bank
+/tutorial - starter guide"
+
+Second message if needed:
+"More: /eventhelp /viphelp /notifyhelp /reporthelp"
+
+/help for staff:
+Show player help plus:
+"⚙️ Staff
+/staffhelp - staff menus
+/modhelp - moderation
+/managerhelp - games/events
+/adminhelp - admin tools
+/ownerhelp - owner tools"
+
+/mycommands:
+Shows commands available to the user’s role.
+Example:
+"Your commands: /bal, /profile, /daily, /shop, /casinohelp. More: /mycommands 2"
+
+/commands <category>:
+Shows category commands with descriptions.
+
+Categories:
+- coins
+- bank
+- profile
+- shop
+- casino
+- bj
+- rbj
+- poker
+- events
+- vip
+- notify
+- reports
+- mod
+- manager
+- admin
+- owner
+- gold
+- maintenance
+- roles
+- tutorial
+
+/helpsearch <keyword>:
+Search commands by keyword.
+Example:
+"/helpsearch poker"
+Shows matching commands with descriptions.
+
+==================================================
+PART 4: PLAYER HELP MENUS WITH DESCRIPTIONS
+==================================================
+
+Update /coinhelp:
+Page 1:
+"💰 Coins
+/bal - check balance
+/daily - claim daily
+/wallet - money dashboard
+/leaderboard - top coins"
+
+Page 2:
+"💰 More
+/tutorial - starter reward
+/streak - daily streak
+/dailycalendar - rewards
+/claimweekly - weekly chest"
+
+Update /profilehelp:
+Page 1:
+"👤 Profile
+/profile - view yourself
+/profile <user> - view player
+/whois <user> - player info
+/privacy - privacy settings"
+
+Page 2:
+"👤 More
+/badges <user> - badges
+/titles <user> - titles
+/stats <user> - stats
+/achievements <user> - progress"
+
+Update /bankhelp:
+Page 1:
+"🏦 Bank
+/send user amt - send coins
+/bank - bank summary
+/transactions - history
+/banknotify - alerts"
+
+Page 2:
+"🏦 More
+/notifications - pending alerts
+/clearnotifications - clear alerts
+/bankstats - bank stats"
+
+Update /shophelp:
+Page 1:
+"🛒 Shop
+/shop - view shop
+/shop titles - titles
+/shop badges - badges
+/buy title <id> - buy title"
+
+Page 2:
+"🛒 More
+/buy badge <id> - buy badge
+/equip title <id> - equip
+/equip badge <id> - equip
+/myitems - inventory"
+
+Update /casinohelp:
+Page 1:
+"🎰 Casino
+/bjoin bet - blackjack
+/rjoin bet - realistic BJ
+/p buyin - poker
+/casino - casino stats"
+
+Page 2:
+"🎰 More
+/bjhelp - BJ commands
+/rbjhelp - RBJ commands
+/pokerhelp - poker commands
+/mycasino - casino dash"
+
+Update /bjhelp:
+"🃏 BJ
+/bjoin bet - join
+/bh - hit
+/bs - stand
+/bd - double
+/bsp - split
+/bhand - your hand
+/bt - table"
+
+Update /rbjhelp:
+"🃏 RBJ
+/rjoin bet - join
+/rh - hit
+/rs - stand
+/rd - double
+/rsp - split
+/rhand - your hand
+/rshoe - shoe"
+
+Update /pokerhelp:
+Page 1:
+"♠️ Poker
+/p buyin - join table
+/ph - your cards
+/pt - table
+/check - check
+/call - call
+/r amt - raise
+/f - fold
+/ai - all-in"
+
+Page 2:
+"♠️ Poker 2
+/stack - your stack
+/pstacks - all stacks
+/rebuy amt - add chips
+/sitout - sit out
+/sitin - sit in
+/plb - leaderboard"
+
+Update /eventhelp:
+"🎉 Events
+/events - event list
+/event - current event
+/eventstatus - status
+/eventpoints - your points
+/eventshop - rewards"
+
+Update /viphelp:
+"💎 VIP
+/vipshop - VIP shop
+/buyvip - buy VIP
+/vipstatus - status
+/vips - VIP list"
+
+Update /notifyhelp:
+"🔔 Alerts
+/subscribe - alerts on
+/unsubscribe - alerts off
+/notifysettings - settings
+/notify type on/off - toggle"
+
+Update /reporthelp:
+"🚩 Reports
+/report user reason - report
+/bug msg - bug report
+/myreports - your reports"
+
+Update /tutorial help:
+"👋 New Player
+/tutorial - guide
+/tutorial progress - tasks
+/claimtutorial - reward"
+
+==================================================
+PART 5: STAFF HELP MENUS WITH DESCRIPTIONS
+==================================================
+
+/staffhelp:
+Show based on role.
+
+Moderator:
+"⚙️ Staff
+/modhelp - moderation
+/reporthelp - reports
+/audithelp - audits
+/dailyadmin reports - report summary"
+
+Manager:
+Also show:
+"/managerhelp - games/events
+/casinoadminhelp - casino
+/pokerhelp 3 - poker staff"
+
+/adminhelp and /ownerhelp only visible to admin/owner.
+
+/modhelp:
+Page 1:
+"🔨 Mod
+/reports - open reports
+/reportinfo id - details
+/closereport id - close
+/reportwatch user - user reports"
+
+Page 2:
+"🔨 Mod 2
+/warn user reason - warn
+/warnings user - warnings
+/mute user min - bot mute
+/unmute user - unmute
+/mutes - active mutes"
+
+Page 3:
+"🔨 Mod 3
+/rules - room rules
+/automod - status
+/audit user - audit
+/ledger user - ledger"
+
+Manager help:
+/managerhelp 1:
+"🧰 Manager
+/startevent id - start event
+/stopevent - stop event
+/autogames on/off - auto games
+/autoevents on/off - auto events"
+
+/managerhelp 2:
+"🧰 Casino
+/bj on/off - BJ toggle
+/rbj on/off - RBJ toggle
+/poker on/off - poker toggle
+/casinosettings - settings"
+
+/managerhelp 3:
+"🧰 Poker
+/setpokertimer sec - turn timer
+/setpokerblinds SB BB - blinds
+/poker state - status
+/poker recover - recover"
+
+/managerhelp 4:
+"🧰 Recovery
+/bj recover - recover BJ
+/rbj recover - recover RBJ
+/poker recover - recover poker
+/healthcheck - check bot"
+
+Admin help:
+/adminhelp 1:
+"🛡️ Admin Economy
+/addcoins user amt - add
+/removecoins user amt - remove
+/setcoins user amt - set
+/editcoins user amt - set"
+
+/adminhelp 2:
+"🛡️ Admin XP
+/addxp user amt - add XP
+/removexp user amt - remove XP
+/setxp user amt - set XP
+/setlevel user lvl - set level"
+
+/adminhelp 3:
+"🛡️ Admin Items
+/givetitle user id - give title
+/removetitle user id - remove
+/givebadge user id - give badge
+/removebadge user id - remove"
+
+/adminhelp 4:
+"🛡️ Admin Roles
+/addmanager user - promote
+/removemanager user - demote
+/addmoderator user - promote
+/removemoderator user - demote"
+
+/adminhelp 5:
+"🛡️ Admin Bank
+/bankblock user - block
+/bankunblock user - unblock
+/banksettings - settings
+/viewtx user - transactions"
+
+/adminhelp 6:
+"🛡️ Admin System
+/dbstats - database
+/errors - bot errors
+/healthcheck - health
+/maintenance on/off - maintenance"
+
+Owner help:
+/ownerhelp 1:
+"👑 Owner Roles
+/addowner user - add owner
+/removeowner user - remove owner
+/owners - list owners
+/addadmin user - add admin
+/removeadmin user - remove admin"
+
+/ownerhelp 2:
+"👑 Owner Power
+/setcoins user amt - set coins
+/seteventcoins user amt - set event coins
+/setlevel user lvl - set level
+/resetplayer user - reset player"
+
+/ownerhelp 3:
+"👑 Owner Inventory
+/givetitle user id - give title
+/removetitle user id - remove title
+/givebadge user id - give badge
+/removebadge user id - remove badge"
+
+/ownerhelp 4:
+"👑 Owner Gold
+/goldtip user amt - send gold
+/goldrain amt - random rain
+/goldrainall amt - all room
+/goldrefund user amt - refund"
+
+/ownerhelp 5:
+"👑 Owner System
+/backup - backup DB
+/softrestart - reload bot
+/restartstatus - status
+/allcommands - all commands
+/adminpanel - control panel"
+
+==================================================
+PART 6: OWNER POWER COMMANDS
+==================================================
+
+Add/fix owner/admin economy commands.
+
+Owner-only unless specified.
+
+Coins:
+- /addcoins <username> <amount>
+- /removecoins <username> <amount>
+- /setcoins <username> <amount>
+- /editcoins <username> <amount>
+- /resetcoins <username>
+
+Behavior:
+- /addcoins adds coins.
+- /removecoins removes coins but never below 0 unless owner setting allows.
+- /setcoins sets exact balance.
+- /editcoins same as setcoins.
+- /resetcoins sets coins to 0.
+- Log all changes in economy ledger.
+- Message:
+"✅ @user coins set to 1,000,000c / 1M."
+
+Event coins:
+- /addeventcoins <username> <amount>
+- /removeeventcoins <username> <amount>
+- /seteventcoins <username> <amount>
+- /reseteventcoins <username>
+
+Message:
+"✅ @user event coins set to 500."
+
+XP and levels:
+- /addxp <username> <amount>
+- /removexp <username> <amount>
+- /setxp <username> <amount>
+- /resetxp <username>
+- /setlevel <username> <level>
+- /addlevel <username> <amount>
+- /removelevel <username> <amount>
+- /promotelevel <username> <amount>
+- /demotelevel <username> <amount>
+
+Rules:
+- Level cannot go below 0.
+- XP cannot go below 0.
+- If setting level directly, update XP/level state consistently.
+- Message:
+"✅ @user level set to 10."
+
+Reputation:
+- /addrep <username> <amount>
+- /removerep <username> <amount>
+- /setrep <username> <amount>
+- /resetrep <username>
+
+Titles:
+- /givetitle <username> <title_id>
+- /removetitle <username> <title_id>
+- /settitle <username> <title_id>
+- /cleartitle <username>
+- /listtitles
+- /playertitles <username>
+
+Badges:
+- /givebadge <username> <badge_id>
+- /removebadge <username> <badge_id>
+- /setbadge <username> <badge_id>
+- /clearbadge <username>
+- /listbadges
+- /playerbadges <username>
+
+Achievements:
+- /giveachievement <username> <achievement_id>
+- /removeachievement <username> <achievement_id>
+- /resetachievements <username>
+- /playerachievements <username>
+
+VIP:
+- /addvip <username>
+- /removevip <username>
+- /setvipprice <amount>
+- /vips
+
+Bank:
+- /bankblock <username>
+- /bankunblock <username>
+- /resetbanklimits <username>
+- /viewtx <username>
+- /auditbank <username>
+
+Casino:
+- /resetbjlimits <username>
+- /resetrbjlimits <username>
+- /resetpokerlimits <username>
+- /resetcasinostats <username>
+- /resetbjstats <username>
+- /resetrbjstats <username>
+- /resetpokerstats <username>
+
+Player reset:
+- /resetplayer <username>
+- /resetplayer economy <username>
+- /resetplayer casino <username>
+- /resetplayer inventory <username>
+- /resetplayer profile <username>
+
+Safety:
+- /resetplayer requires confirmation:
+  /confirmresetplayer <code>
+- Never reset owners unless requester is owner and confirms.
+- Do not allow admin to reset owner.
+
+==================================================
+PART 7: ROLE MANAGEMENT COMMANDS
+==================================================
+
+Owner commands:
+- /addowner <username>
+- /removeowner <username>
+- /owners
+- /addadmin <username>
+- /removeadmin <username>
+- /admins
+
+Admin/Owner commands:
+- /addmanager <username>
+- /removemanager <username>
+- /managers
+- /addmoderator <username>
+- /removemoderator <username>
+- /moderators
+- /allstaff
+
+Rules:
+- Only owners can add/remove owners.
+- Only owners can add/remove admins.
+- Admins can manage managers/moderators.
+- Managers cannot manage roles.
+- Nobody can remove the last owner.
+- Users cannot demote themselves if they are the last owner.
+
+Messages:
+"✅ @user promoted to Admin."
+"✅ @user removed from Manager."
+"❌ Only owners can manage owners."
+
+==================================================
+PART 8: ADMIN CONTROL PANEL
+==================================================
+
+Add:
+/adminpanel
+/adminpanel economy
+/adminpanel roles
+/adminpanel casino
+/adminpanel events
+/adminpanel system
+
+Owner/admin only.
+
+Messages:
+/adminpanel:
+"⚙️ Admin Panel
+/adminpanel economy
+/adminpanel roles
+/adminpanel casino
+/adminpanel events
+/adminpanel system"
+
+/adminpanel economy:
+"Economy: /setcoins /addxp /setlevel /givetitle /givebadge"
+
+/adminpanel roles:
+"Roles: /addadmin /addmanager /addmoderator /allstaff"
+
+/adminpanel casino:
+"Casino: /casinosettings /poker settings /bj limits /rbj limits"
+
+/adminpanel system:
+"System: /healthcheck /errors /backup /softrestart"
+
+==================================================
+PART 9: COMMAND DESCRIPTIONS
+==================================================
+
+Every help entry should use this format:
+"/command - short description"
+
+Examples:
+"/bal - check balance"
+"/p 1000 - join poker"
+"/bjoin 100 - join BJ"
+"/rjoin 100 - join RBJ"
+"/send user amt - send coins"
+"/profile user - view profile"
+"/privacy - profile privacy"
+
+Do not list commands without descriptions.
+
+==================================================
+PART 10: COMMAND VISIBILITY BY ROLE
+==================================================
+
+Help visibility:
+- Player sees player commands only.
+- VIP sees player + VIP commands.
+- Moderator sees player + moderator commands.
+- Manager sees player + moderator + manager commands.
+- Admin sees player + mod + manager + admin commands.
+- Owner sees everything.
+
+If a lower role searches help for higher role command:
+"Command unavailable for your role."
+
+If user tries command without permission:
+"Staff only."
+or
+"Owner only."
+
+Do not expose sensitive owner commands to normal players in /help.
+
+==================================================
+PART 11: AUDIT LOGGING
+==================================================
+
+Create admin_action_logs table:
+
+admin_action_logs:
+- id INTEGER PRIMARY KEY AUTOINCREMENT
+- timestamp TEXT
+- actor_username TEXT
+- target_username TEXT
+- action TEXT
+- old_value TEXT
+- new_value TEXT
+- reason TEXT
+
+Log all owner/admin actions:
+- coin edits
+- event coin edits
+- XP edits
+- level edits
+- title/badge grants/removals
+- role promotions/demotions
+- VIP changes
+- bank blocks
+- casino stat resets
+- player resets
+
+Add commands:
+- /adminlogs
+- /adminlogs <username>
+- /adminloginfo <id>
+
+Permissions:
+- Owner/admin only.
+- Owner can view all.
+- Admin cannot view owner-only gold logs unless allowed.
+
+Messages:
+"/adminlogs - latest admin actions"
+"Log #12: Owner set @user coins 0 -> 1000"
+
+==================================================
+PART 12: NUMBER FORMATTER
+==================================================
+
+Use existing number formatter:
+- 1,000c / 1K
+- 1,000,000c / 1M
+- 1,250,000c / 1.25M
+
+Use it in:
+- coin admin messages
+- balance
+- profile
+- bank
+- casino
+- poker stacks
+- shop prices
+- leaderboards
+
+==================================================
+PART 13: COMMAND ROUTING
+==================================================
+
+Add explicit routing before unknown-command fallback for every command in this prompt.
+
+No command should fail silently.
+
+If command exists in help, it must be routed.
+
+If command is not implemented yet, either:
+- implement it, or
+- remove it from help.
+
+==================================================
+PART 14: HELP CONSISTENCY CHECK
+==================================================
+
+Add staff command:
+- /checkhelp
+Owner/admin only.
+
+Behavior:
+- Scans command registry.
+- Finds commands listed in help but missing from router if possible.
+- Finds routed commands missing from help if possible.
+- Shows:
+"Help check: 0 missing routes | 0 missing help"
+
+If full scan is hard:
+- manually verify major help menus.
+
+==================================================
+PART 15: TESTS
+==================================================
+
+Test as player:
+- /help
+- /mycommands
+- /coinhelp
+- /casinohelp
+- /profilehelp
+- /bankhelp
+- /pokerhelp
+
+Expected:
+- Only player commands show.
+- Each command has short description.
+
+Test as moderator:
+- /staffhelp
+- /modhelp
+- /adminhelp
+Expected:
+- Mod help works.
+- Admin help says unavailable.
+
+Test as manager:
+- /managerhelp
+- /casinoadminhelp
+Expected:
+- Manager sees game/event/casino tools.
+
+Test as admin:
+- /adminhelp
+- /adminpanel
+- /setcoins testuser 1000
+Expected:
+- Admin tools work except owner-only commands.
+
+Test as owner:
+- /ownerhelp
+- /allcommands
+- /addowner testuser
+- /setcoins testuser 1000000
+- /seteventcoins testuser 500
+- /setxp testuser 1000
+- /setlevel testuser 10
+- /givetitle testuser elite
+- /givebadge testuser crown
+- /adminlogs
+
+Expected:
+- Owner can control everything.
+- Logs are created.
+- Help descriptions are clear.
+- Role-based help is correct.

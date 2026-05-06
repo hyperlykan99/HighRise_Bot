@@ -28,6 +28,7 @@ artifacts/highrise-bot/
     ├── realistic_blackjack.py  # RBJ — same + persistent shoe (_Shoe class)
     ├── poker.py            # Poker game module
     ├── profile.py          # 6-page public profile system + privacy controls
+    ├── admin_cmds.py       # Admin power commands (setcoins, addxp, givetitle, resetstats…)
     ├── dj.py               # DJ request queue
     ├── economy.py          # Token balance, daily rewards, limits
     ├── cards.py            # Shared card helpers (make_deck, make_shoe, hand_value…)
@@ -50,6 +51,10 @@ DB schema source of truth: `database.py` (`_MIGRATIONS` list + `init_db()`)
 ## Product
 
 Casino games (BJ, RBJ with split/double/shoe, Poker), DJ queue, token economy, daily rewards, bank/send, shop (titles/badges), quests, achievements, events, subscriber DM system, leaderboards, staff management tiers, 6-page public player profiles with privacy controls.
+
+**Admin power commands** (admin+, logged to `admin_action_logs`): `setcoins/editcoins/resetcoins`, `addeventcoins/removeeventcoins/seteventcoins/reseteventcoins`, `addxp/removexp/setxp/resetxp/setlevel/addlevel`, `setrep/resetrep`, `givetitle/removetitle`, `givebadge/removebadge`, `addvip/removevip/vips`, `resetbjstats/resetrbjstats/resetpokerstats/resetcasinostats`, `adminpanel`, `adminlogs`.
+
+**Help system** (paged, role-aware): all help pages rebuilt with `/command - description` format; `mycommands` shows role-filtered command list; `helpsearch <term>` searches across all known commands; `coinhelp`, `bjhelp`, `rbjhelp`, `bankhelp`, `shophelp`, `modhelp`, `managerhelp`, `adminhelp`, `ownerhelp` are all paged.
 
 ## Profile system (modules/profile.py)
 

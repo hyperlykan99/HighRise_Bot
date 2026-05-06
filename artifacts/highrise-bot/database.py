@@ -978,6 +978,15 @@ def _migrate_db():
         "ALTER TABLE poker_active_table ADD COLUMN big_blind_username   TEXT",
         "ALTER TABLE poker_active_table ADD COLUMN next_hand_starts_at  TEXT",
         "ALTER TABLE poker_active_table ADD COLUMN table_closing        INTEGER NOT NULL DEFAULT 0",
+        "CREATE TABLE IF NOT EXISTS admin_action_logs ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "timestamp TEXT DEFAULT (datetime('now')), "
+        "actor_username TEXT NOT NULL DEFAULT '', "
+        "target_username TEXT NOT NULL DEFAULT '', "
+        "action TEXT NOT NULL DEFAULT '', "
+        "old_value TEXT DEFAULT '', "
+        "new_value TEXT DEFAULT '', "
+        "reason TEXT DEFAULT '')",
     ]:
         try:
             conn.execute(sql)
@@ -4703,3 +4712,258 @@ def log_notification(
         conn.close()
     except Exception as exc:
         print(f"[DB] log_notification error: {exc!r}")
+
+
+# ---------------------------------------------------------------------------
+# Admin action log helpers
+# ---------------------------------------------------------------------------
+
+def log_admin_action(
+    actor_username: str,
+    target_username: str,
+    action: str,
+    old_value: str = "",
+    new_value: str = "",
+    reason: str = "",
+) -> None:
+    """Insert one row into admin_action_logs."""
+    try:
+        conn = get_connection()
+        conn.execute(
+            """INSERT INTO admin_action_logs
+                   (actor_username, target_username, action, old_value, new_value, reason)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (actor_username, target_username, action,
+             str(old_value)[:200], str(new_value)[:200], str(reason)[:200]),
+        )
+        conn.commit()
+        conn.close()
+    except Exception as exc:
+        print(f"[DB] log_admin_action error: {exc!r}")
+
+
+def get_admin_logs(target_username: str | None = None, limit: int = 10) -> list[dict]:
+    """Return recent admin action log entries, optionally filtered by target."""
+    try:
+        conn = get_connection()
+        if target_username:
+            rows = conn.execute(
+                """SELECT * FROM admin_action_logs
+                   WHERE LOWER(target_username) = LOWER(?)
+                   ORDER BY id DESC LIMIT ?""",
+                (target_username, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM admin_action_logs ORDER BY id DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+    except Exception:
+        return []
+
+
+# ---------------------------------------------------------------------------
+# Direct balance / XP / level setters  (admin use)
+# ---------------------------------------------------------------------------
+
+def set_balance_direct(user_id: str, amount: int) -> int:
+    """Set a player's balance to an exact amount (floor 0). Returns new balance."""
+    amount = max(0, int(amount))
+    conn = get_connection()
+    conn.execute(
+        "UPDATE users SET balance = ? WHERE user_id = ?", (amount, user_id)
+    )
+    conn.commit()
+    conn.close()
+    return amount
+
+
+def set_xp_direct(user_id: str, xp: int) -> tuple[int, int]:
+    """Set XP directly and recompute level. Returns (new_xp, new_level)."""
+    xp    = max(0, int(xp))
+    level = _xp_to_level(xp)
+    conn  = get_connection()
+    conn.execute(
+        "UPDATE users SET xp = ?, level = ? WHERE user_id = ?",
+        (xp, level, user_id),
+    )
+    conn.commit()
+    conn.close()
+    return xp, level
+
+
+def set_level_direct(user_id: str, level: int) -> tuple[int, int]:
+    """Set level and matching XP. Returns (new_xp, new_level)."""
+    level = max(1, int(level))
+    xp    = xp_for_level(level)
+    conn  = get_connection()
+    conn.execute(
+        "UPDATE users SET xp = ?, level = ? WHERE user_id = ?",
+        (xp, level, user_id),
+    )
+    conn.commit()
+    conn.close()
+    return xp, level
+
+
+# ---------------------------------------------------------------------------
+# Item grant / revoke helpers  (admin use)
+# ---------------------------------------------------------------------------
+
+def grant_item(user_id: str, item_id: str, item_type: str) -> None:
+    """Insert item into owned_items (idempotent)."""
+    conn = get_connection()
+    conn.execute(
+        "INSERT OR IGNORE INTO owned_items (user_id, item_id, item_type) VALUES (?, ?, ?)",
+        (user_id, item_id, item_type),
+    )
+    conn.commit()
+    conn.close()
+
+
+def revoke_item(user_id: str, item_id: str) -> None:
+    """Delete item from owned_items and clear equipped slot if equipped."""
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT item_type FROM owned_items WHERE user_id = ? AND item_id = ?",
+        (user_id, item_id),
+    ).fetchone()
+    conn.execute(
+        "DELETE FROM owned_items WHERE user_id = ? AND item_id = ?",
+        (user_id, item_id),
+    )
+    if row:
+        it = row["item_type"]
+        if it == "badge":
+            conn.execute(
+                "UPDATE users SET equipped_badge='', equipped_badge_id='' "
+                "WHERE user_id=? AND equipped_badge_id=?",
+                (user_id, item_id),
+            )
+        elif it == "title":
+            conn.execute(
+                "UPDATE users SET equipped_title='', equipped_title_id='' "
+                "WHERE user_id=? AND equipped_title_id=?",
+                (user_id, item_id),
+            )
+    conn.commit()
+    conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Event points direct setter  (admin use)
+# ---------------------------------------------------------------------------
+
+def set_event_points_direct(user_id: str, amount: int) -> None:
+    """Set event points to an exact amount (floor 0)."""
+    amount = max(0, int(amount))
+    conn   = get_connection()
+    conn.execute(
+        """INSERT INTO event_points (user_id, points) VALUES (?, ?)
+           ON CONFLICT(user_id) DO UPDATE SET points = ?""",
+        (user_id, amount, amount),
+    )
+    conn.commit()
+    conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Reputation direct setter  (admin use)
+# ---------------------------------------------------------------------------
+
+def set_rep_direct(username: str, amount: int) -> bool:
+    """Set rep_received to exact amount for username. Returns True if found."""
+    amount = max(0, int(amount))
+    conn   = get_connection()
+    conn.execute(
+        "UPDATE reputation SET rep_received = ? WHERE LOWER(username) = ?",
+        (amount, username.lower()),
+    )
+    changed = conn.execute("SELECT changes()").fetchone()[0]
+    conn.commit()
+    conn.close()
+    return changed > 0
+
+
+# ---------------------------------------------------------------------------
+# Casino stats reset helpers  (admin use)
+# ---------------------------------------------------------------------------
+
+def reset_bj_stats_for_user(user_id: str) -> None:
+    """Reset a player's BJ stats to zero."""
+    conn = get_connection()
+    conn.execute(
+        """UPDATE bj_stats
+           SET bj_wins=0, bj_losses=0, bj_pushes=0, bj_blackjacks=0,
+               bj_total_bet=0, bj_total_won=0, bj_total_lost=0
+           WHERE user_id=?""",
+        (user_id,),
+    )
+    try:
+        conn.execute("DELETE FROM bj_daily WHERE user_id=?", (user_id,))
+    except Exception:
+        pass
+    conn.commit()
+    conn.close()
+
+
+def reset_rbj_stats_for_user(user_id: str) -> None:
+    """Reset a player's RBJ stats to zero."""
+    conn = get_connection()
+    conn.execute(
+        """UPDATE rbj_stats
+           SET rbj_wins=0, rbj_losses=0, rbj_pushes=0, rbj_blackjacks=0,
+               rbj_total_bet=0, rbj_total_won=0, rbj_total_lost=0
+           WHERE user_id=?""",
+        (user_id,),
+    )
+    try:
+        conn.execute("DELETE FROM rbj_daily WHERE user_id=?", (user_id,))
+    except Exception:
+        pass
+    conn.commit()
+    conn.close()
+
+
+def reset_poker_stats_for_user(user_id: str) -> None:
+    """Reset a player's poker stats to zero."""
+    conn = get_connection()
+    conn.execute(
+        """UPDATE poker_stats
+           SET hands_played=0, wins=0, losses=0, folds=0,
+               total_won=0, total_lost=0, total_buyin=0,
+               biggest_pot=0, allins=0, net_profit=0,
+               biggest_win=0, current_win_streak=0, best_win_streak=0, showdowns=0
+           WHERE user_id=?""",
+        (user_id,),
+    )
+    try:
+        conn.execute(
+            "DELETE FROM poker_daily_limits WHERE user_id=?", (user_id,)
+        )
+    except Exception:
+        pass
+    conn.commit()
+    conn.close()
+
+
+# ---------------------------------------------------------------------------
+# VIP list helper  (admin use)
+# ---------------------------------------------------------------------------
+
+def get_vip_list() -> list[str]:
+    """Return usernames of all VIP players."""
+    try:
+        conn  = get_connection()
+        rows  = conn.execute(
+            """SELECT u.username FROM owned_items oi
+               JOIN users u ON u.user_id = oi.user_id
+               WHERE oi.item_id = 'vip'
+               ORDER BY u.username ASC""",
+        ).fetchall()
+        conn.close()
+        return [r["username"] for r in rows]
+    except Exception:
+        return []
