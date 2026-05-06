@@ -1929,7 +1929,7 @@ class HangoutBot(BaseBot):
         _safe_boot = _env_safe or _db_safe
 
         if _safe_boot:
-            print(f"[SAFE_BOOT] {_bid} background loops disabled. Commands available.")
+            print(f"[SAFE_BOOT] {_bid} | Background loops OFF. Commands ON.")
         else:
             print(f"[STARTUP] {_bid} safe boot OFF — starting background loops for {BOT_MODE}.")
 
@@ -1939,6 +1939,24 @@ class HangoutBot(BaseBot):
             print(f"[TASK START] {_bid} heartbeat")
         except Exception as _e:
             print(f"[STARTUP] heartbeat skipped: {_e}")
+
+        # ── Startup: message handler confirmation + self-test ─────────────────
+        print(f"[CMD] message handler registered for {_bid}")
+        # Self-test: verify the router would handle these key commands correctly.
+        # Uses should_this_bot_handle() — the real routing function — not just ownership lookup.
+        # For non-host bots these commands are owned by host, so [SELFTEST SKIP] is correct.
+        for _st_cmd in ["ping", "help", "bots"]:
+            try:
+                _st_handles = should_this_bot_handle(_st_cmd)
+                _st_owner = resolve_command_owner(_st_cmd) or "unregistered"
+                if _st_handles:
+                    print(f"[SELFTEST] /{_st_cmd} route OK")
+                elif BOT_MODE not in ("host", "all"):
+                    print(f"[SELFTEST] /{_st_cmd} owner={_st_owner} (handled by {_st_owner} bot)")
+                else:
+                    print(f"[SELFTEST FAIL] /{_st_cmd} owner={_st_owner} — not handled by {BOT_MODE}")
+            except Exception as _ste:
+                print(f"[SELFTEST FAIL] /{_st_cmd} error: {_ste}")
 
         # ── Skip everything else if safe boot is ON ───────────────────────────
         if _safe_boot:
@@ -2030,6 +2048,25 @@ class HangoutBot(BaseBot):
             print(f"[STARTUP] announce skipped: {_e}")
 
     async def on_chat(self, user: User, message: str) -> None:
+        """SDK entry point — wraps _on_chat_body with top-level error handling (Part 9)."""
+        try:
+            await self._on_chat_body(user, message)
+        except Exception as _top_err:
+            _raw = message.strip()
+            _ec = _raw.lstrip("/").split()[0].lower() if _raw.startswith("/") else "non_cmd"
+            print(f"[CMD] error bot={BOT_MODE} cmd=/{_ec}: {_top_err}")
+            try:
+                db.log_bot_crash(BOT_ID, BOT_MODE, "command", _ec,
+                                 type(_top_err).__name__, str(_top_err), "")
+            except Exception:
+                pass
+            try:
+                await self.highrise.send_whisper(
+                    user.id, "Command error. Staff: /crashlogs latest")
+            except Exception:
+                pass
+
+    async def _on_chat_body(self, user: User, message: str) -> None:
         """
         Called for every public chat message.
         Ignores anything that doesn't start with '/'.
@@ -2070,9 +2107,10 @@ class HangoutBot(BaseBot):
 
         # ── Command debug logging ─────────────────────────────────────────────
         if get_cmd_debug():
+            print(f"[CMD RX] bot={BOT_MODE} user={user.username} text=/{cmd}")
             _owner_dbg = resolve_command_owner(cmd) or "none"
             _handle_dbg = should_this_bot_handle(cmd)
-            print(f"[CMD] bot={BOT_MODE} received=/{cmd} owner={_owner_dbg} handle={_handle_dbg}")
+            print(f"[CMD ROUTE] cmd=/{cmd} owner={_owner_dbg} handle={str(_handle_dbg).lower()}")
 
         # ── Multi-bot gate — ignore if another bot owns this command ─────────
         try:

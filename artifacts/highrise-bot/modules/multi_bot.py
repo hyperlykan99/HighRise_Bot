@@ -213,6 +213,21 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "ping": "host",
     "routerstatus": "host",
     "commanddebug": "host",
+    # ── help / info (always host) ─────────────────────────────────────────────
+    "help": "host",
+    "bots": "host", "botinfo": "host",
+    "botmodes": "host", "botmode": "host", "botprofile": "host",
+    "status": "host", "roomstatus": "host",
+    "crashlogs": "host", "clearcrashlogs": "host",
+    "safemode": "host",
+    "modulehealth": "host",
+    "botlocks": "host", "clearstalebotlocks": "host",
+    "botheartbeat": "host", "moduleowners": "host",
+    "activetasks": "host", "taskowners": "host",
+    "taskconflicts": "host", "fixtaskowners": "host",
+    "restoreannounce": "host", "restorestatus": "host",
+    "restorebots": "host",
+    "botmodulehelp": "host", "multibothelp": "host",
 }
 
 # Friendly display names for modes
