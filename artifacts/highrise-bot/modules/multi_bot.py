@@ -87,6 +87,7 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "pstacks": "poker", "mystack": "poker", "stack": "poker",
     "pokerhistory": "poker", "pokerdebug": "poker",
     "pokerfix": "poker", "pokercleanup": "poker",
+    "confirmclosepoker": "poker",
     "setpokertimer": "poker", "setpokerturntimer": "poker",
     "setpokerlobbytimer": "poker", "setpokernexthandtimer": "poker",
     "setpokerblinds": "poker", "setpokerante": "poker",

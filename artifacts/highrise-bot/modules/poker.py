@@ -53,6 +53,7 @@ _HAND_NAMES = {
 _lobby_task:     Optional[asyncio.Task] = None  # kept for compat
 _turn_task:      Optional[asyncio.Task] = None
 _next_hand_task: Optional[asyncio.Task] = None
+_close_confirm_codes: dict[str, str] = {}  # code → actor_username (/poker closeforce)
 
 
 # ── Utilities ──────────────────────────────────────────────────────────────────
@@ -578,7 +579,7 @@ def _recovery_block_msg() -> Optional[str]:
     """Return a block message if poker is stuck and blocks player commands, else None."""
     broken = detect_poker_inconsistent_state()
     if broken and "finished_stuck" in broken:
-        return "⚠️ Poker table is recovering. Staff: /poker cleanup"
+        return "⚠️ Poker table recovering. Staff: /poker recoverystatus"
     return None
 
 
@@ -593,6 +594,163 @@ def _log_recovery(action: str, round_id: str, phase: str, details: str) -> None:
     )
     conn.commit()
     conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Recovery recommendation — never creates circular command references
+# ---------------------------------------------------------------------------
+
+def get_poker_recovery_recommendation() -> str:
+    """
+    Returns the single safest recovery command for the current table state.
+    Values: forcefinish | hardrefund | clearhand | closeforce | no_action
+
+    Rules (strictly non-circular):
+    - Active hand + valid hole cards + 2+ eligible players → forcefinish
+    - Pot > 0 (any stuck state, cards missing/corrupted)   → hardrefund
+    - No pot + stuck hand rows                             → clearhand
+    - No seated players at all                             → closeforce
+    - Table idle / waiting / between_hands                 → no_action
+    """
+    try:
+        tbl = _get_table()
+        if not tbl or not tbl["active"]:
+            return "no_action"
+        phase    = tbl["phase"]
+        round_id = tbl.get("round_id")
+        pot      = int(tbl.get("pot") or 0)
+        if phase in ("idle", "waiting", "between_hands"):
+            return "no_action"
+        players  = _get_players(round_id) if round_id else []
+        unpaid   = [p for p in players if not _is_paid(round_id, p["username"])]
+        eligible = _eligible_players(unpaid) if unpaid else _eligible_players(players)
+        community: list = []
+        try:
+            community = json.loads(tbl.get("community_cards_json") or "[]")
+        except Exception:
+            pass
+        valid_cards = bool(
+            eligible and
+            all(len(json.loads(p.get("hole_cards_json") or "[]")) == 2
+                for p in eligible)
+        )
+        # No rows or all already paid
+        if not players or not unpaid:
+            return "clearhand" if pot == 0 else "hardrefund"
+        # No pot: safe to clear hand rows
+        if pot == 0:
+            return "clearhand"
+        # Active-hand phases with valid hole cards and 2+ eligible: forcefinish works
+        if (phase in ("preflop", "flop", "turn", "river")
+                and valid_cards and len(eligible) >= 2):
+            return "forcefinish"
+        # Pot > 0 and cannot safely forcefinish → hardrefund
+        return "hardrefund"
+    except Exception:
+        return "hardrefund"
+
+
+# ---------------------------------------------------------------------------
+# _hard_refund_hand — core emergency logic for /poker hardrefund & closeforce
+# ---------------------------------------------------------------------------
+
+async def _hard_refund_hand(actor_username: str) -> str:
+    """
+    Emergency pot resolution when normal refund/forcefinish cannot work.
+    Returns a ≤249-char result message.
+
+    Priority:
+    1. Contribution-based proportional split (most fair, uses total_contributed)
+    2. Equal split among eligible/active in-hand players
+    3. Equal split among all seated players (no in-hand rows)
+    4. Pot logged as lost + table cleared (no players at all)
+    """
+    global _lobby_task, _turn_task, _next_hand_task
+    _cancel_task(_lobby_task);     _lobby_task     = None
+    _cancel_task(_turn_task);      _turn_task      = None
+    _cancel_task(_next_hand_task); _next_hand_task = None
+
+    tbl = _get_table()
+    if not tbl or not tbl["active"]:
+        return "No active table."
+
+    round_id = tbl.get("round_id")
+    pot      = int(tbl.get("pot") or 0)
+    phase    = tbl.get("phase", "?")
+
+    # ── Case 1: No pot — just clear ──────────────────────────────────────────
+    if pot == 0:
+        if round_id:
+            _clear_players(round_id)
+        _clear_hand()
+        n = len(_get_active_seated())
+        _save_table(phase="between_hands" if n >= 2 else "waiting")
+        _log_recovery("hardrefund_zero_pot", round_id or "", phase,
+                      f"by @{actor_username} | pot=0")
+        return "✅ Poker hand cleared (pot was 0)."
+
+    # ── Case 2: In-hand player rows exist ────────────────────────────────────
+    players = _get_players(round_id) if round_id else []
+    unpaid  = [p for p in players if not _is_paid(round_id, p["username"])]
+
+    if unpaid:
+        total_contrib = sum(int(p.get("total_contributed") or 0) for p in unpaid)
+        if total_contrib > 0:
+            # Proportional refund based on recorded contribution amounts
+            paid_so_far = 0
+            for i, p in enumerate(unpaid):
+                contrib = int(p.get("total_contributed") or 0)
+                if i == len(unpaid) - 1:
+                    share = pot - paid_so_far          # last player absorbs rounding
+                else:
+                    share = round(pot * contrib / total_contrib)
+                    paid_so_far += share
+                _pay_seated(p, "hardrefund_contrib", share, round_id)
+            details = f"contrib-split {pot}c/{len(unpaid)}p"
+        else:
+            # No contribution data recorded — equal split
+            share     = pot // len(unpaid)
+            remainder = pot % len(unpaid)
+            for i, p in enumerate(unpaid):
+                s = share + (remainder if i == 0 else 0)
+                _pay_seated(p, "hardrefund_equal", s, round_id)
+            details = f"equal-split {pot}c/{len(unpaid)}p"
+        if round_id:
+            _clear_players(round_id)
+        _clear_hand()
+        n = len(_get_active_seated())
+        _save_table(phase="between_hands" if n >= 2 else "waiting")
+        _log_recovery("hardrefund", round_id or "", phase,
+                      f"by @{actor_username} | pot={pot}c | {details}")
+        return f"✅ Hard refund: {pot}c cleared. {details}."[:249]
+
+    # ── Case 3: No in-hand rows — split pot among all seated players ─────────
+    seated = _get_all_seated()
+    if seated:
+        share     = pot // len(seated)
+        remainder = pot % len(seated)
+        for i, s in enumerate(seated):
+            amt       = share + (remainder if i == 0 else 0)
+            new_stack = s["table_stack"] + amt
+            _update_seated(s["username"], table_stack=new_stack)
+        if round_id:
+            _clear_players(round_id)
+        _clear_hand()
+        n = len(_get_active_seated())
+        _save_table(phase="between_hands" if n >= 2 else "waiting")
+        _log_recovery("hardrefund_seated", round_id or "", phase,
+                      f"by @{actor_username} | pot={pot}c split among {len(seated)} seated")
+        return f"✅ Hard refund: {pot}c split among {len(seated)} seated."[:249]
+
+    # ── Case 4: No players at all — log pot as lost and clear ────────────────
+    if round_id:
+        _clear_players(round_id)
+    _clear_hand()
+    n = len(_get_active_seated())
+    _save_table(phase="between_hands" if n >= 2 else "waiting")
+    _log_recovery("hardrefund_pot_lost", round_id or "", phase,
+                  f"by @{actor_username} | pot={pot}c — no players, logged")
+    return f"⚠️ Pot {pot}c logged (no players). Table cleared."[:249]
 
 
 # ── Daily limit check (called before join/rebuy) ────────────────────────────────
@@ -1042,7 +1200,7 @@ async def _start_hand(bot: BaseBot) -> None:
         conn.close()
         print(f"[POKER] _start_hand DB error: {exc}")
         _save_table(phase="recovery_required")
-        await _chat(bot, "⚠️ Poker deal error. Use /poker refund to recover.")
+        await _chat(bot, "⚠️ Poker deal error. Use /poker recoverystatus for fix.")
         return
     conn.close()
 
@@ -1052,7 +1210,7 @@ async def _start_hand(bot: BaseBot) -> None:
         print(f"[POKER] deal validation FAILED: {err}")
         _clear_players(round_id)
         _save_table(phase="recovery_required")
-        await _chat(bot, f"⚠️ Deal error: {err} | Use /poker refund.")
+        await _chat(bot, f"⚠️ Deal error: {err} | Use /poker recoverystatus.")
         return
 
     # ── Save table state (before whispering cards) ─────────────────────────
@@ -1930,7 +2088,7 @@ async def startup_poker_recovery(bot: BaseBot) -> None:
             _save_table(phase="recovery_required")
             await _chat(bot,
                 f"⚠️ Poker recovery: {len(missing_cards)} player(s) missing cards. "
-                f"Use /poker refund.")
+                f"Use /poker hardrefund.")
             _log_recovery("recovery_required", round_id, phase,
                           f"missing_cards={names}")
             return
@@ -2013,7 +2171,7 @@ async def startup_poker_recovery(bot: BaseBot) -> None:
     # Corrupted state
     _save_table(phase="recovery_required")
     await _chat(bot,
-        "⚠️ Poker recovery needed. Use /poker recover or /poker refund.")
+        "⚠️ Poker recovery needed. Use /poker recoverystatus for details.")
     _log_recovery("recovery_required", round_id or "", phase, "corrupted state")
 
 
@@ -2180,7 +2338,7 @@ async def _dispatch(bot: BaseBot, user: User, args: list[str]) -> None:
         cards = json.loads(p["hole_cards_json"] or "[]")
         if not cards or len(cards) != 2:
             await _w(bot, user.id,
-                "⚠️ Your hand is missing. Staff notified. Use /poker refund.")
+                "⚠️ Your hand is missing. Staff notified. Use /poker recoverystatus.")
             print(f"[POKER] /ph: no cards for {user.username} "
                   f"round={tbl['round_id']}")
             return
@@ -2490,15 +2648,18 @@ async def _dispatch(bot: BaseBot, user: User, args: list[str]) -> None:
         # Detect broken state
         broken = detect_poker_inconsistent_state()
         if broken and "finished_stuck" in broken:
+            rec = get_poker_recovery_recommendation()
             await _w(bot, user.id,
-                f"⚠️ Poker recovery needed | Finished stuck | "
-                f"Seated {len(seated)} InHand {len(players)} Pot {pot}c | "
-                f"Use /poker cleanup or /poker refund")
+                (f"⚠️ Poker stuck | Finished stuck | "
+                 f"Seated:{len(seated)} InHand:{len(players)} Pot:{pot}c | "
+                 f"Fix: /poker {rec}")[:249])
             return
         if broken == "recovery_required":
+            rec = get_poker_recovery_recommendation()
             await _w(bot, user.id,
-                f"⚠️ Poker recovery needed | Seated {len(seated)} | "
-                f"Use /poker refund")
+                (f"⚠️ Poker stuck | Phase:recovery_required | "
+                 f"Seated:{len(seated)} Pot:{pot}c | "
+                 f"Fix: /poker {rec}")[:249])
             return
         if phase == "waiting":
             need = max(0, 2 - len(active))
@@ -2546,7 +2707,7 @@ async def _dispatch(bot: BaseBot, user: User, args: list[str]) -> None:
             res = _cleanup_finished_hand()
             if res["action"] == "pot_unresolved":
                 await _w(bot, user.id,
-                    f"⚠️ Pot {res['pot']}c unresolved. Use /poker forcefinish first.")
+                    f"⚠️ Pot {res['pot']}c — normal refund blocked. Use /poker hardrefund.")
                 return
             _log_recovery("refund_cleanup", round_id, phase,
                           f"manual by @{user.username} | action={res['action']}")
@@ -2581,7 +2742,7 @@ async def _dispatch(bot: BaseBot, user: User, args: list[str]) -> None:
                 res = _cleanup_finished_hand()
                 if res["action"] == "pot_unresolved":
                     await _w(bot, user.id,
-                        f"⚠️ Pot {res['pot']}c unresolved. Use /poker refund.")
+                        f"⚠️ Pot {res['pot']}c unresolved. Use /poker hardrefund.")
                     return
                 _log_recovery("forcefinish_cleanup", round_id, ph,
                               f"by @{user.username} | action={res['action']}")
@@ -2596,11 +2757,12 @@ async def _dispatch(bot: BaseBot, user: User, args: list[str]) -> None:
                 await _w(bot, user.id, "No active hand to finish.")
                 return
             if ph == "recovery_required":
-                await _w(bot, user.id, "Hand corrupted. Use /poker refund.")
+                await _w(bot, user.id, "Hand corrupted. Use /poker hardrefund.")
                 return
             if ph not in ("preflop", "flop", "turn", "river"):
+                rec = get_poker_recovery_recommendation()
                 await _w(bot, user.id,
-                    f"No active hand (phase={ph}). Use /poker refund.")
+                    f"No active hand (phase={ph}). Use /poker {rec}.")
                 return
             # Check for corrupted cards on preflop
             players = _get_players(round_id) if round_id else []
@@ -2608,7 +2770,7 @@ async def _dispatch(bot: BaseBot, user: User, args: list[str]) -> None:
                 missing = [p["username"] for p in players
                            if len(json.loads(p["hole_cards_json"] or "[]")) != 2]
                 if len(missing) == len(players) and players:
-                    await _w(bot, user.id, "Hand corrupted. Use /poker refund.")
+                    await _w(bot, user.id, "Hand corrupted. Use /poker hardrefund.")
                     return
             eligible = _eligible_players(players)
             if len(eligible) >= 2:
@@ -2620,7 +2782,108 @@ async def _dispatch(bot: BaseBot, user: User, args: list[str]) -> None:
             import traceback
             print(f"[POKER] forcefinish error: {exc}\n{traceback.format_exc()}")
             _log_recovery("forcefinish_error", "", "", str(exc)[:200])
-            await _w(bot, user.id, "Forcefinish failed. Use /poker refund.")
+            await _w(bot, user.id, "Forcefinish failed. Use /poker hardrefund.")
+        return
+
+    # ── hardrefund ─────────────────────────────────────────────────────────────
+    if sub == "hardrefund":
+        if not (is_admin(user.username) or is_owner(user.username)):
+            await _w(bot, user.id, "Owner/admin only.")
+            return
+        tbl = _get_table()
+        if not tbl or not tbl["active"]:
+            await _w(bot, user.id, "No active poker table.")
+            return
+        print(f"[POKER] /poker hardrefund by @{user.username}")
+        msg = await _hard_refund_hand(user.username)
+        await _w(bot, user.id, msg)
+        return
+
+    # ── clearhand ──────────────────────────────────────────────────────────────
+    if sub == "clearhand":
+        if not (is_admin(user.username) or is_owner(user.username)):
+            await _w(bot, user.id, "Owner/admin only.")
+            return
+        tbl = _get_table()
+        if not tbl or not tbl["active"]:
+            await _w(bot, user.id, "No active poker table.")
+            return
+        pot = int(tbl.get("pot") or 0)
+        if pot > 0:
+            await _w(bot, user.id, f"Pot {pot}c exists. Use /poker hardrefund.")
+            return
+        round_id = tbl.get("round_id")
+        _cancel_task(_next_hand_task)
+        if round_id:
+            _clear_players(round_id)
+        _clear_hand()
+        n = len(_get_active_seated())
+        _save_table(phase="between_hands" if n >= 2 else "waiting")
+        _log_recovery("clearhand", round_id or "", tbl.get("phase", "?"),
+                      f"by @{user.username}")
+        await _w(bot, user.id, "✅ Poker hand cleared.")
+        return
+
+    # ── closeforce ─────────────────────────────────────────────────────────────
+    if sub == "closeforce":
+        if not (is_admin(user.username) or is_owner(user.username)):
+            await _w(bot, user.id, "Owner/admin only.")
+            return
+        tbl = _get_table()
+        if not tbl or not tbl["active"]:
+            await _w(bot, user.id, "No active poker table.")
+            return
+        import secrets
+        code = secrets.token_hex(3).upper()
+        _close_confirm_codes[code] = user.username
+        await _w(bot, user.id,
+            f"Confirm table close: /confirmclosepoker {code} (expires 60s)")
+        async def _expire_code(c: str = code) -> None:
+            await asyncio.sleep(60)
+            _close_confirm_codes.pop(c, None)
+        asyncio.create_task(_expire_code())
+        return
+
+    # ── recoverystatus / emergency ─────────────────────────────────────────────
+    if sub in ("recoverystatus", "emergency"):
+        if not can_manage_games(user.username):
+            await _w(bot, user.id, "Managers+ only.")
+            return
+        tbl      = _get_table()
+        seated   = _get_all_seated()
+        phase    = tbl["phase"] if tbl else "no-table"
+        round_id = tbl.get("round_id") if tbl else None
+        pot      = int(tbl.get("pot") or 0) if tbl else 0
+        players  = _get_players(round_id) if round_id else []
+        active   = _active_players(players)
+        eligible = _eligible_players(players)
+        unpaid   = ([p for p in players
+                     if not _is_paid(round_id, p["username"])]
+                    if round_id else [])
+        cards_ok = bool(eligible and all(
+            len(json.loads(p.get("hole_cards_json") or "[]")) == 2
+            for p in eligible
+        ))
+        community: list = []
+        if tbl and tbl.get("community_cards_json"):
+            try:
+                community = json.loads(tbl["community_cards_json"])
+            except Exception:
+                pass
+        rec = get_poker_recovery_recommendation()
+        if rec == "no_action":
+            status_line = (f"Poker OK | Phase:{phase} | Pot:{pot}c"
+                           f" | Seated:{len(seated)}")
+        else:
+            status_line = (f"Poker stuck | Phase:{phase} | Pot:{pot}c"
+                           f" | InHand:{len(players)} Unpaid:{len(unpaid)}"
+                           f" | Fix: /poker {rec}")
+        details_line = (f"Seated:{len(seated)} Active:{len(active)}"
+                        f" Elig:{len(eligible)} | Cards:{'ok' if cards_ok else 'missing'}"
+                        f" Board:{len(community)}"
+                        f" Round:{(round_id or 'none')[-6:]}")
+        await _w(bot, user.id, status_line[:249])
+        await _w(bot, user.id, details_line[:249])
         return
 
     # ── cleanup ────────────────────────────────────────────────────────────────
@@ -2640,7 +2903,7 @@ async def _dispatch(bot: BaseBot, user: User, args: list[str]) -> None:
         res = _cleanup_finished_hand()
         if res["action"] == "pot_unresolved":
             await _w(bot, user.id,
-                f"⚠️ Pot {res['pot']}c unresolved. Use /poker forcefinish or /poker refund.")
+                f"⚠️ Pot {res['pot']}c unresolved. Use /poker hardrefund.")
             return
         _log_recovery("cleanup", round_id, tbl["phase"],
                       f"by @{user.username} | action={res['action']}")
@@ -3058,11 +3321,11 @@ POKER_HELP_PAGES = [
         "/setpokermaxstack <amt>  /setpokeridlestrikes <n>"
     ),
     (
-        "♠️ Poker 6/6 — Debug (Mgr+)\n"
-        "/pokerdebug [players|table|state|seated]\n"
-        "/pokerfix  /pokerrefundall\n"
-        "/poker recover|refund|forcefinish\n"
-        "/poker state|players|stacks"
+        "♠️ Poker 6/6 — Recovery (Mgr+/Admin)\n"
+        "/poker recoverystatus|emergency (Mgr+)\n"
+        "/poker forcefinish|refund|cleanup (Mgr+)\n"
+        "/poker hardrefund|clearhand|closeforce (Admin)\n"
+        "/confirmclosepoker <code> (Admin)"
     ),
 ]
 
@@ -3229,7 +3492,7 @@ async def handle_pokerdebug(bot: BaseBot, user: User, args: list[str]) -> None:
         if not all_paid_d and pot_d > 0:
             await _w(bot, user.id,
                 (f"Cleanup preview: pot {pot_d}c unresolved — cannot auto-clear. "
-                 f"Use /poker forcefinish or /poker refund.")[:249])
+                 f"Use /poker hardrefund.")[:249])
         else:
             action_d = "clear paid rows" if all_paid_d else "refund zero-pot rows"
             await _w(bot, user.id,
@@ -3329,7 +3592,7 @@ async def handle_pokerfix(bot: BaseBot, user: User, args: list[str]) -> None:
         return
 
     if phase == "recovery_required":
-        await _w(bot, user.id, "recovery_required — use /poker refund.")
+        await _w(bot, user.id, "recovery_required — use /poker hardrefund.")
         return
 
     if phase in ("finished", "idle"):
@@ -3490,7 +3753,7 @@ async def handle_pokercleanup(bot: BaseBot, user: User, args: list[str]) -> None
     res = _cleanup_finished_hand()
     if res["action"] == "pot_unresolved":
         await _w(bot, user.id,
-            f"⚠️ Pot {res['pot']}c unresolved. Use /poker forcefinish or /poker refund.")
+            f"⚠️ Pot {res['pot']}c unresolved. Use /poker hardrefund.")
         return
     _log_recovery("cleanup", round_id, tbl["phase"],
                   f"by @{user.username} | action={res['action']}")
@@ -3502,6 +3765,57 @@ async def handle_pokercleanup(bot: BaseBot, user: User, args: list[str]) -> None
         await _w(bot, user.id, "✅ Poker cleanup done. Table ready. Next hand starting.")
     else:
         await _w(bot, user.id, "✅ Poker cleanup done. Table ready.")
+
+
+async def handle_confirmclosepoker(bot: BaseBot, user: User, args: list[str]) -> None:
+    """/confirmclosepoker <code> — confirm emergency table close from /poker closeforce."""
+    if not (is_admin(user.username) or is_owner(user.username)):
+        await _w(bot, user.id, "Owner/admin only.")
+        return
+    code = args[1].upper() if len(args) >= 2 else ""
+    if not code or code not in _close_confirm_codes:
+        await _w(bot, user.id, "Invalid or expired code. Use /poker closeforce first.")
+        return
+    _close_confirm_codes.pop(code, None)
+
+    # Resolve any active hand / pot first
+    tbl = _get_table()
+    if tbl and tbl["active"]:
+        pot = int(tbl.get("pot") or 0)
+        if pot > 0 or tbl.get("round_id"):
+            await _hard_refund_hand(user.username)
+
+    # Cancel all timers
+    global _lobby_task, _turn_task, _next_hand_task
+    _cancel_task(_lobby_task);     _lobby_task     = None
+    _cancel_task(_turn_task);      _turn_task      = None
+    _cancel_task(_next_hand_task); _next_hand_task = None
+
+    # Return all seated table stacks to wallets, remove from table
+    tbl2      = _get_table()
+    round_id2 = tbl2.get("round_id") if tbl2 else None
+    seated    = _get_all_seated()
+    refunded  = 0
+    count     = 0
+    for s in seated:
+        stack = s["table_stack"]
+        if stack > 0:
+            db.adjust_balance(s["user_id"], stack)
+            db.add_ledger_entry(
+                s["user_id"], s["username"],
+                stack, f"Poker closeforce by @{user.username}"
+            )
+            refunded += stack
+            count    += 1
+        _remove_seated(s["username"])
+
+    _log_recovery("closeforce", round_id2 or "",
+                  tbl2["phase"] if tbl2 else "?",
+                  f"by @{user.username} | {count}p refunded {refunded}c")
+    _full_clear_table()
+    await _chat(bot, f"♠️ Poker table emergency closed. {refunded}c returned.")
+    await _w(bot, user.id,
+             f"✅ Poker closed. {refunded}c refunded to {count} player(s)."[:249])
 
 
 def soft_reset_table() -> None:

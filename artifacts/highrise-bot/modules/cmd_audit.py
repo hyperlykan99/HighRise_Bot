@@ -123,6 +123,7 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     "setpokerblinds", "setpokerante", "setpokernexthandtimer",
     "setpokermaxstack", "setpokeridlestrikes",
     "pokerdebug", "pokerfix", "pokerrefundall", "pokercleanup",
+    "confirmclosepoker",
     "setcoins", "editcoins", "resetcoins",
     "addeventcoins", "removeeventcoins",
     "seteventcoins", "editeventcoins", "reseteventcoins",

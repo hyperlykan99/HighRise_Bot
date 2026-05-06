@@ -113,7 +113,8 @@ from modules.poker import (
     handle_setpokernexthandtimer, handle_setpokermaxstack,
     handle_setpokeridlestrikes,
     handle_pokerdebug, handle_pokerfix, handle_pokerrefundall,
-    handle_pokercleanup,
+    handle_pokercleanup, handle_confirmclosepoker,
+    get_poker_recovery_recommendation,
     startup_poker_recovery,
     soft_reset_table as poker_soft_reset_table,
     reset_table as poker_reset_table,
@@ -396,6 +397,7 @@ MANAGER_ONLY_CMDS = {
     "setpokerblinds", "setpokerante", "setpokernexthandtimer",
     "setpokermaxstack", "setpokeridlestrikes",
     "pokerdebug", "pokerfix", "pokerrefundall", "pokercleanup",
+    "confirmclosepoker",
     "banksettings",
     "setbjminbet", "setbjmaxbet", "setbjcountdown", "setbjturntimer",
     "setbjactiontimer", "setbjmaxsplits",
@@ -2146,6 +2148,9 @@ class HangoutBot(BaseBot):
             elif cmd == "pokercleanup":
                 await handle_pokercleanup(self, user, args)
 
+            elif cmd == "confirmclosepoker":
+                await handle_confirmclosepoker(self, user, args)
+
             # ── Admin / owner power commands ──────────────────────────────────
             # Coins
             elif cmd in ("setcoins", "editcoins"):
@@ -3069,6 +3074,9 @@ class HangoutBot(BaseBot):
 
         elif cmd == "pokercleanup":
             await handle_pokercleanup(self, user, args)
+
+        elif cmd == "confirmclosepoker":
+            await handle_confirmclosepoker(self, user, args)
 
         # ── Mining game ───────────────────────────────────────────────────────
         elif cmd in {"mine", "m", "dig"}:

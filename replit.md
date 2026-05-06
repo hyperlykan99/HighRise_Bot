@@ -79,6 +79,7 @@ DB schema source of truth: `database.py` (`_MIGRATIONS` list + `init_db()`)
 - **Heartbeat**: 30 s asyncio loop upserts this bot's row into `bot_instances`. Cache TTL: 30 s online status, 60 s ownership overrides.
 - **Module locks**: `bot_module_locks` table with TTL-based acquire/release. Use `db.acquire_module_lock("blackjack", BOT_ID)` before game-state writes to prevent dual payouts in multi-bot runs.
 - **Auto-games ownership**: `should_this_bot_run_autogames()` in `auto_games.py` gates both `start_auto_game_loop()` and `start_auto_event_loop()`. Room setting `autogames_owner_bot_mode` (default `eventhost`) determines which bot mode runs the loops. Blocked modes (blackjack/poker/miner/banker/shopkeeper/security/dj) never run. Host falls back if owner offline + fallback ON. Module locks `autogames`/`autogames_event` (120 s TTL) prevent duplicate starts in race conditions. Configure with `/autogamesowner [eventhost|host|all|disabled]`; emergency stop: `/stopautogames`.
+- **Poker recovery (non-circular)**: `get_poker_recovery_recommendation()` in `poker.py` returns one of `forcefinish|hardrefund|clearhand|closeforce|no_action` — never two commands pointing at each other. `_hard_refund_hand(actor)` does priority-order pot resolution: contrib-proportional → equal-split unpaid → equal-split seated → log-as-lost. `/poker closeforce` generates a 60-second confirmation code; `/confirmclosepoker <code>` executes the full close + wallet refund.
 
 ## Product
 

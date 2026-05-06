@@ -1,0 +1,328 @@
+Fix Poker recovery deadlock between /poker forcefinish and /poker refund.
+
+Problem:
+Poker Bot says:
+- /poker forcefinish = "Forcefinish failed. Use /poker refund."
+- /poker refund = "Pot 150c unresolved. Use /poker forcefinish first."
+- /poker forcefinish again = "Pot 150c unresolved. Use /poker refund."
+
+This creates an impossible loop and the table stays stuck.
+
+GOAL:
+Add a safe emergency recovery system so poker can always be cleaned, refunded, or closed.
+
+IMPORTANT:
+- Do not remove existing poker features.
+- Keep persistent poker table, table stacks, pot, blinds, all-in, hand save, and poker stats.
+- Use SQLite.
+- Poker Bot owns all poker recovery commands.
+- Keep messages under 250 characters.
+- Never let recovery commands point to each other forever.
+- Every recovery command must end with success, clear reason, or emergency option.
+- Log all recovery actions.
+
+==================================================
+PART 1: ADD HARD RECOVERY COMMANDS
+==================================================
+
+Add/fix these commands:
+
+- /poker emergency
+- /poker hardrefund
+- /poker clearhand
+- /poker closeforce
+- /poker recoverystatus
+
+Permissions:
+- Owner/admin only.
+- Manager can use /poker recoverystatus only.
+
+==================================================
+PART 2: RECOVERY STATUS
+==================================================
+
+/poker recoverystatus should show:
+
+- table status
+- hand phase
+- round_id
+- pot amount
+- seated players
+- active players
+- in-hand players
+- player contributions
+- whether cards exist
+- whether board exists
+- whether payouts completed
+- recommended fix
+
+Example:
+"Poker stuck | Pot 150c | Cards missing | Use /poker hardrefund"
+
+If active hand is finished but rows remain:
+"Finished stuck | Use /poker clearhand"
+
+If no cards but pot exists:
+"Corrupt pot | Use /poker hardrefund"
+
+==================================================
+PART 3: FIX /POKER FORCEFINISH
+==================================================
+
+/poker forcefinish should:
+
+1. Load active hand.
+2. If hand has valid cards and board:
+   - evaluate winner
+   - pay pot once
+   - clear active hand
+   - move table to between_hands/waiting
+   - reply:
+   "✅ Poker hand force-finished."
+
+3. If hand is missing cards/board/player data:
+   - do NOT say only "Use /poker refund."
+   - reply:
+   "Hand corrupted. Use /poker hardrefund."
+
+4. If pot is unresolved but no valid showdown possible:
+   - reply:
+   "Cannot finish corrupted hand. Use /poker hardrefund."
+
+5. If no active hand:
+   - reply:
+   "No active hand to finish."
+
+Never point to /poker refund if /poker refund cannot handle the state.
+
+==================================================
+PART 4: FIX /POKER REFUND
+==================================================
+
+/poker refund should be able to refund normal unresolved hands.
+
+Behavior:
+- If pot > 0 and player contributions are known:
+  - refund each player’s contribution to their poker table stack
+  - set pot = 0
+  - clear hand rows
+  - table moves to waiting/between_hands
+  - reply:
+  "✅ Poker hand refunded."
+
+- If pot > 0 but contributions are missing/corrupt:
+  - reply:
+  "Contributions missing. Use /poker hardrefund."
+
+- If pot = 0 but hand rows stuck:
+  - clear hand rows
+  - reply:
+  "✅ Stuck poker hand cleared."
+
+Never say:
+"Use /poker forcefinish first"
+unless forcefinish is actually possible.
+
+==================================================
+PART 5: ADD /POKER HARDREFUND
+==================================================
+
+/poker hardrefund is emergency owner/admin recovery.
+
+Purpose:
+Resolve corrupted hands where pot exists but normal refund/forcefinish cannot work.
+
+Behavior:
+1. Load current pot.
+2. Load all seated players.
+3. Try to refund based on contribution records.
+4. If contribution records missing:
+   - split pot equally among active/in-hand players if available.
+5. If active/in-hand players missing:
+   - split pot equally among seated players.
+6. If no seated players:
+   - move pot to house/lost recovery log and clear hand.
+7. Set pot = 0.
+8. Clear current active hand rows.
+9. Clear timers.
+10. Move table to waiting/between_hands.
+11. Keep seated players and their table stacks.
+12. Save recovery log.
+
+Message:
+"✅ Hard refund complete. Pot 150c cleared."
+
+If split was used:
+"✅ Hard refund: 150c split among 2 players."
+
+If pot was moved to recovery log:
+"⚠️ Pot moved to recovery log. Table cleared."
+
+==================================================
+PART 6: ADD /POKER CLEARHAND
+==================================================
+
+/poker clearhand:
+
+Purpose:
+Clear a stuck hand with no pot risk.
+
+Behavior:
+- Only allowed if pot = 0.
+- Clear active hand rows, cards, board, timers.
+- Set hand_phase = none.
+- Set table_status = waiting or between_hands.
+- Keep seated players and stacks.
+
+If pot > 0:
+"Pot exists. Use /poker hardrefund."
+
+Success:
+"✅ Poker hand cleared."
+
+==================================================
+PART 7: ADD /POKER CLOSEFORCE
+==================================================
+
+/poker closeforce:
+
+Purpose:
+Emergency close entire poker table.
+
+Behavior:
+- Refund all seated table stacks to player wallets.
+- Handle unresolved pot using hardrefund logic first.
+- Clear seated players.
+- Clear active hand.
+- Clear timers.
+- Set poker table inactive/waiting.
+- Log action.
+
+Requires confirmation:
+First command:
+"Confirm close: /confirmclosepoker ABC123"
+
+Then:
+/confirmclosepoker ABC123
+
+Success:
+"✅ Poker table closed and stacks refunded."
+
+==================================================
+PART 8: STOP RECOVERY COMMAND LOOP
+==================================================
+
+Create helper:
+get_poker_recovery_recommendation()
+
+Possible outputs:
+- forcefinish
+- refund
+- hardrefund
+- clearhand
+- closeforce
+- no_action
+
+Rules:
+- Valid cards + pot + players = forcefinish
+- Pot + contribution records = refund
+- Pot + missing contribution records = hardrefund
+- No pot + stuck rows = clearhand
+- Severe corrupt table = closeforce
+- No active hand = no_action
+
+Use this helper in:
+- /poker state
+- /poker recoverystatus
+- /poker forcefinish
+- /poker refund
+- /poker cleanup
+
+Never recommend two commands that point back to each other.
+
+==================================================
+PART 9: IMPROVE /POKER STATE
+==================================================
+
+If stuck:
+"Poker stuck | Pot 150c | Fix: /poker hardrefund"
+
+If normal active:
+"Poker active | Pot 150c | Turn @user"
+
+If finished rows stuck:
+"Poker finished stuck | Fix: /poker clearhand"
+
+If no active hand:
+"Poker waiting | Seated 2"
+
+==================================================
+PART 10: DATABASE LOGGING
+==================================================
+
+Create poker_recovery_logs table if missing:
+
+poker_recovery_logs:
+- id INTEGER PRIMARY KEY AUTOINCREMENT
+- timestamp TEXT
+- actor_username TEXT
+- action TEXT
+- round_id TEXT
+- pot INTEGER
+- seated_count INTEGER
+- active_count INTEGER
+- details TEXT
+
+Log:
+- forcefinish
+- refund
+- hardrefund
+- clearhand
+- closeforce
+- failed recovery attempts
+
+==================================================
+PART 11: COMMAND ROUTING
+==================================================
+
+Add explicit routing for:
+- /poker emergency
+- /poker hardrefund
+- /poker clearhand
+- /poker closeforce
+- /poker recoverystatus
+- /confirmclosepoker
+
+Poker Bot owns all of these.
+
+Commandtest expected:
+/commandtest /poker
+route YES | owner Poker | handler YES
+
+==================================================
+PART 12: TEST CURRENT STUCK CASE
+==================================================
+
+Current case:
+Pot 150c unresolved.
+
+After update, test:
+
+1. /poker recoverystatus
+Expected:
+Shows exact issue and recommended command.
+
+2. /poker hardrefund
+Expected:
+Pot clears and hand resets.
+
+3. /poker state
+Expected:
+No stuck pot. Table waiting/between_hands.
+
+4. /poker cleanup
+Expected:
+No stuck hand found or table ready.
+
+Final requirement:
+Poker recovery must never get stuck between /poker forcefinish and /poker refund. There must always be a safe emergency option.

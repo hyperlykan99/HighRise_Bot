@@ -1,0 +1,697 @@
+Rebuild the full role-based Help Command System.
+
+Problem:
+Many commands exist now, but the help menus are incomplete.
+I want every working command placed into help, organized by role and module.
+
+Goal:
+Create a complete help system where:
+- Players see only player commands.
+- VIPs see player + VIP commands.
+- Moderators see player + mod commands.
+- Managers see player + mod + manager commands.
+- Admins see player + mod + manager + admin commands.
+- Owners see everything.
+- Each bot/module help shows commands it owns.
+- Help should never list commands that are not routed.
+- Routed commands should have help entries unless hidden/internal.
+- Everything must be paginated under 250 characters.
+
+IMPORTANT:
+- Do not remove any commands.
+- Keep multi-bot command ownership.
+- Keep Host, Banker, Blackjack, Poker, Miner, Shop, Security, DJ, Event bots.
+- Keep all existing modules.
+- Use the command registry as the source of truth.
+- No command should say unknown if it is listed in help.
+- No command should be hidden from owners unless internal/debug.
+- Keep messages short and readable.
+
+==================================================
+PART 1: CENTRAL HELP REGISTRY
+==================================================
+
+Every command in the command registry must have:
+
+- command
+- aliases
+- module
+- owner_bot_mode
+- required_role
+- usage
+- short_description
+- help_category
+- help_page
+- hidden/internal true/false
+
+Required roles:
+- player
+- vip
+- moderator
+- manager
+- admin
+- owner
+
+Modules:
+- host
+- banker
+- blackjack
+- poker
+- miner
+- shop
+- security
+- dj
+- event
+- room
+- system
+- bot
+
+Help categories:
+- basic
+- profile
+- coins
+- bank
+- shop
+- vip
+- badges
+- titles
+- blackjack
+- rbj
+- poker
+- mining
+- events
+- social
+- emotes
+- room
+- teleport
+- moderation
+- reports
+- bot
+- system
+- owner
+- admin
+- manager
+
+==================================================
+PART 2: MAIN HELP COMMANDS
+==================================================
+
+Add/fix:
+
+- /help
+- /help 1
+- /help 2
+- /help 3
+- /mycommands
+- /mycommands <page>
+- /allcommands
+- /allcommands <page>
+- /commands
+- /commands <category>
+- /helpsearch <keyword>
+- /rolehelp
+- /modulehelp
+- /bothelp
+
+Behavior:
+
+/help:
+Shows categories available to the user’s role.
+
+Player example:
+"🤖 Help
+/coinhelp - coins
+/profilehelp - profile
+/shophelp - shop
+/casinohelp - games
+/minehelp - mining"
+
+/help 2:
+"More
+/socialhelp - fun
+/eventhelp - events
+/viphelp - VIP
+/reporthelp - reports
+/tutorial - guide"
+
+Staff help should add:
+"Staff
+/staffhelp
+/modhelp
+/managerhelp
+/adminhelp
+/ownerhelp"
+
+/mycommands:
+Shows all commands available to that user based on role.
+Paginate.
+
+/allcommands:
+Owner only.
+Shows every non-hidden command.
+Paginate.
+
+/commands <category>:
+Shows commands in that category available to user’s role.
+
+/helpsearch <keyword>:
+Search command names, aliases, usage, and descriptions.
+Only show commands available to user’s role unless owner.
+
+==================================================
+PART 3: PLAYER HELP MENUS
+==================================================
+
+Add/fix these player help menus:
+
+/coinhelp:
+"💰 Coins
+/bal - balance
+/daily - daily
+/wallet - dashboard
+/send user amt - send"
+
+/coinhelp 2:
+"💰 More
+/transactions - history
+/leaderboard - top coins
+/tutorial - starter guide"
+
+/profilehelp:
+"👤 Profile
+/profile - view yours
+/profile user - view player
+/privacy - settings
+/whois user - info"
+
+/profilehelp 2:
+"👤 More
+/badges user - badges
+/titles user - titles
+/stats user - stats"
+
+/shophelp:
+"🛒 Shop
+/shop - main shop
+/shop badges - badges
+/shop titles - titles
+/buy number - buy shown"
+
+/shophelp 2:
+"🏷️ Market
+/badgemarket - listings
+/badgelist id price - sell
+/badgebuy number - buy"
+
+/viphelp:
+"💎 VIP
+/vipshop - VIP shop
+/buyvip - buy VIP
+/vipstatus - status
+/vips - VIP list"
+
+/casinohelp:
+"🎰 Casino
+BJ: /bjoin 100
+RBJ: /rjoin 100
+Poker: /p 1000
+Help: /bjhelp /rbjhelp /pokerhelp"
+
+/bjhelp:
+"🃏 BJ
+/bjoin bet - join
+/bh - hit
+/bs - stand
+/bd - double
+/bsp - split
+/bhand - hand"
+
+/rbjhelp:
+"🃏 RBJ
+/rjoin bet - join
+/rh - hit
+/rs - stand
+/rd - double
+/rsp - split
+/rhand - hand"
+
+/rbjhelp 2:
+"🃏 RBJ More
+/rshoe - shoe
+/rt - table
+/rbjhelp - help"
+
+/pokerhelp:
+"♠️ Poker
+/p buyin - join
+/ph - cards
+/pt - table
+/check - check
+/call - call"
+
+/pokerhelp 2:
+"♠️ Poker 2
+/r amt - raise
+/f - fold
+/ai - all-in
+/stack - stack
+/rebuy amt - add"
+
+/pokerhelp 3:
+"♠️ Poker More
+/sitout - sit out
+/sitin - sit in
+/plb - leaderboard
+/pstats - stats"
+
+/minehelp:
+"⛏️ Mining
+/mine - mine ores
+/tool - pickaxe
+/upgradetool - upgrade
+/ores - inventory
+/sellores - sell all"
+
+/minehelp 2:
+"⛏️ Mining 2
+/minelb - leaderboard
+/mineshop - boosts
+/craft - craft rewards
+/minedaily - daily"
+
+/minehelp 3:
+"📘 Goals
+/orebook - collection
+/oremastery - rewards
+/contracts - ore jobs"
+
+/eventhelp:
+"🎉 Events
+/events - list
+/event - current
+/eventpoints - points
+/eventshop - rewards"
+
+/socialhelp:
+"💬 Social
+/hug user
+/kiss user
+/slap user
+/punch user
+/heart user"
+
+/socialhelp 2:
+"💬 Social 2
+/highfive user
+/boop user
+/social off
+/social on"
+
+/emotehelp:
+"💃 Emotes
+/emotes - list
+/emote id - use
+/dance - dance
+/wave - wave
+/clap - clap"
+
+/reporthelp:
+"🚩 Reports
+/report user reason
+/bug msg
+/myreports
+/rules"
+
+/roomhelp:
+"🏠 Room
+/players - room list
+/spawns - spots
+/botspawns - bot spots
+/roomsettings - settings"
+
+==================================================
+PART 4: STAFF HELP MENUS
+==================================================
+
+/staffhelp:
+Role-based staff menu.
+
+Moderator sees:
+"⚙️ Staff
+/modhelp - moderation
+/reporthelp - reports
+/roomlogs - logs"
+
+/staffhelp for manager:
+Also show:
+"/managerhelp - manager tools
+/control room - room panel
+/control games - games"
+
+/staffhelp for admin:
+Also show:
+"/adminhelp - admin tools
+/control - control center"
+
+/modhelp:
+"🔨 Mod
+/reports - reports
+/warn user reason
+/mute user min reason
+/unmute user"
+
+/modhelp 2:
+"🔨 Mod 2
+/warnings user
+/clearwarnings user
+/kick user reason
+/ban user reason"
+
+/modhelp 3:
+"🔨 Mod 3
+/tempban user min reason
+/unban user
+/bans
+/modlog user"
+
+/managerhelp:
+"🧰 Manager
+/control - panel
+/announce msg - announce
+/autogames status
+/events - events"
+
+/managerhelp 2:
+"🎮 Games
+/miningadmin - mining
+/poker settings
+/bj limits
+/rbj limits"
+
+/managerhelp 3:
+"🏠 Room
+/teleporthelp
+/emotehelp
+/welcomehelp
+/intervals"
+
+/adminhelp:
+"🛡️ Admin
+/setcoins user amt
+/addcoins user amt
+/removecoins user amt
+/setlevel user lvl"
+
+/adminhelp 2:
+"🛡️ Admin 2
+/setrep user amt
+/addeventcoins user amt
+/seteventcoins user amt
+/addvip user"
+
+/adminhelp 3:
+"🛡️ Items
+/givetitle user id
+/givebadge user id
+/addbadge id emoji name rarity price"
+
+/adminhelp 4:
+"🛡️ System
+/deploymentcheck
+/checkcommands
+/checkhelp
+/fixcommands"
+
+/ownerhelp:
+"👑 Owner
+/addowner user
+/removeowner user
+/addadmin user
+/removeadmin user
+/owners"
+
+/ownerhelp 2:
+"👑 Owner 2
+/resetplayer user
+/backup
+/softrestart
+/startupstatus"
+
+/ownerhelp 3:
+"👑 Bots
+/bots
+/botmodules
+/botconflicts
+/setcommandowner cmd bot
+/botfallback on/off"
+
+/ownerhelp 4:
+"👑 Recovery
+/poker hardrefund
+/poker closeforce
+/clearstalebotlocks
+/killautogames"
+
+==================================================
+PART 5: MODULE / BOT HELP
+==================================================
+
+Add:
+
+- /hosthelp
+- /bankerhelp
+- /blackjackbothelp
+- /pokerbothelp
+- /minerbothelp
+- /shopbothelp
+- /securitybothelp
+- /djbothelp
+- /eventbothelp
+- /multibothelp
+
+Each shows the commands owned by that bot.
+
+Examples:
+
+/bankerhelp:
+"🏦 Banker
+/bal - balance
+/send user amt - send
+/daily - daily
+/wallet - dashboard"
+
+/blackjackbothelp:
+"🃏 Blackjack Bot
+/bjoin bet - BJ
+/rjoin bet - RBJ
+/bh /rh - hit
+/bs /rs - stand"
+
+/pokerbothelp:
+"♠️ Poker Bot
+/p buyin - join
+/ph - cards
+/pt - table
+/check /call /r /f /ai"
+
+/minerbothelp:
+"⛏️ Miner Bot
+/mine - mine
+/ores - inventory
+/tool - pickaxe
+/sellores - sell"
+
+/shopbothelp:
+"🛒 Shop Bot
+/shop - shop
+/buy number - buy
+/badgemarket - market
+/vipshop - VIP"
+
+/securitybothelp:
+"🛡️ Security Bot
+/report - report
+/warn - warn
+/mute - mute
+/ban - ban"
+
+/djbothelp:
+"🎧 DJ Bot
+/emote - emote
+/dance - dance
+/syncdance - sync
+/heart - react"
+
+/eventbothelp:
+"🎉 Event Bot
+/events - events
+/announce - announce
+/goldrain - gold rain
+/eventpoints - points"
+
+/multibothelp:
+"🤖 Bots
+/bots - status
+/botmodules - owners
+/commandowners - commands
+/deploymentcheck - check"
+
+==================================================
+PART 6: CONTROL HELP
+==================================================
+
+Add/fix:
+
+/controlhelp
+/control room
+/control economy
+/control casino
+/control games
+/control shop
+/control staff
+/control system
+
+Each should only show pages allowed for the user’s role.
+
+/control:
+"⚙️ Control
+/control room
+/control economy
+/control casino
+/control games"
+
+/control 2:
+"More
+/control shop
+/control staff
+/control system"
+
+==================================================
+PART 7: ROLE FILTERING
+==================================================
+
+Implement can_view_command(username, command_entry):
+
+Rules:
+- owner sees all non-hidden commands.
+- admin sees admin and below.
+- manager sees manager and below.
+- moderator sees moderator and below.
+- vip sees vip and player.
+- player sees player only.
+- hidden/internal commands only show to owner if allow_hidden = true.
+
+If a player tries /ownerhelp:
+"Owner only."
+
+If a player tries /adminhelp:
+"Admin only."
+
+If a moderator tries /ownerhelp:
+"Owner only."
+
+==================================================
+PART 8: HELP PAGINATION
+==================================================
+
+All help pages must stay under 250 characters.
+
+If a category has many commands:
+- Show 5 to 8 commands per page.
+- Add:
+"More: /categoryhelp 2"
+
+Examples:
+"/pokerhelp 2"
+"/adminhelp 3"
+"/allcommands 5"
+
+==================================================
+PART 9: HELP AUDIT
+==================================================
+
+Update /checkhelp:
+
+It should check:
+- commands in help but not routed
+- routed commands with no help entry
+- commands with missing descriptions
+- commands with missing required role
+- commands with missing owner bot
+
+Output:
+"Help Check: 0 unrouted | 0 missing desc | 119 no help"
+
+But after this update, goal:
+- no help-listed command unrouted
+- routed but no help entry should be low or only hidden/internal
+
+Add:
+/helpcoverage
+Shows:
+"Help coverage: 394 routed | 394 documented | 0 gaps"
+
+Owner/admin only.
+
+==================================================
+PART 10: AUTO-GENERATE HELP FROM REGISTRY
+==================================================
+
+Where possible, generate help pages directly from command registry.
+
+Do not manually duplicate command lists in many places if avoidable.
+
+If command registry changes:
+- help updates automatically.
+
+Use help_category and required_role to build:
+/commands <category>
+/mycommands
+/allcommands
+
+Manual pages like /pokerhelp are okay, but they must pull from registry or be checked by /checkhelp.
+
+==================================================
+PART 11: COMMAND TESTS
+==================================================
+
+After update, these must work:
+
+/help
+/help 2
+/mycommands
+/allcommands
+/commands poker
+/commands mining
+/helpsearch poker
+/coinhelp
+/profilehelp
+/shophelp
+/casinohelp
+/bjhelp
+/rbjhelp
+/pokerhelp
+/minehelp
+/eventhelp
+/socialhelp
+/modhelp
+/managerhelp
+/adminhelp
+/ownerhelp
+/bankerhelp
+/blackjackbothelp
+/pokerbothelp
+/minerbothelp
+/shopbothelp
+/securitybothelp
+/djbothelp
+/eventbothelp
+/multibothelp
+/checkhelp
+/helpcoverage
+
+Expected:
+- Correct commands show based on role.
+- Every command has a short description.
+- No missing routed help entries except hidden/internal.
+- No command listed in help says unknown.
