@@ -270,13 +270,14 @@ from modules.control_panel import (
 from modules.multi_bot import (
     should_this_bot_handle,
     start_heartbeat_loop as start_multibot_heartbeat,
-    should_announce_startup, get_offline_message,
+    get_offline_message, send_startup_announce,
     check_startup_safety,
     handle_bots_live, handle_botstatus_cluster,
     handle_botmodules, handle_commandowners,
     handle_enablebot, handle_disablebot,
     handle_setbotmodule, handle_setcommandowner, handle_botfallback,
     handle_botstartupannounce, handle_multibothelp,
+    handle_startupannounce, handle_modulestartup, handle_startupstatus,
     handle_setmainmode,
 )
 from modules.bot_health import (
@@ -638,6 +639,7 @@ ALL_KNOWN_COMMANDS = (
         "botmodules", "commandowners", "multibothelp",
         "enablebot", "disablebot", "setbotmodule",
         "setcommandowner", "botfallback", "botstartupannounce",
+        "startupannounce", "modulestartup", "startupstatus",
         # ── Multi-bot mode control ────────────────────────────────────────────
         "setmainmode",
         # ── Bot health / deployment checks ────────────────────────────────────
@@ -1797,7 +1799,6 @@ class HangoutBot(BaseBot):
             pass
         # Seed the room user cache from the live room list
         asyncio.create_task(refresh_room_cache(self))
-        await self.highrise.chat("Mini Game Bot is online! Type /help for commands.")
         # Recover any event that was running before a bot restart
         asyncio.create_task(startup_event_check(self))
         # Recover any BJ/RBJ tables that were active before last shutdown
@@ -1811,18 +1812,10 @@ class HangoutBot(BaseBot):
         await start_interval_loop(self)
         # Start multi-bot heartbeat (no-op in single-bot mode)
         asyncio.create_task(start_multibot_heartbeat(self))
-        # Log startup identity
-        from config import BOT_ID, BOT_MODE, DB_PATH
-        print(f"[MULTIBOT] Bot started | ID:{BOT_ID} Mode:{BOT_MODE} | DB:{DB_PATH}")
         # Startup safety checks (logs warnings, does not spam room)
         check_startup_safety()
-        if should_announce_startup():
-            from config import BOT_MODE as _bm
-            mode_display = {
-                "blackjack": "🃏 Blackjack Bot", "poker": "♠️ Poker Bot",
-                "host": "🎙️ Host Bot", "all": "🤖 Main Bot",
-            }.get(_bm, f"🤖 {_bm.title()} Bot")
-            await self.highrise.chat(f"{mode_display} online. /help for commands.")
+        # Conditional startup room announce (respects settings + 10-min cooldown)
+        asyncio.create_task(send_startup_announce(self))
 
     async def on_chat(self, user: User, message: str) -> None:
         """
@@ -3455,6 +3448,12 @@ class HangoutBot(BaseBot):
             await handle_botfallback(self, user, args)
         elif cmd == "botstartupannounce":
             await handle_botstartupannounce(self, user, args)
+        elif cmd == "startupannounce":
+            await handle_startupannounce(self, user, args)
+        elif cmd == "modulestartup":
+            await handle_modulestartup(self, user, args)
+        elif cmd == "startupstatus":
+            await handle_startupstatus(self, user)
         elif cmd == "multibothelp":
             await handle_multibothelp(self, user, args)
         elif cmd == "setmainmode":

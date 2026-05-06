@@ -1,0 +1,239 @@
+Fix multi-bot startup announcement spam.
+
+Problem:
+Every bot says:
+"Mini Game Bot is online! Type /help for commands."
+
+Bots affected:
+- ChipSoprano
+- AceSinatra
+- EmceeBot
+- TestDJBot
+- KeanuShield
+- GreatestProspector
+- BankingBot
+- DJ_DUDU
+
+Goal:
+Only the Host Bot should announce startup by default.
+Other module bots should stay silent on startup, or only log to console.
+
+IMPORTANT:
+- Do not remove multi-bot functionality.
+- Do not stop any bots from running.
+- Do not break commands.
+- Keep shared database.
+- Prevent duplicate startup messages.
+- Keep messages under 250 characters.
+- Add clear settings to control startup announcements.
+
+==================================================
+PART 1: DISABLE STARTUP ROOM ANNOUNCE BY DEFAULT
+==================================================
+
+Set default:
+bot_startup_announce_enabled = false
+
+This means:
+- Bots should NOT automatically say "Mini Game Bot is online!" in the room.
+- Bots may still log startup to console.
+
+Console log is okay:
+"[RUNNER] AceSinatra online | mode blackjack"
+
+Room chat spam is not okay.
+
+==================================================
+PART 2: HOST-ONLY STARTUP MESSAGE
+==================================================
+
+If startup announcement is enabled:
+Only BOT_MODE=host or BOT_ID=host can send room startup message.
+
+Host message:
+"🎙️ Host online. Type /help or /tutorial."
+
+Do not use:
+"Mini Game Bot is online!"
+
+Blackjack Bot should not announce by default.
+Poker Bot should not announce by default.
+Miner Bot should not announce by default.
+Banker Bot should not announce by default.
+Shop Bot should not announce by default.
+Security Bot should not announce by default.
+DJ Bot should not announce by default.
+Event Bot should not announce by default.
+
+==================================================
+PART 3: OPTIONAL ROLE-SPECIFIC ANNOUNCEMENTS
+==================================================
+
+Add optional setting:
+module_startup_announce_enabled = false
+
+If owner turns it ON, module bots can announce short mode-specific messages:
+
+Blackjack:
+"🃏 Blackjack Bot online."
+
+Poker:
+"♠️ Poker Bot online."
+
+Miner:
+"⛏️ Miner Bot online."
+
+Banker:
+"🏦 Banker Bot online."
+
+Shop:
+"🛒 Shop Bot online."
+
+Security:
+"🛡️ Security Bot online."
+
+DJ:
+"🎧 DJ Bot online."
+
+Event:
+"🎉 Event Bot online."
+
+But default must be OFF.
+
+==================================================
+PART 4: COMMANDS
+==================================================
+
+Add/fix commands:
+
+- /startupannounce on
+- /startupannounce off
+- /modulestartup on
+- /modulestartup off
+- /startupstatus
+
+Permissions:
+- Owner/admin only.
+
+Behavior:
+/startupannounce on
+- Enables Host Bot startup room message only.
+- Reply:
+"✅ Host startup announce ON."
+
+/startupannounce off
+- Disables Host Bot startup room message.
+- Reply:
+"⛔ Host startup announce OFF."
+
+/modulestartup on
+- Allows module bots to announce startup.
+- Reply:
+"✅ Module startup announce ON."
+
+/modulestartup off
+- Disables module startup announcements.
+- Reply:
+"⛔ Module startup announce OFF."
+
+/startupstatus
+Shows:
+"Startup: Host OFF | Modules OFF"
+
+==================================================
+PART 5: REMOVE OLD HARD-CODED MESSAGE
+==================================================
+
+Find and remove/replace any hard-coded startup message like:
+"Mini Game Bot is online! Type /help for commands."
+
+Replace with:
+- console-only log by default
+- Host-only room message if enabled
+
+Make sure this code is not inside every bot client startup without checking bot mode.
+
+==================================================
+PART 6: STARTUP LOGIC
+==================================================
+
+On each bot startup:
+
+1. Register bot in bot_instances.
+2. Print console log:
+"[BOT] <bot_username> online | id=<bot_id> | mode=<bot_mode>"
+
+3. Check settings:
+- bot_startup_announce_enabled
+- module_startup_announce_enabled
+
+4. If bot_mode == host:
+- send room message only if bot_startup_announce_enabled = true.
+
+5. If bot_mode != host:
+- send room message only if module_startup_announce_enabled = true.
+
+6. Never send old generic Mini Game Bot message.
+
+==================================================
+PART 7: PREVENT RESTART SPAM
+==================================================
+
+Add cooldown:
+startup_announce_cooldown_minutes = 10
+
+Store last startup announce in room_settings:
+- last_host_startup_announce_at
+- last_module_startup_announce_at_<bot_id>
+
+If bot restarts multiple times within 10 minutes:
+- do not announce again.
+
+==================================================
+PART 8: UPDATE /BOTS INSTEAD
+==================================================
+
+Players/staff can check bot status with:
+/bots
+
+/bots should show:
+"🤖 Host ON | Blackjack ON | Poker ON | Miner ON | Banker ON"
+
+/botmodules:
+"BJ=Blackjack | Poker=Poker | Mining=Miner | Bank=Banker"
+
+No need for every bot to announce in chat.
+
+==================================================
+PART 9: TESTS
+==================================================
+
+After update and restart:
+
+Expected:
+- No bot says "Mini Game Bot is online!"
+- Console shows each bot started.
+- In room, either no startup message or only Host says one message if enabled.
+
+Test:
+/startupstatus
+Expected:
+"Startup: Host OFF | Modules OFF"
+
+/bots
+Expected:
+Shows all online bots.
+
+/startupannounce on
+Restart.
+Expected:
+Only Host Bot says:
+"🎙️ Host online. Type /help or /tutorial."
+
+/modulestartup on
+Restart.
+Expected:
+Each module bot may say its short role-specific online message, not generic Mini Game Bot.
+
+Final requirement:
+In multi-bot mode, startup messages must not spam the room. Only Host announces by default, and even that is OFF unless enabled.

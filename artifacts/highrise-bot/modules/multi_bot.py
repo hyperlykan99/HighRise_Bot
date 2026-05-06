@@ -642,10 +642,155 @@ async def handle_botstartupannounce(bot, user, args: list[str]) -> None:
 
 
 def should_announce_startup() -> bool:
+    """Legacy helper kept for backward compat."""
     try:
         return db.get_room_setting("bot_startup_announce_enabled", "false") == "true"
     except Exception:
         return False
+
+
+# ---------------------------------------------------------------------------
+# Mode-specific startup messages
+# ---------------------------------------------------------------------------
+
+_MODULE_STARTUP_MSGS: dict[str, str] = {
+    "blackjack":  "🃏 Blackjack Bot online.",
+    "poker":      "♠️ Poker Bot online.",
+    "miner":      "⛏️ Miner Bot online.",
+    "banker":     "🏦 Banker Bot online.",
+    "shopkeeper": "🛒 Shop Bot online.",
+    "security":   "🛡️ Security Bot online.",
+    "dj":         "🎧 DJ Bot online.",
+    "eventhost":  "🎉 Event Bot online.",
+}
+
+_STARTUP_COOLDOWN_SECONDS = 600  # 10 minutes
+
+
+async def send_startup_announce(bot) -> None:
+    """
+    Centralised startup-announce logic.  Called once per bot startup.
+
+    Rules:
+    - Console log always printed.
+    - host/all mode: sends room message only if bot_startup_announce_enabled=true
+      AND the 10-minute cooldown has not elapsed.
+    - Module bots: sends room message only if module_startup_announce_enabled=true
+      AND the per-bot 10-minute cooldown has not elapsed.
+    - Old generic "Mini Game Bot is online!" is NEVER sent.
+    """
+    mode = _effective_bot_mode()
+    uname = BOT_USERNAME or BOT_ID
+    print(f"[BOT] {uname} online | id={BOT_ID} | mode={mode}")
+
+    now = datetime.now(timezone.utc)
+
+    def _cooldown_ok(key: str) -> bool:
+        try:
+            last = db.get_room_setting(key, "")
+            if not last:
+                return True
+            last_dt = datetime.fromisoformat(last.replace("Z", "+00:00"))
+            if last_dt.tzinfo is None:
+                last_dt = last_dt.replace(tzinfo=timezone.utc)
+            return (now - last_dt).total_seconds() >= _STARTUP_COOLDOWN_SECONDS
+        except Exception:
+            return True
+
+    is_host = mode in ("host", "all")
+
+    if is_host:
+        try:
+            host_enabled = db.get_room_setting("bot_startup_announce_enabled", "false") == "true"
+        except Exception:
+            host_enabled = False
+        if host_enabled and _cooldown_ok("last_host_startup_announce_at"):
+            try:
+                await bot.highrise.chat("🎙️ Host online. Type /help or /tutorial.")
+                db.set_room_setting("last_host_startup_announce_at", now.isoformat())
+            except Exception as exc:
+                print(f"[BOT] Startup announce error: {exc}")
+    else:
+        try:
+            mod_enabled = db.get_room_setting("module_startup_announce_enabled", "false") == "true"
+        except Exception:
+            mod_enabled = False
+        if mod_enabled:
+            msg = _MODULE_STARTUP_MSGS.get(mode)
+            cooldown_key = f"last_module_startup_announce_at_{BOT_ID}"
+            if msg and _cooldown_ok(cooldown_key):
+                try:
+                    await bot.highrise.chat(msg)
+                    db.set_room_setting(cooldown_key, now.isoformat())
+                except Exception as exc:
+                    print(f"[BOT] Module startup announce error: {exc}")
+
+
+# ---------------------------------------------------------------------------
+# /startupannounce  /modulestartup  /startupstatus
+# ---------------------------------------------------------------------------
+
+async def handle_startupannounce(bot, user, args: list[str]) -> None:
+    """
+    /startupannounce on|off
+    Enables/disables the Host Bot room message on startup.
+    """
+    if not can_manage_economy(user.username):
+        await _w(bot, user.id, "Admin and owner only.")
+        return
+    if len(args) < 2 or args[1].lower() not in ("on", "off"):
+        cur = db.get_room_setting("bot_startup_announce_enabled", "false")
+        label = "ON" if cur == "true" else "OFF"
+        await _w(bot, user.id, f"Host startup announce: {label}. Usage: /startupannounce on|off")
+        return
+    new = "true" if args[1].lower() == "on" else "false"
+    db.set_room_setting("bot_startup_announce_enabled", new)
+    if new == "true":
+        await _w(bot, user.id, "✅ Host startup announce ON.")
+    else:
+        await _w(bot, user.id, "⛔ Host startup announce OFF.")
+
+
+async def handle_modulestartup(bot, user, args: list[str]) -> None:
+    """
+    /modulestartup on|off
+    Enables/disables short role-specific startup messages for non-host bots.
+    """
+    if not can_manage_economy(user.username):
+        await _w(bot, user.id, "Admin and owner only.")
+        return
+    if len(args) < 2 or args[1].lower() not in ("on", "off"):
+        cur = db.get_room_setting("module_startup_announce_enabled", "false")
+        label = "ON" if cur == "true" else "OFF"
+        await _w(bot, user.id, f"Module startup announce: {label}. Usage: /modulestartup on|off")
+        return
+    new = "true" if args[1].lower() == "on" else "false"
+    db.set_room_setting("module_startup_announce_enabled", new)
+    if new == "true":
+        await _w(bot, user.id, "✅ Module startup announce ON.")
+    else:
+        await _w(bot, user.id, "⛔ Module startup announce OFF.")
+
+
+async def handle_startupstatus(bot, user) -> None:
+    """
+    /startupstatus
+    Shows current startup announce settings for Host and modules.
+    """
+    try:
+        host_val = db.get_room_setting("bot_startup_announce_enabled", "false")
+        mod_val = db.get_room_setting("module_startup_announce_enabled", "false")
+    except Exception:
+        await _w(bot, user.id, "DB error reading startup settings.")
+        return
+    host_lbl = "ON" if host_val == "true" else "OFF"
+    mod_lbl = "ON" if mod_val == "true" else "OFF"
+    await _w(bot, user.id, f"Startup: Host {host_lbl} | Modules {mod_lbl}")
+
+
+# Keep old handler as an alias so any existing /botstartupannounce calls still work
+async def handle_botstartupannounce(bot, user, args: list[str]) -> None:
+    await handle_startupannounce(bot, user, args)
 
 
 # ---------------------------------------------------------------------------
@@ -777,13 +922,15 @@ def get_command_owner_for_audit(cmd: str) -> str:
 
 __all__ = [
     "BOT_ID", "BOT_MODE", "BOT_USERNAME",
-    "should_this_bot_handle", "get_offline_message",
+    "should_this_bot_handle", "get_offline_message", "is_bot_mode_active",
     "start_heartbeat_loop", "mark_bot_offline",
-    "should_announce_startup",
+    "should_announce_startup", "send_startup_announce",
     "handle_bots_live", "handle_botstatus_cluster",
     "handle_botmodules", "handle_commandowners",
     "handle_enablebot", "handle_disablebot",
     "handle_setbotmodule", "handle_setcommandowner", "handle_botfallback",
-    "handle_botstartupannounce", "handle_multibothelp",
+    "handle_botstartupannounce",                   # backward-compat alias
+    "handle_startupannounce", "handle_modulestartup", "handle_startupstatus",
+    "handle_setmainmode", "handle_multibothelp",
     "get_command_owner_for_audit",
 ]
