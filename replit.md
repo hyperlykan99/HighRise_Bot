@@ -80,6 +80,18 @@ Casino page shortcut: `/casino <username>` (when arg is not modes/on/off/reset/l
 **Market**: Atomic SQLite transaction (check→deduct buyer→credit seller→transfer badge→mark sold→log). Fee from `bot_settings.badge_market_fee_percent` (default 5%). Seller notified via whisper.  
 **Backward compat**: Old BADGES dict + `owned_items` table still used for legacy badges. New system uses `user_badges` table. `/buy badge` and `/equip badge` route to new handler; `/buy title` still uses old shop.py.
 
+## Numbered Shop System (modules/numbered_shop.py)
+
+**Tables**: `shop_view_sessions` (username PK, shop_type, page, items_json, expires 10 min), `pending_shop_purchases` (code PK, expires 5 min)  
+**Session saved by**: `handle_shop_badges` (badges), `_send_catalog_page` (titles), `handle_eventshop` (event), `handle_badgemarket` (market_badges)  
+**Player commands**: `/buy <#>` · `/buyitem <#>` · `/purchase <#>` — buy from last viewed shop  
+**Market numbers**: `/badgebuy <#>` and `/marketbuy <#>` — buy from last viewed badge market page  
+**Navigation**: `/shop next` · `/shop prev` · `/shop page <n>` · `/badgemarket next/prev` · `/eventshop next/prev`  
+**Confirmation**: items ≥ 100,000c (or ≥ 500 EC for event) prompt `/confirmbuy <code>`. Cancel with `/cancelbuy <code>`. Thresholds: `/setshopconfirm <n>` · `/seteventconfirm <n>`  
+**Admin**: `/shopadmin [badges|titles|event]` · `/shoptest <user> <type>` (simulates shop for any player)  
+**Ownership markers**: ✅ shown inline when player already owns the item  
+**Legacy unchanged**: `/buy badge <id>` · `/buy title <id>` · `/buyevent <id>` · `/eventshop buy <id>` all still work
+
 ## Gotchas
 
 - Never hardcode ports — bot uses Highrise WebSocket, not HTTP.

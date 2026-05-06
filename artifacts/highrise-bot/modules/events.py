@@ -465,7 +465,36 @@ _SHOP_MSG = (
 
 
 async def handle_eventshop(bot: BaseBot, user: User) -> None:
-    await _w(bot, user.id, _SHOP_MSG)
+    """Show numbered event shop and save session."""
+    import database as _db
+
+    active = _db.is_event_active()
+    status = "🟢 Active" if active else "🔴 No event"
+
+    session_items = []
+    lines = [f"🎪 Event Shop — {status}"]
+
+    for num, (item_id, item) in enumerate(ALL_EVENT_ITEMS.items(), 1):
+        display = item["display"]
+        cost    = item["event_cost"]
+        lines.append(f"{num} {display} {item_id} {cost}EC")
+        session_items.append({
+            "num":       num,
+            "item_id":   item_id,
+            "name":      display,
+            "emoji":     display,
+            "price":     cost,
+            "currency":  "event_coins",
+            "shop_type": "event",
+        })
+
+    lines.append("Buy: /buy <#>")
+    msg = "\n".join(lines)
+    if len(msg) > 249:
+        msg = msg[:249]
+
+    _db.save_shop_session(user.username, "event", 1, session_items)
+    await _w(bot, user.id, msg)
 
 
 # ---------------------------------------------------------------------------

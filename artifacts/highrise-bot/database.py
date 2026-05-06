@@ -1013,6 +1013,14 @@ def _migrate_db():
         "id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp TEXT, "
         "action TEXT, seller_username TEXT, buyer_username TEXT, "
         "badge_id TEXT, emoji TEXT, price INTEGER, fee INTEGER, status TEXT)",
+        # Numbered shop session system
+        "CREATE TABLE IF NOT EXISTS shop_view_sessions ("
+        "username TEXT PRIMARY KEY, shop_type TEXT, page INTEGER DEFAULT 1, "
+        "items_json TEXT, viewed_at TEXT)",
+        "CREATE TABLE IF NOT EXISTS pending_shop_purchases ("
+        "code TEXT PRIMARY KEY, username TEXT, shop_type TEXT, "
+        "item_id TEXT, item_name TEXT, price INTEGER, currency TEXT, "
+        "listing_id INTEGER, created_at TEXT, expires_at TEXT)",
     ]:
         try:
             conn.execute(sql)
@@ -5592,3 +5600,98 @@ def seed_emoji_badges() -> None:
             pass
     conn.commit()
     conn.close()
+
+
+# ===========================================================================
+# NUMBERED SHOP SESSION SYSTEM
+# ===========================================================================
+
+import json as _json
+
+
+def save_shop_session(username: str, shop_type: str, page: int, items: list) -> None:
+    """Save the items a player last viewed in any shop."""
+    try:
+        conn = get_connection()
+        conn.execute(
+            """INSERT INTO shop_view_sessions
+               (username, shop_type, page, items_json, viewed_at)
+               VALUES (lower(?), ?, ?, ?, datetime('now'))
+               ON CONFLICT(username) DO UPDATE SET
+                 shop_type=excluded.shop_type, page=excluded.page,
+                 items_json=excluded.items_json, viewed_at=excluded.viewed_at""",
+            (username, shop_type, page, _json.dumps(items)),
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+
+def get_shop_session(username: str) -> dict | None:
+    """Return active shop session (None if expired or missing). Expires after 10 min."""
+    try:
+        conn = get_connection()
+        row  = conn.execute(
+            """SELECT shop_type, page, items_json, viewed_at FROM shop_view_sessions
+               WHERE lower(username)=lower(?)
+                 AND datetime(viewed_at, '+10 minutes') > datetime('now')""",
+            (username,)
+        ).fetchone()
+        conn.close()
+        if not row:
+            return None
+        return {
+            "shop_type":  row["shop_type"],
+            "page":       row["page"],
+            "items":      _json.loads(row["items_json"]),
+            "viewed_at":  row["viewed_at"],
+        }
+    except Exception:
+        return None
+
+
+def save_pending_purchase(
+    code: str, username: str, shop_type: str,
+    item_id: str, item_name: str, price: int, currency: str,
+    listing_id: int | None = None,
+) -> None:
+    try:
+        conn = get_connection()
+        conn.execute(
+            """INSERT OR REPLACE INTO pending_shop_purchases
+               (code, username, shop_type, item_id, item_name, price, currency,
+                listing_id, created_at, expires_at)
+               VALUES (?, lower(?), ?, ?, ?, ?, ?, ?,
+                       datetime('now'), datetime('now', '+5 minutes'))""",
+            (code, username, shop_type, item_id, item_name, price, currency, listing_id),
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+
+def get_pending_purchase(code: str) -> dict | None:
+    """Return pending purchase row, or None if expired/missing."""
+    try:
+        conn = get_connection()
+        row  = conn.execute(
+            """SELECT * FROM pending_shop_purchases
+               WHERE code=? AND datetime(expires_at) > datetime('now')""",
+            (code.upper().strip(),)
+        ).fetchone()
+        conn.close()
+        return dict(row) if row else None
+    except Exception:
+        return None
+
+
+def delete_pending_purchase(code: str) -> None:
+    try:
+        conn = get_connection()
+        conn.execute("DELETE FROM pending_shop_purchases WHERE code=?", (code,))
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass

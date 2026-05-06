@@ -69,28 +69,54 @@ def _short(val: int) -> str:
 async def handle_shop_badges(bot: BaseBot, user: User, args: list[str]) -> None:
     raw  = args[2] if len(args) > 2 else "1"
     page = int(raw) if raw.isdigit() else 1
+    page = max(1, page)
 
     rows, total_pages = db.get_emoji_badges_page(page=page, per_page=_PAGE_SIZE, purchasable_only=True)
+
+    if page > total_pages:
+        page = total_pages
+        rows, total_pages = db.get_emoji_badges_page(page=page, per_page=_PAGE_SIZE, purchasable_only=True)
 
     if not rows:
         await bot.highrise.send_whisper(user.id, "No badges in shop yet. Check back later!")
         return
 
-    lines = [f"🏷️ Badge Shop {page}/{total_pages}"]
-    for r in rows:
-        lines.append(f"{r['emoji']} {r['badge_id']} {_short(r['price'])}c [{r['rarity']}]")
+    db.ensure_user(user.id, user.username)
+    session_items = []
+    lines = [f"🏷️ Badges {page}/{total_pages}"]
+
+    for num, r in enumerate(rows, 1):
+        owned = db.owns_emoji_badge(user.username, r["badge_id"])
+        tick  = "✅" if owned else ""
+        lines.append(f"{num} {tick}{r['emoji']} {r['badge_id']} {_short(r['price'])}c")
+        session_items.append({
+            "num":       num,
+            "item_id":   r["badge_id"],
+            "name":      r["name"],
+            "emoji":     r["emoji"],
+            "price":     r["price"],
+            "currency":  "coins",
+            "shop_type": "badges",
+        })
+
+    nav = []
+    if page > 1:
+        nav.append("/shop prev")
     if page < total_pages:
-        lines.append(f"More: /shop badges {page + 1}")
-    else:
-        lines.append("Buy: /buy badge <id>")
+        nav.append("/shop next")
+    footer = "Buy: /buy <#>" + (f"  {' | '.join(nav)}" if nav else "")
+    lines.append(footer)
 
     msg = "\n".join(lines)
     if len(msg) > 249:
-        # Trim to fit
-        lines = lines[:5]
-        lines.append(f"More: /shop badges {page + 1}")
-        msg = "\n".join(lines)
+        lines = [f"🏷️ Badges {page}/{total_pages}"]
+        for item in session_items:
+            tick = "✅" if db.owns_emoji_badge(user.username, item["item_id"]) else ""
+            lines.append(f"{item['num']} {tick}{item['emoji']} {_short(item['price'])}c")
+        lines.append("Buy: /buy <#>  More: /shop next")
+        msg = "\n".join(lines)[:249]
 
+    db.save_shop_session(user.username, "badges", page, session_items)
     await bot.highrise.send_whisper(user.id, msg)
 
 
@@ -285,8 +311,13 @@ async def handle_badges_view(bot: BaseBot, user: User, args: list[str]) -> None:
 async def handle_badgemarket(bot: BaseBot, user: User, args: list[str]) -> None:
     raw  = args[1] if len(args) > 1 else "1"
     page = int(raw) if raw.isdigit() else 1
+    page = max(1, page)
 
     rows, total_pages = db.get_active_badge_listings(page=page, per_page=_MARKET_PAGE)
+
+    if page > max(1, total_pages):
+        page = max(1, total_pages)
+        rows, total_pages = db.get_active_badge_listings(page=page, per_page=_MARKET_PAGE)
 
     if not rows:
         await bot.highrise.send_whisper(
@@ -294,20 +325,40 @@ async def handle_badgemarket(bot: BaseBot, user: User, args: list[str]) -> None:
         )
         return
 
-    lines = [f"🏷️ Badge Market {page}/{total_pages}"]
-    for r in rows:
-        lines.append(f"#{r['id']} {r['emoji']} {r['badge_id']} {_short(r['price'])}c @{r['seller_username']}")
+    session_items = []
+    lines = [f"🏷️ Market {page}/{total_pages}"]
+    for num, r in enumerate(rows, 1):
+        seller_short = r["seller_username"][:10]
+        lines.append(f"{num} {r['emoji']} {r['badge_id']} {_short(r['price'])}c @{seller_short}")
+        session_items.append({
+            "num":        num,
+            "item_id":    r["badge_id"],
+            "listing_id": r["id"],
+            "name":       r["badge_id"],
+            "emoji":      r["emoji"],
+            "price":      r["price"],
+            "currency":   "coins",
+            "seller":     r["seller_username"],
+            "shop_type":  "market_badges",
+        })
+
+    nav = []
+    if page > 1:
+        nav.append("/badgemarket prev")
     if page < total_pages:
-        lines.append(f"More: /badgemarket {page + 1}")
-    else:
-        lines.append("Buy: /badgebuy <#>")
+        nav.append("/badgemarket next")
+    footer = "Buy: /badgebuy <#>" + (f"  {' | '.join(nav)}" if nav else "")
+    lines.append(footer)
 
     msg = "\n".join(lines)
     if len(msg) > 249:
-        lines = lines[:5]
-        lines.append(f"More: /badgemarket {page + 1}")
-        msg = "\n".join(lines)
+        lines = [f"🏷️ Market {page}/{total_pages}"]
+        for item in session_items:
+            lines.append(f"{item['num']} {item['emoji']} {_short(item['price'])}c @{item['seller'][:8]}")
+        lines.append("Buy: /badgebuy <#>  More: /badgemarket next")
+        msg = "\n".join(lines)[:249]
 
+    db.save_shop_session(user.username, "market_badges", page, session_items)
     await bot.highrise.send_whisper(user.id, msg)
 
 

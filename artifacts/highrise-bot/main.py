@@ -75,6 +75,18 @@ from modules.badge_market import (
     handle_giveemojibadge, handle_badgecatalog, handle_badgeadmin,
     handle_setbadgemarketfee, handle_badgemarketlogs,
 )
+from modules.numbered_shop import (
+    handle_buy_number,
+    handle_confirmbuy,
+    handle_cancelbuy,
+    handle_shop_nav,
+    handle_badgemarket_nav,
+    handle_eventshop_nav,
+    handle_shopadmin,
+    handle_shoptest,
+    handle_setshopconfirm,
+    handle_seteventconfirm,
+)
 from modules.achievements import handle_achievements, handle_claim_achievements
 from modules.blackjack           import (
     handle_bj, handle_bj_set,
@@ -465,6 +477,12 @@ ALL_KNOWN_COMMANDS = (
         "mybadges", "unequip",
         "badgemarket", "badgelist", "badgebuy", "badgecancel",
         "mybadgelistings", "badgeprices",
+        # Numbered shop system
+        "buyitem", "purchase",
+        "confirmbuy", "cancelbuy",
+        "shopadmin", "shoptest",
+        "setshopconfirm", "seteventconfirm",
+        "marketbuy",
         # Public help tools
         "mycommands", "helpsearch",
         # Paged coin help
@@ -575,27 +593,27 @@ BANK_HELP = BANK_HELP_PAGES[0]
 SHOP_HELP_PAGES = [
     (
         "🛒 Shop\n"
-        "/shop badges [page] - emoji badge shop\n"
-        "/shop titles - browse titles\n"
-        "/badgeinfo id - badge details & price\n"
-        "/buy badge id - purchase a badge\n"
-        "/equip badge id - wear a badge\n"
-        "/unequip badge - remove badge"
+        "/shop badges - emoji badge shop\n"
+        "/shop titles - title shop\n"
+        "/buy <#> - buy shown item by number\n"
+        "/shop next - next page\n"
+        "/shop prev - previous page\n"
+        "/buy badge id - buy by ID"
     ),
     (
         "🛒 Shop 2\n"
         "/mybadges - your emoji badges\n"
         "/myitems - all owned items\n"
+        "/equip badge id - wear a badge\n"
         "/equip title id - wear a title\n"
-        "/vipshop - VIP catalog\n"
-        "/buyvip - purchase VIP\n"
+        "/confirmbuy code - confirm purchase\n"
         "/vipstatus - check VIP"
     ),
     (
         "🏷️ Badge Market\n"
-        "/badgemarket [page] - player listings\n"
+        "/badgemarket - player listings\n"
+        "/badgebuy <#> - buy by number\n"
         "/badgelist id price - sell your badge\n"
-        "/badgebuy id - buy from market\n"
         "/badgecancel id - cancel listing\n"
         "/mybadgelistings - your listings\n"
         "/badgeprices id - recent prices"
@@ -627,11 +645,11 @@ PROGRESS_HELP = (
 EVENT_HELP_PAGES = [
     (
         "🎉 Events\n"
-        "/event\n"
-        "/events\n"
+        "/eventshop - numbered event shop\n"
+        "/buy <#> - buy shown event item\n"
+        "/eventshop next - next page\n"
+        "/eventpoints - your event coins\n"
         "/eventstatus\n"
-        "/eventpoints\n"
-        "/eventshop\n"
         "Staff: /startevent <id>"
     ),
     (
@@ -2124,22 +2142,34 @@ class HangoutBot(BaseBot):
 
         # ── Shop commands ─────────────────────────────────────────────────────
         elif cmd == "shop":
-            # Delegate /shop badges to the new emoji badge shop
-            if len(args) > 1 and args[1].lower() == "badges":
+            sub = args[1].lower() if len(args) > 1 else ""
+            if sub == "badges":
                 await handle_shop_badges(self, user, args)
+            elif sub in ("next", "prev", "page"):
+                await handle_shop_nav(self, user, args)
             else:
                 await handle_shop(self, user, args)
 
-        elif cmd == "buy":
-            # Route /buy badge to emoji badge handler; titles use old handler
-            if len(args) > 1 and args[1].lower() == "badge":
-                badge_id = args[2] if len(args) > 2 else ""
-                if badge_id:
-                    await handle_buy_badge(self, user, badge_id)
-                else:
-                    await self.highrise.send_whisper(user.id, "Usage: /buy badge <id>")
-            else:
+        elif cmd in ("buy", "buyitem", "purchase"):
+            sub = args[1].lower() if len(args) > 1 else ""
+            # /buy badge <id>  — direct ID buy (emoji badges)
+            if sub == "badge" and len(args) > 2:
+                await handle_buy_badge(self, user, args[2])
+            # /buy title <id>  — direct ID buy (old shop)
+            elif sub == "title" and len(args) > 2:
                 await handle_buy(self, user, args)
+            # /buy <number>  — numbered session buy
+            elif sub.isdigit():
+                await handle_buy_number(self, user, args)
+            # /buy with no valid sub
+            elif sub in ("badge", "title"):
+                await self.highrise.send_whisper(user.id, f"Usage: /buy {sub} <id>")
+            else:
+                await self.highrise.send_whisper(
+                    user.id,
+                    "Buy by number: /buy <#> (open /shop badges first)\n"
+                    "Or by ID: /buy badge <id>  /buy title <id>"
+                )
 
         elif cmd == "equip":
             # Route /equip badge to emoji badge handler
@@ -2171,15 +2201,65 @@ class HangoutBot(BaseBot):
         elif cmd == "titleinfo":
             await handle_titleinfo(self, user, args)
 
+        # ── Numbered shop extras ───────────────────────────────────────────────
+        elif cmd == "confirmbuy":
+            await handle_confirmbuy(self, user, args)
+
+        elif cmd == "cancelbuy":
+            await handle_cancelbuy(self, user, args)
+
+        elif cmd == "marketbuy":
+            # /marketbuy <number> uses market_badges session
+            if len(args) > 1 and args[1].isdigit():
+                session = db.get_shop_session(user.username)
+                if session and session["shop_type"] == "market_badges":
+                    n    = int(args[1])
+                    item = next((i for i in session["items"] if i["num"] == n), None)
+                    if item:
+                        await handle_badgebuy(self, user, ["badgebuy", str(item["listing_id"])])
+                    else:
+                        await self.highrise.send_whisper(user.id, "Invalid number. Open /badgemarket first.")
+                else:
+                    await self.highrise.send_whisper(user.id, "Open /badgemarket first.")
+            else:
+                await self.highrise.send_whisper(user.id, "Usage: /marketbuy <#>  (open /badgemarket first)")
+
+        elif cmd == "shopadmin":
+            await handle_shopadmin(self, user, args)
+
+        elif cmd == "shoptest":
+            await handle_shoptest(self, user, args)
+
+        elif cmd == "setshopconfirm":
+            await handle_setshopconfirm(self, user, args)
+
+        elif cmd == "seteventconfirm":
+            await handle_seteventconfirm(self, user, args)
+
         # ── Badge marketplace (player commands) ────────────────────────────────
         elif cmd == "badgemarket":
-            await handle_badgemarket(self, user, args)
+            await handle_badgemarket_nav(self, user, args)
 
         elif cmd == "badgelist":
             await handle_badgelist(self, user, args)
 
         elif cmd == "badgebuy":
-            await handle_badgebuy(self, user, args)
+            # /badgebuy <number> — number refers to position on last viewed market page
+            # /badgebuy <listing_id> — direct listing ID (also works)
+            raw = args[1] if len(args) > 1 else ""
+            if raw.isdigit():
+                session = db.get_shop_session(user.username)
+                if session and session["shop_type"] == "market_badges":
+                    n    = int(raw)
+                    item = next((i for i in session["items"] if i["num"] == n), None)
+                    if item:
+                        await handle_badgebuy(self, user, ["badgebuy", str(item["listing_id"])])
+                    else:
+                        await handle_badgebuy(self, user, args)  # fall back: treat as listing_id
+                else:
+                    await handle_badgebuy(self, user, args)  # no session: treat as listing_id
+            else:
+                await handle_badgebuy(self, user, args)
 
         elif cmd == "badgecancel":
             await handle_badgecancel(self, user, args)
@@ -2213,7 +2293,14 @@ class HangoutBot(BaseBot):
             await handle_eventpoints(self, user, args)
 
         elif cmd == "eventshop":
-            await handle_eventshop(self, user)
+            sub = args[1].lower() if len(args) > 1 else ""
+            if sub in ("next", "prev"):
+                await handle_eventshop_nav(self, user, args)
+            elif sub == "buy" and len(args) > 2:
+                # /eventshop buy <item_id> — legacy alias
+                await handle_buyevent(self, user, ["buyevent", args[2]])
+            else:
+                await handle_eventshop(self, user)
 
         elif cmd == "buyevent":
             await handle_buyevent(self, user, args)

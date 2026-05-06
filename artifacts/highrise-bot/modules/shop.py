@@ -146,44 +146,72 @@ def _get_item(item_type: str, item_id: str) -> dict | None:
 _PAGE_SIZE = 5
 
 
+def _fmt_p(val: int) -> str:
+    if val >= 1_000_000:
+        return f"{val / 1_000_000:.1f}M"
+    if val >= 1_000:
+        return f"{val // 1_000}K"
+    return f"{val:,}c"
+
+
 async def _send_catalog_page(
     bot, user, catalog: dict, item_type: str, args: list[str]
 ) -> None:
-    """Send one page of 5 items from a badge or title catalog."""
+    """Send one page of 5 numbered items from a badge or title catalog."""
     items       = list(catalog.items())
     total_pages = max(1, math.ceil(len(items) / _PAGE_SIZE))
 
     # Parse the optional page number
     raw_page = args[2] if len(args) > 2 else "1"
     if not raw_page.isdigit():
-        await bot.highrise.send_whisper(
-            user.id, f"Invalid page. Use /shop {item_type}s 1 to {total_pages}."
-        )
-        return
-    page = int(raw_page)
-    if page < 1 or page > total_pages:
-        await bot.highrise.send_whisper(
-            user.id, f"Pages 1-{total_pages}. Use /shop {item_type}s <page>."
-        )
-        return
+        raw_page = "1"
+    page = max(1, min(int(raw_page), total_pages))
 
     start = (page - 1) * _PAGE_SIZE
     chunk = items[start : start + _PAGE_SIZE]
 
-    label = "Badges (before @name)" if item_type == "badge" else "Titles (after @name)"
-    lines = [f"-- {label}  {page}/{total_pages} --"]
+    db.ensure_user(user.id, user.username)
+    session_items = []
+    shop_type = f"{item_type}s"   # "badges" or "titles"
+    label     = "Titles" if item_type == "title" else "Badges"
+    lines     = [f"🏷️ {label} {page}/{total_pages}"]
 
-    for item_id, data in chunk:
+    for num, (item_id, data) in enumerate(chunk, 1):
         display = data.get("display", "?")
         price   = data.get("price", 0)
-        lines.append(f"  {display} {item_id}  {price:,}c")
+        owned   = db.owns_item(user.id, item_id)
+        tick    = "✅" if owned else ""
+        lines.append(f"{num} {tick}{display} {item_id} {_fmt_p(price)}")
+        session_items.append({
+            "num":       num,
+            "item_id":   item_id,
+            "name":      display,
+            "emoji":     "",
+            "price":     price,
+            "currency":  "coins",
+            "shop_type": shop_type,
+        })
 
+    nav = []
+    if page > 1:
+        nav.append("/shop prev")
     if page < total_pages:
-        lines.append(f"More: /shop {item_type}s {page + 1}")
-    else:
-        lines.append(f"Buy: /buy {item_type} <id>   Equip: /equip {item_type} <id>")
+        nav.append("/shop next")
+    footer = "Buy: /buy <#>" + (f"  {' | '.join(nav)}" if nav else "")
+    lines.append(footer)
 
-    await bot.highrise.send_whisper(user.id, "\n".join(lines))
+    msg = "\n".join(lines)
+    if len(msg) > 249:
+        lines = [f"🏷️ {label} {page}/{total_pages}"]
+        for item in session_items:
+            owned = db.owns_item(user.id, item["item_id"])
+            tick  = "✅" if owned else ""
+            lines.append(f"{item['num']} {tick}{item['name']} {_fmt_p(item['price'])}")
+        lines.append("Buy: /buy <#>  More: /shop next")
+        msg = "\n".join(lines)[:249]
+
+    db.save_shop_session(user.username, shop_type, page, session_items)
+    await bot.highrise.send_whisper(user.id, msg)
 
 
 async def handle_shop(bot: BaseBot, user: User, args: list[str]):
