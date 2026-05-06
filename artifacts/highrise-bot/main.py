@@ -123,6 +123,7 @@ from modules.profile import (
     handle_profileprivacy,
     handle_resetprofileprivacy,
 )
+from modules.dashboard import handle_wallet, handle_casino_dash, handle_dashboard
 from modules.audit import (
     handle_audithelp, handle_audit,
     handle_auditbank, handle_auditcasino, handle_auditeconomy,
@@ -349,6 +350,7 @@ ALL_KNOWN_COMMANDS = (
         "restarthelp", "restartstatus", "softrestart", "restartbot",
         "casinosettings", "casinolimits", "casinotoggles",
         "setbjlimits", "setrbjlimits",
+        "wallet", "w", "dash", "dashboard", "casinodash", "mycasino",
         "goldhelp", "confirmcasinoreset",
         "tiprate", "tipstats", "tipleaderboard", "debugtips",
         "vipshop", "buyvip", "vipstatus",
@@ -410,7 +412,8 @@ CASINO_HELP_PAGES = [
         "🎰 Casino\n"
         "BJ: /bjoin <bet>, /bh, /bs, /bd, /bsp\n"
         "RBJ: /rjoin <bet>, /rh, /rs, /rd, /rsp\n"
-        "Poker: /p <buyin>"
+        "Poker: /p <buyin>\n"
+        "/casino /mycasino — casino dashboard"
     ),
     (
         "🎰 Casino 2\n"
@@ -431,6 +434,7 @@ CASINO_HELP = CASINO_HELP_PAGES[0]
 
 COIN_HELP = (
     "💰 Coins\n"
+    "/wallet /w — personal overview\n"
     "/bal  /balance  /coins\n"
     "/bal <username> — check other player\n"
     "/daily\n"
@@ -486,7 +490,8 @@ PROFILE_HELP = (
     "/stats [user] | /badges [user]\n"
     "/privacy [field] [on/off]\n"
     "/level | /xpleaderboard\n"
-    "/reputation | /toprep"
+    "/reputation | /toprep\n"
+    "/dashboard — overview (staff: /dashboard <user>)"
 )
 
 PROGRESS_HELP = (
@@ -1754,6 +1759,7 @@ class HangoutBot(BaseBot):
             "managerhelp", "adminhelp", "ownerhelp", "questhelp",
             "profile", "me", "whois", "pinfo",
             "stats", "badges", "titles", "privacy",
+            "wallet", "w", "dash", "dashboard", "casinodash", "mycasino",
             "level", "balance", "bal", "b", "coins", "coin", "money", "myitems",
             "myreports", "report", "bug",
             "botstatus", "maintenance",
@@ -1782,6 +1788,15 @@ class HangoutBot(BaseBot):
         # ── Economy commands ──────────────────────────────────────────────────
         if cmd in {"balance", "bal", "b", "coins", "coin", "money"}:
             await handle_balance(self, user, args)
+
+        elif cmd in {"wallet", "w"}:
+            await handle_wallet(self, user, args)
+
+        elif cmd in {"casinodash", "mycasino"}:
+            await handle_casino_dash(self, user, args)
+
+        elif cmd in {"dashboard", "dash"}:
+            await handle_dashboard(self, user, args)
 
         elif cmd == "daily":
             await handle_daily(self, user)
@@ -2147,10 +2162,12 @@ class HangoutBot(BaseBot):
         elif cmd == "casino":
             _casino_known = {"modes", "on", "off", "reset", "leaderboard"}
             _casino_sub   = args[1].lower().lstrip("@") if len(args) > 1 else ""
-            if _casino_sub and _casino_sub not in _casino_known:
-                await handle_casino_profile(self, user, args[1])
-            else:
+            if not _casino_sub or _casino_sub.isdigit():
+                await handle_casino_dash(self, user, args)
+            elif _casino_sub in _casino_known:
                 await _handle_casino_cmd(self, user, args)
+            else:
+                await handle_casino_profile(self, user, args[1])
 
         elif cmd == "owners":
             await _cmd_owners(self, user)

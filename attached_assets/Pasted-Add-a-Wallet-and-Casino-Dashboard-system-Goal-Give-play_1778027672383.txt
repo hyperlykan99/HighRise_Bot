@@ -1,0 +1,118 @@
+Add a Wallet and Casino Dashboard system.
+
+Goal:
+Give players one easy command to see their coins, bank activity, casino stats, poker stack, VIP status, and active events.
+
+IMPORTANT:
+- Do not remove existing features.
+- Keep coins, bank, BJ, RBJ, poker, gold, VIP, events, profiles, notifications, shop, and staff roles.
+- Use SQLite.
+- Use existing number formatter with commas and short values.
+- Keep every Highrise message under 250 characters.
+- Split long output into pages.
+- Add explicit command routing before unknown-command fallback.
+- Prevent crashes from bad inputs.
+
+Commands:
+- /wallet
+- /w
+- /dash
+- /dashboard
+- /casino
+- /casinodash
+- /mycasino
+
+Permission:
+- Public command for players.
+- Staff can use /dashboard <username> if possible.
+
+Wallet dashboard:
+/wallet or /w should show:
+- coin balance
+- short balance format
+- daily status
+- VIP status
+- poker table stack if seated
+- active event if any
+
+Example:
+"💼 Wallet
+Coins: 1,250,000c / 1.25M
+Daily: claimed | VIP: YES
+Poker stack: 50,000c / 50K"
+
+If message too long, split:
+/wallet
+/wallet 2
+
+/wallet 2 should show:
+- bank sent/received today
+- notifications status
+- privacy money status
+
+Example:
+"💼 Wallet 2
+Bank today: Sent 5K | Recv 10K
+Alerts: ON | Money privacy: ON"
+
+Casino dashboard:
+/casino, /casinodash, /mycasino should show:
+- BJ net today/lifetime if available
+- RBJ net today/lifetime if available
+- Poker net today/lifetime if available
+- current casino daily win/loss limit status
+- active table status
+
+Example:
+"🎰 Casino
+BJ net: +500c
+RBJ net: -1K
+Poker net: +10K
+Tables: BJ idle | RBJ idle | Poker active"
+
+If too long, split:
+/casino 2
+
+/casino 2:
+"🎰 Limits
+BJ W/L OFF/OFF
+RBJ W/L OFF/OFF
+Poker W/L OFF/OFF"
+
+Privacy:
+- /wallet only shows the requester's own wallet.
+- /dashboard <username> should respect profile privacy for money/casino unless owner/admin.
+- /casino <username> should respect casino privacy unless self or staff.
+
+Add staff dashboard:
+/dashboard <username>
+Shows public dashboard for that user unless staff.
+Owner/admin sees full admin info:
+- coins
+- bank status
+- casino net
+- VIP
+- warnings/reports count if available
+
+Messages:
+If target not found:
+"User not found. They may need to chat first."
+
+Update help:
+/coinhelp add:
+/wallet /w
+
+/profilehelp add:
+/dashboard
+
+/casinohelp add:
+/casino /mycasino
+
+Tests:
+- /wallet
+- /w
+- /wallet 2
+- /casino
+- /casino 2
+- /dashboard
+- /dashboard angelkisses18
