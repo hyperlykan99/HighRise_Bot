@@ -424,14 +424,29 @@ async def startup_event_check(bot: BaseBot) -> None:
 # /eventpoints
 # ---------------------------------------------------------------------------
 
-async def handle_eventpoints(bot: BaseBot, user: User) -> None:
+async def handle_eventpoints(bot: BaseBot, user: User, args: list[str] | None = None) -> None:
+    from modules.permissions import is_manager, can_manage_economy
     db.ensure_user(user.id, user.username)
+
+    # /eventpoints <username>  — manager/admin/owner can view others
+    if args and len(args) >= 2:
+        if not (is_manager(user.username) or can_manage_economy(user.username)):
+            await _w(bot, user.id, "Manager, admin, or owner only to view other players.")
+            return
+        target_name = args[1].lstrip("@").strip()
+        pts = db.get_event_points_for_user(target_name)
+        if pts is None:
+            await _w(bot, user.id, f"❌ @{target_name} not found.")
+            return
+        active = db.is_event_active()
+        status = "🟢 Event ON" if active else "🔴 No event"
+        await _w(bot, user.id, f"🎟️ @{target_name} event coins: {pts:,} | {status}")
+        return
+
     pts    = db.get_event_points(user.id)
     active = db.is_event_active()
     status = "🟢 Event ON" if active else "🔴 No event"
-    await _w(bot, user.id,
-             f"🎪 Event Points: {pts}pts | {status}\n"
-             "Earn by winning games or playing BJ/RBJ during Casino Hour.")
+    await _w(bot, user.id, f"🎟️ Event coins: {pts:,} | {status}")
 
 
 # ---------------------------------------------------------------------------

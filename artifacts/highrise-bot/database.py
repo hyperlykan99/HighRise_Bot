@@ -987,6 +987,8 @@ def _migrate_db():
         "old_value TEXT DEFAULT '', "
         "new_value TEXT DEFAULT '', "
         "reason TEXT DEFAULT '')",
+        "ALTER TABLE event_points ADD COLUMN lifetime_event_coins INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE event_points ADD COLUMN updated_at TEXT",
     ]:
         try:
             conn.execute(sql)
@@ -2707,10 +2709,15 @@ def get_event_points(user_id: str) -> int:
 
 def add_event_points(user_id: str, amount: int) -> None:
     conn = get_connection()
+    gain = max(0, amount)
     conn.execute("""
-        INSERT INTO event_points (user_id, points) VALUES (?, ?)
-        ON CONFLICT(user_id) DO UPDATE SET points = MAX(0, points + excluded.points)
-    """, (user_id, amount))
+        INSERT INTO event_points (user_id, points, lifetime_event_coins, updated_at)
+        VALUES (?, ?, ?, datetime('now'))
+        ON CONFLICT(user_id) DO UPDATE SET
+            points               = MAX(0, points + excluded.points),
+            lifetime_event_coins = lifetime_event_coins + ?,
+            updated_at           = datetime('now')
+    """, (user_id, amount, gain, gain))
     conn.commit()
     conn.close()
 
@@ -4857,16 +4864,29 @@ def revoke_item(user_id: str, item_id: str) -> None:
 # ---------------------------------------------------------------------------
 
 def set_event_points_direct(user_id: str, amount: int) -> None:
-    """Set event points to an exact amount (floor 0)."""
+    """Set event points to an exact amount (floor 0). Does not touch lifetime total."""
     amount = max(0, int(amount))
     conn   = get_connection()
     conn.execute(
-        """INSERT INTO event_points (user_id, points) VALUES (?, ?)
-           ON CONFLICT(user_id) DO UPDATE SET points = ?""",
+        """INSERT INTO event_points (user_id, points, updated_at) VALUES (?, ?, datetime('now'))
+           ON CONFLICT(user_id) DO UPDATE SET points = ?, updated_at = datetime('now')""",
         (user_id, amount, amount),
     )
     conn.commit()
     conn.close()
+
+
+def get_event_points_for_user(username: str) -> int | None:
+    """Look up event points by username (case-insensitive). Returns None if not found."""
+    conn = get_connection()
+    row  = conn.execute(
+        """SELECT ep.points FROM event_points ep
+           JOIN users u ON u.user_id = ep.user_id
+           WHERE lower(u.username) = lower(?)""",
+        (username.lstrip("@").strip(),)
+    ).fetchone()
+    conn.close()
+    return row["points"] if row else None
 
 
 # ---------------------------------------------------------------------------

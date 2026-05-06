@@ -2039,7 +2039,7 @@ class HangoutBot(BaseBot):
             await handle_stopevent(self, user)
 
         elif cmd == "eventpoints":
-            await handle_eventpoints(self, user)
+            await handle_eventpoints(self, user, args)
 
         elif cmd == "eventshop":
             await handle_eventshop(self, user)

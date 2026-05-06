@@ -114,7 +114,7 @@ async def handle_addeventcoins(bot: BaseBot, user: User, args: list[str]) -> Non
     db.log_admin_action(user.username, target["username"],
                         "addeventcoins", "", str(amount))
     await _w(bot, user.id,
-             f"✅ +{amount:,} event coins → @{target['username']}. Total: {new_total:,}.")
+             f"✅ Added {amount:,} event coins to @{target['username']}.")
 
 
 async def handle_removeeventcoins(bot: BaseBot, user: User, args: list[str]) -> None:
@@ -136,7 +136,7 @@ async def handle_removeeventcoins(bot: BaseBot, user: User, args: list[str]) -> 
     db.log_admin_action(user.username, target["username"],
                         "removeeventcoins", str(current), str(new_total))
     await _w(bot, user.id,
-             f"✅ -{amount:,} event coins from @{target['username']}. Now: {new_total:,}.")
+             f"✅ Removed {amount:,} event coins from @{target['username']}.")
 
 
 async def handle_seteventcoins(bot: BaseBot, user: User, args: list[str]) -> None:
@@ -174,7 +174,7 @@ async def handle_reseteventcoins(bot: BaseBot, user: User, args: list[str]) -> N
         return
     db.set_event_points_direct(target["user_id"], 0)
     db.log_admin_action(user.username, target["username"], "reseteventcoins", "", "0")
-    await _w(bot, user.id, f"✅ Reset @{target['username']} event coins to 0.")
+    await _w(bot, user.id, f"✅ @{target['username']} event coins reset.")
 
 
 # ---------------------------------------------------------------------------
