@@ -5,12 +5,12 @@ Command audit and silent-command checker.  Owner / admin only.
 
 Commands
 --------
-/checkcommands          — quick route-coverage summary
-/checkhelp              — help vs routed diff
-/missingcommands        — in help but not explicitly routed
-/routecheck             — explicitly routed but not mentioned in help
-/silentcheck            — commands at risk of giving no reply
-/commandtest <cmd>      — check whether one command is routed + help-listed
+/checkcommands              — quick route-coverage summary
+/checkhelp                  — help vs routed diff
+/missingcommands [page]     — in help but not explicitly routed
+/routecheck [page]          — explicitly routed but not in help
+/silentcheck                — commands with no guaranteed reply
+/commandtest <cmd>          — check whether a command is routed + help-listed
 
 All messages ≤ 249 chars.
 """
@@ -20,47 +20,53 @@ from modules.permissions import is_admin, is_owner
 
 
 # ---------------------------------------------------------------------------
-# Internal helpers
+# Permission helper
 # ---------------------------------------------------------------------------
-
-def _w(bot, uid: str, msg: str):
-    return bot.highrise.send_whisper(uid, msg[:249])
-
 
 def _can_audit(username: str) -> bool:
     return is_admin(username) or is_owner(username)
 
 
-def _fmt_list(title: str, items, prefix: str = "/") -> str:
-    """Return up to 249-char string listing items with a count suffix."""
-    sorted_items = sorted(items)
-    parts: list[str] = []
-    base = f"{title}: "
-    budget = 248 - len(base)
-    for item in sorted_items:
-        token = f"{prefix}{item}"
-        if parts:
-            token = ", " + token
-        if len("".join(parts)) + len(token) > budget:
-            remaining = len(sorted_items) - len(parts)
-            parts.append(f" +{remaining} more")
-            break
-        parts.append(token if not parts else f", {prefix}{item}")
-    if not parts:
-        parts = ["none"]
-    return (base + "".join(parts))[:249]
+async def _w(bot: BaseBot, uid: str, msg: str) -> None:
+    await bot.highrise.send_whisper(uid, msg[:249])
+
+
+# ---------------------------------------------------------------------------
+# HIDDEN_CMDS — debug/internal only; excluded from /routecheck missing-help
+# ---------------------------------------------------------------------------
+
+HIDDEN_CMDS: frozenset[str] = frozenset({
+    "debugtips", "debugsub", "debugnotify", "testnotify", "testnotifyall",
+    "pendingnotify", "clearpendingnotify", "pendingnotifications",
+    "delivernotifications", "broadcasttest", "notifyuser",
+    "pokerdebug", "pokerfix", "pokerrefundall",
+    "restartstatus", "restarthelp", "softrestart", "restartbot",
+    "backup", "dbstats", "botstatus", "reloadsettings", "cleanup",
+    "bankwatch", "viewtx", "replog",
+    "allcommands", "admins",
+    "goldtip", "goldrefund", "goldrain", "goldrainall", "goldraineligible",
+    "goldrainrole", "goldrainvip", "goldraintitle", "goldrainbadge",
+    "goldrainlist", "goldwallet", "goldtips", "goldtx", "pendinggold",
+    "confirmgoldtip", "setgoldrainstaff", "setgoldrainmax",
+    "setpokerblinds", "setpokerante", "setpokernexthandtimer",
+    "setpokermaxstack", "setpokeridlestrikes",
+    "notifystats", "notifyprefs",
+    "dailyadmin",
+    "confirmcasinoreset",
+    "auditbank", "auditcasino", "auditeconomy",
+})
 
 
 # ---------------------------------------------------------------------------
 # ROUTED_COMMANDS
-# Every command that has an explicit if/elif branch in on_chat().
-# Keep this in sync with main.py whenever new commands are added.
+# Every command that has an explicit if/elif branch in on_chat(), or is
+# dispatched through handle_admin_command() (which always replies).
 # ---------------------------------------------------------------------------
 
 ROUTED_COMMANDS: frozenset[str] = frozenset({
     # ── help ─────────────────────────────────────────────────────────────────
     "help",
-    # ── staff gate — setbj* / setrbj* (startswith match) ────────────────────
+    # ── setbj* / setrbj* ─────────────────────────────────────────────────────
     "setbjminbet", "setbjmaxbet", "setbjcountdown", "setbjturntimer",
     "setbjactiontimer", "setbjmaxsplits",
     "setbjdailywinlimit", "setbjdailylosslimit",
@@ -69,12 +75,12 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     "setrbjturntimer", "setrbjactiontimer", "setrbjmaxsplits",
     "setrbjdailywinlimit", "setrbjdailylosslimit",
     "setrbjlimits", "setbjlimits",
-    # ── staff gate — roles ───────────────────────────────────────────────────
+    # ── roles ────────────────────────────────────────────────────────────────
     "addowner", "removeowner",
     "addmanager", "removemanager",
     "addmoderator", "removemoderator",
     "addadmin", "removeadmin",
-    # ── staff gate — misc ────────────────────────────────────────────────────
+    # ── staff misc ───────────────────────────────────────────────────────────
     "admins", "allstaff", "allcommands",
     "bankblock", "bankunblock", "banksettings",
     "casinosettings", "casinolimits", "casinotoggles",
@@ -90,7 +96,7 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     "setrules", "automod",
     "reports", "reportinfo", "closereport", "reportwatch",
     "profileadmin", "profileprivacy", "resetprofileprivacy",
-    "replog", "addrep", "removerep",
+    "replog", "addrep", "removerep", "setrep", "resetrep",
     "settiprate", "settipcap", "settiptier", "settipautosub", "settipresubscribe",
     "setgametimer", "setautogameinterval",
     "setautoeventinterval", "setautoeventduration", "gameconfig",
@@ -102,6 +108,7 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     "restarthelp", "restartstatus", "softrestart", "restartbot",
     "healthcheck",
     "announce_vip", "announce_staff",
+    "announce_subs", "dmnotify",
     "debugsub",
     "notifyuser", "broadcasttest",
     "notifystats", "notifyprefs",
@@ -113,18 +120,23 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     "setpokerdailywinlimit", "setpokerdailylosslimit",
     "resetpokerlimits", "resetbjlimits", "resetrbjlimits",
     "setpokerlimits",
+    "setpokerblinds", "setpokerante", "setpokernexthandtimer",
+    "setpokermaxstack", "setpokeridlestrikes",
     "pokerdebug", "pokerfix", "pokerrefundall", "pokercleanup",
     "setcoins", "editcoins", "resetcoins",
     "addeventcoins", "removeeventcoins", "seteventcoins", "reseteventcoins",
     "addxp", "removexp", "setxp", "resetxp", "setlevel", "addlevel",
-    "setrep", "resetrep",
     "givetitle", "removetitle", "givebadge", "removebadge",
     "addvip", "removevip", "vips",
     "resetbjstats", "resetrbjstats", "resetpokerstats", "resetcasinostats",
-    "adminpanel", "adminlogs", "checkhelp",
-    # ── new audit commands ───────────────────────────────────────────────────
-    "checkcommands", "missingcommands", "routecheck", "silentcheck", "commandtest",
-    # ── public block ─────────────────────────────────────────────────────────
+    "adminpanel", "adminlogs",
+    "checkcommands", "checkhelp",
+    "missingcommands", "routecheck", "silentcheck", "commandtest",
+    # ── via handle_admin_command (always replies) ─────────────────────────────
+    "addcoins", "removecoins", "announce", "resetgame",
+    # ── event aliases ─────────────────────────────────────────────────────────
+    "eventstart", "eventstop",
+    # ── public ───────────────────────────────────────────────────────────────
     "rules",
     "balance", "bal", "b", "coins", "coin", "money",
     "wallet", "w",
@@ -155,11 +167,11 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     "notifysettings", "notify", "notifyhelp",
     "delivernotifications", "pendingnotifications",
     "subscribe", "unsubscribe", "substatus", "subscribers",
-    "dmnotify", "announce_subs", "subhelp",
+    "subhelp",
     "bankhelp", "casinohelp", "gamehelp", "coinhelp", "profilehelp",
     "shophelp", "progresshelp", "bjhelp", "rbjhelp",
-    "rephelp", "autohelp", "vipstatus", "viphelp", "tiphelp", "roleshelp",
-    "maintenancehelp",
+    "rephelp", "autohelp", "vipstatus", "vipshop", "buyvip", "viphelp",
+    "tiphelp", "roleshelp", "maintenancehelp",
     "mycommands", "helpsearch",
     "casinoadminhelp", "bankadminhelp",
     "staffhelp", "modhelp", "managerhelp", "adminhelp", "ownerhelp",
@@ -181,14 +193,10 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     "phelp",
     "sitout", "sitin", "rebuy", "pstacks", "mystack",
     "poker", "pokerhelp",
-    "setpokerbuyin", "setpokerplayers", "setpokerlobbytimer", "setpokertimer",
-    "setpokerraise", "setpokerdailywinlimit", "setpokerdailylosslimit",
-    "resetpokerlimits", "setpokerturntimer",
-    "setpokerblinds", "setpokerante", "setpokernexthandtimer",
-    "setpokermaxstack", "setpokeridlestrikes",
     "botstatus", "dbstats", "backup",
     "maintenance", "reloadsettings", "cleanup",
     "trivia", "scramble", "riddle", "coinflip",
+    "reporthelp",
 })
 
 # ---------------------------------------------------------------------------
@@ -197,17 +205,14 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
 # ---------------------------------------------------------------------------
 
 HELP_CMDS: frozenset[str] = frozenset({
-    # help index
     "help", "gamehelp", "casinohelp", "coinhelp", "bankhelp",
     "shophelp", "profilehelp", "progresshelp", "eventhelp",
     "bjhelp", "rbjhelp", "rephelp", "autohelp", "viphelp", "tiphelp",
     "roleshelp", "staffhelp", "modhelp", "managerhelp", "adminhelp",
     "ownerhelp", "casinoadminhelp", "bankadminhelp", "audithelp",
     "reporthelp", "maintenancehelp", "questhelp", "goldhelp",
-    # games
     "trivia", "scramble", "riddle", "answer", "coinflip",
     "autogames", "setgametimer", "setautogameinterval", "gameconfig",
-    # casino
     "bjoin", "bh", "bs", "bd", "bsp", "bt", "bhand",
     "rjoin", "rh", "rs", "rd", "rsp", "rt", "rhand", "rshoe",
     "p", "casino", "mycasino",
@@ -218,83 +223,83 @@ HELP_CMDS: frozenset[str] = frozenset({
     "setbjmaxsplits", "setrbjmaxsplits",
     "resetbjlimits", "resetrbjlimits",
     "resetbjstats", "resetrbjstats", "resetpokerstats", "resetcasinostats",
-    # poker
     "setpokerbuyin", "setpokerplayers", "setpokertimer", "setpokerraise",
     "setpokerdailywinlimit", "setpokerdailylosslimit", "resetpokerlimits",
-    "poker", "pokerhelp",
-    # bank
+    "poker", "pokerhelp", "pokercleanup",
     "send", "bank", "bankstats", "transactions", "banknotify",
     "viewtx", "bankwatch", "ledger", "auditbank", "banksettings",
     "bankblock", "bankunblock",
     "setminsend", "setmaxsend", "setsendlimit", "setminlevelsend",
     "setmintotalearned", "setmindailyclaims", "setsendtax", "sethighriskblocks",
     "notifications", "clearnotifications",
-    # coin
     "balance", "bal", "daily", "wallet", "leaderboard", "tiprate",
     "tipstats", "tipleaderboard",
-    # profile
     "profile", "whois", "me", "stats", "badges", "titles", "privacy", "dashboard",
-    # shop
     "shop", "titleinfo", "badgeinfo", "buy", "equip", "myitems",
-    "vipshop", "buyvip", "vipstatus",
-    # progress
+    "vipstatus", "vipshop", "buyvip",
     "quests", "dailyquests", "weeklyquests", "claimquest",
     "achievements", "claimachievements",
-    # rep
     "rep", "reputation", "repstats", "toprep", "repleaderboard",
-    # events
     "event", "events", "eventstatus", "eventpoints", "eventshop",
     "startevent", "stopevent", "autoevents",
     "setautoeventinterval", "setautoeventduration",
-    # report
     "report", "bug", "myreports",
     "reports", "reportinfo", "closereport", "reportwatch",
-    # vip
     "addvip", "removevip", "vips", "goldrainvip",
-    # tip
     "settiprate", "settipcap", "settiptier",
-    # gold
-    "goldtip", "goldrain", "goldrainall", "goldrefund", "goldrainvip",
-    # admin power
+    "goldtip", "goldrain", "goldrainall", "goldrefund",
     "addcoins", "removecoins", "setcoins", "resetcoins",
     "addxp", "removexp", "setxp", "setlevel", "addlevel",
     "addrep", "removerep", "setrep", "resetrep", "addeventcoins",
     "givetitle", "removetitle", "givebadge", "removebadge",
     "addmanager", "removemanager", "addmoderator", "removemoderator",
     "allstaff",
-    "adminlogs", "adminpanel", "checkhelp",
+    "adminlogs", "adminpanel", "checkhelp", "checkcommands",
+    "missingcommands", "routecheck", "silentcheck", "commandtest",
     "dbstats", "maintenance", "bankblock",
-    # staff/mod
     "announce", "resetgame", "setrules", "rules", "dailyadmin",
     "warn", "warnings", "mute", "unmute", "mutes",
     "audit", "healthcheck",
     "addowner", "removeowner", "owners",
     "addadmin", "removeadmin",
-    # owner
-    "setmaxbalance", "backup", "softrestart", "restartbot",
-    # maintenance
-    "botstatus", "reloadsettings", "cleanup",
-    # auto
+    "setmaxbalance",
     "automod",
-    # new audit
-    "checkcommands", "checkhelp",
+    "eventstart", "eventstop",
+    "announce_subs", "dmnotify",
 })
 
 # ---------------------------------------------------------------------------
-# SILENT_RISK_CMDS
-# Commands in STAFF_CMDS that fall to handle_admin_command() fallback, or
-# whose handlers may not always send a reply on bad input.
+# SILENT_RISK_CMDS — commands that may not always reply (post all-fixes)
 # ---------------------------------------------------------------------------
 
 SILENT_RISK_CMDS: frozenset[str] = frozenset({
-    # These are in ADMIN_ONLY_CMDS / STAFF_CMDS but NOT explicitly routed
-    # in the staff if/elif chain — they fall to handle_admin_command()
-    "addcoins", "removecoins",
-    "announce",
-    "eventstart", "eventstop",
-    "announce_subs",
-    "dmnotify",
+    # handle_admin_command else-branch has no reply for unrecognised cmds;
+    # any future command accidentally routed there would be silent.
+    # Currently all known commands in ADMIN_ONLY_CMDS that fall to
+    # handle_admin_command are covered: addcoins, removecoins, announce,
+    # resetgame all reply.  This set is intentionally empty until a new
+    # unhandled fallback is discovered.
 })
+
+# ---------------------------------------------------------------------------
+# Pagination helper
+# ---------------------------------------------------------------------------
+
+_PAGE_SIZE = 10
+
+
+def _paginate(title: str, items: list[str], page: int) -> tuple[str, int]:
+    """Return (message, total_pages).  page is 1-indexed."""
+    total = len(items)
+    if total == 0:
+        return f"{title}: none.", 1
+    total_pages = max(1, (total + _PAGE_SIZE - 1) // _PAGE_SIZE)
+    page = max(1, min(page, total_pages))
+    start = (page - 1) * _PAGE_SIZE
+    chunk = items[start:start + _PAGE_SIZE]
+    body = ", ".join(f"/{c}" for c in chunk)
+    suffix = f"  (p{page}/{total_pages})" if total_pages > 1 else ""
+    return f"{title}{suffix}: {body}"[:249], total_pages
 
 
 # ---------------------------------------------------------------------------
@@ -303,16 +308,17 @@ SILENT_RISK_CMDS: frozenset[str] = frozenset({
 
 async def handle_checkcommands(bot: BaseBot, user: User, all_known: set) -> None:
     if not _can_audit(user.username):
-        await _w(bot, user.id, "Owner/admin only.")
+        await _w(bot, user.id, "Staff only.")
         return
-    routes_ok = len(ROUTED_COMMANDS & all_known)
+    routed_ok = len(ROUTED_COMMANDS & all_known)
     missing   = len(all_known - ROUTED_COMMANDS)
-    silent    = len(SILENT_RISK_CMDS & all_known)
-    print(f"[AUDIT] /checkcommands by @{user.username}: "
-          f"routed={routes_ok} missing={missing} silent={silent}")
-    msg = (f"Cmd Check: Routes OK {routes_ok} | "
-           f"Missing {missing} | Silent risk {silent}")
-    await _w(bot, user.id, msg)
+    in_help   = len(HELP_CMDS & ROUTED_COMMANDS)
+    silent    = len(SILENT_RISK_CMDS)
+    print(f"[AUDIT] /checkcommands @{user.username}: routed={routed_ok} missing={missing} "
+          f"help_coverage={in_help} silent={silent}")
+    await _w(bot, user.id,
+             f"Cmd Check: Routed {routed_ok} | Not routed {missing} | "
+             f"Help coverage {in_help} | Silent risk {silent}")
 
 
 # ---------------------------------------------------------------------------
@@ -321,47 +327,97 @@ async def handle_checkcommands(bot: BaseBot, user: User, all_known: set) -> None
 
 async def handle_checkhelp_audit(bot: BaseBot, user: User, all_known: set) -> None:
     if not _can_audit(user.username):
-        await _w(bot, user.id, "Owner/admin only.")
+        await _w(bot, user.id, "Staff only.")
         return
-    missing_routes  = HELP_CMDS - ROUTED_COMMANDS   # in help but not routed
-    missing_help    = ROUTED_COMMANDS - HELP_CMDS    # routed but not in help
-    print(f"[AUDIT] /checkhelp by @{user.username}: "
-          f"missing_routes={len(missing_routes)} missing_help={len(missing_help)}")
-    msg = (f"Help Check: {len(missing_routes)} missing routes | "
-           f"{len(missing_help)} missing help entries")
-    await _w(bot, user.id, msg)
+    missing_routes = sorted(HELP_CMDS - ROUTED_COMMANDS)
+    unlisted       = sorted((ROUTED_COMMANDS - HELP_CMDS) - HIDDEN_CMDS)
+    print(f"[AUDIT] /checkhelp @{user.username}: "
+          f"missing_routes={len(missing_routes)} unlisted={len(unlisted)}")
+    await _w(bot, user.id,
+             f"Help Check: {len(missing_routes)} in help but unrouted | "
+             f"{len(unlisted)} routed but no help entry")
 
 
 # ---------------------------------------------------------------------------
-# /missingcommands
+# /missingcommands [page]
 # ---------------------------------------------------------------------------
 
-async def handle_missingcommands(bot: BaseBot, user: User) -> None:
+async def handle_missingcommands(bot: BaseBot, user: User, args: list[str] | None = None) -> None:
     if not _can_audit(user.username):
-        await _w(bot, user.id, "Owner/admin only.")
+        await _w(bot, user.id, "Staff only.")
         return
-    missing = HELP_CMDS - ROUTED_COMMANDS
-    print(f"[AUDIT] /missingcommands by @{user.username}: {sorted(missing)}")
+    missing = sorted(HELP_CMDS - ROUTED_COMMANDS)
+    print(f"[AUDIT] /missingcommands @{user.username}: {missing}")
     if not missing:
         await _w(bot, user.id, "Missing: none — all help-listed commands are routed.")
         return
-    await _w(bot, user.id, _fmt_list("Missing", missing))
+    page = 1
+    if args and len(args) >= 2:
+        try:
+            page = int(args[1])
+        except ValueError:
+            pass
+    msg, total_pages = _paginate("Missing", missing, page)
+    await _w(bot, user.id, msg)
+    if page < total_pages:
+        await _w(bot, user.id, f"More: /missingcommands {page + 1}")
 
 
 # ---------------------------------------------------------------------------
-# /routecheck
+# /routecheck [page | category]
 # ---------------------------------------------------------------------------
 
-async def handle_routecheck(bot: BaseBot, user: User) -> None:
+_ROUTE_CATEGORIES: dict[str, set[str]] = {
+    "poker": {"poker", "p", "pj", "pt", "ph", "po", "pp", "pplayers", "pstats",
+              "pokerstats", "plb", "pleaderboard", "pokerlb", "pokerleaderboard",
+              "phelp", "pokerhelp", "check", "ch", "call", "ca", "raise", "r",
+              "fold", "f", "allin", "ai", "shove", "all-in", "sitout", "sitin",
+              "rebuy", "pstacks", "mystack", "pcards", "podds", "ptable"},
+    "casino": {"bj", "rbj", "bjoin", "bh", "bs", "bd", "bsp", "bt", "bhand",
+               "bjh", "bjs", "bjd", "bjsp", "bjhand", "rjoin", "rh", "rs",
+               "rd", "rsp", "rt", "rhand", "rshoe", "rlimits", "rstats", "rhand",
+               "rbjh", "rbjs", "rbjd", "rbjsp", "rbjhand", "blimits", "bstats",
+               "confirmcasinoreset"},
+    "admin":  {"setcoins", "editcoins", "resetcoins", "addcoins", "removecoins",
+               "addxp", "removexp", "setxp", "resetxp", "setlevel", "addlevel",
+               "givetitle", "removetitle", "givebadge", "removebadge",
+               "addvip", "removevip", "vips", "resetbjstats", "resetrbjstats",
+               "resetpokerstats", "resetcasinostats", "adminpanel", "adminlogs",
+               "checkcommands", "checkhelp", "missingcommands", "routecheck",
+               "silentcheck", "commandtest", "announce", "resetgame",
+               "eventstart", "eventstop", "announce_subs", "dmnotify"},
+}
+
+
+async def handle_routecheck(bot: BaseBot, user: User, args: list[str] | None = None) -> None:
     if not _can_audit(user.username):
-        await _w(bot, user.id, "Owner/admin only.")
+        await _w(bot, user.id, "Staff only.")
         return
-    unlisted = ROUTED_COMMANDS - HELP_CMDS
-    print(f"[AUDIT] /routecheck by @{user.username}: {sorted(unlisted)}")
-    if not unlisted:
-        await _w(bot, user.id, "Unlisted: none — all routed commands are in help.")
+
+    unlisted_full = sorted((ROUTED_COMMANDS - HELP_CMDS) - HIDDEN_CMDS)
+    arg = args[1].lower() if args and len(args) >= 2 else ""
+
+    # Category filter
+    if arg in _ROUTE_CATEGORIES:
+        subset = sorted(_ROUTE_CATEGORIES[arg] - HELP_CMDS - HIDDEN_CMDS)
+        msg, _ = _paginate(f"Unlisted [{arg}]", subset, 1)
+        print(f"[AUDIT] /routecheck {arg} @{user.username}: {subset}")
+        await _w(bot, user.id, msg)
         return
-    await _w(bot, user.id, _fmt_list("Unlisted", unlisted))
+
+    # Page number
+    page = 1
+    if arg.isdigit():
+        page = int(arg)
+
+    print(f"[AUDIT] /routecheck p{page} @{user.username}: {len(unlisted_full)} unlisted")
+    if not unlisted_full:
+        await _w(bot, user.id, "Unlisted: none — all routed commands have help entries.")
+        return
+    msg, total_pages = _paginate("Unlisted", unlisted_full, page)
+    await _w(bot, user.id, msg)
+    if page < total_pages:
+        await _w(bot, user.id, f"More: /routecheck {page + 1}")
 
 
 # ---------------------------------------------------------------------------
@@ -370,14 +426,15 @@ async def handle_routecheck(bot: BaseBot, user: User) -> None:
 
 async def handle_silentcheck(bot: BaseBot, user: User, all_known: set) -> None:
     if not _can_audit(user.username):
-        await _w(bot, user.id, "Owner/admin only.")
+        await _w(bot, user.id, "Staff only.")
         return
-    silent = SILENT_RISK_CMDS & all_known
-    print(f"[AUDIT] /silentcheck by @{user.username}: {sorted(silent)}")
+    silent = sorted(SILENT_RISK_CMDS & all_known)
+    print(f"[AUDIT] /silentcheck @{user.username}: {silent}")
     if not silent:
-        await _w(bot, user.id, "Silent risk: none found.")
+        await _w(bot, user.id, "Silent risk: none. All known commands have guaranteed replies.")
         return
-    await _w(bot, user.id, _fmt_list("Silent risk", silent))
+    msg, _ = _paginate("Silent risk", silent, 1)
+    await _w(bot, user.id, msg)
 
 
 # ---------------------------------------------------------------------------
@@ -386,15 +443,22 @@ async def handle_silentcheck(bot: BaseBot, user: User, all_known: set) -> None:
 
 async def handle_commandtest(bot: BaseBot, user: User, args: list[str]) -> None:
     if not _can_audit(user.username):
-        await _w(bot, user.id, "Owner/admin only.")
+        await _w(bot, user.id, "Staff only.")
         return
     if len(args) < 2:
         await _w(bot, user.id, "Usage: /commandtest <command>")
         return
     cmd = args[1].lstrip("/").lower()
-    routed = "YES" if cmd in ROUTED_COMMANDS else "NO"
-    in_help = "YES" if cmd in HELP_CMDS else "NO"
-    silent = " ⚠️ silent risk" if cmd in SILENT_RISK_CMDS else ""
-    msg = f"/{cmd} route: {routed} | Help: {in_help}{silent}"
-    print(f"[AUDIT] /commandtest {cmd!r} by @{user.username}: routed={routed} help={in_help}")
-    await _w(bot, user.id, msg)
+    routed  = cmd in ROUTED_COMMANDS
+    in_help = cmd in HELP_CMDS
+    hidden  = cmd in HIDDEN_CMDS
+    silent  = cmd in SILENT_RISK_CMDS
+    route_s = "YES" if routed  else "NO"
+    help_s  = "YES" if in_help else "NO"
+    extra   = ""
+    if hidden:
+        extra += " [hidden/internal]"
+    if silent:
+        extra += " ⚠️ silent"
+    print(f"[COMMANDTEST] /{cmd} route={route_s} help={help_s} hidden={hidden} silent={silent}")
+    await _w(bot, user.id, f"/{cmd} route: {route_s} | help: {help_s}{extra}")

@@ -1,0 +1,341 @@
+Fix command audit false positives and missing routes.
+
+Problems:
+1. /checkhelp says Unknown command.
+2. /commandtest /addvip says:
+"/addvip route: YES | Help: YES"
+But when I type:
+/addvip @4ktreymarion
+The bot says Unknown command.
+3. /missingcommands shows missing:
+- /addcoins
+- /announce
+- /buyvip
+- /removecoins
+- /reporthelp
+- /resetgame
+- /vipshop
+4. /silentcheck shows silent risk:
+- /addcoins
+- /announce
+- /announce_subs
+- /dmnotify
+- /eventstart
+- /eventstop
+- /removecoins
+
+Goal:
+Make the command audit system accurate and fix all missing/silent commands.
+
+IMPORTANT:
+- Do not remove existing features.
+- Keep coins, XP, bank, shop, casino, poker, BJ, RBJ, VIP, badges, titles, events, notifications, reports, roles, and profiles.
+- Use SQLite.
+- Keep all Highrise messages under 250 characters.
+- Add explicit command routing before unknown-command fallback.
+- Every command must reply with success, usage, permission error, or clear error.
+- No command should fail silently.
+
+==================================================
+PART 1: FIX /CHECKHELP ROUTING
+==================================================
+
+Add explicit routing for:
+- /checkhelp
+- /checkcommands
+- /missingcommands
+- /routecheck
+- /silentcheck
+- /commandtest <command>
+
+Owner/admin only.
+
+If normal player uses:
+"Staff only."
+
+/checkhelp should not say unknown.
+
+==================================================
+PART 2: FIX COMMANDTEST ACCURACY
+==================================================
+
+Current bug:
+/commandtest /addvip says route YES, but /addvip is unknown.
+
+Fix:
+/commandtest must check the REAL command router, not only the help registry.
+
+It should check:
+- command exists in actual routing map OR command handler condition list
+- command exists in help registry
+- command has permission definition
+- command has a non-empty handler function
+
+Output:
+"/addvip route YES | help YES | handler YES"
+
+If handler is missing:
+"/addvip route NO | help YES | handler NO"
+
+Do not report route YES unless typing the actual command would be caught by router.
+
+Add debug log:
+"COMMANDTEST: command=/addvip route=<bool> help=<bool> handler=<bool>"
+
+==================================================
+PART 3: FIX /ADDVIP ROUTE
+==================================================
+
+Add/fix command:
+- /addvip <username>
+
+Permissions:
+- Owner/admin only.
+
+Behavior:
+- Adds VIP to user.
+- If user already VIP:
+"@user is already VIP."
+- Otherwise:
+"✅ @user is now VIP."
+
+Also make these work:
+- /removevip <username>
+- /vipshop
+- /buyvip
+- /vipstatus
+- /vips
+
+If VIP table missing, create user_vip table safely:
+- username TEXT PRIMARY KEY
+- active INTEGER DEFAULT 1
+- vip_tier TEXT DEFAULT 'vip'
+- added_by TEXT
+- added_at TEXT
+- expires_at TEXT
+- source TEXT
+
+==================================================
+PART 4: FIX MISSING COMMANDS
+==================================================
+
+Add/fix these commands listed by /missingcommands:
+
+- /addcoins <username> <amount>
+- /removecoins <username> <amount>
+- /announce <message>
+- /buyvip
+- /reporthelp
+- /resetgame
+- /vipshop
+
+Commands behavior:
+
+/addcoins <username> <amount>
+Owner/admin only.
+Adds coins.
+Message:
+"✅ Added 1,000c / 1K to @user."
+
+/removecoins <username> <amount>
+Owner/admin only.
+Removes coins but not below 0.
+Message:
+"✅ Removed 1,000c / 1K from @user."
+
+/announce <message>
+Owner/admin/manager only.
+Posts a room announcement.
+Message should be public:
+"📣 <message>"
+If missing message:
+"Use /announce <message>."
+
+/buyvip
+Public.
+Lets player buy VIP if enough coins.
+Uses VIP price setting.
+Message:
+"💎 VIP purchased!"
+
+/vipshop
+Public.
+Shows VIP price and perks.
+Message:
+"💎 VIP: 100,000c / 100K | Buy: /buyvip"
+
+/reporthelp
+Public.
+Shows report commands:
+"🚩 Reports: /report user reason | /bug msg | /myreports"
+
+/resetgame
+Owner/admin only.
+If this is meant for mini-games only:
+- reset current trivia/scramble/minigame state
+- do not reset casino/poker/player data
+Message:
+"✅ Mini-game state reset."
+
+If resetgame is unsafe or not used:
+- keep route but reply:
+"Use /resetgame minigames."
+And add:
+/resetgame minigames
+
+==================================================
+PART 5: FIX SILENT COMMANDS
+==================================================
+
+These are silent risk:
+- /addcoins
+- /announce
+- /announce_subs
+- /dmnotify
+- /eventstart
+- /eventstop
+- /removecoins
+
+Fix each so it always replies.
+
+Required behavior:
+
+/announce_subs <message>
+Owner/admin only.
+If message missing:
+"Use /announce_subs <message>."
+If sent:
+"📣 Sent to X subscribers. Pending: Y."
+
+/dmnotify <username> <message>
+Owner/admin only.
+If args missing:
+"Use /dmnotify <user> <message>."
+If no DM connected:
+"No DM connected. Saved pending."
+If sent:
+"✅ DM sent to @user."
+
+/eventstart <event_id>
+Alias for /startevent <event_id>.
+Owner/admin/manager only.
+If missing:
+"Use /eventstart <event_id>."
+
+/eventstop
+Alias for /stopevent.
+Owner/admin/manager only.
+Message:
+"✅ Event stopped."
+
+/addcoins and /removecoins:
+Must always reply success/usage/error.
+
+==================================================
+PART 6: FIX ROUTECHECK OUTPUT
+==================================================
+
+/routecheck currently lists many unlisted commands:
+"/admins, /ai, /all-in, /allcommands, /allin, ... +128 more"
+
+This is okay, but add pagination.
+
+Commands:
+- /routecheck
+- /routecheck 1
+- /routecheck 2
+- /routecheck 3
+
+Each page under 250 chars.
+
+Message:
+"Unlisted 1/5: /admins, /ai, /all-in..."
+"More: /routecheck 2"
+
+Also add option:
+- /routecheck poker
+- /routecheck casino
+- /routecheck admin
+
+==================================================
+PART 7: FIX MISSINGCOMMANDS PAGINATION
+==================================================
+
+/missingcommands should paginate if too many.
+
+Example:
+"Missing 1/2: /addcoins, /announce, /buyvip"
+"More: /missingcommands 2"
+
+==================================================
+PART 8: HELP REGISTRY CONSISTENCY
+==================================================
+
+If a command is in help, it must be routed.
+
+If a command is routed but not in help, either:
+- add it to the correct help menu, or
+- mark it hidden/internal so /routecheck does not count it.
+
+Add hidden/internal flag to command registry:
+- hidden = true
+
+Use hidden = true for debug/internal commands if needed.
+
+==================================================
+PART 9: UNKNOWN COMMAND FALLBACK
+==================================================
+
+Keep unknown command response:
+"Unknown command. Type /help."
+
+But commands that start with known families should give better help:
+- /vip unknown:
+"Use /viphelp."
+- /poker unknown:
+"Unknown poker command. /phelp"
+- /bj unknown:
+"Unknown BJ command. /bjhelp"
+- /rbj unknown:
+"Unknown RBJ command. /rbjhelp"
+
+==================================================
+PART 10: TESTS
+==================================================
+
+After implementation test:
+
+/checkhelp
+Expected:
+No unknown command.
+
+/commandtest /addvip
+Expected:
+route YES | help YES | handler YES
+
+/addvip 4ktreyMarion
+Expected:
+VIP added or already VIP.
+
+/vipshop
+/buyvip
+/reporthelp
+/addcoins 4ktreyMarion 1000
+/removecoins 4ktreyMarion 1000
+/announce Test announcement
+/announce_subs Test subscriber announcement
+/dmnotify 4ktreyMarion Test DM
+/eventstart double_xp
+/eventstop
+
+/checkcommands
+Expected:
+Missing count lower.
+Silent risk lower.
+
+/missingcommands
+/routecheck
+/silentcheck
+
+Final requirement:
+No command should show route YES in /commandtest but still be Unknown when typed.

@@ -297,11 +297,12 @@ ADMIN_ONLY_CMDS = {
     "addcoins", "removecoins",
     "addmanager", "removemanager",
     "addmoderator", "removemoderator",
+    "addvip", "removevip", "vips",
     "bankblock", "bankunblock",
     "ledger",
     "profileadmin", "resetprofileprivacy",
     "allcommands",
-    "checkcommands",
+    "checkcommands", "checkhelp",
     "missingcommands", "routecheck", "silentcheck", "commandtest",
     "setdailycoins", "setgamereward", "settransferfee",
     "eventstart", "eventstop",
@@ -1899,6 +1900,14 @@ class HangoutBot(BaseBot):
                 await handle_adminlogs(self, user, args)
             elif cmd == "checkhelp":
                 await _audit_checkhelp(self, user, ALL_KNOWN_COMMANDS)
+            elif cmd == "announce_subs":
+                await handle_announce_subs(self, user, args)
+            elif cmd == "dmnotify":
+                await handle_dmnotify(self, user, args)
+            elif cmd == "eventstart":
+                await handle_startevent(self, user, args)
+            elif cmd == "eventstop":
+                await handle_stopevent(self, user)
 
             else:
                 await handle_admin_command(self, user, cmd, args)
@@ -2274,6 +2283,18 @@ class HangoutBot(BaseBot):
         elif cmd == "vipstatus":
             await handle_vipstatus(self, user, args)
 
+        elif cmd == "vipshop":
+            await self.highrise.send_whisper(
+                user.id,
+                "💎 VIP: exclusive perks, gold rain, priority events. Contact an admin to purchase. /vipstatus to check yours."[:249]
+            )
+
+        elif cmd == "buyvip":
+            await self.highrise.send_whisper(
+                user.id,
+                "💎 To buy VIP, contact an owner or admin. /vipstatus to check your current status."[:249]
+            )
+
         elif cmd == "viphelp":
             await _handle_viphelp(self, user, args)
 
@@ -2589,6 +2610,14 @@ class HangoutBot(BaseBot):
                 await self.highrise.send_whisper(user.id, "Gold commands are staff only.")
             elif cmd in STAFF_CMDS and not can_moderate(user.username):
                 await self.highrise.send_whisper(user.id, "Staff command unavailable. Type /help.")
+            elif cmd.startswith("vip"):
+                await self.highrise.send_whisper(user.id, "Unknown VIP command. Try /viphelp.")
+            elif cmd.startswith("poker") or cmd in {"pp", "pj", "pt", "ph", "po"}:
+                await self.highrise.send_whisper(user.id, "Unknown poker command. Try /phelp.")
+            elif cmd.startswith("bj") or cmd in {"bjoin", "bh", "bs", "bd", "bsp", "bt"}:
+                await self.highrise.send_whisper(user.id, "Unknown BJ command. Try /bjhelp.")
+            elif cmd.startswith("rbj") or cmd in {"rjoin", "rh", "rs", "rd", "rsp", "rt"}:
+                await self.highrise.send_whisper(user.id, "Unknown RBJ command. Try /rbjhelp.")
             else:
                 await self.highrise.send_whisper(user.id, "Unknown command. Type /help.")
 
