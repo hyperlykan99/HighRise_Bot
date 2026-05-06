@@ -140,4 +140,12 @@ Casino games (Blackjack, Realistic Blackjack, Poker), DJ queue, token economy, d
 - AI log helpers: `db.ai_get_logs(username_key, limit)` / `db.ai_clear_logs()`.
 - AI pending actions: `db.ai_create_pending()`, `db.ai_get_pending(code)`, `db.ai_confirm_pending(code)`, `db.ai_cancel_pending(code)`.
 - AI commands (all owned by host bot): `/assistant on|off`, `/assistantstatus`, `/aimode [strict|assistant|diagnostic|autopilot]`, `/aisettings`, `/aiset <key> <value>`, `/ailogs [user]`, `/clearailogs`, `/aiintegrity [full]`, `/confirmai <code>`, `/cancelai <code>`, `/assistanthelp [2]`.
+- Economy DB commands (banker-owned, owner/admin only): `/economydbcheck` — diagnoses users table, balance column, read test; `/economyrepair` — creates missing tables/columns idempotently, never wipes data.
+
+## Emergency-responder fix (applied)
+
+`is_emergency_responder()` now builds `_live` OUTSIDE the try block (self is always in `_live`). The priority check always runs even if `db.get_bot_instances()` throws. Removed the broken env-token fallback that deferred to host just because HOST_BOT_TOKEN is set. Now: if host has no heartbeat in DB (crashed before heartbeat task started), banker becomes emergency responder automatically.
+
+`/crashlogs` is now open to the emergency responder (no longer host/all only).
+`/bal` errors now surface the actual exception text instead of a generic message. `handle_balance` tolerates `ensure_user` DB failures (continues to `get_balance`).
 - Natural language: say "Host, help me" / "Banker, balance" / "Poker bot, show table" / "Miner, ores" — Host Bot only. Dangerous actions (ban, kick, poker closeforce, etc.) require `confirm CODE` reply within 2 minutes.

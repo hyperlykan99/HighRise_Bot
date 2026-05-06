@@ -53,6 +53,7 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "viewtx": "banker", "ledger": "banker",
     "bankblock": "banker", "bankunblock": "banker",
     "coinhelp": "banker", "bankadminhelp": "banker",
+    "economydbcheck": "banker", "economyrepair": "banker",
     "dash": "banker", "dashboard": "banker",
     # ── blackjack (Casual BJ + RBJ) ─────────────────────────────────────────
     "bj": "blackjack", "bjoin": "blackjack",
@@ -200,6 +201,7 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "addcoins": "banker", "removecoins": "banker",
     "bankstats": "banker", "banknotify": "banker",
     "bankhelp": "banker", "bankerhelp": "banker", "coinhelp": "banker",
+    "economydbcheck": "banker", "economyrepair": "banker",
     # ── host (audit / status commands) ───────────────────────────────────────
     "checkcommands": "host", "checkhelp": "host",
     "missingcommands": "host", "routecheck": "host",

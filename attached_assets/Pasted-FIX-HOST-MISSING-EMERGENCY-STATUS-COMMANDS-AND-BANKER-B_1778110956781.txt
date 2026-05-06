@@ -1,0 +1,207 @@
+FIX HOST MISSING, EMERGENCY STATUS COMMANDS, AND BANKER BALANCE DB ERROR.
+
+Current status:
+- /ping all shows security, dj, miner, poker, blackjack.
+- BankingBot responds to /bal but says:
+  "Balance unavailable. Staff: /crashlogs latest"
+- /startupstatus does not respond.
+- /missingbots does not respond.
+- /help does not respond because Host is missing.
+
+Goal:
+1. Make /startupstatus and /missingbots respond even without Host.
+2. Fix /bal database/table error.
+3. Show exactly why Host Bot is missing.
+4. Keep SAFE_BOOT on.
+5. Do not touch poker/blackjack/mining game logic.
+
+==================================================
+PART 1: EMERGENCY STATUS COMMANDS MUST WORK
+==================================================
+
+These commands must be handled before the normal router by any running project bot:
+
+/startupstatus
+/missingbots
+/crashlogs latest
+/safeboot status
+
+Do not require Host.
+
+Emergency responder priority:
+1. host
+2. banker
+3. poker
+4. blackjack
+5. miner
+6. security
+7. dj
+
+If Host is missing, BankingBot should respond.
+
+Expected:
+/startupstatus
+"Started: banker,poker,blackjack,miner,security,dj | Missing: host,shop,event"
+
+/missingbots
+"Missing: host,shop,event"
+
+If Host token exists but failed:
+"Missing: host crashed startup. Check /crashlogs latest"
+
+==================================================
+PART 2: DIAGNOSE HOST TOKEN
+==================================================
+
+On startup, console must print:
+
+[CONFIG] HOST_BOT_TOKEN found/missing
+[CONFIG] HOST_BOT_TOKEN empty yes/no
+[CONFIG] HOST_BOT_TOKEN duplicate yes/no
+[CONFIG] HOST_BOT_TOKEN starting as id=host mode=host
+[CONFIG] Host skipped/crashed reason=<reason>
+
+Never print token value.
+
+If HOST_BOT_TOKEN exists:
+- Start as id=host mode=host.
+- Do not start BOT_TOKEN.
+- Do not assign Host as eventhost.
+
+If HOST_BOT_TOKEN missing:
+- If BOT_TOKEN exists, start BOT_TOKEN as host fallback.
+- If both missing, /missingbots should say host missing token.
+
+==================================================
+PART 3: FIX /BAL DATABASE ERROR
+==================================================
+
+BankingBot is receiving /bal, but DB lookup fails.
+
+Fix /bal so it safely handles missing economy tables/columns.
+
+Check/create required tables without wiping data:
+
+players:
+- username_key TEXT PRIMARY KEY
+- display_name TEXT
+- coins INTEGER DEFAULT 0
+- event_coins INTEGER DEFAULT 0
+- exp INTEGER DEFAULT 0
+- level INTEGER DEFAULT 1
+- created_at TEXT
+- updated_at TEXT
+
+economy_transactions:
+- id INTEGER PRIMARY KEY AUTOINCREMENT
+- timestamp TEXT
+- username_key TEXT
+- display_name TEXT
+- type TEXT
+- amount INTEGER
+- balance_after INTEGER
+- details TEXT
+- actor TEXT
+
+If your project uses another existing player/economy table, do not replace it.
+Instead:
+- detect existing table
+- migrate missing columns safely
+- keep existing balances
+
+/bal behavior:
+1. Normalize username.
+2. Ensure player row exists.
+3. If missing, create row with default starting coins from settings.
+4. Return:
+"💰 Balance: 1,000c"
+
+/bal must not crash if:
+- player row missing
+- coins column missing
+- table missing
+- display name missing
+
+If DB error still happens:
+- log exact error to bot_crash_logs
+- reply:
+"Balance DB error: <short reason>"
+
+==================================================
+PART 4: ADD /ECONOMYDBCHECK
+==================================================
+
+Add emergency Banker command:
+
+/economydbcheck
+
+Owner/admin only.
+
+Checks:
+- DB path
+- players table exists
+- coins column exists
+- can create test-safe read transaction
+- can read current user balance
+
+Reply:
+"Economy DB: OK | players OK | coins OK"
+
+If fail:
+"Economy DB fail: missing players.coins"
+
+==================================================
+PART 5: ADD /ECONOMYREPAIR
+==================================================
+
+Add Banker command:
+
+/economyrepair
+
+Owner/admin only.
+
+Behavior:
+- create missing economy tables
+- add missing columns using ALTER TABLE
+- do not wipe existing data
+- do not reset balances
+- create missing player rows only when needed
+
+Reply:
+"✅ Economy DB repaired."
+
+==================================================
+PART 6: CRASH LOGS MUST WORK WITHOUT HOST
+==================================================
+
+/crashlogs latest must be handled by emergency responder.
+
+If latest crash is from /bal, show:
+"Latest: banker /bal DB error: missing table players"
+
+Keep under 250 chars.
+
+==================================================
+PART 7: TESTS
+==================================================
+
+After update and restart, run:
+
+/startupstatus
+/missingbots
+/crashlogs latest
+/economydbcheck
+/economyrepair
+/bal
+/ping all
+
+Expected:
+- /startupstatus replies even without Host.
+- /missingbots replies even without Host.
+- /economydbcheck explains DB issue or says OK.
+- /economyrepair fixes missing tables/columns.
+- /bal shows your balance.
+- /ping all still shows correct bot modes.
+
+Final requirement:
+Even if Host Bot is missing, Banker must support /bal, /economydbcheck, /economyrepair, /startupstatus, /missingbots, and /crashlogs latest.

@@ -63,7 +63,11 @@ async def handle_balance(bot: BaseBot, user: User, args: list | None = None):
     /bal             → self balance
     /bal <username>  → other player balance (privacy-aware)
     """
-    db.ensure_user(user.id, user.username)
+    try:
+        db.ensure_user(user.id, user.username)
+    except Exception as _eu:
+        print(f"[ECONOMY] ensure_user failed for {user.username}: {_eu}")
+        # Continue — user row may already exist; get_balance will handle it
 
     raw_target = args[1].lstrip("@").strip() if args and len(args) > 1 else None
 
@@ -216,3 +220,116 @@ async def handle_xp_leaderboard(bot: BaseBot, user: User):
             f"  #{entry['rank']}  {entry['username']}  —  Lv {entry['level']}  ({entry['xp']} XP)"
         )
     await bot.highrise.send_whisper(user.id, "\n".join(lines))
+
+
+# ---------------------------------------------------------------------------
+# Economy DB check
+# ---------------------------------------------------------------------------
+
+async def handle_economy_dbcheck(bot: BaseBot, user: User):
+    """
+    /economydbcheck — owner/admin only.
+    Diagnoses economy DB: path, users table, balance column, read test.
+    """
+    from modules.permissions import is_owner as _io, is_admin as _ia
+    if not _io(user.username) and not _ia(user.username):
+        await bot.highrise.send_whisper(user.id, "Owner/admin only.")
+        return
+    issues: list[str] = []
+    ok_parts: list[str] = []
+    try:
+        conn = db.get_connection()
+        ok_parts.append(f"path={config.DB_PATH}")
+        tables = {r[0] for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        ).fetchall()}
+        if "users" not in tables:
+            issues.append("missing table users")
+        else:
+            ok_parts.append("users OK")
+            cols = {r[1] for r in conn.execute("PRAGMA table_info(users)").fetchall()}
+            if "balance" not in cols:
+                issues.append("missing users.balance")
+            else:
+                ok_parts.append("balance OK")
+            try:
+                conn.execute(
+                    "SELECT balance FROM users WHERE user_id = ?", (user.id,)
+                ).fetchone()
+                ok_parts.append("read OK")
+            except Exception as _re:
+                issues.append(f"read fail: {_re}")
+        conn.close()
+    except Exception as _dbe:
+        issues.append(f"connect fail: {_dbe}")
+    if issues:
+        await bot.highrise.send_whisper(
+            user.id, f"Economy DB fail: {', '.join(issues)}"[:249])
+    else:
+        await bot.highrise.send_whisper(
+            user.id, f"Economy DB: OK | {' | '.join(ok_parts)}"[:249])
+
+
+# ---------------------------------------------------------------------------
+# Economy DB repair
+# ---------------------------------------------------------------------------
+
+async def handle_economy_repair(bot: BaseBot, user: User):
+    """
+    /economyrepair — owner/admin only.
+    Creates missing economy tables and adds missing columns.
+    Does NOT wipe data or reset balances.
+    """
+    from modules.permissions import is_owner as _io, is_admin as _ia
+    if not _io(user.username) and not _ia(user.username):
+        await bot.highrise.send_whisper(user.id, "Owner/admin only.")
+        return
+    try:
+        conn = db.get_connection()
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                user_id              TEXT PRIMARY KEY,
+                username             TEXT NOT NULL,
+                balance              INTEGER NOT NULL DEFAULT 0
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS daily_claims (
+                user_id    TEXT PRIMARY KEY,
+                last_claim TEXT NOT NULL
+            )
+        """)
+        _add_cols = [
+            ("xp",                "INTEGER NOT NULL DEFAULT 0"),
+            ("level",             "INTEGER NOT NULL DEFAULT 1"),
+            ("total_games_won",   "INTEGER NOT NULL DEFAULT 0"),
+            ("total_coins_earned","INTEGER NOT NULL DEFAULT 0"),
+            ("equipped_badge",    "TEXT"),
+            ("equipped_title",    "TEXT"),
+            ("equipped_badge_id", "TEXT"),
+            ("equipped_title_id", "TEXT"),
+            ("first_seen",        "TEXT"),
+            ("tip_coins_earned",  "INTEGER NOT NULL DEFAULT 0"),
+        ]
+        existing = {r[1] for r in conn.execute("PRAGMA table_info(users)").fetchall()}
+        added: list[str] = []
+        for col_name, col_def in _add_cols:
+            if col_name not in existing:
+                try:
+                    conn.execute(
+                        f"ALTER TABLE users ADD COLUMN {col_name} {col_def}"
+                    )
+                    added.append(col_name)
+                except Exception:
+                    pass
+        conn.commit()
+        conn.close()
+        if added:
+            await bot.highrise.send_whisper(
+                user.id,
+                f"Economy DB repaired. Added: {', '.join(added)}"[:249])
+        else:
+            await bot.highrise.send_whisper(user.id, "Economy DB OK — no repairs needed.")
+    except Exception as _e:
+        await bot.highrise.send_whisper(
+            user.id, f"Repair failed: {str(_e)[:180]}"[:249])

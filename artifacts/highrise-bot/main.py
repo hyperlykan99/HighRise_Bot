@@ -38,6 +38,7 @@ import config
 from economy import (
     handle_balance, handle_daily, handle_leaderboard,
     handle_profile, handle_level, handle_xp_leaderboard,
+    handle_economy_dbcheck, handle_economy_repair,
 )
 from games        import handle_game_command, handle_answer as games_handle_answer
 from admin        import handle_admin_command
@@ -534,6 +535,7 @@ ALL_KNOWN_COMMANDS = (
         "shophelp", "progresshelp", "bankhelp", "bankerhelp", "eventhelp",
         "bjhelp", "rbjhelp", "rephelp", "autohelp",
         "casinoadminhelp", "bankadminhelp",
+        "economydbcheck", "economyrepair",
         "audithelp", "reporthelp", "maintenancehelp",
         "viphelp", "tiphelp", "roleshelp",
         "staffhelp", "modhelp", "managerhelp", "adminhelp", "ownerhelp",
@@ -1944,10 +1946,10 @@ def is_emergency_responder() -> bool:
     Priority order: host > banker > poker > blackjack > miner > security > dj > shop > event.
 
     Algorithm:
-      1. Try the DB bot_instances table — pick the first priority-mode bot
-         whose heartbeat is within the last 60 s.
-      2. Always include the current bot as "live" (we are running right now).
-      3. If DB is unavailable, fall back to env-token presence.
+      1. Build a live-set by querying bot_instances (60 s window).
+         Self is always included regardless of DB availability.
+      2. First priority-mode found in the live-set wins.
+      3. DB errors only affect which OTHER bots appear live; self is always live.
     """
     _PRIORITY = [
         ("host",       "HOST_BOT_TOKEN"),
@@ -1962,10 +1964,10 @@ def is_emergency_responder() -> bool:
     ]
     my_mode = config.BOT_MODE.lower()
 
-    # ── DB liveness check (preferred) ────────────────────────────────────────
+    # ── Build live-set — self is always included ──────────────────────────────
+    _live: set[str] = {my_mode}
     try:
         from datetime import datetime as _dter, timezone as _tzer
-        _live: set[str] = {my_mode}               # always include self
         for _inst in db.get_bot_instances():
             if _inst.get("status") != "online":
                 continue
@@ -1980,18 +1982,15 @@ def is_emergency_responder() -> bool:
                     _live.add(_inst.get("bot_mode", "").lower())
             except Exception:
                 pass
-        for _mode, _tok in _PRIORITY:
-            if _mode in _live:
-                return _mode == my_mode
     except Exception:
-        pass
+        pass  # DB unavailable — only self is considered live
 
-    # ── Fallback: env-token presence ─────────────────────────────────────────
+    # ── First priority-mode in the live-set responds ─────────────────────────
     for _mode, _tok in _PRIORITY:
-        if os.environ.get(_tok, "") or _mode == my_mode:
+        if _mode in _live:
             return _mode == my_mode
 
-    return True  # no other bot configured — this bot responds
+    return True  # no priority mode found — this bot responds
 
 
 # ---------------------------------------------------------------------------
@@ -2475,8 +2474,8 @@ class HangoutBot(BaseBot):
                     print(f"[CMD ERROR] startupstatus: {_sse}")
             return
 
-        # /crashlogs — emergency read before router; host only
-        if cmd == "crashlogs" and BOT_MODE in ("host", "all"):
+        # /crashlogs — emergency read before router; host or emergency responder
+        if cmd == "crashlogs" and (BOT_MODE in ("host", "all") or is_emergency_responder()):
             try:
                 _show_latest = len(args) > 1 and args[1].lower() == "latest"
                 try:
@@ -3094,10 +3093,11 @@ class HangoutBot(BaseBot):
             try:
                 await handle_balance(self, user, args)
             except Exception as _bale:
+                _bale_str = str(_bale)[:120]
                 print(f"[CMD ERROR] balance: {_bale}")
                 try:
                     await self._safe_send(user.id,
-                        "Balance unavailable. Staff: /crashlogs latest"[:249])
+                        f"Balance error: {_bale_str}"[:249])
                 except Exception:
                     pass
 
@@ -3584,6 +3584,12 @@ class HangoutBot(BaseBot):
 
         elif cmd == "bankadminhelp":
             await _handle_bankadminhelp(self, user, args)
+
+        elif cmd == "economydbcheck":
+            await handle_economy_dbcheck(self, user)
+
+        elif cmd == "economyrepair":
+            await handle_economy_repair(self, user)
 
         elif cmd == "staffhelp":
             await _handle_staffhelp(self, user)
