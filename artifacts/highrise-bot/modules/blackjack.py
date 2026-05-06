@@ -55,8 +55,11 @@ def _hand_key(username: str, idx: int) -> str:
     return f"{username}_h{idx}"
 
 
-def _make_hand(bet: int) -> dict:
-    return {"cards": [], "bet": bet, "status": "active", "doubled": False}
+def _make_hand(bet: int, from_split: bool = False) -> dict:
+    return {
+        "cards": [], "bet": bet, "status": "active",
+        "doubled": False, "from_split": from_split,
+    }
 
 
 # ─── In-memory state ─────────────────────────────────────────────────────────
@@ -454,7 +457,8 @@ async def _finalize_round(bot: BaseBot):
 
                 if result_parts:
                     net_str = f"+{total_net:,}c" if total_net >= 0 else f"{total_net:,}c"
-                    summary = f"@{p.username}: {' | '.join(result_parts)} ({net_str})"
+                    inner   = " | ".join(result_parts)
+                    summary = f"@{p.username}: {inner} | Net {net_str}"
                     await bot.highrise.chat(summary[:249])
 
             except Exception as exc:
@@ -886,11 +890,19 @@ async def _cmd_hand(bot: BaseBot, user: User):
     if p is None:
         await bot.highrise.send_whisper(user.id, "You are not in BJ.")
         return
-    parts = [
-        f"H{i+1} {hand_str(h['cards'])}={hand_value(h['cards'])} {h['status']}"
-        for i, h in enumerate(p.hands)
-    ]
-    await bot.highrise.send_whisper(user.id, f"Your BJ: {' | '.join(parts)}"[:249])
+    parts = []
+    for i, h in enumerate(p.hands):
+        val = hand_value(h["cards"])
+        st  = h["status"]
+        if st == "active" and i != p.active_hand_idx:
+            st = "wait"
+        parts.append(f"H{i+1} {hand_str(h['cards'])}={val} {st}")
+    msg = f"BJ: {' | '.join(parts)}"
+    if len(msg) <= 249:
+        await bot.highrise.send_whisper(user.id, msg)
+    else:
+        for part in parts:
+            await bot.highrise.send_whisper(user.id, f"BJ {part}"[:249])
 
 
 async def _cmd_hit(bot: BaseBot, user: User):
@@ -1053,40 +1065,65 @@ async def _cmd_split(bot: BaseBot, user: User):
     idx            = p.active_hand_idx
     p.hands.pop(idx)
 
-    hand_a = _make_hand(split_bet)
+    hand_a = _make_hand(split_bet, from_split=True)
     hand_a["cards"].append(card_a)
-    hand_b = _make_hand(split_bet)
+    hand_b = _make_hand(split_bet, from_split=True)
     hand_b["cards"].append(card_b)
     p.hands.insert(idx, hand_b)
     p.hands.insert(idx, hand_a)
     p.split_count += 1
 
+    # Deal one new card to each split hand and save immediately
     new_card_a = _state.deck.pop()
-    new_card_b = _state.deck.pop()
     p.hands[idx]["cards"].append(new_card_a)
+    new_card_b = _state.deck.pop()
     p.hands[idx + 1]["cards"].append(new_card_b)
 
     split_aces = int(s.get("bj_split_aces_one_card", 1))
     is_aces    = (r1 == "A")
 
+    val_a   = hand_value(p.hands[idx]["cards"])
+    val_b   = hand_value(p.hands[idx + 1]["cards"])
+    cards_a = hand_str(p.hands[idx]["cards"])
+    cards_b = hand_str(p.hands[idx + 1]["cards"])
+
     if is_aces and split_aces:
         p.hands[idx]["status"]     = "stood"
         p.hands[idx + 1]["status"] = "stood"
         p.active_hand_idx = idx + 2
-        await bot.highrise.chat(
-            f"✂️ @{p.username} splits Aces. One card each — both stand."
-        )
+        _save_player_state(p)
+        _save_table_state()
+        await bot.highrise.chat(f"✂️ @{p.username} splits Aces. One card each.")
+        h1_str = f"H{idx+1}: {cards_a}={val_a} stood"
+        h2_str = f"H{idx+2}: {cards_b}={val_b} stood"
+        line   = f"{h1_str} | {h2_str}"
+        if len(line) > 240:
+            await bot.highrise.chat(h1_str[:249])
+            await bot.highrise.chat(h2_str[:249])
+        else:
+            await bot.highrise.chat(line[:249])
     else:
         p.active_hand_idx = idx
-        val_a = hand_value(p.hands[idx]["cards"])
-        val_b = hand_value(p.hands[idx + 1]["cards"])
-        await bot.highrise.chat(
-            f"✂️ @{p.username} splits {r1}s. "
-            f"H{idx+1}: {val_a}  H{idx+2}: {val_b}. Bet: {split_bet:,}c each."
-        )
+        # Auto-stand if either split hand hits 21 on deal
+        if val_a == 21:
+            p.hands[idx]["status"] = "stood"
+            p.advance_hand()
+        if val_b == 21:
+            p.hands[idx + 1]["status"] = "stood"
+        stat_a = "stood" if val_a == 21 else "active"
+        stat_b = "stood" if val_b == 21 else "wait"
+        _save_player_state(p)
+        _save_table_state()
+        await bot.highrise.chat(f"✂️ @{p.username} splits {r1}s.")
+        h1_str = f"H{idx+1}: {cards_a}={val_a} {stat_a}"
+        h2_str = f"H{idx+2}: {cards_b}={val_b} {stat_b}"
+        line   = f"{h1_str} | {h2_str}"
+        if len(line) > 240:
+            await bot.highrise.chat(h1_str[:249])
+            await bot.highrise.chat(h2_str[:249])
+        else:
+            await bot.highrise.chat(line[:249])
 
-    _save_player_state(p)
-    _save_table_state()
     await _check_and_resolve(bot)
 
 

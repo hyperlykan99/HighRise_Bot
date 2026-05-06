@@ -1,0 +1,300 @@
+Fix BJ/RBJ split dealing behavior.
+
+Problem:
+When I split cards in RBJ, the bot says:
+"@user splits Aces. One card each — both stand."
+
+But it does not clearly draw/show one new card for each split hand like real blackjack.
+
+Example issue:
+Original hand: A♥ A♠
+After /rsp, it should become:
+H1: A♥ + new card
+H2: A♠ + new card
+
+Goal:
+When a player splits, the bot must deal the correct new card/cards to each split hand, save them, show the updated hands, and resolve correctly.
+
+IMPORTANT:
+- Apply to both BJ and RBJ.
+- Do not remove existing features.
+- Keep simultaneous action mode.
+- Keep RBJ shoe saving.
+- Keep recovery system.
+- Keep double/split/action timer.
+- Use SQLite.
+- Keep messages under 250 characters.
+- Prevent crashes from bad inputs.
+- Add explicit routing before unknown-command fallback.
+
+==================================================
+PART 1: REAL SPLIT DEALING
+==================================================
+
+When player uses:
+- /bj split
+- /bsp
+- /bj split aliases
+- /rbj split
+- /rsp
+- /rbj split aliases
+
+And the hand is splittable:
+
+1. Take the two original cards.
+Example:
+A♥ A♠
+
+2. Create two separate hands:
+H1 starts with A♥
+H2 starts with A♠
+
+3. Deduct an additional bet equal to the original hand bet.
+
+4. Deal one new card to H1.
+
+5. Deal one new card to H2.
+
+6. Save both hands immediately.
+
+7. For RBJ:
+- remove both new cards from shoe_json
+- save shoe_json immediately after each dealt card
+- update shoe_cards_remaining
+
+8. Show the new split hands clearly.
+
+Message example:
+"✂️ @user splits Aces."
+Then:
+"H1: A♥ 9♣ = 20 | H2: A♠ 5♦ = 16"
+
+If message is too long:
+"✂️ Split done. Use /rhand."
+
+==================================================
+PART 2: SPLIT ACES RULE
+==================================================
+
+For split Aces, use the common casino rule:
+
+If split_aces_one_card = ON:
+- Deal exactly one card to each Ace hand.
+- Both hands automatically stand.
+- Do NOT allow more hits on split Ace hands.
+- Then if all player hands are done, dealer resolves.
+
+Message:
+"✂️ @user splits Aces. One card each."
+"H1: A♥ 9♣ = 20 stood | H2: A♠ 5♦ = 16 stood"
+
+If split_aces_one_card = OFF:
+- Deal one card to each hand.
+- Player may continue acting on each hand normally.
+
+Commands must exist:
+- /bj splitaces on
+- /bj splitaces off
+- /rbj splitaces on
+- /rbj splitaces off
+
+Meaning:
+- ON = one-card split Aces rule active
+- OFF = player can continue playing split Aces
+
+Default:
+- split_aces_one_card = true
+
+==================================================
+PART 3: NON-ACE SPLITS
+==================================================
+
+For normal pair split, like 8♠ 8♦:
+
+After split:
+- H1: 8♠ + new card
+- H2: 8♦ + new card
+- Player continues with H1 first.
+- H2 waits until H1 is stood/busted/doubled.
+- /rhand or /bhand should show both hands and active hand.
+
+Example message:
+"✂️ @user splits 8s."
+"H1: 8♠ 3♥ = 11 active | H2: 8♦ K♣ = 18 waiting"
+
+If H1 reaches 21 after the new card:
+- auto-stand H1
+- move to H2 if H2 is playable
+
+If H1 busts later:
+- move to H2
+
+If both hands are done:
+- player is done
+- if all players done, dealer resolves
+
+==================================================
+PART 4: ACTIVE HAND INDEX
+==================================================
+
+Make sure split hands track active_hand_index.
+
+Player state should include:
+- hands list
+- active_hand_index
+- split_count
+
+Each hand should include:
+- cards
+- bet
+- status
+  active, waiting, stood, busted, doubled, blackjack, done
+- from_split true/false
+- split_aces true/false
+
+Rules:
+- Only one hand should be active at a time for a player.
+- Other split hands should be waiting.
+- When current hand finishes, move to next waiting hand.
+- If no waiting hands remain, player is done.
+
+==================================================
+PART 5: /RHAND AND /BHAND DISPLAY
+==================================================
+
+Update:
+- /rhand
+- /rbj hand
+- /rbjhand
+- /bhand
+- /bj hand
+- /bjhand
+
+They must show all split hands.
+
+Example:
+"RBJ: H1 A♥ 9♣=20 stood | H2 A♠ 5♦=16 stood"
+
+For normal split:
+"RBJ: H1 8♠ 3♥=11 active | H2 8♦ K♣=18 wait"
+
+If too long:
+Split into multiple messages:
+"RBJ H1: 8♠ 3♥ = 11 active"
+"RBJ H2: 8♦ K♣ = 18 waiting"
+
+==================================================
+PART 6: PAYOUT FIX FOR SPLIT HANDS
+==================================================
+
+Each split hand must resolve independently.
+
+Example:
+Original bet: 10,000c
+Split creates:
+H1 bet: 10,000c
+H2 bet: 10,000c
+
+If both win:
+- H1 win +10,000c
+- H2 win +10,000c
+
+Make sure final summary does not double-count incorrectly.
+
+Good message:
+"@user: H1 win +10,000c | H2 win +10,000c"
+
+Avoid confusing message:
+"H1 win +10,000c | H2 win +10,000c (+10,000c)"
+unless the final parenthesis is total net:
+"Total +20,000c"
+
+Preferred:
+"@user: H1 +10,000c | H2 +10,000c | Net +20,000c"
+
+If one loses:
+"@user: H1 +10,000c | H2 -10,000c | Net 0c"
+
+If push:
+"@user: H1 push | H2 +10,000c | Net +10,000c"
+
+==================================================
+PART 7: VALIDATION BEFORE DEALER RESOLVES
+==================================================
+
+Before dealer plays, validate all split hands.
+
+Do not resolve dealer if:
+- a split hand has only 1 card
+- a non-ace split hand is still waiting/active
+- player has missing hand data
+
+If missing split card:
+- pause and repair if possible
+- if repair impossible, refund affected split hand
+- do not count it as a loss
+
+Message:
+"⚠️ Split hand error. Bet refunded."
+
+==================================================
+PART 8: RBJ SHOE SAFETY
+==================================================
+
+For RBJ:
+- Every card dealt during split must come from the saved shoe.
+- Remove card from shoe_json immediately.
+- Save shoe_json after each card.
+- Do not regenerate a new shoe during split.
+- /rshoe should show correct remaining cards.
+- Recovery should restore split hands and shoe exactly.
+
+On crash/restart:
+- Split hands must restore correctly.
+- If player had H1/H2, /rhand should still show both.
+- If split was in progress, continue or mark recovery_required.
+
+Message after recovery:
+"♻️ RBJ restored. Split hands loaded."
+
+==================================================
+PART 9: TESTS
+==================================================
+
+Test split Aces:
+1. Force or wait for A♥ A♠.
+2. Use /rsp.
+Expected:
+- H1 gets one new card.
+- H2 gets one new card.
+- Both hands show 2 cards.
+- If splitaces ON, both stand.
+- Dealer resolves only after both cards are dealt.
+
+Example:
+"H1 A♥ 9♣=20 stood | H2 A♠ 5♦=16 stood"
+
+Test normal split:
+1. Force or wait for 8♠ 8♦.
+2. Use /rsp.
+Expected:
+- H1 gets one card.
+- H2 gets one card.
+- H1 active, H2 waiting.
+- /rhand shows both hands.
+- Player can act on H1, then H2.
+
+Test payout:
+- H1 wins, H2 loses.
+Expected:
+- Net calculation correct.
+
+Test recovery:
+- Split a hand.
+- /softrestart.
+Expected:
+- /rhand shows same split hands.
+- RBJ shoe count is correct.
+
+Final rule:
+A split must never create a one-card hand. Each split hand must immediately receive one new card and be saved before dealer resolution.
