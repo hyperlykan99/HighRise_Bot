@@ -72,6 +72,24 @@ def _collect_bots() -> list[_BotSpec]:
     Read all bot token env vars and return a spec for every configured bot.
     Logs each detected token by env-var name (never prints the value).
     """
+    # ── Part 1: Token status report ──────────────────────────────────────────
+    _SLOT_LABELS = [
+        ("HOST_BOT_TOKEN",      "Host"),
+        ("BANKER_BOT_TOKEN",    "Banker"),
+        ("BLACKJACK_BOT_TOKEN", "Blackjack"),
+        ("POKER_BOT_TOKEN",     "Poker"),
+        ("MINER_BOT_TOKEN",     "Miner"),
+        ("SHOP_BOT_TOKEN",      "Shop"),
+        ("SECURITY_BOT_TOKEN",  "Security"),
+        ("DJ_BOT_TOKEN",        "DJ"),
+        ("EVENT_BOT_TOKEN",     "Event"),
+    ]
+    for _te, _lbl in _SLOT_LABELS:
+        if os.environ.get(_te, ""):
+            print(f"[CONFIG] {_te} found")
+        else:
+            print(f"[CONFIG] {_te} missing. {_lbl} commands unavailable.")
+
     specs: list[_BotSpec] = []
 
     # ── Primary / main bot ────────────────────────────────────────────────
@@ -86,13 +104,15 @@ def _collect_bots() -> list[_BotSpec]:
         primary_env   = None
         primary_token = ""
 
-    # If HOST_BOT_TOKEN is set, the legacy BOT_TOKEN/MAIN_BOT_TOKEN is suppressed.
-    # This prevents a TestDJBot (or any other legacy single-bot account) from
-    # running in parallel and acting as host when a dedicated host is configured.
+    # If HOST_BOT_TOKEN is set, suppress the legacy BOT_TOKEN/MAIN_BOT_TOKEN.
+    # This prevents a legacy account (e.g. TestDJBot) from acting as host when
+    # a dedicated host bot is configured.
     if primary_token and primary_env in ("BOT_TOKEN", "MAIN_BOT_TOKEN"):
         if os.environ.get("HOST_BOT_TOKEN", ""):
-            print(f"[RUNNER] HOST_BOT_TOKEN found. Ignoring legacy {primary_env}.")
+            print(f"[RUNNER] HOST_BOT_TOKEN found. Legacy {primary_env} ignored.")
             primary_token = ""
+        else:
+            print(f"[RUNNER] HOST_BOT_TOKEN missing. {primary_env} used as host fallback.")
 
     if primary_token:
         spec = _BotSpec(
@@ -123,18 +143,24 @@ def _collect_bots() -> list[_BotSpec]:
         specs.append(spec)
 
     # ── Duplicate token / bot_id detection ───────────────────────────────────
-    seen_tokens: set[str] = set()
-    seen_ids:    set[str] = set()
+    # seen_* maps value → token_env of the first spec that claimed it, so we can
+    # name BOTH the winner and the duplicate in the log message.
+    seen_tokens: dict[str, str] = {}   # token_value  → token_env of winner
+    seen_ids:    dict[str, str] = {}   # bot_id        → token_env of winner
     deduped: list[_BotSpec] = []
     for s in specs:
         if s.token in seen_tokens:
-            print(f"[RUNNER] duplicate token for {s.label} skipped")
+            orig = seen_tokens[s.token]
+            print(f"[CONFIG] DUPLICATE TOKEN: {s.token_env} has same value as {orig}. "
+                  f"Skipping {s.label} ({s.token_env}).")
             continue
         if s.bot_id in seen_ids:
-            print(f"[RUNNER] duplicate bot_id '{s.bot_id}' for {s.label} skipped")
+            orig = seen_ids[s.bot_id]
+            print(f"[CONFIG] DUPLICATE BOT_ID '{s.bot_id}': {s.token_env} conflicts with "
+                  f"{orig}. Skipping {s.label}.")
             continue
-        seen_tokens.add(s.token)
-        seen_ids.add(s.bot_id)
+        seen_tokens[s.token] = s.token_env
+        seen_ids[s.bot_id]   = s.token_env
         deduped.append(s)
     specs = deduped
 

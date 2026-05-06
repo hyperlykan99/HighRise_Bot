@@ -1187,18 +1187,55 @@ async def handle_modulestartup(bot, user, args: list[str]) -> None:
 
 async def handle_startupstatus(bot, user) -> None:
     """
-    /startupstatus
-    Shows current startup announce settings for Host and modules.
+    /startupstatus — any bot can answer; zero DB; zero routing required.
+    Shows which bots started (token present) vs missing (no token).
     """
-    try:
-        host_val = db.get_room_setting("bot_startup_announce_enabled", "false")
-        mod_val = db.get_room_setting("module_startup_announce_enabled", "false")
-    except Exception:
-        await _w(bot, user.id, "DB error reading startup settings.")
-        return
-    host_lbl = "ON" if host_val == "true" else "OFF"
-    mod_lbl = "ON" if mod_val == "true" else "OFF"
-    await _w(bot, user.id, f"Startup: Host {host_lbl} | Modules {mod_lbl}")
+    import os as _oss
+    _SLOTS = [
+        ("HOST_BOT_TOKEN",      "host"),
+        ("BANKER_BOT_TOKEN",    "banker"),
+        ("BLACKJACK_BOT_TOKEN", "blackjack"),
+        ("POKER_BOT_TOKEN",     "poker"),
+        ("MINER_BOT_TOKEN",     "miner"),
+        ("SHOP_BOT_TOKEN",      "shop"),
+        ("SECURITY_BOT_TOKEN",  "security"),
+        ("DJ_BOT_TOKEN",        "dj"),
+        ("EVENT_BOT_TOKEN",     "event"),
+    ]
+    _started = [lbl for tok, lbl in _SLOTS if _oss.environ.get(tok, "")]
+    _missing = [lbl for tok, lbl in _SLOTS if not _oss.environ.get(tok, "")]
+    msg = f"Started: {', '.join(_started) or 'none'}"
+    if _missing:
+        msg += f" | Missing: {', '.join(_missing)}"
+    await _w(bot, user.id, msg[:249])
+
+
+async def handle_missingbots(bot, user) -> None:
+    """
+    /missingbots — any bot can answer; zero DB; zero routing required.
+    Shows which bot token slots are configured (running) vs missing (unavailable).
+    """
+    import os as _osm
+    _SLOTS = [
+        ("HOST_BOT_TOKEN",      "host"),
+        ("BANKER_BOT_TOKEN",    "banker"),
+        ("BLACKJACK_BOT_TOKEN", "blackjack"),
+        ("POKER_BOT_TOKEN",     "poker"),
+        ("MINER_BOT_TOKEN",     "miner"),
+        ("SHOP_BOT_TOKEN",      "shop"),
+        ("SECURITY_BOT_TOKEN",  "security"),
+        ("DJ_BOT_TOKEN",        "dj"),
+        ("EVENT_BOT_TOKEN",     "event"),
+    ]
+    _started = [lbl for tok, lbl in _SLOTS if _osm.environ.get(tok, "")]
+    _missing = [f"{lbl}(no token)" for tok, lbl in _SLOTS if not _osm.environ.get(tok, "")]
+    msg1 = f"Running: {', '.join(_started) or 'none'}"
+    await _w(bot, user.id, msg1[:249])
+    if _missing:
+        msg2 = f"Missing: {', '.join(_missing)}"
+        await _w(bot, user.id, msg2[:249])
+    else:
+        await _w(bot, user.id, "All token slots configured.")
 
 
 # Keep old handler as an alias so any existing /botstartupannounce calls still work
@@ -1346,6 +1383,7 @@ __all__ = [
     "handle_setbotmodule", "handle_setcommandowner", "handle_botfallback",
     "handle_botstartupannounce",                   # backward-compat alias
     "handle_startupannounce", "handle_modulestartup", "handle_startupstatus",
+    "handle_missingbots",
     "handle_setmainmode", "handle_multibothelp",
     "handle_taskowners", "handle_activetasks",
     "handle_taskconflicts", "handle_fixtaskowners",

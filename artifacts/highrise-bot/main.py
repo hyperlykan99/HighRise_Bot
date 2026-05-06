@@ -289,6 +289,7 @@ from modules.multi_bot import (
     handle_setbotmodule, handle_setcommandowner, handle_botfallback,
     handle_botstartupannounce, handle_multibothelp,
     handle_startupannounce, handle_modulestartup, handle_startupstatus,
+    handle_missingbots,
     handle_setmainmode,
     handle_taskowners, handle_activetasks,
     handle_taskconflicts, handle_fixtaskowners,
@@ -685,7 +686,7 @@ ALL_KNOWN_COMMANDS = (
         "botmodules", "commandowners", "multibothelp",
         "enablebot", "disablebot", "setbotmodule",
         "setcommandowner", "botfallback", "botstartupannounce",
-        "startupannounce", "modulestartup", "startupstatus",
+        "startupannounce", "modulestartup", "startupstatus", "missingbots",
         # ── Multi-bot mode control ────────────────────────────────────────────
         "setmainmode",
         # ── Bot health / deployment checks ────────────────────────────────────
@@ -1856,6 +1857,22 @@ def _ping_bot_label() -> str:
     }.get(config.BOT_MODE, config.BOT_MODE.title())
 
 
+def _token_env_for_mode() -> str:
+    """Return the env-var name that provided this bot's token (never the value itself)."""
+    return {
+        "host":       "HOST_BOT_TOKEN",
+        "banker":     "BANKER_BOT_TOKEN",
+        "blackjack":  "BLACKJACK_BOT_TOKEN",
+        "poker":      "POKER_BOT_TOKEN",
+        "miner":      "MINER_BOT_TOKEN",
+        "shopkeeper": "SHOP_BOT_TOKEN",
+        "security":   "SECURITY_BOT_TOKEN",
+        "dj":         "DJ_BOT_TOKEN",
+        "eventhost":  "EVENT_BOT_TOKEN",
+        "all":        "BOT_TOKEN",
+    }.get(config.BOT_MODE.lower(), "BOT_TOKEN")
+
+
 def _all_running_bot_ids() -> list:
     """Return sorted list of bot IDs inferred from env tokens — no DB."""
     _TOKEN_MAP = [
@@ -2230,7 +2247,9 @@ class HangoutBot(BaseBot):
                         _allowed = BOT_MODE in ("host", "all")
                     if _allowed:
                         _uname = config.BOT_USERNAME or BOT_MODE
-                        _ping_all_msg = f"pong | id={BOT_ID} | mode={BOT_MODE} | user={_uname}"
+                        _tok_src = _token_env_for_mode()
+                        _ping_all_msg = (f"pong | {_uname} | id={BOT_ID} | "
+                                         f"mode={BOT_MODE} | token={_tok_src}")
                         await self._core_send(user, _ping_all_msg[:249])
                         print(f"[CORE PING ALL] {BOT_MODE} replied")
                 else:
@@ -2319,7 +2338,11 @@ class HangoutBot(BaseBot):
                     except Exception:
                         _allowed = BOT_MODE in ("host", "all")
                     if _allowed:
-                        await self._safe_send(user.id, f"pong | {_ping_bot_label()} online")
+                        _pa_uname = config.BOT_USERNAME or BOT_MODE
+                        _pa_tok   = _token_env_for_mode()
+                        _pa_msg   = (f"pong | {_pa_uname} | id={BOT_ID} | "
+                                     f"mode={BOT_MODE} | token={_pa_tok}")
+                        await self._safe_send(user.id, _pa_msg[:249])
                 else:
                     # Normal /ping — exactly one bot responds based on priority chain
                     _resp, _reason = is_ping_responder()
@@ -2350,6 +2373,58 @@ class HangoutBot(BaseBot):
                     await self._safe_send(user.id, _po_msg[:249])
             except Exception as _poe:
                 print(f"[CMD ERROR] pingowner handler: {_poe}")
+            return
+
+        # /missingbots — emergency: any bot responds; zero DB; zero routing
+        if cmd == "missingbots":
+            try:
+                _mb_slots = [
+                    ("HOST_BOT_TOKEN",      "host"),
+                    ("BANKER_BOT_TOKEN",    "banker"),
+                    ("BLACKJACK_BOT_TOKEN", "blackjack"),
+                    ("POKER_BOT_TOKEN",     "poker"),
+                    ("MINER_BOT_TOKEN",     "miner"),
+                    ("SHOP_BOT_TOKEN",      "shop"),
+                    ("SECURITY_BOT_TOKEN",  "security"),
+                    ("DJ_BOT_TOKEN",        "dj"),
+                    ("EVENT_BOT_TOKEN",     "event"),
+                ]
+                _mb_running = [lbl for tok, lbl in _mb_slots if os.environ.get(tok, "")]
+                _mb_missing = [f"{lbl}(no token)" for tok, lbl in _mb_slots
+                               if not os.environ.get(tok, "")]
+                await self._safe_send(user.id,
+                    f"Running: {', '.join(_mb_running) or 'none'}"[:249])
+                if _mb_missing:
+                    await self._safe_send(user.id,
+                        f"Missing: {', '.join(_mb_missing)}"[:249])
+                else:
+                    await self._safe_send(user.id, "All token slots configured.")
+            except Exception as _mbe:
+                print(f"[CMD ERROR] missingbots: {_mbe}")
+            return
+
+        # /startupstatus — emergency: any bot responds; zero DB; zero routing
+        if cmd == "startupstatus":
+            try:
+                _ss_slots = [
+                    ("HOST_BOT_TOKEN",      "host"),
+                    ("BANKER_BOT_TOKEN",    "banker"),
+                    ("BLACKJACK_BOT_TOKEN", "blackjack"),
+                    ("POKER_BOT_TOKEN",     "poker"),
+                    ("MINER_BOT_TOKEN",     "miner"),
+                    ("SHOP_BOT_TOKEN",      "shop"),
+                    ("SECURITY_BOT_TOKEN",  "security"),
+                    ("DJ_BOT_TOKEN",        "dj"),
+                    ("EVENT_BOT_TOKEN",     "event"),
+                ]
+                _ss_started = [lbl for tok, lbl in _ss_slots if os.environ.get(tok, "")]
+                _ss_missing = [lbl for tok, lbl in _ss_slots if not os.environ.get(tok, "")]
+                _ss_msg = f"Started: {', '.join(_ss_started) or 'none'}"
+                if _ss_missing:
+                    _ss_msg += f" | Missing: {', '.join(_ss_missing)}"
+                await self._safe_send(user.id, _ss_msg[:249])
+            except Exception as _sse:
+                print(f"[CMD ERROR] startupstatus: {_sse}")
             return
 
         # /crashlogs — emergency read before router; host only
@@ -4230,6 +4305,8 @@ class HangoutBot(BaseBot):
             await handle_modulestartup(self, user, args)
         elif cmd == "startupstatus":
             await handle_startupstatus(self, user)
+        elif cmd == "missingbots":
+            await handle_missingbots(self, user)
         elif cmd == "multibothelp":
             await handle_multibothelp(self, user, args)
         elif cmd == "setmainmode":
