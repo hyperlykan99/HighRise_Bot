@@ -1310,6 +1310,43 @@ def _migrate_db():
         "INSERT OR IGNORE INTO room_settings (key, value) VALUES ('poker_auto_recovery_enabled', '0')",
         "INSERT OR IGNORE INTO room_settings (key, value) VALUES ('poker_cleanup_loop_enabled', '0')",
         "INSERT OR IGNORE INTO room_settings (key, value) VALUES ('poker_notes_enabled', '1')",
+        # ── AI Assistant tables ────────────────────────────────────────────────
+        "CREATE TABLE IF NOT EXISTS ai_settings ("
+        "key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '')",
+        "CREATE TABLE IF NOT EXISTS ai_action_logs ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "timestamp TEXT NOT NULL DEFAULT (datetime('now')), "
+        "username_key TEXT NOT NULL DEFAULT '', "
+        "display_name TEXT NOT NULL DEFAULT '', "
+        "original_message TEXT NOT NULL DEFAULT '', "
+        "detected_intent TEXT NOT NULL DEFAULT '', "
+        "target_module TEXT NOT NULL DEFAULT '', "
+        "command_to_run TEXT NOT NULL DEFAULT '', "
+        "safety_level INTEGER NOT NULL DEFAULT 1, "
+        "required_role TEXT NOT NULL DEFAULT '', "
+        "user_role TEXT NOT NULL DEFAULT '', "
+        "result TEXT NOT NULL DEFAULT '', "
+        "confirmed INTEGER NOT NULL DEFAULT 0, "
+        "error TEXT NOT NULL DEFAULT '')",
+        "CREATE TABLE IF NOT EXISTS ai_pending_actions ("
+        "code TEXT PRIMARY KEY, "
+        "username_key TEXT NOT NULL DEFAULT '', "
+        "display_name TEXT NOT NULL DEFAULT '', "
+        "requested_text TEXT NOT NULL DEFAULT '', "
+        "command_to_run TEXT NOT NULL DEFAULT '', "
+        "safety_level INTEGER NOT NULL DEFAULT 3, "
+        "target_module TEXT NOT NULL DEFAULT '', "
+        "created_at TEXT NOT NULL DEFAULT (datetime('now')), "
+        "expires_at TEXT NOT NULL DEFAULT '', "
+        "status TEXT NOT NULL DEFAULT 'pending')",
+        "INSERT OR IGNORE INTO ai_settings (key, value) VALUES ('assistant_wake_enabled', 'true')",
+        "INSERT OR IGNORE INTO ai_settings (key, value) VALUES ('assistant_mode', 'strict')",
+        "INSERT OR IGNORE INTO ai_settings (key, value) VALUES ('assistant_execute_safe', 'true')",
+        "INSERT OR IGNORE INTO ai_settings (key, value) VALUES ('assistant_execute_staff', 'false')",
+        "INSERT OR IGNORE INTO ai_settings (key, value) VALUES ('assistant_confirm_dangerous', 'true')",
+        "INSERT OR IGNORE INTO ai_settings (key, value) VALUES ('assistant_log_enabled', 'true')",
+        "INSERT OR IGNORE INTO ai_settings (key, value) VALUES ('assistant_parse_all_chat', 'false')",
+        "INSERT OR IGNORE INTO ai_settings (key, value) VALUES ('assistant_nlp_owner_bot_mode', 'host')",
     ]:
         try:
             conn.execute(sql)
@@ -7470,6 +7507,150 @@ def is_poker_spectator(username_key: str) -> bool:
     ).fetchone()
     conn.close()
     return row is not None
+
+
+# ---------------------------------------------------------------------------
+# AI Settings helpers
+# ---------------------------------------------------------------------------
+
+def ai_get_setting(key: str, default: str = "") -> str:
+    try:
+        conn = get_connection()
+        row = conn.execute("SELECT value FROM ai_settings WHERE key = ?", (key,)).fetchone()
+        conn.close()
+        return row[0] if row else default
+    except Exception:
+        return default
+
+
+def ai_set_setting(key: str, value: str) -> None:
+    try:
+        conn = get_connection()
+        conn.execute("INSERT OR REPLACE INTO ai_settings (key, value) VALUES (?, ?)", (key, value))
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+
+def ai_log_action(username_key: str, display_name: str, original_message: str,
+                  detected_intent: str, target_module: str, command_to_run: str,
+                  safety_level: int, required_role: str, user_role: str,
+                  result: str, confirmed: int = 0, error: str = "") -> int:
+    try:
+        conn = get_connection()
+        cur = conn.execute(
+            """INSERT INTO ai_action_logs
+               (timestamp, username_key, display_name, original_message, detected_intent,
+                target_module, command_to_run, safety_level, required_role, user_role,
+                result, confirmed, error)
+               VALUES (datetime('now'), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (username_key.lower(), display_name, original_message, detected_intent,
+             target_module, command_to_run, safety_level, required_role, user_role,
+             result, confirmed, error),
+        )
+        row_id = cur.lastrowid
+        conn.commit()
+        conn.close()
+        return row_id
+    except Exception:
+        return -1
+
+
+def ai_get_logs(username_key: str = "", limit: int = 20) -> list:
+    try:
+        conn = get_connection()
+        if username_key:
+            rows = conn.execute(
+                "SELECT * FROM ai_action_logs WHERE username_key = ? ORDER BY id DESC LIMIT ?",
+                (username_key.lower(), limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM ai_action_logs ORDER BY id DESC LIMIT ?", (limit,)
+            ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+    except Exception:
+        return []
+
+
+def ai_clear_logs() -> int:
+    try:
+        conn = get_connection()
+        cur = conn.execute("DELETE FROM ai_action_logs")
+        n = cur.rowcount
+        conn.commit()
+        conn.close()
+        return n
+    except Exception:
+        return 0
+
+
+def ai_create_pending(code: str, username_key: str, display_name: str,
+                      requested_text: str, command_to_run: str,
+                      safety_level: int, target_module: str) -> None:
+    try:
+        conn = get_connection()
+        conn.execute(
+            """INSERT OR REPLACE INTO ai_pending_actions
+               (code, username_key, display_name, requested_text, command_to_run,
+                safety_level, target_module, created_at, expires_at, status)
+               VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'),
+                       datetime('now', '+2 minutes'), 'pending')""",
+            (code, username_key.lower(), display_name, requested_text,
+             command_to_run, safety_level, target_module),
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+
+def ai_get_pending(code: str) -> dict | None:
+    try:
+        conn = get_connection()
+        row = conn.execute(
+            "SELECT * FROM ai_pending_actions WHERE code = ? AND status = 'pending' "
+            "AND expires_at > datetime('now')",
+            (code,),
+        ).fetchone()
+        conn.close()
+        return dict(row) if row else None
+    except Exception:
+        return None
+
+
+def ai_confirm_pending(code: str) -> bool:
+    try:
+        conn = get_connection()
+        cur = conn.execute(
+            "UPDATE ai_pending_actions SET status = 'confirmed' "
+            "WHERE code = ? AND status = 'pending' AND expires_at > datetime('now')",
+            (code,),
+        )
+        ok = cur.rowcount > 0
+        conn.commit()
+        conn.close()
+        return ok
+    except Exception:
+        return False
+
+
+def ai_cancel_pending(code: str) -> bool:
+    try:
+        conn = get_connection()
+        cur = conn.execute(
+            "UPDATE ai_pending_actions SET status = 'cancelled' "
+            "WHERE code = ? AND status = 'pending'",
+            (code,),
+        )
+        ok = cur.rowcount > 0
+        conn.commit()
+        conn.close()
+        return ok
+    except Exception:
+        return False
 
 
 def seed_room_settings() -> None:

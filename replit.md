@@ -41,7 +41,8 @@ artifacts/highrise-bot/
     ├── bot_modes.py        # Bot persona/outfit system
     ├── multi_bot.py        # Multi-bot management
     ├── room_utils.py       # Room utility commands
-    └── mining.py           # Mining game
+    ├── mining.py           # Mining game
+    └── assistant.py        # Personal Assistant AI (rule-based intent router)
 ```
 
 DB schema source of truth: `database.py` (`_MIGRATIONS` list + `init_db()`).
@@ -54,10 +55,11 @@ DB schema source of truth: `database.py` (`_MIGRATIONS` list + `init_db()`).
 - **Bot modes**: A system of `bot_modes` and `bot_mode_assignments` tables allows for different bot personas and message prefixes.
 - **Multi-bot system**: Features `bot_instances` for heartbeats, `bot_command_ownership` for command routing, and `bot_module_locks` for preventing race conditions in games. Auto-game ownership is managed via `autogames_owner_bot_mode` room setting.
 - **Module ownership guard**: `should_this_bot_run_module(module)` in `multi_bot.py` gates all startup recovery calls and room announce messages — only the owning bot mode runs them. `_MODULE_OWNER_MODES` defines the mapping (poker→poker, blackjack→blackjack/rbj, events→eventhost, etc.). Dedupe lock table `module_announcement_locks` provides a 5-minute cross-bot dedupe safety net via `db.acquire_module_announce_lock()`.
+- **Personal Assistant AI**: Rule-based intent router in `modules/assistant.py`. Only Host Bot (`BOT_MODE=="host"`) processes natural language. Wake phrases trigger intent detection → existing handler dispatch. Safety levels: 1=SAFE (execute), 2=STAFF (suggest in strict mode, execute in assistant/autopilot mode), 3=DANGEROUS (always confirm with 4-digit code). DB tables: `ai_settings`, `ai_action_logs`, `ai_pending_actions`. No background loops. All wrapped in try/except.
 
 ## Product
 
-Casino games (Blackjack, Realistic Blackjack, Poker), DJ queue, token economy, daily rewards, in-game shop, quests, achievements, events, subscriber DMs, leaderboards, staff management, public player profiles with privacy controls, emoji badge market, mining game, a comprehensive room utility system, a bot mode/outfit system with multiple personas, and a multi-bot system for distributed command handling and high availability. It also includes a Casino Integrity Checker for verifying game logic and card visibility.
+Casino games (Blackjack, Realistic Blackjack, Poker), DJ queue, token economy, daily rewards, in-game shop, quests, achievements, events, subscriber DMs, leaderboards, staff management, public player profiles with privacy controls, emoji badge market, mining game, a comprehensive room utility system, a bot mode/outfit system with multiple personas, and a multi-bot system for distributed command handling and high availability. It also includes a Casino Integrity Checker for verifying game logic and card visibility, and a Personal Assistant AI that responds to natural-language wake phrases.
 
 **Poker upgrade (fault-safe spec):** Leave-room auto-fold, 3-strike AFK tracking with auto-removal/refund, speed modes (`/pokermode`), buy-in/stakes modes (`/pokerstakes`), rule modes (`/pokerrules`), AI simulation (`/poker ai`), owner debug card reveal, AFK remove/sitout toggles, 8-page help. DB tables: `poker_player_presence`, `poker_afk_tracking`, `poker_ai_logs`, `poker_debug_logs`.
 
@@ -129,3 +131,8 @@ Casino games (Blackjack, Realistic Blackjack, Poker), DJ queue, token economy, d
 - Waitlist helpers: `db.add_poker_waitlist()`, `db.get_poker_waitlist()`, `db.cancel_poker_waitlist()`, `db.get_poker_waitlist_next()`.
 - Spectator helpers: `db.add_poker_spectator()`, `db.remove_poker_spectator()`, `db.get_poker_spectators()`, `db.is_poker_spectator()`.
 - Note helpers: `db.add_poker_note()`, `db.get_poker_notes()`, `db.clear_poker_notes()`.
+- AI assistant settings: `db.ai_get_setting(key, default)` / `db.ai_set_setting(key, value)`.
+- AI log helpers: `db.ai_get_logs(username_key, limit)` / `db.ai_clear_logs()`.
+- AI pending actions: `db.ai_create_pending()`, `db.ai_get_pending(code)`, `db.ai_confirm_pending(code)`, `db.ai_cancel_pending(code)`.
+- AI commands (all owned by host bot): `/assistant on|off`, `/assistantstatus`, `/aimode [strict|assistant|diagnostic|autopilot]`, `/aisettings`, `/aiset <key> <value>`, `/ailogs [user]`, `/clearailogs`, `/aiintegrity [full]`, `/confirmai <code>`, `/cancelai <code>`, `/assistanthelp [2]`.
+- Natural language: say "Host, help me" / "Banker, balance" / "Poker bot, show table" / "Miner, ores" — Host Bot only. Dangerous actions (ban, kick, poker closeforce, etc.) require `confirm CODE` reply within 2 minutes.

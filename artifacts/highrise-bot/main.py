@@ -305,6 +305,13 @@ from modules.bot_health import (
     handle_enablepokerloops, handle_enableautogames,
     handle_enablewelcomeintervals, handle_enablebotspawn,
 )
+from modules.assistant import (
+    handle_ai_message,
+    handle_assistant, handle_assistantstatus, handle_assistanthelp,
+    handle_aimode, handle_aisettings, handle_aiset,
+    handle_ailogs, handle_clearailogs, handle_aiintegrity,
+    handle_confirmai, handle_cancelai,
+)
 from modules.bot_modes import (
     handle_botmode, handle_botmodes, handle_botprofile,
     handle_botprefix, handle_categoryprefix,
@@ -686,6 +693,11 @@ ALL_KNOWN_COMMANDS = (
         "safeboot", "recoverbots",
         "enablepokerloops", "enableautogames",
         "enablewelcomeintervals", "enablebotspawn",
+        # ── AI Assistant ──────────────────────────────────────────────────────
+        "assistant", "assistantstatus", "assistanthelp",
+        "aimode", "aisettings", "aiset",
+        "ailogs", "clearailogs", "aiintegrity",
+        "confirmai", "cancelai",
         # ── Task ownership / restore announce ─────────────────────────────────
         "taskowners", "activetasks", "taskconflicts", "fixtaskowners",
         "restoreannounce", "restorestatus",
@@ -1989,6 +2001,12 @@ class HangoutBot(BaseBot):
         """
         message = message.strip()
         if not message.startswith("/"):
+            # Wake phrase handler — only Host Bot processes natural language
+            if BOT_MODE == "host":
+                try:
+                    await handle_ai_message(self, user, message)
+                except Exception as _ai_err:
+                    print(f"[ASSISTANT] on_chat error: {_ai_err}")
             return
 
         # Parse "/coinflip heads 50" → cmd="coinflip", args=["coinflip","heads","50"]
@@ -3313,6 +3331,39 @@ class HangoutBot(BaseBot):
         elif cmd == "enablebotspawn":
             await handle_enablebotspawn(self, user)
 
+        elif cmd == "assistant":
+            await handle_assistant(self, user, args)
+
+        elif cmd == "assistantstatus":
+            await handle_assistantstatus(self, user)
+
+        elif cmd == "assistanthelp":
+            await handle_assistanthelp(self, user, args)
+
+        elif cmd == "aimode":
+            await handle_aimode(self, user, args)
+
+        elif cmd == "aisettings":
+            await handle_aisettings(self, user)
+
+        elif cmd == "aiset":
+            await handle_aiset(self, user, args)
+
+        elif cmd == "ailogs":
+            await handle_ailogs(self, user, args)
+
+        elif cmd == "clearailogs":
+            await handle_clearailogs(self, user)
+
+        elif cmd == "aiintegrity":
+            await handle_aiintegrity(self, user, args)
+
+        elif cmd == "confirmai":
+            await handle_confirmai(self, user, args)
+
+        elif cmd == "cancelai":
+            await handle_cancelai(self, user, args)
+
         elif cmd == "pokermode":
             await handle_pokermode(self, user, args)
 
@@ -3839,6 +3890,39 @@ class HangoutBot(BaseBot):
 
         elif cmd == "enablebotspawn":
             await handle_enablebotspawn(self, user)
+
+        elif cmd == "assistant":
+            await handle_assistant(self, user, args)
+
+        elif cmd == "assistantstatus":
+            await handle_assistantstatus(self, user)
+
+        elif cmd == "assistanthelp":
+            await handle_assistanthelp(self, user, args)
+
+        elif cmd == "aimode":
+            await handle_aimode(self, user, args)
+
+        elif cmd == "aisettings":
+            await handle_aisettings(self, user)
+
+        elif cmd == "aiset":
+            await handle_aiset(self, user, args)
+
+        elif cmd == "ailogs":
+            await handle_ailogs(self, user, args)
+
+        elif cmd == "clearailogs":
+            await handle_clearailogs(self, user)
+
+        elif cmd == "aiintegrity":
+            await handle_aiintegrity(self, user, args)
+
+        elif cmd == "confirmai":
+            await handle_confirmai(self, user, args)
+
+        elif cmd == "cancelai":
+            await handle_cancelai(self, user, args)
 
         # ── Task ownership / restore announce ─────────────────────────────────
         elif cmd == "taskowners":
