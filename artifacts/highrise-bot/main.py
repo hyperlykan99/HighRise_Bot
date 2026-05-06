@@ -144,6 +144,12 @@ from modules.audit import (
     handle_audithelp, handle_audit,
     handle_auditbank, handle_auditcasino, handle_auditeconomy,
 )
+from modules.cmd_audit import (
+    handle_checkcommands as _audit_checkcommands,
+    handle_checkhelp_audit as _audit_checkhelp,
+    handle_missingcommands, handle_routecheck,
+    handle_silentcheck, handle_commandtest,
+)
 from modules.economy_settings import (
     handle_economysettings,
     handle_setdailycoins, handle_setgamereward,
@@ -296,6 +302,7 @@ ADMIN_ONLY_CMDS = {
     "profileadmin", "resetprofileprivacy",
     "allcommands",
     "checkcommands",
+    "missingcommands", "routecheck", "silentcheck", "commandtest",
     "setdailycoins", "setgamereward", "settransferfee",
     "eventstart", "eventstop",
     "clearwarnings",
@@ -373,6 +380,7 @@ ALL_KNOWN_COMMANDS = (
         "me", "whois", "pinfo", "stats", "badges", "titles", "privacy",
         "profileadmin", "profileprivacy", "resetprofileprivacy",
         "allstaff", "allcommands", "checkcommands",
+        "missingcommands", "routecheck", "silentcheck", "commandtest",
         "notifications", "clearnotifications",
         "delivernotifications", "pendingnotifications",
         "subscribe", "unsubscribe", "substatus", "subhelp",
@@ -951,6 +959,15 @@ ADMIN_HELP_PAGES = [
         "/maintenance on/off - maint mode\n"
         "/bankblock user - block transfers"
     ),
+    (
+        "🛡️ Admin 8 — Cmd Audit\n"
+        "/checkcommands - audit routes\n"
+        "/checkhelp - audit help menus\n"
+        "/missingcommands - unrouted cmds\n"
+        "/routecheck - unlisted routes\n"
+        "/silentcheck - silent risk cmds\n"
+        "/commandtest cmd - test a route"
+    ),
 ]
 
 OWNER_HELP_PAGES = [
@@ -994,6 +1011,15 @@ OWNER_HELP_PAGES = [
         "/softrestart - reload bot\n"
         "/restartbot - full restart\n"
         "/checkhelp - help system check"
+    ),
+    (
+        "👑 Owner 6 — Cmd Audit\n"
+        "/checkcommands - audit routes\n"
+        "/checkhelp - audit help menus\n"
+        "/missingcommands - unrouted cmds\n"
+        "/routecheck - unlisted routes\n"
+        "/silentcheck - silent risk cmds\n"
+        "/commandtest cmd - test a route"
     ),
 ]
 
@@ -1578,7 +1604,15 @@ class HangoutBot(BaseBot):
             elif cmd == "allcommands":
                 await _cmd_allcommands(self, user, args)
             elif cmd == "checkcommands":
-                await _cmd_checkcommands(self, user)
+                await _audit_checkcommands(self, user, ALL_KNOWN_COMMANDS)
+            elif cmd == "missingcommands":
+                await handle_missingcommands(self, user)
+            elif cmd == "routecheck":
+                await handle_routecheck(self, user)
+            elif cmd == "silentcheck":
+                await handle_silentcheck(self, user, ALL_KNOWN_COMMANDS)
+            elif cmd == "commandtest":
+                await handle_commandtest(self, user, args)
             elif cmd == "bankblock":
                 await handle_bankblock(self, user, args, block=True)
             elif cmd == "bankunblock":
@@ -1864,7 +1898,7 @@ class HangoutBot(BaseBot):
             elif cmd == "adminlogs":
                 await handle_adminlogs(self, user, args)
             elif cmd == "checkhelp":
-                await handle_checkhelp(self, user, args)
+                await _audit_checkhelp(self, user, ALL_KNOWN_COMMANDS)
 
             else:
                 await handle_admin_command(self, user, cmd, args)
