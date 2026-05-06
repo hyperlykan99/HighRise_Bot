@@ -286,6 +286,234 @@ def _fallback_enabled() -> bool:
         return True
 
 
+# ---------------------------------------------------------------------------
+# Module ownership — startup recovery & recurring task guards
+# ---------------------------------------------------------------------------
+
+# Default module → owner bot_mode mapping.
+# Each module's startup recovery, room announcements, and loops must ONLY
+# run on the bot whose mode matches the owner entry below.
+_MODULE_OWNER_MODES: dict[str, str] = {
+    "poker":     "poker",
+    "blackjack": "blackjack",
+    "rbj":       "blackjack",
+    "mining":    "miner",
+    "bank":      "banker",
+    "shop":      "shopkeeper",
+    "security":  "security",
+    "dj":        "dj",
+    "events":    "eventhost",
+    "host":      "host",
+}
+
+# Split modes: dedicated bots that should never run another module's tasks
+_SPLIT_BOT_MODES: frozenset[str] = frozenset({
+    "poker", "blackjack", "miner", "banker",
+    "shopkeeper", "security", "dj", "eventhost", "host",
+})
+
+
+def should_this_bot_run_module(module: str) -> bool:
+    """
+    Returns True if this bot instance should run the given module's
+    startup recovery, recurring loops, and room announcements.
+
+    Rules:
+    1. BOT_MODE matches owner_mode → always run.
+    2. BOT_MODE is any other split mode → never run.
+    3. BOT_MODE=all → run only if the owner bot is currently offline.
+    4. BOT_MODE=host → run only if owner offline and fallback enabled.
+    """
+    try:
+        owner_mode = (
+            db.get_room_setting(f"module_owner_{module}", "")
+            or _MODULE_OWNER_MODES.get(module, "")
+        )
+    except Exception:
+        owner_mode = _MODULE_OWNER_MODES.get(module, "")
+
+    if not owner_mode:
+        return BOT_MODE == "all"
+
+    mode = _effective_bot_mode() if BOT_ID != "main" else BOT_MODE
+
+    # Rule 1: exact match
+    if mode == owner_mode:
+        return True
+
+    # Rule 2: split bot that doesn't own this module
+    if mode in _SPLIT_BOT_MODES:
+        print(f"[MODULE] {module} skipped — {mode} bot never runs {module} "
+              f"(owner={owner_mode}).")
+        return False
+
+    # Rule 3: all-mode — only if owner bot is currently offline
+    if mode == "all":
+        try:
+            if _is_mode_online(owner_mode):
+                print(f"[MODULE] {module} skipped on all-mode; "
+                      f"{owner_mode} bot is online.")
+                return False
+            return True
+        except Exception:
+            return True
+
+    # Rule 4: host fallback — only if owner offline and fallback enabled
+    if mode == "host":
+        try:
+            if _is_mode_online(owner_mode):
+                return False
+            return _fallback_enabled()
+        except Exception:
+            return False
+
+    return False
+
+
+async def send_module_room_message(
+        bot, module: str, message: str,
+        message_key: str = "") -> bool:
+    """
+    Send a room restore message for a module only if this bot owns it.
+    Uses a 5-minute dedupe lock to prevent duplicate room announces.
+    Returns True if message was sent, False if skipped.
+    """
+    if not should_this_bot_run_module(module):
+        print(f"[{module.upper()}] Restore msg skipped (not owner, "
+              f"mode={BOT_MODE}): {message[:60]}")
+        return False
+
+    try:
+        enabled = db.get_room_setting("module_restore_announce_enabled", "true")
+        if enabled != "true":
+            print(f"[{module.upper()}] Restore announce disabled by setting.")
+            return False
+    except Exception:
+        pass
+
+    key = message_key or f"{module}_restored"
+    try:
+        if not db.acquire_module_announce_lock(module, key, BOT_ID, ttl_seconds=300):
+            print(f"[{module.upper()}] Restore lock held by another bot (dedupe).")
+            return False
+    except Exception:
+        pass
+
+    try:
+        await bot.highrise.chat(message[:249])
+        return True
+    except Exception as e:
+        print(f"[{module.upper()}] Restore announce error: {e}")
+        return False
+
+
+# ---------------------------------------------------------------------------
+# /taskowners  /activetasks  /taskconflicts  /fixtaskowners
+# ---------------------------------------------------------------------------
+
+async def handle_taskowners(bot, user) -> None:
+    """/taskowners — show which bot mode owns each module."""
+    if not can_manage_economy(user.username):
+        await _w(bot, user.id, "Admin/owner only.")
+        return
+    parts = [
+        f"{m}={_MODE_NAMES.get(owner, owner)}"
+        for m, owner in _MODULE_OWNER_MODES.items()
+        if m != "rbj"
+    ]
+    await _w(bot, user.id, ("Tasks: " + " | ".join(parts))[:249])
+
+
+async def handle_activetasks(bot, user) -> None:
+    """/activetasks — show which modules this bot owns."""
+    if not can_manage_economy(user.username):
+        await _w(bot, user.id, "Admin/owner only.")
+        return
+    mode = _effective_bot_mode() if BOT_ID != "main" else BOT_MODE
+    owned = [m for m, owner in _MODULE_OWNER_MODES.items()
+             if m != "rbj" and owner == mode]
+    if owned:
+        await _w(bot, user.id,
+                 f"Mode:{mode} | Owns: {', '.join(owned)}"[:249])
+    else:
+        await _w(bot, user.id,
+                 f"Mode:{mode} | No module tasks (not owner of any module)."[:249])
+
+
+async def handle_taskconflicts(bot, user) -> None:
+    """/taskconflicts — detect if multiple bots are running the same module tasks."""
+    if not can_manage_economy(user.username):
+        await _w(bot, user.id, "Admin/owner only.")
+        return
+    conflicts: list[str] = []
+    for module, owner_mode in _MODULE_OWNER_MODES.items():
+        if module == "rbj":
+            continue
+        runners: list[str] = []
+        if _is_mode_online(owner_mode):
+            runners.append(owner_mode)
+        if _is_mode_online("all"):
+            runners.append("all")
+        if len(runners) > 1:
+            conflicts.append(f"{module}:{'+'.join(runners)}")
+    if not conflicts:
+        await _w(bot, user.id, "✅ No task conflicts found.")
+    else:
+        await _w(bot, user.id,
+                 ("⚠️ Task conflicts: " + " | ".join(conflicts))[:249])
+
+
+async def handle_fixtaskowners(bot, user) -> None:
+    """/fixtaskowners — restore task ownership defaults (admin/owner only)."""
+    if not can_manage_economy(user.username):
+        await _w(bot, user.id, "Admin/owner only.")
+        return
+    db.set_room_setting("autogames_owner_bot_mode", "eventhost")
+    db.set_room_setting("module_restore_announce_enabled", "true")
+    await _w(bot, user.id, "✅ Task owner defaults restored.")
+
+
+# ---------------------------------------------------------------------------
+# /restoreannounce  /restorestatus
+# ---------------------------------------------------------------------------
+
+async def handle_restoreannounce(bot, user, args: list[str]) -> None:
+    """/restoreannounce on|off — control whether module owner bots send restore messages."""
+    if not can_manage_economy(user.username):
+        await _w(bot, user.id, "Admin/owner only.")
+        return
+    if len(args) < 2 or args[1].lower() not in ("on", "off"):
+        cur   = db.get_room_setting("module_restore_announce_enabled", "true")
+        label = "ON" if cur == "true" else "OFF"
+        await _w(bot, user.id,
+                 f"Restore announce: {label} | owner-only enforced. "
+                 f"Usage: /restoreannounce on|off")
+        return
+    new   = "true" if args[1].lower() == "on" else "false"
+    label = "ON" if new == "true" else "OFF"
+    db.set_room_setting("module_restore_announce_enabled", new)
+    await _w(bot, user.id, f"✅ Restore announce: {label}.")
+
+
+async def handle_restorestatus(bot, user) -> None:
+    """/restorestatus — show current restore announce settings."""
+    if not can_manage_economy(user.username):
+        await _w(bot, user.id, "Admin/owner only.")
+        return
+    try:
+        restore = db.get_room_setting("module_restore_announce_enabled", "true")
+        host    = db.get_room_setting("bot_startup_announce_enabled",    "false")
+        mod     = db.get_room_setting("module_startup_announce_enabled", "false")
+    except Exception:
+        await _w(bot, user.id, "DB error reading restore settings.")
+        return
+    rl = "ON" if restore == "true" else "OFF"
+    hl = "ON" if host    == "true" else "OFF"
+    ml = "ON" if mod     == "true" else "OFF"
+    await _w(bot, user.id,
+             f"Restore: {rl} | owner-only | Host startup: {hl} | Mod startup: {ml}")
+
+
 def _effective_bot_mode() -> str:
     """
     Returns this bot's effective operating mode.
@@ -982,6 +1210,8 @@ __all__ = [
     "should_this_bot_handle", "get_offline_message", "is_bot_mode_active",
     "start_heartbeat_loop", "mark_bot_offline",
     "should_announce_startup", "send_startup_announce",
+    "should_this_bot_run_module", "send_module_room_message",
+    "_MODULE_OWNER_MODES",
     "handle_bots_live", "handle_botstatus_cluster",
     "handle_botmodules", "handle_commandowners",
     "handle_enablebot", "handle_disablebot",
@@ -989,5 +1219,8 @@ __all__ = [
     "handle_botstartupannounce",                   # backward-compat alias
     "handle_startupannounce", "handle_modulestartup", "handle_startupstatus",
     "handle_setmainmode", "handle_multibothelp",
+    "handle_taskowners", "handle_activetasks",
+    "handle_taskconflicts", "handle_fixtaskowners",
+    "handle_restoreannounce", "handle_restorestatus",
     "get_command_owner_for_audit",
 ]

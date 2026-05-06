@@ -272,7 +272,8 @@ from modules.control_panel import (
     handle_quicktoggles, handle_toggle,
 )
 from modules.multi_bot import (
-    should_this_bot_handle,
+    should_this_bot_handle, should_this_bot_run_module,
+    BOT_MODE,
     start_heartbeat_loop as start_multibot_heartbeat,
     get_offline_message, send_startup_announce,
     check_startup_safety,
@@ -283,6 +284,9 @@ from modules.multi_bot import (
     handle_botstartupannounce, handle_multibothelp,
     handle_startupannounce, handle_modulestartup, handle_startupstatus,
     handle_setmainmode,
+    handle_taskowners, handle_activetasks,
+    handle_taskconflicts, handle_fixtaskowners,
+    handle_restoreannounce, handle_restorestatus,
 )
 from modules.bot_health import (
     handle_bothealth, handle_modulehealth, handle_deploymentcheck,
@@ -659,6 +663,9 @@ ALL_KNOWN_COMMANDS = (
         "botlocks", "clearstalebotlocks",
         "botheartbeat", "moduleowners",
         "botconflicts", "fixbotowners",
+        # ── Task ownership / restore announce ─────────────────────────────────
+        "taskowners", "activetasks", "taskconflicts", "fixtaskowners",
+        "restoreannounce", "restorestatus",
     }
     | ECONOMY_COMMANDS | PROFILE_COMMANDS | GAME_COMMANDS
     | SHOP_COMMANDS | ACHIEVEMENT_COMMANDS | BJ_COMMANDS
@@ -1819,12 +1826,22 @@ class HangoutBot(BaseBot):
             pass
         # Seed the room user cache from the live room list
         asyncio.create_task(refresh_room_cache(self))
-        # Recover any event that was running before a bot restart
-        asyncio.create_task(startup_event_check(self))
-        # Recover any BJ/RBJ tables that were active before last shutdown
-        asyncio.create_task(startup_bj_recovery(self))
-        asyncio.create_task(startup_rbj_recovery(self))
-        asyncio.create_task(startup_poker_recovery(self))
+        # Recover active event — events bot only
+        if should_this_bot_run_module("events"):
+            asyncio.create_task(startup_event_check(self))
+        else:
+            print(f"[EVENTS] Startup check skipped — not events bot ({BOT_MODE}).")
+        # Recover BJ/RBJ tables — blackjack bot only
+        if should_this_bot_run_module("blackjack"):
+            asyncio.create_task(startup_bj_recovery(self))
+            asyncio.create_task(startup_rbj_recovery(self))
+        else:
+            print(f"[BJ] Recovery skipped — not blackjack bot ({BOT_MODE}).")
+        # Recover poker table — poker bot only
+        if should_this_bot_run_module("poker"):
+            asyncio.create_task(startup_poker_recovery(self))
+        else:
+            print(f"[POKER] Recovery skipped — not poker bot ({BOT_MODE}).")
         # Start background automation loops (idempotent — safe on reconnect)
         start_auto_game_loop(self)
         start_auto_event_loop(self)
@@ -3590,6 +3607,20 @@ class HangoutBot(BaseBot):
             await handle_botconflicts(self, user)
         elif cmd == "fixbotowners":
             await handle_fixbotowners(self, user, args)
+
+        # ── Task ownership / restore announce ─────────────────────────────────
+        elif cmd == "taskowners":
+            await handle_taskowners(self, user)
+        elif cmd == "activetasks":
+            await handle_activetasks(self, user)
+        elif cmd == "taskconflicts":
+            await handle_taskconflicts(self, user)
+        elif cmd == "fixtaskowners":
+            await handle_fixtaskowners(self, user)
+        elif cmd == "restoreannounce":
+            await handle_restoreannounce(self, user, args)
+        elif cmd == "restorestatus":
+            await handle_restorestatus(self, user)
 
         # ── Control panel ─────────────────────────────────────────────────────
         elif cmd == "control":

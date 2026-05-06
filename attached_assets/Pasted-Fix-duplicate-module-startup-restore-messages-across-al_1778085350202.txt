@@ -1,0 +1,325 @@
+Fix duplicate module startup/restore messages across all bots.
+
+Problem:
+All bots are saying:
+"♻️ Poker table restored. 1 seated. Waiting for players."
+
+Bots affected:
+BankingBot, KeanuShield, ChipSoprano, DJ_DUDU, GreatestProspector, EmceeBot, AceSinatra, TestDJBot.
+
+Goal:
+Only the bot that owns a module should run that module's startup recovery and send that module's restore messages.
+
+Example:
+- Poker restore messages: only Poker Bot.
+- BJ/RBJ restore messages: only Blackjack Bot.
+- Mining restore/event messages: only Miner Bot.
+- Bank/economy restore messages: only Banker Bot.
+- Shop restore messages: only Shop Bot.
+- Reports/moderation restore messages: only Security Bot.
+- Emote/DJ restore messages: only DJ Bot.
+- Event/autogame restore messages: only Event Bot.
+- General welcome/help startup messages: only Host Bot.
+
+IMPORTANT:
+- Do not remove recovery features.
+- Do not stop bots from running.
+- Keep shared SQLite database.
+- Prevent duplicate restore announcements forever.
+- Keep messages under 250 characters.
+- If a bot does not own the module, it must not run that module’s recovery loop or speak its restore message.
+- Console logs are okay. Room messages must be owner-only.
+
+==================================================
+PART 1: MODULE OWNER GUARD
+==================================================
+
+Create/fix helper:
+
+should_this_bot_run_module(module_name, bot_mode, bot_id)
+
+Rules:
+1. poker module runs only on BOT_MODE=poker.
+2. blackjack and rbj modules run only on BOT_MODE=blackjack.
+3. mining module runs only on BOT_MODE=miner.
+4. bank/economy module runs only on BOT_MODE=banker.
+5. shop/badges/titles/vip module runs only on BOT_MODE=shopkeeper.
+6. security/reports/moderation module runs only on BOT_MODE=security.
+7. dj/emotes/social module runs only on BOT_MODE=dj.
+8. events/autogames/announcements module runs only on BOT_MODE=eventhost.
+9. host/help/tutorial/welcome/profile module runs only on BOT_MODE=host.
+10. BOT_MODE=all can run all modules only if no split bot for that module is active.
+11. If split bot for module is active, BOT_MODE=all/host/main must not run that module.
+
+Use bot_instances heartbeat to detect active split bots.
+
+==================================================
+PART 2: WRAP ALL STARTUP RESTORE TASKS
+==================================================
+
+Find all startup recovery/restore calls and wrap them.
+
+Examples:
+
+Poker:
+Before:
+restore_poker_table()
+announce_poker_restore()
+
+After:
+if should_this_bot_run_module("poker", BOT_MODE, BOT_ID):
+    restore_poker_table()
+    announce_poker_restore()
+else:
+    console_log("[SKIP] poker restore skipped on " + BOT_MODE)
+
+BJ/RBJ:
+if should_this_bot_run_module("blackjack", BOT_MODE, BOT_ID):
+    restore_bj()
+    restore_rbj()
+
+Mining:
+if should_this_bot_run_module("mining", BOT_MODE, BOT_ID):
+    restore_mining_events()
+
+Bank:
+if should_this_bot_run_module("bank", BOT_MODE, BOT_ID):
+    restore_bank_jobs()
+
+Event:
+if should_this_bot_run_module("events", BOT_MODE, BOT_ID):
+    restore_events()
+    start_autogames_if_enabled()
+
+Room/Host:
+if should_this_bot_run_module("host", BOT_MODE, BOT_ID):
+    restore_welcome_intervals()
+
+==================================================
+PART 3: OWNER-ONLY ROOM ANNOUNCEMENTS
+==================================================
+
+Create helper:
+
+send_module_room_message(module_name, message)
+
+Before sending, it checks:
+- current bot owns module
+- module announcement enabled
+- not within duplicate cooldown
+- message not already sent by another bot
+
+If bot does not own module:
+- do not send
+- console log only
+
+This applies to:
+- poker table restored
+- BJ/RBJ table restored
+- mining event restored
+- autogames started
+- welcome interval restored
+- shop restored
+- bot startup online messages
+
+==================================================
+PART 4: RESTORE MESSAGE DEDUPE LOCK
+==================================================
+
+Create table if missing:
+
+module_announcement_locks:
+- module TEXT PRIMARY KEY
+- message_key TEXT
+- bot_id TEXT
+- sent_at TEXT
+- expires_at TEXT
+
+For restore messages:
+- module = poker
+- message_key = poker_table_restored
+
+Before sending:
+1. Try to acquire lock.
+2. If lock exists and not expired, skip.
+3. If acquired, send message.
+4. Lock expires after 5 minutes.
+
+This prevents accidental duplicate messages even if two bots mistakenly reach the same code.
+
+==================================================
+PART 5: POKER-SPECIFIC FIX
+==================================================
+
+Only Poker Bot should:
+- load active poker table for restore announcement
+- announce "Poker table restored"
+- start poker timers
+- resume poker turn timer
+- resume next-hand timer
+- run poker cleanup loop
+- run poker recovery loop
+- listen to poker move/action timers
+
+All other bots may read poker data only for display/status if requested, but cannot announce or run loops.
+
+If a non-poker bot starts:
+- it should NOT say poker table restored.
+- it should NOT start poker timers.
+- it should NOT process stuck poker hands.
+
+==================================================
+PART 6: BLACKJACK/RBJ SPECIFIC FIX
+==================================================
+
+Only Blackjack Bot should:
+- restore BJ hands
+- restore RBJ hands/shoe
+- announce BJ/RBJ restore
+- run BJ/RBJ action timers
+- process BJ/RBJ timeouts
+
+Poker/Banker/Miner/etc. must not run BJ/RBJ loops.
+
+==================================================
+PART 7: EVENT/AUTOGAME SPECIFIC FIX
+==================================================
+
+Only Event Bot should:
+- restore active events
+- start/continue autogames
+- announce event restore
+- send recurring event messages
+- run gold rain/event timers
+
+Other bots must not run autogames.
+
+==================================================
+PART 8: GLOBAL RECURRING TASK REGISTRY
+==================================================
+
+Add a central recurring task registry.
+
+Each task has:
+- task_name
+- module
+- owner_bot_mode
+- interval_seconds
+- enabled
+
+Examples:
+- poker_turn_timer -> poker
+- poker_cleanup_loop -> poker
+- rbj_action_timer -> blackjack
+- bj_action_timer -> blackjack
+- mining_event_loop -> miner
+- autogames_loop -> eventhost
+- welcome_interval_loop -> host
+- bot_heartbeat -> every bot allowed
+
+Only bot heartbeat is allowed on every bot.
+Everything else must be owner-only.
+
+==================================================
+PART 9: COMMANDS TO CHECK TASK OWNERS
+==================================================
+
+Add/fix:
+
+/taskowners
+Shows:
+"Tasks: poker=Poker | BJ=Blackjack | autogames=Event | welcome=Host"
+
+/activetasks
+Shows active loops for the current bot or all bots.
+Example:
+"Active: PokerBot poker_turn,poker_cleanup | EventBot autogames"
+
+/taskconflicts
+Detects if more than one bot is running same module task.
+Example:
+"Conflict: poker_restore running on 8 bots."
+
+If clean:
+"No task conflicts found."
+
+/fixtaskowners
+Owner/admin only.
+Repairs task ownership defaults.
+
+==================================================
+PART 10: UPDATE DEPLOYMENT CHECK
+==================================================
+
+Update /deploymentcheck to include task ownership:
+
+Example:
+"Deploy: DB OK | Bots 8 | Cmds OK | Tasks OK"
+
+If issue:
+"Deploy: Task conflict poker_restore on 8 bots."
+
+Update /botconflicts to include:
+- duplicate command ownership
+- duplicate module task ownership
+- duplicate startup restore announcements
+- BOT_MODE=all running split-owned modules
+
+==================================================
+PART 11: STARTUP ANNOUNCEMENT DEFAULTS
+==================================================
+
+Defaults:
+- bot_startup_announce_enabled = false
+- module_startup_announce_enabled = false
+- module_restore_announce_enabled = true only for module owner bots
+
+If module_restore_announce_enabled is true:
+- only the module owner sends restore messages.
+
+Commands:
+/restoreannounce on
+/restoreannounce off
+/restorestatus
+
+/restorestatus:
+"Restore announce: ON | owner-only"
+
+==================================================
+PART 12: TESTS
+==================================================
+
+After update and restart:
+
+Expected:
+Only ChipSoprano/Poker Bot may say:
+"♻️ Poker table restored..."
+
+No other bot should say it.
+
+Run:
+/taskowners
+Expected:
+"poker=Poker | BJ=Blackjack | RBJ=Blackjack | autogames=Event"
+
+/taskconflicts
+Expected:
+"No task conflicts found."
+
+/botconflicts
+Expected:
+"No bot conflicts found."
+
+/deploymentcheck
+Expected:
+Tasks OK.
+
+Restart all bots.
+Expected:
+- No duplicate poker restore messages.
+- No duplicate autogames.
+- No duplicate startup messages.
+- Only owner bot speaks for its module.
+
+Final rule:
+In the future, every bot must only run and announce its owned module. No module restore, timer, game loop, or recurring task should run on every bot except heartbeat.

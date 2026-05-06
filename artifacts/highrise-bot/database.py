@@ -1168,6 +1168,14 @@ def _migrate_db():
         "message_preview TEXT, "
         "passed INTEGER, "
         "error TEXT)",
+        # ── Module restore announce dedupe locks ──────────────────────────────
+        "CREATE TABLE IF NOT EXISTS module_announcement_locks ("
+        "module TEXT NOT NULL, "
+        "message_key TEXT NOT NULL DEFAULT '', "
+        "bot_id TEXT NOT NULL DEFAULT '', "
+        "sent_at TEXT NOT NULL DEFAULT (datetime('now')), "
+        "expires_at TEXT NOT NULL DEFAULT '', "
+        "PRIMARY KEY (module, message_key))",
     ]:
         try:
             conn.execute(sql)
@@ -6622,6 +6630,40 @@ def acquire_module_lock(module: str, bot_id: str, ttl_seconds: int = 30) -> bool
         conn.close()
 
 
+def acquire_module_announce_lock(
+        module: str, message_key: str, bot_id: str,
+        ttl_seconds: int = 300) -> bool:
+    """
+    Acquire a restore-announce dedupe lock for (module, message_key).
+    Returns True if this bot acquired the lock (safe to send).
+    Returns False if another bot already sent within ttl_seconds.
+    """
+    conn = get_connection()
+    try:
+        conn.execute(
+            """INSERT INTO module_announcement_locks
+               (module, message_key, bot_id, sent_at, expires_at)
+               VALUES (?, ?, ?, datetime('now'), datetime('now', ?))
+               ON CONFLICT(module, message_key) DO UPDATE SET
+                   bot_id     = excluded.bot_id,
+                   sent_at    = excluded.sent_at,
+                   expires_at = excluded.expires_at
+               WHERE expires_at < datetime('now')""",
+            (module, message_key, bot_id, f"+{ttl_seconds} seconds"),
+        )
+        conn.commit()
+        row = conn.execute(
+            "SELECT bot_id FROM module_announcement_locks "
+            "WHERE module=? AND message_key=?",
+            (module, message_key),
+        ).fetchone()
+        return row is not None and row["bot_id"] == bot_id
+    except Exception:
+        return True  # if table missing, allow send
+    finally:
+        conn.close()
+
+
 def release_module_lock(module: str, bot_id: str) -> None:
     """Release a lock only if this bot_id owns it."""
     conn = get_connection()
@@ -6865,7 +6907,8 @@ def seed_room_settings() -> None:
         ("repeat_min_seconds",           "10"),
         ("multibot_fallback_enabled",    "true"),
         ("bot_startup_announce_enabled", "false"),
-        ("autogames_owner_bot_mode",     "eventhost"),
+        ("autogames_owner_bot_mode",         "eventhost"),
+        ("module_restore_announce_enabled",  "true"),
     ]
     conn = get_connection()
     for k, v in defaults:
