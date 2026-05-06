@@ -919,3 +919,47 @@ async def handle_fixroomcount(bot, user) -> None:
         await _w(bot, user.id, msg[:249])
     except Exception as _e:
         await _w(bot, user.id, f"⚠️ Fix error: {str(_e)[:80]}")
+
+
+async def handle_fixbotmodes(bot, user) -> None:
+    """
+    /fixbotmodes — Owner/admin only.
+    1. Resets all DB command-ownership overrides so _DEFAULT_COMMAND_OWNERS
+       (the code defaults) take effect for every command.
+    2. Shows a diagnostic table of every connected bot instance with its
+       current id, mode, and username so the user can spot wrong assignments.
+    Use this after correcting secret names so commands route to the right bot.
+    """
+    if not can_manage_economy(user.username):
+        await _w(bot, user.id, "Admin and owner only.")
+        return
+
+    # Step 1: wipe all DB command-ownership overrides
+    cleared = 0
+    try:
+        conn = db.get_connection()
+        cur = conn.execute("DELETE FROM bot_command_ownership")
+        cleared = cur.rowcount
+        conn.commit()
+        conn.close()
+    except Exception as _e:
+        print(f"[FIXBOTMODES] DB clear error: {_e}")
+
+    # Step 2: build diagnostic list from bot_instances
+    lines: list[str] = []
+    try:
+        instances = db.get_bot_instances()
+        for row in instances:
+            bid  = row[0] if len(row) > 0 else "?"
+            bmod = row[1] if len(row) > 1 else "?"
+            bsta = row[2] if len(row) > 2 else "?"
+            busr = row[5] if len(row) > 5 else ""
+            lines.append(f"  {bid}={bmod} [{bsta}] {busr}".strip())
+    except Exception as _e:
+        lines.append(f"  (instance query failed: {_e})")
+
+    summary = "; ".join(lines) if lines else "no instances found"
+    msg1 = f"✅ Bot modes reset. {cleared} ownership override(s) cleared."
+    msg2 = f"Current: {summary}"
+    await _w(bot, user.id, msg1[:249])
+    await _w(bot, user.id, msg2[:249])

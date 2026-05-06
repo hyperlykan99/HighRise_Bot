@@ -306,6 +306,7 @@ from modules.bot_health import (
     handle_safeboot, handle_recoverbots,
     handle_enablepokerloops, handle_enableautogames,
     handle_enablewelcomeintervals, handle_enablebotspawn,
+    handle_fixbotmodes,
 )
 from modules.assistant import (
     handle_ai_message,
@@ -694,7 +695,7 @@ ALL_KNOWN_COMMANDS = (
         "botconflicts", "fixbotowners",
         "crashlogs", "clearcrashlogs", "safemode",
         "emergencystop", "roomcount", "fixroomcount",
-        "safeboot", "recoverbots",
+        "safeboot", "recoverbots", "fixbotmodes",
         "enablepokerloops", "enableautogames",
         "enablewelcomeintervals", "enablebotspawn",
         # ── AI Assistant ──────────────────────────────────────────────────────
@@ -2169,15 +2170,20 @@ class HangoutBot(BaseBot):
                     except Exception:
                         _allowed = BOT_MODE in ("host", "all")
                     if _allowed:
-                        await self._core_send(user, f"pong | {BOT_MODE}")
+                        _uname = config.BOT_USERNAME or BOT_MODE
+                        _ping_all_msg = f"pong | id={BOT_ID} | mode={BOT_MODE} | user={_uname}"
+                        await self._core_send(user, _ping_all_msg[:249])
                         print(f"[CORE PING ALL] {BOT_MODE} replied")
                 else:
                     # Normal /ping — only the designated host bot replies
                     _resp, _reason = is_ping_responder()
                     print(f"[PING] bot={BOT_MODE}/{BOT_ID} responder={_resp} reason={_reason}")
                     if _resp:
-                        await self._core_send(user, "pong | Host online")
-                        print("[CORE PING] replied pong | Host online")
+                        if "fallback" in _reason:
+                            await self._core_send(user, "pong | No host detected. Run /fixbotmodes.")
+                        else:
+                            await self._core_send(user, "pong | Host online")
+                        print("[CORE PING] replied")
             except Exception as _pe:
                 print(f"[CORE PING ERROR] {_pe}")
                 if BOT_MODE in ("host", "all"):
@@ -3651,6 +3657,9 @@ class HangoutBot(BaseBot):
         elif cmd == "recoverbots":
             await handle_recoverbots(self, user)
 
+        elif cmd == "fixbotmodes":
+            await handle_fixbotmodes(self, user)
+
         elif cmd == "enablepokerloops":
             await handle_enablepokerloops(self, user)
 
@@ -4234,6 +4243,9 @@ class HangoutBot(BaseBot):
 
         elif cmd == "recoverbots":
             await handle_recoverbots(self, user)
+
+        elif cmd == "fixbotmodes":
+            await handle_fixbotmodes(self, user)
 
         elif cmd == "enablepokerloops":
             await handle_enablepokerloops(self, user)

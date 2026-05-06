@@ -1,0 +1,271 @@
+FIX BOT MODE ASSIGNMENT AND RESTORE COMMAND ROUTING.
+
+Problem:
+Bots respond to /ping all, but normal commands do not work.
+
+Current /ping all shows:
+- ChipSoprano = poker OK
+- AceSinatra = blackjack OK
+- BankingBot = shopkeeper WRONG
+- DJ_DUDU = dj OK
+- EmceeBot = eventhost WRONG
+- KeanuShield = security OK
+- GreatestProspector = miner OK
+
+Missing:
+- host mode
+- banker mode
+- possibly shopkeeper/eventhost correctly assigned
+
+Goal:
+Fix bot token-to-mode mapping so every bot has the correct role.
+
+IMPORTANT:
+- Do not touch poker game logic.
+- Do not touch blackjack game logic.
+- Do not add AI right now.
+- Keep SAFE_BOOT on.
+- Fix only bot mode mapping and command ownership.
+- Commands must work again.
+- No duplicate replies.
+
+==================================================
+PART 1: FIX TOKEN TO BOT MODE MAPPING
+==================================================
+
+Use this exact mapping:
+
+HOST_BOT_TOKEN:
+bot_id = host
+bot_mode = host
+default username = EmceeBot
+
+BLACKJACK_BOT_TOKEN:
+bot_id = blackjack
+bot_mode = blackjack
+default username = AceSinatra
+
+POKER_BOT_TOKEN:
+bot_id = poker
+bot_mode = poker
+default username = ChipSoprano
+
+MINER_BOT_TOKEN:
+bot_id = miner
+bot_mode = miner
+default username = GreatestProspector
+
+BANKER_BOT_TOKEN:
+bot_id = banker
+bot_mode = banker
+default username = BankingBot
+
+SHOP_BOT_TOKEN:
+bot_id = shop
+bot_mode = shopkeeper
+default username = ShopBot
+
+SECURITY_BOT_TOKEN:
+bot_id = security
+bot_mode = security
+default username = KeanuShield
+
+DJ_BOT_TOKEN:
+bot_id = dj
+bot_mode = dj
+default username = DJ_DUDU
+
+EVENT_BOT_TOKEN:
+bot_id = event
+bot_mode = eventhost
+default username = EventBot
+
+==================================================
+PART 2: DO NOT INFER MODE FROM USERNAME INCORRECTLY
+==================================================
+
+Do not assign mode based only on username order.
+
+The runner must assign mode based on the token secret name.
+
+Example:
+If token came from BANKER_BOT_TOKEN, it must be banker mode even if username is BankingBot.
+
+If token came from HOST_BOT_TOKEN, it must be host mode even if username is EmceeBot.
+
+If SHOP_BOT_TOKEN is missing, do not assign another bot as shopkeeper.
+
+If EVENT_BOT_TOKEN is missing, do not assign another bot as eventhost.
+
+==================================================
+PART 3: FIX EXISTING WRONG BOT INSTANCE ROWS
+==================================================
+
+On startup, overwrite bot_instances mode for known bot IDs.
+
+Repair:
+- EmceeBot should become host if it uses HOST_BOT_TOKEN.
+- BankingBot should become banker if it uses BANKER_BOT_TOKEN.
+
+Add command:
+/fixbotmodes
+
+Owner/admin only.
+
+Behavior:
+- Rebuild bot_instances based on token source.
+- Rebuild command ownership defaults.
+- Reply:
+"✅ Bot modes repaired."
+
+==================================================
+PART 4: FIX COMMAND OWNERSHIP
+==================================================
+
+After bot modes are repaired, command owners must be:
+
+Host:
+- /help
+- /bots
+- /bothealth
+- /deploymentcheck
+- /commandtest
+- /routerstatus
+- /checkcommands
+- /checkhelp
+- /botconflicts
+- /taskconflicts
+
+Banker:
+- /bal
+- /balance
+- /coins
+- /wallet
+- /daily
+- /send
+- /tip
+- /gift
+- /bank
+- /transactions
+
+Poker:
+- /p
+- /pt
+- /ph
+- /pokerhelp
+- /poker settings
+- /poker state
+
+Blackjack:
+- /bjoin
+- /rjoin
+- /bjhelp
+- /rbjhelp
+- /bh
+- /rh
+- /bs
+- /rs
+
+Miner:
+- /mine
+- /minehelp
+- /ores
+- /tool
+
+Shop:
+- /shop
+- /shophelp
+- /buy
+- /badges
+- /titles
+- /vipshop
+
+Security:
+- /report
+- /modhelp
+- /warn
+- /mute
+- /ban
+
+DJ:
+- /emote
+- /dance
+- /socialhelp
+- /heart
+
+Event:
+- /events
+- /eventhelp
+- /announce
+- /autogames
+
+==================================================
+PART 5: MAKE /PING SHOW BOT ID AND MODE
+==================================================
+
+Update /ping all output to show:
+
+"pong | id=banker | mode=banker | user=BankingBot"
+
+This makes wrong mapping obvious.
+
+Normal /ping:
+Only host replies:
+"pong | Host online"
+
+If no host detected:
+First bot replies:
+"pong | No host detected. Run /fixbotmodes."
+
+==================================================
+PART 6: ROUTER MUST USE BOT_MODE
+==================================================
+
+Normal commands must route by bot_mode:
+
+- /help → host
+- /bal → banker
+- /p → poker
+- /rjoin → blackjack
+- /mine → miner
+- /shop → shopkeeper
+- /report → security
+- /dance → dj
+- /events → eventhost
+
+If the correct owner bot is online, only that bot replies.
+
+==================================================
+PART 7: TESTS
+==================================================
+
+After update and restart:
+
+Run:
+/ping all
+
+Expected:
+EmceeBot pong | id=host | mode=host
+BankingBot pong | id=banker | mode=banker
+ChipSoprano pong | id=poker | mode=poker
+AceSinatra pong | id=blackjack | mode=blackjack
+GreatestProspector pong | id=miner | mode=miner
+KeanuShield pong | id=security | mode=security
+DJ_DUDU pong | id=dj | mode=dj
+
+Then:
+/fixbotmodes
+/help
+/commandtest /bal
+/bal
+/pokerhelp
+/minehelp
+
+Expected:
+- /help replies from Host
+- /bal replies from BankingBot
+- /pokerhelp replies from ChipSoprano
+- /minehelp replies from GreatestProspector
+
+Final requirement:
+Bot modes must match token secret names. Do not assign EmceeBot as eventhost or BankingBot as shopkeeper unless their token secret actually says so.

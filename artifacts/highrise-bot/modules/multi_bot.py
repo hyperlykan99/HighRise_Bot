@@ -228,6 +228,10 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "restoreannounce": "host", "restorestatus": "host",
     "restorebots": "host",
     "botmodulehelp": "host", "multibothelp": "host",
+    # ── bot mode repair ──────────────────────────────────────────────────────
+    "fixbotmodes": "host",
+    # ── event / autogames ────────────────────────────────────────────────────
+    "autogames": "eventhost",
 }
 
 # Friendly display names for modes
