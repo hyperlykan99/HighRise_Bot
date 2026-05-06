@@ -1941,7 +1941,10 @@ class HangoutBot(BaseBot):
             print(f"[STARTUP] heartbeat skipped: {_e}")
 
         # ── Startup: message handler confirmation + self-test ─────────────────
+        print(f"[SELFTEST] Bot connected")
         print(f"[CMD] message handler registered for {_bid}")
+        print(f"[SELFTEST] Message listener registered")
+        print(f"[SELFTEST] Emergency /ping ready")
         # Self-test: verify the router would handle these key commands correctly.
         # Uses should_this_bot_handle() — the real routing function — not just ownership lookup.
         # For non-host bots these commands are owned by host, so [SELFTEST SKIP] is correct.
@@ -2052,12 +2055,15 @@ class HangoutBot(BaseBot):
         try:
             await self._on_chat_body(user, message)
         except Exception as _top_err:
+            import traceback as _tb
             _raw = message.strip()
             _ec = _raw.lstrip("/").split()[0].lower() if _raw.startswith("/") else "non_cmd"
-            print(f"[CMD] error bot={BOT_MODE} cmd=/{_ec}: {_top_err}")
+            print(f"[CMD ERROR] bot={BOT_MODE} cmd=/{_ec}: {_top_err}")
+            print(_tb.format_exc())
             try:
                 db.log_bot_crash(BOT_ID, BOT_MODE, "command", _ec,
-                                 type(_top_err).__name__, str(_top_err), "")
+                                 type(_top_err).__name__, str(_top_err),
+                                 _tb.format_exc())
             except Exception:
                 pass
             try:
@@ -2089,21 +2095,48 @@ class HangoutBot(BaseBot):
         cmd  = parts[0].lower()
         args = parts
 
-        # ── /ping all — bypass ownership gate; every bot may reply once ───────
-        if cmd == "ping" and len(args) > 1 and args[1].lower() == "all":
-            from modules.permissions import is_owner, is_admin
-            if is_owner(user.username) or is_admin(user.username):
-                _mode_label = {
-                    "host": "Host", "banker": "Banker", "blackjack": "Blackjack",
-                    "poker": "Poker", "miner": "Miner", "shopkeeper": "Shop",
-                    "security": "Security", "dj": "DJ", "eventhost": "Events",
-                    "all": "Main",
-                }.get(BOT_MODE, BOT_MODE.title())
-                try:
-                    await self.highrise.send_whisper(user.id, f"pong | {_mode_label} online")
-                except Exception:
-                    pass
+        # ── Unconditional receive log — always fires for every slash command ──
+        print(f"[CMD RX] username={user.username} text={message}")
+
+        # ══════════════════════════════════════════════════════════════════════
+        # EMERGENCY BYPASS — these commands respond BEFORE any ownership gate,
+        # routing check, or permission check.  Any online bot may answer.
+        # This ensures /ping always works even if the host bot is reconnecting.
+        # ══════════════════════════════════════════════════════════════════════
+        _mode_label = {
+            "host": "Host", "banker": "Banker", "blackjack": "Blackjack",
+            "poker": "Poker", "miner": "Miner", "shopkeeper": "Shop",
+            "security": "Security", "dj": "DJ", "eventhost": "Events",
+            "all": "Main",
+        }.get(BOT_MODE, BOT_MODE.title())
+
+        if cmd == "ping":
+            _ping_target = args[1].lower() if len(args) > 1 else ""
+            if _ping_target == "all":
+                # /ping all — every bot whispers once (owner/admin only)
+                from modules.permissions import is_owner, is_admin
+                if is_owner(user.username) or is_admin(user.username):
+                    try:
+                        await self.highrise.send_whisper(
+                            user.id, f"pong | {_mode_label} online")
+                    except Exception:
+                        pass
+            else:
+                # /ping — only host/all responds, or any bot as last-resort fallback
+                _is_host_mode = BOT_MODE in ("host", "all")
+                _host_online = _is_mode_online("host")
+                if _is_host_mode or not _host_online:
+                    try:
+                        _reply = "pong | Host online" if _is_host_mode else f"pong | {_mode_label} online (host fallback)"
+                        await self.highrise.send_whisper(user.id, _reply)
+                    except Exception:
+                        pass
             return
+
+        if cmd == "help" and BOT_MODE in ("host", "all"):
+            # Emergency /help is handled below in the normal dispatcher.
+            # Do NOT short-circuit here — fall through so the full help text is sent.
+            pass
 
         # ── Command debug logging ─────────────────────────────────────────────
         if get_cmd_debug():

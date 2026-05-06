@@ -1,0 +1,140 @@
+EMERGENCY MINIMAL COMMAND FIX.
+
+Problem:
+Bots join the Highrise room and stay there, but NO commands work.
+Even /ping does not respond.
+This means the chat/message event listener is not registered or not calling the command handler.
+
+Goal:
+Make the smallest possible fix:
+- Bot must respond to /ping.
+- Bot must respond to /help.
+- Do not touch poker, blackjack, mining, AI, autogames, or other modules.
+- Do not add new features.
+- Do not refactor the whole project.
+- Fix only message receiving and minimal command handling.
+
+IMPORTANT:
+SAFE_BOOT must stay ON.
+SAFE_BOOT should disable background loops only.
+SAFE_BOOT must NOT disable:
+- message listener
+- chat event handler
+- command parser
+- /ping
+- /help
+
+STEP 1: FIND THE HIGHRISE CHAT EVENT
+
+Find the correct Highrise SDK event for receiving chat messages.
+
+It may be one of these depending on the SDK version:
+- on_chat
+- on_message
+- on_user_chat
+- chat event callback
+- room message handler
+
+Make sure the bot registers this event after connecting.
+
+Add console log when registered:
+[CMD] message listener registered
+
+Add console log when any chat is received:
+[CMD RX] username=<user> text=<message>
+
+If I type /ping in Highrise, the Replit console must show:
+[CMD RX] username=4ktreyMarion text=/ping
+
+STEP 2: ADD MINIMAL /PING HANDLER BEFORE ALL ROUTERS
+
+Before the big command registry/router, add a hardcoded emergency handler:
+
+If incoming message text starts with /ping:
+- reply in room or whisper:
+"pong"
+
+This must bypass:
+- command registry
+- bot ownership
+- SAFE_BOOT checks
+- permissions
+- module routing
+
+Pseudo logic:
+
+async def handle_message(user, message):
+    print(f"[CMD RX] {user}: {message}")
+
+    text = message.strip()
+
+    if text.lower() == "/ping":
+        await send_message("pong")
+        return
+
+    if text.lower() == "/help":
+        await send_message("Help online. Commands are loading.")
+        return
+
+    await normal_command_router(user, text)
+
+STEP 3: DO NOT IGNORE OWNER MESSAGES
+
+Make sure the bot does not ignore my messages because:
+- I am owner
+- I have crown badge
+- message is from room owner
+- username has uppercase/lowercase difference
+- username has @
+- message is not from a normal user object
+
+Only ignore messages from the bot itself.
+
+STEP 4: DO NOT LET MULTI-BOT OWNERSHIP BLOCK /PING
+
+For now:
+- Host bot should answer /ping.
+- If Host bot is missing, any bot may answer /ping once.
+- /ping is emergency diagnostic and should not require module ownership.
+
+STEP 5: LOG ERRORS IN MESSAGE HANDLER
+
+Wrap the entire message handler in try/except.
+
+If error:
+- print full traceback to console
+- log to bot_crash_logs if possible
+- do NOT crash the bot
+
+Console:
+[CMD ERROR] <full error>
+
+STEP 6: SELF TEST ON STARTUP
+
+After bot connects, print:
+[SELFTEST] Bot connected
+[SELFTEST] Message listener registered
+[SELFTEST] Emergency /ping ready
+
+Do not say this in room. Console only.
+
+STEP 7: TEST
+
+After update, restart workflow.
+
+Type in Highrise:
+/ping
+
+Expected:
+pong
+
+Type:
+/help
+
+Expected:
+Help online. Commands are loading.
+
+If /ping still does not respond, the Replit console must show whether [CMD RX] appeared.
+
+Final requirement:
+Do not work on any other command until /ping works.
