@@ -175,9 +175,19 @@ async def handle_bothealth(bot, user, args: list[str]) -> None:
 
     db_str = "DB OK" if db_ok else "DB ERR"
     conflict_count = _count_conflicts(instances)
+    # Show recent crash if any
+    crash_suffix = ""
+    try:
+        recent = db.get_bot_crash_logs(limit=1)
+        if recent:
+            r = recent[0]
+            ts = r.get("timestamp", "")[:16]
+            crash_suffix = f" | last crash {r.get('bot_mode','?')} {ts}"
+    except Exception:
+        pass
     await _w(bot, user.id,
              (f"Health: {' | '.join(parts)} | {db_str}"
-              f" | Conflicts {conflict_count}")[:249])
+              f" | Conflicts {conflict_count}{crash_suffix}")[:249])
 
 
 # ---------------------------------------------------------------------------
@@ -567,6 +577,85 @@ async def handle_botconflicts(bot, user) -> None:
 # ---------------------------------------------------------------------------
 # /fixbotowners [force]
 # ---------------------------------------------------------------------------
+
+async def handle_safemode(bot, user, args: list[str]) -> None:
+    """
+    /safemode on|off|status
+    Disables startup loops (autogames, spawn, outfit, emotes, intervals)
+    while keeping bots online and commands working. Owner/admin only.
+    """
+    if not can_manage_economy(user.username):
+        await _w(bot, user.id, "Admin and owner only.")
+        return
+    sub = args[1].lower() if len(args) > 1 else "status"
+    if sub == "on":
+        db.set_room_setting("safe_mode_enabled", "true")
+        db.set_room_setting("autogames_enabled", "false")
+        db.set_room_setting("bot_auto_spawn_enabled", "false")
+        db.set_room_setting("outfit_auto_apply_enabled", "false")
+        db.set_room_setting("emote_loops_enabled_on_startup", "false")
+        await _w(bot, user.id,
+                 "Safe mode ON. Startup loops disabled. Commands still work.")
+    elif sub == "off":
+        db.set_room_setting("safe_mode_enabled", "false")
+        await _w(bot, user.id,
+                 "Safe mode OFF. Re-enable individual features as needed.")
+    else:
+        val = db.get_room_setting("safe_mode_enabled", "false")
+        label = "ON" if val == "true" else "OFF"
+        await _w(bot, user.id,
+                 f"Safe mode: {label}. Usage: /safemode on|off")
+
+
+async def handle_crashlogs(bot, user, args: list[str]) -> None:
+    """
+    /crashlogs [bot_id]
+    Shows recent bot crash logs. Owner/admin only.
+    """
+    if not can_manage_economy(user.username):
+        await _w(bot, user.id, "Admin and owner only.")
+        return
+    bot_id = args[1].lower() if len(args) > 1 else ""
+    logs = db.get_bot_crash_logs(bot_id=bot_id, limit=10)
+    if not logs:
+        target = f" for '{bot_id}'" if bot_id else ""
+        await _w(bot, user.id, f"No crash logs{target}.")
+        return
+    if bot_id:
+        latest = logs[0]
+        ts = latest.get("timestamp", "")[:16]
+        etype = latest.get("error_type", "?")
+        emsg = latest.get("error_message", "?")[:80]
+        await _w(bot, user.id,
+                 f"Crash #{latest.get('id','?')} [{ts}] {bot_id}: {etype} — {emsg}")
+        if len(logs) > 1:
+            await _w(bot, user.id,
+                     f"{len(logs)-1} older crash(es). Use /clearcrashlogs {bot_id} to clear.")
+    else:
+        parts = []
+        for log in logs[:6]:
+            ts = log.get("timestamp", "")[:10]
+            mode = log.get("bot_mode", "?")
+            etype = log.get("error_type", "?")
+            parts.append(f"#{log.get('id','?')} {mode} {etype}")
+        await _w(bot, user.id, ("Crashes: " + " | ".join(parts))[:249])
+        await _w(bot, user.id,
+                 "Use /crashlogs <bot_mode> for details. /clearcrashlogs to clear.")
+
+
+async def handle_clearcrashlogs(bot, user, args: list[str]) -> None:
+    """
+    /clearcrashlogs [bot_id]
+    Clear crash logs. Owner/admin only.
+    """
+    if not can_manage_economy(user.username):
+        await _w(bot, user.id, "Admin and owner only.")
+        return
+    bot_id = args[1].lower() if len(args) > 1 else ""
+    count = db.clear_bot_crash_logs(bot_id=bot_id)
+    target = f" for '{bot_id}'" if bot_id else ""
+    await _w(bot, user.id, f"✅ Cleared {count} crash log(s){target}.")
+
 
 async def handle_fixbotowners(bot, user, args: list[str]) -> None:
     if not can_manage_economy(user.username):

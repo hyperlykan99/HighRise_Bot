@@ -78,6 +78,10 @@ Casino games (Blackjack, Realistic Blackjack, Poker), DJ queue, token economy, d
 - Seeding functions (`seed_emoji_badges`, `seed_mining_items`, etc.) use `INSERT OR IGNORE` in `_migrate_db()`.
 - New `room_mutes`/`room_bans`/`room_warnings` tables are separate from older moderation tables.
 - The `_user_positions` dictionary in `room_utils.py` is volatile and resets on bot restart.
+- `get_connection()` now enables WAL mode + busy_timeout=5000ms on every connection. Use `_execute_with_retry()` for hot-path writes.
+- `safe_mode_enabled=true` skips autogames, interval, and emote loops at startup. Use `/safemode on` if bots keep crashing.
+- All startup tasks in `on_start` are individually try/except wrapped — one task failure never kills the bot.
+- Duplicate tokens and bot_ids are now detected and skipped in `bot.py` before launching subprocesses.
 
 ## Pointers
 
@@ -91,3 +95,6 @@ Casino games (Blackjack, Realistic Blackjack, Poker), DJ queue, token economy, d
 - Poker AFK/mode/stakes/rules settings are stored in `room_settings` via `db.get_room_setting()` / `db.set_room_setting()`.
 - `poker_player_presence` tracks join/leave timestamps; `poker_afk_tracking` tracks strike counts per hand.
 - `/poker ai` toggles `_ai_sim_state["enabled"]`; AI hands are logged to `poker_ai_logs` table.
+- Crash logs: `db.log_bot_crash()` writes to `bot_crash_logs`. View with `/crashlogs`, clear with `/clearcrashlogs`.
+- Safe mode: `/safemode on` sets `safe_mode_enabled=true` and disables autogames/spawn/outfit/emote/interval startup loops.
+- New startup defaults (all `false`): `module_startup_announce_enabled`, `autogames_enabled`, `bot_auto_spawn_enabled`, `outfit_auto_apply_enabled`, `emote_loops_enabled_on_startup`, `safe_mode_enabled`.

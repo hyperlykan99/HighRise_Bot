@@ -32,9 +32,25 @@ import config
 # ---------------------------------------------------------------------------
 
 def get_connection() -> sqlite3.Connection:
-    conn = sqlite3.connect(config.DB_PATH)
+    conn = sqlite3.connect(config.DB_PATH, timeout=10)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     return conn
+
+
+def _execute_with_retry(conn, sql, params=(), retries: int = 3):
+    """Execute SQL with retry on database locked errors."""
+    import time as _t
+    for attempt in range(retries):
+        try:
+            return conn.execute(sql, params)
+        except sqlite3.OperationalError as e:
+            if "database is locked" in str(e) and attempt < retries - 1:
+                print(f"[DB] retry database locked {attempt + 1}/{retries}")
+                _t.sleep(0.2 * (attempt + 1))
+            else:
+                raise
 
 
 # ---------------------------------------------------------------------------
@@ -917,6 +933,20 @@ def init_db():
             show_achievements INTEGER NOT NULL DEFAULT 1,
             show_inventory    INTEGER NOT NULL DEFAULT 1,
             updated_at        TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+    """)
+
+    # ── Bot crash log ───────────────────────────────────────────────────────
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS bot_crash_logs (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp     TEXT NOT NULL DEFAULT (datetime('now')),
+            bot_id        TEXT NOT NULL DEFAULT '',
+            bot_username  TEXT NOT NULL DEFAULT '',
+            bot_mode      TEXT NOT NULL DEFAULT '',
+            error_type    TEXT NOT NULL DEFAULT '',
+            error_message TEXT NOT NULL DEFAULT '',
+            traceback     TEXT NOT NULL DEFAULT ''
         )
     """)
 
@@ -7154,6 +7184,65 @@ def mark_card_delivered(round_id: str, username: str) -> None:
     conn.close()
 
 
+# ---------------------------------------------------------------------------
+# Bot crash log helpers
+# ---------------------------------------------------------------------------
+
+def log_bot_crash(bot_id: str, bot_username: str, bot_mode: str,
+                  error_type: str, error_message: str, traceback: str = "") -> None:
+    """Record a bot crash to the bot_crash_logs table."""
+    try:
+        conn = get_connection()
+        conn.execute(
+            "INSERT INTO bot_crash_logs "
+            "(bot_id, bot_username, bot_mode, error_type, error_message, traceback) "
+            "VALUES (?,?,?,?,?,?)",
+            (bot_id, bot_username, bot_mode,
+             error_type[:200], error_message[:500], traceback[:2000]),
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[DB] log_bot_crash error: {e}")
+
+
+def get_bot_crash_logs(bot_id: str = "", limit: int = 20) -> list:
+    """Return recent crash logs (newest first), optionally filtered by bot_id."""
+    try:
+        conn = get_connection()
+        if bot_id:
+            rows = conn.execute(
+                "SELECT * FROM bot_crash_logs WHERE bot_id=? "
+                "ORDER BY id DESC LIMIT ?",
+                (bot_id, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM bot_crash_logs ORDER BY id DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+    except Exception:
+        return []
+
+
+def clear_bot_crash_logs(bot_id: str = "") -> int:
+    """Clear crash logs. Returns rows deleted."""
+    try:
+        conn = get_connection()
+        if bot_id:
+            cur = conn.execute("DELETE FROM bot_crash_logs WHERE bot_id=?", (bot_id,))
+        else:
+            cur = conn.execute("DELETE FROM bot_crash_logs")
+        count = cur.rowcount
+        conn.commit()
+        conn.close()
+        return count
+    except Exception:
+        return 0
+
+
 def seed_room_settings() -> None:
     defaults = [
         ("self_teleport_enabled",   "false"),
@@ -7178,9 +7267,15 @@ def seed_room_settings() -> None:
         ("repeat_max_count",             "5"),
         ("repeat_min_seconds",           "10"),
         ("multibot_fallback_enabled",    "true"),
-        ("bot_startup_announce_enabled", "false"),
-        ("autogames_owner_bot_mode",         "eventhost"),
-        ("module_restore_announce_enabled",  "true"),
+        ("bot_startup_announce_enabled",      "false"),
+        ("module_startup_announce_enabled",   "false"),
+        ("autogames_owner_bot_mode",          "eventhost"),
+        ("autogames_enabled",                 "false"),
+        ("module_restore_announce_enabled",   "true"),
+        ("bot_auto_spawn_enabled",            "false"),
+        ("outfit_auto_apply_enabled",         "false"),
+        ("emote_loops_enabled_on_startup",    "false"),
+        ("safe_mode_enabled",                 "false"),
     ]
     conn = get_connection()
     for k, v in defaults:

@@ -114,6 +114,22 @@ def _collect_bots() -> list[_BotSpec]:
         print(f"[RUNNER] {token_env} set -> starting {label} mode {spec.bot_mode}")
         specs.append(spec)
 
+    # ── Duplicate token / bot_id detection ───────────────────────────────────
+    seen_tokens: set[str] = set()
+    seen_ids:    set[str] = set()
+    deduped: list[_BotSpec] = []
+    for s in specs:
+        if s.token in seen_tokens:
+            print(f"[RUNNER] duplicate token for {s.label} skipped")
+            continue
+        if s.bot_id in seen_ids:
+            print(f"[RUNNER] duplicate bot_id '{s.bot_id}' for {s.label} skipped")
+            continue
+        seen_tokens.add(s.token)
+        seen_ids.add(s.bot_id)
+        deduped.append(s)
+    specs = deduped
+
     # ── Auto-switch main bot to host mode when split bots exist ─────────────
     # If MAIN_BOT_MODE was not explicitly set and any game-module bot is present,
     # the main bot demotes itself to host so it never duplicates game replies.
