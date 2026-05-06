@@ -270,8 +270,9 @@ from modules.control_panel import (
 from modules.multi_bot import (
     should_this_bot_handle,
     start_heartbeat_loop as start_multibot_heartbeat,
-    should_announce_startup,
-    handle_bots_live, handle_botmodules, handle_commandowners,
+    should_announce_startup, get_offline_message,
+    handle_bots_live, handle_botstatus_cluster,
+    handle_botmodules, handle_commandowners,
     handle_enablebot, handle_disablebot,
     handle_setbotmodule, handle_setcommandowner, handle_botfallback,
     handle_botstartupannounce, handle_multibothelp,
@@ -671,24 +672,25 @@ GAME_HELP = GAME_HELP_PAGES[0]
 CASINO_HELP_PAGES = [
     (
         "🎰 Casino\n"
-        "BJ: /bjoin <bet>, /bh, /bs, /bd, /bsp\n"
-        "RBJ: /rjoin <bet>, /rh, /rs, /rd, /rsp\n"
-        "Poker: /p <buyin>\n"
-        "/casino /mycasino — casino dashboard"
+        "BJ: /bjoin 100\n"
+        "RBJ: /rjoin 100\n"
+        "Poker: /p 1000\n"
+        "Help: /bjhelp /rbjhelp /pokerhelp"
     ),
     (
         "🎰 Casino 2\n"
         "/bt table | /rt table\n"
         "/bhand | /rhand | /rshoe\n"
-        "/bj rules | /rbj rules\n"
-        "/bstats | /rstats"
+        "/bstats | /rstats\n"
+        "/mycasino — your casino dashboard"
     ),
     (
         "🎰 Casino Settings\n"
-        "Players: /casino modes\n"
         "Staff: /casinosettings\n"
         "Staff: /casinolimits\n"
-        "Staff: /casinotoggles"
+        "Staff: /casinotoggles\n"
+        "Recovery: /bj recover /rbj recover\n"
+        "/poker cleanup /poker refundtable"
     ),
 ]
 CASINO_HELP = CASINO_HELP_PAGES[0]
@@ -805,45 +807,44 @@ EVENT_HELP_PAGES = [
 
 BJ_HELP_PAGES = [
     (
-        "🃏 Blackjack\n"
-        "/bjoin bet - join and place bet\n"
-        "/bh - hit | /bs - stand\n"
-        "/bd - double down | /bsp - split\n"
-        "/bhand - view your hand\n"
-        "/bt - table info\n"
-        "/blimits - your daily limits\n"
-        "/bstats - your BJ stats"
+        "🃏 BJ Bot\n"
+        "/bjoin bet - join\n"
+        "/bh - hit\n"
+        "/bs - stand\n"
+        "/bd - double\n"
+        "/bsp - split\n"
+        "/bhand - hand"
     ),
     (
-        "🃏 BJ 2 — Staff\n"
-        "/bj on/off - toggle blackjack\n"
-        "/bj recover - fix stuck table\n"
-        "/bj refund - refund all bets\n"
-        "/bj state - table status\n"
-        "/setbjlimits min max win loss\n"
-        "/resetbjstats user - reset stats"
+        "🃏 BJ Bot 2\n"
+        "/bt - table info\n"
+        "/blimits - daily limits\n"
+        "/bstats - your BJ stats\n"
+        "Staff: /bj on/off\n"
+        "/bj recover | /bj refund\n"
+        "/bj state | /setbjlimits"
     ),
 ]
 
 RBJ_HELP_PAGES = [
     (
-        "🃏 Realistic BJ\n"
-        "/rjoin bet - join and place bet\n"
-        "/rh - hit | /rs - stand\n"
-        "/rd - double down | /rsp - split\n"
-        "/rhand - view your hand\n"
-        "/rshoe - cards remaining in shoe\n"
-        "/rlimits - your daily limits\n"
-        "/rstats - your RBJ stats"
+        "🃏 RBJ Bot\n"
+        "/rjoin bet - join\n"
+        "/rh - hit\n"
+        "/rs - stand\n"
+        "/rd - double\n"
+        "/rsp - split\n"
+        "/rhand - hand\n"
+        "/rshoe - shoe"
     ),
     (
-        "🃏 RBJ 2 — Staff\n"
-        "/rbj on/off - toggle RBJ\n"
-        "/rbj recover - fix stuck table\n"
-        "/rbj refund - refund all bets\n"
-        "/rbj state - table status\n"
-        "/setrbjlimits min max win loss\n"
-        "/resetrbjstats user - reset stats"
+        "🃏 RBJ Bot 2\n"
+        "/rt - table info\n"
+        "/rlimits - daily limits\n"
+        "/rstats - your RBJ stats\n"
+        "Staff: /rbj on/off\n"
+        "/rbj recover | /rbj refund\n"
+        "/rbj state | /setrbjlimits"
     ),
 ]
 
@@ -1822,6 +1823,9 @@ class HangoutBot(BaseBot):
 
         # ── Multi-bot gate — ignore if another bot owns this command ─────────
         if not should_this_bot_handle(cmd):
+            offline_msg = get_offline_message(cmd)
+            if offline_msg:
+                await self.highrise.send_whisper(user.id, offline_msg)
             return
 
         # ── Deliver queued bank/subscriber notifications on first command ──
@@ -3137,7 +3141,7 @@ class HangoutBot(BaseBot):
 
         # ── Maintenance tools ─────────────────────────────────────────────────
         elif cmd == "botstatus":
-            await handle_botstatus(self, user)
+            await handle_botstatus_cluster(self, user, args)
 
         elif cmd == "dbstats":
             await handle_dbstats(self, user)

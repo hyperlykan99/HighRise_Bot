@@ -1105,6 +1105,12 @@ def _migrate_db():
         "id INTEGER PRIMARY KEY AUTOINCREMENT, event_id TEXT NOT NULL, "
         "started_by TEXT, started_at TEXT, ends_at TEXT, "
         "active INTEGER NOT NULL DEFAULT 0)",
+        # ── Multi-bot module locks ────────────────────────────────────────────
+        "CREATE TABLE IF NOT EXISTS bot_module_locks ("
+        "module TEXT PRIMARY KEY, "
+        "bot_id TEXT NOT NULL DEFAULT '', "
+        "locked_at TEXT NOT NULL DEFAULT '', "
+        "expires_at TEXT NOT NULL DEFAULT '')",
         # ── Multi-bot system ──────────────────────────────────────────────────
         "CREATE TABLE IF NOT EXISTS bot_instances ("
         "bot_id TEXT PRIMARY KEY, "
@@ -6545,6 +6551,67 @@ def set_follow_state(target_username: str, enabled: bool) -> None:
 # ---------------------------------------------------------------------------
 # Multi-bot DB helpers
 # ---------------------------------------------------------------------------
+
+def acquire_module_lock(module: str, bot_id: str, ttl_seconds: int = 30) -> bool:
+    """
+    Acquire a lock for a game module. Returns True if lock was acquired.
+    Automatically clears stale locks older than ttl_seconds.
+    """
+    conn = get_connection()
+    try:
+        conn.execute(
+            """INSERT INTO bot_module_locks (module, bot_id, locked_at, expires_at)
+               VALUES (?, ?, datetime('now'), datetime('now', ?))
+               ON CONFLICT(module) DO UPDATE SET
+                   bot_id     = excluded.bot_id,
+                   locked_at  = excluded.locked_at,
+                   expires_at = excluded.expires_at
+               WHERE expires_at < datetime('now')""",
+            (module, bot_id, f"+{ttl_seconds} seconds"),
+        )
+        conn.commit()
+        row = conn.execute(
+            "SELECT bot_id FROM bot_module_locks WHERE module=?", (module,)
+        ).fetchone()
+        return row is not None and row["bot_id"] == bot_id
+    except Exception:
+        return False
+    finally:
+        conn.close()
+
+
+def release_module_lock(module: str, bot_id: str) -> None:
+    """Release a lock only if this bot_id owns it."""
+    conn = get_connection()
+    conn.execute(
+        "DELETE FROM bot_module_locks WHERE module=? AND bot_id=?",
+        (module, bot_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+def is_module_locked(module: str) -> bool:
+    """Return True if a non-expired lock exists for this module."""
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT bot_id FROM bot_module_locks WHERE module=? AND expires_at > datetime('now')",
+        (module,),
+    ).fetchone()
+    conn.close()
+    return row is not None
+
+
+def get_module_lock_owner(module: str) -> str | None:
+    """Return the bot_id holding a non-expired lock, or None."""
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT bot_id FROM bot_module_locks WHERE module=? AND expires_at > datetime('now')",
+        (module,),
+    ).fetchone()
+    conn.close()
+    return row["bot_id"] if row else None
+
 
 def upsert_bot_instance(bot_id: str, bot_username: str, bot_mode: str,
                         prefix: str = "", status: str = "online") -> None:

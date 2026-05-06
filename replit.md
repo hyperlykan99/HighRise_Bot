@@ -55,8 +55,9 @@ DB schema source of truth: `database.py` (`_MIGRATIONS` list + `init_db()`)
 - **Bot modes**: `bot_modes` + `bot_mode_assignments` tables. `format_bot_message(msg, category)` in `bot_modes.py` prefixes messages by mode/category. 8 default modes seeded on startup.
 - **Position cache**: `_user_positions` dict in `room_utils.py` updated from `on_user_move` in `main.py` — used for teleport/follow.
 - **Room-ban gate**: `is_room_banned()` checked in `on_chat` after mute gate; bot-level ban blocks all non-exempt commands.
-- **Multi-bot gate**: `should_this_bot_handle(cmd)` in `multi_bot.py` checked immediately after cmd parsing. When `BOT_MODE=all` (default) it always returns True — fully backwards-compatible. In specialized mode it checks `bot_command_ownership` DB (overrides) → `_DEFAULT_COMMAND_OWNERS` map → online status cache → fallback setting.
-- **Heartbeat**: 30 s asyncio loop upserts this bot's row into `bot_instances` with status/last_seen_at. Other bots in the cluster read this to know if a mode is online. Cache TTL: 30 s for online status, 60 s for ownership overrides.
+- **Multi-bot gate**: `should_this_bot_handle(cmd)` checked immediately after cmd parsing. `BOT_MODE=all` always returns True. `blackjack` handles BJ/RBJ only. `poker` handles Poker only. `dealer` is legacy fallback for casino if dedicated bots offline. Host/all sends offline message when fallback=off.
+- **Heartbeat**: 30 s asyncio loop upserts this bot's row into `bot_instances`. Cache TTL: 30 s online status, 60 s ownership overrides.
+- **Module locks**: `bot_module_locks` table with TTL-based acquire/release. Use `db.acquire_module_lock("blackjack", BOT_ID)` before game-state writes to prevent dual payouts in multi-bot runs.
 
 ## Product
 
@@ -105,12 +106,22 @@ Casino games (BJ, RBJ with split/double/shoe, Poker), DJ queue, token economy, d
 
 ## Multi-Bot System (modules/multi_bot.py)
 
-**Identity env vars**: `BOT_ID` (default `main`), `BOT_MODE` (default `all`), `BOT_USERNAME`, `SHARED_DB_PATH`  
-**Public**: `/bots` `/botmodules` `/multibothelp`  
+**Identity env vars**: `BOT_ID`, `BOT_MODE` (default `all`), `BOT_USERNAME`, `SHARED_DB_PATH`  
+**Bot modes**: `all` `host` `blackjack` `poker` `dealer` `banker` `miner` `shopkeeper` `security` `dj` `eventhost`  
+**Public**: `/bots` `/botstatus [id]` `/botmodules` `/multibothelp`  
 **Admin**: `/commandowners` `/enablebot <id>` `/disablebot <id>` `/setbotmodule <id> <mode>` `/setcommandowner <cmd> <mode>` `/botfallback on|off` `/botstartupannounce on|off`  
-**DB tables**: `bot_instances` (heartbeat rows), `bot_command_ownership` (per-command overrides)  
+**DB tables**: `bot_instances` (heartbeat), `bot_command_ownership` (overrides), `bot_module_locks` (per-game lock)  
 **Room settings**: `multibot_fallback_enabled` (default `true`), `bot_startup_announce_enabled` (default `false`)  
-**Gate**: `should_this_bot_handle(cmd)` — no-op when `BOT_MODE=all`; in specialized mode, yields to the online owner or falls back to host mode.
+**Gate**: `should_this_bot_handle(cmd)` → no-op on `BOT_MODE=all`. `blackjack` owns BJ/RBJ. `poker` owns Poker. `dealer` is legacy fallback for both. Host/all sends "X bot is currently offline." when fallback=off.  
+**Module lock API**: `db.acquire_module_lock(module, bot_id)` / `db.release_module_lock(module, bot_id)` — prevents dual payout in multi-bot game runs.
+
+### Recommended bot setup
+| Bot | BOT_ID | BOT_MODE | BOT_USERNAME |
+|---|---|---|---|
+| Blackjack Bot | `blackjack` | `blackjack` | `AceSinatra` |
+| Poker Bot | `poker` | `poker` | `ChipSoprano` |
+| Host Bot | `host` | `host` | `LoungeHost` |
+| Single bot | `main` | `all` | _(any)_ |
 
 ## Pointers
 

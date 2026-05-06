@@ -22,14 +22,16 @@ from modules.permissions import is_owner, is_admin, is_manager
 _DEFAULT_BOT_ID = "main"
 
 DEFAULT_MODES: dict[str, dict] = {
-    "host":       {"mode_name": "Lounge Host",    "prefix": "🎙️ Host",    "title": "Lounge Host",      "description": "Welcomes players and helps with room commands.",           "outfit_name": "Host Outfit"},
-    "miner":      {"mode_name": "Miner",          "prefix": "⛏️ Miner",   "title": "Mining Guide",     "description": "Helps players with mining, ores, tools, and contracts.",    "outfit_name": "Miner Outfit"},
-    "banker":     {"mode_name": "Banker",         "prefix": "🏦 Banker",  "title": "Bank Assistant",   "description": "Handles coins, bank, balances, and transfers.",             "outfit_name": "Banker Outfit"},
-    "dj":         {"mode_name": "DJ",             "prefix": "🎧 DJ",      "title": "Lounge DJ",        "description": "Music, events, emotes, dancing, and announcements.",        "outfit_name": "DJ Outfit"},
-    "dealer":     {"mode_name": "Casino Dealer",  "prefix": "🎰 Dealer",  "title": "Casino Dealer",    "description": "Handles BJ, RBJ, poker, and casino settings.",              "outfit_name": "Dealer Outfit"},
-    "security":   {"mode_name": "Security",       "prefix": "🛡️ Security","title": "Lounge Security",  "description": "Handles moderation, reports, warnings, and safety.",        "outfit_name": "Security Outfit"},
-    "shopkeeper": {"mode_name": "Shopkeeper",     "prefix": "🛒 Shop",    "title": "Shopkeeper",       "description": "Handles badge shop, title shop, VIP shop, and markets.",    "outfit_name": "Shopkeeper Outfit"},
-    "eventhost":  {"mode_name": "Event Host",     "prefix": "🎉 Event",   "title": "Event Host",       "description": "Handles events, gold rain, room games, and announcements.", "outfit_name": "Event Host Outfit"},
+    "host":       {"mode_name": "Lounge Host",       "prefix": "🎙️ Host",       "title": "Lounge Host",        "description": "Welcomes players and helps with room commands.",              "outfit_name": "Host Outfit"},
+    "miner":      {"mode_name": "Miner",             "prefix": "⛏️ Miner",      "title": "Mining Guide",       "description": "Helps players with mining, ores, tools, and contracts.",     "outfit_name": "Miner Outfit"},
+    "banker":     {"mode_name": "Banker",            "prefix": "🏦 Banker",     "title": "Bank Assistant",     "description": "Handles coins, bank, balances, and transfers.",              "outfit_name": "Banker Outfit"},
+    "dj":         {"mode_name": "DJ",                "prefix": "🎧 DJ",         "title": "Lounge DJ",          "description": "Music, events, emotes, dancing, and announcements.",         "outfit_name": "DJ Outfit"},
+    "dealer":     {"mode_name": "Casino Dealer",     "prefix": "🎰 Dealer",     "title": "Casino Dealer",      "description": "Legacy casino fallback — handles BJ, RBJ, poker.",           "outfit_name": "Dealer Outfit"},
+    "blackjack":  {"mode_name": "Blackjack Dealer",  "prefix": "🃏 Blackjack",  "title": "BJ/RBJ Dealer",      "description": "Handles Casual Blackjack and Realistic Blackjack.",          "outfit_name": "Blackjack Dealer Outfit"},
+    "poker":      {"mode_name": "Poker Dealer",      "prefix": "♠️ Poker",      "title": "Poker Table Dealer", "description": "Handles poker, blinds, stacks, cards, and table state.",     "outfit_name": "Poker Dealer Outfit"},
+    "security":   {"mode_name": "Security",          "prefix": "🛡️ Security",   "title": "Lounge Security",    "description": "Handles moderation, reports, warnings, and safety.",         "outfit_name": "Security Outfit"},
+    "shopkeeper": {"mode_name": "Shopkeeper",        "prefix": "🛒 Shop",       "title": "Shopkeeper",         "description": "Handles badge shop, title shop, VIP shop, and markets.",     "outfit_name": "Shopkeeper Outfit"},
+    "eventhost":  {"mode_name": "Event Host",        "prefix": "🎉 Event",      "title": "Event Host",         "description": "Handles events, gold rain, room games, and announcements.",  "outfit_name": "Event Host Outfit"},
 }
 
 # Category → mode_id mapping for format_bot_message
@@ -37,10 +39,10 @@ CATEGORY_MODE: dict[str, str] = {
     "mining":       "miner",
     "bank":         "banker",
     "economy":      "banker",
-    "casino":       "dealer",
-    "bj":           "dealer",
-    "rbj":          "dealer",
-    "poker":        "dealer",
+    "casino":       "host",
+    "bj":           "blackjack",
+    "rbj":          "blackjack",
+    "poker":        "poker",
     "events":       "eventhost",
     "announcements":"eventhost",
     "moderation":   "security",

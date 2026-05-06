@@ -1,0 +1,635 @@
+Update the Multi-Bot System to separate Blackjack/RBJ and Poker into different bots.
+
+GOAL:
+I want Blackjack/RBJ and Poker handled by separate bots.
+
+New setup:
+- Blackjack Bot handles Casual Blackjack and Realistic Blackjack only.
+- Poker Bot handles Poker only.
+- Host/Main Bot can still handle help, welcome, profiles, room utilities, and fallback.
+- All bots share the same SQLite database, coins, roles, profiles, XP, VIP, stats, logs, and balances.
+- Bots must not duplicate replies.
+
+Recommended bot names:
+- Blackjack Bot: Ace Sinatra
+- Poker Bot: Chip Soprano
+
+IMPORTANT:
+- Do not remove existing features.
+- Keep BJ, RBJ, poker, coins, bank, profiles, VIP, mining, shop, events, reports, roles, room utilities, bot modes, and admin tools.
+- Use shared SQLite database.
+- Keep all Highrise messages under 250 characters.
+- Add explicit routing before unknown-command fallback.
+- Prevent silent failures.
+- If BOT_MODE=all, one main bot should still handle everything.
+- If multiple bots are running, only the bot assigned to that command should respond.
+
+==================================================
+PART 1: ADD NEW BOT MODES
+==================================================
+
+Add these BOT_MODE values:
+- blackjack
+- poker
+
+Keep existing:
+- all
+- host
+- banker
+- dealer
+- miner
+- shopkeeper
+- security
+- dj
+- eventhost
+
+Behavior:
+- BOT_MODE=blackjack handles BJ and RBJ commands only.
+- BOT_MODE=poker handles Poker commands only.
+- BOT_MODE=dealer is legacy and may handle both only if dedicated blackjack/poker bots are offline.
+- BOT_MODE=all handles everything for single-bot setup.
+- Unknown commands should only be answered by Host Bot or all-mode bot.
+
+==================================================
+PART 2: BOT PROFILES AND PREFIXES
+==================================================
+
+Add default bot mode profiles:
+
+blackjack:
+- mode_name: Blackjack Dealer
+- bot_name: Ace Sinatra
+- prefix: 🃏 Blackjack
+- title: BJ/RBJ Dealer
+- description: Handles Casual Blackjack and Realistic Blackjack.
+- outfit_name: Blackjack Dealer Outfit
+
+poker:
+- mode_name: Poker Dealer
+- bot_name: Chip Soprano
+- prefix: ♠️ Poker
+- title: Poker Table Dealer
+- description: Handles persistent poker, blinds, stacks, cards, and table state.
+- outfit_name: Poker Dealer Outfit
+
+Messages examples:
+"🃏 Blackjack: RBJ action open! 30s."
+"♠️ Poker: Hand #4 started. Blinds 50/100."
+
+==================================================
+PART 3: BLACKJACK BOT COMMAND OWNERSHIP
+==================================================
+
+Blackjack Bot owns all Casual BJ and RBJ commands.
+
+Casual BJ commands:
+- /bj
+- /bjhelp
+- /bjoin
+- /bj join
+- /bj hit
+- /bj stand
+- /bj double
+- /bj split
+- /bh
+- /bs
+- /bd
+- /bsp
+- /bjh
+- /bjs
+- /bjd
+- /bjsp
+- /bt
+- /bhand
+- /bjhand
+- /bj table
+- /bj hand
+- /bj limits
+- /bj settings
+- /bj winlimit on
+- /bj winlimit off
+- /bj losslimit on
+- /bj losslimit off
+- /bj betlimit on
+- /bj betlimit off
+- /bj split on
+- /bj split off
+- /bj double on
+- /bj double off
+- /bj splitaces on
+- /bj splitaces off
+- /setbjactiontimer
+- /setbjmaxsplits
+- /resetbjlimits
+- /bj recover
+- /bj refund
+- /bj forcefinish
+
+RBJ commands:
+- /rbj
+- /rbjhelp
+- /rjoin
+- /rbj join
+- /rbj hit
+- /rbj stand
+- /rbj double
+- /rbj split
+- /rh
+- /rs
+- /rd
+- /rsp
+- /rbjh
+- /rbjs
+- /rbjd
+- /rbjsp
+- /rt
+- /rhand
+- /rbjhand
+- /rshoe
+- /rbj table
+- /rbj hand
+- /rbj shoe
+- /rbj limits
+- /rbj settings
+- /rbj winlimit on
+- /rbj winlimit off
+- /rbj losslimit on
+- /rbj losslimit off
+- /rbj betlimit on
+- /rbj betlimit off
+- /rbj split on
+- /rbj split off
+- /rbj double on
+- /rbj double off
+- /rbj splitaces on
+- /rbj splitaces off
+- /setrbjactiontimer
+- /setrbjmaxsplits
+- /resetrbjlimits
+- /rbj recover
+- /rbj refund
+- /rbj forcefinish
+
+==================================================
+PART 4: POKER BOT COMMAND OWNERSHIP
+==================================================
+
+Poker Bot owns all Poker commands.
+
+Poker player commands:
+- /poker
+- /pokerhelp
+- /p
+- /pj
+- /pt
+- /ptable
+- /ph
+- /pcards
+- /po
+- /podds
+- /check
+- /ch
+- /call
+- /ca
+- /raise
+- /r
+- /fold
+- /f
+- /allin
+- /all-in
+- /shove
+- /ai
+- /stack
+- /mystack
+- /pstacks
+- /rebuy
+- /sitout
+- /sitin
+- /plb
+- /pstats
+- /pokerstats
+- /pokerlb
+- /poker last
+- /pokerhistory
+
+Poker staff/settings commands:
+- /setpokertimer
+- /setpokerturntimer
+- /setpokerlobbytimer
+- /setpokernexthandtimer
+- /setpokerblinds
+- /setpokerante
+- /setpokerraise
+- /setpokerminplayers
+- /setpokermaxplayers
+- /poker blinds on
+- /poker blinds off
+- /poker winlimit on
+- /poker winlimit off
+- /poker losslimit on
+- /poker losslimit off
+- /poker raiselimit on
+- /poker raiselimit off
+- /poker allin on
+- /poker allin off
+- /poker cleanup
+- /pokercleanup
+- /poker refund
+- /poker refundtable
+- /poker forcefinish
+- /pokerdebug
+- /pokerdebug state
+- /pokerdebug players
+- /pokerdebug table
+- /pokerdebug hand
+- /pokerdebug cleanup
+- /pokerfix
+- /poker state
+- /poker recover
+- /poker close
+- /poker on
+- /poker off
+
+==================================================
+PART 5: GENERAL CASINO COMMANDS
+==================================================
+
+General casino commands:
+- /casino
+- /casinohelp
+- /casinosettings
+- /casinolimits
+- /casinotoggles
+- /mycasino
+
+Ownership:
+- If Host Bot exists, Host may own /casinohelp and /casino.
+- If Blackjack Bot and Poker Bot are both active, only one bot should answer general casino commands.
+- /casinohelp should list both BJ/RBJ and Poker commands.
+- /casinosettings can read shared DB and show both systems if owner/admin/manager.
+
+Recommended:
+- Host Bot owns /casinohelp.
+- Blackjack Bot owns BJ/RBJ commands.
+- Poker Bot owns Poker commands.
+
+==================================================
+PART 6: PREVENT DUPLICATE REPLIES
+==================================================
+
+Update should_this_bot_handle(command, BOT_MODE).
+
+Rules:
+1. BOT_MODE=blackjack handles BJ/RBJ commands only.
+2. BOT_MODE=poker handles Poker commands only.
+3. BOT_MODE=dealer handles BJ/RBJ/Poker only if dedicated Blackjack/Poker bots are offline or fallback is ON.
+4. BOT_MODE=all handles all commands.
+5. Unknown command is only answered by Host Bot or all-mode bot.
+6. Bots must silently ignore commands they do not own.
+7. If command belongs to another active bot, do not reply.
+8. If owner bot is offline and fallback is ON, Host/Main may reply.
+9. If owner bot is offline and fallback is OFF, Host replies:
+"That module bot is offline."
+
+Examples:
+- /rjoin 100 = Blackjack Bot replies only.
+- /p 1000 = Poker Bot replies only.
+- /mine = Miner Bot replies only.
+- /bal = Banker Bot replies only.
+- /help = Host Bot replies only.
+
+==================================================
+PART 7: SHARED DATABASE AND LOCK SAFETY
+==================================================
+
+All bots use the same SQLite database.
+
+Shared systems:
+- balances
+- XP/levels
+- roles
+- profiles
+- VIP
+- badges/titles
+- bank
+- casino stats
+- poker stats
+- event coins
+- admin logs
+- command logs
+
+Add module lock table if missing:
+
+bot_module_locks:
+- module TEXT PRIMARY KEY
+- bot_id TEXT
+- locked_at TEXT
+- expires_at TEXT
+
+Use locks for:
+- blackjack
+- rbj
+- poker
+
+Before game actions:
+- Acquire correct lock.
+- Process action.
+- Save state.
+- Release lock.
+- If lock is stale, recover safely.
+
+Purpose:
+- Prevent duplicate payouts.
+- Prevent two bots resolving the same hand.
+- Prevent two bots writing the same game state.
+
+==================================================
+PART 8: ENVIRONMENT CONFIG EXAMPLES
+==================================================
+
+Support env vars:
+
+BOT_ID
+BOT_MODE
+BOT_USERNAME
+SHARED_DB_PATH
+
+Blackjack Bot:
+BOT_ID=blackjack
+BOT_MODE=blackjack
+BOT_USERNAME=AceSinatra
+SHARED_DB_PATH=casino_bot.db
+
+Poker Bot:
+BOT_ID=poker
+BOT_MODE=poker
+BOT_USERNAME=ChipSoprano
+SHARED_DB_PATH=casino_bot.db
+
+Host Bot:
+BOT_ID=host
+BOT_MODE=host
+BOT_USERNAME=LoungeHost
+SHARED_DB_PATH=casino_bot.db
+
+Single bot fallback:
+BOT_ID=main
+BOT_MODE=all
+BOT_USERNAME=MainBot
+SHARED_DB_PATH=casino_bot.db
+
+If env vars are missing:
+BOT_ID=main
+BOT_MODE=all
+
+==================================================
+PART 9: BOT STATUS COMMANDS
+==================================================
+
+Update/add:
+- /bots
+- /botstatus
+- /botstatus <bot_id>
+- /botmodules
+- /commandowners
+
+/bots:
+"🤖 Bots: Host ON | Blackjack ON | Poker ON | Miner OFF"
+
+/botmodules:
+"Modules: BJ=Blackjack | RBJ=Blackjack | Poker=Poker"
+
+/commandowners:
+"Owners: /bj Blackjack | /rbj Blackjack | /poker Poker | /p Poker"
+
+/botstatus poker:
+"♠️ Poker Bot: ON | Mode poker | Last seen 20s ago"
+
+==================================================
+PART 10: BOT MODE / OUTFIT INTEGRATION
+==================================================
+
+Add new modes to:
+- /botmodes
+- /botprofile
+- /dressbot
+- /assignbotmode
+- /botoutfits
+
+Commands:
+- /dressbot blackjack blackjack
+- /dressbot poker poker
+- /assignbotmode AceSinatra blackjack
+- /assignbotmode ChipSoprano poker
+
+If outfit API cannot change clothes:
+"Mode assigned. Outfit change not supported by API."
+
+Do not fake outfit success.
+
+==================================================
+PART 11: HELP UPDATES
+==================================================
+
+Update /casinohelp:
+
+"🎰 Casino
+BJ: /bjoin 100
+RBJ: /rjoin 100
+Poker: /p 1000
+Help: /bjhelp /rbjhelp /pokerhelp"
+
+Update /bjhelp:
+
+"🃏 BJ Bot
+/bjoin bet - join
+/bh - hit
+/bs - stand
+/bd - double
+/bsp - split
+/bhand - hand"
+
+Update /rbjhelp:
+
+"🃏 RBJ Bot
+/rjoin bet - join
+/rh - hit
+/rs - stand
+/rd - double
+/rsp - split
+/rhand - hand
+/rshoe - shoe"
+
+Update /pokerhelp:
+
+"♠️ Poker Bot
+/p buyin - join
+/ph - cards
+/pt - table
+/check /call /r amt /fold /ai"
+
+Update /multibothelp:
+
+"🤖 Split Bots
+Blackjack: BJ/RBJ
+Poker: poker table
+/bots - status
+/botmodules - owners"
+
+Update /multibothelp 2:
+
+"Owner:
+/setcommandowner cmd mode
+/enablebot id
+/disablebot id
+/setbotmodule id mode"
+
+==================================================
+PART 12: ADMIN CONTROL UPDATES
+==================================================
+
+Update:
+- /control casino
+- /adminpanel casino
+- /managerhelp
+- /ownerhelp
+
+/control casino:
+"🎰 Casino Bots
+BJ/RBJ: Blackjack Bot
+Poker: Poker Bot
+/botmodules - owners
+/bots - status"
+
+/control casino 2:
+"Recovery
+/bj recover
+/rbj recover
+/poker state
+/poker cleanup
+/poker refundtable"
+
+==================================================
+PART 13: COMMAND AUDIT UPDATE
+==================================================
+
+Update:
+- /checkcommands
+- /checkhelp
+- /commandtest <command>
+- /routecheck
+- /silentcheck
+
+They should show the owner bot.
+
+Examples:
+/commandtest /rjoin
+"/rjoin route YES | owner Blackjack | handler YES"
+
+/commandtest /p
+"/p route YES | owner Poker | handler YES"
+
+/commandtest /bj
+"/bj route YES | owner Blackjack | handler YES"
+
+/commandtest /poker
+"/poker route YES | owner Poker | handler YES"
+
+No command should show route YES but become Unknown when typed.
+
+==================================================
+PART 14: FALLBACK SETTINGS
+==================================================
+
+Add:
+- /botfallback on
+- /botfallback off
+- /enablebot <bot_id>
+- /disablebot <bot_id>
+- /setbotmodule <bot_id> <mode>
+- /setcommandowner <command> <bot_mode>
+
+Owner/admin only.
+
+Behavior:
+- /disablebot poker marks Poker Bot offline.
+- If fallback ON, Host/Main may handle Poker commands.
+- If fallback OFF, Host says:
+"Poker bot is offline."
+
+Messages:
+"✅ Bot fallback ON."
+"⛔ Bot fallback OFF."
+"✅ Poker bot disabled."
+"✅ /p owner set to Poker."
+
+==================================================
+PART 15: TESTS
+==================================================
+
+Single bot test:
+Set:
+BOT_MODE=all
+
+Test:
+- /rjoin 100
+- /p 1000
+
+Expected:
+Main bot handles both.
+
+Blackjack Bot test:
+Set:
+BOT_MODE=blackjack
+
+Test:
+- /rjoin 100
+Expected:
+Blackjack Bot responds.
+
+- /p 1000
+Expected:
+Blackjack Bot ignores.
+
+Poker Bot test:
+Set:
+BOT_MODE=poker
+
+Test:
+- /p 1000
+Expected:
+Poker Bot responds.
+
+- /rjoin 100
+Expected:
+Poker Bot ignores.
+
+Multi-bot test:
+Run Host Bot + Blackjack Bot + Poker Bot.
+
+Test:
+- /rjoin 100
+Expected:
+Only Blackjack Bot replies.
+
+- /p 1000
+Expected:
+Only Poker Bot replies.
+
+- /casinohelp
+Expected:
+Only one bot replies.
+
+Status test:
+- /bots
+- /botmodules
+- /commandowners
+- /commandtest /rjoin
+- /commandtest /p
+
+Expected:
+Shows Blackjack owner for /rjoin.
+Shows Poker owner for /p.
+
+Final requirement:
+Blackjack/RBJ and Poker must be separate bots with no duplicate replies, while sharing the same database, coins, profiles, roles, and logs.

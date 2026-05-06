@@ -2,8 +2,12 @@
 modules/multi_bot.py
 Multi-bot system — command ownership gating, heartbeat, staff controls.
 
-When BOT_MODE="all" (default), should_this_bot_handle() always returns True
-and the bot behaves exactly as before — fully backwards-compatible.
+BOT_MODE=all (default) → always handles everything (backwards-compatible).
+BOT_MODE=blackjack    → BJ + RBJ commands only.
+BOT_MODE=poker        → Poker commands only.
+BOT_MODE=dealer       → Legacy casino fallback if dedicated bots offline.
+BOT_MODE=host         → Help, profiles, room utilities, unknown-cmd fallback.
+All other modes handle their own module commands.
 """
 
 from __future__ import annotations
@@ -13,15 +17,15 @@ from datetime import datetime, timezone
 
 import database as db
 from config import BOT_ID, BOT_MODE, BOT_USERNAME
-from modules.permissions import is_owner, can_manage_economy, can_manage_games, can_moderate
+from modules.permissions import can_manage_economy
 
 # ---------------------------------------------------------------------------
 # Default command → bot_mode ownership map
-# DB table bot_command_ownership can override any entry.
+# bot_command_ownership DB table overrides any entry at runtime.
 # ---------------------------------------------------------------------------
 
 _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
-    # host
+    # ── host ────────────────────────────────────────────────────────────────
     "help": "host", "mycommands": "host", "helpsearch": "host",
     "tutorial": "host", "guide": "host", "newbiehelp": "host",
     "profile": "host", "me": "host", "whois": "host", "pinfo": "host",
@@ -31,7 +35,11 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "alerthelp": "host", "welcomehelp": "host", "socialhelp": "host",
     "control": "host", "status": "host", "roomstatus": "host",
     "botmodehelp": "host", "multibothelp": "host",
-    # banker
+    # General casino info pages — host owns so only one bot replies
+    "casino": "host", "casinohelp": "host",
+    "casinosettings": "host", "casinolimits": "host",
+    "casinotoggles": "host", "mycasino": "host",
+    # ── banker ──────────────────────────────────────────────────────────────
     "bal": "banker", "balance": "banker", "b": "banker",
     "wallet": "banker", "w": "banker",
     "coins": "banker", "coin": "banker", "money": "banker",
@@ -45,33 +53,46 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "bankblock": "banker", "bankunblock": "banker",
     "coinhelp": "banker", "bankadminhelp": "banker",
     "dash": "banker", "dashboard": "banker",
-    # dealer
-    "casino": "dealer", "casinohelp": "dealer",
-    "bj": "dealer", "bjoin": "dealer",
-    "bh": "dealer", "bs": "dealer", "bd": "dealer", "bsp": "dealer",
-    "bt": "dealer", "bhand": "dealer", "blimits": "dealer",
-    "bstats": "dealer", "bjhelp": "dealer",
-    "rbj": "dealer", "rjoin": "dealer",
-    "rh": "dealer", "rs": "dealer", "rd": "dealer", "rsp": "dealer",
-    "rt": "dealer", "rhand": "dealer", "rshoe": "dealer",
-    "rlimits": "dealer", "rstats": "dealer", "rbjhelp": "dealer",
-    "poker": "dealer", "p": "dealer",
-    "pj": "dealer", "pt": "dealer", "ptable": "dealer",
-    "ph": "dealer", "pcards": "dealer", "po": "dealer", "podds": "dealer",
-    "check": "dealer", "ch": "dealer",
-    "call": "dealer", "ca": "dealer",
-    "raise": "dealer", "r": "dealer",
-    "fold": "dealer", "f": "dealer",
-    "allin": "dealer", "ai": "dealer", "shove": "dealer",
-    "pp": "dealer", "pplayers": "dealer", "pstats": "dealer",
-    "plb": "dealer", "pleaderboard": "dealer",
-    "pokerhelp": "dealer", "pokerlb": "dealer",
-    "sitout": "dealer", "sitin": "dealer", "rebuy": "dealer",
-    "pstacks": "dealer", "mystack": "dealer",
-    "casinosettings": "dealer", "casinolimits": "dealer",
-    "casinotoggles": "dealer", "casinoadminhelp": "dealer",
-    "casinodash": "dealer", "mycasino": "dealer",
-    # miner
+    # ── blackjack (Casual BJ + RBJ) ─────────────────────────────────────────
+    "bj": "blackjack", "bjoin": "blackjack",
+    "bh": "blackjack", "bs": "blackjack", "bd": "blackjack", "bsp": "blackjack",
+    "bjh": "blackjack", "bjs": "blackjack", "bjd": "blackjack", "bjsp": "blackjack",
+    "bt": "blackjack", "bhand": "blackjack", "bjhand": "blackjack",
+    "blimits": "blackjack", "bstats": "blackjack", "bjhelp": "blackjack",
+    "setbjlimits": "blackjack", "resetbjlimits": "blackjack",
+    "setbjactiontimer": "blackjack", "setbjmaxsplits": "blackjack",
+    "setbj": "blackjack",
+    "rbj": "blackjack", "rjoin": "blackjack",
+    "rh": "blackjack", "rs": "blackjack", "rd": "blackjack", "rsp": "blackjack",
+    "rbjh": "blackjack", "rbjs": "blackjack", "rbjd": "blackjack", "rbjsp": "blackjack",
+    "rt": "blackjack", "rhand": "blackjack", "rbjhand": "blackjack",
+    "rshoe": "blackjack", "rlimits": "blackjack", "rstats": "blackjack",
+    "rbjhelp": "blackjack",
+    "setrbjlimits": "blackjack", "resetrbjlimits": "blackjack",
+    "setrbjactiontimer": "blackjack", "setrbjmaxsplits": "blackjack",
+    "setrbj": "blackjack",
+    # ── poker ───────────────────────────────────────────────────────────────
+    "poker": "poker", "p": "poker",
+    "pj": "poker", "pt": "poker", "ptable": "poker",
+    "ph": "poker", "pcards": "poker", "po": "poker", "podds": "poker",
+    "check": "poker", "ch": "poker",
+    "call": "poker", "ca": "poker",
+    "raise": "poker", "r": "poker",
+    "fold": "poker", "f": "poker",
+    "allin": "poker", "ai": "poker", "shove": "poker",
+    "pp": "poker", "pplayers": "poker", "pstats": "poker",
+    "plb": "poker", "pleaderboard": "poker", "pokerlb": "poker",
+    "pokerhelp": "poker", "pokerstats": "poker",
+    "sitout": "poker", "sitin": "poker", "rebuy": "poker",
+    "pstacks": "poker", "mystack": "poker", "stack": "poker",
+    "pokerhistory": "poker", "pokerdebug": "poker",
+    "pokerfix": "poker", "pokercleanup": "poker",
+    "setpokertimer": "poker", "setpokerturntimer": "poker",
+    "setpokerlobbytimer": "poker", "setpokernexthandtimer": "poker",
+    "setpokerblinds": "poker", "setpokerante": "poker",
+    "setpokerraise": "poker", "setpokerminplayers": "poker",
+    "setpokermaxplayers": "poker",
+    # ── miner ───────────────────────────────────────────────────────────────
     "mine": "miner", "m": "miner", "dig": "miner",
     "ores": "miner", "mineinv": "miner",
     "tool": "miner", "pickaxe": "miner",
@@ -82,7 +103,7 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "mineshop": "miner", "minebuy": "miner",
     "craft": "miner", "minedaily": "miner",
     "minehelp": "miner", "miningadmin": "miner",
-    # shopkeeper
+    # ── shopkeeper ──────────────────────────────────────────────────────────
     "shop": "shopkeeper", "buy": "shopkeeper",
     "vipshop": "shopkeeper", "buyvip": "shopkeeper",
     "badges": "shopkeeper", "titles": "shopkeeper",
@@ -93,10 +114,9 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "equip": "shopkeeper", "myitems": "shopkeeper",
     "titleinfo": "shopkeeper", "shophelp": "shopkeeper",
     "shopadmin": "shopkeeper", "vipstatus": "shopkeeper",
-    # security
+    # ── security ────────────────────────────────────────────────────────────
     "report": "security", "reports": "security",
-    "bug": "security", "myreports": "security",
-    "reporthelp": "security",
+    "bug": "security", "myreports": "security", "reporthelp": "security",
     "warn": "security", "warnings": "security",
     "mute": "security", "unmute": "security", "mutes": "security",
     "kick": "security", "ban": "security",
@@ -104,7 +124,7 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "modlog": "security", "roomlogs": "security",
     "modhelp": "security", "staffhelp": "security",
     "automod": "security", "setrules": "security",
-    # dj
+    # ── dj ──────────────────────────────────────────────────────────────────
     "emote": "dj", "emotes": "dj",
     "stopemote": "dj", "dance": "dj", "wave": "dj",
     "sit": "dj", "clap": "dj",
@@ -115,7 +135,7 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "highfive": "dj", "boop": "dj", "waveat": "dj", "cheer": "dj",
     "heart": "dj", "hearts": "dj", "heartlb": "dj",
     "social": "dj", "blocksocial": "dj", "unblocksocial": "dj",
-    # eventhost
+    # ── eventhost ───────────────────────────────────────────────────────────
     "events": "eventhost", "event": "eventhost",
     "eventhelp": "eventhost", "eventstatus": "eventhost",
     "startevent": "eventhost", "stopevent": "eventhost",
@@ -126,17 +146,25 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "announce_subs": "eventhost", "dmnotify": "eventhost",
 }
 
+# Friendly display names for modes
+_MODE_NAMES: dict[str, str] = {
+    "host": "Host", "banker": "Banker", "blackjack": "Blackjack",
+    "poker": "Poker", "dealer": "Dealer", "miner": "Miner",
+    "shopkeeper": "Shop", "security": "Security",
+    "dj": "DJ", "eventhost": "Events", "all": "Main",
+}
+
 # ---------------------------------------------------------------------------
 # In-memory cache for DB ownership overrides and online status
 # ---------------------------------------------------------------------------
 
-_owner_cache: dict[str, str] = {}            # cmd → owner_bot_mode (DB overrides)
+_owner_cache: dict[str, str] = {}
 _owner_cache_ts: float = 0.0
-_OWNER_CACHE_TTL = 60.0                       # refresh every 60s
+_OWNER_CACHE_TTL = 60.0
 
-_online_cache: dict[str, bool] = {}          # bot_mode → is_online
+_online_cache: dict[str, bool] = {}
 _online_cache_ts: float = 0.0
-_ONLINE_CACHE_TTL = 30.0                      # refresh every 30s
+_ONLINE_CACHE_TTL = 30.0
 
 
 def _refresh_owner_cache() -> None:
@@ -165,10 +193,9 @@ def _refresh_online_cache() -> None:
             try:
                 ls = datetime.fromisoformat(last_seen.replace("Z", "+00:00"))
                 if ls.tzinfo is None:
-                    from datetime import timezone as _tz
-                    ls = ls.replace(tzinfo=_tz.utc)
+                    ls = ls.replace(tzinfo=timezone.utc)
                 age = (now - ls).total_seconds()
-                cache[inst["bot_mode"]] = age < 120 and inst.get("status") == "online"
+                cache[inst["bot_mode"]] = (age < 120 and inst.get("status") == "online")
             except Exception:
                 pass
         _online_cache = cache
@@ -178,7 +205,6 @@ def _refresh_online_cache() -> None:
 
 
 def _resolve_command_owner(cmd: str) -> str | None:
-    """Return the bot_mode that owns this command, or None if unowned."""
     now = time.monotonic()
     if now - _owner_cache_ts > _OWNER_CACHE_TTL:
         _refresh_owner_cache()
@@ -188,7 +214,6 @@ def _resolve_command_owner(cmd: str) -> str | None:
 
 
 def _is_mode_online(mode: str) -> bool:
-    """True if another running bot instance of this mode has been seen recently."""
     now = time.monotonic()
     if now - _online_cache_ts > _ONLINE_CACHE_TTL:
         _refresh_online_cache()
@@ -208,30 +233,55 @@ def _fallback_enabled() -> bool:
 
 def should_this_bot_handle(cmd: str) -> bool:
     """
-    Returns True if this bot instance should respond to the command.
-    When BOT_MODE == "all" (default single-bot mode), always True.
+    Returns True if this bot instance should respond to cmd.
+    When BOT_MODE == "all" (default single-bot), always True.
     """
     if BOT_MODE == "all":
         return True
 
     owner_mode = _resolve_command_owner(cmd)
 
+    # Unowned / unknown command — only host or all handles it
     if owner_mode is None:
-        # Unowned/unknown command — only host or all-mode replies
         return BOT_MODE in ("host", "all")
 
+    # This bot owns the command
     if owner_mode == BOT_MODE:
         return True
 
-    # Command belongs to a different bot mode
-    if _is_mode_online(owner_mode):
-        return False   # That bot is online — let it handle; we ignore
+    # Legacy dealer mode: handles BJ/RBJ/Poker if dedicated bots are offline
+    if BOT_MODE == "dealer" and owner_mode in ("blackjack", "poker"):
+        return not _is_mode_online(owner_mode)
 
-    # Owner bot offline — check fallback
+    # Owner mode is online — let it handle; we ignore
+    if _is_mode_online(owner_mode):
+        return False
+
+    # Owner mode offline — host/all may fall back
     if _fallback_enabled() and BOT_MODE in ("host", "all"):
         return True
 
     return False
+
+
+def get_offline_message(cmd: str) -> str | None:
+    """
+    Returns a user-facing message when the owning bot is offline and fallback is OFF.
+    Only host/all mode should call this (others silently ignore).
+    """
+    if BOT_MODE not in ("host", "all"):
+        return None
+    owner_mode = _resolve_command_owner(cmd)
+    if owner_mode is None:
+        return None
+    if owner_mode in ("host", "all"):
+        return None
+    if _is_mode_online(owner_mode):
+        return None
+    if _fallback_enabled():
+        return None
+    name = _MODE_NAMES.get(owner_mode, owner_mode.title())
+    return f"{name} bot is currently offline."
 
 
 # ---------------------------------------------------------------------------
@@ -249,7 +299,6 @@ async def start_heartbeat_loop(bot) -> None:
     async def _loop():
         while True:
             try:
-                prefix = db.get_room_setting("bot_prefix_enabled", "true")
                 mode_prefix = ""
                 try:
                     from modules.bot_modes import get_current_mode_prefix
@@ -293,34 +342,34 @@ async def _w(bot, uid: str, msg: str) -> None:
     await bot.highrise.send_whisper(uid, msg[:249])
 
 
-def _mode_display(mode: str) -> str:
+def _mode_icon(mode: str) -> str:
     icons = {
-        "host": "🎙️", "banker": "🏦", "dealer": "🎰",
-        "miner": "⛏️", "shopkeeper": "🛒", "security": "🛡️",
+        "host": "🎙️", "banker": "🏦", "blackjack": "🃏",
+        "poker": "♠️", "dealer": "🎰", "miner": "⛏️",
+        "shopkeeper": "🛒", "security": "🛡️",
         "dj": "🎧", "eventhost": "🎉", "all": "🤖",
     }
-    return f"{icons.get(mode, '🤖')} {mode.title()}"
+    return icons.get(mode, "🤖")
 
 
 # ---------------------------------------------------------------------------
-# /bots (overrides the one in bot_modes.py when running multi-bot)
+# /bots — live cluster status
 # ---------------------------------------------------------------------------
 
 async def handle_bots_live(bot, user) -> None:
-    """/bots — show live bot instance status."""
     instances = db.get_bot_instances()
     if not instances:
-        await _w(bot, user.id, "🤖 Main bot handling all modules (BOT_MODE=all).")
+        await _w(bot, user.id, "🤖 Main bot (BOT_MODE=all) handling all modules.")
         return
     now = datetime.now(timezone.utc)
     parts: list[str] = []
     for inst in instances:
         mode = inst.get("bot_mode", "?")
-        last_seen = inst.get("last_seen_at", "")
-        enabled   = inst.get("enabled", 1)
+        enabled = inst.get("enabled", 1)
         if not enabled:
-            parts.append(f"{mode}:DISABLED")
+            parts.append(f"{_MODE_NAMES.get(mode, mode)} DISABLED")
             continue
+        last_seen = inst.get("last_seen_at", "")
         if last_seen:
             try:
                 ls = datetime.fromisoformat(last_seen.replace("Z", "+00:00"))
@@ -332,8 +381,43 @@ async def handle_bots_live(bot, user) -> None:
                 state = "?"
         else:
             state = "?"
-        parts.append(f"{mode}:{state}")
+        parts.append(f"{_MODE_NAMES.get(mode, mode)} {state}")
     await _w(bot, user.id, ("🤖 Bots: " + " | ".join(parts))[:249])
+
+
+# ---------------------------------------------------------------------------
+# /botstatus [bot_id]
+# ---------------------------------------------------------------------------
+
+async def handle_botstatus_cluster(bot, user, args: list[str]) -> None:
+    if len(args) >= 2:
+        target = args[1].lower()
+        instances = db.get_bot_instances()
+        found = next((i for i in instances
+                      if i.get("bot_id", "").lower() == target
+                      or i.get("bot_mode", "").lower() == target), None)
+        if not found:
+            await _w(bot, user.id, f"No bot found with ID or mode '{target}'.")
+            return
+        mode = found.get("bot_mode", "?")
+        icon = _mode_icon(mode)
+        enabled = "ON" if found.get("enabled", 1) else "DISABLED"
+        last_seen = found.get("last_seen_at", "")
+        age_str = "never"
+        if last_seen:
+            try:
+                ls = datetime.fromisoformat(last_seen.replace("Z", "+00:00"))
+                if ls.tzinfo is None:
+                    ls = ls.replace(tzinfo=timezone.utc)
+                age = int((datetime.now(timezone.utc) - ls).total_seconds())
+                age_str = f"{age}s ago"
+            except Exception:
+                age_str = "?"
+        name = _MODE_NAMES.get(mode, mode.title())
+        await _w(bot, user.id,
+                 f"{icon} {name} Bot: {enabled} | Mode {mode} | Last seen {age_str}"[:249])
+    else:
+        await handle_bots_live(bot, user)
 
 
 # ---------------------------------------------------------------------------
@@ -341,22 +425,12 @@ async def handle_bots_live(bot, user) -> None:
 # ---------------------------------------------------------------------------
 
 async def handle_botmodules(bot, user) -> None:
-    """/botmodules — show which module each bot_mode owns."""
     if BOT_MODE == "all":
         await _w(bot, user.id, "🤖 Single bot mode — main handles all modules.")
         return
-    module_map = {
-        "host": "help/profile/room",
-        "banker": "economy/bank",
-        "dealer": "casino/BJ/RBJ/poker",
-        "miner": "mining",
-        "shopkeeper": "shop/badges/VIP",
-        "security": "moderation/reports",
-        "dj": "emotes/social",
-        "eventhost": "events/alerts",
-    }
-    parts = [f"{m}={v}" for m, v in module_map.items()]
-    await _w(bot, user.id, ("Modules: " + " | ".join(parts))[:249])
+    await _w(bot, user.id,
+             "Modules: BJ/RBJ=Blackjack | Poker=Poker | Economy=Banker"
+             " | Mining=Miner | Shop=Shop | Mod=Security | Emotes=DJ | Events=Events")
 
 
 # ---------------------------------------------------------------------------
@@ -364,13 +438,13 @@ async def handle_botmodules(bot, user) -> None:
 # ---------------------------------------------------------------------------
 
 async def handle_commandowners(bot, user) -> None:
-    """/commandowners — show DB-overridden command owners (admin+)."""
     if not can_manage_economy(user.username):
         await _w(bot, user.id, "Admin and owner only.")
         return
     rows = db.get_all_command_owners()
     if not rows:
-        await _w(bot, user.id, "No command ownership overrides set. Defaults in use.")
+        await _w(bot, user.id,
+                 "No DB overrides. Defaults: /bj→Blackjack | /p→Poker | /bal→Banker")
         return
     parts = [f"/{r['command']}→{r['owner_bot_mode']}" for r in rows[:15]]
     await _w(bot, user.id, ("Owners: " + " | ".join(parts))[:249])
@@ -401,7 +475,8 @@ async def handle_disablebot(bot, user, args: list[str]) -> None:
         return
     bid = args[1].lower()
     db.enable_bot_instance(bid, False)
-    await _w(bot, user.id, f"⛔ Bot '{bid}' disabled.")
+    _refresh_online_cache()
+    await _w(bot, user.id, f"✅ Bot '{bid}' disabled.")
 
 
 async def handle_setbotmodule(bot, user, args: list[str]) -> None:
@@ -423,11 +498,12 @@ async def handle_setcommandowner(bot, user, args: list[str]) -> None:
     if len(args) < 3:
         await _w(bot, user.id, "Usage: /setcommandowner <cmd> <bot_mode>")
         return
-    cmd_name  = args[1].lstrip("/").lower()
-    bot_mode  = args[2].lower()
+    cmd_name = args[1].lstrip("/").lower()
+    bot_mode = args[2].lower()
     db.set_command_owner_db(cmd_name, "", bot_mode, fallback_allowed=1)
     _refresh_owner_cache()
-    await _w(bot, user.id, f"✅ /{cmd_name} → owner: {bot_mode}.")
+    name = _MODE_NAMES.get(bot_mode, bot_mode.title())
+    await _w(bot, user.id, f"✅ /{cmd_name} owner set to {name}.")
 
 
 async def handle_botfallback(bot, user, args: list[str]) -> None:
@@ -435,11 +511,13 @@ async def handle_botfallback(bot, user, args: list[str]) -> None:
         await _w(bot, user.id, "Admin and owner only.")
         return
     if len(args) < 2 or args[1].lower() not in ("on", "off"):
-        await _w(bot, user.id, "Usage: /botfallback on|off")
+        cur = db.get_room_setting("multibot_fallback_enabled", "true")
+        await _w(bot, user.id,
+                 f"Fallback: {'ON' if cur == 'true' else 'OFF'}. Usage: /botfallback on|off")
         return
     new = "true" if args[1].lower() == "on" else "false"
     db.set_room_setting("multibot_fallback_enabled", new)
-    label = "ON" if new == "true" else "OFF"
+    label = "ON ✅" if new == "true" else "OFF ⛔"
     await _w(bot, user.id, f"✅ Bot command fallback {label}.")
 
 
@@ -453,7 +531,9 @@ async def handle_botstartupannounce(bot, user, args: list[str]) -> None:
         return
     if len(args) < 2 or args[1].lower() not in ("on", "off"):
         cur = db.get_room_setting("bot_startup_announce_enabled", "false")
-        await _w(bot, user.id, f"Startup announce: {'ON' if cur == 'true' else 'OFF'}. Usage: /botstartupannounce on|off")
+        await _w(bot, user.id,
+                 f"Startup announce: {'ON' if cur == 'true' else 'OFF'}."
+                 " Usage: /botstartupannounce on|off")
         return
     new = "true" if args[1].lower() == "on" else "false"
     db.set_room_setting("bot_startup_announce_enabled", new)
@@ -474,11 +554,12 @@ def should_announce_startup() -> bool:
 
 _MULTIBOT_HELP_PAGES = [
     (
-        "🤖 Multi-Bot\n"
-        "/bots - bot status\n"
-        "/botmodules - module owners\n"
-        "/botstatus - bot health\n"
-        "/commandowners - cmd owners"
+        "🤖 Split Bots\n"
+        "Blackjack: BJ/RBJ\n"
+        "Poker: poker table\n"
+        "/bots - status\n"
+        "/botmodules - owners\n"
+        "/botstatus id - details"
     ),
     (
         "👑 Owner Controls\n"
@@ -512,21 +593,23 @@ async def handle_multibothelp(bot, user, args: list[str]) -> None:
 # ---------------------------------------------------------------------------
 
 def get_command_owner_for_audit(cmd: str) -> str:
-    """Return the owner bot_mode for a command (for /commandtest output)."""
     owner = _resolve_command_owner(cmd)
-    return owner if owner else "all"
+    if not owner:
+        return "all"
+    return _MODE_NAMES.get(owner, owner.title())
 
 
 # ---------------------------------------------------------------------------
-# Export BOT_ID / BOT_MODE for use by main.py and other modules
+# Export
 # ---------------------------------------------------------------------------
 
 __all__ = [
     "BOT_ID", "BOT_MODE", "BOT_USERNAME",
-    "should_this_bot_handle",
+    "should_this_bot_handle", "get_offline_message",
     "start_heartbeat_loop", "mark_bot_offline",
     "should_announce_startup",
-    "handle_bots_live", "handle_botmodules", "handle_commandowners",
+    "handle_bots_live", "handle_botstatus_cluster",
+    "handle_botmodules", "handle_commandowners",
     "handle_enablebot", "handle_disablebot",
     "handle_setbotmodule", "handle_setcommandowner", "handle_botfallback",
     "handle_botstartupannounce", "handle_multibothelp",
