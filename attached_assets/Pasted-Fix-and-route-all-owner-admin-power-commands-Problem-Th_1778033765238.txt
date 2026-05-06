@@ -1,0 +1,424 @@
+Fix and route all owner/admin power commands.
+
+Problem:
+These commands currently say Unknown command:
+- /setlevel <username> <level>
+- /setrep <username> <amount>
+- /setcoins <username> <amount>
+
+Goal:
+Make all owner/admin edit commands work reliably, especially economy, XP, level, reputation, event coins, titles, badges, VIP, and roles.
+
+IMPORTANT:
+- Do not remove existing features.
+- Keep coins, XP, levels, reputation, event coins, titles, badges, VIP, profiles, bank, casino, poker, BJ, RBJ, events, notifications, reports, and staff roles.
+- Use SQLite.
+- Add explicit command routing before unknown-command fallback.
+- Every command must reply with success, usage, permission error, or clear error.
+- Never fail silently.
+- Keep messages under 250 characters.
+- Normalize usernames by removing @, trimming spaces, and matching case-insensitively.
+- Log all admin changes in admin_action_logs if available.
+
+==================================================
+PART 1: OWNER/ADMIN PERMISSIONS
+==================================================
+
+Owner can use all commands in this prompt.
+
+Admin can use:
+- coins
+- event coins
+- XP
+- levels
+- reputation
+- titles
+- badges
+- VIP
+- resets except owner reset
+
+Manager/moderator cannot use these edit commands unless already allowed elsewhere.
+
+If no permission:
+"Owner/admin only."
+
+Do not allow admin to edit owners unless requester is owner.
+
+==================================================
+PART 2: FIX COIN COMMANDS
+==================================================
+
+Add/fix:
+- /addcoins <username> <amount>
+- /removecoins <username> <amount>
+- /setcoins <username> <amount>
+- /editcoins <username> <amount>
+- /resetcoins <username>
+
+Behavior:
+- /addcoins adds to current balance.
+- /removecoins removes but never below 0.
+- /setcoins sets exact balance.
+- /editcoins is alias for /setcoins.
+- /resetcoins sets balance to 0.
+
+Examples:
+- /setcoins @4ktreymarion 10000000
+- /addcoins angelkisses18 5000
+- /removecoins user 1000
+
+Messages:
+"✅ @user coins set to 10,000,000c / 10M."
+"✅ Added 5,000c / 5K to @user."
+"✅ Removed 1,000c / 1K from @user."
+
+If usage wrong:
+"Use /setcoins <user> <amount>."
+
+==================================================
+PART 3: FIX EVENT COIN COMMANDS
+==================================================
+
+Add/fix:
+- /addeventcoins <username> <amount>
+- /removeeventcoins <username> <amount>
+- /seteventcoins <username> <amount>
+- /editeventcoins <username> <amount>
+- /reseteventcoins <username>
+- /eventpoints
+- /eventpoints <username>
+
+Behavior:
+- Add/remove/set/reset event coins.
+- /editeventcoins is alias for /seteventcoins.
+- /eventpoints shows own event coins.
+- /eventpoints <username> owner/admin/manager only.
+
+Messages:
+"✅ @user event coins set to 500."
+"🎟️ Event coins: 500"
+
+Create/use event_points table:
+- username TEXT PRIMARY KEY
+- event_coins INTEGER DEFAULT 0
+- lifetime_event_coins INTEGER DEFAULT 0
+- updated_at TEXT
+
+==================================================
+PART 4: FIX XP AND LEVEL COMMANDS
+==================================================
+
+Add/fix:
+- /addxp <username> <amount>
+- /removexp <username> <amount>
+- /setxp <username> <amount>
+- /editxp <username> <amount>
+- /resetxp <username>
+- /setlevel <username> <level>
+- /editlevel <username> <level>
+- /addlevel <username> <amount>
+- /removelevel <username> <amount>
+- /promotelevel <username> <amount>
+- /demotelevel <username> <amount>
+
+Behavior:
+- XP cannot go below 0.
+- Level cannot go below 0.
+- /editxp is alias for /setxp.
+- /editlevel is alias for /setlevel.
+- /promotelevel is alias for /addlevel.
+- /demotelevel is alias for /removelevel.
+- When setting level, update whatever player level table exists.
+- If your system calculates level from XP only, add or adjust XP to match the chosen level.
+- Do not crash if player has no XP row; create it.
+
+Messages:
+"✅ @user level set to 50."
+"✅ @user XP set to 10,000."
+
+Usage:
+"Use /setlevel <user> <level>."
+"Use /setxp <user> <amount>."
+
+==================================================
+PART 5: FIX REPUTATION COMMANDS
+==================================================
+
+Add/fix:
+- /addrep <username> <amount>
+- /removerep <username> <amount>
+- /setrep <username> <amount>
+- /editrep <username> <amount>
+- /resetrep <username>
+
+Behavior:
+- Reputation cannot go below 0.
+- /editrep is alias for /setrep.
+- Update profile rank after rep change.
+- Highest social rank should be Celebrity, not Legend.
+
+Messages:
+"✅ @user rep set to 500."
+"✅ Added 50 rep to @user."
+
+Usage:
+"Use /setrep <user> <amount>."
+
+==================================================
+PART 6: FIX TITLE COMMANDS
+==================================================
+
+Add/fix:
+- /givetitle <username> <title_id>
+- /removetitle <username> <title_id>
+- /settitle <username> <title_id>
+- /cleartitle <username>
+- /listtitles
+- /playertitles <username>
+
+Behavior:
+- /givetitle gives title ownership.
+- /removetitle removes owned title.
+- /settitle equips title and grants it if missing.
+- /cleartitle unequips current title.
+- /listtitles shows available titles.
+- /playertitles shows owned titles.
+
+Messages:
+"✅ Gave title elite to @user."
+"✅ @user equipped title elite."
+
+==================================================
+PART 7: FIX BADGE COMMANDS
+==================================================
+
+Add/fix:
+- /givebadge <username> <badge_id>
+- /removebadgefrom <username> <badge_id>
+- /setbadge <username> <badge_id>
+- /clearbadge <username>
+- /listbadges
+- /playerbadges <username>
+- /giveemojibadge <username> <emoji> <name>
+
+Behavior:
+- /givebadge gives badge ownership.
+- /removebadgefrom removes owned badge.
+- /setbadge equips badge and grants it if missing.
+- /clearbadge unequips badge.
+- /giveemojibadge creates exclusive emoji badge if missing and grants it.
+
+Messages:
+"✅ Gave badge diamond to @user."
+"✅ @user equipped badge diamond."
+
+==================================================
+PART 8: FIX VIP COMMANDS
+==================================================
+
+Add/fix:
+- /addvip <username>
+- /removevip <username>
+- /vipstatus
+- /vipstatus <username>
+- /vipshop
+- /buyvip
+- /vips
+- /setvipprice <amount>
+
+Messages:
+"✅ @user is now VIP."
+"✅ @user VIP removed."
+"💎 VIP: 100,000c / 100K | Buy: /buyvip"
+
+==================================================
+PART 9: FIX ROLE COMMANDS
+==================================================
+
+Owner only:
+- /addowner <username>
+- /removeowner <username>
+- /owners
+- /addadmin <username>
+- /removeadmin <username>
+- /admins
+
+Owner/admin:
+- /addmanager <username>
+- /removemanager <username>
+- /managers
+- /addmoderator <username>
+- /removemoderator <username>
+- /moderators
+- /allstaff
+
+Rules:
+- Only owners can manage owners/admins.
+- Admins can manage managers/moderators.
+- Do not remove the last owner.
+- Normalize usernames.
+
+Messages:
+"✅ @user promoted to Admin."
+"✅ @user removed from Moderator."
+
+==================================================
+PART 10: FIX PLAYER RESET COMMANDS
+==================================================
+
+Add/fix:
+- /resetplayer <username>
+- /resetplayer economy <username>
+- /resetplayer casino <username>
+- /resetplayer inventory <username>
+- /resetplayer profile <username>
+- /confirmresetplayer <code>
+
+Owner only.
+
+Behavior:
+- Requires confirmation code.
+- Never reset last owner.
+- Reset specific category only.
+- Log action.
+
+Message:
+"⚠️ Confirm reset: /confirmresetplayer ABC123"
+"✅ Player reset complete."
+
+==================================================
+PART 11: ADMIN ACTION LOGS
+==================================================
+
+Create table if missing:
+admin_action_logs:
+- id INTEGER PRIMARY KEY AUTOINCREMENT
+- timestamp TEXT
+- actor_username TEXT
+- target_username TEXT
+- action TEXT
+- old_value TEXT
+- new_value TEXT
+- reason TEXT
+
+Log:
+- coins
+- event coins
+- XP
+- level
+- rep
+- titles
+- badges
+- VIP
+- roles
+- reset commands
+
+Add/fix:
+- /adminlogs
+- /adminlogs <username>
+- /adminloginfo <id>
+
+Messages:
+"Log #12: @owner setcoins @user 0 -> 10000000"
+
+==================================================
+PART 12: COMMAND AUDIT UPDATE
+==================================================
+
+Update the command registry and routing checker so these commands show as:
+route YES | help YES | handler YES
+
+Commands that must be routed:
+- /setcoins
+- /addcoins
+- /removecoins
+- /editcoins
+- /resetcoins
+- /seteventcoins
+- /addeventcoins
+- /removeeventcoins
+- /reseteventcoins
+- /setlevel
+- /addlevel
+- /removelevel
+- /promotelevel
+- /demotelevel
+- /setxp
+- /addxp
+- /removexp
+- /setrep
+- /addrep
+- /removerep
+- /givetitle
+- /givebadge
+- /addvip
+
+==================================================
+PART 13: HELP UPDATE
+==================================================
+
+Update /ownerhelp and /adminhelp to include these with short descriptions.
+
+/ownerhelp 2:
+"👑 Owner Power
+/setcoins user amt - set coins
+/seteventcoins user amt - set event coins
+/setlevel user lvl - set level
+/setrep user amt - set rep"
+
+/adminhelp 1:
+"🛡️ Admin Economy
+/addcoins user amt - add coins
+/removecoins user amt - remove coins
+/setcoins user amt - set coins"
+
+/adminhelp 2:
+"🛡️ Admin Progress
+/setlevel user lvl - set level
+/setxp user amt - set XP
+/setrep user amt - set rep"
+
+/adminhelp 3:
+"🛡️ Admin Items
+/givetitle user id - give title
+/givebadge user id - give badge
+/addvip user - give VIP"
+
+==================================================
+PART 14: TESTS
+==================================================
+
+Test these as owner:
+
+/setcoins @4ktreymarion 10000000
+Expected:
+"✅ @4ktreymarion coins set to 10,000,000c / 10M."
+
+/setlevel 4ktreymarion 50
+Expected:
+"✅ @4ktreymarion level set to 50."
+
+/setrep @4ktreymarion 500
+Expected:
+"✅ @4ktreymarion rep set to 500."
+
+/addeventcoins 4ktreymarion 500
+/eventpoints 4ktreymarion
+/addxp 4ktreymarion 1000
+/givetitle 4ktreymarion elite
+/givebadge 4ktreymarion diamond
+/addvip 4ktreymarion
+/adminlogs
+
+Then test:
+/commandtest /setcoins
+/commandtest /setlevel
+/commandtest /setrep
+/checkcommands
+/missingcommands
+/silentcheck
+
+Expected:
+- No unknown command.
+- No silent failure.
+- commandtest shows route YES | help YES | handler YES.

@@ -835,6 +835,185 @@ _HELP_INDEX = [
     ("/staffhelp", "staff command index"),
 ]
 
+# ---------------------------------------------------------------------------
+# Level — remove handler  (admin+)
+# ---------------------------------------------------------------------------
+
+async def handle_removelevel(bot: BaseBot, user: User, args: list[str]) -> None:
+    """/removelevel <user> <amount>  — subtract N levels (floor 1)."""
+    if not can_manage_economy(user.username):
+        await _w(bot, user.id, "Admin and owner only.")
+        return
+    if len(args) < 3 or not args[2].lstrip("-").isdigit():
+        await _w(bot, user.id, "Usage: /removelevel <user> <amount>")
+        return
+    target = _resolve(args[1])
+    if not target:
+        await _w(bot, user.id, "❌ User not found.")
+        return
+    profile = db.get_profile(target["user_id"])
+    old_lvl = profile.get("level", 1)
+    new_lvl = max(1, old_lvl - abs(int(args[2])))
+    new_xp, new_lvl = db.set_level_direct(target["user_id"], new_lvl)
+    db.log_admin_action(user.username, target["username"],
+                        "removelevel", str(old_lvl), str(new_lvl))
+    await _w(bot, user.id,
+             f"✅ @{target['username']} Level {old_lvl}→{new_lvl} ({new_xp:,} XP).")
+
+
+# Simple aliases — same handler, different name
+handle_editxp         = handle_setxp
+handle_editlevel      = handle_setlevel
+handle_editrep        = handle_setrep
+handle_editeventcoins = handle_seteventcoins
+handle_promotelevel   = handle_addlevel
+handle_demotelevel    = handle_removelevel
+handle_removebadgefrom = handle_removebadge
+
+
+# ---------------------------------------------------------------------------
+# Title — equip / clear  (admin+)
+# ---------------------------------------------------------------------------
+
+async def handle_settitle(bot: BaseBot, user: User, args: list[str]) -> None:
+    """/settitle <user> <title_id>  — grant and equip a title."""
+    if not can_manage_economy(user.username):
+        await _w(bot, user.id, "Admin and owner only.")
+        return
+    if len(args) < 3:
+        await _w(bot, user.id, "Usage: /settitle <user> <title_id>")
+        return
+    target  = _resolve(args[1])
+    if not target:
+        await _w(bot, user.id, "❌ User not found.")
+        return
+    item_id = args[2].lower().strip()
+    display = f"[{item_id.replace('_', ' ').title()}]"
+    db.grant_item(target["user_id"], item_id, "title")
+    db.equip_item(target["user_id"], item_id, "title", display)
+    db.log_admin_action(user.username, target["username"], "settitle", "", item_id)
+    await _w(bot, user.id,
+             f"✅ @{target['username']} equipped title {display}.")
+    try:
+        await bot.highrise.send_whisper(
+            target["user_id"],
+            f"🎖️ Staff equipped title {display} for you!"
+        )
+    except Exception:
+        pass
+
+
+async def handle_cleartitle(bot: BaseBot, user: User, args: list[str]) -> None:
+    """/cleartitle <user>  — unequip current title."""
+    if not can_manage_economy(user.username):
+        await _w(bot, user.id, "Admin and owner only.")
+        return
+    if len(args) < 2:
+        await _w(bot, user.id, "Usage: /cleartitle <user>")
+        return
+    target = _resolve(args[1])
+    if not target:
+        await _w(bot, user.id, "❌ User not found.")
+        return
+    db.clear_equipped_title(target["user_id"])
+    db.log_admin_action(user.username, target["username"], "cleartitle", "", "")
+    await _w(bot, user.id, f"✅ @{target['username']} title cleared.")
+
+
+# ---------------------------------------------------------------------------
+# Badge — equip / clear  (admin+)
+# ---------------------------------------------------------------------------
+
+async def handle_setbadge(bot: BaseBot, user: User, args: list[str]) -> None:
+    """/setbadge <user> <badge_id>  — grant and equip a badge."""
+    if not can_manage_economy(user.username):
+        await _w(bot, user.id, "Admin and owner only.")
+        return
+    if len(args) < 3:
+        await _w(bot, user.id, "Usage: /setbadge <user> <badge_id>")
+        return
+    target  = _resolve(args[1])
+    if not target:
+        await _w(bot, user.id, "❌ User not found.")
+        return
+    item_id = args[2].lower().strip()
+    db.grant_item(target["user_id"], item_id, "badge")
+    db.equip_item(target["user_id"], item_id, "badge", item_id)
+    db.log_admin_action(user.username, target["username"], "setbadge", "", item_id)
+    await _w(bot, user.id,
+             f"✅ @{target['username']} equipped badge '{item_id}'.")
+    try:
+        await bot.highrise.send_whisper(
+            target["user_id"],
+            f"🎁 Staff equipped badge '{item_id}' for you!"
+        )
+    except Exception:
+        pass
+
+
+async def handle_clearbadge(bot: BaseBot, user: User, args: list[str]) -> None:
+    """/clearbadge <user>  — unequip current badge."""
+    if not can_manage_economy(user.username):
+        await _w(bot, user.id, "Admin and owner only.")
+        return
+    if len(args) < 2:
+        await _w(bot, user.id, "Usage: /clearbadge <user>")
+        return
+    target = _resolve(args[1])
+    if not target:
+        await _w(bot, user.id, "❌ User not found.")
+        return
+    db.clear_equipped_badge(target["user_id"])
+    db.log_admin_action(user.username, target["username"], "clearbadge", "", "")
+    await _w(bot, user.id, f"✅ @{target['username']} badge cleared.")
+
+
+# ---------------------------------------------------------------------------
+# VIP price  (admin+)
+# ---------------------------------------------------------------------------
+
+async def handle_setvipprice(bot: BaseBot, user: User, args: list[str]) -> None:
+    """/setvipprice <amount>  — update the VIP shop price."""
+    if not can_manage_economy(user.username):
+        await _w(bot, user.id, "Admin and owner only.")
+        return
+    if len(args) < 2 or not args[1].isdigit():
+        await _w(bot, user.id, "Usage: /setvipprice <amount>")
+        return
+    price = max(1, int(args[1]))
+    db.set_bot_setting("vip_price", str(price))
+    db.log_admin_action(user.username, "", "setvipprice", "", str(price))
+    await _w(bot, user.id,
+             f"✅ VIP price set to {price:,}c. Players see it via /vipshop.")
+
+
+# ---------------------------------------------------------------------------
+# Admin log info  (admin+)
+# ---------------------------------------------------------------------------
+
+async def handle_adminloginfo(bot: BaseBot, user: User, args: list[str]) -> None:
+    """/adminloginfo <id>  — view details of a specific admin log entry."""
+    if not can_manage_economy(user.username):
+        await _w(bot, user.id, "Admin and owner only.")
+        return
+    if len(args) < 2 or not args[1].isdigit():
+        await _w(bot, user.id, "Usage: /adminloginfo <log_id>")
+        return
+    log_id = int(args[1])
+    entry  = db.get_admin_log_by_id(log_id)
+    if not entry:
+        await _w(bot, user.id, f"❌ Log #{log_id} not found.")
+        return
+    ts    = entry.get("timestamp", "?")[:16]
+    actor = entry.get("actor_username", "?")
+    tgt   = entry.get("target_username", "?")
+    act   = entry.get("action", "?")
+    ov    = entry.get("old_value", "") or "—"
+    nv    = entry.get("new_value", "") or "—"
+    await _w(bot, user.id,
+             f"📋 Log #{log_id}\n{ts}\n@{actor} → @{tgt}\n{act}: {ov} → {nv}")
+
+
 async def handle_helpsearch(bot: BaseBot, user: User, args: list[str]) -> None:
     """/helpsearch <keyword>  — search all commands by keyword."""
     if len(args) < 2:

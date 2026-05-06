@@ -44,16 +44,19 @@ from admin        import handle_admin_command
 from modules.admin_cmds import (
     handle_setcoins, handle_editcoins, handle_resetcoins,
     handle_addeventcoins, handle_removeeventcoins,
-    handle_seteventcoins, handle_reseteventcoins,
-    handle_addxp, handle_removexp, handle_setxp, handle_resetxp,
-    handle_setlevel, handle_addlevel,
-    handle_setrep, handle_resetrep,
-    handle_givetitle, handle_removetitle,
-    handle_givebadge, handle_removebadge,
+    handle_seteventcoins, handle_editeventcoins, handle_reseteventcoins,
+    handle_addxp, handle_removexp, handle_setxp, handle_editxp, handle_resetxp,
+    handle_setlevel, handle_editlevel, handle_addlevel,
+    handle_removelevel, handle_promotelevel, handle_demotelevel,
+    handle_setrep, handle_editrep, handle_resetrep,
+    handle_givetitle, handle_removetitle, handle_settitle, handle_cleartitle,
+    handle_givebadge, handle_removebadge, handle_removebadgefrom,
+    handle_setbadge, handle_clearbadge,
     handle_addvip, handle_removevip, handle_vipstatus, handle_vips,
+    handle_setvipprice,
     handle_resetbjstats, handle_resetrbjstats,
     handle_resetpokerstats, handle_resetcasinostats,
-    handle_adminpanel, handle_adminlogs, handle_checkhelp,
+    handle_adminpanel, handle_adminlogs, handle_adminloginfo, handle_checkhelp,
     handle_mycommands, handle_helpsearch,
 )
 from modules.shop         import (
@@ -294,24 +297,53 @@ TIP_ADMIN_CMDS = {"settiprate", "settipcap", "settiptier", "settipautosub", "set
 
 ADMIN_ONLY_CMDS = {
     "setrules",
+    # ── Coins ────────────────────────────────────────────────────────────────
     "addcoins", "removecoins",
+    "setcoins", "editcoins", "resetcoins",
+    # ── Event coins ──────────────────────────────────────────────────────────
+    "addeventcoins", "removeeventcoins",
+    "seteventcoins", "editeventcoins", "reseteventcoins",
+    # ── XP / Level ───────────────────────────────────────────────────────────
+    "addxp", "removexp",
+    "setxp", "editxp", "resetxp",
+    "setlevel", "editlevel", "addlevel", "removelevel",
+    "promotelevel", "demotelevel",
+    # ── Reputation ───────────────────────────────────────────────────────────
+    "addrep", "removerep",
+    "setrep", "editrep", "resetrep",
+    # ── Titles ───────────────────────────────────────────────────────────────
+    "givetitle", "removetitle", "settitle", "cleartitle",
+    # ── Badges ───────────────────────────────────────────────────────────────
+    "givebadge", "removebadge", "removebadgefrom", "setbadge", "clearbadge",
+    # ── VIP ──────────────────────────────────────────────────────────────────
+    "addvip", "removevip", "vips", "setvipprice",
+    # ── Casino resets ─────────────────────────────────────────────────────────
+    "resetbjstats", "resetrbjstats", "resetpokerstats", "resetcasinostats",
+    # ── Roles ────────────────────────────────────────────────────────────────
     "addmanager", "removemanager",
     "addmoderator", "removemoderator",
-    "addvip", "removevip", "vips",
+    # ── Bank admin ───────────────────────────────────────────────────────────
     "bankblock", "bankunblock",
     "ledger",
+    # ── Profile ──────────────────────────────────────────────────────────────
     "profileadmin", "resetprofileprivacy",
+    # ── Commands & audit ─────────────────────────────────────────────────────
     "allcommands",
     "checkcommands", "checkhelp",
     "missingcommands", "routecheck", "silentcheck", "commandtest",
+    # ── Economy settings ─────────────────────────────────────────────────────
     "setdailycoins", "setgamereward", "settransferfee",
+    # ── Event aliases ────────────────────────────────────────────────────────
     "eventstart", "eventstop",
+    # ── Moderation ───────────────────────────────────────────────────────────
     "clearwarnings",
-    "addrep", "removerep",
+    # ── Notifications ────────────────────────────────────────────────────────
     "dmnotify", "announce_subs", "announce_vip", "announce_staff",
     "healthcheck",
     "notifyuser", "broadcasttest",
     "debugnotify", "testnotify", "pendingnotify", "clearpendingnotify",
+    # ── Logs ─────────────────────────────────────────────────────────────────
+    "adminlogs", "adminloginfo",
 } | BANK_ADMIN_SET_CMDS | TIP_ADMIN_CMDS
 
 MANAGER_ONLY_CMDS = MANAGER_ONLY_CMDS | {"notifystats", "notifyprefs", "dailyadmin"}
@@ -393,15 +425,16 @@ ALL_KNOWN_COMMANDS = (
         "rules", "setrules", "automod",
         "announce_subs", "announce_vip", "announce_staff", "dmnotify",
         "subscribers",
-        # New admin power commands
-        "setcoins", "editcoins", "resetcoins",
-        "addeventcoins", "removeeventcoins", "seteventcoins", "reseteventcoins",
-        "addxp", "removexp", "setxp", "resetxp", "setlevel", "addlevel",
-        "setrep", "resetrep",
-        "givetitle", "removetitle", "givebadge", "removebadge",
-        "addvip", "removevip", "vips",
-        "resetbjstats", "resetrbjstats", "resetpokerstats", "resetcasinostats",
-        "adminpanel", "adminlogs", "checkhelp",
+        # Admin power commands (aliases included — STAFF_CMDS covers the rest)
+        "adminpanel", "checkhelp",
+        "editeventcoins",
+        "editxp",
+        "editlevel", "removelevel", "promotelevel", "demotelevel",
+        "editrep",
+        "settitle", "cleartitle",
+        "setbadge", "clearbadge", "removebadgefrom",
+        "setvipprice",
+        "adminloginfo",
         # Public help tools
         "mycommands", "helpsearch",
         # Paged coin help
@@ -908,6 +941,7 @@ ADMIN_HELP_PAGES = [
         "/addcoins user amt - add coins\n"
         "/removecoins user amt - remove coins\n"
         "/setcoins user amt - set exact balance\n"
+        "/editcoins user amt - alias for setcoins\n"
         "/resetcoins user - zero a balance"
     ),
     (
@@ -916,7 +950,8 @@ ADMIN_HELP_PAGES = [
         "/removexp user amt - remove XP\n"
         "/setxp user amt - set exact XP\n"
         "/setlevel user lvl - set level\n"
-        "/addlevel user amt - add levels"
+        "/addlevel user amt - add levels\n"
+        "/removelevel user amt - remove levels"
     ),
     (
         "🛡️ Admin 3 — Rep & Events\n"
@@ -924,16 +959,17 @@ ADMIN_HELP_PAGES = [
         "/removerep user amt - remove rep\n"
         "/setrep user amt - set rep exact\n"
         "/resetrep user - zero reputation\n"
-        "/addeventcoins user amt - event coins"
+        "/addeventcoins user amt - event coins\n"
+        "/seteventcoins user amt - set event coins"
     ),
     (
         "🛡️ Admin 4 — Items & VIP\n"
         "/givetitle user id - give a title\n"
-        "/removetitle user id - remove title\n"
+        "/settitle user id - give+equip title\n"
         "/givebadge user id - give a badge\n"
-        "/removebadge user id - remove badge\n"
+        "/setbadge user id - give+equip badge\n"
         "/addvip user - grant VIP\n"
-        "/removevip user - revoke VIP"
+        "/setvipprice amt - set VIP price"
     ),
     (
         "🛡️ Admin 5 — Roles\n"
@@ -954,8 +990,8 @@ ADMIN_HELP_PAGES = [
     (
         "🛡️ Admin 7 — System\n"
         "/adminlogs [user] - action log\n"
+        "/adminloginfo id - log detail\n"
         "/adminpanel - control panel\n"
-        "/checkhelp - help system check\n"
         "/dbstats - database stats\n"
         "/maintenance on/off - maint mode\n"
         "/bankblock user - block transfers"
@@ -1843,49 +1879,70 @@ class HangoutBot(BaseBot):
             elif cmd == "pokercleanup":
                 await handle_pokercleanup(self, user, args)
 
-            # ── New admin power commands ──────────────────────────────────────
+            # ── Admin / owner power commands ──────────────────────────────────
+            # Coins
             elif cmd in ("setcoins", "editcoins"):
                 await handle_setcoins(self, user, args)
             elif cmd == "resetcoins":
                 await handle_resetcoins(self, user, args)
+            # Event coins
             elif cmd == "addeventcoins":
                 await handle_addeventcoins(self, user, args)
             elif cmd == "removeeventcoins":
                 await handle_removeeventcoins(self, user, args)
-            elif cmd == "seteventcoins":
+            elif cmd in ("seteventcoins", "editeventcoins"):
                 await handle_seteventcoins(self, user, args)
             elif cmd == "reseteventcoins":
                 await handle_reseteventcoins(self, user, args)
+            # XP
             elif cmd == "addxp":
                 await handle_addxp(self, user, args)
             elif cmd == "removexp":
                 await handle_removexp(self, user, args)
-            elif cmd == "setxp":
+            elif cmd in ("setxp", "editxp"):
                 await handle_setxp(self, user, args)
             elif cmd == "resetxp":
                 await handle_resetxp(self, user, args)
-            elif cmd == "setlevel":
+            # Level
+            elif cmd in ("setlevel", "editlevel"):
                 await handle_setlevel(self, user, args)
-            elif cmd == "addlevel":
+            elif cmd in ("addlevel", "promotelevel"):
                 await handle_addlevel(self, user, args)
-            elif cmd == "setrep":
+            elif cmd in ("removelevel", "demotelevel"):
+                await handle_removelevel(self, user, args)
+            # Rep (addrep/removerep already routed earlier in the elif chain)
+            elif cmd in ("setrep", "editrep"):
                 await handle_setrep(self, user, args)
             elif cmd == "resetrep":
                 await handle_resetrep(self, user, args)
+            # Titles
             elif cmd == "givetitle":
                 await handle_givetitle(self, user, args)
             elif cmd == "removetitle":
                 await handle_removetitle(self, user, args)
+            elif cmd == "settitle":
+                await handle_settitle(self, user, args)
+            elif cmd == "cleartitle":
+                await handle_cleartitle(self, user, args)
+            # Badges
             elif cmd == "givebadge":
                 await handle_givebadge(self, user, args)
-            elif cmd == "removebadge":
+            elif cmd in ("removebadge", "removebadgefrom"):
                 await handle_removebadge(self, user, args)
+            elif cmd == "setbadge":
+                await handle_setbadge(self, user, args)
+            elif cmd == "clearbadge":
+                await handle_clearbadge(self, user, args)
+            # VIP
             elif cmd == "addvip":
                 await handle_addvip(self, user, args)
             elif cmd == "removevip":
                 await handle_removevip(self, user, args)
             elif cmd == "vips":
                 await handle_vips(self, user, args)
+            elif cmd == "setvipprice":
+                await handle_setvipprice(self, user, args)
+            # Casino resets
             elif cmd == "resetbjstats":
                 await handle_resetbjstats(self, user, args)
             elif cmd == "resetrbjstats":
@@ -1894,10 +1951,13 @@ class HangoutBot(BaseBot):
                 await handle_resetpokerstats(self, user, args)
             elif cmd == "resetcasinostats":
                 await handle_resetcasinostats(self, user, args)
+            # Admin tools
             elif cmd == "adminpanel":
                 await handle_adminpanel(self, user, args)
             elif cmd == "adminlogs":
                 await handle_adminlogs(self, user, args)
+            elif cmd == "adminloginfo":
+                await handle_adminloginfo(self, user, args)
             elif cmd == "checkhelp":
                 await _audit_checkhelp(self, user, ALL_KNOWN_COMMANDS)
             elif cmd == "announce_subs":

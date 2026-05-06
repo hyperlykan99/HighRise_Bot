@@ -989,6 +989,8 @@ def _migrate_db():
         "reason TEXT DEFAULT '')",
         "ALTER TABLE event_points ADD COLUMN lifetime_event_coins INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE event_points ADD COLUMN updated_at TEXT",
+        "CREATE TABLE IF NOT EXISTS bot_settings ("
+        "key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '')",
     ]:
         try:
             conn.execute(sql)
@@ -4747,6 +4749,64 @@ def log_admin_action(
         conn.close()
     except Exception as exc:
         print(f"[DB] log_admin_action error: {exc!r}")
+
+
+def get_bot_setting(key: str, default: str = "") -> str:
+    """Retrieve a persistent bot setting by key. Returns default if not set."""
+    try:
+        conn = get_connection()
+        row  = conn.execute("SELECT value FROM bot_settings WHERE key = ?", (key,)).fetchone()
+        conn.close()
+        return row["value"] if row else default
+    except Exception:
+        return default
+
+
+def set_bot_setting(key: str, value: str) -> None:
+    """Upsert a persistent bot setting."""
+    conn = get_connection()
+    conn.execute(
+        "INSERT INTO bot_settings (key, value) VALUES (?, ?) "
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        (key, value),
+    )
+    conn.commit()
+    conn.close()
+
+
+def clear_equipped_title(user_id: str) -> None:
+    """Unequip the player's current title."""
+    conn = get_connection()
+    conn.execute(
+        "UPDATE users SET equipped_title = '', equipped_title_id = '' WHERE user_id = ?",
+        (user_id,)
+    )
+    conn.commit()
+    conn.close()
+
+
+def clear_equipped_badge(user_id: str) -> None:
+    """Unequip the player's current badge."""
+    conn = get_connection()
+    conn.execute(
+        "UPDATE users SET equipped_badge = '', equipped_badge_id = '' WHERE user_id = ?",
+        (user_id,)
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_admin_log_by_id(log_id: int) -> dict | None:
+    """Return a single admin action log entry by ID."""
+    try:
+        conn = get_connection()
+        row  = conn.execute(
+            "SELECT * FROM admin_action_logs WHERE id = ?", (log_id,)
+        ).fetchone()
+        conn.close()
+        return dict(row) if row else None
+    except Exception:
+        return None
 
 
 def get_admin_logs(target_username: str | None = None, limit: int = 10) -> list[dict]:
