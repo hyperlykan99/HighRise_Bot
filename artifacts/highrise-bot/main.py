@@ -279,7 +279,7 @@ from modules.control_panel import (
 )
 from modules.multi_bot import (
     should_this_bot_handle, should_this_bot_run_module,
-    BOT_MODE,
+    BOT_MODE, BOT_ID, BOT_USERNAME,
     start_heartbeat_loop as start_multibot_heartbeat,
     get_offline_message, send_startup_announce,
     check_startup_safety,
@@ -1846,13 +1846,13 @@ async def _deliver_pending_bank_notifications(bot, user: User) -> None:
 # ---------------------------------------------------------------------------
 
 def _ping_bot_label() -> str:
-    """Human-readable label for this bot (for pong replies)."""
-    return BOT_USERNAME or {
+    """Human-readable label for this bot (for pong replies). Uses config. prefix — no NameError."""
+    return config.BOT_USERNAME or {
         "host": "Host", "banker": "Banker", "blackjack": "Blackjack",
         "poker": "Poker", "miner": "Miner", "shopkeeper": "Shop",
         "security": "Security", "dj": "DJ", "eventhost": "Events",
         "all": "Main",
-    }.get(BOT_MODE, BOT_MODE.title())
+    }.get(config.BOT_MODE, config.BOT_MODE.title())
 
 
 def _all_running_bot_ids() -> list:
@@ -1874,27 +1874,28 @@ def _all_running_bot_ids() -> list:
 def is_ping_responder() -> tuple:
     """
     Return (bool, reason_str).  No DB calls, no exceptions.
+    Uses config. prefix for all vars — guaranteed no NameError.
 
     Priority (first match wins):
-    1. BOT_MODE or BOT_ID == PRIMARY_PING_BOT_ID  (default "host")
-    2. BOT_USERNAME == PRIMARY_PING_BOT_USERNAME   (e.g. "EmceeBot")
-    3. BOT_USERNAME contains "host" or "emcee"
+    1. config.BOT_MODE or config.BOT_ID == PRIMARY_PING_BOT_ID  (default "host")
+    2. config.BOT_USERNAME == PRIMARY_PING_BOT_USERNAME
+    3. config.BOT_USERNAME contains "host" or "emcee"
     4. Fallback: primary has no token configured → first bot alphabetically
     """
-    primary    = PRIMARY_PING_BOT_ID.lower()
-    pri_uname  = PRIMARY_PING_BOT_USERNAME.lower()
-    my_mode    = BOT_MODE.lower()
-    my_id      = BOT_ID.lower()
-    my_uname   = BOT_USERNAME.lower()
+    primary   = config.PRIMARY_PING_BOT_ID.lower()
+    pri_uname = config.PRIMARY_PING_BOT_USERNAME.lower()
+    my_mode   = config.BOT_MODE.lower()
+    my_id     = config.BOT_ID.lower()
+    my_uname  = config.BOT_USERNAME.lower()
 
     if my_mode == primary or my_id == primary:
         return True, f"primary id/mode={primary}"
 
     if pri_uname and my_uname == pri_uname:
-        return True, f"primary username={PRIMARY_PING_BOT_USERNAME}"
+        return True, f"primary username={config.PRIMARY_PING_BOT_USERNAME}"
 
     if my_uname and any(k in my_uname for k in ("host", "emcee")):
-        return True, f"username keyword match: {BOT_USERNAME}"
+        return True, f"username keyword match: {config.BOT_USERNAME}"
 
     # Fallback: only if the primary bot has no token at all (misconfigured)
     _TOKEN_MAP = [
@@ -2015,9 +2016,12 @@ class HangoutBot(BaseBot):
             print(f"[STARTUP] heartbeat skipped: {_e}")
 
         # ── Startup: message handler confirmation + self-test ─────────────────
+        print(f"[CORE] safe boot {'ON' if config.SAFE_BOOT else 'OFF'}")
+        print(f"[CORE] command core loaded")
         print(f"[SELFTEST] Bot connected")
         print(f"[CMD] message handler registered for {_bid}")
-        print(f"[SELFTEST] Message listener registered")
+        print(f"[CORE] message listener registered")
+        print(f"[CORE] /ping ready")
         print(f"[SELFTEST] emergency ping handler ready")
         print(f"[SELFTEST] emergency crashlogs handler ready")
         print(f"[SELFTEST] normal router loaded or skipped")
@@ -2126,6 +2130,19 @@ class HangoutBot(BaseBot):
         except Exception as _e:
             print(f"[STARTUP] announce skipped: {_e}")
 
+    async def _core_send(self, user: "User", msg: str) -> None:
+        """Absolute minimal send — room chat first, whisper fallback. Never raises."""
+        _m = msg[:249]
+        try:
+            await self.highrise.chat(_m)
+            return
+        except Exception:
+            pass
+        try:
+            await self.highrise.send_whisper(user.id, _m)
+        except Exception as _e:
+            print(f"[CORE] send failed: {_e}")
+
     async def _safe_send(self, user_id: str, msg: str) -> None:
         """Whisper msg to user_id, truncating to 249 chars. Never raises."""
         try:
@@ -2134,13 +2151,26 @@ class HangoutBot(BaseBot):
             print(f"[CMD] safe_send failed: {_se}")
 
     async def on_chat(self, user: User, message: str) -> None:
-        """SDK entry point — wraps _on_chat_body with top-level error handling."""
+        """SDK entry point — nuclear core bypass first, then full router."""
+        # ── CORE: absolute first — no DB, no config, no imports needed ────────
+        _raw_text = message.strip()
+        print(f"[CORE RX] {user.username}: {_raw_text}")
+
+        _cmd_lower = _raw_text.lower()
+        if _cmd_lower == "/ping":
+            await self._core_send(user, "pong")
+            print("[CORE PING] replied pong")
+            return
+        if _cmd_lower == "/help":
+            await self._core_send(user, "Help core online.")
+            return
+        # ──────────────────────────────────────────────────────────────────────
+
         try:
             await self._on_chat_body(user, message)
         except Exception as _top_err:
             import traceback as _tb
-            _raw = message.strip()
-            _ec = _raw.lstrip("/").split()[0].lower() if _raw.startswith("/") else "non_cmd"
+            _ec = _raw_text.lstrip("/").split()[0].lower() if _raw_text.startswith("/") else "non_cmd"
             _tb_str = _tb.format_exc()
             print(f"[CMD ERROR] bot={BOT_MODE} cmd=/{_ec}: {_top_err}")
             print(_tb_str)
@@ -2151,11 +2181,10 @@ class HangoutBot(BaseBot):
                                  _tb_str)
             except Exception:
                 pass
-            # Only host replies with error — prevent all 8 bots flooding user
             if BOT_MODE in ("host", "all"):
                 try:
                     await self.highrise.send_whisper(
-                        user.id, "Command error. Staff: /crashlogs latest")
+                        user.id, "Router error. Core commands (/ping /help) still online.")
                 except Exception:
                     pass
 
