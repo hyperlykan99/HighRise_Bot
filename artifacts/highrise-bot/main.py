@@ -1842,6 +1842,80 @@ async def _deliver_pending_bank_notifications(bot, user: User) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Emergency ping responder detection — zero DB calls
+# ---------------------------------------------------------------------------
+
+def _ping_bot_label() -> str:
+    """Human-readable label for this bot (for pong replies)."""
+    return BOT_USERNAME or {
+        "host": "Host", "banker": "Banker", "blackjack": "Blackjack",
+        "poker": "Poker", "miner": "Miner", "shopkeeper": "Shop",
+        "security": "Security", "dj": "DJ", "eventhost": "Events",
+        "all": "Main",
+    }.get(BOT_MODE, BOT_MODE.title())
+
+
+def _all_running_bot_ids() -> list:
+    """Return sorted list of bot IDs inferred from env tokens — no DB."""
+    _TOKEN_MAP = [
+        ("HOST_BOT_TOKEN",      "host"),
+        ("BLACKJACK_BOT_TOKEN", "blackjack"),
+        ("POKER_BOT_TOKEN",     "poker"),
+        ("MINER_BOT_TOKEN",     "miner"),
+        ("BANKER_BOT_TOKEN",    "banker"),
+        ("SHOP_BOT_TOKEN",      "shopkeeper"),
+        ("SECURITY_BOT_TOKEN",  "security"),
+        ("DJ_BOT_TOKEN",        "dj"),
+        ("EVENT_BOT_TOKEN",     "eventhost"),
+    ]
+    return sorted(bid for tok, bid in _TOKEN_MAP if os.environ.get(tok, ""))
+
+
+def is_ping_responder() -> tuple:
+    """
+    Return (bool, reason_str).  No DB calls, no exceptions.
+
+    Priority (first match wins):
+    1. BOT_MODE or BOT_ID == PRIMARY_PING_BOT_ID  (default "host")
+    2. BOT_USERNAME == PRIMARY_PING_BOT_USERNAME   (e.g. "EmceeBot")
+    3. BOT_USERNAME contains "host" or "emcee"
+    4. Fallback: primary has no token configured → first bot alphabetically
+    """
+    primary    = PRIMARY_PING_BOT_ID.lower()
+    pri_uname  = PRIMARY_PING_BOT_USERNAME.lower()
+    my_mode    = BOT_MODE.lower()
+    my_id      = BOT_ID.lower()
+    my_uname   = BOT_USERNAME.lower()
+
+    if my_mode == primary or my_id == primary:
+        return True, f"primary id/mode={primary}"
+
+    if pri_uname and my_uname == pri_uname:
+        return True, f"primary username={PRIMARY_PING_BOT_USERNAME}"
+
+    if my_uname and any(k in my_uname for k in ("host", "emcee")):
+        return True, f"username keyword match: {BOT_USERNAME}"
+
+    # Fallback: only if the primary bot has no token at all (misconfigured)
+    _TOKEN_MAP = [
+        ("HOST_BOT_TOKEN", "host"), ("BLACKJACK_BOT_TOKEN", "blackjack"),
+        ("POKER_BOT_TOKEN", "poker"), ("MINER_BOT_TOKEN", "miner"),
+        ("BANKER_BOT_TOKEN", "banker"), ("SHOP_BOT_TOKEN", "shopkeeper"),
+        ("SECURITY_BOT_TOKEN", "security"), ("DJ_BOT_TOKEN", "dj"),
+        ("EVENT_BOT_TOKEN", "eventhost"),
+    ]
+    _primary_has_token = any(
+        os.environ.get(tok, "") for tok, bid in _TOKEN_MAP if bid == primary
+    )
+    if not _primary_has_token:
+        _running = _all_running_bot_ids()
+        if _running and _running[0] == my_id:
+            return True, f"fallback first bot={_running[0]}"
+
+    return False, f"not responder (primary={primary} me={my_mode}/{my_id})"
+
+
+# ---------------------------------------------------------------------------
 # Bot class
 # ---------------------------------------------------------------------------
 
@@ -2116,13 +2190,12 @@ class HangoutBot(BaseBot):
         # Every section is wrapped in its own try/except — nothing can escape.
         # ══════════════════════════════════════════════════════════════════════
 
-        # /ping ── ONLY host bot replies. ALL other bots return silently.
-        # NO database, NO _is_mode_online, NO ownership table lookup.
+        # /ping — emergency bypass; zero DB; never reaches router
         if cmd == "ping":
             try:
                 _ping_target = args[1].lower() if len(args) > 1 else ""
                 if _ping_target == "all":
-                    # /ping all — every bot replies; try role check but never crash
+                    # /ping all — every bot whispers once; role check wrapped in try/except
                     _allowed = False
                     try:
                         from modules.permissions import is_owner as _iow, is_admin as _iadm
@@ -2130,22 +2203,38 @@ class HangoutBot(BaseBot):
                     except Exception:
                         _allowed = BOT_MODE in ("host", "all")
                     if _allowed:
-                        _lbl = {"host": "Host", "banker": "Banker",
-                                "blackjack": "Blackjack", "poker": "Poker",
-                                "miner": "Miner", "shopkeeper": "Shop",
-                                "security": "Security", "dj": "DJ",
-                                "eventhost": "Events", "all": "Main"
-                                }.get(BOT_MODE, BOT_MODE.title())
-                        await self._safe_send(user.id, f"pong | {_lbl} online")
+                        await self._safe_send(user.id, f"pong | {_ping_bot_label()} online")
                 else:
-                    # Basic /ping — host only. Others are SILENT.
-                    if BOT_MODE in ("host", "all"):
-                        await self._safe_send(user.id, "pong | Host online")
+                    # Normal /ping — exactly one bot responds based on priority chain
+                    _resp, _reason = is_ping_responder()
+                    print(f"[PING] received by bot_id={BOT_ID} mode={BOT_MODE} username={BOT_USERNAME or '?'}")
+                    print(f"[PING] responder={str(_resp).lower()} reason={_reason}")
+                    if _resp:
+                        await self._safe_send(user.id, f"pong | {_ping_bot_label()} online")
             except Exception as _pe:
                 print(f"[CMD ERROR] ping handler: {_pe}")
-                if BOT_MODE in ("host", "all"):
-                    await self._safe_send(user.id, "pong | Host online | handler err")
+                _resp2, _ = is_ping_responder()
+                if _resp2:
+                    await self._safe_send(user.id, f"pong | {_ping_bot_label()} online | err")
             return  # ALL ping variants return — never reaches router
+
+        # /pingowner — debug: which bot owns normal /ping (every bot replies)
+        if cmd == "pingowner":
+            try:
+                _allowed_po = False
+                try:
+                    from modules.permissions import is_owner as _iow2, is_admin as _iadm2
+                    _allowed_po = _iow2(user.username) or _iadm2(user.username)
+                except Exception:
+                    _allowed_po = BOT_MODE in ("host", "all")
+                if _allowed_po:
+                    _po_resp, _po_reason = is_ping_responder()
+                    _po_msg = (f"Ping owner: {'YES' if _po_resp else 'no'} | "
+                               f"id={BOT_ID} mode={BOT_MODE} | {_po_reason}")
+                    await self._safe_send(user.id, _po_msg[:249])
+            except Exception as _poe:
+                print(f"[CMD ERROR] pingowner handler: {_poe}")
+            return
 
         # /crashlogs — emergency read before router; host only
         if cmd == "crashlogs" and BOT_MODE in ("host", "all"):

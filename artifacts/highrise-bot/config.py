@@ -79,6 +79,11 @@ BOT_ID:       str = os.environ.get("BOT_ID",       "main")
 BOT_MODE:     str = os.environ.get("BOT_MODE",     "all")
 BOT_USERNAME: str = os.environ.get("BOT_USERNAME", "")
 
+# Which bot answers normal /ping.  Defaults to "host".
+# Set PRIMARY_PING_BOT_USERNAME to match the actual Highrise username (e.g. EmceeBot).
+PRIMARY_PING_BOT_ID:       str = os.environ.get("PRIMARY_PING_BOT_ID",       "host")
+PRIMARY_PING_BOT_USERNAME: str = os.environ.get("PRIMARY_PING_BOT_USERNAME", "")
+
 # ---------------------------------------------------------------------------
 # Safe boot — ON by default. Disables all background loops at startup.
 # Set SAFE_BOOT=false in Replit Secrets to allow loops on startup.

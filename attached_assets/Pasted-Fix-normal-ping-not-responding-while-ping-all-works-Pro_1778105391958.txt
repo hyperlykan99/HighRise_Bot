@@ -1,0 +1,147 @@
+Fix normal /ping not responding while /ping all works.
+
+Problem:
+- /ping all works.
+- /crashlogs latest works.
+- Normal /ping does not respond.
+
+This means message receiving and sending work.
+The issue is normal /ping is restricted to Host Bot, but Host Bot is not being detected correctly.
+
+GOAL:
+Make normal /ping always get exactly one response.
+
+IMPORTANT:
+- Do not touch poker, blackjack, mining, bank, shop, AI, or other modules.
+- Do not refactor the whole router.
+- Fix only emergency /ping host detection.
+- SAFE_BOOT stays ON.
+- Keep /ping all working.
+- Keep /crashlogs latest working.
+- No duplicate replies.
+
+==================================================
+PART 1: HOST DETECTION FALLBACK
+==================================================
+
+Normal /ping should respond from exactly one bot using this priority:
+
+1. Bot with bot_mode == "host"
+2. Bot with bot_id == "host"
+3. Bot whose token came from HOST_BOT_TOKEN
+4. Bot username contains "host" or "emcee" or configured HOST_BOT_USERNAME
+5. If no host bot is found, the first running bot becomes emergency ping responder
+
+Add helper:
+
+is_ping_responder(bot_id, bot_mode, bot_username)
+
+Rules:
+- Return true for Host Bot.
+- If no Host Bot exists or Host cannot be detected, return true only for the lowest/first bot_id alphabetically or configured primary bot.
+- All other bots ignore normal /ping.
+
+==================================================
+PART 2: ADD PRIMARY PING RESPONDER SETTING
+==================================================
+
+Add setting/env:
+
+PRIMARY_PING_BOT_ID=host
+
+If the actual Host bot is named EmceeBot, support:
+
+PRIMARY_PING_BOT_USERNAME=EmceeBot
+
+If PRIMARY_PING_BOT_ID is missing:
+- fallback to bot_mode host
+- fallback to first bot
+
+Do not require database for this emergency check.
+
+==================================================
+PART 3: NORMAL /PING LOGGING
+==================================================
+
+When /ping is received, print console logs:
+
+"[PING] received by bot_id=<id> mode=<mode> username=<name>"
+"[PING] responder=true/false reason=<reason>"
+
+This will show why /ping is ignored.
+
+==================================================
+PART 4: NORMAL /PING HANDLER
+==================================================
+
+Before the full router:
+
+if text == "/ping":
+    if is_ping_responder(bot_id, bot_mode, bot_username):
+        await safe_send(f"pong | {bot_username or bot_id} online")
+    return
+
+Important:
+- Return after checking.
+- Do not pass /ping to normal router.
+- Do not need database.
+- Do not need command registry.
+- Do not need permission check.
+- Do not crash if bot_username is missing.
+
+==================================================
+PART 5: KEEP /PING ALL SAME
+==================================================
+
+/ping all should keep working:
+- owner/admin only if role check works
+- if role DB check fails, allow room owner/admin fallback if available
+- each bot replies once
+
+Do not break /ping all.
+
+==================================================
+PART 6: OPTIONAL COMMAND
+==================================================
+
+Add emergency command:
+
+/pingowner
+
+Owner/admin only.
+
+Shows:
+"Ping responder: EmceeBot | id=host | mode=host"
+
+If no host detected:
+"Ping responder: fallback first bot"
+
+This helps debug future issues.
+
+==================================================
+PART 7: TESTS
+==================================================
+
+After update and restart:
+
+/ping
+Expected:
+Exactly one bot replies:
+"pong | EmceeBot online"
+or
+"pong | Host online"
+
+/ping all
+Expected:
+All bots reply once.
+
+/crashlogs latest
+Expected:
+Still works.
+
+/pingowner
+Expected:
+Shows which bot owns normal ping.
+
+Final requirement:
+Normal /ping must always produce exactly one response, even if Host Bot detection is misconfigured.
