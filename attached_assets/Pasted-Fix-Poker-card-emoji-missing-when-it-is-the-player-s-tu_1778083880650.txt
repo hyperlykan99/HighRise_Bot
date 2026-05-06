@@ -1,0 +1,179 @@
+Fix Poker card emoji missing when it is the player's turn.
+
+Problem:
+When I view my poker hand normally, the card emoji/marker before my cards shows correctly.
+But when it is my turn, the emoji before my cards does not show.
+
+Goal:
+Make poker hand/card display consistent everywhere, especially when it is the player's turn.
+
+IMPORTANT:
+- Do not remove existing poker features.
+- Keep Poker Bot ownership.
+- Keep card privacy safe.
+- Keep messages under 250 characters.
+- Do not leak other players' hole cards.
+- Make all poker hand displays use one shared formatter.
+
+==================================================
+PART 1: CREATE ONE SHARED CARD FORMATTER
+==================================================
+
+Create helper:
+
+format_poker_private_hand(username, hand, context)
+
+It should always include:
+- hand number
+- position if available
+- turn marker if it is their turn
+- card emoji/label before cards
+- two private hole cards
+- hand rank if available
+- stack
+- current bet if available
+
+Example normal:
+"🂠 Hand #4 | Your cards: A♠️ K♦️ | Stack: 9,900c"
+
+Example when it is their turn:
+"👉 🂠 Your turn | Cards: A♠️ K♦️ | Stack: 9,900c"
+
+Example with rank:
+"👉 🂠 Your turn | A♠️ K♦️ | High Card | Stack: 9,900c"
+
+Use the same card marker/emoji in all contexts.
+
+Preferred card marker:
+"🂠"
+
+If that emoji fails in Highrise, fallback to:
+"🃏"
+
+==================================================
+PART 2: REPLACE DUPLICATE TEMPLATES
+==================================================
+
+Find every poker message that shows the player's private cards and replace with the shared formatter:
+
+- /ph
+- /pcards
+- hand start whisper
+- turn reminder whisper
+- action open message if private
+- after /check
+- after /call
+- after /raise
+- after /fold if still showing hand
+- restart recovery card reload message
+- saved hand reload message
+- /poker integrity cards
+
+Do not let the turn template use a separate message that drops the emoji.
+
+==================================================
+PART 3: TURN DISPLAY FORMAT
+==================================================
+
+When it is the player's turn, private whisper should look like one of these:
+
+Short:
+"👉 🂠 Your turn | A♠️ K♦️ | Stack 9,900c | /check /call /r /f"
+
+If there is a call amount:
+"👉 🂠 Your turn | A♠️ K♦️ | Call 100c | Stack 9,900c"
+
+If all-in available:
+"👉 🂠 Your turn | A♠️ K♦️ | /check /call /r amt /f /ai"
+
+If too long, split into two messages:
+1. "👉 🂠 Your turn | A♠️ K♦️ | Pair"
+2. "Pot 500c | Call 100c | /call /r amt /f /ai"
+
+==================================================
+PART 4: CARD SYMBOL SAFETY
+==================================================
+
+Make sure card strings preserve suit symbols:
+- ♠️
+- ♥️
+- ♦️
+- ♣️
+
+Do not strip emoji/suit symbols during formatting.
+Do not sanitize out unicode emoji from poker card messages.
+Do not convert to plain text unless required.
+
+If Highrise strips 🂠:
+Use 🃏 automatically.
+
+Add setting:
+- poker_card_marker = 🂠
+
+Command:
+- /setpokercardmarker <emoji>
+
+Owner/admin only.
+
+Example:
+"/setpokercardmarker 🃏"
+Reply:
+"✅ Poker card marker set."
+
+==================================================
+PART 5: TEST COMMAND
+==================================================
+
+Add/fix:
+- /poker testcards
+
+Owner/admin only.
+
+It should whisper the requester test examples:
+1. normal hand
+2. your turn hand
+3. call/raise hand
+4. recovery hand
+
+Example output:
+"Test 1: 🂠 Hand #1 | A♠️ K♦️"
+"Test 2: 👉 🂠 Your turn | A♠️ K♦️"
+
+==================================================
+PART 6: INTEGRITY CHECK UPDATE
+==================================================
+
+Update:
+/poker integrity cards
+
+Add check:
+- private hand marker appears in normal /ph output
+- private hand marker appears in turn reminder output
+- private hand marker appears after restart/recovery output
+- cards are still private
+- no card marker missing in turn template
+
+Expected:
+"♠️ Poker Cards: marker OK | privacy OK | turn display OK"
+
+If fail:
+"Poker Cards fail: turn hand marker missing."
+
+==================================================
+PART 7: TESTS
+==================================================
+
+Test:
+/poker testcards
+/ph during active hand
+Wait until it is my turn
+
+Expected:
+The emoji/marker before cards shows in all cases.
+
+Examples:
+"🂠 Hand #4 | Your cards: 7♦️ 2♥️"
+"👉 🂠 Your turn | 7♦️ 2♥️ | /check /call /r /f"
+
+Final requirement:
+The emoji/card marker before my private cards must show even when it is my turn.

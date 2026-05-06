@@ -399,6 +399,7 @@ MANAGER_ONLY_CMDS = {
     "pokerdebug", "pokerfix", "pokerrefundall", "pokercleanup",
     "confirmclosepoker",
     "casinointegrity", "integritylogs", "carddeliverycheck",
+    "setpokercardmarker",
     "banksettings",
     "setbjminbet", "setbjmaxbet", "setbjcountdown", "setbjturntimer",
     "setbjactiontimer", "setbjmaxsplits",
@@ -2090,6 +2091,10 @@ class HangoutBot(BaseBot):
                 await handle_dailyadmin(self, user, args)
 
             # ── Poker staff commands ──────────────────────────────────────────
+            elif cmd == "setpokercardmarker":
+                from modules.poker import handle_setpokercardmarker
+                await handle_setpokercardmarker(self, user, args)
+
             elif cmd == "setpokertimer" or cmd == "setpokerturntimer":
                 print(f"[POKER TIMER] COMMAND RECEIVED | cmd={cmd} user={user.username}")
                 await handle_setpokertimer(self, user, args)
@@ -3046,6 +3051,10 @@ class HangoutBot(BaseBot):
 
         elif cmd == "setpokerlobbytimer":
             await handle_setpokerlobbytimer(self, user, args)
+
+        elif cmd == "setpokercardmarker":
+            from modules.poker import handle_setpokercardmarker
+            await handle_setpokercardmarker(self, user, args)
 
         elif cmd == "setpokertimer":
             await handle_setpokertimer(self, user, args)

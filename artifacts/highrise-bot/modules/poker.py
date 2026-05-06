@@ -76,6 +76,33 @@ def _fc(card: str) -> str:
 def _fcs(cards: list[str]) -> str:
     return " ".join(_fc(c) for c in cards)
 
+def _get_card_marker() -> str:
+    try:
+        return db.get_room_setting("poker_card_marker", "🂠")
+    except Exception:
+        return "🂠"
+
+def _fmt_private_hand(cards: list, stack: int,
+                      hand_num: int = 0, pos: str = "",
+                      is_turn: bool = False, owe: int = 0,
+                      rank_label: str = "") -> str:
+    marker  = _get_card_marker()
+    cards_s = _fcs(cards)
+    if is_turn:
+        if owe > 0:
+            base = f"👉 {marker} Your turn | {cards_s} | Call {owe:,}c | Stack {stack:,}c"
+        else:
+            base = f"👉 {marker} Your turn | {cards_s} | Stack {stack:,}c"
+        if rank_label and len(base) + len(rank_label) + 3 < 249:
+            base += f" | {rank_label}"
+    else:
+        prefix = f"Hand #{hand_num}" if hand_num else "Your cards"
+        pos_s  = f" {pos.strip()}" if pos else ""
+        base   = f"{marker} {prefix}{pos_s} | Cards: {cards_s} | Stack: {stack:,}c"
+        if rank_label and len(base) + len(rank_label) + 3 < 249:
+            base += f" | {rank_label}"
+    return base[:249]
+
 async def _chat(bot: BaseBot, msg: str) -> None:
     try:
         await bot.highrise.chat(msg[:249])
@@ -1244,11 +1271,9 @@ async def _start_hand(bot: BaseBot) -> None:
         sb_label = " (SB)" if i == sb_idx and blinds_on else ""
         bb_label = " (BB)" if i == bb_idx and blinds_on else ""
         label    = sb_label or bb_label or ""
-        msg      = (
-            f"🂡 Hand #{hand_num}{label} | Cards: {_fcs(h)} | Stack: {pr['stack']}c"
-        )
+        msg = _fmt_private_hand(h, pr["stack"], hand_num=hand_num, pos=label)
         try:
-            await bot.highrise.send_whisper(sp["user_id"], msg[:249])
+            await bot.highrise.send_whisper(sp["user_id"], msg)
         except Exception:
             await _chat(bot, f"@{sp['username']}, use /ph to view your cards.")
 
@@ -1457,12 +1482,12 @@ async def _prompt_player(bot: BaseBot, tbl: dict, p: dict) -> None:
                 if cards:
                     strength  = _hand_strength_label(cards, board)
                     draws     = _detect_draws(cards, board)
-                    label     = strength + (" + " + draws if draws else "")
-                    board_str = _fcs(board) if board else "—"
-                    await bot.highrise.send_whisper(
-                        p["user_id"],
-                        f"🂡 {_fcs(cards)} | Board:{board_str} | {label}"
+                    rank_lbl  = strength + (" + " + draws if draws else "")
+                    turn_msg  = _fmt_private_hand(
+                        cards, p["stack"],
+                        is_turn=True, owe=owe, rank_label=rank_lbl
                     )
+                    await bot.highrise.send_whisper(p["user_id"], turn_msg)
     except Exception:
         pass
 
@@ -2347,10 +2372,12 @@ async def _dispatch(bot: BaseBot, user: User, args: list[str]) -> None:
         board_str = _fcs(community) if community else "none"
         strength  = _hand_strength_label(cards, community)
         draws     = _detect_draws(cards, community)
-        label     = strength + (" + " + draws if draws else "")
-        await _w(bot, user.id,
-            f"🂡 Your hand: {_fcs(cards)} | Board:{board_str} | "
-            f"{label} | Stack:{p['stack']}c")
+        rank_lbl  = strength + (" + " + draws if draws else "")
+        hn        = tbl.get("hand_number", 0) if tbl else 0
+        ph_msg    = _fmt_private_hand(cards, p["stack"], hand_num=hn, rank_label=rank_lbl)
+        if board_str != "none" and len(ph_msg) + len(board_str) + 10 < 249:
+            ph_msg = (ph_msg + f" | Board:{board_str}")[:249]
+        await _w(bot, user.id, ph_msg)
         return
 
     if sub in ("odds", "chance"):
@@ -2916,6 +2943,23 @@ async def _dispatch(bot: BaseBot, user: User, args: list[str]) -> None:
             await _w(bot, user.id, "✅ Poker cleanup done. Table ready.")
         return
 
+    # ── testcards ────────────────────────────────────────────────────────────
+    if sub == "testcards":
+        if not can_manage_games(user.username):
+            await _w(bot, user.id, "Staff only.")
+            return
+        marker = _get_card_marker()
+        sample = ["As", "Kd"]
+        t1 = _fmt_private_hand(sample, 9900, hand_num=1)
+        t2 = _fmt_private_hand(sample, 9900, hand_num=1, is_turn=True, owe=100,
+                               rank_label="Pair of Aces")
+        t3 = _fmt_private_hand(sample, 9900, hand_num=1, is_turn=True, owe=0,
+                               rank_label="Pair of Aces")
+        await _w(bot, user.id, f"Marker: {marker} | Deal: {t1}"[:249])
+        await _w(bot, user.id, f"Call turn: {t2}"[:249])
+        await _w(bot, user.id, f"Check turn: {t3}"[:249])
+        return
+
     # ── integrity ─────────────────────────────────────────────────────────────
     if sub == "integrity":
         if not can_manage_games(user.username):
@@ -3207,6 +3251,24 @@ async def handle_setpokerblinds(bot: BaseBot, user: User, args: list[str]) -> No
     _set("small_blind", sb)
     _set("big_blind",   bb)
     await _w(bot, user.id, f"✅ Poker blinds: SB={sb}c BB={bb}c.")
+
+
+async def handle_setpokercardmarker(bot: BaseBot, user: User, args: list[str]) -> None:
+    """Set poker private-hand card marker emoji: /setpokercardmarker <emoji>"""
+    if not can_manage_games(user.username):
+        await _w(bot, user.id, "Managers+ only.")
+        return
+    if len(args) < 2:
+        current = _get_card_marker()
+        await _w(bot, user.id,
+            f"Poker card marker: {current} | Use /setpokercardmarker <emoji>")
+        return
+    marker = args[1].strip()
+    if not marker:
+        await _w(bot, user.id, "Usage: /setpokercardmarker <emoji>")
+        return
+    db.set_room_setting("poker_card_marker", marker[:10])
+    await _w(bot, user.id, f"✅ Poker card marker set to: {marker[:10]}")
 
 
 async def handle_setpokerante(bot: BaseBot, user: User, args: list[str]) -> None:

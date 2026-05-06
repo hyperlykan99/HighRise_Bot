@@ -456,6 +456,7 @@ def init_db():
         ("max_players",            "6"),
         ("lobby_countdown",        "15"),
         ("turn_timer",             "20"),
+        ("poker_card_marker",      "🂠"),
         ("min_raise",              "50"),
         ("max_raise",              "1000"),
         ("table_daily_win_limit",  "10000"),

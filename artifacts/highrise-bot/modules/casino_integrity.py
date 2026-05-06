@@ -664,6 +664,29 @@ def _check_cards_poker() -> list:
         checks.append(_chk("pk_vis:recovery_no_card_leak", ok7))
         _log_card_test("poker", "all", False, rec_msg[:80], ok7)
 
+        # 8. Normal /ph-style message contains a card marker (🂠 or 🃏)
+        _known_markers = {"🂠", "🃏"}
+        normal_hand_msg = f"🂠 Hand #1 | Cards: {_fmt_hand(p1_hand)} | Stack: 1,000c"
+        mn  = send_test_card_message("player1", normal_hand_msg, private=True)
+        ok8 = any(mk in mn.content for mk in _known_markers) and mn.private
+        checks.append(_chk("pk_vis:hand_marker_in_normal", ok8))
+        _log_card_test("poker", "player1", True, normal_hand_msg[:80], ok8)
+
+        # 9. Turn whisper contains "Your turn" text and a card marker
+        turn_hand_msg = f"👉 🂠 Your turn | {_fmt_hand(p1_hand)} | Call 100c | Stack 1,000c"
+        mt  = send_test_card_message("player1", turn_hand_msg, private=True)
+        ok9 = (any(mk in mt.content for mk in _known_markers) and
+               "Your turn" in mt.content and mt.private)
+        checks.append(_chk("pk_vis:turn_marker_present", ok9))
+        _log_card_test("poker", "player1", True, turn_hand_msg[:80], ok9)
+
+        # 10. Recovery card reload message has marker and is private to player
+        rec_cards_msg = f"🂠 Hand restored | Cards: {_fmt_hand(p1_hand)} | Stack: 1,000c"
+        mrc = send_test_card_message("player1", rec_cards_msg, private=True)
+        ok10 = any(mk in mrc.content for mk in _known_markers) and mrc.private
+        checks.append(_chk("pk_vis:recovery_marker_present", ok10))
+        _log_card_test("poker", "player1", True, rec_cards_msg[:80], ok10)
+
     except Exception as e:
         checks.append(_chk("pk_vis:exception", False, str(e)[:60]))
     return checks
@@ -849,10 +872,20 @@ async def run_poker_integrity(bot: BaseBot, user: User, sub: str) -> None:
         _log(uname, "poker", "recovery", p, t, f, msg); await _w(bot, uid, msg)
 
     elif sub == "cards":
-        checks = _check_cards_poker()
-        p, t, f = _sum(checks)
-        msg = f"Poker Cards: {p}/{t} pass"
-        if f: msg += f" | Fail: {f[0]}"
+        checks   = _check_cards_poker()
+        p, t, f  = _sum(checks)
+        marker_ok  = all(c["ok"] for c in checks if "marker" in c["name"])
+        privacy_ok = all(c["ok"] for c in checks if any(
+            k in c["name"] for k in ("leak", "private", "own", "two_hole",
+                                     "p1_cards", "p2_cards", "community", "showdown")))
+        turn_ok    = all(c["ok"] for c in checks if "turn" in c["name"])
+        if not f:
+            msg = (f"Poker Cards: {p}/{t} | "
+                   f"marker {'OK' if marker_ok else 'FAIL'} | "
+                   f"privacy {'OK' if privacy_ok else 'FAIL'} | "
+                   f"turn {'OK' if turn_ok else 'FAIL'}")
+        else:
+            msg = f"Poker Cards fail: {f[0]}"
         _log(uname, "poker", "cards", p, t, f, msg)
         await _w(bot, uid, msg[:249])
     else:
