@@ -1,0 +1,512 @@
+Redesign the Badge System into an Emoji Badge Market and Player Marketplace.
+
+GOAL:
+I want badges to be emoji-based.
+Players can buy emoji badges from the bot shop.
+Only some emojis should be purchasable directly depending on quality/rarity.
+Players can sell their owned emoji badges to other players on a player market and choose their own price.
+
+IMPORTANT:
+- Do not remove existing features.
+- Keep coins, bank, profiles, titles, VIP, casino, BJ, RBJ, poker, events, notifications, staff roles, and admin tools.
+- Use SQLite.
+- Keep all Highrise messages under 250 characters.
+- Split long shop/market pages.
+- Prevent crashes from bad inputs.
+- Add explicit command routing before unknown-command fallback.
+- Badge display format should stay:
+Emoji > Title > Username
+
+Example:
+"💎 [Elite] @Marion"
+
+==================================================
+PART 1: BADGE TYPES
+==================================================
+
+Badges are emoji cosmetics shown before the player’s title/name.
+
+Examples:
+💎 [Elite] @Marion
+🔥 [High Roller] @Player
+👑 [VIP] @Player
+
+Every emoji should be allowed as a badge if added by owner/admin, but only selected emojis should be sold directly in the bot badge shop.
+
+Badge categories:
+- common
+- uncommon
+- rare
+- epic
+- legendary
+- mythic
+- exclusive
+- event
+- staff
+- VIP
+
+==================================================
+PART 2: BADGE DATABASE
+==================================================
+
+Create or update emoji_badges table:
+
+emoji_badges:
+- badge_id TEXT PRIMARY KEY
+- emoji TEXT
+- name TEXT
+- rarity TEXT
+- price INTEGER
+- purchasable INTEGER DEFAULT 1
+- tradeable INTEGER DEFAULT 1
+- sellable INTEGER DEFAULT 1
+- source TEXT
+  Values: shop, event, staff, vip, exclusive, player_market
+- created_at TEXT
+- created_by TEXT
+
+Create user_badges table if missing:
+
+user_badges:
+- id INTEGER PRIMARY KEY AUTOINCREMENT
+- username TEXT
+- badge_id TEXT
+- acquired_at TEXT
+- source TEXT
+- equipped INTEGER DEFAULT 0
+- locked INTEGER DEFAULT 0
+- UNIQUE(username, badge_id)
+
+Create badge_market_listings table:
+
+badge_market_listings:
+- id INTEGER PRIMARY KEY AUTOINCREMENT
+- seller_username TEXT
+- badge_id TEXT
+- emoji TEXT
+- price INTEGER
+- listed_at TEXT
+- status TEXT
+  Values: active, sold, cancelled
+- buyer_username TEXT
+- sold_at TEXT
+
+==================================================
+PART 3: BOT BADGE SHOP TIERS
+==================================================
+
+Create default badge shop catalog with emoji pricing.
+
+Common badges:
+Price: 500c
+Examples:
+⭐ 🌟 ✨ 💫 ❤️ 💙 💚 💛 🧡 💜 🖤 🤍
+
+Uncommon badges:
+Price: 2,500c
+Examples:
+🔥 ❄️ ⚡ 🌙 ☀️ 🌈 🍀 🎵 🎮 🎲 🎯
+
+Rare badges:
+Price: 10,000c
+Examples:
+💎 👑 🦋 🐉 🦅 🐺 🦊 🐼 🦁 🐯
+
+Epic badges:
+Price: 50,000c
+Examples:
+🌌 🌠 🪐 🚀 🛡️ ⚔️ 🏆 🎖️ 🧿 🧬
+
+Legendary badges:
+Price: 150,000c
+Examples:
+👹 👺 🐲 🦄 🧊 🪙 💰 🏅 🎭 🗡️
+
+Mythic badges:
+Price: 500,000c
+Examples:
+🪽 🐦‍🔥 🧙 🧛 🧞 🧜 🧚 🧟 🕊️ 🪄
+
+Exclusive badges:
+Price: not purchasable by default.
+Owner/admin can grant them.
+Examples:
+👑 💎 🔱 🏴‍☠️ 🐉 🐦‍🔥 ⚜️
+
+Important:
+- Not every emoji should be purchasable in bot shop by default.
+- Every emoji can exist as a badge if owner/admin adds it.
+- High-quality/rare emojis should be expensive or owner/event-only.
+- Staff badges should not be buyable.
+
+==================================================
+PART 4: BADGE SHOP COMMANDS
+==================================================
+
+Player commands:
+- /shop badges
+- /shop badges <page>
+- /badgeinfo <badge_id>
+- /buy badge <badge_id>
+- /equip badge <badge_id>
+- /unequip badge
+- /mybadges
+- /badges
+- /badges <username>
+
+Behavior:
+/shop badges
+Shows purchasable badges only.
+Paginate.
+
+Example:
+"🏷️ Badges 1/5
+star ⭐ 500c
+fire 🔥 2,500c
+diamond 💎 10,000c
+More: /shop badges 2"
+
+Keep each message under 250 characters.
+
+/badgeinfo <badge_id>
+Shows:
+"💎 diamond | Rare | 10,000c | Tradeable YES"
+
+/buy badge <badge_id>
+- Check badge exists.
+- Check purchasable = true.
+- Check player has enough coins.
+- Prevent duplicate purchase.
+- Deduct coins.
+- Add badge to user_badges.
+- Message:
+"✅ Bought badge 💎 diamond."
+
+/equip badge <badge_id>
+- Player must own badge.
+- Unequip old badge.
+- Equip new badge.
+- Message:
+"✅ Equipped badge 💎."
+
+/unequip badge
+- Removes equipped badge.
+- Message:
+"✅ Badge unequipped."
+
+/mybadges
+Shows owned badges:
+"Your badges: ⭐ 💎 🔥. Equip: /equip badge diamond"
+
+/badges <username>
+Shows public owned/equipped badges if inventory privacy allows.
+
+==================================================
+PART 5: PLAYER BADGE MARKETPLACE
+==================================================
+
+Players can sell owned emoji badges to other players.
+
+Player market commands:
+- /badgemarket
+- /badgemarket <page>
+- /badgelist <badge_id> <price>
+- /badgebuy <listing_id>
+- /badgecancel <listing_id>
+- /mybadgelistings
+- /badgeprices <badge_id>
+
+Behavior:
+/badgemarket
+Shows active player listings.
+
+Example:
+"🏷️ Badge Market 1/3
+#12 💎 diamond 25,000c @Seller
+#13 🔥 fire 8,000c @Seller"
+
+/badgelist <badge_id> <price>
+- Player must own badge.
+- Badge must be tradeable and sellable.
+- Badge must not be locked.
+- If currently equipped, unequip it first or block listing:
+"Unequip badge before listing."
+- Remove badge from active use while listed.
+- Price must be positive.
+- Optional price minimum: 100c.
+- Optional max listing price: 1,000,000,000c.
+- Message:
+"✅ Listed 💎 diamond for 25,000c."
+
+/badgebuy <listing_id>
+- Buyer pays seller’s chosen price.
+- Buyer must have enough coins.
+- Buyer cannot buy their own listing.
+- Transfer badge to buyer.
+- Transfer coins to seller.
+- Mark listing sold.
+- Log transaction.
+- Message:
+"✅ Bought 💎 for 25,000c."
+
+Seller notification:
+If seller is in room or subscribed:
+"🏷️ Your 💎 badge sold for 25,000c."
+
+/badgecancel <listing_id>
+- Only seller or owner/admin can cancel.
+- Return badge to seller.
+- Mark listing cancelled.
+- Message:
+"✅ Listing cancelled."
+
+/mybadgelistings
+Shows active listings by user.
+
+/badgeprices <badge_id>
+Shows recent sale prices if available:
+"💎 diamond recent: 20K, 25K, 30K"
+
+==================================================
+PART 6: MARKET FEES AND TAX
+==================================================
+
+Add marketplace fee setting.
+
+Default:
+- badge_market_fee_percent = 5
+
+Commands:
+- /setbadgemarketfee <percent>
+Owner/admin only.
+
+Rules:
+- When badge sells, seller receives price minus fee.
+- Fee is removed from economy or sent to bot treasury if treasury exists.
+- Buyer pays full listed price.
+
+Example:
+Listing price: 10,000c
+Fee: 5%
+Seller receives: 9,500c
+
+Messages:
+"Sold for 10,000c. Fee 500c. You received 9,500c."
+
+==================================================
+PART 7: OWNER/ADMIN BADGE MANAGEMENT
+==================================================
+
+Owner/admin commands:
+- /addbadge <badge_id> <emoji> <name> <rarity> <price>
+- /removebadge <badge_id>
+- /editbadgeprice <badge_id> <price>
+- /setbadgepurchasable <badge_id> on/off
+- /setbadgetradeable <badge_id> on/off
+- /setbadgesellable <badge_id> on/off
+- /givebadge <username> <badge_id>
+- /removebadgefrom <username> <badge_id>
+- /giveemojibadge <username> <emoji> <name>
+- /badgecatalog
+- /badgeadmin <badge_id>
+
+Behavior:
+/addbadge
+Adds a badge to emoji_badges.
+
+Example:
+"/addbadge diamond 💎 Diamond rare 10000"
+
+/editbadgeprice diamond 25000
+Updates price.
+
+/setbadgepurchasable diamond off
+Hides it from shop but does not remove existing ownership.
+
+/givebadge user diamond
+Gives existing badge to player.
+
+/giveemojibadge user 🐉 Dragon
+Creates custom badge if missing and gives it to player.
+Default rarity: exclusive.
+Default purchasable: false.
+Default tradeable: false unless owner changes it.
+
+==================================================
+PART 8: BADGE QUALITY AND PRICING RULES
+==================================================
+
+Use this default pricing guide:
+
+Common:
+Simple hearts, stars, symbols.
+Price: 500c to 1,000c
+
+Uncommon:
+Fire, lightning, moon, music, game icons.
+Price: 2,500c to 5,000c
+
+Rare:
+Diamond, crown, animals, lucky symbols.
+Price: 10,000c to 25,000c
+
+Epic:
+Space, trophy, weapons, shield, rare objects.
+Price: 50,000c to 100,000c
+
+Legendary:
+Dragon, phoenix-like, fantasy, rare flex emojis.
+Price: 150,000c to 300,000c
+
+Mythic:
+Very rare/flex icons, supernatural emojis.
+Price: 500,000c+
+
+Exclusive:
+Owner/event/staff only.
+Not purchasable by default.
+
+Important:
+- Let owner/admin adjust any badge price.
+- Player market price is controlled by seller.
+- Bot shop price is controlled by owner/admin.
+
+==================================================
+PART 9: PRIVACY AND PROFILE INTEGRATION
+==================================================
+
+Update /profile:
+- Page 1 shows equipped badge before title/name.
+- Page 4 shows badges if inventory privacy allows.
+
+Example:
+"👤 💎 [Elite] @Marion"
+
+/badges <username>
+- Respect inventory privacy.
+- If hidden:
+"Inventory hidden by player."
+
+Owner/admin /profileadmin can see full inventory.
+
+==================================================
+PART 10: SAFETY AND ABUSE PREVENTION
+==================================================
+
+Rules:
+- A listed badge cannot be equipped.
+- A listed badge cannot be listed twice.
+- A sold listing cannot be bought again.
+- Buyer cannot buy their own listing.
+- Players cannot sell locked badges.
+- Staff/VIP/exclusive badges are locked by default unless admin allows.
+- All market purchases must use SQLite transaction:
+  1. check listing active
+  2. check buyer balance
+  3. deduct buyer coins
+  4. credit seller coins minus fee
+  5. transfer badge
+  6. mark listing sold
+- If any step fails, rollback transaction.
+
+==================================================
+PART 11: LOGGING
+==================================================
+
+Create badge_market_logs table:
+
+badge_market_logs:
+- id INTEGER PRIMARY KEY AUTOINCREMENT
+- timestamp TEXT
+- action TEXT
+- seller_username TEXT
+- buyer_username TEXT
+- badge_id TEXT
+- emoji TEXT
+- price INTEGER
+- fee INTEGER
+- status TEXT
+
+Log:
+- badge listed
+- badge sold
+- badge cancelled
+- badge admin edited
+- badge granted
+- badge removed
+
+Staff commands:
+- /badgemarketlogs
+- /badgemarketlogs <username>
+
+Permissions:
+- Owner/admin only.
+
+==================================================
+PART 12: HELP UPDATE
+==================================================
+
+Update /shophelp:
+"🛒 Badges
+/shop badges - badge shop
+/buy badge <id> - buy
+/equip badge <id> - equip
+/mybadges - owned"
+
+Update /shophelp 2:
+"🏷️ Market
+/badgemarket - listings
+/badgelist id price - sell
+/badgebuy id - buy
+/badgecancel id - cancel"
+
+Update /adminhelp items:
+"Badges:
+/addbadge id emoji name rarity price
+/givebadge user id
+/editbadgeprice id price
+/setbadgepurchasable id on/off"
+
+Update /profilehelp:
+"Badges show before title/name. Use /privacy inventory off to hide inventory."
+
+==================================================
+PART 13: TESTS
+==================================================
+
+Test bot shop:
+- /shop badges
+- /badgeinfo diamond
+- /buy badge diamond
+- /equip badge diamond
+- /profile
+
+Expected:
+- Emoji appears before title/name.
+
+Test player market:
+- /badgelist diamond 25000
+- /badgemarket
+- another player /badgebuy <listing_id>
+- seller balance increases minus fee
+- buyer owns badge
+- listing marked sold
+
+Test safety:
+- Try buying own listing.
+- Try listing badge twice.
+- Try selling locked badge.
+- Try buying sold listing.
+Expected:
+- All blocked safely.
+
+Test admin:
+- /addbadge dragon 🐉 Dragon legendary 150000
+- /setbadgepurchasable dragon on
+- /shop badges
+- /givebadge username dragon
+
+Final requirement:
+Badge shop should sell selected emoji badges by rarity.
+Player market should let players sell owned badges at their own price.
+Every emoji can be used as a badge if owner/admin adds it.

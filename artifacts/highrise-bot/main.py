@@ -63,6 +63,18 @@ from modules.shop         import (
     handle_shop, handle_buy, handle_equip, handle_myitems,
     handle_badgeinfo, handle_titleinfo,
 )
+from modules.badge_market import (
+    handle_shop_badges,
+    handle_badgeinfo    as handle_badgeinfo_emoji,
+    handle_buy_badge, handle_equip_badge, handle_unequip_badge,
+    handle_mybadges, handle_badges_view,
+    handle_badgemarket, handle_badgelist, handle_badgebuy,
+    handle_badgecancel, handle_mybadgelistings, handle_badgeprices,
+    handle_addbadge, handle_editbadgeprice, handle_setbadgeflag,
+    handle_givebadge_emoji, handle_removebadge_from as handle_removebadge_emoji,
+    handle_giveemojibadge, handle_badgecatalog, handle_badgeadmin,
+    handle_setbadgemarketfee, handle_badgemarketlogs,
+)
 from modules.achievements import handle_achievements, handle_claim_achievements
 from modules.blackjack           import (
     handle_bj, handle_bj_set,
@@ -235,7 +247,12 @@ PROFILE_COMMANDS     = {
     "level", "xpleaderboard",
 }
 GAME_COMMANDS        = {"trivia", "scramble", "riddle", "coinflip"}
-SHOP_COMMANDS        = {"shop", "buy", "equip", "myitems", "badgeinfo", "titleinfo"}
+SHOP_COMMANDS        = {
+    "shop", "buy", "equip", "myitems", "badgeinfo", "titleinfo",
+    "mybadges", "unequip",
+    "badgemarket", "badgelist", "badgebuy", "badgecancel",
+    "mybadgelistings", "badgeprices",
+}
 ACHIEVEMENT_COMMANDS = {"achievements", "claimachievements"}
 BJ_COMMANDS          = {
     "bj", "rbj",
@@ -315,6 +332,11 @@ ADMIN_ONLY_CMDS = {
     "givetitle", "removetitle", "settitle", "cleartitle",
     # ── Badges ───────────────────────────────────────────────────────────────
     "givebadge", "removebadge", "removebadgefrom", "setbadge", "clearbadge",
+    # ── Emoji Badge Market (admin) ────────────────────────────────────────────
+    "addbadge", "editbadgeprice",
+    "setbadgepurchasable", "setbadgetradeable", "setbadgesellable",
+    "giveemojibadge", "badgecatalog", "badgeadmin",
+    "setbadgemarketfee", "badgemarketlogs",
     # ── VIP ──────────────────────────────────────────────────────────────────
     "addvip", "removevip", "vips", "setvipprice",
     # ── Casino resets ─────────────────────────────────────────────────────────
@@ -435,6 +457,14 @@ ALL_KNOWN_COMMANDS = (
         "setbadge", "clearbadge", "removebadgefrom",
         "setvipprice",
         "adminloginfo",
+        # Emoji Badge Market
+        "addbadge", "editbadgeprice",
+        "setbadgepurchasable", "setbadgetradeable", "setbadgesellable",
+        "giveemojibadge", "badgecatalog", "badgeadmin",
+        "setbadgemarketfee", "badgemarketlogs",
+        "mybadges", "unequip",
+        "badgemarket", "badgelist", "badgebuy", "badgecancel",
+        "mybadgelistings", "badgeprices",
         # Public help tools
         "mycommands", "helpsearch",
         # Paged coin help
@@ -545,21 +575,30 @@ BANK_HELP = BANK_HELP_PAGES[0]
 SHOP_HELP_PAGES = [
     (
         "🛒 Shop\n"
-        "/shop titles - browse titles for sale\n"
-        "/shop badges - browse badges for sale\n"
-        "/titleinfo id - title details & price\n"
+        "/shop badges [page] - emoji badge shop\n"
+        "/shop titles - browse titles\n"
         "/badgeinfo id - badge details & price\n"
-        "/buy title id - purchase a title\n"
-        "/buy badge id - purchase a badge"
+        "/buy badge id - purchase a badge\n"
+        "/equip badge id - wear a badge\n"
+        "/unequip badge - remove badge"
     ),
     (
         "🛒 Shop 2\n"
+        "/mybadges - your emoji badges\n"
+        "/myitems - all owned items\n"
         "/equip title id - wear a title\n"
-        "/equip badge id - wear a badge\n"
-        "/myitems - your owned items\n"
-        "/vipshop - VIP item catalog\n"
-        "/buyvip - purchase VIP status\n"
-        "/vipstatus - check VIP status"
+        "/vipshop - VIP catalog\n"
+        "/buyvip - purchase VIP\n"
+        "/vipstatus - check VIP"
+    ),
+    (
+        "🏷️ Badge Market\n"
+        "/badgemarket [page] - player listings\n"
+        "/badgelist id price - sell your badge\n"
+        "/badgebuy id - buy from market\n"
+        "/badgecancel id - cancel listing\n"
+        "/mybadgelistings - your listings\n"
+        "/badgeprices id - recent prices"
     ),
 ]
 SHOP_HELP = SHOP_HELP_PAGES[0]
@@ -1924,15 +1963,38 @@ class HangoutBot(BaseBot):
                 await handle_settitle(self, user, args)
             elif cmd == "cleartitle":
                 await handle_cleartitle(self, user, args)
-            # Badges
+            # Badges (legacy shop + emoji system)
             elif cmd == "givebadge":
-                await handle_givebadge(self, user, args)
-            elif cmd in ("removebadge", "removebadgefrom"):
+                await handle_givebadge_emoji(self, user, args)
+            elif cmd == "removebadge":
                 await handle_removebadge(self, user, args)
+            elif cmd == "removebadgefrom":
+                await handle_removebadge_emoji(self, user, args)
             elif cmd == "setbadge":
                 await handle_setbadge(self, user, args)
             elif cmd == "clearbadge":
                 await handle_clearbadge(self, user, args)
+            # Emoji Badge Market — admin commands
+            elif cmd == "addbadge":
+                await handle_addbadge(self, user, args)
+            elif cmd == "editbadgeprice":
+                await handle_editbadgeprice(self, user, args)
+            elif cmd == "setbadgepurchasable":
+                await handle_setbadgeflag(self, user, args, "purchasable")
+            elif cmd == "setbadgetradeable":
+                await handle_setbadgeflag(self, user, args, "tradeable")
+            elif cmd == "setbadgesellable":
+                await handle_setbadgeflag(self, user, args, "sellable")
+            elif cmd == "giveemojibadge":
+                await handle_giveemojibadge(self, user, args)
+            elif cmd == "badgecatalog":
+                await handle_badgecatalog(self, user, args)
+            elif cmd == "badgeadmin":
+                await handle_badgeadmin(self, user, args)
+            elif cmd == "setbadgemarketfee":
+                await handle_setbadgemarketfee(self, user, args)
+            elif cmd == "badgemarketlogs":
+                await handle_badgemarketlogs(self, user, args)
             # VIP
             elif cmd == "addvip":
                 await handle_addvip(self, user, args)
@@ -2062,22 +2124,71 @@ class HangoutBot(BaseBot):
 
         # ── Shop commands ─────────────────────────────────────────────────────
         elif cmd == "shop":
-            await handle_shop(self, user, args)
+            # Delegate /shop badges to the new emoji badge shop
+            if len(args) > 1 and args[1].lower() == "badges":
+                await handle_shop_badges(self, user, args)
+            else:
+                await handle_shop(self, user, args)
 
         elif cmd == "buy":
-            await handle_buy(self, user, args)
+            # Route /buy badge to emoji badge handler; titles use old handler
+            if len(args) > 1 and args[1].lower() == "badge":
+                badge_id = args[2] if len(args) > 2 else ""
+                if badge_id:
+                    await handle_buy_badge(self, user, badge_id)
+                else:
+                    await self.highrise.send_whisper(user.id, "Usage: /buy badge <id>")
+            else:
+                await handle_buy(self, user, args)
 
         elif cmd == "equip":
-            await handle_equip(self, user, args)
+            # Route /equip badge to emoji badge handler
+            if len(args) > 1 and args[1].lower() == "badge":
+                badge_id = args[2] if len(args) > 2 else ""
+                if badge_id:
+                    await handle_equip_badge(self, user, badge_id)
+                else:
+                    await self.highrise.send_whisper(user.id, "Usage: /equip badge <id>")
+            else:
+                await handle_equip(self, user, args)
+
+        elif cmd == "unequip":
+            sub = args[1].lower() if len(args) > 1 else ""
+            if sub == "badge":
+                await handle_unequip_badge(self, user)
+            else:
+                await self.highrise.send_whisper(user.id, "Usage: /unequip badge")
 
         elif cmd == "myitems":
             await handle_myitems(self, user)
 
+        elif cmd == "mybadges":
+            await handle_mybadges(self, user)
+
         elif cmd == "badgeinfo":
-            await handle_badgeinfo(self, user, args)
+            await handle_badgeinfo_emoji(self, user, args)
 
         elif cmd == "titleinfo":
             await handle_titleinfo(self, user, args)
+
+        # ── Badge marketplace (player commands) ────────────────────────────────
+        elif cmd == "badgemarket":
+            await handle_badgemarket(self, user, args)
+
+        elif cmd == "badgelist":
+            await handle_badgelist(self, user, args)
+
+        elif cmd == "badgebuy":
+            await handle_badgebuy(self, user, args)
+
+        elif cmd == "badgecancel":
+            await handle_badgecancel(self, user, args)
+
+        elif cmd == "mybadgelistings":
+            await handle_mybadgelistings(self, user)
+
+        elif cmd == "badgeprices":
+            await handle_badgeprices(self, user, args)
 
         # ── Event commands ────────────────────────────────────────────────────
         elif cmd == "event":

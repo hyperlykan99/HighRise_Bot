@@ -34,6 +34,7 @@ artifacts/highrise-bot/
     ├── cards.py            # Shared card helpers (make_deck, make_shoe, hand_value…)
     ├── casino_settings.py  # /casinosettings, /casinolimits, /casinotoggles
     ├── subscribers.py      # Subscription/notification system
+    ├── badge_market.py     # Emoji badge shop + player marketplace + admin badge commands
     └── …                   # events, shop, trivia, scramble, bank, etc.
 ```
 
@@ -50,9 +51,9 @@ DB schema source of truth: `database.py` (`_MIGRATIONS` list + `init_db()`)
 
 ## Product
 
-Casino games (BJ, RBJ with split/double/shoe, Poker), DJ queue, token economy, daily rewards, bank/send, shop (titles/badges), quests, achievements, events, subscriber DM system, leaderboards, staff management tiers, 6-page public player profiles with privacy controls.
+Casino games (BJ, RBJ with split/double/shoe, Poker), DJ queue, token economy, daily rewards, bank/send, shop (titles/emoji badges), quests, achievements, events, subscriber DM system, leaderboards, staff management tiers, 6-page public player profiles with privacy controls, **emoji badge market** (player-to-player trading with atomic SQLite transactions and configurable market fee).
 
-**Admin power commands** (admin+, logged to `admin_action_logs`): `setcoins/editcoins/resetcoins`, `addeventcoins/removeeventcoins/seteventcoins/reseteventcoins`, `addxp/removexp/setxp/resetxp/setlevel/addlevel`, `setrep/resetrep`, `givetitle/removetitle`, `givebadge/removebadge`, `addvip/removevip/vips`, `resetbjstats/resetrbjstats/resetpokerstats/resetcasinostats`, `adminpanel`, `adminlogs`.
+**Admin power commands** (admin+, logged to `admin_action_logs`): `setcoins/editcoins/resetcoins`, `addeventcoins/removeeventcoins/seteventcoins/reseteventcoins`, `addxp/removexp/setxp/resetxp/setlevel/addlevel`, `setrep/resetrep`, `givetitle/removetitle`, `givebadge/removebadge/giveemojibadge`, `addvip/removevip/vips`, `resetbjstats/resetrbjstats/resetpokerstats/resetcasinostats`, `adminpanel`, `adminlogs`, `addbadge/editbadgeprice/setbadgepurchasable/setbadgetradeable/setbadgesellable`, `badgecatalog/badgeadmin/setbadgemarketfee/badgemarketlogs`.
 
 **Help system** (paged, role-aware): all help pages rebuilt with `/command - description` format; `mycommands` shows role-filtered command list; `helpsearch <term>` searches across all known commands; `coinhelp`, `bjhelp`, `rbjhelp`, `bankhelp`, `shophelp`, `modhelp`, `managerhelp`, `adminhelp`, `ownerhelp` are all paged.
 
@@ -70,6 +71,15 @@ Casino page shortcut: `/casino <username>` (when arg is not modes/on/off/reset/l
 - Short aliases preferred for in-room play; full `/bj <sub>` commands still supported.
 - Rep rank cap: Celebrity (500+). No "Legend" rep rank. Level rank Legend = 50+.
 
+## Emoji Badge Market (modules/badge_market.py)
+
+**Tables**: `emoji_badges` (catalog, 65 default badges seeded), `user_badges` (ownership), `badge_market_listings`, `badge_market_logs`  
+**Player**: `/shop badges [page]` · `/buy badge <id>` · `/equip badge <id>` · `/unequip badge` · `/mybadges` · `/badgemarket [page]` · `/badgelist <id> <price>` · `/badgebuy <id>` · `/badgecancel <id>` · `/mybadgelistings` · `/badgeprices <id>`  
+**Admin**: `/addbadge <id> <emoji> <name> <rarity> <price>` · `/editbadgeprice` · `/setbadgepurchasable/tradeable/sellable` · `/giveemojibadge <user> <emoji> <name>` · `/badgecatalog` · `/badgeadmin <id>` · `/setbadgemarketfee <pct>` · `/badgemarketlogs [user]`  
+**Rarities**: common(500c) uncommon(2.5K) rare(10K) epic(50K) legendary(150K) mythic(500K) exclusive(0, not purchasable)  
+**Market**: Atomic SQLite transaction (check→deduct buyer→credit seller→transfer badge→mark sold→log). Fee from `bot_settings.badge_market_fee_percent` (default 5%). Seller notified via whisper.  
+**Backward compat**: Old BADGES dict + `owned_items` table still used for legacy badges. New system uses `user_badges` table. `/buy badge` and `/equip badge` route to new handler; `/buy title` still uses old shop.py.
+
 ## Gotchas
 
 - Never hardcode ports — bot uses Highrise WebSocket, not HTTP.
@@ -77,6 +87,8 @@ Casino page shortcut: `/casino <username>` (when arg is not modes/on/off/reset/l
 - BJ/RBJ `doubled` DB column repurposed as `active_hand_idx` (int); `bet` column stores `total_bet()` sum across all hands.
 - `make_shoe` is in `cards.py` — import from there, not redefined in module files.
 - `profile_privacy` is keyed by `username.lower()` — always lowercase before DB calls.
+- Emoji badge ownership lives in `user_badges` (keyed by `lower(username)`); `owned_items` is for legacy badges + titles only.
+- `seed_emoji_badges()` is called in `_migrate_db()` — every new badge uses `INSERT OR IGNORE` so it's safe to run on every startup.
 
 ## Pointers
 

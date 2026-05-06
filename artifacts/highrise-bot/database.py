@@ -991,11 +991,36 @@ def _migrate_db():
         "ALTER TABLE event_points ADD COLUMN updated_at TEXT",
         "CREATE TABLE IF NOT EXISTS bot_settings ("
         "key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '')",
+        # Emoji Badge Market tables
+        "CREATE TABLE IF NOT EXISTS emoji_badges ("
+        "badge_id TEXT PRIMARY KEY, emoji TEXT NOT NULL DEFAULT '', "
+        "name TEXT NOT NULL DEFAULT '', rarity TEXT NOT NULL DEFAULT 'common', "
+        "price INTEGER NOT NULL DEFAULT 0, purchasable INTEGER NOT NULL DEFAULT 1, "
+        "tradeable INTEGER NOT NULL DEFAULT 1, sellable INTEGER NOT NULL DEFAULT 1, "
+        "source TEXT NOT NULL DEFAULT 'shop', created_at TEXT, created_by TEXT)",
+        "CREATE TABLE IF NOT EXISTS user_badges ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL, "
+        "badge_id TEXT NOT NULL, acquired_at TEXT, source TEXT, "
+        "equipped INTEGER NOT NULL DEFAULT 0, locked INTEGER NOT NULL DEFAULT 0, "
+        "UNIQUE(username, badge_id))",
+        "CREATE TABLE IF NOT EXISTS badge_market_listings ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, seller_username TEXT NOT NULL, "
+        "badge_id TEXT NOT NULL, emoji TEXT NOT NULL DEFAULT '', "
+        "price INTEGER NOT NULL DEFAULT 0, listed_at TEXT, "
+        "status TEXT NOT NULL DEFAULT 'active', "
+        "buyer_username TEXT, sold_at TEXT)",
+        "CREATE TABLE IF NOT EXISTS badge_market_logs ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp TEXT, "
+        "action TEXT, seller_username TEXT, buyer_username TEXT, "
+        "badge_id TEXT, emoji TEXT, price INTEGER, fee INTEGER, status TEXT)",
     ]:
         try:
             conn.execute(sql)
         except sqlite3.OperationalError:
             pass
+
+    # Seed default emoji badge catalog (idempotent)
+    seed_emoji_badges()
 
     # Seed new tip settings defaults (INSERT OR IGNORE — safe to run every boot)
     for key, val in [("tip_auto_sub", "1"), ("tip_resubscribe", "0")]:
@@ -5047,3 +5072,523 @@ def get_vip_list() -> list[str]:
         return [r["username"] for r in rows]
     except Exception:
         return []
+
+
+# ===========================================================================
+# EMOJI BADGE MARKET SYSTEM
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# Emoji badge catalog helpers
+# ---------------------------------------------------------------------------
+
+def get_emoji_badge(badge_id: str) -> dict | None:
+    """Return one row from emoji_badges or None."""
+    try:
+        conn = get_connection()
+        row  = conn.execute(
+            "SELECT * FROM emoji_badges WHERE badge_id = ?", (badge_id.lower().strip(),)
+        ).fetchone()
+        conn.close()
+        return dict(row) if row else None
+    except Exception:
+        return None
+
+
+def get_emoji_badges_page(
+    page: int = 1,
+    per_page: int = 8,
+    purchasable_only: bool = True,
+    rarity: str | None = None,
+) -> tuple[list[dict], int]:
+    """Return (rows_for_page, total_pages). Filters by purchasable and/or rarity."""
+    try:
+        conn   = get_connection()
+        where  = []
+        params: list = []
+        if purchasable_only:
+            where.append("purchasable = 1")
+        if rarity:
+            where.append("rarity = ?")
+            params.append(rarity)
+        clause = ("WHERE " + " AND ".join(where)) if where else ""
+        total  = conn.execute(
+            f"SELECT COUNT(*) AS n FROM emoji_badges {clause}", params
+        ).fetchone()["n"]
+        total_pages = max(1, -(-total // per_page))  # ceiling div
+        offset = (max(1, page) - 1) * per_page
+        rows   = conn.execute(
+            f"SELECT * FROM emoji_badges {clause} "
+            "ORDER BY CASE rarity "
+            "WHEN 'common' THEN 1 WHEN 'uncommon' THEN 2 WHEN 'rare' THEN 3 "
+            "WHEN 'epic' THEN 4 WHEN 'legendary' THEN 5 WHEN 'mythic' THEN 6 "
+            "ELSE 7 END, price ASC LIMIT ? OFFSET ?",
+            params + [per_page, offset],
+        ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows], total_pages
+    except Exception:
+        return [], 1
+
+
+def add_emoji_badge(
+    badge_id: str, emoji: str, name: str, rarity: str, price: int,
+    purchasable: int = 1, tradeable: int = 1, sellable: int = 1,
+    source: str = "shop", created_by: str = ""
+) -> bool:
+    """Insert a new badge into the emoji_badges catalog. Returns False if already exists."""
+    try:
+        conn = get_connection()
+        conn.execute(
+            """INSERT INTO emoji_badges
+               (badge_id, emoji, name, rarity, price, purchasable, tradeable,
+                sellable, source, created_at, created_by)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), ?)""",
+            (badge_id.lower().strip(), emoji, name, rarity.lower(), max(0, price),
+             purchasable, tradeable, sellable, source, created_by),
+        )
+        conn.commit()
+        conn.close()
+        return True
+    except Exception:
+        return False
+
+
+def update_emoji_badge_field(badge_id: str, field: str, value) -> bool:
+    """Update a single field of an emoji_badge row."""
+    _allowed = {"price", "purchasable", "tradeable", "sellable", "rarity", "name", "emoji"}
+    if field not in _allowed:
+        return False
+    try:
+        conn = get_connection()
+        conn.execute(
+            f"UPDATE emoji_badges SET {field} = ? WHERE badge_id = ?",
+            (value, badge_id.lower().strip()),
+        )
+        conn.commit()
+        conn.close()
+        return True
+    except Exception:
+        return False
+
+
+# ---------------------------------------------------------------------------
+# User emoji badge ownership  (user_badges table)
+# ---------------------------------------------------------------------------
+
+def owns_emoji_badge(username: str, badge_id: str) -> bool:
+    conn = get_connection()
+    row  = conn.execute(
+        "SELECT 1 FROM user_badges WHERE lower(username)=lower(?) AND badge_id=?",
+        (username, badge_id.lower())
+    ).fetchone()
+    conn.close()
+    return row is not None
+
+
+def get_user_emoji_badges(username: str) -> list[dict]:
+    """Return all emoji badges owned by username."""
+    try:
+        conn = get_connection()
+        rows = conn.execute(
+            "SELECT ub.*, eb.emoji, eb.name, eb.rarity FROM user_badges ub "
+            "LEFT JOIN emoji_badges eb ON eb.badge_id = ub.badge_id "
+            "WHERE lower(ub.username) = lower(?)",
+            (username,)
+        ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+    except Exception:
+        return []
+
+
+def grant_emoji_badge(
+    username: str, badge_id: str, source: str = "admin", locked: int = 0
+) -> bool:
+    """Add badge to user_badges (idempotent). Returns True if inserted."""
+    try:
+        conn = get_connection()
+        cursor = conn.execute(
+            """INSERT OR IGNORE INTO user_badges
+               (username, badge_id, acquired_at, source, equipped, locked)
+               VALUES (lower(?), ?, datetime('now'), ?, 0, ?)""",
+            (username, badge_id.lower(), source, locked),
+        )
+        inserted = cursor.rowcount > 0
+        conn.commit()
+        conn.close()
+        return inserted
+    except Exception:
+        return False
+
+
+def revoke_emoji_badge(username: str, badge_id: str) -> bool:
+    """Remove badge from user_badges. Clears equipped slot if badge was equipped."""
+    try:
+        conn = get_connection()
+        conn.execute(
+            "DELETE FROM user_badges WHERE lower(username)=lower(?) AND badge_id=?",
+            (username, badge_id.lower()),
+        )
+        # Also clear from users table if this badge was equipped
+        conn.execute(
+            """UPDATE users SET equipped_badge='', equipped_badge_id=''
+               WHERE lower(username)=lower(?) AND equipped_badge_id=?""",
+            (username, badge_id.lower()),
+        )
+        conn.commit()
+        conn.close()
+        return True
+    except Exception:
+        return False
+
+
+def is_badge_listed(username: str, badge_id: str) -> bool:
+    """Return True if this badge currently has an active market listing by username."""
+    try:
+        conn = get_connection()
+        row  = conn.execute(
+            """SELECT 1 FROM badge_market_listings
+               WHERE lower(seller_username)=lower(?) AND badge_id=? AND status='active'""",
+            (username, badge_id.lower()),
+        ).fetchone()
+        conn.close()
+        return row is not None
+    except Exception:
+        return False
+
+
+# ---------------------------------------------------------------------------
+# Badge marketplace
+# ---------------------------------------------------------------------------
+
+def get_active_badge_listings(page: int = 1, per_page: int = 8) -> tuple[list[dict], int]:
+    """Return (listings_page, total_pages)."""
+    try:
+        conn        = get_connection()
+        total       = conn.execute(
+            "SELECT COUNT(*) AS n FROM badge_market_listings WHERE status='active'"
+        ).fetchone()["n"]
+        total_pages = max(1, -(-total // per_page))
+        offset      = (max(1, page) - 1) * per_page
+        rows        = conn.execute(
+            """SELECT * FROM badge_market_listings WHERE status='active'
+               ORDER BY listed_at DESC LIMIT ? OFFSET ?""",
+            (per_page, offset),
+        ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows], total_pages
+    except Exception:
+        return [], 1
+
+
+def get_badge_listing(listing_id: int) -> dict | None:
+    try:
+        conn = get_connection()
+        row  = conn.execute(
+            "SELECT * FROM badge_market_listings WHERE id = ?", (listing_id,)
+        ).fetchone()
+        conn.close()
+        return dict(row) if row else None
+    except Exception:
+        return None
+
+
+def get_user_badge_listings(username: str) -> list[dict]:
+    try:
+        conn = get_connection()
+        rows = conn.execute(
+            """SELECT * FROM badge_market_listings
+               WHERE lower(seller_username)=lower(?) AND status='active'
+               ORDER BY listed_at DESC""",
+            (username,),
+        ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+    except Exception:
+        return []
+
+
+def create_badge_listing(
+    seller_username: str, badge_id: str, emoji: str, price: int
+) -> int:
+    """Create an active badge market listing. Returns the new listing id (or -1 on error)."""
+    try:
+        conn = get_connection()
+        cursor = conn.execute(
+            """INSERT INTO badge_market_listings
+               (seller_username, badge_id, emoji, price, listed_at, status)
+               VALUES (lower(?), ?, ?, ?, datetime('now'), 'active')""",
+            (seller_username, badge_id.lower(), emoji, price),
+        )
+        listing_id = cursor.lastrowid
+        conn.commit()
+        conn.close()
+        return listing_id
+    except Exception:
+        return -1
+
+
+def buy_badge_listing(listing_id: int, buyer_username: str, fee_pct: float) -> str:
+    """
+    Atomic marketplace purchase.
+    Returns '' on success, or an error string on failure.
+    Caller should notify seller separately.
+    """
+    conn = get_connection()
+    try:
+        listing = conn.execute(
+            "SELECT * FROM badge_market_listings WHERE id = ? AND status = 'active'",
+            (listing_id,),
+        ).fetchone()
+        if not listing:
+            return "Listing not found or already sold."
+        if listing["seller_username"].lower() == buyer_username.lower():
+            return "You cannot buy your own listing."
+
+        price = listing["price"]
+        fee   = max(0, int(price * fee_pct / 100))
+        net   = price - fee
+
+        # Check buyer balance
+        buyer_row = conn.execute(
+            "SELECT balance, user_id FROM users WHERE lower(username)=lower(?)",
+            (buyer_username,)
+        ).fetchone()
+        if not buyer_row or buyer_row["balance"] < price:
+            return f"Not enough coins. Need {price:,}c."
+
+        seller_row = conn.execute(
+            "SELECT user_id FROM users WHERE lower(username)=lower(?)",
+            (listing["seller_username"],)
+        ).fetchone()
+
+        # Deduct buyer, credit seller
+        conn.execute(
+            "UPDATE users SET balance = balance - ? WHERE lower(username)=lower(?)",
+            (price, buyer_username)
+        )
+        if seller_row:
+            conn.execute(
+                "UPDATE users SET balance = balance + ? WHERE lower(username)=lower(?)",
+                (net, listing["seller_username"])
+            )
+
+        # Transfer badge ownership
+        conn.execute(
+            "DELETE FROM user_badges WHERE lower(username)=lower(?) AND badge_id=?",
+            (listing["seller_username"], listing["badge_id"])
+        )
+        conn.execute(
+            """INSERT OR IGNORE INTO user_badges
+               (username, badge_id, acquired_at, source, equipped, locked)
+               VALUES (lower(?), ?, datetime('now'), 'player_market', 0, 0)""",
+            (buyer_username, listing["badge_id"])
+        )
+
+        # Mark listing sold
+        conn.execute(
+            """UPDATE badge_market_listings
+               SET status='sold', buyer_username=lower(?), sold_at=datetime('now')
+               WHERE id=?""",
+            (buyer_username, listing_id)
+        )
+        conn.commit()
+
+        # Log
+        _log_badge_market_inner(
+            conn, "sold", listing["seller_username"], buyer_username,
+            listing["badge_id"], listing["emoji"], price, fee, "sold"
+        )
+        conn.commit()
+        conn.close()
+        return ""
+    except Exception as exc:
+        conn.rollback()
+        conn.close()
+        return f"Transaction failed: {exc}"
+
+
+def cancel_badge_listing(listing_id: int, requester: str, is_staff: bool = False) -> str:
+    """Cancel a listing and return the badge to seller. Returns '' on success."""
+    try:
+        conn    = get_connection()
+        listing = conn.execute(
+            "SELECT * FROM badge_market_listings WHERE id=? AND status='active'",
+            (listing_id,)
+        ).fetchone()
+        if not listing:
+            return "Listing not found or not active."
+        if not is_staff and listing["seller_username"].lower() != requester.lower():
+            return "Only the seller can cancel this listing."
+
+        conn.execute(
+            "UPDATE badge_market_listings SET status='cancelled' WHERE id=?", (listing_id,)
+        )
+        # Badge stays in user_badges (was never removed on listing)
+        conn.commit()
+        conn.close()
+        return ""
+    except Exception as exc:
+        return f"Error: {exc}"
+
+
+def get_badge_recent_prices(badge_id: str, limit: int = 5) -> list[int]:
+    """Return last N sold prices for a badge."""
+    try:
+        conn = get_connection()
+        rows = conn.execute(
+            """SELECT price FROM badge_market_listings
+               WHERE badge_id=? AND status='sold'
+               ORDER BY sold_at DESC LIMIT ?""",
+            (badge_id.lower(), limit),
+        ).fetchall()
+        conn.close()
+        return [r["price"] for r in rows]
+    except Exception:
+        return []
+
+
+def _log_badge_market_inner(
+    conn, action: str, seller: str, buyer: str,
+    badge_id: str, emoji: str, price: int, fee: int, status: str
+) -> None:
+    try:
+        conn.execute(
+            """INSERT INTO badge_market_logs
+               (timestamp, action, seller_username, buyer_username,
+                badge_id, emoji, price, fee, status)
+               VALUES (datetime('now'),?,?,?,?,?,?,?,?)""",
+            (action, seller, buyer, badge_id, emoji, price, fee, status),
+        )
+    except Exception:
+        pass
+
+
+def log_badge_market_action(
+    action: str, seller: str, buyer: str,
+    badge_id: str, emoji: str, price: int, fee: int, status: str
+) -> None:
+    conn = get_connection()
+    _log_badge_market_inner(conn, action, seller, buyer, badge_id, emoji, price, fee, status)
+    conn.commit()
+    conn.close()
+
+
+def get_badge_market_logs(username: str | None = None, limit: int = 8) -> list[dict]:
+    try:
+        conn = get_connection()
+        if username:
+            rows = conn.execute(
+                """SELECT * FROM badge_market_logs
+                   WHERE lower(seller_username)=lower(?) OR lower(buyer_username)=lower(?)
+                   ORDER BY id DESC LIMIT ?""",
+                (username, username, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM badge_market_logs ORDER BY id DESC LIMIT ?", (limit,)
+            ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+    except Exception:
+        return []
+
+
+# ---------------------------------------------------------------------------
+# Seed default emoji badge catalog
+# ---------------------------------------------------------------------------
+
+_BADGE_SEED: list[tuple] = [
+    # badge_id, emoji, name, rarity, price, purchasable, tradeable, sellable, source
+    # Common 500c
+    ("star","⭐","Star","common",500,1,1,1,"shop"),
+    ("glow","🌟","Glow","common",500,1,1,1,"shop"),
+    ("sparkle","✨","Sparkle","common",500,1,1,1,"shop"),
+    ("stardust","💫","Stardust","common",500,1,1,1,"shop"),
+    ("redheart","❤️","Red Heart","common",500,1,1,1,"shop"),
+    ("blueheart","💙","Blue Heart","common",500,1,1,1,"shop"),
+    ("greenheart","💚","Green Heart","common",500,1,1,1,"shop"),
+    ("yellowheart","💛","Yellow Heart","common",500,1,1,1,"shop"),
+    ("orangeheart","🧡","Orange Heart","common",500,1,1,1,"shop"),
+    ("purpleheart","💜","Purple Heart","common",500,1,1,1,"shop"),
+    ("blackheart","🖤","Black Heart","common",500,1,1,1,"shop"),
+    ("whiteheart","🤍","White Heart","common",500,1,1,1,"shop"),
+    # Uncommon 2500c
+    ("fire","🔥","Fire","uncommon",2500,1,1,1,"shop"),
+    ("ice","❄️","Ice","uncommon",2500,1,1,1,"shop"),
+    ("lightning","⚡","Lightning","uncommon",2500,1,1,1,"shop"),
+    ("moon","🌙","Moon","uncommon",2500,1,1,1,"shop"),
+    ("sun","☀️","Sun","uncommon",2500,1,1,1,"shop"),
+    ("rainbow","🌈","Rainbow","uncommon",2500,1,1,1,"shop"),
+    ("clover","🍀","Clover","uncommon",2500,1,1,1,"shop"),
+    ("music","🎵","Music","uncommon",2500,1,1,1,"shop"),
+    ("gamepad","🎮","Gamepad","uncommon",2500,1,1,1,"shop"),
+    ("diceroll","🎲","Dice","uncommon",2500,1,1,1,"shop"),
+    ("target","🎯","Target","uncommon",2500,1,1,1,"shop"),
+    # Rare 10000c
+    ("diamond","💎","Diamond","rare",10000,1,1,1,"shop"),
+    ("crown","👑","Crown","rare",10000,1,1,1,"shop"),
+    ("butterfly","🦋","Butterfly","rare",10000,1,1,1,"shop"),
+    ("wyrm","🐉","Wyrm","rare",10000,1,1,1,"shop"),
+    ("eagle","🦅","Eagle","rare",10000,1,1,1,"shop"),
+    ("wolf","🐺","Wolf","rare",10000,1,1,1,"shop"),
+    ("fox","🦊","Fox","rare",10000,1,1,1,"shop"),
+    ("panda","🐼","Panda","rare",10000,1,1,1,"shop"),
+    ("lion","🦁","Lion","rare",10000,1,1,1,"shop"),
+    ("tiger","🐯","Tiger","rare",10000,1,1,1,"shop"),
+    # Epic 50000c
+    ("galaxy","🌌","Galaxy","epic",50000,1,1,1,"shop"),
+    ("shootingstar","🌠","Shooting Star","epic",50000,1,1,1,"shop"),
+    ("planet","🪐","Planet","epic",50000,1,1,1,"shop"),
+    ("rocket","🚀","Rocket","epic",50000,1,1,1,"shop"),
+    ("shield","🛡️","Shield","epic",50000,1,1,1,"shop"),
+    ("sword","⚔️","Sword","epic",50000,1,1,1,"shop"),
+    ("trophy","🏆","Trophy","epic",50000,1,1,1,"shop"),
+    ("medal","🎖️","Medal","epic",50000,1,1,1,"shop"),
+    ("amulet","🧿","Amulet","epic",50000,1,1,1,"shop"),
+    ("dna","🧬","DNA","epic",50000,1,1,1,"shop"),
+    # Legendary 150000c
+    ("demon","👹","Demon","legendary",150000,1,1,1,"shop"),
+    ("goblin","👺","Goblin","legendary",150000,1,1,1,"shop"),
+    ("unicorn","🦄","Unicorn","legendary",150000,1,1,1,"shop"),
+    ("crystal","🧊","Crystal","legendary",150000,1,1,1,"shop"),
+    ("goldcoin","🪙","Gold Coin","legendary",150000,1,1,1,"shop"),
+    ("moneybag","💰","Money Bag","legendary",150000,1,1,1,"shop"),
+    ("goldbadge","🏅","Gold Badge","legendary",150000,1,1,1,"shop"),
+    ("mask","🎭","Mask","legendary",150000,1,1,1,"shop"),
+    ("phantom","🗡️","Phantom","legendary",150000,1,1,1,"shop"),
+    ("lance","⚜️","Lance","legendary",150000,1,1,1,"shop"),
+    # Mythic 500000c
+    ("wing","🪽","Wing","mythic",500000,1,1,1,"shop"),
+    ("wizard","🧙","Wizard","mythic",500000,1,1,1,"shop"),
+    ("vampire","🧛","Vampire","mythic",500000,1,1,1,"shop"),
+    ("genie","🧞","Genie","mythic",500000,1,1,1,"shop"),
+    ("mermaid","🧜","Mermaid","mythic",500000,1,1,1,"shop"),
+    ("fairy","🧚","Fairy","mythic",500000,1,1,1,"shop"),
+    ("zombie","🧟","Zombie","mythic",500000,1,1,1,"shop"),
+    ("dove","🕊️","Dove","mythic",500000,1,1,1,"shop"),
+    ("wand","🪄","Wand","mythic",500000,1,1,1,"shop"),
+    # Exclusive — not purchasable
+    ("phoenixbadge","🐦‍🔥","Phoenix","exclusive",0,0,0,0,"exclusive"),
+    ("dragoncrest","🔱","Dragon Crest","exclusive",0,0,0,0,"exclusive"),
+    ("pirate","🏴‍☠️","Pirate","exclusive",0,0,0,0,"exclusive"),
+]
+
+
+def seed_emoji_badges() -> None:
+    """Insert default badge catalog rows. Skips any that already exist."""
+    conn = get_connection()
+    for row in _BADGE_SEED:
+        try:
+            conn.execute(
+                """INSERT OR IGNORE INTO emoji_badges
+                   (badge_id, emoji, name, rarity, price, purchasable,
+                    tradeable, sellable, source, created_at, created_by)
+                   VALUES (?,?,?,?,?,?,?,?,?,datetime('now'),'system')""",
+                row,
+            )
+        except Exception:
+            pass
+    conn.commit()
+    conn.close()
