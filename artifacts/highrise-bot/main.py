@@ -262,6 +262,11 @@ from modules.mining import (
     handle_orelist, handle_minehelp,
     MINE_HELP_PAGES,
 )
+from modules.control_panel import (
+    handle_control, handle_ownerpanel, handle_managerpanel,
+    handle_status, handle_roomstatus,
+    handle_quicktoggles, handle_toggle,
+)
 from modules.bot_modes import (
     handle_botmode, handle_botmodes, handle_botprofile,
     handle_botprefix, handle_categoryprefix,
@@ -607,6 +612,10 @@ ALL_KNOWN_COMMANDS = (
         "dressbot", "savebotoutfit",
         "createbotmode", "deletebotmode", "assignbotmode",
         "botoutfitlogs",
+        # ── Control panel ─────────────────────────────────────────────────────
+        "control", "adminpanel", "ownerpanel", "managerpanel",
+        "status", "roomstatus",
+        "quicktoggles", "toggle",
     }
     | ECONOMY_COMMANDS | PROFILE_COMMANDS | GAME_COMMANDS
     | SHOP_COMMANDS | ACHIEVEMENT_COMMANDS | BJ_COMMANDS
@@ -1018,12 +1027,11 @@ MAINTENANCE_HELP_TEXT = (
 
 STAFF_HELP_TEXT = (
     "⚙️ Staff Help Index\n"
+    "/control - control center\n"
     "/modhelp - moderation commands\n"
     "/managerhelp - game & event tools\n"
     "/adminhelp - economy & admin power\n"
-    "/ownerhelp - owner commands\n"
-    "/casinoadminhelp - casino settings\n"
-    "/bankadminhelp - bank admin"
+    "/ownerhelp - owner commands"
 )
 
 STAFF_HELP_TEXT_2 = (
@@ -1031,7 +1039,8 @@ STAFF_HELP_TEXT_2 = (
     "/mycommands - commands for your role\n"
     "/adminpanel - admin control panel\n"
     "/adminlogs - action log\n"
-    "/goldhelp - gold commands\n"
+    "/status - bot status\n"
+    "/quicktoggles - toggle modules\n"
     "/audithelp /reporthelp - audit tools"
 )
 
@@ -1071,7 +1080,15 @@ MOD_HELP_PAGES = [
 
 MANAGER_HELP_PAGES = [
     (
-        "🧰 Manager 1 — Events\n"
+        "🧰 Manager 1 — Control\n"
+        "/control - control center\n"
+        "/control room - room tools\n"
+        "/control games - mining/events\n"
+        "/control casino - casino panel\n"
+        "/quicktoggles - toggle modules"
+    ),
+    (
+        "🧰 Manager 2 — Events\n"
         "/startevent id - start an event\n"
         "/stopevent - stop current event\n"
         "/autogames on/off - toggle auto games\n"
@@ -1113,6 +1130,14 @@ MANAGER_HELP_PAGES = [
 ]
 
 ADMIN_HELP_PAGES = [
+    (
+        "🛡️ Admin 0 — Control\n"
+        "/control - control center\n"
+        "/control economy - economy panel\n"
+        "/control casino - casino panel\n"
+        "/control shop - shop panel\n"
+        "/control system - system panel"
+    ),
     (
         "🛡️ Admin 1 — Economy\n"
         "/addcoins user amt - add coins\n"
@@ -1185,6 +1210,14 @@ ADMIN_HELP_PAGES = [
 ]
 
 OWNER_HELP_PAGES = [
+    (
+        "👑 Owner 0 — Control\n"
+        "/control - full control center\n"
+        "/ownerpanel - owner hub\n"
+        "/control staff 3 - owner roles\n"
+        "/control system 3 - owner system\n"
+        "/quicktoggles - toggle modules"
+    ),
     (
         "👑 Owner 1 — Roles\n"
         "/addowner user - add an owner\n"
@@ -3354,6 +3387,22 @@ class HangoutBot(BaseBot):
             await handle_alerthelp(self, user)
         elif cmd == "welcomehelp":
             await handle_welcomehelp(self, user)
+
+        # ── Control panel ─────────────────────────────────────────────────────
+        elif cmd == "control":
+            await handle_control(self, user, args)
+        elif cmd == "ownerpanel":
+            await handle_ownerpanel(self, user)
+        elif cmd == "managerpanel":
+            await handle_managerpanel(self, user)
+        elif cmd == "status":
+            await handle_status(self, user)
+        elif cmd == "roomstatus":
+            await handle_roomstatus(self, user)
+        elif cmd == "quicktoggles":
+            await handle_quicktoggles(self, user)
+        elif cmd == "toggle":
+            await handle_toggle(self, user, args)
 
         # ── Unknown command ───────────────────────────────────────────────────
         else:

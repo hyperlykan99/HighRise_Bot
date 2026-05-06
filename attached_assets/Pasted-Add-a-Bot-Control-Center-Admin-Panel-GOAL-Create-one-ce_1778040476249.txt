@@ -1,0 +1,328 @@
+Add a Bot Control Center / Admin Panel.
+
+GOAL:
+Create one central command hub for owners/admins/managers to view and manage all major bot systems:
+- room utilities
+- roles
+- moderation
+- economy
+- bank
+- shop
+- badges/titles
+- VIP
+- casino
+- poker
+- mining
+- events
+- notifications
+- bot modes/outfits
+- welcome/intervals
+- health/debug/audit
+
+IMPORTANT:
+- Do not remove existing features.
+- Keep all existing commands working.
+- Use SQLite.
+- Keep every Highrise message under 250 characters.
+- Split panels into pages.
+- Use role-based visibility.
+- Add explicit command routing before unknown-command fallback.
+- Prevent silent failures.
+- Every command must reply with success, usage, permission error, or clear error.
+
+==================================================
+COMMANDS
+==================================================
+
+Add:
+- /control
+- /control 1
+- /control 2
+- /control 3
+- /control room
+- /control economy
+- /control casino
+- /control games
+- /control shop
+- /control staff
+- /control system
+- /adminpanel
+- /ownerpanel
+- /managerpanel
+
+Permissions:
+- Owner sees everything.
+- Admin sees most controls except owner-only commands.
+- Manager sees room/events/casino/game controls.
+- Moderator sees moderation/report controls only.
+
+If no permission:
+"Staff only."
+
+==================================================
+MAIN PANEL
+==================================================
+
+/control:
+"⚙️ Control
+/control room - room tools
+/control economy - coins/bank
+/control casino - BJ/RBJ/Poker
+/control games - mining/events"
+
+If owner/admin:
+"More: /control shop | staff | system"
+
+==================================================
+ROOM PANEL
+==================================================
+
+/control room:
+"🏠 Room
+/roomsettings - settings
+/spawns - spawns
+/welcomehelp - welcome
+/intervals - auto messages"
+
+/control room 2:
+"🏠 Room 2
+/teleporthelp - teleport
+/emotehelp - emotes
+/socialhelp - social
+/botmodehelp - bot modes"
+
+==================================================
+ECONOMY PANEL
+==================================================
+
+/control economy:
+"💰 Economy
+/bal user - balance
+/setcoins user amt - set
+/addcoins user amt - add
+/adminlogs - logs"
+
+/control economy 2:
+"🏦 Bank
+/banksettings - settings
+/viewtx user - tx
+/bankblock user - block
+/resetbanklimits user - reset"
+
+==================================================
+CASINO PANEL
+==================================================
+
+/control casino:
+"🎰 Casino
+/casinosettings - settings
+/bj limits - BJ
+/rbj limits - RBJ
+/poker settings - poker"
+
+/control casino 2:
+"🎰 Casino 2
+/bj recover
+/rbj recover
+/poker state
+/poker cleanup
+/poker refundtable"
+
+==================================================
+GAMES PANEL
+==================================================
+
+/control games:
+"🎮 Games
+/miningadmin - mining
+/miningevent - event
+/startminingevent id
+/minelb - mining LB"
+
+/control games 2:
+"🎉 Events
+/events - list
+/startevent id
+/stopevent
+/eventshop"
+
+==================================================
+SHOP PANEL
+==================================================
+
+/control shop:
+"🛒 Shop
+/shopadmin - shop admin
+/shop badges
+/shop titles
+/vipshop"
+
+/control shop 2:
+"🏷️ Badges
+/addbadge id emoji name rarity price
+/givebadge user id
+/badgemarketlogs"
+
+==================================================
+STAFF PANEL
+==================================================
+
+/control staff:
+"🛡️ Staff
+/allstaff - list
+/addmoderator user
+/addmanager user
+/reports - reports"
+
+/control staff 2:
+"🔨 Moderation
+/warn user reason
+/mute user min reason
+/ban user reason
+/modlog user"
+
+Owner-only staff page:
+/control staff 3:
+"👑 Owner Roles
+/addowner user
+/addadmin user
+/removeadmin user
+/owners"
+
+==================================================
+SYSTEM PANEL
+==================================================
+
+/control system:
+"🧰 System
+/healthcheck - health
+/restartstatus - restart
+/checkcommands - routes
+/checkhelp - help"
+
+/control system 2:
+"🧰 System 2
+/missingcommands
+/silentcheck
+/roomlogs
+/botoutfitlogs"
+
+Owner-only:
+/control system 3:
+"👑 Owner System
+/backup
+/softrestart
+/adminlogs
+/errors"
+
+==================================================
+STATUS SUMMARY
+==================================================
+
+Add:
+/status
+/botstatus
+/roomstatus
+
+Public or staff depending on info.
+
+Player version:
+"Bot online | Mining ON | Casino ON | Poker active | Event none"
+
+Staff version:
+"Bot OK | DB OK | BJ idle | RBJ idle | Poker active | Mining ON | Errors 0"
+
+Use existing healthcheck/debug systems if available.
+
+==================================================
+QUICK TOGGLES
+==================================================
+
+Add:
+- /quicktoggles
+- /toggle mining
+- /toggle bj
+- /toggle rbj
+- /toggle poker
+- /toggle welcome
+- /toggle intervals
+- /toggle botprefix
+
+Permissions:
+- Manager/admin/owner, depending on module.
+
+Behavior:
+/quicktoggles:
+"⚡ Toggles: mining ON | BJ ON | RBJ ON | Poker ON | Welcome ON"
+
+/toggle mining:
+Switch mining on/off and reply:
+"✅ Mining ON."
+or
+"⛔ Mining OFF."
+
+Do not toggle owner-only systems for managers unless allowed.
+
+==================================================
+HELP UPDATE
+==================================================
+
+Update:
+/staffhelp:
+"⚙️ Staff: /control - control center"
+
+/adminhelp:
+"⚙️ Admin: /control economy | casino | system"
+
+/ownerhelp:
+"👑 Owner: /control all | /ownerpanel"
+
+/managerhelp:
+"🧰 Manager: /control room | games | casino"
+
+Update /help for staff only:
+"Staff: /control"
+
+==================================================
+AUDIT INTEGRATION
+==================================================
+
+Add all /control commands to command registry/help audit.
+
+Make sure:
+/commandtest /control
+shows route YES | help YES | handler YES.
+
+No /control command should fail silently.
+
+==================================================
+TESTS
+==================================================
+
+Test as owner:
+- /control
+- /control room
+- /control economy
+- /control casino
+- /control games
+- /control shop
+- /control staff
+- /control system
+- /status
+- /quicktoggles
+
+Test as manager:
+- /control
+- /control room
+- /control games
+- /control casino
+Expected:
+- Manager sees allowed controls only.
+
+Test as player:
+- /control
+Expected:
+"Staff only."
+
+Final requirement:
+The bot should have one central staff control hub so staff do not need to memorize every command.
