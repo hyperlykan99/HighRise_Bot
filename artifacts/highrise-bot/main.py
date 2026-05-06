@@ -293,6 +293,8 @@ from modules.multi_bot import (
     handle_taskowners, handle_activetasks,
     handle_taskconflicts, handle_fixtaskowners,
     handle_restoreannounce, handle_restorestatus,
+    get_cmd_debug, set_cmd_debug,
+    resolve_command_owner, router_status_summary, router_command_detail,
 )
 from modules.bot_health import (
     handle_bothealth, handle_modulehealth, handle_deploymentcheck,
@@ -485,6 +487,7 @@ ADMIN_ONLY_CMDS = {
     "checkcommands", "checkhelp",
     "missingcommands", "routecheck", "silentcheck", "commandtest",
     "fixcommands", "testcommands",
+    "ping", "routerstatus", "commanddebug",
     # ── Economy settings ─────────────────────────────────────────────────────
     "setdailycoins", "setgamereward", "settransferfee",
     # ── Event aliases ────────────────────────────────────────────────────────
@@ -575,6 +578,7 @@ ALL_KNOWN_COMMANDS = (
         "allstaff", "allcommands", "checkcommands",
         "missingcommands", "routecheck", "silentcheck", "commandtest",
         "fixcommands", "testcommands",
+        "ping", "routerstatus", "commanddebug",
         "notifications", "clearnotifications",
         "delivernotifications", "pendingnotifications",
         "subscribe", "unsubscribe", "substatus", "subhelp",
@@ -1788,6 +1792,10 @@ async def _cmd_checkcommands(bot, user):
 # Track per-user delivery to avoid spamming on every chat message
 _notif_delivered_this_session: set[str] = set()
 
+# Set to True once init_db completes — gates ensure_user writes so they don't
+# compete with init_db's long write transaction on startup.
+_db_init_complete: bool = False
+
 
 async def _deliver_pending_bank_notifications(bot, user: User) -> None:
     """Deliver any queued bank notifications to *user* via whisper.
@@ -1848,16 +1856,43 @@ class HangoutBot(BaseBot):
         _bid = config.BOT_ID
         print(f"[BOT START] id={_bid} mode={BOT_MODE}")
 
-        # ── DB init — never crash the bot if this fails ───────────────────────
-        try:
-            db.init_db()
-        except Exception as _dbe:
-            print(f"[BOT CRASH] id={_bid} phase=startup task=db_init error={_dbe}")
+        # ── DB init — only host bot runs full init to prevent 8-way write storm ─
+        # Other bots wait for host to finish, then just verify the connection.
+        import asyncio as _aio
+        global _db_init_complete
+        if BOT_MODE in ("host", "all"):
+            for _init_attempt in range(5):
+                try:
+                    db.init_db()
+                    _db_init_complete = True
+                    print(f"[DB INIT] {_bid} schema ready.")
+                    break
+                except Exception as _dbe:
+                    if _init_attempt < 4:
+                        print(f"[DB INIT] {_bid} attempt {_init_attempt+1} failed: {_dbe} — retrying in {3+_init_attempt*2}s...")
+                        await _aio.sleep(3 + _init_attempt * 2)
+                    else:
+                        _db_init_complete = True  # allow operation to continue even if schema init failed
+                        print(f"[BOT CRASH] id={_bid} phase=startup task=db_init error={_dbe}")
+                        try:
+                            db.log_bot_crash(_bid, BOT_MODE, "startup", "db_init",
+                                             type(_dbe).__name__, str(_dbe), "")
+                        except Exception:
+                            pass
+        else:
+            # Non-host bots: wait for host to initialize schema, then verify
+            _non_host_offsets = {
+                "banker": 2, "blackjack": 4, "poker": 6, "miner": 8,
+                "shopkeeper": 10, "security": 12, "dj": 14, "eventhost": 16,
+            }
+            await _aio.sleep(_non_host_offsets.get(BOT_MODE, 5))
             try:
-                db.log_bot_crash(_bid, BOT_MODE, "startup", "db_init",
-                                 type(_dbe).__name__, str(_dbe), "")
-            except Exception:
-                pass
+                _test_conn = db.get_connection()
+                _test_conn.execute("SELECT 1 FROM users LIMIT 1").fetchone()
+                _test_conn.close()
+                print(f"[DB INIT] {_bid} DB verified (host initialized schema).")
+            except Exception as _dbe:
+                print(f"[DB INIT] {_bid} DB check failed: {_dbe} (continuing anyway)")
 
         print(f"[BOT ONLINE] {_bid} connected | room {config.ROOM_ID} | DB: {config.DB_PATH}")
         print(f"[HangoutBot] SDK version: {_TIP_SDK_VERSION}")
@@ -2017,11 +2052,41 @@ class HangoutBot(BaseBot):
         cmd  = parts[0].lower()
         args = parts
 
+        # ── /ping all — bypass ownership gate; every bot may reply once ───────
+        if cmd == "ping" and len(args) > 1 and args[1].lower() == "all":
+            from modules.permissions import is_owner, is_admin
+            if is_owner(user.username) or is_admin(user.username):
+                _mode_label = {
+                    "host": "Host", "banker": "Banker", "blackjack": "Blackjack",
+                    "poker": "Poker", "miner": "Miner", "shopkeeper": "Shop",
+                    "security": "Security", "dj": "DJ", "eventhost": "Events",
+                    "all": "Main",
+                }.get(BOT_MODE, BOT_MODE.title())
+                try:
+                    await self.highrise.send_whisper(user.id, f"pong | {_mode_label} online")
+                except Exception:
+                    pass
+            return
+
+        # ── Command debug logging ─────────────────────────────────────────────
+        if get_cmd_debug():
+            _owner_dbg = resolve_command_owner(cmd) or "none"
+            _handle_dbg = should_this_bot_handle(cmd)
+            print(f"[CMD] bot={BOT_MODE} received=/{cmd} owner={_owner_dbg} handle={_handle_dbg}")
+
         # ── Multi-bot gate — ignore if another bot owns this command ─────────
-        if not should_this_bot_handle(cmd):
-            offline_msg = get_offline_message(cmd)
-            if offline_msg:
-                await self.highrise.send_whisper(user.id, offline_msg)
+        try:
+            _should_handle = should_this_bot_handle(cmd)
+        except Exception as _gate_err:
+            print(f"[CMD] gate error mode={BOT_MODE} cmd={cmd}: {_gate_err}")
+            _should_handle = (BOT_MODE in ("host", "all"))
+        if not _should_handle:
+            try:
+                offline_msg = get_offline_message(cmd)
+                if offline_msg:
+                    await self.highrise.send_whisper(user.id, offline_msg)
+            except Exception:
+                pass
             return
 
         # ── Deliver queued bank/subscriber notifications on first command ──
@@ -2092,6 +2157,23 @@ class HangoutBot(BaseBot):
                 await handle_fixcommands(self, user)
             elif cmd == "testcommands":
                 await handle_testcommands(self, user)
+            elif cmd == "routerstatus":
+                if len(args) > 1:
+                    _rs_cmd = args[1].lstrip("/").lower()
+                    await self.highrise.send_whisper(user.id, router_command_detail(_rs_cmd)[:249])
+                else:
+                    await self.highrise.send_whisper(user.id, router_status_summary()[:249])
+            elif cmd == "commanddebug":
+                _dbg_sub = args[1].lower() if len(args) > 1 else ""
+                if _dbg_sub == "on":
+                    set_cmd_debug(True)
+                    await self.highrise.send_whisper(user.id, "[CMD DEBUG] ON — all commands logged to console.")
+                elif _dbg_sub == "off":
+                    set_cmd_debug(False)
+                    await self.highrise.send_whisper(user.id, "[CMD DEBUG] OFF")
+                else:
+                    state = "ON" if get_cmd_debug() else "OFF"
+                    await self.highrise.send_whisper(user.id, f"Command debug: {state}. Use /commanddebug on|off")
             elif cmd == "bankblock":
                 await handle_bankblock(self, user, args, block=True)
             elif cmd == "bankunblock":
@@ -3835,6 +3917,30 @@ class HangoutBot(BaseBot):
         elif cmd == "setmainmode":
             await handle_setmainmode(self, user, args)
 
+        # ── Diagnostics: ping / routerstatus / commanddebug ──────────────────
+        elif cmd == "ping":
+            await self.highrise.send_whisper(user.id, "pong | Host online")
+
+        elif cmd == "routerstatus":
+            if len(args) > 1:
+                _rs_cmd = args[1].lstrip("/").lower()
+                _rs_detail = router_command_detail(_rs_cmd)
+                await self.highrise.send_whisper(user.id, _rs_detail[:249])
+            else:
+                await self.highrise.send_whisper(user.id, router_status_summary()[:249])
+
+        elif cmd == "commanddebug":
+            _dbg_sub = args[1].lower() if len(args) > 1 else ""
+            if _dbg_sub == "on":
+                set_cmd_debug(True)
+                await self.highrise.send_whisper(user.id, "[CMD DEBUG] ON — all commands logged to console.")
+            elif _dbg_sub == "off":
+                set_cmd_debug(False)
+                await self.highrise.send_whisper(user.id, "[CMD DEBUG] OFF")
+            else:
+                state = "ON" if get_cmd_debug() else "OFF"
+                await self.highrise.send_whisper(user.id, f"Command debug: {state}. Use /commanddebug on|off")
+
         # ── Bot health / deployment checks ─────────────────────────────────────
         elif cmd == "bothealth":
             await handle_bothealth(self, user, args)
@@ -3973,10 +4079,13 @@ class HangoutBot(BaseBot):
 
     async def on_user_join(self, user: User, position) -> None:
         """Register new players and greet them when they enter the room."""
-        try:
-            db.ensure_user(user.id, user.username)
-        except Exception as _e:
-            print(f"[on_user_join] ensure_user error: {_e}")
+        # Only host writes ensure_user, and only after init_db is complete.
+        # This prevents 8-way write contention and init_db vs ensure_user deadlocks.
+        if BOT_MODE in ("host", "all") and _db_init_complete:
+            try:
+                db.ensure_user(user.id, user.username)
+            except Exception as _e:
+                print(f"[on_user_join] ensure_user error: {_e}")
         add_to_room_cache(user.id, user.username)
         # Update position cache for follow/teleport
         try:
@@ -4127,19 +4236,20 @@ class HangoutBot(BaseBot):
         if any(kw in msg_lower for kw in ("gold", "tip", "coin")):
             print(f"DEBUG EVENT FIRED: on_whisper | {raw}")
 
-        # Auto-subscribe whisperer (respects manually_unsubscribed flag)
-        try:
-            newly_subbed = db.auto_subscribe_whisper(
-                user.username, user.id
-            )
-            if newly_subbed:
-                await self.highrise.send_whisper(
-                    user.id,
-                    "✅ Alerts subscribed. Use /notifysettings to choose alerts."
+        # Auto-subscribe whisperer — only host bot handles to avoid 8-way DB writes
+        if BOT_MODE in ("host", "all"):
+            try:
+                newly_subbed = db.auto_subscribe_whisper(
+                    user.username, user.id
                 )
-                print(f"[WHISPER] @{user.username} auto-subscribed from whisper.")
-        except Exception as exc:
-            print(f"[WHISPER] auto-subscribe error: {exc!r}")
+                if newly_subbed:
+                    await self.highrise.send_whisper(
+                        user.id,
+                        "✅ Alerts subscribed. Use /notifysettings to choose alerts."
+                    )
+                    print(f"[WHISPER] @{user.username} auto-subscribed from whisper.")
+            except Exception as exc:
+                print(f"[WHISPER] auto-subscribe error: {exc!r}")
 
 
 # ---------------------------------------------------------------------------

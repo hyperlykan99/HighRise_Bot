@@ -1,0 +1,283 @@
+URGENT FIX: Bots are in the room but not responding to commands.
+
+Problem:
+Bots stay in the Highrise room now, but commands are not working.
+This means connection is stable, but the message handler/router is not processing chat commands.
+
+Goal:
+Make bots respond to commands again while keeping SAFE_BOOT stability.
+SAFE_BOOT should disable risky background loops only, NOT command handling.
+
+IMPORTANT:
+- Do not turn risky background loops back on.
+- Do not disable SAFE_BOOT stability.
+- Keep bots in room.
+- Restore command handling.
+- Slash commands must work.
+- Multi-bot ownership must still prevent duplicate replies.
+- Host Bot should answer /help, /bots, /bothealth, /deploymentcheck.
+- Banker Bot should answer /bal.
+- Poker Bot should answer /pokerhelp, /pt, /p.
+- Blackjack Bot should answer /bjhelp and /rjoin.
+- Miner Bot should answer /minehelp and /mine.
+- Keep messages under 250 characters.
+- No silent failures.
+
+==================================================
+PART 1: SAFE_BOOT MUST NOT DISABLE MESSAGE HANDLER
+==================================================
+
+Fix SAFE_BOOT behavior.
+
+SAFE_BOOT=true should disable only:
+- poker restore loops
+- poker timers
+- poker AFK loop
+- poker AI loop
+- autogames
+- welcome intervals
+- emote loops
+- bot auto-spawn
+- outfit auto-apply
+- recurring background tasks
+
+SAFE_BOOT=true must NOT disable:
+- on_message / chat event listener
+- slash command parser
+- command router
+- command registry
+- permission checks
+- command handlers
+- bot heartbeat
+- health commands
+
+Console should show:
+"[SAFE_BOOT] Background loops disabled. Commands enabled."
+
+==================================================
+PART 2: VERIFY MESSAGE EVENT LISTENER
+==================================================
+
+Make sure every bot registers its message/chat event handler.
+
+On every incoming message:
+1. Ignore messages from itself.
+2. Parse slash command if message starts with "/".
+3. Pass command to should_this_bot_handle.
+4. If this bot owns command, run handler.
+5. If this bot does not own command, ignore silently.
+6. Unknown command only Host Bot replies.
+
+Add console debug setting:
+command_debug_enabled = false
+
+Command:
+/commanddebug on
+/commanddebug off
+
+When ON, console log:
+"[CMD] bot=poker received=/pt owner=poker handle=true"
+"[CMD] bot=banker received=/pt owner=poker handle=false"
+
+==================================================
+PART 3: FIX MULTI-BOT ROUTER IGNORING EVERYTHING
+==================================================
+
+Fix should_this_bot_handle(command, bot_mode, bot_id).
+
+Rules:
+- BOT_MODE=host handles host/help/system commands.
+- BOT_MODE=banker handles bank/economy commands.
+- BOT_MODE=blackjack handles BJ/RBJ commands.
+- BOT_MODE=poker handles poker commands.
+- BOT_MODE=miner handles mining commands.
+- BOT_MODE=shopkeeper handles shop commands.
+- BOT_MODE=security handles reports/mod commands.
+- BOT_MODE=dj handles emote/social commands.
+- BOT_MODE=eventhost handles events/announcements.
+- BOT_MODE=all handles all commands only if no split owner is active.
+
+If owner bot is current bot:
+- handle command.
+
+If owner bot is offline:
+- Host may reply only if botfallback ON.
+
+If command has no registry entry:
+- Host replies:
+"Unknown command. Type /help."
+
+Do not let SAFE_BOOT make router return false for all commands.
+
+==================================================
+PART 4: COMMAND REGISTRY MUST LOAD IN SAFE_BOOT
+==================================================
+
+Make sure command registry loads even in SAFE_BOOT.
+
+Commands that must always work:
+- /help
+- /bots
+- /bothealth
+- /deploymentcheck
+- /commandtest
+- /crashlogs
+- /safeboot status
+- /botmodules
+- /botconflicts
+- /taskconflicts
+- /fixcommands
+- /checkcommands
+- /checkhelp
+
+Also module help commands must work:
+- /bankerhelp
+- /pokerhelp
+- /bjhelp
+- /rbjhelp
+- /minehelp
+- /shophelp
+- /modhelp
+- /eventhelp
+
+==================================================
+PART 5: ADD UNIVERSAL DIAGNOSTIC COMMAND
+==================================================
+
+Add emergency command:
+
+/ping
+
+Every bot may respond ONLY if addressed by its bot-specific owner mode? Better:
+- Host Bot responds to /ping by default.
+- If command is "/ping all" owner/admin only, every bot may reply once.
+
+Commands:
+- /ping
+- /ping all
+
+/ping:
+"pong | Host online"
+
+/ping all:
+Each bot replies:
+"pong | Poker online"
+"pong | Banker online"
+
+This helps confirm bots are listening.
+
+==================================================
+PART 6: ADD ROUTER STATUS COMMAND
+==================================================
+
+Add:
+/routerstatus
+
+Host/admin command.
+
+Shows:
+"Router: ON | Registry 420 cmds | SafeBoot ON | Debug OFF"
+
+Add:
+/routerstatus <command>
+
+Example:
+/routerstatus /p
+
+Shows:
+"/p owner Poker | poker online | route YES | handler YES"
+
+==================================================
+PART 7: FIX BOT INSTANCE ACTIVE CHECK
+==================================================
+
+If bot_instances heartbeat is stale or wrong, router may think owners are offline/online incorrectly.
+
+Fix:
+- Each bot updates heartbeat every 30 seconds.
+- last_seen_at uses UTC.
+- active if last_seen_at within 90 seconds.
+- If bot is current running process, it should consider itself active even if DB heartbeat is delayed.
+
+This prevents current bot from ignoring its own commands.
+
+==================================================
+PART 8: DO NOT REQUIRE BACKGROUND TASKS FOR COMMANDS
+==================================================
+
+Commands must work even when background loops are disabled.
+
+Examples:
+- /poker settings should work even if poker loops are off.
+- /pt should work even if poker timers are off.
+- /bal should work even if bank loops are off.
+- /mine should work even if mining event loop is off.
+
+If a feature requires a disabled background loop, reply:
+"Feature disabled in safe boot."
+But basic commands should still respond.
+
+==================================================
+PART 9: HEALTH CHECK SHOULD DETECT NO COMMAND HANDLER
+==================================================
+
+Update /deploymentcheck:
+
+Check:
+- message handler registered
+- command registry loaded
+- router enabled
+- each bot has heartbeat
+- safe boot status
+- slash commands enabled
+
+Output:
+"Deploy: DB OK | Router ON | Registry OK | SafeBoot ON"
+
+If issue:
+"Deploy: Router OFF. Commands will not work."
+
+==================================================
+PART 10: TESTS
+==================================================
+
+After update and restart, test:
+
+/ping
+Expected:
+Host replies.
+
+/bots
+Expected:
+Shows bots online.
+
+/routerstatus
+Expected:
+Router ON.
+
+/routerstatus /p
+Expected:
+Owner Poker | route YES | handler YES.
+
+/commandtest /help
+/commandtest /bal
+/commandtest /p
+/commandtest /rjoin
+/commandtest /mine
+
+Expected:
+route YES | handler YES | correct owner.
+
+Real commands:
+/help
+/bal
+/pokerhelp
+/bjhelp
+/minehelp
+/shophelp
+
+Expected:
+Correct bot replies. No duplicates.
+
+Final requirement:
+Bots can stay in room with SAFE_BOOT on, but commands must work normally.

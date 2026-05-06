@@ -104,12 +104,17 @@ Casino games (Blackjack, Realistic Blackjack, Poker), DJ queue, token economy, d
 - Seeding functions (`seed_emoji_badges`, `seed_mining_items`, etc.) use `INSERT OR IGNORE` in `_migrate_db()`.
 - New `room_mutes`/`room_bans`/`room_warnings` tables are separate from older moderation tables.
 - The `_user_positions` dictionary in `room_utils.py` is volatile and resets on bot restart.
-- `get_connection()` now enables WAL mode + busy_timeout=5000ms on every connection. Use `_execute_with_retry()` for hot-path writes.
+- `get_connection()` now enables WAL mode + busy_timeout=10000ms + connection timeout=20s. Use `_execute_with_retry()` for hot-path writes.
 - `safe_mode_enabled=true` skips autogames, interval, and emote loops at startup. Use `/safemode on` if bots keep crashing.
 - **SAFE_BOOT=true (env) + safeboot=true (DB)** — both must be `false` for background loops to start. Change DB setting with `/safeboot off` then restart.
 - All startup tasks in `on_start` are individually try/except wrapped — one task failure never kills the bot.
 - `on_user_join` `ensure_user` DB errors are caught and logged — never crash the bot on join storm.
 - Duplicate tokens and bot_ids are now detected and skipped in `bot.py` before launching subprocesses.
+- `_is_mode_online(BOT_MODE)` in `multi_bot.py` always returns `True` (self-online guard) — a bot never marks itself offline due to its own heartbeat DB failure.
+- `_db_init_complete` flag in `main.py` gates `ensure_user` writes until host's `init_db()` finishes, preventing init_db vs ensure_user deadlock.
+- `init_db()` is host-only; all other bots do a lightweight read-verify at startup (`[DB INIT] X DB verified`).
+- `ensure_user` (on_user_join) and `auto_subscribe_whisper` (on_whisper) are gated to host/all only and to `_db_init_complete=True`.
+- Heartbeat writes are staggered per mode (host=0s, banker=3s, blackjack=6s, poker=9s, dj=12s, miner=15s, shop=18s, security=21s, event=24s) + random jitter.
 
 ## Pointers
 

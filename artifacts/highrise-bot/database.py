@@ -32,10 +32,12 @@ import config
 # ---------------------------------------------------------------------------
 
 def get_connection() -> sqlite3.Connection:
-    conn = sqlite3.connect(config.DB_PATH, timeout=10)
+    conn = sqlite3.connect(config.DB_PATH, timeout=20)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA busy_timeout=5000")
+    conn.execute("PRAGMA busy_timeout=10000")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    conn.execute("PRAGMA cache_size=-8000")
     return conn
 
 

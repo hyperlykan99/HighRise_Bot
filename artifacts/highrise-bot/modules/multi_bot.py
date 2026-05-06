@@ -13,6 +13,7 @@ All other modes handle their own module commands.
 from __future__ import annotations
 import asyncio
 import time
+import random
 from datetime import datetime, timezone
 
 import database as db
@@ -208,6 +209,10 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "botconflicts": "host", "botmodules": "host",
     "startupannounce": "host", "modulestartup": "host",
     "startupstatus": "host", "setmainmode": "host",
+    # ── diagnostics (always host) ─────────────────────────────────────────────
+    "ping": "host",
+    "routerstatus": "host",
+    "commanddebug": "host",
 }
 
 # Friendly display names for modes
@@ -283,6 +288,10 @@ def _resolve_command_owner(cmd: str) -> str | None:
 
 
 def _is_mode_online(mode: str) -> bool:
+    # The currently running bot always considers itself online — never depend on a
+    # DB heartbeat write that may fail under lock contention.
+    if mode == BOT_MODE:
+        return True
     now = time.monotonic()
     if now - _online_cache_ts > _ONLINE_CACHE_TTL:
         _refresh_online_cache()
@@ -641,6 +650,60 @@ def get_offline_message(cmd: str) -> str | None:
 
 
 # ---------------------------------------------------------------------------
+# Command debug helpers — toggle console logging of every received command
+# ---------------------------------------------------------------------------
+
+_CMD_DEBUG: bool = False
+
+
+def set_cmd_debug(enabled: bool) -> None:
+    global _CMD_DEBUG
+    _CMD_DEBUG = enabled
+
+
+def get_cmd_debug() -> bool:
+    return _CMD_DEBUG
+
+
+def resolve_command_owner(cmd: str) -> str | None:
+    """Public wrapper used by /routerstatus and debug logging."""
+    return _resolve_command_owner(cmd)
+
+
+def router_status_summary() -> str:
+    """One-line router status string for /routerstatus."""
+    try:
+        reg_size = len(_DEFAULT_COMMAND_OWNERS)
+        try:
+            override_count = len(db.get_all_command_owners())
+        except Exception:
+            override_count = 0
+        total = reg_size + override_count
+    except Exception:
+        total = 0
+    from config import SAFE_BOOT
+    try:
+        db_safe = db.get_room_setting("safeboot", "true") == "true"
+    except Exception:
+        db_safe = True
+    sb = "ON" if (SAFE_BOOT or db_safe) else "OFF"
+    dbg = "ON" if _CMD_DEBUG else "OFF"
+    return f"Router: ON | Registry {total} cmds | SafeBoot {sb} | Debug {dbg}"
+
+
+def router_command_detail(cmd: str) -> str:
+    """Per-command detail string for /routerstatus <cmd>."""
+    clean = cmd.lstrip("/")
+    owner = _resolve_command_owner(clean)
+    if owner is None:
+        return f"/{clean} → unregistered | route UNKNOWN | handler ?"
+    online = _is_mode_online(owner)
+    name = _MODE_NAMES.get(owner, owner.title())
+    route = "YES" if (online or owner == BOT_MODE) else "NO (offline)"
+    return f"/{clean} owner {name} | {owner} {'online' if online else 'offline'} | route {route}"
+
+
+# ---------------------------------------------------------------------------
 # Heartbeat loop — updates bot_instances every 30 s
 # ---------------------------------------------------------------------------
 
@@ -653,6 +716,16 @@ async def start_heartbeat_loop(bot) -> None:
         return
 
     async def _loop():
+        # Stagger startup writes: each bot waits a mode-deterministic + random delay
+        # so all 8 bots don't hammer the DB simultaneously on first boot.
+        _mode_offsets = {
+            "host": 0, "banker": 3, "blackjack": 6, "poker": 9,
+            "miner": 12, "shopkeeper": 15, "security": 18,
+            "dj": 21, "eventhost": 24, "all": 0,
+        }
+        _base_delay = _mode_offsets.get(BOT_MODE, 0)
+        _jitter = random.uniform(0, 2)
+        await asyncio.sleep(_base_delay + _jitter)
         while True:
             last_error = ""
             db_connected = 1
