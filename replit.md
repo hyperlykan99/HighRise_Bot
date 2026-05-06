@@ -36,6 +36,7 @@ artifacts/highrise-bot/
     ├── subscribers.py      # Subscription/notification system
     ├── badge_market.py     # Emoji badge shop + player marketplace + admin badge commands
     ├── bot_modes.py        # Bot persona/outfit system (8 default modes, prefix routing)
+    ├── multi_bot.py        # Multi-bot gating, heartbeat, command ownership, staff controls
     ├── room_utils.py       # Room utility core (teleport, spawns, emotes, social, hearts,
     │                       #   follow, alerts, welcome, intervals, repeat, moderation ext.)
     ├── mining.py           # Mining game (ores, pickaxes, crafting, events)
@@ -54,10 +55,12 @@ DB schema source of truth: `database.py` (`_MIGRATIONS` list + `init_db()`)
 - **Bot modes**: `bot_modes` + `bot_mode_assignments` tables. `format_bot_message(msg, category)` in `bot_modes.py` prefixes messages by mode/category. 8 default modes seeded on startup.
 - **Position cache**: `_user_positions` dict in `room_utils.py` updated from `on_user_move` in `main.py` — used for teleport/follow.
 - **Room-ban gate**: `is_room_banned()` checked in `on_chat` after mute gate; bot-level ban blocks all non-exempt commands.
+- **Multi-bot gate**: `should_this_bot_handle(cmd)` in `multi_bot.py` checked immediately after cmd parsing. When `BOT_MODE=all` (default) it always returns True — fully backwards-compatible. In specialized mode it checks `bot_command_ownership` DB (overrides) → `_DEFAULT_COMMAND_OWNERS` map → online status cache → fallback setting.
+- **Heartbeat**: 30 s asyncio loop upserts this bot's row into `bot_instances` with status/last_seen_at. Other bots in the cluster read this to know if a mode is online. Cache TTL: 30 s for online status, 60 s for ownership overrides.
 
 ## Product
 
-Casino games (BJ, RBJ with split/double/shoe, Poker), DJ queue, token economy, daily rewards, bank/send, shop (titles/emoji badges), quests, achievements, events, subscriber DM system, leaderboards, staff management tiers, 6-page public player profiles with privacy controls, emoji badge market, mining game, **Room Utility Core** (teleport, spawn system, emotes, force/loop emotes, sync dance, heart reactions, social actions, bot follow, room alerts, welcome messages, interval messages, safe repeat, player lists, extended moderation: kick/ban/tempban/unban, room logs), **Bot Mode/Outfit system** (8 personas: Host, Miner, Banker, DJ, Dealer, Security, Shopkeeper, EventHost — with message prefix routing by category, multi-bot-ready design).
+Casino games (BJ, RBJ with split/double/shoe, Poker), DJ queue, token economy, daily rewards, bank/send, shop (titles/emoji badges), quests, achievements, events, subscriber DM system, leaderboards, staff management tiers, 6-page public player profiles with privacy controls, emoji badge market, mining game, **Room Utility Core**, **Bot Mode/Outfit system** (8 personas), **Multi-Bot System** (command ownership, heartbeat, live status, fallback routing, staff controls).
 
 ## Room Utility (modules/room_utils.py)
 
@@ -100,9 +103,19 @@ Casino games (BJ, RBJ with split/double/shoe, Poker), DJ queue, token economy, d
 - `room_mutes`/`room_bans`/`room_warnings` are NEW tables separate from existing `mutes`/`warnings` tables (moderation.py uses old tables).
 - `_user_positions` dict in `room_utils.py` is populated from `on_user_move` events in `main.py`. If bot restarts, position cache is empty until users move.
 
+## Multi-Bot System (modules/multi_bot.py)
+
+**Identity env vars**: `BOT_ID` (default `main`), `BOT_MODE` (default `all`), `BOT_USERNAME`, `SHARED_DB_PATH`  
+**Public**: `/bots` `/botmodules` `/multibothelp`  
+**Admin**: `/commandowners` `/enablebot <id>` `/disablebot <id>` `/setbotmodule <id> <mode>` `/setcommandowner <cmd> <mode>` `/botfallback on|off` `/botstartupannounce on|off`  
+**DB tables**: `bot_instances` (heartbeat rows), `bot_command_ownership` (per-command overrides)  
+**Room settings**: `multibot_fallback_enabled` (default `true`), `bot_startup_announce_enabled` (default `false`)  
+**Gate**: `should_this_bot_handle(cmd)` — no-op when `BOT_MODE=all`; in specialized mode, yields to the online owner or falls back to host mode.
+
 ## Pointers
 
 - Adding a new room setting: `db.set_room_setting(key, value)` / `db.get_room_setting(key, default)`.
 - Adding a new bot mode: `INSERT INTO bot_modes` or use `/createbotmode`.
 - Adding a new module: create `modules/yourmodule.py`, import in `main.py`, add routing in `on_chat()`, add to `ALL_KNOWN_COMMANDS`.
 - To prefix a bot message by category: `from modules.bot_modes import format_bot_message` → `format_bot_message(msg, "mining")`.
+- To add a command to the multi-bot ownership map: edit `_DEFAULT_COMMAND_OWNERS` in `multi_bot.py`, or use `/setcommandowner` at runtime.

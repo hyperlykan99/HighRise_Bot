@@ -1105,6 +1105,21 @@ def _migrate_db():
         "id INTEGER PRIMARY KEY AUTOINCREMENT, event_id TEXT NOT NULL, "
         "started_by TEXT, started_at TEXT, ends_at TEXT, "
         "active INTEGER NOT NULL DEFAULT 0)",
+        # ── Multi-bot system ──────────────────────────────────────────────────
+        "CREATE TABLE IF NOT EXISTS bot_instances ("
+        "bot_id TEXT PRIMARY KEY, "
+        "bot_username TEXT NOT NULL DEFAULT '', "
+        "bot_mode TEXT NOT NULL DEFAULT 'all', "
+        "enabled INTEGER NOT NULL DEFAULT 1, "
+        "prefix TEXT NOT NULL DEFAULT '', "
+        "description TEXT NOT NULL DEFAULT '', "
+        "last_seen_at TEXT NOT NULL DEFAULT '', "
+        "status TEXT NOT NULL DEFAULT 'offline')",
+        "CREATE TABLE IF NOT EXISTS bot_command_ownership ("
+        "command TEXT PRIMARY KEY, "
+        "module TEXT NOT NULL DEFAULT '', "
+        "owner_bot_mode TEXT NOT NULL, "
+        "fallback_allowed INTEGER NOT NULL DEFAULT 1)",
     ]:
         try:
             conn.execute(sql)
@@ -6527,6 +6542,84 @@ def set_follow_state(target_username: str, enabled: bool) -> None:
     conn.close()
 
 
+# ---------------------------------------------------------------------------
+# Multi-bot DB helpers
+# ---------------------------------------------------------------------------
+
+def upsert_bot_instance(bot_id: str, bot_username: str, bot_mode: str,
+                        prefix: str = "", status: str = "online") -> None:
+    conn = get_connection()
+    conn.execute(
+        """INSERT INTO bot_instances (bot_id, bot_username, bot_mode, prefix,
+               status, last_seen_at)
+           VALUES (?, ?, ?, ?, ?, datetime('now'))
+           ON CONFLICT(bot_id) DO UPDATE SET
+               bot_username = excluded.bot_username,
+               bot_mode     = excluded.bot_mode,
+               prefix       = excluded.prefix,
+               status       = excluded.status,
+               last_seen_at = excluded.last_seen_at""",
+        (bot_id, bot_username, bot_mode, prefix, status),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_bot_instances() -> list:
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT * FROM bot_instances ORDER BY bot_id"
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_all_command_owners() -> list:
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT * FROM bot_command_ownership ORDER BY command"
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def set_command_owner_db(command: str, module: str, owner_bot_mode: str,
+                         fallback_allowed: int = 1) -> None:
+    conn = get_connection()
+    conn.execute(
+        """INSERT INTO bot_command_ownership
+               (command, module, owner_bot_mode, fallback_allowed)
+           VALUES (?, ?, ?, ?)
+           ON CONFLICT(command) DO UPDATE SET
+               module           = excluded.module,
+               owner_bot_mode   = excluded.owner_bot_mode,
+               fallback_allowed = excluded.fallback_allowed""",
+        (command, module, owner_bot_mode, fallback_allowed),
+    )
+    conn.commit()
+    conn.close()
+
+
+def enable_bot_instance(bot_id: str, enabled: bool) -> None:
+    conn = get_connection()
+    conn.execute(
+        "UPDATE bot_instances SET enabled=? WHERE bot_id=?",
+        (1 if enabled else 0, bot_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+def set_bot_instance_module(bot_id: str, mode: str) -> None:
+    conn = get_connection()
+    conn.execute(
+        "UPDATE bot_instances SET bot_mode=? WHERE bot_id=?",
+        (mode, bot_id),
+    )
+    conn.commit()
+    conn.close()
+
+
 def seed_room_settings() -> None:
     defaults = [
         ("self_teleport_enabled",   "false"),
@@ -6547,9 +6640,11 @@ def seed_room_settings() -> None:
         ("category_prefix_enabled", "true"),
         ("bot_mode_switch_allowed", "true"),
         ("social_enabled",          "true"),
-        ("min_interval_minutes",    "10"),
-        ("repeat_max_count",        "5"),
-        ("repeat_min_seconds",      "10"),
+        ("min_interval_minutes",         "10"),
+        ("repeat_max_count",             "5"),
+        ("repeat_min_seconds",           "10"),
+        ("multibot_fallback_enabled",    "true"),
+        ("bot_startup_announce_enabled", "false"),
     ]
     conn = get_connection()
     for k, v in defaults:

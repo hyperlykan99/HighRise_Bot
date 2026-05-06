@@ -553,6 +553,18 @@ async def handle_assignbotmode(bot: BaseBot, user: User, args: list[str]) -> Non
 # /bots
 # ---------------------------------------------------------------------------
 
+def get_current_mode_prefix() -> str:
+    """Return the prefix string for the currently active bot mode assignment."""
+    conn = db.get_connection()
+    row = conn.execute(
+        """SELECT bm.prefix FROM bot_mode_assignments bma
+           JOIN bot_modes bm ON bma.mode_id = bm.mode_id
+           WHERE bma.active = 1 LIMIT 1"""
+    ).fetchone()
+    conn.close()
+    return row["prefix"] if row else ""
+
+
 async def handle_bots(bot: BaseBot, user: User) -> None:
     assignments = get_all_bot_assignments()
     if not assignments:

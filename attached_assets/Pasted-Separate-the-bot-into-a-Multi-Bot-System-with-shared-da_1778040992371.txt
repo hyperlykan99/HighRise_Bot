@@ -1,0 +1,597 @@
+Separate the bot into a Multi-Bot System with shared database and bot-specific roles.
+
+GOAL:
+I want to separate my bot features into different bots/personas.
+Each bot should handle specific modules, but all bots should share the same database, economy, roles, player profiles, coins, XP, inventory, and logs.
+
+Example bots:
+- Host Bot
+- Banker Bot
+- Dealer Bot
+- Miner Bot
+- Shop Bot
+- Security Bot
+- DJ Bot
+- Event Bot
+
+IMPORTANT:
+- Do not remove existing features.
+- Keep all current commands working if only one bot is running.
+- Use SQLite shared database.
+- Add bot_id and bot_mode support.
+- Each bot should only respond to commands assigned to its module unless fallback is enabled.
+- Prevent multiple bots from replying to the same command.
+- Keep all Highrise messages under 250 characters.
+- Add explicit routing before unknown-command fallback.
+- Prevent silent failures.
+- If only the main bot is running, it should still handle everything.
+
+==================================================
+PART 1: BOT MODES / BOT IDS
+==================================================
+
+Add config values:
+
+BOT_ID:
+- main
+- host
+- banker
+- dealer
+- miner
+- shop
+- security
+- dj
+- event
+
+BOT_MODE:
+- host
+- banker
+- dealer
+- miner
+- shopkeeper
+- security
+- dj
+- eventhost
+- all
+
+If BOT_MODE = all:
+- Bot handles all commands.
+
+If BOT_MODE = banker:
+- Bot only handles banking/economy commands.
+
+If BOT_MODE = dealer:
+- Bot only handles casino and poker commands.
+
+If BOT_MODE = miner:
+- Bot only handles mining commands.
+
+If BOT_MODE = security:
+- Bot only handles moderation/report commands.
+
+If BOT_MODE = host:
+- Bot handles help, welcome, room info, tutorial, profiles.
+
+If BOT_MODE = shopkeeper:
+- Bot handles shop, badges, titles, VIP, markets.
+
+If BOT_MODE = dj:
+- Bot handles emotes, dance sync, social fun, announcements if allowed.
+
+If BOT_MODE = eventhost:
+- Bot handles events, event coins, event shop, alerts.
+
+==================================================
+PART 2: SHARED DATABASE
+==================================================
+
+All bots must use the same SQLite database file.
+
+Shared systems:
+- users
+- balances
+- XP/levels
+- event coins
+- profiles
+- privacy
+- roles
+- titles
+- badges
+- shop
+- bank
+- casino stats
+- poker table
+- mining inventory
+- reports
+- admin logs
+- notifications
+- welcome seen
+- command logs
+
+Add table:
+
+bot_instances:
+- bot_id TEXT PRIMARY KEY
+- bot_username TEXT
+- bot_mode TEXT
+- enabled INTEGER DEFAULT 1
+- prefix TEXT
+- description TEXT
+- last_seen_at TEXT
+- status TEXT
+
+Add table:
+
+bot_command_ownership:
+- command_prefix TEXT PRIMARY KEY
+- module TEXT
+- owner_bot_mode TEXT
+- fallback_allowed INTEGER DEFAULT 1
+
+Examples:
+- /bal -> banker
+- /send -> banker
+- /bj -> dealer
+- /rbj -> dealer
+- /poker -> dealer
+- /p -> dealer
+- /mine -> miner
+- /shop -> shopkeeper
+- /badge -> shopkeeper
+- /warn -> security
+- /report -> security
+- /emote -> dj
+- /tutorial -> host
+- /help -> host
+
+==================================================
+PART 3: COMMAND OWNERSHIP
+==================================================
+
+Assign commands by module.
+
+HOST BOT:
+- /help
+- /mycommands
+- /tutorial
+- /guide
+- /start
+- /newbiehelp
+- /profile
+- /whois
+- /privacy
+- /wallet
+- /dashboard
+- /players
+- /roomhelp
+- /welcome
+- /rules
+
+BANKER BOT:
+- /bal
+- /balance
+- /coins
+- /wallet
+- /send
+- /bank
+- /transactions
+- /bankhelp
+- /daily
+- /leaderboard
+- /addcoins
+- /setcoins
+- /removecoins
+- /eventpoints if event bot not running
+
+DEALER BOT:
+- /casino
+- /casinohelp
+- /bj
+- /bjoin
+- /bh
+- /bs
+- /bd
+- /bsp
+- /rbj
+- /rjoin
+- /rh
+- /rs
+- /rd
+- /rsp
+- /poker
+- /p
+- /ph
+- /pt
+- /check
+- /call
+- /raise
+- /r
+- /fold
+- /f
+- /ai
+- /plb
+
+MINER BOT:
+- /mine
+- /m
+- /dig
+- /ores
+- /tool
+- /upgradetool
+- /sellores
+- /sellore
+- /mineprofile
+- /mp
+- /minelb
+- /mineshop
+- /craft
+- /minedaily
+- /orebook
+- /contracts
+
+SHOP BOT:
+- /shop
+- /buy
+- /vipshop
+- /buyvip
+- /badges
+- /titles
+- /mybadges
+- /badgeinfo
+- /badgemarket
+- /badgelist
+- /badgebuy
+- /equip
+- /myitems
+
+SECURITY BOT:
+- /report
+- /reports
+- /reporthelp
+- /warn
+- /warnings
+- /mute
+- /unmute
+- /kick
+- /ban
+- /tempban
+- /unban
+- /modlog
+- /modhelp
+- /staffhelp
+
+DJ BOT:
+- /emote
+- /emotes
+- /dance
+- /wave
+- /clap
+- /loopemote
+- /stoploop
+- /syncdance
+- /stopsync
+- /hug
+- /kiss
+- /slap
+- /punch
+- /heart
+- /socialhelp
+
+EVENT BOT:
+- /events
+- /event
+- /eventhelp
+- /eventpoints
+- /eventshop
+- /startevent
+- /stopevent
+- /announce
+- /alert
+- /announce_subs
+- /dmnotify
+- /goldrain if owner allows
+
+==================================================
+PART 4: PREVENT MULTIPLE BOTS RESPONDING
+==================================================
+
+Before responding to a command, each bot must check:
+
+should_this_bot_handle(command, BOT_MODE)
+
+Rules:
+1. If BOT_MODE = all, handle everything.
+2. If command belongs to this bot mode, handle it.
+3. If command owner bot is offline and fallback_allowed = true, main/host bot may handle it.
+4. If command belongs to another active bot, ignore silently.
+5. Unknown command should only be answered by Host Bot or BOT_MODE all.
+
+This prevents:
+- Dealer Bot and Host Bot both replying to /p
+- Banker Bot and Host Bot both replying to /bal
+- All bots saying unknown command
+
+Unknown command handling:
+- Only Host Bot or all-mode bot replies:
+"Unknown command. Type /help."
+
+Other bots should ignore unknown commands.
+
+==================================================
+PART 5: BOT STATUS / ONLINE CHECK
+==================================================
+
+Each bot should update bot_instances every 30-60 seconds:
+- bot_id
+- bot_username
+- bot_mode
+- last_seen_at
+- status = online
+
+Commands:
+- /bots
+- /botstatus
+- /botstatus <bot_id>
+- /botmodules
+
+/bots:
+"🤖 Bots: Host ON | Banker ON | Dealer ON | Miner OFF"
+
+/botmodules:
+"Modules: bank=Banker | casino=Dealer | mining=Miner | shop=Shop"
+
+If only one bot:
+"Main bot is handling all modules."
+
+==================================================
+PART 6: BOT PREFIXES
+==================================================
+
+Each bot should have its own prefix.
+
+Default prefixes:
+- Host: 🎙️ Host
+- Banker: 🏦 Banker
+- Dealer: 🎰 Dealer
+- Miner: ⛏️ Miner
+- Shop: 🛒 Shop
+- Security: 🛡️ Security
+- DJ: 🎧 DJ
+- Event: 🎉 Event
+
+Messages should use prefix if enabled.
+
+Examples:
+"🏦 Banker: Balance: 1,000c / 1K."
+"🎰 Dealer: Poker hand started."
+"⛏️ Miner: You mined Iron Ore x2."
+"🛡️ Security: @user muted for 5m."
+
+Commands:
+- /botprefix on
+- /botprefix off
+- /setbotprefix <bot_id> <prefix>
+
+Owner/admin only for editing.
+
+==================================================
+PART 7: MULTI-BOT CONFIG FILE
+==================================================
+
+Add support for environment variables:
+
+BOT_ID=dealer
+BOT_MODE=dealer
+BOT_USERNAME=DealerBot
+SHARED_DB_PATH=casino_bot.db
+
+Examples:
+
+Host Bot:
+BOT_ID=host
+BOT_MODE=host
+
+Banker Bot:
+BOT_ID=banker
+BOT_MODE=banker
+
+Dealer Bot:
+BOT_ID=dealer
+BOT_MODE=dealer
+
+Miner Bot:
+BOT_ID=miner
+BOT_MODE=miner
+
+Main all-in-one fallback:
+BOT_ID=main
+BOT_MODE=all
+
+If env vars missing:
+Default:
+BOT_ID=main
+BOT_MODE=all
+
+==================================================
+PART 8: STARTUP MESSAGE
+==================================================
+
+On startup, each bot should log:
+"Bot started | ID dealer | Mode dealer | DB casino_bot.db"
+
+Do not spam room on every restart unless startup announcements are enabled.
+
+Setting:
+- bot_startup_announce_enabled default false
+
+Command:
+- /botstartupannounce on/off
+
+Owner/admin only.
+
+==================================================
+PART 9: OUTFIT / MODE INTEGRATION
+==================================================
+
+Use existing bot mode/outfit system.
+
+Commands:
+- /dressbot <bot_id> <mode_id>
+- /assignbotmode <bot_username> <mode_id>
+- /botoutfits
+- /botprofile
+- /botprofile <bot_id>
+
+Examples:
+"/dressbot miner miner"
+"/dressbot banker banker"
+"/dressbot dealer dealer"
+
+If API cannot change outfit:
+"Mode assigned. Outfit change not supported by API."
+
+==================================================
+PART 10: STAFF CONTROL
+==================================================
+
+Owner/admin commands:
+- /enablebot <bot_id>
+- /disablebot <bot_id>
+- /setbotmodule <bot_id> <mode>
+- /setcommandowner <command> <bot_mode>
+- /botfallback on/off
+- /botmodules
+- /bots
+
+Behavior:
+- /disablebot miner makes other bots treat miner as offline.
+- If fallback ON, Host or Main can handle miner commands.
+- If fallback OFF, miner commands say from Host:
+"Miner bot is offline."
+
+==================================================
+PART 11: COMMAND AUDIT UPDATE
+==================================================
+
+Update audit tools:
+- /checkcommands
+- /checkhelp
+- /commandtest <command>
+- /routecheck
+- /silentcheck
+
+They should show command owner bot.
+
+Example:
+/commandtest /mine
+"/mine route YES | owner Miner | handler YES"
+
+/commandtest /bal
+"/bal route YES | owner Banker | handler YES"
+
+Add:
+/commandowners
+Shows:
+"Owners: bank=Banker | casino=Dealer | mining=Miner | shop=Shop"
+
+==================================================
+PART 12: HELP UPDATE
+==================================================
+
+Update /help:
+"🤖 Help
+Host: /tutorial /profile
+Bank: /bal /send
+Games: /casinohelp /minehelp
+Shop: /shophelp"
+
+Update staff help:
+"/bots - bot status
+/botmodules - module owners
+/control - admin panel"
+
+Add:
+/multibothelp
+
+/multibothelp:
+"🤖 Multi-Bot
+/bots - status
+/botmodules - modules
+/botstatus id - details
+/commandowners - owners"
+
+Owner page:
+/multibothelp 2:
+"Owner:
+/setcommandowner cmd mode
+/enablebot id
+/disablebot id
+/setbotmodule id mode"
+
+==================================================
+PART 13: SAFE FALLBACK BEHAVIOR
+==================================================
+
+If multiple bots are running:
+- Only owner bot for command responds.
+
+If owner bot is offline:
+- If fallback ON, Host/Main responds.
+- If fallback OFF, Host says:
+"That module bot is offline."
+
+If only one bot is running:
+- Main all-mode handles everything.
+
+This makes development easy and production clean.
+
+==================================================
+PART 14: TESTS
+==================================================
+
+Test single bot:
+BOT_MODE=all
+- /bal
+- /p
+- /mine
+- /shop
+Expected:
+Main bot responds to everything.
+
+Test dealer bot:
+BOT_MODE=dealer
+- /p
+Expected:
+Dealer responds.
+- /mine
+Expected:
+Dealer ignores it.
+
+Test miner bot:
+BOT_MODE=miner
+- /mine
+Expected:
+Miner responds.
+- /bal
+Expected:
+Miner ignores it.
+
+Test host bot:
+BOT_MODE=host
+- /help
+Expected:
+Host responds.
+- /mine
+Expected:
+If Miner online, Host ignores.
+If Miner offline and fallback ON, Host handles or says Miner offline.
+
+Test bot status:
+- /bots
+- /botmodules
+- /commandtest /mine
+Expected:
+Shows owner bot correctly.
+
+Final requirement:
+Multiple bots can run in the same room without duplicate replies, while sharing the same economy/database and player data.

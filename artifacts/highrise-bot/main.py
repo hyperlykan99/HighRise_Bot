@@ -267,6 +267,15 @@ from modules.control_panel import (
     handle_status, handle_roomstatus,
     handle_quicktoggles, handle_toggle,
 )
+from modules.multi_bot import (
+    should_this_bot_handle,
+    start_heartbeat_loop as start_multibot_heartbeat,
+    should_announce_startup,
+    handle_bots_live, handle_botmodules, handle_commandowners,
+    handle_enablebot, handle_disablebot,
+    handle_setbotmodule, handle_setcommandowner, handle_botfallback,
+    handle_botstartupannounce, handle_multibothelp,
+)
 from modules.bot_modes import (
     handle_botmode, handle_botmodes, handle_botprofile,
     handle_botprefix, handle_categoryprefix,
@@ -616,6 +625,10 @@ ALL_KNOWN_COMMANDS = (
         "control", "adminpanel", "ownerpanel", "managerpanel",
         "status", "roomstatus",
         "quicktoggles", "toggle",
+        # ── Multi-bot system ──────────────────────────────────────────────────
+        "botmodules", "commandowners", "multibothelp",
+        "enablebot", "disablebot", "setbotmodule",
+        "setcommandowner", "botfallback", "botstartupannounce",
     }
     | ECONOMY_COMMANDS | PROFILE_COMMANDS | GAME_COMMANDS
     | SHOP_COMMANDS | ACHIEVEMENT_COMMANDS | BJ_COMMANDS
@@ -1780,6 +1793,15 @@ class HangoutBot(BaseBot):
         start_auto_event_loop(self)
         # Start room interval message loop
         await start_interval_loop(self)
+        # Start multi-bot heartbeat (no-op in single-bot mode)
+        asyncio.create_task(start_multibot_heartbeat(self))
+        # Log startup identity
+        from config import BOT_ID, BOT_MODE, DB_PATH
+        print(f"[MULTIBOT] Bot started | ID:{BOT_ID} Mode:{BOT_MODE} | DB:{DB_PATH}")
+        if should_announce_startup():
+            await self.highrise.chat(
+                f"Bot online | Mode: {BOT_MODE} | Type /help for commands."
+            )
 
     async def on_chat(self, user: User, message: str) -> None:
         """
@@ -1797,6 +1819,10 @@ class HangoutBot(BaseBot):
 
         cmd  = parts[0].lower()
         args = parts
+
+        # ── Multi-bot gate — ignore if another bot owns this command ─────────
+        if not should_this_bot_handle(cmd):
+            return
 
         # ── Deliver queued bank/subscriber notifications on first command ──
         _uname = user.username.lower().strip()
@@ -3368,7 +3394,7 @@ class HangoutBot(BaseBot):
         elif cmd == "assignbotmode":
             await handle_assignbotmode(self, user, args)
         elif cmd == "bots":
-            await handle_bots(self, user)
+            await handle_bots_live(self, user)
         elif cmd == "botinfo":
             await handle_botinfo(self, user, args)
         elif cmd == "botoutfitlogs":
@@ -3387,6 +3413,26 @@ class HangoutBot(BaseBot):
             await handle_alerthelp(self, user)
         elif cmd == "welcomehelp":
             await handle_welcomehelp(self, user)
+
+        # ── Multi-bot system ─────────────────────────────────────────────────
+        elif cmd == "botmodules":
+            await handle_botmodules(self, user)
+        elif cmd == "commandowners":
+            await handle_commandowners(self, user)
+        elif cmd == "enablebot":
+            await handle_enablebot(self, user, args)
+        elif cmd == "disablebot":
+            await handle_disablebot(self, user, args)
+        elif cmd == "setbotmodule":
+            await handle_setbotmodule(self, user, args)
+        elif cmd == "setcommandowner":
+            await handle_setcommandowner(self, user, args)
+        elif cmd == "botfallback":
+            await handle_botfallback(self, user, args)
+        elif cmd == "botstartupannounce":
+            await handle_botstartupannounce(self, user, args)
+        elif cmd == "multibothelp":
+            await handle_multibothelp(self, user, args)
 
         # ── Control panel ─────────────────────────────────────────────────────
         elif cmd == "control":

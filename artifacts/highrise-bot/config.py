@@ -69,4 +69,12 @@ ANSWER_COOLDOWN:   int = 3    # seconds between /answer attempts (per user)
 # All bot modes (GameBot, DJBot, BlackjackBot, HostBot, etc.) must use this
 # same path so player coins, stats, and daily rewards are shared across bots.
 # ---------------------------------------------------------------------------
-DB_PATH: str = "highrise_hangout.db"
+DB_PATH: str = os.environ.get("SHARED_DB_PATH", "highrise_hangout.db")
+
+# ---------------------------------------------------------------------------
+# Multi-bot identity — set these env vars when running separate bots.
+# Default "all" means one bot handles every command (backwards-compatible).
+# ---------------------------------------------------------------------------
+BOT_ID:       str = os.environ.get("BOT_ID",       "main")
+BOT_MODE:     str = os.environ.get("BOT_MODE",     "all")
+BOT_USERNAME: str = os.environ.get("BOT_USERNAME", "")

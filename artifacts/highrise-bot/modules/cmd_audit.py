@@ -465,5 +465,12 @@ async def handle_commandtest(bot: BaseBot, user: User, args: list[str]) -> None:
         extra += " [hidden/internal]"
     if silent:
         extra += " ⚠️ silent"
+    # Show command owner bot mode
+    try:
+        from modules.multi_bot import get_command_owner_for_audit
+        owner = get_command_owner_for_audit(cmd)
+        extra += f" | owner:{owner}"
+    except Exception:
+        pass
     print(f"[COMMANDTEST] /{cmd} route={route_s} help={help_s} hidden={hidden} silent={silent}")
-    await _w(bot, user.id, f"/{cmd} route: {route_s} | help: {help_s}{extra}")
+    await _w(bot, user.id, f"/{cmd} route:{route_s} | help:{help_s}{extra}")
