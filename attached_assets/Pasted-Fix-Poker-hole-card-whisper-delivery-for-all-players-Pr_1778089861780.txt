@@ -1,0 +1,241 @@
+Fix Poker hole-card whisper delivery for all players.
+
+Problem:
+When poker starts with 2 players, only one player receives their private cards.
+Example:
+- 4ktreyMarion received cards.
+- DeluluDuh did not receive cards.
+The bot says Players: 2/6 and starts the hand, but Player 1 does not get their card whisper.
+
+Goal:
+When every poker hand starts, every active in-hand player must receive their own private hole cards by whisper/private message.
+
+IMPORTANT:
+- Do not remove existing poker features.
+- Keep Poker Bot ownership.
+- Keep multi-bot routing.
+- Keep persistent table, stacks, blinds, hand recovery, saved cards, and integrity checker.
+- Use SQLite.
+- Do not reveal one player’s cards to another player.
+- Keep messages under 250 characters.
+- No silent failures.
+
+==================================================
+PART 1: FIX HAND START CARD DELIVERY
+==================================================
+
+Find the poker hand start function.
+
+After cards are dealt, loop through ALL active in-hand players:
+
+for each player in active_players:
+    cards = get_hole_cards(round_id, player.username)
+    send_private_cards(player.username, cards)
+
+Do NOT only whisper:
+- dealer button
+- small blind
+- big blind
+- current turn player
+- command user
+- last joined player
+
+Every in-hand player must get exactly 2 private cards.
+
+Success log:
+"[POKER] Sent private cards to 2/2 players."
+
+If one whisper fails:
+- retry once
+- log failure
+- tell player they can use /ph
+- do not expose cards publicly
+
+Public message:
+"♠️ Hand #1 started. Cards sent. Use /ph if needed."
+
+==================================================
+PART 2: ADD CARD DELIVERY CONFIRMATION
+==================================================
+
+Create table if missing:
+
+poker_card_delivery:
+- round_id TEXT
+- username TEXT
+- cards_sent INTEGER DEFAULT 0
+- sent_at TEXT
+- failed_reason TEXT
+- PRIMARY KEY(round_id, username)
+
+When private cards are successfully whispered:
+- cards_sent = 1
+
+If failed:
+- cards_sent = 0
+- failed_reason = short error
+
+Command:
+- /poker cardstatus
+- /poker cardstatus <round_id>
+
+Owner/admin/manager only.
+
+Message:
+"Cards: 1/2 sent | Missing: @DeluluDuh"
+
+If all good:
+"Cards: 2/2 sent."
+
+==================================================
+PART 3: FIX /PH FALLBACK
+==================================================
+
+/ph and /pcards must always let a player retrieve their own cards during an active hand.
+
+Behavior:
+- Check if requester is seated and in current hand.
+- Load only requester’s hole cards.
+- Whisper/private message only to requester.
+- Mark card delivery as sent if it was missing.
+- Never show another player's cards.
+
+Message:
+"🃏 Hand #1 | Your cards: A♠️ K♦️ | Stack: 900c"
+
+If no active hand:
+"No active hand."
+
+If not in hand:
+"You are not in this hand."
+
+==================================================
+PART 4: AUTO-REMIND MISSING CARD PLAYERS
+==================================================
+
+After hand starts, check delivery table.
+
+If cards_sent count is less than active player count:
+- Whisper missing players:
+"Your cards are ready. Type /ph to view."
+
+Do not send their cards publicly.
+
+If whisper API failed:
+- Keep /ph fallback.
+
+==================================================
+PART 5: UPDATE TURN MESSAGE
+==================================================
+
+When it becomes a player's turn:
+- include their cards using the shared private formatter.
+- if they never got initial card whisper, this turn whisper should still show cards.
+
+Example:
+"👉 🃏 Your turn | 6♠ A♣ | Call 100c | /call /r amt /f /ai"
+
+==================================================
+PART 6: FIX PLAYER USERNAME MATCHING
+==================================================
+
+Normalize usernames consistently:
+- strip @
+- trim spaces
+- case-insensitive lookup
+- preserve display name for messages
+
+This matters because DeluluDuh may be stored as:
+- DeluluDuh
+- @DeluluDuh
+- deluluduh
+
+Hole-card lookup must match the same normalized username used in seated players.
+
+==================================================
+PART 7: UPDATE INTEGRITY CHECK
+==================================================
+
+Update:
+/poker integrity cards
+
+Add check:
+- create 2 fake players
+- deal cards to both
+- verify Player A gets exactly Player A cards
+- verify Player B gets exactly Player B cards
+- verify no player misses delivery
+- verify /ph works for both players
+- verify delivery status is 2/2
+
+Expected:
+"♠️ Poker Cards: 8/8 pass | delivery OK"
+
+If fail:
+"Poker Cards fail: missing card delivery to player 1."
+
+==================================================
+PART 8: ADD DEBUG COMMANDS
+==================================================
+
+Add/fix:
+- /poker cardstatus
+- /poker resendcards
+- /poker resendcards <username>
+
+Permissions:
+- Owner/admin/manager only.
+
+/poker resendcards:
+- Resends private cards to all in-hand players.
+- Does not redeal cards.
+- Uses saved hole cards.
+- Message:
+"✅ Resent cards to 2 players."
+
+/poker resendcards DeluluDuh:
+- Resends only to that player.
+- Message:
+"✅ Resent cards to @DeluluDuh."
+
+If player not in hand:
+"@DeluluDuh is not in this hand."
+
+==================================================
+PART 9: TESTS
+==================================================
+
+Test with 2 players:
+
+1. Player A:
+/p 1000
+
+2. Player B:
+/p 1000
+
+Expected:
+- Bot starts hand.
+- Player A receives private cards.
+- Player B receives private cards.
+- Public chat says cards sent or hand started.
+
+3. Run:
+/poker cardstatus
+
+Expected:
+"Cards: 2/2 sent."
+
+4. Ask both players to type:
+/ph
+
+Expected:
+Each player sees only their own cards.
+
+5. Run:
+/poker integrity cards
+
+Expected:
+"Poker Cards: delivery OK"
+
+Final requirement:
+Every player in the poker hand must receive their own private cards at hand start, and /ph must always work as fallback.

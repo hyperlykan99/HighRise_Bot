@@ -1176,6 +1176,14 @@ def _migrate_db():
         "sent_at TEXT NOT NULL DEFAULT (datetime('now')), "
         "expires_at TEXT NOT NULL DEFAULT '', "
         "PRIMARY KEY (module, message_key))",
+        # ── Poker hole-card delivery tracking ────────────────────────────────
+        "CREATE TABLE IF NOT EXISTS poker_card_delivery ("
+        "round_id TEXT NOT NULL, "
+        "username TEXT NOT NULL, "
+        "cards_sent INTEGER NOT NULL DEFAULT 0, "
+        "sent_at TEXT NOT NULL DEFAULT '', "
+        "failed_reason TEXT NOT NULL DEFAULT '', "
+        "PRIMARY KEY (round_id, username))",
     ]:
         try:
             conn.execute(sql)
@@ -6877,6 +6885,47 @@ def add_balance(user_id: str, amount: int) -> None:
     conn.execute(
         "UPDATE users SET balance=balance+? WHERE user_id=?",
         (amount, user_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+# ── Poker card delivery tracking ──────────────────────────────────────────────
+
+def record_card_delivery(round_id: str, username: str, sent: bool,
+                         reason: str = "") -> None:
+    """Record a private-card delivery attempt for a poker hand."""
+    conn = get_connection()
+    conn.execute(
+        "INSERT OR REPLACE INTO poker_card_delivery "
+        "(round_id, username, cards_sent, sent_at, failed_reason) "
+        "VALUES (?, LOWER(?), ?, datetime('now'), ?)",
+        (round_id, username, 1 if sent else 0, reason[:120]),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_card_delivery_status(round_id: str) -> list:
+    """Return delivery rows for a round (list of dicts)."""
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT username, cards_sent, sent_at, failed_reason "
+        "FROM poker_card_delivery WHERE round_id=? ORDER BY rowid",
+        (round_id,),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def mark_card_delivered(round_id: str, username: str) -> None:
+    """Mark a player's card delivery as successful (called by /ph fallback)."""
+    conn = get_connection()
+    conn.execute(
+        "INSERT OR REPLACE INTO poker_card_delivery "
+        "(round_id, username, cards_sent, sent_at, failed_reason) "
+        "VALUES (?, LOWER(?), 1, datetime('now'), '')",
+        (round_id, username),
     )
     conn.commit()
     conn.close()

@@ -121,7 +121,7 @@ _POKER_FNS  = [
 _POKER_SUBS = [
     "settings", "state", "cleanup", "refund", "hardrefund",
     "forcefinish", "recoverystatus", "clearhand", "closeforce",
-    "status", "emergency",
+    "status", "emergency", "cardstatus", "resendcards",
 ]
 
 
@@ -177,7 +177,7 @@ _RBJ_TABLES = [
 _POKER_TABLES = [
     "poker_settings", "poker_active_table", "poker_active_players",
     "poker_round_results", "poker_recovery_logs", "poker_seated_players",
-    "bot_module_locks",
+    "bot_module_locks", "poker_card_delivery",
 ]
 
 
@@ -702,6 +702,51 @@ def _check_cards_poker() -> list:
         checks.append(_chk("pk_vis:recovery_marker_present", ok10))
         _log_card_test("poker", "player1", True, rec_cards_msg[:80], ok10)
 
+        # 11. Delivery tracking table is accessible
+        _dtable_ok = True
+        try:
+            _dc = db.get_connection()
+            _dc.execute("SELECT 1 FROM poker_card_delivery LIMIT 1")
+            _dc.close()
+        except Exception:
+            _dtable_ok = False
+        checks.append(_chk("pk_vis:delivery_table_ok", _dtable_ok))
+
+        # 12. Delivery recording: INSERT + query returns correct counts
+        _drec_ok  = True
+        _test_rid = "__integrity_delivery__"
+        try:
+            db.record_card_delivery(_test_rid, "player1", True, "")
+            db.record_card_delivery(_test_rid, "player2", True, "")
+            _drows = db.get_card_delivery_status(_test_rid)
+            _dsent = sum(1 for r in _drows if r["cards_sent"])
+            _drec_ok = (len(_drows) == 2 and _dsent == 2)
+            _dc2 = db.get_connection()
+            _dc2.execute(
+                "DELETE FROM poker_card_delivery WHERE round_id=?", (_test_rid,))
+            _dc2.commit(); _dc2.close()
+        except Exception:
+            _drec_ok = False
+        checks.append(_chk("pk_vis:delivery_record_ok", _drec_ok))
+
+        # 13. Missing delivery detection: 1 sent + 1 failed → 1 missing found
+        _ddet_ok   = True
+        _test_rid2 = "__integrity_detect__"
+        try:
+            db.record_card_delivery(_test_rid2, "player1", True, "")
+            db.record_card_delivery(_test_rid2, "player2", False, "test_fail")
+            _drows2  = db.get_card_delivery_status(_test_rid2)
+            _missing = [r["username"] for r in _drows2 if not r["cards_sent"]]
+            _ddet_ok = (len(_missing) == 1 and
+                        _missing[0].lower() == "player2")
+            _dc3 = db.get_connection()
+            _dc3.execute(
+                "DELETE FROM poker_card_delivery WHERE round_id=?", (_test_rid2,))
+            _dc3.commit(); _dc3.close()
+        except Exception:
+            _ddet_ok = False
+        checks.append(_chk("pk_vis:delivery_detect_ok", _ddet_ok))
+
     except Exception as e:
         checks.append(_chk("pk_vis:exception", False, str(e)[:60]))
     return checks
@@ -889,14 +934,15 @@ async def run_poker_integrity(bot: BaseBot, user: User, sub: str) -> None:
     elif sub == "cards":
         checks   = _check_cards_poker()
         p, t, f  = _sum(checks)
-        marker_ok  = all(c["ok"] for c in checks if "marker" in c["name"])
-        privacy_ok = all(c["ok"] for c in checks if any(
+        marker_ok    = all(c["ok"] for c in checks if "marker" in c["name"])
+        privacy_ok   = all(c["ok"] for c in checks if any(
             k in c["name"] for k in ("leak", "private", "own", "two_hole",
                                      "p1_cards", "p2_cards", "community", "showdown")))
-        turn_ok    = all(c["ok"] for c in checks if "turn" in c["name"])
+        turn_ok      = all(c["ok"] for c in checks if "turn" in c["name"])
+        delivery_ok  = all(c["ok"] for c in checks if "delivery" in c["name"])
         if not f:
-            msg = (f"Poker Cards: {p}/{t} | "
-                   f"marker {'OK' if marker_ok else 'FAIL'} | "
+            msg = (f"♠️ Poker Cards: {p}/{t} pass | "
+                   f"delivery {'OK' if delivery_ok else 'FAIL'} | "
                    f"privacy {'OK' if privacy_ok else 'FAIL'} | "
                    f"turn {'OK' if turn_ok else 'FAIL'}")
         else:
