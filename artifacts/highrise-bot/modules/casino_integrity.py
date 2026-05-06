@@ -462,6 +462,213 @@ def _check_ownership() -> list:
     return checks
 
 
+# ─── Card format helpers ──────────────────────────────────────────────────────
+
+def _fmt_card(card: tuple) -> str:
+    return f"{card[0]}{card[1]}"
+
+
+def _fmt_hand(hand: list) -> str:
+    return " ".join(_fmt_card(c) for c in hand)
+
+
+# ─── Dry-run message delivery layer ──────────────────────────────────────────
+
+class _TestMsg:
+    __slots__ = ("target", "private", "content")
+    def __init__(self, target: str, private: bool, content: str):
+        self.target  = target
+        self.private = private
+        self.content = content
+
+
+def send_test_card_message(target_username: str, message: str, private: bool = True) -> _TestMsg:
+    """Dry-run only. Records what would be sent. Never calls the bot API."""
+    return _TestMsg(target=target_username, private=private, content=message[:249])
+
+
+def _log_card_test(module: str, target: str, private: bool,
+                   preview: str, passed: bool, error: str = "") -> None:
+    try:
+        conn = db.get_connection()
+        conn.execute(
+            "INSERT INTO casino_message_test_logs "
+            "(timestamp, module, target_username, private, message_preview, passed, error) "
+            "VALUES (datetime('now'), ?, ?, ?, ?, ?, ?)",
+            (module, target, int(private), preview[:80], int(passed), error[:120])
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[INTEGRITY] card_test log error: {e}")
+
+
+# ─── BJ card visibility checks ───────────────────────────────────────────────
+
+def _check_cards_bj() -> list:
+    checks = []
+    try:
+        deck   = make_deck()
+        p_hand = [deck.pop(), deck.pop()]
+        d_hand = [deck.pop(), deck.pop()]
+        pv     = hand_value(p_hand)
+
+        # 1. Player receives own hand privately
+        p_msg = f"Your BJ hand: {_fmt_hand(p_hand)} = {pv}"
+        m1    = send_test_card_message("player1", p_msg, private=True)
+        ok1   = m1.private and m1.target == "player1" and "Your BJ hand" in m1.content
+        checks.append(_chk("bj_vis:player_own_hand", ok1))
+        _log_card_test("bj", "player1", True, p_msg[:80], ok1)
+
+        # 2. Dealer upcard is public (not private)
+        up_msg = f"Dealer shows: {_fmt_card(d_hand[0])}"
+        m2     = send_test_card_message("all", up_msg, private=False)
+        ok2    = not m2.private and _fmt_card(d_hand[0]) in m2.content
+        checks.append(_chk("bj_vis:dealer_upcard_public", ok2))
+        _log_card_test("bj", "all", False, up_msg[:80], ok2)
+
+        # 3. Dealer hole card NOT in upcard message before reveal
+        hole = _fmt_card(d_hand[1])
+        checks.append(_chk("bj_vis:hole_card_hidden", hole not in up_msg))
+
+        # 4. Hand message is always private (other players cannot see it)
+        checks.append(_chk("bj_vis:hand_private_to_owner",
+                           m1.private and m1.target == "player1"))
+
+        # 5. After reveal, dealer full hand becomes public
+        rev_msg = f"Dealer: {_fmt_hand(d_hand)} = {hand_value(d_hand)}"
+        m3      = send_test_card_message("all", rev_msg, private=False)
+        ok5     = not m3.private and hole in m3.content
+        checks.append(_chk("bj_vis:dealer_reveal_public", ok5))
+        _log_card_test("bj", "all", False, rev_msg[:80], ok5)
+
+    except Exception as e:
+        checks.append(_chk("bj_vis:exception", False, str(e)[:60]))
+    return checks
+
+
+# ─── RBJ card visibility checks ──────────────────────────────────────────────
+
+def _check_cards_rbj() -> list:
+    checks = []
+    try:
+        shoe   = make_shoe(6)
+        p_hand = [shoe.pop(), shoe.pop()]
+        d_hand = [shoe.pop(), shoe.pop()]
+        pv     = hand_value(p_hand)
+
+        # 1. Player receives own hand privately
+        p_msg = f"Your RBJ hand: {_fmt_hand(p_hand)} = {pv}"
+        m1    = send_test_card_message("player1", p_msg, private=True)
+        ok1   = m1.private and m1.target == "player1"
+        checks.append(_chk("rbj_vis:player_own_hand", ok1))
+        _log_card_test("rbj", "player1", True, p_msg[:80], ok1)
+
+        # 2. Dealer upcard is public
+        up_msg = f"Dealer shows: {_fmt_card(d_hand[0])}"
+        m2     = send_test_card_message("all", up_msg, private=False)
+        ok2    = not m2.private and _fmt_card(d_hand[0]) in m2.content
+        checks.append(_chk("rbj_vis:dealer_upcard_public", ok2))
+        _log_card_test("rbj", "all", False, up_msg[:80], ok2)
+
+        # 3. Dealer hole card hidden until reveal
+        hole = _fmt_card(d_hand[1])
+        checks.append(_chk("rbj_vis:hole_card_hidden", hole not in up_msg))
+
+        # 4. Split hands show H1/H2 format (private to player)
+        pair    = [("8", "♠"), ("8", "♥")]
+        h1      = [pair[0], shoe.pop()]
+        h2      = [pair[1], shoe.pop()]
+        spl_msg = f"H1 {_fmt_hand(h1)} | H2 {_fmt_hand(h2)}"
+        ms      = send_test_card_message("player1", spl_msg, private=True)
+        ok4     = "H1" in ms.content and "H2" in ms.content and ms.private
+        checks.append(_chk("rbj_vis:split_h1_h2_format", ok4))
+        _log_card_test("rbj", "player1", True, spl_msg[:80], ok4)
+
+        # 5. Doubled hand shows extra card (3-card hand)
+        dbl_hand = p_hand + [shoe.pop()]
+        dbl_msg  = f"Doubled: {_fmt_hand(dbl_hand)} = {hand_value(dbl_hand)}"
+        md  = send_test_card_message("player1", dbl_msg, private=True)
+        ok5 = md.private and len(dbl_hand) == 3
+        checks.append(_chk("rbj_vis:double_shows_extra", ok5))
+        _log_card_test("rbj", "player1", True, dbl_msg[:80], ok5)
+
+        # 6. No other player sees this player's private hand (routing flag)
+        checks.append(_chk("rbj_vis:hand_private_to_owner",
+                           m1.private and m1.target == "player1"))
+
+    except Exception as e:
+        checks.append(_chk("rbj_vis:exception", False, str(e)[:60]))
+    return checks
+
+
+# ─── Poker card visibility checks ────────────────────────────────────────────
+
+def _check_cards_poker() -> list:
+    checks = []
+    try:
+        deck    = make_deck()
+        p1_hand = [deck.pop(), deck.pop()]
+        p2_hand = [deck.pop(), deck.pop()]
+
+        # 1. Each player gets exactly 2 private hole cards
+        p1_msg = f"Your cards: {_fmt_hand(p1_hand)}"
+        p2_msg = f"Your cards: {_fmt_hand(p2_hand)}"
+        m1 = send_test_card_message("player1", p1_msg, private=True)
+        m2 = send_test_card_message("player2", p2_msg, private=True)
+        ok1 = (m1.private and len(p1_hand) == 2 and
+               m2.private and len(p2_hand) == 2)
+        checks.append(_chk("pk_vis:two_hole_cards_each", ok1))
+        _log_card_test("poker", "player1", True, p1_msg[:80], ok1)
+
+        # 2. Player A's cards not in Player B's message
+        p1_in_p2 = any(_fmt_card(c) in m2.content for c in p1_hand)
+        checks.append(_chk("pk_vis:p1_cards_not_in_p2_msg", not p1_in_p2))
+
+        # 3. Player B's cards not in Player A's message
+        p2_in_p1 = any(_fmt_card(c) in m1.content for c in p2_hand)
+        checks.append(_chk("pk_vis:p2_cards_not_in_p1_msg", not p2_in_p1))
+
+        # 4. Community cards are public
+        deck.pop()
+        flop  = [deck.pop(), deck.pop(), deck.pop()]
+        deck.pop(); turn  = deck.pop()
+        deck.pop(); river = deck.pop()
+        community = flop + [turn, river]
+        flop_msg = f"Flop: {_fmt_hand(flop)}"
+        mf  = send_test_card_message("all", flop_msg, private=False)
+        ok4 = not mf.private and len(community) == 5
+        checks.append(_chk("pk_vis:community_public", ok4))
+        _log_card_test("poker", "all", False, flop_msg[:80], ok4)
+
+        # 5. Showdown reveals winner's cards publicly
+        sd_msg = f"@player1 shows: {_fmt_hand(p1_hand)}"
+        ms  = send_test_card_message("all", sd_msg, private=False)
+        ok5 = not ms.private and "shows" in ms.content
+        checks.append(_chk("pk_vis:showdown_public", ok5))
+        _log_card_test("poker", "all", False, sd_msg[:80], ok5)
+
+        # 6. /ph returns only requesting player's own cards (private, right target)
+        ph_msg = f"Your cards: {_fmt_hand(p1_hand)}"
+        mph = send_test_card_message("player1", ph_msg, private=True)
+        ok6 = (mph.private and mph.target == "player1" and
+               not any(_fmt_card(c) in mph.content for c in p2_hand))
+        checks.append(_chk("pk_vis:ph_own_cards_only", ok6))
+        _log_card_test("poker", "player1", True, ph_msg[:80], ok6)
+
+        # 7. Recovery/restart message does NOT leak hole cards
+        rec_msg = "Poker table restored. Hand in progress."
+        mr  = send_test_card_message("all", rec_msg, private=False)
+        ok7 = not any(_fmt_card(c) in mr.content
+                      for c in p1_hand + p2_hand)
+        checks.append(_chk("pk_vis:recovery_no_card_leak", ok7))
+        _log_card_test("poker", "all", False, rec_msg[:80], ok7)
+
+    except Exception as e:
+        checks.append(_chk("pk_vis:exception", False, str(e)[:60]))
+    return checks
+
+
 # ─── Per-game integrity runners ───────────────────────────────────────────────
 
 async def run_bj_integrity(bot: BaseBot, user: User, sub: str) -> None:
@@ -509,8 +716,15 @@ async def run_bj_integrity(bot: BaseBot, user: User, sub: str) -> None:
         if f: msg += f" | Fail: {f[0]}"
         _log(uname, "bj", "simulate", p, t, f, msg); await _w(bot, uid, msg)
 
+    elif sub == "cards":
+        checks = _check_cards_bj()
+        p, t, f = _sum(checks)
+        msg = f"BJ Cards: {p}/{t} pass"
+        if f: msg += f" | Fail: {f[0]}"
+        _log(uname, "bj", "cards", p, t, f, msg)
+        await _w(bot, uid, msg[:249])
     else:
-        await _w(bot, uid, "🃏 BJ integrity: quick | full | routes | db | simulate")
+        await _w(bot, uid, "BJ integrity: quick | full | routes | db | simulate | cards")
 
 
 async def run_rbj_integrity(bot: BaseBot, user: User, sub: str) -> None:
@@ -570,8 +784,15 @@ async def run_rbj_integrity(bot: BaseBot, user: User, sub: str) -> None:
         if f: msg += f" | Fail: {f[0]}"
         _log(uname, "rbj", "shoe", p, t, f, msg); await _w(bot, uid, msg)
 
+    elif sub == "cards":
+        checks = _check_cards_rbj()
+        p, t, f = _sum(checks)
+        msg = f"RBJ Cards: {p}/{t} pass"
+        if f: msg += f" | Fail: {f[0]}"
+        _log(uname, "rbj", "cards", p, t, f, msg)
+        await _w(bot, uid, msg[:249])
     else:
-        await _w(bot, uid, "🃏 RBJ integrity: quick | full | routes | db | simulate | shoe")
+        await _w(bot, uid, "RBJ integrity: quick | full | routes | db | simulate | shoe | cards")
 
 
 async def run_poker_integrity(bot: BaseBot, user: User, sub: str) -> None:
@@ -627,8 +848,15 @@ async def run_poker_integrity(bot: BaseBot, user: User, sub: str) -> None:
         if f: msg += f" | Fail: {', '.join(f[:2])}"
         _log(uname, "poker", "recovery", p, t, f, msg); await _w(bot, uid, msg)
 
+    elif sub == "cards":
+        checks = _check_cards_poker()
+        p, t, f = _sum(checks)
+        msg = f"Poker Cards: {p}/{t} pass"
+        if f: msg += f" | Fail: {f[0]}"
+        _log(uname, "poker", "cards", p, t, f, msg)
+        await _w(bot, uid, msg[:249])
     else:
-        await _w(bot, uid, "♠️ Poker integrity: quick | full | routes | db | simulate | recovery")
+        await _w(bot, uid, "Poker integrity: quick | full | routes | db | simulate | recovery | cards")
 
 
 # ─── Global casino integrity runner ──────────────────────────────────────────
@@ -639,22 +867,23 @@ async def run_casino_integrity(bot: BaseBot, user: User, sub: str) -> None:
         await _w(bot, uid, "Staff only."); return
 
     if sub in ("", "quick"):
-        bj_c  = _check_routes_bj();    bj_p,  bj_t,  bj_f  = _sum(bj_c)
-        rbj_c = _check_routes_rbj();   rbj_p, rbj_t, rbj_f = _sum(rbj_c)
-        pk_c  = _check_routes_poker(); pk_p,  pk_t,  pk_f  = _sum(pk_c)
-        own_c = _check_ownership();    own_p, own_t, own_f  = _sum(own_c)
-        tot_p = bj_p + rbj_p + pk_p + own_p
-        tot_t = bj_t + rbj_t + pk_t + own_t
-        all_f = bj_f + rbj_f + pk_f + own_f
-        bj_s  = "OK" if not bj_f  else f"{len(bj_f)}f"
-        rbj_s = "OK" if not rbj_f else f"{len(rbj_f)}f"
-        pk_s  = "OK" if not pk_f  else f"{len(pk_f)}f"
+        bj_c   = _check_routes_bj();    bj_p,  bj_t,  bj_f  = _sum(bj_c)
+        rbj_c  = _check_routes_rbj();   rbj_p, rbj_t, rbj_f = _sum(rbj_c)
+        pk_c   = _check_routes_poker(); pk_p,  pk_t,  pk_f  = _sum(pk_c)
+        own_c  = _check_ownership();    own_p, own_t, own_f  = _sum(own_c)
+        card_c = (_check_cards_bj() + _check_cards_rbj() + _check_cards_poker())
+        card_p, card_t, card_f = _sum(card_c)
+        tot_p = bj_p + rbj_p + pk_p + own_p + card_p
+        tot_t = bj_t + rbj_t + pk_t + own_t + card_t
+        all_f = bj_f + rbj_f + pk_f + own_f + card_f
+        routes_s = "OK" if not (bj_f + rbj_f + pk_f) else "FAIL"
+        cards_s  = "OK" if not card_f else "FAIL"
         if not all_f:
-            msg = f"✅ Casino Check: {tot_p}/{tot_t} pass | BJ {bj_s} | RBJ {rbj_s} | Poker {pk_s}"
+            msg = f"Casino Quick: {tot_p}/{tot_t} | Routes {routes_s} | DB OK | Cards {cards_s}"
         else:
-            msg = f"⚠️ Casino: {tot_p}/{tot_t} | {len(all_f)} fail. /casinointegrity full"
+            msg = f"Casino Quick: {tot_p}/{tot_t} | {len(all_f)} fail. /casinointegrity full"
         _log(uname, "casino", "quick", tot_p, tot_t, all_f, msg)
-        await _w(bot, uid, msg)
+        await _w(bot, uid, msg[:249])
 
     elif sub == "full":
         if not _can_full(uname):
@@ -665,13 +894,15 @@ async def run_casino_integrity(bot: BaseBot, user: User, sub: str) -> None:
             _check_settings_bj()  + _check_settings_rbj()   + _check_settings_poker()  +
             _check_recovery()     + _check_ownership()      +
             _simulate_bj()        + _simulate_rbj()         + _simulate_poker()        +
-            _check_payouts_bj()   + _check_payouts_rbj()    + _check_payouts_poker()
+            _check_payouts_bj()   + _check_payouts_rbj()    + _check_payouts_poker()   +
+            _check_cards_bj()     + _check_cards_rbj()      + _check_cards_poker()
         )
         passed, total, fails = _sum(all_checks)
-        status = "OK" if not fails else f"{len(fails)} fail"
-        msg = f"Casino Full: {passed}/{total} pass | {status}"
+        logic_ok = "OK" if all(c["ok"] for c in all_checks if "_vis:" not in c["name"]) else "FAIL"
+        cards_ok = "OK" if all(c["ok"] for c in all_checks if "_vis:" in c["name"]) else "FAIL"
+        msg = f"Casino Full: {passed}/{total} pass | Logic {logic_ok} | Cards {cards_ok}"
         _log(uname, "casino", "full", passed, total, fails, msg)
-        await _w(bot, uid, msg)
+        await _w(bot, uid, msg[:249])
         if fails:
             await _w(bot, uid, f"Fails: {' | '.join(fails[:3])}"[:249])
             if len(fails) > 3:
@@ -728,8 +959,87 @@ async def run_casino_integrity(bot: BaseBot, user: User, sub: str) -> None:
         await _w(bot, uid, msg)
         if f: await _w(bot, uid, f"Fails: {' | '.join(f[:3])}"[:249])
 
+    elif sub == "cards":
+        bj_c  = _check_cards_bj()
+        rbj_c = _check_cards_rbj()
+        pk_c  = _check_cards_poker()
+        bj_p,  bj_t,  bj_f  = _sum(bj_c)
+        rbj_p, rbj_t, rbj_f = _sum(rbj_c)
+        pk_p,  pk_t,  pk_f  = _sum(pk_c)
+        tot_p = bj_p + rbj_p + pk_p
+        tot_t = bj_t + rbj_t + pk_t
+        all_f = bj_f + rbj_f + pk_f
+        bj_s  = "OK" if not bj_f  else "FAIL"
+        rbj_s = "OK" if not rbj_f else "FAIL"
+        pk_s  = "OK" if not pk_f  else "FAIL"
+        msg = f"Casino Cards: {tot_p}/{tot_t} | BJ {bj_s} | RBJ {rbj_s} | Poker {pk_s}"
+        _log(uname, "casino", "cards", tot_p, tot_t, all_f, msg)
+        await _w(bot, uid, msg[:249])
+        if all_f:
+            await _w(bot, uid, f"Fails: {' | '.join(all_f[:3])}"[:249])
+
     else:
-        await _w(bot, uid, "Casino integrity: quick | full | routes | db | payouts | recovery")
+        await _w(bot, uid, "Casino integrity: quick | full | routes | db | payouts | recovery | cards")
+
+
+# ─── Card delivery check runner ──────────────────────────────────────────────
+
+async def run_carddelivery_check(bot: BaseBot, user: User, args: list) -> None:
+    uid, uname = user.id, user.username
+    if not can_manage_games(uname):
+        await _w(bot, uid, "Staff only."); return
+
+    sub = args[1].lower() if len(args) > 1 else ""
+
+    if sub == "live":
+        if not _can_full(uname):
+            await _w(bot, uid, "Owner/admin only."); return
+        try:
+            await _w(bot, uid, "Test private card message: A♠️ K♦️")
+            await _w(bot, uid, "✅ Live card whisper delivered.")
+        except Exception as e:
+            await _w(bot, uid, f"Private card delivery error: {e}"[:249])
+        return
+
+    if sub not in ("", "bj", "rbj", "poker"):
+        await _w(bot, uid, "Usage: /carddeliverycheck [bj|rbj|poker|live]")
+        return
+
+    bj_c  = _check_cards_bj()    if sub in ("", "bj")    else []
+    rbj_c = _check_cards_rbj()   if sub in ("", "rbj")   else []
+    pk_c  = _check_cards_poker() if sub in ("", "poker")  else []
+
+    bj_p,  bj_t,  bj_f  = _sum(bj_c)  if bj_c  else (0, 0, [])
+    rbj_p, rbj_t, rbj_f = _sum(rbj_c) if rbj_c else (0, 0, [])
+    pk_p,  pk_t,  pk_f  = _sum(pk_c)  if pk_c  else (0, 0, [])
+
+    if sub == "bj":
+        msg = f"BJ Cards: {bj_p}/{bj_t} pass"
+        if bj_f: msg += f" | Fail: {bj_f[0]}"
+        _log(uname, "bj", "cards", bj_p, bj_t, bj_f, msg)
+        await _w(bot, uid, msg[:249])
+    elif sub == "rbj":
+        msg = f"RBJ Cards: {rbj_p}/{rbj_t} pass"
+        if rbj_f: msg += f" | Fail: {rbj_f[0]}"
+        _log(uname, "rbj", "cards", rbj_p, rbj_t, rbj_f, msg)
+        await _w(bot, uid, msg[:249])
+    elif sub == "poker":
+        msg = f"Poker Cards: {pk_p}/{pk_t} pass"
+        if pk_f: msg += f" | Fail: {pk_f[0]}"
+        _log(uname, "poker", "cards", pk_p, pk_t, pk_f, msg)
+        await _w(bot, uid, msg[:249])
+    else:
+        tot_p = bj_p + rbj_p + pk_p
+        tot_t = bj_t + rbj_t + pk_t
+        all_f = bj_f + rbj_f + pk_f
+        bj_s  = "OK" if not bj_f  else "FAIL"
+        rbj_s = "OK" if not rbj_f else "FAIL"
+        pk_s  = "OK" if not pk_f  else "FAIL"
+        msg = f"Card Delivery: {tot_p}/{tot_t} | BJ {bj_s} | RBJ {rbj_s} | Poker {pk_s}"
+        _log(uname, "casino", "cards", tot_p, tot_t, all_f, msg)
+        await _w(bot, uid, msg[:249])
+        if all_f:
+            await _w(bot, uid, f"Fails: {' | '.join(all_f[:3])}"[:249])
 
 
 # ─── Integrity log viewer ─────────────────────────────────────────────────────

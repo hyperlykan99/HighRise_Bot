@@ -1158,6 +1158,15 @@ def _migrate_db():
         "module TEXT, "
         "state_json TEXT, "
         "created_at TEXT)",
+        "CREATE TABLE IF NOT EXISTS casino_message_test_logs ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "timestamp TEXT, "
+        "module TEXT, "
+        "target_username TEXT, "
+        "private INTEGER, "
+        "message_preview TEXT, "
+        "passed INTEGER, "
+        "error TEXT)",
     ]:
         try:
             conn.execute(sql)

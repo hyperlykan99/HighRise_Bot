@@ -398,7 +398,7 @@ MANAGER_ONLY_CMDS = {
     "setpokermaxstack", "setpokeridlestrikes",
     "pokerdebug", "pokerfix", "pokerrefundall", "pokercleanup",
     "confirmclosepoker",
-    "casinointegrity", "integritylogs",
+    "casinointegrity", "integritylogs", "carddeliverycheck",
     "banksettings",
     "setbjminbet", "setbjmaxbet", "setbjcountdown", "setbjturntimer",
     "setbjactiontimer", "setbjmaxsplits",
@@ -2164,6 +2164,13 @@ class HangoutBot(BaseBot):
                 from modules.casino_integrity import handle_integritylogs
                 await handle_integritylogs(self, user, args)
 
+            elif cmd == "carddeliverycheck":
+                if not can_manage_games(user.username):
+                    await self.highrise.send_whisper(user.id, "Staff only.")
+                else:
+                    from modules.casino_integrity import run_carddelivery_check
+                    await run_carddelivery_check(self, user, args)
+
             # ── Admin / owner power commands ──────────────────────────────────
             # Coins
             elif cmd in ("setcoins", "editcoins"):
@@ -3102,6 +3109,13 @@ class HangoutBot(BaseBot):
         elif cmd == "integritylogs":
             from modules.casino_integrity import handle_integritylogs
             await handle_integritylogs(self, user, args)
+
+        elif cmd == "carddeliverycheck":
+            if not can_manage_games(user.username):
+                await self.highrise.send_whisper(user.id, "Staff only.")
+            else:
+                from modules.casino_integrity import run_carddelivery_check
+                await run_carddelivery_check(self, user, args)
 
         # ── Mining game ───────────────────────────────────────────────────────
         elif cmd in {"mine", "m", "dig"}:
