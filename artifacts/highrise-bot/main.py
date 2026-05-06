@@ -398,6 +398,7 @@ MANAGER_ONLY_CMDS = {
     "setpokermaxstack", "setpokeridlestrikes",
     "pokerdebug", "pokerfix", "pokerrefundall", "pokercleanup",
     "confirmclosepoker",
+    "casinointegrity", "integritylogs",
     "banksettings",
     "setbjminbet", "setbjmaxbet", "setbjcountdown", "setbjturntimer",
     "setbjactiontimer", "setbjmaxsplits",
@@ -2151,6 +2152,18 @@ class HangoutBot(BaseBot):
             elif cmd == "confirmclosepoker":
                 await handle_confirmclosepoker(self, user, args)
 
+            elif cmd == "casinointegrity":
+                if not can_manage_games(user.username):
+                    await self.highrise.send_whisper(user.id, "Staff only.")
+                else:
+                    sub = args[1].lower() if len(args) > 1 else ""
+                    from modules.casino_integrity import run_casino_integrity
+                    await run_casino_integrity(self, user, sub)
+
+            elif cmd == "integritylogs":
+                from modules.casino_integrity import handle_integritylogs
+                await handle_integritylogs(self, user, args)
+
             # ── Admin / owner power commands ──────────────────────────────────
             # Coins
             elif cmd in ("setcoins", "editcoins"):
@@ -3077,6 +3090,18 @@ class HangoutBot(BaseBot):
 
         elif cmd == "confirmclosepoker":
             await handle_confirmclosepoker(self, user, args)
+
+        elif cmd == "casinointegrity":
+            if not can_manage_games(user.username):
+                await self.highrise.send_whisper(user.id, "Staff only.")
+            else:
+                sub = args[1].lower() if len(args) > 1 else ""
+                from modules.casino_integrity import run_casino_integrity
+                await run_casino_integrity(self, user, sub)
+
+        elif cmd == "integritylogs":
+            from modules.casino_integrity import handle_integritylogs
+            await handle_integritylogs(self, user, args)
 
         # ── Mining game ───────────────────────────────────────────────────────
         elif cmd in {"mine", "m", "dig"}:

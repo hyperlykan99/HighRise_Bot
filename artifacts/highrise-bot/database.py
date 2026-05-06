@@ -1141,6 +1141,23 @@ def _migrate_db():
         "module TEXT NOT NULL DEFAULT '', "
         "owner_bot_mode TEXT NOT NULL, "
         "fallback_allowed INTEGER NOT NULL DEFAULT 1)",
+        # ── Casino integrity checker ──────────────────────────────────────────
+        "CREATE TABLE IF NOT EXISTS casino_integrity_logs ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "timestamp TEXT, "
+        "actor_username TEXT, "
+        "module TEXT, "
+        "check_type TEXT, "
+        "passed INTEGER, "
+        "total_checks INTEGER, "
+        "failed_checks INTEGER, "
+        "details_json TEXT, "
+        "summary TEXT)",
+        "CREATE TABLE IF NOT EXISTS casino_integrity_temp ("
+        "test_id TEXT PRIMARY KEY, "
+        "module TEXT, "
+        "state_json TEXT, "
+        "created_at TEXT)",
     ]:
         try:
             conn.execute(sql)

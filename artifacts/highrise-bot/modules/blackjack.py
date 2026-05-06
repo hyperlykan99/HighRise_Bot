@@ -722,6 +722,13 @@ async def handle_bj(bot: BaseBot, user: User, args: list[str]):
             await _cmd_bj_refund(bot, user)
         elif sub == "forcefinish":
             await _cmd_bj_forcefinish(bot, user)
+        elif sub == "integrity":
+            if not can_manage_games(user.username):
+                await bot.highrise.send_whisper(user.id, "Staff only.")
+                return
+            sub2 = args[2].lower() if len(args) > 2 else ""
+            from modules.casino_integrity import run_bj_integrity
+            await run_bj_integrity(bot, user, sub2)
         else:
             await bot.highrise.send_whisper(
                 user.id,

@@ -83,7 +83,20 @@ DB schema source of truth: `database.py` (`_MIGRATIONS` list + `init_db()`)
 
 ## Product
 
-Casino games (BJ, RBJ with split/double/shoe, Poker), DJ queue, token economy, daily rewards, bank/send, shop (titles/emoji badges), quests, achievements, events, subscriber DM system, leaderboards, staff management tiers, 6-page public player profiles with privacy controls, emoji badge market, mining game, **Room Utility Core**, **Bot Mode/Outfit system** (8 personas), **Multi-Bot System** (command ownership, heartbeat, live status, fallback routing, staff controls).
+Casino games (BJ, RBJ with split/double/shoe, Poker), DJ queue, token economy, daily rewards, bank/send, shop (titles/emoji badges), quests, achievements, events, subscriber DM system, leaderboards, staff management tiers, 6-page public player profiles with privacy controls, emoji badge market, mining game, **Room Utility Core**, **Bot Mode/Outfit system** (8 personas), **Multi-Bot System** (command ownership, heartbeat, live status, fallback routing, staff controls), **Casino Integrity Checker** (dry-run route/DB/settings/simulation/payout/recovery checks for BJ, RBJ, Poker).
+
+## Casino Integrity Checker (modules/casino_integrity.py)
+
+**Global (manager+)**: `/casinointegrity [quick|full|routes|db|payouts|recovery]`  
+**BJ (via `/bj integrity`)**: `quick | full | routes | db | simulate`  
+**RBJ (via `/rbj integrity`)**: `quick | full | routes | db | simulate | shoe`  
+**Poker (via `/poker integrity`)**: `quick | full | routes | db | simulate | recovery`  
+**Logs (manager+)**: `/integritylogs [poker|bj|rbj]`
+
+**Full check** (`full`, `simulate`) requires owner/admin. Quick/routes/db/payouts/recovery requires manager+.  
+**Nothing real changes**: no balance writes, no stat updates, no XP/coins/badges granted.  
+**DB tables**: `casino_integrity_logs` (run history), `casino_integrity_temp` (reserved for future use).  
+**Check categories**: route ownership · handler function exists · DB tables present · settings keys present · in-memory card simulation · payout formula dry-run · recovery command non-circularity · bot ownership conflicts.
 
 ## Room Utility (modules/room_utils.py)
 

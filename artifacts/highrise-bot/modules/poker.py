@@ -2916,6 +2916,16 @@ async def _dispatch(bot: BaseBot, user: User, args: list[str]) -> None:
             await _w(bot, user.id, "✅ Poker cleanup done. Table ready.")
         return
 
+    # ── integrity ─────────────────────────────────────────────────────────────
+    if sub == "integrity":
+        if not can_manage_games(user.username):
+            await _w(bot, user.id, "Staff only.")
+            return
+        sub2 = args[2].lower() if len(args) > 2 else ""
+        from modules.casino_integrity import run_poker_integrity
+        await run_poker_integrity(bot, user, sub2)
+        return
+
     # ── refundtable ────────────────────────────────────────────────────────────
     if sub == "refundtable":
         if not can_manage_games(user.username):

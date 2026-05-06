@@ -1,0 +1,209 @@
+Update Casino Integrity Checker to include Card Visibility and Player Delivery checks.
+
+GOAL:
+The integrity checker should not only test card logic. It must also verify that players receive the correct card messages.
+
+Add these checks:
+- BJ card visibility
+- RBJ card visibility
+- Poker hole-card visibility
+- Dealer/public card visibility
+- private whisper delivery
+- message formatting
+- no card leaks to wrong players
+
+IMPORTANT:
+- Do not start real public games.
+- Do not use real player balances.
+- Use dry-run/test message mode.
+- Do not reveal one player’s private cards to another player.
+- Keep messages under 250 characters.
+
+==================================================
+NEW COMMANDS
+==================================================
+
+Add:
+- /casinointegrity cards
+- /bj integrity cards
+- /rbj integrity cards
+- /poker integrity cards
+- /carddeliverycheck
+- /carddeliverycheck poker
+- /carddeliverycheck bj
+- /carddeliverycheck rbj
+
+==================================================
+CARD DELIVERY TEST MODE
+==================================================
+
+Create a dry-run message delivery layer.
+
+Add helper:
+send_test_card_message(target_username, message, private=True)
+
+Behavior:
+- Does not send real casino game messages publicly.
+- Records what would be sent.
+- Verifies target, privacy, and content.
+- If safe, owner/admin can enable live self-test.
+
+Create table:
+casino_message_test_logs:
+- id INTEGER PRIMARY KEY AUTOINCREMENT
+- timestamp TEXT
+- module TEXT
+- target_username TEXT
+- private INTEGER
+- message_preview TEXT
+- passed INTEGER
+- error TEXT
+
+==================================================
+BJ CARD VISIBILITY CHECK
+==================================================
+
+/bj integrity cards should verify:
+
+1. Player receives own hand.
+Example:
+"🃏 Your BJ hand: A♠️ 9♥️ = 20"
+
+2. Dealer public card shows correctly.
+Example:
+"Dealer shows: K♦️"
+
+3. Dealer hole card is not shown before reveal.
+
+4. Other players do not receive this player’s private hand.
+
+5. After dealer reveal, dealer cards become public.
+
+Result:
+"🃏 BJ Cards: 5/5 pass"
+
+If fail:
+"BJ Cards fail: dealer hole card leaked."
+
+==================================================
+RBJ CARD VISIBILITY CHECK
+==================================================
+
+/rbj integrity cards should verify:
+
+1. Each player receives their own hand by whisper/private message.
+2. Dealer upcard is public.
+3. Dealer hole card is hidden until reveal.
+4. Split hands show correctly:
+"H1 A♥️ 5♣️ | H2 A♠️ 9♦️"
+5. Doubled hand shows one final card.
+6. No other player sees private hands.
+
+Result:
+"🃏 RBJ Cards: 6/6 pass"
+
+==================================================
+POKER CARD VISIBILITY CHECK
+==================================================
+
+/poker integrity cards should verify:
+
+1. Each player receives exactly 2 private hole cards.
+Example:
+"♠️ Hand #1 | Your cards: A♠️ K♦️"
+
+2. Player A does not receive Player B’s cards.
+
+3. Player B does not receive Player A’s cards.
+
+4. Community cards are public:
+- flop
+- turn
+- river
+
+5. Showdown reveals only cards that should be revealed.
+
+6. /ph only shows the requesting player’s own cards.
+
+7. Restart/recovery message does not leak other players’ cards.
+
+Result:
+"♠️ Poker Cards: 7/7 pass"
+
+If fail:
+"Poker Cards fail: /ph returned wrong player cards."
+
+==================================================
+LIVE SELF-TEST OPTION
+==================================================
+
+Add optional command:
+- /carddeliverycheck live
+
+Owner/admin only.
+
+Behavior:
+- Sends a private test card message to the command user only.
+- Does not start real game.
+- Does not affect balances.
+
+Message sent:
+"Test private card message: A♠️ K♦️"
+
+Then public/whisper result:
+"✅ Live card whisper delivered."
+
+If whisper API unsupported:
+"Private card delivery unsupported by API."
+
+==================================================
+INTEGRITY OUTPUT UPDATE
+==================================================
+
+Update:
+/casinointegrity full
+
+Include:
+- BJ cards
+- RBJ cards
+- Poker cards
+
+Example:
+"Casino Full: 112/112 pass | Logic OK | Cards OK"
+
+Update:
+/casinointegrity quick
+
+Include lightweight card route check:
+"Casino Quick: Routes OK | DB OK | Cards OK"
+
+==================================================
+FAIL CONDITIONS
+==================================================
+
+Fail the check if:
+- private hand message is sent publicly
+- wrong target receives private cards
+- dealer hole card appears before reveal
+- poker hole cards appear in public chat
+- /ph can show another player’s cards
+- restart/recovery leaks hidden cards
+- split/double hands do not update display
+- message exceeds 250 chars and gets cut
+
+==================================================
+TESTS
+==================================================
+
+Run:
+- /casinointegrity cards
+- /bj integrity cards
+- /rbj integrity cards
+- /poker integrity cards
+- /carddeliverycheck live
+
+Expected:
+- No real game starts.
+- No real balance changes.
+- Private cards are only sent to correct player.
+- Public cards are public only when intended.

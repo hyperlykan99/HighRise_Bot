@@ -1,0 +1,552 @@
+Add Casino Integrity Checker for Poker, BJ, and RBJ.
+
+GOAL:
+Create an integrity checker that verifies Poker, Blackjack, and Realistic Blackjack are working without needing to hard-test with real players or risk real coins.
+
+It should test:
+- command routing
+- command ownership
+- handler exists
+- database tables exist
+- settings exist
+- limits/toggles work
+- game state can be created
+- fake/simulated hand can resolve
+- payouts calculate correctly
+- recovery commands are available
+- no duplicate bot ownership
+- no silent failures
+
+IMPORTANT:
+- Do not remove existing features.
+- Keep multi-bot routing.
+- Poker Bot owns poker checks.
+- Blackjack Bot owns BJ/RBJ checks.
+- Host/Admin can run global casino check.
+- Use SQLite.
+- Keep messages under 250 characters.
+- Do not change real player balances during integrity tests.
+- Do not start public games during integrity tests.
+- Use test users or dry-run transactions only.
+- Every check must report PASS/FAIL clearly.
+
+==================================================
+PART 1: COMMANDS
+==================================================
+
+Add these commands:
+
+Global:
+- /casinointegrity
+- /casinointegrity full
+- /casinointegrity quick
+- /casinointegrity routes
+- /casinointegrity db
+- /casinointegrity payouts
+- /casinointegrity recovery
+
+Poker:
+- /poker integrity
+- /poker integrity full
+- /poker integrity quick
+- /poker integrity routes
+- /poker integrity db
+- /poker integrity simulate
+- /poker integrity recovery
+
+Blackjack:
+- /bj integrity
+- /bj integrity full
+- /bj integrity quick
+- /bj integrity routes
+- /bj integrity db
+- /bj integrity simulate
+
+RBJ:
+- /rbj integrity
+- /rbj integrity full
+- /rbj integrity quick
+- /rbj integrity routes
+- /rbj integrity db
+- /rbj integrity simulate
+- /rbj integrity shoe
+
+Admin:
+- /integritylogs
+- /integritylogs poker
+- /integritylogs bj
+- /integritylogs rbj
+
+Permissions:
+- Owner/admin/manager can run integrity checks.
+- Owner/admin can run full checks.
+- Players cannot run them.
+
+If no permission:
+"Staff only."
+
+==================================================
+PART 2: DATABASE
+==================================================
+
+Create casino_integrity_logs table:
+
+casino_integrity_logs:
+- id INTEGER PRIMARY KEY AUTOINCREMENT
+- timestamp TEXT
+- actor_username TEXT
+- module TEXT
+- check_type TEXT
+- passed INTEGER
+- total_checks INTEGER
+- failed_checks INTEGER
+- details_json TEXT
+- summary TEXT
+
+Create casino_integrity_temp table if needed:
+
+casino_integrity_temp:
+- test_id TEXT PRIMARY KEY
+- module TEXT
+- state_json TEXT
+- created_at TEXT
+
+Rules:
+- Temp states must never affect real poker/BJ/RBJ live tables.
+- Delete temp states after test.
+- Do not modify real balances.
+- Do not write fake results to real leaderboards.
+- Do not grant XP, coins, event coins, badges, or stats from integrity tests.
+
+==================================================
+PART 3: GLOBAL CASINO INTEGRITY
+==================================================
+
+/casinointegrity quick:
+Runs:
+- BJ route check
+- RBJ route check
+- Poker route check
+- DB check
+- bot ownership check
+
+Message:
+"✅ Casino Check: 42/42 pass | BJ OK | RBJ OK | Poker OK"
+
+If fail:
+"⚠️ Casino Check: 38/42 pass | 4 fail. Use /casinointegrity full"
+
+/casinointegrity full:
+Runs all checks:
+- routes
+- handlers
+- help
+- DB tables
+- settings
+- ownership
+- simulated BJ
+- simulated RBJ
+- simulated Poker
+- recovery commands
+- payout dry-run
+
+Message page 1:
+"Casino Full: 96/100 pass | BJ OK | RBJ 2 fail | Poker 2 fail"
+
+If too long:
+/casinointegrity full 2:
+Shows failed checks:
+"Fails: /rbj split handler missing | poker sidepot dry-run fail"
+
+==================================================
+PART 4: ROUTE CHECKS
+==================================================
+
+Route checks should verify real router + handler, not just help text.
+
+BJ route list:
+- /bjoin
+- /bh
+- /bs
+- /bd
+- /bsp
+- /bhand
+- /bj limits
+- /bj recover
+- /bj refund
+- /bj forcefinish
+
+RBJ route list:
+- /rjoin
+- /rh
+- /rs
+- /rd
+- /rsp
+- /rhand
+- /rshoe
+- /rbj limits
+- /rbj recover
+- /rbj refund
+- /rbj forcefinish
+
+Poker route list:
+- /p
+- /ph
+- /pt
+- /check
+- /call
+- /r
+- /fold
+- /ai
+- /poker settings
+- /poker state
+- /poker cleanup
+- /poker refund
+- /poker hardrefund
+- /poker forcefinish
+- /poker recoverystatus
+
+Expected:
+/poker integrity routes:
+"♠️ Poker Routes: 18/18 pass"
+
+/bj integrity routes:
+"🃏 BJ Routes: 10/10 pass"
+
+/rbj integrity routes:
+"🃏 RBJ Routes: 11/11 pass"
+
+==================================================
+PART 5: DB CHECKS
+==================================================
+
+DB checks verify required tables and columns exist.
+
+Poker DB should check:
+- poker_settings
+- poker tables / active hand table
+- poker seated players table
+- poker logs
+- poker recovery logs
+- bot_module_locks
+
+BJ/RBJ DB should check:
+- bj settings table
+- rbj settings table
+- active BJ/RBJ hands table
+- shoe/deck table if RBJ uses persistent shoe
+- casino stats
+- casino logs
+- limits table
+
+If table missing:
+- full check should create missing safe settings tables if appropriate
+- do not wipe data
+- do not destructive migrate
+
+Message:
+/poker integrity db:
+"♠️ Poker DB: 8/8 tables OK"
+
+/rbj integrity db:
+"🃏 RBJ DB: shoe OK | settings OK | hands OK"
+
+==================================================
+PART 6: SETTINGS CHECKS
+==================================================
+
+Verify settings exist and valid.
+
+Poker settings:
+- poker_enabled
+- turn_timer_seconds
+- lobby_timer_seconds
+- next_hand_timer_seconds
+- small_blind
+- big_blind
+- ante
+- blinds_enabled
+- min_players
+- max_players
+- raise_limit_enabled
+- max_raise
+- allin_enabled
+- win_limit_enabled
+- loss_limit_enabled
+- buyin_limit_enabled
+- min_buyin
+- max_buyin
+
+BJ/RBJ settings:
+- action_timer_seconds
+- min_bet
+- max_bet
+- win_limit_enabled
+- loss_limit_enabled
+- bet_limit_enabled
+- double_enabled
+- split_enabled
+- split_aces_enabled
+- max_splits
+- payout_blackjack
+- dealer_hits_soft_17 setting if available
+
+If missing, create defaults safely.
+
+Message:
+"Settings: 18/18 OK"
+
+==================================================
+PART 7: BJ SIMULATION CHECK
+==================================================
+
+/bj integrity simulate:
+Run dry-run tests without touching real balances.
+
+Test cases:
+1. Player blackjack beats dealer 20.
+Expected payout: 1.5x or configured blackjack payout.
+
+2. Player 20 beats dealer 18.
+Expected payout: win amount.
+
+3. Player busts.
+Expected payout: loss.
+
+4. Push.
+Expected payout: bet returned.
+
+5. Double down.
+Expected bet doubles and one card drawn.
+
+6. Split.
+Expected two hands created if enabled.
+
+7. Split aces.
+Expected one card each and both stand if your rules require.
+
+Message:
+"🃏 BJ Sim: 7/7 pass"
+
+If fail:
+"BJ Sim fail: split aces did not draw cards."
+
+==================================================
+PART 8: RBJ SIMULATION CHECK
+==================================================
+
+/rbj integrity simulate:
+Run dry-run tests.
+
+Test cases:
+1. RBJ starts lobby.
+2. Player gets valid hand.
+3. Dealer gets upcard/hole card.
+4. Hit adds card.
+5. Stand marks hand complete.
+6. Double adds one card and stands.
+7. Split creates two valid hands.
+8. Split aces draws one card to each hand.
+9. Dealer resolves.
+10. Payout calculation correct.
+
+Shoe checks:
+/rbj integrity shoe:
+- shoe exists
+- card count decreases after draw
+- reshuffle threshold works
+- no impossible duplicate beyond shoe count
+- restart saves shoe if persistent
+
+Message:
+"🃏 RBJ Sim: 10/10 pass"
+"🃏 Shoe: OK | 312 cards | reshuffle 75%"
+
+==================================================
+PART 9: POKER SIMULATION CHECK
+==================================================
+
+/poker integrity simulate:
+Run dry-run poker hand tests in temp memory/table only.
+
+Test cases:
+1. Create fake table with 2 test players.
+2. Assign stacks.
+3. Post small/big blinds.
+4. Deal two cards to each.
+5. Advance preflop/flop/turn/river.
+6. Evaluate winner.
+7. Award pot dry-run.
+8. Fold winner logic.
+9. All-in logic.
+10. Side pot logic if implemented.
+11. Raise cap logic.
+12. Recovery recommendation logic.
+
+Do not:
+- affect real poker table
+- affect real wallets
+- affect real stats
+- start actual hand in room
+
+Message:
+"♠️ Poker Sim: 12/12 pass"
+
+If side pots not implemented:
+"Poker Sim: 11/12 pass | sidepot skipped/not implemented"
+
+==================================================
+PART 10: PAYOUT DRY-RUN CHECK
+==================================================
+
+/casinointegrity payouts:
+Tests payout formulas only.
+
+BJ:
+- normal win
+- blackjack win
+- double win
+- split win/loss/push
+
+RBJ:
+- same as BJ
+
+Poker:
+- pot distribution
+- odd chip handling
+- all-in side pots if implemented
+- refund contribution logic
+
+Message:
+"💰 Payouts: BJ OK | RBJ OK | Poker OK"
+
+Never write to real balances.
+
+==================================================
+PART 11: RECOVERY CHECK
+==================================================
+
+/casinointegrity recovery:
+Checks recovery commands exist and have valid recommendation logic.
+
+Poker:
+- /poker recoverystatus
+- /poker cleanup
+- /poker refund
+- /poker hardrefund
+- /poker clearhand
+- /poker forcefinish
+- /poker closeforce
+
+BJ:
+- /bj recover
+- /bj refund
+- /bj forcefinish
+
+RBJ:
+- /rbj recover
+- /rbj refund
+- /rbj forcefinish
+
+Message:
+"Recovery: Poker OK | BJ OK | RBJ OK"
+
+Also test:
+- recovery commands do not point to each other in dead loop.
+- poker refund/forcefinish/hardrefund recommendation is valid.
+
+==================================================
+PART 12: MULTI-BOT OWNERSHIP CHECK
+==================================================
+
+Check:
+- BJ/RBJ commands owned by Blackjack Bot.
+- Poker commands owned by Poker Bot.
+- Host/Main does not duplicate.
+- No BOT_MODE=all conflict if split bots are active.
+- Module locks exist.
+
+Message:
+"Ownership: BJ=Blackjack | RBJ=Blackjack | Poker=Poker | OK"
+
+If issue:
+"Conflict: /rjoin owned by Host and Blackjack."
+
+==================================================
+PART 13: INTEGRITY LOGS
+==================================================
+
+/integritylogs:
+Shows recent checks:
+"Integrity Logs: #12 Casino 96/100 | #11 Poker 12/12"
+
+/integritylogs poker:
+"Poker logs: #8 12/12 pass | #7 10/12 fail"
+
+/integritylogs <id>:
+Shows summary/details if implemented.
+
+Keep short and paginated.
+
+==================================================
+PART 14: COMMAND AUDIT INTEGRATION
+==================================================
+
+Update:
+- /checkcommands
+- /checkhelp
+- /commandtest
+- /deploymentcheck
+
+Add casino integrity summary to /deploymentcheck:
+"Casino Integrity: last pass 96/100"
+
+If no check run:
+"Casino Integrity: not run"
+
+==================================================
+PART 15: HELP UPDATE
+==================================================
+
+Update /casinohelp:
+"Integrity: /casinointegrity quick"
+
+/bjhelp staff page:
+"Check: /bj integrity simulate"
+
+/rbjhelp staff page:
+"Check: /rbj integrity simulate"
+
+/pokerhelp staff page:
+"Check: /poker integrity simulate"
+
+/ownerhelp system:
+"Casino check: /casinointegrity full"
+
+==================================================
+PART 16: TESTS
+==================================================
+
+After implementation, I will run:
+
+/casinointegrity quick
+/casinointegrity full
+/bj integrity simulate
+/rbj integrity simulate
+/rbj integrity shoe
+/poker integrity simulate
+/casinointegrity payouts
+/casinointegrity recovery
+/integritylogs
+
+Expected:
+- No real coins change.
+- No real games start.
+- No duplicate bot replies.
+- Clear PASS/FAIL results.
+- Failed checks show exactly what function/route is broken.
+
+FINAL REQUIREMENT:
+I should be able to run one command:
+/casinointegrity full
+and know whether Poker, BJ, and RBJ are safe before real players use them.
