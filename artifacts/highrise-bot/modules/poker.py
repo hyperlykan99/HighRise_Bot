@@ -308,32 +308,72 @@ def _get_players(round_id: str) -> list[dict]:
     return [dict(r) for r in rows]
 
 def _get_player(round_id: str, user_id: str) -> Optional[dict]:
+    """Look up a player by user_id first; fall back to username case-insensitive."""
     conn = db.get_connection()
     row  = conn.execute(
         "SELECT * FROM poker_active_players WHERE round_id=? AND user_id=?",
         (round_id, user_id),
     ).fetchone()
+    if row is None:
+        # Fallback: seated record maps user_id → username
+        sp = conn.execute(
+            "SELECT username FROM poker_seated_players WHERE user_id=?",
+            (user_id,),
+        ).fetchone()
+        if sp:
+            row = conn.execute(
+                "SELECT * FROM poker_active_players "
+                "WHERE round_id=? AND LOWER(username)=LOWER(?)",
+                (round_id, sp["username"]),
+            ).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+def _get_player_by_name(round_id: str, username: str) -> Optional[dict]:
+    """Look up a player by case-insensitive username."""
+    conn = db.get_connection()
+    row  = conn.execute(
+        "SELECT * FROM poker_active_players "
+        "WHERE round_id=? AND LOWER(username)=LOWER(?)",
+        (round_id, username),
+    ).fetchone()
     conn.close()
     return dict(row) if row else None
 
 def _save_player(round_id: str, user_id: str, **kw) -> None:
+    """Update a player row. Looks up by user_id; falls back to username via seated."""
     if not kw:
         return
     kw["acted_at"] = _now()
     sets = ", ".join(f"{k}=?" for k in kw)
     vals = list(kw.values()) + [round_id, user_id]
     conn = db.get_connection()
-    conn.execute(
+    affected = conn.execute(
         f"UPDATE poker_active_players SET {sets} WHERE round_id=? AND user_id=?",
         vals,
-    )
+    ).rowcount
+    if affected == 0:
+        # Fallback: find by seated username
+        sp = conn.execute(
+            "SELECT username FROM poker_seated_players WHERE user_id=?",
+            (user_id,),
+        ).fetchone()
+        if sp:
+            vals2 = list(kw.values()) + [round_id, sp["username"]]
+            conn.execute(
+                f"UPDATE poker_active_players SET {sets} "
+                f"WHERE round_id=? AND LOWER(username)=LOWER(?)",
+                vals2,
+            )
     conn.commit()
     conn.close()
 
 def _insert_player(round_id: str, username: str, user_id: str, buyin: int) -> None:
+    """Insert a single player row (used by recovery/legacy paths only).
+    _start_hand now uses bulk single-transaction inserts directly."""
     conn = db.get_connection()
     conn.execute(
-        "INSERT OR IGNORE INTO poker_active_players "
+        "INSERT OR REPLACE INTO poker_active_players "
         "(round_id, username, user_id, buyin, stack, status, joined_at) "
         "VALUES (?, ?, ?, ?, ?, 'lobby', ?)",
         (round_id, username, user_id, buyin, buyin, _now()),
@@ -348,6 +388,40 @@ def _clear_players(round_id: str) -> None:
     )
     conn.commit()
     conn.close()
+
+
+def _validate_deal(round_id: str, expected_count: int) -> Optional[str]:
+    """
+    Check that every expected player has exactly 2 saved hole cards.
+    Returns None on success, or an error string on failure.
+    """
+    conn = db.get_connection()
+    rows = conn.execute(
+        "SELECT username, hole_cards_json FROM poker_active_players "
+        "WHERE round_id=?",
+        (round_id,),
+    ).fetchall()
+    conn.close()
+
+    actual = len(rows)
+    if actual != expected_count:
+        return f"Expected {expected_count} hands, found {actual}"
+
+    missing = []
+    for r in rows:
+        try:
+            cards = json.loads(r["hole_cards_json"] or "[]")
+        except Exception:
+            cards = []
+        if len(cards) != 2:
+            missing.append(r["username"])
+
+    if missing:
+        names = ", ".join(missing[:4])
+        return f"Missing cards for: {names}"
+
+    return None
+
 
 def _active_players(players: list[dict]) -> list[dict]:
     return [p for p in players if p["status"] == "active"]
@@ -753,7 +827,13 @@ async def _try_start_hand(bot: BaseBot) -> None:
 # ── Start a new hand from seated players ──────────────────────────────────────
 
 async def _start_hand(bot: BaseBot) -> None:
-    """Deal a new hand from the current seated roster."""
+    """Deal a new hand from the current seated roster.
+
+    Fix (Part 1-4): Pre-compute ALL player data in Python first, then write
+    every player in a SINGLE transaction with hole_cards_json already set.
+    This eliminates the INSERT-then-UPDATE race that caused player 2+
+    to silently receive no cards.
+    """
     global _next_hand_task, _lobby_task
     _cancel_task(_next_hand_task); _next_hand_task = None
     _cancel_task(_lobby_task);     _lobby_task     = None
@@ -762,14 +842,14 @@ async def _start_hand(bot: BaseBot) -> None:
     if not tbl:
         return
 
-    active = _get_active_seated()
+    # ── Part 1: select active seated players ──────────────────────────────
+    active = _get_active_seated()   # status='seated' AND table_stack > 0
     max_pl = _s("max_players", 6)
     min_pl = _s("min_players", 2)
 
     if len(active) < min_pl:
         _save_table(phase="waiting")
-        await _chat(bot,
-            f"♠️ Need {min_pl} players to start. {len(active)} ready.")
+        await _chat(bot, "♠️ Poker waiting for 2+ active players.")
         return
 
     seated = active[:max_pl]
@@ -781,114 +861,117 @@ async def _start_hand(bot: BaseBot) -> None:
 
     # ── Blind positions ────────────────────────────────────────────────────
     if n == 2:
-        sb_idx            = dealer_idx          # dealer = SB heads-up
+        sb_idx            = dealer_idx
         bb_idx            = (dealer_idx + 1) % 2
-        first_preflop_idx = dealer_idx          # SB acts first preflop HU
-        first_postflop    = bb_idx              # BB acts first post-flop HU
+        first_preflop_idx = dealer_idx      # SB acts first HU preflop
+        first_postflop    = bb_idx
     else:
         sb_idx            = (dealer_idx + 1) % n
         bb_idx            = (dealer_idx + 2) % n
         first_preflop_idx = (dealer_idx + 3) % n  # UTG
-        first_postflop    = sb_idx              # SB acts first post-flop
+        first_postflop    = sb_idx
 
     blinds_on = _s("blinds_enabled", 1)
-    sb_amt    = _s("small_blind", 50)  if blinds_on else 0
-    bb_amt    = _s("big_blind",  100) if blinds_on else 0
-    ante_amt  = _s("ante", 0)         if blinds_on else 0
+    sb_amt    = _s("small_blind",  50) if blinds_on else 0
+    bb_amt    = _s("big_blind",   100) if blinds_on else 0
+    ante_amt  = _s("ante",          0) if blinds_on else 0
 
-    # ── Create new round ───────────────────────────────────────────────────
     round_id = _new_round_id()
     hand_num = (tbl.get("hand_number") or 0) + 1
 
-    # ── Insert all seated players into poker_active_players ───────────────
-    for sp in seated:
-        _insert_player(round_id, sp["username"], sp["user_id"], sp["table_stack"])
-
-    # ── Mark all active and deal cards ────────────────────────────────────
-    conn = db.get_connection()
-    conn.execute(
-        "UPDATE poker_active_players SET status='active', current_bet=0, "
-        "total_contributed=0, acted=0, hole_cards_json='[]' WHERE round_id=?",
-        (round_id,),
-    )
-    conn.commit()
-    conn.close()
-
+    # ── Part 2: PRE-COMPUTE every player's full row before any DB write ────
     deck = _make_deck()
     random.shuffle(deck)
 
-    initial_pot = 0
-    table_bet   = 0
+    initial_pot: int = 0
+    table_bet:   int = 0
+    player_rows: list[dict] = []
 
     for i, sp in enumerate(seated):
-        h     = [deck.pop(), deck.pop()]
         stack = sp["table_stack"]
 
-        # Post ante
+        # Ante
+        ante_contrib = 0
         if ante_amt > 0:
-            actual_ante = min(ante_amt, stack)
-            stack      -= actual_ante
-            initial_pot += actual_ante
-            conn = db.get_connection()
-            conn.execute(
-                "UPDATE poker_active_players SET "
-                "total_contributed=total_contributed+? WHERE round_id=? AND user_id=?",
-                (actual_ante, round_id, sp["user_id"]),
-            )
-            conn.commit()
-            conn.close()
+            ante_contrib = min(ante_amt, stack)
+            stack       -= ante_contrib
+            initial_pot += ante_contrib
 
-        # Post blind
-        blind_amt = 0
+        # Blind
+        blind_contrib = 0
         if blinds_on:
             if i == sb_idx:
-                blind_amt = min(sb_amt, stack)
+                blind_contrib = min(sb_amt, stack)
             elif i == bb_idx:
-                blind_amt = min(bb_amt, stack)
-
-        stack -= blind_amt
-        initial_pot += blind_amt
-
-        status = "allin" if stack == 0 else "active"
-        # BB sets the table bet; adjust BB's acted flag so they get option
-        bb_acted = 0  # BB does NOT mark acted yet (gets option)
-
-        conn = db.get_connection()
-        conn.execute(
-            "UPDATE poker_active_players SET "
-            "hole_cards_json=?, stack=?, current_bet=?, "
-            "total_contributed=total_contributed+?, status=?, acted=? "
-            "WHERE round_id=? AND user_id=?",
-            (
-                json.dumps(h),
-                stack,
-                blind_amt,
-                blind_amt,
-                status,
-                1 if (i == sb_idx and blinds_on and i != bb_idx) else 0,
-                round_id,
-                sp["user_id"],
-            ),
-        )
-        conn.commit()
-        conn.close()
-
+                blind_contrib = min(bb_amt, stack)
+        stack       -= blind_contrib
+        initial_pot += blind_contrib
         if blinds_on and i == bb_idx:
-            table_bet = blind_amt
+            table_bet = blind_contrib
 
-        try:
-            sb_label = "(SB)" if i == sb_idx and blinds_on else ""
-            bb_label = "(BB)" if i == bb_idx and blinds_on else ""
-            label    = sb_label or bb_label or ""
-            await bot.highrise.send_whisper(
-                sp["user_id"],
-                f"🂡 Hand #{hand_num} {label} | Your cards: {_fcs(h)} | "
-                f"Stack: {stack}c"
+        total_contrib = ante_contrib + blind_contrib
+        status        = "allin" if stack == 0 else "active"
+        # SB has posted and acted; BB keeps acted=0 so they get the option
+        acted = 1 if (blinds_on and i == sb_idx and i != bb_idx) else 0
+
+        # Deal exactly 2 cards
+        h = [deck.pop(), deck.pop()]
+
+        player_rows.append({
+            "username":          sp["username"],
+            "user_id":           sp["user_id"],
+            "buyin":             sp["table_stack"],   # in-hand starting stack
+            "stack":             stack,
+            "current_bet":       blind_contrib,
+            "total_contributed": total_contrib,
+            "hole_cards_json":   json.dumps(h),
+            "status":            status,
+            "acted":             acted,
+        })
+
+    # ── SINGLE TRANSACTION: write all players atomically ──────────────────
+    conn = db.get_connection()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        conn.execute(
+            "DELETE FROM poker_active_players WHERE round_id=?", (round_id,)
+        )
+        for pr in player_rows:
+            conn.execute(
+                "INSERT INTO poker_active_players "
+                "(round_id, username, user_id, buyin, stack, current_bet, "
+                "total_contributed, hole_cards_json, status, acted, joined_at) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    round_id,
+                    pr["username"], pr["user_id"], pr["buyin"],
+                    pr["stack"], pr["current_bet"], pr["total_contributed"],
+                    pr["hole_cards_json"], pr["status"], pr["acted"], _now(),
+                ),
             )
+        conn.execute("COMMIT")
+    except Exception as exc:
+        try:
+            conn.execute("ROLLBACK")
         except Exception:
             pass
+        conn.close()
+        print(f"[POKER] _start_hand DB error: {exc}")
+        _save_table(phase="recovery_required")
+        await _chat(bot, "⚠️ Poker deal error. Use /poker refund to recover.")
+        return
+    conn.close()
 
-    # ── Save table state ───────────────────────────────────────────────────
+    # ── Part 3: VALIDATE every player has exactly 2 cards ─────────────────
+    err = _validate_deal(round_id, len(seated))
+    if err:
+        print(f"[POKER] deal validation FAILED: {err}")
+        _clear_players(round_id)
+        _save_table(phase="recovery_required")
+        await _chat(bot, f"⚠️ Deal error: {err} | Use /poker refund.")
+        return
+
+    # ── Save table state (before whispering cards) ─────────────────────────
     sb_name = seated[sb_idx]["username"] if blinds_on else ""
     bb_name = seated[bb_idx]["username"] if blinds_on else ""
     dl_name = seated[dealer_idx]["username"]
@@ -912,20 +995,30 @@ async def _start_hand(bot: BaseBot) -> None:
         next_hand_starts_at=None,
     )
 
-    # ── Store post-flop start index in the table for _advance_street use ──
-    # We encode first_postflop into the lobby_started_at field (hack-free
-    # alternative: we just recompute from dealer_button_index + n at runtime)
+    # ── Part 4: whisper cards privately to every player ───────────────────
+    for i, sp in enumerate(seated):
+        pr       = player_rows[i]
+        h        = json.loads(pr["hole_cards_json"])
+        sb_label = " (SB)" if i == sb_idx and blinds_on else ""
+        bb_label = " (BB)" if i == bb_idx and blinds_on else ""
+        label    = sb_label or bb_label or ""
+        msg      = (
+            f"🂡 Hand #{hand_num}{label} | Cards: {_fcs(h)} | Stack: {pr['stack']}c"
+        )
+        try:
+            await bot.highrise.send_whisper(sp["user_id"], msg[:249])
+        except Exception:
+            await _chat(bot, f"@{sp['username']}, use /ph to view your cards.")
 
     # ── Announce ──────────────────────────────────────────────────────────
-    order_str = "  ".join(f"@{sp['username']}" for sp in seated)
     if blinds_on:
         await _chat(bot,
             f"♠️ Hand #{hand_num} | Dealer:@{dl_name} "
             f"SB:@{sb_name}({sb_amt}c) BB:@{bb_name}({bb_amt}c) "
             f"| Pot:{initial_pot}c")
     else:
-        await _chat(bot,
-            f"♠️ Hand #{hand_num} | Players: {order_str[:120]}")
+        order_str = "  ".join(f"@{sp['username']}" for sp in seated)
+        await _chat(bot, f"♠️ Hand #{hand_num} | Players: {order_str[:120]}")
 
     # ── Start preflop ──────────────────────────────────────────────────────
     players = _get_players(round_id)
@@ -935,16 +1028,16 @@ async def _start_hand(bot: BaseBot) -> None:
             bot, "preflop", round_id, players, first_preflop_idx
         )
 
-    # Increment hands_at_table for each seated player
+    # Increment hands_at_table for all participants
+    conn = db.get_connection()
     for sp in seated:
-        conn = db.get_connection()
         conn.execute(
             "UPDATE poker_seated_players SET hands_at_table=hands_at_table+1 "
             "WHERE LOWER(username)=LOWER(?)",
             (sp["username"],),
         )
-        conn.commit()
-        conn.close()
+    conn.commit()
+    conn.close()
 
 
 # ── advance_turn_or_round ──────────────────────────────────────────────────────
@@ -1741,16 +1834,31 @@ async def startup_poker_recovery(bot: BaseBot) -> None:
             await finish_poker_hand(bot, "everyone_folded")
             return
 
+        # Part 7: validate every active player has exactly 2 cards
+        missing_cards = [
+            p["username"]
+            for p in active
+            if len(json.loads(p["hole_cards_json"] or "[]")) != 2
+        ]
+        if missing_cards:
+            names = ", ".join(missing_cards[:4])
+            print(f"[POKER] Recovery: missing cards for {names}")
+            _save_table(phase="recovery_required")
+            await _chat(bot,
+                f"⚠️ Poker recovery: {len(missing_cards)} player(s) missing cards. "
+                f"Use /poker refund.")
+            _log_recovery("recovery_required", round_id, phase,
+                          f"missing_cards={names}")
+            return
+
         _save_table(restored_after_restart=1)
-        await _chat(bot, "♻️ Poker hand restored. Cards and pot loaded.")
+        await _chat(bot, "♻️ Poker restored. Cards and stacks loaded.")
         for p in active:
-            cards = json.loads(p["hole_cards_json"] or "[]")
-            if cards:
-                try:
-                    await bot.highrise.send_whisper(
-                        p["user_id"], "♻️ Poker restored. Use /ph.")
-                except Exception:
-                    pass
+            try:
+                await bot.highrise.send_whisper(
+                    p["user_id"], "♻️ Poker restored. Use /ph to see your cards.")
+            except Exception:
+                pass
 
         _log_recovery("recovered", round_id, phase,
                       f"active={len(active)} pot={tbl['pot']}")
@@ -1944,27 +2052,51 @@ async def _dispatch(bot: BaseBot, user: User, args: list[str]) -> None:
         return
 
     if sub in ("hand", "cards"):
+        # Part 5: robust /ph that handles all seated edge cases
         tbl = _get_table()
+        sp  = _get_seated(user.username)
+
+        # Not in any active betting phase
         if not tbl or not tbl["active"] or tbl["phase"] not in (
                 "preflop", "flop", "turn", "river"):
-            await _w(bot, user.id, "No active hand. Join with /p <buyin>.")
+            if sp is None:
+                await _w(bot, user.id, "Join poker with /p <buyin>.")
+            elif sp["status"] == "sitting_out":
+                await _w(bot, user.id,
+                    "You are sitting out. Use /sitin for next hand.")
+            else:
+                await _w(bot, user.id,
+                    "No active hand yet. Next hand starts soon.")
             return
+
         p = _get_player(tbl["round_id"], user.id)
         if p is None:
-            await _w(bot, user.id, "You are not in this hand.")
+            if sp is None:
+                await _w(bot, user.id, "Join poker with /p <buyin>.")
+            elif sp["status"] == "sitting_out":
+                await _w(bot, user.id,
+                    "You are sitting out. Use /sitin for next hand.")
+            else:
+                await _w(bot, user.id,
+                    "No active hand yet. Next hand starts soon.")
             return
-        cards     = json.loads(p["hole_cards_json"] or "[]")
+
+        cards = json.loads(p["hole_cards_json"] or "[]")
+        if not cards or len(cards) != 2:
+            await _w(bot, user.id,
+                "⚠️ Your hand is missing. Staff notified. Use /poker refund.")
+            print(f"[POKER] /ph: no cards for {user.username} "
+                  f"round={tbl['round_id']}")
+            return
+
         community = json.loads(tbl["community_cards_json"] or "[]")
-        board_str = _fcs(community) if community else "—"
-        if not cards:
-            await _w(bot, user.id, "Cards not dealt yet.")
-            return
-        strength = _hand_strength_label(cards, community)
-        draws    = _detect_draws(cards, community)
-        label    = strength + (" + " + draws if draws else "")
+        board_str = _fcs(community) if community else "none"
+        strength  = _hand_strength_label(cards, community)
+        draws     = _detect_draws(cards, community)
+        label     = strength + (" + " + draws if draws else "")
         await _w(bot, user.id,
-            f"🂡 {_fcs(cards)} | Board:{board_str} | {label} | "
-            f"InHand:{p['stack']}c")
+            f"🂡 Your hand: {_fcs(cards)} | Board:{board_str} | "
+            f"{label} | Stack:{p['stack']}c")
         return
 
     if sub in ("odds", "chance"):
@@ -2754,6 +2886,54 @@ async def handle_pokerdebug(bot: BaseBot, user: User, args: list[str]) -> None:
                f"Phase {phase} | Seated {seated} Active {active_s} | "
                f"NextTask {'yes' if next_alive else 'no'} "
                f"TurnTask {'yes' if turn_alive else 'no'}")
+        await _w(bot, user.id, msg[:249])
+        return
+
+    # Part 6: /pokerdebug deal — validate current deal state
+    if sub == "deal":
+        round_id = tbl.get("round_id") if tbl else None
+        seated_ct = len(_get_active_seated())
+        if not round_id or not tbl or tbl["phase"] not in (
+                "preflop", "flop", "turn", "river"):
+            await _w(bot, user.id,
+                f"Deal: No active hand | Seated {seated_ct}")
+            return
+        players = _get_players(round_id)
+        hand_ct = len(players)
+        missing = [
+            p["username"]
+            for p in players
+            if len(json.loads(p["hole_cards_json"] or "[]")) != 2
+        ]
+        deck_ct = len(json.loads(tbl["deck_json"] or "[]"))
+        rid_short = round_id[-8:] if round_id else "—"
+        status = "OK" if not missing else f"FAIL({','.join(missing[:3])})"
+        msg = (f"Deal {status} | Seated {seated_ct} | Hands {hand_ct} | "
+               f"Missing {len(missing)} | Deck {deck_ct} | #{rid_short}")
+        await _w(bot, user.id, msg[:249])
+        return
+
+    # Part 6: /pokerdebug hand <username> — show one player's hand status
+    if sub == "hand":
+        target = args[2] if len(args) >= 3 else user.username
+        sp     = _get_seated(target)
+        round_id = tbl.get("round_id") if tbl else None
+        p_row  = None
+        if round_id:
+            p_row = _get_player_by_name(round_id, target)
+        seated_yn  = "yes" if sp else "no"
+        in_hand_yn = "yes" if p_row else "no"
+        status_str = sp["status"] if sp else "—"
+        stack_str  = str(sp["table_stack"]) + "c" if sp else "—"
+        if p_row:
+            cards = json.loads(p_row["hole_cards_json"] or "[]")
+            cards_yn = f"yes({len(cards)})" if cards else "no"
+        else:
+            cards_yn = "no"
+        rid_short = round_id[-6:] if round_id else "—"
+        msg = (f"@{target}: Seated={seated_yn} InHand={in_hand_yn} "
+               f"Cards={cards_yn} Status={status_str} Stack={stack_str} "
+               f"Round=…{rid_short}")
         await _w(bot, user.id, msg[:249])
         return
 

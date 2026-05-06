@@ -1,0 +1,214 @@
+Fix poker dealing so every seated player gets private cards.
+
+Problem:
+In the new persistent poker table, the first player receives their cards, but the 2nd player does not get their cards in the table.
+
+Goal:
+When a poker hand starts, every active seated player must:
+- be included in the hand
+- get exactly 2 private hole cards
+- have their cards saved in SQLite
+- be able to use /ph to see their cards
+- receive a private/whisper card message if possible
+
+IMPORTANT:
+- Do not remove existing poker features.
+- Keep persistent table, stacks, blinds, rebuy, sitout/sitin, recovery, leaderboards, all-in, side pots, and short aliases.
+- Use SQLite.
+- Keep messages under 250 characters.
+- Prevent crashes from bad inputs.
+- Do not duplicate poker logic.
+- Never start action if any active player is missing cards.
+
+==================================================
+PART 1: FIX HAND START PLAYER SELECTION
+==================================================
+
+At the start of every poker hand, build active_players from poker_seated_players.
+
+Include players where:
+- status is seated or active
+- table_stack > 0
+- sitting_out is false or status is not sitting_out
+- leaving_after_hand is false if that column exists
+
+Do NOT only include the first player.
+Do NOT only include big blind/small blind.
+Do NOT only include players who typed a recent command.
+
+If there are fewer than min_players active players:
+- do not start hand
+- table waits
+- message:
+"Poker waiting for 2+ active players."
+
+==================================================
+PART 2: DEAL EXACTLY 2 CARDS TO EVERY ACTIVE PLAYER
+==================================================
+
+When a hand starts:
+1. Create new round_id.
+2. Get active seated players ordered by seat_number.
+3. Post blinds.
+4. Shuffle/load deck.
+5. Deal 2 hole cards to every active player.
+6. Save each player's hole_cards_json.
+7. Save each player into poker_active_players for that round_id.
+8. Save deck_json after cards are removed.
+9. Save table state.
+10. Validate all hands before announcing hand started.
+
+Important:
+Every active player must have one row in poker_active_players for current round_id.
+
+Each row must include:
+- round_id
+- username
+- user_id
+- stack
+- current_bet
+- total_contributed
+- hole_cards_json
+- status = active, allin, or folded depending on blind/all-in state
+- acted = 0
+
+==================================================
+PART 3: VALIDATE BEFORE ACTION STARTS
+==================================================
+
+Add helper:
+validate_poker_deal(round_id)
+
+It checks:
+- poker_active_table has active hand
+- round_id exists
+- active seated players count matches poker_active_players count
+- every active player has hole_cards_json
+- every active player has exactly 2 cards
+- deck_json exists
+- blinds were posted if blinds enabled
+- pot is valid
+
+If validation fails:
+- Do NOT continue hand.
+- Do NOT let anyone lose chips.
+- Pause table as recovery_required or refund hand safely.
+- Message staff:
+"⚠️ Poker deal error. Use /poker recover or /poker refund."
+
+If safe to repair before any action:
+- redeal the hand from a fresh deck only if no cards/actions were shown.
+- Otherwise refund the hand.
+
+==================================================
+PART 4: CARD WHISPER TO EVERY PLAYER
+==================================================
+
+After cards are saved and validated, send each active player their private cards.
+
+For each active player:
+"🂡 Hand #12 | Cards: A♠ K♦ | Stack: 1200c"
+
+If whisper fails:
+Public message:
+"@user, use /ph to view your cards."
+
+Important:
+Do not reveal another player's cards publicly.
+Do not stop dealing just because whisper fails.
+If cards are saved, /ph must work.
+
+==================================================
+PART 5: FIX /PH FOR ALL PLAYERS
+==================================================
+
+/ph, /poker hand, /poker cards, and /pcards must:
+- find current round_id from poker_active_table
+- find the requesting player in poker_active_players for that round_id
+- normalize username case-insensitively
+- show their hole cards if present
+
+Message:
+"🂡 Your hand: A♠ K♦ | Board: none | High Card | Stack: 1200c"
+
+If player has no active hand but is seated:
+- if sitting out:
+"You are sitting out. Use /sitin for next hand."
+- if between hands:
+"No active hand yet. Next hand soon."
+- if deal error:
+"⚠️ Your hand is missing. Staff notified."
+
+If not seated:
+"Join poker with /p <buyin>."
+
+==================================================
+PART 6: DEBUG COMMANDS
+==================================================
+
+Add/fix staff commands:
+
+/pokerdebug deal
+Shows:
+- current round_id
+- seated active count
+- active hand player count
+- players missing cards
+- deck count
+- validation OK/FAIL
+
+Example:
+"Deal OK | Seated 2 | Hands 2 | Missing 0 | Deck 48"
+
+/pokerdebug hand <username>
+Shows:
+- seated yes/no
+- active hand yes/no
+- hole cards exist yes/no
+- status
+- stack
+- round_id short
+
+Do not expose cards unless owner/admin only. For manager, just show yes/no.
+
+==================================================
+PART 7: RECOVERY
+==================================================
+
+On /softrestart or bot restart:
+- reload current poker hand
+- verify every active hand player has cards
+- if some players are missing cards:
+  - mark recovery_required
+  - do not continue hand
+  - staff can /poker refund
+- if all players have cards:
+  - announce:
+"♻️ Poker restored. Cards and stacks loaded."
+  - each player can use /ph
+
+==================================================
+PART 8: TESTS
+==================================================
+
+Test with 2 players:
+1. Player A: /p 1000
+2. Player B: /p 1000
+3. Hand starts.
+Expected:
+- Player A receives cards.
+- Player B receives cards.
+- /ph works for Player A.
+- /ph works for Player B.
+- /pokerdebug deal shows Seated 2 | Hands 2 | Missing 0.
+
+Test with 3 players:
+- All 3 seated players get exactly 2 cards.
+- All can use /ph.
+
+Test after /softrestart:
+- All players still have the same cards.
+- /ph works for every player.
+
+Final rule:
+A poker hand must never start unless every active seated player has exactly 2 saved private cards.
