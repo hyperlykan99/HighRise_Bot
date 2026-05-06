@@ -25,6 +25,7 @@ from highrise import BaseBot, User
 
 import database as db
 from modules.permissions import is_admin, can_moderate
+from economy import fmt_coins
 
 
 # ---------------------------------------------------------------------------
@@ -236,11 +237,10 @@ def _build_page2(uid: str, uname: str, p: dict, privacy: dict,
         pass
     lines = [
         f"💰 Economy — @{uname}",
-        f"Coins: {balance:,}c",
-        f"Earned: {earned:,}c | Wins: {wins}",
-        f"Sent/Recv: {sent:,}/{recv:,}c",
-        f"Streak: {streak}d",
-        f"More: /profile @{uname} 3",
+        f"Coins: {fmt_coins(balance)}",
+        f"Earned: {fmt_coins(earned)} | Wins: {wins}",
+        f"Sent: {fmt_coins(sent)} | Recv: {fmt_coins(recv)}",
+        f"Streak: {streak}d  More: /profile @{uname} 3",
     ]
     return "\n".join(lines)[:249]
 

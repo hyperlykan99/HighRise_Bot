@@ -201,7 +201,7 @@ from modules.gold import (
 # Command sets
 # ---------------------------------------------------------------------------
 
-ECONOMY_COMMANDS     = {"balance", "daily", "leaderboard"}
+ECONOMY_COMMANDS     = {"balance", "bal", "b", "coins", "coin", "money", "daily", "leaderboard"}
 PROFILE_COMMANDS     = {
     "profile", "me", "whois", "pinfo",
     "stats", "badges", "titles",
@@ -431,12 +431,11 @@ CASINO_HELP = CASINO_HELP_PAGES[0]
 
 COIN_HELP = (
     "💰 Coins\n"
+    "/bal  /balance  /coins\n"
+    "/bal <username> — check other player\n"
     "/daily\n"
-    "/balance\n"
     "/leaderboard\n"
-    "/tiprate\n"
-    "/tipstats\n"
-    "/tipleaderboard"
+    "/tiprate  /tipstats  /tipleaderboard"
 )
 
 BANK_HELP_PAGES = [
@@ -1755,7 +1754,7 @@ class HangoutBot(BaseBot):
             "managerhelp", "adminhelp", "ownerhelp", "questhelp",
             "profile", "me", "whois", "pinfo",
             "stats", "badges", "titles", "privacy",
-            "level", "balance", "myitems",
+            "level", "balance", "bal", "b", "coins", "coin", "money", "myitems",
             "myreports", "report", "bug",
             "botstatus", "maintenance",
             "rules", "warnings",
@@ -1781,8 +1780,8 @@ class HangoutBot(BaseBot):
             return
 
         # ── Economy commands ──────────────────────────────────────────────────
-        if cmd == "balance":
-            await handle_balance(self, user)
+        if cmd in {"balance", "bal", "b", "coins", "coin", "money"}:
+            await handle_balance(self, user, args)
 
         elif cmd == "daily":
             await handle_daily(self, user)

@@ -1,0 +1,159 @@
+Upgrade balance display and add short balance commands.
+
+Goal:
+Make balance easier to type and easier to read.
+
+IMPORTANT:
+- Do not remove existing economy features.
+- Keep coins, XP, bank, casino, poker, BJ/RBJ, shop, profiles, and roles.
+- Use SQLite.
+- Keep messages under 250 characters.
+- Add explicit routing before unknown-command fallback.
+- Prevent crashes from bad inputs.
+
+==================================================
+SHORT BALANCE COMMANDS
+==================================================
+
+Add these aliases:
+
+- /bal
+- /b
+- /coins
+- /coin
+- /money
+
+All should show the same result as:
+/balance
+
+Important:
+- Only add /b if it does not conflict with an existing command.
+- If /b conflicts, do not use /b.
+- /bal should always work.
+
+Also allow checking another player:
+- /bal <username>
+- /balance <username>
+- /coins <username>
+
+Examples:
+- /bal
+- /bal angelkisses18
+- /balance @4ktreyMarion
+
+==================================================
+NUMBER FORMAT
+==================================================
+
+Create helper function:
+
+format_coin_amount(amount)
+
+It should return both:
+1. comma format
+2. short format
+
+Examples:
+- 999 = "999c"
+- 1,000 = "1,000c / 1K"
+- 15,500 = "15,500c / 15.5K"
+- 1,000,000 = "1,000,000c / 1M"
+- 1,250,000 = "1,250,000c / 1.25M"
+- 1,000,000,000 = "1,000,000,000c / 1B"
+
+Use:
+K = thousand
+M = million
+B = billion
+T = trillion
+
+Remove unnecessary .0:
+- 1.0M should display as 1M
+- 1.50M should display as 1.5M
+
+==================================================
+BALANCE MESSAGE
+==================================================
+
+For self:
+
+"💰 Balance: 1,250,000c / 1.25M"
+
+If showing another player:
+
+"💰 @user: 1,250,000c / 1.25M"
+
+If user not found:
+
+"User not found. They may need to chat first."
+
+==================================================
+UPDATE OTHER MONEY DISPLAYS
+==================================================
+
+Use the same number formatter for:
+- /profile economy page
+- /bank
+- /transactions
+- /leaderboard
+- /daily reward messages
+- /send confirmations
+- /shop prices
+- /bj limits
+- /rbj limits
+- /poker stacks
+- /pstacks
+- casino win/loss messages
+- gold tip coin conversion messages
+
+Examples:
+- "Sent 10,000c / 10K to @user."
+- "Stack: 1,250,000c / 1.25M"
+- "Net +2,500,000c / 2.5M"
+
+==================================================
+PRIVACY
+==================================================
+
+If profile money privacy is OFF:
+- /profile should hide coins.
+- /bal should still show the user's own balance.
+- Staff /profileadmin can still see full amount.
+
+Do not let normal players bypass privacy through /bal <username> if money privacy is OFF.
+
+If target has money privacy OFF:
+"@user's balance is private."
+
+==================================================
+HELP UPDATE
+==================================================
+
+Update /coinhelp:
+
+"💰 Coins
+/bal
+/balance
+/coins
+/daily
+/leaderboard"
+
+Update /profilehelp if needed:
+"Use /privacy money off to hide balance."
+
+==================================================
+TESTS
+==================================================
+
+Test:
+- /bal
+- /balance
+- /coins
+- /bal @angelkisses18
+- /balance @4ktreyMarion
+
+Expected:
+- numbers have commas
+- large numbers also show short form
+- no command fails silently
+- privacy is respected
