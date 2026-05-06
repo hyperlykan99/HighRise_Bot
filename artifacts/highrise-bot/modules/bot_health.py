@@ -327,6 +327,27 @@ async def handle_deploymentcheck(bot, user, args: list[str]) -> None:
     checks.append(("No all+split conflict", not all_conflict,
                    "BOT_MODE=all active with split bots" if all_conflict else ""))
 
+    # 10 Poker background loops status
+    try:
+        afk_on = db.get_room_setting("poker_afk_enabled", "false") in ("1", "true")
+        lrm_on = db.get_room_setting("poker_leaveremove_enabled", "false") in ("1", "true")
+        ai_on  = db.get_room_setting("poker_ai_enabled", "false") in ("1", "true")
+        poker_loops_safe = not afk_on and not lrm_on and not ai_on
+        active_loops = [n for n, v in [("AFK", afk_on), ("LeaveFold", lrm_on), ("AI", ai_on)] if v]
+        checks.append(("Poker loops safe", poker_loops_safe,
+                       f"Active: {', '.join(active_loops)}" if active_loops else ""))
+    except Exception:
+        checks.append(("Poker loops safe", False, "Could not check"))
+
+    # 11 Room count safe (never negative)
+    try:
+        rc = db.get_room_count()
+        room_ok = rc["error"] is None
+        checks.append(("Room count OK", room_ok,
+                       rc["error"][:40] if rc["error"] else ""))
+    except Exception:
+        checks.append(("Room count OK", False, "Could not query"))
+
     # Build pages of 4 checks each
     page = int(args[1]) if len(args) > 1 and args[1].isdigit() else 1
     total_pages = (len(checks) + 3) // 4
@@ -338,9 +359,16 @@ async def handle_deploymentcheck(bot, user, args: list[str]) -> None:
     fail_count = len(checks) - ok_count
 
     # Summary header
-    summary = (f"Deploy Check p{page}/{total_pages}: "
+    try:
+        rc = db.get_room_count()
+        room_count_str = f"Room {rc['total']}"
+    except Exception:
+        room_count_str = "Room ?"
+    afk_on2 = db.get_room_setting("poker_afk_enabled", "false") in ("1", "true")
+    poker_safe_str = "Poker safe OFF" if afk_on2 else "Poker safe ON"
+    summary = (f"Deploy p{page}/{total_pages}: "
                f"DB {'OK' if db_ok else 'ERR'} | "
-               f"{len(instances)} bots | "
+               f"{len(instances)} bots | {room_count_str} | {poker_safe_str} | "
                f"Pass {ok_count} Fail {fail_count}")
     await _w(bot, user.id, summary[:249])
 
@@ -691,3 +719,85 @@ async def handle_fixbotowners(bot, user, args: list[str]) -> None:
         else:
             await _w(bot, user.id,
                      "✅ All command owners already set. Use /fixbotowners force to overwrite.")
+
+
+# ---------------------------------------------------------------------------
+# /emergencystop
+# ---------------------------------------------------------------------------
+
+async def handle_emergencystop(bot, user) -> None:
+    """
+    /emergencystop — Admin/owner only.
+    Turns on poker safe mode, stops autogames, disables startup loops,
+    clears stale locks, and fixes room presence. One-shot emergency brake.
+    """
+    if not can_manage_economy(user.username):
+        await _w(bot, user.id, "Admin and owner only.")
+        return
+    try:
+        db.set_room_setting("poker_afk_enabled",                 "false")
+        db.set_room_setting("poker_ai_enabled",                  "false")
+        db.set_room_setting("poker_leaveremove_enabled",         "false")
+        db.set_room_setting("poker_presence_auto_remove_enabled","false")
+        db.set_room_setting("poker_auto_recovery_enabled",       "false")
+        db.set_room_setting("poker_cleanup_loop_enabled",        "false")
+        db.set_room_setting("poker_paused",                      "true")
+        db.set_room_setting("autogames_enabled",                 "false")
+        db.set_room_setting("bot_auto_spawn_enabled",            "false")
+        db.set_room_setting("outfit_auto_apply_enabled",         "false")
+        db.set_room_setting("emote_loops_enabled_on_startup",    "false")
+        db.set_room_setting("safe_mode_enabled",                 "true")
+    except Exception as _e:
+        print(f"[EMERGENCYSTOP] settings error: {_e}")
+    try:
+        conn = db.get_connection()
+        conn.execute("DELETE FROM bot_module_locks WHERE expires_at < datetime('now')")
+        conn.commit()
+        conn.close()
+    except Exception as _e:
+        print(f"[EMERGENCYSTOP] lock clear error: {_e}")
+    try:
+        db.fix_room_presence()
+    except Exception as _e:
+        print(f"[EMERGENCYSTOP] room presence fix error: {_e}")
+    await _w(bot, user.id, "🛑 Emergency stop active. Poker loops off. Autogames off. Locks cleared.")
+
+
+# ---------------------------------------------------------------------------
+# /roomcount  /fixroomcount
+# ---------------------------------------------------------------------------
+
+async def handle_roomcount(bot, user) -> None:
+    """
+    /roomcount — Manager+ only.
+    Shows the number of users currently tracked as in-room.
+    """
+    if not can_manage_games(user.username):
+        await _w(bot, user.id, "Manager and above only.")
+        return
+    try:
+        rc = db.get_room_count()
+        if rc["error"]:
+            await _w(bot, user.id, f"⚠️ Room count error: {rc['error'][:60]}")
+        else:
+            await _w(bot, user.id, f"Room count: {rc['total']} users tracked in-room.")
+    except Exception as _e:
+        await _w(bot, user.id, f"⚠️ Room count error: {str(_e)[:80]}")
+
+
+async def handle_fixroomcount(bot, user) -> None:
+    """
+    /fixroomcount — Manager+ only.
+    Repairs stale/invalid room_presence rows. Resets any rows with an
+    invalid in_room value to 0 so the count never goes negative.
+    """
+    if not can_manage_games(user.username):
+        await _w(bot, user.id, "Manager and above only.")
+        return
+    try:
+        repaired = db.fix_room_presence()
+        rc = db.get_room_count()
+        msg = f"✅ Room count repaired. {repaired} row(s) fixed. Current: {rc['total']} in-room."
+        await _w(bot, user.id, msg[:249])
+    except Exception as _e:
+        await _w(bot, user.id, f"⚠️ Fix error: {str(_e)[:80]}")

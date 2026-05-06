@@ -300,6 +300,7 @@ from modules.bot_health import (
     handle_safemode, handle_crashlogs, handle_clearcrashlogs,
     handle_botheartbeat, handle_moduleowners,
     handle_botconflicts, handle_fixbotowners,
+    handle_emergencystop, handle_roomcount, handle_fixroomcount,
 )
 from modules.bot_modes import (
     handle_botmode, handle_botmodes, handle_botprofile,
@@ -678,6 +679,7 @@ ALL_KNOWN_COMMANDS = (
         "botheartbeat", "moduleowners",
         "botconflicts", "fixbotowners",
         "crashlogs", "clearcrashlogs", "safemode",
+        "emergencystop", "roomcount", "fixroomcount",
         # ── Task ownership / restore announce ─────────────────────────────────
         "taskowners", "activetasks", "taskconflicts", "fixtaskowners",
         "restoreannounce", "restorestatus",
@@ -3218,6 +3220,15 @@ class HangoutBot(BaseBot):
         elif cmd == "spectators":
             await handle_spectators(self, user, args)
 
+        elif cmd == "emergencystop":
+            await handle_emergencystop(self, user)
+
+        elif cmd == "roomcount":
+            await handle_roomcount(self, user)
+
+        elif cmd == "fixroomcount":
+            await handle_fixroomcount(self, user)
+
         elif cmd == "pokermode":
             await handle_pokermode(self, user, args)
 
@@ -3718,6 +3729,15 @@ class HangoutBot(BaseBot):
         elif cmd == "clearcrashlogs":
             await handle_clearcrashlogs(self, user, args)
 
+        elif cmd == "emergencystop":
+            await handle_emergencystop(self, user)
+
+        elif cmd == "roomcount":
+            await handle_roomcount(self, user)
+
+        elif cmd == "fixroomcount":
+            await handle_fixroomcount(self, user)
+
         # ── Task ownership / restore announce ─────────────────────────────────
         elif cmd == "taskowners":
             await handle_taskowners(self, user)
@@ -3828,11 +3848,14 @@ class HangoutBot(BaseBot):
             pass
 
     async def on_user_leave(self, user: User) -> None:
-        """Log when a player leaves; handle poker auto-fold if seated."""
+        """Log when a player leaves; handle poker auto-fold if seated (Poker Bot only)."""
         remove_from_room_cache(user.id)
         print(f"[HangoutBot] {user.username} left.")
         try:
-            await handle_poker_player_left(self, user)
+            if should_this_bot_run_module("poker"):
+                await handle_poker_player_left(self, user)
+            else:
+                print(f"[SKIP] poker leave-fold skipped on {BOT_MODE}")
         except Exception as _ple:
             print(f"[POKER] on_user_leave error: {_ple}")
 

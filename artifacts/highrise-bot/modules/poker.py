@@ -3706,6 +3706,59 @@ async def _dispatch(bot: BaseBot, user: User, args: list[str]) -> None:
                     ("📝 Notes: " + " | ".join(parts_rv))[:249])
         return
 
+    # ── leaveremove ────────────────────────────────────────────────────────────
+    if sub == "leaveremove":
+        if not can_manage_games(user.username):
+            await _w(bot, user.id, "Managers+ only.")
+            return
+        val = args[2].lower() if len(args) >= 3 else ""
+        if val in ("on", "off"):
+            db.set_room_setting("poker_leaveremove_enabled", "true" if val == "on" else "false")
+            icon = "✅" if val == "on" else "⛔"
+            msg = (f"{icon} Leave-fold {'ON' if val=='on' else 'OFF'}. "
+                   f"Players who leave will "
+                   f"{'be auto-folded.' if val=='on' else 'keep their seat until cleaned.'}")
+            await _w(bot, user.id, msg[:249])
+        else:
+            cur = db.get_room_setting("poker_leaveremove_enabled", "false")
+            label = "ON" if cur in ("1", "true") else "OFF"
+            await _w(bot, user.id,
+                     f"Leave-fold: {label}. /poker leaveremove on|off")
+        return
+
+    # ── safemode ───────────────────────────────────────────────────────────────
+    if sub == "safemode":
+        from modules.permissions import can_manage_economy as _cme
+        if not _cme(user.username):
+            await _w(bot, user.id, "Admin/owner only.")
+            return
+        val = args[2].lower() if len(args) >= 3 else "status"
+        if val == "on":
+            db.set_room_setting("poker_afk_enabled",                 "false")
+            db.set_room_setting("poker_ai_enabled",                  "false")
+            db.set_room_setting("poker_leaveremove_enabled",         "false")
+            db.set_room_setting("poker_presence_auto_remove_enabled","false")
+            db.set_room_setting("poker_auto_recovery_enabled",       "false")
+            db.set_room_setting("poker_cleanup_loop_enabled",        "false")
+            db.set_room_setting("poker_paused",                      "true")
+            await _w(bot, user.id,
+                     "✅ Poker safe mode ON. Background loops disabled. Table paused.")
+        elif val == "off":
+            db.set_room_setting("poker_paused", "false")
+            await _w(bot, user.id,
+                     "⛔ Poker safe mode OFF. Table unpaused. Re-enable features as needed.")
+        else:
+            afk = db.get_room_setting("poker_afk_enabled", "false")
+            lrm = db.get_room_setting("poker_leaveremove_enabled", "false")
+            psd = db.get_room_setting("poker_paused", "false")
+            ai  = db.get_room_setting("poker_ai_enabled", "false")
+            await _w(bot, user.id,
+                     (f"Poker loops: AFK={'ON' if afk in ('1','true') else 'OFF'}"
+                      f" | Leave={'ON' if lrm in ('1','true') else 'OFF'}"
+                      f" | AI={'ON' if ai in ('1','true') else 'OFF'}"
+                      f" | Paused={'ON' if psd in ('1','true') else 'OFF'}")[:249])
+        return
+
     # ── integrity ─────────────────────────────────────────────────────────────
     if sub == "integrity":
         if not can_manage_games(user.username):
@@ -4102,8 +4155,18 @@ async def handle_poker_player_left(bot: BaseBot, user: User) -> None:
     Called from on_user_leave. If the player is seated at poker:
     auto-folds them (if in an active hand), refunds remaining stack,
     and removes their seat. Safe to call even if player is not at table.
+    Only runs on Poker Bot and only when poker_leaveremove_enabled=true.
     """
     global _turn_task
+    try:
+        from modules.multi_bot import should_this_bot_run_module as _sbrm
+        if not _sbrm("poker"):
+            print(f"[SKIP] poker leave-fold skipped on {BOT_MODE}")
+            return
+    except Exception:
+        pass
+    if db.get_room_setting("poker_leaveremove_enabled", "0") not in ("1", "true"):
+        return
     sp = _get_seated(user.username)
     if not sp:
         return

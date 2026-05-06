@@ -70,6 +70,23 @@ Casino games (Blackjack, Realistic Blackjack, Poker), DJ queue, token economy, d
 - Short aliases preferred for in-room play; full `/bj <sub>` commands still supported.
 - Rep rank cap: Celebrity (500+). No "Legend" rep rank. Level rank Legend = 50+.
 
+## Crash-safe poker fix (applied)
+
+**Root cause:** `handle_poker_player_left` ran on all 8 bots on every leave event; `poker_afk_enabled` was seeded as `'1'` (ON). Both now fixed.
+
+- `poker_leaveremove_enabled=false` (new setting) gates `handle_poker_player_left` — leave-fold is OFF unless explicitly turned ON with `/poker leaveremove on`.
+- `on_user_leave` in `main.py` now checks `should_this_bot_run_module("poker")` before calling `handle_poker_player_left` — only Poker Bot ever runs it.
+- `poker_afk_enabled` migration updated to `'0'`; a new migration unconditionally resets it to `'0'` (fixes existing installs).
+- All new poker settings default to OFF: `poker_leaveremove_enabled`, `poker_presence_auto_remove_enabled`, `poker_auto_recovery_enabled`, `poker_cleanup_loop_enabled`. `poker_notes_enabled=true` (notes are command-only, no loop).
+
+**New commands added:**
+- `/poker leaveremove on|off` — enable/disable auto-fold when player leaves room
+- `/poker safemode on|off|status` — admin: disable all poker background loops + pause table
+- `/emergencystop` — admin: one-shot brake; disables all loops, poker loops, autogames, clears stale locks, fixes room count
+- `/roomcount` — shows room_presence tracked in-room count (never negative)
+- `/fixroomcount` — repairs stale/invalid room_presence rows
+- `/deploymentcheck` now shows: room count, poker loops safe status, pass/fail summary
+
 ## Gotchas
 
 - Never hardcode ports; the bot uses Highrise WebSocket.

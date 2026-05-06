@@ -1296,12 +1296,20 @@ def _migrate_db():
         "INSERT OR IGNORE INTO room_settings (key, value) VALUES ('poker_mode', 'normal')",
         "INSERT OR IGNORE INTO room_settings (key, value) VALUES ('poker_stakes_mode', 'normal')",
         "INSERT OR IGNORE INTO room_settings (key, value) VALUES ('poker_rules_mode', 'casual')",
-        "INSERT OR IGNORE INTO room_settings (key, value) VALUES ('poker_afk_enabled', '1')",
+        "INSERT OR IGNORE INTO room_settings (key, value) VALUES ('poker_afk_enabled', '0')",
         "INSERT OR IGNORE INTO room_settings (key, value) VALUES ('poker_afk_missed_before_sitout', '2')",
         "INSERT OR IGNORE INTO room_settings (key, value) VALUES ('poker_afk_missed_before_remove', '3')",
         "INSERT OR IGNORE INTO room_settings (key, value) VALUES ('poker_left_allin_policy', 'fold')",
         "INSERT OR IGNORE INTO room_settings (key, value) VALUES ('poker_ai_enabled', '0')",
         "INSERT OR IGNORE INTO room_settings (key, value) VALUES ('poker_revealdebug_enabled', '0')",
+        # ── Force-reset AFK to OFF (crash-safe fix — was seeded as '1') ────────
+        "UPDATE room_settings SET value='0' WHERE key='poker_afk_enabled' AND value='1'",
+        # ── New poker safety settings (all disabled by default) ───────────────
+        "INSERT OR IGNORE INTO room_settings (key, value) VALUES ('poker_leaveremove_enabled', '0')",
+        "INSERT OR IGNORE INTO room_settings (key, value) VALUES ('poker_presence_auto_remove_enabled', '0')",
+        "INSERT OR IGNORE INTO room_settings (key, value) VALUES ('poker_auto_recovery_enabled', '0')",
+        "INSERT OR IGNORE INTO room_settings (key, value) VALUES ('poker_cleanup_loop_enabled', '0')",
+        "INSERT OR IGNORE INTO room_settings (key, value) VALUES ('poker_notes_enabled', '1')",
     ]:
         try:
             conn.execute(sql)
@@ -7421,6 +7429,39 @@ def get_poker_spectators() -> list:
     return [dict(r) for r in rows]
 
 
+def get_room_count() -> dict:
+    """Return in-room count from room_presence table. Never negative."""
+    try:
+        conn = get_connection()
+        row = conn.execute(
+            "SELECT COUNT(*) FROM room_presence WHERE in_room=1"
+        ).fetchone()
+        conn.close()
+        total = max(0, row[0] if row else 0)
+        return {"total": total, "error": None}
+    except Exception as e:
+        return {"total": 0, "error": str(e)}
+
+
+def fix_room_presence() -> int:
+    """
+    Reset any stale room_presence rows safely.
+    Sets in_room=0 for any row where in_room is not 0 or 1.
+    Returns count of rows repaired.
+    """
+    try:
+        conn = get_connection()
+        cur = conn.execute(
+            "UPDATE room_presence SET in_room=0 WHERE in_room NOT IN (0,1)"
+        )
+        repaired = cur.rowcount
+        conn.commit()
+        conn.close()
+        return repaired
+    except Exception:
+        return 0
+
+
 def is_poker_spectator(username_key: str) -> bool:
     conn = get_connection()
     row = conn.execute(
@@ -7470,6 +7511,12 @@ def seed_room_settings() -> None:
         ("poker_spectate_enabled",            "true"),
         ("poker_waitlist_auto_notify",        "true"),
         ("poker_waitlist_expire_minutes",     "30"),
+        ("poker_leaveremove_enabled",         "false"),
+        ("poker_presence_auto_remove_enabled","false"),
+        ("poker_auto_recovery_enabled",       "false"),
+        ("poker_cleanup_loop_enabled",        "false"),
+        ("poker_notes_enabled",               "true"),
+        ("poker_afk_enabled",                 "false"),
     ]
     conn = get_connection()
     for k, v in defaults:
