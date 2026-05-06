@@ -1,0 +1,283 @@
+Make sure every poker player receives their private cards every hand.
+
+PROBLEM:
+In poker, sometimes only one player receives their cards. Every active player in the hand must receive their own private cards when the hand starts.
+
+GOAL:
+Guarantee card delivery to every in-hand poker player:
+- every seated active player gets exactly 2 saved hole cards
+- every player gets a private whisper with their own cards
+- failed whispers are retried
+- delivery is tracked
+- players can always use /ph to see their own saved cards
+- staff can resend cards without redealing
+
+IMPORTANT:
+- Do not redeal cards after they are saved.
+- Do not show private cards publicly.
+- Do not leak Player A cards to Player B.
+- Keep Poker Bot ownership.
+- Use SQLite.
+- Keep messages under 250 characters.
+- No silent failures.
+
+==================================================
+PART 1: SAVE CARDS FOR EVERY PLAYER
+==================================================
+
+When a poker hand starts:
+
+1. Get all active in-hand players.
+2. Normalize usernames:
+   - remove @
+   - trim spaces
+   - lowercase for lookup
+   - keep display name for messages
+
+3. Deal exactly 2 cards to EACH active player.
+4. Save cards in a table before sending any messages.
+
+Create/verify table:
+
+poker_hole_cards:
+- round_id TEXT
+- username_key TEXT
+- display_name TEXT
+- card1 TEXT
+- card2 TEXT
+- created_at TEXT
+- PRIMARY KEY(round_id, username_key)
+
+Rule:
+If cards already exist for a player in this round, do NOT redeal.
+Use saved cards.
+
+==================================================
+PART 2: DELIVERY TRACKING
+==================================================
+
+Create/verify table:
+
+poker_card_delivery:
+- round_id TEXT
+- username_key TEXT
+- display_name TEXT
+- cards_sent INTEGER DEFAULT 0
+- attempts INTEGER DEFAULT 0
+- sent_at TEXT
+- last_attempt_at TEXT
+- failed_reason TEXT
+- PRIMARY KEY(round_id, username_key)
+
+After cards are saved:
+- create one delivery row per in-hand player
+- cards_sent starts at 0
+- attempts starts at 0
+
+==================================================
+PART 3: SEND CARDS TO ALL PLAYERS
+==================================================
+
+Create function:
+
+deliver_poker_cards_to_all(round_id)
+
+Behavior:
+- load every in-hand player for that round
+- for each player:
+  - load saved cards from poker_hole_cards
+  - whisper only that player
+  - mark cards_sent = 1 on success
+  - increment attempts
+  - save failed_reason if whisper fails
+
+Message format:
+"🃏 Hand #1 | Your cards: A♠️ K♦️ | Stack: 900c"
+
+If it is their turn:
+"👉 🃏 Your turn | A♠️ K♦️ | /check /call /r /f /ai"
+
+Do not send cards in public chat.
+
+Public hand start message:
+"♠️ Hand #1 started. Cards sent. Use /ph if needed."
+
+==================================================
+PART 4: RETRY FAILED DELIVERY
+==================================================
+
+After first delivery pass:
+- wait 1 second if possible
+- check missing delivery rows
+- retry missing players once
+
+If still missing:
+- whisper/public-safe reminder:
+"@user, type /ph to view your poker cards."
+
+Do NOT include their cards in public reminder.
+
+Log:
+"[POKER] Card delivery 2/2 sent."
+or
+"[POKER] Card delivery 1/2 sent. Missing: DeluluDuh"
+
+==================================================
+PART 5: /PH FALLBACK MUST ALWAYS WORK
+==================================================
+
+Fix /ph and /pcards.
+
+Behavior:
+- requester must be in current hand
+- load saved cards by normalized username
+- whisper only requester
+- mark cards_sent = 1 if successful
+- increment attempts
+- never show another player’s cards
+
+If cards missing:
+"Cards not found. Ask staff to use /poker resendcards."
+
+If not in hand:
+"You are not in this hand."
+
+If no active hand:
+"No active poker hand."
+
+==================================================
+PART 6: RESEND COMMANDS
+==================================================
+
+Add/fix:
+
+- /poker cardstatus
+- /poker resendcards
+- /poker resendcards <username>
+
+Permissions:
+- owner/admin/manager only
+
+/poker cardstatus:
+Shows:
+"Cards: 2/2 sent."
+
+If missing:
+"Cards: 1/2 sent | Missing: @DeluluDuh"
+
+/poker resendcards:
+- resends saved cards to every in-hand player
+- does not redeal
+- message:
+"✅ Resent cards to 2 players."
+
+/poker resendcards DeluluDuh:
+- resends saved cards to that player only
+- message:
+"✅ Resent cards to @DeluluDuh."
+
+==================================================
+PART 7: HAND START VALIDATION
+==================================================
+
+Before action starts:
+- verify every active player has saved cards
+- verify delivery rows exist for every player
+
+If missing saved cards:
+- stop hand start
+- rebuild only missing saved card rows if safe before any betting action
+- log error
+- message:
+"Poker card setup fixed. Cards sent."
+
+If delivery missing:
+- call deliver_poker_cards_to_all(round_id)
+
+Do not allow betting/action timer to start until every active player has saved cards.
+
+==================================================
+PART 8: TURN MESSAGE ALSO SHOWS CARDS
+==================================================
+
+When a player’s turn starts:
+- load their saved cards
+- whisper their turn message with cards
+
+Example:
+"👉 🃏 Your turn | 6♠ A♣ | Call 100c | /call /r amt /f /ai"
+
+This acts as another fallback if initial card whisper failed.
+
+==================================================
+PART 9: INTEGRITY CHECK
+==================================================
+
+Update:
+
+- /poker integrity cards
+- /casinointegrity cards
+- /casinointegrity full
+
+Add checks:
+1. two fake players are created
+2. both receive saved hole cards
+3. delivery table has 2/2 rows
+4. Player A receives only Player A cards
+5. Player B receives only Player B cards
+6. /ph returns correct cards for each player
+7. no private cards appear in public messages
+8. turn message includes correct player’s cards
+
+Expected:
+"♠️ Poker Cards: 8/8 pass | delivery OK"
+
+==================================================
+PART 10: ROUTING
+==================================================
+
+Poker Bot owns:
+- /ph
+- /pcards
+- /poker cardstatus
+- /poker resendcards
+- /poker integrity cards
+
+Commandtest expected:
+"/poker cardstatus route:YES | help:YES | owner:Poker"
+
+==================================================
+PART 11: TESTS
+==================================================
+
+Test with 2 real players:
+
+1. Player A:
+/p 1000
+
+2. Player B:
+/p 1000
+
+Expected:
+- Player A gets private cards
+- Player B gets private cards
+- public says hand started/cards sent
+
+Then staff runs:
+/poker cardstatus
+
+Expected:
+"Cards: 2/2 sent."
+
+Each player runs:
+/ph
+
+Expected:
+Each sees only their own cards.
+
+If someone says they did not get cards:
+Staff runs:
+/poker resendcards username
+
+Final requirement:
+Every active poker player receives their own cards every hand, tracked by /poker cardstatus, with /ph and /poker resendcards as safe fallback.

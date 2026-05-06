@@ -1079,6 +1079,74 @@ async def _next_hand_countdown(bot: BaseBot, delay: int) -> None:
     await _try_start_hand(bot)
 
 
+async def _deliver_poker_cards_to_all(
+    bot: "BaseBot",
+    round_id: str,
+    hand_num: int,
+    only_usernames: set[str] | None = None,
+) -> tuple[int, list[str]]:
+    """Whisper hole cards to every in-hand player for round_id.
+
+    Loads cards from poker_hole_cards (normalized-username lookup), falls back
+    to hole_cards_json in poker_active_players.  Updates poker_card_delivery
+    for every attempt.
+
+    Args:
+        only_usernames: if provided, only deliver to players in this set
+                        (used for targeted retry).
+    Returns:
+        (sent_count, list_of_failed_usernames)
+    """
+    players    = _get_players(round_id)
+    sent_count = 0
+    failed: list[str] = []
+
+    for p in players:
+        if p["status"] not in ("active", "allin"):
+            continue
+        if only_usernames and p["username"].lower() not in {
+                u.lower() for u in only_usernames}:
+            continue
+
+        # Load cards: poker_hole_cards first, then fallback
+        hc = db.get_hole_cards(round_id, p["username"])
+        if hc and hc.get("card1") and hc.get("card2"):
+            cards = [hc["card1"], hc["card2"]]
+        else:
+            raw = json.loads(p.get("hole_cards_json") or "[]")
+            if len(raw) == 2:
+                cards = raw
+            else:
+                db.record_card_delivery(
+                    round_id, p["username"], False,
+                    "no_saved_cards", p["username"]
+                )
+                failed.append(p["username"])
+                print(f"[POKER] No saved cards for @{p['username']} "
+                      f"round={round_id[:8]}")
+                continue
+
+        msg = _fmt_private_hand(cards, p["stack"], hand_num=hand_num)
+        delivered   = False
+        fail_reason = ""
+        try:
+            await bot.highrise.send_whisper(p["user_id"], msg[:249])
+            delivered = True
+        except Exception as _de:
+            fail_reason = str(_de)[:80]
+
+        db.record_card_delivery(
+            round_id, p["username"], delivered, fail_reason, p["username"]
+        )
+        if delivered:
+            sent_count += 1
+        else:
+            failed.append(p["username"])
+            print(f"[POKER] Card delivery FAILED @{p['username']}: {fail_reason}")
+
+    return sent_count, failed
+
+
 async def _try_start_hand(bot: BaseBot) -> None:
     """Check conditions and start a new hand if possible."""
     global _next_hand_task
@@ -1239,6 +1307,12 @@ async def _start_hand(bot: BaseBot) -> None:
         return
     conn.close()
 
+    # ── Save to poker_hole_cards (normalized-key lookup for /ph / resend) ─
+    for pr in player_rows:
+        h = json.loads(pr["hole_cards_json"])
+        db.save_hole_cards(round_id, pr["username"].lower(),
+                           pr["username"], h[0], h[1])
+
     # ── Part 3: VALIDATE every player has exactly 2 cards ─────────────────
     err = _validate_deal(round_id, len(seated))
     if err:
@@ -1272,57 +1346,42 @@ async def _start_hand(bot: BaseBot) -> None:
         next_hand_starts_at=None,
     )
 
-    # ── Part 4: whisper cards privately to every player (with retry + tracking)
-    sent_count:    int       = 0
-    failed_players: list[str] = []
+    # ── Part 4: deliver hole cards to every player (first pass) ───────────
+    sent_count, failed_players = await _deliver_poker_cards_to_all(
+        bot, round_id, hand_num
+    )
 
-    for i, sp in enumerate(seated):
-        pr       = player_rows[i]
-        h        = json.loads(pr["hole_cards_json"])
-        sb_label = " (SB)" if i == sb_idx and blinds_on else ""
-        bb_label = " (BB)" if i == bb_idx and blinds_on else ""
-        label    = sb_label or bb_label or ""
-        msg      = _fmt_private_hand(h, pr["stack"], hand_num=hand_num, pos=label)
-
-        delivered   = False
-        fail_reason = ""
-
-        # First attempt
-        try:
-            await bot.highrise.send_whisper(sp["user_id"], msg)
-            delivered = True
-        except Exception as _e1:
-            fail_reason = str(_e1)[:80]
-            # Retry once after a short pause
-            await asyncio.sleep(0.5)
-            try:
-                await bot.highrise.send_whisper(sp["user_id"], msg)
-                delivered   = True
-                fail_reason = ""
-            except Exception as _e2:
-                fail_reason = str(_e2)[:80]
-
-        db.record_card_delivery(round_id, sp["username"], delivered, fail_reason)
-        if delivered:
-            sent_count += 1
+    # Retry pass: wait 1s then re-try any still-missing players
+    if failed_players:
+        await asyncio.sleep(1.0)
+        retry_sent, still_missing = await _deliver_poker_cards_to_all(
+            bot, round_id, hand_num,
+            only_usernames=set(failed_players),
+        )
+        sent_count += retry_sent
+        # Auto-remind players whose cards still didn't get through
+        for uname in still_missing:
+            sp_row = next(
+                (s for s in seated if s["username"].lower() == uname.lower()),
+                None,
+            )
+            if sp_row:
+                await asyncio.sleep(0.3)
+                try:
+                    await bot.highrise.send_whisper(
+                        sp_row["user_id"],
+                        "⚠️ Your cards are ready. Type /ph to view.",
+                    )
+                except Exception:
+                    pass
+        if still_missing:
+            print(f"[POKER] Card delivery {sent_count}/{len(seated)} sent. "
+                  f"Missing: {', '.join(still_missing)}")
         else:
-            failed_players.append(sp["username"])
-            print(f"[POKER] Card delivery FAILED @{sp['username']}: {fail_reason}")
-
-    print(f"[POKER] Sent private cards to {sent_count}/{len(seated)} players.")
-
-    # Auto-remind any player whose whisper failed so they know to use /ph
-    for uname in failed_players:
-        sp_row = next((s for s in seated if s["username"] == uname), None)
-        if sp_row:
-            await asyncio.sleep(0.3)
-            try:
-                await bot.highrise.send_whisper(
-                    sp_row["user_id"],
-                    "⚠️ Your cards are ready. Type /ph to view.",
-                )
-            except Exception:
-                pass
+            print(f"[POKER] Card delivery {sent_count}/{len(seated)} sent "
+                  f"(retry OK).")
+    else:
+        print(f"[POKER] Card delivery {sent_count}/{len(seated)} sent.")
 
     # ── Announce ──────────────────────────────────────────────────────────
     card_note = (
@@ -1338,6 +1397,29 @@ async def _start_hand(bot: BaseBot) -> None:
         order_str = "  ".join(f"@{sp['username']}" for sp in seated)
         await _chat(bot,
             f"♠️ Hand #{hand_num} | Players: {order_str[:80]} | {card_note}")
+
+    # ── Part 7: verify hole_cards saved; re-deliver if any missed ──────────
+    _players_now = _get_players(round_id)
+    for _pl in _players_now:
+        if _pl["status"] not in ("active", "allin"):
+            continue
+        if not db.get_hole_cards(round_id, _pl["username"].lower()):
+            raw = json.loads(_pl.get("hole_cards_json") or "[]")
+            if len(raw) == 2:
+                db.save_hole_cards(round_id, _pl["username"].lower(),
+                                   _pl["username"], raw[0], raw[1])
+                print(f"[POKER] Part7: rebuilt hole_cards for @{_pl['username']}")
+    delivery_rows  = db.get_card_delivery_status(round_id)
+    delivered_keys = {r["username"] for r in delivery_rows if r["cards_sent"]}
+    need_deliver   = {
+        pl["username"] for pl in _players_now
+        if pl["status"] in ("active", "allin")
+        and pl["username"].lower() not in delivered_keys
+    }
+    if need_deliver:
+        await _deliver_poker_cards_to_all(
+            bot, round_id, hand_num, only_usernames=need_deliver
+        )
 
     # ── Start preflop ──────────────────────────────────────────────────────
     players = _get_players(round_id)
@@ -2401,6 +2483,9 @@ async def _dispatch(bot: BaseBot, user: User, args: list[str]) -> None:
             return
 
         p = _get_player(tbl["round_id"], user.id)
+        # Fallback: lookup by normalized username (handles stale user_id)
+        if p is None:
+            p = _get_player_by_name(tbl["round_id"], user.username)
         if p is None:
             if sp is None:
                 await _w(bot, user.id, "Join poker with /p <buyin>.")
@@ -2412,10 +2497,15 @@ async def _dispatch(bot: BaseBot, user: User, args: list[str]) -> None:
                     "No active hand yet. Next hand starts soon.")
             return
 
-        cards = json.loads(p["hole_cards_json"] or "[]")
+        # Load cards: poker_hole_cards (normalized-key) first, then fallback
+        hc = db.get_hole_cards(tbl["round_id"], user.username)
+        if hc and hc.get("card1") and hc.get("card2"):
+            cards = [hc["card1"], hc["card2"]]
+        else:
+            cards = json.loads(p["hole_cards_json"] or "[]")
         if not cards or len(cards) != 2:
             await _w(bot, user.id,
-                "⚠️ Your hand is missing. Staff notified. Use /poker recoverystatus.")
+                "Cards not found. Ask staff: /poker resendcards.")
             print(f"[POKER] /ph: no cards for {user.username} "
                   f"round={tbl['round_id']}")
             return
@@ -3078,32 +3168,25 @@ async def _dispatch(bot: BaseBot, user: User, args: list[str]) -> None:
             if not p:
                 await _w(bot, user.id, f"@{target_name} is not in this hand.")
                 return
-            cards = json.loads(p["hole_cards_json"] or "[]")
+            # Load from poker_hole_cards first for reliable normalized lookup
+            hc = db.get_hole_cards(round_id, target_name)
+            if hc and hc.get("card1") and hc.get("card2"):
+                cards = [hc["card1"], hc["card2"]]
+            else:
+                cards = json.loads(p.get("hole_cards_json") or "[]")
             if len(cards) != 2:
                 await _w(bot, user.id, f"@{target_name} has no cards to resend.")
                 return
             msg = _fmt_private_hand(cards, p["stack"], hand_num=hn)
             try:
                 await bot.highrise.send_whisper(p["user_id"], msg[:249])
-                db.mark_card_delivered(round_id, p["username"])
+                db.record_card_delivery(round_id, p["username"], True, "",
+                                        p["username"])
                 await _w(bot, user.id, f"✅ Resent cards to @{p['username']}.")
             except Exception as _re:
                 await _w(bot, user.id, f"⚠️ Resend failed: {str(_re)[:60]}")
         else:
-            sent_n = 0
-            for p in players:
-                if p["status"] not in ("active", "allin"):
-                    continue
-                cards = json.loads(p["hole_cards_json"] or "[]")
-                if len(cards) != 2:
-                    continue
-                msg = _fmt_private_hand(cards, p["stack"], hand_num=hn)
-                try:
-                    await bot.highrise.send_whisper(p["user_id"], msg[:249])
-                    db.mark_card_delivered(round_id, p["username"])
-                    sent_n += 1
-                except Exception:
-                    pass
+            sent_n, _ = await _deliver_poker_cards_to_all(bot, round_id, hn)
             await _w(bot, user.id, f"✅ Resent cards to {sent_n} player(s).")
         return
 

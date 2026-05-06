@@ -1184,6 +1184,19 @@ def _migrate_db():
         "sent_at TEXT NOT NULL DEFAULT '', "
         "failed_reason TEXT NOT NULL DEFAULT '', "
         "PRIMARY KEY (round_id, username))",
+        # ── Poker hole-card secure storage (normalized-username lookup) ───────
+        "CREATE TABLE IF NOT EXISTS poker_hole_cards ("
+        "round_id TEXT NOT NULL, "
+        "username_key TEXT NOT NULL, "
+        "display_name TEXT NOT NULL DEFAULT '', "
+        "card1 TEXT NOT NULL DEFAULT '', "
+        "card2 TEXT NOT NULL DEFAULT '', "
+        "created_at TEXT NOT NULL DEFAULT (datetime('now')), "
+        "PRIMARY KEY (round_id, username_key))",
+        # ── Extend delivery table with attempt tracking ───────────────────────
+        "ALTER TABLE poker_card_delivery ADD COLUMN display_name TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE poker_card_delivery ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE poker_card_delivery ADD COLUMN last_attempt_at TEXT NOT NULL DEFAULT ''",
     ]:
         try:
             conn.execute(sql)
@@ -6890,18 +6903,70 @@ def add_balance(user_id: str, amount: int) -> None:
     conn.close()
 
 
+# ── Poker hole-card secure storage ────────────────────────────────────────────
+
+def save_hole_cards(round_id: str, username_key: str, display_name: str,
+                    card1: str, card2: str) -> None:
+    """Save hole cards for a player (INSERT OR IGNORE — never overwrites)."""
+    conn = get_connection()
+    conn.execute(
+        "INSERT OR IGNORE INTO poker_hole_cards "
+        "(round_id, username_key, display_name, card1, card2, created_at) "
+        "VALUES (?, LOWER(?), ?, ?, ?, datetime('now'))",
+        (round_id, username_key, display_name, card1, card2),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_hole_cards(round_id: str, username_key: str) -> dict | None:
+    """Return a player's saved hole cards by normalized username."""
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT * FROM poker_hole_cards "
+        "WHERE round_id=? AND username_key=LOWER(?)",
+        (round_id, username_key),
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
 # ── Poker card delivery tracking ──────────────────────────────────────────────
 
 def record_card_delivery(round_id: str, username: str, sent: bool,
-                         reason: str = "") -> None:
-    """Record a private-card delivery attempt for a poker hand."""
+                         reason: str = "", display_name: str = "") -> None:
+    """Upsert a card delivery attempt record, incrementing the attempts counter."""
     conn = get_connection()
-    conn.execute(
-        "INSERT OR REPLACE INTO poker_card_delivery "
-        "(round_id, username, cards_sent, sent_at, failed_reason) "
-        "VALUES (?, LOWER(?), ?, datetime('now'), ?)",
-        (round_id, username, 1 if sent else 0, reason[:120]),
-    )
+    ukey = username.lower()
+    dn   = (display_name or username)[:60]
+    row  = conn.execute(
+        "SELECT attempts, cards_sent, display_name FROM poker_card_delivery "
+        "WHERE round_id=? AND username=?",
+        (round_id, ukey),
+    ).fetchone()
+    if row:
+        new_attempts = (row["attempts"] or 0) + 1
+        new_sent     = 1 if (sent or row["cards_sent"]) else 0
+        keep_dn      = row["display_name"] or dn
+        conn.execute(
+            "UPDATE poker_card_delivery "
+            "SET display_name=?, cards_sent=?, attempts=?, "
+            "last_attempt_at=datetime('now'), failed_reason=? "
+            "WHERE round_id=? AND username=?",
+            (keep_dn, new_sent, new_attempts,
+             "" if sent else reason[:120], round_id, ukey),
+        )
+    else:
+        conn.execute(
+            "INSERT INTO poker_card_delivery "
+            "(round_id, username, display_name, cards_sent, attempts, "
+            "sent_at, last_attempt_at, failed_reason) "
+            "VALUES (?, ?, ?, ?, 1, "
+            "CASE WHEN ? THEN datetime('now') ELSE '' END, "
+            "datetime('now'), ?)",
+            (round_id, ukey, dn, 1 if sent else 0,
+             1 if sent else 0, "" if sent else reason[:120]),
+        )
     conn.commit()
     conn.close()
 
@@ -6910,7 +6975,8 @@ def get_card_delivery_status(round_id: str) -> list:
     """Return delivery rows for a round (list of dicts)."""
     conn = get_connection()
     rows = conn.execute(
-        "SELECT username, cards_sent, sent_at, failed_reason "
+        "SELECT username, display_name, cards_sent, attempts, "
+        "sent_at, last_attempt_at, failed_reason "
         "FROM poker_card_delivery WHERE round_id=? ORDER BY rowid",
         (round_id,),
     ).fetchall()
@@ -6919,14 +6985,29 @@ def get_card_delivery_status(round_id: str) -> list:
 
 
 def mark_card_delivered(round_id: str, username: str) -> None:
-    """Mark a player's card delivery as successful (called by /ph fallback)."""
+    """Mark delivery as successful and increment attempt count (/ph fallback)."""
     conn = get_connection()
-    conn.execute(
-        "INSERT OR REPLACE INTO poker_card_delivery "
-        "(round_id, username, cards_sent, sent_at, failed_reason) "
-        "VALUES (?, LOWER(?), 1, datetime('now'), '')",
-        (round_id, username),
-    )
+    ukey = username.lower()
+    row  = conn.execute(
+        "SELECT attempts FROM poker_card_delivery WHERE round_id=? AND username=?",
+        (round_id, ukey),
+    ).fetchone()
+    if row:
+        new_att = (row["attempts"] or 0) + 1
+        conn.execute(
+            "UPDATE poker_card_delivery "
+            "SET cards_sent=1, attempts=?, last_attempt_at=datetime('now'), "
+            "failed_reason='' WHERE round_id=? AND username=?",
+            (new_att, round_id, ukey),
+        )
+    else:
+        conn.execute(
+            "INSERT INTO poker_card_delivery "
+            "(round_id, username, display_name, cards_sent, attempts, "
+            "sent_at, last_attempt_at, failed_reason) "
+            "VALUES (?, ?, '', 1, 1, datetime('now'), datetime('now'), '')",
+            (round_id, ukey),
+        )
     conn.commit()
     conn.close()
 

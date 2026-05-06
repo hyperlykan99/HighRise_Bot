@@ -177,7 +177,7 @@ _RBJ_TABLES = [
 _POKER_TABLES = [
     "poker_settings", "poker_active_table", "poker_active_players",
     "poker_round_results", "poker_recovery_logs", "poker_seated_players",
-    "bot_module_locks", "poker_card_delivery",
+    "bot_module_locks", "poker_card_delivery", "poker_hole_cards",
 ]
 
 
@@ -746,6 +746,30 @@ def _check_cards_poker() -> list:
         except Exception:
             _ddet_ok = False
         checks.append(_chk("pk_vis:delivery_detect_ok", _ddet_ok))
+
+        # 14. poker_hole_cards: save + retrieve by normalized username
+        _hc_ok    = True
+        _hc_rid   = "__integrity_holecards__"
+        try:
+            db.save_hole_cards(_hc_rid, "Player1", "Player1", "As", "Kd")
+            db.save_hole_cards(_hc_rid, "player2", "Player2", "7h", "2c")
+            # INSERT OR IGNORE — second call for same key must not overwrite
+            db.save_hole_cards(_hc_rid, "Player1", "Player1", "Xx", "Yy")
+            hc1 = db.get_hole_cards(_hc_rid, "player1")
+            hc2 = db.get_hole_cards(_hc_rid, "PLAYER2")
+            _hc_ok = (
+                hc1 is not None and hc1["card1"] == "As" and hc1["card2"] == "Kd"
+                and hc2 is not None and hc2["card1"] == "7h"
+                and not any(c in str(hc1) for c in ["7h", "2c"])
+                and not any(c in str(hc2) for c in ["As", "Kd"])
+            )
+            _hcc = db.get_connection()
+            _hcc.execute(
+                "DELETE FROM poker_hole_cards WHERE round_id=?", (_hc_rid,))
+            _hcc.commit(); _hcc.close()
+        except Exception:
+            _hc_ok = False
+        checks.append(_chk("pk_vis:hole_cards_save_retrieve", _hc_ok))
 
     except Exception as e:
         checks.append(_chk("pk_vis:exception", False, str(e)[:60]))
