@@ -78,6 +78,7 @@ DB schema source of truth: `database.py` (`_MIGRATIONS` list + `init_db()`)
 - **Multi-bot gate**: `should_this_bot_handle(cmd)` checked immediately after cmd parsing. `BOT_MODE=all` always returns True. `blackjack` handles BJ/RBJ only. `poker` handles Poker only. `dealer` is legacy fallback for casino if dedicated bots offline. Host/all sends offline message when fallback=off.
 - **Heartbeat**: 30 s asyncio loop upserts this bot's row into `bot_instances`. Cache TTL: 30 s online status, 60 s ownership overrides.
 - **Module locks**: `bot_module_locks` table with TTL-based acquire/release. Use `db.acquire_module_lock("blackjack", BOT_ID)` before game-state writes to prevent dual payouts in multi-bot runs.
+- **Auto-games ownership**: `should_this_bot_run_autogames()` in `auto_games.py` gates both `start_auto_game_loop()` and `start_auto_event_loop()`. Room setting `autogames_owner_bot_mode` (default `eventhost`) determines which bot mode runs the loops. Blocked modes (blackjack/poker/miner/banker/shopkeeper/security/dj) never run. Host falls back if owner offline + fallback ON. Module locks `autogames`/`autogames_event` (120 s TTL) prevent duplicate starts in race conditions. Configure with `/autogamesowner [eventhost|host|all|disabled]`; emergency stop: `/stopautogames`.
 
 ## Product
 

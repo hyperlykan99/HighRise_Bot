@@ -1108,6 +1108,18 @@ def _migrate_db():
         "id INTEGER PRIMARY KEY AUTOINCREMENT, event_id TEXT NOT NULL, "
         "started_by TEXT, started_at TEXT, ends_at TEXT, "
         "active INTEGER NOT NULL DEFAULT 0)",
+        # ── Ore mastery & mining contracts ────────────────────────────────────
+        "CREATE TABLE IF NOT EXISTS ore_mastery ("
+        "username TEXT NOT NULL, milestone INTEGER NOT NULL, "
+        "claimed_at TEXT DEFAULT (datetime('now')), "
+        "PRIMARY KEY (username, milestone))",
+        "CREATE TABLE IF NOT EXISTS miner_contracts ("
+        "username TEXT PRIMARY KEY, contract_id INTEGER NOT NULL, "
+        "ore_id TEXT NOT NULL, qty_needed INTEGER NOT NULL, "
+        "qty_delivered INTEGER NOT NULL DEFAULT 0, "
+        "reward_coins INTEGER NOT NULL, "
+        "expires_at TEXT NOT NULL, "
+        "created_at TEXT DEFAULT (datetime('now')))",
         # ── Multi-bot module locks ────────────────────────────────────────────
         "CREATE TABLE IF NOT EXISTS bot_module_locks ("
         "module TEXT PRIMARY KEY, "
@@ -6697,6 +6709,110 @@ def set_bot_instance_module(bot_id: str, mode: str) -> None:
     conn.close()
 
 
+# ---------------------------------------------------------------------------
+# Ore mastery helpers
+# ---------------------------------------------------------------------------
+
+def get_ore_mastery_claimed(username: str) -> set:
+    """Return the set of milestone thresholds already claimed by this player."""
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT milestone FROM ore_mastery WHERE lower(username)=lower(?)",
+        (username,),
+    ).fetchall()
+    conn.close()
+    return {r["milestone"] for r in rows}
+
+
+def claim_ore_mastery(username: str, milestone: int) -> None:
+    """Record a claimed mastery milestone (idempotent)."""
+    conn = get_connection()
+    conn.execute(
+        "INSERT OR IGNORE INTO ore_mastery (username, milestone) VALUES (lower(?), ?)",
+        (username, milestone),
+    )
+    conn.commit()
+    conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Mining contract helpers
+# ---------------------------------------------------------------------------
+
+def get_miner_contract(username: str) -> dict | None:
+    """Return the player's current active contract row, or None."""
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT * FROM miner_contracts WHERE lower(username)=lower(?)",
+        (username,),
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def set_miner_contract(username: str, contract_id: int, ore_id: str,
+                       qty_needed: int, reward_coins: int, expires_at: str) -> None:
+    """Assign (or replace) a mining contract for a player."""
+    conn = get_connection()
+    conn.execute(
+        """INSERT OR REPLACE INTO miner_contracts
+           (username, contract_id, ore_id, qty_needed, qty_delivered, reward_coins, expires_at)
+           VALUES (lower(?), ?, ?, ?, 0, ?, ?)""",
+        (username, contract_id, ore_id, qty_needed, reward_coins, expires_at),
+    )
+    conn.commit()
+    conn.close()
+
+
+def update_contract_delivery(username: str, qty: int) -> int:
+    """Increment qty_delivered for the player's contract. Returns new total."""
+    conn = get_connection()
+    conn.execute(
+        "UPDATE miner_contracts SET qty_delivered=qty_delivered+? WHERE lower(username)=lower(?)",
+        (qty, username),
+    )
+    conn.commit()
+    row = conn.execute(
+        "SELECT qty_delivered FROM miner_contracts WHERE lower(username)=lower(?)",
+        (username,),
+    ).fetchone()
+    conn.close()
+    return row["qty_delivered"] if row else 0
+
+
+def clear_miner_contract(username: str) -> None:
+    """Delete the player's active contract (claim or reroll)."""
+    conn = get_connection()
+    conn.execute(
+        "DELETE FROM miner_contracts WHERE lower(username)=lower(?)",
+        (username,),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_ore_qty(username: str, item_id: str) -> int:
+    """Return how many of a specific ore the player holds (0 if none)."""
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT quantity FROM mining_inventory WHERE lower(username)=lower(?) AND item_id=?",
+        (username, item_id),
+    ).fetchone()
+    conn.close()
+    return row["quantity"] if row else 0
+
+
+def add_balance(user_id: str, amount: int) -> None:
+    """Add coins to a user's balance (use a negative amount to subtract)."""
+    conn = get_connection()
+    conn.execute(
+        "UPDATE users SET balance=balance+? WHERE user_id=?",
+        (amount, user_id),
+    )
+    conn.commit()
+    conn.close()
+
+
 def seed_room_settings() -> None:
     defaults = [
         ("self_teleport_enabled",   "false"),
@@ -6722,6 +6838,7 @@ def seed_room_settings() -> None:
         ("repeat_min_seconds",           "10"),
         ("multibot_fallback_enabled",    "true"),
         ("bot_startup_announce_enabled", "false"),
+        ("autogames_owner_bot_mode",     "eventhost"),
     ]
     conn = get_connection()
     for k, v in defaults:

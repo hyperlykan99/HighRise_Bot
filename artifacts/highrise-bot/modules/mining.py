@@ -1191,6 +1191,214 @@ async def handle_orelist(bot: BaseBot, user: User) -> None:
 # /minehelp
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Ore mastery & contracts
+# ---------------------------------------------------------------------------
+
+# (threshold_ores, reward_coins, title)
+_MASTERY_MILESTONES = [
+    (50,   50,   "Rookie Miner"),
+    (200,  150,  "Apprentice"),
+    (500,  500,  "Journeyman"),
+    (1000, 1000, "Expert Miner"),
+    (2500, 2500, "Master Miner"),
+    (5000, 5000, "Legendary Miner"),
+]
+
+# (contract_id, ore_id, qty_needed, reward_coins, display_name, emoji)
+_CONTRACT_POOL = [
+    (1, "coal",        20, 200,  "Coal",        "⚫"),
+    (2, "copper_ore",  15, 350,  "Copper Ore",  "🟠"),
+    (3, "iron_ore",    10, 450,  "Iron Ore",    "⛓️"),
+    (4, "tin_ore",      8, 550,  "Tin Ore",     "◽"),
+    (5, "quartz",       5, 750,  "Quartz",      "🔹"),
+    (6, "silver_ore",   4, 900,  "Silver Ore",  "⚪"),
+    (7, "gold_ore",     3, 1500, "Gold Ore",    "🟡"),
+    (8, "amethyst",     2, 2000, "Amethyst",    "💜"),
+]
+
+
+async def handle_orebook(bot: BaseBot, user: User) -> None:
+    """/orebook — ore collection summary."""
+    inv = db.get_inventory(user.username)
+    if not inv:
+        await _w(bot, user.id, "📘 Ore Book: empty. /mine to start collecting!")
+        return
+    total_types = len(inv)
+    total_qty = sum(r.get("quantity", 0) for r in inv)
+    lines = [f"📘 Ore Book — {total_types} types | {_fmt(total_qty)} total"]
+    for row in inv[:6]:
+        lines.append(f"{row['emoji']} {row['name']}: {_fmt(row['quantity'])}")
+    if total_types > 6:
+        lines.append(f"+{total_types - 6} more. /mineinv for full list.")
+    await _w(bot, user.id, "\n".join(lines)[:249])
+
+
+async def handle_oremastery(bot: BaseBot, user: User) -> None:
+    """/oremastery — mastery milestones and progress."""
+    miner = db.get_or_create_miner(user.username)
+    total = miner.get("total_ores", 0)
+    claimed = db.get_ore_mastery_claimed(user.username)
+    lines = [f"📘 Ore Mastery — {_fmt(total)} ores mined"]
+    for i, (threshold, reward, title) in enumerate(_MASTERY_MILESTONES, 1):
+        if threshold in claimed:
+            state = "✅"
+        elif total >= threshold:
+            state = "🎁"
+        else:
+            state = f"{_fmt(total)}/{threshold}"
+        lines.append(f"{i}. {state} {title} ({threshold}) → {reward}c")
+    lines.append("/claimoremastery <1-6> to claim 🎁 rewards.")
+    await _w(bot, user.id, "\n".join(lines)[:249])
+
+
+async def handle_claimoremastery(bot: BaseBot, user: User, args: list[str]) -> None:
+    """/claimoremastery <1-6> — claim a mastery milestone reward."""
+    if len(args) < 2 or not args[1].isdigit():
+        await _w(bot, user.id, "Usage: /claimoremastery <1-6>  (see /oremastery)")
+        return
+    idx = int(args[1]) - 1
+    if idx < 0 or idx >= len(_MASTERY_MILESTONES):
+        await _w(bot, user.id, f"Invalid milestone. Use 1-{len(_MASTERY_MILESTONES)}.")
+        return
+    threshold, reward, title = _MASTERY_MILESTONES[idx]
+    miner = db.get_or_create_miner(user.username)
+    total = miner.get("total_ores", 0)
+    if total < threshold:
+        await _w(bot, user.id, f"❌ Need {_fmt(threshold)} ores mined. You have {_fmt(total)}.")
+        return
+    claimed = db.get_ore_mastery_claimed(user.username)
+    if threshold in claimed:
+        await _w(bot, user.id, f"✅ '{title}' already claimed.")
+        return
+    db.claim_ore_mastery(user.username, threshold)
+    user_row = db.get_user_by_username(user.username)
+    if user_row:
+        db.add_balance(user_row["user_id"], reward)
+    db.update_miner(user.username, coins_earned=miner.get("coins_earned", 0) + reward)
+    await _w(bot, user.id, f"🎉 Mastery '{title}' claimed! +{reward:,}c.")
+
+
+async def handle_orestats(bot: BaseBot, user: User, args: list[str]) -> None:
+    """/orestats [user] — detailed mining stats."""
+    target = args[1].lstrip("@").strip() if len(args) > 1 else user.username
+    miner = db.get_or_create_miner(target)
+    inv = db.get_inventory(target)
+    total_val = sum(r.get("quantity", 0) * r.get("sell_value", 0) for r in inv)
+    lines = [
+        f"⛏️ {target} Ore Stats",
+        f"Total mined: {_fmt(miner.get('total_ores', 0))}",
+        f"Rare finds: {_fmt(miner.get('rare_finds', 0))}",
+        f"Coins earned: {_fmt(miner.get('coins_earned', 0))}c",
+        f"Inv value: {_fmt(total_val)}c | Types: {len(inv)}",
+    ]
+    await _w(bot, user.id, "\n".join(lines)[:249])
+
+
+async def handle_contracts(bot: BaseBot, user: User) -> None:
+    """/contracts (/miningjobs) — browse available mining contracts."""
+    lines = ["📋 Mining Contracts — /job <#> to accept"]
+    for cid, ore_id, qty, reward, name, emoji in _CONTRACT_POOL:
+        lines.append(f"{cid}. {emoji} {name} x{qty} → {reward:,}c")
+    lines.append("Active contract: /job  |  Deliver: /deliver  |  Reroll: /rerolljob")
+    await _w(bot, user.id, "\n".join(lines)[:249])
+
+
+async def handle_job(bot: BaseBot, user: User, args: list[str]) -> None:
+    """/job [contract_id] — assign or view active contract."""
+    if len(args) > 1 and args[1].isdigit():
+        cid = int(args[1])
+        entry = next((c for c in _CONTRACT_POOL if c[0] == cid), None)
+        if not entry:
+            await _w(bot, user.id, f"❌ No contract #{cid}. See /contracts for the list.")
+            return
+        existing = db.get_miner_contract(user.username)
+        if existing and existing.get("qty_delivered", 0) < existing.get("qty_needed", 1):
+            await _w(bot, user.id, "You already have an active contract. /deliver or /rerolljob first.")
+            return
+        _, ore_id, qty, reward, name, emoji = entry
+        import datetime as _dt
+        expires = (_dt.datetime.utcnow() + _dt.timedelta(hours=24)).strftime("%Y-%m-%d %H:%M:%S")
+        db.set_miner_contract(user.username, cid, ore_id, qty, reward, expires)
+        await _w(bot, user.id, f"📋 Contract: {emoji} {name} x{qty} → {reward:,}c (24h) | /deliver to submit.")
+        return
+    current = db.get_miner_contract(user.username)
+    if not current:
+        await _w(bot, user.id, "No active contract. /contracts to browse, /job <#> to accept.")
+        return
+    name = current["ore_id"].replace("_", " ").title()
+    needed = current["qty_needed"]
+    delivered = current.get("qty_delivered", 0)
+    reward = current["reward_coins"]
+    pct = int(delivered / needed * 100) if needed > 0 else 0
+    await _w(bot, user.id,
+             f"📋 Job: {name} x{needed}\n"
+             f"Progress: {delivered}/{needed} ({pct}%)\n"
+             f"Reward: {reward:,}c\n"
+             f"/deliver to submit | /claimjob when done | /rerolljob to cancel")
+
+
+async def handle_deliver(bot: BaseBot, user: User, args: list[str]) -> None:
+    """/deliver — submit ores for your active contract."""
+    current = db.get_miner_contract(user.username)
+    if not current:
+        await _w(bot, user.id, "No active contract. /contracts → /job <#> to start one.")
+        return
+    ore_id = current["ore_id"]
+    needed = current["qty_needed"]
+    delivered = current.get("qty_delivered", 0)
+    remaining = max(0, needed - delivered)
+    if remaining == 0:
+        await _w(bot, user.id, "✅ Contract complete! Use /claimjob to collect your reward.")
+        return
+    have = db.get_ore_qty(user.username, ore_id)
+    name = ore_id.replace("_", " ").title()
+    if have == 0:
+        await _w(bot, user.id, f"❌ You have no {name}. /mine to collect some!")
+        return
+    give = min(have, remaining)
+    if not db.remove_ore(user.username, ore_id, give):
+        await _w(bot, user.id, "❌ Error removing ores. Try again.")
+        return
+    db.update_contract_delivery(user.username, give)
+    new_delivered = delivered + give
+    if new_delivered >= needed:
+        await _w(bot, user.id, f"✅ Delivered {give} {name}! Contract complete. /claimjob for reward.")
+    else:
+        await _w(bot, user.id, f"✅ Delivered {give} {name}. Progress: {new_delivered}/{needed}.")
+
+
+async def handle_claimjob(bot: BaseBot, user: User) -> None:
+    """/claimjob — collect reward for completed contract."""
+    current = db.get_miner_contract(user.username)
+    if not current:
+        await _w(bot, user.id, "No active contract. /contracts to start one.")
+        return
+    needed = current["qty_needed"]
+    delivered = current.get("qty_delivered", 0)
+    if delivered < needed:
+        await _w(bot, user.id, f"Contract not done: {delivered}/{needed}. /deliver first.")
+        return
+    reward = current["reward_coins"]
+    db.clear_miner_contract(user.username)
+    user_row = db.get_user_by_username(user.username)
+    if user_row:
+        db.add_balance(user_row["user_id"], reward)
+    miner = db.get_or_create_miner(user.username)
+    db.update_miner(user.username, coins_earned=miner.get("coins_earned", 0) + reward)
+    await _w(bot, user.id, f"🎉 Contract complete! +{reward:,}c earned. /contracts for more jobs.")
+
+
+async def handle_rerolljob(bot: BaseBot, user: User) -> None:
+    """/rerolljob — cancel current contract."""
+    current = db.get_miner_contract(user.username)
+    if not current:
+        await _w(bot, user.id, "No active contract. /contracts to start one.")
+        return
+    db.clear_miner_contract(user.username)
+    await _w(bot, user.id, "🔄 Contract cancelled. /contracts to pick a new one.")
+
+
 MINE_HELP_PAGES = [
     (
         "⛏️ Mining\n"
@@ -1209,6 +1417,14 @@ MINE_HELP_PAGES = [
         "/mineprofile - your stats"
     ),
     (
+        "📘 Goals\n"
+        "/orebook - ore collection\n"
+        "/oremastery - mastery rewards\n"
+        "/orestats - detailed stats\n"
+        "/contracts - ore jobs\n"
+        "/job <#> - accept a contract"
+    ),
+    (
         "⛏️ Mining Staff\n"
         "/mining on/off\n"
         "/startminingevent <id>\n"
@@ -1224,10 +1440,11 @@ async def handle_minehelp(bot: BaseBot, user: User, args: list[str]) -> None:
     if page == 0:
         await _w(bot, user.id, MINE_HELP_PAGES[0])
         await _w(bot, user.id, MINE_HELP_PAGES[1])
+        await _w(bot, user.id, MINE_HELP_PAGES[2])
         if _can_mine_admin(user.username):
-            await _w(bot, user.id, MINE_HELP_PAGES[2])
+            await _w(bot, user.id, MINE_HELP_PAGES[3])
     elif 1 <= page <= len(MINE_HELP_PAGES):
-        if page == 3 and not _can_mine_admin(user.username):
+        if page == 4 and not _can_mine_admin(user.username):
             return
         await _w(bot, user.id, MINE_HELP_PAGES[page - 1])
     else:

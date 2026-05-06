@@ -1,0 +1,125 @@
+Fix Miner bot command routing.
+
+Problem:
+Command audit shows:
+/mine route:NO | help:NO | owner:Miner
+
+Goal:
+Make all mining commands routed, registered in help, and owned by Miner Bot.
+
+IMPORTANT:
+- Do not remove existing features.
+- Keep multi-bot system.
+- Keep shared SQLite database.
+- Miner Bot should own all mining commands.
+- Host/Main should not duplicate mining replies if Miner Bot is online.
+- Every mining command must reply with success, usage, cooldown, permission error, or clear error.
+- No silent failures.
+
+Add/fix routing and handlers for:
+
+Player mining commands:
+- /mine
+- /m
+- /dig
+- /tool
+- /pickaxe
+- /upgradetool
+- /upick
+- /mineprofile
+- /mp
+- /mineinv
+- /ores
+- /sellores
+- /sellore
+- /minelb
+- /mineshop
+- /minebuy
+- /useenergy
+- /useluckboost
+- /usexpboost
+- /craft
+- /minedaily
+- /minehelp
+
+Ore book / mastery:
+- /orebook
+- /oremastery
+- /claimoremastery
+- /orestats
+
+Contracts:
+- /contracts
+- /miningjobs
+- /job
+- /deliver
+- /claimjob
+- /rerolljob
+
+Admin mining commands:
+- /miningadmin
+- /mining on
+- /mining off
+- /setminecooldown
+- /setmineenergycost
+- /setminingenergy
+- /addore
+- /removeore
+- /settoollevel
+- /setminelevel
+- /addminexp
+- /setminexp
+- /resetmining
+- /orelist
+- /miningevent
+- /startminingevent
+- /stopminingevent
+- /miningevents
+
+Command ownership:
+- owner_bot_mode = miner
+- module = mining
+
+Update help:
+/minehelp 1:
+"⛏️ Mining
+/mine - mine ores
+/tool - view pickaxe
+/upgradetool - upgrade
+/ores - inventory
+/sellores - sell all"
+
+/minehelp 2:
+"⛏️ Mining 2
+/minelb - leaderboard
+/mineshop - boosts
+/craft - craft rewards
+/minedaily - daily bonus"
+
+/minehelp 3:
+"📘 Goals
+/orebook - collection
+/oremastery - rewards
+/contracts - ore jobs"
+
+Update /help and /mycommands so players can see:
+/mine - mine ores
+
+Update /commandtest so:
+/commandtest /mine
+returns:
+/mine route:YES | help:YES | owner:Miner
+
+Tests:
+- /commandtest /mine
+- /minehelp
+- /mine
+- /ores
+- /tool
+- /minelb
+
+Expected:
+- route YES
+- help YES
+- owner Miner
+- only Miner Bot replies to /mine

@@ -1,0 +1,245 @@
+Fix duplicate autogames from every bot.
+
+Problem:
+Every bot is running auto-games. This causes duplicate mini games, duplicate announcements, duplicate rewards, and spam.
+
+Goal:
+Only ONE bot should run auto-games.
+
+Preferred owner:
+- Event Bot runs auto-games.
+Fallback:
+- If Event Bot is offline and botfallback is ON, Host Bot may run auto-games.
+- All other bots must not run auto-games.
+
+IMPORTANT:
+- Do not remove auto-games.
+- Do not remove existing mini games.
+- Keep multi-bot system.
+- Keep shared SQLite database.
+- Prevent duplicate auto-game loops.
+- Prevent duplicate rewards.
+- Keep messages under 250 characters.
+- No silent failures.
+
+==================================================
+PART 1: AUTOGAME OWNER SETTING
+==================================================
+
+Add room setting:
+
+autogames_owner_bot_mode = eventhost
+
+Valid values:
+- eventhost
+- host
+- all
+- disabled
+
+Default:
+autogames_owner_bot_mode = eventhost
+
+Commands:
+- /autogamesowner
+- /autogamesowner <mode>
+
+Permissions:
+- Owner/admin only.
+
+Examples:
+/autogamesowner
+Reply:
+"Auto-games owner: Event"
+
+/autogamesowner eventhost
+Reply:
+"✅ Auto-games owner set to Event Bot."
+
+/autogamesowner host
+Reply:
+"✅ Auto-games owner set to Host Bot."
+
+/autogamesowner disabled
+Reply:
+"⛔ Auto-games owner disabled."
+
+==================================================
+PART 2: AUTOGAME LOOP GUARD
+==================================================
+
+Before starting any auto-game loop, check:
+
+should_this_bot_run_autogames(bot_id, bot_mode)
+
+Rules:
+1. If autogames_owner_bot_mode = disabled:
+   - no bot starts auto-games.
+2. If bot_mode matches autogames_owner_bot_mode:
+   - this bot may run auto-games.
+3. If owner bot is offline and botfallback = ON:
+   - Host Bot may run auto-games.
+4. If owner bot is online:
+   - all other bots must not start auto-games.
+5. BOT_MODE=all should only run auto-games when no split bots are active.
+6. Blackjack, Poker, Miner, Banker, Shop, Security, and DJ must NEVER run auto-games unless explicitly set as owner.
+
+Console log:
+"[AUTOGAMES] Skipped on blackjack; owner is eventhost."
+"[AUTOGAMES] Running on event bot."
+
+==================================================
+PART 3: DATABASE LOCK FOR AUTOGAMES
+==================================================
+
+Create or reuse module lock:
+
+bot_module_locks:
+- module TEXT PRIMARY KEY
+- bot_id TEXT
+- locked_at TEXT
+- expires_at TEXT
+
+Use module:
+autogames
+
+Before starting an auto-game:
+- acquire lock "autogames"
+- lock expires after 60 seconds or event duration
+- if another bot owns the lock, skip
+- release lock after game ends
+
+If stale lock:
+- clear if older than 120 seconds and owner bot offline
+
+This prevents duplicate auto-games even if two bots accidentally start the loop.
+
+==================================================
+PART 4: STARTUP BEHAVIOR
+==================================================
+
+On each bot startup:
+- Do NOT automatically start auto-games unless this bot is the owner.
+- Other bots should log skipped but not speak in room.
+
+Bad behavior to remove:
+- every bot starts auto trivia
+- every bot starts auto scramble
+- every bot announces mini game
+- every bot schedules recurring game loop
+
+Good behavior:
+- only Event Bot schedules auto-games
+
+==================================================
+PART 5: FIX /AUTOGAMES COMMAND
+==================================================
+
+Commands:
+- /autogames on
+- /autogames off
+- /autogames status
+- /autogamesowner
+- /autogamesowner <mode>
+
+Permissions:
+- Owner/admin/manager.
+
+Behavior:
+/autogames on
+- Enables auto-games globally.
+- Only owner bot loop should run.
+- Message:
+"✅ Auto-games ON. Owner: Event Bot."
+
+/autogames off
+- Disables globally.
+- Any running auto-game loop should stop.
+- Message:
+"⛔ Auto-games OFF."
+
+/autogames status
+- Shows:
+"Auto-games: ON | Owner Event | Running on Event Bot"
+
+If duplicate loops detected:
+"Auto-games: ON | Duplicate loops blocked."
+
+==================================================
+PART 6: BOT STATUS UPDATE
+==================================================
+
+Update:
+/botmodules
+
+Add:
+"AutoGames=Event"
+
+Update:
+/deploymentcheck
+
+Check:
+- auto-games owner exists
+- only owner bot has loop active
+- autogames lock valid
+- no duplicate loops
+
+Example:
+"Deploy: DB OK | Bots 8 | AutoGames Event OK | Conflicts 0"
+
+Update:
+/botconflicts
+
+Detect:
+- multiple bots running auto-games
+- autogames owner offline while fallback OFF
+- BOT_MODE=all running auto-games while Event Bot is online
+
+Message:
+"Conflict: Auto-games running on 3 bots. Owner should be Event."
+
+==================================================
+PART 7: EMERGENCY STOP
+==================================================
+
+Add:
+- /stopautogames
+- /killautogames
+
+Permissions:
+- Owner/admin only.
+
+Behavior:
+- sets autogames_enabled = false
+- clears autogames lock
+- tells all bots to stop loops via shared DB setting
+- Message:
+"🛑 Auto-games stopped on all bots."
+
+==================================================
+PART 8: TESTS
+==================================================
+
+Test:
+/autogames status
+Expected:
+Shows owner and running bot.
+
+/autogamesowner eventhost
+/autogames on
+Expected:
+Only Event Bot starts auto-games.
+
+/botconflicts
+Expected:
+No auto-game conflicts.
+
+/deploymentcheck
+Expected:
+AutoGames Event OK.
+
+/stopautogames
+Expected:
+All auto-game loops stop.
+
+Final rule:
+Only one bot may ever run auto-games at a time. Default owner is Event Bot.

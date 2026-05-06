@@ -29,6 +29,7 @@ _MODULE_MAP: dict[str, dict] = {
     "security":  {"owner": "security",  "cmds": ["report", "warn"],     "label": "Security"},
     "dj":        {"owner": "dj",        "cmds": ["emote", "dance"],     "label": "DJ"},
     "events":    {"owner": "eventhost", "cmds": ["events", "alert"],    "label": "Events"},
+    "autogames": {"owner": "eventhost", "cmds": ["autogames", "autoevents"], "label": "AutoGames"},
 }
 
 _MODE_NAMES: dict[str, str] = {
@@ -490,8 +491,28 @@ def _collect_conflicts(instances: list) -> list[str]:
         )
     # 3. Legacy dealer + dedicated bots both active
     dealer_active = _bot_is_online("dealer", instances)
-    if dealer_active and split_active:
+    split_casino = [m for m in ("blackjack", "poker") if _bot_is_online(m, instances)]
+    if dealer_active and split_casino:
         conflicts.append("Legacy dealer bot active with Blackjack/Poker bots")
+    # 4. Multiple bots running auto-games (owner mismatch)
+    try:
+        autogames_owner = db.get_room_setting("autogames_owner_bot_mode", "eventhost")
+        if autogames_owner not in ("disabled",):
+            online_non_owners = [
+                inst["bot_mode"] for inst in instances
+                if _bot_is_online(inst.get("bot_mode", ""), instances)
+                and inst.get("bot_mode") != autogames_owner
+                and inst.get("bot_mode") not in
+                    ("blackjack", "poker", "miner", "banker", "shopkeeper", "security", "dj")
+                and inst.get("bot_mode") != "all"
+            ]
+            if online_non_owners and _bot_is_online(autogames_owner, instances):
+                conflicts.append(
+                    f"AutoGames owner={autogames_owner} online but other bots"
+                    f" ({', '.join(set(online_non_owners))}) may duplicate."
+                )
+    except Exception:
+        pass
     return conflicts
 
 

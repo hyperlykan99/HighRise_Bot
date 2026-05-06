@@ -230,7 +230,7 @@ from modules.auto_games import (
     handle_autogames, handle_autoevents,
     handle_setgametimer, handle_setautogameinterval,
     handle_setautoeventinterval, handle_setautoeventduration,
-    handle_gameconfig,
+    handle_gameconfig, handle_autogamesowner, handle_stopautogames,
 )
 from modules.gold import (
     handle_goldtip, handle_goldrefund,
@@ -250,7 +250,7 @@ from modules.mining import (
     handle_mine, handle_tool, handle_upgradetool,
     handle_mineprofile, handle_mineinv, handle_sellores, handle_sellore,
     handle_minelb, handle_mineshop, handle_minebuy,
-    handle_useluckboost, handle_usexpboost,
+    handle_useluckboost, handle_usexpboost, handle_useenergy,
     handle_craft, handle_minedaily,
     handle_miningevent, handle_miningevents,
     handle_startminingevent, handle_stopminingevent,
@@ -261,6 +261,8 @@ from modules.mining import (
     handle_addminexp, handle_setminexp, handle_resetmining,
     handle_miningroomrequired,
     handle_orelist, handle_minehelp,
+    handle_orebook, handle_oremastery, handle_claimoremastery, handle_orestats,
+    handle_contracts, handle_job, handle_deliver, handle_claimjob, handle_rerolljob,
     MINE_HELP_PAGES,
 )
 from modules.control_panel import (
@@ -507,6 +509,7 @@ ALL_KNOWN_COMMANDS = (
         "startevent", "stopevent",
         "eventpoints", "eventshop", "buyevent",
         "autogames", "autoevents", "gameconfig",
+        "autogamesowner", "stopautogames", "killautogames",
         "report", "bug", "myreports",
         "rep", "reputation", "repstats", "toprep", "repleaderboard",
         # Poker — full commands
@@ -587,11 +590,13 @@ ALL_KNOWN_COMMANDS = (
         "sellores", "sellore",
         "minelb",
         "mineshop", "minebuy",
-        "useluckboost", "usexpboost",
+        "useluckboost", "usexpboost", "useenergy",
         "craft",
         "minedaily",
         "miningevent", "miningevents",
         "orelist",
+        "orebook", "oremastery", "claimoremastery", "orestats",
+        "contracts", "miningjobs", "job", "deliver", "claimjob", "rerolljob",
         "minehelp",
         # Mining game — staff commands
         "mining",
@@ -2532,6 +2537,12 @@ class HangoutBot(BaseBot):
         elif cmd == "autoevents":
             await handle_autoevents(self, user, args)
 
+        elif cmd == "autogamesowner":
+            await handle_autogamesowner(self, user, args)
+
+        elif cmd in ("stopautogames", "killautogames"):
+            await handle_stopautogames(self, user)
+
         # ── Achievement commands ───────────────────────────────────────────────
         elif cmd == "achievements":
             await handle_achievements(self, user, args)
@@ -3096,6 +3107,9 @@ class HangoutBot(BaseBot):
         elif cmd == "usexpboost":
             await handle_usexpboost(self, user)
 
+        elif cmd == "useenergy":
+            await handle_useenergy(self, user, args)
+
         elif cmd == "craft":
             await handle_craft(self, user, args)
 
@@ -3155,6 +3169,33 @@ class HangoutBot(BaseBot):
 
         elif cmd == "orelist":
             await handle_orelist(self, user)
+
+        elif cmd == "orebook":
+            await handle_orebook(self, user)
+
+        elif cmd == "oremastery":
+            await handle_oremastery(self, user)
+
+        elif cmd == "claimoremastery":
+            await handle_claimoremastery(self, user, args)
+
+        elif cmd == "orestats":
+            await handle_orestats(self, user, args)
+
+        elif cmd in {"contracts", "miningjobs"}:
+            await handle_contracts(self, user)
+
+        elif cmd == "job":
+            await handle_job(self, user, args)
+
+        elif cmd == "deliver":
+            await handle_deliver(self, user, args)
+
+        elif cmd == "claimjob":
+            await handle_claimjob(self, user)
+
+        elif cmd == "rerolljob":
+            await handle_rerolljob(self, user)
 
         elif cmd == "minehelp":
             await handle_minehelp(self, user, args)

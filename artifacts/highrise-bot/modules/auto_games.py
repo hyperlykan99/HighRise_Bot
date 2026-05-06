@@ -27,11 +27,86 @@ from datetime import datetime, timezone, timedelta
 from highrise import BaseBot, User
 
 import database as db
+from config import BOT_ID, BOT_MODE
 from modules.maintenance import is_maintenance
-from modules.permissions  import can_manage_games, can_moderate
+from modules.permissions  import can_manage_games, can_moderate, is_admin, is_owner
 import modules.trivia   as trivia
 import modules.scramble as scramble
 import modules.riddle   as riddle
+
+
+# ---------------------------------------------------------------------------
+# Autogames ownership constants
+# ---------------------------------------------------------------------------
+
+# Modes that may NEVER run auto-games unless explicitly set as owner via setting
+_NEVER_AUTOGAMES_MODES = frozenset({
+    "blackjack", "poker", "miner", "banker", "shopkeeper", "security", "dj"
+})
+
+_AG_MODE_NAMES: dict[str, str] = {
+    "eventhost": "Event", "host": "Host", "all": "Main", "disabled": "Disabled",
+}
+
+
+def should_this_bot_run_autogames() -> tuple[bool, str]:
+    """
+    Determines if THIS bot instance should run the auto-games loop.
+    Returns (should_run, reason_string).
+
+    Rules:
+    - autogames_owner_bot_mode=disabled  → no bot runs
+    - mode matches owner                 → run
+    - mode in _NEVER_AUTOGAMES_MODES     → never (unless explicitly owner)
+    - mode=all + no split bots online    → run (fallback only)
+    - mode=host + owner offline + fallback ON → run
+    """
+    try:
+        owner_mode = db.get_room_setting("autogames_owner_bot_mode", "eventhost")
+    except Exception:
+        owner_mode = "eventhost"
+
+    mode = BOT_MODE
+
+    if owner_mode == "disabled":
+        return False, "autogames disabled by setting"
+
+    # This bot's mode IS the configured owner
+    if owner_mode == mode:
+        return True, f"this bot is the autogames owner ({mode})"
+
+    # Blocked modes — never run autogames unless explicitly set as owner
+    if mode in _NEVER_AUTOGAMES_MODES:
+        return False, f"{mode} bot never runs autogames (owner={owner_mode})"
+
+    # BOT_MODE=all: run only if the owner bot and all split bots are offline
+    if mode == "all":
+        try:
+            from modules.multi_bot import _is_mode_online
+            if _is_mode_online(owner_mode):
+                return False, f"owner bot ({owner_mode}) is online; all mode defers"
+            split_modes = ("blackjack", "poker", "miner", "banker",
+                           "shopkeeper", "security", "dj", "eventhost", "host")
+            active_splits = [m for m in split_modes if _is_mode_online(m)]
+            if active_splits:
+                return False, f"split bots online ({', '.join(active_splits)})"
+            return True, "all mode — no split bots online"
+        except Exception:
+            return True, "all mode — online check unavailable"
+
+    # Host bot: may run if owner is offline and fallback is ON
+    if mode == "host":
+        try:
+            from modules.multi_bot import _is_mode_online, _fallback_enabled
+            if _is_mode_online(owner_mode):
+                return False, f"owner bot ({owner_mode}) is online; host defers"
+            if _fallback_enabled():
+                return True, f"host fallback (owner={owner_mode} offline)"
+            return False, f"owner ({owner_mode}) offline but fallback OFF"
+        except Exception:
+            return False, "host mode — fallback check failed"
+
+    return False, f"bot mode '{mode}' is not the autogames owner ('{owner_mode}')"
 
 
 # ---------------------------------------------------------------------------
@@ -138,6 +213,17 @@ async def _auto_game_loop(bot: BaseBot) -> None:
                 print("[AUTO_GAMES] Game already active, skipping auto game.")
                 continue
 
+            # Re-check ownership (setting may have changed while sleeping)
+            should_run, reason = should_this_bot_run_autogames()
+            if not should_run:
+                print(f"[AUTOGAMES] Ownership changed mid-loop; {reason}. Stopping loop.")
+                return
+
+            # Acquire module lock to prevent duplicate game starts across bots
+            if not db.acquire_module_lock("autogames", BOT_ID, ttl_seconds=120):
+                print("[AUTOGAMES] Lock held by another bot; skipping this iteration.")
+                continue
+
             game_type = random.choice(["trivia", "scramble", "riddle"])
             print(f"[AUTO_GAMES] Auto-starting {game_type}.")
 
@@ -174,11 +260,16 @@ async def _auto_game_loop(bot: BaseBot) -> None:
 
 
 def start_auto_game_loop(bot: BaseBot) -> None:
-    """Start the auto mini game background loop (idempotent)."""
+    """Start the auto mini game background loop — only if this bot is the owner."""
     global _auto_game_task
     if _auto_game_task and not _auto_game_task.done():
-        print("[AUTO_GAMES] Auto game loop already running.")
+        print("[AUTOGAMES] Auto game loop already running.")
         return
+    should_run, reason = should_this_bot_run_autogames()
+    if not should_run:
+        print(f"[AUTOGAMES] Skipped on {BOT_MODE}; {reason}.")
+        return
+    print(f"[AUTOGAMES] Running on {BOT_MODE} bot.")
     _auto_game_task = asyncio.create_task(_auto_game_loop(bot))
 
 
@@ -209,6 +300,17 @@ async def _auto_event_loop(bot: BaseBot) -> None:
                 continue
             if db.is_event_active():
                 print("[AUTO_GAMES] Event already active, skipping.")
+                continue
+
+            # Re-check ownership (setting may have changed while sleeping)
+            should_run, reason = should_this_bot_run_autogames()
+            if not should_run:
+                print(f"[AUTOGAMES] Event ownership changed; {reason}. Stopping loop.")
+                return
+
+            # Acquire module lock to prevent duplicate event starts across bots
+            if not db.acquire_module_lock("autogames_event", BOT_ID, ttl_seconds=120):
+                print("[AUTOGAMES] Event lock held by another bot; skipping.")
                 continue
 
             from modules.events import EVENTS as _EVENTS
@@ -246,10 +348,14 @@ async def _auto_event_loop(bot: BaseBot) -> None:
 
 
 def start_auto_event_loop(bot: BaseBot) -> None:
-    """Start the auto event background loop (idempotent)."""
+    """Start the auto event background loop — only if this bot is the owner."""
     global _auto_event_loop_task
     if _auto_event_loop_task and not _auto_event_loop_task.done():
-        print("[AUTO_GAMES] Auto event loop already running.")
+        print("[AUTOGAMES] Auto event loop already running.")
+        return
+    should_run, reason = should_this_bot_run_autogames()
+    if not should_run:
+        print(f"[AUTOGAMES] Event loop skipped on {BOT_MODE}; {reason}.")
         return
     _auto_event_loop_task = asyncio.create_task(_auto_event_loop(bot))
 
@@ -353,11 +459,16 @@ async def handle_autogames(bot: BaseBot, user: User, args: list[str]) -> None:
     sub = args[1].lower() if len(args) > 1 else "status"
 
     if sub == "status":
-        gs     = db.get_auto_game_settings()
-        status = "ON" if gs["auto_minigames_enabled"] else "OFF"
+        gs         = db.get_auto_game_settings()
+        status     = "ON" if gs["auto_minigames_enabled"] else "OFF"
+        owner      = db.get_room_setting("autogames_owner_bot_mode", "eventhost")
+        owner_name = _AG_MODE_NAMES.get(owner, owner.title())
+        loop_on    = _auto_game_task is not None and not _auto_game_task.done()
+        running    = BOT_MODE if loop_on else "none"
         await bot.highrise.send_whisper(
             user.id,
-            f"🎲 Auto games: {status} | Every {gs['auto_minigame_interval']}m"
+            (f"🎲 Auto-games: {status} | Owner: {owner_name}"
+             f" | Running: {running} | Every {gs['auto_minigame_interval']}m")[:249]
         )
         return
 
@@ -367,10 +478,12 @@ async def handle_autogames(bot: BaseBot, user: User, args: list[str]) -> None:
 
     if sub == "on":
         db.set_auto_game_setting("auto_minigames_enabled", 1)
-        await bot.highrise.send_whisper(user.id, "✅ Auto mini games enabled.")
+        owner      = db.get_room_setting("autogames_owner_bot_mode", "eventhost")
+        owner_name = _AG_MODE_NAMES.get(owner, owner.title())
+        await bot.highrise.send_whisper(user.id, f"✅ Auto-games ON. Owner: {owner_name}.")
     elif sub == "off":
         db.set_auto_game_setting("auto_minigames_enabled", 0)
-        await bot.highrise.send_whisper(user.id, "✅ Auto mini games disabled.")
+        await bot.highrise.send_whisper(user.id, "⛔ Auto-games OFF.")
     else:
         await bot.highrise.send_whisper(
             user.id, "Usage: /autogames on|off|status"
@@ -498,4 +611,84 @@ async def handle_setautoeventduration(
     db.set_auto_event_setting("auto_event_duration", mins)
     await bot.highrise.send_whisper(
         user.id, f"✅ Auto event duration set to {mins}m."
+    )
+
+
+# ---------------------------------------------------------------------------
+# /autogamesowner [mode]
+# ---------------------------------------------------------------------------
+
+_VALID_OWNER_MODES = {"eventhost", "host", "all", "disabled"}
+
+
+async def handle_autogamesowner(bot: BaseBot, user: User, args: list[str]) -> None:
+    """/autogamesowner [mode] — view or set which bot mode runs auto-games."""
+    if len(args) < 2:
+        owner      = db.get_room_setting("autogames_owner_bot_mode", "eventhost")
+        owner_name = _AG_MODE_NAMES.get(owner, owner.title())
+        await bot.highrise.send_whisper(user.id, f"Auto-games owner: {owner_name}")
+        return
+
+    if not can_manage_games(user.username):
+        await bot.highrise.send_whisper(user.id, "Owner/admin/manager only.")
+        return
+
+    new_mode = args[1].lower()
+    if new_mode not in _VALID_OWNER_MODES:
+        await bot.highrise.send_whisper(
+            user.id, "Valid modes: eventhost host all disabled"
+        )
+        return
+
+    db.set_room_setting("autogames_owner_bot_mode", new_mode)
+    if new_mode == "disabled":
+        await bot.highrise.send_whisper(user.id, "⛔ Auto-games owner disabled.")
+    else:
+        owner_name = _AG_MODE_NAMES.get(new_mode, new_mode.title())
+        await bot.highrise.send_whisper(
+            user.id, f"✅ Auto-games owner set to {owner_name} Bot."
+        )
+
+
+# ---------------------------------------------------------------------------
+# /stopautogames (/killautogames) — emergency stop
+# ---------------------------------------------------------------------------
+
+async def handle_stopautogames(bot: BaseBot, user: User) -> None:
+    """/stopautogames — owner/admin only; disable auto-games and clear locks."""
+    if not (is_admin(user.username) or is_owner(user.username)):
+        await bot.highrise.send_whisper(user.id, "Owner/admin only.")
+        return
+
+    global _auto_game_task, _auto_event_loop_task
+
+    # Disable in DB so all bots' loops will stop on next iteration check
+    db.set_auto_game_setting("auto_minigames_enabled", 0)
+    db.set_auto_event_setting("auto_events_enabled", 0)
+
+    # Clear autogames module locks from DB
+    try:
+        conn = db.get_connection()
+        conn.execute(
+            "DELETE FROM bot_module_locks WHERE module IN ('autogames', 'autogames_event')"
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+    # Cancel running tasks on this bot
+    cancelled = 0
+    if _auto_game_task and not _auto_game_task.done():
+        _auto_game_task.cancel()
+        _auto_game_task = None
+        cancelled += 1
+    if _auto_event_loop_task and not _auto_event_loop_task.done():
+        _auto_event_loop_task.cancel()
+        _auto_event_loop_task = None
+        cancelled += 1
+
+    await bot.highrise.send_whisper(
+        user.id,
+        f"🛑 Auto-games stopped on all bots. (Cancelled {cancelled} task(s) here.)"[:249]
     )
