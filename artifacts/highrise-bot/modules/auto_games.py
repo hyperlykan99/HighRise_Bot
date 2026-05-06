@@ -49,6 +49,20 @@ _AG_MODE_NAMES: dict[str, str] = {
 }
 
 
+def _get_autogames_lock_holder() -> str:
+    """Return the bot_id currently holding the autogames module lock, or ''."""
+    try:
+        conn = db.get_connection()
+        row = conn.execute(
+            "SELECT bot_id FROM bot_module_locks "
+            "WHERE module='autogames' AND expires_at > datetime('now')",
+        ).fetchone()
+        conn.close()
+        return row["bot_id"] if row else ""
+    except Exception:
+        return ""
+
+
 def should_this_bot_run_autogames() -> tuple[bool, str]:
     """
     Determines if THIS bot instance should run the auto-games loop.
@@ -464,12 +478,21 @@ async def handle_autogames(bot: BaseBot, user: User, args: list[str]) -> None:
         owner      = db.get_room_setting("autogames_owner_bot_mode", "eventhost")
         owner_name = _AG_MODE_NAMES.get(owner, owner.title())
         loop_on    = _auto_game_task is not None and not _auto_game_task.done()
-        running    = BOT_MODE if loop_on else "none"
-        await bot.highrise.send_whisper(
-            user.id,
-            (f"🎲 Auto-games: {status} | Owner: {owner_name}"
-             f" | Running: {running} | Every {gs['auto_minigame_interval']}m")[:249]
+        lock_holder = _get_autogames_lock_holder()
+        running    = lock_holder or (BOT_MODE if loop_on else "none")
+        conflict   = (
+            loop_on
+            and BOT_MODE != owner
+            and owner not in ("disabled", "all")
         )
+        msg = (
+            f"🎲 AutoGames: {status} | Owner: {owner_name}"
+            f" | Running: {running}"
+            f" | Every {gs['auto_minigame_interval']}m"
+        )
+        if conflict:
+            msg += " ⚠️ /fixautogames"
+        await bot.highrise.send_whisper(user.id, msg[:249])
         return
 
     if not can_manage_games(user.username):
@@ -691,4 +714,32 @@ async def handle_stopautogames(bot: BaseBot, user: User) -> None:
     await bot.highrise.send_whisper(
         user.id,
         f"🛑 Auto-games stopped on all bots. (Cancelled {cancelled} task(s) here.)"[:249]
+    )
+
+
+# ---------------------------------------------------------------------------
+# /fixautogames — reset autogames owner + clear stale locks
+# ---------------------------------------------------------------------------
+
+async def handle_fixautogames(bot: BaseBot, user: User) -> None:
+    """/fixautogames — reset autogames owner to Event Bot, clear stale locks (admin/owner)."""
+    if not (is_admin(user.username) or is_owner(user.username)):
+        await bot.highrise.send_whisper(user.id, "Admin/owner only.")
+        return
+
+    db.set_room_setting("autogames_owner_bot_mode", "eventhost")
+
+    try:
+        conn = db.get_connection()
+        conn.execute(
+            "DELETE FROM bot_module_locks "
+            "WHERE module IN ('autogames', 'autogames_event')"
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+    await bot.highrise.send_whisper(
+        user.id, "✅ AutoGames fixed. Owner: Event Bot."
     )

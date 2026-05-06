@@ -232,6 +232,7 @@ from modules.auto_games import (
     handle_setgametimer, handle_setautogameinterval,
     handle_setautoeventinterval, handle_setautoeventduration,
     handle_gameconfig, handle_autogamesowner, handle_stopautogames,
+    handle_fixautogames,
 )
 from modules.gold import (
     handle_goldtip, handle_goldrefund,
@@ -517,7 +518,7 @@ ALL_KNOWN_COMMANDS = (
         "startevent", "stopevent",
         "eventpoints", "eventshop", "buyevent",
         "autogames", "autoevents", "gameconfig",
-        "autogamesowner", "stopautogames", "killautogames",
+        "autogamesowner", "stopautogames", "killautogames", "fixautogames",
         "report", "bug", "myreports",
         "rep", "reputation", "repstats", "toprep", "repleaderboard",
         # Poker — full commands
@@ -2597,6 +2598,8 @@ class HangoutBot(BaseBot):
 
         elif cmd in ("stopautogames", "killautogames"):
             await handle_stopautogames(self, user)
+        elif cmd == "fixautogames":
+            await handle_fixautogames(self, user)
 
         # ── Achievement commands ───────────────────────────────────────────────
         elif cmd == "achievements":

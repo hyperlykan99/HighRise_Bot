@@ -1,0 +1,145 @@
+Fix AutoGames conflict where Host bot may duplicate Event Bot.
+
+Problem:
+ /botconflicts says:
+"AutoGames owner=eventhost online but other bots (host) may duplicate."
+
+Goal:
+Only Event Bot can run AutoGames when Event Bot is online.
+Host Bot must never run AutoGames while Event Bot is online.
+
+IMPORTANT:
+- Do not remove AutoGames.
+- Do not break Event Bot.
+- Keep shared SQLite database.
+- Keep multi-bot routing.
+- No duplicate AutoGames loops.
+- Keep messages under 250 characters.
+
+==================================================
+PART 1: FORCE AUTOGAMES OWNER
+==================================================
+
+Set default:
+autogames_owner_bot_mode = eventhost
+
+If Event Bot is online:
+- Event Bot runs AutoGames.
+- Host Bot must not run AutoGames.
+- Main/all bot must not run AutoGames.
+- Blackjack, Poker, Miner, Banker, Shop, Security, DJ must not run AutoGames.
+
+Only allow Host fallback if:
+- Event Bot is offline
+- botfallback is ON
+- autogames_enabled is ON
+
+==================================================
+PART 2: HARD STOP HOST AUTOGAMES LOOP
+==================================================
+
+Find every place Host starts AutoGames:
+- startup
+- restore
+- interval task
+- scheduler loop
+- room utility loop
+- old mini-game loop
+
+Wrap all of them:
+
+if not should_this_bot_run_autogames(bot_id, bot_mode):
+    console_log("[AUTOGAMES] skipped on host; owner is eventhost")
+    return
+
+Host must not start:
+- auto trivia
+- auto scramble
+- auto mini games
+- auto announcements for games
+- auto rewards loop
+
+while Event Bot is online.
+
+==================================================
+PART 3: AUTOGAMES LOCK
+==================================================
+
+Use bot_module_locks with module = autogames.
+
+Before any AutoGame starts:
+- acquire lock autogames
+- if lock owned by another active bot, skip
+- release after game/event ends
+- stale lock expires after 120 seconds if owner offline
+
+This prevents duplicate AutoGames even if two bots accidentally start.
+
+==================================================
+PART 4: FIX /BOTCONFLICTS
+==================================================
+
+/botconflicts should pass when:
+- autogames_owner_bot_mode = eventhost
+- Event Bot is online
+- only Event Bot has AutoGames loop active
+- Host loop is disabled/skipped
+
+If Host still has loop registered, show:
+"Conflict: Host AutoGames loop active. Use /fixautogames."
+
+Add command:
+/fixautogames
+
+Owner/admin only.
+
+Behavior:
+- sets autogames_owner_bot_mode = eventhost
+- disables host autogames loop flag
+- clears stale autogames locks
+- restarts/refreshes Event Bot autogames owner state
+- reply:
+"✅ AutoGames fixed. Owner: Event Bot."
+
+==================================================
+PART 5: STATUS COMMANDS
+==================================================
+
+Update:
+/autogames status
+
+Expected:
+"AutoGames: ON | Owner Event | Running Event"
+
+If Host is trying to run:
+"AutoGames conflict: Host loop active."
+
+Update:
+/taskowners
+
+Expected:
+"AutoGames=Event"
+
+/taskconflicts
+
+Expected:
+"No task conflicts found."
+
+==================================================
+PART 6: TESTS
+==================================================
+
+After update, run:
+
+/fixautogames
+/autogames status
+/taskowners
+/taskconflicts
+/botconflicts
+/deploymentcheck
+
+Expected:
+- AutoGames owner is Event.
+- Host is not running AutoGames.
+- No bot conflicts.
+- No duplicate mini-games.

@@ -463,6 +463,20 @@ async def handle_moduleowners(bot, user, args: list[str]) -> None:
 # Conflict helpers
 # ---------------------------------------------------------------------------
 
+def _get_autogames_lock_holder() -> str:
+    """Return the bot_id currently holding the autogames module lock, or ''."""
+    try:
+        conn = db.get_connection()
+        row = conn.execute(
+            "SELECT bot_id FROM bot_module_locks "
+            "WHERE module='autogames' AND expires_at > datetime('now')",
+        ).fetchone()
+        conn.close()
+        return row["bot_id"] if row else ""
+    except Exception:
+        return ""
+
+
 def _count_conflicts(instances: list) -> int:
     return len(_collect_conflicts(instances))
 
@@ -494,22 +508,38 @@ def _collect_conflicts(instances: list) -> list[str]:
     split_casino = [m for m in ("blackjack", "poker") if _bot_is_online(m, instances)]
     if dealer_active and split_casino:
         conflicts.append("Legacy dealer bot active with Blackjack/Poker bots")
-    # 4. Multiple bots running auto-games (owner mismatch)
+    # 4. AutoGames ownership conflict
+    # "host" and "all" are known fallback modes with built-in deferral guards —
+    # they skip autogames when the owner is online, so they are NOT real conflicts.
+    # Only flag modes that have no deferral logic and are not the configured owner.
+    _AUTOGAMES_NEVER = frozenset({
+        "blackjack", "poker", "miner", "banker", "shopkeeper", "security", "dj"
+    })
+    _AUTOGAMES_FALLBACK = frozenset({"host", "all"})
     try:
         autogames_owner = db.get_room_setting("autogames_owner_bot_mode", "eventhost")
         if autogames_owner not in ("disabled",):
-            online_non_owners = [
+            owner_online = _bot_is_online(autogames_owner, instances)
+            # Real conflict: module lock held by a non-owner bot while owner is online
+            lock_holder = _get_autogames_lock_holder()
+            if lock_holder and lock_holder != autogames_owner and owner_online:
+                conflicts.append(
+                    f"AutoGames lock held by '{lock_holder}' "
+                    f"but owner '{autogames_owner}' is online. Run /fixautogames."
+                )
+            # Flag unexpected modes that have no built-in deferral
+            true_dupes = [
                 inst["bot_mode"] for inst in instances
                 if _bot_is_online(inst.get("bot_mode", ""), instances)
                 and inst.get("bot_mode") != autogames_owner
-                and inst.get("bot_mode") not in
-                    ("blackjack", "poker", "miner", "banker", "shopkeeper", "security", "dj")
-                and inst.get("bot_mode") != "all"
+                and inst.get("bot_mode") not in _AUTOGAMES_NEVER
+                and inst.get("bot_mode") not in _AUTOGAMES_FALLBACK
             ]
-            if online_non_owners and _bot_is_online(autogames_owner, instances):
+            if true_dupes and owner_online:
                 conflicts.append(
-                    f"AutoGames owner={autogames_owner} online but other bots"
-                    f" ({', '.join(set(online_non_owners))}) may duplicate."
+                    f"AutoGames owner={autogames_owner} online but bots "
+                    f"({', '.join(set(true_dupes))}) may duplicate. "
+                    f"Run /fixautogames."
                 )
     except Exception:
         pass

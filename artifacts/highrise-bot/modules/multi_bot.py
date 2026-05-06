@@ -412,15 +412,20 @@ async def send_module_room_message(
 # ---------------------------------------------------------------------------
 
 async def handle_taskowners(bot, user) -> None:
-    """/taskowners — show which bot mode owns each module."""
+    """/taskowners — show which bot mode owns each module (including AutoGames from DB)."""
     if not can_manage_economy(user.username):
         await _w(bot, user.id, "Admin/owner only.")
         return
+    try:
+        ag_owner = db.get_room_setting("autogames_owner_bot_mode", "eventhost")
+    except Exception:
+        ag_owner = "eventhost"
     parts = [
         f"{m}={_MODE_NAMES.get(owner, owner)}"
         for m, owner in _MODULE_OWNER_MODES.items()
         if m != "rbj"
     ]
+    parts.append(f"autogames={_MODE_NAMES.get(ag_owner, ag_owner.title())}")
     await _w(bot, user.id, ("Tasks: " + " | ".join(parts))[:249])
 
 
@@ -441,7 +446,7 @@ async def handle_activetasks(bot, user) -> None:
 
 
 async def handle_taskconflicts(bot, user) -> None:
-    """/taskconflicts — detect if multiple bots are running the same module tasks."""
+    """/taskconflicts — detect duplicate module task ownership across bots."""
     if not can_manage_economy(user.username):
         await _w(bot, user.id, "Admin/owner only.")
         return
@@ -456,6 +461,18 @@ async def handle_taskconflicts(bot, user) -> None:
             runners.append("all")
         if len(runners) > 1:
             conflicts.append(f"{module}:{'+'.join(runners)}")
+    # AutoGames: owner from DB; "host" is a known fallback mode (not a conflict)
+    try:
+        ag_owner = db.get_room_setting("autogames_owner_bot_mode", "eventhost")
+        if ag_owner not in ("disabled",) and _is_mode_online(ag_owner):
+            ag_runners = [ag_owner]
+            if _is_mode_online("all"):
+                ag_runners.append("all")
+            # "host" intentionally defers to owner when online — not a conflict
+            if len(ag_runners) > 1:
+                conflicts.append(f"autogames:{'+'.join(ag_runners)}")
+    except Exception:
+        pass
     if not conflicts:
         await _w(bot, user.id, "✅ No task conflicts found.")
     else:
