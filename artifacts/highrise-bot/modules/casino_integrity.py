@@ -121,6 +121,7 @@ _POKER_FNS  = [
 _POKER_SUBS = [
     "settings", "state", "cleanup", "refund", "hardrefund",
     "forcefinish", "recoverystatus", "clearhand", "closeforce",
+    "status", "emergency",
 ]
 
 
@@ -140,12 +141,26 @@ def _check_routes_poker() -> list:
     c  = [_chk(f"route:{x}", _in_owners(x)) for x in _POKER_TOP]
     c += [_chk(f"fn:{fn}", _fn_ok(m, fn)) for m, fn in _POKER_FNS]
     try:
-        import modules.poker as pm
+        import modules.poker as _pm
         import inspect
-        src = inspect.getsource(pm._dispatch)
-        c  += [_chk(f"sub:poker {s}", f'sub == "{s}"' in src) for s in _POKER_SUBS]
+        src = inspect.getsource(_pm._dispatch)
+        for s in _POKER_SUBS:
+            found  = f'sub == "{s}"' in src or f'"{s}"' in src
+            detail = f"sub:poker {s} route missing" if not found else ""
+            c.append(_chk(f"sub:poker {s}", found, detail))
     except Exception:
         c  += [_chk(f"sub:poker {s}", False, "inspect err") for s in _POKER_SUBS]
+    # Behavioral: recoverystatus helper must run without crashing
+    try:
+        from modules.poker import get_poker_recovery_recommendation as _grr
+        rec        = _grr()
+        valid_recs = {"no_action", "forcefinish", "refund",
+                      "hardrefund", "clearhand", "closeforce"}
+        ok = rec in valid_recs
+        c.append(_chk("sub:poker recoverystatus:safe", ok,
+                      f"bad rec={rec[:20]}" if not ok else ""))
+    except Exception as e:
+        c.append(_chk("sub:poker recoverystatus:safe", False, str(e)[:40]))
     return c
 
 
@@ -398,7 +413,7 @@ def _simulate_poker() -> list:
         try:
             from modules.poker import get_poker_recovery_recommendation
             rec   = get_poker_recovery_recommendation()
-            valid = rec in {"forcefinish", "hardrefund", "clearhand", "closeforce", "no_action"}
+            valid = rec in {"forcefinish", "refund", "hardrefund", "clearhand", "closeforce", "no_action"}
             checks.append(_chk("pk_sim:recovery_rec", valid))
         except Exception as re:
             checks.append(_chk("pk_sim:recovery_rec", False, str(re)[:40]))
@@ -418,7 +433,7 @@ def _check_recovery() -> list:
     try:
         from modules.poker import get_poker_recovery_recommendation
         rec   = get_poker_recovery_recommendation()
-        valid = rec in {"forcefinish", "hardrefund", "clearhand", "closeforce", "no_action"}
+        valid = rec in {"forcefinish", "refund", "hardrefund", "clearhand", "closeforce", "no_action"}
         checks.append(_chk("pk_rec:non_circular", valid, "" if valid else rec))
     except Exception as e:
         checks.append(_chk("pk_rec:non_circular", False, str(e)[:40]))

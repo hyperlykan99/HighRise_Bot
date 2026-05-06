@@ -648,6 +648,9 @@ def get_poker_recovery_recommendation() -> str:
         pot      = int(tbl.get("pot") or 0)
         if phase in ("idle", "waiting", "between_hands"):
             return "no_action"
+        # Finished phase with stuck hand rows → safe to clear
+        if phase == "finished":
+            return "clearhand"
         players  = _get_players(round_id) if round_id else []
         unpaid   = [p for p in players if not _is_paid(round_id, p["username"])]
         eligible = _eligible_players(unpaid) if unpaid else _eligible_players(players)
@@ -671,7 +674,12 @@ def get_poker_recovery_recommendation() -> str:
         if (phase in ("preflop", "flop", "turn", "river")
                 and valid_cards and len(eligible) >= 2):
             return "forcefinish"
-        # Pot > 0 and cannot safely forcefinish → hardrefund
+        # Pot > 0: if contribution records exist, regular refund is safer
+        if round_id and unpaid:
+            has_contribs = all(int(p.get("total_contributed") or 0) > 0
+                               for p in unpaid)
+            if has_contribs:
+                return "refund"
         return "hardrefund"
     except Exception:
         return "hardrefund"
@@ -2871,9 +2879,14 @@ async def _dispatch(bot: BaseBot, user: User, args: list[str]) -> None:
         asyncio.create_task(_expire_code())
         return
 
-    # ── recoverystatus / emergency ─────────────────────────────────────────────
-    if sub in ("recoverystatus", "emergency"):
-        if not can_manage_games(user.username):
+    # ── recoverystatus / recovery / status / emergency ─────────────────────────
+    if (sub == "recoverystatus" or sub == "recovery"
+            or sub == "status" or sub == "emergency"):
+        if sub == "emergency":
+            if not (is_owner(user.username) or is_admin(user.username)):
+                await _w(bot, user.id, "Owner/admin only.")
+                return
+        elif not can_manage_games(user.username):
             await _w(bot, user.id, "Managers+ only.")
             return
         tbl      = _get_table()
@@ -2898,13 +2911,25 @@ async def _dispatch(bot: BaseBot, user: User, args: list[str]) -> None:
             except Exception:
                 pass
         rec = get_poker_recovery_recommendation()
-        if rec == "no_action":
-            status_line = (f"Poker OK | Phase:{phase} | Pot:{pot}c"
-                           f" | Seated:{len(seated)}")
+        if not tbl:
+            status_line = "Poker recovery: no table found. No action needed."
+        elif rec == "no_action":
+            if phase in ("waiting", "idle", "between_hands"):
+                status_line = f"Poker recovery: table {phase} | no stuck hand."
+            else:
+                status_line = f"Poker recovery: active hand | pot {pot:,}c | no fix needed."
+        elif rec == "forcefinish":
+            status_line = f"Poker recovery: active hand | pot {pot:,}c | use /poker forcefinish."
+        elif rec == "refund":
+            status_line = f"Poker recovery: unresolved pot {pot:,}c | use /poker refund."
+        elif rec == "hardrefund":
+            status_line = f"Poker recovery: corrupt pot {pot:,}c | use /poker hardrefund."
+        elif rec == "clearhand":
+            status_line = f"Poker recovery: finished stuck | use /poker clearhand."
+        elif rec == "closeforce":
+            status_line = f"Poker recovery: severe issue | use /poker closeforce."
         else:
-            status_line = (f"Poker stuck | Phase:{phase} | Pot:{pot}c"
-                           f" | InHand:{len(players)} Unpaid:{len(unpaid)}"
-                           f" | Fix: /poker {rec}")
+            status_line = f"Poker recovery: unknown ({rec})."
         details_line = (f"Seated:{len(seated)} Active:{len(active)}"
                         f" Elig:{len(eligible)} | Cards:{'ok' if cards_ok else 'missing'}"
                         f" Board:{len(community)}"
@@ -3393,11 +3418,11 @@ POKER_HELP_PAGES = [
         "/setpokermaxstack <amt>  /setpokeridlestrikes <n>"
     ),
     (
-        "♠️ Poker 6/6 — Recovery (Mgr+/Admin)\n"
-        "/poker recoverystatus|emergency (Mgr+)\n"
-        "/poker forcefinish|refund|cleanup (Mgr+)\n"
-        "/poker hardrefund|clearhand|closeforce (Admin)\n"
-        "/confirmclosepoker <code> (Admin)"
+        "♠️ Poker 6/6 — Recovery\n"
+        "/poker state  /poker recoverystatus\n"
+        "/poker cleanup  /poker refund\n"
+        "/poker forcefinish  /poker hardrefund\n"
+        "/poker clearhand|closeforce (Admin)"
     ),
 ]
 

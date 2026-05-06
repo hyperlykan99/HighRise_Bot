@@ -1,0 +1,200 @@
+Fix Casino Integrity failure: sub:poker recoverystatus.
+
+Problem:
+Running /casinointegrity full shows:
+Casino Full: 200/201 pass | Logic FAIL | Cards OK
+Fails: sub:poker recoverystatus
+
+Goal:
+Make /poker recoverystatus pass integrity checks in all poker states:
+- no active table
+- waiting table
+- active hand
+- stuck hand
+- corrupted hand
+- unresolved pot
+- finished hand rows stuck
+
+IMPORTANT:
+- Do not remove existing poker features.
+- Keep Poker Bot ownership.
+- Keep poker recovery commands.
+- Use SQLite.
+- Keep messages under 250 characters.
+- No silent failures.
+- /poker recoverystatus must never crash.
+- /casinointegrity full should pass after this fix.
+
+==================================================
+PART 1: ROUTE /POKER RECOVERYSTATUS
+==================================================
+
+Add/fix explicit routing for:
+- /poker recoverystatus
+- /poker recovery
+- /poker status
+- /poker emergency
+
+Owner:
+- Poker Bot
+
+Permissions:
+- /poker recoverystatus: owner/admin/manager
+- /poker status: owner/admin/manager
+- /poker emergency: owner/admin only
+
+/commandtest /poker should still work.
+If commandtest supports subcommands, add:
+/commandtest /poker recoverystatus
+
+Expected:
+"/poker recoverystatus route:YES | help:YES | owner:Poker"
+
+==================================================
+PART 2: MAKE RECOVERYSTATUS SAFE
+==================================================
+
+Implement /poker recoverystatus so it always returns a valid message.
+
+It should handle these states:
+
+1. No poker table exists:
+"Poker recovery: no table found. No action needed."
+
+2. Table waiting, no active hand:
+"Poker recovery: table waiting | no stuck hand."
+
+3. Active normal hand:
+"Poker recovery: active hand | pot 150c | no fix needed."
+
+4. Pot exists but cards missing:
+"Poker recovery: corrupt pot 150c | use /poker hardrefund."
+
+5. Pot exists and contributions known:
+"Poker recovery: unresolved pot 150c | use /poker refund."
+
+6. Finished hand rows stuck, pot 0:
+"Poker recovery: finished stuck | use /poker clearhand."
+
+7. Severe corruption:
+"Poker recovery: severe issue | use /poker closeforce."
+
+Never return empty string.
+Never throw exception if table/hand/cards/contributions are missing.
+
+==================================================
+PART 3: SHARED RECOVERY RECOMMENDATION HELPER
+==================================================
+
+Create/fix helper:
+get_poker_recovery_recommendation()
+
+Return:
+- no_action
+- forcefinish
+- refund
+- hardrefund
+- clearhand
+- closeforce
+
+Rules:
+- No table/no hand = no_action
+- Valid cards + active pot + players = forcefinish
+- Pot > 0 + contribution records = refund
+- Pot > 0 + missing contribution records = hardrefund
+- Pot = 0 + stuck rows = clearhand
+- Severe corrupt table = closeforce
+
+Use this helper in:
+- /poker recoverystatus
+- /poker state
+- /poker cleanup
+- /poker forcefinish
+- /poker refund
+- /poker hardrefund
+- /casinointegrity recovery
+- /casinointegrity full
+
+==================================================
+PART 4: FIX INTEGRITY CHECK EXPECTATION
+==================================================
+
+Update /casinointegrity full sub-check "poker recoverystatus":
+
+It should pass if:
+- command is routed
+- handler exists
+- command returns a non-empty response
+- response contains one of:
+  "Poker recovery"
+  "no action"
+  "use /poker"
+  "no stuck hand"
+  "active hand"
+
+It should fail only if:
+- route missing
+- handler missing
+- command crashes
+- command returns empty
+- command says Unknown command
+
+Do not require an active stuck hand for this check to pass.
+
+==================================================
+PART 5: LOG FAIL DETAILS
+==================================================
+
+When integrity fails, make it show the exact reason.
+
+Example:
+"Fail: poker recoverystatus route missing"
+
+or:
+"Fail: poker recoverystatus empty response"
+
+or:
+"Fail: poker recoverystatus exception: <short error>"
+
+Keep under 250 chars.
+
+==================================================
+PART 6: HELP UPDATE
+==================================================
+
+Update /pokerhelp staff/recovery page:
+
+"♠️ Recovery
+/poker state
+/poker recoverystatus
+/poker cleanup
+/poker refund
+/poker hardrefund"
+
+Update /ownerhelp recovery:
+"/poker recoverystatus - diagnose poker"
+
+==================================================
+PART 7: TESTS
+==================================================
+
+After update, test:
+
+/commandtest /poker recoverystatus
+Expected:
+route YES | help YES | owner Poker
+
+/poker recoverystatus
+Expected:
+A clear recovery status message.
+
+/casinointegrity recovery
+Expected:
+Recovery OK.
+
+/casinointegrity full
+Expected:
+Casino Full: 201/201 pass | Logic OK | Cards OK
+
+Final requirement:
+The casino integrity checker must pass poker recoverystatus even when there is no active poker game, as long as the command is routed and safely returns a diagnosis.

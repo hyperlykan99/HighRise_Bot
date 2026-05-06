@@ -1311,6 +1311,14 @@ OWNER_HELP_PAGES = [
         "/silentcheck - silent risk cmds\n"
         "/commandtest cmd - test a route"
     ),
+    (
+        "👑 Owner 7 — Recovery\n"
+        "/poker recoverystatus - diagnose poker\n"
+        "/poker state - poker state info\n"
+        "/poker cleanup - cleanup stuck hand\n"
+        "/casinointegrity full - integrity check\n"
+        "/poker closeforce - emergency close"
+    ),
 ]
 
 ALLCMDS = [
