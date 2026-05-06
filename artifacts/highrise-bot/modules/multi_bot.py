@@ -298,6 +298,8 @@ async def start_heartbeat_loop(bot) -> None:
 
     async def _loop():
         while True:
+            last_error = ""
+            db_connected = 1
             try:
                 mode_prefix = ""
                 try:
@@ -311,10 +313,25 @@ async def start_heartbeat_loop(bot) -> None:
                     bot_mode=BOT_MODE,
                     prefix=mode_prefix,
                     status="online",
+                    db_connected=1,
+                    last_error="",
                 )
                 _refresh_online_cache()
             except Exception as exc:
+                last_error = str(exc)[:80]
                 print(f"[MULTIBOT] Heartbeat error: {exc}")
+                try:
+                    db.upsert_bot_instance(
+                        bot_id=BOT_ID,
+                        bot_username=BOT_USERNAME or BOT_ID,
+                        bot_mode=BOT_MODE,
+                        prefix="",
+                        status="online",
+                        db_connected=0,
+                        last_error=last_error,
+                    )
+                except Exception:
+                    pass
             await asyncio.sleep(30)
 
     _heartbeat_task = asyncio.create_task(_loop())
@@ -554,20 +571,29 @@ def should_announce_startup() -> bool:
 
 _MULTIBOT_HELP_PAGES = [
     (
-        "🤖 Split Bots\n"
-        "Blackjack: BJ/RBJ\n"
-        "Poker: poker table\n"
-        "/bots - status\n"
-        "/botmodules - owners\n"
-        "/botstatus id - details"
+        "🤖 Multi-Bot\n"
+        "/bots - bot list\n"
+        "/bothealth - health\n"
+        "/modulehealth - modules\n"
+        "/deploymentcheck - check setup\n"
+        "/botstatus id - bot details"
+    ),
+    (
+        "🔍 Diagnostics\n"
+        "/botlocks - active locks\n"
+        "/botconflicts - find conflicts\n"
+        "/botheartbeat - this bot status\n"
+        "/moduleowners - cmd owners\n"
+        "/commandowners - DB overrides"
     ),
     (
         "👑 Owner Controls\n"
         "/setcommandowner cmd mode\n"
-        "/enablebot id\n"
-        "/disablebot id\n"
+        "/enablebot id | /disablebot id\n"
         "/setbotmodule id mode\n"
-        "/botfallback on|off"
+        "/botfallback on|off\n"
+        "/fixbotowners [force]\n"
+        "/clearstalebotlocks"
     ),
 ]
 
@@ -591,6 +617,69 @@ async def handle_multibothelp(bot, user, args: list[str]) -> None:
 # ---------------------------------------------------------------------------
 # get_command_owner_for_audit  (used by cmd_audit.py)
 # ---------------------------------------------------------------------------
+
+def check_startup_safety() -> list[str]:
+    """
+    Run safety checks at bot startup. Returns a list of warning strings.
+    Prints each warning to console; caller may also announce in-room.
+    """
+    warnings: list[str] = []
+    try:
+        instances = db.get_bot_instances()
+        now_ts = __import__("time").time()
+
+        # 1. Duplicate BOT_ID active recently
+        for inst in instances:
+            if inst.get("bot_id") != BOT_ID:
+                continue
+            last_seen = inst.get("last_seen_at", "")
+            if not last_seen:
+                continue
+            from datetime import datetime as _dt, timezone as _tz
+            try:
+                ls = _dt.fromisoformat(last_seen.replace("Z", "+00:00"))
+                if ls.tzinfo is None:
+                    ls = ls.replace(tzinfo=_tz.utc)
+                age = (_dt.now(_tz.utc) - ls).total_seconds()
+                if age < 60 and inst.get("status") == "online":
+                    w = f"[MULTIBOT] WARN: Another bot with ID '{BOT_ID}' was active {int(age)}s ago."
+                    print(w)
+                    warnings.append(w)
+            except Exception:
+                pass
+
+        # 2. BOT_MODE=all with dedicated split bots active
+        if BOT_MODE == "all":
+            split_modes = ("blackjack", "poker", "miner", "banker",
+                           "shopkeeper", "security", "dj", "eventhost")
+            active_splits = []
+            for inst in instances:
+                m = inst.get("bot_mode", "")
+                if m not in split_modes:
+                    continue
+                if not inst.get("enabled", 1):
+                    continue
+                last_seen = inst.get("last_seen_at", "")
+                if not last_seen:
+                    continue
+                from datetime import datetime as _dt2, timezone as _tz2
+                try:
+                    ls = _dt2.fromisoformat(last_seen.replace("Z", "+00:00"))
+                    if ls.tzinfo is None:
+                        ls = ls.replace(tzinfo=_tz2.utc)
+                    if (_dt2.now(_tz2.utc) - ls).total_seconds() < 90:
+                        active_splits.append(m)
+                except Exception:
+                    pass
+            if active_splits:
+                w = (f"[MULTIBOT] WARN: BOT_MODE=all active alongside split bots: "
+                     f"{', '.join(active_splits)}. Duplicate replies possible.")
+                print(w)
+                warnings.append(w)
+    except Exception as e:
+        print(f"[MULTIBOT] Startup safety check error: {e}")
+    return warnings
+
 
 def get_command_owner_for_audit(cmd: str) -> str:
     owner = _resolve_command_owner(cmd)

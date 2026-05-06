@@ -1,0 +1,249 @@
+Add Multi-Bot Health, Module Status, and Safe Deployment Checks.
+
+GOAL:
+Now that bots are separated, I need a way to confirm every bot module is online and safe:
+- Host Bot
+- Blackjack Bot
+- Poker Bot
+- Banker Bot later
+- Miner Bot later
+- Shop Bot later
+- Security Bot later
+- DJ Bot later
+- Event Bot later
+
+This system should show if a bot is online, what module it owns, whether database is connected, and whether command ownership is correct.
+
+IMPORTANT:
+- Do not remove existing features.
+- Keep multi-bot system, shared SQLite database, command ownership, bot modes, BJ/RBJ, Poker, mining, bank, shop, room utilities, profiles, roles, and admin tools.
+- Keep messages under 250 characters.
+- Split long output into pages.
+- Add explicit routing before unknown-command fallback.
+- Prevent silent failures.
+
+Commands:
+- /bothealth
+- /bothealth <bot_id>
+- /modulehealth
+- /modulehealth <module>
+- /deploymentcheck
+- /botlocks
+- /clearstalebotlocks
+- /botheartbeat
+- /moduleowners
+- /botconflicts
+- /fixbotowners
+
+Permissions:
+- Owner/admin only for repair commands.
+- Manager can view /bothealth and /modulehealth.
+- Players cannot use these.
+
+==================================================
+PART 1: BOT HEARTBEAT
+==================================================
+
+Every bot instance should update bot_instances every 30 seconds.
+
+Store:
+- bot_id
+- bot_username
+- bot_mode
+- enabled
+- prefix
+- last_seen_at
+- status
+- current_room_id if available
+- db_connected yes/no
+- last_error
+
+If bot has not updated in 90 seconds, mark as OFFLINE.
+
+Messages:
+/bots:
+"🤖 Bots: Host ON | Blackjack ON | Poker ON | Miner OFF"
+
+/bothealth:
+"Health: Host ON | BJ ON | Poker ON | DB OK | Conflicts 0"
+
+==================================================
+PART 2: MODULE HEALTH
+==================================================
+
+/modulehealth:
+Shows:
+"Modules: BJ OK | RBJ OK | Poker OK | Mining OK | Bank OK"
+
+/modulehealth poker:
+Shows:
+"Poker: owner Poker | bot ON | DB OK | locks OK | state active"
+
+/modulehealth blackjack:
+Shows:
+"BJ/RBJ: owner Blackjack | bot ON | DB OK | locks OK"
+
+Check:
+- assigned owner bot
+- owner bot online
+- database connection
+- module lock status
+- active game state if applicable
+- recovery_required status if applicable
+
+==================================================
+PART 3: DEPLOYMENT CHECK
+==================================================
+
+/deploymentcheck:
+Runs a safe checklist:
+- DB connected
+- bot_instances table exists
+- command ownership exists
+- Host bot online
+- Blackjack bot online if enabled
+- Poker bot online if enabled
+- No duplicate command owners
+- No stale locks
+- No missing command handlers
+- No known silent commands
+
+Message:
+"Deploy Check: DB OK | Bots 3 ON | Conflicts 0 | Locks OK"
+
+If issues:
+"Deploy Issues: Poker OFF | 1 stale lock | /p owner missing"
+
+Paginate if needed:
+/deploymentcheck 2
+
+==================================================
+PART 4: BOT LOCKS
+==================================================
+
+/botlocks:
+Shows active module locks:
+"Locks: poker by PokerBot 4s | rbj none | bj none"
+
+If stale:
+"Stale locks: poker 120s old. Use /clearstalebotlocks."
+
+/clearstalebotlocks:
+- Clears locks older than 60 seconds if no bot heartbeat owns it.
+- Does not clear active valid locks.
+- Message:
+"✅ Cleared 1 stale lock."
+
+==================================================
+PART 5: CONFLICT DETECTION
+==================================================
+
+/botconflicts:
+Detects:
+- two bots assigned same BOT_MODE
+- command owned by multiple bots
+- BOT_MODE=all running with dedicated bots
+- dealer bot active while blackjack/poker bots active and fallback not configured
+- Host and all-mode both answering unknown commands
+
+Messages:
+"No bot conflicts found."
+
+Or:
+"Conflict: BOT_MODE=all active with Poker Bot. Disable all-mode or fallback."
+
+==================================================
+PART 6: COMMAND OWNER REPAIR
+==================================================
+
+/fixbotowners:
+Repairs default command ownership.
+
+Set:
+- BJ/RBJ commands -> blackjack
+- Poker commands -> poker
+- Mining commands -> miner
+- Bank commands -> banker
+- Shop commands -> shopkeeper
+- Moderation/report commands -> security
+- Help/tutorial/profile/welcome -> host
+- Emote/social/announcement -> dj/eventhost depending command
+
+Message:
+"✅ Command owners repaired."
+
+Do not overwrite custom owner settings unless:
+- /fixbotowners force
+
+/commandowners should show paginated:
+"1/3 Owners: /bj=Blackjack | /rbj=Blackjack | /p=Poker"
+
+==================================================
+PART 7: STARTUP SAFETY
+==================================================
+
+On bot startup:
+- Register bot instance.
+- Log mode and DB path.
+- Check if another bot with same bot_id is active.
+- If duplicate same bot_id active:
+  - warn console
+  - do not spam room
+- If BOT_MODE=all and dedicated bots online:
+  - warn:
+"BOT_MODE all active with split bots. Duplicate replies possible."
+
+If startup announce is enabled:
+"🤖 Poker Bot online."
+
+==================================================
+PART 8: HELP UPDATE
+==================================================
+
+Update /multibothelp:
+"🤖 Multi-Bot
+/bots - bot list
+/bothealth - health
+/modulehealth - modules
+/deploymentcheck - check setup"
+
+Update /ownerhelp system:
+"/deploymentcheck - verify bots
+/botconflicts - find conflicts
+/clearstalebotlocks - clear locks"
+
+==================================================
+PART 9: TESTS
+==================================================
+
+Test with one bot:
+- /bothealth
+- /modulehealth
+- /deploymentcheck
+Expected:
+Shows main/all bot handling modules.
+
+Test with split bots:
+- Host BOT_MODE=host
+- Blackjack BOT_MODE=blackjack
+- Poker BOT_MODE=poker
+
+Run:
+- /bots
+- /bothealth
+- /modulehealth poker
+- /modulehealth blackjack
+- /deploymentcheck
+- /botlocks
+- /botconflicts
+- /commandowners
+
+Expected:
+- Host, Blackjack, Poker show online.
+- BJ/RBJ owner = Blackjack.
+- Poker owner = Poker.
+- No duplicate replies.
+- No stale locks.
+
+Final requirement:
+Before I test games, I should be able to run /deploymentcheck and know if the split bot setup is safe.

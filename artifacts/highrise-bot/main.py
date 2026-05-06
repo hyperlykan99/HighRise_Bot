@@ -271,11 +271,18 @@ from modules.multi_bot import (
     should_this_bot_handle,
     start_heartbeat_loop as start_multibot_heartbeat,
     should_announce_startup, get_offline_message,
+    check_startup_safety,
     handle_bots_live, handle_botstatus_cluster,
     handle_botmodules, handle_commandowners,
     handle_enablebot, handle_disablebot,
     handle_setbotmodule, handle_setcommandowner, handle_botfallback,
     handle_botstartupannounce, handle_multibothelp,
+)
+from modules.bot_health import (
+    handle_bothealth, handle_modulehealth, handle_deploymentcheck,
+    handle_botlocks, handle_clearstalebotlocks,
+    handle_botheartbeat, handle_moduleowners,
+    handle_botconflicts, handle_fixbotowners,
 )
 from modules.bot_modes import (
     handle_botmode, handle_botmodes, handle_botprofile,
@@ -630,6 +637,11 @@ ALL_KNOWN_COMMANDS = (
         "botmodules", "commandowners", "multibothelp",
         "enablebot", "disablebot", "setbotmodule",
         "setcommandowner", "botfallback", "botstartupannounce",
+        # ── Bot health / deployment checks ────────────────────────────────────
+        "bothealth", "modulehealth", "deploymentcheck",
+        "botlocks", "clearstalebotlocks",
+        "botheartbeat", "moduleowners",
+        "botconflicts", "fixbotowners",
     }
     | ECONOMY_COMMANDS | PROFILE_COMMANDS | GAME_COMMANDS
     | SHOP_COMMANDS | ACHIEVEMENT_COMMANDS | BJ_COMMANDS
@@ -1799,10 +1811,15 @@ class HangoutBot(BaseBot):
         # Log startup identity
         from config import BOT_ID, BOT_MODE, DB_PATH
         print(f"[MULTIBOT] Bot started | ID:{BOT_ID} Mode:{BOT_MODE} | DB:{DB_PATH}")
+        # Startup safety checks (logs warnings, does not spam room)
+        check_startup_safety()
         if should_announce_startup():
-            await self.highrise.chat(
-                f"Bot online | Mode: {BOT_MODE} | Type /help for commands."
-            )
+            from config import BOT_MODE as _bm
+            mode_display = {
+                "blackjack": "🃏 Blackjack Bot", "poker": "♠️ Poker Bot",
+                "host": "🎙️ Host Bot", "all": "🤖 Main Bot",
+            }.get(_bm, f"🤖 {_bm.title()} Bot")
+            await self.highrise.chat(f"{mode_display} online. /help for commands.")
 
     async def on_chat(self, user: User, message: str) -> None:
         """
@@ -3437,6 +3454,26 @@ class HangoutBot(BaseBot):
             await handle_botstartupannounce(self, user, args)
         elif cmd == "multibothelp":
             await handle_multibothelp(self, user, args)
+
+        # ── Bot health / deployment checks ─────────────────────────────────────
+        elif cmd == "bothealth":
+            await handle_bothealth(self, user, args)
+        elif cmd == "modulehealth":
+            await handle_modulehealth(self, user, args)
+        elif cmd == "deploymentcheck":
+            await handle_deploymentcheck(self, user, args)
+        elif cmd == "botlocks":
+            await handle_botlocks(self, user)
+        elif cmd == "clearstalebotlocks":
+            await handle_clearstalebotlocks(self, user)
+        elif cmd == "botheartbeat":
+            await handle_botheartbeat(self, user)
+        elif cmd == "moduleowners":
+            await handle_moduleowners(self, user, args)
+        elif cmd == "botconflicts":
+            await handle_botconflicts(self, user)
+        elif cmd == "fixbotowners":
+            await handle_fixbotowners(self, user, args)
 
         # ── Control panel ─────────────────────────────────────────────────────
         elif cmd == "control":

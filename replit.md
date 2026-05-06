@@ -123,6 +123,15 @@ Casino games (BJ, RBJ with split/double/shoe, Poker), DJ queue, token economy, d
 | Host Bot | `host` | `host` | `LoungeHost` |
 | Single bot | `main` | `all` | _(any)_ |
 
+## Bot Health System (modules/bot_health.py)
+
+**View (manager+)**: `/bothealth [bot_id]` `/modulehealth [module]` `/deploymentcheck [page]` `/botlocks` `/botheartbeat` `/moduleowners [page]` `/botconflicts`  
+**Repair (admin+)**: `/clearstalebotlocks` `/fixbotowners [force]`  
+**Module keys**: `blackjack` `rbj` `poker` `mining` `bank` `shop` `security` `dj` `events`  
+`/deploymentcheck` runs 9 checks (DB, tables, bot online status, duplicate owners, stale locks, all+split conflict) paginated 4 per page.  
+`/fixbotowners` fills missing owners from defaults; add `force` to overwrite custom settings.  
+`check_startup_safety()` called on every bot start — logs console WARN if duplicate BOT_ID seen in last 60s, or if BOT_MODE=all runs alongside split bots.
+
 ## Pointers
 
 - Adding a new room setting: `db.set_room_setting(key, value)` / `db.get_room_setting(key, default)`.
