@@ -2151,19 +2151,41 @@ class HangoutBot(BaseBot):
             print(f"[CMD] safe_send failed: {_se}")
 
     async def on_chat(self, user: User, message: str) -> None:
-        """SDK entry point — nuclear core bypass first, then full router."""
-        # ── CORE: absolute first — no DB, no config, no imports needed ────────
+        """SDK entry point — /ping bypass first, then full router for everything else."""
         _raw_text = message.strip()
         print(f"[CORE RX] {user.username}: {_raw_text}")
 
-        _cmd_lower = _raw_text.lower()
-        if _cmd_lower == "/ping":
-            await self._core_send(user, "pong")
-            print("[CORE PING] replied pong")
-            return
-        if _cmd_lower == "/help":
-            await self._core_send(user, "Help core online.")
-            return
+        # ── /ping — handled here before router, wrapped so it can never crash ──
+        if _raw_text.lower().startswith("/ping"):
+            try:
+                _parts = _raw_text.split()
+                _ptarget = _parts[1].lower() if len(_parts) > 1 else ""
+                if _ptarget == "all":
+                    # /ping all — every project bot replies once (owner/admin only)
+                    _allowed = False
+                    try:
+                        from modules.permissions import is_owner as _iow, is_admin as _iadm
+                        _allowed = _iow(user.username) or _iadm(user.username)
+                    except Exception:
+                        _allowed = BOT_MODE in ("host", "all")
+                    if _allowed:
+                        await self._core_send(user, f"pong | {BOT_MODE}")
+                        print(f"[CORE PING ALL] {BOT_MODE} replied")
+                else:
+                    # Normal /ping — only the designated host bot replies
+                    _resp, _reason = is_ping_responder()
+                    print(f"[PING] bot={BOT_MODE}/{BOT_ID} responder={_resp} reason={_reason}")
+                    if _resp:
+                        await self._core_send(user, "pong | Host online")
+                        print("[CORE PING] replied pong | Host online")
+            except Exception as _pe:
+                print(f"[CORE PING ERROR] {_pe}")
+                if BOT_MODE in ("host", "all"):
+                    try:
+                        await self.highrise.chat("pong | Host online")
+                    except Exception:
+                        pass
+            return  # ALL /ping variants return — never reaches router or _on_chat_body
         # ──────────────────────────────────────────────────────────────────────
 
         try:
@@ -2184,7 +2206,7 @@ class HangoutBot(BaseBot):
             if BOT_MODE in ("host", "all"):
                 try:
                     await self.highrise.send_whisper(
-                        user.id, "Router error. Core commands (/ping /help) still online.")
+                        user.id, "Router error. /ping and /crashlogs still online.")
                 except Exception:
                     pass
 
