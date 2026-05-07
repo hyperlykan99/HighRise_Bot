@@ -121,6 +121,11 @@ from modules.poker import (
     get_poker_state_str,
     handle_pokermode, handle_pokerpace, handle_setpokerpace,
     handle_pokerstacks, handle_setpokerstack, handle_dealstatus,
+    handle_pokerdashboard,
+    handle_pokerpause, handle_pokerresume,
+    handle_pokerforceadvance, handle_pokerforceresend,
+    handle_pokerturn, handle_pokerpots, handle_pokeractions,
+    handle_pokerresetturn, handle_pokerresethand, handle_pokerresettable,
 )
 from modules.casino_settings     import (
     handle_casinosettings, handle_casinolimits, handle_casinotoggles,
@@ -433,6 +438,11 @@ MANAGER_ONLY_CMDS = {
     "setpokermaxstack", "setpokeridlestrikes",
     "pokerdebug", "pokerfix", "pokerrefundall", "pokercleanup",
     "confirmclosepoker",
+    "pokerdashboard", "pdash", "pokeradmin",
+    "pokerpause", "pokerresume",
+    "pokerforceadvance", "pokerforceresend",
+    "pokerturn", "pokerpots", "pokeractions",
+    "pokerresetturn", "pokerresethand", "pokerresettable",
     "casinointegrity", "integritylogs", "carddeliverycheck",
     "setpokercardmarker",
     "banksettings",
@@ -727,6 +737,12 @@ ALL_KNOWN_COMMANDS = (
         # ── Poker pace / stack (new) ──────────────────────────────────────────
         "pokermode", "pokerpace", "setpokerpace",
         "pokerstacks", "setpokerstack", "dealstatus",
+        # ── Poker dashboard + controls (new) ──────────────────────────────────
+        "pokerdashboard", "pdash", "pokeradmin",
+        "pokerpause", "pokerresume",
+        "pokerforceadvance", "pokerforceresend",
+        "pokerturn", "pokerpots", "pokeractions",
+        "pokerresetturn", "pokerresethand", "pokerresettable",
     }
     | ECONOMY_COMMANDS | PROFILE_COMMANDS | GAME_COMMANDS
     | SHOP_COMMANDS | ACHIEVEMENT_COMMANDS | BJ_COMMANDS
@@ -3489,6 +3505,39 @@ class HangoutBot(BaseBot):
 
         elif cmd == "pokercleanup":
             await handle_pokercleanup(self, user, args)
+
+        elif cmd in ("pokerdashboard", "pdash", "pokeradmin"):
+            await handle_pokerdashboard(self, user)
+
+        elif cmd == "pokerpause":
+            await handle_pokerpause(self, user)
+
+        elif cmd == "pokerresume":
+            await handle_pokerresume(self, user)
+
+        elif cmd == "pokerforceadvance":
+            await handle_pokerforceadvance(self, user)
+
+        elif cmd == "pokerforceresend":
+            await handle_pokerforceresend(self, user)
+
+        elif cmd == "pokerturn":
+            await handle_pokerturn(self, user)
+
+        elif cmd == "pokerpots":
+            await handle_pokerpots(self, user)
+
+        elif cmd == "pokeractions":
+            await handle_pokeractions(self, user)
+
+        elif cmd == "pokerresetturn":
+            await handle_pokerresetturn(self, user)
+
+        elif cmd == "pokerresethand":
+            await handle_pokerresethand(self, user)
+
+        elif cmd == "pokerresettable":
+            await handle_pokerresettable(self, user)
 
         elif cmd == "confirmclosepoker":
             await handle_confirmclosepoker(self, user, args)

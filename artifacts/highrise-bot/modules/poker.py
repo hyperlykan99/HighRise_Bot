@@ -54,6 +54,8 @@ _lobby_task:     Optional[asyncio.Task] = None  # kept for compat
 _turn_task:      Optional[asyncio.Task] = None
 _next_hand_task: Optional[asyncio.Task] = None
 _close_confirm_codes: dict[str, str] = {}  # code → actor_username (/poker closeforce)
+_action_processing: set[str] = set()       # "round_id:user_id" dedup lock — prevents double-action
+_poker_paused: bool = False                # /pokerpause flag
 
 
 # ── Utilities ──────────────────────────────────────────────────────────────────
@@ -1147,6 +1149,96 @@ async def _deliver_poker_cards_to_all(
     return sent_count, failed
 
 
+async def _deliver_cards_sequential(
+    bot: "BaseBot",
+    round_id: str,
+    hand_num: int,
+    player_rows: list[dict],
+) -> tuple[int, list[str]]:
+    """Simulate a dealer dealing hole cards one-by-one with room announcements.
+
+    Announces 'Drawing cards...' then 'Dealing to @Player...' before each
+    whisper. Uses pace_deal_delay_secs between players. Retries failures once.
+    Returns (sent_count, still_failed_usernames).
+    """
+    try:
+        deal_delay = float(_s_str("pace_deal_delay_secs", "0.7"))
+    except Exception:
+        deal_delay = 0.7
+    deal_delay = max(0.1, min(deal_delay, 3.0))
+
+    active_rows = [pr for pr in player_rows if pr["status"] in ("active", "allin")]
+    print(f"[POKER_DEAL] hand={round_id[-8:]} | players={len(active_rows)} | delay={deal_delay}s")
+
+    await _chat(bot, "Drawing cards...")
+    await asyncio.sleep(0.4)
+
+    sent_count = 0
+    failed: list[str] = []
+
+    for pr in active_rows:
+        await _chat(bot, f"Dealing to @{pr['username']}...")
+        await asyncio.sleep(deal_delay)
+
+        hc = db.get_hole_cards(round_id, pr["username"])
+        if hc and hc.get("card1") and hc.get("card2"):
+            cards = [hc["card1"], hc["card2"]]
+        else:
+            cards = json.loads(pr.get("hole_cards_json") or "[]")
+        if len(cards) != 2:
+            db.record_card_delivery(round_id, pr["username"], False, "no_cards", pr["username"])
+            failed.append(pr["username"])
+            print(f"[POKER_DEAL] dealing_to={pr['username']} whisper_ok=false reason=no_cards")
+            continue
+
+        msg = _fmt_private_hand(cards, pr["stack"], hand_num=hand_num)
+        delivered = False
+        fail_reason = ""
+        try:
+            await bot.highrise.send_whisper(pr["user_id"], msg[:249])
+            delivered = True
+        except Exception as exc:
+            fail_reason = str(exc)[:80]
+
+        db.record_card_delivery(round_id, pr["username"], delivered, fail_reason, pr["username"])
+        print(f"[POKER_DEAL] dealing_to={pr['username']} whisper_ok={delivered} attempts=1")
+        if delivered:
+            sent_count += 1
+        else:
+            failed.append(pr["username"])
+
+    # Retry pass — one more attempt for any failures
+    if failed:
+        await asyncio.sleep(1.2)
+        still_missing: list[str] = []
+        for uname in failed:
+            pr = next((r for r in active_rows if r["username"].lower() == uname.lower()), None)
+            if not pr:
+                still_missing.append(uname)
+                continue
+            hc = db.get_hole_cards(round_id, pr["username"])
+            if hc and hc.get("card1") and hc.get("card2"):
+                cards = [hc["card1"], hc["card2"]]
+            else:
+                cards = json.loads(pr.get("hole_cards_json") or "[]")
+            msg = _fmt_private_hand(cards, pr["stack"], hand_num=hand_num)
+            try:
+                await bot.highrise.send_whisper(pr["user_id"], msg[:249])
+                db.record_card_delivery(round_id, pr["username"], True, "", pr["username"])
+                sent_count += 1
+                print(f"[POKER_DEAL] dealing_to={uname} whisper_ok=true attempts=2")
+            except Exception as exc:
+                still_missing.append(uname)
+                print(f"[POKER_DEAL] dealing_to={uname} whisper_ok=false attempts=2 err={str(exc)[:40]}")
+                try:
+                    await bot.highrise.send_whisper(pr["user_id"], "⚠️ Cards ready. Type /ph to view.")
+                except Exception:
+                    pass
+        failed = still_missing
+
+    return sent_count, failed
+
+
 async def _try_start_hand(bot: BaseBot) -> None:
     """Check conditions and start a new hand if possible."""
     global _next_hand_task
@@ -1351,57 +1443,21 @@ async def _start_hand(bot: BaseBot) -> None:
         next_hand_starts_at=None,
     )
 
-    # ── Part 4: deliver hole cards to every player (first pass) ───────────
-    sent_count, failed_players = await _deliver_poker_cards_to_all(
-        bot, round_id, hand_num
-    )
-
-    # Retry pass: wait 1s then re-try any still-missing players
-    if failed_players:
-        await asyncio.sleep(1.0)
-        retry_sent, still_missing = await _deliver_poker_cards_to_all(
-            bot, round_id, hand_num,
-            only_usernames=set(failed_players),
-        )
-        sent_count += retry_sent
-        # Auto-remind players whose cards still didn't get through
-        for uname in still_missing:
-            sp_row = next(
-                (s for s in seated if s["username"].lower() == uname.lower()),
-                None,
-            )
-            if sp_row:
-                await asyncio.sleep(0.3)
-                try:
-                    await bot.highrise.send_whisper(
-                        sp_row["user_id"],
-                        "⚠️ Your cards are ready. Type /ph to view.",
-                    )
-                except Exception:
-                    pass
-        if still_missing:
-            print(f"[POKER] Card delivery {sent_count}/{len(seated)} sent. "
-                  f"Missing: {', '.join(still_missing)}")
-        else:
-            print(f"[POKER] Card delivery {sent_count}/{len(seated)} sent "
-                  f"(retry OK).")
-    else:
-        print(f"[POKER] Card delivery {sent_count}/{len(seated)} sent.")
-
-    # ── Announce ──────────────────────────────────────────────────────────
-    card_note = (
-        "Cards sent." if sent_count == len(seated)
-        else f"Cards {sent_count}/{len(seated)} sent. /ph if missed."
-    )
+    # ── Announce hand start (before dealing so players know what's coming) ──
     if blinds_on:
         await _chat(bot,
             f"♠️ Hand #{hand_num} | Dealer:@{dl_name} "
-            f"SB:@{sb_name}({sb_amt}c) BB:@{bb_name}({bb_amt}c) "
-            f"| Pot:{initial_pot}c | {card_note}")
+            f"SB:@{sb_name}({sb_amt}c) BB:@{bb_name}({bb_amt}c) | Pot:{initial_pot}c")
     else:
         order_str = "  ".join(f"@{sp['username']}" for sp in seated)
-        await _chat(bot,
-            f"♠️ Hand #{hand_num} | Players: {order_str[:80]} | {card_note}")
+        await _chat(bot, f"♠️ Hand #{hand_num} | {order_str[:110]}")
+
+    # ── Part 4: sequential card delivery with dealer simulation ───────────
+    sent_count, failed_players = await _deliver_cards_sequential(
+        bot, round_id, hand_num, player_rows
+    )
+    if failed_players:
+        print(f"[POKER_DEAL] still failed after retry: {', '.join(failed_players)}")
 
     # ── Part 7: verify hole_cards saved; re-deliver if any missed ──────────
     _players_now = _get_players(round_id)
@@ -1533,6 +1589,10 @@ async def _advance_street(bot: BaseBot, tbl: dict, players: list[dict]) -> None:
     pf_start   = (dealer_idx + 1) % n if n > 0 else 0
 
     if phase == "preflop":
+        # Burn one card, then deal three for the flop
+        if deck: deck.pop()
+        await _chat(bot, "Dealer burns a card...")
+        await asyncio.sleep(0.4)
         f = [deck.pop(), deck.pop(), deck.pop()]
         community.extend(f)
         _save_table(phase="flop",
@@ -1542,6 +1602,10 @@ async def _advance_street(bot: BaseBot, tbl: dict, players: list[dict]) -> None:
         await _start_street_from(bot, "flop", round_id, players, pf_start)
 
     elif phase == "flop":
+        # Burn one card, then deal the turn
+        if deck: deck.pop()
+        await _chat(bot, "Dealer burns a card...")
+        await asyncio.sleep(0.4)
         t = deck.pop()
         community.append(t)
         _save_table(phase="turn",
@@ -1551,6 +1615,10 @@ async def _advance_street(bot: BaseBot, tbl: dict, players: list[dict]) -> None:
         await _start_street_from(bot, "turn", round_id, players, pf_start)
 
     elif phase == "turn":
+        # Burn one card, then deal the river
+        if deck: deck.pop()
+        await _chat(bot, "Dealer burns a card...")
+        await asyncio.sleep(0.4)
         r = deck.pop()
         community.append(r)
         _save_table(phase="river",
@@ -1577,6 +1645,7 @@ async def _start_street_from(bot: BaseBot, phase: str, round_id: str,
             await _deal_to_showdown(bot, tbl)
         return
     n = len(players)
+    first_actor = True
     for i in range(n):
         idx = (search_from + i) % n
         p   = players[idx]
@@ -1584,13 +1653,15 @@ async def _start_street_from(bot: BaseBot, phase: str, round_id: str,
             _save_table(current_player_index=idx)
             tbl = _get_table()
             if tbl:
-                await _prompt_player(bot, tbl, p)
+                await _prompt_player(bot, tbl, p, is_first_actor=first_actor)
             return
+        first_actor = False
 
 
 # ── Prompt a player for their turn ─────────────────────────────────────────────
 
-async def _prompt_player(bot: BaseBot, tbl: dict, p: dict) -> None:
+async def _prompt_player(bot: BaseBot, tbl: dict, p: dict,
+                         is_first_actor: bool = False) -> None:
     global _turn_task
     _cancel_task(_turn_task)
 
@@ -1598,19 +1669,20 @@ async def _prompt_player(bot: BaseBot, tbl: dict, p: dict) -> None:
     ends_at   = _now()
     _save_table(turn_ends_at=ends_at)
 
-    owe = max(0, tbl["current_bet"] - p["current_bet"])
-    pot = tbl["pot"]
-    sp  = _get_seated(p["username"])
-    stk = sp["table_stack"] if sp else p["stack"]
+    owe   = max(0, tbl["current_bet"] - p["current_bet"])
+    pot   = tbl["pot"]
+    stack = p["stack"]
 
+    # ── Public room message ───────────────────────────────────────────────
     if owe > 0:
-        msg = (f"➡️ @{p['username']} turn | Pot:{pot}c | "
-               f"To call:{owe}c | Stack:{p['stack']}c | /call /r <amt> /fold /ai")
+        pub = (f"➡️ @{p['username']} | Pot:{pot}c | Call:{owe}c | "
+               f"Stack:{stack}c | /call /r <amt> /fold /ai")
     else:
-        msg = (f"➡️ @{p['username']} turn | Pot:{pot}c | "
-               f"Free check | Stack:{p['stack']}c | /check /r <amt> /fold /ai")
-    await _chat(bot, msg[:249])
+        pub = (f"➡️ @{p['username']} | Pot:{pot}c | Free check | "
+               f"Stack:{stack}c | /check /r <amt> /fold /ai")
+    await _chat(bot, pub[:249])
 
+    # ── Private whispers (non-fatal: failures silently ignored) ──────────
     try:
         tbl2 = _get_table()
         if tbl2:
@@ -1619,14 +1691,44 @@ async def _prompt_player(bot: BaseBot, tbl: dict, p: dict) -> None:
                 cards = json.loads(pp["hole_cards_json"] or "[]")
                 board = json.loads(tbl2["community_cards_json"] or "[]")
                 if cards:
-                    strength  = _hand_strength_label(cards, board)
-                    draws     = _detect_draws(cards, board)
-                    rank_lbl  = strength + (" + " + draws if draws else "")
-                    turn_msg  = _fmt_private_hand(
-                        cards, p["stack"],
-                        is_turn=True, owe=owe, rank_label=rank_lbl
-                    )
-                    await bot.highrise.send_whisper(p["user_id"], turn_msg)
+                    # Whisper 1: first-actor notification
+                    if is_first_actor:
+                        try:
+                            await bot.highrise.send_whisper(
+                                p["user_id"],
+                                f"You're first to act this street! Pot:{pot}c"
+                            )
+                        except Exception:
+                            pass
+
+                    # Whisper 2: action summary
+                    if owe > 0:
+                        action_hint = f"Your turn: Call {owe}c, Raise, Fold, or All-in"
+                    else:
+                        action_hint = "Your turn: Check, Raise, Fold, or All-in"
+                    try:
+                        await bot.highrise.send_whisper(
+                            p["user_id"], f"👉 {action_hint} | Stack:{stack}c"
+                        )
+                    except Exception:
+                        pass
+
+                    # Whisper 3: cards + board + hand strength (if board exists)
+                    if board:
+                        strength = _hand_strength_label(cards, board)
+                        draws    = _detect_draws(cards, board)
+                        rank_lbl = strength + (" + " + draws if draws else "")
+                        board_str = _fcs(board)
+                        card_msg  = (f"Your hand: {_fcs(cards)} | "
+                                     f"Board: {board_str} | {rank_lbl}")
+                    else:
+                        card_msg = f"Your hand: {_fcs(cards)} | Pre-flop"
+                    try:
+                        await bot.highrise.send_whisper(
+                            p["user_id"], card_msg[:249]
+                        )
+                    except Exception:
+                        pass
     except Exception:
         pass
 
@@ -1799,6 +1901,8 @@ async def _do_allin(bot: BaseBot, round_id: str, p: dict, tbl: dict) -> None:
 # ── Hand strength / draws / odds ────────────────────────────────────────────────
 
 def _hand_strength_label(hole_cards: list[str], community: list[str]) -> str:
+    if not community:
+        return "Pre-flop"  # never evaluate with phantom padding cards
     all_cards = hole_cards + community
     if len(all_cards) < 2:
         return "No cards"
@@ -2686,6 +2790,10 @@ async def _dispatch(bot: BaseBot, user: User, args: list[str]) -> None:
 
     # ── Betting actions (check/call/raise/fold/allin) ────────────────────────
     if sub in ("check", "call", "raise", "fold", "allin", "all-in", "shove"):
+        # Pause guard
+        if _poker_paused:
+            await _w(bot, user.id, "♠️ Poker is paused by staff. Please wait.")
+            return
         tbl = _get_table()
         if not tbl or not tbl["active"]:
             await _w(bot, user.id, "No poker hand active.")
@@ -2694,42 +2802,51 @@ async def _dispatch(bot: BaseBot, user: User, args: list[str]) -> None:
             await _w(bot, user.id, "No active betting round.")
             return
         round_id = tbl["round_id"]
-        p = _get_player(round_id, user.id)
-        if p is None:
-            await _w(bot, user.id, "You're not in this hand.")
+        # Duplicate-action dedup guard: one action at a time per player per round
+        _dedup_key = f"{round_id}:{user.id}"
+        if _dedup_key in _action_processing:
+            print(f"[POKER_TURN] duplicate_action ignored actor={user.username} sub={sub}")
             return
-        if p["status"] == "allin":
-            await _w(bot, user.id, "You are already all-in.")
-            return
-        if p["status"] != "active":
-            await _w(bot, user.id, "You've already folded or left.")
-            return
-        players = _get_players(round_id)
-        idx     = tbl["current_player_index"]
-        if 0 <= idx < len(players):
-            cur = players[idx]
-            if cur["user_id"] != user.id:
-                await _w(bot, user.id, "Not your turn.")
+        _action_processing.add(_dedup_key)
+        try:
+            p = _get_player(round_id, user.id)
+            if p is None:
+                await _w(bot, user.id, "You're not in this hand.")
                 return
-        if sub == "check":
-            if tbl["current_bet"] > p["current_bet"]:
-                owe = tbl["current_bet"] - p["current_bet"]
-                await _w(bot, user.id,
-                    f"Can't check — {owe}c to call. /call or /fold.")
+            if p["status"] == "allin":
+                await _w(bot, user.id, "You are already all-in.")
                 return
-            await _do_check(bot, round_id, user.id, user.username)
-        elif sub == "call":
-            await _do_call(bot, round_id, p, tbl)
-        elif sub == "raise":
-            if len(args) < 3 or not args[2].isdigit():
-                min_r = _s("min_raise", 50)
-                await _w(bot, user.id, f"Use /raise <amount>. Min {min_r}c.")
+            if p["status"] != "active":
+                await _w(bot, user.id, "You've already folded or left.")
                 return
-            await _do_raise(bot, round_id, p, tbl, int(args[2]))
-        elif sub == "fold":
-            await _do_fold(bot, round_id, p)
-        elif sub in ("allin", "all-in", "shove"):
-            await _do_allin(bot, round_id, p, tbl)
+            players = _get_players(round_id)
+            idx     = tbl["current_player_index"]
+            if 0 <= idx < len(players):
+                cur = players[idx]
+                if cur["user_id"] != user.id:
+                    await _w(bot, user.id, "Not your turn.")
+                    return
+            if sub == "check":
+                if tbl["current_bet"] > p["current_bet"]:
+                    owe = tbl["current_bet"] - p["current_bet"]
+                    await _w(bot, user.id,
+                        f"Can't check — {owe}c to call. /call or /fold.")
+                    return
+                await _do_check(bot, round_id, user.id, user.username)
+            elif sub == "call":
+                await _do_call(bot, round_id, p, tbl)
+            elif sub == "raise":
+                if len(args) < 3 or not args[2].isdigit():
+                    min_r = _s("min_raise", 50)
+                    await _w(bot, user.id, f"Use /raise <amount>. Min {min_r}c.")
+                    return
+                await _do_raise(bot, round_id, p, tbl, int(args[2]))
+            elif sub == "fold":
+                await _do_fold(bot, round_id, p)
+            elif sub in ("allin", "all-in", "shove"):
+                await _do_allin(bot, round_id, p, tbl)
+        finally:
+            _action_processing.discard(_dedup_key)
         return
 
     # ── on/off ──────────────────────────────────────────────────────────────
@@ -3392,6 +3509,51 @@ async def _dispatch(bot: BaseBot, user: User, args: list[str]) -> None:
         else:
             st = "ON" if _s("allin_enabled", 1) else "OFF"
             await _w(bot, user.id, f"All-in is {st}. /poker allintoggle on|off")
+        return
+
+    # ── Dashboard + staff shortcuts ────────────────────────────────────────
+    if sub in ("dashboard", "dash", "admin"):
+        await handle_pokerdashboard(bot, user)
+        return
+
+    if sub == "pause":
+        await handle_pokerpause(bot, user)
+        return
+
+    if sub == "resume":
+        await handle_pokerresume(bot, user)
+        return
+
+    if sub == "forceadvance":
+        await handle_pokerforceadvance(bot, user)
+        return
+
+    if sub == "forceresend":
+        await handle_pokerforceresend(bot, user)
+        return
+
+    if sub == "turn":
+        await handle_pokerturn(bot, user)
+        return
+
+    if sub == "pots":
+        await handle_pokerpots(bot, user)
+        return
+
+    if sub == "actions":
+        await handle_pokeractions(bot, user)
+        return
+
+    if sub == "resetturn":
+        await handle_pokerresetturn(bot, user)
+        return
+
+    if sub == "resethand":
+        await handle_pokerresethand(bot, user)
+        return
+
+    if sub == "resettable":
+        await handle_pokerresettable(bot, user)
         return
 
     await _w(bot, user.id, "Unknown poker command. /phelp for help.")
@@ -4435,3 +4597,242 @@ def reset_table() -> None:
             )
 
     _full_clear_table()
+
+
+# ── Staff dashboard + controls ─────────────────────────────────────────────────
+
+async def handle_pokerdashboard(bot: BaseBot, user: User) -> None:
+    """/pokerdashboard /pdash /pokeradmin — staff overview of poker state."""
+    if not can_manage_games(user.username):
+        await _w(bot, user.id, "Staff only.")
+        return
+    tbl      = _get_table()
+    enabled  = "ON" if _s("poker_enabled", 1) else "OFF"
+    paused   = "PAUSED" if _poker_paused else "live"
+    phase    = tbl["phase"].title() if tbl else "Idle"
+    pot      = tbl["pot"] if tbl else 0
+    bet      = tbl["current_bet"] if tbl else 0
+    round_id = tbl.get("round_id") if tbl else None
+    players  = _get_players(round_id) if round_id else []
+    active_p = _active_players(players)
+    allin_p  = [p for p in players if p["status"] == "allin"]
+    seated   = _get_all_seated()
+    active_s = _get_active_seated()
+    hn       = tbl.get("hand_number", 0) if tbl else 0
+    turn_alive = _turn_task is not None and not _turn_task.done()
+    next_alive = _next_hand_task is not None and not _next_hand_task.done()
+    broken     = detect_poker_inconsistent_state()
+
+    # Line 1: table overview
+    await _w(bot, user.id,
+        (f"♠️ Poker {enabled} | {paused} | {phase} | Hand#{hn} | "
+         f"Pot:{pot}c | Bet:{bet}c | {'⚠️ STUCK' if broken else 'OK'}")[:249])
+
+    # Line 2: player counts + current actor
+    idx = tbl["current_player_index"] if tbl else 0
+    cur = players[idx]["username"] if players and 0 <= idx < len(players) else "—"
+    await _w(bot, user.id,
+        (f"InHand:{len(players)} Active:{len(active_p)} AllIn:{len(allin_p)} "
+         f"| Seated:{len(seated)} Ready:{len(active_s)} | Turn:@{cur}")[:249])
+
+    # Line 3: pace + settings
+    mode = _s_str("pace_mode", "normal")
+    tt   = _s("turn_timer", 30)
+    bb   = _s("big_blind", 100)
+    sb   = _s("small_blind", 50)
+    mb   = _s("min_buyin", 100)
+    xb   = _s("max_buyin", 5000)
+    await _w(bot, user.id,
+        (f"Pace:{mode} TT:{tt}s | SB:{sb}/BB:{bb} | Buy:{mb}-{xb}c | "
+         f"Timers:{'Turn' if turn_alive else '-'}/{'Next' if next_alive else '-'}")[:249])
+
+    # Line 4: quick control reminder
+    await _w(bot, user.id,
+        "/poker pause|resume|forceadvance|forceresend|turn|pots|"
+        "actions|resetturn|resethand|resettable | /pokerfix"[:249])
+
+
+async def handle_pokerpause(bot: BaseBot, user: User) -> None:
+    """/pokerpause /poker pause — pause all betting actions."""
+    global _poker_paused
+    if not can_manage_games(user.username):
+        await _w(bot, user.id, "Staff only.")
+        return
+    _poker_paused = True
+    print(f"[POKER] paused by @{user.username}")
+    await _chat(bot, "⏸️ Poker is paused by staff. Please wait.")
+    await _w(bot, user.id, "✅ Poker paused. /poker resume to unpause.")
+
+
+async def handle_pokerresume(bot: BaseBot, user: User) -> None:
+    """/pokerresume /poker resume — resume betting actions."""
+    global _poker_paused
+    if not can_manage_games(user.username):
+        await _w(bot, user.id, "Staff only.")
+        return
+    _poker_paused = False
+    print(f"[POKER] resumed by @{user.username}")
+    await _chat(bot, "▶️ Poker resumed.")
+    await _w(bot, user.id, "✅ Poker resumed.")
+
+
+async def handle_pokerforceadvance(bot: BaseBot, user: User) -> None:
+    """/pokerforceadvance /poker forceadvance — force advance to next street."""
+    if not can_manage_games(user.username):
+        await _w(bot, user.id, "Staff only.")
+        return
+    tbl = _get_table()
+    if not tbl or not tbl["active"]:
+        await _w(bot, user.id, "No active poker table.")
+        return
+    phase = tbl["phase"]
+    if phase not in ("preflop", "flop", "turn", "river"):
+        await _w(bot, user.id, f"Cannot advance from '{phase}'.")
+        return
+    players = _get_players(tbl["round_id"])
+    print(f"[POKER] forceadvance by @{user.username} phase={phase}")
+    await _w(bot, user.id, f"Force advancing from {phase}...")
+    await _advance_street(bot, tbl, players)
+
+
+async def handle_pokerforceresend(bot: BaseBot, user: User) -> None:
+    """/pokerforceresend /poker forceresend — resend cards to all players."""
+    if not can_manage_games(user.username):
+        await _w(bot, user.id, "Staff only.")
+        return
+    tbl = _get_table()
+    if not tbl or not tbl.get("round_id"):
+        await _w(bot, user.id, "No active hand.")
+        return
+    round_id = tbl["round_id"]
+    hn       = tbl.get("hand_number", 0)
+    players  = _get_players(round_id)
+    print(f"[POKER] forceresend by @{user.username} round={round_id[-8:]}")
+    sent, _ = await _deliver_poker_cards_to_all(bot, round_id, hn)
+    await _w(bot, user.id, f"✅ Resent cards to {sent}/{len(players)} player(s).")
+
+
+async def handle_pokerturn(bot: BaseBot, user: User) -> None:
+    """/pokerturn /poker turn — show who has the current action."""
+    if not can_manage_games(user.username):
+        await _w(bot, user.id, "Staff only.")
+        return
+    tbl = _get_table()
+    if not tbl or not tbl.get("round_id"):
+        await _w(bot, user.id, "No active hand.")
+        return
+    players = _get_players(tbl["round_id"])
+    idx     = tbl["current_player_index"]
+    phase   = tbl["phase"].title()
+    pot     = tbl["pot"]
+    bet     = tbl["current_bet"]
+    if players and 0 <= idx < len(players):
+        cur = players[idx]
+        owe = max(0, bet - cur["current_bet"])
+        await _w(bot, user.id,
+            (f"♠️ {phase} | Turn:@{cur['username']} (#{idx}) | "
+             f"Pot:{pot}c | Bet:{bet}c | Owe:{owe}c | Stack:{cur['stack']}c")[:249])
+    else:
+        await _w(bot, user.id, f"♠️ {phase} | No current player (idx={idx})")
+
+
+async def handle_pokerpots(bot: BaseBot, user: User) -> None:
+    """/pokerpots /poker pots — show pot + per-player bet breakdown."""
+    if not can_manage_games(user.username):
+        await _w(bot, user.id, "Staff only.")
+        return
+    tbl = _get_table()
+    if not tbl or not tbl.get("round_id"):
+        await _w(bot, user.id, "No active hand.")
+        return
+    players = _get_players(tbl["round_id"])
+    pot     = tbl["pot"]
+    bet     = tbl["current_bet"]
+    parts   = [f"@{p['username']}:{p['current_bet']}c"
+               for p in players if p["status"] in ("active", "allin")]
+    await _w(bot, user.id,
+        (f"♠️ Pot:{pot}c | Bet:{bet}c | " + "  ".join(parts))[:249])
+
+
+async def handle_pokeractions(bot: BaseBot, user: User) -> None:
+    """/pokeractions /poker actions — show acted/pending players this street."""
+    if not can_manage_games(user.username):
+        await _w(bot, user.id, "Staff only.")
+        return
+    tbl = _get_table()
+    if not tbl or not tbl.get("round_id"):
+        await _w(bot, user.id, "No active hand.")
+        return
+    players = _get_players(tbl["round_id"])
+    bet     = tbl["current_bet"]
+    acted   = [p["username"] for p in players if p.get("acted") and p["status"] == "active"]
+    pending = [p["username"] for p in players if not p.get("acted") and p["status"] == "active"]
+    allins  = [p["username"] for p in players if p["status"] == "allin"]
+    msg = (f"♠️ Bet:{bet}c | "
+           f"Acted:{','.join('@'+u for u in acted) or '—'} | "
+           f"Pending:{','.join('@'+u for u in pending) or '—'} | "
+           f"AllIn:{','.join('@'+u for u in allins) or '—'}")
+    await _w(bot, user.id, msg[:249])
+
+
+async def handle_pokerresetturn(bot: BaseBot, user: User) -> None:
+    """/pokerresetturn /poker resetturn — re-prompt the current player."""
+    if not can_manage_games(user.username):
+        await _w(bot, user.id, "Staff only.")
+        return
+    tbl = _get_table()
+    if not tbl or not tbl.get("round_id"):
+        await _w(bot, user.id, "No active hand.")
+        return
+    if tbl["phase"] not in ("preflop", "flop", "turn", "river"):
+        await _w(bot, user.id, "No active betting round.")
+        return
+    players = _get_players(tbl["round_id"])
+    idx     = tbl["current_player_index"]
+    if not players or not (0 <= idx < len(players)):
+        await _w(bot, user.id, "Cannot determine current player.")
+        return
+    p = players[idx]
+    print(f"[POKER] resetturn by @{user.username} | re-prompting @{p['username']}")
+    await _prompt_player(bot, tbl, p)
+    await _w(bot, user.id, f"✅ Re-prompted @{p['username']}.")
+
+
+async def handle_pokerresethand(bot: BaseBot, user: User) -> None:
+    """/pokerresethand /poker resethand — cancel current hand and deal next."""
+    if not can_manage_games(user.username):
+        await _w(bot, user.id, "Staff only.")
+        return
+    tbl = _get_table()
+    if not tbl or not tbl["active"]:
+        await _w(bot, user.id, "No active poker table.")
+        return
+    round_id = tbl.get("round_id")
+    pot      = tbl.get("pot", 0)
+    print(f"[POKER] resethand by @{user.username} | round={round_id and round_id[-8:]} pot={pot}c")
+    global _turn_task, _next_hand_task
+    _cancel_task(_turn_task);      _turn_task      = None
+    _cancel_task(_next_hand_task); _next_hand_task = None
+    # Return in-hand stacks to seated
+    if round_id:
+        players = _get_players(round_id)
+        for p in players:
+            if not _is_paid(round_id, p["username"]):
+                _update_seated(p["username"], table_stack=p["stack"])
+                _mark_paid(round_id, p["username"])
+        _clear_players(round_id)
+    _save_table(phase="between_hands", pot=0, current_bet=0,
+                round_id=None, community_cards_json="[]", deck_json="[]")
+    delay = _s("next_hand_delay", 10)
+    _next_hand_task = asyncio.create_task(_next_hand_countdown(bot, delay))
+    await _chat(bot, f"♠️ Hand cancelled by staff. Next hand in {delay}s.")
+    await _w(bot, user.id, "✅ Hand reset. Next hand starting shortly.")
+
+
+async def handle_pokerresettable(bot: BaseBot, user: User) -> None:
+    """/pokerresettable /poker resettable — alias for /poker refundtable."""
+    if not can_manage_games(user.username):
+        await _w(bot, user.id, "Staff only.")
+        return
+    fake_user_args = ["poker", "refundtable"]
+    await _dispatch(bot, user, fake_user_args)

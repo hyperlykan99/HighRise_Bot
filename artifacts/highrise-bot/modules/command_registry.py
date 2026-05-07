@@ -342,6 +342,20 @@ REGISTRY: dict[str, Cmd] = {
     "pokerstacks":      Cmd("poker","casino", False, True,  False, perm="staff"),
     "setpokerstack":    Cmd("poker","casino", False, False, True,  perm="manager"),
     "dealstatus":       Cmd("poker","casino", False, True,  False, perm="staff"),
+
+    # ── Poker: dashboard + staff controls (new) ───────────────────────────────
+    "pokerdashboard":    Cmd("poker","casino", False, True,  False, perm="staff",
+                             aliases=("pdash","pokeradmin")),
+    "pokerpause":        Cmd("poker","casino", False, False, True,  perm="staff"),
+    "pokerresume":       Cmd("poker","casino", False, False, True,  perm="staff"),
+    "pokerforceadvance": Cmd("poker","casino", False, False, True,  perm="manager"),
+    "pokerforceresend":  Cmd("poker","casino", False, False, True,  perm="manager"),
+    "pokerturn":         Cmd("poker","casino", False, True,  False, perm="staff"),
+    "pokerpots":         Cmd("poker","casino", False, True,  False, perm="staff"),
+    "pokeractions":      Cmd("poker","casino", False, True,  False, perm="staff"),
+    "pokerresetturn":    Cmd("poker","casino", False, False, True,  perm="manager"),
+    "pokerresethand":    Cmd("poker","casino", False, False, True,  perm="manager"),
+    "pokerresettable":   Cmd("poker","casino", False, False, True,  perm="manager"),
 }
 
 # ---------------------------------------------------------------------------

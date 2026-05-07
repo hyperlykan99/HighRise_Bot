@@ -1,0 +1,484 @@
+Major Poker System Stability + Dealer Simulation + Staff Dashboard Upgrade
+
+Focus ONLY on the Poker system.
+
+Do not change bot tokens.
+Do not change room ID.
+Do not change bank/economy settings outside poker stack logic.
+Do not change blackjack/RBJ.
+Do not change mining.
+Do not change events.
+Do not change shop.
+Do not change AI outfit/spawn systems.
+
+Current poker problems:
+1. When a poker hand starts, only one player sometimes receives their card whisper.
+2. The player who missed the card whisper can still use /ph and see their cards, so cards exist in state but initial delivery fails.
+3. After a player acts with call/raise/check/fold, their turn sometimes repeats.
+4. First player to act is not always clearly notified.
+5. Poker messages are too long and hard to read in Highrise chat.
+6. Initial winning hand sometimes shows “three of a kind” before community/dealer cards are dealt.
+7. Need all-in support.
+8. Need staff control dashboard for debugging and controlling poker.
+
+Main goal:
+Make poker stable, readable, and staff-manageable.
+
+==================================================
+PART 1 — DEALER SIMULATION AND CARD DELIVERY
+==================================================
+
+Fix starting hand flow.
+
+Required new hand-start pipeline:
+
+1. Lock hand state.
+2. Dealer announces:
+   “Drawing cards...”
+3. Deal hole cards player by player with delay.
+4. Whisper each player their cards exactly once.
+5. Record delivery result for each player.
+6. Retry failed card whisper once after a short delay.
+7. If still failed, mark delivery failed and tell staff in /dealstatus.
+8. After all players are processed, announce first actor.
+9. Send first actor a clear turn prompt.
+
+Do NOT instantly send all card whispers at once.
+
+Add configurable card delivery delay:
+- default: 0.7 seconds between players
+- controlled by poker pace mode
+- use existing poker pace setting if available: pace_deal_delay_secs
+
+Dealer messages:
+- “Drawing cards...”
+- “Dealing to @Player1...”
+- “Dealing to @Player2...”
+- “Cards dealt. @Player1 acts first.”
+
+Player card whisper should be short:
+“Your cards: A♠ K♦”
+
+Do not send duplicate card whispers.
+Each player should receive only one starting card message unless staff/player uses /resendcards.
+
+Add delivery tracking:
+For each hand, store:
+- hand_id
+- player username/user_id
+- cards_dealt true/false
+- whisper_sent true/false
+- whisper_attempts
+- last_delivery_error
+- delivered_at
+
+This can be in memory for current hand, but /dealstatus should show it.
+If project already has hand state storage, use that.
+
+==================================================
+PART 2 — RESEND CARD COMMANDS
+==================================================
+
+Keep or add:
+/ph
+/resendcards
+/cards
+
+Player behavior:
+- Player can use /ph or /resendcards to see their own current hand.
+- This should not create new cards.
+- It should only resend existing hole cards.
+- If player folded or is not in the hand, say clearly:
+  “You are not in the current hand.”
+
+Staff behavior:
+Add:
+/resendcards <username>
+- Staff/admin can resend cards to a specific player.
+- It should only resend existing cards.
+
+==================================================
+PART 3 — TURN REPEAT BUG FIX
+==================================================
+
+Problem:
+After a player acts, their turn sometimes repeats.
+
+Fix turn advancement.
+
+Rules:
+1. Each player gets only one action per turn cycle unless game rules require another action because of a new raise.
+2. After action is accepted, immediately mark that player as acted for the current betting round.
+3. Advance to the next eligible active player.
+4. Do not prompt the same player again unless:
+   - everyone else acted and a raise reopened action, or
+   - it is a new betting street/round.
+5. Folded players should not act.
+6. All-in players should not act.
+7. Players with zero chips should not act.
+8. Sitting-out players should not act.
+
+Add a per-betting-round action tracker:
+- current_street: preflop/flop/turn/river/showdown
+- current_actor
+- last_actor
+- acted_this_round set/list
+- action_sequence_number
+- last_action_timestamp
+
+Add guard:
+If the same action is processed twice for the same actor and same sequence number, ignore duplicate.
+
+Log:
+[POKER_TURN] actor=<username> action=<action> seq=<n>
+[POKER_TURN] advancing from=<old> to=<new>
+[POKER_TURN] duplicate action ignored
+
+==================================================
+PART 4 — FIRST ACTOR NOTIFICATION
+==================================================
+
+At the start of every betting round:
+- Determine first actor correctly.
+- Whisper the first actor.
+- Announce in chat if appropriate:
+  “@Player is first to act.”
+
+Whisper first actor:
+“Your turn 👉 You are first to act.”
+
+Then send the normal turn prompt.
+
+==================================================
+PART 5 — READABLE TURN PROMPTS
+==================================================
+
+Poker messages must be short because Highrise bot chat only shows small message boxes.
+
+When it is a player’s turn, whisper a refreshed state.
+
+Turn prompt format:
+
+Pre-flop:
+“Your turn 👉 Call 100”
+“Board: none yet | Your: A♠ K♦”
+“Actions: /call /raise <amt> /fold /allin”
+
+Flop/Turn/River:
+“Your turn 👉 Call 100”
+“Board: A♣ 7♦ 2♠ | Your: K♠ K♥”
+“Hand: Pair of Kings | Win est: 42%”
+“Actions: /call /raise <amt> /fold /allin”
+
+If player can check:
+“Your turn 👉 You can check”
+“Actions: /check /raise <amt> /fold /allin”
+
+If player does not have enough chips to call:
+“Your turn 👉 Need 1,000 to call, you have 600”
+“Actions: /allin or /fold”
+
+Do not send long walls of text.
+Split into max 2-3 short whispers if needed.
+Each message must stay under Highrise message limit.
+
+==================================================
+PART 6 — PRE-FLOP HAND EVALUATION BUG
+==================================================
+
+Problem:
+Initial winning hand sometimes says “three of a kind” before community cards are dealt.
+
+Fix:
+1. Do not run final hand evaluator before community cards exist.
+2. Pre-flop should not show final hand like three of a kind.
+3. Before flop, only show:
+   - player hole cards
+   - optional starting strength label
+   - optional win estimate if reliable
+4. If no community cards:
+   Board: none yet
+   Hand: Pre-flop only
+5. Only show actual poker hand ranking after enough cards are available.
+6. Never evaluate placeholder/empty cards.
+
+Add guard:
+If len(board_cards) == 0:
+- Do not call final hand evaluator.
+- Do not announce winner/initial winning hand.
+- Do not say three of a kind.
+
+==================================================
+PART 7 — ALL-IN FEATURE
+==================================================
+
+Add robust all-in support.
+
+Commands:
+/allin
+/all-in
+/ai
+
+Behavior:
+1. Player may go all-in on their turn.
+2. If player has less than call amount, /allin should commit all remaining chips.
+3. All-in player remains in the hand until showdown.
+4. All-in player cannot act again in later betting rounds.
+5. All-in player cannot check/call/raise/fold after all-in.
+6. Dealer announces:
+   “@Player is ALL-IN for 2,500 chips.”
+7. Turn system must skip all-in players.
+8. Pot logic must handle all-in correctly.
+
+Side pots:
+Implement or fix side-pot calculation for multiple all-ins with different stack sizes.
+
+Track per player:
+- stack
+- committed_total
+- committed_this_street
+- is_all_in
+- has_folded
+- can_act
+
+Pot display:
+/pot
+should show:
+- main pot
+- side pots if any
+- eligible players for each pot
+
+Example:
+“Pot: Main 5,000 | Side 2,000”
+“Side pot eligible: @A @B”
+
+If side pots are too complex for current system, implement the correct calculation carefully before enabling all-in. Do not fake it.
+
+==================================================
+PART 8 — DEALING STREETS LIKE A DEALER
+==================================================
+
+Simulate dealer actions:
+
+Before flop:
+“Dealer burns a card...”
+“Flop: A♣ 7♦ 2♠”
+
+Before turn:
+“Dealer burns a card...”
+“Turn: Q♥”
+
+Before river:
+“Dealer burns a card...”
+“River: 9♣”
+
+Use small delays:
+- burn delay: 0.5s
+- street reveal delay: 0.7s
+- configurable by poker pace
+
+Do not reveal cards instantly if it causes message bugs.
+
+==================================================
+PART 9 — POKER STAFF CONTROL DASHBOARD
+==================================================
+
+Add a detailed staff/admin poker dashboard.
+
+Command:
+/pokerdashboard
+Aliases:
+/pdash
+/pokeradmin
+
+Dashboard should show:
+- table status
+- hand_id
+- current street
+- current actor
+- last actor
+- pot size
+- main pot / side pots
+- board cards
+- players seated
+- each player stack
+- each player committed amount
+- folded/all-in/sitting-out
+- who has acted this round
+- card delivery status
+- turn timer
+- pace mode
+- message delivery failures
+- last 5 actions
+
+Dashboard controls:
+
+/pokerpause
+/pokerresume
+/pokerforceadvance
+/pokerforceresend
+/pokerforceresend <username>
+/pokerdealstatus
+/pokerturn
+/pokerplayers
+/pokerpots
+/pokeractions
+/pokerresetturn
+/pokerresethand
+/pokerresettable
+/pokerrefundtable
+/pokermode fast
+/pokermode normal
+/pokermode long
+/pokerpace
+/pokerstacks
+
+Permissions:
+- Staff/admin/owner only.
+- Normal players cannot use dashboard controls.
+
+Safety:
+- Destructive actions like reset hand/table/refund table require confirmation if existing system supports confirmation.
+- If no confirmation system exists for staff commands, add clear “are you sure” flow or keep owner-only.
+
+==================================================
+PART 10 — POKER PACE MODES
+==================================================
+
+Keep/improve existing modes:
+- fast
+- normal
+- long
+
+Each mode controls:
+- card dealing delay
+- dealer message delay
+- preflop timer
+- flop timer
+- turn timer
+- river timer
+- auto-fold timeout
+- inactivity timeout
+
+Commands:
+- /pokermode fast
+- /pokermode normal
+- /pokermode long
+- /pokerpace
+- /setpokerpace <setting> <seconds>
+
+Make sure pace mode affects actual dealing and turn prompt timing.
+
+==================================================
+PART 11 — STACK SETTINGS
+==================================================
+
+Keep/improve stack settings.
+
+Commands:
+- /pokerstacks
+- /setpokerstack min <amount>
+- /setpokerstack max <amount>
+- /setpokerstack default <amount>
+- /setpokerstack rebuymin <amount>
+- /setpokerstack rebuymax <amount>
+
+Make sure:
+- buy-in respects min/max
+- default stack is used correctly
+- rebuy respects min/max
+- all-in uses actual remaining stack
+
+==================================================
+PART 12 — MESSAGE DEDUPLICATION
+==================================================
+
+Make sure each player receives only one message per event.
+
+Add message dedupe helper for poker:
+- key = hand_id + player_id + message_type + street + sequence
+- do not send same message twice within a short window
+
+Use it for:
+- card whisper
+- turn prompt
+- first actor prompt
+- showdown result
+- all-in announcement if duplicate risk exists
+
+Do not suppress legitimate /ph or /resendcards requests.
+
+==================================================
+PART 13 — TEST COMMANDS
+==================================================
+
+Add/fix commandtest mappings for all new poker commands:
+
+/commandtest /resendcards
+/commandtest /cards
+/commandtest /allin
+/commandtest /pokerdashboard
+/commandtest /pdash
+/commandtest /pokeradmin
+/commandtest /pokerpause
+/commandtest /pokerresume
+/commandtest /pokerforceadvance
+/commandtest /pokerforceresend
+/commandtest /pokerdealstatus
+/commandtest /pokerturn
+/commandtest /pokerplayers
+/commandtest /pokerpots
+/commandtest /pokeractions
+/commandtest /pokerresetturn
+/commandtest /pokerresethand
+
+Expected:
+route=YES
+handler=YES
+owner=Poker
+owner_online=true when Poker bot is online
+
+==================================================
+PART 14 — DEBUG LOGGING
+==================================================
+
+Add useful logs:
+
+[POKER_DEAL] hand_id=<id> start
+[POKER_DEAL] dealing_to=<player>
+[POKER_DEAL] whisper_ok=<true/false> attempts=<n>
+[POKER_TURN] actor=<player> street=<street> seq=<n>
+[POKER_TURN] action=<call/raise/fold/check/allin>
+[POKER_TURN] next_actor=<player>
+[POKER_ALLIN] player=<player> amount=<amount>
+[POKER_POT] main=<amount> sidepots=<json/simple>
+[POKER_ERROR] details=<safe error>
+
+Do not log secrets or tokens.
+
+==================================================
+PART 15 — FINAL TEST PLAN TO REPORT
+==================================================
+
+After implementation, tell me exactly what to test in this order:
+
+1. Command route tests
+2. Dashboard tests
+3. Two-player card delivery test
+4. /ph and /resendcards test
+5. Turn repeat test
+6. All-in test
+7. Side pot test if possible
+8. Poker pace mode test
+9. Restart safety test if any state is persistent
+10. Staff controls test
+
+Final report must include:
+- files changed
+- commands added
+- how card delivery changed
+- how duplicate messages are prevented
+- how turn repeat is prevented
+- how all-in and side pots work
+- how dashboard works
+- exact tests I should run
