@@ -1936,32 +1936,42 @@ def is_ping_responder() -> tuple:
     return False, f"not responder (primary={primary} me={my_mode}/{my_id})"
 
 
-def is_system_responder() -> bool:
+_SYS_PRIORITY_TOKENS: list[tuple[str, str]] = [
+    ("host",       "HOST_BOT_TOKEN"),
+    ("banker",     "BANKER_BOT_TOKEN"),
+    ("poker",      "POKER_BOT_TOKEN"),
+    ("blackjack",  "BLACKJACK_BOT_TOKEN"),
+    ("miner",      "MINER_BOT_TOKEN"),
+    ("security",   "SECURITY_BOT_TOKEN"),
+    ("dj",         "DJ_BOT_TOKEN"),
+    ("shopkeeper", "SHOP_BOT_TOKEN"),
+    ("eventhost",  "EVENT_BOT_TOKEN"),
+]
+
+
+def get_system_responder_mode() -> str:
     """
-    Return True if this bot is the highest-priority system command responder.
-
-    Used by the SYSTEM CMD CORE so exactly ONE bot answers /startupstatus,
-    /missingbots, /help fallback, /commandtest, /bots, /bothealth, etc.
-
-    Priority: host > banker > poker > blackjack > miner > security > dj > shop > event.
+    Return the single bot mode that should answer system commands.
+    All running bots call this and MUST agree on the result so exactly
+    one bot replies.
 
     Algorithm:
-      1. Self is always in the live-set regardless of DB availability.
-      2. Other bots are live only if their heartbeat is < 25 s old.
-         (Heartbeat writes only from the running loop — not from on_start.)
-      3. First priority-mode found in the live-set wins.
+      1. Build live-set from DB heartbeats (90 s window, no status filter).
+         Self is always included.
+      2. Walk priority list — first mode that is CONFIGURED (token set in env)
+         AND present in the live-set wins.
+      3. DB unavailable fallback: all bots see the same env vars, so the
+         result is the first CONFIGURED token in priority order.  This
+         ensures determinism (no duplicates) even when DB is locked.
+         Side-effect: system commands are silent if the top-priority
+         configured bot (host) is offline and DB is down — that is
+         intentional (fail-silent beats duplicate replies).
     """
-    _PRIORITY = [
-        "host", "banker", "poker", "blackjack",
-        "miner", "security", "dj", "shopkeeper", "eventhost",
-    ]
-    my_mode = config.BOT_MODE.lower()
-    _live: set[str] = {my_mode}
+    _live: set[str] = {config.BOT_MODE.lower()}
+    _db_ok = False
     try:
         from datetime import datetime as _dter, timezone as _tzer
         for _inst in db.get_bot_instances():
-            if _inst.get("status") != "online":
-                continue
             _ls = _inst.get("last_seen_at", "")
             if not _ls:
                 continue
@@ -1969,19 +1979,31 @@ def is_system_responder() -> bool:
                 _lsdt = _dter.fromisoformat(_ls.replace("Z", "+00:00"))
                 if _lsdt.tzinfo is None:
                     _lsdt = _lsdt.replace(tzinfo=_tzer.utc)
-                if (_dter.now(_tzer.utc) - _lsdt).total_seconds() < 25:
+                if (_dter.now(_tzer.utc) - _lsdt).total_seconds() < 90:
                     _live.add(_inst.get("bot_mode", "").lower())
+                    _db_ok = True
             except Exception:
                 pass
     except Exception:
         pass
-    for _mode in _PRIORITY:
-        if _mode in _live:
-            return _mode == my_mode
-    return True
+
+    if _db_ok:
+        # DB available: first configured+live mode wins
+        for _mode, _tok in _SYS_PRIORITY_TOKENS:
+            if os.environ.get(_tok, "") and _mode in _live:
+                return _mode
+    # DB unavailable (only self in live, or query failed):
+    # use env-var order so all bots deterministically pick the same winner
+    for _mode, _tok in _SYS_PRIORITY_TOKENS:
+        if os.environ.get(_tok, ""):
+            return _mode
+    return config.BOT_MODE.lower()
 
 
-# Keep old name as alias so any remaining callers don't break
+def is_system_responder() -> bool:
+    return get_system_responder_mode() == config.BOT_MODE.lower()
+
+
 def is_emergency_responder() -> bool:
     return is_system_responder()
 
@@ -2454,179 +2476,157 @@ class HangoutBot(BaseBot):
 
         # ══════════════════════════════════════════════════════════════════════
         # SYSTEM COMMAND CORE — fires before routing gate.
-        # ALL bots log [SYSTEM RX]. Only the system responder replies.
-        # Exception: /safeboot status and /crashlogs use their own rules.
+        # get_system_responder_mode() returns ONE mode agreed by all bots.
+        # Only that bot replies; every bot logs [SYSTEM RX] for tracing.
         # ══════════════════════════════════════════════════════════════════════
         _SYS_CMDS = {
             "startupstatus", "missingbots", "help", "commandtest",
-            "bots", "bothealth", "deploymentcheck", "safeboot", "crashlogs",
+            "bots", "bothealth", "deploymentcheck",
+            "safeboot", "crashlogs", "systemresponder",
+            "botconflicts", "taskconflicts",
         }
-        _SYS_BOT_SLOTS = [
-            ("HOST_BOT_TOKEN",      "host"),
-            ("BANKER_BOT_TOKEN",    "banker"),
-            ("BLACKJACK_BOT_TOKEN", "blackjack"),
-            ("POKER_BOT_TOKEN",     "poker"),
-            ("MINER_BOT_TOKEN",     "miner"),
-            ("SHOP_BOT_TOKEN",      "shop"),
-            ("SECURITY_BOT_TOKEN",  "security"),
-            ("DJ_BOT_TOKEN",        "dj"),
-            ("EVENT_BOT_TOKEN",     "event"),
-        ]
-
-        def _sys_live_bots(window: int = 45) -> set[str]:
-            """Return set of bot modes with fresh heartbeats (+ always self)."""
-            _sl: set[str] = {BOT_MODE}
-            try:
-                from datetime import datetime as _dts, timezone as _tzs
-                for _si in db.get_bot_instances():
-                    if _si.get("status") != "online":
-                        continue
-                    _ls = _si.get("last_seen_at", "")
-                    if not _ls:
-                        continue
-                    try:
-                        _lsdt = _dts.fromisoformat(_ls.replace("Z", "+00:00"))
-                        if _lsdt.tzinfo is None:
-                            _lsdt = _lsdt.replace(tzinfo=_tzs.utc)
-                        if (_dts.now(_tzs.utc) - _lsdt).total_seconds() < window:
-                            _sl.add(_si.get("bot_mode", "").lower())
-                    except Exception:
-                        pass
-            except Exception:
-                pass
-            return _sl
 
         if cmd in _SYS_CMDS:
+            # Safeboot non-status subcommands fall through to normal router
+            if cmd == "safeboot" and not (len(args) > 1 and args[1].lower() == "status"):
+                pass  # fall through
+            else:
+                _resp_mode = get_system_responder_mode()
+                _is_resp = (_resp_mode == BOT_MODE)
+                print(f"[SYSTEM RX] cmd=/{cmd} responder={BOT_MODE} handle={str(_is_resp).lower()}")
+                if not _is_resp:
+                    return  # another bot is the system responder — ignore silently
 
-            # /safeboot status — every bot answers with its own state
-            if cmd == "safeboot":
-                if len(args) > 1 and args[1].lower() == "status":
-                    print(f"[SYSTEM RX] cmd=/safeboot status responder={BOT_MODE} handle=true")
+                # ── This bot IS the system responder ──────────────────────────
+                try:
+                    # Build live-set once for all display commands (90 s window)
+                    _slive: set[str] = {BOT_MODE}
                     try:
+                        from datetime import datetime as _dts2, timezone as _tzs2
+                        for _si2 in db.get_bot_instances():
+                            _ls2 = _si2.get("last_seen_at", "")
+                            if not _ls2:
+                                continue
+                            try:
+                                _lsd2 = _dts2.fromisoformat(_ls2.replace("Z", "+00:00"))
+                                if _lsd2.tzinfo is None:
+                                    _lsd2 = _lsd2.replace(tzinfo=_tzs2.utc)
+                                if (_dts2.now(_tzs2.utc) - _lsd2).total_seconds() < 90:
+                                    _slive.add(_si2.get("bot_mode", "").lower())
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
+
+                    _host_live = "host" in _slive
+                    _fallback_str = f"fallback {_resp_mode}" if not _host_live else "host"
+
+                    if cmd == "systemresponder":
+                        if _host_live:
+                            await self._safe_send(user.id, "System responder: host")
+                        else:
+                            await self._safe_send(user.id,
+                                f"System responder: {_resp_mode} | Host missing")
+
+                    elif cmd == "safeboot":
                         _sb_env = config.SAFE_BOOT
                         try:
                             _sb_db_val = db.get_room_setting("safeboot", "true")
                         except Exception:
                             _sb_db_val = "unknown"
                         await self._safe_send(user.id,
-                            f"SafeBoot: env={_sb_env} | db={_sb_db_val} | mode={BOT_MODE}"[:249])
-                    except Exception as _sbe:
-                        print(f"[SYSTEM ERROR] cmd=/safeboot error={_sbe}")
-                    return
-                # non-status subcommand — fall through to normal router
-            else:
-                # /crashlogs — system responder or host handles it
-                if cmd == "crashlogs":
-                    _cr_resp = is_system_responder()
-                    print(f"[SYSTEM RX] cmd=/crashlogs responder={BOT_MODE} handle={str(_cr_resp).lower()}")
-                    if _cr_resp:
+                            f"SafeBoot: env={_sb_env} | db={_sb_db_val} | {_fallback_str}"[:249])
+
+                    elif cmd == "crashlogs":
+                        _show_latest = len(args) > 1 and args[1].lower() == "latest"
                         try:
-                            _show_latest = len(args) > 1 and args[1].lower() == "latest"
-                            try:
-                                _logs = db.get_bot_crash_logs(limit=1 if _show_latest else 5)
-                            except Exception as _dbe:
-                                await self._safe_send(user.id,
-                                    f"Crashlogs DB error: {str(_dbe)[:160]}"[:249])
-                                return
-                            if not _logs:
-                                await self._safe_send(user.id, "No crash logs found.")
-                            elif _show_latest:
-                                _r = _logs[0]
-                                _msg = (f"Latest crash: bot={_r.get('bot_id','?')} "
-                                        f"phase={_r.get('bot_mode','?')} "
-                                        f"err={_r.get('error_type','?')}: "
-                                        f"{_r.get('error_message','')[:80]}")
-                                await self._safe_send(user.id, _msg[:249])
-                            else:
-                                _lines = [f"{_r.get('bot_id','?')}:{_r.get('error_type','?')}"
-                                          for _r in _logs]
-                                await self._safe_send(user.id,
-                                    (f"Crash logs ({len(_logs)}): "
-                                     + " | ".join(_lines))[:249])
-                        except Exception as _ce:
-                            print(f"[SYSTEM ERROR] cmd=/crashlogs error={_ce}")
-                    return
-
-                # All remaining system commands — only system responder replies
-                _sys_resp = is_system_responder()
-                print(f"[SYSTEM RX] cmd=/{cmd} responder={BOT_MODE} handle={str(_sys_resp).lower()}")
-
-                if _sys_resp:
-                    try:
-                        if cmd == "startupstatus":
-                            _live_ss = _sys_live_bots(45)
-                            _on = [lbl for tok, lbl in _SYS_BOT_SLOTS
-                                   if os.environ.get(tok, "") and lbl in _live_ss]
-                            _off = [lbl for tok, lbl in _SYS_BOT_SLOTS
-                                    if os.environ.get(tok, "") and lbl not in _live_ss]
-                            _no_tok = [lbl for tok, lbl in _SYS_BOT_SLOTS
-                                       if not os.environ.get(tok, "")]
-                            _ss_msg = f"Started: {', '.join(_on) or 'none'}"
-                            if _off:
-                                _ss_msg += f" | Missing: {', '.join(_off)}"
-                            if _no_tok:
-                                _ss_msg += f" | No token: {', '.join(_no_tok)}"
-                            await self._safe_send(user.id, _ss_msg[:249])
-
-                        elif cmd == "missingbots":
-                            _live_mb = _sys_live_bots(45)
-                            _off_mb = [lbl for tok, lbl in _SYS_BOT_SLOTS
-                                       if os.environ.get(tok, "") and lbl not in _live_mb]
-                            if _off_mb:
-                                await self._safe_send(user.id,
-                                    f"Missing: {', '.join(_off_mb)}"[:249])
-                            else:
-                                await self._safe_send(user.id, "No missing bots.")
-
-                        elif cmd == "bots":
-                            _live_bts = _sys_live_bots(45)
+                            _logs = db.get_bot_crash_logs(limit=1 if _show_latest else 5)
+                        except Exception as _dbe:
                             await self._safe_send(user.id,
-                                f"Online: {', '.join(sorted(_live_bts))}"[:249])
-
-                        elif cmd == "bothealth":
-                            _live_bh = _sys_live_bots(45)
-                            _host_ok = "host" in _live_bh
-                            _sb_on = config.SAFE_BOOT
-                            _h_str = "host OK" if _host_ok else "host MISSING"
-                            _sb_str = "SafeBoot ON" if _sb_on else "SafeBoot OFF"
-                            _sys_str = "system fallback ON" if not _host_ok else "system normal"
+                                f"Crashlogs DB error: {str(_dbe)[:180]}"[:249])
+                            return
+                        if not _logs:
+                            await self._safe_send(user.id, "No crash logs found.")
+                        elif _show_latest:
+                            _r = _logs[0]
+                            _msg = (f"Latest crash: bot={_r.get('bot_id','?')} "
+                                    f"phase={_r.get('bot_mode','?')} "
+                                    f"err={_r.get('error_type','?')}: "
+                                    f"{_r.get('error_message','')[:80]}")
+                            await self._safe_send(user.id, _msg[:249])
+                        else:
+                            _lines = [f"{_r.get('bot_id','?')}:{_r.get('error_type','?')}"
+                                      for _r in _logs]
                             await self._safe_send(user.id,
-                                f"{_sb_str} | router partial | {_h_str} | modules OK | {_sys_str}"[:249])
+                                (f"Crash logs ({len(_logs)}): "
+                                 + " | ".join(_lines))[:249])
 
-                        elif cmd == "deploymentcheck":
-                            _live_dc = _sys_live_bots(45)
-                            _host_ok2 = "host" in _live_dc
-                            _h_str2 = "host missing" if not _host_ok2 else "host OK"
-                            _sys_f2 = "system fallback ON" if not _host_ok2 else "system normal"
+                    elif cmd == "startupstatus":
+                        _on = [lbl for _, lbl in _SYS_PRIORITY_TOKENS
+                               if os.environ.get(_, "") and lbl in _slive]
+                        _off = [lbl for _, lbl in _SYS_PRIORITY_TOKENS
+                                if os.environ.get(_, "") and lbl not in _slive]
+                        _msg = f"Online: {', '.join(_on) or 'none'}"
+                        if _off:
+                            _msg += f" | Missing: {', '.join(_off)}"
+                        await self._safe_send(user.id, _msg[:249])
+
+                    elif cmd == "missingbots":
+                        _off2 = [lbl for _, lbl in _SYS_PRIORITY_TOKENS
+                                 if os.environ.get(_, "") and lbl not in _slive]
+                        await self._safe_send(user.id,
+                            (f"Missing: {', '.join(_off2)}" if _off2 else "No missing bots.")[:249])
+
+                    elif cmd == "bots":
+                        _on2 = [lbl for _, lbl in _SYS_PRIORITY_TOKENS
+                                if os.environ.get(_, "") and lbl in _slive]
+                        _off3 = [lbl for _, lbl in _SYS_PRIORITY_TOKENS
+                                 if os.environ.get(_, "") and lbl not in _slive]
+                        _msg2 = f"Online: {', '.join(_on2) or 'none'}"
+                        if _off3:
+                            _msg2 += f" | Missing: {', '.join(_off3)}"
+                        await self._safe_send(user.id, _msg2[:249])
+
+                    elif cmd == "bothealth":
+                        _sb_str = "SafeBoot ON" if config.SAFE_BOOT else "SafeBoot OFF"
+                        _h_str = "Host missing" if not _host_live else "Host OK"
+                        await self._safe_send(user.id,
+                            f"{_sb_str} | {_h_str} | Modules OK | Fallback {_resp_mode}"[:249])
+
+                    elif cmd == "deploymentcheck":
+                        _h_str2 = "host missing" if not _host_live else "host OK"
+                        await self._safe_send(user.id,
+                            f"Deploy: modules OK | {_h_str2} | fallback {_resp_mode}"[:249])
+
+                    elif cmd == "commandtest":
+                        _test_raw = args[1].lstrip("/") if len(args) > 1 else ""
+                        if not _test_raw:
+                            await self._safe_send(user.id, "Usage: /commandtest /cmd")
+                        else:
+                            _owner_ct = resolve_command_owner(_test_raw) or "none"
+                            _o_live = _owner_ct in _slive if _owner_ct != "none" else False
+                            _o_str = "online" if _o_live else "OFFLINE"
+                            _h_yn = "YES" if _owner_ct != "none" else "NO"
                             await self._safe_send(user.id,
-                                f"Deploy: modules OK | {_h_str2} | {_sys_f2}"[:249])
+                                f"/{_test_raw} owner={_owner_ct} | {_owner_ct} {_o_str} | handler {_h_yn}"[:249])
 
-                        elif cmd == "commandtest":
-                            _test_raw = args[1].lstrip("/") if len(args) > 1 else ""
-                            if not _test_raw:
-                                await self._safe_send(user.id, "Usage: /commandtest /cmd")
-                            else:
-                                _owner_ct = resolve_command_owner(_test_raw) or "none"
-                                _live_ct = _sys_live_bots(45)
-                                _o_online = _owner_ct in _live_ct if _owner_ct != "none" else False
-                                _o_str = "online" if _o_online else "OFFLINE"
-                                _h_yn = "YES" if _owner_ct != "none" else "NO"
-                                await self._safe_send(user.id,
-                                    f"/{_test_raw} owner={_owner_ct} | {_owner_ct} {_o_str} | handler {_h_yn}"[:249])
+                    elif cmd == "help":
+                        if BOT_MODE != "host":
+                            await self._safe_send(user.id,
+                                "Host offline. Help: /bankerhelp /pokerhelp /bjhelp /minehelp"[:249])
+                        # If this IS host, fall through to the normal /help handler below
 
-                        elif cmd == "help":
-                            # Only fires when host is NOT the system responder
-                            if BOT_MODE != "host":
-                                await self._safe_send(user.id,
-                                    "Host offline. Module help: /bankerhelp /pokerhelp /bjhelp /minehelp"[:249])
-                            # If this bot IS host and is system responder, fall through below
+                    elif cmd in ("botconflicts", "taskconflicts"):
+                        # Fall through to normal router (host or responder handles it)
+                        pass
 
-                    except Exception as _syse:
-                        print(f"[SYSTEM ERROR] cmd=/{cmd} error={_syse}")
+                except Exception as _syse:
+                    print(f"[SYSTEM ERROR] cmd=/{cmd} error={_syse}")
 
-                # /help with host as system responder: fall through to normal router
-                if cmd == "help" and _sys_resp and BOT_MODE == "host":
-                    pass  # let the normal /help handler run
+                # /help when host is the responder: fall through to normal router
+                # /botconflicts /taskconflicts: fall through to normal router
+                if cmd in ("help", "botconflicts", "taskconflicts") and BOT_MODE == "host":
+                    pass  # let normal router handle
                 else:
                     return
 
