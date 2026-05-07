@@ -179,7 +179,7 @@ from modules.cmd_audit import (
     handle_silentcheck, handle_commandtest,
     handle_fixcommands, handle_testcommands,
     handle_commandintegrity, handle_commandrepair,
-    handle_commandaudit,
+    handle_commandaudit, handle_commandissues,
 )
 from modules.economy_settings import (
     handle_economysettings,
@@ -677,6 +677,7 @@ ALL_KNOWN_COMMANDS = (
         # ── Task ownership / restore announce ─────────────────────────────────
         "taskowners", "activetasks", "taskconflicts", "fixtaskowners",
         "restoreannounce", "restorestatus",
+        "commandissues",
     }
     | ECONOMY_COMMANDS | PROFILE_COMMANDS | GAME_COMMANDS
     | SHOP_COMMANDS | ACHIEVEMENT_COMMANDS | BJ_COMMANDS
@@ -2025,6 +2026,8 @@ class HangoutBot(BaseBot):
                 await handle_commandintegrity(self, user, ALL_KNOWN_COMMANDS)
             elif cmd == "commandrepair":
                 await handle_commandrepair(self, user)
+            elif cmd == "commandissues":
+                await handle_commandissues(self, user, args, ALL_KNOWN_COMMANDS)
             elif cmd == "bankblock":
                 await handle_bankblock(self, user, args, block=True)
             elif cmd == "bankunblock":

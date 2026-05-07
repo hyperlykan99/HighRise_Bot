@@ -56,6 +56,16 @@ HIDDEN_CMDS: frozenset[str] = frozenset({
     "auditbank", "auditcasino", "auditeconomy",
 })
 
+# ---------------------------------------------------------------------------
+# DEPRECATED_CMDS — commands still in ALL_KNOWN_COMMANDS but no longer
+# actively used.  Excluded from active-route and active-owner checks in
+# /checkcommands all and /commandissues.
+# ---------------------------------------------------------------------------
+
+DEPRECATED_CMDS: frozenset[str] = frozenset({
+    # None currently — add here when retiring a command
+})
+
 
 # ---------------------------------------------------------------------------
 # ROUTED_COMMANDS
@@ -240,6 +250,54 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     "orebook", "oremastery", "claimoremastery", "orestats",
     "contracts", "miningjobs",
     "job", "deliver", "claimjob", "rerolljob",
+    # ── room utility (teleport / emotes / social / alerts / intervals) ────────
+    "tp", "tpme", "tphere", "bring", "bringall", "tpall",
+    "tprole", "tpvip", "tpstaff", "selftp", "goto", "groupteleport",
+    "spawns", "spawn", "setspawn", "savepos", "delspawn", "spawninfo", "setspawncoords",
+    "staffonline", "vipsinroom", "rolelist", "players", "online", "roomlist",
+    "emotes", "emote", "stopemote", "dance", "wave", "sit", "clap",
+    "forceemote", "forceemoteall", "loopemote", "stoploop", "stopallloops",
+    "synchost", "syncdance", "stopsync",
+    "publicemotes", "forceemotes", "setemoteloopinterval",
+    "hug", "kiss", "slap", "punch", "highfive", "boop", "waveat", "cheer",
+    "heart", "giveheart", "reactheart", "hearts", "heartlb",
+    "social", "blocksocial", "unblocksocial", "socialhelp",
+    "follow", "followme", "stopfollow", "followstatus",
+    "alert", "alerthelp", "staffalert", "vipalert", "roomalert", "clearalerts",
+    "welcome", "setwelcome", "welcometest", "resetwelcome", "welcomeinterval",
+    "intervals", "addinterval", "delinterval", "interval", "intervaltest",
+    "repeatmsg", "stoprepeat", "repeatstatus",
+    "roomsettings", "setroomsetting", "roomlogs", "roomhelp", "teleporthelp",
+    "emotehelp", "welcomehelp", "roomstatus", "roomboost", "boostroom",
+    "kick", "ban", "tempban", "unban", "bans", "modlog",
+    "startmic", "micstart", "micstatus",
+    "toggle", "managerpanel",
+    # ── bot-mode management ────────────────────────────────────────────────────
+    "botmode", "botmodes", "botprofile", "botprefix", "categoryprefix",
+    "setbotprefix", "setbotdesc", "setbotoutfit", "botoutfit", "botoutfits",
+    "dressbot", "savebotoutfit",
+    "createbotmode", "deletebotmode", "assignbotmode",
+    "bots", "botinfo", "botoutfitlogs", "botmodehelp", "botmodules",
+    "commandowners", "enablebot", "disablebot", "setbotmodule", "setcommandowner",
+    "botfallback", "botstartupannounce", "startupannounce", "modulestartup",
+    "startupstatus", "multibothelp", "setmainmode",
+    "bothealth", "modulehealth", "deploymentcheck", "botheartbeat", "botconflicts",
+    "moduleowners", "botlocks", "dblockcheck", "clearstalebotlocks", "fixbotowners",
+    "taskowners", "activetasks", "taskconflicts", "fixtaskowners",
+    "restoreannounce", "restorestatus",
+    "commandintegrity", "commandrepair",
+    # ── shop / badge market (admin-side) ──────────────────────────────────────
+    "addbadge", "editbadgeprice",
+    "setbadgepurchasable", "setbadgetradeable", "setbadgesellable",
+    "giveemojibadge", "badgecatalog", "badgeadmin",
+    "setbadgemarketfee", "badgemarketlogs",
+    "unequip", "cancelbuy", "marketbuy",
+    "shopadmin", "shoptest", "setshopconfirm", "seteventconfirm",
+    "buyitem", "purchase",
+    # ── misc ──────────────────────────────────────────────────────────────────
+    "fixautogames",
+    # ── /commandissues ────────────────────────────────────────────────────────
+    "commandissues",
 })
 
 # ---------------------------------------------------------------------------
@@ -429,8 +487,8 @@ def _paginate(title: str, items: list[str], page: int) -> tuple[str, int]:
 
 async def handle_checkcommands(bot: BaseBot, user: User, args: list | None = None) -> None:
     """
-    /checkcommands        — visible-help commands only (clean, small numbers)
-    /checkcommands all    — full ALL_KNOWN_COMMANDS scan (raw totals)
+    /checkcommands        — visible-help commands only
+    /checkcommands all    — full breakdown: active / hidden / deprecated
     """
     if not _can_audit(user.username):
         await _w(bot, user.id, "Staff only.")
@@ -439,38 +497,124 @@ async def handle_checkcommands(bot: BaseBot, user: User, args: list | None = Non
     use_all = args and len(args) > 1 and args[1].lower() == "all"
 
     if use_all:
-        # import lazily to avoid circular imports at module load time
         try:
-            import importlib, sys
+            import sys, importlib
             _main = sys.modules.get("__main__") or importlib.import_module("__main__")
-            check_set = getattr(_main, "ALL_KNOWN_COMMANDS", None)
-            if check_set is None:
-                # fallback: try importing the bot class module
-                from bot import MyBot  # noqa: F401  — just to trigger module load
-                _main = sys.modules.get("__main__")
-                check_set = getattr(_main, "ALL_KNOWN_COMMANDS", VISIBLE_CMDS)
+            all_set = getattr(_main, "ALL_KNOWN_COMMANDS", None) or VISIBLE_CMDS
         except Exception:
-            check_set = VISIBLE_CMDS
-        label = "All"
+            all_set = VISIBLE_CMDS
+
+        hidden  = HIDDEN_CMDS & all_set
+        depr    = DEPRECATED_CMDS & all_set
+        active  = all_set - hidden - depr
+
+        try:
+            from modules.multi_bot import _DEFAULT_COMMAND_OWNERS
+            owners_set      = set(_DEFAULT_COMMAND_OWNERS.keys())
+            active_no_owner = len(active - owners_set)
+        except Exception:
+            active_no_owner = -1
+
+        active_missing = len(active - ROUTED_COMMANDS)
+
+        print(f"[AUDIT] /checkcommands all @{user.username}: "
+              f"known={len(all_set)} active={len(active)} hidden={len(hidden)} "
+              f"depr={len(depr)} missing={active_missing} noowner={active_no_owner}")
+        await _w(bot, user.id,
+                 (f"CmdCheck[All]: Known {len(all_set)} | Active {len(active)} | "
+                  f"Hidden {len(hidden)} | Depr {len(depr)}")[:249])
+        await _w(bot, user.id,
+                 (f"  Active: Routed {len(active & ROUTED_COMMANDS)} | "
+                  f"Missing {active_missing} | NoOwner {active_no_owner}"
+                  f"  (/commandissues for details)")[:249])
     else:
         check_set = VISIBLE_CMDS
-        label = "Visible"
+        routed_ok = len(ROUTED_COMMANDS & check_set)
+        missing   = len(check_set - ROUTED_COMMANDS)
+        try:
+            from modules.multi_bot import _DEFAULT_COMMAND_OWNERS
+            no_owner = len(check_set - set(_DEFAULT_COMMAND_OWNERS.keys()))
+        except Exception:
+            no_owner = -1
+        print(f"[AUDIT] /checkcommands(Visible) @{user.username}: "
+              f"set={len(check_set)} routed={routed_ok} missing={missing} no_owner={no_owner}")
+        await _w(bot, user.id,
+                 (f"CmdCheck[Visible]: Known {len(check_set)} | Routed {routed_ok} | "
+                  f"Missing {missing} | NoOwner {no_owner}"
+                  f"  (/checkcommands all = full scan)")[:249])
 
-    routed_ok = len(ROUTED_COMMANDS & check_set)
-    missing   = len(check_set - ROUTED_COMMANDS)
-    silent    = len(SILENT_RISK_CMDS)
-    try:
-        from modules.multi_bot import _DEFAULT_COMMAND_OWNERS
-        no_owner = len(check_set - set(_DEFAULT_COMMAND_OWNERS.keys()))
-    except Exception:
-        no_owner = -1
-    print(f"[AUDIT] /checkcommands({label}) @{user.username}: "
-          f"set={len(check_set)} routed={routed_ok} missing={missing} "
-          f"no_owner={no_owner} silent={silent}")
-    tip = "" if use_all else "  (/checkcommands all = full scan)"
-    await _w(bot, user.id,
-             (f"CmdCheck[{label}]: Known {len(check_set)} | Routed {routed_ok} | "
-              f"Missing {missing} | NoOwner {no_owner}{tip}")[:249])
+
+# ---------------------------------------------------------------------------
+# /commandissues <category> [page]
+# ---------------------------------------------------------------------------
+
+async def handle_commandissues(
+    bot: BaseBot,
+    user: User,
+    args: list[str] | None = None,
+    all_known: set | None = None,
+) -> None:
+    """
+    /commandissues missing [page]    — active commands with no route
+    /commandissues noowner [page]    — active commands with no owner
+    /commandissues deprecated [page] — deprecated commands
+    /commandissues hidden [page]     — hidden/internal commands
+    """
+    if not _can_audit(user.username):
+        await _w(bot, user.id, "Staff only.")
+        return
+
+    category = args[1].lower() if args and len(args) >= 2 else ""
+    page = 1
+    if args and len(args) >= 3:
+        try:
+            page = int(args[2])
+        except ValueError:
+            pass
+
+    if category not in ("missing", "noowner", "deprecated", "hidden"):
+        await _w(bot, user.id,
+                 "Usage: /commandissues missing|noowner|deprecated|hidden [page]")
+        return
+
+    if all_known is None:
+        try:
+            import sys, importlib
+            _main = sys.modules.get("__main__") or importlib.import_module("__main__")
+            all_known = getattr(_main, "ALL_KNOWN_COMMANDS", None) or set()
+        except Exception:
+            all_known = set()
+
+    hidden = HIDDEN_CMDS & all_known
+    depr   = DEPRECATED_CMDS & all_known
+    active = all_known - hidden - depr
+
+    if category == "missing":
+        items = sorted(active - ROUTED_COMMANDS)
+        title = "Missing routes"
+    elif category == "noowner":
+        try:
+            from modules.multi_bot import _DEFAULT_COMMAND_OWNERS
+            owners_set = set(_DEFAULT_COMMAND_OWNERS.keys())
+        except Exception:
+            owners_set = set()
+        items = sorted(active - owners_set)
+        title = "No owner"
+    elif category == "deprecated":
+        items = sorted(depr)
+        title = "Deprecated"
+    else:
+        items = sorted(hidden)
+        title = "Hidden"
+
+    print(f"[AUDIT] /commandissues {category} p{page} @{user.username}: {len(items)} items")
+    if not items:
+        await _w(bot, user.id, f"{title}: none — all clean.")
+        return
+    msg, total_pages = _paginate(title, items, page)
+    await _w(bot, user.id, msg)
+    if page < total_pages:
+        await _w(bot, user.id, f"More: /commandissues {category} {page + 1}")
 
 
 # ---------------------------------------------------------------------------
