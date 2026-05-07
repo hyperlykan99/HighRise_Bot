@@ -508,24 +508,33 @@ async def handle_commandtest(bot: BaseBot, user: User, args: list[str]) -> None:
             _resolve_command_owner, _is_mode_online, _MODE_NAMES,
             should_this_bot_handle,
         )
-        owner_mode   = _resolve_command_owner(cmd) or "all"
-        owner_name   = _MODE_NAMES.get(owner_mode, owner_mode.title())
-        owner_online = _is_mode_online(owner_mode) if owner_mode != "all" else True
-        # host_handles: would the host bot respond to this command?
-        # Calling should_this_bot_handle(cmd) from whichever bot runs commandtest
-        # (host or eventhost-as-fallback) gives the correct perspective since
-        # both bots use the same hard-owner / whitelist logic.
-        host_handles  = should_this_bot_handle(cmd)
-        # owner_handles: True when the owner is online (it handles its own cmds)
-        # or when owner is "all" (single-bot setup) or the current bot owns it.
-        owner_handles = (owner_mode == "all") or _is_mode_online(owner_mode)
-        online_s  = str(owner_online).lower()
-        host_s    = str(host_handles).lower()
-        owner_s   = str(owner_handles).lower()
-        msg = (
-            f"ct: {cmd} | owner={owner_name} | owner_online={online_s}"
-            f" | host_handles={host_s} | {owner_mode}_handles={owner_s}"
-        )
+        owner_raw = _resolve_command_owner(cmd)   # None  →  not in registry
+        in_route  = cmd in ROUTED_COMMANDS
+        in_known  = cmd in HELP_CMDS
+
+        if owner_raw is None and not in_route:
+            # Completely unknown: not in ownership map and not in the route table
+            msg = (
+                f"ct: {cmd} | owner=UNKNOWN | route=NO"
+                f" | handler=NO | fix=add_to_registry"
+            )
+        else:
+            # owner_raw is None but cmd IS routed → host handles it (no explicit owner)
+            owner_mode   = owner_raw if owner_raw is not None else "host"
+            owner_name   = _MODE_NAMES.get(owner_mode, owner_mode.title())
+            owner_online = _is_mode_online(owner_mode) if owner_mode != "all" else True
+            host_handles  = should_this_bot_handle(cmd)
+            # owner_handles: the owner bot responds when it is online (or single-bot "all")
+            owner_handles = (owner_mode == "all") or _is_mode_online(owner_mode)
+            route_s  = "YES" if in_route  else "NO"
+            online_s = str(owner_online).lower()
+            host_s   = str(host_handles).lower()
+            owner_s  = str(owner_handles).lower()
+            msg = (
+                f"ct: {cmd} | owner={owner_name} | owner_online={online_s}"
+                f" | host_handles={host_s} | {owner_mode}_handles={owner_s}"
+                f" | route={route_s}"
+            )
     except Exception as exc:
         msg = f"ct: {cmd} | error:{str(exc)[:100]}"
     print(f"[COMMANDTEST] @{user.username}: /{cmd}")
