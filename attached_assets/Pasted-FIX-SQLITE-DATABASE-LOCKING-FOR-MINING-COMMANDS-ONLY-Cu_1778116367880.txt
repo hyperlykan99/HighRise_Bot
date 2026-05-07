@@ -1,0 +1,189 @@
+FIX SQLITE DATABASE LOCKING FOR MINING COMMANDS ONLY.
+
+Current status:
+- /minehelp works
+- /minerdbcheck works and says DB OK
+- /ores works
+- /tool works
+- /mine reaches Miner Bot but fails:
+  "Mining DB error: database is locked"
+
+Goal:
+Fix SQLite database locking for /mine without touching other modules.
+
+DO NOT touch:
+- Host startup
+- Poker logic
+- Blackjack logic
+- Banker balance logic
+- AI
+- Autogames
+- System fallback
+- Bot token mapping
+- Command router
+
+Keep SAFE_BOOT ON.
+
+==================================================
+PART 1: ENABLE SQLITE WAL MODE
+==================================================
+
+When opening the shared database connection, set:
+
+PRAGMA journal_mode=WAL;
+PRAGMA busy_timeout=5000;
+PRAGMA synchronous=NORMAL;
+PRAGMA foreign_keys=ON;
+
+This should apply to all DB connections.
+
+Do not create many long-lived write connections.
+
+==================================================
+PART 2: USE SHORT TRANSACTIONS FOR /MINE
+==================================================
+
+Fix /mine so it does not hold the DB lock longer than needed.
+
+Rules:
+- Open connection
+- Set busy_timeout
+- Begin transaction only when writing
+- Write mining result
+- Commit immediately
+- Close connection in finally
+
+Do not keep the connection open during:
+- random ore roll
+- message formatting
+- cooldown calculations that do not need DB
+- sending Highrise chat/whisper
+
+Never await Highrise send while DB transaction is open.
+
+==================================================
+PART 3: ADD RETRY FOR LOCKED DATABASE
+==================================================
+
+If sqlite error contains "database is locked":
+
+Retry up to 3 times:
+- wait 0.2s
+- wait 0.5s
+- wait 1.0s
+
+Then fail gracefully:
+"⏳ Mining DB busy. Try /mine again."
+
+Do not crash.
+
+==================================================
+PART 4: FIND LOCKING BACKGROUND TASKS
+==================================================
+
+Search for background tasks that may hold DB locks:
+- mining event loops
+- poker recovery loops
+- player heartbeat loops
+- bot_instances heartbeat
+- startup restore
+- autogames
+- economy transactions
+
+Make sure no loop keeps a write transaction open.
+
+SAFE_BOOT=true should disable background loops, but it must not disable manual commands.
+
+If a loop writes heartbeat, make it:
+- short transaction
+- commit immediately
+- close connection
+
+==================================================
+PART 5: ADD DB CONNECTION HELPER
+==================================================
+
+Create one helper:
+
+get_db_connection()
+
+Every SQLite connection should use:
+- timeout=10
+- isolation_level=None or controlled short transactions
+- WAL mode
+- busy_timeout=5000
+
+Example:
+sqlite3.connect(db_path, timeout=10)
+
+Then:
+PRAGMA busy_timeout=5000
+PRAGMA journal_mode=WAL
+
+==================================================
+PART 6: FIX /MINERREPAIR
+==================================================
+
+/minerrepair should also use short DB transactions and close connection.
+
+Reply:
+"✅ Miner DB repaired."
+
+If DB busy:
+"Miner DB busy. Try again."
+
+==================================================
+PART 7: ADD /DBLOCKCHECK
+==================================================
+
+Owner/admin command:
+
+/dblockcheck
+
+Reply example:
+"DB: WAL ON | busy_timeout 5000 | active writers unknown"
+
+If possible, show:
+- DB path
+- journal mode
+- busy timeout
+- last mining DB error
+
+Keep under 250 characters.
+
+==================================================
+PART 8: LOG EXACT ERRORS
+==================================================
+
+Console logs:
+
+[DB] open path=<path>
+[DB] journal_mode=WAL busy_timeout=5000
+[MINER] /mine start user=4ktreyMarion
+[MINER] /mine db locked retry=1
+[MINER] /mine success ore=Coal
+[MINER ERROR] /mine database is locked
+
+==================================================
+PART 9: TESTS
+==================================================
+
+After restart, test only:
+
+/dblockcheck
+/minerrepair
+/mine
+/mine
+/ores
+/tool
+
+Expected:
+- /dblockcheck replies
+- /minerrepair replies
+- /mine replies with ore, cooldown, energy issue, or "DB busy try again"
+- No silent failure
+- /ores still works
+- /tool still works
+
+Final requirement:
+Fix database locking for manual /mine. Do not modify other working commands.

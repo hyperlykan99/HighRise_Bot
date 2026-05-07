@@ -275,21 +275,25 @@ async def handle_mine(bot: BaseBot, user: User) -> None:
 async def _handle_mine_body(bot: BaseBot, user: User) -> None:
     uname = user.username
 
-    # Mining enabled?
-    if db.get_mine_setting("mining_enabled", "true") != "true":
+    # ── Phase 1: Batch reads (all settings in ONE connection, no await held) ──
+    settings = _batch_mine_settings()
+
+    if settings["mining_enabled"] != "true":
         await _w(bot, user.id, "⛔ Mining is currently disabled.")
         return
 
-    # Room presence
-    if db.get_mine_setting("mining_requires_room", "true") == "true":
-        if not _is_in_room(uname):
-            await _w(bot, user.id, "Join the room to mine.")
-            return
+    if settings["mining_requires_room"] == "true" and not _is_in_room(uname):
+        await _w(bot, user.id, "Join the room to mine.")
+        return
 
     miner = db.get_or_create_miner(uname)
 
-    # Cooldown
-    base_cd  = int(db.get_mine_setting("base_cooldown_seconds", "60"))
+    # Daily energy reset (writes only when reset is actually due — once/day)
+    _maybe_reset_energy(miner, uname)
+    miner = db.get_or_create_miner(uname)  # re-fetch after possible reset
+
+    # Cooldown check (pure math, no DB)
+    base_cd  = int(settings["base_cooldown_seconds"])
     tool_cd  = COOLDOWNS.get(miner["tool_level"], 60)
     cooldown = min(base_cd, tool_cd)
     secs_ago = _seconds_since(miner["last_mine_at"])
@@ -298,14 +302,9 @@ async def _handle_mine_body(bot: BaseBot, user: User) -> None:
         await _w(bot, user.id, f"⏳ Mine ready in {wait}s.")
         return
 
-    # Energy
-    mine_event = db.get_active_mining_event()
+    mine_event  = db.get_active_mining_event()
     energy_cost = 0 if (mine_event and mine_event.get("event_id") == "energy_free") \
-                  else int(db.get_mine_setting("base_energy_cost", "5"))
-
-    # Daily energy reset
-    _maybe_reset_energy(miner, uname)
-    miner = db.get_or_create_miner(uname)  # re-fetch after possible reset
+                  else int(settings["base_energy_cost"])
 
     if miner["energy"] < energy_cost:
         await _w(bot, user.id,
@@ -316,35 +315,27 @@ async def _handle_mine_body(bot: BaseBot, user: User) -> None:
     db.ensure_user(user.id, uname)
     is_vip = db.owns_item(user.id, "vip")
 
-    # Roll drop
+    # ── Phase 2: Pure Python calculations (no DB, no await) ──────────────────
     has_luck = _boost_active(miner.get("luck_boost_until"))
     has_xp   = _boost_active(miner.get("xp_boost_until"))
     item, mxp = _roll_drop(miner["tool_level"], is_vip, has_luck, mine_event)
 
-    # VIP: +10% MXP
     if is_vip:
         mxp = int(mxp * 1.10)
-
-    # XP boost: 2x MXP
     if has_xp:
         mxp *= 2
-
-    # Event double_mxp
     if mine_event and mine_event.get("event_id") == "double_mxp":
         mxp *= 2
 
-    # Quantity (normally 1; double_ore event makes it 2)
     qty = 2 if (mine_event and mine_event.get("event_id") == "double_ore") else 1
 
-    # Persist changes
     new_energy = miner["energy"] - energy_cost
     new_mines  = miner["total_mines"] + 1
     new_ores   = miner["total_ores"] + qty
     new_mxp    = miner["mining_xp"] + mxp
 
-    # Level up check
-    cur_lvl  = miner["mining_level"]
-    new_lvl  = cur_lvl
+    cur_lvl = miner["mining_level"]
+    new_lvl = cur_lvl
     while new_mxp >= _xp_for_level(new_lvl):
         new_mxp -= _xp_for_level(new_lvl)
         new_lvl += 1
@@ -352,38 +343,35 @@ async def _handle_mine_body(bot: BaseBot, user: User) -> None:
     is_rare  = item["rarity"] in ANNOUNCE_RARITIES
     new_rare = miner["rare_finds"] + (1 if is_rare else 0)
 
-    db.update_miner(uname,
-        energy=new_energy,
-        total_mines=new_mines,
-        total_ores=new_ores,
-        mining_xp=new_mxp,
-        mining_level=new_lvl,
-        rare_finds=new_rare,
-        last_mine_at=_now_iso(),
+    # ── Phase 3: ONE write transaction with asyncio retry on lock ─────────────
+    await _mine_commit_result(
+        uname, item["item_id"], qty, item["rarity"],
+        {
+            "energy": new_energy, "total_mines": new_mines,
+            "total_ores": new_ores, "mining_xp": new_mxp,
+            "mining_level": new_lvl, "rare_finds": new_rare,
+            "last_mine_at": _now_iso(),
+        },
     )
-    db.add_ore(uname, item["item_id"], qty)
-    db.log_mine(uname, "mine", item["item_id"], qty, 0, item["rarity"])
 
-    # Build reply
+    # ── Phase 4: Send messages (no DB held, connection already closed) ────────
     qty_str = f" x{qty}" if qty > 1 else ""
     lvlup   = f" | ⬆️ Mining Lv {new_lvl}!" if new_lvl > cur_lvl else ""
     msg     = (f"⛏️ You mined {item['emoji']} {item['name']}{qty_str} | "
                f"+{_fmt(mxp)} MXP{lvlup}")
     await _w(bot, user.id, msg)
 
-    # Rare public announce
-    if is_rare and db.get_mine_setting("rare_announce_enabled", "true") == "true":
-        rarity_label = item["rarity"].replace("_", " ").title()
+    if is_rare and settings["rare_announce_enabled"] == "true":
         if item["item_id"] == "meteorite_fragment":
             ann = f"☄️ @{uname} found a Meteorite Fragment! Ultra rare! ☄️"
         else:
-            ann = f"{item['emoji']} @{uname} found {item['name']}! ({rarity_label})"
+            ann = (f"{item['emoji']} @{uname} found {item['name']}! "
+                   f"({item['rarity'].replace('_', ' ').title()})")
         try:
             await bot.highrise.chat(ann[:249])
         except Exception:
             pass
 
-    # Level up announce
     if new_lvl > cur_lvl:
         try:
             await bot.highrise.chat(
@@ -408,6 +396,90 @@ def _maybe_reset_energy(miner: dict, username: str) -> None:
         pass
     max_e = miner.get("max_energy", 100)
     db.update_miner(username, energy=max_e, last_energy_reset=_now_iso())
+
+
+# ---------------------------------------------------------------------------
+# Mining write helpers  (short-transaction, asyncio-retry)
+# ---------------------------------------------------------------------------
+
+def _batch_mine_settings() -> dict:
+    """Read all /mine settings in ONE connection to reduce lock contention."""
+    import sqlite3 as _sql, config as _cfg
+    defaults = {
+        "mining_enabled": "true",
+        "mining_requires_room": "true",
+        "base_cooldown_seconds": "60",
+        "base_energy_cost": "5",
+        "daily_energy_reset": "true",
+        "rare_announce_enabled": "true",
+    }
+    try:
+        _keys = tuple(defaults.keys())
+        _ph   = ",".join("?" * len(_keys))
+        _con  = _sql.connect(_cfg.DB_PATH, timeout=10)
+        _con.execute("PRAGMA busy_timeout=5000")
+        rows  = _con.execute(
+            f"SELECT key, value FROM mining_settings WHERE key IN ({_ph})", _keys
+        ).fetchall()
+        _con.close()
+        result = dict(defaults)
+        for k, v in rows:
+            result[k] = v
+        return result
+    except Exception:
+        return dict(defaults)
+
+
+async def _mine_commit_result(
+    username: str, item_id: str, qty: int, rarity: str, updates: dict
+) -> None:
+    """Commit mining result in ONE BEGIN IMMEDIATE transaction with asyncio retry."""
+    import asyncio, sqlite3 as _sql, config as _cfg
+    delays = [0.2, 0.5, 1.0]
+    for attempt in range(len(delays) + 1):
+        try:
+            _con = _sql.connect(_cfg.DB_PATH, timeout=10)
+            _con.row_factory = _sql.Row
+            _con.execute("PRAGMA journal_mode=WAL")
+            _con.execute("PRAGMA busy_timeout=5000")
+            _con.execute("PRAGMA synchronous=NORMAL")
+            try:
+                _con.execute("BEGIN IMMEDIATE")
+                fields = ", ".join(f"{k}=?" for k in updates)
+                vals   = list(updates.values()) + [username.lower()]
+                _con.execute(
+                    f"UPDATE mining_players SET {fields}, updated_at=datetime('now') "
+                    f"WHERE lower(username)=?",
+                    vals,
+                )
+                _con.execute(
+                    "INSERT INTO mining_inventory (username, item_id, quantity) "
+                    "VALUES (lower(?), ?, ?) "
+                    "ON CONFLICT(username, item_id) DO UPDATE SET quantity=quantity+?",
+                    (username, item_id, qty, qty),
+                )
+                _con.execute(
+                    "INSERT INTO mining_logs "
+                    "(timestamp, username, action, item_id, quantity, coins, details) "
+                    "VALUES (datetime('now'), lower(?), 'mine', ?, ?, 0, ?)",
+                    (username, item_id, qty, rarity),
+                )
+                _con.commit()
+                print(f"[MINER] /mine success ore={item_id}")
+                return
+            except Exception:
+                try: _con.rollback()
+                except Exception: pass
+                raise
+            finally:
+                _con.close()
+        except _sql.OperationalError as _le:
+            if "locked" in str(_le).lower() and attempt < len(delays):
+                print(f"[MINER] /mine db locked retry={attempt + 1}")
+                await asyncio.sleep(delays[attempt])
+            else:
+                raise
+    raise _sql.OperationalError("database is locked after all retries")
 
 
 # ---------------------------------------------------------------------------
@@ -1475,6 +1547,33 @@ async def handle_minehelp(bot: BaseBot, user: User, args: list[str]) -> None:
 
 
 # ---------------------------------------------------------------------------
+# /dblockcheck
+# ---------------------------------------------------------------------------
+
+async def handle_dblockcheck(bot: BaseBot, user: User) -> None:
+    """/dblockcheck — owner/admin: show live DB connection state."""
+    if not _can_mine_admin(user.username):
+        await _w(bot, user.id, "Owner/admin only.")
+        return
+    try:
+        import sqlite3 as _sql, config as _cfg, os as _os
+        _con  = _sql.connect(_cfg.DB_PATH, timeout=5)
+        jm    = _con.execute("PRAGMA journal_mode").fetchone()[0]
+        bt    = _con.execute("PRAGMA busy_timeout").fetchone()[0]
+        sync  = _con.execute("PRAGMA synchronous").fetchone()[0]
+        _con.close()
+        sz    = _os.path.getsize(_cfg.DB_PATH) // 1024
+        dbname = _cfg.DB_PATH.split("/")[-1]
+        msg   = (f"DB: {dbname} | journal={jm} | "
+                 f"busy={bt}ms | sync={sync} | size={sz}KB")
+        await _w(bot, user.id, msg[:249])
+        print(f"[DB] {msg}")
+    except Exception as _e:
+        print(f"[MINER ERROR] /dblockcheck error={_e}")
+        await _w(bot, user.id, f"DB check error: {str(_e)[:160]}"[:249])
+
+
+# ---------------------------------------------------------------------------
 # /minerdbcheck  /minerrepair
 # ---------------------------------------------------------------------------
 
@@ -1562,16 +1661,20 @@ async def handle_minerrepair(bot: BaseBot, user: User) -> None:
     try:
         import sqlite3 as _sqlite3
         import config as _cfg
-        _con = _sqlite3.connect(_cfg.DB_PATH)
+        _con = _sqlite3.connect(_cfg.DB_PATH, timeout=10)
+        _con.execute("PRAGMA journal_mode=WAL")
+        _con.execute("PRAGMA busy_timeout=5000")
         created = []
         for tname, ddl in _MINER_TABLES.items():
             _con.execute(ddl)
             created.append(tname)
         _con.commit()
         _con.close()
-        await _w(bot, user.id,
-            f"✅ Miner DB repaired. Tables verified: {len(created)}"[:249])
+        await _w(bot, user.id, "✅ Miner DB repaired.")
         print(f"[MINER] /minerrepair OK tables={created}")
     except Exception as _e:
         print(f"[MINER ERROR] /minerrepair error={_e}")
-        await _w(bot, user.id, f"Miner repair error: {str(_e)[:160]}"[:249])
+        if "locked" in str(_e).lower():
+            await _w(bot, user.id, "Miner DB busy. Try again.")
+        else:
+            await _w(bot, user.id, f"Miner repair error: {str(_e)[:160]}"[:249])
