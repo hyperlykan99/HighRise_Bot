@@ -613,15 +613,26 @@ def is_bot_mode_active(mode: str) -> bool:
 # Main gate — called in on_chat before any processing
 # ---------------------------------------------------------------------------
 
+# Game-module bot modes that host/all must NEVER fall back for, even when the
+# dedicated bot appears offline (e.g. heartbeat not yet written at startup).
+# These modules own their own logic and sending a partial/wrong reply is worse
+# than silence.
+_GAME_MODULE_MODES = frozenset({
+    "miner", "poker", "blackjack", "banker",
+    "dj", "shopkeeper", "eventhost", "security",
+})
+
+
 def should_this_bot_handle(cmd: str) -> bool:
     """
     Returns True if this bot instance should respond to cmd.
 
     Key rules:
     - BOT_MODE=all: handle everything UNLESS a dedicated live bot owns the cmd.
-    - BOT_MODE=host: handle help/room/unknown only; never game commands.
+    - BOT_MODE=host: handle help/room/unknown only; never game-module commands.
     - Dedicated modes (blackjack, poker, …): own their command set only.
-    - Fallback: host/all may handle offline-owner commands if fallback ON.
+    - Fallback: host/all may handle offline-owner commands if fallback ON,
+      BUT never for _GAME_MODULE_MODES (avoids wrong-bot replies on startup).
     """
     mode = _effective_bot_mode()
 
@@ -633,6 +644,9 @@ def should_this_bot_handle(cmd: str) -> bool:
             return not _is_mode_online("host")
         if owner_mode not in ("all",) and _is_mode_online(owner_mode):
             return False    # dedicated bot is live — stay silent
+        # Never handle game-module commands even when owner appears offline
+        if owner_mode in _GAME_MODULE_MODES:
+            return False
         return True
 
     owner_mode = _resolve_command_owner(cmd)
@@ -653,7 +667,12 @@ def should_this_bot_handle(cmd: str) -> bool:
     if _is_mode_online(owner_mode):
         return False
 
-    # Owner mode offline — host/all may fall back
+    # Game-module commands: host/all must NEVER fall back for these,
+    # even when the owning bot appears offline (prevents wrong-bot replies).
+    if owner_mode in _GAME_MODULE_MODES and mode in ("host", "all"):
+        return False
+
+    # Owner mode offline — host/all may fall back for non-game commands
     if _fallback_enabled() and mode in ("host", "all"):
         return True
 

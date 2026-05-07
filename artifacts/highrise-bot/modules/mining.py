@@ -19,6 +19,15 @@ from modules.permissions import is_admin, is_owner, can_manage_economy
 # so rapid /mine calls can't race each other inside the same asyncio event loop.
 _DB_WRITE_LOCK = asyncio.Lock()
 
+# Cross-process file lock — prevents multiple bot subprocesses from holding
+# BEGIN IMMEDIATE simultaneously (asyncio.Lock only works within one process).
+try:
+    from filelock import FileLock as _FileLock, Timeout as _FileLockTimeout
+    _HAS_FILELOCK = True
+except ImportError:
+    _HAS_FILELOCK = False
+    _FileLockTimeout = Exception
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -440,35 +449,47 @@ def _batch_mine_settings() -> dict:
 
 async def run_mine_write(write_fn, label: str = "mine_write"):
     """
-    Serialise DB writes with a process-level asyncio.Lock + cross-process retry.
-
-    _DB_WRITE_LOCK prevents concurrent writes within this bot process (e.g. rapid
-    /mine calls racing each other inside the same event loop).  Between retries we
-    release the lock and await asyncio.sleep so heartbeats can complete.
+    Serialise DB writes with two-level locking:
+      1. asyncio.Lock (_DB_WRITE_LOCK) — intra-process: prevents concurrent /mine
+         calls racing inside the same event loop.
+      2. filelock.FileLock — cross-process: prevents 7 bot subprocesses from
+         all hitting BEGIN IMMEDIATE simultaneously.
+    Between retries we release both locks and await asyncio.sleep so other
+    coroutines / processes can complete their own writes first.
     """
     import sqlite3 as _sql, config as _cfg
-    _retries = [0.2, 0.5, 1.0, 2.0, 3.0]
+    _lock_path = _cfg.DB_PATH + ".write.lock"
+    _retries   = [0.2, 0.5, 1.0, 2.0, 3.0]
     for _attempt, _delay in enumerate(_retries, start=1):
         try:
             async with _DB_WRITE_LOCK:
-                _con = _sql.connect(_cfg.DB_PATH, timeout=15)
-                _con.row_factory = _sql.Row
-                _con.execute("PRAGMA journal_mode=WAL")
-                _con.execute("PRAGMA busy_timeout=15000")
-                _con.execute("PRAGMA synchronous=NORMAL")
+                # Acquire cross-process file lock (sync, but fast — writes < 100ms)
+                _fl = _FileLock(_lock_path, timeout=8) if _HAS_FILELOCK else None
+                if _fl is not None:
+                    _fl.acquire()
                 try:
-                    _con.execute("BEGIN IMMEDIATE")
-                    result = write_fn(_con)
-                    _con.commit()
-                    return result
-                except Exception:
-                    try: _con.rollback()
-                    except Exception: pass
-                    raise
+                    _con = _sql.connect(_cfg.DB_PATH, timeout=15)
+                    _con.row_factory = _sql.Row
+                    _con.execute("PRAGMA journal_mode=WAL")
+                    _con.execute("PRAGMA busy_timeout=15000")
+                    _con.execute("PRAGMA synchronous=NORMAL")
+                    try:
+                        _con.execute("BEGIN IMMEDIATE")
+                        result = write_fn(_con)
+                        _con.commit()
+                        return result
+                    except Exception:
+                        try: _con.rollback()
+                        except Exception: pass
+                        raise
+                    finally:
+                        _con.close()
                 finally:
-                    _con.close()
-        except _sql.OperationalError as _e:
-            if "locked" in str(_e).lower():
+                    if _fl is not None:
+                        try: _fl.release()
+                        except Exception: pass
+        except (_sql.OperationalError, _FileLockTimeout) as _e:
+            if "locked" in str(_e).lower() or isinstance(_e, _FileLockTimeout):
                 print(f"[DB LOCK] {label} retry={_attempt} delay={_delay}")
                 await asyncio.sleep(_delay)
                 continue
@@ -1573,7 +1594,7 @@ async def handle_minehelp(bot: BaseBot, user: User, args: list[str]) -> None:
 # ---------------------------------------------------------------------------
 
 async def handle_dblockcheck(bot: BaseBot, user: User) -> None:
-    """/dblockcheck — owner/admin: show DB state and test write lock."""
+    """/dblockcheck — owner/admin: show DB state, SQLite lock, and filelock."""
     if not _can_mine_admin(user.username):
         await _w(bot, user.id, "Owner/admin only.")
         return
@@ -1582,21 +1603,33 @@ async def handle_dblockcheck(bot: BaseBot, user: User) -> None:
         _con   = _sql.connect(_cfg.DB_PATH, timeout=3)
         jm     = _con.execute("PRAGMA journal_mode").fetchone()[0]
         bt     = _con.execute("PRAGMA busy_timeout").fetchone()[0]
-        # Test whether the write lock is immediately available
-        _free  = False
+        # Test SQLite write lock availability
+        _sql_free = False
         try:
             _con.execute("BEGIN IMMEDIATE")
             _con.execute("ROLLBACK")
-            _free = True
+            _sql_free = True
         except _sql.OperationalError:
             try: _con.execute("ROLLBACK")
             except Exception: pass
         _con.close()
+        # Test cross-process file lock
+        _fl_status = "N/A"
+        if _HAS_FILELOCK:
+            try:
+                _fl = _FileLock(_cfg.DB_PATH + ".write.lock", timeout=1)
+                _fl.acquire()
+                _fl.release()
+                _fl_status = "OK"
+            except _FileLockTimeout:
+                _fl_status = "busy"
+            except Exception as _fle:
+                _fl_status = f"err"
         sz     = _os.path.getsize(_cfg.DB_PATH) // 1024
-        dbname = _cfg.DB_PATH.split("/")[-1]
-        status = "free" if _free else "busy"
-        msg    = (f"DB lock: {status} | WAL={jm} | "
-                  f"timeout={bt} | size={sz}KB")
+        wal    = "ON" if jm == "wal" else jm
+        sqlite_s = "free" if _sql_free else "busy"
+        msg    = (f"DB: WAL {wal} | filelock {_fl_status} | "
+                  f"sqlite {sqlite_s} | size={sz}KB | Processes: multi-bot OK")
         await _w(bot, user.id, msg[:249])
         print(f"[DB] {msg}")
     except Exception as _e:
