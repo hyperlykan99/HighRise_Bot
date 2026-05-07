@@ -497,12 +497,30 @@ async def handle_dressbot(bot: BaseBot, user: User, args: list[str]) -> None:
     if not (is_admin(user.username) or is_owner(user.username)):
         await _w(bot, user.id, "Admin and above only.")
         return
+    USAGE = "Usage: /dressbot <mode_id> | /dressbot <bot_username> <mode_id>"
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /dressbot <mode_id>")
+        await _w(bot, user.id, USAGE)
         return
 
     delegated = _in_delegated_context.get()
-    mode_id = args[1].lower()
+    candidate = args[1].lower().lstrip("@")
+
+    # Targeted form: /dressbot <bot_username> <mode_id>
+    bot_cand_mode = db.get_bot_mode_for_username(candidate)
+    if bot_cand_mode is not None and len(args) >= 3:
+        from config import BOT_USERNAME
+        target_bot = candidate
+        mode_id    = args[2].lower()
+        if target_bot != (BOT_USERNAME or "").lower():
+            msg = f"This outfit change must be executed by @{target_bot}."
+            if delegated:
+                raise RuntimeError(msg)
+            await _w(bot, user.id, msg[:249])
+            return
+        # Target is this bot — apply locally
+    else:
+        mode_id = candidate  # simple form: args[1] is the mode_id
+
     rec = get_mode_record(mode_id)
     if not rec:
         modes_list = ", ".join(m["mode_id"] for m in get_all_modes())
@@ -552,11 +570,37 @@ async def handle_savebotoutfit(bot: BaseBot, user: User, args: list[str]) -> Non
     if not (is_admin(user.username) or is_owner(user.username)):
         await _w(bot, user.id, "Admin and above only.")
         return
+    USAGE = ("Usage: /savebotoutfit <mode_id> [name]"
+             " | /savebotoutfit <bot_username> <mode_id> [name]")
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /savebotoutfit <mode_id> [name]")
+        await _w(bot, user.id, USAGE[:249])
         return
-    mode_id     = args[1].lower()
-    new_name    = " ".join(args[2:])[:100] if len(args) > 2 else ""
+
+    delegated = _in_delegated_context.get()
+    candidate = args[1].lower().lstrip("@")
+
+    # Targeted form: /savebotoutfit <bot_username> <mode_id> [name]
+    bot_cand_mode = db.get_bot_mode_for_username(candidate)
+    if bot_cand_mode is not None:
+        if len(args) < 3:
+            await _w(bot, user.id, USAGE[:249])
+            return
+        from config import BOT_USERNAME
+        target_bot = candidate
+        mode_id    = args[2].lower()
+        new_name   = " ".join(args[3:])[:100] if len(args) > 3 else ""
+        if target_bot != (BOT_USERNAME or "").lower():
+            msg = f"This save must be executed by @{target_bot}."
+            if delegated:
+                raise RuntimeError(msg)
+            await _w(bot, user.id, msg[:249])
+            return
+        # Target is this bot — save locally
+    else:
+        # Old form: /savebotoutfit <mode_id> [name]
+        mode_id  = candidate
+        new_name = " ".join(args[2:])[:100] if len(args) > 2 else ""
+
     rec = get_mode_record(mode_id)
     if not rec:
         await _w(bot, user.id, f"Unknown mode: {mode_id}")
@@ -592,6 +636,8 @@ async def handle_savebotoutfit(bot: BaseBot, user: User, args: list[str]) -> Non
                  f"✅ Saved {len(items)} items → \"{outfit_name}\" ({mode_id}).")
     except Exception as exc:
         print(f"[OUTFIT] savebotoutfit exception for {mode_id}: {exc}")
+        if delegated:
+            raise RuntimeError(f"Save outfit error: {str(exc)[:80]}") from exc
         await _w(bot, user.id, "Failed to save outfit. Try again or check logs.")
 
 
@@ -667,12 +713,31 @@ async def handle_wearuseroutfit(bot: BaseBot, user: User, args: list[str]) -> No
     if not (is_admin(user.username) or is_owner(user.username)):
         await _w(bot, user.id, "Admin and above only.")
         return
+    USAGE = ("Usage: /wearuseroutfit <source_username>"
+             " | /wearuseroutfit <bot_username> <source_username>")
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /wearuseroutfit <username>")
+        await _w(bot, user.id, USAGE[:249])
         return
 
-    delegated   = _in_delegated_context.get()
-    target_name = args[1].lstrip("@")
+    delegated = _in_delegated_context.get()
+    candidate = args[1].lower().lstrip("@")
+
+    # Targeted form: /wearuseroutfit <bot_username> <source_username>
+    bot_cand_mode = db.get_bot_mode_for_username(candidate)
+    if bot_cand_mode is not None and len(args) >= 3:
+        from config import BOT_USERNAME
+        target_bot  = candidate
+        target_name = args[2].lstrip("@")
+        if target_bot != (BOT_USERNAME or "").lower():
+            msg = f"This outfit change must be executed by @{target_bot}."
+            if delegated:
+                raise RuntimeError(msg)
+            await _w(bot, user.id, msg[:249])
+            return
+        # Target is this bot — apply locally
+    else:
+        target_name = args[1].lstrip("@")
+
     try:
         await _w(bot, user.id, f"Looking for @{target_name} in the room…")
     except Exception:

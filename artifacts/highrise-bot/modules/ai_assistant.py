@@ -1578,26 +1578,26 @@ async def handle_aidebug(bot, user, args: list[str]) -> None:
 
     # Outfit-specific extra line
     if cmd in ("dressbot", "wearuseroutfit", "savebotoutfit", "copyoutfit"):
-        intent_type = {
-            "dressbot":       "outfit_dress",
-            "wearuseroutfit": "outfit_copy",
-            "savebotoutfit":  "outfit_save",
-            "copyoutfit":     "outfit_copy_local",
-        }.get(cmd, "outfit")
-        target_bot_d, _ = _resolve_delegation(cmd, intent.args_str or "")
-        target_online_d = False
-        if target_bot_d:
-            tmode_d = db.get_bot_mode_for_username(target_bot_d)
-            target_online_d = db.is_bot_mode_online(tmode_d) if tmode_d else False
-        a_parts = (intent.args_str or "").split()
-        source  = a_parts[1] if len(a_parts) > 1 else "(none)"
-        line4 = (
-            f"intent={intent_type}"
-            f" | target_bot={target_bot_d or 'LOCAL'}"
-            f" | target_online={str(target_online_d).lower()}"
-            f" | source={source}"
-        )[:249]
-        await _w(bot, user.id, line4)
+        target_bot_d, local_args_d = _resolve_delegation(cmd, intent.args_str or "")
+        a_parts  = (intent.args_str or "").split()
+        deleg_d  = bool(target_bot_d)
+        rest     = local_args_d.split() if local_args_d else []
+        if cmd == "dressbot":
+            mode_val = rest[0] if rest else (a_parts[0] if a_parts else "(none)")
+            line4 = (f"cmd={cmd} | target_bot={target_bot_d or 'LOCAL'}"
+                     f" | mode={mode_val} | delegated={str(deleg_d).lower()}")
+        elif cmd == "wearuseroutfit":
+            src_val = rest[0] if rest else (a_parts[0] if a_parts else "(none)")
+            line4 = (f"cmd={cmd} | target_bot={target_bot_d or 'LOCAL'}"
+                     f" | source={src_val} | delegated={str(deleg_d).lower()}")
+        elif cmd == "savebotoutfit":
+            mode_val = rest[0] if rest else (a_parts[0] if a_parts else "(none)")
+            line4 = (f"cmd={cmd} | target_bot={target_bot_d or 'LOCAL'}"
+                     f" | mode_id={mode_val} | delegated={str(deleg_d).lower()}")
+        else:
+            line4 = (f"cmd={cmd} | target_bot={target_bot_d or 'LOCAL'}"
+                     f" | delegated={str(deleg_d).lower()}")
+        await _w(bot, user.id, line4[:249])
 
 
 async def handle_aidelegations(bot, user, args: list[str]) -> None:

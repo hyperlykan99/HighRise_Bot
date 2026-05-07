@@ -1,0 +1,75 @@
+Fix bot outfit command argument support only.
+
+Current issue:
+- /botoutfitstatus now works.
+- I accidentally typed /dessbot before; ignore that typo.
+- Correct command is /dressbot.
+- /savebotoutfit still shows old usage: /savebotoutfit [name]
+- I need /savebotoutfit and /dressbot to support targeted bots for AI delegation.
+
+Do not change bank AI.
+Do not change balances.
+Do not change economy.
+Do not change mining, poker, blackjack, events, shop, room ID, or bot tokens.
+
+Fix only bot outfit commands in modules/bot_modes.py and related handler map if needed.
+
+Required commands:
+
+1. /dressbot <mode_id>
+Old behavior:
+- Changes the current bot’s outfit using saved mode outfit.
+
+2. /dressbot <bot_username> <mode_id>
+New targeted behavior:
+- If bot_username is this bot, apply outfit now.
+- If bot_username is another bot, do not apply from EmceeBot directly.
+- Create/delegate task to target bot or return clear message:
+  “This outfit change must be executed by @<bot_username>.”
+
+3. /savebotoutfit <name>
+Keep old behavior:
+- Save current bot outfit with name.
+
+4. /savebotoutfit <bot_username> <mode_id> [name]
+New targeted behavior:
+- If bot_username is this bot, save this bot’s current outfit into mode_id.
+- If bot_username is another bot, delegate the save task to that target bot.
+- Do not expose raw outfit JSON.
+
+5. /wearuseroutfit <bot_username> <source_username>
+- Target bot must apply source user outfit to itself.
+- If target bot is not this bot, delegate task to target bot.
+- Completion should only be marked after target bot actually applies outfit.
+
+6. Update usage messages:
+For /dressbot:
+Usage:
+  /dressbot <mode_id>
+  /dressbot <bot_username> <mode_id>
+
+For /savebotoutfit:
+Usage:
+  /savebotoutfit <name>
+  /savebotoutfit <bot_username> <mode_id> [name]
+
+For /wearuseroutfit:
+Usage:
+  /wearuseroutfit <bot_username> <source_username>
+
+7. Make /aidebug detect:
+Emcee, copy my outfit to KeanuShield
+-> target_bot=KeanuShield
+-> command=wearuseroutfit
+-> delegated=true
+
+Emcee, dress KeanuShield as security
+-> target_bot=KeanuShield
+-> command=dressbot
+-> mode=security
+-> delegated=true
+
+8. After fixing, tell me:
+- which files changed
+- exact usage for each outfit command
+- what tests to run
