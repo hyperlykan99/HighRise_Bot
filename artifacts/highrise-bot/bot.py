@@ -50,6 +50,7 @@ class _BotSpec(NamedTuple):
     bot_id:       str
     bot_mode:     str
     bot_username: str
+    extra_modes:  tuple[str, ...] = ()  # extra modes merged from duplicate-token bots
 
 
 # Ordered list of all supported split bots.
@@ -138,6 +139,37 @@ def _collect_bots() -> list[_BotSpec]:
         )
         print("[RUNNER] Split bots detected. Main bot set to host mode.")
 
+    # ── Deduplicate bots that share the same Highrise account token ──────────
+    # Two subprocesses with the same token cause Highrise multilogin errors:
+    # each new connection kicks the existing one, creating an infinite crash loop.
+    # When duplicates are detected, only the first spec survives; the duplicate's
+    # bot_mode is stored in extra_modes so the surviving subprocess writes
+    # heartbeats for both modes and handles both command sets via BOT_EXTRA_MODES.
+    seen_tokens: dict[str, int] = {}   # token value → index in deduped list
+    deduped: list[_BotSpec] = []
+    for spec in specs:
+        if spec.token in seen_tokens:
+            idx = seen_tokens[spec.token]
+            old = deduped[idx]
+            deduped[idx] = _BotSpec(
+                token_env    = old.token_env,
+                label        = old.label,
+                token        = old.token,
+                bot_id       = old.bot_id,
+                bot_mode     = old.bot_mode,
+                bot_username = old.bot_username,
+                extra_modes  = old.extra_modes + (spec.bot_mode,),
+            )
+            print(
+                f"[RUNNER] WARN: {spec.label} shares a token with {old.label}. "
+                f"Merging mode '{spec.bot_mode}' into {old.label} as extra mode. "
+                f"Only one subprocess will run for this Highrise account."
+            )
+        else:
+            seen_tokens[spec.token] = len(deduped)
+            deduped.append(spec)
+    specs = deduped
+
     return specs
 
 
@@ -154,10 +186,11 @@ async def _run_bot_forever(spec: _BotSpec) -> None:
     exits within 60 s of starting, to avoid log spam from invalid tokens.
     """
     env = dict(os.environ)
-    env["BOT_TOKEN"]    = spec.token
-    env["BOT_ID"]       = spec.bot_id
-    env["BOT_MODE"]     = spec.bot_mode
-    env["BOT_USERNAME"] = spec.bot_username
+    env["BOT_TOKEN"]      = spec.token
+    env["BOT_ID"]         = spec.bot_id
+    env["BOT_MODE"]       = spec.bot_mode
+    env["BOT_USERNAME"]   = spec.bot_username
+    env["BOT_EXTRA_MODES"] = ",".join(spec.extra_modes)
     main_path = str(HERE / "main.py")
 
     consecutive_fast_exits = 0
@@ -244,10 +277,11 @@ def run() -> None:
         # The env vars are already set (BOT_TOKEN was read from os.environ).
         # We set BOT_ID/BOT_MODE/BOT_USERNAME in case they differ from defaults.
         spec = specs[0]
-        os.environ["BOT_TOKEN"]    = spec.token
-        os.environ["BOT_ID"]       = spec.bot_id
-        os.environ["BOT_MODE"]     = spec.bot_mode
-        os.environ["BOT_USERNAME"] = spec.bot_username
+        os.environ["BOT_TOKEN"]       = spec.token
+        os.environ["BOT_ID"]          = spec.bot_id
+        os.environ["BOT_MODE"]        = spec.bot_mode
+        os.environ["BOT_USERNAME"]    = spec.bot_username
+        os.environ["BOT_EXTRA_MODES"] = ",".join(spec.extra_modes)
         print(f"[RUNNER] Single bot mode — ID:{spec.bot_id} Mode:{spec.bot_mode}")
         from main import run as _main_run
         _main_run()

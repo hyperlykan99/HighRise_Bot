@@ -78,3 +78,11 @@ DB_PATH: str = os.environ.get("SHARED_DB_PATH", "highrise_hangout.db")
 BOT_ID:       str = os.environ.get("BOT_ID",       "main")
 BOT_MODE:     str = os.environ.get("BOT_MODE",     "all")
 BOT_USERNAME: str = os.environ.get("BOT_USERNAME", "")
+
+# Extra modes this process covers because it merged a duplicate-token bot.
+# Populated automatically by bot.py when two bots share the same Highrise account.
+BOT_EXTRA_MODES: frozenset[str] = frozenset(
+    m.strip()
+    for m in os.environ.get("BOT_EXTRA_MODES", "").split(",")
+    if m.strip()
+)

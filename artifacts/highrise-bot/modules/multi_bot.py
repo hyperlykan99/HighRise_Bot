@@ -16,7 +16,7 @@ import time
 from datetime import datetime, timezone
 
 import database as db
-from config import BOT_ID, BOT_MODE, BOT_USERNAME
+from config import BOT_ID, BOT_MODE, BOT_USERNAME, BOT_EXTRA_MODES
 from modules.permissions import can_manage_economy
 
 # ---------------------------------------------------------------------------
@@ -401,19 +401,29 @@ def _refresh_online_cache() -> None:
         now = datetime.now(timezone.utc)
         cache: dict[str, bool] = {}
         for inst in instances:
+            mode = inst.get("bot_mode", "")
+            if not mode:
+                continue
             if not inst.get("enabled", 1):
-                cache[inst["bot_mode"]] = False
+                if mode not in cache:
+                    cache[mode] = False
                 continue
             last_hb = inst.get("last_heartbeat_at", "")
             if not last_hb:
-                cache[inst["bot_mode"]] = False
+                if mode not in cache:
+                    cache[mode] = False
                 continue
             try:
                 ls = datetime.fromisoformat(last_hb.replace("Z", "+00:00"))
                 if ls.tzinfo is None:
                     ls = ls.replace(tzinfo=timezone.utc)
                 age = (now - ls).total_seconds()
-                cache[inst["bot_mode"]] = (age < 90)
+                is_online = age < 90
+                # When multiple bot_instances rows share the same bot_mode
+                # (primary + extra-mode entry from a merged duplicate-token bot),
+                # prefer the most optimistic value so one fresh heartbeat wins.
+                if is_online or mode not in cache:
+                    cache[mode] = is_online
             except Exception:
                 pass
         _online_cache = cache
@@ -595,6 +605,10 @@ def should_this_bot_run_module(module: str) -> bool:
 
     # Rule 1: exact match
     if mode == owner_mode:
+        return True
+
+    # Rule 1b: extra merged mode (combined-account subprocess)
+    if owner_mode in BOT_EXTRA_MODES:
         return True
 
     # Rule 2: split bot that doesn't own this module
@@ -845,6 +859,11 @@ def should_this_bot_handle(cmd: str) -> bool:
 
     owner_mode = _resolve_command_owner(cmd)
 
+    # Combined-mode process: this subprocess covers an extra merged mode because
+    # it shares a Highrise account with another bot (deduplicated by bot.py).
+    if BOT_EXTRA_MODES and owner_mode in BOT_EXTRA_MODES:
+        return True
+
     # Hard owners — host/eventhost must NEVER respond to these, regardless of heartbeat.
     # Separate Highrise accounts; no fallback, no startup-window gap.
     # Exception: safe help-only pages from hard-owner modes may be covered by
@@ -953,6 +972,17 @@ async def start_heartbeat_loop(bot) -> None:
                     write_heartbeat=True,
                 )
                 _refresh_online_cache()
+                for _xmode in BOT_EXTRA_MODES:
+                    db.upsert_bot_instance(
+                        bot_id=f"{BOT_ID}+{_xmode}",
+                        bot_username=BOT_USERNAME or BOT_ID,
+                        bot_mode=_xmode,
+                        prefix="",
+                        status="online",
+                        db_connected=1,
+                        last_error="",
+                        write_heartbeat=True,
+                    )
             except Exception as exc:
                 last_error = str(exc)[:80]
                 print(f"[MULTIBOT] Heartbeat error: {exc}")
