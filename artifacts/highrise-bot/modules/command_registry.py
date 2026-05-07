@@ -317,6 +317,7 @@ REGISTRY: dict[str, Cmd] = {
     "wearoutfit":       Cmd("host","botmode", True, False, True, perm="admin"),
     "myoutfits":        Cmd("host","botmode", True, True,  False, perm="admin"),
     "myoutfitstatus":   Cmd("host","botmode", True, True,  False, perm="admin"),
+    "directoutfittest": Cmd("host","botmode", True, True,  False, perm="admin"),
 
     # ── DJ: emote info (new) ─────────────────────────────────────────────────
     "emoteinfo":        Cmd("dj","social", True, True, False),

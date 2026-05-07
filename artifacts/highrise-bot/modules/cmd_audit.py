@@ -306,7 +306,7 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     "copyoutfit", "wearuseroutfit", "renamebotoutfit", "clearbotoutfit",
     # ── Per-bot self-managing outfit commands ──────────────────────────────────────
     "copymyoutfit", "copyoutfitfrom", "savemyoutfit", "wearoutfit",
-    "myoutfits", "myoutfitstatus",
+    "myoutfits", "myoutfitstatus", "directoutfittest",
     # ── Emote extensions ─────────────────────────────────────────────────────
     "emoteinfo",
     # ── Bot spawns ────────────────────────────────────────────────────────────

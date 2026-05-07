@@ -10,6 +10,7 @@ All messages ≤ 249 chars.
 """
 
 import asyncio
+import re
 from contextvars import ContextVar
 from highrise import BaseBot, User
 
@@ -1240,3 +1241,183 @@ async def handle_outfitredirect(bot: BaseBot, user: User, args: list[str]) -> No
         await _w(bot, user.id,
                  "Please talk directly to the target bot. "
                  "Each bot manages its own outfit.")
+
+
+# ---------------------------------------------------------------------------
+# Direct bot outfit chat listener
+# ---------------------------------------------------------------------------
+# Called early in on_chat for EVERY bot process (non-host modes).
+# Detects "BotUsername, <outfit intent>" messages and handles them without
+# going through EmceeBot's AI delegation path.
+# ---------------------------------------------------------------------------
+
+# Ordered intent patterns — checked in order, first match wins.
+# Each entry: (compiled_pattern, command_str, arg_extractor_or_None)
+_DIRECT_OUTFIT_INTENTS: list[tuple] = [
+    # 1. "copy/wear/use my outfit" — must come BEFORE wear-<name>-outfit
+    (re.compile(r"\b(?:copy|wear|use)\s+my\s+outfit\b", re.I),
+     "copymyoutfit", None),
+
+    # 2. "copy/wear @user's outfit"
+    (re.compile(r"\b(?:copy|wear)\s+@?([A-Za-z]\w+)[''s]*\s+outfit\b", re.I),
+     "copyoutfitfrom", lambda m: m.group(1).lstrip("@")),
+
+    # 3. "save this/current/my outfit as <name>" / "remember this outfit as <name>"
+    (re.compile(
+        r"\b(?:save|remember)\s+(?:this|current|my)?\s*outfit\s+as\s+(\w+)\b",
+        re.I),
+     "savemyoutfit", lambda m: m.group(1).lower()),
+
+    # 4. "wear <name> outfit" / "dress as <name>" / "use <name> outfit" /
+    #    "switch to <name> outfit"
+    (re.compile(
+        r"\bwear\s+(?:the\s+)?(\w+)\s+outfit\b"
+        r"|\bdress\s+(?:as|like)\s+(\w+)\b"
+        r"|\buse\s+(?:the\s+)?(\w+)\s+outfit\b"
+        r"|\bswitch\s+to\s+(?:the\s+)?(\w+)\s+(?:outfit|look)\b",
+        re.I),
+     "wearoutfit",
+     lambda m: (m.group(1) or m.group(2) or m.group(3) or m.group(4)).lower()),
+
+    # 5. "list outfits" / "outfit status" / "what outfit are you using"
+    (re.compile(
+        r"\b(?:list\s+outfits?|outfit\s+(?:status|list|info)"
+        r"|what\s+outfit\s+(?:are\s+you|am\s+i)\b)",
+        re.I),
+     "myoutfitstatus", None),
+]
+
+
+def _is_this_bot_addressed(message: str) -> bool:
+    """Return True if the message explicitly names this bot's username."""
+    from config import BOT_USERNAME
+    if not BOT_USERNAME:
+        return False
+    low   = message.lower().strip()
+    uname = BOT_USERNAME.lower()
+    if f"@{uname}" in low:
+        return True
+    if re.search(rf"\b{re.escape(uname)}\b", low):
+        return True
+    return False
+
+
+async def handle_direct_bot_outfit_chat(bot, user, message: str) -> bool:
+    """
+    Detect and handle direct outfit commands for THIS bot.
+
+    Run early in on_chat (before handle_ai_intercept) for non-host bots.
+    Returns True if the message was handled (caller should return early).
+
+    Host/eventhost/all bots skip this — they use the full AI path instead.
+    """
+    from config import BOT_USERNAME, BOT_MODE
+
+    # Only run for non-host bot modes — host uses full AI path.
+    if BOT_MODE in ("host", "eventhost", "all"):
+        return False
+
+    uname   = (BOT_USERNAME or "").lower()
+    matched = _is_this_bot_addressed(message)
+
+    print(f"[DIRECT_OUTFIT] this_bot={uname} message={message!r}")
+    print(f"[DIRECT_OUTFIT] matched_target={str(matched).lower()}")
+
+    if not matched:
+        return False
+
+    # Strip the bot-name prefix and get the intent text
+    text = re.sub(
+        rf"^.*?@?{re.escape(uname)}[,\s:!]*",
+        "", message.strip(), count=1, flags=re.I,
+    ).strip()
+
+    # Find intent
+    intent: str | None   = None
+    arg_val: str | None  = None
+    for pattern, cmd, extractor in _DIRECT_OUTFIT_INTENTS:
+        m = pattern.search(text)
+        if m:
+            intent  = cmd
+            arg_val = extractor(m) if extractor else None
+            break
+
+    print(f"[DIRECT_OUTFIT] intent={intent or 'none'}")
+
+    if not intent:
+        # Bot was addressed but no outfit intent detected — do not consume.
+        return False
+
+    # Permission check
+    if not (is_owner(user.username) or is_admin(user.username)):
+        print(f"[DIRECT_OUTFIT] success=false reason=permission_denied")
+        await bot.highrise.send_whisper(user.id, "Owner/admin only.")
+        return True
+
+    # Dispatch to the relevant handler
+    try:
+        if intent == "copymyoutfit":
+            await handle_copymyoutfit(bot, user, ["copymyoutfit"])
+        elif intent == "copyoutfitfrom" and arg_val:
+            await handle_copyoutfitfrom(bot, user, ["copyoutfitfrom", arg_val])
+        elif intent == "savemyoutfit" and arg_val:
+            await handle_savemyoutfit(bot, user, ["savemyoutfit", arg_val])
+        elif intent == "wearoutfit" and arg_val:
+            await handle_wearoutfit(bot, user, ["wearoutfit", arg_val])
+        elif intent == "myoutfitstatus":
+            await handle_myoutfitstatus(bot, user, ["myoutfitstatus"])
+        else:
+            # arg_val missing — prompt user
+            await bot.highrise.send_whisper(
+                user.id, f"What name? E.g. '{uname.title()}, {intent} security'")
+        print(f"[DIRECT_OUTFIT] success=true intent={intent}")
+    except Exception as exc:
+        print(f"[DIRECT_OUTFIT] success=false reason={exc}")
+        await bot.highrise.send_whisper(
+            user.id, f"Outfit command failed: {str(exc)[:80]}")
+
+    return True
+
+
+# ---------------------------------------------------------------------------
+# /directoutfittest <message>
+# ---------------------------------------------------------------------------
+
+async def handle_directoutfittest(bot, user, args: list[str]) -> None:
+    """/directoutfittest <message> — show whether this bot would respond."""
+    if not (is_owner(user.username) or is_admin(user.username)):
+        await _w(bot, user.id, "Admin and above only.")
+        return
+    if len(args) < 2:
+        await _w(bot, user.id, "Usage: /directoutfittest <message to test>")
+        return
+
+    from config import BOT_USERNAME, BOT_MODE
+    msg     = " ".join(args[1:])
+    uname   = (BOT_USERNAME or "").lower()
+    matched = _is_this_bot_addressed(msg)
+    skipped = BOT_MODE in ("host", "eventhost", "all")
+
+    # Strip trigger and find intent
+    text = re.sub(
+        rf"^.*?@?{re.escape(uname)}[,\s:!]*",
+        "", msg.strip(), count=1, flags=re.I,
+    ).strip() if matched else msg
+
+    intent: str | None = None
+    for pattern, cmd, _ in _DIRECT_OUTFIT_INTENTS:
+        if pattern.search(text):
+            intent = cmd
+            break
+
+    allowed = is_owner(user.username) or is_admin(user.username)
+    would_handle = matched and bool(intent) and not skipped
+
+    line1 = (f"this_bot={uname} | bot_mode={BOT_MODE}"
+             f" | uses_ai_path={str(skipped).lower()}")
+    line2 = (f"target_detected={str(matched).lower()}"
+             f" | intent={intent or 'none'}"
+             f" | allowed={str(allowed).lower()}"
+             f" | would_handle={str(would_handle).lower()}")
+    await _w(bot, user.id, line1[:249])
+    await _w(bot, user.id, line2[:249])

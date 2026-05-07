@@ -1,0 +1,114 @@
+Fix direct bot outfit chat listener.
+
+Current issue:
+When I say “KeanuShield, copy my outfit” or talk directly to KeanuShield, KeanuShield does not respond or send a chat/whisper.
+
+Do not change bank AI.
+Do not change send intent.
+Do not change balances.
+Do not change economy.
+Do not change poker, blackjack, mining, events, shop, room ID, or bot tokens.
+
+Goal:
+Each bot should be able to respond to outfit commands when I directly call that bot by username.
+
+Important:
+This is NOT EmceeBot AI delegation.
+This is direct per-bot outfit control.
+
+Examples:
+- KeanuShield, copy my outfit
+- KeanuShield, wear my outfit
+- KeanuShield, save this outfit as security
+- KeanuShield, wear security outfit
+- KeanuShield, list outfits
+- BankingBot, copy my outfit
+- GreatestProspector, save this outfit as miner
+
+Required behavior:
+1. Every bot process must check normal chat messages for direct outfit commands.
+2. Only the bot whose username is mentioned should respond.
+3. If the message mentions KeanuShield, only KeanuShield responds.
+4. EmceeBot should ignore it unless the message calls Emcee/MC.
+5. Matching must be case-insensitive.
+6. Accept @KeanuShield and KeanuShield.
+7. Do not require slash commands for natural direct outfit chat.
+
+Add a function like:
+handle_direct_bot_outfit_chat(bot, user, message)
+
+It should run early in on_chat for every bot, before unknown-command handling.
+
+Trigger rule:
+If message starts with or mentions this bot’s username:
+- KeanuShield, copy my outfit
+- @KeanuShield copy my outfit
+- keanushield copy my outfit
+
+Then parse outfit intent.
+
+Supported direct outfit intents:
+
+1. Copy my outfit:
+- copy my outfit
+- wear my outfit
+- use my outfit
+
+This bot should attempt to copy the requesting user’s outfit and apply it to itself.
+
+2. Copy another user outfit:
+- copy @username outfit
+- wear @username outfit
+
+This bot should attempt to copy that user’s outfit and apply it to itself.
+
+3. Save current outfit:
+- save this outfit as <name>
+- save current outfit as <name>
+- remember this outfit as <name>
+
+This bot saves its own current outfit data under <name>.
+
+4. Wear saved outfit:
+- wear <name> outfit
+- dress as <name>
+- use <name> outfit
+- switch to <name> outfit
+
+This bot applies its own saved outfit.
+
+5. List/status:
+- list outfits
+- outfit status
+- what outfit are you using
+
+This bot shows its saved outfit list/status.
+
+Permissions:
+- Only owner/admin can use direct bot outfit commands.
+- If not allowed, whisper:
+  “Owner/admin only.”
+
+Debug:
+Add console logs:
+[DIRECT_OUTFIT] this_bot=<BOT_USERNAME> message=<message>
+[DIRECT_OUTFIT] matched_target=true/false
+[DIRECT_OUTFIT] intent=<intent>
+[DIRECT_OUTFIT] success/fail=<reason>
+
+Add command:
+/directoutfittest <message>
+
+It should show whether the current bot would respond to that message:
+- this_bot
+- target_detected
+- intent
+- allowed true/false
+
+Do not expose tokens, room ID, raw outfit JSON, or secrets.
+
+After fixing, tell me:
+- which files changed
+- where direct outfit chat is called in on_chat
+- how bot username detection works
+- what exact messages to test
