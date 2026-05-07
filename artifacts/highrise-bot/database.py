@@ -977,6 +977,7 @@ def _migrate_db():
         "ALTER TABLE bot_instances ADD COLUMN db_connected        INTEGER NOT NULL DEFAULT 1",
         "ALTER TABLE bot_instances ADD COLUMN last_error          TEXT    NOT NULL DEFAULT ''",
         "ALTER TABLE bot_instances ADD COLUMN current_room_id     TEXT    NOT NULL DEFAULT ''",
+        "ALTER TABLE bot_instances ADD COLUMN last_heartbeat_at   TEXT    NOT NULL DEFAULT ''",
         "ALTER TABLE poker_active_table ADD COLUMN hand_number          INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE poker_active_table ADD COLUMN small_blind_username TEXT",
         "ALTER TABLE poker_active_table ADD COLUMN big_blind_username   TEXT",
@@ -6721,25 +6722,47 @@ def get_module_lock_owner(module: str) -> str | None:
 def upsert_bot_instance(bot_id: str, bot_username: str, bot_mode: str,
                         prefix: str = "", status: str = "online",
                         db_connected: int = 1, last_error: str = "",
-                        current_room_id: str = "") -> None:
+                        current_room_id: str = "",
+                        write_heartbeat: bool = False) -> None:
     conn = get_connection()
-    conn.execute(
-        """INSERT INTO bot_instances
-               (bot_id, bot_username, bot_mode, prefix,
-                status, last_seen_at, db_connected, last_error, current_room_id)
-           VALUES (?, ?, ?, ?, ?, datetime('now'), ?, ?, ?)
-           ON CONFLICT(bot_id) DO UPDATE SET
-               bot_username     = excluded.bot_username,
-               bot_mode         = excluded.bot_mode,
-               prefix           = excluded.prefix,
-               status           = excluded.status,
-               last_seen_at     = excluded.last_seen_at,
-               db_connected     = excluded.db_connected,
-               last_error       = excluded.last_error,
-               current_room_id  = excluded.current_room_id""",
-        (bot_id, bot_username, bot_mode, prefix, status,
-         db_connected, last_error, current_room_id),
-    )
+    if write_heartbeat:
+        conn.execute(
+            """INSERT INTO bot_instances
+                   (bot_id, bot_username, bot_mode, prefix,
+                    status, last_seen_at, db_connected, last_error,
+                    current_room_id, last_heartbeat_at)
+               VALUES (?, ?, ?, ?, ?, datetime('now'), ?, ?, ?, datetime('now'))
+               ON CONFLICT(bot_id) DO UPDATE SET
+                   bot_username     = excluded.bot_username,
+                   bot_mode         = excluded.bot_mode,
+                   prefix           = excluded.prefix,
+                   status           = excluded.status,
+                   last_seen_at     = excluded.last_seen_at,
+                   db_connected     = excluded.db_connected,
+                   last_error       = excluded.last_error,
+                   current_room_id  = excluded.current_room_id,
+                   last_heartbeat_at = excluded.last_heartbeat_at""",
+            (bot_id, bot_username, bot_mode, prefix, status,
+             db_connected, last_error, current_room_id),
+        )
+    else:
+        conn.execute(
+            """INSERT INTO bot_instances
+                   (bot_id, bot_username, bot_mode, prefix,
+                    status, last_seen_at, db_connected, last_error, current_room_id)
+               VALUES (?, ?, ?, ?, ?, datetime('now'), ?, ?, ?)
+               ON CONFLICT(bot_id) DO UPDATE SET
+                   bot_username     = excluded.bot_username,
+                   bot_mode         = excluded.bot_mode,
+                   prefix           = excluded.prefix,
+                   status           = excluded.status,
+                   last_seen_at     = excluded.last_seen_at,
+                   db_connected     = excluded.db_connected,
+                   last_error       = excluded.last_error,
+                   current_room_id  = excluded.current_room_id""",
+            (bot_id, bot_username, bot_mode, prefix, status,
+             db_connected, last_error, current_room_id),
+        )
     conn.commit()
     conn.close()
 

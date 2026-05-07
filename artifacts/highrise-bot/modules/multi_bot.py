@@ -128,7 +128,7 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "badgebuy": "shopkeeper", "badgecancel": "shopkeeper",
     "mybadgelistings": "shopkeeper", "badgeprices": "shopkeeper",
     "equip": "shopkeeper", "myitems": "shopkeeper",
-    "titleinfo": "shopkeeper", "shophelp": "shopkeeper",
+    "titleinfo": "shopkeeper", "shophelp": "host",
     "shopadmin": "shopkeeper", "vipstatus": "shopkeeper",
     # ── security ────────────────────────────────────────────────────────────
     "report": "security", "reports": "security",
@@ -153,7 +153,7 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "social": "dj", "blocksocial": "dj", "unblocksocial": "dj",
     # ── eventhost ───────────────────────────────────────────────────────────
     "events": "eventhost", "event": "eventhost",
-    "eventhelp": "eventhost", "eventstatus": "eventhost",
+    "eventhelp": "host", "eventstatus": "eventhost",
     "startevent": "eventhost", "stopevent": "eventhost",
     "eventpoints": "eventhost", "eventshop": "eventhost",
     "buyevent": "eventhost",
@@ -247,15 +247,16 @@ def _refresh_online_cache() -> None:
             if not inst.get("enabled", 1):
                 cache[inst["bot_mode"]] = False
                 continue
-            last_seen = inst.get("last_seen_at", "")
-            if not last_seen:
+            last_hb = inst.get("last_heartbeat_at", "")
+            if not last_hb:
+                cache[inst["bot_mode"]] = False
                 continue
             try:
-                ls = datetime.fromisoformat(last_seen.replace("Z", "+00:00"))
+                ls = datetime.fromisoformat(last_hb.replace("Z", "+00:00"))
                 if ls.tzinfo is None:
                     ls = ls.replace(tzinfo=timezone.utc)
                 age = (now - ls).total_seconds()
-                cache[inst["bot_mode"]] = (age < 120 and inst.get("status") == "online")
+                cache[inst["bot_mode"]] = (age < 90)
             except Exception:
                 pass
         _online_cache = cache
@@ -617,9 +618,11 @@ def should_this_bot_handle(cmd: str) -> bool:
 
     owner_mode = _resolve_command_owner(cmd)
 
-    # host must never handle game-module commands (even when dedicated bot offline)
+    # host defers game-module commands to the dedicated bot while it has a
+    # recent heartbeat; falls back to handling them when the dedicated bot is
+    # offline (no heartbeat in the last 90 s).
     if mode == "host" and owner_mode in _GAME_MODULE_MODES:
-        return False
+        return not _is_mode_online(owner_mode)
 
     # Unowned / unknown command — only host or all handles it
     if owner_mode is None:
@@ -637,10 +640,8 @@ def should_this_bot_handle(cmd: str) -> bool:
     if _is_mode_online(owner_mode):
         return False
 
-    # Owner mode offline — host/all may fall back (never for game-module commands)
+    # Owner mode offline — host/all may fall back
     if _fallback_enabled() and mode in ("host", "all"):
-        if owner_mode in _GAME_MODULE_MODES:
-            return False
         return True
 
     return False
@@ -680,6 +681,10 @@ async def start_heartbeat_loop(bot) -> None:
         return
 
     async def _loop():
+        # Wait 30 s before the first heartbeat write.
+        # A bot that crashes immediately (bad token / multilogin) never writes
+        # last_heartbeat_at, so other bots won't defer to it.
+        await asyncio.sleep(30)
         while True:
             last_error = ""
             db_connected = 1
@@ -698,6 +703,7 @@ async def start_heartbeat_loop(bot) -> None:
                     status="online",
                     db_connected=1,
                     last_error="",
+                    write_heartbeat=True,
                 )
                 _refresh_online_cache()
             except Exception as exc:

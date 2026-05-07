@@ -69,22 +69,29 @@ def _age_str(last_seen: str) -> str:
 
 
 def _bot_is_online(mode: str, instances: list, threshold: int = 90) -> bool:
-    """True if any enabled instance with this mode was seen within threshold seconds."""
+    """True if any enabled instance with this mode has heartbeated within threshold seconds.
+
+    Uses last_heartbeat_at (written by the 30-s heartbeat loop after a stable
+    30-s connection) rather than last_seen_at (written on every reconnect).
+    Falls back to last_seen_at only when last_heartbeat_at is absent so that
+    existing rows without the column still behave correctly.
+    """
     now = datetime.now(timezone.utc)
     for inst in instances:
         if inst.get("bot_mode") != mode:
             continue
         if not inst.get("enabled", 1):
             continue
-        last_seen = inst.get("last_seen_at", "")
-        if not last_seen:
+        hb = inst.get("last_heartbeat_at", "")
+        ts = hb if hb else inst.get("last_seen_at", "")
+        if not ts:
             continue
         try:
-            ls = datetime.fromisoformat(last_seen.replace("Z", "+00:00"))
+            ls = datetime.fromisoformat(ts.replace("Z", "+00:00"))
             if ls.tzinfo is None:
                 ls = ls.replace(tzinfo=timezone.utc)
             age = (now - ls).total_seconds()
-            if age < threshold and inst.get("status") == "online":
+            if age < threshold:
                 return True
         except Exception:
             pass
