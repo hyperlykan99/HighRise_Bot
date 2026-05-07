@@ -706,8 +706,9 @@ async def handle_checkhelp(bot: BaseBot, user: User, args: list[str]) -> None:
 # ---------------------------------------------------------------------------
 
 _MY_CMDS_PLAYER = [
-    "💰 Your Cmds 1/2\n/bal /daily /wallet\n/profile /whois /privacy\n/shop /buy /equip /myitems\n/send /bank",
-    "💬 Your Cmds 2/2\n/bjoin /rjoin /p\n/events /eventpoints\n/rep /report /bug\n/subscribe /helpsearch",
+    "💰 Cmds — Coins & Profile\n/bal /daily /wallet /send\n/bank /transactions\n/profile /me /privacy\n/helpsearch keyword",
+    "🎮 Cmds — Games & Mining\n/mine /ores /tool\n/bjoin /rjoin /p\n/events /eventpoints\n/shop /buy /myitems",
+    "🏠 Cmds — More\n/rep /report /bug\n/subscribe /mycommands\n/players /emotes /spawns\n/start — new player guide",
 ]
 _MY_CMDS_MOD = [
     "🔨 Mod Cmds\n/reports /reportinfo /closereport\n/warn /warnings /mute /unmute\n/audit /viewtx\n/modhelp - full list",

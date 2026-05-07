@@ -27,7 +27,7 @@ from modules.permissions import can_manage_economy
 _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     # ── host ────────────────────────────────────────────────────────────────
     "help": "host", "mycommands": "host", "helpsearch": "host",
-    "tutorial": "host", "guide": "host", "newbiehelp": "host",
+    "start": "host", "tutorial": "host", "guide": "host", "newbiehelp": "host",
     "profile": "host", "me": "host", "whois": "host", "pinfo": "host",
     "privacy": "host", "rules": "host", "roleshelp": "host",
     "players": "host", "roomlist": "host", "online": "host",
@@ -512,7 +512,7 @@ _HOST_AUDIT_CMDS: frozenset[str] = frozenset({
     "profile", "me", "whois", "pinfo", "stats", "privacy",
     "level", "xpleaderboard",
     "players", "online", "roomlist", "owners", "managers", "moderators",
-    "allstaff", "allcommands", "mycommands", "helpsearch",
+    "allstaff", "allcommands", "mycommands", "helpsearch", "start", "guide",
     "control", "status", "roomstatus",
     "rep", "reputation", "repstats", "toprep", "repleaderboard",
     "quests", "dailyquests", "weeklyquests", "claimquest", "questhelp",
@@ -912,8 +912,7 @@ def get_offline_message(cmd: str) -> str | None:
         return None
     if _fallback_enabled():
         return None
-    name = _MODE_NAMES.get(owner_mode, owner_mode.title())
-    return f"{name} bot is currently offline."
+    return "⚠️ That module is offline right now. Try again later."
 
 
 # ---------------------------------------------------------------------------

@@ -596,7 +596,7 @@ ALL_KNOWN_COMMANDS = (
         "setshopconfirm", "seteventconfirm",
         "marketbuy",
         # Public help tools
-        "mycommands", "helpsearch",
+        "mycommands", "helpsearch", "start", "guide",
         # Paged coin help
         "pokerhelp",
         # Mining game — player commands
@@ -690,16 +690,14 @@ ALL_KNOWN_COMMANDS = (
 # ---------------------------------------------------------------------------
 
 HELP_TEXT = (
-    "🎒 Help\n"
-    "🎮 /gamehelp\n"
-    "🏛️ /casinohelp\n"
-    "💰 /coinhelp\n"
-    "🏦 /bankhelp\n"
-    "🛒 /shophelp\n"
-    "⭐ /profilehelp\n"
-    "More: /progresshelp /eventhelp\n"
-    "Staff: /staffhelp\n"
-    "Admin: /adminhelp"
+    "🎒 HR Lounge Bot\n"
+    "💰 Coins: /bal /daily /send\n"
+    "⛏️ Mine: /mine /ores /tool\n"
+    "🃏 Casino: /bjhelp /rbjhelp /pokerhelp\n"
+    "🛒 Shop: /shop /shop badges\n"
+    "🎉 Events: /eventhelp /event\n"
+    "🏠 Room: /emotes /players /spawns\n"
+    "/start · /mycommands · /helpsearch"
 )
 
 GAME_HELP_PAGES = [
@@ -2995,6 +2993,17 @@ class HangoutBot(BaseBot):
 
         elif cmd == "helpsearch":
             await handle_helpsearch(self, user, args)
+
+        elif cmd in {"start", "guide"}:
+            await self.highrise.send_whisper(
+                user.id,
+                (
+                    "👋 Welcome to HR Lounge Bot!\n"
+                    "Try: /bal /daily /mine /shop\n"
+                    "Casino: /bjhelp /rbjhelp /pokerhelp\n"
+                    "/help — all categories"
+                )
+            )
 
         elif cmd == "casinoadminhelp":
             await _handle_casinoadminhelp(self, user, args)
