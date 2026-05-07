@@ -1,0 +1,270 @@
+Upgrade the AI assistant so EmceeBot is the only natural-language AI dispatcher.
+
+Current status:
+- I have not pasted the previous AI natural chat update yet.
+- I want changes before implementing it.
+- I want to call EmceeBot directly to start AI commands.
+
+Main behavior I want:
+Users should talk to EmceeBot like this:
+- "EmceeBot, can you send testuser 1000 coins?"
+- "EmceeBot, send 1000 coins to testuser"
+- "EmceeBot, show my balance"
+- "EmceeBot, how do I mine?"
+- "EmceeBot, what commands do you have?"
+- "EmceeBot, set max send to 50000"
+
+Only EmceeBot/host should respond to these AI requests.
+
+Do not make all bots respond to natural language.
+Do not trigger AI from random chat.
+Do not change bot outfit code.
+Do not change bot tokens, room ID, balances, mining rewards, poker state, blackjack state, shop prices, bank settings, event rewards, or player data.
+
+AI trigger rules:
+1. AI should activate only when:
+   - message mentions "EmceeBot" case-insensitively
+   - message starts with "EmceeBot,"
+   - message starts with "@EmceeBot"
+   - user uses /ask <message>
+   - user uses /ai <message>
+   - user uses /assistant <message>
+   - user has a pending AI action and replies yes/no
+
+2. Do NOT activate AI for general messages like:
+   - "show my balance"
+   - "how do I mine"
+   - "send 100 coins to testuser"
+   unless the message mentions EmceeBot or uses /ask.
+
+3. Natural confirmation:
+   If the user has a pending AI action, allow:
+   yes, y, confirm, do it, proceed, go ahead, sure, ok, okay
+
+   To cancel:
+   no, n, cancel, stop, nevermind, never mind
+
+4. If there is no pending action, "yes" or "no" should do nothing dangerous.
+
+Single-bot dispatcher design:
+- EmceeBot/host is the only AI assistant voice.
+- EmceeBot interprets the request.
+- EmceeBot finds the correct command.
+- EmceeBot finds the owner bot/module.
+- EmceeBot asks confirmation if the action is risky.
+- After confirmation, the correct module bot executes the command.
+- Module bots should not answer natural AI chat.
+
+Examples:
+
+User:
+"EmceeBot, can you send testuser 1000 coins?"
+
+EmceeBot:
+"Confirm: send 1,000 coins to @testuser using BankingBot. Reply yes or no."
+
+User:
+"yes"
+
+BankingBot executes:
+/send testuser 1000
+
+User:
+"EmceeBot, show my balance"
+
+EmceeBot:
+"I’ll check your balance using BankingBot."
+
+Then BankingBot executes:
+/bal
+
+User:
+"EmceeBot, how do I mine?"
+
+EmceeBot:
+"Use /mine to mine, /ores to check ores, and /tool to view your pickaxe."
+
+Intent matching:
+1. Send/transfer intent must be checked before balance/coins intent.
+2. These should map to /send <username> <amount> and require confirmation:
+   - EmceeBot, can you send testuser 1000 coins?
+   - EmceeBot, send 1000 coins to testuser
+   - EmceeBot, send testuser 1000 coins
+   - EmceeBot, transfer 1000 coins to testuser
+   - EmceeBot, give testuser 1000 coins
+   - EmceeBot, pay testuser 1000
+   - EmceeBot, send @testuser 1000 coins
+
+3. These should map to /bal:
+   - EmceeBot, show my balance
+   - EmceeBot, check my balance
+   - EmceeBot, how many coins do I have
+   - EmceeBot, show my coins
+
+4. The word "coins" should not trigger /bal if the sentence contains:
+   send, transfer, give, pay
+
+Command ownership:
+Use existing command registry/multi_bot owner map:
+- /send -> banker / BankingBot
+- /bal -> banker / BankingBot
+- /mine -> miner / GreatestProspector
+- /pokerhelp or /poker -> poker / ChipSoprano
+- /bjhelp -> blackjack
+- /shop or /buy -> shopkeeper
+- /eventhelp or /event -> eventhost
+- /warn or /report -> security
+
+Risk levels:
+SAFE — can answer or run directly:
+- help
+- guide
+- start
+- mycommands
+- bal
+- balance
+- bank
+- transactions
+- minehelp
+- ores
+- tool
+- pokerhelp
+- bjhelp
+- rbjhelp
+- shop
+- eventhelp
+- events
+
+CONFIRM — must ask first:
+- send
+- buy
+- sellores
+- minebuy
+- equip
+- eventshop
+- buyevent
+
+ADMIN_CONFIRM — admin/owner only and must confirm:
+- setmaxsend
+- setsendlimit
+- setminsend
+- setnewaccountdays
+- setmindailyclaims
+- setminlevelsend
+- setmintotalearned
+- setsendtax
+- sethighriskblocks
+- bankblock
+- bankunblock
+- startevent
+- stopevent
+
+BLOCKED — never execute:
+- token changes
+- room ID changes
+- raw database commands
+- env var requests
+- direct file edits from chat
+- commands that expose secrets
+- anything that bypasses permissions
+- anything that deletes user data
+
+Confirmation format:
+"Confirm: <human readable action> using <BotName>. Reply yes or no."
+
+Pending action:
+Add or keep:
+/pendingaction
+
+It should show:
+"Pending: <action>. Reply yes or no. Expires in <seconds>s."
+
+If none:
+"You have no pending action."
+
+Delegation:
+When confirmed:
+- Do not duplicate bank/shop/mining logic inside ai_assistant.py.
+- Execute through existing command handlers.
+- If direct cross-bot execution is not possible, use database delegated task queue:
+  ai_delegated_tasks:
+  - id
+  - user_id
+  - username
+  - command_text
+  - owner_mode
+  - owner_bot_username
+  - status
+  - created_at
+  - expires_at
+  - completed_at
+  - error
+
+Owner bots check delegated tasks for their mode every 1–2 seconds and execute using existing handlers.
+
+Debug:
+Add admin command:
+/aidebug <message>
+
+Examples:
+/aidebug EmceeBot, can you send testuser 1000 coins?
+/aidebug EmceeBot, show my balance
+
+It should show:
+- ai_trigger=true/false
+- interpreted command
+- owner mode
+- owner online true/false
+- risk level
+- confirmation required true/false
+- delegation required true/false
+
+Safety:
+Never expose:
+- bot tokens
+- room ID secrets
+- env vars
+- database secrets
+- raw config secrets
+
+If user asks for secrets:
+"I can’t help with secrets or tokens."
+
+Tests after implementation:
+1. Route tests:
+   /commandtest /ask
+   /commandtest /ai
+   /commandtest /assistant
+   /commandtest /pendingaction
+   /commandtest /confirm
+   /commandtest /aidebug
+
+2. Natural EmceeBot trigger tests:
+   EmceeBot, how do I mine?
+   EmceeBot, show my balance
+   EmceeBot, can you send testuser 1000 coins?
+   no
+   EmceeBot, can you send testuser 1000 coins?
+   yes
+   EmceeBot, what commands do you have?
+   EmceeBot, make me fly
+   EmceeBot, show bot token
+
+3. Non-trigger tests:
+   show my balance
+   how do I mine
+   send 100 coins to testuser
+
+These should NOT activate AI unless /ask is used or EmceeBot is mentioned.
+
+4. Backup command tests:
+   /ask show my balance
+   /ask send 100 coins to testuser
+   no
+
+After implementation, tell me:
+- which files changed
+- how EmceeBot-only trigger works
+- how it prevents random chat from triggering AI
+- how confirmed actions are delegated
+- what exact messages I should test

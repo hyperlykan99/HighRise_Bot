@@ -142,11 +142,31 @@ _INTENTS: list[tuple] = [
     (re.compile(r"(mining\s+|mine\s+)?(shop|store|market)\s*$|^mineshop$", re.I),
      "mineshop", _k(""), _k("show the mining shop")),
 
+    # ── Send / transfer — checked BEFORE balance so "send 100 coins to X"
+    # does NOT accidentally match the coins/balance keyword in /bal pattern ────
+    # Variant A: "send 1000 coins to testuser" / "transfer 500 to @Marion"
+    (re.compile(
+        r"(send|transfer|give|pay)\s+([\d,]+)\s*(coins?|tokens?)?\s*(?:to|for|->)\s+@?(\w+)",
+        re.I),
+     "send",
+     lambda m, t: f"{m.group(4)} {m.group(2).replace(',', '')}",
+     lambda m, t: f"send {m.group(2).replace(',', '')} coins to @{m.group(4)}"),
+
+    # Variant B: "send testuser 1000 coins" / "pay @testuser 500"
+    # [A-Za-z]\w* ensures the second token is a username, not a number
+    (re.compile(
+        r"(send|transfer|give|pay)\s+@?([A-Za-z]\w*)\s+([\d,]+)\s*(coins?|tokens?)?",
+        re.I),
+     "send",
+     lambda m, t: f"{m.group(2)} {m.group(3).replace(',', '')}",
+     lambda m, t: f"send {m.group(3).replace(',', '')} coins to @{m.group(2)}"),
+
     # ── Economy ───────────────────────────────────────────────────────────────
     (re.compile(
         r"(show\s+|check\s+|see\s+|my\s+|what.?s\s+(my\s+)?)?"
-        r"(balance|coins|tokens|wallet|money)\b"
-        r"|how\s+many\s+coins|how\s+much\s+(do\s+i|have\s+i)", re.I),
+        r"(balance|wallet|money)\b"
+        r"|how\s+many\s+coins|how\s+much\s+(do\s+i|have\s+i)"
+        r"|(show|check|my)\s+coins?\s*$", re.I),
      "bal", _k(""), _k("show your balance")),
 
     (re.compile(
@@ -166,14 +186,6 @@ _INTENTS: list[tuple] = [
         r"(show\s+|my\s+|check\s+)?(leaderboard|top\s+players|rankings?|leader\s*board)\s*$",
         re.I),
      "leaderboard", _k(""), _k("show the leaderboard")),
-
-    # send: "send 100 coins to Claire" / "transfer 500 to @Marion"
-    (re.compile(
-        r"(send|transfer|give)\s+([\d,]+)\s*(coins?|tokens?)?\s*(?:to|for)\s+@?(\w+)",
-        re.I),
-     "send",
-     lambda m, t: f"{m.group(4)} {m.group(2).replace(',', '')}",
-     lambda m, t: f"send {m.group(2).replace(',', '')} coins to @{m.group(4)}"),
 
     # ── Shop ──────────────────────────────────────────────────────────────────
     (re.compile(
@@ -392,27 +404,45 @@ def _is_no(text: str) -> bool:
     return text.lower().strip() in _NO_WORDS
 
 
+_AI_PRIMARY_NAME: str = "emceebot"
+
+
+def _build_ai_names(bot_username: str) -> list[str]:
+    """Return lowercase names this bot listens for (longest first)."""
+    names: set[str] = {_AI_PRIMARY_NAME}
+    if bot_username:
+        names.add(bot_username.lower())
+    return sorted(names, key=len, reverse=True)
+
+
 def _is_ai_trigger(message: str, bot_username: str) -> bool:
-    """Return True if the message is a natural-language AI trigger."""
+    """
+    Return True only when the message explicitly addresses EmceeBot.
+    Triggers on:
+      - @EmceeBot anywhere in the message
+      - "EmceeBot" as a word anywhere (e.g. "EmceeBot, show my balance")
+    Does NOT trigger on generic chat that happens to mention balance/coins/etc.
+    """
     low = message.lower().strip()
-    if low.startswith("bot,") or low.startswith("bot "):
-        return True
-    if bot_username and f"@{bot_username.lower()}" in low:
-        return True
+    for name in _build_ai_names(bot_username):
+        if f"@{name}" in low:
+            return True
+        if re.search(rf"\b{re.escape(name)}\b", low):
+            return True
     return False
 
 
 def _strip_trigger(message: str, bot_username: str) -> str:
-    """Remove the trigger prefix and return the clean question text."""
-    low = message.lower().strip()
-    if low.startswith("bot,"):
-        return message[4:].strip()
-    if low.startswith("bot "):
-        return message[4:].strip()
-    if bot_username:
-        tag = f"@{bot_username}"
-        if low.startswith(tag.lower()):
-            return message[len(tag):].strip().lstrip(",").strip()
+    """
+    Remove the EmceeBot trigger prefix/mention and return clean question text.
+    E.g. "EmceeBot, can you show my balance?" → "can you show my balance?"
+         "hey @EmceeBot what is my balance" → "what is my balance"
+    """
+    for name in _build_ai_names(bot_username):
+        pat = re.compile(rf"^.*?@?{re.escape(name)}[,\s]*", re.I)
+        cleaned = pat.sub("", message.strip(), count=1)
+        if cleaned.lower() != message.strip().lower():
+            return cleaned.strip()
     return message.strip()
 
 
@@ -724,3 +754,69 @@ async def handle_confirm_cmd(bot, user, args: list[str]) -> None:
             await _w(bot, user.id, "You have no pending action to cancel.")
     else:
         await _w(bot, user.id, "Usage: /confirm yes  or  /confirm no")
+
+
+# ---------------------------------------------------------------------------
+# /aidebug <message>  — admin-only: show AI trigger analysis without executing
+# ---------------------------------------------------------------------------
+
+async def handle_aidebug(bot, user, args: list[str]) -> None:
+    """
+    /aidebug <message>
+    Admin-only. Shows what the AI would do with a given message:
+    ai_trigger, interpreted command, owner mode, owner online, risk level,
+    confirmation required, delegation required.
+    Does NOT execute anything.
+    """
+    if not (is_admin(user.username) or is_owner(user.username)):
+        await _w(bot, user.id, "Admin only.")
+        return
+    if len(args) < 2:
+        await _w(bot, user.id, "Usage: /aidebug <message to test>")
+        return
+
+    from config import BOT_USERNAME
+    raw = " ".join(args[1:])
+
+    triggered = _is_ai_trigger(raw, BOT_USERNAME)
+    text = _strip_trigger(raw, BOT_USERNAME) if triggered else raw
+
+    if _is_blocked(text):
+        await _w(bot, user.id,
+                 f"trigger={str(triggered).lower()} | cmd=BLOCKED | risk=BLOCKED"
+                 f" | confirm=false | delegate=false")
+        return
+
+    intent = classify_intent(text)
+    if intent is None:
+        await _w(bot, user.id,
+                 f"trigger={str(triggered).lower()} | cmd=unknown | risk=SAFE"
+                 f" | confirm=false | delegate=false")
+        return
+
+    cmd          = intent.command
+    risk         = intent.risk_level
+    confirm_req  = risk in (CONFIRM, ADMIN_CONFIRM)
+
+    try:
+        from modules.command_registry import get_entry as _reg_get
+        entry      = _reg_get(cmd)
+        owner_mode = entry[1].owner if entry else "host"
+    except Exception:
+        owner_mode = "host"
+
+    try:
+        from modules.multi_bot import _is_mode_online
+        owner_online = _is_mode_online(owner_mode)
+    except Exception:
+        owner_online = True
+
+    deleg_req = owner_mode not in ("host", "eventhost", "all")
+
+    line1 = (f"trigger={str(triggered).lower()} | cmd={cmd} | owner={owner_mode}"
+             f" | online={str(owner_online).lower()}")[:249]
+    line2 = (f"risk={risk} | confirm={str(confirm_req).lower()}"
+             f" | delegate={str(deleg_req).lower()}"
+             f" | {intent.human_readable}")[:249]
+    await _w(bot, user.id, line1)
+    await _w(bot, user.id, line2)

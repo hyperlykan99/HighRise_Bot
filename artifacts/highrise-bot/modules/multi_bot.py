@@ -93,7 +93,7 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "casinointegrity": "host", "integritylogs": "host", "carddeliverycheck": "host",
     # ── AI assistant ─────────────────────────────────────────────────────────
     "ask": "host", "ai": "host", "assistant": "host",
-    "pendingaction": "host", "confirm": "host",
+    "pendingaction": "host", "confirm": "host", "aidebug": "host",
     "setpokercardmarker": "poker",
     "setpokertimer": "poker", "setpokerturntimer": "poker",
     "setpokerlobbytimer": "poker", "setpokernexthandtimer": "poker",
@@ -534,7 +534,7 @@ _HOST_AUDIT_CMDS: frozenset[str] = frozenset({
     "notifications", "clearnotifications",
     "casinointegrity", "integritylogs", "carddeliverycheck",
     # ── AI assistant (host-owned; eventhost covers when host is offline) ──────
-    "ask", "ai", "assistant", "pendingaction", "confirm",
+    "ask", "ai", "assistant", "pendingaction", "confirm", "aidebug",
 })
 
 # Whitelist of eventhost-owned commands that host may handle as fallback
