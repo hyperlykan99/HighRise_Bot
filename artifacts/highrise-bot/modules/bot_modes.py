@@ -1289,12 +1289,19 @@ _DIRECT_OUTFIT_INTENTS: list[tuple] = [
 
 
 def _is_this_bot_addressed(message: str) -> bool:
-    """Return True if the message explicitly names this bot's username."""
-    from config import BOT_USERNAME
-    if not BOT_USERNAME:
+    """Return True if the message explicitly names this bot's username.
+
+    Username resolution order (first non-empty wins):
+    1. gold._bot_username — set from live room users at on_start
+    2. config.BOT_USERNAME — from BOT_USERNAME env var (set by bot.py subprocess launcher)
+    """
+    from modules.gold import get_bot_username
+    import config
+    uname = (get_bot_username() or config.BOT_USERNAME or "").strip().lower()
+    if not uname:
         return False
-    low   = message.lower().strip()
-    uname = BOT_USERNAME.lower()
+    low = message.lower().strip()
+    # Match @username or bare word boundary
     if f"@{uname}" in low:
         return True
     if re.search(rf"\b{re.escape(uname)}\b", low):
@@ -1311,26 +1318,35 @@ async def handle_direct_bot_outfit_chat(bot, user, message: str) -> bool:
 
     Host/eventhost/all bots skip this — they use the full AI path instead.
     """
-    from config import BOT_USERNAME, BOT_MODE
+    from config import BOT_MODE
+    from modules.gold import get_bot_username
+    import config as _cfg
 
     # Only run for non-host bot modes — host uses full AI path.
     if BOT_MODE in ("host", "eventhost", "all"):
         return False
 
-    uname   = (BOT_USERNAME or "").lower()
+    # Resolve the bot's actual runtime username (live room lookup > env var)
+    uname   = (get_bot_username() or _cfg.BOT_USERNAME or "").strip().lower()
     matched = _is_this_bot_addressed(message)
 
-    print(f"[DIRECT_OUTFIT] this_bot={uname} message={message!r}")
-    print(f"[DIRECT_OUTFIT] matched_target={str(matched).lower()}")
+    print(f"[DIRECT_OUTFIT] this_bot={uname} mode={BOT_MODE} msg={message!r}")
+    print(f"[DIRECT_OUTFIT] target_detected={str(matched).lower()}")
 
     if not matched:
         return False
+
+    # ── Always ack so users know the listener is alive ──────────────────────
+    display = uname.title() or "Bot"
+    await bot.highrise.send_whisper(
+        user.id, f"{display} heard you. Outfit system online.")
+    print(f"[DIRECT_OUTFIT] ack sent to {user.username}")
 
     # Strip the bot-name prefix and get the intent text
     text = re.sub(
         rf"^.*?@?{re.escape(uname)}[,\s:!]*",
         "", message.strip(), count=1, flags=re.I,
-    ).strip()
+    ).strip() if uname else message.strip()
 
     # Find intent
     intent: str | None   = None
@@ -1345,12 +1361,12 @@ async def handle_direct_bot_outfit_chat(bot, user, message: str) -> bool:
     print(f"[DIRECT_OUTFIT] intent={intent or 'none'}")
 
     if not intent:
-        # Bot was addressed but no outfit intent detected — do not consume.
-        return False
+        # Bot was addressed but no outfit intent — ack already sent.
+        return True
 
     # Permission check
     if not (is_owner(user.username) or is_admin(user.username)):
-        print(f"[DIRECT_OUTFIT] success=false reason=permission_denied")
+        print(f"[DIRECT_OUTFIT] denied user={user.username}")
         await bot.highrise.send_whisper(user.id, "Owner/admin only.")
         return True
 
@@ -1367,12 +1383,12 @@ async def handle_direct_bot_outfit_chat(bot, user, message: str) -> bool:
         elif intent == "myoutfitstatus":
             await handle_myoutfitstatus(bot, user, ["myoutfitstatus"])
         else:
-            # arg_val missing — prompt user
             await bot.highrise.send_whisper(
-                user.id, f"What name? E.g. '{uname.title()}, {intent} security'")
-        print(f"[DIRECT_OUTFIT] success=true intent={intent}")
+                user.id,
+                f"What name? e.g. '{display}, {intent} security'")
+        print(f"[DIRECT_OUTFIT] success intent={intent}")
     except Exception as exc:
-        print(f"[DIRECT_OUTFIT] success=false reason={exc}")
+        print(f"[DIRECT_OUTFIT] error intent={intent} exc={exc}")
         await bot.highrise.send_whisper(
             user.id, f"Outfit command failed: {str(exc)[:80]}")
 
@@ -1392,9 +1408,11 @@ async def handle_directoutfittest(bot, user, args: list[str]) -> None:
         await _w(bot, user.id, "Usage: /directoutfittest <message to test>")
         return
 
-    from config import BOT_USERNAME, BOT_MODE
+    from config import BOT_MODE
+    from modules.gold import get_bot_username
+    import config as _cfg
     msg     = " ".join(args[1:])
-    uname   = (BOT_USERNAME or "").lower()
+    uname   = (get_bot_username() or _cfg.BOT_USERNAME or "").strip().lower()
     matched = _is_this_bot_addressed(msg)
     skipped = BOT_MODE in ("host", "eventhost", "all")
 

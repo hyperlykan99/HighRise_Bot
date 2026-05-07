@@ -87,12 +87,18 @@ def set_bot_identity(user_id: str, username: str = "") -> None:
     """Called from on_start so we know which user to exclude from rain."""
     global _bot_user_id, _bot_username
     _bot_user_id = user_id
-    _bot_username = username
+    if username:
+        _bot_username = username
 
 
 def get_bot_user_id() -> str:
     """Return the bot's own Highrise user ID (set at on_start)."""
     return _bot_user_id
+
+
+def get_bot_username() -> str:
+    """Return the bot's own Highrise username (populated after on_start room fetch)."""
+    return _bot_username
 
 
 def add_to_room_cache(user_id: str, username: str) -> None:
@@ -106,13 +112,20 @@ def remove_from_room_cache(user_id: str) -> None:
 
 
 async def refresh_room_cache(bot) -> None:
-    """Fetch the live room user list and rebuild the cache."""
+    """Fetch the live room user list and rebuild the cache.
+    Also resolves the bot's own username if not yet known.
+    """
+    global _bot_username
     try:
         resp = await bot.highrise.get_room_users()
         if hasattr(resp, "content"):
             _room_cache.clear()
             for ru, _ in resp.content:
                 _room_cache[ru.username.lower()] = (ru.id, ru.username)
+                # Auto-discover bot's own username by matching user ID
+                if ru.id == _bot_user_id and not _bot_username:
+                    _bot_username = ru.username
+                    print(f"[GOLD] Bot username resolved: {_bot_username}")
     except Exception as exc:
         print(f"[GOLD] refresh_room_cache error: {exc}")
 

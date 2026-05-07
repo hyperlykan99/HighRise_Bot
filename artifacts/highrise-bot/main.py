@@ -251,7 +251,8 @@ from modules.gold import (
     handle_pendinggold, handle_confirmgoldtip,
     handle_setgoldrainstaff, handle_setgoldrainmax,
     handle_goldhelp,
-    set_bot_identity, get_bot_user_id, add_to_room_cache, remove_from_room_cache,
+    set_bot_identity, get_bot_user_id, get_bot_username,
+    add_to_room_cache, remove_from_room_cache,
     refresh_room_cache,
 )
 from modules.mining import (
@@ -2017,6 +2018,22 @@ class HangoutBot(BaseBot):
         # Store bot identity so gold rain / tip receiver-check can use it
         set_bot_identity(session_metadata.user_id)
         print(f"[HangoutBot] Bot user ID: {session_metadata.user_id}")
+
+        # Resolve bot's own username immediately so the direct outfit listener
+        # can match "KeanuShield, outfit status" right from the first message.
+        # We fetch room users once inline; refresh_room_cache (below) will also
+        # update the room cache in full — the extra call is negligible overhead.
+        try:
+            _ru_resp = await self.highrise.get_room_users()
+            if hasattr(_ru_resp, "content"):
+                for _ru, _ in _ru_resp.content:
+                    if _ru.id == session_metadata.user_id:
+                        set_bot_identity(session_metadata.user_id, _ru.username)
+                        print(f"[HangoutBot] Bot username: {_ru.username}")
+                        break
+        except Exception as _e:
+            print(f"[HangoutBot] Could not resolve bot username at startup: {_e}")
+
         # Log which events this session is subscribed to (only overridden hooks)
         try:
             from highrise.__main__ import gather_subscriptions

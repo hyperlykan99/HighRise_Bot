@@ -1,0 +1,107 @@
+Fix KeanuShield not responding to direct outfit chat.
+
+Current test:
+I typed:
+KeanuShield, outfit status
+
+Result:
+No response.
+
+This means the direct bot outfit chat listener is not running for KeanuShield or not detecting KeanuShield’s username.
+
+Do not change bank AI.
+Do not change balances.
+Do not change economy.
+Do not change poker, blackjack, mining, events, shop, room ID, or bot tokens.
+
+Only fix direct bot chat detection/listener.
+
+Tasks:
+
+1. Verify every bot process calls the direct outfit chat listener.
+In main.py on_chat, every bot should call something like:
+handle_direct_bot_outfit_chat(self, user, message)
+before ignoring natural chat.
+
+This must run for all bots, not only Host/EmceeBot.
+
+2. Add a simple direct ping test first.
+If a message directly mentions this bot username and says:
+- outfit status
+- ping
+- hello
+
+The bot should whisper:
+“<BOT_USERNAME> heard you.”
+
+Example:
+User: KeanuShield, outfit status
+KeanuShield should whisper:
+“KeanuShield heard you. Outfit system online.”
+
+This confirms the listener works before testing outfit changes.
+
+3. Fix bot username detection.
+Detection must use the actual current bot username from config.BOT_USERNAME or the bot instance identity.
+
+It must match case-insensitively:
+- KeanuShield
+- keanushield
+- @KeanuShield
+- @keanushield
+
+It must strip:
+- @
+- comma
+- colon
+- extra spaces
+
+Examples that should match:
+- KeanuShield, outfit status
+- keanushield outfit status
+- @KeanuShield outfit status
+- KeanuShield: outfit status
+
+4. Add debug command:
+/directoutfittest <message>
+
+When run on any bot, it should whisper:
+- this_bot=<BOT_USERNAME>
+- normalized_bot_name=<name>
+- message=<message>
+- target_detected=true/false
+- intent=<intent or none>
+
+Example:
+/directoutfittest KeanuShield, outfit status
+
+If running as KeanuShield, expected:
+target_detected=true
+intent=outfit_status
+
+If running as EmceeBot, expected:
+target_detected=false
+
+5. Add console logs:
+[DIRECT_OUTFIT] this_bot=<BOT_USERNAME>
+[DIRECT_OUTFIT] msg=<message>
+[DIRECT_OUTFIT] target_detected=<true/false>
+[DIRECT_OUTFIT] intent=<intent>
+
+6. Only after the listener works, keep these outfit intents:
+- outfit status
+- list outfits
+- copy my outfit
+- save this outfit as <name>
+- wear <name> outfit
+
+But first priority is making KeanuShield respond to:
+KeanuShield, outfit status
+
+7. Do not expose tokens, room ID, env vars, outfit JSON, or secrets.
+
+After fixing, tell me:
+- which files changed
+- where the listener is called
+- what BOT_USERNAME KeanuShield is using
+- exact tests to run
