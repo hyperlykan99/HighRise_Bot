@@ -126,6 +126,7 @@ from modules.poker import (
     handle_pokerpause, handle_pokerresume,
     handle_pokerforceadvance, handle_pokerforceresend,
     handle_pokerturn, handle_pokerpots, handle_pokeractions,
+    handle_pokerstylepreview,
     handle_pokerresetturn, handle_pokerresethand, handle_pokerresettable,
 )
 from modules.casino_settings     import (
@@ -442,7 +443,7 @@ MANAGER_ONLY_CMDS = {
     "pokerdashboard", "pdash", "pokeradmin",
     "pokerpause", "pokerresume",
     "pokerforceadvance", "pokerforceresend",
-    "pokerturn", "pokerpots", "pokeractions",
+    "pokerturn", "pokerpots", "pokeractions", "pokerstylepreview",
     "pokerresetturn", "pokerresethand", "pokerresettable",
     "casinointegrity", "integritylogs", "carddeliverycheck",
     "setpokercardmarker",
@@ -3534,6 +3535,9 @@ class HangoutBot(BaseBot):
 
         elif cmd == "pokeractions":
             await handle_pokeractions(self, user)
+
+        elif cmd == "pokerstylepreview":
+            await handle_pokerstylepreview(self, user)
 
         elif cmd == "pokerresetturn":
             await handle_pokerresetturn(self, user)

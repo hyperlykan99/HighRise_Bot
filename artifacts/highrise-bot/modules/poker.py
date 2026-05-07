@@ -88,19 +88,22 @@ def _fmt_private_hand(cards: list, stack: int,
                       hand_num: int = 0, pos: str = "",
                       is_turn: bool = False, owe: int = 0,
                       rank_label: str = "") -> str:
-    marker  = _get_card_marker()
     cards_s = _fcs(cards)
     if is_turn:
         if owe > 0:
-            base = f"👉 {marker} Your turn | {cards_s} | Call {owe:,}c | Stack {stack:,}c"
+            base = (f"{_PK_TURN} | {_PK_HAND}: {cards_s} | "
+                    f"Call {owe:,}c | {_PK_STACK}: {stack:,}c")
         else:
-            base = f"👉 {marker} Your turn | {cards_s} | Stack {stack:,}c"
+            base = f"{_PK_TURN} | {_PK_HAND}: {cards_s} | {_PK_STACK}: {stack:,}c"
         if rank_label and len(base) + len(rank_label) + 3 < 249:
             base += f" | {rank_label}"
     else:
-        prefix = f"Hand #{hand_num}" if hand_num else "Your cards"
+        prefix = f"Hand #{hand_num}" if hand_num else ""
         pos_s  = f" {pos.strip()}" if pos else ""
-        base   = f"{marker} {prefix}{pos_s} | Cards: {cards_s} | Stack: {stack:,}c"
+        if prefix or pos_s:
+            base = f"{_PK_HAND}: {cards_s} | {prefix}{pos_s} | {_PK_STACK}: {stack:,}c"
+        else:
+            base = f"{_PK_HAND}: {cards_s} | {_PK_STACK}: {stack:,}c"
         if rank_label and len(base) + len(rank_label) + 3 < 249:
             base += f" | {rank_label}"
     return base[:249]
@@ -130,6 +133,33 @@ _PK_POT    = "<#FFD700>🪙 POT<#FFFFFF>"
 _PK_TURN   = "<#00FFCC>👉 YOUR TURN<#FFFFFF>"
 _PK_CARDS  = "<#CC66FF>🃏 Cards<#FFFFFF>"
 _PK_DEALER = "<#66CCFF>🎲 Dealer<#FFFFFF>"
+_PK_BOARD  = "<#B388FF>🃏 BOARD<#FFFFFF>"
+_PK_HAND   = "<#CC66FF>🃏 YOUR HAND<#FFFFFF>"
+_PK_STACK  = "<#00FFAA>💵 STACK<#FFFFFF>"
+_PK_BLIND  = "<#FFAA00>👁️ BLIND<#FFFFFF>"
+_PK_TIMER  = "<#FFCC00>⏳ TIMER<#FFFFFF>"
+_PK_WARN   = "<#FF3333>⚠️ WARNING<#FFFFFF>"
+_PK_INFO   = "<#66CCFF>ℹ️ INFO<#FFFFFF>"
+_PK_LOSS   = "<#FF3333>❌ LOSS<#FFFFFF>"
+
+# ── Poker formatter helpers ───────────────────────────────────────────────────
+def _pk_pot(n: int) -> str:
+    return f"{_PK_POT}: {n:,}c"
+
+def _pk_stack(n: int) -> str:
+    return f"{_PK_STACK}: {n:,}c"
+
+def _pk_board(cards: list) -> str:
+    return f"{_PK_BOARD}: {_fcs(cards)}" if cards else ""
+
+def _pk_hand(cards: list) -> str:
+    return f"{_PK_HAND}: {_fcs(cards)}"
+
+def _pk_warn(msg: str) -> str:
+    return f"{_PK_WARN} — {msg}"
+
+def _pk_info(msg: str) -> str:
+    return f"{_PK_INFO} — {msg}"
 
 def _cancel_task(t: Optional[asyncio.Task]) -> None:
     if t and not t.done():
@@ -975,10 +1005,10 @@ async def finish_poker_hand(bot: BaseBot, reason: str) -> None:
                     await _chat(bot, f"👀 Showdown! Board: {board}")
                     await _chat(bot, f"{_PK_WIN} — @{w['username']} wins {pot:,}c with {hname}.")
                     for p in eligible:
-                        h  = _fcs(json.loads(p["hole_cards_json"] or "[]"))
-                        hn = _HAND_NAMES.get(
-                            scores.get(p["username"], (0,))[0], "")
-                        await _chat(bot, f"  @{p['username']}: {h} — {hn}")
+                        h   = _fcs(json.loads(p["hole_cards_json"] or "[]"))
+                        hn  = _HAND_NAMES.get(scores.get(p["username"], (0,))[0], "")
+                        lbl = _PK_WIN if p["username"] == w["username"] else _PK_LOSS
+                        await _chat(bot, f"{lbl} @{p['username']}: {h} — {hn}")
                 else:
                     wnames = " & ".join(f"@{w['username']}" for w in winners)
                     await _chat(bot,
@@ -1470,12 +1500,13 @@ async def _start_hand(bot: BaseBot) -> None:
 
     # ── Announce hand start (before dealing so players know what's coming) ──
     if blinds_on:
-        await _chat(bot,
-            f"♠️ Hand #{hand_num} | Dealer:@{dl_name} "
-            f"SB:@{sb_name}({sb_amt}c) BB:@{bb_name}({bb_amt}c) | Pot:{initial_pot}c")
+        await _chat(bot, (
+            f"{_PK_DEALER}: Hand #{hand_num} | "
+            f"{_PK_BLIND} SB:@{sb_name}({sb_amt}c) BB:@{bb_name}({bb_amt}c) | "
+            f"{_PK_POT}:{initial_pot:,}c")[:249])
     else:
         order_str = "  ".join(f"@{sp['username']}" for sp in seated)
-        await _chat(bot, f"♠️ Hand #{hand_num} | {order_str[:110]}")
+        await _chat(bot, f"{_PK_DEALER}: Hand #{hand_num} | {order_str[:110]}"[:249])
 
     # ── Part 4: sequential card delivery with dealer simulation ───────────
     sent_count, failed_players = await _deliver_cards_sequential(
@@ -2588,9 +2619,10 @@ async def _dispatch(bot: BaseBot, user: User, args: list[str]) -> None:
         owe       = tbl["current_bet"]
         sb        = tbl.get("small_blind_username") or "—"
         bb        = tbl.get("big_blind_username") or "—"
-        await _w(bot, user.id,
-            f"♠️ {phase.title()} | Board:{board} | Pot:{tbl['pot']}c | "
-            f"Call:{owe}c | Turn:@{turn_name} | SB:@{sb} BB:@{bb}")
+        await _w(bot, user.id, (
+            f"{_PK_INFO}: {phase.title()} | "
+            f"{_PK_BOARD}: {board} | {_PK_POT}:{tbl['pot']:,}c | "
+            f"Call:{owe:,}c | {_PK_TURN} @{turn_name} | SB:@{sb} BB:@{bb}")[:249])
         return
 
     if sub in ("hand", "cards"):
@@ -2657,8 +2689,8 @@ async def _dispatch(bot: BaseBot, user: User, args: list[str]) -> None:
         rank_lbl  = strength + (" + " + draws if draws else "")
         hn        = tbl.get("hand_number", 0) if tbl else 0
         ph_msg = _fmt_private_hand(cards, p["stack"], hand_num=hn, rank_label=rank_lbl)
-        if board_str != "none" and len(ph_msg) + len(board_str) + 10 < 249:
-            ph_msg = (ph_msg + f" | Board:{board_str}")[:249]
+        if community and len(ph_msg) + len(board_str) + 20 < 249:
+            ph_msg = (ph_msg + f" | {_PK_BOARD}: {board_str}")[:249]
         try:
             await bot.highrise.send_whisper(user.id, ph_msg[:249])
             if tbl.get("round_id"):
@@ -3421,9 +3453,9 @@ async def _dispatch(bot: BaseBot, user: User, args: list[str]) -> None:
                 await bot.highrise.send_whisper(p["user_id"], msg[:249])
                 db.record_card_delivery(round_id, p["username"], True, "",
                                         p["username"])
-                await _w(bot, user.id, f"✅ Resent cards to @{p['username']}.")
+                await _w(bot, user.id, f"{_PK_INFO}: Resent cards to @{p['username']}.")
             except Exception as _re:
-                await _w(bot, user.id, f"⚠️ Resend failed: {str(_re)[:60]}")
+                await _w(bot, user.id, f"{_PK_WARN}: Resend failed: {str(_re)[:60]}")
         else:
             sent_n, _ = await _deliver_poker_cards_to_all(bot, round_id, hn)
             await _w(bot, user.id, f"✅ Resent cards to {sent_n} player(s).")
@@ -3791,7 +3823,7 @@ async def handle_pokerpace(bot: BaseBot, user: User) -> None:
     dd    = _s_str("pace_deal_delay_secs", "0.5")
     tt    = _s("turn_timer", 30)
     await _w(bot, user.id,
-             f"♠️ Pace: {mode.upper()} | TurnTimer:{tt}s\n"
+             f"{_PK_TIMER}: Pace:{mode.upper()} TT:{tt}s\n"
              f"Preflop:{pref}s Flop:{flop}s Turn:{turn}s River:{river}s\n"
              f"DealDelay:{dd}s | /setpokerpace <key> <val>")
 
@@ -3843,8 +3875,8 @@ async def handle_pokerstacks(bot: BaseBot, user: User) -> None:
     rm  = _s("stack_rebuy_min",  100)
     rmx = _s("stack_rebuy_max",  10000)
     await _w(bot, user.id,
-             f"♠️ Stacks: Buy {mn}-{mx}c | Default:{def_}c\n"
-             f"Rebuy: {rm}-{rmx}c | /setpokerstack <key> <val>")
+             f"{_PK_STACK}: Buy {mn:,}-{mx:,}c | Default:{def_:,}c\n"
+             f"Rebuy: {rm:,}-{rmx:,}c | /setpokerstack <key> <val>")
 
 
 async def handle_setpokerstack(bot: BaseBot, user: User, args: list[str]) -> None:
@@ -4674,16 +4706,17 @@ async def handle_pokerdashboard(bot: BaseBot, user: User) -> None:
     broken     = detect_poker_inconsistent_state()
 
     # Line 1: table overview
-    await _w(bot, user.id,
-        (f"♠️ Poker {enabled} | {paused} | {phase} | Hand#{hn} | "
-         f"Pot:{pot}c | Bet:{bet}c | {'⚠️ STUCK' if broken else 'OK'}")[:249])
+    stuck = f"{_PK_WARN}: STUCK" if broken else "OK"
+    await _w(bot, user.id, (
+        f"♠️ Poker {enabled} | {paused} | {phase} | Hand#{hn} | "
+        f"{_PK_POT}:{pot:,}c Bet:{bet:,}c | {stuck}")[:249])
 
     # Line 2: player counts + current actor
     idx = tbl["current_player_index"] if tbl else 0
     cur = players[idx]["username"] if players and 0 <= idx < len(players) else "—"
-    await _w(bot, user.id,
-        (f"InHand:{len(players)} Active:{len(active_p)} AllIn:{len(allin_p)} "
-         f"| Seated:{len(seated)} Ready:{len(active_s)} | Turn:@{cur}")[:249])
+    await _w(bot, user.id, (
+        f"InHand:{len(players)} Active:{len(active_p)} AllIn:{len(allin_p)} "
+        f"| Seated:{len(seated)} Ready:{len(active_s)} | {_PK_TURN} @{cur}")[:249])
 
     # Line 3: pace + settings
     mode = _s_str("pace_mode", "normal")
@@ -4692,9 +4725,9 @@ async def handle_pokerdashboard(bot: BaseBot, user: User) -> None:
     sb   = _s("small_blind", 50)
     mb   = _s("min_buyin", 100)
     xb   = _s("max_buyin", 5000)
-    await _w(bot, user.id,
-        (f"Pace:{mode} TT:{tt}s | SB:{sb}/BB:{bb} | Buy:{mb}-{xb}c | "
-         f"Timers:{'Turn' if turn_alive else '-'}/{'Next' if next_alive else '-'}")[:249])
+    await _w(bot, user.id, (
+        f"{_PK_TIMER}: {mode} TT:{tt}s | SB:{sb}/BB:{bb} | Buy:{mb:,}-{xb:,}c | "
+        f"Tasks:{'Turn' if turn_alive else '-'}/{'Next' if next_alive else '-'}")[:249])
 
     # Line 4: quick control reminder
     await _w(bot, user.id,
@@ -4779,11 +4812,12 @@ async def handle_pokerturn(bot: BaseBot, user: User) -> None:
     if players and 0 <= idx < len(players):
         cur = players[idx]
         owe = max(0, bet - cur["current_bet"])
-        await _w(bot, user.id,
-            (f"♠️ {phase} | Turn:@{cur['username']} (#{idx}) | "
-             f"Pot:{pot}c | Bet:{bet}c | Owe:{owe}c | Stack:{cur['stack']}c")[:249])
+        await _w(bot, user.id, (
+            f"{_PK_TURN} @{cur['username']} (#{idx}) | {phase} | "
+            f"{_PK_POT}:{pot:,}c Bet:{bet:,}c Owe:{owe:,}c | "
+            f"{_PK_STACK}:{cur['stack']:,}c")[:249])
     else:
-        await _w(bot, user.id, f"♠️ {phase} | No current player (idx={idx})")
+        await _w(bot, user.id, f"{_PK_INFO}: {phase} | No current player (idx={idx})")
 
 
 async def handle_pokerpots(bot: BaseBot, user: User) -> None:
@@ -4798,10 +4832,10 @@ async def handle_pokerpots(bot: BaseBot, user: User) -> None:
     players = _get_players(tbl["round_id"])
     pot     = tbl["pot"]
     bet     = tbl["current_bet"]
-    parts   = [f"@{p['username']}:{p['current_bet']}c"
+    parts   = [f"@{p['username']}:{p['current_bet']:,}c"
                for p in players if p["status"] in ("active", "allin")]
     await _w(bot, user.id,
-        (f"♠️ Pot:{pot}c | Bet:{bet}c | " + "  ".join(parts))[:249])
+        (f"{_PK_POT}:{pot:,}c | Bet:{bet:,}c | " + "  ".join(parts))[:249])
 
 
 async def handle_pokeractions(bot: BaseBot, user: User) -> None:
@@ -4818,10 +4852,10 @@ async def handle_pokeractions(bot: BaseBot, user: User) -> None:
     acted   = [p["username"] for p in players if p.get("acted") and p["status"] == "active"]
     pending = [p["username"] for p in players if not p.get("acted") and p["status"] == "active"]
     allins  = [p["username"] for p in players if p["status"] == "allin"]
-    msg = (f"♠️ Bet:{bet}c | "
+    msg = (f"{_PK_INFO}: Bet:{bet:,}c | "
            f"Acted:{','.join('@'+u for u in acted) or '—'} | "
            f"Pending:{','.join('@'+u for u in pending) or '—'} | "
-           f"AllIn:{','.join('@'+u for u in allins) or '—'}")
+           f"{_PK_ALLIN}:{','.join('@'+u for u in allins) or '—'}")
     await _w(bot, user.id, msg[:249])
 
 
@@ -4888,6 +4922,27 @@ async def handle_pokerresettable(bot: BaseBot, user: User) -> None:
     await _dispatch(bot, user, fake_user_args)
 
 
+async def handle_pokerstylepreview(bot: BaseBot, user: User) -> None:
+    """/pokerstylepreview — preview all poker color label styles."""
+    samples = [
+        f"{_PK_DEALER}: Drawing cards...",
+        f"{_PK_HAND}: A♠ K♦ | {_PK_BOARD}: 7♣ 2♥ 9♦",
+        f"{_PK_TURN} @You | {_PK_POT}:500c | Call:100c",
+        f"{_PK_CHECK} — @player",
+        f"{_PK_CALL} — @player called 100c | {_PK_POT}: 300c",
+        f"{_PK_RAISE} — @player +200c | New bet: 300c",
+        f"{_PK_FOLD} — @player",
+        f"{_PK_ALLIN} — @player all-in 500c | {_PK_POT}: 1,000c",
+        f"{_PK_WIN} — @player wins 1,000c with Full House",
+        f"{_PK_LOSS} — @player Two Pair",
+        f"{_PK_WARN}: Must call 200c or fold",
+        f"{_PK_BLIND} SB:@p1(50c) BB:@p2(100c) | {_PK_POT}:150c",
+        f"{_PK_TIMER}: 30s | {_PK_STACK}: 1,000c | {_PK_INFO}: Preview done.",
+    ]
+    for s in samples:
+        await _w(bot, user.id, s[:249])
+
+
 async def handle_pokerplayers(bot: BaseBot, user: User) -> None:
     """/pokerplayers — show all seated players, stacks, and hand status (staff)."""
     if not can_manage_games(user.username):
@@ -4904,7 +4959,8 @@ async def handle_pokerplayers(bot: BaseBot, user: User) -> None:
     cur_name = (players[idx]["username"].lower()
                 if players and 0 <= idx < len(players) else "")
 
-    lines: list[str] = [f"♠️ Seats ({len(seated)}):"]
+    hn_now = tbl.get("hand_number", 0) if tbl else 0
+    lines: list[str] = [f"{_PK_INFO}: Seats({len(seated)}) Hand#{hn_now}"]
     for sp in seated:
         uname  = sp["username"]
         stack  = sp["table_stack"]
@@ -4913,9 +4969,9 @@ async def handle_pokerplayers(bot: BaseBot, user: User) -> None:
                        if p["username"].lower() == uname.lower()), None)
         if p_row:
             pst = p_row["status"]
-            tag = " fold" if pst == "folded" else " allin" if pst == "allin" else " hand"
+            tag = f" {_PK_FOLD}" if pst == "folded" else f" {_PK_ALLIN}" if pst == "allin" else " ♠"
         elif status == "sitting_out":
-            tag = " out"
+            tag = " 💤"
         else:
             tag = ""
         actor = " ◄" if uname.lower() == cur_name else ""

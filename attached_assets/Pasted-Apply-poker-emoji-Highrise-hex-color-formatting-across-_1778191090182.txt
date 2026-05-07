@@ -1,0 +1,126 @@
+Apply poker emoji + Highrise hex color formatting across the whole poker system.
+
+Focus only on poker message readability.
+Do not change poker rules, turn order, cards, chip logic, all-in logic, side pots, bank, mining, events, shop, bot outfits, room ID, or bot tokens.
+
+Goal:
+Make all poker bot messages easier to read with consistent emojis and Highrise hex color labels.
+
+Highrise color format:
+<#RRGGBB>Text
+
+Always reset after colored labels:
+<#FFFFFF>
+
+Use this color map:
+Dealer/System: <#66CCFF>
+Your Turn: <#00FFCC>
+Check: <#00FF66>
+Call: <#3399FF>
+Bet/Pot/Win/All-In: <#FFD700>
+Raise: <#FF9900>
+Fold/Invalid/Loss/Warning: <#FF3333>
+Cards/Hand: <#CC66FF>
+Board: <#B388FF>
+Stack: <#00FFAA>
+Blind: <#FFAA00>
+Timer: <#FFCC00>
+Reset: <#FFFFFF>
+
+Use these exact labels:
+DEALER: <#66CCFF>🎲 Dealer<#FFFFFF>
+CARDS: <#CC66FF>🃏 Cards<#FFFFFF>
+YOUR TURN: <#00FFCC>👉 YOUR TURN<#FFFFFF>
+BOARD: <#B388FF>🃏 BOARD<#FFFFFF>
+YOUR HAND: <#CC66FF>🃏 YOUR HAND<#FFFFFF>
+POT: <#FFD700>🪙 POT<#FFFFFF>
+STACK: <#00FFAA>💵 STACK<#FFFFFF>
+BLIND: <#FFAA00>👁️ BLIND<#FFFFFF>
+TIMER: <#FFCC00>⏳ TIMER<#FFFFFF>
+CHECK: <#00FF66>✅ CHECK<#FFFFFF>
+CALL: <#3399FF>📞 CALL<#FFFFFF>
+BET: <#FFD700>💰 BET<#FFFFFF>
+RAISE: <#FF9900>⬆️ RAISE<#FFFFFF>
+FOLD: <#FF3333>❌ FOLD<#FFFFFF>
+ALL-IN: <#FFD700>🔥 ALL-IN<#FFFFFF>
+WIN: <#FFD700>🏆 WIN<#FFFFFF>
+LOSS: <#FF3333>❌ LOSS<#FFFFFF>
+WARNING: <#FF3333>⚠️ WARNING<#FFFFFF>
+INVALID: <#FF3333>⚠️ INVALID<#FFFFFF>
+INFO: <#66CCFF>ℹ️ INFO<#FFFFFF>
+
+Important:
+Fold must be ❌ FOLD, not 🏳️ FOLD.
+
+Tasks:
+1. Create or update one central poker formatting helper, such as:
+   format_poker_label(label)
+   format_poker_action(action, amount=None, username=None)
+   format_poker_turn_prompt(...)
+   format_poker_pot(...)
+   format_poker_board(...)
+   format_poker_cards(...)
+   format_poker_warning(...)
+
+2. Replace scattered raw poker messages with the formatter wherever practical.
+
+Apply formatting to:
+- hand start messages
+- “Drawing cards...”
+- “Dealing to @player...”
+- card whispers
+- blind posts
+- turn prompts
+- check/call/bet/raise/fold/all-in messages
+- invalid action messages
+- pot messages
+- side pot messages
+- flop/turn/river messages
+- showdown messages
+- winner/loss messages
+- /pokeractions
+- /pokerturn
+- /pokerdealstatus
+- /pokerdashboard
+- /pokerplayers
+- /pokerpots
+- /pokerstacks
+- /pokerpace
+- /dealstatus if used
+- /resendcards and /cards messages
+
+3. Keep messages short.
+Highrise messages are small. Avoid long walls of text.
+Split into 2 short messages if needed.
+
+4. Always reset color after colored labels using <#FFFFFF>.
+Example:
+<#FF3333>❌ FOLD<#FFFFFF> — @player folded.
+
+5. Do not use HTML, markdown color, ANSI, Discord colors, or unsupported formatting.
+
+6. Do not color entire long paragraphs.
+Only color short labels/actions so the rest remains readable.
+
+7. Add a preview/test command:
+   /pokerstylepreview
+
+It should show sample messages:
+- Dealer
+- Cards
+- Your Turn
+- Check/Call/Raise/Fold/All-In
+- Pot
+- Winner
+- Warning
+
+8. Update command registry so:
+   /commandtest /pokerstylepreview
+shows route=YES handler=YES owner=Poker.
+
+After finishing, tell me:
+- files changed
+- where the formatter is
+- which poker message areas were updated
+- any messages left unformatted
+- exact tests to run

@@ -359,6 +359,7 @@ REGISTRY: dict[str, Cmd] = {
     "pokerturn":         Cmd("poker","casino", False, True,  False, perm="staff"),
     "pokerpots":         Cmd("poker","casino", False, True,  False, perm="staff"),
     "pokeractions":      Cmd("poker","casino", False, True,  False, perm="staff"),
+    "pokerstylepreview": Cmd("poker","casino", False, False, False, perm="all"),
     "pokerresetturn":    Cmd("poker","casino", False, False, True,  perm="manager"),
     "pokerresethand":    Cmd("poker","casino", False, False, True,  perm="manager"),
     "pokerresettable":   Cmd("poker","casino", False, False, True,  perm="manager"),

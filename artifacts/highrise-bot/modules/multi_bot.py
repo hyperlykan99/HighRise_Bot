@@ -101,6 +101,7 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "pokerpause": "poker", "pokerresume": "poker",
     "pokerforceadvance": "poker", "pokerforceresend": "poker",
     "pokerturn": "poker", "pokerpots": "poker", "pokeractions": "poker",
+    "pokerstylepreview": "poker",
     "pokerresetturn": "poker", "pokerresethand": "poker", "pokerresettable": "poker",
     "setpokertimer": "poker", "setpokerturntimer": "poker",
     "setpokerlobbytimer": "poker", "setpokernexthandtimer": "poker",
