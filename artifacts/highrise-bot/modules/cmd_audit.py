@@ -180,6 +180,7 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     "subhelp",
     "bankhelp", "bankerhelp", "casinohelp", "gamehelp",
     "coinhelp", "economydbcheck", "economyrepair", "profilehelp",
+    "crashlogs", "missingbots", "commandaudit",
     "shophelp", "progresshelp", "bjhelp", "rbjhelp",
     "rephelp", "autohelp", "vipstatus", "vipshop", "buyvip", "viphelp",
     "tiphelp", "roleshelp", "maintenancehelp",
@@ -368,6 +369,38 @@ async def handle_checkcommands(bot: BaseBot, user: User, all_known: set) -> None
     await _w(bot, user.id,
              f"CmdCheck: Known {len(all_known)} | Routed {routed_ok} | "
              f"Missing {missing} | NoOwner {no_owner} | Silent {silent}"[:249])
+
+
+# ---------------------------------------------------------------------------
+# /commandaudit [page]
+# ---------------------------------------------------------------------------
+
+async def handle_commandaudit(bot: BaseBot, user: User, args: list[str] | None = None) -> None:
+    """
+    /commandaudit [page]
+    Lists help-visible commands that have no routing handler.  Admin+.
+    """
+    if not _can_audit(user.username):
+        await _w(bot, user.id, "Staff only.")
+        return
+    page = 1
+    if args and len(args) >= 2:
+        try:
+            page = int(args[1])
+        except ValueError:
+            pass
+    broken = sorted(HELP_CMDS - ROUTED_COMMANDS)
+    print(f"[AUDIT] /commandaudit @{user.username}: {broken}")
+    if not broken:
+        await _w(bot, user.id,
+                 f"Cmd Audit: {len(ROUTED_COMMANDS)} routed | 0 broken — all good.")
+        return
+    per_page = 10
+    total_pages = max(1, (len(broken) + per_page - 1) // per_page)
+    page = max(1, min(page, total_pages))
+    chunk = broken[(page - 1) * per_page: page * per_page]
+    lines = ", ".join(f"/{c}" for c in chunk)
+    await _w(bot, user.id, (f"Broken p{page}/{total_pages}: {lines}")[:249])
 
 
 # ---------------------------------------------------------------------------

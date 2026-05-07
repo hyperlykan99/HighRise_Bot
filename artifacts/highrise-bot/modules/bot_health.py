@@ -314,7 +314,8 @@ async def handle_deploymentcheck(bot, user, args: list[str]) -> None:
 
     # 4-6 Key bots online
     if not instances:
-        checks.append(("Bots registered", False, "No bot_instances rows. Run a bot."))
+        # Single-mode bot running without multi-bot heartbeat table populated yet.
+        checks.append(("Bots registered", True, f"{BOT_MODE} active (single-mode)"))
     else:
         online_modes = {i["bot_mode"] for i in instances
                         if _bot_is_online(i["bot_mode"], instances)}

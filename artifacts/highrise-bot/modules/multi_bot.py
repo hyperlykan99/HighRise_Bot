@@ -698,11 +698,13 @@ def should_this_bot_handle(cmd: str) -> bool:
 
     owner_mode = _resolve_command_owner(cmd)
 
-    # Hard owners — host must NEVER respond to these, regardless of heartbeat.
+    # Hard owners — host/eventhost must NEVER respond to these, regardless of heartbeat.
     # Separate Highrise accounts; no fallback, no startup-window gap.
     # Exception: safe help-only pages from hard-owner modes may be covered by
-    # host when the owner bot is offline (no economy/game side-effects).
-    if mode == "host" and owner_mode in _HARD_OWNER_MODES:
+    # host or eventhost when the owner bot is offline (no economy/game side-effects).
+    # Both host and eventhost are checked because they share a Highrise account
+    # and alternate via multilogin — only one is ever in the room at a time.
+    if mode in ("host", "eventhost") and owner_mode in _HARD_OWNER_MODES:
         if not _is_mode_online(owner_mode) and cmd in _HARD_OWNER_SAFE_HELP_CMDS:
             return True
         return False
@@ -864,7 +866,8 @@ def _mode_icon(mode: str) -> str:
 async def handle_bots_live(bot, user) -> None:
     instances = db.get_bot_instances()
     if not instances:
-        await _w(bot, user.id, "🤖 Main bot (BOT_MODE=all) handling all modules.")
+        await _w(bot, user.id,
+                 f"🤖 Bots: {_MODE_NAMES.get(BOT_MODE, BOT_MODE)} ON (single-mode)")
         return
     now = datetime.now(timezone.utc)
     parts: list[str] = []
@@ -1229,7 +1232,7 @@ async def handle_startupstatus(bot, user) -> None:
         return
     host_lbl = "ON" if host_val == "true" else "OFF"
     mod_lbl = "ON" if mod_val == "true" else "OFF"
-    await _w(bot, user.id, f"Startup: Host {host_lbl} | Modules {mod_lbl}")
+    await _w(bot, user.id, f"Startup announce: Host {host_lbl} | Modules {mod_lbl}")
 
 
 # Keep old handler as an alias so any existing /botstartupannounce calls still work

@@ -179,6 +179,7 @@ from modules.cmd_audit import (
     handle_silentcheck, handle_commandtest,
     handle_fixcommands, handle_testcommands,
     handle_commandintegrity, handle_commandrepair,
+    handle_commandaudit,
 )
 from modules.economy_settings import (
     handle_economysettings,
@@ -556,7 +557,7 @@ ALL_KNOWN_COMMANDS = (
         "vipshop", "buyvip", "vipstatus",
         "me", "whois", "pinfo", "stats", "badges", "titles", "privacy",
         "profileadmin", "profileprivacy", "resetprofileprivacy",
-        "allstaff", "allcommands", "checkcommands",
+        "allstaff", "allcommands", "checkcommands", "commandaudit",
         "missingcommands", "routecheck", "silentcheck", "commandtest",
         "fixcommands", "testcommands", "commandintegrity", "commandrepair",
         "notifications", "clearnotifications",
@@ -669,6 +670,7 @@ ALL_KNOWN_COMMANDS = (
         "setmainmode",
         # ── Bot health / deployment checks ────────────────────────────────────
         "bothealth", "modulehealth", "deploymentcheck",
+        "crashlogs", "missingbots",
         "botlocks", "clearstalebotlocks",
         "botheartbeat", "moduleowners",
         "botconflicts", "fixbotowners", "dblockcheck",
@@ -687,14 +689,16 @@ ALL_KNOWN_COMMANDS = (
 # ---------------------------------------------------------------------------
 
 HELP_TEXT = (
-    "🤖 Help\n"
+    "🎒 Help\n"
     "🎮 /gamehelp\n"
-    "🎰 /casinohelp\n"
+    "🏛️ /casinohelp\n"
     "💰 /coinhelp\n"
     "🏦 /bankhelp\n"
     "🛒 /shophelp\n"
     "⭐ /profilehelp\n"
-    "More: /progresshelp /eventhelp"
+    "More: /progresshelp /eventhelp\n"
+    "Staff: /staffhelp\n"
+    "Admin: /adminhelp"
 )
 
 GAME_HELP_PAGES = [
@@ -1875,6 +1879,7 @@ class HangoutBot(BaseBot):
     async def on_start(self, session_metadata) -> None:
         """Called once when the bot successfully connects to the room."""
         db.init_db()
+        print(f"[SDK] bot mode={BOT_MODE} ready")
         print(f"[HangoutBot] Connected — room {config.ROOM_ID} | DB: {config.DB_PATH}")
         print(f"[HangoutBot] SDK version: {_TIP_SDK_VERSION}")
         print(f"[HangoutBot] Run command: cd artifacts/highrise-bot && python3 bot.py")
@@ -1934,6 +1939,7 @@ class HangoutBot(BaseBot):
 
         cmd  = parts[0].lower()
         args = parts
+        print(f"[RX] mode={BOT_MODE} user={user.username} text={message}")
 
         # ── Multi-bot gate — ignore if another bot owns this command ─────────
         if not should_this_bot_handle(cmd):
@@ -3745,8 +3751,50 @@ class HangoutBot(BaseBot):
         elif cmd == "toggle":
             await handle_toggle(self, user, args)
 
-        # ── Unknown command ───────────────────────────────────────────────────
+        # ── Diagnostics — lightweight info commands ────────────────────────────
+        elif cmd == "crashlogs":
+            await self.highrise.send_whisper(
+                user.id, "No crash log system in this version."
+            )
+
+        elif cmd == "missingbots":
+            _mb_instances = db.get_bot_instances()
+            if not _mb_instances:
+                await self.highrise.send_whisper(
+                    user.id, "Missing bots: none registered (single-mode)."
+                )
+            else:
+                from datetime import datetime as _dt, timezone as _tz
+                _mb_now = _dt.now(_tz.utc)
+                _mb_miss: list[str] = []
+                for _mbi in _mb_instances:
+                    if not _mbi.get("enabled", 1):
+                        continue
+                    _mbm = _mbi.get("bot_mode", "?")
+                    _mbts = _mbi.get("last_seen_at", "")
+                    if not _mbts:
+                        _mb_miss.append(_mbm)
+                        continue
+                    try:
+                        _mbls = _dt.fromisoformat(_mbts.replace("Z", "+00:00"))
+                        if _mbls.tzinfo is None:
+                            _mbls = _mbls.replace(tzinfo=_tz.utc)
+                        _mbage = (_mb_now - _mbls).total_seconds()
+                        if _mbage > 120:
+                            _mb_miss.append(f"{_mbm}(~{int(_mbage)}s)")
+                    except Exception:
+                        _mb_miss.append(f"{_mbm}(?)")
+                _mb_msg = (("Missing: " + ", ".join(_mb_miss))
+                           if _mb_miss else "Missing bots: none — all online.")
+                await self.highrise.send_whisper(user.id, _mb_msg[:249])
+
+        elif cmd == "commandaudit":
+            await handle_commandaudit(self, user, args)
+
+        # ── Unknown command — only host/all mode replies; others ignore silently
         else:
+            if BOT_MODE not in ("host", "all"):
+                return
             if cmd.startswith("gold") and not can_manage_economy(user.username):
                 await self.highrise.send_whisper(user.id, "Gold commands are staff only.")
             elif cmd in STAFF_CMDS and not can_moderate(user.username):

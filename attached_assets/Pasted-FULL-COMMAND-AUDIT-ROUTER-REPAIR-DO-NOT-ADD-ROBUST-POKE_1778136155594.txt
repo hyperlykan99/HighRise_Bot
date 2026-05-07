@@ -1,0 +1,380 @@
+FULL COMMAND AUDIT + ROUTER REPAIR. DO NOT ADD ROBUST POKER.
+
+Current problem:
+Many commands shown in /help do not work:
+- /coinhelp
+- /bankhelp
+- /economydbcheck
+- /bots
+- /bothealth
+- /deploymentcheck
+- /crashlogs latest
+- some diagnostics say Host OFF | Modules OFF
+But some module commands work:
+- /help works from EmceeBot
+- /balance works from BankingBot
+- /pokerhelp works from ChipSoprano
+
+Goal:
+Make every command listed in help either:
+1. Work correctly, or
+2. Be removed from help until implemented.
+
+Do not leave commands visible in help if they do nothing.
+
+IMPORTANT:
+Do not re-add robust poker.
+Do not change poker gameplay.
+Do not change blackjack gameplay.
+Do not change mining gameplay.
+Do not wipe database.
+Do not reset balances.
+Do not change tokens.
+Do not add AI.
+Do not add background recovery loops.
+
+==================================================
+PART 1: HIGHRISE SDK COMPATIBILITY CHECK
+==================================================
+
+Verify the project uses the installed highrise-bot-sdk correctly.
+
+Check:
+- Bot classes inherit from BaseBot if using SDK class style.
+- Chat commands are handled through the correct Highrise SDK chat/message event used in this project.
+- Async handlers are awaited correctly.
+- No blocking code inside chat handlers.
+- No command handler crashes silently.
+
+Add console logs:
+[SDK] highrise package import OK
+[SDK] bot mode=<mode> ready
+[RX] mode=<mode> user=<username> text=<message>
+
+If SDK import or event signature is wrong, fix it to match the installed highrise-bot-sdk package.
+
+==================================================
+PART 2: CREATE ONE COMMAND REGISTRY
+==================================================
+
+Create or repair a central command registry.
+
+Every command must have:
+- command name
+- aliases
+- owner module
+- permission level
+- help section
+- handler function
+- enabled true/false
+
+Example:
+"/balance" owner="banker"
+"/bal" owner="banker"
+"/pokerhelp" owner="poker"
+"/bjhelp" owner="blackjack"
+"/minehelp" owner="miner"
+"/help" owner="host"
+
+There must not be separate conflicting command lists.
+
+==================================================
+PART 3: ROUTING RULE
+==================================================
+
+Only the owning bot handles the command.
+
+Host/EmceeBot handles:
+- /help
+- /gamehelp
+- /casinohelp
+- /shophelp
+- /profilehelp
+- /progresshelp
+- /eventhelp
+- /staffhelp
+- /adminhelp
+- /goldhelp
+- /checkcommands
+- /bots
+- /bothealth
+- /deploymentcheck
+- /startupstatus
+- /missingbots
+- /crashlogs latest
+
+Banker/BankingBot handles:
+- /balance
+- /bal
+- /wallet
+- /daily
+- /send
+- /tip
+- /coinhelp
+- /bankhelp
+- /bankerhelp
+- /economydbcheck
+- /economyrepair
+
+Poker/ChipSoprano handles:
+- /p
+- /poker
+- /pokerhelp
+- /poker join
+- /poker leave
+- /sitout
+- /sitin
+- /rebuy
+- /mystack
+- /pstacks
+
+Blackjack/AceSinatra handles:
+- /bjhelp
+- /bjoin
+- /bh
+- /bs
+- /bd
+- /bsp
+- /bhand
+- /bt
+- /blimits
+- /bstats
+- /rbjhelp
+- /rjoin
+- /rh
+- /rs
+- /rd
+- /rsp
+- /rhand
+- /rshoe
+- /rt
+- /rlimits
+- /rstats
+
+Miner/GreatestProspector handles:
+- /minehelp
+- /mine
+- /m
+- /dig
+- /tool
+- /upgradetool
+- /ores
+- /sellores
+- /minelb
+- /mineshop
+- /craft
+- /minedaily
+- /mineprofile
+- /orebook
+- /oremastery
+- /orestats
+- /contracts
+- /job
+- /minerdbcheck
+- /minerrepair
+
+If current bot mode is not the owner:
+- ignore silently
+- do not say unknown command
+- do not reply fallback help
+
+==================================================
+PART 4: FIX HELP PAGES TO MATCH REAL COMMANDS
+==================================================
+
+/help should only show help pages that actually work.
+
+Main /help:
+🎒 Help
+🎮 /gamehelp
+🏛️ /casinohelp
+💰 /coinhelp
+🏦 /bankhelp
+🛒 /shophelp
+⭐ /profilehelp
+More: /progresshelp /eventhelp
+Staff: /staffhelp
+Owner/Admin: /adminhelp
+
+If /coinhelp does not work, fix it or remove it.
+If /bankhelp does not work, fix it or remove it.
+If /shophelp has no commands, it should say:
+"Shop commands not available yet."
+
+==================================================
+PART 5: MAKE ALL HELP COMMANDS ALWAYS REPLY
+==================================================
+
+Every help command must always reply.
+
+Implement/fix:
+
+/coinhelp:
+"💰 Coins: /balance /daily /send @user amount /tip @user amount"
+
+/bankhelp:
+"🏦 Bank: /balance /wallet /daily /send /tip"
+
+/bankerhelp:
+"🏦 Banker: /balance /coinhelp /bankhelp /economydbcheck"
+
+/casinohelp:
+"🎰 Casino: /pokerhelp /bjhelp /rbjhelp"
+
+/gamehelp:
+"🎮 Games: /pokerhelp /bjhelp /rbjhelp /minehelp"
+
+/minehelp:
+existing mining pages
+
+/pokerhelp:
+existing poker pages
+
+/bjhelp:
+existing blackjack pages
+
+/rbjhelp:
+existing RBJ pages
+
+/staffhelp:
+show only working staff commands
+
+/adminhelp:
+show only working admin commands
+
+==================================================
+PART 6: MAKE DIAGNOSTICS REAL OR REMOVE THEM
+==================================================
+
+Fix these if they are listed:
+
+/bots:
+Show online bot modes detected in this process.
+If unavailable:
+"Bot list unavailable in this version."
+
+/bothealth:
+Show simple status:
+"Health: host OK | banker OK | poker OK | blackjack OK | miner OK"
+Only say OK if that module is loaded.
+
+/deploymentcheck:
+Show:
+"Deploy: router OK | modules loaded <count> | db OK"
+
+/startupstatus:
+Do not say Host OFF if EmceeBot is answering.
+Correct logic:
+If current mode is host and command works, host is ON.
+If modules are loaded, modules ON.
+
+/missingbots:
+Show missing configured tokens or modes only.
+Do not falsely report modules missing if commands work.
+
+/crashlogs latest:
+If no crashlog system exists:
+"No crash logs available in this version."
+Do not say unknown command.
+
+==================================================
+PART 7: FIX BANKER COMMANDS
+==================================================
+
+Since /balance works, use the same banker route style for:
+
+/bal
+/coinhelp
+/bankhelp
+/bankerhelp
+/economydbcheck
+/economyrepair
+
+/economydbcheck:
+Check tables used by /balance.
+Reply:
+"Economy DB: OK"
+
+If error:
+"Economy DB fail: <short reason>"
+
+Do not wipe balances.
+
+==================================================
+PART 8: ADD COMMAND SELF-TEST
+==================================================
+
+Fix /checkcommands so it compares:
+- registry commands
+- help commands
+- actual handlers
+
+Reply:
+"Cmd Check: total <n> | working <n> | missing handlers <n> | hidden <n>"
+
+Add owner/admin command:
+
+/commandaudit
+
+It should list up to 10 broken commands:
+"Broken: /coinhelp missing handler, /bots missing handler"
+
+Keep under Highrise chat length limits.
+If too long, split into pages:
+/commandaudit 2
+
+==================================================
+PART 9: ERROR HANDLING
+==================================================
+
+No command should silently fail.
+
+If a handler crashes:
+- log full console error
+- whisper user:
+"Command error. Staff: /crashlogs latest"
+
+Unknown command behavior:
+Only Host should reply:
+"Unknown command. Type /help."
+Module bots should ignore unknown commands.
+
+==================================================
+PART 10: TESTS
+==================================================
+
+After restart, test these:
+
+/help
+/gamehelp
+/casinohelp
+/coinhelp
+/bankhelp
+/bankerhelp
+/balance
+/bal
+/economydbcheck
+/pokerhelp
+/bjhelp
+/rbjhelp
+/minehelp
+/checkcommands
+/commandaudit
+/bots
+/bothealth
+/deploymentcheck
+/startupstatus
+/crashlogs latest
+
+Expected:
+- Every command replies
+- Only the correct bot replies
+- No silent commands
+- No false "Host OFF" if EmceeBot is responding
+- No command listed in /help is broken
+
+Final requirement:
+Make help, registry, router, and handlers match exactly.
+Do not add robust poker.
+Do not add new game features.
+Only repair command consistency and SDK-safe routing.
