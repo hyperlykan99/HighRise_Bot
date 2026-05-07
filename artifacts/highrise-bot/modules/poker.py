@@ -3523,6 +3523,192 @@ async def handle_resetpokerlimits(bot: BaseBot, user: User,
     await _w(bot, user.id, f"✅ Poker daily limits reset for @{target}")
 
 
+# ---------------------------------------------------------------------------
+# Pace modes  (/pokermode, /pokerpace, /setpokerpace)
+# ---------------------------------------------------------------------------
+
+_PACE_PRESETS: dict[str, dict] = {
+    "fast": {
+        "pace_preflop_secs": "20", "pace_flop_secs": "25",
+        "pace_turn_secs":    "20", "pace_river_secs": "20",
+        "pace_deal_delay_secs": "0.3", "turn_timer": "20",
+    },
+    "normal": {
+        "pace_preflop_secs": "30", "pace_flop_secs": "45",
+        "pace_turn_secs":    "30", "pace_river_secs": "30",
+        "pace_deal_delay_secs": "0.5", "turn_timer": "30",
+    },
+    "long": {
+        "pace_preflop_secs": "60", "pace_flop_secs": "90",
+        "pace_turn_secs":    "60", "pace_river_secs": "60",
+        "pace_deal_delay_secs": "1.0", "turn_timer": "60",
+    },
+}
+
+_PACE_SETTING_KEYS: set[str] = {
+    "pace_preflop_secs", "pace_flop_secs", "pace_turn_secs",
+    "pace_river_secs", "pace_deal_delay_secs", "pace_autofold_secs",
+    "pace_inactivity_secs", "turn_timer",
+}
+
+
+async def handle_pokermode(bot: BaseBot, user: User, args: list[str]) -> None:
+    """/pokermode [fast|normal|long] — show or apply a timing preset."""
+    if not can_manage_games(user.username):
+        await _w(bot, user.id, "Managers+ only.")
+        return
+    if len(args) < 2:
+        cur = _s_str("pace_mode", "normal")
+        await _w(bot, user.id,
+                 f"♠️ Current pace mode: {cur}\n"
+                 "Options: fast / normal / long\n"
+                 "Usage: /pokermode <mode>")
+        return
+    mode = args[1].lower()
+    if mode not in _PACE_PRESETS:
+        await _w(bot, user.id, "Valid modes: fast, normal, long.")
+        return
+    preset = _PACE_PRESETS[mode]
+    for k, v in preset.items():
+        _set(k, v)
+    _set("pace_mode", mode)
+    await _w(bot, user.id,
+             f"✅ Poker pace → {mode.upper()} | "
+             f"Turn timer: {preset['turn_timer']}s | "
+             f"Deal delay: {preset['pace_deal_delay_secs']}s")
+
+
+def _s_str(key: str, fallback: str = "") -> str:
+    """Read a poker setting as a string (like _s but no int conversion)."""
+    conn = db.get_connection()
+    row  = conn.execute(
+        "SELECT value FROM poker_settings WHERE key=?", (key,)
+    ).fetchone()
+    conn.close()
+    return row["value"] if row else fallback
+
+
+async def handle_pokerpace(bot: BaseBot, user: User) -> None:
+    """/pokerpace — show all current pace settings."""
+    mode  = _s_str("pace_mode", "normal")
+    pref  = _s("pace_preflop_secs", 30)
+    flop  = _s("pace_flop_secs",    45)
+    turn  = _s("pace_turn_secs",    30)
+    river = _s("pace_river_secs",   30)
+    dd    = _s_str("pace_deal_delay_secs", "0.5")
+    tt    = _s("turn_timer", 30)
+    await _w(bot, user.id,
+             f"♠️ Pace: {mode.upper()} | TurnTimer:{tt}s\n"
+             f"Preflop:{pref}s Flop:{flop}s Turn:{turn}s River:{river}s\n"
+             f"DealDelay:{dd}s | /setpokerpace <key> <val>")
+
+
+async def handle_setpokerpace(bot: BaseBot, user: User, args: list[str]) -> None:
+    """/setpokerpace <setting> <value> — set a single pace setting."""
+    if not can_manage_games(user.username):
+        await _w(bot, user.id, "Managers+ only.")
+        return
+    if len(args) < 3:
+        keys = ", ".join(sorted(_PACE_SETTING_KEYS))
+        await _w(bot, user.id,
+                 f"Usage: /setpokerpace <setting> <value>\nKeys: {keys}"[:249])
+        return
+    key = args[1].lower()
+    val = args[2]
+    if key not in _PACE_SETTING_KEYS:
+        await _w(bot, user.id,
+                 f"Unknown setting. Valid: {', '.join(sorted(_PACE_SETTING_KEYS))}"[:249])
+        return
+    try:
+        float(val)
+    except ValueError:
+        await _w(bot, user.id, "Value must be a number.")
+        return
+    _set(key, val)
+    _set("pace_mode", "custom")
+    await _w(bot, user.id, f"✅ {key} → {val} | Pace mode set to custom.")
+
+
+# ---------------------------------------------------------------------------
+# Stack settings  (/pokerstacks, /setpokerstack)
+# ---------------------------------------------------------------------------
+
+_STACK_SETTING_MAP: dict[str, str] = {
+    "min":       "stack_min_buyin",
+    "max":       "stack_max_buyin",
+    "default":   "stack_default",
+    "rebuymin":  "stack_rebuy_min",
+    "rebuymax":  "stack_rebuy_max",
+}
+
+
+async def handle_pokerstacks(bot: BaseBot, user: User) -> None:
+    """/pokerstacks — show all stack/buyin settings."""
+    mn  = _s("stack_min_buyin",  100)
+    mx  = _s("stack_max_buyin",  10000)
+    def_= _s("stack_default",    1000)
+    rm  = _s("stack_rebuy_min",  100)
+    rmx = _s("stack_rebuy_max",  10000)
+    await _w(bot, user.id,
+             f"♠️ Stacks: Buy {mn}-{mx}c | Default:{def_}c\n"
+             f"Rebuy: {rm}-{rmx}c | /setpokerstack <key> <val>")
+
+
+async def handle_setpokerstack(bot: BaseBot, user: User, args: list[str]) -> None:
+    """/setpokerstack min|max|default|rebuymin|rebuymax <amount>"""
+    if not can_manage_games(user.username):
+        await _w(bot, user.id, "Managers+ only.")
+        return
+    if len(args) < 3:
+        keys = ", ".join(_STACK_SETTING_MAP.keys())
+        await _w(bot, user.id,
+                 f"Usage: /setpokerstack <{keys}> <amount>")
+        return
+    key = args[1].lower()
+    val = args[2]
+    if key not in _STACK_SETTING_MAP:
+        await _w(bot, user.id,
+                 f"Unknown key. Options: {', '.join(_STACK_SETTING_MAP.keys())}")
+        return
+    if not val.isdigit() or int(val) < 1:
+        await _w(bot, user.id, "Amount must be a positive integer.")
+        return
+    db_key = _STACK_SETTING_MAP[key]
+    _set(db_key, int(val))
+    # Sync min_buyin / max_buyin to main settings if applicable
+    if key == "min":
+        _set("min_buyin", int(val))
+    elif key == "max":
+        _set("max_buyin", int(val))
+    elif key == "rebuymin":
+        _set("min_buyin", int(val))
+    elif key == "rebuymax":
+        _set("max_buyin", int(val))
+    await _w(bot, user.id, f"✅ {key} → {val}c saved.")
+
+
+async def handle_dealstatus(bot: BaseBot, user: User) -> None:
+    """/dealstatus — show card delivery status for the active hand."""
+    if not can_manage_games(user.username):
+        await _w(bot, user.id, "Managers+ only.")
+        return
+    tbl = _get_table()
+    if not tbl or not tbl.get("round_id"):
+        await _w(bot, user.id, "No active poker round.")
+        return
+    rnd = tbl["round_id"]
+    rows = db.get_card_delivery_status(rnd)
+    if not rows:
+        await _w(bot, user.id, "No delivery records for this round.")
+        return
+    ok  = [r["username"] for r in rows if r.get("delivered")]
+    bad = [r["username"] for r in rows if not r.get("delivered")]
+    msg = f"♠️ Cards delivered: {len(ok)} | Failed: {len(bad)}"
+    if bad:
+        msg += "\nFailed: " + ", ".join(f"@{u}" for u in bad[:5])
+    await _w(bot, user.id, msg[:249])
+
+
 async def handle_setpokerturntimer(bot: BaseBot, user: User,
                                     args: list[str]) -> None:
     await handle_setpokertimer(bot, user, args)

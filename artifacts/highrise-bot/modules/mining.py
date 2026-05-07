@@ -350,8 +350,20 @@ async def handle_mine(bot: BaseBot, user: User) -> None:
     if mine_event and mine_event.get("event_id") == "double_mxp":
         mxp *= 2
 
-    # Quantity (normally 1; double_ore event makes it 2)
-    qty = 2 if (mine_event and mine_event.get("event_id") == "double_ore") else 1
+    # Admin's Blessing main event boost: 2x MXP + 2x quantity
+    _blessing_active = False
+    try:
+        from modules.events import get_event_effect as _gee
+        _eff = _gee()
+        if _eff.get("mining_boost"):
+            mxp *= 2
+            _blessing_active = True
+    except Exception:
+        pass
+
+    # Quantity (normally 1; double_ore event or Admin's Blessing makes it 2)
+    double_ore = (mine_event and mine_event.get("event_id") == "double_ore")
+    qty = 2 if (double_ore or _blessing_active) else 1
 
     # Persist changes
     new_energy = miner["energy"] - energy_cost
@@ -1028,6 +1040,47 @@ async def handle_setmineenergycost(bot: BaseBot, user: User, args: list[str]) ->
         return
     db.set_mine_setting("base_energy_cost", args[1])
     await _w(bot, user.id, f"✅ Energy cost per mine set to {args[1]}.")
+
+
+async def handle_mineconfig(bot: BaseBot, user: User) -> None:
+    """/mineconfig — show all current mining configuration values (admin/manager)."""
+    if not _can_mine_admin(user.username):
+        await _w(bot, user.id, "Admin/manager only.")
+        return
+    cd   = db.get_mine_setting("base_cooldown_seconds", "30")
+    ec   = db.get_mine_setting("base_energy_cost", "5")
+    en   = db.get_mine_setting("mining_enabled", "true")
+    rr   = db.get_mine_setting("mining_requires_room", "true")
+    ra   = db.get_mine_setting("rare_announce_enabled", "true")
+    await _w(bot, user.id,
+             f"⛏️ Mine Config\n"
+             f"Cooldown: {cd}s | Energy cost: {ec}\n"
+             f"Mining: {'ON' if en == 'true' else 'OFF'} | "
+             f"Room req: {'YES' if rr == 'true' else 'NO'}\n"
+             f"Rare announce: {'ON' if ra == 'true' else 'OFF'}")
+
+
+async def handle_mineeventstatus(bot: BaseBot, user: User) -> None:
+    """/mineeventstatus — show active mining event if any."""
+    mine_event = db.get_active_mining_event()
+    effect     = {}
+    try:
+        from modules.events import get_event_effect
+        effect = get_event_effect()
+    except Exception:
+        pass
+    blessing = effect.get("mining_boost", False)
+
+    if not mine_event and not blessing:
+        await _w(bot, user.id, "⛏️ No mining event is active right now.")
+        return
+
+    parts: list[str] = []
+    if mine_event:
+        parts.append(f"Mine event: {mine_event.get('event_id','?')}")
+    if blessing:
+        parts.append("Admin's Blessing active (+2x ore qty)")
+    await _w(bot, user.id, "⛏️ " + " | ".join(parts))
 
 
 async def handle_setminingenergy(bot: BaseBot, user: User, args: list[str]) -> None:

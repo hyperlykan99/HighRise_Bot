@@ -1,0 +1,409 @@
+Major multi-module upgrade: AI, events, blackjack, poker, mining, emotes, and bot spawning.
+
+Do not expose bot tokens.
+Do not expose ROOM_ID secrets.
+Do not reset player balances.
+Do not wipe player data.
+Do not break existing command routing.
+Do not change bot ownership unless needed for the requested feature.
+Use existing handlers and database systems when possible.
+Add migrations safely with CREATE TABLE IF NOT EXISTS / ALTER TABLE guarded checks.
+After changes, tell me every file changed and exact commands to test.
+
+==================================================
+PART 1 — AI ASSISTANT FIXES
+==================================================
+
+Current AI problems:
+1. When I say “Emcee, copy my outfit to KeanuShield”, EmceeBot says success but KeanuShield’s outfit does not actually change.
+2. AI still suggests commands like /bal or /profile instead of actually showing the data.
+3. I want to set where each bot spawns in the room, not only at the default door.
+
+Fix AI behavior:
+
+A. Outfit delegation must actually work
+- EmceeBot cannot directly dress another bot.
+- The target bot must execute set_outfit on itself.
+- If I say:
+  “Emcee, copy my outfit to KeanuShield”
+  then:
+  1. EmceeBot should confirm.
+  2. After yes, create a delegated task for target_bot_username=KeanuShield.
+  3. KeanuShield must pick up the delegated task.
+  4. KeanuShield must run the actual outfit command on itself.
+  5. Only after KeanuShield successfully changes outfit should the task say completed.
+- Do not say success until the target bot actually applied the outfit.
+- If target bot is offline, say:
+  “I can do that, but @KeanuShield is offline right now.”
+- Add stronger logging:
+  [AI_DELEGATE] created
+  [AI_DELEGATE] picked_up_by=<bot>
+  [AI_DELEGATE] executing=<command>
+  [AI_DELEGATE] completed/failed
+- Add /aidelegations to show recent delegated tasks and their status.
+
+B. AI should execute safe commands, not suggest them
+If I say:
+- “Emcee, show my profile”
+- “MC, show my profile”
+- “Emcee, show testuser profile”
+- “Emcee, show my balance”
+- “Emcee, show shop”
+- “Emcee, show my ores”
+
+It should actually call the existing handlers and show the result.
+
+Bad:
+“Use /profile.”
+
+Good:
+Actually display the profile result.
+
+Bad:
+“Use /bal.”
+
+Good:
+Actually display the balance.
+
+Use existing handlers:
+- /profile or /me or /stats for profile
+- /bal for balance
+- /shop for shop
+- /ores for ores
+
+If the exact command/handler does not exist, say:
+“I can’t do that yet because no working handler exists for that feature.”
+
+C. Add bot spawn locations
+I want each bot to spawn in a custom room location instead of always appearing at the door.
+
+Add commands:
+- /setbotspawn <bot_username> <spawn_name>
+- /setbotspawnhere <bot_username>
+- /botspawns
+- /clearbotspawn <bot_username>
+
+AI examples:
+- “Emcee, set KeanuShield spawn here”
+- “Emcee, set BankingBot spawn to bank”
+- “Emcee, show bot spawns”
+- “Emcee, clear KeanuShield spawn”
+
+Behavior:
+- Save bot spawn settings in database.
+- On bot startup/on_start, after joining room, if this bot has a saved bot spawn, teleport/move itself there if SDK supports it.
+- If SDK does not support moving the bot to coordinates, say:
+  “I saved the spawn, but this SDK cannot move the bot automatically.”
+- Admin/owner only.
+- Requires confirmation.
+
+==================================================
+PART 2 — EMOTE SYSTEM
+==================================================
+
+Goal:
+I want a complete emote system.
+
+Requirements:
+1. Gather the whole emote list from the installed Highrise SDK if possible.
+2. If SDK has no full emote catalog, create a maintained emote registry file:
+   modules/emote_registry.py
+3. Include official/common Highrise emotes if available from SDK/docs.
+4. Add commands:
+   - /emotes [page]
+   - /emote <emote_name>
+   - /forceemote <username> <emote_name>
+   - /stopemote <username>
+   - /emoteinfo <emote_name>
+
+Permissions:
+- Anyone can use /emote <emote_name> on themselves through the bot if SDK supports it.
+- Staff/admins can force players to emote.
+- If forcing other users is not supported by SDK, clearly say:
+  “The SDK does not support forcing a player emote.”
+- Do not crash if emote name is invalid.
+
+AI examples:
+- “Emcee, make me dance”
+- “Emcee, use the wave emote”
+- “Emcee, force testuser to dance”
+- “Emcee, show emotes”
+
+Important:
+- If the Highrise SDK only allows the bot to emote itself, explain that limitation.
+- Do not pretend player-forced emotes worked if SDK does not support it.
+
+==================================================
+PART 3 — EVENTS AND AUTOGAMES PERSISTENCE
+==================================================
+
+Problems:
+1. Random events need to be fixed on time.
+2. If I start an event and the bot crashes/restarts, the event should continue with the remaining timer.
+3. Auto games should also continue/resume after crash/restart.
+
+Add persistent event state:
+Database table:
+active_events:
+- id
+- event_type
+- event_name
+- started_by
+- started_at
+- duration_seconds
+- ends_at
+- status
+- effect_json
+- created_at
+- updated_at
+
+Behavior:
+- When event starts, save started_at and ends_at.
+- On bot restart, reload active event.
+- If ends_at is still in the future, resume the event with remaining time.
+- If expired while offline, mark expired and cleanly end it.
+- Event effects should use ends_at, not memory-only timers.
+- Auto games should also save state/timer and resume safely.
+
+Add commands:
+- /eventstatus
+- /eventresume
+- /eventstop
+- /eventhistory
+- /autogamestatus
+- /autogameresume
+
+AI examples:
+- “Emcee, start double exp event for 30 minutes”
+- “Emcee, stop event”
+- “Emcee, show event status”
+- “Emcee, resume autogames”
+
+Admin’s Blessing event:
+Add event:
+- admins_blessing
+
+Behavior:
+- “Admin’s Blessing” activates all major positive events at once for a staff-set amount of time.
+- It should stack/enable:
+  - double XP
+  - double coins
+  - mining boost
+  - tax-free bank if applicable
+  - shop sale if applicable
+  - event points boost if applicable
+- Command:
+  /startevent admins_blessing <minutes>
+  or:
+  /adminsblessing <minutes>
+- AI:
+  “Emcee, start Admin’s Blessing for 30 minutes”
+- Admin/owner only.
+- Must persist after bot restart.
+
+==================================================
+PART 4 — REALISTIC BLACKJACK SHOE PERSISTENCE
+==================================================
+
+Problem:
+RBJ shoe resets on bot restart. That makes realistic blackjack less realistic.
+
+Requirements:
+- Save RBJ shoe state to database.
+- Save:
+  - shoe cards remaining
+  - discard pile if used
+  - shoe penetration
+  - round number
+  - shuffle count
+  - last_updated
+- On bot restart, load existing shoe if active.
+- Only reshuffle when shoe penetration threshold is reached or admin forces shuffle.
+- Add commands:
+  - /rbjshoe
+  - /rbjshuffle
+  - /rbjshoestats
+
+AI examples:
+- “Emcee, show RBJ shoe”
+- “Emcee, reshuffle RBJ shoe”
+
+Admin/owner only for forced shuffle.
+
+==================================================
+PART 5 — POKER CARD DELIVERY AND MODES
+==================================================
+
+Problems:
+1. Some players do not see their cards after round start.
+2. Cards may be sent too fast.
+3. Need poker pace modes.
+4. Need stack range settings.
+
+Fix card delivery:
+- Before dealing cards, dealer says:
+  “Drawing cards…”
+- Deal/send cards player by player, not all at once.
+- Add small delay between each player’s card whisper.
+- If whisper fails, retry once.
+- Log failed card delivery.
+- Add /resendcards so a player can request their cards again.
+- Add /dealstatus for admin/debug.
+
+Poker pace modes:
+Add modes:
+- fast
+- normal
+- long
+
+Settings should control:
+- preflop decision time
+- flop decision time
+- turn decision time
+- river decision time
+- card dealing delay
+- auto-fold timeout
+- table inactivity timeout
+
+Commands:
+- /pokermode fast
+- /pokermode normal
+- /pokermode long
+- /pokerpace
+- /setpokerpace <setting> <seconds>
+
+Stack settings:
+Add configurable stack ranges:
+- min buy-in
+- max buy-in
+- default stack
+- rebuy min
+- rebuy max
+
+Commands:
+- /pokerstacks
+- /setpokerstack min <amount>
+- /setpokerstack max <amount>
+- /setpokerstack default <amount>
+- /setpokerstack rebuymin <amount>
+- /setpokerstack rebuymax <amount>
+
+AI examples:
+- “Emcee, set poker to fast mode”
+- “Emcee, set poker to long mode”
+- “Emcee, show poker pace”
+- “Emcee, set poker max stack to 50000”
+- “Emcee, resend my poker cards”
+
+Admin/owner only for settings.
+Player can use resendcards for themselves.
+
+==================================================
+PART 6 — MINING EXPANSION
+==================================================
+
+Goals:
+1. Add many real-life ores.
+2. Add Admin’s Blessing support for mining.
+3. Set default mine cooldown/speed to 30 seconds.
+4. Adjust economy accordingly.
+
+Add many ores:
+Include real-world ores/minerals such as:
+- Copper Ore
+- Tin Ore
+- Iron Ore
+- Coal
+- Silver Ore
+- Gold Ore
+- Platinum Ore
+- Nickel Ore
+- Cobalt Ore
+- Zinc Ore
+- Lead Ore
+- Bauxite
+- Hematite
+- Magnetite
+- Chalcopyrite
+- Galena
+- Sphalerite
+- Cassiterite
+- Chromite
+- Manganese Ore
+- Titanium Ore
+- Uraninite
+- Quartz
+- Amethyst
+- Emerald
+- Ruby
+- Sapphire
+- Diamond
+- Opal
+- Jade
+- Obsidian
+- Mythril-style fantasy ore only if the existing game already uses fantasy ores
+
+Balance:
+- Default mining cooldown should be 30 seconds.
+- Adjust ore drop rates, XP, sell prices, and tool upgrades so economy is not too fast.
+- Common ores should be frequent and low value.
+- Rare ores should be exciting but not economy-breaking.
+- High-tier ores should require better tools/levels if system supports it.
+
+Admin’s Blessing for mining:
+During admins_blessing:
+- mining XP boost active
+- mining coin/sell boost active
+- possibly cooldown reduction if safe
+- clearly show active boost in /mine or /mineprofile
+
+Commands:
+- /mineconfig
+- /setminecooldown <seconds>
+- /orelist
+- /orebook
+- /mineeventstatus
+
+AI examples:
+- “Emcee, show ore list”
+- “Emcee, set mine cooldown to 30 seconds”
+- “Emcee, start Admin’s Blessing for mining for 30 minutes”
+
+==================================================
+PART 7 — COMMAND INTEGRITY AND TESTING
+==================================================
+
+After all changes:
+- Update command registry/cmd_audit.
+- Update /commandtest for all new commands.
+- Ensure route=YES and handler=YES for new commands.
+- Ensure ownership is correct:
+  - AI commands = host
+  - Emote/social commands = dj or host depending existing design
+  - Event commands = eventhost
+  - RBJ commands = blackjack
+  - Poker commands = poker
+  - Mining commands = miner
+  - Room/teleport/spawn commands = host/security depending existing design
+  - Outfit commands = host for AI, target bot for delegated execution
+
+Do not allow duplicate replies.
+Only EmceeBot should answer AI natural language.
+Module bots should only execute delegated tasks.
+
+==================================================
+FINAL REPORT
+==================================================
+
+After implementation, tell me:
+1. Files changed
+2. Database tables added/changed
+3. Commands added
+4. AI intents added
+5. Which features use SDK support and which are limited
+6. Whether KeanuShield outfit delegation actually waits for real completion
+7. Whether events persist after restart
+8. Whether RBJ shoe persists after restart
+9. Poker pace settings added
+10. Mining cooldown and ore changes
+11. Exact test plan

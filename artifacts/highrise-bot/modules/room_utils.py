@@ -423,15 +423,106 @@ async def handle_savepos(bot: BaseBot, user: User, args: list[str]) -> None:
 # ---------------------------------------------------------------------------
 
 EMOTE_LIST = [
-    "emote-wave", "emote-dance", "emote-sit", "emote-clap",
+    # Basic / always available
+    "emote-wave", "emote-greet", "emote-hello",
+    "emote-dance", "emote-dance2", "emote-dance3", "emote-dance4",
+    "emote-sit", "emote-sit2", "emote-clap",
     "emote-point", "emote-laugh", "emote-salute", "emote-blowkiss",
-    "emote-idle_loop", "emote-greet",
+    "emote-idle_loop", "emote-idle_look", "emote-idle_enthusiastic",
+    # Reactions
+    "emote-yes", "emote-no", "emote-thumbsup", "emote-thumbsdown",
+    "emote-shrug", "emote-sorry", "emote-angry", "emote-sad",
+    "emote-cry", "emote-celebrate", "emote-surprise",
+    # Social
+    "emote-hug", "emote-kiss", "emote-highfive", "emote-handshake",
+    "emote-bow", "emote-curtsy", "emote-curtsey",
+    "emote-flex", "emote-pose", "emote-pose2",
+    # Fun / party
+    "emote-snowball", "emote-snowangel",
+    "emote-telekinesis", "emote-float", "emote-levitate",
+    "emote-headbang", "emote-headbang2",
+    "emote-sleep", "emote-sniff",
+    # Seasonal / events
+    "emote-zombie", "emote-witch", "emote-ghost",
+    "emote-fly", "emote-spin",
+    "emote-magic", "emote-magic2",
 ]
 
+# Friendly descriptions for /emoteinfo
+_EMOTE_DESCRIPTIONS: dict[str, str] = {
+    "emote-wave":             "👋 A friendly wave.",
+    "emote-greet":            "🙋 Greeting gesture.",
+    "emote-hello":            "👋 Enthusiastic hello.",
+    "emote-dance":            "💃 Classic dance move.",
+    "emote-dance2":           "🕺 Alternate dance style.",
+    "emote-dance3":           "💃 Party dance.",
+    "emote-dance4":           "🎉 Celebration dance.",
+    "emote-sit":              "🪑 Sit on the floor.",
+    "emote-sit2":             "🪑 Cross-legged sit.",
+    "emote-clap":             "👏 Applause.",
+    "emote-point":            "👉 Point forward.",
+    "emote-laugh":            "😄 Laugh out loud.",
+    "emote-salute":           "💂 Military salute.",
+    "emote-blowkiss":         "😘 Blow a kiss.",
+    "emote-idle_loop":        "😐 Idle standing (resets emote).",
+    "emote-idle_look":        "👀 Looking around casually.",
+    "emote-idle_enthusiastic":"🤩 Excited idle stance.",
+    "emote-yes":              "✅ Nodding yes.",
+    "emote-no":               "❌ Shaking head no.",
+    "emote-thumbsup":         "👍 Thumbs up.",
+    "emote-thumbsdown":       "👎 Thumbs down.",
+    "emote-shrug":            "🤷 Shrug.",
+    "emote-sorry":            "🙏 Apologetic bow.",
+    "emote-angry":            "😡 Angry stomp.",
+    "emote-sad":              "😢 Sad slump.",
+    "emote-cry":              "😭 Crying.",
+    "emote-celebrate":        "🎊 Celebration jump.",
+    "emote-surprise":         "😲 Surprised reaction.",
+    "emote-hug":              "🤗 Hugging motion.",
+    "emote-kiss":             "💋 Kissing motion.",
+    "emote-highfive":         "🙌 High five.",
+    "emote-handshake":        "🤝 Handshake.",
+    "emote-bow":              "🙇 Respectful bow.",
+    "emote-curtsy":           "👸 Curtsy.",
+    "emote-curtsey":          "👸 Curtsey variant.",
+    "emote-flex":             "💪 Bicep flex.",
+    "emote-pose":             "📸 Cool pose.",
+    "emote-pose2":            "📸 Alternate pose.",
+    "emote-snowball":         "❄️ Throw a snowball.",
+    "emote-snowangel":        "⛄ Make a snow angel.",
+    "emote-telekinesis":      "🔮 Telekinesis gesture.",
+    "emote-float":            "✨ Floating animation.",
+    "emote-levitate":         "🌟 Levitate.",
+    "emote-headbang":         "🤘 Headbang.",
+    "emote-headbang2":        "🤘 Alternate headbang.",
+    "emote-sleep":            "😴 Sleeping.",
+    "emote-sniff":            "👃 Sniffing.",
+    "emote-zombie":           "🧟 Zombie walk.",
+    "emote-witch":            "🧙 Witch casting.",
+    "emote-ghost":            "👻 Ghost float.",
+    "emote-fly":              "🕊️ Flying animation.",
+    "emote-spin":             "🌀 Spinning.",
+    "emote-magic":            "✨ Magic cast.",
+    "emote-magic2":           "✨ Alternate magic cast.",
+}
 
-async def handle_emotes(bot: BaseBot, user: User) -> None:
-    short = [e.replace("emote-", "") for e in EMOTE_LIST]
-    await _w(bot, user.id, "💃 Emotes: " + ", ".join(short[:8]))
+_EMOTE_PAGE_SIZE = 10
+
+
+async def handle_emotes(bot: BaseBot, user: User, args: list[str] | None = None) -> None:
+    """List emotes with pagination: /emotes [page]."""
+    page_num = 1
+    if args and len(args) >= 2 and args[1].isdigit():
+        page_num = max(1, int(args[1]))
+    short  = [e.replace("emote-", "") for e in EMOTE_LIST]
+    total  = len(short)
+    pages  = max(1, (total + _EMOTE_PAGE_SIZE - 1) // _EMOTE_PAGE_SIZE)
+    page_num = min(page_num, pages)
+    start  = (page_num - 1) * _EMOTE_PAGE_SIZE
+    chunk  = short[start:start + _EMOTE_PAGE_SIZE]
+    await _w(bot, user.id,
+             f"💃 Emotes ({page_num}/{pages}): " + ", ".join(chunk) +
+             (f" | /emotes {page_num+1} for more" if page_num < pages else ""))
 
 
 async def handle_emote(bot: BaseBot, user: User, args: list[str]) -> None:
@@ -1612,13 +1703,32 @@ async def handle_teleporthelp(bot: BaseBot, user: User) -> None:
              "/spawns - list spawns")
 
 
+async def handle_emoteinfo(bot: BaseBot, user: User, args: list[str]) -> None:
+    """/emoteinfo <name> — show description and full emote-ID for a known emote."""
+    if len(args) < 2:
+        await _w(bot, user.id, "Usage: /emoteinfo <name>  e.g. /emoteinfo dance")
+        return
+    raw = args[1].lower().strip()
+    eid = raw if raw.startswith("emote-") else f"emote-{raw}"
+    desc = _EMOTE_DESCRIPTIONS.get(eid)
+    if desc:
+        in_list = "✅ In emote list." if eid in EMOTE_LIST else "⚠️ Not in list but may work."
+        await _w(bot, user.id,
+                 f"💃 {eid}\n{desc}\n{in_list}\nUse: /emote {raw}")
+    else:
+        close = [e for e in EMOTE_LIST if raw in e.replace("emote-", "")][:4]
+        hint  = "Similar: " + ", ".join(e.replace("emote-", "") for e in close) if close else ""
+        await _w(bot, user.id,
+                 f"❓ Unknown emote '{raw}'. {hint}\n/emotes to list all."[:249])
+
+
 async def handle_emotehelp(bot: BaseBot, user: User) -> None:
     await _w(bot, user.id,
              "💃 Emotes\n"
-             "/emotes - list\n"
+             "/emotes [page] - list\n"
              "/emote id - use\n"
+             "/emoteinfo id - details\n"
              "/loopemote id - loop\n"
-             "/syncdance user - sync\n"
              "/forceemote user id")
 
 
@@ -1650,3 +1760,102 @@ async def handle_socialhelp(bot: BaseBot, user: User) -> None:
              "/heart user\n"
              "/social off - disable\n"
              "/blocksocial user")
+
+
+# ---------------------------------------------------------------------------
+# Bot spawn system
+# ---------------------------------------------------------------------------
+
+async def handle_setbotspawn(bot: BaseBot, user: User, args: list[str]) -> None:
+    """/setbotspawn <bot_username> <spawn_name> — save a spawn for a specific bot."""
+    if not is_admin(user.username) and not is_owner(user.username):
+        await _w(bot, user.id, "Admin/owner only.")
+        return
+    if len(args) < 3:
+        await _w(bot, user.id,
+                 "Usage: /setbotspawn <bot_username> <spawn_name>\n"
+                 "Bot must be online and the spawn must exist.")
+        return
+    bot_username = args[1].lstrip("@").lower()
+    spawn_name   = args[2].lower()
+    # Look up the spawn coordinates
+    spawn = db.get_spawn(spawn_name)
+    if not spawn:
+        await _w(bot, user.id,
+                 f"Spawn '{spawn_name}' not found. /spawns to list saves.")
+        return
+    x, y, z = spawn["x"], spawn["y"], spawn["z"]
+    facing   = spawn.get("facing", "FrontRight")
+    db.set_bot_spawn(bot_username, spawn_name, x, y, z, facing, user.username)
+    await _w(bot, user.id,
+             f"✅ Bot @{bot_username} spawn → '{spawn_name}' ({x},{y},{z}) saved.")
+
+
+async def handle_setbotspawnhere(bot: BaseBot, user: User, args: list[str]) -> None:
+    """/setbotspawnhere <bot_username> — save bot's spawn at user's current position."""
+    if not is_admin(user.username) and not is_owner(user.username):
+        await _w(bot, user.id, "Admin/owner only.")
+        return
+    if len(args) < 2:
+        await _w(bot, user.id, "Usage: /setbotspawnhere <bot_username>")
+        return
+    bot_username = args[1].lstrip("@").lower()
+    pos = _user_positions.get(user.username.lower())
+    if not pos:
+        await _w(bot, user.id,
+                 "Your position isn't tracked yet. Move around and try again.")
+        return
+    x, y, z = pos.x, pos.y, pos.z
+    facing   = getattr(pos, "facing", "FrontRight")
+    db.set_bot_spawn(bot_username, "custom", x, y, z, str(facing), user.username)
+    await _w(bot, user.id,
+             f"✅ Bot @{bot_username} spawn saved at your position ({x:.1f},{y:.1f},{z:.1f}).")
+
+
+async def handle_botspawns(bot: BaseBot, user: User) -> None:
+    """/botspawns — list all saved bot spawns."""
+    if not is_admin(user.username) and not is_owner(user.username):
+        await _w(bot, user.id, "Admin/owner only.")
+        return
+    spawns = db.list_bot_spawns()
+    if not spawns:
+        await _w(bot, user.id, "No bot spawns saved yet. Use /setbotspawn.")
+        return
+    parts = []
+    for s in spawns:
+        parts.append(f"@{s['bot_username']}→{s['spawn_name']} ({s['x']:.0f},{s['y']:.0f},{s['z']:.0f})")
+    await _w(bot, user.id, ("🤖 Bot spawns: " + "  |  ".join(parts))[:249])
+
+
+async def handle_clearbotspawn(bot: BaseBot, user: User, args: list[str]) -> None:
+    """/clearbotspawn <bot_username> — remove a bot's saved spawn."""
+    if not is_admin(user.username) and not is_owner(user.username):
+        await _w(bot, user.id, "Admin/owner only.")
+        return
+    if len(args) < 2:
+        await _w(bot, user.id, "Usage: /clearbotspawn <bot_username>")
+        return
+    bot_username = args[1].lstrip("@").lower()
+    removed = db.clear_bot_spawn(bot_username)
+    if removed:
+        await _w(bot, user.id, f"✅ Spawn for @{bot_username} cleared.")
+    else:
+        await _w(bot, user.id, f"No spawn found for @{bot_username}.")
+
+
+async def apply_bot_spawn(bot: BaseBot, bot_username: str) -> None:
+    """Teleport the bot to its saved spawn. Called from on_start."""
+    from config import BOT_USERNAME as _MY_USERNAME
+    if bot_username.lower() != _MY_USERNAME.lower():
+        return
+    row = db.get_bot_spawn(bot_username)
+    if not row:
+        return
+    try:
+        from highrise.models import Position
+        pos = Position(x=row["x"], y=row["y"], z=row["z"])
+        await bot.highrise.walk_to(pos)
+        print(f"[BOT_SPAWN] @{bot_username} teleported to spawn "
+              f"'{row['spawn_name']}' ({row['x']},{row['y']},{row['z']})")
+    except Exception as exc:
+        print(f"[BOT_SPAWN] spawn failed for @{bot_username}: {exc}")

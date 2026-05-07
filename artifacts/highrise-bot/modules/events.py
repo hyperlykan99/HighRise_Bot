@@ -68,6 +68,11 @@ EVENTS: dict[str, dict] = {
         "name": "Shop Sale",
         "desc": "20% off all shop items for 1 hour.",
     },
+    "admins_blessing": {
+        "name": "Admin's Blessing",
+        "desc": "2x XP, 2x Coins, 2x Mining, Tax-Free, 20% Shop Sale, +1 event pt/round. "
+                "All boosts active simultaneously!",
+    },
 }
 
 EVENT_DURATION = 3600  # seconds (1 hour)
@@ -161,6 +166,14 @@ def get_event_effect() -> dict:
         base["trivia_coins_pct"] = 0.5   # +50% coins on game wins
     elif eid == "shop_sale":
         base["shop_discount"] = 0.20     # 20% off shop items
+    elif eid == "admins_blessing":
+        base["xp"]              = 2.0
+        base["coins"]           = 2.0
+        base["tax_free"]        = True
+        base["shop_discount"]   = 0.20
+        base["casino_bet_mult"] = 2.0
+        base["trivia_coins_pct"] = 0.50
+        base["mining_boost"]    = True
     return base
 
 
@@ -286,14 +299,14 @@ async def handle_eventstatus(bot: BaseBot, user: User) -> None:
 # ---------------------------------------------------------------------------
 
 async def handle_startevent(bot: BaseBot, user: User, args: list[str]) -> None:
-    """/startevent <event_id> — manager+, starts event for 1 hour."""
+    """/startevent <event_id> [minutes] — manager+; optional custom duration."""
     if not can_manage_economy(user.username):
         await _w(bot, user.id, "Manager/admin/owner only.")
         return
 
     if len(args) < 2:
         ids = ", ".join(EVENTS.keys())
-        await _w(bot, user.id, f"Usage: /startevent <id>\nIDs: {ids}"[:249])
+        await _w(bot, user.id, f"Usage: /startevent <id> [mins]\nIDs: {ids}"[:249])
         return
 
     event_id = args[1].lower()
@@ -303,26 +316,45 @@ async def handle_startevent(bot: BaseBot, user: User, args: list[str]) -> None:
                  f"Unknown event: {event_id}\nValid IDs: {ids}"[:249])
         return
 
+    duration = EVENT_DURATION
+    if len(args) >= 3 and args[2].isdigit():
+        mins = int(args[2])
+        if 1 <= mins <= 480:
+            duration = mins * 60
+        else:
+            await _w(bot, user.id, "Duration must be 1-480 minutes.")
+            return
+
     _cancel_event_task()
 
     expires_at = (
-        datetime.now(timezone.utc) + timedelta(seconds=EVENT_DURATION)
+        datetime.now(timezone.utc) + timedelta(seconds=duration)
     ).isoformat()
     db.set_active_event(event_id, expires_at)
 
     global _event_task
-    _event_task = asyncio.create_task(_event_timer(bot, event_id, EVENT_DURATION))
+    _event_task = asyncio.create_task(_event_timer(bot, event_id, duration))
 
-    ev   = EVENTS[event_id]
-    name = ev["name"]
-    desc = ev["desc"]
+    ev        = EVENTS[event_id]
+    name      = ev["name"]
+    desc      = ev["desc"]
+    dur_label = f"{duration // 60}min" if duration != EVENT_DURATION else "1 hour"
     try:
         await bot.highrise.chat(
-            f"🎪 {name} is LIVE for 1 hour! {desc} "
-            "Use /eventshop to see rewards!"
+            f"🎪 {name} is LIVE for {dur_label}! {desc[:100]} "
+            "Use /eventshop for rewards!"[:249]
         )
     except Exception as exc:
         print(f"[EVENTS] startevent announce error: {exc}")
+
+
+async def handle_adminsblessing(bot: BaseBot, user: User, args: list[str]) -> None:
+    """/adminsblessing [minutes] — shortcut for /startevent admins_blessing."""
+    if not can_manage_economy(user.username):
+        await _w(bot, user.id, "Manager/admin/owner only.")
+        return
+    mins_arg = args[1] if len(args) >= 2 else "60"
+    await handle_startevent(bot, user, [args[0], "admins_blessing", mins_arg])
 
 
 async def handle_stopevent(bot: BaseBot, user: User) -> None:
@@ -344,6 +376,58 @@ async def handle_stopevent(bot: BaseBot, user: User) -> None:
         await bot.highrise.chat(f"🛑 {name} event stopped by staff.")
     except Exception as exc:
         print(f"[EVENTS] stopevent announce error: {exc}")
+
+
+# ---------------------------------------------------------------------------
+# Event resume / autogame status helpers
+# ---------------------------------------------------------------------------
+
+async def handle_eventresume(bot: BaseBot, user: User) -> None:
+    """/eventresume — re-announce the active event if one is running."""
+    if not can_manage_economy(user.username):
+        await _w(bot, user.id, "Manager/admin/owner only.")
+        return
+    info = db.get_active_event()
+    if not info:
+        await _w(bot, user.id, "No event is currently active.")
+        return
+    ev   = EVENTS.get(info["event_id"], {})
+    name = ev.get("name", info["event_id"])
+    desc = ev.get("desc", "")
+    try:
+        await bot.highrise.chat(
+            f"🎪 {name} event is ACTIVE! {desc[:100]} "
+            "Use /eventshop for rewards!"[:249]
+        )
+    except Exception as exc:
+        print(f"[EVENTS] eventresume announce error: {exc}")
+    await _w(bot, user.id, f"✅ Re-announced: {name}")
+
+
+async def handle_autogamestatus(bot: BaseBot, user: User) -> None:
+    """/autogamestatus — show auto-game loop settings."""
+    if not can_manage_economy(user.username):
+        await _w(bot, user.id, "Manager/admin/owner only.")
+        return
+    bj_on  = db.get_room_setting("auto_bj_enabled", "0")
+    rbj_on = db.get_room_setting("auto_rbj_enabled", "0")
+    pk_on  = db.get_room_setting("auto_poker_enabled", "0")
+    ev_on  = db.get_room_setting("auto_events_enabled", "0")
+    ev_int = db.get_room_setting("auto_event_interval_hours", "2")
+    await _w(bot, user.id,
+             f"🎮 AutoGames: BJ={bj_on} RBJ={rbj_on} Poker={pk_on} | "
+             f"AutoEvents={ev_on} every {ev_int}h")
+
+
+async def handle_autogameresume(bot: BaseBot, user: User) -> None:
+    """/autogameresume — trigger auto-game and auto-event loops to re-check."""
+    if not can_manage_economy(user.username):
+        await _w(bot, user.id, "Manager/admin/owner only.")
+        return
+    from modules.auto_games import start_auto_game_loop, start_auto_event_loop
+    start_auto_game_loop(bot)
+    start_auto_event_loop(bot)
+    await _w(bot, user.id, "✅ Auto-game and auto-event loops restarted.")
 
 
 # ---------------------------------------------------------------------------

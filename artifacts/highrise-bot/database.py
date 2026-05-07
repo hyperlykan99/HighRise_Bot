@@ -479,6 +479,21 @@ def init_db():
         ("autositout_enabled",     "0"),
         ("idle_strikes_limit",     "3"),
         ("table_closing",          "0"),
+        # Pace mode: fast / normal / long
+        ("pace_mode",              "normal"),
+        ("pace_preflop_secs",      "30"),
+        ("pace_flop_secs",         "45"),
+        ("pace_turn_secs",         "30"),
+        ("pace_river_secs",        "30"),
+        ("pace_deal_delay_secs",   "0.5"),
+        ("pace_autofold_secs",     "60"),
+        ("pace_inactivity_secs",   "300"),
+        # Stack settings
+        ("stack_min_buyin",        "100"),
+        ("stack_max_buyin",        "10000"),
+        ("stack_default",          "1000"),
+        ("stack_rebuy_min",        "100"),
+        ("stack_rebuy_max",        "10000"),
     ]:
         conn.execute(
             "INSERT OR IGNORE INTO poker_settings (key, value) VALUES (?, ?)",
@@ -1235,6 +1250,16 @@ def _migrate_db():
         "expires_at TEXT NOT NULL DEFAULT '', "
         "completed_at TEXT, "
         "error TEXT NOT NULL DEFAULT '')",
+        # ── Bot spawn locations ───────────────────────────────────────────────
+        "CREATE TABLE IF NOT EXISTS bot_spawns ("
+        "bot_username TEXT PRIMARY KEY, "
+        "spawn_name   TEXT NOT NULL DEFAULT '', "
+        "x REAL NOT NULL DEFAULT 0, "
+        "y REAL NOT NULL DEFAULT 0, "
+        "z REAL NOT NULL DEFAULT 0, "
+        "facing TEXT NOT NULL DEFAULT 'FrontRight', "
+        "set_by TEXT NOT NULL DEFAULT '', "
+        "set_at TEXT NOT NULL DEFAULT (datetime('now')))",
     ]:
         try:
             conn.execute(sql)
@@ -1498,6 +1523,85 @@ def expire_old_delegated_tasks() -> int:
     n = cur.rowcount
     conn.close()
     return n
+
+
+def get_recent_delegated_tasks(limit: int = 10) -> list:
+    """Return the most recent AI delegated tasks (all statuses) for /aidelegations."""
+    conn = get_connection()
+    rows = conn.execute(
+        """SELECT id, username, human_readable_action, owner_mode,
+                  target_bot_username, status, created_at, completed_at, error
+           FROM ai_delegated_tasks
+           ORDER BY id DESC LIMIT ?""",
+        (limit,),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Bot spawn helpers
+# ---------------------------------------------------------------------------
+
+def get_bot_spawn(bot_username: str) -> Optional[dict]:
+    """Return the saved spawn row for a bot username, or None."""
+    conn = get_connection()
+    row  = conn.execute(
+        "SELECT * FROM bot_spawns WHERE LOWER(bot_username)=?",
+        (bot_username.lower(),),
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def set_bot_spawn(
+    bot_username: str,
+    spawn_name: str,
+    x: float,
+    y: float,
+    z: float,
+    facing: str,
+    set_by: str,
+) -> None:
+    """Upsert a spawn location for a bot."""
+    from datetime import datetime
+    now  = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+    conn = get_connection()
+    conn.execute(
+        """INSERT INTO bot_spawns (bot_username, spawn_name, x, y, z, facing, set_by, set_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(bot_username) DO UPDATE SET
+               spawn_name=excluded.spawn_name, x=excluded.x, y=excluded.y,
+               z=excluded.z, facing=excluded.facing, set_by=excluded.set_by,
+               set_at=excluded.set_at""",
+        (bot_username.lower(), spawn_name, x, y, z, facing,
+         set_by.lower(), now),
+    )
+    conn.commit()
+    conn.close()
+
+
+def clear_bot_spawn(bot_username: str) -> bool:
+    """Delete a bot's saved spawn. Returns True if a row was removed."""
+    conn = get_connection()
+    cur  = conn.execute(
+        "DELETE FROM bot_spawns WHERE LOWER(bot_username)=?",
+        (bot_username.lower(),),
+    )
+    conn.commit()
+    n = cur.rowcount
+    conn.close()
+    return n > 0
+
+
+def list_bot_spawns() -> list:
+    """Return all saved bot spawns."""
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT * FROM bot_spawns ORDER BY set_at DESC"
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
 
 
 def get_bot_mode_for_username(bot_username: str) -> Optional[str]:
@@ -6204,6 +6308,20 @@ _MINING_ITEMS_SEED = [
     ("black_opal",          "Black Opal",         "🌑", "mythic",    "gemstone", 35000),
     ("alexandrite",         "Alexandrite",        "✨", "ultra_rare","gemstone", 75000),
     ("meteorite_fragment",  "Meteorite Fragment", "☄️", "ultra_rare","relic",    150000),
+    # ── Additional real-world ores/minerals (added 2026-05) ──────────────────
+    ("hematite",            "Hematite",           "🔴", "common",    "mineral",  15),
+    ("magnetite",           "Magnetite",          "🧲", "common",    "mineral",  18),
+    ("manganese_ore",       "Manganese Ore",      "🟫", "uncommon",  "ore",      82),
+    ("galena",              "Galena",             "🔷", "uncommon",  "ore",      70),
+    ("sphalerite",          "Sphalerite",         "🔸", "uncommon",  "ore",      78),
+    ("chalcopyrite",        "Chalcopyrite",       "🟡", "rare",      "ore",     145),
+    ("cassiterite",         "Cassiterite",        "◾", "rare",      "ore",     135),
+    ("chromite",            "Chromite",           "💠", "rare",      "ore",     165),
+    ("cobalt_ore",          "Cobalt Ore",         "🔵", "epic",      "ore",     850),
+    ("titanium_ore",        "Titanium Ore",       "🩵", "epic",      "ore",     950),
+    ("uraninite",           "Uraninite",          "☢️", "epic",      "mineral", 1100),
+    ("obsidian",            "Obsidian",           "🖤", "rare",      "mineral",  200),
+    ("mythril",             "Mythril",            "🌀", "legendary", "ore",    7000),
 ]
 
 

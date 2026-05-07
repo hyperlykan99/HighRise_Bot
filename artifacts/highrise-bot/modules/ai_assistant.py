@@ -682,6 +682,72 @@ _INTENTS: list[tuple] = [
     (re.compile(r"ban\s+@?(\w+)|kick\s+@?(\w+)", re.I),
      "__no_cmd__", _k(""),
      lambda m, t: f"ban/kick @{(m.group(1) or m.group(2) or '?')} (use room moderation directly)"),
+
+    # ────────────────────────────────────────────────────────────────────────
+    # EMOTES (new)
+    # ────────────────────────────────────────────────────────────────────────
+    (re.compile(r"(show|list|what|see).*(emotes?)\b|^emotes?$", re.I),
+     "emotes", _k(""), _k("list available emotes")),
+
+    (re.compile(r"(what|info|about|describe|show).*(emote[-\s]\w+|emote\s+\w+)\b"
+                r"|emoteinfo\s+(\w+)", re.I),
+     "emoteinfo",
+     lambda m, t: (m.group(2) or m.group(3) or "").replace("emote ", "emote-").strip(),
+     lambda m, t: f"show info for emote '{(m.group(2) or m.group(3) or '').strip()}'"),
+
+    # ────────────────────────────────────────────────────────────────────────
+    # BOT SPAWN (new)
+    # ────────────────────────────────────────────────────────────────────────
+    (re.compile(r"(show|list|see).*(bot\s+spawn|bot\s+location|bot\s+pos)\b|botspawns?\b", re.I),
+     "botspawns", _k(""), _k("list all bot spawn locations")),
+
+    (re.compile(
+        r"(set|save|create)\s+(bot\s+spawn|spawn\s+for|position\s+for)\s+@?(\w+)\s+(at\s+|to\s+)?(\w+)",
+        re.I),
+     "setbotspawn",
+     lambda m, t: f"{m.group(3).lower()} {m.group(5).lower()}",
+     lambda m, t: f"set spawn for @{m.group(3)} to '{m.group(5).lower()}'"),
+
+    # ────────────────────────────────────────────────────────────────────────
+    # ADMIN'S BLESSING (new)
+    # ────────────────────────────────────────────────────────────────────────
+    (re.compile(
+        r"(start|begin|launch|enable)\s+(admin.?s?\s+blessing|blessing\s+event|all\s+boosts?)\b"
+        r"(?:\s+(?:for\s+)?(\d+)\s*min)?",
+        re.I),
+     "adminsblessing",
+     lambda m, t: m.group(3) or "60",
+     lambda m, t: f"start Admin's Blessing event for {m.group(3) or '60'} minutes"),
+
+    # ────────────────────────────────────────────────────────────────────────
+    # POKER PACE / STACK (new)
+    # ────────────────────────────────────────────────────────────────────────
+    (re.compile(r"(show|what.?s?|check|see).*(poker\s+pace|poker\s+mode|poker\s+speed)\b|pokerpace\b|pokermode\b",
+                re.I),
+     "pokerpace", _k(""), _k("show poker pace settings")),
+
+    (re.compile(r"(set|change|switch)\s+poker\s+(mode|pace|speed)\s+(fast|normal|long)\b", re.I),
+     "pokermode",
+     lambda m, t: m.group(3).lower(),
+     lambda m, t: f"set poker mode to {m.group(3).lower()}"),
+
+    (re.compile(r"(show|check|see|list).*(poker\s+stacks?|buy[\-\s]in\s+settings?)\b|pokerstacks?\b", re.I),
+     "pokerstacks", _k(""), _k("show poker stack settings")),
+
+    # ────────────────────────────────────────────────────────────────────────
+    # MINE CONFIG / STATUS (new)
+    # ────────────────────────────────────────────────────────────────────────
+    (re.compile(r"(show|check|view).*(mine\s+config|mining\s+config|mine\s+settings?)\b|mineconfig\b", re.I),
+     "mineconfig", _k(""), _k("show mining configuration")),
+
+    (re.compile(r"(show|check|active).*(mine\s+event|mining\s+event|ore\s+event)\b|mineeventstatus\b", re.I),
+     "mineeventstatus", _k(""), _k("show active mining event status")),
+
+    # ────────────────────────────────────────────────────────────────────────
+    # AI DELEGATIONS (new)
+    # ────────────────────────────────────────────────────────────────────────
+    (re.compile(r"(show|list|see|check).*(delegat|ai\s+task|pending\s+task)\b|aidelegations?\b", re.I),
+     "aidelegations", _k(""), _k("show recent AI delegated tasks")),
 ]
 
 
@@ -738,6 +804,27 @@ _HANDLER_MAP: dict[str, tuple[str, str]] = {
     "poker":                 ("modules.poker",      "handle_poker"),
     "setpokerdailywinlimit": ("modules.poker",      "handle_setpokerdailywinlimit"),
     "setpokerdailylosslimit":("modules.poker",      "handle_setpokerdailylosslimit"),
+    # ── Emote (new) ───────────────────────────────────────────────────────
+    "emotes":                ("modules.room_utils", "handle_emotes"),
+    "emoteinfo":             ("modules.room_utils", "handle_emoteinfo"),
+    # ── Bot spawn (new) ───────────────────────────────────────────────────
+    "botspawns":             ("modules.room_utils", "handle_botspawns"),
+    "setbotspawn":           ("modules.room_utils", "handle_setbotspawn"),
+    # ── Events (new) ──────────────────────────────────────────────────────
+    "adminsblessing":        ("modules.events",     "handle_adminsblessing"),
+    "eventresume":           ("modules.events",     "handle_eventresume"),
+    "autogamestatus":        ("modules.events",     "handle_autogamestatus"),
+    "autogameresume":        ("modules.events",     "handle_autogameresume"),
+    # ── Mining (new) ──────────────────────────────────────────────────────
+    "mineconfig":            ("modules.mining",     "handle_mineconfig"),
+    "mineeventstatus":       ("modules.mining",     "handle_mineeventstatus"),
+    # ── Poker pace / stack (new) ──────────────────────────────────────────
+    "pokermode":             ("modules.poker",      "handle_pokermode"),
+    "pokerpace":             ("modules.poker",      "handle_pokerpace"),
+    "setpokerpace":          ("modules.poker",      "handle_setpokerpace"),
+    "pokerstacks":           ("modules.poker",      "handle_pokerstacks"),
+    "setpokerstack":         ("modules.poker",      "handle_setpokerstack"),
+    "dealstatus":            ("modules.poker",      "handle_dealstatus"),
 }
 
 
