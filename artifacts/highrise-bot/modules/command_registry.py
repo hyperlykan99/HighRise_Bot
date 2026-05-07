@@ -82,6 +82,9 @@ REGISTRY: dict[str, Cmd] = {
 
     # ── Host: info / room status ─────────────────────────────────────────────
     "rules":            Cmd("host","info",    True, True, False),
+    "howtoplay":        Cmd("host","info",    False,True, False),
+    "gameguide":        Cmd("host","info",    False,True, False),
+    "games":            Cmd("host","info",    False,True, False),
     "casino":           Cmd("host","info",    True, True, False),
     "casinosettings":   Cmd("host","admin",   True, True, False, perm="manager"),
     "casinolimits":     Cmd("host","admin",   True, True, False, perm="manager"),
@@ -172,6 +175,18 @@ REGISTRY: dict[str, Cmd] = {
     "rshoe":            Cmd("blackjack","casino",False,True, False),
     "rlimits":          Cmd("blackjack","casino",False,True, False),
     "rstats":           Cmd("blackjack","casino",False,True, False),
+    # ── Easy BJ / universal shortcuts (all map to Realistic Blackjack) ───────
+    "blackjack":        Cmd("blackjack","casino",False,False,True),
+    "bjbet":            Cmd("blackjack","casino",False,False,True),
+    "bet":              Cmd("blackjack","casino",False,False,True),
+    "hit":              Cmd("blackjack","casino",False,False,True),
+    "stand":            Cmd("blackjack","casino",False,False,True),
+    "double":           Cmd("blackjack","casino",False,False,True),
+    "split":            Cmd("blackjack","casino",False,False,True),
+    "insurance":        Cmd("blackjack","casino",False,False,True),
+    "surrender":        Cmd("blackjack","casino",False,False,True),
+    "shoe":             Cmd("blackjack","casino",False,True, False),
+    "bjshoe":           Cmd("blackjack","casino",False,True, False),
 
     # ── Poker ────────────────────────────────────────────────────────────────
     "poker":            Cmd("poker","casino",False,False,True, aliases=("p","pj","pt","ptable")),

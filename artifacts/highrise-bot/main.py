@@ -403,6 +403,9 @@ BJ_COMMANDS          = {
     "bjh", "bjs", "bjd", "bjsp", "bjhand",
     "rjoin", "rt", "rh", "rs", "rd", "rsp", "rshoe", "rlimits", "rstats", "rhand",
     "rbjh", "rbjs", "rbjd", "rbjsp", "rbjhand",
+    # Easy aliases / universal shortcuts
+    "blackjack", "bjbet", "bet", "hit", "stand", "double", "split",
+    "insurance", "surrender", "shoe", "bjshoe",
 }
 BANK_PLAYER_COMMANDS = {"bank", "send", "transactions", "bankstats", "banknotify"}
 
@@ -559,6 +562,7 @@ ALL_KNOWN_COMMANDS = (
         "viphelp", "tiphelp", "roleshelp",
         "staffhelp", "modhelp", "managerhelp", "adminhelp", "ownerhelp",
         "casino", "managers", "moderators",
+        "howtoplay", "gameguide", "games",
         "quests", "claimquest",
         "dailyquests", "weeklyquests", "questhelp",
         "event", "events", "eventhelp", "eventstatus",
@@ -1557,6 +1561,18 @@ async def _handle_bankerhelp(bot, user, _args):
         user.id,
         "🏦 Banker: /balance /coinhelp /bankhelp /economydbcheck"
     )
+
+
+async def _handle_howtoplay(bot, user, _args=None):
+    """How-to-play / game guide — whispered to caller."""
+    lines = [
+        "🃏 Games: RBJ → /rjoin <bet>  Casual BJ → /bjoin <bet>  Poker → /p <buyin>",
+        "🎯 RBJ: /hit /stand /double /split /shoe | /bjbet <amount> to join",
+        "♠️ Poker: /call /raise /fold /check /allin | /poker for table status",
+        "💰 Economy: /daily /balance /shop | /rbjhelp for full BJ rules",
+    ]
+    for line in lines:
+        await bot.highrise.send_whisper(user.id, line[:249])
 
 
 async def _handle_economydbcheck(bot, user):
@@ -3013,6 +3029,67 @@ class HangoutBot(BaseBot):
 
         elif cmd == "rbjhand":
             await handle_rbj(self, user, ["rbj", "hand"])
+
+        # ── Easy BJ / universal shortcuts (all map to Realistic Blackjack) ───
+        elif cmd == "blackjack":
+            bet_arg = args[1] if len(args) > 1 else ""
+            await handle_rbj(self, user, ["rbj", "join", bet_arg] if bet_arg else ["rbj"])
+
+        elif cmd == "bjbet":
+            bet_arg = args[1] if len(args) > 1 else ""
+            await handle_rbj(self, user, ["rbj", "join", bet_arg] if bet_arg else ["rbj", "join"])
+
+        elif cmd == "bet":
+            bet_arg = args[1] if len(args) > 1 else ""
+            _rbj_in = False
+            try:
+                from modules.realistic_blackjack import _state as _rbj_s
+                _rbj_in = any(
+                    p.username.lower() == user.username.lower()
+                    for p in _rbj_s.players
+                )
+            except Exception:
+                pass
+            _poker_seated = False
+            try:
+                from modules.poker import _get_seated
+                _poker_seated = _get_seated(user.username) is not None
+            except Exception:
+                pass
+            if _poker_seated and not _rbj_in:
+                await self.highrise.send_whisper(
+                    user.id,
+                    "Use /pbet <amount> for poker or /bjbet <amount> for blackjack."
+                )
+            else:
+                await handle_rbj(
+                    self, user, ["rbj", "join", bet_arg] if bet_arg else ["rbj", "join"]
+                )
+
+        elif cmd == "hit":
+            await handle_rbj(self, user, ["rbj", "hit"])
+
+        elif cmd == "stand":
+            await handle_rbj(self, user, ["rbj", "stand"])
+
+        elif cmd == "double":
+            await handle_rbj(self, user, ["rbj", "double"])
+
+        elif cmd == "split":
+            await handle_rbj(self, user, ["rbj", "split"])
+
+        elif cmd == "insurance":
+            await handle_rbj(self, user, ["rbj", "insurance"])
+
+        elif cmd == "surrender":
+            await handle_rbj(self, user, ["rbj", "surrender"])
+
+        elif cmd in ("shoe", "bjshoe"):
+            await handle_rbj(self, user, ["rbj", "shoe"])
+
+        # ── How-to-play / game guide ──────────────────────────────────────────
+        elif cmd in ("howtoplay", "gameguide", "games"):
+            await _handle_howtoplay(self, user, args)
 
         elif cmd == "confirmcasinoreset":
             if not can_moderate(user.username):

@@ -1,0 +1,97 @@
+Fix Realistic Blackjack easy command routing and How-to-Play registry.
+
+Current test results:
+Working:
+- /bj route=YES handler=YES owner=Blackjack
+- /bjhelp route=YES handler=YES owner=Blackjack
+- /rbj route=YES handler=YES owner=Blackjack
+- /rbjhelp route=YES handler=YES owner=Blackjack
+
+Broken:
+- /howtoplay owner=UNKNOWN route=NO handler=NO
+- /gameguide owner=UNKNOWN route=NO handler=NO
+- /games owner=UNKNOWN route=NO handler=NO
+- /blackjack owner=UNKNOWN route=NO handler=NO
+- /bet owner=UNKNOWN route=NO handler=NO
+- /bjbet owner=UNKNOWN route=NO handler=NO
+- /hit owner=UNKNOWN route=NO handler=NO
+- /stand owner=UNKNOWN route=NO handler=NO
+- /double owner=UNKNOWN route=NO handler=NO
+- /split owner=UNKNOWN route=NO handler=NO
+- /insurance owner=UNKNOWN route=NO handler=NO
+- /surrender owner=UNKNOWN route=NO handler=NO
+- /shoe owner=UNKNOWN route=NO handler=NO
+- /bjshoe owner=UNKNOWN route=NO handler=NO
+
+/checkcommands all says Missing 0 NoOwner 0, but direct /commandtest still shows the commands above are not registered/routed.
+
+Do not change bot tokens.
+Do not change room ID.
+Do not reset balances.
+Do not change mining, poker, events, shop, outfits, or spawns.
+
+Focus only on:
+1. How-to-play command routing.
+2. Realistic Blackjack command aliases.
+3. Commandtest registry/handler/owner map.
+
+Tasks:
+
+1. Add/fix How-to-Play commands:
+- /howtoplay
+- /gameguide
+- /games
+
+Owner should be Host.
+They must show:
+route=YES
+handler=YES
+owner=Host
+
+2. Map /blackjack to Realistic Blackjack.
+- /blackjack should behave like /bj or /rbj.
+- Owner should be Blackjack.
+- route=YES handler=YES.
+
+3. Map easy blackjack commands to Realistic Blackjack handlers:
+- /bet <amount> -> Realistic Blackjack bet if player is in blackjack context.
+- /bjbet <amount> -> Realistic Blackjack bet always.
+- /hit -> Realistic Blackjack hit.
+- /stand -> Realistic Blackjack stand.
+- /double -> Realistic Blackjack double.
+- /split -> Realistic Blackjack split.
+- /insurance -> Realistic Blackjack insurance.
+- /surrender -> Realistic Blackjack surrender.
+- /shoe -> Realistic Blackjack shoe info.
+- /bjshoe -> Realistic Blackjack shoe info.
+
+Owner for all above should be Blackjack.
+All should show route=YES handler=YES.
+
+4. If /bet conflicts with poker:
+- If player is currently in poker hand, /bet should route to poker.
+- If player is currently in blackjack hand or blackjack table, /bet should route to blackjack.
+- If ambiguous, reply:
+  “Use /pbet <amount> for poker or /bjbet <amount> for blackjack.”
+- But /commandtest /bet should still show route=YES handler=YES owner=Context or Host/Blackjack, not UNKNOWN.
+
+5. Remove or hide casual blackjack only if still active.
+Do not route any of these commands to casual blackjack.
+All blackjack commands should use Realistic Blackjack.
+
+6. Update every needed place:
+- main.py routes
+- command registry
+- command audit handler map
+- active command list
+- multi_bot owner map
+- help/game guide command list
+
+7. Do not create fake handlers.
+Use real RBJ handlers or add thin alias handlers that call the existing RBJ handlers.
+
+After fixing, tell me:
+- files changed
+- which RBJ handler each alias maps to
+- how /bet chooses poker vs blackjack
+- what exact commands to test

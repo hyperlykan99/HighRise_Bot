@@ -85,6 +85,11 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     "setrbjturntimer", "setrbjactiontimer", "setrbjmaxsplits",
     "setrbjdailywinlimit", "setrbjdailylosslimit",
     "setrbjlimits", "setbjlimits",
+    # ── easy BJ shortcuts ────────────────────────────────────────────────────
+    "blackjack", "bjbet", "bet", "hit", "stand", "double", "split",
+    "insurance", "surrender", "shoe", "bjshoe",
+    # ── how-to-play / game guide ─────────────────────────────────────────────
+    "howtoplay", "gameguide", "games",
     # ── roles ────────────────────────────────────────────────────────────────
     "addowner", "removeowner",
     "addmanager", "removemanager",
@@ -351,6 +356,9 @@ HELP_CMDS: frozenset[str] = frozenset({
     "p", "casino", "mycasino",
     "bstats", "rstats", "rlimits", "blimits",
     "bj", "rbj",
+    "blackjack", "bjbet", "bet", "hit", "stand", "double", "split",
+    "insurance", "surrender", "shoe", "bjshoe",
+    "howtoplay", "gameguide", "games",
     "casinosettings", "casinolimits", "casinotoggles",
     "setbjlimits", "setrbjlimits", "setbjactiontimer", "setrbjactiontimer",
     "setbjmaxsplits", "setrbjmaxsplits",

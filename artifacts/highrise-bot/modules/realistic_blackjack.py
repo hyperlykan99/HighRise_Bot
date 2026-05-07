@@ -803,6 +803,12 @@ async def handle_rbj(bot: BaseBot, user: User, args: list[str]):
             sub2 = args[2].lower() if len(args) > 2 else ""
             from modules.casino_integrity import run_rbj_integrity
             await run_rbj_integrity(bot, user, sub2)
+        elif sub == "insurance":
+            await bot.highrise.send_whisper(user.id,
+                "⚠️ Insurance is not offered at this table.")
+        elif sub == "surrender":
+            await bot.highrise.send_whisper(user.id,
+                "⚠️ Surrender is not available in Realistic BJ.")
         else:
             await bot.highrise.send_whisper(
                 user.id,

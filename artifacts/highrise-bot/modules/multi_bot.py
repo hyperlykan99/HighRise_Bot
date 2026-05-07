@@ -35,6 +35,7 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "alerthelp": "host", "welcomehelp": "host", "socialhelp": "host",
     "control": "host", "status": "host", "roomstatus": "host",
     "botmodehelp": "host", "multibothelp": "host",
+    "howtoplay": "host", "gameguide": "host", "games": "host",
     # General casino info pages — host owns so only one bot replies
     "casino": "host", "casinohelp": "host",
     "casinosettings": "host", "casinolimits": "host",
@@ -73,6 +74,12 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "setrbjlimits": "blackjack", "resetrbjlimits": "blackjack",
     "setrbjactiontimer": "blackjack", "setrbjmaxsplits": "blackjack",
     "setrbj": "blackjack",
+    # ── Easy BJ / universal shortcuts (all map to RBJ) ──────────────────────
+    "blackjack": "blackjack", "bjbet": "blackjack",
+    "bet": "blackjack", "hit": "blackjack", "stand": "blackjack",
+    "double": "blackjack", "split": "blackjack",
+    "insurance": "blackjack", "surrender": "blackjack",
+    "shoe": "blackjack", "bjshoe": "blackjack",
     # ── poker ───────────────────────────────────────────────────────────────
     "poker": "poker", "p": "poker",
     "pj": "poker", "pt": "poker", "ptable": "poker",
