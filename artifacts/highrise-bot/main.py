@@ -396,6 +396,9 @@ MOD_ONLY_CMDS = {
 
 MANAGER_ONLY_CMDS = {
     "automod",
+    # ── Bot health / multi-bot visibility (manager+) ──────────────────────────
+    "bothealth", "modulehealth", "deploymentcheck",
+    "botheartbeat", "botconflicts", "botlocks", "moduleowners",
     "setpokerbuyin", "setpokerplayers", "setpokerlobbytimer",
     "setpokertimer", "setpokerturntimer", "setpokerraise",
     "setpokerdailywinlimit", "setpokerdailylosslimit",
@@ -427,6 +430,8 @@ TIP_ADMIN_CMDS = {"settiprate", "settipcap", "settiptier", "settipautosub", "set
 
 ADMIN_ONLY_CMDS = {
     "setrules",
+    # ── Bot health repair (admin+) ────────────────────────────────────────────
+    "dblockcheck", "clearstalebotlocks", "fixbotowners",
     # ── Coins ────────────────────────────────────────────────────────────────
     "addcoins", "removecoins",
     "setcoins", "editcoins", "resetcoins",
@@ -2315,6 +2320,28 @@ class HangoutBot(BaseBot):
                 await handle_startevent(self, user, args)
             elif cmd == "eventstop":
                 await handle_stopevent(self, user)
+
+            # ── Bot health / deployment checks ────────────────────────────────
+            elif cmd == "bothealth":
+                await handle_bothealth(self, user, args)
+            elif cmd == "modulehealth":
+                await handle_modulehealth(self, user, args)
+            elif cmd == "deploymentcheck":
+                await handle_deploymentcheck(self, user, args)
+            elif cmd == "botheartbeat":
+                await handle_botheartbeat(self, user)
+            elif cmd == "botconflicts":
+                await handle_botconflicts(self, user)
+            elif cmd == "botlocks":
+                await handle_botlocks(self, user)
+            elif cmd == "moduleowners":
+                await handle_moduleowners(self, user, args)
+            elif cmd == "dblockcheck":
+                await handle_dblockcheck(self, user, args)
+            elif cmd == "clearstalebotlocks":
+                await handle_clearstalebotlocks(self, user)
+            elif cmd == "fixbotowners":
+                await handle_fixbotowners(self, user, args)
 
             else:
                 await handle_admin_command(self, user, cmd, args)
