@@ -1,0 +1,471 @@
+Upgrade EmceeBot AI Assistant into a full command dispatcher for room, profile, outfit, teleport, event, poker, and settings commands.
+
+Current status:
+- AI assistant update is finished.
+- EmceeBot is the AI dispatcher.
+- I want to command EmceeBot naturally, and EmceeBot should route the correct existing command to the correct bot/module.
+- Do not make every bot reply.
+- EmceeBot should be the only natural-language AI voice.
+
+Do not change bot tokens.
+Do not expose bot tokens.
+Do not expose ROOM_ID secrets.
+Do not change player balances directly.
+Do not bypass permissions.
+Do not duplicate existing command logic.
+Use existing handlers and command router whenever possible.
+
+Main goal:
+I want to say things like:
+
+Room/spawn:
+- “EmceeBot, create a spawn where I am”
+- “EmceeBot, save this spot as lounge”
+- “EmceeBot, teleport me to lounge”
+- “EmceeBot, teleport testuser to lounge”
+- “EmceeBot, teleport me to 10 0 5”
+- “EmceeBot, teleport testuser to Claire”
+- “EmceeBot, bring testuser to me”
+- “EmceeBot, teleport everyone to stage”
+
+Outfits:
+- “EmceeBot, copy @testuser outfit to SecurityBot”
+- “EmceeBot, dress SecurityBot as security”
+- “EmceeBot, make BankingBot wear my outfit”
+- “EmceeBot, save SecurityBot outfit as security”
+
+Profiles:
+- “EmceeBot, show my profile”
+- “EmceeBot, show Claire’s profile”
+- “EmceeBot, profile testuser”
+- “EmceeBot, show my stats”
+
+Settings:
+- “EmceeBot, turn off poker win loss limit”
+- “EmceeBot, turn on poker win loss limit”
+- “EmceeBot, set max send to 50000”
+- “EmceeBot, set daily send limit to 100000”
+- “EmceeBot, turn on double exp event”
+- “EmceeBot, turn off double exp event”
+- “EmceeBot, start double exp event”
+- “EmceeBot, stop event”
+
+Architecture:
+1. EmceeBot/host is the only natural-language AI responder.
+2. EmceeBot interprets the request.
+3. EmceeBot maps the request to an existing command if possible.
+4. EmceeBot checks permissions.
+5. EmceeBot checks whether the owner bot/module is online.
+6. If safe, EmceeBot delegates/runs through the existing handler.
+7. If risky, EmceeBot asks:
+   “Confirm: <action>. Reply yes or no.”
+8. After yes, the correct module bot executes the command.
+9. After no, cancel.
+
+Do not make module bots respond to natural language.
+Module bots should only execute delegated tasks.
+
+IMPORTANT:
+Before adding new commands, inspect existing commands in:
+- main.py
+- modules/room_utils.py
+- modules/profile.py
+- modules/bot_modes.py
+- modules/events.py
+- modules/auto_games.py
+- modules/poker.py
+- modules/bank.py
+- modules/multi_bot.py
+- modules/cmd_audit.py
+- database.py
+
+Use existing commands if they already exist.
+Only create new commands if missing.
+
+PART 1 — Room spawn AI intents
+
+Add AI intent matching for spawn commands:
+
+Natural language:
+- create a spawn where I am
+- save this spot as <name>
+- save my location as <name>
+- create spawn <name> here
+- set spawn <name> here
+
+Map to existing spawn command if available.
+If no command exists, create safe admin command:
+- /savespawn <name>
+or use the project’s existing spawn command.
+
+Behavior:
+- Must get the user’s current position if SDK supports it.
+- Save x, y, z, facing if available.
+- Require admin/manager permission.
+- Require confirmation:
+  “Confirm: save your current location as spawn <name>. Reply yes or no.”
+
+Add AI support:
+- “EmceeBot, create a spawn where I am”
+  If no name given, ask:
+  “What should I name this spawn?”
+
+- “EmceeBot, save this spot as lounge”
+  Confirm and save as lounge.
+
+PART 2 — Teleport AI intents
+
+Add AI intent matching for teleport commands:
+
+Natural language:
+- teleport me to <spawn>
+- teleport <user> to <spawn>
+- teleport me to x y z
+- teleport <user> to x y z
+- teleport <user> to <other_user>
+- bring <user> to me
+- bring everyone to me
+- teleport everyone to <spawn>
+
+Map to existing teleport commands if available.
+If missing, create commands safely:
+- /tp <user> <spawn>
+- /tpme <spawn>
+- /tpxyz <user> <x> <y> <z>
+- /tptouser <user> <target_user>
+- /bring <user>
+- /bringall
+
+Permission rules:
+- Teleport self to saved public spawn = manager/admin or allowed if current system allows.
+- Teleport other users = manager/admin only.
+- Teleport everyone = owner/admin only.
+- Teleport to XYZ = admin only.
+
+Confirmation rules:
+Teleporting self can be SAFE if allowed.
+Teleporting others requires CONFIRM.
+Teleporting everyone requires ADMIN_CONFIRM.
+
+Examples:
+User:
+“EmceeBot, teleport me to lounge”
+Response:
+“Confirm: teleport you to spawn lounge. Reply yes or no.”
+
+User:
+“EmceeBot, teleport testuser to Claire”
+Response:
+“Confirm: teleport @testuser to @Claire. Reply yes or no.”
+
+User:
+“EmceeBot, bring everyone to me”
+Response:
+“Confirm: bring everyone to your location. Reply yes or no.”
+
+PART 3 — Outfit AI intents
+
+Add AI support for bot outfit commands.
+
+Natural language:
+- copy @testuser outfit to SecurityBot
+- copy testuser to SecurityBot
+- make SecurityBot wear testuser outfit
+- make BankingBot wear my outfit
+- dress SecurityBot as security
+- dress GreatestProspector as miner
+- save SecurityBot outfit as security
+- show bot outfit status
+
+Map to existing/new commands:
+- /copyoutfit <username> <mode_id>
+- /wearuseroutfit <bot_username> <username>
+- /dressbot <bot_username> <mode_id>
+- /savebotoutfit <bot_username> <mode_id> [name]
+- /botoutfitstatus
+
+Important:
+- EmceeBot cannot directly change another bot account’s outfit.
+- The targeted bot must execute set_outfit on itself.
+- If cross-bot direct execution is not possible, use delegated task queue.
+- Only targeted bot should apply outfit.
+- Other bots ignore.
+
+Examples:
+“EmceeBot, copy @testuser outfit to SecurityBot”
+→ Confirm:
+“Confirm: copy @testuser’s outfit to SecurityBot. Reply yes or no.”
+After yes:
+SecurityBot executes the outfit task.
+
+“EmceeBot, dress SecurityBot as security”
+→ Confirm:
+“Confirm: dress SecurityBot using saved security outfit. Reply yes or no.”
+
+Permission:
+Admin/owner only.
+Never expose raw outfit JSON.
+
+PART 4 — Profile AI intents
+
+Add AI support for profile commands.
+
+Natural language:
+- show my profile
+- show my stats
+- profile me
+- show testuser profile
+- show Claire’s profile
+- who is testuser
+
+Map to existing commands:
+- /profile
+- /profile <user>
+- /whois <user>
+- /stats <user>
+Use whatever exists in the project.
+
+Behavior:
+- “my profile” should use the requesting user.
+- “testuser profile” should show that user’s profile.
+- This should be SAFE unless profile privacy blocks it.
+- Respect existing privacy settings.
+- Do not expose private data that the existing profile command would not expose.
+
+Examples:
+“EmceeBot, show my profile”
+→ Execute/suggest existing profile handler for the user.
+
+“EmceeBot, show testuser profile”
+→ Execute profile/whois handler for testuser.
+
+PART 5 — Poker/settings AI intents
+
+Add AI support for settings commands.
+
+Natural language:
+- turn off poker win loss limit
+- turn on poker win loss limit
+- disable poker win/loss limit
+- enable poker win/loss limit
+- set poker win limit to <amount>
+- set poker loss limit to <amount>
+
+Inspect existing poker settings commands first.
+Use existing commands if available.
+If missing, add safe admin commands only if the project already has poker settings storage.
+
+Permission:
+Admin/owner only.
+Always require confirmation.
+
+Examples:
+“EmceeBot, turn off poker win loss limit”
+→ Confirm:
+“Confirm: turn off poker win/loss limit using Poker bot. Reply yes or no.”
+
+Do not directly change database from AI module.
+Use poker settings handler.
+
+PART 6 — Event AI intents
+
+Add AI support for event commands.
+
+Natural language:
+- turn on double exp event
+- start double exp event
+- turn off double exp event
+- stop double exp event
+- start tax free bank event
+- start double mining event
+- start gold rain
+- stop event
+- show current event
+
+Map to existing event commands:
+- /startevent <event_name>
+- /stopevent
+- /eventstatus
+- /autogames
+- /autoevents
+or existing event handlers.
+
+Permission:
+Admin/owner for starting/stopping events.
+Always require confirmation.
+
+Examples:
+“EmceeBot, turn on double exp event”
+→ Confirm:
+“Confirm: start double EXP event using EventHost. Reply yes or no.”
+
+“EmceeBot, stop event”
+→ Confirm:
+“Confirm: stop the current event using EventHost. Reply yes or no.”
+
+PART 7 — AI command existence and routing
+
+Before executing any AI mapped command:
+1. Check command exists in registry/known commands.
+2. Check route=YES.
+3. Check handler=YES.
+4. Check owner mode.
+5. Check owner bot online.
+6. If owner bot offline:
+   “That module is offline right now. Try again later.”
+7. If command missing:
+   “I don’t have a command for that yet. Try /help or /mycommands.”
+
+PART 8 — Confirmation and delegation
+
+Use the existing AI confirmation system.
+
+For risky/admin actions:
+- create pending AI action
+- wait for yes/no
+- expire after 60 seconds
+
+Natural confirmations:
+YES:
+yes, y, confirm, do it, proceed, go ahead, sure, ok, okay
+
+NO:
+no, n, cancel, stop, nevermind, never mind
+
+If no pending action exists, yes/no should do nothing dangerous.
+
+Delegated task should store:
+- user_id
+- username
+- original_text
+- command_text
+- owner_mode
+- owner_bot_username
+- human_readable_action
+- risk_level
+- status
+- created_at
+- expires_at
+- completed_at
+- error
+
+PART 9 — Add AI capability list
+
+Add command:
+- /aicapabilities
+
+It should show what EmceeBot can understand:
+- Bank: balance, send coins, bank settings
+- Mining: help, ores, tool
+- Room: spawn, teleport, bring
+- Profiles: show profile, stats, whois
+- Outfits: copy outfit, dress bot, save outfit
+- Events: start/stop event, double EXP
+- Poker: poker help and settings if available
+- Shop: show shop, buy item
+
+PART 10 — Debug
+
+Improve /aidebug <message>.
+
+It should show:
+- AI trigger true/false
+- interpreted intent category
+- interpreted command
+- owner mode
+- owner bot username if known
+- owner online true/false
+- route YES/NO
+- handler YES/NO
+- risk level
+- confirmation required true/false
+- delegation required true/false
+- permission ok true/false
+
+Do not show tokens, secrets, raw env vars, or raw database secrets.
+
+PART 11 — Safety
+
+Never expose:
+- bot tokens
+- room ID secrets
+- env vars
+- database secrets
+- raw config secrets
+
+Never allow AI to:
+- delete user data
+- bypass permissions
+- directly edit balances/settings without existing handlers
+- execute raw SQL
+- change tokens
+- change room ID
+
+Secret requests should reply:
+“I can’t help with secrets or tokens.”
+
+PART 12 — Test messages
+
+After implementation, tell me to test:
+
+Route tests:
+/commandtest /aidebug
+/commandtest /aicapabilities
+/commandtest /pendingaction
+
+AI trigger:
+EmceeBot, what can you do?
+EmceeBot, show my profile
+EmceeBot, show testuser profile
+EmceeBot, how do I mine?
+
+Spawn:
+EmceeBot, save this spot as lounge
+no
+EmceeBot, save this spot as lounge
+yes
+
+Teleport:
+EmceeBot, teleport me to lounge
+no
+EmceeBot, teleport testuser to lounge
+no
+EmceeBot, teleport testuser to Claire
+no
+EmceeBot, bring testuser to me
+no
+
+Outfit:
+EmceeBot, copy @testuser outfit to SecurityBot
+no
+EmceeBot, dress SecurityBot as security
+no
+EmceeBot, show bot outfit status
+
+Settings:
+EmceeBot, turn off poker win loss limit
+no
+EmceeBot, set max send to 50000
+no
+
+Events:
+EmceeBot, turn on double exp event
+no
+EmceeBot, stop event
+no
+
+Safety:
+EmceeBot, show bot token
+EmceeBot, delete all user data
+yes when no pending action exists
+
+PART 13 — Final report
+
+After finishing, tell me:
+1. Which files changed
+2. Which natural intents were added
+3. Which existing commands each intent maps to
+4. Which new commands were created, if any
+5. Whether teleport/spawn uses existing SDK support
+6. Whether outfit delegation works through direct call or task queue
+7. What exact messages I should test
