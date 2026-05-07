@@ -189,6 +189,63 @@ def _w(bot, uid, msg):
     return bot.highrise.send_whisper(uid, str(msg)[:249])
 
 
+# ── Outfit serialisation helpers ─────────────────────────────────────────
+
+def _item_to_dict(item) -> dict:
+    return {
+        "type":           getattr(item, "type",           "clothing"),
+        "amount":         getattr(item, "amount",         1),
+        "id":             item.id,
+        "account_bound":  getattr(item, "account_bound",  False),
+        "active_palette": getattr(item, "active_palette", None),
+    }
+
+
+def _dict_to_item(d: dict):
+    from highrise import Item
+    return Item(
+        type          = d.get("type", "clothing"),
+        amount        = int(d.get("amount", 1)),
+        id            = str(d["id"]),
+        account_bound = bool(d.get("account_bound", False)),
+        active_palette= d.get("active_palette"),
+    )
+
+
+def _items_to_json(items) -> str:
+    import json
+    return json.dumps([_item_to_dict(i) for i in items])
+
+
+def _json_to_items(s: str) -> list:
+    import json
+    return [_dict_to_item(d) for d in json.loads(s)]
+
+
+def _outfit_item_count(outfit_data_json: str) -> int:
+    if not outfit_data_json:
+        return 0
+    try:
+        import json
+        return len(json.loads(outfit_data_json))
+    except Exception:
+        return 0
+
+
+async def _find_room_user_id(bot, username: str) -> str | None:
+    """Return the user_id for a username if they are currently in the room."""
+    try:
+        resp = await bot.highrise.get_room_users()
+        if hasattr(resp, "content"):
+            for entry in resp.content:
+                u = entry[0] if isinstance(entry, (tuple, list)) else entry
+                if hasattr(u, "username") and u.username.lower() == username.lower():
+                    return u.id
+    except Exception:
+        pass
+    return None
+
+
 def _can_switch(username: str) -> bool:
     if is_owner(username) or is_admin(username) or is_manager(username):
         return True
@@ -362,31 +419,73 @@ async def handle_setbotoutfit(bot: BaseBot, user: User, args: list[str]) -> None
 
 
 # ---------------------------------------------------------------------------
-# /botoutfit   /botoutfits
+# /botoutfit [mode_id]
+# Public: no args → current mode details; with mode_id → that mode's details
 # ---------------------------------------------------------------------------
 
-async def handle_botoutfit(bot: BaseBot, user: User) -> None:
+async def handle_botoutfit(bot: BaseBot, user: User, args: list[str] = None) -> None:
+    if args and len(args) >= 2:
+        mode_id = args[1].lower()
+        rec = get_mode_record(mode_id)
+        if not rec:
+            modes_list = ", ".join(m["mode_id"] for m in get_all_modes())
+            await _w(bot, user.id, f"Unknown mode. Available: {modes_list}")
+            return
+        n = _outfit_item_count(rec.get("outfit_data_json") or "")
+        has = f"YES ({n} items)" if n else "NO"
+        upd = (rec.get("updated_at") or "")[:10]
+        await _w(bot, user.id,
+                 f"🎨 {rec['mode_id']} | \"{rec['outfit_name']}\" | Data: {has} | Updated: {upd}"[:249])
+        return
+
     mode = get_bot_mode()
     if not mode:
         await _w(bot, user.id, "No bot mode configured.")
         return
+    n = _outfit_item_count(mode.get("outfit_data_json") or "")
+    has = f"YES ({n} items)" if n else "NO"
+    upd = (mode.get("updated_at") or "")[:10]
     await _w(bot, user.id,
-             f"🤖 Current outfit: {mode['outfit_name']} (Mode: {mode['mode_name']})")
-
-
-async def handle_botoutfits(bot: BaseBot, user: User) -> None:
-    modes = get_all_modes()
-    parts = [f"{m['mode_id']}: {m['outfit_name']}" for m in modes]
-    # split if long
-    chunk = parts[:5]
-    rest  = parts[5:]
-    await _w(bot, user.id, ("🤖 Outfits: " + " | ".join(chunk))[:249])
-    if rest:
-        await _w(bot, user.id, (" | ".join(rest))[:249])
+             f"🤖 Mode: {mode['mode_id']} | \"{mode['outfit_name']}\" | Data: {has} | Updated: {upd}"[:249])
 
 
 # ---------------------------------------------------------------------------
-# /dressbot <mode_id>  |  /dressbot manual <outfit_name>
+# /botoutfits [page]
+# Public: paginated list of all mode outfits, 5 per page
+# ---------------------------------------------------------------------------
+
+_OUTFITS_PAGE_SIZE = 5
+
+
+async def handle_botoutfits(bot: BaseBot, user: User, args: list[str] = None) -> None:
+    modes = get_all_modes(enabled_only=False)
+    total = len(modes)
+    pages = max(1, (total + _OUTFITS_PAGE_SIZE - 1) // _OUTFITS_PAGE_SIZE)
+
+    page = 1
+    if args and len(args) >= 2:
+        try:
+            page = int(args[1])
+        except ValueError:
+            page = 1
+    page = max(1, min(page, pages))
+
+    start = (page - 1) * _OUTFITS_PAGE_SIZE
+    chunk = modes[start: start + _OUTFITS_PAGE_SIZE]
+
+    await _w(bot, user.id,
+             f"🎨 Outfits page {page}/{pages} — /botoutfits [page] for more")
+    for i, m in enumerate(chunk, start=start + 1):
+        n = _outfit_item_count(m.get("outfit_data_json") or "")
+        data_str = f"{n} items" if n else "no data"
+        upd = (m.get("updated_at") or "")[:10]
+        await _w(bot, user.id,
+                 f"  {i}. {m['mode_id']} | \"{m['outfit_name']}\" | {data_str} | {upd}"[:249])
+
+
+# ---------------------------------------------------------------------------
+# /dressbot <mode_id>
+# Admin: apply saved outfit_data_json for that mode
 # ---------------------------------------------------------------------------
 
 async def handle_dressbot(bot: BaseBot, user: User, args: list[str]) -> None:
@@ -394,46 +493,44 @@ async def handle_dressbot(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Admin and above only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /dressbot <mode_id>  or  /dressbot manual <outfit_name>")
+        await _w(bot, user.id, "Usage: /dressbot <mode_id>")
         return
 
-    sub = args[1].lower()
-    if sub == "manual":
-        outfit_name = " ".join(args[2:]) if len(args) > 2 else ""
-        if not outfit_name:
-            await _w(bot, user.id, "Usage: /dressbot manual <outfit_name>")
-            return
-        await _w(bot, user.id, "Mode changed. Outfit change not supported by API.")
-        return
-
-    mode_id = sub
+    mode_id = args[1].lower()
     rec = get_mode_record(mode_id)
     if not rec:
         modes_list = ", ".join(m["mode_id"] for m in get_all_modes())
         await _w(bot, user.id, f"Unknown mode. Available: {modes_list}")
         return
 
-    # Switch logical mode
-    set_bot_mode(mode_id, assigned_by=user.username)
-
-    # Try to apply outfit via API if outfit_data_json is set
-    outfit_json = rec.get("outfit_data_json") or ""
-    if outfit_json and outfit_json != "{}":
-        try:
-            import json
-            outfit_data = json.loads(outfit_json)
-            await bot.highrise.set_outfit(outfit_data)
-            await _w(bot, user.id, f"✅ Dressed as {rec['prefix']}.")
-        except Exception:
-            await _w(bot, user.id,
-                     f"Mode: {rec['prefix']}. Outfit data failed to apply.")
-    else:
+    outfit_json = (rec.get("outfit_data_json") or "").strip()
+    if not outfit_json or outfit_json in ("{}", "[]", ""):
         await _w(bot, user.id,
-                 f"Mode: {rec['prefix']}. Outfit change not supported by API.")
+                 f"No saved outfit data for {mode_id}. "
+                 f"Dress the bot manually, then use /savebotoutfit {mode_id}.")
+        return
+
+    try:
+        items = _json_to_items(outfit_json)
+        if not items:
+            raise ValueError("empty item list")
+        result = await bot.highrise.set_outfit(items)
+        from highrise.models import Error
+        if isinstance(result, Error):
+            print(f"[OUTFIT] dressbot error for {mode_id}: {result}")
+            await _w(bot, user.id, f"Outfit apply failed: {str(result)[:100]}")
+            return
+        set_bot_mode(mode_id, assigned_by=user.username)
+        n = len(items)
+        await _w(bot, user.id, f"✅ Dressed as {rec['prefix']} ({n} items applied).")
+    except Exception as exc:
+        print(f"[OUTFIT] dressbot exception for {mode_id}: {exc}")
+        await _w(bot, user.id, "Failed to apply outfit. Check /botoutfitlogs for details.")
 
 
 # ---------------------------------------------------------------------------
-# /savebotoutfit <mode_id>
+# /savebotoutfit <mode_id> [name]
+# Admin: save bot's current outfit; optional name renames outfit_name too
 # ---------------------------------------------------------------------------
 
 async def handle_savebotoutfit(bot: BaseBot, user: User, args: list[str]) -> None:
@@ -441,34 +538,226 @@ async def handle_savebotoutfit(bot: BaseBot, user: User, args: list[str]) -> Non
         await _w(bot, user.id, "Admin and above only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /savebotoutfit <mode_id>")
+        await _w(bot, user.id, "Usage: /savebotoutfit <mode_id> [name]")
+        return
+    mode_id     = args[1].lower()
+    new_name    = " ".join(args[2:])[:100] if len(args) > 2 else ""
+    rec = get_mode_record(mode_id)
+    if not rec:
+        await _w(bot, user.id, f"Unknown mode: {mode_id}")
+        return
+    try:
+        resp = await bot.highrise.get_my_outfit()
+        from highrise.models import Error
+        if isinstance(resp, Error):
+            print(f"[OUTFIT] get_my_outfit error: {resp}")
+            await _w(bot, user.id, "Could not fetch current outfit from the server.")
+            return
+        items = resp.outfit if hasattr(resp, "outfit") else []
+        if not items:
+            await _w(bot, user.id, "Bot is wearing no items — nothing to save.")
+            return
+        outfit_json  = _items_to_json(items)
+        outfit_name  = new_name or rec["outfit_name"]
+        conn = db.get_connection()
+        conn.execute(
+            "UPDATE bot_modes SET outfit_data_json=?, outfit_name=?, updated_at=datetime('now') WHERE mode_id=?",
+            (outfit_json, outfit_name, mode_id),
+        )
+        conn.execute(
+            """INSERT INTO bot_outfit_logs
+               (timestamp, actor_username, bot_username, mode_id, outfit_name, action, details)
+               VALUES (datetime('now'), ?, 'main', ?, ?, 'save_outfit', ?)""",
+            (user.username, mode_id, outfit_name,
+             f"saved {len(items)} items"),
+        )
+        conn.commit()
+        conn.close()
+        await _w(bot, user.id,
+                 f"✅ Saved {len(items)} items → \"{outfit_name}\" ({mode_id}).")
+    except Exception as exc:
+        print(f"[OUTFIT] savebotoutfit exception for {mode_id}: {exc}")
+        await _w(bot, user.id, "Failed to save outfit. Try again or check logs.")
+
+
+# ---------------------------------------------------------------------------
+# /copyoutfit <username> <mode_id>
+# Admin: copy a room user's outfit into a bot mode's saved outfit_data_json
+# ---------------------------------------------------------------------------
+
+async def handle_copyoutfit(bot: BaseBot, user: User, args: list[str]) -> None:
+    if not (is_admin(user.username) or is_owner(user.username)):
+        await _w(bot, user.id, "Admin and above only.")
+        return
+    if len(args) < 3:
+        await _w(bot, user.id, "Usage: /copyoutfit <username> <mode_id>")
+        return
+
+    target_name = args[1].lstrip("@")
+    mode_id     = args[2].lower()
+
+    rec = get_mode_record(mode_id)
+    if not rec:
+        await _w(bot, user.id, f"Unknown mode: {mode_id}")
+        return
+
+    await _w(bot, user.id, f"Looking for @{target_name} in the room…")
+    target_id = await _find_room_user_id(bot, target_name)
+    if not target_id:
+        await _w(bot, user.id,
+                 f"@{target_name} is not in the room. They must be present to copy their outfit.")
+        return
+
+    try:
+        resp = await bot.highrise.get_user_outfit(target_id)
+        from highrise.models import Error
+        if isinstance(resp, Error):
+            print(f"[OUTFIT] get_user_outfit error for {target_id}: {resp}")
+            await _w(bot, user.id,
+                     "Could not read that user's outfit from the server. They may need to be visible in the room.")
+            return
+        items = resp.outfit if hasattr(resp, "outfit") else []
+        if not items:
+            await _w(bot, user.id, f"@{target_name} appears to have no outfit items.")
+            return
+        outfit_json = _items_to_json(items)
+        conn = db.get_connection()
+        conn.execute(
+            "UPDATE bot_modes SET outfit_data_json=?, updated_at=datetime('now') WHERE mode_id=?",
+            (outfit_json, mode_id),
+        )
+        conn.execute(
+            """INSERT INTO bot_outfit_logs
+               (timestamp, actor_username, bot_username, mode_id, outfit_name, action, details)
+               VALUES (datetime('now'), ?, 'main', ?, ?, 'copy_outfit', ?)""",
+            (user.username, mode_id, rec["outfit_name"],
+             f"copied {len(items)} items from @{target_name}"),
+        )
+        conn.commit()
+        conn.close()
+        await _w(bot, user.id,
+                 f"✅ Copied @{target_name}'s outfit ({len(items)} items) → {mode_id}.")
+    except Exception as exc:
+        print(f"[OUTFIT] copyoutfit exception: {exc}")
+        await _w(bot, user.id,
+                 "Copying another user's outfit failed. They may need to be visible in the room.")
+
+
+# ---------------------------------------------------------------------------
+# /wearuseroutfit <username>
+# Admin: make the bot immediately wear a room user's outfit
+# ---------------------------------------------------------------------------
+
+async def handle_wearuseroutfit(bot: BaseBot, user: User, args: list[str]) -> None:
+    if not (is_admin(user.username) or is_owner(user.username)):
+        await _w(bot, user.id, "Admin and above only.")
+        return
+    if len(args) < 2:
+        await _w(bot, user.id, "Usage: /wearuseroutfit <username>")
+        return
+
+    target_name = args[1].lstrip("@")
+    await _w(bot, user.id, f"Looking for @{target_name} in the room…")
+    target_id = await _find_room_user_id(bot, target_name)
+    if not target_id:
+        await _w(bot, user.id,
+                 f"@{target_name} is not in the room. They must be present for this command.")
+        return
+
+    try:
+        resp = await bot.highrise.get_user_outfit(target_id)
+        from highrise.models import Error
+        if isinstance(resp, Error):
+            print(f"[OUTFIT] get_user_outfit error for {target_id}: {resp}")
+            await _w(bot, user.id, "Could not read that user's outfit from the server.")
+            return
+        items = resp.outfit if hasattr(resp, "outfit") else []
+        if not items:
+            await _w(bot, user.id, f"@{target_name} appears to have no outfit items.")
+            return
+        result = await bot.highrise.set_outfit(items)
+        if isinstance(result, Error):
+            print(f"[OUTFIT] set_outfit error: {result}")
+            await _w(bot, user.id, f"Failed to apply outfit: {str(result)[:100]}")
+            return
+        conn = db.get_connection()
+        conn.execute(
+            """INSERT INTO bot_outfit_logs
+               (timestamp, actor_username, bot_username, mode_id, outfit_name, action, details)
+               VALUES (datetime('now'), ?, 'main', '', '', 'wear_user_outfit', ?)""",
+            (user.username, f"wore @{target_name}'s outfit ({len(items)} items)"),
+        )
+        conn.commit()
+        conn.close()
+        await _w(bot, user.id,
+                 f"✅ Bot is now wearing @{target_name}'s outfit ({len(items)} items).")
+    except Exception as exc:
+        print(f"[OUTFIT] wearuseroutfit exception: {exc}")
+        await _w(bot, user.id,
+                 "Could not apply that outfit. The user must be visible in the room.")
+
+
+# ---------------------------------------------------------------------------
+# /renamebotoutfit <mode_id> <name>
+# Admin: rename the saved outfit_name for a mode (does not touch data)
+# ---------------------------------------------------------------------------
+
+async def handle_renamebotoutfit(bot: BaseBot, user: User, args: list[str]) -> None:
+    if not (is_admin(user.username) or is_owner(user.username)):
+        await _w(bot, user.id, "Admin and above only.")
+        return
+    if len(args) < 3:
+        await _w(bot, user.id, "Usage: /renamebotoutfit <mode_id> <name>")
+        return
+    mode_id  = args[1].lower()
+    new_name = " ".join(args[2:])[:100]
+    rec = get_mode_record(mode_id)
+    if not rec:
+        await _w(bot, user.id, f"Unknown mode: {mode_id}")
+        return
+    conn = db.get_connection()
+    conn.execute(
+        "UPDATE bot_modes SET outfit_name=?, updated_at=datetime('now') WHERE mode_id=?",
+        (new_name, mode_id),
+    )
+    conn.commit()
+    conn.close()
+    await _w(bot, user.id, f"✅ {mode_id} outfit renamed to \"{new_name}\".")
+
+
+# ---------------------------------------------------------------------------
+# /clearbotoutfit <mode_id>
+# Admin: wipe outfit_data_json for a mode (keeps outfit_name and the mode itself)
+# ---------------------------------------------------------------------------
+
+async def handle_clearbotoutfit(bot: BaseBot, user: User, args: list[str]) -> None:
+    if not (is_admin(user.username) or is_owner(user.username)):
+        await _w(bot, user.id, "Admin and above only.")
+        return
+    if len(args) < 2:
+        await _w(bot, user.id, "Usage: /clearbotoutfit <mode_id>")
         return
     mode_id = args[1].lower()
     rec = get_mode_record(mode_id)
     if not rec:
         await _w(bot, user.id, f"Unknown mode: {mode_id}")
         return
-    try:
-        import json
-        outfit = await bot.highrise.get_my_outfit()
-        if outfit is None:
-            raise ValueError("empty outfit")
-        outfit_items = outfit.outfit if hasattr(outfit, "outfit") else outfit
-        outfit_json  = json.dumps([item.__dict__ if hasattr(item, "__dict__") else str(item) for item in outfit_items])
-        conn = db.get_connection()
-        conn.execute("UPDATE bot_modes SET outfit_data_json=?, updated_at=datetime('now') WHERE mode_id=?",
-                     (outfit_json, mode_id))
-        conn.execute(
-            """INSERT INTO bot_outfit_logs
-               (timestamp, actor_username, bot_username, mode_id, outfit_name, action, details)
-               VALUES (datetime('now'), ?, 'main', ?, ?, 'save_outfit', 'saved current outfit')""",
-            (user.username, mode_id, rec["outfit_name"]),
-        )
-        conn.commit()
-        conn.close()
-        await _w(bot, user.id, f"✅ Outfit saved for {rec['mode_name']}.")
-    except Exception:
-        await _w(bot, user.id, "Saving current outfit is not supported by API.")
+    n = _outfit_item_count(rec.get("outfit_data_json") or "")
+    conn = db.get_connection()
+    conn.execute(
+        "UPDATE bot_modes SET outfit_data_json='', updated_at=datetime('now') WHERE mode_id=?",
+        (mode_id,),
+    )
+    conn.execute(
+        """INSERT INTO bot_outfit_logs
+           (timestamp, actor_username, bot_username, mode_id, outfit_name, action, details)
+           VALUES (datetime('now'), ?, 'main', ?, ?, 'clear_outfit', ?)""",
+        (user.username, mode_id, rec["outfit_name"],
+         f"cleared outfit data ({n} items removed)"),
+    )
+    conn.commit()
+    conn.close()
+    await _w(bot, user.id, f"✅ Outfit data cleared for {mode_id} (name kept).")
 
 
 # ---------------------------------------------------------------------------
@@ -628,9 +917,7 @@ async def handle_botoutfitlogs(bot: BaseBot, user: User) -> None:
 
 async def handle_botmodehelp(bot: BaseBot, user: User) -> None:
     await _w(bot, user.id,
-             "🤖 Bot Modes\n"
-             "/botmode - current\n"
-             "/botmodes - list\n"
-             "/botmode <id> - switch\n"
-             "/dressbot <id> - outfit\n"
-             "/botprofile - info")
+             "🤖 /botmode /botmodes /botprofile /bots "
+             "| /botoutfit [mode] /botoutfits [page] "
+             "| (admin) /dressbot /savebotoutfit /copyoutfit /wearuseroutfit "
+             "/renamebotoutfit /clearbotoutfit")

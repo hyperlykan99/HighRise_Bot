@@ -304,6 +304,8 @@ from modules.bot_modes import (
     handle_setbotprefix, handle_setbotdesc, handle_setbotoutfit,
     handle_botoutfit, handle_botoutfits,
     handle_dressbot, handle_savebotoutfit,
+    handle_copyoutfit, handle_wearuseroutfit,
+    handle_renamebotoutfit, handle_clearbotoutfit,
     handle_createbotmode, handle_deletebotmode, handle_assignbotmode,
     handle_bots, handle_botinfo, handle_botoutfitlogs,
     handle_botmodehelp,
@@ -655,6 +657,8 @@ ALL_KNOWN_COMMANDS = (
         "botprefix", "categoryprefix",
         "setbotprefix", "setbotdesc", "setbotoutfit",
         "dressbot", "savebotoutfit",
+        "copyoutfit", "wearuseroutfit",
+        "renamebotoutfit", "clearbotoutfit",
         "createbotmode", "deletebotmode", "assignbotmode",
         "botoutfitlogs",
         # ── Control panel ─────────────────────────────────────────────────────
@@ -3668,13 +3672,21 @@ class HangoutBot(BaseBot):
         elif cmd == "setbotoutfit":
             await handle_setbotoutfit(self, user, args)
         elif cmd == "botoutfit":
-            await handle_botoutfit(self, user)
+            await handle_botoutfit(self, user, args)
         elif cmd == "botoutfits":
-            await handle_botoutfits(self, user)
+            await handle_botoutfits(self, user, args)
         elif cmd == "dressbot":
             await handle_dressbot(self, user, args)
         elif cmd == "savebotoutfit":
             await handle_savebotoutfit(self, user, args)
+        elif cmd == "copyoutfit":
+            await handle_copyoutfit(self, user, args)
+        elif cmd == "wearuseroutfit":
+            await handle_wearuseroutfit(self, user, args)
+        elif cmd == "renamebotoutfit":
+            await handle_renamebotoutfit(self, user, args)
+        elif cmd == "clearbotoutfit":
+            await handle_clearbotoutfit(self, user, args)
         elif cmd == "createbotmode":
             await handle_createbotmode(self, user, args)
         elif cmd == "deletebotmode":
