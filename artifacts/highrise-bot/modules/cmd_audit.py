@@ -484,6 +484,12 @@ async def handle_silentcheck(bot: BaseBot, user: User, all_known: set) -> None:
 # ---------------------------------------------------------------------------
 
 async def handle_commandtest(bot: BaseBot, user: User, args: list[str]) -> None:
+    """
+    /commandtest <command>
+    Always answered by host (or eventhost when host is offline).
+    Shows routing info for ANY command without requiring the owner bot to handle it.
+    Output: ct: <cmd> | owner=<Mode> | owner_online=T/F | host_handles=T/F | <mode>_handles=T/F
+    """
     if not _can_audit(user.username):
         await _w(bot, user.id, "Staff only.")
         return
@@ -491,36 +497,33 @@ async def handle_commandtest(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Usage: /commandtest <command>")
         return
     cmd = args[1].lstrip("/").lower()
-    routed  = cmd in ROUTED_COMMANDS
-    in_help = cmd in HELP_CMDS
-    hidden  = cmd in HIDDEN_CMDS
-    silent  = cmd in SILENT_RISK_CMDS
-    route_s = "YES" if routed  else "NO"
-    help_s  = "YES" if in_help else "NO"
-    extra   = ""
-    if hidden:
-        extra += " [hidden/internal]"
-    if silent:
-        extra += " ⚠️ silent"
-    # Show command owner, online status, and whether THIS bot handles it
     try:
         from modules.multi_bot import (
-            get_command_owner_for_audit, _resolve_command_owner,
-            _is_mode_online, should_this_bot_handle,
+            _resolve_command_owner, _is_mode_online, _MODE_NAMES,
+            should_this_bot_handle,
         )
-        owner      = get_command_owner_for_audit(cmd)
-        owner_mode = _resolve_command_owner(cmd) or "all"
-        online     = _is_mode_online(owner_mode)
-        handles    = should_this_bot_handle(cmd)
-        extra += (
-            f" | owner:{owner}"
-            f" | {owner_mode}_online:{str(online).lower()}"
-            f" | this_bot_handles:{str(handles).lower()}"
+        owner_mode   = _resolve_command_owner(cmd) or "all"
+        owner_name   = _MODE_NAMES.get(owner_mode, owner_mode.title())
+        owner_online = _is_mode_online(owner_mode) if owner_mode != "all" else True
+        # host_handles: would the host bot respond to this command?
+        # Calling should_this_bot_handle(cmd) from whichever bot runs commandtest
+        # (host or eventhost-as-fallback) gives the correct perspective since
+        # both bots use the same hard-owner / whitelist logic.
+        host_handles  = should_this_bot_handle(cmd)
+        # owner_handles: True when the owner is online (it handles its own cmds)
+        # or when owner is "all" (single-bot setup) or the current bot owns it.
+        owner_handles = (owner_mode == "all") or _is_mode_online(owner_mode)
+        online_s  = str(owner_online).lower()
+        host_s    = str(host_handles).lower()
+        owner_s   = str(owner_handles).lower()
+        msg = (
+            f"ct: {cmd} | owner={owner_name} | owner_online={online_s}"
+            f" | host_handles={host_s} | {owner_mode}_handles={owner_s}"
         )
-    except Exception:
-        pass
-    print(f"[COMMANDTEST] /{cmd} route={route_s} help={help_s} hidden={hidden} silent={silent}")
-    await _w(bot, user.id, f"/{cmd} route:{route_s} | help:{help_s}{extra}")
+    except Exception as exc:
+        msg = f"ct: {cmd} | error:{str(exc)[:100]}"
+    print(f"[COMMANDTEST] @{user.username}: /{cmd}")
+    await _w(bot, user.id, msg[:249])
 
 
 # ---------------------------------------------------------------------------

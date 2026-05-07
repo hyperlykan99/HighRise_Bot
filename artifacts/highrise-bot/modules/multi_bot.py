@@ -198,6 +198,11 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "fixcommands": "host", "testcommands": "host",
     "deploymentcheck": "host", "bothealth": "host",
     "botconflicts": "host", "botmodules": "host",
+    "modulehealth": "host", "botheartbeat": "host",
+    "botstatus": "host", "botstatus_cluster": "host",
+    "taskowners": "host", "activetasks": "host",
+    "taskconflicts": "host", "fixtaskowners": "host",
+    "restorestatus": "host", "restoreannounce": "host",
     "startupannounce": "host", "modulestartup": "host",
     "startupstatus": "host", "setmainmode": "host",
     "dblockcheck": "host", "routerstatus": "host",
@@ -329,6 +334,27 @@ _GAME_MODULE_MODES: frozenset[str] = frozenset({
 _HARD_OWNER_MODES: frozenset[str] = frozenset({
     "banker", "miner", "blackjack", "poker",
     "shopkeeper", "security", "dj",
+})
+
+# Audit/status commands that eventhost may cover when host is offline.
+# host and eventhost share a Highrise account (multilogin alternates them),
+# so exactly one is in the room at any time.
+_HOST_AUDIT_CMDS: frozenset[str] = frozenset({
+    "commandtest", "bothealth", "modulehealth", "deploymentcheck",
+    "botheartbeat", "botmodules", "botstatus", "botconflicts",
+    "checkcommands", "checkhelp", "routecheck", "silentcheck",
+    "routerstatus", "taskowners", "activetasks", "taskconflicts",
+    "fixtaskowners", "restorestatus",
+})
+
+# Whitelist of eventhost-owned commands that host may handle as fallback
+# when eventhost is offline.  Everything NOT in this list stays silent on
+# host — action/purchase commands like /eventshop /buyevent /startevent
+# are NOT included, so host never handles them even when eventhost is gone.
+_HOST_SAFE_FALLBACK_CMDS: frozenset[str] = frozenset({
+    "help", "shophelp", "eventhelp",
+    "bothealth", "deploymentcheck", "modulehealth", "botheartbeat",
+    "commandtest",
 })
 
 
@@ -630,17 +656,25 @@ def should_this_bot_handle(cmd: str) -> bool:
     owner_mode = _resolve_command_owner(cmd)
 
     # Hard owners — host must NEVER respond to these, regardless of heartbeat.
-    # These bots use separate Highrise accounts; no token sharing, no fallback.
-    # This closes the 30-second startup window where banker hasn't sent its
-    # first heartbeat yet and host would incorrectly fill in.
+    # Separate Highrise accounts; no fallback, no startup-window gap.
     if mode == "host" and owner_mode in _HARD_OWNER_MODES:
         return False
 
-    # Soft fallback — eventhost shares a token with host (multilogin forces
-    # alternating connections), so host handles eventhost commands when
-    # eventhost has no recent heartbeat.
-    if mode == "host" and owner_mode in _GAME_MODULE_MODES:
-        return not _is_mode_online(owner_mode)
+    # eventhost ↔ host cross-cover: they share a Highrise account and
+    # alternate via multilogin.  When host is offline, eventhost answers
+    # the audit/status commands so /commandtest, /bothealth etc. always work.
+    if mode == "eventhost" and owner_mode == "host":
+        if cmd in _HOST_AUDIT_CMDS and not _is_mode_online("host"):
+            return True
+        return False  # defer to host otherwise
+
+    # Soft fallback for eventhost only (host covers when eventhost offline):
+    # Restricted to a safe whitelist — action/purchase eventhost commands
+    # (/eventshop, /buyevent, /startevent, …) stay silent on host.
+    if mode == "host" and owner_mode == "eventhost":
+        if not _is_mode_online("eventhost"):
+            return cmd in _HOST_SAFE_FALLBACK_CMDS
+        return False
 
     # Unowned / unknown command — only host or all handles it
     if owner_mode is None:
