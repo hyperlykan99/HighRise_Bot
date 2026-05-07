@@ -1198,6 +1198,27 @@ def _migrate_db():
         "ALTER TABLE poker_card_delivery ADD COLUMN display_name TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE poker_card_delivery ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE poker_card_delivery ADD COLUMN last_attempt_at TEXT NOT NULL DEFAULT ''",
+        # ── AI assistant pending actions ───────────────────────────────────────
+        "CREATE TABLE IF NOT EXISTS ai_pending_actions ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "user_id TEXT NOT NULL, "
+        "username TEXT NOT NULL DEFAULT '', "
+        "proposed_command TEXT NOT NULL DEFAULT '', "
+        "proposed_args TEXT NOT NULL DEFAULT '', "
+        "human_readable_action TEXT NOT NULL DEFAULT '', "
+        "risk_level TEXT NOT NULL DEFAULT 'SAFE', "
+        "status TEXT NOT NULL DEFAULT 'pending', "
+        "created_at TEXT NOT NULL DEFAULT (datetime('now')), "
+        "expires_at TEXT NOT NULL DEFAULT '')",
+        # ── AI assistant action log ────────────────────────────────────────────
+        "CREATE TABLE IF NOT EXISTS ai_action_logs ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "timestamp TEXT NOT NULL DEFAULT (datetime('now')), "
+        "username TEXT NOT NULL DEFAULT '', "
+        "intent_text TEXT NOT NULL DEFAULT '', "
+        "proposed_command TEXT NOT NULL DEFAULT '', "
+        "risk_level TEXT NOT NULL DEFAULT '', "
+        "outcome TEXT NOT NULL DEFAULT '')",
     ]:
         try:
             conn.execute(sql)
@@ -1256,6 +1277,127 @@ def _migrate_db():
 
     conn.commit()
     conn.close()
+
+
+# ---------------------------------------------------------------------------
+# AI assistant helpers
+# ---------------------------------------------------------------------------
+
+def create_pending_ai_action(
+    user_id: str,
+    username: str,
+    command: str,
+    args_str: str,
+    human_readable: str,
+    risk_level: str,
+) -> int:
+    """Create (or replace) a pending AI action for a user. Returns the new row id."""
+    from datetime import datetime, timedelta
+    now     = datetime.utcnow()
+    expires = now + timedelta(seconds=60)
+    conn    = get_connection()
+    conn.execute(
+        "UPDATE ai_pending_actions SET status='cancelled' "
+        "WHERE user_id=? AND status='pending'",
+        (user_id,),
+    )
+    cur = conn.execute(
+        """INSERT INTO ai_pending_actions
+               (user_id, username, proposed_command, proposed_args,
+                human_readable_action, risk_level, status, created_at, expires_at)
+           VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)""",
+        (
+            user_id, username, command, args_str, human_readable, risk_level,
+            now.strftime("%Y-%m-%d %H:%M:%S"),
+            expires.strftime("%Y-%m-%d %H:%M:%S"),
+        ),
+    )
+    conn.commit()
+    row_id = cur.lastrowid
+    conn.close()
+    return row_id
+
+
+def get_pending_ai_action(user_id: str) -> Optional[dict]:
+    """Return the active pending AI action for a user, or None if none/expired."""
+    from datetime import datetime
+    now  = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+    conn = get_connection()
+    row  = conn.execute(
+        """SELECT * FROM ai_pending_actions
+           WHERE user_id=? AND status='pending' AND expires_at > ?
+           ORDER BY id DESC LIMIT 1""",
+        (user_id, now),
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def confirm_pending_ai_action(user_id: str) -> Optional[dict]:
+    """Mark the pending action as confirmed and return its data, or None if expired."""
+    action = get_pending_ai_action(user_id)
+    if action is None:
+        return None
+    conn = get_connection()
+    conn.execute(
+        "UPDATE ai_pending_actions SET status='confirmed' WHERE id=?",
+        (action["id"],),
+    )
+    conn.commit()
+    conn.close()
+    return action
+
+
+def cancel_pending_ai_action(user_id: str) -> bool:
+    """Cancel any pending AI action for a user. Returns True if one was found."""
+    conn = get_connection()
+    cur  = conn.execute(
+        "UPDATE ai_pending_actions SET status='cancelled' "
+        "WHERE user_id=? AND status='pending'",
+        (user_id,),
+    )
+    conn.commit()
+    changed = cur.rowcount > 0
+    conn.close()
+    return changed
+
+
+def expire_old_ai_actions() -> int:
+    """Expire all past-deadline pending actions. Returns the count expired."""
+    from datetime import datetime
+    now  = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+    conn = get_connection()
+    cur  = conn.execute(
+        "UPDATE ai_pending_actions SET status='expired' "
+        "WHERE status='pending' AND expires_at <= ?",
+        (now,),
+    )
+    conn.commit()
+    n = cur.rowcount
+    conn.close()
+    return n
+
+
+def log_ai_action(
+    username: str,
+    intent_text: str,
+    proposed_command: str,
+    risk_level: str,
+    outcome: str,
+) -> None:
+    """Append one row to ai_action_logs (fire-and-forget; never raises)."""
+    try:
+        conn = get_connection()
+        conn.execute(
+            """INSERT INTO ai_action_logs
+                   (username, intent_text, proposed_command, risk_level, outcome)
+               VALUES (?, ?, ?, ?, ?)""",
+            (username, intent_text[:200], proposed_command[:100], risk_level, outcome),
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
 
 
 # ---------------------------------------------------------------------------

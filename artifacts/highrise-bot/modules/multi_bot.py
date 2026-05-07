@@ -91,6 +91,9 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "pokerfix": "poker", "pokercleanup": "poker",
     "confirmclosepoker": "poker",
     "casinointegrity": "host", "integritylogs": "host", "carddeliverycheck": "host",
+    # ── AI assistant ─────────────────────────────────────────────────────────
+    "ask": "host", "ai": "host", "assistant": "host",
+    "pendingaction": "host", "confirm": "host",
     "setpokercardmarker": "poker",
     "setpokertimer": "poker", "setpokerturntimer": "poker",
     "setpokerlobbytimer": "poker", "setpokernexthandtimer": "poker",
@@ -463,16 +466,17 @@ def _fallback_enabled() -> bool:
 # Each module's startup recovery, room announcements, and loops must ONLY
 # run on the bot whose mode matches the owner entry below.
 _MODULE_OWNER_MODES: dict[str, str] = {
-    "poker":     "poker",
-    "blackjack": "blackjack",
-    "rbj":       "blackjack",
-    "mining":    "miner",
-    "bank":      "banker",
-    "shop":      "shopkeeper",
-    "security":  "security",
-    "dj":        "dj",
-    "events":    "eventhost",
-    "host":      "host",
+    "poker":        "poker",
+    "blackjack":    "blackjack",
+    "rbj":          "blackjack",
+    "mining":       "miner",
+    "bank":         "banker",
+    "shop":         "shopkeeper",
+    "security":     "security",
+    "dj":           "dj",
+    "events":       "eventhost",
+    "host":         "host",
+    "ai_assistant": "host",
 }
 
 # Split modes: dedicated bots that should never run another module's tasks

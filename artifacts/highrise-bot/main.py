@@ -298,6 +298,12 @@ from modules.bot_health import (
     handle_botconflicts, handle_fixbotowners,
     handle_dblockcheck,
 )
+from modules.ai_assistant import (
+    handle_ai_intercept,
+    handle_ask_command,
+    handle_pendingaction,
+    handle_confirm_cmd,
+)
 from modules.bot_modes import (
     handle_botmode, handle_botmodes, handle_botprofile,
     handle_botprefix, handle_categoryprefix,
@@ -682,6 +688,8 @@ ALL_KNOWN_COMMANDS = (
         "taskowners", "activetasks", "taskconflicts", "fixtaskowners",
         "restoreannounce", "restorestatus",
         "commandissues",
+        # ── AI assistant ──────────────────────────────────────────────────────
+        "ask", "ai", "assistant", "pendingaction", "confirm",
     }
     | ECONOMY_COMMANDS | PROFILE_COMMANDS | GAME_COMMANDS
     | SHOP_COMMANDS | ACHIEVEMENT_COMMANDS | BJ_COMMANDS
@@ -1932,6 +1940,12 @@ class HangoutBot(BaseBot):
         Ignores anything that doesn't start with '/'.
         """
         message = message.strip()
+
+        # ── AI intercept — handles yes/no confirmations, "bot," prefix, @mention ──
+        # Runs before the slash-command guard so non-slash triggers work.
+        if await handle_ai_intercept(self, user, message):
+            return
+
         if not message.startswith("/"):
             return
 
@@ -3070,6 +3084,16 @@ class HangoutBot(BaseBot):
             mods = db.get_moderators()
             msg = "Moderators: " + ", ".join(f"@{m}" for m in mods) if mods else "No moderators set."
             await self.highrise.send_whisper(user.id, msg[:245])
+
+        # ── AI assistant — /ask /ai /assistant /pendingaction /confirm ───────
+        elif cmd in ("ask", "ai", "assistant"):
+            await handle_ask_command(self, user, args)
+
+        elif cmd == "pendingaction":
+            await handle_pendingaction(self, user)
+
+        elif cmd == "confirm":
+            await handle_confirm_cmd(self, user, args)
 
         # ── /answer ───────────────────────────────────────────────────────────
         elif cmd == "answer":

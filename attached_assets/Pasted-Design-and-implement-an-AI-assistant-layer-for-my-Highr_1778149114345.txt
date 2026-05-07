@@ -1,0 +1,445 @@
+Design and implement an AI assistant layer for my Highrise multi-bot project.
+
+Do not break existing command routing.
+Do not change bot ownership.
+Do not expose bot tokens.
+Do not change player balances, mining rewards, poker state, blackjack state, shop prices, bank settings, or event rewards unless an authorized user explicitly confirms the action through the AI confirmation system.
+
+Goal:
+Let users talk naturally to the bots like personal assistants.
+
+Examples:
+- "how do I mine?" -> suggest /minehelp or /mine
+- "show my balance" -> suggest or run /bal
+- "send 100 coins to Marion" -> prepare /send Marion 100 and ask for confirmation
+- "set max send to 50000" -> prepare /setmaxsend 50000 and ask for confirmation if user is admin
+- "start poker" -> suggest /poker or /pokerhelp
+- "what commands do you have?" -> show /help or /mycommands
+- unknown requests should say no matching command exists
+
+Create or update:
+1. modules/ai_assistant.py
+2. database.py if pending confirmation storage is needed
+3. main.py only to add the AI assistant entry point
+4. command registry/audit files only if needed for lookup
+
+Core features:
+
+1. Natural language command matching
+
+Create an intent matcher that maps user text to existing commands.
+
+It should use the existing command registry, command owner map, and known command list.
+
+Examples:
+- "show my balance" -> /bal
+- "check my coins" -> /bal
+- "how do I mine" -> /minehelp
+- "mine for me" -> /mine
+- "show my ores" -> /ores
+- "send 100 to Claire" -> /send Claire 100
+- "open shop" -> /shop
+- "show badges" -> /shop badges
+- "how to play poker" -> /pokerhelp
+- "how to play blackjack" -> /bjhelp
+- "events?" -> /eventhelp
+- "start event double coins" -> /startevent double_coins
+- "set max send to 50000" -> /setmaxsend 50000
+
+2. Unknown command detection
+
+If no matching command exists, reply:
+
+"I don’t have a command for that yet. Try /help or /mycommands."
+
+Do not hallucinate commands.
+Do not invent commands.
+Do not execute commands that are not registered.
+
+3. Confirmation system
+
+For risky commands, never execute immediately.
+
+Create pending confirmations with:
+- user_id
+- username
+- proposed_command
+- proposed_command_args
+- human_readable_action
+- risk_level
+- reason
+- created_at
+- expires_at
+- status
+
+Confirmation should expire after 60 seconds.
+
+The bot should ask:
+
+"Confirm: <human readable action>. Reply yes or no."
+
+Example:
+User: "send 100 coins to Claire"
+Bot: "Confirm: send 100 coins to @Claire. Reply yes or no."
+
+4. Natural yes/no confirmation
+
+I do not want users to type /confirm yes.
+
+When the AI assistant asks for confirmation, the user should be able to reply naturally with:
+
+YES responses:
+- yes
+- y
+- confirm
+- do it
+- proceed
+- go ahead
+- sure
+- ok
+- okay
+
+NO responses:
+- no
+- n
+- cancel
+- stop
+- nevermind
+- never mind
+- don’t
+- do not
+
+Rules:
+1. Only treat "yes" or "no" as confirmation if the same user has a pending AI action.
+2. Confirmation should only work for the user who created the pending action.
+3. Confirmation should expire after 60 seconds.
+4. If there is no pending action, normal messages like "yes" should be ignored or treated as normal chat.
+5. Keep /confirm yes and /confirm no as backup commands, but do not require them.
+6. Add /pendingaction so users can see their pending confirmation.
+7. After yes, execute the proposed command through the existing command router.
+8. After no, cancel the action.
+9. Do not bypass permissions.
+10. Do not expose bot tokens or secrets.
+
+5. Risk levels
+
+Classify commands into risk levels:
+
+SAFE — can run or suggest directly:
+- help
+- guide
+- start
+- mycommands
+- bal
+- balance
+- bank
+- transactions
+- minehelp
+- ores
+- tool
+- pokerhelp
+- bjhelp
+- rbjhelp
+- shop
+- shop badges
+- shop titles
+- eventhelp
+- event
+- events
+- bothealth
+- modulehealth
+- botheartbeat
+
+CONFIRM — must ask first:
+- send
+- buy
+- sellores
+- sellore
+- minebuy
+- equip
+- eventshop
+- buyevent
+
+ADMIN_CONFIRM — admin/owner only and must confirm:
+- setmaxsend
+- setsendlimit
+- setminsend
+- setnewaccountdays
+- setmindailyclaims
+- setminlevelsend
+- setmintotalearned
+- setsendtax
+- sethighriskblocks
+- setcoins
+- addcoins
+- removecoins
+- resetcoins
+- bankblock
+- bankunblock
+- startevent
+- stopevent
+- restartbot
+- pokerrefundall
+- resetpokerstats
+- resetbjstats
+- resetrbjstats
+
+BLOCKED — AI should not execute:
+- commands that expose secrets
+- raw database commands
+- token changes
+- room ID changes
+- direct file edits from chat
+- anything that bypasses permissions
+- anything that deletes user data
+- anything that resets economy data unless owner/admin confirms through an existing safe admin command
+
+6. Permission checks
+
+Before creating a confirmation, verify the user has permission for admin commands using the existing permission system.
+
+Do not let the AI bypass permission checks.
+
+If a normal user asks:
+"set max send to 100000"
+
+Reply:
+"That is an admin bank setting. You don’t have permission to change it."
+
+If an admin asks:
+"set max send to 100000"
+
+Reply:
+"Confirm: set maximum send limit to 100,000 coins. Reply yes or no."
+
+7. Bot-specific personalities
+
+Add simple bot assistant profiles:
+
+- host: general room assistant
+- banker: banking/economy assistant
+- miner: mining guide
+- poker: poker assistant
+- blackjack: blackjack assistant
+- shopkeeper: shop assistant
+- eventhost: event assistant
+- security: moderation/report assistant
+- dj: room/emote/social assistant
+
+The active bot should respond in its own category when mentioned.
+
+Examples:
+- @BankingBot show my balance -> /bal
+- @GreatestProspector how do I mine -> mining help
+- @ChipSoprano how do I play poker -> /pokerhelp
+- @EmceeBot what can I do here -> /help or /guide
+
+8. Trigger rules
+
+The AI assistant should activate when:
+- user mentions the bot by name
+- user starts message with "bot,"
+- user uses /ask <message>
+- user uses /ai <message>
+- user uses /assistant <message>
+
+Add commands:
+- /ask <message>
+- /ai <message>
+- /assistant <message>
+- /pendingaction
+- /confirm yes
+- /confirm no
+
+The /ask, /ai, and /assistant commands should be owned by host unless the message clearly belongs to a module.
+
+9. Do not spam
+
+Only one bot should answer an AI request.
+
+Use existing multi_bot ownership logic.
+
+Default AI owner should be host unless the message clearly belongs to a module.
+
+If multiple bots could answer, prefer:
+1. Mentioned bot
+2. Module owner
+3. Host
+
+Do not let all bots answer the same natural language message.
+
+10. Command existence check
+
+Before suggesting or executing any command:
+1. Check if the command exists in the registry/known commands.
+2. Check if it has a route.
+3. Check if it has a handler.
+4. Check if the owner bot is online.
+5. If owner bot is offline, respond with:
+   "That module is offline right now. Try again later."
+
+If command does not exist:
+"I don’t have a command for that yet. Try /help or /mycommands."
+
+11. AI reply examples
+
+Safe command:
+User: "how do I mine?"
+Bot: "Use /mine to mine, /ores to check ores, and /tool to view your pickaxe."
+
+Safe command:
+User: "show my balance"
+Bot runs /bal or says:
+"I can show your balance with /bal."
+
+Confirm command:
+User: "send 100 coins to Claire"
+Bot: "Confirm: send 100 coins to @Claire. Reply yes or no."
+
+User: "yes"
+Bot executes /send Claire 100.
+
+Cancel:
+User: "send 100 coins to Claire"
+Bot: "Confirm: send 100 coins to @Claire. Reply yes or no."
+
+User: "no"
+Bot: "Cancelled."
+
+Unknown:
+User: "make me fly"
+Bot: "I don’t have a command for that yet. Try /help or /mycommands."
+
+No permission:
+User: "set max send to 100000"
+Bot: "That is an admin bank setting. You don’t have permission to change it."
+
+Admin confirmation:
+Admin: "set max send to 100000"
+Bot: "Confirm: set maximum send limit to 100,000 coins. Reply yes or no."
+
+Admin: "yes"
+Bot executes /setmaxsend 100000.
+
+12. Pending action behavior
+
+Add /pendingaction.
+
+If there is a pending action:
+"Pending: <human readable action>. Reply yes or no. Expires in <seconds>s."
+
+If none:
+"You have no pending action."
+
+If expired:
+"Your pending action expired. Please ask again."
+
+13. Execution system
+
+When the user confirms:
+- Execute the proposed command using the existing command router/handler.
+- Do not duplicate command logic inside ai_assistant.py.
+- Do not manually change balances/settings in the AI module.
+- The AI module should prepare and confirm, then pass to the existing safe command execution path.
+
+14. Logging
+
+Log AI actions safely:
+- username
+- interpreted intent
+- proposed command
+- risk level
+- confirmed/cancelled/expired
+- timestamp
+
+Do not log:
+- bot tokens
+- room ID secrets
+- raw secret values
+- private database credentials
+
+15. Database
+
+If database changes are needed, add a table like:
+
+ai_pending_actions:
+- id
+- user_id
+- username
+- proposed_command
+- human_readable_action
+- risk_level
+- status
+- created_at
+- expires_at
+
+Possible statuses:
+- pending
+- confirmed
+- cancelled
+- expired
+
+Add helper functions:
+- create_pending_ai_action
+- get_pending_ai_action
+- confirm_pending_ai_action
+- cancel_pending_ai_action
+- expire_old_ai_actions
+
+16. Safety
+
+Do not execute:
+- token changes
+- room ID changes
+- raw database commands
+- owner-only destructive commands without admin/owner confirmation
+- anything not in the existing command registry
+
+If unsure, ask for clarification:
+"I’m not sure what command matches that. Try asking another way or use /help."
+
+17. Tests to run after implementation
+
+Tell me to test these:
+
+Safe:
+- /ask how do I mine
+- /ask show my balance
+- /ask what commands do you have
+- /ask how do I play poker
+- /ask show shop
+
+Confirm:
+- /ask send 100 coins to testuser
+- reply: no
+- /ask send 100 coins to testuser
+- reply: yes
+
+Admin confirm:
+- /ask set max send to 50000
+- reply: no
+- /ask set max send to 50000
+- reply: yes
+
+Unknown:
+- /ask make me fly
+- /ask delete all tokens
+
+Pending:
+- /ask send 100 coins to testuser
+- /pendingaction
+- yes
+
+No pending:
+- say "yes" when there is no pending action and make sure nothing happens
+
+18. Final report
+
+After implementation, tell me:
+1. Which files changed
+2. Which commands were added
+3. Whether pending confirmations use database or memory
+4. How AI decides command intent
+5. How AI checks command existence
+6. How AI checks permissions
+7. What exact commands I should test
