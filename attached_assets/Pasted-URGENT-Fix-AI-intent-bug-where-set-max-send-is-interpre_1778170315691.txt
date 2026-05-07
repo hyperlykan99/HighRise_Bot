@@ -1,0 +1,135 @@
+URGENT: Fix AI intent bug where “set max send” is interpreted as sending coins.
+
+Current dangerous issue:
+When I said:
+“Emcee, set max send to 50000”
+
+The AI replied:
+“Confirm: send 50000 coins to @to. Reply yes or no.”
+
+Then after yes, it sent coins instead of changing the max send setting.
+
+This is wrong and dangerous.
+
+Do not change bot tokens.
+Do not change room ID.
+Do not reset balances.
+Do not change economy values except through correct existing admin setting commands.
+Do not change mining, poker, blackjack, shop, or event rewards.
+
+Fix only AI intent matching, confirmation execution, and duplicate execution protection.
+
+Tasks:
+
+1. Settings intent must be checked BEFORE send/transfer intent.
+
+These phrases must map to /setmaxsend <amount>:
+- set max send to 50000
+- set maximum send to 50000
+- set max send limit to 50000
+- set maximum per send to 50000
+- change max send to 50000
+- update max send to 50000
+
+Expected:
+Emcee, set max send to 50000
+→ Confirm: set maximum send limit to 50,000 coins using BankingBot. Reply yes or no.
+→ yes
+→ execute /setmaxsend 50000
+
+2. These phrases must map to /setsendlimit <amount>:
+- set daily send limit to 100000
+- set send limit to 100000
+- set daily transfer limit to 100000
+- change daily send limit to 100000
+
+Expected:
+Emcee, set daily send limit to 100000
+→ Confirm: set daily send limit to 100,000 coins using BankingBot. Reply yes or no.
+
+3. Add negative guard to send intent.
+
+The send/transfer intent must NOT trigger if the text contains setting phrases like:
+- set max send
+- maximum send
+- max send limit
+- maximum per send
+- daily send limit
+- send limit
+- min send
+- minimum send
+- new account days
+- daily claims
+- send tax
+- high risk blocks
+
+4. Fix the bad @to target bug.
+
+The AI should never create:
+send 50000 coins to @to
+
+If target username is “to”, empty, numeric, or invalid, do not proceed.
+Reply:
+“I’m not sure who you want to send coins to. Please say: send <amount> coins to <username>.”
+
+5. Add /aidebug checks.
+
+These must show the correct command:
+
+/aidebug Emcee, set max send to 50000
+Expected:
+command=setmaxsend
+args=50000
+risk=ADMIN_CONFIRM
+
+/aidebug Emcee, set daily send limit to 100000
+Expected:
+command=setsendlimit
+args=100000
+risk=ADMIN_CONFIRM
+
+/aidebug Emcee, send 50000 coins to testuser
+Expected:
+command=send
+args=testuser 50000
+risk=CONFIRM
+
+6. Duplicate execution protection.
+
+A confirmed AI pending action must execute only once.
+
+After user says yes:
+- mark pending action as confirmed/executing immediately
+- do not allow another yes to execute it again
+- do not allow the same pending action to run twice
+- if handler sends duplicate success messages, investigate whether AI is calling both direct handler and delegated handler
+- for /send, only one actual transfer should occur
+
+Add log:
+[AI_CONFIRM] action_id=<id> status=executing
+[AI_CONFIRM] action_id=<id> already executed ignored
+
+7. Safer confirmation wording.
+
+For bank settings:
+“Confirm: set maximum send limit to 50,000 coins using BankingBot. Reply yes or no.”
+
+For sending:
+“Confirm: send 50,000 coins to @testuser using BankingBot. Reply yes or no.”
+
+These must be clearly different.
+
+8. Add tests/comments for:
+- Emcee, set max send to 50000 -> /setmaxsend 50000
+- Emcee, set maximum per send to 50000 -> /setmaxsend 50000
+- Emcee, set daily send limit to 100000 -> /setsendlimit 100000
+- Emcee, send 50000 coins to testuser -> /send testuser 50000
+- Emcee, send 50000 to testuser -> /send testuser 50000
+- Emcee, set max send to 50000 must never become /send
+
+After fixing, tell me:
+- which file changed
+- why “set max send” matched /send
+- how you prevented @to as a fake target
+- how duplicate execution is prevented
+- exact tests I should run

@@ -797,3 +797,28 @@ async def handle_ledger(bot: BaseBot, user: User, args: list[str]):
     if len(msg) > 248:
         msg = msg[:245] + "..."
     await _w(bot, user.id, msg)
+
+
+# ---------------------------------------------------------------------------
+# Thin wrappers so AI _HANDLER_MAP can call bank-set commands by name.
+# Each function matches the standard handler signature (bot, user, args).
+# ---------------------------------------------------------------------------
+
+async def handle_setmaxsend(bot: BaseBot, user: User, args: list[str]) -> None:
+    await handle_bank_set(bot, user, "setmaxsend", args)
+
+
+async def handle_setsendlimit(bot: BaseBot, user: User, args: list[str]) -> None:
+    await handle_bank_set(bot, user, "setsendlimit", args)
+
+
+async def handle_setminsend(bot: BaseBot, user: User, args: list[str]) -> None:
+    await handle_bank_set(bot, user, "setminsend", args)
+
+
+async def handle_setsendtax(bot: BaseBot, user: User, args: list[str]) -> None:
+    await handle_bank_set(bot, user, "setsendtax", args)
+
+
+async def handle_sethighriskblocks(bot: BaseBot, user: User, args: list[str]) -> None:
+    await handle_bank_set(bot, user, "sethighriskblocks", args)

@@ -228,23 +228,78 @@ _INTENTS: list[tuple] = [
      "mineshop", _k(""), _k("show the mining shop")),
 
     # ────────────────────────────────────────────────────────────────────────
-    # SEND / TRANSFER  — checked BEFORE balance catch-all
+    # ADMIN — bank settings (checked BEFORE send/transfer to prevent mismatch)
+    # Intent tests:
+    #   "set max send to 50000"        -> setmaxsend (NEVER /send)
+    #   "set maximum per send to 50000" -> setmaxsend
+    #   "set max send limit to 50000"  -> setmaxsend
+    #   "change max send to 50000"     -> setmaxsend
+    #   "set daily send limit to 100000" -> setsendlimit
+    #   "set send limit to 100000"     -> setsendlimit
+    # ────────────────────────────────────────────────────────────────────────
+    (re.compile(
+        r"(?:set|change|update|adjust)\s+(?:max|maximum)\s*(?:per\s+)?"
+        r"(?:send|transfer)\s*(?:limit\s*)?(?:to\s*)?([\.\d,]+)",
+        re.I),
+     "setmaxsend",
+     lambda m, t: m.group(1).replace(",", ""),
+     lambda m, t: f"set maximum send limit to {int(m.group(1).replace(',', '')):,} coins"),
+
+    (re.compile(
+        r"(?:set|change|update|adjust)\s+(?:daily|day)\s+(?:send|transfer)"
+        r"\s*(?:limit\s*)?(?:to\s*)?([\.\d,]+)"
+        r"|(?:set|change|update|adjust)\s+(?:send|transfer)\s+limit\s*(?:to\s*)?([\.\d,]+)",
+        re.I),
+     "setsendlimit",
+     lambda m, t: (m.group(1) or m.group(2) or "").replace(",", ""),
+     lambda m, t: f"set daily send limit to {int((m.group(1) or m.group(2) or '0').replace(',', '')):,} coins"),
+
+    (re.compile(
+        r"(?:set|change|update|adjust)\s+(?:min|minimum)\s*(?:send|transfer)"
+        r"\s*(?:limit\s*)?(?:to\s*)?([\.\d,]+)",
+        re.I),
+     "setminsend",
+     lambda m, t: m.group(1).replace(",", ""),
+     lambda m, t: f"set minimum send limit to {int(m.group(1).replace(',', '')):,} coins"),
+
+    (re.compile(
+        r"(?:set|change|update|adjust)\s+(?:send\s*)?(?:tax|fee)\s*(?:to\s*)?([\.\d.]+)\s*(?:%|percent)?",
+        re.I),
+     "setsendtax",
+     lambda m, t: m.group(1),
+     lambda m, t: f"set send tax to {m.group(1)}%"),
+
+    (re.compile(
+        r"turn\s+(on|off)\s+high.?risk\s*block|set\s+high.?risk\s*block\s+(on|off)",
+        re.I),
+     "sethighriskblocks",
+     lambda m, t: (m.group(1) or m.group(2) or "on").lower(),
+     lambda m, t: f"set high-risk blocks {(m.group(1) or m.group(2) or 'on').lower()}"),
+
+    # ────────────────────────────────────────────────────────────────────────
+    # SEND / TRANSFER — checked AFTER settings to prevent "set max send" -> /send
+    # Intent tests:
+    #   "send 50000 coins to testuser" -> send testuser 50000
+    #   "send testuser 50000"          -> send testuser 50000
+    #   "Emcee, send 50000 to testuser" -> send testuser 50000
+    #   "set max send to 50000" must NEVER reach this section
     # ────────────────────────────────────────────────────────────────────────
     # Variant A: "send 1000 coins to testuser"
     (re.compile(
-        r"(send|transfer|give|pay)\s+([\d,]+)\s*(coins?|tokens?)?\s*(?:to|for|->)\s+@?(\w+)",
+        r"(send|transfer|give|pay)\s+([\d,]+)\s*(coins?|tokens?)?\s*(?:to|for|->)\s+@?([A-Za-z]\w*)",
         re.I),
      "send",
      lambda m, t: f"{m.group(4)} {m.group(2).replace(',', '')}",
-     lambda m, t: f"send {m.group(2).replace(',', '')} coins to @{m.group(4)}"),
+     lambda m, t: f"send {int(m.group(2).replace(',', '')):,} coins to @{m.group(4)}"),
 
-    # Variant B: "send testuser 1000 coins"
+    # Variant B: "send testuser 1000 coins" — guard: excludes setting keywords as target
     (re.compile(
-        r"(send|transfer|give|pay)\s+@?([A-Za-z]\w*)\s+([\d,]+)\s*(coins?|tokens?)?",
+        r"(send|transfer|give|pay)\s+@?(?!(?:to|for|max|maximum|min|minimum|daily|limit|set|per)\b)"
+        r"([A-Za-z]\w*)\s+([\d,]+)\s*(coins?|tokens?)?",
         re.I),
      "send",
      lambda m, t: f"{m.group(2)} {m.group(3).replace(',', '')}",
-     lambda m, t: f"send {m.group(3).replace(',', '')} coins to @{m.group(2)}"),
+     lambda m, t: f"send {int(m.group(3).replace(',', '')):,} coins to @{m.group(2)}"),
 
     # ────────────────────────────────────────────────────────────────────────
     # ECONOMY
@@ -570,39 +625,6 @@ _INTENTS: list[tuple] = [
      "quests", _k(""), _k("show your quests")),
 
     # ────────────────────────────────────────────────────────────────────────
-    # ADMIN — bank settings
-    # ────────────────────────────────────────────────────────────────────────
-    (re.compile(
-        r"set\s+(max|maximum)\s*(send|transfer)\s*(limit)?\s*(to\s*)?([\d,]+)", re.I),
-     "setmaxsend",
-     lambda m, t: m.group(5).replace(",", ""),
-     lambda m, t: f"set maximum send to {int(m.group(5).replace(',', '')):,} coins"),
-
-    (re.compile(
-        r"set\s+(daily|day)\s*(send|transfer)\s*(limit)?\s*(to\s*)?([\d,]+)", re.I),
-     "setsendlimit",
-     lambda m, t: m.group(5).replace(",", ""),
-     lambda m, t: f"set daily send limit to {int(m.group(5).replace(',', '')):,} coins"),
-
-    (re.compile(
-        r"set\s+(min|minimum)\s*(send|transfer)\s*(limit)?\s*(to\s*)?([\d,]+)", re.I),
-     "setminsend",
-     lambda m, t: m.group(5).replace(",", ""),
-     lambda m, t: f"set minimum send limit to {int(m.group(5).replace(',', '')):,} coins"),
-
-    (re.compile(
-        r"set\s+(send\s*)?(tax|fee)\s*(to\s*)?([\d.]+)\s*(%|percent)?", re.I),
-     "setsendtax",
-     lambda m, t: m.group(4),
-     lambda m, t: f"set send tax to {m.group(4)}%"),
-
-    (re.compile(
-        r"turn\s+(on|off)\s+high.?risk\s*block|set\s+high.?risk\s*block\s+(on|off)", re.I),
-     "sethighriskblocks",
-     lambda m, t: (m.group(1) or m.group(2) or "on").lower(),
-     lambda m, t: f"set high-risk blocks {(m.group(1) or m.group(2) or 'on').lower()}"),
-
-    # ────────────────────────────────────────────────────────────────────────
     # POKER SETTINGS
     # ────────────────────────────────────────────────────────────────────────
     (re.compile(r"(enable|turn\s+on)\s+poker\s+win\s*(limit)?\b", re.I),
@@ -797,6 +819,11 @@ _HANDLER_MAP: dict[str, tuple[str, str]] = {
     "buyevent":              ("modules.events",     "handle_buyevent"),
     "tpme":                  ("modules.room_utils", "handle_tpme"),
     # ── ADMIN_CONFIRM — execute after admin confirmation ──────────────────
+    "setmaxsend":            ("modules.bank",       "handle_setmaxsend"),
+    "setsendlimit":          ("modules.bank",       "handle_setsendlimit"),
+    "setminsend":            ("modules.bank",       "handle_setminsend"),
+    "setsendtax":            ("modules.bank",       "handle_setsendtax"),
+    "sethighriskblocks":     ("modules.bank",       "handle_sethighriskblocks"),
     "setcoins":              ("modules.admin_cmds", "handle_setcoins"),
     "resetcoins":            ("modules.admin_cmds", "handle_resetcoins"),
     "startevent":            ("modules.events",     "handle_startevent"),
@@ -1038,6 +1065,21 @@ def _validate_intent(intent: IntentResult, user_obj) -> str | None:
         except Exception:
             pass
 
+    # Send: reject reserved-word or numeric "usernames" like @to, @for, @50000
+    if cmd == "send":
+        parts = (intent.args_str or "").strip().split()
+        _bad_targets = {"to", "for", "the", "a", "an", "max", "min",
+                        "set", "limit", "daily", "per", "maximum", "minimum"}
+        if not parts or parts[0].lower() in _bad_targets:
+            return ("I'm not sure who to send coins to. "
+                    "Please say: send <amount> coins to <username>.")
+        try:
+            int(parts[0])
+            return ("I'm not sure who to send coins to. "
+                    "Please say: send <amount> coins to <username>.")
+        except ValueError:
+            pass
+
     # Handler existence check (for non-SAFE or if SAFE wants direct execution)
     if cmd not in _HANDLER_MAP and cmd not in _SAFE_RESPONSES:
         return _CANNOT_YET_RESPONSES["no_cmd"]
@@ -1162,6 +1204,34 @@ async def _execute_safe(bot, user, command: str, args_str: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Owner-bot label helper (for clearer confirmation messages)
+# ---------------------------------------------------------------------------
+
+_BOT_LABELS: dict[str, str] = {
+    "banker":     "BankingBot",
+    "host":       "HostBot",
+    "eventhost":  "EventBot",
+    "miner":      "MinerBot",
+    "poker":      "PokerBot",
+    "blackjack":  "BlackjackBot",
+    "dj":         "DJ",
+    "security":   "SecurityBot",
+}
+
+
+def _owner_bot_label(cmd: str) -> str:
+    """Return a friendly bot name (e.g. BankingBot) for the command owner."""
+    try:
+        from modules.command_registry import get_entry as _reg_get
+        entry = _reg_get(cmd)
+        if entry and hasattr(entry[1], "owner"):
+            return _BOT_LABELS.get(entry[1].owner, "")
+    except Exception:
+        pass
+    return ""
+
+
+# ---------------------------------------------------------------------------
 # Core AI request handler
 # ---------------------------------------------------------------------------
 
@@ -1220,8 +1290,10 @@ async def _handle_ai_text(bot, user, text: str) -> None:
             human_readable = intent.human_readable,
             risk_level     = risk,
         )
+        _lbl = _owner_bot_label(cmd)
+        _sfx = f" using {_lbl}" if _lbl else ""
         await _w(bot, user.id,
-                 f"⚠️ Confirm: {intent.human_readable}. Reply yes or no.")
+                 f"⚠️ Confirm: {intent.human_readable}{_sfx}. Reply yes or no.")
         db.log_ai_action(user.username, text[:150], cmd, risk, "pending_confirm")
         return
 
@@ -1235,8 +1307,10 @@ async def _handle_ai_text(bot, user, text: str) -> None:
             human_readable = intent.human_readable,
             risk_level     = risk,
         )
+        _lbl = _owner_bot_label(cmd)
+        _sfx = f" using {_lbl}" if _lbl else ""
         await _w(bot, user.id,
-                 f"⚠️ Admin confirm: {intent.human_readable}. Reply yes or no.")
+                 f"⚠️ Confirm: {intent.human_readable}{_sfx}. Reply yes or no.")
         db.log_ai_action(user.username, text[:150], cmd, risk, "pending_admin_confirm")
         return
 

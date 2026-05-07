@@ -1375,16 +1375,37 @@ def get_pending_ai_action(user_id: str) -> Optional[dict]:
 
 
 def confirm_pending_ai_action(user_id: str) -> Optional[dict]:
-    """Mark the pending action as confirmed and return its data, or None if expired."""
-    action = get_pending_ai_action(user_id)
-    if action is None:
-        return None
+    """
+    Atomically mark the pending action as 'executing' and return its data.
+    Returns None if action is missing, expired, or already claimed (duplicate guard).
+    Only the FIRST caller that transitions status pending->executing gets the row.
+    """
+    from datetime import datetime
+    now  = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
     conn = get_connection()
-    conn.execute(
-        "UPDATE ai_pending_actions SET status='confirmed' WHERE id=?",
+    # Read the action first
+    row = conn.execute(
+        "SELECT * FROM ai_pending_actions"
+        " WHERE user_id=? AND status='pending' AND expires_at > ?"
+        " ORDER BY id DESC LIMIT 1",
+        (user_id, now),
+    ).fetchone()
+    if row is None:
+        conn.close()
+        return None
+    action = dict(row)
+    # Atomically claim: only succeeds if status is still 'pending'
+    cur = conn.execute(
+        "UPDATE ai_pending_actions SET status='executing' WHERE id=? AND status='pending'",
         (action["id"],),
     )
     conn.commit()
+    if cur.rowcount == 0:
+        # Another concurrent call already claimed this action
+        print(f"[AI_CONFIRM] action_id={action['id']} already executed — ignored")
+        conn.close()
+        return None
+    print(f"[AI_CONFIRM] action_id={action['id']} status=executing")
     conn.close()
     return action
 
