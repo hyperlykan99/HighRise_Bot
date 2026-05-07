@@ -602,3 +602,61 @@ async def handle_fixbotowners(bot, user, args: list[str]) -> None:
         else:
             await _w(bot, user.id,
                      "✅ All command owners already set. Use /fixbotowners force to overwrite.")
+
+
+async def handle_dblockcheck(bot, user, args: list[str]) -> None:
+    """/dblockcheck — verify DB health: WAL mode, filelock, sqlite write, processes."""
+    if not can_manage_economy(user.username):
+        await _w(bot, user.id, "Staff only.")
+        return
+
+    import sqlite3
+    import config
+
+    # 1. WAL mode check
+    wal_status = "WAL=?"
+    sq_status  = "sqlite ERR"
+    try:
+        conn = sqlite3.connect(config.DB_PATH, timeout=3)
+        conn.row_factory = sqlite3.Row
+        jm_row = conn.execute("PRAGMA journal_mode").fetchone()
+        jm     = jm_row[0].lower() if jm_row else "?"
+        wal_status = "WAL ON" if jm == "wal" else f"WAL={jm}"
+        # Quick write test
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS _dblocktest (x INTEGER)")
+        conn.execute("INSERT INTO _dblocktest VALUES (1)")
+        conn.execute("DELETE FROM _dblocktest")
+        conn.commit()
+        conn.close()
+        sq_status = "sqlite free"
+    except Exception as _dbe:
+        sq_status = f"sqlite ERR:{str(_dbe)[:20]}"
+
+    # 2. filelock check
+    fl_status = "filelock ERR"
+    try:
+        from filelock import FileLock, Timeout as _FLT
+        _tlock = FileLock(config.DB_PATH + ".write.lock", timeout=2)
+        _tlock.acquire(timeout=2)
+        _tlock.release()
+        fl_status = "filelock OK"
+    except Exception:
+        fl_status = "filelock ERR"
+
+    # 3. Multi-bot process check
+    proc_status = "multi-bot ERR"
+    try:
+        conn2 = db.get_connection()
+        row   = conn2.execute(
+            "SELECT COUNT(*) FROM bot_instances "
+            "WHERE last_heartbeat_at >= datetime('now', '-2 minutes')"
+        ).fetchone()
+        conn2.close()
+        live = row[0] if row else 0
+        proc_status = f"multi-bot OK ({live} live)"
+    except Exception:
+        pass
+
+    msg = f"DB: {wal_status} | {fl_status} | {sq_status} | Processes: {proc_status}"
+    await _w(bot, user.id, msg[:249])

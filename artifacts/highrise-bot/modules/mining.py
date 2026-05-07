@@ -11,9 +11,14 @@ import asyncio
 import random
 from datetime import datetime, timezone
 
+import config as _cfg
 import database as db
+from filelock import FileLock, Timeout as _FileLockTimeout
 from highrise import BaseBot, User
 from modules.permissions import is_admin, is_owner, can_manage_economy
+
+# Cross-process write lock: prevents SQLite "database is locked" under multi-bot
+_MINE_WRITE_LOCK = FileLock(_cfg.DB_PATH + ".write.lock", timeout=3)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -337,17 +342,22 @@ async def handle_mine(bot: BaseBot, user: User) -> None:
     is_rare  = item["rarity"] in ANNOUNCE_RARITIES
     new_rare = miner["rare_finds"] + (1 if is_rare else 0)
 
-    db.update_miner(uname,
-        energy=new_energy,
-        total_mines=new_mines,
-        total_ores=new_ores,
-        mining_xp=new_mxp,
-        mining_level=new_lvl,
-        rare_finds=new_rare,
-        last_mine_at=_now_iso(),
-    )
-    db.add_ore(uname, item["item_id"], qty)
-    db.log_mine(uname, "mine", item["item_id"], qty, 0, item["rarity"])
+    try:
+        with _MINE_WRITE_LOCK:
+            db.update_miner(uname,
+                energy=new_energy,
+                total_mines=new_mines,
+                total_ores=new_ores,
+                mining_xp=new_mxp,
+                mining_level=new_lvl,
+                rare_finds=new_rare,
+                last_mine_at=_now_iso(),
+            )
+            db.add_ore(uname, item["item_id"], qty)
+            db.log_mine(uname, "mine", item["item_id"], qty, 0, item["rarity"])
+    except _FileLockTimeout:
+        await _w(bot, user.id, "⏳ Mining DB busy. Try /mine again.")
+        return
 
     # Build reply
     qty_str = f" x{qty}" if qty > 1 else ""

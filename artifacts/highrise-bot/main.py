@@ -294,6 +294,7 @@ from modules.bot_health import (
     handle_botlocks, handle_clearstalebotlocks,
     handle_botheartbeat, handle_moduleowners,
     handle_botconflicts, handle_fixbotowners,
+    handle_dblockcheck,
 )
 from modules.bot_modes import (
     handle_botmode, handle_botmodes, handle_botprofile,
@@ -663,7 +664,7 @@ ALL_KNOWN_COMMANDS = (
         "bothealth", "modulehealth", "deploymentcheck",
         "botlocks", "clearstalebotlocks",
         "botheartbeat", "moduleowners",
-        "botconflicts", "fixbotowners",
+        "botconflicts", "fixbotowners", "dblockcheck",
         # ── Task ownership / restore announce ─────────────────────────────────
         "taskowners", "activetasks", "taskconflicts", "fixtaskowners",
         "restoreannounce", "restorestatus",
@@ -3598,6 +3599,8 @@ class HangoutBot(BaseBot):
             await handle_modulehealth(self, user, args)
         elif cmd == "deploymentcheck":
             await handle_deploymentcheck(self, user, args)
+        elif cmd == "dblockcheck":
+            await handle_dblockcheck(self, user, args)
         elif cmd == "botlocks":
             await handle_botlocks(self, user)
         elif cmd == "clearstalebotlocks":

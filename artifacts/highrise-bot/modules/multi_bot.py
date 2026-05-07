@@ -198,6 +198,7 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "botconflicts": "host", "botmodules": "host",
     "startupannounce": "host", "modulestartup": "host",
     "startupstatus": "host", "setmainmode": "host",
+    "dblockcheck": "host", "routerstatus": "host",
 }
 
 # Friendly display names for modes
@@ -311,6 +312,33 @@ _SPLIT_BOT_MODES: frozenset[str] = frozenset({
     "poker", "blackjack", "miner", "banker",
     "shopkeeper", "security", "dj", "eventhost", "host",
 })
+
+# Game-module modes: host/all must never fall back to these command sets
+_GAME_MODULE_MODES: frozenset[str] = frozenset({
+    "miner", "poker", "blackjack", "banker",
+    "dj", "shopkeeper", "eventhost", "security",
+})
+
+
+def _has_any_game_bot_registered() -> bool:
+    """Return True if any game-module bot sent a heartbeat in the last 5 min.
+
+    Used to detect multi-bot setups so that 'all' mode doesn't fall back
+    for game commands when a dedicated bot is temporarily offline.
+    """
+    try:
+        conn = db.get_connection()
+        row  = conn.execute(
+            "SELECT COUNT(*) FROM bot_instances "
+            "WHERE bot_mode IN "
+            "('miner','poker','blackjack','banker',"
+            "'dj','shopkeeper','eventhost','security') "
+            "AND last_heartbeat_at >= datetime('now', '-5 minutes')",
+        ).fetchone()
+        conn.close()
+        return (row[0] or 0) > 0
+    except Exception:
+        return False
 
 
 def should_this_bot_run_module(module: str) -> bool:
@@ -582,9 +610,16 @@ def should_this_bot_handle(cmd: str) -> bool:
             return not _is_mode_online("host")
         if owner_mode not in ("all",) and _is_mode_online(owner_mode):
             return False    # dedicated bot is live — stay silent
+        # Never fall back for game-module commands in multi-bot setups
+        if owner_mode in _GAME_MODULE_MODES and _has_any_game_bot_registered():
+            return False
         return True
 
     owner_mode = _resolve_command_owner(cmd)
+
+    # host must never handle game-module commands (even when dedicated bot offline)
+    if mode == "host" and owner_mode in _GAME_MODULE_MODES:
+        return False
 
     # Unowned / unknown command — only host or all handles it
     if owner_mode is None:
@@ -602,8 +637,10 @@ def should_this_bot_handle(cmd: str) -> bool:
     if _is_mode_online(owner_mode):
         return False
 
-    # Owner mode offline — host/all may fall back
+    # Owner mode offline — host/all may fall back (never for game-module commands)
     if _fallback_enabled() and mode in ("host", "all"):
+        if owner_mode in _GAME_MODULE_MODES:
+            return False
         return True
 
     return False
