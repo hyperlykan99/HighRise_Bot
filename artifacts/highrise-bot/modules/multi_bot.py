@@ -153,7 +153,7 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "social": "dj", "blocksocial": "dj", "unblocksocial": "dj",
     # ── eventhost ───────────────────────────────────────────────────────────
     "events": "eventhost", "event": "eventhost",
-    "eventhelp": "host", "eventstatus": "eventhost",
+    "eventhelp": "eventhost", "eventstatus": "eventhost",
     "startevent": "eventhost", "stopevent": "eventhost",
     "eventpoints": "eventhost", "eventshop": "eventhost",
     "buyevent": "eventhost",
@@ -166,6 +166,8 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "addeventcoins": "eventhost", "removeeventcoins": "eventhost",
     "seteventcoins": "eventhost", "editeventcoins": "eventhost",
     "reseteventcoins": "eventhost",
+    "autogames": "eventhost", "autoevents": "eventhost",
+    "gameconfig": "eventhost", "fixautogames": "eventhost",
     "autogamesowner": "eventhost",
     "stopautogames": "eventhost", "killautogames": "eventhost",
     "goldtip": "eventhost", "goldrain": "eventhost",
@@ -318,6 +320,15 @@ _SPLIT_BOT_MODES: frozenset[str] = frozenset({
 _GAME_MODULE_MODES: frozenset[str] = frozenset({
     "miner", "poker", "blackjack", "banker",
     "dj", "shopkeeper", "eventhost", "security",
+})
+
+# Hard-owner modes: host must NEVER fall back for these, even when offline.
+# These bots run on separate Highrise accounts; host staying silent is correct.
+# (eventhost is excluded here because it shares a token with host — see soft
+# fallback below in should_this_bot_handle.)
+_HARD_OWNER_MODES: frozenset[str] = frozenset({
+    "banker", "miner", "blackjack", "poker",
+    "shopkeeper", "security", "dj",
 })
 
 
@@ -618,9 +629,16 @@ def should_this_bot_handle(cmd: str) -> bool:
 
     owner_mode = _resolve_command_owner(cmd)
 
-    # host defers game-module commands to the dedicated bot while it has a
-    # recent heartbeat; falls back to handling them when the dedicated bot is
-    # offline (no heartbeat in the last 90 s).
+    # Hard owners — host must NEVER respond to these, regardless of heartbeat.
+    # These bots use separate Highrise accounts; no token sharing, no fallback.
+    # This closes the 30-second startup window where banker hasn't sent its
+    # first heartbeat yet and host would incorrectly fill in.
+    if mode == "host" and owner_mode in _HARD_OWNER_MODES:
+        return False
+
+    # Soft fallback — eventhost shares a token with host (multilogin forces
+    # alternating connections), so host handles eventhost commands when
+    # eventhost has no recent heartbeat.
     if mode == "host" and owner_mode in _GAME_MODULE_MODES:
         return not _is_mode_online(owner_mode)
 

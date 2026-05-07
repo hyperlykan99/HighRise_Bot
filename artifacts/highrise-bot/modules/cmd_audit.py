@@ -502,11 +502,21 @@ async def handle_commandtest(bot: BaseBot, user: User, args: list[str]) -> None:
         extra += " [hidden/internal]"
     if silent:
         extra += " ⚠️ silent"
-    # Show command owner bot mode
+    # Show command owner, online status, and whether THIS bot handles it
     try:
-        from modules.multi_bot import get_command_owner_for_audit
-        owner = get_command_owner_for_audit(cmd)
-        extra += f" | owner:{owner}"
+        from modules.multi_bot import (
+            get_command_owner_for_audit, _resolve_command_owner,
+            _is_mode_online, should_this_bot_handle,
+        )
+        owner      = get_command_owner_for_audit(cmd)
+        owner_mode = _resolve_command_owner(cmd) or "all"
+        online     = _is_mode_online(owner_mode)
+        handles    = should_this_bot_handle(cmd)
+        extra += (
+            f" | owner:{owner}"
+            f" | {owner_mode}_online:{str(online).lower()}"
+            f" | this_bot_handles:{str(handles).lower()}"
+        )
     except Exception:
         pass
     print(f"[COMMANDTEST] /{cmd} route={route_s} help={help_s} hidden={hidden} silent={silent}")

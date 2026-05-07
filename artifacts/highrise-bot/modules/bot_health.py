@@ -223,7 +223,17 @@ async def handle_modulehealth(bot, user, args: list[str]) -> None:
         icon = _MODE_ICONS.get(owner_mode, "🤖")
         name = _MODE_NAMES.get(owner_mode, owner_mode.title())
         online = _bot_is_online(owner_mode, instances)
-        bot_state = "ON ✅" if online else "OFF ⛔"
+        try:
+            fallback_on = db.get_room_setting("multibot_fallback_enabled", "true") == "true"
+        except Exception:
+            fallback_on = True
+        host_ok = _bot_is_online("host", instances) or _bot_is_online("all", instances)
+        if online:
+            bot_state = "ON ✅"
+        elif fallback_on and host_ok:
+            bot_state = "OFF (host fallback ✅)"
+        else:
+            bot_state = "OFF ⛔"
         db_state = "DB OK" if db_ok else "DB ERR"
         # Check locks
         locks = _get_all_locks()
@@ -237,11 +247,20 @@ async def handle_modulehealth(bot, user, args: list[str]) -> None:
         return
 
     # Summary of all modules
+    # A module is OK when its owner bot is online, OR when the host/all bot
+    # is online and fallback is enabled (host handles commands when dedicated
+    # bot is offline — e.g. eventhost shares a token with host).
+    try:
+        fallback_on = db.get_room_setting("multibot_fallback_enabled", "true") == "true"
+    except Exception:
+        fallback_on = True
+    host_ok = _bot_is_online("host", instances) or _bot_is_online("all", instances)
     parts: list[str] = []
     for key, info in _MODULE_MAP.items():
         owner_mode = info["owner"]
         online = _bot_is_online(owner_mode, instances)
-        state = "OK" if (db_ok and (online or BOT_MODE == "all")) else "WARN"
+        fallback_covers = fallback_on and host_ok
+        state = "OK" if (db_ok and (online or fallback_covers)) else "WARN"
         parts.append(f"{info['label']} {state}")
     # Send in chunks if needed
     chunk, line = [], ""
