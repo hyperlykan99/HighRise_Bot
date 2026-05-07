@@ -807,6 +807,8 @@ _HANDLER_MAP: dict[str, tuple[str, str]] = {
     # ── Emote (new) ───────────────────────────────────────────────────────
     "emotes":                ("modules.room_utils", "handle_emotes"),
     "emoteinfo":             ("modules.room_utils", "handle_emoteinfo"),
+    # ── AI delegations (new) ──────────────────────────────────────────────
+    "aidelegations":         ("modules.ai_assistant", "handle_aidelegations"),
     # ── Bot spawn (new) ───────────────────────────────────────────────────
     "botspawns":             ("modules.room_utils", "handle_botspawns"),
     "setbotspawn":           ("modules.room_utils", "handle_setbotspawn"),
@@ -1470,3 +1472,25 @@ async def handle_aidebug(bot, user, args: list[str]) -> None:
     await _w(bot, user.id, line1)
     await _w(bot, user.id, line2)
     await _w(bot, user.id, line3)
+
+
+async def handle_aidelegations(bot, user, args: list[str]) -> None:
+    """/aidelegations [limit] — show recent AI delegated task history."""
+    if not (is_admin(user.username) or is_owner(user.username)):
+        await _w(bot, user.id, "Admin/owner only.")
+        return
+    limit = 8
+    if len(args) >= 2 and args[1].isdigit():
+        limit = min(20, max(1, int(args[1])))
+    tasks = db.get_recent_delegated_tasks(limit)
+    if not tasks:
+        await _w(bot, user.id, "No AI delegated tasks recorded yet.")
+        return
+    await _w(bot, user.id, f"🤖 Last {len(tasks)} AI delegated tasks:")
+    for t in tasks[:5]:
+        st   = t["status"]
+        icon = "✅" if st == "completed" else ("⏳" if st == "pending" else ("❌" if st == "failed" else "⏱️"))
+        ts   = (t["created_at"] or "")[:16]
+        msg  = (f"{icon} #{t['id']} @{t['username']} → @{t['target_bot_username']} | "
+                f"{t['human_readable_action'][:60]} | {st} | {ts}")
+        await _w(bot, user.id, msg[:249])

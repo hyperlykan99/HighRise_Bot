@@ -119,6 +119,8 @@ from modules.poker import (
     soft_reset_table as poker_soft_reset_table,
     reset_table as poker_reset_table,
     get_poker_state_str,
+    handle_pokermode, handle_pokerpace, handle_setpokerpace,
+    handle_pokerstacks, handle_setpokerstack, handle_dealstatus,
 )
 from modules.casino_settings     import (
     handle_casinosettings, handle_casinolimits, handle_casinotoggles,
@@ -195,6 +197,8 @@ from modules.events import (
     handle_startevent, handle_stopevent,
     handle_eventpoints, handle_eventshop, handle_buyevent,
     startup_event_check,
+    handle_adminsblessing, handle_eventresume,
+    handle_autogamestatus, handle_autogameresume,
 )
 from modules.reports import (
     handle_report, handle_bug, handle_myreports,
@@ -267,6 +271,7 @@ from modules.mining import (
     handle_orelist, handle_minehelp,
     handle_orebook, handle_oremastery, handle_claimoremastery, handle_orestats,
     handle_contracts, handle_job, handle_deliver, handle_claimjob, handle_rerolljob,
+    handle_mineconfig, handle_mineeventstatus,
     MINE_HELP_PAGES,
 )
 from modules.control_panel import (
@@ -305,6 +310,7 @@ from modules.ai_assistant import (
     handle_confirm_cmd,
     handle_aidebug,
     handle_aicapabilities,
+    handle_aidelegations,
 )
 from modules.bot_modes import (
     handle_botmode, handle_botmodes, handle_botprofile,
@@ -325,7 +331,9 @@ from modules.room_utils import (
     handle_selftp, handle_groupteleport,
     handle_spawns, handle_spawn, handle_setspawn, handle_delspawn,
     handle_spawninfo, handle_setspawncoords, handle_savepos,
-    handle_emotes, handle_emote, handle_stopemote,
+    handle_emotes, handle_emote, handle_stopemote, handle_emoteinfo,
+    handle_setbotspawn, handle_setbotspawnhere, handle_botspawns,
+    handle_clearbotspawn, apply_bot_spawn,
     handle_dance, handle_wave, handle_sit, handle_clap,
     handle_forceemote, handle_forceemoteall,
     handle_loopemote, handle_stoploop, handle_stopallloops,
@@ -692,6 +700,19 @@ ALL_KNOWN_COMMANDS = (
         "commandissues",
         # ── AI assistant ──────────────────────────────────────────────────────
         "ask", "ai", "assistant", "pendingaction", "confirm", "aidebug", "aicapabilities",
+        "aidelegations",
+        # ── Emote extensions ──────────────────────────────────────────────────
+        "emoteinfo",
+        # ── Bot spawns ────────────────────────────────────────────────────────
+        "setbotspawn", "setbotspawnhere", "botspawns", "clearbotspawn",
+        # ── Events (new) ──────────────────────────────────────────────────────
+        "adminsblessing", "adminblessing", "eventresume",
+        "autogamestatus", "autogameresume",
+        # ── Mining (new) ──────────────────────────────────────────────────────
+        "mineconfig", "mineeventstatus",
+        # ── Poker pace / stack (new) ──────────────────────────────────────────
+        "pokermode", "pokerpace", "setpokerpace",
+        "pokerstacks", "setpokerstack", "dealstatus",
     }
     | ECONOMY_COMMANDS | PROFILE_COMMANDS | GAME_COMMANDS
     | SHOP_COMMANDS | ACHIEVEMENT_COMMANDS | BJ_COMMANDS
@@ -2000,6 +2021,8 @@ class HangoutBot(BaseBot):
         check_startup_safety()
         # Conditional startup room announce (respects settings + 10-min cooldown)
         asyncio.create_task(send_startup_announce(self))
+        # Teleport bot to its configured spawn position (if set)
+        asyncio.create_task(apply_bot_spawn(self, config.BOT_USERNAME))
 
     async def on_chat(self, user: User, message: str) -> None:
         """
@@ -2760,6 +2783,18 @@ class HangoutBot(BaseBot):
         elif cmd == "stopevent":
             await handle_stopevent(self, user)
 
+        elif cmd in ("adminsblessing", "adminblessing"):
+            await handle_adminsblessing(self, user, args)
+
+        elif cmd == "eventresume":
+            await handle_eventresume(self, user)
+
+        elif cmd == "autogamestatus":
+            await handle_autogamestatus(self, user)
+
+        elif cmd == "autogameresume":
+            await handle_autogameresume(self, user)
+
         elif cmd == "eventpoints":
             await handle_eventpoints(self, user, args)
 
@@ -3168,6 +3203,9 @@ class HangoutBot(BaseBot):
         elif cmd == "aicapabilities":
             await handle_aicapabilities(self, user, args)
 
+        elif cmd == "aidelegations":
+            await handle_aidelegations(self, user, args)
+
         # ── /answer ───────────────────────────────────────────────────────────
         elif cmd == "answer":
             answer_text = " ".join(args[1:]).strip()
@@ -3339,6 +3377,24 @@ class HangoutBot(BaseBot):
         elif cmd == "resetpokerlimits":
             await handle_resetpokerlimits(self, user, args)
 
+        elif cmd == "pokermode":
+            await handle_pokermode(self, user, args)
+
+        elif cmd == "pokerpace":
+            await handle_pokerpace(self, user)
+
+        elif cmd == "setpokerpace":
+            await handle_setpokerpace(self, user, args)
+
+        elif cmd == "pokerstacks":
+            await handle_pokerstacks(self, user)
+
+        elif cmd == "setpokerstack":
+            await handle_setpokerstack(self, user, args)
+
+        elif cmd == "dealstatus":
+            await handle_dealstatus(self, user)
+
         elif cmd == "setpokerturntimer":
             await handle_setpokerturntimer(self, user, args)
 
@@ -3491,6 +3547,12 @@ class HangoutBot(BaseBot):
         elif cmd == "miningroomrequired":
             await handle_miningroomrequired(self, user, args)
 
+        elif cmd == "mineconfig":
+            await handle_mineconfig(self, user)
+
+        elif cmd == "mineeventstatus":
+            await handle_mineeventstatus(self, user)
+
         elif cmd == "orelist":
             await handle_orelist(self, user)
 
@@ -3573,6 +3635,16 @@ class HangoutBot(BaseBot):
         elif cmd == "setspawncoords":
             await handle_setspawncoords(self, user, args)
 
+        # ── Bot spawns ────────────────────────────────────────────────────────
+        elif cmd == "setbotspawn":
+            await handle_setbotspawn(self, user, args)
+        elif cmd == "setbotspawnhere":
+            await handle_setbotspawnhere(self, user, args)
+        elif cmd == "botspawns":
+            await handle_botspawns(self, user)
+        elif cmd == "clearbotspawn":
+            await handle_clearbotspawn(self, user, args)
+
         # ── Teleport ──────────────────────────────────────────────────────────
         elif cmd == "tpme":
             await handle_tpme(self, user, args)
@@ -3599,7 +3671,9 @@ class HangoutBot(BaseBot):
 
         # ── Emotes ────────────────────────────────────────────────────────────
         elif cmd == "emotes":
-            await handle_emotes(self, user)
+            await handle_emotes(self, user, args)
+        elif cmd == "emoteinfo":
+            await handle_emoteinfo(self, user, args)
         elif cmd == "emote":
             await handle_emote(self, user, args)
         elif cmd == "stopemote":
