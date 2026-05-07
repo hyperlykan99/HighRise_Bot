@@ -1978,7 +1978,7 @@ def is_emergency_responder() -> bool:
                 _lsdt = _dter.fromisoformat(_ls.replace("Z", "+00:00"))
                 if _lsdt.tzinfo is None:
                     _lsdt = _lsdt.replace(tzinfo=_tzer.utc)
-                if (_dter.now(_tzer.utc) - _lsdt).total_seconds() < 60:
+                if (_dter.now(_tzer.utc) - _lsdt).total_seconds() < 25:
                     _live.add(_inst.get("bot_mode", "").lower())
             except Exception:
                 pass
@@ -2420,58 +2420,124 @@ class HangoutBot(BaseBot):
                 print(f"[CMD ERROR] pingowner handler: {_poe}")
             return
 
-        # /missingbots — emergency: only the highest-priority live bot responds
-        if cmd == "missingbots":
-            if is_emergency_responder():
+        # ══════════════════════════════════════════════════════════════════════
+        # BANKER PRE-ROUTER BYPASS — economy commands handled BEFORE routing gate.
+        # No DB call, no ownership lookup, no permission failure possible.
+        # Only BankingBot (mode=banker) executes this block.
+        # Other bots skip it entirely (they continue to the emergency section).
+        # ══════════════════════════════════════════════════════════════════════
+        if BOT_MODE == "banker":
+            if cmd in {"bal", "balance", "b", "coins", "coin", "money"}:
+                print(f"[BANKER RX] cmd=/{cmd} handle=true")
+                print(f"[BANKER DB] path={config.DB_PATH}")
                 try:
-                    _mb_slots = [
-                        ("HOST_BOT_TOKEN",      "host"),
-                        ("BANKER_BOT_TOKEN",    "banker"),
-                        ("BLACKJACK_BOT_TOKEN", "blackjack"),
-                        ("POKER_BOT_TOKEN",     "poker"),
-                        ("MINER_BOT_TOKEN",     "miner"),
-                        ("SHOP_BOT_TOKEN",      "shop"),
-                        ("SECURITY_BOT_TOKEN",  "security"),
-                        ("DJ_BOT_TOKEN",        "dj"),
-                        ("EVENT_BOT_TOKEN",     "event"),
-                    ]
-                    _mb_running = [lbl for tok, lbl in _mb_slots if os.environ.get(tok, "")]
-                    _mb_missing = [f"{lbl}(no token)" for tok, lbl in _mb_slots
-                                   if not os.environ.get(tok, "")]
-                    await self._safe_send(user.id,
-                        f"Running: {', '.join(_mb_running) or 'none'}"[:249])
-                    if _mb_missing:
+                    await handle_balance(self, user, args)
+                except Exception as _bbal:
+                    _bbal_str = str(_bbal)[:100]
+                    print(f"[BANKER ERROR] /{cmd}: {_bbal}")
+                    try:
                         await self._safe_send(user.id,
-                            f"Missing: {', '.join(_mb_missing)}"[:249])
-                    else:
-                        await self._safe_send(user.id, "All token slots configured.")
+                            f"Balance DB error: {_bbal_str}"[:249])
+                    except Exception:
+                        pass
+                return
+            if cmd == "economydbcheck":
+                print(f"[BANKER RX] cmd=/{cmd} handle=true")
+                await handle_economy_dbcheck(self, user)
+                return
+            if cmd == "economyrepair":
+                print(f"[BANKER RX] cmd=/{cmd} handle=true")
+                await handle_economy_repair(self, user)
+                return
+            if cmd in {"bankhelp", "bankerhelp", "coinhelp"}:
+                print(f"[BANKER RX] cmd=/{cmd} handle=true")
+                try:
+                    await _handle_bankhelp(self, user, args)
+                except Exception as _bhe:
+                    print(f"[BANKER ERROR] bankhelp: {_bhe}")
+                    await self._safe_send(user.id,
+                        "Banker help unavailable. Try /crashlogs latest")
+                return
+
+        # /missingbots — emergency: only the highest-priority live bot responds
+        _mb_ss_slots = [
+            ("HOST_BOT_TOKEN",      "host"),
+            ("BANKER_BOT_TOKEN",    "banker"),
+            ("BLACKJACK_BOT_TOKEN", "blackjack"),
+            ("POKER_BOT_TOKEN",     "poker"),
+            ("MINER_BOT_TOKEN",     "miner"),
+            ("SHOP_BOT_TOKEN",      "shop"),
+            ("SECURITY_BOT_TOKEN",  "security"),
+            ("DJ_BOT_TOKEN",        "dj"),
+            ("EVENT_BOT_TOKEN",     "event"),
+        ]
+        if cmd == "missingbots":
+            _er_mb = is_emergency_responder()
+            print(f"[EMERGENCY RX] cmd=/missingbots responder={BOT_MODE} active={str(_er_mb).lower()}")
+            if _er_mb:
+                try:
+                    _configured = [lbl for tok, lbl in _mb_ss_slots if os.environ.get(tok, "")]
+                    _missing_tok = [lbl for tok, lbl in _mb_ss_slots if not os.environ.get(tok, "")]
+                    # Check which configured bots are actually live (25s heartbeat window)
+                    _live_modes: set[str] = set()
+                    try:
+                        from datetime import datetime as _dtemb, timezone as _tzmb
+                        for _inst in db.get_bot_instances():
+                            if _inst.get("status") != "online":
+                                continue
+                            _ls = _inst.get("last_seen_at", "")
+                            if not _ls:
+                                continue
+                            try:
+                                _lsdt = _dtemb.fromisoformat(_ls.replace("Z", "+00:00"))
+                                if _lsdt.tzinfo is None:
+                                    _lsdt = _lsdt.replace(tzinfo=_tzmb.utc)
+                                if (_dtemb.now(_tzmb.utc) - _lsdt).total_seconds() < 25:
+                                    _live_modes.add(_inst.get("bot_mode", "").lower())
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
+                    _live_modes.add(BOT_MODE)  # always include self
+                    _offline = [lbl for tok, lbl in _mb_ss_slots
+                                if os.environ.get(tok, "") and lbl not in _live_modes]
+                    _msg = f"Missing: {', '.join(_offline) or 'none'}"
+                    if _missing_tok:
+                        _msg += f" | No token: {', '.join(_missing_tok)}"
+                    await self._safe_send(user.id, _msg[:249])
                 except Exception as _mbe:
                     print(f"[CMD ERROR] missingbots: {_mbe}")
             return
 
         # /startupstatus — emergency: only the highest-priority live bot responds
         if cmd == "startupstatus":
-            if is_emergency_responder():
+            _er_ss = is_emergency_responder()
+            print(f"[EMERGENCY RX] cmd=/startupstatus responder={BOT_MODE} active={str(_er_ss).lower()}")
+            if _er_ss:
                 try:
-                    _ss_slots = [
-                        ("HOST_BOT_TOKEN",      "host"),
-                        ("BANKER_BOT_TOKEN",    "banker"),
-                        ("BLACKJACK_BOT_TOKEN", "blackjack"),
-                        ("POKER_BOT_TOKEN",     "poker"),
-                        ("MINER_BOT_TOKEN",     "miner"),
-                        ("SHOP_BOT_TOKEN",      "shop"),
-                        ("SECURITY_BOT_TOKEN",  "security"),
-                        ("DJ_BOT_TOKEN",        "dj"),
-                        ("EVENT_BOT_TOKEN",     "event"),
-                    ]
-                    _ss_started = [lbl for tok, lbl in _ss_slots if os.environ.get(tok, "")]
-                    _ss_missing = [lbl for tok, lbl in _ss_slots if not os.environ.get(tok, "")]
+                    _ss_started = [lbl for tok, lbl in _mb_ss_slots if os.environ.get(tok, "")]
+                    _ss_missing = [lbl for tok, lbl in _mb_ss_slots if not os.environ.get(tok, "")]
                     _ss_msg = f"Started: {', '.join(_ss_started) or 'none'}"
                     if _ss_missing:
                         _ss_msg += f" | Missing: {', '.join(_ss_missing)}"
                     await self._safe_send(user.id, _ss_msg[:249])
                 except Exception as _sse:
                     print(f"[CMD ERROR] startupstatus: {_sse}")
+            return
+
+        # /safeboot status — emergency: any bot replies with its own state
+        if cmd == "safeboot" and len(args) > 1 and args[1].lower() == "status":
+            try:
+                _sb_env = config.SAFE_BOOT
+                try:
+                    _sb_db = db.get_room_setting("safeboot", "true") == "true"
+                    _sb_db_str = str(_sb_db)
+                except Exception:
+                    _sb_db_str = "unknown"
+                await self._safe_send(user.id,
+                    f"SafeBoot: env={_sb_env} | db={_sb_db_str} | mode={BOT_MODE}"[:249])
+            except Exception as _sbe:
+                print(f"[CMD ERROR] safeboot status: {_sbe}")
             return
 
         # /crashlogs — emergency read before router; host or emergency responder

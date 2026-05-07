@@ -1,0 +1,214 @@
+FIX EMERGENCY COMMAND ROUTING FOR STARTUPSTATUS, MISSINGBOTS, ECONOMYDBCHECK, ECONOMYREPAIR, AND BAL.
+
+Current status:
+- /crashlogs latest works.
+- /ping all works.
+- /pokerhelp and /minehelp work.
+- /startupstatus does not respond.
+- /missingbots does not respond.
+- /economydbcheck does not respond.
+- /economyrepair does not respond.
+- /bal does not respond or says balance unavailable.
+
+Goal:
+Make these commands route and reply:
+- /startupstatus
+- /missingbots
+- /economydbcheck
+- /economyrepair
+- /bal
+- /bankerhelp
+
+IMPORTANT:
+- Do not touch poker logic.
+- Do not touch blackjack logic.
+- Do not add AI.
+- Keep SAFE_BOOT on.
+- Fix command registration/routing only.
+- No silent failures.
+- Keep messages under 250 characters.
+
+==================================================
+PART 1: HARD-CODE EMERGENCY STATUS COMMANDS BEFORE ROUTER
+==================================================
+
+Before the normal command router, add emergency handlers for:
+
+/startupstatus
+/missingbots
+/crashlogs latest
+/safeboot status
+
+These must work even if Host Bot is missing.
+
+Emergency responder priority:
+1. host
+2. banker
+3. poker
+4. blackjack
+5. miner
+6. security
+7. dj
+
+Only the selected emergency responder replies.
+Other bots ignore.
+
+Expected:
+/startupstatus
+"Started: banker,poker,bj,miner,security,dj | Missing: host,shop,event"
+
+/missingbots
+"Missing: host,shop,event"
+
+If no Host:
+"Host offline. System commands limited."
+
+==================================================
+PART 2: HARD-CODE BANKER EMERGENCY COMMANDS
+==================================================
+
+Before the normal router, if bot_mode == banker, handle:
+
+/bal
+/balance
+/coins
+/wallet
+/economydbcheck
+/economyrepair
+/bankerhelp
+
+These must not depend on Host or command registry.
+
+If another bot receives these, ignore silently unless Banker is offline.
+
+==================================================
+PART 3: FIX /BAL
+==================================================
+
+/bal must:
+1. Normalize requester username.
+2. Open shared DB from SHARED_DB_PATH.
+3. Ensure economy tables exist.
+4. Ensure player row exists.
+5. Return balance.
+
+If table missing, create safely:
+players:
+- username_key TEXT PRIMARY KEY
+- display_name TEXT
+- coins INTEGER DEFAULT 0
+- event_coins INTEGER DEFAULT 0
+- exp INTEGER DEFAULT 0
+- level INTEGER DEFAULT 1
+- created_at TEXT
+- updated_at TEXT
+
+If existing table uses users/economy_profiles instead of players:
+- detect it
+- use existing balance column
+- do not wipe data
+
+Reply:
+"💰 Balance: 1,000c"
+
+If still fails:
+"Balance DB error: <short reason>"
+
+Also log exact error to console.
+
+==================================================
+PART 4: FIX /ECONOMYDBCHECK
+==================================================
+
+/economydbcheck should reply from BankingBot.
+
+Checks:
+- DB path
+- DB opens
+- players/economy table exists
+- coins/balance column exists
+- requester row readable
+
+Replies:
+"Economy DB: OK | table players | coins OK"
+
+If fail:
+"Economy DB fail: missing players.coins"
+
+==================================================
+PART 5: FIX /ECONOMYREPAIR
+==================================================
+
+/economyrepair should reply from BankingBot.
+
+Behavior:
+- create missing economy/player tables
+- add missing columns safely
+- do not wipe balances
+- do not reset data
+- use ALTER TABLE only when needed
+
+Reply:
+"✅ Economy DB repaired."
+
+==================================================
+PART 6: COMMAND REGISTRY REGISTRATION
+==================================================
+
+Also register these in normal registry:
+
+Host/system:
+- /startupstatus
+- /missingbots
+- /crashlogs
+- /safeboot
+
+Banker:
+- /bal
+- /balance
+- /coins
+- /wallet
+- /economydbcheck
+- /economyrepair
+- /bankerhelp
+
+Command ownership:
+- /bal owner=banker
+- /economydbcheck owner=banker
+- /economyrepair owner=banker
+- /startupstatus owner=system/emergency
+- /missingbots owner=system/emergency
+
+==================================================
+PART 7: ADD CONSOLE LOGGING
+==================================================
+
+When these commands are received, print:
+
+[EMERGENCY RX] cmd=/startupstatus responder=banker true/false
+[BANKER RX] cmd=/bal handle=true
+[BANKER DB] path=<db path no secrets>
+[BANKER ERROR] <exact error>
+
+Do not print tokens.
+
+==================================================
+PART 8: TESTS
+==================================================
+
+After restart, run:
+
+/startupstatus
+/missingbots
+/economydbcheck
+/economyrepair
+/bal
+/bankerhelp
+
+Expected:
+- /startupstatus replies from one bot even if Host missing.
+- /missingbots replies from one bot.
+- /economydbcheck replies from BankingBot.
+- /economyrepair replies from BankingBot.
+- /bal replies from BankingBot with balance or exact DB error.
+- No duplicate replies.

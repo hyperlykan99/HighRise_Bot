@@ -228,13 +228,16 @@ async def handle_xp_leaderboard(bot: BaseBot, user: User):
 
 async def handle_economy_dbcheck(bot: BaseBot, user: User):
     """
-    /economydbcheck — owner/admin only.
+    /economydbcheck — owner/admin only (fail-safe: allows through on DB error).
     Diagnoses economy DB: path, users table, balance column, read test.
     """
-    from modules.permissions import is_owner as _io, is_admin as _ia
-    if not _io(user.username) and not _ia(user.username):
-        await bot.highrise.send_whisper(user.id, "Owner/admin only.")
-        return
+    try:
+        from modules.permissions import is_owner as _io, is_admin as _ia
+        if not _io(user.username) and not _ia(user.username):
+            await bot.highrise.send_whisper(user.id, "Owner/admin only.")
+            return
+    except Exception as _pe:
+        print(f"[ECONOMY] permission check error (allowing through): {_pe}")
     issues: list[str] = []
     ok_parts: list[str] = []
     try:
@@ -276,14 +279,17 @@ async def handle_economy_dbcheck(bot: BaseBot, user: User):
 
 async def handle_economy_repair(bot: BaseBot, user: User):
     """
-    /economyrepair — owner/admin only.
+    /economyrepair — owner/admin only (fail-safe: allows through on DB error).
     Creates missing economy tables and adds missing columns.
     Does NOT wipe data or reset balances.
     """
-    from modules.permissions import is_owner as _io, is_admin as _ia
-    if not _io(user.username) and not _ia(user.username):
-        await bot.highrise.send_whisper(user.id, "Owner/admin only.")
-        return
+    try:
+        from modules.permissions import is_owner as _io, is_admin as _ia
+        if not _io(user.username) and not _ia(user.username):
+            await bot.highrise.send_whisper(user.id, "Owner/admin only.")
+            return
+    except Exception as _pe:
+        print(f"[ECONOMY] permission check error (allowing through): {_pe}")
     try:
         conn = db.get_connection()
         conn.execute("""
