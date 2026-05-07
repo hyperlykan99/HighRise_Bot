@@ -107,8 +107,6 @@ def remove_from_room_cache(user_id: str) -> None:
 
 async def refresh_room_cache(bot) -> None:
     """Fetch the live room user list and rebuild the cache."""
-    import asyncio as _aio
-    await _aio.sleep(3)  # brief settle so the transport is stable before making API calls
     try:
         resp = await bot.highrise.get_room_users()
         if hasattr(resp, "content"):

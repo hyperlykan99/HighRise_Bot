@@ -41,8 +41,7 @@ artifacts/highrise-bot/
     ├── bot_modes.py        # Bot persona/outfit system
     ├── multi_bot.py        # Multi-bot management
     ├── room_utils.py       # Room utility commands
-    ├── mining.py           # Mining game
-    └── assistant.py        # Personal Assistant AI (rule-based intent router)
+    └── mining.py           # Mining game
 ```
 
 DB schema source of truth: `database.py` (`_MIGRATIONS` list + `init_db()`).
@@ -55,15 +54,10 @@ DB schema source of truth: `database.py` (`_MIGRATIONS` list + `init_db()`).
 - **Bot modes**: A system of `bot_modes` and `bot_mode_assignments` tables allows for different bot personas and message prefixes.
 - **Multi-bot system**: Features `bot_instances` for heartbeats, `bot_command_ownership` for command routing, and `bot_module_locks` for preventing race conditions in games. Auto-game ownership is managed via `autogames_owner_bot_mode` room setting.
 - **Module ownership guard**: `should_this_bot_run_module(module)` in `multi_bot.py` gates all startup recovery calls and room announce messages — only the owning bot mode runs them. `_MODULE_OWNER_MODES` defines the mapping (poker→poker, blackjack→blackjack/rbj, events→eventhost, etc.). Dedupe lock table `module_announcement_locks` provides a 5-minute cross-bot dedupe safety net via `db.acquire_module_announce_lock()`.
-- **Personal Assistant AI**: Rule-based intent router in `modules/assistant.py`. Only Host Bot (`BOT_MODE=="host"`) processes natural language. Wake phrases trigger intent detection → existing handler dispatch. Safety levels: 1=SAFE (execute), 2=STAFF (suggest in strict mode, execute in assistant/autopilot mode), 3=DANGEROUS (always confirm with 4-digit code). DB tables: `ai_settings`, `ai_action_logs`, `ai_pending_actions`. No background loops. All wrapped in try/except.
 
 ## Product
 
-Casino games (Blackjack, Realistic Blackjack, Poker), DJ queue, token economy, daily rewards, in-game shop, quests, achievements, events, subscriber DMs, leaderboards, staff management, public player profiles with privacy controls, emoji badge market, mining game, a comprehensive room utility system, a bot mode/outfit system with multiple personas, and a multi-bot system for distributed command handling and high availability. It also includes a Casino Integrity Checker for verifying game logic and card visibility, and a Personal Assistant AI that responds to natural-language wake phrases.
-
-**Poker upgrade (fault-safe spec):** Leave-room auto-fold, 3-strike AFK tracking with auto-removal/refund, speed modes (`/pokermode`), buy-in/stakes modes (`/pokerstakes`), rule modes (`/pokerrules`), AI simulation (`/poker ai`), owner debug card reveal, AFK remove/sitout toggles, 8-page help. DB tables: `poker_player_presence`, `poker_afk_tracking`, `poker_ai_logs`, `poker_debug_logs`.
-
-**Poker pause/resume/waitlist/tablelock/spectate/notes spec:** `/poker pause` (⏸️ sets `poker_paused=true`, blocks betting actions), `/poker resume` (▶️ with state validation), `/poker tablelock on|off` (🔒/🔓, blocks joins, notifies waitlist next), `/poker waitlist [buyin]` + `/waitpoker` + `/leavewaitlist` (queue with auto-notify), `/poker spectate on|off` + `/spectatepoker` + `/spectators` (watch-only, no hole cards), `/poker notes|addnote|clearnotes [user]` (staff note log). Auto-notes logged for AFK removal, leave-room, hardrefund, clearhand, closeforce, cleanup. DB tables: `poker_waitlist`, `poker_spectators`, `poker_notes`. Settings: `poker_paused`, `poker_table_locked`, `poker_waitlist_enabled`, `poker_spectate_enabled`.
+Casino games (Blackjack, Realistic Blackjack, Poker), DJ queue, token economy, daily rewards, in-game shop, quests, achievements, events, subscriber DMs, leaderboards, staff management, public player profiles with privacy controls, emoji badge market, mining game, a comprehensive room utility system, a bot mode/outfit system with multiple personas, and a multi-bot system for distributed command handling and high availability. It also includes a Casino Integrity Checker for verifying game logic and card visibility.
 
 ## User preferences
 
@@ -71,28 +65,6 @@ Casino games (Blackjack, Realistic Blackjack, Poker), DJ queue, token economy, d
 - New settings commands follow pattern `/setbj<thing>` / `/setrbj<thing>` and are manager-only.
 - Short aliases preferred for in-room play; full `/bj <sub>` commands still supported.
 - Rep rank cap: Celebrity (500+). No "Legend" rep rank. Level rank Legend = 50+.
-
-## SAFE_BOOT system (applied)
-
-**SAFE_BOOT is ON by default.** All background loops are disabled at startup. Bots connect, heartbeat, and handle commands — nothing else runs until explicitly enabled.
-
-- `config.SAFE_BOOT`: env var `SAFE_BOOT=true` (default). Set `SAFE_BOOT=false` to disable.
-- `safeboot` DB setting: checked on every `on_start`. Both must be `false` for loops to run.
-- `on_start` fully crash-proofed: each step in its own try/except; `[BOT START]`/`[BOT ONLINE]`/`[TASK START]`/`[TASK SKIP]`/`[BOT CRASH]` console logging.
-- `on_user_join` DB errors gracefully caught — no longer crashes the bot.
-
-**Safe boot commands (admin/owner only):**
-- `/safeboot on|off|status` — toggle safe boot; restart recommended after change
-- `/recoverbots` — mark stale bot_instances offline, clear expired locks, fix room presence
-- `/enablepokerloops` — turn on poker AFK tracking + leave-fold (poker bot/manager)
-- `/enableautogames` — turn on autogames loop (event bot/manager)
-- `/enablewelcomeintervals` — turn on welcome/interval messages (host bot/manager)
-- `/enablebotspawn` — turn on bot auto-spawn on startup (admin only)
-
-**Crash-safe poker fix (applied):**
-- `poker_leaveremove_enabled=false` gates leave-fold; `poker_afk_enabled` reset to `false`.
-- `on_user_leave` guarded by `should_this_bot_run_module("poker")`.
-- `/poker leaveremove on|off`, `/poker safemode`, `/emergencystop`, `/roomcount`, `/fixroomcount`.
 
 ## Gotchas
 
@@ -104,17 +76,6 @@ Casino games (Blackjack, Realistic Blackjack, Poker), DJ queue, token economy, d
 - Seeding functions (`seed_emoji_badges`, `seed_mining_items`, etc.) use `INSERT OR IGNORE` in `_migrate_db()`.
 - New `room_mutes`/`room_bans`/`room_warnings` tables are separate from older moderation tables.
 - The `_user_positions` dictionary in `room_utils.py` is volatile and resets on bot restart.
-- `get_connection()` now enables WAL mode + busy_timeout=10000ms + connection timeout=20s. Use `_execute_with_retry()` for hot-path writes.
-- `safe_mode_enabled=true` skips autogames, interval, and emote loops at startup. Use `/safemode on` if bots keep crashing.
-- **SAFE_BOOT=true (env) + safeboot=true (DB)** — both must be `false` for background loops to start. Change DB setting with `/safeboot off` then restart.
-- All startup tasks in `on_start` are individually try/except wrapped — one task failure never kills the bot.
-- `on_user_join` `ensure_user` DB errors are caught and logged — never crash the bot on join storm.
-- Duplicate tokens and bot_ids are now detected and skipped in `bot.py` before launching subprocesses.
-- `_is_mode_online(BOT_MODE)` in `multi_bot.py` always returns `True` (self-online guard) — a bot never marks itself offline due to its own heartbeat DB failure.
-- `_db_init_complete` flag in `main.py` gates `ensure_user` writes until host's `init_db()` finishes, preventing init_db vs ensure_user deadlock.
-- `init_db()` is host-only; all other bots do a lightweight read-verify at startup (`[DB INIT] X DB verified`).
-- `ensure_user` (on_user_join) and `auto_subscribe_whisper` (on_whisper) are gated to host/all only and to `_db_init_complete=True`.
-- Heartbeat writes are staggered per mode (host=0s, banker=3s, blackjack=6s, poker=9s, dj=12s, miner=15s, shop=18s, security=21s, event=24s) + random jitter.
 
 ## Pointers
 
@@ -125,27 +86,3 @@ Casino games (Blackjack, Realistic Blackjack, Poker), DJ queue, token economy, d
 - To manage multi-bot command ownership: Edit `_DEFAULT_COMMAND_OWNERS` in `multi_bot.py` or use `/setcommandowner`.
 - To guard a new module's startup tasks: call `should_this_bot_run_module("modulename")` before any `asyncio.create_task(startup_...)` in `on_start`. Add the module to `_MODULE_OWNER_MODES` in `multi_bot.py`.
 - New task/restore commands: `/taskowners`, `/activetasks`, `/taskconflicts`, `/fixtaskowners`, `/restoreannounce on|off`, `/restorestatus` (all admin/owner-only).
-- Poker AFK/mode/stakes/rules settings are stored in `room_settings` via `db.get_room_setting()` / `db.set_room_setting()`.
-- `poker_player_presence` tracks join/leave timestamps; `poker_afk_tracking` tracks strike counts per hand.
-- `/poker ai` toggles `_ai_sim_state["enabled"]`; AI hands are logged to `poker_ai_logs` table.
-- Crash logs: `db.log_bot_crash()` writes to `bot_crash_logs`. View with `/crashlogs`, clear with `/clearcrashlogs`.
-- Safe mode: `/safemode on` sets `safe_mode_enabled=true` and disables autogames/spawn/outfit/emote/interval startup loops.
-- New startup defaults (all `false`): `module_startup_announce_enabled`, `autogames_enabled`, `bot_auto_spawn_enabled`, `outfit_auto_apply_enabled`, `emote_loops_enabled_on_startup`, `safe_mode_enabled`.
-- Pause/resume checks `poker_paused` room_setting. Betting actions blocked while paused.
-- `poker_settings` page 1 now shows Mode/Stakes/Paused/Lock; page 2 shows Waitlist/Spectate/AFK/All-in.
-- Waitlist helpers: `db.add_poker_waitlist()`, `db.get_poker_waitlist()`, `db.cancel_poker_waitlist()`, `db.get_poker_waitlist_next()`.
-- Spectator helpers: `db.add_poker_spectator()`, `db.remove_poker_spectator()`, `db.get_poker_spectators()`, `db.is_poker_spectator()`.
-- Note helpers: `db.add_poker_note()`, `db.get_poker_notes()`, `db.clear_poker_notes()`.
-- AI assistant settings: `db.ai_get_setting(key, default)` / `db.ai_set_setting(key, value)`.
-- AI log helpers: `db.ai_get_logs(username_key, limit)` / `db.ai_clear_logs()`.
-- AI pending actions: `db.ai_create_pending()`, `db.ai_get_pending(code)`, `db.ai_confirm_pending(code)`, `db.ai_cancel_pending(code)`.
-- AI commands (all owned by host bot): `/assistant on|off`, `/assistantstatus`, `/aimode [strict|assistant|diagnostic|autopilot]`, `/aisettings`, `/aiset <key> <value>`, `/ailogs [user]`, `/clearailogs`, `/aiintegrity [full]`, `/confirmai <code>`, `/cancelai <code>`, `/assistanthelp [2]`.
-- Economy DB commands (banker-owned, owner/admin only): `/economydbcheck` — diagnoses users table, balance column, read test; `/economyrepair` — creates missing tables/columns idempotently, never wipes data.
-
-## Emergency-responder fix (applied)
-
-`is_emergency_responder()` now builds `_live` OUTSIDE the try block (self is always in `_live`). The priority check always runs even if `db.get_bot_instances()` throws. Removed the broken env-token fallback that deferred to host just because HOST_BOT_TOKEN is set. Now: if host has no heartbeat in DB (crashed before heartbeat task started), banker becomes emergency responder automatically.
-
-`/crashlogs` is now open to the emergency responder (no longer host/all only).
-`/bal` errors now surface the actual exception text instead of a generic message. `handle_balance` tolerates `ensure_user` DB failures (continues to `get_balance`).
-- Natural language: say "Host, help me" / "Banker, balance" / "Poker bot, show table" / "Miner, ores" — Host Bot only. Dangerous actions (ban, kick, poker closeforce, etc.) require `confirm CODE` reply within 2 minutes.

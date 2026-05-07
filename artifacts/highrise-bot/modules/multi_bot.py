@@ -13,7 +13,6 @@ All other modes handle their own module commands.
 from __future__ import annotations
 import asyncio
 import time
-import random
 from datetime import datetime, timezone
 
 import database as db
@@ -46,14 +45,13 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "coins": "banker", "coin": "banker", "money": "banker",
     "send": "banker", "bank": "banker",
     "transactions": "banker", "bankstats": "banker",
-    "bankhelp": "banker", "bankerhelp": "banker", "banknotify": "banker",
+    "bankhelp": "banker", "banknotify": "banker",
     "daily": "banker", "leaderboard": "banker", "lb": "banker",
     "addcoins": "banker", "setcoins": "banker", "removecoins": "banker",
     "resetcoins": "banker", "editcoins": "banker",
     "viewtx": "banker", "ledger": "banker",
     "bankblock": "banker", "bankunblock": "banker",
     "coinhelp": "banker", "bankadminhelp": "banker",
-    "economydbcheck": "banker", "economyrepair": "banker",
     "dash": "banker", "dashboard": "banker",
     # ── blackjack (Casual BJ + RBJ) ─────────────────────────────────────────
     "bj": "blackjack", "bjoin": "blackjack",
@@ -90,16 +88,6 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "pokerhistory": "poker", "pokerdebug": "poker",
     "pokerfix": "poker", "pokercleanup": "poker",
     "confirmclosepoker": "poker",
-    "waitpoker": "poker", "leavewaitlist": "poker",
-    "spectatepoker": "poker", "spectators": "poker",
-    "emergencystop": "host", "roomcount": "host", "fixroomcount": "host",
-    "safeboot": "host", "recoverbots": "host",
-    "enablepokerloops": "poker", "enableautogames": "eventhost",
-    "enablewelcomeintervals": "host", "enablebotspawn": "host",
-    "assistant": "host", "assistantstatus": "host", "assistanthelp": "host",
-    "aimode": "host", "aisettings": "host", "aiset": "host",
-    "ailogs": "host", "clearailogs": "host", "aiintegrity": "host",
-    "confirmai": "host", "cancelai": "host",
     "casinointegrity": "host", "integritylogs": "host", "carddeliverycheck": "host",
     "setpokercardmarker": "poker",
     "setpokertimer": "poker", "setpokerturntimer": "poker",
@@ -129,8 +117,6 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "resetmining": "miner", "miningroomrequired": "miner",
     "orelist": "miner",
     "orebook": "miner", "oremastery": "miner", "claimoremastery": "miner", "orestats": "miner",
-    "minerdbcheck": "miner", "minerrepair": "miner",
-    "dblockcheck": "miner", "processcheck": "miner",
     "contracts": "miner", "miningjobs": "miner",
     "job": "miner", "deliver": "miner", "claimjob": "miner", "rerolljob": "miner",
     # ── shopkeeper ──────────────────────────────────────────────────────────
@@ -202,40 +188,16 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "tip": "banker", "gift": "banker",
     "addcoins": "banker", "removecoins": "banker",
     "bankstats": "banker", "banknotify": "banker",
-    "bankhelp": "banker", "bankerhelp": "banker", "coinhelp": "banker",
-    "economydbcheck": "banker", "economyrepair": "banker",
+    "bankhelp": "banker", "coinhelp": "banker",
     # ── host (audit / status commands) ───────────────────────────────────────
     "checkcommands": "host", "checkhelp": "host",
     "missingcommands": "host", "routecheck": "host",
     "silentcheck": "host", "commandtest": "host",
     "fixcommands": "host", "testcommands": "host",
-    "deploymentcheck": "host", "bothealth": "host", "systemresponder": "host",
+    "deploymentcheck": "host", "bothealth": "host",
     "botconflicts": "host", "botmodules": "host",
     "startupannounce": "host", "modulestartup": "host",
     "startupstatus": "host", "setmainmode": "host",
-    # ── diagnostics (always host) ─────────────────────────────────────────────
-    "ping": "host",
-    "routerstatus": "host",
-    "commanddebug": "host",
-    # ── help / info (always host) ─────────────────────────────────────────────
-    "help": "host",
-    "bots": "host", "botinfo": "host",
-    "botmodes": "host", "botmode": "host", "botprofile": "host",
-    "status": "host", "roomstatus": "host",
-    "crashlogs": "host", "clearcrashlogs": "host",
-    "safemode": "host",
-    "modulehealth": "host",
-    "botlocks": "host", "clearstalebotlocks": "host",
-    "botheartbeat": "host", "moduleowners": "host",
-    "activetasks": "host", "taskowners": "host",
-    "taskconflicts": "host", "fixtaskowners": "host",
-    "restoreannounce": "host", "restorestatus": "host",
-    "restorebots": "host",
-    "botmodulehelp": "host", "multibothelp": "host",
-    # ── bot mode repair ──────────────────────────────────────────────────────
-    "fixbotmodes": "host",
-    # ── event / autogames ────────────────────────────────────────────────────
-    "autogames": "eventhost",
 }
 
 # Friendly display names for modes
@@ -252,15 +214,6 @@ _MODE_NAMES: dict[str, str] = {
 
 _owner_cache: dict[str, str] = {}
 _owner_cache_ts: float = 0.0
-
-
-def invalidate_ownership_cache() -> None:
-    """Clear the in-memory command-ownership cache so the next lookup re-reads defaults."""
-    global _owner_cache_ts
-    _owner_cache.clear()
-    _owner_cache_ts = 0.0
-
-
 _OWNER_CACHE_TTL = 60.0
 
 _online_cache: dict[str, bool] = {}
@@ -320,10 +273,6 @@ def _resolve_command_owner(cmd: str) -> str | None:
 
 
 def _is_mode_online(mode: str) -> bool:
-    # The currently running bot always considers itself online — never depend on a
-    # DB heartbeat write that may fail under lock contention.
-    if mode == BOT_MODE:
-        return True
     now = time.monotonic()
     if now - _online_cache_ts > _ONLINE_CACHE_TTL:
         _refresh_online_cache()
@@ -613,26 +562,15 @@ def is_bot_mode_active(mode: str) -> bool:
 # Main gate — called in on_chat before any processing
 # ---------------------------------------------------------------------------
 
-# Game-module bot modes that host/all must NEVER fall back for, even when the
-# dedicated bot appears offline (e.g. heartbeat not yet written at startup).
-# These modules own their own logic and sending a partial/wrong reply is worse
-# than silence.
-_GAME_MODULE_MODES = frozenset({
-    "miner", "poker", "blackjack", "banker",
-    "dj", "shopkeeper", "eventhost", "security",
-})
-
-
 def should_this_bot_handle(cmd: str) -> bool:
     """
     Returns True if this bot instance should respond to cmd.
 
     Key rules:
     - BOT_MODE=all: handle everything UNLESS a dedicated live bot owns the cmd.
-    - BOT_MODE=host: handle help/room/unknown only; never game-module commands.
+    - BOT_MODE=host: handle help/room/unknown only; never game commands.
     - Dedicated modes (blackjack, poker, …): own their command set only.
-    - Fallback: host/all may handle offline-owner commands if fallback ON,
-      BUT never for _GAME_MODULE_MODES (avoids wrong-bot replies on startup).
+    - Fallback: host/all may handle offline-owner commands if fallback ON.
     """
     mode = _effective_bot_mode()
 
@@ -644,9 +582,6 @@ def should_this_bot_handle(cmd: str) -> bool:
             return not _is_mode_online("host")
         if owner_mode not in ("all",) and _is_mode_online(owner_mode):
             return False    # dedicated bot is live — stay silent
-        # Never handle game-module commands even when owner appears offline
-        if owner_mode in _GAME_MODULE_MODES:
-            return False
         return True
 
     owner_mode = _resolve_command_owner(cmd)
@@ -667,12 +602,7 @@ def should_this_bot_handle(cmd: str) -> bool:
     if _is_mode_online(owner_mode):
         return False
 
-    # Game-module commands: host/all must NEVER fall back for these,
-    # even when the owning bot appears offline (prevents wrong-bot replies).
-    if owner_mode in _GAME_MODULE_MODES and mode in ("host", "all"):
-        return False
-
-    # Owner mode offline — host/all may fall back for non-game commands
+    # Owner mode offline — host/all may fall back
     if _fallback_enabled() and mode in ("host", "all"):
         return True
 
@@ -701,60 +631,6 @@ def get_offline_message(cmd: str) -> str | None:
 
 
 # ---------------------------------------------------------------------------
-# Command debug helpers — toggle console logging of every received command
-# ---------------------------------------------------------------------------
-
-_CMD_DEBUG: bool = False
-
-
-def set_cmd_debug(enabled: bool) -> None:
-    global _CMD_DEBUG
-    _CMD_DEBUG = enabled
-
-
-def get_cmd_debug() -> bool:
-    return _CMD_DEBUG
-
-
-def resolve_command_owner(cmd: str) -> str | None:
-    """Public wrapper used by /routerstatus and debug logging."""
-    return _resolve_command_owner(cmd)
-
-
-def router_status_summary() -> str:
-    """One-line router status string for /routerstatus."""
-    try:
-        reg_size = len(_DEFAULT_COMMAND_OWNERS)
-        try:
-            override_count = len(db.get_all_command_owners())
-        except Exception:
-            override_count = 0
-        total = reg_size + override_count
-    except Exception:
-        total = 0
-    from config import SAFE_BOOT
-    try:
-        db_safe = db.get_room_setting("safeboot", "true") == "true"
-    except Exception:
-        db_safe = True
-    sb = "ON" if (SAFE_BOOT or db_safe) else "OFF"
-    dbg = "ON" if _CMD_DEBUG else "OFF"
-    return f"Router: ON | Registry {total} cmds | SafeBoot {sb} | Debug {dbg}"
-
-
-def router_command_detail(cmd: str) -> str:
-    """Per-command detail string for /routerstatus <cmd>."""
-    clean = cmd.lstrip("/")
-    owner = _resolve_command_owner(clean)
-    if owner is None:
-        return f"/{clean} → unregistered | route UNKNOWN | handler ?"
-    online = _is_mode_online(owner)
-    name = _MODE_NAMES.get(owner, owner.title())
-    route = "YES" if (online or owner == BOT_MODE) else "NO (offline)"
-    return f"/{clean} owner {name} | {owner} {'online' if online else 'offline'} | route {route}"
-
-
-# ---------------------------------------------------------------------------
 # Heartbeat loop — updates bot_instances every 30 s
 # ---------------------------------------------------------------------------
 
@@ -767,16 +643,6 @@ async def start_heartbeat_loop(bot) -> None:
         return
 
     async def _loop():
-        # Stagger startup writes: each bot waits a mode-deterministic + random delay
-        # so all 8 bots don't hammer the DB simultaneously on first boot.
-        _mode_offsets = {
-            "host": 0, "banker": 3, "blackjack": 6, "poker": 9,
-            "miner": 12, "shopkeeper": 15, "security": 18,
-            "dj": 21, "eventhost": 24, "all": 0,
-        }
-        _base_delay = _mode_offsets.get(BOT_MODE, 0)
-        _jitter = random.uniform(0, 2)
-        await asyncio.sleep(_base_delay + _jitter)
         while True:
             last_error = ""
             db_connected = 1
@@ -1210,55 +1076,18 @@ async def handle_modulestartup(bot, user, args: list[str]) -> None:
 
 async def handle_startupstatus(bot, user) -> None:
     """
-    /startupstatus — any bot can answer; zero DB; zero routing required.
-    Shows which bots started (token present) vs missing (no token).
+    /startupstatus
+    Shows current startup announce settings for Host and modules.
     """
-    import os as _oss
-    _SLOTS = [
-        ("HOST_BOT_TOKEN",      "host"),
-        ("BANKER_BOT_TOKEN",    "banker"),
-        ("BLACKJACK_BOT_TOKEN", "blackjack"),
-        ("POKER_BOT_TOKEN",     "poker"),
-        ("MINER_BOT_TOKEN",     "miner"),
-        ("SHOP_BOT_TOKEN",      "shop"),
-        ("SECURITY_BOT_TOKEN",  "security"),
-        ("DJ_BOT_TOKEN",        "dj"),
-        ("EVENT_BOT_TOKEN",     "event"),
-    ]
-    _started = [lbl for tok, lbl in _SLOTS if _oss.environ.get(tok, "")]
-    _missing = [lbl for tok, lbl in _SLOTS if not _oss.environ.get(tok, "")]
-    msg = f"Started: {', '.join(_started) or 'none'}"
-    if _missing:
-        msg += f" | Missing: {', '.join(_missing)}"
-    await _w(bot, user.id, msg[:249])
-
-
-async def handle_missingbots(bot, user) -> None:
-    """
-    /missingbots — any bot can answer; zero DB; zero routing required.
-    Shows which bot token slots are configured (running) vs missing (unavailable).
-    """
-    import os as _osm
-    _SLOTS = [
-        ("HOST_BOT_TOKEN",      "host"),
-        ("BANKER_BOT_TOKEN",    "banker"),
-        ("BLACKJACK_BOT_TOKEN", "blackjack"),
-        ("POKER_BOT_TOKEN",     "poker"),
-        ("MINER_BOT_TOKEN",     "miner"),
-        ("SHOP_BOT_TOKEN",      "shop"),
-        ("SECURITY_BOT_TOKEN",  "security"),
-        ("DJ_BOT_TOKEN",        "dj"),
-        ("EVENT_BOT_TOKEN",     "event"),
-    ]
-    _started = [lbl for tok, lbl in _SLOTS if _osm.environ.get(tok, "")]
-    _missing = [f"{lbl}(no token)" for tok, lbl in _SLOTS if not _osm.environ.get(tok, "")]
-    msg1 = f"Running: {', '.join(_started) or 'none'}"
-    await _w(bot, user.id, msg1[:249])
-    if _missing:
-        msg2 = f"Missing: {', '.join(_missing)}"
-        await _w(bot, user.id, msg2[:249])
-    else:
-        await _w(bot, user.id, "All token slots configured.")
+    try:
+        host_val = db.get_room_setting("bot_startup_announce_enabled", "false")
+        mod_val = db.get_room_setting("module_startup_announce_enabled", "false")
+    except Exception:
+        await _w(bot, user.id, "DB error reading startup settings.")
+        return
+    host_lbl = "ON" if host_val == "true" else "OFF"
+    mod_lbl = "ON" if mod_val == "true" else "OFF"
+    await _w(bot, user.id, f"Startup: Host {host_lbl} | Modules {mod_lbl}")
 
 
 # Keep old handler as an alias so any existing /botstartupannounce calls still work
@@ -1406,7 +1235,6 @@ __all__ = [
     "handle_setbotmodule", "handle_setcommandowner", "handle_botfallback",
     "handle_botstartupannounce",                   # backward-compat alias
     "handle_startupannounce", "handle_modulestartup", "handle_startupstatus",
-    "handle_missingbots",
     "handle_setmainmode", "handle_multibothelp",
     "handle_taskowners", "handle_activetasks",
     "handle_taskconflicts", "handle_fixtaskowners",

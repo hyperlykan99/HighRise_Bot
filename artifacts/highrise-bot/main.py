@@ -38,7 +38,6 @@ import config
 from economy import (
     handle_balance, handle_daily, handle_leaderboard,
     handle_profile, handle_level, handle_xp_leaderboard,
-    handle_economy_dbcheck, handle_economy_repair,
 )
 from games        import handle_game_command, handle_answer as games_handle_answer
 from admin        import handle_admin_command
@@ -120,11 +119,6 @@ from modules.poker import (
     soft_reset_table as poker_soft_reset_table,
     reset_table as poker_reset_table,
     get_poker_state_str,
-    handle_pokermode, handle_pokerstakes, handle_pokerrules,
-    handle_setpokerafkremove, handle_setpokerafksitout,
-    handle_poker_player_left,
-    handle_waitpoker, handle_leavewaitlist,
-    handle_spectatepoker, handle_spectators,
 )
 from modules.casino_settings     import (
     handle_casinosettings, handle_casinolimits, handle_casinotoggles,
@@ -271,8 +265,6 @@ from modules.mining import (
     handle_orelist, handle_minehelp,
     handle_orebook, handle_oremastery, handle_claimoremastery, handle_orestats,
     handle_contracts, handle_job, handle_deliver, handle_claimjob, handle_rerolljob,
-    handle_minerdbcheck, handle_minerrepair,
-    handle_dblockcheck, handle_processcheck,
     MINE_HELP_PAGES,
 )
 from modules.control_panel import (
@@ -282,7 +274,7 @@ from modules.control_panel import (
 )
 from modules.multi_bot import (
     should_this_bot_handle, should_this_bot_run_module,
-    BOT_MODE, BOT_ID, BOT_USERNAME,
+    BOT_MODE,
     start_heartbeat_loop as start_multibot_heartbeat,
     get_offline_message, send_startup_announce,
     check_startup_safety,
@@ -292,32 +284,16 @@ from modules.multi_bot import (
     handle_setbotmodule, handle_setcommandowner, handle_botfallback,
     handle_botstartupannounce, handle_multibothelp,
     handle_startupannounce, handle_modulestartup, handle_startupstatus,
-    handle_missingbots,
     handle_setmainmode,
     handle_taskowners, handle_activetasks,
     handle_taskconflicts, handle_fixtaskowners,
     handle_restoreannounce, handle_restorestatus,
-    get_cmd_debug, set_cmd_debug,
-    resolve_command_owner, router_status_summary, router_command_detail,
 )
 from modules.bot_health import (
     handle_bothealth, handle_modulehealth, handle_deploymentcheck,
     handle_botlocks, handle_clearstalebotlocks,
-    handle_safemode, handle_crashlogs, handle_clearcrashlogs,
     handle_botheartbeat, handle_moduleowners,
     handle_botconflicts, handle_fixbotowners,
-    handle_emergencystop, handle_roomcount, handle_fixroomcount,
-    handle_safeboot, handle_recoverbots,
-    handle_enablepokerloops, handle_enableautogames,
-    handle_enablewelcomeintervals, handle_enablebotspawn,
-    handle_fixbotmodes,
-)
-from modules.assistant import (
-    handle_ai_message,
-    handle_assistant, handle_assistantstatus, handle_assistanthelp,
-    handle_aimode, handle_aisettings, handle_aiset,
-    handle_ailogs, handle_clearailogs, handle_aiintegrity,
-    handle_confirmai, handle_cancelai,
 )
 from modules.bot_modes import (
     handle_botmode, handle_botmodes, handle_botprofile,
@@ -425,8 +401,6 @@ MANAGER_ONLY_CMDS = {
     "resetpokerlimits", "setpokerlimits",
     "setpokerblinds", "setpokerante", "setpokernexthandtimer",
     "setpokermaxstack", "setpokeridlestrikes",
-    "pokermode", "pokerstakes", "pokerstake", "pokerlimitmode",
-    "pokerrules", "setpokerafkremove", "setpokerafksitout",
     "pokerdebug", "pokerfix", "pokerrefundall", "pokercleanup",
     "confirmclosepoker",
     "casinointegrity", "integritylogs", "carddeliverycheck",
@@ -492,7 +466,6 @@ ADMIN_ONLY_CMDS = {
     "checkcommands", "checkhelp",
     "missingcommands", "routecheck", "silentcheck", "commandtest",
     "fixcommands", "testcommands",
-    "ping", "routerstatus", "commanddebug",
     # ── Economy settings ─────────────────────────────────────────────────────
     "setdailycoins", "setgamereward", "settransferfee",
     # ── Event aliases ────────────────────────────────────────────────────────
@@ -506,8 +479,6 @@ ADMIN_ONLY_CMDS = {
     "debugnotify", "testnotify", "pendingnotify", "clearpendingnotify",
     # ── Logs ─────────────────────────────────────────────────────────────────
     "adminlogs", "adminloginfo",
-    # ── Bot crash logs / safe mode ─────────────────────────────────────────
-    "crashlogs", "clearcrashlogs", "safemode",
 } | BANK_ADMIN_SET_CMDS | TIP_ADMIN_CMDS
 
 MANAGER_ONLY_CMDS = MANAGER_ONLY_CMDS | {"notifystats", "notifyprefs", "dailyadmin"}
@@ -534,10 +505,9 @@ ALL_KNOWN_COMMANDS = (
         "help", "answer",
         "owners",
         "casinohelp", "gamehelp", "coinhelp", "profilehelp",
-        "shophelp", "progresshelp", "bankhelp", "bankerhelp", "eventhelp",
+        "shophelp", "progresshelp", "bankhelp", "eventhelp",
         "bjhelp", "rbjhelp", "rephelp", "autohelp",
         "casinoadminhelp", "bankadminhelp",
-        "economydbcheck", "economyrepair",
         "audithelp", "reporthelp", "maintenancehelp",
         "viphelp", "tiphelp", "roleshelp",
         "staffhelp", "modhelp", "managerhelp", "adminhelp", "ownerhelp",
@@ -553,10 +523,7 @@ ALL_KNOWN_COMMANDS = (
         "rep", "reputation", "repstats", "toprep", "repleaderboard",
         # Poker — full commands
         "poker", "pokerhelp", "pokerstats", "pokerlb", "pokerdebug",
-        "pokermode", "pokerstakes", "pokerstake", "pokerlimitmode",
-        "pokerrules", "setpokerafkremove", "setpokerafksitout",
         "pokerfix", "pokerrefundall", "pokercleanup",
-        "waitpoker", "leavewaitlist", "spectatepoker", "spectators",
         "setpokerbuyin", "setpokerplayers", "setpokerlobbytimer",
         "setpokertimer", "setpokerturntimer", "setpokerraise",
         "setpokerdailywinlimit", "setpokerdailylosslimit",
@@ -584,7 +551,6 @@ ALL_KNOWN_COMMANDS = (
         "allstaff", "allcommands", "checkcommands",
         "missingcommands", "routecheck", "silentcheck", "commandtest",
         "fixcommands", "testcommands",
-        "ping", "routerstatus", "commanddebug",
         "notifications", "clearnotifications",
         "delivernotifications", "pendingnotifications",
         "subscribe", "unsubscribe", "substatus", "subhelp",
@@ -641,7 +607,6 @@ ALL_KNOWN_COMMANDS = (
         "orebook", "oremastery", "claimoremastery", "orestats",
         "contracts", "miningjobs", "job", "deliver", "claimjob", "rerolljob",
         "minehelp",
-        "minerdbcheck", "minerrepair", "dblockcheck", "processcheck",
         # Mining game — staff commands
         "mining",
         "startminingevent", "stopminingevent",
@@ -691,7 +656,7 @@ ALL_KNOWN_COMMANDS = (
         "botmodules", "commandowners", "multibothelp",
         "enablebot", "disablebot", "setbotmodule",
         "setcommandowner", "botfallback", "botstartupannounce",
-        "startupannounce", "modulestartup", "startupstatus", "missingbots",
+        "startupannounce", "modulestartup", "startupstatus",
         # ── Multi-bot mode control ────────────────────────────────────────────
         "setmainmode",
         # ── Bot health / deployment checks ────────────────────────────────────
@@ -699,16 +664,6 @@ ALL_KNOWN_COMMANDS = (
         "botlocks", "clearstalebotlocks",
         "botheartbeat", "moduleowners",
         "botconflicts", "fixbotowners",
-        "crashlogs", "clearcrashlogs", "safemode",
-        "emergencystop", "roomcount", "fixroomcount",
-        "safeboot", "recoverbots", "fixbotmodes",
-        "enablepokerloops", "enableautogames",
-        "enablewelcomeintervals", "enablebotspawn",
-        # ── AI Assistant ──────────────────────────────────────────────────────
-        "assistant", "assistantstatus", "assistanthelp",
-        "aimode", "aisettings", "aiset",
-        "ailogs", "clearailogs", "aiintegrity",
-        "confirmai", "cancelai",
         # ── Task ownership / restore announce ─────────────────────────────────
         "taskowners", "activetasks", "taskconflicts", "fixtaskowners",
         "restoreannounce", "restorestatus",
@@ -1799,10 +1754,6 @@ async def _cmd_checkcommands(bot, user):
 # Track per-user delivery to avoid spamming on every chat message
 _notif_delivered_this_session: set[str] = set()
 
-# Set to True once init_db completes — gates ensure_user writes so they don't
-# compete with init_db's long write transaction on startup.
-_db_init_complete: bool = False
-
 
 async def _deliver_pending_bank_notifications(bot, user: User) -> None:
     """Deliver any queued bank notifications to *user* via whisper.
@@ -1849,140 +1800,6 @@ async def _deliver_pending_bank_notifications(bot, user: User) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Emergency ping responder detection — zero DB calls
-# ---------------------------------------------------------------------------
-
-def _ping_bot_label() -> str:
-    """Human-readable label for this bot (for pong replies). Uses config. prefix — no NameError."""
-    return config.BOT_USERNAME or {
-        "host": "Host", "banker": "Banker", "blackjack": "Blackjack",
-        "poker": "Poker", "miner": "Miner", "shopkeeper": "Shop",
-        "security": "Security", "dj": "DJ", "eventhost": "Events",
-        "all": "Main",
-    }.get(config.BOT_MODE, config.BOT_MODE.title())
-
-
-def _token_env_for_mode() -> str:
-    """Return the env-var name that provided this bot's token (never the value itself)."""
-    return {
-        "host":       "HOST_BOT_TOKEN",
-        "banker":     "BANKER_BOT_TOKEN",
-        "blackjack":  "BLACKJACK_BOT_TOKEN",
-        "poker":      "POKER_BOT_TOKEN",
-        "miner":      "MINER_BOT_TOKEN",
-        "shopkeeper": "SHOP_BOT_TOKEN",
-        "security":   "SECURITY_BOT_TOKEN",
-        "dj":         "DJ_BOT_TOKEN",
-        "eventhost":  "EVENT_BOT_TOKEN",
-        "all":        "BOT_TOKEN",
-    }.get(config.BOT_MODE.lower(), "BOT_TOKEN")
-
-
-def _all_running_bot_ids() -> list:
-    """Return sorted list of bot IDs inferred from env tokens — no DB."""
-    _TOKEN_MAP = [
-        ("HOST_BOT_TOKEN",      "host"),
-        ("BLACKJACK_BOT_TOKEN", "blackjack"),
-        ("POKER_BOT_TOKEN",     "poker"),
-        ("MINER_BOT_TOKEN",     "miner"),
-        ("BANKER_BOT_TOKEN",    "banker"),
-        ("SHOP_BOT_TOKEN",      "shopkeeper"),
-        ("SECURITY_BOT_TOKEN",  "security"),
-        ("DJ_BOT_TOKEN",        "dj"),
-        ("EVENT_BOT_TOKEN",     "eventhost"),
-    ]
-    return sorted(bid for tok, bid in _TOKEN_MAP if os.environ.get(tok, ""))
-
-
-def is_ping_responder() -> tuple:
-    """
-    Return (bool, reason_str).  No DB calls, no exceptions.
-    Uses config. prefix for all vars — guaranteed no NameError.
-
-    Priority (first match wins):
-    1. config.BOT_MODE or config.BOT_ID == PRIMARY_PING_BOT_ID  (default "host")
-    2. config.BOT_USERNAME == PRIMARY_PING_BOT_USERNAME
-    3. config.BOT_USERNAME contains "host" or "emcee"
-    4. Fallback: primary has no token configured → first bot alphabetically
-    """
-    primary   = config.PRIMARY_PING_BOT_ID.lower()
-    pri_uname = config.PRIMARY_PING_BOT_USERNAME.lower()
-    my_mode   = config.BOT_MODE.lower()
-    my_id     = config.BOT_ID.lower()
-    my_uname  = config.BOT_USERNAME.lower()
-
-    if my_mode == primary or my_id == primary:
-        return True, f"primary id/mode={primary}"
-
-    if pri_uname and my_uname == pri_uname:
-        return True, f"primary username={config.PRIMARY_PING_BOT_USERNAME}"
-
-    if my_uname and any(k in my_uname for k in ("host", "emcee")):
-        return True, f"username keyword match: {config.BOT_USERNAME}"
-
-    # Fallback: only if the primary bot has no token at all (misconfigured)
-    _TOKEN_MAP = [
-        ("HOST_BOT_TOKEN", "host"), ("BLACKJACK_BOT_TOKEN", "blackjack"),
-        ("POKER_BOT_TOKEN", "poker"), ("MINER_BOT_TOKEN", "miner"),
-        ("BANKER_BOT_TOKEN", "banker"), ("SHOP_BOT_TOKEN", "shopkeeper"),
-        ("SECURITY_BOT_TOKEN", "security"), ("DJ_BOT_TOKEN", "dj"),
-        ("EVENT_BOT_TOKEN", "eventhost"),
-    ]
-    _primary_has_token = any(
-        os.environ.get(tok, "") for tok, bid in _TOKEN_MAP if bid == primary
-    )
-    if not _primary_has_token:
-        _running = _all_running_bot_ids()
-        if _running and _running[0] == my_id:
-            return True, f"fallback first bot={_running[0]}"
-
-    return False, f"not responder (primary={primary} me={my_mode}/{my_id})"
-
-
-def is_system_responder() -> bool:
-    """
-    Return True if this bot is the highest-priority live responder.
-
-    Priority: host > banker > poker > blackjack > miner > security > dj.
-    Self is always included in the live-set so this bot can never lock
-    itself out of responding even if DB is unavailable.
-    Falls back to True (this bot responds) if no priority mode is found.
-    """
-    _PRIORITY = [
-        "host", "banker", "poker", "blackjack",
-        "miner", "security", "dj", "shopkeeper", "eventhost",
-    ]
-    my_mode = config.BOT_MODE.lower()
-    _live: set[str] = {my_mode}
-    try:
-        from datetime import datetime as _dter, timezone as _tzer
-        for _inst in db.get_bot_instances():
-            if _inst.get("status") != "online":
-                continue
-            _ls = _inst.get("last_seen_at", "")
-            if not _ls:
-                continue
-            try:
-                _lsdt = _dter.fromisoformat(_ls.replace("Z", "+00:00"))
-                if _lsdt.tzinfo is None:
-                    _lsdt = _lsdt.replace(tzinfo=_tzer.utc)
-                if (_dter.now(_tzer.utc) - _lsdt).total_seconds() < 45:
-                    _live.add(_inst.get("bot_mode", "").lower())
-            except Exception:
-                pass
-    except Exception:
-        pass
-    for _mode in _PRIORITY:
-        if _mode in _live:
-            return _mode == my_mode
-    return True
-
-
-def is_emergency_responder() -> bool:
-    return is_system_responder()
-
-
-# ---------------------------------------------------------------------------
 # Bot class
 # ---------------------------------------------------------------------------
 
@@ -1994,360 +1811,57 @@ class HangoutBot(BaseBot):
 
     async def on_start(self, session_metadata) -> None:
         """Called once when the bot successfully connects to the room."""
-        # ── Runtime username-based mode fix ───────────────────────────────────
-        # Correct BOT_MODE/BOT_ID if the Highrise API token was stored in the wrong
-        # secret slot (e.g. EmceeBot's token in EVENT_BOT_TOKEN → would get mode=eventhost).
-        # We call get_room_users() immediately (the SDK connection is live at on_start),
-        # find our own user_id, and remap the mode based on actual username.
-        global BOT_MODE, BOT_ID, BOT_USERNAME
-        try:
-            _fix_resp = await self.highrise.get_room_users()
-            _my_uid   = session_metadata.user_id
-            _found_uname = ""
-            if hasattr(_fix_resp, "content"):
-                for _fu, _ in _fix_resp.content:
-                    if _fu.id == _my_uid:
-                        _found_uname = _fu.username
-                        break
-            # Canonical username → (bot_id, bot_mode) mapping.
-            # Keys are compared case-insensitively.
-            _UFIX_RAW: dict[str, tuple[str, str]] = {
-                "EmceeBot":           ("host",      "host"),
-                "BankingBot":         ("banker",    "banker"),
-                "ChipSoprano":        ("poker",     "poker"),
-                "AceSinatra":         ("blackjack", "blackjack"),
-                "GreatestProspector": ("miner",     "miner"),
-                "KeanuShield":        ("security",  "security"),
-                "DJ_DUDU":            ("dj",        "dj"),
-                "ShopBot":            ("shop",      "shopkeeper"),
-                "EventBot":           ("event",     "eventhost"),
-            }
-            _UFIX = {k.lower(): v for k, v in _UFIX_RAW.items()}
-            _u_key = _found_uname.strip().lower()
-            if _u_key and _u_key in _UFIX:
-                _new_id, _new_mode = _UFIX[_u_key]
-                if _new_mode != config.BOT_MODE or _new_id != config.BOT_ID:
-                    print(f"[MODE FIX] username={_found_uname}: "
-                          f"{config.BOT_MODE}/{config.BOT_ID} → {_new_mode}/{_new_id}")
-                    # Patch config module (used by all code reading config.BOT_MODE at call time)
-                    config.BOT_MODE    = _new_mode
-                    config.BOT_ID      = _new_id
-                    config.BOT_USERNAME = _found_uname
-                    # Patch multi_bot module exports (used by should_this_bot_handle etc.)
-                    import modules.multi_bot as _mb_ref
-                    _mb_ref.BOT_MODE    = _new_mode
-                    _mb_ref.BOT_ID      = _new_id
-                    _mb_ref.BOT_USERNAME = _found_uname
-                    # Patch main.py globals (used by local BOT_MODE/BOT_ID checks)
-                    BOT_MODE    = _new_mode
-                    BOT_ID      = _new_id
-                    BOT_USERNAME = _found_uname
-                else:
-                    print(f"[MODE FIX] {_found_uname} already correct: mode={_new_mode}")
-            elif _found_uname:
-                print(f"[MODE FIX] {_found_uname}: no fix rule, keeping mode={config.BOT_MODE}")
-            else:
-                print(f"[MODE FIX] could not identify own username (id={_my_uid}), "
-                      f"keeping env mode={config.BOT_MODE}")
-        except Exception as _ufix_err:
-            print(f"[MODE FIX] skipped ({type(_ufix_err).__name__}: {_ufix_err})")
-        # ──────────────────────────────────────────────────────────────────────
-
-        _bid = config.BOT_ID
-        print(f"[BOT START] id={_bid} mode={BOT_MODE}")
-
-        # ── DB init — only host bot runs full init to prevent 8-way write storm ─
-        # Other bots wait for host to finish, then just verify the connection.
-        import asyncio as _aio
-        global _db_init_complete
-        if BOT_MODE in ("host", "all"):
-            for _init_attempt in range(5):
-                try:
-                    db.init_db()
-                    _db_init_complete = True
-                    print(f"[DB INIT] {_bid} schema ready.")
-                    break
-                except Exception as _dbe:
-                    if _init_attempt < 4:
-                        print(f"[DB INIT] {_bid} attempt {_init_attempt+1} failed: {_dbe} — retrying in {3+_init_attempt*2}s...")
-                        await _aio.sleep(3 + _init_attempt * 2)
-                    else:
-                        _db_init_complete = True  # allow operation to continue even if schema init failed
-                        print(f"[BOT CRASH] id={_bid} phase=startup task=db_init error={_dbe}")
-                        try:
-                            db.log_bot_crash(_bid, BOT_MODE, "startup", "db_init",
-                                             type(_dbe).__name__, str(_dbe), "")
-                        except Exception:
-                            pass
-        else:
-            # Non-host bots: wait for host to initialize schema, then verify
-            _non_host_offsets = {
-                "banker": 2, "blackjack": 4, "poker": 6, "miner": 8,
-                "shopkeeper": 10, "security": 12, "dj": 14, "eventhost": 16,
-            }
-            await _aio.sleep(_non_host_offsets.get(BOT_MODE, 5))
-            try:
-                _test_conn = db.get_connection()
-                _test_conn.execute("SELECT 1 FROM users LIMIT 1").fetchone()
-                _test_conn.close()
-                print(f"[DB INIT] {_bid} DB verified (host initialized schema).")
-            except Exception as _dbe:
-                print(f"[DB INIT] {_bid} DB check failed: {_dbe} (continuing anyway)")
-
-        print(f"[BOT ONLINE] {_bid} connected | room {config.ROOM_ID} | DB: {config.DB_PATH}")
+        db.init_db()
+        print(f"[HangoutBot] Connected — room {config.ROOM_ID} | DB: {config.DB_PATH}")
         print(f"[HangoutBot] SDK version: {_TIP_SDK_VERSION}")
-
-        # ── Bot identity ──────────────────────────────────────────────────────
-        try:
-            set_bot_identity(session_metadata.user_id)
-            print(f"[BOT START] id={_bid} user_id={session_metadata.user_id}")
-        except Exception as _e:
-            print(f"[STARTUP] set_bot_identity error: {_e}")
-
-        # ── Event subscriptions ───────────────────────────────────────────────
+        print(f"[HangoutBot] Run command: cd artifacts/highrise-bot && python3 bot.py")
+        # Store bot identity so gold rain / tip receiver-check can use it
+        set_bot_identity(session_metadata.user_id)
+        print(f"[HangoutBot] Bot user ID: {session_metadata.user_id}")
+        # Log which events this session is subscribed to (only overridden hooks)
         try:
             from highrise.__main__ import gather_subscriptions
             subs = gather_subscriptions(self)
             print(f"[HangoutBot] Event subscriptions: {subs or '(all)'}")
         except Exception:
             pass
-
-        # ── Room cache ────────────────────────────────────────────────────────
-        try:
-            asyncio.create_task(refresh_room_cache(self))
-            print(f"[TASK START] {_bid} refresh_room_cache")
-        except Exception as _e:
-            print(f"[STARTUP] room cache skipped: {_e}")
-
-        # ── Determine safe-boot state ─────────────────────────────────────────
-        # Priority: SAFE_BOOT env var > safeboot DB setting
-        _env_safe = config.SAFE_BOOT
-        try:
-            _db_safe = db.get_room_setting("safeboot", "true") == "true"
-        except Exception:
-            _db_safe = True
-        _safe_boot = _env_safe or _db_safe
-
-        if _safe_boot:
-            print(f"[SAFE_BOOT] {_bid} | Background loops OFF. Commands ON.")
+        # Seed the room user cache from the live room list
+        asyncio.create_task(refresh_room_cache(self))
+        # Recover active event — events bot only
+        if should_this_bot_run_module("events"):
+            asyncio.create_task(startup_event_check(self))
         else:
-            print(f"[STARTUP] {_bid} safe boot OFF — starting background loops for {BOT_MODE}.")
-
-        # ── Multi-bot heartbeat (always runs — it is cheap and safe) ──────────
-        try:
-            asyncio.create_task(start_multibot_heartbeat(self))
-            print(f"[TASK START] {_bid} heartbeat")
-        except Exception as _e:
-            print(f"[STARTUP] heartbeat skipped: {_e}")
-
-        # ── Startup: message handler confirmation + self-test ─────────────────
-        print(f"[CORE] safe boot {'ON' if config.SAFE_BOOT else 'OFF'}")
-        print(f"[CORE] command core loaded")
-        print(f"[SELFTEST] Bot connected")
-        print(f"[CMD] message handler registered for {_bid}")
-        print(f"[CORE] message listener registered")
-        print(f"[CORE] /ping ready")
-        print(f"[SELFTEST] emergency ping handler ready")
-        print(f"[SELFTEST] emergency crashlogs handler ready")
-        print(f"[SELFTEST] normal router loaded or skipped")
-        # Self-test: verify the router would handle these key commands correctly.
-        # Uses should_this_bot_handle() — the real routing function — not just ownership lookup.
-        # For non-host bots these commands are owned by host, so [SELFTEST SKIP] is correct.
-        for _st_cmd in ["ping", "help", "bots"]:
-            try:
-                _st_handles = should_this_bot_handle(_st_cmd)
-                _st_owner = resolve_command_owner(_st_cmd) or "unregistered"
-                if _st_handles:
-                    print(f"[SELFTEST] /{_st_cmd} route OK")
-                elif BOT_MODE not in ("host", "all"):
-                    print(f"[SELFTEST] /{_st_cmd} owner={_st_owner} (handled by {_st_owner} bot)")
-                else:
-                    print(f"[SELFTEST FAIL] /{_st_cmd} owner={_st_owner} — not handled by {BOT_MODE}")
-            except Exception as _ste:
-                print(f"[SELFTEST FAIL] /{_st_cmd} error: {_ste}")
-
-        # ── Skip everything else if safe boot is ON ───────────────────────────
-        if _safe_boot:
-            try:
-                check_startup_safety()
-            except Exception as _e:
-                print(f"[STARTUP] safety check error: {_e}")
-            return
-
-        # ══════════════════════════════════════════════════════════════════════
-        # Below: Only runs when SAFE_BOOT=false AND safeboot DB setting=false
-        # ══════════════════════════════════════════════════════════════════════
-
-        # ── Events recovery — eventhost bot only ─────────────────────────────
-        try:
-            if should_this_bot_run_module("events"):
-                print(f"[TASK START] {_bid} startup_event_check")
-                asyncio.create_task(startup_event_check(self))
-            else:
-                print(f"[TASK SKIP] {_bid} startup_event_check — not events bot ({BOT_MODE})")
-        except Exception as _e:
-            print(f"[BOT CRASH] id={_bid} phase=startup task=events_check error={_e}")
-            try:
-                db.log_bot_crash(_bid, BOT_MODE, "startup", "startup_event_check",
-                                 type(_e).__name__, str(_e), "")
-            except Exception:
-                pass
-
-        # ── BJ/RBJ recovery — blackjack bot only ─────────────────────────────
-        try:
-            if should_this_bot_run_module("blackjack"):
-                print(f"[TASK START] {_bid} startup_bj_recovery")
-                asyncio.create_task(startup_bj_recovery(self))
-                asyncio.create_task(startup_rbj_recovery(self))
-            else:
-                print(f"[TASK SKIP] {_bid} startup_bj_recovery — not blackjack bot ({BOT_MODE})")
-        except Exception as _e:
-            print(f"[BOT CRASH] id={_bid} phase=startup task=bj_recovery error={_e}")
-            try:
-                db.log_bot_crash(_bid, BOT_MODE, "startup", "startup_bj_recovery",
-                                 type(_e).__name__, str(_e), "")
-            except Exception:
-                pass
-
-        # ── Poker recovery — poker bot only ──────────────────────────────────
-        try:
-            if should_this_bot_run_module("poker"):
-                print(f"[TASK START] {_bid} startup_poker_recovery")
-                asyncio.create_task(startup_poker_recovery(self))
-            else:
-                print(f"[TASK SKIP] {_bid} startup_poker_recovery — not poker bot ({BOT_MODE})")
-        except Exception as _e:
-            print(f"[BOT CRASH] id={_bid} phase=startup task=poker_recovery error={_e}")
-            try:
-                db.log_bot_crash(_bid, BOT_MODE, "startup", "startup_poker_recovery",
-                                 type(_e).__name__, str(_e), "")
-            except Exception:
-                pass
-
-        # ── Auto game/event loops ─────────────────────────────────────────────
-        try:
-            start_auto_game_loop(self)
-            print(f"[TASK START] {_bid} auto_game_loop")
-        except Exception as _e:
-            print(f"[STARTUP] autogame loop skipped: {_e}")
-        try:
-            start_auto_event_loop(self)
-            print(f"[TASK START] {_bid} auto_event_loop")
-        except Exception as _e:
-            print(f"[STARTUP] autoevent loop skipped: {_e}")
-
-        # ── Room interval messages ────────────────────────────────────────────
-        try:
-            await start_interval_loop(self)
-            print(f"[TASK START] {_bid} interval_loop")
-        except Exception as _e:
-            print(f"[STARTUP] interval loop skipped: {_e}")
-
-        # ── Startup safety checks ─────────────────────────────────────────────
-        try:
-            check_startup_safety()
-        except Exception as _e:
-            print(f"[STARTUP] safety check error: {_e}")
-
-        # ── Startup room announce ─────────────────────────────────────────────
-        try:
-            asyncio.create_task(send_startup_announce(self))
-        except Exception as _e:
-            print(f"[STARTUP] announce skipped: {_e}")
-
-    async def _core_send(self, user: "User", msg: str) -> None:
-        """Absolute minimal send — room chat first, whisper fallback. Never raises."""
-        _m = msg[:249]
-        try:
-            await self.highrise.chat(_m)
-            return
-        except Exception:
-            pass
-        try:
-            await self.highrise.send_whisper(user.id, _m)
-        except Exception as _e:
-            print(f"[CORE] send failed: {_e}")
-
-    async def _safe_send(self, user_id: str, msg: str) -> None:
-        """Whisper msg to user_id, truncating to 249 chars. Never raises."""
-        try:
-            await self.highrise.send_whisper(user_id, msg[:249])
-        except Exception as _se:
-            print(f"[CMD] safe_send failed: {_se}")
+            print(f"[EVENTS] Startup check skipped — not events bot ({BOT_MODE}).")
+        # Recover BJ/RBJ tables — blackjack bot only
+        if should_this_bot_run_module("blackjack"):
+            asyncio.create_task(startup_bj_recovery(self))
+            asyncio.create_task(startup_rbj_recovery(self))
+        else:
+            print(f"[BJ] Recovery skipped — not blackjack bot ({BOT_MODE}).")
+        # Recover poker table — poker bot only
+        if should_this_bot_run_module("poker"):
+            asyncio.create_task(startup_poker_recovery(self))
+        else:
+            print(f"[POKER] Recovery skipped — not poker bot ({BOT_MODE}).")
+        # Start background automation loops (idempotent — safe on reconnect)
+        start_auto_game_loop(self)
+        start_auto_event_loop(self)
+        # Start room interval message loop
+        await start_interval_loop(self)
+        # Start multi-bot heartbeat (no-op in single-bot mode)
+        asyncio.create_task(start_multibot_heartbeat(self))
+        # Startup safety checks (logs warnings, does not spam room)
+        check_startup_safety()
+        # Conditional startup room announce (respects settings + 10-min cooldown)
+        asyncio.create_task(send_startup_announce(self))
 
     async def on_chat(self, user: User, message: str) -> None:
-        """SDK entry point — /ping bypass first, then full router for everything else."""
-        _raw_text = message.strip()
-        print(f"[CORE RX] {user.username}: {_raw_text}")
-
-        # ── /ping — handled here before router, wrapped so it can never crash ──
-        if _raw_text.lower().startswith("/ping"):
-            try:
-                _parts = _raw_text.split()
-                _ptarget = _parts[1].lower() if len(_parts) > 1 else ""
-                if _ptarget == "all":
-                    # /ping all — every online bot always replies (no permission gate)
-                    _uname = config.BOT_USERNAME or BOT_MODE
-                    _tok_src = _token_env_for_mode()
-                    _ping_all_msg = (f"pong | {_uname} | id={BOT_ID} | "
-                                     f"mode={BOT_MODE} | token={_tok_src}")
-                    await self._core_send(user, _ping_all_msg[:249])
-                    print(f"[CORE PING ALL] {BOT_MODE} replied")
-                else:
-                    # Normal /ping — only the designated host bot replies
-                    _resp, _reason = is_ping_responder()
-                    print(f"[PING] bot={BOT_MODE}/{BOT_ID} responder={_resp} reason={_reason}")
-                    if _resp:
-                        if "fallback" in _reason:
-                            await self._core_send(user, "pong | No host detected. Run /fixbotmodes.")
-                        else:
-                            await self._core_send(user, "pong | Host online")
-                        print("[CORE PING] replied")
-            except Exception as _pe:
-                print(f"[CORE PING ERROR] {_pe}")
-                if BOT_MODE in ("host", "all"):
-                    try:
-                        await self.highrise.chat("pong | Host online")
-                    except Exception:
-                        pass
-            return  # ALL /ping variants return — never reaches router or _on_chat_body
-        # ──────────────────────────────────────────────────────────────────────
-
-        try:
-            await self._on_chat_body(user, message)
-        except Exception as _top_err:
-            import traceback as _tb
-            _ec = _raw_text.lstrip("/").split()[0].lower() if _raw_text.startswith("/") else "non_cmd"
-            _tb_str = _tb.format_exc()
-            print(f"[CMD ERROR] bot={BOT_MODE} cmd=/{_ec}: {_top_err}")
-            print(_tb_str)
-            try:
-                db.log_bot_crash(BOT_ID, BOT_MODE, "command",
-                                 type(_top_err).__name__,
-                                 f"/{_ec}: {str(_top_err)[:400]}",
-                                 _tb_str)
-            except Exception:
-                pass
-            if BOT_MODE in ("host", "all"):
-                try:
-                    await self.highrise.send_whisper(
-                        user.id, "Router error. /ping and /crashlogs still online.")
-                except Exception:
-                    pass
-
-    async def _on_chat_body(self, user: User, message: str) -> None:
         """
         Called for every public chat message.
         Ignores anything that doesn't start with '/'.
         """
         message = message.strip()
         if not message.startswith("/"):
-            # Wake phrase handler — only Host Bot processes natural language
-            if BOT_MODE == "host":
-                try:
-                    await handle_ai_message(self, user, message)
-                except Exception as _ai_err:
-                    print(f"[ASSISTANT] on_chat error: {_ai_err}")
             return
 
         # Parse "/coinflip heads 50" → cmd="coinflip", args=["coinflip","heads","50"]
@@ -2358,254 +1872,11 @@ class HangoutBot(BaseBot):
         cmd  = parts[0].lower()
         args = parts
 
-        # ── Unconditional receive log — always fires for every slash command ──
-        print(f"[RX] mode={BOT_MODE} user={user.username} text={message}")
-
-        # ══════════════════════════════════════════════════════════════════════
-        # EMERGENCY BYPASS — Zero DB calls. Zero routing. Zero ownership gate.
-        # Every section is wrapped in its own try/except — nothing can escape.
-        # ══════════════════════════════════════════════════════════════════════
-
-        # /ping — emergency bypass; zero DB; never reaches router
-        if cmd == "ping":
-            try:
-                _ping_target = args[1].lower() if len(args) > 1 else ""
-                if _ping_target == "all":
-                    # /ping all — every online bot always replies (no permission gate)
-                    _pa_uname = config.BOT_USERNAME or BOT_MODE
-                    _pa_tok   = _token_env_for_mode()
-                    _pa_msg   = (f"pong | {_pa_uname} | id={BOT_ID} | "
-                                 f"mode={BOT_MODE} | token={_pa_tok}")
-                    await self._safe_send(user.id, _pa_msg[:249])
-                else:
-                    # Normal /ping — exactly one bot responds based on priority chain
-                    _resp, _reason = is_ping_responder()
-                    print(f"[PING] received by bot_id={BOT_ID} mode={BOT_MODE} username={BOT_USERNAME or '?'}")
-                    print(f"[PING] responder={str(_resp).lower()} reason={_reason}")
-                    if _resp:
-                        await self._safe_send(user.id, f"pong | {_ping_bot_label()} online")
-            except Exception as _pe:
-                print(f"[CMD ERROR] ping handler: {_pe}")
-                _resp2, _ = is_ping_responder()
-                if _resp2:
-                    await self._safe_send(user.id, f"pong | {_ping_bot_label()} online | err")
-            return  # ALL ping variants return — never reaches router
-
-        # /pingowner — debug: which bot owns normal /ping (every bot replies)
-        if cmd == "pingowner":
-            try:
-                _allowed_po = False
-                try:
-                    from modules.permissions import is_owner as _iow2, is_admin as _iadm2
-                    _allowed_po = _iow2(user.username) or _iadm2(user.username)
-                except Exception:
-                    _allowed_po = BOT_MODE in ("host", "all")
-                if _allowed_po:
-                    _po_resp, _po_reason = is_ping_responder()
-                    _po_msg = (f"Ping owner: {'YES' if _po_resp else 'no'} | "
-                               f"id={BOT_ID} mode={BOT_MODE} | {_po_reason}")
-                    await self._safe_send(user.id, _po_msg[:249])
-            except Exception as _poe:
-                print(f"[CMD ERROR] pingowner handler: {_poe}")
-            return
-
-        # ══════════════════════════════════════════════════════════════════════
-        # BANKER PRE-ROUTER BYPASS — economy commands handled BEFORE routing gate.
-        # No DB call, no ownership lookup, no permission failure possible.
-        # Only BankingBot (mode=banker) executes this block.
-        # Other bots skip it entirely (they continue to the emergency section).
-        # ══════════════════════════════════════════════════════════════════════
-        if BOT_MODE == "banker":
-            if cmd in {"bal", "balance", "b", "coins", "coin", "money"}:
-                print(f"[BANKER RX] cmd=/{cmd} handle=true")
-                print(f"[BANKER DB] path={config.DB_PATH}")
-                try:
-                    await handle_balance(self, user, args)
-                except Exception as _bbal:
-                    _bbal_str = str(_bbal)[:100]
-                    print(f"[BANKER ERROR] /{cmd}: {_bbal}")
-                    try:
-                        await self._safe_send(user.id,
-                            f"Balance DB error: {_bbal_str}"[:249])
-                    except Exception:
-                        pass
-                return
-            if cmd == "economydbcheck":
-                print(f"[BANKER RX] cmd=/{cmd} handle=true")
-                await handle_economy_dbcheck(self, user)
-                return
-            if cmd == "economyrepair":
-                print(f"[BANKER RX] cmd=/{cmd} handle=true")
-                await handle_economy_repair(self, user)
-                return
-            if cmd in {"bankhelp", "bankerhelp", "coinhelp"}:
-                print(f"[BANKER RX] cmd=/{cmd} handle=true")
-                try:
-                    await _handle_bankhelp(self, user, args)
-                except Exception as _bhe:
-                    print(f"[BANKER ERROR] bankhelp: {_bhe}")
-                    await self._safe_send(user.id,
-                        "Banker help unavailable. Try /crashlogs latest")
-                return
-
-        # ══════════════════════════════════════════════════════════════════════
-        # EMERGENCY PRE-ROUTER — runs before routing gate on every bot.
-        # /safeboot status and /crashlogs latest reply from any bot that can.
-        # /missingbots and /startupstatus reply from the highest-priority
-        # live bot (is_system_responder).  Duplicates are acceptable;
-        # silence is not.
-        # ══════════════════════════════════════════════════════════════════════
-        _ER_SLOTS = [
-            ("HOST_BOT_TOKEN",      "host"),
-            ("BANKER_BOT_TOKEN",    "banker"),
-            ("BLACKJACK_BOT_TOKEN", "blackjack"),
-            ("POKER_BOT_TOKEN",     "poker"),
-            ("MINER_BOT_TOKEN",     "miner"),
-            ("SHOP_BOT_TOKEN",      "shop"),
-            ("SECURITY_BOT_TOKEN",  "security"),
-            ("DJ_BOT_TOKEN",        "dj"),
-            ("EVENT_BOT_TOKEN",     "event"),
-        ]
-
-        # /safeboot status — every running bot replies with its own state
-        if cmd == "safeboot" and len(args) > 1 and args[1].lower() == "status":
-            print(f"[SYSTEM RX] cmd=/safeboot status bot={BOT_MODE}")
-            try:
-                _sb_env = config.SAFE_BOOT
-                try:
-                    _sb_db_val = db.get_room_setting("safeboot", "true")
-                except Exception:
-                    _sb_db_val = "unknown"
-                await self._safe_send(user.id,
-                    f"SafeBoot: env={_sb_env} | db={_sb_db_val} | mode={BOT_MODE}"[:249])
-            except Exception as _sbe:
-                print(f"[SYSTEM ERROR] cmd=/safeboot error={_sbe}")
-            return
-
-        # /crashlogs — any bot that is system responder OR host replies
-        if cmd == "crashlogs" and (BOT_MODE in ("host", "all") or is_system_responder()):
-            print(f"[SYSTEM RX] cmd=/crashlogs bot={BOT_MODE}")
-            try:
-                _show_latest = len(args) > 1 and args[1].lower() == "latest"
-                try:
-                    _logs = db.get_bot_crash_logs(limit=1 if _show_latest else 5)
-                except Exception as _dbe:
-                    await self._safe_send(user.id,
-                        f"Crashlogs DB error: {str(_dbe)[:180]}"[:249])
-                    return
-                if not _logs:
-                    await self._safe_send(user.id, "No crash logs found.")
-                elif _show_latest:
-                    _r = _logs[0]
-                    _msg = (f"Latest crash: bot={_r.get('bot_id','?')} "
-                            f"phase={_r.get('bot_mode','?')} "
-                            f"err={_r.get('error_type','?')}: "
-                            f"{_r.get('error_message','')[:80]}")
-                    await self._safe_send(user.id, _msg[:249])
-                else:
-                    _lines = [f"{_r.get('bot_id','?')}:{_r.get('error_type','?')}"
-                              for _r in _logs]
-                    await self._safe_send(user.id,
-                        (f"Crash logs ({len(_logs)}): " + " | ".join(_lines))[:249])
-            except Exception as _ce:
-                print(f"[SYSTEM ERROR] cmd=/crashlogs error={_ce}")
-            return
-
-        # /missingbots — system responder replies
-        if cmd == "missingbots":
-            _er_mb = is_system_responder()
-            print(f"[SYSTEM RX] cmd=/missingbots bot={BOT_MODE} handle={str(_er_mb).lower()}")
-            if _er_mb:
-                try:
-                    _live_mb: set[str] = {BOT_MODE}
-                    try:
-                        from datetime import datetime as _dtemb, timezone as _tzmb
-                        for _inst in db.get_bot_instances():
-                            if _inst.get("status") != "online":
-                                continue
-                            _ls = _inst.get("last_seen_at", "")
-                            if not _ls:
-                                continue
-                            try:
-                                _lsdt = _dtemb.fromisoformat(_ls.replace("Z", "+00:00"))
-                                if _lsdt.tzinfo is None:
-                                    _lsdt = _lsdt.replace(tzinfo=_tzmb.utc)
-                                if (_dtemb.now(_tzmb.utc) - _lsdt).total_seconds() < 45:
-                                    _live_mb.add(_inst.get("bot_mode", "").lower())
-                            except Exception:
-                                pass
-                    except Exception:
-                        pass
-                    _offline_mb = [lbl for tok, lbl in _ER_SLOTS
-                                   if os.environ.get(tok, "") and lbl not in _live_mb]
-                    if _offline_mb:
-                        await self._safe_send(user.id,
-                            f"Missing: {', '.join(_offline_mb)}"[:249])
-                    else:
-                        await self._safe_send(user.id, "No missing bots.")
-                except Exception as _mbe:
-                    print(f"[SYSTEM ERROR] cmd=/missingbots error={_mbe}")
-            return
-
-        # /startupstatus — system responder replies
-        if cmd == "startupstatus":
-            _er_ss = is_system_responder()
-            print(f"[SYSTEM RX] cmd=/startupstatus bot={BOT_MODE} handle={str(_er_ss).lower()}")
-            if _er_ss:
-                try:
-                    _live_ss: set[str] = {BOT_MODE}
-                    try:
-                        from datetime import datetime as _dtess, timezone as _tzss
-                        for _inst in db.get_bot_instances():
-                            if _inst.get("status") != "online":
-                                continue
-                            _ls = _inst.get("last_seen_at", "")
-                            if not _ls:
-                                continue
-                            try:
-                                _lsdt = _dtess.fromisoformat(_ls.replace("Z", "+00:00"))
-                                if _lsdt.tzinfo is None:
-                                    _lsdt = _lsdt.replace(tzinfo=_tzss.utc)
-                                if (_dtess.now(_tzss.utc) - _lsdt).total_seconds() < 45:
-                                    _live_ss.add(_inst.get("bot_mode", "").lower())
-                            except Exception:
-                                pass
-                    except Exception:
-                        pass
-                    _on_ss = [lbl for tok, lbl in _ER_SLOTS
-                              if os.environ.get(tok, "") and lbl in _live_ss]
-                    _off_ss = [lbl for tok, lbl in _ER_SLOTS
-                               if os.environ.get(tok, "") and lbl not in _live_ss]
-                    _msg_ss = f"Online: {', '.join(_on_ss) or 'none'}"
-                    if _off_ss:
-                        _msg_ss += f" | Missing: {', '.join(_off_ss)}"
-                    await self._safe_send(user.id, _msg_ss[:249])
-                except Exception as _sse:
-                    print(f"[SYSTEM ERROR] cmd=/startupstatus error={_sse}")
-            return
-
-        # ── Route log + multi-bot gate — unconditional ───────────────────────
-        try:
-            _should_handle = should_this_bot_handle(cmd)
-        except Exception as _gate_err:
-            print(f"[ROUTE] /{cmd} owner=? current={BOT_MODE} handle=error err={_gate_err}")
-            _should_handle = (BOT_MODE in ("host", "all"))
-        _route_owner = resolve_command_owner(cmd) or "none"
-        print(f"[ROUTE] /{cmd} owner={_route_owner} current={BOT_MODE} handle={str(_should_handle).lower()}")
-        if not _should_handle:
-            try:
-                offline_msg = get_offline_message(cmd)
-                if offline_msg:
-                    await self.highrise.send_whisper(user.id, offline_msg)
-                elif cmd in ("help", "commandtest") and is_system_responder():
-                    if cmd == "help":
-                        await self._safe_send(user.id,
-                            "Host offline. Try: /pokerhelp /bjhelp /bankerhelp /minehelp"[:249])
-                    else:
-                        await self._safe_send(user.id,
-                            "Host offline. Use /startupstatus to see running bots."[:249])
-            except Exception:
-                pass
+        # ── Multi-bot gate — ignore if another bot owns this command ─────────
+        if not should_this_bot_handle(cmd):
+            offline_msg = get_offline_message(cmd)
+            if offline_msg:
+                await self.highrise.send_whisper(user.id, offline_msg)
             return
 
         # ── Deliver queued bank/subscriber notifications on first command ──
@@ -2676,23 +1947,6 @@ class HangoutBot(BaseBot):
                 await handle_fixcommands(self, user)
             elif cmd == "testcommands":
                 await handle_testcommands(self, user)
-            elif cmd == "routerstatus":
-                if len(args) > 1:
-                    _rs_cmd = args[1].lstrip("/").lower()
-                    await self.highrise.send_whisper(user.id, router_command_detail(_rs_cmd)[:249])
-                else:
-                    await self.highrise.send_whisper(user.id, router_status_summary()[:249])
-            elif cmd == "commanddebug":
-                _dbg_sub = args[1].lower() if len(args) > 1 else ""
-                if _dbg_sub == "on":
-                    set_cmd_debug(True)
-                    await self.highrise.send_whisper(user.id, "[CMD DEBUG] ON — all commands logged to console.")
-                elif _dbg_sub == "off":
-                    set_cmd_debug(False)
-                    await self.highrise.send_whisper(user.id, "[CMD DEBUG] OFF")
-                else:
-                    state = "ON" if get_cmd_debug() else "OFF"
-                    await self.highrise.send_whisper(user.id, f"Command debug: {state}. Use /commanddebug on|off")
             elif cmd == "bankblock":
                 await handle_bankblock(self, user, args, block=True)
             elif cmd == "bankunblock":
@@ -2929,18 +2183,6 @@ class HangoutBot(BaseBot):
             elif cmd == "confirmclosepoker":
                 await handle_confirmclosepoker(self, user, args)
 
-            elif cmd == "waitpoker":
-                await handle_waitpoker(self, user, args)
-
-            elif cmd == "leavewaitlist":
-                await handle_leavewaitlist(self, user, args)
-
-            elif cmd == "spectatepoker":
-                await handle_spectatepoker(self, user, args)
-
-            elif cmd == "spectators":
-                await handle_spectators(self, user, args)
-
             elif cmd == "casinointegrity":
                 if not can_manage_games(user.username):
                     await self.highrise.send_whisper(user.id, "Staff only.")
@@ -3094,7 +2336,7 @@ class HangoutBot(BaseBot):
         # ── Mute gate — block muted players from economy/game commands ────────
         _MUTE_EXEMPT = {
             "help", "casinohelp", "gamehelp", "coinhelp", "profilehelp",
-            "shophelp", "progresshelp", "bankhelp", "bankerhelp", "staffhelp", "modhelp",
+            "shophelp", "progresshelp", "bankhelp", "staffhelp", "modhelp",
             "managerhelp", "adminhelp", "ownerhelp", "questhelp",
             "bjhelp", "rbjhelp", "pokerhelp", "viphelp", "tiphelp",
             "rephelp", "eventhelp", "reporthelp", "roleshelp",
@@ -3144,16 +2386,7 @@ class HangoutBot(BaseBot):
 
         # ── Economy commands ──────────────────────────────────────────────────
         if cmd in {"balance", "bal", "b", "coins", "coin", "money"}:
-            try:
-                await handle_balance(self, user, args)
-            except Exception as _bale:
-                _bale_str = str(_bale)[:120]
-                print(f"[CMD ERROR] balance: {_bale}")
-                try:
-                    await self._safe_send(user.id,
-                        f"Balance error: {_bale_str}"[:249])
-                except Exception:
-                    pass
+            await handle_balance(self, user, args)
 
         elif cmd in {"wallet", "w"}:
             await handle_wallet(self, user, args)
@@ -3558,7 +2791,7 @@ class HangoutBot(BaseBot):
         elif cmd == "subhelp":
             await handle_subhelp(self, user, args)
 
-        elif cmd in ("bankhelp", "bankerhelp"):
+        elif cmd == "bankhelp":
             await _handle_bankhelp(self, user, args)
 
         elif cmd == "casinohelp":
@@ -3638,12 +2871,6 @@ class HangoutBot(BaseBot):
 
         elif cmd == "bankadminhelp":
             await _handle_bankadminhelp(self, user, args)
-
-        elif cmd == "economydbcheck":
-            await handle_economy_dbcheck(self, user)
-
-        elif cmd == "economyrepair":
-            await handle_economy_repair(self, user)
 
         elif cmd == "staffhelp":
             await _handle_staffhelp(self, user)
@@ -3908,96 +3135,6 @@ class HangoutBot(BaseBot):
         elif cmd == "confirmclosepoker":
             await handle_confirmclosepoker(self, user, args)
 
-        elif cmd == "waitpoker":
-            await handle_waitpoker(self, user, args)
-
-        elif cmd == "leavewaitlist":
-            await handle_leavewaitlist(self, user, args)
-
-        elif cmd == "spectatepoker":
-            await handle_spectatepoker(self, user, args)
-
-        elif cmd == "spectators":
-            await handle_spectators(self, user, args)
-
-        elif cmd == "emergencystop":
-            await handle_emergencystop(self, user)
-
-        elif cmd == "roomcount":
-            await handle_roomcount(self, user)
-
-        elif cmd == "fixroomcount":
-            await handle_fixroomcount(self, user)
-
-        elif cmd == "safeboot":
-            await handle_safeboot(self, user, args)
-
-        elif cmd == "recoverbots":
-            await handle_recoverbots(self, user)
-
-        elif cmd == "fixbotmodes":
-            await handle_fixbotmodes(self, user)
-
-        elif cmd == "enablepokerloops":
-            await handle_enablepokerloops(self, user)
-
-        elif cmd == "enableautogames":
-            await handle_enableautogames(self, user)
-
-        elif cmd == "enablewelcomeintervals":
-            await handle_enablewelcomeintervals(self, user)
-
-        elif cmd == "enablebotspawn":
-            await handle_enablebotspawn(self, user)
-
-        elif cmd == "assistant":
-            await handle_assistant(self, user, args)
-
-        elif cmd == "assistantstatus":
-            await handle_assistantstatus(self, user)
-
-        elif cmd == "assistanthelp":
-            await handle_assistanthelp(self, user, args)
-
-        elif cmd == "aimode":
-            await handle_aimode(self, user, args)
-
-        elif cmd == "aisettings":
-            await handle_aisettings(self, user)
-
-        elif cmd == "aiset":
-            await handle_aiset(self, user, args)
-
-        elif cmd == "ailogs":
-            await handle_ailogs(self, user, args)
-
-        elif cmd == "clearailogs":
-            await handle_clearailogs(self, user)
-
-        elif cmd == "aiintegrity":
-            await handle_aiintegrity(self, user, args)
-
-        elif cmd == "confirmai":
-            await handle_confirmai(self, user, args)
-
-        elif cmd == "cancelai":
-            await handle_cancelai(self, user, args)
-
-        elif cmd == "pokermode":
-            await handle_pokermode(self, user, args)
-
-        elif cmd in ("pokerstakes", "pokerstake", "pokerlimitmode"):
-            await handle_pokerstakes(self, user, args)
-
-        elif cmd == "pokerrules":
-            await handle_pokerrules(self, user, args)
-
-        elif cmd == "setpokerafkremove":
-            await handle_setpokerafkremove(self, user, args)
-
-        elif cmd == "setpokerafksitout":
-            await handle_setpokerafksitout(self, user, args)
-
         elif cmd == "casinointegrity":
             if not can_manage_games(user.username):
                 await self.highrise.send_whisper(user.id, "Staff only.")
@@ -4146,18 +3283,6 @@ class HangoutBot(BaseBot):
 
         elif cmd == "minehelp":
             await handle_minehelp(self, user, args)
-
-        elif cmd == "minerdbcheck":
-            await handle_minerdbcheck(self, user)
-
-        elif cmd == "minerrepair":
-            await handle_minerrepair(self, user)
-
-        elif cmd == "dblockcheck":
-            await handle_dblockcheck(self, user)
-
-        elif cmd == "processcheck":
-            await handle_processcheck(self, user)
 
         # ── Maintenance tools ─────────────────────────────────────────────────
         elif cmd == "botstatus":
@@ -4461,36 +3586,10 @@ class HangoutBot(BaseBot):
             await handle_modulestartup(self, user, args)
         elif cmd == "startupstatus":
             await handle_startupstatus(self, user)
-        elif cmd == "missingbots":
-            await handle_missingbots(self, user)
         elif cmd == "multibothelp":
             await handle_multibothelp(self, user, args)
         elif cmd == "setmainmode":
             await handle_setmainmode(self, user, args)
-
-        # ── Diagnostics: ping / routerstatus / commanddebug ──────────────────
-        elif cmd == "ping":
-            await self.highrise.send_whisper(user.id, "pong | Host online")
-
-        elif cmd == "routerstatus":
-            if len(args) > 1:
-                _rs_cmd = args[1].lstrip("/").lower()
-                _rs_detail = router_command_detail(_rs_cmd)
-                await self.highrise.send_whisper(user.id, _rs_detail[:249])
-            else:
-                await self.highrise.send_whisper(user.id, router_status_summary()[:249])
-
-        elif cmd == "commanddebug":
-            _dbg_sub = args[1].lower() if len(args) > 1 else ""
-            if _dbg_sub == "on":
-                set_cmd_debug(True)
-                await self.highrise.send_whisper(user.id, "[CMD DEBUG] ON — all commands logged to console.")
-            elif _dbg_sub == "off":
-                set_cmd_debug(False)
-                await self.highrise.send_whisper(user.id, "[CMD DEBUG] OFF")
-            else:
-                state = "ON" if get_cmd_debug() else "OFF"
-                await self.highrise.send_whisper(user.id, f"Command debug: {state}. Use /commanddebug on|off")
 
         # ── Bot health / deployment checks ─────────────────────────────────────
         elif cmd == "bothealth":
@@ -4511,78 +3610,6 @@ class HangoutBot(BaseBot):
             await handle_botconflicts(self, user)
         elif cmd == "fixbotowners":
             await handle_fixbotowners(self, user, args)
-
-        elif cmd == "safemode":
-            await handle_safemode(self, user, args)
-
-        elif cmd == "crashlogs":
-            await handle_crashlogs(self, user, args)
-
-        elif cmd == "clearcrashlogs":
-            await handle_clearcrashlogs(self, user, args)
-
-        elif cmd == "emergencystop":
-            await handle_emergencystop(self, user)
-
-        elif cmd == "roomcount":
-            await handle_roomcount(self, user)
-
-        elif cmd == "fixroomcount":
-            await handle_fixroomcount(self, user)
-
-        elif cmd == "safeboot":
-            await handle_safeboot(self, user, args)
-
-        elif cmd == "recoverbots":
-            await handle_recoverbots(self, user)
-
-        elif cmd == "fixbotmodes":
-            await handle_fixbotmodes(self, user)
-
-        elif cmd == "enablepokerloops":
-            await handle_enablepokerloops(self, user)
-
-        elif cmd == "enableautogames":
-            await handle_enableautogames(self, user)
-
-        elif cmd == "enablewelcomeintervals":
-            await handle_enablewelcomeintervals(self, user)
-
-        elif cmd == "enablebotspawn":
-            await handle_enablebotspawn(self, user)
-
-        elif cmd == "assistant":
-            await handle_assistant(self, user, args)
-
-        elif cmd == "assistantstatus":
-            await handle_assistantstatus(self, user)
-
-        elif cmd == "assistanthelp":
-            await handle_assistanthelp(self, user, args)
-
-        elif cmd == "aimode":
-            await handle_aimode(self, user, args)
-
-        elif cmd == "aisettings":
-            await handle_aisettings(self, user)
-
-        elif cmd == "aiset":
-            await handle_aiset(self, user, args)
-
-        elif cmd == "ailogs":
-            await handle_ailogs(self, user, args)
-
-        elif cmd == "clearailogs":
-            await handle_clearailogs(self, user)
-
-        elif cmd == "aiintegrity":
-            await handle_aiintegrity(self, user, args)
-
-        elif cmd == "confirmai":
-            await handle_confirmai(self, user, args)
-
-        elif cmd == "cancelai":
-            await handle_cancelai(self, user, args)
 
         # ── Task ownership / restore announce ─────────────────────────────────
         elif cmd == "taskowners":
@@ -4633,13 +3660,7 @@ class HangoutBot(BaseBot):
 
     async def on_user_join(self, user: User, position) -> None:
         """Register new players and greet them when they enter the room."""
-        # Only host writes ensure_user, and only after init_db is complete.
-        # This prevents 8-way write contention and init_db vs ensure_user deadlocks.
-        if BOT_MODE in ("host", "all") and _db_init_complete:
-            try:
-                db.ensure_user(user.id, user.username)
-            except Exception as _e:
-                print(f"[on_user_join] ensure_user error: {_e}")
+        db.ensure_user(user.id, user.username)
         add_to_room_cache(user.id, user.username)
         # Update position cache for follow/teleport
         try:
@@ -4700,16 +3721,9 @@ class HangoutBot(BaseBot):
             pass
 
     async def on_user_leave(self, user: User) -> None:
-        """Log when a player leaves; handle poker auto-fold if seated (Poker Bot only)."""
+        """Log when a player leaves and remove from gold room cache."""
         remove_from_room_cache(user.id)
         print(f"[HangoutBot] {user.username} left.")
-        try:
-            if should_this_bot_run_module("poker"):
-                await handle_poker_player_left(self, user)
-            else:
-                print(f"[SKIP] poker leave-fold skipped on {BOT_MODE}")
-        except Exception as _ple:
-            print(f"[POKER] on_user_leave error: {_ple}")
 
     async def on_reaction(self, user: User, reaction: str, receiver: User) -> None:
         """
@@ -4790,20 +3804,19 @@ class HangoutBot(BaseBot):
         if any(kw in msg_lower for kw in ("gold", "tip", "coin")):
             print(f"DEBUG EVENT FIRED: on_whisper | {raw}")
 
-        # Auto-subscribe whisperer — only host bot handles to avoid 8-way DB writes
-        if BOT_MODE in ("host", "all"):
-            try:
-                newly_subbed = db.auto_subscribe_whisper(
-                    user.username, user.id
+        # Auto-subscribe whisperer (respects manually_unsubscribed flag)
+        try:
+            newly_subbed = db.auto_subscribe_whisper(
+                user.username, user.id
+            )
+            if newly_subbed:
+                await self.highrise.send_whisper(
+                    user.id,
+                    "✅ Alerts subscribed. Use /notifysettings to choose alerts."
                 )
-                if newly_subbed:
-                    await self.highrise.send_whisper(
-                        user.id,
-                        "✅ Alerts subscribed. Use /notifysettings to choose alerts."
-                    )
-                    print(f"[WHISPER] @{user.username} auto-subscribed from whisper.")
-            except Exception as exc:
-                print(f"[WHISPER] auto-subscribe error: {exc!r}")
+                print(f"[WHISPER] @{user.username} auto-subscribed from whisper.")
+        except Exception as exc:
+            print(f"[WHISPER] auto-subscribe error: {exc!r}")
 
 
 # ---------------------------------------------------------------------------
