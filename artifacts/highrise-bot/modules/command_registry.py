@@ -183,7 +183,7 @@ REGISTRY: dict[str, Cmd] = {
     "raise":            Cmd("poker","casino",False,False,True, aliases=("r",)),
     "fold":             Cmd("poker","casino",False,False,True, aliases=("f",)),
     "allin":            Cmd("poker","casino",False,False,True,
-                            aliases=("ai","shove","all-in")),
+                            aliases=("shove","all-in")),
     "sitout":           Cmd("poker","casino",False,False,False),
     "sitin":            Cmd("poker","casino",False,False,False),
     "rebuy":            Cmd("poker","casino",False,False,True),
@@ -281,6 +281,12 @@ REGISTRY: dict[str, Cmd] = {
     "auditbank":        Cmd("security","admin",     False,True, False, perm="admin"),
     "auditcasino":      Cmd("security","admin",     False,True, False, perm="admin"),
     "auditeconomy":     Cmd("security","admin",     False,True, False, perm="admin"),
+
+    # ── AI assistant ─────────────────────────────────────────────────────────
+    "ask":              Cmd("host","ai",  True, True, False, aliases=("assistant",)),
+    "ai":               Cmd("host","ai",  True, True, False),
+    "pendingaction":    Cmd("host","ai",  True, True, False),
+    "confirm":          Cmd("host","ai",  True, False,False),
 }
 
 # ---------------------------------------------------------------------------

@@ -550,7 +550,7 @@ ALL_KNOWN_COMMANDS = (
         # Poker — short aliases + persistent-table commands
         "p", "pj", "pt", "ptable", "ph", "pcards", "po", "podds",
         "check", "ch", "call", "ca", "raise", "r", "fold", "f",
-        "allin", "all-in", "ai", "shove",
+        "allin", "all-in", "shove",
         "pp", "pplayers", "pstats", "plb", "pleaderboard",
         "phelp", "pokerlb", "pokerleaderboard", "pleaderboard",
         "sitout", "sitin", "rebuy", "pstacks", "mystack",
@@ -3187,7 +3187,7 @@ class HangoutBot(BaseBot):
         elif cmd in ("fold", "f"):
             await handle_poker(self, user, ["poker", "fold"])
 
-        elif cmd in ("allin", "ai", "shove"):
+        elif cmd in ("allin", "shove"):
             await handle_poker(self, user, ["poker", "allin"])
 
         elif cmd in ("ptable",):

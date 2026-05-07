@@ -533,6 +533,8 @@ _HOST_AUDIT_CMDS: frozenset[str] = frozenset({
     "subscribe", "unsubscribe", "substatus",
     "notifications", "clearnotifications",
     "casinointegrity", "integritylogs", "carddeliverycheck",
+    # ── AI assistant (host-owned; eventhost covers when host is offline) ──────
+    "ask", "ai", "assistant", "pendingaction", "confirm",
 })
 
 # Whitelist of eventhost-owned commands that host may handle as fallback

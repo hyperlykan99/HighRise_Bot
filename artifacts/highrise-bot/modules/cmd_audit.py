@@ -208,7 +208,7 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     "tiprate", "tipstats", "tipleaderboard",
     "p", "pj", "pt", "ph", "po", "pcards", "podds", "ptable",
     "check", "ch", "call", "ca", "raise", "r", "fold", "f",
-    "allin", "ai", "shove", "all-in",
+    "allin", "shove", "all-in",
     "pp", "pplayers",
     "pstats", "pokerstats",
     "plb", "pleaderboard", "pokerlb", "pokerleaderboard",
@@ -298,6 +298,8 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     "fixautogames",
     # ── /commandissues ────────────────────────────────────────────────────────
     "commandissues",
+    # ── AI assistant ──────────────────────────────────────────────────────────
+    "ask", "ai", "assistant", "pendingaction", "confirm",
 })
 
 # ---------------------------------------------------------------------------
