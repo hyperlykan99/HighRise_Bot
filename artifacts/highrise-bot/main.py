@@ -1941,6 +1941,21 @@ class HangoutBot(BaseBot):
         args = parts
         print(f"[RX] mode={BOT_MODE} user={user.username} text={message}")
 
+        # ── /help — handled here before the routing guard so it is immune to
+        #    multilogin stale-heartbeat gaps.  Only host/eventhost/all reply;
+        #    every other bot silently ignores it (no DB dependency).
+        if cmd == "help":
+            _handle = BOT_MODE in ("host", "eventhost", "all")
+            print(f"[ROUTE] /help owner=host current={BOT_MODE} handle={_handle}")
+            if _handle:
+                await self.highrise.send_whisper(user.id, HELP_TEXT)
+                if can_moderate(user.username):
+                    await self.highrise.send_whisper(
+                        user.id,
+                        "⚙️ Staff: /staffhelp\nOwner/Admin: /adminhelp\nGold: /goldhelp"
+                    )
+            return
+
         # ── Multi-bot gate — ignore if another bot owns this command ─────────
         if not should_this_bot_handle(cmd):
             offline_msg = get_offline_message(cmd)
@@ -1953,16 +1968,6 @@ class HangoutBot(BaseBot):
         if _uname not in _notif_delivered_this_session:
             asyncio.create_task(_deliver_pending_bank_notifications(self, user))
             asyncio.create_task(deliver_pending_subscriber_messages(self, _uname))
-
-        # ── /help ─────────────────────────────────────────────────────────────
-        if cmd == "help":
-            await self.highrise.send_whisper(user.id, HELP_TEXT)
-            if can_moderate(user.username):
-                await self.highrise.send_whisper(
-                    user.id,
-                    "⚙️ Staff: /staffhelp\nOwner/Admin: /adminhelp\nGold: /goldhelp"
-                )
-            return
 
         # ── Staff gate ────────────────────────────────────────────────────────
         if cmd in STAFF_CMDS:
@@ -2896,9 +2901,16 @@ class HangoutBot(BaseBot):
             await _handle_gamehelp(self, user, args)
 
         elif cmd == "coinhelp":
-            print(f"[RX] mode={BOT_MODE} text=/coinhelp")
-            print(f"[ROUTE] /coinhelp owner=banker current={BOT_MODE} handle=true")
-            await _handle_coinhelp(self, user, args)
+            _ch = should_this_bot_handle("coinhelp")
+            print(f"[ROUTE] /coinhelp owner=banker current={BOT_MODE} handle={_ch}")
+            await self.highrise.send_whisper(
+                user.id,
+                "💰 Coins\n"
+                "/balance - show balance\n"
+                "/daily - daily reward\n"
+                "/send @user amt - send coins\n"
+                "/tip @user amt - tip player"
+            )
 
         elif cmd == "bankerhelp":
             print(f"[RX] mode={BOT_MODE} text=/bankerhelp")

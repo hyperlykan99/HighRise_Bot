@@ -1,0 +1,127 @@
+FIX ONLY /help, /coinhelp, AND /startupstatus.
+
+Current status:
+- /bots works and shows Host ON and modules ON.
+- /bothealth works and shows Host ON, modules ON, DB OK.
+- /bankhelp works from BankingBot.
+- /balance works from BankingBot.
+- /help does not reliably work.
+- /coinhelp does not work.
+- /startupstatus incorrectly says "Startup announce: Host OFF | Modules OFF."
+
+Goal:
+Fix only these commands:
+- /help
+- /coinhelp
+- /startupstatus
+
+Do NOT touch:
+- poker
+- blackjack
+- mining
+- banker balance logic
+- economy database schema
+- bot tokens
+- bot startup
+- robust poker
+- room connection code
+
+==================================================
+1. FIX /HELP
+==================================================
+
+/help must be handled by Host/EmceeBot only.
+
+It must always reply with:
+
+🎒 Help
+🎮 /gamehelp
+🏛️ /casinohelp
+💰 /coinhelp
+🏦 /bankhelp
+🛒 /shophelp
+⭐ /profilehelp
+More: /progresshelp /eventhelp
+Staff: /staffhelp
+Owner/Admin: /adminhelp
+
+If Host receives /help, reply.
+If non-host bots receive /help, ignore silently.
+
+Do not make /help depend on DB.
+
+==================================================
+2. FIX /COINHELP
+==================================================
+
+/coinhelp must be handled by Banker/BankingBot only.
+
+It must always reply with:
+
+💰 Coins
+/balance - show balance
+/daily - daily reward
+/send @user amt - send coins
+/tip @user amt - tip player
+
+If Banker receives /coinhelp, reply.
+If non-banker bots receive /coinhelp, ignore silently.
+
+Do not make /coinhelp depend on DB.
+
+==================================================
+3. FIX /STARTUPSTATUS
+==================================================
+
+/startupstatus is wrong right now.
+
+It says:
+"Startup announce: Host OFF | Modules OFF"
+
+But /bots and /bothealth show Host ON and modules ON.
+
+Fix /startupstatus to use the same live source as /bots or /bothealth.
+
+If EmceeBot is responding to /startupstatus, Host is ON.
+
+If /bots shows:
+Banker ON, Blackjack ON, Miner ON, Poker ON, Security ON, Shop ON
+then /startupstatus must say Modules ON.
+
+Expected reply:
+"Startup: Host ON | Modules ON | Conflicts <count>"
+
+Do not read stale startup flags.
+Do not use old startup_announce rows.
+Do not use old lock rows for this command.
+
+==================================================
+4. ADD ROUTE LOGS ONLY FOR THESE COMMANDS
+==================================================
+
+Log:
+
+[ROUTE] /help owner=host current=<mode> handle=<true/false>
+[ROUTE] /coinhelp owner=banker current=<mode> handle=<true/false>
+[ROUTE] /startupstatus owner=host current=<mode> handle=<true/false>
+
+==================================================
+5. TESTS
+==================================================
+
+After restart, test:
+
+/help
+/coinhelp
+/bankhelp
+/bots
+/bothealth
+/startupstatus
+
+Expected:
+- /help replies from EmceeBot
+- /coinhelp replies from BankingBot
+- /bankhelp still works from BankingBot
+- /bots still shows modules ON
+- /bothealth still shows modules ON
+- /startupstatus says Host ON | Modules ON

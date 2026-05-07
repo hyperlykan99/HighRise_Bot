@@ -1222,17 +1222,37 @@ async def handle_modulestartup(bot, user, args: list[str]) -> None:
 async def handle_startupstatus(bot, user) -> None:
     """
     /startupstatus
-    Shows current startup announce settings for Host and modules.
+    Shows live bot presence — same data source as /bots and /bothealth.
+    Host is ON when host or eventhost (they share an account) has heartbeated
+    recently.  Modules are ON when any dedicated module bot is alive.
     """
+    # Host is the host/eventhost pair (multilogin — one is always the active one).
+    host_on = _is_mode_online("host") or _is_mode_online("eventhost")
+    host_lbl = "ON" if host_on else "OFF"
+
+    # Modules = any dedicated module bot alive in the last 90 s.
+    module_modes = ("banker", "shopkeeper", "miner", "blackjack", "poker",
+                    "security", "dj", "eventhost")
+    modules_on = any(_is_mode_online(m) for m in module_modes)
+    mod_lbl = "ON" if modules_on else "OFF"
+
+    # Conflicts — bot IDs seen more than once in the last 90 s heartbeat window.
     try:
-        host_val = db.get_room_setting("bot_startup_announce_enabled", "false")
-        mod_val = db.get_room_setting("module_startup_announce_enabled", "false")
+        conn = db.get_connection()
+        row = conn.execute(
+            "SELECT COUNT(*) FROM ("
+            "  SELECT bot_id FROM bot_instances"
+            "  WHERE last_heartbeat_at >= datetime('now', '-90 seconds')"
+            "  GROUP BY bot_id HAVING COUNT(*) > 1"
+            ")"
+        ).fetchone()
+        conn.close()
+        conflicts = row[0] if row else 0
     except Exception:
-        await _w(bot, user.id, "DB error reading startup settings.")
-        return
-    host_lbl = "ON" if host_val == "true" else "OFF"
-    mod_lbl = "ON" if mod_val == "true" else "OFF"
-    await _w(bot, user.id, f"Startup announce: Host {host_lbl} | Modules {mod_lbl}")
+        conflicts = 0
+
+    await _w(bot, user.id,
+             f"Startup: Host {host_lbl} | Modules {mod_lbl} | Conflicts {conflicts}")
 
 
 # Keep old handler as an alias so any existing /botstartupannounce calls still work
