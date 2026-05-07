@@ -271,6 +271,7 @@ from modules.mining import (
     handle_orelist, handle_minehelp,
     handle_orebook, handle_oremastery, handle_claimoremastery, handle_orestats,
     handle_contracts, handle_job, handle_deliver, handle_claimjob, handle_rerolljob,
+    handle_minerdbcheck, handle_minerrepair,
     MINE_HELP_PAGES,
 )
 from modules.control_panel import (
@@ -639,6 +640,7 @@ ALL_KNOWN_COMMANDS = (
         "orebook", "oremastery", "claimoremastery", "orestats",
         "contracts", "miningjobs", "job", "deliver", "claimjob", "rerolljob",
         "minehelp",
+        "minerdbcheck", "minerrepair",
         # Mining game — staff commands
         "mining",
         "startminingevent", "stopminingevent",
@@ -4143,6 +4145,12 @@ class HangoutBot(BaseBot):
 
         elif cmd == "minehelp":
             await handle_minehelp(self, user, args)
+
+        elif cmd == "minerdbcheck":
+            await handle_minerdbcheck(self, user)
+
+        elif cmd == "minerrepair":
+            await handle_minerrepair(self, user)
 
         # ── Maintenance tools ─────────────────────────────────────────────────
         elif cmd == "botstatus":

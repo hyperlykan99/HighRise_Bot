@@ -77,6 +77,9 @@ def _xp_for_level(level: int) -> int:
 def _is_in_room(username: str) -> bool:
     try:
         from modules.gold import _room_cache
+        # Cache empty = bot just restarted, existing room users won't be in it yet
+        if not _room_cache:
+            return True
         return username.lower() in _room_cache
     except Exception:
         return True  # if can't check, allow
@@ -258,6 +261,18 @@ def _roll_drop(tool_level: int, is_vip: bool, has_luck_boost: bool,
 # ---------------------------------------------------------------------------
 
 async def handle_mine(bot: BaseBot, user: User) -> None:
+    print(f"[MINER] /mine user={user.username}")
+    try:
+        await _handle_mine_body(bot, user)
+    except Exception as _me:
+        print(f"[MINER ERROR] /mine user={user.username} error={_me}")
+        try:
+            await _w(bot, user.id, f"Mining DB error: {str(_me)[:160]}"[:249])
+        except Exception:
+            pass
+
+
+async def _handle_mine_body(bot: BaseBot, user: User) -> None:
     uname = user.username
 
     # Mining enabled?
@@ -517,21 +532,29 @@ async def handle_mineprofile(bot: BaseBot, user: User, args: list[str]) -> None:
 # ---------------------------------------------------------------------------
 
 async def handle_mineinv(bot: BaseBot, user: User, args: list[str]) -> None:
-    inv  = db.get_inventory(user.username)
-    page = int(args[1]) if len(args) > 1 and args[1].isdigit() else 1
-    if not inv:
-        await _w(bot, user.id, "🎒 Inventory empty. Use /mine to start mining!")
-        return
+    print(f"[MINER] /ores user={user.username}")
+    try:
+        inv  = db.get_inventory(user.username)
+        page = int(args[1]) if len(args) > 1 and args[1].isdigit() else 1
+        if not inv:
+            await _w(bot, user.id, "🎒 You have no ores yet. Use /mine to start mining!")
+            return
 
-    per  = 8
-    total_pages = max(1, (len(inv) + per - 1) // per)
-    page = max(1, min(page, total_pages))
-    chunk = inv[(page - 1) * per : page * per]
+        per  = 8
+        total_pages = max(1, (len(inv) + per - 1) // per)
+        page = max(1, min(page, total_pages))
+        chunk = inv[(page - 1) * per : page * per]
 
-    parts = " | ".join(f"{r['emoji']}{r['name']} x{r['quantity']}" for r in chunk)
-    nav   = f"  More: /ores {page+1}" if page < total_pages else ""
-    msg   = f"🎒 Ores ({page}/{total_pages}): {parts}{nav}"
-    await _w(bot, user.id, msg[:249])
+        parts = " | ".join(f"{r['emoji']}{r['name']} x{r['quantity']}" for r in chunk)
+        nav   = f"  More: /ores {page+1}" if page < total_pages else ""
+        msg   = f"🎒 Ores ({page}/{total_pages}): {parts}{nav}"
+        await _w(bot, user.id, msg[:249])
+    except Exception as _oe:
+        print(f"[MINER ERROR] /ores user={user.username} error={_oe}")
+        try:
+            await _w(bot, user.id, f"Ores DB error: {str(_oe)[:160]}"[:249])
+        except Exception:
+            pass
 
 
 # ---------------------------------------------------------------------------
@@ -1449,3 +1472,106 @@ async def handle_minehelp(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, MINE_HELP_PAGES[page - 1])
     else:
         await _w(bot, user.id, f"Pages 1-{len(MINE_HELP_PAGES)}. Use /minehelp <page>.")
+
+
+# ---------------------------------------------------------------------------
+# /minerdbcheck  /minerrepair
+# ---------------------------------------------------------------------------
+
+_MINER_TABLES = {
+    "mining_players": (
+        "CREATE TABLE IF NOT EXISTS mining_players ("
+        "username TEXT PRIMARY KEY, tool_level INTEGER NOT NULL DEFAULT 1, "
+        "mining_level INTEGER NOT NULL DEFAULT 1, mining_xp INTEGER NOT NULL DEFAULT 0, "
+        "energy INTEGER NOT NULL DEFAULT 100, max_energy INTEGER NOT NULL DEFAULT 100, "
+        "total_mines INTEGER NOT NULL DEFAULT 0, total_ores INTEGER NOT NULL DEFAULT 0, "
+        "rare_finds INTEGER NOT NULL DEFAULT 0, coins_earned INTEGER NOT NULL DEFAULT 0, "
+        "last_mine_at TEXT, last_energy_reset TEXT, "
+        "luck_boost_until TEXT, xp_boost_until TEXT, "
+        "created_at TEXT, updated_at TEXT)"
+    ),
+    "mining_inventory": (
+        "CREATE TABLE IF NOT EXISTS mining_inventory ("
+        "username TEXT NOT NULL, item_id TEXT NOT NULL, quantity INTEGER NOT NULL DEFAULT 0, "
+        "PRIMARY KEY (username, item_id))"
+    ),
+    "mining_items": (
+        "CREATE TABLE IF NOT EXISTS mining_items ("
+        "item_id TEXT PRIMARY KEY, name TEXT NOT NULL, emoji TEXT NOT NULL DEFAULT '🪨', "
+        "rarity TEXT NOT NULL DEFAULT 'common', sell_value INTEGER NOT NULL DEFAULT 1, "
+        "min_tool_level INTEGER NOT NULL DEFAULT 1, drop_weight INTEGER NOT NULL DEFAULT 10)"
+    ),
+    "mining_settings": (
+        "CREATE TABLE IF NOT EXISTS mining_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)"
+    ),
+    "mining_logs": (
+        "CREATE TABLE IF NOT EXISTS mining_logs ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp TEXT, username TEXT, "
+        "action TEXT, item_id TEXT, quantity INTEGER, coins INTEGER, details TEXT)"
+    ),
+    "mining_events": (
+        "CREATE TABLE IF NOT EXISTS mining_events ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, event_id TEXT, started_by TEXT, "
+        "started_at TEXT, ends_at TEXT, active INTEGER NOT NULL DEFAULT 0)"
+    ),
+    "ore_mastery": (
+        "CREATE TABLE IF NOT EXISTS ore_mastery ("
+        "username TEXT NOT NULL, milestone INTEGER NOT NULL, claimed_at TEXT, "
+        "PRIMARY KEY (username, milestone))"
+    ),
+    "miner_contracts": (
+        "CREATE TABLE IF NOT EXISTS miner_contracts ("
+        "username TEXT PRIMARY KEY, ore_id TEXT NOT NULL, qty_needed INTEGER NOT NULL, "
+        "qty_delivered INTEGER NOT NULL DEFAULT 0, reward_coins INTEGER NOT NULL DEFAULT 0, "
+        "assigned_at TEXT)"
+    ),
+}
+
+
+async def handle_minerdbcheck(bot: BaseBot, user: User) -> None:
+    """/minerdbcheck — owner/admin: check mining DB tables."""
+    if not _can_mine_admin(user.username):
+        await _w(bot, user.id, "Owner/admin only.")
+        return
+    try:
+        import sqlite3 as _sqlite3
+        import config as _cfg
+        _con = _sqlite3.connect(_cfg.DB_PATH)
+        _existing = {r[0] for r in _con.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        ).fetchall()}
+        _con.close()
+        missing = [t for t in _MINER_TABLES if t not in _existing]
+        ok_list = [t for t in _MINER_TABLES if t in _existing]
+        if missing:
+            await _w(bot, user.id,
+                f"Miner DB fail: missing {', '.join(missing)}"[:249])
+        else:
+            await _w(bot, user.id,
+                f"Miner DB: OK | {', '.join(ok_list[:4])} OK"[:249])
+    except Exception as _e:
+        print(f"[MINER ERROR] /minerdbcheck error={_e}")
+        await _w(bot, user.id, f"Miner DB check error: {str(_e)[:160]}"[:249])
+
+
+async def handle_minerrepair(bot: BaseBot, user: User) -> None:
+    """/minerrepair — owner/admin: create missing mining tables (no data loss)."""
+    if not _can_mine_admin(user.username):
+        await _w(bot, user.id, "Owner/admin only.")
+        return
+    try:
+        import sqlite3 as _sqlite3
+        import config as _cfg
+        _con = _sqlite3.connect(_cfg.DB_PATH)
+        created = []
+        for tname, ddl in _MINER_TABLES.items():
+            _con.execute(ddl)
+            created.append(tname)
+        _con.commit()
+        _con.close()
+        await _w(bot, user.id,
+            f"✅ Miner DB repaired. Tables verified: {len(created)}"[:249])
+        print(f"[MINER] /minerrepair OK tables={created}")
+    except Exception as _e:
+        print(f"[MINER ERROR] /minerrepair error={_e}")
+        await _w(bot, user.id, f"Miner repair error: {str(_e)[:160]}"[:249])
