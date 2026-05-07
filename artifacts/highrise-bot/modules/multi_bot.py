@@ -341,12 +341,35 @@ _HARD_OWNER_MODES: frozenset[str] = frozenset({
 # host and eventhost share a Highrise account (multilogin alternates them),
 # so exactly one is in the room at any time.
 _HOST_AUDIT_CMDS: frozenset[str] = frozenset({
+    # ── Bot health / audit (original set) ───────────────────────────────────
     "commandtest", "bothealth", "modulehealth", "deploymentcheck",
     "botheartbeat", "botmodules", "botstatus", "botconflicts",
     "checkcommands", "checkhelp", "routecheck", "silentcheck",
     "routerstatus", "taskowners", "activetasks", "taskconflicts",
     "fixtaskowners", "restorestatus",
     "bots", "startupstatus", "commandintegrity", "commandrepair",
+    # ── Everyday host-owned help/info commands ───────────────────────────────
+    # When host is multilogin-kicked by eventhost, eventhost covers these so
+    # users never see silence on basic room commands.
+    "help", "shophelp", "casinohelp", "gamehelp", "casino",
+    "casinosettings", "casinolimits", "casinotoggles", "mycasino",
+    "rules", "roleshelp",
+    "coinhelp", "profilehelp", "progresshelp", "viphelp", "rephelp",
+    "tiphelp", "autohelp", "questhelp", "subhelp", "notifyhelp",
+    "roomhelp", "teleporthelp", "emotehelp", "alerthelp", "welcomehelp",
+    "socialhelp", "botmodehelp", "multibothelp", "maintenancehelp",
+    "casinoadminhelp",
+    "managerhelp", "adminhelp", "ownerhelp",
+    "profile", "me", "whois", "pinfo", "stats", "privacy",
+    "level", "xpleaderboard",
+    "players", "online", "roomlist", "owners", "managers", "moderators",
+    "allstaff", "allcommands", "mycommands", "helpsearch",
+    "control", "status", "roomstatus",
+    "rep", "reputation", "repstats", "toprep", "repleaderboard",
+    "quests", "dailyquests", "weeklyquests", "claimquest", "questhelp",
+    "subscribe", "unsubscribe", "substatus",
+    "notifications", "clearnotifications",
+    "casinointegrity", "integritylogs", "carddeliverycheck",
 })
 
 # Whitelist of eventhost-owned commands that host may handle as fallback
@@ -354,9 +377,15 @@ _HOST_AUDIT_CMDS: frozenset[str] = frozenset({
 # host — action/purchase commands like /eventshop /buyevent /startevent
 # are NOT included, so host never handles them even when eventhost is gone.
 _HOST_SAFE_FALLBACK_CMDS: frozenset[str] = frozenset({
-    "help", "shophelp", "eventhelp",
+    # host-owned (listed for documentation clarity — they never hit this path)
+    "help", "shophelp",
     "bothealth", "deploymentcheck", "modulehealth", "botheartbeat",
     "commandtest", "bots", "startupstatus", "routerstatus",
+    # eventhost-owned safe help/status — host covers when eventhost offline
+    "eventhelp", "goldhelp",
+    "eventstatus", "eventpoints",
+    "autogames", "autoevents",
+    "event", "events",
 })
 
 

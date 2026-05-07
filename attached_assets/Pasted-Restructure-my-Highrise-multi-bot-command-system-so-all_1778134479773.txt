@@ -1,0 +1,516 @@
+Restructure my Highrise multi-bot command system so all commands work reliably.
+
+Current problem:
+Many commands are recognized by /commandtest but do not actually respond in the room.
+Some commands work correctly:
+- /bal works from BankingBot
+- /send works from BankingBot
+- /mine works from GreatestProspector
+- /pokerhelp works from ChipSoprano
+
+But many commands do not respond:
+- /eventhelp
+- /autogames
+- /badges
+- /help
+- and likely others
+
+Goal:
+Create one reliable centralized command registry and router so every command has:
+1. A command name
+2. Aliases
+3. Owner bot mode
+4. Handler function
+5. Permission level
+6. Whether host fallback is allowed
+7. Whether the command is help/status only
+8. Whether the command is an action/economy/write command
+
+Critical requirement:
+Do not just patch one command at a time. Restructure the whole command routing system.
+
+Files to inspect:
+- main.py
+- config.py
+- database.py
+- modules/multi_bot.py
+- modules/cmd_audit.py
+- modules/bot_health.py
+- modules/bot_modes.py
+- modules/bank.py
+- modules/mining.py
+- modules/poker.py
+- modules/blackjack.py
+- modules/realistic_blackjack.py
+- modules/shop.py
+- modules/events.py
+- modules/auto_games.py
+- modules/room_utils.py
+- modules/admin_cmds.py
+- modules/maintenance.py
+- modules/permissions.py
+
+PART 1 — Create a central command registry
+
+Create a new file if needed:
+modules/command_registry.py
+
+Each command should be registered like:
+- command
+- aliases
+- owner_mode
+- category
+- handler import path or handler function name
+- permission level
+- fallback_allowed
+- safe_help_command
+- write_command
+
+Example:
+bal:
+  owner_mode=banker
+  handler=handle_balance or correct bank handler
+  fallback_allowed=false
+  write_command=false
+
+send:
+  owner_mode=banker
+  handler=handle_send
+  fallback_allowed=false
+  write_command=true
+
+mine:
+  owner_mode=miner
+  handler=handle_mine
+  fallback_allowed=false
+  write_command=true
+
+pokerhelp:
+  owner_mode=poker
+  handler=handle_pokerhelp
+  fallback_allowed=false
+  safe_help_command=true
+
+eventhelp:
+  owner_mode=eventhost
+  handler=handle_eventhelp
+  fallback_allowed=true only if eventhost offline
+  safe_help_command=true
+
+help:
+  owner_mode=host
+  handler=main help handler
+  fallback_allowed=true
+  safe_help_command=true
+
+PART 2 — Fix all major command ownership
+
+Use these owner modes:
+
+Host:
+- help
+- bots
+- bothealth
+- deploymentcheck
+- modulehealth
+- botheartbeat
+- commandtest
+- commandintegrity
+- checkcommands
+- fixcommands
+- commandrepair
+- routerstatus
+- startupstatus
+
+Banker:
+- bal
+- balance
+- b
+- wallet
+- w
+- coins
+- coin
+- money
+- send
+- bank
+- transactions
+- bankstats
+- bankhelp
+- daily
+- leaderboard
+
+Miner:
+- mine
+- m
+- dig
+- ores
+- mineinv
+- tool
+- pickaxe
+- upgradetool
+- upick
+- sellores
+- sellore
+- minehelp
+- mineprofile
+- mp
+- minerank
+- mineshop
+- minebuy
+- minedaily
+- orelist
+- orebook
+- oremastery
+- orestats
+- contracts
+- job
+- deliver
+
+Poker:
+- poker
+- p
+- pj
+- pt
+- ptable
+- ph
+- pcards
+- pokerhelp
+- pokerstats
+- pokerlb
+- check
+- call
+- raise
+- fold
+- allin
+- sitout
+- sitin
+- rebuy
+- mystack
+- pstacks
+
+Blackjack:
+- bj
+- bjhelp
+- bjoin
+- bh
+- bs
+- bd
+- bsp
+- bhand
+- rbj
+- rbjhelp
+- rjoin
+- rh
+- rs
+- rd
+- rsp
+- rhand
+
+Shopkeeper:
+- shop
+- shophelp
+- buy
+- equip
+- myitems
+- badgeinfo
+- titleinfo
+- badges
+- mybadges
+- badgecatalog
+- badgemarket
+- badgelist
+- badgebuy
+- vipshop
+- buyvip
+- vipstatus
+
+EventHost:
+- event
+- events
+- eventhelp
+- eventstatus
+- eventpoints
+- eventshop
+- buyevent
+- startevent
+- stopevent
+- autogames
+- autoevents
+- gameconfig
+- autogamesowner
+- stopautogames
+- killautogames
+- fixautogames
+
+DJ:
+- emote
+- emotes
+- stopemote
+- dance
+- wave
+- sit
+- clap
+- loopemote
+- stoploop
+- stopallloops
+- social
+- hug
+- kiss
+- slap
+- punch
+- highfive
+- boop
+- cheer
+
+Security:
+- report
+- reports
+- bug
+- warn
+- warnings
+- mute
+- unmute
+- kick
+- ban
+- tempban
+- unban
+- modlog
+- roomlogs
+- audit
+- auditbank
+- auditcasino
+- auditeconomy
+
+PART 3 — Make one router use the registry
+
+In main.py, replace scattered command routing with one reliable dispatch flow:
+
+1. Parse slash command.
+2. Normalize command to lowercase without slash.
+3. Look up command in command_registry.
+4. If unknown:
+   - Host replies: Unknown command. Try /help
+   - Other bots stay silent.
+5. Check should_this_bot_handle(command).
+6. If this bot should not handle it, return silently.
+7. Check permissions.
+8. Call the registered handler.
+9. If handler errors, whisper a short error and log full error to console.
+
+PART 4 — Fix host fallback
+
+Host fallback allowed only for safe help/status commands:
+- help
+- shophelp
+- eventhelp
+- bots
+- bothealth
+- deploymentcheck
+- modulehealth
+- botheartbeat
+- commandtest
+- commandintegrity
+- checkcommands
+
+Host fallback NOT allowed for action/economy/game/write commands:
+- bal
+- send
+- tip
+- mine
+- poker
+- bj
+- rbj
+- buy
+- eventshop
+- buyevent
+- startevent
+- stopevent
+- any betting command
+- any purchase command
+- any balance-changing command
+- any mining write command
+
+PART 5 — Fix commandtest
+
+/commandtest must always be handled by Host.
+
+It must always reply, even for fake/unknown commands.
+
+Output examples:
+
+/commandtest /mine:
+ct: mine | owner=Miner | owner_online=true | host_handles=false | miner_handles=true | route=YES | handler=YES
+
+/commandtest /bal:
+ct: bal | owner=Banker | owner_online=true | host_handles=false | banker_handles=true | route=YES | handler=YES
+
+/commandtest /fakecommand:
+ct: fakecommand | owner=UNKNOWN | route=NO | handler=NO | fix=add_to_registry
+
+Do not let fake commands show owner=Main or all_handles=true.
+
+PART 6 — Fix command integrity commands
+
+Make these commands work:
+
+/commandintegrity
+Shows:
+Command Integrity:
+Known: X
+Routed: X
+Handlers OK: X
+Missing Routes: X
+Missing Handlers: X
+Missing Owners: X
+Unsafe Fallbacks: X
+Duplicate Risks: X
+
+/checkcommands
+Shows a compact list of broken commands.
+
+/fixcommands
+Admin/owner only.
+Repairs command ownership rows in the database from the registry.
+
+/commandrepair
+Owner only.
+Rebuilds command ownership metadata from the registry.
+
+PART 7 — Fix bots, modes, and token mapping
+
+Important:
+Do not print, expose, or hardcode BOT_TOKEN values.
+
+Verify the environment variable names and bot mode mapping only.
+
+Each bot process should use:
+- BOT_ID
+- BOT_MODE
+- BOT_USERNAME
+- BOT_TOKEN
+- ROOM_ID
+- SHARED_DB_PATH
+
+Expected bot modes:
+- host
+- banker
+- miner
+- poker
+- blackjack
+- shopkeeper
+- eventhost
+- dj
+- security
+
+Verify the launch system starts each intended bot with the correct BOT_MODE:
+- EmceeBot = host
+- BankingBot = banker
+- GreatestProspector = miner
+- ChipSoprano = poker
+- Blackjack bot = blackjack
+- Shop bot = shopkeeper
+- Events bot = eventhost
+- DJ bot = dj
+- Security bot = security
+
+If the project stores multiple bot tokens in environment variables, verify the variable names match the launcher.
+Example:
+HOST_BOT_TOKEN -> BOT_MODE=host
+BANKER_BOT_TOKEN -> BOT_MODE=banker
+MINER_BOT_TOKEN -> BOT_MODE=miner
+POKER_BOT_TOKEN -> BOT_MODE=poker
+BLACKJACK_BOT_TOKEN -> BOT_MODE=blackjack
+SHOP_BOT_TOKEN -> BOT_MODE=shopkeeper
+EVENTHOST_BOT_TOKEN -> BOT_MODE=eventhost
+DJ_BOT_TOKEN -> BOT_MODE=dj
+SECURITY_BOT_TOKEN -> BOT_MODE=security
+
+Do not show token values in logs or chat.
+
+PART 8 — Health checks
+
+Make these consistent:
+/bots
+/bothealth
+/modulehealth
+/botheartbeat
+/deploymentcheck
+
+They should use fresh heartbeat status, not stale enabled flags.
+
+A bot should only show ON if:
+- enabled=true
+- status=online
+- last_heartbeat_at is fresh within 90 seconds
+
+PART 9 — Real command tests
+
+After restructuring, test and report results for:
+
+Host:
+- /help
+- /bots
+- /bothealth
+- /commandintegrity
+- /checkcommands
+- /commandtest /fakecommand
+
+Banker:
+- /bal
+- /send
+
+Miner:
+- /mine
+- /ores
+- /tool
+
+Poker:
+- /pokerhelp
+- /poker
+
+Blackjack:
+- /bjhelp
+- /rbjhelp
+
+Shop:
+- /shop
+- /shophelp
+- /badges
+- /buy
+
+Events:
+- /eventhelp
+- /event
+- /events
+- /eventstatus
+- /autogames
+- /autoevents
+
+DJ:
+- /emotehelp
+- /emotes
+
+Security:
+- /reporthelp
+- /modhelp
+
+PART 10 — Do not touch these:
+- Actual bot token values
+- ROOM_ID value
+- Player balances
+- Poker table state
+- Blackjack table state
+- Mining inventory/rewards
+- Shop prices
+- Event rewards
+- User data
+
+After finishing, tell me:
+1. Which files changed
+2. Which command registry file was created or updated
+3. How many commands are registered
+4. How many handlers are valid
+5. Which commands were missing handlers
+6. Which commands were repaired
+7. Which bot modes are launched
+8. What exact commands I should test in Highrise

@@ -530,10 +530,16 @@ async def handle_commandtest(bot: BaseBot, user: User, args: list[str]) -> None:
             online_s = str(owner_online).lower()
             host_s   = str(host_handles).lower()
             owner_s  = str(owner_handles).lower()
+            # handler = command is in the central registry
+            try:
+                from modules.command_registry import get_entry as _reg_get
+                handler_s = "YES" if _reg_get(cmd) is not None else "NO"
+            except Exception:
+                handler_s = route_s   # fallback: assume routed = has handler
             msg = (
                 f"ct: {cmd} | owner={owner_name} | owner_online={online_s}"
                 f" | host_handles={host_s} | {owner_mode}_handles={owner_s}"
-                f" | route={route_s}"
+                f" | route={route_s} | handler={handler_s}"
             )
     except Exception as exc:
         msg = f"ct: {cmd} | error:{str(exc)[:100]}"
@@ -638,26 +644,32 @@ async def handle_commandintegrity(bot: BaseBot, user: User, all_known: set) -> N
     missing = len(all_known - ROUTED_COMMANDS)
     in_help = len(HELP_CMDS & ROUTED_COMMANDS)
     silent  = len(SILENT_RISK_CMDS)
-    no_owner = dup_risk = -1
+    no_owner = dup_risk = reg_total = unregistered = -1
     try:
         from modules.multi_bot import _DEFAULT_COMMAND_OWNERS, _HARD_OWNER_MODES
         owned_set  = set(_DEFAULT_COMMAND_OWNERS.keys())
         no_owner   = len(all_known - owned_set)
         hard_owned = {c for c, m in _DEFAULT_COMMAND_OWNERS.items()
                       if m in _HARD_OWNER_MODES}
-        # dup_risk: hard-module cmds that are also in host's ROUTED_COMMANDS
-        # (they're blocked by should_this_bot_handle, but still worth tracking)
         dup_risk   = len(ROUTED_COMMANDS & hard_owned)
     except Exception:
         pass
+    try:
+        from modules.command_registry import REGISTRY, alias_map as _amap
+        reg_total    = len(REGISTRY)
+        reg_all      = set(REGISTRY) | set(_amap)
+        unregistered = len(all_known - reg_all)
+    except Exception:
+        pass
     print(f"[INTEGRITY] @{user.username}: known={len(all_known)} routed={routed} "
-          f"missing={missing} no_owner={no_owner} dup={dup_risk} silent={silent}")
+          f"missing={missing} no_owner={no_owner} reg={reg_total} "
+          f"unreg={unregistered} dup={dup_risk} silent={silent}")
     await _w(bot, user.id,
-             f"Integrity: Known={len(all_known)} Routed={routed} "
-             f"Help={in_help} Missing={missing}"[:249])
+             f"Integrity: Registry={reg_total} Known={len(all_known)} "
+             f"Routed={routed} Help={in_help} Missing={missing}"[:249])
     await _w(bot, user.id,
-             f"  NoOwner={no_owner} Silent={silent} "
-             f"DupRisk={dup_risk} (0=clean)"[:249])
+             f"  Unregistered={unregistered} NoOwner={no_owner} "
+             f"Silent={silent} DupRisk={dup_risk} (0=clean)"[:249])
 
 
 # ---------------------------------------------------------------------------
