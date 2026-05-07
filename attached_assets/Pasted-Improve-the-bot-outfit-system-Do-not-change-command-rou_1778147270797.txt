@@ -1,0 +1,88 @@
+Improve the bot outfit system.
+
+Do not change command routing, bot ownership, bot tokens, room ID, economy, mining, poker, blackjack, bank settings, or database user balances.
+
+Focus only on modules/bot_modes.py and any required database helpers.
+
+Current outfit system:
+- /botoutfit shows current outfit name.
+- /botoutfits lists saved mode outfits.
+- /dressbot <mode_id> applies saved outfit_data_json if available.
+- /savebotoutfit <mode_id> tries to save the bot’s current outfit.
+- Some functions currently say outfit change is not supported by API.
+
+Goals:
+1. Make the bot outfit feature more useful and reliable.
+2. Include all bot mode outfits in /botoutfits.
+3. Add paginated outfit listing if the message is too long.
+4. Add saved outfit details:
+   - mode_id
+   - outfit_name
+   - whether outfit_data_json exists
+   - item count if available
+   - last updated time
+5. Improve /botoutfit to show:
+   - current bot mode
+   - outfit name
+   - saved outfit data: YES/NO
+   - item count if available
+
+Add these commands:
+1. /botoutfits [page]
+   Shows all outfits in pages.
+
+2. /botoutfit <mode_id>
+   Shows details for one mode outfit.
+
+3. /savebotoutfit <mode_id> [name]
+   Saves the current bot outfit into that mode.
+   If name is included, update outfit_name too.
+
+4. /dressbot <mode_id>
+   Applies the saved outfit data for that mode.
+   If outfit data is missing, clearly say:
+   “No saved outfit data for this mode. Dress the bot manually, then use /savebotoutfit <mode_id>.”
+
+5. /copyoutfit <username> <mode_id>
+   Attempts to copy a user’s outfit and save it to a bot mode.
+   Important:
+   - First check whether the Highrise SDK supports reading another user’s outfit.
+   - If supported, save that user’s outfit into outfit_data_json for the selected mode.
+   - If not supported, reply:
+     “Copying another user’s outfit is not supported by this SDK. Ask the user to dress the bot manually, then use /savebotoutfit <mode_id>.”
+   - Do not crash if the target user is offline or outfit access fails.
+
+6. /wearuseroutfit <username>
+   Attempts to make the bot wear the user’s outfit immediately.
+   Same SDK rules:
+   - If supported, apply it.
+   - If not supported, show a friendly unavailable message.
+   - Do not crash.
+
+7. /renamebotoutfit <mode_id> <name>
+   Renames the saved outfit for that mode.
+
+8. /clearbotoutfit <mode_id>
+   Clears saved outfit_data_json for that mode but keeps the mode.
+
+Permissions:
+- /botoutfit and /botoutfits can be public.
+- /savebotoutfit, /dressbot, /copyoutfit, /wearuseroutfit, /renamebotoutfit, and /clearbotoutfit must be admin/owner only.
+
+Database:
+- Reuse existing bot_modes.outfit_name and outfit_data_json if possible.
+- If needed, add updated_at tracking.
+- Do not delete existing saved outfits.
+
+Safety:
+- Never expose bot tokens.
+- Never expose raw outfit JSON in chat.
+- If outfit JSON is long, only show item count and status.
+- Add try/except around all SDK outfit calls.
+- Log full errors to console, but whisper short friendly errors to the user.
+
+After changes, tell me:
+- which files changed
+- which commands were added
+- whether copying another user’s outfit is supported by the installed SDK
+- what commands I should test

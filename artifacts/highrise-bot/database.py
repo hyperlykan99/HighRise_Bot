@@ -1244,11 +1244,15 @@ def _migrate_db():
     conn.execute("UPDATE mining_items SET sell_value = 100 WHERE item_id = 'quartz'     AND sell_value < 100")
 
     # ── Emoji badge price rebalance (2026-05) ────────────────────────────────
-    # Common raised 500c → 1,500c; uncommon raised 2,500c → 7,500c.
-    # Rare/epic/legendary/mythic are intentionally unchanged.
+    # common 500c→1,500c; uncommon 2,500c→7,500c; rare 10,000c→25,000c.
+    # epic/legendary/mythic are intentionally unchanged.
     # Condition guards make these safe no-ops if already at the new value.
-    conn.execute("UPDATE emoji_badges SET price = 1500 WHERE rarity = 'common'   AND price < 1500 AND source = 'shop'")
-    conn.execute("UPDATE emoji_badges SET price = 7500 WHERE rarity = 'uncommon' AND price < 7500 AND source = 'shop'")
+    conn.execute("UPDATE emoji_badges SET price = 1500  WHERE rarity = 'common'   AND price < 1500  AND source = 'shop'")
+    conn.execute("UPDATE emoji_badges SET price = 7500  WHERE rarity = 'uncommon' AND price < 7500  AND source = 'shop'")
+    # Rare raised 10,000c → 25,000c so the rarity ladder keeps a consistent ~3× step
+    # between each tier (uncommon 7,500 → rare 25,000 = 3.3×, matching rare→epic 2×,
+    # epic→legendary 3×, legendary→mythic 3.3×).  Previously the gap was only 1.3×.
+    conn.execute("UPDATE emoji_badges SET price = 25000 WHERE rarity = 'rare'     AND price < 25000 AND source = 'shop'")
 
     conn.commit()
     conn.close()
@@ -5738,17 +5742,17 @@ _BADGE_SEED: list[tuple] = [
     ("gamepad","🎮","Gamepad","uncommon",7500,1,1,1,"shop"),
     ("diceroll","🎲","Dice","uncommon",7500,1,1,1,"shop"),
     ("target","🎯","Target","uncommon",7500,1,1,1,"shop"),
-    # Rare 10000c
-    ("diamond","💎","Diamond","rare",10000,1,1,1,"shop"),
-    ("crown","👑","Crown","rare",10000,1,1,1,"shop"),
-    ("butterfly","🦋","Butterfly","rare",10000,1,1,1,"shop"),
-    ("wyrm","🐉","Wyrm","rare",10000,1,1,1,"shop"),
-    ("eagle","🦅","Eagle","rare",10000,1,1,1,"shop"),
-    ("wolf","🐺","Wolf","rare",10000,1,1,1,"shop"),
-    ("fox","🦊","Fox","rare",10000,1,1,1,"shop"),
-    ("panda","🐼","Panda","rare",10000,1,1,1,"shop"),
-    ("lion","🦁","Lion","rare",10000,1,1,1,"shop"),
-    ("tiger","🐯","Tiger","rare",10000,1,1,1,"shop"),
+    # Rare 25000c  (3.3× uncommon — keeps the rarity ladder consistent)
+    ("diamond","💎","Diamond","rare",25000,1,1,1,"shop"),
+    ("crown","👑","Crown","rare",25000,1,1,1,"shop"),
+    ("butterfly","🦋","Butterfly","rare",25000,1,1,1,"shop"),
+    ("wyrm","🐉","Wyrm","rare",25000,1,1,1,"shop"),
+    ("eagle","🦅","Eagle","rare",25000,1,1,1,"shop"),
+    ("wolf","🐺","Wolf","rare",25000,1,1,1,"shop"),
+    ("fox","🦊","Fox","rare",25000,1,1,1,"shop"),
+    ("panda","🐼","Panda","rare",25000,1,1,1,"shop"),
+    ("lion","🦁","Lion","rare",25000,1,1,1,"shop"),
+    ("tiger","🐯","Tiger","rare",25000,1,1,1,"shop"),
     # Epic 50000c
     ("galaxy","🌌","Galaxy","epic",50000,1,1,1,"shop"),
     ("shootingstar","🌠","Shooting Star","epic",50000,1,1,1,"shop"),

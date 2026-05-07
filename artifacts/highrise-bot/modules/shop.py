@@ -41,17 +41,27 @@ from modules.achievements import check_achievements
 # ---------------------------------------------------------------------------
 
 BADGES: dict[str, dict] = {
+    # ── Entry tier (~0–0.1 days of mining) ──────────────────────────────────
+    # Instantly affordable. First-session purchases for any new player.
+    # Cosmetic badges (no benefits) priced equal to minor-benefit badges at
+    # this level since 250–750c is effectively free either way.
     "star_badge":      {"display": "⭐", "price": 250,    "description": "+1 XP/win",              "benefits": {"xp_bonus": 1}},
     "heart_badge":     {"display": "💖", "price": 250,    "description": "Cosmetic only"},
     "music_badge":     {"display": "🎵", "price": 500,    "description": "Cosmetic only"},
     "fire_badge":      {"display": "🔥", "price": 500,    "description": "+2 XP/win",              "benefits": {"xp_bonus": 2}},
     "dice_badge":      {"display": "🎲", "price": 750,    "description": "+2% coinflip payout",    "benefits": {"coinflip_payout_pct": 2.0}},
+    # ── Early grind tier (~0.2–0.5 days) ────────────────────────────────────
+    # Require saving up for 1–3 mining sessions. Real first upgrades.
     "skull_badge":     {"display": "💀", "price": 1_500,  "description": "+3 XP/win",              "benefits": {"xp_bonus": 3}},
     "lightning_badge": {"display": "⚡", "price": 2_000,  "description": "-5s coinflip cooldown",  "benefits": {"cooldown_reduction": 5}},
     "gem_badge":       {"display": "💎", "price": 3_000,  "description": "+5 daily coins",         "benefits": {"daily_coins_bonus": 5}},
+    # ── Mid-game tier (~0.75–1.5 days) ──────────────────────────────────────
+    # Multi-day goals for established players. Noticeable benefit step-ups.
     "crown_badge":     {"display": "👑", "price": 5_000,  "description": "+5 XP/win",              "benefits": {"xp_bonus": 5}},
     "angel_badge":     {"display": "😇", "price": 8_000,  "description": "+10 daily coins",        "benefits": {"daily_coins_bonus": 10}},
     "dragon_badge":    {"display": "🐉", "price": 10_000, "description": "+10 XP/win",             "benefits": {"xp_bonus": 10}},
+    # ── Upper tier (~2.25–3.75 days) ────────────────────────────────────────
+    # Week-long goals. Meaningful prestige and strongest per-badge bonuses.
     "demon_badge":     {"display": "😈", "price": 15_000, "description": "+5% coinflip payout",    "benefits": {"coinflip_payout_pct": 5.0}},
     "trophy_badge":    {"display": "🏆", "price": 25_000, "description": "+15 XP/win",             "benefits": {"xp_bonus": 15}},
 }
