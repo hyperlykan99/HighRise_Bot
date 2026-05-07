@@ -359,6 +359,29 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "setemoteloopinterval": "dj",
     # poker — all-in alias
     "all-in": "poker",
+    # ── New commands added in 7-part upgrade (missing from registry) ──────────
+    # host — AI delegations + bot outfit management
+    "aidelegations": "host",
+    "copyoutfit": "host", "wearuseroutfit": "host",
+    "renamebotoutfit": "host", "clearbotoutfit": "host",
+    # host — bot spawn management
+    "setbotspawn": "host", "setbotspawnhere": "host",
+    "botspawns": "host", "clearbotspawn": "host",
+    # host — command registry repair alias
+    "fixcommandregistry": "host",
+    # dj — emote info
+    "emoteinfo": "dj",
+    # eventhost — events / autogames (new)
+    "adminsblessing": "eventhost", "adminblessing": "eventhost",
+    "eventresume": "eventhost",
+    "autogamestatus": "eventhost", "autogameresume": "eventhost",
+    # miner — mining admin (new)
+    "mineconfig": "miner", "mineeventstatus": "miner",
+    # poker — pace / stack / deal status (new)
+    "pokermode": "poker",
+    "pokerpace": "poker", "setpokerpace": "poker",
+    "pokerstacks": "poker", "setpokerstack": "poker",
+    "dealstatus": "poker",
 }
 
 # Friendly display names for modes

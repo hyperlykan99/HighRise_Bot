@@ -1,0 +1,83 @@
+Fix command integrity after the massive update.
+
+Current Highrise test:
+/checkcommands all
+
+Result:
+Known 678
+Active 621
+Hidden 57
+Routed 598
+Missing 23
+NoOwner 23
+
+Also:
+/commandissues returns Unknown command, even though /checkcommands says to use /commandissues for details.
+
+Do not change bot tokens.
+Do not change room ID.
+Do not change player balances.
+Do not change economy values.
+Do not change poker state.
+Do not change blackjack/RBJ state.
+Do not change mining rewards.
+Do not change event rewards.
+Only fix command registry, command routing, command ownership, and diagnostic commands.
+
+Tasks:
+
+1. Fix /commandissues
+- Make /commandissues a real routed command.
+- It should show the exact Missing commands and NoOwner commands.
+- It should be owner/admin only if needed.
+- It should paginate if the list is long.
+- It should show:
+  command name
+  route YES/NO
+  handler YES/NO
+  owner mode
+  owner online true/false
+
+2. Fix all 23 Missing commands
+- Compare the known/active command list against main.py route handlers.
+- For every active command that has no route, either:
+  A. add the route to the correct existing handler, or
+  B. if it was accidentally listed but not implemented, move it to hidden/deprecated instead of active.
+- Do not leave active commands with route=NO.
+
+3. Fix all 23 NoOwner commands
+- Add each missing command to the multi-bot owner map.
+- Suggested ownership:
+  AI commands: host
+  commandissues/checkcommands/commandtest: host
+  bank/economy: banker
+  mining: miner
+  poker: poker
+  blackjack/RBJ: blackjack
+  shop: shopkeeper
+  events/autogames: eventhost
+  emotes/DJ/social: dj or host
+  security/moderation: security
+  room teleport/spawn/botspawn: host or security, whichever the existing map uses
+  outfit commands: host for AI/status, target bot/delegation for execution
+
+4. Add a repair helper
+- Add or fix /fixcommandregistry if it exists, or create it.
+- It should not change gameplay data.
+- It should only sync command registry/owner map if safe.
+
+5. Update /checkcommands all
+After fixes, it should show:
+Missing 0
+NoOwner 0
+
+6. Do not create dummy handlers that pretend to work.
+If a command is not implemented, mark it hidden/deprecated instead of active.
+
+7. After fixing, tell me:
+- the 23 Missing commands
+- the 23 NoOwner commands
+- which ones were routed
+- which ones were assigned owners
+- which ones were hidden/deprecated
+- what commands I should test

@@ -300,6 +300,23 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     "commandissues",
     # ── AI assistant ──────────────────────────────────────────────────────────
     "ask", "ai", "assistant", "pendingaction", "confirm", "aidebug", "aicapabilities",
+    "aidelegations",
+    # ── Bot-mode outfit commands (pre-existing, routed but previously unregistered) ──
+    "copyoutfit", "wearuseroutfit", "renamebotoutfit", "clearbotoutfit",
+    # ── Emote extensions ─────────────────────────────────────────────────────
+    "emoteinfo",
+    # ── Bot spawns ────────────────────────────────────────────────────────────
+    "setbotspawn", "setbotspawnhere", "botspawns", "clearbotspawn",
+    # ── Events (new) ──────────────────────────────────────────────────────────
+    "adminsblessing", "adminblessing", "eventresume",
+    "autogamestatus", "autogameresume",
+    # ── Mining (new) ──────────────────────────────────────────────────────────
+    "mineconfig", "mineeventstatus",
+    # ── Poker pace / stack / deal (new) ──────────────────────────────────────
+    "pokermode", "pokerpace", "setpokerpace",
+    "pokerstacks", "setpokerstack", "dealstatus",
+    # ── Command registry repair ───────────────────────────────────────────────
+    "fixcommandregistry",
 })
 
 # ---------------------------------------------------------------------------

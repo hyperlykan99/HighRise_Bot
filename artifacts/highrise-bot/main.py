@@ -492,6 +492,7 @@ ADMIN_ONLY_CMDS = {
     "checkcommands", "checkhelp",
     "missingcommands", "routecheck", "silentcheck", "commandtest",
     "fixcommands", "testcommands",
+    "commandintegrity", "commandrepair", "commandissues",
     # ── Economy settings ─────────────────────────────────────────────────────
     "setdailycoins", "setgamereward", "settransferfee",
     # ── Event aliases ────────────────────────────────────────────────────────
@@ -522,6 +523,7 @@ OWNER_ONLY_CMDS = {
     "softrestart",
     "restartbot",
     "testnotifyall",
+    "fixcommandregistry",
 }
 
 STAFF_CMDS = MOD_ONLY_CMDS | MANAGER_ONLY_CMDS | ADMIN_ONLY_CMDS | OWNER_ONLY_CMDS
@@ -578,6 +580,7 @@ ALL_KNOWN_COMMANDS = (
         "allstaff", "allcommands", "checkcommands", "commandaudit",
         "missingcommands", "routecheck", "silentcheck", "commandtest",
         "fixcommands", "testcommands", "commandintegrity", "commandrepair",
+        "commandissues", "fixcommandregistry",
         "notifications", "clearnotifications",
         "delivernotifications", "pendingnotifications",
         "subscribe", "unsubscribe", "substatus", "subhelp",
@@ -2131,6 +2134,8 @@ class HangoutBot(BaseBot):
             elif cmd == "commandintegrity":
                 await handle_commandintegrity(self, user, ALL_KNOWN_COMMANDS)
             elif cmd == "commandrepair":
+                await handle_commandrepair(self, user)
+            elif cmd == "fixcommandregistry":
                 await handle_commandrepair(self, user)
             elif cmd == "commandissues":
                 await handle_commandissues(self, user, args, ALL_KNOWN_COMMANDS)
