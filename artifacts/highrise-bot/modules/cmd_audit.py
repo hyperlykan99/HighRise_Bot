@@ -304,6 +304,9 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     # ── Bot-mode outfit commands (pre-existing, routed but previously unregistered) ──
     "dressbot", "savebotoutfit", "botoutfitstatus",
     "copyoutfit", "wearuseroutfit", "renamebotoutfit", "clearbotoutfit",
+    # ── Per-bot self-managing outfit commands ──────────────────────────────────────
+    "copymyoutfit", "copyoutfitfrom", "savemyoutfit", "wearoutfit",
+    "myoutfits", "myoutfitstatus",
     # ── Emote extensions ─────────────────────────────────────────────────────
     "emoteinfo",
     # ── Bot spawns ────────────────────────────────────────────────────────────

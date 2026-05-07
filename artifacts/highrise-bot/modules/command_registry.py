@@ -310,6 +310,13 @@ REGISTRY: dict[str, Cmd] = {
     "wearuseroutfit":   Cmd("host","botmode", True, False, True, perm="manager"),
     "renamebotoutfit":  Cmd("host","botmode", True, False, True, perm="manager"),
     "clearbotoutfit":   Cmd("host","botmode", True, False, True, perm="manager"),
+    # Per-bot self-managing outfit commands
+    "copymyoutfit":     Cmd("host","botmode", True, False, True, perm="admin"),
+    "copyoutfitfrom":   Cmd("host","botmode", True, False, True, perm="admin"),
+    "savemyoutfit":     Cmd("host","botmode", True, False, True, perm="admin"),
+    "wearoutfit":       Cmd("host","botmode", True, False, True, perm="admin"),
+    "myoutfits":        Cmd("host","botmode", True, True,  False, perm="admin"),
+    "myoutfitstatus":   Cmd("host","botmode", True, True,  False, perm="admin"),
 
     # ── DJ: emote info (new) ─────────────────────────────────────────────────
     "emoteinfo":        Cmd("dj","social", True, True, False),

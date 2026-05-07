@@ -320,6 +320,9 @@ from modules.bot_modes import (
     handle_dressbot, handle_savebotoutfit,
     handle_copyoutfit, handle_wearuseroutfit,
     handle_renamebotoutfit, handle_clearbotoutfit,
+    handle_copymyoutfit, handle_copyoutfitfrom,
+    handle_savemyoutfit, handle_wearoutfit,
+    handle_myoutfits, handle_myoutfitstatus, handle_outfitredirect,
     handle_createbotmode, handle_deletebotmode, handle_assignbotmode,
     handle_bots, handle_botinfo, handle_botoutfitlogs,
     handle_botmodehelp,
@@ -678,6 +681,9 @@ ALL_KNOWN_COMMANDS = (
         "dressbot", "savebotoutfit",
         "copyoutfit", "wearuseroutfit",
         "renamebotoutfit", "clearbotoutfit",
+        "copymyoutfit", "copyoutfitfrom",
+        "savemyoutfit", "wearoutfit",
+        "myoutfits", "myoutfitstatus",
         "createbotmode", "deletebotmode", "assignbotmode",
         "botoutfitlogs",
         # ── Control panel ─────────────────────────────────────────────────────
@@ -3882,6 +3888,18 @@ class HangoutBot(BaseBot):
             await handle_copyoutfit(self, user, args)
         elif cmd == "wearuseroutfit":
             await handle_wearuseroutfit(self, user, args)
+        elif cmd == "copymyoutfit":
+            await handle_copymyoutfit(self, user, args)
+        elif cmd == "copyoutfitfrom":
+            await handle_copyoutfitfrom(self, user, args)
+        elif cmd == "savemyoutfit":
+            await handle_savemyoutfit(self, user, args)
+        elif cmd == "wearoutfit":
+            await handle_wearoutfit(self, user, args)
+        elif cmd == "myoutfits":
+            await handle_myoutfits(self, user, args)
+        elif cmd == "myoutfitstatus":
+            await handle_myoutfitstatus(self, user, args)
         elif cmd == "renamebotoutfit":
             await handle_renamebotoutfit(self, user, args)
         elif cmd == "clearbotoutfit":

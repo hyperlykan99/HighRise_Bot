@@ -1,0 +1,108 @@
+Simplify the bot outfit system.
+
+I no longer want EmceeBot to change other bots’ outfits through delegation.
+
+Instead, each bot should manage its own outfit when I talk directly to that bot.
+
+Do not change bank AI.
+Do not change send intent.
+Do not change balances.
+Do not change economy.
+Do not change poker, blackjack, mining, events, shop, room ID, or bot tokens.
+
+Goal:
+If I want to change SecurityBot/KeanuShield outfit, I will talk directly to KeanuShield.
+If I want to change BankingBot outfit, I will talk directly to BankingBot.
+If I want to change Miner bot outfit, I will talk directly to GreatestProspector.
+
+Examples:
+- “KeanuShield, copy my outfit”
+- “KeanuShield, wear my outfit”
+- “KeanuShield, save this outfit as security”
+- “KeanuShield, wear security outfit”
+- “BankingBot, copy my outfit”
+- “BankingBot, save this outfit as banker”
+- “GreatestProspector, wear miner outfit”
+- “ChipSoprano, save this outfit as poker”
+
+Important rule:
+Only the bot being called should respond and apply outfit to itself.
+No delegation needed.
+EmceeBot should not handle outfit changes for other bots anymore.
+
+Trigger rules:
+1. If message mentions the current bot username, that bot may process outfit commands.
+2. If message does not mention the current bot username, ignore it.
+3. Matching should be case-insensitive.
+4. Support @username and username without @.
+
+Natural outfit commands:
+
+1. Copy user outfit to this bot:
+- “<BotName>, copy my outfit”
+- “<BotName>, wear my outfit”
+- “<BotName>, copy @username outfit”
+- “<BotName>, wear @username outfit”
+
+Behavior:
+- This bot reads the source user outfit if SDK supports it.
+- This bot applies the outfit to itself.
+- If SDK cannot read another user outfit, say:
+  “I can’t copy user outfits with this SDK. Dress me manually, then say ‘save this outfit as <name>.’”
+
+2. Save this bot’s current outfit:
+- “<BotName>, save this outfit as security”
+- “<BotName>, save current outfit as banker”
+- “<BotName>, remember this outfit as miner”
+
+Behavior:
+- This bot saves its current outfit data under the given mode/name.
+- Do not expose raw outfit JSON.
+
+3. Wear saved outfit:
+- “<BotName>, wear security outfit”
+- “<BotName>, dress as security”
+- “<BotName>, use banker outfit”
+- “<BotName>, switch to miner outfit”
+
+Behavior:
+- This bot applies its saved outfit data for that name/mode.
+- If no saved outfit exists, say:
+  “No saved outfit named <name>. Dress me manually, then say ‘save this outfit as <name>.’”
+
+4. Show outfit info:
+- “<BotName>, outfit status”
+- “<BotName>, what outfit are you using?”
+- “<BotName>, list outfits”
+
+Behavior:
+- Show saved outfit names/modes for this bot.
+- Show whether outfit data exists.
+- Do not expose raw JSON.
+
+Slash commands to support per bot:
+- /copymyoutfit
+- /copyoutfitfrom <username>
+- /savemyoutfit <name>
+- /wearoutfit <name>
+- /myoutfits
+- /myoutfitstatus
+
+Permissions:
+- Outfit change/save commands should be owner/admin only.
+- Outfit status/list can be owner/admin only for now.
+
+Remove or disable complicated cross-bot outfit delegation for now:
+- Do not rely on EmceeBot delegating outfit changes.
+- Do not require /aidelegations for outfit changes.
+- Keep /aidelegations if other AI systems use it, but do not use it for bot outfits right now.
+
+Update AI behavior:
+- If user says “Emcee, copy my outfit to KeanuShield,” Emcee should reply:
+  “Please talk directly to @KeanuShield: ‘KeanuShield, copy my outfit.’ Each bot must change its own outfit.”
+
+After finishing, tell me:
+- which files changed
+- what commands were added
+- how each bot detects it is being called
+- what exact messages I should test

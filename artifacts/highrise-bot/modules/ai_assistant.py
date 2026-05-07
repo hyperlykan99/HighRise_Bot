@@ -89,6 +89,10 @@ _RISK: dict[str, str] = {
     # Outfit
     "dressbot": ADMIN_CONFIRM, "copyoutfit": ADMIN_CONFIRM,
     "wearuseroutfit": ADMIN_CONFIRM, "savebotoutfit": ADMIN_CONFIRM,
+    # Per-bot self-managing outfit commands
+    "copymyoutfit": ADMIN_CONFIRM, "copyoutfitfrom": ADMIN_CONFIRM,
+    "savemyoutfit": ADMIN_CONFIRM, "wearoutfit": ADMIN_CONFIRM,
+    "myoutfits": SAFE, "myoutfitstatus": SAFE, "outfitredirect": SAFE,
     # Poker settings
     "poker": ADMIN_CONFIRM,
     "setpokerdailywinlimit": ADMIN_CONFIRM, "setpokerdailylosslimit": ADMIN_CONFIRM,
@@ -127,6 +131,9 @@ _CATEGORY: dict[str, str] = {
     "dressbot": "outfit", "copyoutfit": "outfit",
     "wearuseroutfit": "outfit", "savebotoutfit": "outfit",
     "botoutfits": "outfit", "botoutfit": "outfit",
+    "copymyoutfit": "outfit", "copyoutfitfrom": "outfit",
+    "savemyoutfit": "outfit", "wearoutfit": "outfit",
+    "myoutfits": "outfit", "myoutfitstatus": "outfit",
     "me": "profile", "profile": "profile", "stats": "profile",
     "quests": "profile", "questhelp": "profile", "dailyquests": "profile",
     "poker": "poker",
@@ -140,9 +147,8 @@ _CATEGORY: dict[str, str] = {
 # Commands that may require cross-bot delegation (outfit on another bot's account)
 # ---------------------------------------------------------------------------
 
-_DELEGATABLE_CMDS: frozenset[str] = frozenset({
-    "dressbot", "wearuseroutfit", "savebotoutfit",
-})
+_DELEGATABLE_CMDS: frozenset[str] = frozenset()
+# Delegation removed — each bot manages its own outfit directly.
 
 # Sentinel for "use the requesting user's own username"
 _ME_SENTINEL = "__ME__"
@@ -496,92 +502,128 @@ _INTENTS: list[tuple] = [
      lambda m, t: f"teleport you to @{(m.group(2) or m.group(3)).lstrip('@')}"),
 
     # ────────────────────────────────────────────────────────────────────────
-    # OUTFIT  — cross-bot patterns (target bot as first word) before local ones
-    # args_str format for delegatable: "TARGET_BOT_USERNAME rest_args"
-    # Use __ME__ sentinel for "my outfit" (requester's own outfit).
+    # OUTFIT — each bot manages its own outfit directly.
+    # Cross-bot patterns redirect the user to talk to the target bot.
+    # Self-targeting patterns run on THIS bot only.
     # ────────────────────────────────────────────────────────────────────────
 
-    # "dress KeanuShield as security" / "dress KeanuShield using security"
+    # -- Cross-bot redirect: "dress @KeanuShield as security"
     (re.compile(r"(dress|outfit)\s+@?(\w+)\s+(as|using|with)\s+(\w+)\b", re.I),
-     "dressbot",
-     lambda m, t: f"{m.group(2).lstrip('@').lower()} {m.group(4).lower()}",
-     lambda m, t: f"dress @{m.group(2).lstrip('@')} using the '{m.group(4).lower()}' saved outfit"),
+     "outfitredirect",
+     lambda m, t: f"{m.group(2).lstrip('@').lower()} wearoutfit",
+     lambda m, t: (
+         f"redirect: tell @{m.group(2).lstrip('@')} to wear '{m.group(4).lower()}' outfit"
+     )),
 
-    # "make KeanuShield look like/wear security (outfit)"
-    # Negative lookahead before the mode word prevents matching "my"/"your"/"@"
+    # -- Cross-bot redirect: "make @KeanuShield look like/wear security"
     (re.compile(
         r"make\s+@?(\w+)\s+(look\s+like|wear)\s+(?!my\b|your\b|@)(\w+)(?:\s+outfit)?\b",
         re.I),
-     "dressbot",
-     lambda m, t: f"{m.group(1).lstrip('@').lower()} {m.group(3).lower()}",
-     lambda m, t: f"dress @{m.group(1).lstrip('@')} using the '{m.group(3).lower()}' saved outfit"),
+     "outfitredirect",
+     lambda m, t: f"{m.group(1).lstrip('@').lower()} wearoutfit",
+     lambda m, t: (
+         f"redirect: tell @{m.group(1).lstrip('@')} to wear '{m.group(3).lower()}' outfit"
+     )),
 
-    # "copy my outfit to KeanuShield"
+    # -- Cross-bot redirect: "copy my outfit to @KeanuShield" /
+    #    "make @KeanuShield wear my outfit" / "have @KeanuShield wear my outfit"
     (re.compile(
         r"copy\s+my\s+outfit\s+to\s+@?(\w+)\b"
         r"|make\s+@?(\w+)\s+wear\s+my\s+outfit\b"
         r"|have\s+@?(\w+)\s+wear\s+my\s+outfit\b",
         re.I),
-     "wearuseroutfit",
-     lambda m, t: f"{(m.group(1) or m.group(2) or m.group(3)).lstrip('@').lower()} {_ME_SENTINEL}",
+     "outfitredirect",
      lambda m, t: (
-         f"copy your outfit to @{(m.group(1) or m.group(2) or m.group(3)).lstrip('@')}"
+         f"{(m.group(1) or m.group(2) or m.group(3)).lstrip('@').lower()} copymyoutfit"
+     ),
+     lambda m, t: (
+         f"redirect: tell @{(m.group(1) or m.group(2) or m.group(3)).lstrip('@')} "
+         f"to copy your outfit"
      )),
 
-    # "copy testuser outfit to KeanuShield" / "copy testuser to KeanuShield"
+    # -- Cross-bot redirect: "copy @testuser outfit to @KeanuShield"
     (re.compile(
         r"copy\s+@?([A-Za-z]\w+)[''s]*\s+outfit\s+to\s+@?(\w+)\b"
         r"|copy\s+@?([A-Za-z]\w+)\s+to\s+@?(\w+)\b(?!.*spawn)",
         re.I),
-     "wearuseroutfit",
+     "outfitredirect",
      lambda m, t: (
-         f"{(m.group(2) or m.group(4)).lstrip('@').lower()} "
-         f"{(m.group(1) or m.group(3)).lstrip('@').lower()}"
+         f"{(m.group(2) or m.group(4)).lstrip('@').lower()} copyoutfitfrom"
      ),
      lambda m, t: (
-         f"copy @{(m.group(1) or m.group(3)).lstrip('@')}'s outfit "
-         f"to @{(m.group(2) or m.group(4)).lstrip('@')}"
+         f"redirect: tell @{(m.group(2) or m.group(4)).lstrip('@')} "
+         f"to copy @{(m.group(1) or m.group(3)).lstrip('@')}'s outfit"
      )),
 
-    # "save KeanuShield outfit as security"
+    # -- Cross-bot redirect: "save @KeanuShield's outfit as security"
+    # Negative lookahead prevents matching "save this/my/current/bot outfit as ..."
     (re.compile(
-        r"save\s+@?(\w+)[''s]*\s+(?:current\s+)?outfit\s+(?:as|to|for)\s+(\w+)\b",
+        r"save\s+@?(?!this\b|my\b|current\b|bot\b|the\b)(\w+)[''s]*"
+        r"\s+(?:current\s+)?outfit\s+(?:as|to|for)\s+(\w+)\b",
         re.I),
-     "savebotoutfit",
-     lambda m, t: f"{m.group(1).lstrip('@').lower()} {m.group(2).lower()}",
-     lambda m, t: f"save @{m.group(1).lstrip('@')}'s current outfit as '{m.group(2).lower()}'"),
+     "outfitredirect",
+     lambda m, t: f"{m.group(1).lstrip('@').lower()} savemyoutfit",
+     lambda m, t: (
+         f"redirect: tell @{m.group(1).lstrip('@')} "
+         f"to save their outfit as '{m.group(2).lower()}'"
+     )),
 
-    # "save bot outfit as security" (local — no specific bot username)
-    (re.compile(r"save\s+bot\s+outfit\s+(?:as|to)\s+(\w+)\b", re.I),
-     "savebotoutfit",
-     lambda m, t: m.group(1).lower(),
-     lambda m, t: f"save bot's current outfit as '{m.group(1).lower()}'"),
-
-    # "make bot wear my/testuser outfit" (local)
-    (re.compile(r"make\s+(?:the\s+)?bot\s+wear\s+my\s+outfit\b", re.I),
-     "wearuseroutfit",
-     lambda m, t: _ME_SENTINEL,
-     lambda m, t: "make the bot wear your outfit"),
-
-    (re.compile(r"make\s+(?:the\s+)?bot\s+wear\s+@?([A-Za-z]\w+)[''s]*\s+outfit\b", re.I),
-     "wearuseroutfit",
-     lambda m, t: m.group(1).lstrip("@").lower(),
-     lambda m, t: f"make the bot wear @{m.group(1).lstrip('@')}'s outfit"),
-
-    # "copy my outfit to the bot" (local)
-    (re.compile(r"copy\s+my\s+outfit\s+to\s+(?:the\s+)?bot\b", re.I),
-     "wearuseroutfit",
-     lambda m, t: _ME_SENTINEL,
-     lambda m, t: "copy your outfit to the bot"),
-
-    # "show bot outfit status"
+    # -- Self: "copy my outfit" / "wear my outfit" / "copy my outfit to the bot" /
+    #    "make bot wear my outfit"
     (re.compile(
-        r"(show|list|view)\s+bot\s+(outfit|outfits|looks?)\b"
+        r"copy\s+my\s+outfit(?:\s+to\s+(?:the\s+)?bot)?\s*$"
+        r"|wear\s+my\s+outfit\b"
+        r"|make\s+(?:the\s+)?bot\s+wear\s+my\s+outfit\b",
+        re.I),
+     "copymyoutfit", _k(""), _k("copy your outfit onto this bot")),
+
+    # -- Self: "copy @user's outfit" / "make bot wear @user outfit"
+    (re.compile(
+        r"copy\s+@?([A-Za-z]\w+)[''s]*\s+outfit\b"
+        r"|make\s+(?:the\s+)?bot\s+wear\s+@?([A-Za-z]\w+)[''s]*\s+outfit\b",
+        re.I),
+     "copyoutfitfrom",
+     lambda m, t: (m.group(1) or m.group(2)).lstrip("@").lower(),
+     lambda m, t: f"copy @{(m.group(1) or m.group(2)).lstrip('@')}'s outfit to this bot"),
+
+    # -- Self: "save this/current/my/bot outfit as <name>" /
+    #    "remember this outfit as <name>"
+    (re.compile(
+        r"save\s+(?:this|current|my|bot)[''s]?\s+outfit\s+as\s+(\w+)\b"
+        r"|remember\s+(?:this|current)?\s+outfit\s+as\s+(\w+)\b"
+        r"|save\s+bot\s+outfit\s+(?:as|to)\s+(\w+)\b",
+        re.I),
+     "savemyoutfit",
+     lambda m, t: (m.group(1) or m.group(2) or m.group(3)).lower(),
+     lambda m, t: (
+         f"save this bot's current outfit as "
+         f"'{(m.group(1) or m.group(2) or m.group(3)).lower()}'"
+     )),
+
+    # -- Self: "wear <name> outfit" / "dress as <name>" / "switch to <name> outfit" /
+    #    "use <name> outfit"
+    (re.compile(
+        r"wear\s+(?:the\s+)?(\w+)\s+outfit\b"
+        r"|dress\s+(?:as|like)\s+(\w+)\b"
+        r"|switch\s+to\s+(?:the\s+)?(\w+)\s+(?:outfit|look)\b"
+        r"|use\s+(?:the\s+)?(\w+)\s+outfit\b",
+        re.I),
+     "wearoutfit",
+     lambda m, t: (m.group(1) or m.group(2) or m.group(3) or m.group(4)).lower(),
+     lambda m, t: (
+         f"apply the '{(m.group(1) or m.group(2) or m.group(3) or m.group(4)).lower()}'"
+         f" saved outfit on this bot"
+     )),
+
+    # -- Self: "show outfits" / "outfit status" / "list outfits" / "what am I wearing"
+    (re.compile(
+        r"(show|list|view)\s+(?:my\s+|bot\s+)?(outfit|outfits|looks?)\b"
         r"|bot\s+outfit\s+(status|list|info)\b"
+        r"|outfit\s+(status|list|info)\b"
         r"|what.*(bot|bots?)\s+(wearing|dressed|outfit)\b"
-        r"|what\s+is\s+@?(\w+)\s+wearing\b",
+        r"|what\s+(?:outfit\s+am\s+i|am\s+i\s+wearing)\b",
         re.I),
-     "botoutfits", _k(""), _k("show all bot saved outfits")),
+     "myoutfitstatus", _k(""), _k("show this bot's outfit status")),
 
     # ────────────────────────────────────────────────────────────────────────
     # PROFILE — specific user first, then generic "me"
@@ -852,9 +894,17 @@ _HANDLER_MAP: dict[str, tuple[str, str]] = {
     "setbotspawn":           ("modules.room_utils", "handle_setbotspawn"),
     "setbotspawnhere":       ("modules.room_utils", "handle_setbotspawnhere"),
     "clearbotspawn":         ("modules.room_utils", "handle_clearbotspawn"),
-    # ── Bot outfit (new) ─────────────────────────────────────────────────────────
+    # ── Bot outfit (pre-existing) ─────────────────────────────────────────────────
     "renamebotoutfit":       ("modules.bot_modes",  "handle_renamebotoutfit"),
     "clearbotoutfit":        ("modules.bot_modes",  "handle_clearbotoutfit"),
+    # ── Per-bot self-managing outfit commands ────────────────────────────────────
+    "copymyoutfit":          ("modules.bot_modes",  "handle_copymyoutfit"),
+    "copyoutfitfrom":        ("modules.bot_modes",  "handle_copyoutfitfrom"),
+    "savemyoutfit":          ("modules.bot_modes",  "handle_savemyoutfit"),
+    "wearoutfit":            ("modules.bot_modes",  "handle_wearoutfit"),
+    "myoutfits":             ("modules.bot_modes",  "handle_myoutfits"),
+    "myoutfitstatus":        ("modules.bot_modes",  "handle_myoutfitstatus"),
+    "outfitredirect":        ("modules.bot_modes",  "handle_outfitredirect"),
     # ── Events (new) ──────────────────────────────────────────────────────
     "adminsblessing":        ("modules.events",     "handle_adminsblessing"),
     "eventresume":           ("modules.events",     "handle_eventresume"),

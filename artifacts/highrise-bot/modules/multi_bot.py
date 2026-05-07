@@ -365,6 +365,9 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "botoutfitstatus": "host",
     "copyoutfit": "host", "wearuseroutfit": "host",
     "renamebotoutfit": "host", "clearbotoutfit": "host",
+    "copymyoutfit": "host", "copyoutfitfrom": "host",
+    "savemyoutfit": "host", "wearoutfit": "host",
+    "myoutfits": "host", "myoutfitstatus": "host",
     # host — bot spawn management
     "setbotspawn": "host", "setbotspawnhere": "host",
     "botspawns": "host", "clearbotspawn": "host",
