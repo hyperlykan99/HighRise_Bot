@@ -10,6 +10,7 @@ All messages ≤ 249 chars.
 
 import asyncio
 import random
+import time
 from datetime import datetime, timezone
 
 from highrise import BaseBot, User
@@ -24,8 +25,11 @@ from modules.permissions import (
 # Module-level state
 # ---------------------------------------------------------------------------
 
-# user_id → Position (updated from on_user_move)
+# user_id → Position (updated from on_user_move and on_user_join)
 _user_positions: dict[str, Position] = {}
+
+# user_id → unix timestamp of last position update
+_user_position_times: dict[str, float] = {}
 
 # Active emote loop tasks: username.lower() → asyncio.Task
 _emote_loops: dict[str, asyncio.Task] = {}
@@ -55,8 +59,9 @@ def _rset(key: str, value: str) -> None:
 
 
 def update_user_position(user_id: str, position: Position) -> None:
-    """Called from on_user_move in main.py to keep position cache fresh."""
+    """Called from on_user_move / on_user_join in main.py to keep position cache fresh."""
     _user_positions[user_id] = position
+    _user_position_times[user_id] = time.time()
 
 
 def _get_room_users_cached() -> dict[str, tuple[str, Position]]:
@@ -1800,16 +1805,35 @@ async def handle_setbotspawnhere(bot: BaseBot, user: User, args: list[str]) -> N
         await _w(bot, user.id, "Usage: /setbotspawnhere <bot_username>")
         return
     bot_username = args[1].lstrip("@").lower()
-    pos = _user_positions.get(user.username.lower())
+
+    # Primary: use cached position (keyed by user_id)
+    pos = _user_positions.get(user.id)
+
+    # Fallback: live SDK room user fetch
+    if not pos:
+        try:
+            resp = await bot.highrise.get_room_users()
+            if hasattr(resp, "content"):
+                for ru, rp in resp.content:
+                    if ru.id == user.id:
+                        if isinstance(rp, Position):
+                            pos = rp
+                            _user_positions[user.id]      = pos
+                            _user_position_times[user.id] = time.time()
+                        break
+        except Exception:
+            pass
+
     if not pos:
         await _w(bot, user.id,
-                 "Your position isn't tracked yet. Move around and try again.")
+                 "I don't have your position yet. Walk a few steps, then try again.")
         return
+
     x, y, z = pos.x, pos.y, pos.z
     facing   = getattr(pos, "facing", "FrontRight")
     db.set_bot_spawn(bot_username, "custom", x, y, z, str(facing), user.username)
     await _w(bot, user.id,
-             f"✅ Bot @{bot_username} spawn saved at your position ({x:.1f},{y:.1f},{z:.1f}).")
+             f"✅ Saved @{bot_username} spawn at your position ({x:.1f},{y:.1f},{z:.1f}).")
 
 
 async def handle_botspawns(bot: BaseBot, user: User) -> None:
@@ -1845,17 +1869,89 @@ async def handle_clearbotspawn(bot: BaseBot, user: User, args: list[str]) -> Non
 
 async def apply_bot_spawn(bot: BaseBot, bot_username: str) -> None:
     """Teleport the bot to its saved spawn. Called from on_start."""
-    from config import BOT_USERNAME as _MY_USERNAME
-    if bot_username.lower() != _MY_USERNAME.lower():
+    from modules.gold import get_bot_username as _get_live_uname
+    live_uname = _get_live_uname()
+    if not live_uname:
+        # Fall back to passed-in name (may still be empty on very early calls)
+        live_uname = bot_username
+    if not live_uname:
         return
-    row = db.get_bot_spawn(bot_username)
+    row = db.get_bot_spawn(live_uname)
     if not row:
+        print(f"[BOT_SPAWN] bot={live_uname} spawn_found=false")
         return
+    print(f"[BOT_SPAWN] bot={live_uname} spawn_found=true "
+          f"x={row['x']} y={row['y']} z={row['z']}")
     try:
         from highrise.models import Position
         pos = Position(x=row["x"], y=row["y"], z=row["z"])
         await bot.highrise.walk_to(pos)
-        print(f"[BOT_SPAWN] @{bot_username} teleported to spawn "
-              f"'{row['spawn_name']}' ({row['x']},{row['y']},{row['z']})")
+        print(f"[BOT_SPAWN] bot={live_uname} moved=success "
+              f"spawn={row['spawn_name']}")
     except Exception as exc:
-        print(f"[BOT_SPAWN] spawn failed for @{bot_username}: {exc}")
+        print(f"[BOT_SPAWN] bot={live_uname} moved=fail reason={exc}")
+
+
+async def handle_mypos(bot: BaseBot, user: User, args: list[str]) -> None:
+    """/mypos — show the requester's last tracked position."""
+    pos = _user_positions.get(user.id)
+    ts  = _user_position_times.get(user.id)
+
+    # SDK live fallback
+    if not pos:
+        try:
+            resp = await bot.highrise.get_room_users()
+            if hasattr(resp, "content"):
+                for ru, rp in resp.content:
+                    if ru.id == user.id:
+                        if isinstance(rp, Position):
+                            pos = rp
+                            _user_positions[user.id]      = pos
+                            _user_position_times[user.id] = time.time()
+                            ts = _user_position_times[user.id]
+                        break
+        except Exception:
+            pass
+
+    if not pos:
+        await _w(bot, user.id,
+                 "Position not tracked yet. Walk a few steps and try again.")
+        return
+
+    age = f"{int(time.time() - ts)}s ago" if ts else "unknown"
+    facing = getattr(pos, "facing", "?")
+    await _w(bot, user.id,
+             f"📍 Your pos: x={pos.x:.1f} y={pos.y:.1f} z={pos.z:.1f} "
+             f"facing={facing} | updated {age}")
+
+
+async def handle_positiondebug(bot: BaseBot, user: User, args: list[str]) -> None:
+    """/positiondebug <username> — show last tracked position for a user (admin+)."""
+    if not is_admin(user.username) and not is_owner(user.username):
+        await _w(bot, user.id, "Admin/owner only.")
+        return
+    if len(args) < 2:
+        await _w(bot, user.id, "Usage: /positiondebug <username>")
+        return
+    target_name = args[1].lstrip("@")
+
+    # Find target user_id from room cache
+    from modules.gold import _room_cache
+    entry = _room_cache.get(target_name.lower())
+    if not entry:
+        await _w(bot, user.id, f"@{target_name} not in room cache.")
+        return
+    target_id, display_name = entry
+
+    pos = _user_positions.get(target_id)
+    ts  = _user_position_times.get(target_id)
+
+    if not pos:
+        await _w(bot, user.id, f"@{display_name}: no position tracked yet.")
+        return
+
+    age = f"{int(time.time() - ts)}s ago" if ts else "unknown"
+    facing = getattr(pos, "facing", "?")
+    await _w(bot, user.id,
+             f"📍 @{display_name}: x={pos.x:.1f} y={pos.y:.1f} z={pos.z:.1f} "
+             f"facing={facing} | updated {age}")

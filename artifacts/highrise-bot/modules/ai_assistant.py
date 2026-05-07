@@ -83,6 +83,9 @@ _RISK: dict[str, str] = {
     "resetrbjstats": ADMIN_CONFIRM,
     # Room / spawn
     "setspawn": ADMIN_CONFIRM, "setspawncoords": ADMIN_CONFIRM, "delspawn": ADMIN_CONFIRM,
+    "setbotspawnhere": ADMIN_CONFIRM, "setbotspawn": ADMIN_CONFIRM,
+    "clearbotspawn": ADMIN_CONFIRM, "botspawns": SAFE,
+    "mypos": SAFE, "positiondebug": ADMIN_CONFIRM,
     # Teleport
     "tp": ADMIN_CONFIRM, "tphere": ADMIN_CONFIRM, "bring": ADMIN_CONFIRM,
     "bringall": ADMIN_CONFIRM, "tpall": ADMIN_CONFIRM,
@@ -771,6 +774,18 @@ _INTENTS: list[tuple] = [
     (re.compile(r"(show|list|see).*(bot\s+spawn|bot\s+location|bot\s+pos)\b|botspawns?\b", re.I),
      "botspawns", _k(""), _k("list all bot spawn locations")),
 
+    # "set @Bot spawn here" / "save bot spawn here for @Bot"
+    (re.compile(
+        r"(set|save|put|place)\s+@?(\w+)[''s]*\s+spawn\s+here\b"
+        r"|(set|save)\s+spawn\s+here\s+(for\s+)?@?(\w+)\b",
+        re.I),
+     "setbotspawnhere",
+     lambda m, t: (m.group(2) or m.group(5) or "").lstrip("@").lower(),
+     lambda m, t: (
+         f"set @{(m.group(2) or m.group(5) or '').lstrip('@')} spawn to your current position"
+     )),
+
+    # "set @Bot spawn to <spawn_name>" / "save bot spawn for @Bot as bank"
     (re.compile(
         r"(set|save|create)\s+(bot\s+spawn|spawn\s+for|position\s+for)\s+@?(\w+)\s+(at\s+|to\s+)?(\w+)",
         re.I),
@@ -894,6 +909,8 @@ _HANDLER_MAP: dict[str, tuple[str, str]] = {
     "setbotspawn":           ("modules.room_utils", "handle_setbotspawn"),
     "setbotspawnhere":       ("modules.room_utils", "handle_setbotspawnhere"),
     "clearbotspawn":         ("modules.room_utils", "handle_clearbotspawn"),
+    "mypos":                 ("modules.room_utils", "handle_mypos"),
+    "positiondebug":         ("modules.room_utils", "handle_positiondebug"),
     # ── Bot outfit (pre-existing) ─────────────────────────────────────────────────
     "renamebotoutfit":       ("modules.bot_modes",  "handle_renamebotoutfit"),
     "clearbotoutfit":        ("modules.bot_modes",  "handle_clearbotoutfit"),

@@ -372,6 +372,7 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     # host — bot spawn management
     "setbotspawn": "host", "setbotspawnhere": "host",
     "botspawns": "host", "clearbotspawn": "host",
+    "mypos": "host", "positiondebug": "host",
     # host — command registry repair alias
     "fixcommandregistry": "host",
     # dj — emote info

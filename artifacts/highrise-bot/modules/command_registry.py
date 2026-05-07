@@ -300,6 +300,8 @@ REGISTRY: dict[str, Cmd] = {
     "setbotspawnhere":  Cmd("host","room_admin", True, False, True, perm="manager"),
     "botspawns":        Cmd("host","room_admin", True, True,  False, perm="staff"),
     "clearbotspawn":    Cmd("host","room_admin", True, False, True, perm="manager"),
+    "mypos":            Cmd("host","room_admin", True, True,  False, perm="any"),
+    "positiondebug":    Cmd("host","room_admin", True, True,  False, perm="admin"),
 
     # ── Host: bot outfit management (new) ────────────────────────────────────
     "dressbot":         Cmd("host","botmode", True, False, True, perm="admin"),

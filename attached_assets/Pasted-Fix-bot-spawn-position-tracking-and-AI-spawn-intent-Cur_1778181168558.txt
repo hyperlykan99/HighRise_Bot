@@ -1,0 +1,179 @@
+Fix bot spawn position tracking and AI spawn intent.
+
+Current issue:
+When I run:
+/setbotspawnhere @ChipSoprano
+
+The bot replies:
+“Your position isn’t tracked yet. Move around and try again.”
+
+Also when I say:
+“MC set @KeanuShield spawn here”
+
+KeanuShield replies with outfit listener:
+“KeanuShield heard you. Outfit system online.”
+
+Then EmceeBot says:
+“I don’t have a command for that yet.”
+
+So two problems:
+1. Player position tracking is not working reliably for /setbotspawnhere.
+2. AI/natural phrase “MC set @KeanuShield spawn here” is not mapped to bot spawn command.
+3. KeanuShield direct outfit listener is falsely responding to “spawn here” because it only detects its name, not outfit intent.
+
+Do not change bank AI.
+Do not change balances.
+Do not change economy.
+Do not change mining, poker, blackjack, events, shop, room ID, or bot tokens.
+
+Fix only:
+- user position tracking
+- bot spawn commands
+- bot spawn AI intent
+- direct outfit listener false-positive behavior
+
+PART 1 — Fix player position tracking
+
+Inspect existing movement/position tracking:
+- on_user_move
+- on_user_join
+- on_start
+- handle_savepos
+- handle_setspawn
+- handle_setbotspawnhere
+- any user_position cache/database
+
+Requirements:
+1. Whenever a user moves, save their latest position:
+   - user_id
+   - username
+   - x
+   - y
+   - z
+   - facing if available
+   - updated_at
+
+2. /setbotspawnhere <bot_username> should use the requesting user’s latest tracked position.
+
+3. If no position is found, try to fetch the user’s current room position from the SDK if available.
+
+4. If still unavailable, reply:
+   “I don’t have your position yet. Walk a few steps, then try again.”
+
+5. Add debug command:
+   /mypos
+
+It should show:
+- tracked true/false
+- x y z
+- last updated seconds ago
+
+6. Add debug command:
+   /positiondebug <username>
+
+Admin/owner only.
+It should show the last tracked position for a user.
+
+PART 2 — Fix /setbotspawnhere
+
+Command:
+/setbotspawnhere <bot_username>
+
+Expected:
+- Admin/owner only
+- Resolve @ChipSoprano or ChipSoprano case-insensitively
+- Save that bot’s spawn using the requester’s current position
+- Reply:
+  “Saved @ChipSoprano spawn at your current position.”
+
+Also support:
+/setbotspawn <bot_username> <spawn_name>
+
+If spawn_name exists, copy the saved spawn coordinates to the bot spawn.
+
+PART 3 — Fix AI spawn intent
+
+These AI phrases should work:
+
+- MC set @KeanuShield spawn here
+- Emcee set KeanuShield spawn here
+- EmceeBot, set ChipSoprano spawn here
+- MC set BankingBot spawn to bank
+- Emcee show bot spawns
+
+Map:
+“set <bot> spawn here”
+→ /setbotspawnhere <bot>
+
+“set <bot> spawn to <spawn_name>”
+→ /setbotspawn <bot> <spawn_name>
+
+“show bot spawns”
+→ /botspawns
+
+These are ADMIN_CONFIRM or admin-only.
+
+Expected:
+MC set @KeanuShield spawn here
+→ Confirm: set @KeanuShield spawn to your current position. Reply yes or no.
+
+PART 4 — Fix direct outfit listener false positives
+
+Current problem:
+When message says:
+“MC set @KeanuShield spawn here”
+
+KeanuShield responds:
+“KeanuShield heard you. Outfit system online.”
+
+This is wrong because the message mentions KeanuShield but is not an outfit command.
+
+The direct outfit listener should only respond if:
+- the message targets this bot username
+AND
+- the remaining text contains outfit intent:
+  outfit status
+  list outfits
+  copy my outfit
+  wear my outfit
+  save this outfit
+  wear <name> outfit
+  dress as <name>
+
+It should NOT respond to:
+- spawn here
+- set spawn
+- teleport
+- bank
+- mine
+- balance
+- random mention
+
+PART 5 — Startup bot movement
+
+When each bot starts:
+- check saved bot spawn for its username
+- after joining room, move/teleport itself to saved spawn if SDK supports it
+- log:
+  [BOT_SPAWN] bot=<username> spawn_found=true x= y= z=
+  [BOT_SPAWN] moved success/fail
+
+PART 6 — Tests after fix
+
+Tell me to test:
+1. /mypos
+2. walk around
+3. /mypos
+4. /setbotspawnhere ChipSoprano
+5. /botspawns
+6. MC set @KeanuShield spawn here
+7. no
+8. KeanuShield, outfit status
+9. MC set @KeanuShield spawn here should NOT trigger KeanuShield outfit listener
+
+After fixing, tell me:
+- which files changed
+- how position tracking works
+- how /mypos works
+- how AI maps spawn intent
+- what exact tests I should run

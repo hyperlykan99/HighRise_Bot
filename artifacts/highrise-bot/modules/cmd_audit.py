@@ -311,6 +311,7 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     "emoteinfo",
     # ── Bot spawns ────────────────────────────────────────────────────────────
     "setbotspawn", "setbotspawnhere", "botspawns", "clearbotspawn",
+    "mypos", "positiondebug",
     # ── Events (new) ──────────────────────────────────────────────────────────
     "adminsblessing", "adminblessing", "eventresume",
     "autogamestatus", "autogameresume",

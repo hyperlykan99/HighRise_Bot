@@ -1336,12 +1336,6 @@ async def handle_direct_bot_outfit_chat(bot, user, message: str) -> bool:
     if not matched:
         return False
 
-    # ── Always ack so users know the listener is alive ──────────────────────
-    display = uname.title() or "Bot"
-    await bot.highrise.send_whisper(
-        user.id, f"{display} heard you. Outfit system online.")
-    print(f"[DIRECT_OUTFIT] ack sent to {user.username}")
-
     # Strip the bot-name prefix and get the intent text
     text = re.sub(
         rf"^.*?@?{re.escape(uname)}[,\s:!]*",
@@ -1361,8 +1355,15 @@ async def handle_direct_bot_outfit_chat(bot, user, message: str) -> bool:
     print(f"[DIRECT_OUTFIT] intent={intent or 'none'}")
 
     if not intent:
-        # Bot was addressed but no outfit intent — ack already sent.
-        return True
+        # Bot was addressed but no outfit intent — do NOT consume the message.
+        # Let EmceeBot/AI handle it (e.g. "MC set @KeanuShield spawn here").
+        return False
+
+    # ── Intent confirmed — ack now ───────────────────────────────────────────
+    display = uname.title() or "Bot"
+    await bot.highrise.send_whisper(
+        user.id, f"{display} heard you. Outfit system online.")
+    print(f"[DIRECT_OUTFIT] ack sent to {user.username}")
 
     # Permission check
     if not (is_owner(user.username) or is_admin(user.username)):

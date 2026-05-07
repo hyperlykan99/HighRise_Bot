@@ -339,6 +339,7 @@ from modules.room_utils import (
     handle_emotes, handle_emote, handle_stopemote, handle_emoteinfo,
     handle_setbotspawn, handle_setbotspawnhere, handle_botspawns,
     handle_clearbotspawn, apply_bot_spawn,
+    handle_mypos, handle_positiondebug,
     handle_dance, handle_wave, handle_sit, handle_clap,
     handle_forceemote, handle_forceemoteall,
     handle_loopemote, handle_stoploop, handle_stopallloops,
@@ -717,6 +718,7 @@ ALL_KNOWN_COMMANDS = (
         "emoteinfo",
         # ── Bot spawns ────────────────────────────────────────────────────────
         "setbotspawn", "setbotspawnhere", "botspawns", "clearbotspawn",
+        "mypos", "positiondebug",
         # ── Events (new) ──────────────────────────────────────────────────────
         "adminsblessing", "adminblessing", "eventresume",
         "autogamestatus", "autogameresume",
@@ -2073,7 +2075,7 @@ class HangoutBot(BaseBot):
         # Conditional startup room announce (respects settings + 10-min cooldown)
         asyncio.create_task(send_startup_announce(self))
         # Teleport bot to its configured spawn position (if set)
-        asyncio.create_task(apply_bot_spawn(self, config.BOT_USERNAME))
+        asyncio.create_task(apply_bot_spawn(self, get_bot_username() or config.BOT_USERNAME))
 
     async def on_chat(self, user: User, message: str) -> None:
         """
@@ -3704,6 +3706,10 @@ class HangoutBot(BaseBot):
             await handle_botspawns(self, user)
         elif cmd == "clearbotspawn":
             await handle_clearbotspawn(self, user, args)
+        elif cmd == "mypos":
+            await handle_mypos(self, user, args)
+        elif cmd == "positiondebug":
+            await handle_positiondebug(self, user, args)
 
         # ── Teleport ──────────────────────────────────────────────────────────
         elif cmd == "tpme":
