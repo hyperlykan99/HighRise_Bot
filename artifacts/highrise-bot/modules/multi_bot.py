@@ -362,6 +362,7 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     # ── New commands added in 7-part upgrade (missing from registry) ──────────
     # host — AI delegations + bot outfit management
     "aidelegations": "host",
+    "botoutfitstatus": "host",
     "copyoutfit": "host", "wearuseroutfit": "host",
     "renamebotoutfit": "host", "clearbotoutfit": "host",
     # host — bot spawn management

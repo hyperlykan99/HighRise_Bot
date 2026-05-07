@@ -302,6 +302,7 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     "ask", "ai", "assistant", "pendingaction", "confirm", "aidebug", "aicapabilities",
     "aidelegations",
     # ── Bot-mode outfit commands (pre-existing, routed but previously unregistered) ──
+    "dressbot", "savebotoutfit", "botoutfitstatus",
     "copyoutfit", "wearuseroutfit", "renamebotoutfit", "clearbotoutfit",
     # ── Emote extensions ─────────────────────────────────────────────────────
     "emoteinfo",

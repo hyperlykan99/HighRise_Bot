@@ -302,6 +302,10 @@ REGISTRY: dict[str, Cmd] = {
     "clearbotspawn":    Cmd("host","room_admin", True, False, True, perm="manager"),
 
     # ── Host: bot outfit management (new) ────────────────────────────────────
+    "dressbot":         Cmd("host","botmode", True, False, True, perm="admin"),
+    "savebotoutfit":    Cmd("host","botmode", True, False, True, perm="admin"),
+    "botoutfitstatus":  Cmd("host","botmode", True, True,  False, perm="staff",
+                            aliases=("botoutfits",)),
     "copyoutfit":       Cmd("host","botmode", True, False, True, perm="manager"),
     "wearuseroutfit":   Cmd("host","botmode", True, False, True, perm="manager"),
     "renamebotoutfit":  Cmd("host","botmode", True, False, True, perm="manager"),
