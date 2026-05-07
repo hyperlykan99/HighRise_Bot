@@ -4836,3 +4836,48 @@ async def handle_pokerresettable(bot: BaseBot, user: User) -> None:
         return
     fake_user_args = ["poker", "refundtable"]
     await _dispatch(bot, user, fake_user_args)
+
+
+async def handle_pokerplayers(bot: BaseBot, user: User) -> None:
+    """/pokerplayers — show all seated players, stacks, and hand status (staff)."""
+    if not can_manage_games(user.username):
+        await _w(bot, user.id, "Staff only.")
+        return
+    seated = _get_all_seated()
+    if not seated:
+        await _w(bot, user.id, "No players at the poker table.")
+        return
+    tbl      = _get_table()
+    round_id = tbl.get("round_id") if tbl else None
+    players  = _get_players(round_id) if round_id else []
+    idx      = tbl["current_player_index"] if tbl else -1
+    cur_name = (players[idx]["username"].lower()
+                if players and 0 <= idx < len(players) else "")
+
+    lines: list[str] = [f"♠️ Seats ({len(seated)}):"]
+    for sp in seated:
+        uname  = sp["username"]
+        stack  = sp["table_stack"]
+        status = sp["status"]
+        p_row  = next((p for p in players
+                       if p["username"].lower() == uname.lower()), None)
+        if p_row:
+            pst = p_row["status"]
+            tag = " fold" if pst == "folded" else " allin" if pst == "allin" else " hand"
+        elif status == "sitting_out":
+            tag = " out"
+        else:
+            tag = ""
+        actor = " ◄" if uname.lower() == cur_name else ""
+        lines.append(f"@{uname}:{stack:,}c{tag}{actor}")
+
+    chunk = lines[0]
+    for line in lines[1:]:
+        candidate = chunk + " | " + line
+        if len(candidate) <= 249:
+            chunk = candidate
+        else:
+            await _w(bot, user.id, chunk)
+            chunk = line
+    if chunk:
+        await _w(bot, user.id, chunk)

@@ -342,6 +342,12 @@ REGISTRY: dict[str, Cmd] = {
     "pokerstacks":      Cmd("poker","casino", False, True,  False, perm="staff"),
     "setpokerstack":    Cmd("poker","casino", False, False, True,  perm="manager"),
     "dealstatus":       Cmd("poker","casino", False, True,  False, perm="staff"),
+    "pokerdealstatus":  Cmd("poker","casino", False, True,  False, perm="staff",
+                            aliases=()),
+    "resendcards":      Cmd("poker","casino", False, True,  False),
+    "cards":            Cmd("poker","casino", False, True,  False,
+                            aliases=("resendcards",)),
+    "pokerplayers":     Cmd("poker","casino", False, True,  False, perm="staff"),
 
     # ── Poker: dashboard + staff controls (new) ───────────────────────────────
     "pokerdashboard":    Cmd("poker","casino", False, True,  False, perm="staff",

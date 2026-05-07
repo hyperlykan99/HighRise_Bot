@@ -95,6 +95,8 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "ask": "host", "ai": "host", "assistant": "host",
     "pendingaction": "host", "confirm": "host", "aidebug": "host", "aicapabilities": "host",
     "setpokercardmarker": "poker",
+    "resendcards": "poker", "cards": "poker",
+    "pokerdealstatus": "poker", "pokerplayers": "poker",
     "pokerdashboard": "poker", "pdash": "poker", "pokeradmin": "poker",
     "pokerpause": "poker", "pokerresume": "poker",
     "pokerforceadvance": "poker", "pokerforceresend": "poker",

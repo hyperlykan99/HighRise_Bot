@@ -121,6 +121,7 @@ from modules.poker import (
     get_poker_state_str,
     handle_pokermode, handle_pokerpace, handle_setpokerpace,
     handle_pokerstacks, handle_setpokerstack, handle_dealstatus,
+    handle_pokerplayers,
     handle_pokerdashboard,
     handle_pokerpause, handle_pokerresume,
     handle_pokerforceadvance, handle_pokerforceresend,
@@ -577,6 +578,7 @@ ALL_KNOWN_COMMANDS = (
         "setpokermaxstack", "setpokeridlestrikes",
         # Poker — short aliases + persistent-table commands
         "p", "pj", "pt", "ptable", "ph", "pcards", "po", "podds",
+        "resendcards", "cards", "pokerdealstatus", "pokerplayers",
         "check", "ch", "call", "ca", "raise", "r", "fold", "f",
         "allin", "all-in", "shove",
         "pp", "pplayers", "pstats", "plb", "pleaderboard",
@@ -3382,7 +3384,7 @@ class HangoutBot(BaseBot):
         elif cmd in ("ptable",):
             await handle_poker(self, user, ["poker", "table"])
 
-        elif cmd in ("pcards",):
+        elif cmd in ("pcards", "resendcards", "cards"):
             await handle_poker(self, user, ["poker", "hand"])
 
         elif cmd in ("podds",):
@@ -3470,8 +3472,11 @@ class HangoutBot(BaseBot):
         elif cmd == "setpokerstack":
             await handle_setpokerstack(self, user, args)
 
-        elif cmd == "dealstatus":
+        elif cmd in ("dealstatus", "pokerdealstatus"):
             await handle_dealstatus(self, user)
+
+        elif cmd == "pokerplayers":
+            await handle_pokerplayers(self, user)
 
         elif cmd == "setpokerturntimer":
             await handle_setpokerturntimer(self, user, args)

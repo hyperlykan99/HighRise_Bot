@@ -1,0 +1,68 @@
+Fix only remaining poker command registry/route issues.
+
+Current commandtest results:
+Good:
+- /allin route=YES handler=YES owner=Poker
+- /pokerdashboard route=YES handler=YES owner=Poker
+- /pdash route=YES handler=YES owner=Poker
+- /pokeradmin route=YES handler=YES owner=Poker
+- /pokerturn route=YES handler=YES owner=Poker
+- /pokerpots route=YES handler=YES owner=Poker
+- /pokeractions route=YES handler=YES owner=Poker
+
+Broken:
+- /resendcards owner=UNKNOWN route=NO handler=NO fix=add_to_registry
+- /cards owner=UNKNOWN route=NO handler=NO fix=add_to_registry
+- /pokerdealstatus owner=UNKNOWN route=NO handler=NO fix=add_to_registry
+- /pokerplayers owner=UNKNOWN route=NO handler=NO fix=add_to_registry
+
+Do not change bank, mining, blackjack, RBJ, events, shop, outfits, bot tokens, room ID, or economy.
+Only fix poker command registry, routes, handler map, and owner map.
+
+Tasks:
+
+1. Add /resendcards
+- Owner: Poker
+- Route: YES
+- Handler: YES
+- Should map to the real existing resend card handler.
+- If only /ph exists, make /resendcards an alias to /ph/current hand card resend handler.
+- Player can use it to resend their own current poker cards.
+- Staff can use /resendcards <username> if implemented.
+
+2. Add /cards
+- Owner: Poker
+- Route: YES
+- Handler: YES
+- Alias to /ph or /resendcards.
+- It should show/resend the player’s current poker hand.
+
+3. Add /pokerdealstatus
+- Owner: Poker
+- Route: YES
+- Handler: YES
+- Alias to existing /dealstatus if that exists.
+- If both /dealstatus and /pokerdealstatus exist, both should call the same handler.
+- Shows card delivery status for current hand.
+
+4. Add /pokerplayers
+- Owner: Poker
+- Route: YES
+- Handler: YES
+- Should call dashboard/player listing handler.
+- Shows seated players, stacks, folded/all-in/sitting-out/current actor if available.
+
+5. Update:
+- main.py command routing
+- command audit/handler map
+- known/active command list
+- multi-bot owner map
+
+6. Do not create fake handlers that say success.
+If a real handler is missing, implement a real minimal handler using current poker state.
+
+7. After fixing, tell me:
+- files changed
+- exact handler names used
+- whether each command is an alias or new handler
+- what I should test
