@@ -356,11 +356,17 @@ async def handle_checkcommands(bot: BaseBot, user: User, all_known: set) -> None
     missing   = len(all_known - ROUTED_COMMANDS)
     in_help   = len(HELP_CMDS & ROUTED_COMMANDS)
     silent    = len(SILENT_RISK_CMDS)
-    print(f"[AUDIT] /checkcommands @{user.username}: routed={routed_ok} missing={missing} "
-          f"help_coverage={in_help} silent={silent}")
+    try:
+        from modules.multi_bot import _DEFAULT_COMMAND_OWNERS
+        no_owner = len(all_known - set(_DEFAULT_COMMAND_OWNERS.keys()))
+    except Exception:
+        no_owner = -1
+    print(f"[AUDIT] /checkcommands @{user.username}: known={len(all_known)} "
+          f"routed={routed_ok} missing={missing} no_owner={no_owner} "
+          f"help={in_help} silent={silent}")
     await _w(bot, user.id,
-             f"Cmd Check: Routed {routed_ok} | Not routed {missing} | "
-             f"Help coverage {in_help} | Silent risk {silent}")
+             f"CmdCheck: Known {len(all_known)} | Routed {routed_ok} | "
+             f"Missing {missing} | NoOwner {no_owner} | Silent {silent}"[:249])
 
 
 # ---------------------------------------------------------------------------
@@ -531,29 +537,39 @@ async def handle_commandtest(bot: BaseBot, user: User, args: list[str]) -> None:
 # ---------------------------------------------------------------------------
 
 async def handle_fixcommands(bot: BaseBot, user: User) -> None:
-    """/fixcommands  — refresh command ownership cache and report coverage."""
+    """/fixcommands  — refresh command ownership cache, write defaults to DB, report coverage."""
     if not _can_audit(user.username):
         await _w(bot, user.id, "Admin and owner only.")
         return
+    owned = wrote = -1
     try:
-        from modules.multi_bot import _refresh_owner_cache, _DEFAULT_COMMAND_OWNERS
-        _refresh_owner_cache()
+        from modules.multi_bot import (
+            _refresh_owner_cache, _DEFAULT_COMMAND_OWNERS, _HARD_OWNER_MODES,
+        )
+        import database as _db
         owned = len(_DEFAULT_COMMAND_OWNERS)
-    except Exception:
-        owned = -1
+        wrote = 0
+        for cmd, mode in _DEFAULT_COMMAND_OWNERS.items():
+            fb = 0 if mode in _HARD_OWNER_MODES else 1
+            _db.set_command_owner_db(cmd, mode, mode, fb)
+            wrote += 1
+        _refresh_owner_cache()
+    except Exception as exc:
+        print(f"[FIXCMDS] DB write error: {exc}")
+    overrides = 0
     try:
         import database as db
         overrides = len(db.get_all_command_owners() or [])
     except Exception:
-        overrides = 0
-    routed   = len(ROUTED_COMMANDS)
-    in_help  = len(HELP_CMDS)
-    missing  = len(HELP_CMDS - ROUTED_COMMANDS)
+        pass
+    routed  = len(ROUTED_COMMANDS)
+    in_help = len(HELP_CMDS)
+    missing = len(HELP_CMDS - ROUTED_COMMANDS)
     print(f"[FIXCMDS] @{user.username}: routed={routed} help={in_help} "
-          f"missing={missing} owned={owned} overrides={overrides}")
+          f"missing={missing} owned={owned} wrote={wrote} overrides={overrides}")
     await _w(bot, user.id,
-             f"✅ Registry refreshed: {routed} routed | {in_help} help-listed | "
-             f"{missing} gaps | {owned} owned | {overrides} DB overrides.")
+             f"✅ Fix done: {wrote}/{owned} owned | {routed} routed | "
+             f"{missing} help gaps | {overrides} DB entries."[:249])
 
 
 # ---------------------------------------------------------------------------
@@ -598,3 +614,67 @@ async def handle_testcommands(bot: BaseBot, user: User) -> None:
     status  = "All OK" if all_pass else "ISSUES FOUND"
     print(f"[TESTCMDS] @{user.username}: {status} — {summary}")
     await _w(bot, user.id, f"CmdTest [{status}]: {summary}"[:249])
+
+
+# ---------------------------------------------------------------------------
+# /commandintegrity
+# ---------------------------------------------------------------------------
+
+async def handle_commandintegrity(bot: BaseBot, user: User, all_known: set) -> None:
+    """/commandintegrity — compact multi-line integrity report (admin+)."""
+    if not _can_audit(user.username):
+        await _w(bot, user.id, "Admin and owner only.")
+        return
+    routed  = len(ROUTED_COMMANDS & all_known)
+    missing = len(all_known - ROUTED_COMMANDS)
+    in_help = len(HELP_CMDS & ROUTED_COMMANDS)
+    silent  = len(SILENT_RISK_CMDS)
+    no_owner = dup_risk = -1
+    try:
+        from modules.multi_bot import _DEFAULT_COMMAND_OWNERS, _HARD_OWNER_MODES
+        owned_set  = set(_DEFAULT_COMMAND_OWNERS.keys())
+        no_owner   = len(all_known - owned_set)
+        hard_owned = {c for c, m in _DEFAULT_COMMAND_OWNERS.items()
+                      if m in _HARD_OWNER_MODES}
+        # dup_risk: hard-module cmds that are also in host's ROUTED_COMMANDS
+        # (they're blocked by should_this_bot_handle, but still worth tracking)
+        dup_risk   = len(ROUTED_COMMANDS & hard_owned)
+    except Exception:
+        pass
+    print(f"[INTEGRITY] @{user.username}: known={len(all_known)} routed={routed} "
+          f"missing={missing} no_owner={no_owner} dup={dup_risk} silent={silent}")
+    await _w(bot, user.id,
+             f"Integrity: Known={len(all_known)} Routed={routed} "
+             f"Help={in_help} Missing={missing}"[:249])
+    await _w(bot, user.id,
+             f"  NoOwner={no_owner} Silent={silent} "
+             f"DupRisk={dup_risk} (0=clean)"[:249])
+
+
+# ---------------------------------------------------------------------------
+# /commandrepair
+# ---------------------------------------------------------------------------
+
+async def handle_commandrepair(bot: BaseBot, user: User) -> None:
+    """/commandrepair — rebuild bot_command_ownership in DB from source registry (owner only)."""
+    if not is_owner(user.username):
+        await _w(bot, user.id, "Owner only.")
+        return
+    try:
+        import database as _db
+        from modules.multi_bot import (
+            _DEFAULT_COMMAND_OWNERS, _HARD_OWNER_MODES, _refresh_owner_cache,
+        )
+        wrote = 0
+        for cmd, mode in _DEFAULT_COMMAND_OWNERS.items():
+            fb = 0 if mode in _HARD_OWNER_MODES else 1
+            _db.set_command_owner_db(cmd, mode, mode, fb)
+            wrote += 1
+        _refresh_owner_cache()
+        print(f"[REPAIR] @{user.username}: wrote {wrote} entries, cache refreshed")
+        await _w(bot, user.id,
+                 f"✅ Repaired: {wrote} ownership rows written to DB from "
+                 f"source registry. Cache refreshed."[:249])
+    except Exception as exc:
+        print(f"[REPAIR] ERROR @{user.username}: {exc}")
+        await _w(bot, user.id, f"❌ Repair error: {str(exc)[:120]}"[:249])

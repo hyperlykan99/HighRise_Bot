@@ -1,0 +1,302 @@
+Build a full command integrity audit and repair system for my Highrise multi-bot project.
+
+Current problem:
+Many slash commands are inconsistent. Some commands work, some are recognized by /commandtest but do not respond, some are in help but not routed, and some cause duplicate replies from Host and the module bot.
+
+Known issues:
+- /bal replies from both BankingBot and EmceeBot.
+- /mine works from GreatestProspector, but /commandtest /mine does not work.
+- /pokerhelp works from ChipSoprano, but /commandtest /pokerhelp does not work.
+- /shophelp was fixed.
+- Events and AutoGames had WARN issues.
+- Host fallback is too aggressive for action/economy/game commands.
+
+Goal:
+Create a reliable command integrity system so every command has:
+1. A known command entry.
+2. A command owner.
+3. A route in the main command handler.
+4. A valid handler function.
+5. Correct bot ownership.
+6. No duplicate responders.
+7. Safe fallback behavior.
+
+Required tasks:
+
+1. Inspect these files:
+- main.py
+- modules/multi_bot.py
+- modules/cmd_audit.py
+- modules/bot_health.py
+- modules/bot_modes.py
+- modules/bank.py
+- modules/mining.py
+- modules/poker.py
+- modules/blackjack.py
+- modules/realistic_blackjack.py
+- modules/shop.py
+- modules/events.py
+- modules/auto_games.py
+- modules/room_utils.py
+- database.py
+
+2. Create or improve a command registry system.
+The registry should define each command with:
+- command name
+- aliases
+- owner bot mode
+- category
+- handler function name
+- whether host fallback is allowed
+- whether command is safe help/status only
+- permission level if needed
+
+3. Fix /commandtest.
+It must always be handled by Host/EmceeBot.
+It must test any command, even if that command belongs to Miner, Poker, Banker, Blackjack, Shop, Events, DJ, or Security.
+It should not require the target module bot to handle the test.
+
+Output example for /commandtest /mine:
+command=mine
+owner=miner
+owner_online=true
+host_should_handle=false
+owner_should_handle=true
+route=YES
+handler=YES
+fallback_allowed=false
+
+Output example for /commandtest /bal:
+command=bal
+owner=banker
+owner_online=true
+host_should_handle=false
+owner_should_handle=true
+route=YES
+handler=YES
+fallback_allowed=false
+
+4. Fix duplicate replies.
+Host/EmceeBot must not respond to module-owned action commands when the owner bot is online.
+
+Host fallback is allowed only for safe help/status commands:
+- /help
+- /shophelp
+- /eventhelp
+- /bothealth
+- /deploymentcheck
+- /modulehealth
+- /botheartbeat
+- /commandtest
+- /bots
+- /startupstatus
+- /routerstatus
+
+Host fallback is NOT allowed for action/game/economy commands:
+- /bal
+- /balance
+- /b
+- /wallet
+- /w
+- /send
+- /tip
+- /mine
+- /m
+- /dig
+- /poker
+- /pokerhelp
+- /bj
+- /bjhelp
+- /rbj
+- /rbjhelp
+- /shop
+- /buy
+- /eventshop
+- /buyevent
+- /startevent
+- /stopevent
+- any betting, buying, sending, mining, or economy-write command
+
+5. Fix command ownership.
+Make sure these owners are correct:
+
+Host:
+- help
+- bots
+- bothealth
+- deploymentcheck
+- modulehealth
+- botheartbeat
+- commandtest
+- routerstatus
+- startupstatus
+- checkcommands
+- checkhelp
+
+Banker:
+- bal
+- balance
+- b
+- wallet
+- w
+- coins
+- coin
+- money
+- send
+- bank
+- transactions
+- bankstats
+- bankhelp
+- daily
+- leaderboard
+
+Miner:
+- mine
+- m
+- dig
+- ores
+- mineinv
+- tool
+- pickaxe
+- upgradetool
+- sellores
+- minehelp
+
+Poker:
+- poker
+- p
+- pj
+- pt
+- ptable
+- ph
+- pcards
+- pokerhelp
+- pokerstats
+- pokerlb
+- check
+- call
+- raise
+- fold
+- allin
+- sitout
+- sitin
+- rebuy
+
+Blackjack:
+- bj
+- bjhelp
+- bjoin
+- bh
+- bs
+- bd
+- bsp
+- rbj
+- rbjhelp
+- rjoin
+- rh
+- rs
+- rd
+- rsp
+
+Shopkeeper:
+- shop
+- shophelp if not handled by host
+- buy
+- equip
+- myitems
+- badgeinfo
+- titleinfo
+- badges
+- vipshop
+- buyvip
+
+EventHost:
+- event
+- events
+- eventhelp if not handled by host
+- eventstatus
+- eventpoints
+- eventshop
+- buyevent
+- startevent
+- stopevent
+- autogames
+- autoevents
+- gameconfig
+- autogamesowner
+- stopautogames
+- killautogames
+- fixautogames
+
+DJ:
+- emote
+- emotes
+- stopemote
+- dance
+- wave
+- sit
+- clap
+- loopemote
+- stoploop
+- social commands
+
+Security:
+- report
+- reports
+- warn
+- mute
+- kick
+- ban
+- modlog
+- roomlogs
+- audit commands
+
+6. Add or improve /checkcommands.
+It should scan all commands and report:
+- total commands
+- commands with missing owner
+- commands with missing route
+- commands with missing handler
+- commands with unsafe host fallback
+- commands with duplicate owner risk
+
+7. Add /fixcommands.
+Owner/admin only.
+It should repair command ownership defaults in the database to match the source registry.
+It should not change balances, casino state, poker state, blackjack state, mining inventory, or user data.
+
+8. Add /commandintegrity.
+Owner/admin only.
+It should show a compact integrity report:
+Command Integrity:
+Known: X
+Routed: X
+Handlers OK: X
+Missing Routes: X
+Missing Owners: X
+Unsafe Fallbacks: X
+Duplicates Risk: X
+
+9. Add /commandrepair.
+Owner only.
+It should safely rebuild command ownership rows and known command metadata from the registry.
+
+10. Make sure /bots, /bothealth, /modulehealth, and /botheartbeat use fresh heartbeat status, not stale enabled settings.
+
+11. Do not touch:
+- bot tokens
+- room ID
+- player balances
+- poker game rules
+- blackjack game rules
+- mining rewards
+- existing database user data
+- shop prices
+- event rewards
+
+12. After changes, tell me:
+- which files changed
+- what commands were repaired
+- how many commands are known
+- how many commands are routed
+- what commands I should test

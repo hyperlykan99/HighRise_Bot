@@ -178,6 +178,7 @@ from modules.cmd_audit import (
     handle_missingcommands, handle_routecheck,
     handle_silentcheck, handle_commandtest,
     handle_fixcommands, handle_testcommands,
+    handle_commandintegrity, handle_commandrepair,
 )
 from modules.economy_settings import (
     handle_economysettings,
@@ -556,7 +557,7 @@ ALL_KNOWN_COMMANDS = (
         "profileadmin", "profileprivacy", "resetprofileprivacy",
         "allstaff", "allcommands", "checkcommands",
         "missingcommands", "routecheck", "silentcheck", "commandtest",
-        "fixcommands", "testcommands",
+        "fixcommands", "testcommands", "commandintegrity", "commandrepair",
         "notifications", "clearnotifications",
         "delivernotifications", "pendingnotifications",
         "subscribe", "unsubscribe", "substatus", "subhelp",
@@ -1953,6 +1954,10 @@ class HangoutBot(BaseBot):
                 await handle_fixcommands(self, user)
             elif cmd == "testcommands":
                 await handle_testcommands(self, user)
+            elif cmd == "commandintegrity":
+                await handle_commandintegrity(self, user, ALL_KNOWN_COMMANDS)
+            elif cmd == "commandrepair":
+                await handle_commandrepair(self, user)
             elif cmd == "bankblock":
                 await handle_bankblock(self, user, args, block=True)
             elif cmd == "bankunblock":

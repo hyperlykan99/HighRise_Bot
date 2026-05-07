@@ -206,6 +206,7 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "startupannounce": "host", "modulestartup": "host",
     "startupstatus": "host", "setmainmode": "host",
     "dblockcheck": "host", "routerstatus": "host",
+    "bots": "host", "commandintegrity": "host", "commandrepair": "host",
 }
 
 # Friendly display names for modes
@@ -345,6 +346,7 @@ _HOST_AUDIT_CMDS: frozenset[str] = frozenset({
     "checkcommands", "checkhelp", "routecheck", "silentcheck",
     "routerstatus", "taskowners", "activetasks", "taskconflicts",
     "fixtaskowners", "restorestatus",
+    "bots", "startupstatus", "commandintegrity", "commandrepair",
 })
 
 # Whitelist of eventhost-owned commands that host may handle as fallback
@@ -354,7 +356,7 @@ _HOST_AUDIT_CMDS: frozenset[str] = frozenset({
 _HOST_SAFE_FALLBACK_CMDS: frozenset[str] = frozenset({
     "help", "shophelp", "eventhelp",
     "bothealth", "deploymentcheck", "modulehealth", "botheartbeat",
-    "commandtest",
+    "commandtest", "bots", "startupstatus", "routerstatus",
 })
 
 
