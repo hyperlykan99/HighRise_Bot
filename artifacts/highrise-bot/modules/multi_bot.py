@@ -52,6 +52,8 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "viewtx": "banker", "ledger": "banker",
     "bankblock": "banker", "bankunblock": "banker",
     "coinhelp": "banker", "bankadminhelp": "banker",
+    "bankerhelp": "banker",
+    "economydbcheck": "banker", "economyrepair": "banker",
     "dash": "banker", "dashboard": "banker",
     # ── blackjack (Casual BJ + RBJ) ─────────────────────────────────────────
     "bj": "blackjack", "bjoin": "blackjack",
@@ -388,6 +390,16 @@ _HOST_SAFE_FALLBACK_CMDS: frozenset[str] = frozenset({
     "event", "events",
 })
 
+# Safe help-only commands owned by hard-owner modes that host may cover when
+# the owner bot is offline.  These are read-only info pages with no economy,
+# game, or inventory side-effects.  Economy action commands (send, buy, mine,
+# etc.) are NOT included here — silence is correct for those if the owner
+# bot is down.
+_HARD_OWNER_SAFE_HELP_CMDS: frozenset[str] = frozenset({
+    "coinhelp", "bankhelp", "bankerhelp",   # banker bot offline
+    "minehelp",                              # miner bot offline
+})
+
 
 def _has_any_game_bot_registered() -> bool:
     """Return True if any game-module bot sent a heartbeat in the last 5 min.
@@ -688,7 +700,11 @@ def should_this_bot_handle(cmd: str) -> bool:
 
     # Hard owners — host must NEVER respond to these, regardless of heartbeat.
     # Separate Highrise accounts; no fallback, no startup-window gap.
+    # Exception: safe help-only pages from hard-owner modes may be covered by
+    # host when the owner bot is offline (no economy/game side-effects).
     if mode == "host" and owner_mode in _HARD_OWNER_MODES:
+        if not _is_mode_online(owner_mode) and cmd in _HARD_OWNER_SAFE_HELP_CMDS:
+            return True
         return False
 
     # eventhost ↔ host cross-cover: they share a Highrise account and

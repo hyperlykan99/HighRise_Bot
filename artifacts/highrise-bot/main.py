@@ -511,8 +511,9 @@ ALL_KNOWN_COMMANDS = (
     {
         "help", "answer",
         "owners",
-        "casinohelp", "gamehelp", "coinhelp", "profilehelp",
+        "casinohelp", "gamehelp", "coinhelp", "bankerhelp", "profilehelp",
         "shophelp", "progresshelp", "bankhelp", "eventhelp",
+        "economydbcheck", "economyrepair",
         "bjhelp", "rbjhelp", "rephelp", "autohelp",
         "casinoadminhelp", "bankadminhelp",
         "audithelp", "reporthelp", "maintenancehelp",
@@ -1478,6 +1479,61 @@ _handle_coinhelp        = _paged_send(COIN_HELP_PAGES)
 _handle_eventhelp_paged = _paged_send(EVENT_HELP_PAGES)
 _handle_bjhelp          = _paged_send(BJ_HELP_PAGES)
 _handle_rbjhelp         = _paged_send(RBJ_HELP_PAGES)
+
+
+async def _handle_bankerhelp(bot, user, _args):
+    await bot.highrise.send_whisper(
+        user.id,
+        "🏦 Banker: /balance /coinhelp /bankhelp /economydbcheck"
+    )
+
+
+async def _handle_economydbcheck(bot, user):
+    print(f"[RX] mode={BOT_MODE} text=/economydbcheck")
+    print(f"[ROUTE] /economydbcheck owner=banker current={BOT_MODE} handle=true")
+    if not can_manage_economy(user.username):
+        await bot.highrise.send_whisper(user.id, "Admin only.")
+        return
+    try:
+        import sqlite3 as _sql
+        _path = config.SHARED_DB_PATH or "highrise_hangout.db"
+        with _sql.connect(_path) as _conn:
+            _cur = _conn.cursor()
+            _issues: list[str] = []
+            for _tbl in ("users", "economy_settings", "bank_user_stats",
+                         "bank_transactions", "daily_claims", "ledger"):
+                _cur.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+                    (_tbl,),
+                )
+                if not _cur.fetchone():
+                    _issues.append(f"missing:{_tbl}")
+            if not _issues:
+                _cur.execute("PRAGMA table_info(users)")
+                _cols = {r[1] for r in _cur.fetchall()}
+                for _col in ("user_id", "username", "balance"):
+                    if _col not in _cols:
+                        _issues.append(f"missing_col:users.{_col}")
+        _msg = ("Economy DB: OK" if not _issues
+                else "Economy DB fail: " + ", ".join(_issues[:3]))
+    except Exception as _exc:
+        _msg = f"Economy DB error: {str(_exc)[:80]}"
+    print(f"[ECONOMYDBCHECK] @{user.username}: {_msg}")
+    await bot.highrise.send_whisper(user.id, _msg[:249])
+
+
+async def _handle_economyrepair(bot, user):
+    if not is_owner(user.username):
+        await bot.highrise.send_whisper(user.id, "Owner only.")
+        return
+    try:
+        import database as _db_mod
+        _db_mod.init_db()
+        _msg = "✅ Economy DB repaired."
+    except Exception as _exc:
+        _msg = f"Economy repair error: {str(_exc)[:80]}"
+    print(f"[ECONOMYREPAIR] @{user.username}: {_msg}")
+    await bot.highrise.send_whisper(user.id, _msg[:249])
 
 
 async def _handle_casinoadminhelp(bot, user, args):
@@ -2834,7 +2890,20 @@ class HangoutBot(BaseBot):
             await _handle_gamehelp(self, user, args)
 
         elif cmd == "coinhelp":
+            print(f"[RX] mode={BOT_MODE} text=/coinhelp")
+            print(f"[ROUTE] /coinhelp owner=banker current={BOT_MODE} handle=true")
             await _handle_coinhelp(self, user, args)
+
+        elif cmd == "bankerhelp":
+            print(f"[RX] mode={BOT_MODE} text=/bankerhelp")
+            print(f"[ROUTE] /bankerhelp owner=banker current={BOT_MODE} handle=true")
+            await _handle_bankerhelp(self, user, args)
+
+        elif cmd == "economydbcheck":
+            await _handle_economydbcheck(self, user)
+
+        elif cmd == "economyrepair":
+            await _handle_economyrepair(self, user)
 
         elif cmd == "profilehelp":
             await self.highrise.send_whisper(user.id, PROFILE_HELP)

@@ -1,0 +1,124 @@
+FIX BANKER HELP + ECONOMY DB CHECK ONLY.
+
+Current working:
+- /help works from EmceeBot
+- /balance works from BankingBot
+- Banker Bot is alive
+
+Current broken:
+- /coinhelp does not respond
+- /bankhelp does not respond
+- /economydbcheck does not respond or may be missing
+
+Goal:
+Fix only Banker help/admin commands.
+
+DO NOT touch:
+- poker
+- blackjack
+- mining
+- host startup
+- global router except to register these banker commands
+- robust poker
+- database schema unless economy check/repair needs missing tables
+- bot tokens
+
+==================================================
+PART 1: REGISTER BANKER HELP COMMANDS
+==================================================
+
+Register these commands to banker:
+
+/coinhelp
+/bankhelp
+/bankerhelp
+/economydbcheck
+/economyrepair
+
+They must be handled by bot_mode=banker / BankingBot.
+
+==================================================
+PART 2: HELP RESPONSES
+==================================================
+
+/coinhelp reply:
+"💰 Coins: /balance /daily /send @user amount /tip @user amount"
+
+/bankhelp reply:
+"🏦 Bank: /balance /wallet /daily /send /tip"
+
+/bankerhelp reply:
+"🏦 Banker: /balance /coinhelp /bankhelp /economydbcheck"
+
+Keep replies short.
+
+==================================================
+PART 3: ECONOMY DB CHECK
+==================================================
+
+Add or restore:
+
+/economydbcheck
+
+Owner/admin only if permissions exist.
+
+Reply:
+"Economy DB: OK"
+
+If missing table/column:
+"Economy DB fail: missing <name>"
+
+Check existing economy tables used by /balance. Do not rename tables. Do not wipe data.
+
+==================================================
+PART 4: ECONOMY REPAIR
+==================================================
+
+Add or restore:
+
+/economyrepair
+
+Owner/admin only if permissions exist.
+
+Behavior:
+- create missing economy tables
+- add missing columns
+- do not reset balances
+- do not wipe data
+
+Reply:
+"✅ Economy DB repaired."
+
+==================================================
+PART 5: DEBUG LOGS
+==================================================
+
+When BankingBot receives these, log:
+
+[RX] mode=banker text=/coinhelp
+[ROUTE] /coinhelp owner=banker current=banker handle=true
+
+[RX] mode=banker text=/economydbcheck
+[ROUTE] /economydbcheck owner=banker current=banker handle=true
+
+==================================================
+PART 6: TESTS
+==================================================
+
+After restart, test only:
+
+/balance
+/coinhelp
+/bankhelp
+/bankerhelp
+/economydbcheck
+
+Expected:
+- /balance still works
+- /coinhelp replies from BankingBot
+- /bankhelp replies from BankingBot
+- /bankerhelp replies from BankingBot
+- /economydbcheck replies from BankingBot
+
+Final requirement:
+Fix only Banker help and economy check commands.
