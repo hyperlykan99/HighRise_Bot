@@ -204,10 +204,10 @@ _INTENTS: list[tuple] = [
     (re.compile(r"^mine$|^(start|do)\s+min[ei]|mine\s+for\s+me|let\s+me\s+mine", re.I),
      "mine", _k(""), _k("start mining")),
 
-    (re.compile(r"(my\s+|show\s+|check\s+|view\s+)?(ores?\b|ore\s+list|ore\s+inv)", re.I),
+    (re.compile(r"(my\s+|show\s+|check\s+|view\s+)?(\bores?\b|\bore\s+list|\bore\s+inv)", re.I),
      "ores", _k(""), _k("show your ores")),
 
-    (re.compile(r"(my\s+|show\s+|check\s+)?(pick.?axe|mining\s+tool)\b|^tool$", re.I),
+    (re.compile(r"(my\s+|show\s+|check\s+)?(pick.?axe(?!\s+shop)|mining\s+tool)\b|^tool$", re.I),
      "tool", _k(""), _k("show your mining tool")),
 
     (re.compile(r"sell\s+(my\s+|all\s+|the\s+)?ores?\b", re.I),
@@ -215,10 +215,16 @@ _INTENTS: list[tuple] = [
 
     (re.compile(
         r"(buy|purchase|get)\s+.*(energy|fuel|mine\s*upgrade|pick.?axe|mining\s*item)"
-        r"|mine.*(buy|shop|upgrade|store)", re.I),
+        r"|mine.*(buy|upgrade)", re.I),
      "minebuy", _k(""), _k("open the mining shop")),
 
-    (re.compile(r"(mining\s+|mine\s+)?(shop|store|market)\s*$|^mineshop$", re.I),
+    # Intent tests: "mining shop"->mineshop, "mine shop"->mineshop,
+    #   "pickaxe shop"->mineshop, "mining store"->mineshop,
+    #   "buy mining upgrade"->mineshop, "show shop"->shop (NOT mineshop)
+    (re.compile(
+        r"(mining|mine|pickaxe|tool)\s+(shop|store|market)\b"
+        r"|^mineshop$|mining\s+store\b|buy\s+mining\s+upgrade",
+        re.I),
      "mineshop", _k(""), _k("show the mining shop")),
 
     # ────────────────────────────────────────────────────────────────────────
@@ -776,6 +782,10 @@ _HANDLER_MAP: dict[str, tuple[str, str]] = {
     "goto":                  ("modules.room_utils", "handle_goto"),
     "profile":               ("modules.profile",    "handle_profile_cmd"),
     "stats":                 ("modules.profile",    "handle_stats_cmd"),
+    "me":                    ("modules.profile",    "handle_profile_cmd"),
+    "bal":                   ("economy",            "handle_balance"),
+    "balance":               ("economy",            "handle_balance"),
+    "ores":                  ("modules.mining",     "handle_mineinv"),
     # ── CONFIRM — execute after confirmation ──────────────────────────────
     "send":                  ("modules.bank",       "handle_send"),
     "buy":                   ("modules.shop",       "handle_buy"),
@@ -841,17 +851,14 @@ _HANDLER_MAP: dict[str, tuple[str, str]] = {
 
 _SAFE_RESPONSES: dict[str, str] = {
     "minehelp":      "⛏️ Use /minehelp for the full mining guide.",
-    "bal":           "💰 Use /bal to check your coin balance.",
     "daily":         "🎁 Use /daily to claim your daily reward.",
     "leaderboard":   "🏆 Use /lb to see the top coin holders.",
-    "me":            "👤 Use /me to view your profile stats.",
     "help":          "❓ Use /help for all commands, /mycommands for your list.",
     "aicapabilities":"🤖 Use /aicapabilities to see what I can understand.",
     "bjhelp":        "🃏 Use /bjhelp for blackjack rules.",
     "rbjhelp":       "🃏 Use /rbjhelp for Realistic Blackjack rules.",
     "spawninfo":     "📍 Use /spawninfo <name> to view spawn coordinates.",
     "botoutfit":     "👗 Use /botoutfit to check this bot's saved outfit.",
-    "ores":          "⛏️ Use /ores to view your ore inventory.",
     "orebook":       "📖 Use /orebook to read about ore types.",
     "orestats":      "📊 Use /orestats to see mining leaderboard.",
     "minebuy":       "⛏️ Use /minebuy <item> to buy mining supplies.",

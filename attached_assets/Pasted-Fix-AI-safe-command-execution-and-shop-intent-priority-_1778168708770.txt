@@ -1,0 +1,72 @@
+Fix AI safe command execution and shop intent priority.
+
+Current test results:
+- “Emcee, show my profile” only suggests /profile instead of showing the actual profile.
+- “Emcee, show my balance” only suggests /bal instead of showing the actual balance.
+- “Emcee, show my ores” only suggests /ores instead of showing actual ores.
+- “Emcee, show shop” incorrectly shows the mining shop instead of the regular shop.
+
+Do not change bot tokens.
+Do not change room ID.
+Do not change player balances.
+Do not change economy values.
+Do not change mining rewards.
+Do not change poker, blackjack, RBJ, shop prices, event rewards, or command ownership.
+
+Fix only AI assistant intent matching and safe command execution.
+
+Tasks:
+
+1. Safe commands must execute existing handlers, not suggest commands.
+When AI maps a request to a SAFE command, it should call the existing handler through the same execution path used for confirmed commands.
+
+Examples:
+- Emcee, show my profile -> execute /profile or /me handler for requesting user
+- MC, show my profile -> execute /profile or /me handler for requesting user
+- Emcee, show my balance -> execute /bal handler
+- Emcee, show my ores -> execute /ores handler
+- Emcee, show shop -> execute /shop handler
+
+2. Do not duplicate logic inside ai_assistant.py.
+Call existing handlers or existing router execution function.
+
+3. If a SAFE command belongs to another bot/module, either:
+- execute through the existing route/delegation system, or
+- call the existing handler safely with the current bot context if that is how the project works.
+
+4. Do not reply “Use /profile”, “Use /bal”, or “Use /ores” for these safe commands.
+Only suggest commands if the handler is missing or route is invalid.
+
+5. Fix shop intent priority.
+“show shop”, “open shop”, “view shop”, and “shop” should map to regular /shop.
+They should NOT map to /mineshop.
+
+Only map to mining shop when the user clearly says:
+- mining shop
+- mine shop
+- pickaxe shop
+- tool shop
+- mining store
+- buy mining upgrade
+
+6. Add /aidebug clarity.
+For:
+- /aidebug Emcee, show shop
+It should show command=shop, not mineshop.
+
+For:
+- /aidebug Emcee, show mining shop
+It should show command=mineshop.
+
+7. Add/adjust intent tests or comments for:
+- Emcee, show my profile -> /profile or /me
+- Emcee, show my balance -> /bal
+- Emcee, show my ores -> /ores
+- Emcee, show shop -> /shop
+- Emcee, show mining shop -> /mineshop
+
+After fixing, tell me:
+- which file changed
+- why safe commands were suggesting instead of executing
+- why show shop went to mining shop
+- what exact messages I should test
