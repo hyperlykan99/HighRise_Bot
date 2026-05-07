@@ -1,0 +1,181 @@
+URGENT: Restore module commands. Last Host startup fix broke working module routing.
+
+Current problem:
+After the latest update, these commands no longer respond:
+- /bal
+- /bankerhelp
+- /pokerhelp
+- /bjhelp
+- /rbjhelp
+- /minehelp
+- /mine
+- /ores
+
+Before the Host fix, these module commands were working.
+
+Goal:
+Restore the last working module command routing immediately.
+
+DO NOT touch:
+- Host startup
+- AI
+- poker robust features
+- background loops
+- database schema
+- system fallback responder
+- SAFE_BOOT settings
+
+Keep SAFE_BOOT ON.
+
+==================================================
+PART 1: MODULE COMMANDS MUST BYPASS HOST
+==================================================
+
+These commands must NOT depend on Host Bot.
+
+Banker Bot handles:
+- /bal
+- /balance
+- /coins
+- /wallet
+- /bankerhelp
+- /daily
+- /send
+- /tip
+
+Poker Bot handles:
+- /pokerhelp
+- /pt
+- /ph
+- /p
+- /poker state
+- /poker settings
+
+Blackjack Bot handles:
+- /bjhelp
+- /rbjhelp
+- /bjoin
+- /rjoin
+- /bh
+- /bs
+- /rh
+- /rs
+
+Miner Bot handles:
+- /minehelp
+- /mine
+- /m
+- /dig
+- /ores
+- /tool
+- /sellores
+
+These module commands must work even if Host is missing.
+
+==================================================
+PART 2: SAFE_BOOT MUST NOT BLOCK MODULE COMMANDS
+==================================================
+
+SAFE_BOOT should disable only background loops.
+
+SAFE_BOOT must NOT disable:
+- message listener
+- slash command parser
+- module command routing
+- banker commands
+- poker help/status commands
+- blackjack help/status commands
+- miner commands
+
+If SAFE_BOOT is ON and a command is safe/manual, still allow it.
+
+==================================================
+PART 3: MESSAGE HANDLER ORDER
+==================================================
+
+Use this order:
+
+1. Receive chat message.
+2. Ignore only if message is from the bot itself.
+3. If message does not start with "/", ignore.
+4. Emergency commands:
+   - /ping
+   - /ping all
+   - /crashlogs latest
+   - /safeboot status
+5. Module commands:
+   - if current bot_mode owns the command, handle it.
+6. Host/system commands:
+   - only Host or fallback handles them.
+7. Unknown command:
+   - ignore unless Host is available.
+
+Do not let Host missing stop module commands.
+
+==================================================
+PART 4: REMOVE GLOBAL RETURN/GATE THAT BLOCKS MODULES
+==================================================
+
+Search for any logic like:
+
+if host_missing:
+    return
+
+if not system_responder:
+    return
+
+if SAFE_BOOT:
+    return
+
+if bot_mode != host:
+    return
+
+These must NOT run before module command checks.
+
+Only system commands should use system responder logic.
+Module commands should be checked before any host-only gate.
+
+==================================================
+PART 5: COMMAND DEBUG LOGS
+==================================================
+
+Add console logs:
+
+[RX] mode=banker text=/bal
+[ROUTE] /bal owner=banker current=banker handle=true
+
+[RX] mode=poker text=/pokerhelp
+[ROUTE] /pokerhelp owner=poker current=poker handle=true
+
+[RX] mode=miner text=/minehelp
+[ROUTE] /minehelp owner=miner current=miner handle=true
+
+If ignored:
+[ROUTE] /bal owner=banker current=poker handle=false
+
+==================================================
+PART 6: TESTS
+==================================================
+
+After restart, test only:
+
+/ping all
+/bal
+/bankerhelp
+/pokerhelp
+/bjhelp
+/rbjhelp
+/minehelp
+/mine
+/ores
+
+Expected:
+- /bal replies from BankingBot
+- /pokerhelp replies from ChipSoprano
+- /bjhelp and /rbjhelp reply from AceSinatra
+- /minehelp, /mine, /ores reply from GreatestProspector
+
+Do not test Host commands until these pass.
+
+Final requirement:
+Restore module commands first. Host can stay missing for now.

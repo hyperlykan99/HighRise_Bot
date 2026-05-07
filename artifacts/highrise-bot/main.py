@@ -2356,7 +2356,7 @@ class HangoutBot(BaseBot):
         args = parts
 
         # ── Unconditional receive log — always fires for every slash command ──
-        print(f"[CMD RX] username={user.username} text={message}")
+        print(f"[RX] mode={BOT_MODE} user={user.username} text={message}")
 
         # ══════════════════════════════════════════════════════════════════════
         # EMERGENCY BYPASS — Zero DB calls. Zero routing. Zero ownership gate.
@@ -2581,19 +2581,14 @@ class HangoutBot(BaseBot):
                     print(f"[SYSTEM ERROR] cmd=/startupstatus error={_sse}")
             return
 
-        # ── Command debug logging ─────────────────────────────────────────────
-        if get_cmd_debug():
-            print(f"[CMD RX] bot={BOT_MODE} user={user.username} text=/{cmd}")
-            _owner_dbg = resolve_command_owner(cmd) or "none"
-            _handle_dbg = should_this_bot_handle(cmd)
-            print(f"[CMD ROUTE] cmd=/{cmd} owner={_owner_dbg} handle={str(_handle_dbg).lower()}")
-
-        # ── Multi-bot gate — ignore if another bot owns this command ─────────
+        # ── Route log + multi-bot gate — unconditional ───────────────────────
         try:
             _should_handle = should_this_bot_handle(cmd)
         except Exception as _gate_err:
-            print(f"[CMD] gate error mode={BOT_MODE} cmd={cmd}: {_gate_err}")
+            print(f"[ROUTE] /{cmd} owner=? current={BOT_MODE} handle=error err={_gate_err}")
             _should_handle = (BOT_MODE in ("host", "all"))
+        _route_owner = resolve_command_owner(cmd) or "none"
+        print(f"[ROUTE] /{cmd} owner={_route_owner} current={BOT_MODE} handle={str(_should_handle).lower()}")
         if not _should_handle:
             try:
                 offline_msg = get_offline_message(cmd)
