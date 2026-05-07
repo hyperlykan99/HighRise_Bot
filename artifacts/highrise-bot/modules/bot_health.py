@@ -98,6 +98,29 @@ def _bot_is_online(mode: str, instances: list, threshold: int = 90) -> bool:
     return False
 
 
+def _instance_is_online(inst: dict, threshold: int = 90) -> bool:
+    """True if THIS specific instance has a fresh heartbeat within threshold seconds.
+
+    Unlike _bot_is_online(), this checks the individual row — not any row for
+    the same bot_mode.  Used for duplicate-detection so stale rows whose mode
+    happens to be covered by a newer row are not counted as live duplicates.
+    """
+    if not inst.get("enabled", 1):
+        return False
+    now = datetime.now(timezone.utc)
+    hb = inst.get("last_heartbeat_at", "")
+    ts = hb if hb else inst.get("last_seen_at", "")
+    if not ts:
+        return False
+    try:
+        ls = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        if ls.tzinfo is None:
+            ls = ls.replace(tzinfo=timezone.utc)
+        return (now - ls).total_seconds() < threshold
+    except Exception:
+        return False
+
+
 def _check_db() -> bool:
     try:
         conn = db.get_connection()
@@ -119,6 +142,42 @@ def _get_stale_locks() -> list[dict]:
         return [dict(r) for r in rows]
     except Exception:
         return []
+
+
+_STALE_INSTANCE_THRESHOLD = 600  # 10 minutes — row is purgeable when older than this
+
+
+def _get_stale_instances(instances: list) -> list[dict]:
+    """Return bot_instance rows that are safe to purge.
+
+    Safe = the row is stale (>10 min since last heartbeat) AND the same
+    bot_mode is already covered by at least one live row.  These are leftover
+    rows from old subprocesses (e.g. the pre-dedup 'shop' or 'eventhost' bots)
+    and cause false-positive duplicate conflicts if not cleaned up.
+    """
+    live_modes: set[str] = set()
+    for inst in instances:
+        if _instance_is_online(inst):
+            live_modes.add(inst.get("bot_mode", ""))
+    stale: list[dict] = []
+    now = datetime.now(timezone.utc)
+    for inst in instances:
+        m = inst.get("bot_mode", "")
+        if m not in live_modes:
+            continue
+        if _instance_is_online(inst):
+            continue
+        hb = inst.get("last_heartbeat_at", "")
+        ts = hb if hb else inst.get("last_seen_at", "")
+        try:
+            ls = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+            if ls.tzinfo is None:
+                ls = ls.replace(tzinfo=timezone.utc)
+            if (now - ls).total_seconds() > _STALE_INSTANCE_THRESHOLD:
+                stale.append(inst)
+        except Exception:
+            stale.append(inst)
+    return stale
 
 
 def _get_all_locks() -> list[dict]:
@@ -421,15 +480,50 @@ async def handle_clearstalebotlocks(bot, user) -> None:
         await _w(bot, user.id, "Admin and owner only.")
         return
     try:
+        instances = db.get_bot_instances()
         conn = db.get_connection()
+
+        # 1. Remove locks whose expiry has passed
         cur = conn.execute(
             "DELETE FROM bot_module_locks WHERE expires_at < datetime('now')"
         )
-        count = cur.rowcount
+        expired_count = cur.rowcount
+
+        # 2. Remove still-valid locks held by bots with expired heartbeats
+        dead_count = 0
+        live_locks = conn.execute(
+            "SELECT module, bot_id FROM bot_module_locks"
+            " WHERE expires_at >= datetime('now')"
+        ).fetchall()
+        for row in live_locks:
+            holder_id = row[1]
+            module    = row[0]
+            holder_inst = next(
+                (i for i in instances if i.get("bot_id") == holder_id), None
+            )
+            holder_dead = (
+                holder_inst is None
+                or not _instance_is_online(holder_inst, threshold=120)
+            )
+            if holder_dead:
+                conn.execute(
+                    "DELETE FROM bot_module_locks WHERE module=? AND bot_id=?",
+                    (module, holder_id),
+                )
+                dead_count += 1
+
         conn.commit()
         conn.close()
-        if count:
-            await _w(bot, user.id, f"✅ Cleared {count} stale lock(s).")
+
+        total = expired_count + dead_count
+        if total:
+            parts = []
+            if expired_count:
+                parts.append(f"{expired_count} expired")
+            if dead_count:
+                parts.append(f"{dead_count} dead-holder")
+            await _w(bot, user.id,
+                     f"✅ Cleared {total} lock(s): {', '.join(parts)}.")
         else:
             await _w(bot, user.id, "✅ No stale locks to clear.")
     except Exception as e:
@@ -510,11 +604,13 @@ def _count_conflicts(instances: list) -> int:
 
 def _collect_conflicts(instances: list) -> list[str]:
     conflicts: list[str] = []
-    # 1. Duplicate bot_mode in registered instances
+    # 1. Duplicate bot_mode: count only instances whose OWN heartbeat is live.
+    #    Using _bot_is_online(mode) here was a bug — it returned True for all
+    #    rows sharing a mode as soon as ANY row was alive, inflating the count.
     mode_count: dict[str, int] = {}
     for inst in instances:
         m = inst.get("bot_mode", "")
-        if _bot_is_online(m, instances):
+        if _instance_is_online(inst):          # per-instance age, not per-mode
             mode_count[m] = mode_count.get(m, 0) + 1
     for mode, count in mode_count.items():
         if count > 1:
@@ -557,7 +653,7 @@ def _collect_conflicts(instances: list) -> list[str]:
             # Flag unexpected modes that have no built-in deferral
             true_dupes = [
                 inst["bot_mode"] for inst in instances
-                if _bot_is_online(inst.get("bot_mode", ""), instances)
+                if _instance_is_online(inst)           # per-instance, not per-mode
                 and inst.get("bot_mode") != autogames_owner
                 and inst.get("bot_mode") not in _AUTOGAMES_NEVER
                 and inst.get("bot_mode") not in _AUTOGAMES_FALLBACK
@@ -583,12 +679,32 @@ async def handle_botconflicts(bot, user) -> None:
         return
     instances = db.get_bot_instances()
     conflicts = _collect_conflicts(instances)
-    if not conflicts:
+    stale = _get_stale_instances(instances)
+
+    if not conflicts and not stale:
         await _w(bot, user.id, "✅ No bot conflicts found.")
         return
-    await _w(bot, user.id, f"⚠️ {len(conflicts)} conflict(s) found:")
-    for c in conflicts[:4]:
-        await _w(bot, user.id, f"  • {c}"[:249])
+
+    if conflicts:
+        await _w(bot, user.id, f"⚠️ {len(conflicts)} conflict(s):")
+        for c in conflicts[:4]:
+            if "BOT_MODE=all" in c:
+                hint = "Fix: /setmainmode host"
+            elif "AutoGames lock" in c or "AutoGames owner" in c:
+                hint = "Fix: /clearstalebotlocks"
+            elif "Duplicate mode" in c:
+                hint = "Fix: /fixbotowners"
+            elif "dealer" in c:
+                hint = "Fix: /disablebot dealer"
+            else:
+                hint = "Fix: /fixbotowners"
+            await _w(bot, user.id, (f"• {c} | {hint}")[:249])
+
+    if stale:
+        ids = ", ".join(s.get("bot_id", "?") for s in stale[:6])
+        await _w(bot, user.id,
+                 (f"Stale rows ({len(stale)}): {ids}"
+                  f" | Run /fixbotowners to purge")[:249])
 
 
 # ---------------------------------------------------------------------------
@@ -601,8 +717,28 @@ async def handle_fixbotowners(bot, user, args: list[str]) -> None:
         return
     force = len(args) > 1 and args[1].lower() == "force"
     from modules.multi_bot import _DEFAULT_COMMAND_OWNERS
+
+    # Step 1: purge stale bot_instance rows that are covered by a live row.
+    # Safe: only deletes rows where another live row already covers the same mode.
+    instances = db.get_bot_instances()
+    stale = _get_stale_instances(instances)
+    purged = 0
+    if stale:
+        try:
+            conn = db.get_connection()
+            for inst in stale:
+                conn.execute(
+                    "DELETE FROM bot_instances WHERE bot_id=?",
+                    (inst["bot_id"],)
+                )
+                purged += 1
+            conn.commit()
+            conn.close()
+        except Exception:
+            pass
+
+    # Step 2: command owner repair
     if force:
-        # Overwrite all
         count = 0
         for cmd, owner_mode in _DEFAULT_COMMAND_OWNERS.items():
             try:
@@ -611,9 +747,9 @@ async def handle_fixbotowners(bot, user, args: list[str]) -> None:
             except Exception:
                 pass
         await _w(bot, user.id,
-                 f"✅ Force-set {count} command owners from defaults.")
+                 (f"✅ Purged {purged} stale row(s)."
+                  f" Force-set {count} cmd owners.")[:249])
     else:
-        # Only fill missing
         existing = {r["command"] for r in db.get_all_command_owners()}
         added = 0
         for cmd, owner_mode in _DEFAULT_COMMAND_OWNERS.items():
@@ -623,12 +759,13 @@ async def handle_fixbotowners(bot, user, args: list[str]) -> None:
                     added += 1
                 except Exception:
                     pass
-        if added:
+        if purged or added:
             await _w(bot, user.id,
-                     f"✅ Added {added} missing command owner(s) from defaults.")
+                     (f"✅ Purged {purged} stale row(s)."
+                      f" Added {added} missing cmd owner(s).")[:249])
         else:
             await _w(bot, user.id,
-                     "✅ All command owners already set. Use /fixbotowners force to overwrite.")
+                     "✅ Nothing to fix. Use /fixbotowners force to overwrite all cmd owners.")
 
 
 async def handle_dblockcheck(bot, user, args: list[str]) -> None:
