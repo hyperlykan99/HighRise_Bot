@@ -1002,15 +1002,20 @@ async def finish_poker_hand(bot: BaseBot, reason: str) -> None:
                 hname  = _HAND_NAMES.get(best[0], "High Card")
                 if len(winners) == 1:
                     w = winners[0]
+                    w_disp = db.get_display_name(w["user_id"], w["username"])
                     await _chat(bot, f"👀 Showdown! Board: {board}")
-                    await _chat(bot, f"{_PK_WIN} — @{w['username']} wins {pot:,}c with {hname}.")
+                    await _chat(bot, f"{_PK_WIN} — {w_disp} wins {pot:,}c with {hname}.")
                     for p in eligible:
-                        h   = _fcs(json.loads(p["hole_cards_json"] or "[]"))
-                        hn  = _HAND_NAMES.get(scores.get(p["username"], (0,))[0], "")
-                        lbl = _PK_WIN if p["username"] == w["username"] else _PK_LOSS
-                        await _chat(bot, f"{lbl} @{p['username']}: {h} — {hn}")
+                        h     = _fcs(json.loads(p["hole_cards_json"] or "[]"))
+                        hn    = _HAND_NAMES.get(scores.get(p["username"], (0,))[0], "")
+                        lbl   = _PK_WIN if p["username"] == w["username"] else _PK_LOSS
+                        p_disp = db.get_display_name(p["user_id"], p["username"])
+                        await _chat(bot, f"{lbl} {p_disp}: {h} — {hn}")
                 else:
-                    wnames = " & ".join(f"@{w['username']}" for w in winners)
+                    wnames = " & ".join(
+                        db.get_display_name(w["user_id"], w["username"])
+                        for w in winners
+                    )
                     await _chat(bot,
                         f"🤝 Split: {wnames} each get {share}c. {hname}.")
 
@@ -1047,7 +1052,8 @@ async def finish_poker_hand(bot: BaseBot, reason: str) -> None:
     for s in seated_all:
         if s["table_stack"] == 0:
             _remove_seated(s["username"])
-            await _chat(bot, f"💸 @{s['username']} busted out of the table.")
+            s_disp = db.get_display_name(s["user_id"], s["username"])
+            await _chat(bot, f"💸 {s_disp} busted out of the table.")
 
     # ── Process leaving players ──────────────────────────────────────────────
     seated_all = _get_all_seated()
@@ -1061,8 +1067,9 @@ async def finish_poker_hand(bot: BaseBot, reason: str) -> None:
                     s["user_id"], s["username"],
                     stack, f"Poker cash-out rid={round_id}"
                 )
+            s_disp = db.get_display_name(s["user_id"], s["username"])
             await _chat(bot,
-                f"👋 @{s['username']} cashed out {stack}c from poker.")
+                f"👋 {s_disp} cashed out {stack}c from poker.")
 
     # ── Show current stacks ──────────────────────────────────────────────────
     remaining = _get_all_seated()
@@ -1224,7 +1231,8 @@ async def _deliver_cards_sequential(
     failed: list[str] = []
 
     for pr in active_rows:
-        await _chat(bot, f"{_PK_DEALER}: Dealing to @{pr['username']}...")
+        pr_disp = db.get_display_name_by_username(pr["username"])
+        await _chat(bot, f"{_PK_DEALER}: Dealing to {pr_disp}...")
         await asyncio.sleep(deal_delay)
 
         hc = db.get_hole_cards(round_id, pr["username"])

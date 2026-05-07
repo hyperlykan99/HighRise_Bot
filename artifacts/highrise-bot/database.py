@@ -1755,11 +1755,36 @@ def get_xp_leaderboard(limit: int = 10) -> list[dict]:
 # Shop / cosmetics helpers
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Display-flags cache — avoids per-call DB hits for badge/title toggles.
+# Cleared immediately when /displaybadges or /displaytitles changes a setting.
+# ---------------------------------------------------------------------------
+_display_flags: dict[str, bool] | None = None
+
+
+def _get_display_flags() -> tuple[bool, bool]:
+    """Return (show_badge, show_title) respecting room settings (cached)."""
+    global _display_flags
+    if _display_flags is None:
+        _display_flags = {
+            "b": get_room_setting("display_badges_enabled", "true") == "true",
+            "t": get_room_setting("display_titles_enabled", "true") == "true",
+        }
+    return _display_flags["b"], _display_flags["t"]
+
+
+def invalidate_display_cache() -> None:
+    """Force-flush the display-flags cache (call after changing display settings)."""
+    global _display_flags
+    _display_flags = None
+
+
 def _build_display(badge: str | None, username: str, title: str | None) -> str:
+    show_badge, show_title = _get_display_flags()
     parts = []
-    if badge:
+    if badge and show_badge:
         parts.append(badge)
-    if title:
+    if title and show_title:
         parts.append(title)
     parts.append(f"@{username}")
     return " ".join(parts)
@@ -1767,13 +1792,31 @@ def _build_display(badge: str | None, username: str, title: str | None) -> str:
 
 def get_display_name(user_id: str, username: str) -> str:
     """
-    Return the player's full display string: <badge> @username <title>
-    Falls back to @username if they have nothing equipped.
+    Return the player's full display string: <badge> [title] @username
+    Respects display_badges_enabled / display_titles_enabled room settings.
+    Falls back to @username if they have nothing equipped or settings are off.
     """
     conn = get_connection()
     row = conn.execute(
         "SELECT equipped_badge, equipped_title FROM users WHERE user_id = ?",
         (user_id,)
+    ).fetchone()
+    conn.close()
+    if row is None:
+        return f"@{username}"
+    return _build_display(row["equipped_badge"], username, row["equipped_title"])
+
+
+def get_display_name_by_username(username: str) -> str:
+    """
+    Look up a player's display name by username (case-insensitive).
+    Use when you only have a username, not the user_id.
+    """
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT equipped_badge, equipped_title "
+        "FROM users WHERE LOWER(username) = LOWER(?)",
+        (username,)
     ).fetchone()
     conn.close()
     if row is None:
@@ -7590,6 +7633,9 @@ def seed_room_settings() -> None:
         ("bot_startup_announce_enabled", "false"),
         ("autogames_owner_bot_mode",         "eventhost"),
         ("module_restore_announce_enabled",  "true"),
+        # ── Player display format ─────────────────────────────────────────────
+        ("display_badges_enabled",  "true"),
+        ("display_titles_enabled",  "true"),
         # ── Time-in-Room EXP ─────────────────────────────────────────────────
         ("time_exp_enabled",              "true"),
         ("time_exp_cap",                  "1500"),

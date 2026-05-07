@@ -1,0 +1,230 @@
+Add global player display formatting with badges and titles.
+
+Goal:
+Whenever any bot mentions, calls, announces, or displays a player’s name, it should include that player’s equipped badge and/or title.
+
+Examples:
+Old:
+@Marion won 5,000 coins.
+
+New:
+💎 [High Roller] @Marion won 5,000 coins.
+
+Old:
+@Claire joined poker.
+
+New:
+🌟 [VIP] @Claire joined poker.
+
+Do not change bot tokens.
+Do not change room ID.
+Do not reset balances.
+Do not change poker, blackjack, mining, bank, shop, events, outfits, bot spawns, or game rules.
+
+Use existing badge/title system.
+Do not create a new badge/title system unless missing.
+Do not expose private data.
+
+==================================================
+PART 1 — GLOBAL DISPLAY HELPER
+==================================================
+
+Create or update a shared helper function, for example:
+
+format_player_display(username, user_id=None, include_badge=True, include_title=True)
+
+or:
+
+get_player_display_name(username)
+
+It should return a short formatted player display string.
+
+Recommended format:
+<badge_emoji> [<title>] @username
+
+Examples:
+💎 [High Roller] @Marion
+🌟 [VIP] @Claire
+⛏️ [Master Miner] @testuser
+@newplayer
+
+Rules:
+1. If player has equipped badge, show badge emoji/icon.
+2. If player has equipped title, show title in brackets.
+3. If no badge/title, show normal @username.
+4. Keep it short.
+5. Do not show raw badge IDs unless no display name exists.
+6. Do not break if user has no profile yet.
+7. Do not crash if badge/title data is missing.
+8. Cache display lookup if needed to avoid database spam.
+
+==================================================
+PART 2 — WHERE TO APPLY
+==================================================
+
+Use the helper wherever bots mention players.
+
+Apply to:
+
+Bank/economy:
+- send messages
+- balance transfer messages
+- leaderboard messages
+- daily rewards
+- bank block/unblock messages
+
+Poker:
+- player joined
+- player left
+- current actor
+- call/check/raise/fold/all-in messages
+- pot winner
+- showdown
+- dashboard player list
+- poker action history
+
+Blackjack/RBJ:
+- player bet
+- hit/stand/double/split
+- winner/loser
+- shoe/table messages
+- stats messages
+
+Mining:
+- mining results
+- rare ore announcements
+- level-up messages
+- ore mastery
+- mining leaderboard
+
+Events:
+- event point rewards
+- event winners
+- trivia/game winners
+- Admin’s Blessing announcements if player-specific
+
+Shop:
+- purchase messages
+- equip title/badge messages
+- shop leaderboard if any
+
+Time EXP:
+- level-up messages
+- playtime leaderboard
+- EXP award announcements if any
+
+Room/social:
+- welcome messages
+- teleport/bring messages
+- emote/forceemote messages
+- staff announcements that mention users
+
+Reports/security:
+- warn/mute/report messages
+- staff action logs that mention users
+
+AI assistant:
+- when EmceeBot refers to a user by name
+- profile lookup responses
+- delegated task messages if user-facing
+
+==================================================
+PART 3 — MESSAGE SAFETY
+==================================================
+
+Do not make messages too long.
+
+If display is too long, fallback to:
+<badge> @username
+
+If still too long, fallback to:
+@username
+
+Do not exceed Highrise message length limits.
+
+Do not use badge/title formatting in commands where username must be parsed as an argument.
+Only use it for display output, not command execution.
+
+Example:
+Internal command should still use:
+send Marion 100
+
+Displayed message can use:
+💎 [High Roller] @Marion sent 100 coins.
+
+==================================================
+PART 4 — PLAYER PROFILE
+==================================================
+
+Make sure /profile clearly shows:
+- username
+- equipped badge
+- equipped title
+- level
+- EXP
+- coins
+- major stats
+
+Example:
+👤 Profile: 💎 [High Roller] @Marion
+Level: 12 | EXP: 3,450
+Badge: 💎 Diamond
+Title: High Roller
+
+==================================================
+PART 5 — SETTINGS / TOGGLES
+==================================================
+
+Add optional staff setting:
+
+/displaybadges on
+/displaybadges off
+/displaytitles on
+/displaytitles off
+/displayformat
+
+Behavior:
+/displayformat shows current format:
+Badge: ON
+Title: ON
+Format: <badge> [title] @username
+
+Owner: Host or Shop, whichever manages titles/badges.
+
+If you think toggles are unnecessary, still add at least /displayformat for debugging.
+
+==================================================
+PART 6 — COMMAND INTEGRITY REQUIREMENT
+==================================================
+
+For every new command or alias:
+1. Add route.
+2. Add real handler.
+3. Add commandtest handler map.
+4. Add active/known registry.
+5. Add owner map.
+6. Make sure owner is not UNKNOWN.
+7. /commandtest /<command> shows:
+   route=YES
+   handler=YES
+   owner=<correct owner>
+8. /checkcommands all shows:
+   Missing 0
+   NoOwner 0
+
+Commands to check if added:
+- /displaybadges
+- /displaytitles
+- /displayformat
+
+==================================================
+PART 7 — TESTS TO REPORT
+==================================================
+
+After finishing, tell me:
+1. Files changed
+2. Where the display helper is located
+3. How badges/titles are fetched
+4. Which modules were updated to use it
+5. Which messages still use plain @username if any
+6. What exact commands/messages I should test

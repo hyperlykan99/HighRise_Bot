@@ -273,6 +273,11 @@ from modules.time_exp import (
     handle_settimeexpbonus,
     handle_timeexpstatus,
 )
+from modules.display_settings import (
+    handle_displaybadges,
+    handle_displaytitles,
+    handle_displayformat,
+)
 from modules.mining import (
     handle_mine, handle_tool, handle_upgradetool,
     handle_mineprofile, handle_mineinv, handle_sellores, handle_sellore,
@@ -771,7 +776,10 @@ TIME_EXP_COMMANDS: frozenset[str] = frozenset({
     "settimeexp", "settimeexpcap", "settimeexptick",
     "settimeexpbonus", "timeexpstatus",
 })
-ALL_KNOWN_COMMANDS = ALL_KNOWN_COMMANDS | TIME_EXP_COMMANDS
+DISPLAY_COMMANDS: frozenset[str] = frozenset({
+    "displaybadges", "displaytitles", "displayformat",
+})
+ALL_KNOWN_COMMANDS = ALL_KNOWN_COMMANDS | TIME_EXP_COMMANDS | DISPLAY_COMMANDS
 
 
 # ---------------------------------------------------------------------------
@@ -3126,6 +3134,14 @@ class HangoutBot(BaseBot):
             await handle_settimeexpbonus(self, user, args)
         elif cmd == "timeexpstatus":
             await handle_timeexpstatus(self, user, args)
+
+        # ── Display format settings ────────────────────────────────────────────
+        elif cmd == "displaybadges":
+            await handle_displaybadges(self, user, args)
+        elif cmd == "displaytitles":
+            await handle_displaytitles(self, user, args)
+        elif cmd == "displayformat":
+            await handle_displayformat(self, user, args)
 
         elif cmd == "confirmcasinoreset":
             if not can_moderate(user.username):

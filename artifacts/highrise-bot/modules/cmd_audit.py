@@ -93,6 +93,8 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     # ── time-in-room EXP admin commands ──────────────────────────────────────
     "settimeexp", "settimeexpcap", "settimeexptick", "settimeexpbonus",
     "timeexpstatus",
+    # ── display format settings ───────────────────────────────────────────────
+    "displaybadges", "displaytitles", "displayformat",
     # ── roles ────────────────────────────────────────────────────────────────
     "addowner", "removeowner",
     "addmanager", "removemanager",
@@ -364,6 +366,7 @@ HELP_CMDS: frozenset[str] = frozenset({
     "howtoplay", "gameguide", "games",
     "settimeexp", "settimeexpcap", "settimeexptick", "settimeexpbonus",
     "timeexpstatus",
+    "displaybadges", "displaytitles", "displayformat",
     "casinosettings", "casinolimits", "casinotoggles",
     "setbjlimits", "setrbjlimits", "setbjactiontimer", "setrbjactiontimer",
     "setbjmaxsplits", "setrbjmaxsplits",

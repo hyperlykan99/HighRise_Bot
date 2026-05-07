@@ -36,6 +36,8 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "control": "host", "status": "host", "roomstatus": "host",
     "botmodehelp": "host", "multibothelp": "host",
     "howtoplay": "host", "gameguide": "host", "games": "host",
+    # ── display format settings ───────────────────────────────────────────────
+    "displaybadges": "host", "displaytitles": "host", "displayformat": "host",
     # ── time-in-room EXP admin commands ──────────────────────────────────────
     "settimeexp": "host", "settimeexpcap": "host",
     "settimeexptick": "host", "settimeexpbonus": "host",

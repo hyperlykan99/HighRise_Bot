@@ -408,10 +408,11 @@ async def handle_mine(bot: BaseBot, user: User) -> None:
     # Rare public announce
     if is_rare and db.get_mine_setting("rare_announce_enabled", "true") == "true":
         rarity_label = item["rarity"].replace("_", " ").title()
+        _disp = db.get_display_name(user.id, uname)
         if item["item_id"] == "meteorite_fragment":
-            ann = f"☄️ @{uname} found a Meteorite Fragment! Ultra rare! ☄️"
+            ann = f"☄️ {_disp} found a Meteorite Fragment! Ultra rare! ☄️"
         else:
-            ann = f"{item['emoji']} @{uname} found {item['name']}! ({rarity_label})"
+            ann = f"{item['emoji']} {_disp} found {item['name']}! ({rarity_label})"
         try:
             await bot.highrise.chat(ann[:249])
         except Exception:
@@ -419,9 +420,10 @@ async def handle_mine(bot: BaseBot, user: User) -> None:
 
     # Level up announce
     if new_lvl > cur_lvl:
+        _disp = db.get_display_name(user.id, uname)
         try:
             await bot.highrise.chat(
-                f"⛏️ @{uname} reached Mining Level {new_lvl}! Keep digging!"[:249]
+                f"⛏️ {_disp} reached Mining Level {new_lvl}! Keep digging!"[:249]
             )
         except Exception:
             pass
@@ -517,8 +519,9 @@ async def handle_upgradetool(bot: BaseBot, user: User) -> None:
     name = PICKAXE_NAMES.get(target_lvl, f"Lv{target_lvl} Pickaxe")
     await _w(bot, user.id, f"✅ Pickaxe upgraded to Lv {target_lvl} {name}.")
     try:
+        _disp = db.get_display_name(user.id, user.username)
         await bot.highrise.chat(
-            f"⛏️ @{user.username} upgraded to {name}!"[:249]
+            f"⛏️ {_disp} upgraded to {name}!"[:249]
         )
     except Exception:
         pass
@@ -860,8 +863,9 @@ async def handle_craft(bot: BaseBot, user: User, args: list[str]) -> None:
     db.log_mine(user.username, "craft", item_id, 1, 0, rec["display"])
     await _w(bot, user.id, f"✅ Crafted {rec['emoji']} {rec['display']}!")
     try:
+        _disp = db.get_display_name(user.id, user.username)
         await bot.highrise.chat(
-            f"⚒️ @{user.username} crafted {rec['emoji']} {rec['display']}!"[:249]
+            f"⚒️ {_disp} crafted {rec['emoji']} {rec['display']}!"[:249]
         )
     except Exception:
         pass
