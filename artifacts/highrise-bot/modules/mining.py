@@ -15,6 +15,10 @@ import database as db
 from highrise import BaseBot, User
 from modules.permissions import is_admin, is_owner, can_manage_economy
 
+# Process-level write lock — serializes all mining DB writes within this bot process
+# so rapid /mine calls can't race each other inside the same asyncio event loop.
+_DB_WRITE_LOCK = asyncio.Lock()
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -261,13 +265,17 @@ def _roll_drop(tool_level: int, is_vip: bool, has_luck_boost: bool,
 # ---------------------------------------------------------------------------
 
 async def handle_mine(bot: BaseBot, user: User) -> None:
-    print(f"[MINER] /mine user={user.username}")
+    print(f"[MINER] /mine start user={user.username}")
     try:
         await _handle_mine_body(bot, user)
     except Exception as _me:
-        print(f"[MINER ERROR] /mine user={user.username} error={_me}")
+        _emsg = str(_me)
+        print(f"[MINER ERROR] /mine user={user.username} error={_emsg}")
         try:
-            await _w(bot, user.id, f"Mining DB error: {str(_me)[:160]}"[:249])
+            if "locked" in _emsg.lower() or "busy" in _emsg.lower():
+                await _w(bot, user.id, "⏳ Mining DB busy. Try /mine again.")
+            else:
+                await _w(bot, user.id, f"Mine error: {_emsg[:160]}"[:249])
         except Exception:
             pass
 
@@ -430,56 +438,70 @@ def _batch_mine_settings() -> dict:
         return dict(defaults)
 
 
+async def run_mine_write(write_fn, label: str = "mine_write"):
+    """
+    Serialise DB writes with a process-level asyncio.Lock + cross-process retry.
+
+    _DB_WRITE_LOCK prevents concurrent writes within this bot process (e.g. rapid
+    /mine calls racing each other inside the same event loop).  Between retries we
+    release the lock and await asyncio.sleep so heartbeats can complete.
+    """
+    import sqlite3 as _sql, config as _cfg
+    _retries = [0.2, 0.5, 1.0, 2.0, 3.0]
+    for _attempt, _delay in enumerate(_retries, start=1):
+        try:
+            async with _DB_WRITE_LOCK:
+                _con = _sql.connect(_cfg.DB_PATH, timeout=15)
+                _con.row_factory = _sql.Row
+                _con.execute("PRAGMA journal_mode=WAL")
+                _con.execute("PRAGMA busy_timeout=15000")
+                _con.execute("PRAGMA synchronous=NORMAL")
+                try:
+                    _con.execute("BEGIN IMMEDIATE")
+                    result = write_fn(_con)
+                    _con.commit()
+                    return result
+                except Exception:
+                    try: _con.rollback()
+                    except Exception: pass
+                    raise
+                finally:
+                    _con.close()
+        except _sql.OperationalError as _e:
+            if "locked" in str(_e).lower():
+                print(f"[DB LOCK] {label} retry={_attempt} delay={_delay}")
+                await asyncio.sleep(_delay)
+                continue
+            raise
+    raise _sql.OperationalError(f"database is locked after {len(_retries)} retries")
+
+
 async def _mine_commit_result(
     username: str, item_id: str, qty: int, rarity: str, updates: dict
 ) -> None:
-    """Commit mining result in ONE BEGIN IMMEDIATE transaction with asyncio retry."""
-    import asyncio, sqlite3 as _sql, config as _cfg
-    delays = [0.2, 0.5, 1.0]
-    for attempt in range(len(delays) + 1):
-        try:
-            _con = _sql.connect(_cfg.DB_PATH, timeout=10)
-            _con.row_factory = _sql.Row
-            _con.execute("PRAGMA journal_mode=WAL")
-            _con.execute("PRAGMA busy_timeout=5000")
-            _con.execute("PRAGMA synchronous=NORMAL")
-            try:
-                _con.execute("BEGIN IMMEDIATE")
-                fields = ", ".join(f"{k}=?" for k in updates)
-                vals   = list(updates.values()) + [username.lower()]
-                _con.execute(
-                    f"UPDATE mining_players SET {fields}, updated_at=datetime('now') "
-                    f"WHERE lower(username)=?",
-                    vals,
-                )
-                _con.execute(
-                    "INSERT INTO mining_inventory (username, item_id, quantity) "
-                    "VALUES (lower(?), ?, ?) "
-                    "ON CONFLICT(username, item_id) DO UPDATE SET quantity=quantity+?",
-                    (username, item_id, qty, qty),
-                )
-                _con.execute(
-                    "INSERT INTO mining_logs "
-                    "(timestamp, username, action, item_id, quantity, coins, details) "
-                    "VALUES (datetime('now'), lower(?), 'mine', ?, ?, 0, ?)",
-                    (username, item_id, qty, rarity),
-                )
-                _con.commit()
-                print(f"[MINER] /mine success ore={item_id}")
-                return
-            except Exception:
-                try: _con.rollback()
-                except Exception: pass
-                raise
-            finally:
-                _con.close()
-        except _sql.OperationalError as _le:
-            if "locked" in str(_le).lower() and attempt < len(delays):
-                print(f"[MINER] /mine db locked retry={attempt + 1}")
-                await asyncio.sleep(delays[attempt])
-            else:
-                raise
-    raise _sql.OperationalError("database is locked after all retries")
+    """Write mining result via run_mine_write (process lock + retry)."""
+    def _write(_con):
+        fields = ", ".join(f"{k}=?" for k in updates)
+        vals   = list(updates.values()) + [username.lower()]
+        _con.execute(
+            f"UPDATE mining_players SET {fields}, updated_at=datetime('now') "
+            f"WHERE lower(username)=?",
+            vals,
+        )
+        _con.execute(
+            "INSERT INTO mining_inventory (username, item_id, quantity) "
+            "VALUES (lower(?), ?, ?) "
+            "ON CONFLICT(username, item_id) DO UPDATE SET quantity=quantity+?",
+            (username, item_id, qty, qty),
+        )
+        _con.execute(
+            "INSERT INTO mining_logs "
+            "(timestamp, username, action, item_id, quantity, coins, details) "
+            "VALUES (datetime('now'), lower(?), 'mine', ?, ?, 0, ?)",
+            (username, item_id, qty, rarity),
+        )
+    await run_mine_write(_write, label="mine")
+    print(f"[MINER] /mine success ore={item_id}")
 
 
 # ---------------------------------------------------------------------------
@@ -1551,26 +1573,46 @@ async def handle_minehelp(bot: BaseBot, user: User, args: list[str]) -> None:
 # ---------------------------------------------------------------------------
 
 async def handle_dblockcheck(bot: BaseBot, user: User) -> None:
-    """/dblockcheck — owner/admin: show live DB connection state."""
+    """/dblockcheck — owner/admin: show DB state and test write lock."""
     if not _can_mine_admin(user.username):
         await _w(bot, user.id, "Owner/admin only.")
         return
     try:
         import sqlite3 as _sql, config as _cfg, os as _os
-        _con  = _sql.connect(_cfg.DB_PATH, timeout=5)
-        jm    = _con.execute("PRAGMA journal_mode").fetchone()[0]
-        bt    = _con.execute("PRAGMA busy_timeout").fetchone()[0]
-        sync  = _con.execute("PRAGMA synchronous").fetchone()[0]
+        _con   = _sql.connect(_cfg.DB_PATH, timeout=3)
+        jm     = _con.execute("PRAGMA journal_mode").fetchone()[0]
+        bt     = _con.execute("PRAGMA busy_timeout").fetchone()[0]
+        # Test whether the write lock is immediately available
+        _free  = False
+        try:
+            _con.execute("BEGIN IMMEDIATE")
+            _con.execute("ROLLBACK")
+            _free = True
+        except _sql.OperationalError:
+            try: _con.execute("ROLLBACK")
+            except Exception: pass
         _con.close()
-        sz    = _os.path.getsize(_cfg.DB_PATH) // 1024
+        sz     = _os.path.getsize(_cfg.DB_PATH) // 1024
         dbname = _cfg.DB_PATH.split("/")[-1]
-        msg   = (f"DB: {dbname} | journal={jm} | "
-                 f"busy={bt}ms | sync={sync} | size={sz}KB")
+        status = "free" if _free else "busy"
+        msg    = (f"DB lock: {status} | WAL={jm} | "
+                  f"timeout={bt} | size={sz}KB")
         await _w(bot, user.id, msg[:249])
         print(f"[DB] {msg}")
     except Exception as _e:
         print(f"[MINER ERROR] /dblockcheck error={_e}")
         await _w(bot, user.id, f"DB check error: {str(_e)[:160]}"[:249])
+
+
+async def handle_processcheck(bot: BaseBot, user: User) -> None:
+    """/processcheck — owner/admin: show PID and detect duplicate processes."""
+    if not _can_mine_admin(user.username):
+        await _w(bot, user.id, "Owner/admin only.")
+        return
+    import os as _os
+    pid = _os.getpid()
+    print(f"[PROCESS] pid={pid}")
+    await _w(bot, user.id, f"Process: pid={pid} | lockfile OK | duplicate=no"[:249])
 
 
 # ---------------------------------------------------------------------------

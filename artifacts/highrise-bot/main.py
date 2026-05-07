@@ -272,7 +272,7 @@ from modules.mining import (
     handle_orebook, handle_oremastery, handle_claimoremastery, handle_orestats,
     handle_contracts, handle_job, handle_deliver, handle_claimjob, handle_rerolljob,
     handle_minerdbcheck, handle_minerrepair,
-    handle_dblockcheck,
+    handle_dblockcheck, handle_processcheck,
     MINE_HELP_PAGES,
 )
 from modules.control_panel import (
@@ -641,7 +641,7 @@ ALL_KNOWN_COMMANDS = (
         "orebook", "oremastery", "claimoremastery", "orestats",
         "contracts", "miningjobs", "job", "deliver", "claimjob", "rerolljob",
         "minehelp",
-        "minerdbcheck", "minerrepair", "dblockcheck",
+        "minerdbcheck", "minerrepair", "dblockcheck", "processcheck",
         # Mining game — staff commands
         "mining",
         "startminingevent", "stopminingevent",
@@ -4155,6 +4155,9 @@ class HangoutBot(BaseBot):
 
         elif cmd == "dblockcheck":
             await handle_dblockcheck(self, user)
+
+        elif cmd == "processcheck":
+            await handle_processcheck(self, user)
 
         # ── Maintenance tools ─────────────────────────────────────────────────
         elif cmd == "botstatus":

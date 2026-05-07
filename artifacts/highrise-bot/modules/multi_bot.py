@@ -130,7 +130,7 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "orelist": "miner",
     "orebook": "miner", "oremastery": "miner", "claimoremastery": "miner", "orestats": "miner",
     "minerdbcheck": "miner", "minerrepair": "miner",
-    "dblockcheck": "miner",
+    "dblockcheck": "miner", "processcheck": "miner",
     "contracts": "miner", "miningjobs": "miner",
     "job": "miner", "deliver": "miner", "claimjob": "miner", "rerolljob": "miner",
     # ── shopkeeper ──────────────────────────────────────────────────────────
