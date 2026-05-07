@@ -2489,10 +2489,14 @@ class HangoutBot(BaseBot):
 
         # ── Economy commands ──────────────────────────────────────────────────
         if cmd in {"balance", "bal", "b", "coins", "coin", "money"}:
+            print(f"[BALANCE] mode={BOT_MODE} user={user.username} cmd={cmd}")
             await handle_balance(self, user, args)
+            return
 
         elif cmd in {"wallet", "w"}:
+            print(f"[WALLET] mode={BOT_MODE} user={user.username} cmd={cmd}")
             await handle_wallet(self, user, args)
+            return
 
         elif cmd in {"casinodash", "mycasino"}:
             await handle_casino_dash(self, user, args)

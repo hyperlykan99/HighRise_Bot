@@ -63,37 +63,46 @@ async def handle_balance(bot: BaseBot, user: User, args: list | None = None):
     /bal             → self balance
     /bal <username>  → other player balance (privacy-aware)
     """
-    db.ensure_user(user.id, user.username)
+    try:
+        db.ensure_user(user.id, user.username)
 
-    raw_target = args[1].lstrip("@").strip() if args and len(args) > 1 else None
+        raw_target = args[1].lstrip("@").strip() if args and len(args) > 1 else None
 
-    if not raw_target:
-        balance = db.get_balance(user.id)
-        await bot.highrise.send_whisper(user.id, f"💰 Balance: {fmt_coins(balance)}")
-        return
-
-    # Looking up another player
-    target = db.get_user_by_username(raw_target)
-    if not target:
-        await bot.highrise.send_whisper(
-            user.id, "User not found. They may need to chat first."
-        )
-        return
-
-    t_id   = target["user_id"]
-    t_name = target["username"]
-
-    # Privacy check
-    is_staff = can_moderate(user.username) or is_admin(user.username)
-    is_self  = (t_id == user.id)
-    if not is_self and not is_staff:
-        privacy = db.get_profile_privacy(t_name.lower())
-        if not bool(privacy.get("show_money", 1)):
-            await bot.highrise.send_whisper(user.id, f"@{t_name}'s balance is private.")
+        if not raw_target:
+            balance = db.get_balance(user.id)
+            await bot.highrise.send_whisper(user.id, f"💰 Balance: {fmt_coins(balance)}")
             return
 
-    balance = db.get_balance(t_id)
-    await bot.highrise.send_whisper(user.id, f"💰 @{t_name}: {fmt_coins(balance)}")
+        # Looking up another player
+        target = db.get_user_by_username(raw_target)
+        if not target:
+            await bot.highrise.send_whisper(
+                user.id, "User not found. They may need to chat first."
+            )
+            return
+
+        t_id   = target["user_id"]
+        t_name = target["username"]
+
+        # Privacy check
+        is_staff = can_moderate(user.username) or is_admin(user.username)
+        is_self  = (t_id == user.id)
+        if not is_self and not is_staff:
+            privacy = db.get_profile_privacy(t_name.lower())
+            if not bool(privacy.get("show_money", 1)):
+                await bot.highrise.send_whisper(user.id, f"@{t_name}'s balance is private.")
+                return
+
+        balance = db.get_balance(t_id)
+        await bot.highrise.send_whisper(user.id, f"💰 @{t_name}: {fmt_coins(balance)}")
+    except Exception as e:
+        print(f"[BALANCE] ERROR user={user.username} args={args} error={e}")
+        try:
+            await bot.highrise.send_whisper(
+                user.id, "Balance check failed. Please try again."
+            )
+        except Exception:
+            pass
 
 
 # ---------------------------------------------------------------------------

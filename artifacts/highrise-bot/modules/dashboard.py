@@ -122,12 +122,21 @@ def _poker_phase() -> str:
 
 async def handle_wallet(bot: BaseBot, user: User, args: list) -> None:
     """/wallet [2]  — personal wallet overview."""
-    db.ensure_user(user.id, user.username)
-    page = int(args[1]) if len(args) > 1 and args[1].isdigit() else 1
-    if page == 2:
-        await _wallet_p2(bot, user)
-    else:
-        await _wallet_p1(bot, user)
+    try:
+        db.ensure_user(user.id, user.username)
+        page = int(args[1]) if len(args) > 1 and args[1].isdigit() else 1
+        if page == 2:
+            await _wallet_p2(bot, user)
+        else:
+            await _wallet_p1(bot, user)
+    except Exception as e:
+        print(f"[WALLET] ERROR user={user.username} args={args} error={e}")
+        try:
+            await bot.highrise.send_whisper(
+                user.id, "Balance check failed. Please try again."
+            )
+        except Exception:
+            pass
 
 
 async def _wallet_p1(bot: BaseBot, user: User) -> None:
