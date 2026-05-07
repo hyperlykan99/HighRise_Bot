@@ -304,6 +304,7 @@ from modules.ai_assistant import (
     handle_pendingaction,
     handle_confirm_cmd,
     handle_aidebug,
+    handle_aicapabilities,
 )
 from modules.bot_modes import (
     handle_botmode, handle_botmodes, handle_botprofile,
@@ -690,7 +691,7 @@ ALL_KNOWN_COMMANDS = (
         "restoreannounce", "restorestatus",
         "commandissues",
         # ── AI assistant ──────────────────────────────────────────────────────
-        "ask", "ai", "assistant", "pendingaction", "confirm", "aidebug",
+        "ask", "ai", "assistant", "pendingaction", "confirm", "aidebug", "aicapabilities",
     }
     | ECONOMY_COMMANDS | PROFILE_COMMANDS | GAME_COMMANDS
     | SHOP_COMMANDS | ACHIEVEMENT_COMMANDS | BJ_COMMANDS
@@ -3098,6 +3099,9 @@ class HangoutBot(BaseBot):
 
         elif cmd == "aidebug":
             await handle_aidebug(self, user, args)
+
+        elif cmd == "aicapabilities":
+            await handle_aicapabilities(self, user, args)
 
         # ── /answer ───────────────────────────────────────────────────────────
         elif cmd == "answer":

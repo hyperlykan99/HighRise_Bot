@@ -5,11 +5,15 @@ AI assistant layer — natural language command matching and confirmation system
 
 Supports:
 - /ask, /ai, /assistant <message>
-- Natural language triggers: "bot," prefix, @botname mention
+- Natural language triggers: "emceebot" word or @emceebot mention
 - yes/no natural confirmation for pending actions
 - Risk-classified command matching (SAFE / CONFIRM / ADMIN_CONFIRM / BLOCKED)
 - Per-bot-mode personality responses
 - Pending action storage in ai_pending_actions DB table
+
+Intent categories (Parts 1–9):
+  Mining, Economy/Bank, Shop, Games, Events, Room/Spawn,
+  Teleport, Outfit, Profile, Poker Settings, Help
 
 All messages ≤ 249 chars.  No external API calls — pattern-based matching only.
 """
@@ -39,7 +43,7 @@ BLOCKED       = "BLOCKED"
 # ---------------------------------------------------------------------------
 
 _RISK: dict[str, str] = {
-    # SAFE — informational only, suggest the command
+    # ── SAFE — informational; AI suggests the command but does not run it ──
     "help": SAFE, "mycommands": SAFE, "start": SAFE, "guide": SAFE,
     "bal": SAFE, "balance": SAFE, "bank": SAFE, "transactions": SAFE,
     "minehelp": SAFE, "mine": SAFE, "ores": SAFE, "tool": SAFE,
@@ -51,11 +55,15 @@ _RISK: dict[str, str] = {
     "leaderboard": SAFE, "lb": SAFE, "daily": SAFE,
     "quests": SAFE, "questhelp": SAFE, "dailyquests": SAFE,
     "bothealth": SAFE, "modulehealth": SAFE, "botheartbeat": SAFE,
-    # CONFIRM — ask user before executing
+    "spawns": SAFE, "spawninfo": SAFE,
+    "botoutfits": SAFE, "botoutfit": SAFE,
+    "goto": SAFE, "aicapabilities": SAFE,
+    # ── CONFIRM — ask user before executing ──────────────────────────────
     "send": CONFIRM, "buy": CONFIRM, "sellores": CONFIRM,
     "sellore": CONFIRM, "minebuy": CONFIRM, "equip": CONFIRM,
     "eventshop": CONFIRM, "buyevent": CONFIRM,
-    # ADMIN_CONFIRM — admin/owner only + must confirm
+    "tpme": CONFIRM,
+    # ── ADMIN_CONFIRM — admin/owner only + must confirm ───────────────────
     "setmaxsend": ADMIN_CONFIRM, "setsendlimit": ADMIN_CONFIRM,
     "setminsend": ADMIN_CONFIRM, "setnewaccountdays": ADMIN_CONFIRM,
     "setmindailyclaims": ADMIN_CONFIRM, "setminlevelsend": ADMIN_CONFIRM,
@@ -68,11 +76,60 @@ _RISK: dict[str, str] = {
     "restartbot": ADMIN_CONFIRM, "pokerrefundall": ADMIN_CONFIRM,
     "resetpokerstats": ADMIN_CONFIRM, "resetbjstats": ADMIN_CONFIRM,
     "resetrbjstats": ADMIN_CONFIRM,
+    # Room / spawn
+    "setspawn": ADMIN_CONFIRM, "setspawncoords": ADMIN_CONFIRM, "delspawn": ADMIN_CONFIRM,
+    # Teleport
+    "tp": ADMIN_CONFIRM, "tphere": ADMIN_CONFIRM, "bring": ADMIN_CONFIRM,
+    "bringall": ADMIN_CONFIRM, "tpall": ADMIN_CONFIRM,
+    # Outfit
+    "dressbot": ADMIN_CONFIRM, "copyoutfit": ADMIN_CONFIRM,
+    "wearuseroutfit": ADMIN_CONFIRM, "savebotoutfit": ADMIN_CONFIRM,
+    # Poker settings
+    "poker": ADMIN_CONFIRM,
+    "setpokerdailywinlimit": ADMIN_CONFIRM, "setpokerdailylosslimit": ADMIN_CONFIRM,
 }
 
 
 def _risk_for(cmd: str) -> str:
     return _RISK.get(cmd, SAFE)
+
+
+# ---------------------------------------------------------------------------
+# Intent category table  (command → category string)
+# Used by /aidebug output.
+# ---------------------------------------------------------------------------
+
+_CATEGORY: dict[str, str] = {
+    "minehelp": "mining", "mine": "mining", "ores": "mining",
+    "tool": "mining", "orebook": "mining", "orestats": "mining",
+    "mineshop": "mining", "sellores": "mining", "sellore": "mining", "minebuy": "mining",
+    "send": "economy", "bal": "economy", "balance": "economy",
+    "bank": "economy", "transactions": "economy", "daily": "economy",
+    "leaderboard": "economy", "lb": "economy",
+    "setmaxsend": "economy", "setsendlimit": "economy", "setminsend": "economy",
+    "setsendtax": "economy", "sethighriskblocks": "economy",
+    "setcoins": "admin", "addcoins": "admin", "removecoins": "admin",
+    "resetcoins": "admin", "bankblock": "admin", "bankunblock": "admin",
+    "shop": "shop", "buy": "shop", "equip": "shop",
+    "pokerhelp": "games", "bjhelp": "games", "rbjhelp": "games",
+    "eventhelp": "events", "event": "events", "events": "events",
+    "eventstatus": "events", "eventpoints": "events",
+    "startevent": "events", "stopevent": "events",
+    "eventshop": "events", "buyevent": "events",
+    "setspawn": "room", "setspawncoords": "room", "delspawn": "room", "spawns": "room",
+    "spawninfo": "room",
+    "tpme": "room", "tp": "room", "tphere": "room", "bring": "room",
+    "bringall": "room", "tpall": "room", "goto": "room",
+    "dressbot": "outfit", "copyoutfit": "outfit",
+    "wearuseroutfit": "outfit", "savebotoutfit": "outfit",
+    "botoutfits": "outfit", "botoutfit": "outfit",
+    "me": "profile", "profile": "profile", "stats": "profile",
+    "quests": "profile", "questhelp": "profile", "dailyquests": "profile",
+    "poker": "poker",
+    "setpokerdailywinlimit": "poker", "setpokerdailylosslimit": "poker",
+    "help": "help", "mycommands": "help", "aicapabilities": "help",
+    "bothealth": "system", "modulehealth": "system", "botheartbeat": "system",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -108,7 +165,7 @@ def _is_blocked(text: str) -> bool:
 
 # ---------------------------------------------------------------------------
 # Intent patterns
-# Each entry: (compiled_regex, command, args_fn(match, text)->str, human_fn(match, text)->str)
+# Each entry: (compiled_regex, command, args_fn(match,text)->str, human_fn(match,text)->str)
 # Evaluated top-to-bottom; first match wins.
 # ---------------------------------------------------------------------------
 
@@ -118,7 +175,10 @@ def _k(v: str):
 
 
 _INTENTS: list[tuple] = [
-    # ── Mining ────────────────────────────────────────────────────────────────
+
+    # ────────────────────────────────────────────────────────────────────────
+    # MINING
+    # ────────────────────────────────────────────────────────────────────────
     (re.compile(r"how.{0,20}(do\s+i\s+|can\s+i\s+|to\s+)?mine|mine\s*help|mining\s*help|help.*min[ei]ng?\b", re.I),
      "minehelp", _k(""), _k("show mining help")),
 
@@ -142,8 +202,10 @@ _INTENTS: list[tuple] = [
     (re.compile(r"(mining\s+|mine\s+)?(shop|store|market)\s*$|^mineshop$", re.I),
      "mineshop", _k(""), _k("show the mining shop")),
 
-    # ── Send / transfer — checked BEFORE balance so "send 100 coins to X"
-    # does NOT accidentally match the coins/balance keyword in /bal pattern ────
+    # ────────────────────────────────────────────────────────────────────────
+    # SEND / TRANSFER  — checked BEFORE balance so "send 100 coins to X"
+    # does NOT accidentally match the balance keyword in /bal pattern
+    # ────────────────────────────────────────────────────────────────────────
     # Variant A: "send 1000 coins to testuser" / "transfer 500 to @Marion"
     (re.compile(
         r"(send|transfer|give|pay)\s+([\d,]+)\s*(coins?|tokens?)?\s*(?:to|for|->)\s+@?(\w+)",
@@ -153,7 +215,6 @@ _INTENTS: list[tuple] = [
      lambda m, t: f"send {m.group(2).replace(',', '')} coins to @{m.group(4)}"),
 
     # Variant B: "send testuser 1000 coins" / "pay @testuser 500"
-    # [A-Za-z]\w* ensures the second token is a username, not a number
     (re.compile(
         r"(send|transfer|give|pay)\s+@?([A-Za-z]\w*)\s+([\d,]+)\s*(coins?|tokens?)?",
         re.I),
@@ -161,7 +222,9 @@ _INTENTS: list[tuple] = [
      lambda m, t: f"{m.group(2)} {m.group(3).replace(',', '')}",
      lambda m, t: f"send {m.group(3).replace(',', '')} coins to @{m.group(2)}"),
 
-    # ── Economy ───────────────────────────────────────────────────────────────
+    # ────────────────────────────────────────────────────────────────────────
+    # ECONOMY
+    # ────────────────────────────────────────────────────────────────────────
     (re.compile(
         r"(show\s+|check\s+|see\s+|my\s+|what.?s\s+(my\s+)?)?"
         r"(balance|wallet|money)\b"
@@ -187,7 +250,9 @@ _INTENTS: list[tuple] = [
         re.I),
      "leaderboard", _k(""), _k("show the leaderboard")),
 
-    # ── Shop ──────────────────────────────────────────────────────────────────
+    # ────────────────────────────────────────────────────────────────────────
+    # SHOP
+    # ────────────────────────────────────────────────────────────────────────
     (re.compile(
         r"(show\s+|open\s+|view\s+|see\s+)?(badge|emoji\s+badge|badges).*(shop)?"
         r"|badge\s+shop|shop.*badges?", re.I),
@@ -213,7 +278,9 @@ _INTENTS: list[tuple] = [
      lambda m, t: (m.group(1) or m.group(2) or "").strip(),
      lambda m, t: f"equip {m.group(1) or m.group(2)}"),
 
-    # ── Games ─────────────────────────────────────────────────────────────────
+    # ────────────────────────────────────────────────────────────────────────
+    # GAMES — help text
+    # ────────────────────────────────────────────────────────────────────────
     (re.compile(
         r"how.{0,20}(play|start|join|do|use)\s+poker"
         r"|poker.{0,20}(help|rules?|guide|how)\b|poker\s+help", re.I),
@@ -229,26 +296,217 @@ _INTENTS: list[tuple] = [
         r"|realistic.{0,20}(help|guide|rules?|how)\b|rbj\s+help|rbjhelp", re.I),
      "rbjhelp", _k(""), _k("show realistic blackjack help")),
 
-    # ── Events ────────────────────────────────────────────────────────────────
+    # ────────────────────────────────────────────────────────────────────────
+    # EVENTS — specific event names first, then generic patterns
+    # ────────────────────────────────────────────────────────────────────────
+    # Specific event IDs (natural name → event_id)
     (re.compile(
-        r"(events?\s*(help)?\s*$|what.*events?|show.*events?|event\s+(info|guide|help))",
+        r"(start|turn\s+on|enable|begin|launch)\s+(double[\s_]xp|double[\s_]exp|2x[\s_]xp|2x[\s_]exp)\s*(event)?\b",
         re.I),
+     "startevent", _k("double_xp"), _k("start Double XP event")),
+
+    (re.compile(
+        r"(start|turn\s+on|enable|begin|launch)\s+(double[\s_]coins?|2x[\s_]coins?)\s*(event)?\b",
+        re.I),
+     "startevent", _k("double_coins"), _k("start Double Coins event")),
+
+    (re.compile(
+        r"(start|turn\s+on|enable|begin|launch)\s+(casino[\s_]hour)\s*(event)?\b",
+        re.I),
+     "startevent", _k("casino_hour"), _k("start Casino Hour event")),
+
+    (re.compile(
+        r"(start|turn\s+on|enable|begin|launch)\s+(tax.?free[\s_]bank(ing)?|no[\s_]tax)\s*(event)?\b",
+        re.I),
+     "startevent", _k("tax_free_bank"), _k("start Tax-Free Banking event")),
+
+    (re.compile(
+        r"(start|turn\s+on|enable|begin|launch)\s+(trivia[\s_]party)\s*(event)?\b",
+        re.I),
+     "startevent", _k("trivia_party"), _k("start Trivia Party event")),
+
+    (re.compile(
+        r"(start|turn\s+on|enable|begin|launch)\s+(shop[\s_]sale)\s*(event)?\b",
+        re.I),
+     "startevent", _k("shop_sale"), _k("start Shop Sale event")),
+
+    # Generic: "start event X" / "start X event"
+    (re.compile(r"start\s+event\s+(\w+)", re.I),
+     "startevent",
+     lambda m, t: m.group(1).lower(),
+     lambda m, t: f"start {m.group(1).lower()} event"),
+
+    (re.compile(r"(start|begin|launch)\s+(a?n?\s*)?(\w+)\s+event\b", re.I),
+     "startevent",
+     lambda m, t: m.group(3).lower(),
+     lambda m, t: f"start {m.group(3).lower()} event"),
+
+    (re.compile(r"(stop|end|cancel|turn\s+off|disable)\s+(the\s+|current\s+)?(event|game)\b", re.I),
+     "stopevent", _k(""), _k("stop the current event")),
+
+    (re.compile(r"(events?\s*(help)?\s*$|what.*events?|show.*events?|event\s+(info|guide|help))", re.I),
      "eventhelp", _k(""), _k("show event help")),
 
-    (re.compile(
-        r"(current\s+|active\s+)?(event|events)\s+(status|now|active|running)", re.I),
+    (re.compile(r"(current\s+|active\s+)?(event|events)\s+(status|now|active|running)", re.I),
      "eventstatus", _k(""), _k("show current event status")),
 
-    # ── Help / commands ───────────────────────────────────────────────────────
+    # ────────────────────────────────────────────────────────────────────────
+    # ROOM / SPAWN
+    # ────────────────────────────────────────────────────────────────────────
+    # List spawns
     (re.compile(
-        r"what\s+commands?|(show|see|list)\s+(all\s+)?commands?"
-        r"|help\s+me$|what\s+can\s+(you|i)\s+do|what\s+do\s+you\s+do|^guide$", re.I),
-     "help", _k(""), _k("show available commands")),
+        r"(show|list|see|view)\s+(all\s+)?spawns?\b|what\s+spawns?\s+(are there|exist)\b"
+        r"|spawns\s+(list|available)\b",
+        re.I),
+     "spawns", _k(""), _k("show all saved spawns")),
 
-    (re.compile(r"(my\s+commands?|commands?\s+(for\s+me|i\s+can\s+use|available))", re.I),
-     "mycommands", _k(""), _k("show your commands")),
+    # Save / create spawn at current position
+    (re.compile(
+        r"(save|create|set)\s+(this\s+|my\s+|current\s+)?(spot|pos|position|location|spawn)\s+as\s+(\w+)\b",
+        re.I),
+     "setspawn",
+     lambda m, t: m.group(4).lower(),
+     lambda m, t: f"save your current location as spawn '{m.group(4).lower()}'"),
 
-    # ── Profile ───────────────────────────────────────────────────────────────
+    (re.compile(r"(create|set|add|make)\s+spawn\s+(\w+)\b", re.I),
+     "setspawn",
+     lambda m, t: m.group(2).lower(),
+     lambda m, t: f"create spawn '{m.group(2).lower()}' at your position"),
+
+    # ────────────────────────────────────────────────────────────────────────
+    # TELEPORT — ordered most-specific first
+    # ────────────────────────────────────────────────────────────────────────
+    # Teleport everyone / all
+    (re.compile(
+        r"(teleport|tp)\s+(everyone|all\s+players|all)\s+to\s+(\w+)\b"
+        r"|tpall\s+(\w+)\b",
+        re.I),
+     "tpall",
+     lambda m, t: (m.group(3) or m.group(4)).lower(),
+     lambda m, t: f"teleport everyone to spawn '{(m.group(3) or m.group(4)).lower()}'"),
+
+    # Bring all
+    (re.compile(r"(bring\s+all|bring\s+everyone|bringall)\b", re.I),
+     "bringall", _k(""), _k("bring all players to your position")),
+
+    # Teleport self to spawn: "teleport me to lounge" / "tp me to stage"
+    (re.compile(r"(teleport|tp)\s+me\s+to\s+(\w+)\b|go\s+to\s+spawn\s+(\w+)\b", re.I),
+     "tpme",
+     lambda m, t: (m.group(2) or m.group(3)).lower(),
+     lambda m, t: f"teleport you to spawn '{(m.group(2) or m.group(3)).lower()}'"),
+
+    # Teleport user to @user (explicit @mention → goto + note)
+    (re.compile(r"(teleport|tp|move)\s+@?(\w+)\s+to\s+@(\w+)\b", re.I),
+     "goto",
+     lambda m, t: m.group(3),
+     lambda m, t: (f"go to @{m.group(3)}'s location "
+                   f"(then use /tphere {m.group(2)} to bring them)")),
+
+    # Bring user to me: "bring testuser to me" / "tphere testuser"
+    (re.compile(r"(bring|tphere)\s+@?(\w+)(\s+to\s+(me|here))?\b", re.I),
+     "tphere",
+     lambda m, t: m.group(2).lstrip("@"),
+     lambda m, t: f"bring @{m.group(2).lstrip('@')} to your position"),
+
+    # Teleport user to spawn: "teleport testuser to lounge" / "tp testuser stage"
+    (re.compile(r"(teleport|tp)\s+@?(\w+)\s+to\s+(\w+)\b", re.I),
+     "tp",
+     lambda m, t: f"{m.group(2).lstrip('@')} {m.group(3).lower()}",
+     lambda m, t: f"teleport @{m.group(2).lstrip('@')} to spawn '{m.group(3).lower()}'"),
+
+    # Go to user (teleport self to a user)
+    (re.compile(r"(goto|go\s+to)\s+@?(\w+)\b|teleport\s+me\s+to\s+@(\w+)\b", re.I),
+     "goto",
+     lambda m, t: (m.group(2) or m.group(3)).lstrip("@"),
+     lambda m, t: f"teleport you to @{(m.group(2) or m.group(3)).lstrip('@')}"),
+
+    # ────────────────────────────────────────────────────────────────────────
+    # OUTFIT
+    # ────────────────────────────────────────────────────────────────────────
+    # Copy user's outfit into a bot mode record
+    (re.compile(
+        r"copy\s+@?(\w+)[''s]*\s+outfit\s+to\s+(\w+)\b"
+        r"|copy\s+@?(\w+)\s+to\s+(\w+)\b(?!.*spawn)",
+        re.I),
+     "copyoutfit",
+     lambda m, t: f"{(m.group(1) or m.group(3)).lstrip('@')} {(m.group(2) or m.group(4)).lower()}",
+     lambda m, t: (f"copy @{(m.group(1) or m.group(3)).lstrip('@')}'s outfit "
+                   f"→ '{(m.group(2) or m.group(4)).lower()}' mode")),
+
+    # Make bot wear user's outfit (wearuseroutfit)
+    (re.compile(
+        r"make\s+(\w+bot|\w+\s+bot)\s+wear\s+(my|@?(\w+))\s+outfit\b"
+        r"|(?:have|get)\s+(\w+bot)\s+wear\s+@?(\w+)\b",
+        re.I),
+     "wearuseroutfit",
+     lambda m, t: (m.group(3) or m.group(5) or "").lstrip("@"),
+     lambda m, t: (f"make bot wear @{(m.group(3) or m.group(5) or 'your').lstrip('@')}'s outfit")),
+
+    # Make bot wear MY outfit
+    (re.compile(r"make\s+(\w+bot|\w+\s+bot)\s+wear\s+my\s+outfit\b", re.I),
+     "wearuseroutfit",
+     lambda m, t: "",   # args_str will be built from user.username at execution
+     lambda m, t: "make the bot wear your outfit"),
+
+    # Dress bot as mode: "dress SecurityBot as security"
+    (re.compile(
+        r"(dress|outfit)\s+(\w+bot|\w+\s+bot|\w+)\s+as\s+(\w+)\b"
+        r"|make\s+(\w+bot)\s+look\s+like\s+(\w+)\b",
+        re.I),
+     "dressbot",
+     lambda m, t: (m.group(3) or m.group(5) or "").lower(),
+     lambda m, t: f"dress bot using saved '{(m.group(3) or m.group(5) or '?').lower()}' outfit"),
+
+    # Save bot outfit as mode: "save SecurityBot outfit as security"
+    (re.compile(
+        r"save\s+(\w+bot|\w+\s+bot|\w+)[''s]*\s+outfit\s+(as|for)\s+(\w+)\b"
+        r"|save\s+bot\s+outfit\s+(as|to)\s+(\w+)\b",
+        re.I),
+     "savebotoutfit",
+     lambda m, t: (m.group(3) or m.group(5) or "").lower(),
+     lambda m, t: f"save bot's current outfit as '{(m.group(3) or m.group(5) or '?').lower()}' mode"),
+
+    # Show bot outfit status
+    (re.compile(
+        r"(show|list|view)\s+bot\s+(outfit|outfits|looks?)\b"
+        r"|bot\s+outfit\s+(status|list|info)\b"
+        r"|what.*(bot|bots?)\s+(wearing|dressed|outfit)\b",
+        re.I),
+     "botoutfits", _k(""), _k("show all bot saved outfits")),
+
+    # ────────────────────────────────────────────────────────────────────────
+    # PROFILE — specific user first, then generic "me"
+    # ────────────────────────────────────────────────────────────────────────
+    # Show specific user's profile (guard against "my", "me", "your")
+    (re.compile(
+        r"(show|view|see|check|display)\s+(?!my\b|me\b|your\b)@?([A-Za-z]\w+)[''s]*\s+"
+        r"(profile|pinfo|whois|info)\b",
+        re.I),
+     "profile",
+     lambda m, t: m.group(2).lstrip("@"),
+     lambda m, t: f"show @{m.group(2).lstrip('@')}'s profile"),
+
+    # /profile username explicit
+    (re.compile(r"^profile\s+@?([A-Za-z]\w+)\b", re.I),
+     "profile",
+     lambda m, t: m.group(1).lstrip("@"),
+     lambda m, t: f"show @{m.group(1).lstrip('@')}'s profile"),
+
+    # Who is username
+    (re.compile(r"(who\s+is|whois)\s+@?([A-Za-z]\w+)\b", re.I),
+     "profile",
+     lambda m, t: m.group(2).lstrip("@"),
+     lambda m, t: f"show @{m.group(2).lstrip('@')}'s profile"),
+
+    # Show specific user's stats
+    (re.compile(
+        r"(show|check|see)\s+(?!my\b|me\b|your\b)@?([A-Za-z]\w+)[''s]*\s+stats\b",
+        re.I),
+     "stats",
+     lambda m, t: m.group(2).lstrip("@"),
+     lambda m, t: f"show @{m.group(2).lstrip('@')}'s stats"),
+
+    # Generic "my profile / my stats / me"
     (re.compile(
         r"(my\s+|show\s+|view\s+)?(profile|stats|profile\s+stats)\s*$|^(me|stats)$",
         re.I),
@@ -262,12 +520,20 @@ _INTENTS: list[tuple] = [
         re.I),
      "quests", _k(""), _k("show your quests")),
 
-    # ── Admin — bank settings ─────────────────────────────────────────────────
+    # ────────────────────────────────────────────────────────────────────────
+    # ADMIN — bank settings
+    # ────────────────────────────────────────────────────────────────────────
     (re.compile(
         r"set\s+(max|maximum)\s*(send|transfer)\s*(limit)?\s*(to\s*)?([\d,]+)", re.I),
      "setmaxsend",
      lambda m, t: m.group(5).replace(",", ""),
-     lambda m, t: f"set maximum send limit to {int(m.group(5).replace(',', '')):,} coins"),
+     lambda m, t: f"set maximum send to {int(m.group(5).replace(',', '')):,} coins"),
+
+    (re.compile(
+        r"set\s+(daily|day)\s*(send|transfer)\s*(limit)?\s*(to\s*)?([\d,]+)", re.I),
+     "setsendlimit",
+     lambda m, t: m.group(5).replace(",", ""),
+     lambda m, t: f"set daily send limit to {int(m.group(5).replace(',', '')):,} coins"),
 
     (re.compile(
         r"set\s+(min|minimum)\s*(send|transfer)\s*(limit)?\s*(to\s*)?([\d,]+)", re.I),
@@ -281,21 +547,48 @@ _INTENTS: list[tuple] = [
      lambda m, t: m.group(4),
      lambda m, t: f"set send tax to {m.group(4)}%"),
 
-    # start X event — order matters: match "start event X" before generic
-    (re.compile(r"start\s+event\s+(\w+)", re.I),
-     "startevent",
-     lambda m, t: m.group(1).lower(),
-     lambda m, t: f"start {m.group(1).lower()} event"),
+    # ────────────────────────────────────────────────────────────────────────
+    # POKER SETTINGS
+    # ────────────────────────────────────────────────────────────────────────
+    # Toggle win limit
+    (re.compile(r"(enable|turn\s+on)\s+poker\s+win\s*(limit)?\b", re.I),
+     "poker", _k("winlimit on"), _k("turn poker win limit ON")),
 
-    (re.compile(r"start\s+(a?n?\s*)?(\w+)\s+event\b", re.I),
-     "startevent",
-     lambda m, t: m.group(2).lower(),
-     lambda m, t: f"start {m.group(2).lower()} event"),
+    (re.compile(r"(disable|turn\s+off)\s+poker\s+win\s*(limit)?\b", re.I),
+     "poker", _k("winlimit off"), _k("turn poker win limit OFF")),
 
-    (re.compile(r"(stop|end|cancel)\s+(the\s+|current\s+)?(event|game)\b", re.I),
-     "stopevent", _k(""), _k("stop the current event")),
+    # Toggle loss limit
+    (re.compile(r"(enable|turn\s+on)\s+poker\s+loss\s*(limit)?\b", re.I),
+     "poker", _k("losslimit on"), _k("turn poker loss limit ON")),
 
-    # ── Admin — coins ─────────────────────────────────────────────────────────
+    (re.compile(r"(disable|turn\s+off)\s+poker\s+loss\s*(limit)?\b", re.I),
+     "poker", _k("losslimit off"), _k("turn poker loss limit OFF")),
+
+    # Toggle win/loss together
+    (re.compile(
+        r"(enable|turn\s+on)\s+poker\s+(win[\s/]+loss|loss[\s/]+win)\s*(limit)?\b",
+        re.I),
+     "poker", _k("winlimit on"), _k("turn poker win limit ON")),
+
+    (re.compile(
+        r"(disable|turn\s+off)\s+poker\s+(win[\s/]+loss|loss[\s/]+win)\s*(limit)?\b",
+        re.I),
+     "poker", _k("winlimit off"), _k("turn poker win/loss limits OFF")),
+
+    # Set specific amounts
+    (re.compile(r"set\s+poker\s+(daily\s+)?win\s*(limit)?\s*(to\s*)?([\d,]+)", re.I),
+     "setpokerdailywinlimit",
+     lambda m, t: m.group(4).replace(",", ""),
+     lambda m, t: f"set poker daily win limit to {int(m.group(4).replace(',', '')):,} coins"),
+
+    (re.compile(r"set\s+poker\s+(daily\s+)?loss\s*(limit)?\s*(to\s*)?([\d,]+)", re.I),
+     "setpokerdailylosslimit",
+     lambda m, t: m.group(4).replace(",", ""),
+     lambda m, t: f"set poker daily loss limit to {int(m.group(4).replace(',', '')):,} coins"),
+
+    # ────────────────────────────────────────────────────────────────────────
+    # ADMIN — coins
+    # ────────────────────────────────────────────────────────────────────────
     (re.compile(
         r"(add|give)\s+([\d,]+)\s*(coins?|tokens?)?\s*(to|for)\s+@?(\w+)", re.I),
      "addcoins",
@@ -315,37 +608,63 @@ _INTENTS: list[tuple] = [
      "setcoins",
      lambda m, t: f"{m.group(3)} {m.group(5).replace(',', '')}",
      lambda m, t: f"set @{m.group(3)}'s balance to {int(m.group(5).replace(',', '')):,} coins"),
+
+    # ────────────────────────────────────────────────────────────────────────
+    # HELP / COMMANDS
+    # ────────────────────────────────────────────────────────────────────────
+    (re.compile(
+        r"what\s+commands?|(show|see|list)\s+(all\s+)?commands?"
+        r"|help\s+me$|what\s+can\s+(you|i)\s+do|what\s+do\s+you\s+do|^guide$", re.I),
+     "help", _k(""), _k("show available commands")),
+
+    (re.compile(r"(my\s+commands?|commands?\s+(for\s+me|i\s+can\s+use|available))", re.I),
+     "mycommands", _k(""), _k("show your commands")),
+
+    (re.compile(
+        r"(show\s+|list\s+|what\s+are\s+)?(ai\s+)?capabilit(y|ies)\b"
+        r"|what\s+can\s+(emceebot|you)\s+(do|understand|help)\b"
+        r"|emceebot\s+(features?|help|overview)",
+        re.I),
+     "aicapabilities", _k(""), _k("show AI capabilities")),
 ]
 
 
 # ---------------------------------------------------------------------------
-# Static response templates for SAFE commands (avoids executing them)
+# Static response templates for SAFE commands
 # ---------------------------------------------------------------------------
 
 _SAFE_RESPONSES: dict[str, str] = {
-    "minehelp":     "⛏️ Use /minehelp for the full mining guide. /mine to dig, /ores for inventory.",
-    "mine":         "⛏️ Use /mine to mine. Check /tool for pickaxe stats, /ores for your haul.",
-    "ores":         "⛏️ Use /ores to view your ore inventory.",
-    "tool":         "⛏️ Use /tool to check your pickaxe stats.",
-    "mineshop":     "⛏️ Use /mineshop to browse mining upgrades and items.",
-    "bal":          "💰 Use /bal to check your coin balance.",
-    "bank":         "🏦 Use /bank to view your bank info.",
-    "transactions": "📋 Use /transactions to view recent transactions.",
-    "daily":        "🎁 Use /daily to claim your daily coin reward.",
-    "leaderboard":  "🏆 Use /leaderboard or /lb to see the top coin holders.",
-    "shop":         "🛒 Use /shop to open the main shop, or /shop badges for emoji badges.",
-    "help":         "❓ Use /help for all commands, /mycommands for your personal list.",
-    "mycommands":   "📋 Use /mycommands to see commands you can use.",
-    "pokerhelp":    "♠️ Use /pokerhelp to learn poker rules and how to join a table.",
-    "bjhelp":       "🃏 Use /bjhelp for blackjack rules. /rbjhelp for Realistic Blackjack.",
-    "rbjhelp":      "🃏 Use /rbjhelp for Realistic Blackjack rules.",
-    "eventhelp":    "🎉 Use /eventhelp for event info, /event to see the active event.",
-    "eventstatus":  "🎉 Use /eventstatus to check the current event.",
-    "me":           "👤 Use /me to view your profile stats.",
-    "quests":       "📜 Use /quests to see your active quests, /dailyquests for today's.",
-    "bothealth":    "🤖 Use /bothealth to see bot status.",
-    "modulehealth": "🤖 Use /modulehealth to check module status.",
-    "botheartbeat": "🤖 Use /botheartbeat to see live heartbeats.",
+    "minehelp":      "⛏️ Use /minehelp for the full mining guide. /mine to dig, /ores for inventory.",
+    "mine":          "⛏️ Use /mine to mine. Check /tool for pickaxe stats, /ores for your haul.",
+    "ores":          "⛏️ Use /ores to view your ore inventory.",
+    "tool":          "⛏️ Use /tool to check your pickaxe stats.",
+    "mineshop":      "⛏️ Use /mineshop to browse mining upgrades and items.",
+    "bal":           "💰 Use /bal to check your coin balance.",
+    "bank":          "🏦 Use /bank to view your bank info.",
+    "transactions":  "📋 Use /transactions to view recent transactions.",
+    "daily":         "🎁 Use /daily to claim your daily coin reward.",
+    "leaderboard":   "🏆 Use /leaderboard or /lb to see the top coin holders.",
+    "shop":          "🛒 Use /shop to open the main shop, or /shop badges for emoji badges.",
+    "help":          "❓ Use /help for all commands, /mycommands for your personal list.",
+    "mycommands":    "📋 Use /mycommands to see commands you can use.",
+    "aicapabilities":"🤖 Use /aicapabilities to see what EmceeBot can understand.",
+    "pokerhelp":     "♠️ Use /pokerhelp to learn poker rules and how to join a table.",
+    "bjhelp":        "🃏 Use /bjhelp for blackjack rules. /rbjhelp for Realistic Blackjack.",
+    "rbjhelp":       "🃏 Use /rbjhelp for Realistic Blackjack rules.",
+    "eventhelp":     "🎉 Use /eventhelp for event info, /event to see the active event.",
+    "eventstatus":   "🎉 Use /eventstatus to check the current event.",
+    "me":            "👤 Use /me to view your profile stats.",
+    "profile":       "👤 Use /profile <username> to view a player's profile.",
+    "stats":         "📊 Use /stats <username> to view a player's game stats.",
+    "quests":        "📜 Use /quests to see your active quests, /dailyquests for today's.",
+    "spawns":        "📍 Use /spawns to list all saved spawn points.",
+    "spawninfo":     "📍 Use /spawninfo <name> to view spawn coordinates.",
+    "botoutfits":    "👗 Use /botoutfits to view all saved bot outfit profiles.",
+    "botoutfit":     "👗 Use /botoutfit to view this bot's current saved outfit.",
+    "goto":          "🗺️ Use /goto <username> to teleport to that player's location.",
+    "bothealth":     "🤖 Use /bothealth to see bot status.",
+    "modulehealth":  "🤖 Use /modulehealth to check module status.",
+    "botheartbeat":  "🤖 Use /botheartbeat to see live heartbeats.",
 }
 
 
@@ -421,7 +740,7 @@ def _is_ai_trigger(message: str, bot_username: str) -> bool:
     Triggers on:
       - @EmceeBot anywhere in the message
       - "EmceeBot" as a word anywhere (e.g. "EmceeBot, show my balance")
-    Does NOT trigger on generic chat that happens to mention balance/coins/etc.
+    Does NOT trigger on generic chat.
     """
     low = message.lower().strip()
     for name in _build_ai_names(bot_username):
@@ -436,7 +755,6 @@ def _strip_trigger(message: str, bot_username: str) -> str:
     """
     Remove the EmceeBot trigger prefix/mention and return clean question text.
     E.g. "EmceeBot, can you show my balance?" → "can you show my balance?"
-         "hey @EmceeBot what is my balance" → "what is my balance"
     """
     for name in _build_ai_names(bot_username):
         pat = re.compile(rf"^.*?@?{re.escape(name)}[,\s]*", re.I)
@@ -476,38 +794,62 @@ def classify_intent(text: str) -> IntentResult | None:
 
 # ---------------------------------------------------------------------------
 # Command execution — called after user confirms a CONFIRM/ADMIN_CONFIRM action
-# Uses lazy importlib to avoid circular imports; inspect to handle
-# handlers that take (bot, user) vs (bot, user, args).
 # ---------------------------------------------------------------------------
 
 _HANDLER_MAP: dict[str, tuple[str, str]] = {
     # Economy / bank
-    "send":        ("modules.bank",       "handle_send"),
-    "bank":        ("modules.bank",       "handle_bank"),
-    "transactions":("modules.bank",       "handle_transactions"),
+    "send":                  ("modules.bank",       "handle_send"),
+    "bank":                  ("modules.bank",       "handle_bank"),
+    "transactions":          ("modules.bank",       "handle_transactions"),
     # Mining
-    "mine":        ("modules.mining",     "handle_mine"),
-    "sellores":    ("modules.mining",     "handle_sellores"),
-    "sellore":     ("modules.mining",     "handle_sellore"),
-    "minebuy":     ("modules.mining",     "handle_minebuy"),
-    "mineshop":    ("modules.mining",     "handle_mineshop"),
+    "mine":                  ("modules.mining",     "handle_mine"),
+    "sellores":              ("modules.mining",     "handle_sellores"),
+    "sellore":               ("modules.mining",     "handle_sellore"),
+    "minebuy":               ("modules.mining",     "handle_minebuy"),
+    "mineshop":              ("modules.mining",     "handle_mineshop"),
     # Shop
-    "buy":         ("modules.shop",       "handle_buy"),
-    "equip":       ("modules.shop",       "handle_equip"),
-    "shop":        ("modules.shop",       "handle_shop"),
+    "buy":                   ("modules.shop",       "handle_buy"),
+    "equip":                 ("modules.shop",       "handle_equip"),
+    "shop":                  ("modules.shop",       "handle_shop"),
     # Events
-    "startevent":  ("modules.events",     "handle_startevent"),
-    "stopevent":   ("modules.events",     "handle_stopevent"),
-    "eventshop":   ("modules.events",     "handle_eventshop"),
-    "buyevent":    ("modules.events",     "handle_buyevent"),
+    "startevent":            ("modules.events",     "handle_startevent"),
+    "stopevent":             ("modules.events",     "handle_stopevent"),
+    "eventshop":             ("modules.events",     "handle_eventshop"),
+    "buyevent":              ("modules.events",     "handle_buyevent"),
     # Admin — coins
-    "setcoins":    ("modules.admin_cmds", "handle_setcoins"),
-    "resetcoins":  ("modules.admin_cmds", "handle_resetcoins"),
+    "setcoins":              ("modules.admin_cmds", "handle_setcoins"),
+    "resetcoins":            ("modules.admin_cmds", "handle_resetcoins"),
+    # Room / spawn
+    "setspawn":              ("modules.room_utils", "handle_setspawn"),
+    "tpme":                  ("modules.room_utils", "handle_tpme"),
+    "tp":                    ("modules.room_utils", "handle_tp"),
+    "tphere":                ("modules.room_utils", "handle_tphere"),
+    "bring":                 ("modules.room_utils", "handle_tphere"),
+    "bringall":              ("modules.room_utils", "handle_bringall"),
+    "tpall":                 ("modules.room_utils", "handle_tpall"),
+    "goto":                  ("modules.room_utils", "handle_goto"),
+    # Outfit (executed by the host/responding bot)
+    "dressbot":              ("modules.bot_modes",  "handle_dressbot"),
+    "copyoutfit":            ("modules.bot_modes",  "handle_copyoutfit"),
+    "wearuseroutfit":        ("modules.bot_modes",  "handle_wearuseroutfit"),
+    "savebotoutfit":         ("modules.bot_modes",  "handle_savebotoutfit"),
+    "botoutfits":            ("modules.bot_modes",  "handle_botoutfits"),
+    # Profile
+    "profile":               ("modules.profile",    "handle_profile_cmd"),
+    "stats":                 ("modules.profile",    "handle_stats_cmd"),
+    # Poker settings
+    "poker":                 ("modules.poker",      "handle_poker"),
+    "setpokerdailywinlimit": ("modules.poker",      "handle_setpokerdailywinlimit"),
+    "setpokerdailylosslimit":("modules.poker",      "handle_setpokerdailylosslimit"),
 }
 
 
 async def _execute_confirmed(bot, user, command: str, args_str: str) -> None:
     """Execute a confirmed command by lazy-importing and calling its handler."""
+    # Special case: wearuseroutfit with empty args_str → use requester's username
+    if command == "wearuseroutfit" and not args_str.strip():
+        args_str = user.username
+
     args_list = [command] + (args_str.split() if args_str.strip() else [])
     fallback  = f"✅ Type /{command}{(' ' + args_str) if args_str else ''} to execute."
 
@@ -519,8 +861,7 @@ async def _execute_confirmed(bot, user, command: str, args_str: str) -> None:
     try:
         mod = importlib.import_module(module_path)
         fn  = getattr(mod, fn_name)
-        # Some handlers take (bot, user, args); others only (bot, user)
-        sig    = inspect.signature(fn)
+        sig     = inspect.signature(fn)
         nparams = len(sig.parameters)
         if nparams >= 3:
             await fn(bot, user, args_list)
@@ -551,7 +892,7 @@ async def _handle_ai_text(bot, user, text: str) -> None:
         return
 
     if _is_blocked(text):
-        await _w(bot, user.id, "I can't help with that. Try /help for available commands.")
+        await _w(bot, user.id, "I can't help with secrets or tokens. Try /help for available commands.")
         db.log_ai_action(user.username, text[:150], "BLOCKED", BLOCKED, "blocked")
         return
 
@@ -615,8 +956,6 @@ async def _handle_ai_text(bot, user, text: str) -> None:
 
 # ---------------------------------------------------------------------------
 # Natural yes/no confirmation handler
-# Called for ANY chat message (slash or not) when user has a pending action.
-# Returns True if the message was consumed.
 # ---------------------------------------------------------------------------
 
 async def handle_natural_confirmation(bot, user, message: str) -> bool:
@@ -629,7 +968,7 @@ async def handle_natural_confirmation(bot, user, message: str) -> bool:
 
     action = db.get_pending_ai_action(user.id)
     if action is None:
-        return False  # No pending action — let message flow normally
+        return False
 
     if _is_no(message):
         db.cancel_pending_ai_action(user.id)
@@ -640,7 +979,6 @@ async def handle_natural_confirmation(bot, user, message: str) -> bool:
         )
         return True
 
-    # User said yes
     confirmed = db.confirm_pending_ai_action(user.id)
     if confirmed is None:
         await _w(bot, user.id, "⏰ Your action expired. Please ask again.")
@@ -664,27 +1002,20 @@ async def handle_ai_intercept(bot, user, message: str) -> bool:
     """
     Intercept AI-related messages before normal on_chat command routing.
     Returns True if this message was fully handled (caller should return early).
-
-    Handles:
-    1. yes/no responses to pending AI actions (any message, any bot in room)
-    2. Natural-language triggers: "bot," prefix, @botname mention (non-slash)
     """
     from config import BOT_USERNAME
 
-    # ── 1. yes/no pending confirmation (any bot checks; anti-spam via _should_answer_ai) ──
+    # ── 1. yes/no pending confirmation ────────────────────────────────────────
     if _is_yes(message) or _is_no(message):
-        # Only respond if this bot owns AI; prevents double-replies
         if _should_answer_ai():
             return await handle_natural_confirmation(bot, user, message)
-        # Non-AI bot: consume if pending action exists so the yes/no doesn't
-        # fall through as an unrecognised command.
         if db.get_pending_ai_action(user.id) is not None:
             return True
         return False
 
     # ── 2. Natural language AI trigger (non-slash messages only) ──────────────
     if message.startswith("/"):
-        return False  # slash commands handled by normal routing
+        return False
 
     if not _is_ai_trigger(message, BOT_USERNAME):
         return False
@@ -705,7 +1036,7 @@ async def handle_ai_intercept(bot, user, message: str) -> bool:
 async def handle_ask_command(bot, user, args: list[str]) -> None:
     """Handle /ask, /ai, /assistant <message>."""
     if not _should_answer_ai():
-        return  # anti-spam: only host/eventhost/all reply
+        return
 
     text = " ".join(args[1:]).strip()
     if not text:
@@ -757,16 +1088,42 @@ async def handle_confirm_cmd(bot, user, args: list[str]) -> None:
 
 
 # ---------------------------------------------------------------------------
-# /aidebug <message>  — admin-only: show AI trigger analysis without executing
+# /aicapabilities — show what EmceeBot can understand
+# ---------------------------------------------------------------------------
+
+async def handle_aicapabilities(bot, user, args: list[str] = None) -> None:
+    """Show the categories of natural language EmceeBot understands."""
+    if not _should_answer_ai():
+        return
+    lines = [
+        "🤖 EmceeBot understands:",
+        "💰 Economy: balance, send coins, bank info, transactions, daily reward",
+        "⛏️ Mining: mine, ores, tool, sell ores, mining shop",
+        "🎰 Games: poker help, blackjack help, realistic BJ help",
+        "📍 Room: save spawn, list spawns, teleport me/user/all, bring user/all",
+        "👗 Outfit: copy outfit, dress bot, save outfit, show bot outfits",
+        "👤 Profile: my profile, show user profile, stats, who is user",
+        "🎉 Events: start/stop event, double XP, double coins, casino hour",
+        "♠️ Poker: win/loss limit on/off, set poker limits (admin)",
+        "🛒 Shop: open shop, buy badge/title, show event shop",
+        "⚙️ Admin: set send limits, add/remove coins (admin only)",
+        "❓ Help: /help, /mycommands, /aicapabilities",
+    ]
+    for line in lines:
+        await _w(bot, user.id, line)
+
+
+# ---------------------------------------------------------------------------
+# /aidebug <message>  — admin-only: show AI analysis without executing
 # ---------------------------------------------------------------------------
 
 async def handle_aidebug(bot, user, args: list[str]) -> None:
     """
     /aidebug <message>
-    Admin-only. Shows what the AI would do with a given message:
-    ai_trigger, interpreted command, owner mode, owner online, risk level,
-    confirmation required, delegation required.
-    Does NOT execute anything.
+    Admin-only. Shows what the AI would do with a given message without executing.
+    Output: trigger, category, command, owner mode, owner online,
+            risk, route, handler, confirmation required, permission ok.
+    Never shows tokens, secrets, or raw env vars.
     """
     if not (is_admin(user.username) or is_owner(user.username)):
         await _w(bot, user.id, "Admin only.")
@@ -783,40 +1140,66 @@ async def handle_aidebug(bot, user, args: list[str]) -> None:
 
     if _is_blocked(text):
         await _w(bot, user.id,
-                 f"trigger={str(triggered).lower()} | cmd=BLOCKED | risk=BLOCKED"
-                 f" | confirm=false | delegate=false")
+                 f"trigger={str(triggered).lower()} | category=security | cmd=BLOCKED"
+                 f" | risk=BLOCKED | confirm=false | handler=NO | perm=DENIED")
         return
 
     intent = classify_intent(text)
     if intent is None:
         await _w(bot, user.id,
-                 f"trigger={str(triggered).lower()} | cmd=unknown | risk=SAFE"
-                 f" | confirm=false | delegate=false")
+                 f"trigger={str(triggered).lower()} | category=unknown | cmd=none"
+                 f" | risk=SAFE | route=NO | handler=NO | confirm=false | perm=ok")
         return
 
-    cmd          = intent.command
-    risk         = intent.risk_level
-    confirm_req  = risk in (CONFIRM, ADMIN_CONFIRM)
+    cmd      = intent.command
+    risk     = intent.risk_level
+    category = _CATEGORY.get(cmd, "other")
 
+    # Route check (command in registry)
+    route_ok = False
+    owner_mode = "host"
     try:
         from modules.command_registry import get_entry as _reg_get
-        entry      = _reg_get(cmd)
-        owner_mode = entry[1].owner if entry else "host"
+        entry = _reg_get(cmd)
+        if entry:
+            route_ok   = True
+            owner_mode = entry[1].owner if hasattr(entry[1], "owner") else "host"
     except Exception:
-        owner_mode = "host"
+        pass
 
+    # Handler check
+    handler_ok = cmd in _HANDLER_MAP
+
+    # Owner online
+    owner_online = True
     try:
         from modules.multi_bot import _is_mode_online
         owner_online = _is_mode_online(owner_mode)
     except Exception:
-        owner_online = True
+        pass
+
+    # Permission check
+    confirm_req = risk in (CONFIRM, ADMIN_CONFIRM)
+    if risk == ADMIN_CONFIRM:
+        perm_ok = is_admin(user.username) or is_owner(user.username)
+    else:
+        perm_ok = True
 
     deleg_req = owner_mode not in ("host", "eventhost", "all")
 
-    line1 = (f"trigger={str(triggered).lower()} | cmd={cmd} | owner={owner_mode}"
-             f" | online={str(owner_online).lower()}")[:249]
-    line2 = (f"risk={risk} | confirm={str(confirm_req).lower()}"
-             f" | delegate={str(deleg_req).lower()}"
-             f" | {intent.human_readable}")[:249]
+    line1 = (
+        f"trigger={str(triggered).lower()} | cat={category} | cmd={cmd}"
+        f" | owner={owner_mode} | online={str(owner_online).lower()}"
+    )[:249]
+    line2 = (
+        f"risk={risk} | route={'YES' if route_ok else 'NO'}"
+        f" | handler={'YES' if handler_ok else 'NO'}"
+        f" | confirm={str(confirm_req).lower()}"
+        f" | delegate={str(deleg_req).lower()}"
+        f" | perm={'ok' if perm_ok else 'DENIED'}"
+    )[:249]
+    line3 = intent.human_readable[:249]
+
     await _w(bot, user.id, line1)
     await _w(bot, user.id, line2)
+    await _w(bot, user.id, line3)

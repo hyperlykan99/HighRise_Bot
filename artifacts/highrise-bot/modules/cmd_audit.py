@@ -299,7 +299,7 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     # ── /commandissues ────────────────────────────────────────────────────────
     "commandissues",
     # ── AI assistant ──────────────────────────────────────────────────────────
-    "ask", "ai", "assistant", "pendingaction", "confirm", "aidebug",
+    "ask", "ai", "assistant", "pendingaction", "confirm", "aidebug", "aicapabilities",
 })
 
 # ---------------------------------------------------------------------------

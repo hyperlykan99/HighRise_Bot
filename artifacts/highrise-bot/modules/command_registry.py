@@ -288,6 +288,7 @@ REGISTRY: dict[str, Cmd] = {
     "pendingaction":    Cmd("host","ai",  True, True, False),
     "confirm":          Cmd("host","ai",  True, False,False),
     "aidebug":          Cmd("host","ai",  True, True, False, perm="admin"),
+    "aicapabilities":   Cmd("host","ai",  True, True, False),
 }
 
 # ---------------------------------------------------------------------------
