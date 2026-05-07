@@ -812,6 +812,11 @@ _HANDLER_MAP: dict[str, tuple[str, str]] = {
     # ── Bot spawn (new) ───────────────────────────────────────────────────
     "botspawns":             ("modules.room_utils", "handle_botspawns"),
     "setbotspawn":           ("modules.room_utils", "handle_setbotspawn"),
+    "setbotspawnhere":       ("modules.room_utils", "handle_setbotspawnhere"),
+    "clearbotspawn":         ("modules.room_utils", "handle_clearbotspawn"),
+    # ── Bot outfit (new) ─────────────────────────────────────────────────────────
+    "renamebotoutfit":       ("modules.bot_modes",  "handle_renamebotoutfit"),
+    "clearbotoutfit":        ("modules.bot_modes",  "handle_clearbotoutfit"),
     # ── Events (new) ──────────────────────────────────────────────────────
     "adminsblessing":        ("modules.events",     "handle_adminsblessing"),
     "eventresume":           ("modules.events",     "handle_eventresume"),

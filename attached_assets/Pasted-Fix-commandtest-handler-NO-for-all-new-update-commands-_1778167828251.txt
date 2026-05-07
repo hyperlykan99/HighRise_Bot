@@ -1,0 +1,122 @@
+Fix commandtest handler=NO for all new update commands.
+
+Current issue:
+These commands all show handler=NO in /commandtest:
+
+/aidelegations
+/setbotspawn
+/setbotspawnhere
+/botspawns
+/clearbotspawn
+/emoteinfo
+/adminsblessing
+/eventresume
+/autogamestatus
+/autogameresume
+/mineconfig
+/mineeventstatus
+/pokermode
+/pokerpace
+/pokerstacks
+/dealstatus
+
+Also:
+/commandtest /autogamestatus shows:
+owner=UNKNOWN
+route=NO
+handler=NO
+fix=add_to_registry
+
+Do not change bot tokens.
+Do not change room ID.
+Do not change player balances.
+Do not change economy values.
+Do not change poker state.
+Do not change blackjack/RBJ state.
+Do not change mining rewards.
+Do not change event rewards.
+Only fix command registry, command audit, handler map, route map, and owner map.
+
+Tasks:
+
+1. Inspect the command testing/audit system.
+Look for files/functions like:
+- modules/cmd_audit.py
+- command registry
+- handler map
+- route map
+- owner map
+- checkcommands
+- commandtest
+- commandissues
+- KNOWN_COMMANDS
+- ACTIVE_COMMANDS
+- COMMAND_HANDLERS
+- COMMAND_OWNERS
+
+2. Add real handler mappings for these commands:
+
+AI:
+- aidelegations -> modules.ai_assistant.handle_aidelegations -> owner host
+
+Bot spawn:
+- setbotspawn -> modules.room_utils.handle_setbotspawn -> owner host or security
+- setbotspawnhere -> modules.room_utils.handle_setbotspawnhere -> owner host or security
+- botspawns -> modules.room_utils.handle_botspawns -> owner host or security
+- clearbotspawn -> modules.room_utils.handle_clearbotspawn -> owner host or security
+
+Emotes:
+- emoteinfo -> modules.room_utils.handle_emoteinfo -> owner dj or host
+
+Events/autogames:
+- adminsblessing -> modules.events.handle_adminsblessing -> owner eventhost
+- adminblessing -> modules.events.handle_adminsblessing -> owner eventhost
+- eventresume -> modules.events.handle_eventresume -> owner eventhost
+- autogamestatus -> modules.events.handle_autogamestatus -> owner eventhost
+- autogameresume -> modules.events.handle_autogameresume -> owner eventhost
+
+Mining:
+- mineconfig -> modules.mining.handle_mineconfig -> owner miner
+- mineeventstatus -> modules.mining.handle_mineeventstatus -> owner miner
+
+Poker:
+- pokermode -> modules.poker.handle_pokermode -> owner poker
+- pokerpace -> modules.poker.handle_pokerpace -> owner poker
+- pokerstacks -> modules.poker.handle_pokerstacks -> owner poker
+- dealstatus -> modules.poker.handle_dealstatus -> owner poker
+
+3. Verify main.py routes exist.
+If a command is in the handler map but missing in main.py, add the route.
+Do not create dummy routes.
+Use the real imported handler.
+
+4. Fix command ownership.
+Every command above must have owner assigned.
+No owner should be UNKNOWN.
+
+5. Fix /commandissues.
+It currently may not be routed. Make sure:
+/commandtest /commandissues
+shows route=YES handler=YES owner=host.
+
+6. After fixing, /commandtest should show:
+route=YES
+handler=YES
+owner=<correct owner>
+owner_online=true if that bot is online
+
+7. After fixing, /checkcommands all should show:
+Missing 0
+NoOwner 0
+
+8. If any handler function does not actually exist, do not pretend it works.
+Either:
+- implement the missing real handler, or
+- remove/hide that command from active commands until implemented.
+
+After fixing, tell me:
+- which registry/audit files changed
+- which commands were added to handler map
+- which commands were added to owner map
+- which commands were added to main.py routes
+- what I should test

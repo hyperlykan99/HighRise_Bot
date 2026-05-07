@@ -289,6 +289,45 @@ REGISTRY: dict[str, Cmd] = {
     "confirm":          Cmd("host","ai",  True, False,False),
     "aidebug":          Cmd("host","ai",  True, True, False, perm="admin"),
     "aicapabilities":   Cmd("host","ai",  True, True, False),
+    "aidelegations":    Cmd("host","ai",  True, True, False, perm="admin"),
+
+    # ── Host: audit (new) ────────────────────────────────────────────────────
+    "commandissues":    Cmd("host","audit",  True, True, False, perm="admin"),
+    "fixcommandregistry": Cmd("host","audit",True, False,False, perm="owner"),
+
+    # ── Host: bot spawn management (new) ─────────────────────────────────────
+    "setbotspawn":      Cmd("host","room_admin", True, False, True, perm="manager"),
+    "setbotspawnhere":  Cmd("host","room_admin", True, False, True, perm="manager"),
+    "botspawns":        Cmd("host","room_admin", True, True,  False, perm="staff"),
+    "clearbotspawn":    Cmd("host","room_admin", True, False, True, perm="manager"),
+
+    # ── Host: bot outfit management (new) ────────────────────────────────────
+    "copyoutfit":       Cmd("host","botmode", True, False, True, perm="manager"),
+    "wearuseroutfit":   Cmd("host","botmode", True, False, True, perm="manager"),
+    "renamebotoutfit":  Cmd("host","botmode", True, False, True, perm="manager"),
+    "clearbotoutfit":   Cmd("host","botmode", True, False, True, perm="manager"),
+
+    # ── DJ: emote info (new) ─────────────────────────────────────────────────
+    "emoteinfo":        Cmd("dj","social", True, True, False),
+
+    # ── EventHost: new event / autogame commands ─────────────────────────────
+    "adminsblessing":   Cmd("eventhost","events", False, False, True,  perm="manager",
+                            aliases=("adminblessing",)),
+    "eventresume":      Cmd("eventhost","events", False, False, True,  perm="manager"),
+    "autogamestatus":   Cmd("eventhost","events", True,  True,  False, perm="staff"),
+    "autogameresume":   Cmd("eventhost","events", False, False, True,  perm="manager"),
+
+    # ── Miner: config and event status (new) ─────────────────────────────────
+    "mineconfig":       Cmd("miner","mining", False, True,  False, perm="manager"),
+    "mineeventstatus":  Cmd("miner","mining", False, True,  False, perm="staff"),
+
+    # ── Poker: pace / stack / deal status (new) ──────────────────────────────
+    "pokermode":        Cmd("poker","casino", False, True,  False, perm="manager"),
+    "pokerpace":        Cmd("poker","casino", False, True,  False, perm="staff"),
+    "setpokerpace":     Cmd("poker","casino", False, False, True,  perm="manager"),
+    "pokerstacks":      Cmd("poker","casino", False, True,  False, perm="staff"),
+    "setpokerstack":    Cmd("poker","casino", False, False, True,  perm="manager"),
+    "dealstatus":       Cmd("poker","casino", False, True,  False, perm="staff"),
 }
 
 # ---------------------------------------------------------------------------
