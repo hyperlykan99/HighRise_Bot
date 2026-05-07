@@ -1229,6 +1229,20 @@ def _migrate_db():
     conn.execute("UPDATE owned_items      SET item_id = 'elite'                                              WHERE item_id = 'room_legend'")
     conn.execute("UPDATE purchase_history SET item_id = 'elite'                                              WHERE item_id = 'room_legend'")
     conn.execute("UPDATE users            SET equipped_title = '[Elite]', equipped_title_id = 'elite'        WHERE equipped_title_id = 'room_legend'")
+
+    # ── Mining economy rebalance (2025-05) ───────────────────────────────────
+    # Common sell values roughly doubled; uncommon raised ~1.7×.
+    # Rare and above are intentionally unchanged.
+    # These are safe no-ops if the row already holds the new value.
+    conn.execute("UPDATE mining_items SET sell_value = 12  WHERE item_id = 'stone'      AND sell_value <  12")
+    conn.execute("UPDATE mining_items SET sell_value = 18  WHERE item_id = 'coal'       AND sell_value <  18")
+    conn.execute("UPDATE mining_items SET sell_value = 28  WHERE item_id = 'copper_ore' AND sell_value <  28")
+    conn.execute("UPDATE mining_items SET sell_value = 40  WHERE item_id = 'iron_ore'   AND sell_value <  40")
+    conn.execute("UPDATE mining_items SET sell_value = 55  WHERE item_id = 'tin_ore'    AND sell_value <  55")
+    conn.execute("UPDATE mining_items SET sell_value = 65  WHERE item_id = 'lead_ore'   AND sell_value <  65")
+    conn.execute("UPDATE mining_items SET sell_value = 75  WHERE item_id = 'zinc_ore'   AND sell_value <  75")
+    conn.execute("UPDATE mining_items SET sell_value = 100 WHERE item_id = 'quartz'     AND sell_value < 100")
+
     conn.commit()
     conn.close()
 
@@ -5886,14 +5900,18 @@ def delete_pending_purchase(code: str) -> None:
 
 _MINING_ITEMS_SEED = [
     # item_id, name, emoji, rarity, item_type, sell_value
-    ("stone",               "Stone",              "🪨", "common",    "ore", 5),
-    ("coal",                "Coal",               "⚫", "common",    "ore", 8),
-    ("copper_ore",          "Copper Ore",         "🟠", "common",    "ore", 15),
-    ("iron_ore",            "Iron Ore",           "⛓️", "common",    "ore", 20),
-    ("tin_ore",             "Tin Ore",            "◽", "uncommon",  "ore", 30),
-    ("lead_ore",            "Lead Ore",           "▪️", "uncommon",  "ore", 35),
-    ("zinc_ore",            "Zinc Ore",           "🔘", "uncommon",  "ore", 40),
-    ("quartz",              "Quartz",             "🔹", "uncommon",  "mineral", 60),
+    # Common sell values raised ~2× so early miners aren't stuck with near-
+    # worthless drops; stone/coal especially felt unrewarding at 5/8c.
+    # Uncommon values raised ~1.7× to create a clearer step from common.
+    # Rare and above are left unchanged — they are already well-calibrated.
+    ("stone",               "Stone",              "🪨", "common",    "ore", 12),   # was 5
+    ("coal",                "Coal",               "⚫", "common",    "ore", 18),   # was 8
+    ("copper_ore",          "Copper Ore",         "🟠", "common",    "ore", 28),   # was 15
+    ("iron_ore",            "Iron Ore",           "⛓️", "common",    "ore", 40),   # was 20
+    ("tin_ore",             "Tin Ore",            "◽", "uncommon",  "ore", 55),   # was 30
+    ("lead_ore",            "Lead Ore",           "▪️", "uncommon",  "ore", 65),   # was 35
+    ("zinc_ore",            "Zinc Ore",           "🔘", "uncommon",  "ore", 75),   # was 40
+    ("quartz",              "Quartz",             "🔹", "uncommon",  "mineral", 100),  # was 60
     ("silver_ore",          "Silver Ore",         "⚪", "rare",      "ore", 120),
     ("gold_ore",            "Gold Ore",           "🟡", "rare",      "ore", 250),
     ("amethyst",            "Amethyst",           "💜", "rare",      "gemstone", 400),

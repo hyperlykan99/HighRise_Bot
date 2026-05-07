@@ -76,7 +76,13 @@ def _boost_mins_left(until_iso: str | None) -> int:
 
 
 def _xp_for_level(level: int) -> int:
-    return level * level * 100
+    # Quadratic curve with multiplier 150 (was 100).
+    # Lv1→2: 150 MXP (~4 mines) — quick intro milestone.
+    # Lv5→6: 3 750 MXP (~104 mines, ~5 days) — mid-game pace.
+    # Lv10→11: 15 000 MXP (~420 mines, ~21 days) — sustained grind.
+    # Combined with reduced common/uncommon MXP, rare finds now feel
+    # meaningfully faster than grinding common ores.
+    return level * level * 150
 
 
 def _is_in_room(username: str) -> bool:
@@ -107,14 +113,17 @@ PICKAXE_NAMES = {
 COOLDOWNS = {1: 60, 2: 55, 3: 50, 4: 45, 5: 40, 6: 35, 7: 30, 8: 25, 9: 20, 10: 15}
 
 # Rarity → (base_drop_pct, mxp_range)
+# Drop percentages are unchanged (well-tested 68/20/8/2.5/1/0.4/0.1 distribution).
+# MXP ranges reduced on common/uncommon so rare+ finds feel significantly more
+# rewarding; the XP curve multiplier was raised to 150 to keep overall pace healthy.
 RARITIES = {
-    "common":    (68.0, (5,  15)),
-    "uncommon":  (20.0, (15, 30)),
-    "rare":      ( 8.0, (50, 100)),
-    "epic":      ( 2.5, (150, 300)),
-    "legendary": ( 1.0, (500, 1000)),
-    "mythic":    ( 0.4, (2500, 2500)),
-    "ultra_rare":( 0.1, (10000, 10000)),
+    "common":    (68.0, (3,   8)),   # plentiful; small MXP — stone/coal shouldn't level you fast
+    "uncommon":  (20.0, (10, 18)),   # noticeable step up; still minor compared to rare
+    "rare":      ( 8.0, (35, 70)),   # satisfying reward when it lands
+    "epic":      ( 2.5, (100, 200)), # clear excitement spike; ~2.5 % of drops
+    "legendary": ( 1.0, (350, 650)), # big event; worth a room announce
+    "mythic":    ( 0.4, (1800, 1800)),  # very rare; huge XP bonus to celebrate
+    "ultra_rare":( 0.1, (7500, 7500)),  # jackpot-level find; life-changing MXP
 }
 
 RARITY_ORDER = ["common", "uncommon", "rare", "epic", "legendary", "mythic", "ultra_rare"]
@@ -122,16 +131,27 @@ RARITY_ORDER = ["common", "uncommon", "rare", "epic", "legendary", "mythic", "ul
 ANNOUNCE_RARITIES = {"legendary", "mythic", "ultra_rare"}
 
 # Upgrade requirements: {target_level: (coins, [(ore_id, qty), ...])}
+# Balance notes:
+#   Lv2-4: coin costs raised slightly so the first few upgrades feel earned,
+#           not trivially purchased after one day's mining.
+#   Lv5-6: unchanged — platinum (1 %) and gold (2 %) are already the real gate.
+#   Lv7-8: coin cost reduced and ore qty trimmed. Epic ores (jade/topaz/gems)
+#           each have ~0.6 % effective drop chance, so 10 jade = ~1 600 mines
+#           (~80 days). Reducing to 6 keeps Lv7 reachable in ~1-2 months.
+#   Lv9:   coin 1.5M→1M; diamond+opal reduced to 1 each — mythic ores are
+#           ~0.13 % each, so 2 = ~1 500 mines. 1 each = ~750 mines (~37 days).
+#   Lv10:  coin 3M→2M; ultra-rare ore gate (meteorite ~0.05 %) is the true
+#           bottleneck, so the coin ask was halved to balance that.
 UPGRADE_REQS = {
-    2:  (1_000,       [("copper_ore", 20)]),
-    3:  (5_000,       [("iron_ore", 20)]),
-    4:  (15_000,      [("silver_ore", 15)]),
-    5:  (50_000,      [("gold_ore", 10)]),
-    6:  (120_000,     [("platinum_ore", 5), ("quartz", 20)]),
-    7:  (300_000,     [("jade", 10), ("topaz", 10)]),
-    8:  (750_000,     [("emerald", 3), ("ruby", 3), ("sapphire", 3)]),
-    9:  (1_500_000,   [("diamond", 2), ("opal", 2)]),
-    10: (3_000_000,   [("black_opal", 1), ("alexandrite", 1), ("meteorite_fragment", 1)]),
+    2:  (2_000,       [("copper_ore", 20)]),            # coins 1K→2K
+    3:  (8_000,       [("iron_ore", 20)]),              # coins 5K→8K
+    4:  (20_000,      [("silver_ore", 15)]),            # coins 15K→20K
+    5:  (50_000,      [("gold_ore", 10)]),              # unchanged
+    6:  (120_000,     [("platinum_ore", 5), ("quartz", 20)]),   # unchanged
+    7:  (200_000,     [("jade", 6), ("topaz", 6)]),             # coins 300K→200K; ores 10→6 each
+    8:  (500_000,     [("emerald", 2), ("ruby", 2), ("sapphire", 2)]),  # coins 750K→500K; ores 3→2
+    9:  (1_000_000,   [("diamond", 1), ("opal", 1)]),           # coins 1.5M→1M; ores 2→1
+    10: (2_000_000,   [("black_opal", 1), ("alexandrite", 1), ("meteorite_fragment", 1)]),  # coins 3M→2M
 }
 
 # Craft recipes: {item_id: {req: [(ore, qty)], reward_type, reward_id, display, emoji}}
@@ -174,11 +194,18 @@ CRAFT_RECIPES = {
 }
 
 # Mine shop items: {item_id: {name, emoji, price, effect}}
+# Prices rebalanced so purchasing energy is a genuine but fair trade-off.
+# Old prices (5K/15K/25K/25K) cost more than you could earn back from the
+# extra mines — players would never buy them.  New prices:
+#   Energy Tea  1 500c → 25 energy (5 mines, ~1 600c EV) — slight convenience cost.
+#   Smoothie    5 000c → 100 energy (full reset, ~6 600c EV) — worth it for grinders.
+#   Lucky Charm 6 000c → 20 min luck boost (was 25K for 15 min) — now accessible.
+#   Focus Music 6 000c → 20 min XP 2× boost (was 25K for 15 min) — now accessible.
 MINE_SHOP_ITEMS = {
-    "energy_tea":    {"name": "Energy Tea",    "emoji": "🍵", "price": 5_000,  "energy": 25,  "effect": "energy"},
-    "energy_smoothie":{"name": "Energy Smoothie","emoji":"🥤","price": 15_000, "energy": 100, "effect": "energy"},
-    "lucky_charm":   {"name": "Lucky Charm",   "emoji": "🍀", "price": 25_000, "mins": 15,    "effect": "luck_boost"},
-    "focus_music":   {"name": "Focus Music",   "emoji": "🎵", "price": 25_000, "mins": 15,    "effect": "xp_boost"},
+    "energy_tea":     {"name": "Energy Tea",     "emoji": "🍵", "price": 1_500,  "energy": 25,  "effect": "energy"},
+    "energy_smoothie":{"name": "Energy Smoothie","emoji": "🥤", "price": 5_000,  "energy": 100, "effect": "energy"},
+    "lucky_charm":    {"name": "Lucky Charm",    "emoji": "🍀", "price": 6_000,  "mins": 20,    "effect": "luck_boost"},
+    "focus_music":    {"name": "Focus Music",    "emoji": "🎵", "price": 6_000,  "mins": 20,    "effect": "xp_boost"},
 }
 _MINE_SHOP_LIST = list(MINE_SHOP_ITEMS.keys())  # ordered list for numbered shop
 
@@ -1216,13 +1243,19 @@ _MASTERY_MILESTONES = [
 ]
 
 # (contract_id, ore_id, qty_needed, reward_coins, display_name, emoji)
+# Contract rewards must always exceed the direct sell value of the ores,
+# otherwise no rational player would take the contract.
+# With updated sell values: coal 18c×20=360c, copper 28c×15=420c.
+# Coal reward raised 200→420c; Copper raised 350→500c.
+# Iron (40c×10=400c, reward 450c) and all higher contracts were already
+# above sell value and are left unchanged.
 _CONTRACT_POOL = [
-    (1, "coal",        20, 200,  "Coal",        "⚫"),
-    (2, "copper_ore",  15, 350,  "Copper Ore",  "🟠"),
-    (3, "iron_ore",    10, 450,  "Iron Ore",    "⛓️"),
-    (4, "tin_ore",      8, 550,  "Tin Ore",     "◽"),
-    (5, "quartz",       5, 750,  "Quartz",      "🔹"),
-    (6, "silver_ore",   4, 900,  "Silver Ore",  "⚪"),
+    (1, "coal",        20,  420, "Coal",        "⚫"),  # was 200c — now 60c above sell value
+    (2, "copper_ore",  15,  500, "Copper Ore",  "🟠"),  # was 350c — now 80c above sell value
+    (3, "iron_ore",    10,  450, "Iron Ore",    "⛓️"),
+    (4, "tin_ore",      8,  550, "Tin Ore",     "◽"),
+    (5, "quartz",       5,  750, "Quartz",      "🔹"),
+    (6, "silver_ore",   4,  900, "Silver Ore",  "⚪"),
     (7, "gold_ore",     3, 1500, "Gold Ore",    "🟡"),
     (8, "amethyst",     2, 2000, "Amethyst",    "💜"),
 ]
