@@ -1908,47 +1908,70 @@ async def _deliver_pending_bank_notifications(bot, user: User) -> None:
 # ---------------------------------------------------------------------------
 
 async def _execute_delegated_task(bot, task: dict) -> None:
-    """Execute one AI delegated task using the existing handler map."""
-    import types as _types
-    from modules.ai_assistant import _HANDLER_MAP, _execute_handler
-    task_id  = task["id"]
-    cmd_text = (task["command_text"] or "").strip()
-    parts    = cmd_text.split()
+    """Execute one AI delegated task, calling the handler directly so
+    exceptions from set_outfit failures propagate to proper failure tracking."""
+    import types as _types, importlib, inspect
+    from modules.ai_assistant import _HANDLER_MAP
+    from modules.bot_modes import _in_delegated_context
+
+    task_id    = task["id"]
+    cmd_text   = (task["command_text"] or "").strip()
+    target_bot = (task.get("target_bot_username") or "the bot")
+    parts      = cmd_text.split()
     if not parts:
         db.complete_delegated_task(task_id, "Empty command_text")
         return
 
     cmd       = parts[0]
-    args_list = parts  # e.g. ["dressbot", "security"]
+    args_list = parts  # e.g. ["dressbot", "security"] or ["wearuseroutfit", "testuser"]
 
-    # Reconstruct a minimal user-like object from original requester
+    # Reconstruct a minimal user-like object from the original requester
     fake_user = _types.SimpleNamespace(
         id       = task["user_id"],
         username = task["username"],
     )
 
-    try:
-        await _execute_handler(bot, fake_user, cmd, args_list)
-        db.complete_delegated_task(task_id)
-        print(f"[AI_DELEGATE] task={task_id} cmd={cmd} completed")
-        try:
-            await bot.highrise.send_whisper(
-                task["user_id"],
-                f"✅ Delegated task completed: /{cmd_text}",
-            )
-        except Exception:
-            pass
-    except Exception as exc:
-        err = str(exc)[:200]
+    if cmd not in _HANDLER_MAP:
+        err = f"No handler registered for /{cmd}"
         db.complete_delegated_task(task_id, err)
-        print(f"[AI_DELEGATE] task={task_id} cmd={cmd} failed: {err}")
-        try:
+        print(f"[AI_DELEGATE] task={task_id} {err}")
+        return
+
+    module_path, fn_name = _HANDLER_MAP[cmd]
+    err_msg = ""
+    # Set the delegation context so handlers raise on set_outfit failure
+    token = _in_delegated_context.set(True)
+    try:
+        mod     = importlib.import_module(module_path)
+        fn      = getattr(mod, fn_name)
+        nparams = len(inspect.signature(fn).parameters)
+        if nparams >= 3:
+            await fn(bot, fake_user, args_list)
+        else:
+            await fn(bot, fake_user)
+    except Exception as exc:
+        err_msg = str(exc)[:200]
+        print(f"[AI_DELEGATE] task={task_id} cmd={cmd} FAILED: {err_msg}")
+    finally:
+        _in_delegated_context.reset(token)
+
+    db.complete_delegated_task(task_id, err_msg)
+    success = not err_msg
+    print(f"[AI_DELEGATE] task={task_id} cmd={cmd} {'completed' if success else 'failed'}")
+    try:
+        if success:
             await bot.highrise.send_whisper(
                 task["user_id"],
-                f"⚠️ Delegated /{cmd} failed: {err[:100]}",
+                f"✅ @{target_bot} outfit updated successfully.",
             )
-        except Exception:
-            pass
+        else:
+            short = err_msg[:100] if err_msg else "unknown error"
+            await bot.highrise.send_whisper(
+                task["user_id"],
+                f"⚠️ I tried, but @{target_bot} could not apply the outfit. ({short})",
+            )
+    except Exception:
+        pass
 
 
 async def _ai_delegated_task_loop(bot) -> None:
@@ -3849,7 +3872,7 @@ class HangoutBot(BaseBot):
             await handle_setbotoutfit(self, user, args)
         elif cmd == "botoutfit":
             await handle_botoutfit(self, user, args)
-        elif cmd == "botoutfits":
+        elif cmd in ("botoutfits", "botoutfitstatus"):
             await handle_botoutfits(self, user, args)
         elif cmd == "dressbot":
             await handle_dressbot(self, user, args)

@@ -10,10 +10,15 @@ All messages ≤ 249 chars.
 """
 
 import asyncio
+from contextvars import ContextVar
 from highrise import BaseBot, User
 
 import database as db
 from modules.permissions import is_owner, is_admin, is_manager
+
+# When True, outfit handlers raise on set_outfit failure so the delegated
+# task runner can properly mark the task as failed.
+_in_delegated_context: ContextVar[bool] = ContextVar("_in_delegated_context", default=False)
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -496,18 +501,24 @@ async def handle_dressbot(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Usage: /dressbot <mode_id>")
         return
 
+    delegated = _in_delegated_context.get()
     mode_id = args[1].lower()
     rec = get_mode_record(mode_id)
     if not rec:
         modes_list = ", ".join(m["mode_id"] for m in get_all_modes())
-        await _w(bot, user.id, f"Unknown mode. Available: {modes_list}")
+        msg = f"Unknown mode '{mode_id}'. Available: {modes_list}"
+        if delegated:
+            raise RuntimeError(msg)
+        await _w(bot, user.id, msg[:249])
         return
 
     outfit_json = (rec.get("outfit_data_json") or "").strip()
     if not outfit_json or outfit_json in ("{}", "[]", ""):
-        await _w(bot, user.id,
-                 f"No saved outfit data for {mode_id}. "
-                 f"Dress the bot manually, then use /savebotoutfit {mode_id}.")
+        msg = (f"No saved outfit data for '{mode_id}'. "
+               f"Dress manually, then use /savebotoutfit {mode_id}.")
+        if delegated:
+            raise RuntimeError(msg)
+        await _w(bot, user.id, msg[:249])
         return
 
     try:
@@ -518,13 +529,17 @@ async def handle_dressbot(bot: BaseBot, user: User, args: list[str]) -> None:
         from highrise.models import Error
         if isinstance(result, Error):
             print(f"[OUTFIT] dressbot error for {mode_id}: {result}")
-            await _w(bot, user.id, f"Outfit apply failed: {str(result)[:100]}")
-            return
+            raise RuntimeError(f"set_outfit failed: {str(result)[:80]}")
         set_bot_mode(mode_id, assigned_by=user.username)
         n = len(items)
-        await _w(bot, user.id, f"✅ Dressed as {rec['prefix']} ({n} items applied).")
+        if not delegated:
+            await _w(bot, user.id, f"✅ Dressed as {rec['prefix']} ({n} items applied).")
+    except RuntimeError:
+        raise
     except Exception as exc:
         print(f"[OUTFIT] dressbot exception for {mode_id}: {exc}")
+        if delegated:
+            raise RuntimeError(f"Outfit apply error: {str(exc)[:80]}") from exc
         await _w(bot, user.id, "Failed to apply outfit. Check /botoutfitlogs for details.")
 
 
@@ -656,12 +671,18 @@ async def handle_wearuseroutfit(bot: BaseBot, user: User, args: list[str]) -> No
         await _w(bot, user.id, "Usage: /wearuseroutfit <username>")
         return
 
+    delegated   = _in_delegated_context.get()
     target_name = args[1].lstrip("@")
-    await _w(bot, user.id, f"Looking for @{target_name} in the room…")
+    try:
+        await _w(bot, user.id, f"Looking for @{target_name} in the room…")
+    except Exception:
+        pass
     target_id = await _find_room_user_id(bot, target_name)
     if not target_id:
-        await _w(bot, user.id,
-                 f"@{target_name} is not in the room. They must be present for this command.")
+        msg = f"@{target_name} is not in the room. They must be present for this command."
+        if delegated:
+            raise RuntimeError(msg)
+        await _w(bot, user.id, msg)
         return
 
     try:
@@ -669,30 +690,35 @@ async def handle_wearuseroutfit(bot: BaseBot, user: User, args: list[str]) -> No
         from highrise.models import Error
         if isinstance(resp, Error):
             print(f"[OUTFIT] get_user_outfit error for {target_id}: {resp}")
-            await _w(bot, user.id, "Could not read that user's outfit from the server.")
-            return
+            raise RuntimeError("Could not read that user's outfit from the server.")
         items = resp.outfit if hasattr(resp, "outfit") else []
         if not items:
-            await _w(bot, user.id, f"@{target_name} appears to have no outfit items.")
-            return
+            raise RuntimeError(f"@{target_name} appears to have no outfit items.")
         result = await bot.highrise.set_outfit(items)
         if isinstance(result, Error):
             print(f"[OUTFIT] set_outfit error: {result}")
-            await _w(bot, user.id, f"Failed to apply outfit: {str(result)[:100]}")
-            return
-        conn = db.get_connection()
-        conn.execute(
-            """INSERT INTO bot_outfit_logs
-               (timestamp, actor_username, bot_username, mode_id, outfit_name, action, details)
-               VALUES (datetime('now'), ?, 'main', '', '', 'wear_user_outfit', ?)""",
-            (user.username, f"wore @{target_name}'s outfit ({len(items)} items)"),
-        )
-        conn.commit()
-        conn.close()
-        await _w(bot, user.id,
-                 f"✅ Bot is now wearing @{target_name}'s outfit ({len(items)} items).")
+            raise RuntimeError(f"set_outfit failed: {str(result)[:80]}")
+        try:
+            conn = db.get_connection()
+            conn.execute(
+                """INSERT INTO bot_outfit_logs
+                   (timestamp, actor_username, bot_username, mode_id, outfit_name, action, details)
+                   VALUES (datetime('now'), ?, 'main', '', '', 'wear_user_outfit', ?)""",
+                (user.username, f"wore @{target_name}'s outfit ({len(items)} items)"),
+            )
+            conn.commit()
+            conn.close()
+        except Exception:
+            pass
+        if not delegated:
+            await _w(bot, user.id,
+                     f"✅ Bot is now wearing @{target_name}'s outfit ({len(items)} items).")
+    except RuntimeError:
+        raise
     except Exception as exc:
         print(f"[OUTFIT] wearuseroutfit exception: {exc}")
+        if delegated:
+            raise RuntimeError(f"Outfit apply error: {str(exc)[:80]}") from exc
         await _w(bot, user.id,
                  "Could not apply that outfit. The user must be visible in the room.")
 

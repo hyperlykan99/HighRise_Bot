@@ -1,0 +1,61 @@
+Fix only bot outfit command registry/handler wiring.
+
+Current commandtest results:
+- /botoutfitstatus: owner=UNKNOWN, route=NO, handler=NO, fix=add_to_registry
+- /dressbot: owner=Host, route=YES, handler=NO
+- /wearuseroutfit: owner=Host, route=YES, handler=YES
+- /savebotoutfit: owner=Host, route=YES, handler=NO
+- /aidelegations: owner=Host, route=YES, handler=YES
+
+Do not change bank/send AI.
+Do not change balances.
+Do not change economy.
+Do not change mining, poker, blackjack, events, shop, or tokens.
+Only fix outfit command registry, handler map, route map, and ownership.
+
+Tasks:
+
+1. Fix /botoutfitstatus
+- Add /botoutfitstatus to the command registry.
+- Add route in main.py if missing.
+- Add handler mapping in cmd_audit/handler map.
+- Owner should be Host.
+- It should show route=YES handler=YES owner=Host in /commandtest.
+
+2. Fix /dressbot handler=NO
+- /dressbot already has route=YES but handler=NO.
+- Add the correct handler mapping:
+  dressbot -> modules.bot_modes.handle_dressbot
+- If the actual handler has a different name, use the real existing handler.
+- Do not create a fake handler unless the real one is missing.
+
+3. Fix /savebotoutfit handler=NO
+- /savebotoutfit already has route=YES but handler=NO.
+- Add the correct handler mapping:
+  savebotoutfit -> modules.bot_modes.handle_savebotoutfit
+- If the actual handler has a different name, use the real existing handler.
+- Do not create a fake handler unless the real one is missing.
+
+4. Verify these also remain working:
+- wearuseroutfit -> modules.bot_modes.handle_wearuseroutfit
+- aidelegations -> modules.ai_assistant.handle_aidelegations
+
+5. After fixing, these must all pass:
+- /commandtest /botoutfitstatus
+- /commandtest /dressbot
+- /commandtest /wearuseroutfit
+- /commandtest /savebotoutfit
+- /commandtest /aidelegations
+
+Expected:
+route=YES
+handler=YES
+owner is not UNKNOWN
+
+6. Do not change gameplay logic yet.
+This is only registry/handler wiring.
+
+After fixing, tell me:
+- which files changed
+- exact handler names used
+- exact commands to test

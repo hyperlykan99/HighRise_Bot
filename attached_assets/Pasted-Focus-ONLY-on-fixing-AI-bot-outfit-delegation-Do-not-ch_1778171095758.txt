@@ -1,0 +1,186 @@
+Focus ONLY on fixing AI bot outfit delegation.
+
+Do not change bank/send AI.
+Do not change send intent.
+Do not change bank settings.
+Do not change player balances.
+Do not change poker, blackjack, mining, events, shop, or economy.
+Do not change bot tokens or room ID.
+
+Current priority:
+I want EmceeBot to easily change/copy outfits for other bots.
+
+Main examples:
+- Emcee, copy my outfit to KeanuShield
+- Emcee, copy testuser outfit to KeanuShield
+- Emcee, dress KeanuShield as security
+- Emcee, dress BankingBot as banker
+- Emcee, save KeanuShield outfit as security
+- Emcee, show bot outfit status
+
+Problem:
+EmceeBot may say success, but the target bot outfit does not actually change.
+
+Important rule:
+EmceeBot cannot directly change another bot account’s outfit.
+The target bot must execute set_outfit on itself.
+
+Required behavior:
+
+1. AI intent mapping
+
+These natural phrases must map correctly:
+
+A. Copy my outfit to target bot:
+- Emcee, copy my outfit to KeanuShield
+- Emcee, make KeanuShield wear my outfit
+- MC, copy my outfit to BankingBot
+
+Should become a delegated task:
+target_bot_username = KeanuShield
+command = /wearuseroutfit KeanuShield <requesting_username>
+or equivalent internal handler call.
+
+B. Copy another user outfit to target bot:
+- Emcee, copy testuser outfit to KeanuShield
+- Emcee, copy @testuser to KeanuShield
+- Emcee, make KeanuShield wear testuser outfit
+
+Should become:
+target_bot_username = KeanuShield
+source_user = testuser
+action = copy source user outfit to target bot
+
+C. Dress target bot with saved outfit mode:
+- Emcee, dress KeanuShield as security
+- Emcee, dress BankingBot as banker
+- Emcee, make KeanuShield wear security outfit
+
+Should become:
+target_bot_username = KeanuShield
+command = /dressbot KeanuShield security
+or delegated equivalent.
+
+D. Save target bot outfit:
+- Emcee, save KeanuShield outfit as security
+- Emcee, save BankingBot outfit as banker
+
+Should become:
+target_bot_username = KeanuShield
+command = /savebotoutfit KeanuShield security
+
+2. Confirmation
+
+All outfit changes must require admin/owner confirmation.
+
+Example:
+User:
+Emcee, copy my outfit to KeanuShield
+
+EmceeBot:
+Confirm: copy your outfit to @KeanuShield. Reply yes or no.
+
+User:
+yes
+
+Then EmceeBot creates delegated task for KeanuShield.
+
+3. Delegation must wait for real target completion
+
+Do not say success immediately after creating the task.
+
+Correct flow:
+- EmceeBot confirms action
+- EmceeBot creates delegated task
+- KeanuShield polls/picks up task
+- KeanuShield executes set_outfit on itself
+- KeanuShield marks task completed only after set_outfit succeeds
+- /aidelegations shows completed only after actual success
+
+If set_outfit fails:
+- mark task failed
+- show error in /aidelegations
+- whisper user:
+  “I tried, but @KeanuShield could not apply the outfit.”
+
+4. Target bot matching
+
+Target bot names must be case-insensitive.
+
+These should all resolve to the same bot:
+- KeanuShield
+- keanushield
+- @KeanuShield
+- @keanushield
+
+If bot aliases exist, support them too:
+- SecurityBot -> KeanuShield
+
+If alias system does not exist yet, add a simple local resolver for known bot usernames from bot_instances.
+
+5. Online check
+
+Before confirmation or before creating the delegated task:
+- Check if target bot is online.
+- Prefer fresh heartbeat check, not only status text.
+- If offline, say:
+  “I can do that, but @KeanuShield is offline right now.”
+
+6. Debug command
+
+Improve /aidebug for outfit requests.
+
+These should show:
+
+/aidebug Emcee, copy my outfit to KeanuShield
+Expected:
+intent=outfit_copy
+source_user=<requesting username>
+target_bot=KeanuShield
+command=wearuseroutfit
+delegated=true
+risk=ADMIN_CONFIRM
+target_online=true/false
+
+/aidebug Emcee, dress KeanuShield as security
+Expected:
+intent=outfit_dress
+target_bot=KeanuShield
+mode=security
+command=dressbot
+delegated=true
+risk=ADMIN_CONFIRM
+
+7. Add or fix /aidelegations
+
+/aidelegations should show:
+- task id
+- source user
+- target bot
+- command/action
+- status: pending/completed/failed/expired
+- created time
+- completed time
+- error if failed
+
+8. Do not expose raw outfit JSON.
+Never show tokens.
+Never show room ID.
+Never show environment variables.
+
+9. Commands that must work or be routed:
+- /botoutfitstatus
+- /botoutfit <mode>
+- /botoutfits
+- /dressbot <bot_username> <mode_id>
+- /wearuseroutfit <bot_username> <source_username>
+- /savebotoutfit <bot_username> <mode_id> [name]
+- /aidelegations
+- /aidebug
+
+10. After fixing, tell me:
+- which files changed
+- how target bot matching works
+- how KeanuShield picks up the task
+- whether completion waits for actual set_outfit success
+- exact commands/messages to test

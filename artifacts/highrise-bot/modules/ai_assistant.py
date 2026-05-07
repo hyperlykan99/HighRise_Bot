@@ -508,9 +508,9 @@ _INTENTS: list[tuple] = [
      lambda m, t: f"dress @{m.group(2).lstrip('@')} using the '{m.group(4).lower()}' saved outfit"),
 
     # "make KeanuShield look like/wear security (outfit)"
+    # Negative lookahead before the mode word prevents matching "my"/"your"/"@"
     (re.compile(
-        r"make\s+@?(\w+)\s+(look\s+like|wear)\s+(\w+)(?:\s+outfit)?\b"
-        r"(?!\s+(?:my|your|@))",   # exclude "wear my/your/@ ..."
+        r"make\s+@?(\w+)\s+(look\s+like|wear)\s+(?!my\b|your\b|@)(\w+)(?:\s+outfit)?\b",
         re.I),
      "dressbot",
      lambda m, t: f"{m.group(1).lstrip('@').lower()} {m.group(3).lower()}",
@@ -838,6 +838,7 @@ _HANDLER_MAP: dict[str, tuple[str, str]] = {
     "copyoutfit":            ("modules.bot_modes",  "handle_copyoutfit"),
     "wearuseroutfit":        ("modules.bot_modes",  "handle_wearuseroutfit"),
     "savebotoutfit":         ("modules.bot_modes",  "handle_savebotoutfit"),
+    "botoutfitstatus":       ("modules.bot_modes",  "handle_botoutfits"),
     "poker":                 ("modules.poker",      "handle_poker"),
     "setpokerdailywinlimit": ("modules.poker",      "handle_setpokerdailywinlimit"),
     "setpokerdailylosslimit":("modules.poker",      "handle_setpokerdailylosslimit"),
@@ -1188,6 +1189,22 @@ async def _execute_confirmed(bot, user, command: str, args_str: str) -> None:
                      f"📋 Task #{task_id} queued for @{target_bot}. "
                      f"Result will appear once @{target_bot} picks it up.")
             return
+
+    # For delegatable commands where delegation target was not found, check
+    # whether the first arg looks like a specific bot name the user intended.
+    # If so, don't silently fall through to wrong local execution.
+    if command in _DELEGATABLE_CMDS:
+        parts = args_str.strip().split()
+        if parts:
+            _local_words = {"bot", "the", "my", "me", "your", "self",
+                            _ME_SENTINEL.lower(), user.username.lower()}
+            first = parts[0].lower()
+            if first not in _local_words:
+                # User named a specific target, but we couldn't resolve it
+                await _w(bot, user.id,
+                         f"I don't recognize '@{parts[0]}' as a known bot. "
+                         f"Is that bot running? Use /botoutfits to see known modes.")
+                return
 
     # Local execution
     args_list = [command] + (args_str.split() if args_str.strip() else [])
@@ -1559,6 +1576,29 @@ async def handle_aidebug(bot, user, args: list[str]) -> None:
     await _w(bot, user.id, line2)
     await _w(bot, user.id, line3)
 
+    # Outfit-specific extra line
+    if cmd in ("dressbot", "wearuseroutfit", "savebotoutfit", "copyoutfit"):
+        intent_type = {
+            "dressbot":       "outfit_dress",
+            "wearuseroutfit": "outfit_copy",
+            "savebotoutfit":  "outfit_save",
+            "copyoutfit":     "outfit_copy_local",
+        }.get(cmd, "outfit")
+        target_bot_d, _ = _resolve_delegation(cmd, intent.args_str or "")
+        target_online_d = False
+        if target_bot_d:
+            tmode_d = db.get_bot_mode_for_username(target_bot_d)
+            target_online_d = db.is_bot_mode_online(tmode_d) if tmode_d else False
+        a_parts = (intent.args_str or "").split()
+        source  = a_parts[1] if len(a_parts) > 1 else "(none)"
+        line4 = (
+            f"intent={intent_type}"
+            f" | target_bot={target_bot_d or 'LOCAL'}"
+            f" | target_online={str(target_online_d).lower()}"
+            f" | source={source}"
+        )[:249]
+        await _w(bot, user.id, line4)
+
 
 async def handle_aidelegations(bot, user, args: list[str]) -> None:
     """/aidelegations [limit] — show recent AI delegated task history."""
@@ -1573,10 +1613,17 @@ async def handle_aidelegations(bot, user, args: list[str]) -> None:
         await _w(bot, user.id, "No AI delegated tasks recorded yet.")
         return
     await _w(bot, user.id, f"🤖 Last {len(tasks)} AI delegated tasks:")
-    for t in tasks[:5]:
+    for t in tasks:
         st   = t["status"]
         icon = "✅" if st == "completed" else ("⏳" if st == "pending" else ("❌" if st == "failed" else "⏱️"))
-        ts   = (t["created_at"] or "")[:16]
-        msg  = (f"{icon} #{t['id']} @{t['username']} → @{t['target_bot_username']} | "
-                f"{t['human_readable_action'][:60]} | {st} | {ts}")
-        await _w(bot, user.id, msg[:249])
+        ts   = (t.get("created_at") or "")[:16]
+        done = (t.get("completed_at") or "")
+        err  = (t.get("error") or "")
+        line = (f"{icon} #{t['id']} @{t['username']}"
+                f"→@{t['target_bot_username']} | "
+                f"{t['human_readable_action'][:45]} | {st}")
+        if done:
+            line += f" | done={done[11:16]}"
+        if err:
+            line += f" | err={err[:40]}"
+        await _w(bot, user.id, line[:249])
