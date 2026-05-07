@@ -36,6 +36,10 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "control": "host", "status": "host", "roomstatus": "host",
     "botmodehelp": "host", "multibothelp": "host",
     "howtoplay": "host", "gameguide": "host", "games": "host",
+    # ── time-in-room EXP admin commands ──────────────────────────────────────
+    "settimeexp": "host", "settimeexpcap": "host",
+    "settimeexptick": "host", "settimeexpbonus": "host",
+    "timeexpstatus": "host",
     # General casino info pages — host owns so only one bot replies
     "casino": "host", "casinohelp": "host",
     "casinosettings": "host", "casinolimits": "host",
@@ -521,6 +525,7 @@ _MODULE_OWNER_MODES: dict[str, str] = {
     "events":       "eventhost",
     "host":         "host",
     "ai_assistant": "host",
+    "timeexp":      "host",
 }
 
 # Split modes: dedicated bots that should never run another module's tasks

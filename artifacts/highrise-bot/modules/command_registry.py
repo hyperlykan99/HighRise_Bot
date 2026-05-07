@@ -85,6 +85,12 @@ REGISTRY: dict[str, Cmd] = {
     "howtoplay":        Cmd("host","info",    False,True, False),
     "gameguide":        Cmd("host","info",    False,True, False),
     "games":            Cmd("host","info",    False,True, False),
+    # ── Time-in-Room EXP admin commands ──────────────────────────────────────
+    "settimeexp":       Cmd("host","admin",   True, True, False, perm="manager"),
+    "settimeexpcap":    Cmd("host","admin",   True, True, False, perm="manager"),
+    "settimeexptick":   Cmd("host","admin",   True, True, False, perm="admin"),
+    "settimeexpbonus":  Cmd("host","admin",   True, True, False, perm="manager"),
+    "timeexpstatus":    Cmd("host","admin",   True, True, False, perm="manager"),
     "casino":           Cmd("host","info",    True, True, False),
     "casinosettings":   Cmd("host","admin",   True, True, False, perm="manager"),
     "casinolimits":     Cmd("host","admin",   True, True, False, perm="manager"),

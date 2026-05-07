@@ -1,0 +1,107 @@
+Add a Time-in-Room EXP system that adds EXP to the existing player level/profile system.
+
+Important:
+Do NOT create a separate Room EXP system.
+Do NOT create separate Room Levels.
+Do NOT create separate Room Rank unless it uses existing EXP/level.
+Time in room should add EXP to the existing player EXP and existing level system.
+
+Goal:
+Players earn regular EXP for staying in the room.
+AFK/idle players are allowed and should still earn EXP.
+Longer stay time should scale to give more EXP per minute.
+Active players can receive a small bonus, but activity is not required.
+
+Do not change bot tokens.
+Do not change room ID.
+Do not reset balances.
+Do not wipe player data.
+Do not change poker, blackjack, mining, events, shop, outfits, bot spawns, or existing game logic.
+
+==================================================
+PART 1 — CORE TIME-IN-ROOM EXP SYSTEM
+==================================================
+
+Players earn existing profile EXP based on time spent in the room.
+
+Rules:
+1. Connected players earn EXP every minute.
+2. AFK/idle players still earn EXP.
+3. Players earn more EXP per minute the longer they stay in the room.
+4. Active players can get a small bonus.
+5. EXP must be added to the existing player EXP field/system.
+6. Existing level calculation must be used.
+7. Existing profile should show the updated EXP/level.
+8. Only Host/EmceeBot should award time EXP.
+9. Prevent duplicate EXP from multiple bots.
+10. Do not backpay offline time.
+11. Do not award disconnected users.
+12. Do not award bot accounts unless staff enables bot EXP.
+
+Do NOT use negative AFK wording.
+Do NOT say:
+- EXP paused because AFK
+- AFK blocked
+- Move or chat to earn EXP
+- Kick AFK
+
+Use positive wording:
+- Stay in the room to earn EXP.
+- Activity gives a small bonus.
+- Longer stay gives better EXP rate.
+
+==================================================
+PART 2 — EXP COMPUTATION
+==================================================
+
+Use scaled EXP tiers based on continuous time present in the room.
+
+Default tiers:
+- 0 to 30 minutes: 1 EXP/min
+- 30 to 60 minutes: 1.25 EXP/min
+- 1 to 2 hours: 1.5 EXP/min
+- 2 to 4 hours: 2 EXP/min
+- 4 to 8 hours: 2.5 EXP/min
+- 8+ hours: 3 EXP/min
+
+Optional active bonus:
+- Active recently: +0.25 EXP/min
+- Active bonus window: 5 minutes
+- AFK/idle players still earn the tier rate without bonus.
+
+Daily cap:
+- Default daily_time_exp_cap = 1500 EXP
+- Once player reaches the daily cap, stop awarding time EXP until next daily reset.
+- Do not remove players from the room.
+- Do not punish players.
+- Just stop adding more time EXP for that day.
+
+Tick:
+- Default tick_seconds = 60
+
+Per tick computation:
+1. Find users currently present in the room.
+2. For each real player, calculate how long they have continuously stayed in the room/current session.
+3. Determine tier EXP per minute based on stay duration.
+4. Calculate base EXP for the tick:
+   base_exp = tier_exp_per_minute * (elapsed_seconds_since_last_award / 60)
+5. If player was active within active_bonus_window_minutes:
+   bonus_exp = active_bonus_per_minute * (elapsed_seconds_since_last_award / 60)
+6. total_exp = base_exp + bonus_exp
+7. Apply daily_time_exp_cap.
+8. Add total_exp to the existing player EXP/level system.
+9. Recalculate level using existing level function/system.
+10. Save last_award_time.
+
+Example:
+- Player at 20 minutes in room earns 1 EXP this minute.
+- Player at 90 minutes in room earns 1.5 EXP this minute.
+- Player at 5 hours in room earns 2.5 EXP this minute.
+- Player at 9 hours in room earns 3 EXP this minute.
+- If daily cap reached, award 0 until daily reset.
+
+==================================================
+PART 3 — DATABASE TRACKING
+==================================================
+
+Do NOT store separate

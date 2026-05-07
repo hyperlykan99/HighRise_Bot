@@ -262,6 +262,17 @@ from modules.gold import (
     add_to_room_cache, remove_from_room_cache,
     refresh_room_cache,
 )
+from modules.time_exp import (
+    record_join      as time_exp_record_join,
+    record_leave     as time_exp_record_leave,
+    record_activity  as time_exp_record_activity,
+    time_exp_loop,
+    handle_settimeexp,
+    handle_settimeexpcap,
+    handle_settimeexptick,
+    handle_settimeexpbonus,
+    handle_timeexpstatus,
+)
 from modules.mining import (
     handle_mine, handle_tool, handle_upgradetool,
     handle_mineprofile, handle_mineinv, handle_sellores, handle_sellore,
@@ -755,6 +766,12 @@ ALL_KNOWN_COMMANDS = (
     | SHOP_COMMANDS | ACHIEVEMENT_COMMANDS | BJ_COMMANDS
     | BANK_PLAYER_COMMANDS | STAFF_CMDS
 )
+
+TIME_EXP_COMMANDS: frozenset[str] = frozenset({
+    "settimeexp", "settimeexpcap", "settimeexptick",
+    "settimeexpbonus", "timeexpstatus",
+})
+ALL_KNOWN_COMMANDS = ALL_KNOWN_COMMANDS | TIME_EXP_COMMANDS
 
 
 # ---------------------------------------------------------------------------
@@ -2096,6 +2113,11 @@ class HangoutBot(BaseBot):
             asyncio.create_task(startup_poker_recovery(self))
         else:
             print(f"[POKER] Recovery skipped — not poker bot ({BOT_MODE}).")
+        # Start time-in-room EXP loop — host bot only
+        if should_this_bot_run_module("timeexp"):
+            asyncio.create_task(time_exp_loop(self))
+        else:
+            print(f"[TIME_EXP] Loop skipped — not host bot ({BOT_MODE}).")
         # Start background automation loops (idempotent — safe on reconnect)
         start_auto_game_loop(self)
         start_auto_event_loop(self)
@@ -2118,6 +2140,8 @@ class HangoutBot(BaseBot):
         Ignores anything that doesn't start with '/'.
         """
         message = message.strip()
+        # Track activity for time-EXP active bonus (any chat = active player)
+        time_exp_record_activity(user.id)
 
         # ── Direct bot outfit listener — runs first for non-host bots ──────────
         # Handles "BotUsername, copy my outfit" etc. without AI delegation.
@@ -3090,6 +3114,18 @@ class HangoutBot(BaseBot):
         # ── How-to-play / game guide ──────────────────────────────────────────
         elif cmd in ("howtoplay", "gameguide", "games"):
             await _handle_howtoplay(self, user, args)
+
+        # ── Time-in-Room EXP admin commands ───────────────────────────────────
+        elif cmd == "settimeexp":
+            await handle_settimeexp(self, user, args)
+        elif cmd == "settimeexpcap":
+            await handle_settimeexpcap(self, user, args)
+        elif cmd == "settimeexptick":
+            await handle_settimeexptick(self, user, args)
+        elif cmd == "settimeexpbonus":
+            await handle_settimeexpbonus(self, user, args)
+        elif cmd == "timeexpstatus":
+            await handle_timeexpstatus(self, user, args)
 
         elif cmd == "confirmcasinoreset":
             if not can_moderate(user.username):
@@ -4243,6 +4279,7 @@ class HangoutBot(BaseBot):
         """Register new players and greet them when they enter the room."""
         db.ensure_user(user.id, user.username)
         add_to_room_cache(user.id, user.username)
+        time_exp_record_join(user.id)
         # Update position cache for follow/teleport
         try:
             from highrise.models import Position as _Pos
@@ -4304,6 +4341,7 @@ class HangoutBot(BaseBot):
     async def on_user_leave(self, user: User) -> None:
         """Log when a player leaves and remove from gold room cache."""
         remove_from_room_cache(user.id)
+        time_exp_record_leave(user.id)
         print(f"[HangoutBot] {user.username} left.")
 
     async def on_reaction(self, user: User, reaction: str, receiver: User) -> None:
@@ -4331,6 +4369,7 @@ class HangoutBot(BaseBot):
         Debug hook — overriding BaseBot adds 'emote' to subscriptions.
         Logs emotes silently; only prints if emote ID looks tip-related.
         """
+        time_exp_record_activity(user.id)
         raw = f"user=@{user.username}({user.id}) emote_id={emote_id!r} receiver={receiver!r}"
         record_debug_any_event("on_emote", raw)
         # Only log emote events to console; very high volume, keep quiet

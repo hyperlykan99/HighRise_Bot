@@ -90,6 +90,9 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     "insurance", "surrender", "shoe", "bjshoe",
     # ── how-to-play / game guide ─────────────────────────────────────────────
     "howtoplay", "gameguide", "games",
+    # ── time-in-room EXP admin commands ──────────────────────────────────────
+    "settimeexp", "settimeexpcap", "settimeexptick", "settimeexpbonus",
+    "timeexpstatus",
     # ── roles ────────────────────────────────────────────────────────────────
     "addowner", "removeowner",
     "addmanager", "removemanager",
@@ -359,6 +362,8 @@ HELP_CMDS: frozenset[str] = frozenset({
     "blackjack", "bjbet", "bet", "hit", "stand", "double", "split",
     "insurance", "surrender", "shoe", "bjshoe",
     "howtoplay", "gameguide", "games",
+    "settimeexp", "settimeexpcap", "settimeexptick", "settimeexpbonus",
+    "timeexpstatus",
     "casinosettings", "casinolimits", "casinotoggles",
     "setbjlimits", "setrbjlimits", "setbjactiontimer", "setrbjactiontimer",
     "setbjmaxsplits", "setrbjmaxsplits",

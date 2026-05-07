@@ -226,6 +226,15 @@ def init_db():
         )
     """)
 
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS time_exp_daily (
+            user_id TEXT NOT NULL,
+            date    TEXT NOT NULL,
+            earned  INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (user_id, date)
+        )
+    """)
+
     # ── Bank tables ──────────────────────────────────────────────────────────
     conn.execute("""
         CREATE TABLE IF NOT EXISTS bank_transactions (
@@ -2511,6 +2520,34 @@ def add_rbj_daily_net(user_id: str, delta: int):
     )
     conn.commit()
     conn.close()
+
+
+def get_time_exp_daily(user_id: str) -> int:
+    """Return EXP earned today from time-in-room for a player."""
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT earned FROM time_exp_daily WHERE user_id=? AND date=?",
+        (user_id, _today())
+    ).fetchone()
+    conn.close()
+    return row["earned"] if row else 0
+
+
+def add_time_exp_daily(user_id: str, amount: int) -> int:
+    """Add to today's time-EXP total (atomic upsert). Returns new total."""
+    conn = get_connection()
+    conn.execute(
+        "INSERT INTO time_exp_daily (user_id, date, earned) VALUES (?, ?, ?)"
+        " ON CONFLICT(user_id, date) DO UPDATE SET earned = earned + excluded.earned",
+        (user_id, _today(), amount)
+    )
+    conn.commit()
+    row = conn.execute(
+        "SELECT earned FROM time_exp_daily WHERE user_id=? AND date=?",
+        (user_id, _today())
+    ).fetchone()
+    conn.close()
+    return row["earned"] if row else amount
 
 
 def get_poker_settings() -> dict:
@@ -7553,6 +7590,14 @@ def seed_room_settings() -> None:
         ("bot_startup_announce_enabled", "false"),
         ("autogames_owner_bot_mode",         "eventhost"),
         ("module_restore_announce_enabled",  "true"),
+        # ── Time-in-Room EXP ─────────────────────────────────────────────────
+        ("time_exp_enabled",              "true"),
+        ("time_exp_cap",                  "1500"),
+        ("time_exp_tick_seconds",         "60"),
+        ("time_exp_active_bonus_enabled", "true"),
+        ("time_exp_active_bonus",         "0.25"),
+        ("time_exp_active_window_min",    "5"),
+        ("time_exp_bot_exp_enabled",      "false"),
     ]
     conn = get_connection()
     for k, v in defaults:
