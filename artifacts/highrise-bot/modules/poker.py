@@ -117,6 +117,20 @@ async def _w(bot: BaseBot, uid: str, msg: str) -> None:
     except Exception:
         pass
 
+# ── Poker colored action labels (color tags auto-reset with <#FFFFFF>) ─────────
+_PK_CHECK  = "<#00FF66>✅ CHECK<#FFFFFF>"
+_PK_CALL   = "<#3399FF>📞 CALL<#FFFFFF>"
+_PK_BET    = "<#FFD700>💰 BET<#FFFFFF>"
+_PK_RAISE  = "<#FF9900>⬆️ RAISE<#FFFFFF>"
+_PK_FOLD   = "<#FF3333>❌ FOLD<#FFFFFF>"
+_PK_ALLIN  = "<#FFD700>🔥 ALL-IN<#FFFFFF>"
+_PK_INVAL  = "<#FF3333>⚠️ INVALID<#FFFFFF>"
+_PK_WIN    = "<#FFD700>🏆 WIN<#FFFFFF>"
+_PK_POT    = "<#FFD700>🪙 POT<#FFFFFF>"
+_PK_TURN   = "<#00FFCC>👉 YOUR TURN<#FFFFFF>"
+_PK_CARDS  = "<#CC66FF>🃏 Cards<#FFFFFF>"
+_PK_DEALER = "<#66CCFF>🎲 Dealer<#FFFFFF>"
+
 def _cancel_task(t: Optional[asyncio.Task]) -> None:
     if t and not t.done():
         t.cancel()
@@ -892,7 +906,7 @@ async def finish_poker_hand(bot: BaseBot, reason: str) -> None:
                 if p["username"] != w["username"]:
                     _pay_seated(p, "fold_return", 0, round_id)
             await _chat(bot,
-                f"🏆 @{w['username']} wins {pot}c. Everyone else folded.")
+                f"{_PK_WIN} — @{w['username']} wins {pot:,}c. Everyone else folded.")
             db.update_poker_stats(
                 w["user_id"], w["username"],
                 wins=1, total_won=pot, biggest_pot=pot,
@@ -959,7 +973,7 @@ async def finish_poker_hand(bot: BaseBot, reason: str) -> None:
                 if len(winners) == 1:
                     w = winners[0]
                     await _chat(bot, f"👀 Showdown! Board: {board}")
-                    await _chat(bot, f"🏆 @{w['username']} wins {pot}c with {hname}.")
+                    await _chat(bot, f"{_PK_WIN} — @{w['username']} wins {pot:,}c with {hname}.")
                     for p in eligible:
                         h  = _fcs(json.loads(p["hole_cards_json"] or "[]"))
                         hn = _HAND_NAMES.get(
@@ -1154,11 +1168,14 @@ async def _deliver_cards_sequential(
     round_id: str,
     hand_num: int,
     player_rows: list[dict],
+    sb_name: str = "",
+    bb_name: str = "",
 ) -> tuple[int, list[str]]:
     """Simulate a dealer dealing hole cards one-by-one with room announcements.
 
     Announces 'Drawing cards...' then 'Dealing to @Player...' before each
     whisper. Uses pace_deal_delay_secs between players. Retries failures once.
+    SB and BB are included in the deal loop; posting blinds does NOT skip them.
     Returns (sent_count, still_failed_usernames).
     """
     try:
@@ -1168,16 +1185,16 @@ async def _deliver_cards_sequential(
     deal_delay = max(0.1, min(deal_delay, 3.0))
 
     active_rows = [pr for pr in player_rows if pr["status"] in ("active", "allin")]
-    print(f"[POKER_DEAL] hand={round_id[-8:]} | players={len(active_rows)} | delay={deal_delay}s")
+    print(f"[POKER_DEAL] hand={round_id[-8:]} | players={len(active_rows)} | delay={deal_delay}s | sb={sb_name} bb={bb_name}")
 
-    await _chat(bot, "Drawing cards...")
+    await _chat(bot, f"{_PK_DEALER}: Drawing cards...")
     await asyncio.sleep(0.4)
 
     sent_count = 0
     failed: list[str] = []
 
     for pr in active_rows:
-        await _chat(bot, f"Dealing to @{pr['username']}...")
+        await _chat(bot, f"{_PK_DEALER}: Dealing to @{pr['username']}...")
         await asyncio.sleep(deal_delay)
 
         hc = db.get_hole_cards(round_id, pr["username"])
@@ -1189,6 +1206,10 @@ async def _deliver_cards_sequential(
             db.record_card_delivery(round_id, pr["username"], False, "no_cards", pr["username"])
             failed.append(pr["username"])
             print(f"[POKER_DEAL] dealing_to={pr['username']} whisper_ok=false reason=no_cards")
+            if sb_name and pr["username"].lower() == sb_name.lower():
+                print(f"[POKER_DEAL] small_blind={pr['username']} delivered=false reason=no_cards")
+            if bb_name and pr["username"].lower() == bb_name.lower():
+                print(f"[POKER_DEAL] big_blind={pr['username']} delivered=false reason=no_cards")
             continue
 
         msg = _fmt_private_hand(cards, pr["stack"], hand_num=hand_num)
@@ -1202,6 +1223,10 @@ async def _deliver_cards_sequential(
 
         db.record_card_delivery(round_id, pr["username"], delivered, fail_reason, pr["username"])
         print(f"[POKER_DEAL] dealing_to={pr['username']} whisper_ok={delivered} attempts=1")
+        if sb_name and pr["username"].lower() == sb_name.lower():
+            print(f"[POKER_DEAL] small_blind={pr['username']} delivered={str(delivered).lower()}")
+        if bb_name and pr["username"].lower() == bb_name.lower():
+            print(f"[POKER_DEAL] big_blind={pr['username']} delivered={str(delivered).lower()}")
         if delivered:
             sent_count += 1
         else:
@@ -1454,7 +1479,8 @@ async def _start_hand(bot: BaseBot) -> None:
 
     # ── Part 4: sequential card delivery with dealer simulation ───────────
     sent_count, failed_players = await _deliver_cards_sequential(
-        bot, round_id, hand_num, player_rows
+        bot, round_id, hand_num, player_rows,
+        sb_name=sb_name, bb_name=bb_name,
     )
     if failed_players:
         print(f"[POKER_DEAL] still failed after retry: {', '.join(failed_players)}")
@@ -1591,40 +1617,40 @@ async def _advance_street(bot: BaseBot, tbl: dict, players: list[dict]) -> None:
     if phase == "preflop":
         # Burn one card, then deal three for the flop
         if deck: deck.pop()
-        await _chat(bot, "Dealer burns a card...")
+        await _chat(bot, f"{_PK_DEALER}: Burns a card...")
         await asyncio.sleep(0.4)
         f = [deck.pop(), deck.pop(), deck.pop()]
         community.extend(f)
         _save_table(phase="flop",
                     deck_json=json.dumps(deck),
                     community_cards_json=json.dumps(community))
-        await _chat(bot, f"🃏 Flop: {_fcs(f)} | Pot: {tbl['pot']}c")
+        await _chat(bot, f"{_PK_CARDS}: Flop {_fcs(f)} | Pot: {tbl['pot']:,}c")
         await _start_street_from(bot, "flop", round_id, players, pf_start)
 
     elif phase == "flop":
         # Burn one card, then deal the turn
         if deck: deck.pop()
-        await _chat(bot, "Dealer burns a card...")
+        await _chat(bot, f"{_PK_DEALER}: Burns a card...")
         await asyncio.sleep(0.4)
         t = deck.pop()
         community.append(t)
         _save_table(phase="turn",
                     deck_json=json.dumps(deck),
                     community_cards_json=json.dumps(community))
-        await _chat(bot, f"🃏 Turn: {_fc(t)} | Board: {_fcs(community)}")
+        await _chat(bot, f"{_PK_CARDS}: Turn {_fc(t)} | Board: {_fcs(community)}")
         await _start_street_from(bot, "turn", round_id, players, pf_start)
 
     elif phase == "turn":
         # Burn one card, then deal the river
         if deck: deck.pop()
-        await _chat(bot, "Dealer burns a card...")
+        await _chat(bot, f"{_PK_DEALER}: Burns a card...")
         await asyncio.sleep(0.4)
         r = deck.pop()
         community.append(r)
         _save_table(phase="river",
                     deck_json=json.dumps(deck),
                     community_cards_json=json.dumps(community))
-        await _chat(bot, f"🃏 River: {_fc(r)} | Board: {_fcs(community)}")
+        await _chat(bot, f"{_PK_CARDS}: River {_fc(r)} | Board: {_fcs(community)}")
         await _start_street_from(bot, "river", round_id, players, pf_start)
 
     elif phase == "river":
@@ -1673,13 +1699,13 @@ async def _prompt_player(bot: BaseBot, tbl: dict, p: dict,
     pot   = tbl["pot"]
     stack = p["stack"]
 
-    # ── Public room message ───────────────────────────────────────────────
+    # ── Public room announcement ──────────────────────────────────────────
     if owe > 0:
-        pub = (f"➡️ @{p['username']} | Pot:{pot}c | Call:{owe}c | "
-               f"Stack:{stack}c | /call /r <amt> /fold /ai")
+        pub = (f"{_PK_TURN} @{p['username']} | "
+               f"{_PK_POT}:{pot:,}c | Call:{owe:,}c | /call /r /fold /allin")
     else:
-        pub = (f"➡️ @{p['username']} | Pot:{pot}c | Free check | "
-               f"Stack:{stack}c | /check /r <amt> /fold /ai")
+        pub = (f"{_PK_TURN} @{p['username']} | "
+               f"{_PK_POT}:{pot:,}c | /check /r /fold /allin")
     await _chat(bot, pub[:249])
 
     # ── Private whispers (non-fatal: failures silently ignored) ──────────
@@ -1691,42 +1717,47 @@ async def _prompt_player(bot: BaseBot, tbl: dict, p: dict,
                 cards = json.loads(pp["hole_cards_json"] or "[]")
                 board = json.loads(tbl2["community_cards_json"] or "[]")
                 if cards:
-                    # Whisper 1: first-actor notification
-                    if is_first_actor:
-                        try:
-                            await bot.highrise.send_whisper(
-                                p["user_id"],
-                                f"You're first to act this street! Pot:{pot}c"
-                            )
-                        except Exception:
-                            pass
-
-                    # Whisper 2: action summary
-                    if owe > 0:
-                        action_hint = f"Your turn: Call {owe}c, Raise, Fold, or All-in"
+                    # Whisper 1: turn header with first-actor flag
+                    first_pfx = "First to act! " if is_first_actor else ""
+                    if stack < owe and owe > 0:
+                        hdr = (f"{_PK_TURN} — {first_pfx}"
+                               f"Need {owe:,}c, you have {stack:,}c")
+                    elif owe > 0:
+                        hdr = (f"{_PK_TURN} — {first_pfx}"
+                               f"Call {owe:,}c | Stack:{stack:,}c")
                     else:
-                        action_hint = "Your turn: Check, Raise, Fold, or All-in"
+                        hdr = f"{_PK_TURN} — {first_pfx}Stack:{stack:,}c"
                     try:
-                        await bot.highrise.send_whisper(
-                            p["user_id"], f"👉 {action_hint} | Stack:{stack}c"
-                        )
+                        await bot.highrise.send_whisper(p["user_id"], hdr[:249])
                     except Exception:
                         pass
 
-                    # Whisper 3: cards + board + hand strength (if board exists)
+                    # Whisper 2: cards + board + hand strength
                     if board:
                         strength = _hand_strength_label(cards, board)
                         draws    = _detect_draws(cards, board)
                         rank_lbl = strength + (" + " + draws if draws else "")
-                        board_str = _fcs(board)
-                        card_msg  = (f"Your hand: {_fcs(cards)} | "
-                                     f"Board: {board_str} | {rank_lbl}")
+                        card_msg = (f"{_PK_CARDS}: {_fcs(cards)} | "
+                                    f"Board: {_fcs(board)} | {rank_lbl}")
                     else:
-                        card_msg = f"Your hand: {_fcs(cards)} | Pre-flop"
+                        card_msg = (f"{_PK_CARDS}: {_fcs(cards)} | "
+                                    f"Pre-flop | Pot:{pot:,}c")
                     try:
-                        await bot.highrise.send_whisper(
-                            p["user_id"], card_msg[:249]
-                        )
+                        await bot.highrise.send_whisper(p["user_id"], card_msg[:249])
+                    except Exception:
+                        pass
+
+                    # Whisper 3: action buttons
+                    if stack < owe and owe > 0:
+                        act = f"{_PK_ALLIN} /allin | {_PK_FOLD} /fold"
+                    elif owe > 0:
+                        act = (f"{_PK_CALL} /call | {_PK_RAISE} /raise | "
+                               f"{_PK_FOLD} /fold | {_PK_ALLIN} /allin")
+                    else:
+                        act = (f"{_PK_CHECK} /check | {_PK_RAISE} /raise | "
+                               f"{_PK_FOLD} /fold | {_PK_ALLIN} /allin")
+                    try:
+                        await bot.highrise.send_whisper(p["user_id"], act[:249])
                     except Exception:
                         pass
     except Exception:
@@ -1754,7 +1785,7 @@ async def _turn_timeout(bot: BaseBot, uid: str, uname: str,
 
     if must_call and tbl["current_bet"] > p["current_bet"]:
         _save_player(round_id, uid, status="folded", acted=1)
-        await _chat(bot, f"⏰ @{uname} timed out and folded.")
+        await _chat(bot, f"⏰ {_PK_FOLD} — @{uname} timed out.")
         # Idle-strike tracking
         sp = _get_seated(uname)
         if sp and _s("autositout_enabled", 0):
@@ -1767,7 +1798,7 @@ async def _turn_timeout(bot: BaseBot, uid: str, uname: str,
                     f"⚠️ @{uname} auto-sat-out after {limit} idle timeouts.")
     else:
         _save_player(round_id, uid, acted=1)
-        await _chat(bot, f"⏰ @{uname} timed out and checked.")
+        await _chat(bot, f"⏰ {_PK_CHECK} — @{uname} timed out.")
 
     await advance_turn_or_round(bot)
 
@@ -1779,7 +1810,7 @@ async def _do_check(bot: BaseBot, round_id: str, uid: str, uname: str) -> None:
     if sp:
         _update_seated(uname, idle_strikes=0)
     _save_player(round_id, uid, acted=1)
-    await _chat(bot, f"✅ @{uname} checks.")
+    await _chat(bot, f"{_PK_CHECK} — @{uname}")
     await advance_turn_or_round(bot)
 
 
@@ -1803,7 +1834,7 @@ async def _do_call(bot: BaseBot, round_id: str, p: dict, tbl: dict) -> None:
                      status="allin", acted=1, allin_amount=commit)
         _save_table(pot=new_pot)
         await _chat(bot,
-            f"🔥 @{p['username']} calls all-in for {commit}c! Pot: {new_pot}c.")
+            f"{_PK_ALLIN} — @{p['username']} calls all-in for {commit:,}c | {_PK_POT}: {new_pot:,}c")
         await advance_turn_or_round(bot)
         return
     new_stack   = p["stack"] - owe
@@ -1814,7 +1845,7 @@ async def _do_call(bot: BaseBot, round_id: str, p: dict, tbl: dict) -> None:
                  stack=new_stack, current_bet=new_cbet,
                  total_contributed=new_contrib, acted=1)
     _save_table(pot=new_pot)
-    await _chat(bot, f"✅ @{p['username']} calls {owe}c. Pot: {new_pot}c.")
+    await _chat(bot, f"{_PK_CALL} — @{p['username']} called {owe:,}c | {_PK_POT}: {new_pot:,}c")
     await advance_turn_or_round(bot)
 
 
@@ -1855,14 +1886,14 @@ async def _do_raise(bot: BaseBot, round_id: str, p: dict, tbl: dict,
     conn.close()
     _update_seated(p["username"], idle_strikes=0)
     await _chat(bot,
-        f"⬆️ @{p['username']} raises {raise_by}c. To call: {raise_to}c.")
+        f"{_PK_RAISE} — @{p['username']} +{raise_by:,}c | New bet: {raise_to:,}c")
     await advance_turn_or_round(bot)
 
 
 async def _do_fold(bot: BaseBot, round_id: str, p: dict) -> None:
     _save_player(round_id, p["user_id"], status="folded", acted=1)
     _update_seated(p["username"], idle_strikes=0)
-    await _chat(bot, f"🂠 @{p['username']} folds.")
+    await _chat(bot, f"{_PK_FOLD} — @{p['username']}")
     await advance_turn_or_round(bot)
 
 
@@ -1893,7 +1924,7 @@ async def _do_allin(bot: BaseBot, round_id: str, p: dict, tbl: dict) -> None:
         conn.commit()
         conn.close()
     _update_seated(p["username"], idle_strikes=0)
-    await _chat(bot, f"🔥 @{p['username']} ALL-IN {commit}c! Pot: {new_pot}c.")
+    await _chat(bot, f"{_PK_ALLIN} — @{p['username']} all-in {commit:,}c | {_PK_POT}: {new_pot:,}c")
     db.update_poker_stats(p["user_id"], p["username"], allins=1)
     await advance_turn_or_round(bot)
 
@@ -2824,13 +2855,13 @@ async def _dispatch(bot: BaseBot, user: User, args: list[str]) -> None:
             if 0 <= idx < len(players):
                 cur = players[idx]
                 if cur["user_id"] != user.id:
-                    await _w(bot, user.id, "Not your turn.")
+                    await _w(bot, user.id, f"{_PK_INVAL} — Not your turn.")
                     return
             if sub == "check":
                 if tbl["current_bet"] > p["current_bet"]:
                     owe = tbl["current_bet"] - p["current_bet"]
                     await _w(bot, user.id,
-                        f"Can't check — {owe}c to call. /call or /fold.")
+                        f"{_PK_INVAL} — Can't check. {owe}c to call. /call or /fold.")
                     return
                 await _do_check(bot, round_id, user.id, user.username)
             elif sub == "call":
@@ -3850,7 +3881,7 @@ async def handle_setpokerstack(bot: BaseBot, user: User, args: list[str]) -> Non
 
 
 async def handle_dealstatus(bot: BaseBot, user: User) -> None:
-    """/dealstatus — show card delivery status for the active hand."""
+    """/dealstatus — card delivery status for the active hand (staff)."""
     if not can_manage_games(user.username):
         await _w(bot, user.id, "Managers+ only.")
         return
@@ -3858,17 +3889,36 @@ async def handle_dealstatus(bot: BaseBot, user: User) -> None:
     if not tbl or not tbl.get("round_id"):
         await _w(bot, user.id, "No active poker round.")
         return
-    rnd = tbl["round_id"]
-    rows = db.get_card_delivery_status(rnd)
+    rnd     = tbl["round_id"]
+    sb_name = (tbl.get("small_blind_username") or "—").lower()
+    bb_name = (tbl.get("big_blind_username")   or "—").lower()
+    rows    = db.get_card_delivery_status(rnd)
+    ok_cnt  = sum(1 for r in rows if r.get("cards_sent"))
+    bad_cnt = len(rows) - ok_cnt
+    await _w(bot, user.id,
+        f"♠️ Hand#{tbl.get('hand_number',0)} | Round:{rnd[-8:]} | "
+        f"SB:@{sb_name} BB:@{bb_name} | Sent:{ok_cnt} Failed:{bad_cnt}")
     if not rows:
         await _w(bot, user.id, "No delivery records for this round.")
         return
-    ok  = [r["username"] for r in rows if r.get("delivered")]
-    bad = [r["username"] for r in rows if not r.get("delivered")]
-    msg = f"♠️ Cards delivered: {len(ok)} | Failed: {len(bad)}"
-    if bad:
-        msg += "\nFailed: " + ", ".join(f"@{u}" for u in bad[:5])
-    await _w(bot, user.id, msg[:249])
+    for r in rows:
+        ukey     = r["username"]
+        dname    = r.get("display_name") or ukey
+        hc       = db.get_hole_cards(rnd, ukey)
+        assigned = "Y" if (hc and hc.get("card1")) else "N"
+        sent     = "Y" if r.get("cards_sent") else "N"
+        attempts = r.get("attempts", 0)
+        err      = (r.get("failed_reason") or "")[:30]
+        role     = ""
+        if ukey == sb_name:
+            role = " [SB]"
+        elif ukey == bb_name:
+            role = " [BB]"
+        line = (f"@{dname}{role}: cards={assigned} sent={sent} "
+                f"tries={attempts}")
+        if err:
+            line += f" err={err}"
+        await _w(bot, user.id, line[:249])
 
 
 async def handle_setpokerturntimer(bot: BaseBot, user: User,

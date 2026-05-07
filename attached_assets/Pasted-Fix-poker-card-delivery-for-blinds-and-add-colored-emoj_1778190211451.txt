@@ -1,0 +1,284 @@
+Fix poker card delivery for blinds and add colored emoji action labels with reset colors.
+
+Focus only on poker.
+Do not change bank, mining, blackjack, RBJ, events, shop, bot outfits, bot spawns, room ID, bot tokens, or economy settings outside poker.
+
+CURRENT POKER ISSUES:
+1. Small blind may not be receiving their starting card whisper.
+2. Some players do not see their cards at hand start, but /ph shows cards later.
+3. Poker actions need clearer emoji + hex color labels.
+4. Fold emoji should be ❌.
+5. Every color tag must end with a reset/cancel color so the rest of the message does not stay colored.
+
+Highrise public chat color format:
+<#RRGGBB>Text
+
+Use white as the reset/cancel color:
+<#FFFFFF>
+
+==================================================
+PART 1 — FIX SMALL BLIND / CARD DELIVERY BUG
+==================================================
+
+Important poker card delivery bug:
+The small blind may not be receiving their starting card whisper.
+
+Fix requirements:
+1. Small blind must receive hole cards before any turn prompt.
+2. Big blind must receive hole cards before any turn prompt.
+3. All seated active players must receive cards, regardless of blind position.
+4. Posting small blind/big blind must not count as receiving cards.
+5. Posting blinds must not mark the player as already delivered cards.
+6. Posting blinds must not cause the player to be skipped in the deal loop.
+7. Dealer must finish card delivery for every active player before starting the first turn.
+8. If the small blind is first to act pre-flop, wait until their card whisper succeeds or fails after retry before sending their turn prompt.
+9. /pokerdealstatus must show:
+   - small blind username
+   - big blind username
+   - cards_assigned true/false
+   - whisper_sent true/false
+   - whisper_attempts
+   - last_error
+10. Add debug logs:
+   [POKER_DEAL] small_blind=<username> delivered=<true/false>
+   [POKER_DEAL] big_blind=<username> delivered=<true/false>
+
+Expected dealing flow:
+<#66CCFF>🎲 Dealer<#FFFFFF>: Drawing cards...
+<#66CCFF>🎲 Dealer<#FFFFFF>: Dealing to @SmallBlind...
+SmallBlind gets card whisper.
+<#66CCFF>🎲 Dealer<#FFFFFF>: Dealing to @BigBlind...
+BigBlind gets card whisper.
+<#66CCFF>🎲 Dealer<#FFFFFF>: Cards dealt. @NextPlayer acts first.
+
+Do not start the first turn until card delivery has completed for every active player.
+
+==================================================
+PART 2 — SIMULATED DEALING
+==================================================
+
+Dealer should simulate dealing cards slowly to reduce whisper/message bugs.
+
+Required flow:
+1. Lock hand state.
+2. Dealer says: “<#66CCFF>🎲 Dealer<#FFFFFF>: Drawing cards...”
+3. Deal cards player by player with delay.
+4. Whisper each player their cards exactly once.
+5. Record delivery result for each player.
+6. Retry failed card whisper once.
+7. If still failed, mark failed and show in /pokerdealstatus.
+8. After all players processed, announce first actor.
+9. Send first actor the turn prompt.
+
+Use configurable delay:
+- default 0.7 seconds between players
+- use existing poker pace setting pace_deal_delay_secs if available
+
+Do not instantly send all card whispers at once.
+Do not duplicate card whispers.
+
+==================================================
+PART 3 — COLORED POKER ACTION LABELS
+==================================================
+
+Add consistent emoji + hex color labels everywhere poker actions appear:
+- turn prompts
+- action confirmations
+- dealer announcements
+- dashboard
+- action history
+- /pokeractions
+- /pokerturn
+- /pokerdealstatus if relevant
+
+Use these exact labels:
+
+CHECK:
+<#00FF66>✅ CHECK<#FFFFFF>
+
+CALL:
+<#3399FF>📞 CALL<#FFFFFF>
+
+BET:
+<#FFD700>💰 BET<#FFFFFF>
+
+RAISE:
+<#FF9900>⬆️ RAISE<#FFFFFF>
+
+FOLD:
+<#FF3333>❌ FOLD<#FFFFFF>
+
+ALL-IN:
+<#FFD700>🔥 ALL-IN<#FFFFFF>
+
+INVALID / WARNING:
+<#FF3333>⚠️ INVALID<#FFFFFF>
+
+WIN:
+<#FFD700>🏆 WIN<#FFFFFF>
+
+LOSS:
+<#FF3333>❌ LOSS<#FFFFFF>
+
+POT:
+<#FFD700>🪙 POT<#FFFFFF>
+
+PLAYER TURN:
+<#00FFCC>👉 YOUR TURN<#FFFFFF>
+
+CARDS:
+<#CC66FF>🃏 Cards<#FFFFFF>
+
+DEALER:
+<#66CCFF>🎲 Dealer<#FFFFFF>
+
+Important:
+Fold must use:
+<#FF3333>❌ FOLD<#FFFFFF>
+
+Do not use:
+🏳️ FOLD
+
+==================================================
+PART 4 — TURN PROMPT FORMAT
+==================================================
+
+Make player turn prompts short and easy to read.
+
+When player can check:
+<#00FFCC>👉 YOUR TURN<#FFFFFF>
+Board: A♣ 7♦ 2♠ | Your: K♠ K♥
+Actions: <#00FF66>✅ /check<#FFFFFF> | <#FF9900>⬆️ /raise<#FFFFFF> | <#FF3333>❌ /fold<#FFFFFF> | <#FFD700>🔥 /allin<#FFFFFF>
+
+When player must call:
+<#00FFCC>👉 YOUR TURN<#FFFFFF> — Call 500
+Board: A♣ 7♦ 2♠ | Your: K♠ K♥
+Actions: <#3399FF>📞 /call<#FFFFFF> | <#FF9900>⬆️ /raise<#FFFFFF> | <#FF3333>❌ /fold<#FFFFFF> | <#FFD700>🔥 /allin<#FFFFFF>
+
+When player has fewer chips than call amount:
+<#00FFCC>👉 YOUR TURN<#FFFFFF> — Need 1,000, you have 600
+Actions: <#FFD700>🔥 /allin<#FFFFFF> | <#FF3333>❌ /fold<#FFFFFF>
+
+Pre-flop:
+<#00FFCC>👉 YOUR TURN<#FFFFFF>
+Board: none yet | Your: A♠ K♦
+Actions: <#3399FF>📞 /call<#FFFFFF> | <#FF9900>⬆️ /raise<#FFFFFF> | <#FF3333>❌ /fold<#FFFFFF> | <#FFD700>🔥 /allin<#FFFFFF>
+
+If no community cards exist, do not show fake winning hand.
+
+==================================================
+PART 5 — ACTION CONFIRMATION FORMAT
+==================================================
+
+After player actions, use these formats:
+
+<#00FF66>✅ CHECK<#FFFFFF> — @player
+<#3399FF>📞 CALL<#FFFFFF> — @player called 500
+<#FFD700>💰 BET<#FFFFFF> — @player bet 500
+<#FF9900>⬆️ RAISE<#FFFFFF> — @player raised to 1,500
+<#FF3333>❌ FOLD<#FFFFFF> — @player folded
+<#FFD700>🔥 ALL-IN<#FFFFFF> — @player is all-in for 2,500
+
+Pot:
+<#FFD700>🪙 POT<#FFFFFF>: 5,000
+
+Winner:
+<#FFD700>🏆 WIN<#FFFFFF> — @player wins 5,000 with Two Pair
+
+Invalid:
+<#FF3333>⚠️ INVALID<#FFFFFF> — It is not your turn.
+
+==================================================
+PART 6 — FORMATTER HELPER
+==================================================
+
+Create or update a reusable poker action formatter helper, for example:
+
+format_poker_action(action, amount=None, username=None)
+
+or similar.
+
+Goal:
+All poker messages should use the same labels from one place.
+
+Rules:
+1. Use full 6-digit hex codes.
+2. No spaces inside color tags.
+3. Always reset with <#FFFFFF> after each colored label/action.
+4. Keep poker messages short.
+5. Do not use HTML, markdown, ANSI, or Discord color codes.
+6. Do not manually hardcode different labels in many places if avoidable.
+
+==================================================
+PART 7 — SAFETY
+==================================================
+
+Do not change:
+- poker hand rules
+- chip balance logic
+- all-in pot logic
+- side pot logic
+- turn order except card-delivery waiting before first prompt
+- bank/economy
+- mining/events/shop/blackjack/RBJ
+
+Only fix:
+- delivery order
+- blind card whisper reliability
+- card delivery status
+- poker action display labels
+- color reset formatting
+
+==================================================
+PART 8 — TESTS TO REPORT BACK
+==================================================
+
+After finishing, tell me exactly what to test.
+
+At minimum, I should test:
+
+1. Command checks:
+/commandtest /pokerdealstatus
+/commandtest /resendcards
+/commandtest /cards
+/commandtest /allin
+
+2. Deal status:
+/pokerdealstatus
+
+3. Start a 2-player poker hand:
+Expected:
+<#66CCFF>🎲 Dealer<#FFFFFF>: Drawing cards...
+Dealer deals to small blind.
+Dealer deals to big blind.
+Both players receive card whispers.
+First actor is notified only after both card whispers finish.
+
+4. Small blind card check:
+Small blind should receive cards automatically.
+Small blind should also see same cards with /ph or /cards.
+
+5. Action label check:
+When players act, messages should show:
+<#00FF66>✅ CHECK<#FFFFFF>
+<#3399FF>📞 CALL<#FFFFFF>
+<#FF9900>⬆️ RAISE<#FFFFFF>
+<#FF3333>❌ FOLD<#FFFFFF>
+<#FFD700>🔥 ALL-IN<#FFFFFF>
+
+6. Turn prompt check:
+Prompt should show:
+<#00FFCC>👉 YOUR TURN<#FFFFFF>
+Board
+Your cards
+Actions
+
+7. No fake hand check:
+Pre-flop must not show “three of a kind” or fake hand result before community cards.
+
+Final report:
+- files changed
+- where formatter is
+- how small blind delivery was fixed
+- how duplicate card whispers are prevented
+- what exact tests I should run
