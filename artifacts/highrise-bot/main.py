@@ -1880,6 +1880,69 @@ async def _deliver_pending_bank_notifications(bot, user: User) -> None:
 
 
 # ---------------------------------------------------------------------------
+# AI delegated task polling loop (runs on every bot subprocess)
+# ---------------------------------------------------------------------------
+
+async def _execute_delegated_task(bot, task: dict) -> None:
+    """Execute one AI delegated task using the existing handler map."""
+    import types as _types
+    from modules.ai_assistant import _HANDLER_MAP, _execute_handler
+    task_id  = task["id"]
+    cmd_text = (task["command_text"] or "").strip()
+    parts    = cmd_text.split()
+    if not parts:
+        db.complete_delegated_task(task_id, "Empty command_text")
+        return
+
+    cmd       = parts[0]
+    args_list = parts  # e.g. ["dressbot", "security"]
+
+    # Reconstruct a minimal user-like object from original requester
+    fake_user = _types.SimpleNamespace(
+        id       = task["user_id"],
+        username = task["username"],
+    )
+
+    try:
+        await _execute_handler(bot, fake_user, cmd, args_list)
+        db.complete_delegated_task(task_id)
+        print(f"[AI_DELEGATE] task={task_id} cmd={cmd} completed")
+        try:
+            await bot.highrise.send_whisper(
+                task["user_id"],
+                f"✅ Delegated task completed: /{cmd_text}",
+            )
+        except Exception:
+            pass
+    except Exception as exc:
+        err = str(exc)[:200]
+        db.complete_delegated_task(task_id, err)
+        print(f"[AI_DELEGATE] task={task_id} cmd={cmd} failed: {err}")
+        try:
+            await bot.highrise.send_whisper(
+                task["user_id"],
+                f"⚠️ Delegated /{cmd} failed: {err[:100]}",
+            )
+        except Exception:
+            pass
+
+
+async def _ai_delegated_task_loop(bot) -> None:
+    """Poll every 2 s for AI delegated tasks assigned to this bot's username."""
+    from config import BOT_USERNAME
+    await asyncio.sleep(4)  # let startup settle
+    while True:
+        try:
+            db.expire_old_delegated_tasks()
+            tasks = db.get_pending_delegated_tasks_for_bot(BOT_USERNAME)
+            for task in tasks:
+                asyncio.create_task(_execute_delegated_task(bot, task))
+        except Exception as exc:
+            print(f"[AI_DELEGATE] loop error: {exc}")
+        await asyncio.sleep(2)
+
+
+# ---------------------------------------------------------------------------
 # Bot class
 # ---------------------------------------------------------------------------
 
@@ -1931,6 +1994,8 @@ class HangoutBot(BaseBot):
         await start_interval_loop(self)
         # Start multi-bot heartbeat (no-op in single-bot mode)
         asyncio.create_task(start_multibot_heartbeat(self))
+        # AI delegated task polling loop (picks up cross-bot outfit/command tasks)
+        asyncio.create_task(_ai_delegated_task_loop(self))
         # Startup safety checks (logs warnings, does not spam room)
         check_startup_safety()
         # Conditional startup room announce (respects settings + 10-min cooldown)

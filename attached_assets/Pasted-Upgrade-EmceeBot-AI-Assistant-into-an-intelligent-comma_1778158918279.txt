@@ -1,0 +1,428 @@
+Upgrade EmceeBot AI Assistant into an intelligent command executor and dispatcher.
+
+Current goal:
+I want EmceeBot to act like a smart personal assistant, not just tell me what slash command to use.
+
+Do not change bot tokens.
+Do not expose bot tokens.
+Do not expose ROOM_ID secrets.
+Do not change player balances directly.
+Do not bypass permissions.
+Do not duplicate existing command logic if a handler already exists.
+Do not make every bot respond to AI.
+EmceeBot/host should be the only AI assistant voice.
+
+Main assistant names:
+The AI should activate when I call:
+- EmceeBot
+- emceebot
+- Emcee
+- emcee
+- MC
+- mc
+- @EmceeBot
+
+Matching should be case-insensitive.
+
+Examples that should trigger AI:
+- Emcee, show my profile
+- MC, show my balance
+- EmceeBot, send 1000 coins to testuser
+- emcee, dress KeanuShield as security
+- MC, copy my outfit to KeanuShield
+- Emcee, teleport me to lounge
+- Emcee, turn on double exp event
+
+Examples that should NOT trigger AI:
+- random normal chat
+- lol
+- haha
+- yes, unless there is a pending action
+- no, unless there is a pending action
+
+PART 1 — Make AI execute commands, not just suggest commands
+
+If the user asks for something that maps to a safe command, run the command or call the existing handler.
+
+Examples:
+
+User:
+Emcee, show my profile
+
+Bad response:
+Use /profile.
+
+Good behavior:
+Run the existing /profile handler and show the user’s actual profile.
+
+User:
+Emcee, show testuser profile
+
+Good behavior:
+Run /profile testuser or /whois testuser using the existing profile/whois handler.
+
+User:
+Emcee, show my balance
+
+Good behavior:
+Run /bal through the banker/bank handler or delegate to BankingBot.
+
+User:
+Emcee, show shop
+
+Good behavior:
+Run /shop or call the shop handler.
+
+Only suggest commands if the system cannot safely execute it.
+
+PART 2 — Add smart “cannot do that yet” responses
+
+If a requested feature does not exist in the command registry, route table, or handler system, do not hallucinate.
+
+Reply with one of these:
+
+1. If no command exists:
+“I can’t do that yet. I don’t have a working command for that feature.”
+
+2. If command exists but handler is missing:
+“I found that command, but it is not fully coded yet.”
+
+3. If owner bot is offline:
+“I can do that, but the required bot is offline right now.”
+
+4. If SDK does not support it:
+“I can’t do that yet because the Highrise SDK does not support that action here.”
+
+5. If permission is missing:
+“You don’t have permission to do that.”
+
+PART 3 — Case-insensitive and flexible username matching
+
+The AI should understand commands regardless of capitalization.
+
+Examples:
+- emcee show my profile
+- EMCEE SHOW MY PROFILE
+- Mc show my profile
+- EmceeBot show my profile
+
+The AI should understand usernames with or without @:
+- @KeanuShield
+- KeanuShield
+- keanushield
+
+When matching bot usernames, use:
+- exact bot username
+- lowercase comparison
+- without @
+- BOT_USERNAME
+- BOT_ID
+- bot mode aliases if available
+
+PART 4 — Outfit AI for other bots
+
+I am having a hard time dressing another bot, especially SecurityBot named @KeanuShield.
+
+Add AI intents that make this easy.
+
+Natural language examples:
+
+1. Dress target bot with saved mode outfit:
+- Emcee, dress KeanuShield as security
+- Emcee, make KeanuShield wear security outfit
+- MC, dress @KeanuShield as security
+
+Should map to:
+- /dressbot KeanuShield security
+
+Behavior:
+EmceeBot asks:
+“Confirm: dress @KeanuShield using the saved Security outfit. Reply yes or no.”
+
+After yes:
+The task must be delegated to @KeanuShield because only the target bot can call set_outfit on itself.
+
+2. Copy user outfit to target bot:
+- Emcee, copy my outfit to KeanuShield
+- Emcee, make KeanuShield wear my outfit
+- Emcee, copy testuser outfit to KeanuShield
+- Emcee, copy @testuser to SecurityBot
+
+Should map to:
+- /wearuseroutfit KeanuShield <source_user>
+or equivalent delegated outfit task.
+
+Behavior:
+EmceeBot asks:
+“Confirm: copy <source_user>’s outfit to @KeanuShield. Reply yes or no.”
+
+After yes:
+@KeanuShield executes the outfit change on itself.
+
+3. Save target bot current outfit:
+- Emcee, save KeanuShield outfit as security
+- Emcee, save SecurityBot outfit as security
+
+Should map to:
+- /savebotoutfit KeanuShield security Security Outfit
+
+4. Show outfit status:
+- Emcee, show bot outfit status
+- Emcee, what is KeanuShield wearing
+- Emcee, show security outfit
+
+Should map to:
+- /botoutfitstatus
+- /botoutfit security
+
+Important:
+EmceeBot cannot directly dress another bot account.
+Only the target bot can apply outfit using set_outfit.
+Use delegated task queue if direct cross-bot execution is not possible.
+
+PART 5 — Delegated task system
+
+If EmceeBot needs another bot to execute a task, use the existing delegation system or add one.
+
+Suggested table:
+ai_delegated_tasks:
+- id
+- user_id
+- username
+- original_text
+- command_text
+- owner_mode
+- owner_bot_username
+- target_bot_username
+- human_readable_action
+- risk_level
+- status
+- created_at
+- expires_at
+- completed_at
+- error
+
+Flow:
+1. EmceeBot interprets request.
+2. EmceeBot checks permissions.
+3. EmceeBot asks confirmation if needed.
+4. User says yes.
+5. EmceeBot creates delegated task.
+6. Target bot checks for tasks for itself every 1–2 seconds.
+7. Target bot executes using existing handler.
+8. Mark task completed or failed.
+9. EmceeBot or target bot reports result.
+
+PART 6 — Profile AI intents
+
+Add or improve AI profile intents.
+
+Examples:
+- Emcee, show my profile
+- Emcee, profile me
+- Emcee, show my stats
+- Emcee, show testuser profile
+- Emcee, show Claire’s profile
+- Emcee, who is testuser
+
+Behavior:
+- “my profile” means requesting user.
+- “profile me” means requesting user.
+- “testuser profile” means target user.
+- Use existing /profile, /whois, /stats handlers.
+- Respect privacy settings.
+- Do not expose private data beyond what existing commands already show.
+
+Expected:
+Emcee, show my profile
+→ shows actual profile, not “Use /profile.”
+
+PART 7 — Settings AI intents
+
+Add AI intents for settings.
+
+Examples:
+- Emcee, set max send to 50000
+- Emcee, set daily send limit to 100000
+- Emcee, turn high risk blocks on
+- Emcee, turn off poker win loss limit
+- Emcee, turn on poker win loss limit
+- Emcee, turn on double exp event
+- Emcee, stop event
+
+Rules:
+- Admin/owner only if setting is admin/owner only.
+- Always require confirmation.
+- Use existing handlers.
+- Do not edit DB directly from AI if a command handler exists.
+
+Response:
+“Confirm: set maximum send limit to 50,000 coins using BankingBot. Reply yes or no.”
+
+PART 8 — Command existence check
+
+Before executing or confirming:
+1. Check command exists in registry/known commands.
+2. Check route=YES.
+3. Check handler=YES.
+4. Check owner mode.
+5. Check owner bot online.
+6. Check permission.
+
+If any check fails, answer clearly:
+- command missing
+- handler missing
+- bot offline
+- no permission
+- not supported
+
+PART 9 — Confirmation
+
+Risky commands must require yes/no.
+
+Confirm words:
+- yes
+- y
+- confirm
+- do it
+- proceed
+- go ahead
+- sure
+- ok
+- okay
+
+Cancel words:
+- no
+- n
+- cancel
+- stop
+- nevermind
+- never mind
+
+Rules:
+- Only the same user who created the pending action can confirm.
+- Pending action expires after 60 seconds.
+- If there is no pending action, yes/no should not do anything dangerous.
+- Keep /confirm yes and /confirm no as backup.
+
+PART 10 — Add AI capability/help command
+
+Add or improve:
+/aicapabilities
+
+It should show what Emcee understands:
+- Profiles: show my profile, show user profile
+- Bank: balance, send coins, bank settings
+- Mining: mine help, ores, tools
+- Shop: show shop, buy items
+- Events: start/stop events
+- Room: spawns, teleport, bring
+- Outfits: dress bot, copy outfit, save outfit
+- Poker/Blackjack: help and settings if available
+- Safety: cannot show tokens or secrets
+
+PART 11 — Add better debug command
+
+Improve:
+/aidebug <message>
+
+It should show:
+- trigger name detected
+- interpreted intent
+- target user if any
+- target bot if any
+- source user if any
+- proposed command
+- owner mode
+- owner bot online true/false
+- route YES/NO
+- handler YES/NO
+- permission OK true/false
+- risk level
+- confirmation required true/false
+- delegated true/false
+- reason if blocked
+
+Never show tokens, secrets, raw env vars, or raw outfit JSON.
+
+PART 12 — Safety
+
+Never expose:
+- bot tokens
+- room ID secrets
+- env vars
+- database secrets
+- raw config secrets
+
+Never allow AI to:
+- bypass permissions
+- execute raw SQL
+- delete user data
+- change token values
+- change room ID
+- directly change balances without existing handlers
+- directly change settings without existing handlers
+
+Secret requests reply:
+“I can’t help with secrets or tokens.”
+
+PART 13 — Tests after implementation
+
+Tell me to test:
+
+Route:
+/commandtest /aidebug
+/commandtest /aicapabilities
+/commandtest /pendingaction
+
+Profile:
+Emcee, show my profile
+MC, show my profile
+emcee, show testuser profile
+EmceeBot, who is testuser
+
+Outfit:
+Emcee, show bot outfit status
+Emcee, dress KeanuShield as security
+no
+Emcee, copy my outfit to KeanuShield
+no
+Emcee, copy testuser outfit to KeanuShield
+no
+
+Bank/settings:
+Emcee, show my balance
+Emcee, send 1000 coins to testuser
+no
+Emcee, set max send to 50000
+no
+
+Events:
+Emcee, turn on double exp event
+no
+Emcee, stop event
+no
+
+Unsupported:
+Emcee, make KeanuShield fly
+Emcee, show bot token
+
+Case-insensitive:
+emcee, SHOW MY PROFILE
+MC, Show My Balance
+EmCeE, dress keanushield as security
+
+No pending:
+yes
+no
+
+PART 14 — Final report
+
+After finishing, tell me:
+1. Which files changed
+2. Which AI aliases were added
+3. Which profile commands are executed directly
+4. Which outfit commands are supported
+5. Whether @KeanuShield can be targeted by username
+6. Whether outfit changes use delegated task queue
+7. What exact tests I should run

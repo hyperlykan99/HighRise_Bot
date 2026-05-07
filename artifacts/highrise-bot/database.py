@@ -1219,6 +1219,22 @@ def _migrate_db():
         "proposed_command TEXT NOT NULL DEFAULT '', "
         "risk_level TEXT NOT NULL DEFAULT '', "
         "outcome TEXT NOT NULL DEFAULT '')",
+        # ── AI delegated tasks (cross-bot outfit/command delegation) ───────────
+        "CREATE TABLE IF NOT EXISTS ai_delegated_tasks ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "user_id TEXT NOT NULL, "
+        "username TEXT NOT NULL DEFAULT '', "
+        "original_text TEXT NOT NULL DEFAULT '', "
+        "command_text TEXT NOT NULL DEFAULT '', "
+        "owner_mode TEXT NOT NULL DEFAULT 'host', "
+        "target_bot_username TEXT NOT NULL DEFAULT '', "
+        "human_readable_action TEXT NOT NULL DEFAULT '', "
+        "risk_level TEXT NOT NULL DEFAULT 'ADMIN_CONFIRM', "
+        "status TEXT NOT NULL DEFAULT 'pending', "
+        "created_at TEXT NOT NULL DEFAULT (datetime('now')), "
+        "expires_at TEXT NOT NULL DEFAULT '', "
+        "completed_at TEXT, "
+        "error TEXT NOT NULL DEFAULT '')",
     ]:
         try:
             conn.execute(sql)
@@ -1398,6 +1414,112 @@ def log_ai_action(
         conn.close()
     except Exception:
         pass
+
+
+# ---------------------------------------------------------------------------
+# AI delegated tasks (cross-bot delegation for outfit and other commands)
+# ---------------------------------------------------------------------------
+
+def create_delegated_task(
+    user_id: str,
+    username: str,
+    original_text: str,
+    command_text: str,
+    owner_mode: str,
+    target_bot_username: str,
+    human_readable_action: str,
+    risk_level: str = "ADMIN_CONFIRM",
+) -> int:
+    """Create a pending delegated task for a target bot. Returns row id."""
+    from datetime import datetime, timedelta
+    now     = datetime.utcnow()
+    expires = now + timedelta(seconds=90)
+    conn    = get_connection()
+    cur     = conn.execute(
+        """INSERT INTO ai_delegated_tasks
+               (user_id, username, original_text, command_text, owner_mode,
+                target_bot_username, human_readable_action, risk_level,
+                status, created_at, expires_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)""",
+        (
+            user_id, username.lower(), original_text[:200], command_text,
+            owner_mode, target_bot_username.lower(), human_readable_action,
+            risk_level,
+            now.strftime("%Y-%m-%d %H:%M:%S"),
+            expires.strftime("%Y-%m-%d %H:%M:%S"),
+        ),
+    )
+    conn.commit()
+    row_id = cur.lastrowid
+    conn.close()
+    return row_id
+
+
+def get_pending_delegated_tasks_for_bot(bot_username: str) -> list:
+    """Return pending (non-expired) delegated tasks for a given bot username."""
+    from datetime import datetime
+    now  = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+    conn = get_connection()
+    rows = conn.execute(
+        """SELECT * FROM ai_delegated_tasks
+           WHERE target_bot_username=? AND status='pending' AND expires_at > ?
+           ORDER BY id ASC""",
+        (bot_username.lower(), now),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def complete_delegated_task(task_id: int, error: str = "") -> None:
+    """Mark a delegated task as completed (or failed if error given)."""
+    from datetime import datetime
+    now    = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+    status = "failed" if error else "completed"
+    conn   = get_connection()
+    conn.execute(
+        "UPDATE ai_delegated_tasks SET status=?, completed_at=?, error=? WHERE id=?",
+        (status, now, error[:200], task_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+def expire_old_delegated_tasks() -> int:
+    """Expire all past-deadline pending delegated tasks. Returns count expired."""
+    from datetime import datetime
+    now  = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+    conn = get_connection()
+    cur  = conn.execute(
+        "UPDATE ai_delegated_tasks SET status='expired' "
+        "WHERE status='pending' AND expires_at <= ?",
+        (now,),
+    )
+    conn.commit()
+    n = cur.rowcount
+    conn.close()
+    return n
+
+
+def get_bot_mode_for_username(bot_username: str) -> Optional[str]:
+    """Return the bot_mode for a known bot username, or None if not found."""
+    conn = get_connection()
+    row  = conn.execute(
+        "SELECT bot_mode FROM bot_instances WHERE LOWER(bot_username)=? LIMIT 1",
+        (bot_username.lower(),),
+    ).fetchone()
+    conn.close()
+    return row["bot_mode"] if row else None
+
+
+def is_bot_mode_online(mode: str) -> bool:
+    """Return True if any bot_instance with matching bot_mode is online."""
+    conn = get_connection()
+    row  = conn.execute(
+        "SELECT 1 FROM bot_instances WHERE bot_mode=? AND status='online' LIMIT 1",
+        (mode,),
+    ).fetchone()
+    conn.close()
+    return row is not None
 
 
 # ---------------------------------------------------------------------------

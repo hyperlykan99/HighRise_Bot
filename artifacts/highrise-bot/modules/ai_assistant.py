@@ -1,19 +1,24 @@
 """
 modules/ai_assistant.py
 -----------------------
-AI assistant layer — natural language command matching and confirmation system.
+EmceeBot AI assistant — natural language command dispatcher.
 
-Supports:
-- /ask, /ai, /assistant <message>
-- Natural language triggers: "emceebot" word or @emceebot mention
-- yes/no natural confirmation for pending actions
-- Risk-classified command matching (SAFE / CONFIRM / ADMIN_CONFIRM / BLOCKED)
-- Per-bot-mode personality responses
-- Pending action storage in ai_pending_actions DB table
+Trigger names (case-insensitive, word boundary):
+  EmceeBot, @EmceeBot, Emcee, @Emcee, MC, @MC
 
-Intent categories (Parts 1–9):
-  Mining, Economy/Bank, Shop, Games, Events, Room/Spawn,
-  Teleport, Outfit, Profile, Poker Settings, Help
+Parts implemented:
+  1  Execute safe commands directly (not just suggest them)
+  2  Smart "cannot do that yet" responses (5 failure modes)
+  3  Case-insensitive / flexible username matching
+  4  Outfit AI — cross-bot delegation (dress/copy/save) for other bots
+  5  Delegated task system via ai_delegated_tasks DB table
+  6  Profile AI — execute directly
+  7  Settings AI — admin-confirm, existing handlers
+  8  Pre-execute validation (route/handler/owner/permission)
+  9  yes/no confirmation flow
+ 10  /aicapabilities
+ 11  /aidebug
+ 12  Safety (never expose tokens/secrets)
 
 All messages ≤ 249 chars.  No external API calls — pattern-based matching only.
 """
@@ -23,7 +28,8 @@ from __future__ import annotations
 import importlib
 import inspect
 import re
-from dataclasses import dataclass
+import types
+from dataclasses import dataclass, field
 
 import database as db
 from modules.permissions import is_admin, is_owner
@@ -39,11 +45,10 @@ BLOCKED       = "BLOCKED"
 
 # ---------------------------------------------------------------------------
 # Risk level table  (command → risk level)
-# Unlisted commands default to SAFE.
 # ---------------------------------------------------------------------------
 
 _RISK: dict[str, str] = {
-    # ── SAFE — informational; AI suggests the command but does not run it ──
+    # ── SAFE ──────────────────────────────────────────────────────────────
     "help": SAFE, "mycommands": SAFE, "start": SAFE, "guide": SAFE,
     "bal": SAFE, "balance": SAFE, "bank": SAFE, "transactions": SAFE,
     "minehelp": SAFE, "mine": SAFE, "ores": SAFE, "tool": SAFE,
@@ -58,12 +63,12 @@ _RISK: dict[str, str] = {
     "spawns": SAFE, "spawninfo": SAFE,
     "botoutfits": SAFE, "botoutfit": SAFE,
     "goto": SAFE, "aicapabilities": SAFE,
-    # ── CONFIRM — ask user before executing ──────────────────────────────
+    # ── CONFIRM ───────────────────────────────────────────────────────────
     "send": CONFIRM, "buy": CONFIRM, "sellores": CONFIRM,
     "sellore": CONFIRM, "minebuy": CONFIRM, "equip": CONFIRM,
     "eventshop": CONFIRM, "buyevent": CONFIRM,
     "tpme": CONFIRM,
-    # ── ADMIN_CONFIRM — admin/owner only + must confirm ───────────────────
+    # ── ADMIN_CONFIRM ──────────────────────────────────────────────────────
     "setmaxsend": ADMIN_CONFIRM, "setsendlimit": ADMIN_CONFIRM,
     "setminsend": ADMIN_CONFIRM, "setnewaccountdays": ADMIN_CONFIRM,
     "setmindailyclaims": ADMIN_CONFIRM, "setminlevelsend": ADMIN_CONFIRM,
@@ -96,7 +101,6 @@ def _risk_for(cmd: str) -> str:
 
 # ---------------------------------------------------------------------------
 # Intent category table  (command → category string)
-# Used by /aidebug output.
 # ---------------------------------------------------------------------------
 
 _CATEGORY: dict[str, str] = {
@@ -133,19 +137,35 @@ _CATEGORY: dict[str, str] = {
 
 
 # ---------------------------------------------------------------------------
+# Commands that may require cross-bot delegation (outfit on another bot's account)
+# ---------------------------------------------------------------------------
+
+_DELEGATABLE_CMDS: frozenset[str] = frozenset({
+    "dressbot", "wearuseroutfit", "savebotoutfit",
+})
+
+# Sentinel for "use the requesting user's own username"
+_ME_SENTINEL = "__ME__"
+
+
+# ---------------------------------------------------------------------------
 # Intent result
 # ---------------------------------------------------------------------------
 
 @dataclass
 class IntentResult:
-    command:        str   # e.g. "send"
-    args_str:       str   # e.g. "claire 100"  (space-sep, after the command word)
-    human_readable: str   # e.g. "send 100 coins to @claire"
-    risk_level:     str
+    command:        str
+    args_str:       str
+    human_readable: str
+    risk_level:     str = field(default="")
+
+    def __post_init__(self) -> None:
+        if not self.risk_level:
+            self.risk_level = _risk_for(self.command)
 
 
 # ---------------------------------------------------------------------------
-# Blocked keyword guard — refuse requests that look dangerous or abusive
+# Blocked keyword guard
 # ---------------------------------------------------------------------------
 
 _BLOCKED_RE = re.compile(
@@ -164,13 +184,12 @@ def _is_blocked(text: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Intent patterns
-# Each entry: (compiled_regex, command, args_fn(match,text)->str, human_fn(match,text)->str)
-# Evaluated top-to-bottom; first match wins.
+# Intent patterns — evaluated top-to-bottom, first match wins.
+# Lambda args: (re.Match, original_text) → str
 # ---------------------------------------------------------------------------
 
 def _k(v: str):
-    """Constant-valued lambda for args_fn / human_fn."""
+    """Constant-valued lambda."""
     return lambda m, t: v
 
 
@@ -183,7 +202,7 @@ _INTENTS: list[tuple] = [
      "minehelp", _k(""), _k("show mining help")),
 
     (re.compile(r"^mine$|^(start|do)\s+min[ei]|mine\s+for\s+me|let\s+me\s+mine", re.I),
-     "mine", _k(""), _k("mine for you")),
+     "mine", _k(""), _k("start mining")),
 
     (re.compile(r"(my\s+|show\s+|check\s+|view\s+)?(ores?\b|ore\s+list|ore\s+inv)", re.I),
      "ores", _k(""), _k("show your ores")),
@@ -203,10 +222,9 @@ _INTENTS: list[tuple] = [
      "mineshop", _k(""), _k("show the mining shop")),
 
     # ────────────────────────────────────────────────────────────────────────
-    # SEND / TRANSFER  — checked BEFORE balance so "send 100 coins to X"
-    # does NOT accidentally match the balance keyword in /bal pattern
+    # SEND / TRANSFER  — checked BEFORE balance catch-all
     # ────────────────────────────────────────────────────────────────────────
-    # Variant A: "send 1000 coins to testuser" / "transfer 500 to @Marion"
+    # Variant A: "send 1000 coins to testuser"
     (re.compile(
         r"(send|transfer|give|pay)\s+([\d,]+)\s*(coins?|tokens?)?\s*(?:to|for|->)\s+@?(\w+)",
         re.I),
@@ -214,7 +232,7 @@ _INTENTS: list[tuple] = [
      lambda m, t: f"{m.group(4)} {m.group(2).replace(',', '')}",
      lambda m, t: f"send {m.group(2).replace(',', '')} coins to @{m.group(4)}"),
 
-    # Variant B: "send testuser 1000 coins" / "pay @testuser 500"
+    # Variant B: "send testuser 1000 coins"
     (re.compile(
         r"(send|transfer|give|pay)\s+@?([A-Za-z]\w*)\s+([\d,]+)\s*(coins?|tokens?)?",
         re.I),
@@ -297,9 +315,8 @@ _INTENTS: list[tuple] = [
      "rbjhelp", _k(""), _k("show realistic blackjack help")),
 
     # ────────────────────────────────────────────────────────────────────────
-    # EVENTS — specific event names first, then generic patterns
+    # EVENTS — specific names first, then generic
     # ────────────────────────────────────────────────────────────────────────
-    # Specific event IDs (natural name → event_id)
     (re.compile(
         r"(start|turn\s+on|enable|begin|launch)\s+(double[\s_]xp|double[\s_]exp|2x[\s_]xp|2x[\s_]exp)\s*(event)?\b",
         re.I),
@@ -330,7 +347,6 @@ _INTENTS: list[tuple] = [
         re.I),
      "startevent", _k("shop_sale"), _k("start Shop Sale event")),
 
-    # Generic: "start event X" / "start X event"
     (re.compile(r"start\s+event\s+(\w+)", re.I),
      "startevent",
      lambda m, t: m.group(1).lower(),
@@ -353,14 +369,12 @@ _INTENTS: list[tuple] = [
     # ────────────────────────────────────────────────────────────────────────
     # ROOM / SPAWN
     # ────────────────────────────────────────────────────────────────────────
-    # List spawns
     (re.compile(
         r"(show|list|see|view)\s+(all\s+)?spawns?\b|what\s+spawns?\s+(are there|exist)\b"
         r"|spawns\s+(list|available)\b",
         re.I),
      "spawns", _k(""), _k("show all saved spawns")),
 
-    # Save / create spawn at current position
     (re.compile(
         r"(save|create|set)\s+(this\s+|my\s+|current\s+)?(spot|pos|position|location|spawn)\s+as\s+(\w+)\b",
         re.I),
@@ -374,9 +388,9 @@ _INTENTS: list[tuple] = [
      lambda m, t: f"create spawn '{m.group(2).lower()}' at your position"),
 
     # ────────────────────────────────────────────────────────────────────────
-    # TELEPORT — ordered most-specific first
+    # TELEPORT
     # ────────────────────────────────────────────────────────────────────────
-    # Teleport everyone / all
+    # Teleport everyone to spawn
     (re.compile(
         r"(teleport|tp)\s+(everyone|all\s+players|all)\s+to\s+(\w+)\b"
         r"|tpall\s+(\w+)\b",
@@ -389,95 +403,128 @@ _INTENTS: list[tuple] = [
     (re.compile(r"(bring\s+all|bring\s+everyone|bringall)\b", re.I),
      "bringall", _k(""), _k("bring all players to your position")),
 
-    # Teleport self to spawn: "teleport me to lounge" / "tp me to stage"
+    # Teleport self to spawn
     (re.compile(r"(teleport|tp)\s+me\s+to\s+(\w+)\b|go\s+to\s+spawn\s+(\w+)\b", re.I),
      "tpme",
      lambda m, t: (m.group(2) or m.group(3)).lower(),
      lambda m, t: f"teleport you to spawn '{(m.group(2) or m.group(3)).lower()}'"),
 
-    # Teleport user to @user (explicit @mention → goto + note)
+    # Teleport user to @user (explicit @mention → goto suggestion + note)
     (re.compile(r"(teleport|tp|move)\s+@?(\w+)\s+to\s+@(\w+)\b", re.I),
      "goto",
      lambda m, t: m.group(3),
      lambda m, t: (f"go to @{m.group(3)}'s location "
-                   f"(then use /tphere {m.group(2)} to bring them)")),
+                   f"(then /tphere {m.group(2)} to bring them)")),
 
-    # Bring user to me: "bring testuser to me" / "tphere testuser"
+    # Bring user to me
     (re.compile(r"(bring|tphere)\s+@?(\w+)(\s+to\s+(me|here))?\b", re.I),
      "tphere",
      lambda m, t: m.group(2).lstrip("@"),
      lambda m, t: f"bring @{m.group(2).lstrip('@')} to your position"),
 
-    # Teleport user to spawn: "teleport testuser to lounge" / "tp testuser stage"
+    # Teleport user to spawn
     (re.compile(r"(teleport|tp)\s+@?(\w+)\s+to\s+(\w+)\b", re.I),
      "tp",
      lambda m, t: f"{m.group(2).lstrip('@')} {m.group(3).lower()}",
      lambda m, t: f"teleport @{m.group(2).lstrip('@')} to spawn '{m.group(3).lower()}'"),
 
-    # Go to user (teleport self to a user)
+    # Go to user
     (re.compile(r"(goto|go\s+to)\s+@?(\w+)\b|teleport\s+me\s+to\s+@(\w+)\b", re.I),
      "goto",
      lambda m, t: (m.group(2) or m.group(3)).lstrip("@"),
      lambda m, t: f"teleport you to @{(m.group(2) or m.group(3)).lstrip('@')}"),
 
     # ────────────────────────────────────────────────────────────────────────
-    # OUTFIT
+    # OUTFIT  — cross-bot patterns (target bot as first word) before local ones
+    # args_str format for delegatable: "TARGET_BOT_USERNAME rest_args"
+    # Use __ME__ sentinel for "my outfit" (requester's own outfit).
     # ────────────────────────────────────────────────────────────────────────
-    # Copy user's outfit into a bot mode record
-    (re.compile(
-        r"copy\s+@?(\w+)[''s]*\s+outfit\s+to\s+(\w+)\b"
-        r"|copy\s+@?(\w+)\s+to\s+(\w+)\b(?!.*spawn)",
-        re.I),
-     "copyoutfit",
-     lambda m, t: f"{(m.group(1) or m.group(3)).lstrip('@')} {(m.group(2) or m.group(4)).lower()}",
-     lambda m, t: (f"copy @{(m.group(1) or m.group(3)).lstrip('@')}'s outfit "
-                   f"→ '{(m.group(2) or m.group(4)).lower()}' mode")),
 
-    # Make bot wear user's outfit (wearuseroutfit)
-    (re.compile(
-        r"make\s+(\w+bot|\w+\s+bot)\s+wear\s+(my|@?(\w+))\s+outfit\b"
-        r"|(?:have|get)\s+(\w+bot)\s+wear\s+@?(\w+)\b",
-        re.I),
-     "wearuseroutfit",
-     lambda m, t: (m.group(3) or m.group(5) or "").lstrip("@"),
-     lambda m, t: (f"make bot wear @{(m.group(3) or m.group(5) or 'your').lstrip('@')}'s outfit")),
+    # "dress KeanuShield as security" / "dress KeanuShield using security"
+    (re.compile(r"(dress|outfit)\s+@?(\w+)\s+(as|using|with)\s+(\w+)\b", re.I),
+     "dressbot",
+     lambda m, t: f"{m.group(2).lstrip('@').lower()} {m.group(4).lower()}",
+     lambda m, t: f"dress @{m.group(2).lstrip('@')} using the '{m.group(4).lower()}' saved outfit"),
 
-    # Make bot wear MY outfit
-    (re.compile(r"make\s+(\w+bot|\w+\s+bot)\s+wear\s+my\s+outfit\b", re.I),
-     "wearuseroutfit",
-     lambda m, t: "",   # args_str will be built from user.username at execution
-     lambda m, t: "make the bot wear your outfit"),
-
-    # Dress bot as mode: "dress SecurityBot as security"
+    # "make KeanuShield look like/wear security (outfit)"
     (re.compile(
-        r"(dress|outfit)\s+(\w+bot|\w+\s+bot|\w+)\s+as\s+(\w+)\b"
-        r"|make\s+(\w+bot)\s+look\s+like\s+(\w+)\b",
+        r"make\s+@?(\w+)\s+(look\s+like|wear)\s+(\w+)(?:\s+outfit)?\b"
+        r"(?!\s+(?:my|your|@))",   # exclude "wear my/your/@ ..."
         re.I),
      "dressbot",
-     lambda m, t: (m.group(3) or m.group(5) or "").lower(),
-     lambda m, t: f"dress bot using saved '{(m.group(3) or m.group(5) or '?').lower()}' outfit"),
+     lambda m, t: f"{m.group(1).lstrip('@').lower()} {m.group(3).lower()}",
+     lambda m, t: f"dress @{m.group(1).lstrip('@')} using the '{m.group(3).lower()}' saved outfit"),
 
-    # Save bot outfit as mode: "save SecurityBot outfit as security"
+    # "copy my outfit to KeanuShield"
     (re.compile(
-        r"save\s+(\w+bot|\w+\s+bot|\w+)[''s]*\s+outfit\s+(as|for)\s+(\w+)\b"
-        r"|save\s+bot\s+outfit\s+(as|to)\s+(\w+)\b",
+        r"copy\s+my\s+outfit\s+to\s+@?(\w+)\b"
+        r"|make\s+@?(\w+)\s+wear\s+my\s+outfit\b"
+        r"|have\s+@?(\w+)\s+wear\s+my\s+outfit\b",
+        re.I),
+     "wearuseroutfit",
+     lambda m, t: f"{(m.group(1) or m.group(2) or m.group(3)).lstrip('@').lower()} {_ME_SENTINEL}",
+     lambda m, t: (
+         f"copy your outfit to @{(m.group(1) or m.group(2) or m.group(3)).lstrip('@')}"
+     )),
+
+    # "copy testuser outfit to KeanuShield" / "copy testuser to KeanuShield"
+    (re.compile(
+        r"copy\s+@?([A-Za-z]\w+)[''s]*\s+outfit\s+to\s+@?(\w+)\b"
+        r"|copy\s+@?([A-Za-z]\w+)\s+to\s+@?(\w+)\b(?!.*spawn)",
+        re.I),
+     "wearuseroutfit",
+     lambda m, t: (
+         f"{(m.group(2) or m.group(4)).lstrip('@').lower()} "
+         f"{(m.group(1) or m.group(3)).lstrip('@').lower()}"
+     ),
+     lambda m, t: (
+         f"copy @{(m.group(1) or m.group(3)).lstrip('@')}'s outfit "
+         f"to @{(m.group(2) or m.group(4)).lstrip('@')}"
+     )),
+
+    # "save KeanuShield outfit as security"
+    (re.compile(
+        r"save\s+@?(\w+)[''s]*\s+(?:current\s+)?outfit\s+(?:as|to|for)\s+(\w+)\b",
         re.I),
      "savebotoutfit",
-     lambda m, t: (m.group(3) or m.group(5) or "").lower(),
-     lambda m, t: f"save bot's current outfit as '{(m.group(3) or m.group(5) or '?').lower()}' mode"),
+     lambda m, t: f"{m.group(1).lstrip('@').lower()} {m.group(2).lower()}",
+     lambda m, t: f"save @{m.group(1).lstrip('@')}'s current outfit as '{m.group(2).lower()}'"),
 
-    # Show bot outfit status
+    # "save bot outfit as security" (local — no specific bot username)
+    (re.compile(r"save\s+bot\s+outfit\s+(?:as|to)\s+(\w+)\b", re.I),
+     "savebotoutfit",
+     lambda m, t: m.group(1).lower(),
+     lambda m, t: f"save bot's current outfit as '{m.group(1).lower()}'"),
+
+    # "make bot wear my/testuser outfit" (local)
+    (re.compile(r"make\s+(?:the\s+)?bot\s+wear\s+my\s+outfit\b", re.I),
+     "wearuseroutfit",
+     lambda m, t: _ME_SENTINEL,
+     lambda m, t: "make the bot wear your outfit"),
+
+    (re.compile(r"make\s+(?:the\s+)?bot\s+wear\s+@?([A-Za-z]\w+)[''s]*\s+outfit\b", re.I),
+     "wearuseroutfit",
+     lambda m, t: m.group(1).lstrip("@").lower(),
+     lambda m, t: f"make the bot wear @{m.group(1).lstrip('@')}'s outfit"),
+
+    # "copy my outfit to the bot" (local)
+    (re.compile(r"copy\s+my\s+outfit\s+to\s+(?:the\s+)?bot\b", re.I),
+     "wearuseroutfit",
+     lambda m, t: _ME_SENTINEL,
+     lambda m, t: "copy your outfit to the bot"),
+
+    # "show bot outfit status"
     (re.compile(
         r"(show|list|view)\s+bot\s+(outfit|outfits|looks?)\b"
         r"|bot\s+outfit\s+(status|list|info)\b"
-        r"|what.*(bot|bots?)\s+(wearing|dressed|outfit)\b",
+        r"|what.*(bot|bots?)\s+(wearing|dressed|outfit)\b"
+        r"|what\s+is\s+@?(\w+)\s+wearing\b",
         re.I),
      "botoutfits", _k(""), _k("show all bot saved outfits")),
 
     # ────────────────────────────────────────────────────────────────────────
     # PROFILE — specific user first, then generic "me"
     # ────────────────────────────────────────────────────────────────────────
-    # Show specific user's profile (guard against "my", "me", "your")
     (re.compile(
         r"(show|view|see|check|display)\s+(?!my\b|me\b|your\b)@?([A-Za-z]\w+)[''s]*\s+"
         r"(profile|pinfo|whois|info)\b",
@@ -486,19 +533,16 @@ _INTENTS: list[tuple] = [
      lambda m, t: m.group(2).lstrip("@"),
      lambda m, t: f"show @{m.group(2).lstrip('@')}'s profile"),
 
-    # /profile username explicit
     (re.compile(r"^profile\s+@?([A-Za-z]\w+)\b", re.I),
      "profile",
      lambda m, t: m.group(1).lstrip("@"),
      lambda m, t: f"show @{m.group(1).lstrip('@')}'s profile"),
 
-    # Who is username
     (re.compile(r"(who\s+is|whois)\s+@?([A-Za-z]\w+)\b", re.I),
      "profile",
      lambda m, t: m.group(2).lstrip("@"),
      lambda m, t: f"show @{m.group(2).lstrip('@')}'s profile"),
 
-    # Show specific user's stats
     (re.compile(
         r"(show|check|see)\s+(?!my\b|me\b|your\b)@?([A-Za-z]\w+)[''s]*\s+stats\b",
         re.I),
@@ -506,7 +550,6 @@ _INTENTS: list[tuple] = [
      lambda m, t: m.group(2).lstrip("@"),
      lambda m, t: f"show @{m.group(2).lstrip('@')}'s stats"),
 
-    # Generic "my profile / my stats / me"
     (re.compile(
         r"(my\s+|show\s+|view\s+)?(profile|stats|profile\s+stats)\s*$|^(me|stats)$",
         re.I),
@@ -547,35 +590,37 @@ _INTENTS: list[tuple] = [
      lambda m, t: m.group(4),
      lambda m, t: f"set send tax to {m.group(4)}%"),
 
+    (re.compile(
+        r"turn\s+(on|off)\s+high.?risk\s*block|set\s+high.?risk\s*block\s+(on|off)", re.I),
+     "sethighriskblocks",
+     lambda m, t: (m.group(1) or m.group(2) or "on").lower(),
+     lambda m, t: f"set high-risk blocks {(m.group(1) or m.group(2) or 'on').lower()}"),
+
     # ────────────────────────────────────────────────────────────────────────
     # POKER SETTINGS
     # ────────────────────────────────────────────────────────────────────────
-    # Toggle win limit
     (re.compile(r"(enable|turn\s+on)\s+poker\s+win\s*(limit)?\b", re.I),
      "poker", _k("winlimit on"), _k("turn poker win limit ON")),
 
     (re.compile(r"(disable|turn\s+off)\s+poker\s+win\s*(limit)?\b", re.I),
      "poker", _k("winlimit off"), _k("turn poker win limit OFF")),
 
-    # Toggle loss limit
     (re.compile(r"(enable|turn\s+on)\s+poker\s+loss\s*(limit)?\b", re.I),
      "poker", _k("losslimit on"), _k("turn poker loss limit ON")),
 
     (re.compile(r"(disable|turn\s+off)\s+poker\s+loss\s*(limit)?\b", re.I),
      "poker", _k("losslimit off"), _k("turn poker loss limit OFF")),
 
-    # Toggle win/loss together
     (re.compile(
         r"(enable|turn\s+on)\s+poker\s+(win[\s/]+loss|loss[\s/]+win)\s*(limit)?\b",
         re.I),
-     "poker", _k("winlimit on"), _k("turn poker win limit ON")),
+     "poker", _k("winlimit on"), _k("turn poker win/loss limits ON")),
 
     (re.compile(
         r"(disable|turn\s+off)\s+poker\s+(win[\s/]+loss|loss[\s/]+win)\s*(limit)?\b",
         re.I),
      "poker", _k("winlimit off"), _k("turn poker win/loss limits OFF")),
 
-    # Set specific amounts
     (re.compile(r"set\s+poker\s+(daily\s+)?win\s*(limit)?\s*(to\s*)?([\d,]+)", re.I),
      "setpokerdailywinlimit",
      lambda m, t: m.group(4).replace(",", ""),
@@ -622,49 +667,113 @@ _INTENTS: list[tuple] = [
 
     (re.compile(
         r"(show\s+|list\s+|what\s+are\s+)?(ai\s+)?capabilit(y|ies)\b"
-        r"|what\s+can\s+(emceebot|you)\s+(do|understand|help)\b"
-        r"|emceebot\s+(features?|help|overview)",
+        r"|what\s+can\s+(emceebot|emcee|mc|you)\s+(do|understand|help)\b"
+        r"|emcee(bot)?\s+(features?|help|overview)",
         re.I),
      "aicapabilities", _k(""), _k("show AI capabilities")),
+
+    # ────────────────────────────────────────────────────────────────────────
+    # UNSUPPORTED / SDK-LIMITED catch-alls
+    # ────────────────────────────────────────────────────────────────────────
+    (re.compile(r"\bfly\b|\bspeed\s+hack\b|\bwall\s+hack\b|\bjump\s+hack\b|\bno.?clip\b", re.I),
+     "__sdk_limit__", _k(""),
+     _k("make someone fly or hack movement (SDK doesn't support this)")),
+
+    (re.compile(r"ban\s+@?(\w+)|kick\s+@?(\w+)", re.I),
+     "__no_cmd__", _k(""),
+     lambda m, t: f"ban/kick @{(m.group(1) or m.group(2) or '?')} (use room moderation directly)"),
 ]
 
 
 # ---------------------------------------------------------------------------
-# Static response templates for SAFE commands
+# Handler map — (module_path, function_name) for every executable command.
+# SAFE commands with handlers are executed directly.
+# CONFIRM / ADMIN_CONFIRM commands require confirmation first.
+# ---------------------------------------------------------------------------
+
+_HANDLER_MAP: dict[str, tuple[str, str]] = {
+    # ── SAFE — execute directly ───────────────────────────────────────────
+    "bank":                  ("modules.bank",       "handle_bank"),
+    "transactions":          ("modules.bank",       "handle_transactions"),
+    "shop":                  ("modules.shop",       "handle_shop"),
+    "mycommands":            ("modules.admin_cmds", "handle_mycommands"),
+    "eventhelp":             ("modules.events",     "handle_eventhelp"),
+    "eventstatus":           ("modules.events",     "handle_eventstatus"),
+    "minehelp":              ("modules.mining",     "handle_minehelp"),
+    "mine":                  ("modules.mining",     "handle_mine"),
+    "tool":                  ("modules.mining",     "handle_tool"),
+    "mineshop":              ("modules.mining",     "handle_mineshop"),
+    "pokerhelp":             ("modules.poker",      "handle_pokerhelp"),
+    "quests":                ("modules.quests",     "handle_quests"),
+    "spawns":                ("modules.room_utils", "handle_spawns"),
+    "botoutfits":            ("modules.bot_modes",  "handle_botoutfits"),
+    "goto":                  ("modules.room_utils", "handle_goto"),
+    "profile":               ("modules.profile",    "handle_profile_cmd"),
+    "stats":                 ("modules.profile",    "handle_stats_cmd"),
+    # ── CONFIRM — execute after confirmation ──────────────────────────────
+    "send":                  ("modules.bank",       "handle_send"),
+    "buy":                   ("modules.shop",       "handle_buy"),
+    "equip":                 ("modules.shop",       "handle_equip"),
+    "sellores":              ("modules.mining",     "handle_sellores"),
+    "sellore":               ("modules.mining",     "handle_sellore"),
+    "minebuy":               ("modules.mining",     "handle_minebuy"),
+    "eventshop":             ("modules.events",     "handle_eventshop"),
+    "buyevent":              ("modules.events",     "handle_buyevent"),
+    "tpme":                  ("modules.room_utils", "handle_tpme"),
+    # ── ADMIN_CONFIRM — execute after admin confirmation ──────────────────
+    "setcoins":              ("modules.admin_cmds", "handle_setcoins"),
+    "resetcoins":            ("modules.admin_cmds", "handle_resetcoins"),
+    "startevent":            ("modules.events",     "handle_startevent"),
+    "stopevent":             ("modules.events",     "handle_stopevent"),
+    "setspawn":              ("modules.room_utils", "handle_setspawn"),
+    "tp":                    ("modules.room_utils", "handle_tp"),
+    "tphere":                ("modules.room_utils", "handle_tphere"),
+    "bring":                 ("modules.room_utils", "handle_tphere"),
+    "bringall":              ("modules.room_utils", "handle_bringall"),
+    "tpall":                 ("modules.room_utils", "handle_tpall"),
+    "dressbot":              ("modules.bot_modes",  "handle_dressbot"),
+    "copyoutfit":            ("modules.bot_modes",  "handle_copyoutfit"),
+    "wearuseroutfit":        ("modules.bot_modes",  "handle_wearuseroutfit"),
+    "savebotoutfit":         ("modules.bot_modes",  "handle_savebotoutfit"),
+    "poker":                 ("modules.poker",      "handle_poker"),
+    "setpokerdailywinlimit": ("modules.poker",      "handle_setpokerdailywinlimit"),
+    "setpokerdailylosslimit":("modules.poker",      "handle_setpokerdailylosslimit"),
+}
+
+
+# ---------------------------------------------------------------------------
+# Static suggestion fallback for SAFE commands without direct handlers
 # ---------------------------------------------------------------------------
 
 _SAFE_RESPONSES: dict[str, str] = {
-    "minehelp":      "⛏️ Use /minehelp for the full mining guide. /mine to dig, /ores for inventory.",
-    "mine":          "⛏️ Use /mine to mine. Check /tool for pickaxe stats, /ores for your haul.",
-    "ores":          "⛏️ Use /ores to view your ore inventory.",
-    "tool":          "⛏️ Use /tool to check your pickaxe stats.",
-    "mineshop":      "⛏️ Use /mineshop to browse mining upgrades and items.",
+    "minehelp":      "⛏️ Use /minehelp for the full mining guide.",
     "bal":           "💰 Use /bal to check your coin balance.",
-    "bank":          "🏦 Use /bank to view your bank info.",
-    "transactions":  "📋 Use /transactions to view recent transactions.",
-    "daily":         "🎁 Use /daily to claim your daily coin reward.",
-    "leaderboard":   "🏆 Use /leaderboard or /lb to see the top coin holders.",
-    "shop":          "🛒 Use /shop to open the main shop, or /shop badges for emoji badges.",
-    "help":          "❓ Use /help for all commands, /mycommands for your personal list.",
-    "mycommands":    "📋 Use /mycommands to see commands you can use.",
-    "aicapabilities":"🤖 Use /aicapabilities to see what EmceeBot can understand.",
-    "pokerhelp":     "♠️ Use /pokerhelp to learn poker rules and how to join a table.",
-    "bjhelp":        "🃏 Use /bjhelp for blackjack rules. /rbjhelp for Realistic Blackjack.",
-    "rbjhelp":       "🃏 Use /rbjhelp for Realistic Blackjack rules.",
-    "eventhelp":     "🎉 Use /eventhelp for event info, /event to see the active event.",
-    "eventstatus":   "🎉 Use /eventstatus to check the current event.",
+    "daily":         "🎁 Use /daily to claim your daily reward.",
+    "leaderboard":   "🏆 Use /lb to see the top coin holders.",
     "me":            "👤 Use /me to view your profile stats.",
-    "profile":       "👤 Use /profile <username> to view a player's profile.",
-    "stats":         "📊 Use /stats <username> to view a player's game stats.",
-    "quests":        "📜 Use /quests to see your active quests, /dailyquests for today's.",
-    "spawns":        "📍 Use /spawns to list all saved spawn points.",
+    "help":          "❓ Use /help for all commands, /mycommands for your list.",
+    "aicapabilities":"🤖 Use /aicapabilities to see what I can understand.",
+    "bjhelp":        "🃏 Use /bjhelp for blackjack rules.",
+    "rbjhelp":       "🃏 Use /rbjhelp for Realistic Blackjack rules.",
     "spawninfo":     "📍 Use /spawninfo <name> to view spawn coordinates.",
-    "botoutfits":    "👗 Use /botoutfits to view all saved bot outfit profiles.",
-    "botoutfit":     "👗 Use /botoutfit to view this bot's current saved outfit.",
-    "goto":          "🗺️ Use /goto <username> to teleport to that player's location.",
-    "bothealth":     "🤖 Use /bothealth to see bot status.",
-    "modulehealth":  "🤖 Use /modulehealth to check module status.",
-    "botheartbeat":  "🤖 Use /botheartbeat to see live heartbeats.",
+    "botoutfit":     "👗 Use /botoutfit to check this bot's saved outfit.",
+    "ores":          "⛏️ Use /ores to view your ore inventory.",
+    "orebook":       "📖 Use /orebook to read about ore types.",
+    "orestats":      "📊 Use /orestats to see mining leaderboard.",
+    "minebuy":       "⛏️ Use /minebuy <item> to buy mining supplies.",
+}
+
+
+# ---------------------------------------------------------------------------
+# Part 2 — Smart "cannot do that yet" responses
+# ---------------------------------------------------------------------------
+
+_CANNOT_YET_RESPONSES: dict[str, str] = {
+    "no_cmd":     "I can't do that yet — I don't have a working command for that feature.",
+    "no_handler": "I found that command, but it is not fully coded yet.",
+    "offline":    "I can do that, but the required bot is offline right now.",
+    "sdk_limit":  "I can't do that — the Highrise SDK doesn't support that action here.",
+    "no_perm":    "You don't have permission to do that.",
 }
 
 
@@ -695,7 +804,6 @@ async def _w(bot, uid: str, msg: str) -> None:
 
 
 def _should_answer_ai() -> bool:
-    """Only host / eventhost / all bots respond to AI requests (anti-spam)."""
     from config import BOT_MODE
     return BOT_MODE in ("host", "eventhost", "all")
 
@@ -723,12 +831,16 @@ def _is_no(text: str) -> bool:
     return text.lower().strip() in _NO_WORDS
 
 
-_AI_PRIMARY_NAME: str = "emceebot"
+# ---------------------------------------------------------------------------
+# Part 3 — AI trigger names (case-insensitive word-boundary match)
+# "emceebot", "emcee", "mc" + bot's own username
+# ---------------------------------------------------------------------------
+
+_AI_FIXED_NAMES: list[str] = ["emceebot", "emcee", "mc"]
 
 
 def _build_ai_names(bot_username: str) -> list[str]:
-    """Return lowercase names this bot listens for (longest first)."""
-    names: set[str] = {_AI_PRIMARY_NAME}
+    names: set[str] = set(_AI_FIXED_NAMES)
     if bot_username:
         names.add(bot_username.lower())
     return sorted(names, key=len, reverse=True)
@@ -736,28 +848,30 @@ def _build_ai_names(bot_username: str) -> list[str]:
 
 def _is_ai_trigger(message: str, bot_username: str) -> bool:
     """
-    Return True only when the message explicitly addresses EmceeBot.
-    Triggers on:
-      - @EmceeBot anywhere in the message
-      - "EmceeBot" as a word anywhere (e.g. "EmceeBot, show my balance")
-    Does NOT trigger on generic chat.
+    Return True when the message explicitly addresses EmceeBot / Emcee / MC.
+    Matches:
+      - @Name anywhere
+      - Name as a word boundary match anywhere in the message
+    "mc" uses a more careful check: must appear at start or after @, or on its own.
     """
     low = message.lower().strip()
     for name in _build_ai_names(bot_username):
         if f"@{name}" in low:
             return True
-        if re.search(rf"\b{re.escape(name)}\b", low):
-            return True
+        if name == "mc":
+            # Avoid false positives: require "mc" to start the message or be @mc
+            if re.match(r"^mc\b", low, re.I):
+                return True
+        else:
+            if re.search(rf"\b{re.escape(name)}\b", low):
+                return True
     return False
 
 
 def _strip_trigger(message: str, bot_username: str) -> str:
-    """
-    Remove the EmceeBot trigger prefix/mention and return clean question text.
-    E.g. "EmceeBot, can you show my balance?" → "can you show my balance?"
-    """
+    """Remove the trigger prefix and return the clean question text."""
     for name in _build_ai_names(bot_username):
-        pat = re.compile(rf"^.*?@?{re.escape(name)}[,\s]*", re.I)
+        pat = re.compile(rf"^.*?@?{re.escape(name)}[,\s:!]*", re.I)
         cleaned = pat.sub("", message.strip(), count=1)
         if cleaned.lower() != message.strip().lower():
             return cleaned.strip()
@@ -769,10 +883,6 @@ def _strip_trigger(message: str, bot_username: str) -> str:
 # ---------------------------------------------------------------------------
 
 def classify_intent(text: str) -> IntentResult | None:
-    """
-    Match natural language text to a known command intent.
-    Evaluates patterns top-to-bottom; returns the first match, or None.
-    """
     text = text.strip()
     for (pattern, cmd, args_fn, human_fn) in _INTENTS:
         m = pattern.search(text)
@@ -787,92 +897,167 @@ def classify_intent(text: str) -> IntentResult | None:
                 command        = cmd,
                 args_str       = args_str,
                 human_readable = human,
-                risk_level     = _risk_for(cmd),
             )
     return None
 
 
 # ---------------------------------------------------------------------------
-# Command execution — called after user confirms a CONFIRM/ADMIN_CONFIRM action
+# Part 8 — Pre-execute validation
+# Returns an error message string, or None if all checks pass.
 # ---------------------------------------------------------------------------
 
-_HANDLER_MAP: dict[str, tuple[str, str]] = {
-    # Economy / bank
-    "send":                  ("modules.bank",       "handle_send"),
-    "bank":                  ("modules.bank",       "handle_bank"),
-    "transactions":          ("modules.bank",       "handle_transactions"),
-    # Mining
-    "mine":                  ("modules.mining",     "handle_mine"),
-    "sellores":              ("modules.mining",     "handle_sellores"),
-    "sellore":               ("modules.mining",     "handle_sellore"),
-    "minebuy":               ("modules.mining",     "handle_minebuy"),
-    "mineshop":              ("modules.mining",     "handle_mineshop"),
-    # Shop
-    "buy":                   ("modules.shop",       "handle_buy"),
-    "equip":                 ("modules.shop",       "handle_equip"),
-    "shop":                  ("modules.shop",       "handle_shop"),
-    # Events
-    "startevent":            ("modules.events",     "handle_startevent"),
-    "stopevent":             ("modules.events",     "handle_stopevent"),
-    "eventshop":             ("modules.events",     "handle_eventshop"),
-    "buyevent":              ("modules.events",     "handle_buyevent"),
-    # Admin — coins
-    "setcoins":              ("modules.admin_cmds", "handle_setcoins"),
-    "resetcoins":            ("modules.admin_cmds", "handle_resetcoins"),
-    # Room / spawn
-    "setspawn":              ("modules.room_utils", "handle_setspawn"),
-    "tpme":                  ("modules.room_utils", "handle_tpme"),
-    "tp":                    ("modules.room_utils", "handle_tp"),
-    "tphere":                ("modules.room_utils", "handle_tphere"),
-    "bring":                 ("modules.room_utils", "handle_tphere"),
-    "bringall":              ("modules.room_utils", "handle_bringall"),
-    "tpall":                 ("modules.room_utils", "handle_tpall"),
-    "goto":                  ("modules.room_utils", "handle_goto"),
-    # Outfit (executed by the host/responding bot)
-    "dressbot":              ("modules.bot_modes",  "handle_dressbot"),
-    "copyoutfit":            ("modules.bot_modes",  "handle_copyoutfit"),
-    "wearuseroutfit":        ("modules.bot_modes",  "handle_wearuseroutfit"),
-    "savebotoutfit":         ("modules.bot_modes",  "handle_savebotoutfit"),
-    "botoutfits":            ("modules.bot_modes",  "handle_botoutfits"),
-    # Profile
-    "profile":               ("modules.profile",    "handle_profile_cmd"),
-    "stats":                 ("modules.profile",    "handle_stats_cmd"),
-    # Poker settings
-    "poker":                 ("modules.poker",      "handle_poker"),
-    "setpokerdailywinlimit": ("modules.poker",      "handle_setpokerdailywinlimit"),
-    "setpokerdailylosslimit":("modules.poker",      "handle_setpokerdailylosslimit"),
-}
+def _validate_intent(intent: IntentResult, user_obj) -> str | None:
+    """
+    Check: command recognised, handler exists, owner online, permission ok.
+    Returns an error string to whisper, or None if good to proceed.
+    """
+    cmd  = intent.command
+    risk = intent.risk_level
+
+    # Special sentinel commands
+    if cmd == "__sdk_limit__":
+        return _CANNOT_YET_RESPONSES["sdk_limit"]
+    if cmd == "__no_cmd__":
+        return _CANNOT_YET_RESPONSES["no_cmd"]
+
+    # Permission check
+    if risk == ADMIN_CONFIRM:
+        if not (is_admin(user_obj.username) or is_owner(user_obj.username)):
+            return _CANNOT_YET_RESPONSES["no_perm"]
+
+    # Owner-bot online check for ADMIN_CONFIRM (non-safe, non-delegatable checked later)
+    if risk == ADMIN_CONFIRM and cmd not in _DELEGATABLE_CMDS:
+        try:
+            from modules.command_registry import get_entry as _reg_get
+            entry = _reg_get(cmd)
+            if entry:
+                owner_mode = entry[1].owner if hasattr(entry[1], "owner") else "host"
+                if not db.is_bot_mode_online(owner_mode):
+                    return _CANNOT_YET_RESPONSES["offline"]
+        except Exception:
+            pass
+
+    # Handler existence check (for non-SAFE or if SAFE wants direct execution)
+    if cmd not in _HANDLER_MAP and cmd not in _SAFE_RESPONSES:
+        return _CANNOT_YET_RESPONSES["no_cmd"]
+
+    return None
 
 
-async def _execute_confirmed(bot, user, command: str, args_str: str) -> None:
-    """Execute a confirmed command by lazy-importing and calling its handler."""
-    # Special case: wearuseroutfit with empty args_str → use requester's username
-    if command == "wearuseroutfit" and not args_str.strip():
-        args_str = user.username
+# ---------------------------------------------------------------------------
+# Delegation helper — resolve first word of args_str as a bot username
+# ---------------------------------------------------------------------------
 
-    args_list = [command] + (args_str.split() if args_str.strip() else [])
-    fallback  = f"✅ Type /{command}{(' ' + args_str) if args_str else ''} to execute."
+def _resolve_delegation(cmd: str, args_str: str) -> tuple[str | None, str]:
+    """
+    For delegatable commands, check if the first word of args_str is a known bot
+    username.  Returns (target_bot_username_lower | None, local_args_str).
+    local_args_str has the target removed (just the action args for the target bot).
+    """
+    if cmd not in _DELEGATABLE_CMDS:
+        return None, args_str
 
-    if command not in _HANDLER_MAP:
-        await _w(bot, user.id, fallback)
+    parts = args_str.strip().split(maxsplit=1)
+    if not parts:
+        return None, args_str
+
+    candidate   = parts[0].lower()
+    local_args  = parts[1] if len(parts) > 1 else ""
+
+    # Skip generic words that are not real bot usernames
+    _LOCAL_WORDS = {"bot", "the", "my", "me", "your", "self", _ME_SENTINEL.lower()}
+    if candidate in _LOCAL_WORDS:
+        return None, args_str
+
+    bot_mode = db.get_bot_mode_for_username(candidate)
+    if bot_mode is None:
+        return None, args_str
+
+    return candidate, local_args
+
+
+# ---------------------------------------------------------------------------
+# Core command execution
+# ---------------------------------------------------------------------------
+
+async def _execute_handler(bot, user, cmd: str, args_list: list[str]) -> None:
+    """Call a handler from _HANDLER_MAP with correct arity."""
+    if cmd not in _HANDLER_MAP:
+        await _w(bot, user.id,
+                 f"✅ Try /{cmd}{(' ' + ' '.join(args_list[1:])) if len(args_list) > 1 else ''} manually.")
         return
-
-    module_path, fn_name = _HANDLER_MAP[command]
+    module_path, fn_name = _HANDLER_MAP[cmd]
     try:
-        mod = importlib.import_module(module_path)
-        fn  = getattr(mod, fn_name)
-        sig     = inspect.signature(fn)
-        nparams = len(sig.parameters)
+        mod     = importlib.import_module(module_path)
+        fn      = getattr(mod, fn_name)
+        nparams = len(inspect.signature(fn).parameters)
         if nparams >= 3:
             await fn(bot, user, args_list)
         else:
             await fn(bot, user)
     except (ImportError, AttributeError) as exc:
-        print(f"[AI] Handler import error for /{command}: {exc}")
-        await _w(bot, user.id, fallback)
+        print(f"[AI] handler import error /{cmd}: {exc}")
+        await _w(bot, user.id, f"Handler error for /{cmd}. Try it manually.")
     except Exception as exc:
-        print(f"[AI] Handler error for /{command}: {exc}")
-        await _w(bot, user.id, f"Command failed. Try /{command} manually.")
+        print(f"[AI] handler error /{cmd}: {exc}")
+        await _w(bot, user.id, f"Command /{cmd} failed. Try it manually.")
+
+
+async def _execute_confirmed(bot, user, command: str, args_str: str) -> None:
+    """
+    Execute a confirmed command.
+    Handles:
+    - __ME__ sentinel substitution
+    - Cross-bot delegation for delegatable outfit commands
+    - Normal local execution via _HANDLER_MAP
+    """
+    # Resolve __ME__ sentinel to the actual requesting user's username
+    args_str = args_str.replace(_ME_SENTINEL, user.username)
+
+    # Part 4+5: Check for cross-bot delegation
+    if command in _DELEGATABLE_CMDS:
+        target_bot, local_args = _resolve_delegation(command, args_str)
+        if target_bot:
+            # Check if target bot is online
+            target_mode = db.get_bot_mode_for_username(target_bot)
+            if target_mode and not db.is_bot_mode_online(target_mode):
+                await _w(bot, user.id,
+                         f"⚠️ @{target_bot} is offline. The outfit task will be queued "
+                         f"and run when they reconnect (up to 90s).")
+
+            # Build the command text the target bot will execute
+            cmd_text = command
+            if local_args.strip():
+                cmd_text = f"{command} {local_args.strip()}"
+
+            task_id = db.create_delegated_task(
+                user_id               = user.id,
+                username              = user.username,
+                original_text         = f"/{command} {args_str}",
+                command_text          = cmd_text,
+                owner_mode            = target_mode or "host",
+                target_bot_username   = target_bot,
+                human_readable_action = f"/{cmd_text} on @{target_bot}",
+                risk_level            = ADMIN_CONFIRM,
+            )
+            print(f"[AI] delegated task={task_id} cmd={cmd_text} target={target_bot}")
+            await _w(bot, user.id,
+                     f"📋 Task #{task_id} queued for @{target_bot}. "
+                     f"Result will appear once @{target_bot} picks it up.")
+            return
+
+    # Local execution
+    args_list = [command] + (args_str.split() if args_str.strip() else [])
+    await _execute_handler(bot, user, command, args_list)
+
+
+async def _execute_safe(bot, user, command: str, args_str: str) -> None:
+    """
+    Execute a SAFE command directly without confirmation.
+    No delegation needed for SAFE commands.
+    """
+    args_list = [command] + (args_str.split() if args_str.strip() else [])
+    await _execute_handler(bot, user, command, args_list)
 
 
 # ---------------------------------------------------------------------------
@@ -880,43 +1065,51 @@ async def _execute_confirmed(bot, user, command: str, args_str: str) -> None:
 # ---------------------------------------------------------------------------
 
 async def _handle_ai_text(bot, user, text: str) -> None:
-    """
-    Process a natural language AI request.
-    Classifies intent → suggests (SAFE), confirms (CONFIRM/ADMIN_CONFIRM),
-    or denies (BLOCKED / permission denied).
-    """
     text = text.strip()
     if not text:
-        hint = "Ask me anything! E.g. 'how do I mine?' or 'show my balance'."
+        hint = "Ask me anything! E.g. 'show my balance' or 'how do I mine?'"
         await _w(bot, user.id, f"{_persona()} {hint}")
         return
 
     if _is_blocked(text):
-        await _w(bot, user.id, "I can't help with secrets or tokens. Try /help for available commands.")
+        await _w(bot, user.id,
+                 "I can't help with secrets or tokens. Try /help for available commands.")
         db.log_ai_action(user.username, text[:150], "BLOCKED", BLOCKED, "blocked")
         return
 
     intent = classify_intent(text)
     if intent is None:
         await _w(bot, user.id,
-                 "I don't have a command for that yet. Try /help or /mycommands.")
+                 "I don't have a command for that yet. "
+                 "Try /help or /aicapabilities.")
         db.log_ai_action(user.username, text[:150], "unknown", SAFE, "no_match")
         return
 
     cmd  = intent.command
     risk = intent.risk_level
 
-    # ── SAFE: suggest without executing ──────────────────────────────────────
-    if risk == SAFE:
-        response = _SAFE_RESPONSES.get(cmd)
-        if not response:
-            args_hint = f" {intent.args_str}" if intent.args_str else ""
-            response  = f"Use /{cmd}{args_hint} to {intent.human_readable}."
-        await _w(bot, user.id, response)
-        db.log_ai_action(user.username, text[:150], cmd, risk, "suggested")
+    # Part 8 — pre-execute validation
+    err = _validate_intent(intent, user)
+    if err:
+        await _w(bot, user.id, err)
+        db.log_ai_action(user.username, text[:150], cmd, risk, "validation_failed")
         return
 
-    # ── CONFIRM: create pending action, ask user ──────────────────────────────
+    # ── Part 1: SAFE with handler → execute directly (no confirmation) ────
+    if risk == SAFE:
+        if cmd in _HANDLER_MAP:
+            db.log_ai_action(user.username, text[:150], cmd, risk, "executed_direct")
+            await _execute_safe(bot, user, cmd, intent.args_str)
+        else:
+            response = _SAFE_RESPONSES.get(cmd)
+            if not response:
+                args_hint = f" {intent.args_str}" if intent.args_str else ""
+                response  = f"Use /{cmd}{args_hint} to {intent.human_readable}."
+            await _w(bot, user.id, response)
+            db.log_ai_action(user.username, text[:150], cmd, risk, "suggested")
+        return
+
+    # ── CONFIRM: pending action + ask ─────────────────────────────────────
     if risk == CONFIRM:
         db.create_pending_ai_action(
             user_id        = user.id,
@@ -931,13 +1124,8 @@ async def _handle_ai_text(bot, user, text: str) -> None:
         db.log_ai_action(user.username, text[:150], cmd, risk, "pending_confirm")
         return
 
-    # ── ADMIN_CONFIRM: check permissions first ────────────────────────────────
+    # ── ADMIN_CONFIRM ──────────────────────────────────────────────────────
     if risk == ADMIN_CONFIRM:
-        if not (is_admin(user.username) or is_owner(user.username)):
-            await _w(bot, user.id,
-                     "⛔ That is an admin command. You don't have permission.")
-            db.log_ai_action(user.username, text[:150], cmd, risk, "denied_no_perm")
-            return
         db.create_pending_ai_action(
             user_id        = user.id,
             username       = user.username,
@@ -951,7 +1139,7 @@ async def _handle_ai_text(bot, user, text: str) -> None:
         db.log_ai_action(user.username, text[:150], cmd, risk, "pending_admin_confirm")
         return
 
-    await _w(bot, user.id, "I can't help with that. Try /help or /mycommands.")
+    await _w(bot, user.id, _CANNOT_YET_RESPONSES["no_cmd"])
 
 
 # ---------------------------------------------------------------------------
@@ -960,8 +1148,8 @@ async def _handle_ai_text(bot, user, text: str) -> None:
 
 async def handle_natural_confirmation(bot, user, message: str) -> bool:
     """
-    If the user has a pending AI action and says yes/no, handle it.
-    Returns True if the message was consumed as a confirmation/cancellation.
+    If user has a pending AI action and says yes/no, handle it.
+    Returns True if the message was consumed.
     """
     if not (_is_yes(message) or _is_no(message)):
         return False
@@ -995,17 +1183,17 @@ async def handle_natural_confirmation(bot, user, message: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Main intercept — called at the very top of on_chat
+# Main intercept — top of on_chat
 # ---------------------------------------------------------------------------
 
 async def handle_ai_intercept(bot, user, message: str) -> bool:
     """
-    Intercept AI-related messages before normal on_chat command routing.
-    Returns True if this message was fully handled (caller should return early).
+    Intercept AI-related messages before normal command routing.
+    Returns True if fully handled (caller should return early).
     """
     from config import BOT_USERNAME
 
-    # ── 1. yes/no pending confirmation ────────────────────────────────────────
+    # yes/no confirmation — check pending actions
     if _is_yes(message) or _is_no(message):
         if _should_answer_ai():
             return await handle_natural_confirmation(bot, user, message)
@@ -1013,7 +1201,7 @@ async def handle_ai_intercept(bot, user, message: str) -> bool:
             return True
         return False
 
-    # ── 2. Natural language AI trigger (non-slash messages only) ──────────────
+    # Non-slash messages only
     if message.startswith("/"):
         return False
 
@@ -1021,7 +1209,7 @@ async def handle_ai_intercept(bot, user, message: str) -> bool:
         return False
 
     if not _should_answer_ai():
-        return True  # consume silently — another bot will answer
+        return True  # consume silently — another bot answers
 
     text = _strip_trigger(message, BOT_USERNAME)
     print(f"[AI] trigger: user={user.username} text={text!r}")
@@ -1034,46 +1222,40 @@ async def handle_ai_intercept(bot, user, message: str) -> bool:
 # ---------------------------------------------------------------------------
 
 async def handle_ask_command(bot, user, args: list[str]) -> None:
-    """Handle /ask, /ai, /assistant <message>."""
     if not _should_answer_ai():
         return
-
     text = " ".join(args[1:]).strip()
     if not text:
         hint = "Type /ask <question>. E.g. /ask how do I mine?"
         await _w(bot, user.id, f"{_persona()} {hint}")
         return
-
     await _handle_ai_text(bot, user, text)
 
 
 # ---------------------------------------------------------------------------
-# /pendingaction  — show user's current pending action
+# /pendingaction
 # ---------------------------------------------------------------------------
 
 async def handle_pendingaction(bot, user) -> None:
-    """Show the user their current pending AI action."""
     db.expire_old_ai_actions()
     action = db.get_pending_ai_action(user.id)
     if action is None:
         await _w(bot, user.id, "You have no pending AI action.")
         return
-
     from datetime import datetime
     now     = datetime.utcnow()
     expires = datetime.strptime(action["expires_at"], "%Y-%m-%d %H:%M:%S")
     secs    = max(0, int((expires - now).total_seconds()))
-    msg     = (f"⏳ Pending: {action['human_readable_action']}. "
-               f"Reply yes or no. Expires in {secs}s.")
-    await _w(bot, user.id, msg)
+    await _w(bot, user.id,
+             f"⏳ Pending: {action['human_readable_action']}. "
+             f"Reply yes or no. Expires in {secs}s.")
 
 
 # ---------------------------------------------------------------------------
-# /confirm yes|no  — explicit backup for yes/no
+# /confirm yes|no
 # ---------------------------------------------------------------------------
 
 async def handle_confirm_cmd(bot, user, args: list[str]) -> None:
-    """Handle /confirm yes or /confirm no as an explicit confirmation command."""
     sub = (args[1].lower() if len(args) > 1 else "").strip()
     if sub in ("yes", "y"):
         consumed = await handle_natural_confirmation(bot, user, "yes")
@@ -1088,42 +1270,39 @@ async def handle_confirm_cmd(bot, user, args: list[str]) -> None:
 
 
 # ---------------------------------------------------------------------------
-# /aicapabilities — show what EmceeBot can understand
+# /aicapabilities
 # ---------------------------------------------------------------------------
 
 async def handle_aicapabilities(bot, user, args: list[str] = None) -> None:
-    """Show the categories of natural language EmceeBot understands."""
     if not _should_answer_ai():
         return
     lines = [
-        "🤖 EmceeBot understands:",
-        "💰 Economy: balance, send coins, bank info, transactions, daily reward",
-        "⛏️ Mining: mine, ores, tool, sell ores, mining shop",
+        "🤖 EmceeBot understands (say 'Emcee,' 'MC,' or 'EmceeBot'):",
+        "👤 Profile: show my profile, show testuser profile, who is testuser",
+        "💰 Bank: my balance, send 100 coins to user, bank info, transactions",
+        "⛏️ Mining: start mining, show ores, my tool, sell ores, mining shop",
         "🎰 Games: poker help, blackjack help, realistic BJ help",
-        "📍 Room: save spawn, list spawns, teleport me/user/all, bring user/all",
-        "👗 Outfit: copy outfit, dress bot, save outfit, show bot outfits",
-        "👤 Profile: my profile, show user profile, stats, who is user",
-        "🎉 Events: start/stop event, double XP, double coins, casino hour",
-        "♠️ Poker: win/loss limit on/off, set poker limits (admin)",
-        "🛒 Shop: open shop, buy badge/title, show event shop",
-        "⚙️ Admin: set send limits, add/remove coins (admin only)",
-        "❓ Help: /help, /mycommands, /aicapabilities",
+        "📍 Room: save spawn, list spawns, teleport me/user/all, bring user",
+        "👗 Outfit: dress @bot as mode, copy outfit to @bot, save bot outfit",
+        "🎉 Events: start double XP/coins/casino hour, stop event",
+        "♠️ Poker: win/loss limit on/off, set limits (admin only)",
+        "🛒 Shop: show shop, buy badge/title, equip item",
+        "⚙️ Settings: set send limits, add/remove coins (admin only)",
+        "🔒 Safety: I never show tokens, secrets, or bypass permissions.",
     ]
     for line in lines:
         await _w(bot, user.id, line)
 
 
 # ---------------------------------------------------------------------------
-# /aidebug <message>  — admin-only: show AI analysis without executing
+# /aidebug <message>
 # ---------------------------------------------------------------------------
 
 async def handle_aidebug(bot, user, args: list[str]) -> None:
     """
-    /aidebug <message>
-    Admin-only. Shows what the AI would do with a given message without executing.
-    Output: trigger, category, command, owner mode, owner online,
-            risk, route, handler, confirmation required, permission ok.
-    Never shows tokens, secrets, or raw env vars.
+    /aidebug <message> — admin only.
+    Shows full analysis of what the AI would do with a given message.
+    Never shows tokens, secrets, or env vars.
     """
     if not (is_admin(user.username) or is_owner(user.username)):
         await _w(bot, user.id, "Admin only.")
@@ -1136,27 +1315,28 @@ async def handle_aidebug(bot, user, args: list[str]) -> None:
     raw = " ".join(args[1:])
 
     triggered = _is_ai_trigger(raw, BOT_USERNAME)
-    text = _strip_trigger(raw, BOT_USERNAME) if triggered else raw
+    text      = _strip_trigger(raw, BOT_USERNAME) if triggered else raw
 
     if _is_blocked(text):
         await _w(bot, user.id,
-                 f"trigger={str(triggered).lower()} | category=security | cmd=BLOCKED"
+                 f"trigger={str(triggered).lower()} | cat=security | cmd=BLOCKED"
                  f" | risk=BLOCKED | confirm=false | handler=NO | perm=DENIED")
+        await _w(bot, user.id, "Blocked: matches secret/token/hack keyword pattern.")
         return
 
     intent = classify_intent(text)
     if intent is None:
         await _w(bot, user.id,
-                 f"trigger={str(triggered).lower()} | category=unknown | cmd=none"
+                 f"trigger={str(triggered).lower()} | cat=unknown | cmd=none"
                  f" | risk=SAFE | route=NO | handler=NO | confirm=false | perm=ok")
+        await _w(bot, user.id, "(no intent matched — would reply with 'I don't have a command for that')")
         return
 
     cmd      = intent.command
     risk     = intent.risk_level
     category = _CATEGORY.get(cmd, "other")
 
-    # Route check (command in registry)
-    route_ok = False
+    route_ok   = False
     owner_mode = "host"
     try:
         from modules.command_registry import get_entry as _reg_get
@@ -1167,25 +1347,23 @@ async def handle_aidebug(bot, user, args: list[str]) -> None:
     except Exception:
         pass
 
-    # Handler check
-    handler_ok = cmd in _HANDLER_MAP
+    handler_ok   = cmd in _HANDLER_MAP
+    owner_online = db.is_bot_mode_online(owner_mode)
+    confirm_req  = risk in (CONFIRM, ADMIN_CONFIRM)
 
-    # Owner online
-    owner_online = True
-    try:
-        from modules.multi_bot import _is_mode_online
-        owner_online = _is_mode_online(owner_mode)
-    except Exception:
-        pass
-
-    # Permission check
-    confirm_req = risk in (CONFIRM, ADMIN_CONFIRM)
     if risk == ADMIN_CONFIRM:
         perm_ok = is_admin(user.username) or is_owner(user.username)
     else:
         perm_ok = True
 
-    deleg_req = owner_mode not in ("host", "eventhost", "all")
+    # Delegation check
+    deleg_needed = False
+    deleg_target = ""
+    if cmd in _DELEGATABLE_CMDS and intent.args_str:
+        target_bot, _ = _resolve_delegation(cmd, intent.args_str)
+        if target_bot:
+            deleg_needed = True
+            deleg_target = target_bot
 
     line1 = (
         f"trigger={str(triggered).lower()} | cat={category} | cmd={cmd}"
@@ -1195,10 +1373,12 @@ async def handle_aidebug(bot, user, args: list[str]) -> None:
         f"risk={risk} | route={'YES' if route_ok else 'NO'}"
         f" | handler={'YES' if handler_ok else 'NO'}"
         f" | confirm={str(confirm_req).lower()}"
-        f" | delegate={str(deleg_req).lower()}"
+        f" | delegate={'YES→' + deleg_target if deleg_needed else 'NO'}"
         f" | perm={'ok' if perm_ok else 'DENIED'}"
     )[:249]
     line3 = intent.human_readable[:249]
+    if intent.args_str:
+        line3 = (line3 + f" | args={intent.args_str!r}")[:249]
 
     await _w(bot, user.id, line1)
     await _w(bot, user.id, line2)
