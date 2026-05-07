@@ -1243,6 +1243,13 @@ def _migrate_db():
     conn.execute("UPDATE mining_items SET sell_value = 75  WHERE item_id = 'zinc_ore'   AND sell_value <  75")
     conn.execute("UPDATE mining_items SET sell_value = 100 WHERE item_id = 'quartz'     AND sell_value < 100")
 
+    # ── Emoji badge price rebalance (2026-05) ────────────────────────────────
+    # Common raised 500c → 1,500c; uncommon raised 2,500c → 7,500c.
+    # Rare/epic/legendary/mythic are intentionally unchanged.
+    # Condition guards make these safe no-ops if already at the new value.
+    conn.execute("UPDATE emoji_badges SET price = 1500 WHERE rarity = 'common'   AND price < 1500 AND source = 'shop'")
+    conn.execute("UPDATE emoji_badges SET price = 7500 WHERE rarity = 'uncommon' AND price < 7500 AND source = 'shop'")
+
     conn.commit()
     conn.close()
 
@@ -5706,31 +5713,31 @@ def get_badge_market_logs(username: str | None = None, limit: int = 8) -> list[d
 
 _BADGE_SEED: list[tuple] = [
     # badge_id, emoji, name, rarity, price, purchasable, tradeable, sellable, source
-    # Common 500c
-    ("star","⭐","Star","common",500,1,1,1,"shop"),
-    ("glow","🌟","Glow","common",500,1,1,1,"shop"),
-    ("sparkle","✨","Sparkle","common",500,1,1,1,"shop"),
-    ("stardust","💫","Stardust","common",500,1,1,1,"shop"),
-    ("redheart","❤️","Red Heart","common",500,1,1,1,"shop"),
-    ("blueheart","💙","Blue Heart","common",500,1,1,1,"shop"),
-    ("greenheart","💚","Green Heart","common",500,1,1,1,"shop"),
-    ("yellowheart","💛","Yellow Heart","common",500,1,1,1,"shop"),
-    ("orangeheart","🧡","Orange Heart","common",500,1,1,1,"shop"),
-    ("purpleheart","💜","Purple Heart","common",500,1,1,1,"shop"),
-    ("blackheart","🖤","Black Heart","common",500,1,1,1,"shop"),
-    ("whiteheart","🤍","White Heart","common",500,1,1,1,"shop"),
-    # Uncommon 2500c
-    ("fire","🔥","Fire","uncommon",2500,1,1,1,"shop"),
-    ("ice","❄️","Ice","uncommon",2500,1,1,1,"shop"),
-    ("lightning","⚡","Lightning","uncommon",2500,1,1,1,"shop"),
-    ("moon","🌙","Moon","uncommon",2500,1,1,1,"shop"),
-    ("sun","☀️","Sun","uncommon",2500,1,1,1,"shop"),
-    ("rainbow","🌈","Rainbow","uncommon",2500,1,1,1,"shop"),
-    ("clover","🍀","Clover","uncommon",2500,1,1,1,"shop"),
-    ("music","🎵","Music","uncommon",2500,1,1,1,"shop"),
-    ("gamepad","🎮","Gamepad","uncommon",2500,1,1,1,"shop"),
-    ("diceroll","🎲","Dice","uncommon",2500,1,1,1,"shop"),
-    ("target","🎯","Target","uncommon",2500,1,1,1,"shop"),
+    # Common 1500c
+    ("star","⭐","Star","common",1500,1,1,1,"shop"),
+    ("glow","🌟","Glow","common",1500,1,1,1,"shop"),
+    ("sparkle","✨","Sparkle","common",1500,1,1,1,"shop"),
+    ("stardust","💫","Stardust","common",1500,1,1,1,"shop"),
+    ("redheart","❤️","Red Heart","common",1500,1,1,1,"shop"),
+    ("blueheart","💙","Blue Heart","common",1500,1,1,1,"shop"),
+    ("greenheart","💚","Green Heart","common",1500,1,1,1,"shop"),
+    ("yellowheart","💛","Yellow Heart","common",1500,1,1,1,"shop"),
+    ("orangeheart","🧡","Orange Heart","common",1500,1,1,1,"shop"),
+    ("purpleheart","💜","Purple Heart","common",1500,1,1,1,"shop"),
+    ("blackheart","🖤","Black Heart","common",1500,1,1,1,"shop"),
+    ("whiteheart","🤍","White Heart","common",1500,1,1,1,"shop"),
+    # Uncommon 7500c
+    ("fire","🔥","Fire","uncommon",7500,1,1,1,"shop"),
+    ("ice","❄️","Ice","uncommon",7500,1,1,1,"shop"),
+    ("lightning","⚡","Lightning","uncommon",7500,1,1,1,"shop"),
+    ("moon","🌙","Moon","uncommon",7500,1,1,1,"shop"),
+    ("sun","☀️","Sun","uncommon",7500,1,1,1,"shop"),
+    ("rainbow","🌈","Rainbow","uncommon",7500,1,1,1,"shop"),
+    ("clover","🍀","Clover","uncommon",7500,1,1,1,"shop"),
+    ("music","🎵","Music","uncommon",7500,1,1,1,"shop"),
+    ("gamepad","🎮","Gamepad","uncommon",7500,1,1,1,"shop"),
+    ("diceroll","🎲","Dice","uncommon",7500,1,1,1,"shop"),
+    ("target","🎯","Target","uncommon",7500,1,1,1,"shop"),
     # Rare 10000c
     ("diamond","💎","Diamond","rare",10000,1,1,1,"shop"),
     ("crown","👑","Crown","rare",10000,1,1,1,"shop"),
