@@ -1,0 +1,119 @@
+Fix AI outfit target bot recognition.
+
+Current problem:
+When I say:
+“MC copy my outfit to @KeanuShield”
+
+EmceeBot asks confirmation, but after yes it says:
+“I don't recognize '@keanushield' as a known bot. Is that bot running? Use /botoutfits to see known modes.”
+
+This is wrong.
+
+KeanuShield is a bot username, not an outfit mode.
+The AI/outfit system is checking bot outfit modes instead of active bot usernames.
+
+Do not change bank AI.
+Do not change send intent.
+Do not change balances.
+Do not change economy.
+Do not change poker, blackjack, mining, events, shop, room ID, or bot tokens.
+
+Fix only AI outfit delegation and bot username recognition.
+
+Requirements:
+
+1. Resolve target bot from active bot usernames
+When user says:
+- KeanuShield
+- @KeanuShield
+- keanushield
+- securitybot
+- SecurityBot
+
+The system should resolve it to the real bot username if it exists in:
+- bot_instances table
+- active bot heartbeat records
+- BOT_USERNAME values
+- multi_bot known bot map
+- current online bot list
+
+Do NOT only check bot outfit modes.
+
+2. Add alias support for security bot
+If the real security bot username is KeanuShield, then:
+- SecurityBot should resolve to KeanuShield
+- securitybot should resolve to KeanuShield
+- security should resolve to KeanuShield if unambiguous
+
+If there is no alias table yet, add a small alias resolver:
+securitybot -> KeanuShield
+security -> KeanuShield
+or use bot_instances where bot_mode='security'.
+
+3. Correct delegation owner
+For:
+“MC copy my outfit to @KeanuShield”
+
+Expected:
+target_bot_username=KeanuShield
+owner/executor=KeanuShield or security mode
+delegated=true
+
+Do NOT say:
+using HostBot
+
+Correct confirmation:
+“Confirm: copy your outfit to @KeanuShield. Reply yes or no.”
+
+After yes:
+- Create delegated task assigned to target_bot_username=keanushield
+- KeanuShield bot must pick it up
+- KeanuShield must execute set_outfit on itself
+- Only mark completed after real success
+
+4. Fix /aidebug
+
+/aidebug MC copy my outfit to @KeanuShield
+
+Expected output:
+intent=outfit_copy
+source_user=<requesting username>
+raw_target=@KeanuShield
+resolved_target_bot=KeanuShield
+target_mode=security if available
+delegated=true
+executor=KeanuShield
+target_online=true/false
+command=wearuseroutfit
+
+/aidebug MC copy my outfit to securitybot
+
+Expected:
+raw_target=securitybot
+resolved_target_bot=KeanuShield
+delegated=true
+
+5. Fix error message
+If target bot is not recognized, say:
+“I don’t recognize @<name> as one of my bot accounts. Use /bots or /bothealth to see online bots.”
+
+Do NOT say:
+“Use /botoutfits to see known modes.”
+
+Because this is about bot usernames, not outfit modes.
+
+6. Add helper command if missing:
+/bots
+or improve existing /bots to show:
+- bot username
+- bot mode
+- online/offline
+- last heartbeat
+
+7. Do not expose tokens or room ID.
+
+After fixing, tell me:
+- which files changed
+- how target bot resolution works
+- how SecurityBot resolves to KeanuShield
+- what exact tests I should run

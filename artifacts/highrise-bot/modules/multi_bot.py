@@ -1078,7 +1078,8 @@ async def handle_bots_live(bot, user) -> None:
     now = datetime.now(timezone.utc)
     parts: list[str] = []
     for inst in instances:
-        mode = inst.get("bot_mode", "?")
+        mode    = inst.get("bot_mode", "?")
+        uname   = inst.get("bot_username", "")
         enabled = inst.get("enabled", 1)
         if not enabled:
             parts.append(f"{_MODE_NAMES.get(mode, mode)} DISABLED")
@@ -1095,7 +1096,9 @@ async def handle_bots_live(bot, user) -> None:
                 state = "?"
         else:
             state = "?"
-        parts.append(f"{_MODE_NAMES.get(mode, mode)} {state}")
+        label = _MODE_NAMES.get(mode, mode)
+        uname_part = f" @{uname}" if uname else ""
+        parts.append(f"{label}{uname_part} {state}")
     await _w(bot, user.id, ("🤖 Bots: " + " | ".join(parts))[:249])
 
 

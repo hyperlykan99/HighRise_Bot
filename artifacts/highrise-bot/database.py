@@ -1636,6 +1636,20 @@ def get_bot_mode_for_username(bot_username: str) -> Optional[str]:
     return row["bot_mode"] if row else None
 
 
+def get_bot_username_for_mode(mode: str) -> Optional[str]:
+    """Return the bot_username for the first bot_instance with matching bot_mode.
+    Online bots are preferred; falls back to any matching row."""
+    conn = get_connection()
+    row  = conn.execute(
+        "SELECT bot_username FROM bot_instances "
+        "WHERE LOWER(bot_mode)=? "
+        "ORDER BY (status='online') DESC, last_seen_at DESC LIMIT 1",
+        (mode.lower(),),
+    ).fetchone()
+    conn.close()
+    return row["bot_username"] if row else None
+
+
 def is_bot_mode_online(mode: str) -> bool:
     """Return True if any bot_instance with matching bot_mode is online."""
     conn = get_connection()

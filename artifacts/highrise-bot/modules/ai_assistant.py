@@ -1092,10 +1092,56 @@ def _validate_intent(intent: IntentResult, user_obj) -> str | None:
 # Delegation helper — resolve first word of args_str as a bot username
 # ---------------------------------------------------------------------------
 
+_DELEGATION_LOCAL_WORDS: frozenset[str] = frozenset(
+    {"bot", "the", "my", "me", "your", "self", _ME_SENTINEL.lower()}
+)
+
+
+def _resolve_bot_target(candidate: str) -> tuple[str | None, str | None]:
+    """
+    Resolve a user-supplied name to (bot_username_lower, bot_mode).
+
+    Resolution order:
+      1. Direct bot_username match in bot_instances
+         e.g. "keanushield" → bot_username=keanushield, bot_mode=security
+      2. bot_mode match in bot_instances
+         e.g. "security" → find bot with bot_mode='security' → return its username
+      3. Strip trailing 'bot' suffix and retry both
+         e.g. "securitybot" → "security" → step 2 above
+
+    Returns (None, None) if no match is found or candidate is a generic local word.
+    """
+    c = candidate.lower().lstrip("@")
+    if c in _DELEGATION_LOCAL_WORDS:
+        return None, None
+
+    # 1. Direct username match
+    mode = db.get_bot_mode_for_username(c)
+    if mode is not None:
+        return c, mode
+
+    # 2. Mode-name match (candidate IS the mode, e.g. "security")
+    username = db.get_bot_username_for_mode(c)
+    if username:
+        return username.lower(), c
+
+    # 3. Strip 'bot' suffix and retry
+    if c.endswith("bot") and len(c) > 3:
+        stripped = c[:-3]
+        mode2 = db.get_bot_mode_for_username(stripped)
+        if mode2 is not None:
+            return stripped, mode2
+        username2 = db.get_bot_username_for_mode(stripped)
+        if username2:
+            return username2.lower(), stripped
+
+    return None, None
+
+
 def _resolve_delegation(cmd: str, args_str: str) -> tuple[str | None, str]:
     """
-    For delegatable commands, check if the first word of args_str is a known bot
-    username.  Returns (target_bot_username_lower | None, local_args_str).
+    For delegatable commands, check if the first word of args_str resolves to
+    a known bot.  Returns (target_bot_username_lower | None, local_args_str).
     local_args_str has the target removed (just the action args for the target bot).
     """
     if cmd not in _DELEGATABLE_CMDS:
@@ -1105,19 +1151,17 @@ def _resolve_delegation(cmd: str, args_str: str) -> tuple[str | None, str]:
     if not parts:
         return None, args_str
 
-    candidate   = parts[0].lower()
-    local_args  = parts[1] if len(parts) > 1 else ""
+    candidate  = parts[0]
+    local_args = parts[1] if len(parts) > 1 else ""
 
-    # Skip generic words that are not real bot usernames
-    _LOCAL_WORDS = {"bot", "the", "my", "me", "your", "self", _ME_SENTINEL.lower()}
-    if candidate in _LOCAL_WORDS:
+    if candidate.lower().lstrip("@") in _DELEGATION_LOCAL_WORDS:
         return None, args_str
 
-    bot_mode = db.get_bot_mode_for_username(candidate)
-    if bot_mode is None:
+    bot_username, _ = _resolve_bot_target(candidate)
+    if bot_username is None:
         return None, args_str
 
-    return candidate, local_args
+    return bot_username, local_args
 
 
 # ---------------------------------------------------------------------------
@@ -1196,14 +1240,13 @@ async def _execute_confirmed(bot, user, command: str, args_str: str) -> None:
     if command in _DELEGATABLE_CMDS:
         parts = args_str.strip().split()
         if parts:
-            _local_words = {"bot", "the", "my", "me", "your", "self",
-                            _ME_SENTINEL.lower(), user.username.lower()}
-            first = parts[0].lower()
+            _local_words = _DELEGATION_LOCAL_WORDS | {user.username.lower()}
+            first = parts[0].lower().lstrip("@")
             if first not in _local_words:
                 # User named a specific target, but we couldn't resolve it
                 await _w(bot, user.id,
-                         f"I don't recognize '@{parts[0]}' as a known bot. "
-                         f"Is that bot running? Use /botoutfits to see known modes.")
+                         f"I don't recognize '@{parts[0].lstrip('@')}' as one of my bot"
+                         f" accounts. Use /bots or /bothealth to see online bots.")
                 return
 
     # Local execution
@@ -1578,24 +1621,36 @@ async def handle_aidebug(bot, user, args: list[str]) -> None:
 
     # Outfit-specific extra line
     if cmd in ("dressbot", "wearuseroutfit", "savebotoutfit", "copyoutfit"):
+        a_parts       = (intent.args_str or "").split()
+        raw_target    = a_parts[0] if a_parts else "(none)"
         target_bot_d, local_args_d = _resolve_delegation(cmd, intent.args_str or "")
-        a_parts  = (intent.args_str or "").split()
-        deleg_d  = bool(target_bot_d)
-        rest     = local_args_d.split() if local_args_d else []
+        deleg_d       = bool(target_bot_d)
+        rest          = local_args_d.split() if local_args_d else []
+        # Resolve mode from the resolved bot username
+        _, tmode_d    = _resolve_bot_target(raw_target) if raw_target != "(none)" else (None, None)
+        online_d      = db.is_bot_mode_online(tmode_d) if tmode_d else False
+        resolved      = target_bot_d or "LOCAL"
         if cmd == "dressbot":
-            mode_val = rest[0] if rest else (a_parts[0] if a_parts else "(none)")
-            line4 = (f"cmd={cmd} | target_bot={target_bot_d or 'LOCAL'}"
-                     f" | mode={mode_val} | delegated={str(deleg_d).lower()}")
+            mode_val = rest[0] if rest else (a_parts[1] if len(a_parts) > 1 else "(none)")
+            line4 = (f"command={cmd} | raw={raw_target}"
+                     f" | resolved_target_bot={resolved} | target_mode={tmode_d or 'none'}"
+                     f" | mode={mode_val} | delegated={str(deleg_d).lower()}"
+                     f" | executor={resolved} | target_online={str(online_d).lower()}")
         elif cmd == "wearuseroutfit":
-            src_val = rest[0] if rest else (a_parts[0] if a_parts else "(none)")
-            line4 = (f"cmd={cmd} | target_bot={target_bot_d or 'LOCAL'}"
-                     f" | source={src_val} | delegated={str(deleg_d).lower()}")
+            src_val = rest[0] if rest else (a_parts[1] if len(a_parts) > 1 else "(none)")
+            line4 = (f"command={cmd} | raw={raw_target}"
+                     f" | resolved_target_bot={resolved} | target_mode={tmode_d or 'none'}"
+                     f" | source={src_val} | delegated={str(deleg_d).lower()}"
+                     f" | executor={resolved} | target_online={str(online_d).lower()}")
         elif cmd == "savebotoutfit":
-            mode_val = rest[0] if rest else (a_parts[0] if a_parts else "(none)")
-            line4 = (f"cmd={cmd} | target_bot={target_bot_d or 'LOCAL'}"
-                     f" | mode_id={mode_val} | delegated={str(deleg_d).lower()}")
+            mode_val = rest[0] if rest else (a_parts[1] if len(a_parts) > 1 else "(none)")
+            line4 = (f"command={cmd} | raw={raw_target}"
+                     f" | resolved_target_bot={resolved} | target_mode={tmode_d or 'none'}"
+                     f" | mode_id={mode_val} | delegated={str(deleg_d).lower()}"
+                     f" | executor={resolved} | target_online={str(online_d).lower()}")
         else:
-            line4 = (f"cmd={cmd} | target_bot={target_bot_d or 'LOCAL'}"
+            line4 = (f"command={cmd} | raw={raw_target}"
+                     f" | resolved_target_bot={resolved}"
                      f" | delegated={str(deleg_d).lower()}")
         await _w(bot, user.id, line4[:249])
 
