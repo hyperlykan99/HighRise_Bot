@@ -209,6 +209,14 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     "maintenance", "reloadsettings", "cleanup",
     "trivia", "scramble", "riddle", "coinflip",
     "reporthelp",
+    # ── shop / badge market (public elif branches) ───────────────────────────
+    "mybadges", "confirmbuy",
+    "badgemarket", "badgebuy", "badgelist", "badgecancel",
+    "mybadgelistings", "badgeprices",
+    # ── tip (alias for send) ─────────────────────────────────────────────────
+    "tip",
+    # ── control panel (own elif block, not via STAFF_CMDS) ───────────────────
+    "control", "status", "quicktoggles", "ownerpanel",
     # ── mining ──────────────────────────────────────────────────────────────
     "mine", "m", "dig",
     "tool", "pickaxe",
@@ -269,8 +277,8 @@ HELP_CMDS: frozenset[str] = frozenset({
     "setminsend", "setmaxsend", "setsendlimit", "setminlevelsend",
     "setmintotalearned", "setmindailyclaims", "setsendtax", "sethighriskblocks",
     "notifications", "clearnotifications",
-    "balance", "bal", "daily", "wallet", "leaderboard", "tiprate",
-    "tipstats", "tipleaderboard",
+    "balance", "bal", "daily", "wallet", "leaderboard",
+    "tip", "tiprate", "tipstats", "tipleaderboard",
     "profile", "whois", "me", "stats", "badges", "titles", "privacy", "dashboard",
     "shop", "titleinfo", "badgeinfo", "buy", "equip", "myitems",
     "vipstatus", "vipshop", "buyvip",
@@ -313,6 +321,75 @@ HELP_CMDS: frozenset[str] = frozenset({
 })
 
 # ---------------------------------------------------------------------------
+# VISIBLE_CMDS — commands literally shown in the 12 public help pages
+# (help / gamehelp / casinohelp / coinhelp / bankhelp / shophelp /
+#  profilehelp / progresshelp / eventhelp / staffhelp / adminhelp / goldhelp)
+# This is the set /checkcommands checks by default.
+# ---------------------------------------------------------------------------
+
+VISIBLE_CMDS: frozenset[str] = frozenset({
+    # ── navigation ──────────────────────────────────────────────────────────
+    "help",
+    "gamehelp", "casinohelp", "coinhelp", "bankhelp", "shophelp",
+    "profilehelp", "progresshelp", "eventhelp", "staffhelp", "adminhelp",
+    "goldhelp",
+    # ── /gamehelp ───────────────────────────────────────────────────────────
+    "trivia", "scramble", "riddle", "answer", "coinflip",
+    "autogames", "setgametimer",
+    # ── /casinohelp ─────────────────────────────────────────────────────────
+    "bjoin", "rjoin", "p",
+    "bjhelp", "rbjhelp", "pokerhelp",
+    "bt", "rt", "bhand", "rhand", "rshoe", "bstats", "rstats", "mycasino",
+    "casinosettings", "casinolimits", "casinotoggles",
+    "bj", "rbj", "poker",
+    # ── /coinhelp ───────────────────────────────────────────────────────────
+    "balance", "daily", "send", "tip",
+    # ── /bankhelp ───────────────────────────────────────────────────────────
+    "bank", "bankstats", "transactions", "banknotify",
+    "notifications", "clearnotifications", "viewtx", "bankwatch", "banksettings",
+    # ── /shophelp ───────────────────────────────────────────────────────────
+    "shop", "buy", "myitems", "equip", "confirmbuy", "vipstatus",
+    "mybadges",
+    "badgemarket", "badgebuy", "badgelist", "badgecancel",
+    "mybadgelistings", "badgeprices",
+    # ── /profilehelp ────────────────────────────────────────────────────────
+    "profile", "whois", "me", "stats", "badges", "titles", "privacy", "dashboard",
+    # ── /progresshelp ───────────────────────────────────────────────────────
+    "quests", "dailyquests", "weeklyquests", "claimquest",
+    "achievements", "claimachievements",
+    # ── /eventhelp ──────────────────────────────────────────────────────────
+    "eventshop", "eventpoints", "eventstatus", "startevent",
+    "autoevents", "setautoeventinterval", "setautoeventduration",
+    # ── /staffhelp ──────────────────────────────────────────────────────────
+    "modhelp", "managerhelp", "ownerhelp",
+    "mycommands", "adminpanel", "adminlogs", "status", "quicktoggles",
+    "audithelp", "reporthelp",
+    # ── /adminhelp ──────────────────────────────────────────────────────────
+    "control",
+    "addcoins", "removecoins", "setcoins", "editcoins", "resetcoins",
+    "addxp", "removexp", "setxp", "setlevel", "addlevel", "removelevel",
+    "addrep", "removerep", "setrep", "resetrep",
+    "addeventcoins", "seteventcoins",
+    "givetitle", "settitle", "givebadge", "setbadge",
+    "addvip", "setvipprice",
+    "addmanager", "removemanager", "addmoderator", "removemoderator",
+    "allstaff",
+    "resetbjstats", "resetrbjstats", "resetpokerstats", "resetcasinostats",
+    "resetbjlimits",
+    "adminloginfo", "dbstats", "maintenance", "bankblock",
+    "checkcommands", "checkhelp",
+    "missingcommands", "routecheck", "silentcheck", "commandtest",
+    # ── /ownerhelp ──────────────────────────────────────────────────────────
+    "ownerpanel",
+    # ── /goldhelp ───────────────────────────────────────────────────────────
+    "goldtip", "goldrefund", "goldrain", "goldrainall",
+    "goldrainrole", "goldrainvip", "goldraintitle", "goldrainbadge",
+    "goldraineligible", "goldrainlist",
+    "setgoldrainstaff", "setgoldrainmax",
+})
+
+
+# ---------------------------------------------------------------------------
 # SILENT_RISK_CMDS — commands that may not always reply (post all-fixes)
 # ---------------------------------------------------------------------------
 
@@ -350,25 +427,50 @@ def _paginate(title: str, items: list[str], page: int) -> tuple[str, int]:
 # /checkcommands
 # ---------------------------------------------------------------------------
 
-async def handle_checkcommands(bot: BaseBot, user: User, all_known: set) -> None:
+async def handle_checkcommands(bot: BaseBot, user: User, args: list | None = None) -> None:
+    """
+    /checkcommands        — visible-help commands only (clean, small numbers)
+    /checkcommands all    — full ALL_KNOWN_COMMANDS scan (raw totals)
+    """
     if not _can_audit(user.username):
         await _w(bot, user.id, "Staff only.")
         return
-    routed_ok = len(ROUTED_COMMANDS & all_known)
-    missing   = len(all_known - ROUTED_COMMANDS)
-    in_help   = len(HELP_CMDS & ROUTED_COMMANDS)
+
+    use_all = args and len(args) > 1 and args[1].lower() == "all"
+
+    if use_all:
+        # import lazily to avoid circular imports at module load time
+        try:
+            import importlib, sys
+            _main = sys.modules.get("__main__") or importlib.import_module("__main__")
+            check_set = getattr(_main, "ALL_KNOWN_COMMANDS", None)
+            if check_set is None:
+                # fallback: try importing the bot class module
+                from bot import MyBot  # noqa: F401  — just to trigger module load
+                _main = sys.modules.get("__main__")
+                check_set = getattr(_main, "ALL_KNOWN_COMMANDS", VISIBLE_CMDS)
+        except Exception:
+            check_set = VISIBLE_CMDS
+        label = "All"
+    else:
+        check_set = VISIBLE_CMDS
+        label = "Visible"
+
+    routed_ok = len(ROUTED_COMMANDS & check_set)
+    missing   = len(check_set - ROUTED_COMMANDS)
     silent    = len(SILENT_RISK_CMDS)
     try:
         from modules.multi_bot import _DEFAULT_COMMAND_OWNERS
-        no_owner = len(all_known - set(_DEFAULT_COMMAND_OWNERS.keys()))
+        no_owner = len(check_set - set(_DEFAULT_COMMAND_OWNERS.keys()))
     except Exception:
         no_owner = -1
-    print(f"[AUDIT] /checkcommands @{user.username}: known={len(all_known)} "
-          f"routed={routed_ok} missing={missing} no_owner={no_owner} "
-          f"help={in_help} silent={silent}")
+    print(f"[AUDIT] /checkcommands({label}) @{user.username}: "
+          f"set={len(check_set)} routed={routed_ok} missing={missing} "
+          f"no_owner={no_owner} silent={silent}")
+    tip = "" if use_all else "  (/checkcommands all = full scan)"
     await _w(bot, user.id,
-             f"CmdCheck: Known {len(all_known)} | Routed {routed_ok} | "
-             f"Missing {missing} | NoOwner {no_owner} | Silent {silent}"[:249])
+             (f"CmdCheck[{label}]: Known {len(check_set)} | Routed {routed_ok} | "
+              f"Missing {missing} | NoOwner {no_owner}{tip}")[:249])
 
 
 # ---------------------------------------------------------------------------

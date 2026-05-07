@@ -553,7 +553,7 @@ ALL_KNOWN_COMMANDS = (
         "setbjlimits", "setrbjlimits",
         "wallet", "w", "dash", "dashboard", "casinodash", "mycasino",
         "goldhelp", "confirmcasinoreset",
-        "tiprate", "tipstats", "tipleaderboard", "debugtips",
+        "tip", "tiprate", "tipstats", "tipleaderboard", "debugtips",
         "vipshop", "buyvip", "vipstatus",
         "me", "whois", "pinfo", "stats", "badges", "titles", "privacy",
         "profileadmin", "profileprivacy", "resetprofileprivacy",
@@ -2008,7 +2008,7 @@ class HangoutBot(BaseBot):
             elif cmd == "allcommands":
                 await _cmd_allcommands(self, user, args)
             elif cmd == "checkcommands":
-                await _audit_checkcommands(self, user, ALL_KNOWN_COMMANDS)
+                await _audit_checkcommands(self, user, args)
             elif cmd == "missingcommands":
                 await handle_missingcommands(self, user)
             elif cmd == "routecheck":
@@ -2838,6 +2838,9 @@ class HangoutBot(BaseBot):
             await handle_bank(self, user, args)
 
         elif cmd == "send":
+            await handle_send(self, user, args)
+
+        elif cmd == "tip":
             await handle_send(self, user, args)
 
         elif cmd == "transactions":

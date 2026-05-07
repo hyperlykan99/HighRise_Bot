@@ -209,6 +209,42 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "startupstatus": "host", "setmainmode": "host",
     "dblockcheck": "host", "routerstatus": "host",
     "bots": "host", "commandintegrity": "host", "commandrepair": "host",
+    # ── visible-help additions (help pages) ──────────────────────────────────
+    # host — navigation / admin tools
+    "gamehelp": "host", "profilehelp": "host", "progresshelp": "host",
+    "adminhelp": "host", "managerhelp": "host", "ownerhelp": "host",
+    "adminpanel": "host", "adminlogs": "host", "adminloginfo": "host",
+    "quicktoggles": "host", "ownerpanel": "host",
+    "stats": "host", "allstaff": "host",
+    "addmanager": "host", "removemanager": "host",
+    "addrep": "host", "removerep": "host",
+    "setrep": "host", "resetrep": "host",
+    "addxp": "host", "removexp": "host",
+    "setxp": "host", "setlevel": "host",
+    "addlevel": "host", "removelevel": "host",
+    "resetcasinostats": "host", "dbstats": "host", "maintenance": "host",
+    # banker — bank notifications / settings
+    "notifications": "banker", "clearnotifications": "banker",
+    "bankwatch": "banker", "banksettings": "banker",
+    # shopkeeper — shop misc
+    "confirmbuy": "shopkeeper",
+    "givetitle": "shopkeeper", "settitle": "shopkeeper",
+    "givebadge": "shopkeeper", "setbadge": "shopkeeper",
+    "addvip": "shopkeeper", "setvipprice": "shopkeeper",
+    # security — mod role commands
+    "addmoderator": "security", "removemoderator": "security",
+    # eventhost — games / quests / events
+    "trivia": "eventhost", "scramble": "eventhost",
+    "riddle": "eventhost", "answer": "eventhost",
+    "coinflip": "eventhost", "setgametimer": "eventhost",
+    "quests": "eventhost", "dailyquests": "eventhost",
+    "weeklyquests": "eventhost", "claimquest": "eventhost",
+    "achievements": "eventhost", "claimachievements": "eventhost",
+    "setautoeventinterval": "eventhost", "setautoeventduration": "eventhost",
+    # blackjack — casino resets
+    "resetbjstats": "blackjack", "resetrbjstats": "blackjack",
+    # poker — casino resets
+    "resetpokerstats": "poker",
 }
 
 # Friendly display names for modes
