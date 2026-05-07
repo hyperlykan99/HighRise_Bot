@@ -277,6 +277,7 @@ from modules.display_settings import (
     handle_displaybadges,
     handle_displaytitles,
     handle_displayformat,
+    handle_displaytest,
 )
 from modules.mining import (
     handle_mine, handle_tool, handle_upgradetool,
@@ -777,7 +778,7 @@ TIME_EXP_COMMANDS: frozenset[str] = frozenset({
     "settimeexpbonus", "timeexpstatus",
 })
 DISPLAY_COMMANDS: frozenset[str] = frozenset({
-    "displaybadges", "displaytitles", "displayformat",
+    "displaybadges", "displaytitles", "displayformat", "displaytest",
 })
 ALL_KNOWN_COMMANDS = ALL_KNOWN_COMMANDS | TIME_EXP_COMMANDS | DISPLAY_COMMANDS
 
@@ -3142,6 +3143,8 @@ class HangoutBot(BaseBot):
             await handle_displaytitles(self, user, args)
         elif cmd == "displayformat":
             await handle_displayformat(self, user, args)
+        elif cmd == "displaytest":
+            await handle_displaytest(self, user, args)
 
         elif cmd == "confirmcasinoreset":
             if not can_moderate(user.username):

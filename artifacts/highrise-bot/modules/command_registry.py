@@ -89,6 +89,7 @@ REGISTRY: dict[str, Cmd] = {
     "displaybadges":    Cmd("host","admin",   True, True, False, perm="manager"),
     "displaytitles":    Cmd("host","admin",   True, True, False, perm="manager"),
     "displayformat":    Cmd("host","admin",   True, True, False, perm="manager"),
+    "displaytest":      Cmd("host","admin",   True, True, False, perm="manager"),
     # ── Time-in-Room EXP admin commands ──────────────────────────────────────
     "settimeexp":       Cmd("host","admin",   True, True, False, perm="manager"),
     "settimeexpcap":    Cmd("host","admin",   True, True, False, perm="manager"),

@@ -1,0 +1,326 @@
+Fix global badge/title player display formatting across ALL systems.
+
+Current problem:
+Badge/title display is not showing in Poker and Blackjack messages.
+
+Goal:
+Whenever any bot announces, displays, calls, whispers, or mentions a player’s name, it should include that player’s equipped badge and equipped title if display toggles are ON.
+
+Example:
+Old:
+@Marion called 500.
+@Marion won with Blackjack.
+@Marion joined poker.
+
+New:
+💎 [High Roller] @Marion called 500.
+💎 [High Roller] @Marion won with Blackjack.
+💎 [High Roller] @Marion joined poker.
+
+This should happen everywhere the bot DISPLAYs a player name.
+Do not change internal command parsing.
+Do not change actual usernames.
+Do not change balances, game rules, cards, bets, payouts, mining rewards, shop prices, event rewards, bot tokens, or room ID.
+
+==================================================
+PART 1 — VERIFY OR CREATE GLOBAL DISPLAY HELPER
+==================================================
+
+Find the existing badge/title display helper if already created.
+
+If missing, create one shared helper, for example:
+
+format_player_display(username, user_id=None, include_badge=True, include_title=True)
+
+or:
+
+get_player_display_name(username)
+
+Recommended display format:
+<badge_emoji> [<title>] @username
+
+Examples:
+💎 [High Roller] @Marion
+🌟 [VIP] @Claire
+⛏️ [Master Miner] @testuser
+@newplayer
+
+Rules:
+1. If /displaybadges is ON and player has equipped badge, show badge emoji/icon.
+2. If /displaytitles is ON and player has equipped title, show title in brackets.
+3. If both OFF, show normal @username.
+4. If player has no badge/title, show normal @username.
+5. Do not crash if profile/badge/title data is missing.
+6. Do not expose raw badge IDs unless no display name exists.
+7. Keep output short.
+8. If formatted name becomes too long, fallback to:
+   <badge> @username
+9. If still too long, fallback to:
+   @username
+
+Important:
+Only use formatted names in DISPLAY messages.
+Do NOT use formatted names as command arguments or database usernames.
+
+==================================================
+PART 2 — POKER MUST USE DISPLAY HELPER
+==================================================
+
+Inspect all Poker files and messages.
+
+Apply display helper to every user-facing player name in Poker:
+
+- player joined poker
+- player left poker
+- seated player list
+- current actor
+- first actor
+- small blind
+- big blind
+- dealing to player
+- card delivery status
+- /pokerplayers
+- /pokerturn
+- /pokeractions
+- /pokerdealstatus
+- /pokerdashboard
+- /pokerpots
+- /resendcards messages
+- /cards messages
+- check/call/bet/raise/fold/all-in announcements
+- pot winner
+- showdown
+- side pot eligible players
+- error messages that mention players
+- staff controls that mention players
+- action history
+
+Examples:
+
+Old:
+@Marion posts small blind 50.
+
+New:
+💎 [High Roller] @Marion posts small blind 50.
+
+Old:
+<#3399FF>📞 CALL<#FFFFFF> — @Marion called 500.
+
+New:
+<#3399FF>📞 CALL<#FFFFFF> — 💎 [High Roller] @Marion called 500.
+
+Old:
+@Marion is ALL-IN for 2,500.
+
+New:
+<#FFD700>🔥 ALL-IN<#FFFFFF> — 💎 [High Roller] @Marion is all-in for 2,500.
+
+==================================================
+PART 3 — REALISTIC BLACKJACK MUST USE DISPLAY HELPER
+==================================================
+
+Inspect all Blackjack/RBJ files and messages.
+
+Apply display helper to every user-facing player name in Blackjack:
+
+- player joined blackjack
+- player started blackjack
+- player placed bet
+- hit/stand/double/split
+- insurance
+- surrender
+- bust messages
+- blackjack messages
+- win/loss/push messages
+- payout messages
+- shoe/table messages that mention player
+- /bjstats
+- /bjtable
+- /shoe or /bjshoe if it mentions players
+- staff controls that mention players
+
+Examples:
+
+Old:
+@Marion bet 100.
+
+New:
+💎 [High Roller] @Marion bet 100.
+
+Old:
+@Marion wins 200 with Blackjack!
+
+New:
+💎 [High Roller] @Marion wins 200 with Blackjack!
+
+Old:
+@Marion busted.
+
+New:
+💎 [High Roller] @Marion busted.
+
+==================================================
+PART 4 — CHECK ALL OTHER SYSTEMS TOO
+==================================================
+
+Do a full search for raw username display patterns like:
+- f"@{username}"
+- f"@{user.username}"
+- "@{target}"
+- "@{player}"
+- user.username in chat messages
+- target in chat messages
+- player.username in chat messages
+
+Replace display-only usages with the global display helper.
+
+Apply helper to:
+
+Bank/economy:
+- send messages
+- receive messages
+- bank warnings
+- leaderboards
+- daily rewards
+
+Mining:
+- mining result messages
+- rare ore announcements
+- mining level-up
+- ore mastery
+- mining leaderboard
+
+Events:
+- event winners
+- event points
+- trivia/game winners
+- Admin’s Blessing player messages
+
+Shop:
+- purchase messages
+- equip title/badge messages
+- badge/title display messages
+
+Time EXP:
+- time EXP messages
+- level-up announcements
+- playtime messages if player name appears
+
+Room/social:
+- welcome messages
+- teleport/bring
+- emote/forceemote
+- bot spawn messages if player name appears
+
+Security/reports:
+- warn/report/mod messages
+- staff logs that mention players
+
+AI assistant:
+- profile lookups
+- confirmations that mention users
+- delegated task user-facing messages
+
+Do not use formatted display in:
+- database keys
+- command arguments
+- permission checks
+- username comparisons
+- owner/admin checks
+- transaction records if exact username is required
+- raw logs where exact username is needed
+
+==================================================
+PART 5 — SETTINGS MUST CONTROL DISPLAY
+==================================================
+
+Make sure these settings work globally:
+
+/displaybadges on
+/displaybadges off
+/displaytitles on
+/displaytitles off
+/displayformat
+
+/displayformat should show:
+Badge display: ON/OFF
+Title display: ON/OFF
+Format preview: 💎 [High Roller] @username
+
+When display badges/titles are OFF:
+Poker and Blackjack should stop showing badge/title too.
+
+When ON:
+Poker and Blackjack must show badge/title.
+
+==================================================
+PART 6 — ADD DEBUG COMMAND
+==================================================
+
+Add or improve:
+
+/displaytest <username>
+
+It should show:
+- raw username
+- equipped badge
+- equipped title
+- display badges ON/OFF
+- display titles ON/OFF
+- final formatted display
+
+Example:
+/displaytest Marion
+
+Output:
+Raw: @Marion
+Badge: 💎 Diamond
+Title: High Roller
+Badges: ON
+Titles: ON
+Display: 💎 [High Roller] @Marion
+
+Owner: Host or Shop.
+This helps verify the formatter before testing games.
+
+==================================================
+PART 7 — COMMAND INTEGRITY REQUIREMENT
+==================================================
+
+For every new command or alias:
+1. Add route.
+2. Add real handler.
+3. Add commandtest handler map.
+4. Add active/known registry.
+5. Add owner map.
+6. Owner must not be UNKNOWN.
+7. /commandtest /<command> shows:
+   route=YES
+   handler=YES
+   owner=<correct owner>
+8. /checkcommands all shows:
+   Missing 0
+   NoOwner 0
+
+Commands to verify:
+- /displayformat
+- /displaybadges
+- /displaytitles
+- /displaytest
+
+==================================================
+PART 8 — TEST REQUIREMENTS
+==================================================
+
+After changes, report:
+1. Files changed
+2. Location of global display helper
+3. How equipped badge is fetched
+4. How equipped title is fetched
+5. Which Poker messages were updated
+6. Which Blackjack/RBJ messages were updated
+7. Which other modules were updated
+8. Any remaining raw @username displays and why
+9. Exact tests to run
+
+Do not finish until Poker and Blackjack use badge/title display helper in user-facing messages.

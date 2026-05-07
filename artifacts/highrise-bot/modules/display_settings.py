@@ -21,6 +21,17 @@ import database as db
 from modules.permissions import is_manager, is_admin, is_owner
 
 
+def _get_user_row(username: str):
+    conn = db.get_connection()
+    row = conn.execute(
+        "SELECT user_id, username, equipped_badge, equipped_title "
+        "FROM users WHERE LOWER(username) = LOWER(?)",
+        (username,)
+    ).fetchone()
+    conn.close()
+    return row
+
+
 def _is_manager_plus(username: str) -> bool:
     return is_manager(username) or is_admin(username) or is_owner(username)
 
@@ -97,3 +108,27 @@ async def handle_displayformat(bot, user, args: list[str]) -> None:
     await _w(bot, user.id, f"Format: {fmt}")
     await _w(bot, user.id,
         "Change: /displaybadges on|off | /displaytitles on|off")
+
+
+async def handle_displaytest(bot, user, args: list[str]) -> None:
+    """/displaytest <username> — show how a player's name is formatted."""
+    if not _is_manager_plus(user.username):
+        await _w(bot, user.id, "Manager+ only.")
+        return
+    target = args[1].lstrip("@").strip() if len(args) > 1 else user.username
+    row = _get_user_row(target)
+    if row is None:
+        await _w(bot, user.id,
+            f"No record for @{target}. Player must chat in room first.")
+        return
+    raw_badge  = row["equipped_badge"] or "(none)"
+    raw_title  = (row["equipped_title"] or "(none)").strip("[]")
+    badges_on  = db.get_room_setting("display_badges_enabled", "true") == "true"
+    titles_on  = db.get_room_setting("display_titles_enabled", "true") == "true"
+    display    = db.get_display_name(row["user_id"], row["username"])
+    b_state    = "ON" if badges_on else "OFF"
+    t_state    = "ON" if titles_on else "OFF"
+    await _w(bot, user.id, f"Raw: @{row['username']}")
+    await _w(bot, user.id, f"Badge: {raw_badge} | Title: {raw_title}")
+    await _w(bot, user.id, f"Badges: {b_state} | Titles: {t_state}")
+    await _w(bot, user.id, f"Display: {display}")

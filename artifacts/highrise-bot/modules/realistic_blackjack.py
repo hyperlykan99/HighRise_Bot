@@ -35,6 +35,14 @@ from modules.permissions import can_manage_games, can_moderate
 _RBJ_CASINO_CAP = 5.0
 
 
+def _dn(p: "_Player") -> str:
+    """Display name for a _Player object (badge + title + @username)."""
+    try:
+        return db.get_display_name(p.user_id, p.username)
+    except Exception:
+        return f"@{p.username}"
+
+
 def _remaining_secs(iso_str: str, default: int = 0) -> int:
     if not iso_str:
         return default
@@ -298,7 +306,7 @@ async def _start_round(bot: BaseBot):
     )
     for p in _state.players:
         if p.hands[0]["status"] == "blackjack":
-            await bot.highrise.chat(f"🤑 @{p.username} has Blackjack!")
+            await bot.highrise.chat(f"🤑 {_dn(p)} has Blackjack!")
 
     await _start_action_phase(bot)
 
@@ -516,7 +524,7 @@ async def _finalize_round(bot: BaseBot):
                 if result_parts:
                     net_str = f"+{total_net:,}c" if total_net >= 0 else f"{total_net:,}c"
                     inner   = " | ".join(result_parts)
-                    summary = f"@{p.username}: {inner} | Net {net_str}"
+                    summary = f"{_dn(p)}: {inner} | Net {net_str}"
                     await bot.highrise.chat(summary[:249])
 
             except Exception as exc:
@@ -934,7 +942,7 @@ async def _cmd_players(bot: BaseBot, user: User):
         return
     lines = [f"-- RBJ Players ({_state.phase}) --"]
     for p in _state.players:
-        lines.append(f"  @{p.username}  {p.total_bet():,}c")
+        lines.append(f"  {_dn(p)}  {p.total_bet():,}c")
     if not _state.players:
         lines.append("  (none)")
     await bot.highrise.send_whisper(user.id, "\n".join(lines)[:249])
@@ -946,7 +954,7 @@ async def _cmd_table(bot: BaseBot, user: User):
         return
     if _state.phase == "lobby":
         count = len(_state.players)
-        names = ", ".join(f"@{p.username}" for p in _state.players) or "none"
+        names = ", ".join(_dn(p) for p in _state.players) or "none"
         await bot.highrise.send_whisper(user.id,
             f"🃏 RBJ Lobby — {count} player(s)\n{names}"[:249])
         return
@@ -958,13 +966,13 @@ async def _cmd_table(bot: BaseBot, user: User):
         if len(p.hands) == 1:
             h     = p.hands[0]
             total = hand_value(h["cards"])
-            lines.append(f"@{p.username} {total} {h['status']}")
+            lines.append(f"{_dn(p)} {total} {h['status']}")
         else:
             parts = [
                 f"H{i+1} {hand_value(h['cards'])} {h['status']}"
                 for i, h in enumerate(p.hands)
             ]
-            lines.append(f"@{p.username}: " + " | ".join(parts))
+            lines.append(f"{_dn(p)}: " + " | ".join(parts))
     msg = "\n".join(lines)
     await bot.highrise.send_whisper(user.id, msg[:249])
 
@@ -1017,7 +1025,7 @@ async def _cmd_hit(bot: BaseBot, user: User):
         _save_player_state(p)
         _save_table_state()
         await bot.highrise.chat(
-            f"🃏 @{p.username} H{hidx}: {hand_str(h['cards'])} = {total} — bust!"
+            f"🃏 {_dn(p)} H{hidx}: {hand_str(h['cards'])} = {total} — bust!"
         )
         p.advance_hand()
         if not await _check_and_resolve(bot):
@@ -1026,7 +1034,7 @@ async def _cmd_hit(bot: BaseBot, user: User):
         h["status"] = "stood"
         _save_player_state(p)
         _save_table_state()
-        await bot.highrise.chat(f"🃏 @{p.username} H{hidx}: 21 — auto-stand!")
+        await bot.highrise.chat(f"🃏 {_dn(p)} H{hidx}: 21 — auto-stand!")
         p.advance_hand()
         if not await _check_and_resolve(bot):
             _save_player_state(p)
@@ -1034,7 +1042,7 @@ async def _cmd_hit(bot: BaseBot, user: User):
         _save_player_state(p)
         _save_table_state()
         await bot.highrise.chat(
-            f"🃏 @{p.username} hits: {hand_str(h['cards'])} = {total}"
+            f"🃏 {_dn(p)} hits: {hand_str(h['cards'])} = {total}"
         )
 
 
@@ -1053,7 +1061,7 @@ async def _cmd_stand(bot: BaseBot, user: User):
 
     total       = hand_value(h["cards"])
     h["status"] = "stood"
-    await bot.highrise.chat(f"✋ @{p.username} stands at {total}.")
+    await bot.highrise.chat(f"✋ {_dn(p)} stands at {total}.")
     p.advance_hand()
     _save_player_state(p)
     _save_table_state()
@@ -1095,13 +1103,13 @@ async def _cmd_double(bot: BaseBot, user: User):
     if total > 21:
         h["status"] = "bust"
         await bot.highrise.chat(
-            f"💰 @{p.username} doubles to {h['bet']:,}c, "
+            f"💰 {_dn(p)} doubles to {h['bet']:,}c, "
             f"draws {card_str(card)}. H{hidx}: {total} — bust!"
         )
     else:
         h["status"] = "stood"
         await bot.highrise.chat(
-            f"💰 @{p.username} doubles to {h['bet']:,}c, "
+            f"💰 {_dn(p)} doubles to {h['bet']:,}c, "
             f"draws {card_str(card)}. H{hidx}: {total}."
         )
 
@@ -1182,7 +1190,7 @@ async def _cmd_split(bot: BaseBot, user: User):
         p.active_hand_idx = idx + 2
         _save_player_state(p)
         _save_table_state()              # shoe saved after second card
-        await bot.highrise.chat(f"✂️ @{p.username} splits Aces. One card each.")
+        await bot.highrise.chat(f"✂️ {_dn(p)} splits Aces. One card each.")
         h1_str = f"H{idx+1}: {cards_a}={val_a} stood"
         h2_str = f"H{idx+2}: {cards_b}={val_b} stood"
         line   = f"{h1_str} | {h2_str}"
@@ -1203,7 +1211,7 @@ async def _cmd_split(bot: BaseBot, user: User):
         stat_b = "stood" if val_b == 21 else "wait"
         _save_player_state(p)
         _save_table_state()              # shoe saved after second card
-        await bot.highrise.chat(f"✂️ @{p.username} splits {r1}s.")
+        await bot.highrise.chat(f"✂️ {_dn(p)} splits {r1}s.")
         h1_str = f"H{idx+1}: {cards_a}={val_a} {stat_a}"
         h2_str = f"H{idx+2}: {cards_b}={val_b} {stat_b}"
         line   = f"{h1_str} | {h2_str}"

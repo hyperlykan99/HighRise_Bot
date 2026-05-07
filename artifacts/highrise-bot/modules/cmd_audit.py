@@ -94,7 +94,7 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     "settimeexp", "settimeexpcap", "settimeexptick", "settimeexpbonus",
     "timeexpstatus",
     # ── display format settings ───────────────────────────────────────────────
-    "displaybadges", "displaytitles", "displayformat",
+    "displaybadges", "displaytitles", "displayformat", "displaytest",
     # ── roles ────────────────────────────────────────────────────────────────
     "addowner", "removeowner",
     "addmanager", "removemanager",
@@ -366,7 +366,7 @@ HELP_CMDS: frozenset[str] = frozenset({
     "howtoplay", "gameguide", "games",
     "settimeexp", "settimeexpcap", "settimeexptick", "settimeexpbonus",
     "timeexpstatus",
-    "displaybadges", "displaytitles", "displayformat",
+    "displaybadges", "displaytitles", "displayformat", "displaytest",
     "casinosettings", "casinolimits", "casinotoggles",
     "setbjlimits", "setrbjlimits", "setbjactiontimer", "setrbjactiontimer",
     "setbjmaxsplits", "setrbjmaxsplits",

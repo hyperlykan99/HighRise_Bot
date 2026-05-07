@@ -794,10 +794,12 @@ async def handle_heart(bot: BaseBot, user: User, args: list[str]) -> None:
             await bot.highrise.react("heart", target_user.id)
         except Exception:
             pass
-    result = db.give_heart(user.username, target_name)
+    result      = db.give_heart(user.username, target_name)
+    sender_disp = db.get_display_name(user.id, user.username)
+    target_disp = db.get_display_name_by_username(target_name)
     await bot.highrise.chat(
-        f"💖 @{user.username} sent a heart to @{target_name}. "
-        f"@{target_name} has {result['total']} hearts."[:249]
+        f"💖 {sender_disp} sent a heart to {target_disp}. "
+        f"{target_disp} has {result['total']} hearts."[:249]
     )
 
 
@@ -833,14 +835,14 @@ async def handle_reactheart(bot: BaseBot, user: User, args: list[str]) -> None:
 # ---------------------------------------------------------------------------
 
 _SOCIAL_MSGS = {
-    "hug":      "🤗 @{a} hugged @{b}.",
-    "kiss":     "😘 @{a} kissed @{b}.",
-    "slap":     "👋 @{a} slapped @{b} playfully.",
-    "punch":    "🥊 @{a} playfully punched @{b}.",
-    "highfive": "🙌 @{a} high-fived @{b}!",
-    "boop":     "👆 @{a} booped @{b}'s nose.",
-    "waveat":   "👋 @{a} waved at @{b}.",
-    "cheer":    "🎉 @{a} cheered for @{b}!",
+    "hug":      "🤗 {a} hugged {b}.",
+    "kiss":     "😘 {a} kissed {b}.",
+    "slap":     "👋 {a} slapped {b} playfully.",
+    "punch":    "🥊 {a} playfully punched {b}.",
+    "highfive": "🙌 {a} high-fived {b}!",
+    "boop":     "👆 {a} booped {b}'s nose.",
+    "waveat":   "👋 {a} waved at {b}!",
+    "cheer":    "🎉 {a} cheered for {b}!",
 }
 
 
@@ -861,8 +863,10 @@ async def _do_social(bot: BaseBot, user: User, args: list[str], action: str) -> 
     if db.is_social_blocked(user.username, target_name):
         await _w(bot, user.id, f"@{target_name} has you blocked.")
         return
-    msg = _SOCIAL_MSGS.get(action, f"@{user.username} → @{target_name}").format(
-        a=user.username, b=target_name
+    a_disp = db.get_display_name(user.id, user.username)
+    b_disp = db.get_display_name_by_username(target_name)
+    msg = _SOCIAL_MSGS.get(action, f"{a_disp} → {b_disp}").format(
+        a=a_disp, b=b_disp
     )
     try:
         await bot.highrise.chat(msg[:249])
@@ -1549,8 +1553,9 @@ async def handle_kick(bot: BaseBot, user: User, args: list[str]) -> None:
     try:
         await bot.highrise.moderate_room(target_user.id, "kick")
         db.log_room_action(user.username, target_user.username, "kick", reason)
+        _kicked_disp = db.get_display_name(target_user.id, target_user.username)
         await _w(bot, user.id, f"✅ @{target_user.username} kicked.")
-        await bot.highrise.chat(f"🚫 @{target_user.username} was kicked."[:249])
+        await bot.highrise.chat(f"🚫 {_kicked_disp} was kicked."[:249])
     except Exception:
         await _w(bot, user.id, "Kick not supported by current API.")
 

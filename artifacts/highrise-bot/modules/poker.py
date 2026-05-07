@@ -78,6 +78,23 @@ def _fc(card: str) -> str:
 def _fcs(cards: list[str]) -> str:
     return " ".join(_fc(c) for c in cards)
 
+
+def _pdn(p: dict) -> str:
+    """Display name for a poker player/seat dict (user_id + username keys)."""
+    try:
+        return db.get_display_name(p["user_id"], p["username"])
+    except Exception:
+        return f"@{p.get('username', '?')}"
+
+
+def _udn(uid: str, uname: str) -> str:
+    """Display name from separate uid + uname strings."""
+    try:
+        return db.get_display_name(uid, uname)
+    except Exception:
+        return f"@{uname}"
+
+
 def _get_card_marker() -> str:
     try:
         return db.get_room_setting("poker_card_marker", "🂠")
@@ -936,7 +953,7 @@ async def finish_poker_hand(bot: BaseBot, reason: str) -> None:
                 if p["username"] != w["username"]:
                     _pay_seated(p, "fold_return", 0, round_id)
             await _chat(bot,
-                f"{_PK_WIN} — @{w['username']} wins {pot:,}c. Everyone else folded.")
+                f"{_PK_WIN} — {_pdn(w)} wins {pot:,}c. Everyone else folded.")
             db.update_poker_stats(
                 w["user_id"], w["username"],
                 wins=1, total_won=pot, biggest_pot=pot,
@@ -1096,7 +1113,7 @@ async def finish_poker_hand(bot: BaseBot, reason: str) -> None:
                         s["table_stack"], f"Poker table-close cash-out"
                     )
                     await _chat(bot,
-                        f"👋 @{s['username']} cashed out {s['table_stack']}c.")
+                        f"👋 {_pdn(s)} cashed out {s['table_stack']}c.")
         _set("table_closing", 0)
         _full_clear_table()
         await _chat(bot, "♠️ Poker table closed. /poker join <amt> to open.")
@@ -1508,9 +1525,11 @@ async def _start_hand(bot: BaseBot) -> None:
 
     # ── Announce hand start (before dealing so players know what's coming) ──
     if blinds_on:
+        _sb_disp = db.get_display_name(seated[sb_idx]["user_id"], sb_name)
+        _bb_disp = db.get_display_name(seated[bb_idx]["user_id"], bb_name)
         await _chat(bot, (
             f"{_PK_DEALER}: Hand #{hand_num} | "
-            f"{_PK_BLIND} SB:@{sb_name}({sb_amt}c) BB:@{bb_name}({bb_amt}c) | "
+            f"{_PK_BLIND} SB:{_sb_disp}({sb_amt}c) BB:{_bb_disp}({bb_amt}c) | "
             f"{_PK_POT}:{initial_pot:,}c")[:249])
     else:
         order_str = "  ".join(f"@{sp['username']}" for sp in seated)
@@ -1739,11 +1758,12 @@ async def _prompt_player(bot: BaseBot, tbl: dict, p: dict,
     stack = p["stack"]
 
     # ── Public room announcement ──────────────────────────────────────────
+    _p_disp = _pdn(p)
     if owe > 0:
-        pub = (f"{_PK_TURN} @{p['username']} | "
+        pub = (f"{_PK_TURN} {_p_disp} | "
                f"{_PK_POT}:{pot:,}c | Call:{owe:,}c | /call /r /fold /allin")
     else:
-        pub = (f"{_PK_TURN} @{p['username']} | "
+        pub = (f"{_PK_TURN} {_p_disp} | "
                f"{_PK_POT}:{pot:,}c | /check /r /fold /allin")
     await _chat(bot, pub[:249])
 
@@ -1824,7 +1844,8 @@ async def _turn_timeout(bot: BaseBot, uid: str, uname: str,
 
     if must_call and tbl["current_bet"] > p["current_bet"]:
         _save_player(round_id, uid, status="folded", acted=1)
-        await _chat(bot, f"⏰ {_PK_FOLD} — @{uname} timed out.")
+        _td = _udn(uid, uname)
+        await _chat(bot, f"⏰ {_PK_FOLD} — {_td} timed out.")
         # Idle-strike tracking
         sp = _get_seated(uname)
         if sp and _s("autositout_enabled", 0):
@@ -1834,10 +1855,10 @@ async def _turn_timeout(bot: BaseBot, uid: str, uname: str,
             if strikes >= limit:
                 _update_seated(uname, status="sitting_out", idle_strikes=0)
                 await _chat(bot,
-                    f"⚠️ @{uname} auto-sat-out after {limit} idle timeouts.")
+                    f"⚠️ {_td} auto-sat-out after {limit} idle timeouts.")
     else:
         _save_player(round_id, uid, acted=1)
-        await _chat(bot, f"⏰ {_PK_CHECK} — @{uname} timed out.")
+        await _chat(bot, f"⏰ {_PK_CHECK} — {_udn(uid, uname)} timed out.")
 
     await advance_turn_or_round(bot)
 
@@ -1849,7 +1870,7 @@ async def _do_check(bot: BaseBot, round_id: str, uid: str, uname: str) -> None:
     if sp:
         _update_seated(uname, idle_strikes=0)
     _save_player(round_id, uid, acted=1)
-    await _chat(bot, f"{_PK_CHECK} — @{uname}")
+    await _chat(bot, f"{_PK_CHECK} — {_udn(uid, uname)}")
     await advance_turn_or_round(bot)
 
 
@@ -1873,7 +1894,7 @@ async def _do_call(bot: BaseBot, round_id: str, p: dict, tbl: dict) -> None:
                      status="allin", acted=1, allin_amount=commit)
         _save_table(pot=new_pot)
         await _chat(bot,
-            f"{_PK_ALLIN} — @{p['username']} calls all-in for {commit:,}c | {_PK_POT}: {new_pot:,}c")
+            f"{_PK_ALLIN} — {_pdn(p)} calls all-in for {commit:,}c | {_PK_POT}: {new_pot:,}c")
         await advance_turn_or_round(bot)
         return
     new_stack   = p["stack"] - owe
@@ -1884,7 +1905,7 @@ async def _do_call(bot: BaseBot, round_id: str, p: dict, tbl: dict) -> None:
                  stack=new_stack, current_bet=new_cbet,
                  total_contributed=new_contrib, acted=1)
     _save_table(pot=new_pot)
-    await _chat(bot, f"{_PK_CALL} — @{p['username']} called {owe:,}c | {_PK_POT}: {new_pot:,}c")
+    await _chat(bot, f"{_PK_CALL} — {_pdn(p)} called {owe:,}c | {_PK_POT}: {new_pot:,}c")
     await advance_turn_or_round(bot)
 
 
@@ -1925,14 +1946,14 @@ async def _do_raise(bot: BaseBot, round_id: str, p: dict, tbl: dict,
     conn.close()
     _update_seated(p["username"], idle_strikes=0)
     await _chat(bot,
-        f"{_PK_RAISE} — @{p['username']} +{raise_by:,}c | New bet: {raise_to:,}c")
+        f"{_PK_RAISE} — {_pdn(p)} +{raise_by:,}c | New bet: {raise_to:,}c")
     await advance_turn_or_round(bot)
 
 
 async def _do_fold(bot: BaseBot, round_id: str, p: dict) -> None:
     _save_player(round_id, p["user_id"], status="folded", acted=1)
     _update_seated(p["username"], idle_strikes=0)
-    await _chat(bot, f"{_PK_FOLD} — @{p['username']}")
+    await _chat(bot, f"{_PK_FOLD} — {_pdn(p)}")
     await advance_turn_or_round(bot)
 
 
@@ -1963,7 +1984,7 @@ async def _do_allin(bot: BaseBot, round_id: str, p: dict, tbl: dict) -> None:
         conn.commit()
         conn.close()
     _update_seated(p["username"], idle_strikes=0)
-    await _chat(bot, f"{_PK_ALLIN} — @{p['username']} all-in {commit:,}c | {_PK_POT}: {new_pot:,}c")
+    await _chat(bot, f"{_PK_ALLIN} — {_pdn(p)} all-in {commit:,}c | {_PK_POT}: {new_pot:,}c")
     db.update_poker_stats(p["user_id"], p["username"], allins=1)
     await advance_turn_or_round(bot)
 
@@ -2177,7 +2198,7 @@ async def _handle_leave(bot: BaseBot, user: User) -> None:
             user.id, user.username, stack,
             "Poker cash-out (immediate leave)"
         )
-    await _chat(bot, f"👋 @{user.username} left table. Cashed out {stack}c.")
+    await _chat(bot, f"👋 {db.get_display_name(user.id, user.username)} left table. Cashed out {stack}c.")
 
     # If table empty, close it
     remaining = _get_all_seated()
