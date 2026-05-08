@@ -221,6 +221,59 @@ def compute_final_value(base_value: int, weight: float) -> int:
     return max(0, int(base_value * weight * scale))
 
 
+# ---------------------------------------------------------------------------
+# Rarity value caps
+# ---------------------------------------------------------------------------
+
+_DEFAULT_RARITY_CAPS: dict[str, int] = {
+    "common":     200,
+    "uncommon":   500,
+    "rare":       2_500,
+    "epic":       25_000,
+    "legendary":  250_000,
+    "mythic":     750_000,
+    "ultra_rare": 1_500_000,
+    "prismatic":  1_500_000,
+    "exotic":     5_000_000,
+}
+
+VALID_CAP_RARITIES: frozenset[str] = frozenset(_DEFAULT_RARITY_CAPS)
+
+
+def get_rarity_cap(rarity: str) -> int:
+    """Return configured max final payout for a rarity (0 = uncapped)."""
+    key     = f"rarity_cap_{rarity.lower()}"
+    raw     = db.get_mine_setting(key, "")
+    default = _DEFAULT_RARITY_CAPS.get(rarity.lower(), 0)
+    if raw == "":
+        return default
+    try:
+        return max(0, int(raw))
+    except ValueError:
+        return default
+
+
+def set_rarity_cap(rarity: str, amount: int) -> None:
+    """Persist a configurable rarity cap to mining_settings."""
+    db.set_mine_setting(f"rarity_cap_{rarity.lower()}", str(amount))
+
+
+def reset_rarity_caps() -> None:
+    """Restore all rarity caps to their defaults."""
+    for rarity, amount in _DEFAULT_RARITY_CAPS.items():
+        db.set_mine_setting(f"rarity_cap_{rarity}", str(amount))
+
+
+def get_multiplier_cap(is_blessing: bool = False) -> float:
+    """Return the ore-value multiplier cap (normal 3x, blessing 5x)."""
+    key     = "blessing_multiplier_cap" if is_blessing else "normal_multiplier_cap"
+    default = "5.0" if is_blessing else "3.0"
+    try:
+        return float(db.get_mine_setting(key, default))
+    except ValueError:
+        return 5.0 if is_blessing else 3.0
+
+
 def weights_enabled() -> bool:
     return get_weight_setting("weights_enabled", "1") == "1"
 

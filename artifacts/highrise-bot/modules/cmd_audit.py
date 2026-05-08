@@ -275,6 +275,12 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     # A2: ore chance commands
     "orechances", "orechance",
     "setorechance", "setraritychance", "reloadorechances",
+    # Economy panel + rarity caps
+    "economypanel", "economybalance", "miningeconomy",
+    "economysettings",
+    "economycap", "economycaps",
+    "setraritycap", "resetraritycaps",
+    "payoutlogs", "minepayoutlogs", "biggestpayouts",
     # B-project: mining event status commands (public)
     "mineevents", "mineboosts", "luckstatus", "eventeffects",
     # B-project: mining event start commands (manager)
@@ -380,6 +386,12 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     # ── Gold tip commands (new) ───────────────────────────────────────────────
     "goldtipsettings", "setgoldrate",
     "goldtiplogs", "mygoldtips", "goldtipstatus",
+    # ── Economy panel + rarity caps (new) ────────────────────────────────────
+    "economypanel", "economybalance", "miningeconomy",
+    "economysettings",
+    "economycap", "economycaps",
+    "setraritycap", "resetraritycaps",
+    "payoutlogs", "minepayoutlogs", "biggestpayouts",
 })
 
 # ---------------------------------------------------------------------------

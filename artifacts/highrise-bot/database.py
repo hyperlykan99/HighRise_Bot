@@ -19,7 +19,9 @@ Column notes for equipped cosmetics:
                                           used by get_equipped_ids() for benefit lookups
 """
 
+import fcntl
 import math
+import os
 import sqlite3
 from datetime import date
 from typing import Optional
@@ -32,7 +34,7 @@ import config
 # ---------------------------------------------------------------------------
 
 def get_connection() -> sqlite3.Connection:
-    conn = sqlite3.connect(config.DB_PATH)
+    conn = sqlite3.connect(config.DB_PATH, timeout=30)
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -42,8 +44,25 @@ def get_connection() -> sqlite3.Connection:
 # ---------------------------------------------------------------------------
 
 def init_db():
-    """Create all tables if needed, then run safe column migrations."""
+    """Create all tables if needed, then run safe column migrations.
+
+    Uses an exclusive OS file-lock so only one bot process runs this at a
+    time — prevents 'database is locked' races on simultaneous multi-bot startup.
+    """
+    _lock_path = config.DB_PATH + ".initlock"
+    _lock_fd   = open(_lock_path, "w")
+    try:
+        fcntl.flock(_lock_fd, fcntl.LOCK_EX)
+        _init_db_locked()
+    finally:
+        fcntl.flock(_lock_fd, fcntl.LOCK_UN)
+        _lock_fd.close()
+
+
+def _init_db_locked():
+    """Inner init — called only while holding the process file lock."""
     conn = get_connection()
+    conn.execute("PRAGMA journal_mode=WAL")
 
     conn.execute("""
         CREATE TABLE IF NOT EXISTS users (
@@ -1323,6 +1342,29 @@ def _migrate_db():
         "expires_at TEXT NOT NULL DEFAULT '', "
         "used_at TEXT, "
         "status TEXT NOT NULL DEFAULT 'pending')",
+        # ── Mining payout logs ────────────────────────────────────────────────
+        "CREATE TABLE IF NOT EXISTS mining_payout_logs ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "username TEXT NOT NULL, "
+        "ore_id TEXT NOT NULL DEFAULT '', "
+        "ore_name TEXT NOT NULL DEFAULT '', "
+        "rarity TEXT NOT NULL DEFAULT '', "
+        "weight_kg REAL, "
+        "base_value INTEGER DEFAULT 0, "
+        "weight_mult REAL DEFAULT 1.0, "
+        "event_mult REAL DEFAULT 1.0, "
+        "final_value INTEGER DEFAULT 0, "
+        "cap_applied INTEGER DEFAULT 0, "
+        "cap_amount INTEGER DEFAULT 0, "
+        "mined_at TEXT DEFAULT (datetime('now')))",
+        "CREATE INDEX IF NOT EXISTS idx_mpl_uname ON mining_payout_logs(username)",
+        "CREATE INDEX IF NOT EXISTS idx_mpl_fval  ON mining_payout_logs(final_value DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_mpl_at    ON mining_payout_logs(mined_at DESC)",
+        # ── Legendary ore value rescale (idempotent) ──────────────────────────
+        "UPDATE mining_items SET sell_value=8000  WHERE item_id='platinum_ore' AND sell_value=3000",
+        "UPDATE mining_items SET sell_value=15000 WHERE item_id='emerald'      AND sell_value=5000",
+        "UPDATE mining_items SET sell_value=15000 WHERE item_id='ruby'         AND sell_value=5000",
+        "UPDATE mining_items SET sell_value=15000 WHERE item_id='sapphire'     AND sell_value=5000",
     ]:
         try:
             conn.execute(sql)
@@ -6468,10 +6510,10 @@ _MINING_ITEMS_SEED = [
     ("bauxite",             "Bauxite",            "🟤", "epic",      "mineral", 800),
     ("jade",                "Jade",               "🟢", "epic",      "gemstone", 1200),
     ("topaz",               "Topaz",              "🟨", "epic",      "gemstone", 1500),
-    ("platinum_ore",        "Platinum Ore",       "⚙️", "legendary", "ore", 3000),
-    ("emerald",             "Emerald",            "💚", "legendary", "gemstone", 5000),
-    ("ruby",                "Ruby",               "❤️", "legendary", "gemstone", 5000),
-    ("sapphire",            "Sapphire",           "💙", "legendary", "gemstone", 5000),
+    ("platinum_ore",        "Platinum Ore",       "⚙️", "legendary", "ore",      8000),
+    ("emerald",             "Emerald",            "💚", "legendary", "gemstone", 15000),
+    ("ruby",                "Ruby",               "❤️", "legendary", "gemstone", 15000),
+    ("sapphire",            "Sapphire",           "💙", "legendary", "gemstone", 15000),
     ("diamond",             "Diamond",            "💎", "mythic",    "gemstone", 15000),
     ("opal",                "Opal",               "🌈", "mythic",    "gemstone", 20000),
     ("black_opal",          "Black Opal",         "🌑", "mythic",    "gemstone", 35000),
@@ -6916,6 +6958,62 @@ def log_mine(username: str, action: str, item_id: str = "", qty: int = 0,
         conn.close()
     except Exception:
         pass
+
+
+def log_mining_payout(
+    username: str,
+    ore_id: str,
+    ore_name: str,
+    rarity: str,
+    weight_kg: float | None,
+    base_value: int,
+    weight_mult: float,
+    event_mult: float,
+    final_value: int,
+    cap_applied: bool,
+    cap_amount: int,
+) -> None:
+    try:
+        conn = get_connection()
+        conn.execute(
+            """INSERT INTO mining_payout_logs
+               (username, ore_id, ore_name, rarity, weight_kg, base_value,
+                weight_mult, event_mult, final_value, cap_applied, cap_amount)
+               VALUES (lower(?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (username, ore_id, ore_name, rarity, weight_kg, base_value,
+             weight_mult, event_mult, final_value, 1 if cap_applied else 0, cap_amount),
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+
+def get_payout_logs(limit: int = 20, username: str | None = None) -> list:
+    conn = get_connection()
+    if username:
+        rows = conn.execute(
+            "SELECT * FROM mining_payout_logs WHERE lower(username)=lower(?)"
+            " ORDER BY mined_at DESC LIMIT ?",
+            (username, limit),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT * FROM mining_payout_logs ORDER BY mined_at DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_biggest_payouts(limit: int = 10) -> list:
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT * FROM mining_payout_logs ORDER BY final_value DESC LIMIT ?",
+        (limit,),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
 
 
 # ── Leaderboard ───────────────────────────────────────────────────────────────

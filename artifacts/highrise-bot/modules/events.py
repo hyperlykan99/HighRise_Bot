@@ -86,7 +86,7 @@ EVENTS: dict[str, dict] = {
     },
     "ore_value_surge": {
         "name": "Ore Value Surge",
-        "desc": "Ore value 2x — sell big!",
+        "desc": "Ore value 1.5x — sell big!",
         "event_type": "mining",
     },
     "double_mxp": {
@@ -189,7 +189,7 @@ def _apply_mining_event_effects(base: dict, event_id: str) -> None:
     elif event_id == "heavy_ore_rush":
         base["weight_luck_boost"] = max(base["weight_luck_boost"], 0.25)
     elif event_id == "ore_value_surge":
-        base["ore_value_multiplier"] = max(base["ore_value_multiplier"], 2.0)
+        base["ore_value_multiplier"] = max(base["ore_value_multiplier"], 1.5)
     elif event_id in ("double_mxp", "mining_double_mxp"):
         base["mxp_multiplier"] = max(base["mxp_multiplier"], 2.0)
     elif event_id == "mining_haste":
@@ -769,7 +769,7 @@ def _format_mining_event_effects(event_id: str) -> str:
     _map = {
         "lucky_rush":            "🍀 Luck +25%",
         "heavy_ore_rush":        "⚖️ Weight +25%",
-        "ore_value_surge":       "💰 Value 2x",
+        "ore_value_surge":       "💰 Value 1.5x",
         "double_mxp":            "⭐ MXP 2x",
         "mining_haste":          "⏳ Cooldown -25%",
         "legendary_rush":        "💎 Leg+ chance +50%",

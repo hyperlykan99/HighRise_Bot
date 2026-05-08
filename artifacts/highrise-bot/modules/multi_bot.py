@@ -456,6 +456,12 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "orechances": "miner", "orechance": "miner",
     "setorechance": "miner", "setraritychance": "miner",
     "reloadorechances": "miner",
+    "economypanel": "miner", "economybalance": "miner", "miningeconomy": "miner",
+    "economysettings": "miner",
+    "economycap": "miner", "economycaps": "miner",
+    "setraritycap": "miner", "resetraritycaps": "miner",
+    "payoutlogs": "miner", "minepayoutlogs": "miner",
+    "biggestpayouts": "miner",
 }
 
 # Friendly display names for modes

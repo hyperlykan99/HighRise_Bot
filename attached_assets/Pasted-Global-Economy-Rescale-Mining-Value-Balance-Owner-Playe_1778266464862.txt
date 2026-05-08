@@ -1,0 +1,429 @@
+Global Economy Rescale + Mining Value Balance + Owner/Player Fairness
+
+Focus on balancing the whole economy, especially mining values, rarity payouts, event multipliers, caps, and coin sinks.
+
+Do not change bot tokens.
+Do not change room ID.
+Do not reset balances.
+Do not wipe player data.
+Do not remove existing player ores/items.
+Do not break mining, poker, blackjack, bank, shop, events, time EXP, badges, titles, or command routing.
+
+Goal:
+Make the economy fair to players and safe for the owner.
+
+Players should feel rewarded and excited.
+Owner should be protected from inflation and unlimited coin farming.
+
+==================================================
+PART 1 — ECONOMY DESIGN GOAL
+==================================================
+
+Use this economy philosophy:
+
+Common/Rare = steady small income
+Epic = exciting good find
+Legendary = strong public-announcement reward
+Mythic = rare flex reward
+Prismatic = jackpot tier
+Exotic = ultra jackpot tier
+
+Exotic can reach 1,000,000+ coins, but only when:
+- the ore is rare/top-tier
+- the weight roll is high
+- or an event boost is active
+
+Do NOT make every Exotic automatically worth 1,000,000+ coins.
+
+==================================================
+PART 2 — MINING VALUE TARGETS
+==================================================
+
+Rescale mining values so average final values after weight are roughly:
+
+Common:
+- Average final value: 10–100 coins
+- Max normal value: 200 coins
+
+Rare:
+- Average final value: 150–1,000 coins
+- Max normal value: 2,500 coins
+
+Epic:
+- Average final value: 2,000–10,000 coins
+- Max normal value: 25,000 coins
+
+Legendary:
+- Average final value: 25,000–100,000 coins
+- Max normal value: 250,000 coins
+
+Mythic:
+- Average final value: 100,000–350,000 coins
+- Max normal value: 750,000 coins
+
+Prismatic:
+- Average final value: 300,000–900,000 coins
+- Max normal value: 1,500,000 coins
+
+Exotic:
+- Average final value: 750,000–2,000,000 coins
+- Max normal value: 5,000,000 coins
+
+Important:
+These are target ranges after weight calculation, not necessarily base values.
+
+==================================================
+PART 3 — EXOTIC VALUE RULE
+==================================================
+
+Exotic should be the top rarity.
+
+Recommended Exotic behavior:
+- Weak Exotic + low weight = 500k–900k
+- Normal Exotic = 1M–2M
+- Heavy/top Exotic = 3M–5M
+
+Example:
+Blood Diamond base value: 100,000
+Weight: 5.2kg
+No event:
+100,000 × 5.2 = 520,000 coins
+
+With Ore Value Surge 1.5x:
+520,000 × 1.5 = 780,000 coins
+
+With Admin’s Mining Blessing 2x:
+520,000 × 2 = 1,040,000 coins
+
+Top Exotic example:
+Forbidden Core base value: 250,000
+Weight: 4kg
+Final value:
+250,000 × 4 = 1,000,000 coins
+
+This means 1M+ is possible and exciting, but not automatic.
+
+==================================================
+PART 4 — FINAL VALUE FORMULA
+==================================================
+
+Use this formula:
+
+final_value = base_value × weight_multiplier × event_multiplier
+
+Recommended:
+weight_multiplier = weight
+
+If current economy becomes too strong, use configurable scale:
+
+final_value = base_value × (1 + ((weight - 1) × weight_value_multiplier_scale))
+
+Default:
+weight_value_multiplier_scale = 1.0
+
+Round final value to a clean integer.
+
+Do not retroactively change value of old inventory unless the sell system already calculates value at sell time.
+
+==================================================
+PART 5 — RARITY VALUE CAPS
+==================================================
+
+Add configurable max payout caps by rarity to protect the economy.
+
+Default caps:
+
+Common max final value: 200
+Rare max final value: 2,500
+Epic max final value: 25,000
+Legendary max final value: 250,000
+Mythic max final value: 750,000
+Prismatic max final value: 1,500,000
+Exotic max final value: 5,000,000
+
+Cap applies after:
+- base value
+- weight multiplier
+- event multiplier
+
+But allow owner/admin to configure caps.
+
+Commands:
+- /economycap
+- /economycaps
+- /setraritycap <rarity> <amount>
+- /resetraritycaps
+
+Example:
+/setraritycap exotic 5000000
+
+==================================================
+PART 6 — RARITY CHANCE SCALE
+==================================================
+
+Keep or rebalance mining rarity chances to protect owner economy.
+
+Recommended rarity tier distribution:
+
+Common: 70%
+Rare: 20%
+Epic: 7%
+Legendary: 2.5%
+Mythic: 0.45%
+Prismatic: 0.049%
+Exotic: 0.001%
+
+Readable:
+Common: about 1 in 1.4
+Rare: about 1 in 5
+Epic: about 1 in 14
+Legendary: about 1 in 40
+Mythic: about 1 in 222
+Prismatic: about 1 in 2,041
+Exotic: about 1 in 100,000
+
+Specific Exotic ores should be much rarer:
+
+Blood Diamond: around 1 in 500,000
+Hellfire Ruby: around 1 in 1,000,000
+Forbidden Core: around 1 in 5,000,000+
+
+Do not make Exotic too common.
+
+==================================================
+PART 7 — EVENT MULTIPLIER BALANCE
+==================================================
+
+Events should help players but not break the economy.
+
+Recommended event balance:
+
+Ore Value Surge:
+- Normal auto event value boost: 1.5x
+- Not 2x by default
+
+Admin’s Mining Blessing:
+- Admin/owner-controlled event
+- Can use 2x ore value
+
+Prismatic Hunt:
+- 2x Prismatic chance
+- Still rare
+
+Exotic Hunt:
+- 2x Exotic chance
+- Still extremely rare
+
+Lucky Rush:
+- +25% mining luck
+
+Heavy Ore Rush:
+- +25% weight luck
+
+Double MXP:
+- 2x mining EXP only, not coin value
+
+Mining Haste:
+- -25% cooldown
+- Must respect minimum cooldown
+
+==================================================
+PART 8 — MULTIPLIER STACKING CAPS
+==================================================
+
+Prevent infinite stacking.
+
+Add final multiplier cap.
+
+Normal event multiplier cap:
+- max 3x total value multiplier
+
+Admin’s Mining Blessing cap:
+- max 5x total value multiplier
+
+Example:
+If player has item boost + event boost + blessing:
+combined multiplier should not exceed cap.
+
+Stacking rule:
+Use additive percentage boosts when possible.
+
+Example:
+Item boost +20%
+Event boost +50%
+
+boost_multiplier = 1 + 0.20 + 0.50 = 1.70
+
+Do not multiply endlessly like:
+1.2 × 1.5 × 2 × 2 unless capped.
+
+==================================================
+PART 9 — OWNER PROTECTION / COIN SINKS
+==================================================
+
+Add or prepare coin sinks so coins leave the economy.
+
+Recommended coin sinks:
+- Tool upgrades
+- Mining permits
+- Badge/title shop
+- Poker/blackjack table fees
+- Event entry fees
+- Ore appraisal fee
+- Leaderboard challenge fee
+- Cosmetic purchases
+- Premium emotes
+- Room perks
+- Reroll ore weight fee if implemented later
+
+Do not force all sinks now if not existing.
+But add economy panel visibility so owner can see possible coin sinks.
+
+==================================================
+PART 10 — ECONOMY STAFF PANEL
+==================================================
+
+Add a staff economy/mining balance panel.
+
+Commands:
+- /economypanel
+- /economybalance
+- /miningeconomy
+- /economysettings
+
+Panel should show:
+- rarity value caps
+- event multiplier caps
+- current ore value scale
+- weight scale
+- current active event multipliers
+- highest recent payouts
+- top coin sources
+- top coin sinks
+- current Exotic cap
+- current Prismatic cap
+- warning if multiplier stack is too high
+
+Example:
+
+Economy Panel:
+Mining Value Scale: 1.0
+Normal Multiplier Cap: 3x
+Blessing Multiplier Cap: 5x
+Exotic Cap: 5,000,000
+Prismatic Cap: 1,500,000
+Ore Value Surge: 1.5x
+Recent Highest Payout: 820,000
+
+==================================================
+PART 11 — PAYOUT LOGS
+==================================================
+
+Add or improve mining payout logs.
+
+Track:
+- user_id
+- username
+- ore_name
+- rarity
+- weight
+- base_value
+- weight_multiplier
+- event_multiplier
+- final_value
+- cap_applied true/false
+- cap_amount
+- mined_at
+
+Command:
+- /payoutlogs
+- /minepayoutlogs
+- /biggestpayouts
+
+Owner/staff only.
+
+Purpose:
+Owner can monitor inflation and see if payouts are too high.
+
+==================================================
+PART 12 — PLAYER-FRIENDLY MESSAGES
+==================================================
+
+When cap is applied, do not make it feel negative to players.
+
+Do not say:
+“Your reward was nerfed.”
+
+Better:
+“Jackpot value reached.”
+
+Example:
+GreatestProspector:
+💰 Jackpot Value
+Your Exotic find reached the max jackpot value: 5,000,000 coins!
+
+Or just silently apply the cap unless staff debugging is enabled.
+
+==================================================
+PART 13 — COMMAND INTEGRITY
+==================================================
+
+For every new command:
+1. Add route.
+2. Add handler.
+3. Add commandtest support.
+4. Add active registry entry.
+5. Add owner map.
+6. Owner must not be UNKNOWN.
+
+Commands to verify:
+- /commandtest /economypanel
+- /commandtest /economybalance
+- /commandtest /miningeconomy
+- /commandtest /economysettings
+- /commandtest /economycap
+- /commandtest /economycaps
+- /commandtest /setraritycap
+- /commandtest /resetraritycaps
+- /commandtest /payoutlogs
+- /commandtest /minepayoutlogs
+- /commandtest /biggestpayouts
+
+/checkcommands all should show:
+Missing 0
+NoOwner 0
+
+If a command is not implemented, do not add it as active.
+
+==================================================
+PART 14 — SAFETY
+==================================================
+
+Do not:
+- wipe player balances
+- wipe ores
+- wipe mining records
+- reset player levels
+- break mining
+- break sell system
+- break event boosts
+- make Exotic common
+- make every Exotic automatically 1M+
+- allow infinite multiplier stacking
+- expose secrets/tokens/env vars
+
+==================================================
+FINAL REPORT
+==================================================
+
+After finishing, tell me:
+1. Files changed
+2. What economy values changed
+3. New rarity value targets
+4. New rarity caps
+5. How Exotic payout is balanced
+6. How event multiplier caps work
+7. Whether old ores/inventory were changed
+8. How coin sinks are represented
+9. How payout logs work
+10. Exact tests to run

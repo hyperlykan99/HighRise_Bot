@@ -470,6 +470,18 @@ REGISTRY: dict[str, Cmd] = {
     "setraritychance":  Cmd("miner","mining", False, False, True,  perm="manager"),
     "reloadorechances": Cmd("miner","mining", False, False, True,  perm="manager"),
 
+    # ── Economy panel + rarity caps ──────────────────────────────────────────
+    "economypanel":     Cmd("miner","economy", False, True,  False, perm="manager",
+                            aliases=("economybalance","miningeconomy")),
+    "economysettings":  Cmd("miner","economy", False, True,  False, perm="manager"),
+    "economycap":       Cmd("miner","economy", False, True,  False, perm="manager",
+                            aliases=("economycaps",)),
+    "setraritycap":     Cmd("miner","economy", False, False, True,  perm="manager"),
+    "resetraritycaps":  Cmd("miner","economy", False, False, True,  perm="manager"),
+    "payoutlogs":       Cmd("miner","economy", False, True,  False, perm="manager",
+                            aliases=("minepayoutlogs",)),
+    "biggestpayouts":   Cmd("miner","economy", False, True,  False, perm="manager"),
+
     # ── Miner: ore info / price commands (A3/A4) ─────────────────────────────
     "oreprices":        Cmd("miner","mining", False, True,  False,
                             aliases=("orevalues", "orevalue")),

@@ -28,6 +28,8 @@ from modules.mining_weights import (
     generate_weight,
     compute_final_value,
     weights_enabled,
+    get_rarity_cap,
+    get_multiplier_cap,
     add_weight_record,
     should_announce,
 )
@@ -479,12 +481,23 @@ async def handle_mine(bot: BaseBot, user: User) -> None:
         _wl = _event_eff.get("weight_luck_boost", 0.0)
         if _wl > 0:
             ore_weight = round(ore_weight * (1 + _wl), 2)
-    final_val  = (compute_final_value(item.get("sell_value", 0), ore_weight)
-                  if ore_weight is not None else 0)
-    # Apply ore_value_multiplier from B-project ore_value_surge event
-    _val_mult = _event_eff.get("ore_value_multiplier", 1.0)
+    _base_val    = item.get("sell_value", 0)
+    final_val    = (compute_final_value(_base_val, ore_weight)
+                    if ore_weight is not None else 0)
+    _weight_mult = ore_weight if ore_weight is not None else 1.0
+    # Apply ore_value_multiplier with configurable stacking cap
+    _val_mult    = _event_eff.get("ore_value_multiplier", 1.0)
+    _is_blessing = _event_eff.get("mining_boost", False)
+    _mult_cap    = get_multiplier_cap(_is_blessing)
+    _val_mult    = min(_val_mult, _mult_cap)
     if _val_mult > 1.0 and final_val > 0:
         final_val = int(final_val * _val_mult)
+    # Apply rarity value cap (jackpot ceiling, staff-configurable)
+    _rarity_cap  = get_rarity_cap(item["rarity"])
+    _cap_applied = False
+    if _rarity_cap > 0 and final_val > _rarity_cap:
+        _cap_applied = True
+        final_val    = _rarity_cap
 
     try:
         with _MINE_WRITE_LOCK:
@@ -499,6 +512,11 @@ async def handle_mine(bot: BaseBot, user: User) -> None:
             )
             db.add_ore(uname, item["item_id"], qty)
             db.log_mine(uname, "mine", item["item_id"], qty, 0, item["rarity"])
+            db.log_mining_payout(
+                uname, item["item_id"], item["name"], item["rarity"],
+                ore_weight, _base_val, _weight_mult, _val_mult, final_val,
+                _cap_applied, _rarity_cap if _cap_applied else 0,
+            )
     except _FileLockTimeout:
         await _w(bot, user.id, "⏳ Mining DB busy. Try /mine again.")
         return

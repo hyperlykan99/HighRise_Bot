@@ -338,6 +338,15 @@ from modules.mining import (
     handle_setorechance, handle_setraritychance, handle_reloadorechances,
     MINE_HELP_PAGES,
 )
+from modules.economy import (
+    handle_economypanel,
+    handle_economysettings,
+    handle_economycap,
+    handle_setraritycap,
+    handle_resetraritycaps,
+    handle_payoutlogs,
+    handle_biggestpayouts,
+)
 from modules.control_panel import (
     handle_control, handle_ownerpanel, handle_managerpanel,
     handle_status, handle_roomstatus,
@@ -2143,7 +2152,6 @@ class HangoutBot(BaseBot):
 
     async def on_start(self, session_metadata) -> None:
         """Called once when the bot successfully connects to the room."""
-        db.init_db()
         print(f"[SDK] bot mode={BOT_MODE} ready")
         print(f"[HangoutBot] Connected — room {config.ROOM_ID} | DB: {config.DB_PATH}")
         print(f"[HangoutBot] SDK version: {_TIP_SDK_VERSION}")
@@ -3974,6 +3982,27 @@ class HangoutBot(BaseBot):
         elif cmd == "reloadorechances":
             await handle_reloadorechances(self, user)
 
+        elif cmd in {"economypanel", "economybalance", "miningeconomy"}:
+            await handle_economypanel(self, user)
+
+        elif cmd == "economysettings":
+            await handle_economysettings(self, user)
+
+        elif cmd in {"economycap", "economycaps"}:
+            await handle_economycap(self, user)
+
+        elif cmd == "setraritycap":
+            await handle_setraritycap(self, user, args)
+
+        elif cmd == "resetraritycaps":
+            await handle_resetraritycaps(self, user)
+
+        elif cmd in {"payoutlogs", "minepayoutlogs"}:
+            await handle_payoutlogs(self, user, args)
+
+        elif cmd == "biggestpayouts":
+            await handle_biggestpayouts(self, user)
+
         elif cmd == "orebook":
             await handle_orebook(self, user)
 
@@ -4745,6 +4774,7 @@ class HangoutBot(BaseBot):
 
 def run():
     """Connect the bot to Highrise and start the event loop."""
+    db.init_db()
     asyncio.run(
         highrise_main(
             [BotDefinition(
