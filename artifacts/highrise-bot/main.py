@@ -3087,13 +3087,13 @@ class HangoutBot(BaseBot):
             await handle_eventheartbeat(self, user)
 
         elif cmd == "eventcooldowns":
-            await handle_eventcooldowns(self, user)
+            await handle_eventcooldowns(self, user, args)
 
         elif cmd == "seteventcooldown":
             await handle_seteventcooldown(self, user, args)
 
         elif cmd == "eventweights":
-            await handle_eventweights(self, user)
+            await handle_eventweights(self, user, args)
 
         elif cmd == "seteventweight":
             await handle_seteventweight(self, user, args)

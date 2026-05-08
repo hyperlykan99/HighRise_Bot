@@ -4879,6 +4879,33 @@ def get_event_history(limit: int = 5) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def cleanup_expired_history() -> int:
+    """
+    Mark event_history rows with status='active' as 'ended' if their
+    calculated end time (started_at + duration_seconds) has passed.
+    Returns the number of rows updated.
+    """
+    conn = get_connection()
+    cur  = conn.execute(
+        """UPDATE event_history
+           SET   ended_at = COALESCE(ended_at, datetime('now')),
+                 status   = 'ended'
+           WHERE status   = 'active'
+             AND (
+               ended_at IS NOT NULL
+               OR (
+                 duration_seconds IS NOT NULL AND duration_seconds > 0
+                 AND datetime(started_at, '+' || duration_seconds || ' seconds')
+                     <= datetime('now')
+               )
+             )"""
+    )
+    updated = cur.rowcount
+    conn.commit()
+    conn.close()
+    return updated
+
+
 # ---------------------------------------------------------------------------
 # Event definitions helpers
 # ---------------------------------------------------------------------------

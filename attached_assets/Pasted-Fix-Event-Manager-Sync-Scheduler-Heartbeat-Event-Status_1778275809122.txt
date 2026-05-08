@@ -1,0 +1,416 @@
+Fix Event Manager Sync + Scheduler Heartbeat + Event Status Display
+
+Focus only on fixing the current Event Manager bugs.
+Do not rebuild the whole event system.
+Do not change bot tokens.
+Do not change room ID.
+Do not reset balances.
+Do not wipe player data.
+Do not break mining, poker, blackjack, bank, shop, AI, security, or command routing.
+
+Current bugs from testing:
+
+1. /eventstatus says:
+   No event is currently active.
+
+   But /aestatus says:
+   Current: Lucky Rush
+
+   Fix:
+   /eventstatus and /aestatus must read from the same active event source.
+
+2. /eventhistory says:
+   Lucky Rush 5m [active/manual]
+
+   But /eventstatus says no event active.
+
+   Fix:
+   Event history, eventstatus, and aestatus must be synced.
+
+3. /aestatus says:
+   Status: ON
+   Interval: 60m
+   Current: Lucky Rush
+   Next auto in N/A
+   Tick: never
+
+   Fix:
+   If auto events are ON, scheduler heartbeat must run and update last tick.
+   Next auto time must be calculated.
+   Next auto should not show N/A unless auto events are OFF.
+
+4. /eventcooldowns and /eventweights are cut off.
+   Event names are truncated badly:
+   Heavy Ore Ru
+   Ore Value Su
+   Legendary Ru
+   Prismatic Hu
+   Time EXP Boo
+
+   Fix:
+   Paginate cooldowns and weights.
+   Max 6 events per message/page.
+   Use shorter display names if needed.
+
+5. Event #10 Reward Drop shows incomplete:
+   10. 🎁
+   or
+   10. 🎁 Reward Drop:
+
+   Fix:
+   Every event must have cooldown and weight values.
+   Event #10 and #11 and #12 must display correctly.
+
+6. Exotic Hunt says “not in pool” inside cooldowns/weights.
+
+   Fix:
+   Cooldowns and weights should still show saved values even if event is not in pool.
+   Show pool status separately.
+
+   Better:
+   8. 🚨 Exotic Hunt — 360m | Pool: NO
+   8. 🚨 Exotic Hunt — weight 2 | Pool: NO
+
+==================================================
+PART 1 — UNIFY ACTIVE EVENT SOURCE
+==================================================
+
+Create or use one function as the single source of truth:
+
+get_active_events()
+
+It should read active events from the real active_events table/state.
+
+Every command below must use get_active_events():
+
+- /eventstatus
+- /aestatus
+- /eventpanel
+- /eventmanager
+- /eventeffects
+- /mineboosts
+- /mineeventstatus
+- /eventhistory when showing active/manual status
+
+If Lucky Rush is active, all status commands should agree.
+
+Expected /eventstatus:
+
+EventBot:
+✨ Active Events
+🍀 Lucky Rush — active — ends in 4m 12s
+
+If no events are active:
+
+EventBot:
+🔴 No event is currently active.
+
+Do not let /eventstatus check a different list than /aestatus.
+
+==================================================
+PART 2 — FIX EVENT HISTORY STATUS
+==================================================
+
+/eventhistory should not incorrectly show old events as active if they expired.
+
+Rules:
+- If event status is active and ends_at is in future, show active.
+- If event ends_at passed, mark it expired/ended.
+- If event was manually stopped, show stopped.
+- If event completed normally, show ended.
+
+On startup or command check, run cleanup_expired_events().
+
+cleanup_expired_events() should:
+- find active events where ends_at <= now
+- mark them expired/ended
+- remove active effect
+- write end time to history if needed
+
+==================================================
+PART 3 — FIX AUTO EVENT SCHEDULER HEARTBEAT
+==================================================
+
+Current issue:
+Tick: never
+
+Fix scheduler heartbeat.
+
+Add or repair scheduler tick loop for EventBot/EventHost only.
+
+Requirements:
+1. Only EventBot/EventHost runs scheduler.
+2. If auto_events_enabled = ON, scheduler loop must update last_scheduler_tick.
+3. /eventheartbeat must show last tick.
+4. /aestatus must show last tick.
+5. If scheduler is not running, say Scheduler: STOPPED and explain why.
+
+Heartbeat fields:
+- scheduler_running
+- scheduler_lock_owner
+- last_scheduler_tick
+- next_scheduler_tick
+- duplicate_scheduler_detected
+- auto_events_enabled
+- next_auto_event_at
+- next_auto_event_id
+
+Expected /eventheartbeat:
+
+EventBot:
+🟢 Scheduler Heartbeat
+Auto Events: ON
+Scheduler: RUNNING
+Scheduler Lock: EventBot
+Last Tick: 12s ago
+Next Tick: 48s
+Duplicate Scheduler: NO
+
+If not running:
+
+EventBot:
+🔴 Scheduler Heartbeat
+Auto Events: ON
+Scheduler: STOPPED
+Last Tick: never
+Fix: restart EventBot or run /eventscheduler restart
+
+Optional staff command:
+- /eventscheduler restart
+
+Only add if easy and safe.
+
+==================================================
+PART 4 — FIX NEXT AUTO EVENT TIME
+==================================================
+
+Current issue:
+Next auto in N/A even auto events are ON.
+
+Fix:
+When auto events are ON, always calculate and store:
+- next_auto_event_at
+- next_auto_event_id if known
+
+If there is an active event, next auto should be scheduled after:
+active event ends + interval
+
+If there is no active event, next auto should be:
+now + remaining interval or now + interval
+
+Expected /aestatus:
+
+EventBot:
+📅 Auto Events
+Status: ON
+Interval: 60m
+Current: Lucky Rush
+Next: Heavy Ore Rush
+Next auto in: 54m 12s
+Tick: 8s ago
+
+If random event is selected at runtime and next event is not picked yet:
+
+EventBot:
+📅 Auto Events
+Status: ON
+Interval: 60m
+Current: Lucky Rush
+Next: selected at runtime
+Next auto in: 54m 12s
+Tick: 8s ago
+
+Do not show N/A unless:
+- auto events are OFF
+- scheduler is STOPPED
+- interval is missing
+
+==================================================
+PART 5 — FIX /aestatus CURRENT EVENT LOGIC
+==================================================
+
+/aestatus currently shows Current: Lucky Rush, but /eventstatus shows none.
+
+Use get_active_events().
+
+If there is one active event:
+Current: Lucky Rush
+
+If multiple active events:
+Current: Lucky Rush + Heavy Ore Rush
+
+If none:
+Current: None
+
+==================================================
+PART 6 — FIX COOLDOWN AND WEIGHT DISPLAYS
+==================================================
+
+Commands:
+- /eventcooldowns
+- /eventweights
+
+Problems:
+- output is cut off
+- names are truncated badly
+- event #10 is incomplete
+- event values missing
+- pool status mixed incorrectly
+
+Fix formatting.
+
+Use max 6 events per message/page.
+
+Add pagination:
+- /eventcooldowns
+- /eventcooldowns 2
+- /eventweights
+- /eventweights 2
+
+Page 1 should show events 1–6.
+Page 2 should show 7–12.
+
+Use compact display names:
+
+1. 🍀 Lucky Rush
+2. ⚖️ Heavy Ore
+3. 💰 Value Surge
+4. ⭐ Double MXP
+5. ⏳ Haste
+6. 🟡 Legend Rush
+7. 🌈 Prism Hunt
+8. 🚨 Exotic Hunt
+9. ⏰ Time EXP
+10. 🎁 Reward Drop
+11. 🏆 Points Boost
+12. 🔥 Ultimate Rush
+
+/eventcooldowns page 1 example:
+
+EventBot:
+⏰ Cooldowns 1/2
+1. 🍀 Lucky Rush — 60m | Pool: YES
+2. ⚖️ Heavy Ore — 60m | Pool: YES
+3. 💰 Value Surge — 90m | Pool: YES
+4. ⭐ Double MXP — 60m | Pool: YES
+5. ⏳ Haste — 60m | Pool: YES
+6. 🟡 Legend Rush — 120m | Pool: YES
+
+/eventcooldowns page 2 example:
+
+EventBot:
+⏰ Cooldowns 2/2
+7. 🌈 Prism Hunt — 180m | Pool: YES
+8. 🚨 Exotic Hunt — 360m | Pool: NO
+9. ⏰ Time EXP — 90m | Pool: YES
+10. 🎁 Reward Drop — 90m | Pool: YES
+11. 🏆 Points Boost — 90m | Pool: YES
+12. 🔥 Ultimate Rush — manual | Pool: NO
+
+/eventweights page 1 example:
+
+EventBot:
+⚖️ Weights 1/2
+1. 🍀 Lucky Rush — 20 | Pool: YES
+2. ⚖️ Heavy Ore — 20 | Pool: YES
+3. 💰 Value Surge — 25 | Pool: YES
+4. ⭐ Double MXP — 30 | Pool: YES
+5. ⏳ Haste — 25 | Pool: YES
+6. 🟡 Legend Rush — 10 | Pool: YES
+
+/eventweights page 2 example:
+
+EventBot:
+⚖️ Weights 2/2
+7. 🌈 Prism Hunt — 5 | Pool: YES
+8. 🚨 Exotic Hunt — 2 | Pool: NO
+9. ⏰ Time EXP — 20 | Pool: YES
+10. 🎁 Reward Drop — 15 | Pool: YES
+11. 🏆 Points Boost — 15 | Pool: YES
+12. 🔥 Ultimate Rush — 0 | Pool: NO
+
+Important:
+Even if event is not in pool, still show its cooldown and weight.
+
+==================================================
+PART 7 — FIX EVENT #10, #11, #12 DEFAULTS
+==================================================
+
+Make sure all event definitions have complete data.
+
+10 Reward Drop:
+cooldown: 90m
+weight: 15
+pool default: YES
+
+11 Event Points Boost:
+cooldown: 90m
+weight: 15
+pool default: YES
+
+12 Ultimate Mining Rush:
+cooldown: manual
+weight: 0
+pool default: NO
+manual_only: YES
+
+Do not let blank values show.
+
+==================================================
+PART 8 — AUTO EVENT POOL CONSISTENCY
+==================================================
+
+/aepool should show all current pool events with numbers.
+
+/eventcooldowns and /eventweights should show Pool YES/NO based on the same auto_event_pool table/state.
+
+If /aeremove 8 removes Exotic Hunt:
+- /aepool should not list #8
+- /eventcooldowns should show #8 Pool: NO
+- /eventweights should show #8 Pool: NO
+
+If /aeadd 8 adds Exotic Hunt:
+- /aepool should list #8
+- /eventcooldowns should show #8 Pool: YES
+- /eventweights should show #8 Pool: YES
+
+==================================================
+PART 9 — COMMAND INTEGRITY
+==================================================
+
+Verify these commands:
+
+/commandtest /eventstatus
+/commandtest /aestatus
+/commandtest /autoeventstatus
+/commandtest /eventheartbeat
+/commandtest /eventscheduler
+/commandtest /eventhistory
+/commandtest /eventcooldowns
+/commandtest /eventweights
+/commandtest /aepool
+/commandtest /aeadd
+/commandtest /aeremove
+/commandtest /eventeffects
+/commandtest /mineboosts
+
+/checkcommands all should show:
+Missing 0
+NoOwner 0
+
+==================================================
+PART 10 — FINAL REPORT
+==================================================
+
+After finishing, tell me:
+
+1. Files changed
+2. Why /eventstatus and /aestatus were out of sync
+3. What active event source is now used
+4. How scheduler heartbeat is updated
+5. Why Tick was showing never
+6. How next auto event time is calculated
+7. How cooldown/weight pagination works
+8. How Pool YES/NO is determined
+9. How event #10/#11/#12 defaults were fixed
+10. Exact tests to run

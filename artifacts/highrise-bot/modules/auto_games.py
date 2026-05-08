@@ -27,7 +27,7 @@ from datetime import datetime, timezone, timedelta
 from highrise import BaseBot, User
 
 import database as db
-from config import BOT_ID, BOT_MODE
+from config import BOT_ID, BOT_MODE, BOT_EXTRA_MODES
 from modules.maintenance import is_maintenance
 from modules.permissions  import can_manage_games, can_moderate, is_admin, is_owner
 import modules.trivia   as trivia
@@ -88,6 +88,10 @@ def should_this_bot_run_autogames() -> tuple[bool, str]:
     # This bot's mode IS the configured owner
     if owner_mode == mode:
         return True, f"this bot is the autogames owner ({mode})"
+
+    # This bot has the owner mode merged in (e.g. eventhost merged into host)
+    if owner_mode in BOT_EXTRA_MODES:
+        return True, f"this bot has {owner_mode} as merged mode"
 
     # Blocked modes — never run autogames unless explicitly set as owner
     if mode in _NEVER_AUTOGAMES_MODES:
@@ -425,9 +429,35 @@ async def _auto_event_loop(bot: BaseBot) -> None:
         print("[AUTO_GAMES] Auto event loop ended.")
 
 
+_scheduler_heartbeat_task: asyncio.Task | None = None
+
+
+async def _scheduler_heartbeat_loop() -> None:
+    """Write scheduler heartbeat every 60s — keeps last_scheduler_tick fresh."""
+    print("[AUTO_GAMES] Scheduler heartbeat loop started.")
+    try:
+        while True:
+            try:
+                now = datetime.now(timezone.utc)
+                db.set_auto_event_setting_str(
+                    "last_scheduler_tick", now.isoformat()
+                )
+                nxt = (now + timedelta(seconds=60)).isoformat()
+                db.set_auto_event_setting_str("next_scheduler_tick", nxt)
+            except Exception as exc:
+                print(f"[AUTO_GAMES] Heartbeat write error: {exc}")
+            await asyncio.sleep(60)
+    except asyncio.CancelledError:
+        pass
+    except Exception as exc:
+        print(f"[AUTO_GAMES] Scheduler heartbeat loop crashed: {exc}")
+    finally:
+        print("[AUTO_GAMES] Scheduler heartbeat loop ended.")
+
+
 def start_auto_event_loop(bot: BaseBot) -> None:
     """Start the auto event background loop — only if this bot is the owner."""
-    global _auto_event_loop_task
+    global _auto_event_loop_task, _scheduler_heartbeat_task
     if _auto_event_loop_task and not _auto_event_loop_task.done():
         print("[AUTOGAMES] Auto event loop already running.")
         return
@@ -436,6 +466,8 @@ def start_auto_event_loop(bot: BaseBot) -> None:
         print(f"[AUTOGAMES] Event loop skipped on {BOT_MODE}; {reason}.")
         return
     _auto_event_loop_task = asyncio.create_task(_auto_event_loop(bot))
+    if not _scheduler_heartbeat_task or _scheduler_heartbeat_task.done():
+        _scheduler_heartbeat_task = asyncio.create_task(_scheduler_heartbeat_loop())
 
 
 # ---------------------------------------------------------------------------

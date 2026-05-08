@@ -220,6 +220,61 @@ def _resolve_event_arg(arg: str) -> str | None:
     return arg if arg in _CATALOG_BY_ID else None
 
 
+# Short display names for 249-char safe output
+_SHORT_DISPLAY: dict[str, str] = {
+    "lucky_rush":           "Lucky Rush",
+    "heavy_ore_rush":       "Heavy Ore",
+    "ore_value_surge":      "Value Surge",
+    "double_mxp":           "Double MXP",
+    "mining_haste":         "Haste",
+    "legendary_rush":       "Legend Rush",
+    "prismatic_hunt":       "Prism Hunt",
+    "exotic_hunt":          "Exotic Hunt",
+    "time_exp_boost":       "Time EXP",
+    "reward_drop":          "Reward Drop",
+    "event_points_boost":   "Points Boost",
+    "ultimate_mining_rush": "Ultimate Rush",
+}
+
+
+def _get_all_active_events() -> list[dict]:
+    """
+    Single source of truth for active events.
+    Returns list of dicts with keys: event_id, name, emoji, ends_at, source.
+    source is 'mining' or 'room'.
+    """
+    active: list[dict] = []
+    try:
+        mine_ev = db.get_active_mining_event()
+        if mine_ev:
+            eid  = mine_ev.get("event_id", "")
+            info = _CATALOG_BY_ID.get(eid, {})
+            active.append({
+                "event_id": eid,
+                "name":     info.get("name") or EVENTS.get(eid, {}).get("name", eid),
+                "emoji":    info.get("emoji", "⛏️"),
+                "ends_at":  mine_ev.get("ends_at", ""),
+                "source":   "mining",
+            })
+    except Exception:
+        pass
+    try:
+        gen_ev = db.get_active_event()
+        if gen_ev:
+            eid  = gen_ev["event_id"]
+            info = _CATALOG_BY_ID.get(eid, {})
+            active.append({
+                "event_id": eid,
+                "name":     info.get("name") or EVENTS.get(eid, {}).get("name", eid),
+                "emoji":    info.get("emoji", "🎪"),
+                "ends_at":  gen_ev.get("expires_at", ""),
+                "source":   "room",
+            })
+    except Exception:
+        pass
+    return active
+
+
 # ---------------------------------------------------------------------------
 # Event shop catalog  (kept from original)
 # ---------------------------------------------------------------------------
@@ -516,21 +571,18 @@ async def handle_eventhelp(bot: BaseBot, user: User) -> None:
 
 
 async def handle_eventstatus(bot: BaseBot, user: User) -> None:
-    """/eventstatus — detailed active event info."""
-    info = db.get_active_event()
-    if not info:
+    """/eventstatus — detailed active event info (mining + room unified)."""
+    active = _get_all_active_events()
+    if not active:
         await _w(bot, user.id, "🔴 No event is currently active.")
         return
-    ev   = EVENTS.get(info["event_id"], {})
-    name = ev.get("name", info["event_id"])
-    desc = ev.get("desc", "")
-    left = _time_remaining(info["expires_at"])
-    pts  = db.get_event_points(user.id)
-    await _w(bot, user.id,
-             f"🟢 Event: {name} [{info['event_id']}]\n"
-             f"{desc}\n"
-             f"⏰ Remaining: {left}\n"
-             f"Your event pts: {pts}")
+    pts   = db.get_event_points(user.id)
+    lines = ["✨ Active Events"]
+    for ev in active:
+        left = _time_remaining(ev["ends_at"]) if ev["ends_at"] else "?"
+        lines.append(f"{ev['emoji']} {ev['name']} — active — ends in {left}")
+    lines.append(f"Your event pts: {pts}")
+    await _w(bot, user.id, "\n".join(lines)[:249])
 
 
 # ---------------------------------------------------------------------------
@@ -1233,18 +1285,15 @@ async def handle_autoeventstatus(bot: BaseBot, user: User) -> None:
     interval  = settings["auto_event_interval"]
     pool      = db.get_event_pool()
     eligible  = db.get_eligible_pool_events()
-    mine_ev   = db.get_active_mining_event()
-    gen_ev    = db.get_active_event()
     last_tick = db.get_auto_event_setting_str("last_scheduler_tick", "")
     next_at   = db.get_auto_event_setting_str("next_event_at", "")
     next_id   = db.get_auto_event_setting_str("next_event_id", "")
 
-    cur_str = "None"
-    if mine_ev:
-        cur_str = EVENTS.get(mine_ev["event_id"], {}).get("name", mine_ev["event_id"])
-    elif gen_ev:
-        cur_str = EVENTS.get(gen_ev["event_id"], {}).get("name", gen_ev["event_id"])
+    # Unified current event source
+    active  = _get_all_active_events()
+    cur_str = " + ".join(ev["name"] for ev in active) if active else "None"
 
+    # Tick age
     tick_str = "never"
     if last_tick:
         try:
@@ -1256,18 +1305,39 @@ async def handle_autoeventstatus(bot: BaseBot, user: User) -> None:
         except Exception:
             tick_str = "?"
 
+    # Next event display
+    if not enabled:
+        next_str = "N/A"
+    elif next_at:
+        next_str = _time_remaining(next_at)
+    elif active:
+        # Active event running — estimate next after it ends + interval
+        ends_at = active[0]["ends_at"]
+        try:
+            et = datetime.fromisoformat(ends_at)
+            if et.tzinfo is None:
+                et = et.replace(tzinfo=timezone.utc)
+            est = (et + timedelta(minutes=interval) - datetime.now(timezone.utc)).total_seconds()
+            est = max(0, int(est))
+            m, s = divmod(est, 60)
+            next_str = f"~{m}m {s}s"
+        except Exception:
+            next_str = f"~{interval}m"
+    else:
+        next_str = f"~{interval}m"
+
     next_name = (
-        _CATALOG_BY_ID.get(next_id, {}).get("name", next_id or "auto")
-        if (enabled and next_id) else "auto"
+        _CATALOG_BY_ID.get(next_id, {}).get("name", next_id)
+        if next_id else "selected at runtime"
     )
-    next_str = _time_remaining(next_at) if (next_at and enabled) else "N/A"
 
     lines = [
-        f"<#FFD700>📅 Auto Events<#FFFFFF>",
+        "<#FFD700>📅 Auto Events<#FFFFFF>",
         f"Status: {'ON' if enabled else 'OFF'} | Interval: {interval}m",
-        f"Pool: {len(pool)} total / {len(eligible)} eligible",
+        f"Pool: {len(pool)} | Eligible: {len(eligible)}",
         f"Current: {cur_str}",
-        f"Next: {next_name} in {next_str}",
+        f"Next: {next_name}",
+        f"Next auto in: {next_str}",
         f"Tick: {tick_str}",
     ]
     await _w(bot, user.id, "\n".join(lines)[:249])
@@ -1520,35 +1590,48 @@ async def handle_eventheartbeat(bot: BaseBot, user: User) -> None:
     if not can_manage_economy(user.username):
         await _w(bot, user.id, "Manager/admin/owner only.")
         return
-    settings  = db.get_auto_event_settings()
-    enabled   = settings["auto_events_enabled"]
-    interval  = settings["auto_event_interval"]
-    last_tick = db.get_auto_event_setting_str("last_scheduler_tick", "")
-    next_at   = db.get_auto_event_setting_str("next_event_at", "")
-    next_id   = db.get_auto_event_setting_str("next_event_id", "")
-    pool      = db.get_event_pool()
+    settings   = db.get_auto_event_settings()
+    enabled    = settings["auto_events_enabled"]
+    interval   = settings["auto_event_interval"]
+    last_tick  = db.get_auto_event_setting_str("last_scheduler_tick", "")
+    next_tick  = db.get_auto_event_setting_str("next_scheduler_tick", "")
+    next_at    = db.get_auto_event_setting_str("next_event_at", "")
+    next_id    = db.get_auto_event_setting_str("next_event_id", "")
+    pool       = db.get_event_pool()
 
-    tick_str = "never"
+    tick_str        = "never"
+    scheduler_up    = False
     if last_tick:
         try:
             lt = datetime.fromisoformat(last_tick)
             if lt.tzinfo is None:
                 lt = lt.replace(tzinfo=timezone.utc)
-            secs = int((datetime.now(timezone.utc) - lt).total_seconds())
-            tick_str = f"{secs}s ago"
+            secs        = int((datetime.now(timezone.utc) - lt).total_seconds())
+            tick_str    = f"{secs}s ago"
+            scheduler_up = secs < 150  # running if tick within 2.5 min
         except Exception:
             tick_str = "?"
 
-    next_name = _CATALOG_BY_ID.get(next_id, {}).get("name", next_id or "auto")
-    next_str  = _time_remaining(next_at) if next_at else "?"
+    next_tick_str = _time_remaining(next_tick) if next_tick else "?"
+    next_name     = _CATALOG_BY_ID.get(next_id, {}).get("name", next_id or "auto")
+    next_str      = _time_remaining(next_at) if next_at else f"~{interval}m"
+
+    status_icon = "🟢" if scheduler_up else "🔴"
+    sched_label = "RUNNING" if scheduler_up else "STOPPED"
+    if not enabled:
+        sched_label = "IDLE (auto events OFF)"
 
     lines = [
-        "🟢 Scheduler Heartbeat",
+        f"{status_icon} Scheduler Heartbeat",
         f"Auto Events: {'ON' if enabled else 'OFF'}",
+        f"Scheduler: {sched_label}",
         f"Interval: {interval}m | Pool: {len(pool)}",
-        f"Last tick: {tick_str}",
-        f"Next: {next_name} in {next_str}",
+        f"Last Tick: {tick_str}",
+        f"Next Tick: {next_tick_str}",
+        f"Next Event: {next_name} in {next_str}",
     ]
+    if not scheduler_up and enabled:
+        lines.append("Fix: restart EventBot or /eventscheduler restart")
     await _w(bot, user.id, "\n".join(lines)[:249])
 
 
@@ -1556,36 +1639,36 @@ async def handle_eventheartbeat(bot: BaseBot, user: User) -> None:
 # /eventcooldowns  (manager+)
 # ---------------------------------------------------------------------------
 
-async def handle_eventcooldowns(bot: BaseBot, user: User) -> None:
-    """/eventcooldowns — show per-event cooldowns."""
+async def handle_eventcooldowns(bot: BaseBot, user: User,
+                               args: list[str] | None = None) -> None:
+    """/eventcooldowns [2] — per-event cooldowns, paginated (6 per page)."""
     if not can_manage_economy(user.username):
         await _w(bot, user.id, "Manager/admin/owner only.")
         return
-    pool     = db.get_event_pool()
-    pool_map = {row["event_id"]: row for row in pool}
-    lines    = ["<#FFD700>⏰ Cooldowns<#FFFFFF>"]
-    chunk    = []
-    for ev in EVENT_CATALOG:
-        eid = ev["event_id"]
+    page = 1
+    if args and len(args) >= 2 and args[1].isdigit():
+        page = max(1, min(2, int(args[1])))
+    pool_map = {row["event_id"]: row for row in db.get_event_pool()}
+    start_i  = (page - 1) * 6
+    evs      = EVENT_CATALOG[start_i: start_i + 6]
+    lines    = [f"<#FFD700>⏰ Cooldowns {page}/2<#FFFFFF>"]
+    for ev in evs:
+        eid     = ev["event_id"]
+        short   = _SHORT_DISPLAY.get(eid, ev["name"][:14])
+        in_pool = eid in pool_map
         if ev["manual_only"]:
-            cd = "manual"
-        elif eid in pool_map:
-            cd = f"{pool_map[eid]['cooldown_minutes']}m"
+            cd_str = "manual"
+        elif in_pool:
+            cd_str = f"{pool_map[eid]['cooldown_minutes']}m"
         else:
-            cd = "not in pool"
-        chunk.append(
-            f"{ev['number']}. {ev['emoji']} {ev['name'][:12]}: {cd}"[:44]
+            cd_str = f"{ev['cooldown_minutes']}m"
+        pool_str = "YES" if in_pool else "NO"
+        lines.append(
+            f"{ev['number']}. {ev['emoji']} {short} — {cd_str} | Pool: {pool_str}"
         )
-        if len(chunk) == 6:
-            lines.extend(chunk)
-            chunk = []
-            if len("\n".join(lines)) > 200:
-                await _w(bot, user.id, "\n".join(lines)[:249])
-                lines = []
-    if chunk:
-        lines.extend(chunk)
-    if lines:
-        await _w(bot, user.id, "\n".join(lines)[:249])
+    nxt = "/eventcooldowns 2" if page == 1 else "/eventcooldowns"
+    lines.append(f"→ {nxt} for other page")
+    await _w(bot, user.id, "\n".join(lines)[:249])
 
 
 # ---------------------------------------------------------------------------
@@ -1623,36 +1706,36 @@ async def handle_seteventcooldown(bot: BaseBot, user: User, args: list[str]) -> 
 # /eventweights  (manager+)
 # ---------------------------------------------------------------------------
 
-async def handle_eventweights(bot: BaseBot, user: User) -> None:
-    """/eventweights — show per-event selection weights."""
+async def handle_eventweights(bot: BaseBot, user: User,
+                             args: list[str] | None = None) -> None:
+    """/eventweights [2] — per-event selection weights, paginated (6 per page)."""
     if not can_manage_economy(user.username):
         await _w(bot, user.id, "Manager/admin/owner only.")
         return
-    pool     = db.get_event_pool()
-    pool_map = {row["event_id"]: row for row in pool}
-    lines    = ["<#FFD700>⚖️ Weights<#FFFFFF>"]
-    chunk    = []
-    for ev in EVENT_CATALOG:
-        eid = ev["event_id"]
+    page = 1
+    if args and len(args) >= 2 and args[1].isdigit():
+        page = max(1, min(2, int(args[1])))
+    pool_map = {row["event_id"]: row for row in db.get_event_pool()}
+    start_i  = (page - 1) * 6
+    evs      = EVENT_CATALOG[start_i: start_i + 6]
+    lines    = [f"<#FFD700>⚖️ Weights {page}/2<#FFFFFF>"]
+    for ev in evs:
+        eid     = ev["event_id"]
+        short   = _SHORT_DISPLAY.get(eid, ev["name"][:14])
+        in_pool = eid in pool_map
         if ev["manual_only"]:
-            w = "manual"
-        elif eid in pool_map:
-            w = str(pool_map[eid]["weight"])
+            w_str = "0"
+        elif in_pool:
+            w_str = str(pool_map[eid]["weight"])
         else:
-            w = "not in pool"
-        chunk.append(
-            f"{ev['number']}. {ev['emoji']} {ev['name'][:12]}: {w}"[:40]
+            w_str = str(ev["default_weight"])
+        pool_str = "YES" if in_pool else "NO"
+        lines.append(
+            f"{ev['number']}. {ev['emoji']} {short} — {w_str} | Pool: {pool_str}"
         )
-        if len(chunk) == 6:
-            lines.extend(chunk)
-            chunk = []
-            if len("\n".join(lines)) > 200:
-                await _w(bot, user.id, "\n".join(lines)[:249])
-                lines = []
-    if chunk:
-        lines.extend(chunk)
-    if lines:
-        await _w(bot, user.id, "\n".join(lines)[:249])
+    nxt = "/eventweights 2" if page == 1 else "/eventweights"
+    lines.append(f"→ {nxt} for other page")
+    await _w(bot, user.id, "\n".join(lines)[:249])
 
 
 # ---------------------------------------------------------------------------
@@ -1691,10 +1774,15 @@ async def handle_seteventweight(bot: BaseBot, user: User, args: list[str]) -> No
 # ---------------------------------------------------------------------------
 
 async def handle_eventhistory(bot: BaseBot, user: User) -> None:
-    """/eventhistory — show recent event history."""
+    """/eventhistory — show recent event history (stale entries auto-closed)."""
     if not can_manage_economy(user.username):
         await _w(bot, user.id, "Manager/admin/owner only.")
         return
+    # Clean up stale 'active' rows before displaying
+    try:
+        db.cleanup_expired_history()
+    except Exception:
+        pass
     rows = db.get_event_history(limit=5)
     if not rows:
         await _w(bot, user.id, "📜 No event history yet.")
