@@ -305,6 +305,8 @@ REGISTRY: dict[str, Cmd] = {
     "warnings":         Cmd("security","moderation",False,True, False),
     "mute":             Cmd("security","moderation",False,False,True, perm="staff"),
     "unmute":           Cmd("security","moderation",False,False,True, perm="staff"),
+    "mutestatus":       Cmd("security","moderation",False,True, False, perm="manager"),
+    "forceunmute":      Cmd("security","moderation",False,False,True, perm="admin"),
     "kick":             Cmd("security","moderation",False,False,True, perm="staff"),
     "ban":              Cmd("security","moderation",False,False,True, perm="manager"),
     "tempban":          Cmd("security","moderation",False,False,True, perm="manager"),

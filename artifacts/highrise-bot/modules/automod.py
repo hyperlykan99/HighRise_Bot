@@ -36,6 +36,18 @@ _AUTOMOD_SKIP = {
     "managerhelp", "adminhelp", "ownerhelp", "questhelp",
     "profile", "level", "balance", "myitems", "rules",
     "myreports", "bug", "botstatus", "warnings",
+    # ── Blackjack / RBJ gameplay ─────────────────────────────────────────────
+    # Players send these rapidly during a hand; flagging them as spam would
+    # mute active game participants.  All BJ/RBJ action commands are exempt.
+    "bj", "rbj",
+    "bjoin", "bt", "bh", "bs", "bd", "bsp",
+    "blimits", "bstats", "bhand",
+    "bjh", "bjs", "bjd", "bjsp", "bjhand",
+    "rjoin", "rt", "rh", "rs", "rd", "rsp", "rshoe",
+    "rlimits", "rstats", "rhand",
+    "rbjh", "rbjs", "rbjd", "rbjsp", "rbjhand",
+    "blackjack", "bjbet", "bet", "hit", "stand", "double", "split",
+    "insurance", "surrender", "shoe", "bjshoe",
 }
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -158,3 +170,28 @@ async def automod_check(bot, user, cmd: str, message: str) -> bool:
     except Exception as exc:
         print(f"[AUTOMOD] check error for @{user.username}: {exc!r}")
         return False
+
+
+# ── Tracker management (called by /unmute and /mutestatus) ───────────────────
+
+def reset_tracker(user_id: str) -> None:
+    """Clear all in-memory automod state for a user (e.g. on /unmute)."""
+    _trackers.pop(user_id, None)
+
+
+def get_tracker_status(user_id: str) -> dict:
+    """
+    Return current in-memory tracker state for a user.
+    Used by /mutestatus to show whether the user has recent command activity.
+    """
+    if user_id not in _trackers:
+        return {"cmd_count": 0, "active": False}
+    t = _trackers[user_id]
+    _purge_old(t.cmd_times, 30)
+    count = len(t.cmd_times)
+    return {"cmd_count": count, "active": count > 0}
+
+
+def automod_offense_count(username: str) -> int:
+    """Public wrapper for _automod_offense_count (used by /mutestatus)."""
+    return _automod_offense_count(username)

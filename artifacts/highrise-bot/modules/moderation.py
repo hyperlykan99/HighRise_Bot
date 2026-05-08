@@ -24,6 +24,7 @@ from highrise import BaseBot, User
 
 import database as db
 from modules.permissions import can_moderate, can_manage_games, can_manage_economy, is_admin, is_owner
+from modules.automod import reset_tracker, get_tracker_status, automod_offense_count
 
 
 def _get_mod_setting(key: str, default: str = "") -> str:
@@ -96,6 +97,7 @@ async def handle_mute(bot: BaseBot, user: User, args: list[str]) -> None:
 
 # ---------------------------------------------------------------------------
 # /unmute <username>   (manager+)
+# Clears ALL mute sources: DB mute, automod in-memory tracker, automod warns.
 # ---------------------------------------------------------------------------
 
 async def handle_unmute(bot: BaseBot, user: User, args: list[str]) -> None:
@@ -112,11 +114,101 @@ async def handle_unmute(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, f"@{target_name} not found.")
         return
 
-    removed = db.unmute_user(target["user_id"])
-    if removed:
-        await _w(bot, user.id, f"🔊 @{target['username']} unmuted.")
+    uid   = target["user_id"]
+    uname = target["username"]
+
+    db_removed = db.unmute_user(uid)
+    am_warns   = db.clear_automod_warnings(uname)
+    reset_tracker(uid)
+
+    parts = []
+    if db_removed:
+        parts.append("DB mute ✓")
+    if am_warns:
+        parts.append(f"{am_warns} AM warn(s) ✓")
+    parts.append("AM tracker ✓")
+    cleared = " | ".join(parts)
+    await _w(bot, user.id, f"🔊 @{uname[:15]} unmuted. Cleared: {cleared}")
+
+
+# ---------------------------------------------------------------------------
+# /mutestatus <username>   (manager+)
+# Shows all active mute sources for a user.
+# ---------------------------------------------------------------------------
+
+async def handle_mutestatus(bot: BaseBot, user: User, args: list[str]) -> None:
+    if not can_manage_games(user.username):
+        await _w(bot, user.id, "Managers and above only.")
+        return
+    if len(args) < 2:
+        await _w(bot, user.id, "Usage: /mutestatus <username>")
+        return
+
+    target_name = args[1].lstrip("@").strip()
+    target = db.get_user_by_username(target_name)
+    if target is None:
+        await _w(bot, user.id, f"@{target_name} not found.")
+        return
+
+    uid   = target["user_id"]
+    uname = target["username"]
+
+    mute    = db.get_active_mute(uid)
+    warns   = automod_offense_count(uname)
+    tracker = get_tracker_status(uid)
+
+    if mute:
+        by       = mute.get("muted_by", "?")[:12]
+        mute_str = f"YES — {mute['mins_left']}m left (by {by})"
     else:
-        await _w(bot, user.id, f"@{target['username']} is not muted.")
+        mute_str = "none"
+
+    tracker_str = f"{tracker['cmd_count']} cmds/30s" if tracker["active"] else "clear"
+
+    msg = (
+        f"📋 @{uname[:15]} mute status:\n"
+        f"DB mute: {mute_str}\n"
+        f"AutoMod warns: {warns}\n"
+        f"Tracker: {tracker_str}"
+    )
+    await _w(bot, user.id, msg)
+
+
+# ---------------------------------------------------------------------------
+# /forceunmute <username>   (admin+)
+# Nuclear option — clears all mute sources.  Same as enhanced /unmute but
+# requires admin rank so it can override mutes issued by managers.
+# ---------------------------------------------------------------------------
+
+async def handle_forceunmute(bot: BaseBot, user: User, args: list[str]) -> None:
+    if not (is_admin(user.username) or is_owner(user.username)):
+        await _w(bot, user.id, "Admins and owners only.")
+        return
+    if len(args) < 2:
+        await _w(bot, user.id, "Usage: /forceunmute <username>")
+        return
+
+    target_name = args[1].lstrip("@").strip()
+    target = db.get_user_by_username(target_name)
+    if target is None:
+        await _w(bot, user.id, f"@{target_name} not found.")
+        return
+
+    uid   = target["user_id"]
+    uname = target["username"]
+
+    db_removed = db.unmute_user(uid)
+    am_warns   = db.clear_automod_warnings(uname)
+    reset_tracker(uid)
+
+    parts = []
+    if db_removed:
+        parts.append("DB mute ✓")
+    if am_warns:
+        parts.append(f"{am_warns} AM warn(s) ✓")
+    parts.append("AM tracker ✓")
+    cleared = " | ".join(parts)
+    await _w(bot, user.id, f"🔊 @{uname[:15]} force-unmuted. Cleared: {cleared}")
 
 
 # ---------------------------------------------------------------------------

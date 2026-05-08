@@ -228,6 +228,7 @@ from modules.reports import (
 )
 from modules.moderation import (
     handle_mute, handle_unmute, handle_mutes,
+    handle_mutestatus, handle_forceunmute,
     handle_warn, handle_warnings, handle_clearwarnings,
     handle_rules, handle_setrules, handle_automod,
 )
@@ -2392,6 +2393,10 @@ class HangoutBot(BaseBot):
                 await handle_unmute(self, user, args)
             elif cmd == "mutes":
                 await handle_mutes(self, user)
+            elif cmd == "mutestatus":
+                await handle_mutestatus(self, user, args)
+            elif cmd == "forceunmute":
+                await handle_forceunmute(self, user, args)
             elif cmd == "warn":
                 await handle_warn(self, user, args)
             elif cmd == "warnings":

@@ -169,6 +169,7 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "bug": "security", "myreports": "security", "reporthelp": "security",
     "warn": "security", "warnings": "security",
     "mute": "security", "unmute": "security", "mutes": "security",
+    "mutestatus": "security", "forceunmute": "security",
     "kick": "security", "ban": "security",
     "tempban": "security", "unban": "security", "bans": "security",
     "modlog": "security", "roomlogs": "security",

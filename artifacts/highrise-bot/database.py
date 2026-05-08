@@ -4166,6 +4166,22 @@ def clear_warnings(username: str) -> int:
     return cur.rowcount
 
 
+def clear_automod_warnings(username: str) -> int:
+    """
+    Delete only the warnings issued by the automod system for a user.
+    Returns the number of rows deleted.
+    Called during /unmute and /forceunmute to reset escalation state.
+    """
+    conn = get_connection()
+    cur  = conn.execute(
+        "DELETE FROM warnings WHERE LOWER(username) = ? AND warned_by = '__automod__'",
+        (username.lower(),),
+    )
+    conn.commit()
+    conn.close()
+    return cur.rowcount
+
+
 # ---------------------------------------------------------------------------
 # Report system helpers
 # ---------------------------------------------------------------------------
