@@ -325,7 +325,7 @@ from modules.mining import (
     handle_settoollevel, handle_setminelevel,
     handle_addminexp, handle_setminexp, handle_resetmining,
     handle_miningroomrequired,
-    handle_orelist, handle_minehelp,
+    handle_orelist, handle_oreprices, handle_oreinfo, handle_minehelp,
     handle_orebook, handle_oremastery, handle_claimoremastery, handle_orestats,
     handle_contracts, handle_job, handle_deliver, handle_claimjob, handle_rerolljob,
     handle_mineconfig, handle_mineeventstatus,
@@ -3916,6 +3916,12 @@ class HangoutBot(BaseBot):
 
         elif cmd == "orelist":
             await handle_orelist(self, user, args)
+
+        elif cmd in {"oreprices", "orevalues", "orevalue"}:
+            await handle_oreprices(self, user, args)
+
+        elif cmd in {"oreinfo", "oredetail", "oredetails"}:
+            await handle_oreinfo(self, user, args)
 
         elif cmd == "orechances":
             await handle_orechances(self, user)

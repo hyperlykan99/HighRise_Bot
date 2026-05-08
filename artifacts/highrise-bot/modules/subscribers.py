@@ -24,12 +24,40 @@ Event hook:
 from __future__ import annotations
 
 import asyncio
+import time
 import database as db
 from highrise import BaseBot, User
 from modules.notifications import send_notification
 from modules.permissions import (
     is_owner, is_admin, can_moderate, is_manager, is_moderator,
 )
+
+# ---------------------------------------------------------------------------
+# PM command routing helpers  (Part B)
+# ---------------------------------------------------------------------------
+
+# Per-user cooldown (seconds) for wrong-bot routing hints in DMs.
+# Prevents spam when a player repeatedly DMs the wrong bot.
+_PM_WRONG_BOT_CD: dict[str, float] = {}
+_PM_WRONG_BOT_CD_SECS = 60.0
+
+
+class _FakePMUser:
+    """Duck-typed stand-in for highrise.User when routing DM commands."""
+    __slots__ = ("id", "username")
+
+    def __init__(self, user_id: str, username: str) -> None:
+        self.id       = user_id
+        self.username = username
+
+
+def _pm_wrong_bot_on_cooldown(user_id: str) -> bool:
+    last = _PM_WRONG_BOT_CD.get(user_id, 0.0)
+    return (time.monotonic() - last) < _PM_WRONG_BOT_CD_SECS
+
+
+def _pm_wrong_bot_mark(user_id: str) -> None:
+    _PM_WRONG_BOT_CD[user_id] = time.monotonic()
 
 
 # ── Unsubscribe footer ────────────────────────────────────────────────────────
@@ -230,8 +258,13 @@ async def process_incoming_dm(
     """
     Called from on_message when the bot receives a DM.
     Saves conversation_id, handles subscribe/unsubscribe keywords,
+    routes slash-commands to the owning bot handler (B-project),
     and delivers any pending subscriber messages.
     """
+    # Late import avoids circular dependency (multi_bot imports from config, not subscribers)
+    from config import BOT_MODE
+    from modules.multi_bot import should_this_bot_handle, _resolve_command_owner  # noqa: PLC0415
+
     norm = _normalize_dm(content)
     print(f"[DM] PROCESSING user_id={user_id[:12]}... conv={conversation_id[:12]}...")
     print(f"[DM] raw={content[:60]!r}  normalized={norm[:60]!r}")
@@ -253,6 +286,40 @@ async def process_incoming_dm(
 
     # Deliver any queued pending messages now that we have an active conversation
     await deliver_pending_subscriber_messages(bot, uname_lower, conversation_id)
+
+    # ── Slash-command routing (B-project) ────────────────────────────────────
+    # If the DM looks like a command (starts with /), try to route it.
+    stripped = content.strip()
+    if stripped.startswith("/"):
+        cmd_word = stripped.split()[0][1:].lower()
+        if should_this_bot_handle(cmd_word):
+            # This bot owns the command — dispatch through on_chat so all
+            # existing handlers (which reply via whisper) respond normally.
+            fake_user = _FakePMUser(user_id, username)
+            print(f"[DM] Routing /{cmd_word} via on_chat for @{username}")
+            try:
+                await bot.on_chat(fake_user, stripped)  # type: ignore[arg-type]
+            except Exception as exc:
+                print(f"[DM] on_chat dispatch error for /{cmd_word}: {exc}")
+                await bot.highrise.send_whisper(
+                    user_id, "❌ Something went wrong handling that command."
+                )
+            return
+        else:
+            # Wrong bot — send a routing hint (with per-user cooldown)
+            owner_mode = _resolve_command_owner(cmd_word)
+            if owner_mode and not _pm_wrong_bot_on_cooldown(user_id):
+                _pm_wrong_bot_mark(user_id)
+                hint = (
+                    f"❌ /{cmd_word} is handled by the {owner_mode} bot. "
+                    "Send it in the room instead!"
+                )
+                await bot.highrise.send_whisper(user_id, hint[:249])
+                print(f"[DM] @{username} sent /{cmd_word} to wrong bot ({BOT_MODE}); "
+                      f"owner={owner_mode}. Sent hint.")
+            elif owner_mode:
+                print(f"[DM] @{username} wrong-bot hint suppressed (cooldown).")
+            return
 
     # ── Keyword routing ───────────────────────────────────────────────────────
 
@@ -276,7 +343,13 @@ async def process_incoming_dm(
         print(f"[DM] @{username} subscribed via DM (keyword: {norm!r}).")
         return
 
-    # Unknown message — check if already subscribed to avoid repeating the pitch
+    # Unknown non-command message.
+    # Only EmceeBot (host/all mode) sends generic alert-status replies.
+    # Dedicated bots stay silent on unknown DMs to avoid confusion.
+    if BOT_MODE not in ("host", "all"):
+        print(f"[DM] @{username} sent non-command DM to {BOT_MODE} bot — ignoring.")
+        return
+
     sub = db.get_subscriber(uname_lower)
     is_subscribed = bool(sub and sub.get("subscribed"))
 

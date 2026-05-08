@@ -461,6 +461,12 @@ REGISTRY: dict[str, Cmd] = {
     "setorechance":     Cmd("miner","mining", False, False, True,  perm="manager"),
     "setraritychance":  Cmd("miner","mining", False, False, True,  perm="manager"),
     "reloadorechances": Cmd("miner","mining", False, False, True,  perm="manager"),
+
+    # ── Miner: ore info / price commands (A3/A4) ─────────────────────────────
+    "oreprices":        Cmd("miner","mining", False, True,  False,
+                            aliases=("orevalues", "orevalue")),
+    "oreinfo":          Cmd("miner","mining", False, True,  False,
+                            aliases=("oredetail", "oredetails")),
 }
 
 # ---------------------------------------------------------------------------

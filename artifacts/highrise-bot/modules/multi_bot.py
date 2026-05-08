@@ -143,6 +143,8 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "addminexp": "miner", "setminexp": "miner",
     "resetmining": "miner", "miningroomrequired": "miner",
     "orelist": "miner",
+    "oreprices": "miner", "orevalues": "miner", "orevalue": "miner",
+    "oreinfo": "miner", "oredetail": "miner", "oredetails": "miner",
     "orebook": "miner", "oremastery": "miner", "claimoremastery": "miner", "orestats": "miner",
     "contracts": "miner", "miningjobs": "miner",
     "job": "miner", "deliver": "miner", "claimjob": "miner", "rerolljob": "miner",

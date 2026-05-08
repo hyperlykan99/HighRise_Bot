@@ -20,6 +20,8 @@ from modules.mining_colors import (
     format_mining_rarity,
     format_ore_name,
     get_rarity_display_name,
+    get_default_weight_range,
+    rainbow_text,
     rarity_sort_key,
 )
 from modules.mining_weights import (
@@ -1442,66 +1444,248 @@ async def handle_miningroomrequired(bot: BaseBot, user: User, args: list[str]) -
 # /orelist
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Shared ore-list / ore-prices pagination helpers  (A-project)
+# ---------------------------------------------------------------------------
+
+_ORE_PAGE_SIZE = 5
+
+_ORELIST_MENU = (
+    "<#66CCFF>⛏️ Ore List<#FFFFFF>\n"
+    "/orelist <rarity> [page]\n"
+    "common  uncommon  rare\n"
+    "epic  legendary  mythic\n"
+    "prismatic  exotic"
+)
+
+_OREPRICES_MENU = (
+    "<#FFD700>💰 Ore Prices<#FFFFFF>\n"
+    "/oreprices <rarity> [page]\n"
+    "common  uncommon  rare\n"
+    "epic  legendary  mythic\n"
+    "prismatic  exotic"
+)
+
+# Short safe colored label for /orelist and /oreprices headers.
+# Prismatic uses a short pink label instead of the full rainbow
+# so the header + 5 ore lines fit inside 249 chars.
+_SHORT_RAR_LABELS: dict[str, str] = {
+    "common":     "<#AAAAAA>Common<#FFFFFF>",
+    "uncommon":   "<#66BBAA>Uncommon<#FFFFFF>",
+    "rare":       "<#3399FF>Rare<#FFFFFF>",
+    "epic":       "<#B266FF>Epic<#FFFFFF>",
+    "legendary":  "<#FFD700>Legendary<#FFFFFF>",
+    "mythic":     "<#FF66CC>Mythic<#FFFFFF>",
+    "ultra_rare": "<#FF66CC>Prismatic<#FFFFFF>",
+    "prismatic":  "<#FF66CC>Prismatic<#FFFFFF>",
+    "exotic":     "<#FF0000>Exotic<#FFFFFF>",
+}
+
+
+def _ore_short_label(rarity: str) -> str:
+    return _SHORT_RAR_LABELS.get(rarity.lower(), rarity.replace("_", " ").title())
+
+
+def _one_in_x(rarity: str, n_ores: int) -> int:
+    """Return the 1-in-X whole number for an individual ore of the given rarity."""
+    prob_pct = RARITIES.get(rarity, RARITIES["common"])[0]
+    per_ore  = prob_pct / max(n_ores, 1)
+    if per_ore <= 0:
+        return 0
+    return max(1, round(100 / per_ore))
+
+
+def _by_rarity_map() -> dict[str, list]:
+    items: list[dict] = db.get_all_mining_items(drop_enabled=False)
+    by_rar: dict[str, list] = {}
+    for it in items:
+        by_rar.setdefault(it["rarity"], []).append(it)
+    return by_rar
+
+
+def _resolve_rarity_arg(arg: str) -> str:
+    """Normalise player input to an internal rarity key."""
+    a = arg.lower().replace("-", "_").replace(" ", "_")
+    # Handle aliases
+    _aliases = {
+        "pris": "prismatic", "prism": "prismatic",
+        "ultra": "ultra_rare", "ultrarare": "ultra_rare",
+    }
+    return _aliases.get(a, a)
+
+
 async def handle_orelist(bot: BaseBot, user: User, args: list[str] | None = None) -> None:
     """
-    /orelist [rarity]  — List all ores grouped by rarity.
-    Shows: colored rarity header, ore emoji+name, 1-in-X chance, value, weight range.
-    Pass a rarity name to filter to that rarity only.
+    /orelist [rarity] [page]
+    Shows ore drop chances grouped by rarity, 5 ores per page.
+    No prices or weights — use /oreprices for those.
     """
-    items = db.get_all_mining_items(drop_enabled=False)
-    by_rarity: dict[str, list] = {}
-    for it in items:
-        by_rarity.setdefault(it["rarity"], []).append(it)
+    args = args or []
 
-    # Build rarity probs to compute 1-in-X
-    probs = {r: v[0] for r, v in RARITIES.items()}
-
-    # Optional rarity filter
-    filter_rar: str | None = None
-    if args and len(args) >= 2:
-        filter_rar = args[1].lower().replace("-", "_")
-
-    sorted_rarities = sorted(by_rarity.keys(), key=rarity_sort_key)
-    msgs: list[str] = []
-
-    for rar in sorted_rarities:
-        if filter_rar and rar != filter_rar:
-            continue
-        ores = by_rarity[rar]
-        rar_label  = format_mining_rarity(rar)
-        rar_prob   = probs.get(rar, 0)
-        n_ores     = max(len(ores), 1)
-        # 1-in-X per individual ore: rarity_prob / n_ores  (% → divide by 100 first)
-        per_ore_pct = (rar_prob / n_ores)  # already in percent terms
-        if per_ore_pct > 0:
-            one_in = max(1, int(round(100 / per_ore_pct)))
-            chance_str = f"1-in-{one_in}"
-        else:
-            chance_str = "0"
-
-        header = f"{rar_label} ({chance_str} ea.)"
-
-        # Ore detail lines: "emoji Name | sell_val c | X-Ykg"
-        ore_lines: list[str] = []
-        for it in ores:
-            ore_colored = format_ore_name(f"{it['emoji']} {it['name']}", rar)
-            val         = it.get("sell_value", 0)
-            rdata       = RARITIES.get(rar, RARITIES["common"])
-            wlo, whi    = rdata[2] if len(rdata) > 2 else (0.1, 1.0)
-            ore_lines.append(
-                f"{ore_colored} | {val}c | {wlo}-{whi}kg"[:80]
-            )
-
-        block = header + "\n" + "\n".join(ore_lines)
-        # Split into ≤249-char chunks
-        for chunk in _split_to_chunks(block, 249):
-            msgs.append(chunk)
-
-    if not msgs:
-        await _w(bot, user.id, "No ores found." if filter_rar else "No ores in DB.")
+    # No rarity arg → show the menu
+    if len(args) < 2:
+        await _w(bot, user.id, _ORELIST_MENU)
         return
-    for m in msgs[:4]:   # cap at 4 messages to avoid spam
-        await _w(bot, user.id, m[:249])
+
+    rar = _resolve_rarity_arg(args[1])
+    if rar not in RARITIES:
+        await _w(bot, user.id,
+                 f"Unknown rarity: {args[1]}\n"
+                 "Use: common uncommon rare epic legendary mythic prismatic exotic")
+        return
+
+    # Page number
+    page = 1
+    if len(args) >= 3 and args[2].isdigit():
+        page = max(1, int(args[2]))
+
+    by_rar = _by_rarity_map()
+    ores   = by_rar.get(rar, [])
+    if not ores:
+        await _w(bot, user.id, f"No ores found for rarity: {rar}.")
+        return
+
+    total_pages = max(1, (len(ores) + _ORE_PAGE_SIZE - 1) // _ORE_PAGE_SIZE)
+    if page > total_pages:
+        await _w(bot, user.id, f"Only {total_pages} page(s) for {rar}. /orelist {rar} {total_pages}")
+        return
+
+    one_in    = _one_in_x(rar, len(ores))
+    rar_label = _ore_short_label(rar)
+    header    = f"{rar_label} Ores — Page {page}/{total_pages}"
+
+    start  = (page - 1) * _ORE_PAGE_SIZE
+    subset = ores[start:start + _ORE_PAGE_SIZE]
+
+    # Plain-text ore names (no rainbow tags) to prevent mid-message color cut-off
+    lines = [f"{it['emoji']} {it['name']} — 1 in {one_in:,}" for it in subset]
+    msg   = header + "\n" + "\n".join(lines)
+    await _w(bot, user.id, msg[:249])
+
+
+# ---------------------------------------------------------------------------
+# /oreprices [rarity] [page]  — price + weight, no chance  (A3)
+# ---------------------------------------------------------------------------
+
+async def handle_oreprices(bot: BaseBot, user: User, args: list[str] | None = None) -> None:
+    """
+    /oreprices [rarity] [page]
+    Shows ore base sell value and weight range, 5 ores per page.
+    """
+    args = args or []
+
+    if len(args) < 2:
+        await _w(bot, user.id, _OREPRICES_MENU)
+        return
+
+    rar = _resolve_rarity_arg(args[1])
+    if rar not in RARITIES:
+        await _w(bot, user.id,
+                 f"Unknown rarity: {args[1]}\n"
+                 "Use: common uncommon rare epic legendary mythic prismatic exotic")
+        return
+
+    page = 1
+    if len(args) >= 3 and args[2].isdigit():
+        page = max(1, int(args[2]))
+
+    by_rar = _by_rarity_map()
+    ores   = by_rar.get(rar, [])
+    if not ores:
+        await _w(bot, user.id, f"No ores found for rarity: {rar}.")
+        return
+
+    total_pages = max(1, (len(ores) + _ORE_PAGE_SIZE - 1) // _ORE_PAGE_SIZE)
+    if page > total_pages:
+        await _w(bot, user.id,
+                 f"Only {total_pages} page(s) for {rar}. /oreprices {rar} {total_pages}")
+        return
+
+    rar_label = _ore_short_label(rar)
+    wlo, whi  = get_default_weight_range(rar)
+    header    = f"{rar_label} Prices — Page {page}/{total_pages}"
+
+    start  = (page - 1) * _ORE_PAGE_SIZE
+    subset = ores[start:start + _ORE_PAGE_SIZE]
+
+    lines = [
+        f"{it['emoji']} {it['name']} — {it.get('sell_value', 0):,}c | {wlo}–{whi}kg"
+        for it in subset
+    ]
+    msg = header + "\n" + "\n".join(lines)
+    await _w(bot, user.id, msg[:249])
+
+
+# ---------------------------------------------------------------------------
+# /oreinfo <ore_name>  — full details for one ore  (A4)
+# ---------------------------------------------------------------------------
+
+async def handle_oreinfo(bot: BaseBot, user: User, args: list[str] | None = None) -> None:
+    """
+    /oreinfo <ore_name>  — full details: rarity, chance, value, weight, announce.
+    Case-insensitive. Accepts partial match. Spaces in ore name are OK.
+    Examples: /oreinfo gold ore  |  /oreinfo aurora  |  /oreinfo 22 (by list index)
+    """
+    args = args or []
+    if len(args) < 2:
+        await _w(bot, user.id, "Usage: /oreinfo <ore name>   e.g. /oreinfo gold ore")
+        return
+
+    query  = " ".join(args[1:]).lower().strip()
+    items  = db.get_all_mining_items(drop_enabled=False)
+
+    # Exact item_id match first, then name match, then partial
+    target: dict | None = None
+    for it in items:
+        if it["item_id"].lower() == query:
+            target = it
+            break
+    if not target:
+        for it in items:
+            if it["name"].lower() == query:
+                target = it
+                break
+    if not target:
+        matches = [it for it in items if query in it["name"].lower() or query in it["item_id"].lower()]
+        if len(matches) == 1:
+            target = matches[0]
+        elif len(matches) > 1:
+            names = ", ".join(it["name"] for it in matches[:8])
+            await _w(bot, user.id, f"Multiple matches: {names}\nBe more specific.")
+            return
+    if not target:
+        await _w(bot, user.id, f"Ore '{query}' not found. Use /orelist to browse.")
+        return
+
+    rar        = target["rarity"]
+    by_rar     = _by_rarity_map()
+    n_ores     = len(by_rar.get(rar, []))
+    one_in     = _one_in_x(rar, n_ores)
+    wlo, whi   = get_default_weight_range(rar)
+    val        = target.get("sell_value", 0)
+    announce   = "ON" if rar in ANNOUNCE_RARITIES else "OFF"
+
+    # Use full rainbow name only for prismatic in /oreinfo (single ore, safe)
+    if rar in ("prismatic", "ultra_rare"):
+        ore_display = rainbow_text(f"{target['emoji']} {target['name']}")
+    else:
+        color = {
+            "uncommon":  "#66BBAA", "rare": "#3399FF", "epic": "#B266FF",
+            "legendary": "#FFD700", "mythic": "#FF66CC", "exotic": "#FF0000",
+        }.get(rar, "")
+        ore_display = (f"<{color}>{target['emoji']} {target['name']}<#FFFFFF>"
+                       if color else f"{target['emoji']} {target['name']}")
+
+    rar_name   = get_rarity_display_name(rar)
+    msg = (
+        f"{ore_display}\n"
+        f"Rarity: {rar_name}\n"
+        f"Chance: 1 in {one_in:,}\n"
+        f"Value: {val:,}c\n"
+        f"Weight: {wlo}–{whi}kg\n"
+        f"Announce: {announce}"
+    )
+    await _w(bot, user.id, msg[:249])
 
 
 def _split_to_chunks(text: str, limit: int) -> list[str]:
@@ -1894,6 +2078,14 @@ MINE_HELP_PAGES = [
         "/mineprofile - your stats"
     ),
     (
+        "📘 Ore Info\n"
+        "/orelist <rarity> - ore chances\n"
+        "/oreprices <rarity> - ore prices\n"
+        "/oreinfo <ore> - full ore details\n"
+        "Add [page] for page 2, 3...\n"
+        "Example: /orelist rare 2"
+    ),
+    (
         "📘 Goals\n"
         "/orebook - ore collection\n"
         "/oremastery - mastery rewards\n"
@@ -1921,16 +2113,17 @@ MINE_HELP_PAGES = [
 
 
 async def handle_minehelp(bot: BaseBot, user: User, args: list[str]) -> None:
+    # MINE_HELP_PAGES layout (6 pages):
+    # 1-Mining  2-Mining2  3-OreInfo  4-Goals  5-Weights  6-Staff(admin)
+    _STAFF_PAGE_IDX = len(MINE_HELP_PAGES) - 1   # last page is always staff
     page = int(args[1]) if len(args) > 1 and args[1].isdigit() else 0
     if page == 0:
-        await _w(bot, user.id, MINE_HELP_PAGES[0])
-        await _w(bot, user.id, MINE_HELP_PAGES[1])
-        await _w(bot, user.id, MINE_HELP_PAGES[2])
-        await _w(bot, user.id, MINE_HELP_PAGES[3])
+        for i in range(_STAFF_PAGE_IDX):          # send all non-staff pages
+            await _w(bot, user.id, MINE_HELP_PAGES[i])
         if _can_mine_admin(user.username):
-            await _w(bot, user.id, MINE_HELP_PAGES[4])
+            await _w(bot, user.id, MINE_HELP_PAGES[_STAFF_PAGE_IDX])
     elif 1 <= page <= len(MINE_HELP_PAGES):
-        if page == 5 and not _can_mine_admin(user.username):
+        if page == len(MINE_HELP_PAGES) and not _can_mine_admin(user.username):
             return
         await _w(bot, user.id, MINE_HELP_PAGES[page - 1])
     else:

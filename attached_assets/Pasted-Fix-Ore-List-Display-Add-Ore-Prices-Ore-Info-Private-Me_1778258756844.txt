@@ -1,0 +1,467 @@
+Fix Ore List Display + Add Ore Prices/Ore Info + Private Message Command Routing
+
+Do not change bot tokens.
+Do not change room ID.
+Do not reset balances.
+Do not wipe player data.
+Do not change mining rewards, ore chances, ore weights, events, poker, blackjack, bank, shop, outfits, or bot spawns unless required for this specific update.
+
+This update has 2 main parts:
+
+A. Fix ore list display
+B. Fix private message / bot DM command behavior
+
+==================================================
+PART A — FIX ORE LIST DISPLAY
+==================================================
+
+Current issue:
+The ore list is hard to read, too long, and still shows price/weight inside /orelist.
+Prismatic colors are also breaking because rainbow color tags are being cut mid-message.
+
+Goal:
+/orelist should show ONLY:
+- rarity
+- emoji/icon
+- ore name
+- chance to mine
+
+Do NOT show prices in /orelist.
+Do NOT show weights in /orelist.
+Prices and weights should move to a separate command.
+
+==================================================
+A1 — /orelist SHOULD BE CHANCE-ONLY
+==================================================
+
+Change /orelist behavior.
+
+/orelist:
+Show a short menu only.
+
+Example:
+<#66CCFF>⛏️ Ore List<#FFFFFF>
+Use:
+/orelist common
+/orelist rare
+/orelist epic
+/orelist legendary
+/orelist mythic
+/orelist prismatic
+/orelist exotic
+
+/orelist <rarity>:
+Show ore chance list for that rarity.
+
+/orelist <rarity> <page>:
+Show specific page.
+
+Examples:
+/orelist common
+/orelist common 2
+/orelist rare
+/orelist legendary 3
+
+Each ore must be one line.
+
+Format:
+<emoji> <ore name> — 1 in X
+
+Example:
+Common Ores — Page 1/3
+🟫 Clay — 1 in 18
+🪨 Stone — 1 in 18
+🏜️ Sandstone — 1 in 18
+🔴 Hematite — 1 in 18
+🟡 Pyrite — 1 in 18
+
+Rare example:
+Rare Ores — Page 1/4
+⚪ Silver Ore — 1 in 212
+🔥 Coral — 1 in 212
+⬛ Cassiterite — 1 in 212
+🟡 Chalcopyrite — 1 in 212
+🔷 Zircon — 1 in 212
+
+Requirements:
+1. One ore per line.
+2. Show max 5 ores per page.
+3. Page 2 must show the next ores, not repeat page 1.
+4. Keep messages short so Highrise does not cut them off.
+5. Do not include price/value.
+6. Do not include weight.
+7. Use color by rarity if safe.
+8. Always close colors with <#FFFFFF>.
+9. Do not cut color tags in half.
+10. If color tags make the message too long, prioritize clean readable text over color.
+
+==================================================
+A2 — FIX PRISMATIC DISPLAY
+==================================================
+
+Current issue:
+Prismatic ore names are breaking and showing raw tags like:
+Aurora <#FF66CC
+
+Fix this.
+
+Rules:
+1. Do not let rainbow color tags get cut mid-message.
+2. In /orelist prismatic, use simple emoji/icon if needed.
+3. Use the rainbow rarity header only if it fits safely.
+4. Full rainbow ore names can be shown in /oreinfo, not necessarily in /orelist.
+5. Always close with <#FFFFFF>.
+6. Never split a message inside a color tag.
+
+Safe /orelist prismatic format:
+Prismatic Ores — Page 1/2
+🌈 Aurora Crystal — 1 in 20,000
+💎 Rainbow Diamond — 1 in 20,000
+🌈 Chroma Core — 1 in 20,000
+✨ Spectrum Quartz — 1 in 20,000
+
+If using rainbow header, use the exact safe rarity text:
+<#FF0000>P<#FF9900>r<#FFFF00>i<#00FF00>s<#00CCFF>m<#3366FF>a<#9933FF>t<#FF66CC>i<#FFFFFF>c
+
+But do not use rainbow-letter ore names in paginated /orelist if it causes cut-off.
+
+==================================================
+A3 — ADD /oreprices FOR PRICE + WEIGHT
+==================================================
+
+Add separate command:
+/oreprices
+/oreprices <rarity>
+/oreprices <rarity> <page>
+
+Aliases if useful:
+/orevalues
+/orevalue
+
+/oreprices:
+Show menu.
+
+Example:
+<#FFD700>💰 Ore Prices<#FFFFFF>
+Use:
+/oreprices common
+/oreprices rare
+/oreprices epic
+/oreprices legendary
+/oreprices mythic
+/oreprices prismatic
+/oreprices exotic
+
+/oreprices common:
+Shows price and possible weight range.
+
+Format:
+Common Prices — Page 1/3
+🟫 Clay — 10c | 0.1–1.0kg
+🪨 Stone — 12c | 0.1–1.0kg
+🏜️ Sandstone — 14c | 0.1–1.0kg
+🔴 Hematite — 15c | 0.1–1.0kg
+🟡 Pyrite — 16c | 0.1–1.0kg
+
+Requirements:
+1. One ore per line.
+2. Max 5 ores per page.
+3. Show base value.
+4. Show possible weight range.
+5. Do not show chance here unless there is room.
+6. Keep messages short.
+
+==================================================
+A4 — ADD /oreinfo <ore_name>
+==================================================
+
+Add command:
+/oreinfo <ore_name>
+
+Aliases if useful:
+/oredetail <ore_name>
+/oredetails <ore_name>
+
+Purpose:
+Shows full information for one ore.
+
+Example:
+/oreinfo Gold Ore
+
+Output:
+<#FFD700>💎 Gold Ore<#FFFFFF>
+Rarity: Legendary
+Chance: 1 in 1,900
+Base Value: 3,000c
+Weight: 0.1–1.0kg
+Announce: ON
+
+For Prismatic:
+It is okay to show the full rainbow ore name here if safe because this is only one ore.
+
+Requirements:
+1. Handle ore names with spaces.
+2. Case-insensitive lookup.
+3. Allow partial matches if safe.
+4. If multiple matches, show short suggestions.
+5. Keep output readable.
+
+==================================================
+A5 — FIX PAGINATION
+==================================================
+
+Pagination must be real and reliable.
+
+Examples:
+/orelist common
+Shows page 1.
+
+/orelist common 2
+Shows page 2.
+
+/oreprices rare 3
+Shows page 3.
+
+Rules:
+1. Validate page number.
+2. If page is too high, show last available page or say page not found.
+3. Header must show Page X/Y.
+4. Page 2 must not repeat page 1.
+5. Use same pagination helper for /orelist and /oreprices.
+
+==================================================
+A6 — UPDATE HELP
+==================================================
+
+Update /minehelp or related mining help to explain:
+
+/orelist = ore chance menu
+/orelist <rarity> = chance list
+/orelist <rarity> <page> = chance list page
+
+/oreprices = price/weight menu
+/oreprices <rarity> = price and weight list
+/oreprices <rarity> <page> = price page
+
+/oreinfo <ore> = full ore details
+
+==================================================
+PART B — PRIVATE MESSAGE / BOT DM COMMAND ROUTING
+==================================================
+
+Goal:
+Players should be able to privately message bots with commands.
+Bots should only reply if the command belongs to that bot’s job.
+Only EmceeBot should send generic private-message alert/status messages.
+
+==================================================
+B1 — ONLY EMCEEBOT SENDS PRIVATE MESSAGE ALERTS
+==================================================
+
+Current issue:
+Multiple bots may send “Alerts ON”, “DM alerts enabled”, or private-message status replies.
+
+New rule:
+Only EmceeBot may send generic private-message alert/status messages.
+
+Examples:
+Allowed:
+EmceeBot: “Alerts ON. I can help you here.”
+
+Not allowed:
+GreatestProspector saying “Alerts ON” just because a player private messaged it.
+BankingBot saying “Alerts ON” just because a player private messaged it.
+ChipSoprano saying “Alerts ON” just because a player private messaged it.
+
+Other bots should only reply when:
+1. The private message contains a command.
+2. The command belongs to that bot’s role/job.
+3. The bot actually handles that command.
+
+==================================================
+B2 — COMMANDS SHOULD WORK IN PRIVATE MESSAGES
+==================================================
+
+Private-message commands should use the same command registry and ownership system as room chat.
+
+If player DMs GreatestProspector:
+/mine
+/orelist rare
+/oreprices common
+/oreinfo Gold Ore
+/minehelp
+
+GreatestProspector should respond because those are mining commands.
+
+If player DMs BankingBot:
+/bal
+/send @user 100
+/bankhelp
+/goldtipstatus
+/mygoldtips
+
+BankingBot should respond because those are banking commands.
+
+If player DMs ChipSoprano:
+/pokerhelp
+/cards
+/ph
+/pokerstats
+
+ChipSoprano should respond because those are poker commands.
+
+If player DMs BlackjackBot:
+/bjhelp
+/bet 100
+/hit
+/stand
+/double
+/split
+
+BlackjackBot should respond because those are blackjack commands.
+
+If player DMs EmceeBot:
+/help
+/ai
+/ask
+general AI assistant messages
+
+EmceeBot should respond.
+
+==================================================
+B3 — WRONG BOT BEHAVIOR
+==================================================
+
+If a player privately messages the wrong bot with a command, do not execute it.
+
+Example:
+Player DMs GreatestProspector:
+/bal
+
+GreatestProspector should NOT run /bal.
+
+It can reply briefly:
+BankingBot handles that. Message BankingBot or use /bal in room.
+
+But add cooldown so wrong-bot replies do not spam.
+
+Wrong-bot response rules:
+1. Short reply only.
+2. Cooldown per user per wrong command/bot.
+3. Do not repeat every time.
+4. EmceeBot can give routing help more freely.
+
+==================================================
+B4 — PRIVATE MESSAGE ROUTING RULES
+==================================================
+
+Implement PM routing:
+
+1. Detect if message is private/whisper/DM.
+2. Parse command normally.
+3. Look up command owner from command registry.
+4. Compare command owner to current bot role.
+5. If command owner matches current bot, execute handler.
+6. If command owner does not match current bot:
+   - do not execute
+   - optionally send short routing hint with cooldown
+7. If current bot is EmceeBot:
+   - can handle general help, AI, alerts/status, command routing help
+8. If no command is found:
+   - non-Emcee bots should stay quiet or give minimal help with cooldown
+   - EmceeBot may respond normally
+
+==================================================
+B5 — BOT ROLE EXAMPLES
+==================================================
+
+Mining bot / GreatestProspector handles:
+- /mine
+- /orelist
+- /oreprices
+- /oreinfo
+- /minehelp
+- /mineboosts
+- /oreweightlb
+- /myheaviest
+- /topweights
+
+BankingBot handles:
+- /bal
+- /send
+- /bankhelp
+- /goldtipstatus
+- /mygoldtips
+- /goldtipsettings if staff
+
+PokerBot / ChipSoprano handles:
+- /pokerhelp
+- /cards
+- /ph
+- /pokerstats
+- poker player actions if allowed
+
+BlackjackBot handles:
+- /bjhelp
+- /bet
+- /hit
+- /stand
+- /double
+- /split
+- /insurance
+- /surrender
+
+EventBot handles:
+- /eventhelp
+- /eventstatus
+- /eventpanel if staff
+- /mineboosts if owned by EventHost, depending owner map
+
+EmceeBot handles:
+- /help
+- AI assistant
+- command routing help
+- PM alert/status messages
+
+==================================================
+B6 — COMMAND INTEGRITY
+==================================================
+
+For every new command or alias:
+1. Add route.
+2. Add handler.
+3. Add commandtest support.
+4. Add active registry entry.
+5. Add owner map.
+6. Owner must not be UNKNOWN.
+
+Commands to verify:
+- /commandtest /orelist
+- /commandtest /ores
+- /commandtest /oreprices
+- /commandtest /orevalues
+- /commandtest /oreinfo
+- /commandtest /oredetail
+
+/checkcommands all should show:
+Missing 0
+NoOwner 0
+
+Also make sure private-message command routing does not break normal public room commands.
+
+==================================================
+FINAL REPORT
+==================================================
+
+After finishing, tell me:
+
+1. Files changed
+2. How /orelist was changed
+3. How /oreprices works
+4. How /oreinfo works
+5. How pagination works
+6. Max ores per page
+7. How Prismatic color-tag cut-off was fixed
+8. How private-message command routing works
+9. How wrong-bot replies are throttled
+10. Exact tests to run
