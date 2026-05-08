@@ -39,6 +39,8 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     # ── display format settings ───────────────────────────────────────────────
     "displaybadges": "host", "displaytitles": "host", "displayformat": "host",
     "displaytest": "host",
+    "botmessageformat": "host", "setbotmessageformat": "host",
+    "msgtest": "host", "msgboxtest": "host", "msgsplitpreview": "host",
     # ── time-in-room EXP admin commands ──────────────────────────────────────
     "settimeexp": "host", "settimeexpcap": "host",
     "settimeexptick": "host", "settimeexpbonus": "host",

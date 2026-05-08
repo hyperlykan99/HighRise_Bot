@@ -1,0 +1,435 @@
+Fix Prismatic Display Cutoff + Global Bot Message Format + Private Message Commands + Message Length Tester
+
+Focus only on:
+1. Prismatic mining display safety
+2. Global bot message formatting
+3. Private/direct message command routing
+4. Message character limit testing tools
+
+Do not change bot tokens.
+Do not change room ID.
+Do not reset balances.
+Do not wipe player data.
+Do not change ore chances, ore values, ore weights, mining cooldowns, mining events, poker, blackjack, bank, shop, AI, outfits, or bot spawns unless required for this update.
+
+==================================================
+PART 1 — FIX PRISMATIC DISPLAY CUTOFF
+==================================================
+
+Current issue:
+Prismatic tags are still being cut in personal mining messages and big announcements.
+
+New rule:
+For Prismatic mining results and announcements:
+- [PRISMATIC] should use the rainbow-colored rarity label.
+- Ore name should NOT be rainbow letter-by-letter.
+- Ore name should be pink only.
+
+Use this exact Prismatic rarity label:
+
+<#FF0000>[P<#FF9900>R<#FFFF00>I<#00FF00>S<#00CCFF>M<#3366FF>A<#9933FF>T<#FF66CC>I<#FF0000>C]<#FFFFFF>
+
+Prismatic ore name format:
+<#FF66CC>Ore Name<#FFFFFF>
+
+Example personal mine message:
+
+GreatestProspector:
+<#66CCFF>⛏️ Mining<#FFFFFF>
+You mined <#FF0000>[P<#FF9900>R<#FFFF00>I<#00FF00>S<#00CCFF>M<#3366FF>A<#9933FF>T<#FF66CC>I<#FF0000>C]<#FFFFFF> 🌈 <#FF66CC>Aurora Crystal<#FFFFFF> | ⚖️ 5.21kg | 💰 50,000c
+
+Example big announcement:
+
+GreatestProspector:
+<#FFD700>📣 Big Find<#FFFFFF>
+💎 [High Roller] @Marion mined <#FF0000>[P<#FF9900>R<#FFFF00>I<#00FF00>S<#00CCFF>M<#3366FF>A<#9933FF>T<#FF66CC>I<#FF0000>C]<#FFFFFF> 🌈 <#FF66CC>Aurora Crystal<#FFFFFF> — 5.21kg worth 50,000c!
+
+Important:
+1. Do not rainbow-color Prismatic ore names in mine results.
+2. Do not rainbow-color Prismatic ore names in announcements.
+3. Only the [PRISMATIC] rarity label is rainbow.
+4. Prismatic ore names are pink.
+5. Always close color with <#FFFFFF>.
+6. Never cut color tags in half.
+7. Keep messages short enough that Highrise does not cut the tag.
+
+This rule applies to:
+- personal /mine result
+- public rare ore announcement
+- /simannounce prismatic
+- /oreinfo prismatic if needed
+
+==================================================
+PART 2 — ORE LIST RULE REMAINS CLEAN
+==================================================
+
+Keep /orelist clean.
+
+For /orelist:
+- Only rarity header is colored.
+- Ore names are plain text.
+- Color stops after rarity label.
+- No ore name colors in /orelist.
+- No price in /orelist.
+- No weight in /orelist.
+
+Example:
+
+GreatestProspector:
+<#FF0000>[P<#FF9900>R<#FFFF00>I<#00FF00>S<#00CCFF>M<#3366FF>A<#9933FF>T<#FF66CC>I<#FF0000>C]<#FFFFFF>
+🌈 Aurora Crystal — 1 in 250,000
+💎 Rainbow Diamond — 1 in 300,000
+🔮 Prismarine Core — 1 in 350,000
+
+==================================================
+PART 3 — GLOBAL BOT MESSAGE FORMAT
+==================================================
+
+Update bot message style.
+
+Goal:
+Every bot message should be formatted like:
+
+BotName:
+Message starts here
+
+The first row should be the bot name with colon.
+The second row should start the actual message.
+
+Examples:
+
+GreatestProspector:
+<#66CCFF>⛏️ Mining<#FFFFFF>
+You mined [LEGENDARY] 🟡 Gold Ore | ⚖️ 3.42kg | 💰 1,710c
+
+BankingBot:
+<#FFD700>💰 Balance<#FFFFFF>
+You have 25,000 coins.
+
+EmceeBot:
+<#66CCFF>ℹ️ Help<#FFFFFF>
+Type /games to see available games.
+
+ChipSoprano:
+<#00FFCC>👉 YOUR TURN<#FFFFFF>
+Board: none yet | Your: A♠ K♦
+
+Requirements:
+1. Add a shared formatter/helper if possible:
+   format_bot_message(bot_name, body)
+2. Output should be:
+   {BotName}:\n{body}
+3. Apply to updated/new messages first.
+4. Apply globally where practical without breaking command parsing.
+5. Keep messages short.
+6. Avoid adding duplicate bot names if Highrise already prepends the bot name in UI. If the UI already shows the bot name and adding BotName: looks duplicated, make this configurable.
+
+Add setting if needed:
+- /botmessageformat
+- /setbotmessageformat on
+- /setbotmessageformat off
+
+Default:
+ON, unless it causes duplicate bot names in actual Highrise UI.
+
+==================================================
+PART 4 — PRIVATE / DIRECT MESSAGE COMMAND ROUTING
+==================================================
+
+Current issue:
+Commands still do not work when sent by direct/private message to the bot.
+
+Goal:
+Players should be able to privately message bots with commands.
+Bots should only reply if the command belongs to that bot’s job.
+Only EmceeBot should send generic private-message alert/status messages.
+
+==================================================
+4A — ONLY EMCEEBOT SENDS GENERIC PM ALERTS
+==================================================
+
+Only EmceeBot can send messages like:
+- Alerts ON
+- DM alerts enabled
+- Private messages active
+- I can help you here
+
+Other bots should not send generic PM alert/status messages.
+
+Other bots only reply when:
+1. The private message contains a command.
+2. The command belongs to that bot’s role/job.
+3. The bot actually handles that command.
+
+==================================================
+4B — COMMANDS SHOULD WORK IN PRIVATE MESSAGES
+==================================================
+
+Private-message commands should use the same command registry and ownership system as room chat.
+
+If player DMs GreatestProspector:
+/mine
+/orelist rare
+/oreprices common
+/oreinfo Gold Ore
+/minehelp
+
+GreatestProspector should respond privately.
+
+If player DMs BankingBot:
+/bal
+/send @user 100
+/bankhelp
+/goldtipstatus
+/mygoldtips
+
+BankingBot should respond privately.
+
+If player DMs ChipSoprano:
+/pokerhelp
+/cards
+/ph
+/pokerstats
+
+ChipSoprano should respond privately.
+
+If player DMs BlackjackBot:
+/bjhelp
+/bet 100
+/hit
+/stand
+/double
+/split
+
+BlackjackBot should respond privately.
+
+If player DMs EmceeBot:
+/help
+/ai
+/ask
+general AI assistant messages
+
+EmceeBot should respond privately.
+
+==================================================
+4C — WRONG BOT BEHAVIOR
+==================================================
+
+If a player privately messages the wrong bot with a command, do not execute it.
+
+Example:
+Player DMs GreatestProspector:
+/bal
+
+GreatestProspector should NOT run /bal.
+
+It can reply briefly:
+BankingBot handles that. Message BankingBot or use /bal in room.
+
+Add cooldown so wrong-bot replies do not spam.
+
+Wrong-bot response rules:
+1. Short reply only.
+2. Cooldown per user per wrong command/bot.
+3. Do not repeat every time.
+4. EmceeBot can give routing help more freely.
+
+==================================================
+4D — PRIVATE MESSAGE ROUTING IMPLEMENTATION
+==================================================
+
+Implement PM routing:
+
+1. Detect if message is private/whisper/DM.
+2. Parse command normally.
+3. Look up command owner from command registry.
+4. Compare command owner to current bot role.
+5. If command owner matches the current bot, execute handler.
+6. If command owner does not match current bot:
+   - do not execute
+   - optionally send short routing hint with cooldown
+7. If current bot is EmceeBot:
+   - can handle general help, AI, alerts/status, command routing help
+8. If no command is found:
+   - non-Emcee bots should stay quiet or give minimal help with cooldown
+   - EmceeBot may respond normally
+
+Use the same permission checks in PM as public chat.
+Do not allow private messages to bypass admin/owner permissions.
+
+==================================================
+PART 5 — MESSAGE CHARACTER LIMIT TESTER
+==================================================
+
+Add commands to test how many characters a bot can send cleanly before Highrise cuts the message.
+
+Commands:
+- /msgtest <length>
+- /msgboxtest
+- /msgsplitpreview <text>
+
+Owner:
+Host
+
+==================================================
+5A — /msgtest <length>
+==================================================
+
+Behavior:
+Sends a message with exactly that many visible characters.
+
+Examples:
+/msgtest 100
+/msgtest 150
+/msgtest 200
+/msgtest 250
+/msgtest 300
+/msgtest 350
+/msgtest 400
+
+The message should show:
+- requested length
+- actual visible character count
+- test body
+
+Example:
+
+EmceeBot:
+<#66CCFF>🧪 Message Test<#FFFFFF>
+Length: 200 | 1234567890...
+
+Do not include color tags in the counted visible body unless clearly separated.
+
+==================================================
+5B — /msgboxtest
+==================================================
+
+Behavior:
+Sends multiple test messages:
+- 100 chars
+- 150 chars
+- 200 chars
+- 250 chars
+- 300 chars
+- 350 chars
+- 400 chars
+
+Use short delay between messages if needed to avoid rate limits.
+
+==================================================
+5C — /msgsplitpreview <text>
+==================================================
+
+Behavior:
+Shows how the bot would split a long message into safe chunks.
+
+Example:
+/msgsplitpreview this is a very long text...
+
+Output:
+Chunk 1/3: ...
+Chunk 2/3: ...
+Chunk 3/3: ...
+
+==================================================
+PART 6 — GLOBAL SAFE MESSAGE HELPER
+==================================================
+
+Add or improve a global safe message helper.
+
+Example:
+safe_send(message, whisper_target=None, max_chars=220)
+
+Rules:
+1. Default public message max: 220 characters.
+2. Default whisper/private message max: 280 characters.
+3. Split long messages by line breaks first.
+4. Then split by separators like " | ".
+5. Then split by spaces.
+6. Never cut color tags in half.
+7. Always close color tags with <#FFFFFF>.
+8. Do not leave an open color tag across chunks.
+9. Prefer clean format:
+   BotName:
+   Message starts here
+10. Use safe message splitting for:
+   - orelist
+   - oreprices
+   - oreinfo
+   - mining announcements
+   - sim announcements
+   - mining panels
+   - poker dashboards
+   - blackjack messages
+   - event panels
+   - help menus
+
+==================================================
+PART 7 — COMMAND INTEGRITY
+==================================================
+
+For every new command or alias:
+1. Add route.
+2. Add handler.
+3. Add commandtest support.
+4. Add active registry entry.
+5. Add owner map.
+6. Owner must not be UNKNOWN.
+
+Commands to verify:
+- /commandtest /msgtest
+- /commandtest /msgboxtest
+- /commandtest /msgsplitpreview
+- /commandtest /botmessageformat
+- /commandtest /setbotmessageformat
+
+Also verify existing commands:
+- /commandtest /orelist
+- /commandtest /oreprices
+- /commandtest /oreinfo
+- /commandtest /simannounce
+- /commandtest /mine
+
+/checkcommands all should show:
+Missing 0
+NoOwner 0
+
+If /botmessageformat or /setbotmessageformat are not added, do not list them as active commands.
+
+==================================================
+PART 8 — SAFETY
+==================================================
+
+Do not:
+- reset player mining data
+- reset balances
+- change ore chances
+- change ore values
+- break ore weights
+- break ore weight leaderboards
+- break rare announcements
+- break /orelist
+- break /oreprices
+- break /oreinfo
+- break public room commands
+- let DM commands bypass permissions
+- let non-Emcee bots send generic PM alert messages
+- cut color tags in half
+
+==================================================
+FINAL REPORT
+==================================================
+
+After finishing, tell me:
+1. Files changed
+2. How Prismatic announcements changed
+3. Whether Prismatic ore names are now pink instead of rainbow
+4. How bot message formatting works
+5. Whether BotName: prefix is configurable
+6. How private/direct message routing works
+7. How wrong-bot replies are throttled
+8. How /msgtest works
+9. How /msgboxtest works
+10. How /msgsplitpreview works
+11. Where safe_send/helper is located
+12. Exact tests to run

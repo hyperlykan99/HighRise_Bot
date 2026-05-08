@@ -272,9 +272,11 @@ async def process_incoming_dm(
     # Look up user by Highrise user_id
     user_row = db.get_user_by_username_via_id(user_id)
     if user_row is None:
-        print(f"[DM] Unknown user_id={user_id[:12]}... — prompting to join room.")
-        await send_dm(bot, conversation_id,
-                      "👋 Hi! Join the room first, then reply 'subscribe' for notifications.")
+        print(f"[DM] Unknown user_id={user_id[:12]}... — unrecognised user.")
+        # Only EmceeBot (host) sends generic welcome prompts to unknown DM senders.
+        if BOT_MODE in ("host", "all"):
+            await send_dm(bot, conversation_id,
+                          "👋 Hi! Join the room first, then reply 'subscribe' for notifications.")
         return
 
     username = user_row["username"]

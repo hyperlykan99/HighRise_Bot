@@ -187,6 +187,20 @@ def format_bot_message(message: str, category: str | None = None) -> str:
     return message[:249]
 
 
+def format_named_message(bot_name: str, body: str) -> str:
+    """
+    Format a message with the bot name as the first line.
+
+    Output: "BotName:\\nbody"
+
+    Controlled by room_setting 'bot_name_prefix_enabled' (default on).
+    Disable globally with /setbotmessageformat off.
+    """
+    if _rs("bot_name_prefix_enabled", "true") != "true":
+        return body
+    return f"{bot_name}:\n{body}"
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -312,6 +326,39 @@ async def handle_botprofile(bot: BaseBot, user: User) -> None:
 # ---------------------------------------------------------------------------
 # /botprefix on/off
 # ---------------------------------------------------------------------------
+
+async def handle_botmessageformat(bot: BaseBot, user: User, args: list[str]) -> None:
+    """/botmessageformat — show current BotName:\\nBody prefix setting."""
+    from modules.permissions import can_manage_economy, is_owner
+    if not (is_owner(user.username) or can_manage_economy(user.username)):
+        await _w(bot, user.id, "Manager+ only.")
+        return
+    state = _rs("bot_name_prefix_enabled", "true")
+    status = "ON" if state == "true" else "OFF"
+    await _w(bot, user.id,
+             f"BotName prefix: {status}. "
+             "When ON, bot messages start with 'BotName:\\n'. "
+             "Toggle: /setbotmessageformat on|off")
+
+
+async def handle_setbotmessageformat(bot: BaseBot, user: User, args: list[str]) -> None:
+    """/setbotmessageformat on|off — toggle BotName:\\nBody prefix globally."""
+    from modules.permissions import can_manage_economy, is_owner
+    if not (is_owner(user.username) or can_manage_economy(user.username)):
+        await _w(bot, user.id, "Manager+ only.")
+        return
+    if len(args) < 2 or args[1].lower() not in ("on", "off"):
+        cur = _rs("bot_name_prefix_enabled", "true")
+        status = "ON" if cur == "true" else "OFF"
+        await _w(bot, user.id, f"Usage: /setbotmessageformat on|off  (current: {status})")
+        return
+    val = "true" if args[1].lower() == "on" else "false"
+    import database as _db
+    _db.set_room_setting("bot_name_prefix_enabled", val)
+    status = "ON" if val == "true" else "OFF"
+    await _w(bot, user.id, f"✅ Bot name prefix: {status}. "
+             "All bots will use 'BotName:\\nMessage' format when enabled.")
+
 
 async def handle_botprefix(bot: BaseBot, user: User, args: list[str]) -> None:
     if not (is_admin(user.username) or is_owner(user.username)):

@@ -95,6 +95,8 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     "timeexpstatus",
     # ── display format settings ───────────────────────────────────────────────
     "displaybadges", "displaytitles", "displayformat", "displaytest",
+    "botmessageformat", "setbotmessageformat",
+    "msgtest", "msgboxtest", "msgsplitpreview",
     # ── roles ────────────────────────────────────────────────────────────────
     "addowner", "removeowner",
     "addmanager", "removemanager",
@@ -407,6 +409,8 @@ HELP_CMDS: frozenset[str] = frozenset({
     "settimeexp", "settimeexpcap", "settimeexptick", "settimeexpbonus",
     "timeexpstatus",
     "displaybadges", "displaytitles", "displayformat", "displaytest",
+    "botmessageformat", "setbotmessageformat",
+    "msgtest", "msgboxtest", "msgsplitpreview",
     "casinosettings", "casinolimits", "casinotoggles",
     "setbjlimits", "setrbjlimits", "setbjactiontimer", "setrbjactiontimer",
     "setbjmaxsplits", "setrbjmaxsplits",

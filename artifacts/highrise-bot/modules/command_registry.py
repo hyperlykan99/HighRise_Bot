@@ -86,10 +86,17 @@ REGISTRY: dict[str, Cmd] = {
     "gameguide":        Cmd("host","info",    False,True, False),
     "games":            Cmd("host","info",    False,True, False),
     # ── Display format settings ───────────────────────────────────────────────
-    "displaybadges":    Cmd("host","admin",   True, True, False, perm="manager"),
-    "displaytitles":    Cmd("host","admin",   True, True, False, perm="manager"),
-    "displayformat":    Cmd("host","admin",   True, True, False, perm="manager"),
-    "displaytest":      Cmd("host","admin",   True, True, False, perm="manager"),
+    "displaybadges":       Cmd("host","admin",   True, True, False, perm="manager"),
+    "displaytitles":       Cmd("host","admin",   True, True, False, perm="manager"),
+    "displayformat":       Cmd("host","admin",   True, True, False, perm="manager"),
+    "displaytest":         Cmd("host","admin",   True, True, False, perm="manager"),
+    # ── Bot message format (BotName:\nBody prefix) ────────────────────────────
+    "botmessageformat":    Cmd("host","admin",   False,True, False, perm="manager"),
+    "setbotmessageformat": Cmd("host","admin",   False,False,True,  perm="manager"),
+    # ── Message length testing tools ─────────────────────────────────────────
+    "msgtest":             Cmd("host","admin",   False,False,True,  perm="manager"),
+    "msgboxtest":          Cmd("host","admin",   False,False,True,  perm="manager"),
+    "msgsplitpreview":     Cmd("host","admin",   False,False,True,  perm="manager"),
     # ── Time-in-Room EXP admin commands ──────────────────────────────────────
     "settimeexp":       Cmd("host","admin",   True, True, False, perm="manager"),
     "settimeexpcap":    Cmd("host","admin",   True, True, False, perm="manager"),

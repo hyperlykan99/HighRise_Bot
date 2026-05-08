@@ -156,7 +156,7 @@ def format_ore_name(ore_name: str, rarity: str, context: str = "mine_result") ->
         return ore_name          # plain text — no color tags in ore lists
     key = rarity.lower()
     if key in ("ultra_rare", "prismatic"):
-        return rainbow_text(ore_name)
+        return f"<#FF66CC>{ore_name}<#FFFFFF>"
     color = _RARITY_COLORS.get(key)
     if color:
         return f"<{color}>{ore_name}<#FFFFFF>"

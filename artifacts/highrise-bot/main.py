@@ -391,6 +391,10 @@ from modules.bot_modes import (
     handle_createbotmode, handle_deletebotmode, handle_assignbotmode,
     handle_bots, handle_botinfo, handle_botoutfitlogs,
     handle_botmodehelp,
+    handle_botmessageformat, handle_setbotmessageformat,
+)
+from modules.msg_test import (
+    handle_msgtest, handle_msgboxtest, handle_msgsplitpreview,
 )
 from modules.room_utils import (
     handle_tpme, handle_tp, handle_tphere, handle_goto,
@@ -1522,6 +1526,8 @@ ALLCMDS = [
 
 # Pending /casino reset confirmations: {user_id: {"code": str, "ts": float}}
 _pending_casino_reset: dict = {}
+# Per-user cooldown for wrong-bot whisper routing hints (timestamp of last hint)
+_whisper_wrong_bot_ts: dict[str, float] = {}
 
 
 async def _handle_casino_cmd(bot, user, args):
@@ -3255,6 +3261,18 @@ class HangoutBot(BaseBot):
         elif cmd == "displaytest":
             await handle_displaytest(self, user, args)
 
+        elif cmd == "botmessageformat":
+            await handle_botmessageformat(self, user, args)
+        elif cmd == "setbotmessageformat":
+            await handle_setbotmessageformat(self, user, args)
+
+        elif cmd == "msgtest":
+            await handle_msgtest(self, user, args)
+        elif cmd == "msgboxtest":
+            await handle_msgboxtest(self, user, args)
+        elif cmd == "msgsplitpreview":
+            await handle_msgsplitpreview(self, user, args)
+
         elif cmd == "confirmcasinoreset":
             if not can_moderate(user.username):
                 await self.highrise.send_whisper(user.id, "Staff only.")
@@ -4664,9 +4682,12 @@ class HangoutBot(BaseBot):
 
     async def on_whisper(self, user: User, message: str) -> None:
         """
-        Dedicated whisper handler. Auto-subscribes the whispering player to
+        Dedicated whisper handler.
+
+        Routes slash-commands to the owning bot handler if this bot owns them.
+        Gives a short routing hint (60 s cooldown) when a command belongs to a
+        different bot.  Also auto-subscribes the whispering player to
         notifications (if tip_auto_sub is ON and they haven't manually unsubbed).
-        Does NOT process bot commands (whispers are not a command surface).
         """
         raw = f"from=@{user.username}({user.id}) message={message[:60]!r}"
         record_debug_any_event("on_whisper", raw)
@@ -4674,7 +4695,36 @@ class HangoutBot(BaseBot):
         if any(kw in msg_lower for kw in ("gold", "tip", "coin")):
             print(f"DEBUG EVENT FIRED: on_whisper | {raw}")
 
-        # Auto-subscribe whisperer (respects manually_unsubscribed flag)
+        # ── Slash-command routing via whisper ─────────────────────────────────
+        stripped = message.strip()
+        if stripped.startswith("/"):
+            from modules.multi_bot import should_this_bot_handle, _resolve_command_owner
+            cmd_word = stripped.split()[0][1:].lower()
+            if should_this_bot_handle(cmd_word):
+                print(f"[WHISPER] Routing /{cmd_word} for @{user.username}")
+                try:
+                    await self.on_chat(user, stripped)
+                except Exception as exc:
+                    print(f"[WHISPER] dispatch error for /{cmd_word}: {exc!r}")
+                    await self.highrise.send_whisper(
+                        user.id, "❌ Something went wrong handling that command.")
+            else:
+                owner_mode = _resolve_command_owner(cmd_word)
+                if owner_mode:
+                    now = asyncio.get_event_loop().time()
+                    last = _whisper_wrong_bot_ts.get(user.id, 0.0)
+                    if now - last >= 60:
+                        _whisper_wrong_bot_ts[user.id] = now
+                        hint = (f"❌ /{cmd_word} belongs to the {owner_mode} bot. "
+                                "Try it in the room instead.")
+                        await self.highrise.send_whisper(user.id, hint[:249])
+                        print(f"[WHISPER] @{user.username} wrong-bot hint: "
+                              f"/{cmd_word} → {owner_mode}")
+                    else:
+                        print(f"[WHISPER] @{user.username} wrong-bot hint suppressed (cooldown).")
+            return  # Don't auto-subscribe when user is sending commands
+
+        # ── Auto-subscribe whisperer (respects manually_unsubscribed flag) ────
         try:
             newly_subbed = db.auto_subscribe_whisper(
                 user.username, user.id
