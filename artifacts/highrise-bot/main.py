@@ -189,6 +189,15 @@ from modules.cmd_audit import (
     handle_fixcommands, handle_testcommands,
     handle_commandintegrity, handle_commandrepair,
     handle_commandaudit, handle_commandissues,
+    handle_commandtestall, handle_commandtestgroup,
+)
+from modules.mining_weights import (
+    handle_oreweightlb, handle_myheaviest, handle_oreweights, handle_topweights,
+    handle_setweightlbmode,
+    handle_mineannounce, handle_setmineannounce, handle_setoreannounce,
+    handle_oreannounce, handle_mineannouncesettings,
+    handle_mineweights, handle_setmineweights, handle_setweightscale,
+    handle_setrarityweightrange, handle_oreweightsettings,
 )
 from modules.economy_settings import (
     handle_economysettings,
@@ -758,6 +767,21 @@ ALL_KNOWN_COMMANDS = (
         "autogamestatus", "autogameresume",
         # ── Mining (new) ──────────────────────────────────────────────────────
         "mineconfig", "mineeventstatus",
+        # ── Mining weight LB (new) ────────────────────────────────────────────
+        "oreweightlb", "weightlb", "heaviest",
+        "myheaviest", "oreweights", "topweights",
+        "setweightlbmode",
+        # ── Mining announce settings (new) ────────────────────────────────────
+        "mineannounce", "setmineannounce",
+        "setoreannounce", "oreannounce",
+        "mineannouncesettings",
+        # ── Mining weight admin settings (new) ────────────────────────────────
+        "mineweights", "setmineweights",
+        "setweightscale", "setrarityweightrange",
+        "oreweightsettings",
+        # ── Bulk command testing (new) ─────────────────────────────────────────
+        "commandtestall", "ctall",
+        "commandtestgroup", "ctgroup",
         # ── Poker pace / stack (new) ──────────────────────────────────────────
         "pokermode", "pokerpace", "setpokerpace",
         "pokerstacks", "setpokerstack", "dealstatus",
@@ -2264,6 +2288,10 @@ class HangoutBot(BaseBot):
                 await handle_commandrepair(self, user)
             elif cmd == "commandissues":
                 await handle_commandissues(self, user, args, ALL_KNOWN_COMMANDS)
+            elif cmd in {"commandtestall", "ctall"}:
+                await handle_commandtestall(self, user, args, ALL_KNOWN_COMMANDS)
+            elif cmd in {"commandtestgroup", "ctgroup"}:
+                await handle_commandtestgroup(self, user, args, ALL_KNOWN_COMMANDS)
             elif cmd == "bankblock":
                 await handle_bankblock(self, user, args, block=True)
             elif cmd == "bankunblock":
@@ -3837,6 +3865,51 @@ class HangoutBot(BaseBot):
 
         elif cmd == "minehelp":
             await handle_minehelp(self, user, args)
+
+        elif cmd in {"oreweightlb", "weightlb", "heaviest"}:
+            await handle_oreweightlb(self, user, args)
+
+        elif cmd == "myheaviest":
+            await handle_myheaviest(self, user, args)
+
+        elif cmd == "oreweights":
+            await handle_oreweights(self, user)
+
+        elif cmd == "topweights":
+            await handle_topweights(self, user)
+
+        elif cmd == "setweightlbmode":
+            await handle_setweightlbmode(self, user, args)
+
+        elif cmd == "mineannounce":
+            await handle_mineannounce(self, user)
+
+        elif cmd == "setmineannounce":
+            await handle_setmineannounce(self, user, args)
+
+        elif cmd == "setoreannounce":
+            await handle_setoreannounce(self, user, args)
+
+        elif cmd == "oreannounce":
+            await handle_oreannounce(self, user, args)
+
+        elif cmd == "mineannouncesettings":
+            await handle_mineannouncesettings(self, user)
+
+        elif cmd == "mineweights":
+            await handle_mineweights(self, user)
+
+        elif cmd == "setmineweights":
+            await handle_setmineweights(self, user, args)
+
+        elif cmd == "setweightscale":
+            await handle_setweightscale(self, user, args)
+
+        elif cmd == "setrarityweightrange":
+            await handle_setrarityweightrange(self, user, args)
+
+        elif cmd == "oreweightsettings":
+            await handle_oreweightsettings(self, user)
 
         # ── Maintenance tools ─────────────────────────────────────────────────
         elif cmd == "botstatus":

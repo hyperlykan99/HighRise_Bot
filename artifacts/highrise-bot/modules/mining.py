@@ -16,6 +16,19 @@ import database as db
 from filelock import FileLock, Timeout as _FileLockTimeout
 from highrise import BaseBot, User
 from modules.permissions import is_admin, is_owner, can_manage_economy
+from modules.mining_colors import (
+    format_mining_rarity,
+    format_ore_name,
+    get_rarity_display_name,
+    rarity_sort_key,
+)
+from modules.mining_weights import (
+    generate_weight,
+    compute_final_value,
+    weights_enabled,
+    add_weight_record,
+    should_announce,
+)
 
 # Cross-process write lock: prevents SQLite "database is locked" under multi-bot
 _MINE_WRITE_LOCK = FileLock(_cfg.DB_PATH + ".write.lock", timeout=3)
@@ -110,7 +123,7 @@ PICKAXE_NAMES = {
     10: "Master Pickaxe",
 }
 
-COOLDOWNS = {1: 60, 2: 55, 3: 50, 4: 45, 5: 40, 6: 35, 7: 30, 8: 25, 9: 20, 10: 15}
+COOLDOWNS = {1: 30, 2: 55, 3: 50, 4: 45, 5: 40, 6: 35, 7: 30, 8: 25, 9: 20, 10: 15}
 
 # Rarity → (base_drop_pct, mxp_range)
 # Drop percentages are unchanged (well-tested 68/20/8/2.5/1/0.4/0.1 distribution).
@@ -306,13 +319,14 @@ async def handle_mine(bot: BaseBot, user: User) -> None:
     miner = db.get_or_create_miner(uname)
 
     # Cooldown
-    base_cd  = int(db.get_mine_setting("base_cooldown_seconds", "60"))
+    base_cd  = int(db.get_mine_setting("base_cooldown_seconds", "30"))
     tool_cd  = COOLDOWNS.get(miner["tool_level"], 60)
     cooldown = min(base_cd, tool_cd)
     secs_ago = _seconds_since(miner["last_mine_at"])
     if secs_ago < cooldown:
         wait = int(cooldown - secs_ago)
-        await _w(bot, user.id, f"⏳ Mine ready in {wait}s.")
+        await _w(bot, user.id,
+                 f"<#FFCC00>⏳ Cooldown<#FFFFFF>: Mine again in {wait}s.")
         return
 
     # Energy
@@ -381,6 +395,12 @@ async def handle_mine(bot: BaseBot, user: User) -> None:
     is_rare  = item["rarity"] in ANNOUNCE_RARITIES
     new_rare = miner["rare_finds"] + (1 if is_rare else 0)
 
+    # Weight generation
+    _w_enabled = weights_enabled()
+    ore_weight = generate_weight(item["rarity"]) if _w_enabled else None
+    final_val  = (compute_final_value(item.get("sell_value", 0), ore_weight)
+                  if ore_weight is not None else 0)
+
     try:
         with _MINE_WRITE_LOCK:
             db.update_miner(uname,
@@ -398,21 +418,37 @@ async def handle_mine(bot: BaseBot, user: User) -> None:
         await _w(bot, user.id, "⏳ Mining DB busy. Try /mine again.")
         return
 
-    # Build reply
-    qty_str = f" x{qty}" if qty > 1 else ""
-    lvlup   = f" | ⬆️ Mining Lv {new_lvl}!" if new_lvl > cur_lvl else ""
-    msg     = (f"⛏️ You mined {item['emoji']} {item['name']}{qty_str} | "
-               f"+{_fmt(mxp)} MXP{lvlup}")
-    await _w(bot, user.id, msg)
+    # Build reply — Line 1: rarity + ore name
+    qty_str        = f" x{qty}" if qty > 1 else ""
+    lvlup          = f" | ⬆️ Mining Lv {new_lvl}!" if new_lvl > cur_lvl else ""
+    rarity_colored = format_mining_rarity(item["rarity"])
+    ore_colored    = format_ore_name(f"{item['emoji']} {item['name']}", item["rarity"])
+    line1 = (f"<#66CCFF>⛏️ Mining<#FFFFFF>: You mined "
+             f"{rarity_colored} {ore_colored}{qty_str}{lvlup}")
+    await _w(bot, user.id, line1)
 
-    # Rare public announce
-    if is_rare and db.get_mine_setting("rare_announce_enabled", "true") == "true":
-        rarity_label = item["rarity"].replace("_", " ").title()
-        _disp = db.get_display_name(user.id, uname)
-        if item["item_id"] == "meteorite_fragment":
-            ann = f"☄️ {_disp} found a Meteorite Fragment! Ultra rare! ☄️"
-        else:
-            ann = f"{item['emoji']} {_disp} found {item['name']}! ({rarity_label})"
+    # Line 2: weight + value + MXP
+    if ore_weight is not None:
+        line2 = (f"<#CCCCCC>⚖️ Weight<#FFFFFF>: {ore_weight}kg | "
+                 f"<#FFD700>💰 Value<#FFFFFF>: {_fmt(final_val)}c | "
+                 f"<#00FFAA>⭐ MXP<#FFFFFF>: +{_fmt(mxp)}")
+        await _w(bot, user.id, line2[:249])
+        try:
+            add_weight_record(uname, user.id, item["item_id"], item["rarity"],
+                              ore_weight, item.get("sell_value", 0), final_val, mxp)
+        except Exception:
+            pass
+    else:
+        await _w(bot, user.id,
+                 f"<#00FFAA>⭐ MXP<#FFFFFF>: +{_fmt(mxp)}{'' if not lvlup else ' ' + lvlup.strip()}")
+
+    # Public announce (configurable threshold)
+    if should_announce(item["rarity"], item["item_id"]):
+        _disp   = db.get_display_name(user.id, uname)
+        ore_ann = format_ore_name(f"{item['emoji']} {item['name']}", item["rarity"])
+        rar_ann = format_mining_rarity(item["rarity"])
+        wt_str  = f" {ore_weight}kg!" if ore_weight is not None else "!"
+        ann     = f"📣 {_disp} found {ore_ann}! {rar_ann}{wt_str}"
         try:
             await bot.highrise.chat(ann[:249])
         except Exception:
@@ -1272,13 +1308,26 @@ async def handle_miningroomrequired(bot: BaseBot, user: User, args: list[str]) -
 
 async def handle_orelist(bot: BaseBot, user: User) -> None:
     items = db.get_all_mining_items(drop_enabled=False)
-    parts = [f"{it['emoji']}{it['item_id']}" for it in items]
-    # Split into chunks of 8 per message
-    chunk = parts[:12]
-    rest  = parts[12:]
-    await _w(bot, user.id, "⛏️ Ore IDs: " + ", ".join(chunk))
-    if rest:
-        await _w(bot, user.id, ", ".join(rest))
+    # Group by rarity (sorted lowest → highest)
+    by_rarity: dict[str, list] = {}
+    for it in items:
+        by_rarity.setdefault(it["rarity"], []).append(it)
+    sorted_rarities = sorted(by_rarity.keys(), key=rarity_sort_key)
+    lines: list[str] = []
+    for rar in sorted_rarities:
+        rar_label = format_mining_rarity(rar)
+        ore_parts = ", ".join(f"{it['emoji']}{it['item_id']}" for it in by_rarity[rar])
+        line = f"{rar_label}: {ore_parts}"
+        lines.append(line)
+    # Combine into messages ≤249 chars each
+    msg = "\n".join(lines)
+    if len(msg) <= 249:
+        await _w(bot, user.id, msg)
+    else:
+        await _w(bot, user.id, msg[:249])
+        remaining = msg[249:]
+        if remaining.strip():
+            await _w(bot, user.id, remaining.strip()[:249])
 
 
 # ---------------------------------------------------------------------------
@@ -1525,12 +1574,20 @@ MINE_HELP_PAGES = [
         "/job <#> - accept a contract"
     ),
     (
+        "⚖️ Ore Weights\n"
+        "/topweights - all-time heaviest finds\n"
+        "/oreweightlb <ore> - ore weight LB\n"
+        "/myheaviest - your heaviest finds\n"
+        "/oreweights - ores with records\n"
+        "/mineannounce - announce settings"
+    ),
+    (
         "⛏️ Mining Staff\n"
         "/mining on/off\n"
         "/startminingevent <id>\n"
         "/setminecooldown <sec>\n"
         "/setmineenergycost <amt>\n"
-        "/addore <user> <ore> <amt>"
+        "/setmineannounce <rarity|off>"
     ),
 ]
 
@@ -1541,10 +1598,11 @@ async def handle_minehelp(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, MINE_HELP_PAGES[0])
         await _w(bot, user.id, MINE_HELP_PAGES[1])
         await _w(bot, user.id, MINE_HELP_PAGES[2])
+        await _w(bot, user.id, MINE_HELP_PAGES[3])
         if _can_mine_admin(user.username):
-            await _w(bot, user.id, MINE_HELP_PAGES[3])
+            await _w(bot, user.id, MINE_HELP_PAGES[4])
     elif 1 <= page <= len(MINE_HELP_PAGES):
-        if page == 4 and not _can_mine_admin(user.username):
+        if page == 5 and not _can_mine_admin(user.username):
             return
         await _w(bot, user.id, MINE_HELP_PAGES[page - 1])
     else:

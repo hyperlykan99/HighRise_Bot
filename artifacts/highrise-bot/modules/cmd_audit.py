@@ -333,6 +333,21 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     "autogamestatus", "autogameresume",
     # ── Mining (new) ──────────────────────────────────────────────────────────
     "mineconfig", "mineeventstatus",
+    # ── Mining weight leaderboards (new) ─────────────────────────────────────
+    "oreweightlb", "weightlb", "heaviest",
+    "myheaviest", "oreweights", "topweights",
+    "setweightlbmode",
+    # ── Mining announce settings (new) ───────────────────────────────────────
+    "mineannounce", "setmineannounce",
+    "setoreannounce", "oreannounce",
+    "mineannouncesettings",
+    # ── Mining weight admin settings (new) ───────────────────────────────────
+    "mineweights", "setmineweights",
+    "setweightscale", "setrarityweightrange",
+    "oreweightsettings",
+    # ── Bulk command testing (new) ────────────────────────────────────────────
+    "commandtestall", "ctall",
+    "commandtestgroup", "ctgroup",
     # ── Poker pace / stack / deal (new) ──────────────────────────────────────
     "pokermode", "pokerpace", "setpokerpace",
     "pokerstacks", "setpokerstack", "dealstatus",
@@ -422,6 +437,9 @@ HELP_CMDS: frozenset[str] = frozenset({
     "orebook", "oremastery", "claimoremastery", "orestats",
     "contracts", "miningjobs", "job", "deliver", "claimjob", "rerolljob",
     "minehelp",
+    # ── mining weight LB + settings (new) ────────────────────────────────────
+    "oreweightlb", "myheaviest", "topweights", "oreweights",
+    "mineannounce", "oreannounce",
 })
 
 # ---------------------------------------------------------------------------
@@ -618,9 +636,9 @@ async def handle_commandissues(
         except ValueError:
             pass
 
-    if category not in ("missing", "noowner", "deprecated", "hidden"):
+    if category and category not in ("missing", "noowner", "deprecated", "hidden"):
         await _w(bot, user.id,
-                 "Usage: /commandissues missing|noowner|deprecated|hidden [page]")
+                 "Usage: /commandissues [missing|noowner|deprecated|hidden] [page]")
         return
 
     if all_known is None:
@@ -635,7 +653,29 @@ async def handle_commandissues(
     depr   = DEPRECATED_CMDS & all_known
     active = all_known - hidden - depr
 
-    if category == "missing":
+    if not category:
+        # No-arg: combined summary of broken commands (no-route + no-owner)
+        try:
+            from modules.multi_bot import _DEFAULT_COMMAND_OWNERS
+            owners_set = set(_DEFAULT_COMMAND_OWNERS.keys())
+        except Exception:
+            owners_set = set()
+        missing_set = sorted(active - ROUTED_COMMANDS)
+        noowner_set = sorted(active - owners_set)
+        combined = set(missing_set) | set(noowner_set)
+        if not combined:
+            await _w(bot, user.id,
+                     "✅ No command issues — all routes and owners clean.")
+            return
+        await _w(bot, user.id,
+                 f"⚠️ Issues: {len(missing_set)} no-route | "
+                 f"{len(noowner_set)} no-owner\n"
+                 f"/commandissues missing|noowner|deprecated|hidden [page]"[:249])
+        preview = sorted(combined)[:8]
+        await _w(bot, user.id,
+                 "Examples: " + ", ".join(f"/{c}" for c in preview[:249]))
+        return
+    elif category == "missing":
         items = sorted(active - ROUTED_COMMANDS)
         title = "Missing routes"
     elif category == "noowner":
@@ -1025,3 +1065,117 @@ async def handle_commandrepair(bot: BaseBot, user: User) -> None:
     except Exception as exc:
         print(f"[REPAIR] ERROR @{user.username}: {exc}")
         await _w(bot, user.id, f"❌ Repair error: {str(exc)[:120]}"[:249])
+
+
+# ---------------------------------------------------------------------------
+# /commandtestall  /ctall  <cmd1> <cmd2> ...
+# ---------------------------------------------------------------------------
+
+async def handle_commandtestall(
+    bot: BaseBot,
+    user: User,
+    args: list[str],
+    all_known: set | None = None,
+) -> None:
+    """/commandtestall <cmd1> <cmd2> ... — test if commands are routed + owned."""
+    if not _can_audit(user.username):
+        await _w(bot, user.id, "Staff only.")
+        return
+    if len(args) < 2:
+        await _w(bot, user.id,
+                 "Usage: /commandtestall <cmd1> <cmd2> ...  (alias: /ctall)")
+        return
+    cmds = [a.lower().lstrip("/") for a in args[1:]]
+    if all_known is None:
+        try:
+            import sys, importlib
+            _main = sys.modules.get("__main__") or importlib.import_module("__main__")
+            all_known = getattr(_main, "ALL_KNOWN_COMMANDS", None) or set()
+        except Exception:
+            all_known = set()
+    try:
+        from modules.multi_bot import _DEFAULT_COMMAND_OWNERS
+        owners_set = set(_DEFAULT_COMMAND_OWNERS.keys())
+    except Exception:
+        owners_set = set()
+
+    results: list[str] = []
+    ok_count = 0
+    for cmd in cmds[:20]:  # cap to prevent oversized output
+        known  = cmd in all_known
+        routed = cmd in ROUTED_COMMANDS
+        owned  = cmd in owners_set
+        if known and routed and owned:
+            results.append(f"/{cmd}✅")
+            ok_count += 1
+        else:
+            issues = []
+            if not known:  issues.append("unknown")
+            if not routed: issues.append("no-route")
+            if not owned:  issues.append("no-owner")
+            results.append(f"/{cmd}❌({','.join(issues)})")
+
+    summary = " ".join(results)
+    status  = f"{ok_count}/{len(cmds)} OK"
+    print(f"[TESTALL] @{user.username}: {status}")
+    await _w(bot, user.id, f"CmdTest {status}: {summary}"[:249])
+
+
+# ---------------------------------------------------------------------------
+# /commandtestgroup  /ctgroup  <group>
+# ---------------------------------------------------------------------------
+
+async def handle_commandtestgroup(
+    bot: BaseBot,
+    user: User,
+    args: list[str],
+    all_known: set | None = None,
+) -> None:
+    """/commandtestgroup <group> — test all commands in a registry category."""
+    if not _can_audit(user.username):
+        await _w(bot, user.id, "Staff only.")
+        return
+    if len(args) < 2:
+        await _w(bot, user.id,
+                 "Usage: /commandtestgroup <group>  e.g. /ctgroup mining")
+        return
+    group = args[1].lower()
+    if all_known is None:
+        try:
+            import sys, importlib
+            _main = sys.modules.get("__main__") or importlib.import_module("__main__")
+            all_known = getattr(_main, "ALL_KNOWN_COMMANDS", None) or set()
+        except Exception:
+            all_known = set()
+    try:
+        from modules.command_registry import REGISTRY, alias_map as _amap
+        reg_all      = {**REGISTRY,
+                        **{a: REGISTRY[p] for a, p in _amap.items() if p in REGISTRY}}
+        group_cmds   = {cmd for cmd, entry in reg_all.items() if entry.cat == group}
+        valid_groups = sorted({e.cat for e in REGISTRY.values()})
+    except Exception:
+        group_cmds   = set()
+        valid_groups = []
+
+    if not group_cmds:
+        groups_str = ", ".join(valid_groups[:12]) if valid_groups else "unknown"
+        await _w(bot, user.id,
+                 f"No commands in group '{group}'. Valid: {groups_str}"[:249])
+        return
+
+    try:
+        from modules.multi_bot import _DEFAULT_COMMAND_OWNERS
+        owners_set = set(_DEFAULT_COMMAND_OWNERS.keys())
+    except Exception:
+        owners_set = set()
+
+    ok  = sorted(c for c in group_cmds if c in ROUTED_COMMANDS and c in owners_set)
+    bad = sorted(c for c in group_cmds
+                 if c not in ROUTED_COMMANDS or c not in owners_set)
+    total   = len(group_cmds)
+    summary = f"CmdGroup '{group}': {len(ok)}/{total} OK"
+    if bad:
+        summary += " | Issues: " + ", ".join(f"/{c}" for c in bad[:8])
+    print(f"[TESTGROUP] @{user.username} group={group}: "
+          f"{len(ok)}/{total} ok  bad={bad[:8]}")
+    await _w(bot, user.id, summary[:249])

@@ -1,0 +1,748 @@
+Major Mining System Upgrade + Bulk Command Testing Tools
+
+Focus mainly on:
+1. Mining system upgrade.
+2. Bulk command testing tools.
+
+Do not change bot tokens.
+Do not change room ID.
+Do not reset balances.
+Do not wipe player data.
+Do not change poker, blackjack, bank, events, shop, bot outfits, bot spawns, AI behavior, or unrelated game logic.
+
+==================================================
+PROJECT A — MINING SYSTEM UPGRADE
+==================================================
+
+Goal:
+Make mining more exciting, readable, and valuable by adding:
+1. Color-coded ore rarities.
+2. Ore names colored by rarity.
+3. Ore weights that multiply ore value.
+4. Public announcements for rare mined ores.
+5. Admin-configurable announcement settings per rarity and per ore.
+6. Starter/default tool cooldown set to 30 seconds.
+7. Ore weight leaderboards.
+8. Better mining message formatting.
+9. Full command integrity for all new commands.
+
+==================================================
+PART 1 — RARITY COLOR SYSTEM
+==================================================
+
+Add a shared mining rarity formatter.
+
+Every mining display should use colored rarity labels and colored ore names.
+
+Rarity color map:
+
+Common:
+<#AAAAAA>Common<#FFFFFF>
+Ore names: <#AAAAAA>Ore Name<#FFFFFF>
+
+Rare:
+<#3399FF>Rare<#FFFFFF>
+Ore names: <#3399FF>Ore Name<#FFFFFF>
+
+Epic:
+<#B266FF>Epic<#FFFFFF>
+Ore names: <#B266FF>Ore Name<#FFFFFF>
+
+Legendary:
+<#FFD700>Legendary<#FFFFFF>
+Ore names: <#FFD700>Ore Name<#FFFFFF>
+
+Mythic:
+<#FF66CC>Mythic<#FFFFFF>
+Ore names: <#FF66CC>Ore Name<#FFFFFF>
+
+Prismatic:
+Use this exact rainbow rarity text:
+<#FF0000>P<#FF9900>r<#FFFF00>i<#00FF00>s<#00CCFF>m<#3366FF>a<#9933FF>t<#FF66CC>i<#FFFFFF>c
+
+Prismatic ore names must also be rainbow-colored letter-by-letter.
+
+Example:
+Aurora Crystal should display as rainbow letters, not plain text.
+
+Exotic:
+<#FF0000>Exotic<#FFFFFF>
+Ore names: <#FF0000>Ore Name<#FFFFFF>
+
+Important:
+1. The ore name must use the same color style as its rarity.
+2. Always reset color with <#FFFFFF>.
+3. Use full 6-digit hex codes.
+4. Do not use HTML, markdown color, ANSI, or Discord color codes.
+5. Keep messages short.
+
+Create helpers like:
+- format_mining_rarity(rarity)
+- format_ore_name(ore_name, rarity)
+- rainbow_text(text)
+- format_mining_label(label)
+
+==================================================
+PART 2 — APPLY COLORS TO MINING MESSAGES
+==================================================
+
+Apply mining colors and emojis to:
+
+- /mine result messages
+- /orelist
+- /orebook if it exists
+- /ores
+- /inventory mining view if it exists
+- /minehelp
+- /mineconfig
+- /mineeventstatus
+- mining level-up messages
+- ore sell messages
+- rare ore announcements
+- mining leaderboard messages
+- tool messages
+- cooldown messages
+- admin mining settings messages
+- ore weight leaderboard messages
+
+Suggested labels:
+
+Mining:
+<#66CCFF>⛏️ Mining<#FFFFFF>
+
+Ore:
+<#CC66FF>💎 Ore<#FFFFFF>
+
+Weight:
+<#CCCCCC>⚖️ Weight<#FFFFFF>
+
+Value:
+<#FFD700>💰 Value<#FFFFFF>
+
+Mining EXP:
+<#00FFAA>⭐ MXP<#FFFFFF>
+
+Cooldown:
+<#FFCC00>⏳ Cooldown<#FFFFFF>
+
+Warning:
+<#FF3333>⚠️ Warning<#FFFFFF>
+
+Success:
+<#00FF66>✅ Success<#FFFFFF>
+
+Announcement:
+<#FFD700>📣 Big Find<#FFFFFF>
+
+Example mining result:
+<#66CCFF>⛏️ Mining<#FFFFFF>: You mined <#FFD700>Legendary<#FFFFFF> <#FFD700>Gold Ore<#FFFFFF>
+<#CCCCCC>⚖️ Weight<#FFFFFF>: 3.42kg | <#FFD700>💰 Value<#FFFFFF>: 1,710c | <#00FFAA>⭐ MXP<#FFFFFF>: +25
+
+Example Prismatic result:
+<#66CCFF>⛏️ Mining<#FFFFFF>: You mined <rainbow Prismatic> <rainbow ore name>
+<#CCCCCC>⚖️ Weight<#FFFFFF>: 2.18kg | <#FFD700>💰 Value<#FFFFFF>: 10,900c
+
+==================================================
+PART 3 — ORE WEIGHT SYSTEM
+==================================================
+
+Add ore weights.
+
+Every mined ore should generate a weight.
+
+Weight should scale/multiply the ore value.
+
+Do not break existing mining rewards.
+Use the existing ore base value and existing mining/event boosts, then apply weight multiplier safely.
+
+Suggested formula:
+final_value = base_ore_value × weight_multiplier × existing_event_multiplier
+
+Weight multiplier can be based on weight.
+
+Recommended simple formula:
+weight_multiplier = weight
+
+Example:
+Gold Ore base value = 500c
+Weight = 3.42kg
+Final value = 500 × 3.42 = 1,710c
+
+If this is too strong for existing economy, add configurable weight_value_multiplier_scale.
+
+Alternative safe formula:
+final_value = base_ore_value × (1 + ((weight - 1) × weight_value_multiplier_scale))
+
+Default:
+weight_value_multiplier_scale = 1.0
+
+Weight ranges should be configurable per ore or per rarity.
+
+Default rarity weight ranges:
+Common: 0.50kg to 2.00kg
+Rare: 0.75kg to 3.00kg
+Epic: 1.00kg to 4.00kg
+Legendary: 1.50kg to 6.00kg
+Mythic: 2.00kg to 8.00kg
+Prismatic: 2.50kg to 10.00kg
+Exotic: 3.00kg to 12.00kg
+
+If an ore already has its own min_weight/max_weight, use that first.
+Otherwise use rarity default.
+
+Store weight on every mined ore record if the project has ore inventory records.
+If the current ore inventory only stores quantity, add a separate mined ore history table for weighted records.
+
+==================================================
+PART 4 — DATABASE FOR ORE WEIGHTS
+==================================================
+
+Create database tables safely.
+
+Use CREATE TABLE IF NOT EXISTS.
+Use guarded ALTER TABLE if needed.
+Do not wipe existing mining data.
+
+Add table:
+
+ore_weight_records:
+- id INTEGER PRIMARY KEY AUTOINCREMENT
+- ore_name TEXT
+- rarity TEXT
+- weight REAL
+- base_value INTEGER
+- final_value INTEGER
+- mxp INTEGER
+- user_id TEXT
+- username TEXT
+- mined_at TEXT
+
+Optional table for settings:
+
+mining_weight_settings:
+- key TEXT PRIMARY KEY
+- value TEXT
+
+Default settings:
+- weights_enabled = 1
+- weight_value_multiplier_scale = 1.0
+- rarity_weight_ranges_json
+- weight_lb_mode = best
+
+weight_lb_mode:
+best = one best record per player per ore
+all = all records can appear
+
+Default:
+best
+
+==================================================
+PART 5 — ORE WEIGHT LEADERBOARDS
+==================================================
+
+Add ore weight leaderboards.
+
+Goal:
+Track the heaviest mined version of each ore and show a leaderboard per ore.
+
+Every mined ore should save:
+- ore_name
+- rarity
+- weight
+- base_value
+- final_value
+- MXP if available
+- username
+- user_id if available
+- mined_at timestamp
+
+Commands:
+- /oreweightlb <ore_name>
+- /weightlb <ore_name>
+- /heaviest <ore_name>
+- /myheaviest
+- /myheaviest <ore_name>
+- /oreweights
+- /topweights
+- /setweightlbmode <best|all>
+
+Command behavior:
+
+/oreweightlb <ore_name>
+Shows top 10 heaviest records for that ore.
+Use one best record per player by default.
+
+Example:
+⚖️ <#FFD700>Gold Ore<#FFFFFF> Weight LB
+1. 💎 [High Roller] @Marion — 5.82kg | Value: 2,910c
+2. @Claire — 4.91kg | Value: 2,455c
+3. @testuser — 4.40kg | Value: 2,200c
+
+/weightlb <ore_name>
+Alias for /oreweightlb.
+
+/heaviest <ore_name>
+Alias for /oreweightlb.
+
+/myheaviest
+Shows the player’s personal heaviest ores.
+
+Example:
+⚖️ Your Heaviest Finds
+<#FFD700>Gold Ore<#FFFFFF>: 5.82kg
+<#3399FF>Sapphire<#FFFFFF>: 2.30kg
+<#FF0000>Blood Diamond<#FFFFFF>: 1.12kg
+
+/myheaviest <ore_name>
+Shows player’s best weight for that ore.
+
+/oreweights
+Shows available ores that have weight records.
+
+/topweights
+Shows the heaviest ore records overall across all ores.
+
+Example:
+🏆 Heaviest Ore Finds
+1. 💎 [High Roller] @Marion — <#FFD700>Gold Ore<#FFFFFF> 5.82kg
+2. @Claire — <#B266FF>Amethyst<#FFFFFF> 4.75kg
+
+/setweightlbmode best
+Only one best record per player per ore appears.
+
+/setweightlbmode all
+All records can appear.
+
+Default:
+best
+
+Formatting:
+1. Ore names must use rarity color.
+2. Rarity label must use rarity color.
+3. Prismatic rarity and ore names must use rainbow letters.
+4. Player names must use global badge/title display formatter if available.
+5. Keep messages short.
+6. Use pagination if output is too long.
+
+==================================================
+PART 6 — MINING ANNOUNCEMENTS
+==================================================
+
+Mining bot should publicly announce rare ore finds.
+
+Default:
+Announce Legendary and above.
+
+This means public announcements for:
+- Legendary
+- Mythic
+- Prismatic
+- Exotic
+
+Do not publicly announce by default:
+- Common
+- Rare
+- Epic
+
+Unless admin changes settings.
+
+Add settings:
+- mining_announce_enabled = 1
+- mining_announce_min_rarity = Legendary
+- per_ore_announce_overrides
+
+Commands:
+- /mineannounce
+- /setmineannounce <off|common|rare|epic|legendary|mythic|prismatic|exotic>
+- /setoreannounce <ore_name> <on|off>
+- /oreannounce <ore_name>
+- /mineannouncesettings
+
+Command behavior:
+
+/mineannounce:
+Shows current announcement settings.
+
+/setmineannounce legendary:
+Sets minimum rarity to announce.
+
+/setmineannounce off:
+Turns public mining announcements off.
+
+/setoreannounce <ore_name> on:
+Always announce that specific ore even if below threshold.
+
+/setoreannounce <ore_name> off:
+Never announce that specific ore even if above threshold.
+
+/oreannounce <ore_name>:
+Shows announce setting for that ore.
+
+/mineannouncesettings:
+Shows threshold and per-ore overrides.
+
+Permissions:
+Admin+ only for settings commands.
+
+Announcement format:
+<#FFD700>📣 Big Find<#FFFFFF>! 💎 [High Roller] @Marion mined <#FFD700>Legendary<#FFFFFF> <#FFD700>Gold Ore<#FFFFFF> — 3.42kg worth 1,710c!
+
+For Prismatic:
+Use rainbow rarity and rainbow ore name.
+
+Include:
+- player display name with badge/title if global formatter exists
+- rarity
+- ore name
+- weight
+- final value
+- optional MXP
+
+Do not spam.
+Each mining action should create at most one public announcement.
+
+==================================================
+PART 7 — STARTING TOOL DEFAULT COOLDOWN
+==================================================
+
+Set starter/default mining tool cooldown to 30 seconds.
+
+Requirements:
+1. New players start with a tool that has 30s mining cooldown.
+2. If existing starter tool exists, update its default cooldown to 30s.
+3. If players already have starter tools, do not wipe their progress.
+4. Better tools can still reduce cooldown if the tool system supports upgrades.
+5. /mineconfig or /tool should show starter cooldown correctly.
+
+Default:
+Starter tool mine speed/cooldown = 30 seconds.
+
+Make sure messages say:
+<#FFCC00>⏳ Cooldown<#FFFFFF>: 30s
+
+==================================================
+PART 8 — ADMIN SETTINGS FOR WEIGHTS
+==================================================
+
+Add staff/admin commands:
+
+- /mineweights
+- /setmineweights on
+- /setmineweights off
+- /setweightscale <number>
+- /setrarityweightrange <rarity> <min> <max>
+- /oreweightsettings
+
+Command behavior:
+
+/mineweights:
+Shows whether ore weights are enabled, scale, and default ranges.
+
+/setmineweights on/off:
+Enables/disables weight system.
+
+/setweightscale <number>:
+Sets weight_value_multiplier_scale.
+
+/setrarityweightrange legendary 1.5 6:
+Sets Legendary ore weight range.
+
+/oreweightsettings:
+Shows detailed settings.
+
+Owner:
+Miner or Host, depending on your command owner map.
+Prefer Miner if mining bot handles it.
+
+==================================================
+PART 9 — INTEGRATION WITH EXISTING MINING ECONOMY
+==================================================
+
+Do not break existing mining system.
+
+Integrate weights with:
+- existing ore base values
+- existing MXP rewards
+- existing mining level system
+- existing mining tool cooldown
+- existing mining events
+- Admin’s Blessing mining boost if it exists
+- existing sell system if ores are sold later
+
+Important:
+If current system stores only ore quantities, do not make selling impossible.
+Either:
+1. Add weighted records and sell individual weighted ores, or
+2. Keep quantity inventory for old behavior and use weight mainly for value/history, or
+3. Store weighted ore stacks carefully.
+
+Choose safest integration for current code.
+
+If selling uses quantity only:
+- Add final_value to ore_weight_records for leaderboard/history.
+- Keep existing inventory quantity unchanged.
+- If sell system can support weighted value, integrate carefully.
+
+Do not accidentally multiply old ore inventories by weight retroactively unless explicitly intended.
+
+==================================================
+PART 10 — MESSAGES AND READABILITY
+==================================================
+
+Make mining messages alive and easy to read.
+
+Use labels:
+<#66CCFF>⛏️ Mining<#FFFFFF>
+<#CC66FF>💎 Ore<#FFFFFF>
+<#CCCCCC>⚖️ Weight<#FFFFFF>
+<#FFD700>💰 Value<#FFFFFF>
+<#00FFAA>⭐ MXP<#FFFFFF>
+<#FFCC00>⏳ Cooldown<#FFFFFF>
+<#00FF66>✅ Success<#FFFFFF>
+<#FF3333>⚠️ Warning<#FFFFFF>
+<#FFD700>📣 Big Find<#FFFFFF>
+
+Examples:
+
+Normal mine:
+<#66CCFF>⛏️ Mining<#FFFFFF>: You mined <#AAAAAA>Common<#FFFFFF> <#AAAAAA>Stone<#FFFFFF>
+<#CCCCCC>⚖️ Weight<#FFFFFF>: 1.12kg | <#FFD700>💰 Value<#FFFFFF>: 11c | <#00FFAA>⭐ MXP<#FFFFFF>: +5
+
+Rare mine:
+<#66CCFF>⛏️ Mining<#FFFFFF>: You mined <#3399FF>Rare<#FFFFFF> <#3399FF>Sapphire<#FFFFFF>
+<#CCCCCC>⚖️ Weight<#FFFFFF>: 2.30kg | <#FFD700>💰 Value<#FFFFFF>: 460c | <#00FFAA>⭐ MXP<#FFFFFF>: +18
+
+Cooldown:
+<#FFCC00>⏳ Cooldown<#FFFFFF>: Mine again in 30s.
+
+Announcement:
+<#FFD700>📣 Big Find<#FFFFFF>! [title] @username mined <colored rarity> <colored ore> — 4.20kg worth 8,400c!
+
+Keep messages short.
+Split into two messages only if needed.
+Do not exceed Highrise message limits.
+
+==================================================
+PART 11 — ORE LIST FORMATTING
+==================================================
+
+Update /orelist and similar commands.
+
+Requirements:
+1. Group ores by rarity.
+2. Rarity heading uses rarity color.
+3. Ore names use rarity color.
+4. Show base value and possible weight range if not too long.
+5. Paginate if needed.
+
+Example:
+
+<#AAAAAA>Common<#FFFFFF>
+- <#AAAAAA>Stone<#FFFFFF> | Value: 10c | Weight: 0.5-2kg
+
+<#3399FF>Rare<#FFFFFF>
+- <#3399FF>Sapphire<#FFFFFF> | Value: 200c | Weight: 0.75-3kg
+
+<#FFD700>Legendary<#FFFFFF>
+- <#FFD700>Gold Ore<#FFFFFF> | Value: 500c | Weight: 1.5-6kg
+
+Prismatic heading must use:
+<#FF0000>P<#FF9900>r<#FFFF00>i<#00FF00>s<#00CCFF>m<#3366FF>a<#9933FF>t<#FF66CC>i<#FFFFFF>c
+
+Prismatic ore names must be rainbow.
+
+==================================================
+PROJECT B — BULK COMMAND TESTING TOOLS
+==================================================
+
+Goal:
+I want to test many commands with one command instead of typing /commandtest repeatedly.
+
+Add commands:
+- /commandtestall <command1> <command2> <command3> ...
+- /ctall <command1> <command2> <command3> ...
+- /commandtestgroup <group>
+- /ctgroup <group>
+- /commandissues
+
+Examples:
+/commandtestall mine orelist ores mineconfig mineeventstatus
+/ctall oreweightlb weightlb heaviest myheaviest oreweights topweights
+/ctgroup mining
+/ctgroup poker
+/ctgroup blackjack
+/ctgroup ai
+/ctgroup timeexp
+/ctgroup display
+/ctgroup all
+/commandissues
+
+Behavior:
+
+1. /commandtestall should accept commands with or without slash.
+
+Example:
+   /commandtestall /mine /orelist /ores
+
+and:
+   /commandtestall mine orelist ores
+
+should both work.
+
+2. For each command, show:
+- command name
+- owner
+- route YES/NO
+- handler YES/NO
+- fix suggestion if broken
+
+3. Keep output short.
+
+Example:
+✅ /mine | Miner | route=YES handler=YES
+❌ /oreweightlb | UNKNOWN | route=NO handler=NO | fix=add_to_registry
+
+4. If output is too long, split into multiple whispers/pages.
+
+5. Add command groups:
+
+mining:
+mine, minehelp, orelist, ores, mineconfig, mineeventstatus, oreweightlb, weightlb, heaviest, myheaviest, oreweights, topweights, setweightlbmode, mineannounce, setmineannounce, setoreannounce, oreannounce, mineannouncesettings, mineweights, setmineweights, setweightscale, setrarityweightrange, oreweightsettings
+
+poker:
+poker, pokerhelp, ph, cards, resendcards, allin, pokerdashboard, pdash, pokeradmin, pokerdealstatus, pokerturn, pokerplayers, pokerpots, pokeractions, pokermode, pokerpace, pokerstacks
+
+blackjack:
+bj, blackjack, rbj, bjhelp, rbjhelp, bet, bjbet, hit, stand, double, split, insurance, surrender, shoe, bjshoe
+
+ai:
+ask, ai, assistant, pendingaction, confirm, aidebug, aicapabilities, aidelegations
+
+timeexp:
+timexp, timeexp, playtime, mytime, timetier, showtimexptiers, timexpstatus, settimexp, settimexptier, settimexpcap, setactivebonus, setactivebonuswindow, setallowbotxp, addtimeexp, removetimeexp, resettimeexpdaily, timexplogs, timexpsettings
+
+display:
+displayformat, displaybadges, displaytitles, displaytest, displaydebug
+
+6. /ctgroup all should run grouped summary only:
+Mining: 22/22 OK
+Poker: 15/17 OK
+Blackjack: 10/14 OK
+AI: 8/8 OK
+TimeEXP: 17/17 OK
+Display: 5/5 OK
+
+7. /commandissues should show only broken commands:
+- missing route
+- missing handler
+- unknown owner
+- owner offline
+
+==================================================
+GLOBAL COMMAND INTEGRITY REQUIREMENT
+==================================================
+
+For every new command, alias, or renamed command added in this update:
+
+1. Add it to the real command route in main.py or the correct router file.
+2. Add a real handler function.
+3. Add it to the command audit / commandtest handler map.
+4. Add it to the active/known command registry.
+5. Add it to the multi-bot owner map.
+6. Make sure owner is not UNKNOWN.
+7. Make sure /commandtest /<command> shows:
+   route=YES
+   handler=YES
+   owner=Miner, Host, or correct owner
+8. Make sure /checkcommands all shows:
+   Missing 0
+   NoOwner 0
+9. Do not add visible/active commands without real handlers.
+10. If a command is planned but not implemented, keep it hidden/deprecated until it works.
+11. If an alias is added, route it to the same real handler as the main command.
+12. Update /minehelp, /games, /howtoplay, or module help if the command is user-facing.
+
+Commands that must pass:
+
+Mining weight leaderboard:
+- /commandtest /oreweightlb
+- /commandtest /weightlb
+- /commandtest /heaviest
+- /commandtest /myheaviest
+- /commandtest /oreweights
+- /commandtest /topweights
+- /commandtest /setweightlbmode
+
+Mining announcements:
+- /commandtest /mineannounce
+- /commandtest /setmineannounce
+- /commandtest /setoreannounce
+- /commandtest /oreannounce
+- /commandtest /mineannouncesettings
+
+Mining weight settings:
+- /commandtest /mineweights
+- /commandtest /setmineweights
+- /commandtest /setweightscale
+- /commandtest /setrarityweightrange
+- /commandtest /oreweightsettings
+
+Existing mining commands should remain working:
+- /commandtest /mine
+- /commandtest /minehelp
+- /commandtest /orelist
+- /commandtest /ores
+- /commandtest /mineconfig
+- /commandtest /mineeventstatus
+
+Bulk command testing:
+- /commandtest /commandtestall
+- /commandtest /ctall
+- /commandtest /commandtestgroup
+- /commandtest /ctgroup
+- /commandtest /commandissues
+
+/checkcommands all should show:
+Missing 0
+NoOwner 0
+
+==================================================
+SAFETY
+==================================================
+
+Do not expose:
+- bot tokens
+- room ID secrets
+- env vars
+- database secrets
+
+Do not:
+- wipe old mining data
+- reset player mining level
+- reset balances
+- break selling
+- break Admin’s Blessing
+- break mining cooldowns
+- break old mining commands
+- spam public chat for every common ore by default
+- break /commandtest or /checkcommands
+
+==================================================
+FINAL REPORT
+==================================================
+
+After finishing, tell me:
+
+1. Files changed
+2. Database tables added
+3. Rarity color helper location
+4. How Prismatic rainbow text is generated
+5. How ore weights are generated
+6. How ore weight affects value
+7. Whether old ore inventory/sell system changed
+8. How announcement threshold works
+9. How per-ore announcements work
+10. How starter tool cooldown was set to 30s
+11. Commands added
+12. Command groups added
+13. Exact tests to run

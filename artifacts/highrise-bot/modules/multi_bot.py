@@ -405,6 +405,21 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "autogamestatus": "eventhost", "autogameresume": "eventhost",
     # miner — mining admin (new)
     "mineconfig": "miner", "mineeventstatus": "miner",
+    # miner — weight leaderboards (new)
+    "oreweightlb": "miner", "weightlb": "miner", "heaviest": "miner",
+    "myheaviest": "miner", "oreweights": "miner", "topweights": "miner",
+    "setweightlbmode": "miner",
+    # miner — announce settings (new)
+    "mineannounce": "miner", "setmineannounce": "miner",
+    "setoreannounce": "miner", "oreannounce": "miner",
+    "mineannouncesettings": "miner",
+    # miner — weight admin settings (new)
+    "mineweights": "miner", "setmineweights": "miner",
+    "setweightscale": "miner", "setrarityweightrange": "miner",
+    "oreweightsettings": "miner",
+    # host — bulk command testing (new)
+    "commandtestall": "host", "ctall": "host",
+    "commandtestgroup": "host", "ctgroup": "host",
     # poker — pace / stack / deal status (new)
     "pokermode": "poker",
     "pokerpace": "poker", "setpokerpace": "poker",

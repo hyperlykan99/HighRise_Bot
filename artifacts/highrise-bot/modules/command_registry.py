@@ -361,6 +361,34 @@ REGISTRY: dict[str, Cmd] = {
     "mineconfig":       Cmd("miner","mining", False, True,  False, perm="manager"),
     "mineeventstatus":  Cmd("miner","mining", False, True,  False, perm="staff"),
 
+    # ── Miner: ore weight leaderboards (new) ─────────────────────────────────
+    "oreweightlb":      Cmd("miner","mining", False, True,  False,
+                            aliases=("weightlb","heaviest")),
+    "myheaviest":       Cmd("miner","mining", False, True,  False),
+    "oreweights":       Cmd("miner","mining", False, True,  False),
+    "topweights":       Cmd("miner","mining", False, True,  False),
+    "setweightlbmode":  Cmd("miner","mining", False, False, False, perm="admin"),
+
+    # ── Miner: mining announce settings (new) ────────────────────────────────
+    "mineannounce":         Cmd("miner","mining", False, True,  False),
+    "setmineannounce":      Cmd("miner","mining", False, False, False, perm="admin"),
+    "setoreannounce":       Cmd("miner","mining", False, False, False, perm="admin"),
+    "oreannounce":          Cmd("miner","mining", False, True,  False),
+    "mineannouncesettings": Cmd("miner","mining", False, True,  False, perm="admin"),
+
+    # ── Miner: weight admin settings (new) ───────────────────────────────────
+    "mineweights":          Cmd("miner","mining", False, True,  False),
+    "setmineweights":       Cmd("miner","mining", False, False, False, perm="admin"),
+    "setweightscale":       Cmd("miner","mining", False, False, False, perm="admin"),
+    "setrarityweightrange": Cmd("miner","mining", False, False, False, perm="admin"),
+    "oreweightsettings":    Cmd("miner","mining", False, True,  False, perm="admin"),
+
+    # ── Host: bulk command testing (new) ─────────────────────────────────────
+    "commandtestall":   Cmd("host","audit",  True,  True,  False, perm="staff",
+                            aliases=("ctall",)),
+    "commandtestgroup": Cmd("host","audit",  True,  True,  False, perm="staff",
+                            aliases=("ctgroup",)),
+
     # ── Poker: pace / stack / deal status (new) ──────────────────────────────
     "pokermode":        Cmd("poker","casino", False, True,  False, perm="manager"),
     "pokerpace":        Cmd("poker","casino", False, True,  False, perm="staff"),

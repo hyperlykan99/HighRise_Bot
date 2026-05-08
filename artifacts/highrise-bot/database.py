@@ -1269,6 +1269,22 @@ def _migrate_db():
         "facing TEXT NOT NULL DEFAULT 'FrontRight', "
         "set_by TEXT NOT NULL DEFAULT '', "
         "set_at TEXT NOT NULL DEFAULT (datetime('now')))",
+        # ── Ore weight records (mining weight system) ─────────────────────────
+        "CREATE TABLE IF NOT EXISTS ore_weight_records ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "ore_name TEXT NOT NULL DEFAULT '', "
+        "rarity TEXT NOT NULL DEFAULT 'common', "
+        "weight REAL NOT NULL DEFAULT 0.0, "
+        "base_value INTEGER NOT NULL DEFAULT 0, "
+        "final_value INTEGER NOT NULL DEFAULT 0, "
+        "mxp INTEGER NOT NULL DEFAULT 0, "
+        "user_id TEXT NOT NULL DEFAULT '', "
+        "username TEXT NOT NULL DEFAULT '', "
+        "mined_at TEXT NOT NULL DEFAULT (datetime('now')))",
+        # ── Mining weight settings (key-value) ────────────────────────────────
+        "CREATE TABLE IF NOT EXISTS mining_weight_settings ("
+        "key TEXT PRIMARY KEY, "
+        "value TEXT NOT NULL DEFAULT '')",
     ]:
         try:
             conn.execute(sql)

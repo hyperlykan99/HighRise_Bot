@@ -41,7 +41,10 @@ artifacts/highrise-bot/
     ├── bot_modes.py        # Bot persona/outfit system
     ├── multi_bot.py        # Multi-bot management
     ├── room_utils.py       # Room utility commands
-    └── mining.py           # Mining game
+    ├── mining.py           # Mining game (color-coded rarities, ore weights)
+    ├── mining_colors.py    # Rarity color labels & rainbow/prismatic formatting
+    ├── mining_weights.py   # Ore weight system, weight LB, announce settings
+    └── cmd_audit.py        # Command audit tools incl. commandtestall/group
 ```
 
 DB schema source of truth: `database.py` (`_MIGRATIONS` list + `init_db()`).
@@ -57,7 +60,7 @@ DB schema source of truth: `database.py` (`_MIGRATIONS` list + `init_db()`).
 
 ## Product
 
-Casino games (Blackjack, Realistic Blackjack, Poker), DJ queue, token economy, daily rewards, in-game shop, quests, achievements, events, subscriber DMs, leaderboards, staff management, public player profiles with privacy controls, emoji badge market, mining game, a comprehensive room utility system, a bot mode/outfit system with multiple personas, and a multi-bot system for distributed command handling and high availability. It also includes a Casino Integrity Checker for verifying game logic and card visibility.
+Casino games (Blackjack, Realistic Blackjack, Poker), DJ queue, token economy, daily rewards, in-game shop, quests, achievements, events, subscriber DMs, leaderboards, staff management, public player profiles with privacy controls, emoji badge market, mining game (with color-coded ore rarities, per-ore weight system, weight leaderboards, and configurable rare-ore room announcements), a comprehensive room utility system, a bot mode/outfit system with multiple personas, and a multi-bot system for distributed command handling and high availability. It also includes a Casino Integrity Checker for verifying game logic and card visibility, plus bulk command testing tools (/commandtestall, /commandtestgroup).
 
 ## User preferences
 
