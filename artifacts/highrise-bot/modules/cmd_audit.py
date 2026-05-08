@@ -265,6 +265,8 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     "orelist", "oreprices", "orevalues", "orevalue",
     "oreinfo", "oredetail", "oredetails",
     "minehelp",
+    "simannounce",
+    "forcedrop", "forcedropore", "forcedropstatus", "clearforcedrop",
     "orebook", "oremastery", "claimoremastery", "orestats",
     "contracts", "miningjobs",
     "job", "deliver", "claimjob", "rerolljob",

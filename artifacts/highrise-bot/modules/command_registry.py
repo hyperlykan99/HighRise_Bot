@@ -219,7 +219,8 @@ REGISTRY: dict[str, Cmd] = {
 
     # ── Miner ────────────────────────────────────────────────────────────────
     "mine":             Cmd("miner","mining",False,False,True, aliases=("m","dig")),
-    "ores":             Cmd("miner","mining",False,True, False, aliases=("mineinv","orelist")),
+    "ores":             Cmd("miner","mining",False,True, False, aliases=("mineinv",)),
+    "orelist":          Cmd("miner","mining",False,True, False),
     "tool":             Cmd("miner","mining",False,True, False, aliases=("pickaxe",)),
     "upgradetool":      Cmd("miner","mining",False,False,True, aliases=("upick",)),
     "sellores":         Cmd("miner","mining",False,False,True, aliases=("sellore",)),
@@ -467,6 +468,13 @@ REGISTRY: dict[str, Cmd] = {
                             aliases=("orevalues", "orevalue")),
     "oreinfo":          Cmd("miner","mining", False, True,  False,
                             aliases=("oredetail", "oredetails")),
+
+    # ── Miner: simulation + forced-drop tools ─────────────────────────────────
+    "simannounce":      Cmd("miner","mining", False, False, True,  perm="manager"),
+    "forcedrop":        Cmd("miner","mining", False, False, True,  perm="owner"),
+    "forcedropore":     Cmd("miner","mining", False, False, True,  perm="owner"),
+    "forcedropstatus":  Cmd("miner","mining", False, True,  False, perm="owner"),
+    "clearforcedrop":   Cmd("miner","mining", False, False, True,  perm="owner"),
 }
 
 # ---------------------------------------------------------------------------

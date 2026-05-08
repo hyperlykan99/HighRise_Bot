@@ -4,11 +4,18 @@ modules/mining_colors.py
 Rarity color formatting helpers for the Mining system.
 
 Color format: <#RRGGBB>text<#FFFFFF>  (Highrise rich-text tags).
+
+Context rules for format_rarity_label / format_ore_name:
+  "orelist"      — caps colored rarity label; ore names PLAIN TEXT
+  "oreprices"    — caps colored rarity label; ore names PLAIN TEXT
+  "oreinfo"      — caps colored rarity label; ore names fully colored
+  "mine_result"  — caps colored rarity label; ore names fully colored
+  "announcement" — caps colored rarity label; ore names fully colored
 """
 from __future__ import annotations
 
 # ---------------------------------------------------------------------------
-# Rarity → display name + hex color (None = rainbow / prismatic treatment)
+# Rarity → hex color (None = rainbow / prismatic treatment)
 # ---------------------------------------------------------------------------
 
 _RARITY_COLORS: dict[str, str | None] = {
@@ -64,11 +71,29 @@ _RAINBOW_COLORS: list[str] = [
     "#9933FF", "#FF66CC",
 ]
 
-# Exact Prismatic rarity label as specified
-_PRISMATIC_LABEL = (
-    "<#FF0000>P<#FF9900>r<#FFFF00>i<#00FF00>s"
-    "<#00CCFF>m<#3366FF>a<#9933FF>t<#FF66CC>i<#FFFFFF>c"
+# Full rainbow per-letter caps label for prismatic (used in mine results,
+# announcements, /oreinfo, /orelist header).
+# Format matches the spec exactly (brackets, caps, rainbow per letter).
+_PRISMATIC_CAPS_LABEL: str = (
+    "<#FF0000>[P<#FF9900>R<#FFFF00>I<#00FF00>S"
+    "<#00CCFF>M<#3366FF>A<#9933FF>T<#FF66CC>I<#FF0000>C]<#FFFFFF>"
 )
+
+# Capslocked colored rarity labels with brackets — used by all contexts.
+# ultra_rare falls back to the short pink label; full rainbow used separately.
+_CAPS_RAR_LABELS: dict[str, str] = {
+    "common":     "<#AAAAAA>[COMMON]<#FFFFFF>",
+    "uncommon":   "<#66BBAA>[UNCOMMON]<#FFFFFF>",
+    "rare":       "<#3399FF>[RARE]<#FFFFFF>",
+    "epic":       "<#B266FF>[EPIC]<#FFFFFF>",
+    "legendary":  "<#FFD700>[LEGENDARY]<#FFFFFF>",
+    "mythic":     "<#FF66CC>[MYTHIC]<#FFFFFF>",
+    "ultra_rare": "<#FF66CC>[PRISMATIC]<#FFFFFF>",  # short fallback for ultra_rare
+    "exotic":     "<#FF0000>[EXOTIC]<#FFFFFF>",
+}
+
+# Legacy per-letter label kept for backward compat (rainbow_text body, not caps)
+_PRISMATIC_LABEL = _PRISMATIC_CAPS_LABEL
 
 
 def rainbow_text(text: str) -> str:
@@ -91,20 +116,44 @@ def rainbow_text(text: str) -> str:
 # Public formatters
 # ---------------------------------------------------------------------------
 
-def format_mining_rarity(rarity: str) -> str:
-    """Return a colored rarity label string."""
-    key  = rarity.lower()
-    name = _RARITY_DISPLAY_NAMES.get(key, key.replace("_", " ").title())
+def format_rarity_label(rarity: str, context: str = "mine_result") -> str:
+    """
+    Context-aware rarity label formatter.
+
+    All contexts return a colored CAPSLOCKED bracket label, e.g. [LEGENDARY].
+    Prismatic/ultra_rare always return the full rainbow caps label.
+    The ``context`` parameter is reserved for future per-context divergence;
+    currently all contexts share the same bracket-caps format.
+    """
+    key = rarity.lower()
     if key in ("ultra_rare", "prismatic"):
-        return _PRISMATIC_LABEL
-    color = _RARITY_COLORS.get(key)
-    if color:
-        return f"<{color}>{name}<#FFFFFF>"
-    return name
+        return _PRISMATIC_CAPS_LABEL
+    label = _CAPS_RAR_LABELS.get(key)
+    if label:
+        return label
+    # Fallback for unknown rarities
+    return f"[{rarity.upper().replace('_', ' ')}]"
 
 
-def format_ore_name(ore_name: str, rarity: str) -> str:
-    """Return ore_name colored by its rarity."""
+def format_mining_rarity(rarity: str) -> str:
+    """
+    Return a colored CAPSLOCKED bracketed rarity label.
+    Delegates to format_rarity_label so all callers automatically
+    use the bracket-caps format (mine results, announcements, /oreinfo).
+    """
+    return format_rarity_label(rarity)
+
+
+def format_ore_name(ore_name: str, rarity: str, context: str = "mine_result") -> str:
+    """
+    Context-aware ore name formatter.
+
+    context="orelist" or "oreprices": returns ore_name as plain text.
+    All other contexts: returns ore_name colored by rarity.
+    Prismatic ore names are rainbow-colored in non-list contexts.
+    """
+    if context in ("orelist", "oreprices"):
+        return ore_name          # plain text — no color tags in ore lists
     key = rarity.lower()
     if key in ("ultra_rare", "prismatic"):
         return rainbow_text(ore_name)

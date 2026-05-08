@@ -1312,6 +1312,17 @@ def _migrate_db():
         "processed_by TEXT NOT NULL DEFAULT 'bankingbot', "
         "status TEXT NOT NULL DEFAULT 'pending', "
         "created_at TEXT NOT NULL DEFAULT (datetime('now')))",
+        # ── Owner-forced mining drops ──────────────────────────────────────────
+        "CREATE TABLE IF NOT EXISTS forced_mining_drops ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "target_username TEXT NOT NULL DEFAULT '', "
+        "forced_type TEXT NOT NULL DEFAULT 'rarity', "
+        "forced_value TEXT NOT NULL DEFAULT '', "
+        "created_by TEXT NOT NULL DEFAULT '', "
+        "created_at TEXT NOT NULL DEFAULT (datetime('now')), "
+        "expires_at TEXT NOT NULL DEFAULT '', "
+        "used_at TEXT, "
+        "status TEXT NOT NULL DEFAULT 'pending')",
     ]:
         try:
             conn.execute(sql)
@@ -6798,6 +6809,94 @@ def get_all_mining_items(drop_enabled: bool = True) -> list:
         q += " WHERE drop_enabled=1"
     q += " ORDER BY sell_value"
     rows  = conn.execute(q).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+# ── Forced mining drops ───────────────────────────────────────────────────────
+
+def set_forced_drop(
+    target_username: str,
+    forced_type: str,
+    forced_value: str,
+    created_by: str,
+    expires_hours: int = 24,
+) -> int:
+    """
+    Insert a pending forced drop for target_username.
+    forced_type: 'rarity' or 'ore'
+    forced_value: rarity key (e.g. 'legendary') or item_id (e.g. 'gold_ore')
+    Returns the new row id.
+    """
+    conn = get_connection()
+    conn.execute(
+        "UPDATE forced_mining_drops SET status='cleared' "
+        "WHERE lower(target_username)=lower(?) AND status='pending'",
+        (target_username,),
+    )
+    cur = conn.execute(
+        "INSERT INTO forced_mining_drops "
+        "(target_username, forced_type, forced_value, created_by, "
+        " expires_at, status) "
+        "VALUES (lower(?), ?, lower(?), lower(?), "
+        " datetime('now', '+' || ? || ' hours'), 'pending')",
+        (target_username, forced_type, forced_value, created_by, expires_hours),
+    )
+    row_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return row_id
+
+
+def get_active_forced_drop(target_username: str) -> dict | None:
+    """Return the oldest pending, non-expired forced drop for target_username."""
+    conn = get_connection()
+    row  = conn.execute(
+        "SELECT * FROM forced_mining_drops "
+        "WHERE lower(target_username)=lower(?) AND status='pending' "
+        "  AND (expires_at='' OR expires_at > datetime('now')) "
+        "ORDER BY id ASC LIMIT 1",
+        (target_username,),
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def mark_forced_drop_used(drop_id: int) -> None:
+    """Mark a forced drop as used."""
+    conn = get_connection()
+    conn.execute(
+        "UPDATE forced_mining_drops "
+        "SET status='used', used_at=datetime('now') WHERE id=?",
+        (drop_id,),
+    )
+    conn.commit()
+    conn.close()
+
+
+def clear_forced_drop_by_username(target_username: str, cleared_by: str) -> int:
+    """Clear all pending forced drops for target_username. Returns rows affected."""
+    conn = get_connection()
+    cur  = conn.execute(
+        "UPDATE forced_mining_drops SET status='cleared' "
+        "WHERE lower(target_username)=lower(?) AND status='pending'",
+        (target_username,),
+    )
+    n = cur.rowcount
+    conn.commit()
+    conn.close()
+    return n
+
+
+def get_all_active_forced_drops() -> list:
+    """Return all pending, non-expired forced drops ordered by creation time."""
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT * FROM forced_mining_drops "
+        "WHERE status='pending' "
+        "  AND (expires_at='' OR expires_at > datetime('now')) "
+        "ORDER BY created_at ASC"
+    ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
 

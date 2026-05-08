@@ -1,0 +1,420 @@
+Mining Display Update + Announcement Simulator + Owner Forced Drop Tools
+
+Focus only on Mining display, mining announcements, and owner-only mining tools.
+
+Do not change bot tokens.
+Do not change room ID.
+Do not reset balances.
+Do not wipe mining data.
+Do not change ore chances, ore values, ore weights, mining cooldowns, mining events, poker, blackjack, bank, shop, AI, outfits, or bot spawns unless required for this update.
+
+==================================================
+PART 1 — ORE LIST DISPLAY FORMAT
+==================================================
+
+Current goal:
+Make /orelist cleaner and easier to read.
+
+New /orelist rule:
+- Only the rarity header should be colored.
+- Ore names should NOT be colored in /orelist.
+- Color code must stop after the rarity label.
+- All rarity labels must be CAPSLOCKED.
+- Ore names should be one line each.
+- Each ore line should show only:
+  emoji/icon + ore name + chance
+
+Do NOT show:
+- ore name color
+- price
+- value
+- weight range
+
+Those belong in /oreprices or /oreinfo.
+
+Rarity labels must be:
+
+[COMMON]
+[RARE]
+[EPIC]
+[LEGENDARY]
+[MYTHIC]
+[PRISMATIC]
+[EXOTIC]
+
+Color format:
+
+Common:
+<#AAAAAA>[COMMON]<#FFFFFF>
+
+Rare:
+<#3399FF>[RARE]<#FFFFFF>
+
+Epic:
+<#B266FF>[EPIC]<#FFFFFF>
+
+Legendary:
+<#FFD700>[LEGENDARY]<#FFFFFF>
+
+Mythic:
+<#FF66CC>[MYTHIC]<#FFFFFF>
+
+Exotic:
+<#FF0000>[EXOTIC]<#FFFFFF>
+
+Prismatic:
+Use this capslocked rainbow rarity label:
+<#FF0000>[P<#FF9900>R<#FFFF00>I<#00FF00>S<#00CCFF>M<#3366FF>A<#9933FF>T<#FF66CC>I<#FF0000>C]<#FFFFFF>
+
+Important:
+After the rarity label, color must reset with <#FFFFFF>.
+Ore names in /orelist must be plain text.
+
+Example /orelist common:
+
+GreatestProspector:
+<#AAAAAA>[COMMON]<#FFFFFF>
+🪨 Stone — 1 in 18
+🟫 Clay — 1 in 18
+⛏️ Coal — 1 in 18
+🏜️ Sandstone — 1 in 18
+💎 Quartz — 1 in 18
+
+Example /orelist legendary:
+
+GreatestProspector:
+<#FFD700>[LEGENDARY]<#FFFFFF>
+🟡 Gold Ore — 1 in 1,900
+💎 Diamond — 1 in 8,000
+🐉 Dragon Ruby — 1 in 12,500
+❄️ Frost Diamond — 1 in 18,000
+🌙 Eclipse Stone — 1 in 20,000
+
+Example /orelist prismatic:
+
+GreatestProspector:
+<#FF0000>[P<#FF9900>R<#FFFF00>I<#00FF00>S<#00CCFF>M<#3366FF>A<#9933FF>T<#FF66CC>I<#FF0000>C]<#FFFFFF>
+🌈 Aurora Crystal — 1 in 250,000
+💎 Rainbow Diamond — 1 in 300,000
+🔮 Prismarine Core — 1 in 350,000
+✨ Spectrum Quartz — 1 in 400,000
+🌌 Astral Aurora — 1 in 500,000
+
+Requirements:
+1. One ore per line.
+2. Max 5 ores per page.
+3. /orelist <rarity> <page> must paginate correctly.
+4. Page 2 must show different ores from page 1.
+5. No raw color tags should appear broken.
+6. Never cut a color tag in half.
+7. Always reset with <#FFFFFF>.
+8. /orelist all must also be paginated.
+9. /orelist menu should stay short.
+
+==================================================
+PART 2 — /oreprices AND /oreinfo REMAIN SEPARATE
+==================================================
+
+/orelist = chances only.
+
+/oreprices = price and possible weight range.
+
+/oreinfo <ore> = full details.
+
+Keep /oreprices format simple:
+
+Common Prices — Page 1/3
+🪨 Stone — 10c | 0.5–2.0kg
+🟫 Clay — 12c | 0.5–2.0kg
+⛏️ Coal — 15c | 0.5–2.0kg
+
+For /oreprices:
+- Ore names can be plain text.
+- Focus on price and weight.
+- Max 5 ores per page.
+
+For /oreinfo:
+- Show full details.
+- Full colored rarity and full colored ore name are allowed.
+- Prismatic ore names can be rainbow-colored here if safe.
+
+==================================================
+PART 3 — ACTUAL MINING RESULT FORMAT
+==================================================
+
+Actual mining result should still use full ore coloring.
+
+Rule:
+- Rarity label is colored.
+- Ore name is also fully colored by rarity.
+- All rarity labels are CAPSLOCKED.
+- Prismatic ore names should be rainbow-colored.
+
+Example Legendary mining result:
+
+GreatestProspector:
+<#66CCFF>⛏️ Mining<#FFFFFF>
+You mined <#FFD700>[LEGENDARY]<#FFFFFF> 🟡 <#FFD700>Gold Ore<#FFFFFF> | ⚖️ 3.42kg | 💰 1,710c
+
+Example Prismatic mining result:
+
+GreatestProspector:
+<#66CCFF>⛏️ Mining<#FFFFFF>
+You mined <rainbow [PRISMATIC]> 🌈 <rainbow Aurora Crystal> | ⚖️ 5.21kg | 💰 50,000c
+
+Use the existing Prismatic rainbow formatter.
+Do not break color tags.
+
+==================================================
+PART 4 — ANNOUNCEMENT FORMAT
+==================================================
+
+Rare mining announcements should also use full ore coloring.
+
+Rule:
+- Rarity label is fully colored and CAPSLOCKED.
+- Ore name is fully colored by rarity.
+- Prismatic ore name is rainbow-colored.
+- Player display should use global badge/title formatter if available.
+- Announcement should use the clean two-line format.
+
+Example Legendary announcement:
+
+GreatestProspector:
+<#FFD700>📣 Big Find<#FFFFFF>
+💎 [High Roller] @Marion mined <#FFD700>[LEGENDARY]<#FFFFFF> 🟡 <#FFD700>Gold Ore<#FFFFFF> — 3.42kg worth 1,710c!
+
+Example Prismatic announcement:
+
+GreatestProspector:
+<#FFD700>📣 Big Find<#FFFFFF>
+💎 [High Roller] @Marion mined <rainbow [PRISMATIC]> 🌈 <rainbow Aurora Crystal> — 5.21kg worth 50,000c!
+
+Do not use plain ore names in actual mining announcements.
+Only /orelist uses plain ore names.
+
+==================================================
+PART 5 — ANNOUNCEMENT SIMULATOR
+==================================================
+
+Add staff/admin command to simulate mining announcements.
+
+Commands:
+- /simannounce <rarity>
+- /simannounce <rarity> <username>
+- /simannounce random
+- /simannounce ore <ore_name>
+
+Examples:
+/simannounce legendary
+/simannounce prismatic 4ktreyMarion
+/simannounce exotic
+/simannounce ore Gold Ore
+
+Behavior:
+1. Picks a random ore from the given rarity.
+2. Generates a random weight using the ore/rarity weight range.
+3. Calculates final value using existing mining value formula.
+4. Shows the same public announcement format as a real rare mine.
+5. Does NOT add ore to inventory.
+6. Does NOT add coins.
+7. Does NOT add MXP.
+8. Does NOT affect leaderboards.
+9. Does NOT count as a real mine.
+10. Does NOT write to ore_weight_records unless marked as simulation logs only.
+11. Clearly log internally that it was a simulation if logging is used.
+
+Output should look exactly like a real announcement, except it is triggered by staff.
+
+Owner:
+Admin+ or Host/Miner, depending existing permission map.
+
+==================================================
+PART 6 — SECRET OWNER FORCED DROP FEATURE
+==================================================
+
+Add an owner-only hidden force-next-mine system.
+
+Purpose:
+Owner can secretly make a specific player mine a specific rarity or exact ore on their next /mine.
+
+Commands:
+- /forcedrop <username> <rarity>
+- /forcedropore <username> <ore_name>
+- /forcedropstatus
+- /clearforcedrop <username>
+
+Examples:
+/forcedrop testuser legendary
+/forcedrop testuser prismatic
+/forcedropore testuser Gold Ore
+/clearforcedrop testuser
+
+Behavior:
+1. Owner only.
+2. Secret from normal players.
+3. Applies only to the player’s next /mine.
+4. Clears automatically after one use.
+5. Can force a random ore from a rarity.
+6. Can force one exact ore.
+7. Weight still rolls normally using existing weight system.
+8. Value still calculates normally.
+9. Mining message and announcement appear natural.
+10. Player should not see “forced drop.”
+11. Public chat should not reveal that the drop was forced.
+12. Prevent duplicate forced drops unless owner overwrites intentionally.
+13. Forced drop expires after 24 hours by default.
+
+Example:
+Owner uses:
+/forcedrop testuser exotic
+
+Then testuser uses:
+/mine
+
+They naturally mine a random Exotic ore.
+The message should look like a normal Exotic mining result.
+
+Owner status:
+/forcedropstatus
+
+Shows pending forced drops only to owner:
+@testuser → rarity=exotic | expires in 23h
+@player2 → ore=Gold Ore | expires in 2h
+
+Clear:
+/clearforcedrop testuser
+
+Removes pending forced drop.
+
+Database:
+Create table if needed:
+
+forced_mining_drops:
+- id INTEGER PRIMARY KEY AUTOINCREMENT
+- target_user_id TEXT
+- target_username TEXT
+- forced_type TEXT
+- forced_value TEXT
+- created_by TEXT
+- created_at TEXT
+- expires_at TEXT
+- used_at TEXT
+- status TEXT
+
+forced_type:
+- rarity
+- ore
+
+status:
+- pending
+- used
+- expired
+- cleared
+
+Security:
+- Owner only, not admin/staff.
+- Do not show in /minepanel unless requester is owner.
+- Do not expose to players.
+- Do not include in public logs.
+- If staff logs exist, owner-only audit log is okay.
+
+==================================================
+PART 7 — DISPLAY HELPER RULES
+==================================================
+
+Update or create mining display helper functions:
+
+format_rarity_label(rarity, context)
+format_ore_name(ore_name, rarity, context)
+format_mining_result(...)
+format_mining_announcement(...)
+format_orelist_page(...)
+format_oreprices_page(...)
+
+Context rules:
+
+context="orelist":
+- rarity label colored and CAPSLOCKED
+- ore names plain
+- prismatic ore names plain
+- show emoji + name + chance only
+
+context="oreprices":
+- ore names plain
+- show price and weight only
+
+context="oreinfo":
+- rarity label colored and CAPSLOCKED
+- ore name can be fully colored
+- prismatic ore name can be rainbow
+
+context="mine_result":
+- rarity label colored and CAPSLOCKED
+- ore name fully colored by rarity
+- prismatic ore name rainbow
+
+context="announcement":
+- rarity label colored and CAPSLOCKED
+- ore name fully colored by rarity
+- prismatic ore name rainbow
+
+==================================================
+PART 8 — COMMAND INTEGRITY
+==================================================
+
+For every new command or alias:
+1. Add route.
+2. Add handler.
+3. Add commandtest support.
+4. Add active registry entry.
+5. Add owner map.
+6. Owner must not be UNKNOWN.
+
+Commands to verify:
+- /commandtest /orelist
+- /commandtest /oreprices
+- /commandtest /oreinfo
+- /commandtest /simannounce
+- /commandtest /forcedrop
+- /commandtest /forcedropore
+- /commandtest /forcedropstatus
+- /commandtest /clearforcedrop
+
+/checkcommands all should show:
+Missing 0
+NoOwner 0
+
+==================================================
+PART 9 — SAFETY
+==================================================
+
+Do not:
+- reset player mining data
+- reset balances
+- change ore chances unless required for display
+- change ore values unless required by existing formula
+- break ore weights
+- break ore weight leaderboards
+- break rare announcements
+- break /oreprices
+- expose forced drops to players
+- let admins use owner-only forced drops
+- show raw color tags broken in chat
+
+==================================================
+FINAL REPORT
+==================================================
+
+After finishing, tell me:
+1. Files changed
+2. How /orelist display changed
+3. How /oreprices stayed separate
+4. How /oreinfo works
+5. How actual mining result uses full ore color
+6. How announcements use full ore color
+7. How Prismatic tags are protected from being cut
+8. How /simannounce works
+9. How /forcedrop works
+10. How owner-only permission is enforced
+11. Exact tests to run

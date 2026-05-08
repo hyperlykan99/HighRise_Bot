@@ -409,6 +409,27 @@ async def handle_mine(bot: BaseBot, user: User) -> None:
     has_xp   = _boost_active(miner.get("xp_boost_until"))
     item, mxp = _roll_drop(miner["tool_level"], is_vip, has_luck, mine_event, _event_eff)
 
+    # Owner-forced drop override — silent to player; owner sees status via /forcedropstatus
+    _forced = db.get_active_forced_drop(uname)
+    if _forced:
+        if _forced["forced_type"] == "rarity":
+            _f_pool = [
+                it for it in db.get_all_mining_items(drop_enabled=False)
+                if it["rarity"] == _forced["forced_value"]
+            ]
+            if _f_pool:
+                item = random.choice(_f_pool)
+                _lo2, _hi2 = RARITIES.get(item["rarity"], RARITIES["common"])[1]
+                mxp = random.randint(_lo2, _hi2)
+                db.mark_forced_drop_used(_forced["id"])
+        elif _forced["forced_type"] == "ore":
+            _f_item = db.get_mining_item(_forced["forced_value"])
+            if _f_item:
+                item = _f_item
+                _lo2, _hi2 = RARITIES.get(item["rarity"], RARITIES["common"])[1]
+                mxp = random.randint(_lo2, _hi2)
+                db.mark_forced_drop_used(_forced["id"])
+
     # VIP: +10% MXP
     if is_vip:
         mxp = int(mxp * 1.10)
@@ -482,29 +503,37 @@ async def handle_mine(bot: BaseBot, user: User) -> None:
         await _w(bot, user.id, "⏳ Mining DB busy. Try /mine again.")
         return
 
-    # Build reply — Line 1: rarity + ore name
-    qty_str        = f" x{qty}" if qty > 1 else ""
-    lvlup          = f" | ⬆️ Mining Lv {new_lvl}!" if new_lvl > cur_lvl else ""
-    rarity_colored = format_mining_rarity(item["rarity"])
-    ore_colored    = format_ore_name(f"{item['emoji']} {item['name']}", item["rarity"])
-    line1 = (f"<#66CCFF>⛏️ Mining<#FFFFFF>: You mined "
-             f"{rarity_colored} {ore_colored}{qty_str}{lvlup}")
-    await _w(bot, user.id, line1)
+    # Build reply — combined header + ore result format
+    qty_str     = f" x{qty}" if qty > 1 else ""
+    lvlup       = f" ⬆️ Lv {new_lvl}!" if new_lvl > cur_lvl else ""
+    rar_label   = format_mining_rarity(item["rarity"])
+    ore_colored = format_ore_name(f"{item['emoji']} {item['name']}", item["rarity"])
 
-    # Line 2: weight + value + MXP
     if ore_weight is not None:
-        line2 = (f"<#CCCCCC>⚖️ Weight<#FFFFFF>: {ore_weight}kg | "
-                 f"<#FFD700>💰 Value<#FFFFFF>: {_fmt(final_val)}c | "
-                 f"<#00FFAA>⭐ MXP<#FFFFFF>: +{_fmt(mxp)}")
-        await _w(bot, user.id, line2[:249])
+        # Try to fit rarity label + ore + weight + value in one message
+        inline = (f"<#66CCFF>⛏️ Mining<#FFFFFF>\n"
+                  f"You mined {rar_label} {ore_colored}{qty_str}"
+                  f" | ⚖️ {ore_weight}kg | 💰 {_fmt(final_val)}c{lvlup}")
+        if len(inline) <= 249:
+            await _w(bot, user.id, inline)
+            await _w(bot, user.id, f"⭐ MXP: +{_fmt(mxp)}")
+        else:
+            # Fallback two-message (e.g. prismatic rainbow ore names are ~90 chars)
+            line1 = (f"<#66CCFF>⛏️ Mining<#FFFFFF>\n"
+                     f"You mined {rar_label} {ore_colored}{qty_str}{lvlup}")
+            await _w(bot, user.id, line1[:249])
+            await _w(bot, user.id,
+                     f"⚖️ {ore_weight}kg | 💰 {_fmt(final_val)}c | ⭐ MXP: +{_fmt(mxp)}")
         try:
             add_weight_record(uname, user.id, item["item_id"], item["rarity"],
                               ore_weight, item.get("sell_value", 0), final_val, mxp)
         except Exception:
             pass
     else:
-        await _w(bot, user.id,
-                 f"<#00FFAA>⭐ MXP<#FFFFFF>: +{_fmt(mxp)}{'' if not lvlup else ' ' + lvlup.strip()}")
+        line1 = (f"<#66CCFF>⛏️ Mining<#FFFFFF>\n"
+                 f"You mined {rar_label} {ore_colored}{qty_str}{lvlup}")
+        await _w(bot, user.id, line1[:249])
+        await _w(bot, user.id, f"⭐ MXP: +{_fmt(mxp)}")
 
     # Public announce (configurable threshold)
     if should_announce(item["rarity"], item["item_id"]):
@@ -1466,19 +1495,25 @@ _OREPRICES_MENU = (
     "prismatic  exotic"
 )
 
-# Short safe colored label for /orelist and /oreprices headers.
-# Prismatic uses a short pink label instead of the full rainbow
-# so the header + 5 ore lines fit inside 249 chars.
+# Capslocked colored rarity labels for /orelist and /oreprices headers.
+# Prismatic uses the full rainbow caps label; handle_orelist auto-shrinks
+# the ore-per-page count if the combined message exceeds 249 chars.
 _SHORT_RAR_LABELS: dict[str, str] = {
-    "common":     "<#AAAAAA>Common<#FFFFFF>",
-    "uncommon":   "<#66BBAA>Uncommon<#FFFFFF>",
-    "rare":       "<#3399FF>Rare<#FFFFFF>",
-    "epic":       "<#B266FF>Epic<#FFFFFF>",
-    "legendary":  "<#FFD700>Legendary<#FFFFFF>",
-    "mythic":     "<#FF66CC>Mythic<#FFFFFF>",
-    "ultra_rare": "<#FF66CC>Prismatic<#FFFFFF>",
-    "prismatic":  "<#FF66CC>Prismatic<#FFFFFF>",
-    "exotic":     "<#FF0000>Exotic<#FFFFFF>",
+    "common":     "<#AAAAAA>[COMMON]<#FFFFFF>",
+    "uncommon":   "<#66BBAA>[UNCOMMON]<#FFFFFF>",
+    "rare":       "<#3399FF>[RARE]<#FFFFFF>",
+    "epic":       "<#B266FF>[EPIC]<#FFFFFF>",
+    "legendary":  "<#FFD700>[LEGENDARY]<#FFFFFF>",
+    "mythic":     "<#FF66CC>[MYTHIC]<#FFFFFF>",
+    "ultra_rare": (
+        "<#FF0000>[P<#FF9900>R<#FFFF00>I<#00FF00>S"
+        "<#00CCFF>M<#3366FF>A<#9933FF>T<#FF66CC>I<#FF0000>C]<#FFFFFF>"
+    ),
+    "prismatic": (
+        "<#FF0000>[P<#FF9900>R<#FFFF00>I<#00FF00>S"
+        "<#00CCFF>M<#3366FF>A<#9933FF>T<#FF66CC>I<#FF0000>C]<#FFFFFF>"
+    ),
+    "exotic":     "<#FF0000>[EXOTIC]<#FFFFFF>",
 }
 
 
@@ -1552,14 +1587,18 @@ async def handle_orelist(bot: BaseBot, user: User, args: list[str] | None = None
 
     one_in    = _one_in_x(rar, len(ores))
     rar_label = _ore_short_label(rar)
-    header    = f"{rar_label} Ores — Page {page}/{total_pages}"
+    header    = f"{rar_label} — Page {page}/{total_pages}"
 
     start  = (page - 1) * _ORE_PAGE_SIZE
     subset = ores[start:start + _ORE_PAGE_SIZE]
 
-    # Plain-text ore names (no rainbow tags) to prevent mid-message color cut-off
+    # Ore names are always plain text in /orelist (no color tags in the name field)
     lines = [f"{it['emoji']} {it['name']} — 1 in {one_in:,}" for it in subset]
-    msg   = header + "\n" + "\n".join(lines)
+    # Auto-shrink: long rarity headers (e.g. prismatic rainbow) may need fewer ores
+    msg = header + "\n" + "\n".join(lines)
+    while len(msg) > 249 and len(lines) > 2:
+        lines = lines[:-1]
+        msg = header + "\n" + "\n".join(lines)
     await _w(bot, user.id, msg[:249])
 
 
@@ -1601,9 +1640,9 @@ async def handle_oreprices(bot: BaseBot, user: User, args: list[str] | None = No
                  f"Only {total_pages} page(s) for {rar}. /oreprices {rar} {total_pages}")
         return
 
-    rar_label = _ore_short_label(rar)
+    rar_disp  = get_rarity_display_name(rar)
     wlo, whi  = get_default_weight_range(rar)
-    header    = f"{rar_label} Prices — Page {page}/{total_pages}"
+    header    = f"{rar_disp} Prices — Page {page}/{total_pages}"
 
     start  = (page - 1) * _ORE_PAGE_SIZE
     subset = ores[start:start + _ORE_PAGE_SIZE]
@@ -2128,3 +2167,211 @@ async def handle_minehelp(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, MINE_HELP_PAGES[page - 1])
     else:
         await _w(bot, user.id, f"Pages 1-{len(MINE_HELP_PAGES)}. Use /minehelp <page>.")
+
+
+# ---------------------------------------------------------------------------
+# /simannounce — simulate a rare-ore room announcement  (staff/manager only)
+# ---------------------------------------------------------------------------
+
+
+async def handle_simannounce(bot: BaseBot, user: User, args: list[str]) -> None:
+    """
+    /simannounce <rarity> [username]   — random ore from rarity, optional display name
+    /simannounce random [username]     — random ore from any rarity
+    /simannounce ore <ore_id_or_name>  — specific ore (display as admin)
+
+    Sends the public announcement chat. No inventory/MXP/coin changes.
+    Logged in console as [SIM].
+    """
+    if not _can_mine_admin(user.username):
+        await _w(bot, user.id, "Admins and managers only.")
+        return
+
+    if len(args) < 2:
+        await _w(bot, user.id,
+                 "/simannounce <rarity> [user] | random [user] | ore <name>")
+        return
+
+    sub   = args[1].lower()
+    items = db.get_all_mining_items(drop_enabled=False)
+    if not items:
+        await _w(bot, user.id, "No mining items found.")
+        return
+
+    target_item: dict | None = None
+    display_name = db.get_display_name(user.id, user.username)
+
+    if sub == "ore":
+        if len(args) < 3:
+            await _w(bot, user.id, "Usage: /simannounce ore <ore_name_or_id>")
+            return
+        query = " ".join(args[2:]).lower().strip()
+        for it in items:
+            if it["item_id"].lower() == query or it["name"].lower() == query:
+                target_item = it
+                break
+        if not target_item:
+            matches = [it for it in items if query in it["name"].lower()]
+            if len(matches) == 1:
+                target_item = matches[0]
+        if not target_item:
+            await _w(bot, user.id, f"Ore '{query[:40]}' not found. Try /orelist.")
+            return
+
+    elif sub == "random":
+        target_item = random.choice(items)
+        if len(args) >= 3:
+            display_name = args[2]
+    else:
+        rar = _resolve_rarity_arg(sub)
+        if rar not in RARITIES:
+            await _w(bot, user.id,
+                     f"Unknown rarity '{sub}'. Use common/rare/legendary/etc.")
+            return
+        rar_items = [it for it in items if it["rarity"] == rar]
+        if not rar_items:
+            await _w(bot, user.id, f"No ores for rarity '{rar}'.")
+            return
+        target_item = random.choice(rar_items)
+        if len(args) >= 3:
+            display_name = args[2]
+
+    if not target_item:
+        await _w(bot, user.id, "Could not select an ore for simulation.")
+        return
+
+    # Generate weight and value for the simulated ore
+    _w_on  = weights_enabled()
+    ore_wt = generate_weight(target_item["rarity"]) if _w_on else None
+    final_v = (compute_final_value(target_item.get("sell_value", 0), ore_wt)
+               if ore_wt is not None else target_item.get("sell_value", 0))
+
+    rar       = target_item["rarity"]
+    rar_label = format_mining_rarity(rar)
+    ore_disp  = format_ore_name(
+        f"{target_item['emoji']} {target_item['name']}", rar
+    )
+    val_str   = f" — {ore_wt}kg, {_fmt(final_v)}c!" if ore_wt is not None else "!"
+
+    ann1 = "<#FFD700>📣 Big Find<#FFFFFF>"
+    ann2 = f"💎 {display_name} mined {rar_label} {ore_disp}{val_str}"
+    full = f"{ann1}\n{ann2}"
+
+    await _w(bot, user.id,
+             f"[SIM] Sending: {target_item['name']} ({rar})")
+    try:
+        await bot.highrise.chat(full[:249])
+    except Exception as exc:
+        await _w(bot, user.id, f"[SIM] Failed: {exc}")
+        return
+    print(f"[SIM] @{user.username} simulated announcement: "
+          f"{target_item['item_id']} ({rar})")
+
+
+# ---------------------------------------------------------------------------
+# /forcedrop /forcedropore /forcedropstatus /clearforcedrop  (owner-only)
+# ---------------------------------------------------------------------------
+
+
+async def handle_forcedrop(bot: BaseBot, user: User, args: list[str]) -> None:
+    """
+    /forcedrop <username> <rarity>
+    Sets a forced rarity for that player's next /mine (owner-only, silent).
+    """
+    from modules.permissions import is_owner
+    if not is_owner(user.username):
+        await _w(bot, user.id, "Owner-only command.")
+        return
+    if len(args) < 3:
+        await _w(bot, user.id,
+                 "Usage: /forcedrop <username> <rarity>  e.g. /forcedrop marion legendary")
+        return
+
+    target = args[1].lower()
+    rar    = _resolve_rarity_arg(args[2])
+    if rar not in RARITIES:
+        await _w(bot, user.id,
+                 f"Unknown rarity '{args[2]}'. Use common/rare/epic/legendary/etc.")
+        return
+
+    drop_id = db.set_forced_drop(target, "rarity", rar, user.username)
+    await _w(bot, user.id,
+             f"Forced drop set: {target} → next mine will be [{rar.upper()}] "
+             f"(id={drop_id}, expires 24h)")
+
+
+async def handle_forcedropore(bot: BaseBot, user: User, args: list[str]) -> None:
+    """
+    /forcedropore <username> <ore_id>
+    Forces a specific ore for that player's next /mine (owner-only, silent).
+    """
+    from modules.permissions import is_owner
+    if not is_owner(user.username):
+        await _w(bot, user.id, "Owner-only command.")
+        return
+    if len(args) < 3:
+        await _w(bot, user.id,
+                 "Usage: /forcedropore <username> <ore_id>  e.g. /forcedropore marion gold_ore")
+        return
+
+    target  = args[1].lower()
+    ore_id  = args[2].lower()
+    ore_row = db.get_mining_item(ore_id)
+    if not ore_row:
+        items   = db.get_all_mining_items(drop_enabled=False)
+        matches = [it for it in items if ore_id in it["name"].lower()]
+        if len(matches) == 1:
+            ore_row = matches[0]
+            ore_id  = ore_row["item_id"]
+    if not ore_row:
+        await _w(bot, user.id,
+                 f"Ore '{ore_id[:40]}' not found. Check /orelist for valid IDs.")
+        return
+
+    drop_id = db.set_forced_drop(target, "ore", ore_id, user.username)
+    await _w(bot, user.id,
+             f"Forced drop set: {target} → next mine will be "
+             f"{ore_row['emoji']} {ore_row['name']} "
+             f"(id={drop_id}, expires 24h)")
+
+
+async def handle_forcedropstatus(bot: BaseBot, user: User) -> None:
+    """/forcedropstatus — list all pending forced drops (owner-only)."""
+    from modules.permissions import is_owner
+    if not is_owner(user.username):
+        await _w(bot, user.id, "Owner-only command.")
+        return
+
+    drops = db.get_all_active_forced_drops()
+    if not drops:
+        await _w(bot, user.id, "No pending forced drops.")
+        return
+
+    lines = [f"Forced Drops ({len(drops)} pending)"]
+    for d in drops[:8]:
+        exp_str = d.get("expires_at", "")[:16] if d.get("expires_at") else "no expiry"
+        lines.append(
+            f"#{d['id']} {d['target_username']} → "
+            f"{d['forced_type']}:{d['forced_value']} (exp {exp_str})"
+        )
+    if len(drops) > 8:
+        lines.append(f"+{len(drops) - 8} more.")
+    await _w(bot, user.id, "\n".join(lines)[:249])
+
+
+async def handle_clearforcedrop(bot: BaseBot, user: User, args: list[str]) -> None:
+    """/clearforcedrop <username> — cancel pending forced drops (owner-only)."""
+    from modules.permissions import is_owner
+    if not is_owner(user.username):
+        await _w(bot, user.id, "Owner-only command.")
+        return
+    if len(args) < 2:
+        await _w(bot, user.id, "Usage: /clearforcedrop <username>")
+        return
+
+    target = args[1].lower()
+    n      = db.clear_forced_drop_by_username(target, user.username)
+    if n:
+        await _w(bot, user.id, f"Cleared {n} pending forced drop(s) for {target}.")
+    else:
+        await _w(bot, user.id, f"No pending forced drops found for {target}.")
