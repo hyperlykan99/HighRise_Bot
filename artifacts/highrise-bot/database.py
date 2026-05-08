@@ -19,7 +19,6 @@ Column notes for equipped cosmetics:
                                           used by get_equipped_ids() for benefit lookups
 """
 
-import fcntl
 import math
 import os
 import sqlite3
@@ -46,21 +45,9 @@ def get_connection() -> sqlite3.Connection:
 def init_db():
     """Create all tables if needed, then run safe column migrations.
 
-    Uses an exclusive OS file-lock so only one bot process runs this at a
-    time — prevents 'database is locked' races on simultaneous multi-bot startup.
+    Called once by bot.py before any subprocess or asyncio loop starts,
+    so there is never concurrent write contention during schema setup.
     """
-    _lock_path = config.DB_PATH + ".initlock"
-    _lock_fd   = open(_lock_path, "w")
-    try:
-        fcntl.flock(_lock_fd, fcntl.LOCK_EX)
-        _init_db_locked()
-    finally:
-        fcntl.flock(_lock_fd, fcntl.LOCK_UN)
-        _lock_fd.close()
-
-
-def _init_db_locked():
-    """Inner init — called only while holding the process file lock."""
     conn = get_connection()
     conn.execute("PRAGMA journal_mode=WAL")
 
@@ -1371,6 +1358,12 @@ def _migrate_db():
         except sqlite3.OperationalError:
             pass
 
+    # Commit and close before seed functions — each seed opens its own
+    # connection; leaving this one open with a pending write transaction
+    # would cause the second writer to block indefinitely in WAL mode.
+    conn.commit()
+    conn.close()
+
     # Seed default emoji badge catalog (idempotent)
     seed_emoji_badges()
     seed_room_settings()
@@ -1379,6 +1372,9 @@ def _migrate_db():
 
     # Seed mining ore catalog (idempotent)
     seed_mining_items()
+
+    # Reopen for remaining data migrations
+    conn = get_connection()
 
     # Seed new tip settings defaults (INSERT OR IGNORE — safe to run every boot)
     for key, val in [("tip_auto_sub", "1"), ("tip_resubscribe", "0")]:

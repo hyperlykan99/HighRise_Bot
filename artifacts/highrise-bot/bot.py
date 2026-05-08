@@ -272,6 +272,15 @@ def run() -> None:
         )
         sys.exit(1)
 
+    # Initialise the DB exactly once, before any subprocess or asyncio loop
+    # starts — this avoids all concurrent-writer races at startup.
+    # config.py requires BOT_TOKEN at import time; seed it from the first
+    # spec so database can import cleanly even in split-token mode.
+    os.environ.setdefault("BOT_TOKEN", specs[0].token)
+    import database as _db
+    _db.init_db()
+    print("[RUNNER] DB initialised.")
+
     if len(specs) == 1:
         # ── Single-bot mode ──────────────────────────────────────────────────
         # The env vars are already set (BOT_TOKEN was read from os.environ).

@@ -4774,7 +4774,6 @@ class HangoutBot(BaseBot):
 
 def run():
     """Connect the bot to Highrise and start the event loop."""
-    db.init_db()
     asyncio.run(
         highrise_main(
             [BotDefinition(
