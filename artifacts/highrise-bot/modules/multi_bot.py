@@ -417,9 +417,20 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "mineweights": "miner", "setmineweights": "miner",
     "setweightscale": "miner", "setrarityweightrange": "miner",
     "oreweightsettings": "miner",
+    # miner — mining panel (new)
+    "minepanel": "miner", "miningpanel": "miner", "mineadmin": "miner",
     # host — bulk command testing (new)
     "commandtestall": "host", "ctall": "host",
     "commandtestgroup": "host", "ctgroup": "host",
+    # host — time EXP bot exclusion (new)
+    "setallowbotxp": "host",
+    # host — per-bot welcome messages (new)
+    "botwelcome": "host", "setbotwelcome": "host",
+    "resetbotwelcome": "host", "previewbotwelcome": "host",
+    "botwelcomes": "host",
+    # banker — gold tip commands (new)
+    "goldtipsettings": "banker", "setgoldrate": "banker",
+    "goldtiplogs": "banker", "mygoldtips": "banker", "goldtipstatus": "banker",
     # poker — pace / stack / deal status (new)
     "pokermode": "poker",
     "pokerpace": "poker", "setpokerpace": "poker",

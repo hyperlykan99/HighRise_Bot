@@ -417,6 +417,27 @@ REGISTRY: dict[str, Cmd] = {
     "pokerresetturn":    Cmd("poker","casino", False, False, True,  perm="manager"),
     "pokerresethand":    Cmd("poker","casino", False, False, True,  perm="manager"),
     "pokerresettable":   Cmd("poker","casino", False, False, True,  perm="manager"),
+
+    # ── Miner: panel (new) ────────────────────────────────────────────────────
+    "minepanel":    Cmd("miner","mining", False, True,  False, perm="manager",
+                        aliases=("miningpanel","mineadmin")),
+
+    # ── Host: Time EXP bot exclusion (new) ───────────────────────────────────
+    "setallowbotxp": Cmd("host","timeexp", False, False, True, perm="admin"),
+
+    # ── Host: per-bot welcome messages (new) ─────────────────────────────────
+    "botwelcome":        Cmd("host","welcome", False, True,  False, perm="manager"),
+    "setbotwelcome":     Cmd("host","welcome", False, False, True,  perm="manager"),
+    "resetbotwelcome":   Cmd("host","welcome", False, False, True,  perm="manager"),
+    "previewbotwelcome": Cmd("host","welcome", False, True,  False, perm="manager"),
+    "botwelcomes":       Cmd("host","welcome", False, False, True,  perm="manager"),
+
+    # ── Banker: gold tip commands (new) ──────────────────────────────────────
+    "goldtipsettings": Cmd("banker","goldtip", False, True,  False, perm="staff"),
+    "setgoldrate":     Cmd("banker","goldtip", False, False, True,  perm="admin"),
+    "goldtiplogs":     Cmd("banker","goldtip", False, True,  False, perm="staff"),
+    "mygoldtips":      Cmd("banker","goldtip", False, True,  False),
+    "goldtipstatus":   Cmd("banker","goldtip", False, True,  False),
 }
 
 # ---------------------------------------------------------------------------

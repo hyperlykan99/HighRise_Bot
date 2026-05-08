@@ -353,6 +353,16 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     "pokerstacks", "setpokerstack", "dealstatus",
     # ── Command registry repair ───────────────────────────────────────────────
     "fixcommandregistry",
+    # ── Mining panel (new) ────────────────────────────────────────────────────
+    "minepanel", "miningpanel", "mineadmin",
+    # ── Time EXP bot exclusion (new) ─────────────────────────────────────────
+    "setallowbotxp",
+    # ── Per-bot welcome messages (new) ───────────────────────────────────────
+    "botwelcome", "setbotwelcome", "resetbotwelcome",
+    "previewbotwelcome", "botwelcomes",
+    # ── Gold tip commands (new) ───────────────────────────────────────────────
+    "goldtipsettings", "setgoldrate",
+    "goldtiplogs", "mygoldtips", "goldtipstatus",
 })
 
 # ---------------------------------------------------------------------------

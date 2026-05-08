@@ -1285,6 +1285,33 @@ def _migrate_db():
         "CREATE TABLE IF NOT EXISTS mining_weight_settings ("
         "key TEXT PRIMARY KEY, "
         "value TEXT NOT NULL DEFAULT '')",
+        # ── Per-bot welcome settings ───────────────────────────────────────────
+        "CREATE TABLE IF NOT EXISTS bot_welcome_settings ("
+        "bot_username TEXT NOT NULL, "
+        "key TEXT NOT NULL, "
+        "value TEXT NOT NULL DEFAULT '', "
+        "updated_at TEXT NOT NULL DEFAULT (datetime('now')), "
+        "PRIMARY KEY (bot_username, key))",
+        # ── Per-bot welcome seen (dedup per player) ────────────────────────────
+        "CREATE TABLE IF NOT EXISTS bot_welcome_seen ("
+        "bot_username TEXT NOT NULL, "
+        "user_id TEXT NOT NULL, "
+        "username TEXT NOT NULL DEFAULT '', "
+        "last_sent_at TEXT NOT NULL DEFAULT (datetime('now')), "
+        "PRIMARY KEY (bot_username, user_id))",
+        # ── Gold tip events ────────────────────────────────────────────────────
+        "CREATE TABLE IF NOT EXISTS gold_tip_events ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "event_id TEXT UNIQUE, "
+        "from_user_id TEXT NOT NULL DEFAULT '', "
+        "from_username TEXT NOT NULL DEFAULT '', "
+        "receiving_bot TEXT NOT NULL DEFAULT '', "
+        "gold_amount REAL NOT NULL DEFAULT 0.0, "
+        "coins_converted INTEGER NOT NULL DEFAULT 0, "
+        "conversion_rate REAL NOT NULL DEFAULT 1000.0, "
+        "processed_by TEXT NOT NULL DEFAULT 'bankingbot', "
+        "status TEXT NOT NULL DEFAULT 'pending', "
+        "created_at TEXT NOT NULL DEFAULT (datetime('now')))",
     ]:
         try:
             conn.execute(sql)
@@ -6453,6 +6480,90 @@ _MINING_ITEMS_SEED = [
     ("uraninite",           "Uraninite",          "☢️", "epic",      "mineral", 1100),
     ("obsidian",            "Obsidian",           "🖤", "rare",      "mineral",  200),
     ("mythril",             "Mythril",            "🌀", "legendary", "ore",    7000),
+    # ── Common expansion (Prospecting-style) ─────────────────────────────────
+    ("clay",               "Clay",               "🟫", "common",    "mineral",  10),
+    ("sandstone",          "Sandstone",          "🪨", "common",    "mineral",  14),
+    ("pyrite",             "Pyrite",             "🟡", "common",    "mineral",  16),
+    ("blue_ice",           "Blue Ice",           "🧊", "common",    "mineral",  20),
+    ("seashell",           "Seashell",           "🐚", "common",    "mineral",  22),
+    ("pearl_common",       "Pearl",              "⚪", "common",    "gemstone", 30),
+    # ── Rare expansion ────────────────────────────────────────────────────────
+    ("coral",              "Coral",              "🪸", "rare",      "mineral", 120),
+    ("zircon",             "Zircon",             "🔷", "rare",      "gemstone",150),
+    ("malachite",          "Malachite",          "🟢", "rare",      "mineral", 180),
+    ("smoky_quartz",       "Smoky Quartz",       "🔘", "rare",      "gemstone",160),
+    ("aquamarine",         "Aquamarine",         "🩵", "rare",      "gemstone",200),
+    ("amber",              "Amber",              "🟠", "rare",      "gemstone",220),
+    ("ruby_shard",         "Ruby Shard",         "🔴", "rare",      "gemstone",240),
+    ("frost_quartz",       "Frost Quartz",       "❄️", "rare",      "gemstone",280),
+    ("lapis_lazuli",       "Lapis Lazuli",       "💙", "rare",      "mineral", 300),
+    # ── Epic expansion ────────────────────────────────────────────────────────
+    ("iridium",            "Iridium",            "🩶", "epic",      "ore",     900),
+    ("moonstone",          "Moonstone",          "🌙", "epic",      "gemstone",1100),
+    ("ammonite_fossil",    "Ammonite Fossil",    "🐌", "epic",      "relic",   1200),
+    ("ashvein",            "Ashvein",            "🖤", "epic",      "mineral", 950),
+    ("pyronium",           "Pyronium",           "🔥", "epic",      "ore",     1300),
+    ("sunstone",           "Sunstone",           "🌟", "epic",      "gemstone",1400),
+    ("bloodstone",         "Bloodstone",         "🔴", "epic",      "gemstone",1500),
+    ("celestite",          "Celestite",          "🩵", "epic",      "mineral", 1600),
+    ("aether_quartz",      "Aether Quartz",      "✨", "epic",      "gemstone",1800),
+    ("dragon_glass",       "Dragon Glass",       "🫧", "epic",      "mineral", 2000),
+    ("ancient_coral",      "Ancient Coral",      "🪸", "epic",      "relic",   2200),
+    ("void_shale",         "Void Shale",         "🌑", "epic",      "mineral", 2400),
+    ("crystalized_amber",  "Crystalized Amber",  "🟠", "epic",      "gemstone",2500),
+    ("spirit_opal",        "Spirit Opal",        "🌈", "epic",      "gemstone",2800),
+    # ── Legendary expansion ───────────────────────────────────────────────────
+    ("rose_gold",          "Rose Gold",          "🌹", "legendary", "ore",     4000),
+    ("palladium",          "Palladium",          "⚙️", "legendary", "ore",     4500),
+    ("cinnabar",           "Cinnabar",           "🔴", "legendary", "mineral", 4800),
+    ("star_sapphire",      "Star Sapphire",      "⭐", "legendary", "gemstone",5500),
+    ("royal_emerald",      "Royal Emerald",      "💚", "legendary", "gemstone",6000),
+    ("molten_core",        "Molten Core",        "🌋", "legendary", "relic",   6500),
+    ("frost_diamond",      "Frost Diamond",      "❄️", "legendary", "gemstone",7000),
+    ("ancient_relic_ore",  "Ancient Relic Ore",  "🏛️", "legendary", "relic",   7500),
+    ("eclipse_stone",      "Eclipse Stone",      "🌑", "legendary", "gemstone",8000),
+    ("dragon_ruby",        "Dragon Ruby",        "🐉", "legendary", "gemstone",8500),
+    ("golden_fossil",      "Golden Fossil",      "🦴", "legendary", "relic",   9000),
+    ("phantom_crystal",    "Phantom Crystal",    "👻", "legendary", "gemstone",9500),
+    ("titanium_diamond",   "Titanium Diamond",   "💎", "legendary", "gemstone",10000),
+    ("celestial_pearl",    "Celestial Pearl",    "🌕", "legendary", "gemstone",11000),
+    # ── Mythic expansion ──────────────────────────────────────────────────────
+    ("adamantite",         "Adamantite",         "🛡️", "mythic",    "ore",     18000),
+    ("orichalcum",         "Orichalcum",         "⚡", "mythic",    "ore",     22000),
+    ("voidstone",          "Voidstone",          "🕳️", "mythic",    "mineral", 25000),
+    ("solarite",           "Solarite",           "☀️", "mythic",    "ore",     28000),
+    ("lunarium",           "Lunarium",           "🌙", "mythic",    "ore",     30000),
+    ("abyss_pearl",        "Abyss Pearl",        "🌊", "mythic",    "gemstone",35000),
+    ("phoenix_opal",       "Phoenix Opal",       "🦅", "mythic",    "gemstone",40000),
+    ("nebula_crystal",     "Nebula Crystal",     "🌌", "mythic",    "gemstone",45000),
+    ("chrono_quartz",      "Chrono Quartz",      "⏳", "mythic",    "gemstone",50000),
+    ("ethereal_diamond",   "Ethereal Diamond",   "💎", "mythic",    "gemstone",55000),
+    ("leviathan_scale_ore","Leviathan Scale Ore","🐋", "mythic",    "relic",   60000),
+    ("arcane_sapphire",    "Arcane Sapphire",    "🔵", "mythic",    "gemstone",65000),
+    ("demonite",           "Demonite",           "😈", "mythic",    "ore",     70000),
+    ("angelite",           "Angelite",           "😇", "mythic",    "gemstone",75000),
+    # ── Prismatic ─────────────────────────────────────────────────────────────
+    ("aurora_crystal",     "Aurora Crystal",     "🌌", "prismatic", "gemstone",80000),
+    ("rainbow_diamond",    "Rainbow Diamond",    "💎", "prismatic", "gemstone",100000),
+    ("prismarine_core",    "Prismarine Core",    "🪩", "prismatic", "gemstone",110000),
+    ("chromalite",         "Chromalite",         "🌈", "prismatic", "mineral", 120000),
+    ("opal_nova",          "Opal Nova",          "🌟", "prismatic", "gemstone",130000),
+    ("spectrum_quartz",    "Spectrum Quartz",    "✨", "prismatic", "gemstone",140000),
+    ("celestial_prism",    "Celestial Prism",    "🔮", "prismatic", "gemstone",150000),
+    ("prismatic_pearl",    "Prismatic Pearl",    "🌈", "prismatic", "gemstone",160000),
+    ("rainbow_obsidian",   "Rainbow Obsidian",   "🖤", "prismatic", "mineral", 175000),
+    ("astral_aurora",      "Astral Aurora",      "🌌", "prismatic", "relic",   200000),
+    # ── Exotic ────────────────────────────────────────────────────────────────
+    ("blood_diamond",      "Blood Diamond",      "💎", "exotic",    "gemstone",220000),
+    ("hellfire_ruby",      "Hellfire Ruby",      "🔴", "exotic",    "gemstone",250000),
+    ("doomstone",          "Doomstone",          "💀", "exotic",    "mineral", 280000),
+    ("infernal_obsidian",  "Infernal Obsidian",  "🖤", "exotic",    "mineral", 300000),
+    ("crimson_void_ore",   "Crimson Void Ore",   "🔴", "exotic",    "ore",     330000),
+    ("demon_heart_crystal","Demon Heart Crystal", "💔", "exotic",   "gemstone",360000),
+    ("elder_dragon_gem",   "Elder Dragon Gem",   "🐉", "exotic",    "gemstone",400000),
+    ("abyssal_crown_ore",  "Abyssal Crown Ore",  "👑", "exotic",    "ore",     450000),
+    ("scarlet_eclipse",    "Scarlet Eclipse",    "🌑", "exotic",    "gemstone",500000),
+    ("forbidden_core",     "Forbidden Core",     "⚠️", "exotic",    "relic",   600000),
 ]
 
 

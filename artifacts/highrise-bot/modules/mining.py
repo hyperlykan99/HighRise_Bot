@@ -130,18 +130,23 @@ COOLDOWNS = {1: 30, 2: 55, 3: 50, 4: 45, 5: 40, 6: 35, 7: 30, 8: 25, 9: 20, 10: 
 # MXP ranges reduced on common/uncommon so rare+ finds feel significantly more
 # rewarding; the XP curve multiplier was raised to 150 to keep overall pace healthy.
 RARITIES = {
-    "common":    (68.0, (3,   8)),   # plentiful; small MXP — stone/coal shouldn't level you fast
-    "uncommon":  (20.0, (10, 18)),   # noticeable step up; still minor compared to rare
-    "rare":      ( 8.0, (35, 70)),   # satisfying reward when it lands
-    "epic":      ( 2.5, (100, 200)), # clear excitement spike; ~2.5 % of drops
-    "legendary": ( 1.0, (350, 650)), # big event; worth a room announce
-    "mythic":    ( 0.4, (1800, 1800)),  # very rare; huge XP bonus to celebrate
-    "ultra_rare":( 0.1, (7500, 7500)),  # jackpot-level find; life-changing MXP
+    "common":    (68.0,  (3,      8)),
+    "uncommon":  (20.0,  (10,    18)),
+    "rare":      ( 8.0,  (35,    70)),
+    "epic":      ( 2.5,  (100,  200)),
+    "legendary": ( 1.0,  (350,  650)),
+    "mythic":    ( 0.4,  (1800, 1800)),
+    "ultra_rare":( 0.1,  (7500, 7500)),
+    "prismatic": ( 0.05, (12000, 12000)),
+    "exotic":    ( 0.03, (20000, 20000)),
 }
 
-RARITY_ORDER = ["common", "uncommon", "rare", "epic", "legendary", "mythic", "ultra_rare"]
+RARITY_ORDER = [
+    "common", "uncommon", "rare", "epic",
+    "legendary", "mythic", "ultra_rare", "prismatic", "exotic",
+]
 
-ANNOUNCE_RARITIES = {"legendary", "mythic", "ultra_rare"}
+ANNOUNCE_RARITIES = {"legendary", "mythic", "ultra_rare", "prismatic", "exotic"}
 
 # Upgrade requirements: {target_level: (coins, [(ore_id, qty), ...])}
 # Balance notes:
@@ -249,30 +254,36 @@ def _roll_drop(tool_level: int, is_vip: bool, has_luck_boost: bool,
     # Tool level boosts rare+ by 0.5% per level above 1 (redistributed from common)
     tool_bonus = (tool_level - 1) * 0.5
     if tool_bonus > 0:
-        boost_targets = ["rare", "epic", "legendary", "mythic", "ultra_rare"]
+        boost_targets = [
+            "rare", "epic", "legendary", "mythic",
+            "ultra_rare", "prismatic", "exotic",
+        ]
         per = tool_bonus / len(boost_targets)
         for t in boost_targets:
             probs[t] += per
         probs["common"] = max(0, probs["common"] - tool_bonus)
 
+    _rare_plus = ["rare", "epic", "legendary", "mythic", "ultra_rare", "prismatic", "exotic"]
+
     # VIP: +10% relative on rare+
     if is_vip:
-        for r in ["rare", "epic", "legendary", "mythic", "ultra_rare"]:
+        for r in _rare_plus:
             probs[r] *= 1.10
 
     # Lucky Charm: +25% relative on rare+
     if has_luck_boost:
-        for r in ["rare", "epic", "legendary", "mythic", "ultra_rare"]:
+        for r in _rare_plus:
             probs[r] *= 1.25
 
     # Mining event effects
     if mine_event:
         eid = mine_event.get("event_id", "")
         if eid == "lucky_hour":
-            for r in ["rare", "epic", "legendary", "mythic", "ultra_rare"]:
+            for r in _rare_plus:
                 probs[r] *= 1.50
         elif eid == "meteor_rush":
-            probs["ultra_rare"] *= 2.0
+            for r in ("ultra_rare", "prismatic", "exotic"):
+                probs[r] *= 2.0
 
     # Normalize to 100
     total = sum(probs.values())
@@ -292,7 +303,7 @@ def _roll_drop(tool_level: int, is_vip: bool, has_luck_boost: bool,
     chosen_item = random.choice(pool)
 
     # MXP
-    lo, hi = RARITIES[chosen_rarity][1]
+    lo, hi = RARITIES.get(chosen_rarity, RARITIES["common"])[1]
     mxp = random.randint(lo, hi)
 
     return chosen_item, mxp
@@ -447,10 +458,14 @@ async def handle_mine(bot: BaseBot, user: User) -> None:
         _disp   = db.get_display_name(user.id, uname)
         ore_ann = format_ore_name(f"{item['emoji']} {item['name']}", item["rarity"])
         rar_ann = format_mining_rarity(item["rarity"])
-        wt_str  = f" {ore_weight}kg!" if ore_weight is not None else "!"
-        ann     = f"📣 {_disp} found {ore_ann}! {rar_ann}{wt_str}"
+        if ore_weight is not None:
+            val_str = f" — {ore_weight}kg, {_fmt(final_val)}c!"
+        else:
+            val_str = "!"
+        ann1 = "<#FFD700>📣 Big Find<#FFFFFF>"
+        ann2 = f"💎 {_disp} mined {rar_ann} {ore_ann}{val_str}"
         try:
-            await bot.highrise.chat(ann[:249])
+            await bot.highrise.chat(f"{ann1}\n{ann2}"[:249])
         except Exception:
             pass
 
@@ -1098,6 +1113,76 @@ async def handle_mineconfig(bot: BaseBot, user: User) -> None:
              f"Mining: {'ON' if en == 'true' else 'OFF'} | "
              f"Room req: {'YES' if rr == 'true' else 'NO'}\n"
              f"Rare announce: {'ON' if ra == 'true' else 'OFF'}")
+
+
+async def handle_minepanel(bot: BaseBot, user: User) -> None:
+    """/minepanel /miningpanel /mineadmin — mining staff configuration panel."""
+    if not _can_mine_admin(user.username):
+        await _w(bot, user.id, "Admin/manager only.")
+        return
+    cd     = db.get_mine_setting("base_cooldown_seconds", "30")
+    ec     = db.get_mine_setting("base_energy_cost", "5")
+    en     = db.get_mine_setting("mining_enabled", "true") == "true"
+    # Weight settings
+    try:
+        from modules.mining_weights import (
+            weights_enabled as _wen, get_weight_setting as _gws,
+        )
+        w_on    = _wen()
+        scale   = _gws("weight_value_multiplier_scale", "1.0")
+        lb_mode = _gws("weight_lb_mode", "best")
+    except Exception:
+        w_on, scale, lb_mode = True, "1.0", "best"
+    # Announce settings
+    ann_on  = db.get_room_setting("mining_announce_enabled", "1") == "1"
+    ann_min = db.get_room_setting("mining_announce_min_rarity", "legendary")
+    # Override count
+    try:
+        import database as _db
+        conn  = _db.get_connection()
+        ovr_c = conn.execute(
+            "SELECT COUNT(*) FROM mining_weight_settings WHERE key LIKE 'ore_announce_%'"
+        ).fetchone()[0]
+        conn.close()
+    except Exception:
+        ovr_c = 0
+    # Mining event + Admin's Blessing
+    mine_event = db.get_active_mining_event()
+    ev_str     = mine_event.get("event_id", "none") if mine_event else "none"
+    blessing   = False
+    try:
+        from modules.events import get_event_effect as _gee
+        blessing = _gee().get("mining_boost", False)
+    except Exception:
+        pass
+    if blessing:
+        ev_str = f"{ev_str} + Blessing"
+    # Rare finds today (recent from ore_weight_records)
+    try:
+        import database as _db2
+        conn2 = _db2.get_connection()
+        rare_today = conn2.execute(
+            """SELECT COUNT(*) FROM ore_weight_records
+               WHERE rarity IN ('legendary','mythic','ultra_rare','prismatic','exotic')
+               AND date(mined_at)=date('now')"""
+        ).fetchone()[0]
+        conn2.close()
+    except Exception:
+        rare_today = 0
+
+    await _w(bot, user.id, "<#66CCFF>⛏️ Mining Panel<#FFFFFF>")
+    await _w(bot, user.id,
+             f"Status: {'ON' if en else 'OFF'} | Starter: {cd}s | "
+             f"Energy: {ec}/mine | Weights: {'ON' if w_on else 'OFF'}")
+    await _w(bot, user.id,
+             f"Scale: {scale} | LB: {lb_mode} | "
+             f"Announce: {ann_min.capitalize()}+ {'ON' if ann_on else 'OFF'} "
+             f"| Overrides: {ovr_c}")
+    await _w(bot, user.id,
+             f"Events: {ev_str} | Rare finds today: {rare_today}")
+    await _w(bot, user.id,
+             "/setminecooldown /setmineweights /setweightscale "
+             "/setmineannounce /setrarityweightrange"[:249])
 
 
 async def handle_mineeventstatus(bot: BaseBot, user: User) -> None:

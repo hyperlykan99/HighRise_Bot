@@ -41,10 +41,13 @@ artifacts/highrise-bot/
     ├── bot_modes.py        # Bot persona/outfit system
     ├── multi_bot.py        # Multi-bot management
     ├── room_utils.py       # Room utility commands
-    ├── mining.py           # Mining game (color-coded rarities, ore weights)
+    ├── mining.py           # Mining game (7 rarities incl. Prismatic/Exotic, 90+ ores)
     ├── mining_colors.py    # Rarity color labels & rainbow/prismatic formatting
     ├── mining_weights.py   # Ore weight system, weight LB, announce settings
-    └── cmd_audit.py        # Command audit tools incl. commandtestall/group
+    ├── bot_welcome.py      # Per-bot configurable welcome whispers (D)
+    ├── gold_tips.py        # Gold tip migration to BankingBot (E)
+    ├── time_exp.py         # Time-EXP system incl. bot exclusion (/setallowbotxp) (C)
+    └── cmd_audit.py        # Command audit tools incl. commandtestall/group (B)
 ```
 
 DB schema source of truth: `database.py` (`_MIGRATIONS` list + `init_db()`).
@@ -60,7 +63,7 @@ DB schema source of truth: `database.py` (`_MIGRATIONS` list + `init_db()`).
 
 ## Product
 
-Casino games (Blackjack, Realistic Blackjack, Poker), DJ queue, token economy, daily rewards, in-game shop, quests, achievements, events, subscriber DMs, leaderboards, staff management, public player profiles with privacy controls, emoji badge market, mining game (with color-coded ore rarities, per-ore weight system, weight leaderboards, and configurable rare-ore room announcements), a comprehensive room utility system, a bot mode/outfit system with multiple personas, and a multi-bot system for distributed command handling and high availability. It also includes a Casino Integrity Checker for verifying game logic and card visibility, plus bulk command testing tools (/commandtestall, /commandtestgroup).
+Casino games (Blackjack, Realistic Blackjack, Poker), DJ queue, token economy, daily rewards, in-game shop, quests, achievements, events, subscriber DMs, leaderboards, staff management, public player profiles with privacy controls, emoji badge market, mining game (7 rarities: Common/Uncommon/Rare/Epic/Legendary/Mythic/Ultra-Rare/Prismatic/Exotic with 90+ ores, per-ore weight system, weight leaderboards, configurable rare-ore room announcements, `/minepanel` staff dashboard), per-bot personalized welcome whispers (configurable per bot), gold tip migration to BankingBot (coins_per_gold conversion, event log, dedup), Time EXP bot exclusion (`/setallowbotxp`), a comprehensive room utility system, a bot mode/outfit system with multiple personas, and a multi-bot system for distributed command handling and high availability. It also includes a Casino Integrity Checker for verifying game logic and card visibility, plus bulk command testing tools (/commandtestall, /commandtestgroup).
 
 ## User preferences
 
@@ -79,6 +82,10 @@ Casino games (Blackjack, Realistic Blackjack, Poker), DJ queue, token economy, d
 - Seeding functions (`seed_emoji_badges`, `seed_mining_items`, etc.) use `INSERT OR IGNORE` in `_migrate_db()`.
 - New `room_mutes`/`room_bans`/`room_warnings` tables are separate from older moderation tables.
 - The `_user_positions` dictionary in `room_utils.py` is volatile and resets on bot restart.
+- `RARITIES` in `mining.py` includes "prismatic" and "exotic" — always use `RARITIES.get(r, RARITIES["common"])` when looking up arbitrary rarity values.
+- Gold tip detection uses `getattr(tip, 'type', '') == 'gold'` in `on_tip`; if SDK changes tip model, update that check in `main.py`.
+- `bot_welcome_seen` records are keyed by `(bot_username, user_id)` — one record per bot per player.
+- Gold tip dedup uses SHA-1 hash of `(from_uid, receiving_bot, gold_amount, minute_bucket)`; SDK event IDs can override.
 
 ## Pointers
 
@@ -89,3 +96,8 @@ Casino games (Blackjack, Realistic Blackjack, Poker), DJ queue, token economy, d
 - To manage multi-bot command ownership: Edit `_DEFAULT_COMMAND_OWNERS` in `multi_bot.py` or use `/setcommandowner`.
 - To guard a new module's startup tasks: call `should_this_bot_run_module("modulename")` before any `asyncio.create_task(startup_...)` in `on_start`. Add the module to `_MODULE_OWNER_MODES` in `multi_bot.py`.
 - New task/restore commands: `/taskowners`, `/activetasks`, `/taskconflicts`, `/fixtaskowners`, `/restoreannounce on|off`, `/restorestatus` (all admin/owner-only).
+- Per-bot welcome: set via `/setbotwelcome <botname> <msg>`, preview with `/previewbotwelcome <botname>`, toggle globally via `/botwelcomes on|off`. Default messages live in `bot_welcome.py:_DEFAULT_MESSAGES`.
+- Gold tips: rate set via `/setgoldrate <coins>` (default 1000 coins/gold). Only BankingBot credits balances; other bots acknowledge only. Logs in `gold_tip_events` table.
+- Time EXP bot exclusion: `/setallowbotxp on|off` (admin+). Status shown in `/timeexpstatus`.
+- Mining panel: `/minepanel` (alias `/miningpanel`, `/mineadmin`) shows full mining config — status, cooldown, weights, announce, events, rare finds today.
+- New ore rarities "prismatic" (0.05%) and "exotic" (0.03%) added to `RARITIES`, `RARITY_ORDER`, `ANNOUNCE_RARITIES` in `mining.py`. 90+ new ores across all 7+ rarities added to `_MINING_ITEMS_SEED` in `database.py`.

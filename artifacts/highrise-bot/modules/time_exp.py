@@ -177,6 +177,7 @@ async def _run_tick(bot) -> None:
         if uid == _bot_user_id:
             continue
         if not bot_exp_enabled and uid in _known_bot_ids:
+            print(f"[TIME_EXP] skipped_bot user={uname}")
             continue
         db.ensure_user(uid, uname)
         s = _sessions.get(uid)
@@ -323,17 +324,39 @@ async def handle_timeexpstatus(bot, user, args: list[str]) -> None:
     if not _is_manager_plus(user.username):
         await _w(bot, user.id, "Manager+ only.")
         return
-    enabled = "ON" if _setting_bool("time_exp_enabled") else "OFF"
-    cap     = _setting_int("time_exp_cap")
-    tick    = _setting_int("time_exp_tick_seconds")
-    bonus   = "ON" if _setting_bool("time_exp_active_bonus_enabled") else "OFF"
-    bval    = _setting_float("time_exp_active_bonus")
-    win     = int(_setting_float("time_exp_active_window_min"))
-    count   = get_session_count()
+    enabled  = "ON" if _setting_bool("time_exp_enabled") else "OFF"
+    cap      = _setting_int("time_exp_cap")
+    tick     = _setting_int("time_exp_tick_seconds")
+    bonus    = "ON" if _setting_bool("time_exp_active_bonus_enabled") else "OFF"
+    bval     = _setting_float("time_exp_active_bonus")
+    win      = int(_setting_float("time_exp_active_window_min"))
+    count    = get_session_count()
+    bot_xp   = "ON" if _setting_bool("time_exp_bot_exp_enabled") else "OFF"
     await _w(bot, user.id,
         f"⏱ Time EXP: {enabled} | Cap: {cap}/day | Tick: {tick}s | "
         f"Sessions: {count}")
     await _w(bot, user.id,
-        f"🎯 Active bonus: {bonus} (+{bval}/min within {win}-min window)")
+        f"🎯 Active bonus: {bonus} (+{bval}/min within {win}-min window) | "
+        f"Allow Bot XP: {bot_xp}")
     await _w(bot, user.id,
         "📈 0-30m=1 | 30-60m=1.25 | 1-2h=1.5 | 2-4h=2 | 4-8h=2.5 | 8h+=3 EXP/min")
+
+
+async def handle_setallowbotxp(bot, user, args: list[str]) -> None:
+    """/setallowbotxp on|off — allow or deny bots from earning Time EXP (admin+)."""
+    if not _is_admin_plus(user.username):
+        await _w(bot, user.id, "Admin+ only.")
+        return
+    sub = args[1].lower() if len(args) > 1 else ""
+    if sub in ("on", "true", "enable", "1"):
+        db.set_room_setting("time_exp_bot_exp_enabled", "true")
+        await _w(bot, user.id,
+            "✅ Allow Bot XP: ON. Bots will earn Time EXP.")
+    elif sub in ("off", "false", "disable", "0"):
+        db.set_room_setting("time_exp_bot_exp_enabled", "false")
+        await _w(bot, user.id,
+            "✅ Allow Bot XP: OFF. Bots are excluded from Time EXP.")
+    else:
+        cur = "ON" if _setting_bool("time_exp_bot_exp_enabled") else "OFF"
+        await _w(bot, user.id,
+            f"Allow Bot XP is {cur}. Usage: /setallowbotxp on | off")

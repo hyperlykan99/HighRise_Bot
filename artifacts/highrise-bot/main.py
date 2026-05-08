@@ -281,12 +281,29 @@ from modules.time_exp import (
     handle_settimeexptick,
     handle_settimeexpbonus,
     handle_timeexpstatus,
+    handle_setallowbotxp,
 )
 from modules.display_settings import (
     handle_displaybadges,
     handle_displaytitles,
     handle_displayformat,
     handle_displaytest,
+)
+from modules.bot_welcome import (
+    send_bot_welcome,
+    handle_botwelcome,
+    handle_setbotwelcome,
+    handle_resetbotwelcome,
+    handle_previewbotwelcome,
+    handle_botwelcomes,
+)
+from modules.gold_tips import (
+    handle_goldtipsettings,
+    handle_setgoldrate,
+    handle_goldtiplogs,
+    handle_mygoldtips,
+    handle_goldtipstatus,
+    handle_incoming_gold_tip,
 )
 from modules.mining import (
     handle_mine, handle_tool, handle_upgradetool,
@@ -306,6 +323,7 @@ from modules.mining import (
     handle_orebook, handle_oremastery, handle_claimoremastery, handle_orestats,
     handle_contracts, handle_job, handle_deliver, handle_claimjob, handle_rerolljob,
     handle_mineconfig, handle_mineeventstatus,
+    handle_minepanel,
     MINE_HELP_PAGES,
 )
 from modules.control_panel import (
@@ -791,6 +809,16 @@ ALL_KNOWN_COMMANDS = (
         "pokerforceadvance", "pokerforceresend",
         "pokerturn", "pokerpots", "pokeractions",
         "pokerresetturn", "pokerresethand", "pokerresettable",
+        # ── Mining panel (new) ────────────────────────────────────────────────
+        "minepanel", "miningpanel", "mineadmin",
+        # ── Time EXP bot exclusion (new) ──────────────────────────────────────
+        "setallowbotxp",
+        # ── Per-bot welcome messages (new) ────────────────────────────────────
+        "botwelcome", "setbotwelcome", "resetbotwelcome",
+        "previewbotwelcome", "botwelcomes",
+        # ── Gold tip commands (new) ────────────────────────────────────────────
+        "goldtipsettings", "setgoldrate",
+        "goldtiplogs", "mygoldtips", "goldtipstatus",
     }
     | ECONOMY_COMMANDS | PROFILE_COMMANDS | GAME_COMMANDS
     | SHOP_COMMANDS | ACHIEVEMENT_COMMANDS | BJ_COMMANDS
@@ -799,7 +827,7 @@ ALL_KNOWN_COMMANDS = (
 
 TIME_EXP_COMMANDS: frozenset[str] = frozenset({
     "settimeexp", "settimeexpcap", "settimeexptick",
-    "settimeexpbonus", "timeexpstatus",
+    "settimeexpbonus", "timeexpstatus", "setallowbotxp",
 })
 DISPLAY_COMMANDS: frozenset[str] = frozenset({
     "displaybadges", "displaytitles", "displayformat", "displaytest",
@@ -3163,6 +3191,8 @@ class HangoutBot(BaseBot):
             await handle_settimeexpbonus(self, user, args)
         elif cmd == "timeexpstatus":
             await handle_timeexpstatus(self, user, args)
+        elif cmd == "setallowbotxp":
+            await handle_setallowbotxp(self, user, args)
 
         # ── Display format settings ────────────────────────────────────────────
         elif cmd == "displaybadges":
@@ -3833,6 +3863,9 @@ class HangoutBot(BaseBot):
         elif cmd == "mineeventstatus":
             await handle_mineeventstatus(self, user)
 
+        elif cmd in {"minepanel", "miningpanel", "mineadmin"}:
+            await handle_minepanel(self, user)
+
         elif cmd == "orelist":
             await handle_orelist(self, user)
 
@@ -3910,6 +3943,30 @@ class HangoutBot(BaseBot):
 
         elif cmd == "oreweightsettings":
             await handle_oreweightsettings(self, user)
+
+        # ── Per-bot welcome messages ───────────────────────────────────────────
+        elif cmd == "botwelcome":
+            await handle_botwelcome(self, user)
+        elif cmd == "setbotwelcome":
+            await handle_setbotwelcome(self, user, args)
+        elif cmd == "resetbotwelcome":
+            await handle_resetbotwelcome(self, user, args)
+        elif cmd == "previewbotwelcome":
+            await handle_previewbotwelcome(self, user, args)
+        elif cmd == "botwelcomes":
+            await handle_botwelcomes(self, user, args)
+
+        # ── Gold tip commands ─────────────────────────────────────────────────
+        elif cmd == "goldtipsettings":
+            await handle_goldtipsettings(self, user)
+        elif cmd == "setgoldrate":
+            await handle_setgoldrate(self, user, args)
+        elif cmd == "goldtiplogs":
+            await handle_goldtiplogs(self, user)
+        elif cmd == "mygoldtips":
+            await handle_mygoldtips(self, user)
+        elif cmd == "goldtipstatus":
+            await handle_goldtipstatus(self, user)
 
         # ── Maintenance tools ─────────────────────────────────────────────────
         elif cmd == "botstatus":
@@ -4381,6 +4438,10 @@ class HangoutBot(BaseBot):
             pass
         # Send custom welcome message if configured (whisper, once per user)
         asyncio.create_task(send_welcome_if_needed(self, user))
+        # Send per-bot personalized welcome whisper (once per cooldown window)
+        asyncio.create_task(send_bot_welcome(
+            self, user, get_bot_username() or BOT_MODE, stagger_seconds=2.0
+        ))
         # Deliver any queued bank, subscriber, and typed notifications
         asyncio.create_task(_deliver_pending_bank_notifications(self, user))
         asyncio.create_task(deliver_pending_subscriber_messages(self, user.username.lower()))
@@ -4414,6 +4475,16 @@ class HangoutBot(BaseBot):
                 f"  [TIP] Receiver {receiver.username}({receiver.id}) "
                 f"!= bot ({bot_uid}) — ignoring (tip between players)."
             )
+            return
+
+        # Route gold (non-coin) tips to the gold tip handler
+        tip_type = getattr(tip, 'type', '')
+        if str(tip_type).lower() == 'gold':
+            gold_amount = float(getattr(tip, 'amount', 1))
+            print(f"  [TIP] Gold tip detected: {gold_amount} gold from @{sender.username}")
+            asyncio.create_task(handle_incoming_gold_tip(
+                self, sender, receiver.username, gold_amount,
+            ))
             return
 
         try:

@@ -1,0 +1,1059 @@
+Major System Integration Update:
+Mining Upgrade + Bulk Command Testing + Time EXP Bot Exclusion + Per-Bot Welcome Messages + Gold Tipping BankingBot Migration
+
+Do not change bot tokens.
+Do not change room ID.
+Do not reset balances.
+Do not wipe player data.
+Do not break existing poker, blackjack, bank, mining, events, shop, AI, outfits, or bot spawn systems.
+
+This update has 5 projects:
+
+A. Major Mining upgrade
+B. Bulk command testing tools
+C. Time-in-room EXP correction: exclude bots
+D. Configurable whispered welcome messages per bot
+E. Gold tipping update: BankingBot handles all gold tip conversion
+
+==================================================
+PROJECT A — MAJOR MINING SYSTEM UPGRADE
+==================================================
+
+Goal:
+Make mining more exciting, readable, configurable, and valuable by adding:
+1. More ores inspired by Roblox Prospecting-style minerals.
+2. Color-coded ore rarities.
+3. Ore names colored by rarity.
+4. Prismatic rarity and ore names in rainbow letters.
+5. Ore weights that multiply ore value.
+6. Ore weight leaderboards per ore.
+7. Public mining announcements for rare ores.
+8. Admin-configurable announcements by rarity and per ore.
+9. Starter/default tool cooldown set to 30 seconds.
+10. Mining staff configuration panel.
+11. Cleaner mining bot message format where the header starts on the first line and details start on the second line.
+12. Full command integrity.
+
+Do not reset mining levels.
+Do not wipe existing ores.
+Do not break existing sell/inventory system.
+Do not break Admin’s Blessing or mining events.
+
+==================================================
+A1 — EXPAND ORE POOL
+==================================================
+
+Add many more ores similar in style to Roblox Prospecting, but safe/original enough for this project.
+
+Each ore should have:
+- ore_name
+- rarity
+- base_value
+- base_mxp
+- min_weight
+- max_weight
+- announce_default true/false
+
+Use these rarity groups:
+
+Common:
+- Stone
+- Coal
+- Clay
+- Sandstone
+- Quartz
+- Pyrite
+- Silver
+- Copper
+- Gold
+- Blue Ice
+- Platinum
+- Seashell
+- Obsidian
+- Amethyst
+- Pearl
+
+Rare:
+- Titanium
+- Topaz
+- Coral
+- Sapphire
+- Zircon
+- Malachite
+- Smoky Quartz
+- Aquamarine
+- Garnet
+- Jade
+- Opal
+- Amber
+- Ruby Shard
+- Frost Quartz
+- Lapis Lazuli
+
+Epic:
+- Iridium
+- Moonstone
+- Ammonite Fossil
+- Ashvein
+- Pyronium
+- Sunstone
+- Bloodstone
+- Celestite
+- Aether Quartz
+- Dragon Glass
+- Meteorite Fragment
+- Ancient Coral
+- Void Shale
+- Crystalized Amber
+- Spirit Opal
+
+Legendary:
+- Rose Gold
+- Palladium
+- Cinnabar
+- Diamond
+- Star Sapphire
+- Royal Emerald
+- Molten Core
+- Frost Diamond
+- Ancient Relic Ore
+- Eclipse Stone
+- Dragon Ruby
+- Golden Fossil
+- Phantom Crystal
+- Titanium Diamond
+- Celestial Pearl
+
+Mythic:
+- Mythril
+- Adamantite
+- Orichalcum
+- Voidstone
+- Solarite
+- Lunarium
+- Abyss Pearl
+- Phoenix Opal
+- Nebula Crystal
+- Chrono Quartz
+- Ethereal Diamond
+- Leviathan Scale Ore
+- Arcane Sapphire
+- Demonite
+- Angelite
+
+Prismatic:
+- Aurora Crystal
+- Rainbow Diamond
+- Prismarine Core
+- Chromalite
+- Opal Nova
+- Spectrum Quartz
+- Celestial Prism
+- Prismatic Pearl
+- Rainbow Obsidian
+- Astral Aurora
+
+Exotic:
+- Blood Diamond
+- Hellfire Ruby
+- Doomstone
+- Infernal Obsidian
+- Crimson Void Ore
+- Demon Heart Crystal
+- Elder Dragon Gem
+- Abyssal Crown Ore
+- Scarlet Eclipse
+- Forbidden Core
+
+Balance:
+- Common should be easy.
+- Rare should feel better.
+- Epic should feel exciting.
+- Legendary and above should be rare and public-announced by default.
+- Prismatic and Exotic should be extremely rare and valuable.
+
+Do not replace existing ores if they already exist.
+Merge new ores safely.
+Avoid duplicate ore names.
+
+==================================================
+A2 — RARITY COLOR SYSTEM
+==================================================
+
+Add a shared mining rarity formatter.
+
+Every mining display should use colored rarity labels and colored ore names.
+
+Rarity color map:
+
+Common:
+<#AAAAAA>Common<#FFFFFF>
+Ore names:
+<#AAAAAA>Ore Name<#FFFFFF>
+
+Rare:
+<#3399FF>Rare<#FFFFFF>
+Ore names:
+<#3399FF>Ore Name<#FFFFFF>
+
+Epic:
+<#B266FF>Epic<#FFFFFF>
+Ore names:
+<#B266FF>Ore Name<#FFFFFF>
+
+Legendary:
+<#FFD700>Legendary<#FFFFFF>
+Ore names:
+<#FFD700>Ore Name<#FFFFFF>
+
+Mythic:
+<#FF66CC>Mythic<#FFFFFF>
+Ore names:
+<#FF66CC>Ore Name<#FFFFFF>
+
+Prismatic:
+Use this exact rainbow rarity text:
+<#FF0000>P<#FF9900>r<#FFFF00>i<#00FF00>s<#00CCFF>m<#3366FF>a<#9933FF>t<#FF66CC>i<#FFFFFF>c
+
+Prismatic ore names must also be rainbow-colored letter-by-letter.
+
+Example:
+Aurora Crystal should display as rainbow letters, not plain text.
+
+Exotic:
+<#FF0000>Exotic<#FFFFFF>
+Ore names:
+<#FF0000>Ore Name<#FFFFFF>
+
+Important:
+1. The ore name must use the same color style as its rarity.
+2. Always reset color with <#FFFFFF>.
+3. Use full 6-digit hex codes.
+4. Do not use HTML, markdown color, ANSI, or Discord color codes.
+5. Keep messages short.
+
+Create helpers:
+- format_mining_rarity(rarity)
+- format_ore_name(ore_name, rarity)
+- rainbow_text(text)
+- format_mining_label(label)
+
+==================================================
+A3 — CLEAN MINING MESSAGE FORMAT
+==================================================
+
+Bot messages should look clean by using a header on the first line and details starting on the second line.
+
+Use this format:
+
+Header line:
+<#66CCFF>⛏️ Mining<#FFFFFF>
+
+Details line:
+You mined <rarity> <ore_name> | ⚖️ 3.42kg | 💰 1,710c | ⭐ +25 MXP
+
+Example:
+<#66CCFF>⛏️ Mining<#FFFFFF>
+You mined <#FFD700>Legendary<#FFFFFF> <#FFD700>Gold Ore<#FFFFFF> | <#CCCCCC>⚖️ 3.42kg<#FFFFFF> | <#FFD700>💰 1,710c<#FFFFFF> | <#00FFAA>⭐ +25 MXP<#FFFFFF>
+
+Cooldown:
+<#FFCC00>⏳ Cooldown<#FFFFFF>
+Mine again in 30s.
+
+Rare announcement:
+<#FFD700>📣 Big Find<#FFFFFF>
+💎 [High Roller] @Marion mined <#FFD700>Legendary<#FFFFFF> <#FFD700>Gold Ore<#FFFFFF> — 3.42kg worth 1,710c!
+
+Apply this two-line style to:
+- /mine results
+- cooldown messages
+- ore sell messages
+- mining level-up
+- rare ore announcements
+- mineconfig
+- mining staff panel
+- weight leaderboards
+- ore lists where appropriate
+
+Keep messages short.
+Split into multiple whispers if too long.
+
+==================================================
+A4 — ORE WEIGHT SYSTEM
+==================================================
+
+Add ore weights.
+
+Every mined ore should generate a weight.
+
+Weight should scale/multiply ore value.
+
+Do not break existing mining rewards.
+Use existing ore base value and existing mining/event boosts, then apply weight multiplier safely.
+
+Suggested formula:
+final_value = base_ore_value × weight_multiplier × existing_event_multiplier
+
+Weight multiplier can be based on weight.
+
+Recommended simple formula:
+weight_multiplier = weight
+
+Example:
+Gold Ore base value = 500c
+Weight = 3.42kg
+Final value = 500 × 3.42 = 1,710c
+
+If this is too strong for existing economy, add configurable:
+weight_value_multiplier_scale
+
+Alternative safe formula:
+final_value = base_ore_value × (1 + ((weight - 1) × weight_value_multiplier_scale))
+
+Default:
+weight_value_multiplier_scale = 1.0
+
+Default rarity weight ranges:
+Common: 0.50kg to 2.00kg
+Rare: 0.75kg to 3.00kg
+Epic: 1.00kg to 4.00kg
+Legendary: 1.50kg to 6.00kg
+Mythic: 2.00kg to 8.00kg
+Prismatic: 2.50kg to 10.00kg
+Exotic: 3.00kg to 12.00kg
+
+If an ore already has its own min_weight/max_weight, use that first.
+Otherwise use rarity default.
+
+Do not accidentally multiply old inventory retroactively unless explicitly intended.
+
+==================================================
+A5 — DATABASE FOR ORE WEIGHTS
+==================================================
+
+Create database tables safely.
+
+Use CREATE TABLE IF NOT EXISTS.
+Use guarded ALTER TABLE if needed.
+Do not wipe existing mining data.
+
+Add table:
+
+ore_weight_records:
+- id INTEGER PRIMARY KEY AUTOINCREMENT
+- ore_name TEXT
+- rarity TEXT
+- weight REAL
+- base_value INTEGER
+- final_value INTEGER
+- mxp INTEGER
+- user_id TEXT
+- username TEXT
+- mined_at TEXT
+
+Optional table:
+
+mining_weight_settings:
+- key TEXT PRIMARY KEY
+- value TEXT
+
+Default settings:
+- weights_enabled = 1
+- weight_value_multiplier_scale = 1.0
+- rarity_weight_ranges_json
+- weight_lb_mode = best
+
+weight_lb_mode:
+best = one best record per player per ore
+all = all records can appear
+
+Default:
+best
+
+==================================================
+A6 — ORE WEIGHT LEADERBOARDS
+==================================================
+
+Add ore weight leaderboards.
+
+Goal:
+Track the heaviest mined version of each ore and show a leaderboard per ore.
+
+Commands:
+- /oreweightlb <ore_name>
+- /weightlb <ore_name>
+- /heaviest <ore_name>
+- /myheaviest
+- /myheaviest <ore_name>
+- /oreweights
+- /topweights
+- /setweightlbmode <best|all>
+
+Command behavior:
+
+/oreweightlb <ore_name>
+Shows top 10 heaviest records for that ore.
+Use one best record per player by default.
+
+Example:
+⚖️ <#FFD700>Gold Ore<#FFFFFF> Weight LB
+1. 💎 [High Roller] @Marion — 5.82kg | Value: 2,910c
+2. @Claire — 4.91kg | Value: 2,455c
+3. @testuser — 4.40kg | Value: 2,200c
+
+/weightlb <ore_name>
+Alias for /oreweightlb.
+
+/heaviest <ore_name>
+Alias for /oreweightlb.
+
+/myheaviest
+Shows player’s personal heaviest ores.
+
+/myheaviest <ore_name>
+Shows player’s best weight for that ore.
+
+/oreweights
+Shows available ores that have weight records.
+
+/topweights
+Shows heaviest ore records overall across all ores.
+
+/setweightlbmode best
+Only one best record per player per ore appears.
+
+/setweightlbmode all
+All records can appear.
+
+Formatting:
+1. Ore names must use rarity color.
+2. Rarity label must use rarity color.
+3. Prismatic rarity and ore names must use rainbow letters.
+4. Player names must use global badge/title display formatter if available.
+5. Keep messages short.
+6. Use pagination if output is too long.
+
+==================================================
+A7 — MINING ANNOUNCEMENTS
+==================================================
+
+Mining bot should publicly announce rare ore finds.
+
+Default:
+Announce Legendary and above.
+
+Public announcements by default for:
+- Legendary
+- Mythic
+- Prismatic
+- Exotic
+
+Do not publicly announce by default:
+- Common
+- Rare
+- Epic
+
+Unless admin changes settings.
+
+Add settings:
+- mining_announce_enabled = 1
+- mining_announce_min_rarity = Legendary
+- per_ore_announce_overrides
+
+Commands:
+- /mineannounce
+- /setmineannounce <off|common|rare|epic|legendary|mythic|prismatic|exotic>
+- /setoreannounce <ore_name> <on|off>
+- /oreannounce <ore_name>
+- /mineannouncesettings
+
+Permissions:
+Admin+ only for settings commands.
+
+Announcement format:
+<#FFD700>📣 Big Find<#FFFFFF>
+💎 [High Roller] @Marion mined <#FFD700>Legendary<#FFFFFF> <#FFD700>Gold Ore<#FFFFFF> — 3.42kg worth 1,710c!
+
+For Prismatic:
+Use rainbow rarity and rainbow ore name.
+
+Do not spam.
+Each mining action should create at most one public announcement.
+
+==================================================
+A8 — STARTER TOOL COOLDOWN
+==================================================
+
+Set starter/default mining tool cooldown to 30 seconds.
+
+Requirements:
+1. New players start with a tool that has 30s mining cooldown.
+2. If existing starter tool exists, update its default cooldown to 30s.
+3. If players already have starter tools, do not wipe progress.
+4. Better tools can still reduce cooldown if tool system supports upgrades.
+5. /mineconfig or /tool should show starter cooldown correctly.
+
+Default:
+Starter tool mine speed/cooldown = 30 seconds.
+
+==================================================
+A9 — MINING STAFF CONFIGURATION PANEL
+==================================================
+
+Add a mining staff dashboard/panel.
+
+Commands:
+- /minepanel
+- /miningpanel
+- /mineadmin
+
+Owner:
+Miner or Host, depending on your owner map.
+Prefer Miner if mining bot handles mining settings.
+
+Panel should show:
+- Mining enabled ON/OFF
+- Starter tool cooldown
+- Weight system ON/OFF
+- Weight value scale
+- Rarity weight ranges
+- Announcement enabled ON/OFF
+- Announcement threshold
+- Per-ore announcement override count
+- Mining event boost status
+- Admin’s Blessing mining boost if active
+- Recent rare finds
+- Weight leaderboard mode
+- Relevant commands to change settings
+
+Example:
+<#66CCFF>⛏️ Mining Panel<#FFFFFF>
+Status: ON | Starter: 30s | Weights: ON | Announce: Legendary+
+Scale: 1.0 | LB: best | Events: none
+
+Also add or keep these staff commands:
+- /mineweights
+- /setmineweights on
+- /setmineweights off
+- /setweightscale <number>
+- /setrarityweightrange <rarity> <min> <max>
+- /oreweightsettings
+
+==================================================
+A10 — ORE LIST FORMATTING
+==================================================
+
+Update /orelist and similar commands.
+
+Requirements:
+1. Group ores by rarity.
+2. Rarity heading uses rarity color.
+3. Ore names use rarity color.
+4. Show base value and possible weight range if not too long.
+5. Paginate if needed.
+
+Prismatic heading must use:
+<#FF0000>P<#FF9900>r<#FFFF00>i<#00FF00>s<#00CCFF>m<#3366FF>a<#9933FF>t<#FF66CC>i<#FFFFFF>c
+
+Prismatic ore names must be rainbow.
+
+==================================================
+PROJECT B — BULK COMMAND TESTING TOOLS
+==================================================
+
+Goal:
+I want to test many commands with one command instead of typing /commandtest repeatedly.
+
+Current known issue:
+If these commands were previously attempted, they may still show Unknown command:
+- /ctall
+- /ctgroup
+
+Fix that completely.
+
+Add commands:
+- /commandtestall <command1> <command2> <command3> ...
+- /ctall <command1> <command2> <command3> ...
+- /commandtestgroup <group>
+- /ctgroup <group>
+- /commandissues
+
+Behavior:
+
+1. /commandtestall and /ctall should accept commands with or without slash.
+
+Examples:
+/ctall mine orelist ores mineconfig mineeventstatus
+/ctall /mine /orelist /ores
+
+2. For each command, show:
+- command name
+- owner
+- route YES/NO
+- handler YES/NO
+- fix suggestion if broken
+
+Example:
+✅ /mine | Miner | route=YES handler=YES
+❌ /oreweightlb | UNKNOWN | route=NO handler=NO | fix=add_to_registry
+
+3. If output is too long, split into multiple whispers/pages.
+
+4. Add command groups:
+
+mining:
+mine, minehelp, orelist, ores, mineconfig, mineeventstatus, oreweightlb, weightlb, heaviest, myheaviest, oreweights, topweights, setweightlbmode, mineannounce, setmineannounce, setoreannounce, oreannounce, mineannouncesettings, mineweights, setmineweights, setweightscale, setrarityweightrange, oreweightsettings, minepanel, miningpanel, mineadmin
+
+poker:
+poker, pokerhelp, ph, cards, resendcards, allin, pokerdashboard, pdash, pokeradmin, pokerdealstatus, pokerturn, pokerplayers, pokerpots, pokeractions, pokermode, pokerpace, pokerstacks
+
+blackjack:
+bj, blackjack, rbj, bjhelp, rbjhelp, bet, bjbet, hit, stand, double, split, insurance, surrender, shoe, bjshoe
+
+ai:
+ask, ai, assistant, pendingaction, confirm, aidebug, aicapabilities, aidelegations
+
+timeexp:
+timexp, timeexp, playtime, mytime, timetier, showtimexptiers, timexpstatus, settimexp, settimexptier, settimexpcap, setactivebonus, setactivebonuswindow, setallowbotxp, addtimeexp, removetimeexp, resettimeexpdaily, timexplogs, timexpsettings
+
+display:
+displayformat, displaybadges, displaytitles, displaytest, displaydebug
+
+welcome:
+botwelcome, setbotwelcome, resetbotwelcome, previewbotwelcome, botwelcomes
+
+goldtip:
+goldtipsettings, setgoldrate, goldtiplogs, mygoldtips, goldtipstatus
+
+5. /ctgroup all should show grouped summary:
+Mining: OK count
+Poker: OK count
+Blackjack: OK count
+AI: OK count
+TimeEXP: OK count
+Display: OK count
+Welcome: OK count
+GoldTip: OK count
+
+6. /commandissues should show only broken active commands:
+- missing route
+- missing handler
+- unknown owner
+- owner offline
+
+If no issues:
+✅ No command issues — all routes and owners clean.
+
+Important:
+Do not rely only on /checkcommands all.
+These commands must actually work when typed:
+- /ctall
+- /ctgroup
+- /commandissues
+
+==================================================
+PROJECT C — TIME-IN-ROOM EXP BOT EXCLUSION
+==================================================
+
+Current Time EXP rule:
+Time spent in room adds EXP to existing player level/profile system.
+Do not create separate Room EXP.
+Do not create separate Room Level.
+
+Correction:
+Bots must NOT earn Time EXP.
+
+Requirements:
+1. Exclude all bot accounts from time EXP by default.
+2. Do not level up bot accounts from time spent in room.
+3. Do not award bot accounts EXP unless staff explicitly enables allow_bot_xp.
+4. Default allow_bot_xp = OFF.
+5. /timexpstatus should show:
+Allow Bot XP: OFF
+6. /setallowbotxp on/off should control this.
+7. Detection should exclude known bot usernames and bot user IDs.
+
+Known bots may include:
+- EmceeBot
+- BankingBot
+- GreatestProspector
+- ChipSoprano
+- KeanuShield
+- SecurityBot
+- ShopBot
+- EventBot
+- BlackjackBot
+- any bot listed in bot_instances or bot config
+
+Log when skipped:
+[TIME_EXP] skipped_bot user=<username>
+
+Do not change time EXP rates unless needed.
+Do not change player EXP formula.
+Do not backpay bots.
+
+==================================================
+PROJECT D — CONFIGURABLE WELCOME WHISPERS PER BOT
+==================================================
+
+Goal:
+Each bot can whisper a configurable welcome message to players.
+The default message should explain what the bot does and what command to type to start.
+
+Commands:
+- /botwelcome
+- /setbotwelcome <bot_username> <message>
+- /resetbotwelcome <bot_username>
+- /previewbotwelcome <bot_username>
+- /botwelcomes on
+- /botwelcomes off
+
+Owner:
+Host.
+
+Settings:
+- bot_welcomes_enabled = 1
+- one welcome per player per bot per cooldown period
+- default cooldown: 24 hours per player per bot
+- support placeholders:
+  {username}
+  {bot}
+  {prefix}
+  {help_command}
+
+Default messages:
+
+EmceeBot:
+Welcome {username}! I’m EmceeBot.
+I help with room commands, games, events, and AI help.
+Type /help or ask “Emcee, what can I do?”
+
+BankingBot:
+Welcome {username}! I’m BankingBot.
+I handle coins, balances, transfers, and gold tips.
+Type /bal or /bankhelp.
+
+GreatestProspector / MiningBot:
+Welcome {username}! I’m GreatestProspector.
+I run mining, ores, tools, and ore weight leaderboards.
+Type /mine or /minehelp.
+
+ChipSoprano / PokerBot:
+Welcome {username}! I’m ChipSoprano.
+I run poker tables.
+Type /pokerhelp or /poker join.
+
+BlackjackBot:
+Welcome {username}! I run Realistic Blackjack.
+Type /bj or /bjhelp.
+
+KeanuShield / SecurityBot:
+Welcome {username}! I’m KeanuShield.
+I help staff with room safety and controls.
+
+ShopBot:
+Welcome {username}! I run the shop, badges, titles, and upgrades.
+Type /shop or /shophelp.
+
+EventBot:
+Welcome {username}! I run room events and bonuses.
+Type /eventhelp.
+
+Behavior:
+1. When a player joins, each bot may whisper its welcome message if enabled.
+2. Avoid spam. Use cooldown per player per bot.
+3. Do not send all bot welcomes at once if it feels spammy.
+4. Optional stagger delay between bot welcome whispers.
+5. Staff can preview and edit messages.
+6. Do not expose bot tokens or config secrets.
+
+Database:
+bot_welcome_settings:
+- bot_username TEXT PRIMARY KEY
+- enabled INTEGER
+- message TEXT
+- cooldown_hours INTEGER
+- updated_at TEXT
+
+bot_welcome_seen:
+- bot_username TEXT
+- user_id TEXT
+- username TEXT
+- last_sent_at TEXT
+
+Commands behavior:
+
+/botwelcome:
+Shows bot welcome status and configured bots.
+
+/setbotwelcome <bot> <message>:
+Sets custom welcome message for bot.
+
+/resetbotwelcome <bot>:
+Restores default welcome message.
+
+/previewbotwelcome <bot>:
+Whispers preview to staff.
+
+/botwelcomes on/off:
+Global enable/disable.
+
+==================================================
+PROJECT E — GOLD TIPPING UPDATE
+==================================================
+
+Goal:
+BankingBot should handle all gold tipping, not EmceeBot.
+
+Rules:
+1. If any bot receives a gold tip, that receiving bot acknowledges the tip.
+2. BankingBot handles the conversion, accounting, crediting, logs, limits, and final confirmation.
+3. EmceeBot should not process gold tips anymore.
+4. Any tipped bot can receive the gold tip, but BankingBot processes it.
+5. Prevent duplicate gold tip conversion.
+6. Do not change normal coin send/banking unless necessary.
+7. Do not reset balances.
+
+Flow example:
+
+Player tips GreatestProspector gold.
+
+GreatestProspector says:
+Thank you for the gold tip! BankingBot will convert it for you.
+
+BankingBot says:
+Gold tip received from @player via GreatestProspector.
+Converted 10 gold → 10,000 coins.
+
+Gold conversion settings:
+- gold_tip_enabled = 1
+- coins_per_gold configurable
+- default coins_per_gold should use existing rate if one exists
+- if no existing rate, set safe default and report it
+
+Commands:
+- /goldtipsettings
+- /setgoldrate <coins_per_gold>
+- /goldtiplogs
+- /mygoldtips
+- /goldtipstatus
+
+Owner:
+BankingBot or Banker.
+
+Command behavior:
+
+/goldtipsettings:
+Shows enabled status, coins_per_gold, duplicate protection status.
+
+/setgoldrate <coins_per_gold>:
+Admin/owner only.
+Sets conversion rate.
+
+/goldtiplogs:
+Staff/admin only.
+Shows recent gold tips.
+
+/mygoldtips:
+Shows player’s gold tip conversion history.
+
+/goldtipstatus:
+Shows whether gold tipping is enabled and current conversion rate.
+
+Database:
+gold_tip_events:
+- id INTEGER PRIMARY KEY AUTOINCREMENT
+- event_id TEXT UNIQUE if available
+- from_user_id TEXT
+- from_username TEXT
+- receiving_bot TEXT
+- gold_amount REAL
+- coins_converted INTEGER
+- conversion_rate REAL
+- processed_by TEXT DEFAULT 'BankingBot'
+- status TEXT
+- created_at TEXT
+
+Duplicate protection:
+- Use event_id if SDK provides one.
+- If no event_id, create a dedupe key:
+  from_user_id + receiving_bot + gold_amount + timestamp bucket
+- Do not process same tip twice.
+
+Receiving bot acknowledgment:
+Each bot that receives a tip should say a short thank you.
+But actual coin conversion must be delegated to BankingBot.
+
+BankingBot processing:
+- validate tip
+- convert gold to coins
+- credit player balance using existing bank function
+- log event
+- whisper or announce confirmation
+
+If SDK does not expose gold tip events:
+- Add safe stub/log message and report:
+“Gold tip event hook is not available in this SDK; handlers are ready but need event wiring.”
+
+Do not expose secrets.
+
+==================================================
+GLOBAL MESSAGE FORMAT REQUIREMENT
+==================================================
+
+For new or updated bot messages, prefer clean two-line format:
+
+Header line
+Details line
+
+Examples:
+
+<#66CCFF>⛏️ Mining<#FFFFFF>
+You mined <colored rarity> <colored ore> | ⚖️ 3.42kg | 💰 1,710c
+
+<#FFD700>📣 Big Find<#FFFFFF>
+💎 [High Roller] @Marion mined <colored ore> — 3.42kg worth 1,710c
+
+<#FFD700>💰 Gold Tip<#FFFFFF>
+Converted 10 gold → 10,000 coins for @player
+
+Keep messages short and readable.
+
+==================================================
+GLOBAL COMMAND INTEGRITY REQUIREMENT
+==================================================
+
+For every new command, alias, or renamed command added in this update:
+
+1. Add it to the real command route in main.py or the correct router file.
+2. Add a real handler function.
+3. Add it to the command audit / commandtest handler map.
+4. Add it to the active/known command registry.
+5. Add it to the multi-bot owner map.
+6. Make sure owner is not UNKNOWN.
+7. Make sure /commandtest /<command> shows:
+   route=YES
+   handler=YES
+   owner=correct owner
+8. Make sure /checkcommands all shows:
+   Missing 0
+   NoOwner 0
+9. Do not add visible/active commands without real handlers.
+10. If a command is planned but not implemented, keep it hidden/deprecated until it works.
+11. If an alias is added, route it to the same real handler as the main command.
+12. Update /help, /games, /howtoplay, /minehelp, /bankhelp, or module help if command is user-facing.
+
+Commands that must pass:
+
+Bulk testing:
+- /commandtest /commandtestall
+- /commandtest /ctall
+- /commandtest /commandtestgroup
+- /commandtest /ctgroup
+- /commandtest /commandissues
+
+Mining weight leaderboard:
+- /commandtest /oreweightlb
+- /commandtest /weightlb
+- /commandtest /heaviest
+- /commandtest /myheaviest
+- /commandtest /oreweights
+- /commandtest /topweights
+- /commandtest /setweightlbmode
+
+Mining announcements:
+- /commandtest /mineannounce
+- /commandtest /setmineannounce
+- /commandtest /setoreannounce
+- /commandtest /oreannounce
+- /commandtest /mineannouncesettings
+
+Mining weight/settings/panel:
+- /commandtest /mineweights
+- /commandtest /setmineweights
+- /commandtest /setweightscale
+- /commandtest /setrarityweightrange
+- /commandtest /oreweightsettings
+- /commandtest /minepanel
+- /commandtest /miningpanel
+- /commandtest /mineadmin
+
+Existing mining commands:
+- /commandtest /mine
+- /commandtest /minehelp
+- /commandtest /orelist
+- /commandtest /ores
+- /commandtest /mineconfig
+- /commandtest /mineeventstatus
+
+Bot welcomes:
+- /commandtest /botwelcome
+- /commandtest /setbotwelcome
+- /commandtest /resetbotwelcome
+- /commandtest /previewbotwelcome
+- /commandtest /botwelcomes
+
+Gold tipping:
+- /commandtest /goldtipsettings
+- /commandtest /setgoldrate
+- /commandtest /goldtiplogs
+- /commandtest /mygoldtips
+- /commandtest /goldtipstatus
+
+Time EXP bot exclusion:
+- /commandtest /timexpstatus
+- /commandtest /setallowbotxp
+
+/checkcommands all should show:
+Missing 0
+NoOwner 0
+
+==================================================
+SAFETY
+==================================================
+
+Do not expose:
+- bot tokens
+- room ID secrets
+- env vars
+- database secrets
+
+Do not:
+- wipe old mining data
+- reset player mining level
+- reset balances
+- break selling
+- break Admin’s Blessing
+- break mining cooldowns
+- break old mining commands
+- spam public chat for every common ore by default
+- let bots earn Time EXP by default
+- let EmceeBot process gold tips
+- process duplicate gold tips
+- break /commandtest or /checkcommands
+
+==================================================
+FINAL REPORT
+==================================================
+
+After finishing, tell me:
+
+1. Files changed
+2. Database tables added
+3. Commands added
+4. Command groups added
+5. Rarity color helper location
+6. How Prismatic rainbow text is generated
+7. How ore weights are generated
+8. How ore weight affects value
+9. Whether old ore inventory/sell system changed
+10. How announcement threshold works
+11. How per-ore announcements work
+12. How starter tool cooldown was set to 30s
+13. How mining panel works
+14. How /ctall and /ctgroup are routed
+15. How bots are excluded from Time EXP
+16. How per-bot welcome messages work
+17. How gold tips are delegated to BankingBot
+18. How duplicate gold tips are prevented
+19. Exact tests to run
