@@ -436,6 +436,19 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "pokerpace": "poker", "setpokerpace": "poker",
     "pokerstacks": "poker", "setpokerstack": "poker",
     "dealstatus": "poker",
+    # eventhost — new mining events (B-project)
+    "mineevents": "eventhost", "mineboosts": "eventhost",
+    "luckstatus": "eventhost",
+    "miningblessing": "eventhost", "luckevent": "eventhost",
+    "miningeventstart": "eventhost",
+    "eventmanager": "eventhost", "eventpanel": "eventhost",
+    "eventeffects": "eventhost",
+    "autoeventstatus": "eventhost", "autoeventadd": "eventhost",
+    "autoeventremove": "eventhost", "autoeventinterval": "eventhost",
+    # miner — ore chance commands (A2)
+    "orechances": "miner", "orechance": "miner",
+    "setorechance": "miner", "setraritychance": "miner",
+    "reloadorechances": "miner",
 }
 
 # Friendly display names for modes

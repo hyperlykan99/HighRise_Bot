@@ -215,6 +215,12 @@ from modules.events import (
     startup_event_check,
     handle_adminsblessing, handle_eventresume,
     handle_autogamestatus, handle_autogameresume,
+    # B-project: new mining event handlers
+    handle_mineevents, handle_mineboosts, handle_luckstatus,
+    handle_miningblessing, handle_luckevent, handle_miningevent_start,
+    handle_eventmanager, handle_eventpanel, handle_eventeffects,
+    handle_autoeventstatus, handle_autoeventadd,
+    handle_autoeventremove, handle_autoeventinterval,
 )
 from modules.reports import (
     handle_report, handle_bug, handle_myreports,
@@ -324,6 +330,9 @@ from modules.mining import (
     handle_contracts, handle_job, handle_deliver, handle_claimjob, handle_rerolljob,
     handle_mineconfig, handle_mineeventstatus,
     handle_minepanel,
+    # A2: ore chance commands
+    handle_orechances, handle_orechance,
+    handle_setorechance, handle_setraritychance, handle_reloadorechances,
     MINE_HELP_PAGES,
 )
 from modules.control_panel import (
@@ -2981,6 +2990,45 @@ class HangoutBot(BaseBot):
         elif cmd == "autogameresume":
             await handle_autogameresume(self, user)
 
+        elif cmd == "mineevents":
+            await handle_mineevents(self, user)
+
+        elif cmd == "mineboosts":
+            await handle_mineboosts(self, user)
+
+        elif cmd == "luckstatus":
+            await handle_luckstatus(self, user)
+
+        elif cmd == "miningblessing":
+            await handle_miningblessing(self, user, args)
+
+        elif cmd == "luckevent":
+            await handle_luckevent(self, user, args)
+
+        elif cmd == "miningeventstart":
+            await handle_miningevent_start(self, user, args)
+
+        elif cmd == "eventmanager":
+            await handle_eventmanager(self, user)
+
+        elif cmd == "eventpanel":
+            await handle_eventpanel(self, user)
+
+        elif cmd == "eventeffects":
+            await handle_eventeffects(self, user)
+
+        elif cmd == "autoeventstatus":
+            await handle_autoeventstatus(self, user)
+
+        elif cmd == "autoeventadd":
+            await handle_autoeventadd(self, user, args)
+
+        elif cmd == "autoeventremove":
+            await handle_autoeventremove(self, user, args)
+
+        elif cmd == "autoeventinterval":
+            await handle_autoeventinterval(self, user, args)
+
         elif cmd == "eventpoints":
             await handle_eventpoints(self, user, args)
 
@@ -3867,7 +3915,22 @@ class HangoutBot(BaseBot):
             await handle_minepanel(self, user)
 
         elif cmd == "orelist":
-            await handle_orelist(self, user)
+            await handle_orelist(self, user, args)
+
+        elif cmd == "orechances":
+            await handle_orechances(self, user)
+
+        elif cmd == "orechance":
+            await handle_orechance(self, user, args)
+
+        elif cmd == "setorechance":
+            await handle_setorechance(self, user, args)
+
+        elif cmd == "setraritychance":
+            await handle_setraritychance(self, user, args)
+
+        elif cmd == "reloadorechances":
+            await handle_reloadorechances(self, user)
 
         elif cmd == "orebook":
             await handle_orebook(self, user)

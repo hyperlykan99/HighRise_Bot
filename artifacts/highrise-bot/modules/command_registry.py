@@ -438,6 +438,29 @@ REGISTRY: dict[str, Cmd] = {
     "goldtiplogs":     Cmd("banker","goldtip", False, True,  False, perm="staff"),
     "mygoldtips":      Cmd("banker","goldtip", False, True,  False),
     "goldtipstatus":   Cmd("banker","goldtip", False, True,  False),
+
+    # ── EventHost: new mining events (B-project) ──────────────────────────────
+    "mineevents":       Cmd("eventhost","events", False, True,  False),
+    "mineboosts":       Cmd("eventhost","events", False, True,  False),
+    "luckstatus":       Cmd("eventhost","events", False, True,  False),
+    "miningblessing":   Cmd("eventhost","events", False, False, True,  perm="manager"),
+    "luckevent":        Cmd("eventhost","events", False, False, True,  perm="manager"),
+    "miningeventstart": Cmd("eventhost","events", False, False, True,  perm="manager",
+                            aliases=("startminingevent2",)),
+    "eventmanager":     Cmd("eventhost","events", False, True,  False, perm="manager"),
+    "eventpanel":       Cmd("eventhost","events", False, True,  False, perm="manager"),
+    "eventeffects":     Cmd("eventhost","events", False, True,  False),
+    "autoeventstatus":  Cmd("eventhost","events", False, True,  False, perm="manager"),
+    "autoeventadd":     Cmd("eventhost","events", False, False, True,  perm="manager"),
+    "autoeventremove":  Cmd("eventhost","events", False, False, True,  perm="manager"),
+    "autoeventinterval": Cmd("eventhost","events", False, False, True, perm="manager"),
+
+    # ── Miner: ore chance commands (A2) ──────────────────────────────────────
+    "orechances":       Cmd("miner","mining", False, True,  False),
+    "orechance":        Cmd("miner","mining", False, True,  False),
+    "setorechance":     Cmd("miner","mining", False, False, True,  perm="manager"),
+    "setraritychance":  Cmd("miner","mining", False, False, True,  perm="manager"),
+    "reloadorechances": Cmd("miner","mining", False, False, True,  perm="manager"),
 }
 
 # ---------------------------------------------------------------------------

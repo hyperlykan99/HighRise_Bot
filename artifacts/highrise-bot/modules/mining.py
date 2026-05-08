@@ -228,11 +228,20 @@ MINE_SHOP_ITEMS = {
 _MINE_SHOP_LIST = list(MINE_SHOP_ITEMS.keys())  # ordered list for numbered shop
 
 VALID_MINING_EVENTS = {
-    "double_ore":  "Drop quantities x2",
-    "double_mxp":  "Mining XP x2",
-    "lucky_hour":  "Rare chance +50% relative",
-    "energy_free": "/mine costs 0 energy",
-    "meteor_rush": "Ultra rare chance x2",
+    "double_ore":             "Drop quantities x2",
+    "double_mxp":             "Mining XP x2",
+    "lucky_hour":             "Rare chance +50% relative",
+    "energy_free":            "/mine costs 0 energy",
+    "meteor_rush":            "Ultra rare chance x2",
+    # New mining events (B-project)
+    "lucky_rush":             "Luck +25% — better Rare+ drops",
+    "heavy_ore_rush":         "+25% heavier ore weights",
+    "ore_value_surge":        "Ore value 2x",
+    "mining_haste":           "Cooldown -25%",
+    "legendary_rush":         "+50% Legendary+ chance",
+    "prismatic_hunt":         "+100% Prismatic chance",
+    "exotic_hunt":            "+100% Exotic chance",
+    "admins_mining_blessing": "All mining boosts active!",
 }
 
 
@@ -240,8 +249,13 @@ VALID_MINING_EVENTS = {
 # Drop logic
 # ---------------------------------------------------------------------------
 
-def _roll_drop(tool_level: int, is_vip: bool, has_luck_boost: bool,
-               mine_event: dict | None) -> tuple[dict, int]:
+def _roll_drop(
+    tool_level: int,
+    is_vip: bool,
+    has_luck_boost: bool,
+    mine_event: dict | None,
+    event_effects: dict | None = None,
+) -> tuple[dict, int]:
     """Return (mining_item_dict, mxp) for one mine action."""
     items = db.get_all_mining_items(drop_enabled=True)
     by_rarity: dict[str, list] = {}
@@ -264,6 +278,7 @@ def _roll_drop(tool_level: int, is_vip: bool, has_luck_boost: bool,
         probs["common"] = max(0, probs["common"] - tool_bonus)
 
     _rare_plus = ["rare", "epic", "legendary", "mythic", "ultra_rare", "prismatic", "exotic"]
+    _leg_plus  = ["legendary", "mythic", "ultra_rare", "prismatic", "exotic"]
 
     # VIP: +10% relative on rare+
     if is_vip:
@@ -275,7 +290,7 @@ def _roll_drop(tool_level: int, is_vip: bool, has_luck_boost: bool,
         for r in _rare_plus:
             probs[r] *= 1.25
 
-    # Mining event effects
+    # Legacy mining event effects
     if mine_event:
         eid = mine_event.get("event_id", "")
         if eid == "lucky_hour":
@@ -284,6 +299,23 @@ def _roll_drop(tool_level: int, is_vip: bool, has_luck_boost: bool,
         elif eid == "meteor_rush":
             for r in ("ultra_rare", "prismatic", "exotic"):
                 probs[r] *= 2.0
+
+    # B-project mining event effects (from get_event_effect)
+    if event_effects:
+        ml = event_effects.get("mining_luck_boost", 0.0)
+        if ml > 0:
+            for r in _rare_plus:
+                probs[r] *= (1 + ml)
+        lp = event_effects.get("legendary_plus_chance_boost", 0.0)
+        if lp > 0:
+            for r in _leg_plus:
+                probs[r] *= (1 + lp)
+        pc = event_effects.get("prismatic_chance_boost", 0.0)
+        if pc > 0:
+            probs["prismatic"] *= (1 + pc)
+        ec = event_effects.get("exotic_chance_boost", 0.0)
+        if ec > 0:
+            probs["exotic"] *= (1 + ec)
 
     # Normalize to 100
     total = sum(probs.values())
@@ -329,10 +361,22 @@ async def handle_mine(bot: BaseBot, user: User) -> None:
 
     miner = db.get_or_create_miner(uname)
 
-    # Cooldown
+    # Fetch active mining event + B-project event effects once
+    mine_event = db.get_active_mining_event()
+    _event_eff: dict = {}
+    try:
+        from modules.events import get_event_effect as _gee_b
+        _event_eff = _gee_b()
+    except Exception:
+        pass
+
+    # Cooldown (apply cooldown_reduction from B-project mining_haste event)
     base_cd  = int(db.get_mine_setting("base_cooldown_seconds", "30"))
     tool_cd  = COOLDOWNS.get(miner["tool_level"], 60)
     cooldown = min(base_cd, tool_cd)
+    _cd_red  = _event_eff.get("cooldown_reduction", 0.0)
+    if _cd_red > 0:
+        cooldown = max(5, int(cooldown * (1 - _cd_red)))
     secs_ago = _seconds_since(miner["last_mine_at"])
     if secs_ago < cooldown:
         wait = int(cooldown - secs_ago)
@@ -341,7 +385,7 @@ async def handle_mine(bot: BaseBot, user: User) -> None:
         return
 
     # Energy
-    mine_event = db.get_active_mining_event()
+    mine_event_id = mine_event.get("event_id", "") if mine_event else ""
     energy_cost = 0 if (mine_event and mine_event.get("event_id") == "energy_free") \
                   else int(db.get_mine_setting("base_energy_cost", "5"))
 
@@ -358,10 +402,10 @@ async def handle_mine(bot: BaseBot, user: User) -> None:
     db.ensure_user(user.id, uname)
     is_vip = db.owns_item(user.id, "vip")
 
-    # Roll drop
+    # Roll drop (pass B-project event effects to improve rarity chances)
     has_luck = _boost_active(miner.get("luck_boost_until"))
     has_xp   = _boost_active(miner.get("xp_boost_until"))
-    item, mxp = _roll_drop(miner["tool_level"], is_vip, has_luck, mine_event)
+    item, mxp = _roll_drop(miner["tool_level"], is_vip, has_luck, mine_event, _event_eff)
 
     # VIP: +10% MXP
     if is_vip:
@@ -371,22 +415,21 @@ async def handle_mine(bot: BaseBot, user: User) -> None:
     if has_xp:
         mxp *= 2
 
-    # Event double_mxp
+    # Legacy event double_mxp
     if mine_event and mine_event.get("event_id") == "double_mxp":
         mxp *= 2
 
-    # Admin's Blessing main event boost: 2x MXP + 2x quantity
-    _blessing_active = False
-    try:
-        from modules.events import get_event_effect as _gee
-        _eff = _gee()
-        if _eff.get("mining_boost"):
-            mxp *= 2
-            _blessing_active = True
-    except Exception:
-        pass
+    # B-project mxp_multiplier (skip if legacy double_mxp already applied)
+    _mxp_mult = _event_eff.get("mxp_multiplier", 1.0)
+    if _mxp_mult > 1.0 and not (mine_event and mine_event.get("event_id") == "double_mxp"):
+        mxp = int(mxp * _mxp_mult)
 
-    # Quantity (normally 1; double_ore event or Admin's Blessing makes it 2)
+    # Admin's Blessing (legacy general event): 2x MXP + 2x quantity
+    _blessing_active = _event_eff.get("mining_boost", False)
+    if _blessing_active:
+        mxp *= 2
+
+    # Quantity (normally 1; double_ore event or Admin's Blessing gives 2)
     double_ore = (mine_event and mine_event.get("event_id") == "double_ore")
     qty = 2 if (double_ore or _blessing_active) else 1
 
@@ -406,11 +449,19 @@ async def handle_mine(bot: BaseBot, user: User) -> None:
     is_rare  = item["rarity"] in ANNOUNCE_RARITIES
     new_rare = miner["rare_finds"] + (1 if is_rare else 0)
 
-    # Weight generation
+    # Weight generation (apply weight_luck_boost from B-project heavy_ore_rush)
     _w_enabled = weights_enabled()
     ore_weight = generate_weight(item["rarity"]) if _w_enabled else None
+    if ore_weight is not None:
+        _wl = _event_eff.get("weight_luck_boost", 0.0)
+        if _wl > 0:
+            ore_weight = round(ore_weight * (1 + _wl), 2)
     final_val  = (compute_final_value(item.get("sell_value", 0), ore_weight)
                   if ore_weight is not None else 0)
+    # Apply ore_value_multiplier from B-project ore_value_surge event
+    _val_mult = _event_eff.get("ore_value_multiplier", 1.0)
+    if _val_mult > 1.0 and final_val > 0:
+        final_val = int(final_val * _val_mult)
 
     try:
         with _MINE_WRITE_LOCK:
@@ -1391,28 +1442,80 @@ async def handle_miningroomrequired(bot: BaseBot, user: User, args: list[str]) -
 # /orelist
 # ---------------------------------------------------------------------------
 
-async def handle_orelist(bot: BaseBot, user: User) -> None:
+async def handle_orelist(bot: BaseBot, user: User, args: list[str] | None = None) -> None:
+    """
+    /orelist [rarity]  — List all ores grouped by rarity.
+    Shows: colored rarity header, ore emoji+name, 1-in-X chance, value, weight range.
+    Pass a rarity name to filter to that rarity only.
+    """
     items = db.get_all_mining_items(drop_enabled=False)
-    # Group by rarity (sorted lowest → highest)
     by_rarity: dict[str, list] = {}
     for it in items:
         by_rarity.setdefault(it["rarity"], []).append(it)
+
+    # Build rarity probs to compute 1-in-X
+    probs = {r: v[0] for r, v in RARITIES.items()}
+
+    # Optional rarity filter
+    filter_rar: str | None = None
+    if args and len(args) >= 2:
+        filter_rar = args[1].lower().replace("-", "_")
+
     sorted_rarities = sorted(by_rarity.keys(), key=rarity_sort_key)
-    lines: list[str] = []
+    msgs: list[str] = []
+
     for rar in sorted_rarities:
-        rar_label = format_mining_rarity(rar)
-        ore_parts = ", ".join(f"{it['emoji']}{it['item_id']}" for it in by_rarity[rar])
-        line = f"{rar_label}: {ore_parts}"
-        lines.append(line)
-    # Combine into messages ≤249 chars each
-    msg = "\n".join(lines)
-    if len(msg) <= 249:
-        await _w(bot, user.id, msg)
-    else:
-        await _w(bot, user.id, msg[:249])
-        remaining = msg[249:]
-        if remaining.strip():
-            await _w(bot, user.id, remaining.strip()[:249])
+        if filter_rar and rar != filter_rar:
+            continue
+        ores = by_rarity[rar]
+        rar_label  = format_mining_rarity(rar)
+        rar_prob   = probs.get(rar, 0)
+        n_ores     = max(len(ores), 1)
+        # 1-in-X per individual ore: rarity_prob / n_ores  (% → divide by 100 first)
+        per_ore_pct = (rar_prob / n_ores)  # already in percent terms
+        if per_ore_pct > 0:
+            one_in = max(1, int(round(100 / per_ore_pct)))
+            chance_str = f"1-in-{one_in}"
+        else:
+            chance_str = "0"
+
+        header = f"{rar_label} ({chance_str} ea.)"
+
+        # Ore detail lines: "emoji Name | sell_val c | X-Ykg"
+        ore_lines: list[str] = []
+        for it in ores:
+            ore_colored = format_ore_name(f"{it['emoji']} {it['name']}", rar)
+            val         = it.get("sell_value", 0)
+            rdata       = RARITIES.get(rar, RARITIES["common"])
+            wlo, whi    = rdata[2] if len(rdata) > 2 else (0.1, 1.0)
+            ore_lines.append(
+                f"{ore_colored} | {val}c | {wlo}-{whi}kg"[:80]
+            )
+
+        block = header + "\n" + "\n".join(ore_lines)
+        # Split into ≤249-char chunks
+        for chunk in _split_to_chunks(block, 249):
+            msgs.append(chunk)
+
+    if not msgs:
+        await _w(bot, user.id, "No ores found." if filter_rar else "No ores in DB.")
+        return
+    for m in msgs[:4]:   # cap at 4 messages to avoid spam
+        await _w(bot, user.id, m[:249])
+
+
+def _split_to_chunks(text: str, limit: int) -> list[str]:
+    """Split *text* into chunks ≤ limit chars, splitting on newlines where possible."""
+    chunks: list[str] = []
+    while len(text) > limit:
+        cut = text.rfind("\n", 0, limit)
+        if cut <= 0:
+            cut = limit
+        chunks.append(text[:cut])
+        text = text[cut:].lstrip("\n")
+    if text.strip():
+        chunks.append(text)
+    return chunks
 
 
 # ---------------------------------------------------------------------------
@@ -1631,6 +1734,146 @@ async def handle_rerolljob(bot: BaseBot, user: User) -> None:
         return
     db.clear_miner_contract(user.username)
     await _w(bot, user.id, "🔄 Contract cancelled. /contracts to pick a new one.")
+
+
+# ---------------------------------------------------------------------------
+# A2: Ore chance commands
+# /orechances /orechance /setorechance /setraritychance /reloadorechances
+# ---------------------------------------------------------------------------
+
+async def handle_orechances(bot: BaseBot, user: User) -> None:
+    """/orechances — show 1-in-X drop chance for every ore."""
+    items = db.get_all_mining_items(drop_enabled=True)
+    by_rarity: dict[str, list] = {}
+    for it in items:
+        by_rarity.setdefault(it["rarity"], []).append(it)
+    probs = {r: v[0] for r, v in RARITIES.items()}
+    lines = ["<#66CCFF>⛏️ Ore Drop Chances<#FFFFFF>"]
+    for rar in sorted(by_rarity.keys(), key=rarity_sort_key):
+        ores   = by_rarity[rar]
+        n      = max(len(ores), 1)
+        rp     = probs.get(rar, 0)
+        per    = rp / n
+        one_in = max(1, int(round(100 / per))) if per > 0 else 0
+        rar_lbl = format_mining_rarity(rar)
+        names  = ", ".join(f"{it['emoji']}{it['name']}" for it in ores)
+        lines.append(f"{rar_lbl} 1-in-{one_in}: {names}"[:120])
+    msg = "\n".join(lines)
+    if len(msg) <= 249:
+        await _w(bot, user.id, msg)
+    else:
+        await _w(bot, user.id, msg[:249])
+        rest = msg[249:]
+        if rest.strip():
+            await _w(bot, user.id, rest.strip()[:249])
+
+
+async def handle_orechance(bot: BaseBot, user: User, args: list[str]) -> None:
+    """/orechance <ore_id> — show 1-in-X drop chance for a specific ore."""
+    if len(args) < 2:
+        await _w(bot, user.id, "Usage: /orechance <ore_id>")
+        return
+    ore_id = args[1].lower()
+    items  = db.get_all_mining_items(drop_enabled=False)
+    target = next((it for it in items if it["item_id"].lower() == ore_id), None)
+    if not target:
+        await _w(bot, user.id, f"Ore '{ore_id}' not found. Use /orelist to browse.")
+        return
+    rar = target["rarity"]
+    by_rarity: dict[str, list] = {}
+    for it in items:
+        by_rarity.setdefault(it["rarity"], []).append(it)
+    probs  = {r: v[0] for r, v in RARITIES.items()}
+    n      = max(len(by_rarity.get(rar, [])), 1)
+    rp     = probs.get(rar, 0)
+    per    = rp / n
+    one_in = max(1, int(round(100 / per))) if per > 0 else 0
+    rar_lbl = format_mining_rarity(rar)
+    await _w(bot, user.id,
+             f"⛏️ {target['emoji']} {target['name']}\n"
+             f"Rarity: {rar_lbl}\n"
+             f"Chance: 1-in-{one_in} per mine\n"
+             f"Value: {target.get('sell_value', 0)}c"[:249])
+
+
+async def handle_setorechance(
+    bot: BaseBot, user: User, args: list[str]
+) -> None:
+    """/setorechance <ore_id> <note_%> — store a display-chance note (manager+).
+    Stored in room_settings; shown in /orechance. Does not affect actual drop rolls
+    (those use the RARITIES table). Use /setraritychance to adjust rarity weights.
+    """
+    if not can_manage_economy(user.username):
+        await _w(bot, user.id, "Manager/admin/owner only.")
+        return
+    if len(args) < 3:
+        await _w(bot, user.id, "Usage: /setorechance <ore_id> <note_pct>")
+        return
+    ore_id = args[1].lower()
+    try:
+        pct = float(args[2])
+        if pct < 0 or pct > 100:
+            raise ValueError
+    except ValueError:
+        await _w(bot, user.id, "Chance must be a number 0-100.")
+        return
+    items  = db.get_all_mining_items(drop_enabled=False)
+    target = next((it for it in items if it["item_id"].lower() == ore_id), None)
+    if not target:
+        await _w(bot, user.id, f"Ore '{ore_id}' not found. Use /orelist.")
+        return
+    db.set_room_setting(f"mine_ore_displaychance_{ore_id}", str(pct))
+    await _w(bot, user.id,
+             f"✅ {target['name']} display chance note set to {pct}%. "
+             "Shown in /orechance (display only).")
+
+
+async def handle_setraritychance(
+    bot: BaseBot, user: User, args: list[str]
+) -> None:
+    """/setraritychance <rarity> <chance_%> — store a rarity base-weight note (manager+).
+    Stored in room_settings for display in /orechances. Actual drop weights use
+    the RARITIES dict; this is a staff reference note.
+    """
+    if not can_manage_economy(user.username):
+        await _w(bot, user.id, "Manager/admin/owner only.")
+        return
+    if len(args) < 3:
+        await _w(bot, user.id,
+                 "Usage: /setraritychance <rarity> <chance_pct>\n"
+                 "Rarities: common uncommon rare epic legendary mythic "
+                 "ultra_rare prismatic exotic")
+        return
+    rar = args[1].lower().replace("-", "_")
+    if rar not in RARITIES:
+        await _w(bot, user.id,
+                 f"Unknown rarity: {rar}. Valid: " +
+                 ", ".join(RARITIES.keys()))
+        return
+    try:
+        pct = float(args[2])
+        if pct < 0 or pct > 100:
+            raise ValueError
+    except ValueError:
+        await _w(bot, user.id, "Chance must be a number 0-100.")
+        return
+    db.set_room_setting(f"mine_rarity_displaychance_{rar}", str(pct))
+    rar_lbl = format_mining_rarity(rar)
+    await _w(bot, user.id,
+             f"✅ {rar_lbl} display chance note set to {pct}%. "
+             "Shown in /orechances (display only).")
+
+
+async def handle_reloadorechances(bot: BaseBot, user: User) -> None:
+    """/reloadorechances — reload ore chance weights from DB (manager+)."""
+    if not can_manage_economy(user.username):
+        await _w(bot, user.id, "Manager/admin/owner only.")
+        return
+    # Force-reload by re-reading all items (no in-memory cache to bust)
+    items = db.get_all_mining_items(drop_enabled=False)
+    await _w(bot, user.id,
+             f"✅ Ore chances reloaded. {len(items)} ore(s) in DB. "
+             "Use /orechances to verify.")
 
 
 MINE_HELP_PAGES = [

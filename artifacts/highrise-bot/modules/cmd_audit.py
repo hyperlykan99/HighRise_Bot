@@ -266,6 +266,17 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     "orebook", "oremastery", "claimoremastery", "orestats",
     "contracts", "miningjobs",
     "job", "deliver", "claimjob", "rerolljob",
+    # A2: ore chance commands
+    "orechances", "orechance",
+    "setorechance", "setraritychance", "reloadorechances",
+    # B-project: mining event status commands (public)
+    "mineevents", "mineboosts", "luckstatus", "eventeffects",
+    # B-project: mining event start commands (manager)
+    "miningblessing", "luckevent", "miningeventstart",
+    # B-project: event manager panel
+    "eventmanager", "eventpanel",
+    # B-project: auto-event management
+    "autoeventstatus", "autoeventadd", "autoeventremove", "autoeventinterval",
     # ── room utility (teleport / emotes / social / alerts / intervals) ────────
     "tp", "tpme", "tphere", "bring", "bringall", "tpall",
     "tprole", "tpvip", "tpstaff", "selftp", "goto", "groupteleport",
