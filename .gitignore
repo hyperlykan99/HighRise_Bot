@@ -47,9 +47,3 @@ Thumbs.db
 # Replit
 .cache/
 .local/
-
-# SQLite runtime files (never commit these)
-*.db-shm
-*.db-wal
-*.initlock
-*.write.lock
