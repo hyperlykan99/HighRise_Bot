@@ -950,6 +950,45 @@ def init_db():
         )
     """)
 
+    # ── Event Manager — numbered catalog + pool + history ─────────────────────
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS event_definitions (
+            event_id               TEXT PRIMARY KEY,
+            event_number           INTEGER UNIQUE,
+            event_name             TEXT,
+            emoji                  TEXT,
+            event_type             TEXT DEFAULT 'mining',
+            effect_desc            TEXT,
+            default_duration_minutes INTEGER DEFAULT 30,
+            manual_only            INTEGER DEFAULT 0,
+            stackable              INTEGER DEFAULT 0,
+            default_weight         INTEGER DEFAULT 1,
+            cooldown_minutes       INTEGER DEFAULT 60,
+            enabled                INTEGER DEFAULT 1
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS auto_event_pool (
+            event_id         TEXT PRIMARY KEY,
+            weight           INTEGER DEFAULT 1,
+            cooldown_minutes INTEGER DEFAULT 60,
+            last_started_at  TEXT DEFAULT ''
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS event_history (
+            id               INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_id         TEXT,
+            event_name       TEXT,
+            started_by       TEXT,
+            auto_started     INTEGER DEFAULT 0,
+            started_at       TEXT,
+            ended_at         TEXT DEFAULT '',
+            duration_seconds INTEGER DEFAULT 0,
+            status           TEXT DEFAULT 'active'
+        )
+    """)
+
     conn.commit()
     conn.close()
     _migrate_db()
@@ -1372,6 +1411,13 @@ def _migrate_db():
 
     # Seed mining ore catalog (idempotent)
     seed_mining_items()
+
+    # Seed event catalog — done here via deferred import to avoid circular deps
+    try:
+        from modules.events import EVENT_CATALOG, _DEFAULT_AUTO_POOL as _pool_ids
+        seed_event_catalog_data(EVENT_CATALOG, _pool_ids)
+    except Exception as _exc:
+        print(f"[DB] seed_event_catalog skipped: {_exc!r}")
 
     # Reopen for remaining data migrations
     conn = get_connection()
@@ -4653,6 +4699,219 @@ def set_auto_event_setting(key: str, value: int) -> None:
         "INSERT OR REPLACE INTO auto_event_settings (key, value) VALUES (?, ?)",
         (key, str(value)),
     )
+    conn.commit()
+    conn.close()
+
+
+def get_auto_event_setting_str(key: str, default: str = "") -> str:
+    """Get a string value from auto_event_settings (for timestamp/text fields)."""
+    conn = get_connection()
+    row  = conn.execute(
+        "SELECT value FROM auto_event_settings WHERE key=?", (key,)
+    ).fetchone()
+    conn.close()
+    return row["value"] if row else default
+
+
+def set_auto_event_setting_str(key: str, value: str) -> None:
+    """Store a string value in auto_event_settings (for timestamp/text fields)."""
+    conn = get_connection()
+    conn.execute(
+        "INSERT OR REPLACE INTO auto_event_settings (key, value) VALUES (?, ?)",
+        (key, value),
+    )
+    conn.commit()
+    conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Event pool (auto_event_pool) helpers
+# ---------------------------------------------------------------------------
+
+def get_event_pool() -> list[dict]:
+    """Return all events currently in the auto-event pool."""
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT event_id, weight, cooldown_minutes, last_started_at "
+        "FROM auto_event_pool ORDER BY weight DESC"
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_event_pool_entry(event_id: str) -> dict | None:
+    """Return pool row for one event_id, or None if not in pool."""
+    conn = get_connection()
+    row  = conn.execute(
+        "SELECT event_id, weight, cooldown_minutes, last_started_at "
+        "FROM auto_event_pool WHERE event_id=?", (event_id,)
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def add_to_event_pool(event_id: str, weight: int = 1,
+                      cooldown_minutes: int = 60) -> None:
+    """Add or update an event in the auto-event pool."""
+    conn = get_connection()
+    conn.execute(
+        "INSERT INTO auto_event_pool (event_id, weight, cooldown_minutes, last_started_at) "
+        "VALUES (?, ?, ?, '') "
+        "ON CONFLICT(event_id) DO UPDATE SET weight=excluded.weight, "
+        "cooldown_minutes=excluded.cooldown_minutes",
+        (event_id, weight, cooldown_minutes),
+    )
+    conn.commit()
+    conn.close()
+
+
+def remove_from_event_pool(event_id: str) -> bool:
+    """Remove an event from the pool. Returns True if removed."""
+    conn = get_connection()
+    cur  = conn.execute(
+        "DELETE FROM auto_event_pool WHERE event_id=?", (event_id,)
+    )
+    removed = cur.rowcount > 0
+    conn.commit()
+    conn.close()
+    return removed
+
+
+def update_pool_last_started(event_id: str) -> None:
+    """Stamp last_started_at = now for an event in the pool."""
+    conn = get_connection()
+    conn.execute(
+        "UPDATE auto_event_pool SET last_started_at=datetime('now') WHERE event_id=?",
+        (event_id,),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_eligible_pool_events() -> list[dict]:
+    """Return pool events whose cooldown has passed (eligible to auto-start)."""
+    conn = get_connection()
+    rows = conn.execute(
+        """SELECT event_id, weight, cooldown_minutes, last_started_at
+           FROM auto_event_pool
+           WHERE weight > 0
+             AND (
+               last_started_at = ''
+               OR datetime(last_started_at, '+' || cooldown_minutes || ' minutes')
+                  <= datetime('now')
+             )
+           ORDER BY weight DESC"""
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def set_pool_weight(event_id: str, weight: int) -> None:
+    """Update the selection weight for a pool event."""
+    conn = get_connection()
+    conn.execute(
+        "UPDATE auto_event_pool SET weight=? WHERE event_id=?", (weight, event_id)
+    )
+    conn.commit()
+    conn.close()
+
+
+def set_pool_cooldown(event_id: str, cooldown_minutes: int) -> None:
+    """Update the cooldown for a pool event."""
+    conn = get_connection()
+    conn.execute(
+        "UPDATE auto_event_pool SET cooldown_minutes=? WHERE event_id=?",
+        (cooldown_minutes, event_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Event history helpers
+# ---------------------------------------------------------------------------
+
+def add_event_history_entry(
+    event_id: str,
+    event_name: str,
+    started_by: str,
+    auto_started: bool,
+    duration_seconds: int,
+) -> int:
+    """Insert a new event_history row. Returns the row id."""
+    conn = get_connection()
+    cur  = conn.execute(
+        "INSERT INTO event_history "
+        "(event_id, event_name, started_by, auto_started, started_at, "
+        " duration_seconds, status) "
+        "VALUES (?, ?, ?, ?, datetime('now'), ?, 'active')",
+        (event_id, event_name, started_by, 1 if auto_started else 0, duration_seconds),
+    )
+    row_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return row_id or 0
+
+
+def close_event_history_entry(
+    history_id: int, status: str = "ended"
+) -> None:
+    """Mark an event_history row as ended."""
+    conn = get_connection()
+    conn.execute(
+        "UPDATE event_history SET ended_at=datetime('now'), status=? WHERE id=?",
+        (status, history_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_event_history(limit: int = 5) -> list[dict]:
+    """Return the most recent event_history rows."""
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT id, event_id, event_name, started_by, auto_started, "
+        "started_at, ended_at, duration_seconds, status "
+        "FROM event_history ORDER BY id DESC LIMIT ?",
+        (limit,),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Event definitions helpers
+# ---------------------------------------------------------------------------
+
+def seed_event_catalog_data(catalog: list[dict], pool_ids: list[str]) -> None:
+    """
+    Idempotent seed of event_definitions and auto_event_pool.
+    Called from modules/events.py after init_db().
+    catalog: list of EVENT_CATALOG dicts.
+    pool_ids: list of event_ids to add to the default pool.
+    """
+    conn = get_connection()
+    for ev in catalog:
+        conn.execute(
+            "INSERT OR IGNORE INTO event_definitions "
+            "(event_id, event_number, event_name, emoji, event_type, effect_desc, "
+            "default_duration_minutes, manual_only, stackable, default_weight, "
+            "cooldown_minutes) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                ev["event_id"], ev["number"], ev["name"], ev["emoji"],
+                ev["event_type"], ev["effect_desc"], ev["default_duration"],
+                1 if ev["manual_only"] else 0, 0,
+                ev["default_weight"], ev["cooldown_minutes"],
+            ),
+        )
+    for ev in catalog:
+        if ev["event_id"] in pool_ids:
+            conn.execute(
+                "INSERT OR IGNORE INTO auto_event_pool "
+                "(event_id, weight, cooldown_minutes, last_started_at) "
+                "VALUES (?,?,?,'')",
+                (ev["event_id"], ev["default_weight"], ev["cooldown_minutes"]),
+            )
     conn.commit()
     conn.close()
 

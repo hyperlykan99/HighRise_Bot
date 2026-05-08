@@ -289,6 +289,13 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     "eventmanager", "eventpanel",
     # B-project: auto-event management
     "autoeventstatus", "autoeventadd", "autoeventremove", "autoeventinterval",
+    # Event Manager catalog + pool (new)
+    "eventlist", "eventpreview",
+    "aepool", "autoeventpool", "aeadd", "aeremove",
+    "aequeue", "autoeventqueue", "aenext", "autoeventnext",
+    "aestatus", "eventheartbeat", "eventscheduler",
+    "eventcooldowns", "seteventcooldown",
+    "eventweights", "seteventweight", "eventhistory",
     # ── room utility (teleport / emotes / social / alerts / intervals) ────────
     "tp", "tpme", "tphere", "bring", "bringall", "tpall",
     "tprole", "tpvip", "tpstaff", "selftp", "goto", "groupteleport",
@@ -523,6 +530,12 @@ VISIBLE_CMDS: frozenset[str] = frozenset({
     # ── /eventhelp ──────────────────────────────────────────────────────────
     "eventshop", "eventpoints", "eventstatus", "startevent",
     "autoevents", "setautoeventinterval", "setautoeventduration",
+    "eventlist", "eventpreview",
+    "aepool", "autoeventpool", "aeadd", "aeremove",
+    "aequeue", "autoeventqueue", "aenext", "autoeventnext",
+    "aestatus", "eventheartbeat", "eventscheduler",
+    "eventcooldowns", "seteventcooldown",
+    "eventweights", "seteventweight", "eventhistory",
     # ── /staffhelp ──────────────────────────────────────────────────────────
     "modhelp", "managerhelp", "ownerhelp",
     "mycommands", "adminpanel", "adminlogs", "status", "quicktoggles",

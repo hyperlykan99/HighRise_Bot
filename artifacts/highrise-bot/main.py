@@ -221,6 +221,12 @@ from modules.events import (
     handle_eventmanager, handle_eventpanel, handle_eventeffects,
     handle_autoeventstatus, handle_autoeventadd,
     handle_autoeventremove, handle_autoeventinterval,
+    handle_eventlist, handle_eventpreview,
+    handle_aepool, handle_aeadd, handle_aeremove,
+    handle_aequeue, handle_aenext, handle_eventheartbeat,
+    handle_eventcooldowns, handle_seteventcooldown,
+    handle_eventweights, handle_seteventweight, handle_eventhistory,
+    startup_mining_event_check,
 )
 from modules.reports import (
     handle_report, handle_bug, handle_myreports,
@@ -2188,6 +2194,7 @@ class HangoutBot(BaseBot):
         # Recover active event — events bot only
         if should_this_bot_run_module("events"):
             asyncio.create_task(startup_event_check(self))
+            asyncio.create_task(startup_mining_event_check(self))
         else:
             print(f"[EVENTS] Startup check skipped — not events bot ({BOT_MODE}).")
         # Recover BJ/RBJ tables — blackjack bot only
@@ -2717,7 +2724,7 @@ class HangoutBot(BaseBot):
             elif cmd == "eventstart":
                 await handle_startevent(self, user, args)
             elif cmd == "eventstop":
-                await handle_stopevent(self, user)
+                await handle_stopevent(self, user, args)
 
             # ── Bot health / deployment checks ────────────────────────────────
             elif cmd == "bothealth":
@@ -2983,7 +2990,7 @@ class HangoutBot(BaseBot):
 
         # ── Event commands ────────────────────────────────────────────────────
         elif cmd == "event":
-            await handle_event(self, user)
+            await handle_event(self, user, args)
 
         elif cmd == "events":
             await handle_events(self, user)
@@ -2998,7 +3005,7 @@ class HangoutBot(BaseBot):
             await handle_startevent(self, user, args)
 
         elif cmd == "stopevent":
-            await handle_stopevent(self, user)
+            await handle_stopevent(self, user, args)
 
         elif cmd in ("adminsblessing", "adminblessing"):
             await handle_adminsblessing(self, user, args)
@@ -3050,6 +3057,49 @@ class HangoutBot(BaseBot):
 
         elif cmd == "autoeventinterval":
             await handle_autoeventinterval(self, user, args)
+
+        # ── Event Manager catalog + pool (new) ──────────────────────────────
+        elif cmd == "eventlist":
+            await handle_eventlist(self, user)
+
+        elif cmd == "eventpreview":
+            await handle_eventpreview(self, user, args)
+
+        elif cmd in ("aepool", "autoeventpool"):
+            await handle_aepool(self, user)
+
+        elif cmd == "aeadd":
+            await handle_aeadd(self, user, args)
+
+        elif cmd == "aeremove":
+            await handle_aeremove(self, user, args)
+
+        elif cmd in ("aequeue", "autoeventqueue"):
+            await handle_aequeue(self, user)
+
+        elif cmd in ("aenext", "autoeventnext"):
+            await handle_aenext(self, user)
+
+        elif cmd in ("aestatus",):
+            await handle_autoeventstatus(self, user)
+
+        elif cmd in ("eventheartbeat", "eventscheduler"):
+            await handle_eventheartbeat(self, user)
+
+        elif cmd == "eventcooldowns":
+            await handle_eventcooldowns(self, user)
+
+        elif cmd == "seteventcooldown":
+            await handle_seteventcooldown(self, user, args)
+
+        elif cmd == "eventweights":
+            await handle_eventweights(self, user)
+
+        elif cmd == "seteventweight":
+            await handle_seteventweight(self, user, args)
+
+        elif cmd == "eventhistory":
+            await handle_eventhistory(self, user)
 
         elif cmd == "eventpoints":
             await handle_eventpoints(self, user, args)

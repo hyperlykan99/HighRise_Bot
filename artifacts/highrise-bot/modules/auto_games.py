@@ -295,16 +295,38 @@ _auto_event_loop_task: asyncio.Task | None = None
 
 
 async def _auto_event_loop(bot: BaseBot) -> None:
-    from modules.events import _cancel_event_task, _event_timer, EVENTS
+    from modules.events import (
+        _cancel_event_task, _event_timer, EVENTS, _MINING_EVENT_IDS,
+    )
     import modules.events as events_mod
 
     print("[AUTO_GAMES] Auto event loop started.")
     try:
         while True:
+            # ── Heartbeat tick ───────────────────────────────────────────────
+            try:
+                db.set_auto_event_setting_str(
+                    "last_scheduler_tick",
+                    datetime.now(timezone.utc).isoformat(),
+                )
+            except Exception:
+                pass
+
             settings = db.get_auto_event_settings()
-            interval = max(30, settings["auto_event_interval"]) * 60
+            interval = max(30, settings["auto_event_interval"]) * 60  # secs
+
+            # Store next_event_at so /aenext / /autoeventstatus can show it
+            next_at = (
+                datetime.now(timezone.utc) + timedelta(seconds=interval)
+            ).isoformat()
+            try:
+                db.set_auto_event_setting_str("next_event_at", next_at)
+            except Exception:
+                pass
+
             await asyncio.sleep(interval)
 
+            # ── Post-sleep checks ────────────────────────────────────────────
             settings = db.get_auto_event_settings()
             if not settings["auto_events_enabled"]:
                 print("[AUTO_GAMES] Auto events OFF, skipping.")
@@ -312,7 +334,7 @@ async def _auto_event_loop(bot: BaseBot) -> None:
             if is_maintenance():
                 print("[AUTO_GAMES] Maintenance ON, skipping auto event.")
                 continue
-            if db.is_event_active():
+            if db.is_event_active() or db.get_active_mining_event():
                 print("[AUTO_GAMES] Event already active, skipping.")
                 continue
 
@@ -327,31 +349,73 @@ async def _auto_event_loop(bot: BaseBot) -> None:
                 print("[AUTOGAMES] Event lock held by another bot; skipping.")
                 continue
 
-            from modules.events import EVENTS as _EVENTS
-            event_id = random.choice(list(_EVENTS.keys()))
-            dur_min  = max(5, settings["auto_event_duration"])
-            duration = dur_min * 60  # seconds
+            # ── Weighted pool selection with cooldowns ───────────────────────
+            eligible = db.get_eligible_pool_events()
+            if not eligible:
+                print("[AUTO_GAMES] No eligible events in pool; skipping.")
+                continue
 
-            expires_at = (
-                datetime.now(timezone.utc) + timedelta(seconds=duration)
-            ).isoformat()
-            db.set_active_event(event_id, expires_at)
+            total_weight = sum(row["weight"] for row in eligible)
+            if total_weight <= 0:
+                event_id = random.choice(eligible)["event_id"]
+            else:
+                r   = random.uniform(0, total_weight)
+                acc = 0.0
+                event_id = eligible[-1]["event_id"]
+                for row in eligible:
+                    acc += row["weight"]
+                    if r <= acc:
+                        event_id = row["event_id"]
+                        break
 
-            _cancel_event_task()
-            events_mod._event_task = asyncio.create_task(
-                _event_timer(bot, event_id, duration)
-            )
+            ev      = EVENTS.get(event_id, {})
+            name    = ev.get("name", event_id)
+            dur_min = max(5, settings["auto_event_duration"])
+            duration = dur_min * 60
 
-            ev = _EVENTS[event_id]
-            print(f"[AUTO_GAMES] Auto event: {event_id} for {dur_min}m.")
-            try:
-                msg = (
-                    f"🎉 Random Event: {ev['name']} for {dur_min}m!\n"
-                    f"{ev['desc']}"
+            # ── Start the event ──────────────────────────────────────────────
+            ev_type = ev.get("event_type", "room")
+            if ev_type == "mining" or event_id in _MINING_EVENT_IDS:
+                db.start_mining_event(event_id, "auto", dur_min)
+                try:
+                    msg = (
+                        f"⛏️ Auto Mining Event: {name} for {dur_min}m!\n"
+                        f"{ev.get('desc','')[:80]}"
+                    )
+                    await bot.highrise.chat(msg[:249])
+                except Exception as exc:
+                    print(f"[AUTO_GAMES] Mining event announce error: {exc}")
+            else:
+                expires_at = (
+                    datetime.now(timezone.utc) + timedelta(seconds=duration)
+                ).isoformat()
+                db.set_active_event(event_id, expires_at)
+                _cancel_event_task()
+                events_mod._event_task = asyncio.create_task(
+                    _event_timer(bot, event_id, duration)
                 )
-                await bot.highrise.chat(msg[:249])
-            except Exception as e:
-                print(f"[AUTO_GAMES] Auto event announce error: {e}")
+                try:
+                    msg = (
+                        f"🎉 Auto Event: {name} for {dur_min}m!\n"
+                        f"{ev.get('desc','')[:80]}"
+                    )
+                    await bot.highrise.chat(msg[:249])
+                except Exception as exc:
+                    print(f"[AUTO_GAMES] Room event announce error: {exc}")
+
+            # ── Post-start bookkeeping ───────────────────────────────────────
+            try:
+                db.update_pool_last_started(event_id)
+                db.add_event_history_entry(event_id, name, "auto", True, duration)
+            except Exception as exc:
+                print(f"[AUTO_GAMES] History/pool update error: {exc}")
+            try:
+                db.set_auto_event_setting_str("next_event_id", "")
+                db.set_auto_event_setting_str("next_event_at", "")
+            except Exception:
+                pass
+
+            print(f"[AUTO_GAMES] Auto event: {event_id} for {dur_min}m.")
 
     except asyncio.CancelledError:
         pass

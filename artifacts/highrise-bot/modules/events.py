@@ -122,9 +122,102 @@ EVENTS: dict[str, dict] = {
         ),
         "event_type": "mining",
     },
+    # ── New numbered events (12-event catalog) ──────────────────────────────
+    "ultimate_mining_rush": {
+        "name": "Ultimate Mining Rush",
+        "desc": (
+            "All mining boosts: +50% luck & weight, 2x value & MXP, "
+            "-25% cooldown, +50% Leg+, 2x Pris & Exotic."
+        ),
+        "event_type": "mining",
+    },
+    "time_exp_boost": {
+        "name": "Time EXP Boost",
+        "desc": "2x time-in-room EXP for all players.",
+        "event_type": "room",
+    },
+    "reward_drop": {
+        "name": "Reward Drop",
+        "desc": "Random coin/EXP rewards for active players.",
+        "event_type": "room",
+    },
+    "event_points_boost": {
+        "name": "Event Points Boost",
+        "desc": "2x event points earned during this event.",
+        "event_type": "room",
+    },
 }
 
 EVENT_DURATION = 3600  # seconds (1 hour)
+
+
+# ---------------------------------------------------------------------------
+# Event catalog — numbered list (12 events)
+# ---------------------------------------------------------------------------
+
+EVENT_CATALOG: list[dict] = [
+    {"number": 1,  "event_id": "lucky_rush",
+     "emoji": "🍀", "name": "Lucky Rush",          "event_type": "mining",
+     "effect_desc": "+25% mining luck, better Rare+ drops",
+     "default_duration": 30, "manual_only": False, "default_weight": 20, "cooldown_minutes": 60},
+    {"number": 2,  "event_id": "heavy_ore_rush",
+     "emoji": "⚖️", "name": "Heavy Ore Rush",       "event_type": "mining",
+     "effect_desc": "+25% weight luck, heavier ores",
+     "default_duration": 30, "manual_only": False, "default_weight": 20, "cooldown_minutes": 60},
+    {"number": 3,  "event_id": "ore_value_surge",
+     "emoji": "💰", "name": "Ore Value Surge",      "event_type": "mining",
+     "effect_desc": "1.5x ore sell value",
+     "default_duration": 30, "manual_only": False, "default_weight": 25, "cooldown_minutes": 90},
+    {"number": 4,  "event_id": "double_mxp",
+     "emoji": "⭐", "name": "Double MXP",           "event_type": "mining",
+     "effect_desc": "2x mining EXP",
+     "default_duration": 30, "manual_only": False, "default_weight": 30, "cooldown_minutes": 60},
+    {"number": 5,  "event_id": "mining_haste",
+     "emoji": "⏳", "name": "Mining Haste",         "event_type": "mining",
+     "effect_desc": "-25% mine cooldown",
+     "default_duration": 30, "manual_only": False, "default_weight": 25, "cooldown_minutes": 60},
+    {"number": 6,  "event_id": "legendary_rush",
+     "emoji": "🟡", "name": "Legendary Rush",       "event_type": "mining",
+     "effect_desc": "+50% Legendary+ drop chance",
+     "default_duration": 30, "manual_only": False, "default_weight": 10, "cooldown_minutes": 120},
+    {"number": 7,  "event_id": "prismatic_hunt",
+     "emoji": "🌈", "name": "Prismatic Hunt",       "event_type": "mining",
+     "effect_desc": "2x Prismatic drop chance",
+     "default_duration": 30, "manual_only": False, "default_weight": 5,  "cooldown_minutes": 180},
+    {"number": 8,  "event_id": "exotic_hunt",
+     "emoji": "🚨", "name": "Exotic Hunt",          "event_type": "mining",
+     "effect_desc": "2x Exotic drop chance",
+     "default_duration": 30, "manual_only": False, "default_weight": 2,  "cooldown_minutes": 360},
+    {"number": 9,  "event_id": "time_exp_boost",
+     "emoji": "⏰", "name": "Time EXP Boost",       "event_type": "room",
+     "effect_desc": "2x time-in-room EXP",
+     "default_duration": 30, "manual_only": False, "default_weight": 20, "cooldown_minutes": 90},
+    {"number": 10, "event_id": "reward_drop",
+     "emoji": "🎁", "name": "Reward Drop",          "event_type": "room",
+     "effect_desc": "Random reward drops for players",
+     "default_duration": 30, "manual_only": False, "default_weight": 15, "cooldown_minutes": 90},
+    {"number": 11, "event_id": "event_points_boost",
+     "emoji": "🏆", "name": "Event Points Boost",   "event_type": "room",
+     "effect_desc": "2x event points earned",
+     "default_duration": 30, "manual_only": False, "default_weight": 15, "cooldown_minutes": 90},
+    {"number": 12, "event_id": "ultimate_mining_rush",
+     "emoji": "🔥", "name": "Ultimate Mining Rush", "event_type": "mining",
+     "effect_desc": "All mining boosts combined",
+     "default_duration": 30, "manual_only": True,  "default_weight": 0,  "cooldown_minutes": 0},
+]
+
+_CATALOG_BY_ID:  dict[str, dict] = {e["event_id"]: e for e in EVENT_CATALOG}
+_CATALOG_BY_NUM: dict[int,  dict] = {e["number"]:   e for e in EVENT_CATALOG}
+_DEFAULT_AUTO_POOL: list[str] = [e["event_id"] for e in EVENT_CATALOG
+                                  if not e["manual_only"]]
+
+
+def _resolve_event_arg(arg: str) -> str | None:
+    """Resolve staff arg (number or event_id) → event_id string, or None."""
+    if arg.isdigit():
+        entry = _CATALOG_BY_NUM.get(int(arg))
+        return entry["event_id"] if entry else None
+    return arg if arg in _CATALOG_BY_ID else None
 
 
 # ---------------------------------------------------------------------------
@@ -202,7 +295,7 @@ def _apply_mining_event_effects(base: dict, event_id: str) -> None:
         base["prismatic_chance_boost"] = max(base["prismatic_chance_boost"], 1.0)
     elif event_id == "exotic_hunt":
         base["exotic_chance_boost"] = max(base["exotic_chance_boost"], 1.0)
-    elif event_id == "admins_mining_blessing":
+    elif event_id in ("admins_mining_blessing", "ultimate_mining_rush"):
         base["mining_luck_boost"]            = max(base["mining_luck_boost"], 0.50)
         base["weight_luck_boost"]            = max(base["weight_luck_boost"], 0.50)
         base["ore_value_multiplier"]         = max(base["ore_value_multiplier"], 2.0)
@@ -256,6 +349,10 @@ def get_event_effect() -> dict:
         "prismatic_chance_boost":      0.0,
         "exotic_chance_boost":         0.0,
         "mining_boost":                False,
+        # Room event effects
+        "time_exp_multiplier":         1.0,
+        "event_points_multiplier":     1.0,
+        "reward_drop_active":          False,
     }
     if info:
         eid = info["event_id"]
@@ -279,6 +376,12 @@ def get_event_effect() -> dict:
             base["casino_bet_mult"]  = 2.0
             base["trivia_coins_pct"] = 0.50
             base["mining_boost"]     = True
+        elif eid == "time_exp_boost":
+            base["time_exp_multiplier"] = 2.0
+        elif eid == "event_points_boost":
+            base["event_points_multiplier"] = 2.0
+        elif eid == "reward_drop":
+            base["reward_drop_active"] = True
 
     # Also apply active mining event effects
     try:
@@ -356,21 +459,43 @@ def _time_remaining(expires_at_iso: str) -> str:
 # Public commands
 # ---------------------------------------------------------------------------
 
-async def handle_event(bot: BaseBot, user: User) -> None:
-    """/event — show active event and time left."""
-    info = db.get_active_event()
-    if not info:
-        await _w(bot, user.id,
-                 "No event active. Staff can start one with /startevent <id>.")
+async def handle_event(bot: BaseBot, user: User,
+                       args: list[str] | None = None) -> None:
+    """/event [number] [mins] — show active event, or start one by number (manager+)."""
+    # /event <number> [mins] — staff shortcut to start by catalog number
+    if args and len(args) >= 2 and args[1].isdigit():
+        if can_manage_economy(user.username):
+            await handle_startevent(bot, user, args)
+        else:
+            await _w(bot, user.id, "Manager/admin/owner only to start events.")
         return
-    ev   = EVENTS.get(info["event_id"], {})
-    name = ev.get("name", info["event_id"])
-    desc = ev.get("desc", "")
-    left = _time_remaining(info["expires_at"])
+
+    # Public: show current active events
+    mine_ev = db.get_active_mining_event()
+    gen_ev  = db.get_active_event()
+
+    if mine_ev:
+        ev   = EVENTS.get(mine_ev["event_id"], {})
+        name = ev.get("name", mine_ev["event_id"])
+        left = _time_remaining(mine_ev["ends_at"])
+        await _w(bot, user.id,
+                 f"⛏️ Mining Event: {name}\n"
+                 f"{ev.get('desc','')[:80]}\n"
+                 f"⏰ Ends in: {left}")
+        return
+
+    if gen_ev:
+        ev   = EVENTS.get(gen_ev["event_id"], {})
+        name = ev.get("name", gen_ev["event_id"])
+        left = _time_remaining(gen_ev["expires_at"])
+        await _w(bot, user.id,
+                 f"🎪 Active: {name}\n"
+                 f"{ev.get('desc','')[:80]}\n"
+                 f"⏰ Time left: {left}")
+        return
+
     await _w(bot, user.id,
-             f"🎪 Active: {name}\n"
-             f"{desc}\n"
-             f"⏰ Time left: {left}")
+             "No event active. Staff can start one with /startevent <#>.")
 
 
 async def handle_events(bot: BaseBot, user: User) -> None:
@@ -413,34 +538,57 @@ async def handle_eventstatus(bot: BaseBot, user: User) -> None:
 # ---------------------------------------------------------------------------
 
 async def handle_startevent(bot: BaseBot, user: User, args: list[str]) -> None:
-    """/startevent <event_id> [minutes] — manager+; optional custom duration."""
+    """/startevent <id|number> [minutes] — manager+; optional custom duration."""
     if not can_manage_economy(user.username):
         await _w(bot, user.id, "Manager/admin/owner only.")
         return
 
     if len(args) < 2:
-        ids = ", ".join(EVENTS.keys())
-        await _w(bot, user.id, f"Usage: /startevent <id> [mins]\nIDs: {ids}"[:249])
-        return
-
-    event_id = args[1].lower()
-    if event_id not in EVENTS:
-        ids = ", ".join(EVENTS.keys())
         await _w(bot, user.id,
-                 f"Unknown event: {event_id}\nValid IDs: {ids}"[:249])
+                 "Usage: /startevent <id or #> [mins]\n"
+                 "Use /eventlist to see numbered catalog.")
         return
 
-    duration = EVENT_DURATION
+    raw      = args[1].lower()
+    event_id = _resolve_event_arg(raw) or raw  # fallback to raw for legacy IDs
+    if event_id not in EVENTS:
+        await _w(bot, user.id,
+                 f"Unknown event: {raw}\n"
+                 "Use /eventlist to see the catalog.")
+        return
+
+    dur_mins = 30
     if len(args) >= 3 and args[2].isdigit():
-        mins = int(args[2])
-        if 1 <= mins <= 480:
-            duration = mins * 60
-        else:
+        dur_mins = int(args[2])
+        if not (1 <= dur_mins <= 480):
             await _w(bot, user.id, "Duration must be 1-480 minutes.")
             return
+    duration = dur_mins * 60
 
+    ev        = EVENTS[event_id]
+    name      = ev["name"]
+    dur_label = f"{dur_mins}min"
+
+    # Route mining events through mining_events table
+    ev_type = ev.get("event_type", "room")
+    if ev_type == "mining" or event_id in _MINING_EVENT_IDS:
+        db.start_mining_event(event_id, user.username, dur_mins)
+        try:
+            await bot.highrise.chat(
+                f"⛏️ {name} for {dur_label}! {ev.get('desc','')[:80]}"[:249]
+            )
+        except Exception as exc:
+            print(f"[EVENTS] startevent (mining) announce error: {exc}")
+        await _w(bot, user.id, f"✅ Started mining event: {name} for {dur_label}.")
+        # Log to history
+        try:
+            db.add_event_history_entry(event_id, name, user.username, False, duration)
+        except Exception:
+            pass
+        return
+
+    # Room event: goes through event_settings
     _cancel_event_task()
-
     expires_at = (
         datetime.now(timezone.utc) + timedelta(seconds=duration)
     ).isoformat()
@@ -449,17 +597,20 @@ async def handle_startevent(bot: BaseBot, user: User, args: list[str]) -> None:
     global _event_task
     _event_task = asyncio.create_task(_event_timer(bot, event_id, duration))
 
-    ev        = EVENTS[event_id]
-    name      = ev["name"]
-    desc      = ev["desc"]
-    dur_label = f"{duration // 60}min" if duration != EVENT_DURATION else "1 hour"
     try:
         await bot.highrise.chat(
-            f"🎪 {name} is LIVE for {dur_label}! {desc[:100]} "
-            "Use /eventshop for rewards!"[:249]
+            f"🎪 {name} is LIVE for {dur_label}! "
+            f"{ev.get('desc','')[:80]} "
+            "Use /eventshop!"[:249]
         )
     except Exception as exc:
         print(f"[EVENTS] startevent announce error: {exc}")
+
+    # Log to history
+    try:
+        db.add_event_history_entry(event_id, name, user.username, False, duration)
+    except Exception:
+        pass
 
 
 async def handle_adminsblessing(bot: BaseBot, user: User, args: list[str]) -> None:
@@ -471,25 +622,60 @@ async def handle_adminsblessing(bot: BaseBot, user: User, args: list[str]) -> No
     await handle_startevent(bot, user, [args[0], "admins_blessing", mins_arg])
 
 
-async def handle_stopevent(bot: BaseBot, user: User) -> None:
-    """/stopevent — manager+, stop the active event immediately."""
+async def handle_stopevent(bot: BaseBot, user: User,
+                          args: list[str] | None = None) -> None:
+    """/stopevent [id|number|all] — manager+, stop the active event."""
     if not can_manage_economy(user.username):
         await _w(bot, user.id, "Manager/admin/owner only.")
         return
 
-    info = db.get_active_event()
-    if not info:
-        await _w(bot, user.id, "No event is currently active.")
-        return
+    target = (args[1].lower() if args and len(args) >= 2 else "all")
 
-    _cancel_event_task()
-    db.clear_active_event()
+    stopped_any = False
 
-    name = EVENTS.get(info["event_id"], {}).get("name", info["event_id"])
-    try:
-        await bot.highrise.chat(f"🛑 {name} event stopped by staff.")
-    except Exception as exc:
-        print(f"[EVENTS] stopevent announce error: {exc}")
+    # Stop mining event if target is "all", "mine", "mining", or a mining event id/number
+    mine_ev = db.get_active_mining_event()
+    if mine_ev:
+        mine_eid = mine_ev.get("event_id", "")
+        resolved = _resolve_event_arg(target) or target
+        should_stop_mine = (
+            target in ("all", "mine", "mining")
+            or resolved == mine_eid
+            or target == mine_eid
+        )
+        if should_stop_mine:
+            db.stop_mining_event()
+            mine_name = EVENTS.get(mine_eid, {}).get("name", mine_eid)
+            try:
+                await bot.highrise.chat(f"🛑 {mine_name} stopped by staff.")
+            except Exception:
+                pass
+            stopped_any = True
+
+    # Stop room event if target is "all" or a matching room event id/number
+    gen_ev = db.get_active_event()
+    if gen_ev:
+        gen_eid  = gen_ev["event_id"]
+        resolved = _resolve_event_arg(target) or target
+        should_stop_gen = (
+            target == "all"
+            or resolved == gen_eid
+            or target == gen_eid
+        )
+        if should_stop_gen:
+            _cancel_event_task()
+            db.clear_active_event()
+            gen_name = EVENTS.get(gen_eid, {}).get("name", gen_eid)
+            try:
+                await bot.highrise.chat(f"🛑 {gen_name} stopped by staff.")
+            except Exception:
+                pass
+            stopped_any = True
+
+    if stopped_any:
+        await _w(bot, user.id, "✅ Event(s) stopped.")
+    else:
+        await _w(bot, user.id, "No active event to stop.")
 
 
 # ---------------------------------------------------------------------------
@@ -750,7 +936,7 @@ async def handle_buyevent(bot: BaseBot, user: User, args: list[str]) -> None:
 _MINING_EVENT_IDS = {
     "lucky_rush", "heavy_ore_rush", "ore_value_surge", "double_mxp",
     "mining_haste", "legendary_rush", "prismatic_hunt", "exotic_hunt",
-    "admins_mining_blessing",
+    "admins_mining_blessing", "ultimate_mining_rush",
 }
 
 # Also include legacy mining events that live in VALID_MINING_EVENTS
@@ -1034,73 +1220,505 @@ async def handle_eventeffects(bot: BaseBot, user: User) -> None:
 
 
 # ---------------------------------------------------------------------------
-# /autoeventstatus  /autoeventadd  /autoeventremove  /autoeventinterval
+# /autoeventstatus  /aeadd  /aeremove  /autoeventinterval  (upgraded)
 # ---------------------------------------------------------------------------
 
 async def handle_autoeventstatus(bot: BaseBot, user: User) -> None:
-    """/autoeventstatus — show auto-event configuration."""
+    """/autoeventstatus — full auto-event scheduler status."""
     if not can_manage_economy(user.username):
         await _w(bot, user.id, "Manager/admin/owner only.")
         return
-    ev_on  = db.get_room_setting("auto_events_enabled", "0")
-    ev_int = db.get_room_setting("auto_event_interval_hours", "2")
-    pool_raw = db.get_room_setting("auto_event_pool", "")
-    pool = pool_raw.split(",") if pool_raw else []
-    pool_str = ", ".join(pool) if pool else "default rotation"
-    await _w(bot, user.id,
-             f"<#FFD700>🎪 Auto-Events<#FFFFFF>\n"
-             f"Status: {'ON' if ev_on == '1' else 'OFF'}\n"
-             f"Interval: every {ev_int}h\n"
-             f"Pool: {pool_str}"[:249])
+    settings  = db.get_auto_event_settings()
+    enabled   = settings["auto_events_enabled"]
+    interval  = settings["auto_event_interval"]
+    pool      = db.get_event_pool()
+    eligible  = db.get_eligible_pool_events()
+    mine_ev   = db.get_active_mining_event()
+    gen_ev    = db.get_active_event()
+    last_tick = db.get_auto_event_setting_str("last_scheduler_tick", "")
+    next_at   = db.get_auto_event_setting_str("next_event_at", "")
+    next_id   = db.get_auto_event_setting_str("next_event_id", "")
+
+    cur_str = "None"
+    if mine_ev:
+        cur_str = EVENTS.get(mine_ev["event_id"], {}).get("name", mine_ev["event_id"])
+    elif gen_ev:
+        cur_str = EVENTS.get(gen_ev["event_id"], {}).get("name", gen_ev["event_id"])
+
+    tick_str = "never"
+    if last_tick:
+        try:
+            lt = datetime.fromisoformat(last_tick)
+            if lt.tzinfo is None:
+                lt = lt.replace(tzinfo=timezone.utc)
+            secs = int((datetime.now(timezone.utc) - lt).total_seconds())
+            tick_str = f"{secs}s ago"
+        except Exception:
+            tick_str = "?"
+
+    next_name = (
+        _CATALOG_BY_ID.get(next_id, {}).get("name", next_id or "auto")
+        if (enabled and next_id) else "auto"
+    )
+    next_str = _time_remaining(next_at) if (next_at and enabled) else "N/A"
+
+    lines = [
+        f"<#FFD700>📅 Auto Events<#FFFFFF>",
+        f"Status: {'ON' if enabled else 'OFF'} | Interval: {interval}m",
+        f"Pool: {len(pool)} total / {len(eligible)} eligible",
+        f"Current: {cur_str}",
+        f"Next: {next_name} in {next_str}",
+        f"Tick: {tick_str}",
+    ]
+    await _w(bot, user.id, "\n".join(lines)[:249])
 
 
 async def handle_autoeventadd(bot: BaseBot, user: User, args: list[str]) -> None:
-    """/autoeventadd <event_id> — add event to auto-rotation pool."""
+    """/autoeventadd <event_id_or_number> — add event to auto pool (legacy alias)."""
     if not can_manage_economy(user.username):
         await _w(bot, user.id, "Manager/admin/owner only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /autoeventadd <event_id>")
+        await _w(bot, user.id, "Usage: /autoeventadd <id or #>  (see /eventlist)")
         return
-    eid = args[1].lower()
+    raw = args[1].lower()
+    eid = _resolve_event_arg(raw) or raw
     if eid not in EVENTS:
-        await _w(bot, user.id, f"Unknown event: {eid}")
+        await _w(bot, user.id, f"Unknown event: {raw}")
         return
-    pool_raw = db.get_room_setting("auto_event_pool", "")
-    pool = [e for e in pool_raw.split(",") if e] if pool_raw else []
-    if eid not in pool:
-        pool.append(eid)
-        db.set_room_setting("auto_event_pool", ",".join(pool))
-    await _w(bot, user.id, f"✅ Added {eid} to auto-event pool. Pool: {len(pool)} event(s).")
+    entry = _CATALOG_BY_ID.get(eid, {})
+    weight = entry.get("default_weight", 1)
+    cd     = entry.get("cooldown_minutes", 60)
+    db.add_to_event_pool(eid, weight, cd)
+    await _w(bot, user.id,
+             f"✅ {entry.get('emoji','•')} {entry.get('name', eid)} added to auto pool.")
 
 
 async def handle_autoeventremove(bot: BaseBot, user: User, args: list[str]) -> None:
-    """/autoeventremove <event_id> — remove event from auto-rotation pool."""
+    """/autoeventremove <event_id_or_number> — remove event from auto pool (legacy alias)."""
     if not can_manage_economy(user.username):
         await _w(bot, user.id, "Manager/admin/owner only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /autoeventremove <event_id>")
+        await _w(bot, user.id, "Usage: /autoeventremove <id or #>")
         return
-    eid = args[1].lower()
-    pool_raw = db.get_room_setting("auto_event_pool", "")
-    pool = [e for e in pool_raw.split(",") if e] if pool_raw else []
-    if eid in pool:
-        pool.remove(eid)
-        db.set_room_setting("auto_event_pool", ",".join(pool))
-        await _w(bot, user.id, f"✅ Removed {eid}. Pool now: {len(pool)} event(s).")
+    raw = args[1].lower()
+    eid = _resolve_event_arg(raw) or raw
+    removed = db.remove_from_event_pool(eid)
+    entry   = _CATALOG_BY_ID.get(eid, {})
+    name    = entry.get("name", eid)
+    if removed:
+        await _w(bot, user.id, f"✅ {name} removed from auto pool.")
     else:
-        await _w(bot, user.id, f"{eid} not in pool.")
+        await _w(bot, user.id, f"{name} was not in the pool.")
 
 
 async def handle_autoeventinterval(bot: BaseBot, user: User, args: list[str]) -> None:
-    """/autoeventinterval <hours> — set auto-event rotation interval."""
+    """/autoeventinterval <minutes> — set auto-event interval in minutes."""
     if not can_manage_economy(user.username):
         await _w(bot, user.id, "Manager/admin/owner only.")
         return
     if len(args) < 2 or not args[1].isdigit():
-        await _w(bot, user.id, "Usage: /autoeventinterval <hours>  (1-48)")
+        await _w(bot, user.id, "Usage: /autoeventinterval <minutes>  (30-2880)")
         return
-    hrs = max(1, min(48, int(args[1])))
-    db.set_room_setting("auto_event_interval_hours", str(hrs))
-    await _w(bot, user.id, f"✅ Auto-event interval set to {hrs}h.")
+    mins = max(30, min(2880, int(args[1])))
+    db.set_auto_event_setting("auto_event_interval", mins)
+    await _w(bot, user.id, f"✅ Auto-event interval set to {mins}m.")
+
+
+# ---------------------------------------------------------------------------
+# /eventlist  (public)
+# ---------------------------------------------------------------------------
+
+async def handle_eventlist(bot: BaseBot, user: User) -> None:
+    """/eventlist — show the numbered 12-event catalog."""
+    lines1 = ["<#FFD700>📋 Events 1-6<#FFFFFF>"]
+    for ev in EVENT_CATALOG[:6]:
+        mo = " [manual]" if ev["manual_only"] else ""
+        lines1.append(f"{ev['number']}. {ev['emoji']} {ev['name']}{mo}")
+    await _w(bot, user.id, "\n".join(lines1)[:249])
+
+    lines2 = ["<#FFD700>📋 Events 7-12<#FFFFFF>"]
+    for ev in EVENT_CATALOG[6:]:
+        mo = " [manual]" if ev["manual_only"] else ""
+        lines2.append(f"{ev['number']}. {ev['emoji']} {ev['name']}{mo}")
+    lines2.append("/event <#> <mins>  |  /eventpreview <#>")
+    await _w(bot, user.id, "\n".join(lines2)[:249])
+
+
+# ---------------------------------------------------------------------------
+# /eventpreview <number>  (public)
+# ---------------------------------------------------------------------------
+
+async def handle_eventpreview(bot: BaseBot, user: User, args: list[str]) -> None:
+    """/eventpreview <number> — show detail for one event."""
+    if len(args) < 2:
+        await _w(bot, user.id, "Usage: /eventpreview <number 1-12>")
+        return
+    eid = _resolve_event_arg(args[1].lower())
+    if eid is None:
+        await _w(bot, user.id, "Unknown event. Use /eventlist to see the catalog.")
+        return
+    entry      = _CATALOG_BY_ID[eid]
+    pool_entry = db.get_event_pool_entry(eid)
+    in_pool    = "YES" if pool_entry else "NO"
+    weight     = pool_entry["weight"] if pool_entry else entry["default_weight"]
+    cd         = pool_entry["cooldown_minutes"] if pool_entry else entry["cooldown_minutes"]
+    mo         = "YES" if entry["manual_only"] else "NO"
+    msg = (
+        f"{entry['emoji']} {entry['name']}\n"
+        f"#{entry['number']} | {eid}\n"
+        f"Effect: {entry['effect_desc']}\n"
+        f"Pool: {in_pool} | Manual: {mo}\n"
+        f"Weight: {weight} | Cooldown: {cd}m"
+    )
+    await _w(bot, user.id, msg[:249])
+
+
+# ---------------------------------------------------------------------------
+# /aepool / /autoeventpool  (manager+)
+# ---------------------------------------------------------------------------
+
+async def handle_aepool(bot: BaseBot, user: User) -> None:
+    """/aepool — show current auto-event pool."""
+    if not can_manage_economy(user.username):
+        await _w(bot, user.id, "Manager/admin/owner only.")
+        return
+    pool = db.get_event_pool()
+    if not pool:
+        await _w(bot, user.id,
+                 "📋 Auto pool is empty. Use /aeadd <#> to add events.")
+        return
+    lines = [f"<#FFD700>📋 Auto Pool ({len(pool)})<#FFFFFF>"]
+    for row in pool:
+        eid   = row["event_id"]
+        entry = _CATALOG_BY_ID.get(eid, {})
+        emoji = entry.get("emoji", "•")
+        name  = entry.get("name", eid)[:14]
+        lines.append(
+            f"{emoji} {name} w:{row['weight']} cd:{row['cooldown_minutes']}m"[:48]
+        )
+    await _w(bot, user.id, "\n".join(lines)[:249])
+
+
+# ---------------------------------------------------------------------------
+# /aeadd <number>  (manager+)
+# ---------------------------------------------------------------------------
+
+async def handle_aeadd(bot: BaseBot, user: User, args: list[str]) -> None:
+    """/aeadd <number> — add event to auto pool by catalog number."""
+    if not can_manage_economy(user.username):
+        await _w(bot, user.id, "Manager/admin/owner only.")
+        return
+    if len(args) < 2:
+        await _w(bot, user.id, "Usage: /aeadd <number>  (see /eventlist)")
+        return
+    eid = _resolve_event_arg(args[1].lower())
+    if eid is None:
+        await _w(bot, user.id, "Unknown event. Use /eventlist for numbers.")
+        return
+    entry = _CATALOG_BY_ID[eid]
+    db.add_to_event_pool(eid, entry["default_weight"], entry["cooldown_minutes"])
+    await _w(bot, user.id,
+             f"✅ {entry['emoji']} {entry['name']} added to auto pool.")
+
+
+# ---------------------------------------------------------------------------
+# /aeremove <number>  (manager+)
+# ---------------------------------------------------------------------------
+
+async def handle_aeremove(bot: BaseBot, user: User, args: list[str]) -> None:
+    """/aeremove <number> — remove event from auto pool."""
+    if not can_manage_economy(user.username):
+        await _w(bot, user.id, "Manager/admin/owner only.")
+        return
+    if len(args) < 2:
+        await _w(bot, user.id, "Usage: /aeremove <number>  (see /eventlist)")
+        return
+    eid     = _resolve_event_arg(args[1].lower())
+    if eid is None:
+        await _w(bot, user.id, "Unknown event. Use /eventlist for numbers.")
+        return
+    removed = db.remove_from_event_pool(eid)
+    name    = _CATALOG_BY_ID.get(eid, {}).get("name", eid)
+    if removed:
+        await _w(bot, user.id, f"✅ {name} removed from auto pool.")
+    else:
+        await _w(bot, user.id, f"{name} was not in the auto pool.")
+
+
+# ---------------------------------------------------------------------------
+# /aequeue / /autoeventqueue  (manager+)
+# ---------------------------------------------------------------------------
+
+async def handle_aequeue(bot: BaseBot, user: User) -> None:
+    """/aequeue — show pool queue info and next event."""
+    if not can_manage_economy(user.username):
+        await _w(bot, user.id, "Manager/admin/owner only.")
+        return
+    pool     = db.get_event_pool()
+    next_id  = db.get_auto_event_setting_str("next_event_id", "")
+    next_at  = db.get_auto_event_setting_str("next_event_at", "")
+    eligible = db.get_eligible_pool_events()
+    lines    = ["<#FFD700>📋 Auto Event Queue<#FFFFFF>"]
+    if next_id:
+        entry    = _CATALOG_BY_ID.get(next_id, {})
+        name     = entry.get("name", next_id)
+        time_str = _time_remaining(next_at) if next_at else "?"
+        lines.append(f"⏭️ Next: {name} in {time_str}")
+    else:
+        lines.append("Next: selected randomly at runtime")
+    lines.append(f"Pool: {len(pool)} | Eligible now: {len(eligible)}")
+    if pool:
+        top = pool[:3]
+        for row in top:
+            e = _CATALOG_BY_ID.get(row["event_id"], {})
+            lines.append(
+                f"  {e.get('emoji','•')} {e.get('name', row['event_id'])[:14]}"
+                f" w:{row['weight']}"[:45]
+            )
+    await _w(bot, user.id, "\n".join(lines)[:249])
+
+
+# ---------------------------------------------------------------------------
+# /aenext / /autoeventnext  (manager+)
+# ---------------------------------------------------------------------------
+
+async def handle_aenext(bot: BaseBot, user: User) -> None:
+    """/aenext — show the next scheduled auto event."""
+    if not can_manage_economy(user.username):
+        await _w(bot, user.id, "Manager/admin/owner only.")
+        return
+    next_id  = db.get_auto_event_setting_str("next_event_id", "")
+    next_at  = db.get_auto_event_setting_str("next_event_at", "")
+    settings = db.get_auto_event_settings()
+    enabled  = settings["auto_events_enabled"]
+    interval = settings["auto_event_interval"]
+    if next_id:
+        entry    = _CATALOG_BY_ID.get(next_id, {})
+        name     = entry.get("name", next_id)
+        emoji    = entry.get("emoji", "")
+        time_str = _time_remaining(next_at) if next_at else "?"
+        await _w(bot, user.id,
+                 f"⏭️ Next Auto Event\n"
+                 f"{emoji} {name}\n"
+                 f"Starts in: {time_str}")
+    elif enabled:
+        await _w(bot, user.id,
+                 f"⏭️ Next event: random from pool\n"
+                 f"Interval: every {interval}m")
+    else:
+        await _w(bot, user.id, "⏭️ Auto events are OFF. /autoevents on to enable.")
+
+
+# ---------------------------------------------------------------------------
+# /eventheartbeat / /eventscheduler  (manager+)
+# ---------------------------------------------------------------------------
+
+async def handle_eventheartbeat(bot: BaseBot, user: User) -> None:
+    """/eventheartbeat — show scheduler heartbeat status."""
+    if not can_manage_economy(user.username):
+        await _w(bot, user.id, "Manager/admin/owner only.")
+        return
+    settings  = db.get_auto_event_settings()
+    enabled   = settings["auto_events_enabled"]
+    interval  = settings["auto_event_interval"]
+    last_tick = db.get_auto_event_setting_str("last_scheduler_tick", "")
+    next_at   = db.get_auto_event_setting_str("next_event_at", "")
+    next_id   = db.get_auto_event_setting_str("next_event_id", "")
+    pool      = db.get_event_pool()
+
+    tick_str = "never"
+    if last_tick:
+        try:
+            lt = datetime.fromisoformat(last_tick)
+            if lt.tzinfo is None:
+                lt = lt.replace(tzinfo=timezone.utc)
+            secs = int((datetime.now(timezone.utc) - lt).total_seconds())
+            tick_str = f"{secs}s ago"
+        except Exception:
+            tick_str = "?"
+
+    next_name = _CATALOG_BY_ID.get(next_id, {}).get("name", next_id or "auto")
+    next_str  = _time_remaining(next_at) if next_at else "?"
+
+    lines = [
+        "🟢 Scheduler Heartbeat",
+        f"Auto Events: {'ON' if enabled else 'OFF'}",
+        f"Interval: {interval}m | Pool: {len(pool)}",
+        f"Last tick: {tick_str}",
+        f"Next: {next_name} in {next_str}",
+    ]
+    await _w(bot, user.id, "\n".join(lines)[:249])
+
+
+# ---------------------------------------------------------------------------
+# /eventcooldowns  (manager+)
+# ---------------------------------------------------------------------------
+
+async def handle_eventcooldowns(bot: BaseBot, user: User) -> None:
+    """/eventcooldowns — show per-event cooldowns."""
+    if not can_manage_economy(user.username):
+        await _w(bot, user.id, "Manager/admin/owner only.")
+        return
+    pool     = db.get_event_pool()
+    pool_map = {row["event_id"]: row for row in pool}
+    lines    = ["<#FFD700>⏰ Cooldowns<#FFFFFF>"]
+    chunk    = []
+    for ev in EVENT_CATALOG:
+        eid = ev["event_id"]
+        if ev["manual_only"]:
+            cd = "manual"
+        elif eid in pool_map:
+            cd = f"{pool_map[eid]['cooldown_minutes']}m"
+        else:
+            cd = "not in pool"
+        chunk.append(
+            f"{ev['number']}. {ev['emoji']} {ev['name'][:12]}: {cd}"[:44]
+        )
+        if len(chunk) == 6:
+            lines.extend(chunk)
+            chunk = []
+            if len("\n".join(lines)) > 200:
+                await _w(bot, user.id, "\n".join(lines)[:249])
+                lines = []
+    if chunk:
+        lines.extend(chunk)
+    if lines:
+        await _w(bot, user.id, "\n".join(lines)[:249])
+
+
+# ---------------------------------------------------------------------------
+# /seteventcooldown <number> <minutes>  (manager+)
+# ---------------------------------------------------------------------------
+
+async def handle_seteventcooldown(bot: BaseBot, user: User, args: list[str]) -> None:
+    """/seteventcooldown <number> <minutes> — set cooldown for a pool event."""
+    if not can_manage_economy(user.username):
+        await _w(bot, user.id, "Manager/admin/owner only.")
+        return
+    if len(args) < 3:
+        await _w(bot, user.id, "Usage: /seteventcooldown <number> <minutes>")
+        return
+    eid = _resolve_event_arg(args[1].lower())
+    if eid is None:
+        await _w(bot, user.id, "Unknown event. Use /eventlist for numbers.")
+        return
+    if not args[2].isdigit():
+        await _w(bot, user.id, "Minutes must be a positive number.")
+        return
+    cd    = max(0, int(args[2]))
+    entry = _CATALOG_BY_ID[eid]
+    if not db.get_event_pool_entry(eid):
+        await _w(bot, user.id,
+                 f"{entry['name']} is not in the pool. "
+                 f"Use /aeadd {entry['number']} first.")
+        return
+    db.set_pool_cooldown(eid, cd)
+    await _w(bot, user.id,
+             f"✅ {entry['emoji']} {entry['name']} cooldown set to {cd}m.")
+
+
+# ---------------------------------------------------------------------------
+# /eventweights  (manager+)
+# ---------------------------------------------------------------------------
+
+async def handle_eventweights(bot: BaseBot, user: User) -> None:
+    """/eventweights — show per-event selection weights."""
+    if not can_manage_economy(user.username):
+        await _w(bot, user.id, "Manager/admin/owner only.")
+        return
+    pool     = db.get_event_pool()
+    pool_map = {row["event_id"]: row for row in pool}
+    lines    = ["<#FFD700>⚖️ Weights<#FFFFFF>"]
+    chunk    = []
+    for ev in EVENT_CATALOG:
+        eid = ev["event_id"]
+        if ev["manual_only"]:
+            w = "manual"
+        elif eid in pool_map:
+            w = str(pool_map[eid]["weight"])
+        else:
+            w = "not in pool"
+        chunk.append(
+            f"{ev['number']}. {ev['emoji']} {ev['name'][:12]}: {w}"[:40]
+        )
+        if len(chunk) == 6:
+            lines.extend(chunk)
+            chunk = []
+            if len("\n".join(lines)) > 200:
+                await _w(bot, user.id, "\n".join(lines)[:249])
+                lines = []
+    if chunk:
+        lines.extend(chunk)
+    if lines:
+        await _w(bot, user.id, "\n".join(lines)[:249])
+
+
+# ---------------------------------------------------------------------------
+# /seteventweight <number> <weight>  (manager+)
+# ---------------------------------------------------------------------------
+
+async def handle_seteventweight(bot: BaseBot, user: User, args: list[str]) -> None:
+    """/seteventweight <number> <weight> — set selection weight for a pool event."""
+    if not can_manage_economy(user.username):
+        await _w(bot, user.id, "Manager/admin/owner only.")
+        return
+    if len(args) < 3:
+        await _w(bot, user.id, "Usage: /seteventweight <number> <weight>")
+        return
+    eid = _resolve_event_arg(args[1].lower())
+    if eid is None:
+        await _w(bot, user.id, "Unknown event. Use /eventlist for numbers.")
+        return
+    if not args[2].isdigit():
+        await _w(bot, user.id, "Weight must be 0 or a positive number.")
+        return
+    weight = max(0, int(args[2]))
+    entry  = _CATALOG_BY_ID[eid]
+    if not db.get_event_pool_entry(eid):
+        await _w(bot, user.id,
+                 f"{entry['name']} not in pool. "
+                 f"Use /aeadd {entry['number']} first.")
+        return
+    db.set_pool_weight(eid, weight)
+    await _w(bot, user.id,
+             f"✅ {entry['emoji']} {entry['name']} weight set to {weight}.")
+
+
+# ---------------------------------------------------------------------------
+# /eventhistory  (manager+)
+# ---------------------------------------------------------------------------
+
+async def handle_eventhistory(bot: BaseBot, user: User) -> None:
+    """/eventhistory — show recent event history."""
+    if not can_manage_economy(user.username):
+        await _w(bot, user.id, "Manager/admin/owner only.")
+        return
+    rows = db.get_event_history(limit=5)
+    if not rows:
+        await _w(bot, user.id, "📜 No event history yet.")
+        return
+    lines = ["<#FFD700>📜 Event History<#FFFFFF>"]
+    for r in rows:
+        name   = (r.get("event_name") or r.get("event_id", "?"))[:14]
+        mins   = int(r.get("duration_seconds", 0)) // 60
+        status = r.get("status", "?")
+        auto   = "auto" if r.get("auto_started") else "manual"
+        lines.append(f"{name} {mins}m [{status}/{auto}]"[:48])
+    await _w(bot, user.id, "\n".join(lines)[:249])
+
+
+# ---------------------------------------------------------------------------
+# Startup: mining event check  (called from on_start)
+# ---------------------------------------------------------------------------
+
+async def startup_mining_event_check(bot: BaseBot) -> None:
+    """Log active mining event at startup; mining.py reads the DB directly."""
+    mine_ev = db.get_active_mining_event()
+    if mine_ev:
+        eid  = mine_ev.get("event_id", "")
+        name = EVENTS.get(eid, {}).get("name", eid)
+        print(f"[EVENTS] Startup: mining event '{eid}' ({name}) still active.")
+    else:
+        print("[EVENTS] Startup: no active mining event.")

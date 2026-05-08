@@ -453,6 +453,16 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "eventeffects": "eventhost",
     "autoeventstatus": "eventhost", "autoeventadd": "eventhost",
     "autoeventremove": "eventhost", "autoeventinterval": "eventhost",
+    # Event Manager catalog + pool (new)
+    "eventlist": "eventhost",      "eventpreview": "eventhost",
+    "aepool": "eventhost",         "autoeventpool": "eventhost",
+    "aeadd": "eventhost",          "aeremove": "eventhost",
+    "aequeue": "eventhost",        "autoeventqueue": "eventhost",
+    "aenext": "eventhost",         "autoeventnext": "eventhost",
+    "aestatus": "eventhost",       "eventheartbeat": "eventhost",
+    "eventscheduler": "eventhost", "eventcooldowns": "eventhost",
+    "seteventcooldown": "eventhost", "eventweights": "eventhost",
+    "seteventweight": "eventhost", "eventhistory": "eventhost",
     # miner — ore chance commands (A2)
     "orechances": "miner", "orechance": "miner",
     "setorechance": "miner", "setraritychance": "miner",

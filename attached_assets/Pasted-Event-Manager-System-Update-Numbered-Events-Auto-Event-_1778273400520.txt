@@ -1,0 +1,779 @@
+Event Manager System Update — Numbered Events, Auto Event Pool, Scheduler Status, and Mining Events
+
+Focus only on the Event Manager / EventBot system.
+
+Do not change bot tokens.
+Do not change room ID.
+Do not reset balances.
+Do not wipe player data.
+Do not break mining, poker, blackjack, bank, shop, AI, outfits, bot spawns, or existing commands.
+
+Goal:
+Create a clean Event Manager system where EventBot/EventHost controls all events, auto-events, event scheduling, event pools, event history, event cooldowns, and event status.
+
+MiningBot should NOT control event timers.
+MiningBot should only read active mining event effects and apply boosts.
+
+==================================================
+PART 1 — EVENT MANAGER CORE RULES
+==================================================
+
+EventBot/EventHost should control:
+
+- normal room events
+- mining events
+- auto events
+- event timers
+- active event effects
+- event schedules
+- event pool
+- event queue
+- event history
+- event cooldowns
+- event weights
+- event persistence after restart
+- scheduler heartbeat
+- duplicate scheduler protection
+
+Events must persist after restart.
+
+If the bot crashes/restarts:
+1. Active events should reload from database.
+2. If an event is still active, continue it with remaining time.
+3. If an event expired during downtime, mark it expired.
+4. Do not restart expired events.
+5. Do not duplicate active events.
+
+Only EventBot/EventHost should run the event scheduler loop.
+
+==================================================
+PART 2 — NUMBERED EVENT CATALOG
+==================================================
+
+Create a numbered event catalog.
+
+Command:
+/eventlist
+
+Output example:
+
+EventBot:
+📋 Event Catalog
+1. 🍀 Lucky Rush
+2. ⚖️ Heavy Ore Rush
+3. 💰 Ore Value Surge
+4. ⭐ Double MXP
+5. ⏳ Mining Haste
+6. 🟡 Legendary Rush
+7. 🌈 Prismatic Hunt
+8. 🚨 Exotic Hunt
+9. ⏰ Time EXP Boost
+10. 🎁 Reward Drop
+11. 🏆 Event Points Boost
+12. 🔥 Ultimate Mining Rush
+
+Important:
+Staff should be able to start, add, remove, preview, and configure events by number.
+
+Examples:
+/event 7 30
+/startevent 7 30
+/aeadd 7
+/aeremove 8
+/eventpreview 7
+
+Do not force staff to type full event names.
+
+==================================================
+PART 3 — EVENT LIST
+==================================================
+
+Add these events:
+
+1. Lucky Rush
+event_id: lucky_rush
+emoji: 🍀
+type: mining
+effect:
+- +25% mining luck
+- better chance for higher rarity ores
+- small boost toward Legendary+
+
+2. Heavy Ore Rush
+event_id: heavy_ore_rush
+emoji: ⚖️
+type: mining
+effect:
+- +25% weight luck
+- ores roll heavier weights
+- better chance to break ore weight leaderboard records
+
+3. Ore Value Surge
+event_id: ore_value_surge
+emoji: 💰
+type: mining
+effect:
+- 1.5x ore value
+- applies after weight value calculation
+
+4. Double MXP
+event_id: double_mxp
+emoji: ⭐
+type: mining
+effect:
+- 2x mining EXP / MXP
+- does not boost coins
+
+5. Mining Haste
+event_id: mining_haste
+emoji: ⏳
+type: mining
+effect:
+- -25% mining cooldown
+- 30s cooldown becomes 22.5s
+- must respect minimum cooldown
+
+6. Legendary Rush
+event_id: legendary_rush
+emoji: 🟡
+type: mining
+effect:
+- +50% Legendary+ chance
+- affects Legendary, Mythic, Prismatic, Exotic
+
+7. Prismatic Hunt
+event_id: prismatic_hunt
+emoji: 🌈
+type: mining
+effect:
+- 2x Prismatic chance
+- still very rare
+
+8. Exotic Hunt
+event_id: exotic_hunt
+emoji: 🚨
+type: mining
+effect:
+- 2x Exotic chance
+- still extremely rare
+
+9. Time EXP Boost
+event_id: time_exp_boost
+emoji: ⏰
+type: room
+effect:
+- 2x time-in-room EXP
+- bots excluded by default
+- AFK players still earn base EXP
+
+10. Reward Drop
+event_id: reward_drop
+emoji: 🎁
+type: room
+effect:
+- random rewards during event
+- rewards can include coins, EXP, event points, chests, or items if supported
+
+11. Event Points Boost
+event_id: event_points_boost
+emoji: 🏆
+type: room
+effect:
+- 2x event points
+- useful for future seasonal leaderboard systems
+
+12. Ultimate Mining Rush
+event_id: ultimate_mining_rush
+emoji: 🔥
+type: mining
+manual_only: true by default
+
+This replaces the old name “Admin’s Mining Blessing.”
+Do NOT use “Admin’s Mining Blessing” as the public event name anymore.
+
+Ultimate Mining Rush effect:
+- +50% mining luck
+- +50% weight luck
+- 2x ore value
+- 2x MXP
+- -25% mining cooldown
+- +50% Legendary+ chance
+- 2x Prismatic chance
+- 2x Exotic chance
+
+Important:
+Ultimate Mining Rush should be manual-only by default.
+It should NOT be in the default auto-event pool.
+It can appear in /eventlist as #12.
+Owner/admin can manually add it to the auto-event pool with /aeadd 12 if desired.
+
+==================================================
+PART 4 — AUTO EVENT POOL
+==================================================
+
+Add an Auto Event Pool system.
+
+The Auto Event Pool is the list of events EventBot is allowed to randomly choose from.
+
+Commands:
+- /aepool
+- /autoeventpool
+- /aeadd <number>
+- /aeremove <number>
+- /aequeue
+- /autoeventqueue
+- /aenext
+- /autoeventnext
+- /aestatus
+- /autoeventstatus
+
+/aepool should show current auto-event pool.
+
+Example:
+
+EventBot:
+📋 Auto Event Pool
+1. 🍀 Lucky Rush
+2. ⚖️ Heavy Ore Rush
+3. 💰 Ore Value Surge
+4. ⭐ Double MXP
+5. ⏳ Mining Haste
+6. 🟡 Legendary Rush
+7. 🌈 Prismatic Hunt
+8. 🚨 Exotic Hunt
+
+Default auto-event pool should include:
+1. Lucky Rush
+2. Heavy Ore Rush
+3. Ore Value Surge
+4. Double MXP
+5. Mining Haste
+6. Legendary Rush
+7. Prismatic Hunt
+8. Exotic Hunt
+9. Time EXP Boost
+10. Reward Drop
+11. Event Points Boost
+
+Default auto-event pool should NOT include:
+12. Ultimate Mining Rush
+
+Add event to pool:
+/aeadd 7
+
+Remove event from pool:
+/aeremove 8
+
+If user enters invalid number, show:
+/eventlist
+
+Auto-event pool should persist after restart.
+
+==================================================
+PART 5 — NUMBERED MANUAL EVENT CONTROLS
+==================================================
+
+Add simple numbered commands.
+
+Commands:
+- /event <number> <minutes>
+- /startevent <number> <minutes>
+- /stopevent <number|event_id|all>
+- /eventpreview <number>
+
+Examples:
+/event 1 30
+Starts Lucky Rush for 30 minutes.
+
+/event 7 20
+Starts Prismatic Hunt for 20 minutes.
+
+/event 8 15
+Starts Exotic Hunt for 15 minutes.
+
+/event 12 10
+Starts Ultimate Mining Rush for 10 minutes.
+
+Keep full event ID commands working too:
+- /startevent prismatic_hunt 30
+- /startevent exotic_hunt 30
+- /startevent ultimate_mining_rush 10
+
+But numbered controls should be the preferred staff workflow.
+
+==================================================
+PART 6 — EVENT PREVIEW
+==================================================
+
+Add:
+/eventpreview <number>
+
+Example:
+/eventpreview 7
+
+Output:
+
+EventBot:
+🌈 Prismatic Hunt
+ID: prismatic_hunt
+Effect: 2x Prismatic chance
+Default Duration: 30m
+Auto Pool: YES
+Manual Only: NO
+Stackable: NO
+Cooldown: 180m
+Weight: 5
+
+/eventpreview 12
+
+Output:
+
+EventBot:
+🔥 Ultimate Mining Rush
+ID: ultimate_mining_rush
+Effect: All mining boosts
+Auto Pool: NO
+Manual Only: YES
+Stackable: controlled
+Cooldown: manual only
+
+==================================================
+PART 7 — EVENT QUEUE AND NEXT EVENT
+==================================================
+
+Add:
+/aequeue
+/autoeventqueue
+/aenext
+/autoeventnext
+
+/aenext should show only next event.
+
+Example:
+
+EventBot:
+⏭️ Next Auto Event
+Next: Lucky Rush
+Starts In: 14m 32s
+Next Start: 8:45 PM
+
+/aequeue should show upcoming rotation/queue if available.
+
+Example:
+
+EventBot:
+📋 Auto Event Queue
+1. Lucky Rush — starts in 14m
+2. Heavy Ore Rush
+3. Double MXP
+
+If events are randomly selected and there is no fixed queue, show:
+Next event is selected at runtime from the auto-event pool.
+
+==================================================
+PART 8 — AUTO EVENT SCHEDULER STATUS
+==================================================
+
+Add scheduler tracking commands:
+
+- /autoeventstatus
+- /aestatus
+- /eventheartbeat
+- /eventscheduler
+
+/autoeventstatus output example:
+
+EventBot:
+📅 Auto Events
+Status: ON
+Scheduler: RUNNING
+Current Event: None
+Next Event: Lucky Rush
+Starts In: 14m 32s
+Next Start: 8:45 PM
+Interval: 30m
+Pool Size: 11
+Last Event: Ore Value Surge
+Last Started: 8:15 PM
+Duplicate Scheduler: NO
+
+/eventheartbeat output example:
+
+EventBot:
+🟢 Scheduler Heartbeat
+Bot Online: YES
+Auto Events: ON
+Scheduler Lock: EventBot
+Last Tick: 12s ago
+Next Tick: 48s
+Next Event: Prismatic Hunt
+Starts In: 9m 12s
+Duplicate Scheduler: NO
+
+Requirements:
+1. Show if auto events are ON/OFF.
+2. Show if scheduler is RUNNING/STOPPED.
+3. Show scheduler lock owner.
+4. Show last tick time.
+5. Show next tick time.
+6. Show next event if known.
+7. Show next start countdown.
+8. Detect duplicate schedulers.
+9. Only EventBot/EventHost should run scheduler.
+
+==================================================
+PART 9 — AUTO EVENT ON/OFF AND INTERVAL
+==================================================
+
+Commands:
+- /autoevents
+- /autoevents on
+- /autoevents off
+- /autoeventinterval <minutes>
+
+Behavior:
+/autoevents shows whether auto events are enabled.
+/autoevents on enables scheduler.
+/autoevents off disables scheduler.
+/autoeventinterval 30 sets interval to 30 minutes.
+
+Settings should persist after restart.
+
+==================================================
+PART 10 — EVENT COOLDOWNS
+==================================================
+
+Add cooldowns so the same event does not repeat too often.
+
+Commands:
+- /eventcooldowns
+- /seteventcooldown <number> <minutes>
+
+Recommended default cooldowns:
+1 Lucky Rush: 60m
+2 Heavy Ore Rush: 60m
+3 Ore Value Surge: 90m
+4 Double MXP: 60m
+5 Mining Haste: 60m
+6 Legendary Rush: 120m
+7 Prismatic Hunt: 180m
+8 Exotic Hunt: 360m
+9 Time EXP Boost: 90m
+10 Reward Drop: 90m
+11 Event Points Boost: 90m
+12 Ultimate Mining Rush: manual-only
+
+Examples:
+/seteventcooldown 7 180
+/seteventcooldown 8 360
+
+Cooldowns should persist after restart.
+
+Auto-event selection should skip events still on cooldown.
+
+==================================================
+PART 11 — EVENT WEIGHTS
+==================================================
+
+Add weighted auto-event rotation.
+
+Commands:
+- /eventweights
+- /seteventweight <number> <weight>
+
+Recommended default weights:
+1 Lucky Rush: 20
+2 Heavy Ore Rush: 20
+3 Ore Value Surge: 25
+4 Double MXP: 30
+5 Mining Haste: 25
+6 Legendary Rush: 10
+7 Prismatic Hunt: 5
+8 Exotic Hunt: 2
+9 Time EXP Boost: 20
+10 Reward Drop: 15
+11 Event Points Boost: 15
+12 Ultimate Mining Rush: 0
+
+Important:
+Ultimate Mining Rush weight should be 0 by default because it is manual-only.
+
+Weighted auto selection:
+Higher weight = more common.
+Weight 0 = never selected automatically.
+
+==================================================
+PART 12 — EVENT HISTORY
+==================================================
+
+Add:
+/eventhistory
+
+Shows recent events.
+
+Example:
+
+EventBot:
+📜 Event History
+1. Ore Value Surge — 30m — ended 12m ago
+2. Lucky Rush — 20m — ended 1h ago
+3. Double MXP — 30m — ended 2h ago
+
+Track:
+- event_id
+- event_name
+- started_by
+- started_at
+- ended_at
+- duration
+- status
+- auto_started true/false
+
+==================================================
+PART 13 — ACTIVE EVENTS AND EFFECTS
+==================================================
+
+Commands:
+- /eventstatus
+- /eventpanel
+- /eventmanager
+- /eventeffects
+
+/eventeffects should show active effects.
+
+Example:
+
+EventBot:
+✨ Active Effects
+🍀 Mining Luck: +25%
+⚖️ Weight Luck: +25%
+💰 Ore Value: 1.5x
+⭐ MXP: 2x
+⏳ Cooldown: -25%
+
+/eventpanel should show:
+- active events
+- auto events ON/OFF
+- next event
+- pool size
+- scheduler status
+- duplicate scheduler status
+- recent event history
+
+==================================================
+PART 14 — MINING BOT INTEGRATION
+==================================================
+
+MiningBot should read active event effects from Event Manager.
+
+MiningBot applies:
+- mining_luck_boost
+- weight_luck_boost
+- ore_value_multiplier
+- mxp_multiplier
+- cooldown_reduction
+- legendary_plus_chance_boost
+- prismatic_chance_boost
+- exotic_chance_boost
+
+MiningBot should show active boosts in:
+- /mine
+- /mineboosts
+- /mineeventstatus
+- /minepanel
+
+Commands:
+- /mineboosts
+- /luckstatus
+- /mineeventstatus
+- /miningevents
+- /mineevents
+
+Example:
+
+GreatestProspector:
+⛏️ Mining Boosts
+🍀 Lucky Rush: +25% luck
+⚖️ Heavy Ore Rush: +25% weight
+Ends in: 14m
+
+==================================================
+PART 15 — DATABASE / PERSISTENCE
+==================================================
+
+Use existing database style.
+
+Create or extend tables safely with CREATE TABLE IF NOT EXISTS.
+
+Suggested tables:
+
+event_definitions:
+- event_id TEXT PRIMARY KEY
+- event_number INTEGER UNIQUE
+- event_name TEXT
+- emoji TEXT
+- event_type TEXT
+- effect_json TEXT
+- default_duration_minutes INTEGER
+- manual_only INTEGER DEFAULT 0
+- stackable INTEGER DEFAULT 0
+- default_weight INTEGER DEFAULT 1
+- cooldown_minutes INTEGER DEFAULT 60
+- enabled INTEGER DEFAULT 1
+
+active_events:
+- id INTEGER PRIMARY KEY AUTOINCREMENT
+- event_id TEXT
+- event_name TEXT
+- event_type TEXT
+- started_by TEXT
+- auto_started INTEGER DEFAULT 0
+- started_at TEXT
+- duration_seconds INTEGER
+- ends_at TEXT
+- status TEXT
+- effect_json TEXT
+- stackable INTEGER
+- created_at TEXT
+- updated_at TEXT
+
+auto_event_settings:
+- key TEXT PRIMARY KEY
+- value TEXT
+
+auto_event_pool:
+- event_id TEXT PRIMARY KEY
+- event_number INTEGER
+- enabled INTEGER DEFAULT 1
+- weight INTEGER DEFAULT 1
+- cooldown_minutes INTEGER DEFAULT 60
+- last_started_at TEXT
+
+event_history:
+- id INTEGER PRIMARY KEY AUTOINCREMENT
+- event_id TEXT
+- event_name TEXT
+- started_by TEXT
+- auto_started INTEGER
+- started_at TEXT
+- ended_at TEXT
+- duration_seconds INTEGER
+- status TEXT
+
+scheduler_heartbeat:
+- key TEXT PRIMARY KEY
+- value TEXT
+
+Settings:
+- auto_events_enabled = 0 or 1
+- auto_event_interval_minutes = 30
+- scheduler_lock_owner = EventBot
+- last_scheduler_tick
+- next_event_at
+- next_event_id
+
+==================================================
+PART 16 — DEFAULT AUTO EVENT POOL
+==================================================
+
+Default auto pool should include event numbers:
+1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11
+
+Default auto pool should NOT include:
+12
+
+Ultimate Mining Rush is manual-only by default.
+
+==================================================
+PART 17 — COMMAND INTEGRITY
+==================================================
+
+For every new command or alias:
+1. Add route.
+2. Add handler.
+3. Add commandtest support.
+4. Add active registry entry.
+5. Add owner map.
+6. Owner must not be UNKNOWN.
+
+Owner:
+Event commands should be owned by EventBot/EventHost.
+
+Commands to verify:
+
+/commandtest /eventlist
+/commandtest /event
+/commandtest /startevent
+/commandtest /stopevent
+/commandtest /eventpreview
+/commandtest /aepool
+/commandtest /autoeventpool
+/commandtest /aeadd
+/commandtest /aeremove
+/commandtest /aequeue
+/commandtest /autoeventqueue
+/commandtest /aenext
+/commandtest /autoeventnext
+/commandtest /aestatus
+/commandtest /autoeventstatus
+/commandtest /eventheartbeat
+/commandtest /eventscheduler
+/commandtest /autoevents
+/commandtest /autoeventinterval
+/commandtest /eventcooldowns
+/commandtest /seteventcooldown
+/commandtest /eventweights
+/commandtest /seteventweight
+/commandtest /eventhistory
+/commandtest /eventstatus
+/commandtest /eventpanel
+/commandtest /eventmanager
+/commandtest /eventeffects
+/commandtest /mineboosts
+/commandtest /luckstatus
+/commandtest /mineeventstatus
+/commandtest /miningevents
+/commandtest /mineevents
+
+/checkcommands all should show:
+Missing 0
+NoOwner 0
+
+If a command is not implemented, do not add it as active.
+
+==================================================
+PART 18 — SAFETY
+==================================================
+
+Do not:
+- reset balances
+- wipe player data
+- break mining
+- break current event commands
+- let multiple bots run auto-event scheduler
+- include Ultimate Mining Rush in default auto pool
+- restart expired events after downtime
+- stack duplicate copies of the same event
+- allow normal players to start staff-only events
+- expose bot tokens, room ID, env vars, or secrets
+
+==================================================
+FINAL REPORT
+==================================================
+
+After finishing, tell me:
+1. Files changed
+2. Database tables added or updated
+3. Event catalog added
+4. Event numbers and event IDs
+5. Which events are in default auto pool
+6. Confirm Ultimate Mining Rush is manual-only by default
+7. How /aeadd and /aeremove work by number
+8. How event weights work
+9. How event cooldowns work
+10. How event scheduler heartbeat works
+11. How duplicate scheduler detection works
+12. How events persist after restart
+13. How MiningBot reads active event effects
+14. Commands added
+15. Exact tests to run
