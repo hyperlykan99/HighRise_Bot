@@ -578,7 +578,10 @@ MANAGER_ONLY_CMDS = {
 
 # ── First-find + announce public read commands ────────────────────────────
 FIRSTFIND_COMMANDS = {
-    "firstfindrewards", "firstfindstatus", "bigannouncestatus",
+    "firstfindreward", "firstfindrewards", "firstfindstatus",
+    "setfirstfind", "setfirstfindreward", "resetfirstfind",
+    "bigannounce", "bigannouncestatus", "setbigannounce",
+    "setbigreact", "setbotbigreact",
 }
 
 TIP_COMMANDS = {"tiprate", "tipstats", "tipleaderboard"}
@@ -4228,10 +4231,10 @@ class HangoutBot(BaseBot):
             await handle_setautofishdailycap(self, user, args)
 
         # ── First-find reward commands ─────────────────────────────────────
-        elif cmd in {"firstfindrewards", "firstfindlist"}:
+        elif cmd in {"firstfindrewards", "firstfindlist", "firstfindreward"}:
             await handle_firstfindrewards(self, user)
 
-        elif cmd == "setfirstfind":
+        elif cmd in {"setfirstfind", "setfirstfindreward"}:
             await handle_setfirstfind(self, user, args)
 
         elif cmd in {"firstfindstatus", "firstfindcheck"}:

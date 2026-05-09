@@ -505,6 +505,18 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "setautofish": "fisher",
     "setautofishduration": "fisher", "setautofishattempts": "fisher",
     "setautofishdailycap": "fisher",
+    # ── fishing force drop ───────────────────────────────────────────────────
+    "forcefishdrop": "fisher", "forcefish": "fisher",
+    "forcefishdropfish": "fisher", "forcefishstatus": "fisher",
+    "clearforcefish": "fisher",
+    # ── first-find rewards ───────────────────────────────────────────────────
+    "firstfindreward": "banker", "firstfindrewards": "banker",
+    "firstfindstatus": "banker",
+    "setfirstfind": "banker", "setfirstfindreward": "banker",
+    "resetfirstfind": "banker",
+    # ── big announcement ─────────────────────────────────────────────────────
+    "bigannounce": "host", "bigannouncestatus": "host",
+    "setbigannounce": "host", "setbigreact": "host", "setbotbigreact": "host",
 }
 
 # Friendly display names for modes

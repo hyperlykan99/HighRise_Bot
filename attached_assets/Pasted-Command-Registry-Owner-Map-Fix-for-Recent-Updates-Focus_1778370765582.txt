@@ -1,0 +1,425 @@
+Command Registry / Owner Map Fix for Recent Updates
+
+Focus only on fixing command routing, command registry entries, handlers, and owners for the recent force drop, force fish, first-find reward, and big announcement commands.
+
+Do not rebuild these systems.
+Do not change bot tokens.
+Do not change room ID.
+Do not reset balances.
+Do not wipe player data.
+Do not wipe mining/fishing records.
+Do not break mining, fishing, poker, blackjack, bank, shop, events, AI, security, bot outfits, bot spawns, or command routing.
+
+==================================================
+CURRENT ISSUE
+==================================================
+
+/checkcommands all shows:
+Missing 18
+NoOwner 18
+
+/commandtest /setbotbigreact shows:
+owner=UNKNOWN
+route=NO
+handler=NO
+fix=add_to_registry
+
+The bot is showing these commands in help/examples, but some of them are not actually routed or owned.
+
+This must be fixed.
+
+==================================================
+GOAL
+==================================================
+
+For every missing/no-owner command:
+
+1. Add route.
+2. Add handler.
+3. Add command registry entry.
+4. Add command owner.
+5. Make /commandtest show:
+   route=YES
+   handler=YES
+   owner is not UNKNOWN
+
+After fixing:
+
+/checkcommands all
+
+must show:
+
+Missing 0
+NoOwner 0
+
+==================================================
+PART 1 — COMMANDS TO FIX
+==================================================
+
+Fix these commands:
+
+Big announcement commands:
+- /bigannounce
+- /bigannouncestatus
+- /setbigannounce
+- /setbotbigreact
+
+Fishing force drop commands:
+- /forcefish
+- /forcefishdrop
+- /forcefishdropfish
+- /forcefishstatus
+- /clearforcefish
+
+Mining force drop commands:
+- /forcedrop
+- /forcedropore
+- /forcedropstatus
+- /clearforcedrop
+
+First-find reward commands:
+- /firstfindreward
+- /firstfindrewards
+- /firstfindstatus
+- /setfirstfindreward
+- /resetfirstfind
+
+==================================================
+PART 2 — SUGGESTED OWNERS
+==================================================
+
+Use these command owners:
+
+Big announcement commands:
+Owner = EmceeBot or EventBot
+
+Recommended:
+- /bigannounce = EmceeBot
+- /bigannouncestatus = EmceeBot
+- /setbigannounce = EmceeBot
+- /setbotbigreact = EmceeBot
+
+First-find reward commands:
+Owner = BankingBot
+
+- /firstfindreward = BankingBot
+- /firstfindrewards = BankingBot
+- /firstfindstatus = BankingBot
+- /setfirstfindreward = BankingBot
+- /resetfirstfind = BankingBot
+
+Fishing force drop commands:
+Owner = MasterAngler
+
+- /forcefish = MasterAngler
+- /forcefishdrop = MasterAngler
+- /forcefishdropfish = MasterAngler
+- /forcefishstatus = MasterAngler
+- /clearforcefish = MasterAngler
+
+Mining force drop commands:
+Owner = GreatestProspector
+
+- /forcedrop = GreatestProspector
+- /forcedropore = GreatestProspector
+- /forcedropstatus = GreatestProspector
+- /clearforcedrop = GreatestProspector
+
+If the system uses different owner names internally, use the existing correct bot owner keys, but do not leave UNKNOWN.
+
+==================================================
+PART 3 — HANDLER RULES
+==================================================
+
+If the command’s real function already exists:
+- connect the command route to the existing handler
+- do not duplicate logic
+- do not rewrite the whole system
+
+If the command has no real handler yet:
+- either create a safe minimal handler
+- or remove it from help/examples and active registry
+
+Do not leave commands half-active.
+
+A command must not appear in help/examples if:
+- route=NO
+- handler=NO
+- owner=UNKNOWN
+
+==================================================
+PART 4 — BIG ANNOUNCEMENT COMMAND HANDLERS
+==================================================
+
+Make sure these work:
+
+/bigannounce
+Shows help/settings for Big Find / Big Catch announcements.
+
+Example response:
+EmceeBot:
+📣 Big Announcement Settings
+Use:
+/setbigannounce mining exotic all_bots
+/setbigannounce fishing prismatic fishing_only
+/setbotbigreact BankingBot on
+
+/bigannouncestatus
+Shows current routing settings.
+
+Example:
+EmceeBot:
+📣 Big Announcements
+
+Mining:
+LEGENDARY → miner_only
+MYTHIC → miner_only
+PRISMATIC → all_bots
+EXOTIC → all_bots
+
+Fishing:
+LEGENDARY → fishing_only
+MYTHIC → fishing_only
+PRISMATIC → all_bots
+EXOTIC → all_bots
+
+Bot Reactions:
+BankingBot ON | EventBot ON | EmceeBot ON
+
+/setbigannounce <mining|fishing> <rarity> <miner_only|fishing_only|all_bots|off>
+Manager+ only.
+
+Examples:
+/setbigannounce mining exotic all_bots
+/setbigannounce fishing prismatic all_bots
+
+/setbotbigreact <bot> <on|off>
+Manager+ only.
+
+Examples:
+/setbotbigreact BankingBot on
+/setbotbigreact EventBot on
+
+==================================================
+PART 5 — FISHING FORCE DROP COMMAND HANDLERS
+==================================================
+
+Make sure these work:
+
+/forcefish <username> <rarity>
+Alias for /forcefishdrop.
+
+/forcefishdrop <username> <rarity>
+Owner only.
+Forces player’s next /fish or AutoFish attempt to catch random fish from that rarity.
+
+/forcefishdropfish <username> <fish_name>
+Owner only.
+Forces player’s next /fish or AutoFish attempt to catch exact fish.
+
+/forcefishstatus
+Owner only.
+Shows pending forced fishing drops.
+
+/clearforcefish <username>
+Owner only.
+Clears pending forced fishing drop for that player.
+
+Valid rarities:
+common
+rare
+epic
+legendary
+mythic
+prismatic
+exotic
+
+==================================================
+PART 6 — MINING FORCE DROP COMMAND HANDLERS
+==================================================
+
+Make sure these work:
+
+/forcedrop <username> <rarity>
+Owner only.
+Forces player’s next /mine or AutoMine attempt to mine random ore from that rarity.
+
+/forcedropore <username> <ore_name>
+Owner only.
+Forces player’s next /mine or AutoMine attempt to mine exact ore.
+
+/forcedropstatus
+Owner only.
+Shows pending forced mining drops.
+
+/clearforcedrop <username>
+Owner only.
+Clears pending forced mining drop for that player.
+
+Valid rarities:
+common
+rare
+epic
+legendary
+mythic
+prismatic
+exotic
+
+==================================================
+PART 7 — FIRST-FIND REWARD COMMAND HANDLERS
+==================================================
+
+Make sure these work:
+
+/firstfindreward
+Shows help/settings for first-find rewards.
+
+/firstfindrewards
+Alias for /firstfindreward or shows current rewards.
+
+/firstfindstatus
+Shows current configured first-find rewards and claimed players.
+
+/setfirstfindreward <mining|fishing> <rarity> <players_count> <gold_amount>
+Manager+ only.
+Configures first-find reward.
+
+/resetfirstfind <mining|fishing> <rarity>
+Manager+ only.
+Resets first-find claims for category and rarity.
+
+Examples:
+/setfirstfindreward mining exotic 3 10
+/setfirstfindreward fishing prismatic 2 5
+/resetfirstfind mining exotic
+
+==================================================
+PART 8 — PERMISSIONS
+==================================================
+
+Apply permissions correctly:
+
+Owner only:
+- /forcedrop
+- /forcedropore
+- /forcedropstatus
+- /clearforcedrop
+- /forcefish
+- /forcefishdrop
+- /forcefishdropfish
+- /forcefishstatus
+- /clearforcefish
+
+Manager+:
+- /bigannounce
+- /bigannouncestatus
+- /setbigannounce
+- /setbotbigreact
+- /firstfindreward
+- /firstfindrewards
+- /firstfindstatus
+- /setfirstfindreward
+- /resetfirstfind
+
+If the existing system uses Admin+ instead of Manager+, use the project’s current staff permission model, but do not allow normal players to use secret/staff commands.
+
+==================================================
+PART 9 — HELP / EXAMPLES CLEANUP
+==================================================
+
+Clean up help/examples so they only show working commands.
+
+If command is routed and handled:
+- it can appear in help/examples
+
+If command is not routed or handled:
+- remove from help/examples
+- remove from active command registry
+
+Do not show broken commands like:
+/setbotbigreact
+if it still shows route=NO or handler=NO.
+
+==================================================
+PART 10 — COMMANDTEST INTEGRATION
+==================================================
+
+Make sure /commandtest works for all commands below:
+
+/commandtest /bigannounce
+/commandtest /bigannouncestatus
+/commandtest /setbigannounce
+/commandtest /setbotbigreact
+
+/commandtest /forcefish
+/commandtest /forcefishdrop
+/commandtest /forcefishdropfish
+/commandtest /forcefishstatus
+/commandtest /clearforcefish
+
+/commandtest /forcedrop
+/commandtest /forcedropore
+/commandtest /forcedropstatus
+/commandtest /clearforcedrop
+
+/commandtest /firstfindreward
+/commandtest /firstfindrewards
+/commandtest /firstfindstatus
+/commandtest /setfirstfindreward
+/commandtest /resetfirstfind
+
+Each should show:
+route=YES
+handler=YES
+owner=<real owner>
+owner must not be UNKNOWN
+
+==================================================
+PART 11 — COMMANDISSUES CLEANUP
+==================================================
+
+After fixing:
+
+/commandissues
+
+should not list these commands under:
+- missing
+- noowner
+
+/checkcommands all should show:
+Missing 0
+NoOwner 0
+
+If there are still issues, list exactly which commands still fail and why.
+
+==================================================
+PART 12 — SAFETY
+==================================================
+
+Do not:
+- reset balances
+- wipe player data
+- wipe command database unless absolutely necessary
+- remove working commands
+- break command routing
+- expose bot tokens
+- expose room ID
+- expose secrets/env vars
+- allow non-owner users to use force drops
+- allow normal users to change announcement routing
+- leave commands in examples if they do not work
+
+==================================================
+FINAL REPORT
+==================================================
+
+After finishing, tell me:
+
+1. Files changed
+2. Which commands were missing
+3. Which commands had owner UNKNOWN
+4. Which owners were assigned
+5. Which handlers were connected
+6. Whether any commands were removed from help/examples
+7. Results of /checkcommands all
+8. Exact tests to run

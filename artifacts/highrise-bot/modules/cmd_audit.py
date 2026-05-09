@@ -430,6 +430,15 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     "setautofish",
     "setautofishduration", "setautofishattempts",
     "setautofishdailycap",
+    # ── Fishing force drop ───────────────────────────────────────────────────
+    "forcefishdrop", "forcefish", "forcefishdropfish",
+    "forcefishstatus", "clearforcefish",
+    # ── First-find rewards ───────────────────────────────────────────────────
+    "firstfindreward", "firstfindrewards", "firstfindstatus",
+    "setfirstfind", "setfirstfindreward", "resetfirstfind",
+    # ── Big announcement ─────────────────────────────────────────────────────
+    "bigannounce", "bigannouncestatus", "setbigannounce",
+    "setbigreact", "setbotbigreact",
 })
 
 # ---------------------------------------------------------------------------
