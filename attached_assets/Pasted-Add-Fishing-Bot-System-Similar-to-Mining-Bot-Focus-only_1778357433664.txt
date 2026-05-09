@@ -1,0 +1,799 @@
+Add Fishing Bot System Similar to Mining Bot
+
+Focus only on adding a new Fishing Bot system.
+Do not change bot tokens.
+Do not change room ID.
+Do not reset balances.
+Do not wipe player data.
+Do not break mining, poker, blackjack, bank, shop, security, events, badges, titles, bot spawns, or command routing.
+
+Goal:
+Create a Fishing Bot that works very similar to the Mining Bot, but uses fish instead of ores.
+
+Recommended bot name:
+MasterAngler
+
+If the project already has a bot role system, add FishingBot/MasterAngler as a new bot role/owner.
+
+==================================================
+PART 1 — CORE FISHING CONCEPT
+==================================================
+
+Fishing should copy the structure of Mining, but stay separate.
+
+Mining uses:
+- ores
+- ore rarities
+- ore weights
+- ore prices
+- MXP
+- mining level
+- mining cooldown
+- ore inventory
+- mining announcements
+
+Fishing should use:
+- fish
+- fish rarities
+- fish weights
+- fish prices
+- FXP
+- fishing level
+- fishing cooldown
+- fish inventory
+- fishing announcements
+
+Do not mix Mining EXP with Fishing EXP.
+Do not mix ore inventory with fish inventory.
+
+==================================================
+PART 2 — FISHING COMMANDS
+==================================================
+
+Add these commands:
+
+Player commands:
+- /fish
+- /fishlist
+- /fishlist <rarity>
+- /fishlist <rarity> <page>
+- /fishprices
+- /fishprices <rarity>
+- /fishprices <rarity> <page>
+- /fishinfo <fish_name>
+- /myfish
+- /fishinv
+- /sellfish
+- /sellfish <fish_name>
+- /sellallfish
+- /fishboosts
+- /fishingevents
+- /fishinghelp
+- /fishhelp
+- /fishinglevel
+- /fxp
+
+Leaderboard commands:
+- /topfish
+- /topfishweight
+- /topcatch
+- /topangler
+
+Staff/Admin commands:
+- /fishannounceconfig
+- /setfishannounce <rarity>
+- /simcatch <rarity>
+- /simcatch <rarity> <username>
+- /simcatch fish <fish_name>
+
+Owner-only optional commands:
+- /forcefish <username> <rarity>
+- /forcefishcatch <username> <fish_name>
+- /forcefishstatus
+- /clearforcefish <username>
+
+If you do not implement owner-only force catch yet, do not add it as active.
+
+==================================================
+PART 3 — COMMAND OWNERSHIP / ROUTING
+==================================================
+
+All fishing commands should be owned by FishingBot/MasterAngler.
+
+Command integrity rules:
+1. Add route.
+2. Add handler.
+3. Add registry entry.
+4. Add owner map.
+5. Add commandtest support.
+6. Owner must not be UNKNOWN.
+
+These should show route=YES handler=YES owner=Fishing or MasterAngler:
+
+/commandtest /fish
+/commandtest /fishlist
+/commandtest /fishprices
+/commandtest /fishinfo
+/commandtest /myfish
+/commandtest /sellfish
+/commandtest /sellallfish
+/commandtest /fishboosts
+/commandtest /fishingevents
+/commandtest /fishhelp
+/commandtest /topfish
+/commandtest /topfishweight
+/commandtest /simcatch
+
+/checkcommands all should show:
+Missing 0
+NoOwner 0
+
+==================================================
+PART 4 — FISH RARITIES
+==================================================
+
+Use the same rarity tiers as Mining:
+
+[COMMON]
+[RARE]
+[EPIC]
+[LEGENDARY]
+[MYTHIC]
+[PRISMATIC]
+[EXOTIC]
+
+Rarity order:
+1. Common
+2. Rare
+3. Epic
+4. Legendary
+5. Mythic
+6. Prismatic
+7. Exotic
+
+All rarity labels must be CAPSLOCKED everywhere.
+
+Colors:
+Common: grey
+Rare: blue
+Epic: purple
+Legendary: gold
+Mythic: pink
+Prismatic: rainbow rarity label only
+Exotic: strong red
+
+Use existing mining color formatter if available.
+
+Prismatic rule:
+- In list commands, only the [PRISMATIC] header is rainbow.
+- Fish names stay plain in /fishlist.
+- For actual catch and announcements, use rainbow [PRISMATIC] but make fish name pink if rainbow tags risk getting cut.
+
+==================================================
+PART 5 — STARTER FISH DATA
+==================================================
+
+Add a starter fish catalog.
+
+Use these examples or improve them as needed.
+
+COMMON:
+- Minnow 🐟
+- Sardine 🐠
+- Tilapia 🐡
+- Carp 🐟
+- Anchovy 🐟
+- Bluegill 🐠
+
+RARE:
+- Salmon 🐟
+- Tuna 🐟
+- Catfish 🐈
+- Trout 🐟
+- Red Snapper 🔴
+- Pufferfish 🐡
+
+EPIC:
+- Swordfish ⚔️
+- Golden Koi 🟡
+- Electric Eel ⚡
+- Barracuda 🐟
+- Glowfin 🧪
+- Pearlscale 🦪
+
+LEGENDARY:
+- Dragonfish 🐉
+- Ancient Bass 🐟
+- Crystal Marlin 💎
+- Royal Koi 👑
+- Sunscale Tuna ☀️
+- Frostfin ❄️
+
+MYTHIC:
+- Phantom Shark 🦈
+- Moonlight Leviathan 🌙
+- Kraken Fry 🐙
+- Voidfin 🌌
+- Celestial Ray ✨
+- Stormscale ⚡
+
+PRISMATIC:
+- Aurora Koi 🌈
+- Rainbow Leviathan 🌈
+- Prismfin 💎
+- Chroma Marlin 🌈
+- Spectrum Eel ✨
+- Opal Shark 💎
+
+EXOTIC:
+- Bloodfin Leviathan 🚨
+- Abyssal King 👑
+- Hellscale Kraken 🔥
+- Forbidden Angler 🕳️
+- Crimson Megalodon 🦈
+- Inferno Ray 🔥
+
+Each fish needs:
+- name
+- emoji/icon
+- rarity
+- chance
+- base value
+- min weight
+- max weight
+- FXP reward
+
+==================================================
+PART 6 — FISH CHANCES AND VALUES
+==================================================
+
+Keep fishing economy fair.
+Do not make common fish too profitable.
+Do not make Exotic common.
+
+Suggested rarity chance style:
+Common = common
+Rare = frequent
+Epic = uncommon
+Legendary = rare
+Mythic = very rare
+Prismatic = jackpot
+Exotic = ultra jackpot
+
+Use a similar chance system to mining if available.
+
+Suggested value ranges after weight:
+Common: 10–100 coins
+Rare: 150–1,000 coins
+Epic: 2,000–10,000 coins
+Legendary: 25,000–100,000 coins
+Mythic: 100,000–350,000 coins
+Prismatic: 300,000–900,000 coins
+Exotic: 750,000–2,000,000+ coins
+
+Do not implement a dangerous global economy rescale.
+Only set fishing values inside Fishing Bot.
+
+==================================================
+PART 7 — FISH WEIGHT SYSTEM
+==================================================
+
+Fish should have weights.
+
+Use pounds by default:
+lb
+
+Each catch should roll a weight between fish min_weight and max_weight.
+
+Final value formula:
+final_value = base_value × weight × event_multiplier
+
+Round final value to clean integer.
+
+Example:
+Dragonfish base value 5,000
+Weight 12.4 lb
+Final value 62,000 coins
+
+Fishing messages should show:
+- rarity
+- fish name
+- weight
+- value
+- FXP earned
+
+==================================================
+PART 8 — /fish COMMAND
+==================================================
+
+/fish should:
+1. Check player cooldown.
+2. Roll fish rarity.
+3. Roll fish from rarity.
+4. Roll weight.
+5. Calculate value.
+6. Add fish to player fish inventory.
+7. Add FXP.
+8. Apply fishing boosts/events if active.
+9. Announce if fish rarity is at or above configured announcement rarity.
+10. Show player catch message.
+
+Default cooldown:
+30 seconds
+
+Starter rod should default to:
+30s catch time/cooldown
+
+Catch message format:
+
+MasterAngler:
+🎣 Fishing
+You caught [COMMON] 🐟 Minnow | ⚖️ 0.8lb | 💰 12c | FXP +3
+
+Legendary catch:
+
+MasterAngler:
+🎣 Fishing
+You caught [LEGENDARY] 🐉 Dragonfish | ⚖️ 12.4lb | 💰 62,000c | FXP +500
+
+Prismatic catch:
+
+MasterAngler:
+🎣 Fishing
+You caught [PRISMATIC] 🌈 Aurora Koi | ⚖️ 18.2lb | 💰 75,000c | FXP +900
+
+If using color:
+- [PRISMATIC] rainbow
+- fish name pink for prismatic catches
+- always close colors with <#FFFFFF>
+
+==================================================
+PART 9 — /fishlist FORMAT
+==================================================
+
+/fishlist should be like /orelist.
+
+Important:
+/fishlist should show chances only.
+Do not show prices.
+Do not show weights.
+
+Command:
+/fishlist
+Shows menu.
+
+Example:
+MasterAngler:
+🎣 Fish List
+Use:
+/fishlist common
+/fishlist rare
+/fishlist epic
+/fishlist legendary
+/fishlist mythic
+/fishlist prismatic
+/fishlist exotic
+
+/fishlist common:
+Only rarity header is colored.
+Fish names are plain.
+One fish per line.
+Max 5 fish per page.
+
+Example:
+
+MasterAngler:
+[COMMON]
+🐟 Minnow — 1 in 10
+🐠 Sardine — 1 in 12
+🐡 Tilapia — 1 in 15
+🐟 Carp — 1 in 18
+🐟 Anchovy — 1 in 20
+
+/fishlist prismatic:
+Only [PRISMATIC] is rainbow.
+Fish names plain.
+
+Example:
+
+MasterAngler:
+[PRISMATIC]
+🌈 Aurora Koi — 1 in 250,000
+🌈 Rainbow Leviathan — 1 in 300,000
+💎 Prismfin — 1 in 350,000
+
+==================================================
+PART 10 — /fishprices FORMAT
+==================================================
+
+/fishprices should show prices and possible weights.
+
+Command:
+/fishprices
+/fishprices <rarity>
+/fishprices <rarity> <page>
+
+Example:
+
+MasterAngler:
+Common Prices
+🐟 Minnow — 10c | 0.1–2.0lb
+🐠 Sardine — 15c | 0.1–2.0lb
+🐡 Tilapia — 20c | 0.2–3.0lb
+
+Rules:
+- One fish per line.
+- Max 5 fish per page.
+- Show base value and weight range.
+- Do not show full chance unless there is room.
+
+==================================================
+PART 11 — /fishinfo <fish>
+==================================================
+
+/fishinfo should show full fish details.
+
+Example:
+
+/fishinfo Dragonfish
+
+Output:
+
+MasterAngler:
+🐉 Dragonfish
+Rarity: [LEGENDARY]
+Chance: 1 in 10,000
+Base Value: 5,000c
+Weight: 5.0–30.0lb
+FXP: 500
+Announce: ON
+
+Rules:
+- Case-insensitive lookup.
+- Handle spaces in fish names.
+- Partial matches okay if safe.
+- If multiple matches, show suggestions.
+
+==================================================
+PART 12 — FISH INVENTORY AND SELLING
+==================================================
+
+Add fish inventory separate from ores.
+
+Commands:
+/myfish
+/fishinv
+
+Show recent/top fish:
+
+MasterAngler:
+🎒 Fish Inventory
+🐟 Minnow x4
+🐉 Dragonfish x1
+🌈 Aurora Koi x1
+
+/sellfish <fish_name>
+Sells matching fish.
+
+/sellfish
+If no fish name, show usage.
+
+/sellallfish
+Sells all fish inventory.
+
+Selling should:
+- add coins to player balance
+- remove fish from fish inventory
+- show total coins gained
+- use BankingBot/balance system if needed, but command owner remains FishingBot
+
+Example:
+
+MasterAngler:
+💰 Fish Sold
+Sold 5 fish for 2,450 coins.
+
+==================================================
+PART 13 — FISHING EXP / LEVEL
+==================================================
+
+Add Fishing EXP:
+FXP
+
+Commands:
+/fishinglevel
+/fxp
+
+Show:
+- current fishing level
+- current FXP
+- FXP needed for next level
+
+Example:
+
+MasterAngler:
+🎣 Fishing Level
+Level: 3
+FXP: 340 / 500
+Next: Level 4
+
+Fishing level should be separate from mining level.
+
+==================================================
+PART 14 — ANNOUNCEMENTS
+==================================================
+
+Default fishing announcement rarity:
+Legendary and above.
+
+When a player catches Legendary/Mythic/Prismatic/Exotic, announce publicly.
+
+Example:
+
+MasterAngler:
+📣 Big Catch
+@Marion caught [MYTHIC] 🦈 Phantom Shark — 22.8lb worth 180,000c!
+
+Prismatic announcement:
+- rainbow [PRISMATIC]
+- fish name pink
+
+Example:
+
+MasterAngler:
+📣 Big Catch
+@Marion caught [PRISMATIC] 🌈 Aurora Koi — 18.2lb worth 75,000c!
+
+Add staff config:
+
+/setfishannounce <rarity>
+
+Examples:
+/setfishannounce legendary
+/setfishannounce mythic
+/setfishannounce prismatic
+
+/fishannounceconfig
+Shows current announcement threshold.
+
+==================================================
+PART 15 — SIMULATE CATCH ANNOUNCEMENTS
+==================================================
+
+Add staff command:
+
+/simcatch <rarity>
+/simcatch <rarity> <username>
+/simcatch fish <fish_name>
+
+Behavior:
+- Pick random fish from rarity or exact fish.
+- Roll random weight.
+- Calculate value.
+- Show announcement format.
+- Do NOT add fish to inventory.
+- Do NOT add coins.
+- Do NOT add FXP.
+- Do NOT affect leaderboards.
+
+Example:
+/simcatch legendary
+/simcatch prismatic Marion
+/simcatch fish Dragonfish
+
+==================================================
+PART 16 — FISHING LEADERBOARDS
+==================================================
+
+Add leaderboards:
+
+/topfish
+Shows top fishing level or most catches.
+
+/topfishweight
+Shows heaviest fish caught.
+
+/topcatch
+Shows highest value fish catch.
+
+/topangler
+Shows best overall fishing players.
+
+Example:
+
+MasterAngler:
+🏆 Heaviest Fish
+1. @Marion — Aurora Koi — 28.5lb
+2. @Player — Dragonfish — 24.2lb
+
+==================================================
+PART 17 — FISHING EVENTS INTEGRATION
+==================================================
+
+Do not rebuild Event Manager.
+Just make Fishing Bot ready to read fishing event effects if Event Manager supports them.
+
+Future fishing events:
+- Lucky Tide = better fish rarity luck
+- Heavy Catch = heavier fish weight
+- Fish Value Surge = higher fish value
+- Double FXP = double fishing EXP
+- Fishing Haste = shorter fishing cooldown
+- Legendary Tide = better Legendary+ catch chance
+- Prismatic Tide = better Prismatic fish chance
+- Exotic Tide = better Exotic fish chance
+- Ultimate Fishing Rush = all fishing boosts
+
+Commands:
+/fishboosts
+/fishingevents
+
+If no fishing events are active:
+
+MasterAngler:
+🎣 Fishing Boosts
+No fishing boosts active.
+
+If active later:
+
+MasterAngler:
+🎣 Fishing Boosts
+🌊 Lucky Tide: +25% fish luck
+⚖️ Heavy Catch: +25% weight
+⭐ Double FXP: 2x FXP
+
+==================================================
+PART 18 — DATABASE TABLES
+==================================================
+
+Use existing database style.
+Use CREATE TABLE IF NOT EXISTS.
+
+Suggested tables:
+
+fish_catalog:
+- fish_id TEXT PRIMARY KEY
+- name TEXT
+- emoji TEXT
+- rarity TEXT
+- chance INTEGER
+- base_value INTEGER
+- min_weight REAL
+- max_weight REAL
+- fxp_reward INTEGER
+- enabled INTEGER DEFAULT 1
+
+fish_inventory:
+- id INTEGER PRIMARY KEY AUTOINCREMENT
+- user_id TEXT
+- username TEXT
+- fish_id TEXT
+- fish_name TEXT
+- rarity TEXT
+- weight REAL
+- value INTEGER
+- caught_at TEXT
+- sold INTEGER DEFAULT 0
+
+fishing_profiles:
+- user_id TEXT PRIMARY KEY
+- username TEXT
+- fishing_level INTEGER DEFAULT 1
+- fxp INTEGER DEFAULT 0
+- total_catches INTEGER DEFAULT 0
+- best_fish_name TEXT
+- best_fish_weight REAL DEFAULT 0
+- best_fish_value INTEGER DEFAULT 0
+- last_fish_at TEXT
+
+fishing_settings:
+- key TEXT PRIMARY KEY
+- value TEXT
+
+fishing_logs:
+- id INTEGER PRIMARY KEY AUTOINCREMENT
+- user_id TEXT
+- username TEXT
+- fish_id TEXT
+- fish_name TEXT
+- rarity TEXT
+- weight REAL
+- value INTEGER
+- fxp_earned INTEGER
+- event_multiplier REAL
+- caught_at TEXT
+
+==================================================
+PART 19 — SAFE MESSAGE FORMAT
+==================================================
+
+Use existing safe_send/message helper if available.
+
+Rules:
+1. Keep messages short.
+2. One fish per line.
+3. Max 5 fish per page.
+4. Never cut color tags.
+5. Always close colors with <#FFFFFF>.
+6. Use bot message format if enabled:
+   MasterAngler:
+   Message starts here
+
+==================================================
+PART 20 — HELP MENU
+==================================================
+
+/fishhelp or /fishinghelp should show:
+
+MasterAngler:
+🎣 Fishing Help
+/fish — catch fish
+/fishlist — fish chances
+/fishprices — value + weight
+/fishinfo <fish> — full details
+/myfish — inventory
+/sellfish <fish> — sell fish
+/sellallfish — sell all fish
+/fishboosts — active boosts
+/topfish — leaderboard
+
+Keep it short enough for Highrise chat.
+
+==================================================
+PART 21 — PRIVATE MESSAGE SUPPORT
+==================================================
+
+Fishing commands should work in private messages to MasterAngler/FishingBot if the DM routing system supports it.
+
+Expected:
+DM MasterAngler:
+/fish
+/fishlist rare
+/fishinfo Dragonfish
+
+MasterAngler replies privately.
+
+Wrong bot:
+DM BankingBot:
+/fish
+
+BankingBot should not execute it.
+
+Do not break current DM routing.
+
+==================================================
+PART 22 — SAFETY
+==================================================
+
+Do not:
+- reset player balances
+- touch mining inventory
+- touch ore catalog
+- alter poker/blackjack
+- break event system
+- break command registry
+- make Fishing Bot respond to non-fishing commands
+- make every fish announcement spam public chat
+- make Exotic too common
+- expose env vars or secrets
+
+==================================================
+FINAL REPORT
+==================================================
+
+After finishing, tell me:
+1. Files changed
+2. Fishing commands added
+3. Fishing tables added
+4. Fish rarities added
+5. Starter fish catalog
+6. How /fish works
+7. How /fishlist works
+8. How /fishprices works
+9. How /fishinfo works
+10. How inventory and selling works
+11. How FXP/fishing level works
+12. How announcements work
+13. How /simcatch works
+14. How command routing/ownership works
+15. Exact tests to run

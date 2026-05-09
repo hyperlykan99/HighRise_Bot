@@ -1,0 +1,1287 @@
+Add Fishing Bot System + Rod Equipment + AutoMine/AutoFish Safety Limits
+
+Focus on adding a new Fishing Bot system similar to Mining Bot, plus safer AutoMine and AutoFish systems so players do not get muted by Highrise for repeating the same command.
+
+Do not change bot tokens.
+Do not change room ID.
+Do not reset balances.
+Do not wipe player data.
+Do not break mining, poker, blackjack, bank, shop, events, AI, security, outfits, bot spawns, or command routing.
+
+Main goals:
+1. Add a Fishing Bot similar to Mining Bot.
+2. Add fish rarities, fish weights, fish values, fish list, fish prices, fish info.
+3. Add fishing EXP/level system separate from mining.
+4. Add fishing rod equipment with unique rod names.
+5. Add fishing leaderboards.
+6. Add fishing announcements for rare catches.
+7. Add AutoMine with safety limits.
+8. Add AutoFish with safety limits.
+9. AutoMine/AutoFish should prevent players from typing the same command repeatedly and getting warned/muted by Highrise.
+10. AutoMine/AutoFish must stop when the player leaves the room.
+11. AutoMine/AutoFish must be adjustable by staff.
+
+==================================================
+PART 1 — FISHING BOT IDENTITY
+==================================================
+
+Add Fishing Bot support.
+
+Recommended bot name:
+MasterAngler
+
+If the project already has a configured fishing bot name, use that.
+
+FishingBot/MasterAngler should handle:
+- fishing commands
+- fish lists
+- fish prices
+- fish info
+- fishing inventory
+- selling fish
+- fishing rod equipment
+- fishing leaderboards
+- fishing announcements
+- autofishing
+
+Fishing must be separate from mining.
+
+Do not mix:
+- ore inventory with fish inventory
+- mining EXP with fishing EXP
+- mining level with fishing level
+- mining tools with fishing rods
+
+Use:
+- FXP = Fishing EXP
+- Fishing Level = fishing progression
+- Rod = fishing equipment
+
+==================================================
+PART 2 — CORE FISHING COMMANDS
+==================================================
+
+Add player commands:
+
+- /fish
+- /f
+- /cast
+- /reel
+- /fishhelp
+- /fishinghelp
+- /fishlist
+- /fishprices
+- /fishinfo <fish_name>
+- /myfish
+- /fishinv
+- /sellfish
+- /sellallfish
+- /topfish
+- /topweightfish
+- /biggestfish
+- /topfishing
+- /fishlb
+- /fishboosts
+- /fishingevents
+- /fishlevel
+- /fishxp
+- /fishstats
+
+Command behavior:
+
+/fish, /f, /cast, /reel:
+Player attempts to catch a fish.
+Uses equipped rod cooldown.
+Rolls fish rarity and fish.
+Generates fish weight.
+Calculates value.
+Adds fish to fish inventory or catch records.
+Adds FXP.
+Shows catch message.
+
+/fishlist:
+Shows fish chance list only.
+Do not show prices or weights here.
+
+/fishprices:
+Shows fish base value and possible weight range.
+
+/fishinfo <fish>:
+Shows full fish details.
+
+/myfish or /fishinv:
+Shows player’s fish inventory or recent catches.
+
+/sellfish:
+Sells selected fish if supported.
+
+/sellallfish:
+Sells all fish if supported.
+
+/topfish, /topfishing, /fishlb:
+Shows top fishing players.
+
+/topweightfish or /biggestfish:
+Shows biggest fish catches.
+
+/fishlevel, /fishxp, /fishstats:
+Shows fishing level, FXP, total catches, best fish, and equipped rod.
+
+==================================================
+PART 3 — FISH RARITY SYSTEM
+==================================================
+
+Use the same rarity structure as mining:
+
+[COMMON]
+[RARE]
+[EPIC]
+[LEGENDARY]
+[MYTHIC]
+[PRISMATIC]
+[EXOTIC]
+
+All rarity labels must be CAPSLOCKED.
+
+Rarity colors:
+
+Common:
+<#AAAAAA>[COMMON]<#FFFFFF>
+
+Rare:
+<#3399FF>[RARE]<#FFFFFF>
+
+Epic:
+<#B266FF>[EPIC]<#FFFFFF>
+
+Legendary:
+<#FFD700>[LEGENDARY]<#FFFFFF>
+
+Mythic:
+<#FF66CC>[MYTHIC]<#FFFFFF>
+
+Exotic:
+<#FF0000>[EXOTIC]<#FFFFFF>
+
+Prismatic:
+Use safe format:
+<#FF0000>[P<#FF9900>R<#FFFF00>I<#00FF00>S<#00CCFF>M<#3366FF>A<#9933FF>T<#FF66CC>I<#FF0000>C]<#FFFFFF>
+
+Important Prismatic rule:
+Do NOT rainbow-color the fish name in normal catch messages or announcements if it risks tag cutoff.
+Only the [PRISMATIC] label is rainbow.
+Prismatic fish name should be pink:
+<#FF66CC>Fish Name<#FFFFFF>
+
+==================================================
+PART 4 — FISH POOL
+==================================================
+
+Add fish by rarity.
+
+Each fish should have:
+- fish_name
+- emoji
+- rarity
+- base_value
+- base_fxp
+- min_weight
+- max_weight
+- drop_weight
+- display_chance
+- announce_default
+
+Suggested fish:
+
+COMMON:
+- Minnow 🐟
+- Sardine 🐠
+- Tilapia 🐡
+- Carp 🐟
+- Anchovy 🐟
+- Mackerel 🐠
+- Pond Perch 🐟
+- Mudfish 🐡
+- River Shrimp 🦐
+- Small Crab 🦀
+
+RARE:
+- Bluegill 🐟
+- Salmon 🐟
+- Tuna 🐠
+- Catfish 🐱
+- Red Snapper 🐟
+- Sea Bass 🐠
+- Clownfish 🐠
+- Lobster 🦞
+- Stingray 🌊
+- Silver Trout 🐟
+
+EPIC:
+- Swordfish ⚔️
+- Golden Koi 🟡
+- Electric Eel ⚡
+- Giant Squid 🦑
+- Puffer King 🐡
+- Crystal Trout 💎
+- Firefin Snapper 🔥
+- Icefin Tuna ❄️
+- Shadow Carp 🌑
+- Storm Eel ⚡
+
+LEGENDARY:
+- Dragonfish 🐉
+- Ancient Bass 🐟
+- Crystal Marlin 💎
+- Golden Shark 🦈
+- Royal Koi 👑
+- Thunder Tuna ⚡
+- Frostbite Marlin ❄️
+- Sunscale Fish ☀️
+- Ocean Crownfish 👑
+- Pearlback Whale 🐋
+
+MYTHIC:
+- Kraken Fry 🦑
+- Moonlight Leviathan 🌙
+- Phantom Shark 🦈
+- Abyssal Tuna 🌊
+- Celestial Koi ✨
+- Spirit Marlin 👻
+- Voidfin Eel 🌌
+- Angel Whale 🐋
+- Demon Ray 😈
+- Starborn Salmon ⭐
+
+PRISMATIC:
+- Rainbow Leviathan 🌈
+- Aurora Koi 🌈
+- Prismfin 🌈
+- Spectrum Marlin 🌈
+- Chroma Shark 🌈
+- Aurora Whale 🌈
+- Opalfin Tuna 🌈
+- Celestial Rainbow Fish 🌈
+
+EXOTIC:
+- Bloodfin Leviathan 🚨
+- Abyssal King 👑
+- Hellscale Kraken 🔥
+- Crimson Megalodon 🦈
+- Forbidden Whale 🚨
+- Demonfin Shark 😈
+- Scarlet Leviathan 🚨
+- Infernal Koi 🔥
+
+Balance:
+- Common = frequent small catches
+- Rare = better small rewards
+- Epic = exciting
+- Legendary = public announcement tier
+- Mythic = rare flex
+- Prismatic = jackpot
+- Exotic = top-tier jackpot
+
+==================================================
+PART 5 — FISHLIST FORMAT
+==================================================
+
+/fishlist should work like the fixed /orelist.
+
+Rules:
+1. /fishlist shows menu only.
+2. /fishlist <rarity> shows fish chance list for that rarity.
+3. /fishlist <rarity> <page> shows page.
+4. One fish per line.
+5. Max 5 fish per page.
+6. Show only emoji, fish name, and chance.
+7. Do not show value.
+8. Do not show weight.
+9. Only rarity header is colored.
+10. Fish names are plain text in /fishlist.
+
+Example:
+
+MasterAngler:
+<#AAAAAA>[COMMON]<#FFFFFF>
+🐟 Minnow — 1 in 10
+🐠 Sardine — 1 in 12
+🐡 Tilapia — 1 in 15
+🐟 Carp — 1 in 18
+🦐 River Shrimp — 1 in 20
+
+Prismatic example:
+
+MasterAngler:
+<#FF0000>[P<#FF9900>R<#FFFF00>I<#00FF00>S<#00CCFF>M<#3366FF>A<#9933FF>T<#FF66CC>I<#FF0000>C]<#FFFFFF>
+🌈 Rainbow Leviathan — 1 in 250,000
+🌈 Aurora Koi — 1 in 300,000
+🌈 Prismfin — 1 in 350,000
+
+==================================================
+PART 6 — FISH PRICES AND FISH INFO
+==================================================
+
+/fishprices:
+Shows value and possible weight range.
+
+/fishprices <rarity>
+/fishprices <rarity> <page>
+
+Example:
+
+MasterAngler:
+Common Prices — Page 1/2
+🐟 Minnow — 10c | 0.1–2.0lb
+🐠 Sardine — 15c | 0.1–2.0lb
+🐡 Tilapia — 20c | 0.2–3.0lb
+
+/fishinfo <fish>:
+Shows full details.
+
+Example:
+
+MasterAngler:
+💎 Fish Info
+Name: Dragonfish
+Rarity: <#FFD700>[LEGENDARY]<#FFFFFF>
+Chance: 1 in 8,000
+Base Value: 25,000c
+Weight: 10–80lb
+FXP: +150
+Announce: ON
+
+Rules:
+1. Handle fish names with spaces.
+2. Case-insensitive lookup.
+3. Allow safe partial matches.
+4. If multiple matches, show short suggestions.
+5. Keep messages short.
+
+==================================================
+PART 7 — FISH WEIGHT AND VALUE SYSTEM
+==================================================
+
+Every caught fish should generate a weight.
+
+Use lb for fishing by default.
+
+Fish value should scale with weight.
+
+Suggested formula:
+final_value = base_value × weight_multiplier × event_multiplier × rod_value_bonus
+
+Simple option:
+weight_multiplier = weight
+
+Safer option:
+final_value = base_value × (1 + ((weight - 1) × fishing_weight_value_scale))
+
+Default:
+fishing_weight_value_scale = 1.0
+
+Every caught fish should save:
+- fish_name
+- rarity
+- weight
+- base_value
+- final_value
+- fxp
+- user_id
+- username
+- caught_at
+
+Suggested table:
+fish_catch_records:
+- id INTEGER PRIMARY KEY AUTOINCREMENT
+- fish_name TEXT
+- rarity TEXT
+- weight REAL
+- base_value INTEGER
+- final_value INTEGER
+- fxp INTEGER
+- user_id TEXT
+- username TEXT
+- caught_at TEXT
+
+==================================================
+PART 8 — FISHING CATCH MESSAGE FORMAT
+==================================================
+
+Use clean 2-line bot format:
+
+MasterAngler:
+🎣 Fishing
+You caught [RARITY] emoji Fish Name | ⚖️ weight | 💰 value | ⭐ FXP
+
+Example Legendary:
+
+MasterAngler:
+🎣 Fishing
+You caught <#FFD700>[LEGENDARY]<#FFFFFF> 🐉 <#FFD700>Dragonfish<#FFFFFF> | ⚖️ 12.4lb | 💰 24,800c | ⭐ +150 FXP
+
+Prismatic:
+Only [PRISMATIC] label is rainbow.
+Fish name is pink.
+
+MasterAngler:
+🎣 Fishing
+You caught <rainbow [PRISMATIC]> 🌈 <#FF66CC>Aurora Koi<#FFFFFF> | ⚖️ 18.2lb | 💰 75,000c | ⭐ +500 FXP
+
+==================================================
+PART 9 — BIG CATCH ANNOUNCEMENTS
+==================================================
+
+Default public announcements:
+Legendary and above.
+
+Announce:
+- Legendary
+- Mythic
+- Prismatic
+- Exotic
+
+Do not announce by default:
+- Common
+- Rare
+- Epic
+
+Announcement format:
+
+MasterAngler:
+📣 Big Catch
+💎 [High Roller] @Marion caught <#FF66CC>[MYTHIC]<#FFFFFF> 🦈 <#FF66CC>Phantom Shark<#FFFFFF> — 22.8lb worth 180,000c!
+
+Use global badge/title player display if available.
+
+Add settings commands if useful:
+- /fishannounce
+- /setfishannounce <off|common|rare|epic|legendary|mythic|prismatic|exotic>
+- /setfishannouncefish <fish_name> <on|off>
+
+==================================================
+PART 10 — FISHING ROD EQUIPMENT SYSTEM
+==================================================
+
+Add rod equipment.
+
+Important:
+Rod names must NOT copy fish rarity names.
+
+Avoid:
+Common Rod
+Rare Rod
+Epic Rod
+Legendary Rod
+Mythic Rod
+Prismatic Rod
+Exotic Rod
+
+Use unique fishing-themed names.
+
+Rod list:
+
+1. Driftwood Rod
+2. Bamboo Tide Rod
+3. Copperline Rod
+4. Sailor’s Rod
+5. Deepwater Rod
+6. Stormcast Rod
+7. Moonhook Rod
+8. Leviathan Rod
+9. Abyss King Rod
+
+Each player can equip one rod.
+
+Rods affect:
+- fishing cooldown
+- fish rarity luck
+- fish weight luck
+- fish value bonus
+- FXP gain
+- special fish chance if supported
+
+Default starter rod:
+Driftwood Rod
+
+Starter rod stats:
+Cooldown: 30s
+Luck: +0%
+Weight Luck: +0%
+Value Bonus: +0%
+FXP Bonus: +0%
+
+Rod stats:
+
+Driftwood Rod:
+Cooldown: 30s
+Luck: +0%
+Weight: +0%
+Value: +0%
+FXP: +0%
+
+Bamboo Tide Rod:
+Cooldown: 28s
+Luck: +3%
+Weight: +3%
+Value: +0%
+FXP: +5%
+
+Copperline Rod:
+Cooldown: 26s
+Luck: +5%
+Weight: +5%
+Value: +0%
+FXP: +8%
+
+Sailor’s Rod:
+Cooldown: 24s
+Luck: +8%
+Weight: +8%
+Value: +0%
+FXP: +10%
+
+Deepwater Rod:
+Cooldown: 22s
+Luck: +12%
+Weight: +10%
+Value: +10%
+FXP: +15%
+
+Stormcast Rod:
+Cooldown: 20s
+Luck: +18%
+Weight: +15%
+Value: +15%
+FXP: +20%
+
+Moonhook Rod:
+Cooldown: 18s
+Luck: +25%
+Weight: +20%
+Value: +20%
+FXP: +25%
+
+Leviathan Rod:
+Cooldown: 16s
+Luck: +35%
+Weight: +30%
+Value: +25%
+FXP: +35%
+
+Abyss King Rod:
+Cooldown: 14s
+Luck: +50%
+Weight: +40%
+Value: +35%
+FXP: +50%
+
+==================================================
+PART 11 — ROD COMMANDS
+==================================================
+
+Add commands:
+- /rods
+- /myrod
+- /equiprod <rod>
+- /rodshop
+- /buyrod <rod>
+- /rodinfo <rod>
+- /rodupgrade
+- /rodstats
+
+Command behavior:
+
+/rods:
+Shows available rods.
+
+/myrod:
+Shows equipped rod and stats.
+
+Example:
+
+MasterAngler:
+🎣 Equipped Rod
+Rod: Stormcast Rod
+Cooldown: 20s
+Luck: +18%
+Weight: +15%
+Value: +15%
+FXP: +20%
+
+/rodshop:
+Shows rod shop.
+
+Example:
+
+MasterAngler:
+🎣 Rod Shop
+1. Bamboo Tide Rod — 5,000c
+2. Copperline Rod — 15,000c
+3. Sailor’s Rod — 40,000c
+4. Deepwater Rod — 100,000c
+5. Stormcast Rod — 250,000c
+
+/buyrod <rod>:
+Buys rod using existing coin/bank system.
+
+/equiprod <rod>:
+Equips owned rod.
+
+/rodinfo <rod>:
+Shows details for one rod.
+
+/rodupgrade:
+If upgrade system exists, integrate safely.
+If not, show helpful message or skip active command.
+
+/rodstats:
+Shows rod stat explanation.
+
+==================================================
+PART 12 — FISHING LEVEL / FXP
+==================================================
+
+Add Fishing EXP / FXP.
+
+FishingBot should track:
+- fishing level
+- fishing EXP
+- total catches
+- best fish by weight
+- best fish by value
+- equipped rod
+
+Fishing level should be separate from:
+- regular player level
+- mining level
+- time EXP level
+
+Commands:
+- /fishlevel
+- /fishxp
+- /fishstats
+
+==================================================
+PART 13 — FISHING LEADERBOARDS
+==================================================
+
+Add leaderboards:
+
+- /topfish
+- /topweightfish
+- /biggestfish
+- /topfishing
+- /fishlb
+
+Leaderboard examples:
+
+MasterAngler:
+🏆 Top Fishers
+1. @Marion — Lv 12 | 540 catches
+2. @Claire — Lv 10 | 420 catches
+
+MasterAngler:
+⚖️ Biggest Fish
+1. @Marion — Bloodfin Leviathan 122.4lb
+2. @Claire — Dragonfish 88.2lb
+
+Use global badge/title display if available.
+
+==================================================
+PART 14 — FISHING EVENTS INTEGRATION
+==================================================
+
+Add fishing event definitions if Event Manager supports them.
+
+Fishing events:
+- Lucky Tide
+- Heavy Catch
+- Fish Value Surge
+- Double FXP
+- Fishing Haste
+- Legendary Tide
+- Prismatic Tide
+- Exotic Tide
+- Ultimate Fishing Rush
+
+Effects:
+Lucky Tide = better fish rarity luck
+Heavy Catch = heavier fish weights
+Fish Value Surge = higher fish value
+Double FXP = double fishing EXP
+Fishing Haste = shorter fishing cooldown
+Legendary Tide = better Legendary+ catch chance
+Prismatic Tide = better Prismatic fish chance
+Exotic Tide = better Exotic fish chance
+Ultimate Fishing Rush = all fishing boosts
+
+If Event Manager is not ready for fishing events yet:
+- Add placeholders safely.
+- Do not break Event Manager.
+- /fishboosts should show none active.
+
+==================================================
+PART 15 — FISHING DATABASE
+==================================================
+
+Use CREATE TABLE IF NOT EXISTS.
+
+Suggested tables:
+
+fish_definitions:
+- fish_name TEXT PRIMARY KEY
+- emoji TEXT
+- rarity TEXT
+- base_value INTEGER
+- base_fxp INTEGER
+- min_weight REAL
+- max_weight REAL
+- drop_weight REAL
+- display_chance TEXT
+- announce_default INTEGER
+
+fish_catch_records:
+- id INTEGER PRIMARY KEY AUTOINCREMENT
+- fish_name TEXT
+- rarity TEXT
+- weight REAL
+- base_value INTEGER
+- final_value INTEGER
+- fxp INTEGER
+- user_id TEXT
+- username TEXT
+- caught_at TEXT
+
+fish_profiles:
+- user_id TEXT PRIMARY KEY
+- username TEXT
+- fishing_level INTEGER DEFAULT 1
+- fishing_xp INTEGER DEFAULT 0
+- total_catches INTEGER DEFAULT 0
+- best_fish_name TEXT
+- best_fish_weight REAL
+- best_fish_value INTEGER
+- equipped_rod TEXT DEFAULT 'Driftwood Rod'
+- created_at TEXT
+- updated_at TEXT
+
+fishing_rods:
+- rod_name TEXT PRIMARY KEY
+- price INTEGER
+- cooldown_seconds INTEGER
+- luck_bonus REAL
+- weight_bonus REAL
+- value_bonus REAL
+- fxp_bonus REAL
+- description TEXT
+
+player_rods:
+- user_id TEXT
+- rod_name TEXT
+- owned INTEGER DEFAULT 1
+- purchased_at TEXT
+
+==================================================
+PART 16 — AUTOMINE SYSTEM
+==================================================
+
+Problem:
+Highrise may warn or mute players if they type the same command 3 times fast, like:
+/mine
+/mine
+/mine
+
+Goal:
+Add AutoMine so players type one command and the bot handles mining attempts safely.
+
+Player commands:
+- /automine on
+- /automine off
+- /autominestatus
+
+Aliases:
+- /am on
+- /am off
+- /amstatus
+
+Behavior:
+/automine on:
+Starts automatic mining session.
+
+/automine off:
+Stops automatic mining session.
+
+/autominestatus:
+Shows current session status.
+
+AutoMine must:
+1. Respect mining cooldown.
+2. Respect equipped mining tool cooldown.
+3. Respect active mining events.
+4. Respect daily mining limits if any.
+5. Not bypass normal mining rules.
+6. Not continue offline.
+7. Stop when player leaves the room.
+8. Stop when player disconnects.
+9. Stop if bot cannot confirm player is present.
+10. Not restart automatically after bot crash/restart.
+11. Require player to type /automine on again after returning.
+12. Use one active AutoMine session per player only.
+
+Default limits:
+- AutoMine enabled: ON
+- Session duration: 30 minutes
+- Max attempts per session: 30 mines
+- Daily AutoMine cap: 120 minutes
+- Stop on player leave: YES
+- Offline mining: NO
+- Restart after crash: NO
+
+AutoMine should stop when the first limit is reached:
+- 30 minutes OR
+- 30 mining attempts OR
+- daily cap reached OR
+- player leaves room
+
+Start message:
+
+GreatestProspector:
+⛏️ AutoMine Started
+Limit: 30 mines or 30 minutes.
+Stops if you leave the room.
+Use /automine off to stop.
+
+Status message:
+
+GreatestProspector:
+⛏️ AutoMine
+Status: ON
+Session: 12/30 mines
+Time: 8m/30m
+Daily: 35m/120m
+Stops if you leave room.
+
+Stop message:
+
+GreatestProspector:
+⛏️ AutoMine Stopped
+Reason: Session limit reached.
+Mines completed: 30/30
+
+If player leaves:
+
+GreatestProspector:
+⛏️ AutoMine Stopped
+Reason: Player left the room.
+Mines completed: 14/30
+
+==================================================
+PART 17 — AUTOMINE STAFF SETTINGS
+==================================================
+
+Add staff/admin commands:
+
+- /autominesettings
+- /setautomine on
+- /setautomine off
+- /setautomineduration <minutes>
+- /setautomineattempts <amount>
+- /setautominedailycap <minutes>
+
+Behavior:
+
+/autominesettings:
+Shows AutoMine config.
+
+/setautomine on/off:
+Enables/disables AutoMine globally.
+
+/setautomineduration <minutes>:
+Sets max session duration.
+
+/setautomineattempts <amount>:
+Sets max attempts per session.
+
+/setautominedailycap <minutes>:
+Sets daily AutoMine cap.
+
+Recommended defaults:
+AutoMine: ON
+Session duration: 30 minutes
+Session attempts: 30 mines
+Daily cap: 120 minutes
+Stop when player leaves: YES
+Offline mining: NO
+Restart after crash: NO
+
+==================================================
+PART 18 — AUTOFISH SYSTEM
+==================================================
+
+Add AutoFish similar to AutoMine.
+
+Problem:
+Highrise may warn or mute players if they type:
+/fish
+/fish
+/fish
+
+Goal:
+Players type /autofish on once, then the bot handles fishing attempts safely.
+
+Player commands:
+- /autofish on
+- /autofish off
+- /autofishstatus
+
+Aliases:
+- /af on
+- /af off
+- /afstatus
+
+Behavior:
+/autofish on:
+Starts automatic fishing session.
+
+/autofish off:
+Stops automatic fishing session.
+
+/autofishstatus:
+Shows current AutoFish status.
+
+AutoFish must:
+1. Respect fishing cooldown.
+2. Respect equipped rod cooldown.
+3. Respect fishing events.
+4. Respect daily fishing limits if any.
+5. Not bypass normal fishing rules.
+6. Not continue offline.
+7. Stop when player leaves room.
+8. Stop when player disconnects.
+9. Stop if bot cannot confirm player is present.
+10. Not restart automatically after bot crash/restart.
+11. Require player to type /autofish on again after returning.
+12. Use one active AutoFish session per player only.
+
+Default limits:
+- AutoFish enabled: ON
+- Session duration: 30 minutes
+- Max attempts per session: 30 catches
+- Daily AutoFish cap: 120 minutes
+- Stop on player leave: YES
+- Offline fishing: NO
+- Restart after crash: NO
+
+AutoFish should stop when the first limit is reached:
+- 30 minutes OR
+- 30 catch attempts OR
+- daily cap reached OR
+- player leaves room
+
+Start message:
+
+MasterAngler:
+🎣 AutoFish Started
+Limit: 30 catches or 30 minutes.
+Stops if you leave the room.
+Use /autofish off to stop.
+
+Status message:
+
+MasterAngler:
+🎣 AutoFish
+Status: ON
+Session: 7/30 catches
+Time: 5m/30m
+Daily: 20m/120m
+Stops if you leave room.
+
+Stop message:
+
+MasterAngler:
+🎣 AutoFish Stopped
+Reason: Session limit reached.
+Catches completed: 30/30
+
+If player leaves:
+
+MasterAngler:
+🎣 AutoFish Stopped
+Reason: Player left the room.
+Catches completed: 14/30
+
+==================================================
+PART 19 — AUTOFISH STAFF SETTINGS
+==================================================
+
+Add staff/admin commands:
+
+- /autofishsettings
+- /setautofish on
+- /setautofish off
+- /setautofishduration <minutes>
+- /setautofishattempts <amount>
+- /setautofishdailycap <minutes>
+
+Behavior:
+
+/autofishsettings:
+Shows AutoFish config.
+
+/setautofish on/off:
+Enables/disables AutoFish globally.
+
+/setautofishduration <minutes>:
+Sets max session duration.
+
+/setautofishattempts <amount>:
+Sets max attempts per session.
+
+/setautofishdailycap <minutes>:
+Sets daily AutoFish cap.
+
+Recommended defaults:
+AutoFish: ON
+Session duration: 30 minutes
+Session attempts: 30 catches
+Daily cap: 120 minutes
+Stop when player leaves: YES
+Offline fishing: NO
+Restart after crash: NO
+
+==================================================
+PART 20 — AUTO SESSION DATABASE
+==================================================
+
+Use CREATE TABLE IF NOT EXISTS.
+
+Suggested tables:
+
+auto_mine_sessions:
+- user_id TEXT PRIMARY KEY
+- username TEXT
+- status TEXT
+- started_at TEXT
+- stopped_at TEXT
+- attempts_done INTEGER DEFAULT 0
+- max_attempts INTEGER
+- max_duration_minutes INTEGER
+- daily_minutes_used INTEGER DEFAULT 0
+- stop_reason TEXT
+- updated_at TEXT
+
+auto_fish_sessions:
+- user_id TEXT PRIMARY KEY
+- username TEXT
+- status TEXT
+- started_at TEXT
+- stopped_at TEXT
+- attempts_done INTEGER DEFAULT 0
+- max_attempts INTEGER
+- max_duration_minutes INTEGER
+- daily_minutes_used INTEGER DEFAULT 0
+- stop_reason TEXT
+- updated_at TEXT
+
+auto_activity_settings:
+- key TEXT PRIMARY KEY
+- value TEXT
+
+Settings keys:
+- automine_enabled
+- automine_duration_minutes
+- automine_max_attempts
+- automine_daily_cap_minutes
+- autofish_enabled
+- autofish_duration_minutes
+- autofish_max_attempts
+- autofish_daily_cap_minutes
+
+==================================================
+PART 21 — PLAYER LEAVE DETECTION
+==================================================
+
+Important:
+AutoMine and AutoFish must stop when player leaves room.
+
+On player leave event:
+1. Check if player has active AutoMine.
+2. Stop AutoMine.
+3. Save stop_reason = player_left.
+4. Check if player has active AutoFish.
+5. Stop AutoFish.
+6. Save stop_reason = player_left.
+7. Do not continue offline.
+8. Do not backpay missed attempts.
+9. Do not restart automatically when they return.
+
+If SDK does not provide reliable leave event:
+- use presence check before every auto attempt
+- if player is not present, stop session
+
+==================================================
+PART 22 — ANTI-SPAM / HIGHRISE MUTE PROTECTION
+==================================================
+
+Goal:
+Prevent players from getting warned/muted by Highrise for repeating commands.
+
+Rules:
+1. Encourage /automine on instead of repeated /mine.
+2. Encourage /autofish on instead of repeated /fish.
+3. Valid repeated game commands should not trigger bot mute.
+4. Cooldown replies should be throttled.
+5. Do not send a cooldown reply every time if player spams.
+6. Use one cooldown reply every few seconds per user/command.
+7. Do not hard mute players for valid repeated commands like:
+   /mine
+   /fish
+   /hit
+   /stand
+   /double
+   /split
+   /bet
+8. Warn/cooldown instead of mute when possible.
+
+==================================================
+PART 23 — COMMAND OWNERSHIP
+==================================================
+
+Fishing commands should be owned by FishingBot / MasterAngler.
+
+AutoMine commands should be owned by Miner / GreatestProspector.
+AutoFish commands should be owned by FishingBot / MasterAngler.
+
+If the command owner map does not have FishingBot yet:
+- add FishingBot/MasterAngler as owner
+- add to multi-bot owner map
+- add to registry
+
+Commands should work in room chat.
+If private message routing exists, fishing commands should work in DM to FishingBot.
+
+==================================================
+PART 24 — COMMAND INTEGRITY
+==================================================
+
+For every new command:
+1. Add route.
+2. Add handler.
+3. Add commandtest support.
+4. Add active registry entry.
+5. Add owner map.
+6. Owner must not be UNKNOWN.
+
+Fishing commands to verify:
+
+/commandtest /fish
+/commandtest /f
+/commandtest /cast
+/commandtest /reel
+/commandtest /fishhelp
+/commandtest /fishinghelp
+/commandtest /fishlist
+/commandtest /fishprices
+/commandtest /fishinfo
+/commandtest /myfish
+/commandtest /fishinv
+/commandtest /sellfish
+/commandtest /sellallfish
+/commandtest /topfish
+/commandtest /topweightfish
+/commandtest /fishboosts
+/commandtest /fishingevents
+/commandtest /rods
+/commandtest /myrod
+/commandtest /equiprod
+/commandtest /rodshop
+/commandtest /buyrod
+/commandtest /rodinfo
+/commandtest /rodupgrade
+/commandtest /rodstats
+/commandtest /fishlevel
+/commandtest /fishxp
+/commandtest /fishstats
+/commandtest /biggestfish
+/commandtest /topfishing
+/commandtest /fishlb
+
+AutoMine commands to verify:
+
+/commandtest /automine
+/commandtest /am
+/commandtest /autominestatus
+/commandtest /amstatus
+/commandtest /autominesettings
+/commandtest /setautomine
+/commandtest /setautomineduration
+/commandtest /setautomineattempts
+/commandtest /setautominedailycap
+
+AutoFish commands to verify:
+
+/commandtest /autofish
+/commandtest /af
+/commandtest /autofishstatus
+/commandtest /afstatus
+/commandtest /autofishsettings
+/commandtest /setautofish
+/commandtest /setautofishduration
+/commandtest /setautofishattempts
+/commandtest /setautofishdailycap
+
+/checkcommands all should show:
+Missing 0
+NoOwner 0
+
+If any command is planned but not implemented, do not add it as active.
+
+==================================================
+PART 25 — SAFETY
+==================================================
+
+Do not:
+- reset balances
+- wipe player data
+- break mining
+- break current mining commands
+- mix ore and fish inventories
+- use rarity names as rod names
+- give massive rewards by default
+- allow offline AutoMine
+- allow offline AutoFish
+- let AutoMine continue after player leaves
+- let AutoFish continue after player leaves
+- let AutoMine restart after crash
+- let AutoFish restart after crash
+- bypass normal cooldowns
+- bypass normal fishing/mining rules
+- break command routing
+- expose bot tokens, room ID, env vars, or secrets
+
+==================================================
+FINAL REPORT
+==================================================
+
+After finishing, tell me:
+1. Files changed
+2. Fishing Bot owner name
+3. Database tables added
+4. Fish rarities added
+5. Fish list format
+6. Fish price format
+7. How fish weight/value is calculated
+8. How fishing EXP works
+9. Rod names and stats
+10. How rod ownership/equipping works
+11. How FishingBot integrates with Event Manager
+12. How AutoMine works
+13. How AutoMine stops when player leaves
+14. How AutoMine limits are configured
+15. How AutoFish works
+16. How AutoFish stops when player leaves
+17. How AutoFish limits are configured
+18. How repeated-command spam protection is handled
+19. Commands added
+20. Exact tests to run

@@ -989,6 +989,56 @@ def init_db():
         )
     """)
 
+    # ── Fishing tables ────────────────────────────────────────────────────────
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS fish_profiles (
+            user_id          TEXT PRIMARY KEY,
+            username         TEXT NOT NULL,
+            fishing_level    INTEGER NOT NULL DEFAULT 1,
+            fishing_xp       INTEGER NOT NULL DEFAULT 0,
+            total_catches    INTEGER NOT NULL DEFAULT 0,
+            equipped_rod     TEXT NOT NULL DEFAULT 'Driftwood Rod',
+            best_fish_name   TEXT,
+            best_fish_weight REAL    DEFAULT 0,
+            best_fish_value  INTEGER DEFAULT 0,
+            last_fish_at     TEXT,
+            created_at       TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at       TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+    """)
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS fish_catch_records (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id     TEXT NOT NULL,
+            username    TEXT NOT NULL,
+            fish_name   TEXT NOT NULL,
+            rarity      TEXT NOT NULL DEFAULT 'common',
+            weight      REAL NOT NULL DEFAULT 0,
+            base_value  INTEGER NOT NULL DEFAULT 0,
+            final_value INTEGER NOT NULL DEFAULT 0,
+            fxp_earned  INTEGER NOT NULL DEFAULT 0,
+            caught_at   TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+    """)
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS player_rods (
+            user_id   TEXT NOT NULL,
+            rod_name  TEXT NOT NULL,
+            username  TEXT NOT NULL,
+            bought_at TEXT NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (user_id, rod_name)
+        )
+    """)
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS auto_activity_settings (
+            key   TEXT PRIMARY KEY,
+            value TEXT NOT NULL DEFAULT ''
+        )
+    """)
+
     conn.commit()
     conn.close()
     _migrate_db()
@@ -8270,5 +8320,173 @@ def seed_room_settings() -> None:
     conn = get_connection()
     for k, v in defaults:
         conn.execute("INSERT OR IGNORE INTO room_settings (key, value) VALUES (?, ?)", (k, v))
+    conn.commit()
+    conn.close()
+
+
+# ============================================================================
+# Fishing helpers
+# ============================================================================
+
+def get_or_create_fish_profile(user_id: str, username: str) -> dict:
+    """Return the fish_profiles row for a user, creating it if absent."""
+    conn = get_connection()
+    row  = conn.execute(
+        "SELECT * FROM fish_profiles WHERE user_id=?", (user_id,)
+    ).fetchone()
+    if row is None:
+        conn.execute(
+            """INSERT OR IGNORE INTO fish_profiles (user_id, username)
+               VALUES (?, ?)""",
+            (user_id, username),
+        )
+        conn.commit()
+        row = conn.execute(
+            "SELECT * FROM fish_profiles WHERE user_id=?", (user_id,)
+        ).fetchone()
+    conn.close()
+    return dict(row)
+
+
+def update_fish_profile(user_id: str, username: str, **kwargs) -> None:
+    """Update one or more columns in fish_profiles."""
+    if not kwargs:
+        return
+    fields = ", ".join(f"{k}=?" for k in kwargs)
+    values = list(kwargs.values()) + [user_id]
+    conn   = get_connection()
+    conn.execute(
+        f"UPDATE fish_profiles SET {fields}, updated_at=datetime('now') WHERE user_id=?",
+        values,
+    )
+    conn.commit()
+    conn.close()
+
+
+def save_fish_catch(
+    fish_name: str,
+    rarity: str,
+    weight: float,
+    base_value: int,
+    final_value: int,
+    fxp: int,
+    user_id: str,
+    username: str,
+) -> None:
+    """Record a fish catch."""
+    conn = get_connection()
+    conn.execute(
+        """INSERT INTO fish_catch_records
+           (user_id, username, fish_name, rarity, weight,
+            base_value, final_value, fxp_earned)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+        (user_id, username, fish_name, rarity, weight,
+         base_value, final_value, fxp),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_fish_catches(user_id: str, limit: int = 5) -> list[dict]:
+    """Return the most recent fish catches for a user."""
+    conn = get_connection()
+    rows = conn.execute(
+        """SELECT fish_name, rarity, weight, final_value, fxp_earned, caught_at
+           FROM fish_catch_records
+           WHERE user_id=?
+           ORDER BY caught_at DESC LIMIT ?""",
+        (user_id, limit),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_top_fishers(limit: int = 10) -> list[dict]:
+    """Return top players by total catch count."""
+    conn = get_connection()
+    rows = conn.execute(
+        """SELECT username, fishing_level, fishing_xp, total_catches
+           FROM fish_profiles
+           ORDER BY total_catches DESC
+           LIMIT ?""",
+        (limit,),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_biggest_fish_catches(limit: int = 10) -> list[dict]:
+    """Return the single heaviest catch per user (best_fish_weight)."""
+    conn = get_connection()
+    rows = conn.execute(
+        """SELECT username, best_fish_name AS fish_name,
+                  best_fish_weight AS weight, best_fish_value AS value
+           FROM fish_profiles
+           WHERE best_fish_weight > 0
+           ORDER BY best_fish_weight DESC
+           LIMIT ?""",
+        (limit,),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def player_owns_rod(user_id: str, rod_name: str) -> bool:
+    """Return True if the player owns the specified rod."""
+    conn = get_connection()
+    row  = conn.execute(
+        "SELECT 1 FROM player_rods WHERE user_id=? AND rod_name=?",
+        (user_id, rod_name),
+    ).fetchone()
+    conn.close()
+    return row is not None
+
+
+def add_player_rod(user_id: str, username: str, rod_name: str) -> None:
+    """Record a rod purchase (idempotent)."""
+    conn = get_connection()
+    conn.execute(
+        """INSERT OR IGNORE INTO player_rods (user_id, rod_name, username)
+           VALUES (?, ?, ?)""",
+        (user_id, rod_name, username),
+    )
+    conn.commit()
+    conn.close()
+
+
+def equip_rod(user_id: str, username: str, rod_name: str) -> None:
+    """Set the player's equipped rod."""
+    conn = get_connection()
+    conn.execute(
+        "UPDATE fish_profiles SET equipped_rod=?, updated_at=datetime('now') WHERE user_id=?",
+        (rod_name, user_id),
+    )
+    if conn.execute("SELECT changes()").fetchone()[0] == 0:
+        conn.execute(
+            """INSERT OR IGNORE INTO fish_profiles (user_id, username, equipped_rod)
+               VALUES (?, ?, ?)""",
+            (user_id, username, rod_name),
+        )
+    conn.commit()
+    conn.close()
+
+
+def get_auto_activity_setting(key: str, default: str = "") -> str:
+    """Return a value from auto_activity_settings."""
+    conn = get_connection()
+    row  = conn.execute(
+        "SELECT value FROM auto_activity_settings WHERE key=?", (key,)
+    ).fetchone()
+    conn.close()
+    return row["value"] if row else default
+
+
+def set_auto_activity_setting(key: str, value: str) -> None:
+    """Upsert a key/value in auto_activity_settings."""
+    conn = get_connection()
+    conn.execute(
+        "INSERT OR REPLACE INTO auto_activity_settings (key, value) VALUES (?, ?)",
+        (key, value),
+    )
     conn.commit()
     conn.close()

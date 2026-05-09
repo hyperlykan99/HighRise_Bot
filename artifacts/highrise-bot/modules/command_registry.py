@@ -515,6 +515,46 @@ REGISTRY: dict[str, Cmd] = {
     "forcedropore":     Cmd("miner","mining", False, False, True,  perm="owner"),
     "forcedropstatus":  Cmd("miner","mining", False, True,  False, perm="owner"),
     "clearforcedrop":   Cmd("miner","mining", False, False, True,  perm="owner"),
+
+    # ── Fishing: public commands ──────────────────────────────────────────────
+    "fish":             Cmd("fisher","fishing", True, False, True,  aliases=("cast","reel")),
+    "fishlist":         Cmd("fisher","fishing", True, True,  False, aliases=("fishrarity",)),
+    "fishprices":       Cmd("fisher","fishing", True, True,  False, aliases=("fishvalues",)),
+    "fishinfo":         Cmd("fisher","fishing", True, True,  False, aliases=("fishdetail",)),
+    "myfish":           Cmd("fisher","fishing", True, True,  False, aliases=("fishinv",)),
+    "sellfish":         Cmd("fisher","fishing", True, True,  False),
+    "sellallfish":      Cmd("fisher","fishing", True, True,  False),
+    "fishlevel":        Cmd("fisher","fishing", True, True,  False, aliases=("fishxp","fishlvl")),
+    "fishstats":        Cmd("fisher","fishing", True, True,  False),
+    "fishboosts":       Cmd("fisher","fishing", True, True,  False, aliases=("fishingevents",)),
+    "fishhelp":         Cmd("fisher","help",    True, True,  False, aliases=("fishinghelp",)),
+    "topfish":          Cmd("fisher","fishing", True, True,  False, aliases=("topfishing","fishlb")),
+    "topweightfish":    Cmd("fisher","fishing", True, True,  False, aliases=("biggestfish","heaviestfish")),
+    # ── Fishing: rod commands ─────────────────────────────────────────────────
+    "rods":             Cmd("fisher","fishing", True, True,  False, aliases=("fishroads","listfishrods")),
+    "myrod":            Cmd("fisher","fishing", True, True,  False, aliases=("equippedrod",)),
+    "rodshop":          Cmd("fisher","fishing", True, True,  False, aliases=("fishrodshop",)),
+    "buyrod":           Cmd("fisher","fishing", True, False, True,  aliases=("purchaserod",)),
+    "equiprod":         Cmd("fisher","fishing", True, False, True,  aliases=("switchrod",)),
+    "rodinfo":          Cmd("fisher","fishing", True, True,  False, aliases=("roddetail",)),
+    "rodstats":         Cmd("fisher","fishing", True, True,  False),
+    "rodupgrade":       Cmd("fisher","fishing", True, True,  False),
+    # ── Fishing: AutoFish ─────────────────────────────────────────────────────
+    "autofish":         Cmd("fisher","fishing", True, False, True,  aliases=("af",)),
+    "autofishstatus":   Cmd("fisher","fishing", True, True,  False, aliases=("afstatus",)),
+    "autofishsettings": Cmd("fisher","fishing", False,True,  False, perm="manager"),
+    "setautofish":      Cmd("fisher","fishing", False,False, True,  perm="manager"),
+    "setautofishduration":  Cmd("fisher","fishing", False,False,True,  perm="manager"),
+    "setautofishattempts":  Cmd("fisher","fishing", False,False,True,  perm="manager"),
+    "setautofishdailycap":  Cmd("fisher","fishing", False,False,True,  perm="manager"),
+    # ── Mining: AutoMine ──────────────────────────────────────────────────────
+    "automine":             Cmd("miner","mining", True, False, True,  aliases=("am",)),
+    "autominestatus":       Cmd("miner","mining", True, True,  False, aliases=("amstatus",)),
+    "autominesettings":     Cmd("miner","mining", False,True,  False, perm="manager"),
+    "setautomine":          Cmd("miner","mining", False,False, True,  perm="manager"),
+    "setautomineduration":  Cmd("miner","mining", False,False, True,  perm="manager"),
+    "setautomineattempts":  Cmd("miner","mining", False,False, True,  perm="manager"),
+    "setautominedailycap":  Cmd("miner","mining", False,False, True,  perm="manager"),
 }
 
 # ---------------------------------------------------------------------------

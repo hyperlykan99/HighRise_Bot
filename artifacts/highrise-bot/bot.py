@@ -65,6 +65,7 @@ _SPLIT_BOTS = [
     ("SECURITY_BOT_TOKEN",  "Security Bot",  "SECURITY_BOT_ID",  "security",  "SECURITY_BOT_MODE",  "security",   "SECURITY_BOT_USERNAME"),
     ("DJ_BOT_TOKEN",        "DJ Bot",        "DJ_BOT_ID",        "dj",        "DJ_BOT_MODE",        "dj",         "DJ_BOT_USERNAME"),
     ("EVENT_BOT_TOKEN",     "Event Bot",     "EVENT_BOT_ID",     "eventhost", "EVENT_BOT_MODE",     "eventhost",  "EVENT_BOT_USERNAME"),
+    ("FISHING_BOT_TOKEN",   "Fishing Bot",   "FISHING_BOT_ID",   "fisher",    "FISHING_BOT_MODE",   "fisher",     "FISHING_BOT_USERNAME"),
 ]
 
 

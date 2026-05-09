@@ -343,6 +343,10 @@ from modules.mining import (
     # A2: ore chance commands
     handle_orechances, handle_orechance,
     handle_setorechance, handle_setraritychance, handle_reloadorechances,
+    handle_automine, handle_autominestatus, handle_autominesettings,
+    handle_setautomine, handle_setautomineduration,
+    handle_setautomineattempts, handle_setautominedailycap,
+    stop_automine_for_user,
     MINE_HELP_PAGES,
 )
 from modules.economy import (
@@ -353,6 +357,18 @@ from modules.economy import (
     handle_resetraritycaps,
     handle_payoutlogs,
     handle_biggestpayouts,
+)
+from modules.fishing import (
+    handle_fish, handle_fishlist, handle_fishprices, handle_fishinfo,
+    handle_myfish, handle_sellfish, handle_sellallfish,
+    handle_fishlevel, handle_fishstats, handle_fishboosts, handle_fishingevents,
+    handle_fishhelp, handle_topfish, handle_topweightfish,
+    handle_rods, handle_myrod, handle_rodshop, handle_buyrod,
+    handle_equiprod, handle_rodinfo, handle_rodstats, handle_rodupgrade,
+    handle_autofish, handle_autofishstatus, handle_autofishsettings,
+    handle_setautofish, handle_setautofishduration,
+    handle_setautofishattempts, handle_setautofishdailycap,
+    stop_autofish_for_user,
 )
 from modules.control_panel import (
     handle_control, handle_ownerpanel, handle_managerpanel,
@@ -4037,6 +4053,27 @@ class HangoutBot(BaseBot):
         elif cmd == "reloadorechances":
             await handle_reloadorechances(self, user)
 
+        elif cmd in {"automine", "am"}:
+            await handle_automine(self, user, args)
+
+        elif cmd in {"autominestatus", "amstatus"}:
+            await handle_autominestatus(self, user)
+
+        elif cmd == "autominesettings":
+            await handle_autominesettings(self, user)
+
+        elif cmd == "setautomine":
+            await handle_setautomine(self, user, args)
+
+        elif cmd == "setautomineduration":
+            await handle_setautomineduration(self, user, args)
+
+        elif cmd == "setautomineattempts":
+            await handle_setautomineattempts(self, user, args)
+
+        elif cmd == "setautominedailycap":
+            await handle_setautominedailycap(self, user, args)
+
         elif cmd in {"economypanel", "economybalance", "miningeconomy"}:
             await handle_economypanel(self, user)
 
@@ -4057,6 +4094,91 @@ class HangoutBot(BaseBot):
 
         elif cmd == "biggestpayouts":
             await handle_biggestpayouts(self, user)
+
+        # ── Fishing commands ─────────────────────────────────────────────────
+        elif cmd in {"fish", "cast", "reel"}:
+            await handle_fish(self, user)
+
+        elif cmd in {"fishlist", "fishrarity"}:
+            await handle_fishlist(self, user, args)
+
+        elif cmd in {"fishprices", "fishvalues"}:
+            await handle_fishprices(self, user, args)
+
+        elif cmd in {"fishinfo", "fishdetail"}:
+            await handle_fishinfo(self, user, args)
+
+        elif cmd in {"myfish", "fishinv"}:
+            await handle_myfish(self, user)
+
+        elif cmd == "sellfish":
+            await handle_sellfish(self, user)
+
+        elif cmd == "sellallfish":
+            await handle_sellallfish(self, user)
+
+        elif cmd in {"fishlevel", "fishxp", "fishlvl"}:
+            await handle_fishlevel(self, user)
+
+        elif cmd == "fishstats":
+            await handle_fishstats(self, user, args)
+
+        elif cmd in {"fishboosts", "fishingevents"}:
+            await handle_fishboosts(self, user)
+
+        elif cmd in {"fishhelp", "fishinghelp"}:
+            await handle_fishhelp(self, user)
+
+        elif cmd in {"topfish", "topfishing", "fishlb"}:
+            await handle_topfish(self, user)
+
+        elif cmd in {"topweightfish", "biggestfish", "heaviestfish"}:
+            await handle_topweightfish(self, user)
+
+        elif cmd in {"rods", "fishroads", "listfishrods"}:
+            await handle_rods(self, user)
+
+        elif cmd in {"myrod", "equippedrod"}:
+            await handle_myrod(self, user)
+
+        elif cmd in {"rodshop", "fishrodshop"}:
+            await handle_rodshop(self, user)
+
+        elif cmd in {"buyrod", "purchaserod"}:
+            await handle_buyrod(self, user, args)
+
+        elif cmd in {"equiprod", "switchrod"}:
+            await handle_equiprod(self, user, args)
+
+        elif cmd in {"rodinfo", "roddetail"}:
+            await handle_rodinfo(self, user, args)
+
+        elif cmd == "rodstats":
+            await handle_rodstats(self, user)
+
+        elif cmd == "rodupgrade":
+            await handle_rodupgrade(self, user)
+
+        elif cmd in {"autofish", "af"}:
+            await handle_autofish(self, user, args)
+
+        elif cmd in {"autofishstatus", "afstatus"}:
+            await handle_autofishstatus(self, user)
+
+        elif cmd == "autofishsettings":
+            await handle_autofishsettings(self, user)
+
+        elif cmd == "setautofish":
+            await handle_setautofish(self, user, args)
+
+        elif cmd == "setautofishduration":
+            await handle_setautofishduration(self, user, args)
+
+        elif cmd == "setautofishattempts":
+            await handle_setautofishattempts(self, user, args)
+
+        elif cmd == "setautofishdailycap":
+            await handle_setautofishdailycap(self, user, args)
 
         elif cmd == "orebook":
             await handle_orebook(self, user)
@@ -4691,10 +4813,18 @@ class HangoutBot(BaseBot):
             pass
 
     async def on_user_leave(self, user: User) -> None:
-        """Log when a player leaves and remove from gold room cache."""
+        """Log when a player leaves, remove from cache, stop AutoMine/AutoFish."""
         remove_from_room_cache(user.id)
         time_exp_record_leave(user.id)
         print(f"[HangoutBot] {user.username} left.")
+        try:
+            stop_automine_for_user(user.id, user.username, "player_left")
+        except Exception:
+            pass
+        try:
+            stop_autofish_for_user(user.id, user.username, "player_left")
+        except Exception:
+            pass
 
     async def on_reaction(self, user: User, reaction: str, receiver: User) -> None:
         """
