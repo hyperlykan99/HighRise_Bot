@@ -1,0 +1,827 @@
+Blackjack Readability Update + Mining/Fishing Difficulty + First Rarity Rewards + Auto Session Persistence
+
+Focus on these systems only:
+1. Blackjack message readability and command cleanup
+2. Blackjack post-game results and matching-card bonus system
+3. Remove mining energy completely
+4. Rescale mining/fishing rarity difficulty so Exotic is extremely rare
+5. Add BankingBot first-rarity reward system
+6. Big Find / Big Catch global announcement routing
+7. AutoMine and AutoFish restart-safe session saving
+
+Do not change bot tokens.
+Do not change room ID.
+Do not reset balances.
+Do not wipe player data.
+Do not wipe mining/fishing records.
+Do not break poker, bank, shop, events, AI, security, outfits, bot spawns, command routing, or existing player profiles.
+
+==================================================
+PART 1 — BLACKJACK MESSAGE READABILITY
+==================================================
+
+Current issue:
+Blackjack messages are hard to read when multiple players are playing.
+Players need a clean layout showing dealer cards, player cards, and action list.
+
+Goal:
+Use a simple readable blackjack template:
+
+Dealer Cards
+Player Cards
+Action List
+
+Keep blackjack messages to max 2 bot messages per player update.
+
+==================================================
+1A — BLACKJACK MESSAGE TEMPLATE
+==================================================
+
+Use this display structure:
+
+BlackjackBot:
+🃏 Dealer Cards
+Dealer: [visible card] [hidden card if needed]
+
+BlackjackBot:
+🟢 Your Cards
+You: [card] [card] | Total: 16
+Actions: 🃏 /hit | 🛑 /stand | 💰 /double | ✂️ /split
+
+If public mode:
+Message 1:
+Dealer cards
+
+Message 2:
+Player cards
+Actions at the very bottom of message 2
+
+If whisper mode:
+Whisper should include:
+- Player cards
+- Total
+- Actions
+Make the player card whisper green so the player can quickly identify their own cards.
+
+Use green color for whisper-mode player cards:
+<#00FF66>Your Cards<#FFFFFF>
+or similar safe Highrise color code.
+
+==================================================
+1B — PLAYER CARD VISIBILITY SETTING
+==================================================
+
+Add setting to control player card visibility:
+
+Commands:
+- /bjcards
+- /bjcards whisper
+- /bjcards public
+
+Optional aliases:
+- /blackjackcards whisper
+- /blackjackcards public
+
+Default:
+whisper
+
+Behavior:
+
+/bjcards:
+Shows current setting.
+
+Example:
+BlackjackBot:
+🃏 Blackjack Cards
+Player Cards: Whisper
+Use /bjcards public or /bjcards whisper
+
+/bjcards whisper:
+Player cards are whispered privately to each player.
+
+/bjcards public:
+Player cards are shown publicly.
+
+Important:
+If whisper mode is ON, the public message should not reveal private player cards.
+If public mode is ON, keep actions at the bottom of the player card message.
+
+==================================================
+1C — ACTION EMOJIS
+==================================================
+
+Add emojis to blackjack actions:
+
+🃏 /hit
+🛑 /stand
+💰 /double
+✂️ /split
+🛡️ /insurance
+🏳️ /surrender
+
+Use these consistently in:
+- player turn messages
+- help messages
+- action list
+- post-game suggestions
+- invalid action messages
+
+==================================================
+PART 2 — BLACKJACK COMMAND CLEANUP
+==================================================
+
+Current issue:
+BlackjackBot still says old command like /rjoin.
+
+Fix:
+Remove old blackjack command references from all BlackjackBot messages.
+
+Only use this clean command set:
+
+/bj
+/bet <amount>
+/hit
+/stand
+/double
+/split
+/insurance
+/surrender
+/bjrules
+/bjhelp
+
+Do not show:
+/rjoin
+
+Search all blackjack messages/help/templates and replace old command references.
+
+If there are aliases internally, keep them hidden unless they are intentionally supported.
+Visible messages should use only the clean commands above.
+
+==================================================
+PART 3 — BLACKJACK POST-GAME RESULTS
+==================================================
+
+If there is no existing post-game result screen, add one.
+If one exists, improve it.
+
+Post-game result should show:
+
+- Dealer final hand
+- Player final hand
+- Result: Win / Lose / Push / Blackjack / Bust / Surrender
+- Chips won or lost
+- Bonus chips if earned
+- Current balance if easy to show
+
+Example:
+
+BlackjackBot:
+🏁 Round Result
+Dealer: K♠ 7♦ 4♣ = 21
+You: 10♥ 9♣ = 19
+Result: Lose | Bet: 500 | Lost: 500
+
+Bonus example:
+
+BlackjackBot:
+🏁 Round Result
+Dealer: 10♠ 8♦ = 18
+You: 8♥ 8♣ 5♦ = 21
+Result: Win | Won: 1,000
+Bonus: Pair Match +250 chips
+
+Keep messages short.
+If needed, split into max 2 messages.
+
+==================================================
+PART 4 — BLACKJACK MATCHING CARD BONUS SYSTEM
+==================================================
+
+Add a matching-card bonus system.
+
+Goal:
+If a player gets matching starting cards, they can earn bonus chips.
+
+Bonus should be paid separately from normal blackjack winnings.
+
+Recommended matching bonus tiers:
+
+1. Pair Bonus
+Condition:
+First 2 player cards have same rank.
+Example: 8♠ 8♦
+
+Reward:
+Small bonus.
+
+2. Color Pair Bonus
+Condition:
+Same rank and same color.
+Example: 8♥ 8♦ or 8♣ 8♠
+
+Reward:
+Better bonus.
+
+3. Suit Pair Bonus
+Condition:
+Same rank and same suit style if deck logic supports duplicate decks.
+Example: 8♥ 8♥ in multi-deck shoe.
+
+Reward:
+Higher bonus.
+
+4. Perfect Pair Bonus
+Condition:
+Exact same rank and suit in multi-deck shoe.
+Example: K♠ K♠
+
+Reward:
+Highest bonus.
+
+If suit-pair/perfect-pair distinction is too complex with current deck model, implement:
+- Pair
+- Same Color Pair
+- Perfect Pair
+
+==================================================
+4A — BONUS SCALING
+==================================================
+
+Add configurable bonus scaling.
+
+Recommended default:
+
+Pair Bonus:
++10% of bet
+
+Same Color Pair:
++25% of bet
+
+Perfect Pair:
++50% of bet
+
+Minimum bonus:
+50 chips
+
+Maximum bonus:
+configurable, default 10,000 chips
+
+Bonus should not break economy.
+
+Commands:
+- /bjbonus
+- /bjbonussettings
+- /setbjbonus <pair|color|perfect> <percent>
+- /setbjbonuscap <amount>
+
+Owner/Admin only for settings.
+
+==================================================
+4B — VIP / TIME TIER BONUS
+==================================================
+
+Add VIP/time-tier bonus multiplier if player has VIP/time tier.
+
+Example:
+Normal player:
+Pair Bonus = 10% bet
+
+VIP/time-tier player:
+Pair Bonus = 10% bet × VIP multiplier
+
+Suggested VIP/time-tier multipliers:
+- Default: 1.0x
+- VIP / High time tier: 1.25x
+- Higher tier: 1.5x
+
+If existing title/badge/time-tier system has a VIP concept, use it.
+If no VIP exists, implement safe placeholder:
+vip_bonus_multiplier = 1.0
+
+Do not break if VIP is missing.
+
+Show bonus result:
+
+BlackjackBot:
+🎁 Bonus
+Pair Match +250 chips
+VIP Bonus: 1.25x applied
+
+==================================================
+PART 5 — REALISTIC BLACKJACK RULES TO ADD / VERIFY
+==================================================
+
+Add or verify these realistic blackjack settings:
+
+- Dealer hits or stands on soft 17 setting.
+- Blackjack pays 3:2 setting.
+- Insurance pays 2:1.
+- Double down only on first 2 cards.
+- Split only matching ranks.
+- Re-split limit setting.
+- One card only after splitting Aces.
+- Surrender setting.
+- Shoe penetration / reshuffle setting.
+- Table min and max bet.
+- /bjrules command showing current table rules.
+
+Commands:
+- /bjrules
+- /bjsettings
+- /setdealerh17 <hit|stand>
+- /setblackjackpayout <3:2|6:5|2:1>
+- /setbjmin <amount>
+- /setbjmax <amount>
+- /setsurrender <on|off>
+- /setinsurance <on|off>
+- /setsplitlimit <number>
+
+If any setting command is too much for this update, do not add it as active.
+But /bjrules should show available current rules.
+
+==================================================
+PART 6 — REMOVE MINING ENERGY COMPLETELY
+==================================================
+
+Current decision:
+Mining should not use energy anymore.
+
+Reason:
+Fishing does not use energy.
+AutoMine already has session limits, cooldowns, attempts, and daily caps.
+Energy is unnecessary.
+
+Remove mining energy from:
+- /mine
+- /minehelp
+- /mineconfig
+- player mining profile display
+- cooldown messages
+- mining requirements
+- mining panels
+- mining logic
+- any energy regeneration loops
+- any energy database writes if safe
+
+Do not wipe old energy columns if they exist.
+Just stop using energy.
+
+Mining should rely on:
+- cooldown
+- tools
+- AutoMine limits
+- daily caps if any
+- events
+- mining level
+- inventory limit if any
+
+If old DB has energy fields, leave them harmless but unused.
+
+Messages should not say:
+Energy: X/Y
+Not enough energy
+
+Replace with cooldown/session rules.
+
+==================================================
+PART 7 — RESCALE MINING AND FISHING DIFFICULTY
+==================================================
+
+Current issue:
+Exotic difficulty around 33,000 is too easy.
+Exotic should be almost impossible and feel like Roblox Prospecting-style rare.
+
+Goal:
+Rescale ore and fish rarity difficulty so:
+- Common = easy
+- Rare = noticeable
+- Epic = uncommon
+- Legendary = exciting
+- Mythic = very rare
+- Prismatic = jackpot rare
+- Exotic = almost impossible / ultimate flex
+
+Do this carefully without breaking existing data.
+
+==================================================
+7A — TARGET RARITY CHANCES
+==================================================
+
+Recommended rarity tier targets:
+
+Common:
+Very common
+
+Rare:
+Common but noticeably better
+
+Epic:
+Uncommon
+
+Legendary:
+Rare and exciting
+
+Mythic:
+Very rare
+
+Prismatic:
+Jackpot rare
+
+Exotic:
+Almost impossible
+
+Use this scale as a guide:
+
+Common: about 1 in 2 to 1 in 20 depending item
+Rare: about 1 in 25 to 1 in 150
+Epic: about 1 in 200 to 1 in 1,000
+Legendary: about 1 in 1,500 to 1 in 10,000
+Mythic: about 1 in 15,000 to 1 in 100,000
+Prismatic: about 1 in 150,000 to 1 in 1,000,000
+Exotic: about 1 in 2,500,000 to 1 in 25,000,000
+
+Important:
+Exotic should NOT be around 33,000.
+Exotic should be extremely rare.
+
+==================================================
+7B — APPLY TO BOTH MINING AND FISHING
+==================================================
+
+Mining:
+- Update ore drop weights/display chances.
+- /orelist <rarity> should show updated chances.
+- /oreinfo <ore> should show updated chance.
+
+Fishing:
+- Update fish drop weights/display chances.
+- /fishlist <rarity> should show updated chances.
+- /fishinfo <fish> should show updated chance.
+
+Do not break:
+- /orelist summary
+- /fishlist summary
+- /oreprices
+- /fishprices
+- mine/fish reward logic
+
+==================================================
+7C — ADMIN CONFIG
+==================================================
+
+If existing ore/fish chance setting commands exist, update them safely.
+
+Recommended commands if already available:
+- /orechances
+- /fishchances
+- /setorechance <ore> <1_in_number>
+- /setfishchance <fish> <1_in_number>
+- /setraritychance <mining|fishing> <rarity> <chance>
+
+If not implemented, do not add too much in this update unless safe.
+
+==================================================
+PART 8 — BANKINGBOT FIRST RARITY REWARD SYSTEM
+==================================================
+
+Goal:
+Add a system where BankingBot rewards the first players who get a selected rarity.
+
+Example:
+First 3 players to mine Exotic get a gold tip/reward.
+First 2 players to catch Exotic fish get a gold tip/reward.
+
+Important:
+If Highrise SDK supports bot-to-player gold tipping, BankingBot can send gold.
+If SDK does NOT support sending gold, BankingBot should:
+- log the reward
+- notify owner/staff
+- optionally credit coins instead if configured
+- show “manual gold tip required”
+
+==================================================
+8A — FIRST FIND REWARD SETTINGS
+==================================================
+
+Commands:
+- /firstfindreward
+- /setfirstfindreward <mining|fishing> <rarity> <players_count> <gold_amount>
+- /firstfindstatus
+- /resetfirstfind <mining|fishing> <rarity>
+
+Examples:
+/setfirstfindreward mining exotic 3 10
+Means first 3 players to mine Exotic get 10 gold reward each.
+
+/setfirstfindreward fishing prismatic 2 5
+Means first 2 players to catch Prismatic fish get 5 gold reward each.
+
+/firstfindstatus:
+Shows current rewards and claimed players.
+
+/resetfirstfind mining exotic:
+Resets Exotic mining first-find reward tracking.
+
+==================================================
+8B — FIRST FIND BEHAVIOR
+==================================================
+
+When a player mines/catches a configured rarity:
+
+1. Check if first-find reward exists for that category and rarity.
+2. Check if reward slots are still available.
+3. Check if player already claimed that reward.
+4. If eligible:
+   - record player as claimant
+   - BankingBot handles reward
+   - announce or whisper reward depending setting
+
+Example:
+
+BankingBot:
+🏆 First Find Reward
+@Marion is #1 to mine [EXOTIC]!
+Reward: 10 gold
+
+If gold sending is not possible:
+
+BankingBot:
+🏆 First Find Reward Logged
+@Marion earned 10 gold for first Exotic mine.
+Owner must manually tip or enable coin fallback.
+
+==================================================
+8C — DATABASE
+==================================================
+
+Create safely:
+
+first_find_rewards:
+- id INTEGER PRIMARY KEY AUTOINCREMENT
+- category TEXT
+- rarity TEXT
+- players_count INTEGER
+- gold_amount REAL
+- coin_fallback_amount INTEGER
+- enabled INTEGER
+- created_at TEXT
+- updated_at TEXT
+
+first_find_claims:
+- id INTEGER PRIMARY KEY AUTOINCREMENT
+- reward_id INTEGER
+- user_id TEXT
+- username TEXT
+- category TEXT
+- rarity TEXT
+- claim_rank INTEGER
+- reward_status TEXT
+- claimed_at TEXT
+
+reward_status:
+- paid_gold
+- pending_manual_gold
+- paid_coins
+- failed
+
+==================================================
+PART 9 — BIG FIND / BIG CATCH GLOBAL ANNOUNCEMENTS
+==================================================
+
+Goal:
+Big Find and Big Catch announcements should be available to all bots or routed globally.
+
+Current:
+MiningBot announces mining big finds.
+FishingBot announces big catches.
+
+New behavior:
+Legendary+ mining/fishing should trigger a global announcement event that other bots can react to.
+
+But prevent spam.
+
+Recommended behavior:
+- Activity bot makes main public announcement.
+- Other bots only optionally react for Prismatic/Exotic.
+- Do not make every bot repeat the full message for every Legendary.
+- Add setting to control global reactions.
+
+Commands:
+- /bigannounce
+- /setbigannounce <off|legendary|mythic|prismatic|exotic>
+- /setbotbigreact <bot> <on|off>
+- /bigannouncestatus
+
+Default:
+- Main announcement: Legendary+
+- Other bot reactions: Prismatic+
+- Full multi-bot reactions: Exotic only
+
+Examples:
+
+GreatestProspector:
+📣 Big Find
+@Player mined [EXOTIC] Blood Diamond!
+
+BankingBot:
+💰 First Find reward check complete for @Player.
+
+EventBot:
+🔥 Exotic discovery! Room hype activated.
+
+MasterAngler:
+🎣 Legendary catch energy in the room!
+
+==================================================
+PART 10 — AUTOMINE AND AUTOFISH RESTART-SAFE PERSISTENCE
+==================================================
+
+Current goal:
+AutoMine and AutoFish should save sessions when bots restart.
+
+Previous rule still applies:
+- No offline mining/fishing.
+- Stop if player leaves.
+- Do not backpay missed attempts during downtime.
+
+New behavior:
+When bot restarts:
+1. Load active AutoMine sessions.
+2. Load active AutoFish sessions.
+3. Check if player is still in the room.
+4. If player is still present, resume safely with remaining limits.
+5. If player is not present, mark session stopped.
+6. Do not credit missed attempts during downtime.
+7. Do not auto-restart if session expired during downtime.
+8. Keep attempts/time limits.
+
+==================================================
+10A — AUTOMINE RESUME RULES
+==================================================
+
+If AutoMine was active before restart:
+
+If player is present:
+- resume AutoMine
+- keep attempts_done
+- keep original started_at
+- calculate remaining duration
+- do not backpay downtime
+
+If player is not present:
+- stop AutoMine
+- reason: player_not_present_after_restart
+
+If duration already expired:
+- stop AutoMine
+- reason: expired_during_restart
+
+If max attempts already reached:
+- stop AutoMine
+- reason: attempts_reached
+
+==================================================
+10B — AUTOFISH RESUME RULES
+==================================================
+
+Same rules as AutoMine:
+
+If player is present:
+- resume AutoFish
+- keep attempts_done
+- keep original started_at
+- calculate remaining duration
+- do not backpay downtime
+
+If player is not present:
+- stop AutoFish
+- reason: player_not_present_after_restart
+
+If duration already expired:
+- stop AutoFish
+- reason: expired_during_restart
+
+If max attempts already reached:
+- stop AutoFish
+- reason: attempts_reached
+
+==================================================
+10C — STATUS DISPLAY AFTER RESTART
+==================================================
+
+/autominestatus should show resumed session:
+
+GreatestProspector:
+⛏️ AutoMine
+Status: ON
+Session: 12/30 mines
+Time: 8m/30m
+Resumed after restart: YES
+
+/autofishstatus should show resumed session:
+
+MasterAngler:
+🎣 AutoFish
+Status: ON
+Session: 7/30 catches
+Time: 5m/30m
+Resumed after restart: YES
+
+==================================================
+PART 11 — COMMAND INTEGRITY
+==================================================
+
+For every new command:
+1. Add route.
+2. Add handler.
+3. Add commandtest support.
+4. Add active registry entry.
+5. Add owner map.
+6. Owner must not be UNKNOWN.
+
+Commands to verify:
+
+Blackjack:
+/commandtest /bjcards
+/commandtest /bjbonus
+/commandtest /bjbonussettings
+/commandtest /setbjbonus
+/commandtest /setbjbonuscap
+/commandtest /bjrules
+/commandtest /bjsettings
+
+Mining/Fishing:
+/commandtest /orelist
+/commandtest /fishlist
+/commandtest /oreinfo
+/commandtest /fishinfo
+/commandtest /orechances
+/commandtest /fishchances
+
+First find rewards:
+/commandtest /firstfindreward
+/commandtest /setfirstfindreward
+/commandtest /firstfindstatus
+/commandtest /resetfirstfind
+
+Big announcements:
+/commandtest /bigannounce
+/commandtest /setbigannounce
+/commandtest /setbotbigreact
+/commandtest /bigannouncestatus
+
+Auto sessions:
+/commandtest /automine
+/commandtest /autominestatus
+/commandtest /autofish
+/commandtest /autofishstatus
+
+/checkcommands all should show:
+Missing 0
+NoOwner 0
+
+If a command is not implemented, do not add it as active.
+
+==================================================
+PART 12 — SAFETY
+==================================================
+
+Do not:
+- reset balances
+- wipe player data
+- wipe mining/fishing records
+- break blackjack
+- break poker
+- break mining
+- break fishing
+- break bank
+- break event manager
+- let Exotic be easy
+- make Exotic around 33,000 difficulty
+- let AutoMine/AutoFish continue offline
+- let AutoMine/AutoFish backpay after restart
+- make every bot spam announcements
+- expose bot tokens, room ID, env vars, or secrets
+
+==================================================
+FINAL REPORT
+==================================================
+
+After finishing, tell me:
+1. Files changed
+2. Blackjack message template changes
+3. Player card whisper/public setting
+4. Post-game result changes
+5. Matching-card bonus system
+6. VIP/time-tier bonus handling
+7. Blackjack commands cleaned up
+8. Mining energy removal
+9. New mining/fishing difficulty scale
+10. Exotic difficulty target
+11. First-find reward system
+12. Whether gold tipping is automatic or manual fallback
+13. Big announcement routing
+14. AutoMine restart resume behavior
+15. AutoFish restart resume behavior
+16. Commands added
+17. Exact tests to run

@@ -16,6 +16,8 @@ import database as db
 from filelock import FileLock, Timeout as _FileLockTimeout
 from highrise import BaseBot, User
 from modules.permissions import is_admin, is_owner, can_manage_economy
+from modules.big_announce import send_big_mine_announce
+from modules.first_find   import check_first_find
 from modules.mining_colors import (
     format_mining_rarity,
     format_ore_name,
@@ -134,15 +136,15 @@ COOLDOWNS = {1: 30, 2: 55, 3: 50, 4: 45, 5: 40, 6: 35, 7: 30, 8: 25, 9: 20, 10: 
 # MXP ranges reduced on common/uncommon so rare+ finds feel significantly more
 # rewarding; the XP curve multiplier was raised to 150 to keep overall pace healthy.
 RARITIES = {
-    "common":    (68.0,  (3,      8)),
-    "uncommon":  (20.0,  (10,    18)),
-    "rare":      ( 8.0,  (35,    70)),
-    "epic":      ( 2.5,  (100,  200)),
-    "legendary": ( 1.0,  (350,  650)),
-    "mythic":    ( 0.4,  (1800, 1800)),
-    "ultra_rare":( 0.1,  (7500, 7500)),
-    "prismatic": ( 0.05, (12000, 12000)),
-    "exotic":    ( 0.03, (20000, 20000)),
+    "common":    (68.0,    (3,      8)),
+    "uncommon":  (20.0,    (10,    18)),
+    "rare":      ( 8.0,    (35,    70)),
+    "epic":      ( 2.5,    (100,  200)),
+    "legendary": ( 0.06,   (350,  650)),    # ~1 in 1,640
+    "mythic":    ( 0.004,  (1800, 1800)),   # ~1 in 24,630
+    "ultra_rare":( 0.001,  (7500, 7500)),   # ~1 in 98,520
+    "prismatic": ( 0.0002, (12000, 12000)), # ~1 in 492,600
+    "exotic":    ( 0.00004,(20000, 20000)), # ~1 in 2,460,000
 }
 
 RARITY_ORDER = [
@@ -229,7 +231,7 @@ MINE_SHOP_ITEMS = {
     "lucky_charm":    {"name": "Lucky Charm",    "emoji": "🍀", "price": 6_000,  "mins": 20,    "effect": "luck_boost"},
     "focus_music":    {"name": "Focus Music",    "emoji": "🎵", "price": 6_000,  "mins": 20,    "effect": "xp_boost"},
 }
-_MINE_SHOP_LIST = list(MINE_SHOP_ITEMS.keys())  # ordered list for numbered shop
+_MINE_SHOP_LIST = [k for k in MINE_SHOP_ITEMS.keys() if MINE_SHOP_ITEMS[k].get("effect") != "energy"]  # energy items removed
 
 VALID_MINING_EVENTS = {
     "double_ore":             "Drop quantities x2",
@@ -388,21 +390,6 @@ async def handle_mine(bot: BaseBot, user: User) -> None:
                  f"<#FFCC00>⏳ Cooldown<#FFFFFF>: Mine again in {wait}s.")
         return
 
-    # Energy
-    mine_event_id = mine_event.get("event_id", "") if mine_event else ""
-    energy_cost = 0 if (mine_event and mine_event.get("event_id") == "energy_free") \
-                  else int(db.get_mine_setting("base_energy_cost", "5"))
-
-    # Daily energy reset
-    _maybe_reset_energy(miner, uname)
-    miner = db.get_or_create_miner(uname)  # re-fetch after possible reset
-
-    if miner["energy"] < energy_cost:
-        await _w(bot, user.id,
-                 f"⚡ No energy ({miner['energy']}/{miner['max_energy']}). "
-                 "Come back later or use /mineshop.")
-        return
-
     db.ensure_user(user.id, uname)
     is_vip = db.owns_item(user.id, "vip")
 
@@ -459,7 +446,6 @@ async def handle_mine(bot: BaseBot, user: User) -> None:
     qty = 2 if (double_ore or _blessing_active) else 1
 
     # Persist changes
-    new_energy = miner["energy"] - energy_cost
     new_mines  = miner["total_mines"] + 1
     new_ores   = miner["total_ores"] + qty
     new_mxp    = miner["mining_xp"] + mxp
@@ -502,7 +488,6 @@ async def handle_mine(bot: BaseBot, user: User) -> None:
     try:
         with _MINE_WRITE_LOCK:
             db.update_miner(uname,
-                energy=new_energy,
                 total_mines=new_mines,
                 total_ores=new_ores,
                 mining_xp=new_mxp,
@@ -553,21 +538,19 @@ async def handle_mine(bot: BaseBot, user: User) -> None:
         await _w(bot, user.id, line1[:249])
         await _w(bot, user.id, f"⭐ MXP: +{_fmt(mxp)}")
 
-    # Public announce (configurable threshold)
-    if should_announce(item["rarity"], item["item_id"]):
-        _disp   = db.get_display_name(user.id, uname)
-        ore_ann = format_ore_name(f"{item['emoji']} {item['name']}", item["rarity"])
-        rar_ann = format_mining_rarity(item["rarity"])
-        if ore_weight is not None:
-            val_str = f" — {ore_weight}kg, {_fmt(final_val)}c!"
-        else:
-            val_str = "!"
-        ann1 = "<#FFD700>📣 Big Find<#FFFFFF>"
-        ann2 = f"💎 {_disp} mined {rar_ann} {ore_ann}{val_str}"
+    # Public announce + first-find reward check (configurable threshold)
+    if item["rarity"] in ("legendary","mythic","ultra_rare","prismatic","exotic"):
         try:
-            await bot.highrise.chat(f"{ann1}\n{ann2}"[:249])
-        except Exception:
-            pass
+            await check_first_find(bot, user.id, uname, "mining", item["rarity"])
+        except Exception as _ffe:
+            print(f"[MINING] first_find error: {_ffe}")
+    if should_announce(item["rarity"], item["item_id"]):
+        extra = f" — {ore_weight}kg, {_fmt(final_val)}c" if ore_weight is not None else ""
+        try:
+            await send_big_mine_announce(bot, item["rarity"], uname,
+                                        item["name"], item["emoji"], extra)
+        except Exception as _bae:
+            print(f"[MINING] big_announce error: {_bae}")
 
     # Level up announce
     if new_lvl > cur_lvl:
@@ -689,8 +672,6 @@ async def handle_mineprofile(bot: BaseBot, user: User, args: list[str]) -> None:
     mxp   = miner["mining_xp"]
     nxp   = _xp_for_level(lvl)
     pick  = miner["tool_level"]
-    nrg   = miner["energy"]
-    max_e = miner["max_energy"]
 
     if page == 1:
         luck_left = f" 🍀{_boost_mins_left(miner.get('luck_boost_until'))}m" if _boost_active(miner.get("luck_boost_until")) else ""
@@ -699,7 +680,7 @@ async def handle_mineprofile(bot: BaseBot, user: User, args: list[str]) -> None:
             f"⛏️ @{user.username} Mining Profile\n"
             f"Lv {lvl} | {_fmt(mxp)}/{_fmt(nxp)} MXP\n"
             f"Pickaxe Lv {pick} {PICKAXE_NAMES.get(pick,'?')}\n"
-            f"Energy {nrg}/{max_e}{luck_left}{xp_left}\n"
+            f"Boosts:{luck_left}{xp_left}\n"
             f"Page 2: /mp 2"
         )
     else:
@@ -898,11 +879,11 @@ async def handle_minebuy(bot: BaseBot, user: User, args: list[str]) -> None:
     miner = db.get_or_create_miner(user.username)
 
     if it["effect"] == "energy":
-        new_e = min(miner["energy"] + it["energy"], miner["max_energy"])
-        db.update_miner(user.username, energy=new_e)
         await _w(bot, user.id,
-                 f"✅ Bought {it['emoji']} {it['name']} for {_fmt(it['price'])}c. "
-                 f"Energy: {new_e}/{miner['max_energy']}")
+                 f"⛏️ Energy items are no longer used. Try /minebuy 3 (Lucky Charm).")
+        db.adjust_balance(user.id, it["price"])  # refund
+        db.log_mine(user.username, "buy_shop_refund", item_id, 1, it["price"], "energy_removed")
+        return
 
     elif it["effect"] == "luck_boost":
         from datetime import timedelta
@@ -927,7 +908,7 @@ async def handle_minebuy(bot: BaseBot, user: User, args: list[str]) -> None:
 
 async def handle_useenergy(bot: BaseBot, user: User, args: list[str]) -> None:
     await _w(bot, user.id,
-             "Buy Energy Tea (/minebuy 1) or Energy Smoothie (/minebuy 2) to restore energy.")
+             "⛏️ Energy is no longer used in mining. Mine freely! /mine")
 
 
 async def handle_useluckboost(bot: BaseBot, user: User) -> None:
@@ -1046,11 +1027,9 @@ async def handle_minedaily(bot: BaseBot, user: User) -> None:
         streak = 1  # reset
 
     # Base rewards
-    energy_gain = 50
     coin_gain   = 500
     mxp_gain    = 50
 
-    new_energy = min(miner["energy"] + energy_gain, miner["max_energy"])
     new_mxp    = miner["mining_xp"] + mxp_gain
 
     # Level up check from MXP
@@ -1062,7 +1041,6 @@ async def handle_minedaily(bot: BaseBot, user: User) -> None:
 
     db.adjust_balance(user.id, coin_gain)
     db.update_miner(user.username,
-        energy=new_energy,
         mining_xp=new_mxp,
         mining_level=new_lvl,
         streak_days=streak,
@@ -1086,8 +1064,8 @@ async def handle_minedaily(bot: BaseBot, user: User) -> None:
         db.grant_item(user.id, "chill_miner", "title")
         extra = " 🏆 Streak 30: [Chill Miner] title!"
 
-    msg = (f"🎁 Mining daily: +{energy_gain} energy, "
-           f"+{_fmt(coin_gain)}c, +{mxp_gain} MXP. Streak {streak}.{extra}")
+    msg = (f"🎁 Mining daily: +{_fmt(coin_gain)}c, +{mxp_gain} MXP. "
+           f"Streak {streak}.{extra}")
     await _w(bot, user.id, msg[:249])
 
 
@@ -1158,7 +1136,6 @@ async def handle_miningadmin(bot: BaseBot, user: User) -> None:
              "⛏️ Mining Admin\n"
              "/mining on/off — enable/disable\n"
              "/setminecooldown <sec>\n"
-             "/setmineenergycost <amt>\n"
              "/addore <user> <ore> <amt>\n"
              "/settoollevel <user> <1-10>")
 
@@ -1188,13 +1165,7 @@ async def handle_setminecooldown(bot: BaseBot, user: User, args: list[str]) -> N
 
 
 async def handle_setmineenergycost(bot: BaseBot, user: User, args: list[str]) -> None:
-    if not _can_mine_admin(user.username):
-        return
-    if len(args) < 2 or not args[1].isdigit():
-        await _w(bot, user.id, "Usage: /setmineenergycost <amount>")
-        return
-    db.set_mine_setting("base_energy_cost", args[1])
-    await _w(bot, user.id, f"✅ Energy cost per mine set to {args[1]}.")
+    await _w(bot, user.id, "⛏️ Energy system removed. /mine has no energy cost.")
 
 
 async def handle_mineconfig(bot: BaseBot, user: User) -> None:
@@ -1203,14 +1174,12 @@ async def handle_mineconfig(bot: BaseBot, user: User) -> None:
         await _w(bot, user.id, "Admin/manager only.")
         return
     cd   = db.get_mine_setting("base_cooldown_seconds", "30")
-    ec   = db.get_mine_setting("base_energy_cost", "5")
     en   = db.get_mine_setting("mining_enabled", "true")
     rr   = db.get_mine_setting("mining_requires_room", "true")
     ra   = db.get_mine_setting("rare_announce_enabled", "true")
     await _w(bot, user.id,
              f"⛏️ Mine Config\n"
-             f"Cooldown: {cd}s | Energy cost: {ec}\n"
-             f"Mining: {'ON' if en == 'true' else 'OFF'} | "
+             f"Cooldown: {cd}s | Mining: {'ON' if en == 'true' else 'OFF'}\n"
              f"Room req: {'YES' if rr == 'true' else 'NO'}\n"
              f"Rare announce: {'ON' if ra == 'true' else 'OFF'}")
 
@@ -1221,7 +1190,6 @@ async def handle_minepanel(bot: BaseBot, user: User) -> None:
         await _w(bot, user.id, "Admin/manager only.")
         return
     cd     = db.get_mine_setting("base_cooldown_seconds", "30")
-    ec     = db.get_mine_setting("base_energy_cost", "5")
     en     = db.get_mine_setting("mining_enabled", "true") == "true"
     # Weight settings
     try:
@@ -1272,8 +1240,8 @@ async def handle_minepanel(bot: BaseBot, user: User) -> None:
 
     await _w(bot, user.id, "<#66CCFF>⛏️ Mining Panel<#FFFFFF>")
     await _w(bot, user.id,
-             f"Status: {'ON' if en else 'OFF'} | Starter: {cd}s | "
-             f"Energy: {ec}/mine | Weights: {'ON' if w_on else 'OFF'}")
+             f"Status: {'ON' if en else 'OFF'} | Cooldown: {cd}s | "
+             f"Weights: {'ON' if w_on else 'OFF'}")
     await _w(bot, user.id,
              f"Scale: {scale} | LB: {lb_mode} | "
              f"Announce: {ann_min.capitalize()}+ {'ON' if ann_on else 'OFF'} "
@@ -2431,6 +2399,13 @@ async def _automine_loop(bot: BaseBot, user: User) -> None:
              f"Limit: {max_att} mines or {max_mins}m.\n"
              f"Stops if you leave. /automine off to stop.")
 
+    from datetime import datetime as _dt2, timezone as _tz2
+    _am_started_at = _dt2.now(_tz2.utc).isoformat()
+    try:
+        db.save_auto_mine_session(uid, uname, _am_started_at, max_att, max_mins)
+    except Exception:
+        pass
+
     try:
         while True:
             if _get_am_setting("automine_enabled", "1") != "1":
@@ -2472,10 +2447,14 @@ async def _automine_loop(bot: BaseBot, user: User) -> None:
                 await asyncio.sleep(wait)
                 continue
 
-            # Delegate to handle_mine — it handles energy, events, whispers, etc.
+            # Delegate to handle_mine — it handles events, whispers, etc.
             try:
                 await handle_mine(bot, user)
                 attempts += 1
+                try:
+                    db.update_auto_mine_attempts(uid, attempts)
+                except Exception:
+                    pass
             except Exception as exc:
                 print(f"[AUTOMINE] handle_mine error for {uname}: {exc}")
 
@@ -2487,12 +2466,20 @@ async def _automine_loop(bot: BaseBot, user: User) -> None:
         print(f"[AUTOMINE] Loop error for {uname}: {exc}")
     finally:
         _automine_tasks.pop(uid, None)
+        try:
+            db.stop_auto_mine_session(uid)
+        except Exception:
+            pass
 
 
 def stop_automine_for_user(user_id: str, username: str,
                            reason: str = "player_left") -> bool:
     """Cancel the AutoMine task for a user. Returns True if one was running."""
     task = _automine_tasks.pop(user_id, None)
+    try:
+        db.stop_auto_mine_session(user_id)
+    except Exception:
+        pass
     if task and not task.done():
         task.cancel()
         return True
@@ -2623,3 +2610,51 @@ async def handle_setautominedailycap(bot: BaseBot, user: User,
     val = max(30, min(480, int(args[1])))
     db.set_auto_activity_setting("automine_daily_cap_minutes", str(val))
     await _w(bot, user.id, f"⛏️ AutoMine daily cap: {val}m.")
+
+
+# ---------------------------------------------------------------------------
+# AutoMine restart recovery
+# ---------------------------------------------------------------------------
+
+async def startup_automine_recovery(bot: BaseBot) -> None:
+    """Restart AutoMine sessions for players still in room after a bot restart."""
+    await asyncio.sleep(5)  # let room cache populate first
+    try:
+        sessions = db.get_all_active_auto_mine_sessions()
+    except Exception as exc:
+        print(f"[AUTOMINE] startup_recovery DB error: {exc}")
+        return
+    if not sessions:
+        return
+    print(f"[AUTOMINE] Recovering {len(sessions)} session(s)")
+
+    # Fetch live room user list
+    room_names: set[str] = set()
+    try:
+        resp = await bot.highrise.get_room_users()
+        if hasattr(resp, "content"):
+            for _u, _ in resp.content:
+                room_names.add(_u.username.lower())
+    except Exception as _re:
+        print(f"[AUTOMINE] Could not get room users: {_re}")
+
+    class _FakeUser:
+        def __init__(self, uid: str, uname: str) -> None:
+            self.id       = uid
+            self.username = uname
+
+    for s in sessions:
+        uid   = s["user_id"]
+        uname = s["username"]
+        if room_names and uname.lower() not in room_names:
+            try:
+                db.stop_auto_mine_session(uid, "restart_not_in_room")
+            except Exception:
+                pass
+            continue
+        if uid in _automine_tasks and not _automine_tasks[uid].done():
+            continue
+        fake_user = _FakeUser(uid, uname)
+        task = asyncio.create_task(_automine_loop(bot, fake_user))
+        _automine_tasks[uid] = task
+        print(f"[AUTOMINE] Resumed session for @{uname}")

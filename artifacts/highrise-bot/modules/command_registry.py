@@ -557,6 +557,21 @@ REGISTRY: dict[str, Cmd] = {
     "setautomineduration":  Cmd("miner","mining", False,False, True,  perm="manager"),
     "setautomineattempts":  Cmd("miner","mining", False,False, True,  perm="manager"),
     "setautominedailycap":  Cmd("miner","mining", False,False, True,  perm="manager"),
+    # ── First-find rewards ────────────────────────────────────────────────────
+    "firstfindrewards":     Cmd("all","economy",  True, True,  False, aliases=("firstfindlist",)),
+    "setfirstfind":         Cmd("banker","economy",False,False, True,  perm="manager"),
+    "firstfindstatus":      Cmd("all","economy",  True, True,  False, aliases=("firstfindcheck",)),
+    "resetfirstfind":       Cmd("banker","economy",False,False, True,  perm="manager"),
+    # ── Big announce ──────────────────────────────────────────────────────────
+    "bigannouncestatus":    Cmd("all","economy",  True, True,  False, aliases=("bigannounce",)),
+    "setbigannounce":       Cmd("all","economy",  False,False, True,  perm="manager"),
+    "setbigreact":          Cmd("all","economy",  False,False, True,  perm="manager"),
+    # ── BJ pair bonus settings ────────────────────────────────────────────────
+    "setbjbonus":           Cmd("blackjack","casino",False,False,True, perm="manager"),
+    "setbjbonuscap":        Cmd("blackjack","casino",False,False,True, perm="manager"),
+    "setbjbonuspair":       Cmd("blackjack","casino",False,False,True, perm="manager"),
+    "setbjbonuscolor":      Cmd("blackjack","casino",False,False,True, perm="manager"),
+    "setbjbonusperfect":    Cmd("blackjack","casino",False,False,True, perm="manager"),
 }
 
 # ---------------------------------------------------------------------------

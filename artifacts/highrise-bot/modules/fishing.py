@@ -17,6 +17,8 @@ from datetime import datetime, timezone, timedelta
 from highrise import BaseBot, User
 
 import database as db
+from modules.big_announce import send_big_fish_announce
+from modules.first_find   import check_first_find
 from modules.permissions import can_manage_economy, can_moderate
 
 
@@ -124,68 +126,68 @@ FISH_CATALOG: list[dict] = [
     {"fish_id": "mudfish",       "name": "Mudfish",       "emoji": "🐡", "rarity": "common",    "base_value": 14,     "base_fxp": 4,    "min_weight": 0.3,  "max_weight": 3.0,   "drop_weight": 55,   "announce_default": False},
     {"fish_id": "river_shrimp",  "name": "River Shrimp",  "emoji": "🦐", "rarity": "common",    "base_value": 10,     "base_fxp": 3,    "min_weight": 0.05, "max_weight": 0.5,   "drop_weight": 55,   "announce_default": False},
     {"fish_id": "small_crab",    "name": "Small Crab",    "emoji": "🦀", "rarity": "common",    "base_value": 25,     "base_fxp": 6,    "min_weight": 0.1,  "max_weight": 1.0,   "drop_weight": 55,   "announce_default": False},
-    # ── RARE (drop_weight 25 each) ────────────────────────────────────────
-    {"fish_id": "bluegill",      "name": "Bluegill",      "emoji": "🐟", "rarity": "rare",      "base_value": 80,     "base_fxp": 15,   "min_weight": 0.3,  "max_weight": 3.0,   "drop_weight": 25,   "announce_default": False},
-    {"fish_id": "salmon",        "name": "Salmon",        "emoji": "🐟", "rarity": "rare",      "base_value": 120,    "base_fxp": 20,   "min_weight": 1.0,  "max_weight": 8.0,   "drop_weight": 25,   "announce_default": False},
-    {"fish_id": "tuna",          "name": "Tuna",          "emoji": "🐠", "rarity": "rare",      "base_value": 150,    "base_fxp": 22,   "min_weight": 2.0,  "max_weight": 12.0,  "drop_weight": 25,   "announce_default": False},
-    {"fish_id": "catfish",       "name": "Catfish",       "emoji": "🐱", "rarity": "rare",      "base_value": 100,    "base_fxp": 18,   "min_weight": 1.0,  "max_weight": 10.0,  "drop_weight": 25,   "announce_default": False},
-    {"fish_id": "red_snapper",   "name": "Red Snapper",   "emoji": "🐟", "rarity": "rare",      "base_value": 130,    "base_fxp": 20,   "min_weight": 0.5,  "max_weight": 5.0,   "drop_weight": 25,   "announce_default": False},
-    {"fish_id": "sea_bass",      "name": "Sea Bass",      "emoji": "🐠", "rarity": "rare",      "base_value": 140,    "base_fxp": 22,   "min_weight": 0.5,  "max_weight": 6.0,   "drop_weight": 25,   "announce_default": False},
-    {"fish_id": "clownfish",     "name": "Clownfish",     "emoji": "🐠", "rarity": "rare",      "base_value": 200,    "base_fxp": 25,   "min_weight": 0.2,  "max_weight": 1.5,   "drop_weight": 25,   "announce_default": False},
-    {"fish_id": "lobster",       "name": "Lobster",       "emoji": "🦞", "rarity": "rare",      "base_value": 250,    "base_fxp": 30,   "min_weight": 0.5,  "max_weight": 4.0,   "drop_weight": 25,   "announce_default": False},
-    {"fish_id": "stingray",      "name": "Stingray",      "emoji": "🌊", "rarity": "rare",      "base_value": 300,    "base_fxp": 30,   "min_weight": 2.0,  "max_weight": 20.0,  "drop_weight": 25,   "announce_default": False},
-    {"fish_id": "silver_trout",  "name": "Silver Trout",  "emoji": "🐟", "rarity": "rare",      "base_value": 180,    "base_fxp": 25,   "min_weight": 0.5,  "max_weight": 5.0,   "drop_weight": 25,   "announce_default": False},
-    # ── EPIC (drop_weight 10 each) ────────────────────────────────────────
-    {"fish_id": "swordfish",        "name": "Swordfish",       "emoji": "⚔️",  "rarity": "epic",      "base_value": 800,    "base_fxp": 50,   "min_weight": 5.0,  "max_weight": 30.0,  "drop_weight": 10,   "announce_default": False},
-    {"fish_id": "golden_koi",       "name": "Golden Koi",      "emoji": "🟡",  "rarity": "epic",      "base_value": 1200,   "base_fxp": 60,   "min_weight": 1.0,  "max_weight": 8.0,   "drop_weight": 10,   "announce_default": False},
-    {"fish_id": "electric_eel",     "name": "Electric Eel",    "emoji": "⚡",  "rarity": "epic",      "base_value": 900,    "base_fxp": 55,   "min_weight": 1.0,  "max_weight": 10.0,  "drop_weight": 10,   "announce_default": False},
-    {"fish_id": "giant_squid",      "name": "Giant Squid",     "emoji": "🦑",  "rarity": "epic",      "base_value": 1500,   "base_fxp": 65,   "min_weight": 5.0,  "max_weight": 40.0,  "drop_weight": 10,   "announce_default": False},
-    {"fish_id": "puffer_king",      "name": "Puffer King",     "emoji": "🐡",  "rarity": "epic",      "base_value": 1000,   "base_fxp": 55,   "min_weight": 0.5,  "max_weight": 5.0,   "drop_weight": 10,   "announce_default": False},
-    {"fish_id": "crystal_trout",    "name": "Crystal Trout",   "emoji": "💎",  "rarity": "epic",      "base_value": 2000,   "base_fxp": 70,   "min_weight": 1.0,  "max_weight": 8.0,   "drop_weight": 10,   "announce_default": False},
-    {"fish_id": "firefin_snapper",  "name": "Firefin Snapper", "emoji": "🔥",  "rarity": "epic",      "base_value": 1800,   "base_fxp": 65,   "min_weight": 2.0,  "max_weight": 15.0,  "drop_weight": 10,   "announce_default": False},
-    {"fish_id": "icefin_tuna",      "name": "Icefin Tuna",     "emoji": "❄️",  "rarity": "epic",      "base_value": 1600,   "base_fxp": 65,   "min_weight": 3.0,  "max_weight": 18.0,  "drop_weight": 10,   "announce_default": False},
-    {"fish_id": "shadow_carp",      "name": "Shadow Carp",     "emoji": "🌑",  "rarity": "epic",      "base_value": 1400,   "base_fxp": 60,   "min_weight": 2.0,  "max_weight": 12.0,  "drop_weight": 10,   "announce_default": False},
-    {"fish_id": "storm_eel",        "name": "Storm Eel",       "emoji": "⚡",  "rarity": "epic",      "base_value": 1700,   "base_fxp": 65,   "min_weight": 2.0,  "max_weight": 15.0,  "drop_weight": 10,   "announce_default": False},
-    # ── LEGENDARY (drop_weight 3 each) ────────────────────────────────────
-    {"fish_id": "dragonfish",       "name": "Dragonfish",      "emoji": "🐉",  "rarity": "legendary", "base_value": 8000,   "base_fxp": 150,  "min_weight": 5.0,  "max_weight": 50.0,  "drop_weight": 3,    "announce_default": True},
-    {"fish_id": "ancient_bass",     "name": "Ancient Bass",    "emoji": "🐟",  "rarity": "legendary", "base_value": 6000,   "base_fxp": 120,  "min_weight": 5.0,  "max_weight": 40.0,  "drop_weight": 3,    "announce_default": True},
-    {"fish_id": "crystal_marlin",   "name": "Crystal Marlin",  "emoji": "💎",  "rarity": "legendary", "base_value": 12000,  "base_fxp": 180,  "min_weight": 10.0, "max_weight": 80.0,  "drop_weight": 3,    "announce_default": True},
-    {"fish_id": "golden_shark",     "name": "Golden Shark",    "emoji": "🦈",  "rarity": "legendary", "base_value": 15000,  "base_fxp": 200,  "min_weight": 20.0, "max_weight": 100.0, "drop_weight": 3,    "announce_default": True},
-    {"fish_id": "royal_koi",        "name": "Royal Koi",       "emoji": "👑",  "rarity": "legendary", "base_value": 10000,  "base_fxp": 160,  "min_weight": 3.0,  "max_weight": 20.0,  "drop_weight": 3,    "announce_default": True},
-    {"fish_id": "thunder_tuna",     "name": "Thunder Tuna",    "emoji": "⚡",  "rarity": "legendary", "base_value": 11000,  "base_fxp": 170,  "min_weight": 10.0, "max_weight": 60.0,  "drop_weight": 3,    "announce_default": True},
-    {"fish_id": "frostbite_marlin", "name": "Frostbite Marlin","emoji": "❄️",  "rarity": "legendary", "base_value": 13000,  "base_fxp": 185,  "min_weight": 10.0, "max_weight": 70.0,  "drop_weight": 3,    "announce_default": True},
-    {"fish_id": "sunscale_fish",    "name": "Sunscale Fish",   "emoji": "☀️",  "rarity": "legendary", "base_value": 9000,   "base_fxp": 155,  "min_weight": 5.0,  "max_weight": 40.0,  "drop_weight": 3,    "announce_default": True},
-    {"fish_id": "ocean_crownfish",  "name": "Ocean Crownfish", "emoji": "👑",  "rarity": "legendary", "base_value": 14000,  "base_fxp": 195,  "min_weight": 8.0,  "max_weight": 60.0,  "drop_weight": 3,    "announce_default": True},
-    {"fish_id": "pearlback_whale",  "name": "Pearlback Whale", "emoji": "🐋",  "rarity": "legendary", "base_value": 20000,  "base_fxp": 220,  "min_weight": 50.0, "max_weight": 200.0, "drop_weight": 3,    "announce_default": True},
-    # ── MYTHIC (drop_weight 0.8 each) ─────────────────────────────────────
-    {"fish_id": "kraken_fry",           "name": "Kraken Fry",           "emoji": "🦑", "rarity": "mythic", "base_value": 40000,  "base_fxp": 300,  "min_weight": 5.0,   "max_weight": 50.0,  "drop_weight": 0.8, "announce_default": True},
-    {"fish_id": "moonlight_leviathan",  "name": "Moonlight Leviathan",  "emoji": "🌙", "rarity": "mythic", "base_value": 60000,  "base_fxp": 400,  "min_weight": 30.0,  "max_weight": 150.0, "drop_weight": 0.8, "announce_default": True},
-    {"fish_id": "phantom_shark",        "name": "Phantom Shark",        "emoji": "🦈", "rarity": "mythic", "base_value": 50000,  "base_fxp": 350,  "min_weight": 20.0,  "max_weight": 100.0, "drop_weight": 0.8, "announce_default": True},
-    {"fish_id": "abyssal_tuna",         "name": "Abyssal Tuna",         "emoji": "🌊", "rarity": "mythic", "base_value": 45000,  "base_fxp": 320,  "min_weight": 15.0,  "max_weight": 80.0,  "drop_weight": 0.8, "announce_default": True},
-    {"fish_id": "celestial_koi",        "name": "Celestial Koi",        "emoji": "✨", "rarity": "mythic", "base_value": 55000,  "base_fxp": 380,  "min_weight": 5.0,   "max_weight": 30.0,  "drop_weight": 0.8, "announce_default": True},
-    {"fish_id": "spirit_marlin",        "name": "Spirit Marlin",        "emoji": "👻", "rarity": "mythic", "base_value": 65000,  "base_fxp": 420,  "min_weight": 20.0,  "max_weight": 120.0, "drop_weight": 0.8, "announce_default": True},
-    {"fish_id": "voidfin_eel",          "name": "Voidfin Eel",          "emoji": "🌌", "rarity": "mythic", "base_value": 48000,  "base_fxp": 340,  "min_weight": 10.0,  "max_weight": 60.0,  "drop_weight": 0.8, "announce_default": True},
-    {"fish_id": "angel_whale",          "name": "Angel Whale",          "emoji": "🐋", "rarity": "mythic", "base_value": 70000,  "base_fxp": 450,  "min_weight": 80.0,  "max_weight": 300.0, "drop_weight": 0.8, "announce_default": True},
-    {"fish_id": "demon_ray",            "name": "Demon Ray",            "emoji": "😈", "rarity": "mythic", "base_value": 58000,  "base_fxp": 390,  "min_weight": 15.0,  "max_weight": 80.0,  "drop_weight": 0.8, "announce_default": True},
-    {"fish_id": "starborn_salmon",      "name": "Starborn Salmon",      "emoji": "⭐", "rarity": "mythic", "base_value": 52000,  "base_fxp": 360,  "min_weight": 8.0,   "max_weight": 40.0,  "drop_weight": 0.8, "announce_default": True},
-    # ── PRISMATIC (drop_weight 0.05 each) ─────────────────────────────────
-    {"fish_id": "rainbow_leviathan",       "name": "Rainbow Leviathan",       "emoji": "🌈", "rarity": "prismatic", "base_value": 200000, "base_fxp": 500,  "min_weight": 50.0,  "max_weight": 200.0, "drop_weight": 0.05, "announce_default": True},
-    {"fish_id": "aurora_koi",              "name": "Aurora Koi",              "emoji": "🌈", "rarity": "prismatic", "base_value": 180000, "base_fxp": 500,  "min_weight": 5.0,   "max_weight": 30.0,  "drop_weight": 0.05, "announce_default": True},
-    {"fish_id": "prismfin",               "name": "Prismfin",               "emoji": "🌈", "rarity": "prismatic", "base_value": 150000, "base_fxp": 500,  "min_weight": 10.0,  "max_weight": 60.0,  "drop_weight": 0.05, "announce_default": True},
-    {"fish_id": "spectrum_marlin",         "name": "Spectrum Marlin",         "emoji": "🌈", "rarity": "prismatic", "base_value": 220000, "base_fxp": 500,  "min_weight": 20.0,  "max_weight": 100.0, "drop_weight": 0.05, "announce_default": True},
-    {"fish_id": "chroma_shark",            "name": "Chroma Shark",            "emoji": "🌈", "rarity": "prismatic", "base_value": 250000, "base_fxp": 500,  "min_weight": 30.0,  "max_weight": 150.0, "drop_weight": 0.05, "announce_default": True},
-    {"fish_id": "aurora_whale",            "name": "Aurora Whale",            "emoji": "🌈", "rarity": "prismatic", "base_value": 300000, "base_fxp": 500,  "min_weight": 80.0,  "max_weight": 300.0, "drop_weight": 0.05, "announce_default": True},
-    {"fish_id": "opalfin_tuna",            "name": "Opalfin Tuna",            "emoji": "🌈", "rarity": "prismatic", "base_value": 160000, "base_fxp": 500,  "min_weight": 8.0,   "max_weight": 50.0,  "drop_weight": 0.05, "announce_default": True},
-    {"fish_id": "celestial_rainbow_fish",  "name": "Celestial Rainbow Fish",  "emoji": "🌈", "rarity": "prismatic", "base_value": 350000, "base_fxp": 500,  "min_weight": 5.0,   "max_weight": 25.0,  "drop_weight": 0.05, "announce_default": True},
-    # ── EXOTIC (drop_weight 0.02 each) ────────────────────────────────────
-    {"fish_id": "bloodfin_leviathan",  "name": "Bloodfin Leviathan",  "emoji": "🚨", "rarity": "exotic", "base_value": 500000, "base_fxp": 1000, "min_weight": 80.0,  "max_weight": 400.0, "drop_weight": 0.02, "announce_default": True},
-    {"fish_id": "abyssal_king",        "name": "Abyssal King",        "emoji": "👑", "rarity": "exotic", "base_value": 450000, "base_fxp": 1000, "min_weight": 40.0,  "max_weight": 200.0, "drop_weight": 0.02, "announce_default": True},
-    {"fish_id": "hellscale_kraken",    "name": "Hellscale Kraken",    "emoji": "🔥", "rarity": "exotic", "base_value": 600000, "base_fxp": 1000, "min_weight": 60.0,  "max_weight": 300.0, "drop_weight": 0.02, "announce_default": True},
-    {"fish_id": "crimson_megalodon",   "name": "Crimson Megalodon",   "emoji": "🦈", "rarity": "exotic", "base_value": 700000, "base_fxp": 1000, "min_weight": 200.0, "max_weight": 800.0, "drop_weight": 0.02, "announce_default": True},
-    {"fish_id": "forbidden_whale",     "name": "Forbidden Whale",     "emoji": "🚨", "rarity": "exotic", "base_value": 550000, "base_fxp": 1000, "min_weight": 100.0, "max_weight": 500.0, "drop_weight": 0.02, "announce_default": True},
-    {"fish_id": "demonfin_shark",      "name": "Demonfin Shark",      "emoji": "😈", "rarity": "exotic", "base_value": 480000, "base_fxp": 1000, "min_weight": 50.0,  "max_weight": 250.0, "drop_weight": 0.02, "announce_default": True},
-    {"fish_id": "scarlet_leviathan",   "name": "Scarlet Leviathan",   "emoji": "🚨", "rarity": "exotic", "base_value": 620000, "base_fxp": 1000, "min_weight": 100.0, "max_weight": 500.0, "drop_weight": 0.02, "announce_default": True},
-    {"fish_id": "infernal_koi",        "name": "Infernal Koi",        "emoji": "🔥", "rarity": "exotic", "base_value": 400000, "base_fxp": 1000, "min_weight": 5.0,   "max_weight": 25.0,  "drop_weight": 0.02, "announce_default": True},
+    # ── RARE (drop_weight 2.0 each) — ~1 in 29 ────────────────────────────────────────
+    {"fish_id": "bluegill",      "name": "Bluegill",      "emoji": "🐟", "rarity": "rare",      "base_value": 80,     "base_fxp": 15,   "min_weight": 0.3,  "max_weight": 3.0,   "drop_weight": 2.0,   "announce_default": False},
+    {"fish_id": "salmon",        "name": "Salmon",        "emoji": "🐟", "rarity": "rare",      "base_value": 120,    "base_fxp": 20,   "min_weight": 1.0,  "max_weight": 8.0,   "drop_weight": 2.0,   "announce_default": False},
+    {"fish_id": "tuna",          "name": "Tuna",          "emoji": "🐠", "rarity": "rare",      "base_value": 150,    "base_fxp": 22,   "min_weight": 2.0,  "max_weight": 12.0,  "drop_weight": 2.0,   "announce_default": False},
+    {"fish_id": "catfish",       "name": "Catfish",       "emoji": "🐱", "rarity": "rare",      "base_value": 100,    "base_fxp": 18,   "min_weight": 1.0,  "max_weight": 10.0,  "drop_weight": 2.0,   "announce_default": False},
+    {"fish_id": "red_snapper",   "name": "Red Snapper",   "emoji": "🐟", "rarity": "rare",      "base_value": 130,    "base_fxp": 20,   "min_weight": 0.5,  "max_weight": 5.0,   "drop_weight": 2.0,   "announce_default": False},
+    {"fish_id": "sea_bass",      "name": "Sea Bass",      "emoji": "🐠", "rarity": "rare",      "base_value": 140,    "base_fxp": 22,   "min_weight": 0.5,  "max_weight": 6.0,   "drop_weight": 2.0,   "announce_default": False},
+    {"fish_id": "clownfish",     "name": "Clownfish",     "emoji": "🐠", "rarity": "rare",      "base_value": 200,    "base_fxp": 25,   "min_weight": 0.2,  "max_weight": 1.5,   "drop_weight": 2.0,   "announce_default": False},
+    {"fish_id": "lobster",       "name": "Lobster",       "emoji": "🦞", "rarity": "rare",      "base_value": 250,    "base_fxp": 30,   "min_weight": 0.5,  "max_weight": 4.0,   "drop_weight": 2.0,   "announce_default": False},
+    {"fish_id": "stingray",      "name": "Stingray",      "emoji": "🌊", "rarity": "rare",      "base_value": 300,    "base_fxp": 30,   "min_weight": 2.0,  "max_weight": 20.0,  "drop_weight": 2.0,   "announce_default": False},
+    {"fish_id": "silver_trout",  "name": "Silver Trout",  "emoji": "🐟", "rarity": "rare",      "base_value": 180,    "base_fxp": 25,   "min_weight": 0.5,  "max_weight": 5.0,   "drop_weight": 2.0,   "announce_default": False},
+    # ── EPIC (drop_weight 0.2 each) — ~1 in 286 ────────────────────────────────────────
+    {"fish_id": "swordfish",        "name": "Swordfish",       "emoji": "⚔️",  "rarity": "epic",      "base_value": 800,    "base_fxp": 50,   "min_weight": 5.0,  "max_weight": 30.0,  "drop_weight": 0.2,   "announce_default": False},
+    {"fish_id": "golden_koi",       "name": "Golden Koi",      "emoji": "🟡",  "rarity": "epic",      "base_value": 1200,   "base_fxp": 60,   "min_weight": 1.0,  "max_weight": 8.0,   "drop_weight": 0.2,   "announce_default": False},
+    {"fish_id": "electric_eel",     "name": "Electric Eel",    "emoji": "⚡",  "rarity": "epic",      "base_value": 900,    "base_fxp": 55,   "min_weight": 1.0,  "max_weight": 10.0,  "drop_weight": 0.2,   "announce_default": False},
+    {"fish_id": "giant_squid",      "name": "Giant Squid",     "emoji": "🦑",  "rarity": "epic",      "base_value": 1500,   "base_fxp": 65,   "min_weight": 5.0,  "max_weight": 40.0,  "drop_weight": 0.2,   "announce_default": False},
+    {"fish_id": "puffer_king",      "name": "Puffer King",     "emoji": "🐡",  "rarity": "epic",      "base_value": 1000,   "base_fxp": 55,   "min_weight": 0.5,  "max_weight": 5.0,   "drop_weight": 0.2,   "announce_default": False},
+    {"fish_id": "crystal_trout",    "name": "Crystal Trout",   "emoji": "💎",  "rarity": "epic",      "base_value": 2000,   "base_fxp": 70,   "min_weight": 1.0,  "max_weight": 8.0,   "drop_weight": 0.2,   "announce_default": False},
+    {"fish_id": "firefin_snapper",  "name": "Firefin Snapper", "emoji": "🔥",  "rarity": "epic",      "base_value": 1800,   "base_fxp": 65,   "min_weight": 2.0,  "max_weight": 15.0,  "drop_weight": 0.2,   "announce_default": False},
+    {"fish_id": "icefin_tuna",      "name": "Icefin Tuna",     "emoji": "❄️",  "rarity": "epic",      "base_value": 1600,   "base_fxp": 65,   "min_weight": 3.0,  "max_weight": 18.0,  "drop_weight": 0.2,   "announce_default": False},
+    {"fish_id": "shadow_carp",      "name": "Shadow Carp",     "emoji": "🌑",  "rarity": "epic",      "base_value": 1400,   "base_fxp": 60,   "min_weight": 2.0,  "max_weight": 12.0,  "drop_weight": 0.2,   "announce_default": False},
+    {"fish_id": "storm_eel",        "name": "Storm Eel",       "emoji": "⚡",  "rarity": "epic",      "base_value": 1700,   "base_fxp": 65,   "min_weight": 2.0,  "max_weight": 15.0,  "drop_weight": 0.2,   "announce_default": False},
+    # ── LEGENDARY (drop_weight 0.03 each) — ~1 in 1,907 ────────────────────────────────────
+    {"fish_id": "dragonfish",       "name": "Dragonfish",      "emoji": "🐉",  "rarity": "legendary", "base_value": 8000,   "base_fxp": 150,  "min_weight": 5.0,  "max_weight": 50.0,  "drop_weight": 0.03,    "announce_default": True},
+    {"fish_id": "ancient_bass",     "name": "Ancient Bass",    "emoji": "🐟",  "rarity": "legendary", "base_value": 6000,   "base_fxp": 120,  "min_weight": 5.0,  "max_weight": 40.0,  "drop_weight": 0.03,    "announce_default": True},
+    {"fish_id": "crystal_marlin",   "name": "Crystal Marlin",  "emoji": "💎",  "rarity": "legendary", "base_value": 12000,  "base_fxp": 180,  "min_weight": 10.0, "max_weight": 80.0,  "drop_weight": 0.03,    "announce_default": True},
+    {"fish_id": "golden_shark",     "name": "Golden Shark",    "emoji": "🦈",  "rarity": "legendary", "base_value": 15000,  "base_fxp": 200,  "min_weight": 20.0, "max_weight": 100.0, "drop_weight": 0.03,    "announce_default": True},
+    {"fish_id": "royal_koi",        "name": "Royal Koi",       "emoji": "👑",  "rarity": "legendary", "base_value": 10000,  "base_fxp": 160,  "min_weight": 3.0,  "max_weight": 20.0,  "drop_weight": 0.03,    "announce_default": True},
+    {"fish_id": "thunder_tuna",     "name": "Thunder Tuna",    "emoji": "⚡",  "rarity": "legendary", "base_value": 11000,  "base_fxp": 170,  "min_weight": 10.0, "max_weight": 60.0,  "drop_weight": 0.03,    "announce_default": True},
+    {"fish_id": "frostbite_marlin", "name": "Frostbite Marlin","emoji": "❄️",  "rarity": "legendary", "base_value": 13000,  "base_fxp": 185,  "min_weight": 10.0, "max_weight": 70.0,  "drop_weight": 0.03,    "announce_default": True},
+    {"fish_id": "sunscale_fish",    "name": "Sunscale Fish",   "emoji": "☀️",  "rarity": "legendary", "base_value": 9000,   "base_fxp": 155,  "min_weight": 5.0,  "max_weight": 40.0,  "drop_weight": 0.03,    "announce_default": True},
+    {"fish_id": "ocean_crownfish",  "name": "Ocean Crownfish", "emoji": "👑",  "rarity": "legendary", "base_value": 14000,  "base_fxp": 195,  "min_weight": 8.0,  "max_weight": 60.0,  "drop_weight": 0.03,    "announce_default": True},
+    {"fish_id": "pearlback_whale",  "name": "Pearlback Whale", "emoji": "🐋",  "rarity": "legendary", "base_value": 20000,  "base_fxp": 220,  "min_weight": 50.0, "max_weight": 200.0, "drop_weight": 0.03,    "announce_default": True},
+    # ── MYTHIC (drop_weight 0.003 each) — ~1 in 19,077 ─────────────────────────────────────
+    {"fish_id": "kraken_fry",           "name": "Kraken Fry",           "emoji": "🦑", "rarity": "mythic", "base_value": 40000,  "base_fxp": 300,  "min_weight": 5.0,   "max_weight": 50.0,  "drop_weight": 0.003, "announce_default": True},
+    {"fish_id": "moonlight_leviathan",  "name": "Moonlight Leviathan",  "emoji": "🌙", "rarity": "mythic", "base_value": 60000,  "base_fxp": 400,  "min_weight": 30.0,  "max_weight": 150.0, "drop_weight": 0.003, "announce_default": True},
+    {"fish_id": "phantom_shark",        "name": "Phantom Shark",        "emoji": "🦈", "rarity": "mythic", "base_value": 50000,  "base_fxp": 350,  "min_weight": 20.0,  "max_weight": 100.0, "drop_weight": 0.003, "announce_default": True},
+    {"fish_id": "abyssal_tuna",         "name": "Abyssal Tuna",         "emoji": "🌊", "rarity": "mythic", "base_value": 45000,  "base_fxp": 320,  "min_weight": 15.0,  "max_weight": 80.0,  "drop_weight": 0.003, "announce_default": True},
+    {"fish_id": "celestial_koi",        "name": "Celestial Koi",        "emoji": "✨", "rarity": "mythic", "base_value": 55000,  "base_fxp": 380,  "min_weight": 5.0,   "max_weight": 30.0,  "drop_weight": 0.003, "announce_default": True},
+    {"fish_id": "spirit_marlin",        "name": "Spirit Marlin",        "emoji": "👻", "rarity": "mythic", "base_value": 65000,  "base_fxp": 420,  "min_weight": 20.0,  "max_weight": 120.0, "drop_weight": 0.003, "announce_default": True},
+    {"fish_id": "voidfin_eel",          "name": "Voidfin Eel",          "emoji": "🌌", "rarity": "mythic", "base_value": 48000,  "base_fxp": 340,  "min_weight": 10.0,  "max_weight": 60.0,  "drop_weight": 0.003, "announce_default": True},
+    {"fish_id": "angel_whale",          "name": "Angel Whale",          "emoji": "🐋", "rarity": "mythic", "base_value": 70000,  "base_fxp": 450,  "min_weight": 80.0,  "max_weight": 300.0, "drop_weight": 0.003, "announce_default": True},
+    {"fish_id": "demon_ray",            "name": "Demon Ray",            "emoji": "😈", "rarity": "mythic", "base_value": 58000,  "base_fxp": 390,  "min_weight": 15.0,  "max_weight": 80.0,  "drop_weight": 0.003, "announce_default": True},
+    {"fish_id": "starborn_salmon",      "name": "Starborn Salmon",      "emoji": "⭐", "rarity": "mythic", "base_value": 52000,  "base_fxp": 360,  "min_weight": 8.0,   "max_weight": 40.0,  "drop_weight": 0.003, "announce_default": True},
+    # ── PRISMATIC (drop_weight 0.0004 each) — ~1 in 178,853 ─────────────────────────────────
+    {"fish_id": "rainbow_leviathan",       "name": "Rainbow Leviathan",       "emoji": "🌈", "rarity": "prismatic", "base_value": 200000, "base_fxp": 500,  "min_weight": 50.0,  "max_weight": 200.0, "drop_weight": 0.0004, "announce_default": True},
+    {"fish_id": "aurora_koi",              "name": "Aurora Koi",              "emoji": "🌈", "rarity": "prismatic", "base_value": 180000, "base_fxp": 500,  "min_weight": 5.0,   "max_weight": 30.0,  "drop_weight": 0.0004, "announce_default": True},
+    {"fish_id": "prismfin",               "name": "Prismfin",               "emoji": "🌈", "rarity": "prismatic", "base_value": 150000, "base_fxp": 500,  "min_weight": 10.0,  "max_weight": 60.0,  "drop_weight": 0.0004, "announce_default": True},
+    {"fish_id": "spectrum_marlin",         "name": "Spectrum Marlin",         "emoji": "🌈", "rarity": "prismatic", "base_value": 220000, "base_fxp": 500,  "min_weight": 20.0,  "max_weight": 100.0, "drop_weight": 0.0004, "announce_default": True},
+    {"fish_id": "chroma_shark",            "name": "Chroma Shark",            "emoji": "🌈", "rarity": "prismatic", "base_value": 250000, "base_fxp": 500,  "min_weight": 30.0,  "max_weight": 150.0, "drop_weight": 0.0004, "announce_default": True},
+    {"fish_id": "aurora_whale",            "name": "Aurora Whale",            "emoji": "🌈", "rarity": "prismatic", "base_value": 300000, "base_fxp": 500,  "min_weight": 80.0,  "max_weight": 300.0, "drop_weight": 0.0004, "announce_default": True},
+    {"fish_id": "opalfin_tuna",            "name": "Opalfin Tuna",            "emoji": "🌈", "rarity": "prismatic", "base_value": 160000, "base_fxp": 500,  "min_weight": 8.0,   "max_weight": 50.0,  "drop_weight": 0.0004, "announce_default": True},
+    {"fish_id": "celestial_rainbow_fish",  "name": "Celestial Rainbow Fish",  "emoji": "🌈", "rarity": "prismatic", "base_value": 350000, "base_fxp": 500,  "min_weight": 5.0,   "max_weight": 25.0,  "drop_weight": 0.0004, "announce_default": True},
+    # ── EXOTIC (drop_weight 0.000025 each) — ~1 in 2.86M ────────────────────────────────────
+    {"fish_id": "bloodfin_leviathan",  "name": "Bloodfin Leviathan",  "emoji": "🚨", "rarity": "exotic", "base_value": 500000, "base_fxp": 1000, "min_weight": 80.0,  "max_weight": 400.0, "drop_weight": 0.000025, "announce_default": True},
+    {"fish_id": "abyssal_king",        "name": "Abyssal King",        "emoji": "👑", "rarity": "exotic", "base_value": 450000, "base_fxp": 1000, "min_weight": 40.0,  "max_weight": 200.0, "drop_weight": 0.000025, "announce_default": True},
+    {"fish_id": "hellscale_kraken",    "name": "Hellscale Kraken",    "emoji": "🔥", "rarity": "exotic", "base_value": 600000, "base_fxp": 1000, "min_weight": 60.0,  "max_weight": 300.0, "drop_weight": 0.000025, "announce_default": True},
+    {"fish_id": "crimson_megalodon",   "name": "Crimson Megalodon",   "emoji": "🦈", "rarity": "exotic", "base_value": 700000, "base_fxp": 1000, "min_weight": 200.0, "max_weight": 800.0, "drop_weight": 0.000025, "announce_default": True},
+    {"fish_id": "forbidden_whale",     "name": "Forbidden Whale",     "emoji": "🚨", "rarity": "exotic", "base_value": 550000, "base_fxp": 1000, "min_weight": 100.0, "max_weight": 500.0, "drop_weight": 0.000025, "announce_default": True},
+    {"fish_id": "demonfin_shark",      "name": "Demonfin Shark",      "emoji": "😈", "rarity": "exotic", "base_value": 480000, "base_fxp": 1000, "min_weight": 50.0,  "max_weight": 250.0, "drop_weight": 0.000025, "announce_default": True},
+    {"fish_id": "scarlet_leviathan",   "name": "Scarlet Leviathan",   "emoji": "🚨", "rarity": "exotic", "base_value": 620000, "base_fxp": 1000, "min_weight": 100.0, "max_weight": 500.0, "drop_weight": 0.000025, "announce_default": True},
+    {"fish_id": "infernal_koi",        "name": "Infernal Koi",        "emoji": "🔥", "rarity": "exotic", "base_value": 400000, "base_fxp": 1000, "min_weight": 5.0,   "max_weight": 25.0,  "drop_weight": 0.000025, "announce_default": True},
 ]
 
 _FISH_BY_ID:    dict[str, dict] = {f["fish_id"]:        f for f in FISH_CATALOG}
@@ -897,6 +899,12 @@ async def _autofish_loop(bot: BaseBot, user: User) -> None:
              f"Limit: {max_att} catches or {max_mins}m.\n"
              f"Stops if you leave. /autofish off to stop.")
 
+    _af_started_at = datetime.now(timezone.utc).isoformat()
+    try:
+        db.save_auto_fish_session(uid, uname, _af_started_at, max_att, max_mins)
+    except Exception:
+        pass
+
     try:
         while True:
             # Check global flag
@@ -965,6 +973,10 @@ async def _autofish_loop(bot: BaseBot, user: User) -> None:
                                    best_fish_value=max(value, profile.get("best_fish_value") or 0))
             db.adjust_balance(uid, value)
             attempts += 1
+            try:
+                db.update_auto_fish_attempts(uid, attempts)
+            except Exception:
+                pass
 
             rlabel = _rarity_label(fish["rarity"])
             nclr   = _name_colored(fish["rarity"], fish["name"])
@@ -977,15 +989,20 @@ async def _autofish_loop(bot: BaseBot, user: User) -> None:
                 await _w(bot, uid,
                          f"🎣 Level Up! Fishing Lv {new_lvl}!")
 
+            if fish["rarity"] in ("legendary","mythic","prismatic","exotic"):
+                try:
+                    await check_first_find(bot, uid, uname, "fishing", fish["rarity"])
+                except Exception as _ffe:
+                    print(f"[AUTOFISH] first_find error: {_ffe}")
             rinfo = FISH_RARITIES.get(fish["rarity"], {})
             if rinfo.get("announce"):
+                extra = f" — {weight}lb, {_fmt(value)}c"
                 try:
-                    ann = (f"📣 Big Catch! @{uname} caught {rlabel} "
-                           f"{fish['emoji']} {fish['name']} — "
-                           f"{weight}lb worth {_fmt(value)}c!")
-                    await bot.highrise.chat(ann[:249])
-                except Exception:
-                    pass
+                    await send_big_fish_announce(
+                        bot, fish["rarity"], uname,
+                        fish["name"], fish["emoji"], extra)
+                except Exception as _bae:
+                    print(f"[AUTOFISH] big_announce error: {_bae}")
 
             await asyncio.sleep(cooldown + 1)
 
@@ -995,12 +1012,20 @@ async def _autofish_loop(bot: BaseBot, user: User) -> None:
         print(f"[AUTOFISH] Loop error for {uname}: {exc}")
     finally:
         _autofish_tasks.pop(uid, None)
+        try:
+            db.stop_auto_fish_session(uid)
+        except Exception:
+            pass
 
 
 def stop_autofish_for_user(user_id: str, username: str,
                            reason: str = "player_left") -> bool:
     """Cancel the AutoFish task for a user. Returns True if one was running."""
     task = _autofish_tasks.pop(user_id, None)
+    try:
+        db.stop_auto_fish_session(user_id)
+    except Exception:
+        pass
     if task and not task.done():
         task.cancel()
         return True
@@ -1130,3 +1155,51 @@ async def handle_setautofishdailycap(bot: BaseBot, user: User, args: list[str]) 
     val = max(30, min(480, int(args[1])))
     db.set_auto_activity_setting("autofish_daily_cap_minutes", str(val))
     await _w(bot, user.id, f"🎣 AutoFish daily cap: {val}m.")
+
+
+# ---------------------------------------------------------------------------
+# AutoFish restart recovery
+# ---------------------------------------------------------------------------
+
+async def startup_autofish_recovery(bot: BaseBot) -> None:
+    """Restart AutoFish sessions for players still in room after a bot restart."""
+    await asyncio.sleep(5)  # let room cache populate first
+    try:
+        sessions = db.get_all_active_auto_fish_sessions()
+    except Exception as exc:
+        print(f"[AUTOFISH] startup_recovery DB error: {exc}")
+        return
+    if not sessions:
+        return
+    print(f"[AUTOFISH] Recovering {len(sessions)} session(s)")
+
+    # Fetch live room user list
+    room_names: set[str] = set()
+    try:
+        resp = await bot.highrise.get_room_users()
+        if hasattr(resp, "content"):
+            for _u, _ in resp.content:
+                room_names.add(_u.username.lower())
+    except Exception as _re:
+        print(f"[AUTOFISH] Could not get room users: {_re}")
+
+    class _FakeUser:
+        def __init__(self, uid: str, uname: str) -> None:
+            self.id       = uid
+            self.username = uname
+
+    for s in sessions:
+        uid   = s["user_id"]
+        uname = s["username"]
+        if room_names and uname.lower() not in room_names:
+            try:
+                db.stop_auto_fish_session(uid, "restart_not_in_room")
+            except Exception:
+                pass
+            continue
+        if uid in _autofish_tasks and not _autofish_tasks[uid].done():
+            continue
+        fake_user = _FakeUser(uid, uname)
+        task = asyncio.create_task(_autofish_loop(bot, fake_user))
+        _autofish_tasks[uid] = task
+        print(f"[AUTOFISH] Resumed session for @{uname}")

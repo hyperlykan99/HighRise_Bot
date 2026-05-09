@@ -18,6 +18,8 @@ Manager: /bj on  /bj off  /bj cancel  /bj settings
 Admin:   /setbjminbet  /setbjmaxbet  /setbjcountdown  /setbjturntimer
          /setbjactiontimer  /setbjmaxsplits
          /setbjdailywinlimit  /setbjdailylosslimit
+         /setbjbonus on|off  /setbjbonuscap <coins>
+         /setbjbonuspair <pct>  /setbjbonuscolor <pct>  /setbjbonusperfect <pct>
 """
 
 import asyncio
@@ -197,6 +199,51 @@ def _all_done() -> bool:
     return bool(_state.players) and all(p.is_done() for p in _state.players)
 
 
+# ─── Card color / pair-bonus helpers ─────────────────────────────────────────
+
+def _card_color_group(suit: str) -> str:
+    """Return "red" for ♥/♦, "black" for ♠/♣."""
+    return "red" if suit in ("♥", "♦") else "black"
+
+
+def _card_clr(card: tuple) -> str:
+    """Return a color-coded card string for Highrise chat."""
+    r, s = card
+    if s in ("♥", "♦"):
+        return f"<#FF5555>{r}{s}<#FFFFFF>"
+    return f"{r}{s}"
+
+
+def _hand_colored(cards: list) -> str:
+    """Space-joined color-coded card strings."""
+    return " ".join(_card_clr(c) for c in cards)
+
+
+def _check_pair_bonus(cards: list, bet: int, s: dict) -> tuple[str, int]:
+    """Check first 2 cards for a pair bonus.
+    Returns (bonus_type, coins_to_award) where bonus_type is one of
+    "none" | "pair" | "color_pair" | "perfect_pair".
+    """
+    if not int(s.get("bj_bonus_enabled", "1")):
+        return "none", 0
+    if len(cards) < 2:
+        return "none", 0
+    r1, s1 = cards[0]
+    r2, s2 = cards[1]
+    if r1 != r2:
+        return "none", 0
+    cap = int(s.get("bj_bonus_cap", "10000"))
+    if s1 == s2:  # perfect pair (same suit)
+        pct = int(s.get("bj_bonus_perfect_pct", "50"))
+        return "perfect_pair", min(max(1, int(bet * pct / 100)), cap)
+    if _card_color_group(s1) == _card_color_group(s2):  # same color
+        pct = int(s.get("bj_bonus_color_pct", "25"))
+        return "color_pair", min(max(1, int(bet * pct / 100)), cap)
+    # mixed-color pair
+    pct = int(s.get("bj_bonus_pair_pct", "10"))
+    return "pair", min(max(1, int(bet * pct / 100)), cap)
+
+
 # ─── Lobby countdown ─────────────────────────────────────────────────────────
 
 async def _lobby_countdown(bot: BaseBot, seconds: int):
@@ -239,6 +286,29 @@ async def _start_round(bot: BaseBot):
         if is_blackjack(p.hands[0]["cards"]):
             p.hands[0]["status"] = "blackjack"
 
+    # ── Pair bonus payout ────────────────────────────────────────────────────
+    _bj_s = _settings()
+    if int(_bj_s.get("bj_bonus_enabled", "1")):
+        for p in _state.players:
+            try:
+                btype, bamt = _check_pair_bonus(p.hands[0]["cards"], p.bet, _bj_s)
+                if bamt > 0:
+                    db.adjust_balance(p.user_id, bamt)
+                    db.add_ledger_entry(p.user_id, p.username, bamt, "bj_pair_bonus")
+                    _BONUS_LABELS = {
+                        "pair": "Pair 10%",
+                        "color_pair": "Color Pair 25%",
+                        "perfect_pair": "Perfect Pair 50%",
+                    }
+                    lbl = _BONUS_LABELS.get(btype, btype)
+                    c1, c2 = p.hands[0]["cards"][0], p.hands[0]["cards"][1]
+                    await bot.highrise.chat(
+                        f"💎 {_dn(p)} {lbl}! "
+                        f"{_card_clr(c1)}{_card_clr(c2)} +{bamt:,}c"[:249]
+                    )
+            except Exception as _be:
+                print(f"[BJ] pair bonus error for {p.username}: {_be}")
+
     _save_table_state()
     _save_all_player_states()
     print(f"[BJ] Round started. round_id={_state.round_id}")
@@ -271,16 +341,20 @@ async def _start_action_phase(bot: BaseBot):
         f"🃏 BJ action open! Act within {timer}s: /bh /bs /bd /bsp"
     )
 
+    _upcard = _card_clr(_state.dealer_hand[0]) if _state.dealer_hand else "?"
     for p in _state.players:
         if not p.is_done():
             try:
-                parts = [
-                    f"H{i+1} {hand_str(h['cards'])}={hand_value(h['cards'])} {h['status']}"
-                    for i, h in enumerate(p.hands)
-                ]
+                hparts = []
+                for i, h in enumerate(p.hands):
+                    hdisp  = _hand_colored(h["cards"])
+                    hval   = hand_value(h["cards"])
+                    snote  = f"[{h['status']}]" if h["status"] != "active" else ""
+                    hparts.append(f"H{i+1}: {hdisp}={hval}{snote}")
                 await bot.highrise.send_whisper(
                     p.user_id,
-                    f"🃏 Your BJ hand: {' | '.join(parts)}"[:249]
+                    (f"🃏 {' | '.join(hparts)} "
+                     f"| Dealer: {_upcard} | Bet: {p.total_bet():,}c")[:249]
                 )
             except Exception:
                 pass
@@ -468,6 +542,24 @@ async def _finalize_round(bot: BaseBot):
                     inner   = " | ".join(result_parts)
                     summary = f"{_dn(p)}: {inner} | Net {net_str}"
                     await bot.highrise.chat(summary[:249])
+                    # Whisper player: full colored hand + dealer detail
+                    try:
+                        hlines = []
+                        for i, h in enumerate(p.hands):
+                            hlines.append(
+                                f"H{i+1}: {_hand_colored(h['cards'])}"
+                                f"={hand_value(h['cards'])} [{h['status']}]"
+                            )
+                        dlr_disp = _hand_colored(_state.dealer_hand)
+                        dlr_val  = hand_value(_state.dealer_hand)
+                        wtext = (
+                            f"🃏 {chr(10).join(hlines)}\n"
+                            f"Dealer: {dlr_disp}={dlr_val}\n"
+                            f"Net: {net_str}"
+                        )
+                        await bot.highrise.send_whisper(p.user_id, wtext[:249])
+                    except Exception:
+                        pass
 
             except Exception as exc:
                 print(f"[BJ] settle error for {p.username}: {exc}")
@@ -1471,12 +1563,52 @@ async def handle_bj_set(bot: BaseBot, user: User, cmd: str, args: list[str]):
             db.set_bj_setting("bj_daily_loss_limit", int(raw))
             await bot.highrise.send_whisper(user.id, f"✅ BJ daily loss limit set to {int(raw):,}c.")
 
+        elif cmd == "setbjbonus":
+            if raw.lower() not in ("on", "off"):
+                await bot.highrise.send_whisper(user.id, "Usage: /setbjbonus on|off")
+                return
+            db.set_bj_setting("bj_bonus_enabled", "1" if raw.lower() == "on" else "0")
+            _bonus_state = "enabled" if raw.lower() == "on" else "disabled"
+            await bot.highrise.send_whisper(
+                user.id,
+                f"✅ BJ pair bonus {_bonus_state}.")
+
+        elif cmd == "setbjbonuscap":
+            if not raw.isdigit() or int(raw) < 100:
+                await bot.highrise.send_whisper(user.id, "Bonus cap must be >= 100.")
+                return
+            db.set_bj_setting("bj_bonus_cap", int(raw))
+            await bot.highrise.send_whisper(user.id, f"✅ BJ bonus cap: {int(raw):,}c.")
+
+        elif cmd == "setbjbonuspair":
+            if not raw.isdigit() or not (1 <= int(raw) <= 100):
+                await bot.highrise.send_whisper(user.id, "Pair bonus % must be 1–100.")
+                return
+            db.set_bj_setting("bj_bonus_pair_pct", int(raw))
+            await bot.highrise.send_whisper(user.id, f"✅ Mixed-pair bonus: {raw}% of bet.")
+
+        elif cmd == "setbjbonuscolor":
+            if not raw.isdigit() or not (1 <= int(raw) <= 100):
+                await bot.highrise.send_whisper(user.id, "Color pair bonus % must be 1–100.")
+                return
+            db.set_bj_setting("bj_bonus_color_pct", int(raw))
+            await bot.highrise.send_whisper(user.id, f"✅ Color-pair bonus: {raw}% of bet.")
+
+        elif cmd == "setbjbonusperfect":
+            if not raw.isdigit() or not (1 <= int(raw) <= 200):
+                await bot.highrise.send_whisper(user.id, "Perfect pair bonus % must be 1–200.")
+                return
+            db.set_bj_setting("bj_bonus_perfect_pct", int(raw))
+            await bot.highrise.send_whisper(user.id, f"✅ Perfect-pair bonus: {raw}% of bet.")
+
         else:
             await bot.highrise.send_whisper(
                 user.id,
                 "BJ settings: /setbjminbet /setbjmaxbet\n"
                 "/setbjcountdown /setbjactiontimer\n"
-                "/setbjmaxsplits /setbjdailywinlimit /setbjdailylosslimit"
+                "/setbjmaxsplits /setbjdailywinlimit /setbjdailylosslimit\n"
+                "/setbjbonus on|off  /setbjbonuscap <coins>\n"
+                "/setbjbonuspair|color|perfect <pct>"
             )
 
     except Exception as exc:

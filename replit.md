@@ -47,7 +47,9 @@ artifacts/highrise-bot/
     ├── bot_welcome.py      # Per-bot configurable welcome whispers (D)
     ├── gold_tips.py        # Gold tip migration to BankingBot (E)
     ├── time_exp.py         # Time-EXP system incl. bot exclusion (/setallowbotxp) (C)
-    └── cmd_audit.py        # Command audit tools incl. commandtestall/group (B)
+    ├── cmd_audit.py        # Command audit tools incl. commandtestall/group (B)
+    ├── first_find.py       # BankingBot first-rarity reward system (gold/coin prizes per rarity)
+    └── big_announce.py     # Global big-find/big-catch room announcement routing
 ```
 
 DB schema source of truth: `database.py` (`_MIGRATIONS` list + `init_db()`).
@@ -60,6 +62,13 @@ DB schema source of truth: `database.py` (`_MIGRATIONS` list + `init_db()`).
 - **Bot modes**: A system of `bot_modes` and `bot_mode_assignments` tables allows for different bot personas and message prefixes.
 - **Multi-bot system**: Features `bot_instances` for heartbeats, `bot_command_ownership` for command routing, and `bot_module_locks` for preventing race conditions in games. Auto-game ownership is managed via `autogames_owner_bot_mode` room setting.
 - **Module ownership guard**: `should_this_bot_run_module(module)` in `multi_bot.py` gates all startup recovery calls and room announce messages — only the owning bot mode runs them. `_MODULE_OWNER_MODES` defines the mapping (poker→poker, blackjack→blackjack/rbj, events→eventhost, etc.). Dedupe lock table `module_announcement_locks` provides a 5-minute cross-bot dedupe safety net via `db.acquire_module_announce_lock()`.
+- **AutoMine/AutoFish persistence**: Active sessions are written to `auto_mine_sessions` / `auto_fish_sessions` tables. On restart, `startup_automine_recovery` / `startup_autofish_recovery` (owned by miner/fisher bots respectively) wait 5s, fetch live room users, then resume sessions for players still present. Players who left are marked `restart_not_in_room`.
+- **BJ pair bonus**: On deal, if the player's first two cards form a pair, a bonus is paid: pair (10%), color pair (25%), perfect pair (50%), all capped by `bj_bonus_cap`. Settings stored in `bj_settings` table; configurable via `/setbjbonus on|off`, `/setbjbonuscap <coins>`, `/setbjbonuspair/color/perfect <pct>`.
+- **BJ card colors + post-game whisper**: Cards display with suit-color symbols (♥♦ red, ♠♣ black). Action-phase whisper shows colored hand + dealer upcard + current bet. Post-game whisper shows full colored hand vs dealer hand + net result.
+- **Mining energy removed**: Energy system fully stripped from mining. All energy-gated paths, the energy shop item, and energy display in `/mineprofile`/`/minepanel` are gone. Existing energy purchases are auto-refunded.
+- **Rarity difficulty rescale**: Mining exotic ~1-in-2.5M (0.004%), prismatic ~1-in-5k (0.02%). Fishing exotic ~1-in-40k (0.0025%), rare weight 2.0. Scales reflect genuine rarity without being unreachable.
+- **First-find rewards**: `first_find.py` tracks the first player per rarity per reset to find/catch that tier. BankingBot issues configurable gold or coin rewards; other bots send a congratulatory whisper only. Claims stored in `first_find_claims`; reward config in `first_find_rewards`.
+- **Big announce routing**: `big_announce.py` routes room-wide announcements for exceptional drops (mining + fishing) through configurable thresholds (`big_announce_threshold`, `big_announce_bot_react_threshold`). Bot reactions (emote/wave) only fire above the react threshold.
 
 ## Product
 

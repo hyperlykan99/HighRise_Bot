@@ -1441,6 +1441,63 @@ def _migrate_db():
         "UPDATE mining_items SET sell_value=15000 WHERE item_id='emerald'      AND sell_value=5000",
         "UPDATE mining_items SET sell_value=15000 WHERE item_id='ruby'         AND sell_value=5000",
         "UPDATE mining_items SET sell_value=15000 WHERE item_id='sapphire'     AND sell_value=5000",
+        # ── AutoMine sessions (restart-safe persistence) ─────────────────────
+        "CREATE TABLE IF NOT EXISTS auto_mine_sessions ("
+        "user_id TEXT PRIMARY KEY, "
+        "username TEXT NOT NULL DEFAULT '', "
+        "started_at TEXT NOT NULL DEFAULT '', "
+        "max_attempts INTEGER NOT NULL DEFAULT 30, "
+        "max_minutes INTEGER NOT NULL DEFAULT 30, "
+        "attempts_done INTEGER NOT NULL DEFAULT 0, "
+        "status TEXT NOT NULL DEFAULT 'active', "
+        "resumed INTEGER NOT NULL DEFAULT 0, "
+        "updated_at TEXT NOT NULL DEFAULT '')",
+        # ── AutoFish sessions (restart-safe persistence) ──────────────────────
+        "CREATE TABLE IF NOT EXISTS auto_fish_sessions ("
+        "user_id TEXT PRIMARY KEY, "
+        "username TEXT NOT NULL DEFAULT '', "
+        "started_at TEXT NOT NULL DEFAULT '', "
+        "max_attempts INTEGER NOT NULL DEFAULT 30, "
+        "max_minutes INTEGER NOT NULL DEFAULT 30, "
+        "attempts_done INTEGER NOT NULL DEFAULT 0, "
+        "status TEXT NOT NULL DEFAULT 'active', "
+        "resumed INTEGER NOT NULL DEFAULT 0, "
+        "updated_at TEXT NOT NULL DEFAULT '')",
+        # ── First-find rewards ────────────────────────────────────────────────
+        "CREATE TABLE IF NOT EXISTS first_find_rewards ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "category TEXT NOT NULL DEFAULT '', "
+        "rarity TEXT NOT NULL DEFAULT '', "
+        "players_count INTEGER NOT NULL DEFAULT 1, "
+        "gold_amount REAL NOT NULL DEFAULT 0, "
+        "coin_fallback_amount INTEGER NOT NULL DEFAULT 0, "
+        "enabled INTEGER NOT NULL DEFAULT 1, "
+        "created_at TEXT NOT NULL DEFAULT (datetime('now')), "
+        "updated_at TEXT NOT NULL DEFAULT (datetime('now')))",
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_ffr_cat_rar ON first_find_rewards(category, rarity)",
+        # ── First-find claims ─────────────────────────────────────────────────
+        "CREATE TABLE IF NOT EXISTS first_find_claims ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "reward_id INTEGER NOT NULL DEFAULT 0, "
+        "user_id TEXT NOT NULL DEFAULT '', "
+        "username TEXT NOT NULL DEFAULT '', "
+        "category TEXT NOT NULL DEFAULT '', "
+        "rarity TEXT NOT NULL DEFAULT '', "
+        "claim_rank INTEGER NOT NULL DEFAULT 1, "
+        "reward_status TEXT NOT NULL DEFAULT 'pending', "
+        "claimed_at TEXT NOT NULL DEFAULT (datetime('now')))",
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_ffc_rid_uid ON first_find_claims(reward_id, user_id)",
+        # ── Big announce settings (room_settings inserts — safe no-ops) ───────
+        "INSERT OR IGNORE INTO room_settings (key, value) VALUES ('big_announce_threshold', 'legendary')",
+        "INSERT OR IGNORE INTO room_settings (key, value) VALUES ('big_announce_bot_react_threshold', 'prismatic')",
+        "INSERT OR IGNORE INTO room_settings (key, value) VALUES ('big_announce_enabled', '1')",
+        # ── BJ pair-bonus + cards-mode settings ──────────────────────────────
+        "INSERT OR IGNORE INTO bj_settings (key, value) VALUES ('bj_bonus_pair_pct', '10')",
+        "INSERT OR IGNORE INTO bj_settings (key, value) VALUES ('bj_bonus_color_pct', '25')",
+        "INSERT OR IGNORE INTO bj_settings (key, value) VALUES ('bj_bonus_perfect_pct', '50')",
+        "INSERT OR IGNORE INTO bj_settings (key, value) VALUES ('bj_bonus_cap', '10000')",
+        "INSERT OR IGNORE INTO bj_settings (key, value) VALUES ('bj_bonus_enabled', '1')",
+        "INSERT OR IGNORE INTO bj_settings (key, value) VALUES ('bj_cards_mode', 'whisper')",
     ]:
         try:
             conn.execute(sql)
@@ -8487,6 +8544,237 @@ def set_auto_activity_setting(key: str, value: str) -> None:
     conn.execute(
         "INSERT OR REPLACE INTO auto_activity_settings (key, value) VALUES (?, ?)",
         (key, value),
+    )
+    conn.commit()
+    conn.close()
+
+
+# ── AutoMine session helpers ───────────────────────────────────────────────────
+
+def save_auto_mine_session(user_id: str, username: str, started_at: str,
+                           max_attempts: int, max_minutes: int,
+                           attempts_done: int = 0, resumed: int = 0) -> None:
+    conn = get_connection()
+    conn.execute(
+        """INSERT OR REPLACE INTO auto_mine_sessions
+           (user_id, username, started_at, max_attempts, max_minutes,
+            attempts_done, status, resumed, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, 'active', ?, datetime('now'))""",
+        (user_id, username, started_at, max_attempts, max_minutes, attempts_done, resumed),
+    )
+    conn.commit()
+    conn.close()
+
+
+def update_auto_mine_attempts(user_id: str, attempts_done: int) -> None:
+    conn = get_connection()
+    conn.execute(
+        """UPDATE auto_mine_sessions SET attempts_done=?, updated_at=datetime('now')
+           WHERE user_id=? AND status='active'""",
+        (attempts_done, user_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+def stop_auto_mine_session(user_id: str, status: str = "stopped") -> None:
+    conn = get_connection()
+    conn.execute(
+        "UPDATE auto_mine_sessions SET status=?, updated_at=datetime('now') WHERE user_id=?",
+        (status, user_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_active_auto_mine_session(user_id: str) -> dict | None:
+    conn = get_connection()
+    row  = conn.execute(
+        "SELECT * FROM auto_mine_sessions WHERE user_id=? AND status='active'",
+        (user_id,),
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def get_all_active_auto_mine_sessions() -> list[dict]:
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT * FROM auto_mine_sessions WHERE status='active'"
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+# ── AutoFish session helpers ───────────────────────────────────────────────────
+
+def save_auto_fish_session(user_id: str, username: str, started_at: str,
+                           max_attempts: int, max_minutes: int,
+                           attempts_done: int = 0, resumed: int = 0) -> None:
+    conn = get_connection()
+    conn.execute(
+        """INSERT OR REPLACE INTO auto_fish_sessions
+           (user_id, username, started_at, max_attempts, max_minutes,
+            attempts_done, status, resumed, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, 'active', ?, datetime('now'))""",
+        (user_id, username, started_at, max_attempts, max_minutes, attempts_done, resumed),
+    )
+    conn.commit()
+    conn.close()
+
+
+def update_auto_fish_attempts(user_id: str, attempts_done: int) -> None:
+    conn = get_connection()
+    conn.execute(
+        """UPDATE auto_fish_sessions SET attempts_done=?, updated_at=datetime('now')
+           WHERE user_id=? AND status='active'""",
+        (attempts_done, user_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+def stop_auto_fish_session(user_id: str, status: str = "stopped") -> None:
+    conn = get_connection()
+    conn.execute(
+        "UPDATE auto_fish_sessions SET status=?, updated_at=datetime('now') WHERE user_id=?",
+        (status, user_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_active_auto_fish_session(user_id: str) -> dict | None:
+    conn = get_connection()
+    row  = conn.execute(
+        "SELECT * FROM auto_fish_sessions WHERE user_id=? AND status='active'",
+        (user_id,),
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def get_all_active_auto_fish_sessions() -> list[dict]:
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT * FROM auto_fish_sessions WHERE status='active'"
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+# ── First-find reward helpers ──────────────────────────────────────────────────
+
+def get_first_find_reward(category: str, rarity: str) -> dict | None:
+    conn = get_connection()
+    row  = conn.execute(
+        "SELECT * FROM first_find_rewards WHERE category=? AND rarity=? AND enabled=1",
+        (category, rarity),
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def set_first_find_reward(category: str, rarity: str, players_count: int,
+                          gold_amount: float, coin_fallback: int = 0) -> None:
+    conn = get_connection()
+    conn.execute(
+        """INSERT INTO first_find_rewards
+               (category, rarity, players_count, gold_amount,
+                coin_fallback_amount, enabled, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, 1, datetime('now'), datetime('now'))
+           ON CONFLICT(category, rarity) DO UPDATE SET
+               players_count=excluded.players_count,
+               gold_amount=excluded.gold_amount,
+               coin_fallback_amount=excluded.coin_fallback_amount,
+               enabled=1,
+               updated_at=datetime('now')""",
+        (category, rarity, players_count, gold_amount, coin_fallback),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_all_first_find_rewards() -> list[dict]:
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT * FROM first_find_rewards ORDER BY category, rarity"
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_first_find_claim_count(reward_id: int) -> int:
+    conn = get_connection()
+    row  = conn.execute(
+        "SELECT COUNT(*) FROM first_find_claims WHERE reward_id=?", (reward_id,)
+    ).fetchone()
+    conn.close()
+    return row[0] if row else 0
+
+
+def has_first_find_claimed(reward_id: int, user_id: str) -> bool:
+    conn = get_connection()
+    row  = conn.execute(
+        "SELECT 1 FROM first_find_claims WHERE reward_id=? AND user_id=?",
+        (reward_id, user_id),
+    ).fetchone()
+    conn.close()
+    return row is not None
+
+
+def add_first_find_claim(reward_id: int, user_id: str, username: str,
+                         category: str, rarity: str, claim_rank: int,
+                         reward_status: str = "pending") -> int:
+    conn = get_connection()
+    cur  = conn.execute(
+        """INSERT OR IGNORE INTO first_find_claims
+               (reward_id, user_id, username, category, rarity,
+                claim_rank, reward_status, claimed_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
+        (reward_id, user_id, username, category, rarity, claim_rank, reward_status),
+    )
+    conn.commit()
+    rid = cur.lastrowid or 0
+    conn.close()
+    return rid
+
+
+def reset_first_find(category: str, rarity: str) -> int:
+    conn   = get_connection()
+    reward = conn.execute(
+        "SELECT id FROM first_find_rewards WHERE category=? AND rarity=?",
+        (category, rarity),
+    ).fetchone()
+    deleted = 0
+    if reward:
+        cur     = conn.execute(
+            "DELETE FROM first_find_claims WHERE reward_id=?", (reward[0],)
+        )
+        deleted = cur.rowcount
+    conn.commit()
+    conn.close()
+    return deleted
+
+
+def get_first_find_claims(category: str, rarity: str) -> list[dict]:
+    conn = get_connection()
+    rows = conn.execute(
+        """SELECT ffc.* FROM first_find_claims ffc
+           JOIN first_find_rewards ffr ON ffc.reward_id=ffr.id
+           WHERE ffr.category=? AND ffr.rarity=?
+           ORDER BY ffc.claim_rank""",
+        (category, rarity),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def disable_first_find_reward(category: str, rarity: str) -> None:
+    conn = get_connection()
+    conn.execute(
+        "UPDATE first_find_rewards SET enabled=0, updated_at=datetime('now') WHERE category=? AND rarity=?",
+        (category, rarity),
     )
     conn.commit()
     conn.close()

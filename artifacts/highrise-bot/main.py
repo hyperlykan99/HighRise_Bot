@@ -346,7 +346,7 @@ from modules.mining import (
     handle_automine, handle_autominestatus, handle_autominesettings,
     handle_setautomine, handle_setautomineduration,
     handle_setautomineattempts, handle_setautominedailycap,
-    stop_automine_for_user,
+    stop_automine_for_user, startup_automine_recovery,
     MINE_HELP_PAGES,
 )
 from modules.economy import (
@@ -368,7 +368,14 @@ from modules.fishing import (
     handle_autofish, handle_autofishstatus, handle_autofishsettings,
     handle_setautofish, handle_setautofishduration,
     handle_setautofishattempts, handle_setautofishdailycap,
-    stop_autofish_for_user,
+    stop_autofish_for_user, startup_autofish_recovery,
+)
+from modules.first_find import (
+    handle_firstfindrewards, handle_setfirstfind,
+    handle_firstfindstatus, handle_resetfirstfind,
+)
+from modules.big_announce import (
+    handle_setbigannounce, handle_setbigreact, handle_bigannouncestatus,
 )
 from modules.control_panel import (
     handle_control, handle_ownerpanel, handle_managerpanel,
@@ -547,6 +554,10 @@ MANAGER_ONLY_CMDS = {
     "setbjminbet", "setbjmaxbet", "setbjcountdown", "setbjturntimer",
     "setbjactiontimer", "setbjmaxsplits",
     "setbjdailywinlimit", "setbjdailylosslimit",
+    "setbjbonus", "setbjbonuscap",
+    "setbjbonuspair", "setbjbonuscolor", "setbjbonusperfect",
+    "setbigannounce", "setbigreact",
+    "setfirstfind", "resetfirstfind",
     "setrbjdecks", "setrbjminbet", "setrbjmaxbet", "setrbjcountdown",
     "setrbjshuffle", "setrbjblackjackpayout", "setrbjwinpayout", "setrbjturntimer",
     "setrbjactiontimer", "setrbjmaxsplits",
@@ -557,6 +568,11 @@ MANAGER_ONLY_CMDS = {
     "casinosettings", "casinolimits", "casinotoggles",
     "setbjlimits", "setrbjlimits",
     "resetbjlimits", "resetrbjlimits",
+}
+
+# ── First-find + announce public read commands ────────────────────────────
+FIRSTFIND_COMMANDS = {
+    "firstfindrewards", "firstfindstatus", "bigannouncestatus",
 }
 
 TIP_COMMANDS = {"tiprate", "tipstats", "tipleaderboard"}
@@ -881,7 +897,7 @@ TIME_EXP_COMMANDS: frozenset[str] = frozenset({
 DISPLAY_COMMANDS: frozenset[str] = frozenset({
     "displaybadges", "displaytitles", "displayformat", "displaytest",
 })
-ALL_KNOWN_COMMANDS = ALL_KNOWN_COMMANDS | TIME_EXP_COMMANDS | DISPLAY_COMMANDS
+ALL_KNOWN_COMMANDS = ALL_KNOWN_COMMANDS | TIME_EXP_COMMANDS | DISPLAY_COMMANDS | FIRSTFIND_COMMANDS
 
 
 # ---------------------------------------------------------------------------
@@ -2225,6 +2241,15 @@ class HangoutBot(BaseBot):
             asyncio.create_task(startup_poker_recovery(self))
         else:
             print(f"[POKER] Recovery skipped — not poker bot ({BOT_MODE}).")
+        # Recover AutoMine / AutoFish sessions — miner bot only
+        if should_this_bot_run_module("mining"):
+            asyncio.create_task(startup_automine_recovery(self))
+        else:
+            print(f"[AUTOMINE] Recovery skipped — not miner bot ({BOT_MODE}).")
+        if should_this_bot_run_module("fishing"):
+            asyncio.create_task(startup_autofish_recovery(self))
+        else:
+            print(f"[AUTOFISH] Recovery skipped — not fisher bot ({BOT_MODE}).")
         # Start time-in-room EXP loop — host bot only
         if should_this_bot_run_module("timeexp"):
             asyncio.create_task(time_exp_loop(self))
@@ -4180,6 +4205,29 @@ class HangoutBot(BaseBot):
 
         elif cmd == "setautofishdailycap":
             await handle_setautofishdailycap(self, user, args)
+
+        # ── First-find reward commands ─────────────────────────────────────
+        elif cmd in {"firstfindrewards", "firstfindlist"}:
+            await handle_firstfindrewards(self, user)
+
+        elif cmd == "setfirstfind":
+            await handle_setfirstfind(self, user, args)
+
+        elif cmd in {"firstfindstatus", "firstfindcheck"}:
+            await handle_firstfindstatus(self, user, args)
+
+        elif cmd == "resetfirstfind":
+            await handle_resetfirstfind(self, user, args)
+
+        # ── Big announce commands ──────────────────────────────────────────
+        elif cmd == "setbigannounce":
+            await handle_setbigannounce(self, user, args)
+
+        elif cmd == "setbigreact":
+            await handle_setbigreact(self, user, args)
+
+        elif cmd in {"bigannouncestatus", "bigannounce"}:
+            await handle_bigannouncestatus(self, user)
 
         elif cmd == "orebook":
             await handle_orebook(self, user)
