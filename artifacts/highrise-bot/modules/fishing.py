@@ -376,6 +376,22 @@ async def handle_fish(bot: BaseBot, user: User) -> None:
         return
 
     fish   = _roll_fish(rod_name, eff)
+
+    # Owner-forced fish drop override — silent to player
+    _fforced = db.get_active_forced_fish_drop(user.id, uname)
+    if _fforced:
+        if _fforced["forced_type"] == "rarity":
+            _ff_pool = [f for f in FISH_CATALOG if f["rarity"] == _fforced["forced_value"]]
+            if _ff_pool:
+                fish = random.choice(_ff_pool)
+                db.mark_forced_fish_drop_used(_fforced["id"])
+        elif _fforced["forced_type"] == "fish":
+            _fv = _fforced["forced_value"]
+            _ff_item = _FISH_BY_ID.get(_fv) or _FISH_BY_NAME.get(_fv.lower())
+            if _ff_item:
+                fish = _ff_item
+                db.mark_forced_fish_drop_used(_fforced["id"])
+
     weight = _roll_weight(fish, rod_name, eff)
     value  = _calc_value(fish, weight, rod_name, eff)
     fxp    = _calc_fxp(fish, rod_name, eff)
@@ -412,14 +428,20 @@ async def handle_fish(bot: BaseBot, user: User) -> None:
         await _w(bot, user.id,
                  f"🎣 Level Up! Fishing Lv {new_lvl}! Keep casting!")
 
+    if fish["rarity"] in ("legendary","mythic","prismatic","exotic"):
+        try:
+            await check_first_find(bot, user.id, uname, "fishing", fish["rarity"])
+        except Exception as _ffe:
+            print(f"[FISH] first_find error: {_ffe}")
     rarity_info = FISH_RARITIES.get(fish["rarity"], {})
     if rarity_info.get("announce"):
+        extra = f" — {weight}lb, {_fmt(value)}c"
         try:
-            ann = (f"📣 Big Catch! @{uname} caught {rlabel} "
-                   f"{fish['emoji']} {fish['name']} — {weight}lb worth {_fmt(value)}c!")
-            await bot.highrise.chat(ann[:249])
-        except Exception:
-            pass
+            await send_big_fish_announce(
+                bot, fish["rarity"], uname,
+                fish["name"], fish.get("emoji", "🐟"), extra)
+        except Exception as _bae:
+            print(f"[FISH] big_announce error: {_bae}")
 
 
 # ---------------------------------------------------------------------------
@@ -951,6 +973,22 @@ async def _autofish_loop(bot: BaseBot, user: User) -> None:
                 await asyncio.sleep(wait)
                 continue
             fish   = _roll_fish(rod_name, eff)
+
+            # Owner-forced fish drop override — silent to player
+            _aff = db.get_active_forced_fish_drop(uid, uname)
+            if _aff:
+                if _aff["forced_type"] == "rarity":
+                    _aff_pool = [f for f in FISH_CATALOG if f["rarity"] == _aff["forced_value"]]
+                    if _aff_pool:
+                        fish = random.choice(_aff_pool)
+                        db.mark_forced_fish_drop_used(_aff["id"])
+                elif _aff["forced_type"] == "fish":
+                    _afv = _aff["forced_value"]
+                    _aff_item = _FISH_BY_ID.get(_afv) or _FISH_BY_NAME.get(_afv.lower())
+                    if _aff_item:
+                        fish = _aff_item
+                        db.mark_forced_fish_drop_used(_aff["id"])
+
             weight = _roll_weight(fish, rod_name, eff)
             value  = _calc_value(fish, weight, rod_name, eff)
             fxp    = _calc_fxp(fish, rod_name, eff)
@@ -1203,3 +1241,121 @@ async def startup_autofish_recovery(bot: BaseBot) -> None:
         task = asyncio.create_task(_autofish_loop(bot, fake_user))
         _autofish_tasks[uid] = task
         print(f"[AUTOFISH] Resumed session for @{uname}")
+
+
+# ---------------------------------------------------------------------------
+# /forcefishdrop /forcefish /forcefishdropfish /forcefishstatus /clearforcefish
+# (owner-only)
+# ---------------------------------------------------------------------------
+
+
+async def handle_forcefishdrop(bot: BaseBot, user: User, args: list[str]) -> None:
+    """
+    /forcefishdrop <username> <rarity>
+    Forces a rarity for that player's next /fish (owner-only, silent).
+    """
+    from modules.permissions import is_owner
+    if not is_owner(user.username):
+        await _w(bot, user.id, "Owner-only command.")
+        return
+    if len(args) < 3:
+        await _w(bot, user.id,
+                 "Usage: /forcefishdrop <username> <rarity>")
+        return
+    target = args[1].lstrip("@").lower()
+    raw_r  = args[2].lower()
+    if raw_r not in RARITY_ORDER:
+        await _w(bot, user.id, f"Valid rarities: {', '.join(RARITY_ORDER)}")
+        return
+    drop_id = db.set_forced_fish_drop(target, "rarity", raw_r, user.username)
+    await _w(bot, user.id,
+             f"⚙️ Fish forced: @{target} → [{raw_r.upper()}] on next cast "
+             f"(id={drop_id}, expires 24h)")
+
+
+async def handle_forcefishdropfish(bot: BaseBot, user: User, args: list[str]) -> None:
+    """
+    /forcefishdropfish <username> <fish_name>
+    Forces a specific fish for that player's next /fish (owner-only, silent).
+    """
+    from modules.permissions import is_owner
+    if not is_owner(user.username):
+        await _w(bot, user.id, "Owner-only command.")
+        return
+    if len(args) < 3:
+        await _w(bot, user.id,
+                 "Usage: /forcefishdropfish <username> <fish_name>")
+        return
+    target     = args[1].lstrip("@").lower()
+    fish_query = " ".join(args[2:]).strip().lower()
+    fish_item  = _FISH_BY_ID.get(fish_query.replace(" ", "_"))
+    if not fish_item:
+        fish_item = _FISH_BY_NAME.get(fish_query)
+    if not fish_item:
+        matches = [f for f in FISH_CATALOG if fish_query in f["name"].lower()]
+        if len(matches) == 1:
+            fish_item = matches[0]
+        elif len(matches) > 1:
+            names = ", ".join(f["name"] for f in matches[:5])
+            await _w(bot, user.id, f"Multiple matches: {names}")
+            return
+    if not fish_item:
+        await _w(bot, user.id,
+                 f"Fish '{fish_query[:40]}' not found. Try /fishlist for names.")
+        return
+    fid     = fish_item["fish_id"]
+    drop_id = db.set_forced_fish_drop(target, "fish", fid, user.username)
+    await _w(bot, user.id,
+             f"⚙️ Fish forced: @{target} → "
+             f"{fish_item['emoji']} {fish_item['name']} "
+             f"(id={drop_id}, expires 24h)")
+
+
+async def handle_forcefishstatus(bot: BaseBot, user: User) -> None:
+    """/forcefishstatus — list pending forced fish drops (owner-only)."""
+    from modules.permissions import is_owner
+    if not is_owner(user.username):
+        await _w(bot, user.id, "Owner-only command.")
+        return
+    drops = db.get_all_active_forced_fish_drops()
+    if not drops:
+        await _w(bot, user.id, "No pending fishing force drops.")
+        return
+    from datetime import datetime as _dt_fs, timezone as _tz_fs
+    now   = _dt_fs.now(_tz_fs.utc)
+    lines = [f"⚙️ Fishing Force Drops ({len(drops)} pending)"]
+    for d in drops[:6]:
+        exp_str = "no expiry"
+        if d.get("expires_at"):
+            try:
+                exp_dt = _dt_fs.fromisoformat(d["expires_at"])
+                if exp_dt.tzinfo is None:
+                    exp_dt = exp_dt.replace(tzinfo=_tz_fs.utc)
+                hrs = max(0, int((exp_dt - now).total_seconds() / 3600))
+                exp_str = f"exp in {hrs}h"
+            except Exception:
+                exp_str = d["expires_at"][:13]
+        lines.append(
+            f"@{d['target_username']} → "
+            f"{d['forced_type']}={d['forced_value']} | {exp_str}"
+        )
+    if len(drops) > 6:
+        lines.append(f"+{len(drops) - 6} more.")
+    await _w(bot, user.id, "\n".join(lines)[:249])
+
+
+async def handle_clearforcefish(bot: BaseBot, user: User, args: list[str]) -> None:
+    """/clearforcefish <username> — cancel pending forced fish drops (owner-only)."""
+    from modules.permissions import is_owner
+    if not is_owner(user.username):
+        await _w(bot, user.id, "Owner-only command.")
+        return
+    if len(args) < 2:
+        await _w(bot, user.id, "Usage: /clearforcefish <username>")
+        return
+    target = args[1].lstrip("@").lower()
+    n      = db.clear_forced_fish_drop_by_username(target, user.username)
+    if n:
+        await _w(bot, user.id, f"Cleared {n} pending fish force drop(s) for @{target}.")
+    else:
+        await _w(bot, user.id, f"No pending fish force drops for @{target}.")

@@ -1,0 +1,747 @@
+Force Drop Fix + Fishing Force Drop + AutoMine/AutoFish Manager Settings + Big Announcement Routing
+
+Focus only on:
+1. Fixing mining force drop.
+2. Adding fishing force drop.
+3. Making force drops work with manual and auto sessions.
+4. Making AutoMine/AutoFish default ON and manager-controlled globally.
+5. Making Big Find / Big Catch announcements adjustable per rarity and per bot routing.
+
+Do not change bot tokens.
+Do not change room ID.
+Do not reset balances.
+Do not wipe player data.
+Do not wipe mining/fishing records.
+Do not break mining, fishing, poker, blackjack, bank, shop, events, AI, security, bot outfits, bot spawns, or command routing.
+
+==================================================
+PART 1 — FIX MINING FORCE DROP
+==================================================
+
+Current issue:
+/forcedrop is not working.
+
+Goal:
+Owner can secretly force a player’s next mine to produce a specific rarity or exact ore.
+
+Commands to fix/keep:
+- /forcedrop <username> <rarity>
+- /forcedropore <username> <ore_name>
+- /forcedropstatus
+- /clearforcedrop <username>
+
+Examples:
+/forcedrop @player exotic
+/forcedrop player prismatic
+/forcedropore @player Blood Diamond
+/clearforcedrop @player
+
+Expected behavior:
+/forcedrop @player exotic
+→ player’s next /mine gives a random Exotic ore.
+
+/forcedropore @player Blood Diamond
+→ player’s next /mine gives Blood Diamond.
+
+Rules:
+1. Owner only.
+2. Secret from players.
+3. Works with manual /mine.
+4. Works with AutoMine.
+5. One use only.
+6. Clears after successful forced mine.
+7. Does not expose “forced drop” in public message.
+8. Mining message should look natural.
+9. Big Find announcement should trigger naturally if rarity qualifies.
+10. Weight rolls normally using current ore weight system.
+11. Value calculates normally.
+12. FXP/MXP/rewards apply normally unless owner chooses otherwise later.
+13. If player is not found, show helpful error.
+14. If rarity is invalid, show valid rarities.
+15. If ore name is invalid, show close suggestions.
+
+Valid rarities:
+common
+rare
+epic
+legendary
+mythic
+prismatic
+exotic
+
+==================================================
+PART 2 — MINING FORCE DROP DATABASE
+==================================================
+
+Create or fix table safely:
+
+forced_mining_drops:
+- id INTEGER PRIMARY KEY AUTOINCREMENT
+- target_user_id TEXT
+- target_username TEXT
+- forced_type TEXT
+- forced_value TEXT
+- created_by TEXT
+- created_at TEXT
+- expires_at TEXT
+- used_at TEXT
+- status TEXT
+
+forced_type:
+- rarity
+- ore
+
+status:
+- pending
+- used
+- expired
+- cleared
+
+Default expiration:
+24 hours
+
+Important:
+If this table already exists, do not wipe it.
+Use CREATE TABLE IF NOT EXISTS and safe ALTER TABLE if needed.
+
+==================================================
+PART 3 — MINING FORCE DROP LOOKUP
+==================================================
+
+When player mines manually or through AutoMine:
+
+1. Check for pending forced_mining_drops by user_id first.
+2. If no user_id match, check normalized username.
+3. If pending forced drop exists and not expired:
+   - If forced_type = rarity, pick random ore from that rarity.
+   - If forced_type = ore, use exact ore.
+4. Continue normal mine flow:
+   - roll weight
+   - calculate value
+   - add inventory/record
+   - add MXP
+   - trigger announcements if needed
+5. Mark forced drop as used.
+6. Clear it from pending status.
+
+If expired:
+- mark expired
+- ignore it
+- mine normally
+
+==================================================
+PART 4 — ADD FISHING FORCE DROP
+==================================================
+
+Add FishingBot force drop system similar to mining.
+
+Commands:
+- /forcefishdrop <username> <rarity>
+- /forcefish <username> <rarity>
+- /forcefishdropfish <username> <fish_name>
+- /forcefishstatus
+- /clearforcefish <username>
+
+Examples:
+/forcefishdrop @player prismatic
+/forcefish @player exotic
+/forcefishdropfish @player Aurora Koi
+/clearforcefish @player
+
+Expected behavior:
+/forcefishdrop @player prismatic
+→ player’s next /fish gives a random Prismatic fish.
+
+/forcefishdropfish @player Aurora Koi
+→ player’s next /fish gives Aurora Koi.
+
+Rules:
+1. Owner only.
+2. Secret from players.
+3. Works with manual /fish.
+4. Works with AutoFish.
+5. One use only.
+6. Clears after successful forced catch.
+7. Does not expose “forced” in public message.
+8. Fishing message should look natural.
+9. Big Catch announcement should trigger naturally if rarity qualifies.
+10. Weight rolls normally using current fish weight system.
+11. Value calculates normally.
+12. FXP applies normally.
+13. If player is not found, show helpful error.
+14. If rarity is invalid, show valid rarities.
+15. If fish name is invalid, show close suggestions.
+
+==================================================
+PART 5 — FISHING FORCE DROP DATABASE
+==================================================
+
+Create table safely:
+
+forced_fishing_drops:
+- id INTEGER PRIMARY KEY AUTOINCREMENT
+- target_user_id TEXT
+- target_username TEXT
+- forced_type TEXT
+- forced_value TEXT
+- created_by TEXT
+- created_at TEXT
+- expires_at TEXT
+- used_at TEXT
+- status TEXT
+
+forced_type:
+- rarity
+- fish
+
+status:
+- pending
+- used
+- expired
+- cleared
+
+Default expiration:
+24 hours
+
+Do not wipe existing data.
+
+==================================================
+PART 6 — FISHING FORCE DROP LOOKUP
+==================================================
+
+When player fishes manually or through AutoFish:
+
+1. Check for pending forced_fishing_drops by user_id first.
+2. If no user_id match, check normalized username.
+3. If pending forced drop exists and not expired:
+   - If forced_type = rarity, pick random fish from that rarity.
+   - If forced_type = fish, use exact fish.
+4. Continue normal fishing flow:
+   - roll weight
+   - calculate value
+   - add fish inventory/record
+   - add FXP
+   - trigger announcements if needed
+5. Mark forced fishing drop as used.
+6. Clear it from pending status.
+
+If expired:
+- mark expired
+- ignore it
+- fish normally
+
+==================================================
+PART 7 — FORCE DROP STATUS COMMANDS
+==================================================
+
+/forcedropstatus should show pending mining force drops to owner only.
+
+Example:
+
+GreatestProspector:
+🎯 Mining Force Drops
+@player1 → rarity=exotic | expires in 22h
+@player2 → ore=Blood Diamond | expires in 4h
+
+If none:
+No pending mining force drops.
+
+/forcefishstatus should show pending fishing force drops to owner only.
+
+Example:
+
+MasterAngler:
+🎯 Fishing Force Drops
+@player1 → rarity=prismatic | expires in 22h
+@player2 → fish=Aurora Koi | expires in 4h
+
+If none:
+No pending fishing force drops.
+
+Do not show force drop status to non-owner users.
+
+==================================================
+PART 8 — AUTO MINE / AUTO FISH DEFAULT ON
+==================================================
+
+Update global defaults:
+
+automine_enabled = ON
+autofish_enabled = ON
+
+Player commands still exist:
+- /automine on
+- /automine off
+- /autominestatus
+- /autofish on
+- /autofish off
+- /autofishstatus
+
+Meaning:
+Players can start/stop their own AutoMine/AutoFish sessions only if global AutoMine/AutoFish is enabled.
+
+==================================================
+PART 9 — MANAGER+ GLOBAL CONTROL
+==================================================
+
+Only Manager+ can turn global AutoMine/AutoFish on or off.
+
+Global setting commands:
+- /setautomine on
+- /setautomine off
+- /setautofish on
+- /setautofish off
+
+Permission:
+Manager+ only.
+
+Normal players must NOT be able to use:
+- /setautomine
+- /setautofish
+- /setautomineduration
+- /setautomineattempts
+- /setautominedailycap
+- /setautofishduration
+- /setautofishattempts
+- /setautofishdailycap
+
+Normal players can use:
+- /automine on/off/status
+- /autofish on/off/status
+
+If AutoMine is globally disabled and player tries /automine on:
+
+GreatestProspector:
+⛏️ AutoMine Disabled
+AutoMine is currently disabled by staff.
+
+If AutoFish is globally disabled and player tries /autofish on:
+
+MasterAngler:
+🎣 AutoFish Disabled
+AutoFish is currently disabled by staff.
+
+==================================================
+PART 10 — AUTO SESSION SETTINGS
+==================================================
+
+Keep adjustable settings:
+
+AutoMine:
+- /autominesettings
+- /setautomineduration <minutes>
+- /setautomineattempts <amount>
+- /setautominedailycap <minutes>
+
+AutoFish:
+- /autofishsettings
+- /setautofishduration <minutes>
+- /setautofishattempts <amount>
+- /setautofishdailycap <minutes>
+
+Permission:
+Manager+ only.
+
+Defaults:
+AutoMine enabled: ON
+AutoFish enabled: ON
+AutoMine session duration: 30 minutes
+AutoMine max attempts: 30
+AutoMine daily cap: 120 minutes
+AutoFish session duration: 30 minutes
+AutoFish max attempts: 30
+AutoFish daily cap: 120 minutes
+
+==================================================
+PART 11 — FORCE DROP WITH AUTO SESSIONS
+==================================================
+
+Force drops must work during auto sessions.
+
+AutoMine:
+If player has pending mining force drop, the next AutoMine attempt should consume it.
+
+AutoFish:
+If player has pending fishing force drop, the next AutoFish attempt should consume it.
+
+Important:
+Do not wait for manual /mine or /fish only.
+Auto sessions count as valid next attempt.
+
+Example:
+Owner uses:
+/forcedrop @player exotic
+
+Player already has AutoMine running.
+On next AutoMine tick:
+Player mines random Exotic ore.
+Forced drop clears.
+
+Example:
+Owner uses:
+/forcefishdrop @player prismatic
+
+Player already has AutoFish running.
+On next AutoFish tick:
+Player catches random Prismatic fish.
+Forced fish drop clears.
+
+==================================================
+PART 12 — BIG ANNOUNCEMENT ROUTING SETTINGS
+==================================================
+
+Goal:
+Make Big Find / Big Catch announcements adjustable by:
+- category
+- rarity
+- routing mode
+
+Categories:
+- mining
+- fishing
+
+Routing modes:
+- miner_only
+- fishing_only
+- all_bots
+- off
+
+For mining:
+miner_only = only GreatestProspector/MiningBot announces
+all_bots = activity bot makes full announcement and other bots react shortly
+off = no public announcement for that rarity
+
+For fishing:
+fishing_only = only MasterAngler/FishingBot announces
+all_bots = activity bot makes full announcement and other bots react shortly
+off = no public announcement for that rarity
+
+Commands:
+- /bigannounce
+- /bigannouncestatus
+- /setbigannounce <mining|fishing> <rarity> <miner_only|fishing_only|all_bots|off>
+- /setbotbigreact <bot> <on|off>
+
+Examples:
+/setbigannounce mining legendary miner_only
+/setbigannounce mining mythic miner_only
+/setbigannounce mining prismatic all_bots
+/setbigannounce mining exotic all_bots
+
+/setbigannounce fishing legendary fishing_only
+/setbigannounce fishing mythic fishing_only
+/setbigannounce fishing prismatic all_bots
+/setbigannounce fishing exotic all_bots
+
+/setbigannounce mining exotic off
+/setbotbigreact BankingBot on
+/setbotbigreact EventBot on
+
+==================================================
+PART 13 — DEFAULT BIG ANNOUNCEMENT SETTINGS
+==================================================
+
+Default settings:
+
+Mining:
+[COMMON] = off
+[RARE] = off
+[EPIC] = off
+[LEGENDARY] = miner_only
+[MYTHIC] = miner_only
+[PRISMATIC] = all_bots
+[EXOTIC] = all_bots
+
+Fishing:
+[COMMON] = off
+[RARE] = off
+[EPIC] = off
+[LEGENDARY] = fishing_only
+[MYTHIC] = fishing_only
+[PRISMATIC] = all_bots
+[EXOTIC] = all_bots
+
+Default bot reactions:
+BankingBot = ON
+EventBot = ON
+EmceeBot = ON
+SecurityBot = OFF
+PokerBot = OFF
+BlackjackBot = OFF
+MiningBot = ON
+FishingBot = ON
+
+If a bot does not exist or is offline, skip it safely.
+
+==================================================
+PART 14 — BIG ANNOUNCEMENT BEHAVIOR
+==================================================
+
+Do not make every bot send the same long message.
+
+When routing mode is activity bot only:
+
+Mining:
+GreatestProspector:
+📣 Big Find
+@Player mined [LEGENDARY] Gold Ore!
+
+Fishing:
+MasterAngler:
+📣 Big Catch
+@Player caught [LEGENDARY] Dragonfish!
+
+When routing mode is all_bots:
+
+1. Activity bot sends the full announcement.
+2. Other enabled bots send short reactions only.
+
+Mining example:
+
+GreatestProspector:
+📣 Big Find
+@Player mined [EXOTIC] Blood Diamond!
+
+BankingBot:
+💰 Exotic reward check complete for @Player.
+
+EventBot:
+🔥 Exotic discovery! Room hype activated.
+
+EmceeBot:
+🎉 Everybody congratulate @Player!
+
+Fishing example:
+
+MasterAngler:
+📣 Big Catch
+@Player caught [PRISMATIC] Aurora Koi!
+
+BankingBot:
+💰 Big Catch reward check complete for @Player.
+
+EventBot:
+🌈 Prismatic energy is active in the room!
+
+EmceeBot:
+🎉 Huge catch by @Player!
+
+Reaction messages should be short to avoid spam.
+
+Add cooldown:
+Do not let the same bot react too often.
+Recommended reaction cooldown: 10 seconds per bot.
+
+==================================================
+PART 15 — BIG ANNOUNCEMENT DATABASE
+==================================================
+
+Create tables safely:
+
+big_announcement_settings:
+- category TEXT
+- rarity TEXT
+- routing_mode TEXT
+- enabled INTEGER DEFAULT 1
+- updated_at TEXT
+PRIMARY KEY(category, rarity)
+
+big_announcement_bot_reactions:
+- bot_name TEXT PRIMARY KEY
+- enabled INTEGER DEFAULT 1
+- updated_at TEXT
+
+big_announcement_logs:
+- id INTEGER PRIMARY KEY AUTOINCREMENT
+- category TEXT
+- rarity TEXT
+- item_name TEXT
+- user_id TEXT
+- username TEXT
+- routing_mode TEXT
+- bots_notified TEXT
+- created_at TEXT
+
+Do not wipe old data.
+
+==================================================
+PART 16 — BIG ANNOUNCEMENT STATUS DISPLAY
+==================================================
+
+/bigannouncestatus should show concise settings.
+
+Example:
+
+EmceeBot:
+📣 Big Announcements
+
+Mining:
+LEGENDARY → miner_only
+MYTHIC → miner_only
+PRISMATIC → all_bots
+EXOTIC → all_bots
+
+Fishing:
+LEGENDARY → fishing_only
+MYTHIC → fishing_only
+PRISMATIC → all_bots
+EXOTIC → all_bots
+
+Bot Reactions:
+BankingBot ON | EventBot ON | EmceeBot ON
+
+/bigannounce should show help:
+
+EmceeBot:
+📣 Big Announcement Settings
+Use:
+/setbigannounce mining exotic all_bots
+/setbigannounce fishing prismatic fishing_only
+/setbotbigreact BankingBot on
+
+==================================================
+PART 17 — PERMISSIONS
+==================================================
+
+Force Drop:
+Owner only.
+
+Fishing Force Drop:
+Owner only.
+
+Big Announcement settings:
+Manager+.
+
+AutoMine/AutoFish global settings:
+Manager+.
+
+AutoMine/AutoFish player session start/stop:
+Players can use their own sessions.
+
+Status commands:
+- /forcedropstatus owner only
+- /forcefishstatus owner only
+- /bigannouncestatus manager+
+- /autominesettings manager+
+- /autofishsettings manager+
+
+Do not allow normal players to view secret force drops.
+
+==================================================
+PART 18 — COMMAND OWNERSHIP
+==================================================
+
+Suggested owners:
+
+Mining force drop:
+GreatestProspector / MiningBot or Host/Owner command router
+
+Fishing force drop:
+MasterAngler / FishingBot or Host/Owner command router
+
+Big announcement settings:
+EmceeBot or EventBot
+
+AutoMine settings:
+GreatestProspector / MiningBot
+
+AutoFish settings:
+MasterAngler / FishingBot
+
+Bank reward integrations:
+BankingBot
+
+Make sure owner map is not UNKNOWN.
+
+==================================================
+PART 19 — COMMAND INTEGRITY
+==================================================
+
+For every new command:
+1. Add route.
+2. Add handler.
+3. Add commandtest support.
+4. Add active registry entry.
+5. Add owner map.
+6. Owner must not be UNKNOWN.
+
+Commands to verify:
+
+Mining force drop:
+/commandtest /forcedrop
+/commandtest /forcedropore
+/commandtest /forcedropstatus
+/commandtest /clearforcedrop
+
+Fishing force drop:
+/commandtest /forcefishdrop
+/commandtest /forcefish
+/commandtest /forcefishdropfish
+/commandtest /forcefishstatus
+/commandtest /clearforcefish
+
+Auto settings:
+/commandtest /automine
+/commandtest /autominestatus
+/commandtest /autominesettings
+/commandtest /setautomine
+/commandtest /setautomineduration
+/commandtest /setautomineattempts
+/commandtest /setautominedailycap
+/commandtest /autofish
+/commandtest /autofishstatus
+/commandtest /autofishsettings
+/commandtest /setautofish
+/commandtest /setautofishduration
+/commandtest /setautofishattempts
+/commandtest /setautofishdailycap
+
+Big announcements:
+/commandtest /bigannounce
+/commandtest /bigannouncestatus
+/commandtest /setbigannounce
+/commandtest /setbotbigreact
+
+/checkcommands all should show:
+Missing 0
+NoOwner 0
+
+If a command is not implemented, do not add it as active.
+
+==================================================
+PART 20 — SAFETY
+==================================================
+
+Do not:
+- reset balances
+- wipe player data
+- wipe mining records
+- wipe fishing records
+- expose forced drops to normal players
+- expose secrets/tokens/env vars
+- break AutoMine
+- break AutoFish
+- let AutoMine/AutoFish continue offline
+- let non-manager users change global auto settings
+- let non-owner users force drops
+- make all bots spam identical announcements
+- break existing Big Find/Big Catch announcements
+
+==================================================
+FINAL REPORT
+==================================================
+
+After finishing, tell me:
+1. Files changed
+2. Why /forcedrop was not working
+3. How mining force drop works now
+4. How fishing force drop works
+5. How force drops work with AutoMine/AutoFish
+6. Database tables added/updated
+7. AutoMine/AutoFish default global setting
+8. Manager+ permission enforcement
+9. Big announcement routing modes
+10. Default announcement settings per rarity
+11. How all_bots reactions avoid spam
+12. Commands added
+13. Exact tests to run

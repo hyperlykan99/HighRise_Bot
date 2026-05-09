@@ -562,10 +562,17 @@ REGISTRY: dict[str, Cmd] = {
     "setfirstfind":         Cmd("banker","economy",False,False, True,  perm="manager"),
     "firstfindstatus":      Cmd("all","economy",  True, True,  False, aliases=("firstfindcheck",)),
     "resetfirstfind":       Cmd("banker","economy",False,False, True,  perm="manager"),
+    # ── Fishing force drop (owner-only) ──────────────────────────────────────
+    "forcefishdrop":        Cmd("fisher","fishing", False, False, True,  perm="owner", aliases=("forcefish",)),
+    "forcefishdropfish":    Cmd("fisher","fishing", False, False, True,  perm="owner"),
+    "forcefishstatus":      Cmd("fisher","fishing", False, True,  False, perm="owner"),
+    "clearforcefish":       Cmd("fisher","fishing", False, False, True,  perm="owner"),
     # ── Big announce ──────────────────────────────────────────────────────────
-    "bigannouncestatus":    Cmd("all","economy",  True, True,  False, aliases=("bigannounce",)),
+    "bigannounce":          Cmd("all","economy",  True, True,  False),
+    "bigannouncestatus":    Cmd("all","economy",  True, True,  False),
     "setbigannounce":       Cmd("all","economy",  False,False, True,  perm="manager"),
     "setbigreact":          Cmd("all","economy",  False,False, True,  perm="manager"),
+    "setbotbigreact":       Cmd("all","economy",  False,False, True,  perm="manager"),
     # ── BJ pair bonus settings ────────────────────────────────────────────────
     "setbjbonus":           Cmd("blackjack","casino",False,False,True, perm="manager"),
     "setbjbonuscap":        Cmd("blackjack","casino",False,False,True, perm="manager"),

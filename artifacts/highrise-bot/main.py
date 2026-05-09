@@ -369,13 +369,17 @@ from modules.fishing import (
     handle_setautofish, handle_setautofishduration,
     handle_setautofishattempts, handle_setautofishdailycap,
     stop_autofish_for_user, startup_autofish_recovery,
+    handle_forcefishdrop, handle_forcefishdropfish,
+    handle_forcefishstatus, handle_clearforcefish,
 )
 from modules.first_find import (
     handle_firstfindrewards, handle_setfirstfind,
     handle_firstfindstatus, handle_resetfirstfind,
 )
 from modules.big_announce import (
-    handle_setbigannounce, handle_setbigreact, handle_bigannouncestatus,
+    handle_setbigannounce, handle_bigannouncestatus,
+    handle_setbotbigreact, handle_bigannounce_help,
+    startup_big_announce_reactor,
 )
 from modules.control_panel import (
     handle_control, handle_ownerpanel, handle_managerpanel,
@@ -556,8 +560,10 @@ MANAGER_ONLY_CMDS = {
     "setbjdailywinlimit", "setbjdailylosslimit",
     "setbjbonus", "setbjbonuscap",
     "setbjbonuspair", "setbjbonuscolor", "setbjbonusperfect",
-    "setbigannounce", "setbigreact",
+    "setbigannounce", "setbigreact", "setbotbigreact",
     "setfirstfind", "resetfirstfind",
+    "forcefishdrop", "forcefish", "forcefishdropfish",
+    "forcefishstatus", "clearforcefish",
     "setrbjdecks", "setrbjminbet", "setrbjmaxbet", "setrbjcountdown",
     "setrbjshuffle", "setrbjblackjackpayout", "setrbjwinpayout", "setrbjturntimer",
     "setrbjactiontimer", "setrbjmaxsplits",
@@ -2250,6 +2256,8 @@ class HangoutBot(BaseBot):
             asyncio.create_task(startup_autofish_recovery(self))
         else:
             print(f"[AUTOFISH] Recovery skipped — not fisher bot ({BOT_MODE}).")
+        # Big announce reactor — runs on all non-miner/non-fisher bots
+        asyncio.create_task(startup_big_announce_reactor(self))
         # Start time-in-room EXP loop — host bot only
         if should_this_bot_run_module("timeexp"):
             asyncio.create_task(time_exp_loop(self))
@@ -4064,6 +4072,19 @@ class HangoutBot(BaseBot):
         elif cmd == "clearforcedrop":
             await handle_clearforcedrop(self, user, args)
 
+        # ── Fishing force drop (owner-only) ───────────────────────────────────
+        elif cmd in {"forcefishdrop", "forcefish"}:
+            await handle_forcefishdrop(self, user, args)
+
+        elif cmd == "forcefishdropfish":
+            await handle_forcefishdropfish(self, user, args)
+
+        elif cmd == "forcefishstatus":
+            await handle_forcefishstatus(self, user)
+
+        elif cmd == "clearforcefish":
+            await handle_clearforcefish(self, user, args)
+
         elif cmd == "orechances":
             await handle_orechances(self, user)
 
@@ -4223,11 +4244,14 @@ class HangoutBot(BaseBot):
         elif cmd == "setbigannounce":
             await handle_setbigannounce(self, user, args)
 
-        elif cmd == "setbigreact":
-            await handle_setbigreact(self, user, args)
+        elif cmd in {"setbigreact", "setbotbigreact"}:
+            await handle_setbotbigreact(self, user, args)
 
-        elif cmd in {"bigannouncestatus", "bigannounce"}:
+        elif cmd == "bigannouncestatus":
             await handle_bigannouncestatus(self, user)
+
+        elif cmd == "bigannounce":
+            await handle_bigannounce_help(self, user)
 
         elif cmd == "orebook":
             await handle_orebook(self, user)
@@ -4897,6 +4921,9 @@ class HangoutBot(BaseBot):
         msg_lower = message.lower()
         if any(kw in msg_lower for kw in ("gold", "tip", "coin", "pay", "send", "reward")):
             print(f"DEBUG EVENT FIRED: on_channel | {raw}")
+        # Big announce cross-bot channel (reserved for future SDK channel use)
+        if "big_announce" in msg_lower:
+            print(f"[BIG_ANNOUNCE] channel event: {raw}")
 
     async def on_emote(self, user: User, emote_id: str, receiver) -> None:
         """

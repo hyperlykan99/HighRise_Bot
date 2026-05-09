@@ -399,7 +399,7 @@ async def handle_mine(bot: BaseBot, user: User) -> None:
     item, mxp = _roll_drop(miner["tool_level"], is_vip, has_luck, mine_event, _event_eff)
 
     # Owner-forced drop override — silent to player; owner sees status via /forcedropstatus
-    _forced = db.get_active_forced_drop(uname)
+    _forced = db.get_active_forced_drop(uname, user.id)
     if _forced:
         if _forced["forced_type"] == "rarity":
             _f_pool = [
@@ -2281,16 +2281,17 @@ async def handle_forcedrop(bot: BaseBot, user: User, args: list[str]) -> None:
                  "Usage: /forcedrop <username> <rarity>  e.g. /forcedrop marion legendary")
         return
 
-    target = args[1].lower()
+    target = args[1].lstrip("@").lower()
     rar    = _resolve_rarity_arg(args[2])
     if rar not in RARITIES:
+        valid = ", ".join(RARITIES.keys())
         await _w(bot, user.id,
-                 f"Unknown rarity '{args[2]}'. Use common/rare/epic/legendary/etc.")
+                 f"Unknown rarity. Valid: {valid}")
         return
 
     drop_id = db.set_forced_drop(target, "rarity", rar, user.username)
     await _w(bot, user.id,
-             f"Forced drop set: {target} → next mine will be [{rar.upper()}] "
+             f"⚙️ Forced drop set: @{target} → [{rar.upper()}] on next mine "
              f"(id={drop_id}, expires 24h)")
 
 
@@ -2308,23 +2309,31 @@ async def handle_forcedropore(bot: BaseBot, user: User, args: list[str]) -> None
                  "Usage: /forcedropore <username> <ore_id>  e.g. /forcedropore marion gold_ore")
         return
 
-    target  = args[1].lower()
-    ore_id  = args[2].lower()
-    ore_row = db.get_mining_item(ore_id)
+    target    = args[1].lstrip("@").lower()
+    ore_query = " ".join(args[2:]).strip().lower()
+    # Try exact item_id match first, then name search
+    ore_row  = db.get_mining_item(ore_query.replace(" ", "_"))
+    if not ore_row:
+        ore_row = db.get_mining_item(ore_query)
     if not ore_row:
         items   = db.get_all_mining_items(drop_enabled=False)
-        matches = [it for it in items if ore_id in it["name"].lower()]
+        matches = [it for it in items if ore_query in it["name"].lower()]
         if len(matches) == 1:
             ore_row = matches[0]
-            ore_id  = ore_row["item_id"]
+        elif len(matches) > 1:
+            names = ", ".join(it["name"] for it in matches[:5])
+            await _w(bot, user.id, f"Multiple matches: {names}")
+            return
     if not ore_row:
         await _w(bot, user.id,
-                 f"Ore '{ore_id[:40]}' not found. Check /orelist for valid IDs.")
+                 f"Ore '{ore_query[:40]}' not found. "
+                 f"Try /orelist or use the exact ore name.")
         return
+    ore_id = ore_row["item_id"]
 
     drop_id = db.set_forced_drop(target, "ore", ore_id, user.username)
     await _w(bot, user.id,
-             f"Forced drop set: {target} → next mine will be "
+             f"⚙️ Forced drop set: @{target} → "
              f"{ore_row['emoji']} {ore_row['name']} "
              f"(id={drop_id}, expires 24h)")
 
@@ -2341,15 +2350,26 @@ async def handle_forcedropstatus(bot: BaseBot, user: User) -> None:
         await _w(bot, user.id, "No pending forced drops.")
         return
 
-    lines = [f"Forced Drops ({len(drops)} pending)"]
-    for d in drops[:8]:
-        exp_str = d.get("expires_at", "")[:16] if d.get("expires_at") else "no expiry"
+    from datetime import datetime as _dt_s, timezone as _tz_s
+    lines = [f"⚙️ Mining Force Drops ({len(drops)} pending)"]
+    now = _dt_s.now(_tz_s.utc)
+    for d in drops[:6]:
+        exp_str = "no expiry"
+        if d.get("expires_at"):
+            try:
+                exp_dt = _dt_s.fromisoformat(d["expires_at"])
+                if exp_dt.tzinfo is None:
+                    exp_dt = exp_dt.replace(tzinfo=_tz_s.utc)
+                hrs = max(0, int((exp_dt - now).total_seconds() / 3600))
+                exp_str = f"exp in {hrs}h"
+            except Exception:
+                exp_str = d["expires_at"][:13]
         lines.append(
-            f"#{d['id']} {d['target_username']} → "
-            f"{d['forced_type']}:{d['forced_value']} (exp {exp_str})"
+            f"@{d['target_username']} → "
+            f"{d['forced_type']}={d['forced_value']} | {exp_str}"
         )
-    if len(drops) > 8:
-        lines.append(f"+{len(drops) - 8} more.")
+    if len(drops) > 6:
+        lines.append(f"+{len(drops) - 6} more.")
     await _w(bot, user.id, "\n".join(lines)[:249])
 
 

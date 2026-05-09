@@ -1039,6 +1039,55 @@ def init_db():
         )
     """)
 
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS forced_fishing_drops (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            target_user_id  TEXT NOT NULL DEFAULT '',
+            target_username TEXT NOT NULL DEFAULT '',
+            forced_type     TEXT NOT NULL DEFAULT 'rarity',
+            forced_value    TEXT NOT NULL DEFAULT '',
+            created_by      TEXT NOT NULL DEFAULT '',
+            created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+            expires_at      TEXT NOT NULL DEFAULT '',
+            used_at         TEXT,
+            status          TEXT NOT NULL DEFAULT 'pending'
+        )
+    """)
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS big_announcement_settings (
+            category     TEXT NOT NULL,
+            rarity       TEXT NOT NULL,
+            routing_mode TEXT NOT NULL DEFAULT 'off',
+            enabled      INTEGER NOT NULL DEFAULT 1,
+            updated_at   TEXT NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (category, rarity)
+        )
+    """)
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS big_announcement_bot_reactions (
+            bot_name   TEXT PRIMARY KEY,
+            enabled    INTEGER NOT NULL DEFAULT 1,
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+    """)
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS big_announcement_logs (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            category     TEXT NOT NULL DEFAULT '',
+            rarity       TEXT NOT NULL DEFAULT '',
+            item_name    TEXT NOT NULL DEFAULT '',
+            user_id      TEXT NOT NULL DEFAULT '',
+            username     TEXT NOT NULL DEFAULT '',
+            routing_mode TEXT NOT NULL DEFAULT '',
+            reacted_bots TEXT NOT NULL DEFAULT '',
+            created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+            status       TEXT NOT NULL DEFAULT 'pending'
+        )
+    """)
+
     conn.commit()
     conn.close()
     _migrate_db()
@@ -1498,6 +1547,8 @@ def _migrate_db():
         "INSERT OR IGNORE INTO bj_settings (key, value) VALUES ('bj_bonus_cap', '10000')",
         "INSERT OR IGNORE INTO bj_settings (key, value) VALUES ('bj_bonus_enabled', '1')",
         "INSERT OR IGNORE INTO bj_settings (key, value) VALUES ('bj_cards_mode', 'whisper')",
+        # ── Add target_user_id to forced_mining_drops ─────────────────────────
+        "ALTER TABLE forced_mining_drops ADD COLUMN target_user_id TEXT NOT NULL DEFAULT ''",
     ]:
         try:
             conn.execute(sql)
@@ -1569,6 +1620,47 @@ def _migrate_db():
     # between each tier (uncommon 7,500 → rare 25,000 = 3.3×, matching rare→epic 2×,
     # epic→legendary 3×, legendary→mythic 3.3×).  Previously the gap was only 1.3×.
     conn.execute("UPDATE emoji_badges SET price = 25000 WHERE rarity = 'rare'     AND price < 25000 AND source = 'shop'")
+
+    # ── Seed big announcement default settings ────────────────────────────────
+    _BIG_ANN_DEFAULTS = [
+        ("mining",  "common",    "off"),
+        ("mining",  "rare",      "off"),
+        ("mining",  "epic",      "off"),
+        ("mining",  "legendary", "miner_only"),
+        ("mining",  "mythic",    "miner_only"),
+        ("mining",  "ultra_rare","miner_only"),
+        ("mining",  "prismatic", "all_bots"),
+        ("mining",  "exotic",    "all_bots"),
+        ("fishing", "common",    "off"),
+        ("fishing", "rare",      "off"),
+        ("fishing", "epic",      "off"),
+        ("fishing", "legendary", "fishing_only"),
+        ("fishing", "mythic",    "fishing_only"),
+        ("fishing", "ultra_rare","fishing_only"),
+        ("fishing", "prismatic", "all_bots"),
+        ("fishing", "exotic",    "all_bots"),
+    ]
+    for _cat, _rar, _mode in _BIG_ANN_DEFAULTS:
+        try:
+            conn.execute(
+                "INSERT OR IGNORE INTO big_announcement_settings "
+                "(category, rarity, routing_mode) VALUES (?,?,?)",
+                (_cat, _rar, _mode))
+        except Exception:
+            pass
+    _BIG_BOT_DEFAULTS = [
+        ("bankingbot",   1), ("eventbot",    1), ("emceebot",  1),
+        ("miningbot",    1), ("fishingbot",  1), ("djbot",     0),
+        ("securitybot",  0), ("pokerbot",    0), ("blackjackbot", 0),
+    ]
+    for _bname, _en in _BIG_BOT_DEFAULTS:
+        try:
+            conn.execute(
+                "INSERT OR IGNORE INTO big_announcement_bot_reactions "
+                "(bot_name, enabled) VALUES (?,?)",
+                (_bname, _en))
+        except Exception:
+            pass
 
     conn.commit()
     conn.close()
@@ -7268,6 +7360,7 @@ def set_forced_drop(
     forced_value: str,
     created_by: str,
     expires_hours: int = 24,
+    target_user_id: str = "",
 ) -> int:
     """
     Insert a pending forced drop for target_username.
@@ -7283,11 +7376,11 @@ def set_forced_drop(
     )
     cur = conn.execute(
         "INSERT INTO forced_mining_drops "
-        "(target_username, forced_type, forced_value, created_by, "
+        "(target_user_id, target_username, forced_type, forced_value, created_by, "
         " expires_at, status) "
-        "VALUES (lower(?), ?, lower(?), lower(?), "
+        "VALUES (?, lower(?), ?, lower(?), lower(?), "
         " datetime('now', '+' || ? || ' hours'), 'pending')",
-        (target_username, forced_type, forced_value, created_by, expires_hours),
+        (target_user_id, target_username, forced_type, forced_value, created_by, expires_hours),
     )
     row_id = cur.lastrowid
     conn.commit()
@@ -7295,16 +7388,26 @@ def set_forced_drop(
     return row_id
 
 
-def get_active_forced_drop(target_username: str) -> dict | None:
-    """Return the oldest pending, non-expired forced drop for target_username."""
+def get_active_forced_drop(target_username: str, target_user_id: str = "") -> dict | None:
+    """Return the oldest pending, non-expired forced drop for target_username or user_id."""
     conn = get_connection()
-    row  = conn.execute(
-        "SELECT * FROM forced_mining_drops "
-        "WHERE lower(target_username)=lower(?) AND status='pending' "
-        "  AND (expires_at='' OR expires_at > datetime('now')) "
-        "ORDER BY id ASC LIMIT 1",
-        (target_username,),
-    ).fetchone()
+    row = None
+    if target_user_id:
+        row = conn.execute(
+            "SELECT * FROM forced_mining_drops "
+            "WHERE target_user_id=? AND status='pending' "
+            "  AND (expires_at='' OR expires_at > datetime('now')) "
+            "ORDER BY id ASC LIMIT 1",
+            (target_user_id,),
+        ).fetchone()
+    if not row:
+        row = conn.execute(
+            "SELECT * FROM forced_mining_drops "
+            "WHERE lower(target_username)=lower(?) AND status='pending' "
+            "  AND (expires_at='' OR expires_at > datetime('now')) "
+            "ORDER BY id ASC LIMIT 1",
+            (target_username,),
+        ).fetchone()
     conn.close()
     return dict(row) if row else None
 
@@ -8775,6 +8878,223 @@ def disable_first_find_reward(category: str, rarity: str) -> None:
     conn.execute(
         "UPDATE first_find_rewards SET enabled=0, updated_at=datetime('now') WHERE category=? AND rarity=?",
         (category, rarity),
+    )
+    conn.commit()
+    conn.close()
+
+
+# ── Fishing forced drops ──────────────────────────────────────────────────────
+
+def set_forced_fish_drop(
+    target_username: str,
+    forced_type: str,
+    forced_value: str,
+    created_by: str,
+    expires_hours: int = 24,
+    target_user_id: str = "",
+) -> int:
+    """Insert a pending forced fishing drop. forced_type: 'rarity' or 'fish'."""
+    conn = get_connection()
+    conn.execute(
+        "UPDATE forced_fishing_drops SET status='cleared' "
+        "WHERE lower(target_username)=lower(?) AND status='pending'",
+        (target_username,),
+    )
+    cur = conn.execute(
+        "INSERT INTO forced_fishing_drops "
+        "(target_user_id, target_username, forced_type, forced_value, created_by, "
+        " expires_at, status) "
+        "VALUES (?, lower(?), ?, lower(?), lower(?), "
+        " datetime('now', '+' || ? || ' hours'), 'pending')",
+        (target_user_id, target_username, forced_type, forced_value, created_by, expires_hours),
+    )
+    row_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return row_id
+
+
+def get_active_forced_fish_drop(target_user_id: str = "",
+                                target_username: str = "") -> dict | None:
+    """Return the oldest pending, non-expired forced fish drop for this player."""
+    conn = get_connection()
+    row = None
+    if target_user_id:
+        row = conn.execute(
+            "SELECT * FROM forced_fishing_drops "
+            "WHERE target_user_id=? AND status='pending' "
+            "  AND (expires_at='' OR expires_at > datetime('now')) "
+            "ORDER BY id ASC LIMIT 1",
+            (target_user_id,),
+        ).fetchone()
+    if not row and target_username:
+        row = conn.execute(
+            "SELECT * FROM forced_fishing_drops "
+            "WHERE lower(target_username)=lower(?) AND status='pending' "
+            "  AND (expires_at='' OR expires_at > datetime('now')) "
+            "ORDER BY id ASC LIMIT 1",
+            (target_username,),
+        ).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def mark_forced_fish_drop_used(drop_id: int) -> None:
+    """Mark a forced fish drop as used."""
+    conn = get_connection()
+    conn.execute(
+        "UPDATE forced_fishing_drops "
+        "SET status='used', used_at=datetime('now') WHERE id=?",
+        (drop_id,),
+    )
+    conn.commit()
+    conn.close()
+
+
+def clear_forced_fish_drop_by_username(target_username: str, cleared_by: str) -> int:
+    """Clear all pending forced fish drops for target_username. Returns rows affected."""
+    conn = get_connection()
+    cur  = conn.execute(
+        "UPDATE forced_fishing_drops SET status='cleared' "
+        "WHERE lower(target_username)=lower(?) AND status='pending'",
+        (target_username,),
+    )
+    n = cur.rowcount
+    conn.commit()
+    conn.close()
+    return n
+
+
+def get_all_active_forced_fish_drops() -> list:
+    """Return all pending, non-expired forced fish drops ordered by creation time."""
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT * FROM forced_fishing_drops "
+        "WHERE status='pending' "
+        "  AND (expires_at='' OR expires_at > datetime('now')) "
+        "ORDER BY created_at ASC"
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+# ── Big announcement settings ─────────────────────────────────────────────────
+
+def get_big_announce_setting(category: str, rarity: str) -> dict | None:
+    """Return the big_announcement_settings row for category+rarity."""
+    conn = get_connection()
+    row  = conn.execute(
+        "SELECT * FROM big_announcement_settings WHERE category=? AND rarity=?",
+        (category, rarity),
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def set_big_announce_setting(category: str, rarity: str, routing_mode: str) -> None:
+    """Upsert the routing mode for a category+rarity pair."""
+    conn = get_connection()
+    conn.execute(
+        "INSERT INTO big_announcement_settings (category, rarity, routing_mode, updated_at) "
+        "VALUES (?,?,?,datetime('now')) "
+        "ON CONFLICT(category, rarity) DO UPDATE SET "
+        "routing_mode=excluded.routing_mode, updated_at=excluded.updated_at",
+        (category, rarity, routing_mode),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_big_announce_bot_reaction(bot_name: str) -> bool:
+    """Return True if bot_name is enabled for big announce reactions."""
+    conn = get_connection()
+    row  = conn.execute(
+        "SELECT enabled FROM big_announcement_bot_reactions WHERE bot_name=?",
+        (bot_name.lower(),),
+    ).fetchone()
+    conn.close()
+    if row is None:
+        return True  # default ON if not in table
+    return bool(row[0])
+
+
+def set_big_announce_bot_reaction(bot_name: str, enabled: int) -> None:
+    """Upsert bot reaction enabled flag."""
+    conn = get_connection()
+    conn.execute(
+        "INSERT INTO big_announcement_bot_reactions (bot_name, enabled, updated_at) "
+        "VALUES (?,?,datetime('now')) "
+        "ON CONFLICT(bot_name) DO UPDATE SET "
+        "enabled=excluded.enabled, updated_at=excluded.updated_at",
+        (bot_name.lower(), enabled),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_all_big_announce_bot_reactions() -> list:
+    """Return all bot reaction rows."""
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT * FROM big_announcement_bot_reactions ORDER BY bot_name"
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def add_big_announce_pending(category: str, rarity: str, item_name: str,
+                              user_id: str, username: str) -> int:
+    """Write a pending big announcement for reaction polling by other bots."""
+    conn = get_connection()
+    cur  = conn.execute(
+        "INSERT INTO big_announcement_logs "
+        "(category, rarity, item_name, user_id, username, routing_mode, status) "
+        "VALUES (?,?,?,?,?,'all_bots','pending')",
+        (category, rarity, item_name, user_id, username),
+    )
+    row_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return row_id
+
+
+def get_pending_big_announce_reactions(bot_friendly: str) -> list:
+    """
+    Return big_announcement_logs entries from the last 10 minutes that:
+    - are 'pending' or have reacted_bots not containing this bot
+    - were created recently (no stale reactions)
+    """
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT * FROM big_announcement_logs "
+        "WHERE status='pending' "
+        "  AND created_at > datetime('now', '-10 minutes') "
+        "  AND (',' || reacted_bots || ',') NOT LIKE ? "
+        "ORDER BY id ASC LIMIT 10",
+        (f"%,{bot_friendly.lower()},%",),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def mark_big_announce_reacted(log_id: int, bot_friendly: str) -> None:
+    """Add bot_friendly to reacted_bots for the given log entry."""
+    conn = get_connection()
+    row  = conn.execute(
+        "SELECT reacted_bots FROM big_announcement_logs WHERE id=?", (log_id,)
+    ).fetchone()
+    if row is None:
+        conn.close()
+        return
+    existing = row[0] or ""
+    names = [n for n in existing.split(",") if n]
+    fn = bot_friendly.lower()
+    if fn not in names:
+        names.append(fn)
+    new_val = ",".join(names)
+    conn.execute(
+        "UPDATE big_announcement_logs SET reacted_bots=? WHERE id=?",
+        (new_val, log_id),
     )
     conn.commit()
     conn.close()
