@@ -10,6 +10,7 @@ All messages ≤ 249 chars.
 """
 
 import asyncio
+import json
 import re
 from contextvars import ContextVar
 from highrise import BaseBot, User
@@ -1301,6 +1302,27 @@ async def handle_outfitredirect(bot: BaseBot, user: User, args: list[str]) -> No
 # Ordered intent patterns — checked in order, first match wins.
 # Each entry: (compiled_pattern, command_str, arg_extractor_or_None)
 _DIRECT_OUTFIT_INTENTS: list[tuple] = [
+    # ── Simple single-slot intents (no mode name required) — checked FIRST ───
+    # S1. "save outfit" / "save my outfit"  (NOT "save … as <name>")
+    (re.compile(r"\bsave\s+(?:my\s+)?outfit\b(?!\s+as\b)", re.I),
+     "simple_save_outfit", None),
+
+    # S2. "load outfit" / "apply outfit" / "restore outfit"
+    (re.compile(r"\b(?:load|apply|restore)\s+(?:my\s+)?(?:saved\s+)?outfit\b", re.I),
+     "simple_load_outfit", None),
+
+    # S3. "reset outfit" / "clear outfit" / "remove outfit"
+    (re.compile(r"\b(?:reset|clear|remove|delete)\s+(?:my\s+)?(?:saved\s+)?outfit\b", re.I),
+     "simple_reset_outfit", None),
+
+    # S4. "outfit status" / "outfit check" / "outfit info"
+    (re.compile(
+        r"\b(?:outfit\s+(?:status|info|check)"
+        r"|what\s+outfit\s+(?:are\s+you|am\s+i)\b)",
+        re.I),
+     "simple_outfit_status", None),
+
+    # ── Named-outfit intents (require a mode/outfit name) ────────────────────
     # 1. "copy/wear/use my outfit" — must come BEFORE wear-<name>-outfit
     (re.compile(r"\b(?:copy|wear|use)\s+my\s+outfit\b", re.I),
      "copymyoutfit", None),
@@ -1326,17 +1348,17 @@ _DIRECT_OUTFIT_INTENTS: list[tuple] = [
      "wearoutfit",
      lambda m: (m.group(1) or m.group(2) or m.group(3) or m.group(4)).lower()),
 
-    # 5. "list outfits" / "outfit status" / "what outfit are you using"
-    (re.compile(
-        r"\b(?:list\s+outfits?|outfit\s+(?:status|list|info)"
-        r"|what\s+outfit\s+(?:are\s+you|am\s+i)\b)",
-        re.I),
+    # 5. "list outfits" (fallback)
+    (re.compile(r"\blist\s+outfits?\b", re.I),
      "myoutfitstatus", None),
 ]
 
 
 def _is_this_bot_addressed(message: str) -> bool:
     """Return True if the message explicitly names this bot's username.
+
+    Handles exact username, @-mention, and spaced aliases —
+    e.g. "Master Angler" for a bot named "MasterAngler".
 
     Username resolution order (first non-empty wins):
     1. gold._bot_username — set from live room users at on_start
@@ -1347,13 +1369,121 @@ def _is_this_bot_addressed(message: str) -> bool:
     uname = (get_bot_username() or config.BOT_USERNAME or "").strip().lower()
     if not uname:
         return False
+    # Slug = username with all non-word chars removed ("masterangler")
+    uname_slug = re.sub(r"\W+", "", uname)
     low = message.lower().strip()
-    # Match @username or bare word boundary
+
+    # 1. @mention (exact or slug — handles "@masterangler" and "@master angler")
     if f"@{uname}" in low:
         return True
+    if f"@{uname_slug}" in re.sub(r"\s+", "", low):
+        return True
+
+    # 2. Exact word-boundary match (covers single-word names like "KeanuShield")
     if re.search(rf"\b{re.escape(uname)}\b", low):
         return True
+
+    # 3. Spaced-alias match: "Master Angler, ..." — extract text before first
+    #    comma or colon, collapse spaces, compare to slug.
+    prefix_m = re.match(r"^@?([A-Za-z][A-Za-z\s]{0,30}?)\s*[,:]", low)
+    if prefix_m:
+        candidate = re.sub(r"\W+", "", prefix_m.group(1).strip())
+        if candidate == uname_slug:
+            return True
+
     return False
+
+
+# ---------------------------------------------------------------------------
+# Simple single-slot per-bot outfit helpers
+# Outfit JSON stored in room_settings under key "simple_outfit_<slug>"
+# where slug = lowercased username with non-word chars removed.
+# ---------------------------------------------------------------------------
+
+def _simple_outfit_key(uname: str) -> str:
+    """room_settings key for this bot's simple saved outfit slot."""
+    return f"simple_outfit_{re.sub(r'[^a-z0-9]', '', uname.lower())}"
+
+
+async def _do_simple_outfit_status(bot, user, uname: str) -> None:
+    key  = _simple_outfit_key(uname)
+    data = db.get_room_setting(key, "")
+    disp = uname.title()
+    if not data.strip() or data.strip() in ("{}", "[]"):
+        msg = (f"{disp}:\n\U0001f455 Outfit Status\n"
+               f"No saved outfit found. Dress me first, then use:\n"
+               f"{disp}, save outfit")
+    else:
+        try:
+            n = len(json.loads(data))
+        except Exception:
+            n = "?"
+        msg = (f"{disp}:\n\U0001f455 Outfit Status\n"
+               f"Saved outfit: YES ({n} items)\n"
+               f"Use: {disp}, load outfit")
+    await bot.highrise.send_whisper(user.id, msg[:249])
+
+
+async def _do_simple_save_outfit(bot, user, uname: str) -> None:
+    key  = _simple_outfit_key(uname)
+    disp = uname.title()
+    try:
+        resp = await bot.highrise.get_my_outfit()
+        from highrise.models import Error
+        if isinstance(resp, Error):
+            await bot.highrise.send_whisper(
+                user.id, "Could not fetch outfit from server. Try again.")
+            return
+        items = resp.outfit if hasattr(resp, "outfit") else []
+        if not items:
+            await bot.highrise.send_whisper(
+                user.id, "I'm wearing no items — dress me first, then save.")
+            return
+        outfit_json = _items_to_json(items)
+        db.set_room_setting(key, outfit_json)
+        msg = (f"{disp}:\n\u2705 Outfit Saved\n"
+               f"My current outfit has been saved. ({len(items)} items)")
+        await bot.highrise.send_whisper(user.id, msg[:249])
+        print(f"[SIMPLE_OUTFIT] {disp} saved ({len(items)} items) by {user.username}")
+    except Exception as exc:
+        await bot.highrise.send_whisper(user.id, f"Save failed: {str(exc)[:80]}")
+
+
+async def _do_simple_load_outfit(bot, user, uname: str) -> None:
+    key  = _simple_outfit_key(uname)
+    disp = uname.title()
+    data = db.get_room_setting(key, "")
+    if not data.strip() or data.strip() in ("{}", "[]"):
+        msg = (f"{disp}:\n\u274c No saved outfit found.\n"
+               f"Dress me first, then say: {disp}, save outfit")
+        await bot.highrise.send_whisper(user.id, msg[:249])
+        return
+    try:
+        items = _json_to_items(data)
+        if not items:
+            raise ValueError("empty item list after parse")
+        from highrise.models import Error
+        result = await bot.highrise.set_outfit(items)
+        if isinstance(result, Error):
+            await bot.highrise.send_whisper(
+                user.id, f"Failed to apply outfit: {str(result)[:80]}")
+            return
+        msg = (f"{disp}:\n\u2705 Outfit Applied\n"
+               f"My saved outfit has been loaded. ({len(items)} items)")
+        await bot.highrise.send_whisper(user.id, msg[:249])
+        print(f"[SIMPLE_OUTFIT] {disp} loaded ({len(items)} items) by {user.username}")
+    except Exception as exc:
+        await bot.highrise.send_whisper(user.id, f"Load failed: {str(exc)[:80]}")
+
+
+async def _do_simple_reset_outfit(bot, user, uname: str) -> None:
+    key  = _simple_outfit_key(uname)
+    disp = uname.title()
+    db.set_room_setting(key, "")
+    msg = (f"{disp}:\n\u2705 Outfit Reset\n"
+           f"My saved outfit has been cleared.")
+    await bot.highrise.send_whisper(user.id, msg[:249])
+    print(f"[SIMPLE_OUTFIT] {disp} outfit reset by {user.username}")
 
 
 async def handle_direct_bot_outfit_chat(bot, user, message: str) -> bool:
@@ -1420,7 +1550,15 @@ async def handle_direct_bot_outfit_chat(bot, user, message: str) -> bool:
 
     # Dispatch to the relevant handler
     try:
-        if intent == "copymyoutfit":
+        if intent == "simple_outfit_status":
+            await _do_simple_outfit_status(bot, user, uname)
+        elif intent == "simple_save_outfit":
+            await _do_simple_save_outfit(bot, user, uname)
+        elif intent == "simple_load_outfit":
+            await _do_simple_load_outfit(bot, user, uname)
+        elif intent == "simple_reset_outfit":
+            await _do_simple_reset_outfit(bot, user, uname)
+        elif intent == "copymyoutfit":
             await handle_copymyoutfit(bot, user, ["copymyoutfit"])
         elif intent == "copyoutfitfrom" and arg_val:
             await handle_copyoutfitfrom(bot, user, ["copyoutfitfrom", arg_val])
@@ -1485,5 +1623,36 @@ async def handle_directoutfittest(bot, user, args: list[str]) -> None:
              f" | intent={intent or 'none'}"
              f" | allowed={str(allowed).lower()}"
              f" | would_handle={str(would_handle).lower()}")
+    await _w(bot, user.id, line1[:249])
+    await _w(bot, user.id, line2[:249])
+
+
+# ---------------------------------------------------------------------------
+# /botoutfitdebug <bot>  /  /outfitdebug <bot>
+# ---------------------------------------------------------------------------
+
+async def handle_botoutfitdebug(bot, user, args: list[str]) -> None:
+    """/botoutfitdebug <bot> — show simple-outfit debug info for a bot."""
+    if not (is_owner(user.username) or is_admin(user.username)):
+        await _w(bot, user.id, "Admin and above only.")
+        return
+    raw_name = " ".join(args[1:]).strip() if len(args) > 1 else ""
+    if not raw_name:
+        await _w(bot, user.id, "Usage: /botoutfitdebug <botname>")
+        return
+    norm     = re.sub(r"\W+", "", raw_name.lstrip("@").lower())
+    key      = f"simple_outfit_{norm}"
+    data     = db.get_room_setting(key, "")
+    has_data = bool(data.strip() and data.strip() not in ("{}", "[]"))
+    item_count = "?"
+    if has_data:
+        try:
+            item_count = str(len(json.loads(data)))
+        except Exception:
+            item_count = "parse-error"
+    line1 = f"Bot: {raw_name!r} | norm: {norm!r} | key: {key}"
+    line2 = (f"Saved outfit: {'YES' if has_data else 'NO'}"
+             + (f" ({item_count} items)" if has_data else "")
+             + f" | storage: room_settings")
     await _w(bot, user.id, line1[:249])
     await _w(bot, user.id, line2[:249])

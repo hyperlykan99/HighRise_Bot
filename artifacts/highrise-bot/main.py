@@ -420,6 +420,7 @@ from modules.bot_modes import (
     handle_savemyoutfit, handle_wearoutfit,
     handle_myoutfits, handle_myoutfitstatus, handle_outfitredirect,
     handle_direct_bot_outfit_chat, handle_directoutfittest,
+    handle_botoutfitdebug,
     handle_createbotmode, handle_deletebotmode, handle_assignbotmode,
     handle_bots, handle_botinfo, handle_botoutfitlogs,
     handle_botmodehelp,
@@ -4565,6 +4566,9 @@ class HangoutBot(BaseBot):
             await handle_myoutfitstatus(self, user, args)
         elif cmd == "directoutfittest":
             await handle_directoutfittest(self, user, args)
+
+        elif cmd in ("botoutfitdebug", "outfitdebug"):
+            await handle_botoutfitdebug(self, user, args)
         elif cmd == "renamebotoutfit":
             await handle_renamebotoutfit(self, user, args)
         elif cmd == "clearbotoutfit":

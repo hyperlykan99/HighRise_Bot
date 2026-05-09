@@ -1,0 +1,235 @@
+Fix individual bot outfit commands and add MasterAngler.
+
+Current issue:
+The bot outfit commands are not working now.
+
+I want each bot to manage its own outfit when I talk to it directly.
+
+Example:
+MasterAngler, outfit status
+MasterAngler, save outfit
+MasterAngler, load outfit
+
+Do not change bot tokens.
+Do not change room ID.
+Do not reset player data.
+Do not change poker, blackjack, mining, fishing, bank, events, or economy logic.
+
+Goal:
+Restore the individual bot outfit command system and add the Fishing Bot:
+
+MasterAngler
+
+Also support common typo:
+Master Angler
+masterangler
+master angler
+
+==================================================
+REQUIRED BEHAVIOR
+==================================================
+
+Each bot should respond only to its own outfit commands.
+
+Supported direct bot phrases:
+
+<BotName>, outfit status
+<BotName>, save outfit
+<BotName>, load outfit
+<BotName>, apply outfit
+<BotName>, reset outfit
+
+Examples:
+
+MasterAngler, outfit status
+MasterAngler, save outfit
+MasterAngler, load outfit
+
+KeanuShield, outfit status
+KeanuShield, save outfit
+KeanuShield, load outfit
+
+GreatestProspector, outfit status
+GreatestProspector, save outfit
+GreatestProspector, load outfit
+
+ChipSoprano, outfit status
+ChipSoprano, save outfit
+ChipSoprano, load outfit
+
+BankingBot, outfit status
+BankingBot, save outfit
+BankingBot, load outfit
+
+EmceeBot, outfit status
+EmceeBot, save outfit
+EmceeBot, load outfit
+
+==================================================
+ADD MASTERANGLER
+==================================================
+
+Add MasterAngler to:
+
+1. bot config / bot registry
+2. outfit command listener
+3. outfit storage system
+4. bot username matching system
+5. command owner map if needed
+6. bot spawn system if needed
+7. private message routing if needed
+
+Accepted names for matching:
+- MasterAngler
+- masterangler
+- Master Angler
+- master angler
+- @MasterAngler
+
+Normalize by:
+- remove @
+- remove spaces
+- lowercase compare
+
+So these should all work:
+
+MasterAngler, outfit status
+masterangler, outfit status
+Master Angler, outfit status
+@MasterAngler outfit status
+
+==================================================
+OUTFIT STORAGE
+==================================================
+
+Each bot should have its own saved outfit record.
+
+Do not overwrite another bot’s outfit.
+
+Storage key should be based on normalized bot username.
+
+Example:
+masterangler -> MasterAngler outfit
+keanushield -> KeanuShield outfit
+greatestprospector -> GreatestProspector outfit
+
+If saved outfit does not exist, say:
+
+MasterAngler:
+👕 Outfit Status
+No saved outfit found. Dress me first, then use:
+MasterAngler, save outfit
+
+If saved outfit exists, say:
+
+MasterAngler:
+👕 Outfit Status
+Saved outfit: YES
+Use:
+MasterAngler, load outfit
+
+==================================================
+SAVE OUTFIT
+==================================================
+
+When I type:
+
+MasterAngler, save outfit
+
+The bot should save its current worn outfit.
+
+Response:
+
+MasterAngler:
+✅ Outfit Saved
+My current outfit has been saved.
+
+==================================================
+LOAD / APPLY OUTFIT
+==================================================
+
+When I type:
+
+MasterAngler, load outfit
+
+or:
+
+MasterAngler, apply outfit
+
+The bot should apply its saved outfit.
+
+Response:
+
+MasterAngler:
+✅ Outfit Applied
+My saved outfit has been loaded.
+
+==================================================
+RESET OUTFIT
+==================================================
+
+When I type:
+
+MasterAngler, reset outfit
+
+The bot should clear the saved outfit for MasterAngler only.
+
+Response:
+
+MasterAngler:
+✅ Outfit Reset
+My saved outfit has been cleared.
+
+==================================================
+DEBUG COMMANDS
+==================================================
+
+Add or fix:
+
+/botoutfitstatus <bot>
+/outfitdebug <bot>
+
+Examples:
+
+/botoutfitstatus MasterAngler
+/outfitdebug MasterAngler
+
+Debug should show:
+- raw bot name
+- normalized bot name
+- bot found YES/NO
+- saved outfit YES/NO
+- outfit storage key
+- last saved time if available
+
+Do not expose tokens or secrets.
+
+==================================================
+COMMAND INTEGRITY
+==================================================
+
+If slash commands are active, verify:
+
+/commandtest /botoutfitstatus
+/commandtest /outfitdebug
+
+/checkcommands all
+
+Must show:
+Missing 0
+NoOwner 0
+
+Do not add commands as active unless they have real handlers.
+
+==================================================
+FINAL REPORT
+==================================================
+
+After finishing, tell me:
+
+1. Files changed
+2. Where MasterAngler was added
+3. How bot name matching works
+4. Where outfits are stored
+5. Why outfit commands stopped working
+6. Exact tests to run
