@@ -146,6 +146,55 @@ EVENTS: dict[str, dict] = {
         "desc": "2x event points earned during this event.",
         "event_type": "room",
     },
+    # ── Fishing-specific events (EventHost owned, stored in mining_events table) ─
+    "lucky_tide": {
+        "name": "Lucky Tide",
+        "desc": "+25% fishing luck — better chance for higher rarity fish.",
+        "event_type": "fishing",
+    },
+    "heavy_catch": {
+        "name": "Heavy Catch",
+        "desc": "+25% fish weight luck — bigger fish, heavier catches.",
+        "event_type": "fishing",
+    },
+    "fish_value_surge": {
+        "name": "Fish Value Surge",
+        "desc": "1.5x fish sell value — sell big!",
+        "event_type": "fishing",
+    },
+    "double_fxp": {
+        "name": "Double FXP",
+        "desc": "2x Fishing EXP — level up faster.",
+        "event_type": "fishing",
+    },
+    "fishing_haste": {
+        "name": "Fishing Haste",
+        "desc": "-25% fishing cooldown — cast more often.",
+        "event_type": "fishing",
+    },
+    "legendary_tide": {
+        "name": "Legendary Tide",
+        "desc": "+50% Legendary+ fish chance (Legendary/Mythic/Prismatic/Exotic).",
+        "event_type": "fishing",
+    },
+    "prismatic_tide": {
+        "name": "Prismatic Tide",
+        "desc": "2x Prismatic fish chance — still very rare.",
+        "event_type": "fishing",
+    },
+    "exotic_tide": {
+        "name": "Exotic Tide",
+        "desc": "2x Exotic fish chance — still extremely rare.",
+        "event_type": "fishing",
+    },
+    "ultimate_fishing_rush": {
+        "name": "Ultimate Fishing Rush",
+        "desc": (
+            "All fishing boosts: +50% luck & weight, 2x value & FXP, "
+            "-25% cd, +50% Leg+, 2x Pris & Exotic."
+        ),
+        "event_type": "fishing",
+    },
 }
 
 EVENT_DURATION = 3600  # seconds (1 hour)
@@ -204,6 +253,43 @@ EVENT_CATALOG: list[dict] = [
      "emoji": "🔥", "name": "Ultimate Mining Rush", "event_type": "mining",
      "effect_desc": "All mining boosts combined",
      "default_duration": 30, "manual_only": True,  "default_weight": 0,  "cooldown_minutes": 0},
+    # ── Fishing events (13-21) ────────────────────────────────────────────────
+    {"number": 13, "event_id": "lucky_tide",
+     "emoji": "🌊", "name": "Lucky Tide",           "event_type": "fishing",
+     "effect_desc": "+25% fishing luck, better Rare+ fish",
+     "default_duration": 30, "manual_only": False, "default_weight": 20, "cooldown_minutes": 60},
+    {"number": 14, "event_id": "heavy_catch",
+     "emoji": "⚖️", "name": "Heavy Catch",           "event_type": "fishing",
+     "effect_desc": "+25% fish weight luck, heavier fish",
+     "default_duration": 30, "manual_only": False, "default_weight": 20, "cooldown_minutes": 60},
+    {"number": 15, "event_id": "fish_value_surge",
+     "emoji": "💰", "name": "Fish Value Surge",      "event_type": "fishing",
+     "effect_desc": "1.5x fish sell value",
+     "default_duration": 30, "manual_only": False, "default_weight": 25, "cooldown_minutes": 90},
+    {"number": 16, "event_id": "double_fxp",
+     "emoji": "⭐", "name": "Double FXP",            "event_type": "fishing",
+     "effect_desc": "2x Fishing EXP",
+     "default_duration": 30, "manual_only": False, "default_weight": 30, "cooldown_minutes": 60},
+    {"number": 17, "event_id": "fishing_haste",
+     "emoji": "⏳", "name": "Fishing Haste",         "event_type": "fishing",
+     "effect_desc": "-25% fishing cooldown",
+     "default_duration": 30, "manual_only": False, "default_weight": 25, "cooldown_minutes": 60},
+    {"number": 18, "event_id": "legendary_tide",
+     "emoji": "🐉", "name": "Legendary Tide",        "event_type": "fishing",
+     "effect_desc": "+50% Legendary+ fish chance",
+     "default_duration": 30, "manual_only": False, "default_weight": 10, "cooldown_minutes": 120},
+    {"number": 19, "event_id": "prismatic_tide",
+     "emoji": "🌈", "name": "Prismatic Tide",        "event_type": "fishing",
+     "effect_desc": "2x Prismatic fish chance",
+     "default_duration": 30, "manual_only": False, "default_weight": 5,  "cooldown_minutes": 180},
+    {"number": 20, "event_id": "exotic_tide",
+     "emoji": "🚨", "name": "Exotic Tide",           "event_type": "fishing",
+     "effect_desc": "2x Exotic fish chance",
+     "default_duration": 30, "manual_only": False, "default_weight": 2,  "cooldown_minutes": 360},
+    {"number": 21, "event_id": "ultimate_fishing_rush",
+     "emoji": "🔥", "name": "Ultimate Fishing Rush", "event_type": "fishing",
+     "effect_desc": "All fishing boosts combined",
+     "default_duration": 30, "manual_only": True,  "default_weight": 0,  "cooldown_minutes": 0},
 ]
 
 _CATALOG_BY_ID:  dict[str, dict] = {e["event_id"]: e for e in EVENT_CATALOG}
@@ -222,18 +308,28 @@ def _resolve_event_arg(arg: str) -> str | None:
 
 # Short display names for 249-char safe output
 _SHORT_DISPLAY: dict[str, str] = {
-    "lucky_rush":           "Lucky Rush",
-    "heavy_ore_rush":       "Heavy Ore",
-    "ore_value_surge":      "Value Surge",
-    "double_mxp":           "Double MXP",
-    "mining_haste":         "Haste",
-    "legendary_rush":       "Legend Rush",
-    "prismatic_hunt":       "Prism Hunt",
-    "exotic_hunt":          "Exotic Hunt",
-    "time_exp_boost":       "Time EXP",
-    "reward_drop":          "Reward Drop",
-    "event_points_boost":   "Points Boost",
-    "ultimate_mining_rush": "Ultimate Rush",
+    "lucky_rush":             "Lucky Rush",
+    "heavy_ore_rush":         "Heavy Ore",
+    "ore_value_surge":        "Value Surge",
+    "double_mxp":             "Double MXP",
+    "mining_haste":           "Mine Haste",
+    "legendary_rush":         "Legend Rush",
+    "prismatic_hunt":         "Prism Hunt",
+    "exotic_hunt":            "Exotic Hunt",
+    "time_exp_boost":         "Time EXP",
+    "reward_drop":            "Reward Drop",
+    "event_points_boost":     "Points Boost",
+    "ultimate_mining_rush":   "Ult Mine Rush",
+    # Fishing events
+    "lucky_tide":             "Lucky Tide",
+    "heavy_catch":            "Heavy Catch",
+    "fish_value_surge":       "Fish Value",
+    "double_fxp":             "Double FXP",
+    "fishing_haste":          "Fish Haste",
+    "legendary_tide":         "Legend Tide",
+    "prismatic_tide":         "Prism Tide",
+    "exotic_tide":            "Exotic Tide",
+    "ultimate_fishing_rush":  "Ult Fish Rush",
 }
 
 
@@ -241,20 +337,21 @@ def _get_all_active_events() -> list[dict]:
     """
     Single source of truth for active events.
     Returns list of dicts with keys: event_id, name, emoji, ends_at, source.
-    source is 'mining' or 'room'.
+    source is 'mining', 'fishing', or 'room'.
     """
     active: list[dict] = []
     try:
         mine_ev = db.get_active_mining_event()
         if mine_ev:
-            eid  = mine_ev.get("event_id", "")
-            info = _CATALOG_BY_ID.get(eid, {})
+            eid    = mine_ev.get("event_id", "")
+            info   = _CATALOG_BY_ID.get(eid, {})
+            source = info.get("event_type", "mining")  # 'mining' or 'fishing'
             active.append({
                 "event_id": eid,
                 "name":     info.get("name") or EVENTS.get(eid, {}).get("name", eid),
-                "emoji":    info.get("emoji", "⛏️"),
+                "emoji":    info.get("emoji", "🎣" if source == "fishing" else "⛏️"),
                 "ends_at":  mine_ev.get("ends_at", ""),
-                "source":   "mining",
+                "source":   source,
             })
     except Exception:
         pass
@@ -363,6 +460,42 @@ def _apply_mining_event_effects(base: dict, event_id: str) -> None:
         base["exotic_chance_boost"]          = max(base["exotic_chance_boost"], 1.0)
 
 
+def _apply_fishing_event_effects(base: dict, event_id: str) -> None:
+    """
+    Populate fishing-specific effect keys in *base* for a given fishing event_id.
+    All fishing keys must already exist in *base* with defaults before calling.
+    """
+    if event_id == "lucky_tide":
+        base["fish_luck_boost"] = max(base["fish_luck_boost"], 0.25)
+    elif event_id == "heavy_catch":
+        base["fish_weight_luck_boost"] = max(base["fish_weight_luck_boost"], 0.25)
+    elif event_id == "fish_value_surge":
+        base["fish_value_multiplier"] = max(base["fish_value_multiplier"], 1.5)
+    elif event_id == "double_fxp":
+        base["fxp_multiplier"] = max(base["fxp_multiplier"], 2.0)
+    elif event_id == "fishing_haste":
+        base["fishing_cooldown_reduction"] = max(base["fishing_cooldown_reduction"], 0.25)
+    elif event_id == "legendary_tide":
+        base["legendary_plus_fish_chance_boost"] = max(
+            base["legendary_plus_fish_chance_boost"], 0.50
+        )
+    elif event_id == "prismatic_tide":
+        base["prismatic_fish_chance_boost"] = max(base["prismatic_fish_chance_boost"], 1.0)
+    elif event_id == "exotic_tide":
+        base["exotic_fish_chance_boost"] = max(base["exotic_fish_chance_boost"], 1.0)
+    elif event_id == "ultimate_fishing_rush":
+        base["fish_luck_boost"]                    = max(base["fish_luck_boost"], 0.50)
+        base["fish_weight_luck_boost"]             = max(base["fish_weight_luck_boost"], 0.50)
+        base["fish_value_multiplier"]              = max(base["fish_value_multiplier"], 2.0)
+        base["fxp_multiplier"]                     = max(base["fxp_multiplier"], 2.0)
+        base["fishing_cooldown_reduction"]         = max(base["fishing_cooldown_reduction"], 0.25)
+        base["legendary_plus_fish_chance_boost"]   = max(
+            base["legendary_plus_fish_chance_boost"], 0.50
+        )
+        base["prismatic_fish_chance_boost"]        = max(base["prismatic_fish_chance_boost"], 1.0)
+        base["exotic_fish_chance_boost"]           = max(base["exotic_fish_chance_boost"], 1.0)
+
+
 def get_event_effect() -> dict:
     """
     Return active event multipliers. Safe to call from any module.
@@ -408,6 +541,15 @@ def get_event_effect() -> dict:
         "time_exp_multiplier":         1.0,
         "event_points_multiplier":     1.0,
         "reward_drop_active":          False,
+        # Fishing-specific keys
+        "fish_luck_boost":                   0.0,
+        "fish_weight_luck_boost":            0.0,
+        "fish_value_multiplier":             1.0,
+        "fxp_multiplier":                    1.0,
+        "fishing_cooldown_reduction":        0.0,
+        "legendary_plus_fish_chance_boost":  0.0,
+        "prismatic_fish_chance_boost":       0.0,
+        "exotic_fish_chance_boost":          0.0,
     }
     if info:
         eid = info["event_id"]
@@ -438,11 +580,15 @@ def get_event_effect() -> dict:
         elif eid == "reward_drop":
             base["reward_drop_active"] = True
 
-    # Also apply active mining event effects
+    # Apply active mining or fishing event effects
     try:
         mine_ev = db.get_active_mining_event()
         if mine_ev:
-            _apply_mining_event_effects(base, mine_ev.get("event_id", ""))
+            eid = mine_ev.get("event_id", "")
+            if eid in _FISHING_EVENT_IDS:
+                _apply_fishing_event_effects(base, eid)
+            else:
+                _apply_mining_event_effects(base, eid)
     except Exception:
         pass
 
@@ -623,15 +769,16 @@ async def handle_startevent(bot: BaseBot, user: User, args: list[str]) -> None:
 
     # Route mining events through mining_events table
     ev_type = ev.get("event_type", "room")
-    if ev_type == "mining" or event_id in _MINING_EVENT_IDS:
+    if ev_type in ("mining", "fishing") or event_id in (_MINING_EVENT_IDS | _FISHING_EVENT_IDS):
         db.start_mining_event(event_id, user.username, dur_mins)
+        ann_emoji = "🎣" if ev_type == "fishing" else "⛏️"
         try:
             await bot.highrise.chat(
-                f"⛏️ {name} for {dur_label}! {ev.get('desc','')[:80]}"[:249]
+                f"{ann_emoji} {name} for {dur_label}! {ev.get('desc','')[:80]}"[:249]
             )
         except Exception as exc:
-            print(f"[EVENTS] startevent (mining) announce error: {exc}")
-        await _w(bot, user.id, f"✅ Started mining event: {name} for {dur_label}.")
+            print(f"[EVENTS] startevent ({ev_type}) announce error: {exc}")
+        await _w(bot, user.id, f"✅ Started {ev_type} event: {name} for {dur_label}.")
         # Log to history
         try:
             db.add_event_history_entry(event_id, name, user.username, False, duration)
@@ -991,6 +1138,12 @@ _MINING_EVENT_IDS = {
     "admins_mining_blessing", "ultimate_mining_rush",
 }
 
+_FISHING_EVENT_IDS = {
+    "lucky_tide", "heavy_catch", "fish_value_surge", "double_fxp",
+    "fishing_haste", "legendary_tide", "prismatic_tide", "exotic_tide",
+    "ultimate_fishing_rush",
+}
+
 # Also include legacy mining events that live in VALID_MINING_EVENTS
 _ALL_MINE_IDS = _MINING_EVENT_IDS | {
     "double_ore", "lucky_hour", "energy_free", "meteor_rush",
@@ -1020,6 +1173,24 @@ def _format_mining_event_effects(event_id: str) -> str:
         "lucky_hour":   "Rare chance +50%",
         "energy_free":  "0 energy cost",
         "meteor_rush":  "Ultra rare chance 2x",
+    }
+    return _map.get(event_id, event_id)
+
+
+def _format_fishing_event_effects(event_id: str) -> str:
+    """Return a readable one-liner showing what a fishing event does."""
+    _map = {
+        "lucky_tide":            "🌊 Fish luck +25%",
+        "heavy_catch":           "⚖️ Weight +25%",
+        "fish_value_surge":      "💰 Value 1.5x",
+        "double_fxp":            "⭐ FXP 2x",
+        "fishing_haste":         "⏳ Cooldown -25%",
+        "legendary_tide":        "🐉 Leg+ chance +50%",
+        "prismatic_tide":        "🌈 Prismatic chance +100%",
+        "exotic_tide":           "🚨 Exotic chance +100%",
+        "ultimate_fishing_rush": (
+            "🌊+50% ⚖️+50% 💰2x ⭐2x ⏳-25% 🐉+50% 🌈+100% 🚨+100%"
+        ),
     }
     return _map.get(event_id, event_id)
 
@@ -1217,12 +1388,18 @@ async def handle_eventpanel(bot: BaseBot, user: User) -> None:
         lines.append("Room event: OFF")
 
     if mine_ev:
-        ev   = EVENTS.get(mine_ev.get("event_id", ""), {})
-        name = ev.get("name", mine_ev.get("event_id", "?"))
-        eff  = _format_mining_event_effects(mine_ev.get("event_id", ""))
-        lines.append(f"Mining: {name} | {eff}"[:80])
+        eid  = mine_ev.get("event_id", "")
+        ev   = EVENTS.get(eid, {})
+        name = ev.get("name", eid)
+        if eid in _FISHING_EVENT_IDS:
+            eff   = _format_fishing_event_effects(eid)
+            label = "Fishing"
+        else:
+            eff   = _format_mining_event_effects(eid)
+            label = "Mining"
+        lines.append(f"{label}: {name} | {eff}"[:80])
     else:
-        lines.append("Mining event: OFF")
+        lines.append("Mining/Fishing event: OFF")
 
     lines.append(
         f"AutoEvents: {'ON' if ev_on == '1' else 'OFF'} every {ev_int}h"
@@ -1266,6 +1443,23 @@ async def handle_eventeffects(bot: BaseBot, user: User) -> None:
         lines.append(f"🔴 Exotic +{int(eff['exotic_chance_boost']*100)}%")
     if eff.get("mining_boost"):
         lines.append("⚒️ Admin's Blessing: 2x ore qty")
+    # Fishing boosts
+    if eff.get("fish_luck_boost", 0) > 0:
+        lines.append(f"🌊 Fish luck +{int(eff['fish_luck_boost']*100)}%")
+    if eff.get("fish_weight_luck_boost", 0) > 0:
+        lines.append(f"⚖️ Fish weight +{int(eff['fish_weight_luck_boost']*100)}%")
+    if eff.get("fish_value_multiplier", 1.0) > 1.0:
+        lines.append(f"💰 Fish value {eff['fish_value_multiplier']}x")
+    if eff.get("fxp_multiplier", 1.0) > 1.0:
+        lines.append(f"⭐ FXP {eff['fxp_multiplier']}x")
+    if eff.get("fishing_cooldown_reduction", 0) > 0:
+        lines.append(f"⏳ Fish cd -{int(eff['fishing_cooldown_reduction']*100)}%")
+    if eff.get("legendary_plus_fish_chance_boost", 0) > 0:
+        lines.append(f"🐉 Fish Leg+ +{int(eff['legendary_plus_fish_chance_boost']*100)}%")
+    if eff.get("prismatic_fish_chance_boost", 0) > 0:
+        lines.append(f"🌈 Pris fish +{int(eff['prismatic_fish_chance_boost']*100)}%")
+    if eff.get("exotic_fish_chance_boost", 0) > 0:
+        lines.append(f"🚨 Exotic fish +{int(eff['exotic_fish_chance_boost']*100)}%")
     if len(lines) == 1:
         lines.append("No active effects.")
     await _w(bot, user.id, "\n".join(lines)[:249])
@@ -1400,20 +1594,39 @@ async def handle_autoeventinterval(bot: BaseBot, user: User, args: list[str]) ->
 # /eventlist  (public)
 # ---------------------------------------------------------------------------
 
-async def handle_eventlist(bot: BaseBot, user: User) -> None:
-    """/eventlist — show the numbered 12-event catalog."""
-    lines1 = ["<#FFD700>📋 Events 1-6<#FFFFFF>"]
-    for ev in EVENT_CATALOG[:6]:
-        mo = " [manual]" if ev["manual_only"] else ""
-        lines1.append(f"{ev['number']}. {ev['emoji']} {ev['name']}{mo}")
-    await _w(bot, user.id, "\n".join(lines1)[:249])
+async def handle_eventlist(bot: BaseBot, user: User,
+                           args: list[str] | None = None) -> None:
+    """/eventlist [2] — event catalog. Page 1=Mining/Room (1-12), Page 2=Fishing (13-21)."""
+    page = 1
+    if args and len(args) >= 2 and args[1].isdigit():
+        page = max(1, min(2, int(args[1])))
 
-    lines2 = ["<#FFD700>📋 Events 7-12<#FFFFFF>"]
-    for ev in EVENT_CATALOG[6:]:
-        mo = " [manual]" if ev["manual_only"] else ""
-        lines2.append(f"{ev['number']}. {ev['emoji']} {ev['name']}{mo}")
-    lines2.append("/event <#> <mins>  |  /eventpreview <#>")
-    await _w(bot, user.id, "\n".join(lines2)[:249])
+    if page == 1:
+        lines1 = ["<#FFD700>📋 Events 1-6<#FFFFFF>"]
+        for ev in EVENT_CATALOG[:6]:
+            mo = " [manual]" if ev["manual_only"] else ""
+            lines1.append(f"{ev['number']}. {ev['emoji']} {ev['name']}{mo}")
+        await _w(bot, user.id, "\n".join(lines1)[:249])
+
+        lines2 = ["<#FFD700>📋 Events 7-12<#FFFFFF>"]
+        for ev in EVENT_CATALOG[6:12]:
+            mo = " [manual]" if ev["manual_only"] else ""
+            lines2.append(f"{ev['number']}. {ev['emoji']} {ev['name']}{mo}")
+        lines2.append("/eventlist 2 for Fishing events")
+        await _w(bot, user.id, "\n".join(lines2)[:249])
+    else:
+        lines1 = ["<#00CCFF>📋 Events 13-17 (Fishing)<#FFFFFF>"]
+        for ev in EVENT_CATALOG[12:17]:
+            mo = " [manual]" if ev["manual_only"] else ""
+            lines1.append(f"{ev['number']}. {ev['emoji']} {ev['name']}{mo}")
+        await _w(bot, user.id, "\n".join(lines1)[:249])
+
+        lines2 = ["<#00CCFF>📋 Events 18-21 (Fishing)<#FFFFFF>"]
+        for ev in EVENT_CATALOG[17:]:
+            mo = " [manual]" if ev["manual_only"] else ""
+            lines2.append(f"{ev['number']}. {ev['emoji']} {ev['name']}{mo}")
+        lines2.append("/event <#> <mins>  |  /eventpreview <#>")
+        await _w(bot, user.id, "\n".join(lines2)[:249])
 
 
 # ---------------------------------------------------------------------------
@@ -1423,7 +1636,7 @@ async def handle_eventlist(bot: BaseBot, user: User) -> None:
 async def handle_eventpreview(bot: BaseBot, user: User, args: list[str]) -> None:
     """/eventpreview <number> — show detail for one event."""
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /eventpreview <number 1-12>")
+        await _w(bot, user.id, "Usage: /eventpreview <number 1-21>")
         return
     eid = _resolve_event_arg(args[1].lower())
     if eid is None:
@@ -1641,20 +1854,20 @@ async def handle_eventheartbeat(bot: BaseBot, user: User) -> None:
 
 async def handle_eventcooldowns(bot: BaseBot, user: User,
                                args: list[str] | None = None) -> None:
-    """/eventcooldowns [2] — per-event cooldowns, paginated (6 per page)."""
+    """/eventcooldowns [page] — per-event cooldowns, 7 per page, 3 pages."""
     if not can_manage_economy(user.username):
         await _w(bot, user.id, "Manager/admin/owner only.")
         return
     page = 1
     if args and len(args) >= 2 and args[1].isdigit():
-        page = max(1, min(2, int(args[1])))
+        page = max(1, min(3, int(args[1])))
     pool_map = {row["event_id"]: row for row in db.get_event_pool()}
-    start_i  = (page - 1) * 6
-    evs      = EVENT_CATALOG[start_i: start_i + 6]
-    lines    = [f"<#FFD700>⏰ Cooldowns {page}/2<#FFFFFF>"]
+    start_i  = (page - 1) * 7
+    evs      = EVENT_CATALOG[start_i: start_i + 7]
+    lines    = [f"<#FFD700>⏰ Cooldowns {page}/3<#FFFFFF>"]
     for ev in evs:
         eid     = ev["event_id"]
-        short   = _SHORT_DISPLAY.get(eid, ev["name"][:14])
+        short   = _SHORT_DISPLAY.get(eid, ev["name"][:12])
         in_pool = eid in pool_map
         if ev["manual_only"]:
             cd_str = "manual"
@@ -1664,10 +1877,10 @@ async def handle_eventcooldowns(bot: BaseBot, user: User,
             cd_str = f"{ev['cooldown_minutes']}m"
         pool_str = "YES" if in_pool else "NO"
         lines.append(
-            f"{ev['number']}. {ev['emoji']} {short} — {cd_str} | Pool: {pool_str}"
+            f"{ev['number']}. {ev['emoji']} {short} — {cd_str} | Pool:{pool_str}"
         )
-    nxt = "/eventcooldowns 2" if page == 1 else "/eventcooldowns"
-    lines.append(f"→ {nxt} for other page")
+    if page < 3:
+        lines.append(f"→ /eventcooldowns {page + 1} for more")
     await _w(bot, user.id, "\n".join(lines)[:249])
 
 
@@ -1708,20 +1921,20 @@ async def handle_seteventcooldown(bot: BaseBot, user: User, args: list[str]) -> 
 
 async def handle_eventweights(bot: BaseBot, user: User,
                              args: list[str] | None = None) -> None:
-    """/eventweights [2] — per-event selection weights, paginated (6 per page)."""
+    """/eventweights [page] — per-event weights, 7 per page, 3 pages."""
     if not can_manage_economy(user.username):
         await _w(bot, user.id, "Manager/admin/owner only.")
         return
     page = 1
     if args and len(args) >= 2 and args[1].isdigit():
-        page = max(1, min(2, int(args[1])))
+        page = max(1, min(3, int(args[1])))
     pool_map = {row["event_id"]: row for row in db.get_event_pool()}
-    start_i  = (page - 1) * 6
-    evs      = EVENT_CATALOG[start_i: start_i + 6]
-    lines    = [f"<#FFD700>⚖️ Weights {page}/2<#FFFFFF>"]
+    start_i  = (page - 1) * 7
+    evs      = EVENT_CATALOG[start_i: start_i + 7]
+    lines    = [f"<#FFD700>⚖️ Weights {page}/3<#FFFFFF>"]
     for ev in evs:
         eid     = ev["event_id"]
-        short   = _SHORT_DISPLAY.get(eid, ev["name"][:14])
+        short   = _SHORT_DISPLAY.get(eid, ev["name"][:12])
         in_pool = eid in pool_map
         if ev["manual_only"]:
             w_str = "0"
@@ -1731,10 +1944,10 @@ async def handle_eventweights(bot: BaseBot, user: User,
             w_str = str(ev["default_weight"])
         pool_str = "YES" if in_pool else "NO"
         lines.append(
-            f"{ev['number']}. {ev['emoji']} {short} — {w_str} | Pool: {pool_str}"
+            f"{ev['number']}. {ev['emoji']} {short} — {w_str} | Pool:{pool_str}"
         )
-    nxt = "/eventweights 2" if page == 1 else "/eventweights"
-    lines.append(f"→ {nxt} for other page")
+    if page < 3:
+        lines.append(f"→ /eventweights {page + 1} for more")
     await _w(bot, user.id, "\n".join(lines)[:249])
 
 

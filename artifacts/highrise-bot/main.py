@@ -3077,7 +3077,7 @@ class HangoutBot(BaseBot):
 
         # ── Event Manager catalog + pool (new) ──────────────────────────────
         elif cmd == "eventlist":
-            await handle_eventlist(self, user)
+            await handle_eventlist(self, user, args)
 
         elif cmd == "eventpreview":
             await handle_eventpreview(self, user, args)

@@ -246,12 +246,24 @@ def _resolve_rod(query: str) -> str | None:
 # Roll mechanics
 # ---------------------------------------------------------------------------
 
+_FISHING_EFFECT_KEYS = frozenset({
+    "fish_luck_boost",
+    "fish_weight_luck_boost",
+    "fish_value_multiplier",
+    "fxp_multiplier",
+    "fishing_cooldown_reduction",
+    "legendary_plus_fish_chance_boost",
+    "prismatic_fish_chance_boost",
+    "exotic_fish_chance_boost",
+})
+
+
 def _get_fishing_event_effects() -> dict:
-    """Return active fishing event effects (placeholder for future integration)."""
+    """Return active fishing event effects from the Event Manager."""
     try:
         from modules.events import get_event_effect
         eff = get_event_effect()
-        return {k: v for k, v in eff.items() if "fish" in k or "fxp" in k}
+        return {k: v for k, v in eff.items() if k in _FISHING_EFFECT_KEYS}
     except Exception:
         return {}
 
@@ -260,7 +272,12 @@ def _roll_fish(rod_name: str = "Driftwood Rod", event_eff: dict | None = None) -
     """Roll a random fish, applying rod luck and event effects."""
     rod  = FISHING_RODS.get(rod_name, FISHING_RODS["Driftwood Rod"])
     eff  = event_eff or {}
-    luck = rod["luck"] + eff.get("fish_luck_boost", 0.0)
+    luck            = rod["luck"] + eff.get("fish_luck_boost", 0.0)
+    leg_plus_boost  = eff.get("legendary_plus_fish_chance_boost", 0.0)
+    prismatic_boost = eff.get("prismatic_fish_chance_boost", 0.0)
+    exotic_boost    = eff.get("exotic_fish_chance_boost", 0.0)
+    # order: common=0, rare=1, epic=2, legendary=3, mythic=4, prismatic=5, exotic=6
+    _LEG_PLUS_ORDERS = {3, 4, 5, 6}
 
     pool: list[tuple[dict, float]] = []
     for fish in FISH_CATALOG:
@@ -268,6 +285,12 @@ def _roll_fish(rod_name: str = "Driftwood Rod", event_eff: dict | None = None) -
         order = FISH_RARITIES[fish["rarity"]]["order"]
         if order >= 3 and luck > 0:
             w = w * (1 + luck * (1 + order * 0.4))
+        if order in _LEG_PLUS_ORDERS and leg_plus_boost > 0:
+            w = w * (1 + leg_plus_boost)
+        if order == 5 and prismatic_boost > 0:
+            w = w * (1 + prismatic_boost)
+        if order == 6 and exotic_boost > 0:
+            w = w * (1 + exotic_boost)
         pool.append((fish, w))
 
     total = sum(w for _, w in pool)
@@ -284,7 +307,7 @@ def _roll_weight(fish: dict, rod_name: str = "Driftwood Rod",
                  event_eff: dict | None = None) -> float:
     eff  = event_eff or {}
     rod  = FISHING_RODS.get(rod_name, FISHING_RODS["Driftwood Rod"])
-    wl   = rod["weight_luck"] + eff.get("weight_luck_boost", 0.0)
+    wl   = rod["weight_luck"] + eff.get("fish_weight_luck_boost", 0.0)
     lo, hi = fish["min_weight"], fish["max_weight"]
     base = random.uniform(lo, hi)
     if wl > 0:
@@ -297,19 +320,21 @@ def _calc_value(fish: dict, weight: float, rod_name: str = "Driftwood Rod",
                 event_eff: dict | None = None) -> int:
     eff  = event_eff or {}
     rod  = FISHING_RODS.get(rod_name, FISHING_RODS["Driftwood Rod"])
-    vb   = rod["value_bonus"] + eff.get("fish_value_boost", 0.0)
+    vb   = rod["value_bonus"]
     lo, hi = fish["min_weight"], fish["max_weight"]
     span   = max(0.01, hi - lo)
-    wt_mult = 1.0 + ((weight - lo) / span)
-    return max(1, int(fish["base_value"] * wt_mult * (1 + vb)))
+    wt_mult  = 1.0 + ((weight - lo) / span)
+    val_mult = eff.get("fish_value_multiplier", 1.0)
+    return max(1, int(fish["base_value"] * wt_mult * (1 + vb) * val_mult))
 
 
 def _calc_fxp(fish: dict, rod_name: str = "Driftwood Rod",
               event_eff: dict | None = None) -> int:
     eff = event_eff or {}
     rod = FISHING_RODS.get(rod_name, FISHING_RODS["Driftwood Rod"])
-    fb  = rod["fxp_bonus"] + eff.get("fxp_multiplier", 0.0)
-    return max(1, int(fish["base_fxp"] * (1 + fb)))
+    fb       = rod["fxp_bonus"]
+    fxp_mult = eff.get("fxp_multiplier", 1.0)
+    return max(1, int(fish["base_fxp"] * (1 + fb) * fxp_mult))
 
 
 def _do_level_up(profile: dict, new_fxp: int) -> tuple[int, bool]:
@@ -339,13 +364,15 @@ async def handle_fish(bot: BaseBot, user: User) -> None:
     rod      = FISHING_RODS.get(rod_name, FISHING_RODS["Driftwood Rod"])
     cooldown = rod["cooldown"]
 
+    eff      = _get_fishing_event_effects()
+    cd_red   = eff.get("fishing_cooldown_reduction", 0.0)
+    eff_cd   = max(5.0, cooldown * (1 - cd_red))
     secs_ago = _seconds_since(profile.get("last_fish_at"))
-    if secs_ago < cooldown:
-        wait = int(cooldown - secs_ago)
+    if secs_ago < eff_cd:
+        wait = int(eff_cd - secs_ago)
         await _w(bot, user.id, f"🎣 Cooldown: Fish again in {wait}s.")
         return
 
-    eff    = _get_fishing_event_effects()
     fish   = _roll_fish(rod_name, eff)
     weight = _roll_weight(fish, rod_name, eff)
     value  = _calc_value(fish, weight, rod_name, eff)
@@ -420,11 +447,12 @@ async def handle_fishlist(bot: BaseBot, user: User, args: list[str]) -> None:
             lines.append(f"{f['emoji']} {f['name']} — {_display_chance(f['drop_weight'])}")
         await _w(bot, user.id, "\n".join(lines)[:249])
     else:
-        lines = ["🎣 Fish Rarities"]
+        lines = ["🎣 Fish List"]
         for r in RARITY_ORDER:
             cnt = sum(1 for f in FISH_CATALOG if f["rarity"] == r)
-            lines.append(f"{FISH_RARITIES[r]['label']} ({cnt} fish)")
-        lines.append("Use: /fishlist <rarity>")
+            lines.append(f"[{r.upper()}] — {cnt} fish")
+        lines.append("Use /fishlist common to view Common fish.")
+        lines.append("/fishprices common for prices & weights.")
         await _w(bot, user.id, "\n".join(lines)[:249])
 
 
@@ -597,16 +625,58 @@ async def handle_fishstats(bot: BaseBot, user: User, args: list[str]) -> None:
 # ---------------------------------------------------------------------------
 
 async def handle_fishboosts(bot: BaseBot, user: User) -> None:
-    """/fishboosts — active fishing event effects."""
-    eff = _get_fishing_event_effects()
-    if not eff:
-        await _w(bot, user.id,
-                 "🎣 Fishing Boosts\nNo fishing boosts active.")
-        return
-    lines = ["🎣 Fishing Boosts"]
-    for k, v in eff.items():
-        lines.append(f"  {k}: {v}")
-    await _w(bot, user.id, "\n".join(lines)[:249])
+    """/fishboosts /fishingevents — active fishing event boosts."""
+    try:
+        from modules.events import (
+            get_event_effect, _FISHING_EVENT_IDS,
+            _format_fishing_event_effects, EVENTS, _time_remaining,
+        )
+        import database as _db
+        mine_ev = _db.get_active_mining_event()
+        eff     = get_event_effect()
+        has_boost = any([
+            eff.get("fish_luck_boost", 0) > 0,
+            eff.get("fish_weight_luck_boost", 0) > 0,
+            eff.get("fish_value_multiplier", 1.0) > 1.0,
+            eff.get("fxp_multiplier", 1.0) > 1.0,
+            eff.get("fishing_cooldown_reduction", 0) > 0,
+            eff.get("legendary_plus_fish_chance_boost", 0) > 0,
+            eff.get("prismatic_fish_chance_boost", 0) > 0,
+            eff.get("exotic_fish_chance_boost", 0) > 0,
+        ])
+        if not has_boost:
+            await _w(bot, user.id,
+                     "🎣 Fishing Boosts\nNo fishing boosts active.")
+            return
+        lines = ["🎣 Fishing Boosts"]
+        if mine_ev and mine_ev.get("event_id", "") in _FISHING_EVENT_IDS:
+            eid      = mine_ev["event_id"]
+            name     = EVENTS.get(eid, {}).get("name", eid)
+            eff_str  = _format_fishing_event_effects(eid)
+            left     = _time_remaining(mine_ev.get("ends_at", ""))
+            lines.append(f"{name}: {eff_str}"[:80])
+            lines.append(f"Ends in: {left}")
+        else:
+            if eff.get("fish_luck_boost", 0) > 0:
+                lines.append(f"🌊 Fish luck +{int(eff['fish_luck_boost']*100)}%")
+            if eff.get("fish_weight_luck_boost", 0) > 0:
+                lines.append(f"⚖️ Weight +{int(eff['fish_weight_luck_boost']*100)}%")
+            if eff.get("fish_value_multiplier", 1.0) > 1.0:
+                lines.append(f"💰 Value {eff['fish_value_multiplier']}x")
+            if eff.get("fxp_multiplier", 1.0) > 1.0:
+                lines.append(f"⭐ FXP {eff['fxp_multiplier']}x")
+            if eff.get("fishing_cooldown_reduction", 0) > 0:
+                lines.append(f"⏳ Cooldown -{int(eff['fishing_cooldown_reduction']*100)}%")
+            if eff.get("legendary_plus_fish_chance_boost", 0) > 0:
+                lines.append(f"🐉 Leg+ +{int(eff['legendary_plus_fish_chance_boost']*100)}%")
+            if eff.get("prismatic_fish_chance_boost", 0) > 0:
+                lines.append(f"🌈 Prismatic +{int(eff['prismatic_fish_chance_boost']*100)}%")
+            if eff.get("exotic_fish_chance_boost", 0) > 0:
+                lines.append(f"🚨 Exotic +{int(eff['exotic_fish_chance_boost']*100)}%")
+        await _w(bot, user.id, "\n".join(lines)[:249])
+    except Exception as exc:
+        print(f"[FISHBOOSTS] error: {exc}")
+        await _w(bot, user.id, "🎣 Fishing Boosts\nNo fishing boosts active.")
 
 
 async def handle_fishingevents(bot: BaseBot, user: User) -> None:
@@ -863,14 +933,15 @@ async def _autofish_loop(bot: BaseBot, user: User) -> None:
             rod_name = profile.get("equipped_rod") or "Driftwood Rod"
             rod      = FISHING_RODS.get(rod_name, FISHING_RODS["Driftwood Rod"])
             cooldown = rod["cooldown"]
+            eff      = _get_fishing_event_effects()
+            cd_red   = eff.get("fishing_cooldown_reduction", 0.0)
+            eff_cd   = max(5.0, cooldown * (1 - cd_red))
             secs_ago = _seconds_since(profile.get("last_fish_at"))
 
-            if secs_ago < cooldown:
-                wait = max(1, int(cooldown - secs_ago) + 1)
+            if secs_ago < eff_cd:
+                wait = max(1, int(eff_cd - secs_ago) + 1)
                 await asyncio.sleep(wait)
                 continue
-
-            eff    = _get_fishing_event_effects()
             fish   = _roll_fish(rod_name, eff)
             weight = _roll_weight(fish, rod_name, eff)
             value  = _calc_value(fish, weight, rod_name, eff)

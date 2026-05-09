@@ -1575,9 +1575,17 @@ async def handle_orelist(bot: BaseBot, user: User, args: list[str] | None = None
     """
     args = args or []
 
-    # No rarity arg → show the menu
+    # No rarity arg → show summary (count per rarity)
     if len(args) < 2:
-        await _w(bot, user.id, _ORELIST_MENU)
+        by_rar = _by_rarity_map()
+        lines  = ["⛏️ Ore List"]
+        for r in RARITY_ORDER:
+            cnt = len(by_rar.get(r, []))
+            if cnt:
+                lines.append(f"[{r.upper()}] — {cnt} ores")
+        lines.append("Use /orelist common to view Common ores.")
+        lines.append("/oreprices common for prices and weights.")
+        await _w(bot, user.id, "\n".join(lines)[:249])
         return
 
     rar = _resolve_rarity_arg(args[1])

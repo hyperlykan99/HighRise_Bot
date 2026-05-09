@@ -1,0 +1,465 @@
+Fishing Events + Mining/Fishing List Summary Update
+
+Focus only on:
+1. Adding Fishing Events to Event Manager.
+2. Updating /orelist and /fishlist main menu to show rarity summaries only.
+
+Do not change bot tokens.
+Do not change room ID.
+Do not reset balances.
+Do not wipe player data.
+Do not break mining, fishing, poker, blackjack, bank, shop, AI, security, bot outfits, bot spawns, or command routing.
+
+==================================================
+PART 1 — ADD FISHING EVENTS TO EVENT MANAGER
+==================================================
+
+Goal:
+Add Fishing Events to the existing Event Manager / EventBot system.
+
+Important:
+EventBot/EventHost controls all fishing event timers.
+MasterAngler/FishingBot only reads active fishing event effects and applies them to fishing.
+
+Do not make FishingBot control event timers.
+
+==================================================
+PART 2 — ADD FISHING EVENTS TO NUMBERED EVENT CATALOG
+==================================================
+
+Add fishing events as event numbers 13–21.
+
+13. 🌊 Lucky Tide
+event_id: lucky_tide
+type: fishing
+Effect:
+- +25% fishing luck
+- better chance for higher rarity fish
+- small boost toward Legendary+
+
+14. ⚖️ Heavy Catch
+event_id: heavy_catch
+type: fishing
+Effect:
+- +25% fish weight luck
+- fish are more likely to roll heavier weights
+- better chance for biggest fish leaderboards
+
+15. 💰 Fish Value Surge
+event_id: fish_value_surge
+type: fishing
+Effect:
+- 1.5x fish value
+- applies after fish weight calculation
+
+16. ⭐ Double FXP
+event_id: double_fxp
+type: fishing
+Effect:
+- 2x Fishing EXP / FXP
+- does not boost coins
+
+17. ⏳ Fishing Haste
+event_id: fishing_haste
+type: fishing
+Effect:
+- -25% fishing cooldown
+- must respect minimum fishing cooldown
+
+18. 🐉 Legendary Tide
+event_id: legendary_tide
+type: fishing
+Effect:
+- +50% Legendary+ fish chance
+- affects Legendary, Mythic, Prismatic, Exotic fish
+
+19. 🌈 Prismatic Tide
+event_id: prismatic_tide
+type: fishing
+Effect:
+- 2x Prismatic fish chance
+- still very rare
+
+20. 🚨 Exotic Tide
+event_id: exotic_tide
+type: fishing
+Effect:
+- 2x Exotic fish chance
+- still extremely rare
+
+21. 🔥 Ultimate Fishing Rush
+event_id: ultimate_fishing_rush
+type: fishing
+manual_only: true by default
+
+Effect:
+- +50% fishing luck
+- +50% fish weight luck
+- 2x fish value
+- 2x FXP
+- -25% fishing cooldown
+- +50% Legendary+ fish chance
+- 2x Prismatic fish chance
+- 2x Exotic fish chance
+
+Important:
+Ultimate Fishing Rush should appear in /eventlist as #21.
+Ultimate Fishing Rush should NOT be in the default auto-event pool.
+Owner/admin can manually add it to auto-event pool with:
+/aeadd 21
+
+==================================================
+PART 3 — UPDATE /eventlist
+==================================================
+
+/eventlist should now show mining, room, and fishing events.
+
+If too long, paginate:
+/eventlist
+/eventlist 2
+
+Full event list:
+
+1. 🍀 Lucky Rush
+2. ⚖️ Heavy Ore Rush
+3. 💰 Ore Value Surge
+4. ⭐ Double MXP
+5. ⏳ Mining Haste
+6. 🟡 Legendary Rush
+7. 🌈 Prismatic Hunt
+8. 🚨 Exotic Hunt
+9. ⏰ Time EXP Boost
+10. 🎁 Reward Drop
+11. 🏆 Event Points Boost
+12. 🔥 Ultimate Mining Rush
+13. 🌊 Lucky Tide
+14. ⚖️ Heavy Catch
+15. 💰 Fish Value Surge
+16. ⭐ Double FXP
+17. ⏳ Fishing Haste
+18. 🐉 Legendary Tide
+19. 🌈 Prismatic Tide
+20. 🚨 Exotic Tide
+21. 🔥 Ultimate Fishing Rush
+
+Recommended pagination:
+Page 1: Events 1–12
+Page 2: Events 13–21
+
+==================================================
+PART 4 — DEFAULT AUTO EVENT POOL
+==================================================
+
+Default auto-event pool should include these fishing events:
+
+13. Lucky Tide
+14. Heavy Catch
+15. Fish Value Surge
+16. Double FXP
+17. Fishing Haste
+18. Legendary Tide
+19. Prismatic Tide
+20. Exotic Tide
+
+Default auto-event pool should NOT include:
+21. Ultimate Fishing Rush
+
+Ultimate Fishing Rush is manual-only by default.
+
+==================================================
+PART 5 — NUMBERED CONTROLS
+==================================================
+
+These should work:
+
+/event 13 30
+Starts Lucky Tide for 30 minutes.
+
+/event 19 20
+Starts Prismatic Tide for 20 minutes.
+
+/event 20 15
+Starts Exotic Tide for 15 minutes.
+
+/event 21 10
+Starts Ultimate Fishing Rush for 10 minutes.
+
+/aeadd 13
+Adds Lucky Tide to auto-event pool.
+
+/aeremove 20
+Removes Exotic Tide from auto-event pool.
+
+/eventpreview 21
+Shows Ultimate Fishing Rush preview.
+
+==================================================
+PART 6 — EVENT PREVIEW
+==================================================
+
+/eventpreview 13 example:
+
+EventBot:
+🌊 Lucky Tide
+ID: lucky_tide
+Type: Fishing
+Effect: +25% fishing luck
+Auto Pool: YES
+Manual Only: NO
+
+/eventpreview 21 example:
+
+EventBot:
+🔥 Ultimate Fishing Rush
+ID: ultimate_fishing_rush
+Type: Fishing
+Effect: All fishing boosts
+Auto Pool: NO
+Manual Only: YES
+
+==================================================
+PART 7 — FISHINGBOT INTEGRATION
+==================================================
+
+MasterAngler/FishingBot should read active fishing event effects from Event Manager.
+
+FishingBot applies:
+- fishing_luck_boost
+- fish_weight_luck_boost
+- fish_value_multiplier
+- fxp_multiplier
+- fishing_cooldown_reduction
+- legendary_plus_fish_chance_boost
+- prismatic_fish_chance_boost
+- exotic_fish_chance_boost
+
+FishingBot should show active boosts in:
+- /fish
+- /fishboosts
+- /fishingevents
+- /fishstats if useful
+
+/fishboosts example:
+
+MasterAngler:
+🎣 Fishing Boosts
+🌊 Lucky Tide: +25% fish luck
+⚖️ Heavy Catch: +25% weight
+Ends in: 14m
+
+If no fishing events are active:
+
+MasterAngler:
+🎣 Fishing Boosts
+No fishing boosts active.
+
+==================================================
+PART 8 — EVENT COOLDOWNS AND WEIGHTS
+==================================================
+
+Add default cooldowns:
+
+13 Lucky Tide: 60m
+14 Heavy Catch: 60m
+15 Fish Value Surge: 90m
+16 Double FXP: 60m
+17 Fishing Haste: 60m
+18 Legendary Tide: 120m
+19 Prismatic Tide: 180m
+20 Exotic Tide: 360m
+21 Ultimate Fishing Rush: manual-only
+
+Add default weights:
+
+13 Lucky Tide: 20
+14 Heavy Catch: 20
+15 Fish Value Surge: 25
+16 Double FXP: 30
+17 Fishing Haste: 25
+18 Legendary Tide: 10
+19 Prismatic Tide: 5
+20 Exotic Tide: 2
+21 Ultimate Fishing Rush: 0
+
+Important:
+Weight 0 means never auto-selected.
+Ultimate Fishing Rush should be weight 0 by default.
+
+==================================================
+PART 9 — UPDATE EVENT DISPLAY COMMANDS
+==================================================
+
+Update these commands to include fishing events:
+
+/eventlist
+/aepool
+/aequeue
+/aenext
+/aestatus
+/autoeventstatus
+/eventcooldowns
+/eventweights
+/eventpreview
+/eventeffects
+/eventpanel
+/eventhistory
+
+If output is too long, paginate.
+
+Event cooldowns and weights should show Pool YES/NO.
+
+Example:
+
+EventBot:
+⏰ Cooldowns 3/4
+13. 🌊 Lucky Tide — 60m | Pool: YES
+14. ⚖️ Heavy Catch — 60m | Pool: YES
+15. 💰 Fish Value Surge — 90m | Pool: YES
+16. ⭐ Double FXP — 60m | Pool: YES
+17. ⏳ Fishing Haste — 60m | Pool: YES
+18. 🐉 Legendary Tide — 120m | Pool: YES
+
+==================================================
+PART 10 — UPDATE MAIN /orelist FORMAT
+==================================================
+
+Goal:
+Simplify main /orelist.
+
+Main /orelist should show only:
+- rarity name
+- count of ores in that rarity
+
+No color coding.
+No ore names.
+No chances.
+No prices.
+No weights.
+
+Example:
+
+GreatestProspector:
+⛏️ Ore List
+
+[COMMON] — 15 ores
+[RARE] — 15 ores
+[EPIC] — 15 ores
+[LEGENDARY] — 15 ores
+[MYTHIC] — 15 ores
+[PRISMATIC] — 10 ores
+[EXOTIC] — 10 ores
+
+Use /orelist common to view Common ores.
+Use /oreprices common for prices and weights.
+Use /oreinfo <ore> for full details.
+
+Important:
+/orelist common should still show ore names and chances.
+/orelist rare 2 should still show rarity page 2.
+/oreprices common should still show prices and weights.
+/oreinfo Gold Ore should still show full details.
+
+Only the main /orelist should become summary-only.
+
+==================================================
+PART 11 — UPDATE MAIN /fishlist FORMAT
+==================================================
+
+Goal:
+Simplify main /fishlist.
+
+Main /fishlist should show only:
+- rarity name
+- count of fish in that rarity
+
+No color coding.
+No fish names.
+No chances.
+No prices.
+No weights.
+
+Example:
+
+MasterAngler:
+🎣 Fish List
+
+[COMMON] — 10 fish
+[RARE] — 10 fish
+[EPIC] — 10 fish
+[LEGENDARY] — 10 fish
+[MYTHIC] — 10 fish
+[PRISMATIC] — 8 fish
+[EXOTIC] — 8 fish
+
+Use /fishlist common to view Common fish.
+Use /fishprices common for prices and weights.
+Use /fishinfo <fish> for full details.
+
+Important:
+/fishlist common should still show fish names and chances.
+/fishlist rare 2 should still show rarity page 2.
+/ishprices common or /fishprices common should still show prices and weights.
+/fishinfo Dragonfish should still show full details.
+
+Only the main /fishlist should become summary-only.
+
+==================================================
+PART 12 — COMMAND INTEGRITY
+==================================================
+
+Verify:
+
+/commandtest /eventlist
+/commandtest /event
+/commandtest /eventpreview
+/commandtest /aepool
+/commandtest /aeadd
+/commandtest /aeremove
+/commandtest /eventcooldowns
+/commandtest /eventweights
+/commandtest /fishboosts
+/commandtest /fishingevents
+/commandtest /orelist
+/commandtest /fishlist
+/commandtest /oreprices
+/commandtest /fishprices
+/commandtest /oreinfo
+/commandtest /fishinfo
+
+/checkcommands all should show:
+Missing 0
+NoOwner 0
+
+==================================================
+PART 13 — SAFETY
+==================================================
+
+Do not:
+- reset player data
+- reset balances
+- wipe fish data
+- wipe ore data
+- break mining events
+- break existing Event Manager
+- make Ultimate Fishing Rush auto by default
+- make FishingBot control event timers
+- break detailed /orelist <rarity> pages
+- break detailed /fishlist <rarity> pages
+- break /oreprices or /fishprices
+- expose secrets/tokens/env vars
+
+==================================================
+FINAL REPORT
+==================================================
+
+After finishing, tell me:
+1. Fishing events added
+2. Event numbers 13–21
+3. Fishing event IDs
+4. Which fishing events are in default auto pool
+5. Confirm Ultimate Fishing Rush is manual-only by default
+6. How FishingBot reads active fishing effects
+7. How /fishboosts works
+8. How /orelist main summary works
+9. How /fishlist main summary works
+10. Exact tests to run
