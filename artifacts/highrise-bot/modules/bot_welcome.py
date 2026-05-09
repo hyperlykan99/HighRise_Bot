@@ -72,6 +72,11 @@ _DEFAULT_MESSAGES: dict[str, str] = {
         "I manage the music queue. "
         "Type /djhelp to see what I can do."
     ),
+    "masterangler":       (
+        "Welcome {username}! I'm MasterAngler. "
+        "I run fishing — rods, catches & leaderboards. "
+        "Type /fish to cast or /fishhelp for commands."
+    ),
 }
 
 # Fallback for any bot not in the map

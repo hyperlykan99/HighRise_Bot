@@ -616,6 +616,7 @@ _MODULE_OWNER_MODES: dict[str, str] = {
     "blackjack":    "blackjack",
     "rbj":          "blackjack",
     "mining":       "miner",
+    "fishing":      "fisher",
     "bank":         "banker",
     "shop":         "shopkeeper",
     "security":     "security",
@@ -628,13 +629,13 @@ _MODULE_OWNER_MODES: dict[str, str] = {
 
 # Split modes: dedicated bots that should never run another module's tasks
 _SPLIT_BOT_MODES: frozenset[str] = frozenset({
-    "poker", "blackjack", "miner", "banker",
+    "poker", "blackjack", "miner", "fisher", "banker",
     "shopkeeper", "security", "dj", "eventhost", "host",
 })
 
 # Game-module modes: host/all must never fall back to these command sets
 _GAME_MODULE_MODES: frozenset[str] = frozenset({
-    "miner", "poker", "blackjack", "banker",
+    "miner", "fisher", "poker", "blackjack", "banker",
     "dj", "shopkeeper", "eventhost", "security",
 })
 
@@ -643,7 +644,7 @@ _GAME_MODULE_MODES: frozenset[str] = frozenset({
 # (eventhost is excluded here because it shares a token with host — see soft
 # fallback below in should_this_bot_handle.)
 _HARD_OWNER_MODES: frozenset[str] = frozenset({
-    "banker", "miner", "blackjack", "poker",
+    "banker", "miner", "fisher", "blackjack", "poker",
     "shopkeeper", "security", "dj",
 })
 

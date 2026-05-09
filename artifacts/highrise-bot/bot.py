@@ -104,6 +104,8 @@ def _collect_bots() -> list[_BotSpec]:
     for token_env, label, id_env, default_id, mode_env, default_mode, user_env in _SPLIT_BOTS:
         token = os.environ.get(token_env, "")
         if not token:
+            if token_env == "FISHING_BOT_TOKEN":
+                print("[RUNNER] FishingBot token missing — skipping MasterAngler startup.")
             continue
         spec = _BotSpec(
             token_env    = token_env,
@@ -120,7 +122,7 @@ def _collect_bots() -> list[_BotSpec]:
     # If MAIN_BOT_MODE was not explicitly set and any game-module bot is present,
     # the main bot demotes itself to host so it never duplicates game replies.
     _game_modes = {"blackjack", "poker", "miner", "banker",
-                   "shopkeeper", "security", "dj", "eventhost"}
+                   "shopkeeper", "security", "dj", "eventhost", "fisher"}
     has_game_split = any(s.bot_mode in _game_modes for s in specs[1:])
     has_host_split = any(s.bot_mode == "host" for s in specs[1:])
 
