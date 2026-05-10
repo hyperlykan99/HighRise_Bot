@@ -1,0 +1,568 @@
+BlackJack Full Review + Message Fix + Remove RBJ Wording
+
+Focus only on BlackJack / RBJ cleanup and fixing the BlackJack updates that were requested but are still incomplete.
+
+Current issues:
+1. BlackJack bot messages are still not fixed.
+2. Dealer Cards / Player Cards / Action List format is not consistently applied.
+3. Some player-facing messages still say RBJ.
+4. Need to review all previous BlackJack updates and match the real implementation against them.
+5. Fix missing, partial, broken, or outdated BlackJack behavior.
+
+Do not change bot tokens.
+Do not change room ID.
+Do not reset balances.
+Do not wipe player data.
+Do not break poker, mining, fishing, bank, events, gold tips, First Find Race, bot outfits, bot spawns, or command routing.
+
+==================================================
+PART 1 — REVIEW CURRENT BLACKJACK IMPLEMENTATION
+==================================================
+
+Review all BlackJack-related files, including if present:
+
+- modules/blackjack.py
+- modules/realistic_blackjack.py
+- main.py
+- modules/command_registry.py
+- modules/multi_bot.py
+- modules/cmd_audit.py
+- database.py
+- help text files or command help sections
+
+Compare current code against all requested BlackJack updates:
+
+- Dealer Cards / Player Cards / Action List format
+- Max 2 bot messages per player turn/update
+- /bjcards whisper and /bjcards public
+- Player cards whisper must be fully green
+- Actions at bottom of second message in public mode
+- Action emojis everywhere
+- Post-game result screen improved
+- Matching-card bonus display
+- VIP/time-tier multiplier connected to matching-card bonus
+- Insurance working
+- Shoe/deck saving on restart
+- No old /rjoin text
+- RBJ wording removed from player-facing messages
+- Commands routed and owned by BlackJackBot
+
+Do not guess. Inspect the code and fix only mismatches.
+
+==================================================
+PART 2 — REPLACE PLAYER-FACING RBJ WORDING
+==================================================
+
+Review all player-facing text.
+
+Replace confusing player-facing “RBJ” wording with:
+
+BlackJack
+
+Examples:
+- “RBJ” → “BlackJack”
+- “RBJ Help” → “BlackJack Help”
+- “RBJ Rules” → “BlackJack Rules”
+- “RBJ table” → “BlackJack table”
+- “Realistic Blackjack” can remain only if it is intentionally a separate mode, but player-facing command/help should not confuse players.
+
+Important:
+Do not rename internal functions/classes/files if that would break imports.
+Internal code can remain rbj if needed.
+Only player-facing messages/help/buttons/command descriptions should be cleaned.
+
+Do not remove working RBJ compatibility commands if players still use them.
+Instead, make them aliases that display BlackJack wording.
+
+==================================================
+PART 3 — FIX BLACKJACK MESSAGE FORMAT
+==================================================
+
+All active BlackJack turn messages must follow this structure:
+
+Message 1:
+BlackJackBot:
+🃏 Dealer Cards
+Dealer: [visible card] [?] | Total: ?
+
+Message 2:
+BlackJackBot:
+🟢 Player Cards
+@Player: [cards] | Total: 16
+
+Actions:
+🃏 /hit
+🛑 /stand
+💰 /double
+✂️ /split
+🛡️ /insurance
+🏳️ /surrender
+
+Rules:
+- Dealer Cards always come first.
+- Player Cards always come second.
+- Action List must be at the bottom of Player Cards message.
+- Do not send old messy single-line card messages.
+- Do not send old “BJ action open! Act within timer: /bh /bs /bd /bsp” as the main gameplay message.
+- Replace it with the new format.
+
+==================================================
+PART 4 — MAX 2 MESSAGES PER TURN
+==================================================
+
+For each player turn/update:
+
+Whisper mode:
+1. Public Dealer Cards message
+2. Private Player Cards + Actions whisper
+
+Public mode:
+1. Public Dealer Cards message
+2. Public Player Cards + Actions message
+
+Do not spam extra card/action messages.
+
+If multiple players are active:
+- Public dealer message can be shared once.
+- Each player gets their own private green whisper in whisper mode.
+- Do not reveal other players’ cards publicly in whisper mode.
+
+==================================================
+PART 5 — /bjcards WHISPER/PUBLIC MODE
+==================================================
+
+Use existing setting:
+
+/bjcards whisper
+/bjcards public
+
+Default:
+whisper
+
+If mode = whisper:
+- Public message only shows Dealer Cards.
+- Player Cards + Action List are whispered privately.
+- Entire private player-card whisper must be green.
+- End with <#FFFFFF> so color does not leak.
+
+Whisper example:
+
+<#00FF66>🟢 Player Cards
+You: 8♥ 8♣ | Total: 16
+
+Actions:
+🃏 /hit | 🛑 /stand | 💰 /double | ✂️ /split<#FFFFFF>
+
+If mode = public:
+- Public message 1 = Dealer Cards
+- Public message 2 = Player Cards + Action List
+- Actions at bottom of second message.
+
+==================================================
+PART 6 — ACTION EMOJIS EVERYWHERE
+==================================================
+
+Use action emojis consistently in:
+
+- turn message
+- whisper mode action list
+- public mode action list
+- invalid action replies
+- /bjhelp
+- /bjrules if actions are listed
+- command examples
+
+Use:
+
+🃏 /hit
+🛑 /stand
+💰 /double
+✂️ /split
+🛡️ /insurance
+🏳️ /surrender
+
+Also support existing short aliases if already present:
+- /bh = /hit
+- /bs = /stand
+- /bd = /double
+- /bsp = /split
+- /bi = /insurance
+
+But player-facing action lists should prefer the clean commands.
+
+==================================================
+PART 7 — REMOVE OLD /rjoin REFERENCES
+==================================================
+
+Search all BlackJack/RBJ help and messages.
+
+Remove old references to:
+
+/rjoin
+
+Replace with correct BlackJack join command used by this project, such as:
+
+/bjoin <bet>
+
+or:
+
+/bj join <bet>
+
+Use whichever command currently works.
+
+Do not show broken commands in help.
+
+==================================================
+PART 8 — POST-GAME RESULT SCREEN
+==================================================
+
+Review and fix final round results.
+
+After each round, show a clear post-game result.
+
+Must include:
+- Dealer final hand
+- Player final hand
+- Result: Win / Lose / Push / BlackJack / Bust / Surrender
+- Bet amount
+- Chips won or lost
+- Insurance result if used
+- Bonus chips if earned
+- Current balance if available
+
+Example:
+
+BlackJackBot:
+🏁 Round Result
+Dealer: K♠ 7♦ 4♣ = 21
+You: 10♥ 9♣ = 19
+Result: Lose
+Bet: 500 | Lost: 500
+
+Bonus example:
+
+BlackJackBot:
+🏁 Round Result
+Dealer: 10♠ 8♦ = 18
+You: 8♥ 8♣ 5♦ = 21
+Result: Win
+Won: 1,000
+Bonus: Pair Match +250 chips
+
+Insurance example:
+
+BlackJackBot:
+🏁 Round Result
+Dealer: A♠ K♦ = 21
+You: 10♥ 9♣ = 19
+Result: Lose
+Main Bet: -1,000
+Insurance: +1,000
+Net: 0
+
+Keep messages under Highrise limit.
+If needed, split into max 2 result messages.
+
+==================================================
+PART 9 — VERIFY MATCHING-CARD BONUS DISPLAY
+==================================================
+
+Matching-card bonus should display clearly.
+
+Bonus types:
+- Pair Bonus: same rank
+- Color Pair Bonus: same rank and same color
+- Perfect Pair Bonus: same rank and same suit in multi-deck shoe
+
+Display example:
+
+BlackJackBot:
+🎁 Bonus Hit
+Pair Match: +250 chips
+
+If VIP/time-tier multiplier applies:
+
+BlackJackBot:
+🎁 Bonus Hit
+Pair Match: +250 chips
+VIP Bonus: 1.25x
+Total Bonus: +313 chips
+
+If no bonus:
+Do not show bonus line.
+
+==================================================
+PART 10 — VERIFY VIP/TIME-TIER MULTIPLIER
+==================================================
+
+Review if VIP/time-tier multiplier is connected to matching-card bonus.
+
+If missing, add safe helper:
+
+get_bj_bonus_multiplier(user_id, username) -> float
+
+Rules:
+- Return 1.0 by default.
+- If existing VIP/time-tier/rank/title/badge system exists, use it safely.
+- VIP or low tier: 1.25x
+- High tier: 1.5x
+- Never crash if system is unavailable.
+- If unavailable, /bjbonussettings should say using 1.0x.
+
+Apply multiplier only to matching-card bonus.
+Respect bonus cap after multiplier unless existing config says otherwise.
+
+==================================================
+PART 11 — VERIFY INSURANCE
+==================================================
+
+Review insurance logic.
+
+Insurance should work only when:
+- dealer upcard is Ace
+- player is in active round
+- player has not acted yet
+- player has enough balance
+- player has not already taken insurance
+- insurance setting is enabled
+
+Commands:
+- /insurance
+- /bj insurance
+- /bi
+
+If dealer upcard is not Ace:
+BlackJackBot:
+🛡️ Insurance is only available when dealer shows an Ace.
+
+If player already acted:
+BlackJackBot:
+🛡️ Insurance must be taken before your first action.
+
+Insurance bet:
+- Default half of original bet.
+- Deduct immediately.
+- Store insurance_taken, insurance_bet, insurance_resolved.
+- Persist through restart.
+- Do not double-pay after recovery.
+
+Payout:
+- If dealer has BlackJack, insurance pays 2:1 profit.
+- If dealer does not have BlackJack, insurance loses.
+- Include result in post-game screen.
+
+==================================================
+PART 12 — VERIFY SHOE/DECK SAVING ON RESTART
+==================================================
+
+Review shoe/deck persistence.
+
+Whenever BlackJack state is saved, also save:
+- current deck/shoe
+- remaining cards
+- dealer hand
+- player hands
+- round_id
+- phase
+- timer state
+
+Use existing fields if present:
+- deck_json
+- shoe_json
+- shoe_cards_remaining
+- dealer_hand_json
+
+Rules:
+- Do not overwrite active deck/shoe with [].
+- Do not set shoe_cards_remaining to 0 during active round.
+- Save after every card movement:
+  - initial deal
+  - hit
+  - double
+  - split
+  - dealer hit
+  - auto dealer draw
+  - recovery action
+  - force finish if it deals cards
+
+On recovery:
+- Restore saved deck/shoe exactly.
+- Do not call make_deck() for active round recovery.
+- Do not silently reshuffle.
+- If deck is missing/corrupt, mark recovery_required and alert staff.
+
+Update /bjshoe or /bj state to show:
+🃏 BlackJack Shoe
+Phase: round
+Deck saved: YES
+Cards remaining: 37
+Dealer cards: 2
+Players: 3
+Recovery safe: YES
+
+==================================================
+PART 13 — COMMAND ROUTING REVIEW
+==================================================
+
+Verify these commands:
+
+/commandtest /bjcards
+/commandtest /bjrules
+/commandtest /bjbonus
+/commandtest /bjbonussetting
+/commandtest /bjbonussettings
+/commandtest /setbjbonus
+/commandtest /setbjbonuscap
+/commandtest /setbjbonuspair
+/commandtest /setbjbonuscolor
+/commandtest /setbjbonusperfect
+/commandtest /insurance
+/commandtest /bi
+/commandtest /bjshoe
+
+Expected:
+route=YES
+handler=YES
+owner=BlackJackBot or BlackjackBot
+
+Do not leave owner UNKNOWN.
+
+If any command is not implemented, do not add it as active.
+
+==================================================
+PART 14 — HELP TEXT REVIEW
+==================================================
+
+Review BlackJack help pages.
+
+Help should show:
+- /bjoin <bet> or /bj join <bet>, whichever works
+- 🃏 /hit
+- 🛑 /stand
+- 💰 /double
+- ✂️ /split
+- 🛡️ /insurance, only if implemented
+- 🏳️ /surrender, only if implemented
+- /bjcards
+- /bjrules
+- /bjbonussettings
+- /bjshoe if implemented
+
+Help should not show:
+- /rjoin
+- broken commands
+- confusing RBJ wording
+
+==================================================
+PART 15 — MESSAGE LENGTH SAFETY
+==================================================
+
+No BlackJack message should get cut off.
+
+If needed, add helper:
+send_bj_safe_message(bot, text, whisper_user_id=None, max_chars=230)
+
+Use it for:
+- help
+- rules
+- card display
+- result display
+- bonus display
+- shoe status
+
+Do not split color tags badly.
+Always end colored messages with <#FFFFFF>.
+
+==================================================
+PART 16 — LIVE TESTS TO SUPPORT
+==================================================
+
+After fixes, these tests should work:
+
+1. Command test:
+/commandtest /bjcards
+/commandtest /bjrules
+/commandtest /insurance
+/commandtest /bjshoe
+/checkcommands all
+
+2. Whisper mode:
+/bjcards whisper
+/bjoin 100
+Start round
+Expected:
+- public Dealer Cards
+- private green Player Cards + Actions
+- no public player cards
+
+3. Public mode:
+/bjcards public
+/bjoin 100
+Start round
+Expected:
+- Dealer Cards message
+- Player Cards + Actions message
+- actions at bottom
+
+4. Insurance:
+Start round where dealer shows Ace.
+Use /insurance before action.
+Expected:
+- insurance bet deducted
+- payout/loss shown in result
+
+5. Shoe recovery:
+Start round.
+Use /bjshoe.
+Restart bot.
+Use /bjshoe.
+Expected:
+- deck saved
+- same round recovered
+- no fresh deck silently created
+
+6. RBJ wording:
+Use /bjhelp /bjrules /bjcards /bjshoe.
+Expected:
+- player-facing text says BlackJack, not RBJ.
+
+==================================================
+PART 17 — SAFETY
+==================================================
+
+Do not:
+- rebuild casino system from scratch
+- reset balances
+- wipe players
+- wipe casino tables unless recovery fails safely
+- break poker
+- break existing BlackJack commands
+- break recovery
+- expose tokens/secrets
+- double-pay results
+- double-pay insurance
+- double-pay bonuses
+- show broken commands in help
+- leave RBJ in player-facing text
+
+==================================================
+FINAL REPORT
+==================================================
+
+After finishing, tell me:
+
+1. Files reviewed
+2. Files changed
+3. Which previous BlackJack updates were already implemented
+4. Which previous BlackJack updates were missing or partial
+5. Why bot messages were still not fixed
+6. Whether Dealer Cards / Player Cards / Action List format is now applied
+7. Whether whisper mode is fully green
+8. Whether public mode uses 2-message layout
+9. Whether action emojis are everywhere
+10. Whether post-game result screen was fixed
+11. Whether insurance works
+12. Whether shoe/deck saves and restores
+13. Whether RBJ player-facing wording was replaced with BlackJack
+14. Commands tested
+15. Exact live tests to run

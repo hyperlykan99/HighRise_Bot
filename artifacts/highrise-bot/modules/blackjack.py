@@ -370,15 +370,16 @@ async def _start_action_phase(bot: BaseBot):
         await _finalize_round(bot)
         return
 
-    # ── Msg 1 (public): dealer upcard + action notice ─────────────────────────
+    # ── Msg 1 (public): Dealer Cards ─────────────────────────────────────────
     upcard_str = card_str(_state.dealer_hand[0]) if _state.dealer_hand else "?"
     dealer_ace = bool(_state.dealer_hand) and _state.dealer_hand[0][0] == "A"
+    dealer_up  = _card_clr(_state.dealer_hand[0]) if _state.dealer_hand else "?"
+    s_cards    = str(s.get("bj_cards_mode", "whisper")).lower()
     await bot.highrise.chat(
-        f"🃏 Dealer: {upcard_str} [?] | {timer}s | /bh /bs /bd /bsp"[:249]
+        f"🃏 Dealer Cards\nDealer: {upcard_str} [?] | Total: ? | {timer}s to act"[:249]
     )
 
-    # ── Msg 2 (whisper): green player cards + action list ─────────────────────
-    dealer_up = _card_clr(_state.dealer_hand[0]) if _state.dealer_hand else "?"
+    # ── Msg 2: Player Cards + Actions (whisper or public per bj_cards_mode) ───
     for p in _state.players:
         if not p.is_done():
             try:
@@ -396,15 +397,24 @@ async def _start_action_phase(bot: BaseBot):
                 )
                 acts = "🃏 /bh  🛑 /bs"
                 if is_first_two:
-                    acts += "  💰 /bd  ✂️ /bsp"
+                    acts += "  💰 /bd  ✂️ /bsp  🏳️ /bsurrender"
                 if ins_on and dealer_ace and not p.insurance_taken and is_first_two:
                     acts += "  🛡️ /bi"
-                wtext = (
-                    f"<#00FF66>🟢 {cards_line}\n"
-                    f"Dealer: {dealer_up} [?] | Bet: {p.total_bet():,}c\n"
-                    f"{acts}<#FFFFFF>"
-                )
-                await bot.highrise.send_whisper(p.user_id, wtext[:249])
+                if s_cards == "public":
+                    pub_text = (
+                        f"🟢 {_dn(p)}: {cards_line}\n"
+                        f"Dealer: {upcard_str} [?] | Bet: {p.total_bet():,}c\n"
+                        f"{acts}"
+                    )
+                    await bot.highrise.chat(pub_text[:249])
+                else:
+                    wtext = (
+                        f"<#00FF66>🟢 Player Cards\n"
+                        f"You: {cards_line}\n"
+                        f"Dealer: {dealer_up} [?] | Bet: {p.total_bet():,}c\n"
+                        f"{acts}<#FFFFFF>"
+                    )
+                    await bot.highrise.send_whisper(p.user_id, wtext[:249])
             except Exception:
                 pass
 
@@ -575,6 +585,19 @@ async def _finalize_round(bot: BaseBot):
                         total_net -= hbet
                         result_parts.append(f"H{i+1} bust")
                         if round_id:
+                            db.mark_result_paid("bj", round_id, hkey)
+
+                    elif hst == "surrendered":
+                        # Balance refund already paid in _cmd_surrender; record stats only
+                        half      = hbet // 2
+                        net_loss  = -(hbet - half)
+                        db.update_bj_stats(p.user_id, loss=1, bet=hbet, lost=hbet - half)
+                        db.add_bj_daily_net(p.user_id, net_loss)
+                        total_net += net_loss
+                        result_parts.append(f"H{i+1} surrender")
+                        if round_id:
+                            db.save_round_result("bj", round_id, hkey, p.user_id,
+                                                 hbet, "surrender", half, net_loss)
                             db.mark_result_paid("bj", round_id, hkey)
 
                     elif hst == "blackjack":
@@ -931,6 +954,8 @@ async def handle_bj(bot: BaseBot, user: User, args: list[str]):
             await _cmd_limits(bot, user)
         elif sub == "leaderboard":
             await _cmd_leaderboard(bot, user)
+        elif sub in ("surrender", "sur"):
+            await _cmd_surrender(bot, user)
         elif sub == "settings":
             await _cmd_settings(bot, user)
         elif sub == "on":
@@ -1498,6 +1523,36 @@ async def _cmd_leaderboard(bot: BaseBot, user: User):
         sign = "+" if net >= 0 else ""
         lines.append(f"{i}. {name}  {sign}{net:,}c")
     await bot.highrise.send_whisper(user.id, "\n".join(lines)[:249])
+
+
+async def _cmd_surrender(bot: BaseBot, user: User):
+    if _state.phase != "round":
+        await bot.highrise.send_whisper(user.id, "No BlackJack round active.")
+        return
+    p = _state.get_player(user.id)
+    if p is None:
+        await bot.highrise.send_whisper(user.id, "You are not in this game.")
+        return
+    h = p.current_hand()
+    if h is None or h["status"] != "active":
+        await bot.highrise.send_whisper(user.id, "No active hand to surrender.")
+        return
+    if len(h["cards"]) != 2 or p.split_count > 0:
+        await bot.highrise.send_whisper(
+            user.id, "🏳️ Surrender only on first 2 cards (no split).")
+        return
+    refund = h["bet"] // 2
+    h["status"] = "surrendered"
+    db.adjust_balance(p.user_id, refund)
+    db.add_ledger_entry(p.user_id, p.username, refund, "bj_surrender_refund")
+    _save_player_state(p)
+    _save_table_state()
+    await bot.highrise.chat(
+        f"🏳️ {_dn(p)} surrenders. {refund:,}c returned."[:249]
+    )
+    p.advance_hand()
+    _save_player_state(p)
+    await _check_and_resolve(bot)
 
 
 async def _cmd_cancel(bot: BaseBot, user: User):

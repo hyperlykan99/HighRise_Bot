@@ -622,6 +622,9 @@ REGISTRY: dict[str, Cmd] = {
     "setbjbonusperfect":    Cmd("blackjack","casino",False,False,True, perm="manager"),
     "setbjinsurance":       Cmd("blackjack","casino",False,False,True, perm="manager"),
 
+    # ── BJ surrender (blackjack bot) ─────────────────────────────────────────
+    "bsurrender":       Cmd("blackjack","casino",  True,  False, True),
+
     # ── System dashboard (host) ───────────────────────────────────────────────
     "botdashboard":     Cmd("host",    "system",  False, True,  False, perm="manager",
                             aliases=("botsystem",)),

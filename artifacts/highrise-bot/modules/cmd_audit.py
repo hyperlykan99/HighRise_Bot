@@ -464,6 +464,8 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     # ── Big announcement ─────────────────────────────────────────────────────
     "bigannounce", "bigannouncestatus", "setbigannounce",
     "setbigreact", "setbotbigreact",
+    # ── BJ surrender ─────────────────────────────────────────────────────────
+    "bsurrender",
     # ── System dashboard ─────────────────────────────────────────────────────
     "botdashboard", "botsystem",
     # ── Reward center (banker) ───────────────────────────────────────────────

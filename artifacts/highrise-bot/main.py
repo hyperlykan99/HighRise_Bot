@@ -1145,41 +1145,39 @@ EVENT_HELP_PAGES = [
 BJ_HELP_PAGES = [
     (
         "🃏 Blackjack\n"
-        "/bjoin <bet> - join\n"
-        "/bh - hit  /bs - stand\n"
-        "/bd - double  /bsp - split\n"
-        "/bhand - hand  /bt - table\n"
-        "/bjcards - card display\n"
-        "/bjrules - table rules\n"
-        "/bjbonussettings - bonus info"
+        "/bjoin <bet> — join table\n"
+        "🃏 /bh hit  🛑 /bs stand\n"
+        "💰 /bd double  ✂️ /bsp split\n"
+        "🛡️ /bi insurance  🏳️ /bsurrender\n"
+        "/bjcards whisper|public\n"
+        "/bjrules  /bjbonussettings"
     ),
     (
         "🃏 BJ Stats & Limits\n"
-        "/blimits - daily limits\n"
-        "/bstats - your BJ stats\n"
-        "Staff: /bj on/off\n"
-        "/bj recover | /bj refund\n"
-        "/bj state | /setbjlimits\n"
-        "/setbjbonus /setbjbonuscap"
+        "/bhand — view your hand\n"
+        "/bt — table status\n"
+        "/blimits — daily limits\n"
+        "/bstats — your BJ stats\n"
+        "/bjshoe — deck status\n"
+        "Staff: /bj on/off  /bj recover"
     ),
 ]
 
 RBJ_HELP_PAGES = [
     (
-        "🃏 RBJ Bot\n"
-        "/rjoin bet - join\n"
-        "/rh - hit\n"
-        "/rs - stand\n"
-        "/rd - double\n"
-        "/rsp - split\n"
-        "/rhand - hand\n"
-        "/rshoe - shoe"
+        "🃏 BlackJack (Shoe)\n"
+        "/rjoin <bet> — join table\n"
+        "🃏 /rh hit  🛑 /rs stand\n"
+        "💰 /rd double  ✂️ /rsp split\n"
+        "/rhand — view hand\n"
+        "/rshoe — shoe status\n"
+        "/rt — table status"
     ),
     (
-        "🃏 RBJ Bot 2\n"
-        "/rt - table info\n"
-        "/rlimits - daily limits\n"
-        "/rstats - your RBJ stats\n"
+        "🃏 BlackJack Shoe 2\n"
+        "/rlimits — daily limits\n"
+        "/rstats — your stats\n"
+        "/bjrules — table rules\n"
         "Staff: /rbj on/off\n"
         "/rbj recover | /rbj refund\n"
         "/rbj state | /setrbjlimits"
@@ -1786,10 +1784,10 @@ async def _handle_bankerhelp(bot, user, _args):
 async def _handle_howtoplay(bot, user, _args=None):
     """How-to-play / game guide — whispered to caller."""
     lines = [
-        "🃏 Games: RBJ → /rjoin <bet>  Casual BJ → /bjoin <bet>  Poker → /p <buyin>",
-        "🎯 RBJ: /hit /stand /double /split /shoe | /bjbet <amount> to join",
+        "🃏 Games: BlackJack → /bjoin <bet>  Shoe BJ → /rjoin <bet>  Poker → /p <buyin>",
+        "🃏 BlackJack: 🃏/bh hit  🛑/bs stand  💰/bd double  ✂️/bsp split | /bjhelp",
         "♠️ Poker: /call /raise /fold /check /allin | /poker for table status",
-        "💰 Economy: /daily /balance /shop | /rbjhelp for full BJ rules",
+        "💰 Economy: /daily /balance /shop | /bjhelp /rbjhelp for rules",
     ]
     for line in lines:
         await bot.highrise.send_whisper(user.id, line[:249])
@@ -3442,8 +3440,8 @@ class HangoutBot(BaseBot):
             else:
                 await handle_rbj(self, user, ["rbj", "insurance"])
 
-        elif cmd == "surrender":
-            await handle_rbj(self, user, ["rbj", "surrender"])
+        elif cmd in {"surrender", "bsurrender"}:
+            await handle_bj(self, user, ["bj", "surrender"])
 
         elif cmd == "bjshoe":
             await handle_bj_shoe(self, user)
