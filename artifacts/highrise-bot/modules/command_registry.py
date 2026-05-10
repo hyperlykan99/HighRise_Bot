@@ -621,6 +621,38 @@ REGISTRY: dict[str, Cmd] = {
     "setbjbonuscolor":      Cmd("blackjack","casino",False,False,True, perm="manager"),
     "setbjbonusperfect":    Cmd("blackjack","casino",False,False,True, perm="manager"),
     "setbjinsurance":       Cmd("blackjack","casino",False,False,True, perm="manager"),
+
+    # ── System dashboard (host) ───────────────────────────────────────────────
+    "botdashboard":     Cmd("host",    "system",  False, True,  False, perm="manager",
+                            aliases=("botsystem",)),
+
+    # ── Reward center (banker) ────────────────────────────────────────────────
+    "rewardpending":    Cmd("banker",  "rewards", False, True,  False, perm="manager",
+                            aliases=("pendingrewards",)),
+    "rewardlogs":       Cmd("banker",  "rewards", False, True,  False, perm="manager"),
+    "markrewardpaid":   Cmd("banker",  "rewards", False, False, True,  perm="manager"),
+    "economyreport":    Cmd("banker",  "economy", False, True,  False, perm="manager"),
+
+    # ── Event presets (eventhost) ─────────────────────────────────────────────
+    "eventpreset":      Cmd("eventhost","events", False, False, True,  perm="manager"),
+
+    # ── Player onboarding aliases (host) ──────────────────────────────────────
+    "begin":            Cmd("host",    "help",    True,  True,  False, aliases=("newplayer",)),
+
+    # ── Daily quest aliases (banker) ──────────────────────────────────────────
+    "dailies":          Cmd("banker",  "quests",  True,  True,  False),
+    "claimdaily":       Cmd("banker",  "quests",  True,  False, True),
+
+    # ── Staff audit log (security) ────────────────────────────────────────────
+    "auditlog":         Cmd("security","audit",   False, True,  False, perm="staff"),
+
+    # ── Weekly leaderboard (host + banker) ────────────────────────────────────
+    "weeklylb":         Cmd("host",    "economy", True,  True,  False,
+                            aliases=("weeklyleaderboard",)),
+    "weeklyreset":      Cmd("banker",  "economy", False, False, True,  perm="manager"),
+    "weeklyrewards":    Cmd("banker",  "economy", False, True,  False, perm="manager"),
+    "setweeklyreward":  Cmd("banker",  "economy", False, False, True,  perm="manager"),
+    "weeklystatus":     Cmd("banker",  "economy", False, True,  False, perm="manager"),
 }
 
 # ---------------------------------------------------------------------------

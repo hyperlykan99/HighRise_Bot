@@ -1616,6 +1616,38 @@ def _migrate_db():
         "won_at TEXT NOT NULL DEFAULT (datetime('now')))",
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_ffrw_race_user "
         "ON first_find_race_winners(race_id, user_id)",
+        # ── Staff audit log ────────────────────────────────────────────────────
+        "CREATE TABLE IF NOT EXISTS staff_audit_logs ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "actor_user_id TEXT NOT NULL DEFAULT '', "
+        "actor_username TEXT NOT NULL DEFAULT '', "
+        "action_type TEXT NOT NULL DEFAULT '', "
+        "target_user_id TEXT NOT NULL DEFAULT '', "
+        "target_username TEXT NOT NULL DEFAULT '', "
+        "details TEXT NOT NULL DEFAULT '', "
+        "created_at TEXT NOT NULL DEFAULT (datetime('now')))",
+        # ── Weekly leaderboard snapshots ───────────────────────────────────────
+        "CREATE TABLE IF NOT EXISTS weekly_leaderboard_snapshots ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "week_start TEXT NOT NULL DEFAULT '', "
+        "week_end TEXT NOT NULL DEFAULT '', "
+        "category TEXT NOT NULL DEFAULT '', "
+        "rank INTEGER NOT NULL DEFAULT 1, "
+        "user_id TEXT NOT NULL DEFAULT '', "
+        "username TEXT NOT NULL DEFAULT '', "
+        "score TEXT NOT NULL DEFAULT '', "
+        "reward_status TEXT NOT NULL DEFAULT 'pending', "
+        "created_at TEXT NOT NULL DEFAULT (datetime('now')))",
+        # ── Weekly reward config ───────────────────────────────────────────────
+        "CREATE TABLE IF NOT EXISTS weekly_rewards ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "category TEXT NOT NULL DEFAULT '', "
+        "rank INTEGER NOT NULL DEFAULT 1, "
+        "reward_type TEXT NOT NULL DEFAULT 'coins', "
+        "reward_amount INTEGER NOT NULL DEFAULT 0, "
+        "enabled INTEGER NOT NULL DEFAULT 1)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_weekly_rewards_cat_rank "
+        "ON weekly_rewards(category, rank)",
     ]:
         try:
             conn.execute(sql)
@@ -9497,3 +9529,305 @@ def mark_big_announce_reacted(log_id: int, bot_friendly: str) -> None:
     )
     conn.commit()
     conn.close()
+
+
+# ── Staff audit log ────────────────────────────────────────────────────────────
+
+def log_staff_action(
+    actor_user_id: str,
+    actor_username: str,
+    action_type: str,
+    target_user_id: str,
+    target_username: str,
+    details: str,
+) -> None:
+    """Write a staff action to staff_audit_logs."""
+    conn = get_connection()
+    conn.execute(
+        """INSERT INTO staff_audit_logs
+           (actor_user_id, actor_username, action_type,
+            target_user_id, target_username, details)
+           VALUES (?, ?, ?, ?, ?, ?)""",
+        (actor_user_id, actor_username, action_type,
+         target_user_id, target_username, details),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_staff_audit_logs(action_type: str | None = None, limit: int = 10) -> list:
+    """Return recent staff audit log entries, optionally filtered by action_type."""
+    conn = get_connection()
+    if action_type:
+        rows = conn.execute(
+            "SELECT * FROM staff_audit_logs "
+            "WHERE action_type=? ORDER BY created_at DESC LIMIT ?",
+            (action_type, limit),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT * FROM staff_audit_logs ORDER BY created_at DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+# ── Economy report ─────────────────────────────────────────────────────────────
+
+def get_economy_report_today() -> dict:
+    """Return a snapshot of today's economy activity from available logs."""
+    conn = get_connection()
+
+    fish_earned = conn.execute(
+        "SELECT COALESCE(SUM(final_value), 0) FROM fish_catch_records "
+        "WHERE DATE(caught_at) = DATE('now')"
+    ).fetchone()[0] or 0
+
+    gold_converted = conn.execute(
+        "SELECT COALESCE(SUM(gold_amount), 0) FROM gold_tip_events "
+        "WHERE DATE(created_at) = DATE('now')"
+    ).fetchone()[0] or 0
+
+    race_gold_today = conn.execute(
+        "SELECT COALESCE(SUM(gold_amount), 0) FROM first_find_race_winners "
+        "WHERE DATE(won_at) = DATE('now')"
+    ).fetchone()[0] or 0
+
+    p2p_transfers = conn.execute(
+        "SELECT COUNT(*) FROM bank_transactions "
+        "WHERE DATE(timestamp) = DATE('now')"
+    ).fetchone()[0] or 0
+
+    pending_count = conn.execute(
+        "SELECT COUNT(*) FROM first_find_race_winners "
+        "WHERE payout_status='pending_manual_gold'"
+    ).fetchone()[0] or 0
+
+    conn.close()
+    return {
+        "fish_earned_today":     fish_earned,
+        "gold_converted_today":  gold_converted,
+        "race_gold_today":       race_gold_today,
+        "p2p_transfers_today":   p2p_transfers,
+        "pending_gold_count":    pending_count,
+    }
+
+
+# ── Weekly leaderboard ─────────────────────────────────────────────────────────
+
+def get_weekly_leaderboard_data(week_start: str) -> dict:
+    """Compute current week's leaders per category from available tables."""
+    result: dict = {}
+    conn = get_connection()
+
+    # Top Fisher — fish_catch_records (has caught_at)
+    try:
+        row = conn.execute(
+            """SELECT user_id, username, COUNT(*) AS cnt
+               FROM fish_catch_records
+               WHERE DATE(caught_at) >= DATE(?)
+               GROUP BY user_id ORDER BY cnt DESC LIMIT 1""",
+            (week_start,),
+        ).fetchone()
+        if row:
+            result["fisher"] = {
+                "user_id":  row["user_id"],
+                "username": row["username"],
+                "score":    f"{row['cnt']} catches",
+            }
+    except Exception:
+        pass
+
+    # Top Race Winner — first_find_race_winners (has won_at)
+    try:
+        row = conn.execute(
+            """SELECT user_id, username, COUNT(*) AS cnt
+               FROM first_find_race_winners
+               WHERE DATE(won_at) >= DATE(?)
+               GROUP BY user_id ORDER BY cnt DESC LIMIT 1""",
+            (week_start,),
+        ).fetchone()
+        if row:
+            result["racer"] = {
+                "user_id":  row["user_id"],
+                "username": row["username"],
+                "score":    f"{row['cnt']} wins",
+            }
+    except Exception:
+        pass
+
+    # Top Tipper — gold_tip_events (has created_at)
+    try:
+        row = conn.execute(
+            """SELECT from_user_id AS user_id, from_username AS username,
+                      SUM(gold_amount) AS total_g
+               FROM gold_tip_events
+               WHERE DATE(created_at) >= DATE(?)
+               GROUP BY from_user_id ORDER BY total_g DESC LIMIT 1""",
+            (week_start,),
+        ).fetchone()
+        if row:
+            result["tipper"] = {
+                "user_id":  row["user_id"],
+                "username": row["username"],
+                "score":    f"{row['total_g']:g}g",
+            }
+    except Exception:
+        pass
+
+    # Top Coin Earner — bank_transactions this week
+    try:
+        row = conn.execute(
+            """SELECT receiver_id AS user_id, receiver_username AS username,
+                      SUM(amount_received) AS total_r
+               FROM bank_transactions
+               WHERE DATE(timestamp) >= DATE(?)
+               GROUP BY receiver_id ORDER BY total_r DESC LIMIT 1""",
+            (week_start,),
+        ).fetchone()
+        if row:
+            result["earner"] = {
+                "user_id":  row["user_id"],
+                "username": row["username"],
+                "score":    f"{int(row['total_r']):,}c",
+            }
+    except Exception:
+        pass
+
+    # Top Miner — mining_players all-time (no weekly filter available)
+    try:
+        row = conn.execute(
+            "SELECT username, total_mines FROM mining_players "
+            "ORDER BY total_mines DESC LIMIT 1"
+        ).fetchone()
+        if row:
+            result["miner"] = {
+                "user_id":  "",
+                "username": row["username"],
+                "score":    f"{row['total_mines']} mines",
+            }
+    except Exception:
+        pass
+
+    conn.close()
+    return result
+
+
+def save_weekly_snapshot(
+    week_start: str,
+    week_end: str,
+    category: str,
+    rank: int,
+    user_id: str,
+    username: str,
+    score: str,
+) -> None:
+    """Archive a weekly winner snapshot."""
+    conn = get_connection()
+    conn.execute(
+        """INSERT INTO weekly_leaderboard_snapshots
+           (week_start, week_end, category, rank, user_id, username, score)
+           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+        (week_start, week_end, category, rank, user_id, username, score),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_latest_weekly_snapshot() -> dict | None:
+    """Return the most recent weekly snapshot row."""
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT * FROM weekly_leaderboard_snapshots ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def set_weekly_reward(
+    category: str,
+    rank: int,
+    reward_type: str,
+    amount: int,
+) -> None:
+    """Upsert a weekly reward config entry."""
+    conn = get_connection()
+    conn.execute(
+        """INSERT INTO weekly_rewards (category, rank, reward_type, reward_amount, enabled)
+           VALUES (?, ?, ?, ?, 1)
+           ON CONFLICT(category, rank) DO UPDATE SET
+               reward_type=excluded.reward_type,
+               reward_amount=excluded.reward_amount,
+               enabled=1""",
+        (category, rank, reward_type, amount),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_weekly_rewards() -> list:
+    """Return all configured weekly reward rows."""
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT * FROM weekly_rewards ORDER BY category, rank"
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+# ── Race winner reward helpers ─────────────────────────────────────────────────
+
+def mark_race_winner_paid_manual(winner_id: int, paid_by: str) -> bool:
+    """Mark a first_find_race_winners row as paid_manual. Returns True if found."""
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT id, payout_status FROM first_find_race_winners WHERE id=?",
+        (winner_id,),
+    ).fetchone()
+    if not row:
+        conn.close()
+        return False
+    conn.execute(
+        "UPDATE first_find_race_winners "
+        "SET payout_status='paid_manual', payout_error=? WHERE id=?",
+        (f"paid_by:{paid_by}", winner_id),
+    )
+    conn.commit()
+    conn.close()
+    return True
+
+
+def get_pending_race_winners_by_username(username: str, limit: int = 10) -> list:
+    """Return pending_manual_gold rows for a given username."""
+    conn = get_connection()
+    rows = conn.execute(
+        """SELECT * FROM first_find_race_winners
+           WHERE LOWER(username)=? AND payout_status='pending_manual_gold'
+           ORDER BY won_at DESC LIMIT ?""",
+        (username.lower(), limit),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_recent_race_winners(limit: int = 10) -> list:
+    """Return most recent race winner rows ordered by won_at DESC."""
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT * FROM first_find_race_winners ORDER BY won_at DESC LIMIT ?",
+        (limit,),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_race_wins_count(user_id: str) -> int:
+    """Return total first-find race wins for a user."""
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT COUNT(*) FROM first_find_race_winners WHERE user_id=?",
+        (user_id,),
+    ).fetchone()
+    conn.close()
+    return row[0] if row else 0

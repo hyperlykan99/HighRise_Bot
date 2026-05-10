@@ -235,12 +235,18 @@ def _build_page2(uid: str, uname: str, p: dict, privacy: dict,
         streak = ds.get("streak", 0)
     except Exception:
         pass
+    race_wins = 0
+    try:
+        race_wins = db.get_race_wins_count(uid)
+    except Exception:
+        pass
     lines = [
         f"💰 Economy — @{uname}",
         f"Coins: {fmt_coins(balance)}",
         f"Earned: {fmt_coins(earned)} | Wins: {wins}",
         f"Sent: {fmt_coins(sent)} | Recv: {fmt_coins(recv)}",
-        f"Streak: {streak}d  More: /profile @{uname} 3",
+        f"Race Wins: {race_wins} | Streak: {streak}d",
+        f"More: /profile @{uname} 3",
     ]
     return "\n".join(lines)[:249]
 

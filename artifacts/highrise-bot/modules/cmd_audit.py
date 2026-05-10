@@ -464,6 +464,22 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     # ── Big announcement ─────────────────────────────────────────────────────
     "bigannounce", "bigannouncestatus", "setbigannounce",
     "setbigreact", "setbotbigreact",
+    # ── System dashboard ─────────────────────────────────────────────────────
+    "botdashboard", "botsystem",
+    # ── Reward center (banker) ───────────────────────────────────────────────
+    "rewardpending", "pendingrewards", "rewardlogs", "markrewardpaid",
+    "economyreport",
+    # ── Event presets ────────────────────────────────────────────────────────
+    "eventpreset",
+    # ── Player onboarding aliases ────────────────────────────────────────────
+    "begin", "newplayer",
+    # ── Daily quest aliases ──────────────────────────────────────────────────
+    "dailies", "claimdaily",
+    # ── Staff audit log ──────────────────────────────────────────────────────
+    "auditlog",
+    # ── Weekly leaderboard ───────────────────────────────────────────────────
+    "weeklylb", "weeklyleaderboard", "weeklyreset",
+    "weeklyrewards", "setweeklyreward", "weeklystatus",
 })
 
 # ---------------------------------------------------------------------------
@@ -1308,3 +1324,38 @@ async def handle_commandtestgroup(
     print(f"[TESTGROUP] @{user.username} group={group}: "
           f"{len(ok)}/{total} ok  bad={bad[:8]}")
     await _w(bot, user.id, summary[:249])
+
+# ---------------------------------------------------------------------------
+# /auditlog [type] — staff audit log viewer
+# ---------------------------------------------------------------------------
+
+async def handle_auditlog(bot, user, args: list[str]) -> None:
+    """/auditlog [type] — view staff action audit log. Security-owned."""
+    import database as _db
+    from modules.permissions import can_moderate
+    if not can_moderate(user.username):
+        await _w(bot, user.id, "Staff only.")
+        return
+
+    filter_type: str | None = None
+    if len(args) >= 2:
+        filter_type = args[1].lower()
+
+    rows = _db.get_staff_audit_logs(action_type=filter_type, limit=10)
+    if not rows:
+        if filter_type:
+            await _w(bot, user.id, f"No audit logs for type: {filter_type}")
+        else:
+            await _w(bot, user.id, "📋 No staff audit logs yet.")
+        return
+
+    lines = ["📋 Staff Audit Log"]
+    if filter_type:
+        lines[0] += f" [{filter_type}]"
+    for r in rows:
+        ts  = str(r.get("created_at", ""))[:10]
+        act = r.get("actor_username", "?")
+        typ = r.get("action_type", "?")[:16]
+        det = r.get("details", "")[:30]
+        lines.append(f"{ts} @{act}: {typ} {det}")
+    await _w(bot, user.id, "\n".join(lines)[:249])

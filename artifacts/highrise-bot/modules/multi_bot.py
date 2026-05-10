@@ -541,6 +541,24 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     # ── big announcement ─────────────────────────────────────────────────────
     "bigannounce": "host", "bigannouncestatus": "host",
     "setbigannounce": "host", "setbigreact": "host", "setbotbigreact": "host",
+    # ── system dashboard ─────────────────────────────────────────────────────
+    "botdashboard": "host", "botsystem": "host",
+    # ── reward center ────────────────────────────────────────────────────────
+    "rewardpending": "banker", "pendingrewards": "banker",
+    "rewardlogs": "banker", "markrewardpaid": "banker",
+    "economyreport": "banker",
+    # ── event presets ─────────────────────────────────────────────────────────
+    "eventpreset": "eventhost",
+    # ── player onboarding aliases ─────────────────────────────────────────────
+    "begin": "host", "newplayer": "host",
+    # ── daily quest aliases ───────────────────────────────────────────────────
+    "dailies": "banker", "claimdaily": "banker",
+    # ── staff audit log ───────────────────────────────────────────────────────
+    "auditlog": "security",
+    # ── weekly leaderboard ────────────────────────────────────────────────────
+    "weeklylb": "host", "weeklyleaderboard": "host",
+    "weeklyreset": "banker", "weeklyrewards": "banker",
+    "setweeklyreward": "banker", "weeklystatus": "banker",
 }
 
 # Friendly display names for modes

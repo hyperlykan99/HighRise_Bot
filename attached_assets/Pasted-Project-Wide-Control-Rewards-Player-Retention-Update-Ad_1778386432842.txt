@@ -1,0 +1,720 @@
+Project-Wide Control + Rewards + Player Retention Update
+
+Add these systems to improve the whole bot project:
+
+1. Master /dashboard
+2. Pending reward center
+3. Anti-inflation economy report
+4. Event presets
+5. Player onboarding /start
+6. Daily quests
+7. Staff audit log
+8. Player profile summary
+9. Weekly leaderboard reset event
+
+Do NOT add room announcement cooldown.
+Do NOT add:
+/announcecooldown
+/setannouncecooldown
+
+Do not change bot tokens.
+Do not change room ID.
+Do not reset balances.
+Do not wipe player data.
+Do not wipe mining/fishing/casino/event records.
+Do not break mining, fishing, blackjack, poker, bank, events, gold tips, First Find Race, bot outfits, bot spawns, or command routing.
+
+==================================================
+PART 1 — MASTER DASHBOARD
+==================================================
+
+Add command:
+
+/dashboard
+
+Owner:
+EmceeBot or HostBot
+
+Permission:
+Manager+
+
+Purpose:
+Show full bot system health in one place.
+
+Example:
+
+EmceeBot:
+📊 Bot Dashboard
+
+Bots:
+EmceeBot ✅
+BankerBot ✅
+GreatestProspector ✅
+MasterAngler ✅
+BlackjackBot ✅
+PokerBot ✅
+SecurityBot ✅
+
+Systems:
+Mining ✅
+Fishing ✅
+Auto Events ✅
+First Find Race ✅
+Gold Tips ✅
+Blackjack ✅
+Poker ✅
+Security ✅
+
+Warnings:
+Pending manual rewards: 2
+Command issues: 0
+Next auto event: Lucky Rush in 24m
+
+Dashboard should show:
+- online/offline status if detectable
+- command issues count
+- pending rewards count
+- current active event
+- next auto event
+- active First Find Race
+- AutoMine/AutoFish status
+- Blackjack/Poker table status
+- economy warning if available
+
+If a system cannot be checked, show:
+Unknown
+
+Do not crash.
+
+==================================================
+PART 2 — PENDING REWARD CENTER
+==================================================
+
+Add commands:
+
+/rewardpending
+/pendingrewards
+/rewardlogs
+/markrewardpaid <id>
+/markrewardpaid @username
+
+Owner:
+BankerBot
+
+Permission:
+Manager+
+
+Purpose:
+One place to view and manage rewards that need manual payout.
+
+Include:
+- First Find Race rewards
+- gold tips
+- bot tip rewards
+- event rewards
+- pending manual gold tips
+- failed payouts
+
+Statuses:
+- pending_manual_gold
+- paid_gold
+- paid_manual
+- failed
+- duplicate_ignored
+
+/rewardpending example:
+
+BankerBot:
+💰 Pending Rewards
+1. #14 @Player — First Find Race — 5g — pending_manual_gold
+2. #15 @Player2 — Event Reward — 10g — pending_manual_gold
+
+Use:
+/markrewardpaid 14
+
+/markrewardpaid should:
+- mark reward as paid_manual
+- save paid_at
+- save paid_by username
+- not send duplicate gold
+- not delete the record
+
+/rewardlogs should show recent rewards.
+
+==================================================
+PART 3 — ANTI-INFLATION ECONOMY REPORT
+==================================================
+
+Add command:
+
+/economyreport
+
+Owner:
+BankerBot
+
+Permission:
+Manager+
+
+Purpose:
+Show owner if the economy is healthy.
+
+Report should include:
+- coins created today
+- coins removed today
+- net coin change today
+- biggest coin payouts today
+- top earners today
+- top spenders today
+- gold rewards logged today
+- pending manual gold rewards
+- mining payouts today
+- fishing payouts today
+- blackjack net paid/lost if available
+- poker net paid/lost if available
+- warning if inflation is high
+
+Example:
+
+BankerBot:
+📈 Economy Report
+Coins Created Today: 2,450,000
+Coins Removed Today: 800,000
+Net Inflation: +1,650,000
+
+Top Sources:
+1. Mining: 1,200,000
+2. Fishing: 750,000
+3. Blackjack: 500,000
+
+Top Sinks:
+1. Shop: 400,000
+2. Poker Fees: 250,000
+3. Upgrades: 150,000
+
+Warning:
+⚠️ High coin creation today.
+
+If data is unavailable, show Unknown instead of crashing.
+
+==================================================
+PART 4 — EVENT PRESETS
+==================================================
+
+Add commands:
+
+/eventpreset
+/eventpreset chill
+/eventpreset hype
+/eventpreset jackpot
+/eventpreset fishing
+/eventpreset mining
+
+Owner:
+EventBot
+
+Permission:
+Manager+
+
+Purpose:
+Start common event setups fast.
+
+If auto-event system already exists, use existing event start functions.
+
+Preset ideas:
+
+chill:
+- Lucky Rush
+- Double MXP
+- low announcement intensity
+
+hype:
+- Lucky Rush
+- Heavy Ore Rush
+- First Find Race suggestion
+- Prismatic announcements
+
+jackpot:
+- Ore Value Surge
+- Prismatic Hunt
+- First Find Race suggestion
+- big announcements enabled for Prismatic/Exotic
+
+fishing:
+- Fishing Luck event
+- Fishing Value event if available
+- First Catch Race suggestion
+
+mining:
+- Mining Rush
+- Ore Value Surge
+- First Find Race suggestion
+
+/eventpreset with no args should show available presets.
+
+Example:
+
+EventBot:
+🎉 Event Presets
+/eventpreset chill
+/eventpreset hype
+/eventpreset jackpot
+/eventpreset fishing
+/eventpreset mining
+
+When starting preset:
+EventBot:
+🎉 Jackpot Preset Started
+Events:
+- Ore Value Surge
+- Prismatic Hunt
+Suggested:
+Start /setfirstfind mining prismatic 1 5
+
+Do not force a First Find Race unless preset is designed to start it automatically.
+If unsure, only suggest it.
+
+==================================================
+PART 5 — PLAYER ONBOARDING COMMAND
+==================================================
+
+Add command:
+
+/start
+
+Owner:
+EmceeBot
+
+Permission:
+Everyone
+
+Purpose:
+Help new players know what to do.
+
+Example:
+
+EmceeBot:
+👋 Welcome to the room!
+
+Start here:
+⛏️ Mine: /mine
+🎣 Fish: /fish
+💰 Balance: /bal
+🛒 Shop: /shop
+🎮 Games: /bj /poker
+🎉 Events: /events
+🏆 Races: /firstfindstatus
+❓ Help: /help
+
+Tip:
+Try /profile to see your progress.
+
+Keep message short enough for Highrise.
+
+Aliases:
+- /begin
+- /newplayer
+
+If aliases are added, register them properly.
+
+==================================================
+PART 6 — DAILY QUESTS
+==================================================
+
+Add command:
+
+/daily
+/dailies
+/claimdaily
+
+Owner:
+EmceeBot or BankerBot
+
+Recommended owner:
+BankerBot for rewards
+EmceeBot can announce completion if needed
+
+Permission:
+Everyone
+
+Purpose:
+Give players daily goals.
+
+Daily quest examples:
+- Mine 25 times = 5,000 coins
+- Catch 15 fish = 3,000 coins
+- Play 3 blackjack rounds = 2,000 coins
+- Play 3 poker rounds = 2,000 coins
+- Tip any bot 1g = 1,000 bonus coins
+- Join First Find Race = 2,000 coins
+
+Use existing activity logs if possible:
+- mining records
+- fish catch records
+- blackjack rounds
+- poker rounds
+- bot tip logs
+- first find race participation
+
+If no logs exist for a quest, skip that quest or mark as unavailable.
+
+Daily reset:
+Every 24 hours based on server date.
+
+Database:
+daily_quests:
+- id INTEGER PRIMARY KEY AUTOINCREMENT
+- quest_key TEXT
+- description TEXT
+- reward_coins INTEGER
+- enabled INTEGER
+- created_at TEXT
+
+daily_quest_progress:
+- id INTEGER PRIMARY KEY AUTOINCREMENT
+- user_id TEXT
+- username TEXT
+- quest_key TEXT
+- progress INTEGER
+- target INTEGER
+- completed INTEGER
+- claimed INTEGER
+- quest_date TEXT
+- updated_at TEXT
+
+/daily example:
+
+BankerBot:
+📅 Daily Quests
+1. Mine 25 times: 12/25 — Reward 5,000c
+2. Catch 15 fish: 4/15 — Reward 3,000c
+3. Play 3 BJ rounds: 0/3 — Reward 2,000c
+
+Use /claimdaily when complete.
+
+/claimdaily:
+- pays completed unclaimed daily rewards
+- prevents double claiming
+- updates balance
+- logs payout
+
+==================================================
+PART 7 — STAFF AUDIT LOG
+==================================================
+
+Add commands:
+
+/auditlog
+/auditlog gold
+/auditlog events
+/auditlog security
+/auditlog economy
+/auditlog force
+/auditlog staff
+
+Owner:
+SecurityBot or EmceeBot
+
+Recommended owner:
+SecurityBot
+
+Permission:
+Manager+
+
+Purpose:
+Track important staff actions.
+
+Log:
+- gold tips
+- reward paid/manual marked
+- First Find Race started/stopped/reset
+- force drops
+- event started/stopped
+- economy cap changes
+- mute/unmute/ban/security actions
+- AutoMine/AutoFish global setting changes
+- blackjack/poker resets/refunds
+- command registry repair if available
+
+Database:
+staff_audit_logs:
+- id INTEGER PRIMARY KEY AUTOINCREMENT
+- actor_user_id TEXT
+- actor_username TEXT
+- action_type TEXT
+- target_user_id TEXT
+- target_username TEXT
+- details TEXT
+- created_at TEXT
+
+/auditlog example:
+
+SecurityBot:
+🛡️ Staff Audit Log
+1. @Manager started First Find Race — 2m ago
+2. @Owner goldtip @Player 5g — 10m ago
+3. @Owner forcedropfish @Player exotic — 18m ago
+
+Do not expose private tokens/secrets.
+
+==================================================
+PART 8 — PLAYER PROFILE SUMMARY
+==================================================
+
+Add command:
+
+/profile
+/profile @username
+
+Owner:
+EmceeBot
+
+Permission:
+Everyone
+
+Purpose:
+Show player progress in one clean profile.
+
+Profile should include if available:
+- coins
+- mining level
+- mining EXP
+- best ore
+- fishing level
+- fishing EXP
+- best fish
+- blackjack stats
+- poker stats
+- badges
+- titles
+- tips given
+- bot tips given
+- First Find Race wins
+- weekly leaderboard rank if available
+
+Example:
+
+EmceeBot:
+👤 Player Profile: @Player
+Coins: 125,000
+Mining: Lv. 14 | Best: Prismatic Pearl
+Fishing: Lv. 7 | Best: Aurora Koi
+Casino: BJ +12,000 | Poker -3,000
+Tips Given: 15g
+Race Wins: 2
+Title: Lucky Miner
+
+If data is unavailable, hide that line or show Unknown.
+
+Keep message short enough for Highrise.
+
+Aliases:
+- /me
+- /stats
+
+If aliases are added, register them properly.
+
+==================================================
+PART 9 — WEEKLY LEADERBOARD RESET EVENT
+==================================================
+
+Add commands:
+
+/weeklylb
+/weeklyleaderboard
+/weeklyreset
+/weeklyrewards
+/setweeklyreward <category> <rank> <gold_or_coins>
+
+/weeklystatus
+
+Owner:
+BankerBot or EmceeBot
+
+Recommended:
+BankerBot handles rewards.
+EmceeBot announces winners.
+
+Permission:
+Everyone can view weeklylb.
+Manager+ can reset/set rewards.
+
+Weekly categories:
+- top miner
+- top fisher
+- top bot tipper
+- top blackjack profit
+- top poker profit
+- top race winner
+- top coin earner
+
+/weeklylb example:
+
+EmceeBot:
+🏆 Weekly Leaderboards
+Top Miner: @Player — 900 mines
+Top Fisher: @Player2 — 500 catches
+Top Bot Tipper: @Player3 — 25g
+Top BJ Profit: @Player4 — +50,000c
+Top Race Winner: @Player5 — 3 wins
+
+/weeklyrewards should show configured rewards.
+
+Weekly reset:
+- archive previous week winners
+- clear weekly counters if separate counters exist
+- do not wipe lifetime stats
+- log reset in audit log
+
+Database:
+weekly_leaderboard_snapshots:
+- id INTEGER PRIMARY KEY AUTOINCREMENT
+- week_start TEXT
+- week_end TEXT
+- category TEXT
+- rank INTEGER
+- user_id TEXT
+- username TEXT
+- score TEXT
+- reward_status TEXT
+- created_at TEXT
+
+weekly_rewards:
+- id INTEGER PRIMARY KEY AUTOINCREMENT
+- category TEXT
+- rank INTEGER
+- reward_type TEXT
+- reward_amount INTEGER
+- enabled INTEGER
+
+Reward types:
+- coins
+- gold_pending
+
+If automatic gold tipping is unavailable:
+- log as pending_manual_gold
+
+EmceeBot can announce:
+
+EmceeBot:
+🏆 Weekly Winners!
+Top Miner: @Player
+Top Fisher: @Player2
+Top Tipper: @Player3
+
+BankerBot handles rewards/logs.
+
+==================================================
+PART 10 — COMMAND OWNERSHIP
+==================================================
+
+Suggested owners:
+
+/dashboard = EmceeBot or HostBot
+/rewardpending = BankerBot
+/pendingrewards = BankerBot
+/rewardlogs = BankerBot
+/markrewardpaid = BankerBot
+/economyreport = BankerBot
+/eventpreset = EventBot
+/start = EmceeBot
+/begin = EmceeBot
+/newplayer = EmceeBot
+/daily = BankerBot
+/dailies = BankerBot
+/claimdaily = BankerBot
+/auditlog = SecurityBot
+/profile = EmceeBot
+/me = EmceeBot
+/stats = EmceeBot
+/weeklylb = EmceeBot
+/weeklyleaderboard = EmceeBot
+/weeklyreset = BankerBot
+/weeklyrewards = BankerBot
+/setweeklyreward = BankerBot
+/weeklystatus = BankerBot
+
+Do not leave owner UNKNOWN.
+
+==================================================
+PART 11 — COMMANDTEST
+==================================================
+
+Test all implemented commands:
+
+/commandtest /dashboard
+
+/commandtest /rewardpending
+/commandtest /pendingrewards
+/commandtest /rewardlogs
+/commandtest /markrewardpaid
+
+/commandtest /economyreport
+
+/commandtest /eventpreset
+
+/commandtest /start
+/commandtest /begin
+/commandtest /newplayer
+
+/commandtest /daily
+/commandtest /dailies
+/commandtest /claimdaily
+
+/commandtest /auditlog
+
+/commandtest /profile
+/commandtest /me
+/commandtest /stats
+
+/commandtest /weeklylb
+/commandtest /weeklyleaderboard
+/commandtest /weeklyreset
+/commandtest /weeklyrewards
+/commandtest /setweeklyreward
+/commandtest /weeklystatus
+
+/checkcommands all
+
+Target:
+Missing 0
+NoOwner 0
+
+If a command is not implemented, do not add it as active.
+
+==================================================
+PART 12 — SAFETY
+==================================================
+
+Do not:
+- add announcement cooldown commands
+- add /announcecooldown
+- add /setannouncecooldown
+- reset balances
+- wipe player data
+- wipe lifetime stats
+- double-pay rewards
+- expose secrets/tokens/env vars
+- let normal players use manager commands
+- leave broken commands in help
+- leave owner UNKNOWN
+
+==================================================
+FINAL REPORT
+==================================================
+
+After finishing, tell me:
+
+1. Files changed
+2. Commands added
+3. Owners assigned
+4. Database tables added
+5. How /dashboard works
+6. How pending rewards work
+7. How economy report is calculated
+8. Event presets added
+9. Daily quests added
+10. Audit log added
+11. Profile summary added
+12. Weekly leaderboard system added
+13. Confirm announcement cooldown was NOT added
+14. Exact tests to run

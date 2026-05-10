@@ -2023,3 +2023,97 @@ async def startup_mining_event_check(bot: BaseBot) -> None:
         print(f"[EVENTS] Startup: mining event '{eid}' ({name}) still active.")
     else:
         print("[EVENTS] Startup: no active mining event.")
+
+
+# ---------------------------------------------------------------------------
+# /eventpreset [name] — bundled event presets
+# ---------------------------------------------------------------------------
+
+_PRESETS: dict[str, dict] = {
+    "chill": {
+        "name":         "Chill",
+        "events":       [("lucky_rush", 60), ("double_mxp", 60)],
+        "suggest_race": None,
+        "desc":         "Lucky Rush + Double MXP (60m)",
+    },
+    "hype": {
+        "name":         "Hype",
+        "events":       [("lucky_rush", 60), ("heavy_ore_rush", 60)],
+        "suggest_race": "setfirstfind mining prismatic 1 5g",
+        "desc":         "Lucky Rush + Heavy Ore Rush (60m)",
+    },
+    "jackpot": {
+        "name":         "Jackpot",
+        "events":       [("ore_value_surge", 60), ("prismatic_hunt", 60)],
+        "suggest_race": "setfirstfind mining prismatic 1 5g",
+        "desc":         "Ore Value Surge + Prismatic Hunt (60m)",
+    },
+    "fishing": {
+        "name":         "Fishing Party",
+        "events":       [("lucky_tide", 60), ("fish_value_surge", 60)],
+        "suggest_race": "setfirstfind fishing exotic 1 5g",
+        "desc":         "Lucky Tide + Fish Value Surge (60m)",
+    },
+    "mining": {
+        "name":         "Mining Rush",
+        "events":       [("mining_haste", 60), ("ore_value_surge", 60)],
+        "suggest_race": "setfirstfind mining legendary 1 3g",
+        "desc":         "Mining Haste + Ore Value Surge (60m)",
+    },
+}
+
+
+async def handle_eventpreset(bot: BaseBot, user: User, args: list[str]) -> None:
+    """/eventpreset [name] — start a preset event bundle. EventHost-owned."""
+    if not can_manage_economy(user.username):
+        await _w(bot, user.id, "Manager/admin/owner only.")
+        return
+
+    if len(args) < 2:
+        lines = ["🎉 Event Presets"]
+        for key, p in _PRESETS.items():
+            lines.append(f"/eventpreset {key} — {p['desc']}")
+        await _w(bot, user.id, "\n".join(lines)[:249])
+        return
+
+    preset_name = args[1].lower()
+    preset      = _PRESETS.get(preset_name)
+    if not preset:
+        available = ", ".join(_PRESETS.keys())
+        await _w(bot, user.id, f"Unknown preset. Options: {available}"[:249])
+        return
+
+    started = []
+    for eid, mins in preset["events"]:
+        if eid not in EVENTS:
+            continue
+        try:
+            _start_mining_event(eid, user.username, mins)
+            started.append(EVENTS[eid].get("name", eid))
+        except Exception as exc:
+            print(f"[PRESET] Failed to start {eid}: {exc}")
+
+    if not started:
+        await _w(bot, user.id, "No events started — check event IDs.")
+        return
+
+    db.log_staff_action(
+        user.id, user.username, "event_preset_started",
+        "", "", f"preset={preset_name}"
+    )
+
+    reply_parts = [f"🎉 {preset['name']} Preset Started"]
+    reply_parts.append("Events: " + ", ".join(started))
+    if preset.get("suggest_race"):
+        reply_parts.append(f"Suggest: /{preset['suggest_race']}")
+    await _w(bot, user.id, "\n".join(reply_parts)[:249])
+
+    try:
+        msg = (
+            f"🎉 {preset['name']} is LIVE! "
+            + " + ".join(started)
+            + " — /mine /fish now!"
+        )[:249]
+        await bot.highrise.chat(msg)
+    except Exception:
+        pass

@@ -191,6 +191,16 @@ from modules.cmd_audit import (
     handle_commandintegrity, handle_commandrepair,
     handle_commandaudit, handle_commandissues,
     handle_commandtestall, handle_commandtestgroup,
+    handle_auditlog,
+)
+from modules.sys_dashboard import handle_sys_dashboard
+from modules.reward_center import (
+    handle_rewardpending, handle_rewardlogs,
+    handle_markrewardpaid, handle_economyreport,
+)
+from modules.weekly_lb import (
+    handle_weeklylb, handle_weeklyreset, handle_weeklyrewards,
+    handle_setweeklyreward, handle_weeklystatus,
 )
 from modules.mining_weights import (
     handle_oreweightlb, handle_myheaviest, handle_oreweights, handle_topweights,
@@ -228,6 +238,7 @@ from modules.events import (
     handle_eventcooldowns, handle_seteventcooldown,
     handle_eventweights, handle_seteventweight, handle_eventhistory,
     startup_mining_event_check,
+    handle_eventpreset,
 )
 from modules.reports import (
     handle_report, handle_bug, handle_myreports,
@@ -935,7 +946,31 @@ TIME_EXP_COMMANDS: frozenset[str] = frozenset({
 DISPLAY_COMMANDS: frozenset[str] = frozenset({
     "displaybadges", "displaytitles", "displayformat", "displaytest",
 })
-ALL_KNOWN_COMMANDS = ALL_KNOWN_COMMANDS | TIME_EXP_COMMANDS | DISPLAY_COMMANDS | FIRSTFIND_COMMANDS
+NEW_PROJECT_COMMANDS: frozenset[str] = frozenset({
+    # System dashboard
+    "botdashboard", "botsystem",
+    # Reward center
+    "rewardpending", "pendingrewards", "rewardlogs", "markrewardpaid",
+    "economyreport",
+    # Event presets
+    "eventpreset",
+    # Player onboarding aliases
+    "begin", "newplayer",
+    # Daily quest aliases
+    "dailies", "claimdaily",
+    # Staff audit log
+    "auditlog",
+    # Weekly leaderboard
+    "weeklylb", "weeklyleaderboard", "weeklyreset",
+    "weeklyrewards", "setweeklyreward", "weeklystatus",
+})
+ALL_KNOWN_COMMANDS = (
+    ALL_KNOWN_COMMANDS
+    | TIME_EXP_COMMANDS
+    | DISPLAY_COMMANDS
+    | FIRSTFIND_COMMANDS
+    | NEW_PROJECT_COMMANDS
+)
 
 
 # ---------------------------------------------------------------------------
@@ -2473,6 +2508,8 @@ class HangoutBot(BaseBot):
                 await handle_auditcasino(self, user, args)
             elif cmd == "auditeconomy":
                 await handle_auditeconomy(self, user, args)
+            elif cmd == "auditlog":
+                await handle_auditlog(self, user, args)
             elif cmd == "economysettings":
                 await handle_economysettings(self, user)
             elif cmd == "setdailycoins":
@@ -2923,8 +2960,17 @@ class HangoutBot(BaseBot):
         elif cmd in {"dashboard", "dash"}:
             await handle_dashboard(self, user, args)
 
+        elif cmd in {"botdashboard", "botsystem"}:
+            await handle_sys_dashboard(self, user, args)
+
         elif cmd == "daily":
             await handle_daily(self, user)
+
+        elif cmd == "dailies":
+            await handle_dailyquests(self, user)
+
+        elif cmd == "claimdaily":
+            await handle_claimquest(self, user, args)
 
         elif cmd == "leaderboard":
             await handle_leaderboard(self, user)
@@ -3128,6 +3174,9 @@ class HangoutBot(BaseBot):
 
         elif cmd == "eventmanager":
             await handle_eventmanager(self, user)
+
+        elif cmd == "eventpreset":
+            await handle_eventpreset(self, user, args)
 
         elif cmd == "eventpanel":
             await handle_eventpanel(self, user)
@@ -3631,7 +3680,7 @@ class HangoutBot(BaseBot):
         elif cmd == "helpsearch":
             await handle_helpsearch(self, user, args)
 
-        elif cmd in {"start", "guide"}:
+        elif cmd in {"start", "guide", "begin", "newplayer"}:
             await self.highrise.send_whisper(
                 user.id,
                 (
@@ -3680,6 +3729,21 @@ class HangoutBot(BaseBot):
 
         elif cmd == "claimquest":
             await handle_claimquest(self, user, args)
+
+        elif cmd in {"weeklylb", "weeklyleaderboard"}:
+            await handle_weeklylb(self, user, args)
+
+        elif cmd == "weeklyreset":
+            await handle_weeklyreset(self, user, args)
+
+        elif cmd == "weeklyrewards":
+            await handle_weeklyrewards(self, user, args)
+
+        elif cmd == "setweeklyreward":
+            await handle_setweeklyreward(self, user, args)
+
+        elif cmd == "weeklystatus":
+            await handle_weeklystatus(self, user, args)
 
         elif cmd == "casino":
             _casino_known = {"modes", "on", "off", "reset", "leaderboard"}
@@ -4330,6 +4394,19 @@ class HangoutBot(BaseBot):
 
         elif cmd in {"paypendingfirstfind", "retryfirstfind"}:
             await handle_paypendingfirstfind(self, user, args)
+
+        # ── Reward center commands ─────────────────────────────────────────
+        elif cmd in {"rewardpending", "pendingrewards"}:
+            await handle_rewardpending(self, user, args)
+
+        elif cmd == "rewardlogs":
+            await handle_rewardlogs(self, user, args)
+
+        elif cmd == "markrewardpaid":
+            await handle_markrewardpaid(self, user, args)
+
+        elif cmd == "economyreport":
+            await handle_economyreport(self, user, args)
 
         # ── Big announce commands ──────────────────────────────────────────
         elif cmd == "setbigannounce":
