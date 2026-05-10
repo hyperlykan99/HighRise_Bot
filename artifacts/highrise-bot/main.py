@@ -385,6 +385,7 @@ from modules.fishing import (
 from modules.first_find import (
     handle_firstfindrewards, handle_setfirstfind,
     handle_firstfindstatus, handle_resetfirstfind,
+    startup_firstfind_announcer, startup_firstfind_banker,
 )
 from modules.big_announce import (
     handle_setbigannounce, handle_bigannouncestatus,
@@ -576,7 +577,6 @@ MANAGER_ONLY_CMDS = {
     "setbjbonuspair", "setbjbonuscolor", "setbjbonusperfect",
     "setbjinsurance",
     "setbigannounce", "setbigreact", "setbotbigreact",
-    "setfirstfind", "resetfirstfind",
     "setrbjdecks", "setrbjminbet", "setrbjmaxbet", "setrbjcountdown",
     "setrbjshuffle", "setrbjblackjackpayout", "setrbjwinpayout", "setrbjturntimer",
     "setrbjactiontimer", "setrbjmaxsplits",
@@ -2287,6 +2287,12 @@ class HangoutBot(BaseBot):
             print(f"[AUTOFISH] Recovery skipped — not fisher bot ({BOT_MODE}).")
         # Big announce reactor — runs on all non-miner/non-fisher bots
         asyncio.create_task(startup_big_announce_reactor(self))
+        # First-find announcer — EmceeBot announces winners publicly
+        if BOT_MODE in ("host", "all"):
+            asyncio.create_task(startup_firstfind_announcer(self))
+        # First-find banker — BankerBot logs gold tip status
+        if BOT_MODE in ("banker", "all"):
+            asyncio.create_task(startup_firstfind_banker(self))
         # Start time-in-room EXP loop — host bot only
         if should_this_bot_run_module("timeexp"):
             asyncio.create_task(time_exp_loop(self))

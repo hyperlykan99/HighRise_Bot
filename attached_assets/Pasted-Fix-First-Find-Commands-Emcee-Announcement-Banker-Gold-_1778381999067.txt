@@ -1,0 +1,284 @@
+Fix First Find Commands + Emcee Announcement + Banker Gold Tip
+
+Current issue:
+/setfirstfind still does not work.
+Bot does not respond.
+
+Goal:
+1. Make /setfirstfind respond every time.
+2. EmceeBot announces First Find winners publicly.
+3. BankerBot handles the gold tip/payout/log.
+4. Keep /setfirstfind as the main command because it is shorter.
+
+Do not change bot tokens.
+Do not change room ID.
+Do not reset balances.
+Do not wipe player data.
+Do not wipe mining/fishing records.
+Do not break mining, fishing, bank, goldtip, big announcements, events, or command routing.
+
+==================================================
+PART 1 — FIX /setfirstfind NO RESPONSE
+==================================================
+
+Current problem:
+When I type:
+
+/setfirstfind mining prismatic 1 5
+
+the bot does not respond.
+
+Fix:
+The command must always reply.
+
+Supported command:
+
+/setfirstfind <mining|fishing> <rarity> <number_of_players> <gold_amount>
+
+Examples:
+/setfirstfind mining prismatic 1 5
+/setfirstfind fishing prismatic 1 5
+/setfirstfind mining exotic 3 10
+/setfirstfind fishing exotic 3 10
+
+If missing args, reply:
+
+BankerBot:
+🏆 First Find Setup
+Usage: /setfirstfind <mining|fishing> <rarity> <players_count> <gold_amount>
+Example: /setfirstfind mining prismatic 1 5
+
+If successful, reply:
+
+BankerBot:
+✅ First Find Reward Set
+Category: Mining
+Rarity: Prismatic
+Winners: First 1 player
+Reward: 5 gold each
+
+==================================================
+PART 2 — HANDLE BOTH ARG PARSING STYLES
+==================================================
+
+The handler must support both router styles.
+
+Style A:
+args = ["setfirstfind", "mining", "prismatic", "1", "5"]
+
+Style B:
+args = ["mining", "prismatic", "1", "5"]
+
+If current router strips the command name, the handler must still work.
+
+This is likely why the command is silent.
+
+==================================================
+PART 3 — COMMAND OWNERSHIP
+==================================================
+
+Owner:
+BankerBot
+
+Commands:
+- /setfirstfind
+- /firstfindstatus
+- /firstfindrewards
+- /resetfirstfind
+
+Optional hidden alias:
+- /setfirstfindreward
+
+But do not show /setfirstfindreward as the main command in help.
+
+Commandtest must pass:
+
+/commandtest /setfirstfind
+/commandtest /firstfindstatus
+/commandtest /firstfindrewards
+/commandtest /resetfirstfind
+
+Expected:
+route=YES
+handler=YES
+owner=BankerBot
+
+/checkcommands all:
+Missing 0
+NoOwner 0
+
+==================================================
+PART 4 — TYPO SUGGESTIONS
+==================================================
+
+If rarity is misspelled, suggest the correct one.
+
+Example:
+prismaric
+
+Reply:
+BankerBot:
+Did you mean prismatic?
+
+Valid rarities:
+common, rare, epic, legendary, mythic, prismatic, exotic
+
+Valid categories:
+mining, fishing
+
+==================================================
+PART 5 — FIRST FIND TRIGGER
+==================================================
+
+When a player mines/catches a configured rarity:
+
+Example:
+/setfirstfind mining prismatic 1 5
+
+Then the first player to mine Prismatic should trigger the reward.
+
+Mining trigger:
+- category = mining
+- rarity = mined ore rarity
+
+Fishing trigger:
+- category = fishing
+- rarity = caught fish rarity
+
+Rules:
+- Only reward each player once per configured category + rarity.
+- Stop rewarding after winners_count is reached.
+- Do not duplicate reward after bot restart.
+- Save claims in database.
+
+==================================================
+PART 6 — EMCEEBOT ANNOUNCES WINNER
+==================================================
+
+When First Find reward is triggered, EmceeBot should announce publicly.
+
+Example:
+
+EmceeBot:
+🏆 First Find Reward!
+@Player is #1 to mine [PRISMATIC]!
+Reward: 5 gold
+
+Fishing example:
+
+EmceeBot:
+🏆 First Catch Reward!
+@Player is #1 to catch [EXOTIC]!
+Reward: 10 gold
+
+If EmceeBot is offline:
+- skip public announcement safely
+- do not crash
+- BankerBot can still log/pay reward
+
+==================================================
+PART 7 — BANKERBOT TIPS / LOGS GOLD
+==================================================
+
+BankerBot handles the money.
+
+If automatic gold tipping is supported:
+BankerBot sends gold immediately and logs status:
+
+paid_gold
+
+BankerBot reply/log:
+BankerBot:
+💰 First Find Gold Sent
+@Player received 5 gold.
+
+If automatic gold tipping is not supported:
+BankerBot logs pending manual tip:
+
+pending_manual_gold
+
+BankerBot reply/log:
+BankerBot:
+💰 First Find Gold Logged
+@Player earned 5 gold.
+Status: pending manual tip.
+
+No confirmation step.
+
+==================================================
+PART 8 — FIRST FIND STATUS
+==================================================
+
+/firstfindstatus should show active rewards and claims.
+
+Example:
+
+BankerBot:
+🏆 First Find Rewards
+Mining Prismatic: first 1 player | 5g each | claimed 0/1
+Fishing Prismatic: first 1 player | 5g each | claimed 1/1
+- #1 @Player paid/logged
+
+If none:
+
+BankerBot:
+🏆 First Find Rewards
+No active first-find rewards set.
+
+==================================================
+PART 9 — RESET FIRST FIND
+==================================================
+
+/resetfirstfind <mining|fishing> <rarity>
+
+Example:
+/resetfirstfind mining prismatic
+
+Reply:
+
+BankerBot:
+♻️ First Find Reset
+Mining Prismatic claims cleared.
+
+This should clear claims, not delete the reward setting unless existing system expects that.
+
+==================================================
+PART 10 — HELP CLEANUP
+==================================================
+
+BankerBot help should show:
+
+/setfirstfind <mining|fishing> <rarity> <players_count> <gold_amount>
+/firstfindstatus
+/firstfindrewards
+/resetfirstfind <mining|fishing> <rarity>
+
+Do not make /setfirstfindreward the main command.
+
+==================================================
+PART 11 — SAFETY
+==================================================
+
+Do not:
+- let EmceeBot handle gold payout
+- let normal players set rewards
+- silently fail
+- double reward players
+- wipe claims unless /resetfirstfind is used
+- break mining/fishing
+- break /goldtip
+- expose tokens or secrets
+
+==================================================
+FINAL REPORT
+==================================================
+
+After finishing, tell me:
+1. Files changed
+2. Why /setfirstfind was silent
+3. Whether it was args parsing, route, handler, permission, or DB error
+4. Which bot owns /setfirstfind now
+5. How EmceeBot announces First Find winners
+6. How BankerBot tips/logs gold
+7. Where First Find claims are stored
+8. Exact tests to run

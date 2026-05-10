@@ -1536,6 +1536,21 @@ def _migrate_db():
         "reward_status TEXT NOT NULL DEFAULT 'pending', "
         "claimed_at TEXT NOT NULL DEFAULT (datetime('now')))",
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_ffc_rid_uid ON first_find_claims(reward_id, user_id)",
+        # ── First-find pending announcements (cross-bot: emcee + banker) ──────
+        "CREATE TABLE IF NOT EXISTS first_find_announce_pending ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "reward_id INTEGER NOT NULL DEFAULT 0, "
+        "category TEXT NOT NULL DEFAULT '', "
+        "rarity TEXT NOT NULL DEFAULT '', "
+        "username TEXT NOT NULL DEFAULT '', "
+        "user_id TEXT NOT NULL DEFAULT '', "
+        "claim_rank INTEGER NOT NULL DEFAULT 1, "
+        "gold_amount REAL NOT NULL DEFAULT 0, "
+        "emcee_msg TEXT NOT NULL DEFAULT '', "
+        "banker_msg TEXT NOT NULL DEFAULT '', "
+        "emcee_done INTEGER NOT NULL DEFAULT 0, "
+        "banker_done INTEGER NOT NULL DEFAULT 0, "
+        "created_at TEXT NOT NULL DEFAULT (datetime('now')))",
         # ── Big announce settings (room_settings inserts — safe no-ops) ───────
         "INSERT OR IGNORE INTO room_settings (key, value) VALUES ('big_announce_threshold', 'legendary')",
         "INSERT OR IGNORE INTO room_settings (key, value) VALUES ('big_announce_bot_react_threshold', 'prismatic')",
@@ -8929,6 +8944,68 @@ def disable_first_find_reward(category: str, rarity: str) -> None:
     conn.execute(
         "UPDATE first_find_rewards SET enabled=0, updated_at=datetime('now') WHERE category=? AND rarity=?",
         (category, rarity),
+    )
+    conn.commit()
+    conn.close()
+
+
+# ── First-find announce pending (cross-bot EmceeBot / BankerBot) ──────────────
+
+def add_first_find_pending(reward_id: int, category: str, rarity: str,
+                           username: str, user_id: str, claim_rank: int,
+                           gold_amount: float,
+                           emcee_msg: str, banker_msg: str) -> None:
+    conn = get_connection()
+    conn.execute(
+        """INSERT INTO first_find_announce_pending
+               (reward_id, category, rarity, username, user_id, claim_rank,
+                gold_amount, emcee_msg, banker_msg,
+                emcee_done, banker_done, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, datetime('now'))""",
+        (reward_id, category, rarity, username, user_id, claim_rank,
+         gold_amount, emcee_msg, banker_msg),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_pending_firstfind_for_emcee(limit: int = 5) -> list[dict]:
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT * FROM first_find_announce_pending "
+        "WHERE emcee_done=0 ORDER BY id ASC LIMIT ?",
+        (limit,),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def mark_firstfind_emcee_done(row_id: int) -> None:
+    conn = get_connection()
+    conn.execute(
+        "UPDATE first_find_announce_pending SET emcee_done=1 WHERE id=?",
+        (row_id,),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_pending_firstfind_for_banker(limit: int = 5) -> list[dict]:
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT * FROM first_find_announce_pending "
+        "WHERE banker_done=0 ORDER BY id ASC LIMIT ?",
+        (limit,),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def mark_firstfind_banker_done(row_id: int) -> None:
+    conn = get_connection()
+    conn.execute(
+        "UPDATE first_find_announce_pending SET banker_done=1 WHERE id=?",
+        (row_id,),
     )
     conn.commit()
     conn.close()
