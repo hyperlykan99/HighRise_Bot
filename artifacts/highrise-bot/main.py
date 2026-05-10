@@ -323,6 +323,9 @@ from modules.gold_tips import (
     handle_bottiplogs,
     handle_mingoldtip,
     handle_setmingoldtip,
+    handle_tiplb,
+    handle_roomtiplb,
+    handle_tipreceiverlb,
 )
 from modules.mining import (
     handle_mine, handle_tool, handle_upgradetool,
@@ -662,7 +665,8 @@ MANAGER_ONLY_CMDS = MANAGER_ONLY_CMDS | {"notifystats", "notifyprefs", "dailyadm
 OWNER_ONLY_CMDS = {
     "addadmin", "removeadmin", "admins", "setmaxbalance",
     "addowner", "removeowner",
-    "goldtip", "goldrefund", "goldrain", "goldrainall", "goldraineligible",
+    "goldtip", "tipgold", "goldreward", "rewardgold",
+    "goldrefund", "goldrain", "goldrainall", "goldraineligible",
     "goldrainrole", "goldrainvip", "goldraintitle", "goldrainbadge", "goldrainlist",
     "goldwallet", "goldtips", "goldtx", "pendinggold",
     "confirmgoldtip", "setgoldrainstaff", "setgoldrainmax",
@@ -905,6 +909,10 @@ ALL_KNOWN_COMMANDS = (
         "goldtiplogs", "mygoldtips", "goldtipstatus",
         "tipcoinrate", "settipcoinrate",
         "bottiplogs", "mingoldtip", "setmingoldtip",
+        "tipgold", "goldreward", "rewardgold",
+        "tiplb", "tipleaderboard", "bottiplb", "bottipleaderboard",
+        "roomtiplb", "roomtipleaderboard", "alltiplb", "alltipleaderboard",
+        "tipreceiverlb", "topreceivers",
         # ── Fishing force drop (owner-only, handled by fisher bot) ─────────────
         "forcedropfish", "forcedropfishitem", "forcedropfishstatus",
         "forcedropfishdebug", "clearforcedropfish", "clearforceddropfish",
@@ -2525,7 +2533,7 @@ class HangoutBot(BaseBot):
                 await handle_setautoeventduration(self, user, args)
             elif cmd == "gameconfig":
                 await handle_gameconfig(self, user)
-            elif cmd == "goldtip":
+            elif cmd in ("goldtip", "tipgold", "goldreward", "rewardgold"):
                 await handle_goldtip(self, user, args)
             elif cmd == "goldrefund":
                 await handle_goldrefund(self, user, args)
@@ -4416,6 +4424,12 @@ class HangoutBot(BaseBot):
             await handle_mingoldtip(self, user)
         elif cmd == "setmingoldtip":
             await handle_setmingoldtip(self, user, args)
+        elif cmd in ("tiplb", "tipleaderboard", "bottiplb", "bottipleaderboard"):
+            await handle_tiplb(self, user, args)
+        elif cmd in ("roomtiplb", "roomtipleaderboard", "alltiplb", "alltipleaderboard"):
+            await handle_roomtiplb(self, user)
+        elif cmd in ("tipreceiverlb", "topreceivers"):
+            await handle_tipreceiverlb(self, user)
 
         # ── Maintenance tools ─────────────────────────────────────────────────
         elif cmd == "botstatus":

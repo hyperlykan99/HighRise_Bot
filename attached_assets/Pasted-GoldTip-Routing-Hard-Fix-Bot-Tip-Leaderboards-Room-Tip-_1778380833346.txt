@@ -1,0 +1,500 @@
+GoldTip Routing Hard Fix + Bot Tip Leaderboards + Room Tip Leaderboards
+
+Current issue:
+EmceeBot still replies to /goldtip even after the previous update.
+
+New features wanted:
+1. BankerBot must be the only bot that handles /goldtip.
+2. Add leaderboard for top players who tip my bots.
+3. Add leaderboard for top tippers to anyone in the room if Highrise SDK supports detecting player-to-player tips.
+
+Do not change bot tokens.
+Do not change room ID.
+Do not reset balances.
+Do not wipe player data.
+Do not wipe existing reward logs.
+Do not break bank, gold tips, first-find rewards, mining, fishing, blackjack, poker, events, or announcements.
+
+==================================================
+PART 1 — HARD FIX /goldtip OWNER AND ROUTING
+==================================================
+
+Current issue:
+EmceeBot still answers /goldtip.
+
+Goal:
+Only BankerBot should answer /goldtip.
+
+Find every place /goldtip is registered, routed, mapped, or listed:
+- command registry
+- command owner map
+- multi_bot routing map
+- host/emcee command list
+- economy command list
+- help text
+- aliases
+- fallback router
+- generic command dispatcher
+
+Move /goldtip and aliases to BankerBot only.
+
+Commands:
+- /goldtip
+- /tipgold
+- /goldreward
+- /rewardgold
+
+Owner must be:
+BankerBot
+
+Internal owner key may be:
+banker
+bank
+BankingBot
+BankerBot
+
+Use the correct existing bank bot key.
+
+EmceeBot must not handle:
+/goldtip
+/tipgold
+/goldreward
+/rewardgold
+
+If EmceeBot receives these commands, it should ignore them or route/delegate to BankerBot.
+It must not reply.
+
+==================================================
+PART 2 — COMMANDTEST MUST REFLECT BANKERBOT
+==================================================
+
+These must pass:
+
+/commandtest /goldtip
+/commandtest /tipgold
+/commandtest /goldreward
+/commandtest /rewardgold
+
+Expected:
+
+route=YES
+handler=YES
+owner=BankerBot
+
+/checkcommands all
+
+Expected:
+
+Missing 0
+NoOwner 0
+
+If aliases are not implemented, do not add them as active.
+
+==================================================
+PART 3 — NO CONFIRMATION STEP
+==================================================
+
+Gold tipping must not ask for confirmation.
+
+When owner/staff uses:
+
+/goldtip @Player 1
+
+It should immediately process or log the tip.
+
+No:
+- Are you sure?
+- Confirm?
+- Type yes
+- /confirmgoldtip
+
+If SDK supports automatic gold tipping:
+BankerBot sends it immediately and logs paid_gold.
+
+If SDK does not support automatic gold tipping:
+BankerBot logs pending_manual_gold.
+
+Example:
+
+BankerBot:
+💰 Gold Tip Logged
+@Player should receive 1 gold.
+Status: pending manual tip.
+
+==================================================
+PART 4 — MINIMUM GOLD TIP
+==================================================
+
+Minimum gold tip must be:
+
+1 gold
+
+Not 10 gold.
+
+Apply to:
+- /goldtip
+- /tipgold
+- /goldreward
+- /rewardgold
+- bot tip detection
+- tip logs
+- first-find gold reward validation if shared
+
+Reject:
+- 0
+- negative
+- non-numeric
+
+Accept:
+- 1 gold and higher
+
+If below minimum:
+
+BankerBot:
+💰 Gold Tip
+Minimum tip is 1 gold.
+
+==================================================
+PART 5 — BOT TIP LOGGING
+==================================================
+
+When a player tips any of my bots, log it.
+
+Applies to:
+- BankerBot
+- EmceeBot
+- EventBot
+- MasterAngler
+- GreatestProspector
+- PokerBot
+- BlackjackBot
+- SecurityBot
+- DJBot
+- future bots
+
+Use Highrise SDK tip event if available.
+
+Create or update table:
+
+bot_tip_logs:
+- id INTEGER PRIMARY KEY AUTOINCREMENT
+- event_id TEXT
+- tipper_user_id TEXT
+- tipper_username TEXT
+- receiver_user_id TEXT
+- receiver_username TEXT
+- receiver_bot_name TEXT
+- receiver_type TEXT
+- gold_amount REAL
+- coins_awarded INTEGER
+- coin_rate INTEGER
+- status TEXT
+- created_at TEXT
+
+receiver_type:
+- bot
+- player
+- unknown
+
+Statuses:
+- rewarded
+- thanked_only
+- paid_gold
+- pending_manual_gold
+- failed
+- unsupported_sdk
+- duplicate_ignored
+
+==================================================
+PART 6 — PLAYER TIPS TO BOT COIN REWARD
+==================================================
+
+When a player tips any bot:
+
+- reward coins using tip_coin_rate
+- default: 1 gold = 1,000 coins
+- minimum accepted tip: 1 gold
+- tipped bot replies thank-you
+- BankerBot owns settings/logs
+
+Example:
+
+Player tips 1 gold to MasterAngler.
+
+MasterAngler:
+💛 Thank you @Player for the 1 gold tip!
+You received 1,000 coins.
+
+If coin reward is disabled:
+
+MasterAngler:
+💛 Thank you @Player for the 1 gold tip!
+
+==================================================
+PART 7 — DUPLICATE TIP PROTECTION
+==================================================
+
+Prevent duplicate rewards if multiple bots receive the same tip event.
+
+Use event_id if SDK provides it.
+
+If no event_id exists, use duplicate window:
+
+same tipper_user_id + receiver_user_id/bot_name + gold_amount within 10 seconds = duplicate
+
+Do not award coins twice.
+
+==================================================
+PART 8 — TOP BOT TIPPERS LEADERBOARD
+==================================================
+
+Add leaderboard for top players who tipped my bots.
+
+Commands:
+- /tiplb
+- /tipleaderboard
+- /bottiplb
+- /bottipleaderboard
+
+Owner:
+BankerBot
+
+Purpose:
+Shows top players who tipped any bot.
+
+Example:
+
+BankerBot:
+🏆 Top Bot Tippers
+1. @Player1 — 120g
+2. @Player2 — 75g
+3. @Player3 — 33g
+
+Use bot_tip_logs where receiver_type = bot.
+
+Sort by total gold_amount descending.
+
+Optional:
+Also show number of tips.
+
+Example:
+@Player1 — 120g | 14 tips
+
+==================================================
+PART 9 — TOP TIPPERS TO SPECIFIC BOT
+==================================================
+
+Add optional bot-specific leaderboard.
+
+Commands:
+- /bottiplb <botname>
+- /tiplb bot <botname>
+
+Examples:
+/bottiplb MasterAngler
+/tiplb bot BankerBot
+
+Response:
+
+BankerBot:
+🏆 Top Tippers to MasterAngler
+1. @Player1 — 30g
+2. @Player2 — 12g
+
+If bot name invalid, show valid bots.
+
+==================================================
+PART 10 — TOP TIPPERS TO ANYONE IN ROOM
+==================================================
+
+Add leaderboard for top tippers to anyone in the room if SDK exposes player-to-player tip events.
+
+Commands:
+- /roomtiplb
+- /roomtipleaderboard
+- /alltiplb
+- /alltipleaderboard
+
+Owner:
+BankerBot
+
+Purpose:
+Shows top players who tipped anyone in the room:
+- bots
+- other players
+
+Use bot_tip_logs or a more general table if renamed.
+
+If SDK supports player-to-player tip detection:
+Log receiver_type = player for player recipients.
+
+Response:
+
+BankerBot:
+🏆 Top Room Tippers
+1. @Player1 — 250g
+2. @Player2 — 110g
+3. @Player3 — 50g
+
+If SDK only supports tips to bots:
+Reply:
+
+BankerBot:
+🏆 Top Room Tippers
+Player-to-player tip detection is not available from the SDK.
+Showing bot tips only:
+1. @Player1 — 120g
+
+Do not fake player-to-player data.
+
+==================================================
+PART 11 — TOP TIP RECEIVERS
+==================================================
+
+Optional but preferred:
+Add leaderboard for who received the most tips.
+
+Commands:
+- /tipreceiverlb
+- /topreceivers
+
+Owner:
+BankerBot
+
+Response:
+
+BankerBot:
+🏆 Top Tip Receivers
+1. MasterAngler — 200g
+2. BankerBot — 80g
+3. @PlayerName — 40g
+
+If player-to-player receiver data unavailable, show bot receivers only.
+
+==================================================
+PART 12 — TIP SETTINGS COMMANDS
+==================================================
+
+Add or verify:
+
+/tipcoinrate
+/settipcoinrate <coins_per_gold>
+/mingoldtip
+/setmingoldtip <amount>
+/bottiplogs
+
+Owner:
+BankerBot
+
+Permissions:
+- /tipcoinrate = read
+- /settipcoinrate = Manager+
+- /mingoldtip = read
+- /setmingoldtip = Manager+
+- /bottiplogs = Manager+
+
+Defaults:
+tip_coin_rate = 1000
+min_gold_tip = 1
+
+==================================================
+PART 13 — COMMANDTEST
+==================================================
+
+These must pass if implemented:
+
+/commandtest /goldtip
+/commandtest /tipgold
+/commandtest /goldreward
+/commandtest /rewardgold
+
+/commandtest /tiplb
+/commandtest /tipleaderboard
+/commandtest /bottiplb
+/commandtest /bottipleaderboard
+
+/commandtest /roomtiplb
+/commandtest /roomtipleaderboard
+/commandtest /alltiplb
+/commandtest /alltipleaderboard
+
+/commandtest /tipreceiverlb
+/commandtest /topreceivers
+
+/commandtest /tipcoinrate
+/commandtest /settipcoinrate
+/commandtest /mingoldtip
+/commandtest /setmingoldtip
+/commandtest /bottiplogs
+
+Expected:
+
+route=YES
+handler=YES
+owner=BankerBot
+
+/checkcommands all
+
+Expected:
+
+Missing 0
+NoOwner 0
+
+If a command is not implemented, do not add it as active.
+
+==================================================
+PART 14 — HELP TEXT CLEANUP
+==================================================
+
+Update help text.
+
+BankerBot help should show:
+- /goldtip
+- /tiplb
+- /bottiplb
+- /roomtiplb
+- /tipreceiverlb
+- /tipcoinrate
+- /bottiplogs
+
+EmceeBot help should not show:
+/goldtip
+/tipgold
+/goldreward
+/rewardgold
+
+EmceeBot may show announcement/hype commands only.
+
+==================================================
+PART 15 — SAFETY
+==================================================
+
+Do not:
+- let EmceeBot control money
+- let normal players use /goldtip
+- ask for confirmation on /goldtip
+- reject 1g tips
+- duplicate coin rewards
+- fake room-wide player-to-player tip data if SDK does not provide it
+- expose tokens, secrets, env vars, or room ID
+- wipe existing tip logs
+
+==================================================
+FINAL REPORT
+==================================================
+
+After finishing, tell me:
+
+1. Files changed
+2. Why EmceeBot was still replying to /goldtip
+3. Which router/owner map was fixed
+4. Which bot now handles /goldtip
+5. Whether confirmation is removed
+6. Whether 1g tips are accepted
+7. Whether player tips to bots are detected by SDK
+8. Whether player-to-player room tips are detected by SDK
+9. Where tip logs are stored
+10. Top bot tipper leaderboard commands added
+11. Top room tipper leaderboard commands added
+12. Top receiver leaderboard commands added
+13. Exact tests to run

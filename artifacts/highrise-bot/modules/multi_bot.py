@@ -229,6 +229,12 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "bankhelp": "banker", "coinhelp": "banker",
     "tipcoinrate": "banker", "settipcoinrate": "banker",
     "bottiplogs": "banker", "mingoldtip": "banker", "setmingoldtip": "banker",
+    "tipgold": "banker", "goldreward": "banker", "rewardgold": "banker",
+    "tiplb": "banker", "tipleaderboard": "banker",
+    "bottiplb": "banker", "bottipleaderboard": "banker",
+    "roomtiplb": "banker", "roomtipleaderboard": "banker",
+    "alltiplb": "banker", "alltipleaderboard": "banker",
+    "tipreceiverlb": "banker", "topreceivers": "banker",
     # ── host (audit / status commands) ───────────────────────────────────────
     "checkcommands": "host", "checkhelp": "host",
     "missingcommands": "host", "routecheck": "host",

@@ -408,3 +408,118 @@ async def handle_setmingoldtip(bot: BaseBot, user: User, args: list[str]) -> Non
         return
     db.set_room_setting("gold_tip_min_amount", str(val))
     await _w(bot, user.id, f"✅ Min gold tip set: {val:g} gold.")
+
+
+# ---------------------------------------------------------------------------
+# Leaderboard helpers
+# ---------------------------------------------------------------------------
+
+def _get_top_tippers(bot_filter: str | None = None, limit: int = 10) -> list[dict]:
+    """Return top tippers, optionally filtered to a specific receiving_bot."""
+    conn = db.get_connection()
+    try:
+        if bot_filter:
+            rows = conn.execute(
+                "SELECT from_username, SUM(gold_amount) AS total, COUNT(*) AS tips "
+                "FROM gold_tip_events WHERE LOWER(receiving_bot)=? "
+                "GROUP BY from_user_id ORDER BY total DESC LIMIT ?",
+                (bot_filter, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT from_username, SUM(gold_amount) AS total, COUNT(*) AS tips "
+                "FROM gold_tip_events "
+                "GROUP BY from_user_id ORDER BY total DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def _get_top_receivers(limit: int = 10) -> list[dict]:
+    """Return top tip receivers (bots) sorted by total gold received."""
+    conn = db.get_connection()
+    try:
+        rows = conn.execute(
+            "SELECT receiving_bot, SUM(gold_amount) AS total, COUNT(*) AS tips "
+            "FROM gold_tip_events "
+            "GROUP BY receiving_bot ORDER BY total DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
+# /tiplb  /tipleaderboard  /bottiplb  /bottipleaderboard [botname]
+# ---------------------------------------------------------------------------
+
+async def handle_tiplb(bot: BaseBot, user: User, args: list[str]) -> None:
+    """/tiplb [botname] — top players who tipped bots (BankerBot)."""
+    bot_filter: str | None = None
+    if len(args) > 1:
+        last = args[-1].lower().lstrip("@")
+        if last not in ("bot", "tiplb", "tipleaderboard",
+                        "bottiplb", "bottipleaderboard"):
+            bot_filter = last
+
+    rows = _get_top_tippers(bot_filter)
+    if bot_filter:
+        title = f"Top Tippers — {bot_filter}"
+    else:
+        title = "Top Bot Tippers"
+
+    if not rows:
+        await _w(bot, user.id,
+                 f"<#FFD700>🏆 {title}<#FFFFFF>: No tips recorded yet.")
+        return
+    await _w(bot, user.id, f"<#FFD700>🏆 {title}<#FFFFFF>")
+    for i, r in enumerate(rows, 1):
+        cnt  = r["tips"]
+        line = (f"{i}. @{r['from_username']} — {r['total']:g}g | "
+                f"{cnt} tip{'s' if cnt != 1 else ''}")
+        await _w(bot, user.id, line[:249])
+
+
+# ---------------------------------------------------------------------------
+# /roomtiplb  /roomtipleaderboard  /alltiplb  /alltipleaderboard
+# ---------------------------------------------------------------------------
+
+async def handle_roomtiplb(bot: BaseBot, user: User) -> None:
+    """/roomtiplb — room-wide tip leaderboard (bot tips; SDK note)."""
+    rows  = _get_top_tippers()
+    hdr   = "<#FFD700>🏆 Top Room Tippers<#FFFFFF>"
+    note  = "Note: Highrise SDK does not expose player-to-player tips. Showing bot tips only."
+
+    if not rows:
+        await _w(bot, user.id, f"{hdr}: No tips recorded yet.")
+        return
+    await _w(bot, user.id, hdr)
+    await _w(bot, user.id, note[:249])
+    for i, r in enumerate(rows, 1):
+        cnt  = r["tips"]
+        line = (f"{i}. @{r['from_username']} — {r['total']:g}g | "
+                f"{cnt} tip{'s' if cnt != 1 else ''}")
+        await _w(bot, user.id, line[:249])
+
+
+# ---------------------------------------------------------------------------
+# /tipreceiverlb  /topreceivers
+# ---------------------------------------------------------------------------
+
+async def handle_tipreceiverlb(bot: BaseBot, user: User) -> None:
+    """/tipreceiverlb — top tip receivers."""
+    rows = _get_top_receivers()
+    hdr  = "<#FFD700>🏆 Top Tip Receivers<#FFFFFF>"
+
+    if not rows:
+        await _w(bot, user.id, f"{hdr}: No tips recorded yet.")
+        return
+    await _w(bot, user.id, hdr)
+    for i, r in enumerate(rows, 1):
+        cnt  = r["tips"]
+        line = (f"{i}. {r['receiving_bot']} — {r['total']:g}g | "
+                f"{cnt} tip{'s' if cnt != 1 else ''}")
+        await _w(bot, user.id, line[:249])

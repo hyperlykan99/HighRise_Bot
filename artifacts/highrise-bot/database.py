@@ -1642,6 +1642,28 @@ def _migrate_db():
     # epic→legendary 3×, legendary→mythic 3.3×).  Previously the gap was only 1.3×.
     conn.execute("UPDATE emoji_badges SET price = 25000 WHERE rarity = 'rare'     AND price < 25000 AND source = 'shop'")
 
+    # ── Goldtip command ownership hard-fix (2026-05) ──────────────────────────
+    # Force goldtip + aliases to banker in the DB override table so that even
+    # if a previous /setcommandowner stored 'eventhost', BankerBot wins.
+    # fallback_allowed=0 means host/eventhost CANNOT fall back on these commands.
+    _GOLDTIP_CMDS_FIX = [
+        ("goldtip",    "goldtip", "banker", 0),
+        ("tipgold",    "goldtip", "banker", 0),
+        ("goldreward", "goldtip", "banker", 0),
+        ("rewardgold", "goldtip", "banker", 0),
+    ]
+    for _gcmd, _gmod, _gmode, _gfb in _GOLDTIP_CMDS_FIX:
+        try:
+            conn.execute(
+                "INSERT INTO bot_command_ownership "
+                "(command, module, owner_bot_mode, fallback_allowed) "
+                "VALUES (?,?,?,?) ON CONFLICT(command) DO UPDATE SET "
+                "owner_bot_mode=excluded.owner_bot_mode, "
+                "fallback_allowed=excluded.fallback_allowed",
+                (_gcmd, _gmod, _gmode, _gfb))
+        except Exception:
+            pass
+
     # ── Seed big announcement default settings ────────────────────────────────
     _BIG_ANN_DEFAULTS = [
         ("mining",  "common",    "off"),
