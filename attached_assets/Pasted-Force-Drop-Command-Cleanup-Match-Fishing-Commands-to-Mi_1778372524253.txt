@@ -1,0 +1,281 @@
+Force Drop Command Cleanup — Match Fishing Commands to Mining Style
+
+Focus only on force drop command naming, aliases, usage replies, routing, and command ownership.
+
+Do not change bot tokens.
+Do not change room ID.
+Do not reset balances.
+Do not wipe player data.
+Do not break mining, fishing, AutoMine, AutoFish, events, bank, shop, blackjack, poker, AI, security, outfits, or bot spawns.
+
+==================================================
+CURRENT ISSUE
+==================================================
+
+Fishing force drop commands are confusing because they do not match mining force drop command style.
+
+Mining currently uses:
+
+/forcedrop <username> <rarity>
+/forcedropore <username> <ore name>
+/forcedropstatus
+/clearforcedrop <username>
+
+Fishing currently has commands like:
+
+/forcefish
+/forcefishdrop
+/forcefishdropfish
+/forcefishstatus
+/clearforcefish
+
+Goal:
+Keep mining commands unchanged.
+Add fishing commands that match mining style.
+
+==================================================
+PART 1 — KEEP MINING COMMANDS UNCHANGED
+==================================================
+
+Do not rename or break mining force drop commands.
+
+Mining commands stay:
+
+/forcedrop <username> <rarity>
+/forcedropore <username> <ore name>
+/forcedropstatus
+/clearforcedrop <username>
+
+These should continue to work exactly as before.
+
+==================================================
+PART 2 — ADD MATCHING FISHING COMMANDS
+==================================================
+
+Add these fishing force drop commands:
+
+/forcedropfish <username> <rarity>
+/forcedropfishitem <username> <fish name>
+/forcedropfishstatus
+/clearforcedropfish <username>
+
+Owner:
+MasterAngler
+
+Permissions:
+Owner only
+
+Examples:
+
+/forcedropfish @Marion exotic
+Player’s next /fish or AutoFish attempt gives a random Exotic fish.
+
+/forcedropfish @Marion prismatic
+Player’s next /fish or AutoFish attempt gives a random Prismatic fish.
+
+/forcedropfishitem @Marion Aurora Koi
+Player’s next /fish or AutoFish attempt gives Aurora Koi.
+
+/forcedropfishstatus
+Shows pending forced fishing drops.
+
+/clearforcedropfish @Marion
+Clears pending forced fishing drop for Marion.
+
+==================================================
+PART 3 — KEEP OLD FISHING COMMANDS AS ALIASES
+==================================================
+
+Keep old fishing commands as aliases if they already exist:
+
+/forcefish = /forcedropfish
+/forcefishdrop = /forcedropfish
+/forcefishdropfish = /forcedropfishitem
+/forcefishstatus = /forcedropfishstatus
+/clearforcefish = /clearforcedropfish
+
+Important:
+Old aliases should still work, but help messages should prefer the new matching command names.
+
+Preferred commands shown in help:
+
+/forcedropfish <username> <rarity>
+/forcedropfishitem <username> <fish name>
+/forcedropfishstatus
+/clearforcedropfish <username>
+
+==================================================
+PART 4 — MISSING ARGUMENT USAGE REPLIES
+==================================================
+
+Current issue:
+When typing commands without arguments, MasterAngler does not respond.
+
+Fix:
+Missing arguments should show usage instead of silence.
+
+If owner types:
+
+/forcedropfish
+
+or:
+
+/forcefish
+
+or:
+
+/forcefishdrop
+
+Reply:
+
+MasterAngler:
+🎯 Force Fish Drop
+Usage: /forcedropfish <username> <rarity>
+Example: /forcedropfish @Marion exotic
+Rarities: common, rare, epic, legendary, mythic, prismatic, exotic
+
+If owner types:
+
+/forcedropfishitem
+
+or:
+
+/forcefishdropfish
+
+Reply:
+
+MasterAngler:
+🎯 Force Fish Item
+Usage: /forcedropfishitem <username> <fish name>
+Example: /forcedropfishitem @Marion Aurora Koi
+
+If owner types:
+
+/clearforcedropfish
+
+or:
+
+/clearforcefish
+
+Reply:
+
+MasterAngler:
+🧹 Clear Force Fish
+Usage: /clearforcedropfish <username>
+Example: /clearforcedropfish @Marion
+
+If owner types:
+
+/forcedropfishstatus
+
+or:
+
+/forcefishstatus
+
+This command should work with no arguments and show pending fishing force drops.
+
+==================================================
+PART 5 — FORCE DROP BEHAVIOR
+==================================================
+
+/forcedropfish <username> <rarity>:
+- stores a pending forced fishing drop by rarity
+- next manual /fish or AutoFish attempt consumes it
+- gives random fish from that rarity
+- clears after one use
+
+/forcedropfishitem <username> <fish name>:
+- stores a pending forced fishing drop by exact fish
+- next manual /fish or AutoFish attempt consumes it
+- gives exact fish
+- clears after one use
+
+Rules:
+- Owner only
+- Secret from players
+- Works with manual /fish
+- Works with AutoFish
+- One use only
+- Clears after successful forced catch
+- Does not reveal “forced” in public or player message
+- Weight rolls normally
+- Value calculates normally
+- FXP applies normally
+- Big Catch announcement triggers naturally if rarity qualifies
+
+==================================================
+PART 6 — COMMAND REGISTRY AND OWNER MAP
+==================================================
+
+Register all new commands and aliases.
+
+Commands to register:
+
+/forcedropfish
+/forcedropfishitem
+/forcedropfishstatus
+/clearforcedropfish
+
+Aliases to register:
+
+/forcefish
+/forcefishdrop
+/forcefishdropfish
+/forcefishstatus
+/clearforcefish
+
+Owner:
+MasterAngler
+
+Commandtest target:
+
+/commandtest /forcedropfish
+/commandtest /forcedropfishitem
+/commandtest /forcedropfishstatus
+/commandtest /clearforcedropfish
+/commandtest /forcefish
+/commandtest /forcefishdrop
+/commandtest /forcefishdropfish
+/commandtest /forcefishstatus
+/commandtest /clearforcefish
+
+Each must show:
+
+route=YES
+handler=YES
+owner=MasterAngler
+
+/checkcommands all should show:
+
+Missing 0
+NoOwner 0
+
+==================================================
+PART 7 — HELP MESSAGE CLEANUP
+==================================================
+
+Update FishingBot/MasterAngler help text.
+
+Preferred help should show:
+
+/forcedropfish <username> <rarity>
+/forcedropfishitem <username> <fish name>
+/forcedropfishstatus
+/clearforcedropfish <username>
+
+Old commands can remain aliases, but do not make them the main shown commands.
+
+Do not show any command in help unless it works.
+
+==================================================
+FINAL REPORT
+==================================================
+
+After finishing, tell me:
+1. Files changed
+2. Which new commands were added
+3. Which aliases were kept
+4. How missing-argument usage replies work
+5. How force fish works with AutoFish
+6. Commandtest results
+7. Exact tests to run

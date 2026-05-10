@@ -370,8 +370,8 @@ from modules.fishing import (
     handle_setautofish, handle_setautofishduration,
     handle_setautofishattempts, handle_setautofishdailycap,
     stop_autofish_for_user, startup_autofish_recovery,
-    handle_forcefishdrop, handle_forcefishdropfish,
-    handle_forcefishstatus, handle_clearforcefish,
+    handle_forcedropfish, handle_forcedropfishitem,
+    handle_forcedropfishstatus, handle_clearforcedropfish,
 )
 from modules.first_find import (
     handle_firstfindrewards, handle_setfirstfind,
@@ -567,6 +567,7 @@ MANAGER_ONLY_CMDS = {
     "setbjbonuspair", "setbjbonuscolor", "setbjbonusperfect",
     "setbigannounce", "setbigreact", "setbotbigreact",
     "setfirstfind", "resetfirstfind",
+    "forcedropfish", "forcedropfishitem", "forcedropfishstatus", "clearforcedropfish",
     "forcefishdrop", "forcefish", "forcefishdropfish",
     "forcefishstatus", "clearforcefish",
     "setrbjdecks", "setrbjminbet", "setrbjmaxbet", "setrbjcountdown",
@@ -4091,17 +4092,17 @@ class HangoutBot(BaseBot):
             await handle_clearforcedrop(self, user, args)
 
         # ── Fishing force drop (owner-only) ───────────────────────────────────
-        elif cmd in {"forcefishdrop", "forcefish"}:
-            await handle_forcefishdrop(self, user, args)
+        elif cmd in {"forcedropfish", "forcefishdrop", "forcefish"}:
+            await handle_forcedropfish(self, user, args)
 
-        elif cmd == "forcefishdropfish":
-            await handle_forcefishdropfish(self, user, args)
+        elif cmd in {"forcedropfishitem", "forcefishdropfish"}:
+            await handle_forcedropfishitem(self, user, args)
 
-        elif cmd == "forcefishstatus":
-            await handle_forcefishstatus(self, user)
+        elif cmd in {"forcedropfishstatus", "forcefishstatus"}:
+            await handle_forcedropfishstatus(self, user)
 
-        elif cmd == "clearforcefish":
-            await handle_clearforcefish(self, user, args)
+        elif cmd in {"clearforcedropfish", "clearforcefish"}:
+            await handle_clearforcedropfish(self, user, args)
 
         elif cmd == "orechances":
             await handle_orechances(self, user)

@@ -438,6 +438,7 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     "setbjbonus", "setbjbonuscap",
     "setbjbonuspair", "setbjbonuscolor", "setbjbonusperfect",
     # ── Fishing force drop ───────────────────────────────────────────────────
+    "forcedropfish", "forcedropfishitem", "forcedropfishstatus", "clearforcedropfish",
     "forcefishdrop", "forcefish", "forcefishdropfish",
     "forcefishstatus", "clearforcefish",
     # ── First-find rewards ───────────────────────────────────────────────────

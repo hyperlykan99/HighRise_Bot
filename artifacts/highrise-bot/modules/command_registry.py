@@ -564,10 +564,10 @@ REGISTRY: dict[str, Cmd] = {
     "firstfindstatus":      Cmd("banker","economy", True, True,  False, aliases=("firstfindcheck",)),
     "resetfirstfind":       Cmd("banker","economy", False,False, True,  perm="manager"),
     # ── Fishing force drop (owner-only) ──────────────────────────────────────
-    "forcefishdrop":        Cmd("fisher","fishing", False, False, True,  perm="owner", aliases=("forcefish",)),
-    "forcefishdropfish":    Cmd("fisher","fishing", False, False, True,  perm="owner"),
-    "forcefishstatus":      Cmd("fisher","fishing", False, True,  False, perm="owner"),
-    "clearforcefish":       Cmd("fisher","fishing", False, False, True,  perm="owner"),
+    "forcedropfish":        Cmd("fisher","fishing", False, False, True,  perm="owner", aliases=("forcefishdrop","forcefish")),
+    "forcedropfishitem":    Cmd("fisher","fishing", False, False, True,  perm="owner", aliases=("forcefishdropfish",)),
+    "forcedropfishstatus":  Cmd("fisher","fishing", False, True,  False, perm="owner", aliases=("forcefishstatus",)),
+    "clearforcedropfish":   Cmd("fisher","fishing", False, False, True,  perm="owner", aliases=("clearforcefish",)),
     # ── Big announce ──────────────────────────────────────────────────────────
     "bigannounce":          Cmd("host","economy",   True, True,  False),
     "bigannouncestatus":    Cmd("host","economy",   True, True,  False),

@@ -1244,15 +1244,19 @@ async def startup_autofish_recovery(bot: BaseBot) -> None:
 
 
 # ---------------------------------------------------------------------------
-# /forcefishdrop /forcefish /forcefishdropfish /forcefishstatus /clearforcefish
+# /forcedropfish /forcedropfishitem /forcedropfishstatus /clearforcedropfish
+# Aliases: /forcefish /forcefishdrop /forcefishdropfish /forcefishstatus /clearforcefish
 # (owner-only)
 # ---------------------------------------------------------------------------
 
+_FISH_RARITY_LIST = "common, rare, epic, legendary, mythic, prismatic, exotic"
 
-async def handle_forcefishdrop(bot: BaseBot, user: User, args: list[str]) -> None:
+
+async def handle_forcedropfish(bot: BaseBot, user: User, args: list[str]) -> None:
     """
-    /forcefishdrop <username> <rarity>
+    /forcedropfish <username> <rarity>
     Forces a rarity for that player's next /fish (owner-only, silent).
+    Aliases: /forcefish /forcefishdrop
     """
     from modules.permissions import is_owner
     if not is_owner(user.username):
@@ -1260,12 +1264,15 @@ async def handle_forcefishdrop(bot: BaseBot, user: User, args: list[str]) -> Non
         return
     if len(args) < 3:
         await _w(bot, user.id,
-                 "Usage: /forcefishdrop <username> <rarity>")
+                 f"🎯 Force Fish Drop\n"
+                 f"Usage: /forcedropfish <username> <rarity>\n"
+                 f"Example: /forcedropfish @Marion exotic\n"
+                 f"Rarities: {_FISH_RARITY_LIST}")
         return
     target = args[1].lstrip("@").lower()
     raw_r  = args[2].lower()
     if raw_r not in RARITY_ORDER:
-        await _w(bot, user.id, f"Valid rarities: {', '.join(RARITY_ORDER)}")
+        await _w(bot, user.id, f"Valid rarities: {_FISH_RARITY_LIST}")
         return
     drop_id = db.set_forced_fish_drop(target, "rarity", raw_r, user.username)
     await _w(bot, user.id,
@@ -1273,10 +1280,11 @@ async def handle_forcefishdrop(bot: BaseBot, user: User, args: list[str]) -> Non
              f"(id={drop_id}, expires 24h)")
 
 
-async def handle_forcefishdropfish(bot: BaseBot, user: User, args: list[str]) -> None:
+async def handle_forcedropfishitem(bot: BaseBot, user: User, args: list[str]) -> None:
     """
-    /forcefishdropfish <username> <fish_name>
+    /forcedropfishitem <username> <fish_name>
     Forces a specific fish for that player's next /fish (owner-only, silent).
+    Alias: /forcefishdropfish
     """
     from modules.permissions import is_owner
     if not is_owner(user.username):
@@ -1284,7 +1292,9 @@ async def handle_forcefishdropfish(bot: BaseBot, user: User, args: list[str]) ->
         return
     if len(args) < 3:
         await _w(bot, user.id,
-                 "Usage: /forcefishdropfish <username> <fish_name>")
+                 f"🎯 Force Fish Item\n"
+                 f"Usage: /forcedropfishitem <username> <fish name>\n"
+                 f"Example: /forcedropfishitem @Marion Aurora Koi")
         return
     target     = args[1].lstrip("@").lower()
     fish_query = " ".join(args[2:]).strip().lower()
@@ -1311,8 +1321,8 @@ async def handle_forcefishdropfish(bot: BaseBot, user: User, args: list[str]) ->
              f"(id={drop_id}, expires 24h)")
 
 
-async def handle_forcefishstatus(bot: BaseBot, user: User) -> None:
-    """/forcefishstatus — list pending forced fish drops (owner-only)."""
+async def handle_forcedropfishstatus(bot: BaseBot, user: User) -> None:
+    """/forcedropfishstatus — list pending forced fish drops (owner-only)."""
     from modules.permissions import is_owner
     if not is_owner(user.username):
         await _w(bot, user.id, "Owner-only command.")
@@ -1344,14 +1354,17 @@ async def handle_forcefishstatus(bot: BaseBot, user: User) -> None:
     await _w(bot, user.id, "\n".join(lines)[:249])
 
 
-async def handle_clearforcefish(bot: BaseBot, user: User, args: list[str]) -> None:
-    """/clearforcefish <username> — cancel pending forced fish drops (owner-only)."""
+async def handle_clearforcedropfish(bot: BaseBot, user: User, args: list[str]) -> None:
+    """/clearforcedropfish <username> — cancel pending forced fish drops (owner-only)."""
     from modules.permissions import is_owner
     if not is_owner(user.username):
         await _w(bot, user.id, "Owner-only command.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /clearforcefish <username>")
+        await _w(bot, user.id,
+                 f"🧹 Clear Force Fish\n"
+                 f"Usage: /clearforcedropfish <username>\n"
+                 f"Example: /clearforcedropfish @Marion")
         return
     target = args[1].lstrip("@").lower()
     n      = db.clear_forced_fish_drop_by_username(target, user.username)
