@@ -1,0 +1,275 @@
+Fix Forced Fishing Drop Silent Failure + Add Debug Visibility
+
+Current issue:
+Fishing force-drop commands are routed, but /fish still rolls normally.
+
+Test:
+/forcedropfish @4ktreymarion exotic
+/forcedropfishstatus
+/fish
+/forcedropfishstatus
+
+Actual:
+Player still catches COMMON fish.
+
+From GitHub commit review:
+- forced_fishing_drops table exists
+- /forcedropfish command exists
+- /fish has forced drop lookup
+- but /fish wraps forced-drop lookup in try/except and only prints errors to console
+- so failures are silent in Highrise
+
+Goal:
+Make forced fishing drops actually work and make failures visible to owner/staff.
+
+Do not change bot tokens.
+Do not change room ID.
+Do not reset balances.
+Do not wipe fish records.
+Do not break mining force drop.
+Do not break normal fishing.
+
+==================================================
+PART 1 — FIX FORCED FISH SAVE CONFIRMATION
+==================================================
+
+When owner uses:
+
+/forcedropfish @4ktreymarion exotic
+
+MasterAngler must reply with clear confirmation:
+
+MasterAngler:
+🎯 Forced Fish Drop Set
+Target: @4ktreymarion
+Type: rarity
+Value: exotic
+Status: pending
+Next /fish or AutoFish will consume this.
+
+If the command fails to save, show the actual safe error to owner.
+
+Do not stay silent.
+
+==================================================
+PART 2 — FIX /forcedropfishstatus
+==================================================
+
+/forcedropfishstatus must always respond.
+
+If pending drops exist:
+
+MasterAngler:
+🎯 Forced Fish Drops
+1. @4ktreymarion | type=rarity | value=exotic | status=pending | id=12
+
+If no drops:
+
+MasterAngler:
+🎯 Forced Fish Drops
+No pending forced fish drops.
+
+Also include debug fields for owner:
+- target_username
+- target_user_id
+- forced_type
+- forced_value
+- status
+- expires_at
+
+==================================================
+PART 3 — FIX USERNAME NORMALIZATION
+==================================================
+
+Normalize usernames exactly the same way in:
+- /forcedropfish save
+- /forcedropfishstatus display
+- /fish lookup
+- AutoFish lookup
+- /clearforcedropfish
+
+Use:
+
+normalize_username(name):
+- remove @
+- strip spaces
+- lowercase
+
+Example:
+@4ktreyMarion → 4ktreymarion
+
+When saving:
+target_username must be normalized.
+
+When fishing:
+current username must be normalized the same way.
+
+==================================================
+PART 4 — FIX /fish LOOKUP ORDER
+==================================================
+
+In /fish, forced fish lookup must happen BEFORE normal roll OR immediately override the roll with guaranteed debug.
+
+Recommended flow:
+
+1. Get user.id
+2. Get normalized username
+3. Call db.get_active_forced_fish_drop(user.id, normalized_username)
+4. If found:
+   - log and optionally whisper owner/debug if debug mode
+   - if forced_type == rarity:
+       select random fish where fish["rarity"].lower() == forced_value.lower()
+   - if forced_type == fish:
+       lookup exact fish by fish_id or lowercase name
+   - if successful:
+       use forced fish
+       mark forced drop used
+   - if failed:
+       DO NOT silently ignore
+       whisper owner:
+       Forced fish failed: reason
+5. If no forced drop:
+   - normal random roll
+
+Important:
+Do not let rarity mismatch fail because of uppercase/lowercase.
+Use lower() on both sides:
+
+fish["rarity"].lower() == forced_value.lower()
+
+==================================================
+PART 5 — REMOVE SILENT EXCEPTIONS
+==================================================
+
+Current code catches exceptions like:
+
+except Exception as _ffd_exc:
+    print("[FISH] forced drop lookup error...")
+
+That is not enough.
+
+Update it so owner can see failure through status/debug.
+
+Add:
+/forcedropfishdebug <username>
+
+Owner only.
+
+Output:
+MasterAngler:
+🎯 Force Fish Debug
+User: @4ktreymarion
+Normalized: 4ktreymarion
+User ID: <id if known>
+Pending by username: YES/NO
+Pending by user_id: YES/NO
+Next forced type:
+Next forced value:
+Last forced error:
+
+If you do not want a new command, include this debug in /forcedropfishstatus.
+
+==================================================
+PART 6 — FIX EXACT FISH FORCE DROP
+==================================================
+
+/forcedropfishitem @4ktreymarion Aurora Koi
+
+Must save:
+forced_type = fish
+forced_value = aurora_koi or exact normalized fish key
+
+Then next /fish must catch Aurora Koi.
+
+Lookup should support:
+- fish_id
+- lowercase exact fish name
+- safe partial match only if unique
+
+==================================================
+PART 7 — AUTOFISH MUST USE SAME LOGIC
+==================================================
+
+AutoFish must use the same forced drop lookup and consume logic as manual /fish.
+
+Best fix:
+Create one shared function:
+
+get_forced_or_random_fish(user_id, username, rod_name, effects)
+
+Both /fish and AutoFish must call it.
+
+Do not duplicate two different lookup paths.
+
+==================================================
+PART 8 — CLEAR COMMAND
+==================================================
+
+/clearforcedropfish @4ktreymarion
+
+Must clear by:
+- normalized username
+- user_id if available
+
+Reply:
+
+MasterAngler:
+🧹 Forced Fish Cleared
+Target: @4ktreymarion
+Cleared: 1 pending drop
+
+If none:
+
+MasterAngler:
+🧹 Forced Fish
+No pending forced fish drop found for @4ktreymarion.
+
+Also add typo helper:
+/clearforceddropfish should reply:
+Unknown command. Did you mean /clearforcedropfish?
+
+==================================================
+PART 9 — TESTING
+==================================================
+
+After fixing, run:
+
+/forcedropfish @4ktreymarion exotic
+/forcedropfishstatus
+/fish
+/forcedropfishstatus
+
+Expected:
+1. First status shows pending exotic.
+2. /fish catches [EXOTIC].
+3. Second status shows no pending drop.
+
+Then exact fish:
+
+/forcedropfishitem @4ktreymarion Aurora Koi
+/forcedropfishstatus
+/fish
+
+Expected:
+Player catches Aurora Koi.
+
+Also test AutoFish:
+
+/forcedropfish @4ktreymarion prismatic
+/autofish on
+
+Expected:
+Next AutoFish attempt catches [PRISMATIC], then clears forced drop.
+
+==================================================
+FINAL REPORT
+==================================================
+
+After finishing, tell me:
+1. Files changed
+2. Why forced fish was ignored before
+3. Whether it was username mismatch, rarity mismatch, handler issue, or silent exception
+4. How /fish now consumes forced fishing drops
+5. How AutoFish consumes forced fishing drops
+6. How /forcedropfishstatus confirms pending drops
+7. Exact tests to run

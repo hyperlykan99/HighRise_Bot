@@ -516,6 +516,7 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     # ── fishing force drop ───────────────────────────────────────────────────
     "forcedropfish": "fisher", "forcedropfishitem": "fisher",
     "forcedropfishstatus": "fisher", "clearforcedropfish": "fisher",
+    "forcedropfishdebug": "fisher", "clearforceddropfish": "fisher",
     "forcefishdrop": "fisher", "forcefish": "fisher",
     "forcefishdropfish": "fisher", "forcefishstatus": "fisher",
     "clearforcefish": "fisher",

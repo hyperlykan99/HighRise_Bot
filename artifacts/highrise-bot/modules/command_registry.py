@@ -567,7 +567,9 @@ REGISTRY: dict[str, Cmd] = {
     "forcedropfish":        Cmd("fisher","fishing", False, False, True,  perm="owner", aliases=("forcefishdrop","forcefish")),
     "forcedropfishitem":    Cmd("fisher","fishing", False, False, True,  perm="owner", aliases=("forcefishdropfish",)),
     "forcedropfishstatus":  Cmd("fisher","fishing", False, True,  False, perm="owner", aliases=("forcefishstatus",)),
+    "forcedropfishdebug":   Cmd("fisher","fishing", False, True,  True,  perm="owner"),
     "clearforcedropfish":   Cmd("fisher","fishing", False, False, True,  perm="owner", aliases=("clearforcefish",)),
+    "clearforceddropfish":  Cmd("fisher","fishing", False, False, False, perm="owner"),
     # ── Big announce ──────────────────────────────────────────────────────────
     "bigannounce":          Cmd("host","economy",   True, True,  False),
     "bigannouncestatus":    Cmd("host","economy",   True, True,  False),

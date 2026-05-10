@@ -371,7 +371,8 @@ from modules.fishing import (
     handle_setautofishattempts, handle_setautofishdailycap,
     stop_autofish_for_user, startup_autofish_recovery,
     handle_forcedropfish, handle_forcedropfishitem,
-    handle_forcedropfishstatus, handle_clearforcedropfish,
+    handle_forcedropfishstatus, handle_forcedropfishdebug,
+    handle_clearforcedropfish,
 )
 from modules.first_find import (
     handle_firstfindrewards, handle_setfirstfind,
@@ -4101,8 +4102,17 @@ class HangoutBot(BaseBot):
         elif cmd in {"forcedropfishstatus", "forcefishstatus"}:
             await handle_forcedropfishstatus(self, user)
 
+        elif cmd == "forcedropfishdebug":
+            await handle_forcedropfishdebug(self, user, args)
+
         elif cmd in {"clearforcedropfish", "clearforcefish"}:
             await handle_clearforcedropfish(self, user, args)
+
+        elif cmd == "clearforceddropfish":
+            await self.highrise.send_whisper(
+                user.id,
+                "❓ Did you mean /clearforcedropfish? (one 'd', not two)"
+            )
 
         elif cmd == "orechances":
             await handle_orechances(self, user)

@@ -1568,6 +1568,7 @@ def _migrate_db():
         "expires_at      TEXT NOT NULL DEFAULT '', "
         "used_at         TEXT, "
         "status          TEXT NOT NULL DEFAULT 'pending')",
+        "ALTER TABLE forced_fishing_drops ADD COLUMN last_error TEXT NOT NULL DEFAULT ''",
     ]:
         try:
             conn.execute(sql)
@@ -8971,6 +8972,17 @@ def mark_forced_fish_drop_used(drop_id: int) -> None:
         "UPDATE forced_fishing_drops "
         "SET status='used', used_at=datetime('now') WHERE id=?",
         (drop_id,),
+    )
+    conn.commit()
+    conn.close()
+
+
+def set_forced_fish_drop_error(drop_id: int, error_msg: str) -> None:
+    """Record an error message on a forced fish drop without consuming it."""
+    conn = get_connection()
+    conn.execute(
+        "UPDATE forced_fishing_drops SET last_error=? WHERE id=?",
+        (error_msg[:200], drop_id),
     )
     conn.commit()
     conn.close()
