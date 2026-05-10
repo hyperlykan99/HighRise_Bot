@@ -1,0 +1,191 @@
+Fix Fishing Force Drop Handler Silent No-Response
+
+Current issue:
+Commandtest shows /forcedropfish has:
+route=YES
+handler=YES
+owner=fisher
+fisher_handles=true
+
+But in Highrise, when I type:
+/forcedropfish @4ktreymarion exotic
+/forcedropfishstatus
+
+MasterAngler gives no reply and the forced fish drop does not work.
+
+Do not change bot tokens.
+Do not change room ID.
+Do not reset player data.
+Do not wipe fish records.
+Do not break /fish or AutoFish.
+Do not break mining force drop.
+
+==================================================
+PART 1 — FORCE ALL FORCE-FISH COMMANDS TO RESPOND
+==================================================
+
+These commands must always reply to the owner:
+
+/forcedropfish
+/forcedropfish @user exotic
+/forcedropfishstatus
+/forcedropfishitem
+/clearforcedropfish
+/forcefish
+/forcefishdrop
+/forcefishstatus
+/clearforcefish
+
+No silent failures allowed.
+
+Wrap each handler with visible owner-safe error reporting:
+
+try:
+   handler logic
+except Exception as e:
+   whisper owner:
+   "Forced fish command error: <safe error>"
+   print full traceback to console
+
+==================================================
+PART 2 — FIX OWNER CHECK SILENCE
+==================================================
+
+If user is not recognized as owner, do not silently return.
+
+Reply:
+MasterAngler:
+Owner-only command.
+User seen as: <username>
+Owner check failed.
+
+But for real owner 4ktreyMarion / 4ktreymarion, owner check must pass.
+
+Make owner check case-insensitive:
+4ktreyMarion = 4ktreymarion
+
+==================================================
+PART 3 — FIX /forcedropfish SAVE RESPONSE
+==================================================
+
+When I type:
+
+/forcedropfish @4ktreymarion exotic
+
+MasterAngler must reply:
+
+🎯 Forced Fish Drop Set
+Target: @4ktreymarion
+Type: rarity
+Value: exotic
+Status: pending
+Next /fish or AutoFish will consume this.
+
+If DB insert fails, show the error to owner and print traceback.
+
+==================================================
+PART 4 — FIX /forcedropfishstatus RESPONSE
+==================================================
+
+/forcedropfishstatus must always respond.
+
+If pending exists:
+
+🎯 Forced Fish Drops
+1. @4ktreymarion | type=rarity | value=exotic | status=pending | id=#
+
+If none:
+
+🎯 Forced Fish Drops
+No pending forced fish drops.
+
+If status query fails, show safe error to owner and print traceback.
+
+==================================================
+PART 5 — CHECK DB FUNCTION EXISTS
+==================================================
+
+Verify these database functions exist and are imported correctly in modules/fishing.py:
+
+db.set_forced_fish_drop
+db.get_active_forced_fish_drop
+db.get_all_active_forced_fish_drops
+db.mark_forced_fish_drop_used
+db.clear_forced_fish_drop_by_username
+
+If any are missing or named differently, fix the handler imports/calls.
+
+==================================================
+PART 6 — FIX ARG PARSING
+==================================================
+
+In handler, confirm args format is correct.
+
+When user types:
+/forcedropfish @4ktreymarion exotic
+
+args should contain:
+["forcedropfish", "@4ktreymarion", "exotic"]
+
+If your router strips the command and passes only:
+["@4ktreymarion", "exotic"]
+
+then update handler to support both styles.
+
+This is likely the bug.
+
+Handler should accept both:
+
+Style A:
+args[0] = command
+args[1] = username
+args[2] = rarity
+
+Style B:
+args[0] = username
+args[1] = rarity
+
+Do the same for:
+/forcedropfishitem
+/clearforcedropfish
+
+==================================================
+PART 7 — TEST AFTER FIX
+==================================================
+
+Test:
+
+/forcedropfish
+Expected usage reply.
+
+/forcedropfish @4ktreymarion exotic
+Expected confirmation reply.
+
+/forcedropfishstatus
+Expected pending exotic.
+
+/fish
+Expected EXOTIC fish.
+
+/forcedropfishstatus
+Expected no pending forced fish drops.
+
+Then exact fish:
+
+/forcedropfishitem @4ktreymarion Aurora Koi
+/forcedropfishstatus
+/fish
+
+Expected:
+Caught Aurora Koi.
+
+==================================================
+FINAL REPORT
+==================================================
+
+Tell me:
+1. Why MasterAngler was silent
+2. Whether it was owner check, DB error, or args parsing
+3. Which handlers were fixed
+4. Whether /forcedropfishstatus now always replies
+5. Exact tests to run

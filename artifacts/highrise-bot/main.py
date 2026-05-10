@@ -568,9 +568,6 @@ MANAGER_ONLY_CMDS = {
     "setbjbonuspair", "setbjbonuscolor", "setbjbonusperfect",
     "setbigannounce", "setbigreact", "setbotbigreact",
     "setfirstfind", "resetfirstfind",
-    "forcedropfish", "forcedropfishitem", "forcedropfishstatus", "clearforcedropfish",
-    "forcefishdrop", "forcefish", "forcefishdropfish",
-    "forcefishstatus", "clearforcefish",
     "setrbjdecks", "setrbjminbet", "setrbjmaxbet", "setrbjcountdown",
     "setrbjshuffle", "setrbjblackjackpayout", "setrbjwinpayout", "setrbjturntimer",
     "setrbjactiontimer", "setrbjmaxsplits",
@@ -900,6 +897,11 @@ ALL_KNOWN_COMMANDS = (
         # ── Gold tip commands (new) ────────────────────────────────────────────
         "goldtipsettings", "setgoldrate",
         "goldtiplogs", "mygoldtips", "goldtipstatus",
+        # ── Fishing force drop (owner-only, handled by fisher bot) ─────────────
+        "forcedropfish", "forcedropfishitem", "forcedropfishstatus",
+        "forcedropfishdebug", "clearforcedropfish", "clearforceddropfish",
+        "forcefishdrop", "forcefish", "forcefishdropfish",
+        "forcefishstatus", "clearforcefish",
     }
     | ECONOMY_COMMANDS | PROFILE_COMMANDS | GAME_COMMANDS
     | SHOP_COMMANDS | ACHIEVEMENT_COMMANDS | BJ_COMMANDS
