@@ -451,6 +451,11 @@ REGISTRY: dict[str, Cmd] = {
     "goldtiplogs":     Cmd("banker","goldtip", False, True,  False, perm="staff"),
     "mygoldtips":      Cmd("banker","goldtip", False, True,  False),
     "goldtipstatus":   Cmd("banker","goldtip", False, True,  False),
+    "tipcoinrate":     Cmd("banker","goldtip", False, True,  False, perm="staff"),
+    "settipcoinrate":  Cmd("banker","goldtip", False, False, True,  perm="admin"),
+    "bottiplogs":      Cmd("banker","goldtip", False, True,  False, perm="staff"),
+    "mingoldtip":      Cmd("banker","goldtip", False, True,  False, perm="staff"),
+    "setmingoldtip":   Cmd("banker","goldtip", False, False, True,  perm="admin"),
 
     # ── EventHost: new mining events (B-project) ──────────────────────────────
     "mineevents":       Cmd("eventhost","events", False, True,  False),

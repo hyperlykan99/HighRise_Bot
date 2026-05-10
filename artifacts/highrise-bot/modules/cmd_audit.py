@@ -393,6 +393,8 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     # ── Gold tip commands (new) ───────────────────────────────────────────────
     "goldtipsettings", "setgoldrate",
     "goldtiplogs", "mygoldtips", "goldtipstatus",
+    "tipcoinrate", "settipcoinrate",
+    "bottiplogs", "mingoldtip", "setmingoldtip",
     # ── Economy panel + rarity caps (new) ────────────────────────────────────
     "economypanel", "economybalance", "miningeconomy",
     "economysettings",
@@ -510,6 +512,8 @@ HELP_CMDS: frozenset[str] = frozenset({
     "addvip", "removevip", "vips", "goldrainvip",
     "settiprate", "settipcap", "settiptier",
     "goldtip", "goldrain", "goldrainall", "goldrefund",
+    "tipcoinrate", "settipcoinrate", "bottiplogs",
+    "mingoldtip", "setmingoldtip",
     "addcoins", "removecoins", "setcoins", "resetcoins",
     "addxp", "removexp", "setxp", "setlevel", "addlevel",
     "addrep", "removerep", "setrep", "resetrep", "addeventcoins",

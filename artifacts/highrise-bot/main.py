@@ -318,6 +318,11 @@ from modules.gold_tips import (
     handle_mygoldtips,
     handle_goldtipstatus,
     handle_incoming_gold_tip,
+    handle_tipcoinrate,
+    handle_settipcoinrate,
+    handle_bottiplogs,
+    handle_mingoldtip,
+    handle_setmingoldtip,
 )
 from modules.mining import (
     handle_mine, handle_tool, handle_upgradetool,
@@ -898,6 +903,8 @@ ALL_KNOWN_COMMANDS = (
         # ── Gold tip commands (new) ────────────────────────────────────────────
         "goldtipsettings", "setgoldrate",
         "goldtiplogs", "mygoldtips", "goldtipstatus",
+        "tipcoinrate", "settipcoinrate",
+        "bottiplogs", "mingoldtip", "setmingoldtip",
         # ── Fishing force drop (owner-only, handled by fisher bot) ─────────────
         "forcedropfish", "forcedropfishitem", "forcedropfishstatus",
         "forcedropfishdebug", "clearforcedropfish", "clearforceddropfish",
@@ -4399,6 +4406,16 @@ class HangoutBot(BaseBot):
             await handle_mygoldtips(self, user)
         elif cmd == "goldtipstatus":
             await handle_goldtipstatus(self, user)
+        elif cmd == "tipcoinrate":
+            await handle_tipcoinrate(self, user)
+        elif cmd == "settipcoinrate":
+            await handle_settipcoinrate(self, user, args)
+        elif cmd == "bottiplogs":
+            await handle_bottiplogs(self, user)
+        elif cmd == "mingoldtip":
+            await handle_mingoldtip(self, user)
+        elif cmd == "setmingoldtip":
+            await handle_setmingoldtip(self, user, args)
 
         # ── Maintenance tools ─────────────────────────────────────────────────
         elif cmd == "botstatus":

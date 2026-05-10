@@ -52,6 +52,7 @@ def _utcnow() -> str:
 # ---------------------------------------------------------------------------
 
 _DEFAULT_RATE = 1000  # coins per 1 gold bar
+_DEFAULT_MIN  = 1.0   # minimum gold tip amount
 
 
 def get_coins_per_gold() -> int:
@@ -60,6 +61,13 @@ def get_coins_per_gold() -> int:
                                        str(_DEFAULT_RATE)))
     except ValueError:
         return _DEFAULT_RATE
+
+
+def get_min_gold_tip() -> float:
+    try:
+        return float(db.get_room_setting("gold_tip_min_amount", str(_DEFAULT_MIN)))
+    except ValueError:
+        return _DEFAULT_MIN
 
 
 def gold_tip_enabled() -> bool:
@@ -151,8 +159,11 @@ async def handle_incoming_gold_tip(
               f"({gold_amount} gold via {receiving_bot_username})")
         return
 
-    from modules.multi_bot import BOT_MODE
-    is_banker = BOT_MODE in ("banker", "all")
+    min_tip = get_min_gold_tip()
+    if gold_amount < min_tip:
+        print(f"[GOLDTIP] Below minimum ({gold_amount}g < {min_tip:g}g) — ignoring "
+              f"tip from @{sender.username}")
+        return
 
     rate  = get_coins_per_gold()
     coins = int(gold_amount * rate)
@@ -165,52 +176,33 @@ async def handle_incoming_gold_tip(
 
     print(f"[GOLDTIP] Received: from=@{sender.username} "
           f"bot={receiving_bot_username} gold={gold_amount} "
-          f"banker={is_banker} event_id={event_id}")
+          f"event_id={event_id}")
 
-    if is_banker:
-        # Banker processes the tip
-        inserted = _insert_tip_event(
-            event_id, sender.id, sender.username,
-            receiving_bot_username, gold_amount, coins,
-            float(rate), receiving_bot_username, "converted",
-        )
-        if not inserted:
-            print(f"[GOLDTIP] Duplicate skipped: event_id={event_id}")
-            return
-        # Credit balance
-        try:
-            db.ensure_user(sender.id, sender.username)
-            db.add_balance(sender.id, coins)
-        except Exception as exc:
-            print(f"[GOLDTIP] Balance credit error: {exc}")
-        # Confirm to player
-        header = "<#FFD700>💰 Gold Tip<#FFFFFF>"
-        detail = (f"Converted {gold_amount:g} gold → {coins:,} coins "
-                  f"via {receiving_bot_username} (rate: {rate:,}/gold)")
-        try:
-            await bot.highrise.send_whisper(sender.id, header[:249])
-        except Exception:
-            pass
-        try:
-            await bot.highrise.send_whisper(sender.id, detail[:249])
-        except Exception:
-            pass
-        print(f"[GOLDTIP] Processed: @{sender.username} +{coins:,} coins "
-              f"(event_id={event_id})")
-    else:
-        # Non-banker: acknowledge only, log as pending
-        _insert_tip_event(
-            event_id, sender.id, sender.username,
-            receiving_bot_username, gold_amount, coins,
-            float(rate), "bankingbot", "acknowledged",
-        )
-        try:
-            await bot.highrise.send_whisper(
-                sender.id,
-                f"Thank you for the gold tip! BankingBot will convert it for you."[:249]
-            )
-        except Exception:
-            pass
+    inserted = _insert_tip_event(
+        event_id, sender.id, sender.username,
+        receiving_bot_username, gold_amount, coins,
+        float(rate), receiving_bot_username, "rewarded",
+    )
+    if not inserted:
+        print(f"[GOLDTIP] Duplicate skipped: event_id={event_id}")
+        return
+
+    # Credit balance
+    try:
+        db.ensure_user(sender.id, sender.username)
+        db.add_balance(sender.id, coins)
+    except Exception as exc:
+        print(f"[GOLDTIP] Balance credit error: {exc}")
+
+    # Public thank-you
+    msg = (f"💛 Thank you @{sender.username} for the {gold_amount:g} gold tip! "
+           f"You received {coins:,} coins.")
+    try:
+        await bot.highrise.chat(msg[:249])
+    except Exception:
+        pass
+    print(f"[GOLDTIP] Rewarded: @{sender.username} +{coins:,} coins "
+          f"(event_id={event_id})")
 
 
 # ---------------------------------------------------------------------------
@@ -307,7 +299,112 @@ async def handle_goldtipstatus(bot: BaseBot, user: User) -> None:
     """/goldtipstatus — quick gold tip status (all players)."""
     enabled = "ON" if gold_tip_enabled() else "OFF"
     rate    = get_coins_per_gold()
+    min_g   = get_min_gold_tip()
     await _w(bot, user.id,
              f"<#FFD700>💰 Gold Tips<#FFFFFF>: {enabled} | "
-             f"Rate: {rate:,} coins per 1 gold | "
+             f"Rate: {rate:,} coins/gold | Min: {min_g:g}g | "
              f"Handled by: BankingBot")
+
+
+# ---------------------------------------------------------------------------
+# /tipcoinrate
+# ---------------------------------------------------------------------------
+
+async def handle_tipcoinrate(bot: BaseBot, user: User) -> None:
+    """/tipcoinrate — show current tip coin rate (manager+)."""
+    if not _can_staff(user.username):
+        await _w(bot, user.id, "Staff only.")
+        return
+    rate  = get_coins_per_gold()
+    min_g = get_min_gold_tip()
+    await _w(bot, user.id,
+             f"<#FFD700>💰 Tip Coin Rate<#FFFFFF>: {rate:,} coins per 1 gold | "
+             f"Min tip: {min_g:g}g")
+
+
+# ---------------------------------------------------------------------------
+# /settipcoinrate <coins_per_gold>
+# ---------------------------------------------------------------------------
+
+async def handle_settipcoinrate(bot: BaseBot, user: User, args: list[str]) -> None:
+    """/settipcoinrate <amount> — set tip coin rate (admin+)."""
+    if not _can_admin(user.username):
+        await _w(bot, user.id, "Admin+ only.")
+        return
+    if len(args) < 2:
+        cur = get_coins_per_gold()
+        await _w(bot, user.id,
+                 f"Current tip coin rate: {cur:,} coins/gold. "
+                 f"Usage: /settipcoinrate <amount>")
+        return
+    try:
+        val = int(args[1])
+        if val < 1:
+            raise ValueError
+    except ValueError:
+        await _w(bot, user.id, "⚠️ Enter a positive integer.")
+        return
+    db.set_room_setting("gold_tip_coins_per_gold", str(val))
+    await _w(bot, user.id, f"✅ Tip coin rate set: {val:,} coins per gold.")
+
+
+# ---------------------------------------------------------------------------
+# /bottiplogs
+# ---------------------------------------------------------------------------
+
+async def handle_bottiplogs(bot: BaseBot, user: User) -> None:
+    """/bottiplogs — recent bot tip log (staff)."""
+    if not _can_staff(user.username):
+        await _w(bot, user.id, "Staff only.")
+        return
+    rows = _get_recent_tips(limit=8)
+    if not rows:
+        await _w(bot, user.id, "No bot tip events logged yet.")
+        return
+    await _w(bot, user.id, f"<#FFD700>💰 Bot Tip Log<#FFFFFF> (last {len(rows)})")
+    for r in rows:
+        dt   = r["created_at"][:16] if r.get("created_at") else "?"
+        line = (f"@{r['from_username']} → {r['gold_amount']:g}g "
+                f"= {r['coins_converted']:,}c via {r['receiving_bot']} [{dt}]")
+        await _w(bot, user.id, line[:249])
+
+
+# ---------------------------------------------------------------------------
+# /mingoldtip
+# ---------------------------------------------------------------------------
+
+async def handle_mingoldtip(bot: BaseBot, user: User) -> None:
+    """/mingoldtip — show minimum gold tip setting (staff)."""
+    if not _can_staff(user.username):
+        await _w(bot, user.id, "Staff only.")
+        return
+    min_g = get_min_gold_tip()
+    rate  = get_coins_per_gold()
+    await _w(bot, user.id,
+             f"<#FFD700>💰 Min Gold Tip<#FFFFFF>: {min_g:g}g | "
+             f"Rate: {rate:,} coins/gold")
+
+
+# ---------------------------------------------------------------------------
+# /setmingoldtip <amount>
+# ---------------------------------------------------------------------------
+
+async def handle_setmingoldtip(bot: BaseBot, user: User, args: list[str]) -> None:
+    """/setmingoldtip <amount> — set minimum gold tip (admin+)."""
+    if not _can_admin(user.username):
+        await _w(bot, user.id, "Admin+ only.")
+        return
+    if len(args) < 2:
+        cur = get_min_gold_tip()
+        await _w(bot, user.id,
+                 f"Current min gold tip: {cur:g}g. Usage: /setmingoldtip <amount>")
+        return
+    try:
+        val = float(args[1])
+        if val < 0.01:
+            raise ValueError
+    except ValueError:
+        await _w(bot, user.id, "⚠️ Enter a valid amount ≥ 0.01.")
+        return
+    db.set_room_setting("gold_tip_min_amount", str(val))
+    await _w(bot, user.id, f"✅ Min gold tip set: {val:g} gold.")

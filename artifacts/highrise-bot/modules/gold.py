@@ -257,7 +257,7 @@ async def _execute_goldtip(
     ok, err = await _send_gold_bars(bot, target_id, bars)
     denom_str = ",".join(bars)
     if ok:
-        await bot.highrise.chat(f"✅ Sent {amount}g to @{target_display}.")
+        await bot.highrise.chat(f"💰 Gold Tip Sent — @{target_display} received {amount}g.")
         db.log_gold_tx(
             action_type, user.username, target_display, target_id,
             amount, reason, "success", denom_str, "", "",
@@ -373,8 +373,8 @@ async def handle_goldtip(bot, user, args: list[str], action_type: str = "goldtip
     except ValueError:
         await bot.highrise.send_whisper(user.id, "Amount must be a whole number.")
         return
-    if amount <= 0:
-        await bot.highrise.send_whisper(user.id, "Amount must be positive.")
+    if amount < 1:
+        await bot.highrise.send_whisper(user.id, "💰 Gold Tip — Minimum tip is 1 gold.")
         return
 
     await refresh_room_cache(bot)
@@ -400,22 +400,6 @@ async def handle_goldtip(bot, user, args: list[str], action_type: str = "goldtip
         return
 
     reason = " ".join(args[3:]) if len(args) > 3 else ""
-
-    if amount >= _confirm_above():
-        code = _store_pending(action_type, {
-            "target_id":      target_id,
-            "target":         target_display,
-            "amount":         amount,
-            "bars":           bars,
-            "reason":         reason,
-            "sender":         user.username,
-            "sender_id":      user.id,
-        })
-        await bot.highrise.send_whisper(
-            user.id,
-            f"Confirm {amount}g to @{target_display}: /confirmgoldtip {code} (60s)"
-        )
-        return
 
     await _execute_goldtip(
         bot, user, target_id, target_display, amount, bars, reason, action_type

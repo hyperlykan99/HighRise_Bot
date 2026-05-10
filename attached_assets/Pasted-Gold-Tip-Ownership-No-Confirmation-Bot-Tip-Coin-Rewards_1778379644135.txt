@@ -1,0 +1,509 @@
+Gold Tip Ownership + No Confirmation + Bot Tip Coin Rewards + Minimum 1g Tip
+
+Focus only on gold tipping, bot tip rewards, tip coin rate, minimum tip amount, logs, and command ownership.
+
+Do not change bot tokens.
+Do not change room ID.
+Do not reset balances.
+Do not wipe reward logs.
+Do not break bank, tips, first-find rewards, mining, fishing, blackjack, poker, events, or announcements.
+
+==================================================
+UPDATE 1 — GOLDTIP SHOULD BE HANDLED BY BANKERBOT
+==================================================
+
+Current issue:
+When I use /goldtip, EmceeBot answers.
+
+Goal:
+BankerBot should handle all gold tipping and reward payout commands.
+EmceeBot should only announce/hype rewards, not control money.
+
+Commands to check and move to BankerBot if they exist:
+
+/goldtip
+/tipgold
+/goldreward
+/rewardgold
+/firstfindreward
+/firstfindrewards
+/firstfindstatus
+/setfirstfindreward
+/resetfirstfind
+
+Owner:
+BankerBot
+
+Internal owner key may be:
+banker
+bank
+BankingBot
+BankerBot
+
+Use the existing correct bank bot owner key.
+
+Do not leave owner UNKNOWN.
+
+==================================================
+PART 1 — ROUTING
+==================================================
+
+Update command routing so BankerBot responds to:
+
+/goldtip
+
+EmceeBot should not answer /goldtip.
+
+Preferred:
+BankerBot directly owns and answers /goldtip.
+
+If EmceeBot receives /goldtip:
+- ignore it because BankerBot owns it
+or
+- delegate it to BankerBot if the system supports delegation
+
+==================================================
+PART 2 — REMOVE GOLD TIP CONFIRMATION
+==================================================
+
+Gold tipping must not require a second confirmation.
+
+Remove flows like:
+
+/goldtip @Player 10
+Are you sure?
+/confirmgoldtip
+
+New behavior:
+
+/goldtip @Player 10
+
+Immediately processes or logs the gold tip.
+
+If Highrise SDK supports automatic gold tipping:
+- send the gold immediately
+- log status as paid_gold
+
+If Highrise SDK does not support automatic gold tipping:
+- log as pending_manual_gold
+- tell owner it was logged for manual tipping
+
+Do not ask:
+“Are you sure?”
+“Confirm?”
+“Type /confirm”
+“Type yes”
+
+==================================================
+PART 3 — EMCEEBOT ROLE
+==================================================
+
+EmceeBot can still announce:
+
+🎉 @Player earned a reward!
+
+But EmceeBot must not:
+- send gold
+- log payout status
+- approve payout
+- modify reward balances
+- handle /goldtip
+
+==================================================
+PART 4 — BANKERBOT RESPONSE
+==================================================
+
+When /goldtip is used, response should come from BankerBot.
+
+Usage response:
+
+BankerBot:
+💰 Gold Tip
+Usage: /goldtip <username> <amount>
+Example: /goldtip @Marion 10
+
+Success if automatic gold tipping works:
+
+BankerBot:
+💰 Gold Tip Sent
+@Marion received 10 gold.
+
+If gold tipping is not supported by Highrise SDK:
+
+BankerBot:
+💰 Gold Tip Logged
+@Marion should receive 10 gold.
+Status: pending manual tip.
+
+No confirmation step.
+
+==================================================
+PART 5 — SAFETY
+==================================================
+
+Even without confirmation:
+
+- Owner/Manager permission still required.
+- Validate username.
+- Validate amount.
+- Reject zero or negative amounts.
+- Accept 1 gold and higher.
+- Add optional max per tip setting if available.
+- Log every gold tip attempt.
+- Do not allow normal players to use /goldtip.
+
+If amount is invalid:
+
+BankerBot:
+💰 Gold Tip
+Amount must be greater than 0.
+
+If amount is below minimum:
+
+BankerBot:
+💰 Gold Tip
+Minimum tip is 1 gold.
+
+==================================================
+UPDATE 2 — PLAYER TIPS TO ANY BOT UPDATE COINS
+==================================================
+
+Current desired feature:
+When a player tips any bot, the system should update the player’s coins/reward record, and the tipped bot should reply.
+
+Goal:
+If a player tips gold to any bot in the room, that tipped bot should detect the tip, reward/update the player’s coin balance if configured, log it, and reply.
+
+Applies to all bots:
+- BankerBot
+- EmceeBot
+- EventBot
+- MasterAngler
+- GreatestProspector
+- PokerBot
+- BlackjackBot
+- SecurityBot
+- DJBot
+- any future bot
+
+==================================================
+PART 6 — TIP DETECTION
+==================================================
+
+Use the Highrise SDK event for receiving tips if available.
+
+When a player tips a bot:
+
+1. Detect the tip event.
+2. Identify:
+   - player user_id
+   - player username
+   - tipped bot name
+   - gold amount
+   - timestamp
+3. Convert/update coin reward if configured.
+4. Log the transaction.
+5. Tipped bot replies.
+
+If SDK does not expose bot tip events:
+- Add safe placeholder handler.
+- Do not crash.
+- Report in final response that automatic detection is unavailable.
+
+==================================================
+PART 7 — COIN UPDATE RULE
+==================================================
+
+When player tips any bot:
+
+- Add coins to the player using configured conversion rate.
+- Default conversion setting if missing:
+
+1 gold tip = 1,000 coins
+
+Examples:
+
+1g tip = 1,000 coins
+5g tip = 5,000 coins
+10g tip = 10,000 coins
+
+Add settings if safe:
+
+/tipcoinrate
+/settipcoinrate <coins_per_gold>
+
+Example:
+
+/settipcoinrate 1000
+
+Manager+ only for setting.
+
+If player tips 5 gold and rate is 1,000:
+Player receives 5,000 coins.
+
+==================================================
+PART 8 — BOT REPLY
+==================================================
+
+The tipped bot should reply publicly or whisper depending current system style.
+
+Preferred public reply:
+
+TippedBot:
+💛 Thank you @Player for the 5 gold tip!
+You received 5,000 coins.
+
+If coin rewards are disabled:
+
+TippedBot:
+💛 Thank you @Player for the 5 gold tip!
+
+==================================================
+PART 9 — LOGGING
+==================================================
+
+Log every bot tip event.
+
+Create table if missing:
+
+bot_tip_logs:
+- id INTEGER PRIMARY KEY AUTOINCREMENT
+- user_id TEXT
+- username TEXT
+- bot_name TEXT
+- gold_amount REAL
+- coins_awarded INTEGER
+- coin_rate INTEGER
+- status TEXT
+- created_at TEXT
+
+Statuses:
+- rewarded
+- thanked_only
+- failed
+- unsupported_sdk
+- duplicate_ignored
+
+==================================================
+PART 10 — DUPLICATE PROTECTION
+==================================================
+
+Prevent duplicate reward if the same tip event is received by multiple bots.
+
+Use unique event id if SDK provides one.
+
+If no event id:
+Use a short duplicate window:
+
+same user_id + bot_name + gold_amount within 10 seconds = duplicate
+
+Do not award coins twice.
+
+==================================================
+PART 11 — COMMANDS FOR BOT TIP COIN RATE
+==================================================
+
+Add or verify:
+
+/tipcoinrate
+/settipcoinrate <coins_per_gold>
+/bottiplogs
+
+Owners:
+BankerBot
+
+Permissions:
+/tipcoinrate = Manager+ or public read if safe
+/settipcoinrate = Manager+
+/bottiplogs = Manager+
+
+Commandtest:
+
+/commandtest /tipcoinrate
+/commandtest /settipcoinrate
+/commandtest /bottiplogs
+
+Target:
+
+route=YES
+handler=YES
+owner=BankerBot
+
+If not implemented, do not add as active.
+
+==================================================
+UPDATE 3 — UPDATE TIP RATE + MINIMUM GOLD TIP
+==================================================
+
+Current desired change:
+The minimum gold tip should be 1 gold, not 10 gold.
+
+Goal:
+Allow bot-tip coin rewards and /goldtip handling to work with tips as low as 1g.
+
+==================================================
+PART 12 — TIP RATE DEFAULT
+==================================================
+
+Default conversion:
+
+1 gold = 1,000 coins
+
+So:
+
+1g tip = 1,000 coins
+5g tip = 5,000 coins
+10g tip = 10,000 coins
+
+If an existing tip rate exists, keep it unless owner changes it.
+
+Commands:
+
+/tipcoinrate
+/settipcoinrate <coins_per_gold>
+
+Example:
+
+/settipcoinrate 1000
+
+==================================================
+PART 13 — MINIMUM GOLD TIP
+==================================================
+
+Set minimum gold tip amount to:
+
+1 gold
+
+Not 10 gold.
+
+Apply to:
+- /goldtip
+- /tipgold
+- player tipping any bot
+- bot tip coin reward detection
+- bot tip logs
+- first-find gold reward if it uses the same validation
+
+If player tips 1g:
+- accept it
+- reward coins using tip rate
+- log it
+- tipped bot replies thank-you
+
+Example:
+
+Player tips 1 gold to BankerBot.
+
+BankerBot:
+💛 Thank you @Player for the 1 gold tip!
+You received 1,000 coins.
+
+==================================================
+PART 14 — VALIDATION
+==================================================
+
+Reject:
+- 0 gold
+- negative amounts
+- non-numeric amounts
+
+Allow:
+- 1 gold and higher
+
+If amount is below 1:
+
+BankerBot:
+💰 Gold Tip
+Minimum tip is 1 gold.
+
+==================================================
+PART 15 — SETTINGS
+==================================================
+
+Add or update settings if safe:
+
+min_gold_tip = 1
+tip_coin_rate = 1000
+
+Commands if safe:
+
+/mingoldtip
+/setmingoldtip <amount>
+
+Owner:
+BankerBot
+
+Permission:
+/mingoldtip = Manager+ or public read if safe
+/setmingoldtip = Manager+
+
+If /setmingoldtip is not implemented, do not add it as active.
+
+==================================================
+PART 16 — COMMANDTEST
+==================================================
+
+These must pass if implemented:
+
+/commandtest /goldtip
+/commandtest /tipgold
+/commandtest /goldreward
+/commandtest /rewardgold
+/commandtest /tipcoinrate
+/commandtest /settipcoinrate
+/commandtest /bottiplogs
+/commandtest /mingoldtip
+/commandtest /setmingoldtip
+
+Target:
+
+route=YES
+handler=YES
+owner=BankerBot
+
+/checkcommands all
+
+Target:
+
+Missing 0
+NoOwner 0
+
+If aliases are not implemented, do not add them as active.
+
+==================================================
+PART 17 — FINAL BEHAVIOR TARGET
+==================================================
+
+Final behavior should be:
+
+- BankerBot handles /goldtip.
+- EmceeBot no longer answers /goldtip.
+- /goldtip has no confirmation step.
+- /goldtip sends or logs immediately.
+- Player tipping any bot can reward coins.
+- Tip rate default: 1 gold = 1,000 coins.
+- Minimum accepted gold tip: 1g, not 10g.
+- Tipped bot replies thank-you.
+- BankerBot owns settings and logs.
+- Duplicate tip events do not double-reward coins.
+
+==================================================
+FINAL REPORT
+==================================================
+
+After finishing, tell me:
+
+1. Files changed
+2. Why EmceeBot was answering /goldtip
+3. Which command owner was changed
+4. Which bot now handles /goldtip
+5. Whether confirmation was removed
+6. Whether gold tip sends automatically or logs manual pending tip
+7. Whether player tips to any bot update coins
+8. Whether the tipped bot replies thank-you
+9. Whether SDK tip detection is available
+10. Where bot tip logs are stored
+11. Current tip coin rate
+12. Current minimum gold tip
+13. Commands added or updated
+14. Exact tests to run

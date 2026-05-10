@@ -206,7 +206,7 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "gameconfig": "eventhost", "fixautogames": "eventhost",
     "autogamesowner": "eventhost",
     "stopautogames": "eventhost", "killautogames": "eventhost",
-    "goldtip": "eventhost", "goldrain": "eventhost",
+    "goldtip": "banker", "goldrain": "eventhost",
     "goldrainall": "eventhost", "goldrefund": "eventhost",
     "goldraineligible": "eventhost", "goldrainrole": "eventhost",
     "goldrainvip": "eventhost", "goldraintitle": "eventhost",
@@ -227,6 +227,8 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "addcoins": "banker", "removecoins": "banker",
     "bankstats": "banker", "banknotify": "banker",
     "bankhelp": "banker", "coinhelp": "banker",
+    "tipcoinrate": "banker", "settipcoinrate": "banker",
+    "bottiplogs": "banker", "mingoldtip": "banker", "setmingoldtip": "banker",
     # ── host (audit / status commands) ───────────────────────────────────────
     "checkcommands": "host", "checkhelp": "host",
     "missingcommands": "host", "routecheck": "host",
