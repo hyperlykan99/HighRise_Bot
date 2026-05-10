@@ -202,6 +202,7 @@ REGISTRY: dict[str, Cmd] = {
     "double":           Cmd("blackjack","casino",False,False,True),
     "split":            Cmd("blackjack","casino",False,False,True),
     "insurance":        Cmd("blackjack","casino",False,False,True),
+    "bi":               Cmd("blackjack","casino",False,False,True),
     "surrender":        Cmd("blackjack","casino",False,False,True),
     "shoe":             Cmd("blackjack","casino",False,True, False),
     "bjshoe":           Cmd("blackjack","casino",False,True, False),
@@ -586,6 +587,7 @@ REGISTRY: dict[str, Cmd] = {
     "setbjbonuspair":       Cmd("blackjack","casino",False,False,True, perm="manager"),
     "setbjbonuscolor":      Cmd("blackjack","casino",False,False,True, perm="manager"),
     "setbjbonusperfect":    Cmd("blackjack","casino",False,False,True, perm="manager"),
+    "setbjinsurance":       Cmd("blackjack","casino",False,False,True, perm="manager"),
 }
 
 # ---------------------------------------------------------------------------

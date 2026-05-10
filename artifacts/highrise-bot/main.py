@@ -89,7 +89,7 @@ from modules.numbered_shop import (
 )
 from modules.achievements import handle_achievements, handle_claim_achievements
 from modules.blackjack           import (
-    handle_bj, handle_bj_set,
+    handle_bj, handle_bj_set, handle_bj_shoe,
     handle_bj_cards, handle_bj_rules, handle_bj_bonus_settings,
     reset_table as bj_reset_table,
     soft_reset_table as bj_soft_reset_table,
@@ -505,7 +505,7 @@ SHOP_COMMANDS        = {
 ACHIEVEMENT_COMMANDS = {"achievements", "claimachievements"}
 BJ_COMMANDS          = {
     "bj", "rbj",
-    "bjoin", "bt", "bh", "bs", "bd", "bsp", "blimits", "bstats", "bhand",
+    "bjoin", "bt", "bh", "bs", "bd", "bsp", "bi", "blimits", "bstats", "bhand",
     "bjh", "bjs", "bjd", "bjsp", "bjhand",
     "rjoin", "rt", "rh", "rs", "rd", "rsp", "rshoe", "rlimits", "rstats", "rhand",
     "rbjh", "rbjs", "rbjd", "rbjsp", "rbjhand",
@@ -566,6 +566,7 @@ MANAGER_ONLY_CMDS = {
     "setbjdailywinlimit", "setbjdailylosslimit",
     "setbjbonus", "setbjbonuscap",
     "setbjbonuspair", "setbjbonuscolor", "setbjbonusperfect",
+    "setbjinsurance",
     "setbigannounce", "setbigreact", "setbotbigreact",
     "setfirstfind", "resetfirstfind",
     "setrbjdecks", "setrbjminbet", "setrbjmaxbet", "setrbjcountdown",
@@ -3229,6 +3230,9 @@ class HangoutBot(BaseBot):
         elif cmd == "bsp":
             await handle_bj(self, user, ["bj", "split"])
 
+        elif cmd == "bi":
+            await handle_bj(self, user, ["bj", "insurance"])
+
         elif cmd == "blimits":
             await handle_bj(self, user, ["bj", "limits"])
 
@@ -3351,12 +3355,25 @@ class HangoutBot(BaseBot):
             await handle_rbj(self, user, ["rbj", "split"])
 
         elif cmd == "insurance":
-            await handle_rbj(self, user, ["rbj", "insurance"])
+            _in_bj_round = False
+            try:
+                from modules.blackjack import _state as _bj_st
+                _in_bj_round = (_bj_st.phase == "round"
+                                and _bj_st.get_player(user.id) is not None)
+            except Exception:
+                pass
+            if _in_bj_round:
+                await handle_bj(self, user, ["bj", "insurance"])
+            else:
+                await handle_rbj(self, user, ["rbj", "insurance"])
 
         elif cmd == "surrender":
             await handle_rbj(self, user, ["rbj", "surrender"])
 
-        elif cmd in ("shoe", "bjshoe"):
+        elif cmd == "bjshoe":
+            await handle_bj_shoe(self, user)
+
+        elif cmd == "shoe":
             await handle_rbj(self, user, ["rbj", "shoe"])
 
         # ── How-to-play / game guide ──────────────────────────────────────────

@@ -82,6 +82,9 @@ class _Player:
     hands:           list = field(default_factory=list)
     active_hand_idx: int  = 0
     split_count:     int  = 0
+    insurance_bet:      int  = 0
+    insurance_taken:    bool = False
+    insurance_resolved: bool = False
 
     def current_hand(self):
         if self.active_hand_idx < len(self.hands):
@@ -116,6 +119,7 @@ class _BJState:
         self.round_id:           str  = ""
         self._countdown_ends_at: str  = ""
         self._action_ends_at:    str  = ""
+        self.pair_bonuses:       dict = {}
 
     def get_player(self, user_id: str):
         for p in self.players:
@@ -157,7 +161,12 @@ def _save_player_state(p: _Player) -> None:
             "username":  p.username,
             "user_id":   p.user_id,
             "bet":       p.total_bet(),
-            "hand_json": json.dumps({"hands": p.hands, "split_count": p.split_count}),
+            "hand_json": json.dumps({
+                "hands": p.hands, "split_count": p.split_count,
+                "insurance_bet": p.insurance_bet,
+                "insurance_taken": p.insurance_taken,
+                "insurance_resolved": p.insurance_resolved,
+            }),
             "status":    "done" if p.is_done() else "playing",
             "doubled":   p.active_hand_idx,
             "payout":    0,
@@ -244,6 +253,20 @@ def _check_pair_bonus(cards: list, bet: int, s: dict) -> tuple[str, int]:
     return "pair", min(max(1, int(bet * pct / 100)), cap)
 
 
+def _get_bj_bonus_multiplier(user_id: str, username: str) -> float:
+    """Return VIP/time-tier bonus multiplier for the pair bonus. Never crashes."""
+    try:
+        benefits = get_player_benefits(user_id)
+        vip_pct  = float(benefits.get("coinflip_payout_pct", 0.0))
+        if vip_pct >= _BJ_CASINO_CAP:
+            return 1.5
+        if vip_pct > 0:
+            return 1.25
+    except Exception:
+        pass
+    return 1.0
+
+
 # ─── Lobby countdown ─────────────────────────────────────────────────────────
 
 async def _lobby_countdown(bot: BaseBot, seconds: int):
@@ -288,24 +311,33 @@ async def _start_round(bot: BaseBot):
 
     # ── Pair bonus payout ────────────────────────────────────────────────────
     _bj_s = _settings()
+    _state.pair_bonuses = {}
     if int(_bj_s.get("bj_bonus_enabled", "1")):
+        _BONUS_LABELS = {
+            "pair": "Pair Bonus",
+            "color_pair": "Color Pair Bonus",
+            "perfect_pair": "Perfect Pair Bonus",
+        }
         for p in _state.players:
             try:
                 btype, bamt = _check_pair_bonus(p.hands[0]["cards"], p.bet, _bj_s)
                 if bamt > 0:
+                    vip_mult = _get_bj_bonus_multiplier(p.user_id, p.username)
+                    if vip_mult != 1.0:
+                        cap  = int(_bj_s.get("bj_bonus_cap", "10000"))
+                        bamt = min(int(bamt * vip_mult), cap)
                     db.adjust_balance(p.user_id, bamt)
                     db.add_ledger_entry(p.user_id, p.username, bamt, "bj_pair_bonus")
-                    _BONUS_LABELS = {
-                        "pair": "Pair 10%",
-                        "color_pair": "Color Pair 25%",
-                        "perfect_pair": "Perfect Pair 50%",
-                    }
+                    _state.pair_bonuses[p.user_id] = (btype, bamt, vip_mult)
                     lbl = _BONUS_LABELS.get(btype, btype)
                     c1, c2 = p.hands[0]["cards"][0], p.hands[0]["cards"][1]
-                    await bot.highrise.chat(
-                        f"💎 {_dn(p)} {lbl}! "
-                        f"{_card_clr(c1)}{_card_clr(c2)} +{bamt:,}c"[:249]
+                    bonus_msg = (
+                        f"🎁 {_dn(p)} {lbl}! "
+                        f"{_card_clr(c1)}{_card_clr(c2)} +{bamt:,}c"
                     )
+                    if vip_mult != 1.0:
+                        bonus_msg += f" ({vip_mult}x VIP)"
+                    await bot.highrise.chat(bonus_msg[:249])
             except Exception as _be:
                 print(f"[BJ] pair bonus error for {p.username}: {_be}")
 
@@ -326,8 +358,9 @@ async def _start_round(bot: BaseBot):
 # ─── Simultaneous action phase ────────────────────────────────────────────────
 
 async def _start_action_phase(bot: BaseBot):
-    s     = _settings()
-    timer = int(s.get("bj_action_timer", 30))
+    s      = _settings()
+    timer  = int(s.get("bj_action_timer", 30))
+    ins_on = bool(int(s.get("bj_insurance_enabled", 1)))
 
     end_at = datetime.now(timezone.utc) + timedelta(seconds=timer)
     _state._action_ends_at = end_at.isoformat()
@@ -337,25 +370,41 @@ async def _start_action_phase(bot: BaseBot):
         await _finalize_round(bot)
         return
 
+    # ── Msg 1 (public): dealer upcard + action notice ─────────────────────────
+    upcard_str = card_str(_state.dealer_hand[0]) if _state.dealer_hand else "?"
+    dealer_ace = bool(_state.dealer_hand) and _state.dealer_hand[0][0] == "A"
     await bot.highrise.chat(
-        f"🃏 BJ action open! Act within {timer}s: /bh /bs /bd /bsp"
+        f"🃏 Dealer: {upcard_str} [?] | {timer}s | /bh /bs /bd /bsp"[:249]
     )
 
-    _upcard = _card_clr(_state.dealer_hand[0]) if _state.dealer_hand else "?"
+    # ── Msg 2 (whisper): green player cards + action list ─────────────────────
+    dealer_up = _card_clr(_state.dealer_hand[0]) if _state.dealer_hand else "?"
     for p in _state.players:
         if not p.is_done():
             try:
                 hparts = []
                 for i, h in enumerate(p.hands):
-                    hdisp  = _hand_colored(h["cards"])
-                    hval   = hand_value(h["cards"])
-                    snote  = f"[{h['status']}]" if h["status"] != "active" else ""
-                    hparts.append(f"H{i+1}: {hdisp}={hval}{snote}")
-                await bot.highrise.send_whisper(
-                    p.user_id,
-                    (f"🃏 {' | '.join(hparts)} "
-                     f"| Dealer: {_upcard} | Bet: {p.total_bet():,}c")[:249]
+                    hdisp = _hand_colored(h["cards"])
+                    hval  = hand_value(h["cards"])
+                    note  = f" [{h['status']}]" if h["status"] != "active" else ""
+                    hparts.append(f"H{i+1}: {hdisp}={hval}{note}")
+                cards_line = " | ".join(hparts)
+                is_first_two = (
+                    len(p.hands) == 1
+                    and len(p.hands[0]["cards"]) == 2
+                    and p.hands[0]["status"] == "active"
                 )
+                acts = "🃏 /bh  🛑 /bs"
+                if is_first_two:
+                    acts += "  💰 /bd  ✂️ /bsp"
+                if ins_on and dealer_ace and not p.insurance_taken and is_first_two:
+                    acts += "  🛡️ /bi"
+                wtext = (
+                    f"<#00FF66>🟢 {cards_line}\n"
+                    f"Dealer: {dealer_up} [?] | Bet: {p.total_bet():,}c\n"
+                    f"{acts}<#FFFFFF>"
+                )
+                await bot.highrise.send_whisper(p.user_id, wtext[:249])
             except Exception:
                 pass
 
@@ -416,6 +465,48 @@ async def _finalize_round(bot: BaseBot):
         await bot.highrise.chat(
             f"Dealer reveals: {hand_str(_state.dealer_hand)} = {dealer_total}"
         )
+
+        # ── Insurance resolution (original 2-card dealer hand) ─────────────────
+        dealer_orig_bj = (len(_state.dealer_hand) == 2
+                          and hand_value(_state.dealer_hand) == 21)
+        _ins_round_id  = _state.round_id
+        for _ip in _state.players:
+            if not _ip.insurance_taken or _ip.insurance_resolved:
+                continue
+            _ins_key = f"ins_{_ip.user_id}"
+            if _ins_round_id and db.is_result_paid("bj", _ins_round_id, _ins_key):
+                _ip.insurance_resolved = True
+                continue
+            if dealer_orig_bj:
+                _ins_ret = _ip.insurance_bet * 3  # stake + 2:1 profit
+                db.adjust_balance(_ip.user_id, _ins_ret)
+                db.add_ledger_entry(_ip.user_id, _ip.username, _ins_ret, "bj_insurance_win")
+                try:
+                    await bot.highrise.send_whisper(
+                        _ip.user_id,
+                        f"🛡️ Insurance Won! +{_ip.insurance_bet*2:,}c profit (stake returned)"[:249]
+                    )
+                except Exception:
+                    pass
+            else:
+                db.add_ledger_entry(_ip.user_id, _ip.username, -_ip.insurance_bet, "bj_insurance_loss")
+                try:
+                    await bot.highrise.send_whisper(
+                        _ip.user_id,
+                        f"🛡️ Insurance Lost: -{_ip.insurance_bet:,}c"[:249]
+                    )
+                except Exception:
+                    pass
+            _ip.insurance_resolved = True
+            if _ins_round_id:
+                _ins_profit  = _ip.insurance_bet * 2 if dealer_orig_bj else -_ip.insurance_bet
+                _ins_ret_val = _ip.insurance_bet * 3 if dealer_orig_bj else 0
+                db.save_round_result("bj", _ins_round_id, _ins_key, _ip.user_id,
+                                     _ip.insurance_bet,
+                                     "insurance_win" if dealer_orig_bj else "insurance_loss",
+                                     _ins_ret_val, _ins_profit)
+                db.mark_result_paid("bj", _ins_round_id, _ins_key)
+            _save_player_state(_ip)
 
         while True:
             dealer_total = hand_value(_state.dealer_hand)
@@ -538,11 +629,22 @@ async def _finalize_round(bot: BaseBot):
                             db.mark_result_paid("bj", round_id, hkey)
 
                 if result_parts:
-                    net_str = f"+{total_net:,}c" if total_net >= 0 else f"{total_net:,}c"
-                    inner   = " | ".join(result_parts)
-                    summary = f"{_dn(p)}: {inner} | Net {net_str}"
+                    # Insurance display net (balance already adjusted above)
+                    ins_disp_net = 0
+                    ins_line     = ""
+                    if p.insurance_taken:
+                        if dealer_orig_bj:
+                            ins_disp_net = p.insurance_bet * 2
+                            ins_line = f"Insurance: +{ins_disp_net:,}c"
+                        else:
+                            ins_disp_net = -p.insurance_bet
+                            ins_line = f"Insurance: -{p.insurance_bet:,}c"
+                    grand_net = total_net + ins_disp_net
+                    net_str   = f"+{grand_net:,}c" if grand_net >= 0 else f"{grand_net:,}c"
+                    inner     = " | ".join(result_parts)
+                    summary   = f"{_dn(p)}: {inner} | Net {net_str}"
                     await bot.highrise.chat(summary[:249])
-                    # Whisper player: full colored hand + dealer detail
+                    # Whisper: structured result screen
                     try:
                         hlines = []
                         for i, h in enumerate(p.hands):
@@ -552,11 +654,23 @@ async def _finalize_round(bot: BaseBot):
                             )
                         dlr_disp = _hand_colored(_state.dealer_hand)
                         dlr_val  = hand_value(_state.dealer_hand)
-                        wtext = (
-                            f"🃏 {chr(10).join(hlines)}\n"
-                            f"Dealer: {dlr_disp}={dlr_val}\n"
-                            f"Net: {net_str}"
-                        )
+                        wparts   = [
+                            "🏁 Result",
+                            f"Dealer: {dlr_disp}={dlr_val}",
+                            chr(10).join(hlines),
+                        ]
+                        if ins_line:
+                            wparts.append(ins_line)
+                        if p.user_id in _state.pair_bonuses:
+                            _bt, _ba, _bm = _state.pair_bonuses[p.user_id]
+                            _bl = {"pair": "Pair", "color_pair": "Color Pair",
+                                   "perfect_pair": "Perfect Pair"}.get(_bt, "Bonus")
+                            bline = f"Bonus: {_bl} +{_ba:,}c"
+                            if _bm != 1.0:
+                                bline += f" ({_bm}x VIP)"
+                            wparts.append(bline)
+                        wparts.append(f"Net: {net_str}")
+                        wtext = chr(10).join(wparts)
                         await bot.highrise.send_whisper(p.user_id, wtext[:249])
                     except Exception:
                         pass
@@ -619,7 +733,7 @@ def _restore_player_from_db(pd: dict) -> "_Player":
         hands       = []
         split_count = 0
     active_hand_idx = int(pd.get("doubled", 0))
-    return _Player(
+    p = _Player(
         user_id=pd["user_id"],
         username=pd["username"],
         bet=hands[0]["bet"] if hands else int(pd["bet"]),
@@ -627,6 +741,11 @@ def _restore_player_from_db(pd: dict) -> "_Player":
         active_hand_idx=active_hand_idx,
         split_count=split_count,
     )
+    if isinstance(hand_data, dict):
+        p.insurance_bet      = int(hand_data.get("insurance_bet", 0))
+        p.insurance_taken    = bool(hand_data.get("insurance_taken", False))
+        p.insurance_resolved = bool(hand_data.get("insurance_resolved", False))
+    return p
 
 
 async def startup_bj_recovery(bot: BaseBot) -> None:
@@ -772,6 +891,10 @@ async def handle_bj(bot: BaseBot, user: User, args: list[str]):
                 await _cmd_toggle_betlimit(bot, user, args[2].lower() == "on")
             else:
                 await bot.highrise.send_whisper(user.id, "Usage: /bj betlimit on|off")
+        elif sub == "insurance":
+            await _cmd_insurance(bot, user)
+        elif sub in ("shoe", "deck"):
+            await handle_bj_shoe(bot, user)
         elif sub == "winlimit":
             if not can_manage_games(user.username):
                 await bot.highrise.send_whisper(user.id, "Staff only.")
@@ -1234,6 +1357,50 @@ async def _cmd_split(bot: BaseBot, user: User):
     await _check_and_resolve(bot)
 
 
+async def _cmd_insurance(bot: BaseBot, user: User):
+    """/bi — take insurance bet when dealer shows an Ace."""
+    s = _settings()
+    if not int(s.get("bj_insurance_enabled", 1)):
+        await bot.highrise.send_whisper(user.id, "🛡️ Insurance is not available at this table.")
+        return
+    if _state.phase != "round":
+        await bot.highrise.send_whisper(user.id, "No BJ round active.")
+        return
+    if not _state.dealer_hand or _state.dealer_hand[0][0] != "A":
+        await bot.highrise.send_whisper(user.id, "🛡️ Insurance only when dealer shows an Ace.")
+        return
+    p = _state.get_player(user.id)
+    if p is None:
+        await bot.highrise.send_whisper(user.id, "You are not in this BJ game.")
+        return
+    if p.insurance_taken:
+        await bot.highrise.send_whisper(user.id, "🛡️ You already took insurance this round.")
+        return
+    if (len(p.hands) != 1 or len(p.hands[0]["cards"]) != 2
+            or p.hands[0]["status"] != "active"):
+        await bot.highrise.send_whisper(user.id, "🛡️ Insurance must be taken before your first action.")
+        return
+    insurance_bet = p.bet // 2
+    if insurance_bet < 1:
+        await bot.highrise.send_whisper(user.id, "🛡️ Bet too small for insurance.")
+        return
+    if db.get_balance(user.id) < insurance_bet:
+        await bot.highrise.send_whisper(
+            user.id,
+            f"🛡️ Need {insurance_bet:,}c for insurance — not enough coins."[:249]
+        )
+        return
+    db.adjust_balance(user.id, -insurance_bet)
+    p.insurance_bet      = insurance_bet
+    p.insurance_taken    = True
+    p.insurance_resolved = False
+    _save_player_state(p)
+    await bot.highrise.send_whisper(
+        user.id,
+        f"🛡️ Insurance Taken\nBet: {insurance_bet:,}c | Pays 2:1 if dealer has BJ."[:249]
+    )
+
+
 async def _cmd_toggle_double(bot: BaseBot, user: User, enabled: bool):
     if not can_manage_games(user.username):
         await bot.highrise.send_whisper(user.id, "Managers and above only.")
@@ -1402,10 +1569,15 @@ async def _cmd_bj_state(bot: BaseBot, user: User):
     dc         = card_str(_state.dealer_hand[0]) if _state.dealer_hand else "?"
     secs       = _remaining_secs(_state._action_ends_at, 0)
     rid        = _state.round_id[-10:] if _state.round_id else "?"
+    deck_sz  = len(_state.deck)
+    row_db   = db.load_casino_table("bj")
+    deck_db  = bool(row_db and row_db.get("deck_json")
+                    and row_db.get("deck_json") not in ("[]", ""))
+    rec_safe = "YES" if (deck_sz > 0 or deck_db) else "NO"
     msg = (
-        f"BJ {_state.phase} | Players:{len(_state.players)}\n"
+        f"🃏 BJ {_state.phase} | Players:{len(_state.players)}\n"
         f"Active:{len(active_ps)} | Timer:{secs}s | Dealer:{dc}\n"
-        f"Bets:{total_bets:,}c | id:{rid}"
+        f"Deck:{deck_sz}c | Safe:{rec_safe} | Bets:{total_bets:,}c"
     )
     await bot.highrise.send_whisper(user.id, msg[:249])
 
@@ -1601,6 +1773,16 @@ async def handle_bj_set(bot: BaseBot, user: User, cmd: str, args: list[str]):
             db.set_bj_setting("bj_bonus_perfect_pct", int(raw))
             await bot.highrise.send_whisper(user.id, f"✅ Perfect-pair bonus: {raw}% of bet.")
 
+        elif cmd == "setbjinsurance":
+            if raw.lower() not in ("on", "off"):
+                await bot.highrise.send_whisper(user.id, "Usage: /setbjinsurance on|off")
+                return
+            db.set_bj_setting("bj_insurance_enabled", 1 if raw.lower() == "on" else 0)
+            await bot.highrise.send_whisper(
+                user.id,
+                f"✅ BJ insurance {'ON' if raw.lower() == 'on' else 'OFF'}."
+            )
+
         else:
             await bot.highrise.send_whisper(
                 user.id,
@@ -1608,7 +1790,7 @@ async def handle_bj_set(bot: BaseBot, user: User, cmd: str, args: list[str]):
                 "/setbjcountdown /setbjactiontimer\n"
                 "/setbjmaxsplits /setbjdailywinlimit /setbjdailylosslimit\n"
                 "/setbjbonus on|off  /setbjbonuscap <coins>\n"
-                "/setbjbonuspair|color|perfect <pct>"
+                "/setbjbonuspair|color|perfect <pct>  /setbjinsurance on|off"
             )
 
     except Exception as exc:
@@ -1669,11 +1851,36 @@ async def handle_bj_rules(bot: BaseBot, user: User) -> None:
         f"📜 Blackjack Rules\n"
         f"Blackjack pays: {bj_str}\n"
         f"Dealer: {soft_str}\n"
-        f"Insurance: ON\n"
+        f"Insurance: {'ON' if int(s.get('bj_insurance_enabled', 1)) else 'OFF'}\n"
         f"Surrender: ON\n"
         f"Double: {dbl_str}\n"
         f"Split: {spl_str}\n"
         f"Min/Max: {min_b:,} / {max_b:,}"
+    )
+
+
+async def handle_bj_shoe(bot: BaseBot, user: User) -> None:
+    """/bjshoe or /bj shoe — show BJ deck / shoe status."""
+    if _state.phase == "idle":
+        row      = db.load_casino_table("bj")
+        deck_db  = bool(row and row.get("deck_json")
+                        and row.get("deck_json") not in ("[]", ""))
+        saved    = "YES" if deck_db else "NO"
+        await bot.highrise.send_whisper(
+            user.id,
+            f"🃏 BJ Shoe\nPhase: idle\nDeck saved: {saved}\nRecovery safe: {saved}"[:249]
+        )
+        return
+    deck_sz   = len(_state.deck)
+    dealer_ct = len(_state.dealer_hand)
+    player_ct = sum(len(h["cards"]) for p in _state.players for h in p.hands)
+    rec_safe  = "YES" if deck_sz > 0 else "NO"
+    await bot.highrise.send_whisper(
+        user.id,
+        f"🃏 BJ Shoe\nPhase: {_state.phase}\n"
+        f"Cards remaining: {deck_sz}\n"
+        f"Dealer cards: {dealer_ct} | Player cards: {player_ct}\n"
+        f"Players: {len(_state.players)}\nRecovery safe: {rec_safe}"[:249]
     )
 
 
@@ -1693,5 +1900,6 @@ async def handle_bj_bonus_settings(bot: BaseBot, user: User) -> None:
         f"Color Pair: {color}% bet\n"
         f"Perfect Pair: {perfect}% bet\n"
         f"Bonus Cap: {cap:,}\n"
+        f"VIP Mult: Normal 1.0x | VIP 1.25x | High VIP 1.5x\n"
         f"Toggle: /setbjbonus on|off"
     )

@@ -79,7 +79,7 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     # ── setbj* / setrbj* ─────────────────────────────────────────────────────
     "setbjminbet", "setbjmaxbet", "setbjcountdown", "setbjturntimer",
     "setbjactiontimer", "setbjmaxsplits",
-    "setbjdailywinlimit", "setbjdailylosslimit",
+    "setbjdailywinlimit", "setbjdailylosslimit", "setbjinsurance",
     "setrbjdecks", "setrbjminbet", "setrbjmaxbet", "setrbjcountdown",
     "setrbjshuffle", "setrbjblackjackpayout", "setrbjwinpayout",
     "setrbjturntimer", "setrbjactiontimer", "setrbjmaxsplits",
@@ -87,7 +87,7 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     "setrbjlimits", "setbjlimits",
     # ── easy BJ shortcuts ────────────────────────────────────────────────────
     "blackjack", "bjbet", "bet", "hit", "stand", "double", "split",
-    "insurance", "surrender", "shoe", "bjshoe",
+    "insurance", "bi", "surrender", "shoe", "bjshoe",
     # ── how-to-play / game guide ─────────────────────────────────────────────
     "howtoplay", "gameguide", "games",
     # ── time-in-room EXP admin commands ──────────────────────────────────────
@@ -437,6 +437,7 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     # ── BJ bonus setter commands ─────────────────────────────────────────────
     "setbjbonus", "setbjbonuscap",
     "setbjbonuspair", "setbjbonuscolor", "setbjbonusperfect",
+    "setbjinsurance",
     # ── Fishing force drop ───────────────────────────────────────────────────
     "forcedropfish", "forcedropfishitem", "forcedropfishstatus", "clearforcedropfish",
     "forcedropfishdebug", "clearforceddropfish",
@@ -472,7 +473,7 @@ HELP_CMDS: frozenset[str] = frozenset({
     "bstats", "rstats", "rlimits", "blimits",
     "bj", "rbj",
     "blackjack", "bjbet", "bet", "hit", "stand", "double", "split",
-    "insurance", "surrender", "shoe", "bjshoe",
+    "insurance", "bi", "surrender", "shoe", "bjshoe",
     "howtoplay", "gameguide", "games",
     "settimeexp", "settimeexpcap", "settimeexptick", "settimeexpbonus",
     "timeexpstatus",

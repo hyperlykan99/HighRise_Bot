@@ -1556,6 +1556,7 @@ def _migrate_db():
         "ALTER TABLE bj_settings ADD COLUMN bj_bonus_perfect_pct INTEGER NOT NULL DEFAULT 50",
         "ALTER TABLE bj_settings ADD COLUMN bj_bonus_cap         INTEGER NOT NULL DEFAULT 10000",
         "ALTER TABLE bj_settings ADD COLUMN bj_cards_mode        TEXT    NOT NULL DEFAULT 'whisper'",
+        "ALTER TABLE bj_settings ADD COLUMN bj_insurance_enabled INTEGER NOT NULL DEFAULT 1",
         # ── Owner-forced fishing drops ─────────────────────────────────────────
         "CREATE TABLE IF NOT EXISTS forced_fishing_drops ("
         "id              INTEGER PRIMARY KEY AUTOINCREMENT, "
@@ -2741,6 +2742,7 @@ def get_bj_settings() -> dict:
             "bj_bonus_enabled": 1, "bj_bonus_pair_pct": 10,
             "bj_bonus_color_pct": 25, "bj_bonus_perfect_pct": 50,
             "bj_bonus_cap": 10000, "bj_cards_mode": "whisper",
+            "bj_insurance_enabled": 1,
         }
     return dict(row)
 
@@ -2758,6 +2760,7 @@ _BJ_SETTING_COLS = {
     "bj_bonus_enabled", "bj_bonus_pair_pct",
     "bj_bonus_color_pct", "bj_bonus_perfect_pct",
     "bj_bonus_cap", "bj_cards_mode",
+    "bj_insurance_enabled",
 }
 
 

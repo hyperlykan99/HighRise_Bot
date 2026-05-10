@@ -1,0 +1,783 @@
+Blackjack Insurance Fix + Final Blackjack Display/Result Update + Shoe Save on Restart
+
+Focus only on these Blackjack updates:
+
+UPDATE 1:
+Fix Blackjack Insurance Logic
+
+UPDATE 2:
+Finalize Blackjack display, action emojis, post-game result, and VIP/time-tier bonus multiplier.
+
+UPDATE 3:
+Fix Blackjack shoe/deck saving and recovery after bot restart.
+
+Do not rebuild blackjack.
+Do not reset balances.
+Do not wipe player data.
+Do not change bot tokens.
+Do not change room ID.
+Do not break poker, mining, fishing, bank, events, AI, security, outfits, bot spawns, command routing, or blackjack recovery.
+
+==================================================
+UPDATE 1 — FIX BLACKJACK INSURANCE LOGIC
+==================================================
+
+Current issue:
+Insurance appears in Blackjack help/rules/action list, but it does not work in gameplay.
+
+Goal:
+Fully implement Blackjack insurance.
+
+==================================================
+PART 1 — INSURANCE AVAILABILITY
+==================================================
+
+Insurance should only be available when:
+
+- Dealer upcard is Ace
+- Player is in an active blackjack round
+- Player has not taken another action yet
+- Player has enough balance
+- Player has not already taken insurance this round
+- Insurance setting is enabled
+
+If dealer upcard is not Ace, reply:
+
+BlackjackBot:
+🛡️ Insurance is only available when dealer shows an Ace.
+
+If player already acted, reply:
+
+BlackjackBot:
+🛡️ Insurance must be taken before your first action.
+
+If already taken:
+
+BlackjackBot:
+🛡️ Insurance already taken for this round.
+
+==================================================
+PART 2 — INSURANCE COMMANDS
+==================================================
+
+Support:
+
+/insurance
+/bj insurance
+/bi
+
+Owner:
+BlackjackBot
+
+Handler:
+Blackjack insurance action
+
+Commandtest must pass:
+
+/commandtest /insurance
+/commandtest /bi
+
+Target:
+
+route=YES
+handler=YES
+owner=BlackjackBot
+
+==================================================
+PART 3 — INSURANCE BET
+==================================================
+
+Insurance bet should default to half the player’s original bet.
+
+Example:
+Main bet = 1,000
+Insurance bet = 500
+
+When player takes insurance:
+
+- Deduct insurance bet immediately
+- Store insurance_bet on the player or hand state
+- Mark insurance_taken = true
+- Mark insurance_resolved = false
+
+Reply:
+
+BlackjackBot:
+🛡️ Insurance Taken
+Insurance Bet: 500
+Pays 2:1 if dealer has Blackjack.
+
+==================================================
+PART 4 — DEALER BLACKJACK CHECK
+==================================================
+
+At settlement/finalize:
+
+If dealer has Blackjack:
+- Insurance pays 2:1 profit
+- Return insurance stake if your system tracks total payout
+- Use one consistent ledger method
+- Do not double-pay after recovery
+
+Example:
+Insurance bet = 500
+Insurance profit = 1,000
+Total insurance return can be 1,500 if including original insurance stake.
+
+If dealer does not have Blackjack:
+- Insurance bet is lost
+- Show clearly in result
+
+Example dealer has Blackjack:
+
+BlackjackBot:
+🛡️ Insurance Won
+Insurance: +1,000 profit
+Main hand settled normally.
+
+Example dealer no Blackjack:
+
+BlackjackBot:
+🛡️ Insurance Lost
+Insurance Bet: -500
+
+==================================================
+PART 5 — STATE PERSISTENCE
+==================================================
+
+Insurance must survive restart/recovery.
+
+Add to saved player hand state or player state:
+
+- insurance_taken
+- insurance_bet
+- insurance_resolved
+
+Do not double-pay insurance after recovery.
+
+Use existing paid-result guard if possible.
+If needed, add a separate insurance paid key:
+
+bj_insurance_<round_id>_<user_id>
+
+==================================================
+PART 6 — ACTION LIST UPDATE FOR INSURANCE
+==================================================
+
+Only show 🛡️ /insurance in the action list when insurance is actually available.
+
+Show insurance only if:
+
+- dealer upcard is Ace
+- player has not acted yet
+- insurance is enabled
+- player has not already taken insurance
+
+If dealer does not show Ace, do not show insurance in actions.
+
+Action list should use:
+
+🃏 /hit
+🛑 /stand
+💰 /double
+✂️ /split
+🛡️ /insurance only if available
+🏳️ /surrender if surrender is enabled
+
+==================================================
+PART 7 — /bjrules MUST BE REAL
+==================================================
+
+Do not hardcode Insurance: ON unless insurance setting exists and is enabled.
+
+Add setting if missing:
+
+bj_insurance_enabled = 1
+
+/bjrules should show:
+
+Insurance: ON
+
+or:
+
+Insurance: OFF
+
+Add manager commands if safe:
+
+/setbjinsurance on
+/setbjinsurance off
+
+If these commands are added, register them properly:
+
+/commandtest /setbjinsurance
+
+Target:
+
+route=YES
+handler=YES
+owner=BlackjackBot
+
+If /setbjinsurance is not implemented, do not add it as active.
+
+==================================================
+PART 8 — INSURANCE IN POST-GAME RESULT
+==================================================
+
+Post-game result must include insurance result if used.
+
+Example:
+
+BlackjackBot:
+🏁 Round Result
+Dealer: A♠ K♦ = 21
+You: 10♥ 9♣ = 19
+Result: Lose
+Main Bet: -1,000
+Insurance: +1,000
+Net: 0
+
+If insurance was not used, do not show the insurance line.
+
+==================================================
+UPDATE 2 — FINAL BLACKJACK DISPLAY / RESULT UPDATE
+==================================================
+
+Goal:
+Finish and verify these Blackjack updates:
+
+1. Dealer Cards / Player Cards / Action List format
+2. Max 2 bot messages per blackjack turn update
+3. Player card whisper message fully green
+4. Action emojis shown everywhere
+5. Post-game result screen improved
+6. VIP/time-tier bonus multiplier connected to matching-card bonus
+
+==================================================
+PART 9 — BLACKJACK MESSAGE FORMAT
+==================================================
+
+Update blackjack gameplay messages to follow this exact readable format:
+
+Message structure:
+1. Dealer Cards
+2. Player Cards
+3. Action List
+
+Keep blackjack updates to max 2 bot messages per player turn.
+
+Preferred format:
+
+Message 1:
+
+BlackjackBot:
+🃏 Dealer Cards
+Dealer: [visible card] [hidden card if needed] | Total: ?
+
+Message 2:
+
+BlackjackBot:
+🟢 Player Cards
+@Player: [cards] | Total: 16
+
+Actions:
+🃏 /hit
+🛑 /stand
+💰 /double
+✂️ /split
+🛡️ /insurance
+🏳️ /surrender
+
+==================================================
+PART 10 — WHISPER VS PUBLIC CARD MODE
+==================================================
+
+Use existing setting:
+
+/bjcards whisper
+/bjcards public
+
+Default:
+whisper
+
+If bj_cards_mode = whisper:
+
+- Public message should show Dealer Cards only
+- Player Cards + Action List should be whispered privately to each player
+- Whispered Player Cards message must be green
+- Do not reveal private player cards publicly
+
+Whisper mode format:
+
+Public:
+
+BlackjackBot:
+🃏 Dealer Cards
+Dealer: 10♠ [?]
+
+Whisper:
+
+BlackjackBot whispered:
+<#00FF66>🟢 Player Cards
+You: 8♥ 8♣ | Total: 16
+
+Actions:
+🃏 /hit | 🛑 /stand | 💰 /double | ✂️ /split<#FFFFFF>
+
+Important:
+Green color should apply to the whole player-card whisper message.
+End with <#FFFFFF> so color does not leak.
+
+If bj_cards_mode = public:
+
+- Public message 1 = Dealer Cards
+- Public message 2 = Player Cards + Action List
+- Action List must be at the bottom of message 2
+
+==================================================
+PART 11 — ACTION EMOJIS EVERYWHERE
+==================================================
+
+Make sure action emojis appear consistently in:
+
+- turn message
+- whisper mode action list
+- public mode action list
+- invalid action replies
+- /bjhelp
+- /bjrules if actions are shown
+
+Use:
+
+🃏 /hit
+🛑 /stand
+💰 /double
+✂️ /split
+🛡️ /insurance
+🏳️ /surrender
+
+Do not show old action-only text without emojis when presenting action choices.
+
+Do not show old /rjoin anywhere in BlackjackBot messages.
+
+==================================================
+PART 12 — TWO-MESSAGE LIMIT
+==================================================
+
+BlackjackBot should not spam too many messages during one player turn.
+
+For each turn update:
+
+Whisper mode:
+1. Public Dealer Cards message
+2. Private Player Cards + Actions whisper
+
+Public mode:
+1. Public Dealer Cards message
+2. Public Player Cards + Actions message
+
+If the table has multiple active players:
+- Public dealer message can be shared once if possible
+- Each player gets their own green whisper in whisper mode
+- Do not publicly reveal all player cards if bj_cards_mode = whisper
+
+==================================================
+PART 13 — POST-GAME RESULT SCREEN
+==================================================
+
+Improve or add final round result screen.
+
+After a round ends, show a clear post-game result.
+
+Result should include:
+
+- Dealer final hand
+- Player final hand
+- Result: Win / Lose / Push / Blackjack / Bust / Surrender
+- Bet amount
+- Chips won or lost
+- Insurance result if used
+- Bonus chips if earned
+- Current balance if available
+
+Example:
+
+BlackjackBot:
+🏁 Round Result
+Dealer: K♠ 7♦ 4♣ = 21
+You: 10♥ 9♣ = 19
+Result: Lose
+Bet: 500 | Lost: 500
+
+Bonus example:
+
+BlackjackBot:
+🏁 Round Result
+Dealer: 10♠ 8♦ = 18
+You: 8♥ 8♣ 5♦ = 21
+Result: Win
+Won: 1,000
+Bonus: Pair Match +250 chips
+
+Insurance example:
+
+BlackjackBot:
+🏁 Round Result
+Dealer: A♠ K♦ = 21
+You: 10♥ 9♣ = 19
+Result: Lose
+Main Bet: -1,000
+Insurance: +1,000
+Net: 0
+
+Keep result messages short enough for Highrise.
+If needed, split into max 2 messages.
+
+==================================================
+PART 14 — MATCHING CARD BONUS DISPLAY
+==================================================
+
+Matching-card bonus already exists, but verify it is displayed clearly in the post-game result or bonus whisper.
+
+Bonus types:
+
+Pair Bonus:
+First 2 player cards have same rank.
+
+Color Pair Bonus:
+Same rank and same color.
+
+Perfect Pair Bonus:
+Exact same rank and suit in multi-deck shoe.
+
+Display example:
+
+BlackjackBot:
+🎁 Bonus Hit
+Pair Match: +250 chips
+
+If no bonus:
+Do not show bonus line.
+
+==================================================
+PART 15 — VIP / TIME-TIER BONUS MULTIPLIER
+==================================================
+
+Connect VIP/time-tier bonus multiplier to matching-card bonus.
+
+Goal:
+If the player has VIP or qualifying time-tier/rank/title/badge, bonus chips should be multiplied.
+
+Default:
+No VIP/time-tier = 1.0x
+
+Suggested multipliers:
+
+- Normal player: 1.0x
+- VIP or low premium time tier: 1.25x
+- High VIP/time tier: 1.5x
+
+Implementation rule:
+Use existing VIP, title, badge, or time EXP tier system if available.
+
+Do not create a broken dependency.
+If no VIP/time-tier system is available, safely return 1.0x.
+
+Create helper:
+
+get_bj_bonus_multiplier(user_id, username) -> float
+
+It should:
+
+1. Check existing VIP/time-tier system if available
+2. Return 1.5 for highest tier if detected
+3. Return 1.25 for normal VIP if detected
+4. Return 1.0 otherwise
+5. Never crash
+
+Apply formula:
+
+final_bonus = base_bonus * vip_multiplier
+
+Respect bonus cap after multiplier unless existing economy cap says otherwise.
+
+Example:
+Pair bonus = 250
+VIP multiplier = 1.25
+Final bonus = 312 or 313 chips rounded cleanly
+
+Display:
+
+BlackjackBot:
+🎁 Bonus Hit
+Pair Match: +250 chips
+VIP Bonus: 1.25x
+Total Bonus: +313 chips
+
+If multiplier is 1.0x:
+Do not show VIP Bonus line.
+
+==================================================
+PART 16 — SETTINGS DISPLAY
+==================================================
+
+Update /bjbonussettings to show VIP/time-tier status support.
+
+Example:
+
+BlackjackBot:
+🎁 Blackjack Bonus Settings
+Pair Bonus: 10% bet
+Color Pair: 25% bet
+Perfect Pair: 50% bet
+Bonus Cap: 10,000
+VIP/Time Tier Multiplier: ON
+Normal: 1.0x | VIP: 1.25x | High Tier: 1.5x
+
+If no VIP system exists:
+
+VIP/Time Tier Multiplier: unavailable, using 1.0x
+
+==================================================
+UPDATE 3 — FIX BLACKJACK SHOE / DECK SAVE ON RESTART
+==================================================
+
+Current issue:
+The Blackjack shoe/deck is not saving when the bot restarts.
+
+Problem:
+After bot restart, Blackjack may recover the table/player state, but the remaining shoe/deck is missing, reset, empty, or recreated incorrectly.
+
+Goal:
+Make Blackjack shoe/deck persist safely across bot restarts.
+
+==================================================
+PART 17 — SAVE SHOE / DECK STATE
+==================================================
+
+Whenever Blackjack state is saved, also save:
+
+- current deck / shoe
+- remaining cards
+- cards already dealt
+- dealer hand
+- all player hands
+- round_id
+- phase
+- action timer/countdown timer
+
+Use existing fields if available:
+
+- deck_json
+- shoe_json
+- shoe_cards_remaining
+- dealer_hand_json
+
+Do not save empty shoe_json if deck_json is being used.
+Do not overwrite the saved shoe with [] during active rounds.
+Do not set shoe_cards_remaining to 0 while a round is active.
+
+==================================================
+PART 18 — RESTORE SHOE / DECK STATE
+==================================================
+
+On bot restart/recovery:
+
+If active blackjack round exists:
+- load saved deck/shoe from DB
+- restore it exactly
+- do NOT call make_deck() unless there is no saved deck and no active round
+- do NOT reshuffle during recovery
+- continue with remaining cards
+
+If saved deck is missing/corrupt:
+- mark recovery_required
+- notify staff:
+  ⚠️ BJ recovery needed. Shoe/deck missing or corrupt.
+- do not continue with a fresh deck silently
+
+==================================================
+PART 19 — SAVE AFTER EVERY CARD DEAL
+==================================================
+
+Call save table state after every card movement:
+
+- initial deal
+- hit
+- double
+- split
+- dealer hit
+- any automatic dealer draw
+- recovery action
+- force finish if it deals cards
+
+This prevents card loss if the bot restarts mid-round.
+
+==================================================
+PART 20 — VERIFY RECOVERY DOES NOT RESET SHOE
+==================================================
+
+Check startup_bj_recovery:
+
+- It should restore deck_json or shoe_json
+- It should not set deck to make_deck()
+- It should not set shoe_json to []
+- It should not set shoe_cards_remaining to 0 during active round recovery
+
+==================================================
+PART 21 — SHOE STATUS DEBUG
+==================================================
+
+Update /bj state or /bjshoe to show:
+
+BlackjackBot:
+🃏 Blackjack Shoe
+Phase: round
+Deck saved: YES
+Cards remaining: 37
+Dealer cards: 2
+Players: 3
+Recovery safe: YES
+
+If deck not saved:
+Recovery safe: NO
+
+==================================================
+PART 22 — COMMAND TESTS
+==================================================
+
+Verify these commands still pass:
+
+/commandtest /bjcards
+/commandtest /bjrules
+/commandtest /bjbonus
+/commandtest /bjbonussetting
+/commandtest /bjbonussettings
+/commandtest /setbjbonus
+/commandtest /setbjbonuscap
+/commandtest /setbjbonuspair
+/commandtest /setbjbonuscolor
+/commandtest /setbjbonusperfect
+/commandtest /insurance
+/commandtest /bi
+/commandtest /bjshoe
+/commandtest /shoe
+/commandtest /bjstate
+
+If /setbjinsurance is implemented:
+
+/commandtest /setbjinsurance
+
+/checkcommands all
+
+Target:
+
+Missing 0
+NoOwner 0
+
+If /setbjinsurance, /bjshoe, /shoe, or /bjstate are not implemented, do not add them as active.
+
+==================================================
+PART 23 — LIVE BEHAVIOR TESTS
+==================================================
+
+After changes, test:
+
+/bjcards whisper
+/bjrules
+/bjbonussettings
+/bjhelp
+
+Then start a blackjack round and verify:
+
+Whisper mode:
+- Dealer Cards are public
+- Player Cards + Actions are whispered
+- Player whisper is fully green
+- Actions have emojis
+- No player cards leak publicly
+- /insurance only appears when dealer shows Ace
+
+Public mode:
+
+/bjcards public
+
+Verify:
+- Dealer Cards are message 1
+- Player Cards + Actions are message 2
+- Actions are at the bottom
+
+Insurance:
+- Start BJ round where dealer shows Ace
+- Use /insurance before any action
+- Verify insurance bet is deducted
+- Finish round
+- If dealer has Blackjack, insurance pays 2:1
+- If dealer does not have Blackjack, insurance loses
+- Verify /insurance does not work after hit/stand
+- Verify /insurance does not show when dealer upcard is not Ace
+
+Post-game:
+- Final result screen shows dealer hand, player hand, result, chips won/lost, insurance if used, and bonus if any
+
+Shoe recovery:
+1. Start Blackjack round.
+2. Join with a bet.
+3. Let cards deal.
+4. Use /bjshoe or /bj state.
+5. Restart bot.
+6. Use /bjshoe or /bj state again.
+7. Confirm cards remaining is the same or lower only if actions continued.
+8. Confirm dealer/player hands are restored.
+9. Confirm no fresh shoe was created silently.
+10. Finish round normally.
+
+Expected:
+The same shoe/deck continues after restart.
+
+==================================================
+PART 24 — SAFETY
+==================================================
+
+Do not:
+- rebuild blackjack from scratch
+- reset balances
+- wipe player data
+- break /bj, /bet, /hit, /stand, /double, /split
+- break existing blackjack recovery
+- break command registry
+- expose secrets/tokens/env vars
+- show /rjoin in any BlackjackBot message
+- reveal private player cards publicly when whisper mode is ON
+- double-pay insurance after recovery
+- double-pay pair bonuses after recovery
+- reset player bets
+- refund automatically unless recovery fails
+- create fresh deck during active recovery
+- duplicate cards
+- double-pay results
+- wipe blackjack table state
+
+==================================================
+FINAL REPORT
+==================================================
+
+After finishing, tell me:
+
+1. Files changed
+2. Why insurance was not working before
+3. Where insurance state is stored
+4. How insurance payout works
+5. How duplicate insurance payout is prevented
+6. Whether Dealer Cards / Player Cards / Action List format is applied
+7. Whether blackjack uses max 2 messages per turn
+8. Whether whisper mode player cards are fully green
+9. Whether action emojis are shown everywhere
+10. Whether post-game results were improved
+11. Whether matching-card bonus appears in results
+12. Whether VIP/time-tier multiplier is connected
+13. What multiplier source was used
+14. Whether Blackjack shoe/deck now saves on every card deal
+15. Whether Blackjack shoe/deck restores after restart
+16. How recovery handles missing/corrupt shoe data
+17. Commands added or updated
+18. Exact tests to run

@@ -89,6 +89,7 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "double": "blackjack", "split": "blackjack",
     "insurance": "blackjack", "surrender": "blackjack",
     "shoe": "blackjack", "bjshoe": "blackjack",
+    "bi": "blackjack", "setbjinsurance": "blackjack",
     # ── poker ───────────────────────────────────────────────────────────────
     "poker": "poker", "p": "poker",
     "pj": "poker", "pt": "poker", "ptable": "poker",
