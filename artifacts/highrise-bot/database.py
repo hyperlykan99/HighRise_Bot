@@ -1556,6 +1556,18 @@ def _migrate_db():
         "ALTER TABLE bj_settings ADD COLUMN bj_bonus_perfect_pct INTEGER NOT NULL DEFAULT 50",
         "ALTER TABLE bj_settings ADD COLUMN bj_bonus_cap         INTEGER NOT NULL DEFAULT 10000",
         "ALTER TABLE bj_settings ADD COLUMN bj_cards_mode        TEXT    NOT NULL DEFAULT 'whisper'",
+        # ── Owner-forced fishing drops ─────────────────────────────────────────
+        "CREATE TABLE IF NOT EXISTS forced_fishing_drops ("
+        "id              INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "target_user_id  TEXT NOT NULL DEFAULT '', "
+        "target_username TEXT NOT NULL DEFAULT '', "
+        "forced_type     TEXT NOT NULL DEFAULT 'rarity', "
+        "forced_value    TEXT NOT NULL DEFAULT '', "
+        "created_by      TEXT NOT NULL DEFAULT '', "
+        "created_at      TEXT NOT NULL DEFAULT (datetime('now')), "
+        "expires_at      TEXT NOT NULL DEFAULT '', "
+        "used_at         TEXT, "
+        "status          TEXT NOT NULL DEFAULT 'pending')",
     ]:
         try:
             conn.execute(sql)

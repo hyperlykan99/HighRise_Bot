@@ -1,0 +1,100 @@
+Fix Fishing Force Drop Execution
+
+Current issue:
+The new fishing force drop commands are routed, but they do not actually affect the next /fish result.
+
+Test:
+I used:
+/forcedropfish @4ktreymarion exotic
+
+Then I used:
+/fish
+
+But I caught a [COMMON] Anchovy instead of an Exotic fish.
+
+Also:
+/forcedropfishstatus gives no response.
+
+Do not change bot tokens.
+Do not change room ID.
+Do not reset balances.
+Do not wipe fish records.
+Do not break mining force drop.
+
+Goal:
+Make /forcedropfish work exactly like mining /forcedrop, but for fishing.
+
+Required behavior:
+
+/forcedropfish <username> <rarity>
+- Owner only
+- Saves a pending forced fishing drop for that player
+- Player’s next /fish OR AutoFish attempt must use that forced rarity
+- It should pick a random fish from that rarity
+- Then clear the forced drop after one successful catch
+
+/forcedropfishitem <username> <fish name>
+- Owner only
+- Saves a pending exact fish drop
+- Player’s next /fish OR AutoFish attempt must catch that exact fish
+- Then clear after one successful catch
+
+/forcedropfishstatus
+- Owner only
+- Must respond with pending forced fishing drops
+- If none, say:
+MasterAngler:
+🎯 Forced Fish Drops
+No pending forced fish drops.
+
+/clearforcedropfish <username>
+- Owner only
+- Clears pending forced fishing drop for that user
+- Must respond with success or no pending drop found
+
+Fix the typo issue too:
+- /clearforceddropfish should either alias to /clearforcedropfish or show:
+Unknown command. Did you mean /clearforcedropfish?
+
+Important:
+The /fish handler must check pending forced_fishing_drops BEFORE normal random fish roll.
+
+Fishing roll order should be:
+1. Identify player user_id and normalized username.
+2. Check pending forced fishing drop by user_id.
+3. If none, check pending forced fishing drop by normalized username.
+4. If forced_type = rarity, select random fish from that rarity.
+5. If forced_type = fish, select exact fish.
+6. Roll weight normally.
+7. Calculate value normally.
+8. Add FXP normally.
+9. Trigger Big Catch announcement normally if rarity qualifies.
+10. Mark forced drop as used.
+11. Remove from pending status.
+
+Do not reveal to the player that it was forced.
+The catch message should look natural.
+
+Add debug safety:
+/forcedropfishstatus should show:
+- target username
+- forced type
+- forced value
+- expires in
+- status
+
+Also add clear usage message:
+If I type /clearforcedropfish with no username, reply:
+MasterAngler:
+🧹 Clear Force Fish
+Usage: /clearforcedropfish <username>
+Example: /clearforcedropfish @4ktreyMarion
+
+After fixing, test:
+/forcedropfish @4ktreymarion exotic
+/forcedropfishstatus
+/fish
+
+Expected:
+The fish result must be [EXOTIC], not Common.
+Then /forcedropfishstatus should show no pending forced fish drop for that player.

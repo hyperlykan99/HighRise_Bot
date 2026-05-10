@@ -378,19 +378,22 @@ async def handle_fish(bot: BaseBot, user: User) -> None:
     fish   = _roll_fish(rod_name, eff)
 
     # Owner-forced fish drop override — silent to player
-    _fforced = db.get_active_forced_fish_drop(user.id, uname)
-    if _fforced:
-        if _fforced["forced_type"] == "rarity":
-            _ff_pool = [f for f in FISH_CATALOG if f["rarity"] == _fforced["forced_value"]]
-            if _ff_pool:
-                fish = random.choice(_ff_pool)
-                db.mark_forced_fish_drop_used(_fforced["id"])
-        elif _fforced["forced_type"] == "fish":
-            _fv = _fforced["forced_value"]
-            _ff_item = _FISH_BY_ID.get(_fv) or _FISH_BY_NAME.get(_fv.lower())
-            if _ff_item:
-                fish = _ff_item
-                db.mark_forced_fish_drop_used(_fforced["id"])
+    try:
+        _fforced = db.get_active_forced_fish_drop(user.id, uname)
+        if _fforced:
+            if _fforced["forced_type"] == "rarity":
+                _ff_pool = [f for f in FISH_CATALOG if f["rarity"] == _fforced["forced_value"]]
+                if _ff_pool:
+                    fish = random.choice(_ff_pool)
+                    db.mark_forced_fish_drop_used(_fforced["id"])
+            elif _fforced["forced_type"] == "fish":
+                _fv = _fforced["forced_value"]
+                _ff_item = _FISH_BY_ID.get(_fv) or _FISH_BY_NAME.get(_fv.lower())
+                if _ff_item:
+                    fish = _ff_item
+                    db.mark_forced_fish_drop_used(_fforced["id"])
+    except Exception as _ffd_exc:
+        print(f"[FISH] forced drop lookup error: {_ffd_exc!r}")
 
     weight = _roll_weight(fish, rod_name, eff)
     value  = _calc_value(fish, weight, rod_name, eff)
@@ -975,19 +978,22 @@ async def _autofish_loop(bot: BaseBot, user: User) -> None:
             fish   = _roll_fish(rod_name, eff)
 
             # Owner-forced fish drop override — silent to player
-            _aff = db.get_active_forced_fish_drop(uid, uname)
-            if _aff:
-                if _aff["forced_type"] == "rarity":
-                    _aff_pool = [f for f in FISH_CATALOG if f["rarity"] == _aff["forced_value"]]
-                    if _aff_pool:
-                        fish = random.choice(_aff_pool)
-                        db.mark_forced_fish_drop_used(_aff["id"])
-                elif _aff["forced_type"] == "fish":
-                    _afv = _aff["forced_value"]
-                    _aff_item = _FISH_BY_ID.get(_afv) or _FISH_BY_NAME.get(_afv.lower())
-                    if _aff_item:
-                        fish = _aff_item
-                        db.mark_forced_fish_drop_used(_aff["id"])
+            try:
+                _aff = db.get_active_forced_fish_drop(uid, uname)
+                if _aff:
+                    if _aff["forced_type"] == "rarity":
+                        _aff_pool = [f for f in FISH_CATALOG if f["rarity"] == _aff["forced_value"]]
+                        if _aff_pool:
+                            fish = random.choice(_aff_pool)
+                            db.mark_forced_fish_drop_used(_aff["id"])
+                    elif _aff["forced_type"] == "fish":
+                        _afv = _aff["forced_value"]
+                        _aff_item = _FISH_BY_ID.get(_afv) or _FISH_BY_NAME.get(_afv.lower())
+                        if _aff_item:
+                            fish = _aff_item
+                            db.mark_forced_fish_drop_used(_aff["id"])
+            except Exception as _aff_exc:
+                print(f"[AUTOFISH] forced drop lookup error: {_aff_exc!r}")
 
             weight = _roll_weight(fish, rod_name, eff)
             value  = _calc_value(fish, weight, rod_name, eff)
