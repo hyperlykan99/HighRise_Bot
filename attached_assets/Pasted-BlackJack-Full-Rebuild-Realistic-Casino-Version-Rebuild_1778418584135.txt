@@ -1,0 +1,520 @@
+BlackJack Full Rebuild — Realistic Casino Version
+
+Rebuild the BlackJack system cleanly because the previous BlackJack updates are not applying correctly.
+
+Focus only on BlackJack.
+
+Do not change bot tokens.
+Do not change room ID.
+Do not reset balances.
+Do not wipe player data.
+Do not wipe casino stats unless absolutely required.
+Do not break poker, mining, fishing, bank, events, gold tips, First Find Race, bot outfits, bot spawns, or command routing.
+Do not expose secrets, tokens, env vars, or room ID.
+
+==================================================
+MAIN GOAL
+==================================================
+
+Rebuild BlackJack to be realistic, clean, stable, and easy for players.
+
+Player-facing name:
+BlackJack
+
+BlackJackBot should handle all BlackJack commands.
+
+Remove confusing player-facing RBJ wording.
+Internal file/function names can remain if needed, but player-facing messages/help should say BlackJack.
+
+==================================================
+CORE COMMAND DESIGN
+==================================================
+
+Basic player commands should be simple:
+
+/bet <amount>
+/hit
+/stand
+/stay
+/double
+/split
+/insurance
+/surrender
+
+Players should NOT need:
+/rjoin
+/bjoin
+
+To join BlackJack, player only types:
+
+/bet <amount>
+
+Example:
+/bet 100
+
+If player already placed a bet and the round has not started yet:
+
+/bet <new_amount>
+
+updates their current bet.
+
+Example:
+Player types:
+/bet 100
+
+Then:
+/bet 500
+
+Their current bet becomes 500.
+
+Once cards are dealt, /bet must not change the bet.
+
+If player tries /bet during active round:
+
+BlackJackBot:
+🃏 BlackJack
+You already have an active hand.
+Finish this round before changing your bet.
+
+All other commands must start with /bj.
+
+==================================================
+BLACKJACK PLAYER COMMANDS
+==================================================
+
+Implement these:
+
+/bet <amount>
+/hit
+/stand
+/stay
+/double
+/split
+/insurance
+/surrender
+
+Aliases:
+- /stay = /stand
+
+Optional short aliases if already supported:
+- /bh = /hit
+- /bs = /stand
+- /bd = /double
+- /bsp = /split
+- /bi = /insurance
+
+Player-facing help should prefer the clean commands:
+
+/bet
+/hit
+/stand
+/stay
+/double
+/split
+/insurance
+/surrender
+
+==================================================
+BLACKJACK /BJ COMMANDS
+==================================================
+
+All info, settings, utility, and staff commands should start with /bj.
+
+Player/info commands:
+
+/bj help
+/bj rules
+/bj table
+/bj cards
+/bj cards whisper
+/bj cards public
+/bj bonus
+/bj shoe
+/bj stats
+/bj fairness
+/bj leave
+
+Staff commands:
+
+/bj settings
+/bj reset
+/bj recover
+/bj refund
+/bj forcefinish
+/bj setminbet <amount>
+/bj setmaxbet <amount>
+/bj setcountdown <seconds>
+/bj setactiontimer <seconds>
+/bj setdecks <amount>
+/bj shuffleat <percent>
+/bj setsoft17 stand
+/bj setsoft17 hit
+/bj setsurrender on
+/bj setsurrender off
+/bj setinsurance on
+/bj setinsurance off
+/bj setminplayers <amount>
+/bj setmaxsplits <amount>
+
+Bonus settings:
+
+/bj setbonus on
+/bj setbonus off
+/bj setbonuscap <amount>
+/bj setbonuspair <percent>
+/bj setbonuscolor <percent>
+/bj setbonusperfect <percent>
+
+Owner debug commands:
+
+/bj forcedealerace
+/bj forceplayerpair
+/bj forceblackjack
+/bj forceshoe low
+
+Owner debug commands should not appear in normal player help.
+
+==================================================
+REMOVE OLD COMMAND TEXT
+==================================================
+
+Remove player-facing references to:
+
+/rjoin
+/rbj
+RBJ
+
+Do not show broken old commands in help.
+
+If old commands still exist for compatibility, they should quietly route to the new system but display BlackJack wording.
+
+==================================================
+REALISTIC BLACKJACK RULES
+==================================================
+
+Use realistic casino-style rules:
+
+- BlackJack pays 3:2
+- Dealer stands on soft 17 by default
+- Insurance only when dealer shows Ace
+- Insurance pays 2:1
+- Surrender only before the player takes another action
+- Double only on first 2 cards
+- Split only same rank
+- Split aces get one card only if enabled
+- Dealer hole card stays hidden until dealer reveal
+- Shoe/deck persists after restart
+- No fresh deck during active round recovery
+
+Default settings:
+
+min_bet = existing setting or 100
+max_bet = existing setting or 10000
+countdown = 30 seconds
+action_timer = 30 seconds
+decks = 6
+shuffle_at = 25 percent
+dealer_soft17 = stand
+surrender_enabled = ON
+insurance_enabled = ON
+min_players = 1
+max_splits = 1
+blackjack_payout = 3:2
+win_payout = 1:1
+
+==================================================
+TABLE FLOW
+==================================================
+
+When first player uses:
+
+/bet <amount>
+
+Open the table and start countdown.
+
+BlackJackBot:
+🃏 BlackJack table opened!
+Round starts in 30 seconds.
+Join with /bet <amount>
+
+Players can join with /bet <amount> until countdown ends.
+
+Players can update bet before cards are dealt:
+
+/bet 100
+/bet 500
+
+Only the latest bet should count.
+
+When countdown ends:
+- lock bets
+- deal cards
+- start round
+- show Dealer Cards
+- show Player Cards + Actions
+
+If not enough players:
+- either keep waiting or cancel/refund depending setting
+- default min_players = 1
+
+==================================================
+MESSAGE DISPLAY RULE
+==================================================
+
+This is critical.
+
+Highrise chat pushes older bot messages away, so BlackJackBot must keep the last 2 visible BlackJackBot messages as the important gameplay view.
+
+During a player decision, the last 2 BlackJackBot messages must always be:
+
+Message 1:
+Dealer Cards
+
+Message 2:
+Player Cards + Actions
+
+Do not send extra BlackJackBot messages after the Player Cards + Actions message during a decision.
+
+Do not send timer reminders, bonus messages, random notes, or extra chatter after the action message.
+
+If extra information is needed, include it inside the Player Cards + Actions message.
+
+For round results, the last 2 BlackJackBot messages should be:
+
+Message 1:
+Dealer Final Cards
+
+Message 2:
+Player Result Summary
+
+==================================================
+DEALER CARDS MESSAGE
+==================================================
+
+Dealer hidden card stays hidden, but visible total should be shown.
+
+Do NOT show dealer total as ?.
+
+While hole card is hidden:
+
+BlackJackBot:
+🃏 Dealer Cards
+Dealer: A♠ [?]
+Visible Total: 11
+
+Example:
+
+BlackJackBot:
+🃏 Dealer Cards
+Dealer: 10♦ [?]
+Visible Total: 10
+
+After dealer reveal:
+
+BlackJackBot:
+🃏 Dealer Cards
+Dealer: A♠ 7♥ 3♣
+Total: 21
+
+==================================================
+PLAYER CARDS + ACTIONS MESSAGE
+==================================================
+
+Second message should show player cards and available actions.
+
+Example:
+
+BlackJackBot:
+🟢 Player Cards
+@Player: 10♥ 8♣
+Total: 18
+
+Actions:
+🃏 /hit
+🛑 /stand or /stay
+💰 /double
+✂️ /split
+🛡️ /insurance
+🏳️ /surrender
+
+Only show actions that are currently available.
+
+Examples:
+- Show /insurance only if dealer shows Ace and player has not acted.
+- Show /surrender only if surrender is enabled and player has not acted.
+- Show /double only if player has exactly 2 cards and has not acted.
+- Show /split only if player has 2 cards of the same rank and split is allowed.
+
+==================================================
+WHISPER VS PUBLIC CARD MODE
+==================================================
+
+Implement:
+
+/bj cards whisper
+/bj cards public
+
+Also support old command if already exists:
+
+/bjcards whisper
+/bjcards public
+
+Default:
+whisper
+
+If mode = whisper:
+- Public message 1 shows Dealer Cards.
+- Player Cards + Actions are whispered privately.
+- Entire private player message must be green.
+- Do not reveal player cards publicly.
+
+Whisper example:
+
+Public message:
+🃏 Dealer Cards
+Dealer: A♠ [?]
+Visible Total: 11
+
+Private whisper:
+<#00FF66>🟢 Player Cards
+You: 10♥ 8♣
+Total: 18
+
+Actions:
+🃏 /hit
+🛑 /stand or /stay
+💰 /double
+🛡️ /insurance
+🏳️ /surrender<#FFFFFF>
+
+Important:
+- Green color should apply to the entire private player-card message.
+- End with <#FFFFFF> so color does not leak.
+
+If mode = public:
+- Message 1 = public Dealer Cards.
+- Message 2 = public Player Cards + Actions.
+- Actions must be at the bottom.
+
+==================================================
+ACTION EMOJIS
+==================================================
+
+Use action emojis everywhere actions appear:
+
+🃏 /hit
+🛑 /stand or /stay
+💰 /double
+✂️ /split
+🛡️ /insurance
+🏳️ /surrender
+
+Use them in:
+- turn messages
+- whisper messages
+- public messages
+- invalid action replies
+- /bj help
+- /bj rules if action examples are shown
+
+==================================================
+ACTION LOCKING
+==================================================
+
+Prevent repeated or invalid actions.
+
+Examples:
+
+Player types:
+/double
+
+Then types:
+/double
+
+Reply:
+BlackJackBot:
+You already acted on this hand.
+
+For split hands, track action state per hand.
+
+Each hand should track:
+- active
+- stood
+- busted
+- doubled
+- surrendered
+- completed
+- from_split
+- split_aces if needed
+
+==================================================
+TURN TIMEOUT
+==================================================
+
+If player does not act before timer ends:
+- auto-stand the hand
+- save state
+- continue the round
+
+Message should be short:
+
+BlackJackBot:
+⏰ @Player timed out. Auto-stand.
+
+Do not let timeout messages push away Dealer Cards / Player Cards during active decision view.
+Only send timeout message when moving to the next state, then refresh the 2-message card view.
+
+==================================================
+LEAVE / REFUND RULE
+==================================================
+
+If player leaves before round starts:
+
+/bj leave
+
+Refund full bet.
+
+If player leaves during an active round:
+- auto-stand their hand
+- save state
+- continue the round
+
+Do not forfeit by default.
+
+==================================================
+INSURANCE
+==================================================
+
+Insurance should work only when:
+- dealer upcard is Ace
+- player is in active round
+- player has not acted yet
+- player has enough balance
+- player has not already taken insurance
+- insurance setting is enabled
+
+Commands:
+/insurance
+/bi
+/bj insurance
+
+If dealer upcard is not Ace:
+
+BlackJackBot:
+🛡️ Insurance is only available when dealer shows an Ace.
+
+If player already acted:
+
+BlackJackBot:
+🛡️ Insurance must be taken before your first action.
+
+Insurance bet:
+- default is half the original bet
+- deduct immediately
+- store insurance_taken = true
+- store insurance_bet
+- store insurance_resolved = false
+
+Insurance payout:
+- if dealer has BlackJack, insurance pays 2:1 profit
+- if dealer does not have BlackJack, insurance loses

@@ -97,6 +97,9 @@ from modules.blackjack           import (
 )
 from modules.realistic_blackjack import (
     handle_rbj, handle_rbj_set,
+    handle_bet,
+    handle_hit, handle_stand, handle_double, handle_split,
+    handle_insurance, handle_surrender,
     reset_table as rbj_reset_table,
     soft_reset_table as rbj_soft_reset_table,
     startup_rbj_recovery,
@@ -532,7 +535,7 @@ BJ_COMMANDS          = {
     "rjoin", "rt", "rh", "rs", "rd", "rsp", "rshoe", "rlimits", "rstats", "rhand",
     "rbjh", "rbjs", "rbjd", "rbjsp", "rbjhand",
     # Easy aliases / universal shortcuts
-    "blackjack", "bjbet", "bet", "hit", "stand", "double", "split",
+    "blackjack", "bjbet", "bet", "hit", "stand", "stay", "double", "split",
     "insurance", "surrender", "shoe", "bjshoe",
     # Card display / rules / bonus info
     "bjcards", "blackjackcards", "cardmode", "bjcardmode",
@@ -1009,10 +1012,9 @@ GAME_HELP = GAME_HELP_PAGES[0]
 CASINO_HELP_PAGES = [
     (
         "🎰 Casino\n"
-        "BJ: /bjoin 100\n"
-        "RBJ: /rjoin 100\n"
+        "BlackJack: /bet 100\n"
         "Poker: /p 1000\n"
-        "Help: /bjhelp /rbjhelp /pokerhelp"
+        "Help: /bjhelp /pokerhelp"
     ),
     (
         "🎰 Casino 2\n"
@@ -1144,43 +1146,41 @@ EVENT_HELP_PAGES = [
 
 BJ_HELP_PAGES = [
     (
-        "🃏 Blackjack\n"
-        "/bjoin <bet> — join table\n"
-        "🃏 /bh hit  🛑 /bs stand\n"
-        "💰 /bd double  ✂️ /bsp split\n"
-        "🛡️ /bi insurance  🏳️ /bsurrender\n"
-        "/bjcards whisper|public\n"
-        "/bjrules  /bjbonussettings"
+        "🃏 BlackJack\n"
+        "/bet <amount> — join or update bet\n"
+        "🃏 /hit  🛑 /stand or /stay\n"
+        "💰 /double  ✂️ /split\n"
+        "🛡️ /insurance  🏳️ /surrender\n"
+        "/bj rules  /bj shoe  /bj stats"
     ),
     (
-        "🃏 BJ Stats & Limits\n"
-        "/bhand — view your hand\n"
-        "/bt — table status\n"
-        "/blimits — daily limits\n"
-        "/bstats — your BJ stats\n"
-        "/bjshoe — deck status\n"
+        "🃏 BlackJack Info\n"
+        "/bj hand — view your hand\n"
+        "/bj table — table status\n"
+        "/bj limits — daily limits\n"
+        "/bj fairness — shoe & payout info\n"
+        "/bj cards whisper|public\n"
         "Staff: /bj on/off  /bj recover"
     ),
 ]
 
 RBJ_HELP_PAGES = [
     (
-        "🃏 BlackJack (Shoe)\n"
-        "/rjoin <bet> — join table\n"
-        "🃏 /rh hit  🛑 /rs stand\n"
-        "💰 /rd double  ✂️ /rsp split\n"
-        "/rhand — view hand\n"
-        "/rshoe — shoe status\n"
-        "/rt — table status"
+        "🃏 BlackJack\n"
+        "/bet <amount> — join or update bet\n"
+        "🃏 /hit  🛑 /stand or /stay\n"
+        "💰 /double  ✂️ /split\n"
+        "🛡️ /insurance  🏳️ /surrender\n"
+        "/bj rules  /bj shoe  /bj stats"
     ),
     (
-        "🃏 BlackJack Shoe 2\n"
-        "/rlimits — daily limits\n"
-        "/rstats — your stats\n"
-        "/bjrules — table rules\n"
-        "Staff: /rbj on/off\n"
-        "/rbj recover | /rbj refund\n"
-        "/rbj state | /setrbjlimits"
+        "🃏 BlackJack Staff\n"
+        "/bj on/off  /bj recover  /bj refund\n"
+        "/bj setminbet  /bj setmaxbet\n"
+        "/bj setsurrender on|off\n"
+        "/bj setinsurance on|off\n"
+        "/bj setsoft17 hit|stand\n"
+        "/bj setdecks  /bj shuffleat"
     ),
 ]
 
@@ -1631,7 +1631,7 @@ OWNER_HELP_PAGES = [
 ALLCMDS = [
     "Cmds 1 Help\n/help /gamehelp /casinohelp\n/coinhelp /bankhelp\n/shophelp /profilehelp",
     "Cmds 2 Games\n/trivia /scramble /riddle\n/answer /coinflip\n/autogames status\n/gameconfig",
-    "Cmds 3 Casino\n/bjoin /bh /bs /bd /bsp /bt /bhand\n/rjoin /rh /rs /rd /rsp /rt /rhand",
+    "Cmds 3 Casino\n/bet <amt> /hit /stand /double\n/split /insurance /surrender\n/bj rules|stats|shoe|table",
     "Cmds 4 Casino Staff\n/casinosettings\n/casinolimits\n/casinotoggles\n/setbjlimits\n/setrbjlimits\n/setbjactiontimer\n/setrbjactiontimer",
     "Cmds 5 Bank\n/send /bank /bankstats\n/transactions\n/banknotify\n/tiprate /tipstats",
     "Cmds 6 Shop/Profile\n/shop titles/badges\n/titleinfo /badgeinfo\n/buy /equip\n/profile /level",
@@ -1784,8 +1784,8 @@ async def _handle_bankerhelp(bot, user, _args):
 async def _handle_howtoplay(bot, user, _args=None):
     """How-to-play / game guide — whispered to caller."""
     lines = [
-        "🃏 Games: BlackJack → /bjoin <bet>  Shoe BJ → /rjoin <bet>  Poker → /p <buyin>",
-        "🃏 BlackJack: 🃏/bh hit  🛑/bs stand  💰/bd double  ✂️/bsp split | /bjhelp",
+        "🃏 Games: BlackJack → /bet <amount>  Poker → /p <buyin>",
+        "🃏 BlackJack: 🃏/hit  🛑/stand  💰/double  ✂️/split  🛡️/insurance  🏳️/surrender | /bjhelp",
         "♠️ Poker: /call /raise /fold /check /allin | /poker for table status",
         "💰 Economy: /daily /balance /shop | /bjhelp /rbjhelp for rules",
     ]
@@ -3278,42 +3278,45 @@ class HangoutBot(BaseBot):
 
         # ── Blackjack ─────────────────────────────────────────────────────────
         elif cmd == "bj":
-            await handle_bj(self, user, args)
+            await handle_rbj(self, user, args)
 
         elif cmd == "rbj":
             await handle_rbj(self, user, args)
 
-        # BJ short aliases
+        # BJ short aliases — now all routed to the shoe engine
         elif cmd == "bjoin":
             bet_arg = args[1] if len(args) > 1 else ""
-            await handle_bj(self, user, ["bj", "join", bet_arg] if bet_arg else ["bj", "join"])
+            if bet_arg:
+                await handle_bet(self, user, ["bet", bet_arg])
+            else:
+                await handle_rbj(self, user, ["bj", "help"])
 
         elif cmd == "bt":
-            await handle_bj(self, user, ["bj", "table"])
+            await handle_rbj(self, user, ["bj", "table"])
 
         elif cmd == "bh":
-            await handle_bj(self, user, ["bj", "hit"])
+            await handle_hit(self, user)
 
         elif cmd == "bs":
-            await handle_bj(self, user, ["bj", "stand"])
+            await handle_stand(self, user)
 
         elif cmd == "bd":
-            await handle_bj(self, user, ["bj", "double"])
+            await handle_double(self, user)
 
         elif cmd == "bsp":
-            await handle_bj(self, user, ["bj", "split"])
+            await handle_split(self, user)
 
         elif cmd == "bi":
-            await handle_bj(self, user, ["bj", "insurance"])
+            await handle_insurance(self, user)
 
         elif cmd == "blimits":
-            await handle_bj(self, user, ["bj", "limits"])
+            await handle_rbj(self, user, ["bj", "limits"])
 
         elif cmd == "bstats":
-            await handle_bj(self, user, ["bj", "stats"])
+            await handle_rbj(self, user, ["bj", "stats"])
 
         elif cmd == "bhand":
-            await handle_bj(self, user, ["bj", "hand"])
+            await handle_rbj(self, user, ["bj", "hand"])
 
         # RBJ short aliases
         elif cmd == "rjoin":
@@ -3349,102 +3352,90 @@ class HangoutBot(BaseBot):
 
         # BJ full-prefix aliases (bjh, bjs, bjd, bjsp, bjhand)
         elif cmd == "bjh":
-            await handle_bj(self, user, ["bj", "hit"])
+            await handle_hit(self, user)
 
         elif cmd == "bjs":
-            await handle_bj(self, user, ["bj", "stand"])
+            await handle_stand(self, user)
 
         elif cmd == "bjd":
-            await handle_bj(self, user, ["bj", "double"])
+            await handle_double(self, user)
 
         elif cmd == "bjsp":
-            await handle_bj(self, user, ["bj", "split"])
+            await handle_split(self, user)
 
         elif cmd == "bjhand":
-            await handle_bj(self, user, ["bj", "hand"])
+            await handle_rbj(self, user, ["bj", "hand"])
 
         # RBJ full-prefix aliases (rbjh, rbjs, rbjd, rbjsp, rbjhand)
         elif cmd == "rbjh":
-            await handle_rbj(self, user, ["rbj", "hit"])
+            await handle_hit(self, user)
 
         elif cmd == "rbjs":
-            await handle_rbj(self, user, ["rbj", "stand"])
+            await handle_stand(self, user)
 
         elif cmd == "rbjd":
-            await handle_rbj(self, user, ["rbj", "double"])
+            await handle_double(self, user)
 
         elif cmd == "rbjsp":
-            await handle_rbj(self, user, ["rbj", "split"])
+            await handle_split(self, user)
 
         elif cmd == "rbjhand":
             await handle_rbj(self, user, ["rbj", "hand"])
 
-        # ── Easy BJ / universal shortcuts (all map to Realistic Blackjack) ───
+        # ── Easy BJ / universal shortcuts (all map to shoe engine) ───────────
         elif cmd == "blackjack":
             bet_arg = args[1] if len(args) > 1 else ""
-            await handle_rbj(self, user, ["rbj", "join", bet_arg] if bet_arg else ["rbj"])
+            if bet_arg:
+                await handle_bet(self, user, ["bet", bet_arg])
+            else:
+                await handle_rbj(self, user, ["bj", "help"])
 
         elif cmd == "bjbet":
             bet_arg = args[1] if len(args) > 1 else ""
-            await handle_rbj(self, user, ["rbj", "join", bet_arg] if bet_arg else ["rbj", "join"])
+            if bet_arg:
+                await handle_bet(self, user, ["bet", bet_arg])
+            else:
+                await handle_rbj(self, user, ["bj", "help"])
 
         elif cmd == "bet":
-            bet_arg = args[1] if len(args) > 1 else ""
-            _rbj_in = False
-            try:
-                from modules.realistic_blackjack import _state as _rbj_s
-                _rbj_in = any(
-                    p.username.lower() == user.username.lower()
-                    for p in _rbj_s.players
-                )
-            except Exception:
-                pass
             _poker_seated = False
             try:
                 from modules.poker import _get_seated
                 _poker_seated = _get_seated(user.username) is not None
             except Exception:
                 pass
-            if _poker_seated and not _rbj_in:
+            if _poker_seated:
+                bet_arg = args[1] if len(args) > 1 else ""
                 await self.highrise.send_whisper(
                     user.id,
-                    "Use /pbet <amount> for poker or /bjbet <amount> for blackjack."
+                    f"You're at the poker table. Use /pbet {bet_arg} for poker."
                 )
             else:
-                await handle_rbj(
-                    self, user, ["rbj", "join", bet_arg] if bet_arg else ["rbj", "join"]
-                )
+                await handle_bet(self, user, args)
 
         elif cmd == "hit":
-            await handle_rbj(self, user, ["rbj", "hit"])
+            await handle_hit(self, user)
+
+        elif cmd == "stay":
+            await handle_stand(self, user)
 
         elif cmd == "stand":
-            await handle_rbj(self, user, ["rbj", "stand"])
+            await handle_stand(self, user)
 
         elif cmd == "double":
-            await handle_rbj(self, user, ["rbj", "double"])
+            await handle_double(self, user)
 
         elif cmd == "split":
-            await handle_rbj(self, user, ["rbj", "split"])
+            await handle_split(self, user)
 
         elif cmd == "insurance":
-            _in_bj_round = False
-            try:
-                from modules.blackjack import _state as _bj_st
-                _in_bj_round = (_bj_st.phase == "round"
-                                and _bj_st.get_player(user.id) is not None)
-            except Exception:
-                pass
-            if _in_bj_round:
-                await handle_bj(self, user, ["bj", "insurance"])
-            else:
-                await handle_rbj(self, user, ["rbj", "insurance"])
+            await handle_insurance(self, user)
 
         elif cmd in {"surrender", "bsurrender"}:
-            await handle_bj(self, user, ["bj", "surrender"])
+            await handle_surrender(self, user)
 
         elif cmd == "bjshoe":
-            await handle_bj_shoe(self, user)
+            await handle_rbj(self, user, ["bj", "shoe"])
 
         elif cmd == "shoe":
             await handle_rbj(self, user, ["rbj", "shoe"])

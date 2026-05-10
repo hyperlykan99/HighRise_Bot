@@ -1571,7 +1571,9 @@ def _migrate_db():
         "ALTER TABLE bj_settings ADD COLUMN bj_bonus_perfect_pct INTEGER NOT NULL DEFAULT 50",
         "ALTER TABLE bj_settings ADD COLUMN bj_bonus_cap         INTEGER NOT NULL DEFAULT 10000",
         "ALTER TABLE bj_settings ADD COLUMN bj_cards_mode        TEXT    NOT NULL DEFAULT 'whisper'",
-        "ALTER TABLE bj_settings ADD COLUMN bj_insurance_enabled INTEGER NOT NULL DEFAULT 1",
+        "ALTER TABLE bj_settings  ADD COLUMN bj_insurance_enabled  INTEGER NOT NULL DEFAULT 1",
+        "ALTER TABLE rbj_settings ADD COLUMN rbj_insurance_enabled INTEGER NOT NULL DEFAULT 1",
+        "ALTER TABLE rbj_settings ADD COLUMN rbj_surrender_enabled INTEGER NOT NULL DEFAULT 1",
         # ── Owner-forced fishing drops ─────────────────────────────────────────
         "CREATE TABLE IF NOT EXISTS forced_fishing_drops ("
         "id              INTEGER PRIMARY KEY AUTOINCREMENT, "
