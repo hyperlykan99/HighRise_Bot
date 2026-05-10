@@ -383,8 +383,9 @@ from modules.fishing import (
     handle_clearforcedropfish,
 )
 from modules.first_find import (
-    handle_firstfindrewards, handle_setfirstfind,
-    handle_firstfindstatus, handle_resetfirstfind,
+    handle_firstfindrewards, handle_setfirstfind, handle_setfirstfinditem,
+    handle_startfirstfind, handle_stopfirstfind,
+    handle_firstfindstatus, handle_firstfindwinners, handle_resetfirstfind,
     handle_firstfindpending, handle_paypendingfirstfind,
     startup_firstfind_announcer, startup_firstfind_banker,
 )
@@ -593,8 +594,9 @@ MANAGER_ONLY_CMDS = {
 # ── First-find + announce public read commands ────────────────────────────
 FIRSTFIND_COMMANDS = {
     "firstfindreward", "firstfindrewards", "firstfindstatus", "firstfindcheck",
-    "setfirstfind", "setfirstfindreward", "resetfirstfind",
-    "firstfindpending", "paypendingfirstfind", "retryfirstfind",
+    "setfirstfind", "setfirstfinditem", "setfirstfindreward", "resetfirstfind",
+    "startfirstfind", "stopfirstfind", "firstfindwinners",
+    "firstfindpending", "firstfindpay", "paypendingfirstfind", "retryfirstfind",
     "bigannounce", "bigannouncestatus", "setbigannounce",
     "setbigreact", "setbotbigreact",
 }
@@ -4298,15 +4300,27 @@ class HangoutBot(BaseBot):
         elif cmd == "setautofishdailycap":
             await handle_setautofishdailycap(self, user, args)
 
-        # ── First-find reward commands ─────────────────────────────────────
+        # ── First-find race commands ───────────────────────────────────────
         elif cmd in {"firstfindrewards", "firstfindlist", "firstfindreward"}:
             await handle_firstfindrewards(self, user)
 
         elif cmd in {"setfirstfind", "setfirstfindreward"}:
             await handle_setfirstfind(self, user, args)
 
+        elif cmd in {"setfirstfinditem"}:
+            await handle_setfirstfinditem(self, user, args)
+
+        elif cmd in {"startfirstfind"}:
+            await handle_startfirstfind(self, user, args)
+
+        elif cmd in {"stopfirstfind"}:
+            await handle_stopfirstfind(self, user)
+
         elif cmd in {"firstfindstatus", "firstfindcheck"}:
             await handle_firstfindstatus(self, user, args)
+
+        elif cmd in {"firstfindwinners"}:
+            await handle_firstfindwinners(self, user)
 
         elif cmd == "resetfirstfind":
             await handle_resetfirstfind(self, user, args)

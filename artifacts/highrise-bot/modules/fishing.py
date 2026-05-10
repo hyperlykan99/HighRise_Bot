@@ -18,7 +18,7 @@ from highrise import BaseBot, User
 
 import database as db
 from modules.big_announce import send_big_fish_announce
-from modules.first_find   import check_first_find
+from modules.first_find   import check_race_win
 from modules.permissions import can_manage_economy, can_moderate
 
 
@@ -473,11 +473,10 @@ async def handle_fish(bot: BaseBot, user: User) -> None:
         await _w(bot, user.id,
                  f"🎣 Level Up! Fishing Lv {new_lvl}! Keep casting!")
 
-    if fish["rarity"] in ("legendary","mythic","prismatic","exotic"):
-        try:
-            await check_first_find(bot, user.id, uname, "fishing", fish["rarity"])
-        except Exception as _ffe:
-            print(f"[FISH] first_find error: {_ffe}")
+    try:
+        await check_race_win(bot, user.id, uname, "fishing", fish["rarity"], fish.get("name", ""))
+    except Exception as _ffe:
+        print(f"[FISH] race_win error: {_ffe}")
     rarity_info = FISH_RARITIES.get(fish["rarity"], {})
     if rarity_info.get("announce"):
         extra = f" — {weight}lb, {_fmt(value)}c"
@@ -1064,11 +1063,10 @@ async def _autofish_loop(bot: BaseBot, user: User) -> None:
                 await _w(bot, uid,
                          f"🎣 Level Up! Fishing Lv {new_lvl}!")
 
-            if fish["rarity"] in ("legendary","mythic","prismatic","exotic"):
-                try:
-                    await check_first_find(bot, uid, uname, "fishing", fish["rarity"])
-                except Exception as _ffe:
-                    print(f"[AUTOFISH] first_find error: {_ffe}")
+            try:
+                await check_race_win(bot, uid, uname, "fishing", fish["rarity"], fish.get("name", ""))
+            except Exception as _ffe:
+                print(f"[AUTOFISH] race_win error: {_ffe}")
             rinfo = FISH_RARITIES.get(fish["rarity"], {})
             if rinfo.get("announce"):
                 extra = f" — {weight}lb, {_fmt(value)}c"

@@ -456,7 +456,9 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     "forcefishstatus", "clearforcefish",
     # ── First-find rewards ───────────────────────────────────────────────────
     "firstfindreward", "firstfindrewards", "firstfindstatus", "firstfindcheck",
-    "setfirstfind", "setfirstfindreward", "resetfirstfind",
+    "firstfindwinners",
+    "setfirstfind", "setfirstfinditem", "setfirstfindreward",
+    "startfirstfind", "stopfirstfind", "resetfirstfind",
     "firstfindpending", "firstfindpay",
     "paypendingfirstfind", "retryfirstfind",
     # ── Big announcement ─────────────────────────────────────────────────────

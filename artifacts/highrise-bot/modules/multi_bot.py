@@ -532,7 +532,9 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     # ── first-find rewards ───────────────────────────────────────────────────
     "firstfindreward": "banker", "firstfindrewards": "banker",
     "firstfindstatus": "banker", "firstfindcheck": "banker",
-    "setfirstfind": "banker", "setfirstfindreward": "banker",
+    "setfirstfind": "banker", "setfirstfinditem": "banker", "setfirstfindreward": "banker",
+    "startfirstfind": "banker", "stopfirstfind": "banker",
+    "firstfindwinners": "banker",
     "resetfirstfind": "banker",
     "firstfindpending": "banker", "firstfindpay": "banker",
     "paypendingfirstfind": "banker", "retryfirstfind": "banker",

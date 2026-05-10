@@ -17,7 +17,7 @@ from filelock import FileLock, Timeout as _FileLockTimeout
 from highrise import BaseBot, User
 from modules.permissions import is_admin, is_owner, can_manage_economy
 from modules.big_announce import send_big_mine_announce
-from modules.first_find   import check_first_find
+from modules.first_find   import check_race_win
 from modules.mining_colors import (
     format_mining_rarity,
     format_ore_name,
@@ -538,12 +538,11 @@ async def handle_mine(bot: BaseBot, user: User) -> None:
         await _w(bot, user.id, line1[:249])
         await _w(bot, user.id, f"⭐ MXP: +{_fmt(mxp)}")
 
-    # Public announce + first-find reward check (configurable threshold)
-    if item["rarity"] in ("legendary","mythic","ultra_rare","prismatic","exotic"):
-        try:
-            await check_first_find(bot, user.id, uname, "mining", item["rarity"])
-        except Exception as _ffe:
-            print(f"[MINING] first_find error: {_ffe}")
+    # Race win check — fires for every drop, returns fast if no active race
+    try:
+        await check_race_win(bot, user.id, uname, "mining", item["rarity"], item.get("name", ""))
+    except Exception as _ffe:
+        print(f"[MINING] race_win error: {_ffe}")
     if should_announce(item["rarity"], item["item_id"]):
         extra = f" — {ore_weight}kg, {_fmt(final_val)}c" if ore_weight is not None else ""
         try:

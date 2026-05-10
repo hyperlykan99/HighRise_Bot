@@ -580,12 +580,16 @@ REGISTRY: dict[str, Cmd] = {
     "setautomineduration":  Cmd("miner","mining", False,False, True,  perm="manager"),
     "setautomineattempts":  Cmd("miner","mining", False,False, True,  perm="manager"),
     "setautominedailycap":  Cmd("miner","mining", False,False, True,  perm="manager"),
-    # ── First-find rewards ────────────────────────────────────────────────────
-    "firstfindrewards":      Cmd("banker","economy", True, True,  False, aliases=("firstfindlist","firstfindreward")),
+    # ── First-find race event ─────────────────────────────────────────────────
     "setfirstfind":          Cmd("banker","economy", False,False, True,  perm="admin"),
+    "setfirstfinditem":      Cmd("banker","economy", False,False, True,  perm="admin"),
     "setfirstfindreward":    Cmd("banker","economy", False,False, True,  perm="admin"),
+    "startfirstfind":        Cmd("banker","economy", False,False, True,  perm="admin"),
+    "stopfirstfind":         Cmd("banker","economy", False,False, True,  perm="admin"),
     "firstfindstatus":       Cmd("banker","economy", True, True,  False, aliases=("firstfindcheck",)),
     "firstfindcheck":        Cmd("banker","economy", True, True,  False),
+    "firstfindwinners":      Cmd("banker","economy", True, True,  False),
+    "firstfindrewards":      Cmd("banker","economy", True, True,  False, aliases=("firstfindlist","firstfindreward")),
     "resetfirstfind":        Cmd("banker","economy", False,False, True,  perm="admin"),
     "firstfindpending":      Cmd("banker","economy", False, True, False, perm="admin",
                                  aliases=("firstfindpay",)),

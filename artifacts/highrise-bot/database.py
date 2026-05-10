@@ -1585,6 +1585,37 @@ def _migrate_db():
         "used_at         TEXT, "
         "status          TEXT NOT NULL DEFAULT 'pending')",
         "ALTER TABLE forced_fishing_drops ADD COLUMN last_error TEXT NOT NULL DEFAULT ''",
+        # ── First-find race event system ──────────────────────────────────────
+        "CREATE TABLE IF NOT EXISTS first_find_races ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "status TEXT NOT NULL DEFAULT 'draft', "
+        "category TEXT NOT NULL DEFAULT '', "
+        "target_type TEXT NOT NULL DEFAULT 'rarity', "
+        "target_value TEXT NOT NULL DEFAULT '', "
+        "winners_count INTEGER NOT NULL DEFAULT 1, "
+        "gold_amount REAL NOT NULL DEFAULT 0, "
+        "started_at TEXT, "
+        "ends_at TEXT, "
+        "created_by TEXT NOT NULL DEFAULT 'system', "
+        "created_at TEXT NOT NULL DEFAULT (datetime('now')), "
+        "updated_at TEXT NOT NULL DEFAULT (datetime('now')))",
+        "CREATE TABLE IF NOT EXISTS first_find_race_winners ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "race_id INTEGER NOT NULL DEFAULT 0, "
+        "user_id TEXT NOT NULL DEFAULT '', "
+        "username TEXT NOT NULL DEFAULT '', "
+        "rank INTEGER NOT NULL DEFAULT 1, "
+        "category TEXT NOT NULL DEFAULT '', "
+        "target_type TEXT NOT NULL DEFAULT 'rarity', "
+        "target_value TEXT NOT NULL DEFAULT '', "
+        "matched_item_name TEXT NOT NULL DEFAULT '', "
+        "matched_rarity TEXT NOT NULL DEFAULT '', "
+        "gold_amount REAL NOT NULL DEFAULT 0, "
+        "payout_status TEXT NOT NULL DEFAULT 'pending_manual_gold', "
+        "payout_error TEXT NOT NULL DEFAULT '', "
+        "won_at TEXT NOT NULL DEFAULT (datetime('now')))",
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_ffrw_race_user "
+        "ON first_find_race_winners(race_id, user_id)",
     ]:
         try:
             conn.execute(sql)
@@ -9006,6 +9037,209 @@ def mark_firstfind_banker_done(row_id: int) -> None:
     conn.execute(
         "UPDATE first_find_announce_pending SET banker_done=1 WHERE id=?",
         (row_id,),
+    )
+    conn.commit()
+    conn.close()
+
+
+# ── First-find race system ────────────────────────────────────────────────────
+
+def create_first_find_race(
+    category: str, target_type: str, target_value: str,
+    winners_count: int, gold_amount: float, created_by: str = "system",
+) -> int:
+    """Cancel any draft/active race, then create a new draft. Returns new race id."""
+    conn = get_connection()
+    conn.execute(
+        "UPDATE first_find_races SET status='stopped', updated_at=datetime('now') "
+        "WHERE status IN ('draft', 'active')"
+    )
+    race_id = conn.execute(
+        """INSERT INTO first_find_races
+           (status, category, target_type, target_value, winners_count,
+            gold_amount, created_by, created_at, updated_at)
+           VALUES ('draft', ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))""",
+        (category, target_type, target_value, winners_count, gold_amount, created_by),
+    ).lastrowid
+    conn.commit()
+    conn.close()
+    return race_id
+
+
+def start_first_find_race(race_id: int, minutes: int) -> None:
+    """Activate a draft race with a time limit (SQLite datetime arithmetic)."""
+    conn = get_connection()
+    conn.execute(
+        """UPDATE first_find_races
+           SET status='active',
+               started_at=datetime('now'),
+               ends_at=datetime('now', ? || ' minutes'),
+               updated_at=datetime('now')
+           WHERE id=? AND status='draft'""",
+        (str(minutes), race_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+def stop_first_find_race(race_id: int, new_status: str = "stopped") -> None:
+    """Mark a race stopped / completed / expired."""
+    conn = get_connection()
+    conn.execute(
+        "UPDATE first_find_races SET status=?, updated_at=datetime('now') WHERE id=?",
+        (new_status, race_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_active_first_find_race():
+    """Return the currently active race row as dict, or None."""
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT * FROM first_find_races WHERE status='active' ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def get_draft_first_find_race():
+    """Return the most recent draft race row as dict, or None."""
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT * FROM first_find_races WHERE status='draft' ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def get_latest_first_find_race():
+    """Return the most recent race row (any status) as dict, or None."""
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT * FROM first_find_races ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def expire_first_find_races() -> list:
+    """Find active races past ends_at, mark expired, return them."""
+    conn = get_connection()
+    rows = conn.execute(
+        """SELECT * FROM first_find_races
+           WHERE status='active' AND ends_at IS NOT NULL
+             AND datetime('now') >= datetime(ends_at)"""
+    ).fetchall()
+    for r in rows:
+        conn.execute(
+            "UPDATE first_find_races SET status='expired', updated_at=datetime('now') WHERE id=?",
+            (r["id"],),
+        )
+    conn.commit()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def add_first_find_race_winner(
+    race_id: int, user_id: str, username: str, rank: int,
+    category: str, target_type: str, target_value: str,
+    matched_item_name: str, matched_rarity: str, gold_amount: float,
+) -> int:
+    """Insert a race winner. Returns the new row id, or 0 on duplicate."""
+    conn = get_connection()
+    try:
+        winner_id = conn.execute(
+            """INSERT INTO first_find_race_winners
+               (race_id, user_id, username, rank, category, target_type,
+                target_value, matched_item_name, matched_rarity, gold_amount,
+                payout_status, won_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending_manual_gold', datetime('now'))""",
+            (race_id, user_id, username, rank, category, target_type,
+             target_value, matched_item_name, matched_rarity, gold_amount),
+        ).lastrowid
+        conn.commit()
+        return winner_id
+    except Exception:
+        return 0
+    finally:
+        conn.close()
+
+
+def has_first_find_race_winner(race_id: int, user_id: str) -> bool:
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT 1 FROM first_find_race_winners WHERE race_id=? AND user_id=?",
+        (race_id, user_id),
+    ).fetchone()
+    conn.close()
+    return row is not None
+
+
+def count_first_find_race_winners(race_id: int) -> int:
+    conn = get_connection()
+    n = conn.execute(
+        "SELECT COUNT(*) FROM first_find_race_winners WHERE race_id=?", (race_id,)
+    ).fetchone()[0]
+    conn.close()
+    return n
+
+
+def get_first_find_race_winners(race_id: int) -> list:
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT * FROM first_find_race_winners WHERE race_id=? ORDER BY rank ASC",
+        (race_id,),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_race_winner_by_race_user(race_id: int, user_id: str):
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT * FROM first_find_race_winners WHERE race_id=? AND user_id=?",
+        (race_id, user_id),
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def update_race_winner_payout(winner_id: int, payout_status: str, payout_error: str = "") -> None:
+    conn = get_connection()
+    conn.execute(
+        "UPDATE first_find_race_winners SET payout_status=?, payout_error=? WHERE id=?",
+        (payout_status, payout_error, winner_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_pending_race_winners_for_banker(limit: int = 10) -> list:
+    """Winners with pending_manual_gold payout, joined with race info."""
+    conn = get_connection()
+    rows = conn.execute(
+        """SELECT ffrw.*, ffr.category AS race_category,
+                  ffr.target_value AS race_target,
+                  ffr.target_type AS race_target_type
+           FROM first_find_race_winners ffrw
+           JOIN first_find_races ffr ON ffrw.race_id=ffr.id
+           WHERE ffrw.payout_status='pending_manual_gold'
+             AND ffrw.gold_amount > 0
+           ORDER BY ffrw.won_at ASC
+           LIMIT ?""",
+        (limit,),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def reset_first_find_race() -> None:
+    """Cancel any active or draft race."""
+    conn = get_connection()
+    conn.execute(
+        "UPDATE first_find_races SET status='stopped', updated_at=datetime('now') "
+        "WHERE status IN ('draft', 'active')"
     )
     conn.commit()
     conn.close()
