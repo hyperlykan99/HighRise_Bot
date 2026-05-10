@@ -552,6 +552,7 @@ BANK_ADMIN_SET_CMDS = {
 MOD_ONLY_CMDS = {
     "resetgame", "announce", "viewtx", "bankwatch",
     "audit", "auditbank", "auditcasino", "auditeconomy", "audithelp",
+    "auditlog",
     "economysettings",
     "reports", "reportinfo", "closereport", "reportwatch",
     "warn", "warnings",
@@ -2957,10 +2958,10 @@ class HangoutBot(BaseBot):
         elif cmd in {"casinodash", "mycasino"}:
             await handle_casino_dash(self, user, args)
 
-        elif cmd in {"dashboard", "dash"}:
+        elif cmd == "dash":
             await handle_dashboard(self, user, args)
 
-        elif cmd in {"botdashboard", "botsystem"}:
+        elif cmd in {"dashboard", "botdashboard", "botsystem"}:
             await handle_sys_dashboard(self, user, args)
 
         elif cmd == "daily":
@@ -3681,14 +3682,26 @@ class HangoutBot(BaseBot):
             await handle_helpsearch(self, user, args)
 
         elif cmd in {"start", "guide", "begin", "newplayer"}:
-            await self.highrise.send_whisper(
-                user.id,
-                (
-                    "👋 Welcome to HR Lounge Bot!\n"
-                    "Try: /bal /daily /mine /shop\n"
-                    "Casino: /bjhelp /rbjhelp /pokerhelp\n"
-                    "/help — all categories"
-                )
+            await self.highrise.send_whisper(user.id,
+                "👋 Welcome to HR Lounge!\n"
+                "⛏️ Mine: /mine\n"
+                "🎣 Fish: /fish\n"
+                "💰 Balance: /bal\n"
+                "👤 Profile: /profile"
+            )
+            await self.highrise.send_whisper(user.id,
+                "🎮 Games:\n"
+                "🃏 Blackjack: /bjhelp\n"
+                "♠️ Poker: /pokerhelp\n"
+                "🎉 Events: /events\n"
+                "/aestatus /firstfindstatus"
+            )
+            await self.highrise.send_whisper(user.id,
+                "🛒 Shop: /shop\n"
+                "🏆 Weekly LB: /weeklylb\n"
+                "📅 Daily Coins: /daily\n"
+                "❓ All help: /help\n"
+                "Tip: start with /mine or /fish!"
             )
 
         elif cmd == "casinoadminhelp":

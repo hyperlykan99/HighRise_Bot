@@ -1,0 +1,380 @@
+Fix Dashboard/Profile Routing + Event Preset Message Cutoff + Audit Log + Detailed /start
+
+Current issues:
+1. /dashboard is showing my profile instead of the dashboard.
+2. /eventpreset message gets cut off.
+3. /auditlog does not work.
+4. /start is too short and not detailed like requested.
+
+Goal:
+Fix these 4 systems only.
+
+Do not change bot tokens.
+Do not change room ID.
+Do not reset balances.
+Do not wipe player data.
+Do not break mining, fishing, blackjack, poker, bank, events, gold tips, First Find Race, or command routing.
+
+==================================================
+PART 1 — FIX /dashboard SHOWING PROFILE
+==================================================
+
+Current issue:
+/dashboard returns player profile content.
+
+This means /dashboard is routed to the wrong handler, probably the /profile handler.
+
+Fix:
+- /dashboard must route to dashboard handler only.
+- /profile, /me, /stats must route to profile handler only.
+- Do not share handlers unless they branch correctly by command name.
+
+Correct behavior:
+
+/dashboard
+
+EmceeBot:
+📊 Bot Dashboard
+
+Bots:
+EmceeBot ✅
+BankerBot ✅
+GreatestProspector ✅
+MasterAngler ✅
+BlackjackBot ✅
+PokerBot ✅
+SecurityBot ✅
+
+Systems:
+Mining ✅
+Fishing ✅
+Auto Events ✅
+First Find Race ✅
+Gold Tips ✅
+Blackjack ✅
+Poker ✅
+Security ✅
+
+Warnings:
+Pending rewards: 0
+Command issues: 0
+Next event: Lucky Rush in 24m
+
+/profile
+
+EmceeBot:
+👤 Player Profile: @Player
+Coins:
+Mining:
+Fishing:
+Casino:
+Tips:
+Race Wins:
+
+Commandtest target:
+
+/commandtest /dashboard
+/commandtest /profile
+/commandtest /me
+/commandtest /stats
+
+Expected:
+route=YES
+handler=YES
+owner is not UNKNOWN
+
+/dashboard must not call profile handler.
+
+==================================================
+PART 2 — FIX /eventpreset GETTING CUT OFF
+==================================================
+
+Current issue:
+/eventpreset response gets cut off.
+
+Highrise messages have a short character limit, so split long event preset messages into pages or multiple messages.
+
+Fix:
+/eventpreset should show a short menu only:
+
+EventBot:
+🎉 Event Presets
+1. chill
+2. hype
+3. jackpot
+4. fishing
+5. mining
+
+Use:
+/eventpreset <name>
+Example: /eventpreset jackpot
+
+Do not include long descriptions in one message.
+
+For specific preset:
+
+/eventpreset jackpot
+
+Response should be short:
+
+EventBot:
+🎉 Jackpot Preset
+Starts/Suggests:
+- Ore Value Surge
+- Prismatic Hunt
+- First Find Race
+
+Use:
+/startevent <event>
+/setfirstfind mining prismatic 1 5
+/startfirstfind 30
+
+If more details are needed, send a second message:
+
+EventBot:
+Tip:
+Use /aestatus to check active events.
+Use /aenext to check next auto event.
+
+Rules:
+- Keep each message under safe Highrise limit.
+- Use max 2 messages.
+- Do not cut mid-sentence.
+- If text is too long, paginate.
+
+==================================================
+PART 3 — FIX /auditlog
+==================================================
+
+Current issue:
+/auditlog does not work.
+
+Fix:
+Audit log command must always respond.
+
+Commands:
+/auditlog
+/auditlog gold
+/auditlog events
+/auditlog security
+/auditlog economy
+/auditlog force
+/auditlog staff
+
+Owner:
+SecurityBot
+
+Permission:
+Manager+
+
+If no logs exist:
+
+SecurityBot:
+🛡️ Staff Audit Log
+No audit logs yet.
+
+If audit table missing:
+- create it safely with CREATE TABLE IF NOT EXISTS
+- then show “No audit logs yet”
+- do not crash
+
+Database:
+staff_audit_logs:
+- id INTEGER PRIMARY KEY AUTOINCREMENT
+- actor_user_id TEXT
+- actor_username TEXT
+- action_type TEXT
+- target_user_id TEXT
+- target_username TEXT
+- details TEXT
+- created_at TEXT
+
+Add safe logging helper:
+
+add_audit_log(actor_user_id, actor_username, action_type, target_user_id="", target_username="", details="")
+
+Use it for important actions if easy:
+- goldtip
+- markrewardpaid
+- setfirstfind
+- startfirstfind
+- stopfirstfind
+- forcedrop
+- forcedropfish
+- mute/unmute
+- eventpreset
+- economy setting changes
+
+/auditlog should show recent 5 logs:
+
+SecurityBot:
+🛡️ Staff Audit Log
+1. @Owner started First Find Race — 2m ago
+2. @Owner forcedropfish @Player exotic — 8m ago
+3. @Owner goldtip @Player 5g — 15m ago
+
+If category is provided, filter action_type.
+
+Commandtest target:
+
+/commandtest /auditlog
+
+Expected:
+route=YES
+handler=YES
+owner=SecurityBot
+
+==================================================
+PART 4 — MAKE /start DETAILED
+==================================================
+
+Current issue:
+/start is too short and not detailed.
+
+Fix:
+/start should be a useful new-player guide.
+
+Owner:
+EmceeBot
+
+Permission:
+Everyone
+
+Because Highrise messages get cut off, split into 2 or 3 short messages.
+
+Message 1:
+
+EmceeBot:
+👋 Welcome to the room!
+Here’s how to start:
+
+⛏️ Mine: /mine
+🎣 Fish: /fish
+💰 Balance: /bal
+👤 Profile: /profile
+
+Message 2:
+
+EmceeBot:
+🎮 Games:
+🃏 Blackjack: /bjhelp
+♠️ Poker: /pokerhelp
+
+🎉 Events:
+/events
+/aestatus
+/firstfindstatus
+
+Message 3:
+
+EmceeBot:
+Useful:
+🛒 Shop: /shop
+🏆 Weekly LB: /weeklylb
+📅 Daily: /daily
+❓ Help: /help
+
+Tip:
+Start with /mine or /fish!
+
+Aliases:
+- /begin
+- /newplayer
+
+Each alias should show the same guide.
+
+Commandtest target:
+
+/commandtest /start
+/commandtest /begin
+/commandtest /newplayer
+
+Expected:
+route=YES
+handler=YES
+owner=EmceeBot
+
+==================================================
+PART 5 — MESSAGE LENGTH SAFETY
+==================================================
+
+Add a helper if needed:
+
+send_safe_messages(bot, text_or_lines, max_chars=230)
+
+Rules:
+- No bot message should be cut off.
+- Split long content into multiple messages.
+- Keep messages readable.
+- Do not split color tags if possible.
+- Do not spam more than 3 messages for /start.
+- Do not spam more than 2 messages for /eventpreset.
+
+Apply to:
+- /eventpreset
+- /start
+- /dashboard
+- /auditlog
+
+==================================================
+PART 6 — COMMAND OWNERSHIP
+==================================================
+
+Correct owners:
+
+/dashboard = EmceeBot or HostBot
+/start = EmceeBot
+/begin = EmceeBot
+/newplayer = EmceeBot
+/eventpreset = EventBot
+/auditlog = SecurityBot
+/profile = EmceeBot
+/me = EmceeBot
+/stats = EmceeBot
+
+Do not leave owner UNKNOWN.
+
+==================================================
+PART 7 — TESTS
+==================================================
+
+Run:
+
+/commandtest /dashboard
+/commandtest /profile
+/commandtest /eventpreset
+/commandtest /auditlog
+/commandtest /start
+/commandtest /begin
+/commandtest /newplayer
+/checkcommands all
+
+Then behavior test:
+
+/dashboard
+/profile
+/eventpreset
+/eventpreset jackpot
+/auditlog
+/start
+
+Expected:
+- /dashboard shows dashboard, not profile.
+- /profile shows profile, not dashboard.
+- /eventpreset does not get cut off.
+- /auditlog responds even if empty.
+- /start gives detailed 2–3 message guide.
+- No bot crashes.
+
+==================================================
+FINAL REPORT
+==================================================
+
+After finishing, tell me:
+1. Files changed
+2. Why /dashboard was showing profile
+3. How /eventpreset cutoff was fixed
+4. Why /auditlog did not work
+5. How /start was expanded
+6. Commands tested
+7. Exact tests to run

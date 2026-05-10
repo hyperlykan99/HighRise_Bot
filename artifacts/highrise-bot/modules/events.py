@@ -2070,10 +2070,14 @@ async def handle_eventpreset(bot: BaseBot, user: User, args: list[str]) -> None:
         return
 
     if len(args) < 2:
-        lines = ["🎉 Event Presets"]
-        for key, p in _PRESETS.items():
-            lines.append(f"/eventpreset {key} — {p['desc']}")
-        await _w(bot, user.id, "\n".join(lines)[:249])
+        keys   = list(_PRESETS.keys())
+        menu   = "🎉 Event Presets\n"
+        menu  += "\n".join(f"{i+1}. {k}" for i, k in enumerate(keys))
+        menu  += "\nUse: /eventpreset <name>"
+        await _w(bot, user.id, menu[:249])
+        await _w(bot, user.id,
+                 "Example: /eventpreset jackpot\n"
+                 "Tip: /aestatus /aenext for event status")
         return
 
     preset_name = args[1].lower()
@@ -2102,11 +2106,15 @@ async def handle_eventpreset(bot: BaseBot, user: User, args: list[str]) -> None:
         "", "", f"preset={preset_name}"
     )
 
-    reply_parts = [f"🎉 {preset['name']} Preset Started"]
-    reply_parts.append("Events: " + ", ".join(started))
+    ev_list = "\n".join(f"- {e}" for e in started)
+    msg1 = f"🎉 {preset['name']} Preset Started\nEvents:\n{ev_list}"
+    await _w(bot, user.id, msg1[:249])
+
+    msg2_parts = []
     if preset.get("suggest_race"):
-        reply_parts.append(f"Suggest: /{preset['suggest_race']}")
-    await _w(bot, user.id, "\n".join(reply_parts)[:249])
+        msg2_parts.append(f"Suggest: /{preset['suggest_race']}")
+    msg2_parts.append("Tip: /aestatus to check active events.")
+    await _w(bot, user.id, "\n".join(msg2_parts)[:249])
 
     try:
         msg = (
