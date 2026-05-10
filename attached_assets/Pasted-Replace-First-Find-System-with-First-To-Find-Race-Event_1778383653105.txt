@@ -1,0 +1,479 @@
+Replace First Find System with First-To-Find Race Event System
+
+Current issue:
+The current “First Find” system behaves like a permanent first-discovery reward for a rarity.
+That is not what I want.
+
+Goal:
+Convert First Find into a temporary race event system.
+
+Meaning:
+Players race during an active event to be the first player(s) to mine/catch a target rarity or specific ore/fish.
+
+Do not change bot tokens.
+Do not change room ID.
+Do not reset balances.
+Do not wipe player data.
+Do not break mining, fishing, bank, goldtip, big announcements, auto events, or command routing.
+
+==================================================
+PART 1 — NEW CONCEPT
+==================================================
+
+Rename the concept internally if needed:
+
+First Find Race
+First To Find Event
+Find Race Event
+
+This is NOT:
+- permanent first discovery
+- lifetime first finder
+- first player ever to find an ore
+
+This IS:
+- temporary race event
+- staff starts the event
+- players mine/fish during the event
+- first X players to get target rarity/item win
+- event ends when winners are filled or time expires
+
+==================================================
+PART 2 — EVENT EXAMPLES
+==================================================
+
+Example 1:
+
+/setfirstfind mining prismatic 1 5
+/startfirstfind 30
+
+Meaning:
+For the next 30 minutes, first 1 player to mine any Prismatic ore wins 5 gold.
+
+Example 2:
+
+/setfirstfind fishing exotic 3 10
+/startfirstfind 60
+
+Meaning:
+For the next 60 minutes, first 3 players to catch any Exotic fish win 10 gold each.
+
+Example 3 specific item:
+
+/setfirstfind mining ore "Prismatic Pearl" 1 5
+/startfirstfind 30
+
+Meaning:
+First player to mine Prismatic Pearl during the event wins 5 gold.
+
+Example 4 fishing item:
+
+/setfirstfind fishing fish "Aurora Koi" 1 5
+/startfirstfind 30
+
+Meaning:
+First player to catch Aurora Koi during the event wins 5 gold.
+
+==================================================
+PART 3 — COMMANDS
+==================================================
+
+Main commands:
+
+/setfirstfind <mining|fishing> <rarity> <winners_count> <gold_amount>
+/setfirstfinditem <mining|fishing> <ore_or_fish_name> <winners_count> <gold_amount>
+/startfirstfind <minutes>
+/stopfirstfind
+/firstfindstatus
+/firstfindwinners
+/resetfirstfind
+
+Keep /setfirstfind short as the main command.
+
+Do not make /setfirstfindreward the main command.
+
+==================================================
+PART 4 — COMMAND BEHAVIOR
+==================================================
+
+/setfirstfind <mining|fishing> <rarity> <winners_count> <gold_amount>
+
+Sets the race target by rarity.
+
+Example:
+/setfirstfind mining prismatic 1 5
+
+Reply:
+BankerBot:
+🏁 First Find Race Set
+Type: Mining
+Target: Any Prismatic
+Winners: 1
+Reward: 5 gold
+Use /startfirstfind <minutes> to begin.
+
+/setfirstfinditem <mining|fishing> <item_name> <winners_count> <gold_amount>
+
+Sets the race target by exact ore/fish.
+
+Example:
+/setfirstfinditem mining Prismatic Pearl 1 5
+
+Reply:
+BankerBot:
+🏁 First Find Race Set
+Type: Mining
+Target: Prismatic Pearl
+Winners: 1
+Reward: 5 gold
+Use /startfirstfind <minutes> to begin.
+
+/startfirstfind <minutes>
+
+Starts the active race.
+
+Example:
+/startfirstfind 30
+
+EmceeBot announces:
+🏁 First Find Race Started!
+Target: Mine any [PRISMATIC] ore
+Reward: 5 gold
+Winners: First 1 player
+Time: 30 minutes
+Start mining now!
+
+/stopfirstfind
+
+Stops the active race manually.
+
+EmceeBot announces:
+🏁 First Find Race Ended!
+
+/firstfindstatus
+
+Shows current race status.
+
+Example:
+BankerBot:
+🏁 First Find Race
+Status: ACTIVE
+Type: Mining
+Target: Any Prismatic
+Reward: 5 gold
+Winners: 0/1
+Time Left: 24m
+
+/firstfindwinners
+
+Shows winners.
+
+Example:
+BankerBot:
+🏆 First Find Race Winners
+1. @Player — Mining Prismatic — 5 gold — paid_gold
+
+/resetfirstfind
+
+Clears current race setup and winners.
+Manager+ only.
+
+==================================================
+PART 5 — ROLES
+==================================================
+
+EmceeBot:
+- announces race start
+- announces winner publicly
+- announces race end
+- does not handle gold payout
+
+BankerBot:
+- owns setup commands
+- owns status commands
+- handles payout/logging
+- handles pending manual tip if automatic gold tipping is unavailable
+
+MiningBot / GreatestProspector:
+- detects mining race wins
+
+FishingBot / MasterAngler:
+- detects fishing race wins
+
+==================================================
+PART 6 — WIN DETECTION
+==================================================
+
+Only check wins while race is ACTIVE.
+
+When player mines:
+If active race type = mining:
+- If target is rarity, compare mined ore rarity.
+- If target is item, compare ore name.
+- If match, player wins if:
+  - not already a winner in this race
+  - winner slots are not full
+
+When player fishes:
+If active race type = fishing:
+- If target is rarity, compare fish rarity.
+- If target is item, compare fish name.
+- If match, player wins if:
+  - not already a winner in this race
+  - winner slots are not full
+
+Do not count results before event starts.
+Do not count results after event ends.
+Do not count old inventory.
+Only new mine/fish actions during the active race count.
+
+==================================================
+PART 7 — WINNER ANNOUNCEMENT
+==================================================
+
+When player wins:
+
+EmceeBot:
+🏆 First Find Race Winner!
+@Player is #1 to mine [PRISMATIC] during the race!
+Reward: 5 gold
+
+For fishing:
+
+EmceeBot:
+🏆 First Catch Race Winner!
+@Player is #1 to catch [EXOTIC] during the race!
+Reward: 10 gold
+
+If all winner slots are filled:
+
+EmceeBot:
+🏁 First Find Race Complete!
+All winners have been found.
+
+Then stop the race automatically.
+
+==================================================
+PART 8 — BANKERBOT PAYOUT
+==================================================
+
+BankerBot handles payout/log.
+
+If automatic gold tipping works:
+BankerBot:
+💰 Race Reward Sent
+@Player received 5 gold.
+
+Status:
+paid_gold
+
+If automatic gold tipping is unavailable:
+BankerBot:
+💰 Race Reward Logged
+@Player earned 5 gold.
+Status: pending manual tip.
+
+Status:
+pending_manual_gold
+
+No confirmation step.
+
+==================================================
+PART 9 — DATABASE
+==================================================
+
+Create or update tables safely.
+
+first_find_races:
+- id INTEGER PRIMARY KEY AUTOINCREMENT
+- status TEXT
+- category TEXT
+- target_type TEXT
+- target_value TEXT
+- winners_count INTEGER
+- gold_amount REAL
+- started_at TEXT
+- ends_at TEXT
+- created_by TEXT
+- created_at TEXT
+- updated_at TEXT
+
+target_type:
+- rarity
+- item
+
+category:
+- mining
+- fishing
+
+status:
+- draft
+- active
+- completed
+- stopped
+- expired
+
+first_find_race_winners:
+- id INTEGER PRIMARY KEY AUTOINCREMENT
+- race_id INTEGER
+- user_id TEXT
+- username TEXT
+- rank INTEGER
+- category TEXT
+- target_type TEXT
+- target_value TEXT
+- matched_item_name TEXT
+- matched_rarity TEXT
+- gold_amount REAL
+- payout_status TEXT
+- payout_error TEXT
+- won_at TEXT
+
+payout_status:
+- paid_gold
+- pending_manual_gold
+- failed
+
+Prevent duplicates:
+race_id + user_id should be unique.
+
+Do not wipe old tables unless safe migration is needed.
+If old first_find tables exist, keep them but stop using them for new race logic.
+
+==================================================
+PART 10 — TIMER / EXPIRATION
+==================================================
+
+Race should expire when time is up.
+
+If time expires and winners are not full:
+
+EmceeBot:
+⏰ First Find Race Ended
+Time is up!
+Winners: 0/1
+
+If partially filled:
+
+EmceeBot:
+⏰ First Find Race Ended
+Time is up!
+Winners: 2/3
+
+Race should not remain active forever.
+
+==================================================
+PART 11 — PERMISSIONS
+==================================================
+
+Manager+:
+- /setfirstfind
+- /setfirstfinditem
+- /startfirstfind
+- /stopfirstfind
+- /resetfirstfind
+
+Read/status:
+- /firstfindstatus
+- /firstfindwinners
+
+Owner:
+BankerBot for command ownership.
+
+EmceeBot only announces.
+
+==================================================
+PART 12 — COMMANDTEST
+==================================================
+
+These must pass:
+
+/commandtest /setfirstfind
+/commandtest /setfirstfinditem
+/commandtest /startfirstfind
+/commandtest /stopfirstfind
+/commandtest /firstfindstatus
+/commandtest /firstfindwinners
+/commandtest /resetfirstfind
+
+Expected:
+route=YES
+handler=YES
+owner=BankerBot
+
+/checkcommands all:
+Missing 0
+NoOwner 0
+
+==================================================
+PART 13 — TEST CASES
+==================================================
+
+Test mining rarity race:
+
+/setfirstfind mining prismatic 1 5
+/startfirstfind 30
+/forcedrop @4ktreyMarion prismatic
+/mine
+/firstfindstatus
+/firstfindwinners
+
+Expected:
+- EmceeBot announces race start.
+- Mining result counts only after start.
+- EmceeBot announces @4ktreyMarion as winner.
+- BankerBot pays/logs 5 gold.
+- Race completes because winners 1/1.
+
+Test fishing rarity race:
+
+/setfirstfind fishing exotic 1 5
+/startfirstfind 30
+/forcedropfish @4ktreyMarion exotic
+/fish
+/firstfindstatus
+/firstfindwinners
+
+Expected:
+- EmceeBot announces race start.
+- Fishing result counts.
+- BankerBot pays/logs reward.
+
+Test no old inventory:
+- Set race.
+- Do not mine/fish.
+- Old inventory should not count.
+
+==================================================
+PART 14 — HELP TEXT
+==================================================
+
+Update help to explain this is a race event.
+
+BankerBot help should say:
+
+🏁 First Find Race
+/setfirstfind mining prismatic 1 5
+/startfirstfind 30
+/firstfindstatus
+/firstfindwinners
+/stopfirstfind
+/resetfirstfind
+
+Do not describe it as lifetime first discovery.
+
+==================================================
+FINAL REPORT
+==================================================
+
+After finishing, tell me:
+1. Files changed
+2. Why old system behaved like literal first discovery
+3. How the new race event works
+4. Which bot announces the race
+5. Which bot handles payout
+6. How mining/fishing win detection works
+7. How old inventory is ignored
+8. How race expiration works
+9. Database tables added/updated
+10. Exact tests to run
