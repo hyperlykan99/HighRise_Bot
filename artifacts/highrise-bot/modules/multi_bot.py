@@ -531,9 +531,11 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "clearforcefish": "fisher",
     # ── first-find rewards ───────────────────────────────────────────────────
     "firstfindreward": "banker", "firstfindrewards": "banker",
-    "firstfindstatus": "banker",
+    "firstfindstatus": "banker", "firstfindcheck": "banker",
     "setfirstfind": "banker", "setfirstfindreward": "banker",
     "resetfirstfind": "banker",
+    "firstfindpending": "banker", "firstfindpay": "banker",
+    "paypendingfirstfind": "banker", "retryfirstfind": "banker",
     # ── big announcement ─────────────────────────────────────────────────────
     "bigannounce": "host", "bigannouncestatus": "host",
     "setbigannounce": "host", "setbigreact": "host", "setbotbigreact": "host",

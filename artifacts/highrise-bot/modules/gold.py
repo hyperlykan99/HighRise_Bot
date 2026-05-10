@@ -248,6 +248,69 @@ async def _send_gold_bars(bot, user_id: str, bars: list[str]) -> tuple[bool, str
 
 
 # ---------------------------------------------------------------------------
+# Shared automated reward helper  (used by first-find, future reward systems)
+# ---------------------------------------------------------------------------
+async def process_gold_tip_reward(
+    bot,
+    target_user_id: str,
+    target_username: str,
+    gold_amount: int,
+    reason: str = "",
+    source: str = "first_find",
+    created_by: str = "system",
+) -> tuple[str, str]:
+    """
+    Send gold to a player automatically (no confirmation, no permission check).
+    Designed for automated reward systems such as First Find.
+
+    Returns:
+        ("paid_gold",           "")        — tip sent successfully
+        ("pending_manual_gold", human_err) — tip failed; manual tip needed
+        ("failed",              human_err) — hard error (logged)
+
+    Notes:
+        - BankerBot must have sufficient gold in its wallet.
+        - Does NOT require the player to be in the room (SDK decides).
+        - Logs every attempt to gold_transactions via db.log_gold_tx.
+    """
+    if gold_amount < 1:
+        return "pending_manual_gold", "Amount below minimum (1 gold)"
+
+    bars = decompose_gold(gold_amount)
+    if bars is None:
+        return "pending_manual_gold", f"Cannot form exact {gold_amount}g from denominations"
+
+    try:
+        ok, err = await _send_gold_bars(bot, target_user_id, bars)
+    except Exception as exc:
+        err_msg = str(exc)[:120]
+        db.log_gold_tx(
+            source, created_by, target_username, target_user_id,
+            gold_amount, reason, "failed", ",".join(bars), "", err_msg,
+        )
+        return "pending_manual_gold", err_msg
+
+    if ok:
+        db.log_gold_tx(
+            source, created_by, target_username, target_user_id,
+            gold_amount, reason, "success", ",".join(bars), "", "",
+        )
+        return "paid_gold", ""
+    else:
+        if err == "insufficient_funds":
+            human_err = "Insufficient bot gold"
+        elif err == "bot_user":
+            human_err = "Target is a bot"
+        else:
+            human_err = err[:80]
+        db.log_gold_tx(
+            source, created_by, target_username, target_user_id,
+            gold_amount, reason, "failed", ",".join(bars), "", err,
+        )
+        return "pending_manual_gold", human_err
+
+
+# ---------------------------------------------------------------------------
 # Internal executors  (called after confirmation or directly when < threshold)
 # ---------------------------------------------------------------------------
 async def _execute_goldtip(

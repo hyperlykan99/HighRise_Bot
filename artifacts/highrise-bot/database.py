@@ -9011,6 +9011,32 @@ def mark_firstfind_banker_done(row_id: int) -> None:
     conn.close()
 
 
+def update_first_find_claim_payout_status(reward_id: int, user_id: str, status: str) -> None:
+    """Update reward_status on a first_find_claims row after payout attempt."""
+    conn = get_connection()
+    conn.execute(
+        "UPDATE first_find_claims SET reward_status=? WHERE reward_id=? AND user_id=?",
+        (status, reward_id, user_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_first_find_pending_manual() -> list[dict]:
+    """Return all first_find_claims with pending_manual_gold status, with reward info."""
+    conn = get_connection()
+    rows = conn.execute(
+        """SELECT ffc.reward_id, ffc.user_id, ffc.username, ffc.category, ffc.rarity,
+                  ffc.claim_rank, ffr.gold_amount
+           FROM first_find_claims ffc
+           JOIN first_find_rewards ffr ON ffc.reward_id=ffr.id
+           WHERE ffc.reward_status='pending_manual_gold'
+           ORDER BY ffc.claimed_at ASC"""
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
 # ── Fishing forced drops ──────────────────────────────────────────────────────
 
 def set_forced_fish_drop(

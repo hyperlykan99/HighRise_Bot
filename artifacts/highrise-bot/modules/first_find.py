@@ -5,12 +5,18 @@ First-find reward system for mining and fishing.
 
 Flow:
   1. Mining/fishing bot detects first drop → check_first_find()
-  2. Claim recorded, player whispered by detecting bot
+  2. Claim recorded (status=pending_manual_gold), player whispered by detecting bot
   3. Pending row written to first_find_announce_pending
   4. EmceeBot poller picks it up → public room chat announce
-  5. BankerBot poller picks it up → whispers player with gold log + logs status
+  5. BankerBot poller picks it up → calls process_gold_tip_reward()
+       • If SDK tip succeeds  → status updated to paid_gold, player whispered
+       • If SDK tip fails     → status stays pending_manual_gold, player whispered
+       • /firstfindpending and /paypendingfirstfind let staff view/retry
 
-BankerBot must manually tip gold (SDK does not allow bots to send gold to players).
+SDK note:
+  bot.highrise.tip_user() IS supported.  BankerBot must hold sufficient gold.
+  If the player has left the room before the poller fires, the tip may fail
+  and the claim stays pending_manual_gold until /paypendingfirstfind is used.
 """
 from __future__ import annotations
 import asyncio
@@ -24,11 +30,7 @@ _RARITY_ORDER = [
     "legendary", "mythic", "ultra_rare", "prismatic", "exotic",
 ]
 
-_CATEGORY_LABELS = {
-    "mining":  "Mining",
-    "fishing": "Fishing",
-}
-
+_CATEGORY_LABELS = {"mining": "Mining", "fishing": "Fishing"}
 _RANK_LABELS: dict[int, str] = {1: "1st", 2: "2nd", 3: "3rd"}
 
 _USAGE = (
@@ -40,20 +42,19 @@ _USAGE = (
 _SELF_CMDS = frozenset({
     "setfirstfind", "setfirstfindreward",
     "firstfindstatus", "firstfindcheck",
-    "resetfirstfind",
+    "resetfirstfind", "firstfindpending", "paypendingfirstfind",
+    "retryfirstfind",
 })
 
 
 async def _w(bot, uid: str, msg: str) -> None:
-    """Whisper helper — enforces ≤249 char limit, swallows SDK errors."""
     try:
-        await bot.highrise.send_whisper(uid, msg[:249])
+        await bot.highrise.send_whisper(uid, str(msg)[:249])
     except Exception:
         pass
 
 
 def _strip_cmd(args: list[str]) -> list[str]:
-    """Return args with the leading command name removed if present."""
     if args and args[0].lower() in _SELF_CMDS:
         return args[1:]
     return list(args)
@@ -79,11 +80,10 @@ async def check_first_find(bot, user_id: str, username: str,
 
         claim_rank  = count + 1
         gold_amount = reward["gold_amount"]
-        status      = "pending_manual_gold" if gold_amount > 0 else "acknowledged"
 
         db.add_first_find_claim(
             reward_id, user_id, username, category, rarity,
-            claim_rank, status
+            claim_rank, "pending_manual_gold"
         )
 
         rar_label  = rarity.replace("_", " ").upper()
@@ -102,14 +102,14 @@ async def check_first_find(bot, user_id: str, username: str,
             f"Status: pending manual tip."
         )
 
-        # Whisper the finder from whoever detected it (miner/fisher bot)
+        # Whisper the finder immediately from whichever bot detected the drop
         w_msg = (
             f"🏆 You are {rank_label} to {verb} [{rar_label}]! "
-            f"{gold_amount:g} gold reward logged — BankerBot will confirm soon."
+            f"{gold_amount:g} gold reward — BankerBot is processing..."
         )
         await _w(bot, user_id, w_msg)
 
-        # Queue public EmceeBot announce + BankerBot gold log
+        # Queue cross-bot pending row for EmceeBot (announce) + BankerBot (pay)
         try:
             db.add_first_find_pending(
                 reward_id, category, rarity, username, user_id,
@@ -148,20 +148,61 @@ async def startup_firstfind_announcer(bot) -> None:
 
 
 # ---------------------------------------------------------------------------
-# BankerBot background poller — gold log whisper
+# BankerBot background poller — attempts actual gold payout via tip_user
 # ---------------------------------------------------------------------------
 
 async def startup_firstfind_banker(bot) -> None:
-    """Background task: BankerBot polls first_find_announce_pending and logs gold."""
+    """
+    Background task: BankerBot polls first_find_announce_pending and pays gold.
+
+    Uses process_gold_tip_reward() — the same SDK path as /goldtip.
+    On success  → updates claim to paid_gold, whispers player.
+    On failure  → keeps pending_manual_gold, whispers player, staff can /paypendingfirstfind.
+    """
+    from modules.gold import process_gold_tip_reward  # lazy import avoids circular dep
     await asyncio.sleep(15)
     while True:
         try:
             rows = db.get_pending_firstfind_for_banker(limit=3)
             for row in rows:
+                user_id     = row["user_id"]
+                username    = row["username"]
+                gold_amount = int(row["gold_amount"])
+                reward_id   = row["reward_id"]
+
+                if gold_amount > 0:
+                    status, err = await process_gold_tip_reward(
+                        bot, user_id, username, gold_amount,
+                        reason="First Find reward",
+                        source="first_find",
+                        created_by="BankerBot",
+                    )
+                else:
+                    status, err = "acknowledged", ""
+
+                # Update claim payout status in DB
                 try:
-                    await _w(bot, row["user_id"], row["banker_msg"])
+                    db.update_first_find_claim_payout_status(reward_id, user_id, status)
                 except Exception:
                     pass
+
+                # Whisper the player with the result
+                if status == "paid_gold":
+                    msg = f"💰 First Find Gold Sent\n@{username} received {gold_amount:g} gold."
+                elif status == "acknowledged":
+                    msg = f"🏆 First Find confirmed! Reward noted."
+                else:
+                    msg = (
+                        f"💰 First Find Gold Logged\n"
+                        f"@{username} earned {gold_amount:g} gold.\n"
+                        f"Status: pending manual tip."
+                    )
+                    if err:
+                        msg = (msg + f"\nReason: {err[:60]}")[:249]
+
+                await _w(bot, user_id, msg)
+
+                # Mark banker done regardless — staff uses /paypendingfirstfind for retries
                 try:
                     db.mark_firstfind_banker_done(row["id"])
                 except Exception:
@@ -182,11 +223,7 @@ async def handle_setfirstfind(bot, user, args: list[str]) -> None:
         await _w(bot, user.id, "Admin/owner only.")
         return
 
-    # Support both arg styles:
-    # Style A: args = ["setfirstfind", "mining", "prismatic", "1", "5"]
-    # Style B: args = ["mining", "prismatic", "1", "5"]
     a = _strip_cmd(args)
-
     if len(a) < 4:
         await _w(bot, user.id, _USAGE[:249])
         return
@@ -296,6 +333,80 @@ async def handle_firstfindstatus(bot, user, args: list[str]) -> None:
 
 
 # ---------------------------------------------------------------------------
+# /firstfindpending — show claims still pending manual gold payout
+# ---------------------------------------------------------------------------
+
+async def handle_firstfindpending(bot, user) -> None:
+    """/firstfindpending — show all pending manual first-find gold rewards (manager+)."""
+    if not can_manage_economy(user.username):
+        await _w(bot, user.id, "Admin/owner only.")
+        return
+    rows = db.get_first_find_pending_manual()
+    if not rows:
+        await _w(bot, user.id, "🏆 No pending first-find gold rewards.")
+        return
+    lines = ["💰 Pending First Find Tips"]
+    for r in rows:
+        rar_label = r["rarity"].replace("_", " ").title()
+        lines.append(
+            f"@{r['username']} — {r['gold_amount']:g}g "
+            f"— {r['category'].title()} {rar_label}"
+        )
+    await _w(bot, user.id, "\n".join(lines)[:249])
+
+
+# ---------------------------------------------------------------------------
+# /paypendingfirstfind [username] — retry gold payout for pending claims
+# ---------------------------------------------------------------------------
+
+async def handle_paypendingfirstfind(bot, user, args: list[str]) -> None:
+    """/paypendingfirstfind [username] — attempt to pay pending first-find rewards (admin+)."""
+    from modules.gold import process_gold_tip_reward  # lazy import
+
+    if not can_manage_economy(user.username):
+        await _w(bot, user.id, "Admin/owner only.")
+        return
+
+    a = _strip_cmd(args)
+    target_filter = a[0].lower().lstrip("@") if a else None
+
+    rows = db.get_first_find_pending_manual()
+    if target_filter:
+        rows = [r for r in rows if r["username"].lower() == target_filter]
+
+    if not rows:
+        label = f" for @{target_filter}" if target_filter else ""
+        await _w(bot, user.id, f"No pending first-find rewards{label}.")
+        return
+
+    paid = failed = 0
+    for r in rows:
+        gold_amount = int(r["gold_amount"])
+        if gold_amount < 1:
+            continue
+        status, err = await process_gold_tip_reward(
+            bot,
+            r["user_id"], r["username"], gold_amount,
+            reason="First Find reward (manual retry)",
+            source="first_find_manual",
+            created_by=user.username,
+        )
+        try:
+            db.update_first_find_claim_payout_status(r["reward_id"], r["user_id"], status)
+        except Exception:
+            pass
+        if status == "paid_gold":
+            paid += 1
+            await _w(bot, r["user_id"],
+                     f"💰 First Find Gold Sent\n@{r['username']} received {gold_amount:g} gold.")
+        else:
+            failed += 1
+
+    reply = f"💰 First Find Pay: {paid} sent, {failed} still pending."
+    await _w(bot, user.id, reply[:249])
+
+
+# ---------------------------------------------------------------------------
 # /resetfirstfind <mining|fishing> <rarity>
 # ---------------------------------------------------------------------------
 
@@ -306,7 +417,6 @@ async def handle_resetfirstfind(bot, user, args: list[str]) -> None:
         return
 
     a = _strip_cmd(args)
-
     if len(a) < 2:
         await _w(bot, user.id,
                  "Usage: /resetfirstfind <mining|fishing> <rarity>")

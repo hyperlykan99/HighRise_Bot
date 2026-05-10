@@ -385,6 +385,7 @@ from modules.fishing import (
 from modules.first_find import (
     handle_firstfindrewards, handle_setfirstfind,
     handle_firstfindstatus, handle_resetfirstfind,
+    handle_firstfindpending, handle_paypendingfirstfind,
     startup_firstfind_announcer, startup_firstfind_banker,
 )
 from modules.big_announce import (
@@ -591,8 +592,9 @@ MANAGER_ONLY_CMDS = {
 
 # ── First-find + announce public read commands ────────────────────────────
 FIRSTFIND_COMMANDS = {
-    "firstfindreward", "firstfindrewards", "firstfindstatus",
+    "firstfindreward", "firstfindrewards", "firstfindstatus", "firstfindcheck",
     "setfirstfind", "setfirstfindreward", "resetfirstfind",
+    "firstfindpending", "paypendingfirstfind", "retryfirstfind",
     "bigannounce", "bigannouncestatus", "setbigannounce",
     "setbigreact", "setbotbigreact",
 }
@@ -4308,6 +4310,12 @@ class HangoutBot(BaseBot):
 
         elif cmd == "resetfirstfind":
             await handle_resetfirstfind(self, user, args)
+
+        elif cmd in {"firstfindpending", "firstfindpay"}:
+            await handle_firstfindpending(self, user)
+
+        elif cmd in {"paypendingfirstfind", "retryfirstfind"}:
+            await handle_paypendingfirstfind(self, user, args)
 
         # ── Big announce commands ──────────────────────────────────────────
         elif cmd == "setbigannounce":

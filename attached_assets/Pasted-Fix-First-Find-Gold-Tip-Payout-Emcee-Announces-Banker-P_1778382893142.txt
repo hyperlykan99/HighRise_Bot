@@ -1,0 +1,303 @@
+Fix First Find Gold Tip Payout — Emcee Announces, Banker Pays
+
+Current issue:
+First Find reward triggers correctly, but BankingBot only says:
+
+Status: pending manual tip.
+
+It does not actually tip/send the gold reward.
+
+Screenshot behavior:
+- GreatestProspector announces Big Find.
+- EmceeBot announces First Find Reward.
+- BankingBot says First Find Gold Logged.
+- Status: pending manual tip.
+
+Goal:
+Keep EmceeBot announcing the First Find reward publicly.
+Make BankerBot handle the gold payout.
+If automatic gold tipping is possible through the Highrise SDK, BankerBot must actually send/tip the gold.
+If automatic gold tipping is impossible, make that clear and keep pending manual tip logs.
+
+Do not change bot tokens.
+Do not change room ID.
+Do not reset balances.
+Do not wipe player data.
+Do not wipe first-find claims.
+Do not break mining, fishing, bank, goldtip, big announcements, or command routing.
+
+==================================================
+PART 1 — ROLE SEPARATION
+==================================================
+
+EmceeBot role:
+- Public announcement only.
+- Announces First Find / First Catch winner.
+- Does not send gold.
+- Does not log payout status.
+- Does not control money.
+
+BankerBot role:
+- Handles gold payout.
+- Handles pending manual tip if automatic tipping is unavailable.
+- Handles logs.
+- Handles /goldtip.
+- Handles first-find reward payout status.
+
+Expected flow:
+
+GreatestProspector:
+📣 Big Find
+@Player mined [PRISMATIC] Prismatic Pearl!
+
+EmceeBot:
+🏆 First Find Reward!
+@Player is 1st to mine [PRISMATIC]!
+Reward: 5 gold
+
+BankerBot:
+💰 First Find Gold Sent
+@Player received 5 gold.
+
+If automatic gold tipping is unavailable:
+
+BankerBot:
+💰 First Find Gold Logged
+@Player earned 5 gold.
+Status: pending manual tip.
+
+==================================================
+PART 2 — MAKE BANKERBOT ACTUALLY PAY GOLD IF POSSIBLE
+==================================================
+
+Find existing /goldtip implementation.
+
+First Find reward should reuse the same payout function as /goldtip.
+
+Do not create separate duplicate payout logic.
+
+Create shared helper if needed:
+
+process_gold_tip_reward(
+    target_user_id,
+    target_username,
+    gold_amount,
+    reason,
+    source,
+    created_by
+)
+
+Used by:
+- /goldtip
+- First Find rewards
+- First Catch rewards
+- future reward systems
+
+Behavior:
+1. Validate amount.
+2. Minimum amount = 1 gold.
+3. If SDK supports automatic gold tip/send:
+   - send/tip gold immediately.
+   - log status = paid_gold.
+4. If SDK does not support it:
+   - log status = pending_manual_gold.
+5. Return status to caller.
+
+==================================================
+PART 3 — DO NOT ALWAYS DEFAULT TO PENDING MANUAL
+==================================================
+
+Current problem:
+First Find reward always logs pending manual tip.
+
+Fix:
+Only use pending_manual_gold if automatic gold tipping is truly unavailable or fails.
+
+If automatic gold tipping method exists:
+- use it.
+
+Search the project for any existing method used by /goldtip that produces:
+"Gold Tip Sent"
+
+First Find reward should call that same method.
+
+If /goldtip already sends gold successfully:
+First Find reward must also send gold successfully.
+
+==================================================
+PART 4 — FIRST FIND PAYOUT STATUS
+==================================================
+
+When First Find reward triggers, save payout status:
+
+first_find_claims or reward log should include:
+- payout_status
+- gold_amount
+- paid_by_bot
+- paid_at
+- payout_error if failed
+- manual_required true/false
+
+Statuses:
+- paid_gold
+- pending_manual_gold
+- failed
+- duplicate_ignored
+
+If paid:
+BankerBot says:
+💰 First Find Gold Sent
+@Player received 5 gold.
+
+If pending manual:
+BankerBot says:
+💰 First Find Gold Logged
+@Player earned 5 gold.
+Status: pending manual tip.
+
+If failed:
+BankerBot says:
+⚠️ First Find Gold Failed
+@Player earned 5 gold.
+Reason: <safe error>
+Status: pending manual tip.
+
+==================================================
+PART 5 — AVOID DOUBLE PAYOUT
+==================================================
+
+If the same First Find claim already paid/logged:
+- do not pay again.
+- do not duplicate gold tips.
+- do not duplicate claims.
+
+Use claim id or:
+category + rarity + user_id + reward_id
+
+If claim exists with paid_gold:
+Do not send again.
+
+If claim exists with pending_manual_gold:
+Do not create duplicate log unless retry command is used.
+
+==================================================
+PART 6 — ADD RETRY COMMAND FOR PENDING MANUAL TIPS
+==================================================
+
+Add BankerBot command:
+
+/paypendingfirstfind
+/paypendingfirstfind <username>
+/firstfindpending
+
+Owner:
+BankerBot
+
+Permission:
+Manager+
+
+Behavior:
+/firstfindpending
+Shows all pending manual first-find gold rewards.
+
+/paypendingfirstfind
+Attempts to pay all pending first-find rewards if SDK supports automatic gold tipping.
+
+/paypendingfirstfind @Player
+Attempts to pay only that player's pending first-find reward.
+
+If SDK still does not support automatic tipping:
+Reply:
+BankerBot:
+💰 Pending First Find Tips
+Automatic gold tipping is unavailable.
+Please manually tip these rewards:
+@Player — 5 gold — Mining Prismatic
+
+==================================================
+PART 7 — FIRST FIND STATUS DISPLAY
+==================================================
+
+Update /firstfindstatus to show payout status.
+
+Example:
+
+BankerBot:
+🏆 First Find Rewards
+Mining Prismatic: first 1 player | 5g each | claimed 1/1
+#1 @4ktreyMarion — paid_gold
+
+or:
+
+#1 @4ktreyMarion — pending_manual_gold
+
+==================================================
+PART 8 — COMMAND OWNERSHIP
+==================================================
+
+These must be owned by BankerBot:
+
+/setfirstfind
+/firstfindstatus
+/firstfindrewards
+/resetfirstfind
+/firstfindpending
+/paypendingfirstfind
+/goldtip
+
+EmceeBot only announces; it should not own payout commands.
+
+Commandtest:
+
+/commandtest /setfirstfind
+/commandtest /firstfindstatus
+/commandtest /firstfindpending
+/commandtest /paypendingfirstfind
+/commandtest /goldtip
+
+Expected:
+route=YES
+handler=YES
+owner=BankerBot
+
+/checkcommands all:
+Missing 0
+NoOwner 0
+
+If new commands are not implemented, do not add them as active.
+
+==================================================
+PART 9 — TEST CASE
+==================================================
+
+Use this test:
+
+/setfirstfind mining prismatic 1 5
+/forcedrop @4ktreyMarion prismatic
+/mine
+/firstfindstatus
+
+Expected:
+1. EmceeBot announces First Find Reward publicly.
+2. BankerBot handles payout.
+3. If auto gold tipping works:
+   BankerBot says First Find Gold Sent.
+4. If auto gold tipping is unavailable:
+   BankerBot says pending manual tip and /firstfindpending lists it.
+5. /firstfindstatus shows paid_gold or pending_manual_gold.
+6. No duplicate payment if the same result is checked again.
+
+==================================================
+FINAL REPORT
+==================================================
+
+After finishing, tell me:
+1. Files changed
+2. Why BankerBot only logged pending manual tip
+3. Whether automatic gold tipping is supported by the SDK
+4. Whether First Find now reuses /goldtip payout logic
+5. How EmceeBot announcement works
+6. How BankerBot payout/logging works
+7. How duplicate payout is prevented
+8. New commands added
+9. Exact tests to run
