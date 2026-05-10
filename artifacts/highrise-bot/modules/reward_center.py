@@ -32,7 +32,7 @@ def _fmt(n) -> str:
 # /rewardpending  /pendingrewards
 # ---------------------------------------------------------------------------
 
-async def handle_rewardpending(bot, user) -> None:
+async def handle_rewardpending(bot, user, args=None) -> None:
     """/rewardpending — list pending manual gold rewards."""
     if not can_manage_economy(user.username):
         await _w(bot, user.id, "Manager/owner only.")
@@ -56,7 +56,7 @@ async def handle_rewardpending(bot, user) -> None:
 # /rewardlogs
 # ---------------------------------------------------------------------------
 
-async def handle_rewardlogs(bot, user) -> None:
+async def handle_rewardlogs(bot, user, args=None) -> None:
     """/rewardlogs — recent reward history (last 10)."""
     if not can_manage_economy(user.username):
         await _w(bot, user.id, "Manager/owner only.")
@@ -126,7 +126,7 @@ async def handle_markrewardpaid(bot, user, args: list[str]) -> None:
 # /economyreport
 # ---------------------------------------------------------------------------
 
-async def handle_economyreport(bot, user) -> None:
+async def handle_economyreport(bot, user, args=None) -> None:
     """/economyreport — daily economy health snapshot."""
     if not can_manage_economy(user.username):
         await _w(bot, user.id, "Manager/owner only.")

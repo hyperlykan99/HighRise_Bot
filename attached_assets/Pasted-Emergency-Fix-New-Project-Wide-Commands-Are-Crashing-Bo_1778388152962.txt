@@ -1,0 +1,266 @@
+Emergency Fix — New Project-Wide Commands Are Crashing Bot
+
+Current issue:
+These new commands crash the bot during commandtest/checkcommands:
+
+/dashboard
+/rewardpending
+/pendingrewards
+/rewardlogs
+/markrewardpaid
+/economyreport
+/eventpreset
+/start
+/daily
+/claimdaily
+/auditlog
+/profile
+/weeklylb
+/weeklyreset
+/weeklyrewards
+/weeklystatus
+/checkcommands all
+
+Goal:
+Stop the crashes immediately.
+Fix command registry, handlers, imports, database calls, and safe fallbacks.
+If a command is not fully implemented, remove it from active registry until it is safe.
+
+Do not change bot tokens.
+Do not change room ID.
+Do not reset balances.
+Do not wipe player data.
+Do not wipe mining/fishing/casino/event records.
+Do not break existing working commands.
+Do not break mining, fishing, blackjack, poker, bank, events, gold tips, First Find Race, or force drops.
+
+==================================================
+PART 1 — FIND THE CRASH CAUSE
+==================================================
+
+Check Replit console traceback for these commands.
+
+Common causes to fix:
+- handler function imported but does not exist
+- command registered but no route
+- command owner key invalid
+- database table missing
+- SQL column missing
+- handler signature mismatch
+- commandtest expects handler metadata but got None
+- /checkcommands all scans aliases that are not registered correctly
+- circular import
+- owner map references bot name that does not exist
+- command added to active list but not implemented
+
+Fix the actual traceback, not just the symptom.
+
+==================================================
+PART 2 — MAKE COMMANDTEST NEVER CRASH
+==================================================
+
+/commandtest must never crash the bot.
+
+If a command is broken, it should reply:
+
+CommandTest:
+command=/dashboard
+route=NO
+handler=NO
+owner=UNKNOWN
+error=<safe short error>
+
+Do not crash the whole bot.
+
+Wrap commandtest inspection in try/except and print full traceback to console.
+
+==================================================
+PART 3 — MAKE /checkcommands all NEVER CRASH
+==================================================
+
+/checkcommands all must never crash.
+
+If one command is broken, continue checking the rest.
+
+Output should show:
+- Missing count
+- NoOwner count
+- Error count
+
+Example:
+
+Command Check:
+Missing 0
+NoOwner 0
+Errors 2
+
+Broken:
+- /dashboard: handler import error
+- /weeklylb: missing table
+
+==================================================
+PART 4 — SAFE STUB HANDLERS
+==================================================
+
+For every new command that is not fully working, add a safe temporary handler instead of crashing.
+
+Safe handler response:
+
+BotName:
+⚠️ This command is installed but not ready yet.
+Please check Replit logs.
+
+Use safe stubs for:
+
+/dashboard
+/rewardpending
+/pendingrewards
+/rewardlogs
+/markrewardpaid
+/economyreport
+/eventpreset
+/start
+/daily
+/claimdaily
+/auditlog
+/profile
+/weeklylb
+/weeklyreset
+/weeklyrewards
+/weeklystatus
+
+Only replace with real logic if the real logic is safe and tested.
+
+==================================================
+PART 5 — COMMAND OWNERS MUST BE VALID
+==================================================
+
+Use valid existing owner keys only.
+
+Suggested owners:
+
+/dashboard = host or emcee
+/rewardpending = banker
+/pendingrewards = banker
+/rewardlogs = banker
+/markrewardpaid = banker
+/economyreport = banker
+/eventpreset = eventhost or event
+/start = host or emcee
+/daily = banker
+/claimdaily = banker
+/auditlog = security
+/profile = host or emcee
+/weeklylb = host or emcee
+/weeklyreset = banker
+/weeklyrewards = banker
+/weeklystatus = banker
+
+If these exact owner keys do not exist, use the project’s existing valid keys.
+Do not use new owner names that the system does not recognize.
+Do not leave owner UNKNOWN.
+
+==================================================
+PART 6 — DATABASE SAFETY
+==================================================
+
+Any new table must use:
+
+CREATE TABLE IF NOT EXISTS
+
+Any new column must be added safely with try/except around ALTER TABLE.
+
+Do not assume columns exist.
+
+Before querying:
+- check table exists
+- if missing, create it
+- if still unavailable, show “No data yet” instead of crashing
+
+Commands like /daily, /rewardpending, /weeklylb, /auditlog must not crash if their tables are empty.
+
+They should reply:
+
+No data yet.
+
+==================================================
+PART 7 — ROUTING SAFETY
+==================================================
+
+For every new command:
+
+1. Add to command registry only if handler exists.
+2. Add to owner map only with valid owner.
+3. Add route in main command dispatcher.
+4. Add commandtest support.
+5. Handler must have correct async signature.
+6. Handler must catch errors and whisper/chat safe error.
+
+If any command cannot be safely completed, remove it from active registry and help text.
+
+==================================================
+PART 8 — PRIORITY ORDER
+==================================================
+
+Fix in this order:
+
+1. Stop crashes from /checkcommands all.
+2. Stop crashes from /commandtest.
+3. Add safe stubs for all new commands.
+4. Then restore real logic one command at a time.
+
+Do not try to fully build all features before stabilizing commandtest/checkcommands.
+
+==================================================
+PART 9 — TESTS
+==================================================
+
+After fixing, run:
+
+/commandtest /dashboard
+/commandtest /rewardpending
+/commandtest /pendingrewards
+/commandtest /rewardlogs
+/commandtest /markrewardpaid
+/commandtest /economyreport
+/commandtest /eventpreset
+/commandtest /start
+/commandtest /daily
+/commandtest /claimdaily
+/commandtest /auditlog
+/commandtest /profile
+/commandtest /weeklylb
+/commandtest /weeklyreset
+/commandtest /weeklyrewards
+/commandtest /weeklystatus
+/checkcommands all
+
+Expected:
+The bot must not crash.
+
+Acceptable temporary result:
+route=YES
+handler=YES
+owner=<valid owner>
+
+or if not implemented:
+route=NO
+handler=NO
+owner=<valid owner or not active>
+
+But no crash.
+
+==================================================
+PART 10 — FINAL REPORT
+==================================================
+
+After finishing, tell me:
+
+1. Exact traceback that caused the crash
+2. Files changed
+3. Which commands were crashing
+4. Which commands now have real handlers
+5. Which commands now have safe stub handlers
+6. Which commands were removed from active registry, if any
+7. Results of /checkcommands all
+8. Exact tests to run

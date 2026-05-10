@@ -43,7 +43,7 @@ def _get_week_bounds() -> tuple[str, str]:
 # /weeklylb  /weeklyleaderboard
 # ---------------------------------------------------------------------------
 
-async def handle_weeklylb(bot, user) -> None:
+async def handle_weeklylb(bot, user, args=None) -> None:
     """/weeklylb — current week's top players per category."""
     week_start, _week_end = _get_week_bounds()
     lines = [f"🏆 Weekly LB ({week_start})"]
@@ -67,7 +67,7 @@ async def handle_weeklylb(bot, user) -> None:
 # /weeklyreset
 # ---------------------------------------------------------------------------
 
-async def handle_weeklyreset(bot, user) -> None:
+async def handle_weeklyreset(bot, user, args=None) -> None:
     """/weeklyreset — snapshot current winners and archive this week."""
     if not can_manage_economy(user.username):
         await _w(bot, user.id, "Manager/owner only.")
@@ -112,7 +112,7 @@ async def handle_weeklyreset(bot, user) -> None:
 # /weeklyrewards
 # ---------------------------------------------------------------------------
 
-async def handle_weeklyrewards(bot, user) -> None:
+async def handle_weeklyrewards(bot, user, args=None) -> None:
     """/weeklyrewards — show configured weekly rewards."""
     rows = db.get_weekly_rewards()
     if not rows:
@@ -167,7 +167,7 @@ async def handle_setweeklyreward(bot, user, args: list[str]) -> None:
 # /weeklystatus
 # ---------------------------------------------------------------------------
 
-async def handle_weeklystatus(bot, user) -> None:
+async def handle_weeklystatus(bot, user, args=None) -> None:
     """/weeklystatus — current week bounds and last reset info."""
     week_start, week_end = _get_week_bounds()
     lines = [
