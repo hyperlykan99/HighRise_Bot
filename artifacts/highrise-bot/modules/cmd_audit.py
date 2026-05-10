@@ -430,6 +430,13 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     "setautofish",
     "setautofishduration", "setautofishattempts",
     "setautofishdailycap",
+    # ── BJ cards / rules / bonus info ────────────────────────────────────────
+    "bjcards", "blackjackcards", "cardmode", "bjcardmode",
+    "bjrules",
+    "bjbonus", "bjbonussetting", "bjbonussettings",
+    # ── BJ bonus setter commands ─────────────────────────────────────────────
+    "setbjbonus", "setbjbonuscap",
+    "setbjbonuspair", "setbjbonuscolor", "setbjbonusperfect",
     # ── Fishing force drop ───────────────────────────────────────────────────
     "forcefishdrop", "forcefish", "forcefishdropfish",
     "forcefishstatus", "clearforcefish",

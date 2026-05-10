@@ -1617,3 +1617,81 @@ async def handle_bj_set(bot: BaseBot, user: User, cmd: str, args: list[str]):
             await bot.highrise.send_whisper(user.id, "Setting update failed. Try again!")
         except Exception:
             pass
+
+
+async def handle_bj_cards(bot: BaseBot, user: User, args: list[str]) -> None:
+    """/bjcards [whisper|public] — view or set BJ card display mode."""
+    s = _settings()
+    mode = str(s.get("bj_cards_mode", "whisper")).lower()
+    sub = args[1].lower() if len(args) >= 2 else ""
+    if not sub:
+        await bot.highrise.send_whisper(
+            user.id,
+            f"🃏 Blackjack Card Display\n"
+            f"Player Cards: {mode.capitalize()}\n"
+            f"Use /bjcards whisper or /bjcards public"
+        )
+        return
+    if sub not in ("whisper", "public"):
+        await bot.highrise.send_whisper(user.id, "Usage: /bjcards whisper|public")
+        return
+    if not can_manage_games(user.username):
+        await bot.highrise.send_whisper(user.id, "Manager/admin/owner only.")
+        return
+    db.set_bj_setting("bj_cards_mode", sub)
+    if sub == "whisper":
+        await bot.highrise.send_whisper(
+            user.id,
+            "✅ Blackjack Cards\nPlayer cards will now be whispered privately."
+        )
+    else:
+        await bot.highrise.send_whisper(
+            user.id,
+            "✅ Blackjack Cards\nPlayer cards will now be shown publicly."
+        )
+
+
+async def handle_bj_rules(bot: BaseBot, user: User) -> None:
+    """/bjrules — show current BJ table rules."""
+    s = _settings()
+    payout   = float(s.get("blackjack_payout", 2.5))
+    soft17   = int(s.get("dealer_hits_soft_17", 1))
+    dbl_on   = int(s.get("bj_double_enabled", 1))
+    split_on = int(s.get("bj_split_enabled", 1))
+    min_b    = int(s.get("min_bet", 10))
+    max_b    = int(s.get("max_bet", 1000))
+    bj_str   = "3:2" if payout >= 2.5 else "6:5" if payout >= 2.2 else f"{payout:.1f}x"
+    soft_str = "Hits soft 17" if soft17 else "Stands on soft 17"
+    dbl_str  = "First 2 cards only" if dbl_on else "OFF"
+    spl_str  = "Matching ranks only" if split_on else "OFF"
+    await bot.highrise.send_whisper(
+        user.id,
+        f"📜 Blackjack Rules\n"
+        f"Blackjack pays: {bj_str}\n"
+        f"Dealer: {soft_str}\n"
+        f"Insurance: ON\n"
+        f"Surrender: ON\n"
+        f"Double: {dbl_str}\n"
+        f"Split: {spl_str}\n"
+        f"Min/Max: {min_b:,} / {max_b:,}"
+    )
+
+
+async def handle_bj_bonus_settings(bot: BaseBot, user: User) -> None:
+    """/bjbonussettings — show current BJ pair bonus settings."""
+    s       = _settings()
+    enabled = int(s.get("bj_bonus_enabled", 1))
+    pair    = int(s.get("bj_bonus_pair_pct", 10))
+    color   = int(s.get("bj_bonus_color_pct", 25))
+    perfect = int(s.get("bj_bonus_perfect_pct", 50))
+    cap     = int(s.get("bj_bonus_cap", 10000))
+    status  = "enabled" if enabled else "disabled"
+    await bot.highrise.send_whisper(
+        user.id,
+        f"🎁 Blackjack Bonus Settings ({status})\n"
+        f"Pair Bonus: {pair}% bet\n"
+        f"Color Pair: {color}% bet\n"
+        f"Perfect Pair: {perfect}% bet\n"
+        f"Bonus Cap: {cap:,}\n"
+        f"Toggle: /setbjbonus on|off"
+    )

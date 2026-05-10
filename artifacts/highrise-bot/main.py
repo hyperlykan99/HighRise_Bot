@@ -90,6 +90,7 @@ from modules.numbered_shop import (
 from modules.achievements import handle_achievements, handle_claim_achievements
 from modules.blackjack           import (
     handle_bj, handle_bj_set,
+    handle_bj_cards, handle_bj_rules, handle_bj_bonus_settings,
     reset_table as bj_reset_table,
     soft_reset_table as bj_soft_reset_table,
     startup_bj_recovery,
@@ -510,6 +511,10 @@ BJ_COMMANDS          = {
     # Easy aliases / universal shortcuts
     "blackjack", "bjbet", "bet", "hit", "stand", "double", "split",
     "insurance", "surrender", "shoe", "bjshoe",
+    # Card display / rules / bonus info
+    "bjcards", "blackjackcards", "cardmode", "bjcardmode",
+    "bjrules",
+    "bjbonus", "bjbonussetting", "bjbonussettings",
 }
 BANK_PLAYER_COMMANDS = {"bank", "send", "transactions", "bankstats", "banknotify"}
 
@@ -1079,22 +1084,23 @@ EVENT_HELP_PAGES = [
 
 BJ_HELP_PAGES = [
     (
-        "🃏 BJ Bot\n"
-        "/bjoin bet - join\n"
-        "/bh - hit\n"
-        "/bs - stand\n"
-        "/bd - double\n"
-        "/bsp - split\n"
-        "/bhand - hand"
+        "🃏 Blackjack\n"
+        "/bjoin <bet> - join\n"
+        "/bh - hit  /bs - stand\n"
+        "/bd - double  /bsp - split\n"
+        "/bhand - hand  /bt - table\n"
+        "/bjcards - card display\n"
+        "/bjrules - table rules\n"
+        "/bjbonussettings - bonus info"
     ),
     (
-        "🃏 BJ Bot 2\n"
-        "/bt - table info\n"
+        "🃏 BJ Stats & Limits\n"
         "/blimits - daily limits\n"
         "/bstats - your BJ stats\n"
         "Staff: /bj on/off\n"
         "/bj recover | /bj refund\n"
-        "/bj state | /setbjlimits"
+        "/bj state | /setbjlimits\n"
+        "/setbjbonus /setbjbonuscap"
     ),
 ]
 
@@ -3524,6 +3530,15 @@ class HangoutBot(BaseBot):
 
         elif cmd == "rbjhelp":
             await _handle_rbjhelp(self, user, args)
+
+        elif cmd in {"bjcards", "blackjackcards", "cardmode", "bjcardmode"}:
+            await handle_bj_cards(self, user, args)
+
+        elif cmd == "bjrules":
+            await handle_bj_rules(self, user)
+
+        elif cmd in {"bjbonus", "bjbonussetting", "bjbonussettings"}:
+            await handle_bj_bonus_settings(self, user)
 
         elif cmd == "rephelp":
             await _handle_rephelp(self, user)

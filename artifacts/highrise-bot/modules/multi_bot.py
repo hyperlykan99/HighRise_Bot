@@ -505,6 +505,14 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "setautofish": "fisher",
     "setautofishduration": "fisher", "setautofishattempts": "fisher",
     "setautofishdailycap": "fisher",
+    # ── BJ cards / rules / bonus info + setters ──────────────────────────────
+    "bjcards": "blackjack", "blackjackcards": "blackjack",
+    "cardmode": "blackjack", "bjcardmode": "blackjack",
+    "bjrules": "blackjack",
+    "bjbonus": "blackjack", "bjbonussetting": "blackjack", "bjbonussettings": "blackjack",
+    "setbjbonus": "blackjack", "setbjbonuscap": "blackjack",
+    "setbjbonuspair": "blackjack", "setbjbonuscolor": "blackjack",
+    "setbjbonusperfect": "blackjack",
     # ── fishing force drop ───────────────────────────────────────────────────
     "forcefishdrop": "fisher", "forcefish": "fisher",
     "forcefishdropfish": "fisher", "forcefishstatus": "fisher",

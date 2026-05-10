@@ -1,0 +1,429 @@
+Blackjack Command Registry Fix + Bonus Settings Command Cleanup
+
+Focus only on fixing Blackjack command routing, handlers, registry entries, aliases, and owners.
+
+Do not rebuild blackjack.
+Do not reset balances.
+Do not wipe player data.
+Do not change bot tokens.
+Do not change room ID.
+Do not break poker, mining, fishing, bank, shop, events, AI, security, bot outfits, bot spawns, or existing command routing.
+
+==================================================
+CURRENT ISSUE
+==================================================
+
+These Blackjack commands failed commandtest or appeared in commandissues:
+
+/bjcards
+/bjcards whisper
+/bjrules
+/bjbonussetting
+
+Also remaining commandissues showed 5 no-route and 5 no-owner:
+
+/setbjbonus
+/setbjbonuscap
+/setbjbonuscolor
+/setbjbonuspair
+/setbjbonusperfect
+
+Goal:
+Make every Blackjack command below show:
+
+route=YES
+handler=YES
+owner=BlackjackBot
+
+Owner must not be UNKNOWN.
+
+==================================================
+PART 1 — FIX /bjcards
+==================================================
+
+Add or fix:
+
+/bjcards
+/bjcards whisper
+/bjcards public
+
+Owner:
+BlackjackBot
+
+Purpose:
+Controls whether player blackjack cards are whispered or shown publicly.
+
+Default:
+whisper
+
+Behavior:
+
+/bjcards
+Shows current setting.
+
+Example response:
+
+BlackjackBot:
+🃏 Blackjack Card Display
+Player Cards: Whisper
+Use /bjcards whisper or /bjcards public
+
+/bjcards whisper
+Sets player cards to private whisper mode.
+
+Response:
+
+BlackjackBot:
+✅ Blackjack Cards
+Player cards will now be whispered privately.
+
+/bjcards public
+Sets player cards to public mode.
+
+Response:
+
+BlackjackBot:
+✅ Blackjack Cards
+Player cards will now be shown publicly.
+
+Aliases:
+- /blackjackcards
+- /cardmode
+- /bjcardmode
+
+All aliases should use the same handler.
+
+==================================================
+PART 2 — FIX /bjrules
+==================================================
+
+Add or fix:
+
+/bjrules
+
+Owner:
+BlackjackBot
+
+Purpose:
+Shows current realistic blackjack table rules.
+
+Example response:
+
+BlackjackBot:
+📜 Blackjack Rules
+Blackjack pays: 3:2
+Dealer: Stands on soft 17
+Insurance: ON
+Surrender: ON
+Double: First 2 cards only
+Split: Matching ranks only
+Min/Max: 100 / 10,000
+
+If some settings do not exist yet, show safe defaults instead of crashing.
+
+Do not show old commands like /rjoin.
+
+==================================================
+PART 3 — FIX /bjbonus, /bjbonussetting, /bjbonussettings
+==================================================
+
+Add or fix:
+
+/bjbonus
+/bjbonussetting
+/bjbonussettings
+
+Owner:
+BlackjackBot
+
+Purpose:
+Shows blackjack matching-card bonus settings.
+
+Important:
+The correct main command should be /bjbonussettings.
+But /bjbonussetting must also work as an alias because I typed it.
+
+Example response:
+
+BlackjackBot:
+🎁 Blackjack Bonus Settings
+Pair Bonus: 10% bet
+Color Pair: 25% bet
+Perfect Pair: 50% bet
+Bonus Cap: 10,000
+VIP Multiplier: enabled if available
+
+Aliases:
+/bjbonus = /bjbonussettings
+/bjbonussetting = /bjbonussettings
+/bjbonussettings = main command
+
+==================================================
+PART 4 — FIX BLACKJACK BONUS SETTING COMMANDS
+==================================================
+
+Current broken commands:
+
+/setbjbonus
+/setbjbonuscap
+/setbjbonuscolor
+/setbjbonuspair
+/setbjbonusperfect
+
+Goal:
+Add route, handler, registry entry, and owner for all five.
+
+Owner:
+BlackjackBot
+
+Permission:
+Manager+ only
+
+==================================================
+4A — /setbjbonus
+==================================================
+
+Command:
+
+/setbjbonus <pair|color|perfect> <percent>
+
+Examples:
+
+/setbjbonus pair 10
+/setbjbonus color 25
+/setbjbonus perfect 50
+
+Behavior:
+Sets blackjack matching-card bonus percent.
+
+Valid bonus types:
+- pair
+- color
+- perfect
+
+If missing arguments, show usage:
+
+BlackjackBot:
+🎁 Bonus Settings
+Usage: /setbjbonus <pair|color|perfect> <percent>
+Example: /setbjbonus pair 10
+
+==================================================
+4B — /setbjbonuscap
+==================================================
+
+Command:
+
+/setbjbonuscap <amount>
+
+Example:
+
+/setbjbonuscap 10000
+
+Behavior:
+Sets max blackjack bonus payout.
+
+If missing amount, show usage:
+
+BlackjackBot:
+🎁 Bonus Cap
+Usage: /setbjbonuscap <amount>
+Example: /setbjbonuscap 10000
+
+==================================================
+4C — BONUS ALIAS COMMANDS
+==================================================
+
+Add these aliases:
+
+/setbjbonuspair <percent>
+Same as:
+/setbjbonus pair <percent>
+
+/setbjbonuscolor <percent>
+Same as:
+/setbjbonus color <percent>
+
+/setbjbonusperfect <percent>
+Same as:
+/setbjbonus perfect <percent>
+
+Examples:
+
+/setbjbonuspair 10
+/setbjbonuscolor 25
+/setbjbonusperfect 50
+
+If missing percent, show usage:
+
+BlackjackBot:
+🎁 Bonus Settings
+Usage: /setbjbonuspair <percent>
+Example: /setbjbonuspair 10
+
+BlackjackBot:
+🎁 Bonus Settings
+Usage: /setbjbonuscolor <percent>
+Example: /setbjbonuscolor 25
+
+BlackjackBot:
+🎁 Bonus Settings
+Usage: /setbjbonusperfect <percent>
+Example: /setbjbonusperfect 50
+
+==================================================
+PART 5 — BONUS SETTINGS STORAGE
+==================================================
+
+Use existing settings storage if available.
+
+If not available, add safe settings keys/table.
+
+Settings needed:
+- bj_bonus_pair_percent
+- bj_bonus_color_percent
+- bj_bonus_perfect_percent
+- bj_bonus_cap
+
+Defaults:
+- pair = 10
+- color = 25
+- perfect = 50
+- cap = 10000
+
+Use CREATE TABLE IF NOT EXISTS if database changes are needed.
+
+Do not wipe existing settings.
+
+==================================================
+PART 6 — HELP MESSAGE CLEANUP
+==================================================
+
+If BlackjackBot help messages show these commands, they must actually work.
+
+Update /bjhelp and any blackjack examples to show only working commands.
+
+Allowed visible command set:
+
+/bj
+/bet <amount>
+/hit
+/stand
+/double
+/split
+/insurance
+/surrender
+/bjcards
+/bjrules
+/bjbonussettings
+
+Manager+ settings:
+/setbjbonus
+/setbjbonuscap
+/setbjbonuspair
+/setbjbonuscolor
+/setbjbonusperfect
+
+Remove old references to:
+/rjoin
+
+==================================================
+PART 7 — COMMAND REGISTRY / OWNER MAP
+==================================================
+
+For every command and alias:
+
+1. Add route.
+2. Add handler.
+3. Add command registry entry.
+4. Add command owner.
+5. Add commandtest support.
+
+Commands to register:
+
+/bjcards
+/blackjackcards
+/cardmode
+/bjcardmode
+/bjrules
+/bjbonus
+/bjbonussetting
+/bjbonussettings
+/setbjbonus
+/setbjbonuscap
+/setbjbonuspair
+/setbjbonuscolor
+/setbjbonusperfect
+
+Owner for all:
+BlackjackBot
+
+Do not leave owner UNKNOWN.
+
+==================================================
+PART 8 — COMMANDTEST TARGET
+==================================================
+
+These must pass:
+
+/commandtest /bjcards
+/commandtest /blackjackcards
+/commandtest /cardmode
+/commandtest /bjcardmode
+/commandtest /bjrules
+/commandtest /bjbonus
+/commandtest /bjbonussetting
+/commandtest /bjbonussettings
+/commandtest /setbjbonus
+/commandtest /setbjbonuscap
+/commandtest /setbjbonuspair
+/commandtest /setbjbonuscolor
+/commandtest /setbjbonusperfect
+
+Each should show:
+
+route=YES
+handler=YES
+owner=BlackjackBot
+
+Then:
+
+/checkcommands all
+
+should show:
+
+Missing 0
+NoOwner 0
+
+/commandissues should no longer list these commands.
+
+==================================================
+PART 9 — SAFETY
+==================================================
+
+Do not:
+- rebuild blackjack from scratch
+- reset balances
+- wipe player data
+- break current blackjack gameplay
+- break /bj, /bet, /hit, /stand, /double, /split
+- expose secrets/tokens/env vars
+- show commands in help if they do not work
+- leave commands owner=UNKNOWN
+
+==================================================
+FINAL REPORT
+==================================================
+
+After finishing, tell me:
+
+1. Files changed
+2. Why /bjcards failed before
+3. Why /bjrules failed before
+4. Why /bjbonussetting failed before
+5. Why /setbjbonus commands were no-route/no-owner
+6. Which commands were registered
+7. Which aliases were added
+8. Which owner was assigned
+9. Results of /checkcommands all
+10. Exact tests to run

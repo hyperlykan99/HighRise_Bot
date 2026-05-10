@@ -1549,6 +1549,13 @@ def _migrate_db():
         "INSERT OR IGNORE INTO bj_settings (key, value) VALUES ('bj_cards_mode', 'whisper')",
         # ── Add target_user_id to forced_mining_drops ─────────────────────────
         "ALTER TABLE forced_mining_drops ADD COLUMN target_user_id TEXT NOT NULL DEFAULT ''",
+        # ── BJ bonus + cards-mode as proper columns ───────────────────────────
+        "ALTER TABLE bj_settings ADD COLUMN bj_bonus_enabled     INTEGER NOT NULL DEFAULT 1",
+        "ALTER TABLE bj_settings ADD COLUMN bj_bonus_pair_pct    INTEGER NOT NULL DEFAULT 10",
+        "ALTER TABLE bj_settings ADD COLUMN bj_bonus_color_pct   INTEGER NOT NULL DEFAULT 25",
+        "ALTER TABLE bj_settings ADD COLUMN bj_bonus_perfect_pct INTEGER NOT NULL DEFAULT 50",
+        "ALTER TABLE bj_settings ADD COLUMN bj_bonus_cap         INTEGER NOT NULL DEFAULT 10000",
+        "ALTER TABLE bj_settings ADD COLUMN bj_cards_mode        TEXT    NOT NULL DEFAULT 'whisper'",
     ]:
         try:
             conn.execute(sql)
@@ -2718,6 +2725,9 @@ def get_bj_settings() -> dict:
             "bj_action_timer": 30,
             "bj_double_enabled": 1, "bj_split_enabled": 1,
             "bj_max_splits": 1, "bj_split_aces_one_card": 1,
+            "bj_bonus_enabled": 1, "bj_bonus_pair_pct": 10,
+            "bj_bonus_color_pct": 25, "bj_bonus_perfect_pct": 50,
+            "bj_bonus_cap": 10000, "bj_cards_mode": "whisper",
         }
     return dict(row)
 
@@ -2732,6 +2742,9 @@ _BJ_SETTING_COLS = {
     "bj_action_timer",
     "bj_double_enabled", "bj_split_enabled",
     "bj_max_splits", "bj_split_aces_one_card",
+    "bj_bonus_enabled", "bj_bonus_pair_pct",
+    "bj_bonus_color_pct", "bj_bonus_perfect_pct",
+    "bj_bonus_cap", "bj_cards_mode",
 }
 
 
