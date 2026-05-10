@@ -283,6 +283,7 @@ from modules.auto_games import (
     handle_setautoeventinterval, handle_setautoeventduration,
     handle_gameconfig, handle_autogamesowner, handle_stopautogames,
     handle_fixautogames,
+    try_direct_answer, handle_gamehint, handle_revealanswer,
 )
 from modules.gold import (
     handle_goldtip, handle_goldrefund,
@@ -2374,6 +2375,8 @@ class HangoutBot(BaseBot):
             return
 
         if not message.startswith("/"):
+            # Direct auto-game answer detection (no /answer prefix needed)
+            await try_direct_answer(self, user, message)
             return
 
         # Parse "/coinflip heads 50" → cmd="coinflip", args=["coinflip","heads","50"]
@@ -3796,6 +3799,12 @@ class HangoutBot(BaseBot):
                 await self.highrise.send_whisper(user.id, "Usage: /answer <your answer>")
                 return
             await games_handle_answer(self, user, answer_text)
+
+        elif cmd in ("gamehint", "autogamehint"):
+            await handle_gamehint(self, user)
+
+        elif cmd in ("revealanswer", "revealgameanswer", "autogamereveal"):
+            await handle_revealanswer(self, user)
 
         # ── Report commands ───────────────────────────────────────────────────
         elif cmd == "report":

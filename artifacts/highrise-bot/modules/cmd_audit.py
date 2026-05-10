@@ -464,8 +464,11 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     # ── Big announcement ─────────────────────────────────────────────────────
     "bigannounce", "bigannouncestatus", "setbigannounce",
     "setbigreact", "setbotbigreact",
-    # ── BJ surrender ─────────────────────────────────────────────────────────
-    "bsurrender",
+    # ── BJ surrender + stay alias ────────────────────────────────────────────
+    "bsurrender", "stay",
+    # ── Auto-games hint/reveal (eventhost-owned) ─────────────────────────────
+    "gamehint", "autogamehint",
+    "revealanswer", "revealgameanswer", "autogamereveal",
     # ── System dashboard ─────────────────────────────────────────────────────
     "botdashboard", "botsystem",
     # ── Reward center (banker) ───────────────────────────────────────────────

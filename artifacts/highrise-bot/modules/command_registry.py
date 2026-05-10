@@ -199,6 +199,7 @@ REGISTRY: dict[str, Cmd] = {
     "bet":              Cmd("blackjack","casino",False,False,True),
     "hit":              Cmd("blackjack","casino",False,False,True),
     "stand":            Cmd("blackjack","casino",False,False,True),
+    "stay":             Cmd("blackjack","casino",False,False,True),
     "double":           Cmd("blackjack","casino",False,False,True),
     "split":            Cmd("blackjack","casino",False,False,True),
     "insurance":        Cmd("blackjack","casino",False,False,True),
@@ -277,6 +278,10 @@ REGISTRY: dict[str, Cmd] = {
                             aliases=("killautogames",)),
     "fixautogames":     Cmd("eventhost","events",False,False,True, perm="manager"),
     "announce":         Cmd("eventhost","events",False,False,True, perm="manager"),
+    "gamehint":         Cmd("eventhost","events",False,False,True, perm="manager",
+                            aliases=("autogamehint",)),
+    "revealanswer":     Cmd("eventhost","events",False,False,True, perm="manager",
+                            aliases=("revealgameanswer","autogamereveal")),
 
     # ── DJ ───────────────────────────────────────────────────────────────────
     "emote":            Cmd("dj","social",False,False,True, aliases=("emotes",)),

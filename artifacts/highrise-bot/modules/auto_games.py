@@ -134,6 +134,7 @@ def should_this_bot_run_autogames() -> tuple[bool, str]:
 _answer_timer_task: asyncio.Task | None = None
 _answer_timer_game_id: int = 0
 _game_counter: int = 0
+_direct_answer_cooldown: dict[str, float] = {}   # uid → monotonic timestamp
 
 
 def _next_game_id() -> int:
@@ -816,6 +817,92 @@ async def handle_stopautogames(bot: BaseBot, user: User) -> None:
 # ---------------------------------------------------------------------------
 # /fixautogames — reset autogames owner + clear stale locks
 # ---------------------------------------------------------------------------
+
+async def try_direct_answer(bot: BaseBot, user: User, message: str) -> None:
+    """Route a bare chat message as a game answer if a game is active (no /answer needed)."""
+    import time as _time_mod
+
+    # Only run on the autogames-owning bot instance
+    should_run, _ = should_this_bot_run_autogames()
+    if not should_run:
+        return
+
+    if not _any_game_active():
+        return
+
+    # Anti-spam: 1.5 s cooldown per player
+    now  = _time_mod.monotonic()
+    last = _direct_answer_cooldown.get(user.id, 0.0)
+    if now - last < 1.5:
+        return
+    _direct_answer_cooldown[user.id] = now
+
+    answer_text = message.strip()
+    if not answer_text:
+        return
+
+    if trivia.is_active():
+        await trivia.handle_answer(bot, user, answer_text)
+    elif scramble.is_active():
+        await scramble.handle_answer(bot, user, answer_text)
+    elif riddle.is_active():
+        await riddle.handle_answer(bot, user, answer_text)
+
+
+async def handle_gamehint(bot: BaseBot, user: User) -> None:
+    """/gamehint — Manager+; give the next hint for the active auto game."""
+    if not can_manage_games(user.username):
+        await bot.highrise.send_whisper(user.id, "Manager+ only.")
+        return
+
+    if trivia.is_active():
+        ans = trivia.get_current_answer() or ""
+        hint = f"It starts with '{ans[0].upper()}'." if ans else "No hint available."
+        await bot.highrise.chat(f"💡 Hint\n{hint}")
+        return
+
+    if scramble.is_active() and scramble._active:
+        word = scramble._active.get("word", "")
+        n    = max(1, len(word) // 2)
+        hint = word[:n].upper() + "_" * (len(word) - n)
+        await bot.highrise.chat(f"💡 Hint\n{hint}")
+        return
+
+    if riddle.is_active():
+        ans = riddle.get_current_answer() or ""
+        hint = f"It starts with '{ans[0].upper()}'." if ans else "No hint available."
+        await bot.highrise.chat(f"💡 Hint\n{hint}")
+        return
+
+    await bot.highrise.send_whisper(user.id, "🎮 No active question right now.")
+
+
+async def handle_revealanswer(bot: BaseBot, user: User) -> None:
+    """/revealanswer — Manager+; reveal current answer and end the question."""
+    if not can_manage_games(user.username):
+        await bot.highrise.send_whisper(user.id, "Manager+ only.")
+        return
+
+    cancel_answer_timer()
+
+    answer: str | None = None
+    if trivia.is_active():
+        answer         = trivia.get_current_answer()
+        trivia._active = None
+    elif scramble.is_active():
+        answer           = scramble.get_current_answer()
+        scramble._active = None
+    elif riddle.is_active():
+        answer         = riddle.get_current_answer()
+        riddle._active = None
+
+    if answer:
+        await bot.highrise.chat(
+            f"✅ Answer Revealed\nThe answer was: {answer}.\nNo winner this round."
+        )
+    else:
+        await bot.highrise.send_whisper(user.id, "🎮 No active question right now.")
+
 
 async def handle_fixautogames(bot: BaseBot, user: User) -> None:
     """/fixautogames — reset autogames owner to Event Bot, clear stale locks (admin/owner)."""

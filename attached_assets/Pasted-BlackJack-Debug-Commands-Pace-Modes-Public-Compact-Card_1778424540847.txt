@@ -1,0 +1,691 @@
+BlackJack Debug Commands + Pace Modes + Public Compact Cards + Auto Games Update
+
+Focus on these compiled updates:
+
+1. Fix BlackJack owner-only force/debug card commands.
+2. Add BlackJack pace modes: fast, normal, long.
+3. Improve public BlackJack card display so full tables are easier to read.
+4. Keep whisper BlackJack card display detailed and green.
+5. Make dealer visible total show a number, not ?.
+6. Update Auto Games so players can answer directly without /answer.
+7. Add Manager+ hint/reveal controls for Auto Games.
+8. Remove Auto Games daily caps.
+
+Do not change bot tokens.
+Do not change room ID.
+Do not reset balances.
+Do not wipe player data.
+Do not wipe casino stats.
+Do not wipe mining/fishing/event records.
+Do not break poker, mining, fishing, bank, gold tips, First Find Race, events, bot outfits, bot spawns, or command routing.
+
+==================================================
+PART 1 — FIX BLACKJACK OWNER DEBUG / FORCE CARD COMMANDS
+==================================================
+
+Current issue:
+These owner-only BlackJack debug commands are not working:
+
+/bj forcecards <username> <card1> <card2>
+/bj forcedealer <card1> <card2>
+/bj forcedealerace
+/bj forceplayerpair
+/bj forceblackjack
+/bj forceshoe low
+
+Goal:
+Make all of them work as one-use test/debug commands for the next BlackJack deal.
+
+Rules:
+- Owner only.
+- One-use only.
+- Clears after next deal.
+- Not shown in public help.
+- Used only for testing insurance, split, bonus, blackjack payout, shoe reshuffle, and recovery.
+- Must not affect normal players unless targeted.
+- Must respond with confirmation when set.
+- Must show helpful usage if arguments are missing.
+- Must work with the next BlackJack round/deal.
+- Must not crash command routing.
+
+==================================================
+1A — FORCE PLAYER CARDS
+==================================================
+
+Command:
+
+/bj forcecards <username> <card1> <card2>
+
+Example:
+
+/bj forcecards @4ktreyMarion A♠ K♠
+
+Behavior:
+- Next BlackJack deal gives that target player those first two cards.
+- Other players are dealt normally.
+- Clears after next deal.
+- If player is not in the table yet, store by normalized username and apply if they join before next deal.
+- If player does not join before next deal, keep pending until one round expires, then clear safely.
+
+Valid card formats:
+A♠
+K♠
+Q♥
+10♦
+2♣
+
+Also accept plain suits if easier:
+AS
+KS
+QH
+10D
+2C
+
+Normalize to display format.
+
+If invalid card:
+
+BlackJackBot:
+🧪 Force Cards
+Invalid card format.
+Example: /bj forcecards @Player A♠ K♠
+
+==================================================
+1B — FORCE DEALER CARDS
+==================================================
+
+Command:
+
+/bj forcedealer <card1> <card2>
+
+Example:
+
+/bj forcedealer A♣ K♦
+
+Behavior:
+- Next BlackJack deal gives dealer those first two cards.
+- Dealer first card is visible.
+- Dealer second card is hole card.
+- Clears after next deal.
+- Used for testing dealer BlackJack and insurance.
+
+Confirmation:
+
+BlackJackBot:
+🧪 Dealer Cards Forced
+Next dealer hand: A♣ [hidden]
+
+==================================================
+1C — FORCE DEALER ACE
+==================================================
+
+Command:
+
+/bj forcedealerace
+
+Behavior:
+- Next round dealer visible upcard is Ace.
+- Dealer hole card is random unless another forced dealer command is set.
+- Used for testing /insurance.
+- Clears after next deal.
+
+Confirmation:
+
+BlackJackBot:
+🧪 Dealer Ace Forced
+Next round dealer will show an Ace.
+
+==================================================
+1D — FORCE PLAYER PAIR
+==================================================
+
+Command:
+
+/bj forceplayerpair
+
+Optional target support if easy:
+
+/bj forceplayerpair @username
+
+Behavior:
+- If no username, apply to owner’s next hand.
+- If username provided, apply to that player.
+- Next BlackJack deal gives the player a pair.
+- Used for testing /split and pair bonus.
+- Clears after next deal.
+
+Example result:
+8♥ 8♣
+
+==================================================
+1E — FORCE BLACKJACK
+==================================================
+
+Command:
+
+/bj forceblackjack
+
+Optional target support if easy:
+
+/bj forceblackjack @username
+
+Behavior:
+- If no username, apply to owner’s next hand.
+- If username provided, apply to that player.
+- Next BlackJack deal gives natural BlackJack.
+- Example: A♠ K♠
+- Used for testing 3:2 payout.
+- Clears after next deal.
+
+==================================================
+1F — FORCE SHOE LOW
+==================================================
+
+Command:
+
+/bj forceshoe low
+
+Behavior:
+- Sets shoe close to shuffle threshold for testing reshuffle.
+- Does not break active round.
+- If active round is running, apply after round ends or reject safely.
+
+Response:
+
+BlackJackBot:
+🧪 Shoe Test Mode
+Shoe will be set near shuffle threshold before the next round.
+
+==================================================
+PART 2 — BLACKJACK DEBUG COMMAND ROUTING
+==================================================
+
+Make sure the /bj subcommand router recognizes:
+
+forcecards
+forcedealer
+forcedealerace
+forceplayerpair
+forceblackjack
+forceshoe
+
+These should be owner-only.
+
+They should not appear in normal /bj help.
+
+They may appear in owner-only:
+
+/bj debug
+/bj testcommands
+
+Optional owner-only display:
+
+BlackJackBot:
+🧪 BlackJack Debug Commands
+/bj forcecards @Player A♠ K♠
+/bj forcedealer A♣ K♦
+/bj forcedealerace
+/bj forceplayerpair
+/bj forceblackjack
+/bj forceshoe low
+
+==================================================
+PART 3 — BLACKJACK PACE MODES
+==================================================
+
+Add BlackJack pace modes:
+
+/bj pace
+/bj pace fast
+/bj pace normal
+/bj pace long
+
+Owner:
+BlackJackBot
+
+Permission:
+Manager+
+
+/bj pace with no args shows current pace.
+
+Example:
+
+BlackJackBot:
+⏱️ BlackJack Pace
+Current: Normal
+Betting countdown: 30s
+Action timer: 30s
+
+Pace presets:
+
+Fast:
+- Betting countdown: 15 seconds
+- Action timer: 15 seconds
+
+Normal:
+- Betting countdown: 30 seconds
+- Action timer: 30 seconds
+
+Long:
+- Betting countdown: 60 seconds
+- Action timer: 45 seconds
+
+When changed:
+
+/bj pace fast
+
+BlackJackBot:
+⏱️ BlackJack Pace Updated
+Mode: Fast
+Betting countdown: 15s
+Action timer: 15s
+
+Store setting persistently.
+
+Setting should affect future rounds.
+If a round is already active, do not interrupt it. Apply to next round.
+
+==================================================
+PART 4 — PUBLIC CARD MODE COMPACT DISPLAY
+==================================================
+
+Current issue:
+When public card mode is ON and table is full, player cards take too much space.
+
+Goal:
+In public card mode, player cards should be compact so players can easily find their own cards.
+
+When public mode is ON:
+
+/bj cards public
+
+Use this compact format:
+
+Message 1:
+
+BlackJackBot:
+🃏 Dealer Cards
+Dealer: A♠ [?] | Visible Total: 11
+
+Message 2:
+
+BlackJackBot:
+🟢 Player Cards
+@Player1: 10♥ 8♣ = 18 | 🃏 /hit 🛑 /stand 💰 /double
+@Player2: A♠ 7♦ = 18 | 🃏 /hit 🛑 /stand
+@Player3: 9♣ 9♦ = 18 | 🃏 /hit 🛑 /stand ✂️ /split
+
+Rules:
+- Each player should use one short line when possible.
+- Actions should be inline beside that player.
+- Show only actions available to that player.
+- Do not use a big block per player in public mode.
+- Keep the last 2 BlackJackBot messages as:
+  1. Dealer Cards
+  2. Player Cards + Actions
+- If message is too long for Highrise, split safely but avoid losing readability.
+- For large tables, show compact pages if needed.
+
+If table is too full for one message, use pages like:
+
+🟢 Player Cards 1/2
+@Player1: ...
+@Player2: ...
+@Player3: ...
+
+🟢 Player Cards 2/2
+@Player4: ...
+@Player5: ...
+
+But avoid sending too many messages during active decision. Prefer compact abbreviations.
+
+==================================================
+PART 5 — WHISPER MODE STAYS DETAILED
+==================================================
+
+When whisper mode is ON:
+
+/bj cards whisper
+
+Keep the detailed private player message.
+
+Public message:
+
+BlackJackBot:
+🃏 Dealer Cards
+Dealer: 10♦ [?] | Visible Total: 10
+
+Private whisper:
+
+<#00FF66>🟢 Player Cards
+You: 8♥ 8♣
+Total: 16
+
+Actions:
+🃏 /hit
+🛑 /stand or /stay
+💰 /double
+✂️ /split<#FFFFFF>
+
+Rules:
+- Whisper message stays fully green.
+- End with <#FFFFFF>.
+- Do not reveal player cards publicly.
+- Dealer visible total must still show a number.
+
+==================================================
+PART 6 — DEALER VISIBLE TOTAL
+==================================================
+
+Do not show dealer total as ?.
+
+While dealer hole card is hidden:
+- Show visible total based only on visible dealer card(s).
+- Keep hole card hidden.
+
+Examples:
+
+Dealer: A♠ [?] | Visible Total: 11
+Dealer: 10♦ [?] | Visible Total: 10
+Dealer: 5♣ [?] | Visible Total: 5
+
+After dealer reveal:
+- Show full total.
+
+Example:
+
+Dealer: A♠ 7♥ 3♣ | Total: 21
+
+==================================================
+PART 7 — AUTO GAMES DIRECT ANSWERS
+==================================================
+
+Current desired update:
+Players should be able to answer Auto Games directly without typing /answer.
+
+Goal:
+If an auto game question is active, and a player types the correct answer in chat, the bot should detect it automatically.
+
+Keep /answer as optional fallback, but do not require it.
+
+Example:
+
+AutoGameBot:
+🎮 Guess the Word
+Hint: Filipino dessert made with shaved ice.
+
+Player types:
+halo-halo
+
+Bot detects it as correct.
+
+Response:
+
+AutoGameBot:
+✅ Correct!
+@Player answered: halo-halo
+
+Rules:
+- Accept direct answer messages while game is active.
+- Normalize answers:
+  - lowercase
+  - trim spaces
+  - ignore extra punctuation if safe
+  - optionally accept common spelling variations if existing system supports it
+- Do not require /answer.
+- Keep /answer working as a fallback.
+- Do not treat staff commands or slash commands as normal guesses.
+- Do not punish normal wrong answers.
+- Do not mute players for answering.
+
+==================================================
+PART 8 — AUTO GAMES MANAGER HINTS AND REVEALS
+==================================================
+
+Add Manager+ controls:
+
+/gamehint
+/autogamehint
+/revealanswer
+/revealgameanswer
+/autogamereveal
+
+Behavior:
+
+/gamehint
+- Gives the next available hint for the current active auto game.
+- Manager+ only.
+
+Example:
+
+AutoGameBot:
+💡 Hint
+It starts with H.
+
+/revealanswer
+- Reveals the current answer.
+- Ends or skips the current question.
+- Manager+ only.
+
+Example:
+
+AutoGameBot:
+✅ Answer Revealed
+The answer was: halo-halo.
+No winner this round.
+
+If no active game:
+
+AutoGameBot:
+🎮 Auto Game
+No active question right now.
+
+==================================================
+PART 9 — REMOVE AUTO GAMES DAILY CAPS
+==================================================
+
+Remove daily caps or limits from Auto Games.
+
+Remove or disable:
+- daily answer cap
+- daily win cap
+- daily reward cap
+- daily participation cap
+
+Players should be able to keep playing while games are active.
+
+Important:
+Even with no daily caps, keep anti-spam protection.
+
+Use light anti-spam only:
+- 1–2 second cooldown per player answer attempt
+- Do not mute players just for answering
+- Do not punish normal wrong answers
+
+If existing code has daily cap tables/settings:
+- Do not wipe data.
+- Stop enforcing caps.
+- Keep historical logs if needed.
+
+==================================================
+PART 10 — COMMAND OWNERSHIP
+==================================================
+
+BlackJack commands owner:
+BlackJackBot or existing blackjack owner key.
+
+/bj pace should be owned by BlackJackBot.
+
+/bj debug or /bj testcommands if added should be owned by BlackJackBot.
+
+/gamehint, /autogamehint, /revealanswer, /revealgameanswer, /autogamereveal should be owned by AutoGameBot, EventBot, or the existing game bot owner key.
+
+Do not leave owner UNKNOWN.
+
+==================================================
+PART 11 — COMMANDTEST
+==================================================
+
+Verify:
+
+/commandtest /bj
+/commandtest /bet
+/commandtest /hit
+/commandtest /stand
+/commandtest /stay
+/commandtest /double
+/commandtest /split
+/commandtest /insurance
+/commandtest /surrender
+
+/commandtest /gamehint
+/commandtest /autogamehint
+/commandtest /revealanswer
+/commandtest /revealgameanswer
+/commandtest /autogamereveal
+
+/checkcommands all
+
+Target:
+Missing 0
+NoOwner 0
+
+If /commandtest cannot test /bj subcommands directly, make sure /bj routes these subcommands safely:
+- pace
+- forcecards
+- forcedealer
+- forcedealerace
+- forceplayerpair
+- forceblackjack
+- forceshoe
+
+==================================================
+PART 12 — TEST CASES
+==================================================
+
+BlackJack pace test:
+
+/bj pace
+/bj pace fast
+/bj pace
+/bj pace normal
+/bj pace long
+
+Expected:
+Pace updates and affects future countdown/action timers.
+
+Public compact cards test:
+
+/bj cards public
+/bet 100
+
+Expected:
+Dealer cards message shows visible total.
+Player card message is compact.
+Each player is one line when possible.
+
+Whisper mode test:
+
+/bj cards whisper
+/bet 100
+
+Expected:
+Dealer cards public.
+Player cards private, detailed, fully green.
+
+Force card tests:
+
+/bj forcecards @4ktreyMarion A♠ K♠
+/bet 100
+
+Expected:
+Target player receives A♠ K♠ next deal.
+
+/bj forcedealer A♣ K♦
+/bet 100
+
+Expected:
+Dealer has A♣ hidden K♦ or correct forced dealer hand with visible/hole handling.
+
+/bj forcedealerace
+/bet 100
+
+Expected:
+Dealer upcard is Ace and /insurance is available.
+
+/bj forceplayerpair
+/bet 100
+
+Expected:
+Player gets pair and /split is available.
+
+/bj forceblackjack
+/bet 100
+
+Expected:
+Player gets natural BlackJack.
+
+/bj forceshoe low
+/bj shoe
+
+Expected:
+Shoe near shuffle threshold.
+
+Auto Games direct answer test:
+- Start or wait for active auto game.
+- Type the answer directly without /answer.
+Expected:
+Bot detects correct answer.
+
+Hint/reveal test:
+
+/gamehint
+/revealanswer
+
+Expected:
+Manager+ can reveal hints/answers.
+
+Caps test:
+- Keep answering/winning beyond previous daily cap.
+Expected:
+No daily cap blocks player.
+
+==================================================
+PART 13 — SAFETY
+==================================================
+
+Do not:
+- reset balances
+- wipe player data
+- break BlackJack gameplay
+- break existing BlackJack recovery
+- break Auto Games
+- expose debug commands in normal help
+- let non-owner use force card commands
+- let non-manager reveal answers
+- mute players for normal answers
+- re-enable daily caps
+- show dealer hidden card early
+- show player cards publicly when whisper mode is on
+- leave broken commands in help
+- leave owner UNKNOWN
+
+==================================================
+FINAL REPORT
+==================================================
+
+After finishing, tell me:
+
+1. Files changed
+2. Why force card commands were not working
+3. How force card commands work now
+4. How /bj pace works
+5. Current fast/normal/long timer values
+6. How public compact card mode works
+7. How whisper mode is preserved
+8. How dealer visible total is calculated
+9. How direct Auto Games answers work
+10. How Manager+ hints/reveals work
+11. Which Auto Games daily caps were removed
+12. Commands added/updated
+13. Exact tests to run

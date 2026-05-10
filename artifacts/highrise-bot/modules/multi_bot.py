@@ -278,6 +278,8 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     # eventhost — games / quests / events
     "trivia": "eventhost", "scramble": "eventhost",
     "riddle": "eventhost", "answer": "eventhost",
+    "gamehint": "eventhost", "autogamehint": "eventhost",
+    "revealanswer": "eventhost", "revealgameanswer": "eventhost", "autogamereveal": "eventhost",
     "coinflip": "eventhost", "setgametimer": "eventhost",
     "quests": "eventhost", "dailyquests": "eventhost",
     "weeklyquests": "eventhost", "claimquest": "eventhost",

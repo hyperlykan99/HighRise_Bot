@@ -22,6 +22,7 @@ Admin:   /setrbjdecks  /setrbjminbet  /setrbjmaxbet  /setrbjshuffle
 
 import asyncio
 import json
+import random
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from highrise import BaseBot, User
@@ -30,7 +31,7 @@ import database as db
 from modules.quests      import track_quest
 from modules.cards       import make_shoe, hand_str, hand_value, is_blackjack, card_str
 from modules.shop        import get_player_benefits
-from modules.permissions import can_manage_games, can_moderate
+from modules.permissions import can_manage_games, can_moderate, is_owner
 
 _RBJ_CASINO_CAP = 5.0
 
@@ -175,6 +176,45 @@ class _RBJState:
 _state = _RBJState()
 
 
+# ─── Force / debug state (owner-only, one-use per round) ──────────────────────
+
+_force_state: dict = {
+    "player_cards": {},    # {username_lower: ((rank,suit),(rank,suit))}
+    "dealer_cards":  None, # ((rank,suit),(rank,suit)) | None
+    "dealer_ace":    False,
+    "player_pair":   None, # username_lower or None (None = not set)
+    "player_bj":     None, # username_lower or None (None = not set)
+    "shoe_low":      False,
+}
+
+_SUIT_MAP: dict[str, str] = {
+    "s": "♠", "h": "♥", "d": "♦", "c": "♣",
+    "♠": "♠", "♥": "♥", "♦": "♦", "♣": "♣",
+}
+_RANK_VALID = frozenset({"A","2","3","4","5","6","7","8","9","10","J","Q","K"})
+
+
+def _parse_card(s: str) -> tuple | None:
+    """Parse 'AS', 'A♠', '10D', '10♦' → ('A','♠'). Returns None if invalid."""
+    s = s.strip().lstrip("@")
+    for sym in ("♠", "♥", "♦", "♣"):
+        if s.endswith(sym):
+            rank = s[:-1].upper()
+            return (rank, sym) if rank in _RANK_VALID else None
+    if s and s[-1].lower() in _SUIT_MAP:
+        suit = _SUIT_MAP[s[-1].lower()]
+        rank = s[:-1].upper()
+        return (rank, suit) if rank in _RANK_VALID else None
+    return None
+
+
+_BJ_PACE_PRESETS: dict[str, dict] = {
+    "fast":   {"lobby_countdown": 15, "rbj_action_timer": 15},
+    "normal": {"lobby_countdown": 30, "rbj_action_timer": 30},
+    "long":   {"lobby_countdown": 60, "rbj_action_timer": 45},
+}
+
+
 # ─── DB persistence ───────────────────────────────────────────────────────────
 
 def _save_table_state() -> None:
@@ -308,10 +348,59 @@ async def _start_round(bot: BaseBot):
         p.active_hand_idx = 0
         p.split_count     = 0
 
+    # Apply shoe_low force before deal (drains shoe near reshuffle threshold)
+    if _force_state["shoe_low"]:
+        target = max(54, int(_shoe.total * (1.0 - threshold / 100.0)) + 4)
+        while _shoe.remaining > target:
+            _shoe._cards.pop()
+        _force_state["shoe_low"] = False
+        print(f"[RBJ] [FORCE] Shoe drained to {_shoe.remaining} cards (near threshold).")
+
     for _ in range(2):
         for p in _state.players:
             p.hands[0]["cards"].append(_shoe.pop())
         _state.dealer_hand.append(_shoe.pop())
+
+    # Apply forced dealer/player cards (owner debug, one-use)
+    if (_force_state["dealer_cards"] or _force_state["dealer_ace"]
+            or _force_state["player_cards"]
+            or _force_state["player_pair"] is not None
+            or _force_state["player_bj"] is not None):
+        if _force_state["dealer_cards"] and len(_state.dealer_hand) >= 2:
+            dc = _force_state["dealer_cards"]
+            _state.dealer_hand[0] = dc[0]
+            _state.dealer_hand[1] = dc[1]
+            _force_state["dealer_cards"] = None
+            print(f"[RBJ] [FORCE] Dealer: {dc[0]} {dc[1]}")
+        if _force_state["dealer_ace"] and _state.dealer_hand:
+            _state.dealer_hand[0] = ("A", random.choice(["♠", "♥", "♦", "♣"]))
+            _force_state["dealer_ace"] = False
+            print(f"[RBJ] [FORCE] Dealer ace forced")
+        for p in _state.players:
+            uname = p.username.lower()
+            if uname in _force_state["player_cards"]:
+                fc = _force_state["player_cards"][uname]
+                if p.hands:
+                    p.hands[0]["cards"] = list(fc)
+                del _force_state["player_cards"][uname]
+                print(f"[RBJ] [FORCE] @{p.username} cards: {fc}")
+            elif (_force_state["player_pair"] is not None
+                  and _force_state["player_pair"] == uname):
+                rank  = random.choice(["2","3","4","5","6","7","8","9","10"])
+                suits = random.sample(["♠","♥","♦","♣"], 2)
+                p.hands[0]["cards"] = [(rank, suits[0]), (rank, suits[1])]
+                _force_state["player_pair"] = None
+                print(f"[RBJ] [FORCE] @{p.username} pair: {rank}")
+            elif (_force_state["player_bj"] is not None
+                  and _force_state["player_bj"] == uname):
+                p.hands[0]["cards"] = [("A", "♠"), ("K", "♠")]
+                _force_state["player_bj"] = None
+                print(f"[RBJ] [FORCE] @{p.username} blackjack: A♠ K♠")
+        # Clear any owner-self pair/BJ force after first player processed
+        if _force_state["player_pair"] == "":
+            _force_state["player_pair"] = None
+        if _force_state["player_bj"] == "":
+            _force_state["player_bj"] = None
 
     for p in _state.players:
         if is_blackjack(p.hands[0]["cards"]):
@@ -346,6 +435,33 @@ def _visible_dealer_total() -> int:
         return int(r)
     except Exception:
         return 10
+
+
+def _build_actions_compact(p: "_Player", s: dict) -> str:
+    """One-line compact action string for public display mode."""
+    h = p.current_hand()
+    if h is None or h["status"] != "active":
+        return ""
+    cards = h["cards"]
+    acts  = ["🃏/hit", "🛑/stand"]
+    if int(s.get("rbj_double_enabled", 1)) and len(cards) == 2 and not h.get("doubled"):
+        acts.append("💰/dbl")
+    if (int(s.get("rbj_split_enabled", 1))
+            and len(cards) == 2
+            and cards[0][0] == cards[1][0]
+            and p.split_count < int(s.get("rbj_max_splits", 1))):
+        acts.append("✂️/split")
+    dealer_up    = _state.dealer_hand[0] if _state.dealer_hand else None
+    is_first_two = len(cards) == 2 and p.split_count == 0 and not p.insurance_taken
+    if (dealer_up and dealer_up[0] == "A"
+            and int(s.get("rbj_insurance_enabled", 1))
+            and is_first_two):
+        acts.append("🛡️/ins")
+    if (int(s.get("rbj_surrender_enabled", 1))
+            and len(cards) == 2 and p.split_count == 0
+            and not p.insurance_taken):
+        acts.append("🏳️/sur")
+    return " ".join(acts)
 
 
 def _build_actions(p: "_Player", s: dict) -> str:
@@ -398,26 +514,58 @@ async def _start_action_phase(bot: BaseBot):
         f"🃏 Dealer Cards\nDealer: {upcard_str} [?]\nVisible Total: {vis_total}"[:249]
     )
 
-    # Msg 2: Player Cards + smart actions (whisper or public per bj_cards_mode)
-    for p in _state.players:
-        if not p.is_done():
+    # Msg 2: Player Cards + smart actions (compact public OR detailed whisper)
+    if s_cards == "public":
+        # Compact: all active players batched into paginated public messages
+        player_lines: list[str] = []
+        for p in _state.players:
+            if p.is_done():
+                continue
+            hparts = []
+            for i, h in enumerate(p.hands):
+                hv   = hand_value(h["cards"])
+                hstr = hand_str(h["cards"])
+                note = f"[{h['status']}]" if h["status"] != "active" else ""
+                pfx  = f"H{i+1}:" if len(p.hands) > 1 else ""
+                hparts.append(f"{pfx}{hstr}={hv}{note}")
+            hand_disp = " ".join(hparts)
+            acts_c    = _build_actions_compact(p, s)
+            line = f"@{p.username}: {hand_disp}" + (f" | {acts_c}" if acts_c else "")
+            player_lines.append(line)
+
+        HDR   = "🟢 Player Cards\n"
+        pages: list[str] = []
+        cur   = ""
+        for line in player_lines:
+            candidate = (cur + "\n" + line).strip() if cur else line
+            if len(HDR + candidate) > 248:
+                if cur:
+                    pages.append(cur)
+                cur = line
+            else:
+                cur = candidate
+        if cur:
+            pages.append(cur)
+
+        for i, body in enumerate(pages):
+            hdr = f"🟢 Player Cards {i+1}/{len(pages)}\n" if len(pages) > 1 else HDR
             try:
-                hparts = []
-                for i, h in enumerate(p.hands):
-                    hdisp = _hand_colored(h["cards"])
-                    hval  = hand_value(h["cards"])
-                    note  = f" [{h['status']}]" if h["status"] != "active" else ""
-                    hparts.append(f"H{i+1}: {hdisp}={hval}{note}")
-                cards_line = " | ".join(hparts)
-                acts       = _build_actions(p, s)
-                if s_cards == "public":
-                    pub_text = (
-                        f"🟢 {_dn(p)}: {cards_line}\n"
-                        f"Dealer: {upcard_str} [?] | Bet: {p.total_bet():,}c\n"
-                        f"{acts}"
-                    )
-                    await bot.highrise.chat(pub_text[:249])
-                else:
+                await bot.highrise.chat((hdr + body)[:249])
+            except Exception:
+                pass
+    else:
+        # Whisper mode: detailed per-player green-coloured message
+        for p in _state.players:
+            if not p.is_done():
+                try:
+                    hparts = []
+                    for i, h in enumerate(p.hands):
+                        hdisp = _hand_colored(h["cards"])
+                        hval  = hand_value(h["cards"])
+                        note  = f" [{h['status']}]" if h["status"] != "active" else ""
+                        hparts.append(f"H{i+1}: {hdisp}={hval}{note}")
+                    cards_line = " | ".join(hparts)
+                    acts       = _build_actions(p, s)
                     wtext = (
                         f"<#00FF66>🟢 Player Cards\n"
                         f"You: {cards_line}\n"
@@ -426,8 +574,8 @@ async def _start_action_phase(bot: BaseBot):
                         f"{acts}<#FFFFFF>"
                     )
                     await bot.highrise.send_whisper(p.user_id, wtext[:249])
-            except Exception:
-                pass
+                except Exception:
+                    pass
 
     print(f"[RBJ] Action timer started ({timer}s)")
     _state.action_task = asyncio.create_task(_action_timeout(bot, timer))
@@ -1032,6 +1180,12 @@ async def handle_rbj(bot: BaseBot, user: User, args: list[str]):
                 await bot.highrise.send_whisper(user.id, "Use /bj setinsurance on|off")
         elif sub == "setmaxsplits":
             await handle_rbj_set(bot, user, "setrbjmaxsplits", ["setrbjmaxsplits"] + args[2:])
+        elif sub == "pace":
+            await _cmd_bj_pace(bot, user, args)
+        elif sub in ("forcecards", "forcedealer", "forcedealerace",
+                     "forceplayerpair", "forceblackjack", "forceshoe",
+                     "debug", "testcommands"):
+            await _cmd_bj_force(bot, user, sub, args)
         elif sub in ("help", ""):
             await _cmd_bj_help(bot, user)
         else:
@@ -1727,6 +1881,133 @@ async def _cmd_rbj_forcefinish(bot: BaseBot, user: User):
 
 
 # ─── Admin setting commands (/setrbjXXX) ──────────────────────────────────────
+
+async def _cmd_bj_pace(bot: BaseBot, user: User, args: list[str]) -> None:
+    """/bj pace [fast|normal|long] — Manager+; view or change BJ speed preset."""
+    if not can_manage_games(user.username):
+        await bot.highrise.send_whisper(user.id, "Manager+ only.")
+        return
+
+    pace  = args[2].lower() if len(args) > 2 else ""
+    s     = _settings()
+    cd    = int(s.get("lobby_countdown", 15))
+    at    = int(s.get("rbj_action_timer", 30))
+
+    if not pace:
+        label = "Custom"
+        for k, v in _BJ_PACE_PRESETS.items():
+            if v["lobby_countdown"] == cd and v["rbj_action_timer"] == at:
+                label = k.title()
+                break
+        await bot.highrise.send_whisper(
+            user.id,
+            f"⏱️ BlackJack Pace\nCurrent: {label}\nBetting countdown: {cd}s\nAction timer: {at}s"
+        )
+        return
+
+    if pace not in _BJ_PACE_PRESETS:
+        await bot.highrise.send_whisper(user.id, "Usage: /bj pace fast|normal|long")
+        return
+
+    preset = _BJ_PACE_PRESETS[pace]
+    db.set_rbj_setting("lobby_countdown",  preset["lobby_countdown"])
+    db.set_rbj_setting("rbj_action_timer", preset["rbj_action_timer"])
+    await bot.highrise.chat(
+        f"⏱️ BlackJack Pace: {pace.title()}\n"
+        f"Betting countdown: {preset['lobby_countdown']}s\n"
+        f"Action timer: {preset['rbj_action_timer']}s"
+    )
+
+
+async def _cmd_bj_force(bot: BaseBot, user: User, sub: str, args: list[str]) -> None:
+    """Owner-only debug/force commands for BlackJack testing."""
+    if not is_owner(user.username):
+        return   # silently ignore for non-owners
+
+    global _force_state
+
+    if sub in ("debug", "testcommands"):
+        await bot.highrise.send_whisper(
+            user.id,
+            "🧪 BJ Debug Commands\n"
+            "/bj forcecards @Player A♠ K♠\n"
+            "/bj forcedealer A♣ K♦\n"
+            "/bj forcedealerace\n"
+            "/bj forceplayerpair [@Player]\n"
+            "/bj forceblackjack [@Player]\n"
+            "/bj forceshoe low"
+        )
+        return
+
+    if sub == "forcecards":
+        if len(args) < 5:
+            await bot.highrise.send_whisper(
+                user.id, "Usage: /bj forcecards @Player A♠ K♠"
+            )
+            return
+        target = args[2].lstrip("@").lower()
+        c1 = _parse_card(args[3])
+        c2 = _parse_card(args[4])
+        if not c1 or not c2:
+            await bot.highrise.send_whisper(
+                user.id, "🧪 Invalid card. Example: /bj forcecards @Player A♠ K♠"
+            )
+            return
+        _force_state["player_cards"][target] = (c1, c2)
+        await bot.highrise.send_whisper(
+            user.id,
+            f"🧪 Force set: @{target} → {card_str(c1)} {card_str(c2)} next deal."
+        )
+
+    elif sub == "forcedealer":
+        if len(args) < 4:
+            await bot.highrise.send_whisper(user.id, "Usage: /bj forcedealer A♣ K♦")
+            return
+        c1 = _parse_card(args[2])
+        c2 = _parse_card(args[3])
+        if not c1 or not c2:
+            await bot.highrise.send_whisper(
+                user.id, "🧪 Invalid card. Example: /bj forcedealer A♣ K♦"
+            )
+            return
+        _force_state["dealer_cards"] = (c1, c2)
+        await bot.highrise.send_whisper(
+            user.id, f"🧪 Dealer forced: {card_str(c1)} [hidden] next deal."
+        )
+
+    elif sub == "forcedealerace":
+        _force_state["dealer_ace"]   = True
+        _force_state["dealer_cards"] = None
+        await bot.highrise.send_whisper(
+            user.id, "🧪 Dealer Ace forced for next round."
+        )
+
+    elif sub == "forceplayerpair":
+        target = args[2].lstrip("@").lower() if len(args) > 2 else user.username.lower()
+        _force_state["player_pair"] = target
+        _force_state["player_bj"]   = None
+        await bot.highrise.send_whisper(
+            user.id, f"🧪 Pair forced for @{target} next round."
+        )
+
+    elif sub == "forceblackjack":
+        target = args[2].lstrip("@").lower() if len(args) > 2 else user.username.lower()
+        _force_state["player_bj"]   = target
+        _force_state["player_pair"] = None
+        await bot.highrise.send_whisper(
+            user.id, f"🧪 Natural BlackJack forced for @{target} next round."
+        )
+
+    elif sub == "forceshoe":
+        val = args[2].lower() if len(args) > 2 else ""
+        if val == "low":
+            _force_state["shoe_low"] = True
+            await bot.highrise.send_whisper(
+                user.id, "🧪 Shoe will drain near shuffle threshold before next round."
+            )
+        else:
+            await bot.highrise.send_whisper(user.id, "Usage: /bj forceshoe low")
+
 
 async def handle_rbj_set(bot: BaseBot, user: User, cmd: str, args: list[str]):
     try:
