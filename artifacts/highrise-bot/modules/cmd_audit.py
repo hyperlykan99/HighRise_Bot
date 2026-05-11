@@ -49,6 +49,7 @@ HIDDEN_CMDS: frozenset[str] = frozenset({
     "goldrainrole", "goldrainvip", "goldraintitle", "goldrainbadge",
     "goldrainlist", "goldwallet", "goldtips", "goldtx", "pendinggold",
     "confirmgoldtip", "setgoldrainstaff", "setgoldrainmax",
+    "goldtipbots", "tipall", "goldtipall",
     "setpokerblinds", "setpokerante", "setpokernexthandtimer",
     "setpokermaxstack", "setpokeridlestrikes",
     "notifystats", "notifyprefs",

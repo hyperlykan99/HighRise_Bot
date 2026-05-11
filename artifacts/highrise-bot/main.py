@@ -312,6 +312,7 @@ from modules.gold import (
     handle_pendinggold, handle_confirmgoldtip,
     handle_setgoldrainstaff, handle_setgoldrainmax,
     handle_goldhelp,
+    handle_goldtipbots, handle_tipall, handle_goldtipall,
     set_bot_identity, get_bot_user_id, get_bot_username,
     add_to_room_cache, remove_from_room_cache,
     refresh_room_cache,
@@ -745,6 +746,7 @@ OWNER_ONLY_CMDS = {
     "goldrainrole", "goldrainvip", "goldraintitle", "goldrainbadge", "goldrainlist",
     "goldwallet", "goldtips", "goldtx", "pendinggold",
     "confirmgoldtip", "setgoldrainstaff", "setgoldrainmax",
+    "goldtipbots", "tipall", "goldtipall",
     "debugsub",
     "debugtips",
     "restarthelp", "restartstatus",
@@ -802,7 +804,7 @@ ALL_KNOWN_COMMANDS = (
         "casinosettings", "casinolimits", "casinotoggles",
         "setbjlimits", "setrbjlimits",
         "wallet", "w", "dash", "dashboard", "casinodash", "mycasino",
-        "goldhelp", "confirmcasinoreset",
+        "goldhelp", "goldtipbots", "tipall", "goldtipall", "confirmcasinoreset",
         "tip", "tiprate", "tipstats", "tipleaderboard", "debugtips",
         "vipshop", "buyvip", "vipstatus",
         "me", "whois", "pinfo", "stats", "badges", "titles", "privacy",
@@ -2698,6 +2700,10 @@ class HangoutBot(BaseBot):
                 await handle_setgoldrainstaff(self, user, args)
             elif cmd == "setgoldrainmax":
                 await handle_setgoldrainmax(self, user, args)
+            elif cmd == "goldtipbots":
+                await handle_goldtipbots(self, user, args)
+            elif cmd in ("tipall", "goldtipall"):
+                await handle_tipall(self, user, args)
             elif cmd == "debugtips":
                 await handle_debugtips(self, user, args)
             elif cmd == "restarthelp":

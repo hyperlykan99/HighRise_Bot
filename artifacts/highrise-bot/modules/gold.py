@@ -82,6 +82,70 @@ _bot_username: str = ""
 # Other bots discovered in room — excluded from gold rain targets
 _known_bot_ids: set[str] = set()
 
+# ---------------------------------------------------------------------------
+# Known bot username list + eligibility helper
+# ---------------------------------------------------------------------------
+_KNOWN_BOT_USERNAMES: frozenset[str] = frozenset({
+    # Spec-listed names
+    "emceebot", "bankerbot", "greatestprospector", "masterangler",
+    "blackjackbot", "pokerbot", "securitybot", "acesinatra",
+    # Actual running bot usernames observed in room
+    "bankingbot", "chipsoprano", "keanushield", "dj_dudu",
+})
+
+
+def _goldtip_bots_allowed() -> bool:
+    """Return True when owner has enabled bot tipping for testing."""
+    try:
+        return db.get_room_setting("goldtip_allow_bots", "0") == "1"
+    except Exception:
+        return False
+
+
+def is_gold_tip_eligible_user(user_id: str, username: str) -> bool:
+    """
+    Return True only for real players eligible to receive gold tips/rain.
+    Excludes: this bot's own ID, runtime-detected bot IDs, known bot usernames,
+    and any username ending with 'bot'.
+    When goldtip_allow_bots=1 (owner testing mode), always returns True.
+    """
+    if user_id and user_id == _bot_user_id:
+        return False
+    if user_id and user_id in _known_bot_ids:
+        return False
+    if _goldtip_bots_allowed():
+        return True
+    ul = username.lower()
+    if ul in _KNOWN_BOT_USERNAMES:
+        return False
+    if ul.endswith("bot"):
+        return False
+    return True
+
+
+def _count_bots_in_room() -> int:
+    """Return number of room cache entries that fail the eligibility check."""
+    return sum(
+        1 for _, (uid, uname) in _room_cache.items()
+        if not is_gold_tip_eligible_user(uid, uname)
+    )
+
+
+def _get_goldtip_all_pace_interval() -> int:
+    """Get pace interval (seconds) for /goldtip all from Gold Rain settings."""
+    try:
+        pace = (db.get_gold_rain_setting("goldrain_pace") or "normal").lower()
+        if pace == "slow":
+            return 15
+        if pace == "party":
+            return 1
+        if pace == "custom":
+            raw = db.get_gold_rain_setting("goldrain_custom_interval") or "5"
+            return max(1, min(300, int(raw)))
+    except Exception:
+        pass
+    return 5
+
 
 def set_bot_identity(user_id: str, username: str = "") -> None:
     """Called from on_start so we know which user to exclude from rain."""
@@ -132,13 +196,11 @@ async def refresh_room_cache(bot) -> None:
 
 def _get_eligible_players(include_staff: bool = True) -> list[tuple[str, str]]:
     """Return [(user_id, username)] eligible for gold rain.
-    Excludes: this bot, any other known bots, and (optionally) staff roles.
+    Excludes: this bot, all known bots (by ID and username), and optionally staff.
     """
     result: list[tuple[str, str]] = []
     for _key, (uid, uname) in _room_cache.items():
-        if uid == _bot_user_id:
-            continue
-        if uid in _known_bot_ids:
+        if not is_gold_tip_eligible_user(uid, uname):
             continue
         if not include_staff:
             if (is_owner(uname) or is_admin(uname)
@@ -424,9 +486,16 @@ async def handle_goldtip(bot, user, args: list[str], action_type: str = "goldtip
         )
         return
 
+    # /goldtip all <amount> [instant] subcommand
+    if len(args) >= 2 and args[1].lower() == "all":
+        await _handle_goldtip_all(bot, user, args)
+        return
+
     if len(args) < 3:
         await bot.highrise.send_whisper(
-            user.id, f"Usage: /{action_type} <username> <amount>"
+            user.id,
+            f"Usage: /{action_type} <username> <amount>\n"
+            "Or: /goldtip all <amount>",
         )
         return
 
@@ -455,6 +524,23 @@ async def handle_goldtip(bot, user, args: list[str], action_type: str = "goldtip
         await bot.highrise.send_whisper(user.id, "Cannot tip the bot.")
         return
 
+    # Block direct bot tip when bot tipping is disabled
+    if not is_gold_tip_eligible_user(target_id, target_raw):
+        if not _goldtip_bots_allowed():
+            await bot.highrise.send_whisper(
+                user.id,
+                "🚫 Bot tipping is disabled.\n"
+                "Gold can only be tipped to real players.",
+            )
+            try:
+                db.log_gold_tx(
+                    "blocked_bot_tip", user.username, target_raw, target_id,
+                    amount, "", "blocked_bot", "", "", "Bot tipping disabled",
+                )
+            except Exception:
+                pass
+            return
+
     bars = decompose_gold(amount)
     if bars is None:
         await bot.highrise.send_whisper(
@@ -471,6 +557,215 @@ async def handle_goldtip(bot, user, args: list[str], action_type: str = "goldtip
 
 async def handle_goldrefund(bot, user, args: list[str]) -> None:
     await handle_goldtip(bot, user, args, action_type="goldrefund")
+
+
+# ---------------------------------------------------------------------------
+# /goldtipbots [on|off]  — owner-only bot tipping toggle
+# ---------------------------------------------------------------------------
+
+async def handle_goldtipbots(bot, user, args: list[str]) -> None:
+    """/goldtipbots [on|off] — view or toggle bot tipping (owner only)."""
+    if not is_owner(user.username):
+        await bot.highrise.send_whisper(user.id, "Owner only.")
+        return
+
+    if len(args) < 2:
+        allowed = _goldtip_bots_allowed()
+        status = "ON" if allowed else "OFF"
+        if allowed:
+            msg = (f"🤖 Gold Tip Bots\nBot tipping: {status}\n"
+                   "Owner testing mode enabled. Bots may be tipped.")
+        else:
+            msg = (f"🤖 Gold Tip Bots\nBot tipping: {status}\n"
+                   "Bots are excluded from Gold Tip and Gold Rain.")
+        await bot.highrise.send_whisper(user.id, msg[:249])
+        return
+
+    val = args[1].lower()
+    if val not in ("on", "off"):
+        await bot.highrise.send_whisper(user.id, "Usage: /goldtipbots on|off")
+        return
+
+    enabled = val == "on"
+    db.set_room_setting("goldtip_allow_bots", "1" if enabled else "0")
+    if enabled:
+        msg = "🤖 Bot tipping: ON\nOwner testing mode enabled. Bots may be tipped."
+    else:
+        msg = "🤖 Bot tipping: OFF\nBots excluded from Gold Tip and Gold Rain."
+    await bot.highrise.send_whisper(user.id, msg[:249])
+
+
+# ---------------------------------------------------------------------------
+# /goldtip all <amount> [instant]  — tip every real player in room
+# ---------------------------------------------------------------------------
+
+async def _handle_goldtip_all(bot, user, args: list[str]) -> None:
+    """
+    Handle /goldtip all <amount> [instant].
+    Tips every eligible real player currently in the room.
+    Uses Gold Rain pace interval between tips (unless 'instant' flag is given).
+    """
+    if not is_owner(user.username):
+        await bot.highrise.send_whisper(user.id, "Only owners can send gold.")
+        return
+
+    if len(args) < 3:
+        await bot.highrise.send_whisper(
+            user.id,
+            "Usage: /goldtip all <amount>\nExample: /goldtip all 1",
+        )
+        return
+
+    try:
+        amount = int(args[2])
+        if amount < 1:
+            raise ValueError
+    except ValueError:
+        await bot.highrise.send_whisper(
+            user.id, "🚫 Invalid amount.\nExample: /goldtip all 1",
+        )
+        return
+
+    bars = decompose_gold(amount)
+    if bars is None:
+        await bot.highrise.send_whisper(
+            user.id, f"Cannot form exact {amount}g from valid denominations.",
+        )
+        return
+
+    instant = len(args) > 3 and args[3].lower() == "instant"
+
+    # Refresh room, build eligible list with bot exclusion
+    await refresh_room_cache(bot)
+    eligible: list[tuple[str, str]] = []
+    bots_excluded = 0
+    seen_ids: set[str] = set()
+    for _k, (uid, uname) in list(_room_cache.items()):
+        if uid in seen_ids:
+            continue
+        seen_ids.add(uid)
+        if not is_gold_tip_eligible_user(uid, uname):
+            bots_excluded += 1
+        else:
+            eligible.append((uid, uname))
+
+    if not eligible:
+        await bot.highrise.send_whisper(
+            user.id,
+            f"🚫 Gold Tip All\nNo eligible real players found in the room.\n"
+            f"Bots excluded: {bots_excluded}",
+        )
+        return
+
+    total_gold = amount * len(eligible)
+    max_gold = _max_total()
+    if total_gold > max_gold:
+        await bot.highrise.send_whisper(
+            user.id,
+            f"🚫 Gold Tip All Blocked\nTotal required: {total_gold}g\n"
+            f"Max allowed: {max_gold}g\nUse a smaller amount.",
+        )
+        return
+
+    pace_interval = 0 if instant else _get_goldtip_all_pace_interval()
+
+    # Public start announcement
+    try:
+        ann = (
+            f"💰 Gold Tip All Started!\nTarget: All players  Amount: {amount}g each\n"
+            f"Eligible: {len(eligible)}  Bots Excluded: {bots_excluded}\n"
+            f"Total: {total_gold}g"
+        )
+        await bot.highrise.chat(ann[:249])
+    except Exception:
+        pass
+
+    paid = 0
+    pending_manual = 0
+
+    for i, (uid, uname) in enumerate(eligible):
+        ok, err = await _send_gold_bars(bot, uid, bars)
+        if err == "bot_user":
+            _register_bot_id(uid, uname)
+            bots_excluded += 1
+            try:
+                db.log_gold_tx(
+                    "goldtip_all", user.username, uname, uid,
+                    amount, "", "blocked_bot", ",".join(bars), "", "Target is a bot",
+                )
+            except Exception:
+                pass
+        elif ok:
+            paid += 1
+            try:
+                db.log_gold_tx(
+                    "goldtip_all", user.username, uname, uid,
+                    amount, "", "success", ",".join(bars), "", "",
+                )
+            except Exception:
+                pass
+            try:
+                await bot.highrise.chat(f"💸 Tipped @{uname} {amount}g gold!")
+            except Exception:
+                pass
+        else:
+            pending_manual += amount
+            try:
+                db.log_gold_tx(
+                    "goldtip_all", user.username, uname, uid,
+                    amount, "", "pending_manual", ",".join(bars), "", err[:80],
+                )
+            except Exception:
+                pass
+            try:
+                await bot.highrise.chat(f"💸 Logged @{uname} for {amount}g gold!")
+            except Exception:
+                pass
+
+        # Pace delay between tips (skip after last one)
+        if pace_interval > 0 and i < len(eligible) - 1:
+            try:
+                await asyncio.sleep(pace_interval)
+            except asyncio.CancelledError:
+                break
+
+    # Audit log entry
+    try:
+        db.log_gold_tx(
+            "goldtip_all_audit", user.username, "[all]", "",
+            paid * amount,
+            f"eligible={len(eligible)} bots_excluded={bots_excluded} "
+            f"paid={paid} pending={pending_manual // max(amount, 1)}",
+            "complete" if pending_manual == 0 else "partial",
+            "", "", "",
+        )
+    except Exception:
+        pass
+
+    # Whisper final summary only to the tipper
+    summary = (
+        f"💰 Gold Tip All Complete!\n"
+        f"Players tipped: {paid}\n"
+        f"Amount each: {amount}g\n"
+        f"Total: {paid * amount}g\n"
+        f"Bots excluded: {bots_excluded}\n"
+        f"Failed: 0"
+    )
+    if pending_manual > 0:
+        summary += f"\nPending manual: {pending_manual}g"
+    await bot.highrise.send_whisper(user.id, summary[:249])
+
+
+async def handle_tipall(bot, user, args: list[str]) -> None:
+    """/tipall <amount> — alias for /goldtip all <amount>."""
+    new_args = ["goldtip", "all"] + args[1:]
+    await _handle_goldtip_all(bot, user, new_args)
+
+
+async def handle_goldtipall(bot, user, args: list[str]) -> None:
+    """/goldtipall <amount> — alias for /goldtip all <amount>."""
+    new_args = ["goldtip", "all"] + args[1:]
+    await _handle_goldtip_all(bot, user, new_args)
 
 
 # ---------------------------------------------------------------------------
@@ -762,7 +1057,7 @@ def _get_players_by_role(role: str) -> list[tuple[str, str]]:
     """
     result: list[tuple[str, str]] = []
     for _key, (uid, uname) in _room_cache.items():
-        if uid == _bot_user_id or uid in _known_bot_ids:
+        if not is_gold_tip_eligible_user(uid, uname):
             continue
         if role == "owner":
             match = is_owner(uname)
@@ -791,7 +1086,7 @@ def _get_players_by_title(title_id: str) -> list[tuple[str, str]]:
     result: list[tuple[str, str]] = []
     tid = title_id.lower().strip()
     for _key, (uid, uname) in _room_cache.items():
-        if uid == _bot_user_id or uid in _known_bot_ids:
+        if not is_gold_tip_eligible_user(uid, uname):
             continue
         info = db.get_equipped_ids(uid)
         if (info.get("title_id") or "").lower() == tid:
@@ -804,7 +1099,7 @@ def _get_players_by_badge(badge_id: str) -> list[tuple[str, str]]:
     result: list[tuple[str, str]] = []
     bid = badge_id.lower().strip()
     for _key, (uid, uname) in _room_cache.items():
-        if uid == _bot_user_id or uid in _known_bot_ids:
+        if not is_gold_tip_eligible_user(uid, uname):
             continue
         info = db.get_equipped_ids(uid)
         if (info.get("badge_id") or "").lower() == bid:
@@ -1102,11 +1397,19 @@ async def handle_goldraineligible(bot, user, args: list[str]) -> None:
         return
     await refresh_room_cache(bot)
     eligible = _get_eligible_players(_include_staff())
+    bots_excluded = _count_bots_in_room()
     if not eligible:
-        await bot.highrise.send_whisper(user.id, "No eligible players in room.")
+        await bot.highrise.send_whisper(
+            user.id,
+            f"🌧️ Gold Rain Eligible\nNo eligible players in room.\n"
+            f"Bots excluded: {bots_excluded}",
+        )
         return
     names = ", ".join(f"@{uname}" for _, uname in eligible)
-    msg = f"Eligible ({len(eligible)}): {names}"
+    msg = (
+        f"🌧️ Gold Rain Eligible\n"
+        f"Players: {len(eligible)}  Bots excluded: {bots_excluded}\n" + names
+    )
     await bot.highrise.send_whisper(user.id, msg[:249])
 
 
@@ -1115,13 +1418,12 @@ async def handle_goldraineligible(bot, user, args: list[str]) -> None:
 # ---------------------------------------------------------------------------
 async def handle_goldhelp(bot, user, args: list[str]) -> None:
     msg = (
-        "👑 Gold Cmds (Owner only)\n"
-        "/goldtip <user> <amt>  /goldrefund <user> <amt>\n"
-        "/goldrain <amt> [count]  /goldrainall <amt>\n"
-        "/goldrainrole <role> <amt> [count]\n"
-        "/goldrainvip <amt> [count]\n"
-        "/goldraintitle <id> <amt>  /goldrainbadge <id> <amt>\n"
-        "/goldraineligible  /goldrainlist role|title|badge|vip\n"
+        "👑 Gold Cmds (Owner)\n"
+        "/goldtip <user> <amt>  /goldtip all <amt>\n"
+        "/tipall <amt>  /goldrefund <user> <amt>\n"
+        "/goldtipbots on|off  /goldrain <amt> [count]\n"
+        "/goldrainall <amt>  /goldrainrole <role> <amt>\n"
+        "/goldrainvip <amt>  /goldraineligible\n"
         "/setgoldrainstaff on|off  /setgoldrainmax <amt>"
     )
     await bot.highrise.send_whisper(user.id, msg[:249])

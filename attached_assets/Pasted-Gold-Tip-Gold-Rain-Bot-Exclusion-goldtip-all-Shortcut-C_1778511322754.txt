@@ -1,0 +1,596 @@
+Gold Tip / Gold Rain Bot Exclusion + /goldtip all Shortcut
+
+Current requests:
+1. Stop Gold Rain and Gold Tip from tipping bots.
+2. If I type /goldtip all <amount>, BankerBot should tip every eligible real player in the room so I do not have to type each username.
+
+Do not change bot tokens.
+Do not change room ID.
+Do not reset balances.
+Do not wipe reward logs.
+Do not wipe player data.
+Do not break BankerBot, gold tips, rewards, subscriptions, events, notifications, mining, fishing, blackjack, poker, Gold Rain, or command routing.
+Do not expose secrets, tokens, env vars, or room ID.
+
+==================================================
+PART 1 — STOP GOLD TIPS TO BOTS
+==================================================
+
+Current issue:
+Gold Rain or gold tip systems may select bots as winners or targets.
+
+Goal:
+Never tip bots unless owner explicitly enables bot tipping for testing.
+
+Gold Rain must never pick or tip bots by default.
+
+Exclude:
+- EmceeBot
+- BankerBot
+- GreatestProspector
+- MasterAngler
+- BlackJackBot
+- PokerBot
+- SecurityBot
+- all other room bots
+- any user with BOT tag if detectable
+- any username in known bot list
+- the currently running bot’s own user_id
+
+==================================================
+PART 2 — SHARED BOT EXCLUSION HELPER
+==================================================
+
+Create one shared helper:
+
+is_gold_tip_eligible_user(user_id, username) -> bool
+
+Return False if:
+- user_id is any known bot id
+- username matches any bot username
+- username ends with Bot
+- username contains known bot name
+- Highrise user object has bot flag/tag if available
+- user_id is the sender bot’s own id
+
+Return True only for real players.
+
+Use this helper before:
+- selecting Gold Rain winners
+- selecting Gold Rain replacement winners
+- sending direct gold tips
+- sending /goldtip all
+- sending /goldrainall
+- sending role/VIP/title/badge gold rain
+- logging payout as successful
+
+==================================================
+PART 3 — KNOWN BOT LIST
+==================================================
+
+Maintain a known bot username list:
+
+emceebot
+bankerbot
+greatestprospector
+masterangler
+blackjackbot
+pokerbot
+securitybot
+acesinatra
+
+Matching must be case-insensitive.
+
+Also exclude duplicate variations if they exist:
+- GreatestProspector
+- MasterAngler
+- BlackJackBot
+- BankerBot
+- EmceeBot
+
+==================================================
+PART 4 — BOT TIPPING SETTING
+==================================================
+
+Add:
+
+/goldtipbots on
+/goldtipbots off
+
+Owner:
+BankerBot
+
+Permission:
+Owner only
+
+Default:
+OFF
+
+Behavior:
+
+If OFF:
+- bots are excluded from all Gold Tip and Gold Rain systems.
+
+If ON:
+- bots can be tipped only for owner testing.
+- staff/player-facing status should clearly say bot tipping is enabled.
+
+Check status:
+
+/goldtipbots
+
+Response:
+
+BankerBot:
+🤖 Gold Tip Bots
+Bot tipping: OFF
+Bots are excluded from Gold Tip and Gold Rain.
+
+If enabled:
+
+BankerBot:
+🤖 Gold Tip Bots
+Bot tipping: ON
+Owner testing mode enabled. Bots may be tipped.
+
+==================================================
+PART 5 — DIRECT BOT TIP BLOCK
+==================================================
+
+If a command tries to tip a bot directly:
+
+/goldtip BankerBot 1
+
+And bot tipping is OFF, BankerBot should reply:
+
+BankerBot:
+🚫 Bot tipping is disabled.
+Gold can only be tipped to real players.
+
+Do not send gold.
+Do not log as successful.
+Optional: log as blocked_bot_tip.
+
+==================================================
+PART 6 — APPLY BOT EXCLUSION TO ALL GOLD SYSTEMS
+==================================================
+
+Apply bot exclusion to:
+
+/goldtip
+/goldtip all
+/tipall
+/goldtipall
+/goldrain
+/raingold
+/goldstorm
+/golddrop
+/goldrain all
+/goldrain subs
+/goldrain vip
+/goldrain players
+/goldrain nonstaff
+/goldrain slow
+/goldrain party
+/goldraineligible
+/goldrainlist
+/goldrainstatus winner selection
+replacement winner selection
+/goldrainall
+/goldrainrole
+/goldrainvip
+/goldraintitle
+/goldrainbadge
+
+Do not:
+- pick bots as Gold Rain winners
+- count bots as eligible winners
+- replace a left player with a bot
+- log bot payouts as successful unless /goldtipbots is ON and owner triggered it
+
+==================================================
+PART 7 — GOLD RAIN ELIGIBLE DISPLAY
+==================================================
+
+If Gold Rain eligible list excludes bots, show bots excluded.
+
+Example:
+
+BankerBot:
+🌧️ Gold Rain Eligible
+Players: 12
+Bots excluded: 6
+
+==================================================
+PART 8 — /goldtip all SHORTCUT
+==================================================
+
+Current request:
+If I type:
+
+/goldtip all <amount>
+
+BankerBot should tip everyone eligible in the room.
+
+Command:
+
+/goldtip all <amount>
+
+Example:
+
+/goldtip all 1
+
+Meaning:
+BankerBot tips every eligible real player currently in the room 1g each.
+
+Eligible:
+- real players currently in the room
+- valid user_id
+- not bot
+- not BankerBot itself
+- not any known bot
+- not duplicate
+
+Excluded:
+- all bots
+- users without valid user_id
+- players not currently in room
+
+==================================================
+PART 9 — /goldtip all USAGE
+==================================================
+
+If user types:
+
+/goldtip all
+
+without amount, show usage:
+
+BankerBot:
+Usage: /goldtip all <amount>
+Example: /goldtip all 1
+
+If amount is invalid:
+
+BankerBot:
+🚫 Invalid amount.
+Example: /goldtip all 1
+
+Amount must follow existing gold denomination/rules.
+
+==================================================
+PART 10 — /goldtip all START MESSAGE
+==================================================
+
+For:
+
+/goldtip all 1
+
+BankerBot should publicly announce:
+
+BankerBot:
+💰 Gold Tip All Started!
+Target: All players in room
+Amount: 1g each
+Eligible Players: 15
+Bots Excluded: 6
+Total Gold: 15g
+
+Then tip players one by one.
+
+Public per-player message:
+
+BankerBot:
+💸 Tipped @Player1 1g gold!
+
+==================================================
+PART 11 — /goldtip all FINAL SUMMARY
+==================================================
+
+Final summary should be whispered only to the tipper.
+
+BankerBot whisper:
+💰 Gold Tip All Complete!
+Players tipped: 15
+Amount each: 1g
+Total: 15g
+Bots excluded: 6
+Failed: 0
+Pending manual: 0g
+
+Do not send final summary publicly.
+
+If automatic gold sending is unavailable:
+
+BankerBot whisper:
+💰 Gold Tip All Logged!
+Players logged: 15
+Amount each: 1g
+Total pending manual gold: 15g
+Bots excluded: 6
+
+Do not pretend gold was sent if it was only logged.
+
+==================================================
+PART 12 — /goldtip all SAFETY CHECKS
+==================================================
+
+Before sending:
+- refresh room user list
+- exclude bots
+- calculate eligible player count
+- calculate total gold cost
+- check max gold tip/rain limit if existing
+- do not exceed configured max total gold
+- do not double-tip same player
+- do not tip bots unless /goldtipbots on and owner is testing
+
+If total exceeds limit:
+
+BankerBot:
+🚫 Gold Tip All Blocked
+Total required: 150g
+Max allowed: 100g
+Use a smaller amount.
+
+If no eligible players:
+
+BankerBot:
+🚫 Gold Tip All
+No eligible real players found in the room.
+Bots excluded: 6
+
+==================================================
+PART 13 — /goldtip all PACE / SLOW MODE
+==================================================
+
+Use current Gold Rain pace/interval setting for public pacing if many players.
+
+Recommended:
+- If tipping more than 5 players, tip one by one using current Gold Rain pace interval.
+- If pace = party, interval = 1s.
+- If pace = normal, interval = 5s.
+- If pace = slow, interval = 15s.
+- If pace = custom, use custom interval.
+
+Example:
+
+/setgoldrainpace party
+/goldtip all 1
+
+Means:
+- tip each eligible player 1g
+- one public tip message every 1 second
+
+Optional owner-only instant override:
+
+/goldtip all <amount> instant
+
+Example:
+
+/goldtip all 1 instant
+
+Only implement if safe.
+If not implemented, do not register any separate command.
+
+==================================================
+PART 14 — OPTIONAL ALIASES
+==================================================
+
+Support optional aliases only if routes/handlers are implemented:
+
+/tipall <amount>
+/goldtipall <amount>
+
+Behavior:
+/tipall 1 = /goldtip all 1
+/goldtipall 1 = /goldtip all 1
+
+If aliases are not implemented, do not list them in help.
+
+==================================================
+PART 15 — COMMAND OWNERSHIP
+==================================================
+
+BankerBot owns:
+
+/goldtip
+/goldtipbots
+/tipall
+/goldtipall
+
+If /goldtip all is handled as a subcommand, commandtest only needs /goldtip.
+
+Expected:
+
+/commandtest /goldtip
+/commandtest /goldtipbots
+
+Target:
+owner=BankerBot or Banker
+route=YES
+handler=YES
+
+If aliases are implemented:
+
+/commandtest /tipall
+/commandtest /goldtipall
+
+Target:
+owner=BankerBot or Banker
+route=YES
+handler=YES
+
+==================================================
+PART 16 — LOGGING
+==================================================
+
+Log every player tipped by /goldtip all:
+
+- user_id
+- username
+- amount
+- actor_user_id
+- actor_username
+- action_type = goldtip_all
+- status = paid / pending_manual / failed / blocked_bot / skipped_bot
+- created_at
+- error if failed
+
+Write audit log:
+
+auditlog gold:
+@Tipper used /goldtip all 1
+Eligible: 15
+Bots excluded: 6
+Total: 15g
+Status: complete / pending_manual / failed
+
+If bots were excluded:
+Log bots_excluded_count.
+
+If direct bot tip blocked:
+Log action_type = blocked_bot_tip.
+
+==================================================
+PART 17 — HELP TEXT
+==================================================
+
+Update BankerBot gold help:
+
+Gold Tip:
+/goldtip @user <amount>
+/goldtip all <amount>
+/goldtipbots on|off
+
+Optional if implemented:
+/tipall <amount>
+/goldtipall <amount>
+
+Do not list aliases that are not implemented.
+
+==================================================
+PART 18 — COMMANDTEST
+==================================================
+
+These must pass:
+
+/commandtest /goldtip
+/commandtest /goldtipbots
+/commandtest /goldrain
+/commandtest /goldraineligible
+/commandtest /goldrainlist
+/checkcommands all
+/commandissues
+
+If aliases are implemented:
+
+/commandtest /tipall
+/commandtest /goldtipall
+
+Target:
+route=YES
+handler=YES
+owner=BankerBot or Banker
+Missing 0
+NoOwner 0
+
+==================================================
+PART 19 — TEST CASES
+==================================================
+
+Test bot tipping setting:
+
+/goldtipbots
+
+Expected:
+Bot tipping: OFF
+
+Test direct bot block:
+
+/goldtip BankerBot 1
+
+Expected:
+🚫 Bot tipping is disabled.
+Gold can only be tipped to real players.
+
+Test all shortcut usage:
+
+/goldtip all
+
+Expected:
+Usage: /goldtip all <amount>
+Example: /goldtip all 1
+
+Test all shortcut:
+
+/goldtip all 1
+
+Expected:
+- BankerBot starts Gold Tip All.
+- Bots are excluded.
+- Real players in room are tipped/logged.
+- Public per-player messages are shown.
+- Final summary is whispered only to tipper.
+
+Test pace:
+
+/setgoldrainpace party
+/goldtip all 1
+
+Expected:
+- one player tipped every 1 second
+- no bots tipped
+
+Test logs:
+
+/rewardlogs
+/auditlog gold
+
+Expected:
+- goldtip_all entries
+- bots excluded count
+- no bot success payouts unless /goldtipbots ON
+
+==================================================
+PART 20 — SAFETY
+==================================================
+
+Do not:
+- tip bots by default
+- pick bots as Gold Rain winners
+- count bots as eligible
+- tip the same user twice
+- send final summary publicly
+- pretend gold was sent if only logged
+- break normal /goldtip @user <amount>
+- let EmceeBot handle /goldtip
+- reset balances
+- wipe reward logs
+- expose tokens/secrets/env vars
+- leave commands with no route
+- leave owner UNKNOWN
+
+==================================================
+FINAL REPORT
+==================================================
+
+After finishing, tell me:
+
+1. Files changed
+2. How bot exclusion works
+3. Known bot list used
+4. How /goldtipbots works
+5. Default bot tipping setting
+6. How direct bot tips are blocked
+7. How /goldtip all works
+8. How total cost is calculated
+9. How bots excluded count is calculated
+10. How pace applies to /goldtip all
+11. How payouts/logging work
+12. How pending manual gold is handled
+13. Command owners
+14. Final /commandtest /goldtip result
+15. Final /commandtest /goldtipbots result
+16. Final /commandissues result
+17. Exact tests to run

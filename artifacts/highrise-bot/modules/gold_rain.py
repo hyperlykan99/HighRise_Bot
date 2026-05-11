@@ -33,6 +33,7 @@ from modules.gold import (
     _send_gold_bars,
     decompose_gold,
     _register_bot_id,
+    is_gold_tip_eligible_user,
 )
 from modules.permissions import is_owner, is_admin, is_manager, is_moderator
 
@@ -169,9 +170,6 @@ def _is_in_room(user_id: str) -> bool:
 
 def _get_eligible_for_group(group: str) -> list[tuple[str, str]]:
     """Return [(user_id, username)] currently in room matching the group."""
-    bot_uid    = _gold_mod._bot_user_id
-    known_bots = _gold_mod._known_bot_ids
-
     vip_set: Optional[set[str]] = None
     sub_set: Optional[set[str]] = None
 
@@ -191,7 +189,7 @@ def _get_eligible_for_group(group: str) -> list[tuple[str, str]]:
     result: list[tuple[str, str]] = []
 
     for _key, (uid, uname) in _gold_mod._room_cache.items():
-        if uid == bot_uid or uid in known_bots:
+        if not is_gold_tip_eligible_user(uid, uname):
             continue
 
         ul = uname.lower()
