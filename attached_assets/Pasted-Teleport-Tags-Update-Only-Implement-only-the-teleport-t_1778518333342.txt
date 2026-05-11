@@ -1,0 +1,224 @@
+Teleport + Tags Update Only
+
+Implement only the teleport/tag update below.
+
+Do not change bot tokens.
+Do not change room ID.
+Do not reset balances.
+Do not wipe player data.
+Do not wipe saved spawns/teleports.
+Do not break existing spawn commands.
+Do not break existing /goto, /tphere, /bring, /tp, /spawn, /spawns commands.
+Do not expose secrets, tokens, env vars, or room ID.
+Do not leave commands with no route or owner UNKNOWN.
+
+==================================================
+PART 1 — DUAL COMMAND PREFIX SUPPORT
+==================================================
+
+Goal:
+All commands should work with both:
+
+/command
+!command
+
+Examples:
+
+/help
+!help
+
+/tele list
+!tele list
+
+/tag list
+!tag list
+
+Rules:
+- Keep all slash commands working.
+- Add ! as an additional command prefix.
+- !command and /command should route to the same handlers.
+- Command parser should treat both prefixes the same.
+- Do not break existing command routing.
+
+==================================================
+PART 2 — USER-FACING TELEPORT SYSTEM
+==================================================
+
+Goal:
+Create a clean user-facing teleport system using “tele” language, not “spawn” language.
+
+Existing spawn internals may be reused if needed, but staff/player-facing messages should say:
+
+teleport
+tele
+tele spot
+
+Do not say:
+spawn
+
+unless using old legacy commands like /spawn.
+
+==================================================
+PART 3 — CREATE TELEPORT SPOT
+==================================================
+
+Commands:
+
+!create tele <spot>
+/create tele <spot>
+
+Example:
+
+!create tele dj
+
+Behavior:
+- Saves the command user’s current position as teleport spot “dj”.
+- If “dj” already exists, update its position instead of creating duplicate.
+- Save x, y, z, and facing if available.
+- Persist after restart.
+- Staff/Manager+ only.
+
+Response:
+
+🌀 Teleport Saved
+Spot: dj
+Position updated to your current location.
+
+If position cannot be read:
+
+🌀 Teleport Save Failed
+Move your avatar first, then try again.
+
+Important:
+Do not call this a spawn in user-facing messages.
+
+==================================================
+PART 4 — DELETE TELEPORT SPOT
+==================================================
+
+Commands:
+
+!delete tele <spot>
+/delete tele <spot>
+
+Example:
+
+!delete tele dj
+
+Behavior:
+- Deletes saved teleport spot.
+- Staff/Manager+ only.
+
+Response:
+
+🗑️ Teleport Deleted
+Spot: dj
+
+If missing:
+
+❌ Teleport spot not found.
+
+==================================================
+PART 5 — LIST TELEPORTS
+==================================================
+
+Commands:
+
+!tele list
+/tele list
+
+Shows all saved teleports with permissions.
+
+Example:
+
+🌀 Saved Teleports
+1. dj — everyone
+2. vip — subs
+3. staffroom — staff
+4. casino — everyone
+
+Rules:
+- Show permission beside each spot.
+- Keep output short.
+- Split into multiple messages if needed.
+- Do not call them spawns.
+
+==================================================
+PART 6 — TELEPORT TO SAVED SPOT
+==================================================
+
+Commands:
+
+!tele <spot>
+/tele <spot>
+
+Example:
+
+!tele dj
+
+Behavior:
+- Teleports command user to saved teleport spot.
+- Checks permission for that spot.
+- Everyone can use public spots.
+- Locked spots require correct permission.
+
+Response:
+
+🌀 Teleporting you to dj...
+
+If missing:
+
+❌ Teleport spot not found.
+Use !tele list to see saved teleports.
+
+If locked:
+
+🔒 This teleport is restricted.
+
+==================================================
+PART 7 — TELEPORT TO PLAYER
+==================================================
+
+Commands:
+
+!tele @username
+/tele @username
+
+Example:
+
+!tele @Player
+
+Behavior:
+- Teleports the command user to the target player’s current position.
+- Target must currently be in the room.
+- Manager+ only by default.
+- Does not use saved teleport spots.
+- Does not require /setspawn.
+- Equivalent to existing /goto @username behavior.
+
+Response:
+
+✅ Teleported you to @Player.
+
+If target is missing:
+
+❌ @Player is not in the room.
+
+==================================================
+PART 8 — TELEPORT PLAYER TO COORDINATES
+==================================================
+
+Commands:
+
+!tele @username <x> <y> <z>
+/tele @username <x> <y> <z>
+
+Optional facing:
+
+!tele @username <x> <y> <z> <facing>
+/tele @username <x> <y> <z> <facing>
+
+Examples:
+
+!tele @Player 10 0 15
+!tele @Player 10 0 15 Front
