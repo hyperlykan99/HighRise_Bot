@@ -306,6 +306,8 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     "tp", "tpme", "tphere", "bring", "bringall", "tpall",
     "tprole", "tpvip", "tpstaff", "selftp", "goto", "groupteleport",
     "spawns", "spawn", "setspawn", "savepos", "delspawn", "spawninfo", "setspawncoords",
+    "tele", "create", "delete", "summon",
+    "tag", "setrolespawn", "rolespawn", "rolespawns", "delrolespawn",
     "staffonline", "vipsinroom", "rolelist", "players", "online", "roomlist",
     "emotes", "emote", "stopemote", "dance", "wave", "sit", "clap",
     "forceemote", "forceemoteall", "loopemote", "stoploop", "stopallloops",

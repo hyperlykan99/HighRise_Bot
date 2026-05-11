@@ -1872,6 +1872,36 @@ def _migrate_db():
             updated_at TEXT NOT NULL DEFAULT (datetime('now')),
             UNIQUE(scope, target)
         )""",
+        # ── Teleport / tag / role-spawn system ───────────────────────────────
+        "ALTER TABLE room_spawns ADD COLUMN permission TEXT DEFAULT 'everyone'",
+        """CREATE TABLE IF NOT EXISTS role_spawns (
+            role    TEXT PRIMARY KEY,
+            x       REAL NOT NULL DEFAULT 0,
+            y       REAL NOT NULL DEFAULT 0,
+            z       REAL NOT NULL DEFAULT 0,
+            facing  TEXT NOT NULL DEFAULT 'FrontLeft',
+            set_by  TEXT NOT NULL DEFAULT '',
+            set_at  TEXT NOT NULL DEFAULT (datetime('now'))
+        )""",
+        """CREATE TABLE IF NOT EXISTS room_tags (
+            tag_name          TEXT PRIMARY KEY,
+            created_by        TEXT NOT NULL DEFAULT '',
+            allow_member_edit INTEGER NOT NULL DEFAULT 0,
+            spawn_x           REAL,
+            spawn_y           REAL,
+            spawn_z           REAL,
+            spawn_facing      TEXT DEFAULT 'FrontLeft',
+            created_at        TEXT NOT NULL DEFAULT (datetime('now'))
+        )""",
+        """CREATE TABLE IF NOT EXISTS room_tag_members (
+            id        INTEGER PRIMARY KEY AUTOINCREMENT,
+            tag_name  TEXT NOT NULL DEFAULT '',
+            user_id   TEXT NOT NULL DEFAULT '',
+            username  TEXT NOT NULL DEFAULT '',
+            added_by  TEXT NOT NULL DEFAULT '',
+            added_at  TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE(tag_name, user_id)
+        )""",
     ]:
         try:
             conn.execute(sql)
@@ -8184,6 +8214,144 @@ def get_all_spawns() -> list:
     rows = conn.execute("SELECT * FROM room_spawns ORDER BY spawn_name").fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+
+def set_spawn_permission(name: str, permission: str) -> None:
+    conn = get_connection()
+    conn.execute(
+        "UPDATE room_spawns SET permission=? WHERE lower(spawn_name)=lower(?)",
+        (permission, name),
+    )
+    conn.commit()
+    conn.close()
+
+
+# ── Role spawns ───────────────────────────────────────────────────────────────
+
+def save_role_spawn(role: str, x: float, y: float, z: float,
+                    facing: str, set_by: str) -> None:
+    conn = get_connection()
+    conn.execute(
+        """INSERT OR REPLACE INTO role_spawns (role, x, y, z, facing, set_by, set_at)
+           VALUES (?, ?, ?, ?, ?, ?, datetime('now'))""",
+        (role, x, y, z, facing, set_by),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_role_spawn(role: str) -> dict | None:
+    conn = get_connection()
+    row  = conn.execute(
+        "SELECT * FROM role_spawns WHERE lower(role)=lower(?)", (role,)
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def get_all_role_spawns() -> list:
+    conn = get_connection()
+    rows = conn.execute("SELECT * FROM role_spawns ORDER BY role").fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def delete_role_spawn(role: str) -> None:
+    conn = get_connection()
+    conn.execute("DELETE FROM role_spawns WHERE lower(role)=lower(?)", (role,))
+    conn.commit()
+    conn.close()
+
+
+# ── Room tags ─────────────────────────────────────────────────────────────────
+
+def get_tag(name: str) -> dict | None:
+    conn = get_connection()
+    row  = conn.execute(
+        "SELECT * FROM room_tags WHERE lower(tag_name)=lower(?)", (name,)
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def create_tag(name: str, created_by: str) -> None:
+    conn = get_connection()
+    conn.execute(
+        """INSERT OR IGNORE INTO room_tags (tag_name, created_by, created_at)
+           VALUES (?, ?, datetime('now'))""",
+        (name, created_by),
+    )
+    conn.commit()
+    conn.close()
+
+
+def delete_tag(name: str) -> None:
+    conn = get_connection()
+    conn.execute("DELETE FROM room_tag_members WHERE lower(tag_name)=lower(?)", (name,))
+    conn.execute("DELETE FROM room_tags WHERE lower(tag_name)=lower(?)", (name,))
+    conn.commit()
+    conn.close()
+
+
+def get_all_tags() -> list:
+    conn = get_connection()
+    rows = conn.execute("SELECT * FROM room_tags ORDER BY tag_name").fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def add_tag_member(tag_name: str, user_id: str, username: str,
+                   added_by: str) -> None:
+    conn = get_connection()
+    conn.execute(
+        """INSERT OR IGNORE INTO room_tag_members
+           (tag_name, user_id, username, added_by, added_at)
+           VALUES (?, ?, ?, ?, datetime('now'))""",
+        (tag_name, user_id, username.lower(), added_by),
+    )
+    conn.commit()
+    conn.close()
+
+
+def remove_tag_member(tag_name: str, username: str) -> None:
+    conn = get_connection()
+    conn.execute(
+        "DELETE FROM room_tag_members WHERE lower(tag_name)=lower(?) AND lower(username)=lower(?)",
+        (tag_name, username),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_tag_members(tag_name: str) -> list:
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT * FROM room_tag_members WHERE lower(tag_name)=lower(?) ORDER BY added_at",
+        (tag_name,),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def set_tag_spawn(tag_name: str, x, y, z, facing) -> None:
+    conn = get_connection()
+    conn.execute(
+        """UPDATE room_tags SET spawn_x=?, spawn_y=?, spawn_z=?, spawn_facing=?
+           WHERE lower(tag_name)=lower(?)""",
+        (x, y, z, facing, tag_name),
+    )
+    conn.commit()
+    conn.close()
+
+
+def set_tag_allow_edit(tag_name: str, enabled: bool) -> None:
+    conn = get_connection()
+    conn.execute(
+        "UPDATE room_tags SET allow_member_edit=? WHERE lower(tag_name)=lower(?)",
+        (1 if enabled else 0, tag_name),
+    )
+    conn.commit()
+    conn.close()
 
 
 # ── Room bans ─────────────────────────────────────────────────────────────────

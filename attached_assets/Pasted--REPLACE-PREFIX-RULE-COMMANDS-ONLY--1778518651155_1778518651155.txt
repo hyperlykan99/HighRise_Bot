@@ -1,0 +1,167 @@
+==================================================
+REPLACE PREFIX RULE — ! COMMANDS ONLY
+==================================================
+
+New requirement:
+The sole command type should be:
+
+!command
+
+Do not use / commands in user-facing help, examples, or new command instructions.
+
+Important:
+- Player/staff-facing help should only show ! commands.
+- New teleport/tag commands should be documented only with ! prefix.
+- Bot replies should say examples using ! only.
+- Do not tell players to type / commands.
+
+Examples should be:
+
+!tele list
+!create tele dj
+!delete tele dj
+!summon @Player
+!tag create crewalpha
+
+Not:
+
+/tele list
+/create tele dj
+/delete tele dj
+/summon @Player
+/tag create crewalpha
+
+==================================================
+COMMAND PARSER BEHAVIOR
+==================================================
+
+Preferred:
+- New teleport/tag commands should be ! only.
+
+If old slash commands already exist internally:
+- Do not break old existing slash commands if the project depends on them.
+- But do not advertise slash commands anymore.
+- Do not show slash commands in help menus.
+- Do not use slash commands in examples.
+- ! commands must be the primary and official commands.
+
+For commandtest:
+- If /commandtest only works with slash because it is an internal debug command, keep it as-is.
+- But new player/staff commands should be ! style only.
+
+==================================================
+UPDATED TELEPORT COMMAND FORMAT
+==================================================
+
+Use only these in help and examples:
+
+!create tele <spot>
+!delete tele <spot>
+!tele list
+!tele <spot>
+!tele @username
+!tele @username <x> <y> <z> [facing]
+!tele permission <spot> everyone|subs|vip|staff|managers|owner
+!summon @username
+
+Role/group/tag teleports:
+
+!tele role <role> <spot>
+!tele group <group> <spot>
+!tele tag <tag> <spot>
+!tele tag <tag>
+
+Role tele positions:
+
+!setrolespawn <role> here
+!setrolespawn <role> <x> <y> <z> [facing]
+!rolespawn <role>
+!rolespawns
+!delrolespawn <role>
+
+Tags:
+
+!tag create <tag>
+!tag delete <tag>
+!tag add <tag> @username
+!tag remove <tag> @username
+!tag list
+!tag members <tag>
+!tag spawn <tag> here
+!tag spawn <tag> <x> <y> <z> [facing]
+!tag delspawn <tag>
+!tag allowedit <tag> on
+!tag allowedit <tag> off
+!tag setspawn <tag> here
+
+==================================================
+UPDATED HELP TEXT RULE
+==================================================
+
+All teleport/tag help should show ! commands only.
+
+Example help:
+
+🌀 Teleport Help
+!tele list
+!tele <spot>
+!tele @username
+!tele @username <x> <y> <z>
+!summon @username
+
+Staff:
+!create tele <spot>
+!delete tele <spot>
+!tele permission <spot> everyone|subs|vip|staff
+!tele role <role> <spot>
+
+Tags:
+!tag create <tag>
+!tag add <tag> @username
+!tag spawn <tag> here
+!tele tag <tag>
+
+Do not show /tele, /tag, /summon, /create, /delete in new help menus.
+
+==================================================
+UPDATED LIVE TESTS
+==================================================
+
+Use only ! commands for live tests:
+
+!create tele dj
+!tele list
+!tele dj
+!tele @Player
+!tele @Player 10 0 15
+!summon @Player
+!tele permission vip subs
+!delete tele dj
+
+!create tele stage
+!tele role staff stage
+!setrolespawn staff here
+!rolespawns
+!tele role staff
+!delrolespawn staff
+
+!tag create crewalpha
+!tag add crewalpha @Player
+!tag members crewalpha
+!tag spawn crewalpha here
+!tele tag crewalpha
+!tag allowedit crewalpha on
+!tag setspawn crewalpha here
+!tag remove crewalpha @Player
+!tag delete crewalpha
+
+==================================================
+SAFETY
+==================================================
+
+Do not:
+- show / commands in teleport/tag help
+- use / commands in examples
+- tell players to use / for new teleport/tag features
+- break existing internal slash commands if the project still needs them
+- leave ! commands without route or handler

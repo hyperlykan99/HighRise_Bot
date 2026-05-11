@@ -517,6 +517,13 @@ from modules.bot_modes import (
 from modules.msg_test import (
     handle_msgtest, handle_msgboxtest, handle_msgsplitpreview,
 )
+from modules.tele import (
+    handle_tele, handle_create_tele, handle_delete_tele,
+    handle_summon,
+    handle_setrolespawn, handle_rolespawn, handle_rolespawns, handle_delrolespawn,
+    handle_tag,
+    handle_teleporthelp_tele,
+)
 from modules.room_utils import (
     handle_tpme, handle_tp, handle_tphere, handle_goto,
     handle_bring, handle_bringall, handle_tpall,
@@ -2429,7 +2436,7 @@ class HangoutBot(BaseBot):
         # ── Direct bot outfit listener — runs first for non-host bots ──────────
         # Handles "BotUsername, copy my outfit" etc. without AI delegation.
         # Host/eventhost bots skip this and use the full AI path below.
-        if not message.startswith("/"):
+        if not (message.startswith("/") or message.startswith("!")):
             if await handle_direct_bot_outfit_chat(self, user, message):
                 return
 
@@ -2438,7 +2445,7 @@ class HangoutBot(BaseBot):
         if await handle_ai_intercept(self, user, message):
             return
 
-        if not message.startswith("/"):
+        if not (message.startswith("/") or message.startswith("!")):
             # Direct auto-game answer detection (no /answer prefix needed)
             await try_direct_answer(self, user, message)
             return
@@ -4866,6 +4873,26 @@ class HangoutBot(BaseBot):
             await handle_mypos(self, user, args)
         elif cmd == "positiondebug":
             await handle_positiondebug(self, user, args)
+
+        # ── Tele / tag / role-spawn system (!tele, !create tele, etc.) ──────────
+        elif cmd == "tele":
+            await handle_tele(self, user, args)
+        elif cmd == "create" and len(args) >= 3 and args[1].lower() == "tele":
+            await handle_create_tele(self, user, args)
+        elif cmd == "delete" and len(args) >= 3 and args[1].lower() == "tele":
+            await handle_delete_tele(self, user, args)
+        elif cmd == "summon":
+            await handle_summon(self, user, args)
+        elif cmd == "tag":
+            await handle_tag(self, user, args)
+        elif cmd == "setrolespawn":
+            await handle_setrolespawn(self, user, args)
+        elif cmd == "rolespawn":
+            await handle_rolespawn(self, user, args)
+        elif cmd == "rolespawns":
+            await handle_rolespawns(self, user)
+        elif cmd == "delrolespawn":
+            await handle_delrolespawn(self, user, args)
 
         # ── Teleport ──────────────────────────────────────────────────────────
         elif cmd == "tpme":
