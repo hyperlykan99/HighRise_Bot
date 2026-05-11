@@ -368,17 +368,15 @@ async def handle_subnotifystatus(bot, user, args: list[str] | None = None) -> No
 
     if sub in ("room", "whisper"):
         rows = db.get_sub_notif_logs_by_method(limit=5, method="whisper")
-        label = "In-Room Whisper Sends"
     elif sub == "dm":
         rows = db.get_sub_notif_logs_by_method(limit=5, method="dm")
-        label = "DM Sends"
-    elif sub == "noconversation":
+    elif sub in ("noconversation", "nodelivery", "nodm"):
         rows = db.get_sub_notif_no_conv_recipients(limit=10)
         if not rows:
-            await _w(bot, user.id, "🔔 No players missing conversations.")
+            await _w(bot, user.id, "🔔 No players with missing delivery route.")
             return
         names = [f"@{r.get('username','?')}" for r in rows]
-        await _w(bot, user.id, ("No DM conversation:\n" + "\n".join(names))[:249])
+        await _w(bot, user.id, ("No delivery route:\n" + "\n".join(names))[:249])
         return
     elif sub == "failed":
         rows = db.get_sub_notif_failed_recipients(limit=8)
@@ -392,7 +390,6 @@ async def handle_subnotifystatus(bot, user, args: list[str] | None = None) -> No
         return
     else:
         rows = db.get_sub_notif_logs(limit=5)
-        label = "latest"
 
     if not rows:
         await _w(bot, user.id, "🔔 No notifications sent yet.")
@@ -404,22 +401,19 @@ async def handle_subnotifystatus(bot, user, args: list[str] | None = None) -> No
     orig   = latest.get("original_sender_bot_name") or sender
     fb     = latest.get("fallback_used", 0)
 
-    lines  = [
-        "🔔 Notification Status",
-        f"Last: {cat}",
-        f"Sender: {sender}" if sender else "",
-    ]
+    lines = ["🔔 Notification Status", f"Last: {cat}"]
+    if sender:
+        lines.append(f"Sender: {sender}")
     if fb and orig and orig != sender:
-        lines.append(f"Original: {orig}")
-        lines.append("Fallback Used: YES")
+        lines += [f"Original: {orig}", "Fallback Used: YES"]
     lines += [
-        f"Whisper In Room: {latest.get('sent_whisper_count', 0)}",
-        f"DM Out of Room: {latest.get('sent_dm_count', 0)}",
+        f"Whisper Sent In Room: {latest.get('sent_whisper_count', 0)}",
+        f"Bulk DM Sent: {latest.get('sent_bulk_dm_count', 0)}",
+        f"Conv DM Sent: {latest.get('sent_conv_dm_count', 0)}",
+        f"No Delivery Route: {latest.get('no_delivery_route_count', latest.get('no_conversation_count', 0))}",
         f"Skipped: {latest.get('skipped_count', 0)}",
-        f"No Conversation: {latest.get('no_conversation_count', 0)}",
         f"Failed: {latest.get('failed_count', 0)}",
     ]
-    lines = [l for l in lines if l]
     await _w(bot, user.id, "\n".join(lines)[:249])
 
 
@@ -460,10 +454,20 @@ async def handle_testnotify(bot, user, args: list[str]) -> None:
     prefs      = db.get_sub_notif_prefs(uid) if uid else {}
     cat_on     = bool(prefs.get(cat, _default_enabled(cat)))
 
-    in_room    = _is_in_room(uid) if uid else False
+    conv_id    = sub_row.get("conversation_id", "") if sub_row else ""
+    in_room    = False
+    if uid:
+        # Use live SDK room check for test accuracy
+        live_ids = await _get_live_room_user_ids(bot)
+        in_room  = uid in live_ids
 
-    delivered = "NO"
-    reason    = ""
+    bulk_supported = hasattr(bot.highrise, "send_message_bulk")
+    conv_supported = hasattr(bot.highrise, "send_message")
+
+    delivered    = "NO"
+    delivery_method = "none"
+    status       = ""
+    reason       = ""
 
     if not subscribed:
         reason = "not_subscribed"
@@ -471,17 +475,61 @@ async def handle_testnotify(bot, user, args: list[str]) -> None:
         reason = "global_off"
     elif not cat_on:
         reason = "category_off"
-    elif in_room and uid:
+    elif not uid:
+        reason = "user_id_unknown"
+    elif in_room:
         full_msg = _build_full_msg(cat, f"[TEST] {msg_text}")
         try:
             await bot.highrise.send_whisper(uid, full_msg)
-            delivered = "sent_whisper_in_room"
+            delivered       = "YES"
+            delivery_method = "whisper"
+            status          = "sent_whisper_in_room"
         except Exception as exc:
-            reason = f"send_error: {str(exc)[:50]}"
-    elif uid:
-        reason = "no_conversation"
+            reason = f"whisper_error: {str(exc)[:40]}"
+    elif bulk_supported:
+        full_msg = _build_full_msg(cat, f"[TEST] {msg_text}")
+        try:
+            result = await bot.highrise.send_message_bulk([uid], full_msg)
+            is_error = result is not None and hasattr(result, "message")
+            if not is_error:
+                delivered       = "YES"
+                delivery_method = "bulk_dm"
+                status          = "sent_bulk_dm"
+            else:
+                reason = f"bulk_dm_error: {result}"
+        except Exception as exc:
+            reason = f"bulk_dm_exception: {str(exc)[:40]}"
+        if delivered == "NO" and conv_supported and conv_id:
+            full_msg = _build_full_msg(cat, f"[TEST] {msg_text}")
+            try:
+                result = await bot.highrise.send_message(conv_id, full_msg)
+                is_error = result is not None and hasattr(result, "message")
+                if not is_error:
+                    delivered       = "YES"
+                    delivery_method = "conversation_dm"
+                    status          = "sent_conversation_dm"
+                    reason          = ""
+                else:
+                    reason = "conversation_dm_error"
+            except Exception as exc:
+                reason = f"conv_dm_exception: {str(exc)[:40]}"
+        if delivered == "NO" and not reason:
+            reason = "no_delivery_route"
+    elif conv_supported and conv_id:
+        full_msg = _build_full_msg(cat, f"[TEST] {msg_text}")
+        try:
+            result = await bot.highrise.send_message(conv_id, full_msg)
+            is_error = result is not None and hasattr(result, "message")
+            if not is_error:
+                delivered       = "YES"
+                delivery_method = "conversation_dm"
+                status          = "sent_conversation_dm"
+            else:
+                reason = "conversation_dm_error"
+        except Exception as exc:
+            reason = f"conv_dm_exception: {str(exc)[:40]}"
     else:
-        reason = "user_id_unknown"
+        reason = "no_conversation" if not conv_id else "no_delivery_route"
 
     lines = [
         "🔔 Test Notify",
@@ -497,11 +545,12 @@ async def handle_testnotify(bot, user, args: list[str]) -> None:
         f"Global: {'ON' if global_on else 'OFF'}",
         f"Category {NOTIF_CATEGORIES.get(cat,cat)}: {'ON' if cat_on else 'OFF'}",
         f"Currently In Room: {'YES' if in_room else 'NO'}",
-        f"Delivery Used: {'whisper' if in_room and uid else 'none'}",
+        f"Bulk DM Supported: {'YES' if bulk_supported else 'NO'}",
+        f"Conversation ID: {'YES' if conv_id else 'NO'}",
+        f"Delivery Used: {delivery_method}",
         f"Delivered: {delivered}",
+        f"Status: {status}" if status else f"Reason: {reason}",
     ]
-    if reason and delivered == "NO":
-        lines.append(f"Reason: {reason}")
     await _w(bot, user.id, "\n".join(lines)[:249])
 
 
@@ -564,24 +613,17 @@ async def _do_send(bot, sender, cat: str, msg_text: str, *, send_type: str = "no
 
     if deliver_here:
         # Deliver from this bot's connection
-        sent_dm, sent_whisper, skipped, no_conv, unsupported, failed = \
+        sent_w, sent_b, sent_c, no_del, skipped, failed = \
             await _do_deliver_notif(bot, cat, full_msg, log_id)
 
         db.update_sub_notif_log_v2(
-            log_id, sent_dm, sent_whisper, skipped, no_conv, unsupported, failed
+            log_id, sent_w, sent_b, sent_c, no_del, skipped, failed
         )
         _NOTIF_COOLDOWN[cat] = _time.time()
 
-        total_sent = sent_dm + sent_whisper
-        total_subs = len(await _load_subs())
-
-        fb_note = ""
-        if fallback_used:
-            fb_note = f"\n⚠️ Fallback: {original_bot} offline"
-
-        _report_delivery(bot, sender, cat, total_subs, sent_dm, sent_whisper,
-                         skipped, no_conv, unsupported, failed,
-                         sender_bot_name, fb_note)
+        fb_note = f"\n⚠️ Fallback: {original_bot} offline" if fallback_used else ""
+        _report_delivery(bot, sender, cat, sent_w, sent_b, sent_c,
+                         no_del, skipped, failed, sender_bot_name, fb_note)
     else:
         # Dispatch to the target bot via Highrise channel
         payload = json.dumps({
@@ -608,14 +650,14 @@ async def _do_send(bot, sender, cat: str, msg_text: str, *, send_type: str = "no
         except Exception as exc:
             # Channel send failed — deliver here as emergency fallback
             print(f"[SUB_NOTIF] Channel dispatch failed: {exc}; delivering locally.")
-            sent_dm, sent_whisper, skipped, no_conv, unsupported, failed = \
+            sent_w, sent_b, sent_c, no_del, skipped, failed = \
                 await _do_deliver_notif(bot, cat, full_msg, log_id)
             db.update_sub_notif_log_v2(
-                log_id, sent_dm, sent_whisper, skipped, no_conv, unsupported, failed
+                log_id, sent_w, sent_b, sent_c, no_del, skipped, failed
             )
             _NOTIF_COOLDOWN[cat] = _time.time()
-            _report_delivery(bot, sender, cat, 0, sent_dm, sent_whisper,
-                             skipped, no_conv, unsupported, failed,
+            _report_delivery(bot, sender, cat, sent_w, sent_b, sent_c,
+                             no_del, skipped, failed,
                              sender_bot_name, "\n⚠️ Channel failed — local fallback")
 
 
@@ -626,33 +668,54 @@ async def _load_subs() -> list[dict]:
         return []
 
 
-def _report_delivery(bot, sender, cat, total_subs, sent_dm, sent_whisper,
-                     skipped, no_conv, unsupported, failed,
+async def _get_live_room_user_ids(bot) -> set[str]:
+    """Return the set of user IDs currently in the room.
+    Uses SDK get_room_users() as source of truth, falls back to _user_positions."""
+    try:
+        resp = await bot.highrise.get_room_users()
+        if hasattr(resp, "content"):
+            return {item[0].id for item in resp.content}
+    except Exception as exc:
+        print(f"[SUB_NOTIF] get_room_users failed ({exc}); using _user_positions fallback")
+    try:
+        from modules.room_utils import _user_positions
+        return set(_user_positions.keys())
+    except Exception:
+        return set()
+
+
+def _report_delivery(bot, sender, cat, sent_whisper, sent_bulk_dm,
+                     sent_conv_dm, no_delivery, skipped, failed,
                      sender_bot_name, extra_note="") -> None:
     """Fire-and-forget summary whisper to the staff member who triggered the send."""
     cat_label  = NOTIF_CATEGORIES[cat]
-    total_sent = sent_dm + sent_whisper
+    total_sent = sent_whisper + sent_bulk_dm + sent_conv_dm
 
-    if total_subs == 0:
-        msg = "🔔 Subscriber Notification\nNo subscribed players found."
-    elif total_sent == 0 and no_conv > 0 and failed == 0:
+    if total_sent == 0 and skipped == 0 and failed == 0:
         msg = (
             f"🔔 Subscriber Notification\n"
-            f"No players in room for {cat_label}.\n"
-            f"No Conversation: {no_conv} | Skipped: {skipped}"
+            f"No messages delivered.\n"
+            f"No eligible subscribed players in room and out-of-room DM unavailable.\n"
+            f"No Delivery Route: {no_delivery}"
+        )
+    elif total_sent == 0:
+        msg = (
+            f"🔔 Subscriber Notification\n"
+            f"Not delivered.\n"
+            f"No Delivery Route: {no_delivery} | Skipped: {skipped} | Failed: {failed}"
         )
     else:
         msg = (
             f"🔔 Notification Complete\n"
             f"Category: {cat_label}\n"
             f"Sender: {sender_bot_name}\n"
-            f"Whisper: {sent_whisper} | DM: {sent_dm}\n"
-            f"Skipped: {skipped} | No Conv: {no_conv}\n"
+            f"Whisper In Room: {sent_whisper}\n"
+            f"Bulk DM: {sent_bulk_dm} | Conv DM: {sent_conv_dm}\n"
+            f"Skipped: {skipped} | No Route: {no_delivery}\n"
             f"Failed: {failed}"
         )
     if extra_note:
         msg = (msg + extra_note)[:249]
-
     asyncio.ensure_future(_w(bot, sender.id, msg[:249]))
 
 
@@ -667,8 +730,15 @@ async def _do_deliver_notif(
     log_id: int,
 ) -> tuple[int, int, int, int, int, int]:
     """
-    Deliver a subscriber notification whisper to all eligible in-room subscribers.
-    Returns (sent_dm, sent_whisper, skipped, no_conv, unsupported, failed).
+    Deliver a subscriber notification to all eligible subscribers.
+
+    Priority per player:
+      1. In room        → send_whisper (status=sent_whisper_in_room)
+      2. Out of room    → send_message_bulk if SDK supports it (status=sent_bulk_dm)
+      3. Out of room    → send_message via conversation_id (status=sent_conversation_dm)
+      4. No route       → status=no_delivery_route
+
+    Returns (sent_whisper, sent_bulk_dm, sent_conv_dm, no_delivery, skipped, failed).
     """
     try:
         subscribers = db.get_all_subscribed_users_for_notify()
@@ -676,7 +746,16 @@ async def _do_deliver_notif(
         print(f"[SUB_NOTIF] Error loading subscribers: {exc}")
         return 0, 0, 0, 0, 0, 0
 
-    sent_dm = sent_whisper = skipped = no_conv = unsupported = failed = 0
+    # Refresh live room membership once before the loop
+    room_ids = await _get_live_room_user_ids(bot)
+
+    bulk_supported = hasattr(bot.highrise, "send_message_bulk")
+    conv_supported = hasattr(bot.highrise, "send_message")
+
+    sent_whisper = sent_bulk_dm = sent_conv_dm = no_delivery = skipped = failed = 0
+
+    # Separate eligible out-of-room users for one bulk DM call
+    out_of_room_eligible: list[dict] = []
 
     for sub in subscribers:
         uid   = sub.get("user_id", "")
@@ -684,7 +763,7 @@ async def _do_deliver_notif(
         if not uid:
             continue
 
-        # Global preference
+        # ── Global preference ────────────────────────────────────────────────
         global_row = db.get_sub_notif_global(uid)
         if not global_row.get("global_enabled", 1):
             skipped += 1
@@ -693,7 +772,7 @@ async def _do_deliver_notif(
             )
             continue
 
-        # Category preference
+        # ── Category preference ──────────────────────────────────────────────
         prefs = db.get_sub_notif_prefs(uid)
         if not prefs.get(cat, _default_enabled(cat)):
             skipped += 1
@@ -702,9 +781,8 @@ async def _do_deliver_notif(
             )
             continue
 
-        # Delivery
-        in_room = _is_in_room(uid)
-        if in_room:
+        # ── 1. In-room whisper ───────────────────────────────────────────────
+        if uid in room_ids:
             try:
                 await bot.highrise.send_whisper(uid, full_msg)
                 sent_whisper += 1
@@ -714,22 +792,83 @@ async def _do_deliver_notif(
                 )
             except Exception as exc:
                 err = str(exc)[:120]
-                traceback.print_exc()
                 failed += 1
                 db.log_sub_notif_recipient_v2(
                     log_id, uid, uname, cat, 1, 1, 1,
                     "whisper", "failed", err
                 )
+            await asyncio.sleep(0.05)
+            continue
+
+        # ── Out-of-room: queue for bulk DM attempt ───────────────────────────
+        out_of_room_eligible.append(sub)
+
+    # ── 2. Bulk DM for out-of-room subscribers ────────────────────────────────
+    remaining_for_conv: list[dict] = []
+
+    if bulk_supported and out_of_room_eligible:
+        uids_to_bulk = [s["user_id"] for s in out_of_room_eligible]
+        try:
+            result = await bot.highrise.send_message_bulk(uids_to_bulk, full_msg)
+            # None = success; Error object = failure
+            is_error = result is not None and hasattr(result, "message")
+            if not is_error:
+                for s in out_of_room_eligible:
+                    uid, uname = s["user_id"], s.get("username", "?")
+                    sent_bulk_dm += 1
+                    db.log_sub_notif_recipient_v2(
+                        log_id, uid, uname, cat, 1, 1, 1,
+                        "bulk_dm", "sent_bulk_dm", ""
+                    )
+                # All handled — nothing left for conversation DM
+            else:
+                print(f"[SUB_NOTIF] send_message_bulk error: {result}")
+                remaining_for_conv = out_of_room_eligible
+        except Exception as exc:
+            print(f"[SUB_NOTIF] send_message_bulk exception: {exc}")
+            remaining_for_conv = out_of_room_eligible
+    else:
+        remaining_for_conv = out_of_room_eligible
+
+    # ── 3. Conversation DM fallback ───────────────────────────────────────────
+    for s in remaining_for_conv:
+        uid     = s.get("user_id", "")
+        uname   = s.get("username", "?")
+        conv_id = s.get("conversation_id") or ""
+
+        if conv_supported and conv_id:
+            try:
+                result = await bot.highrise.send_message(conv_id, full_msg)
+                is_error = result is not None and hasattr(result, "message")
+                if not is_error:
+                    sent_conv_dm += 1
+                    db.log_sub_notif_recipient_v2(
+                        log_id, uid, uname, cat, 1, 1, 1,
+                        "conversation_dm", "sent_conversation_dm", ""
+                    )
+                else:
+                    no_delivery += 1
+                    db.log_sub_notif_recipient_v2(
+                        log_id, uid, uname, cat, 1, 1, 1,
+                        "none", "no_conversation", str(result)[:80]
+                    )
+            except Exception as exc:
+                failed += 1
+                db.log_sub_notif_recipient_v2(
+                    log_id, uid, uname, cat, 1, 1, 1,
+                    "conversation_dm", "failed", str(exc)[:80]
+                )
         else:
-            no_conv += 1
+            no_delivery += 1
+            reason = "no_conversation" if not conv_id else "unsupported_conversation_dm"
             db.log_sub_notif_recipient_v2(
                 log_id, uid, uname, cat, 1, 1, 1,
-                "none", "no_conversation", ""
+                "none", reason, ""
             )
 
         await asyncio.sleep(0.05)
 
-    return sent_dm, sent_whisper, skipped, no_conv, unsupported, failed
+    return sent_whisper, sent_bulk_dm, sent_conv_dm, no_delivery, skipped, failed
 
 
 # ---------------------------------------------------------------------------
@@ -751,8 +890,6 @@ async def handle_notif_dispatch_channel(bot, payload: dict) -> None:
     full_msg       = payload.get("full_msg", "")
     log_id         = int(payload.get("log_id", 0))
     sender_bot     = payload.get("sender_bot_name", "")
-    original_bot   = payload.get("original_sender_bot_name", sender_bot)
-    fallback_used  = int(payload.get("fallback_used", 0))
 
     if not cat or not full_msg or not log_id:
         print(f"[SUB_NOTIF] notif_dispatch: missing fields {payload}")
@@ -760,15 +897,16 @@ async def handle_notif_dispatch_channel(bot, payload: dict) -> None:
 
     print(f"[SUB_NOTIF] notif_dispatch received: cat={cat} mode={target_mode} log_id={log_id}")
 
-    sent_dm, sent_whisper, skipped, no_conv, unsupported, failed = \
+    sent_whisper, sent_bulk_dm, sent_conv_dm, no_delivery, skipped, failed = \
         await _do_deliver_notif(bot, cat, full_msg, log_id)
 
     db.update_sub_notif_log_v2(
-        log_id, sent_dm, sent_whisper, skipped, no_conv, unsupported, failed
+        log_id, sent_whisper, sent_bulk_dm, sent_conv_dm, no_delivery, skipped, failed
     )
     _NOTIF_COOLDOWN[cat] = _time.time()
 
     print(
-        f"[SUB_NOTIF] dispatch delivered: cat={cat} whisper={sent_whisper} "
-        f"skipped={skipped} no_conv={no_conv} failed={failed}"
+        f"[SUB_NOTIF] dispatch done: cat={cat} whisper={sent_whisper} "
+        f"bulk_dm={sent_bulk_dm} conv_dm={sent_conv_dm} "
+        f"no_route={no_delivery} skipped={skipped} failed={failed}"
     )

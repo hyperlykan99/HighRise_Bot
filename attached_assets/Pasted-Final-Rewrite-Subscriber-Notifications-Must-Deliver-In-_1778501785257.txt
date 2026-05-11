@@ -1,0 +1,317 @@
+Final Rewrite — Subscriber Notifications Must Deliver In-Room Whispers
+
+Current issue:
+Players subscribed to notifications are still not receiving bot direct messages, even if they have directly messaged the bot before.
+
+Problem:
+Highrise DM/conversation delivery is unreliable or not implemented correctly.
+The bot should not depend on conversation DM for players who are currently in the room.
+
+Goal:
+Rewrite notification delivery so subscribed players currently in the room always receive whispers.
+Out-of-room delivery should try SDK bulk/user DM if available, then conversation DM if available, otherwise log unavailable.
+
+Do not change bot tokens.
+Do not change room ID.
+Do not reset subscriptions.
+Do not wipe notification preferences.
+Do not wipe notification logs.
+Do not break /notif, /notifon, /notifoff, /notifall, /subnotify, /subnotifyinvite, /subnotifystatus, or /testnotify.
+
+==================================================
+PART 1 — DELIVERY PRIORITY
+==================================================
+
+New delivery priority:
+
+1. If eligible subscribed player is currently in room:
+   - send whisper
+   - status = sent_whisper_in_room
+   - delivery_method = whisper
+   - do not require conversation_id
+   - do not attempt DM first
+
+2. If player is not currently in room:
+   - try Highrise send_message_bulk to user_id if SDK supports it
+   - if successful:
+     status = sent_bulk_dm
+     delivery_method = bulk_dm
+
+3. If bulk DM unavailable or fails:
+   - try conversation DM using saved conversation_id
+   - if successful:
+     status = sent_conversation_dm
+     delivery_method = conversation_dm
+
+4. If no delivery works:
+   - status = no_delivery_route
+   - do not count as sent
+
+Never mark logged-only as sent.
+
+==================================================
+PART 2 — ROOM USER DETECTION
+==================================================
+
+Before sending /subnotify, refresh current room users.
+
+Use the best available method:
+- highrise.get_room_users()
+- existing room user tracker
+- on_user_join/on_user_leave tracker
+- on_chat recent seen tracker
+
+If SDK supports get_room_users:
+Use it as source of truth.
+
+If not:
+Use current_room_users memory plus recent_seen within 10 minutes.
+
+If user is found in room:
+send whisper.
+
+==================================================
+PART 3 — SEND WHISPER TO IN-ROOM PLAYERS
+==================================================
+
+For each eligible player in room:
+
+await bot.highrise.send_whisper(user_id, message)
+
+Log:
+status = sent_whisper_in_room
+delivery_method = whisper
+sender_bot_name = selected category bot
+
+This must work even if:
+- player has no DM conversation
+- conversation_id is missing
+- DM SDK is unavailable
+
+==================================================
+PART 4 — OUT-OF-ROOM DELIVERY
+==================================================
+
+For eligible players not in room:
+
+First try bulk/user DM if SDK supports it.
+
+Check for method availability safely:
+- hasattr(bot.highrise, "send_message_bulk")
+
+If available:
+- send to user_id
+- use message_type text or required SDK format
+- if invite command, use invite type + room_id/world_id if available
+
+If not available:
+- skip to conversation DM attempt
+
+Then try conversation DM:
+- use saved conversation_id only
+- call send_message(conversation_id, message, type="text")
+- if conversation not found, log no_conversation
+
+Statuses:
+- sent_bulk_dm
+- sent_conversation_dm
+- no_conversation
+- unsupported_bulk_dm
+- unsupported_conversation_dm
+- failed
+
+==================================================
+PART 5 — NO FAKE SUCCESS
+==================================================
+
+Do not say:
+Sent: 10
+
+unless 10 players actually received whisper or DM.
+
+Separate counts:
+
+Whisper Sent In Room
+Bulk DM Sent Out of Room
+Conversation DM Sent Out of Room
+No Delivery Route
+Failed
+Skipped Opt-Out
+Skipped Not Subscribed
+
+==================================================
+PART 6 — /subnotify SUMMARY
+==================================================
+
+After /subnotify, reply:
+
+EmceeBot:
+🔔 Subscriber Notification Complete
+Category: Events
+Whisper Sent In Room: 5
+Bulk DM Sent Out of Room: 0
+Conversation DM Sent Out of Room: 0
+Skipped Opt-Out: 3
+No Delivery Route: 4
+Failed: 1
+
+If only in-room whispers work, that is fine.
+
+If no one received:
+
+EmceeBot:
+🔔 Subscriber Notification
+No messages were delivered.
+Reason: No eligible subscribed players currently in room and out-of-room DM is unavailable.
+
+==================================================
+PART 7 — /testnotify MUST BE HONEST
+==================================================
+
+/testnotify @username events Test message
+
+Should report:
+
+EmceeBot:
+🔔 Test Notify
+Target: @username
+Subscribed: YES
+Global: ON
+Category Events: ON
+Currently In Room: YES
+Delivery Used: whisper
+Delivered: YES
+Status: sent_whisper_in_room
+
+If not in room:
+
+Currently In Room: NO
+Bulk DM Supported: YES/NO
+Conversation ID: YES/NO
+Delivery Used: bulk_dm / conversation_dm / none
+Delivered: YES/NO
+Status: sent_bulk_dm / sent_conversation_dm / no_delivery_route / failed
+
+==================================================
+PART 8 — CATEGORY BOT ROUTING STILL APPLIES
+==================================================
+
+Keep job-based sender routing:
+
+mining = GreatestProspector
+fishing = MasterAngler
+events = EventBot or EmceeBot
+firsthunt = EmceeBot
+rewards = BankerBot
+donations = BankerBot
+blackjack = BlackJackBot
+poker = PokerBot
+security = SecurityBot
+updates = EmceeBot
+
+If selected bot is online:
+- selected bot sends whisper/DM
+
+If selected bot is unavailable:
+- fallback to EmceeBot
+- log fallback_used = 1
+
+==================================================
+PART 9 — DATABASE / LOGGING
+==================================================
+
+Update logs with delivery method.
+
+subscriber_notification_recipients should include statuses:
+
+- sent_whisper_in_room
+- sent_bulk_dm
+- sent_conversation_dm
+- skipped_not_subscribed
+- skipped_category_off
+- skipped_global_off
+- no_conversation
+- no_delivery_route
+- unsupported_bulk_dm
+- unsupported_conversation_dm
+- failed
+
+Log columns:
+- sender_bot_name
+- original_sender_bot_name
+- fallback_used
+- delivery_method
+- status
+- error
+
+Do safe migrations only.
+Do not wipe old logs.
+
+==================================================
+PART 10 — /subnotifystatus
+==================================================
+
+Show latest delivery breakdown:
+
+EmceeBot:
+🔔 Notification Status
+Last: Events
+Sender: EmceeBot
+Whisper Sent In Room: 5
+Bulk DM Sent: 0
+Conversation DM Sent: 0
+No Delivery Route: 4
+Failed: 1
+
+Add:
+/subnotifystatus room
+/subnotifystatus dm
+/subnotifystatus failed
+/subnotifystatus nodelivery
+
+==================================================
+PART 11 — TEST CASES
+==================================================
+
+Test with player currently in room:
+
+/notifon events
+/testnotify @4ktreyMarion events Test whisper
+
+Expected:
+Delivered: YES
+Delivery Used: whisper
+Status: sent_whisper_in_room
+
+Test category blast:
+
+/subnotify events First Hunt starts in 5 minutes!
+
+Expected:
+All eligible subscribed players currently in room receive whispers.
+
+Test out-of-room:
+Use a subscribed player not in room.
+
+Expected:
+If bulk DM works, sent_bulk_dm.
+If conversation DM works, sent_conversation_dm.
+If neither works, no_delivery_route.
+
+==================================================
+FINAL REPORT
+==================================================
+
+After finishing, tell me:
+
+1. Files changed
+2. Why previous DM delivery failed
+3. Whether get_room_users is supported
+4. Whether send_message_bulk is supported
+5. Whether conversation DM is supported
+6. How in-room whisper delivery works
+7. How out-of-room delivery works
+8. How category bot routing works
+9. Results of /testnotify
+10. Results of /subnotifystatus
+11. Results of /checkcommands all

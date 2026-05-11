@@ -1762,6 +1762,10 @@ def _migrate_db():
         "ALTER TABLE subscriber_notification_logs ADD COLUMN sender_bot_name TEXT DEFAULT ''",
         "ALTER TABLE subscriber_notification_logs ADD COLUMN original_sender_bot_name TEXT DEFAULT ''",
         "ALTER TABLE subscriber_notification_logs ADD COLUMN fallback_used INTEGER DEFAULT 0",
+        # ── subscriber_notification_logs: per-method delivery counts ──────────
+        "ALTER TABLE subscriber_notification_logs ADD COLUMN sent_bulk_dm_count INTEGER DEFAULT 0",
+        "ALTER TABLE subscriber_notification_logs ADD COLUMN sent_conv_dm_count INTEGER DEFAULT 0",
+        "ALTER TABLE subscriber_notification_logs ADD COLUMN no_delivery_route_count INTEGER DEFAULT 0",
         # ── subscriber_notification_recipients: sender bot tracking ───────────
         "ALTER TABLE subscriber_notification_recipients ADD COLUMN sender_bot_name TEXT DEFAULT ''",
         "ALTER TABLE subscriber_notification_recipients ADD COLUMN original_sender_bot_name TEXT DEFAULT ''",
@@ -5857,11 +5861,13 @@ def set_subscriber_last_dm(username: str) -> None:
 
 
 def get_all_subscribed_with_dm() -> list[dict]:
-    """Return all subscribers who have subscribed=1, conversation_id, and dm_available=1."""
+    """Return subscribers who have an active DM conversation (dm_available=1)."""
     conn = get_connection()
     rows = conn.execute(
         """SELECT * FROM subscriber_users
-           WHERE subscribed = 1 AND conversation_id IS NOT NULL AND dm_available = 1
+           WHERE subscribed = 1
+             AND conversation_id IS NOT NULL
+             AND dm_available = 1
            ORDER BY subscribed_at ASC""",
     ).fetchall()
     conn.close()
@@ -10384,10 +10390,13 @@ def set_sub_notif_global(user_id: str, username: str, enabled: int) -> None:
 # ── Get all subscribed users for notification delivery ────────────────────────
 
 def get_all_subscribed_users_for_notify() -> list[dict]:
-    """Return all subscribed users (subscribed=1, user_id not empty) for notification delivery."""
+    """Return all subscribed users (subscribed=1, user_id not empty) for notification delivery.
+    Includes conversation_id so the delivery engine can attempt out-of-room DM.
+    Does NOT filter on dm_available — the delivery engine handles in-room whisper first."""
     conn = get_connection()
     rows = conn.execute(
-        """SELECT user_id, username FROM subscriber_users
+        """SELECT user_id, username, conversation_id, dm_available
+           FROM subscriber_users
            WHERE subscribed = 1
              AND user_id IS NOT NULL
              AND user_id != ''
@@ -10432,27 +10441,32 @@ def log_sub_notification_v2(
 
 def update_sub_notif_log_v2(
     log_id: int,
-    sent_dm: int,
     sent_whisper: int,
+    sent_bulk_dm: int,
+    sent_conv_dm: int,
+    no_delivery: int,
     skipped: int,
-    no_conv: int,
-    unsupported_sdk: int,
     failed: int,
 ) -> None:
     """Update counts on an existing notification log row."""
+    total_dm   = sent_bulk_dm + sent_conv_dm
+    total_sent = sent_whisper + total_dm
     conn = get_connection()
     conn.execute(
         """UPDATE subscriber_notification_logs SET
-               sent_count          = ?,
-               sent_dm_count       = ?,
-               sent_whisper_count  = ?,
-               skipped_count       = ?,
-               no_conversation_count = ?,
-               unsupported_sdk_count = ?,
-               failed_count        = ?
+               sent_count              = ?,
+               sent_dm_count           = ?,
+               sent_whisper_count      = ?,
+               sent_bulk_dm_count      = ?,
+               sent_conv_dm_count      = ?,
+               skipped_count           = ?,
+               no_conversation_count   = ?,
+               no_delivery_route_count = ?,
+               failed_count            = ?
            WHERE id = ?""",
-        (sent_dm + sent_whisper, sent_dm, sent_whisper,
-         skipped, no_conv, unsupported_sdk, failed, log_id),
+        (total_sent, total_dm, sent_whisper,
+         sent_bulk_dm, sent_conv_dm,
+         skipped, no_delivery, no_delivery, failed, log_id),
     )
     conn.commit()
     conn.close()
