@@ -108,14 +108,23 @@ def _get_routing(category: str, rarity: str) -> str:
 
 async def send_big_mine_announce(bot, rarity: str, username: str,
                                   item_name: str, item_emoji: str = "💎",
-                                  extra: str = "") -> None:
-    """Room-announce a big mining find based on per-rarity routing mode."""
+                                  extra: str = "",
+                                  colored_name: str = "") -> None:
+    """Room-announce a big mining find based on per-rarity routing mode.
+    colored_name: pre-formatted name with color tags (from mining_colors.format_ore_name).
+    """
     mode = _get_routing("mining", rarity)
     if mode == "off":
         return
-    rar_label = rarity.replace("_", " ").upper()
+    try:
+        from modules.mining_colors import format_mining_rarity, format_ore_name
+        rar_label   = format_mining_rarity(rarity)
+        display_name = colored_name or format_ore_name(item_name, rarity)
+    except Exception:
+        rar_label    = f"[{rarity.replace('_', ' ').upper()}]"
+        display_name = colored_name or item_name
     ann = (f"📣 Big Find\n"
-           f"{item_emoji} @{username} mined [{rar_label}] {item_name}{extra}")
+           f"{item_emoji} @{username} mined {rar_label} {display_name}{extra}")
     if mode in ("miner_only", "all_bots"):
         try:
             await bot.highrise.chat(ann[:249])
@@ -130,14 +139,23 @@ async def send_big_mine_announce(bot, rarity: str, username: str,
 
 async def send_big_fish_announce(bot, rarity: str, username: str,
                                   fish_name: str, fish_emoji: str = "🐟",
-                                  extra: str = "") -> None:
-    """Room-announce a big fishing catch based on per-rarity routing mode."""
+                                  extra: str = "",
+                                  colored_name: str = "") -> None:
+    """Room-announce a big fishing catch based on per-rarity routing mode.
+    colored_name: pre-formatted name with color tags (from fishing._name_colored).
+    """
     mode = _get_routing("fishing", rarity)
     if mode == "off":
         return
-    rar_label = rarity.replace("_", " ").upper()
+    try:
+        from modules.fishing import _rarity_label as _fish_rar_label, _name_colored
+        rar_label    = _fish_rar_label(rarity)
+        display_name = colored_name or _name_colored(rarity, fish_name)
+    except Exception:
+        rar_label    = f"[{rarity.replace('_', ' ').upper()}]"
+        display_name = colored_name or fish_name
     ann = (f"📣 Big Catch\n"
-           f"{fish_emoji} @{username} caught [{rar_label}] {fish_name}{extra}")
+           f"{fish_emoji} @{username} caught {rar_label} {display_name}{extra}")
     if mode in ("fishing_only", "all_bots"):
         try:
             await bot.highrise.chat(ann[:249])

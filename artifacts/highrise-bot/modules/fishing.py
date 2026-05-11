@@ -504,11 +504,24 @@ async def handle_fish(bot: BaseBot, user: User) -> None:
     if rarity_info.get("announce"):
         extra = f" — {weight}lb, {_fmt(value)}c"
         try:
+            _fish_colored = _name_colored(fish["rarity"], fish["name"])
             await send_big_fish_announce(
                 bot, fish["rarity"], uname,
-                fish["name"], fish.get("emoji", "🐟"), extra)
+                fish["name"], fish.get("emoji", "🐟"), extra,
+                colored_name=_fish_colored)
         except Exception as _bae:
             print(f"[FISH] big_announce error: {_bae}")
+    # Hype trigger for mythic/prismatic/exotic fish
+    if fish["rarity"] in ("mythic", "prismatic", "exotic"):
+        try:
+            from modules.hype import trigger_hype as _trig_hype
+            _hc = _name_colored(fish["rarity"], fish["name"])
+            asyncio.create_task(_trig_hype(
+                bot, uname, user.id, "fishing",
+                fish["rarity"], fish["name"], _hc,
+            ))
+        except Exception:
+            pass
 
 
 # ---------------------------------------------------------------------------
@@ -1105,6 +1118,14 @@ async def _autofish_loop(bot: BaseBot, user: User) -> None:
     uname     = user.username
     max_att   = int(_get_af_setting("autofish_max_attempts",   "30"))
     max_mins  = int(_get_af_setting("autofish_duration_minutes", "30"))
+    # Cap session duration by VIP/farm-boost tier
+    try:
+        from modules.farm_boost import get_farm_limit_with_boost
+        _farm_cap, _ = get_farm_limit_with_boost(uid)
+        if max_mins > _farm_cap:
+            max_mins = _farm_cap
+    except Exception:
+        pass
     start_t   = datetime.now(timezone.utc)
     attempts  = 0
 
@@ -1219,11 +1240,24 @@ async def _autofish_loop(bot: BaseBot, user: User) -> None:
             if rinfo.get("announce"):
                 extra = f" — {weight}lb, {_fmt(value)}c"
                 try:
+                    _af_colored = _name_colored(fish["rarity"], fish["name"])
                     await send_big_fish_announce(
                         bot, fish["rarity"], uname,
-                        fish["name"], fish["emoji"], extra)
+                        fish["name"], fish["emoji"], extra,
+                        colored_name=_af_colored)
                 except Exception as _bae:
                     print(f"[AUTOFISH] big_announce error: {_bae}")
+            # Hype trigger for rare autofish catches
+            if fish["rarity"] in ("mythic", "prismatic", "exotic"):
+                try:
+                    from modules.hype import trigger_hype as _trig_hype_af
+                    _hc_af = _name_colored(fish["rarity"], fish["name"])
+                    asyncio.create_task(_trig_hype_af(
+                        bot, uname, uid, "fishing",
+                        fish["rarity"], fish["name"], _hc_af,
+                    ))
+                except Exception:
+                    pass
 
             await asyncio.sleep(cooldown + 1)
 

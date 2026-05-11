@@ -1,0 +1,1626 @@
+UPDATE 2.1 — Retention + Monetization Support + Hype System + Farm Monetization
+
+Main goals:
+1. Daily/weekly missions
+2. Player profile cards
+3. VIP/supporter raffles
+4. Room activity stats
+5. Sponsor/donation leaderboards
+6. Party mode
+7. Economy abuse protection
+8. New player onboarding
+9. Monetized longer AutoMine / AutoFish farming
+10. Mythic+ Hype System
+11. Preserve colored ore/fish names in big announcements
+12. Gold Tip Owner Only
+13. Teleports Owned by Host
+14. Basic player bot profile command bios
+
+Do not change bot tokens.
+Do not change room ID.
+Do not wipe balances.
+Do not wipe player data.
+Do not wipe reward logs.
+Do not wipe subscriptions.
+Do not wipe notification preferences.
+Do not wipe notification logs.
+Do not wipe saved teleports/spawns.
+Do not wipe mining data.
+Do not wipe fishing data.
+Do not wipe inventories.
+Do not wipe VIP logs.
+Do not wipe donation logs.
+Do not expose secrets, tokens, env vars, or room ID.
+Do not leave commands with no route or owner UNKNOWN.
+Use ! commands only in all help, usage, and bot messages.
+
+==================================================
+PART 1 — DAILY / WEEKLY MISSIONS
+==================================================
+
+Add daily and weekly missions.
+
+Commands:
+
+!missions
+!daily
+!weekly
+!claimmission
+!missionstatus
+
+Mission examples:
+- Mine 10 times
+- Fish 10 times
+- Play 3 blackjack hands
+- Join room 3 days in a row
+- Tip/donate once
+- Join one event
+- Stay in room for 30 minutes
+- Enter raffle once
+
+Rewards:
+- coins
+- XP
+- raffle tickets
+- small temporary boosts
+- supporter points
+
+Rules:
+- Missions reset daily/weekly.
+- Do not make rewards too high.
+- VIP can get extra mission slots, but not unfair payouts.
+- Mission progress must persist.
+- Mission claims must not duplicate.
+- Log mission reward claims.
+
+Expected !missions:
+
+🎯 Missions
+Daily:
+1. Mine 10 times — 3/10
+2. Fish 5 times — 5/5 ✅ Claim with !claimmission
+
+Weekly:
+1. Visit 3 days — 1/3
+
+Expected !claimmission:
+
+✅ Mission Reward Claimed
+Reward: 500 coins
+
+==================================================
+PART 2 — PLAYER PROFILE CARD
+==================================================
+
+Add player profile cards.
+
+Commands:
+
+!profile
+!profile [user]
+
+Shows:
+- coins
+- VIP status
+- mining level
+- fishing level
+- blackjack stats
+- poker stats
+- titles/badges
+- total donations
+- total sponsor amount
+- favorite game
+- join streak
+- mission progress
+
+Expected:
+
+👤 Profile: @Player
+Coins: 12,500
+VIP: YES, expires in 12d
+Mining Lv: 8
+Fishing Lv: 6
+Blackjack: 14W / 9L
+Poker: 3 wins
+Donations: 150g
+Join Streak: 4 days
+
+Rules:
+- If target player not found, show clear error.
+- Keep message under safe cap or split.
+- Use ! only in help text.
+
+==================================================
+PART 3 — VIP / SUPPORTER RAFFLE
+==================================================
+
+Add raffle system.
+
+Commands:
+
+!raffle
+!raffle enter
+!raffle status
+!raffle winners
+
+Staff/Manager+:
+
+!startraffle [prize]
+!endraffle
+!rafflepick
+!rafflereset
+
+Prize ideas:
+- VIP 1 day
+- VIP 7 days
+- Supporter tag
+- Gold Rain sponsor credit
+- Room Sponsor title for 7 days
+- bonus coins
+
+Rules:
+- Free players can earn raffle tickets through missions/events.
+- Supporters/VIP can get small bonus ticket rate.
+- Keep it fair.
+- Do not require paid entry only.
+- Log raffle entries and winners.
+- Prevent duplicate entries unless tickets allow multiple entries.
+
+Expected !raffle:
+
+🎟️ Raffle
+Prize: VIP 7 days
+Entries: 24
+Your Tickets: 2
+Enter: !raffle enter
+
+Expected !raffle enter:
+
+✅ You entered the raffle.
+Tickets used: 1
+
+==================================================
+PART 4 — ROOM ACTIVITY TRACKER
+==================================================
+
+Add room activity tracking.
+
+Commands:
+
+!roomstats
+!todaystats
+!weekstats
+!peak
+!activehours
+
+Track:
+- unique visitors
+- peak players
+- total joins
+- average stay time
+- most active hour
+- most played game
+- top miner
+- top fisher
+- top donor
+- top sponsor
+
+Rules:
+- Track joins/leaves safely.
+- Do not spam.
+- If stay time cannot be exact, show best estimate.
+- Keep daily and weekly stats.
+
+Expected !roomstats:
+
+📊 Room Stats Today
+Unique Visitors: 82
+Peak Players: 18
+Total Joins: 143
+Avg Stay: 12m
+Most Played: Mining
+Top Miner: @Player
+Top Fisher: @Player2
+
+==================================================
+PART 5 — SPONSOR / DONATION BOARD
+==================================================
+
+Add sponsor/donation leaderboards.
+
+Commands:
+
+!sponsorboard
+!topdonors
+!topsponsors
+!mydonations
+!mysponsor
+
+Shows:
+- weekly sponsors
+- monthly sponsors
+- all-time sponsors
+- top donors
+- current room sponsor title
+
+Expected:
+
+🏆 Room Sponsors
+1. @Player — 500g
+2. @Player2 — 250g
+3. @Player3 — 100g
+
+Rules:
+- Track weekly, monthly, and all-time.
+- Sponsor titles must expire unless renewed.
+- Do not add lifetime sponsor perks.
+- No permanent sponsor titles.
+- Do not wipe donation history.
+
+==================================================
+PART 6 — PARTY MODE
+==================================================
+
+Add Party Mode.
+
+Commands:
+
+!party on
+!party off
+!party status
+!party announce [message]
+
+Permission:
+Manager+ or owner/admin depending on existing permission system.
+
+When party mode is ON:
+- Gold Rain pace defaults to party.
+- Public tip messages are enabled.
+- Event reminders are more active.
+- Sponsor messages are highlighted.
+- DJ/event announcements are easier.
+- Room hype messages can run on safe cooldown.
+
+Rules:
+- Do not spam.
+- Use safe message cooldown.
+- Respect message cap.
+- Staff/Manager+ only.
+
+Expected !party status:
+
+🎉 Party Mode
+Status: ON
+Gold Rain Pace: Party
+Sponsor Highlights: ON
+Hype Cooldown: 5m
+
+==================================================
+PART 7 — ECONOMY ABUSE PROTECTION
+==================================================
+
+Add economy abuse protection.
+
+Commands:
+
+!economylock on
+!economylock off
+!economylock status
+!audit suspicious
+!playeraudit [user]
+!payoutaudit
+!rewardaudit
+
+Detect:
+- duplicate payouts
+- too many rewards in short time
+- suspicious Gold Rain wins
+- alt farming
+- bot farming
+- rapid command spam
+- negative balances
+- huge manual balance edits
+- repeated VIP purchase issues
+- repeated reward claims
+
+Rules:
+- Economy lock pauses risky payouts.
+- Staff commands still work.
+- All suspicious activity gets logged.
+- Do not wipe balances.
+- Do not freeze normal help/profile commands.
+- Economy lock must be reversible.
+
+Expected !economylock status:
+
+🛡️ Economy Lock
+Status: OFF
+Suspicious Logs Today: 0
+Last Audit: timestamp
+
+Expected !playeraudit [user]:
+
+🧾 Player Audit: @Player
+Rewards Today: 5
+Gold Rain Wins: 1
+VIP Purchases: 0
+Suspicious: NO
+
+==================================================
+PART 8 — NEW PLAYER ONBOARDING
+==================================================
+
+Add new player onboarding.
+
+Commands:
+
+!start
+!tutorial
+!newplayer
+!howtoplay
+
+When a new player joins for the first time:
+Welcome them with a short message.
+
+Example:
+
+Welcome @Player!
+Type !help to start.
+Type !missions for rewards.
+Type !notifon events for event alerts.
+
+Rules:
+- Prefer whisper onboarding if possible.
+- Only show once per player.
+- Add cooldown so it does not spam.
+- Use ! only.
+- Do not show staff commands to regular players.
+
+Expected !start:
+
+👋 Welcome!
+Start with:
+!profile — see your stats
+!missions — earn rewards
+!mine — mine ores
+!fish — catch fish
+!help — see more commands
+
+==================================================
+PART 9 — MONETIZED LONGER AUTOMINE / AUTOFISH FARMING
+==================================================
+
+Add monetized longer AutoMine / AutoFish farming.
+
+Goal:
+Free players can use AutoMine/AutoFish, but VIP/supporters can run longer sessions.
+
+Commands:
+
+!automine
+!automine [minutes]
+!stopmine
+!autofish
+!autofish [minutes]
+!stopfish
+!farm
+!farmstatus
+!stopfarm
+
+Optional paid boosts:
+
+!buyfarmboost [15m|30m|60m]
+!myfarmboost
+!giftfarmboost [user] [15m|30m|60m]
+
+Recommended limits:
+
+Free players:
+AutoMine: 5 minutes max
+AutoFish: 5 minutes max
+
+Supporter:
+AutoMine: 10 minutes max
+AutoFish: 10 minutes max
+
+VIP 1d / 7d / 30d:
+AutoMine: 30 minutes max
+AutoFish: 30 minutes max
+
+Room Sponsor:
+AutoMine: 60 minutes max
+AutoFish: 60 minutes max
+
+Farm boost prices:
+15m farm boost: 10g
+30m farm boost: 20g
+60m farm boost: 35g
+
+Rules:
+- AutoMine/AutoFish stops if player leaves room.
+- AutoMine/AutoFish respects cooldowns.
+- AutoMine/AutoFish does not bypass rarity caps.
+- AutoMine/AutoFish does not guarantee rare drops.
+- Mythic+ must remain almost impossible.
+- VIP gets longer farming time, not guaranteed jackpots.
+- Log all paid farm boosts.
+- Expired VIP loses longer farm time.
+- Do not let paid farming print unlimited coins.
+
+Expected !farmstatus:
+
+🌾 Farm Status
+AutoMine: OFF
+AutoFish: ON
+Time Left: 18m
+Plan: VIP
+Max Session: 30m
+Stops if you leave room: YES
+
+Expected !automine:
+
+⛏️ AutoMine Started
+Duration: 30m
+Plan: VIP
+Rarity caps active: YES
+Stops if you leave room.
+
+Expected if free player tries 30m:
+
+Free AutoMine limit is 5 minutes.
+Upgrade to VIP for 30-minute AutoMine.
+Use !vip to see perks.
+
+==================================================
+PART 10 — MYTHIC+ HYPE SYSTEM
+==================================================
+
+Add Mythic+ Hype System.
+
+Goal:
+Increase room hype when players get very rare mining ores or fish.
+
+Applies to:
+- mining drops
+- fishing catches
+
+Trigger rarities:
+- mythic
+- prismatic
+- exotic
+
+Important:
+Use rarity-specific hype levels.
+Do not spam for normal Rare/Epic/Legendary.
+
+==================================================
+10A — MYTHIC HYPE
+==================================================
+
+When player gets Mythic ore/fish:
+
+Action:
+- EmceeBot sends a small public congratulations.
+- No room pause.
+- No muting.
+- No all-bot spam.
+
+Example:
+
+EmceeBot:
+🌟 Mythic Find!
+@Player found Mythic [item_name]!
+GG!
+
+Rules:
+- Keep it short.
+- One message only.
+- EmceeBot only.
+- No disruption.
+
+==================================================
+10B — PRISMATIC HYPE
+==================================================
+
+When player gets Prismatic ore/fish:
+
+Action:
+- All bots send a congratulations message.
+- EmceeBot sends main announcement.
+- Send mining/fishing notification to subscribed players.
+- Do not mute room.
+- Do not pause games.
+
+Example flow:
+
+EmceeBot:
+🌈 PRISMATIC FIND!
+@Player found Prismatic [item_name]!
+
+BankerBot:
+💰 That catch is worth serious money!
+
+GreatestProspector:
+⛏️ Legendary miner energy! GG @Player!
+
+MasterAngler:
+🎣 A catch/finding like that deserves the spotlight!
+
+BlackJackBot:
+🃏 Even the casino stopped to watch that one!
+
+PokerBot:
+♠️ Big table energy! Congrats @Player!
+
+SecurityBot:
+🛡️ Verified rare moment. Respect!
+
+EventBot:
+🎉 Room moment! Everyone say GG!
+
+Notification:
+If mining:
+Category = mining
+
+If fishing:
+Category = fishing
+
+Do not require staff to type !subnotify.
+The mining/fishing module should trigger subscriber notification internally through EmceeBot notification service.
+
+Rules:
+- All bot congratulations should be short.
+- Prevent duplicate spam.
+- Cooldown per rarity/player/item.
+- Do not pause games.
+- Do not mute room.
+
+==================================================
+10C — EXOTIC FULL ROOM HYPE EVENT
+==================================================
+
+When player gets Exotic ore/fish:
+
+Action:
+1. Temporarily pause games and economy actions.
+2. Temporarily mute everyone except bots/staff if supported.
+3. All bots send hype messages.
+4. EmceeBot makes a main announcement.
+5. Send mining/fishing notification to subscribed players.
+6. After a short duration, unmute everyone.
+7. Resume games and economy actions.
+8. Log the event.
+
+This should feel like a once-in-a-room-history moment.
+
+Exotic event flow:
+
+Step 1:
+Detect Exotic ore/fish.
+
+Step 2:
+Activate hype lock:
+- Pause mining
+- Pause fishing
+- Pause casino games
+- Pause blackjack
+- Pause poker
+- Pause economy payouts if needed
+- Pause auto events if needed
+
+Step 3:
+Mute room briefly if API supports it:
+- Mute normal players only
+- Do not mute owner/admin/staff
+- Do not mute bots
+- Duration: 10–20 seconds max
+
+Step 4:
+Bots send hype messages.
+
+Step 5:
+Unmute everyone.
+
+Step 6:
+Resume paused systems.
+
+Step 7:
+Log hype event.
+
+Example messages:
+
+EmceeBot:
+🚨🚨 EXOTIC FIND 🚨🚨
+@Player just found Exotic [item_name]!
+The room is witnessing history.
+
+GreatestProspector:
+⛏️ THE MINE JUST SHOOK. EXOTIC ORE DISCOVERED!
+
+MasterAngler:
+🎣 THE WATER WENT SILENT. EXOTIC CATCH CONFIRMED!
+
+BankerBot:
+💰 Jackpot energy! This moment is priceless.
+
+BlackJackBot:
+🃏 Cards down. Everyone look at this.
+
+PokerBot:
+♠️ All bets paused. This is bigger than the table.
+
+SecurityBot:
+🛡️ Room secured for Exotic celebration.
+
+EventBot:
+🎉 EVERYONE GET READY — THIS IS A ROOM LEGEND MOMENT!
+
+After hype:
+
+EmceeBot:
+✅ Hype break complete.
+Everyone is unmuted.
+Games resumed.
+GG @Player!
+
+During Exotic Hype Event:
+- !mine should temporarily reply:
+  🚨 Exotic Hype Break active. Mining resumes shortly.
+
+- !fish should temporarily reply:
+  🚨 Exotic Hype Break active. Fishing resumes shortly.
+
+- Blackjack/Poker should temporarily reply:
+  🚨 Exotic Hype Break active. Games resume shortly.
+
+- Gold/economy commands should either queue or pause safely.
+
+Mute rules:
+- Mute everyone only if Highrise API supports safe temporary muting.
+- If room-wide mute is not supported, use soft mute:
+  - pause command handling
+  - ask players to watch the hype
+  - do not attempt unsafe moderation actions
+
+Never mute:
+- owner
+- admins
+- managers
+- moderators/staff
+- bots
+
+Duration:
+10–20 seconds only.
+
+Safety:
+- Always unmute in finally block.
+- Always resume games in finally block.
+- If error happens, emergency resume.
+
+Emergency recovery command:
+
+!hypeunlock
+
+Owner/Admin only.
+
+Behavior:
+- Unmutes everyone if possible.
+- Clears hype lock.
+- Resumes mining/fishing/casino/events.
+- Logs emergency unlock.
+
+Response:
+✅ Hype lock cleared.
+Games resumed.
+
+==================================================
+PART 11 — HYPE SETTINGS / LOGS / COOLDOWNS
+==================================================
+
+Add settings commands:
+
+!hypesettings
+!hype mythic [on|off]
+!hype prismatic [on|off]
+!hype exotic [on|off]
+!hype exoticmute [on|off]
+!hype exoticduration [seconds]
+
+Defaults:
+mythic_hype = ON
+prismatic_hype = ON
+exotic_hype = ON
+exotic_mute = ON if supported, otherwise soft pause only
+exotic_duration = 15 seconds
+
+Add logs:
+
+!hypelog
+!hypelog latest
+!hypelog [user]
+
+Log:
+- username
+- user_id
+- game source: mining/fishing
+- rarity
+- item name
+- timestamp
+- hype type
+- muted_room YES/NO
+- pause_duration
+- notifications_sent YES/NO
+- errors if any
+
+Hype notifications:
+Prismatic and Exotic should trigger subscriber notifications.
+
+Mining:
+Category = mining
+
+Fishing:
+Category = fishing
+
+Example:
+🔔 Rare Room Moment
+@Player found Exotic [item_name] in Mining!
+Join the room now!
+
+Rules:
+- Use EmceeBot notification system.
+- Sender display must be EmceeBot.
+- Respect notification opt-outs.
+- Do not notify unsubscribed players.
+- Do not count failed/no-route as sent.
+
+Cooldowns:
+- Mythic hype cooldown per player: 5 minutes
+- Prismatic hype cooldown global: 10 minutes
+- Exotic hype cooldown global: 30 minutes
+
+If another rare drop happens during cooldown:
+- still log it
+- send reduced message
+- do not trigger full all-bot hype again
+
+Commands:
+!hypesettings
+!hype mythic [on|off]
+!hype prismatic [on|off]
+!hype exotic [on|off]
+!hype exoticmute [on|off]
+!hype exoticduration [seconds]
+!hypelog
+!hypelog latest
+!hypelog [user]
+!hypeunlock
+
+==================================================
+PART 12 — PRESERVE COLORED ORE/FISH NAMES
+==================================================
+
+Goal:
+All Mythic, Prismatic, Exotic, and other big announcements must retain the colored item names already used by mining/fishing.
+
+Do not strip rarity colors.
+Do not convert colored names into plain text unless Highrise rejects the message.
+
+When a player finds a rare ore/fish:
+- Use the existing formatted ore/fish name.
+- Preserve rarity color formatting.
+- Preserve prismatic/rainbow formatting if already supported.
+- Preserve rarity label colors.
+- Use the colored name in:
+  - Mythic small congrats
+  - Prismatic all-bot congratulations
+  - Exotic full room hype
+  - subscriber notification
+  - big announcement
+  - hypelog if readable
+
+Mining example:
+If mining already formats:
+
+<#FF66CC>[MYTHIC]<#FFFFFF> <#FF66CC>Moonstone<#FFFFFF>
+
+Then announcement should say:
+
+🌟 Mythic Find!
+@Player found <#FF66CC>[MYTHIC]<#FFFFFF> <#FF66CC>Moonstone<#FFFFFF>!
+GG!
+
+Prismatic example:
+If prismatic ore uses rainbow text formatting, keep it.
+
+Do not downgrade it to:
+@Player found Prismatic Ore.
+
+Exotic example:
+
+🚨🚨 EXOTIC FIND 🚨🚨
+@Player just found <#FF0000>[EXOTIC]<#FFFFFF> <#FF0000>Blood Meteorite<#FFFFFF>!
+The room is witnessing history.
+
+Implementation requirement:
+Use existing formatting helpers where possible.
+
+Mining:
+- format_mining_rarity()
+- format_ore_name()
+- get_rarity_display_name()
+- rainbow_text()
+
+Fishing:
+- _rarity_label()
+- _name_colored()
+
+Do not rebuild plain item names manually if a colored formatter exists.
+
+Update big announcement functions to accept both:
+- raw item_name
+- formatted_item_name
+
+Preferred:
+send_big_mine_announce(..., formatted_item_name=colored_name)
+send_big_fish_announce(..., formatted_item_name=colored_name)
+
+If function signature cannot change safely:
+- build the colored text before calling
+- pass the colored name as item display text
+
+All bot hype messages should use the colored item name when mentioning the ore/fish.
+
+Example:
+
+GreatestProspector:
+⛏️ THE MINE JUST SHOOK.
+@Player found <colored ore name>!
+
+MasterAngler:
+🎣 THE WATER WENT SILENT.
+@Player caught <colored fish name>!
+
+Subscriber notification:
+
+Mining notification:
+🔔 Mining Alert
+@Player found <colored ore name>!
+
+Fishing notification:
+🔔 Fishing Alert
+@Player caught <colored fish name>!
+
+If DM/whisper color formatting does not render correctly:
+- keep rarity label + item name readable
+- do not crash
+
+Safety:
+- Do not strip color tags from big announcements.
+- Do not break rainbow prismatic formatting.
+- Do not exceed safe message length.
+- Do not crash if color formatting is missing.
+- Do not send malformed Highrise color tags.
+- Do not lose item name in hypelog.
+
+==================================================
+PART 13 — GOLD TIP OWNER ONLY
+==================================================
+
+Requirement:
+Direct gold tipping must be Owner-only.
+
+Affected commands:
+!goldtip [user] [amount]
+!goldtip all [amount]
+!goldtipbots [on|off]
+!tipall [amount]
+!goldtipall [amount]
+
+Permission:
+Owner only.
+
+Rules:
+- Only owner can use direct gold tipping.
+- Admins cannot use direct gold tipping.
+- Managers cannot use direct gold tipping.
+- Staff cannot use direct gold tipping.
+- Normal players cannot use direct gold tipping.
+- VIP/subs cannot use direct gold tipping.
+- Gold Rain permissions stay separate.
+
+Non-owner response:
+
+🔒 Owner only.
+Gold tipping can only be used by the owner.
+
+For !goldtip all:
+
+🔒 Owner only.
+Mass gold tipping can only be used by the owner.
+
+Help update:
+- Remove !goldtip from regular player help.
+- Remove !goldtip from staff help.
+- Show !goldtip only in owner help.
+
+Owner help:
+!goldtip [user] [amount]
+!goldtip all [amount]
+!goldtipbots [on|off]
+
+Command tests:
+/commandtest !goldtip
+/commandtest !goldtipbots
+
+Expected:
+route=YES
+handler=YES
+owner=BankerBot
+permission=Owner only
+
+==================================================
+PART 14 — TELEPORTS OWNED BY HOST
+==================================================
+
+Requirement:
+All teleport commands should be owned by Host.
+
+Affected commands:
+!tele
+!tele list
+!tele [spot]
+!tele [user]
+!tele [user] [x] [y] [z] [facing]
+!create tele [spot]
+!delete tele [spot]
+!tele permission [spot] [permission]
+!summon [user]
+!roles
+!rolemembers
+!rolemembers [role]
+!rolespawn [role]
+!rolespawns
+!setrolespawn [role] here
+!setrolespawn [role] [x] [y] [z] [facing]
+!delrolespawn [role]
+!autospawn [on|off|status]
+!autospawn debug [user]
+
+Owner:
+Host
+
+Rules:
+- Teleport system should display owner=Host.
+- Teleport help should be under Host/Teleport help.
+- Do not show teleport commands as SecurityBot-owned.
+- Do not show teleport commands as EmceeBot-owned.
+- Host handles teleport routing, role spawn, summon, role members, and autospawn.
+
+Expected command tests:
+
+/commandtest !tele
+/commandtest !create
+/commandtest !delete
+/commandtest !summon
+/commandtest !roles
+/commandtest !rolemembers
+/commandtest !rolespawn
+/commandtest !setrolespawn
+/commandtest !rolespawns
+/commandtest !delrolespawn
+/commandtest !autospawn
+
+Target:
+route=YES
+handler=YES
+owner=Host
+
+==================================================
+PART 15 — ROLE MEMBERS DISPLAY
+==================================================
+
+Add Role Members Display.
+
+Commands:
+!roles
+!roles list
+!roles members
+!rolemembers
+!rolemembers [role]
+
+Behavior:
+- Shows all detected roles and who is currently in each role.
+- Uses live room users, not stale cache.
+- Shows only players currently in the room.
+- Bots should be separated into Bots role.
+- Staff should include owner, admin, manager, and mod.
+- Regular should exclude staff, vip, subs, and bots.
+
+Examples:
+
+!rolemembers staff
+
+Expected:
+
+🛠️ Staff Members
+@4ktreyMarion
+@ManagerName
+@ModName
+
+!rolemembers vip
+
+Expected:
+
+💎 VIP Members
+@Player1
+@Player2
+
+!roles members
+
+Expected:
+
+🧑‍🤝‍🧑 Room Roles
+Owner: @4ktreyMarion
+Admin: none
+Manager: @Player1
+Mod: @Player2
+Staff: @4ktreyMarion, @Player1, @Player2
+VIP: @Player3
+Subs: @Player4
+Regular: @Player5, @Player6
+Guest: @NewPlayer
+Bots: @EmceeBot, @BankerBot
+
+If no users in role:
+Show: none
+
+Command tests:
+/commandtest !roles
+/commandtest !rolemembers
+
+Target:
+route=YES
+handler=YES
+owner=Host
+
+==================================================
+PART 16 — BASIC PLAYER BOT PROFILE BIOS
+==================================================
+
+Create/update bot profile bio text with basic regular player commands only.
+No staff/admin commands in bot profiles.
+Use ! only.
+No / commands.
+
+EmceeBot bio:
+
+🎤 EmceeBot — Room Guide
+
+!help — see all basic commands
+!start — start using the room
+!profile — check your player profile
+!missions — see missions/rewards
+!events — see active events
+!nextevent — see next event
+
+Notifications:
+!subscribe — receive bot alerts
+!notif — check alert settings
+!notifon events — turn event alerts ON
+!notifoff events — turn event alerts OFF
+
+BankerBot bio:
+
+💰 BankerBot — Wallet
+
+!balance — check your coins/balance
+!pay [user] [amount] — send coins to player
+!send [user] [amount] — send coins to player
+!myvip — check your VIP status
+!vip — see VIP info
+!vipperks — see VIP perks
+!buyvip [1d|7d|30d] — buy VIP
+!donationgoal — see room donation goal
+!topdonors — see top supporters
+
+Important:
+Do not show !goldtip in regular player bio because gold tipping is Owner-only.
+
+GreatestProspector bio:
+
+⛏️ GreatestProspector — Mining
+
+!mine — mine for ores
+!automine — start auto mining
+!automine [minutes] — auto mine longer
+!stopmine — stop auto mining
+!miningprofile — check mining stats
+!mineinv — see your ores
+!minechances — see ore rarity chances
+!minelb — mining leaderboard
+!tool — check your pickaxe
+!upgradetool — upgrade pickaxe
+
+MasterAngler bio:
+
+🎣 MasterAngler — Fishing
+
+!fish — catch fish
+!autofish — start auto fishing
+!autofish [minutes] — auto fish longer
+!stopfish — stop auto fishing
+!fishprofile — check fishing stats
+!fishinv — see your fish
+!fishchances — see fish rarity chances
+!fishlb — fishing leaderboard
+!farmstatus — check auto farm status
+!stopfarm — stop all farming
+
+BlackJackBot bio:
+
+🃏 BlackJackBot — Blackjack
+
+!bj [amount] — start blackjack bet
+!hit — draw another card
+!stand — keep your hand
+!double — double your bet
+!split — split matching cards
+!blackjackstatus — check blackjack table
+!bjshoe — check cards left in shoe
+
+Goal: beat dealer without going over 21.
+
+PokerBot bio:
+
+♠️ PokerBot — Poker
+
+!poker — see poker help/status
+!joinpoker — join poker table
+!leavepoker — leave poker table
+!bet [amount] — place a bet
+!call — match current bet
+!raise [amount] — raise the bet
+!fold — quit the hand
+!check — pass if no bet
+!pokerstatus — check table status
+
+Host / Teleport bio:
+
+🌀 Host — Teleports
+
+!tele list — see saved spots
+!tele [spot] — teleport to a spot
+!roles — see role list
+!rolemembers — see who is in roles
+!rolemembers [role] — see users in role
+!help teleports — teleport help
+
+Some spots may need VIP or special access.
+
+EventBot bio:
+
+🎉 EventBot — Events
+
+!events — see current events
+!nextevent — see next event
+!schedule — see event schedule
+!missions — see missions
+!daily — see daily tasks
+!weekly — see weekly tasks
+!raffle — see raffle info
+!raffle enter — join raffle
+!notifon events — turn event alerts ON
+
+Footer for all if space:
+
+Use !help for more.
+Use ! only. No / commands.
+
+==================================================
+PART 17 — HELP UPDATES FOR 2.1
+==================================================
+
+Update help pages to include new commands, but only for users who can use them.
+
+Regular player help should include:
+!missions
+!daily
+!weekly
+!profile
+!raffle
+!roomstats
+!sponsorboard
+!start
+!tutorial
+!automine
+!autofish
+!farmstatus
+
+VIP help should include:
+!vip
+!vipperks
+!buyvip [1d|7d|30d]
+!myvip
+!giftvip [user] [1d|7d|30d]
+!buyfarmboost [15m|30m|60m]
+!myfarmboost
+
+Owner help should include:
+!goldtip [user] [amount]
+!goldtip all [amount]
+!goldtipbots [on|off]
+
+Host/Teleport help should include:
+!tele list
+!tele [spot]
+!roles
+!rolemembers
+!rolemembers [role]
+!rolespawn [role]
+!rolespawns
+!setrolespawn [role] here
+!autospawn [on|off|status]
+
+Do not show:
+- / commands
+- staff commands to normal players
+- owner-only commands to normal players
+- !goldtip in regular player help
+- unimplemented commands
+
+==================================================
+PART 18 — COMMAND OWNERSHIP
+==================================================
+
+Suggested owners:
+
+EmceeBot:
+!help
+!staffhelp
+!missions
+!daily
+!weekly
+!claimmission
+!missionstatus
+!profile
+!raffle
+!start
+!tutorial
+!newplayer
+!howtoplay
+!hypesettings
+!hype
+!hypelog
+!hypeunlock
+
+BankerBot:
+!vip
+!vipperks
+!buyvip
+!giftvip
+!myvip
+!viplist
+!grantvip
+!removevip
+!donate
+!donationgoal
+!topdonors
+!sponsor
+!sponsorboard
+!topsponsors
+!mydonations
+!mysponsor
+!sponsorgoldrain
+!sponsorevent
+!supporter
+!perks
+!setvipprice
+!setdonationgoal
+!donationaudit
+!setsponsorprice
+!goldtip
+!goldtipbots
+
+GreatestProspector:
+!mine
+!automine
+!stopmine
+!minechances
+!miningprofile
+!mineinv
+!minelb
+!tool
+!upgradetool
+
+MasterAngler:
+!fish
+!autofish
+!stopfish
+!fishchances
+!fishprofile
+!fishinv
+!fishlb
+!farmstatus
+!stopfarm
+!buyfarmboost
+!myfarmboost
+!giftfarmboost
+
+BlackJackBot:
+!bj
+!hit
+!stand
+!double
+!split
+!blackjackstatus
+!bjshoe
+
+PokerBot:
+!poker
+!joinpoker
+!leavepoker
+!bet
+!call
+!raise
+!fold
+!check
+!pokerstatus
+
+Host:
+!tele
+!create
+!delete
+!summon
+!roles
+!rolemembers
+!rolespawn
+!rolespawns
+!setrolespawn
+!delrolespawn
+!autospawn
+
+EventBot:
+!events
+!nextevent
+!schedule
+!party
+
+Use existing valid owner keys in the project.
+Do not leave owner UNKNOWN.
+Do not register commands without handlers.
+
+==================================================
+PART 19 — COMMAND TESTS
+==================================================
+
+Run these after implementation:
+
+/commandtest !missions
+/commandtest !daily
+/commandtest !weekly
+/commandtest !claimmission
+/commandtest !profile
+/commandtest !raffle
+/commandtest !roomstats
+/commandtest !sponsorboard
+/commandtest !party
+/commandtest !economylock
+/commandtest !playeraudit
+/commandtest !start
+/commandtest !tutorial
+/commandtest !automine
+/commandtest !autofish
+/commandtest !farmstatus
+/commandtest !buyfarmboost
+/commandtest !hypesettings
+/commandtest !hype
+/commandtest !hypelog
+/commandtest !hypeunlock
+/commandtest !goldtip
+/commandtest !goldtipbots
+/commandtest !tele
+/commandtest !roles
+/commandtest !rolemembers
+/commandtest !autospawn
+
+/commandissues
+/checkcommands all
+
+Target:
+route=YES
+handler=YES
+owner not UNKNOWN
+No handler=NO
+No route=NO
+No owner UNKNOWN
+
+Specific targets:
+!goldtip owner=BankerBot permission=Owner only
+!tele owner=Host
+!roles owner=Host
+!rolemembers owner=Host
+!autospawn owner=Host
+
+==================================================
+PART 20 — LIVE TESTS
+==================================================
+
+Missions:
+!missions
+!daily
+!weekly
+!claimmission
+
+Profile:
+!profile
+!profile @Player
+
+Raffle:
+!raffle
+!raffle enter
+!raffle status
+
+Room stats:
+!roomstats
+!todaystats
+!weekstats
+
+Sponsors:
+!sponsorboard
+!topdonors
+!topsponsors
+!mydonations
+
+Party:
+!party status
+!party on
+!party announce DJ is live!
+!party off
+
+Economy protection:
+!economylock status
+!audit suspicious
+!playeraudit @Player
+
+Onboarding:
+!start
+!tutorial
+!howtoplay
+
+Farm:
+!automine
+!automine 30
+!farmstatus
+!stopmine
+!autofish
+!autofish 30
+!farmstatus
+!stopfish
+!buyfarmboost 15m
+!myfarmboost
+
+Hype:
+!hypesettings
+!hypelog
+Use forced drop tools if available:
+- force Mythic mining/fishing
+- force Prismatic mining/fishing
+- force Exotic mining/fishing
+
+Expected Mythic:
+- EmceeBot one small congrats only.
+
+Expected Prismatic:
+- all bots congratulate
+- notification sent
+- no mute
+- no pause
+
+Expected Exotic:
+- games pause
+- room temporarily mutes or soft-pauses
+- all bots hype
+- notification sent
+- everyone unmuted
+- games resume
+
+Emergency:
+!hypeunlock
+
+Role members:
+!roles
+!rolemembers
+!rolemembers staff
+!rolemembers vip
+!rolemembers regular
+
+Gold tip owner-only:
+Non-owner tries:
+!goldtip @Player 5
+
+Expected:
+🔒 Owner only.
+Gold tipping can only be used by the owner.
+
+Owner tries:
+!goldtip @Player 5
+
+Expected:
+Works if owner and bot has gold.
+
+==================================================
+PART 21 — SAFETY
+==================================================
+
+Do not:
+- wipe balances
+- wipe player data
+- wipe rewards
+- wipe reward logs
+- wipe subscriptions
+- wipe notification preferences
+- wipe notification logs
+- wipe saved teleports/spawns
+- wipe mining data
+- wipe fishing data
+- wipe inventories
+- wipe VIP logs
+- wipe donation logs
+- expose tokens/secrets/env vars
+- add lifetime VIP
+- add permanent sponsor perks
+- make VIP pay-to-win
+- sell guaranteed rare/legendary/mythic drops
+- let paid farming bypass cooldowns
+- let paid farming bypass rarity caps
+- make Mythic+ common
+- permanently mute players
+- mute staff/admin/owner/bots
+- forget to unmute after Exotic hype
+- forget to resume games after Exotic hype
+- spam hype messages indefinitely
+- trigger Exotic full hype repeatedly
+- notify unsubscribed players
+- strip colored ore/fish names from big announcements
+- break rainbow prismatic formatting
+- show !goldtip in regular player help
+- allow non-owner to use !goldtip
+- show teleport commands as SecurityBot/EmceeBot owned
+- leave commands with no route
+- leave commands with handler=NO
+- leave owner UNKNOWN
+- show / commands in help or bios
+
+==================================================
+FINAL REPORT
+==================================================
+
+After finishing, tell me:
+
+1. Files changed.
+2. New mission system summary.
+3. New profile system summary.
+4. New raffle system summary.
+5. Room activity stats summary.
+6. Sponsor/donation board summary.
+7. Party mode summary.
+8. Economy abuse protection summary.
+9. New player onboarding summary.
+10. AutoMine/AutoFish monetization limits.
+11. Farm boost prices and behavior.
+12. Mythic hype behavior.
+13. Prismatic hype behavior.
+14. Exotic hype behavior.
+15. How games pause/resume during Exotic hype.
+16. How mute/unmute safety works.
+17. How !hypeunlock works.
+18. How colored ore/fish names are preserved.
+19. How subscriber notifications are triggered for Prismatic/Exotic.
+20. How Gold Tip is Owner-only.
+21. Confirm !goldtip is removed from regular player help.
+22. Confirm teleport commands are owned by Host.
+23. How !rolemembers works.
+24. Bot profile bios updated.
+25. Final /commandissues result.
+26. Final /checkcommands all result.
+27. Exact tests to run.

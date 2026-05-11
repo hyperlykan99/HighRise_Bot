@@ -532,6 +532,26 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     "donate", "donationgoal", "topdonors", "sponsor", "sponsorgoldrain",
     "sponsorevent", "supporter", "perks",
     "setdonationgoal", "donationaudit", "setsponsorprice",
+    # ── Update 2.1 — Missions ────────────────────────────────────────────────
+    "missions", "daily", "weekly", "claimmission", "missionstatus",
+    # ── Update 2.1 — Raffle ──────────────────────────────────────────────────
+    "raffle", "startraffle", "endraffle", "rafflepick", "rafflereset",
+    # ── Update 2.1 — Party Mode ──────────────────────────────────────────────
+    "party",
+    # ── Update 2.1 — Onboarding ──────────────────────────────────────────────
+    "start", "tutorial", "newplayer",
+    # ── Update 2.1 — Room Stats ──────────────────────────────────────────────
+    "roomstats", "todaystats", "weekstats", "peak", "activehours",
+    # ── Update 2.1 — Economy Guard ───────────────────────────────────────────
+    "economylock", "playeraudit", "payoutaudit", "rewardaudit",
+    # ── Update 2.1 — Farm Boost ──────────────────────────────────────────────
+    "farmstatus", "stopfarm", "buyfarmboost", "myfarmboost", "giftfarmboost",
+    # ── Update 2.1 — Hype System ─────────────────────────────────────────────
+    "hypesettings", "hype", "hypelog", "hypeunlock",
+    # ── Update 2.1 — Role Members ────────────────────────────────────────────
+    "rolemembers",
+    # ── Update 2.1 — audit log ───────────────────────────────────────────────
+    "auditlog",
 })
 
 # ---------------------------------------------------------------------------
@@ -729,6 +749,15 @@ VISIBLE_CMDS: frozenset[str] = frozenset({
     "donate", "donationgoal", "topdonors", "sponsor", "sponsorgoldrain",
     "sponsorevent", "supporter", "perks",
     "setdonationgoal", "donationaudit", "setsponsorprice",
+    # ── Update 2.1 ───────────────────────────────────────────────────────────
+    "missions", "daily", "weekly", "claimmission", "missionstatus",
+    "raffle", "startraffle", "endraffle", "rafflepick", "rafflereset",
+    "party", "start", "tutorial", "newplayer",
+    "roomstats", "todaystats", "weekstats", "peak", "activehours",
+    "economylock", "playeraudit", "payoutaudit", "rewardaudit",
+    "farmstatus", "stopfarm", "buyfarmboost", "myfarmboost", "giftfarmboost",
+    "hypesettings", "hype", "hypelog", "hypeunlock",
+    "rolemembers", "auditlog",
 })
 
 

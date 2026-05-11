@@ -412,6 +412,36 @@ from modules.mining import (
     stop_automine_for_user, startup_automine_recovery,
     MINE_HELP_PAGES,
 )
+# ── Update 2.1 new feature modules ───────────────────────────────────────────
+from modules.missions import (
+    handle_missions, handle_daily_missions, handle_weekly_missions,
+    handle_claimmission, handle_missionstatus,
+    on_user_join_missions, on_mine_missions, on_fish_missions,
+)
+from modules.raffle import (
+    handle_raffle, handle_startraffle, handle_endraffle,
+    handle_rafflepick, handle_rafflereset,
+)
+from modules.party import handle_party
+from modules.onboarding import handle_start, handle_tutorial, handle_newplayer, on_user_join_onboarding
+from modules.room_stats import (
+    handle_roomstats, handle_todaystats, handle_weekstats,
+    handle_peak, handle_activehours,
+    on_user_join_stats, on_user_leave_stats,
+)
+from modules.economy_guard import (
+    handle_economylock, handle_playeraudit,
+    handle_payoutaudit, handle_rewardaudit,
+)
+from modules.farm_boost import (
+    handle_farmstatus, handle_stopfarm,
+    handle_buyfarmboost, handle_myfarmboost, handle_giftfarmboost,
+)
+from modules.hype import (
+    handle_hypesettings, handle_hype_cmd, handle_hypelog, handle_hypeunlock,
+)
+from modules.tele import handle_rolemembers
+# ─────────────────────────────────────────────────────────────────────────────
 from modules.economy import (
     handle_economypanel,
     handle_economysettings,
@@ -5536,6 +5566,90 @@ class HangoutBot(BaseBot):
         elif cmd == "commandaudit":
             await handle_commandaudit(self, user, args)
 
+        # ── Update 2.1 — Missions ─────────────────────────────────────────────
+        elif cmd in ("missions", "missionlist"):
+            await handle_missions(self, user, args)
+        elif cmd == "daily":
+            await handle_daily_missions(self, user, args)
+        elif cmd == "weekly":
+            await handle_weekly_missions(self, user, args)
+        elif cmd == "claimmission":
+            await handle_claimmission(self, user, args)
+        elif cmd == "missionstatus":
+            await handle_missionstatus(self, user, args)
+
+        # ── Update 2.1 — Raffle ───────────────────────────────────────────────
+        elif cmd == "raffle":
+            await handle_raffle(self, user, args)
+        elif cmd == "startraffle":
+            await handle_startraffle(self, user, args)
+        elif cmd == "endraffle":
+            await handle_endraffle(self, user, args)
+        elif cmd == "rafflepick":
+            await handle_rafflepick(self, user, args)
+        elif cmd == "rafflereset":
+            await handle_rafflereset(self, user, args)
+
+        # ── Update 2.1 — Party Mode ───────────────────────────────────────────
+        elif cmd == "party":
+            await handle_party(self, user, args)
+
+        # ── Update 2.1 — Onboarding ───────────────────────────────────────────
+        elif cmd in ("start", "tutorial", "newplayer"):
+            if cmd == "tutorial":
+                await handle_tutorial(self, user, args)
+            elif cmd == "newplayer":
+                await handle_newplayer(self, user, args)
+            else:
+                await handle_start(self, user, args)
+
+        # ── Update 2.1 — Room Stats ───────────────────────────────────────────
+        elif cmd in ("roomstats", "todaystats"):
+            await handle_todaystats(self, user, args)
+        elif cmd == "weekstats":
+            await handle_weekstats(self, user, args)
+        elif cmd == "peak":
+            await handle_peak(self, user, args)
+        elif cmd == "activehours":
+            await handle_activehours(self, user, args)
+
+        # ── Update 2.1 — Economy Guard ────────────────────────────────────────
+        elif cmd == "economylock":
+            await handle_economylock(self, user, args)
+        elif cmd == "playeraudit":
+            await handle_playeraudit(self, user, args)
+        elif cmd == "payoutaudit":
+            await handle_payoutaudit(self, user, args)
+        elif cmd == "rewardaudit":
+            await handle_rewardaudit(self, user, args)
+
+        # ── Update 2.1 — Farm Boost ───────────────────────────────────────────
+        elif cmd in ("farmstatus", "myfarmboost"):
+            if cmd == "myfarmboost":
+                await handle_myfarmboost(self, user, args)
+            else:
+                await handle_farmstatus(self, user, args)
+        elif cmd == "stopfarm":
+            await handle_stopfarm(self, user, args)
+        elif cmd == "buyfarmboost":
+            await handle_buyfarmboost(self, user, args)
+        elif cmd == "giftfarmboost":
+            await handle_giftfarmboost(self, user, args)
+
+        # ── Update 2.1 — Hype System ──────────────────────────────────────────
+        elif cmd == "hypesettings":
+            await handle_hypesettings(self, user, args)
+        elif cmd == "hype":
+            await handle_hype_cmd(self, user, args)
+        elif cmd == "hypelog":
+            await handle_hypelog(self, user, args)
+        elif cmd == "hypeunlock":
+            await handle_hypeunlock(self, user, args)
+
+        # ── Update 2.1 — Role Members ─────────────────────────────────────────
+        elif cmd == "rolemembers":
+            await handle_rolemembers(self, user, args)
+
         # ── Unknown command — only host/all mode replies; others ignore silently
         else:
             if BOT_MODE not in ("host", "all"):
@@ -5565,6 +5679,21 @@ class HangoutBot(BaseBot):
             from highrise.models import Position as _Pos
             if isinstance(position, _Pos):
                 update_user_position(user.id, position)
+        except Exception:
+            pass
+        # Update 2.1 — room stats join hook
+        try:
+            asyncio.create_task(on_user_join_stats(user.id, user.username))
+        except Exception:
+            pass
+        # Update 2.1 — missions join hook
+        try:
+            asyncio.create_task(on_user_join_missions(user.id, user.username))
+        except Exception:
+            pass
+        # Update 2.1 — onboarding hook (greet new players)
+        try:
+            asyncio.create_task(on_user_join_onboarding(self, user))
         except Exception:
             pass
         # Send custom welcome message if configured (whisper, once per user)
@@ -5645,6 +5774,11 @@ class HangoutBot(BaseBot):
             pass
         try:
             stop_autofish_for_user(user.id, user.username, "player_left")
+        except Exception:
+            pass
+        # Update 2.1 — room stats leave hook
+        try:
+            asyncio.create_task(on_user_leave_stats(user.id, user.username))
         except Exception:
             pass
 
