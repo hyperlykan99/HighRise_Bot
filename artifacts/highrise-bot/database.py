@@ -1933,6 +1933,31 @@ def _migrate_db():
             loaded_from_restart INTEGER NOT NULL DEFAULT 0,
             rebuild_reason      TEXT NOT NULL DEFAULT ''
         )""",
+        # ── Party Tip Wallet system (ChillTopiaMC) ────────────────────────────
+        """CREATE TABLE IF NOT EXISTS party_tippers (
+            id          INTEGER PRIMARY KEY,
+            user_id     TEXT DEFAULT '',
+            username    TEXT UNIQUE,
+            added_by    TEXT DEFAULT '',
+            added_at    TEXT DEFAULT '',
+            expires_at  TEXT DEFAULT '',
+            daily_used  INTEGER DEFAULT 0,
+            last_reset  TEXT DEFAULT ''
+        )""",
+        """CREATE TABLE IF NOT EXISTS party_tip_log (
+            id            INTEGER PRIMARY KEY,
+            tipper_id     TEXT DEFAULT '',
+            tipper_name   TEXT DEFAULT '',
+            receiver_id   TEXT DEFAULT '',
+            receiver_name TEXT DEFAULT '',
+            amount        INTEGER DEFAULT 0,
+            wallet_before INTEGER DEFAULT 0,
+            wallet_after  INTEGER DEFAULT 0,
+            party_mode    TEXT DEFAULT 'ON',
+            result        TEXT DEFAULT '',
+            note          TEXT DEFAULT '',
+            created_at    TEXT DEFAULT ''
+        )""",
     ]:
         try:
             conn.execute(sql)

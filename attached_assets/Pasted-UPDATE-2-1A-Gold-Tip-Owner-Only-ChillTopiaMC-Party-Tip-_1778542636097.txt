@@ -1,0 +1,693 @@
+UPDATE 2.1A — Gold Tip Owner Only + ChillTopiaMC Party Tip Wallet + Host Teleports + Role Members
+
+Goal:
+Add only small safe permission/ownership improvements.
+
+This is NOT the full Update 2.1.
+Do not add missions.
+Do not add raffles.
+Do not add roomstats.
+Do not add farm monetization.
+Do not add hype system.
+Do not add AI.
+Do not add startup loops.
+Do not add background tasks.
+
+Do not change bot tokens.
+Do not change room ID.
+Do not wipe database.
+Do not wipe balances.
+Do not wipe player data.
+Do not wipe reward logs.
+Do not wipe subscriptions.
+Do not break Update 2.0.
+
+Use ! commands only.
+
+==================================================
+PART 1 — GOLD TIP OWNER ONLY
+==================================================
+
+Requirement:
+Direct gold tipping must be Owner-only.
+
+Affected commands:
+!goldtip [user] [amount]
+!goldtip all [amount]
+!goldtipbots [on|off]
+!tipall [amount]
+!goldtipall [amount]
+
+Permission:
+Owner only.
+
+Rules:
+- Only owner can use direct gold tipping.
+- Admins cannot use direct gold tipping.
+- Managers cannot use direct gold tipping.
+- Staff cannot use direct gold tipping.
+- Normal players cannot use direct gold tipping.
+- VIP/subs cannot use direct gold tipping.
+- Gold Rain permissions stay separate.
+- Party Tip system is separate and handled by ChillTopiaMC.
+
+Non-owner response:
+
+🔒 Owner only.
+Gold tipping can only be used by the owner.
+
+For !goldtip all:
+
+🔒 Owner only.
+Mass gold tipping can only be used by the owner.
+
+Help update:
+- Remove !goldtip from regular player help.
+- Remove !goldtip from staff help.
+- Show !goldtip only in owner help.
+
+Owner help:
+!goldtip [user] [amount]
+!goldtip all [amount]
+!goldtipbots [on|off]
+
+Command tests:
+/commandtest !goldtip
+/commandtest !goldtipbots
+
+Expected:
+route=YES
+handler=YES
+owner=BankerBot
+permission=Owner only
+
+==================================================
+PART 1B — CHILLTOPIAMC PARTY TIP WALLET
+==================================================
+
+Requirement:
+Add a separate Party Tip system handled by ChillTopiaMC.
+
+Important:
+!goldtip = BankerBot, Owner-only.
+!tip = ChillTopiaMC Party Tip Wallet only.
+
+Party Tip Wallet must be separate from BankerBot gold.
+Party Tippers must not get access to BankerBot commands.
+Party Tippers must not get access to VIP/admin/economy commands.
+
+==================================================
+PARTY TIP COMMANDS
+==================================================
+
+Party tipper / owner commands:
+
+!tip [user] [amount]
+!tip all [amount]
+
+Examples:
+!tip @Player 5
+!tip all 2
+
+Behavior:
+- Sends party gold from ChillTopiaMC Party Wallet.
+- Does not touch BankerBot wallet.
+- Only works when Party Mode is ON.
+- Only owner or active Party Tipper can use it.
+- Excludes bots by default.
+- Logs every transaction.
+
+==================================================
+SIMPLE OWNER COMMANDS
+==================================================
+
+Use these simple owner commands:
+
+!ptwallet [amount]
+!ptadd [user] [minutes]
+!ptremove [user]
+!ptclear
+!ptlist
+!ptlimits
+!ptlimit [single|all|daily|max] [amount]
+
+Aliases allowed:
+
+!partywallet = !ptwallet
+!setpartywallet = !ptwallet
+!partytipper add = !ptadd
+!partytipper remove = !ptremove
+!partytipper clear = !ptclear
+!partytippers = !ptlist
+!partytipperlimits = !ptlimits
+!setpartytipperlimit = !ptlimit
+
+==================================================
+COMMAND MEANING
+==================================================
+
+!ptwallet [amount]
+Sets the ChillTopiaMC Party Tip Wallet amount.
+
+Example:
+!ptwallet 300
+
+Response:
+🎉 Party Wallet Set
+Wallet: 300g
+Handled by: ChillTopiaMC
+BankerBot affected: NO
+
+!ptadd [user] [minutes]
+Adds a temporary Party Tipper.
+
+Example:
+!ptadd @Player 60
+
+Response:
+✅ Party Tipper Added
+User: @Player
+Duration: 60m
+Can use: !tip only
+Party Mode Required: YES
+
+!ptremove [user]
+Removes one Party Tipper.
+
+Example:
+!ptremove @Player
+
+Response:
+✅ Party Tipper Removed
+User: @Player
+
+!ptclear
+Removes all temporary Party Tippers.
+
+Response:
+✅ All Party Tippers Cleared
+
+!ptlist
+Shows current Party Tippers.
+
+Response:
+🎉 Party Tippers
+@Player — expires in 42m — used 25g/100g
+
+!ptlimits
+Shows Party Tip limits.
+
+Response:
+🎉 Party Tip Limits
+Single: 10g
+All: 5g each
+Daily: 100g
+Wallet Max: 500g
+Party Mode Required: YES
+
+!ptlimit [single|all|daily|max] [amount]
+Changes Party Tip limits.
+
+Examples:
+!ptlimit single 10
+!ptlimit all 5
+!ptlimit daily 100
+!ptlimit max 500
+
+Response:
+✅ Party Tip Limit Updated
+single = 10g
+
+==================================================
+PARTY TIP BEHAVIOR
+==================================================
+
+!tip [user] [amount]:
+
+Example:
+!tip @Guest 5
+
+Response:
+🎉 Party Tip Sent
+From: ChillTopiaMC Party Wallet
+To: @Guest
+Amount: 5g
+Party Wallet Left: 295g
+
+!tip all [amount]:
+
+Example:
+!tip all 2
+
+Response:
+🎉 Party Tip All
+Amount: 2g each
+Players tipped: 20
+Total: 40g
+Party Wallet Left: 255g
+
+Rules for !tip all:
+- Tips everyone currently in room.
+- Excludes bots by default.
+- Excludes the tipper if self-tip is disabled.
+- Uses Party Wallet only.
+- Respects max all-tip limit.
+- Must not silently skip players without summary.
+
+==================================================
+PARTY TIP PERMISSIONS
+==================================================
+
+Owner only:
+!ptwallet [amount]
+!ptadd [user] [minutes]
+!ptremove [user]
+!ptclear
+!ptlimit [single|all|daily|max] [amount]
+
+Owner or active Party Tipper:
+!tip [user] [amount]
+!tip all [amount]
+
+Public/status:
+!ptlist
+!ptlimits
+
+Rules:
+- Only owner can manage Party Tippers.
+- Party Tippers can only use !tip.
+- Party Tippers cannot use !goldtip.
+- Party Tippers cannot use Gold Rain.
+- Party Tippers cannot use VIP commands.
+- Party Tippers cannot change balances.
+- Party Tippers cannot use BankerBot commands.
+- Party Tippers cannot use admin/economy/staff commands.
+- Party Tipper permission expires automatically.
+- Party Mode must be ON for !tip to work.
+
+==================================================
+DEFAULT LIMITS
+==================================================
+
+single = 10g
+all = 5g each
+daily = 100g per Party Tipper
+max = 500g Party Wallet max
+duration max = 120 minutes
+party mode required = YES
+bots excluded = YES
+self-tip = OFF by default
+
+==================================================
+ERROR RESPONSES
+==================================================
+
+If Party Mode is OFF:
+
+🎉 Party Mode is OFF.
+Party tipping only works during Party Mode.
+
+If user is not owner or active Party Tipper:
+
+🔒 Party Tipper only.
+Ask the owner for temporary party tipping access.
+
+If Party Wallet is empty:
+
+⚠️ Party Wallet is empty.
+Owner must add party gold.
+
+If Party Wallet does not have enough gold:
+
+⚠️ Not enough Party Wallet gold.
+Needed: [amount]g
+Available: [wallet]g
+
+If amount is too high:
+
+⚠️ Party tip limit reached.
+Single max: 10g
+All max: 5g each
+Daily cap: 100g
+
+If trying to tip bot:
+
+🤖 Bots cannot receive party tips.
+
+If amount is zero/negative:
+
+Amount must be at least 1g.
+
+==================================================
+LOGGING
+==================================================
+
+Log every !tip:
+- tipper
+- receiver
+- amount
+- party wallet before
+- party wallet after
+- timestamp
+- party mode status
+- success/fail reason
+
+For !tip all, log:
+- tipper
+- amount each
+- player count
+- total amount
+- skipped users
+- wallet before
+- wallet after
+- timestamp
+
+Log Party Tipper management:
+- owner
+- action add/remove/clear
+- target user
+- duration
+- timestamp
+
+==================================================
+HELP TEXT
+==================================================
+
+Owner help should show:
+
+🎉 Party Tip Owner Commands
+!ptwallet [amount] — set party wallet
+!ptadd [user] [minutes] — add party tipper
+!ptremove [user] — remove party tipper
+!ptclear — clear all party tippers
+!ptlist — list party tippers
+!ptlimits — show limits
+!ptlimit [single|all|daily|max] [amount] — set limits
+
+Party Tipper help should show:
+
+🎉 Party Tip Commands
+!tip [user] [amount] — tip one player
+!tip all [amount] — tip everyone in room
+
+Regular player help should not show:
+!goldtip
+!ptwallet
+!ptadd
+!ptremove
+!ptclear
+!ptlimit
+
+==================================================
+PART 2 — TELEPORTS OWNED BY HOST
+==================================================
+
+Requirement:
+All teleport commands should be owned by Host.
+
+Affected commands:
+!tele
+!tele list
+!tele [spot]
+!tele [user]
+!tele [user] [x] [y] [z] [facing]
+!create tele [spot]
+!delete tele [spot]
+!tele permission [spot] [permission]
+!summon [user]
+!roles
+!rolemembers
+!rolemembers [role]
+!rolespawn [role]
+!rolespawns
+!setrolespawn [role] here
+!setrolespawn [role] [x] [y] [z] [facing]
+!delrolespawn [role]
+!autospawn [on|off|status]
+!autospawn debug [user]
+
+Owner:
+Host
+
+Rules:
+- Teleport system should display owner=Host.
+- Teleport help should be under Host/Teleport help.
+- Do not show teleport commands as SecurityBot-owned.
+- Do not show teleport commands as ChillTopiaMC-owned.
+- Host handles teleport routing, role spawn, summon, role members, and autospawn.
+
+Expected command tests:
+
+/commandtest !tele
+/commandtest !create
+/commandtest !delete
+/commandtest !summon
+/commandtest !roles
+/commandtest !rolemembers
+/commandtest !rolespawn
+/commandtest !setrolespawn
+/commandtest !rolespawns
+/commandtest !delrolespawn
+/commandtest !autospawn
+
+Target:
+route=YES
+handler=YES
+owner=Host
+
+==================================================
+PART 3 — ROLE MEMBERS DISPLAY
+==================================================
+
+Add Role Members Display.
+
+Commands:
+!roles
+!roles list
+!roles members
+!rolemembers
+!rolemembers [role]
+
+Behavior:
+- Shows all detected roles and who is currently in each role.
+- Uses live room users, not stale cache.
+- Shows only players currently in the room.
+- Bots should be separated into Bots role.
+- Staff should include owner, admin, manager, and mod.
+- Regular should exclude staff, vip, subs, and bots.
+
+Examples:
+
+!rolemembers staff
+
+Expected:
+
+🛠️ Staff Members
+@4ktreyMarion
+@ManagerName
+@ModName
+
+!rolemembers vip
+
+Expected:
+
+💎 VIP Members
+@Player1
+@Player2
+
+!roles members
+
+Expected:
+
+🧑‍🤝‍🧑 Room Roles
+Owner: @4ktreyMarion
+Admin: none
+Manager: @Player1
+Mod: @Player2
+Staff: @4ktreyMarion, @Player1, @Player2
+VIP: @Player3
+Subs: @Player4
+Regular: @Player5, @Player6
+Guest: @NewPlayer
+Bots: @ChillTopiaMC, @BankerBot
+
+If no users in role:
+Show: none
+
+Command tests:
+/commandtest !roles
+/commandtest !rolemembers
+
+Target:
+route=YES
+handler=YES
+owner=Host
+
+==================================================
+PART 4 — COMMAND TESTS
+==================================================
+
+Run:
+
+/commandtest !goldtip
+/commandtest !goldtipbots
+/commandtest !tip
+/commandtest !ptwallet
+/commandtest !ptadd
+/commandtest !ptremove
+/commandtest !ptclear
+/commandtest !ptlist
+/commandtest !ptlimits
+/commandtest !ptlimit
+/commandtest !tele
+/commandtest !roles
+/commandtest !rolemembers
+/commandtest !rolespawn
+/commandtest !setrolespawn
+/commandtest !autospawn
+!commandissues
+/checkcommands all
+
+Expected:
+No active command issues.
+No handler=NO.
+No owner UNKNOWN.
+
+Specific expected owners:
+!goldtip = BankerBot
+!goldtipbots = BankerBot
+!tip = ChillTopiaMC
+!ptwallet = ChillTopiaMC
+!ptadd = ChillTopiaMC
+!ptremove = ChillTopiaMC
+!ptclear = ChillTopiaMC
+!ptlist = ChillTopiaMC
+!ptlimits = ChillTopiaMC
+!ptlimit = ChillTopiaMC
+!tele = Host
+!roles = Host
+!rolemembers = Host
+!autospawn = Host
+
+==================================================
+PART 5 — LIVE TESTS
+==================================================
+
+Gold tip owner-only:
+
+Non-owner test:
+!goldtip @Player 5
+
+Expected:
+🔒 Owner only.
+Gold tipping can only be used by the owner.
+
+Owner test:
+!goldtip @Player 5
+
+Expected:
+Works only for owner.
+
+Party Tip setup:
+
+!party on
+!ptwallet 300
+!ptadd @Friend 60
+!ptlimits
+!ptlist
+
+Expected:
+Party wallet is set.
+@Friend is temporary Party Tipper.
+BankerBot wallet affected: NO.
+
+Party Tipper test:
+
+From @Friend:
+!tip @Player 5
+
+Expected:
+🎉 Party Tip Sent
+From: ChillTopiaMC Party Wallet
+To: @Player
+Amount: 5g
+Party Wallet Left: 295g
+
+From @Friend:
+!tip all 2
+
+Expected:
+🎉 Party Tip All
+Amount: 2g each
+Players tipped: [count]
+Total: [total]g
+Party Wallet Left: [remaining]g
+
+Party Mode OFF test:
+
+!party off
+
+From @Friend:
+!tip @Player 5
+
+Expected:
+🎉 Party Mode is OFF.
+Party tipping only works during Party Mode.
+
+Role members:
+
+!rolemembers
+!rolemembers staff
+!rolemembers vip
+!rolemembers regular
+
+Expected:
+Shows live room users in each role.
+
+==================================================
+PART 6 — SAFETY
+==================================================
+
+Do not:
+- let non-owner use !goldtip
+- let Party Tippers use !goldtip
+- let Party Tippers access BankerBot wallet
+- let !tip use BankerBot wallet
+- let !tip work when Party Mode is OFF
+- let !tip tip bots
+- allow unlimited party tips
+- allow negative or zero tips
+- allow Party Tippers to use VIP/admin/economy commands
+- wipe balances
+- wipe player data
+- wipe rewards
+- wipe gold logs
+- wipe VIP logs
+- change bot tokens
+- change room ID
+- add background tasks
+- add Update 2.1 missions/hype/farm systems yet
+- break Update 2.0
+
+==================================================
+FINAL REPORT
+==================================================
+
+After finishing, tell me:
+
+1. Files changed.
+2. Gold tip permission result.
+3. Party Tip Wallet storage/result.
+4. !tip owner and permission result.
+5. !ptwallet result.
+6. !ptadd result.
+7. Party wallet does not affect BankerBot confirmation.
+8. Teleport owner result.
+9. Role members command result.
+10. /commandtest !goldtip result.
+11. /commandtest !tip result.
+12. /commandtest !ptwallet result.
+13. /commandtest !tele result.
+14. /commandtest !rolemembers result.
+15. !commandissues result.
+16. /checkcommands all result.

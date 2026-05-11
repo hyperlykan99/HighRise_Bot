@@ -869,7 +869,11 @@ def get_autospawn_spawn_for_user(username: str) -> dict | None:
 # !roles   — show roles and their spawn status
 # ---------------------------------------------------------------------------
 
-async def handle_roles(bot: BaseBot, user: User) -> None:
+async def handle_roles(bot: BaseBot, user: User, args: list[str] | None = None) -> None:
+    # Forward to rolemembers for sub-commands
+    if args and len(args) > 1 and args[1].lower() in ("members", "list", "all"):
+        await handle_rolemembers(bot, user, [])
+        return
     rows    = db.get_all_role_spawns() or []
     enabled = db.get_room_setting("autospawn_enabled", "0") == "1"
 
@@ -885,8 +889,106 @@ async def handle_roles(bot: BaseBot, user: User) -> None:
         lines.append(
             f"  {r['role']}: ({r['x']:.1f},{r['y']:.1f},{r['z']:.1f})"
         )
-    lines.append("!rolespawn <role> — go to spawn")
+    lines.append("!rolespawn <role>  !rolemembers")
     await _w(bot, user.id, "\n".join(lines)[:249])
+
+
+# ---------------------------------------------------------------------------
+# !rolemembers [role]  — show live room users bucketed by role
+# ---------------------------------------------------------------------------
+
+async def handle_rolemembers(bot: BaseBot, user: User, args: list[str]) -> None:
+    """!rolemembers [role] — show who is in each role right now."""
+    all_users = await _get_all_room_users(bot)
+
+    # Load VIP list (best-effort)
+    try:
+        vip_set = {v.lower() for v in db.get_vip_list()}
+    except Exception:
+        vip_set = set()
+
+    # Classify room users
+    owners:   list[str] = []
+    admins:   list[str] = []
+    managers: list[str] = []
+    mods:     list[str] = []
+    vips:     list[str] = []
+    subs:     list[str] = []
+    regulars: list[str] = []
+    bots_in:  list[str] = []
+
+    _KNOWN_BOTS: frozenset[str] = frozenset({
+        "chilltopiamc", "bankingbot", "acesinastra", "chipsoprano",
+        "dj_dudu", "keanushield", "masterangler",
+    })
+
+    for u, _ in all_users:
+        ulow = u.username.lower()
+        if ulow in _KNOWN_BOTS:
+            bots_in.append(u.username)
+            continue
+        if is_owner(u.username):
+            owners.append(u.username)
+        elif is_admin(u.username):
+            admins.append(u.username)
+        elif is_manager(u.username):
+            managers.append(u.username)
+        elif can_moderate(u.username):
+            mods.append(u.username)
+        elif ulow in vip_set:
+            vips.append(u.username)
+        else:
+            try:
+                row = db.get_subscriber(ulow)
+                if row and row.get("subscribed"):
+                    subs.append(u.username)
+                else:
+                    regulars.append(u.username)
+            except Exception:
+                regulars.append(u.username)
+
+    def _fmt(lst: list[str]) -> str:
+        return ", ".join(f"@{n}" for n in lst) if lst else "none"
+
+    role_filter = args[1].lower() if len(args) > 1 else ""
+
+    if role_filter in ("owner",):
+        await _w(bot, user.id, f"👑 Owners\n{_fmt(owners)}"[:249])
+    elif role_filter in ("admin", "admins"):
+        await _w(bot, user.id, f"🛡️ Admins\n{_fmt(admins)}"[:249])
+    elif role_filter in ("manager", "managers"):
+        await _w(bot, user.id, f"⚙️ Managers\n{_fmt(managers)}"[:249])
+    elif role_filter in ("mod", "mods", "moderator", "moderators"):
+        await _w(bot, user.id, f"🛠️ Mods\n{_fmt(mods)}"[:249])
+    elif role_filter in ("staff",):
+        staff = owners + admins + managers + mods
+        await _w(bot, user.id, f"🛠️ Staff\n{_fmt(staff)}"[:249])
+    elif role_filter in ("vip",):
+        await _w(bot, user.id, f"💎 VIP\n{_fmt(vips)}"[:249])
+    elif role_filter in ("sub", "subs", "subscriber", "subscribers"):
+        await _w(bot, user.id, f"🔔 Subscribers\n{_fmt(subs)}"[:249])
+    elif role_filter in ("regular", "regulars", "player", "players"):
+        await _w(bot, user.id, f"👤 Regular\n{_fmt(regulars)}"[:249])
+    elif role_filter in ("bot", "bots"):
+        await _w(bot, user.id, f"🤖 Bots\n{_fmt(bots_in)}"[:249])
+    else:
+        # Summary: send two whispers to stay ≤ 249 chars each
+        part1 = (
+            f"🧑‍🤝‍🧑 Room Roles\n"
+            f"👑 Owner: {_fmt(owners)}\n"
+            f"🛡️ Admin: {_fmt(admins)}\n"
+            f"⚙️ Manager: {_fmt(managers)}\n"
+            f"🛠️ Mod: {_fmt(mods)}"
+        )
+        part2 = (
+            f"💎 VIP: {_fmt(vips)}\n"
+            f"🔔 Sub: {_fmt(subs)}\n"
+            f"👤 Regular: {_fmt(regulars)}\n"
+            f"🤖 Bots: {_fmt(bots_in)}\n"
+            f"Filter: !rolemembers [role]"
+        )
+        await _w(bot, user.id, part1[:249])
+        await _w(bot, user.id, part2[:249])
 
 
 # ---------------------------------------------------------------------------

@@ -480,7 +480,10 @@ async def _execute_goldrainall(
 # ---------------------------------------------------------------------------
 async def handle_goldtip(bot, user, args: list[str], action_type: str = "goldtip") -> None:
     if not is_owner(user.username):
-        await bot.highrise.send_whisper(user.id, "Only owners can send gold.")
+        await bot.highrise.send_whisper(
+            user.id,
+            "🔒 Owner only.\nGold tipping can only be used by the owner.",
+        )
         db.log_gold_tx(
             "denied", user.username,
             args[1].lstrip("@") if len(args) > 1 else "?",
@@ -608,7 +611,10 @@ async def _handle_goldtip_all(bot, user, args: list[str]) -> None:
     Uses Gold Rain pace interval between tips (unless 'instant' flag is given).
     """
     if not is_owner(user.username):
-        await bot.highrise.send_whisper(user.id, "Only owners can send gold.")
+        await bot.highrise.send_whisper(
+            user.id,
+            "🔒 Owner only.\nMass gold tipping can only be used by the owner.",
+        )
         return
 
     if len(args) < 3:

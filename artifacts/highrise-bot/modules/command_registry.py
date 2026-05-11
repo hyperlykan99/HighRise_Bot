@@ -166,7 +166,8 @@ REGISTRY: dict[str, Cmd] = {
     # ── Banker ───────────────────────────────────────────────────────────────
     "bal":              Cmd("banker","economy",False,True, False,
                             aliases=("balance","b","wallet","w","coins","coin","money")),
-    "send":             Cmd("banker","economy",False,False,True,  aliases=("tip","gift")),
+    "send":             Cmd("banker","economy",False,False,True,  aliases=("gift",)),
+    "tip":              Cmd("host",  "party_tip",True, False,True),
     "daily":            Cmd("banker","economy",False,False,True),
     "bank":             Cmd("banker","economy",False,True, False),
     "transactions":     Cmd("banker","economy",False,True, False, aliases=("bankstats",)),
@@ -784,12 +785,36 @@ REGISTRY: dict[str, Cmd] = {
     "aetest":           Cmd("eventhost","events", False, True,  False, perm="manager"),
     "ownercheck":       Cmd("security", "system", False, True,  False, perm="manager"),
 
-    # ── RoleSpawn / AutoSpawn (security + host) ───────────────────────────────
-    "rolespawn":        Cmd("security","teleport", True,  True,  False),
-    "rolespawns":       Cmd("security","teleport", True,  True,  False),
-    "setrolespawn":     Cmd("security","teleport", False, False, True,  perm="manager"),
-    "delrolespawn":     Cmd("security","teleport", False, False, True,  perm="manager"),
+    # ── RoleSpawn / AutoSpawn (host) ──────────────────────────────────────────
+    "rolespawn":        Cmd("host",    "teleport", True,  True,  False),
+    "rolespawns":       Cmd("host",    "teleport", True,  True,  False),
+    "setrolespawn":     Cmd("host",    "teleport", False, False, True,  perm="manager"),
+    "delrolespawn":     Cmd("host",    "teleport", False, False, True,  perm="manager"),
     "autospawn":        Cmd("host",    "teleport", True,  True,  True,  perm="manager"),
+    # ── Tele / summon / create / delete (host) ────────────────────────────────
+    "tele":             Cmd("host",    "teleport", True,  True,  False),
+    "summon":           Cmd("host",    "teleport", True,  False, True,  perm="manager"),
+    "create":           Cmd("host",    "teleport", True,  False, True,  perm="manager"),
+    "delete":           Cmd("host",    "teleport", True,  False, True,  perm="manager"),
+    "roles":            Cmd("host",    "teleport", True,  True,  False),
+    "rolemembers":      Cmd("host",    "teleport", True,  True,  False),
+    # ── Party Tip Wallet (host / ChillTopiaMC) ────────────────────────────────
+    "party":            Cmd("host",    "party_tip",True,  False, True,  perm="owner"),
+    "ptwallet":         Cmd("host",    "party_tip",True,  False, True,  perm="owner",
+                            aliases=("partywallet","setpartywallet")),
+    "ptadd":            Cmd("host",    "party_tip",True,  False, True,  perm="owner",
+                            aliases=("partytipperadd",)),
+    "ptremove":         Cmd("host",    "party_tip",True,  False, True,  perm="owner",
+                            aliases=("partytipperremove",)),
+    "ptclear":          Cmd("host",    "party_tip",True,  False, True,  perm="owner",
+                            aliases=("partytipperclear",)),
+    "ptlist":           Cmd("host",    "party_tip",True,  True,  False,
+                            aliases=("partytippers",)),
+    "ptlimits":         Cmd("host",    "party_tip",True,  True,  False,
+                            aliases=("partytipperlimits",)),
+    "ptlimit":          Cmd("host",    "party_tip",True,  False, True,  perm="owner",
+                            aliases=("setpartytipperlimit",)),
+    "partytipper":      Cmd("host",    "party_tip",True,  False, True,  perm="owner"),
 
     # ── Rarity chance display (miner / fisher / host) ─────────────────────────
     "minechances":      Cmd("miner",   "mining",  True,  True,  False),

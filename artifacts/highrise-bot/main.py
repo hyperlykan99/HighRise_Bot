@@ -533,7 +533,18 @@ from modules.tele import (
     handle_setrolespawn, handle_rolespawn, handle_rolespawns, handle_delrolespawn,
     handle_tag,
     handle_teleporthelp_tele,
-    handle_autospawn, handle_roles, get_autospawn_spawn_for_user,
+    handle_autospawn, handle_roles, handle_rolemembers, get_autospawn_spawn_for_user,
+)
+from modules.party_tip import (
+    handle_party,
+    handle_ptwallet,
+    handle_ptadd,
+    handle_ptremove,
+    handle_ptclear,
+    handle_ptlist,
+    handle_ptlimits,
+    handle_ptlimit,
+    handle_tip as handle_party_tip,
 )
 from modules.economy_audit import (
     handle_economyaudit, handle_gameprices, handle_gameprice,
@@ -776,6 +787,13 @@ OWNER_ONLY_CMDS = {
     "restartbot",
     "testnotifyall",
     "fixcommandregistry",
+    # Party Tip Wallet (owner management)
+    "party",
+    "ptwallet", "partywallet", "setpartywallet",
+    "ptadd", "partytipperadd",
+    "ptremove", "partytipperremove",
+    "ptclear", "partytipperclear",
+    "ptlimit", "setpartytipperlimit",
 }
 
 STAFF_CMDS = MOD_ONLY_CMDS | MANAGER_ONLY_CMDS | ADMIN_ONLY_CMDS | OWNER_ONLY_CMDS
@@ -1054,6 +1072,14 @@ NEW_PROJECT_COMMANDS: frozenset[str] = frozenset({
     # Weekly leaderboard
     "weeklylb", "weeklyleaderboard", "weeklyreset",
     "weeklyrewards", "setweeklyreward", "weeklystatus",
+    # Party Tip Wallet (public)
+    "tip",
+    "ptlist", "partytippers",
+    "ptlimits", "partytipperlimits",
+    "partytipper",
+    # Tele / role system
+    "tele", "summon", "create", "delete",
+    "roles", "rolemembers",
 })
 ALL_KNOWN_COMMANDS = (
     ALL_KNOWN_COMMANDS
@@ -1146,7 +1172,6 @@ _HELP_CATEGORIES: dict[str, str] = {
     "economy": (
         "💰 Economy\n"
         "!balance  !coins  !claimrewards\n"
-        "!goldtip [user] [amount]\n"
         "!goldrain [group] [gold] [winners]\n"
         "!goldrainstatus  !gameprices\n"
         "!rewardlogs"
@@ -1164,8 +1189,8 @@ _HELP_CATEGORIES: dict[str, str] = {
         "!tele list — see spots\n"
         "!tele [spot] — go to spot\n"
         "!summon [user]\n"
-        "!roles — see roles\n"
-        "!rolemembers — role members\n"
+        "!roles — role spawns\n"
+        "!rolemembers [role] — who's in each role\n"
         "!rolespawns"
     ),
     "vip": (
@@ -1867,6 +1892,15 @@ OWNER_HELP_PAGES = [
         "/goldrainvip amt - VIP gold rain"
     ),
     (
+        "👑 Owner 5B — Party Tip\n"
+        "!party on|off - toggle party mode\n"
+        "!ptwallet [amt] - set party wallet\n"
+        "!ptadd [user] [mins] - add tipper\n"
+        "!ptremove [user] - remove tipper\n"
+        "!ptclear - clear all tippers\n"
+        "!ptlimit [type] [amt] - set limits"
+    ),
+    (
         "👑 Owner 5 — System\n"
         "/allstaff - list all staff\n"
         "/allcommands - full command list\n"
@@ -1905,6 +1939,7 @@ ALLCMDS = [
     "Cmds 8 Events\n!event /events\n!eventstatus\n!startevent\n!stopevent\n!autoevents status",
     "Cmds 9 Staff\n!staffhelp !modhelp\n!managerhelp !adminhelp\n!ownerhelp !allstaff",
     "Cmds 10 Gold/Owner\n!goldhelp\n!goldtip\n!goldrain\n!goldrefund\n!backup\n!softrestart",
+    "Cmds 11 Party Tip\n!party on|off\n!ptwallet [amt]\n!ptadd [u] [m]\n!ptlist\n!ptlimits\n!ptlimit",
 ]
 
 
@@ -3888,7 +3923,7 @@ class HangoutBot(BaseBot):
             await handle_send(self, user, args)
 
         elif cmd == "tip":
-            await handle_send(self, user, args)
+            await handle_party_tip(self, user, args)
 
         elif cmd == "transactions":
             await handle_transactions(self, user, args)
@@ -5202,7 +5237,38 @@ class HangoutBot(BaseBot):
         elif cmd == "autospawn":
             await handle_autospawn(self, user, args)
         elif cmd == "roles":
-            await handle_roles(self, user)
+            await handle_roles(self, user, args)
+        elif cmd == "rolemembers":
+            await handle_rolemembers(self, user, args)
+
+        # ── Party Tip Wallet (ChillTopiaMC) ──────────────────────────────────
+        elif cmd == "party":
+            await handle_party(self, user, args)
+        elif cmd in ("ptwallet", "partywallet", "setpartywallet"):
+            await handle_ptwallet(self, user, args)
+        elif cmd in ("ptadd", "partytipperadd"):
+            await handle_ptadd(self, user, args)
+        elif cmd in ("ptremove", "partytipperremove"):
+            await handle_ptremove(self, user, args)
+        elif cmd in ("ptclear", "partytipperclear"):
+            await handle_ptclear(self, user)
+        elif cmd in ("ptlist", "partytippers"):
+            await handle_ptlist(self, user)
+        elif cmd in ("ptlimits", "partytipperlimits"):
+            await handle_ptlimits(self, user)
+        elif cmd in ("ptlimit", "setpartytipperlimit"):
+            await handle_ptlimit(self, user, args)
+        elif cmd == "partytipper":
+            # !partytipper add|remove|clear [user] [args]
+            sub = args[1].lower() if len(args) > 1 else ""
+            if sub == "add":
+                await handle_ptadd(self, user, ["ptadd"] + args[2:])
+            elif sub == "remove":
+                await handle_ptremove(self, user, ["ptremove"] + args[2:])
+            elif sub == "clear":
+                await handle_ptclear(self, user)
+            else:
+                await handle_ptlist(self, user)
 
         # ── Teleport ──────────────────────────────────────────────────────────
         elif cmd == "tpme":
