@@ -1,0 +1,820 @@
+Notification System Cleanup + Debug Tools
+
+Current direction:
+EmceeBot should handle ALL subscriber notifications.
+
+Other bots may trigger notification requests internally, but EmceeBot is the only bot that sends the actual notifications.
+
+Current issues to fix:
+1. Notification sender may still show host instead of EmceeBot.
+2. Job-based sender routing should be disabled/ignored for now.
+3. Need better debug tools to see why a player did or did not receive a notification.
+4. Need room-user detection tools for whisper delivery.
+5. Need accurate failed/no-delivery status reports.
+
+Do not change bot tokens.
+Do not change room ID.
+Do not reset balances.
+Do not wipe subscriptions.
+Do not wipe notification preferences.
+Do not wipe notification logs.
+Do not wipe player data.
+Do not break mining, fishing, blackjack, poker, bank, gold tips, Gold Rain, First Hunt Race, auto events, bot outfits, bot spawns, or command routing.
+Do not expose secrets, tokens, env vars, or room ID.
+
+==================================================
+PART 1 — EMCEEBOT HANDLES ALL NOTIFICATIONS
+==================================================
+
+Goal:
+- EmceeBot handles ALL notification delivery.
+- Other bots can trigger notifications, but EmceeBot sends them.
+- Do not use job-based sender routing for now.
+- Disable, bypass, or ignore category-to-bot sender routing.
+- Staff/player-facing sender display should show EmceeBot.
+
+If internal sender key is:
+host
+
+Display it as:
+EmceeBot
+
+/subnotify summary should show:
+
+Sender: EmceeBot
+
+/subnotifystatus should show:
+
+Sender: EmceeBot
+
+Do not show:
+Sender: host
+Sender: BankerBot
+Sender: GreatestProspector
+Sender: MasterAngler
+Sender: BlackJackBot
+Sender: EventBot
+
+for subscriber notifications.
+
+==================================================
+PART 2 — REQUIRED DELIVERY BEHAVIOR
+==================================================
+
+For each eligible subscribed player:
+
+If player is:
+- subscribed
+- global notifications ON
+- category ON
+- currently in room
+
+Then:
+- EmceeBot whispers them immediately.
+- status = sent_whisper_in_room
+- delivery_method = whisper
+
+Do not require DM conversation for players currently in room.
+Do not attempt DM before whisper for in-room players.
+
+If player is:
+- subscribed
+- global notifications ON
+- category ON
+- NOT currently in room
+
+Then:
+- try DM only if SDK supports it.
+- if DM works: status = sent_dm or sent_conversation_dm / sent_bulk_dm depending current code.
+- if no route: status = no_delivery_route.
+
+Do not mark no-route, failed, skipped, or unsupported as sent.
+
+==================================================
+PART 3 — NOTIFICATION CATEGORIES
+==================================================
+
+Use these categories:
+
+mining
+fishing
+events
+firsthunt
+rewards
+donations
+blackjack
+poker
+security
+updates
+
+Display names:
+
+mining = Mining
+fishing = Fishing
+events = Events
+firsthunt = First Hunt
+rewards = Rewards
+donations = Donations
+blackjack = BlackJack
+poker = Poker
+security = Security
+updates = Updates
+
+Invalid category response:
+
+EmceeBot:
+🔔 Invalid Category
+Valid:
+mining, fishing, events, firsthunt, rewards, donations, blackjack, poker, security, updates
+
+==================================================
+PART 4 — PLAYER NOTIFICATION COMMANDS
+==================================================
+
+Verify/fix:
+
+/notif
+/notifon <category>
+/notifoff <category>
+/notifall on
+/notifall off
+
+Owner:
+EmceeBot
+
+Permission:
+Everyone
+
+/notif should show:
+
+EmceeBot:
+🔔 Notification Settings
+Global: ON
+Mining: OFF
+Fishing: OFF
+Events: ON
+First Hunt: ON
+Rewards: ON
+Donations: OFF
+BlackJack: OFF
+Poker: OFF
+Security: ON
+Updates: ON
+
+DM Status: Available / Not Set / SDK Unsupported
+In-Room Whisper: Available while you are in room
+
+/notifon events:
+Turns Events ON.
+
+/notifoff poker:
+Turns Poker OFF.
+
+/notifall off:
+Turns global notifications OFF.
+
+/notifall on:
+Turns global notifications ON.
+
+Do not force every category ON when /notifall on is used.
+It should restore global delivery while keeping category preferences.
+
+==================================================
+PART 5 — STAFF SEND COMMANDS
+==================================================
+
+Verify/fix:
+
+/subnotify <category> <message>
+/testnotify @username <category> <message>
+/subnotifystatus
+/subnotifystatus failed
+/subnotifystatus nodelivery
+/notifydebug @username
+/roomusers
+/testwhisper @username
+/notifrefresh
+
+Owner:
+EmceeBot
+
+Permission:
+Manager+
+
+==================================================
+PART 6 — /subnotify
+==================================================
+
+Command:
+
+/subnotify <category> <message>
+
+Example:
+
+/subnotify events First Hunt starts in 5 minutes!
+
+Behavior:
+- Validate category.
+- Load subscribed players.
+- Check global notification setting.
+- Check category setting.
+- Refresh room users.
+- Whisper in-room eligible players from EmceeBot.
+- Try DM for out-of-room eligible players only if supported.
+- Log all recipients with accurate statuses.
+- Reply to sender with accurate summary.
+
+Summary example:
+
+EmceeBot:
+🔔 Subscriber Notification Complete
+Category: Events
+Sender: EmceeBot
+Whisper Sent In Room: 9
+DM Sent Out of Room: 1
+No Delivery Route: 2
+Skipped Opt-Out: 3
+Failed: 1
+
+If no messages delivered:
+
+EmceeBot:
+🔔 Subscriber Notification
+No messages were delivered.
+Reason: No eligible subscribed players currently in room and out-of-room DM is unavailable.
+
+Important:
+Do not count no_delivery_route as sent.
+Do not count failed as sent.
+Do not count skipped as sent.
+
+==================================================
+PART 7 — /testnotify
+==================================================
+
+Command:
+
+/testnotify @username <category> <message>
+
+Example:
+
+/testnotify @4ktreyMarion events Test notification
+
+Should show exact delivery path.
+
+If player is in room:
+
+EmceeBot:
+🔔 Test Notify
+Target: @4ktreyMarion
+Subscribed: YES
+Global: ON
+Category Events: ON
+Currently In Room: YES
+Delivery Used: whisper
+Delivered: YES
+Status: sent_whisper_in_room
+
+If player is not in room:
+
+EmceeBot:
+🔔 Test Notify
+Target: @Player
+Subscribed: YES
+Global: ON
+Category Events: ON
+Currently In Room: NO
+Bulk DM Supported: YES/NO
+Conversation ID: YES/NO
+Delivery Used: dm / conversation_dm / bulk_dm / none
+Delivered: YES/NO
+Status: sent_dm / sent_conversation_dm / sent_bulk_dm / no_delivery_route / failed
+
+Do not fake Delivered: YES.
+
+==================================================
+PART 8 — /notifydebug
+==================================================
+
+Command:
+
+/notifydebug @username
+
+Purpose:
+Explain why one player did or did not receive notifications.
+
+Example:
+
+EmceeBot:
+🔔 Notify Debug: @Player
+Subscribed: YES
+Global: ON
+Mining: OFF
+Fishing: OFF
+Events: ON
+First Hunt: ON
+Rewards: ON
+Donations: OFF
+BlackJack: OFF
+Poker: OFF
+Security: ON
+Updates: ON
+Currently In Room: YES
+User ID Found: YES
+Conversation ID Found: YES
+Last Delivery: sent_whisper_in_room
+Last Method: whisper
+Last Error: none
+
+If player not found:
+
+EmceeBot:
+🔔 Notify Debug
+Player not found.
+Make sure they have used the bot or are currently in the room.
+
+Include:
+- subscribed YES/NO
+- global ON/OFF
+- category summary
+- currently in room YES/NO
+- user id found YES/NO
+- conversation id found YES/NO
+- last delivery status
+- last delivery method
+- last safe error
+
+==================================================
+PART 9 — /roomusers
+==================================================
+
+Command:
+
+/roomusers
+
+Purpose:
+Show who EmceeBot thinks is currently in the room.
+
+Use best available source:
+1. highrise.get_room_users() if supported
+2. current in-memory room tracker
+3. recent seen users fallback
+
+Example:
+
+EmceeBot:
+👥 Room Users
+Detected: 12
+Source: get_room_users
+@Player1
+@Player2
+@Player3
+@Player4
+@Player5
+
+If too many:
+Show first 10 and count remaining.
+
+Example:
+
+...and 7 more.
+
+==================================================
+PART 10 — /testwhisper
+==================================================
+
+Command:
+
+/testwhisper @username
+
+Purpose:
+Directly prove whether EmceeBot can whisper a player.
+
+Expected response to staff:
+
+EmceeBot:
+🧪 Test Whisper
+Target: @username
+User ID Found: YES
+Currently In Room: YES
+Whisper Sent: YES
+
+Target receives whisper:
+
+EmceeBot whisper:
+🧪 Test whisper from EmceeBot.
+
+If failed:
+
+EmceeBot:
+🧪 Test Whisper
+Target: @username
+User ID Found: YES
+Currently In Room: YES
+Whisper Sent: NO
+Error: <safe error>
+
+If user not found:
+
+EmceeBot:
+🧪 Test Whisper
+Target not found in room/user cache.
+
+==================================================
+PART 11 — /notifrefresh
+==================================================
+
+Command:
+
+/notifrefresh
+
+Purpose:
+Refresh room user cache before testing notifications.
+
+Use:
+- get_room_users() if supported
+- current room tracker
+- recent seen fallback
+
+Response:
+
+EmceeBot:
+🔄 Notification Room Cache Refreshed
+Room users detected: 12
+Source: get_room_users
+
+If fallback:
+
+EmceeBot:
+🔄 Notification Room Cache Refreshed
+Room users detected: 8
+Source: recent seen fallback
+
+==================================================
+PART 12 — /subnotifystatus
+==================================================
+
+Command:
+
+/subnotifystatus
+
+Shows latest notification summary.
+
+Example:
+
+EmceeBot:
+🔔 Notification Status
+Last: Events
+Sender: EmceeBot
+Whisper Sent In Room: 9
+DM Sent Out of Room: 1
+No Delivery Route: 2
+Skipped: 3
+Failed: 1
+
+Do not show Sender: host.
+
+==================================================
+PART 13 — /subnotifystatus failed
+==================================================
+
+Command:
+
+/subnotifystatus failed
+
+Show players from latest/recent notifications where delivery failed.
+
+Include:
+- username
+- category
+- delivery method attempted
+- safe error message
+- timestamp if available
+
+Example:
+
+EmceeBot:
+🔔 Failed Notifications
+1. @Player — Events — whisper — user_not_found
+2. @Player2 — Updates — dm — unsupported_sdk
+
+If none:
+
+EmceeBot:
+🔔 Failed Notifications
+No failed deliveries found.
+
+==================================================
+PART 14 — /subnotifystatus nodelivery
+==================================================
+
+Command:
+
+/subnotifystatus nodelivery
+
+Show players from latest/recent notifications with no delivery route.
+
+Include:
+- username
+- subscribed status
+- global notification status
+- category status
+- currently in room YES/NO
+- conversation/bulk DM availability if known
+
+Example:
+
+EmceeBot:
+🔔 No Delivery Route
+1. @Player — subscribed YES — room NO — DM NO
+2. @Player2 — subscribed YES — room NO — DM unsupported
+
+If none:
+
+EmceeBot:
+🔔 No Delivery Route
+No players missing delivery route.
+
+Aliases if already supported:
+
+/subnotifystatus noconversation
+/subnotifystatus nodm
+
+They should point to nodelivery behavior.
+
+==================================================
+PART 15 — DATABASE / LOGGING
+==================================================
+
+Use existing notification tables if already present.
+
+Ensure recipient logs store:
+
+subscriber_notification_recipients:
+- notification_id
+- user_id
+- username
+- category
+- subscribed
+- category_enabled
+- global_enabled
+- delivery_method
+- status
+- error
+- created_at
+
+Statuses:
+- sent_whisper_in_room
+- sent_dm
+- sent_bulk_dm
+- sent_conversation_dm
+- skipped_not_subscribed
+- skipped_category_off
+- skipped_global_off
+- no_delivery_route
+- no_conversation
+- unsupported_sdk
+- failed
+
+Notification logs should store summary counts:
+
+subscriber_notification_logs:
+- category
+- message
+- sender_bot_name
+- sent_whisper_count
+- sent_dm_count
+- no_delivery_route_count
+- skipped_count
+- failed_count
+- created_at
+
+If columns are missing, add safe migrations.
+Do not drop or wipe old tables.
+
+==================================================
+PART 16 — ROOM PRESENCE TRACKING
+==================================================
+
+Fix or confirm room presence tracking.
+
+Track users through:
+- on_user_join
+- on_user_leave
+- on_chat
+- get_room_users if supported
+
+On every public chat message:
+- update last_seen_in_room_at
+- cache user_id and username
+
+Before /subnotify:
+- refresh current room users with get_room_users if available.
+
+If get_room_users fails:
+- use current room tracker.
+- if that is empty, use recent seen users within 10 minutes as fallback.
+
+==================================================
+PART 17 — MESSAGE LENGTH SAFETY
+==================================================
+
+Keep notification messages short enough for Highrise.
+
+Use existing safe cap if project has one.
+
+Recommended:
+- 240 chars max for normal single messages.
+- Split only debug/status lists if needed.
+- Do not cut off important delivery counts.
+
+If message is too long:
+- trim safely
+- or send multiple whispers to staff only
+
+Do not spam the room with long status reports.
+
+==================================================
+PART 18 — COMMAND OWNERSHIP
+==================================================
+
+EmceeBot owns:
+
+/notif
+/notifon
+/notifoff
+/notifall
+/subnotify
+/testnotify
+/subnotifystatus
+/notifydebug
+/roomusers
+/testwhisper
+/notifrefresh
+
+Use existing valid owner key in project.
+
+Internal key may be:
+host
+emcee
+
+But display should show:
+EmceeBot
+
+Do not leave owner UNKNOWN.
+
+Do not route notification commands to:
+- BankerBot
+- EventBot
+- BlackJackBot
+- GreatestProspector
+- MasterAngler
+
+==================================================
+PART 19 — COMMANDTEST
+==================================================
+
+These must pass:
+
+/commandtest /notif
+/commandtest /notifon
+/commandtest /notifoff
+/commandtest /notifall
+/commandtest /subnotify
+/commandtest /testnotify
+/commandtest /subnotifystatus
+/commandtest /notifydebug
+/commandtest /roomusers
+/commandtest /testwhisper
+/commandtest /notifrefresh
+/commandissues
+/checkcommands all
+
+Expected:
+route=YES
+handler=YES
+owner=EmceeBot
+Missing 0
+NoOwner 0
+
+If internal commandtest displays owner=host, make display map show EmceeBot for notification commands.
+
+==================================================
+PART 20 — LIVE TEST CASES
+==================================================
+
+Test command routes:
+
+/commandtest /subnotify
+/commandtest /testnotify
+/commandtest /notifydebug
+/commandtest /roomusers
+/commandtest /testwhisper
+/commandtest /notifrefresh
+/commandtest /subnotifystatus
+/commandissues
+/checkcommands all
+
+Test player settings:
+
+/notifon events
+/notif
+
+Expected:
+Events: ON
+Global: ON
+
+Test room detection:
+
+/notifrefresh
+/roomusers
+
+Expected:
+You are listed if you are in the room.
+
+Test whisper:
+
+/testwhisper @4ktreyMarion
+
+Expected:
+Whisper Sent: YES
+You receive test whisper.
+
+Test one player notification:
+
+/testnotify @4ktreyMarion events Test notification
+
+Expected:
+Currently In Room: YES
+Delivery Used: whisper
+Delivered: YES
+Status: sent_whisper_in_room
+
+Test broadcast:
+
+/subnotify events Test room notification
+
+Expected:
+Subscribed players in room receive EmceeBot whispers.
+
+/subnotifystatus
+
+Expected:
+Sender: EmceeBot
+Whisper Sent In Room: #
+No Delivery Route: #
+Failed: #
+
+Test status details:
+
+/subnotifystatus failed
+/subnotifystatus nodelivery
+/notifydebug @4ktreyMarion
+
+==================================================
+PART 21 — SAFETY
+==================================================
+
+Do not:
+- send to unsubscribed players
+- send to opted-out players
+- mark failed/no-route as sent
+- require DM for players in room
+- use job-based sender routing for now
+- show Sender: host in staff/player-facing notification status
+- wipe subscriptions
+- wipe notification preferences
+- wipe notification logs
+- expose tokens/secrets/env vars
+- leave notification commands with no route
+- leave owner UNKNOWN
+- break working in-room whisper delivery
+- spam the room with long debug reports
+
+==================================================
+FINAL REPORT
+==================================================
+
+After finishing, tell me:
+
+1. Files changed
+2. Whether job-based sender routing was disabled/ignored
+3. How EmceeBot-only delivery works
+4. How host is displayed as EmceeBot
+5. How in-room whisper delivery works
+6. How out-of-room DM is handled
+7. How /subnotify works
+8. How /testnotify works
+9. How /notifydebug works
+10. How /roomusers works
+11. How /testwhisper works
+12. How /notifrefresh works
+13. How /subnotifystatus failed works
+14. How /subnotifystatus nodelivery works
+15. Database/log columns added or reused
+16. Final /commandtest /subnotify result
+17. Final /commandtest /notifydebug result
+18. Final /commandtest /roomusers result
+19. Final /commandissues result
+20. Final /checkcommands all result
+21. Exact tests to run
