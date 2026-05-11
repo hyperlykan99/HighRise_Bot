@@ -1,0 +1,487 @@
+Notification Subscription Flag Fix + DM Conversation Link Repair
+
+Current issue:
+A player already DMed EmceeBot and notification debug/test shows:
+
+Conversation ID: YES
+DM Supported: YES
+Global: ON
+Category Events: ON
+Subscribed: NO
+Delivered: NO
+Reason: not_subscribed
+
+This means DM is connected, but the actual subscriber flag is still OFF.
+
+Also, notification output still shows:
+
+Sender: host
+
+It should show:
+
+Sender: EmceeBot
+
+Do not change bot tokens.
+Do not change room ID.
+Do not wipe subscriptions.
+Do not wipe notification preferences.
+Do not wipe notification logs.
+Do not wipe player data.
+Do not expose secrets, tokens, env vars, or room ID.
+
+==================================================
+PART 1 — FIX SUBSCRIBE FLAG
+==================================================
+
+Goal:
+When a player subscribes, the system must set:
+
+subscribed = true
+manually_unsubscribed = false
+dm_available = true if conversation_id exists
+notification prefs created if missing
+
+Fix all subscribe paths:
+
+1. !subscribe
+2. /subscribe if still supported internally
+3. DM keyword: subscribe
+4. DM keyword: /subscribe
+5. DM keyword: !subscribe
+
+Important:
+If the player already has a conversation_id but subscribed = false, subscribing should update the existing record, not create a duplicate.
+
+Lookup order:
+1. user_id
+2. username lowercase
+3. known user cache / room cache if needed
+
+Prevent duplicate subscriber rows for the same user.
+
+==================================================
+PART 2 — ! PREFIX SUPPORT FOR SUBSCRIPTION COMMANDS
+==================================================
+
+Add or fix these commands:
+
+!subscribe
+!unsubscribe
+!substatus
+
+Aliases:
+
+!sub
+!unsub
+
+Behavior:
+!subscribe should route to the same logic as existing /subscribe.
+!unsubscribe should route to the same logic as existing /unsubscribe.
+!substatus should show the user’s current subscription/DM/category status.
+
+Command tests:
+
+/commandtest !subscribe
+/commandtest !unsubscribe
+/commandtest !substatus
+
+Expected:
+owner=EmceeBot
+route=YES
+handler=YES
+
+==================================================
+PART 3 — DM KEYWORD SUBSCRIBE FIX
+==================================================
+
+When player DMs EmceeBot:
+
+subscribe
+
+or:
+
+/subscribe
+
+or:
+
+!subscribe
+
+The bot must:
+- save/update conversation_id
+- save/update user_id
+- save/update username if available
+- set subscribed = true
+- set dm_available = true
+- set manually_unsubscribed = false
+- ensure notification prefs exist
+- reply with confirmation
+
+Reply:
+
+✅ Subscribed.
+Outside-room alerts are connected.
+Use !notif to manage categories.
+
+Important:
+Do not require player to be in the room to save conversation_id.
+Do not ignore unknown user_id if the DM has a usable user_id/conversation_id.
+If username cannot be resolved, still save by user_id and later link username when seen.
+
+==================================================
+PART 4 — FIX NOTIFICATION PREF COMMANDS
+==================================================
+
+Add/fix official ! commands:
+
+!notif
+!notifon <category>
+!notifoff <category>
+!notifall on
+!notifall off
+
+Aliases:
+
+!notifications = !notif
+!notifyon <category> = !notifon <category>
+!notifyoff <category> = !notifoff <category>
+
+Important:
+!notifyon events should work as an alias because players naturally type it.
+
+If player runs !notifon events or !notifyon events but subscribed = false, reply:
+
+Events turned ON, but you are not subscribed yet.
+Type !subscribe to receive notifications.
+
+If conversation_id is missing, also say:
+
+For outside-room alerts, DM EmceeBot directly with: subscribe
+
+==================================================
+PART 5 — STAFF REPAIR COMMANDS
+==================================================
+
+Add:
+
+!forcesub @username
+!fixsub @username
+
+Owner:
+EmceeBot
+
+Permission:
+Manager+
+
+==================================================
+5A — !forcesub
+==================================================
+
+Command:
+
+!forcesub @username
+
+Behavior:
+- Sets subscribed = true.
+- Sets manually_unsubscribed = false.
+- Ensures notification prefs exist.
+- Keeps existing conversation_id if available.
+- Keeps existing category settings.
+- Does not fake conversation_id if missing.
+
+Response:
+
+✅ Forced subscription ON for @username.
+DM Connected: YES
+Events: ON
+Global: ON
+
+If conversation_id is missing:
+
+✅ Forced subscription ON for @username.
+DM Connected: NO
+Outside-room alerts unavailable until they DM EmceeBot: subscribe
+
+==================================================
+5B — !fixsub
+==================================================
+
+Command:
+
+!fixsub @username
+
+Behavior:
+- Finds user record by username.
+- Finds subscriber record by username and user_id.
+- Re-links user_id, username, and conversation_id if possible.
+- Merges duplicate subscriber rows if safe.
+- Ensures notification prefs exist.
+- Does not overwrite a valid conversation_id with empty/null.
+- Shows what was fixed and what is still missing.
+
+Response example:
+
+🔧 Subscription Repair: @username
+User ID: FOUND
+Subscriber Row: FOUND
+Conversation ID: FOUND
+Subscribed: YES
+Prefs: OK
+Duplicates merged: 1
+
+If missing conversation:
+
+🔧 Subscription Repair: @username
+User ID: FOUND
+Subscriber Row: FOUND
+Conversation ID: MISSING
+Action needed: player must DM EmceeBot: subscribe
+
+==================================================
+PART 6 — UPDATE !testnotify OUTPUT
+==================================================
+
+If testnotify finds:
+
+Subscribed: NO
+Conversation ID: YES
+
+Then show clear reason:
+
+DM is connected, but subscription is OFF.
+Have player type !subscribe or staff use !forcesub @username.
+
+Example output:
+
+🔔 Test Notify
+Target: @angelkisses18
+Category: Events
+Sender: EmceeBot
+Subscribed: NO
+Global: ON
+Category Events: ON
+Currently In Room: NO
+DM Supported: YES
+Conversation ID: YES
+Delivery Used: none
+Delivered: NO
+Reason: not_subscribed
+Fix: DM is connected, but subscription is OFF. Use !subscribe or !forcesub @angelkisses18.
+
+==================================================
+PART 7 — UPDATE !notifydebug OUTPUT
+==================================================
+
+!notifydebug @username should include:
+
+- Subscribed YES/NO
+- Global ON/OFF
+- Category states
+- In Room YES/NO
+- User ID Found YES/NO
+- Conversation ID Found YES/NO
+- DM Available YES/NO
+- Manually Unsubscribed YES/NO
+- Last Subscribe Source
+- Last DM Seen
+- Last Delivery
+- Last Method
+- Last Error
+- Suggested Fix
+
+If:
+Subscribed: NO
+Conversation ID Found: YES
+
+Suggested Fix:
+
+DM is connected but subscription is OFF.
+Player should type !subscribe, or staff can use !forcesub @username.
+
+If:
+Subscribed: YES
+Conversation ID Found: NO
+
+Suggested Fix:
+
+In-room whispers can work, but outside-room DM is unavailable.
+Player must DM EmceeBot: subscribe
+
+==================================================
+PART 8 — SENDER DISPLAY FIX
+==================================================
+
+All notification staff/player-facing messages must show:
+
+Sender: EmceeBot
+
+Do not show:
+
+Sender: host
+
+If internal owner key is host, map display name to EmceeBot.
+
+Apply to:
+- !testnotify
+- !subnotify
+- !subnotifystatus
+- !notifydebug
+- notification logs where staff can see sender
+
+==================================================
+PART 9 — DATABASE SAFETY
+==================================================
+
+Use safe migrations only.
+
+If columns exist, reuse them.
+
+If needed, add:
+- last_subscribe_source
+- last_dm_seen_at
+- manually_unsubscribed
+- dm_available
+- subscribed
+- conversation_id
+
+Do not drop old tables.
+Do not wipe subscriber records.
+Do not wipe notification preferences.
+Do not wipe notification logs.
+
+When merging duplicates:
+- prefer row with conversation_id
+- prefer row with subscribed = true unless manually_unsubscribed = true
+- preserve notification preferences
+- preserve most recent conversation_id
+- log what was merged
+
+==================================================
+PART 10 — COMMAND OWNERSHIP
+==================================================
+
+EmceeBot owns:
+
+!subscribe
+!unsubscribe
+!substatus
+!notif
+!notifon
+!notifoff
+!notifall
+!notifications
+!notifyon
+!notifyoff
+!forcesub
+!fixsub
+!testnotify
+!notifydebug
+!subnotify
+!subnotifystatus
+
+Expected commandtest:
+
+/commandtest !subscribe
+/commandtest !notifon
+/commandtest !notifyon
+/commandtest !forcesub
+/commandtest !fixsub
+/commandtest !testnotify
+/commandtest !notifydebug
+
+Target:
+owner=EmceeBot
+route=YES
+handler=YES
+
+==================================================
+PART 11 — LIVE TEST CASE
+==================================================
+
+Use test player:
+
+@angelkisses18
+
+Step 1:
+Player DMs EmceeBot:
+
+subscribe
+
+Step 2:
+Player runs:
+
+!subscribe
+!notifall on
+!notifon events
+
+Step 3:
+Staff runs:
+
+!notifydebug @angelkisses18
+
+Target:
+
+Subscribed: YES
+Global: ON
+Events: ON
+User ID Found: YES
+Conversation ID Found: YES
+DM Available: YES
+
+Step 4:
+Staff runs:
+
+!testnotify @angelkisses18 events test
+
+Target:
+
+Sender: EmceeBot
+Subscribed: YES
+Global: ON
+Category Events: ON
+Conversation ID: YES
+Delivered: YES
+Delivery Used: dm / conversation_dm / bulk_dm
+
+If still subscribed NO, staff runs:
+
+!fixsub @angelkisses18
+!forcesub @angelkisses18
+!testnotify @angelkisses18 events test
+
+==================================================
+PART 12 — SAFETY
+==================================================
+
+Do not:
+- wipe subscribers
+- wipe notification preferences
+- wipe notification logs
+- fake a conversation_id
+- mark delivery YES if not actually delivered
+- show Sender: host
+- require player to be in room to subscribe through DM
+- create duplicate subscriber records
+- overwrite valid conversation_id with empty value
+- expose secrets/tokens/env vars
+- leave commands with no route
+- leave owner UNKNOWN
+
+==================================================
+FINAL REPORT
+==================================================
+
+After finishing, tell me:
+
+1. Files changed
+2. Why subscribed stayed NO even when conversation_id was YES
+3. How !subscribe was fixed
+4. How DM subscribe was fixed
+5. How !notifyon alias was fixed
+6. How !forcesub works
+7. How !fixsub works
+8. How duplicate subscriber rows are prevented/merged
+9. How Sender: host was changed to Sender: EmceeBot
+10. Final /commandtest !subscribe result
+11. Final /commandtest !forcesub result
+12. Final /commandtest !testnotify result
+13. Exact tests to run

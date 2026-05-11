@@ -501,6 +501,8 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     "eventvote", "voteevent",
     # ── Subscriber notification preferences ───────────────────────────────────
     "notif", "notifon", "notifoff", "notifall",
+    "notifyon", "notifyoff",
+    "sub", "unsub", "forcesub", "fixsub",
     "subnotify", "subnotifyinvite", "subnotifystatus",
     # ── Gold Rain (new system — BankerBot) ───────────────────────────────────
     "raingold", "goldstorm", "golddrop",

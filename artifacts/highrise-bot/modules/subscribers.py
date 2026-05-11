@@ -85,14 +85,14 @@ def _normalize_dm(content: str) -> str:
       - strip whitespace
       - lowercase
       - remove surrounding single/double quotes
-      - remove a leading slash
+      - remove a leading slash or exclamation mark
     """
     c = content.strip().lower()
     # Strip surrounding quotes (one pair only)
     if len(c) >= 2 and c[0] in ('"', "'") and c[-1] == c[0]:
         c = c[1:-1].strip()
-    # Strip leading slash
-    if c.startswith("/"):
+    # Strip leading slash or ! (so !subscribe and /subscribe both normalize to subscribe)
+    if c.startswith("/") or c.startswith("!"):
         c = c[1:].strip()
     return c
 
@@ -272,19 +272,38 @@ async def process_incoming_dm(
     # Look up user by Highrise user_id
     user_row = db.get_user_by_username_via_id(user_id)
     if user_row is None:
-        print(f"[DM] Unknown user_id={user_id[:12]}... — unrecognised user.")
-        # Only EmceeBot (host) sends generic welcome prompts to unknown DM senders.
-        if BOT_MODE in ("host", "all"):
-            await send_dm(bot, conversation_id,
-                          "👋 Hi! Join the room first, then reply 'subscribe' for notifications.")
-        return
+        print(f"[DM] Unknown user_id={user_id[:12]}... — checking subscriber table by user_id.")
+        # Try to find by user_id in subscriber_users directly
+        sub_by_id = db.get_subscriber_by_user_id(user_id)
+        if sub_by_id:
+            username = sub_by_id.get("username", "")
+            uname_lower = username.lower()
+            print(f"[DM] Found subscriber row for unknown user_id — @{username}")
+        else:
+            # User has never used the bot in the room; save placeholder by user_id
+            if BOT_MODE in ("host", "all"):
+                norm_early = _normalize_dm(content)
+                if _is_subscribe_request(norm_early):
+                    # Save the conversation_id keyed on user_id as placeholder username
+                    db.upsert_subscriber_by_user_id(user_id, f"uid_{user_id[:12]}", conversation_id)
+                    db.set_subscribed_by_user_id(user_id, True)
+                    db.set_dm_available_by_user_id(user_id, True)
+                    await send_dm(bot, conversation_id,
+                                  "✅ Subscribed.\n"
+                                  "Outside-room alerts are connected.\n"
+                                  "Use !notif to manage categories.")
+                else:
+                    await send_dm(bot, conversation_id,
+                                  "👋 Hi! Reply 'subscribe' for outside-room notifications.")
+            return
 
-    username = user_row["username"]
-    uname_lower = username.lower()
+    else:
+        username = user_row["username"]
+        uname_lower = username.lower()
     print(f"[DM] Identified as @{username}")
 
-    # Always save/update conversation_id and mark dm_available
-    db.upsert_subscriber(uname_lower, user_id, conversation_id)
+    # Always save/update conversation_id and mark dm_available (lookup by user_id first)
+    db.upsert_subscriber_by_user_id(user_id, uname_lower, conversation_id)
 
     # Deliver any queued pending messages now that we have an active conversation
     await deliver_pending_subscriber_messages(bot, uname_lower, conversation_id)
@@ -335,11 +354,15 @@ async def process_incoming_dm(
         return
 
     if _is_subscribe_request(norm):
-        db.set_subscribed(uname_lower, True)
+        db.set_subscribed_by_user_id(user_id, True)
         db.set_dm_available(uname_lower, True)
         db.set_subscriber_manually_unsubscribed(uname_lower, False)
         db.ensure_notify_prefs(uname_lower)
-        reply = "✅ Subscribed. Outside-room alerts are ON. Use notifysettings to choose alerts."
+        reply = (
+            "✅ Subscribed.\n"
+            "Outside-room alerts are connected.\n"
+            "Use !notif to manage categories."
+        )
         await send_dm(bot, conversation_id, reply[:249])
         db.set_subscriber_last_dm(uname_lower)
         print(f"[DM] @{username} subscribed via DM (keyword: {norm!r}).")
@@ -367,38 +390,39 @@ async def process_incoming_dm(
 # ── /subscribe ────────────────────────────────────────────────────────────────
 
 async def handle_subscribe(bot: BaseBot, user: User, args: list[str]) -> None:
-    """/subscribe — opt in to DM notifications."""
+    """!subscribe / /subscribe — opt in to DM notifications."""
     db.ensure_user(user.id, user.username)
     uname = user.username.lower()
 
-    db.upsert_subscriber(uname, user.id)
-    db.set_subscribed(uname, True)
+    # Upsert by user_id first to avoid duplicate rows and fix mismatched records
+    db.upsert_subscriber_by_user_id(user.id, uname)
+    db.set_subscribed_by_user_id(user.id, True)
     db.set_subscriber_manually_unsubscribed(uname, False)
     db.ensure_notify_prefs(uname)
 
-    sub = db.get_subscriber(uname)
+    sub = db.get_subscriber_by_user_id(user.id) or db.get_subscriber(uname)
     has_dm = bool(sub and sub.get("conversation_id") and sub.get("dm_available"))
 
     if has_dm:
         await _w(bot, user.id,
-                 "✅ Subscribed! Use /notifysettings to choose alert types.")
+                 "✅ Subscribed! Outside-room alerts are ON. Use !notif to manage categories.")
     else:
         await _w(bot, user.id,
-                 "✅ Subscribed. DM me 'subscribe' for outside-room alerts. "
-                 "Use /notifysettings to choose types.")
+                 "✅ Subscribed. For outside-room alerts, DM EmceeBot: subscribe\n"
+                 "Use !notif to manage categories.")
 
 
 # ── /unsubscribe ──────────────────────────────────────────────────────────────
 
 async def handle_unsubscribe(bot: BaseBot, user: User, args: list[str]) -> None:
-    """/unsubscribe — opt out of DM notifications."""
+    """!unsubscribe / /unsubscribe — opt out of DM notifications."""
     db.ensure_user(user.id, user.username)
     uname = user.username.lower()
-    sub = db.get_subscriber(uname)
+    sub = db.get_subscriber_by_user_id(user.id) or db.get_subscriber(uname)
     if not sub or not sub.get("subscribed"):
         await _w(bot, user.id, "You are not currently subscribed.")
         return
-    db.set_subscribed(uname, False)
+    db.set_subscribed_by_user_id(user.id, False)
     db.set_subscriber_manually_unsubscribed(uname, True)
     await _w(bot, user.id, "✅ Unsubscribed. All bot alerts are OFF.")
 
@@ -406,19 +430,19 @@ async def handle_unsubscribe(bot: BaseBot, user: User, args: list[str]) -> None:
 # ── /substatus ────────────────────────────────────────────────────────────────
 
 async def handle_substatus(bot: BaseBot, user: User, args: list[str]) -> None:
-    """/substatus — show subscription state + top pref preview."""
+    """!substatus / /substatus — show subscription state + top pref preview."""
     db.ensure_user(user.id, user.username)
     uname = user.username.lower()
-    sub = db.get_subscriber(uname)
+    sub = db.get_subscriber_by_user_id(user.id) or db.get_subscriber(uname)
     subscribed = sub and sub.get("subscribed")
     has_dm = sub and bool(sub.get("conversation_id")) and sub.get("dm_available")
 
     if not subscribed:
         await _w(bot, user.id,
-                 "Subscribed: NO\nUse /subscribe to opt in.")
+                 "Subscribed: NO\nUse !subscribe to opt in.")
         return
 
-    dm_label = "YES" if has_dm else "NO (DM bot 'subscribe' to connect)"
+    dm_label = "YES" if has_dm else "NO (DM EmceeBot: subscribe)"
 
     prefs = db.get_notify_prefs(uname)
     def _yn(col: str) -> str:
@@ -707,3 +731,111 @@ async def handle_debugsub(bot: BaseBot, user: User, args: list[str]) -> None:
         lines.append(f"Last error: {last_err}")
 
     await _w(bot, user.id, "\n".join(lines)[:249])
+
+
+# ── !forcesub @username (manager+) ───────────────────────────────────────────
+
+async def handle_forcesub(bot: BaseBot, user: User, args: list[str]) -> None:
+    """!forcesub @username — force subscription ON for a player (manager+)."""
+    if not is_manager(user.username) and not is_admin(user.username) and not is_owner(user.username):
+        await _w(bot, user.id, "Manager/admin/owner only.")
+        return
+    if len(args) < 2:
+        await _w(bot, user.id, "Usage: !forcesub @username")
+        return
+
+    target_raw = args[1].lstrip("@").lower().strip()
+
+    uid = None
+    try:
+        conn = db.get_connection()
+        row = conn.execute(
+            "SELECT user_id FROM users WHERE LOWER(username) = ?", (target_raw,)
+        ).fetchone()
+        conn.close()
+        if row:
+            uid = row["user_id"]
+    except Exception:
+        pass
+
+    updated = db.force_subscribe_user(uid, target_raw)
+    conv_id  = updated.get("conversation_id") or ""
+    dm_label = "YES" if conv_id else "NO"
+
+    line1 = f"✅ Forced subscription ON for @{target_raw}."
+    if conv_id:
+        prefs = db.get_notify_prefs(target_raw)
+        ev_on = "ON" if prefs.get("event_alerts", 1) else "OFF"
+        gl_on = "ON"
+        try:
+            from modules.sub_notif import _get_or_create_sub_notif_global
+            gr = db.get_sub_notif_global(uid or "") if uid else {}
+            gl_on = "ON" if gr.get("global_enabled", 1) else "OFF"
+        except Exception:
+            pass
+        line2 = f"DM Connected: {dm_label} | Events: {ev_on} | Global: {gl_on}"
+    else:
+        line2 = (
+            "DM Connected: NO\n"
+            "Outside-room alerts unavailable until they DM EmceeBot: subscribe"
+        )
+
+    await _w(bot, user.id, f"{line1}\n{line2}"[:249])
+    print(f"[SUBS] !forcesub on @{target_raw} by @{user.username} (uid={uid})")
+
+
+# ── !fixsub @username (manager+) ─────────────────────────────────────────────
+
+async def handle_fixsub(bot: BaseBot, user: User, args: list[str]) -> None:
+    """!fixsub @username — repair/merge subscriber record for a player (manager+)."""
+    if not is_manager(user.username) and not is_admin(user.username) and not is_owner(user.username):
+        await _w(bot, user.id, "Manager/admin/owner only.")
+        return
+    if len(args) < 2:
+        await _w(bot, user.id, "Usage: !fixsub @username")
+        return
+
+    target_raw = args[1].lstrip("@").lower().strip()
+
+    uid = None
+    uid_found = False
+    try:
+        conn = db.get_connection()
+        row = conn.execute(
+            "SELECT user_id FROM users WHERE LOWER(username) = ?", (target_raw,)
+        ).fetchone()
+        conn.close()
+        if row:
+            uid = row["user_id"]
+            uid_found = True
+    except Exception:
+        pass
+
+    if uid:
+        db.upsert_subscriber_by_user_id(uid, target_raw)
+
+    merge = db.merge_duplicate_subscriber_rows(target_raw)
+    sub   = db.get_subscriber(target_raw)
+    if not sub and uid:
+        sub = db.get_subscriber_by_user_id(uid)
+
+    sub_found  = sub is not None
+    conv_id    = (sub or {}).get("conversation_id") or ""
+    subscribed = bool((sub or {}).get("subscribed"))
+
+    if sub_found:
+        db.ensure_notify_prefs(target_raw)
+
+    lines = [
+        f"🔧 Subscription Repair: @{target_raw}",
+        f"User ID: {'FOUND' if uid_found else 'NOT FOUND'}",
+        f"Subscriber Row: {'FOUND' if sub_found else 'NOT FOUND'}",
+        f"Conversation ID: {'FOUND' if conv_id else 'MISSING'}",
+        f"Subscribed: {'YES' if subscribed else 'NO'}",
+        "Prefs: OK" if sub_found else "Prefs: N/A",
+        f"Duplicates merged: {merge.get('merged', 0)}",
+    ]
+    if not conv_id:
+        lines.append("Action needed: player must DM EmceeBot: subscribe")
+    await _w(bot, user.id, "\n".join(lines)[:249])
+    print(f"[SUBS] !fixsub @{target_raw} by @{user.username}: merge={merge}")

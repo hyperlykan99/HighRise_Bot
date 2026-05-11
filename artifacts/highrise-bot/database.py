@@ -6139,7 +6139,7 @@ def get_subscriber_by_user_id(user_id: str) -> dict | None:
 
 
 def set_subscribed(username: str, subscribed: bool) -> None:
-    """Enable or disable subscription for a user."""
+    """Enable or disable subscription for a user (by username)."""
     uname = username.lower().lstrip("@").strip()
     conn = get_connection()
     conn.execute(
@@ -6150,6 +6150,240 @@ def set_subscribed(username: str, subscribed: bool) -> None:
     )
     conn.commit()
     conn.close()
+
+
+def set_subscribed_by_user_id(user_id: str, subscribed: bool) -> None:
+    """Enable or disable subscription for a user, looking up by user_id first."""
+    conn = get_connection()
+    val = 1 if subscribed else 0
+    conn.execute(
+        """UPDATE subscriber_users
+           SET subscribed = ?,
+               subscribed_at = CASE WHEN ? = 1 THEN datetime('now') ELSE subscribed_at END
+           WHERE user_id = ?""",
+        (val, val, user_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+def set_dm_available_by_user_id(user_id: str, available: bool) -> None:
+    """Mark whether a subscriber's DM channel is working (by user_id)."""
+    conn = get_connection()
+    conn.execute(
+        "UPDATE subscriber_users SET dm_available = ? WHERE user_id = ?",
+        (1 if available else 0, user_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+def upsert_subscriber_by_user_id(
+    user_id: str,
+    username: str,
+    conversation_id: str | None = None,
+) -> None:
+    """
+    Create or update a subscriber record, looking up by user_id FIRST,
+    then by username. Prevents duplicate rows. Preserves subscribed flag.
+    """
+    uname = username.lower().lstrip("@").strip()
+    conn = get_connection()
+
+    # 1. Find existing row by user_id
+    row_by_id = conn.execute(
+        "SELECT username, subscribed, conversation_id FROM subscriber_users WHERE user_id = ?",
+        (user_id,),
+    ).fetchone()
+
+    if row_by_id:
+        existing_uname = row_by_id["username"]
+        existing_conv  = row_by_id["conversation_id"]
+        best_conv = conversation_id or existing_conv
+        conn.execute(
+            """UPDATE subscriber_users
+               SET username = ?,
+                   conversation_id = ?,
+                   dm_available = CASE WHEN ? IS NOT NULL THEN 1 ELSE dm_available END,
+                   last_seen_at = datetime('now')
+               WHERE user_id = ?""",
+            (uname, best_conv, best_conv, user_id),
+        )
+        # Remove stale username-keyed duplicate row if it exists (different from this row)
+        if existing_uname and existing_uname != uname:
+            conn.execute(
+                "DELETE FROM subscriber_users WHERE username = ? AND user_id != ?",
+                (existing_uname, user_id),
+            )
+        # Also remove any stale row keyed on the new uname belonging to a different user_id
+        conn.execute(
+            "DELETE FROM subscriber_users WHERE username = ? AND user_id != ?",
+            (uname, user_id),
+        )
+        conn.commit()
+        conn.close()
+        return
+
+    # 2. Find existing row by username (no user_id match yet)
+    row_by_name = conn.execute(
+        "SELECT username, subscribed, conversation_id FROM subscriber_users WHERE username = ?",
+        (uname,),
+    ).fetchone()
+
+    if row_by_name:
+        existing_conv = row_by_name["conversation_id"]
+        best_conv = conversation_id or existing_conv
+        conn.execute(
+            """UPDATE subscriber_users
+               SET user_id = ?,
+                   conversation_id = ?,
+                   dm_available = CASE WHEN ? IS NOT NULL THEN 1 ELSE dm_available END,
+                   last_seen_at = datetime('now')
+               WHERE username = ?""",
+            (user_id, best_conv, best_conv, uname),
+        )
+        conn.commit()
+        conn.close()
+        return
+
+    # 3. No existing row — insert with subscribed=0 (explicit subscribe call sets it)
+    conn.execute(
+        """INSERT INTO subscriber_users
+           (username, user_id, conversation_id, subscribed, last_seen_at, dm_available)
+           VALUES (?, ?, ?, 0, datetime('now'), ?)""",
+        (uname, user_id, conversation_id, 1 if conversation_id else 0),
+    )
+    conn.commit()
+    conn.close()
+
+
+def force_subscribe_user(user_id: str | None, username: str) -> dict:
+    """
+    Force-set subscribed=True for a user regardless of previous state.
+    Looks up by user_id first, then by username. Returns the updated row dict.
+    """
+    uname = username.lower().lstrip("@").strip()
+    conn = get_connection()
+
+    row = None
+    if user_id:
+        row = conn.execute(
+            "SELECT * FROM subscriber_users WHERE user_id = ?", (user_id,)
+        ).fetchone()
+    if not row:
+        row = conn.execute(
+            "SELECT * FROM subscriber_users WHERE username = ?", (uname,)
+        ).fetchone()
+
+    if row:
+        target_uname = row["username"]
+        conn.execute(
+            """UPDATE subscriber_users
+               SET subscribed = 1,
+                   manually_unsubscribed = 0,
+                   subscribed_at = datetime('now'),
+                   dm_available = CASE WHEN conversation_id IS NOT NULL THEN 1 ELSE dm_available END
+               WHERE username = ?""",
+            (target_uname,),
+        )
+        conn.commit()
+        result = dict(row)
+        result["subscribed"] = 1
+        result["manually_unsubscribed"] = 0
+    else:
+        # Create a minimal row
+        conn.execute(
+            """INSERT OR IGNORE INTO subscriber_users
+               (username, user_id, subscribed, manually_unsubscribed, last_seen_at)
+               VALUES (?, ?, 1, 0, datetime('now'))""",
+            (uname, user_id or ""),
+        )
+        conn.commit()
+        result = {"username": uname, "user_id": user_id, "subscribed": 1,
+                  "conversation_id": None, "dm_available": 0}
+
+    conn.close()
+    ensure_notify_prefs(uname)
+    return result
+
+
+def merge_duplicate_subscriber_rows(username: str) -> dict:
+    """
+    Find and merge all subscriber_users rows that share the same username.
+    Keeps the row with the best conversation_id; merges subscribed flag.
+    Returns a summary dict with merge details.
+    """
+    uname = username.lower().lstrip("@").strip()
+    conn = get_connection()
+    rows = [
+        dict(r) for r in conn.execute(
+            "SELECT rowid, * FROM subscriber_users WHERE LOWER(username) = ?", (uname,)
+        ).fetchall()
+    ]
+    result = {
+        "found": len(rows),
+        "merged": 0,
+        "user_id": None,
+        "conversation_id": None,
+        "subscribed": False,
+    }
+
+    if not rows:
+        conn.close()
+        return result
+
+    if len(rows) == 1:
+        r = rows[0]
+        result["user_id"]        = r.get("user_id")
+        result["conversation_id"] = r.get("conversation_id")
+        result["subscribed"]      = bool(r.get("subscribed"))
+        conn.close()
+        return result
+
+    # Pick primary: prefer row with conversation_id + subscribed=True
+    def _score(r: dict) -> int:
+        return (2 if r.get("conversation_id") else 0) + (1 if r.get("subscribed") else 0)
+
+    rows.sort(key=_score, reverse=True)
+    primary   = rows[0]
+    secondary = rows[1:]
+
+    best_conv     = primary.get("conversation_id")
+    best_user_id  = primary.get("user_id")
+    best_subbed   = bool(primary.get("subscribed"))
+    best_man_unsub = bool(primary.get("manually_unsubscribed"))
+
+    for r in secondary:
+        if not best_conv and r.get("conversation_id"):
+            best_conv = r["conversation_id"]
+        if not best_user_id and r.get("user_id"):
+            best_user_id = r["user_id"]
+        if r.get("subscribed") and not r.get("manually_unsubscribed"):
+            best_subbed = True
+            best_man_unsub = False
+        conn.execute(
+            "DELETE FROM subscriber_users WHERE rowid = ?", (r["rowid"],)
+        )
+        result["merged"] += 1
+
+    conn.execute(
+        """UPDATE subscriber_users
+           SET user_id = ?,
+               conversation_id = ?,
+               subscribed = ?,
+               manually_unsubscribed = ?,
+               dm_available = CASE WHEN ? IS NOT NULL THEN 1 ELSE dm_available END
+           WHERE rowid = ?""",
+        (best_user_id, best_conv, 1 if best_subbed else 0,
+         1 if best_man_unsub else 0, best_conv, primary["rowid"]),
+    )
+    conn.commit()
+    conn.close()
+
+    result["user_id"]        = best_user_id
+    result["conversation_id"] = best_conv
+    result["subscribed"]      = best_subbed
+    return result
 
 
 def set_dm_available(username: str, available: bool) -> None:

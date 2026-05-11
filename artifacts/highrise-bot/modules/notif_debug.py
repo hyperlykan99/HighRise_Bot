@@ -94,19 +94,38 @@ async def handle_notifydebug(bot, user, args: list[str]) -> None:
             parts.append(f"{label}:{'ON' if val else 'OFF'}")
         cat_rows.append(" | ".join(parts))
 
+    man_unsub    = bool(sub_row.get("manually_unsubscribed", 0))
+    dm_available = bool(sub_row.get("dm_available", 0))
+
     msg1 = "\n".join([
         f"🔔 Notify Debug: @{uname}",
         f"Subscribed: {'YES' if subbed else 'NO'}  Global: {'ON' if global_on else 'OFF'}",
     ] + cat_rows)
 
-    msg2 = "\n".join([
+    msg2_lines = [
         f"In Room: {'YES' if in_room else 'NO'}",
         f"User ID Found: {'YES' if uid else 'NO'}",
         f"Convo ID Found: {'YES' if conv_id else 'NO'}",
+        f"DM Available: {'YES' if dm_available else 'NO'}",
+        f"Manually Unsubscribed: {'YES' if man_unsub else 'NO'}",
         f"Last: {last_status}",
         f"Method: {last_method}",
         f"Error: {last_error}",
-    ])
+    ]
+
+    # Suggested fix
+    if not subbed and conv_id:
+        msg2_lines.append(
+            f"Fix: DM connected but sub is OFF. "
+            f"Player type !subscribe or staff use !forcesub @{uname}."
+        )
+    elif subbed and not conv_id:
+        msg2_lines.append(
+            "Fix: Subscribed but no DM. "
+            "In-room whispers work. Player must DM EmceeBot: subscribe"
+        )
+
+    msg2 = "\n".join(msg2_lines)
 
     await _w(bot, user.id, msg1[:249])
     await _w(bot, user.id, msg2[:249])

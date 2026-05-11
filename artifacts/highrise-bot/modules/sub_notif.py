@@ -164,7 +164,10 @@ def get_notification_sender_info(category: str) -> dict:
     Always returns EmceeBot (host mode) as the sender.
     Job-based category-to-bot routing is disabled; EmceeBot delivers all.
     """
-    emceebot_name = db.get_bot_username_for_mode("host") or "EmceeBot"
+    raw_name = db.get_bot_username_for_mode("host") or ""
+    # If the bot_instances table stored the mode key ("host") as the username,
+    # fall back to the friendly display name instead.
+    emceebot_name = raw_name if (raw_name and raw_name.lower() != "host") else "EmceeBot"
     return {
         "target_mode":       "host",
         "sender_bot_name":   emceebot_name,
@@ -217,14 +220,29 @@ async def handle_notif(bot, user) -> None:
 async def handle_notifon(bot, user, args: list[str]) -> None:
     if len(args) < 2:
         cats = " | ".join(NOTIF_CATEGORIES.keys())
-        await _w(bot, user.id, f"Usage: /notifon <category>\nOptions: {cats}"[:249])
+        await _w(bot, user.id, f"Usage: !notifon <category>\nOptions: {cats}"[:249])
         return
     cat = args[1].lower()
     if cat not in NOTIF_CATEGORIES:
         await _w(bot, user.id, _valid_category_msg()[:249])
         return
     db.set_sub_notif_pref(user.id, user.username, cat, 1)
-    await _w(bot, user.id, f"🔔 {NOTIF_CATEGORIES[cat]} notifications: ON ✅")
+    label = NOTIF_CATEGORIES[cat]
+    # Check if player is subscribed and has DM connected
+    import database as _db2
+    sub = _db2.get_subscriber_by_user_id(user.id) or _db2.get_subscriber(user.username.lower())
+    subscribed = bool(sub and sub.get("subscribed"))
+    has_conv   = bool(sub and sub.get("conversation_id"))
+    if not subscribed:
+        extra = (
+            f"\n⚠️ {label} turned ON, but you are not subscribed yet.\n"
+            "Type !subscribe to receive notifications."
+        )
+        if not has_conv:
+            extra += "\nFor outside-room alerts, DM EmceeBot: subscribe"
+        await _w(bot, user.id, f"🔔 {label}: ON ✅{extra}"[:249])
+    else:
+        await _w(bot, user.id, f"🔔 {label} notifications: ON ✅")
 
 
 # ---------------------------------------------------------------------------
@@ -234,7 +252,7 @@ async def handle_notifon(bot, user, args: list[str]) -> None:
 async def handle_notifoff(bot, user, args: list[str]) -> None:
     if len(args) < 2:
         cats = " | ".join(NOTIF_CATEGORIES.keys())
-        await _w(bot, user.id, f"Usage: /notifoff <category>\nOptions: {cats}"[:249])
+        await _w(bot, user.id, f"Usage: !notifoff <category>\nOptions: {cats}"[:249])
         return
     cat = args[1].lower()
     if cat not in NOTIF_CATEGORIES:
@@ -527,6 +545,12 @@ async def handle_testnotify(bot, user, args: list[str]) -> None:
         f"Delivered: {delivered}",
         f"Status: {status}" if status else f"Reason: {reason}",
     ]
+    # Add diagnostic fix hint when sub is off but DM is connected
+    if not subscribed and conv_id:
+        lines.append(
+            f"Fix: DM connected but subscription is OFF. "
+            f"Use !subscribe or !forcesub @{raw_target}."
+        )
     await _w(bot, user.id, "\n".join(lines)[:249])
 
 

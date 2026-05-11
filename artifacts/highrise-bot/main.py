@@ -143,6 +143,7 @@ from modules.subscribers         import (
     handle_subscribers, handle_dmnotify, handle_announce_subs,
     handle_announce_vip, handle_announce_staff,
     handle_debugsub,
+    handle_forcesub, handle_fixsub,
     process_incoming_dm,
     deliver_pending_subscriber_messages,
 )
@@ -3673,10 +3674,10 @@ class HangoutBot(BaseBot):
         elif cmd == "pendingnotifications":
             await handle_pendingnotifications(self, user, args)
 
-        elif cmd == "subscribe":
+        elif cmd in {"subscribe", "sub"}:
             await handle_subscribe(self, user, args)
 
-        elif cmd == "unsubscribe":
+        elif cmd in {"unsubscribe", "unsub"}:
             await handle_unsubscribe(self, user, args)
 
         elif cmd == "substatus":
@@ -3684,6 +3685,12 @@ class HangoutBot(BaseBot):
 
         elif cmd == "subscribers":
             await handle_subscribers(self, user, args)
+
+        elif cmd == "forcesub":
+            await handle_forcesub(self, user, args)
+
+        elif cmd == "fixsub":
+            await handle_fixsub(self, user, args)
 
         elif cmd == "dmnotify":
             await handle_dmnotify(self, user, args)
@@ -3844,10 +3851,10 @@ class HangoutBot(BaseBot):
         elif cmd == "notif":
             await handle_notif(self, user)
 
-        elif cmd == "notifon":
+        elif cmd in {"notifon", "notifyon"}:
             await handle_notifon(self, user, args)
 
-        elif cmd == "notifoff":
+        elif cmd in {"notifoff", "notifyoff"}:
             await handle_notifoff(self, user, args)
 
         elif cmd == "notifall":
@@ -5479,7 +5486,7 @@ class HangoutBot(BaseBot):
 
         # ── Slash-command routing via whisper ─────────────────────────────────
         stripped = message.strip()
-        if stripped.startswith("/"):
+        if stripped.startswith("/") or stripped.startswith("!"):
             from modules.multi_bot import should_this_bot_handle, _resolve_command_owner
             cmd_word = stripped.split()[0][1:].lower()
             if should_this_bot_handle(cmd_word):
