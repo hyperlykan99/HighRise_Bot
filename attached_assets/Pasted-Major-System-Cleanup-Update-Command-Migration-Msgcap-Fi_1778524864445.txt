@@ -1,0 +1,1649 @@
+Major System Cleanup Update — ! Command Migration + Msgcap Fix + Blackjack Shoe Save + Role Spawn Fix + Economy Audit + Help Rework
+
+Implement the updates below.
+
+Main goals:
+1. Completely migrate official command usage from / commands to ! commands.
+2. Make ! commands real registered/routed commands, not just help text.
+3. Fix !msgcap crashing above 255 characters.
+4. Save Blackjack shoe state across bot restarts.
+5. Fix role spawn teleport behavior.
+6. Add auto role spawn on join.
+7. Reorganize teleport roles.
+8. Fix notification subscription issues and aliases.
+9. Audit all bot messages so they show correct ! commands.
+10. Add full economy audit and game price alignment.
+11. Rework help menus so everything is easy to navigate.
+12. Make every command help/usage show arguments like [user], [amount], [spot], etc.
+
+Do not change bot tokens.
+Do not change room ID.
+Do not wipe balances.
+Do not wipe player data.
+Do not wipe reward logs.
+Do not wipe subscriptions.
+Do not wipe notification preferences.
+Do not wipe notification logs.
+Do not wipe saved teleports/spawns.
+Do not expose secrets, tokens, env vars, or room ID.
+Do not leave commands with no route or owner UNKNOWN.
+
+==================================================
+PART 1 — FULL COMMAND PREFIX MIGRATION: ! ONLY
+==================================================
+
+Current issue:
+When I type:
+
+/commandtest !subscribe
+
+It says not registered.
+
+But when I type:
+
+/commandtest /subscribe
+
+It shows the command is in the system/routed.
+
+This means the command registry still stores / commands as the real commands.
+
+Goal:
+Completely replace official / command usage with ! command usage.
+
+Official command style:
+
+!command
+
+Required:
+- !subscribe must be a real registered command.
+- !notifon must be a real registered command.
+- !notifyon must be a real registered command.
+- !goldrain must be a real registered command.
+- !goldtip must be a real registered command.
+- !msgcap must be a real registered command.
+- !tele must be a real registered command.
+- !tag must be a real registered command.
+- !roles must be a real registered command.
+- !autospawn must be a real registered command.
+- /commandtest !command must work.
+- /checkcommands all must check ! command routes.
+- /commandissues must recognize ! commands.
+
+Important:
+Do not only replace text in help menus.
+Actually update:
+- command parser
+- command registry
+- command routing
+- commandtest
+- commandissues
+- checkcommands
+- help menus
+- usage/error messages
+
+Old / commands:
+- Can remain as hidden legacy fallback only if needed internally.
+- Do not advertise / commands.
+- Do not show / commands in user-facing messages.
+- Do not show / commands in help.
+- Do not use / commands in examples.
+
+Expected commandtest examples:
+
+/commandtest !subscribe
+/commandtest !notifon
+/commandtest !notifyon
+/commandtest !goldrain
+/commandtest !goldtip
+/commandtest !msgcap
+/commandtest !tele
+/commandtest !tag
+/commandtest !summon
+/commandtest !roles
+/commandtest !autospawn
+
+Target:
+route=YES
+handler=YES
+owner not UNKNOWN
+
+==================================================
+PART 2 — USER-FACING TEXT CLEANUP: REPLACE / WITH !
+==================================================
+
+Issue:
+Some bot messages still show / commands.
+
+Goal:
+All bot help, usage, examples, debug replies, and error messages must use ! commands.
+
+Replace examples:
+
+/subscribe -> !subscribe
+/unsubscribe -> !unsubscribe
+/substatus -> !substatus
+/notif -> !notif
+/notifon -> !notifon
+/notifoff -> !notifoff
+/notifall -> !notifall
+/notifyon -> !notifyon
+/notifyoff -> !notifyoff
+/testnotify -> !testnotify
+/notifydebug -> !notifydebug
+/subnotify -> !subnotify
+/subnotifystatus -> !subnotifystatus
+
+/goldtip -> !goldtip
+/goldtipbots -> !goldtipbots
+/goldrain -> !goldrain
+/goldrainstatus -> !goldrainstatus
+/cancelgoldrain -> !cancelgoldrain
+/goldrainhistory -> !goldrainhistory
+/goldrainpace -> !goldrainpace
+/setgoldrainpace -> !setgoldrainpace
+
+/msgcap -> !msgcap
+/setmsgcap -> !setmsgcap
+
+/tele -> !tele
+/create tele -> !create tele
+/delete tele -> !delete tele
+/summon -> !summon
+/tag -> !tag
+/roles -> !roles
+/setrolespawn -> !setrolespawn
+/rolespawn -> !rolespawn
+/rolespawns -> !rolespawns
+/delrolespawn -> !delrolespawn
+/autospawn -> !autospawn
+
+/bjshoe -> !bjshoe
+/bjshoereset -> !bjshoereset
+
+/economyaudit -> !economyaudit
+/gameprices -> !gameprices
+/gameprice -> !gameprice
+/setgameprice -> !setgameprice
+/auditlog -> !auditlog
+
+Important:
+Search the entire project for hardcoded strings containing "/".
+Inspect each string.
+If it is user-facing command text, replace it with !.
+
+Do not change:
+- URLs like https://
+- file paths
+- regexes
+- internal slash fallback parsing
+- API endpoints
+
+==================================================
+PART 3 — MSGCAP CRASH FIX
+==================================================
+
+Current issue:
+!msgcap crashes chat above 255 characters.
+
+Goal:
+Make !msgcap safe and never crash chat.
+
+Commands:
+!msgcap
+!msgcap chat
+!msgcap whisper
+!msgcap split
+!msgcap chat [length]
+!msgcap whisper [length]
+!msgcap test [length]
+
+Required behavior:
+- Never send one raw message above Highrise safe cap.
+- Use safe cap around 240 characters.
+- If requested length is above safe cap, split into safe chunks.
+- Keep END marker behavior.
+- Do not crash bot or chat handler.
+- Max requested test length can still be 1000, but must be split safely.
+
+Example:
+
+!msgcap chat 300
+
+Expected:
+Do not crash.
+Send split messages:
+
+🧪 Chat Cap Test 1/2
+Len: 240
+AAAA...END1
+
+🧪 Chat Cap Test 2/2
+Len: 60
+AAAA...END2
+
+Or:
+
+Requested length is above safe chat cap.
+Sending split test instead.
+
+Rules:
+- Every chunk must include a chunk number.
+- Every chunk must include END marker.
+- Chat messages should never exceed safe cap.
+- Whisper messages should never exceed safe cap.
+- If requested length is too high, split safely.
+
+Command tests:
+/commandtest !msgcap
+
+Target:
+route=YES
+handler=YES
+owner=EmceeBot or SecurityBot
+
+==================================================
+PART 4 — BLACKJACK SHOE SAVE FIX
+==================================================
+
+Current issue:
+Blackjack shoe is not being saved when bot restarts.
+
+Goal:
+Persist blackjack shoe/deck state across restarts.
+
+Required:
+- Save blackjack shoe state to database or safe persistent file.
+- Save after every card draw.
+- Save after shuffle.
+- Save after round end if shoe changed.
+- Load existing shoe on bot startup.
+- Do not create a fresh shoe if a valid saved shoe exists.
+- If saved shoe is corrupted or empty, rebuild safely and log it.
+
+Save:
+- decks count
+- cards remaining
+- shoe order if possible
+- discard pile if used
+- shoe penetration
+- shuffle state
+- last saved timestamp
+- loaded_from_restart flag if useful
+
+Commands to add/fix:
+
+!bjshoe
+!bjshoereset
+
+!bjshoe output example:
+
+🃏 Blackjack Shoe
+Decks: 6
+Cards Remaining: 241
+Saved: YES
+Last Saved: <time>
+Loaded From Restart: YES
+
+!bjshoereset:
+- Owner/Admin only.
+- Reshuffles/rebuilds the shoe.
+- Logs reset action.
+- Does not wipe player balances.
+- Does not wipe blackjack history.
+
+Safety:
+- Do not break active blackjack games.
+- Do not reset shoe on restart unless corrupted/empty.
+- Do not reset player balances.
+- Do not wipe blackjack logs.
+
+Command tests:
+/commandtest !bjshoe
+/commandtest !bjshoereset
+
+==================================================
+PART 5 — ROLE SPAWN NOT TELEPORTING CORRECTLY
+==================================================
+
+Current issue:
+I saved a role spawn, but I still do not get teleported to that role spot.
+
+Clarification:
+!setrolespawn [role] here only saves the role position.
+It does not automatically teleport unless auto role spawn is ON.
+
+Manual role teleport command:
+!tele role [role]
+
+Example:
+!setrolespawn staff here
+!rolespawn staff
+!tele role staff
+
+Fix:
+- Make !tele role [role] teleport all matching users currently in the room.
+- Use live room users, not stale cache only.
+- Include the command user if they match the role.
+- Make sure staff role includes owner/admin/manager/moderator.
+- Show moved count and skipped count.
+- Do not teleport bots unless explicitly allowed.
+
+Expected:
+
+!tele role staff
+
+Response:
+
+🌀 Teleported 3 staff to their role tele position.
+Skipped offline: 0
+
+If no role tele position saved:
+
+❌ No role tele position saved for staff.
+Use !setrolespawn staff here.
+
+==================================================
+PART 6 — AUTO ROLE SPAWN ON JOIN
+==================================================
+
+New feature:
+When player leaves and rejoins, bot can automatically teleport them to their highest priority saved role tele position.
+
+Commands:
+!autospawn on
+!autospawn off
+!autospawn status
+
+Behavior:
+If !autospawn is ON:
+- On user join, wait 1–2 seconds.
+- Determine user’s highest priority role.
+- If a saved role tele position exists, teleport them there.
+- If no matching saved role tele position exists, do nothing.
+- Do not repeatedly teleport same user.
+- Add per-user cooldown of 30 seconds after join.
+- Do not teleport bots by default.
+
+Response:
+
+!autospawn on
+
+🌀 Auto Role Spawn: ON
+Players will be moved to their role tele position when they join.
+
+!autospawn status
+
+🌀 Auto Role Spawn: ON
+Priority:
+owner > admin > manager > mod > staff > vip > subs > regular > guest
+
+Optional join notice:
+Whisper the user:
+
+🌀 Welcome back.
+Teleported to your staff role position.
+
+If too spammy, make it staff-log only.
+
+==================================================
+PART 7 — ROLE REORGANIZATION
+==================================================
+
+Reorganize valid roles:
+
+owner
+admin
+manager
+mod
+staff
+vip
+subs
+regular
+guest
+bot
+
+Role matching:
+
+owner = owner only
+
+admin = owner + admin
+
+manager = owner + admin + manager
+
+mod = owner + admin + manager + moderator
+
+staff = owner + admin + manager + moderator
+
+vip = VIP users
+
+subs = subscribed users
+
+regular = non-staff, non-vip, non-sub players
+
+guest = unknown/new players
+
+bot = bots only
+
+Important:
+- staff must include owner, admin, manager, and moderator.
+- regular must exclude staff, vip, subs, and bots.
+- bot must be excluded from normal role teleport unless explicitly allowed.
+- !tele role staff should teleport owner/admin/manager/mod users.
+- !tele role regular should teleport normal players only.
+
+Auto role spawn priority:
+
+1. owner
+2. admin
+3. manager
+4. mod
+5. staff
+6. vip
+7. subs
+8. regular
+9. guest
+10. default
+
+Behavior:
+If user is owner and owner role spawn exists, use owner spawn.
+If owner spawn does not exist but staff spawn exists, use staff spawn.
+If no matching role spawn exists, do nothing.
+
+==================================================
+PART 8 — ROLE COMMANDS
+==================================================
+
+Add/fix these commands:
+
+!roles
+!rolespawns
+!rolespawn [role]
+!setrolespawn [role] here
+!setrolespawn [role] [x] [y] [z] [facing]
+!delrolespawn [role]
+!tele role [role]
+!autospawn [on|off|status]
+
+Expected !roles output:
+
+🧑‍🤝‍🧑 Teleport Roles
+owner
+admin
+manager
+mod
+staff
+vip
+subs
+regular
+guest
+bot
+
+Expected !rolespawns output:
+
+🌀 Role Teleports
+owner — not set
+admin — not set
+manager — x:10 y:0 z:15
+staff — x:5 y:0 z:8
+vip — not set
+subs — not set
+regular — x:3 y:0 z:9
+guest — not set
+
+Expected !rolespawn staff output:
+
+🌀 Role Teleport
+Role: staff
+Position: x:5 y:0 z:8 facing: FrontRight
+
+If not set:
+
+❌ No role tele position saved for staff.
+Use !setrolespawn staff here.
+
+==================================================
+PART 9 — LEAVE / REJOIN ROLE SPAWN TEST SUPPORT
+==================================================
+
+Test flow:
+!setrolespawn staff here
+!rolespawn staff
+!autospawn on
+
+Then:
+1. Test user leaves room.
+2. Test user rejoins room.
+3. Bot waits 1–2 seconds.
+4. Bot teleports user to highest priority saved role position.
+
+Expected:
+User is moved to correct role tele position.
+
+Add debug logging:
+- detected join
+- detected role
+- selected role spawn
+- teleport success/failure
+- cooldown applied
+
+Optional debug command:
+
+!autospawn debug [user]
+
+Example output:
+
+🌀 Auto Spawn Debug: @Player
+In Room: YES
+Detected Roles: staff, manager
+Selected Role: manager
+Role Tele Saved: YES
+Cooldown: clear
+Last Auto Spawn: never
+
+==================================================
+PART 10 — NOTIFICATION SUBSCRIBE FIX
+==================================================
+
+Current issue:
+Test player shows:
+
+Conversation ID: YES
+Events: ON
+Global: ON
+Subscribed: NO
+Reason: not_subscribed
+
+Goal:
+Fix subscription flag and DM conversation linking.
+
+Required:
+- !subscribe must set subscribed = true.
+- DM keyword subscribe must set subscribed = true.
+- DM keyword /subscribe and !subscribe must work too.
+- If conversation_id already exists but subscribed=false, subscribing updates same record.
+- Lookup subscriber by user_id first, then username lowercase.
+- Prevent duplicate subscriber rows.
+- Keep existing conversation_id.
+- Keep category settings.
+- Ensure notification prefs exist.
+- Set manually_unsubscribed=false when subscribing.
+
+Add/fix commands:
+
+!subscribe
+!unsubscribe
+!substatus
+!sub
+!unsub
+!forcesub [user]
+!fixsub [user]
+
+!forcesub [user]:
+- Manager+ only.
+- Sets subscribed = true.
+- Sets manually_unsubscribed = false.
+- Keeps existing conversation_id.
+- Keeps existing category settings.
+- Ensures notification prefs exist.
+- Does not fake conversation_id.
+
+Expected:
+
+✅ Forced subscription ON for @username.
+DM Connected: YES
+Events: ON
+Global: ON
+
+If conversation_id missing:
+
+✅ Forced subscription ON for @username.
+DM Connected: NO
+Outside-room alerts unavailable until they DM EmceeBot: subscribe
+
+!fixsub [user]:
+- Manager+ only.
+- Finds user record by username.
+- Finds subscriber record by username and user_id.
+- Re-links user_id, username, and conversation_id if possible.
+- Merges duplicate subscriber rows if safe.
+- Shows what was fixed and what is still missing.
+
+Expected:
+
+🔧 Subscription Repair: @username
+User ID: FOUND
+Subscriber Row: FOUND
+Conversation ID: FOUND
+Subscribed: YES
+Prefs: OK
+Duplicates merged: 1
+
+==================================================
+PART 11 — NOTIFICATION ALIASES
+==================================================
+
+Add/fix official ! notification commands:
+
+!notif
+!notifon [category]
+!notifoff [category]
+!notifall [on|off]
+
+Aliases:
+
+!notifications = !notif
+!notifyon [category] = !notifon [category]
+!notifyoff [category] = !notifoff [category]
+
+Important:
+Players naturally type !notifyon events, so it must work.
+
+If player runs !notifon events or !notifyon events but subscribed=false:
+
+Events turned ON, but you are not subscribed yet.
+Type !subscribe to receive notifications.
+
+If conversation_id is missing, also say:
+
+For outside-room alerts, DM EmceeBot directly with: subscribe
+
+==================================================
+PART 12 — NOTIFICATION SENDER DISPLAY FIX
+==================================================
+
+Current issue:
+Some notification messages still show:
+
+Sender: host
+
+Required:
+All notification staff/player-facing messages show:
+
+Sender: EmceeBot
+
+Apply to:
+!testnotify
+!subnotify
+!subnotifystatus
+!notifydebug
+notification logs shown to staff
+
+If internal owner key is host, map display name to EmceeBot.
+
+==================================================
+PART 13 — TOTAL ECONOMY AUDIT + GAME PRICE ALIGNMENT
+==================================================
+
+Goal:
+Review and align the whole bot economy so all games, rewards, tips, subscriptions, fees, and prices make sense together.
+
+Audit:
+- Mining
+- Fishing
+- Blackjack
+- Poker
+- Gold tips
+- Gold Rain
+- Room donations
+- Subscription/VIP pricing
+- Rewards
+- Event payouts
+- First Hunt Race payouts
+- Daily/weekly bonuses if any
+- Shop prices if any
+- Teleport/VIP access if monetized
+
+Add commands:
+
+!economyaudit
+!economyaudit [games|rewards|risks|prices]
+!gameprices
+!gameprice [game]
+!setgameprice [game] [setting] [value]
+!auditlog [economy|gold|rewards|commands]
+
+!economyaudit should show:
+- Every way players earn coins/gold/rewards.
+- Every way players spend coins/gold/rewards.
+- Current prices for all games.
+- Current payout rates for all games.
+- Current cooldowns/timers.
+- Current subscription/VIP costs.
+- Current donation/tip rewards.
+- Current reward logs and pending rewards.
+- Whether any system gives too much reward.
+- Whether any system is too expensive or too cheap.
+- Whether game prices are aligned.
+- Whether staff/admin commands can accidentally inflate economy.
+
+Game price review:
+
+Mining:
+- Cost to mine if any
+- Tool upgrades if any
+- Reward range
+- Cooldown
+- VIP/sub bonus
+
+Fishing:
+- Cost to fish if any
+- Rod/bait upgrades if any
+- Reward range
+- Cooldown
+- VIP/sub bonus
+
+Blackjack:
+- Minimum bet
+- Maximum bet
+- Table limits
+- Payout ratio
+- Insurance if used
+- Split/double behavior
+- Shoe persistence
+
+Poker:
+- Buy-in
+- Small blind
+- Big blind
+- Minimum raise
+- Maximum table balance
+- Rake if any
+- Force finish behavior
+
+Events:
+- Entry cost if any
+- Reward payout
+- Winner payout
+- Participation reward
+
+Gold Rain / Gold Tip:
+- Max total gold
+- Max winners
+- Pace
+- Bot exclusions
+- Manual pending gold behavior
+
+!gameprices output example:
+
+🎮 Game Prices
+Mining: cooldown 60s, reward 5–25
+Fishing: cooldown 60s, reward 5–30
+Blackjack: min 10, max 500
+Poker: buy-in 100, blinds 5/10
+Events: reward varies
+Gold Rain: max 100g
+
+!setgameprice examples:
+
+!setgameprice blackjack minbet 10
+!setgameprice blackjack maxbet 500
+!setgameprice poker buyin 100
+!setgameprice mining cooldown 60
+!setgameprice fishing cooldown 60
+
+All economy changes must be logged:
+- changed_by
+- game/system
+- setting changed
+- old value
+- new value
+- timestamp
+
+!auditlog economy should show:
+
+@Owner changed blackjack minbet from 5 to 10
+@Owner changed poker buyin from 50 to 100
+
+Safety:
+- Do not wipe balances.
+- Do not reset player data.
+- Do not reset reward logs.
+- Do not reset poker/blackjack tables.
+- Do not reset subscriptions.
+- Do not reset gold logs.
+- Do not change prices without logging.
+- Do not allow non-staff to change prices.
+- Do not allow negative prices or rewards.
+- Do not allow max bet lower than min bet.
+- Do not allow cooldown below safe minimum unless owner-only.
+
+==================================================
+PART 14 — FULL BOT MESSAGE AUDIT
+==================================================
+
+Goal:
+Audit every bot message, help menu, usage message, error message, debug reply, and command response to make sure all bots say the correct commands and use the official ! prefix.
+
+Bots to audit:
+- EmceeBot
+- BankerBot
+- GreatestProspector
+- MasterAngler
+- BlackJackBot
+- PokerBot
+- SecurityBot
+- EventBot
+- all extra bot modules
+
+Message types to audit:
+- Help menus
+- Usage messages
+- Error messages
+- Permission denied messages
+- Command examples
+- Notification messages
+- Subscription messages
+- Gold Rain messages
+- Gold Tip messages
+- Blackjack messages
+- Poker messages
+- Mining messages
+- Fishing messages
+- Event messages
+- Auto event messages
+- Teleport/tag messages
+- Maintenance messages
+- Debug/test messages
+- Commandtest/checkcommands/commandissues output
+
+Add debug command:
+
+!messageaudit
+!messageaudit slash
+!messageaudit bot [botname]
+!messageaudit commands
+!messageaudit help
+
+Expected:
+
+🧾 Bot Message Audit
+Scanned: 245 messages
+Slash command examples found: 0
+Unknown command examples: 0
+Help menus using !: YES
+Usage messages using !: YES
+
+If issues found:
+
+🧾 Bot Message Audit
+Slash command examples found: 4
+
+1. subscribers.py — "Use /subscribe"
+Fix: "Use !subscribe"
+
+2. gold_rain.py — "Usage: /goldrain [group]"
+Fix: "Usage: !goldrain [group]"
+
+Do not:
+- change URLs
+- break internal command parsing
+- remove legacy slash fallback if needed internally
+- change comments only and pretend fixed
+- leave help menus showing /
+- leave usage examples showing /
+- leave old / commands in staff-facing debug replies
+
+==================================================
+PART 15 — HELP NAVIGATION REWORK
+==================================================
+
+Goal:
+Make all help menus easy to navigate for players, staff, managers, admins, and owner.
+
+Official command style:
+!command
+
+All help menus must show ! commands only.
+Do not show / commands.
+
+!help:
+Shows main navigation menu only, not a giant command dump.
+
+Example:
+
+📘 Help Menu
+Choose a category:
+
+!help player
+!help games
+!help economy
+!help rewards
+!help notifications
+!help teleports
+!help events
+!help staff
+!help admin
+!help owner
+
+Tip: Type !help [category]
+
+Player help:
+
+!help player
+
+👤 Player Help
+!balance
+!daily
+!claimrewards
+!notif
+!notifon [category]
+!notifoff [category]
+!tele list
+!tele [spot]
+!games
+!leaderboard
+!help games
+
+Games help:
+
+!help games
+
+🎮 Games Help
+!help mining
+!help fishing
+!help blackjack
+!help poker
+!help events
+
+Economy help:
+
+!help economy
+
+💰 Economy Help
+!balance
+!coins
+!claimrewards
+!rewardlogs
+!goldtip [user] [amount]
+!goldtip all [amount]
+!goldrain [group] [total_gold] [winners]
+!goldrainstatus
+!gameprices
+
+Notification help:
+
+!help notifications
+
+🔔 Notification Help
+!subscribe
+!unsubscribe
+!substatus
+!notif
+!notifon [category]
+!notifoff [category]
+!notifall [on|off]
+
+Categories:
+events, mining, fishing, rewards, donations, blackjack, poker, security, updates
+
+Teleport help:
+
+!help teleports
+
+🌀 Teleport Help
+!tele list
+!tele [spot]
+!tele [user]
+!summon [user]
+
+Staff:
+!create tele [spot]
+!delete tele [spot]
+!tele permission [spot] [permission]
+!tele role [role]
+!roles
+!rolespawns
+
+Staff help:
+
+!help staff
+
+🛠️ Staff Help
+Choose a section:
+
+!staffhelp room
+!staffhelp teleports
+!staffhelp notifications
+!staffhelp economy
+!staffhelp events
+!staffhelp games
+!staffhelp moderation
+!staffhelp debug
+!staffhelp maintenance
+
+Staff room controls:
+
+!staffhelp room
+
+🏠 Staff Room Controls
+!roomusers
+!playercheck [user]
+!tele [user]
+!summon [user]
+!create tele [spot]
+!delete tele [spot]
+!tele list
+!autospawn status
+
+Staff notification controls:
+
+!staffhelp notifications
+
+🔔 Staff Notification Controls
+!subnotify [category] [message]
+!testnotify [user] [category] [message]
+!notifydebug [user]
+!subnotifystatus
+!subnotifystatus failed
+!subnotifystatus nodelivery
+!fixsub [user]
+!forcesub [user]
+!notifrefresh
+
+Staff economy controls:
+
+!staffhelp economy
+
+💰 Staff Economy Controls
+!economyaudit
+!economyaudit games
+!economyaudit prices
+!gameprices
+!gameprice [game]
+!setgameprice [game] [setting] [value]
+!auditlog economy
+!rewardlogs
+!pendinggold
+
+Staff events controls:
+
+!staffhelp events
+
+🎉 Staff Event Controls
+!aenext
+!aehistory
+!aequeue
+!aeskip
+!setnextae [event]
+!setaeinterval [minutes]
+!setaeduration [minutes]
+!stopevent
+!aetest
+
+Staff games controls:
+
+!staffhelp games
+
+🎮 Staff Game Controls
+!bjshoe
+!bjshoereset
+!blackjackstatus
+!pokerstatus
+!forcefinish
+!gameprices
+!setgameprice [game] [setting] [value]
+
+Staff debug controls:
+
+!staffhelp debug
+
+🧪 Staff Debug
+!quicktest
+!commandissues
+!checkcommands all
+!commandtest !command
+!msgcap
+!messageaudit
+!ownercheck
+!roomusers
+!testwhisper [user]
+
+Maintenance controls:
+
+!staffhelp maintenance
+
+🛠️ Maintenance
+!maintenance status
+!maintenance on
+!maintenance off
+!maintenance bot [botname] on
+!maintenance bot [botname] off
+!botstatus
+
+Admin help:
+
+!help admin
+
+👑 Admin Help
+!adminhelp bots
+!adminhelp economy
+!adminhelp events
+!adminhelp maintenance
+!adminhelp audit
+
+Owner help:
+
+!help owner
+
+🔐 Owner Help
+!goldtipbots [on|off]
+!setgameprice [game] [setting] [value]
+!maintenance all [on|off]
+!bjshoereset
+!economyaudit
+!messageaudit
+!auditlog economy
+
+Context-aware help:
+- Normal players should not see owner-only commands.
+- Staff see staff commands.
+- Owner sees owner/admin/staff commands.
+
+Searchable help:
+
+!help search [keyword]
+!help command [command]
+
+Examples:
+!help search gold
+!help search notify
+!help command !goldrain
+!help command !tele
+
+Expected:
+
+🔎 Help Search: gold
+!goldtip [user] [amount] — tip gold to a player
+!goldtip all [amount] — tip everyone eligible
+!goldrain [group] [total_gold] [winners] — start Gold Rain
+!goldrainstatus — show active Gold Rain
+
+Help pages:
+- Paginate if too long.
+- Stay under safe message cap.
+- Show page number.
+
+Example:
+📘 Staff Help 1/2
+!staffhelp room
+!staffhelp notifications
+!staffhelp economy
+
+Type !help staff 2 for more.
+
+Unknown command help:
+If user types unknown command, reply with useful suggestion.
+
+Example:
+Unknown command: !notifyon
+Did you mean:
+!notifon events
+!notif
+!help notifications
+
+If command exists as alias, route it properly instead of showing unknown.
+
+==================================================
+PART 16 — COMMAND USAGE ARGUMENT GUIDE
+==================================================
+
+Goal:
+Every command shown in help, usage, error messages, and command details must clearly show what to type after the command.
+
+Official style:
+!command [required_value] [optional_value]
+
+Argument format rules:
+
+[user] = username or @username
+[amount] = coin/gold amount
+[spot] = saved teleport spot
+[role] = role name
+[tag] = crew/group tag
+[category] = notification category
+[message] = text message
+[game] = game name
+[setting] = setting name
+[value] = new value
+[seconds] = seconds
+[minutes] = minutes
+[on|off] = choose on or off
+[x] [y] [z] = coordinates
+[facing] = optional direction
+
+Examples:
+
+Instead of:
+!goldtip
+
+Show:
+!goldtip [user] [amount]
+!goldtip all [amount]
+
+Instead of:
+!tele
+
+Show:
+!tele [spot]
+!tele [user]
+!tele [user] [x] [y] [z] [facing]
+
+Instead of:
+!notifon
+
+Show:
+!notifon [category]
+
+Instead of:
+!setgameprice
+
+Show:
+!setgameprice [game] [setting] [value]
+
+Required help formats:
+
+!subscribe
+!unsubscribe
+!substatus
+!notif
+!notifon [category]
+!notifoff [category]
+!notifall [on|off]
+
+!subnotify [category] [message]
+!testnotify [user] [category] [message]
+!notifydebug [user]
+!forcesub [user]
+!fixsub [user]
+
+!goldtip [user] [amount]
+!goldtip all [amount]
+!goldtipbots [on|off]
+!goldrain [group] [total_gold] [winners]
+!goldrain test [group] [total_gold] [winners]
+!goldrain party [group] [total_gold] [winners] [seconds]
+!goldrainstatus
+!goldrainpace
+!setgoldrainpace [slow|normal|party|custom]
+!setgoldrainpace custom [seconds]
+
+!msgcap
+!msgcap chat [length]
+!msgcap whisper [length]
+!msgcap test [length]
+!msgcap split
+
+!create tele [spot]
+!delete tele [spot]
+!tele list
+!tele [spot]
+!tele [user]
+!tele [user] [x] [y] [z] [facing]
+!tele permission [spot] [everyone|subs|vip|staff|managers|owner]
+!summon [user]
+
+!roles
+!rolespawn [role]
+!rolespawns
+!setrolespawn [role] here
+!setrolespawn [role] [x] [y] [z] [facing]
+!delrolespawn [role]
+!tele role [role]
+!autospawn [on|off|status]
+
+!tag create [tag]
+!tag delete [tag]
+!tag add [tag] [user]
+!tag remove [tag] [user]
+!tag list
+!tag members [tag]
+!tag spawn [tag] here
+!tag spawn [tag] [x] [y] [z] [facing]
+!tag delspawn [tag]
+!tag allowedit [tag] [on|off]
+!tag setspawn [tag] here
+!tele tag [tag]
+!tele tag [tag] [spot]
+
+!economyaudit
+!economyaudit [games|rewards|risks|prices]
+!gameprices
+!gameprice [game]
+!setgameprice [game] [setting] [value]
+!auditlog [economy|gold|rewards|commands]
+
+!bjshoe
+!bjshoereset
+
+Usage error examples:
+
+If user types !goldtip:
+
+Usage: !goldtip [user] [amount]
+Example: !goldtip @Player 5
+
+If user types !tele permission vip:
+
+Usage: !tele permission [spot] [permission]
+Example: !tele permission vip subs
+Permissions: everyone, subs, vip, staff, managers, owner
+
+If user types !tag add crewalpha:
+
+Usage: !tag add [tag] [user]
+Example: !tag add crewalpha @Player
+
+Add command detail page:
+
+!help command [command]
+
+Example:
+!help command !goldrain
+
+Expected:
+
+🌧️ !goldrain
+Usage:
+!goldrain [group] [total_gold] [winners]
+!goldrain party [group] [total_gold] [winners] [seconds]
+
+Groups:
+all, vip, subs, players, nonstaff, staff, managers, admins, owners
+
+Example:
+!goldrain all 50 10
+
+==================================================
+PART 17 — HELP AUDIT + MESSAGE AUDIT
+==================================================
+
+Add to !messageaudit help:
+
+Checks:
+- Help menus use ! only.
+- Help menus do not show / commands.
+- Help menus do not list broken/unregistered commands.
+- Help menus do not show staff commands to normal players.
+- Help menus do not exceed safe message length.
+- Every listed command has argument placeholders if it requires arguments.
+
+Fail if help shows:
+!goldtip
+
+when it should show:
+!goldtip [user] [amount]
+
+Fail if help shows:
+!tele permission
+
+when it should show:
+!tele permission [spot] [permission]
+
+Expected:
+
+🧾 Help Audit
+Help pages checked: 18
+Slash examples found: 0
+Broken commands listed: 0
+Missing argument placeholders: 0
+Permission leaks: 0
+Long pages: 0
+
+==================================================
+PART 18 — COMMAND OWNERSHIP
+==================================================
+
+Suggested owners:
+
+EmceeBot:
+!subscribe
+!unsubscribe
+!substatus
+!notif
+!notifon
+!notifoff
+!notifall
+!notifications
+!notifyon
+!notifyoff
+!forcesub
+!fixsub
+!testnotify
+!notifydebug
+!subnotify
+!subnotifystatus
+!msgcap
+!messageaudit
+!help
+!staffhelp
+
+BankerBot:
+!goldtip
+!goldtipbots
+!goldrain
+!goldrainstatus
+!cancelgoldrain
+!goldrainhistory
+!goldrainpace
+!setgoldrainpace
+!setgoldraininterval
+!goldrainreplace
+
+BlackJackBot:
+!bjshoe
+!bjshoereset
+!blackjackstatus
+
+SecurityBot or EmceeBot:
+!tele
+!create
+!delete
+!summon
+!roles
+!rolespawn
+!rolespawns
+!setrolespawn
+!delrolespawn
+!autospawn
+!tag
+!economyaudit
+!gameprices
+!gameprice
+!setgameprice
+!auditlog
+
+Use existing valid owner keys in project.
+Do not leave owner UNKNOWN.
+Do not register commands without handlers.
+
+==================================================
+PART 19 — COMMAND TESTS
+==================================================
+
+Run these after implementation:
+
+/commandtest !subscribe
+/commandtest !unsubscribe
+/commandtest !substatus
+/commandtest !notif
+/commandtest !notifon
+/commandtest !notifyon
+/commandtest !notifoff
+/commandtest !notifyoff
+/commandtest !notifall
+/commandtest !forcesub
+/commandtest !fixsub
+/commandtest !testnotify
+/commandtest !notifydebug
+
+/commandtest !msgcap
+/commandtest !bjshoe
+/commandtest !bjshoereset
+
+/commandtest !roles
+/commandtest !setrolespawn
+/commandtest !rolespawn
+/commandtest !rolespawns
+/commandtest !delrolespawn
+/commandtest !tele
+/commandtest !autospawn
+/commandtest !summon
+/commandtest !tag
+
+/commandtest !economyaudit
+/commandtest !gameprices
+/commandtest !gameprice
+/commandtest !setgameprice
+/commandtest !auditlog
+
+/commandtest !messageaudit
+/commandtest !help
+/commandtest !staffhelp
+
+/commandissues
+/checkcommands all
+
+Target:
+route=YES
+handler=YES
+owner not UNKNOWN
+Issues: 0 no-route | 0 no-owner
+Missing 0
+NoOwner 0
+
+==================================================
+PART 20 — LIVE TESTS
+==================================================
+
+Msgcap:
+
+!msgcap chat 300
+!msgcap whisper 300
+!msgcap split
+
+Blackjack shoe:
+
+!bjshoe
+Restart bot
+!bjshoe
+
+Role spawn:
+
+!roles
+!setrolespawn staff here
+!rolespawn staff
+!rolespawns
+!tele role staff
+
+Auto role spawn:
+
+!autospawn on
+!autospawn status
+
+Then have test user leave and rejoin.
+
+Notifications:
+
+!subscribe
+!notifall on
+!notifyon events
+!notif
+!notifydebug @angelkisses18
+!testnotify @angelkisses18 events test
+
+If still broken:
+
+!fixsub @angelkisses18
+!forcesub @angelkisses18
+!testnotify @angelkisses18 events test
+
+Economy:
+
+!economyaudit
+!economyaudit games
+!economyaudit prices
+!gameprices
+!gameprice blackjack
+!setgameprice blackjack minbet 10
+!auditlog economy
+
+Help:
+
+!help
+!help player
+!help games
+!help economy
+!help notifications
+!help teleports
+!help staff
+!staffhelp economy
+!help search gold
+!help command !goldrain
+!messageaudit
+!messageaudit slash
+!messageaudit help
+
+==================================================
+PART 21 — SAFETY
+==================================================
+
+Do not:
+- crash chat with !msgcap above 255 chars
+- send one raw message above safe cap
+- reset blackjack shoe on restart
+- wipe balances
+- wipe player data
+- wipe rewards
+- wipe reward logs
+- wipe subscriptions
+- wipe notification preferences
+- wipe notification logs
+- wipe saved teleports/spawns
+- show / commands in user-facing messages
+- advertise / commands in help
+- leave ! commands unregistered
+- teleport bots by default
+- repeatedly teleport users on join
+- teleport normal players to staff/admin/owner positions
+- let tag members edit tag spawn unless allowedit ON
+- change economy prices without logging
+- allow negative prices or rewards
+- allow max bet lower than min bet
+- show owner-only controls to normal players
+- list unimplemented commands in help
+- leave commands with no route
+- leave owner UNKNOWN
+- expose tokens/secrets/env vars
+
+==================================================
+FINAL REPORT
+==================================================
+
+After finishing, tell me:
+
+1. Files changed
+2. How ! command migration was implemented
+3. Whether / commands remain as hidden legacy fallback
+4. How /commandtest !command now works
+5. All user-facing / command strings fixed
+6. How !msgcap crash was fixed
+7. Safe chat cap used
+8. Safe whisper cap used
+9. How blackjack shoe is saved
+10. How blackjack shoe loads after restart
+11. How !bjshoe works
+12. How role matching was reorganized
+13. How !tele role [role] works
+14. How auto role spawn on join works
+15. How notification subscribe was fixed
+16. How !notifyon alias works
+17. How Sender: host was changed to Sender: EmceeBot
+18. How economy audit works
+19. How game price alignment works
+20. How price changes are logged
+21. How bot message audit works
+22. How help navigation works
+23. How command argument placeholders were added
+24. Final /commandissues result
+25. Final /checkcommands all result
+26. Exact tests to run

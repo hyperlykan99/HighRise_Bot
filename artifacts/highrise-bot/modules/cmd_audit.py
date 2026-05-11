@@ -511,6 +511,16 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     "goldrainreplace", "goldrainpace", "setgoldrainpace",
     # ── Message cap testing (host / EmceeBot) ────────────────────────────────
     "msgcap", "setmsgcap",
+    # ── Autospawn + role listing (host / security) ───────────────────────────
+    "autospawn", "roles",
+    # ── BJ shoe management ───────────────────────────────────────────────────
+    "bjshoereset",
+    # ── Economy audit ────────────────────────────────────────────────────────
+    "economyaudit", "gameprices", "gameprice", "setgameprice",
+    # ── Message audit ────────────────────────────────────────────────────────
+    "messageaudit",
+    # ── Staff help navigation ─────────────────────────────────────────────────
+    "staffhelp",
 })
 
 # ---------------------------------------------------------------------------
@@ -693,6 +703,10 @@ VISIBLE_CMDS: frozenset[str] = frozenset({
     "tiplb", "tipleaderboard", "bottiplb", "bottipleaderboard",
     "roomtiplb", "roomtipleaderboard", "alltiplb", "alltipleaderboard",
     "tipreceiverlb", "topreceivers",
+    # ── New staff controls ───────────────────────────────────────────────────
+    "autospawn", "roles", "bjshoereset",
+    "economyaudit", "gameprices", "gameprice", "setgameprice",
+    "messageaudit", "staffhelp",
 })
 
 
@@ -1053,7 +1067,7 @@ async def handle_commandtest(bot: BaseBot, user: User, args: list[str]) -> None:
     if len(args) < 2:
         await _w(bot, user.id, "Usage: /commandtest <command>")
         return
-    cmd = args[1].lstrip("/").lower()
+    cmd = args[1].lstrip("!/").lower()
     try:
         from modules.multi_bot import (
             _resolve_command_owner, _is_mode_online, _MODE_NAMES,

@@ -473,6 +473,15 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "commandtestgroup": "host", "ctgroup": "host",
     # host — time EXP bot exclusion (new)
     "setallowbotxp": "host",
+    # host — auto role spawn + roles list (new)
+    "autospawn": "host", "roles": "host",
+    # host — message audit (new)
+    "messageaudit": "host", "staffhelp": "host",
+    # blackjack — BJ shoe management (new)
+    "bjshoereset": "blackjack",
+    # host — economy audit (admin-level, answered by host)
+    "economyaudit": "host", "gameprices": "host",
+    "gameprice": "host", "setgameprice": "host",
     # host — per-bot welcome messages (new)
     "botwelcome": "host", "setbotwelcome": "host",
     "resetbotwelcome": "host", "previewbotwelcome": "host",

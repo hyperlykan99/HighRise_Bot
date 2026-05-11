@@ -524,6 +524,11 @@ from modules.tele import (
     handle_setrolespawn, handle_rolespawn, handle_rolespawns, handle_delrolespawn,
     handle_tag,
     handle_teleporthelp_tele,
+    handle_autospawn, handle_roles, get_autospawn_spawn_for_user,
+)
+from modules.economy_audit import (
+    handle_economyaudit, handle_gameprices, handle_gameprice,
+    handle_setgameprice, handle_messageaudit,
 )
 from modules.room_utils import (
     handle_tpme, handle_tp, handle_tphere, handle_goto,
@@ -1062,7 +1067,7 @@ HELP_TEXT = (
     "🛒 Shop: /shop /shop badges\n"
     "🎉 Events: /eventhelp /event\n"
     "🏠 Room: /emotes /players /spawns\n"
-    "/start · /mycommands · /helpsearch"
+    "/start · !mycommands · !helpsearch"
 )
 
 GAME_HELP_PAGES = [
@@ -1450,21 +1455,21 @@ MAINTENANCE_HELP_TEXT = (
 
 STAFF_HELP_TEXT = (
     "⚙️ Staff Help Index\n"
-    "/control - control center\n"
-    "/modhelp - moderation commands\n"
-    "/managerhelp - game & event tools\n"
-    "/adminhelp - economy & admin power\n"
-    "/ownerhelp - owner commands"
+    "!control - control center\n"
+    "!modhelp - moderation commands\n"
+    "!managerhelp - game & event tools\n"
+    "!adminhelp - economy & admin power\n"
+    "!ownerhelp - owner commands"
 )
 
 STAFF_HELP_TEXT_2 = (
     "⚙️ Staff Help 2\n"
-    "/mycommands - commands for your role\n"
-    "/adminpanel - admin control panel\n"
-    "/adminlogs - action log\n"
-    "/status - bot status\n"
-    "/quicktoggles - toggle modules\n"
-    "/audithelp /reporthelp - audit tools"
+    "!mycommands - commands for your role\n"
+    "!adminpanel - admin control panel\n"
+    "!adminlogs - action log\n"
+    "!status - bot status\n"
+    "!quicktoggles - toggle modules\n"
+    "!audithelp !reporthelp - audit tools"
 )
 
 MOD_HELP_PAGES = [
@@ -1702,16 +1707,16 @@ OWNER_HELP_PAGES = [
 ]
 
 ALLCMDS = [
-    "Cmds 1 Help\n/help /gamehelp /casinohelp\n/coinhelp /bankhelp\n/shophelp /profilehelp",
-    "Cmds 2 Games\n/trivia /scramble /riddle\n/answer /coinflip\n/autogames status\n/gameconfig",
-    "Cmds 3 Casino\n/bet <amt> /hit /stand /double\n/split /insurance /surrender\n/bj rules|stats|shoe|table",
-    "Cmds 4 Casino Staff\n/casinosettings\n/casinolimits\n/casinotoggles\n/setbjlimits\n/setrbjlimits\n/setbjactiontimer\n/setrbjactiontimer",
-    "Cmds 5 Bank\n/send /bank /bankstats\n/transactions\n/banknotify\n/tiprate /tipstats",
-    "Cmds 6 Shop/Profile\n/shop titles/badges\n/titleinfo /badgeinfo\n/buy /equip\n/profile /level",
-    "Cmds 7 Progress\n/quests /dailyquests\n/weeklyquests\n/claimquest\n/achievements\n/reputation",
-    "Cmds 8 Events\n/event /events\n/eventstatus\n/startevent\n/stopevent\n/autoevents status",
-    "Cmds 9 Staff\n/staffhelp /modhelp\n/managerhelp /adminhelp\n/ownerhelp /allstaff",
-    "Cmds 10 Gold/Owner\n/goldhelp\n/goldtip\n/goldrain\n/goldrefund\n/backup\n/softrestart",
+    "Cmds 1 Help\n!help /gamehelp /casinohelp\n!coinhelp /bankhelp\n!shophelp /profilehelp",
+    "Cmds 2 Games\n!trivia /scramble /riddle\n!answer /coinflip\n!autogames status\n!gameconfig",
+    "Cmds 3 Casino\n!bet <amt> /hit /stand /double\n!split /insurance /surrender\n!bj rules|stats|shoe|table",
+    "Cmds 4 Casino Staff\n!casinosettings\n!casinolimits\n!casinotoggles\n!setbjlimits\n!setrbjlimits\n!setbjactiontimer\n!setrbjactiontimer",
+    "Cmds 5 Bank\n!send /bank /bankstats\n!transactions\n!banknotify\n!tiprate /tipstats",
+    "Cmds 6 Shop/Profile\n!shop titles/badges\n!titleinfo /badgeinfo\n!buy /equip\n!profile /level",
+    "Cmds 7 Progress\n!quests /dailyquests\n!weeklyquests\n!claimquest\n!achievements\n!reputation",
+    "Cmds 8 Events\n!event /events\n!eventstatus\n!startevent\n!stopevent\n!autoevents status",
+    "Cmds 9 Staff\n!staffhelp !modhelp\n!managerhelp !adminhelp\n!ownerhelp !allstaff",
+    "Cmds 10 Gold/Owner\n!goldhelp\n!goldtip\n!goldrain\n!goldrefund\n!backup\n!softrestart",
 ]
 
 
@@ -2195,6 +2200,35 @@ async def _cmd_checkcommands(bot, user):
 # Track per-user delivery to avoid spamming on every chat message
 _notif_delivered_this_session: set[str] = set()
 
+# Autospawn cooldown tracker: user_id → last spawn time (epoch float)
+_autospawn_cooldowns: dict[str, float] = {}
+_AUTOSPAWN_COOLDOWN_S = 30
+
+
+async def _autospawn_user_on_join(bot, user: User) -> None:
+    """Teleport a joining user to their role spawn if autospawn is enabled."""
+    import time as _time
+    try:
+        if db.get_room_setting("autospawn_enabled", "0") != "1":
+            return
+        now = _time.time()
+        last = _autospawn_cooldowns.get(user.id, 0)
+        if now - last < _AUTOSPAWN_COOLDOWN_S:
+            return
+        spawn = get_autospawn_spawn_for_user(user.username.lower())
+        if not spawn:
+            return
+        _autospawn_cooldowns[user.id] = now
+        from highrise.models import Position as _Pos
+        pos = _Pos(
+            x=float(spawn.get("x", 0)),
+            y=float(spawn.get("y", 0)),
+            z=float(spawn.get("z", 0)),
+        )
+        await bot.highrise.teleport(user.id, pos)
+    except Exception as _exc:
+        print(f"[autospawn] {user.username}: {_exc!r}")
+
 
 async def _deliver_pending_bank_notifications(bot, user: User) -> None:
     """Deliver any queued bank notifications to *user* via whisper.
@@ -2471,7 +2505,7 @@ class HangoutBot(BaseBot):
                 if can_moderate(user.username):
                     await self.highrise.send_whisper(
                         user.id,
-                        "⚙️ Staff: /staffhelp\nOwner/Admin: /adminhelp\nGold: /goldhelp"
+                        "⚙️ Staff: !staffhelp\nOwner/Admin: !adminhelp\nGold: !goldhelp"
                     )
             return
 
@@ -2584,6 +2618,16 @@ class HangoutBot(BaseBot):
                 await handle_auditeconomy(self, user, args)
             elif cmd == "auditlog":
                 await handle_auditlog(self, user, args)
+            elif cmd == "economyaudit":
+                await handle_economyaudit(self, user, args)
+            elif cmd == "gameprices":
+                await handle_gameprices(self, user, args)
+            elif cmd == "gameprice":
+                await handle_gameprice(self, user, args)
+            elif cmd == "setgameprice":
+                await handle_setgameprice(self, user, args)
+            elif cmd == "messageaudit":
+                await handle_messageaudit(self, user, args)
             elif cmd == "economysettings":
                 await handle_economysettings(self, user)
             elif cmd == "setdailycoins":
@@ -3564,7 +3608,24 @@ class HangoutBot(BaseBot):
             await handle_surrender(self, user)
 
         elif cmd == "bjshoe":
-            await handle_rbj(self, user, ["bj", "shoe"])
+            await handle_bj_shoe(self, user)
+        elif cmd == "bjshoereset":
+            from modules.blackjack import _state as _bj_state, _settings as _bj_settings
+            from modules.cards import make_shoe as _make_shoe
+            if not (is_owner(user.username) or is_admin(user.username)):
+                await self.highrise.send_whisper(user.id, "Admin/owner only.")
+            else:
+                try:
+                    _bj_state.deck = list(_make_shoe(6))
+                    await self.highrise.send_whisper(
+                        user.id,
+                        f"🃏 BJ Shoe Reset\n"
+                        f"New shoe: {len(_bj_state.deck)} cards (6 decks)\n"
+                        f"Shoe will be saved on next deal."
+                    )
+                except Exception as _exc:
+                    await self.highrise.send_whisper(user.id,
+                        f"❌ Shoe reset failed: {str(_exc)[:80]}")
 
         elif cmd == "shoe":
             await handle_rbj(self, user, ["rbj", "shoe"])
@@ -4900,6 +4961,10 @@ class HangoutBot(BaseBot):
             await handle_rolespawns(self, user)
         elif cmd == "delrolespawn":
             await handle_delrolespawn(self, user, args)
+        elif cmd == "autospawn":
+            await handle_autospawn(self, user, args)
+        elif cmd == "roles":
+            await handle_roles(self, user)
 
         # ── Teleport ──────────────────────────────────────────────────────────
         elif cmd == "tpme":
@@ -5285,17 +5350,17 @@ class HangoutBot(BaseBot):
             if cmd.startswith("gold") and not can_manage_economy(user.username):
                 await self.highrise.send_whisper(user.id, "Gold commands are staff only.")
             elif cmd in STAFF_CMDS and not can_moderate(user.username):
-                await self.highrise.send_whisper(user.id, "Staff command unavailable. Type /help.")
+                await self.highrise.send_whisper(user.id, "Staff command unavailable. Type !help.")
             elif cmd.startswith("vip"):
-                await self.highrise.send_whisper(user.id, "Unknown VIP command. Try /viphelp.")
+                await self.highrise.send_whisper(user.id, "Unknown VIP command. Try !viphelp.")
             elif cmd.startswith("poker") or cmd in {"pp", "pj", "pt", "ph", "po"}:
-                await self.highrise.send_whisper(user.id, "Unknown poker command. Try /phelp.")
+                await self.highrise.send_whisper(user.id, "Unknown poker command. Try !phelp.")
             elif cmd.startswith("bj") or cmd in {"bjoin", "bh", "bs", "bd", "bsp", "bt"}:
-                await self.highrise.send_whisper(user.id, "Unknown BJ command. Try /bjhelp.")
+                await self.highrise.send_whisper(user.id, "Unknown BJ command. Try !bjhelp.")
             elif cmd.startswith("rbj") or cmd in {"rjoin", "rh", "rs", "rd", "rsp", "rt"}:
-                await self.highrise.send_whisper(user.id, "Unknown RBJ command. Try /rbjhelp.")
+                await self.highrise.send_whisper(user.id, "Unknown RBJ command. Try !rbjhelp.")
             else:
-                await self.highrise.send_whisper(user.id, "Unknown command. Type /help.")
+                await self.highrise.send_whisper(user.id, "Unknown command. Type !help.")
 
     async def on_user_join(self, user: User, position) -> None:
         """Register new players and greet them when they enter the room."""
@@ -5319,6 +5384,8 @@ class HangoutBot(BaseBot):
         asyncio.create_task(_deliver_pending_bank_notifications(self, user))
         asyncio.create_task(deliver_pending_subscriber_messages(self, user.username.lower()))
         asyncio.create_task(deliver_pending_notifications(self, user.username.lower()))
+        # Auto-spawn: teleport user to their role spawn if enabled
+        asyncio.create_task(_autospawn_user_on_join(self, user))
 
     async def on_tip(self, sender: User, receiver: User, tip) -> None:
         """

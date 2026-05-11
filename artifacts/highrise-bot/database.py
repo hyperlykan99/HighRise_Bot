@@ -1902,6 +1902,27 @@ def _migrate_db():
             added_at  TEXT NOT NULL DEFAULT (datetime('now')),
             UNIQUE(tag_name, user_id)
         )""",
+        # ── Economy audit log ─────────────────────────────────────────────────
+        """CREATE TABLE IF NOT EXISTS economy_audit_log (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            actor_username TEXT NOT NULL DEFAULT '',
+            action_type    TEXT NOT NULL DEFAULT '',
+            game           TEXT NOT NULL DEFAULT '',
+            setting        TEXT NOT NULL DEFAULT '',
+            old_value      TEXT NOT NULL DEFAULT '',
+            new_value      TEXT NOT NULL DEFAULT '',
+            created_at     TEXT NOT NULL DEFAULT (datetime('now'))
+        )""",
+        # ── Game prices table ─────────────────────────────────────────────────
+        """CREATE TABLE IF NOT EXISTS game_prices (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            game       TEXT NOT NULL DEFAULT '',
+            setting    TEXT NOT NULL DEFAULT '',
+            value      INTEGER NOT NULL DEFAULT 0,
+            updated_by TEXT NOT NULL DEFAULT '',
+            updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE(game, setting)
+        )""",
     ]:
         try:
             conn.execute(sql)
@@ -11854,6 +11875,86 @@ def get_sub_notif_recipient_history(user_id: str, limit: int = 5) -> list:
            WHERE user_id=?
            ORDER BY id DESC LIMIT ?""",
         (user_id, limit),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+# -- Game prices --------------------------------------------------------------
+
+def get_game_price(game: str, setting: str, default=None):
+    """Return the current value for a game/setting pair, or *default* if unset."""
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT value FROM game_prices WHERE game=? AND setting=?",
+        (game.lower(), setting.lower()),
+    ).fetchone()
+    conn.close()
+    return int(row["value"]) if row else default
+
+
+def set_game_price(game: str, setting: str, value: int, updated_by: str = "") -> None:
+    """Upsert a game price setting."""
+    conn = get_connection()
+    conn.execute(
+        """INSERT INTO game_prices (game, setting, value, updated_by, updated_at)
+           VALUES (?, ?, ?, ?, datetime('now'))
+           ON CONFLICT(game, setting) DO UPDATE SET
+               value=excluded.value,
+               updated_by=excluded.updated_by,
+               updated_at=excluded.updated_at""",
+        (game.lower(), setting.lower(), int(value), updated_by),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_all_game_prices(game: str | None = None) -> list:
+    """Return game_prices rows. If *game* is given, filter to that game only."""
+    conn = get_connection()
+    if game:
+        rows = conn.execute(
+            "SELECT game, setting, value, updated_by, updated_at "
+            "FROM game_prices WHERE game=? ORDER BY setting ASC",
+            (game.lower(),),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT game, setting, value, updated_by, updated_at "
+            "FROM game_prices ORDER BY game ASC, setting ASC"
+        ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+# -- Economy audit log --------------------------------------------------------
+
+def log_economy_action(
+    actor_username: str,
+    action_type: str,
+    game: str = "",
+    setting: str = "",
+    old_value: str = "",
+    new_value: str = "",
+) -> None:
+    """Append a row to economy_audit_log."""
+    conn = get_connection()
+    conn.execute(
+        """INSERT INTO economy_audit_log
+               (actor_username, action_type, game, setting, old_value, new_value)
+           VALUES (?, ?, ?, ?, ?, ?)""",
+        (actor_username, action_type, game, setting, str(old_value), str(new_value)),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_economy_audit_log(limit: int = 20) -> list:
+    """Return the most recent economy audit log entries."""
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT * FROM economy_audit_log ORDER BY id DESC LIMIT ?",
+        (limit,),
     ).fetchall()
     conn.close()
     return [dict(r) for r in rows]

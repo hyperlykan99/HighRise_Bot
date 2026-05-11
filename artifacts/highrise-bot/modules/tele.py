@@ -758,6 +758,104 @@ async def _tag_setspawn(bot: BaseBot, user: User, args: list[str]) -> None:
 
 
 # ---------------------------------------------------------------------------
+# !autospawn [on|off|status]   — manager+
+# ---------------------------------------------------------------------------
+
+_AUTOSPAWN_ROLES = ["owner", "admin", "manager", "mod", "staff", "vip",
+                    "regular", "player", "guest"]
+
+
+async def handle_autospawn(bot: BaseBot, user: User, args: list[str]) -> None:
+    if not _can_manage(user.username):
+        await _w(bot, user.id, "Manager+ only.")
+        return
+
+    sub = args[1].lower() if len(args) > 1 else "status"
+
+    if sub == "on":
+        db.set_room_setting("autospawn_enabled", "1")
+        await _w(bot, user.id,
+                 "✅ Auto role spawn: ON\n"
+                 "Players who join will be teleported to their role spawn.\n"
+                 "Use !setrolespawn <role> here to configure spawns.")
+    elif sub == "off":
+        db.set_room_setting("autospawn_enabled", "0")
+        await _w(bot, user.id, "🔴 Auto role spawn: OFF")
+    else:
+        enabled = db.get_room_setting("autospawn_enabled", "0") == "1"
+        rows    = db.get_all_role_spawns() or []
+        spawns  = ", ".join(r["role"] for r in rows) or "none"
+        await _w(bot, user.id,
+                 f"📍 Auto Spawn: {'ON' if enabled else 'OFF'}\n"
+                 f"Configured roles: {spawns}\n"
+                 f"!autospawn on|off  |  !setrolespawn <role> here")
+
+
+def get_autospawn_spawn_for_user(username: str) -> dict | None:
+    """
+    Return the role_spawns row for the user's highest-priority role, or None.
+    Called from on_user_join to decide where to teleport a new arrival.
+    """
+    from modules.permissions import is_owner as _is_owner, is_admin as _is_admin
+    from modules.permissions import is_manager as _is_manager, can_moderate as _mod
+
+    priority_checks = [
+        ("owner",   _is_owner),
+        ("admin",   _is_admin),
+        ("manager", _is_manager),
+        ("mod",     _mod),
+        ("staff",   _mod),
+    ]
+    for role, check_fn in priority_checks:
+        if check_fn(username):
+            rs = db.get_role_spawn(role)
+            if rs:
+                return rs
+
+    # VIP check via DB
+    try:
+        vips = db.get_vip_list()
+        if username.lower() in [v.lower() for v in vips]:
+            rs = db.get_role_spawn("vip")
+            if rs:
+                return rs
+    except Exception:
+        pass
+
+    # Fallback: regular / player / guest
+    for fallback in ("regular", "player", "guest"):
+        rs = db.get_role_spawn(fallback)
+        if rs:
+            return rs
+
+    return None
+
+
+# ---------------------------------------------------------------------------
+# !roles   — show roles and their spawn status
+# ---------------------------------------------------------------------------
+
+async def handle_roles(bot: BaseBot, user: User) -> None:
+    rows    = db.get_all_role_spawns() or []
+    enabled = db.get_room_setting("autospawn_enabled", "0") == "1"
+
+    if not rows:
+        await _w(bot, user.id,
+                 "📍 No role spawns configured.\n"
+                 "Use: !setrolespawn <role> here\n"
+                 f"Auto spawn: {'ON' if enabled else 'OFF'}")
+        return
+
+    lines = [f"📍 Role Spawns (Auto: {'ON' if enabled else 'OFF'})"]
+    for r in rows:
+        lines.append(
+            f"  {r['role']}: ({r['x']:.1f},{r['y']:.1f},{r['z']:.1f})"
+        )
+    lines.append("!rolespawn <role> — go to spawn")
+    await _w(bot, user.id, "\n".join(lines)[:249])
+
+
+# ---------------------------------------------------------------------------
 # !teleporthelp (! style)
 # ---------------------------------------------------------------------------
 
