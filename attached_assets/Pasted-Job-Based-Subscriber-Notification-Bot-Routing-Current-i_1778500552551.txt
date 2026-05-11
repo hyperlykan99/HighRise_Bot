@@ -1,0 +1,478 @@
+Job-Based Subscriber Notification Bot Routing
+
+Current issue:
+Subscriber notifications are too general and are being handled by one bot.
+I want notifications to come from the correct bot depending on the notification category/job.
+
+Goal:
+Route subscriber notifications to the correct bot based on category.
+
+Example:
+- Mining alerts should come from GreatestProspector.
+- Fishing alerts should come from MasterAngler.
+- Reward/gold/donation alerts should come from BankerBot.
+- BlackJack alerts should come from BlackJackBot.
+- Poker alerts should come from PokerBot.
+- Events/First Hunt/updates should come from EmceeBot or EventBot.
+
+Do not change bot tokens.
+Do not change room ID.
+Do not reset subscriptions.
+Do not wipe notification preferences.
+Do not wipe notification logs.
+Do not break /notif, /notifon, /notifoff, /notifall, /subnotify, /subnotifyinvite, /subnotifystatus, or /testnotify.
+Do not break mining, fishing, events, rewards, donations, blackjack, poker, or command routing.
+
+==================================================
+PART 1 — CATEGORY OWNER MAP
+==================================================
+
+Add a notification category owner map.
+
+Categories and sender bots:
+
+mining      = GreatestProspector
+fishing     = MasterAngler
+events      = EventBot or EmceeBot
+firsthunt   = EmceeBot
+rewards     = BankerBot
+donations   = BankerBot
+blackjack   = BlackJackBot
+poker       = PokerBot
+security    = SecurityBot
+updates     = EmceeBot
+
+Use the actual existing bot keys in the project.
+
+If EventBot does not exist as a separate running bot, use EmceeBot for events.
+
+==================================================
+PART 2 — /subnotify ROUTING
+==================================================
+
+When Manager+ uses:
+
+/subnotify <category> <message>
+
+The system should:
+1. Validate category.
+2. Select sender bot using the category owner map.
+3. Deliver the notification from that sender bot.
+4. If selected bot is offline/unavailable, fallback to EmceeBot.
+5. Log which bot actually sent it.
+
+Examples:
+
+/subnotify mining Ore Value Surge starts in 5 minutes!
+
+Sender:
+GreatestProspector
+
+Message:
+GreatestProspector:
+⛏️ Mining Alert
+Ore Value Surge starts in 5 minutes!
+
+/subnotify fishing Fishing Frenzy is live!
+
+Sender:
+MasterAngler
+
+Message:
+MasterAngler:
+🎣 Fishing Alert
+Fishing Frenzy is live!
+
+/subnotify rewards Weekly rewards are ready!
+
+Sender:
+BankerBot
+
+Message:
+BankerBot:
+💰 Reward Alert
+Weekly rewards are ready!
+
+/subnotify blackjack BlackJack table is open!
+
+Sender:
+BlackJackBot
+
+Message:
+BlackJackBot:
+🃏 BlackJack Alert
+BlackJack table is open!
+
+==================================================
+PART 3 — IN-ROOM WHISPER PRIORITY
+==================================================
+
+Keep the existing rule:
+
+If subscribed player is currently in room:
+- selected job bot sends whisper
+- status = sent_whisper_in_room
+- do not require DM conversation
+- do not try DM first
+- do not fail because conversation_id is missing
+
+If player is not in room:
+- selected job bot tries DM/conversation if supported
+- if DM succeeds: status = sent_dm
+- if no conversation: status = no_conversation
+- if SDK does not support DM: status = unsupported_sdk
+- if failed: status = failed
+
+Important:
+In-room whisper must always be priority.
+
+==================================================
+PART 4 — FALLBACK BOT
+==================================================
+
+If selected job bot is offline, unavailable, missing, or cannot send:
+
+Fallback sender:
+EmceeBot
+
+Example:
+
+EventBot unavailable.
+
+Response/log:
+Sender selected: EventBot
+Fallback used: EmceeBot
+Status: sent_whisper_in_room
+
+Do not mark as sent unless fallback actually sends.
+
+==================================================
+PART 5 — MESSAGE FORMAT BY CATEGORY
+==================================================
+
+Use category-specific headers:
+
+Mining:
+⛏️ Mining Alert
+
+Fishing:
+🎣 Fishing Alert
+
+Events:
+🎉 Event Alert
+
+First Hunt:
+🏁 First Hunt Alert
+
+Rewards:
+💰 Reward Alert
+
+Donations:
+💛 Donation Alert
+
+BlackJack:
+🃏 BlackJack Alert
+
+Poker:
+♠️ Poker Alert
+
+Security:
+🛡️ Security Alert
+
+Updates:
+📢 Update Alert
+
+Final message format:
+
+<header>
+<message>
+
+Example:
+
+⛏️ Mining Alert
+Prismatic Hunt starts in 5 minutes!
+
+Keep messages short enough for Highrise.
+Trim safely if needed.
+
+==================================================
+PART 6 — /subnotifyinvite ROUTING
+==================================================
+
+/subnotifyinvite <category> <message>
+
+Should use the same category owner map.
+
+If invite-style DM is supported:
+- selected job bot sends invite-style message.
+
+If invite-style DM is not supported:
+- selected job bot sends normal notification.
+- log invite_unsupported or normal_fallback.
+
+If player is currently in room:
+- whisper normally.
+- no invite needed.
+
+==================================================
+PART 7 — /testnotify UPDATE
+==================================================
+
+/testnotify @username <category> <message>
+
+Should show the selected sender bot and actual delivery path.
+
+Example:
+
+EmceeBot:
+🔔 Test Notify
+Target: @Player
+Category: Mining
+Selected Sender: GreatestProspector
+Fallback Used: NO
+Subscribed: YES
+Global: ON
+Category Mining: ON
+Currently In Room: YES
+Delivery Used: whisper
+Delivered: YES
+Status: sent_whisper_in_room
+
+If fallback used:
+
+Selected Sender: GreatestProspector
+Fallback Used: YES
+Actual Sender: EmceeBot
+
+If not delivered:
+
+Delivered: NO
+Reason: no_conversation
+
+==================================================
+PART 8 — /subnotifystatus UPDATE
+==================================================
+
+/subnotifystatus should show which bot sent the latest notification.
+
+Example:
+
+EmceeBot:
+🔔 Notification Status
+Last: Mining
+Sender: GreatestProspector
+Whisper Sent In Room: 5
+DM Sent Out of Room: 2
+Skipped: 3
+No Conversation: 4
+Failed: 1
+
+For fallback:
+
+Sender: EmceeBot
+Original Sender: GreatestProspector
+Fallback Used: YES
+
+Add detail filters if already supported:
+
+/subnotifystatus room
+/subnotifystatus dm
+/subnotifystatus failed
+/subnotifystatus noconversation
+
+==================================================
+PART 9 — DATABASE / LOG FIELDS
+==================================================
+
+Update notification logs safely.
+
+Use safe migrations only.
+Do not drop old tables.
+Do not wipe old logs.
+
+Add columns if missing to subscriber_notification_logs:
+
+- sender_bot_name TEXT
+- original_sender_bot_name TEXT
+- fallback_used INTEGER DEFAULT 0
+
+Add columns if missing to subscriber_notification_recipients:
+
+- sender_bot_name TEXT
+- original_sender_bot_name TEXT
+- fallback_used INTEGER DEFAULT 0
+- delivery_method TEXT
+- status TEXT
+
+If table names differ in the current project, update the equivalent tables.
+
+==================================================
+PART 10 — ROUTING / BOT LOOKUP HELPER
+==================================================
+
+Add helper:
+
+get_notification_sender_bot(category)
+
+Returns:
+- bot instance or bot key for selected category
+- fallback bot if selected is unavailable
+- sender_bot_name
+- original_sender_bot_name
+- fallback_used true/false
+
+It should never crash.
+
+If selected bot cannot be found:
+- fallback to EmceeBot
+- log fallback_used = 1
+
+If EmceeBot also unavailable:
+- return error safely
+- status = failed
+- do not mark as sent
+
+==================================================
+PART 11 — CATEGORY VALIDATION
+==================================================
+
+If invalid category:
+
+/subnotify random hello
+
+Reply:
+
+EmceeBot:
+🔔 Invalid Category
+Valid categories:
+mining, fishing, events, blackjack, poker, rewards, firsthunt, donations, security, updates
+
+Make sure security is included if added.
+
+==================================================
+PART 12 — COMMAND OWNERSHIP
+==================================================
+
+Keep player-facing commands owned by EmceeBot:
+
+/notif
+/notifon
+/notifoff
+/notifall
+/subnotify
+/subnotifyinvite
+/subnotifystatus
+/testnotify
+
+Even though /subnotify is owned by EmceeBot, the actual sender bot should be chosen by category.
+
+Do not leave owner UNKNOWN.
+
+==================================================
+PART 13 — COMMANDTEST
+==================================================
+
+These must pass:
+
+/commandtest /notif
+/commandtest /notifon
+/commandtest /notifoff
+/commandtest /notifall
+/commandtest /subnotify
+/commandtest /subnotifyinvite
+/commandtest /subnotifystatus
+/commandtest /testnotify
+
+/checkcommands all
+
+Target:
+route=YES
+handler=YES
+owner=EmceeBot
+Missing 0
+NoOwner 0
+
+==================================================
+PART 14 — TEST CASES
+==================================================
+
+Test mining:
+
+/notifon mining
+/testnotify @4ktreyMarion mining Mining test message
+
+Expected:
+Selected Sender: GreatestProspector
+Delivery Used: whisper if player is in room
+
+Test fishing:
+
+/notifon fishing
+/testnotify @4ktreyMarion fishing Fishing test message
+
+Expected:
+Selected Sender: MasterAngler
+
+Test rewards:
+
+/notifon rewards
+/testnotify @4ktreyMarion rewards Reward test message
+
+Expected:
+Selected Sender: BankerBot
+
+Test blackjack:
+
+/notifon blackjack
+/testnotify @4ktreyMarion blackjack BlackJack test message
+
+Expected:
+Selected Sender: BlackJackBot
+
+Test public send:
+
+/subnotify mining Ore Value Surge starts in 5 minutes!
+/subnotifystatus
+
+Expected:
+Status shows Sender: GreatestProspector.
+
+Test fallback:
+Temporarily make selected sender unavailable if safe, or simulate lookup failure.
+Expected:
+Fallback Used: YES
+Actual Sender: EmceeBot
+
+==================================================
+PART 15 — SAFETY
+==================================================
+
+Do not:
+- send to unsubscribed players
+- send to opted-out players
+- mark failed/no_conversation as sent
+- require DM for players in room
+- spam subscribers
+- expose tokens/secrets/env vars
+- break existing notification preferences
+- break subscription checks
+- break command routing
+- leave owner UNKNOWN
+
+==================================================
+FINAL REPORT
+==================================================
+
+After finishing, tell me:
+
+1. Files changed
+2. Category-to-bot map added
+3. How /subnotify chooses sender bot
+4. How fallback to EmceeBot works
+5. How in-room whisper priority works
+6. How DM is handled for out-of-room players
+7. Database/log columns added
+8. How /testnotify reports selected sender
+9. How /subnotifystatus shows sender bot
+10. Results of /checkcommands all
+11. Exact tests to run

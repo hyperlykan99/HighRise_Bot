@@ -1,21 +1,21 @@
 """
 modules/sub_notif.py
 ---------------------
-Subscriber notification preference system — clean rewrite.
+Subscriber notification preference system — with job-based bot routing.
 
-Subscribers control which categories they receive notifications for.
-Staff broadcast targeted whispers to opted-in, in-room subscribers.
-
-Delivery reality (Highrise SDK):
-  - send_whisper(user_id, msg) works ONLY when user is currently in the room.
-  - No DM/inbox API is available in this SDK version.
-  - Players NOT in the room at send time receive status=no_conversation.
+Each notification category is owned by a specific bot mode.  When a manager
+sends /subnotify, the system:
+  1. Picks the correct sender bot from CATEGORY_BOT_MODE.
+  2. If the current bot IS that bot → delivers directly.
+  3. If a different bot owns the category and is online → dispatches via
+     Highrise channel (notif_dispatch) so that bot delivers the whispers.
+  4. If the target bot is offline → current bot delivers as fallback.
 
 Player commands (everyone):
   /notif                       — show your notification settings
   /notifon <category>          — enable a category
   /notifoff <category>         — disable a category
-  /notifall on|off             — toggle global on/off (preserves per-cat prefs)
+  /notifall on|off             — toggle global on/off
   /notifdm                     — explain DM availability
   /opennotifs                  — alias for /notifdm
 
@@ -29,9 +29,11 @@ Manager+ commands:
 from __future__ import annotations
 
 import asyncio
+import json
 import time as _time
 import traceback
 
+import config
 import database as db
 from modules.permissions import can_manage_economy, is_owner
 
@@ -48,8 +50,48 @@ NOTIF_CATEGORIES: dict[str, str] = {
     "rewards":   "Rewards",
     "firsthunt": "First Hunt",
     "donations": "Donations",
+    "security":  "Security",
     "updates":   "Updates",
 }
+
+# Category → bot_mode that should send this category's notifications.
+# "host"      = EmceeBot (Host Bot)
+# "miner"     = GreatestProspector
+# "fisher"    = MasterAngler
+# "banker"    = BankingBot / ChipSoprano (banker/shopkeeper merged)
+# "blackjack" = BlackJack Bot (AceSinatra etc.)
+# "poker"     = Poker Bot
+# "security"  = SecurityBot
+# "eventhost" = EventBot / EmceeBot (often merged into host)
+CATEGORY_BOT_MODE: dict[str, str] = {
+    "mining":    "miner",
+    "fishing":   "fisher",
+    "events":    "eventhost",
+    "firsthunt": "eventhost",
+    "rewards":   "banker",
+    "donations": "banker",
+    "blackjack": "blackjack",
+    "poker":     "poker",
+    "security":  "security",
+    "updates":   "host",
+}
+
+# Category → (emoji, human label for message header)
+CATEGORY_HEADERS: dict[str, tuple[str, str]] = {
+    "mining":    ("⛏️", "Mining Alert"),
+    "fishing":   ("🎣", "Fishing Alert"),
+    "events":    ("🎉", "Event Alert"),
+    "firsthunt": ("🏁", "First Hunt Alert"),
+    "rewards":   ("💰", "Reward Alert"),
+    "donations": ("💛", "Donation Alert"),
+    "blackjack": ("🃏", "BlackJack Alert"),
+    "poker":     ("♠️", "Poker Alert"),
+    "security":  ("🛡️", "Security Alert"),
+    "updates":   ("📢", "Update Alert"),
+}
+
+# Fallback bot mode if selected sender is unavailable
+_FALLBACK_MODE = "host"
 
 # Categories ON by default for new subscribers (all others default OFF)
 _DEFAULT_ON: frozenset[str] = frozenset({"events", "rewards", "firsthunt", "updates"})
@@ -59,6 +101,9 @@ _NOTIF_COOLDOWN: dict[str, float] = {}
 
 # Cooldown in seconds (adjustable via /setsubnotifycooldown)
 _COOLDOWN_SECS: int = 300  # 5 minutes
+
+# Channel message type for cross-bot notification dispatch
+_CHANNEL_TYPE = "notif_dispatch"
 
 
 # ---------------------------------------------------------------------------
@@ -77,7 +122,7 @@ def _default_enabled(cat: str) -> int:
 
 
 def _is_in_room(user_id: str) -> bool:
-    """Return True if user_id is currently in the room (tracked via room_utils)."""
+    """Return True if user_id is currently in the room."""
     try:
         from modules.room_utils import _user_positions
         return user_id in _user_positions
@@ -94,7 +139,66 @@ def _fmt_remain(secs: int) -> str:
 
 def _valid_category_msg() -> str:
     cats = ", ".join(NOTIF_CATEGORIES.keys())
-    return f"🔔 Invalid Category\nValid:\n{cats}"
+    return f"🔔 Invalid Category\nValid categories:\n{cats}"
+
+
+def _current_bot_modes() -> frozenset[str]:
+    """Return the set of bot modes this process runs (primary + extra)."""
+    modes = {config.BOT_MODE}
+    modes.update(config.BOT_EXTRA_MODES)
+    return frozenset(modes)
+
+
+def get_notification_sender_info(category: str) -> dict:
+    """
+    Resolve the sender bot for a given category.
+
+    Returns a dict with:
+      target_mode       — the bot_mode that should send
+      sender_bot_name   — bot username of the target (or fallback)
+      original_bot_name — bot username originally selected (before fallback)
+      fallback_used     — True if fallback was needed
+      deliver_here      — True if the CURRENT process should deliver
+    """
+    target_mode   = CATEGORY_BOT_MODE.get(category, _FALLBACK_MODE)
+    current_modes = _current_bot_modes()
+
+    # Look up the expected sender username from bot_instances
+    original_uname = db.get_bot_username_for_mode(target_mode) or target_mode
+    is_online      = db.is_bot_mode_online(target_mode)
+
+    # Determine if the current bot should deliver (it IS the target)
+    deliver_here = target_mode in current_modes
+
+    if deliver_here or is_online:
+        return {
+            "target_mode":     target_mode,
+            "sender_bot_name": original_uname,
+            "original_bot_name": original_uname,
+            "fallback_used":   False,
+            "deliver_here":    deliver_here,
+        }
+
+    # Target offline → fallback
+    fallback_uname = db.get_bot_username_for_mode(_FALLBACK_MODE) or "EmceeBot"
+    return {
+        "target_mode":     _FALLBACK_MODE,
+        "sender_bot_name": fallback_uname,
+        "original_bot_name": original_uname,
+        "fallback_used":   True,
+        "deliver_here":    True,       # fallback always delivers here
+    }
+
+
+def _build_full_msg(cat: str, msg_text: str, send_type: str = "normal") -> str:
+    """Build the final whisper message with category-specific header."""
+    emoji, label = CATEGORY_HEADERS.get(cat, ("📣", NOTIF_CATEGORIES.get(cat, cat)))
+    header = f"{emoji} {label}"
+    if send_type == "invite":
+        body = f"{msg_text}\nJoin the room to participate!"
+    else:
+        body = msg_text
+    return f"{header}\n{body}"[:249]
 
 
 # ---------------------------------------------------------------------------
@@ -129,7 +233,6 @@ async def handle_notif(bot, user) -> None:
 # ---------------------------------------------------------------------------
 
 async def handle_notifon(bot, user, args: list[str]) -> None:
-    """/notifon <category> — enable notifications for a category."""
     if len(args) < 2:
         cats = " | ".join(NOTIF_CATEGORIES.keys())
         await _w(bot, user.id, f"Usage: /notifon <category>\nOptions: {cats}"[:249])
@@ -147,7 +250,6 @@ async def handle_notifon(bot, user, args: list[str]) -> None:
 # ---------------------------------------------------------------------------
 
 async def handle_notifoff(bot, user, args: list[str]) -> None:
-    """/notifoff <category> — disable notifications for a category."""
     if len(args) < 2:
         cats = " | ".join(NOTIF_CATEGORIES.keys())
         await _w(bot, user.id, f"Usage: /notifoff <category>\nOptions: {cats}"[:249])
@@ -165,17 +267,15 @@ async def handle_notifoff(bot, user, args: list[str]) -> None:
 # ---------------------------------------------------------------------------
 
 async def handle_notifall(bot, user, args: list[str]) -> None:
-    """/notifall on|off — toggle global notifications on or off."""
     if len(args) < 2 or args[1].lower() not in ("on", "off"):
         await _w(bot, user.id, "Usage: /notifall on|off")
         return
     enabled = 1 if args[1].lower() == "on" else 0
     db.set_sub_notif_global(user.id, user.username, enabled)
-    # When enabling, seed default prefs if none exist yet
     if enabled:
         existing = db.get_sub_notif_prefs(user.id)
         if not existing:
-            db.set_sub_notif_all_prefs(user.id, user.username, -1)  # seed defaults
+            db.set_sub_notif_all_prefs(user.id, user.username, -1)
     state = "ON ✅" if enabled else "OFF ❌"
     await _w(bot, user.id, f"🔔 Global notifications turned {state}")
 
@@ -185,7 +285,6 @@ async def handle_notifall(bot, user, args: list[str]) -> None:
 # ---------------------------------------------------------------------------
 
 async def handle_notifdm(bot, user) -> None:
-    """/notifdm — explain DM notification status."""
     await _w(
         bot, user.id,
         "🔔 Notification DM Setup\n"
@@ -196,7 +295,6 @@ async def handle_notifdm(bot, user) -> None:
 
 
 async def handle_opennotifs(bot, user) -> None:
-    """/opennotifs — alias for /notifdm."""
     await handle_notifdm(bot, user)
 
 
@@ -205,7 +303,6 @@ async def handle_opennotifs(bot, user) -> None:
 # ---------------------------------------------------------------------------
 
 async def handle_setsubnotifycooldown(bot, user, args: list[str]) -> None:
-    """/setsubnotifycooldown <minutes> — set per-category cooldown."""
     global _COOLDOWN_SECS
     if not can_manage_economy(user.username):
         await _w(bot, user.id, "Manager/admin/owner only.")
@@ -223,7 +320,6 @@ async def handle_setsubnotifycooldown(bot, user, args: list[str]) -> None:
 # ---------------------------------------------------------------------------
 
 async def handle_subnotify(bot, user, args: list[str], *, invite: bool = False) -> None:
-    """/subnotify <category> <message> — send whisper notification to eligible in-room subscribers."""
     if not can_manage_economy(user.username):
         await _w(bot, user.id, "Manager/admin/owner only.")
         return
@@ -235,7 +331,6 @@ async def handle_subnotify(bot, user, args: list[str], *, invite: bool = False) 
         await _w(bot, user.id, _valid_category_msg()[:249])
         return
 
-    # Anti-spam cooldown (owner may bypass)
     now  = _time.time()
     last = _NOTIF_COOLDOWN.get(cat, 0.0)
     if _COOLDOWN_SECS > 0 and (now - last) < _COOLDOWN_SECS and not is_owner(user.username):
@@ -243,7 +338,7 @@ async def handle_subnotify(bot, user, args: list[str], *, invite: bool = False) 
         await _w(
             bot, user.id,
             f"🔔 Notification Cooldown\n"
-            f"{NOTIF_CATEGORIES[cat]} notifications can be sent again in {_fmt_remain(remain)}."
+            f"{NOTIF_CATEGORIES[cat]} can be sent again in {_fmt_remain(remain)}."
         )
         return
 
@@ -257,63 +352,74 @@ async def handle_subnotify(bot, user, args: list[str], *, invite: bool = False) 
 # ---------------------------------------------------------------------------
 
 async def handle_subnotifyinvite(bot, user, args: list[str]) -> None:
-    """/subnotifyinvite — same as /subnotify with invite framing."""
     await handle_subnotify(bot, user, args, invite=True)
 
 
 # ---------------------------------------------------------------------------
-# /subnotifystatus [latest|failed|noconversation]  (manager+)
+# /subnotifystatus [sub]  (manager+)
 # ---------------------------------------------------------------------------
 
 async def handle_subnotifystatus(bot, user, args: list[str] | None = None) -> None:
-    """/subnotifystatus — show recent notification stats."""
     if not can_manage_economy(user.username):
         await _w(bot, user.id, "Manager/admin/owner only.")
         return
 
     sub = (args[1].lower() if args and len(args) > 1 else "latest")
 
-    if sub == "noconversation":
+    if sub in ("room", "whisper"):
+        rows = db.get_sub_notif_logs_by_method(limit=5, method="whisper")
+        label = "In-Room Whisper Sends"
+    elif sub == "dm":
+        rows = db.get_sub_notif_logs_by_method(limit=5, method="dm")
+        label = "DM Sends"
+    elif sub == "noconversation":
         rows = db.get_sub_notif_no_conv_recipients(limit=10)
         if not rows:
             await _w(bot, user.id, "🔔 No players missing conversations.")
             return
         names = [f"@{r.get('username','?')}" for r in rows]
-        msg = "Players without DM conversation:\n" + "\n".join(names)
-        await _w(bot, user.id, msg[:249])
+        await _w(bot, user.id, ("No DM conversation:\n" + "\n".join(names))[:249])
         return
-
-    if sub == "failed":
-        rows = db.get_sub_notif_failed_recipients(limit=10)
+    elif sub == "failed":
+        rows = db.get_sub_notif_failed_recipients(limit=8)
         if not rows:
             await _w(bot, user.id, "🔔 No failed deliveries found.")
             return
         lines = ["🔔 Failed Deliveries"]
         for r in rows:
-            lines.append(f"@{r.get('username','?')} [{r.get('category','?')}]: {r.get('error','')[:40]}")
+            lines.append(f"@{r.get('username','?')} [{r.get('category','?')}]: {r.get('error','')[:30]}")
         await _w(bot, user.id, "\n".join(lines)[:249])
         return
+    else:
+        rows = db.get_sub_notif_logs(limit=5)
+        label = "latest"
 
-    # Default: latest
-    rows = db.get_sub_notif_logs(limit=5)
     if not rows:
         await _w(bot, user.id, "🔔 No notifications sent yet.")
         return
 
     latest = rows[0]
     cat    = NOTIF_CATEGORIES.get(latest.get("category", ""), latest.get("category", "?"))
+    sender = latest.get("sender_bot_name") or ""
+    orig   = latest.get("original_sender_bot_name") or sender
+    fb     = latest.get("fallback_used", 0)
+
     lines  = [
         "🔔 Notification Status",
         f"Last: {cat}",
-        f"DM Sent: {latest.get('sent_dm_count', latest.get('sent_count', 0))}",
-        f"Whisper Sent: {latest.get('sent_whisper_count', 0)}",
+        f"Sender: {sender}" if sender else "",
+    ]
+    if fb and orig and orig != sender:
+        lines.append(f"Original: {orig}")
+        lines.append("Fallback Used: YES")
+    lines += [
+        f"Whisper In Room: {latest.get('sent_whisper_count', 0)}",
+        f"DM Out of Room: {latest.get('sent_dm_count', 0)}",
         f"Skipped: {latest.get('skipped_count', 0)}",
         f"No Conversation: {latest.get('no_conversation_count', 0)}",
-        f"SDK Unsupported: {latest.get('unsupported_sdk_count', 0)}",
         f"Failed: {latest.get('failed_count', 0)}",
     ]
-    if len(rows) > 1:
-        lines.append(f"(+{len(rows)-1} older entries — /subnotifystatus latest)")
+    lines = [l for l in lines if l]
     await _w(bot, user.id, "\n".join(lines)[:249])
 
 
@@ -322,7 +428,6 @@ async def handle_subnotifystatus(bot, user, args: list[str] | None = None) -> No
 # ---------------------------------------------------------------------------
 
 async def handle_testnotify(bot, user, args: list[str]) -> None:
-    """/testnotify @username <category> <message> — test delivery to one player."""
     if not can_manage_economy(user.username):
         await _w(bot, user.id, "Manager/admin/owner only.")
         return
@@ -332,29 +437,34 @@ async def handle_testnotify(bot, user, args: list[str]) -> None:
 
     raw_target = args[1].lstrip("@").lower()
     cat        = args[2].lower()
-    msg_text   = " ".join(args[3:])[:180]
+    msg_text   = " ".join(args[3:])[:120]
 
     if cat not in NOTIF_CATEGORIES:
         await _w(bot, user.id, _valid_category_msg()[:249])
         return
 
-    # Resolve target subscriber
-    sub_row = db.get_subscriber(raw_target)
+    # Resolve sender info
+    sender_info      = get_notification_sender_info(cat)
+    selected_sender  = sender_info["original_bot_name"]
+    actual_sender    = sender_info["sender_bot_name"]
+    fallback_used    = sender_info["fallback_used"]
 
+    # Resolve target subscriber
+    sub_row    = db.get_subscriber(raw_target)
     subscribed = bool(sub_row and sub_row.get("subscribed") == 1)
     uid        = sub_row.get("user_id", "") if sub_row else ""
 
-    global_row  = db.get_sub_notif_global(uid) if uid else {}
-    global_on   = bool(global_row.get("global_enabled", 1))
+    global_row = db.get_sub_notif_global(uid) if uid else {}
+    global_on  = bool(global_row.get("global_enabled", 1))
 
-    prefs       = db.get_sub_notif_prefs(uid) if uid else {}
-    cat_on      = bool(prefs.get(cat, _default_enabled(cat)))
+    prefs      = db.get_sub_notif_prefs(uid) if uid else {}
+    cat_on     = bool(prefs.get(cat, _default_enabled(cat)))
 
-    in_room     = _is_in_room(uid) if uid else False
+    in_room    = _is_in_room(uid) if uid else False
 
-    # Determine what delivery would happen
-    delivered   = "NO"
-    reason      = ""
+    delivered = "NO"
+    reason    = ""
+
     if not subscribed:
         reason = "not_subscribed"
     elif not global_on:
@@ -362,13 +472,12 @@ async def handle_testnotify(bot, user, args: list[str]) -> None:
     elif not cat_on:
         reason = "category_off"
     elif in_room and uid:
-        full_msg = f"📣 Subscriber Alert — {NOTIF_CATEGORIES[cat]}\n[TEST] {msg_text}"[:249]
+        full_msg = _build_full_msg(cat, f"[TEST] {msg_text}")
         try:
             await bot.highrise.send_whisper(uid, full_msg)
             delivered = "sent_whisper_in_room"
         except Exception as exc:
-            delivered = "NO"
-            reason = f"send_error: {str(exc)[:60]}"
+            reason = f"send_error: {str(exc)[:50]}"
     elif uid:
         reason = "no_conversation"
     else:
@@ -377,13 +486,22 @@ async def handle_testnotify(bot, user, args: list[str]) -> None:
     lines = [
         "🔔 Test Notify",
         f"Target: @{raw_target}",
+        f"Category: {NOTIF_CATEGORIES.get(cat, cat)}",
+        f"Selected Sender: {selected_sender}",
+        f"Fallback Used: {'YES' if fallback_used else 'NO'}",
+    ]
+    if fallback_used and actual_sender != selected_sender:
+        lines.append(f"Actual Sender: {actual_sender}")
+    lines += [
         f"Subscribed: {'YES' if subscribed else 'NO'}",
         f"Global: {'ON' if global_on else 'OFF'}",
-        f"Category {NOTIF_CATEGORIES.get(cat, cat)}: {'ON' if cat_on else 'OFF'}",
-        f"DM Conversation: SDK Unsupported",
+        f"Category {NOTIF_CATEGORIES.get(cat,cat)}: {'ON' if cat_on else 'OFF'}",
         f"Currently In Room: {'YES' if in_room else 'NO'}",
-        f"Delivered: {delivered}" + (f"\nReason: {reason}" if reason and delivered == "NO" else ""),
+        f"Delivery Used: {'whisper' if in_room and uid else 'none'}",
+        f"Delivered: {delivered}",
     ]
+    if reason and delivered == "NO":
+        lines.append(f"Reason: {reason}")
     await _w(bot, user.id, "\n".join(lines)[:249])
 
 
@@ -400,12 +518,10 @@ async def send_subscriber_notification(
 ) -> None:
     """
     Public async helper for other systems to send subscriber notifications.
-    Usage:
-        from modules.sub_notif import send_subscriber_notification
-        await send_subscriber_notification(bot, "mining", "Ore surge active!", send_type="auto")
+    Routes to the correct bot automatically.
     """
     if category not in NOTIF_CATEGORIES:
-        print(f"[SUB_NOTIF] Unknown category '{category}'; skipping notification.")
+        print(f"[SUB_NOTIF] Unknown category '{category}'; skipping.")
         return
 
     class _FakeSender:
@@ -417,135 +533,242 @@ async def send_subscriber_notification(
 
 
 # ---------------------------------------------------------------------------
-# Core delivery engine
+# Core: _do_send — route to correct sender bot
 # ---------------------------------------------------------------------------
 
 async def _do_send(bot, sender, cat: str, msg_text: str, *, send_type: str = "normal") -> None:
     """
-    Deliver a subscriber notification to all eligible in-room subscribers.
+    Route notification to the correct sender bot, then deliver.
 
-    Delivery order per player:
-      1. Not subscribed → skipped_not_subscribed
-      2. global_enabled=0 → skipped_global_off
-      3. category enabled=0 → skipped_category_off
-      4. In room → send_whisper → sent_whisper_in_room
-      5. Not in room → no_conversation
+    If the current bot owns this category → deliver directly.
+    If a different bot owns it and is online → dispatch via channel.
+    If that bot is offline → deliver here as fallback.
     """
-    # Load all subscribed users (subscribed=1, has user_id)
+    sender_info      = get_notification_sender_info(cat)
+    target_mode      = sender_info["target_mode"]
+    sender_bot_name  = sender_info["sender_bot_name"]
+    original_bot     = sender_info["original_bot_name"]
+    fallback_used    = sender_info["fallback_used"]
+    deliver_here     = sender_info["deliver_here"]
+
+    full_msg = _build_full_msg(cat, msg_text, send_type)
+
+    # Create log entry
+    log_id = db.log_sub_notification_v2(
+        cat, msg_text, send_type,
+        sender.id, sender.username,
+        sender_bot_name=sender_bot_name,
+        original_sender_bot_name=original_bot,
+        fallback_used=1 if fallback_used else 0,
+    )
+
+    if deliver_here:
+        # Deliver from this bot's connection
+        sent_dm, sent_whisper, skipped, no_conv, unsupported, failed = \
+            await _do_deliver_notif(bot, cat, full_msg, log_id)
+
+        db.update_sub_notif_log_v2(
+            log_id, sent_dm, sent_whisper, skipped, no_conv, unsupported, failed
+        )
+        _NOTIF_COOLDOWN[cat] = _time.time()
+
+        total_sent = sent_dm + sent_whisper
+        total_subs = len(await _load_subs())
+
+        fb_note = ""
+        if fallback_used:
+            fb_note = f"\n⚠️ Fallback: {original_bot} offline"
+
+        _report_delivery(bot, sender, cat, total_subs, sent_dm, sent_whisper,
+                         skipped, no_conv, unsupported, failed,
+                         sender_bot_name, fb_note)
+    else:
+        # Dispatch to the target bot via Highrise channel
+        payload = json.dumps({
+            "type":                   _CHANNEL_TYPE,
+            "target_mode":            target_mode,
+            "category":               cat,
+            "full_msg":               full_msg,
+            "log_id":                 log_id,
+            "send_type":              send_type,
+            "sender_bot_name":        sender_bot_name,
+            "original_sender_bot_name": original_bot,
+            "fallback_used":          0,
+        })
+        try:
+            await bot.highrise.send_channel(payload)
+            _NOTIF_COOLDOWN[cat] = _time.time()
+            await _w(
+                bot, sender.id,
+                f"🔔 Notification Dispatched\n"
+                f"Category: {NOTIF_CATEGORIES[cat]}\n"
+                f"Sender: {sender_bot_name}\n"
+                f"Status: dispatched_to_sender_bot"
+            )
+        except Exception as exc:
+            # Channel send failed — deliver here as emergency fallback
+            print(f"[SUB_NOTIF] Channel dispatch failed: {exc}; delivering locally.")
+            sent_dm, sent_whisper, skipped, no_conv, unsupported, failed = \
+                await _do_deliver_notif(bot, cat, full_msg, log_id)
+            db.update_sub_notif_log_v2(
+                log_id, sent_dm, sent_whisper, skipped, no_conv, unsupported, failed
+            )
+            _NOTIF_COOLDOWN[cat] = _time.time()
+            _report_delivery(bot, sender, cat, 0, sent_dm, sent_whisper,
+                             skipped, no_conv, unsupported, failed,
+                             sender_bot_name, "\n⚠️ Channel failed — local fallback")
+
+
+async def _load_subs() -> list[dict]:
+    try:
+        return db.get_all_subscribed_users_for_notify()
+    except Exception:
+        return []
+
+
+def _report_delivery(bot, sender, cat, total_subs, sent_dm, sent_whisper,
+                     skipped, no_conv, unsupported, failed,
+                     sender_bot_name, extra_note="") -> None:
+    """Fire-and-forget summary whisper to the staff member who triggered the send."""
+    cat_label  = NOTIF_CATEGORIES[cat]
+    total_sent = sent_dm + sent_whisper
+
+    if total_subs == 0:
+        msg = "🔔 Subscriber Notification\nNo subscribed players found."
+    elif total_sent == 0 and no_conv > 0 and failed == 0:
+        msg = (
+            f"🔔 Subscriber Notification\n"
+            f"No players in room for {cat_label}.\n"
+            f"No Conversation: {no_conv} | Skipped: {skipped}"
+        )
+    else:
+        msg = (
+            f"🔔 Notification Complete\n"
+            f"Category: {cat_label}\n"
+            f"Sender: {sender_bot_name}\n"
+            f"Whisper: {sent_whisper} | DM: {sent_dm}\n"
+            f"Skipped: {skipped} | No Conv: {no_conv}\n"
+            f"Failed: {failed}"
+        )
+    if extra_note:
+        msg = (msg + extra_note)[:249]
+
+    asyncio.ensure_future(_w(bot, sender.id, msg[:249]))
+
+
+# ---------------------------------------------------------------------------
+# Delivery engine
+# ---------------------------------------------------------------------------
+
+async def _do_deliver_notif(
+    bot,
+    cat: str,
+    full_msg: str,
+    log_id: int,
+) -> tuple[int, int, int, int, int, int]:
+    """
+    Deliver a subscriber notification whisper to all eligible in-room subscribers.
+    Returns (sent_dm, sent_whisper, skipped, no_conv, unsupported, failed).
+    """
     try:
         subscribers = db.get_all_subscribed_users_for_notify()
     except Exception as exc:
         print(f"[SUB_NOTIF] Error loading subscribers: {exc}")
-        await _w(bot, sender.id, f"🔔 Error loading subscribers: {str(exc)[:100]}"[:249])
-        return
+        return 0, 0, 0, 0, 0, 0
 
-    sent_dm       = 0
-    sent_whisper  = 0
-    skipped       = 0
-    no_conv       = 0
-    unsupported   = 0
-    failed        = 0
-
-    # Create log entry up front
-    log_id = db.log_sub_notification_v2(
-        cat, msg_text, send_type, sender.id, sender.username
-    )
-
-    cat_label = NOTIF_CATEGORIES[cat]
-    if send_type == "invite":
-        full_msg = (
-            f"📣 Subscriber Alert — {cat_label}\n"
-            f"{msg_text}\n"
-            f"Join the room to participate!"
-        )[:249]
-    else:
-        full_msg = f"📣 Subscriber Alert — {cat_label}\n{msg_text}"[:249]
+    sent_dm = sent_whisper = skipped = no_conv = unsupported = failed = 0
 
     for sub in subscribers:
         uid   = sub.get("user_id", "")
         uname = sub.get("username", "") or "?"
-
         if not uid:
             continue
 
-        # ── 1. Subscription already guaranteed by get_all_subscribed_users_for_notify ──
-
-        # ── 2. Global enabled check ──────────────────────────────────────────
+        # Global preference
         global_row = db.get_sub_notif_global(uid)
-        global_on  = global_row.get("global_enabled", 1)
-        if not global_on:
+        if not global_row.get("global_enabled", 1):
             skipped += 1
             db.log_sub_notif_recipient_v2(
                 log_id, uid, uname, cat, 1, 1, 0, "none", "skipped_global_off", ""
             )
             continue
 
-        # ── 3. Category preference check ─────────────────────────────────────
-        prefs  = db.get_sub_notif_prefs(uid)
-        cat_on = prefs.get(cat, _default_enabled(cat))
-        if not cat_on:
+        # Category preference
+        prefs = db.get_sub_notif_prefs(uid)
+        if not prefs.get(cat, _default_enabled(cat)):
             skipped += 1
             db.log_sub_notif_recipient_v2(
                 log_id, uid, uname, cat, 1, 0, 1, "none", "skipped_category_off", ""
             )
             continue
 
-        # ── 4. Delivery ───────────────────────────────────────────────────────
+        # Delivery
         in_room = _is_in_room(uid)
-
         if in_room:
             try:
                 await bot.highrise.send_whisper(uid, full_msg)
                 sent_whisper += 1
                 db.log_sub_notif_recipient_v2(
-                    log_id, uid, uname, cat, 1, 1, 1, "whisper", "sent_whisper_in_room", ""
+                    log_id, uid, uname, cat, 1, 1, 1,
+                    "whisper", "sent_whisper_in_room", ""
                 )
             except Exception as exc:
                 err = str(exc)[:120]
                 traceback.print_exc()
                 failed += 1
                 db.log_sub_notif_recipient_v2(
-                    log_id, uid, uname, cat, 1, 1, 1, "whisper", "failed", err
+                    log_id, uid, uname, cat, 1, 1, 1,
+                    "whisper", "failed", err
                 )
         else:
             no_conv += 1
             db.log_sub_notif_recipient_v2(
-                log_id, uid, uname, cat, 1, 1, 1, "none", "no_conversation", ""
+                log_id, uid, uname, cat, 1, 1, 1,
+                "none", "no_conversation", ""
             )
 
         await asyncio.sleep(0.05)
 
-    # ── Update log with final counts ─────────────────────────────────────────
+    return sent_dm, sent_whisper, skipped, no_conv, unsupported, failed
+
+
+# ---------------------------------------------------------------------------
+# Cross-bot channel handler
+# ---------------------------------------------------------------------------
+
+async def handle_notif_dispatch_channel(bot, payload: dict) -> None:
+    """
+    Called from on_channel when a notif_dispatch message arrives.
+    Only the bot whose mode matches target_mode delivers.
+    """
+    target_mode    = payload.get("target_mode", "")
+    current_modes  = _current_bot_modes()
+
+    if target_mode not in current_modes:
+        return  # not our job
+
+    cat            = payload.get("category", "")
+    full_msg       = payload.get("full_msg", "")
+    log_id         = int(payload.get("log_id", 0))
+    sender_bot     = payload.get("sender_bot_name", "")
+    original_bot   = payload.get("original_sender_bot_name", sender_bot)
+    fallback_used  = int(payload.get("fallback_used", 0))
+
+    if not cat or not full_msg or not log_id:
+        print(f"[SUB_NOTIF] notif_dispatch: missing fields {payload}")
+        return
+
+    print(f"[SUB_NOTIF] notif_dispatch received: cat={cat} mode={target_mode} log_id={log_id}")
+
+    sent_dm, sent_whisper, skipped, no_conv, unsupported, failed = \
+        await _do_deliver_notif(bot, cat, full_msg, log_id)
+
     db.update_sub_notif_log_v2(
         log_id, sent_dm, sent_whisper, skipped, no_conv, unsupported, failed
     )
     _NOTIF_COOLDOWN[cat] = _time.time()
 
-    # ── Summary response ──────────────────────────────────────────────────────
-    total_sent = sent_dm + sent_whisper
-    total_subs = len(subscribers)
-
-    if total_subs == 0:
-        await _w(
-            bot, sender.id,
-            "🔔 Subscriber Notification\n"
-            "No subscribed players found."
-        )
-    elif total_sent == 0 and no_conv > 0 and failed == 0:
-        await _w(
-            bot, sender.id,
-            f"🔔 Subscriber Notification\n"
-            f"No messages delivered.\n"
-            f"Reason: No eligible players currently in room.\n"
-            f"No Conversation: {no_conv} | Skipped: {skipped}"
-        )
-    else:
-        await _w(
-            bot, sender.id,
-            f"🔔 Subscriber Notification Complete\n"
-            f"Category: {cat_label}\n"
-            f"DM Sent: {sent_dm}\n"
-            f"Whisper Sent: {sent_whisper}\n"
-            f"Skipped: {skipped} | No Conversation: {no_conv}\n"
-            f"SDK Unsupported: {unsupported} | Failed: {failed}"
-        )
+    print(
+        f"[SUB_NOTIF] dispatch delivered: cat={cat} whisper={sent_whisper} "
+        f"skipped={skipped} no_conv={no_conv} failed={failed}"
+    )

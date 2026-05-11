@@ -1758,6 +1758,14 @@ def _migrate_db():
         "ALTER TABLE subscriber_notification_recipients ADD COLUMN global_enabled INTEGER DEFAULT 1",
         # ── event_history: add skipped_by for skip/cancel tracking ────────────
         "ALTER TABLE event_history ADD COLUMN skipped_by TEXT DEFAULT ''",
+        # ── subscriber_notification_logs: sender bot tracking ─────────────────
+        "ALTER TABLE subscriber_notification_logs ADD COLUMN sender_bot_name TEXT DEFAULT ''",
+        "ALTER TABLE subscriber_notification_logs ADD COLUMN original_sender_bot_name TEXT DEFAULT ''",
+        "ALTER TABLE subscriber_notification_logs ADD COLUMN fallback_used INTEGER DEFAULT 0",
+        # ── subscriber_notification_recipients: sender bot tracking ───────────
+        "ALTER TABLE subscriber_notification_recipients ADD COLUMN sender_bot_name TEXT DEFAULT ''",
+        "ALTER TABLE subscriber_notification_recipients ADD COLUMN original_sender_bot_name TEXT DEFAULT ''",
+        "ALTER TABLE subscriber_notification_recipients ADD COLUMN fallback_used INTEGER DEFAULT 0",
     ]:
         try:
             conn.execute(sql)
@@ -10290,6 +10298,29 @@ def get_sub_notif_logs(limit: int = 10) -> list:
     return [dict(r) for r in rows]
 
 
+def get_sub_notif_logs_by_method(limit: int = 5, method: str = "whisper") -> list:
+    """Return recent notification logs filtered by delivery method (via recipients)."""
+    conn = get_connection()
+    if method == "whisper":
+        rows = conn.execute(
+            """SELECT DISTINCT l.* FROM subscriber_notification_logs l
+               JOIN subscriber_notification_recipients r ON r.notification_id = l.id
+               WHERE r.delivery_method = 'whisper' AND r.status = 'sent_whisper_in_room'
+               ORDER BY l.id DESC LIMIT ?""",
+            (limit,),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            """SELECT DISTINCT l.* FROM subscriber_notification_logs l
+               JOIN subscriber_notification_recipients r ON r.notification_id = l.id
+               WHERE r.delivery_method = 'dm'
+               ORDER BY l.id DESC LIMIT ?""",
+            (limit,),
+        ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
 # ── Compatibility aliases ─────────────────────────────────────────────────────
 
 def get_or_create_mine_profile(user_id: str, username: str) -> dict:
@@ -10374,6 +10405,10 @@ def log_sub_notification_v2(
     send_type: str,
     sender_user_id: str,
     sender_username: str,
+    *,
+    sender_bot_name: str = "",
+    original_sender_bot_name: str = "",
+    fallback_used: int = 0,
 ) -> int:
     """Create a notification log entry; return the new log_id."""
     conn = get_connection()
@@ -10383,9 +10418,11 @@ def log_sub_notification_v2(
             sender_user_id, sender_username,
             sent_count, sent_dm_count, sent_whisper_count,
             skipped_count, no_conversation_count,
-            unsupported_sdk_count, failed_count)
-           VALUES (?, ?, ?, ?, ?, 0, 0, 0, 0, 0, 0, 0)""",
-        (category, message, send_type, sender_user_id, sender_username),
+            unsupported_sdk_count, failed_count,
+            sender_bot_name, original_sender_bot_name, fallback_used)
+           VALUES (?, ?, ?, ?, ?, 0, 0, 0, 0, 0, 0, 0, ?, ?, ?)""",
+        (category, message, send_type, sender_user_id, sender_username,
+         sender_bot_name, original_sender_bot_name, fallback_used),
     )
     rid = cur.lastrowid
     conn.commit()

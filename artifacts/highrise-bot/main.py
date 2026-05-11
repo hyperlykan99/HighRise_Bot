@@ -419,6 +419,7 @@ from modules.sub_notif import (
     handle_subnotify, handle_subnotifyinvite, handle_subnotifystatus,
     handle_testnotify as handle_sub_testnotify,
     handle_setsubnotifycooldown,
+    handle_notif_dispatch_channel,
 )
 from modules.first_find import (
     handle_firstfindrewards, handle_setfirstfind, handle_setfirstfinditem,
@@ -5250,17 +5251,27 @@ class HangoutBot(BaseBot):
 
     async def on_channel(self, sender_id: str, message: str, tags: set) -> None:
         """
-        Debug hook — subscribed so the Highrise server sends channel events.
-        Only logs gold/tip/coin-related messages to avoid console spam.
+        Cross-bot channel event handler.
+        Routes notif_dispatch payloads to the subscriber notification system.
+        Also logs gold/tip/coin-related messages for debugging.
         """
         raw = f"sender_id={sender_id} tags={tags} message={message[:80]!r}"
         record_debug_any_event("on_channel", raw)
         msg_lower = message.lower()
         if any(kw in msg_lower for kw in ("gold", "tip", "coin", "pay", "send", "reward")):
             print(f"DEBUG EVENT FIRED: on_channel | {raw}")
-        # Big announce cross-bot channel (reserved for future SDK channel use)
+        # Big announce cross-bot channel
         if "big_announce" in msg_lower:
             print(f"[BIG_ANNOUNCE] channel event: {raw}")
+        # Subscriber notification dispatch routing
+        if "notif_dispatch" in msg_lower:
+            try:
+                import json as _json
+                payload = _json.loads(message)
+                if payload.get("type") == "notif_dispatch":
+                    asyncio.create_task(handle_notif_dispatch_channel(self, payload))
+            except Exception as _e:
+                print(f"[SUB_NOTIF] on_channel parse error: {_e}")
 
     async def on_emote(self, user: User, emote_id: str, receiver) -> None:
         """
