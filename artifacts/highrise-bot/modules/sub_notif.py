@@ -1,15 +1,10 @@
 """
 modules/sub_notif.py
 ---------------------
-Subscriber notification preference system — with job-based bot routing.
+Subscriber notification preference system.
 
-Each notification category is owned by a specific bot mode.  When a manager
-sends /subnotify, the system:
-  1. Picks the correct sender bot from CATEGORY_BOT_MODE.
-  2. If the current bot IS that bot → delivers directly.
-  3. If a different bot owns the category and is online → dispatches via
-     Highrise channel (notif_dispatch) so that bot delivers the whispers.
-  4. If the target bot is offline → current bot delivers as fallback.
+EmceeBot (host mode) handles ALL notification delivery.
+Category-to-bot routing is disabled; deliver_here is always True.
 
 Player commands (everyone):
   /notif                       — show your notification settings
@@ -154,7 +149,7 @@ def _fmt_remain(secs: int) -> str:
 
 def _valid_category_msg() -> str:
     cats = ", ".join(NOTIF_CATEGORIES.keys())
-    return f"🔔 Invalid Category\nValid categories:\n{cats}"
+    return f"🔔 Invalid Category\nValid:\n{cats}"
 
 
 def _current_bot_modes() -> frozenset[str]:
@@ -166,43 +161,16 @@ def _current_bot_modes() -> frozenset[str]:
 
 def get_notification_sender_info(category: str) -> dict:
     """
-    Resolve the sender bot for a given category.
-
-    Returns a dict with:
-      target_mode       — the bot_mode that should send
-      sender_bot_name   — bot username of the target (or fallback)
-      original_bot_name — bot username originally selected (before fallback)
-      fallback_used     — True if fallback was needed
-      deliver_here      — True if the CURRENT process should deliver
+    Always returns EmceeBot (host mode) as the sender.
+    Job-based category-to-bot routing is disabled; EmceeBot delivers all.
     """
-    target_mode   = CATEGORY_BOT_MODE.get(category, _FALLBACK_MODE)
-    current_modes = _current_bot_modes()
-
-    # Look up the expected sender username from bot_instances
-    original_uname = (db.get_bot_username_for_mode(target_mode)
-                      or _MODE_DISPLAY_NAMES.get(target_mode, target_mode))
-    is_online      = db.is_bot_mode_online(target_mode)
-
-    # Determine if the current bot should deliver (it IS the target)
-    deliver_here = target_mode in current_modes
-
-    if deliver_here or is_online:
-        return {
-            "target_mode":     target_mode,
-            "sender_bot_name": original_uname,
-            "original_bot_name": original_uname,
-            "fallback_used":   False,
-            "deliver_here":    deliver_here,
-        }
-
-    # Target offline → fallback
-    fallback_uname = db.get_bot_username_for_mode(_FALLBACK_MODE) or "EmceeBot"
+    emceebot_name = db.get_bot_username_for_mode("host") or "EmceeBot"
     return {
-        "target_mode":     _FALLBACK_MODE,
-        "sender_bot_name": fallback_uname,
-        "original_bot_name": original_uname,
-        "fallback_used":   True,
-        "deliver_here":    True,       # fallback always delivers here
+        "target_mode":       "host",
+        "sender_bot_name":   emceebot_name,
+        "original_bot_name": emceebot_name,
+        "fallback_used":     False,
+        "deliver_here":      True,
     }
 
 
@@ -234,12 +202,10 @@ async def handle_notif(bot, user) -> None:
     ]
     for key, label in NOTIF_CATEGORIES.items():
         on = prefs.get(key, _default_enabled(key))
-        lines.append(f"{'✅' if on else '❌'} {label}")
+        lines.append(f"{label}: {'ON' if on else 'OFF'}")
 
     lines.append("DM Status: SDK Unsupported")
-    lines.append(
-        f"In-Room Whisper: {'Available' if in_room else 'Offline — not reachable'}"
-    )
+    lines.append("In-Room Whisper: Available while you are in room")
     lines.append("/notifon <cat> | /notifoff <cat> | /notifall on|off")
     await _w(bot, user.id, "\n".join(lines)[:249])
 
@@ -391,17 +357,21 @@ async def handle_subnotifystatus(bot, user, args: list[str] | None = None) -> No
         if not rows:
             await _w(bot, user.id, "🔔 No players with missing delivery route.")
             return
-        names = [f"@{r.get('username','?')}" for r in rows]
-        await _w(bot, user.id, ("No delivery route:\n" + "\n".join(names))[:249])
+        lines = ["🔔 No Delivery Route"]
+        for i, r in enumerate(rows, 1):
+            lines.append(f"{i}. @{r.get('username','?')} — room NO — DM NO")
+        await _w(bot, user.id, "\n".join(lines)[:249])
         return
     elif sub == "failed":
         rows = db.get_sub_notif_failed_recipients(limit=8)
         if not rows:
             await _w(bot, user.id, "🔔 No failed deliveries found.")
             return
-        lines = ["🔔 Failed Deliveries"]
-        for r in rows:
-            lines.append(f"@{r.get('username','?')} [{r.get('category','?')}]: {r.get('error','')[:30]}")
+        lines = ["🔔 Failed Notifications"]
+        for i, r in enumerate(rows, 1):
+            cat_label = NOTIF_CATEGORIES.get(r.get("category",""), r.get("category","?"))
+            err       = (r.get("error","") or "unknown")[:30]
+            lines.append(f"{i}. @{r.get('username','?')} — {cat_label} — {err}")
         await _w(bot, user.id, "\n".join(lines)[:249])
         return
     else:
@@ -411,23 +381,18 @@ async def handle_subnotifystatus(bot, user, args: list[str] | None = None) -> No
         await _w(bot, user.id, "🔔 No notifications sent yet.")
         return
 
-    latest = rows[0]
-    cat    = NOTIF_CATEGORIES.get(latest.get("category", ""), latest.get("category", "?"))
-    sender = latest.get("sender_bot_name") or ""
-    orig   = latest.get("original_sender_bot_name") or sender
-    fb     = latest.get("fallback_used", 0)
+    latest  = rows[0]
+    cat     = NOTIF_CATEGORIES.get(latest.get("category", ""), latest.get("category", "?"))
+    dm_sent = (latest.get("sent_bulk_dm_count", 0) or 0) + (latest.get("sent_conv_dm_count", 0) or 0)
 
-    lines = ["🔔 Notification Status", f"Last: {cat}"]
-    if sender:
-        lines.append(f"Sender: {sender}")
-    if fb and orig and orig != sender:
-        lines += [f"Original: {orig}", "Fallback Used: YES"]
-    lines += [
+    lines = [
+        "🔔 Notification Status",
+        f"Last: {cat}",
+        "Sender: EmceeBot",
         f"Whisper Sent In Room: {latest.get('sent_whisper_count', 0)}",
-        f"Bulk DM Sent: {latest.get('sent_bulk_dm_count', 0)}",
-        f"Conv DM Sent: {latest.get('sent_conv_dm_count', 0)}",
+        f"DM Sent Out of Room: {dm_sent}",
         f"No Delivery Route: {latest.get('no_delivery_route_count', latest.get('no_conversation_count', 0))}",
-        f"Skipped: {latest.get('skipped_count', 0)}",
+        f"Skipped Opt-Out: {latest.get('skipped_count', 0)}",
         f"Failed: {latest.get('failed_count', 0)}",
     ]
     await _w(bot, user.id, "\n".join(lines)[:249])
@@ -551,17 +516,12 @@ async def handle_testnotify(bot, user, args: list[str]) -> None:
         "🔔 Test Notify",
         f"Target: @{raw_target}",
         f"Category: {NOTIF_CATEGORIES.get(cat, cat)}",
-        f"Selected Sender: {selected_sender}",
-        f"Fallback Used: {'YES' if fallback_used else 'NO'}",
-    ]
-    if fallback_used and actual_sender != selected_sender:
-        lines.append(f"Actual Sender: {actual_sender}")
-    lines += [
+        f"Sender: {actual_sender}",
         f"Subscribed: {'YES' if subscribed else 'NO'}",
         f"Global: {'ON' if global_on else 'OFF'}",
         f"Category {NOTIF_CATEGORIES.get(cat,cat)}: {'ON' if cat_on else 'OFF'}",
         f"Currently In Room: {'YES' if in_room else 'NO'}",
-        f"Bulk DM Supported: {'YES' if bulk_supported else 'NO'}",
+        f"DM Supported: {'YES' if bulk_supported or conv_supported else 'NO'}",
         f"Conversation ID: {'YES' if conv_id else 'NO'}",
         f"Delivery Used: {delivery_method}",
         f"Delivered: {delivered}",
@@ -603,11 +563,10 @@ async def send_subscriber_notification(
 
 async def _do_send(bot, sender, cat: str, msg_text: str, *, send_type: str = "normal") -> None:
     """
-    Route notification to the correct sender bot, then deliver.
+    Deliver a subscriber notification.
 
-    If the current bot owns this category → deliver directly.
-    If a different bot owns it and is online → dispatch via channel.
-    If that bot is offline → deliver here as fallback.
+    EmceeBot (host) always handles delivery — deliver_here is always True.
+    Channel dispatch path is retained for safety but will not be triggered.
     """
     sender_info      = get_notification_sender_info(cat)
     target_mode      = sender_info["target_mode"]
@@ -706,28 +665,29 @@ def _report_delivery(bot, sender, cat, sent_whisper, sent_bulk_dm,
     """Fire-and-forget summary whisper to the staff member who triggered the send."""
     cat_label  = NOTIF_CATEGORIES[cat]
     total_sent = sent_whisper + sent_bulk_dm + sent_conv_dm
+    dm_sent    = sent_bulk_dm + sent_conv_dm
 
-    if total_sent == 0 and skipped == 0 and failed == 0:
+    if total_sent == 0 and skipped == 0 and failed == 0 and no_delivery == 0:
         msg = (
             f"🔔 Subscriber Notification\n"
             f"No messages delivered.\n"
-            f"No eligible subscribed players in room and out-of-room DM unavailable.\n"
-            f"No Delivery Route: {no_delivery}"
+            f"No eligible subscribed players in room and out-of-room DM unavailable."
         )
     elif total_sent == 0:
         msg = (
             f"🔔 Subscriber Notification\n"
             f"Not delivered.\n"
-            f"No Delivery Route: {no_delivery} | Skipped: {skipped} | Failed: {failed}"
+            f"No Delivery Route: {no_delivery} | Skipped Opt-Out: {skipped} | Failed: {failed}"
         )
     else:
         msg = (
             f"🔔 Notification Complete\n"
             f"Category: {cat_label}\n"
             f"Sender: {sender_bot_name}\n"
-            f"Whisper In Room: {sent_whisper}\n"
-            f"Bulk DM: {sent_bulk_dm} | Conv DM: {sent_conv_dm}\n"
-            f"Skipped: {skipped} | No Route: {no_delivery}\n"
+            f"Whisper Sent In Room: {sent_whisper}\n"
+            f"DM Sent Out of Room: {dm_sent}\n"
+            f"No Delivery Route: {no_delivery}\n"
+            f"Skipped Opt-Out: {skipped}\n"
             f"Failed: {failed}"
         )
     if extra_note:

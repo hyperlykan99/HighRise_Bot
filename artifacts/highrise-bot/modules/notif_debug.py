@@ -82,25 +82,34 @@ async def handle_notifydebug(bot, user, args: list[str]) -> None:
         pass
 
     from modules.sub_notif import NOTIF_CATEGORIES, _default_enabled
-    cat_lines = []
-    for cat_key in ("events", "mining", "fishing", "rewards"):
-        label = NOTIF_CATEGORIES.get(cat_key, cat_key)[:8]
-        val   = prefs.get(cat_key, _default_enabled(cat_key))
-        cat_lines.append(f"{label}: {'ON' if val else 'OFF'}")
 
-    lines = [
+    # Build compact category grid — 2 per row to fit 249 char limit
+    cat_keys = list(NOTIF_CATEGORIES.keys())
+    cat_rows = []
+    for i in range(0, len(cat_keys), 2):
+        parts = []
+        for k in cat_keys[i:i+2]:
+            label = NOTIF_CATEGORIES[k]
+            val   = prefs.get(k, _default_enabled(k))
+            parts.append(f"{label}:{'ON' if val else 'OFF'}")
+        cat_rows.append(" | ".join(parts))
+
+    msg1 = "\n".join([
         f"🔔 Notify Debug: @{uname}",
-        f"Subscribed: {'YES' if subbed else 'NO'}",
-        f"Global: {'ON' if global_on else 'OFF'}",
-        " | ".join(cat_lines),
-        f"Currently In Room: {'YES' if in_room else 'NO'}",
+        f"Subscribed: {'YES' if subbed else 'NO'}  Global: {'ON' if global_on else 'OFF'}",
+    ] + cat_rows)
+
+    msg2 = "\n".join([
+        f"In Room: {'YES' if in_room else 'NO'}",
         f"User ID Found: {'YES' if uid else 'NO'}",
-        f"Conversation ID Found: {'YES' if conv_id else 'NO'}",
-        f"Last Delivery: {last_status}",
-        f"Last Method: {last_method}",
-        f"Last Error: {last_error}",
-    ]
-    await _w(bot, user.id, "\n".join(lines)[:249])
+        f"Convo ID Found: {'YES' if conv_id else 'NO'}",
+        f"Last: {last_status}",
+        f"Method: {last_method}",
+        f"Error: {last_error}",
+    ])
+
+    await _w(bot, user.id, msg1[:249])
+    await _w(bot, user.id, msg2[:249])
 
 
 # ---------------------------------------------------------------------------
