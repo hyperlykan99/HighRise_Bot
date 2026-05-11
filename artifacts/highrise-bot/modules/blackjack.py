@@ -109,19 +109,25 @@ class _BJState:
     def __init__(self):
         self.reset()
 
-    def reset(self):
+    def reset(self, preserve_shoe: bool = True):
+        # Preserve shoe fields across round resets — shoe lives longer than rounds
+        _saved_deck    = list(self.deck)  if preserve_shoe and getattr(self, 'deck', None)                   else []
+        _saved_from_r  = getattr(self, '_shoe_loaded_from_restart', False) if preserve_shoe else False
+        _saved_saved_at = getattr(self, '_shoe_saved_at', '')              if preserve_shoe else ''
+        _saved_reason  = getattr(self, '_shoe_rebuild_reason', '')         if preserve_shoe else ''
         self.phase:              str  = "idle"
         self.players:            list = []
         self.dealer_hand:        list = []
-        self.deck:               list = []
+        self.deck:               list = _saved_deck
         self.lobby_task               = None
         self.action_task              = None
         self.round_id:           str  = ""
         self._countdown_ends_at: str  = ""
         self._action_ends_at:    str  = ""
         self.pair_bonuses:       dict = {}
-        self._shoe_loaded_from_restart: bool = False
-        self._shoe_saved_at:     str  = ""
+        self._shoe_loaded_from_restart: bool = _saved_from_r
+        self._shoe_saved_at:     str  = _saved_saved_at
+        self._shoe_rebuild_reason: str = _saved_reason
 
     def get_player(self, user_id: str):
         for p in self.players:
@@ -146,8 +152,8 @@ def _save_table_state() -> None:
             "current_player_index": 0,
             "dealer_hand_json":     json.dumps(_state.dealer_hand),
             "deck_json":            json.dumps(_state.deck),
-            "shoe_json":            "[]",
-            "shoe_cards_remaining": 0,
+            "shoe_json":            json.dumps(_state.deck),
+            "shoe_cards_remaining": len(_state.deck),
             "countdown_ends_at":    _state._countdown_ends_at,
             "turn_ends_at":         _state._action_ends_at,
             "active":               1 if _state.phase != "idle" else 0,
@@ -155,6 +161,59 @@ def _save_table_state() -> None:
         })
     except Exception as exc:
         print(f"[BJ] save_table_state error: {exc}")
+
+
+# ─── Persistent shoe helpers ──────────────────────────────────────────────────
+
+def _save_shoe() -> None:
+    """Save current in-memory shoe to dedicated blackjack_shoe_state table.
+    Called after every card draw. Crash-safe: logs error, never raises."""
+    try:
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+        _state._shoe_saved_at = now
+        db.save_bj_shoe_state(
+            shoe_json           = json.dumps(_state.deck),
+            decks_count         = 6,
+            cards_remaining     = len(_state.deck),
+            loaded_from_restart = 1 if _state._shoe_loaded_from_restart else 0,
+            rebuild_reason      = getattr(_state, '_shoe_rebuild_reason', ''),
+        )
+    except Exception as exc:
+        print(f"[BJ] _save_shoe error: {exc}")
+
+
+def _rebuild_shoe(reason: str) -> None:
+    """Build a fresh 6-deck shoe, save it to the persistent table, log."""
+    _state.deck = list(make_shoe(6))
+    _state._shoe_loaded_from_restart = False
+    _state._shoe_rebuild_reason      = reason
+    _state._shoe_saved_at            = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    _save_shoe()
+    print(f"[BJ] Shoe rebuilt: reason={reason} cards={len(_state.deck)}")
+
+
+def _load_shoe_on_startup() -> None:
+    """Load persistent shoe at startup. Falls back to rebuild if missing/corrupt/depleted."""
+    try:
+        row = db.load_bj_shoe_state()
+        if row:
+            shoe = json.loads(row.get("shoe_json") or "[]")
+            if len(shoe) >= 15:
+                _state.deck                     = shoe
+                _state._shoe_loaded_from_restart = True
+                _state._shoe_rebuild_reason      = row.get("rebuild_reason", "")
+                _state._shoe_saved_at            = row.get("last_saved_at", "")
+                print(f"[BJ] Shoe loaded from DB: {len(shoe)} cards remaining.")
+                return
+            _rebuild_shoe("depleted_saved_shoe")
+        else:
+            _rebuild_shoe("missing_saved_shoe")
+    except Exception as exc:
+        print(f"[BJ] _load_shoe_on_startup error: {exc}")
+        try:
+            _rebuild_shoe("corrupted_saved_shoe")
+        except Exception:
+            pass
 
 
 def _save_player_state(p: _Player) -> None:
@@ -295,10 +354,7 @@ async def _start_round(bot: BaseBot):
     _state.phase    = "round"
     # Use persistent 6-deck shoe; only rebuild when depleted (< 15 cards)
     if len(_state.deck) < 15:
-        _state.deck = list(make_shoe(6))
-        _state._shoe_loaded_from_restart = False
-        _state._shoe_saved_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-        print(f"[BJ] New 6-deck shoe built. Cards: {len(_state.deck)}")
+        _rebuild_shoe("depleted_during_round_start")
     _state.round_id = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S%f") + "_bj"
     _state._countdown_ends_at = ""
 
@@ -311,6 +367,8 @@ async def _start_round(bot: BaseBot):
         for p in _state.players:
             p.hands[0]["cards"].append(_state.deck.pop())
         _state.dealer_hand.append(_state.deck.pop())
+    # Save shoe once after all initial deal pops
+    _save_shoe()
 
     for p in _state.players:
         if is_blackjack(p.hands[0]["cards"]):
@@ -536,6 +594,7 @@ async def _finalize_round(bot: BaseBot):
             card = _state.deck.pop()
             _state.dealer_hand.append(card)
             dealer_total = hand_value(_state.dealer_hand)
+            _save_shoe()
             _save_table_state()
             await bot.highrise.chat(
                 f"Dealer hits {card_str(card)}. "
@@ -779,6 +838,9 @@ def _restore_player_from_db(pd: dict) -> "_Player":
 
 
 async def startup_bj_recovery(bot: BaseBot) -> None:
+    # Always load persistent shoe first (works even if no active round)
+    _load_shoe_on_startup()
+
     row = db.load_casino_table("bj")
     if not row or not row.get("active") or row.get("phase", "idle") == "idle":
         return
@@ -804,13 +866,18 @@ async def startup_bj_recovery(bot: BaseBot) -> None:
         _state.players            = [_restore_player_from_db(pd) for pd in players_data]
         _state.round_id           = row.get("round_id", "")
         _state.dealer_hand        = json.loads(row.get("dealer_hand_json") or "[]")
-        _state.deck               = json.loads(row.get("deck_json") or "[]")
         _state._countdown_ends_at = row.get("countdown_ends_at", "")
         _state._action_ends_at    = row.get("turn_ends_at", "")
-        if _state.deck:
-            _state._shoe_loaded_from_restart = True
-            _state._shoe_saved_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-            print(f"[RECOVERY] BJ shoe loaded from DB: {len(_state.deck)} cards remaining.")
+        # Shoe already loaded by _load_shoe_on_startup(); use casino_table deck_json
+        # as fallback only if persistent shoe was empty/missing.
+        if not _state.deck:
+            fallback = json.loads(row.get("deck_json") or "[]")
+            if fallback:
+                _state.deck = fallback
+                _state._shoe_loaded_from_restart = True
+                _state._shoe_saved_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+                print(f"[RECOVERY] BJ shoe loaded from casino_table fallback: {len(fallback)} cards.")
+        print(f"[RECOVERY] BJ shoe: {len(_state.deck)} cards remaining.")
 
         if phase == "lobby":
             _state.phase = "lobby"
@@ -1185,6 +1252,7 @@ async def _cmd_hit(bot: BaseBot, user: User):
         return
 
     card  = _state.deck.pop()
+    _save_shoe()
     h["cards"].append(card)
     total = hand_value(h["cards"])
     hidx  = p.active_hand_idx + 1
@@ -1267,6 +1335,7 @@ async def _cmd_double(bot: BaseBot, user: User):
     h["bet"]    *= 2
     h["doubled"] = True
     card  = _state.deck.pop()
+    _save_shoe()
     h["cards"].append(card)
     total = hand_value(h["cards"])
     hidx  = p.active_hand_idx + 1
@@ -1344,6 +1413,7 @@ async def _cmd_split(bot: BaseBot, user: User):
     p.hands[idx]["cards"].append(new_card_a)
     new_card_b = _state.deck.pop()
     p.hands[idx + 1]["cards"].append(new_card_b)
+    _save_shoe()
     _save_table_state()
 
     split_aces = int(s.get("bj_split_aces_one_card", 1))
@@ -1927,41 +1997,48 @@ async def handle_bj_rules(bot: BaseBot, user: User) -> None:
 
 
 async def handle_bj_shoe(bot: BaseBot, user: User) -> None:
-    """!bjshoe — show BJ shoe/deck status including persistence info."""
-    row     = db.load_casino_table("bj")
-    deck_db = bool(row and row.get("deck_json")
-                   and row.get("deck_json") not in ("[]", ""))
-    saved   = "YES" if deck_db else "NO"
+    """!bjshoe — show BJ shoe status from dedicated persistent shoe table."""
+    shoe_row = db.load_bj_shoe_state()
 
-    if _state.phase == "idle":
-        db_cards = len(json.loads(row.get("deck_json") or "[]")) if deck_db else 0
-        loaded   = "YES" if _state._shoe_loaded_from_restart else "NO"
-        ts       = _state._shoe_saved_at or "—"
-        await bot.highrise.send_whisper(
-            user.id,
-            f"🃏 Blackjack Shoe\n"
-            f"Phase: idle\n"
-            f"Decks: 6\n"
-            f"Cards in DB: {db_cards}\n"
-            f"Saved: {saved}\n"
-            f"Loaded From Restart: {loaded}\n"
-            f"Last Saved: {ts}"[:249]
-        )
-        return
+    if shoe_row:
+        saved          = "YES"
+        db_cards       = int(shoe_row.get("cards_remaining", 0))
+        loaded         = "YES" if int(shoe_row.get("loaded_from_restart", 0)) else "NO"
+        ts             = shoe_row.get("last_saved_at", "—") or "—"
+        rebuild_reason = shoe_row.get("rebuild_reason", "none") or "none"
+    else:
+        saved          = "NO"
+        db_cards       = 0
+        loaded         = "NO"
+        ts             = "—"
+        rebuild_reason = "never_saved"
 
-    deck_sz   = len(_state.deck)
-    dealer_ct = len(_state.dealer_hand)
-    player_ct = sum(len(h["cards"]) for p in _state.players for h in p.hands)
-    loaded    = "YES" if _state._shoe_loaded_from_restart else "NO"
-    ts        = _state._shoe_saved_at or "—"
+    mem_cards = len(_state.deck)
+    phase     = _state.phase
+    # During a round, live count is authoritative; at idle use DB count
+    cards_display = mem_cards if phase != "idle" else db_cards
+    msg = (
+        f"🃏 Blackjack Shoe\n"
+        f"Decks: 6 | Phase: {phase}\n"
+        f"Cards Remaining: {cards_display}\n"
+        f"Saved: {saved}\n"
+        f"Loaded From Restart: {loaded}\n"
+        f"Last Saved: {ts}\n"
+        f"Rebuild Reason: {rebuild_reason}"
+    )
+    await bot.highrise.send_whisper(user.id, msg[:249])
+
+
+async def handle_bj_shoe_reset(bot: BaseBot, user: User) -> None:
+    """!bjshoereset — rebuild a fresh 6-deck shoe and save it. Owner/admin only."""
+    _rebuild_shoe("manual_reset_by_admin")
+    cards = len(_state.deck)
+    print(f"[BJ] !bjshoereset by {user.username}: new shoe {cards} cards")
     await bot.highrise.send_whisper(
         user.id,
-        f"🃏 Blackjack Shoe\n"
-        f"Decks: 6 | Phase: {_state.phase}\n"
-        f"Cards Remaining: {deck_sz}\n"
-        f"Dealer: {dealer_ct} | Players: {player_ct} cards\n"
-        f"Saved: {saved} | Loaded From Restart: {loaded}\n"
-        f"Last Saved: {ts}"[:249]
+        f"✅ Blackjack shoe reset.\n"
+        f"Cards Remaining: {cards}\n"
+        f"Saved: YES"
     )
 
 

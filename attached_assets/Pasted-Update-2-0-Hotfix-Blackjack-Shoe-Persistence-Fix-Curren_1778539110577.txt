@@ -1,0 +1,266 @@
+Update 2.0 Hotfix — Blackjack Shoe Persistence Fix
+
+Current issue:
+Blackjack shoe is still not saving after bot restart/crash.
+
+Code issue:
+modules/blackjack.py currently saves _state.deck only inside casino table state.
+At round end, the code clears the casino table and resets _state.
+This wipes the saved deck/shoe.
+Also _save_table_state currently saves:
+shoe_json = "[]"
+shoe_cards_remaining = 0
+So the dedicated shoe fields are not actually being used.
+
+Goal:
+Blackjack shoe must persist separately from active round/table state.
+
+==================================================
+PART 1 — CREATE REAL BJ SHOE PERSISTENCE
+==================================================
+
+Create separate persistent storage for blackjack shoe.
+
+Do not rely only on casino_table state because casino_table is cleared after round end.
+
+Use database table or settings table.
+
+Suggested table:
+
+blackjack_shoe_state:
+- game TEXT PRIMARY KEY
+- shoe_json TEXT
+- discard_json TEXT
+- decks_count INTEGER
+- cards_remaining INTEGER
+- last_saved_at TEXT
+- loaded_from_restart INTEGER
+- rebuild_reason TEXT
+
+Key:
+game = "bj"
+
+Required functions:
+
+save_bj_shoe_state()
+load_bj_shoe_state()
+rebuild_bj_shoe(reason)
+get_bj_shoe_status()
+
+==================================================
+PART 2 — SAVE SHOE AFTER EVERY CARD DRAW
+==================================================
+
+Every time the code does:
+
+_state.deck.pop()
+
+Immediately save the shoe.
+
+This includes:
+- initial player deal
+- dealer deal
+- player hit
+- split card draw
+- double card draw
+- dealer hit
+
+Required:
+After every card pop:
+save_bj_shoe_state()
+
+Do not wait until round end only.
+
+==================================================
+PART 3 — DO NOT CLEAR SHOE AT ROUND END
+==================================================
+
+At round end, it is okay to clear:
+- active players
+- dealer hand
+- round_id
+- action timer
+- lobby timer
+- active casino table
+
+But do NOT clear the persistent shoe.
+
+Current issue:
+finally block calls:
+db.clear_casino_table("bj")
+_state.reset()
+
+That resets _state.deck too.
+
+Fix:
+Before reset, preserve current deck.
+
+Example logic:
+
+saved_deck = list(_state.deck)
+_state.reset()
+_state.deck = saved_deck
+save_bj_shoe_state()
+
+Or better:
+Move shoe outside round reset entirely.
+
+Recommended:
+Separate _state.shoe or persistent shoe manager from table/round reset.
+
+==================================================
+PART 4 — LOAD SHOE ON STARTUP
+==================================================
+
+On bot startup:
+- Try load_bj_shoe_state()
+- If valid shoe exists and cards_remaining >= 15, use it.
+- Set _state.deck to loaded shoe.
+- Set _state._shoe_loaded_from_restart = True.
+- Do not rebuild a new shoe.
+
+If no saved shoe exists:
+- Build a new 6-deck shoe.
+- Save it immediately.
+- Set rebuild_reason = "missing_saved_shoe"
+
+If saved shoe is corrupted:
+- Build a new 6-deck shoe.
+- Save it immediately.
+- Set rebuild_reason = "corrupted_saved_shoe"
+- Log warning.
+
+==================================================
+PART 5 — FIX _save_table_state
+==================================================
+
+Update _save_table_state so it does not fake shoe data.
+
+Currently it stores:
+shoe_json = "[]"
+shoe_cards_remaining = 0
+
+Fix:
+- Either remove those fake values
+- Or set them from the real current shoe
+
+Required:
+shoe_json should equal json.dumps(_state.deck)
+shoe_cards_remaining should equal len(_state.deck)
+
+But still keep separate persistent shoe storage from Part 1.
+
+==================================================
+PART 6 — FIX !bjshoe COMMAND
+==================================================
+
+!bjshoe should show real persistent shoe status.
+
+Expected:
+
+🃏 Blackjack Shoe
+Decks: 6
+Cards Remaining: 287
+Saved: YES
+Loaded From Restart: YES
+Last Saved: 2026-xx-xx xx:xx
+Rebuild Reason: none
+
+If rebuilt:
+
+🃏 Blackjack Shoe
+Decks: 6
+Cards Remaining: 312
+Saved: YES
+Loaded From Restart: NO
+Rebuild Reason: missing_saved_shoe
+
+==================================================
+PART 7 — FIX !bjshoereset
+==================================================
+
+!bjshoereset should:
+- Owner/Admin only
+- Rebuild 6-deck shoe
+- Save persistent shoe immediately
+- Log who reset it
+- Do not wipe balances
+- Do not wipe blackjack stats
+- Do not wipe poker/casino tables
+
+Expected:
+✅ Blackjack shoe reset.
+Cards Remaining: 312
+Saved: YES
+
+==================================================
+PART 8 — CRASH-SAFE SAVE
+==================================================
+
+Use atomic/safe DB write if possible.
+
+Every card draw must save quickly.
+
+If save fails:
+- Print error
+- Do not crash bot
+- Continue game if safe
+
+If load fails:
+- Print error
+- Rebuild shoe safely
+- Save new shoe
+
+==================================================
+PART 9 — TESTS
+==================================================
+
+Test 1 — shoe changes during game:
+1. Run !bjshoe
+2. Note cards remaining
+3. Start blackjack and draw cards
+4. Run !bjshoe again
+
+Expected:
+Cards remaining decreases.
+
+Test 2 — restart persistence:
+1. Run !bjshoe
+2. Note cards remaining
+3. Restart bot
+4. Run !bjshoe
+
+Expected:
+Cards remaining stays the same.
+Loaded From Restart: YES
+
+Test 3 — round end persistence:
+1. Run !bjshoe
+2. Play full blackjack round until round ends
+3. Run !bjshoe
+
+Expected:
+Shoe does not reset to 312.
+Cards remaining stays reduced.
+
+Test 4 — reset:
+1. Run !bjshoereset
+2. Run !bjshoe
+
+Expected:
+Cards remaining returns to full 6-deck shoe.
+Saved: YES
+
+==================================================
+PART 10 — FINAL REPORT
+==================================================
+
+After finishing, tell me:
+1. Files changed
+2. Where shoe is saved
+3. Where shoe is loaded on startup
+4. Every place card draw now calls save_bj_shoe_state()
+5. How round reset avoids wiping shoe
+6. !bjshoe output
+7. Restart test result
+8. Round-end test result

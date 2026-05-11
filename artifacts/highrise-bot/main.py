@@ -97,7 +97,7 @@ from modules.numbered_shop import (
 )
 from modules.achievements import handle_achievements, handle_claim_achievements
 from modules.blackjack           import (
-    handle_bj, handle_bj_set, handle_bj_shoe,
+    handle_bj, handle_bj_set, handle_bj_shoe, handle_bj_shoe_reset,
     handle_bj_cards, handle_bj_rules, handle_bj_bonus_settings,
     reset_table as bj_reset_table,
     soft_reset_table as bj_soft_reset_table,
@@ -3803,19 +3803,11 @@ class HangoutBot(BaseBot):
         elif cmd == "bjshoe":
             await handle_bj_shoe(self, user)
         elif cmd == "bjshoereset":
-            from modules.blackjack import _state as _bj_state, _settings as _bj_settings
-            from modules.cards import make_shoe as _make_shoe
             if not (is_owner(user.username) or is_admin(user.username)):
                 await self.highrise.send_whisper(user.id, "Admin/owner only.")
             else:
                 try:
-                    _bj_state.deck = list(_make_shoe(6))
-                    await self.highrise.send_whisper(
-                        user.id,
-                        f"🃏 BJ Shoe Reset\n"
-                        f"New shoe: {len(_bj_state.deck)} cards (6 decks)\n"
-                        f"Shoe will be saved on next deal."
-                    )
+                    await handle_bj_shoe_reset(self, user)
                 except Exception as _exc:
                     await self.highrise.send_whisper(user.id,
                         f"❌ Shoe reset failed: {str(_exc)[:80]}")

@@ -1923,6 +1923,16 @@ def _migrate_db():
             updated_at TEXT NOT NULL DEFAULT (datetime('now')),
             UNIQUE(game, setting)
         )""",
+        # ── Persistent BJ shoe state (separate from casino_active_tables) ────
+        """CREATE TABLE IF NOT EXISTS blackjack_shoe_state (
+            game                TEXT PRIMARY KEY,
+            shoe_json           TEXT NOT NULL DEFAULT '[]',
+            decks_count         INTEGER NOT NULL DEFAULT 6,
+            cards_remaining     INTEGER NOT NULL DEFAULT 0,
+            last_saved_at       TEXT NOT NULL DEFAULT '',
+            loaded_from_restart INTEGER NOT NULL DEFAULT 0,
+            rebuild_reason      TEXT NOT NULL DEFAULT ''
+        )""",
     ]:
         try:
             conn.execute(sql)
@@ -5908,6 +5918,51 @@ def clear_casino_table(mode: str) -> None:
     conn.execute("DELETE FROM casino_active_players WHERE mode = ?", (mode,))
     conn.commit()
     conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Persistent BJ shoe state helpers
+# ---------------------------------------------------------------------------
+
+def save_bj_shoe_state(
+    shoe_json: str,
+    decks_count: int,
+    cards_remaining: int,
+    loaded_from_restart: int = 0,
+    rebuild_reason: str = "",
+) -> None:
+    """Upsert the dedicated blackjack_shoe_state row (game='bj')."""
+    from datetime import datetime as _dt
+    conn = get_connection()
+    now  = _dt.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+    conn.execute(
+        """
+        INSERT INTO blackjack_shoe_state
+            (game, shoe_json, decks_count, cards_remaining,
+             last_saved_at, loaded_from_restart, rebuild_reason)
+        VALUES ('bj', ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(game) DO UPDATE SET
+            shoe_json           = excluded.shoe_json,
+            decks_count         = excluded.decks_count,
+            cards_remaining     = excluded.cards_remaining,
+            last_saved_at       = excluded.last_saved_at,
+            loaded_from_restart = excluded.loaded_from_restart,
+            rebuild_reason      = excluded.rebuild_reason
+        """,
+        (shoe_json, decks_count, cards_remaining, now, loaded_from_restart, rebuild_reason),
+    )
+    conn.commit()
+    conn.close()
+
+
+def load_bj_shoe_state() -> "dict | None":
+    """Return the blackjack_shoe_state row for game='bj', or None."""
+    conn = get_connection()
+    row  = conn.execute(
+        "SELECT * FROM blackjack_shoe_state WHERE game = 'bj'"
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
 
 
 def save_casino_player(mode: str, data: dict) -> None:
