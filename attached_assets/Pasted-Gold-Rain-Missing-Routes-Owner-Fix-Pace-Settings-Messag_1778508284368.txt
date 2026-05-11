@@ -1,0 +1,845 @@
+Gold Rain Missing Routes + Owner Fix + Pace Settings + Message Cap Command Fix
+
+Current live issues:
+1. /commandtest /goldrain still shows owner=Events or EventBot.
+2. /commandissues shows Gold Rain commands have no-route issues.
+3. Gold Rain should be owned by BankerBot only.
+4. Gold Rain needs pace settings so party mode can use fast interval automatically.
+5. /msgcap command is not working and needs a real route + handler.
+
+Do not change bot tokens.
+Do not change room ID.
+Do not reset balances.
+Do not wipe reward logs.
+Do not wipe player data.
+Do not break BankerBot, gold tips, rewards, subscriptions, events, notifications, mining, fishing, blackjack, poker, or command routing.
+Do not expose secrets, tokens, env vars, or room ID.
+
+==================================================
+PART 1 — FIX GOLD RAIN OWNER
+==================================================
+
+Current issue:
+/commandtest /goldrain shows owner=events or EventBot.
+
+Required:
+Gold Rain must be owned by BankerBot only.
+
+Commands that must be BankerBot-owned:
+
+/goldrain
+/raingold
+/goldstorm
+/golddrop
+/goldrainstatus
+/cancelgoldrain
+/goldrainhistory
+/goldraininterval
+/setgoldraininterval
+/goldrainpace
+/setgoldrainpace
+/goldrainreplace
+/goldraineligible
+/goldrainlist
+
+Important:
+- Remove /goldrain from Events/EventBot ownership.
+- Remove /goldrain from event command groups.
+- Remove /goldrain from eventhost owner mapping.
+- Do not let EmceeBot or EventBot reply to /goldrain.
+- BankerBot must handle the command before any fallback or event routing.
+
+Search and fix all places where goldrain is assigned:
+- command_registry.py
+- command owner map
+- OWNER_MAP
+- COMMANDS / Cmd list
+- event command group
+- main.py command router
+- help/menu command owner displays
+- any commandtest registry table/list
+
+Expected:
+
+/commandtest /goldrain
+
+Target:
+route=YES
+handler=YES
+owner=BankerBot
+
+If the project uses internal owner key:
+- internal key can be banker
+- display should show BankerBot
+- it must NOT show events, eventhost, EventBot, host, or EmceeBot
+
+==================================================
+PART 2 — FIX GOLD RAIN COMMANDISSUES / MISSING ROUTES
+==================================================
+
+Current live issue:
+/commandissues shows:
+Issues: 13 no-route | 0 no-owner
+
+Examples:
+- /cancelgoldrain
+- /golddrop
+- /goldrainhistory
+- /goldraininterval
+- /goldrainpace
+- /goldrainreplace
+- /goldrainstatus
+- /goldstorm
+
+This means Gold Rain commands are known/registered somewhere, but they do not have active routes/handlers.
+
+Goal:
+Fix all Gold Rain missing-route commands and assign them to BankerBot.
+
+For every Gold Rain command, make sure it has:
+
+route=YES
+handler=YES
+owner=BankerBot
+
+Fix these commands specifically:
+
+/goldrain
+/raingold
+/goldstorm
+/golddrop
+/cancelgoldrain
+/goldrainhistory
+/goldraininterval
+/setgoldraininterval
+/goldrainpace
+/setgoldrainpace
+/goldrainreplace
+/goldrainstatus
+/goldraineligible
+/goldrainlist
+
+If these commands are listed in the command registry, command owner map, command visibility list, hidden list, or commandissues scan, they must also have a working route and handler.
+
+Do not leave commands in the registry without routes.
+
+==================================================
+ROUTER REQUIREMENTS
+==================================================
+
+Add explicit router cases for:
+
+goldrain
+raingold
+goldstorm
+golddrop
+cancelgoldrain
+goldrainhistory
+goldraininterval
+setgoldraininterval
+goldrainpace
+setgoldrainpace
+goldrainreplace
+goldrainstatus
+goldraineligible
+goldrainlist
+
+They must route to the BankerBot / gold module handlers.
+
+Do not route them to:
+- Events
+- EventBot
+- eventhost
+- host
+- EmceeBot
+
+==================================================
+COMMANDISSUES TARGET
+==================================================
+
+After fix:
+
+/commandissues
+
+Must show:
+
+Issues: 0 no-route | 0 no-owner
+
+/checkcommands all
+
+Must show:
+
+Missing 0
+NoOwner 0
+
+/commandtest /goldrain
+/commandtest /goldrainstatus
+/commandtest /cancelgoldrain
+/commandtest /goldrainhistory
+/commandtest /goldraininterval
+/commandtest /goldrainpace
+/commandtest /goldrainreplace
+/commandtest /goldstorm
+/commandtest /golddrop
+
+Each must show:
+
+owner=BankerBot
+route=YES
+handler=YES
+
+==================================================
+IMPORTANT
+==================================================
+
+Do not just add these commands to known/active lists.
+They must have real handlers.
+
+If a handler is not implemented yet:
+- implement the handler, or
+- remove the command from active/visible/hidden registry until implemented.
+
+Do not leave broken active commands.
+
+==================================================
+PART 3 — GOLD RAIN PACE SETTINGS
+==================================================
+
+Add Gold Rain pace system.
+
+Commands:
+
+/goldrainpace
+/setgoldrainpace <pace>
+/setgoldrainpace custom <seconds>
+
+Aliases:
+
+/goldrain pace
+/goldrain pace <pace>
+/goldrain pace custom <seconds>
+
+Pace options:
+
+slow
+normal
+party
+custom
+
+Default:
+
+normal
+
+Recommended intervals:
+
+slow = 15 seconds
+normal = 5 seconds
+party = 1 second
+custom = user-set seconds
+
+Important:
+If I set Gold Rain pace to party, the interval should automatically be 1 second.
+
+Example:
+
+/setgoldrainpace party
+
+Response:
+
+BankerBot:
+🌧️ Gold Rain Pace Updated
+Pace: Party
+Interval: 1s
+
+Example:
+
+/setgoldrainpace normal
+
+Response:
+
+BankerBot:
+🌧️ Gold Rain Pace Updated
+Pace: Normal
+Interval: 5s
+
+Example:
+
+/setgoldrainpace custom 8
+
+Response:
+
+BankerBot:
+🌧️ Gold Rain Pace Updated
+Pace: Custom
+Interval: 8s
+
+==================================================
+PART 4 — /goldrainpace STATUS
+==================================================
+
+/goldrainpace should show current pace and interval.
+
+Example:
+
+BankerBot:
+🌧️ Gold Rain Pace
+Current: Party
+Interval: 1s
+
+Available:
+slow = 15s
+normal = 5s
+party = 1s
+custom = set your own
+
+==================================================
+PART 5 — INTERVAL COMMAND COMPATIBILITY
+==================================================
+
+Keep:
+
+/goldraininterval
+/setgoldraininterval <seconds>
+
+Behavior:
+
+/goldraininterval shows current effective interval.
+
+Example:
+
+BankerBot:
+🌧️ Gold Rain Interval
+Pace: Party
+Interval: 1s
+
+/setgoldraininterval <seconds> should set custom interval and change pace to custom.
+
+Example:
+
+/setgoldraininterval 12
+
+Response:
+
+BankerBot:
+🌧️ Gold Rain Interval Updated
+Pace: Custom
+Interval: 12s
+
+Validation:
+- minimum 1 second
+- maximum 300 seconds
+- party pace must be allowed to use 1 second
+
+==================================================
+PART 6 — HOW PACE AFFECTS GOLD RAIN
+==================================================
+
+When using slow or party mode:
+
+/goldrain slow all 50 10
+
+If no interval is provided:
+- use current Gold Rain pace interval
+
+If pace is party:
+- interval = 1s
+
+Example:
+
+/setgoldrainpace party
+/goldrain slow all 50 10
+
+Means:
+- 10 winners
+- 5g each
+- one public tip every 1 second
+
+Output:
+
+BankerBot:
+🌧️ Gold Rain Party Started!
+Target: All
+Total: 50g
+Winners: 10
+Reward: 5g each
+Pace: Party
+Interval: 1s
+Stay in the room for the giveaway!
+
+Every 1 second:
+
+BankerBot:
+💸 Tipped @Player1 5g gold!
+
+Then:
+
+BankerBot:
+💸 Tipped @Player2 5g gold!
+
+==================================================
+PART 7 — COMMAND OVERRIDE INTERVAL
+==================================================
+
+If interval is provided directly in command, it overrides saved pace for that Gold Rain only.
+
+Example:
+
+/goldrain party all 50 10 3
+
+Means:
+- use party mode
+- but interval is 3 seconds for this event only
+- saved global pace remains unchanged
+
+Start message should show:
+
+Pace: Party
+Interval: 3s
+
+==================================================
+PART 8 — GOLD RAIN STATUS
+==================================================
+
+/goldrainstatus should show active event plus pace.
+
+Example:
+
+BankerBot:
+🌧️ Gold Rain Status
+Mode: Party
+Target: All
+Total: 50g
+Reward Each: 5g
+Pace: Party
+Interval: 1s
+Paid: 4/10
+Next Tip In: 1s
+Remaining Winners: 6
+Replacement: ON
+
+If no active event:
+
+BankerBot:
+🌧️ Gold Rain Status
+No active Gold Rain right now.
+Current Pace: Party
+Interval: 1s
+
+==================================================
+PART 9 — PUBLIC / PRIVATE MESSAGE RULES
+==================================================
+
+Public messages:
+- Start message can be public.
+- Per-winner tip messages should be public.
+
+Private to tipper only:
+- Final Gold Rain Complete summary.
+- Error/report details.
+- Payout log summary.
+
+The room should NOT see final complete summary.
+
+Public per-winner message:
+
+BankerBot:
+💸 Tipped @Player 5g gold!
+
+Private final whisper to tipper:
+
+BankerBot whisper:
+🌧️ Gold Rain Complete!
+10 winners received 5g each.
+Total: 50g
+Pace: Party
+Interval: 1s
+Logged: YES
+Pending manual gold: 0g
+
+==================================================
+PART 10 — FIX /msgcap COMMAND NOT WORKING
+==================================================
+
+Current issue:
+/msgcap command is not working.
+
+Goal:
+Make /msgcap fully routed, owned, and handled.
+
+Required commands:
+
+/msgcap
+/msgcap chat
+/msgcap whisper
+/msgcap split
+/msgcap test <length>
+/msgcap chat <length>
+/msgcap whisper <length>
+
+Owner:
+EmceeBot or SecurityBot
+
+Permission:
+Manager+
+
+Preferred owner:
+EmceeBot
+
+==================================================
+10A — /msgcap ROUTING FIX
+==================================================
+
+Search and fix all places where /msgcap should be registered:
+
+- command_registry.py
+- command owner map
+- OWNER_MAP
+- COMMANDS / Cmd list
+- main.py command router
+- commandtest registry
+- help/menu/debug command list
+
+After fix:
+
+/commandtest /msgcap
+
+Must show:
+
+owner=EmceeBot
+route=YES
+handler=YES
+
+Do not leave /msgcap as:
+- Missing
+- NoOwner
+- route=NO
+- handler=NO
+
+==================================================
+10B — /msgcap HANDLER REQUIREMENTS
+==================================================
+
+Implement real handler if missing.
+
+Behavior:
+
+/msgcap
+
+Shows help:
+
+🧪 Message Cap Test
+/msgcap chat
+/msgcap whisper
+/msgcap test <length>
+/msgcap split
+
+Current safe limit:
+Public chat: 240 chars
+Whisper: 240 chars
+Split mode: 240 chars per message
+
+==================================================
+10C — /msgcap chat
+==================================================
+
+Send public chat cap test around safe cap.
+
+Message must include:
+- visible length
+- repeated characters
+- END marker
+
+Example:
+
+🧪 Public Chat Cap Test
+Length: 240
+AAAA...END
+
+==================================================
+10D — /msgcap whisper
+==================================================
+
+Whisper cap test to the staff member.
+
+Message must include:
+- visible length
+- repeated characters
+- END marker
+
+Example:
+
+🧪 Whisper Cap Test
+Length: 240
+AAAA...END
+
+==================================================
+10E — CUSTOM LENGTH
+==================================================
+
+/msgcap test <length>
+/msgcap chat <length>
+/msgcap whisper <length>
+
+Rules:
+- length must be numeric
+- minimum 20
+- maximum 1000
+- include END marker at the end
+- if END is missing in Highrise, message got cut
+
+==================================================
+10F — SPLIT TEST
+==================================================
+
+/msgcap split
+
+Send 3 safe-size messages:
+
+🧪 Split Test 1/3
+Length: 240
+AAAA...END1
+
+🧪 Split Test 2/3
+Length: 240
+BBBB...END2
+
+🧪 Split Test 3/3
+Length: 120
+CCCC...END3
+
+Purpose:
+Verify long help menus/reports can split safely.
+
+==================================================
+PART 11 — DATABASE / SETTINGS
+==================================================
+
+Add or update Gold Rain settings safely.
+
+Suggested table:
+
+gold_rain_settings:
+- key TEXT PRIMARY KEY
+- value TEXT
+- updated_at TEXT
+
+Required setting keys:
+
+goldrain_pace = slow / normal / party / custom
+goldrain_interval_seconds = integer
+goldrain_replace_enabled = 1/0
+
+Defaults:
+goldrain_pace = normal
+goldrain_interval_seconds = 5
+goldrain_replace_enabled = 1
+
+Optional message cap settings:
+
+bot_message_settings:
+- key TEXT PRIMARY KEY
+- value TEXT
+- updated_at TEXT
+
+Optional setting keys:
+chat_safe_cap = 240
+whisper_safe_cap = 240
+
+Do safe migrations only.
+Do not wipe old reward logs or gold rain records.
+
+==================================================
+PART 12 — HELP TEXT
+==================================================
+
+Update BankerBot help/economy help:
+
+Gold Rain:
+/goldrain all 10 5
+/goldrain party subs 100 20
+/setgoldrainpace party
+/goldrainpace
+/goldrainstatus
+
+Do not show old main style as primary:
+/goldrain <amount> [count]
+
+If old commands remain as aliases, mark them legacy or hide from main help.
+
+Add staff/debug help:
+
+Debug:
+/msgcap
+/msgcap chat
+/msgcap whisper
+/msgcap split
+
+==================================================
+PART 13 — COMMANDTEST
+==================================================
+
+These must pass:
+
+/commandtest /goldrain
+/commandtest /raingold
+/commandtest /goldstorm
+/commandtest /golddrop
+/commandtest /goldrainstatus
+/commandtest /cancelgoldrain
+/commandtest /goldrainhistory
+/commandtest /goldraininterval
+/commandtest /setgoldraininterval
+/commandtest /goldrainpace
+/commandtest /setgoldrainpace
+/commandtest /goldrainreplace
+/commandtest /msgcap
+/checkcommands all
+
+Target for Gold Rain:
+route=YES
+handler=YES
+owner=BankerBot
+Missing 0
+NoOwner 0
+
+Target for /msgcap:
+route=YES
+handler=YES
+owner=EmceeBot
+
+Critical:
+Gold Rain commands should not show owner=events, eventhost, EventBot, host, or EmceeBot.
+
+==================================================
+PART 14 — TEST CASES
+==================================================
+
+Test owner:
+
+/commandtest /goldrain
+
+Expected:
+owner=BankerBot
+
+Test missing routes:
+
+/commandissues
+
+Expected:
+Issues: 0 no-route | 0 no-owner
+
+Test pace:
+
+/setgoldrainpace party
+/goldrainpace
+
+Expected:
+Pace: Party
+Interval: 1s
+
+Test custom:
+
+/setgoldrainpace custom 8
+/goldrainpace
+
+Expected:
+Pace: Custom
+Interval: 8s
+
+Test interval command:
+
+/setgoldraininterval 12
+/goldraininterval
+
+Expected:
+Pace: Custom
+Interval: 12s
+
+Test party mode:
+
+/goldrain party all 5 5
+
+Expected:
+Start message public.
+Pace: Party
+Interval: 1s.
+One public tip message every 1 second.
+Final summary whispered only to tipper.
+
+Test override interval:
+
+/goldrain party all 5 5 3
+
+Expected:
+Pace: Party
+Interval: 3s for this event only.
+
+Test message cap:
+
+/commandtest /msgcap
+/msgcap
+/msgcap chat
+/msgcap whisper
+/msgcap test 300
+/msgcap split
+
+Expected:
+- /commandtest /msgcap shows route=YES handler=YES owner=EmceeBot
+- Messages show requested length.
+- END marker appears if not cut.
+- Split test sends multiple safe chunks.
+
+==================================================
+PART 15 — SAFETY
+==================================================
+
+Do not:
+- let EventBot own /goldrain
+- let EmceeBot own /goldrain
+- let EmceeBot reply to /goldrain
+- leave /goldrain in event command group
+- leave Gold Rain commands with no route
+- leave /msgcap with no route or no handler
+- double-pay winners
+- pick bots
+- pick players not in room
+- silently reduce winner count
+- send final complete summary publicly
+- pretend gold was sent if only logged
+- wipe balances
+- wipe reward logs
+- expose tokens/secrets/env vars
+- break BankerBot banking commands
+- leave broken commands in help
+- leave owner UNKNOWN
+- allow /msgcap to send unlimited length messages
+- spam too many /msgcap messages
+
+==================================================
+FINAL REPORT
+==================================================
+
+After finishing, tell me:
+
+1. Files changed
+2. Why Gold Rain commands had no route
+3. Every file where /goldrain ownership was changed
+4. Every file where Gold Rain routes were added
+5. Command owners after fix
+6. How /setgoldrainpace works
+7. How /goldrainpace works
+8. How party pace sets interval to 1s
+9. How custom interval works
+10. How /setgoldraininterval works
+11. How /goldrainstatus shows pace
+12. Why /msgcap was not working
+13. Files changed for /msgcap route
+14. Files changed for /msgcap handler
+15. How /msgcap works
+16. Safe chat cap used
+17. Safe whisper cap used
+18. Final /commandtest /goldrain result
+19. Final /commandtest /msgcap result
+20. Final /commandissues result
+21. Results of /checkcommands all
+22. Exact tests to run

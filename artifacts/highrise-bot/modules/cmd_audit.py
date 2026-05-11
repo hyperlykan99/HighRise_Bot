@@ -499,6 +499,13 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     # ── Subscriber notification preferences ───────────────────────────────────
     "notif", "notifon", "notifoff", "notifall",
     "subnotify", "subnotifyinvite", "subnotifystatus",
+    # ── Gold Rain (new system — BankerBot) ───────────────────────────────────
+    "raingold", "goldstorm", "golddrop",
+    "cancelgoldrain", "goldrainstatus",
+    "goldrainhistory", "goldraininterval", "setgoldraininterval",
+    "goldrainreplace", "goldrainpace", "setgoldrainpace",
+    # ── Message cap testing (host / EmceeBot) ────────────────────────────────
+    "msgcap", "setmsgcap",
 })
 
 # ---------------------------------------------------------------------------
@@ -560,7 +567,12 @@ HELP_CMDS: frozenset[str] = frozenset({
     "addvip", "removevip", "vips", "goldrainvip",
     "settiprate", "settipcap", "settiptier",
     "goldtip", "tipgold", "goldreward", "rewardgold",
-    "goldrain", "goldrainall", "goldrefund",
+    "goldrain", "raingold", "goldstorm", "golddrop",
+    "goldrainall", "goldrefund",
+    "cancelgoldrain", "goldrainstatus", "goldrainhistory",
+    "goldraininterval", "setgoldraininterval",
+    "goldrainreplace", "goldrainpace", "setgoldrainpace",
+    "msgcap", "setmsgcap",
     "tipcoinrate", "settipcoinrate", "bottiplogs",
     "mingoldtip", "setmingoldtip",
     "tiplb", "tipleaderboard", "bottiplb", "bottipleaderboard",
@@ -665,10 +677,14 @@ VISIBLE_CMDS: frozenset[str] = frozenset({
     "ownerpanel",
     # ── /goldhelp ───────────────────────────────────────────────────────────
     "goldtip", "tipgold", "goldreward", "rewardgold",
-    "goldrefund", "goldrain", "goldrainall",
+    "goldrefund", "goldrain", "raingold", "goldstorm", "golddrop",
+    "goldrainall", "cancelgoldrain", "goldrainstatus",
+    "goldrainhistory", "goldraininterval", "setgoldraininterval",
+    "goldrainreplace", "goldrainpace", "setgoldrainpace",
     "goldrainrole", "goldrainvip", "goldraintitle", "goldrainbadge",
     "goldraineligible", "goldrainlist",
     "setgoldrainstaff", "setgoldrainmax",
+    "msgcap", "setmsgcap",
     "tiplb", "tipleaderboard", "bottiplb", "bottipleaderboard",
     "roomtiplb", "roomtipleaderboard", "alltiplb", "alltipleaderboard",
     "tipreceiverlb", "topreceivers",

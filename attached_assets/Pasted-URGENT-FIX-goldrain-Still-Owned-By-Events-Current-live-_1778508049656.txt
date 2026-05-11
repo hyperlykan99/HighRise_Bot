@@ -1,0 +1,167 @@
+URGENT FIX — /goldrain Still Owned By Events
+
+Current live issue:
+/commandtest /goldrain shows:
+owner=Events
+host_handles=true
+eventhost_handles=true
+route=YES
+handler=YES
+
+This is wrong.
+
+Required:
+/goldrain and all Gold Rain commands must be owned by BankerBot only.
+
+==================================================
+PART 1 — REMOVE GOLDRAIN FROM EVENTS
+==================================================
+
+Find every place where goldrain is registered as:
+- Events
+- events
+- EventBot
+- eventhost
+- host
+- auto event
+- event command group
+
+Remove Gold Rain commands from those mappings.
+
+Search exact strings:
+- "goldrain"
+- "goldrainall"
+- "goldraineligible"
+- "goldrainrole"
+- "goldrainvip"
+- "goldraintitle"
+- "goldrainbadge"
+- "goldrainlist"
+- "raingold"
+- "goldstorm"
+- "golddrop"
+
+Check these files/areas:
+- command_registry.py
+- command owner map
+- OWNER_MAP
+- COMMANDS
+- Cmd list
+- EVENT commands
+- eventhost commands
+- main.py on_chat router
+- commandtest registry
+- help/menu owner displays
+
+==================================================
+PART 2 — ASSIGN GOLDRAIN TO BANKERBOT
+==================================================
+
+These commands must be owned by BankerBot:
+
+/goldrain
+/raingold
+/goldstorm
+/golddrop
+/goldrainall
+/goldraineligible
+/goldrainrole
+/goldrainvip
+/goldraintitle
+/goldrainbadge
+/goldrainlist
+/goldrainstatus
+/cancelgoldrain
+/goldrainhistory
+/goldraininterval
+/setgoldraininterval
+/goldrainpace
+/setgoldrainpace
+/goldrainreplace
+
+Internal owner key may be:
+banker
+
+Display owner must be:
+BankerBot
+
+It must NOT show:
+Events
+events
+EventBot
+eventhost
+host
+EmceeBot
+
+==================================================
+PART 3 — ROUTER ORDER FIX
+==================================================
+
+BankerBot must catch /goldrain before eventhost or host fallback.
+
+In the command router:
+- route /goldrain to BankerBot/gold handler first
+- do not let eventhost handle /goldrain
+- do not let host fallback handle /goldrain
+- do not let EmceeBot reply unknown/general to /goldrain
+
+If there are duplicate handlers:
+- keep BankerBot handler
+- remove Events/EventHost handler registration
+- or make Events/EventHost ignore /goldrain completely
+
+==================================================
+PART 4 — COMMANDTEST MUST BE FIXED
+==================================================
+
+After changes, these must pass:
+
+/commandtest /goldrain
+/commandtest /raingold
+/commandtest /goldstorm
+/commandtest /golddrop
+/commandtest /goldrainall
+/commandtest /goldraineligible
+/commandtest /goldrainlist
+/commandtest /goldrainpace
+/commandtest /setgoldrainpace
+/commandtest /goldraininterval
+/commandtest /setgoldraininterval
+/commandtest /goldrainreplace
+/checkcommands all
+
+Expected result for all Gold Rain commands:
+
+owner=BankerBot
+owner_online=true
+banker_handles=true
+route=YES
+handler=YES
+
+Must NOT show:
+owner=Events
+eventhost_handles=true
+host_handles=true
+
+==================================================
+PART 5 — DO NOT CHANGE OTHER SYSTEMS
+==================================================
+
+Do not change bot tokens.
+Do not change room ID.
+Do not reset balances.
+Do not wipe reward logs.
+Do not rewrite Auto Events.
+Do not break normal EventBot commands.
+Do not break BankerBot gold tips.
+Only fix Gold Rain ownership/routing.
+
+==================================================
+FINAL REPORT
+==================================================
+
+After finishing, tell me:
+1. Every file where goldrain was removed from Events/eventhost
+2. Every file where goldrain was assigned to BankerBot
+3. Final /commandtest /goldrain output
+4. Final /checkcommands all result
