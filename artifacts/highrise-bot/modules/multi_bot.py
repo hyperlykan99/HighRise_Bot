@@ -647,14 +647,17 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "subnotify": "host", "subnotifyinvite": "host", "subnotifystatus": "host",
 }
 
-# Friendly display names for modes
-_MODE_NAMES: dict[str, str] = {
-    "host": "EmceeBot", "banker": "BankingBot", "blackjack": "AceSinatra",
-    "poker": "ChipSoprano", "dealer": "Dealer", "miner": "GreatestProspector",
-    "fisher": "MasterAngler",
-    "shopkeeper": "BankingBot", "security": "KeanuShield",
-    "dj": "DJ_DUDU", "eventhost": "EmceeBot", "all": "Main",
-}
+# Friendly display names for modes — sourced from bot_names.py (edit there)
+try:
+    from modules.bot_names import BOT_DISPLAY_NAMES as _MODE_NAMES
+except Exception:
+    _MODE_NAMES: dict[str, str] = {
+        "host": "ChillTopiaMC", "banker": "BankingBot", "blackjack": "AceSinatra",
+        "poker": "ChipSoprano", "dealer": "Dealer", "miner": "GreatestProspector",
+        "fisher": "MasterAngler",
+        "shopkeeper": "BankingBot", "security": "KeanuShield",
+        "dj": "DJ_DUDU", "eventhost": "ChillTopiaMC", "all": "Main",
+    }
 
 # ---------------------------------------------------------------------------
 # In-memory cache for DB ownership overrides and online status

@@ -408,7 +408,7 @@ async def handle_subscribe(bot: BaseBot, user: User, args: list[str]) -> None:
                  "✅ Subscribed! Outside-room alerts are ON. Use !notif to manage categories.")
     else:
         await _w(bot, user.id,
-                 "✅ Subscribed. For outside-room alerts, DM EmceeBot: subscribe\n"
+                 "✅ Subscribed. For outside-room alerts, DM ChillTopiaMC: subscribe\n"
                  "Use !notif to manage categories.")
 
 
@@ -442,7 +442,7 @@ async def handle_substatus(bot: BaseBot, user: User, args: list[str]) -> None:
                  "Subscribed: NO\nUse !subscribe to opt in.")
         return
 
-    dm_label = "YES" if has_dm else "NO (DM EmceeBot: subscribe)"
+    dm_label = "YES" if has_dm else "NO (DM ChillTopiaMC: subscribe)"
 
     prefs = db.get_notify_prefs(uname)
     def _yn(col: str) -> str:
@@ -777,7 +777,7 @@ async def handle_forcesub(bot: BaseBot, user: User, args: list[str]) -> None:
     else:
         line2 = (
             "DM Connected: NO\n"
-            "Outside-room alerts unavailable until they DM EmceeBot: subscribe"
+            "Outside-room alerts unavailable until they DM ChillTopiaMC: subscribe"
         )
 
     await _w(bot, user.id, f"{line1}\n{line2}"[:249])
@@ -836,6 +836,6 @@ async def handle_fixsub(bot: BaseBot, user: User, args: list[str]) -> None:
         f"Duplicates merged: {merge.get('merged', 0)}",
     ]
     if not conv_id:
-        lines.append("Action needed: player must DM EmceeBot: subscribe")
+        lines.append("Action needed: player must DM ChillTopiaMC: subscribe")
     await _w(bot, user.id, "\n".join(lines)[:249])
     print(f"[SUBS] !fixsub @{target_raw} by @{user.username}: merge={merge}")

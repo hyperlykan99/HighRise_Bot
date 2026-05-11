@@ -37,7 +37,9 @@ _ROOM_UPDATES: list[str] = [
 
 # Bot spawn labels — update to match room layout
 _BOT_SPAWNS: dict[str, str] = {
+    "ChillTopiaMC":       "Stage",
     "EmceeBot":           "Stage",
+    "ChillTopia":         "Stage",
     "BankingBot":         "Bank Desk",
     "GreatestProspector": "Mine Entrance",
     "MasterAngler":       "Fishing Dock",

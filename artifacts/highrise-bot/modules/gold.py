@@ -91,6 +91,8 @@ _KNOWN_BOT_USERNAMES: frozenset[str] = frozenset({
     "blackjackbot", "pokerbot", "securitybot", "acesinatra",
     # Actual running bot usernames observed in room
     "bankingbot", "chipsoprano", "keanushield", "dj_dudu",
+    # Host bot renamed variants
+    "chilltopia", "chilltopiamc",
 })
 
 

@@ -1,0 +1,160 @@
+Emergency Fix — Bot Rename Crash: EmceeBot renamed to ChillTopiaMC
+
+Current issue:
+I renamed EmceeBot to ChillTopiaMC.
+Now when I type !help, the bot crashes.
+
+Goal:
+Bot display names must be configurable.
+Changing EmceeBot’s username/display name must not crash !help or any command.
+
+New display name:
+ChillTopiaMC
+
+Old display name:
+EmceeBot
+
+Important:
+Do not rename internal owner keys if they are used for routing.
+Internal owner key can stay:
+emcee
+host
+banker
+etc.
+
+But display name should show:
+ChillTopiaMC
+
+==================================================
+PART 1 — ADD BOT DISPLAY NAME CONFIG
+==================================================
+
+Add a safe bot display name map.
+
+Example:
+
+BOT_DISPLAY_NAMES = {
+    "emcee": "ChillTopiaMC",
+    "host": "Host",
+    "banker": "BankerBot",
+    "mining": "GreatestProspector",
+    "fishing": "MasterAngler",
+    "blackjack": "BlackJackBot",
+    "poker": "PokerBot",
+    "event": "EventBot",
+    "security": "SecurityBot",
+}
+
+Also support aliases:
+
+BOT_NAME_ALIASES = {
+    "EmceeBot": "emcee",
+    "ChillTopiaMC": "emcee",
+}
+
+Rules:
+- Internal owner key stays emcee.
+- Display name becomes ChillTopiaMC.
+- Any old EmceeBot reference should resolve to emcee.
+- !help should not crash if display name changed.
+
+==================================================
+PART 2 — FIX HELP CRASH
+==================================================
+
+Find the !help handler.
+
+Fix:
+- Do not assume EmceeBot username exists.
+- Do not crash if bot display name is missing.
+- Use safe fallback display name.
+- Wrap help rendering in safe try/except and log the real error.
+
+If display name lookup fails:
+use "ChillTopiaMC" or internal key fallback.
+
+Expected:
+!help works.
+!help does not crash the bot.
+Help header can say:
+
+🎤 ChillTopiaMC Help
+
+==================================================
+PART 3 — REPLACE USER-FACING EMCEEBOT TEXT
+==================================================
+
+Replace user-facing text:
+
+EmceeBot -> ChillTopiaMC
+
+But do not break internal routing.
+
+Apply to:
+- !help
+- !subscribe replies
+- !notif replies
+- !testnotify sender display
+- !notifydebug sender display
+- bot profile bio
+- messageaudit output
+- command owner display if owner key is emcee
+
+Expected:
+Sender: ChillTopiaMC
+
+Not:
+Sender: EmceeBot
+Sender: host
+
+==================================================
+PART 4 — KEEP OLD ALIAS WORKING
+==================================================
+
+If any old records/logs/settings still say EmceeBot:
+- do not crash
+- map EmceeBot to ChillTopiaMC display
+- map EmceeBot to internal emcee role
+
+This prevents old database records from breaking.
+
+==================================================
+PART 5 — COMMAND OWNERS
+==================================================
+
+Commands owned by emcee should display:
+
+owner=ChillTopiaMC
+
+Example:
+
+/commandtest !help
+/commandtest !subscribe
+/commandtest !notif
+/commandtest !msgcap
+
+Expected:
+route=YES
+handler=YES
+owner=ChillTopiaMC
+
+==================================================
+PART 6 — TESTS
+==================================================
+
+Run:
+
+!help
+!help notifications
+!subscribe
+!notif
+/commandtest !help
+/commandtest !subscribe
+/commandtest !notif
+/commandissues
+
+Expected:
+- No crash
+- No owner UNKNOWN
+- No Sender: EmceeBot
+- ChillTopiaMC displays correctly

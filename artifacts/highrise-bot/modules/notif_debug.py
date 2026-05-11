@@ -122,7 +122,7 @@ async def handle_notifydebug(bot, user, args: list[str]) -> None:
     elif subbed and not conv_id:
         msg2_lines.append(
             "Fix: Subscribed but no DM. "
-            "In-room whispers work. Player must DM EmceeBot: subscribe"
+            "In-room whispers work. Player must DM ChillTopiaMC: subscribe"
         )
 
     msg2 = "\n".join(msg2_lines)
@@ -205,7 +205,7 @@ async def handle_testwhisper(bot, user, args: list[str]) -> None:
     error_msg    = ""
     if uid:
         try:
-            await bot.highrise.send_whisper(uid, "🧪 Test whisper from EmceeBot.")
+            await bot.highrise.send_whisper(uid, "🧪 Test whisper from ChillTopiaMC.")
             whisper_sent = True
         except Exception as exc:
             error_msg = str(exc)[:60]

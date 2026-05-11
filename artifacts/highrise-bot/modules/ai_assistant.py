@@ -1032,7 +1032,10 @@ def _is_no(text: str) -> bool:
 # "emceebot", "emcee", "mc" + bot's own username
 # ---------------------------------------------------------------------------
 
-_AI_FIXED_NAMES: list[str] = ["emceebot", "emcee", "mc"]
+_AI_FIXED_NAMES: list[str] = [
+    "emceebot", "emcee", "mc",
+    "chilltopiamc", "chilltopia", "chill",
+]
 
 
 def _build_ai_names(bot_username: str) -> list[str]:
@@ -1579,7 +1582,7 @@ async def handle_aicapabilities(bot, user, args: list[str] = None) -> None:
     if not _should_answer_ai():
         return
     lines = [
-        "🤖 EmceeBot understands (say 'Emcee,' 'MC,' or 'EmceeBot'):",
+        "🎤 ChillTopiaMC understands (say 'Chill,' 'MC,' or 'ChillTopiaMC'):",
         "👤 Profile: show my profile, show testuser profile, who is testuser",
         "💰 Bank: my balance, send 100 coins to user, bank info, transactions",
         "⛏️ Mining: start mining, show ores, my tool, sell ores, mining shop",

@@ -30,7 +30,7 @@ _VALID_MODES = {"miner_only", "fishing_only", "all_bots", "off"}
 # bot_mode → friendly name stored in big_announcement_bot_reactions
 _MODE_TO_FRIENDLY: dict[str, str] = {
     "banker":    "bankingbot",
-    "host":      "emceebot",
+    "host":      "chilltopiamc",
     "eventhost": "eventbot",
     "security":  "securitybot",
     "poker":     "pokerbot",
@@ -260,7 +260,7 @@ async def handle_setbotbigreact(bot, user, args: list[str]) -> None:
     if len(args) < 3:
         await bot.highrise.send_whisper(user.id,
             "Usage: /setbotbigreact BankingBot on\n"
-            "Bots: BankingBot EventBot EmceeBot MiningBot FishingBot etc.")
+            "Bots: BankingBot EventBot ChillTopiaMC MiningBot FishingBot etc.")
         return
     raw_name = args[1].lower()
     val      = 1 if args[2].lower() in ("on", "1", "yes") else 0

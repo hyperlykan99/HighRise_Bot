@@ -40,9 +40,19 @@ def _utcnow() -> str:
 
 _DEFAULT_MESSAGES: dict[str, str] = {
     "emceebot":           (
-        "Welcome {username}! I'm EmceeBot. "
+        "Welcome {username}! I'm ChillTopiaMC. "
         "I handle room commands, events & AI help. "
-        "Type /help or ask 'Emcee, what can I do?'"
+        "Type !help or ask 'Chill, what can I do?'"
+    ),
+    "chilltopia":         (
+        "Welcome {username}! I'm ChillTopiaMC. "
+        "I handle room commands, events & AI help. "
+        "Type !help or ask 'Chill, what can I do?'"
+    ),
+    "chilltopiamc":       (
+        "Welcome {username}! I'm ChillTopiaMC. "
+        "I handle room commands, events & AI help. "
+        "Type !help or ask 'Chill, what can I do?'"
     ),
     "bankingbot":         (
         "Welcome {username}! I'm BankingBot. "

@@ -88,20 +88,22 @@ CATEGORY_HEADERS: dict[str, tuple[str, str]] = {
 # Fallback bot mode if selected sender is unavailable
 _FALLBACK_MODE = "host"
 
-# Human-readable display names for bot modes — used when DB lookup returns None.
-# Always shows the correct bot name instead of internal mode key.
-_MODE_DISPLAY_NAMES: dict[str, str] = {
-    "host":       "EmceeBot",
-    "eventhost":  "EmceeBot",
-    "banker":     "BankingBot",
-    "miner":      "GreatestProspector",
-    "fisher":     "MasterAngler",
-    "blackjack":  "ChipSoprano",
-    "poker":      "AceSinatra",
-    "dj":         "DJ_DUDU",
-    "security":   "KeanuShield",
-    "shopkeeper": "BankingBot",
-}
+# Human-readable display names for bot modes — sourced from bot_names.py
+try:
+    from modules.bot_names import BOT_DISPLAY_NAMES as _MODE_DISPLAY_NAMES
+except Exception:
+    _MODE_DISPLAY_NAMES: dict[str, str] = {
+        "host":       "ChillTopiaMC",
+        "eventhost":  "ChillTopiaMC",
+        "banker":     "BankingBot",
+        "miner":      "GreatestProspector",
+        "fisher":     "MasterAngler",
+        "blackjack":  "AceSinatra",
+        "poker":      "ChipSoprano",
+        "dj":         "DJ_DUDU",
+        "security":   "KeanuShield",
+        "shopkeeper": "BankingBot",
+    }
 
 # Categories ON by default for new subscribers (all others default OFF)
 _DEFAULT_ON: frozenset[str] = frozenset({"events", "rewards", "firsthunt", "updates"})
@@ -161,17 +163,23 @@ def _current_bot_modes() -> frozenset[str]:
 
 def get_notification_sender_info(category: str) -> dict:
     """
-    Always returns EmceeBot (host mode) as the sender.
-    Job-based category-to-bot routing is disabled; EmceeBot delivers all.
+    Always returns the host bot (ChillTopiaMC) as the sender.
+    Job-based category-to-bot routing is disabled; host delivers all.
     """
+    try:
+        from modules.bot_names import get_host_display_name
+        _host_label = get_host_display_name()
+    except Exception:
+        _host_label = "ChillTopiaMC"
     raw_name = db.get_bot_username_for_mode("host") or ""
-    # If the bot_instances table stored the mode key ("host") as the username,
-    # fall back to the friendly display name instead.
-    emceebot_name = raw_name if (raw_name and raw_name.lower() != "host") else "EmceeBot"
+    # Use the Highrise username from DB if it looks like a real username,
+    # otherwise fall back to the configured display name.
+    _invalid = {"", "host", "eventhost"}
+    display_name = raw_name if raw_name.lower() not in _invalid else _host_label
     return {
         "target_mode":       "host",
-        "sender_bot_name":   emceebot_name,
-        "original_bot_name": emceebot_name,
+        "sender_bot_name":   display_name,
+        "original_bot_name": display_name,
         "fallback_used":     False,
         "deliver_here":      True,
     }
@@ -239,7 +247,7 @@ async def handle_notifon(bot, user, args: list[str]) -> None:
             "Type !subscribe to receive notifications."
         )
         if not has_conv:
-            extra += "\nFor outside-room alerts, DM EmceeBot: subscribe"
+            extra += "\nFor outside-room alerts, DM ChillTopiaMC: subscribe"
         await _w(bot, user.id, f"🔔 {label}: ON ✅{extra}"[:249])
     else:
         await _w(bot, user.id, f"🔔 {label} notifications: ON ✅")
@@ -406,7 +414,7 @@ async def handle_subnotifystatus(bot, user, args: list[str] | None = None) -> No
     lines = [
         "🔔 Notification Status",
         f"Last: {cat}",
-        "Sender: EmceeBot",
+        "Sender: ChillTopiaMC",
         f"Whisper Sent In Room: {latest.get('sent_whisper_count', 0)}",
         f"DM Sent Out of Room: {dm_sent}",
         f"No Delivery Route: {latest.get('no_delivery_route_count', latest.get('no_conversation_count', 0))}",
