@@ -245,6 +245,7 @@ from modules.events import (
     handle_setaeinterval, handle_setaeduration,
     handle_aeinterval, handle_aeduration,
     handle_aererollnext, handle_setnextae, handle_aehistory,
+    handle_aeskip, handle_aeskipnext,
 )
 from modules.reports import (
     handle_report, handle_bug, handle_myreports,
@@ -3165,6 +3166,15 @@ class HangoutBot(BaseBot):
 
         elif cmd == "stopevent":
             await handle_stopevent(self, user, args)
+
+        elif cmd in ("stopae", "stopautoevent", "endevent", "endcurrentevent"):
+            await handle_stopevent(self, user, args)
+
+        elif cmd in ("aeskip", "skipae", "skipaevent"):
+            await handle_aeskip(self, user, args)
+
+        elif cmd in ("aeskipnext", "skipnextae"):
+            await handle_aeskipnext(self, user, args)
 
         elif cmd in ("adminsblessing", "adminblessing"):
             await handle_adminsblessing(self, user, args)

@@ -1,0 +1,1196 @@
+Next Update Compilation — Auto Event Fixes + /stay Fix + Subscriber Notification Delivery Fix
+
+Focus on these updates:
+
+1. Auto Event timer settings
+2. Auto Event history fix
+3. Auto Event next event preview / saved queue
+4. Auto Event skip / stop controls
+5. BlackJack /stay NoOwner fix
+6. Subscriber notifications must whisper subscribed players who are currently in the room
+7. Subscriber notifications should only use DM for players not currently in the room
+
+Do not change bot tokens.
+Do not change room ID.
+Do not reset balances.
+Do not wipe player data.
+Do not wipe event history.
+Do not wipe subscriptions.
+Do not wipe notification preferences.
+Do not break mining, fishing, blackjack, poker, bank, gold tips, First Hunt Race, auto events, bot outfits, bot spawns, or command routing.
+Do not expose secrets, tokens, env vars, or room ID.
+
+==================================================
+PART 1 — AUTO EVENT TIMER SETTINGS
+==================================================
+
+Goal:
+Owner/Manager should be able to adjust:
+
+1. How often auto events start.
+2. How long auto events last.
+
+Add or fix these commands:
+
+/setaeinterval <minutes>
+/setaeduration <minutes>
+/aeinterval
+/aeduration
+
+Aliases:
+
+/setautoeventinterval
+/setautoeventduration
+/seteventduration
+
+Examples:
+
+/setaeinterval 60
+/setaeduration 10
+
+Meaning:
+Auto event starts every 60 minutes.
+Each auto event lasts 10 minutes.
+
+==================================================
+1A — /setaeinterval
+==================================================
+
+Command:
+
+/setaeinterval <minutes>
+
+Permission:
+Manager+
+
+Owner:
+EventBot
+
+Behavior:
+Sets how often auto events start.
+
+Example:
+
+/setaeinterval 30
+
+Response:
+
+EventBot:
+⏱️ Auto Event Interval Updated
+Auto events will start every 30 minutes.
+
+Validation:
+- Must be a number.
+- Must be greater than 0.
+- Recommended minimum: 1 minute.
+- Save persistently.
+- Scheduler should use the new interval without needing manual code changes.
+
+If missing argument:
+
+EventBot:
+⏱️ Auto Event Interval
+Usage: /setaeinterval <minutes>
+Example: /setaeinterval 60
+
+==================================================
+1B — /setaeduration
+==================================================
+
+Command:
+
+/setaeduration <minutes>
+
+Permission:
+Manager+
+
+Owner:
+EventBot
+
+Behavior:
+Sets how long auto events last.
+
+Example:
+
+/setaeduration 10
+
+Response:
+
+EventBot:
+⏱️ Auto Event Duration Updated
+Auto events will last 10 minutes.
+
+Validation:
+- Must be a number.
+- Must be greater than 0.
+- Recommended minimum: 1 minute.
+- Save persistently.
+- New duration applies to future auto events.
+- Do not interrupt the currently active event unless existing system already supports it safely.
+
+If missing argument:
+
+EventBot:
+⏱️ Auto Event Duration
+Usage: /setaeduration <minutes>
+Example: /setaeduration 10
+
+==================================================
+1C — /aeinterval AND /aeduration
+==================================================
+
+Commands:
+
+/aeinterval
+/aeduration
+
+Permission:
+Manager+ or same as /aestatus
+
+Owner:
+EventBot
+
+Behavior:
+
+/aeinterval shows current interval.
+
+/aeduration shows current duration.
+
+Example:
+
+EventBot:
+⏱️ Auto Event Interval
+Current: 60 minutes
+
+EventBot:
+⏱️ Auto Event Duration
+Current: 10 minutes
+
+==================================================
+1D — /aestatus UPDATE
+==================================================
+
+Update /aestatus to show:
+
+Auto Events: ON/OFF
+Scheduler: RUNNING/STOPPED
+Interval: 60m
+Duration: 10m
+Pool: 19
+Current Event: Lucky Rush or None
+Next Event: Prismatic Hunt
+Next Event In: 52m
+Last Tick: 59s ago
+Duplicate Scheduler: YES/NO
+
+Example:
+
+EventBot:
+⚙️ Auto Event Status
+Auto Events: ON
+Scheduler: RUNNING
+Interval: 60m
+Duration: 10m
+Pool: 19
+Current Event: None
+Next Event: Prismatic Hunt
+Next Event In: 52m
+Last Tick: 59s ago
+Duplicate Scheduler: NO
+
+==================================================
+PART 2 — AUTO EVENT HISTORY FIX
+==================================================
+
+Current issue:
+Auto Event history is not working.
+
+Fix or add these commands:
+
+/aehistory
+/autoeventhistory
+/eventhistory
+
+Owner:
+EventBot
+
+Permission:
+Manager+ or same as /aestatus
+
+Goal:
+History should show recent events and whether they were started manually or automatically.
+
+==================================================
+2A — HISTORY DISPLAY
+==================================================
+
+History should show:
+
+- event name
+- duration
+- started_at
+- ended_at if finished
+- status: active / ended / cancelled / failed / skipped
+- start type: manual or auto
+- started by username if manual
+
+Example:
+
+EventBot:
+📜 Auto Event History
+
+1. Lucky Rush — 5m — AUTO — ended
+2. Prismatic Hunt — 10m — MANUAL by @4ktreyMarion — ended
+3. Ore Value Surge — 10m — AUTO — active
+4. Mining Rush — 5m — AUTO — skipped by @Manager
+
+If no history:
+
+EventBot:
+📜 Auto Event History
+No event history yet.
+
+==================================================
+2B — MANUAL VS AUTO TRACKING
+==================================================
+
+When event starts automatically:
+start_type = auto
+
+When event starts from staff command:
+/startevent
+/startae
+/eventstart
+
+start_type = manual
+started_by_user_id = staff user id
+started_by_username = staff username
+
+When saved next auto event starts:
+start_type = auto
+source = scheduled_queue
+
+When event is skipped:
+status = skipped
+skipped_by_user_id = staff user id
+skipped_by_username = staff username
+
+==================================================
+2C — DATABASE
+==================================================
+
+Create or update table safely:
+
+event_history:
+- id INTEGER PRIMARY KEY AUTOINCREMENT
+- event_name TEXT
+- event_key TEXT
+- duration_minutes INTEGER
+- start_type TEXT
+- started_by_user_id TEXT
+- started_by_username TEXT
+- started_at TEXT
+- ended_at TEXT
+- status TEXT
+- source_command TEXT
+- source TEXT
+- skipped_by_user_id TEXT
+- skipped_by_username TEXT
+- error TEXT
+
+Statuses:
+- active
+- ended
+- cancelled
+- skipped
+- failed
+
+Use:
+CREATE TABLE IF NOT EXISTS
+
+If columns are missing, add them safely with try/except.
+Do not wipe old event data.
+
+==================================================
+2D — EVENT HISTORY INTEGRATION
+==================================================
+
+Auto scheduler must log history when it starts an event.
+
+Manual event command must log history when staff starts an event.
+
+Event end/cleanup must update history status to ended.
+
+If event is cancelled:
+status = cancelled
+
+If event is skipped:
+status = skipped
+
+If event fails to start:
+status = failed
+error = safe error message
+
+/aestatus should still show current active event and next event.
+
+==================================================
+PART 3 — AUTO EVENT NEXT EVENT PREVIEW / SAVED QUEUE
+==================================================
+
+Current issue:
+Auto Events randomly pick from the event pool only when the timer reaches 0.
+Because of that, /aenext cannot clearly show the next event ahead of time.
+
+Goal:
+Auto Events should pre-select and save the next auto event.
+
+==================================================
+3A — DESIRED BEHAVIOR
+==================================================
+
+When Auto Events are ON:
+
+- Scheduler picks the next event ahead of time.
+- /aenext shows the selected next event.
+- /aestatus shows the selected next event.
+- When the timer reaches 0, that saved next event starts.
+- After it starts, scheduler picks and saves the next event.
+- Saved next event survives bot restart.
+
+==================================================
+3B — COMMANDS AFFECTED
+==================================================
+
+Update or add:
+
+/aenext
+/autoeventnext
+/aestatus
+/aequeue
+/autoeventqueue
+/aehistory
+
+/aenext example:
+
+EventBot:
+⏭️ Next Auto Event
+Next: Prismatic Hunt
+Starts in: 52m
+Duration: 10m
+Source: Auto Queue
+
+/aestatus should include:
+
+Next Event: Prismatic Hunt
+Next Event In: 52m
+
+==================================================
+3C — AUTO EVENT QUEUE
+==================================================
+
+Add a saved next-event queue.
+
+Minimum:
+- keep 1 upcoming event saved
+
+Preferred:
+- keep 3 upcoming events queued
+
+Command:
+
+/aequeue
+
+Aliases:
+
+/autoeventqueue
+
+Response:
+
+EventBot:
+📋 Auto Event Queue
+1. Prismatic Hunt — starts in 52m
+2. Lucky Rush — queued
+3. Heavy Ore Rush — queued
+
+If no queue:
+
+EventBot:
+📋 Auto Event Queue
+No queued auto events.
+Use /aererollnext or enable Auto Events.
+
+==================================================
+3D — REROLL NEXT EVENT
+==================================================
+
+Add Manager+ command:
+
+/aererollnext
+
+Alias:
+
+/rerollae
+
+Behavior:
+Rerolls the saved next auto event from the enabled pool.
+Does not affect current active event.
+
+Example:
+
+EventBot:
+🔄 Next Auto Event Rerolled
+Old: Lucky Rush
+New: Prismatic Hunt
+Starts in: 52m
+
+Rules:
+- Manager+ only
+- Must not interrupt current active event
+- Save the new next event persistently
+- Avoid selecting the same event if possible
+
+==================================================
+3E — MANUAL OVERRIDE NEXT EVENT
+==================================================
+
+Add Manager+ command:
+
+/setnextae <event_name>
+
+Alias:
+
+/setnextautoevent <event_name>
+
+Example:
+
+/setnextae Prismatic Hunt
+
+Response:
+
+EventBot:
+✅ Next Auto Event Set
+Next: Prismatic Hunt
+Starts in: 52m
+
+Rules:
+- Manager+ only
+- Event must exist.
+- Event should be in enabled event pool unless Manager+ override is allowed.
+- Save persistently.
+- Do not affect current active event.
+- Next timer remains the same; only the selected next event changes.
+
+If event not found:
+
+EventBot:
+❌ Auto Event Not Found
+Use /aepool to see available events.
+
+==================================================
+3F — QUEUE RULES
+==================================================
+
+Rules:
+- Next event must come from enabled event pool unless Manager+ manually overrides.
+- If an event is removed from pool, remove it from next queue.
+- If pool is empty, /aenext should say no eligible events.
+- Avoid repeating the same event back-to-back if possible.
+- Save next event to database so it survives restart.
+- If bot restarts, restore the saved next auto event.
+- If saved next event is invalid after restart, reroll safely from pool.
+
+==================================================
+3G — DATABASE
+==================================================
+
+Create safe table if needed:
+
+auto_event_queue:
+- id INTEGER PRIMARY KEY AUTOINCREMENT
+- position INTEGER
+- event_key TEXT
+- event_name TEXT
+- duration_minutes INTEGER
+- selected_at TEXT
+- starts_at TEXT
+- selected_by_user_id TEXT
+- selected_by_username TEXT
+- source TEXT
+- status TEXT
+
+source:
+- auto_queue
+- manual_override
+- reroll
+
+status:
+- queued
+- active
+- used
+- cancelled
+- invalid
+
+Do not wipe old queue/history data.
+
+==================================================
+3H — HISTORY INTEGRATION
+==================================================
+
+When saved next auto event starts:
+
+event_history.start_type = auto
+event_history.source = scheduled_queue
+
+If Manager manually starts an event:
+
+event_history.start_type = manual
+event_history.started_by_username = staff username
+
+If Manager uses /setnextae:
+- Do not mark it as manual start.
+- It is still an auto event when scheduler starts it.
+- event_history.source can be manual_override_queue.
+
+==================================================
+PART 4 — AUTO EVENT SKIP / STOP CONTROLS
+==================================================
+
+Add commands to stop or skip the current active auto event.
+
+==================================================
+4A — STOP CURRENT EVENT
+==================================================
+
+Commands:
+
+/stopevent
+/stopae
+/stopautoevent
+/endevent
+/endcurrentevent
+
+Owner:
+EventBot
+
+Permission:
+Manager+
+
+Behavior:
+- Ends the current active event.
+- Marks event history as ended/cancelled/stopped.
+- Does not disable Auto Events.
+- Keeps scheduler running.
+- Keeps saved next auto event.
+- Next event starts at normal scheduled time.
+
+Response:
+
+EventBot:
+⏹️ Event Stopped
+Current event ended.
+Auto Events remain ON.
+Next Event: Prismatic Hunt in 52m
+
+If no current event:
+
+EventBot:
+⏹️ Event Stop
+No active event right now.
+
+==================================================
+4B — SKIP CURRENT EVENT
+==================================================
+
+Commands:
+
+/aeskip
+/skipaevent
+/skipae
+
+Owner:
+EventBot
+
+Permission:
+Manager+
+
+Behavior:
+- Ends/skips current active auto event.
+- Marks history as skipped/cancelled.
+- Does not disable Auto Events.
+- Keeps scheduler running.
+- Moves to waiting for the saved next event.
+- Does not immediately start next event.
+
+Response:
+
+EventBot:
+⏭️ Auto Event Skipped
+Skipped: Lucky Rush
+Next Event: Prismatic Hunt in 52m
+
+If no current event:
+
+EventBot:
+⏭️ Auto Event Skip
+No active event to skip.
+
+==================================================
+4C — SKIP CURRENT AND START NEXT IMMEDIATELY
+==================================================
+
+Commands:
+
+/aeskipnext
+/skipnextae
+
+Owner:
+EventBot
+
+Permission:
+Manager+
+
+Behavior:
+- Ends current active event.
+- Marks current event as skipped.
+- Starts saved next auto event immediately.
+- Logs new event start in history.
+- After starting it, selects/saves a new next auto event.
+
+Response:
+
+EventBot:
+⏭️ Auto Event Skip Next
+Skipped: Lucky Rush
+Started: Prismatic Hunt
+New Next: Heavy Ore Rush
+
+If there is no saved next event:
+- select one from pool
+- start it
+- save a new next event
+
+==================================================
+4D — HISTORY REQUIREMENTS FOR SKIP
+==================================================
+
+Event history should show:
+
+Lucky Rush — AUTO — skipped by @Manager
+Prismatic Hunt — AUTO — started via skip-next
+
+When using /aeskipnext:
+- old event status = skipped
+- old event skipped_by_username = staff username
+- new event start_type = auto
+- new event source = skip_next
+
+==================================================
+PART 5 — FIX /stay NOOWNER
+==================================================
+
+Current issue:
+/stay shows NoOwner.
+
+Goal:
+/stay should be a BlackJack command alias for /stand.
+
+Command:
+
+/stay
+
+Behavior:
+/stay = /stand
+
+Owner:
+BlackJackBot or existing valid Blackjack owner key.
+
+Required:
+- route=YES
+- handler=YES
+- owner=BlackJackBot / BlackjackBot
+- owner must not be UNKNOWN
+- /stay should appear in BlackJack help as an alias for /stand
+- /stay should not have a separate broken handler
+
+Example:
+
+Player uses:
+/stay
+
+BlackJackBot treats it exactly like:
+/stand
+
+==================================================
+PART 6 — SUBSCRIBER NOTIFICATION DELIVERY FIX
+==================================================
+
+Current issue:
+Players are subscribed and opted into notification categories, but they are not receiving direct messages from the bot.
+Even players with conversations are not receiving DMs.
+Also, players currently in the room should receive notifications.
+
+Goal:
+Make subscriber notifications deliver reliably by prioritizing in-room whispers.
+
+Important:
+If a subscribed player is currently in the room, they should receive a whisper immediately.
+Do not depend on DM for players who are in the room.
+
+==================================================
+6A — CHANGE DELIVERY PRIORITY
+==================================================
+
+Current broken behavior is likely:
+1. Try DM.
+2. DM fails or no conversation is found.
+3. Player receives nothing.
+
+New required behavior:
+
+For every eligible subscribed player:
+
+1. If player is currently in the room:
+   - send notification by whisper
+   - status = sent_whisper_in_room
+   - do NOT require DM conversation
+   - do NOT skip because DM failed
+
+2. If player is not currently in the room:
+   - try DM/conversation message
+   - if DM succeeds: status = sent_dm
+   - if no conversation: status = no_conversation
+   - if SDK does not support DM: status = unsupported_sdk
+   - if failed: status = failed
+
+In-room whisper should be the most reliable delivery method.
+
+==================================================
+6B — ROOM PRESENCE TRACKING
+==================================================
+
+Fix or add current room user tracking.
+
+Track players currently in room by:
+- on_user_join
+- on_user_leave
+- on_chat
+- any available room user list if SDK supports it
+
+Maintain:
+
+current_room_users[user_id] = username
+
+Also update when any player sends a public message:
+- mark them as in room
+- update last_seen_in_room_at
+
+If the bot cannot reliably know who is in room, then on /subnotify:
+- use the Highrise room users list if available
+- otherwise use recently seen users within the last 10 minutes as in-room fallback
+
+==================================================
+6C — SUBNOTIFY DELIVERY RULE
+==================================================
+
+When manager uses:
+
+/subnotify events First Hunt starts in 5 minutes!
+
+For each player:
+- must be subscribed
+- must have global notifications ON
+- must have Events category ON
+
+Then:
+
+If currently in room:
+EmceeBot whispers:
+📣 Subscriber Alert — Events
+First Hunt starts in 5 minutes!
+
+Status:
+sent_whisper_in_room
+
+If not in room:
+Try DM.
+
+If DM fails:
+status = failed or no_conversation
+
+Do not mark failed DM as delivered.
+
+==================================================
+6D — TESTNOTIFY MUST SHOW REAL DELIVERY PATH
+==================================================
+
+/testnotify @username events Test message
+
+Should show:
+
+EmceeBot:
+🔔 Test Notify
+Target: @username
+Subscribed: YES
+Global: ON
+Category Events: ON
+Currently In Room: YES
+DM Conversation: YES/NO
+Delivery Used: whisper
+Delivered: YES
+Status: sent_whisper_in_room
+
+If target is not in room:
+
+Delivery Used: dm
+Delivered: YES/NO
+Status: sent_dm / no_conversation / failed
+
+==================================================
+6E — FIX /subnotify SUMMARY
+==================================================
+
+After /subnotify, show accurate counts:
+
+EmceeBot:
+🔔 Subscriber Notification Complete
+Category: Events
+Whisper Sent In Room: 5
+DM Sent Out of Room: 2
+Skipped Opt-Out: 3
+No Conversation: 4
+Failed: 1
+
+Important:
+If a player is in room and receives whisper, count them as Whisper Sent In Room.
+Do not also try/count DM for them.
+
+==================================================
+6F — FIX /subnotifystatus
+==================================================
+
+/subnotifystatus should show:
+
+Last Notification:
+Category: Events
+Whisper Sent In Room: 5
+DM Sent Out of Room: 2
+Skipped: 3
+No Conversation: 4
+Failed: 1
+
+Add detail commands if possible:
+
+/subnotifystatus room
+/subnotifystatus dm
+/subnotifystatus failed
+/subnotifystatus noconversation
+
+==================================================
+6G — DO NOT DEPEND ON DM FOR PLAYERS IN ROOM
+==================================================
+
+This is the most important fix:
+
+If player is currently in room:
+- send whisper
+- do not require DM conversation
+- do not fail because conversation_id is missing
+- do not wait for /notifdm
+- do not only log it
+
+==================================================
+PART 7 — COMMAND OWNERSHIP
+==================================================
+
+EventBot owns:
+
+/setaeinterval
+/setaeduration
+/aeinterval
+/aeduration
+/setautoeventinterval
+/setautoeventduration
+/seteventduration
+/aehistory
+/autoeventhistory
+/eventhistory
+/aenext
+/autoeventnext
+/aequeue
+/autoeventqueue
+/aererollnext
+/rerollae
+/setnextae
+/setnextautoevent
+/stopevent
+/stopae
+/stopautoevent
+/endevent
+/endcurrentevent
+/aeskip
+/skipaevent
+/skipae
+/aeskipnext
+/skipnextae
+
+BlackJackBot owns:
+
+/stay
+
+EmceeBot owns:
+
+/notif
+/notifon
+/notifoff
+/notifall
+/subnotify
+/subnotifyinvite
+/subnotifystatus
+/testnotify
+
+Use existing valid owner keys in the project.
+Do not leave owner UNKNOWN.
+
+==================================================
+PART 8 — COMMANDTEST
+==================================================
+
+These must pass:
+
+/commandtest /setaeinterval
+/commandtest /setaeduration
+/commandtest /aeinterval
+/commandtest /aeduration
+/commandtest /setautoeventinterval
+/commandtest /setautoeventduration
+/commandtest /seteventduration
+
+/commandtest /aehistory
+/commandtest /autoeventhistory
+/commandtest /eventhistory
+
+/commandtest /aenext
+/commandtest /autoeventnext
+/commandtest /aequeue
+/commandtest /autoeventqueue
+/commandtest /aererollnext
+/commandtest /rerollae
+/commandtest /setnextae
+/commandtest /setnextautoevent
+
+/commandtest /stopevent
+/commandtest /stopae
+/commandtest /stopautoevent
+/commandtest /endevent
+/commandtest /endcurrentevent
+/commandtest /aeskip
+/commandtest /skipaevent
+/commandtest /skipae
+/commandtest /aeskipnext
+/commandtest /skipnextae
+
+/commandtest /stay
+
+/commandtest /notif
+/commandtest /subnotify
+/commandtest /subnotifystatus
+/commandtest /testnotify
+
+/checkcommands all
+
+Target:
+
+route=YES
+handler=YES
+owner is not UNKNOWN
+Missing 0
+NoOwner 0
+
+If any command is not implemented, do not add it as active and do not show it in help.
+
+==================================================
+PART 9 — TEST CASES
+==================================================
+
+Test timer settings:
+
+/setaeinterval 2
+/setaeduration 1
+/aestatus
+
+Expected:
+Interval: 2m
+Duration: 1m
+
+Wait 2–3 minutes.
+
+Then:
+
+/aestatus
+/aehistory
+/eventheartbeat
+
+Expected:
+Auto event starts by itself.
+History shows AUTO.
+Scheduler still running.
+
+Test manual history:
+
+/startevent Lucky Rush 1
+/aehistory
+
+Expected:
+Lucky Rush shows MANUAL by @username.
+
+Test next event preview:
+
+/aenext
+/aestatus
+/aequeue
+
+Expected:
+Next event is shown before timer hits 0.
+
+Test reroll:
+
+/aererollnext
+/aenext
+
+Expected:
+Next event changes and is saved.
+
+Test manual next override:
+
+/setnextae Prismatic Hunt
+/aenext
+
+Expected:
+Next: Prismatic Hunt
+
+Test skip current event:
+
+/aeskip
+/aestatus
+/aehistory
+/aenext
+
+Expected:
+Current event skipped.
+History shows skipped by staff.
+Scheduler remains running.
+Next event remains scheduled.
+
+Test skip and start next immediately:
+
+/aeskipnext
+/aestatus
+/aehistory
+/aenext
+
+Expected:
+Current event skipped.
+Saved next event starts immediately.
+New next event is selected.
+
+Test restart recovery:
+Set next event.
+Restart bot.
+Run:
+
+/aestatus
+/aenext
+/aequeue
+
+Expected:
+Saved next event is restored.
+
+Test /stay:
+
+/commandtest /stay
+
+During BlackJack round:
+/stay
+
+Expected:
+Acts like /stand.
+
+Test subscriber notification in-room whisper:
+
+/notifon events
+/testnotify @4ktreyMarion events Test in-room whisper
+
+Expected:
+Delivery Used: whisper
+Status: sent_whisper_in_room
+
+Then:
+
+/subnotify events First Hunt starts in 5 minutes!
+/subnotifystatus
+
+Expected:
+Subscribed players in room receive whispers.
+Counts show Whisper Sent In Room.
+
+Restore normal event settings after test:
+
+/setaeinterval 60
+/setaeduration 10
+/aestatus
+
+==================================================
+PART 10 — SAFETY
+==================================================
+
+Do not:
+- reset balances
+- wipe event history
+- wipe event pool
+- wipe subscriptions
+- wipe notification preferences
+- break auto event scheduler
+- create duplicate schedulers
+- start multiple events at once unless existing system supports stacking
+- break manual event start
+- break /aestatus
+- break /eventheartbeat
+- break BlackJack /stand
+- leave /stay NoOwner
+- send notifications to unsubscribed players
+- send notifications to opted-out players
+- depend on DM for players currently in room
+- mark failed/no_conversation messages as sent
+- leave broken commands in help
+- expose tokens/secrets/env vars
+
+==================================================
+FINAL REPORT
+==================================================
+
+After finishing, tell me:
+
+1. Files changed
+2. Commands added or fixed
+3. How /setaeinterval works
+4. How /setaeduration works
+5. How /aestatus was updated
+6. Why auto event history was not working
+7. How manual vs auto history is tracked
+8. Where event history is stored
+9. How next auto event is pre-selected
+10. How /aenext works
+11. How /aequeue works
+12. How /aererollnext works
+13. How /setnextae works
+14. How saved next event survives restart
+15. How /aeskip works
+16. How /aeskipnext works
+17. How /stay NoOwner was fixed
+18. Why subscriber notifications were not delivered before
+19. How in-room users are tracked
+20. Whether in-room whisper now has priority
+21. Whether DM is only used for out-of-room players
+22. How /testnotify reports delivery
+23. Results of /checkcommands all
+24. Exact tests to run

@@ -878,6 +878,147 @@ async def handle_stopevent(bot: BaseBot, user: User,
 
 
 # ---------------------------------------------------------------------------
+# /aeskip — skip/cancel current event, keep scheduler running  (manager+)
+# ---------------------------------------------------------------------------
+
+async def handle_aeskip(
+    bot: BaseBot, user: User, args: list[str] | None = None
+) -> None:
+    """/aeskip — skip/cancel the current active event. Scheduler keeps running."""
+    if not can_manage_economy(user.username):
+        await _w(bot, user.id, "Manager/admin/owner only.")
+        return
+
+    gen_ev  = db.get_active_event()
+    mine_ev = db.get_active_mining_event()
+
+    if not gen_ev and not mine_ev:
+        await _w(bot, user.id, "⏭️ Auto Event Skip\nNo active event to skip.")
+        return
+
+    skipped_name: str | None = None
+
+    if gen_ev:
+        eid = gen_ev["event_id"]
+        skipped_name = EVENTS.get(eid, {}).get("name", eid)
+        _cancel_event_task()
+        db.clear_active_event()
+        # Mark most recent active history row as skipped
+        hist = db.get_event_history(limit=1)
+        if hist and hist[0]["status"] == "active":
+            db.close_event_history_as_skipped(hist[0]["id"], user.username)
+        try:
+            await bot.highrise.chat(
+                f"⏭️ {skipped_name} ended early by staff."[:249]
+            )
+        except Exception:
+            pass
+
+    if mine_ev:
+        mine_eid  = mine_ev.get("event_id", "")
+        mine_name = EVENTS.get(mine_eid, {}).get("name", mine_eid)
+        if not skipped_name:
+            skipped_name = mine_name
+        db.stop_mining_event()
+        try:
+            await bot.highrise.chat(
+                f"⏭️ {mine_name} ended early by staff."[:249]
+            )
+        except Exception:
+            pass
+
+    next_id   = db.get_auto_event_setting_str("next_event_id", "")
+    next_at   = db.get_auto_event_setting_str("next_event_at", "")
+    next_name = _CATALOG_BY_ID.get(next_id, {}).get("name", next_id) if next_id else "?"
+    time_str  = _time_remaining(next_at) if next_at else "?"
+
+    await _w(
+        bot, user.id,
+        f"⏭️ Auto Event Skipped\n"
+        f"Skipped: {skipped_name}\n"
+        f"Auto Events remain ON.\n"
+        f"Next Event: {next_name} in {time_str}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# /aeskipnext — skip current event and immediately start the next  (manager+)
+# ---------------------------------------------------------------------------
+
+async def handle_aeskipnext(
+    bot: BaseBot, user: User, args: list[str] | None = None
+) -> None:
+    """/aeskipnext — skip current event and start the next saved event immediately."""
+    import random as _random
+
+    if not can_manage_economy(user.username):
+        await _w(bot, user.id, "Manager/admin/owner only.")
+        return
+
+    gen_ev  = db.get_active_event()
+    mine_ev = db.get_active_mining_event()
+    skipped_name: str | None = None
+
+    # ── Stop current event ──────────────────────────────────────────────────
+    if gen_ev:
+        eid = gen_ev["event_id"]
+        skipped_name = EVENTS.get(eid, {}).get("name", eid)
+        _cancel_event_task()
+        db.clear_active_event()
+        hist = db.get_event_history(limit=1)
+        if hist and hist[0]["status"] == "active":
+            db.close_event_history_as_skipped(hist[0]["id"], user.username)
+
+    if mine_ev:
+        mine_eid  = mine_ev.get("event_id", "")
+        mine_name = EVENTS.get(mine_eid, {}).get("name", mine_eid)
+        if not skipped_name:
+            skipped_name = mine_name
+        db.stop_mining_event()
+
+    # ── Find next event ─────────────────────────────────────────────────────
+    settings = db.get_auto_event_settings()
+    dur      = settings.get("auto_event_duration", 30)
+    next_id  = db.get_auto_event_setting_str("next_event_id", "")
+
+    if not next_id:
+        eligible = db.get_eligible_pool_events()
+        if eligible:
+            next_id = _random.choice(eligible)["event_id"]
+
+    if not next_id:
+        msg = f"⏭️ Skipped: {skipped_name or 'None'}\nNo event available in pool."
+        await _w(bot, user.id, msg)
+        return
+
+    next_entry = _CATALOG_BY_ID.get(next_id, {})
+    next_name  = next_entry.get("name", next_id)
+
+    # ── Start the next event ────────────────────────────────────────────────
+    await handle_startevent(bot, user, ["startevent", next_id, str(dur)])
+
+    # ── Pick a new next event for the queue ─────────────────────────────────
+    eligible2     = db.get_eligible_pool_events()
+    new_next_name = "?"
+    if eligible2:
+        candidates   = [e for e in eligible2 if e["event_id"] != next_id] or eligible2
+        new_next_id  = _random.choice(candidates)["event_id"]
+        db.set_auto_event_setting_str("next_event_id", new_next_id)
+        db.set_auto_event_setting_str("next_event_source", "auto")
+        new_next_name = _CATALOG_BY_ID.get(new_next_id, {}).get("name", new_next_id)
+    else:
+        db.set_auto_event_setting_str("next_event_id", "")
+
+    await _w(
+        bot, user.id,
+        f"⏭️ Auto Event Skip Next\n"
+        f"Skipped: {skipped_name or 'None'}\n"
+        f"Started: {next_name}\n"
+        f"New Next: {new_next_name}"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Event resume / autogame status helpers
 # ---------------------------------------------------------------------------
 
@@ -2018,13 +2159,18 @@ async def handle_eventhistory(bot: BaseBot, user: User) -> None:
     for r in rows:
         name   = (r.get("event_name") or r.get("event_id", "?"))[:12]
         mins   = int(r.get("duration_seconds", 0)) // 60
-        status = (r.get("status") or "?")[:6]
-        if r.get("auto_started"):
+        status = (r.get("status") or "?")[:8]
+        sb     = r.get("started_by") or r.get("started_by_username") or ""
+        skipped_by = r.get("skipped_by") or ""
+        if r.get("auto_started") or sb in ("auto", ""):
             who = "AUTO"
         else:
-            sb = r.get("started_by") or r.get("started_by_username") or "?"
-            who = f"@{sb}"[:12] if sb and sb not in ("auto", "") else "MANUAL"
-        lines.append(f"{name} {mins}m [{status}] {who}"[:48])
+            who = f"@{sb}"[:12]
+        if status == "skipped" and skipped_by:
+            line = f"{name} {mins}m [skipped] {who} by @{skipped_by}"[:48]
+        else:
+            line = f"{name} {mins}m [{status}] {who}"[:48]
+        lines.append(line)
     await _w(bot, user.id, "\n".join(lines)[:249])
 
 

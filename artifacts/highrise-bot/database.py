@@ -1756,6 +1756,8 @@ def _migrate_db():
         "ALTER TABLE subscriber_notification_recipients ADD COLUMN subscribed INTEGER DEFAULT 0",
         "ALTER TABLE subscriber_notification_recipients ADD COLUMN category_enabled INTEGER DEFAULT 0",
         "ALTER TABLE subscriber_notification_recipients ADD COLUMN global_enabled INTEGER DEFAULT 1",
+        # ── event_history: add skipped_by for skip/cancel tracking ────────────
+        "ALTER TABLE event_history ADD COLUMN skipped_by TEXT DEFAULT ''",
     ]:
         try:
             conn.execute(sql)
@@ -10472,3 +10474,15 @@ def get_sub_notif_failed_recipients(limit: int = 10) -> list[dict]:
     ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+
+def close_event_history_as_skipped(history_id: int, skipped_by: str) -> None:
+    """Mark an event_history row as skipped and record who skipped it."""
+    conn = get_connection()
+    conn.execute(
+        "UPDATE event_history SET ended_at=datetime('now'), status='skipped', "
+        "skipped_by=? WHERE id=?",
+        ((skipped_by or "").lower(), history_id),
+    )
+    conn.commit()
+    conn.close()
