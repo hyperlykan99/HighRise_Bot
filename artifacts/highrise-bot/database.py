@@ -1650,6 +1650,82 @@ def _migrate_db():
         "enabled INTEGER NOT NULL DEFAULT 1)",
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_weekly_rewards_cat_rank "
         "ON weekly_rewards(category, rank)",
+        # ── Suggestions ────────────────────────────────────────────────────────
+        "CREATE TABLE IF NOT EXISTS suggestions ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "user_id TEXT NOT NULL DEFAULT '', "
+        "username TEXT NOT NULL DEFAULT '', "
+        "message TEXT NOT NULL DEFAULT '', "
+        "status TEXT NOT NULL DEFAULT 'open', "
+        "created_at TEXT NOT NULL DEFAULT (datetime('now')))",
+        # ── Bug reports ────────────────────────────────────────────────────────
+        "CREATE TABLE IF NOT EXISTS bug_reports ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "user_id TEXT NOT NULL DEFAULT '', "
+        "username TEXT NOT NULL DEFAULT '', "
+        "message TEXT NOT NULL DEFAULT '', "
+        "status TEXT NOT NULL DEFAULT 'open', "
+        "created_at TEXT NOT NULL DEFAULT (datetime('now')))",
+        # ── Event votes ────────────────────────────────────────────────────────
+        "CREATE TABLE IF NOT EXISTS event_votes ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "user_id TEXT NOT NULL DEFAULT '', "
+        "username TEXT NOT NULL DEFAULT '', "
+        "choice TEXT NOT NULL DEFAULT '', "
+        "created_at TEXT NOT NULL DEFAULT (datetime('now')))",
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_event_votes_user "
+        "ON event_votes(user_id)",
+        # ── Fish inventory ─────────────────────────────────────────────────────
+        "CREATE TABLE IF NOT EXISTS fish_inventory ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "user_id TEXT NOT NULL DEFAULT '', "
+        "username TEXT NOT NULL DEFAULT '', "
+        "fish_name TEXT NOT NULL DEFAULT '', "
+        "rarity TEXT NOT NULL DEFAULT 'common', "
+        "weight REAL NOT NULL DEFAULT 0, "
+        "value INTEGER NOT NULL DEFAULT 0, "
+        "sold INTEGER NOT NULL DEFAULT 0, "
+        "sold_at TEXT, "
+        "caught_at TEXT NOT NULL DEFAULT (datetime('now')))",
+        # ── Fish auto-sell settings ────────────────────────────────────────────
+        "CREATE TABLE IF NOT EXISTS fish_auto_sell_settings ("
+        "user_id TEXT PRIMARY KEY, "
+        "username TEXT NOT NULL DEFAULT '', "
+        "auto_sell_enabled INTEGER NOT NULL DEFAULT 1, "
+        "auto_sell_rare_enabled INTEGER NOT NULL DEFAULT 0, "
+        "updated_at TEXT NOT NULL DEFAULT (datetime('now')))",
+        # ── Subscriber notification preferences ────────────────────────────────
+        "CREATE TABLE IF NOT EXISTS subscriber_notification_prefs ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "user_id TEXT NOT NULL DEFAULT '', "
+        "username TEXT NOT NULL DEFAULT '', "
+        "category TEXT NOT NULL DEFAULT '', "
+        "enabled INTEGER NOT NULL DEFAULT 1, "
+        "updated_at TEXT NOT NULL DEFAULT (datetime('now')))",
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_sub_notif_prefs_user_cat "
+        "ON subscriber_notification_prefs(user_id, category)",
+        # ── Subscriber notification logs ───────────────────────────────────────
+        "CREATE TABLE IF NOT EXISTS subscriber_notification_logs ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "category TEXT NOT NULL DEFAULT '', "
+        "message TEXT NOT NULL DEFAULT '', "
+        "sender_user_id TEXT NOT NULL DEFAULT '', "
+        "sender_username TEXT NOT NULL DEFAULT '', "
+        "sent_count INTEGER NOT NULL DEFAULT 0, "
+        "skipped_count INTEGER NOT NULL DEFAULT 0, "
+        "no_conversation_count INTEGER NOT NULL DEFAULT 0, "
+        "failed_count INTEGER NOT NULL DEFAULT 0, "
+        "created_at TEXT NOT NULL DEFAULT (datetime('now')))",
+        # ── Subscriber notification recipients ─────────────────────────────────
+        "CREATE TABLE IF NOT EXISTS subscriber_notification_recipients ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "notification_id INTEGER NOT NULL DEFAULT 0, "
+        "user_id TEXT NOT NULL DEFAULT '', "
+        "username TEXT NOT NULL DEFAULT '', "
+        "category TEXT NOT NULL DEFAULT '', "
+        "status TEXT NOT NULL DEFAULT 'sent', "
+        "error TEXT NOT NULL DEFAULT '', "
+        "created_at TEXT NOT NULL DEFAULT (datetime('now')))",
     ]:
         try:
             conn.execute(sql)
@@ -9833,3 +9909,377 @@ def get_race_wins_count(user_id: str) -> int:
     ).fetchone()
     conn.close()
     return row[0] if row else 0
+
+
+def get_recent_race_winners_for_user(user_id: str, limit: int = 5) -> list:
+    """Return recent race winner rows for a specific user."""
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT * FROM first_find_race_winners WHERE user_id=? ORDER BY won_at DESC LIMIT ?",
+        (user_id, limit),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+# ── Suggestions ────────────────────────────────────────────────────────────────
+
+def add_suggestion(user_id: str, username: str, message: str) -> int:
+    conn = get_connection()
+    cur = conn.execute(
+        "INSERT INTO suggestions (user_id, username, message) VALUES (?, ?, ?)",
+        (user_id, username, message),
+    )
+    rid = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return rid or 0
+
+
+def get_suggestions(status: str | None = None, limit: int = 10) -> list:
+    conn = get_connection()
+    if status:
+        rows = conn.execute(
+            "SELECT * FROM suggestions WHERE status=? ORDER BY id DESC LIMIT ?",
+            (status, limit),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT * FROM suggestions ORDER BY id DESC LIMIT ?", (limit,)
+        ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+# ── Bug reports ────────────────────────────────────────────────────────────────
+
+def add_bug_report(user_id: str, username: str, message: str) -> int:
+    conn = get_connection()
+    cur = conn.execute(
+        "INSERT INTO bug_reports (user_id, username, message) VALUES (?, ?, ?)",
+        (user_id, username, message),
+    )
+    rid = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return rid or 0
+
+
+def get_bug_reports(status: str | None = None, limit: int = 10) -> list:
+    conn = get_connection()
+    if status:
+        rows = conn.execute(
+            "SELECT * FROM bug_reports WHERE status=? ORDER BY id DESC LIMIT ?",
+            (status, limit),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT * FROM bug_reports ORDER BY id DESC LIMIT ?", (limit,)
+        ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+# ── Event votes ────────────────────────────────────────────────────────────────
+
+def cast_event_vote(user_id: str, username: str, choice: str) -> bool:
+    """Insert or replace a vote. Returns True if new, False if changed."""
+    conn = get_connection()
+    existing = conn.execute(
+        "SELECT choice FROM event_votes WHERE user_id=?", (user_id,)
+    ).fetchone()
+    conn.execute(
+        """INSERT INTO event_votes (user_id, username, choice)
+           VALUES (?, ?, ?)
+           ON CONFLICT(user_id) DO UPDATE SET choice=excluded.choice,
+           created_at=datetime('now')""",
+        (user_id, username, choice),
+    )
+    conn.commit()
+    conn.close()
+    return existing is None
+
+
+def get_event_vote_counts() -> dict:
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT choice, COUNT(*) AS cnt FROM event_votes GROUP BY choice ORDER BY cnt DESC"
+    ).fetchall()
+    conn.close()
+    return {r["choice"]: r["cnt"] for r in rows}
+
+
+def clear_event_votes() -> int:
+    conn = get_connection()
+    cur = conn.execute("DELETE FROM event_votes")
+    count = cur.rowcount
+    conn.commit()
+    conn.close()
+    return count
+
+
+# ── Fish inventory ─────────────────────────────────────────────────────────────
+
+def save_fish_to_inventory(
+    user_id: str, username: str,
+    fish_name: str, rarity: str,
+    weight: float, value: int,
+    sold: int = 0,
+) -> int:
+    conn = get_connection()
+    cur = conn.execute(
+        """INSERT INTO fish_inventory
+           (user_id, username, fish_name, rarity, weight, value, sold)
+           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+        (user_id, username, fish_name, rarity, weight, value, sold),
+    )
+    rid = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return rid or 0
+
+
+def get_fish_inventory(user_id: str, limit: int = 20, sold: int = 0) -> list:
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT * FROM fish_inventory WHERE user_id=? AND sold=? ORDER BY id DESC LIMIT ?",
+        (user_id, sold, limit),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def sell_all_fish_inventory(user_id: str) -> tuple[int, int]:
+    """Mark all unsold fish as sold. Returns (count, total_coins)."""
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT id, value FROM fish_inventory WHERE user_id=? AND sold=0",
+        (user_id,),
+    ).fetchall()
+    total = sum(r["value"] for r in rows)
+    count = len(rows)
+    if count:
+        conn.execute(
+            "UPDATE fish_inventory SET sold=1, sold_at=datetime('now') "
+            "WHERE user_id=? AND sold=0",
+            (user_id,),
+        )
+        conn.commit()
+    conn.close()
+    return count, total
+
+
+def sell_fish_inventory_by_rarity(user_id: str, rarity: str) -> tuple[int, int]:
+    """Mark all unsold fish of a rarity as sold. Returns (count, total_coins)."""
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT id, value FROM fish_inventory WHERE user_id=? AND rarity=? AND sold=0",
+        (user_id, rarity),
+    ).fetchall()
+    total = sum(r["value"] for r in rows)
+    count = len(rows)
+    if count:
+        conn.execute(
+            "UPDATE fish_inventory SET sold=1, sold_at=datetime('now') "
+            "WHERE user_id=? AND rarity=? AND sold=0",
+            (user_id, rarity),
+        )
+        conn.commit()
+    conn.close()
+    return count, total
+
+
+def get_fish_auto_sell_settings(user_id: str) -> dict:
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT * FROM fish_auto_sell_settings WHERE user_id=?", (user_id,)
+    ).fetchone()
+    conn.close()
+    if row:
+        return dict(row)
+    return {"auto_sell_enabled": 1, "auto_sell_rare_enabled": 0}
+
+
+def set_fish_auto_sell(user_id: str, username: str, enabled: int) -> None:
+    conn = get_connection()
+    conn.execute(
+        """INSERT INTO fish_auto_sell_settings (user_id, username, auto_sell_enabled)
+           VALUES (?, ?, ?)
+           ON CONFLICT(user_id) DO UPDATE SET
+               auto_sell_enabled=excluded.auto_sell_enabled,
+               updated_at=datetime('now')""",
+        (user_id, username, enabled),
+    )
+    conn.commit()
+    conn.close()
+
+
+def set_fish_auto_sell_rare(user_id: str, username: str, enabled: int) -> None:
+    conn = get_connection()
+    conn.execute(
+        """INSERT INTO fish_auto_sell_settings (user_id, username, auto_sell_rare_enabled)
+           VALUES (?, ?, ?)
+           ON CONFLICT(user_id) DO UPDATE SET
+               auto_sell_rare_enabled=excluded.auto_sell_rare_enabled,
+               updated_at=datetime('now')""",
+        (user_id, username, enabled),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_fish_book(user_id: str) -> list:
+    """Return distinct fish species caught by user (from fish_inventory)."""
+    conn = get_connection()
+    rows = conn.execute(
+        """SELECT fish_name, rarity, MAX(weight) AS best_weight,
+                  MAX(value) AS best_value, COUNT(*) AS total_caught
+           FROM fish_inventory WHERE user_id=?
+           GROUP BY fish_name, rarity ORDER BY rarity, fish_name""",
+        (user_id,),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+# ── Subscriber notification preferences ───────────────────────────────────────
+
+def get_sub_notif_prefs(user_id: str) -> dict:
+    """Return {category: enabled} for a user."""
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT category, enabled FROM subscriber_notification_prefs WHERE user_id=?",
+        (user_id,),
+    ).fetchall()
+    conn.close()
+    return {r["category"]: r["enabled"] for r in rows}
+
+
+def set_sub_notif_pref(user_id: str, username: str, category: str, enabled: int) -> None:
+    conn = get_connection()
+    conn.execute(
+        """INSERT INTO subscriber_notification_prefs (user_id, username, category, enabled)
+           VALUES (?, ?, ?, ?)
+           ON CONFLICT(user_id, category) DO UPDATE SET
+               enabled=excluded.enabled,
+               updated_at=datetime('now')""",
+        (user_id, username, category, enabled),
+    )
+    conn.commit()
+    conn.close()
+
+
+def set_sub_notif_all_prefs(user_id: str, username: str, enabled: int) -> None:
+    """Set all known categories for a user to enabled/disabled."""
+    from modules.sub_notif import NOTIF_CATEGORIES
+    conn = get_connection()
+    for cat in NOTIF_CATEGORIES:
+        conn.execute(
+            """INSERT INTO subscriber_notification_prefs (user_id, username, category, enabled)
+               VALUES (?, ?, ?, ?)
+               ON CONFLICT(user_id, category) DO UPDATE SET
+                   enabled=excluded.enabled,
+                   updated_at=datetime('now')""",
+            (user_id, username, cat, enabled),
+        )
+    conn.commit()
+    conn.close()
+
+
+def get_subscribers_opted_into_category(category: str) -> list:
+    """Return list of {user_id, username} opted into category (enabled=1)."""
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT user_id, username FROM subscriber_notification_prefs "
+        "WHERE category=? AND enabled=1",
+        (category,),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def log_sub_notification(
+    category: str, message: str,
+    sender_user_id: str, sender_username: str,
+    sent: int, skipped: int, no_conv: int, failed: int,
+) -> int:
+    conn = get_connection()
+    cur = conn.execute(
+        """INSERT INTO subscriber_notification_logs
+           (category, message, sender_user_id, sender_username,
+            sent_count, skipped_count, no_conversation_count, failed_count)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+        (category, message, sender_user_id, sender_username,
+         sent, skipped, no_conv, failed),
+    )
+    rid = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return rid or 0
+
+
+def update_sub_notif_log(
+    log_id: int, sent: int, skipped: int, no_conv: int, failed: int
+) -> None:
+    conn = get_connection()
+    conn.execute(
+        """UPDATE subscriber_notification_logs SET
+               sent_count=?, skipped_count=?,
+               no_conversation_count=?, failed_count=?
+           WHERE id=?""",
+        (sent, skipped, no_conv, failed, log_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+def log_sub_notif_recipient(
+    notification_id: int, user_id: str, username: str,
+    category: str, status: str, error: str,
+) -> None:
+    conn = get_connection()
+    conn.execute(
+        """INSERT INTO subscriber_notification_recipients
+           (notification_id, user_id, username, category, status, error)
+           VALUES (?, ?, ?, ?, ?, ?)""",
+        (notification_id, user_id, username, category, status, error),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_sub_notif_logs(limit: int = 10) -> list:
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT * FROM subscriber_notification_logs ORDER BY id DESC LIMIT ?",
+        (limit,),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+# ── Compatibility aliases ─────────────────────────────────────────────────────
+
+def get_or_create_mine_profile(user_id: str, username: str) -> dict:
+    """Alias wrapping get_or_create_miner for player_cmds compatibility."""
+    rec = get_or_create_miner(username)
+    # Normalize last_mine_at from mining_players.last_mine
+    if "last_mine" in rec and "last_mine_at" not in rec:
+        rec["last_mine_at"] = rec.get("last_mine")
+    return rec
+
+
+def get_daily_status(user_id: str) -> dict | None:
+    """Return today's daily_claims row for user_id, with claimed_today bool."""
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT * FROM daily_claims WHERE user_id = ?", (user_id,)
+    ).fetchone()
+    conn.close()
+    if row is None:
+        return None
+    rec = dict(row)
+    last = rec.get("last_claim") or rec.get("last_claim_ts") or ""
+    today = __import__("datetime").date.today().isoformat()
+    rec["claimed_today"] = last.startswith(today)
+    return rec

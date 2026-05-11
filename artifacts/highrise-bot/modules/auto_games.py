@@ -926,3 +926,14 @@ async def handle_fixautogames(bot: BaseBot, user: User) -> None:
     await bot.highrise.send_whisper(
         user.id, "✅ AutoGames fixed. Owner: Event Bot."
     )
+
+
+def get_current_auto_game() -> str | None:
+    """Return name of currently active auto game, or None."""
+    if trivia.is_active():
+        return "Trivia"
+    if scramble.is_active():
+        return "Scramble"
+    if riddle.is_active():
+        return "Riddle"
+    return None

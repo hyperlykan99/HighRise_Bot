@@ -561,6 +561,25 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "weeklylb": "host", "weeklyleaderboard": "host",
     "weeklyreset": "banker", "weeklyrewards": "banker",
     "setweeklyreward": "banker", "weeklystatus": "banker",
+    # ── fish inventory ────────────────────────────────────────────────────────
+    "fishbag": "fisher", "fishinventory": "fisher",
+    "fishbook": "fisher",
+    "fishautosell": "fisher", "fishautosellrare": "fisher",
+    "sellfishrarity": "fisher",
+    # ── safe mode + diagnostic (security) ────────────────────────────────────
+    "safemode": "security", "repair": "security",
+    "active": "host",
+    # ── player utility (host) ─────────────────────────────────────────────────
+    "menu": "host", "cooldowns": "host", "rewards": "host",
+    "wherebots": "host", "updates": "host", "rankup": "host",
+    # ── suggestions + bug reports ─────────────────────────────────────────────
+    "suggest": "host", "suggestions": "host",
+    "bugreport": "security", "bugreports": "security",
+    # ── event votes ───────────────────────────────────────────────────────────
+    "eventvote": "eventhost", "voteevent": "eventhost",
+    # ── subscriber notification preferences ───────────────────────────────────
+    "notif": "host", "notifon": "host", "notifoff": "host", "notifall": "host",
+    "subnotify": "host", "subnotifyinvite": "host", "subnotifystatus": "host",
 }
 
 # Friendly display names for modes

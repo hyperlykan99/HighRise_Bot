@@ -385,6 +385,8 @@ from modules.economy import (
 from modules.fishing import (
     handle_fish, handle_fishlist, handle_fishprices, handle_fishinfo,
     handle_myfish, handle_sellfish, handle_sellallfish,
+    handle_sellfishrarity, handle_fishbag, handle_fishbook,
+    handle_fishautosell, handle_fishautosellrare,
     handle_fishlevel, handle_fishstats, handle_fishboosts, handle_fishingevents,
     handle_fishhelp, handle_topfish, handle_topweightfish,
     handle_rods, handle_myrod, handle_rodshop, handle_buyrod,
@@ -396,6 +398,20 @@ from modules.fishing import (
     handle_forcedropfish, handle_forcedropfishitem,
     handle_forcedropfishstatus, handle_forcedropfishdebug,
     handle_clearforcedropfish,
+)
+from modules.safe_mode import handle_safemode, handle_active, handle_repair
+from modules.player_cmds import (
+    handle_menu, handle_cooldowns_cmd, handle_rewards_inbox,
+    handle_wherebots, handle_updates, handle_rankup,
+)
+from modules.suggestions import (
+    handle_suggest, handle_suggestions,
+    handle_bugreport, handle_bugreports,
+    handle_eventvote, handle_voteevent,
+)
+from modules.sub_notif import (
+    handle_notif, handle_notifon, handle_notifoff, handle_notifall,
+    handle_subnotify, handle_subnotifyinvite, handle_subnotifystatus,
 )
 from modules.first_find import (
     handle_firstfindrewards, handle_setfirstfind, handle_setfirstfinditem,
@@ -3673,6 +3689,77 @@ class HangoutBot(BaseBot):
         elif cmd == "helpsearch":
             await handle_helpsearch(self, user, args)
 
+        # ── Player utility commands ────────────────────────────────────────────
+        elif cmd == "menu":
+            await handle_menu(self, user)
+
+        elif cmd in {"cooldowns", "mycooldowns"}:
+            await handle_cooldowns_cmd(self, user)
+
+        elif cmd == "rewards":
+            await handle_rewards_inbox(self, user)
+
+        elif cmd == "wherebots":
+            await handle_wherebots(self, user)
+
+        elif cmd == "updates":
+            await handle_updates(self, user)
+
+        elif cmd == "rankup":
+            await handle_rankup(self, user)
+
+        elif cmd == "active":
+            await handle_active(self, user)
+
+        # ── Suggestions + bug reports ─────────────────────────────────────────
+        elif cmd == "suggest":
+            await handle_suggest(self, user, args)
+
+        elif cmd == "suggestions":
+            await handle_suggestions(self, user)
+
+        elif cmd in {"bugreport", "reportbug"}:
+            await handle_bugreport(self, user, args)
+
+        elif cmd == "bugreports":
+            await handle_bugreports(self, user)
+
+        # ── Event vote ────────────────────────────────────────────────────────
+        elif cmd in {"eventvote", "eventvotes"}:
+            await handle_eventvote(self, user)
+
+        elif cmd in {"voteevent", "votenextevent"}:
+            await handle_voteevent(self, user, args)
+
+        # ── Subscriber notification preferences ───────────────────────────────
+        elif cmd == "notif":
+            await handle_notif(self, user)
+
+        elif cmd == "notifon":
+            await handle_notifon(self, user, args)
+
+        elif cmd == "notifoff":
+            await handle_notifoff(self, user, args)
+
+        elif cmd == "notifall":
+            await handle_notifall(self, user, args)
+
+        elif cmd in {"subnotify", "subnotif"}:
+            await handle_subnotify(self, user, args)
+
+        elif cmd == "subnotifyinvite":
+            await handle_subnotifyinvite(self, user, args)
+
+        elif cmd == "subnotifystatus":
+            await handle_subnotifystatus(self, user)
+
+        # ── Safe mode + diagnostics ───────────────────────────────────────────
+        elif cmd == "safemode":
+            await handle_safemode(self, user, args)
+
+        elif cmd == "repair":
+            await handle_repair(self, user)
+
         elif cmd in {"start", "guide", "begin", "newplayer"}:
             await self.highrise.send_whisper(user.id,
                 "👋 Welcome to HR Lounge!\n"
@@ -4303,7 +4390,7 @@ class HangoutBot(BaseBot):
         elif cmd in {"fishinfo", "fishdetail"}:
             await handle_fishinfo(self, user, args)
 
-        elif cmd in {"myfish", "fishinv"}:
+        elif cmd in {"myfish", "fishinv", "fishbag", "fishinventory"}:
             await handle_myfish(self, user)
 
         elif cmd == "sellfish":
@@ -4311,6 +4398,18 @@ class HangoutBot(BaseBot):
 
         elif cmd == "sellallfish":
             await handle_sellallfish(self, user)
+
+        elif cmd in {"sellfishrarity", "sellrarity"}:
+            await handle_sellfishrarity(self, user, args)
+
+        elif cmd == "fishbook":
+            await handle_fishbook(self, user)
+
+        elif cmd in {"fishautosell", "autosellfish"}:
+            await handle_fishautosell(self, user, args)
+
+        elif cmd in {"fishautosellrare", "autosellrare"}:
+            await handle_fishautosellrare(self, user, args)
 
         elif cmd in {"fishlevel", "fishxp", "fishlvl"}:
             await handle_fishlevel(self, user)

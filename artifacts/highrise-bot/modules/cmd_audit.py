@@ -485,6 +485,20 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     # ── Weekly leaderboard ───────────────────────────────────────────────────
     "weeklylb", "weeklyleaderboard", "weeklyreset",
     "weeklyrewards", "setweeklyreward", "weeklystatus",
+    # ── Fish inventory ───────────────────────────────────────────────────────
+    "fishbag", "fishinventory", "fishbook",
+    "fishautosell", "fishautosellrare", "sellfishrarity",
+    # ── Safe mode + diagnostic ───────────────────────────────────────────────
+    "safemode", "active", "repair",
+    # ── Player utility (host) ─────────────────────────────────────────────────
+    "menu", "cooldowns", "rewards", "wherebots", "updates", "rankup",
+    # ── Suggestions + bug reports ─────────────────────────────────────────────
+    "suggest", "suggestions", "bugreport", "bugreports",
+    # ── Event votes ───────────────────────────────────────────────────────────
+    "eventvote", "voteevent",
+    # ── Subscriber notification preferences ───────────────────────────────────
+    "notif", "notifon", "notifoff", "notifall",
+    "subnotify", "subnotifyinvite", "subnotifystatus",
 })
 
 # ---------------------------------------------------------------------------

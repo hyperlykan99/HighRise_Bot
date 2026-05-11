@@ -460,13 +460,36 @@ async def handle_fish(bot: BaseBot, user: User) -> None:
                            best_fish_value=max(value,
                                                profile.get("best_fish_value") or 0))
 
-    db.adjust_balance(user.id, value)
+    # Determine auto-sell setting (default ON for backward compat)
+    _as = db.get_fish_auto_sell_settings(user.id)
+    _auto_sell_on   = bool(_as.get("auto_sell_enabled", 1))
+    _auto_sell_rare = bool(_as.get("auto_sell_rare_enabled", 0))
+    # Rare protection: if auto_sell_rare is OFF, high rarities go to inventory
+    _high_rarity = fish["rarity"] in ("legendary", "mythic", "prismatic", "exotic")
+    _sold_now = _auto_sell_on and (not _high_rarity or _auto_sell_rare)
+
+    # Always save to inventory; mark sold if auto-selling
+    db.save_fish_to_inventory(
+        user.id, uname,
+        fish["name"], fish["rarity"],
+        weight, value,
+        sold=1 if _sold_now else 0,
+    )
+
+    if _sold_now:
+        db.adjust_balance(user.id, value)
 
     rlabel = _rarity_label(fish["rarity"])
     nclr   = _name_colored(fish["rarity"], fish["name"])
-    msg = (f"🎣 Fishing\n"
-           f"You caught {rlabel} {fish['emoji']} {nclr} | "
-           f"⚖️ {weight}lb | 💰 {_fmt(value)}c | ⭐ +{fxp} FXP")
+    if _sold_now:
+        msg = (f"🎣 Fishing\n"
+               f"You caught {rlabel} {fish['emoji']} {nclr} | "
+               f"⚖️ {weight}lb | 💰 {_fmt(value)}c | ⭐ +{fxp} FXP")
+    else:
+        msg = (f"🎣 Fishing\n"
+               f"You caught {rlabel} {fish['emoji']} {nclr} | "
+               f"⚖️ {weight}lb | 📦 Saved to bag | ⭐ +{fxp} FXP\n"
+               f"Use /sellfish to sell")
     await _w(bot, user.id, msg[:249])
 
     if leveled:
@@ -594,26 +617,33 @@ async def handle_fishinfo(bot: BaseBot, user: User, args: list[str]) -> None:
 # ---------------------------------------------------------------------------
 
 async def handle_myfish(bot: BaseBot, user: User) -> None:
-    """/myfish /fishinv — show recent catches and stats."""
+    """/myfish /fishinv /fishbag — show inventory (unsold fish) and stats."""
     db.ensure_user(user.id, user.username)
-    profile = db.get_or_create_fish_profile(user.id, user.username)
-    recent  = db.get_fish_catches(user.id, limit=3)
-    lvl     = profile.get("fishing_level", 1)
-    xp      = profile.get("fishing_xp", 0)
-    total   = profile.get("total_catches", 0)
-    best_n  = profile.get("best_fish_name") or "None"
-    best_w  = profile.get("best_fish_weight") or 0
-    rod     = profile.get("equipped_rod") or "Driftwood Rod"
-    lines   = [
-        f"🎣 My Fishing",
+    profile  = db.get_or_create_fish_profile(user.id, user.username)
+    inv      = db.get_fish_inventory(user.id, limit=5, sold=0)
+    lvl      = profile.get("fishing_level", 1)
+    xp       = profile.get("fishing_xp", 0)
+    total    = profile.get("total_catches", 0)
+    best_n   = profile.get("best_fish_name") or "None"
+    best_w   = profile.get("best_fish_weight") or 0
+    rod      = profile.get("equipped_rod") or "Driftwood Rod"
+    _as      = db.get_fish_auto_sell_settings(user.id)
+    as_state = "ON" if _as.get("auto_sell_enabled", 1) else "OFF"
+    lines = [
+        f"🎣 Fish Bag | Auto-Sell: {as_state}",
         f"Lv {lvl} | FXP {_fmt(xp)}/{_fmt(_fish_level_threshold(lvl))}",
-        f"Total catches: {total} | Rod: {rod}",
+        f"Catches: {total} | Rod: {rod}",
         f"Best: {best_n} {best_w}lb",
     ]
-    if recent:
-        lines.append("Recent:")
-        for r in recent:
-            lines.append(f"  {r['fish_name']} {r['weight']}lb — {_fmt(r['final_value'])}c")
+    if inv:
+        total_val = sum(r["value"] for r in inv)
+        lines.append(f"Unsold ({len(inv)}+) | Value: {_fmt(total_val)}c:")
+        for r in inv[:3]:
+            rl = _rarity_label(r["rarity"])
+            lines.append(f"  {rl} {r['fish_name']} {r['weight']}lb")
+        lines.append("→ /sellfish to sell all")
+    else:
+        lines.append("Bag empty. Fish to fill it! /fish")
     await _w(bot, user.id, "\n".join(lines)[:249])
 
 
@@ -622,20 +652,120 @@ async def handle_myfish(bot: BaseBot, user: User) -> None:
 # ---------------------------------------------------------------------------
 
 async def handle_sellfish(bot: BaseBot, user: User) -> None:
-    """/sellfish — fish are auto-sold on catch."""
+    """/sellfish — sell all unsold fish in inventory."""
+    db.ensure_user(user.id, user.username)
+    count, coins = db.sell_all_fish_inventory(user.id)
+    if count == 0:
+        await _w(bot, user.id,
+                 "🎣 No unsold fish in your bag.\n"
+                 "Go fishing: /fish  |  View bag: /myfish")
+        return
+    db.adjust_balance(user.id, coins)
     await _w(bot, user.id,
-             "🎣 Fish are auto-sold when caught.\n"
-             "Use /myfish to see your recent catches and earnings.")
+             f"🎣 Sold {count} fish for {_fmt(coins)} coins!\n"
+             f"Balance updated. Keep fishing: /fish")
 
 
 async def handle_sellallfish(bot: BaseBot, user: User) -> None:
-    """/sellallfish — fish are auto-sold on catch."""
-    profile = db.get_or_create_fish_profile(user.id, user.username)
-    total   = profile.get("total_catches", 0)
+    """/sellallfish — alias for /sellfish."""
+    await handle_sellfish(bot, user)
+
+
+async def handle_sellfishrarity(bot: BaseBot, user: User, args: list[str]) -> None:
+    """/sellfishrarity <rarity> — sell all unsold fish of a rarity."""
+    db.ensure_user(user.id, user.username)
+    if len(args) < 2:
+        await _w(bot, user.id,
+                 "Usage: /sellfishrarity <rarity>\n"
+                 "e.g. /sellfishrarity common")
+        return
+    raw = args[1].lower()
+    rarity = _RARITY_ALIASES.get(raw)
+    if not rarity:
+        await _w(bot, user.id,
+                 "Unknown rarity. Use: common/rare/epic/legendary/mythic/prismatic/exotic")
+        return
+    count, coins = db.sell_fish_inventory_by_rarity(user.id, rarity)
+    if count == 0:
+        await _w(bot, user.id,
+                 f"🎣 No unsold {rarity} fish in your bag.")
+        return
+    db.adjust_balance(user.id, coins)
     await _w(bot, user.id,
-             f"🎣 Fish are auto-sold on catch.\n"
-             f"You have made {_fmt(total)} total catches.\n"
-             f"Use /fishlevel for your stats.")
+             f"🎣 Sold {count} {rarity} fish for {_fmt(coins)} coins!")
+
+
+async def handle_fishbag(bot: BaseBot, user: User) -> None:
+    """/fishbag /fishinventory — alias for /myfish."""
+    await handle_myfish(bot, user)
+
+
+async def handle_fishbook(bot: BaseBot, user: User) -> None:
+    """/fishbook — show distinct fish species caught."""
+    db.ensure_user(user.id, user.username)
+    species = db.get_fish_book(user.id)
+    if not species:
+        await _w(bot, user.id,
+                 "📖 Fish Book empty.\n"
+                 "Catch fish to discover species! /fish")
+        return
+    lines = [f"📖 Fish Book ({len(species)} species)"]
+    for sp in species[:8]:
+        rl    = _rarity_label(sp["rarity"])
+        total = sp.get("total_caught", 0)
+        best  = sp.get("best_weight", 0)
+        lines.append(f"{rl} {sp['fish_name']} | {total}x | Best: {best}lb")
+    if len(species) > 8:
+        lines.append(f"... and {len(species) - 8} more")
+    await _w(bot, user.id, "\n".join(lines)[:249])
+
+
+async def handle_fishautosell(bot: BaseBot, user: User, args: list[str]) -> None:
+    """/fishautosell on|off|status — toggle fish auto-sell mode."""
+    db.ensure_user(user.id, user.username)
+    sub = args[1].lower() if len(args) > 1 else "status"
+    if sub == "on":
+        db.set_fish_auto_sell(user.id, user.username, 1)
+        await _w(bot, user.id,
+                 "🎣 Fish Auto-Sell: ON\n"
+                 "Fish are sold immediately on catch.")
+    elif sub == "off":
+        db.set_fish_auto_sell(user.id, user.username, 0)
+        await _w(bot, user.id,
+                 "🎣 Fish Auto-Sell: OFF\n"
+                 "Fish go to your bag (/myfish).\n"
+                 "Sell with /sellfish when ready.")
+    else:
+        _as = db.get_fish_auto_sell_settings(user.id)
+        on      = bool(_as.get("auto_sell_enabled", 1))
+        rare_on = bool(_as.get("auto_sell_rare_enabled", 0))
+        await _w(bot, user.id,
+                 f"🎣 Fish Auto-Sell: {'ON' if on else 'OFF'}\n"
+                 f"Rare Auto-Sell: {'ON' if rare_on else 'OFF'}\n"
+                 f"/fishautosell on|off\n"
+                 f"/fishautosellrare on|off")
+
+
+async def handle_fishautosellrare(bot: BaseBot, user: User, args: list[str]) -> None:
+    """/fishautosellrare on|off — toggle auto-sell for rare+ fish."""
+    db.ensure_user(user.id, user.username)
+    sub = args[1].lower() if len(args) > 1 else "status"
+    if sub == "on":
+        db.set_fish_auto_sell_rare(user.id, user.username, 1)
+        await _w(bot, user.id,
+                 "🎣 Rare Auto-Sell: ON\n"
+                 "Legendary/Mythic/Prismatic/Exotic fish also auto-sell.")
+    elif sub == "off":
+        db.set_fish_auto_sell_rare(user.id, user.username, 0)
+        await _w(bot, user.id,
+                 "🎣 Rare Auto-Sell: OFF\n"
+                 "Rare+ fish are protected and saved to bag.")
+    else:
+        _as = db.get_fish_auto_sell_settings(user.id)
+        rare_on = bool(_as.get("auto_sell_rare_enabled", 0))
+        await _w(bot, user.id,
+                 f"🎣 Rare Auto-Sell: {'ON' if rare_on else 'OFF'}\n"
+                 "/fishautosellrare on|off")
 
 
 # ---------------------------------------------------------------------------

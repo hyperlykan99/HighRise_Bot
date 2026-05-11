@@ -35,6 +35,11 @@ from modules.permissions import can_manage_games, can_moderate, is_owner
 
 _RBJ_CASINO_CAP = 5.0
 
+# Watchers: user_id -> username — receive whisper copies of round events
+_bj_watchers: dict[str, str] = {}
+# Last bet per user for /bet same|repeat
+_last_rbj_bets: dict[str, int] = {}
+
 
 def _dn(p: "_Player") -> str:
     """Display name for a _Player object (badge + title + @username)."""
@@ -1186,6 +1191,23 @@ async def handle_rbj(bot: BaseBot, user: User, args: list[str]):
                      "forceplayerpair", "forceblackjack", "forceshoe",
                      "debug", "testcommands"):
             await _cmd_bj_force(bot, user, sub, args)
+        elif sub == "watch":
+            _bj_watchers[user.id] = user.username
+            s_now = _settings()
+            phase = _state.phase
+            players_in = len(_state.players)
+            await bot.highrise.send_whisper(
+                user.id,
+                f"👁️ BlackJack Watch ON\n"
+                f"Phase: {phase} | Players: {players_in}\n"
+                f"You'll get whispers of key round events.\n"
+                f"/bj unwatch to stop."
+            )
+        elif sub == "unwatch":
+            _bj_watchers.pop(user.id, None)
+            await bot.highrise.send_whisper(
+                user.id, "👁️ BlackJack Watch OFF"
+            )
         elif sub in ("help", ""):
             await _cmd_bj_help(bot, user)
         else:
@@ -1263,6 +1285,7 @@ async def _cmd_join(bot: BaseBot, user: User, args: list[str]):
         return
 
     db.adjust_balance(user.id, -bet)
+    _last_rbj_bets[user.id] = bet   # store for /bet same
     p = _Player(user_id=user.id, username=user.username, bet=bet)
     _state.players.append(p)
     _save_player_state(p)
@@ -2243,13 +2266,26 @@ async def _cmd_bj_help(bot: BaseBot, user: User):
 # ─── Primary join command (/bet <amount>) ──────────────────────────────────────
 
 async def handle_bet(bot: BaseBot, user: User, args: list) -> None:
-    """Primary join/bet-update command: /bet <amount>"""
+    """Primary join/bet-update command: /bet <amount|same|repeat>"""
     s = _settings()
     if not int(s.get("rbj_enabled", 1)):
         await bot.highrise.send_whisper(user.id, "🃏 BlackJack is currently closed.")
         return
 
     raw = args[1] if len(args) >= 2 else ""
+
+    # /bet same or /bet repeat — reuse last bet
+    if raw.lower() in ("same", "repeat"):
+        last = _last_rbj_bets.get(user.id)
+        if not last:
+            await bot.highrise.send_whisper(
+                user.id,
+                "🃏 No previous bet found.\n"
+                "Use /bet <amount> to place your first bet."
+            )
+            return
+        raw = str(last)
+
     if not raw.isdigit() or int(raw) < 1:
         min_b = int(s.get("min_bet", 10))
         max_b = int(s.get("max_bet", 1000))

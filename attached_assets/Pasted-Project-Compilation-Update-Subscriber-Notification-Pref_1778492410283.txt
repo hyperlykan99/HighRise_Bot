@@ -1,0 +1,1872 @@
+Project Compilation Update + Subscriber Notification Preferences
+
+Implement these compiled updates together:
+
+1. Project Polish Update
+2. Project Quality-of-Life Commands
+3. Fishing Inventory + Auto-Sell Choice System
+4. First Hunt / First Find Race System
+5. Gold Tip + Tip Leaderboards
+6. Top Donators / Room Tip Jar Leaderboard
+7. Dashboard / Start / Event Preset / Audit Fixes
+8. Big Announcement Fixes
+9. Force Drop Systems
+10. AutoMine / AutoFish Settings
+11. Mining/Fishing List Update
+12. Mining/Fishing Difficulty Scaling
+13. Subscriber Notification Preferences by Category
+
+Do not change bot tokens.
+Do not change room ID.
+Do not reset balances.
+Do not wipe player data.
+Do not wipe mining/fishing/casino/event/reward records.
+Do not break Blackjack, Poker, Mining, Fishing, Bank, Gold Tips, First Hunt Race, Auto Events, bot outfits, bot spawns, or command routing.
+Do not expose secrets, tokens, env vars, or room ID.
+
+==================================================
+PART 1 — PROJECT POLISH UPDATE
+==================================================
+
+Add:
+
+/safemode
+/active
+/menu
+/rewards
+/bj watch
+/bj unwatch
+/bet same
+/bet repeat
+/cooldowns
+/repair
+restart recovery notice
+
+Do NOT add announcement cooldown.
+Do NOT add:
+/announcecooldown
+/setannouncecooldown
+
+==================================================
+1A — SAFE MODE
+==================================================
+
+Commands:
+
+/safemode on
+/safemode off
+/safemode status
+
+Owner:
+EmceeBot or SecurityBot
+
+Permission:
+Manager+
+
+When Safe Mode is ON, temporarily disable risky systems:
+
+- Auto Events
+- AutoMine / AutoFish
+- Gold reward payouts
+- Force drops
+- Casino betting
+- First Hunt Race rewards
+
+Keep basic commands working:
+- /help
+- /menu
+- /start
+- /profile
+- /bal
+- /rewards
+
+/safemode status should show:
+
+🛡️ Safe Mode
+Status: ON
+Disabled:
+Auto Events
+Gold Payouts
+Casino Betting
+
+==================================================
+1B — ACTIVE SYSTEMS
+==================================================
+
+Command:
+
+/active
+
+Owner:
+EmceeBot
+
+Permission:
+Everyone
+
+Shows what is running:
+
+🎮 Active Systems
+Auto Event: Lucky Rush, 12m left
+First Hunt Race: Mining Prismatic, 20m left
+AutoMine: ON
+AutoFish: ON
+BlackJack: Betting phase, 3 players
+Poker: Active table
+Auto Game: Guess the Word
+
+If a system cannot be checked, show Unknown, not crash.
+
+==================================================
+1C — MENU
+==================================================
+
+Command:
+
+/menu
+
+Owner:
+EmceeBot
+
+Permission:
+Everyone
+
+Show category help:
+
+Main:
+/start /profile /bal /rewards
+
+Mining:
+/mine /automine /orebag
+
+Fishing:
+/fish /autofish /myfish
+
+Games:
+/bj help /pokerhelp
+
+Events:
+/events /active /firstfindstatus
+
+Economy:
+/shop /bank /daily
+
+Keep it short. Split into 2 messages if needed.
+
+==================================================
+1D — REWARD INBOX
+==================================================
+
+Command:
+
+/rewards
+
+Owner:
+BankerBot
+
+Permission:
+Everyone
+
+Shows player rewards:
+
+🎁 Your Rewards
+
+Pending:
+- First Hunt Race: 5 gold
+- Weekly Top Miner: 10,000 coins
+
+Paid:
+- Daily Quest: 5,000 coins
+
+Include:
+- pending manual gold
+- paid gold
+- daily rewards
+- weekly rewards
+- race rewards
+- event rewards
+
+==================================================
+1E — BLACKJACK SPECTATOR MODE, WHISPER ONLY
+==================================================
+
+Commands:
+
+/bj watch
+/bj unwatch
+
+Owner:
+BlackJackBot
+
+Permission:
+Everyone
+
+Rules:
+- Watchers do not bet.
+- Watchers do not join table.
+- Watchers receive updates by whisper only.
+- Watchers should not create extra public chat messages.
+- Public Blackjack messages should not increase because of watchers.
+- Watchers should not see private cards if Blackjack is in whisper-card mode.
+- If Blackjack cards are public mode, watchers can receive the same public table view by whisper.
+
+Response:
+
+BlackJackBot whisper:
+👀 Watch Mode ON
+You’ll receive BlackJack table updates privately.
+
+BlackJackBot whisper:
+👀 Watch Mode OFF
+You stopped watching BlackJack.
+
+==================================================
+1F — REPEAT BET
+==================================================
+
+Commands:
+
+/bet same
+/bet repeat
+
+Owner:
+BlackJackBot
+
+Permission:
+Everyone
+
+Behavior:
+Uses the player’s previous Blackjack bet.
+
+Example:
+Player used /bet 500 last round.
+Next round:
+/bet same
+
+Joins with 500 again.
+
+If no previous bet:
+
+BlackJackBot:
+💰 Repeat Bet
+No previous bet found. Use /bet <amount> first.
+
+==================================================
+1G — COOLDOWNS
+==================================================
+
+Command:
+
+/cooldowns
+
+Owner:
+EmceeBot
+
+Permission:
+Everyone
+
+Shows:
+
+⏳ Cooldowns
+Mine: ready
+Fish: 8s
+AutoMine: active
+AutoFish: inactive
+Daily: claim available
+
+==================================================
+1H — REPAIR
+==================================================
+
+Command:
+
+/repair
+
+Owner:
+SecurityBot or EmceeBot
+
+Permission:
+Manager+
+
+Runs safe diagnostics only:
+- command registry check
+- missing owner check
+- pending reward check
+- event scheduler check
+- database health check
+
+Do not mutate data unless explicitly safe.
+
+Response:
+
+🛠️ Repair Check
+Command Issues: 0
+Pending Rewards: 2
+Event Scheduler: OK
+Database: OK
+
+==================================================
+1I — RESTART RECOVERY NOTICE
+==================================================
+
+When bots restart and recover systems, announce or log:
+
+♻️ Systems restored after restart.
+BlackJack: recovered
+AutoFish: recovered
+Auto Events: running
+
+Keep message short. If no systems recovered, do not spam.
+
+==================================================
+PART 2 — PROJECT QUALITY-OF-LIFE COMMANDS
+==================================================
+
+Add:
+
+/mycommands
+/wherebots
+/suggest
+/suggestions
+/bugreport
+/bugreports
+/rules
+/updates
+/rankup
+/eventvote
+/voteevent
+
+==================================================
+2A — MY COMMANDS
+==================================================
+
+Command:
+
+/mycommands
+
+Owner:
+EmceeBot
+
+Permission:
+Everyone
+
+Shows commands available based on role.
+
+Example:
+
+Your Commands:
+Player: /start /profile /mine /fish /bet /daily
+Manager: /dashboard /eventpreset /rewardpending
+Owner: /repair /safemode /auditlog
+
+==================================================
+2B — WHERE BOTS
+==================================================
+
+Command:
+
+/wherebots
+
+Owner:
+EmceeBot
+
+Permission:
+Everyone
+
+Shows bot locations/spawns:
+
+Bot Locations:
+BankerBot — Bank Desk
+MasterAngler — Fishing Dock
+GreatestProspector — Mine Entrance
+BlackJackBot — Casino Table
+EmceeBot — Stage
+SecurityBot — Entrance
+
+If exact spawn names are unavailable, use configured labels.
+
+==================================================
+2C — SUGGESTIONS
+==================================================
+
+Commands:
+
+/suggest <message>
+/suggestions
+
+Owner:
+EmceeBot
+
+Permissions:
+/suggest = Everyone
+/suggestions = Manager+
+
+Save suggestions to database.
+
+suggestions table:
+- id
+- user_id
+- username
+- message
+- status
+- created_at
+
+/status values:
+- open
+- reviewed
+- closed
+
+==================================================
+2D — BUG REPORTS
+==================================================
+
+Commands:
+
+/bugreport <message>
+/bugreports
+
+Owner:
+SecurityBot or EmceeBot
+
+Permissions:
+/bugreport = Everyone
+/bugreports = Manager+
+
+bug_reports table:
+- id
+- user_id
+- username
+- message
+- status
+- created_at
+
+==================================================
+2E — RULES
+==================================================
+
+Command:
+
+/rules
+
+Owner:
+EmceeBot
+
+Permission:
+Everyone
+
+Response:
+
+Room Rules:
+1. Be respectful.
+2. No spam.
+3. No exploiting.
+4. Use /start if new.
+5. Staff decisions are final.
+
+==================================================
+2F — UPDATES
+==================================================
+
+Command:
+
+/updates
+
+Owner:
+EmceeBot
+
+Permission:
+Everyone
+
+Shows latest updates:
+
+Latest Updates:
+- BlackJack rebuilt.
+- First Hunt Race added.
+- Fishing force drops fixed.
+- Bot tip leaderboard added.
+
+Store updates in a simple config/list if possible.
+
+==================================================
+2G — RANKUP
+==================================================
+
+Command:
+
+/rankup
+
+Owner:
+EmceeBot
+
+Permission:
+Everyone
+
+Shows how to level up:
+
+Rank Up Guide:
+- Mine and fish to gain EXP.
+- Play events for bonus rewards.
+- Win First Hunt races.
+- Earn badges through milestones.
+
+==================================================
+2H — EVENT VOTING
+==================================================
+
+Commands:
+
+/eventvote
+/voteevent <event_type>
+
+Owner:
+EventBot
+
+Permission:
+Everyone
+
+Examples:
+/voteevent fishing
+/voteevent mining
+/voteevent jackpot
+
+/eventvote shows:
+
+🎉 Event Vote
+Fishing: 5 votes
+Mining: 3 votes
+Jackpot: 2 votes
+
+Valid vote choices:
+- fishing
+- mining
+- jackpot
+- chill
+- hype
+
+Add duplicate protection:
+One active vote per player.
+
+==================================================
+PART 3 — FISHING INVENTORY + AUTO-SELL CHOICE SYSTEM
+==================================================
+
+Fishing should work like Mining inventory.
+
+Default:
+- Fish are saved into inventory.
+- Fish are NOT auto-sold by default.
+
+==================================================
+3A — FISH INVENTORY COMMANDS
+==================================================
+
+Add:
+
+/myfish
+/fishbag
+/fishinv
+/fishinventory
+/fishbook
+/fishinfo <fish name>
+
+Owner:
+MasterAngler
+
+Permission:
+Everyone
+
+/myfish should show owned fish summary.
+
+/fishbook should show discovered/caught fish collection.
+
+/fishinfo should show fish details:
+- name
+- rarity
+- value
+- weight range if available
+- owned count if player owns it
+
+==================================================
+3B — SELLING COMMANDS
+==================================================
+
+Add:
+
+/sellfish <fish name>
+/sellfishall
+/sellallfish
+/sellfishrarity <rarity>
+
+Examples:
+/sellfish Anchovy
+/sellfishrarity common
+/sellfishall
+
+Owner:
+MasterAngler
+
+Permission:
+Everyone
+
+Rules:
+- Selling removes fish from inventory.
+- Adds coins to player.
+- Logs transaction.
+- Does not sell protected rare fish unless rules allow it.
+
+==================================================
+3C — AUTO-SELL SETTINGS
+==================================================
+
+Add:
+
+/fishautosell on
+/fishautosell off
+/fishautosell status
+
+Default:
+Auto-Sell OFF
+
+Meaning:
+Fish go to inventory by default.
+
+==================================================
+3D — RARE AUTO-SELL PROTECTION
+==================================================
+
+Add optional:
+
+/fishautosellrare on
+/fishautosellrare off
+
+Default:
+OFF
+
+If Auto-Sell is ON but Auto-Sell Rare is OFF:
+- Common/Rare fish auto-sell.
+- Epic/Legendary/Mythic/Prismatic/Exotic fish go to inventory.
+
+Rare fish protection:
+- Common/Rare can be sold normally.
+- Epic+ should warn or require confirmation if confirmation exists.
+- Prismatic/Exotic should never auto-sell unless rare auto-sell is enabled.
+
+==================================================
+3E — DATABASE
+==================================================
+
+Create safe tables if needed:
+
+fish_inventory:
+- id
+- user_id
+- username
+- fish_id
+- fish_name
+- rarity
+- weight
+- value
+- caught_at
+- sold INTEGER DEFAULT 0
+- sold_at
+
+fish_auto_sell_settings:
+- user_id PRIMARY KEY
+- username
+- auto_sell_enabled INTEGER
+- auto_sell_rare_enabled INTEGER
+- updated_at
+
+Do not wipe old catches.
+
+If existing fishing catch table exists, integrate safely.
+
+==================================================
+PART 4 — FIRST HUNT / FIRST FIND RACE SYSTEM
+==================================================
+
+This should be an event race, not a literal first-ever discovery.
+
+Concept:
+- Staff starts a temporary race.
+- Players mine/fish during the event.
+- First X players to get target rarity/item win.
+- Race ends when winners are filled or timer expires.
+- Old inventory does not count.
+- Only new mining/fishing actions during active race count.
+
+==================================================
+4A — COMMANDS
+==================================================
+
+Add:
+
+/setfirstfind <mining|fishing> <rarity> <winners_count> <gold_amount>
+/setfirstfinditem <mining|fishing> <ore_or_fish_name> <winners_count> <gold_amount>
+/startfirstfind <minutes>
+/stopfirstfind
+/firstfindstatus
+/firstfindwinners
+/resetfirstfind
+
+Owner:
+BankerBot for commands/status/rewards.
+
+EmceeBot:
+announces race start/winner/end.
+
+MiningBot/GreatestProspector:
+detects mining wins.
+
+FishingBot/MasterAngler:
+detects fishing wins.
+
+==================================================
+4B — SET RACE
+==================================================
+
+/setfirstfind mining prismatic 1 5
+
+Means:
+For the active race, first 1 player to mine any Prismatic ore wins 5 gold.
+
+/setfirstfind fishing exotic 3 10
+
+Means:
+For the active race, first 3 players to catch any Exotic fish win 10 gold each.
+
+/setfirstfinditem mining Prismatic Pearl 1 5
+
+Means:
+First player to mine Prismatic Pearl during active race wins 5 gold.
+
+==================================================
+4C — START RACE
+==================================================
+
+/startfirstfind 30
+
+EmceeBot announces:
+
+🏁 First Hunt Race Started!
+Target: Mine any [PRISMATIC] ore
+Reward: 5 gold
+Winners: First 1 player
+Time: 30 minutes
+Start mining now!
+
+==================================================
+4D — WINNER DETECTION
+==================================================
+
+Only check while race is ACTIVE.
+
+When player mines:
+If active race category = mining:
+- compare mined ore rarity or exact ore name.
+- if match and winner slots not full, award win.
+
+When player fishes:
+If active race category = fishing:
+- compare fish rarity or exact fish name.
+- if match and winner slots not full, award win.
+
+Prevent duplicate wins:
+- same race_id + user_id can only win once.
+
+==================================================
+4E — WINNER ANNOUNCEMENT
+==================================================
+
+EmceeBot:
+
+🏆 First Hunt Race Winner!
+@Player is #1 to mine [PRISMATIC] during the race!
+Reward: 5 gold
+
+Fishing:
+
+🏆 First Catch Race Winner!
+@Player is #1 to catch [EXOTIC] during the race!
+Reward: 10 gold
+
+If winners filled:
+
+🏁 First Hunt Race Complete!
+All winners have been found.
+
+Then stop race automatically.
+
+==================================================
+4F — BANKER PAYOUT
+==================================================
+
+BankerBot handles payout/log.
+
+If automatic gold tipping works:
+
+💰 Race Reward Sent
+@Player received 5 gold.
+
+Status:
+paid_gold
+
+If automatic gold tipping unavailable:
+
+💰 Race Reward Logged
+@Player earned 5 gold.
+Status: pending manual tip.
+
+No confirmation step.
+
+==================================================
+4G — DATABASE
+==================================================
+
+first_find_races:
+- id INTEGER PRIMARY KEY AUTOINCREMENT
+- status TEXT
+- category TEXT
+- target_type TEXT
+- target_value TEXT
+- winners_count INTEGER
+- gold_amount REAL
+- started_at TEXT
+- ends_at TEXT
+- created_by TEXT
+- created_at TEXT
+- updated_at TEXT
+
+first_find_race_winners:
+- id INTEGER PRIMARY KEY AUTOINCREMENT
+- race_id INTEGER
+- user_id TEXT
+- username TEXT
+- rank INTEGER
+- category TEXT
+- target_type TEXT
+- target_value TEXT
+- matched_item_name TEXT
+- matched_rarity TEXT
+- gold_amount REAL
+- payout_status TEXT
+- payout_error TEXT
+- won_at TEXT
+
+==================================================
+PART 5 — GOLD TIP + TIP LEADERBOARDS
+==================================================
+
+Current issue:
+EmceeBot still replies to /goldtip.
+BankerBot should handle money commands.
+
+Goal:
+Only BankerBot handles /goldtip.
+EmceeBot only announces/hypes.
+
+==================================================
+5A — GOLDTIP ROUTING
+==================================================
+
+Move these commands to BankerBot:
+
+/goldtip
+/tipgold
+/goldreward
+/rewardgold
+
+EmceeBot must not reply to these.
+
+No confirmation step.
+
+When owner/staff uses:
+
+/goldtip @Player 1
+
+It should immediately send or log.
+
+No:
+- Are you sure?
+- Confirm?
+- Type yes
+- /confirmgoldtip
+
+Minimum gold tip:
+1 gold, not 10.
+
+Reject:
+- 0
+- negative
+- non-numeric
+
+==================================================
+5B — TIP COIN RATE
+==================================================
+
+Default:
+1 gold = 1,000 coins
+
+Commands:
+
+/tipcoinrate
+/settipcoinrate <coins_per_gold>
+/mingoldtip
+/setmingoldtip <amount>
+
+Defaults:
+tip_coin_rate = 1000
+min_gold_tip = 1
+
+Owner:
+BankerBot
+
+==================================================
+5C — PLAYER TIPS TO ANY BOT
+==================================================
+
+When a player tips any bot:
+- reward coins using tip rate
+- log it
+- tipped bot replies thank-you
+
+Example:
+
+MasterAngler:
+💛 Thank you @Player for the 1 gold tip!
+You received 1,000 coins.
+
+If SDK cannot detect tip events:
+- log unsupported_sdk
+- do not crash
+- final report should say unavailable.
+
+==================================================
+5D — STOP SAYING SUBSCRIBED IF ALREADY SUBSCRIBED
+==================================================
+
+When a player tips a bot and they are already subscribed:
+- bot should NOT say “subscribed” again.
+- say thank-you only.
+- do not confuse bot tip reward with subscription status.
+
+Wrong:
+✅ You are now subscribed!
+
+Correct:
+💛 Thank you @Player for the 5g tip!
+You received 5,000 coins.
+
+==================================================
+5E — REMOVE BOT TIPPING CAPS
+==================================================
+
+Remove caps for tipping bots.
+
+No:
+- daily tip cap
+- daily coin reward cap from bot tips
+- daily bot-tip participation cap
+- daily bot-tip leaderboard cap
+
+Keep:
+- minimum tip 1g
+- duplicate reward protection
+- anti-spam duplicate detection
+- valid gold amount only
+
+==================================================
+5F — TIP LEADERBOARDS
+==================================================
+
+Commands:
+
+/tiplb
+/tipleaderboard
+/bottiplb
+/bottipleaderboard
+/roomtiplb
+/roomtipleaderboard
+/alltiplb
+/alltipleaderboard
+/tipreceiverlb
+/topreceivers
+
+Leaderboards wanted:
+- Top players who tipped my bots
+- Top tippers to specific bot
+- Top tippers to anyone in room if SDK supports it
+- Top receivers
+
+Do not fake player-to-player data if SDK does not provide it.
+
+==================================================
+PART 6 — TOP DONATORS / ROOM TIP JAR LEADERBOARD
+==================================================
+
+Add room tip jar donation leaderboard.
+
+Name:
+Top Donators
+
+Commands:
+
+/donators
+/topdonators
+/donatorlb
+/tipjarlb
+/roomdonators
+
+Track only room tip jar donations.
+
+Do not mix with:
+- bot tips
+- player-to-player tips
+- /goldtip rewards
+
+==================================================
+6A — TOP DONATORS DISPLAY
+==================================================
+
+BankerBot:
+
+🏆 Top Donators
+1. @Player1 — 250g
+2. @Player2 — 100g
+3. @Player3 — 50g
+
+If SDK cannot detect room tip jar:
+Reply:
+Room tip jar detection is unavailable from the SDK.
+
+==================================================
+6B — ROOM DONATION TIERS
+==================================================
+
+Scale room donations higher than bot tips.
+
+Suggested room donation title thresholds:
+
+25g = Room Supporter
+100g = Room Backer
+250g = Room Sponsor
+500g = Room Champion
+1,000g = Room Legend
+2,500g = Hall of Fame Donator
+5,000g = Royal Patron
+10,000g = Eternal Supporter
+
+Remove:
+VIP Donator
+VIP Supporter
+VIP anything
+
+Reason:
+VIP should be subscription-based per month, not donation-based.
+
+==================================================
+6C — TEMPORARY TOP 1/2/3 DONATOR TITLES
+==================================================
+
+Add unlockable temporary titles:
+
+Top 1 room donator = #1 Top Donator
+Top 2 room donator = #2 Top Donator
+Top 3 room donator = #3 Top Donator
+
+Rules:
+- Titles are based on current Top Donators ranking.
+- If player drops out of Top 1/2/3, they lose that title.
+- If another player overtakes them, title transfers automatically.
+- These titles are not permanent.
+- Recalculate whenever room donation leaderboard updates.
+
+==================================================
+PART 7 — DASHBOARD / START / EVENT PRESET / AUDIT FIXES
+==================================================
+
+Fix these current issues:
+
+1. /dashboard is showing profile.
+2. /eventpreset gets cut off.
+3. /auditlog does not work.
+4. /start is too short.
+
+==================================================
+7A — DASHBOARD ROUTING FIX
+==================================================
+
+/dashboard must route to dashboard handler only.
+
+/profile, /me, /stats must route to profile handler only.
+
+Dashboard should show:
+
+📊 Bot Dashboard
+
+Bots:
+EmceeBot ✅
+BankerBot ✅
+GreatestProspector ✅
+MasterAngler ✅
+BlackJackBot ✅
+PokerBot ✅
+SecurityBot ✅
+
+Systems:
+Mining ✅
+Fishing ✅
+Auto Events ✅
+First Hunt Race ✅
+Gold Tips ✅
+BlackJack ✅
+Poker ✅
+Security ✅
+
+Warnings:
+Pending rewards: 0
+Command issues: 0
+Next event: Lucky Rush in 24m
+
+==================================================
+7B — EVENT PRESET CUTOFF FIX
+==================================================
+
+/eventpreset should show short menu only:
+
+EventBot:
+🎉 Event Presets
+1. chill
+2. hype
+3. jackpot
+4. fishing
+5. mining
+
+Use:
+/eventpreset <name>
+Example: /eventpreset jackpot
+
+Specific preset should be short:
+
+EventBot:
+🎉 Jackpot Preset
+Starts/Suggests:
+- Ore Value Surge
+- Prismatic Hunt
+- First Hunt Race
+
+Use:
+/startevent <event>
+/setfirstfind mining prismatic 1 5
+/startfirstfind 30
+
+Split into max 2 messages if needed.
+
+==================================================
+7C — AUDIT LOG FIX
+==================================================
+
+Commands:
+
+/auditlog
+/auditlog gold
+/auditlog events
+/auditlog security
+/auditlog economy
+/auditlog force
+/auditlog staff
+
+Owner:
+SecurityBot
+
+Permission:
+Manager+
+
+If no logs:
+
+SecurityBot:
+🛡️ Staff Audit Log
+No audit logs yet.
+
+Create table safely:
+
+staff_audit_logs:
+- id
+- actor_user_id
+- actor_username
+- action_type
+- target_user_id
+- target_username
+- details
+- created_at
+
+Log important actions:
+- goldtip
+- markrewardpaid
+- setfirstfind
+- startfirstfind
+- stopfirstfind
+- forcedrop
+- forcedropfish
+- mute/unmute
+- eventpreset
+- economy setting changes
+
+==================================================
+7D — DETAILED START
+==================================================
+
+/start should be detailed but split into 2–3 short messages.
+
+Message 1:
+
+👋 Welcome to the room!
+Here’s how to start:
+
+⛏️ Mine: /mine
+🎣 Fish: /fish
+💰 Balance: /bal
+👤 Profile: /profile
+
+Message 2:
+
+🎮 Games:
+🃏 BlackJack: /bj help
+♠️ Poker: /pokerhelp
+
+🎉 Events:
+/events
+/aestatus
+/firstfindstatus
+
+Message 3:
+
+Useful:
+🛒 Shop: /shop
+🏆 Weekly LB: /weeklylb
+📅 Daily: /daily
+❓ Help: /help
+
+Tip:
+Start with /mine or /fish!
+
+Aliases:
+- /begin
+- /newplayer
+
+==================================================
+PART 8 — BIG ANNOUNCEMENT FIXES
+==================================================
+
+Restore color coding on Big Find / Big Catch announcements.
+
+Required formatting:
+- [LEGENDARY] = gold
+- [MYTHIC] = pink
+- [PRISMATIC] = rainbow [PRISMATIC] label + pink item name
+- [EXOTIC] = strong red
+
+Prismatic rule:
+Only [PRISMATIC] is rainbow.
+Ore/fish name is pink.
+Do not rainbow-color full ore/fish names because it gets cut.
+
+Formatter rule:
+Big Announcement system must call same color formatter used by:
+/mine
+/fish
+/simannounce
+/oreinfo
+/fishinfo
+
+==================================================
+8A — BIG ANNOUNCEMENT ROUTING
+==================================================
+
+Commands:
+
+/bigannounce
+/bigannouncestatus
+/setbigannounce <mining|fishing> <rarity> <miner_only|fishing_only|all_bots|off>
+/setbotbigreact <bot> <on|off>
+
+Defaults:
+
+Mining:
+Common/Rare/Epic = off
+Legendary = miner_only
+Mythic = miner_only
+Prismatic = all_bots
+Exotic = all_bots
+
+Fishing:
+Common/Rare/Epic = off
+Legendary = fishing_only
+Mythic = fishing_only
+Prismatic = all_bots
+Exotic = all_bots
+
+==================================================
+PART 9 — FORCE DROP SYSTEMS
+==================================================
+
+Mining:
+
+/forcedrop <username> <rarity>
+/forcedropore <username> <ore name>
+/forcedropstatus
+/clearforcedrop <username>
+
+Fishing matching mining style:
+
+/forcedropfish <username> <rarity>
+/forcedropfishitem <username> <fish name>
+/forcedropfishstatus
+/clearforcedropfish <username>
+
+Old aliases can stay:
+
+/forcefish = /forcedropfish
+/forcefishdrop = /forcedropfish
+/forcefishdropfish = /forcedropfishitem
+/forcefishstatus = /forcedropfishstatus
+/clearforcefish = /clearforcedropfish
+
+Rules:
+- Owner only
+- Secret from players
+- Works with manual and auto sessions
+- One use only
+- Clears after successful use
+- Does not reveal forced status
+
+==================================================
+PART 10 — AUTOMINE / AUTOFISH SETTINGS
+==================================================
+
+AutoMine default ON.
+AutoFish default ON.
+
+Only Manager+ can turn global AutoMine/AutoFish on/off.
+
+Commands:
+
+/setautomine on/off
+/setautofish on/off
+
+Player commands still work:
+
+/automine on/off/status
+/autofish on/off/status
+
+Adjustable settings:
+
+/autominesettings
+/setautomineduration <minutes>
+/setautomineattempts <amount>
+/setautominedailycap <minutes>
+
+/autofishsettings
+/setautofishduration <minutes>
+/setautofishattempts <amount>
+/setautofishdailycap <minutes>
+
+==================================================
+PART 11 — MINING/FISHING LIST UPDATE
+==================================================
+
+No color coding.
+
+Just show rarities and how many ores/fish are in each rarity.
+
+Example:
+
+Mining List
+Common: 12 ores
+Rare: 8 ores
+Epic: 6 ores
+Legendary: 4 ores
+Mythic: 3 ores
+Prismatic: 2 ores
+Exotic: 1 ore
+
+Same for fish list.
+
+==================================================
+PART 12 — MINING/FISHING DIFFICULTY SCALING
+==================================================
+
+Scale ores and fishes difficulty like Roblox “Prospecting”.
+Exotic should be almost impossible to get.
+
+Rules:
+- Common/Rare = normal
+- Epic = uncommon
+- Legendary = rare
+- Mythic = very rare
+- Prismatic = extremely rare
+- Exotic = almost impossible
+
+Do not make Exotic common.
+Do not make every Exotic automatically worth millions.
+
+==================================================
+PART 13 — SUBSCRIBER NOTIFICATION PREFERENCES BY CATEGORY
+==================================================
+
+Goal:
+Create a category-based subscriber notification system.
+
+This should NOT be one big notification blast to every subscriber.
+
+Do not call this guaranteed phone push notification unless Highrise SDK supports real push notifications.
+Use bot DM/inbox messages where supported.
+If DM/inbox messaging is unavailable for a player, log it safely.
+
+==================================================
+13A — CATEGORIES
+==================================================
+
+Add notification categories:
+
+- mining
+- fishing
+- events
+- blackjack
+- poker
+- rewards
+- firsthunt
+- donations
+- updates
+
+Display names:
+mining = Mining
+fishing = Fishing
+events = Events
+blackjack = BlackJack
+poker = Poker
+rewards = Rewards
+firsthunt = First Hunt
+donations = Donations
+updates = Updates
+
+==================================================
+13B — PLAYER NOTIFICATION COMMANDS
+==================================================
+
+Add:
+
+/notif
+/notifon <category>
+/notifoff <category>
+/notifall on
+/notifall off
+
+Examples:
+/notif
+/notifon mining
+/notifon fishing
+/notifoff poker
+/notifall on
+/notifall off
+
+/notif should show:
+
+EmceeBot:
+🔔 Notification Settings
+Mining: OFF
+Fishing: OFF
+Events: ON
+BlackJack: OFF
+Poker: OFF
+Rewards: ON
+First Hunt: ON
+Donations: OFF
+Updates: ON
+
+Use:
+/notifon <category>
+/notifoff <category>
+
+==================================================
+13C — DEFAULT SETTINGS
+==================================================
+
+Default settings for new subscribers:
+
+Mining: OFF
+Fishing: OFF
+Events: ON
+BlackJack: OFF
+Poker: OFF
+Rewards: ON
+First Hunt: ON
+Donations: OFF
+Updates: ON
+
+If a player is not subscribed:
+- allow them to view settings
+- but do not send subscriber notifications unless they are subscribed
+- optionally tell them they need to subscribe to receive notifications
+
+==================================================
+13D — MANAGER SEND COMMANDS
+==================================================
+
+Add Manager+ commands:
+
+/subnotify <category> <message>
+/subnotifyinvite <category> <message>
+/subnotifystatus
+
+Examples:
+/subnotify mining Ore Value Surge starts in 5 minutes!
+/subnotify fishing Fishing Frenzy is live!
+/subnotify events First Hunt starts now!
+/subnotify rewards Weekly rewards are ready!
+/subnotify updates New BlackJack rebuild is live!
+
+/subnotifyinvite should include invite/join-room behavior if SDK supports it.
+
+==================================================
+13E — SEND RULES
+==================================================
+
+When /subnotify <category> <message> is used:
+
+1. Validate category.
+2. Find subscribed players.
+3. Filter only players who opted into that category.
+4. Skip players with /notifall off.
+5. Send DM/inbox message where supported.
+6. Log sent, failed, skipped, and no_conversation counts.
+7. Reply with summary.
+
+Example:
+
+EmceeBot:
+🔔 Subscriber Notification Sent
+Category: Events
+Sent: 18
+Skipped: 7
+No conversation: 4
+Failed: 1
+
+If no eligible players:
+
+EmceeBot:
+🔔 Subscriber Notification
+No subscribed players are opted into Events.
+
+==================================================
+13F — COOLDOWN / ANTI-SPAM
+==================================================
+
+Add cooldown so staff cannot spam subscribers.
+
+Default:
+5 minutes per category
+
+Example:
+If /subnotify events was used recently, block another events notification until cooldown ends.
+
+Optional setting:
+
+/setsubnotifycooldown <minutes>
+
+Manager+ only.
+
+If added, register properly.
+
+==================================================
+13G — DATABASE
+==================================================
+
+Create safely:
+
+subscriber_notification_preferences:
+- id INTEGER PRIMARY KEY AUTOINCREMENT
+- user_id TEXT NOT NULL
+- username TEXT
+- category TEXT NOT NULL
+- enabled INTEGER NOT NULL DEFAULT 1
+- updated_at TEXT
+- UNIQUE(user_id, category)
+
+subscriber_notification_logs:
+- id INTEGER PRIMARY KEY AUTOINCREMENT
+- category TEXT
+- message TEXT
+- sender_user_id TEXT
+- sender_username TEXT
+- sent_count INTEGER
+- skipped_count INTEGER
+- no_conversation_count INTEGER
+- failed_count INTEGER
+- created_at TEXT
+
+subscriber_notification_recipients:
+- id INTEGER PRIMARY KEY AUTOINCREMENT
+- notification_id INTEGER
+- user_id TEXT
+- username TEXT
+- category TEXT
+- status TEXT
+- error TEXT
+- created_at TEXT
+
+Statuses:
+- sent
+- skipped_category_off
+- skipped_not_subscribed
+- skipped_notifall_off
+- no_conversation
+- failed
+- unsupported_sdk
+
+==================================================
+13H — OWNERSHIP
+==================================================
+
+EmceeBot owns:
+
+/notif
+/notifon
+/notifoff
+/notifall
+/subnotify
+/subnotifyinvite
+/subnotifystatus
+
+BankerBot can trigger reward-specific notifications internally, but player-facing notification preference commands should be EmceeBot unless existing valid owner differs.
+
+Do not leave owner UNKNOWN.
+
+==================================================
+PART 14 — COMMAND OWNERSHIP SUMMARY
+==================================================
+
+Suggested owners:
+
+EmceeBot:
+/active
+/menu
+/start
+/begin
+/newplayer
+/profile
+/me
+/stats
+/mycommands
+/wherebots
+/rules
+/updates
+/rankup
+/updates
+/dashboard
+/notif
+/notifon
+/notifoff
+/notifall
+/subnotify
+/subnotifyinvite
+/subnotifystatus
+
+BankerBot:
+/rewards
+/rewardpending
+/pendingrewards
+/rewardlogs
+/markrewardpaid
+/economyreport
+/goldtip
+/tipgold
+/goldreward
+/rewardgold
+/tiplb
+/topdonators
+/donators
+/tipcoinrate
+/settipcoinrate
+/mingoldtip
+/setmingoldtip
+/setfirstfind
+/setfirstfinditem
+/startfirstfind
+/stopfirstfind
+/firstfindstatus
+/firstfindwinners
+/resetfirstfind
+
+EventBot:
+/eventpreset
+/eventvote
+/voteevent
+
+SecurityBot:
+/safemode
+/repair
+/auditlog
+/bugreports
+
+MasterAngler:
+Fishing inventory, selling, auto-sell, fishing force drops
+
+GreatestProspector:
+Mining force drops
+
+BlackJackBot:
+/bj commands
+/bet same
+/bet repeat
+/bj watch
+/bj unwatch
+
+Use existing valid owner keys in your project.
+Do not use owner names that command routing does not recognize.
+
+==================================================
+PART 15 — COMMANDTEST
+==================================================
+
+Test implemented commands:
+
+/commandtest /safemode
+/commandtest /active
+/commandtest /menu
+/commandtest /rewards
+/commandtest /cooldowns
+/commandtest /repair
+
+/commandtest /mycommands
+/commandtest /wherebots
+/commandtest /suggest
+/commandtest /suggestions
+/commandtest /bugreport
+/commandtest /bugreports
+/commandtest /rules
+/commandtest /updates
+/commandtest /rankup
+/commandtest /eventvote
+/commandtest /voteevent
+
+/commandtest /myfish
+/commandtest /fishbag
+/commandtest /fishinv
+/commandtest /fishinventory
+/commandtest /fishbook
+/commandtest /fishinfo
+/commandtest /sellfish
+/commandtest /sellfishall
+/commandtest /sellallfish
+/commandtest /sellfishrarity
+/commandtest /fishautosell
+/commandtest /fishautosellrare
+
+/commandtest /setfirstfind
+/commandtest /setfirstfinditem
+/commandtest /startfirstfind
+/commandtest /stopfirstfind
+/commandtest /firstfindstatus
+/commandtest /firstfindwinners
+/commandtest /resetfirstfind
+
+/commandtest /goldtip
+/commandtest /tiplb
+/commandtest /bottiplb
+/commandtest /roomtiplb
+/commandtest /tipreceiverlb
+/commandtest /topdonators
+/commandtest /donators
+
+/commandtest /dashboard
+/commandtest /eventpreset
+/commandtest /auditlog
+/commandtest /start
+
+/commandtest /bigannounce
+/commandtest /bigannouncestatus
+/commandtest /setbigannounce
+/commandtest /setbotbigreact
+
+/commandtest /forcedrop
+/commandtest /forcedropore
+/commandtest /forcedropstatus
+/commandtest /clearforcedrop
+/commandtest /forcedropfish
+/commandtest /forcedropfishitem
+/commandtest /forcedropfishstatus
+/commandtest /clearforcedropfish
+
+/commandtest /notif
+/commandtest /notifon
+/commandtest /notifoff
+/commandtest /notifall
+/commandtest /subnotify
+/commandtest /subnotifyinvite
+/commandtest /subnotifystatus
+
+/checkcommands all
+
+Target:
+Missing 0
+NoOwner 0
+
+If a command is not fully implemented, do not add it as active and do not show it in help.
+
+==================================================
+PART 16 — SAFETY
+==================================================
+
+Do not:
+- reset balances
+- wipe player data
+- wipe old stats
+- wipe reward logs
+- wipe mining/fishing inventory
+- double-pay rewards
+- double-award tip coins
+- let EmceeBot handle money
+- let normal players use manager commands
+- spam subscribers
+- send notifications to opted-out players
+- claim true phone push if SDK only supports DM/inbox
+- expose tokens/secrets/env vars
+- leave broken commands in help
+- leave owner UNKNOWN
+- add /announcecooldown or /setannouncecooldown
+
+==================================================
+FINAL REPORT
+==================================================
+
+After finishing, tell me:
+
+1. Files changed
+2. Commands added
+3. Commands skipped/not implemented
+4. Owners assigned
+5. Database tables added
+6. How /safemode works
+7. How /active works
+8. How /menu works
+9. How /rewards works
+10. How fishing inventory and auto-sell work
+11. How First Hunt Race works
+12. How goldtip routing was fixed
+13. How tip leaderboards work
+14. How Top Donators room tip jar works
+15. Whether SDK supports room tip jar detection
+16. Whether SDK supports bot tip detection
+17. Whether SDK supports player-to-player tip detection
+18. How /dashboard routing was fixed
+19. How /eventpreset cutoff was fixed
+20. How /auditlog was fixed
+21. How /start was expanded
+22. How Big Announcement color/routing works
+23. How force drop systems work
+24. How AutoMine/AutoFish settings work
+25. How notification preferences work
+26. Whether SDK supports DM/inbox notification sending
+27. How no_conversation is handled
+28. Results of /checkcommands all
+29. Exact tests to run

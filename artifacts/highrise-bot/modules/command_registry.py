@@ -551,9 +551,13 @@ REGISTRY: dict[str, Cmd] = {
     "fishlist":         Cmd("fisher","fishing", True, True,  False, aliases=("fishrarity",)),
     "fishprices":       Cmd("fisher","fishing", True, True,  False, aliases=("fishvalues",)),
     "fishinfo":         Cmd("fisher","fishing", True, True,  False, aliases=("fishdetail",)),
-    "myfish":           Cmd("fisher","fishing", True, True,  False, aliases=("fishinv",)),
+    "myfish":           Cmd("fisher","fishing", True, True,  False, aliases=("fishinv","fishbag","fishinventory")),
     "sellfish":         Cmd("fisher","fishing", True, True,  False),
     "sellallfish":      Cmd("fisher","fishing", True, True,  False),
+    "sellfishrarity":   Cmd("fisher","fishing", True, False, True),
+    "fishbook":         Cmd("fisher","fishing", True, True,  False),
+    "fishautosell":     Cmd("fisher","fishing", True, True,  False),
+    "fishautosellrare": Cmd("fisher","fishing", True, True,  False),
     "fishlevel":        Cmd("fisher","fishing", True, True,  False, aliases=("fishxp","fishlvl")),
     "fishstats":        Cmd("fisher","fishing", True, True,  False),
     "fishboosts":       Cmd("fisher","fishing", True, True,  False, aliases=("fishingevents",)),
@@ -661,6 +665,38 @@ REGISTRY: dict[str, Cmd] = {
     "weeklyrewards":    Cmd("banker",  "economy", False, True,  False, perm="manager"),
     "setweeklyreward":  Cmd("banker",  "economy", False, False, True,  perm="manager"),
     "weeklystatus":     Cmd("banker",  "economy", False, True,  False, perm="manager"),
+
+    # ── Safe mode + diagnostic (security) ─────────────────────────────────────
+    "safemode":         Cmd("security","system",  False, True,  False, perm="manager"),
+    "active":           Cmd("host",    "system",  True,  True,  False),
+    "repair":           Cmd("security","system",  False, True,  False, perm="manager"),
+
+    # ── Player utility commands (host) ────────────────────────────────────────
+    "menu":             Cmd("host",    "help",    True,  True,  False),
+    "cooldowns":        Cmd("host",    "help",    True,  True,  False),
+    "rewards":          Cmd("host",    "rewards", True,  True,  False),
+    "wherebots":        Cmd("host",    "help",    True,  True,  False),
+    "updates":          Cmd("host",    "help",    True,  True,  False),
+    "rankup":           Cmd("host",    "help",    True,  True,  False),
+
+    # ── Suggestions / bug reports (host + security) ────────────────────────────
+    "suggest":          Cmd("host",    "help",    True,  False, True),
+    "suggestions":      Cmd("host",    "help",    False, True,  False, perm="manager"),
+    "bugreport":        Cmd("security","system",  True,  False, True),
+    "bugreports":       Cmd("security","system",  False, True,  False, perm="manager"),
+
+    # ── Event votes (eventhost) ───────────────────────────────────────────────
+    "eventvote":        Cmd("eventhost","events", True,  True,  False),
+    "voteevent":        Cmd("eventhost","events", True,  False, True),
+
+    # ── Subscriber notification preferences (host) ────────────────────────────
+    "notif":            Cmd("host",    "help",    True,  True,  False),
+    "notifon":          Cmd("host",    "help",    True,  False, True),
+    "notifoff":         Cmd("host",    "help",    True,  False, True),
+    "notifall":         Cmd("host",    "help",    True,  False, True),
+    "subnotify":        Cmd("host",    "help",    False, False, True,  perm="manager"),
+    "subnotifyinvite":  Cmd("host",    "help",    False, False, True,  perm="manager"),
+    "subnotifystatus":  Cmd("host",    "help",    False, True,  False, perm="manager"),
 }
 
 # ---------------------------------------------------------------------------
