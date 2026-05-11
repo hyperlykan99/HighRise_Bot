@@ -521,6 +521,8 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     "messageaudit",
     # ── Staff help navigation ─────────────────────────────────────────────────
     "staffhelp",
+    # ── Rarity chance commands ───────────────────────────────────────────────
+    "minechances", "fishchances", "fishingchances", "raritychances",
 })
 
 # ---------------------------------------------------------------------------
@@ -707,6 +709,8 @@ VISIBLE_CMDS: frozenset[str] = frozenset({
     "autospawn", "roles", "bjshoereset",
     "economyaudit", "gameprices", "gameprice", "setgameprice",
     "messageaudit", "staffhelp",
+    # ── Rarity chance commands ───────────────────────────────────────────────
+    "minechances", "fishchances", "fishingchances", "raritychances",
 })
 
 

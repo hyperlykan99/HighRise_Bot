@@ -395,6 +395,7 @@ from modules.mining import (
     handle_mineconfig, handle_mineeventstatus,
     handle_minepanel,
     # A2: ore chance commands
+    handle_minechances,
     handle_orechances, handle_orechance,
     handle_setorechance, handle_setraritychance, handle_reloadorechances,
     handle_automine, handle_autominestatus, handle_autominesettings,
@@ -418,7 +419,7 @@ from modules.fishing import (
     handle_sellfishrarity, handle_fishbag, handle_fishbook,
     handle_fishautosell, handle_fishautosellrare,
     handle_fishlevel, handle_fishstats, handle_fishboosts, handle_fishingevents,
-    handle_fishhelp, handle_topfish, handle_topweightfish,
+    handle_fishchances, handle_fishhelp, handle_topfish, handle_topweightfish,
     handle_rods, handle_myrod, handle_rodshop, handle_buyrod,
     handle_equiprod, handle_rodinfo, handle_rodstats, handle_rodupgrade,
     handle_autofish, handle_autofishstatus, handle_autofishsettings,
@@ -1060,15 +1061,119 @@ ALL_KNOWN_COMMANDS = (
 # ---------------------------------------------------------------------------
 
 HELP_TEXT = (
-    "🎒 HR Lounge Bot\n"
-    "💰 Coins: /bal /daily /send\n"
-    "⛏️ Mine: /mine /ores /tool\n"
-    "🃏 Casino: /bjhelp /rbjhelp /pokerhelp\n"
-    "🛒 Shop: /shop /shop badges\n"
-    "🎉 Events: /eventhelp /event\n"
-    "🏠 Room: /emotes /players /spawns\n"
-    "/start · !mycommands · !helpsearch"
+    "📘 Help Menu — choose a category:\n"
+    "!help player  — balance, daily, rewards\n"
+    "!help games   — mining, fishing, casino\n"
+    "!help economy — coins, gold, prices\n"
+    "!help notifications — alerts, subscribe\n"
+    "!help teleports — tele, spawn, roles\n"
+    "!help events  — active events\n"
+    "!help staff   — staff controls\n"
+    "Tip: !help [category]"
 )
+
+_HELP_CATEGORIES: dict[str, str] = {
+    "player": (
+        "👤 Player Commands\n"
+        "!balance  !daily  !claimrewards\n"
+        "!notif  !notifon [cat]  !notifoff [cat]\n"
+        "!tele list  !tele [spot]\n"
+        "!games  !leaderboard\n"
+        "!subscribe  !substatus\n"
+        "!help games  !help notifications"
+    ),
+    "games": (
+        "🎮 Games Help\n"
+        "!help mining  — ore mining\n"
+        "!help fishing — fishing\n"
+        "!help blackjack — card game\n"
+        "!help poker  — poker table\n"
+        "!help events — active events"
+    ),
+    "mining": (
+        "⛏️ Mining Commands\n"
+        "!mine  !mineprofile  !tool\n"
+        "!mineinv  !sellores  !orelist\n"
+        "!minechances  !orechances\n"
+        "!automine  !autominestatus\n"
+        "!minehelp — full mining help"
+    ),
+    "fishing": (
+        "🎣 Fishing Commands\n"
+        "!fish  !fishlevel  !fishbag\n"
+        "!fishlist [rarity]  !sellfish\n"
+        "!fishchances  !fishhelp\n"
+        "!autofish  !rods  !rodshop"
+    ),
+    "blackjack": (
+        "🃏 Blackjack Commands\n"
+        "!bj — join/bet\n"
+        "!bjhit  !bjstand  !bjdouble  !bjsplit\n"
+        "!bjhelp — full BJ help\n"
+        "!bjshoe — shoe status"
+    ),
+    "poker": (
+        "♠️ Poker Commands\n"
+        "!poker join  !poker bet  !poker fold\n"
+        "!pokerhelp — full poker help"
+    ),
+    "economy": (
+        "💰 Economy Commands\n"
+        "!balance  !coins  !claimrewards\n"
+        "!goldtip [user] [amount]\n"
+        "!goldrain [group] [gold] [winners]\n"
+        "!goldrainstatus  !gameprices\n"
+        "!rewardlogs"
+    ),
+    "notifications": (
+        "🔔 Notification Commands\n"
+        "!subscribe  !unsubscribe  !substatus\n"
+        "!notif  !notifon [category]\n"
+        "!notifoff [category]  !notifall [on|off]\n"
+        "Categories: events mining fishing rewards\n"
+        "  donations blackjack poker security updates"
+    ),
+    "teleports": (
+        "🌀 Teleport Commands\n"
+        "!tele list  !tele [spot]  !tele [user]\n"
+        "!summon [user]\n"
+        "Staff: !create tele [spot]\n"
+        "!delete tele [spot]  !rolespawns\n"
+        "!setrolespawn [role] here\n"
+        "!autospawn [on|off|status]"
+    ),
+    "events": (
+        "🎉 Event Commands\n"
+        "!eventhelp  !event\n"
+        "!eventlist  !eventvote\n"
+        "!minechances  !fishchances\n"
+        "!raritychances"
+    ),
+    "staff": (
+        "🛠️ Staff Help — choose a section:\n"
+        "!staffhelp room\n"
+        "!staffhelp teleports\n"
+        "!staffhelp notifications\n"
+        "!staffhelp economy\n"
+        "!staffhelp events\n"
+        "!staffhelp games\n"
+        "!staffhelp moderation\n"
+        "!staffhelp debug"
+    ),
+    "admin": (
+        "⚙️ Admin Commands\n"
+        "!adminhelp — full admin reference\n"
+        "!economyaudit  !gameprices\n"
+        "!setgameprice [game] [setting] [value]\n"
+        "!autospawn [on|off|debug [user]]"
+    ),
+    "owner": (
+        "👑 Owner Commands\n"
+        "!ownerhelp — full owner reference\n"
+        "!commandissues  !checkcommands all\n"
+        "!messageaudit  !msgcap"
+    ),
+}
 
 GAME_HELP_PAGES = [
     (
@@ -2499,14 +2604,41 @@ class HangoutBot(BaseBot):
         #    every other bot silently ignores it (no DB dependency).
         if cmd == "help":
             _handle = BOT_MODE in ("host", "eventhost", "all")
-            print(f"[ROUTE] /help owner=host current={BOT_MODE} handle={_handle}")
+            print(f"[ROUTE] !help owner=host current={BOT_MODE} handle={_handle}")
             if _handle:
-                await self.highrise.send_whisper(user.id, HELP_TEXT)
-                if can_moderate(user.username):
-                    await self.highrise.send_whisper(
-                        user.id,
-                        "⚙️ Staff: !staffhelp\nOwner/Admin: !adminhelp\nGold: !goldhelp"
-                    )
+                if len(args) > 1:
+                    cat = args[1].lower()
+                    # !help command !goldrain — detail page
+                    if cat == "command" and len(args) > 2:
+                        wanted = args[2].lstrip("!/").lower()
+                        # Just redirect to whichever category it's in
+                        found = False
+                        for _ctext in _HELP_CATEGORIES.values():
+                            if wanted in _ctext.lower():
+                                await self.highrise.send_whisper(user.id, _ctext[:249])
+                                found = True
+                                break
+                        if not found:
+                            await self.highrise.send_whisper(
+                                user.id,
+                                f"ℹ️ No detail page for !{wanted}.\n"
+                                f"Try: !help [category]"[:249]
+                            )
+                    elif cat in _HELP_CATEGORIES:
+                        await self.highrise.send_whisper(user.id, _HELP_CATEGORIES[cat][:249])
+                    else:
+                        cats = " | ".join(_HELP_CATEGORIES.keys())
+                        await self.highrise.send_whisper(
+                            user.id,
+                            f"📘 Categories: {cats}\nUsage: !help [category]"[:249]
+                        )
+                else:
+                    await self.highrise.send_whisper(user.id, HELP_TEXT)
+                    if can_moderate(user.username):
+                        await self.highrise.send_whisper(
+                            user.id,
+                            "⚙️ Staff: !staffhelp  Owner: !adminhelp  Gold: !goldhelp"
+                        )
             return
 
         # ── Multi-bot gate — ignore if another bot owns this command ─────────
@@ -4502,6 +4634,17 @@ class HangoutBot(BaseBot):
                 user.id,
                 "❓ Did you mean /clearforcedropfish? (one 'd', not two)"
             )
+
+        elif cmd == "minechances":
+            await handle_minechances(self, user)
+
+        elif cmd in {"fishchances", "fishingchances"}:
+            await handle_fishchances(self, user)
+
+        elif cmd == "raritychances":
+            # Show both mining and fishing summary
+            await handle_minechances(self, user)
+            await handle_fishchances(self, user)
 
         elif cmd == "orechances":
             await handle_orechances(self, user)

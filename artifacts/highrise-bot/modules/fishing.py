@@ -886,17 +886,35 @@ async def handle_fishingevents(bot: BaseBot, user: User) -> None:
 # /fishhelp /fishinghelp
 # ---------------------------------------------------------------------------
 
+async def handle_fishchances(bot: BaseBot, user: User) -> None:
+    """!fishchances — show base rarity drop % for fishing."""
+    _BASE_FISH_CHANCES = [
+        ("Common",    82.000),
+        ("Rare",      13.000),
+        ("Epic",       4.500),
+        ("Legendary",  0.470),
+        ("Mythic",     0.025),
+        ("Prismatic",  0.004),
+        ("Exotic",     0.001),
+    ]
+    lines = ["🎣 Fishing Chances"]
+    for label, pct in _BASE_FISH_CHANCES:
+        pct_str = f"{pct}%" if pct >= 0.01 else f"{pct:.4f}%"
+        lines.append(f"{label}: {pct_str}")
+    await _w(bot, user.id, "\n".join(lines)[:249])
+
+
 async def handle_fishhelp(bot: BaseBot, user: User) -> None:
     """/fishhelp — fishing command reference."""
     await _w(bot, user.id,
              "🎣 Fishing Commands\n"
-             "/fish /cast /reel — catch a fish\n"
-             "/fishlist <rarity> — fish by rarity\n"
-             "/fishprices <rarity> — prices & weights\n"
-             "/fishinfo <name> — fish details\n"
-             "/myfish — your catches\n"
-             "/fishlevel — FXP & level\n"
-             "/rods /rodshop /buyrod /equiprod")
+             "!fish !cast !reel — catch a fish\n"
+             "!fishlist [rarity] — fish by rarity\n"
+             "!fishprices [rarity] — prices & weights\n"
+             "!fishinfo [name] — fish details\n"
+             "!myfish — your catches\n"
+             "!fishlevel — FXP & level\n"
+             "!rods !rodshop !buyrod !equiprod")
 
 
 # ---------------------------------------------------------------------------

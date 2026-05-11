@@ -29,7 +29,7 @@ from datetime import datetime, timedelta, timezone
 from highrise import BaseBot, User
 
 import database as db
-from modules.cards       import make_deck, hand_str, hand_value, is_blackjack, card_str
+from modules.cards       import make_deck, make_shoe, hand_str, hand_value, is_blackjack, card_str
 from modules.quests      import track_quest
 from modules.shop        import get_player_benefits
 from modules.permissions import can_manage_games, can_moderate
@@ -120,6 +120,8 @@ class _BJState:
         self._countdown_ends_at: str  = ""
         self._action_ends_at:    str  = ""
         self.pair_bonuses:       dict = {}
+        self._shoe_loaded_from_restart: bool = False
+        self._shoe_saved_at:     str  = ""
 
     def get_player(self, user_id: str):
         for p in self.players:
@@ -291,7 +293,12 @@ async def _start_round(bot: BaseBot):
         return
 
     _state.phase    = "round"
-    _state.deck     = make_deck()
+    # Use persistent 6-deck shoe; only rebuild when depleted (< 15 cards)
+    if len(_state.deck) < 15:
+        _state.deck = list(make_shoe(6))
+        _state._shoe_loaded_from_restart = False
+        _state._shoe_saved_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+        print(f"[BJ] New 6-deck shoe built. Cards: {len(_state.deck)}")
     _state.round_id = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S%f") + "_bj"
     _state._countdown_ends_at = ""
 
@@ -800,6 +807,10 @@ async def startup_bj_recovery(bot: BaseBot) -> None:
         _state.deck               = json.loads(row.get("deck_json") or "[]")
         _state._countdown_ends_at = row.get("countdown_ends_at", "")
         _state._action_ends_at    = row.get("turn_ends_at", "")
+        if _state.deck:
+            _state._shoe_loaded_from_restart = True
+            _state._shoe_saved_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+            print(f"[RECOVERY] BJ shoe loaded from DB: {len(_state.deck)} cards remaining.")
 
         if phase == "lobby":
             _state.phase = "lobby"
@@ -1333,6 +1344,7 @@ async def _cmd_split(bot: BaseBot, user: User):
     p.hands[idx]["cards"].append(new_card_a)
     new_card_b = _state.deck.pop()
     p.hands[idx + 1]["cards"].append(new_card_b)
+    _save_table_state()
 
     split_aces = int(s.get("bj_split_aces_one_card", 1))
     is_aces    = (r1 == "A")
@@ -1915,27 +1927,41 @@ async def handle_bj_rules(bot: BaseBot, user: User) -> None:
 
 
 async def handle_bj_shoe(bot: BaseBot, user: User) -> None:
-    """/bjshoe or /bj shoe — show BJ deck / shoe status."""
+    """!bjshoe — show BJ shoe/deck status including persistence info."""
+    row     = db.load_casino_table("bj")
+    deck_db = bool(row and row.get("deck_json")
+                   and row.get("deck_json") not in ("[]", ""))
+    saved   = "YES" if deck_db else "NO"
+
     if _state.phase == "idle":
-        row      = db.load_casino_table("bj")
-        deck_db  = bool(row and row.get("deck_json")
-                        and row.get("deck_json") not in ("[]", ""))
-        saved    = "YES" if deck_db else "NO"
+        db_cards = len(json.loads(row.get("deck_json") or "[]")) if deck_db else 0
+        loaded   = "YES" if _state._shoe_loaded_from_restart else "NO"
+        ts       = _state._shoe_saved_at or "—"
         await bot.highrise.send_whisper(
             user.id,
-            f"🃏 BJ Shoe\nPhase: idle\nDeck saved: {saved}\nRecovery safe: {saved}"[:249]
+            f"🃏 Blackjack Shoe\n"
+            f"Phase: idle\n"
+            f"Decks: 6\n"
+            f"Cards in DB: {db_cards}\n"
+            f"Saved: {saved}\n"
+            f"Loaded From Restart: {loaded}\n"
+            f"Last Saved: {ts}"[:249]
         )
         return
+
     deck_sz   = len(_state.deck)
     dealer_ct = len(_state.dealer_hand)
     player_ct = sum(len(h["cards"]) for p in _state.players for h in p.hands)
-    rec_safe  = "YES" if deck_sz > 0 else "NO"
+    loaded    = "YES" if _state._shoe_loaded_from_restart else "NO"
+    ts        = _state._shoe_saved_at or "—"
     await bot.highrise.send_whisper(
         user.id,
-        f"🃏 BJ Shoe\nPhase: {_state.phase}\n"
-        f"Cards remaining: {deck_sz}\n"
-        f"Dealer cards: {dealer_ct} | Player cards: {player_ct}\n"
-        f"Players: {len(_state.players)}\nRecovery safe: {rec_safe}"[:249]
+        f"🃏 Blackjack Shoe\n"
+        f"Decks: 6 | Phase: {_state.phase}\n"
+        f"Cards Remaining: {deck_sz}\n"
+        f"Dealer: {dealer_ct} | Players: {player_ct} cards\n"
+        f"Saved: {saved} | Loaded From Restart: {loaded}\n"
+        f"Last Saved: {ts}"[:249]
     )
 
 

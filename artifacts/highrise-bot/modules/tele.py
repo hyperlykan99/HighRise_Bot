@@ -781,6 +781,40 @@ async def handle_autospawn(bot: BaseBot, user: User, args: list[str]) -> None:
     elif sub == "off":
         db.set_room_setting("autospawn_enabled", "0")
         await _w(bot, user.id, "🔴 Auto role spawn: OFF")
+    elif sub == "debug":
+        target = args[2].lstrip("@").lower() if len(args) > 2 else user.username.lower()
+        enabled = db.get_room_setting("autospawn_enabled", "0") == "1"
+        spawn   = get_autospawn_spawn_for_user(target)
+        in_room = target in {u.lower() for u in _user_positions.keys()} if _user_positions else False
+        # Detect roles
+        from modules.permissions import (
+            is_owner as _iown, is_admin as _iadm,
+            is_manager as _imgr, can_moderate as _imod,
+        )
+        detected = []
+        if _iown(target):      detected.append("owner")
+        if _iadm(target):      detected.append("admin")
+        if _imgr(target):      detected.append("manager")
+        if _imod(target):      detected.append("mod")
+        try:
+            vips = db.get_vip_list()
+            if target in [v.lower() for v in vips]:
+                detected.append("vip")
+        except Exception:
+            pass
+        if not detected:
+            detected.append("regular")
+        roles_str = ", ".join(detected)
+        sel_role  = detected[0]
+        has_spawn = "YES" if spawn else "NO"
+        spawn_str = f"x:{spawn['x']} y:{spawn['y']} z:{spawn['z']}" if spawn else "none"
+        await _w(bot, user.id,
+                 f"🌀 AutoSpawn Debug: @{target}\n"
+                 f"In Room: {'YES' if in_room else 'UNK'}\n"
+                 f"Detected Roles: {roles_str}\n"
+                 f"Selected Role: {sel_role}\n"
+                 f"Saved RoleSpawn: {has_spawn} ({spawn_str})\n"
+                 f"AutoSpawn Enabled: {'YES' if enabled else 'NO'}"[:249])
     else:
         enabled = db.get_room_setting("autospawn_enabled", "0") == "1"
         rows    = db.get_all_role_spawns() or []
@@ -788,7 +822,7 @@ async def handle_autospawn(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id,
                  f"📍 Auto Spawn: {'ON' if enabled else 'OFF'}\n"
                  f"Configured roles: {spawns}\n"
-                 f"!autospawn on|off  |  !setrolespawn <role> here")
+                 f"!autospawn [on|off|status|debug [user]]")
 
 
 def get_autospawn_spawn_for_user(username: str) -> dict | None:

@@ -209,7 +209,7 @@ async def handle_notif(bot, user) -> None:
 
     lines.append("DM Status: SDK Unsupported")
     lines.append("In-Room Whisper: Available while you are in room")
-    lines.append("/notifon <cat> | /notifoff <cat> | /notifall on|off")
+    lines.append("!notifon [cat] | !notifoff [cat] | !notifall [on|off]")
     await _w(bot, user.id, "\n".join(lines)[:249])
 
 
@@ -268,7 +268,7 @@ async def handle_notifoff(bot, user, args: list[str]) -> None:
 
 async def handle_notifall(bot, user, args: list[str]) -> None:
     if len(args) < 2 or args[1].lower() not in ("on", "off"):
-        await _w(bot, user.id, "Usage: /notifall on|off")
+        await _w(bot, user.id, "Usage: !notifall [on|off]")
         return
     enabled = 1 if args[1].lower() == "on" else 0
     db.set_sub_notif_global(user.id, user.username, enabled)

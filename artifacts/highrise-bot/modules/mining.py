@@ -136,15 +136,15 @@ COOLDOWNS = {1: 30, 2: 55, 3: 50, 4: 45, 5: 40, 6: 35, 7: 30, 8: 25, 9: 20, 10: 
 # MXP ranges reduced on common/uncommon so rare+ finds feel significantly more
 # rewarding; the XP curve multiplier was raised to 150 to keep overall pace healthy.
 RARITIES = {
-    "common":    (68.0,    (3,      8)),
-    "uncommon":  (20.0,    (10,    18)),
-    "rare":      ( 8.0,    (35,    70)),
-    "epic":      ( 2.5,    (100,  200)),
-    "legendary": ( 0.06,   (350,  650)),    # ~1 in 1,640
-    "mythic":    ( 0.004,  (1800, 1800)),   # ~1 in 24,630
-    "ultra_rare":( 0.001,  (7500, 7500)),   # ~1 in 98,520
-    "prismatic": ( 0.0002, (12000, 12000)), # ~1 in 492,600
-    "exotic":    ( 0.00004,(20000, 20000)), # ~1 in 2,460,000
+    "common":    (65.00,   (3,      8)),
+    "uncommon":  (22.00,   (10,    18)),
+    "rare":      (10.00,   (35,    70)),
+    "epic":      ( 2.75,   (100,  200)),
+    "legendary": ( 0.23,   (350,  650)),    # ~1 in 435
+    "mythic":    ( 0.015,  (1800, 1800)),   # ~1 in 6,667
+    "ultra_rare":( 0.004,  (7500, 7500)),   # ~1 in 25,000
+    "prismatic": ( 0.0008, (12000, 12000)), # ~1 in 125,000
+    "exotic":    ( 0.0002, (20000, 20000)), # ~1 in 500,000
 }
 
 RARITY_ORDER = [
@@ -322,6 +322,17 @@ def _roll_drop(
         ec = event_effects.get("exotic_chance_boost", 0.0)
         if ec > 0:
             probs["exotic"] *= (1 + ec)
+
+    # Mythic+ boost caps — prevent events/VIP/luck from making top rarities too easy
+    _MYTHIC_CAPS = {
+        "mythic":     0.05,
+        "ultra_rare": 0.01,
+        "prismatic":  0.002,
+        "exotic":     0.0005,
+    }
+    for _r, _cap in _MYTHIC_CAPS.items():
+        if probs.get(_r, 0) > _cap:
+            probs[_r] = _cap
 
     # Normalize to 100
     total = sum(probs.values())
@@ -1956,6 +1967,27 @@ async def handle_rerolljob(bot: BaseBot, user: User) -> None:
 # A2: Ore chance commands
 # /orechances /orechance /setorechance /setraritychance /reloadorechances
 # ---------------------------------------------------------------------------
+
+async def handle_minechances(bot: BaseBot, user: User) -> None:
+    """!minechances — show base rarity drop % for mining."""
+    lines = ["⛏️ Mining Chances"]
+    labels = {
+        "common":    "Common",
+        "uncommon":  "Uncommon",
+        "rare":      "Rare",
+        "epic":      "Epic",
+        "legendary": "Legendary",
+        "mythic":    "Mythic",
+        "ultra_rare":"Ultra Rare",
+        "prismatic": "Prismatic",
+        "exotic":    "Exotic",
+    }
+    for r in RARITY_ORDER:
+        pct = RARITIES[r][0]
+        pct_str = f"{pct}%" if pct >= 0.01 else f"{pct:.4f}%"
+        lines.append(f"{labels.get(r, r)}: {pct_str}")
+    await _w(bot, user.id, "\n".join(lines)[:249])
+
 
 async def handle_orechances(bot: BaseBot, user: User) -> None:
     """/orechances — show 1-in-X drop chance for every ore."""

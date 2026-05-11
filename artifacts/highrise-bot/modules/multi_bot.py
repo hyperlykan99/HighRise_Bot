@@ -475,6 +475,9 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "setallowbotxp": "host",
     # host — auto role spawn + roles list (new)
     "autospawn": "host", "roles": "host",
+    # miner/fisher — rarity chance commands (new)
+    "minechances": "miner", "fishchances": "fisher",
+    "fishingchances": "fisher", "raritychances": "host",
     # host — message audit (new)
     "messageaudit": "host", "staffhelp": "host",
     # blackjack — BJ shoe management (new)
