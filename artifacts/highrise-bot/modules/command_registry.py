@@ -724,6 +724,31 @@ REGISTRY: dict[str, Cmd] = {
     "subnotifystatus":  Cmd("host",    "help",    False, True,  False, perm="manager"),
     "testnotify":       Cmd("host",    "help",    False, False, True,  perm="manager"),
     "setsubnotifycooldown": Cmd("host","help",    False, False, True,  perm="manager"),
+
+    # ── Notification / room debug (host) ──────────────────────────────────────
+    "notifydebug":      Cmd("host",    "help",    False, True,  False, perm="manager"),
+    "roomusers":        Cmd("host",    "help",    False, True,  False, perm="manager"),
+    "testwhisper":      Cmd("host",    "help",    False, False, True,  perm="manager"),
+    "notifrefresh":     Cmd("host",    "help",    False, False, True,  perm="manager"),
+
+    # ── QoL / player support ──────────────────────────────────────────────────
+    "quicktest":        Cmd("host",    "system",  False, True,  False, perm="manager"),
+    "playercheck":      Cmd("security","system",  False, True,  False, perm="manager"),
+    "claimrewards":     Cmd("banker",  "rewards", True,  True,  False, perm="player"),
+    "eventcalendar":    Cmd("eventhost","events", True,  True,  False, perm="player",
+                            aliases=("calendar",)),
+    "lastupdate":       Cmd("host",    "help",    True,  True,  False, perm="player"),
+    "knownissues":      Cmd("host",    "help",    True,  True,  False, perm="player",
+                            aliases=("issues",)),
+    "knownissue":       Cmd("host",    "help",    False, False, True,  perm="manager"),
+    "feedback":         Cmd("host",    "help",    True,  False, True,  perm="player"),
+    "feedbacks":        Cmd("host",    "help",    False, True,  False, perm="manager",
+                            aliases=("feedbacklist",)),
+    "todo":             Cmd("host",    "system",  False, True,  False, perm="manager"),
+
+    # ── Auto event + system diagnostics ──────────────────────────────────────
+    "aetest":           Cmd("eventhost","events", False, True,  False, perm="manager"),
+    "ownercheck":       Cmd("security", "system", False, True,  False, perm="manager"),
 }
 
 # ---------------------------------------------------------------------------

@@ -1,0 +1,948 @@
+Next Update Compilation — Notification Cleanup + Debug/QoL Tools + Maintenance Controls
+
+Implement these updates together:
+
+1. Notification sender cleanup
+2. Notification delivery debug tools
+3. Room/user whisper debug tools
+4. Auto Event test helper
+5. System owner check
+6. QoL / player support commands
+7. Bot maintenance / shutdown controls
+
+Do not change bot tokens.
+Do not change room ID.
+Do not reset balances.
+Do not wipe player data.
+Do not wipe subscriptions.
+Do not wipe notification preferences.
+Do not wipe notification logs.
+Do not wipe rewards.
+Do not break mining, fishing, blackjack, poker, bank, gold tips, First Hunt Race, auto events, notifications, bot outfits, bot spawns, or command routing.
+Do not expose secrets, tokens, env vars, or room ID.
+
+==================================================
+PART 1 — NOTIFICATION SENDER DISPLAY CLEANUP
+==================================================
+
+Current issue:
+/subnotify summary shows:
+
+Sender: host
+
+Since EmceeBot handles all notifications now, staff/player-facing messages should show:
+
+Sender: EmceeBot
+
+Goal:
+- EmceeBot handles all notification delivery.
+- Remove, disable, or ignore job-based sender routing for now.
+- Other bots can trigger notification requests internally, but EmceeBot sends them.
+- Keep category labels like Event Alert, Mining Alert, Fishing Alert, Reward Alert, etc.
+- Staff/player-facing summary should show EmceeBot, not host.
+- If internal bot key is "host", convert display name to "EmceeBot".
+
+Required:
+/subnotify summary should show:
+Sender: EmceeBot
+
+/subnotifystatus should show:
+Sender: EmceeBot
+
+Logs may keep technical sender key if needed, but visible display should be EmceeBot.
+
+==================================================
+PART 2 — NOTIFICATION DELIVERY DEBUG COMMANDS
+==================================================
+
+Add or fix:
+
+/subnotifystatus failed
+/subnotifystatus nodelivery
+/notifydebug @username
+
+Owner:
+EmceeBot
+
+Permission:
+Manager+
+
+==================================================
+2A — /subnotifystatus failed
+==================================================
+
+Show players from latest/recent notifications where delivery failed.
+
+Include:
+- username
+- category
+- delivery method attempted
+- safe error message
+- timestamp if available
+
+Example:
+
+EmceeBot:
+🔔 Failed Notifications
+1. @Player — Events — whisper — user_not_found
+2. @Player2 — Updates — dm — unsupported_sdk
+
+If none:
+
+EmceeBot:
+🔔 Failed Notifications
+No failed deliveries found.
+
+==================================================
+2B — /subnotifystatus nodelivery
+==================================================
+
+Show players from latest/recent notifications with no delivery route.
+
+Include:
+- username
+- subscribed status
+- global notification status
+- category status
+- currently in room YES/NO
+- conversation/bulk DM availability if known
+
+Example:
+
+EmceeBot:
+🔔 No Delivery Route
+1. @Player — subscribed YES — room NO — DM NO
+2. @Player2 — subscribed YES — room NO — DM unsupported
+
+If none:
+
+EmceeBot:
+🔔 No Delivery Route
+No players missing delivery route.
+
+==================================================
+2C — /notifydebug @username
+==================================================
+
+Show one player’s notification status.
+
+Example:
+
+EmceeBot:
+🔔 Notify Debug: @Player
+Subscribed: YES
+Global: ON
+Events: ON
+Mining: OFF
+Rewards: ON
+Currently In Room: YES
+User ID Found: YES
+Conversation ID Found: YES
+Last Delivery: sent_whisper_in_room
+Last Method: whisper
+Last Error: none
+
+If player not found:
+
+EmceeBot:
+🔔 Notify Debug
+Player not found. Make sure they have used the bot or are in the room.
+
+==================================================
+PART 3 — ROOM / USER WHISPER DEBUG TOOLS
+==================================================
+
+Add:
+
+/roomusers
+/testwhisper @username
+/notifrefresh
+
+Owner:
+EmceeBot
+
+Permissions:
+/roomusers = Manager+
+/testwhisper = Manager+
+/notifrefresh = Manager+
+
+==================================================
+3A — /roomusers
+==================================================
+
+Shows who EmceeBot thinks is currently in the room.
+
+Use the best available source:
+- highrise.get_room_users() if supported
+- current in-memory room tracker
+- recent seen users fallback
+
+Example:
+
+EmceeBot:
+👥 Room Users
+Detected: 12
+@Player1
+@Player2
+@Player3
+
+If too many, show first 10 and count remaining.
+
+==================================================
+3B — /testwhisper @username
+==================================================
+
+Directly tests if EmceeBot can whisper a player.
+
+If this fails, the problem is user lookup or whisper sending, not subscriber notification logic.
+
+Expected response:
+
+EmceeBot:
+🧪 Test Whisper
+Target: @username
+User ID Found: YES
+Currently In Room: YES
+Whisper Sent: YES
+
+Target should receive:
+
+EmceeBot whisper:
+🧪 Test whisper from EmceeBot.
+
+If failed:
+
+EmceeBot:
+🧪 Test Whisper
+Target: @username
+User ID Found: YES
+Currently In Room: YES
+Whisper Sent: NO
+Error: <safe error>
+
+==================================================
+3C — /notifrefresh
+==================================================
+
+Refresh room user cache.
+
+Use:
+- get_room_users() if supported
+- current room tracker
+- recent seen fallback
+
+Response:
+
+EmceeBot:
+🔄 Notification Room Cache Refreshed
+Room users detected: 12
+Source: get_room_users
+
+If get_room_users unsupported:
+
+EmceeBot:
+🔄 Notification Room Cache Refreshed
+Room users detected: 8
+Source: recent seen fallback
+
+==================================================
+PART 4 — AUTO EVENT TEST HELPER
+==================================================
+
+Add:
+
+/aetest
+
+Owner:
+EventBot or EmceeBot
+
+Permission:
+Manager+
+
+Should run a safe diagnostic only.
+
+Show:
+- Auto Events ON/OFF
+- Scheduler RUNNING/STOPPED
+- Pool count
+- Eligible count
+- Current event
+- Next event
+- Next event timer
+- History writable YES/NO
+- Skip commands registered YES/NO
+- Event settings readable YES/NO
+
+Example:
+
+EventBot:
+🧪 Auto Event Test
+Auto Events: ON
+Scheduler: RUNNING
+Pool: 19
+Eligible: 19
+Current: None
+Next: Prismatic Hunt in 42m
+History Writable: YES
+Skip Commands: YES
+
+Do not start or stop events.
+Do not change timers.
+Do not modify data except harmless test log if needed.
+
+==================================================
+PART 5 — SYSTEM OWNER CHECK
+==================================================
+
+Add:
+
+/ownercheck
+
+Owner:
+SecurityBot or EmceeBot
+
+Permission:
+Manager+
+
+Shows command owner/route problems grouped by bot.
+
+Example:
+
+SecurityBot:
+🧭 Owner Check
+NoOwner: 0
+Missing: 0
+Broken Routes: 0
+
+EventBot commands: OK
+BlackJackBot commands: OK
+EmceeBot commands: OK
+BankerBot commands: OK
+MasterAngler commands: OK
+GreatestProspector commands: OK
+
+If issues exist, show short list:
+
+NoOwner:
+- /stay
+- /aehistory
+
+Broken:
+- /rewardpending handler error
+
+==================================================
+PART 6 — QOL / DEBUG / PLAYER SUPPORT COMMANDS
+==================================================
+
+Add:
+
+/quicktest
+/playercheck @username
+/claimrewards
+/eventcalendar
+/lastupdate
+/knownissues
+/knownissue add <issue>
+/knownissue remove <id>
+/knownissue clear
+/feedback <message>
+/feedbacks
+/feedbacklist
+/todo
+/todo add <task>
+/todo done <id>
+/todo remove <id>
+/todo clear
+
+==================================================
+6A — /quicktest
+==================================================
+
+Owner:
+EmceeBot or SecurityBot
+
+Permission:
+Manager+
+
+Runs important post-update checks.
+
+Example:
+
+🧪 Quick Test
+Commands: OK
+Auto Events: RUNNING
+BlackJack: OK
+Notifications: OK
+Gold Tips: OK
+Database: OK
+Pending Rewards: 2
+
+Checks should include:
+- command registry status
+- auto event scheduler status
+- event pool count
+- BlackJack handler status
+- notification delivery config
+- database connection
+- reward/pending payout health
+- gold tip handler ownership
+
+Do not mutate data.
+
+==================================================
+6B — /playercheck @username
+==================================================
+
+Owner:
+SecurityBot or EmceeBot
+
+Permission:
+Manager+
+
+Staff command to check one player’s full status.
+
+Example:
+
+Player: @Player
+Subscribed: YES
+Global Notifs: ON
+Coins: 25,000
+Gold tipped: 10g
+Mining Level: 8
+Fishing Level: 5
+Cooldowns: Fish 8s
+Pending Rewards: 1
+Warnings/Mutes: 0
+Last Seen: 5m ago
+
+Include if available:
+- subscription status
+- notification global/category summary
+- balance
+- mining/fishing level
+- cooldowns
+- pending rewards
+- recent rewards
+- mute/warning status
+- last seen
+
+Do not show sensitive private data to normal players.
+Manager+ only.
+
+==================================================
+6C — /claimrewards
+==================================================
+
+Owner:
+BankerBot
+
+Permission:
+Everyone
+
+Players can claim all pending coin rewards.
+
+Rules:
+- Coin rewards can be claimed automatically.
+- Gold rewards stay pending/manual if bot cannot actually send gold.
+- Do not double-pay rewards.
+- Mark claimed rewards as paid/claimed.
+- Log claim transaction.
+- If no rewards, respond clearly.
+
+Example:
+
+BankerBot:
+🎁 Rewards Claimed
+Coins: 10,000
+Gold pending manual tip: 5g
+
+If none:
+
+BankerBot:
+🎁 Rewards
+No claimable rewards right now.
+
+==================================================
+6D — /eventcalendar
+==================================================
+
+Owner:
+EventBot or EmceeBot
+
+Permission:
+Everyone or Manager+ depending existing event permissions.
+Prefer Everyone if safe.
+
+Shows upcoming planned room events.
+
+Example:
+
+📅 Event Calendar
+Current Event: None
+Next Auto Event: Prismatic Hunt in 42m
+First Hunt: Not scheduled
+Weekly Reset: Sunday
+Donation Goal: 450g / 1,000g
+
+Include:
+- current auto event
+- next auto event
+- next event timer
+- First Hunt status
+- weekly reset date/time if available
+- donation goal if available
+
+==================================================
+6E — /lastupdate
+==================================================
+
+Owner:
+EmceeBot
+
+Permissions:
+View = Everyone
+Edit = Manager+
+
+Shows latest bot update summary.
+
+Example:
+
+🛠️ Last Bot Update
+- Notifications now whisper in-room players
+- Auto Event queue added
+- /stay fixed
+- Fishing inventory added
+
+Optional staff edit commands:
+
+/lastupdate set <message>
+/lastupdate add <line>
+/lastupdate clear
+
+Store in DB or config safely.
+
+==================================================
+6F — /knownissues
+==================================================
+
+Owner:
+EmceeBot or SecurityBot
+
+Permissions:
+/knownissues = Everyone
+/knownissue add/remove/clear = Manager+
+
+Public known bug list.
+
+Example:
+
+⚠️ Known Issues
+1. Out-of-room DM notifications may not work
+2. Room tip jar detection depends on SDK
+3. Poker forcefinish needs review
+
+Commands:
+
+/knownissue add <issue>
+/knownissue remove <id>
+/knownissue clear
+
+Rules:
+- Keep output short.
+- Split into multiple messages if needed.
+- Store in DB.
+- Do not show internal secrets/errors.
+
+==================================================
+6G — /feedback
+==================================================
+
+Owner:
+EmceeBot
+
+Permissions:
+/feedback = Everyone
+/feedbacks and /feedbacklist = Manager+
+
+Separate feedback from ideas and bug reports.
+
+Use cases:
+/suggest = new ideas/features
+/bugreport = broken systems
+/feedback = general opinions or balance feedback
+
+Commands:
+
+/feedback <message>
+/feedbacks
+/feedbacklist
+
+Store in DB:
+
+feedback:
+- id
+- user_id
+- username
+- message
+- status
+- created_at
+
+Example:
+
+Player:
+/feedback blackjack timer feels too fast
+
+EmceeBot:
+💬 Feedback received. Thank you!
+
+Staff:
+/feedbacks
+
+EmceeBot:
+💬 Recent Feedback
+1. @Player: blackjack timer feels too fast
+
+==================================================
+6H — /todo STAFF CHECKLIST
+==================================================
+
+Owner:
+EmceeBot or SecurityBot
+
+Permission:
+Manager+
+
+Daily room checklist for owner/managers.
+
+Commands:
+
+/todo
+/todo add <task>
+/todo done <id>
+/todo remove <id>
+/todo clear
+
+Example:
+
+📝 Staff Todo
+1. Test Auto Events
+2. Pay pending rewards
+3. Check /ownercheck
+4. Run /economyreport
+
+Store in DB:
+
+staff_todo:
+- id
+- task
+- status
+- created_by_user_id
+- created_by_username
+- created_at
+- completed_at
+
+==================================================
+PART 7 — BOT MAINTENANCE / SHUTDOWN CONTROLS
+==================================================
+
+Add a feature to disable/shutdown bots for maintenance.
+
+Goal:
+Owner/Manager should be able to put one bot, one system, or all bots into maintenance mode safely without wiping data or breaking restart recovery.
+
+Commands:
+
+/maintenance
+/maintenance status
+/maintenance on
+/maintenance off
+/maintenance bot <botname> on
+/maintenance bot <botname> off
+/maintenance all on
+/maintenance all off
+/botstatus
+
+Optional only if safely supported:
+
+/shutdownbot <botname>
+/startbot <botname>
+/restartbot <botname>
+
+==================================================
+7A — PERMISSIONS
+==================================================
+
+- Owner only for full shutdown/restart commands.
+- Manager+ can view status.
+- Manager+ can enable maintenance mode if safe.
+- If shutdown/start/restart cannot be safely supported, do not register those commands as active.
+
+==================================================
+7B — GLOBAL MAINTENANCE MODE
+==================================================
+
+When global maintenance is ON:
+- Block non-staff gameplay commands.
+- Keep staff commands working.
+- Keep /help, /start, /maintenance status, /botstatus working.
+- Show clear message to players.
+
+Player message:
+
+🛠️ Maintenance Mode
+Bots are being updated. Please try again soon.
+
+Do not block owner/manager from turning maintenance off.
+
+==================================================
+7C — PER-BOT MAINTENANCE
+==================================================
+
+Example:
+
+/maintenance bot BlackJackBot on fixing table bug
+
+Should disable only BlackJackBot gameplay commands:
+- /bet
+- /hit
+- /stand
+- /stay
+- /double
+- /split
+- /insurance
+- blackjack table actions
+
+But keep:
+- /bj help
+- /bj status
+- staff recovery commands
+
+Player message:
+
+🛠️ BlackJackBot Maintenance
+Reason: fixing table bug
+Try again later.
+
+==================================================
+7D — PER-SYSTEM MAINTENANCE OPTIONAL
+==================================================
+
+Add if easy:
+
+/maintenance system blackjack on
+/maintenance system fishing on
+/maintenance system mining on
+/maintenance system events on
+
+If not implemented, do not register as active.
+
+==================================================
+7E — SHUTDOWN VS MAINTENANCE
+==================================================
+
+Important distinction:
+- maintenance on = bot still online, commands blocked safely.
+- shutdownbot = attempt to stop that bot process only if project architecture supports it.
+
+If actual process shutdown is not safely supported, implement maintenance mode only and say:
+
+Actual bot process shutdown is not supported safely from chat. Maintenance mode enabled instead.
+
+Do not kill processes unless safe and supported.
+
+==================================================
+7F — /botstatus
+==================================================
+
+Command:
+
+/botstatus
+
+Owner:
+SecurityBot or EmceeBot
+
+Permission:
+Everyone or Manager+
+Prefer Everyone if safe.
+
+Example:
+
+🤖 Bot Status
+EmceeBot: ONLINE
+BankerBot: ONLINE
+GreatestProspector: ONLINE
+MasterAngler: ONLINE
+BlackJackBot: MAINTENANCE
+PokerBot: ONLINE
+SecurityBot: ONLINE
+
+Global Maintenance: OFF
+
+==================================================
+7G — DATABASE
+==================================================
+
+Maintenance states should persist through restart.
+
+Create table safely:
+
+bot_maintenance_settings:
+- id INTEGER PRIMARY KEY AUTOINCREMENT
+- scope TEXT
+- target TEXT
+- enabled INTEGER
+- reason TEXT
+- set_by_user_id TEXT
+- set_by_username TEXT
+- updated_at TEXT
+
+Scopes:
+- global
+- bot
+- system
+
+Use safe migrations only.
+Do not wipe old data.
+
+==================================================
+PART 8 — COMMAND OWNERSHIP
+==================================================
+
+Suggested owners:
+
+EmceeBot:
+/subnotify
+/subnotifystatus
+/notifydebug
+/roomusers
+/testwhisper
+/notifrefresh
+/quicktest
+/eventcalendar
+/lastupdate
+/knownissues
+/knownissue
+/feedback
+/feedbacks
+/feedbacklist
+/todo
+/maintenance
+/botstatus
+
+SecurityBot:
+/ownercheck
+/playercheck
+/maintenance
+/botstatus
+
+BankerBot:
+/claimrewards
+
+EventBot:
+/aetest
+/eventcalendar
+
+Use existing valid owner keys in the project.
+Do not leave owner UNKNOWN.
+Do not register optional commands unless implemented.
+
+==================================================
+PART 9 — COMMANDTEST
+==================================================
+
+These must pass:
+
+/commandtest /subnotifystatus
+/commandtest /notifydebug
+/commandtest /roomusers
+/commandtest /testwhisper
+/commandtest /notifrefresh
+/commandtest /aetest
+/commandtest /ownercheck
+
+/commandtest /quicktest
+/commandtest /playercheck
+/commandtest /claimrewards
+/commandtest /eventcalendar
+/commandtest /lastupdate
+/commandtest /knownissues
+/commandtest /knownissue
+/commandtest /feedback
+/commandtest /feedbacks
+/commandtest /feedbacklist
+/commandtest /todo
+
+/commandtest /maintenance
+/commandtest /botstatus
+
+/checkcommands all
+
+Target:
+- route=YES
+- handler=YES
+- owner not UNKNOWN
+- Missing 0
+- NoOwner 0
+
+If shutdown/start/restart commands are implemented, also test:
+
+/commandtest /shutdownbot
+/commandtest /startbot
+/commandtest /restartbot
+
+If they are not safely implemented, do not register them as active.
+
+==================================================
+PART 10 — SAFETY
+==================================================
+
+Do not:
+- reset balances
+- wipe rewards
+- wipe subscriptions
+- wipe notification preferences
+- wipe notification logs
+- double-pay pending rewards
+- mark failed/no-route notifications as sent
+- send notifications to opted-out players
+- send notifications to unsubscribed players
+- show private player data to normal players
+- let normal players use staff-only commands
+- stop all staff commands during maintenance
+- clear active casino tables without safe refund/recovery
+- break restart recovery
+- expose tokens/secrets/env vars
+- leave broken commands in help
+- leave owner UNKNOWN
+
+==================================================
+FINAL REPORT
+==================================================
+
+After finishing, tell me:
+
+1. Files changed
+2. Commands added
+3. Commands skipped/not implemented
+4. Database tables added
+5. Permission rules
+6. How notification sender display was fixed
+7. How /notifydebug works
+8. How /roomusers works
+9. How /testwhisper works
+10. How /notifrefresh works
+11. How /aetest works
+12. How /ownercheck works
+13. How /quicktest works
+14. How /playercheck works
+15. How /claimrewards prevents double-pay
+16. How /eventcalendar gets next event
+17. How /lastupdate works
+18. How /knownissues works
+19. How /feedback works
+20. How /todo works
+21. How /maintenance works
+22. How /botstatus works
+23. Whether actual shutdown/start/restart is supported
+24. Results of /checkcommands all
+25. Exact tests to run

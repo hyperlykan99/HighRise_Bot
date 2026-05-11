@@ -249,6 +249,19 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "botconflicts": "host", "botmodules": "host",
     "modulehealth": "host", "botheartbeat": "host",
     "botstatus": "host", "botstatus_cluster": "host",
+    # ── Notification / room debug ─────────────────────────────────────────────
+    "notifydebug": "host", "roomusers": "host",
+    "testwhisper": "host", "notifrefresh": "host",
+    # ── QoL / player support ─────────────────────────────────────────────────
+    "quicktest": "host", "playercheck": "security",
+    "claimrewards": "banker",
+    "eventcalendar": "eventhost", "calendar": "eventhost",
+    "lastupdate": "host",
+    "knownissues": "host", "issues": "host", "knownissue": "host",
+    "feedback": "host", "feedbacks": "host", "feedbacklist": "host",
+    "todo": "host",
+    # ── Auto event + system diagnostics ──────────────────────────────────────
+    "aetest": "eventhost", "ownercheck": "security",
     "taskowners": "host", "activetasks": "host",
     "taskconflicts": "host", "fixtaskowners": "host",
     "restorestatus": "host", "restoreannounce": "host",

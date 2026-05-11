@@ -93,6 +93,21 @@ CATEGORY_HEADERS: dict[str, tuple[str, str]] = {
 # Fallback bot mode if selected sender is unavailable
 _FALLBACK_MODE = "host"
 
+# Human-readable display names for bot modes — used when DB lookup returns None.
+# Always shows the correct bot name instead of internal mode key.
+_MODE_DISPLAY_NAMES: dict[str, str] = {
+    "host":       "EmceeBot",
+    "eventhost":  "EmceeBot",
+    "banker":     "BankingBot",
+    "miner":      "GreatestProspector",
+    "fisher":     "MasterAngler",
+    "blackjack":  "ChipSoprano",
+    "poker":      "AceSinatra",
+    "dj":         "DJ_DUDU",
+    "security":   "KeanuShield",
+    "shopkeeper": "BankingBot",
+}
+
 # Categories ON by default for new subscribers (all others default OFF)
 _DEFAULT_ON: frozenset[str] = frozenset({"events", "rewards", "firsthunt", "updates"})
 
@@ -164,7 +179,8 @@ def get_notification_sender_info(category: str) -> dict:
     current_modes = _current_bot_modes()
 
     # Look up the expected sender username from bot_instances
-    original_uname = db.get_bot_username_for_mode(target_mode) or target_mode
+    original_uname = (db.get_bot_username_for_mode(target_mode)
+                      or _MODE_DISPLAY_NAMES.get(target_mode, target_mode))
     is_online      = db.is_bot_mode_online(target_mode)
 
     # Determine if the current bot should deliver (it IS the target)

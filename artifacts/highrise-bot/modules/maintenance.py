@@ -31,8 +31,21 @@ _maintenance_on: bool = False
 
 
 def is_maintenance() -> bool:
-    """Returns True while maintenance mode is enabled."""
-    return _maintenance_on
+    """Returns True while maintenance mode is enabled (in-memory OR DB global)."""
+    if _maintenance_on:
+        return True
+    try:
+        return db.is_global_maintenance_db()
+    except Exception:
+        return False
+
+
+def is_bot_maintenance(target: str) -> bool:
+    """Returns True if a specific bot (by username or mode) is in DB maintenance."""
+    try:
+        return db.is_bot_maintenance_db(target)
+    except Exception:
+        return False
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -131,30 +144,124 @@ async def handle_backup(bot: BaseBot, user: User) -> None:
 # ── /maintenance ──────────────────────────────────────────────────────────────
 
 async def handle_maintenance(bot: BaseBot, user: User, args: list[str]) -> None:
-    """Toggle or show maintenance mode."""
+    """Toggle or show maintenance mode (supports bot/all/status sub-commands)."""
     global _maintenance_on
-    sub = args[1].lower() if len(args) > 1 else ""
+    sub  = args[1].lower() if len(args) > 1 else ""
+    sub2 = args[2].lower() if len(args) > 2 else ""
 
-    if sub == "on":
+    # ── /maintenance on|off  (global toggle) ─────────────────────────────────
+    if sub in ("on", "off"):
         if not _is_admin_or_owner(user.username):
             await _w(bot, user.id, "Owner/admin only.")
             return
-        _maintenance_on = True
-        await _chat(bot, "🔧 Maintenance mode ON. Game & economy features temporarily paused.")
-        await _w(bot, user.id, "✅ Maintenance mode enabled.")
+        _maintenance_on = sub == "on"
+        try:
+            db.set_maintenance_state(
+                "global", "all", _maintenance_on, "", user.id, user.username
+            )
+        except Exception:
+            pass
+        if _maintenance_on:
+            await _chat(bot,
+                        "🔧 Maintenance mode ON. "
+                        "Game & economy features temporarily paused.")
+            await _w(bot, user.id, "✅ Maintenance mode enabled.")
+        else:
+            await _chat(bot, "✅ Maintenance complete — all features restored!")
 
-    elif sub == "off":
+    # ── /maintenance all on|off ───────────────────────────────────────────────
+    elif sub == "all":
         if not _is_admin_or_owner(user.username):
             await _w(bot, user.id, "Owner/admin only.")
             return
-        _maintenance_on = False
-        await _chat(bot, "✅ Maintenance complete — all features restored!")
+        if sub2 in ("on", "off"):
+            _maintenance_on = sub2 == "on"
+            try:
+                db.set_maintenance_state(
+                    "global", "all", _maintenance_on, "", user.id, user.username
+                )
+            except Exception:
+                pass
+            if _maintenance_on:
+                await _chat(bot,
+                            "🔧 Maintenance mode ON. "
+                            "Game & economy features temporarily paused.")
+                await _w(bot, user.id, "✅ Global maintenance enabled.")
+            else:
+                await _chat(bot, "✅ Maintenance complete — all features restored!")
+                await _w(bot, user.id, "✅ Global maintenance disabled.")
+        else:
+            await _w(bot, user.id, "Usage: /maintenance all on|off")
 
+    # ── /maintenance bot <name> on|off [reason] ───────────────────────────────
+    elif sub == "bot":
+        if not _is_admin_or_owner(user.username):
+            await _w(bot, user.id, "Owner/admin only.")
+            return
+        if len(args) < 4:
+            await _w(bot, user.id,
+                     "Usage: /maintenance bot <botname> on|off [reason]")
+            return
+        target_bot = args[2].lower()
+        toggle     = args[3].lower()
+        reason     = " ".join(args[4:])[:100] if len(args) > 4 else ""
+        if toggle not in ("on", "off"):
+            await _w(bot, user.id,
+                     "Usage: /maintenance bot <botname> on|off [reason]")
+            return
+        enabled = toggle == "on"
+        try:
+            db.set_maintenance_state(
+                "bot", target_bot, enabled, reason, user.id, user.username
+            )
+        except Exception as exc:
+            await _w(bot, user.id, f"❌ DB error: {str(exc)[:60]}")
+            return
+        if enabled:
+            r_str = f" ({reason})" if reason else ""
+            await _w(bot, user.id,
+                     f"✅ {target_bot} MAINTENANCE ON{r_str}.\n"
+                     "Commands for that bot will be blocked.")
+        else:
+            await _w(bot, user.id,
+                     f"✅ {target_bot} MAINTENANCE OFF. Commands restored.")
+
+    # ── /maintenance status ───────────────────────────────────────────────────
+    elif sub == "status":
+        global_on = "ON 🔧" if _maintenance_on else "OFF ✅"
+        try:
+            db_global = db.is_global_maintenance_db()
+            global_db = "ON" if db_global else "OFF"
+        except Exception:
+            global_db = "?"
+        try:
+            maint_rows = db.get_all_maintenance_states()
+            bot_maint  = [r for r in maint_rows
+                          if r.get("scope") == "bot" and r.get("enabled")]
+        except Exception:
+            maint_rows = []
+            bot_maint  = []
+
+        lines = [
+            f"🔧 Maintenance Status",
+            f"Global (memory): {global_on}",
+            f"Global (DB): {global_db}",
+            f"Bots in maint: {len(bot_maint)}",
+        ]
+        for r in bot_maint[:5]:
+            reason = r.get("reason", "")
+            lines.append(f"  {r['target']}" + (f": {reason[:30]}" if reason else ""))
+        await _w(bot, user.id, "\n".join(lines)[:249])
+
+    # ── /maintenance (no args) — show status ──────────────────────────────────
     else:
         status = "ON 🔧" if _maintenance_on else "OFF ✅"
         await _w(bot, user.id,
                  f"Maintenance mode: {status}\n"
-                 "Toggle with /maintenance on  or  /maintenance off  (admin+).")
+                 "Cmds: /maintenance on|off\n"
+                 "/maintenance all on|off\n"
+                 "/maintenance bot <name> on|off [reason]\n"
+                 "/maintenance status")
 
 
 # ── /reloadsettings ───────────────────────────────────────────────────────────

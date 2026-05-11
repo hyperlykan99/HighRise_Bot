@@ -1770,6 +1770,57 @@ def _migrate_db():
         "ALTER TABLE subscriber_notification_recipients ADD COLUMN sender_bot_name TEXT DEFAULT ''",
         "ALTER TABLE subscriber_notification_recipients ADD COLUMN original_sender_bot_name TEXT DEFAULT ''",
         "ALTER TABLE subscriber_notification_recipients ADD COLUMN fallback_used INTEGER DEFAULT 0",
+        # ── QoL / debug tables ────────────────────────────────────────────────
+        """CREATE TABLE IF NOT EXISTS player_feedback (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT NOT NULL DEFAULT '',
+            username TEXT NOT NULL DEFAULT '',
+            message TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'open',
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )""",
+        """CREATE TABLE IF NOT EXISTS staff_todo (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            task TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'pending',
+            created_by_user_id TEXT NOT NULL DEFAULT '',
+            created_by_username TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            completed_at TEXT
+        )""",
+        """CREATE TABLE IF NOT EXISTS known_issues (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            issue TEXT NOT NULL DEFAULT '',
+            added_by_username TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )""",
+        """CREATE TABLE IF NOT EXISTS bot_update_notes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            note TEXT NOT NULL DEFAULT '',
+            added_by_username TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )""",
+        """CREATE TABLE IF NOT EXISTS pending_coin_rewards (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT NOT NULL DEFAULT '',
+            username TEXT NOT NULL DEFAULT '',
+            amount INTEGER NOT NULL DEFAULT 0,
+            source TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'pending',
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            claimed_at TEXT
+        )""",
+        """CREATE TABLE IF NOT EXISTS bot_maintenance_settings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            scope TEXT NOT NULL DEFAULT 'global',
+            target TEXT NOT NULL DEFAULT '',
+            enabled INTEGER NOT NULL DEFAULT 0,
+            reason TEXT NOT NULL DEFAULT '',
+            set_by_user_id TEXT NOT NULL DEFAULT '',
+            set_by_username TEXT NOT NULL DEFAULT '',
+            updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE(scope, target)
+        )""",
     ]:
         try:
             conn.execute(sql)
@@ -10537,3 +10588,635 @@ def close_event_history_as_skipped(history_id: int, skipped_by: str) -> None:
     )
     conn.commit()
     conn.close()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# QoL / Debug DB helpers
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── Player Feedback ───────────────────────────────────────────────────────────
+
+def add_player_feedback(user_id: str, username: str, message: str) -> int:
+    conn = get_connection()
+    cur = conn.execute(
+        "INSERT INTO player_feedback (user_id, username, message) VALUES (?, ?, ?)",
+        (user_id or "", (username or "").lower(), (message or "")[:200]),
+    )
+    new_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return new_id or 0
+
+
+def get_recent_feedback(limit: int = 10) -> list[dict]:
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT id, user_id, username, message, status, created_at "
+        "FROM player_feedback ORDER BY id DESC LIMIT ?",
+        (limit,),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+# ── Staff Todo ────────────────────────────────────────────────────────────────
+
+def add_staff_todo(task: str, user_id: str, username: str) -> int:
+    conn = get_connection()
+    cur = conn.execute(
+        "INSERT INTO staff_todo (task, created_by_user_id, created_by_username) "
+        "VALUES (?, ?, ?)",
+        ((task or "")[:150], user_id or "", (username or "").lower()),
+    )
+    new_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return new_id or 0
+
+
+def get_staff_todo() -> list[dict]:
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT id, task, status, created_by_username, created_at, completed_at "
+        "FROM staff_todo ORDER BY id ASC",
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def complete_staff_todo(todo_id: int) -> bool:
+    conn = get_connection()
+    cur = conn.execute(
+        "UPDATE staff_todo SET status='done', completed_at=datetime('now') "
+        "WHERE id=? AND status='pending'",
+        (todo_id,),
+    )
+    changed = cur.rowcount > 0
+    conn.commit()
+    conn.close()
+    return changed
+
+
+def remove_staff_todo(todo_id: int) -> bool:
+    conn = get_connection()
+    cur = conn.execute("DELETE FROM staff_todo WHERE id=?", (todo_id,))
+    changed = cur.rowcount > 0
+    conn.commit()
+    conn.close()
+    return changed
+
+
+def clear_staff_todo() -> int:
+    conn = get_connection()
+    cur = conn.execute("DELETE FROM staff_todo")
+    n = cur.rowcount
+    conn.commit()
+    conn.close()
+    return n
+
+
+# ── Known Issues ──────────────────────────────────────────────────────────────
+
+def add_known_issue(issue: str, username: str) -> int:
+    conn = get_connection()
+    cur = conn.execute(
+        "INSERT INTO known_issues (issue, added_by_username) VALUES (?, ?)",
+        ((issue or "")[:200], (username or "").lower()),
+    )
+    new_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return new_id or 0
+
+
+def get_known_issues() -> list[dict]:
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT id, issue, added_by_username, created_at "
+        "FROM known_issues ORDER BY id ASC",
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def remove_known_issue(issue_id: int) -> bool:
+    conn = get_connection()
+    cur = conn.execute("DELETE FROM known_issues WHERE id=?", (issue_id,))
+    changed = cur.rowcount > 0
+    conn.commit()
+    conn.close()
+    return changed
+
+
+def clear_known_issues() -> int:
+    conn = get_connection()
+    cur = conn.execute("DELETE FROM known_issues")
+    n = cur.rowcount
+    conn.commit()
+    conn.close()
+    return n
+
+
+# ── Bot Update Notes ──────────────────────────────────────────────────────────
+
+def add_update_note(note: str, username: str) -> int:
+    conn = get_connection()
+    cur = conn.execute(
+        "INSERT INTO bot_update_notes (note, added_by_username) VALUES (?, ?)",
+        ((note or "")[:200], (username or "").lower()),
+    )
+    new_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return new_id or 0
+
+
+def get_update_notes() -> list[dict]:
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT id, note, added_by_username, created_at "
+        "FROM bot_update_notes ORDER BY id ASC",
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def set_update_notes(lines: list[str], username: str) -> None:
+    """Replace all update notes with the provided lines."""
+    conn = get_connection()
+    conn.execute("DELETE FROM bot_update_notes")
+    uname = (username or "").lower()
+    for line in lines:
+        if line.strip():
+            conn.execute(
+                "INSERT INTO bot_update_notes (note, added_by_username) VALUES (?, ?)",
+                (line.strip()[:200], uname),
+            )
+    conn.commit()
+    conn.close()
+
+
+def clear_update_notes() -> None:
+    conn = get_connection()
+    conn.execute("DELETE FROM bot_update_notes")
+    conn.commit()
+    conn.close()
+
+
+# ── Pending Coin Rewards ──────────────────────────────────────────────────────
+
+def add_pending_coin_reward(user_id: str, username: str,
+                            amount: int, source: str = "") -> int:
+    """Queue a coin reward for a player to claim via /claimrewards."""
+    conn = get_connection()
+    cur = conn.execute(
+        "INSERT INTO pending_coin_rewards (user_id, username, amount, source) "
+        "VALUES (?, ?, ?, ?)",
+        (user_id or "", (username or "").lower(), max(0, int(amount)), source or ""),
+    )
+    new_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return new_id or 0
+
+
+def get_pending_coin_rewards_for_user(user_id: str) -> list[dict]:
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT id, amount, source, created_at "
+        "FROM pending_coin_rewards WHERE user_id=? AND status='pending' "
+        "ORDER BY id ASC",
+        (user_id,),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def claim_pending_coin_rewards(user_id: str) -> tuple[int, int]:
+    """
+    Mark all pending coin rewards for user as claimed.
+    Returns (total_coins, reward_count). Does NOT credit the balance —
+    caller (banker bot) must call add_balance(user_id, total).
+    """
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT id, amount FROM pending_coin_rewards "
+        "WHERE user_id=? AND status='pending'",
+        (user_id,),
+    ).fetchall()
+    if not rows:
+        conn.close()
+        return 0, 0
+    ids   = [r["id"] for r in rows]
+    total = sum(r["amount"] for r in rows)
+    placeholders = ",".join("?" * len(ids))
+    conn.execute(
+        f"UPDATE pending_coin_rewards SET status='claimed', "
+        f"claimed_at=datetime('now') WHERE id IN ({placeholders})",
+        ids,
+    )
+    conn.commit()
+    conn.close()
+    return total, len(rows)
+
+
+# ── Bot Maintenance Settings ──────────────────────────────────────────────────
+
+def get_maintenance_state(scope: str, target: str) -> dict:
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT * FROM bot_maintenance_settings WHERE scope=? AND LOWER(target)=LOWER(?)",
+        (scope, target or ""),
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else {}
+
+
+def set_maintenance_state(scope: str, target: str, enabled: bool,
+                          reason: str, user_id: str, username: str) -> None:
+    conn = get_connection()
+    conn.execute(
+        """INSERT INTO bot_maintenance_settings
+               (scope, target, enabled, reason, set_by_user_id, set_by_username, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+           ON CONFLICT(scope, target) DO UPDATE SET
+               enabled         = excluded.enabled,
+               reason          = excluded.reason,
+               set_by_user_id  = excluded.set_by_user_id,
+               set_by_username = excluded.set_by_username,
+               updated_at      = excluded.updated_at""",
+        (scope, (target or "").lower(), int(enabled),
+         reason or "", user_id or "", (username or "").lower()),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_all_maintenance_states() -> list[dict]:
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT * FROM bot_maintenance_settings ORDER BY scope, target ASC",
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def is_bot_maintenance_db(target: str) -> bool:
+    """Return True if a specific bot (by username or mode) is in maintenance."""
+    row = get_maintenance_state("bot", target)
+    if row:
+        return bool(row.get("enabled", 0))
+    return False
+
+
+def is_global_maintenance_db() -> bool:
+    """Return True if global maintenance is enabled in the DB."""
+    row = get_maintenance_state("global", "all")
+    if row:
+        return bool(row.get("enabled", 0))
+    return False
+
+
+# ── Bot Instances Status ──────────────────────────────────────────────────────
+
+def get_all_bot_instances_status() -> list[dict]:
+    """Return all bot_instances rows for status display."""
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT bot_mode, bot_username, status, last_seen_at, enabled "
+        "FROM bot_instances ORDER BY bot_mode ASC",
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+# ── Subscriber Notification Recipient History ─────────────────────────────────
+
+def get_sub_notif_recipient_history(user_id: str, limit: int = 5) -> list[dict]:
+    """Return last N delivery records for a user_id."""
+    conn = get_connection()
+    rows = conn.execute(
+        """SELECT notification_id, user_id, username, category,
+                  delivery_method, status, error, created_at
+           FROM subscriber_notification_recipients
+           WHERE user_id = ?
+           ORDER BY id DESC LIMIT ?""",
+        (user_id, limit),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+# ── QoL / debug helper functions ──────────────────────────────────────────────
+
+# -- Feedback ------------------------------------------------------------------
+
+def add_player_feedback(user_id: str, username: str, message: str) -> int:
+    """Insert a player feedback row and return its id."""
+    conn = get_connection()
+    cur  = conn.execute(
+        "INSERT INTO player_feedback (user_id, username, message) VALUES (?, ?, ?)",
+        (user_id or "", (username or "").lower(), (message or "")[:500]),
+    )
+    new_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return new_id or 0
+
+
+def get_recent_feedback(limit: int = 10) -> list:
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT id, user_id, username, message, status, created_at "
+        "FROM player_feedback ORDER BY id DESC LIMIT ?",
+        (limit,),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+# -- Staff TODO ---------------------------------------------------------------
+
+def add_staff_todo(task: str, user_id: str = "", username: str = "") -> int:
+    """Insert a staff todo item and return its id."""
+    conn   = get_connection()
+    cur    = conn.execute(
+        "INSERT INTO staff_todo (task, created_by_user_id, created_by_username) "
+        "VALUES (?, ?, ?)",
+        ((task or "")[:300], user_id or "", (username or "").lower()),
+    )
+    new_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return new_id or 0
+
+
+def get_staff_todo() -> list:
+    conn  = get_connection()
+    rows  = conn.execute(
+        "SELECT id, task, status, created_by_username, created_at, completed_at "
+        "FROM staff_todo ORDER BY status ASC, id ASC"
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def complete_staff_todo(todo_id: int) -> bool:
+    conn = get_connection()
+    conn.execute(
+        "UPDATE staff_todo SET status='done', completed_at=datetime('now') "
+        "WHERE id=? AND status!='done'",
+        (todo_id,),
+    )
+    changed = conn.total_changes
+    conn.commit()
+    conn.close()
+    return changed > 0
+
+
+def remove_staff_todo(todo_id: int) -> bool:
+    conn = get_connection()
+    conn.execute("DELETE FROM staff_todo WHERE id=?", (todo_id,))
+    changed = conn.total_changes
+    conn.commit()
+    conn.close()
+    return changed > 0
+
+
+def clear_staff_todo() -> int:
+    conn = get_connection()
+    conn.execute("DELETE FROM staff_todo")
+    count = conn.total_changes
+    conn.commit()
+    conn.close()
+    return count
+
+
+# -- Known issues -------------------------------------------------------------
+
+def add_known_issue(issue: str, username: str = "") -> int:
+    conn   = get_connection()
+    cur    = conn.execute(
+        "INSERT INTO known_issues (issue, added_by_username) VALUES (?, ?)",
+        ((issue or "")[:300], (username or "").lower()),
+    )
+    new_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return new_id or 0
+
+
+def get_known_issues() -> list:
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT id, issue, added_by_username, created_at "
+        "FROM known_issues ORDER BY id ASC"
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def remove_known_issue(issue_id: int) -> bool:
+    conn = get_connection()
+    conn.execute("DELETE FROM known_issues WHERE id=?", (issue_id,))
+    changed = conn.total_changes
+    conn.commit()
+    conn.close()
+    return changed > 0
+
+
+def clear_known_issues() -> int:
+    conn = get_connection()
+    conn.execute("DELETE FROM known_issues")
+    count = conn.total_changes
+    conn.commit()
+    conn.close()
+    return count
+
+
+# -- Update notes -------------------------------------------------------------
+
+def add_update_note(note: str, username: str = "") -> int:
+    conn   = get_connection()
+    cur    = conn.execute(
+        "INSERT INTO bot_update_notes (note, added_by_username) VALUES (?, ?)",
+        ((note or "")[:300], (username or "").lower()),
+    )
+    new_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return new_id or 0
+
+
+def get_update_notes() -> list:
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT id, note, added_by_username, created_at "
+        "FROM bot_update_notes ORDER BY id ASC"
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def set_update_notes(lines: list, username: str = "") -> None:
+    """Replace all update notes with the given list of strings."""
+    conn = get_connection()
+    conn.execute("DELETE FROM bot_update_notes")
+    uname = (username or "").lower()
+    for line in lines:
+        conn.execute(
+            "INSERT INTO bot_update_notes (note, added_by_username) VALUES (?, ?)",
+            ((line or "")[:300], uname),
+        )
+    conn.commit()
+    conn.close()
+
+
+def clear_update_notes() -> None:
+    conn = get_connection()
+    conn.execute("DELETE FROM bot_update_notes")
+    conn.commit()
+    conn.close()
+
+
+# -- Pending coin rewards -----------------------------------------------------
+
+def add_pending_coin_reward(user_id: str, username: str,
+                            amount: int, source: str = "") -> int:
+    """Queue a coin reward for a player. Returns the new row id."""
+    conn   = get_connection()
+    cur    = conn.execute(
+        "INSERT INTO pending_coin_rewards (user_id, username, amount, source) "
+        "VALUES (?, ?, ?, ?)",
+        (user_id or "", (username or "").lower(), max(0, int(amount)), (source or "")[:100]),
+    )
+    new_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return new_id or 0
+
+
+def get_pending_coin_rewards_for_user(user_id: str) -> list:
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT id, amount, source, created_at "
+        "FROM pending_coin_rewards "
+        "WHERE user_id=? AND status='pending' ORDER BY id ASC",
+        (user_id,),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def claim_pending_coin_rewards(user_id: str) -> tuple:
+    """
+    Mark all pending coin rewards for user_id as claimed.
+    Returns (total_coins, reward_count).
+    Does NOT credit the balance — caller must call add_balance() after.
+    """
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT id, amount FROM pending_coin_rewards "
+        "WHERE user_id=? AND status='pending'",
+        (user_id,),
+    ).fetchall()
+    if not rows:
+        conn.close()
+        return (0, 0)
+    total = sum(r["amount"] for r in rows)
+    ids   = [r["id"] for r in rows]
+    conn.execute(
+        f"UPDATE pending_coin_rewards "
+        f"SET status='claimed', claimed_at=datetime('now') "
+        f"WHERE id IN ({','.join('?' * len(ids))})",
+        ids,
+    )
+    conn.commit()
+    conn.close()
+    return (total, len(ids))
+
+
+# -- Maintenance settings -----------------------------------------------------
+
+def get_maintenance_state(scope: str, target: str) -> dict:
+    """Return the maintenance row for the given scope+target, or {}."""
+    conn = get_connection()
+    row  = conn.execute(
+        "SELECT * FROM bot_maintenance_settings WHERE scope=? AND LOWER(target)=LOWER(?)",
+        (scope, target or ""),
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else {}
+
+
+def set_maintenance_state(scope: str, target: str, enabled: bool,
+                          reason: str = "",
+                          user_id: str = "", username: str = "") -> None:
+    """Upsert a maintenance state row."""
+    conn = get_connection()
+    conn.execute(
+        """INSERT INTO bot_maintenance_settings
+               (scope, target, enabled, reason, set_by_user_id, set_by_username, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+           ON CONFLICT(scope, target) DO UPDATE SET
+               enabled          = excluded.enabled,
+               reason           = excluded.reason,
+               set_by_user_id   = excluded.set_by_user_id,
+               set_by_username  = excluded.set_by_username,
+               updated_at       = excluded.updated_at""",
+        (scope, (target or "").lower(), 1 if enabled else 0,
+         (reason or "")[:200], user_id or "", (username or "").lower()),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_all_maintenance_states() -> list:
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT * FROM bot_maintenance_settings ORDER BY scope ASC, target ASC"
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def is_global_maintenance_db() -> bool:
+    """True if global maintenance is enabled in the DB."""
+    row = get_maintenance_state("global", "all")
+    return bool(row.get("enabled", 0))
+
+
+def is_bot_maintenance_db(target: str) -> bool:
+    """True if a specific bot (by mode or username) is in maintenance."""
+    row = get_maintenance_state("bot", target)
+    return bool(row.get("enabled", 0))
+
+
+# -- Bot instances status query -----------------------------------------------
+
+def get_all_bot_instances_status() -> list:
+    """Return all bot_instances rows ordered by bot_username."""
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT bot_mode, bot_username, status, last_seen_at, enabled "
+        "FROM bot_instances ORDER BY bot_username ASC"
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+# -- Notification recipient history -------------------------------------------
+
+def get_sub_notif_recipient_history(user_id: str, limit: int = 5) -> list:
+    """Return recent notification delivery rows for a user."""
+    conn = get_connection()
+    rows = conn.execute(
+        """SELECT user_id, username, category, status, delivery_method,
+                  error, created_at
+           FROM subscriber_notification_recipients
+           WHERE user_id=?
+           ORDER BY id DESC LIMIT ?""",
+        (user_id, limit),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]

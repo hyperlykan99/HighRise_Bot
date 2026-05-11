@@ -164,7 +164,19 @@ from modules.maintenance         import (
     handle_restarthelp, handle_restartstatus,
     handle_softrestart,
     handle_restartbot,
-    is_maintenance,
+    is_maintenance, is_bot_maintenance,
+)
+from modules.notif_debug import (
+    handle_notifydebug, handle_roomusers,
+    handle_testwhisper, handle_notifrefresh,
+)
+from modules.qol_cmds import (
+    handle_quicktest, handle_playercheck, handle_claimrewards,
+    handle_eventcalendar, handle_lastupdate,
+    handle_knownissues, handle_knownissue,
+    handle_feedback, handle_feedbacks,
+    handle_todo, handle_aetest, handle_ownercheck,
+    handle_botstatus as handle_botstatus_simple,
 )
 from modules.permissions         import (
     is_owner, is_admin, is_manager, is_moderator,
@@ -4690,9 +4702,59 @@ class HangoutBot(BaseBot):
         elif cmd in ("tipreceiverlb", "topreceivers"):
             await handle_tipreceiverlb(self, user)
 
+        # ── Notification / room debug ─────────────────────────────────────────
+        elif cmd == "notifydebug":
+            await handle_notifydebug(self, user, args)
+
+        elif cmd == "roomusers":
+            await handle_roomusers(self, user, args)
+
+        elif cmd == "testwhisper":
+            await handle_testwhisper(self, user, args)
+
+        elif cmd == "notifrefresh":
+            await handle_notifrefresh(self, user, args)
+
+        # ── QoL / player support ──────────────────────────────────────────────
+        elif cmd == "quicktest":
+            await handle_quicktest(self, user)
+
+        elif cmd == "playercheck":
+            await handle_playercheck(self, user, args)
+
+        elif cmd == "claimrewards":
+            await handle_claimrewards(self, user)
+
+        elif cmd in {"eventcalendar", "calendar"}:
+            await handle_eventcalendar(self, user)
+
+        elif cmd == "lastupdate":
+            await handle_lastupdate(self, user, args)
+
+        elif cmd in {"knownissues", "issues"}:
+            await handle_knownissues(self, user)
+
+        elif cmd == "knownissue":
+            await handle_knownissue(self, user, args)
+
+        elif cmd == "feedback":
+            await handle_feedback(self, user, args)
+
+        elif cmd in {"feedbacks", "feedbacklist"}:
+            await handle_feedbacks(self, user)
+
+        elif cmd == "todo":
+            await handle_todo(self, user, args)
+
+        elif cmd == "aetest":
+            await handle_aetest(self, user)
+
+        elif cmd == "ownercheck":
+            await handle_ownercheck(self, user)
+
         # ── Maintenance tools ─────────────────────────────────────────────────
         elif cmd == "botstatus":
-            await handle_botstatus_cluster(self, user, args)
+            await handle_botstatus_simple(self, user, args)
 
         elif cmd == "dbstats":
             await handle_dbstats(self, user)
