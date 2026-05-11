@@ -1,0 +1,229 @@
+Update 2.0 Stability Patch — Fix 296 No-Handler Command Issues
+
+Current issue:
+!commandissues now shows:
+Issues: 296 no-handler
+
+Examples:
+!achievements
+!addadmin
+!addbadge
+!addcoins
+!addeventcoins
+!addinterval
+!addlevel
+!addmanager
+
+Goal:
+Clean command registry/audit so only real active commands are counted as active.
+
+Do not crash bots.
+Do not wipe database.
+Do not change tokens.
+Do not change room ID.
+Do not add Update 2.1 features yet.
+
+==================================================
+PART 1 — SEPARATE ACTIVE, HIDDEN, LEGACY, AND DEPRECATED COMMANDS
+==================================================
+
+Create clear command categories:
+
+ACTIVE_COMMANDS:
+- Commands that should route and have working handlers.
+
+HIDDEN_COMMANDS:
+- Debug/internal commands.
+- Should not appear in player help.
+- Should only be checked if explicitly requested.
+
+LEGACY_COMMANDS:
+- Old command aliases kept for compatibility.
+- Should not appear in normal help.
+- Should not count as broken if intentionally disabled.
+
+DEPRECATED_COMMANDS:
+- Old commands removed from active system.
+- Should not count as no-handler.
+- Should not appear in help.
+
+==================================================
+PART 2 — FIX COMMANDISSUES LOGIC
+==================================================
+
+!commandissues should only report problems for active commands by default.
+
+Default:
+!commandissues
+
+Should check:
+- ACTIVE_COMMANDS only
+- commands shown in active help
+- commands currently advertised to players/staff
+
+It should NOT report hidden, legacy, or deprecated commands.
+
+Add options:
+!commandissues all
+!commandissues hidden
+!commandissues legacy
+!commandissues deprecated
+!commandissues nohandler
+
+==================================================
+PART 3 — HANDLE OLD ADMIN COMMANDS
+==================================================
+
+Commands like these should either be connected to real handlers or moved to deprecated/hidden:
+
+!addadmin
+!addmanager
+!addcoins
+!addbadge
+!addeventcoins
+!addlevel
+!addinterval
+!achievements
+
+If these are still real commands:
+- connect route=YES
+- connect handler=YES
+- owner not UNKNOWN
+
+If these are old/unused:
+- move to LEGACY_COMMANDS or DEPRECATED_COMMANDS
+- remove from active command issue checks
+- remove from active help
+
+Do not leave them in active list with handler=NO.
+
+==================================================
+PART 4 — FIX CHECKCOMMANDS ALL
+==================================================
+
+/checkcommands all should show full scan, but separate categories:
+
+Active:
+Known #
+Routed #
+Missing #
+NoHandler #
+NoOwner #
+
+Hidden:
+#
+
+Legacy:
+#
+
+Deprecated:
+#
+
+Expected:
+Active Missing 0
+Active NoHandler 0
+Active NoOwner 0
+
+It is okay if legacy/deprecated commands exist, but they should not fail the active command health check.
+
+==================================================
+PART 5 — FIX PLAYER HELP VS COMMAND REGISTRY
+==================================================
+
+Any command shown in !help must have:
+route=YES
+handler=YES
+owner not UNKNOWN
+
+Any command with handler=NO must not appear in:
+!help
+!help games
+!help economy
+!help vip
+!help staff
+!help owner
+
+==================================================
+PART 6 — COMMANDTEST SHOULD EXPLAIN STATUS
+==================================================
+
+If command is deprecated:
+
+/commandtest !oldcommand
+
+Should show:
+status=DEPRECATED
+active=NO
+route=NO or handler=NO acceptable
+not counted in active issues
+
+If command is hidden:
+
+status=HIDDEN
+active=NO
+
+If command is active:
+
+status=ACTIVE
+route=YES
+handler=YES
+
+==================================================
+PART 7 — TESTS
+==================================================
+
+Run:
+
+!commandissues
+!commandissues nohandler
+/checkcommands all
+!help
+!messageaudit help
+
+Expected:
+!commandissues:
+✅ No active command issues
+
+/checkcommands all:
+Active Missing 0
+Active NoHandler 0
+Active NoOwner 0
+
+No player-facing help shows broken commands.
+
+Then test examples:
+
+/commandtest !donationgoal
+Expected:
+route=YES
+handler=YES
+
+/commandtest !achievements
+If active:
+route=YES handler=YES
+
+If deprecated:
+status=DEPRECATED active=NO
+not counted as issue
+
+/commandtest !addadmin
+If active:
+route=YES handler=YES owner=Host/Admin
+
+If deprecated:
+status=DEPRECATED active=NO
+not counted as issue
+
+==================================================
+FINAL REPORT
+==================================================
+
+After finishing, tell me:
+1. How many active commands remain.
+2. How many hidden commands.
+3. How many legacy commands.
+4. How many deprecated commands.
+5. Active no-handler count.
+6. Active no-owner count.
+7. Whether !commandissues is clean.
+8. Whether /checkcommands all separates active vs hidden/legacy/deprecated.
