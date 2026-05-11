@@ -1122,15 +1122,15 @@ async def handle_fixcommands(bot: BaseBot, user: User) -> None:
 # ---------------------------------------------------------------------------
 
 _MODULE_SPOT_CHECKS: list[tuple[str, str, list[str]]] = [
-    ("Banker",   "banker",     ["bal", "send", "daily", "bank", "transactions"]),
+    ("Banker",   "banker",     ["bal", "send", "daily", "goldrain", "goldrainpace"]),
     ("BJ",       "blackjack",  ["bj", "bjoin", "bh", "bs", "rjoin", "rh"]),
     ("Poker",    "poker",      ["p", "check", "call", "fold", "allin"]),
     ("Miner",    "miner",      ["mine", "tool", "sellores", "minelb"]),
     ("Shop",     "shopkeeper", ["shop", "buy", "equip", "badgemarket"]),
     ("Security", "security",   ["report", "warn", "mute", "kick"]),
     ("DJ",       "dj",         ["emote", "dance", "hug", "heart"]),
-    ("Events",   "eventhost",  ["announce", "goldrain", "startevent"]),
-    ("Host",     "host",       ["help", "commandtest", "fixcommands"]),
+    ("Events",   "eventhost",  ["announce", "startevent"]),
+    ("Host",     "host",       ["help", "commandtest", "fixcommands", "msgcap"]),
 ]
 
 

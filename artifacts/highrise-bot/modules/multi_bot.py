@@ -216,6 +216,8 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "goldrainstatus": "banker", "cancelgoldrain": "banker",
     "goldrainhistory": "banker", "goldraininterval": "banker",
     "setgoldraininterval": "banker", "goldrainreplace": "banker",
+    "goldrainpace": "banker", "setgoldrainpace": "banker",
+    "msgcap": "host", "setmsgcap": "host",
     "goldrainall": "banker", "goldrefund": "banker",
     "goldraineligible": "banker", "goldrainrole": "banker",
     "goldrainvip": "banker", "goldraintitle": "banker",

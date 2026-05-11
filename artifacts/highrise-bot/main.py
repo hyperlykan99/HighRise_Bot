@@ -324,7 +324,10 @@ from modules.gold_rain import (
     handle_goldraininterval,
     handle_setgoldraininterval,
     handle_goldrainreplace,
+    handle_goldrainpace,
+    handle_setgoldrainpace,
 )
+from modules.msg_cap import handle_msgcap, handle_setmsgcap
 from modules.time_exp import (
     record_join      as time_exp_record_join,
     record_leave     as time_exp_record_leave,
@@ -1002,6 +1005,8 @@ NEW_PROJECT_COMMANDS: frozenset[str] = frozenset({
     "goldrainstatus", "cancelgoldrain",
     "goldrainhistory", "goldraininterval",
     "setgoldraininterval", "goldrainreplace",
+    "goldrainpace", "setgoldrainpace",
+    "msgcap", "setmsgcap",
     # System dashboard
     "botdashboard", "botsystem",
     # Reward center
@@ -2650,6 +2655,14 @@ class HangoutBot(BaseBot):
                 await handle_setgoldraininterval(self, user, args)
             elif cmd == "goldrainreplace":
                 await handle_goldrainreplace(self, user, args)
+            elif cmd == "goldrainpace":
+                await handle_goldrainpace(self, user, args)
+            elif cmd == "setgoldrainpace":
+                await handle_setgoldrainpace(self, user, args)
+            elif cmd == "msgcap":
+                await handle_msgcap(self, user, args)
+            elif cmd == "setmsgcap":
+                await handle_setmsgcap(self, user, args)
             elif cmd == "goldrainall":
                 await handle_goldrainall(self, user, args)
             elif cmd == "goldraineligible":

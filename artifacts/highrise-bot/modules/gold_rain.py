@@ -69,6 +69,22 @@ _GROUP_LABEL: dict[str, str] = {
 }
 
 # ---------------------------------------------------------------------------
+# Pace system
+# ---------------------------------------------------------------------------
+_PACE_INTERVALS: dict[str, int] = {
+    "slow":   15,
+    "normal":  5,
+    "party":   1,
+}
+_VALID_PACES = frozenset({"slow", "normal", "party", "custom"})
+_PACE_LABEL: dict[str, str] = {
+    "slow":   "Slow",
+    "normal": "Normal",
+    "party":  "Party",
+    "custom": "Custom",
+}
+
+# ---------------------------------------------------------------------------
 # Low-level helpers
 # ---------------------------------------------------------------------------
 
@@ -116,8 +132,23 @@ def _get_gr_setting(key: str, default: str = "") -> str:
         return default
 
 
+def _get_pace() -> tuple[str, int]:
+    """Return (pace_name, interval_seconds) from saved settings."""
+    pace = _get_gr_setting("goldrain_pace", "normal").lower()
+    if pace not in _VALID_PACES:
+        pace = "normal"
+    if pace == "custom":
+        try:
+            secs = int(_get_gr_setting("goldrain_custom_interval", "10"))
+        except (ValueError, TypeError):
+            secs = 10
+        return "custom", max(1, min(300, secs))
+    return pace, _PACE_INTERVALS.get(pace, 5)
+
+
 def _get_default_interval() -> int:
-    return max(3, min(300, int(_get_gr_setting("default_interval", "10"))))
+    _, secs = _get_pace()
+    return secs
 
 
 def _get_replacement_on() -> bool:
@@ -333,13 +364,15 @@ async def _parse_group_total_winners(
 
 async def handle_goldrain(bot, user, args: list[str]) -> None:
     if len(args) < 2:
+        pace_name, pace_iv = _get_pace()
         await _w(
             bot, user.id,
             "🌧️ Gold Rain\n"
             "/goldrain <group> <total_gold> <winners>\n"
-            "/goldrain slow <group> <total> <winners> <secs>\n"
-            "/goldrain party <group> <total> <winners> <secs>\n"
+            "/goldrain slow <group> <total> <winners> [secs]\n"
+            "/goldrain party <group> <total> <winners> [secs]\n"
             "/goldrain test <group> <total> <winners>\n"
+            f"Pace: {_PACE_LABEL.get(pace_name, pace_name)}  Interval: {pace_iv}s\n"
             "Groups: all subs vip players nonstaff",
         )
         return
@@ -352,6 +385,14 @@ async def handle_goldrain(bot, user, args: list[str]) -> None:
 
     if sub in ("slow", "party"):
         await _handle_slow(bot, user, args[2:], mode=sub)
+        return
+
+    # /goldrain pace [<pace>] [<custom_secs>]  — inline alias
+    if sub == "pace":
+        if len(args) <= 2:
+            await handle_goldrainpace(bot, user, args)
+        else:
+            await handle_setgoldrainpace(bot, user, ["setgoldrainpace"] + args[2:])
         return
 
     # Normal instant mode: /goldrain <group> <total_gold> <winners>
@@ -491,11 +532,11 @@ async def _handle_slow(bot, user, args: list[str], mode: str = "slow") -> None:
         return
 
     if len(args) < 3:
-        iv = _get_default_interval()
+        pace_name, pace_iv = _get_pace()
         await _w(
             bot, user.id,
-            f"🌧️ Usage: /goldrain {mode} <group> <total> <winners> <secs>\n"
-            f"Default interval: {iv}s",
+            f"🌧️ Usage: /goldrain {mode} <group> <total> <winners> [secs]\n"
+            f"Current pace: {_PACE_LABEL.get(pace_name, pace_name)} ({pace_iv}s)",
         )
         return
 
@@ -506,11 +547,17 @@ async def _handle_slow(bot, user, args: list[str], mode: str = "slow") -> None:
     total_gold = gold_each * winners_req
     label = _GROUP_LABEL.get(group, group)
 
-    try:
-        interval = int(args[3]) if len(args) > 3 else _get_default_interval()
-    except (ValueError, IndexError):
-        interval = _get_default_interval()
-    interval = max(3, min(300, interval))
+    # Resolve interval: explicit arg overrides saved pace
+    pace_name, pace_iv = _get_pace()
+    if len(args) > 3:
+        try:
+            interval = max(1, min(300, int(args[3])))
+        except (ValueError, IndexError):
+            interval = pace_iv
+        display_pace = f"{_PACE_LABEL.get(pace_name, pace_name)} (override {interval}s)"
+    else:
+        interval = pace_iv
+        display_pace = _PACE_LABEL.get(pace_name, pace_name)
 
     await refresh_room_cache(bot)
     eligible = _get_eligible_for_group(group)
@@ -519,7 +566,7 @@ async def _handle_slow(bot, user, args: list[str], mode: str = "slow") -> None:
         await _w(
             bot, user.id,
             f"🌧️ Gold Rain Error\n"
-            f"Only {len(eligible)} eligible {label} players are in the room.\n"
+            f"Only {len(eligible)} eligible {label} players in room.\n"
             f"Use /goldrain {mode} {group} {total_gold} {len(eligible)} {interval}",
         )
         return
@@ -546,6 +593,7 @@ async def _handle_slow(bot, user, args: list[str], mode: str = "slow") -> None:
         "chosen":         chosen,
         "replacement":    replacement,
         "interval":       interval,
+        "pace_label":     display_pace,
         "paid_count":     0,
         "paid_gold":      0,
         "pending_manual": 0,
@@ -558,9 +606,10 @@ async def _handle_slow(bot, user, args: list[str], mode: str = "slow") -> None:
     await _chat(
         bot,
         f"🌧️ Gold Rain {mode_label} Started!\n"
-        f"Target: {label}\nTotal: {total_gold}g\n"
-        f"Winners: {winners_req}\nReward: {gold_each}g each\n"
-        f"Interval: {interval}s\nStay in the room for the giveaway!",
+        f"Target: {label}  Total: {total_gold}g\n"
+        f"Winners: {winners_req}  Reward: {gold_each}g each\n"
+        f"Pace: {display_pace}  Interval: {interval}s\n"
+        "Stay in the room for the giveaway!",
     )
 
     _active_task = asyncio.create_task(
@@ -722,9 +771,15 @@ async def _slow_rain_loop(
 # ---------------------------------------------------------------------------
 
 async def handle_goldrainstatus(bot, user, args=None) -> None:
+    pace_name, pace_iv = _get_pace()
+    pace_disp = _PACE_LABEL.get(pace_name, pace_name)
     if _active_rain is None:
-        await _w(bot, user.id,
-                 "🌧️ Gold Rain Status\nNo active Gold Rain right now.")
+        await _w(
+            bot, user.id,
+            f"🌧️ Gold Rain Status\n"
+            f"No active Gold Rain right now.\n"
+            f"Current Pace: {pace_disp}  Interval: {pace_iv}s",
+        )
         return
 
     r         = _active_rain
@@ -734,17 +789,16 @@ async def handle_goldrainstatus(bot, user, args=None) -> None:
     next_at   = r.get("next_tip_at", 0.0)
     secs_left = max(0, int(next_at - time.time())) if next_at > 0 else 0
     iv        = r.get("interval", 0)
+    pl        = r.get("pace_label", pace_disp)
 
     parts = [
         "🌧️ Gold Rain Status",
-        f"Mode: {r.get('mode', '?')}",
-        f"Target: {r.get('label', '?')}",
-        f"Total: {r.get('total_gold', '?')}g",
-        f"Reward Each: {r.get('gold_each', '?')}g",
-        f"Interval: {iv}s",
+        f"Mode: {r.get('mode', '?')}  Target: {r.get('label', '?')}",
+        f"Total: {r.get('total_gold', '?')}g  Reward: {r.get('gold_each', '?')}g ea",
+        f"Pace: {pl}  Interval: {iv}s",
         f"Paid: {paid}/{total}",
         (f"Next Tip In: {secs_left}s" if secs_left > 0
-         else f"Remaining Winners: {total - paid}"),
+         else f"Remaining: {total - paid}"),
         f"Replacement: {repl}",
     ]
     await _w(bot, user.id, "\n".join(parts)[:249])
@@ -828,11 +882,14 @@ async def handle_goldrainhistory(bot, user, args=None) -> None:
 # ---------------------------------------------------------------------------
 
 async def handle_goldraininterval(bot, user, args=None) -> None:
-    interval = _get_default_interval()
+    pace_name, interval = _get_pace()
+    pace_disp = _PACE_LABEL.get(pace_name, pace_name)
     await _w(
         bot, user.id,
-        f"🌧️ Gold Rain Interval\nDefault slow interval: {interval}s\n"
-        "Change: /setgoldraininterval <secs>  (manager+)",
+        f"🌧️ Gold Rain Interval\n"
+        f"Pace: {pace_disp}  Interval: {interval}s\n"
+        "Change: /setgoldraininterval <secs>  (manager+)\n"
+        "Set pace: /setgoldrainpace slow|normal|party|custom",
     )
 
 
@@ -846,7 +903,7 @@ async def handle_setgoldraininterval(bot, user, args: list[str]) -> None:
         return
 
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /setgoldraininterval <seconds>  (3–300)")
+        await _w(bot, user.id, "Usage: /setgoldraininterval <seconds>  (1–300)")
         return
 
     try:
@@ -855,13 +912,16 @@ async def handle_setgoldraininterval(bot, user, args: list[str]) -> None:
         await _w(bot, user.id, "Seconds must be a whole number.")
         return
 
-    if secs < 3 or secs > 300:
-        await _w(bot, user.id, "🌧️ Interval must be between 3 and 300 seconds.")
+    if secs < 1 or secs > 300:
+        await _w(bot, user.id, "🌧️ Interval must be between 1 and 300 seconds.")
         return
 
-    db.set_gold_rain_setting("default_interval", str(secs))
-    await _w(bot, user.id,
-             f"🌧️ Gold Rain Interval Updated\nDefault interval: {secs}s")
+    db.set_gold_rain_setting("goldrain_pace", "custom")
+    db.set_gold_rain_setting("goldrain_custom_interval", str(secs))
+    await _w(
+        bot, user.id,
+        f"🌧️ Gold Rain Interval Updated\nPace: Custom\nInterval: {secs}s",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -888,3 +948,80 @@ async def handle_goldrainreplace(bot, user, args: list[str]) -> None:
     )
     state = "ON" if enabled else "OFF"
     await _w(bot, user.id, f"🌧️ Gold Rain Replacement: {state}")
+
+
+# ---------------------------------------------------------------------------
+# /goldrainpace  — show current pace
+# ---------------------------------------------------------------------------
+
+async def handle_goldrainpace(bot, user, args=None) -> None:
+    if not _can_manage_gr(user.username):
+        await _w(bot, user.id, "Manager/admin/owner only.")
+        return
+
+    pace_name, interval = _get_pace()
+    pace_disp = _PACE_LABEL.get(pace_name, pace_name)
+    await _w(
+        bot, user.id,
+        f"🌧️ Gold Rain Pace\n"
+        f"Current: {pace_disp}  Interval: {interval}s\n"
+        f"slow=15s  normal=5s  party=1s  custom=set your own\n"
+        "Change: /setgoldrainpace slow|normal|party|custom [secs]",
+    )
+
+
+# ---------------------------------------------------------------------------
+# /setgoldrainpace <pace> [seconds]
+# ---------------------------------------------------------------------------
+
+async def handle_setgoldrainpace(bot, user, args: list[str]) -> None:
+    if not _can_manage_gr(user.username):
+        await _w(bot, user.id, "Manager/admin/owner only.")
+        return
+
+    if len(args) < 2:
+        await _w(
+            bot, user.id,
+            "🌧️ Usage: /setgoldrainpace slow|normal|party|custom [secs]\n"
+            "Example: /setgoldrainpace party\n"
+            "Example: /setgoldrainpace custom 8",
+        )
+        return
+
+    pace = args[1].lower()
+    if pace not in _VALID_PACES:
+        await _w(
+            bot, user.id,
+            f"🌧️ Unknown pace '{pace}'.\n"
+            "Options: slow  normal  party  custom",
+        )
+        return
+
+    if pace == "custom":
+        if len(args) < 3:
+            await _w(
+                bot, user.id,
+                "🌧️ Custom pace needs seconds.\n"
+                "Usage: /setgoldrainpace custom <seconds>  (1–300)",
+            )
+            return
+        try:
+            secs = max(1, min(300, int(args[2])))
+        except ValueError:
+            await _w(bot, user.id, "Seconds must be a whole number.")
+            return
+        db.set_gold_rain_setting("goldrain_pace", "custom")
+        db.set_gold_rain_setting("goldrain_custom_interval", str(secs))
+        await _w(
+            bot, user.id,
+            f"🌧️ Gold Rain Pace Updated\nPace: Custom\nInterval: {secs}s",
+        )
+        return
+
+    db.set_gold_rain_setting("goldrain_pace", pace)
+    interval = _PACE_INTERVALS[pace]
+    label    = _PACE_LABEL[pace]
+    await _w(
+        bot, user.id,
+        f"🌧️ Gold Rain Pace Updated\nPace: {label}\nInterval: {interval}s",
+    )

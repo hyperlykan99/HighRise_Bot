@@ -482,6 +482,11 @@ REGISTRY: dict[str, Cmd] = {
     "goldraininterval":  Cmd("banker","goldrain",False,True, False, perm="manager"),
     "setgoldraininterval":Cmd("banker","goldrain",False,False,True, perm="manager"),
     "goldrainreplace":   Cmd("banker","goldrain",False,False,True,  perm="manager"),
+    "goldrainpace":      Cmd("banker","goldrain",False,True, False, perm="manager"),
+    "setgoldrainpace":   Cmd("banker","goldrain",False,False,True,  perm="manager"),
+    # ── Host: message cap testing ─────────────────────────────────────────
+    "msgcap":            Cmd("host",  "msg_cap", False,True, False, perm="manager"),
+    "setmsgcap":         Cmd("host",  "msg_cap", False,False,True,  perm="manager"),
     # ── Banker: legacy gold commands (owner-only) ─────────────────────────
     "goldrainall":       Cmd("banker","goldrain",False,False,True,  perm="owner"),
     "goldraineligible":  Cmd("banker","goldrain",False,True, False, perm="owner"),
