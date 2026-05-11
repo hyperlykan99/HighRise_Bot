@@ -1,0 +1,721 @@
+Rewrite Subscriber Notification System From Scratch
+
+Current issue:
+Players are subscribed and opted into categories, but they are still not receiving direct messages from subscriber notifications.
+
+Goal:
+Replace the current notification system with a clean, reliable system that:
+1. Tracks notification preferences by category.
+2. Tracks whether a player can receive DM/inbox messages.
+3. Falls back to whisper if the player is currently in the room.
+4. Accurately reports sent, skipped, no conversation, unsupported SDK, and failed.
+5. Never says a message was sent if it was only logged.
+6. Does not spam players.
+7. Does not break subscriptions, rewards, events, or existing player data.
+
+Do not change bot tokens.
+Do not change room ID.
+Do not reset subscriptions.
+Do not wipe notification preferences unless migration is required.
+Do not wipe player data.
+Do not break /notif, /notifon, /notifoff, /notifall, /subnotify, /subnotifyinvite, or /subnotifystatus.
+Do not expose secrets, tokens, env vars, or room ID.
+
+==================================================
+PART 1 — REPLACE CURRENT NOTIFICATION LOGIC
+==================================================
+
+Review the current subscriber notification system.
+
+Find and replace the broken parts:
+- /notif
+- /notifon
+- /notifoff
+- /notifall
+- /subnotify
+- /subnotifyinvite
+- /subnotifystatus
+- notification database helpers
+- notification delivery helpers
+
+Do not keep fake success logic.
+Do not count logged messages as delivered.
+Do not silently fail.
+
+If the current code only writes to logs and does not send real messages, replace it.
+
+==================================================
+PART 2 — NOTIFICATION CATEGORIES
+==================================================
+
+Use these categories:
+
+mining
+fishing
+events
+blackjack
+poker
+rewards
+firsthunt
+donations
+updates
+
+Display names:
+
+mining = Mining
+fishing = Fishing
+events = Events
+blackjack = BlackJack
+poker = Poker
+rewards = Rewards
+firsthunt = First Hunt
+donations = Donations
+updates = Updates
+
+==================================================
+PART 3 — DEFAULT PLAYER SETTINGS
+==================================================
+
+Default notification settings for new subscribers:
+
+Mining: OFF
+Fishing: OFF
+Events: ON
+BlackJack: OFF
+Poker: OFF
+Rewards: ON
+First Hunt: ON
+Donations: OFF
+Updates: ON
+
+If a player is not subscribed:
+- allow them to view and change preferences
+- but do not send subscriber notifications to them
+- tell them they need to subscribe to receive notifications
+
+==================================================
+PART 4 — DATABASE TABLES
+==================================================
+
+Create or migrate these tables safely.
+
+Use:
+CREATE TABLE IF NOT EXISTS
+
+Do not drop existing tables.
+Do not wipe old notification settings.
+Migrate old tables if possible.
+
+Table 1:
+
+subscriber_notification_preferences:
+- id INTEGER PRIMARY KEY AUTOINCREMENT
+- user_id TEXT NOT NULL
+- username TEXT
+- category TEXT NOT NULL
+- enabled INTEGER NOT NULL DEFAULT 1
+- updated_at TEXT
+- UNIQUE(user_id, category)
+
+Table 2:
+
+subscriber_notification_global:
+- user_id TEXT PRIMARY KEY
+- username TEXT
+- global_enabled INTEGER NOT NULL DEFAULT 1
+- updated_at TEXT
+
+Table 3:
+
+subscriber_notification_conversations:
+- id INTEGER PRIMARY KEY AUTOINCREMENT
+- user_id TEXT NOT NULL
+- username TEXT
+- bot_name TEXT
+- conversation_id TEXT
+- can_dm INTEGER NOT NULL DEFAULT 0
+- last_seen_in_room_at TEXT
+- last_dm_seen_at TEXT
+- updated_at TEXT
+- created_at TEXT
+- UNIQUE(user_id, bot_name)
+
+Table 4:
+
+subscriber_notification_logs:
+- id INTEGER PRIMARY KEY AUTOINCREMENT
+- category TEXT
+- message TEXT
+- send_type TEXT
+- sender_user_id TEXT
+- sender_username TEXT
+- sent_dm_count INTEGER DEFAULT 0
+- sent_whisper_count INTEGER DEFAULT 0
+- skipped_count INTEGER DEFAULT 0
+- no_conversation_count INTEGER DEFAULT 0
+- unsupported_sdk_count INTEGER DEFAULT 0
+- failed_count INTEGER DEFAULT 0
+- created_at TEXT
+
+Table 5:
+
+subscriber_notification_recipients:
+- id INTEGER PRIMARY KEY AUTOINCREMENT
+- notification_id INTEGER
+- user_id TEXT
+- username TEXT
+- category TEXT
+- subscribed INTEGER DEFAULT 0
+- category_enabled INTEGER DEFAULT 0
+- global_enabled INTEGER DEFAULT 1
+- delivery_method TEXT
+- status TEXT
+- error TEXT
+- created_at TEXT
+
+Statuses:
+- sent_dm
+- sent_whisper_in_room
+- skipped_not_subscribed
+- skipped_category_off
+- skipped_global_off
+- no_conversation
+- unsupported_sdk
+- failed
+
+Delivery methods:
+- dm
+- whisper
+- none
+
+==================================================
+PART 5 — TRACK PLAYERS IN ROOM
+==================================================
+
+The system should know who is currently in the room.
+
+When a player joins or sends any public message:
+- update last_seen_in_room_at
+- store user_id and username
+- mark them as in-room if the system has an in-room tracker
+
+If the project already has room user tracking, use it.
+If not, create a lightweight in-memory set:
+current_room_users[user_id] = username
+
+When a player leaves, remove from current_room_users if leave event exists.
+
+==================================================
+PART 6 — TRACK DM / CONVERSATION AVAILABILITY
+==================================================
+
+If the Highrise SDK provides a DM/conversation event:
+- capture conversation_id
+- save it in subscriber_notification_conversations
+- set can_dm = 1
+
+If SDK does not expose conversation_id:
+- do not fake it
+- set can_dm = 0
+- use whisper fallback only when player is currently in room
+
+Add command:
+
+/notifdm
+/opennotifs
+
+Owner:
+EmceeBot
+
+Permission:
+Everyone
+
+Response:
+
+EmceeBot:
+🔔 Notification DM Setup
+If Highrise allows bot DMs, send this bot a DM first so I can save your notification conversation.
+If DM is unavailable, I can only whisper you while you are in the room.
+
+If SDK cannot support direct DM, say clearly:
+DM notifications are not supported by this SDK right now. I can only whisper players who are currently in the room.
+
+==================================================
+PART 7 — PLAYER COMMANDS
+==================================================
+
+Commands:
+
+/notif
+/notifon <category>
+/notifoff <category>
+/notifall on
+/notifall off
+/notifdm
+/opennotifs
+
+Owner:
+EmceeBot
+
+Permissions:
+Everyone
+
+/notif should show:
+
+EmceeBot:
+🔔 Notification Settings
+Global: ON
+Mining: OFF
+Fishing: OFF
+Events: ON
+BlackJack: OFF
+Poker: OFF
+Rewards: ON
+First Hunt: ON
+Donations: OFF
+Updates: ON
+
+DM Status: Available / Not Set / SDK Unsupported
+In-Room Whisper: Available while you are in room
+
+Use:
+/notifon <category>
+/notifoff <category>
+/notifall on|off
+
+/notifon mining:
+- validates category
+- turns mining ON
+- replies with confirmation
+
+/notifoff poker:
+- validates category
+- turns poker OFF
+- replies with confirmation
+
+/notifall off:
+- sets global_enabled = 0
+- does not delete category preferences
+- skips all notifications
+
+/notifall on:
+- sets global_enabled = 1
+- restores defaults if no category settings exist
+- does not force all categories ON unless existing behavior requires it
+
+Invalid category reply:
+
+EmceeBot:
+🔔 Invalid Category
+Valid:
+mining, fishing, events, blackjack, poker, rewards, firsthunt, donations, updates
+
+==================================================
+PART 8 — MANAGER SEND COMMANDS
+==================================================
+
+Commands:
+
+/subnotify <category> <message>
+/subnotifyinvite <category> <message>
+/subnotifystatus
+/testnotify @username <category> <message>
+
+Owner:
+EmceeBot
+
+Permissions:
+Manager+
+
+/subnotify examples:
+
+/subnotify events First Hunt starts in 5 minutes!
+/subnotify mining Ore Value Surge starts soon!
+/subnotify rewards Weekly rewards are ready.
+
+/subnotifyinvite should attempt invite-type message if SDK supports it.
+If not, send normal notification and log invite unsupported.
+
+==================================================
+PART 9 — DELIVERY RULES
+==================================================
+
+When /subnotify runs:
+
+For each player:
+
+1. Check if player is subscribed.
+   If not subscribed:
+   status = skipped_not_subscribed
+
+2. Check global notification setting.
+   If global_enabled = 0:
+   status = skipped_global_off
+
+3. Check category setting.
+   If category enabled = 0:
+   status = skipped_category_off
+
+4. If eligible, delivery order:
+
+A. If DM conversation_id exists and SDK supports send_message:
+   - send DM/inbox message
+   - status = sent_dm
+   - delivery_method = dm
+
+B. Else if player is currently in the room:
+   - send whisper
+   - status = sent_whisper_in_room
+   - delivery_method = whisper
+
+C. Else:
+   - status = no_conversation
+   - delivery_method = none
+
+5. If SDK does not support DM sending:
+   - status = unsupported_sdk for DM attempt
+   - still try whisper if player is in room
+
+6. If any send throws an exception:
+   - status = failed
+   - save safe error
+   - print full traceback to console
+
+Important:
+Do not count no_conversation as sent.
+Do not count unsupported_sdk as sent.
+Do not count failed as sent.
+
+==================================================
+PART 10 — MESSAGE FORMAT
+==================================================
+
+DM or whisper message format:
+
+📣 Subscriber Alert — Events
+First Hunt starts in 5 minutes!
+
+For invite:
+
+📣 Subscriber Alert — Events
+First Hunt starts in 5 minutes!
+Join the room if you want to race.
+
+Keep messages short enough for Highrise.
+If message is too long, trim safely.
+
+==================================================
+PART 11 — ACCURATE SUMMARY RESPONSE
+==================================================
+
+After /subnotify, reply:
+
+EmceeBot:
+🔔 Subscriber Notification Complete
+Category: Events
+DM Sent: 8
+Whisper Sent: 3
+Skipped: 5
+No Conversation: 4
+SDK Unsupported: 0
+Failed: 1
+
+If no delivery happened:
+
+EmceeBot:
+🔔 Subscriber Notification
+No messages were delivered.
+Reason: No saved DM conversations and no eligible players currently in room.
+
+==================================================
+PART 12 — /subnotifystatus
+==================================================
+
+/subnotifystatus should show the latest notification summary.
+
+Example:
+
+EmceeBot:
+🔔 Notification Status
+Last: Events
+DM Sent: 8
+Whisper Sent: 3
+Skipped: 5
+No Conversation: 4
+Failed: 1
+
+Add subcommands if easy:
+
+/subnotifystatus latest
+/subnotifystatus failed
+/subnotifystatus noconversation
+
+/subnotifystatus noconversation should show:
+
+Players without DM conversation:
+@Player1
+@Player2
+@Player3
+
+If none:
+No players missing conversations.
+
+==================================================
+PART 13 — TEST NOTIFY
+==================================================
+
+Add:
+
+/testnotify @username <category> <message>
+
+Manager+ only.
+
+Example:
+
+/testnotify @4ktreyMarion events Test message
+
+Response:
+
+EmceeBot:
+🔔 Test Notify
+Target: @4ktreyMarion
+Subscribed: YES
+Global: ON
+Category Events: ON
+DM Conversation: YES
+Currently In Room: YES
+Delivered: sent_dm
+
+If no DM but player in room:
+
+Delivered: sent_whisper_in_room
+
+If no DM and not in room:
+
+Delivered: NO
+Reason: no_conversation
+
+==================================================
+PART 14 — SUBSCRIPTION CHECK
+==================================================
+
+Use the project’s existing subscription system as source of truth.
+
+Find existing subscription tables/functions.
+
+Do not create a second separate subscription system.
+
+If player is subscribed:
+eligible for notifications, subject to preferences.
+
+If player is not subscribed:
+skip with status skipped_not_subscribed.
+
+If subscription system is missing:
+- do not send to everyone
+- reply:
+Subscription system not found. Notification send cancelled.
+
+==================================================
+PART 15 — COOLDOWN
+==================================================
+
+Add anti-spam cooldown:
+
+Default:
+5 minutes per category
+
+If staff sends /subnotify events twice too fast:
+
+EmceeBot:
+🔔 Notification Cooldown
+Events notifications can be sent again in 3m 20s.
+
+Owner may bypass if existing permission system supports owner bypass.
+
+Add optional command if safe:
+
+/setsubnotifycooldown <minutes>
+
+Manager+ only.
+
+Do not add it as active if not implemented.
+
+==================================================
+PART 16 — INTEGRATION HOOKS
+==================================================
+
+Use this helper for future systems:
+
+send_subscriber_notification(category, message, send_type="normal", sender=None)
+
+Categories used by systems:
+- mining events = mining
+- fishing events = fishing
+- auto events = events
+- BlackJack updates/tournaments = blackjack
+- poker updates/tournaments = poker
+- weekly/pending rewards = rewards
+- First Hunt races = firsthunt
+- donation goal/top donators = donations
+- bot updates/maintenance = updates
+
+Do not automatically spam every event unless explicitly called.
+Manual /subnotify should work first.
+
+==================================================
+PART 17 — COMMAND ROUTING
+==================================================
+
+Register commands:
+
+/notif
+/notifon
+/notifoff
+/notifall
+/notifdm
+/opennotifs
+/subnotify
+/subnotifyinvite
+/subnotifystatus
+/testnotify
+
+Owner:
+EmceeBot
+
+Do not leave owner UNKNOWN.
+
+==================================================
+PART 18 — COMMANDTEST
+==================================================
+
+These must pass:
+
+/commandtest /notif
+/commandtest /notifon
+/commandtest /notifoff
+/commandtest /notifall
+/commandtest /notifdm
+/commandtest /opennotifs
+/commandtest /subnotify
+/commandtest /subnotifyinvite
+/commandtest /subnotifystatus
+/commandtest /testnotify
+
+/checkcommands all
+
+Target:
+route=YES
+handler=YES
+owner=EmceeBot
+Missing 0
+NoOwner 0
+
+If /setsubnotifycooldown is implemented:
+/commandtest /setsubnotifycooldown
+
+==================================================
+PART 19 — TEST CASES
+==================================================
+
+Test 1 — preferences:
+
+/notif
+/notifon events
+/notifoff poker
+/notifall off
+/notif
+/notifall on
+/notif
+
+Expected:
+Settings update correctly.
+
+Test 2 — direct send to yourself:
+
+/testnotify @4ktreyMarion events Test message
+
+Expected:
+Shows exact delivery status.
+
+Test 3 — category send:
+
+/subnotify events First Hunt starts soon!
+/subnotifystatus
+
+Expected:
+Accurate counts.
+
+Test 4 — opt-out:
+
+/notifoff events
+/subnotify events You should not receive this
+
+Expected:
+User is skipped_category_off.
+
+Test 5 — global off:
+
+/notifall off
+/subnotify rewards You should not receive this
+
+Expected:
+User is skipped_global_off.
+
+Test 6 — fallback whisper:
+Have subscribed player in room without DM conversation.
+Run:
+/subnotify events Test fallback
+
+Expected:
+Player receives whisper.
+Status = sent_whisper_in_room.
+
+Test 7 — no conversation:
+Subscribed player not in room and no DM conversation.
+Run:
+/subnotify events Test no conversation
+
+Expected:
+No Conversation count increases.
+Do not mark as sent.
+
+==================================================
+PART 20 — SAFETY
+==================================================
+
+Do not:
+- send to unsubscribed players
+- send to opted-out players
+- mark logs as sent when not delivered
+- spam subscribers
+- claim real phone push notification
+- crash if DM/conversation ID is missing
+- fake conversation IDs
+- wipe old preferences
+- expose tokens/secrets/env vars
+- leave broken commands in help
+- leave owner UNKNOWN
+
+==================================================
+FINAL REPORT
+==================================================
+
+After finishing, tell me:
+
+1. Files changed
+2. What old notification logic was replaced
+3. Notification categories
+4. Default settings
+5. How subscription eligibility is checked
+6. How DM conversations are detected/stored
+7. Whether SDK supports DM/inbox sending
+8. How whisper fallback works
+9. How /notif works
+10. How /subnotify works
+11. How /testnotify works
+12. How no_conversation is handled
+13. How unsupported_sdk is handled
+14. Database tables added/updated
+15. Results of /checkcommands all
+16. Exact tests to run

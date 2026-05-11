@@ -707,9 +707,14 @@ REGISTRY: dict[str, Cmd] = {
     "notifon":          Cmd("host",    "help",    True,  False, True),
     "notifoff":         Cmd("host",    "help",    True,  False, True),
     "notifall":         Cmd("host",    "help",    True,  False, True),
+    "notifdm":          Cmd("host",    "help",    True,  True,  False),
+    "opennotifs":       Cmd("host",    "help",    True,  True,  False),
     "subnotify":        Cmd("host",    "help",    False, False, True,  perm="manager"),
+    "subnotif":         Cmd("host",    "help",    False, False, True,  perm="manager"),
     "subnotifyinvite":  Cmd("host",    "help",    False, False, True,  perm="manager"),
     "subnotifystatus":  Cmd("host",    "help",    False, True,  False, perm="manager"),
+    "testnotify":       Cmd("host",    "help",    False, False, True,  perm="manager"),
+    "setsubnotifycooldown": Cmd("host","help",    False, False, True,  perm="manager"),
 }
 
 # ---------------------------------------------------------------------------

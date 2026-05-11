@@ -1726,6 +1726,36 @@ def _migrate_db():
         "status TEXT NOT NULL DEFAULT 'sent', "
         "error TEXT NOT NULL DEFAULT '', "
         "created_at TEXT NOT NULL DEFAULT (datetime('now')))",
+        # ── New: global notification preference per user ───────────────────────
+        "CREATE TABLE IF NOT EXISTS subscriber_notification_global ("
+        "user_id TEXT PRIMARY KEY, "
+        "username TEXT, "
+        "global_enabled INTEGER NOT NULL DEFAULT 1, "
+        "updated_at TEXT)",
+        # ── New: DM conversation tracking (future SDK support) ────────────────
+        "CREATE TABLE IF NOT EXISTS subscriber_notification_conversations ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "user_id TEXT NOT NULL, "
+        "username TEXT, "
+        "bot_name TEXT, "
+        "conversation_id TEXT, "
+        "can_dm INTEGER NOT NULL DEFAULT 0, "
+        "last_seen_in_room_at TEXT, "
+        "last_dm_seen_at TEXT, "
+        "updated_at TEXT, "
+        "created_at TEXT)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_sub_notif_conv_user_bot "
+        "ON subscriber_notification_conversations(user_id, bot_name)",
+        # ── ALTER TABLE: add new columns to existing logs table ───────────────
+        "ALTER TABLE subscriber_notification_logs ADD COLUMN sent_dm_count INTEGER DEFAULT 0",
+        "ALTER TABLE subscriber_notification_logs ADD COLUMN sent_whisper_count INTEGER DEFAULT 0",
+        "ALTER TABLE subscriber_notification_logs ADD COLUMN unsupported_sdk_count INTEGER DEFAULT 0",
+        "ALTER TABLE subscriber_notification_logs ADD COLUMN send_type TEXT DEFAULT 'normal'",
+        # ── ALTER TABLE: add new columns to existing recipients table ─────────
+        "ALTER TABLE subscriber_notification_recipients ADD COLUMN delivery_method TEXT DEFAULT 'none'",
+        "ALTER TABLE subscriber_notification_recipients ADD COLUMN subscribed INTEGER DEFAULT 0",
+        "ALTER TABLE subscriber_notification_recipients ADD COLUMN category_enabled INTEGER DEFAULT 0",
+        "ALTER TABLE subscriber_notification_recipients ADD COLUMN global_enabled INTEGER DEFAULT 1",
     ]:
         try:
             conn.execute(sql)
@@ -10283,3 +10313,162 @@ def get_daily_status(user_id: str) -> dict | None:
     today = __import__("datetime").date.today().isoformat()
     rec["claimed_today"] = last.startswith(today)
     return rec
+
+
+# ── Subscriber notification global preferences ────────────────────────────────
+
+def get_sub_notif_global(user_id: str) -> dict:
+    """Return {global_enabled: 1/0} for a user. Defaults to 1 (enabled) if no record."""
+    if not user_id:
+        return {"global_enabled": 1}
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT global_enabled FROM subscriber_notification_global WHERE user_id=?",
+        (user_id,),
+    ).fetchone()
+    conn.close()
+    if row:
+        return {"global_enabled": row["global_enabled"]}
+    return {"global_enabled": 1}  # default ON
+
+
+def set_sub_notif_global(user_id: str, username: str, enabled: int) -> None:
+    """Upsert global notification preference for a user."""
+    conn = get_connection()
+    conn.execute(
+        """INSERT INTO subscriber_notification_global (user_id, username, global_enabled, updated_at)
+           VALUES (?, ?, ?, datetime('now'))
+           ON CONFLICT(user_id) DO UPDATE SET
+               username=excluded.username,
+               global_enabled=excluded.global_enabled,
+               updated_at=datetime('now')""",
+        (user_id, (username or "").lower(), enabled),
+    )
+    conn.commit()
+    conn.close()
+
+
+# ── Get all subscribed users for notification delivery ────────────────────────
+
+def get_all_subscribed_users_for_notify() -> list[dict]:
+    """Return all subscribed users (subscribed=1, user_id not empty) for notification delivery."""
+    conn = get_connection()
+    rows = conn.execute(
+        """SELECT user_id, username FROM subscriber_users
+           WHERE subscribed = 1
+             AND user_id IS NOT NULL
+             AND user_id != ''
+           ORDER BY subscribed_at ASC""",
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+# ── Subscriber notification logging (v2) ──────────────────────────────────────
+
+def log_sub_notification_v2(
+    category: str,
+    message: str,
+    send_type: str,
+    sender_user_id: str,
+    sender_username: str,
+) -> int:
+    """Create a notification log entry; return the new log_id."""
+    conn = get_connection()
+    cur = conn.execute(
+        """INSERT INTO subscriber_notification_logs
+           (category, message, send_type,
+            sender_user_id, sender_username,
+            sent_count, sent_dm_count, sent_whisper_count,
+            skipped_count, no_conversation_count,
+            unsupported_sdk_count, failed_count)
+           VALUES (?, ?, ?, ?, ?, 0, 0, 0, 0, 0, 0, 0)""",
+        (category, message, send_type, sender_user_id, sender_username),
+    )
+    rid = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return rid or 0
+
+
+def update_sub_notif_log_v2(
+    log_id: int,
+    sent_dm: int,
+    sent_whisper: int,
+    skipped: int,
+    no_conv: int,
+    unsupported_sdk: int,
+    failed: int,
+) -> None:
+    """Update counts on an existing notification log row."""
+    conn = get_connection()
+    conn.execute(
+        """UPDATE subscriber_notification_logs SET
+               sent_count          = ?,
+               sent_dm_count       = ?,
+               sent_whisper_count  = ?,
+               skipped_count       = ?,
+               no_conversation_count = ?,
+               unsupported_sdk_count = ?,
+               failed_count        = ?
+           WHERE id = ?""",
+        (sent_dm + sent_whisper, sent_dm, sent_whisper,
+         skipped, no_conv, unsupported_sdk, failed, log_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+def log_sub_notif_recipient_v2(
+    notification_id: int,
+    user_id: str,
+    username: str,
+    category: str,
+    subscribed: int,
+    category_enabled: int,
+    global_enabled: int,
+    delivery_method: str,
+    status: str,
+    error: str,
+) -> None:
+    """Log the delivery result for one recipient."""
+    conn = get_connection()
+    conn.execute(
+        """INSERT INTO subscriber_notification_recipients
+           (notification_id, user_id, username, category,
+            subscribed, category_enabled, global_enabled,
+            delivery_method, status, error)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (notification_id, user_id, username, category,
+         subscribed, category_enabled, global_enabled,
+         delivery_method, status, error),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_sub_notif_no_conv_recipients(limit: int = 10) -> list[dict]:
+    """Return recent recipients with status=no_conversation."""
+    conn = get_connection()
+    rows = conn.execute(
+        """SELECT DISTINCT user_id, username FROM subscriber_notification_recipients
+           WHERE status = 'no_conversation'
+           ORDER BY id DESC LIMIT ?""",
+        (limit,),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_sub_notif_failed_recipients(limit: int = 10) -> list[dict]:
+    """Return recent recipients with status=failed."""
+    conn = get_connection()
+    rows = conn.execute(
+        """SELECT user_id, username, category, error, created_at
+           FROM subscriber_notification_recipients
+           WHERE status = 'failed'
+           ORDER BY id DESC LIMIT ?""",
+        (limit,),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]

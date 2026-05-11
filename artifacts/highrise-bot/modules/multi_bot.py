@@ -587,6 +587,8 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "eventvote": "eventhost", "voteevent": "eventhost",
     # ── subscriber notification preferences ───────────────────────────────────
     "notif": "host", "notifon": "host", "notifoff": "host", "notifall": "host",
+    "notifdm": "host", "opennotifs": "host",
+    "testnotify": "host", "setsubnotifycooldown": "host",
     "subnotify": "host", "subnotifyinvite": "host", "subnotifystatus": "host",
 }
 

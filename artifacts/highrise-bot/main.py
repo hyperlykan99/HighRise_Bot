@@ -414,7 +414,10 @@ from modules.suggestions import (
 )
 from modules.sub_notif import (
     handle_notif, handle_notifon, handle_notifoff, handle_notifall,
+    handle_notifdm, handle_opennotifs,
     handle_subnotify, handle_subnotifyinvite, handle_subnotifystatus,
+    handle_testnotify as handle_sub_testnotify,
+    handle_setsubnotifycooldown,
 )
 from modules.first_find import (
     handle_firstfindrewards, handle_setfirstfind, handle_setfirstfinditem,
@@ -2664,7 +2667,7 @@ class HangoutBot(BaseBot):
             elif cmd == "debugnotify":
                 await handle_debugnotify(self, user, args)
             elif cmd == "testnotify":
-                await handle_testnotify(self, user, args)
+                await handle_sub_testnotify(self, user, args)
             elif cmd == "testnotifyall":
                 await handle_testnotifyall(self, user, args)
             elif cmd == "pendingnotify":
@@ -3768,6 +3771,12 @@ class HangoutBot(BaseBot):
         elif cmd == "notifall":
             await handle_notifall(self, user, args)
 
+        elif cmd in {"notifdm", "opennotifs"}:
+            await handle_notifdm(self, user)
+
+        elif cmd == "setsubnotifycooldown":
+            await handle_setsubnotifycooldown(self, user, args)
+
         elif cmd in {"subnotify", "subnotif"}:
             await handle_subnotify(self, user, args)
 
@@ -3775,7 +3784,7 @@ class HangoutBot(BaseBot):
             await handle_subnotifyinvite(self, user, args)
 
         elif cmd == "subnotifystatus":
-            await handle_subnotifystatus(self, user)
+            await handle_subnotifystatus(self, user, args)
 
         # ── Safe mode + diagnostics ───────────────────────────────────────────
         elif cmd == "safemode":
