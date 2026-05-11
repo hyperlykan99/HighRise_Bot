@@ -478,10 +478,9 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     # miner/fisher — rarity chance commands (new)
     "minechances": "miner", "fishchances": "fisher",
     "fishingchances": "fisher", "raritychances": "host",
-    # host — rolespawn commands (host owns teleport/spawn system)
-    "rolespawn": "host", "rolespawns": "host",
-    "setrolespawn": "host", "delrolespawn": "host",
-    "rolemembers": "security",
+    # security — rolespawn commands (new)
+    "rolespawn": "security", "rolespawns": "security",
+    "setrolespawn": "security", "delrolespawn": "security",
     # banker — VIP commands (new)
     "vip": "banker", "vipperks": "banker", "myvip": "banker",
     "giftvip": "banker", "viplist": "banker", "grantvip": "banker",
@@ -548,32 +547,6 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "setraritycap": "miner", "resetraritycaps": "miner",
     "payoutlogs": "miner", "minepayoutlogs": "miner",
     "biggestpayouts": "miner",
-    # ── Update 2.1 — Missions (eventhost) ────────────────────────────────────
-    "missions": "eventhost", "daily": "eventhost", "weekly": "eventhost",
-    "claimmission": "eventhost", "missionstatus": "eventhost",
-    # ── Update 2.1 — Raffle (host) ───────────────────────────────────────────
-    "raffle": "host", "startraffle": "host", "endraffle": "host",
-    "rafflepick": "host", "rafflereset": "host",
-    # ── Update 2.1 — Party Mode (host) ───────────────────────────────────────
-    "party": "host",
-    # ── Update 2.1 — Onboarding (host) ───────────────────────────────────────
-    "start": "host", "tutorial": "host", "newplayer": "host",
-    # ── Update 2.1 — Room Stats (host) ───────────────────────────────────────
-    "roomstats": "host", "todaystats": "host", "weekstats": "host",
-    "peak": "host", "activehours": "host",
-    # ── Update 2.1 — Economy Guard (host) ────────────────────────────────────
-    "economylock": "host", "playeraudit": "host",
-    "payoutaudit": "banker", "rewardaudit": "host",
-    # ── Update 2.1 — Farm Boost (miner/banker) ───────────────────────────────
-    "farmstatus": "miner", "stopfarm": "miner",
-    "buyfarmboost": "banker", "myfarmboost": "miner", "giftfarmboost": "banker",
-    # ── Update 2.1 — Hype System (host) ──────────────────────────────────────
-    "hypesettings": "host", "hype": "host", "hypelog": "host",
-    "hypeunlock": "host",
-    # ── Update 2.1 — Role Members (security) ─────────────────────────────────
-    "rolemembers": "security",
-    # ── Update 2.1 — audit log (security) ────────────────────────────────────
-    "auditlog": "security",
     # ── AutoMine (miner bot) ─────────────────────────────────────────────────
     "automine": "miner", "am": "miner",
     "autominestatus": "miner", "amstatus": "miner",

@@ -557,26 +557,10 @@ async def handle_mine(bot: BaseBot, user: User) -> None:
     if should_announce(item["rarity"], item["item_id"]):
         extra = f" — {ore_weight}kg, {_fmt(final_val)}c" if ore_weight is not None else ""
         try:
-            from modules.mining_colors import format_ore_name as _fmt_ore
-            _colored = _fmt_ore(item["name"], item["rarity"])
             await send_big_mine_announce(bot, item["rarity"], uname,
-                                        item["name"], item["emoji"], extra,
-                                        colored_name=_colored)
+                                        item["name"], item["emoji"], extra)
         except Exception as _bae:
             print(f"[MINING] big_announce error: {_bae}")
-
-    # Hype trigger for mythic/prismatic/exotic finds
-    if item["rarity"] in ("mythic", "prismatic", "exotic"):
-        try:
-            from modules.hype import trigger_hype
-            from modules.mining_colors import format_ore_name as _fmt_ore_h
-            _hype_colored = _fmt_ore_h(item["name"], item["rarity"])
-            asyncio.create_task(trigger_hype(
-                bot, uname, user.id, "mining",
-                item["rarity"], item["name"], _hype_colored,
-            ))
-        except Exception:
-            pass
 
     # Level up announce
     if new_lvl > cur_lvl:
@@ -2458,14 +2442,6 @@ async def _automine_loop(bot: BaseBot, user: User) -> None:
     uname    = user.username
     max_att  = int(_get_am_setting("automine_max_attempts",    "30"))
     max_mins = int(_get_am_setting("automine_duration_minutes", "30"))
-    # Cap session duration by VIP/farm-boost tier
-    try:
-        from modules.farm_boost import get_farm_limit_with_boost
-        _farm_cap, _ = get_farm_limit_with_boost(uid)
-        if max_mins > _farm_cap:
-            max_mins = _farm_cap
-    except Exception:
-        pass
     start_t  = __import__("datetime").datetime.now(__import__("datetime").timezone.utc)
     attempts = 0
 

@@ -821,57 +821,6 @@ REGISTRY: dict[str, Cmd] = {
     "setdonationgoal":  Cmd("banker",  "economy", False, False, True,  perm="manager"),
     "donationaudit":    Cmd("banker",  "economy", False, True,  False, perm="admin"),
     "setsponsorprice":  Cmd("banker",  "economy", False, False, True,  perm="manager"),
-
-    # ── Update 2.1 — Missions (eventhost) ─────────────────────────────────────
-    "missions":         Cmd("eventhost","missions", True,  True,  False),
-    "daily":            Cmd("eventhost","missions", True,  True,  False),
-    "weekly":           Cmd("eventhost","missions", True,  True,  False),
-    "claimmission":     Cmd("eventhost","missions", True,  True,  False),
-    "missionstatus":    Cmd("eventhost","missions", True,  True,  False),
-
-    # ── Update 2.1 — Raffle (host) ────────────────────────────────────────────
-    "raffle":           Cmd("host",    "raffle",   True,  True,  False),
-    "startraffle":      Cmd("host",    "raffle",   False, False, True,  perm="manager"),
-    "endraffle":        Cmd("host",    "raffle",   False, False, True,  perm="manager"),
-    "rafflepick":       Cmd("host",    "raffle",   False, False, True,  perm="manager"),
-    "rafflereset":      Cmd("host",    "raffle",   False, False, True,  perm="manager"),
-
-    # ── Update 2.1 — Party Mode (host) ────────────────────────────────────────
-    "party":            Cmd("host",    "events",   True,  True,  True,  perm="manager"),
-
-    # ── Update 2.1 — Onboarding (host) ───────────────────────────────────────
-    "start":            Cmd("host",    "help",     True,  True,  False),
-    "tutorial":         Cmd("host",    "help",     True,  True,  False),
-    "newplayer":        Cmd("host",    "help",     True,  True,  False),
-
-    # ── Update 2.1 — Room Stats (host) ───────────────────────────────────────
-    "roomstats":        Cmd("host",    "system",   True,  True,  False),
-    "todaystats":       Cmd("host",    "system",   True,  True,  False),
-    "weekstats":        Cmd("host",    "system",   True,  True,  False),
-    "peak":             Cmd("host",    "system",   True,  True,  False),
-    "activehours":      Cmd("host",    "system",   False, True,  False, perm="admin"),
-
-    # ── Update 2.1 — Economy Guard (host/banker) ──────────────────────────────
-    "economylock":      Cmd("host",    "economy",  False, False, True,  perm="manager"),
-    "playeraudit":      Cmd("host",    "economy",  False, True,  False, perm="manager"),
-    "payoutaudit":      Cmd("banker",  "economy",  False, True,  False, perm="manager"),
-    "rewardaudit":      Cmd("host",    "economy",  False, True,  False, perm="manager"),
-
-    # ── Update 2.1 — Farm Boost (miner/banker) ────────────────────────────────
-    "farmstatus":       Cmd("miner",   "mining",   True,  True,  False),
-    "stopfarm":         Cmd("miner",   "mining",   True,  True,  False),
-    "buyfarmboost":     Cmd("banker",  "vip",      True,  True,  False),
-    "myfarmboost":      Cmd("miner",   "mining",   True,  True,  False),
-    "giftfarmboost":    Cmd("banker",  "vip",      True,  False, True),
-
-    # ── Update 2.1 — Hype System (host) ──────────────────────────────────────
-    "hypesettings":     Cmd("host",    "events",   False, True,  False, perm="manager"),
-    "hype":             Cmd("host",    "events",   False, False, True,  perm="manager"),
-    "hypelog":          Cmd("host",    "events",   False, True,  False, perm="manager"),
-    "hypeunlock":       Cmd("host",    "events",   False, False, True,  perm="admin"),
-
-    # ── Update 2.1 — Role Members (security) ─────────────────────────────────
-    "rolemembers":      Cmd("security","teleport", True,  True,  False),
 }
 
 # ---------------------------------------------------------------------------
