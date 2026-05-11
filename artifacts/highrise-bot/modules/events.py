@@ -1525,13 +1525,25 @@ async def handle_autoeventstatus(bot: BaseBot, user: User) -> None:
         if next_id else "selected at runtime"
     )
 
+    dur = settings.get("auto_event_duration", 30)
+    scheduler_up = False
+    if last_tick:
+        try:
+            _lt = datetime.fromisoformat(last_tick)
+            if _lt.tzinfo is None:
+                _lt = _lt.replace(tzinfo=timezone.utc)
+            scheduler_up = int((datetime.now(timezone.utc) - _lt).total_seconds()) < 150
+        except Exception:
+            pass
+
     lines = [
-        "<#FFD700>📅 Auto Events<#FFFFFF>",
-        f"Status: {'ON' if enabled else 'OFF'} | Interval: {interval}m",
+        "⚙️ Auto Event Status",
+        f"Auto Events: {'ON' if enabled else 'OFF'}",
+        f"Scheduler: {'RUNNING' if scheduler_up else 'STOPPED'}",
+        f"Interval: {interval}m | Duration: {dur}m",
         f"Pool: {len(pool)} | Eligible: {len(eligible)}",
         f"Current: {cur_str}",
-        f"Next: {next_name}",
-        f"Next auto in: {next_str}",
+        f"Next: {next_name} | In: {next_str}",
         f"Tick: {tick_str}",
     ]
     await _w(bot, user.id, "\n".join(lines)[:249])
@@ -1583,9 +1595,9 @@ async def handle_autoeventinterval(bot: BaseBot, user: User, args: list[str]) ->
         await _w(bot, user.id, "Manager/admin/owner only.")
         return
     if len(args) < 2 or not args[1].isdigit():
-        await _w(bot, user.id, "Usage: /autoeventinterval <minutes>  (30-2880)")
+        await _w(bot, user.id, "Usage: /autoeventinterval <minutes>  (1-2880)")
         return
-    mins = max(30, min(2880, int(args[1])))
+    mins = max(1, min(2880, int(args[1])))
     db.set_auto_event_setting("auto_event_interval", mins)
     await _w(bot, user.id, f"✅ Auto-event interval set to {mins}m.")
 
@@ -1735,31 +1747,30 @@ async def handle_aeremove(bot: BaseBot, user: User, args: list[str]) -> None:
 # ---------------------------------------------------------------------------
 
 async def handle_aequeue(bot: BaseBot, user: User) -> None:
-    """/aequeue — show pool queue info and next event."""
+    """/aequeue — show upcoming auto event queue (up to 3 slots)."""
     if not can_manage_economy(user.username):
         await _w(bot, user.id, "Manager/admin/owner only.")
         return
     pool     = db.get_event_pool()
     next_id  = db.get_auto_event_setting_str("next_event_id", "")
     next_at  = db.get_auto_event_setting_str("next_event_at", "")
+    q2       = db.get_auto_event_setting_str("ae_queue_2", "")
+    q3       = db.get_auto_event_setting_str("ae_queue_3", "")
     eligible = db.get_eligible_pool_events()
     lines    = ["<#FFD700>📋 Auto Event Queue<#FFFFFF>"]
     if next_id:
-        entry    = _CATALOG_BY_ID.get(next_id, {})
-        name     = entry.get("name", next_id)
+        e1       = _CATALOG_BY_ID.get(next_id, {})
         time_str = _time_remaining(next_at) if next_at else "?"
-        lines.append(f"⏭️ Next: {name} in {time_str}")
+        lines.append(f"1. {e1.get('emoji','•')} {e1.get('name', next_id)} — in {time_str}")
     else:
-        lines.append("Next: selected randomly at runtime")
-    lines.append(f"Pool: {len(pool)} | Eligible now: {len(eligible)}")
-    if pool:
-        top = pool[:3]
-        for row in top:
-            e = _CATALOG_BY_ID.get(row["event_id"], {})
-            lines.append(
-                f"  {e.get('emoji','•')} {e.get('name', row['event_id'])[:14]}"
-                f" w:{row['weight']}"[:45]
-            )
+        lines.append("1. (random at runtime)")
+    if q2:
+        e2 = _CATALOG_BY_ID.get(q2, {})
+        lines.append(f"2. {e2.get('emoji','•')} {e2.get('name', q2)} — queued")
+    if q3:
+        e3 = _CATALOG_BY_ID.get(q3, {})
+        lines.append(f"3. {e3.get('emoji','•')} {e3.get('name', q3)} — queued")
+    lines.append(f"Pool: {len(pool)} | Eligible: {len(eligible)}")
     await _w(bot, user.id, "\n".join(lines)[:249])
 
 
@@ -1777,19 +1788,22 @@ async def handle_aenext(bot: BaseBot, user: User) -> None:
     settings = db.get_auto_event_settings()
     enabled  = settings["auto_events_enabled"]
     interval = settings["auto_event_interval"]
+    dur      = settings.get("auto_event_duration", 30)
     if next_id:
         entry    = _CATALOG_BY_ID.get(next_id, {})
         name     = entry.get("name", next_id)
         emoji    = entry.get("emoji", "")
         time_str = _time_remaining(next_at) if next_at else "?"
+        source   = "Manual override" if db.get_auto_event_setting_str("next_event_source", "") == "manual" else "Auto queue"
         await _w(bot, user.id,
                  f"⏭️ Next Auto Event\n"
                  f"{emoji} {name}\n"
-                 f"Starts in: {time_str}")
+                 f"Starts in: {time_str}\n"
+                 f"Duration: {dur}m | {source}")
     elif enabled:
         await _w(bot, user.id,
                  f"⏭️ Next event: random from pool\n"
-                 f"Interval: every {interval}m")
+                 f"Interval: every {interval}m | Duration: {dur}m")
     else:
         await _w(bot, user.id, "⏭️ Auto events are OFF. /autoevents on to enable.")
 
@@ -2002,11 +2016,15 @@ async def handle_eventhistory(bot: BaseBot, user: User) -> None:
         return
     lines = ["<#FFD700>📜 Event History<#FFFFFF>"]
     for r in rows:
-        name   = (r.get("event_name") or r.get("event_id", "?"))[:14]
+        name   = (r.get("event_name") or r.get("event_id", "?"))[:12]
         mins   = int(r.get("duration_seconds", 0)) // 60
-        status = r.get("status", "?")
-        auto   = "auto" if r.get("auto_started") else "manual"
-        lines.append(f"{name} {mins}m [{status}/{auto}]"[:48])
+        status = (r.get("status") or "?")[:6]
+        if r.get("auto_started"):
+            who = "AUTO"
+        else:
+            sb = r.get("started_by") or r.get("started_by_username") or "?"
+            who = f"@{sb}"[:12] if sb and sb not in ("auto", "") else "MANUAL"
+        lines.append(f"{name} {mins}m [{status}] {who}"[:48])
     await _w(bot, user.id, "\n".join(lines)[:249])
 
 
@@ -2125,3 +2143,142 @@ async def handle_eventpreset(bot: BaseBot, user: User, args: list[str]) -> None:
         await bot.highrise.chat(msg)
     except Exception:
         pass
+
+
+# ---------------------------------------------------------------------------
+# /setaeinterval <mins>  (manager+)
+# ---------------------------------------------------------------------------
+
+async def handle_setaeinterval(bot: BaseBot, user: User, args: list[str]) -> None:
+    """/setaeinterval <minutes> — set auto-event interval (1-2880 mins)."""
+    if not can_manage_economy(user.username):
+        await _w(bot, user.id, "Manager/admin/owner only.")
+        return
+    if len(args) < 2 or not args[1].isdigit():
+        await _w(bot, user.id, "Usage: /setaeinterval <minutes>  (1-2880)")
+        return
+    mins = max(1, min(2880, int(args[1])))
+    db.set_auto_event_setting("auto_event_interval", mins)
+    await _w(bot, user.id, f"✅ Auto-event interval set to {mins}m.")
+
+
+# ---------------------------------------------------------------------------
+# /setaeduration <mins>  (manager+)
+# ---------------------------------------------------------------------------
+
+async def handle_setaeduration(bot: BaseBot, user: User, args: list[str]) -> None:
+    """/setaeduration <minutes> — set auto-event duration (1-480 mins)."""
+    if not can_manage_economy(user.username):
+        await _w(bot, user.id, "Manager/admin/owner only.")
+        return
+    if len(args) < 2 or not args[1].isdigit():
+        await _w(bot, user.id, "Usage: /setaeduration <minutes>  (1-480)")
+        return
+    mins = max(1, min(480, int(args[1])))
+    db.set_auto_event_setting("auto_event_duration", mins)
+    await _w(bot, user.id, f"✅ Auto-event duration set to {mins}m.")
+
+
+# ---------------------------------------------------------------------------
+# /aeinterval  (manager+)
+# ---------------------------------------------------------------------------
+
+async def handle_aeinterval(bot: BaseBot, user: User) -> None:
+    """/aeinterval — show current auto-event interval."""
+    if not can_manage_economy(user.username):
+        await _w(bot, user.id, "Manager/admin/owner only.")
+        return
+    settings = db.get_auto_event_settings()
+    interval = settings["auto_event_interval"]
+    await _w(bot, user.id, f"⏱️ Auto-event interval: {interval}m  (set with /setaeinterval)")
+
+
+# ---------------------------------------------------------------------------
+# /aeduration  (manager+)
+# ---------------------------------------------------------------------------
+
+async def handle_aeduration(bot: BaseBot, user: User) -> None:
+    """/aeduration — show current auto-event duration."""
+    if not can_manage_economy(user.username):
+        await _w(bot, user.id, "Manager/admin/owner only.")
+        return
+    settings = db.get_auto_event_settings()
+    dur = settings.get("auto_event_duration", 30)
+    await _w(bot, user.id, f"⏱️ Auto-event duration: {dur}m  (set with /setaeduration)")
+
+
+# ---------------------------------------------------------------------------
+# /aererollnext  (manager+)
+# ---------------------------------------------------------------------------
+
+async def handle_aererollnext(bot: BaseBot, user: User) -> None:
+    """/aererollnext — reroll the pre-selected next auto event."""
+    if not can_manage_economy(user.username):
+        await _w(bot, user.id, "Manager/admin/owner only.")
+        return
+    eligible = db.get_eligible_pool_events()
+    if not eligible:
+        await _w(bot, user.id, "No eligible events in pool to reroll from.")
+        return
+    total_weight = sum(r["weight"] for r in eligible)
+    if total_weight > 0:
+        rval = __import__("random").uniform(0, total_weight)
+        acc  = 0.0
+        chosen = eligible[-1]["event_id"]
+        for row in eligible:
+            acc += row["weight"]
+            if rval <= acc:
+                chosen = row["event_id"]
+                break
+    else:
+        chosen = __import__("random").choice(eligible)["event_id"]
+    db.set_auto_event_setting_str("next_event_id", chosen)
+    db.set_auto_event_setting_str("next_event_source", "manual")
+    entry = _CATALOG_BY_ID.get(chosen, {})
+    name  = entry.get("name", chosen)
+    emoji = entry.get("emoji", "")
+    await _w(bot, user.id, f"🎲 Rerolled! Next event: {emoji} {name}")
+
+
+# ---------------------------------------------------------------------------
+# /setnextae <event_name_or_id>  (manager+)
+# ---------------------------------------------------------------------------
+
+async def handle_setnextae(bot: BaseBot, user: User, args: list[str]) -> None:
+    """/setnextae <event_name_or_id> — manually set the next auto event."""
+    if not can_manage_economy(user.username):
+        await _w(bot, user.id, "Manager/admin/owner only.")
+        return
+    if len(args) < 2:
+        await _w(bot, user.id, "Usage: /setnextae <event_name_or_id>")
+        return
+    query = " ".join(args[1:]).lower().strip()
+    # Try exact ID match first, then name substring
+    matched_id = None
+    for eid, ev in _CATALOG_BY_ID.items():
+        if eid.lower() == query:
+            matched_id = eid
+            break
+    if not matched_id:
+        for eid, ev in _CATALOG_BY_ID.items():
+            if query in ev.get("name", "").lower() or query in eid.lower():
+                matched_id = eid
+                break
+    if not matched_id:
+        await _w(bot, user.id, f"No event found matching '{query[:30]}'. Try /eventlist.")
+        return
+    db.set_auto_event_setting_str("next_event_id", matched_id)
+    db.set_auto_event_setting_str("next_event_source", "manual")
+    entry = _CATALOG_BY_ID.get(matched_id, {})
+    name  = entry.get("name", matched_id)
+    emoji = entry.get("emoji", "")
+    await _w(bot, user.id, f"✅ Next auto event set: {emoji} {name}")
+
+
+# ---------------------------------------------------------------------------
+# /aehistory / /autoeventhistory  (alias for /eventhistory with same display)
+# ---------------------------------------------------------------------------
+
+async def handle_aehistory(bot: BaseBot, user: User) -> None:
+    """/aehistory — show recent auto event history (alias for /eventhistory)."""
+    await handle_eventhistory(bot, user)

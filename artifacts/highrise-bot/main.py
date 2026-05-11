@@ -242,6 +242,9 @@ from modules.events import (
     handle_eventweights, handle_seteventweight, handle_eventhistory,
     startup_mining_event_check,
     handle_eventpreset,
+    handle_setaeinterval, handle_setaeduration,
+    handle_aeinterval, handle_aeduration,
+    handle_aererollnext, handle_setnextae, handle_aehistory,
 )
 from modules.reports import (
     handle_report, handle_bug, handle_myreports,
@@ -3256,6 +3259,27 @@ class HangoutBot(BaseBot):
 
         elif cmd == "eventhistory":
             await handle_eventhistory(self, user)
+
+        elif cmd in ("aehistory", "autoeventhistory"):
+            await handle_aehistory(self, user)
+
+        elif cmd in ("setaeinterval", "setautoeventinterval"):
+            await handle_setaeinterval(self, user, args)
+
+        elif cmd in ("setaeduration", "setautoeventduration", "seteventduration"):
+            await handle_setaeduration(self, user, args)
+
+        elif cmd == "aeinterval":
+            await handle_aeinterval(self, user)
+
+        elif cmd == "aeduration":
+            await handle_aeduration(self, user)
+
+        elif cmd in ("aererollnext", "rerollae"):
+            await handle_aererollnext(self, user)
+
+        elif cmd in ("setnextae", "setnextautoevent"):
+            await handle_setnextae(self, user, args)
 
         elif cmd == "eventpoints":
             await handle_eventpoints(self, user, args)

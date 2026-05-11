@@ -86,6 +86,7 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     # ── Easy BJ / universal shortcuts (all map to RBJ) ──────────────────────
     "blackjack": "blackjack", "bjbet": "blackjack",
     "bet": "blackjack", "hit": "blackjack", "stand": "blackjack",
+    "stay": "blackjack",
     "double": "blackjack", "split": "blackjack",
     "insurance": "blackjack", "surrender": "blackjack",
     "shoe": "blackjack", "bjshoe": "blackjack",
@@ -474,6 +475,13 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "eventscheduler": "eventhost", "eventcooldowns": "eventhost",
     "seteventcooldown": "eventhost", "eventweights": "eventhost",
     "seteventweight": "eventhost", "eventhistory": "eventhost",
+    "aehistory": "eventhost",      "autoeventhistory": "eventhost",
+    "setaeinterval": "eventhost",  "setautoeventinterval": "eventhost",
+    "setaeduration": "eventhost",  "setautoeventduration": "eventhost",
+    "seteventduration": "eventhost",
+    "aeinterval": "eventhost",     "aeduration": "eventhost",
+    "aererollnext": "eventhost",   "rerollae": "eventhost",
+    "setnextae": "eventhost",      "setnextautoevent": "eventhost",
     # miner — ore chance commands (A2)
     "orechances": "miner", "orechance": "miner",
     "setorechance": "miner", "setraritychance": "miner",

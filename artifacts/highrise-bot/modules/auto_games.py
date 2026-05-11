@@ -318,7 +318,7 @@ async def _auto_event_loop(bot: BaseBot) -> None:
                 pass
 
             settings = db.get_auto_event_settings()
-            interval = max(30, settings["auto_event_interval"]) * 60  # secs
+            interval = max(1, settings["auto_event_interval"]) * 60  # secs, min 1 min
 
             # Store next_event_at so /aenext / /autoeventstatus can show it
             next_at = (
@@ -328,6 +328,34 @@ async def _auto_event_loop(bot: BaseBot) -> None:
                 db.set_auto_event_setting_str("next_event_at", next_at)
             except Exception:
                 pass
+
+            # Pre-select next event ID before sleeping so /aenext can preview it
+            try:
+                saved_next = db.get_auto_event_setting_str("next_event_id", "")
+                if not saved_next:
+                    _prev_eligible = db.get_eligible_pool_events()
+                    if _prev_eligible:
+                        _ptw = sum(r["weight"] for r in _prev_eligible)
+                        if _ptw > 0:
+                            _pr = random.uniform(0, _ptw)
+                            _pacc = 0.0
+                            _pre = _prev_eligible[-1]["event_id"]
+                            for _prow in _prev_eligible:
+                                _pacc += _prow["weight"]
+                                if _pr <= _pacc:
+                                    _pre = _prow["event_id"]
+                                    break
+                        else:
+                            _pre = random.choice(_prev_eligible)["event_id"]
+                        db.set_auto_event_setting_str("next_event_id", _pre)
+                        _rest = [r for r in _prev_eligible if r["event_id"] != _pre]
+                        if _rest:
+                            random.shuffle(_rest)
+                            db.set_auto_event_setting_str("ae_queue_2", _rest[0]["event_id"])
+                            if len(_rest) > 1:
+                                db.set_auto_event_setting_str("ae_queue_3", _rest[1]["event_id"])
+            except Exception as _pex:
+                print(f"[AUTO_GAMES] Pre-select error: {_pex}")
 
             await asyncio.sleep(interval)
 
@@ -360,18 +388,24 @@ async def _auto_event_loop(bot: BaseBot) -> None:
                 print("[AUTO_GAMES] No eligible events in pool; skipping.")
                 continue
 
-            total_weight = sum(row["weight"] for row in eligible)
-            if total_weight <= 0:
-                event_id = random.choice(eligible)["event_id"]
+            # Use pre-selected event if valid, otherwise pick randomly
+            saved_next_id = db.get_auto_event_setting_str("next_event_id", "")
+            if saved_next_id and any(r["event_id"] == saved_next_id for r in eligible):
+                event_id = saved_next_id
+                print(f"[AUTO_GAMES] Using pre-selected event: {event_id}")
             else:
-                r   = random.uniform(0, total_weight)
-                acc = 0.0
-                event_id = eligible[-1]["event_id"]
-                for row in eligible:
-                    acc += row["weight"]
-                    if r <= acc:
-                        event_id = row["event_id"]
-                        break
+                total_weight = sum(row["weight"] for row in eligible)
+                if total_weight <= 0:
+                    event_id = random.choice(eligible)["event_id"]
+                else:
+                    r   = random.uniform(0, total_weight)
+                    acc = 0.0
+                    event_id = eligible[-1]["event_id"]
+                    for row in eligible:
+                        acc += row["weight"]
+                        if r <= acc:
+                            event_id = row["event_id"]
+                            break
 
             ev      = EVENTS.get(event_id, {})
             name    = ev.get("name", event_id)
@@ -417,6 +451,8 @@ async def _auto_event_loop(bot: BaseBot) -> None:
             try:
                 db.set_auto_event_setting_str("next_event_id", "")
                 db.set_auto_event_setting_str("next_event_at", "")
+                db.set_auto_event_setting_str("ae_queue_2", "")
+                db.set_auto_event_setting_str("ae_queue_3", "")
             except Exception:
                 pass
 
