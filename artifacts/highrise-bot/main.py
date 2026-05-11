@@ -1069,18 +1069,27 @@ ALL_KNOWN_COMMANDS = (
 # ---------------------------------------------------------------------------
 
 HELP_TEXT = (
-    "📘 Help Menu — choose a category:\n"
-    "!help player  — balance, daily, rewards\n"
-    "!help games   — mining, fishing, casino\n"
+    "🎤 ChillTopiaMC Help\n"
+    "!help basic — profile, balance, daily\n"
+    "!help games — mining, fishing, casino\n"
     "!help economy — coins, gold, prices\n"
     "!help notifications — alerts, subscribe\n"
     "!help teleports — tele, spawn, roles\n"
-    "!help events  — active events\n"
-    "!help staff   — staff controls\n"
-    "Tip: !help [category]"
+    "!help vip — VIP perks & info\n"
+    "!help events — active events\n"
+    "!help staff — staff controls"
 )
 
 _HELP_CATEGORIES: dict[str, str] = {
+    "basic": (
+        "👤 Basic Commands\n"
+        "!start — get started\n"
+        "!profile — your profile\n"
+        "!balance — check coins\n"
+        "!daily — claim daily reward\n"
+        "!missions — see tasks\n"
+        "!leaderboard — top players"
+    ),
     "player": (
         "👤 Player Commands\n"
         "!balance  !daily  !claimrewards\n"
@@ -1091,15 +1100,16 @@ _HELP_CATEGORIES: dict[str, str] = {
         "!help games  !help notifications"
     ),
     "games": (
-        "🎮 Games Help\n"
-        "!help mining  — ore mining\n"
-        "!help fishing — fishing\n"
-        "!help blackjack — card game\n"
-        "!help poker  — poker table\n"
-        "!help events — active events"
+        "🎮 Games\n"
+        "!mine — mine ores\n"
+        "!fish — catch fish\n"
+        "!bj [amount] — blackjack\n"
+        "!poker — poker table\n"
+        "!missions — see tasks\n"
+        "!help mining  !help fishing  !help casino"
     ),
     "mining": (
-        "⛏️ Mining Commands\n"
+        "⛏️ Mining\n"
         "!mine  !mineprofile  !tool\n"
         "!mineinv  !sellores  !orelist\n"
         "!minechances  !orechances\n"
@@ -1107,26 +1117,34 @@ _HELP_CATEGORIES: dict[str, str] = {
         "!minehelp — full mining help"
     ),
     "fishing": (
-        "🎣 Fishing Commands\n"
+        "🎣 Fishing\n"
         "!fish  !fishlevel  !fishbag\n"
         "!fishlist [rarity]  !sellfish\n"
         "!fishchances  !fishhelp\n"
         "!autofish  !rods  !rodshop"
     ),
+    "casino": (
+        "🃏 Casino\n"
+        "!bj [amount] — blackjack\n"
+        "!bjhit  !bjstand  !bjdouble  !bjsplit\n"
+        "!bjhelp — full BJ help\n"
+        "!poker join  !poker bet  !poker fold\n"
+        "!pokerhelp — full poker help"
+    ),
     "blackjack": (
-        "🃏 Blackjack Commands\n"
-        "!bj — join/bet\n"
+        "🃏 Blackjack\n"
+        "!bj [amount] — join/bet\n"
         "!bjhit  !bjstand  !bjdouble  !bjsplit\n"
         "!bjhelp — full BJ help\n"
         "!bjshoe — shoe status"
     ),
     "poker": (
-        "♠️ Poker Commands\n"
+        "♠️ Poker\n"
         "!poker join  !poker bet  !poker fold\n"
         "!pokerhelp — full poker help"
     ),
     "economy": (
-        "💰 Economy Commands\n"
+        "💰 Economy\n"
         "!balance  !coins  !claimrewards\n"
         "!goldtip [user] [amount]\n"
         "!goldrain [group] [gold] [winners]\n"
@@ -1134,31 +1152,39 @@ _HELP_CATEGORIES: dict[str, str] = {
         "!rewardlogs"
     ),
     "notifications": (
-        "🔔 Notification Commands\n"
-        "!subscribe  !unsubscribe  !substatus\n"
-        "!notif  !notifon [category]\n"
-        "!notifoff [category]  !notifall [on|off]\n"
-        "Categories: events mining fishing rewards\n"
-        "  donations blackjack poker security updates"
+        "🔔 Notifications\n"
+        "!subscribe — receive alerts\n"
+        "!notif — check settings\n"
+        "!notifon events — event alerts ON\n"
+        "!notifoff events — event alerts OFF\n"
+        "!substatus  !unsubscribe"
     ),
     "teleports": (
-        "🌀 Teleport Commands\n"
-        "!tele list  !tele [spot]  !tele [user]\n"
+        "🌀 Teleports\n"
+        "!tele list — see spots\n"
+        "!tele [spot] — go to spot\n"
         "!summon [user]\n"
-        "Staff: !create tele [spot]\n"
-        "!delete tele [spot]  !rolespawns\n"
-        "!setrolespawn [role] here\n"
-        "!autospawn [on|off|status]"
+        "!roles — see roles\n"
+        "!rolemembers — role members\n"
+        "!rolespawns"
+    ),
+    "vip": (
+        "💎 VIP\n"
+        "!vip — VIP info\n"
+        "!vipperks — see perks\n"
+        "!buyvip — purchase VIP\n"
+        "!myvip — check your status\n"
+        "!giftvip — gift VIP to someone"
     ),
     "events": (
-        "🎉 Event Commands\n"
+        "🎉 Events\n"
         "!eventhelp  !event\n"
         "!eventlist  !eventvote\n"
         "!minechances  !fishchances\n"
         "!raritychances"
     ),
     "staff": (
-        "🛠️ Staff Help — choose a section:\n"
+        "🛠️ Staff Help:\n"
         "!staffhelp room\n"
         "!staffhelp teleports\n"
         "!staffhelp notifications\n"
@@ -1182,6 +1208,55 @@ _HELP_CATEGORIES: dict[str, str] = {
         "!messageaudit  !msgcap"
     ),
 }
+
+# ---------------------------------------------------------------------------
+# Safe help handler — NO DB, NO registry, NO bot-name lookup, NO imports.
+# Called as the very first thing in on_chat. Cannot crash the bot.
+# ---------------------------------------------------------------------------
+
+_HELP_UNKNOWN_MSG = (
+    "Unknown help page.\n"
+    "Try: !help basic  !help games\n"
+    "!help notifications  !help teleports\n"
+    "!help vip  !help economy"
+)
+
+
+async def _handle_safe_help(bot, user, raw_message: str) -> None:
+    """
+    Crash-proof !help dispatcher.
+    Pure static strings — zero external dependencies.
+    All bots reply (host-only guard was inside the old dynamic path).
+    """
+    if BOT_MODE not in ("host", "eventhost", "all"):
+        return
+
+    parts = raw_message.strip().split()
+    # parts[0] = "!help" or "/help", parts[1] = optional category
+    cat = parts[1].lower() if len(parts) > 1 else ""
+
+    async def _w(msg: str) -> None:
+        try:
+            await bot.highrise.send_whisper(user.id, str(msg)[:249])
+        except Exception:
+            pass
+
+    if not cat:
+        await _w(HELP_TEXT)
+        try:
+            from modules.permissions import can_moderate
+            if can_moderate(user.username):
+                await _w("⚙️ Staff: !staffhelp  Owner: !adminhelp  Gold: !goldhelp")
+        except Exception:
+            pass
+        return
+
+    page = _HELP_CATEGORIES.get(cat)
+    if page:
+        await _w(page)
+    else:
+        await _w(_HELP_UNKNOWN_MSG)
+
 
 GAME_HELP_PAGES = [
     (
@@ -2578,6 +2653,26 @@ class HangoutBot(BaseBot):
         Ignores anything that doesn't start with '/'.
         """
         message = message.strip()
+
+        # ── !help — FIRST THING, before AI intercept, before time-EXP,
+        #    before everything.  Bulletproof: no DB, no registry, no name lookup.
+        if message.lower().startswith("!help") or message.lower().startswith("/help"):
+            try:
+                await _handle_safe_help(self, user, message)
+            except Exception:
+                import traceback
+                print(f"[HELP ERROR] !help failed  cmd=help  args={message!r}"
+                      f"  user={user.username}  bot_mode={BOT_MODE}")
+                traceback.print_exc()
+                try:
+                    await self.highrise.send_whisper(
+                        user.id,
+                        "Help is temporarily unavailable. Try !start or !balance."
+                    )
+                except Exception:
+                    pass
+            return
+
         # Track activity for time-EXP active bonus (any chat = active player)
         time_exp_record_activity(user.id)
 
@@ -2606,48 +2701,6 @@ class HangoutBot(BaseBot):
         cmd  = parts[0].lower()
         args = parts
         print(f"[RX] mode={BOT_MODE} user={user.username} text={message}")
-
-        # ── /help — handled here before the routing guard so it is immune to
-        #    multilogin stale-heartbeat gaps.  Only host/eventhost/all reply;
-        #    every other bot silently ignores it (no DB dependency).
-        if cmd == "help":
-            _handle = BOT_MODE in ("host", "eventhost", "all")
-            print(f"[ROUTE] !help owner=host current={BOT_MODE} handle={_handle}")
-            if _handle:
-                if len(args) > 1:
-                    cat = args[1].lower()
-                    # !help command !goldrain — detail page
-                    if cat == "command" and len(args) > 2:
-                        wanted = args[2].lstrip("!/").lower()
-                        # Just redirect to whichever category it's in
-                        found = False
-                        for _ctext in _HELP_CATEGORIES.values():
-                            if wanted in _ctext.lower():
-                                await self.highrise.send_whisper(user.id, _ctext[:249])
-                                found = True
-                                break
-                        if not found:
-                            await self.highrise.send_whisper(
-                                user.id,
-                                f"ℹ️ No detail page for !{wanted}.\n"
-                                f"Try: !help [category]"[:249]
-                            )
-                    elif cat in _HELP_CATEGORIES:
-                        await self.highrise.send_whisper(user.id, _HELP_CATEGORIES[cat][:249])
-                    else:
-                        cats = " | ".join(_HELP_CATEGORIES.keys())
-                        await self.highrise.send_whisper(
-                            user.id,
-                            f"📘 Categories: {cats}\nUsage: !help [category]"[:249]
-                        )
-                else:
-                    await self.highrise.send_whisper(user.id, HELP_TEXT)
-                    if can_moderate(user.username):
-                        await self.highrise.send_whisper(
-                            user.id,
-                            "⚙️ Staff: !staffhelp  Owner: !adminhelp  Gold: !goldhelp"
-                        )
-            return
 
         # ── Multi-bot gate — ignore if another bot owns this command ─────────
         if not should_this_bot_handle(cmd):

@@ -1,0 +1,311 @@
+EMERGENCY UPDATE 2.0 FIX — Make !help Crash-Proof After Bot Rename
+
+Current issue:
+I renamed EmceeBot to ChillTopiaMC.
+When I type !help, the bot crashes.
+The previous fix did not work.
+
+GitHub/code findings:
+- main.py is still the large central command router.
+- Help likely uses dynamic handlers/imports/registry output.
+- admin_cmds.py still has many hardcoded / command strings.
+- cmd_audit.py still documents / command audit behavior.
+- No confirmed commit shows ChillTopiaMC help fix.
+
+Goal:
+Make !help impossible to crash.
+Do this before rebuilding dynamic help.
+
+==================================================
+PART 1 — BYPASS DYNAMIC HELP FOR !help
+==================================================
+
+For now, !help must NOT call the dynamic help builder.
+
+Do not call:
+- command registry help builder
+- permission-filtered help builder
+- command owner display builder
+- bot display lookup
+- messageaudit
+- checkhelp
+- helpsearch
+- admin panel help builder
+- database-heavy help menu
+- old EmceeBot display resolver
+
+Instead, route !help directly to a static safe fallback function.
+
+Create a function like:
+
+async def handle_safe_help(bot, user, args):
+    ...
+
+This function should only send static messages using bot.highrise.send_whisper or chat.
+It should not depend on database, command registry, or bot name lookup.
+
+==================================================
+PART 2 — SAFE STATIC !help MESSAGE
+==================================================
+
+When user types:
+
+!help
+
+Reply with this exact safe help:
+
+🎤 ChillTopiaMC Help
+
+Basic:
+!start — start using the room
+!profile — check your profile
+!missions — see missions
+!balance — check balance
+
+Games:
+!mine — mine ores
+!fish — catch fish
+!bj [amount] — blackjack
+!poker — poker
+
+Other:
+!notif — notification settings
+!tele list — teleport spots
+!vip — VIP info
+
+Use !help [category] for more.
+
+Important:
+- No / commands.
+- No EmceeBot text.
+- No dynamic owner lookup.
+- No dynamic command registry.
+
+Keep every message under 240 characters.
+If needed, split into 2–3 safe whispers.
+
+==================================================
+PART 3 — SAFE HELP SUBPAGES
+==================================================
+
+Also make these safe static pages:
+
+!help basic
+!help games
+!help mining
+!help fishing
+!help casino
+!help notifications
+!help teleports
+!help vip
+!help economy
+
+If category is unknown:
+
+Unknown help page.
+Try:
+!help basic
+!help games
+!help notifications
+!help teleports
+!help vip
+
+Examples:
+
+!help games:
+
+🎮 Games Help
+!mine — mine ores
+!fish — catch fish
+!bj [amount] — blackjack
+!poker — poker
+!missions — see tasks
+
+!help notifications:
+
+🔔 Notifications
+!subscribe — receive alerts
+!notif — check settings
+!notifon events — event alerts ON
+!notifoff events — event alerts OFF
+
+!help teleports:
+
+🌀 Teleports
+!tele list — see spots
+!tele [spot] — go to spot
+!roles — see roles
+!rolemembers — see role members
+
+!help vip:
+
+💎 VIP
+!vip — VIP info
+!vipperks — see perks
+!buyvip [1d|7d|30d]
+!myvip — check status
+
+==================================================
+PART 4 — ROUTE !help BEFORE AI OR DYNAMIC INTERCEPTS
+==================================================
+
+In main.py or the command router:
+Handle !help BEFORE:
+- AI intercept
+- fallback routing
+- command owner routing
+- dynamic category help
+- bot-mode routing
+- message format logic
+
+Pseudo logic:
+
+if cmd == "help":
+    await handle_safe_help(bot, user, args)
+    return
+
+This must be early enough that nothing else can intercept !help and crash.
+
+==================================================
+PART 5 — WRAP HELP IN TRY/EXCEPT ANYWAY
+==================================================
+
+Even the safe help route should be wrapped.
+
+try:
+    await handle_safe_help(...)
+except Exception:
+    import traceback
+    traceback.print_exc()
+    try:
+        await bot.highrise.send_whisper(user.id, "Help is temporarily unavailable. Try !start or !balance.")
+    except Exception:
+        pass
+    return
+
+Important:
+A !help error must never kill the bot.
+No exception from !help should escape on_chat.
+
+==================================================
+PART 6 — FIX BOT DISPLAY NAME SAFELY
+==================================================
+
+Internal bot key can stay:
+
+emcee
+
+Display name should be:
+
+ChillTopiaMC
+
+Add safe mapping:
+
+BOT_DISPLAY_NAMES = {
+    "emcee": "ChillTopiaMC",
+    "EmceeBot": "ChillTopiaMC",
+    "ChillTopiaMC": "ChillTopiaMC",
+}
+
+Rules:
+- Do not require a real user named EmceeBot.
+- Do not crash if EmceeBot is not found.
+- Do not query room users just to render help.
+- Do not query DB just to render help.
+
+==================================================
+PART 7 — CLEAN USER-FACING HELP TEXT ONLY
+==================================================
+
+Do not try to rewrite the whole project right now.
+
+For this emergency fix:
+- Make !help safe.
+- Make !help subpages safe.
+- Replace EmceeBot with ChillTopiaMC inside help text only.
+- Make sure help text uses ! only.
+
+Do not touch risky systems:
+- blackjack
+- mining
+- fishing
+- gold
+- vip database
+- teleport
+- subscriptions
+- command registry
+
+==================================================
+PART 8 — ADD DEBUG LOGGING FOR HELP CRASH
+==================================================
+
+If !help crashes, print:
+
+[HELP ERROR] !help failed
+cmd=<cmd>
+args=<args>
+user=<username>
+bot_mode=<BOT_MODE if available>
+
+Then print full traceback.
+
+Use:
+import traceback
+traceback.print_exc()
+
+Do not hide the error silently.
+
+==================================================
+PART 9 — TESTS
+==================================================
+
+Run:
+
+!help
+!help basic
+!help games
+!help notifications
+!help teleports
+!help vip
+!help unknown
+
+Expected:
+- Bot does not crash.
+- Bot replies every time.
+- No / commands shown.
+- No EmceeBot text shown.
+- ChillTopiaMC appears in main help.
+
+Then run:
+
+!balance
+!mine
+!fish
+!bjshoe
+
+Expected:
+- Other commands still work.
+
+Then run:
+
+/commandtest !help
+
+Expected:
+route=YES
+handler=YES
+owner=ChillTopiaMC or Host is acceptable for now.
+
+==================================================
+PART 10 — FINAL REPORT
+==================================================
+
+After finishing, tell me:
+
+1. File changed for !help routing.
+2. Exact function now handling !help.
+3. Whether dynamic help is bypassed.
+4. Whether !help is wrapped in try/except.
+5. Whether !help can crash the bot anymore.
+6. Test result for !help.
+7. Test result for !help notifications.
+8. Test result for !balance after fix.
