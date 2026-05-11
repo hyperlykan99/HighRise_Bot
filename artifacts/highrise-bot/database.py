@@ -1966,6 +1966,48 @@ def _migrate_db():
         except Exception:
             pass
 
+    # ── Force-correct gold rain + msgcap command ownership (runs every startup) ─
+    # Fixes any stale DB record that previously mapped goldrain → eventhost.
+    # ON CONFLICT DO UPDATE overwrites the owner unconditionally.
+    _GOLDRAIN_OWNERSHIP_FIX = [
+        # Main goldrain + aliases → BankerBot
+        ("goldrain",          "goldrain", "banker", 0),
+        ("raingold",          "goldrain", "banker", 0),
+        ("goldstorm",         "goldrain", "banker", 0),
+        ("golddrop",          "goldrain", "banker", 0),
+        ("goldrainstatus",    "goldrain", "banker", 0),
+        ("cancelgoldrain",    "goldrain", "banker", 0),
+        ("goldrainhistory",   "goldrain", "banker", 0),
+        ("goldraininterval",  "goldrain", "banker", 0),
+        ("setgoldraininterval","goldrain","banker", 0),
+        ("goldrainreplace",   "goldrain", "banker", 0),
+        ("goldrainpace",      "goldrain", "banker", 0),
+        ("setgoldrainpace",   "goldrain", "banker", 0),
+        ("goldrainall",       "goldrain", "banker", 0),
+        ("goldraineligible",  "goldrain", "banker", 0),
+        ("goldrainrole",      "goldrain", "banker", 0),
+        ("goldrainvip",       "goldrain", "banker", 0),
+        ("goldraintitle",     "goldrain", "banker", 0),
+        ("goldrainbadge",     "goldrain", "banker", 0),
+        ("goldrainlist",      "goldrain", "banker", 0),
+        ("setgoldrainstaff",  "goldrain", "banker", 0),
+        ("setgoldrainmax",    "goldrain", "banker", 0),
+        # Msg cap → EmceeBot (host)
+        ("msgcap",            "msg_cap",  "host",   1),
+        ("setmsgcap",         "msg_cap",  "host",   0),
+    ]
+    for _gcmd, _gmod, _gmode, _gfb in _GOLDRAIN_OWNERSHIP_FIX:
+        try:
+            conn.execute(
+                "INSERT INTO bot_command_ownership "
+                "(command, module, owner_bot_mode, fallback_allowed) "
+                "VALUES (?,?,?,?) ON CONFLICT(command) DO UPDATE SET "
+                "owner_bot_mode=excluded.owner_bot_mode, "
+                "fallback_allowed=excluded.fallback_allowed",
+                (_gcmd, _gmod, _gmode, _gfb))
+        except Exception:
+            pass
+
     # ── Seed big announcement default settings ────────────────────────────────
     _BIG_ANN_DEFAULTS = [
         ("mining",  "common",    "off"),

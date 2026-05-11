@@ -653,6 +653,13 @@ MANAGER_ONLY_CMDS = {
     "casinosettings", "casinolimits", "casinotoggles",
     "setbjlimits", "setrbjlimits",
     "resetbjlimits", "resetrbjlimits",
+    # ── Gold Rain new commands (BankerBot) ────────────────────────────────────
+    "goldrainstatus", "cancelgoldrain", "goldrainhistory",
+    "goldraininterval", "setgoldraininterval", "goldrainreplace",
+    "goldrainpace", "setgoldrainpace",
+    "raingold", "goldstorm", "golddrop",
+    # ── Message cap testing (EmceeBot / host) ─────────────────────────────────
+    "msgcap", "setmsgcap",
 }
 
 # ── First-find + announce public read commands ────────────────────────────
