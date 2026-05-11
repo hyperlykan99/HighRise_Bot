@@ -1,0 +1,736 @@
+Gold Rain System Rewrite — BankerBot Ownership + Role Targeting + Party Slow Mode
+
+Current issue:
+Gold Rain is missing/unclear, and EmceeBot is currently replying to Gold Rain commands.
+Gold Rain should be owned and handled by BankerBot only.
+
+Goal:
+Create or rewrite a clean Gold Rain system where BankerBot can run gold giveaways for specific groups, optionally in slow/party mode, with public per-winner tip messages and private completion summary to the tipper only.
+
+Do not change bot tokens.
+Do not change room ID.
+Do not reset balances.
+Do not wipe player data.
+Do not wipe reward logs.
+Do not break BankerBot, gold tips, subscriptions, notifications, events, mining, fishing, blackjack, poker, or command routing.
+Do not expose secrets, tokens, env vars, or room ID.
+
+==================================================
+PART 1 — COMMANDS
+==================================================
+
+Add or fix these commands:
+
+/goldrain <group> <total_gold> <winners>
+/goldrain test <group> <total_gold> <winners>
+/goldrain slow <group> <total_gold> <winners> <interval_seconds>
+/goldrain party <group> <total_gold> <winners> <interval_seconds>
+/goldrainstatus
+/cancelgoldrain
+/goldrainhistory
+/goldraininterval
+/setgoldraininterval <seconds>
+/goldrainreplace on
+/goldrainreplace off
+
+Aliases:
+
+/raingold
+/goldstorm
+/golddrop
+
+==================================================
+PART 2 — COMMAND OWNERSHIP
+==================================================
+
+BankerBot owns all Gold Rain commands:
+
+/goldrain
+/raingold
+/goldstorm
+/golddrop
+/goldrainstatus
+/cancelgoldrain
+/goldrainhistory
+/goldraininterval
+/setgoldraininterval
+/goldrainreplace
+
+EmceeBot must NOT reply to /goldrain.
+
+If command router has fallback behavior where unknown commands go to EmceeBot, make sure /goldrain is registered before fallback.
+
+EmceeBot may only hype/announce Gold Rain if BankerBot intentionally triggers it.
+
+Expected commandtest:
+
+/commandtest /goldrain
+
+Target:
+route=YES
+handler=YES
+owner=BankerBot
+
+==================================================
+PART 3 — TARGET GROUPS
+==================================================
+
+Use these target groups:
+
+all
+vip
+subs
+staff
+managers
+admins
+owners
+players
+nonstaff
+
+Do not use “everyone” as the displayed group.
+Do not use “subscribers” as the displayed group.
+
+Optional aliases are okay:
+everyone -> all
+subscriber -> subs
+subscribers -> subs
+
+But help and examples should show:
+
+all
+subs
+
+Examples:
+
+/goldrain all 10 5
+/goldrain vip 20 4
+/goldrain subs 30 10
+/goldrain staff 5 2
+/goldrain test all 1 1
+
+==================================================
+PART 4 — BASIC GOLD RAIN BEHAVIOR
+==================================================
+
+/goldrain all 10 5
+
+Means:
+- Target group: all
+- Total giveaway: 10 gold
+- Winners: 5
+- Reward each: 2 gold
+- Eligible players must be currently in the room
+- Do not pick bots
+- Do not pick the same player twice
+
+BankerBot public start message:
+
+🌧️ Gold Rain Started!
+Target: All
+Total: 10g
+Winners: 5
+Reward: 2g each
+
+Then public winner/tip messages:
+
+💸 Tipped @Player1 2g gold!
+💸 Tipped @Player2 2g gold!
+💸 Tipped @Player3 2g gold!
+💸 Tipped @Player4 2g gold!
+💸 Tipped @Player5 2g gold!
+
+Final complete summary should NOT be public.
+Final complete summary should be whispered only to the tipper/staff member who started Gold Rain.
+
+BankerBot whisper to tipper:
+
+🌧️ Gold Rain Complete!
+5 winners received 2g each.
+Total: 10g
+Logged: YES
+Pending manual gold: 0g
+
+==================================================
+PART 5 — PARTY / SLOW MODE
+==================================================
+
+Add slow/party mode so Gold Rain tips players one by one with interval delay.
+
+Commands:
+
+/goldrain slow <group> <total_gold> <winners> <interval_seconds>
+/goldrain party <group> <total_gold> <winners> <interval_seconds>
+
+Examples:
+
+/goldrain slow all 50 10 15
+/goldrain party subs 100 20 10
+
+/goldrain slow all 50 10 15 means:
+- Pick 10 eligible players from all room players
+- Total giveaway is 50g
+- Each winner gets 5g
+- Tip one winner every 15 seconds
+
+/goldrain party subs 100 20 10 means:
+- Pick 20 subscribed players currently in the room
+- Total giveaway is 100g
+- Each winner gets 5g
+- Tip one winner every 10 seconds
+
+Public start message:
+
+🌧️ Gold Rain Party Started!
+Target: Subs
+Total: 100g
+Winners: 20
+Reward: 5g each
+Interval: 10s
+Stay in the room for the giveaway!
+
+Every interval, BankerBot publicly says:
+
+💸 Tipped @Player1 5g gold!
+
+Next interval:
+
+💸 Tipped @Player2 5g gold!
+
+Final complete summary is whispered only to the tipper:
+
+🌧️ Gold Rain Complete!
+20 winners received 5g each.
+Total: 100g
+Logged: YES
+Pending manual gold: 0g
+
+Do not send final complete summary publicly.
+
+==================================================
+PART 6 — PUBLIC VS PRIVATE MESSAGE RULES
+==================================================
+
+Public messages:
+- Start message can be public.
+- Per-winner tip messages should be public.
+- If a player leaves before their turn, replacement message can be public if needed.
+
+Private messages:
+- Final complete summary must be whispered only to the tipper/staff member who started Gold Rain.
+- Error report/details should be whispered to the tipper.
+- Payout log summary should be whispered to the tipper.
+
+Important:
+Only per-winner tip messages are public.
+Final complete/report message is tipper-only whisper.
+
+==================================================
+PART 7 — TEST MODE
+==================================================
+
+/goldrain test all 1 1
+
+Test mode should safely validate:
+- permission
+- group parsing
+- eligible player detection
+- winner selection
+- payout/log path
+- public/private message formatting
+
+Test mode should not accidentally pay large amounts.
+
+Recommended:
+- If test mode is used, allow only 1g and 1 winner by default unless owner confirms otherwise.
+- Or make test mode dry-run only.
+
+Dry-run test response to tipper:
+
+🧪 Gold Rain Test
+Target: All
+Eligible: 12
+Would Pick Winners: 1
+Reward Each: 1g
+No payout sent.
+
+If test mode actually pays, log it clearly as test_gold_rain.
+
+==================================================
+PART 8 — ELIGIBILITY RULES
+==================================================
+
+Eligible players:
+- must currently be in the room
+- must match target group
+- must not be a bot
+- must not be duplicated
+- must have valid user_id
+
+Group logic:
+
+all:
+- all non-bot players currently in room
+
+players:
+- normal players only, non-staff, non-bot
+
+nonstaff:
+- all non-staff players, non-bot
+
+vip:
+- VIP players based on existing VIP/subscription system
+
+subs:
+- subscribed players based on existing subscription system
+
+staff:
+- staff users based on existing staff/role system
+
+managers:
+- managers and above if existing permission system supports it
+
+admins:
+- admins and above if existing permission system supports it
+
+owners:
+- owners only
+
+If target group has fewer eligible players than requested winners:
+Do not auto-adjust silently.
+Reply to tipper:
+
+🌧️ Gold Rain Error
+Only 3 eligible VIP players are in the room.
+Use /goldrain vip 20 3
+
+Do not start unless winners <= eligible count.
+
+==================================================
+PART 9 — PERMISSIONS
+==================================================
+
+Manager+ can use:
+
+/goldrain all
+/goldrain vip
+/goldrain subs
+/goldrain players
+/goldrain nonstaff
+
+Owner-only recommended for:
+
+/goldrain staff
+/goldrain managers
+/goldrain admins
+/goldrain owners
+
+Reason:
+Gold raining to staff/admin groups can be abused or look unfair.
+
+If user lacks permission:
+
+BankerBot whisper:
+🌧️ Gold Rain
+You do not have permission to target this group.
+
+==================================================
+PART 10 — PAYOUT BEHAVIOR
+==================================================
+
+If automatic gold sending is supported:
+- Send gold to each winner.
+- Log payout_status = paid.
+- Publicly say:
+  💸 Tipped @Player 5g gold!
+
+If automatic gold sending is unavailable:
+- Save each winner as pending manual gold reward.
+- Log payout_status = pending_manual.
+- Publicly say:
+  💸 Logged @Player for 5g gold!
+
+At the end, whisper tipper:
+
+🌧️ Gold Rain Logged!
+20 winners saved as pending manual gold tips.
+Total pending: 100g
+
+Do not pretend gold was sent if it was only logged.
+
+==================================================
+PART 11 — SLOW MODE LEAVE BEHAVIOR
+==================================================
+
+Add replacement setting:
+
+/goldrainreplace on
+/goldrainreplace off
+
+Default:
+ON
+
+If selected winner leaves before their turn:
+- mark skipped_left_room
+- if replacement ON:
+  pick replacement from eligible remaining players
+- if replacement OFF:
+  keep the reward pending/manual for original winner or skip based on safest existing reward policy
+
+If replacement ON and replacement available, public message:
+
+🌧️ @Player left before their turn. Picking another winner...
+
+If no replacement available, whisper tipper:
+
+🌧️ Gold Rain Notice
+@Player left before their turn.
+No replacement available.
+
+==================================================
+PART 12 — STATUS COMMAND
+==================================================
+
+/goldrainstatus should show current running Gold Rain.
+
+Example:
+
+🌧️ Gold Rain Status
+Mode: Party
+Target: All
+Total: 50g
+Reward Each: 5g
+Interval: 15s
+Paid: 4/10
+Next Tip In: 12s
+Remaining Winners: 6
+Replacement: ON
+
+If none active:
+
+🌧️ Gold Rain Status
+No active Gold Rain right now.
+
+==================================================
+PART 13 — CANCEL COMMAND
+==================================================
+
+/cancelgoldrain
+
+Permission:
+Manager+ or original tipper
+
+Behavior:
+- Cancels active Gold Rain safely.
+- Does not double-pay.
+- Already paid winners stay paid.
+- Unpaid winners are marked cancelled or pending depending current payout state.
+- Whisper final cancellation summary to tipper.
+- Publicly announce short cancellation if event already started.
+
+Public:
+
+🌧️ Gold Rain Cancelled.
+
+Private to tipper:
+
+🌧️ Gold Rain Cancelled
+Paid: 4/10
+Cancelled remaining: 6
+Total paid/logged: 20g
+
+==================================================
+PART 14 — HISTORY COMMAND
+==================================================
+
+/goldrainhistory
+
+Shows recent Gold Rain events.
+
+Example:
+
+🌧️ Gold Rain History
+1. Party — Subs — 100g — 20 winners — complete
+2. Normal — All — 10g — 5 winners — complete
+3. Slow — VIP — 20g — cancelled
+
+Keep short.
+Whisper to staff/tipper if long.
+
+==================================================
+PART 15 — INTERVAL SETTINGS
+==================================================
+
+/goldraininterval
+
+Shows default interval.
+
+Example:
+
+🌧️ Gold Rain Interval
+Default slow interval: 10s
+
+/setgoldraininterval <seconds>
+
+Manager+.
+
+Validation:
+- minimum 3 seconds
+- maximum 300 seconds
+
+Example:
+
+/setgoldraininterval 15
+
+Response:
+
+🌧️ Gold Rain Interval Updated
+Default interval: 15s
+
+If /goldrain slow all 50 10 is used without interval, use default interval.
+
+==================================================
+PART 16 — DATABASE
+==================================================
+
+Create tables safely.
+
+Use CREATE TABLE IF NOT EXISTS.
+Use safe migrations.
+Do not wipe old rewards/logs.
+
+gold_rain_events:
+- id INTEGER PRIMARY KEY AUTOINCREMENT
+- mode TEXT
+- target_group TEXT
+- total_gold REAL
+- winners_count INTEGER
+- gold_each REAL
+- interval_seconds INTEGER
+- replacement_enabled INTEGER
+- status TEXT
+- created_by_user_id TEXT
+- created_by_username TEXT
+- created_at TEXT
+- started_at TEXT
+- completed_at TEXT
+- cancelled_at TEXT
+- error TEXT
+
+gold_rain_winners:
+- id INTEGER PRIMARY KEY AUTOINCREMENT
+- event_id INTEGER
+- user_id TEXT
+- username TEXT
+- gold_amount REAL
+- rank INTEGER
+- payout_status TEXT
+- payout_error TEXT
+- selected_at TEXT
+- paid_at TEXT
+
+gold_rain_settings:
+- key TEXT PRIMARY KEY
+- value TEXT
+- updated_at TEXT
+
+Statuses for events:
+- pending
+- running
+- complete
+- cancelled
+- failed
+
+Payout statuses:
+- pending
+- paid
+- pending_manual
+- skipped_left_room
+- cancelled
+- failed
+
+==================================================
+PART 17 — LOGGING / AUDIT
+==================================================
+
+Gold Rain must log:
+- event started
+- winners selected
+- each payout/logged reward
+- cancelled events
+- failed payouts
+- final completion
+
+Also write staff audit log:
+
+auditlog gold:
+- actor username
+- command
+- target group
+- total gold
+- winners
+- status
+
+Reward logs:
+- each winner
+- gold amount
+- payout status
+
+Pending rewards:
+- if gold sending unavailable, create pending manual gold reward per winner
+
+Do not double-pay.
+
+==================================================
+PART 18 — COMMAND HELP
+==================================================
+
+Add to BankerBot help or economy help:
+
+Gold Rain:
+/goldrain all 10 5
+/goldrain subs 30 10
+/goldrain slow all 50 10 15
+/goldrainstatus
+/cancelgoldrain
+
+Keep help short.
+
+Do not list “everyone” or “subscribers” as main names.
+Use “all” and “subs”.
+
+==================================================
+PART 19 — COMMANDTEST
+==================================================
+
+These must pass:
+
+/commandtest /goldrain
+/commandtest /raingold
+/commandtest /goldstorm
+/commandtest /golddrop
+/commandtest /goldrainstatus
+/commandtest /cancelgoldrain
+/commandtest /goldrainhistory
+/commandtest /goldraininterval
+/commandtest /setgoldraininterval
+/commandtest /goldrainreplace
+/checkcommands all
+
+Target:
+route=YES
+handler=YES
+owner=BankerBot
+Missing 0
+NoOwner 0
+
+==================================================
+PART 20 — TEST CASES
+==================================================
+
+Test command ownership:
+
+/commandtest /goldrain
+
+Expected:
+owner=BankerBot
+
+Test basic:
+
+/goldrain test all 1 1
+
+Expected:
+BankerBot replies.
+EmceeBot does not reply.
+
+Test group parsing:
+
+/goldrain test subs 1 1
+/goldrain test vip 1 1
+/goldrain test staff 1 1
+
+Expected:
+Correct group eligibility or permission error.
+
+Test slow mode:
+
+/goldrain slow all 5 5 5
+
+Expected:
+Start message public.
+One public tip message every 5 seconds.
+Final complete summary whispered only to tipper.
+
+Test party mode:
+
+/goldrain party subs 10 5 10
+
+Expected:
+Only subscribed players eligible.
+One public tip message every 10 seconds.
+Final summary whispered only to tipper.
+
+Test status:
+
+/goldrainstatus
+
+Expected:
+Shows active mode, paid count, next tip time.
+
+Test cancel:
+
+/cancelgoldrain
+
+Expected:
+Stops safely.
+No double-pay.
+Private summary to tipper.
+
+Test history:
+
+/goldrainhistory
+
+Expected:
+Shows recent events.
+
+==================================================
+PART 21 — SAFETY
+==================================================
+
+Do not:
+- let EmceeBot own /goldrain
+- let EmceeBot reply to /goldrain
+- double-pay winners
+- pick bots
+- pick players not in room
+- silently reduce winner count
+- pretend gold was sent if it was only logged
+- send final complete summary publicly
+- wipe balances
+- wipe reward logs
+- expose tokens/secrets/env vars
+- break BankerBot banking commands
+- leave broken commands in help
+- leave owner UNKNOWN
+
+==================================================
+FINAL REPORT
+==================================================
+
+After finishing, tell me:
+
+1. Files changed
+2. Commands added/fixed
+3. Command owners
+4. How /goldrain works
+5. How target groups work
+6. How all and subs are handled
+7. How slow/party mode works
+8. How interval tipping works
+9. Public messages used
+10. Private tipper-only completion summary
+11. How automatic gold sending vs pending manual gold works
+12. How replacement works when a winner leaves
+13. Database tables added
+14. Audit/reward logging added
+15. Results of /checkcommands all
+16. Exact tests to run

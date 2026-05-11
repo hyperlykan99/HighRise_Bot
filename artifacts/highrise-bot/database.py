@@ -744,6 +744,57 @@ def init_db():
             (_k, _v),
         )
 
+    # ── Gold Rain tables ─────────────────────────────────────────────────
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS gold_rain_events (
+            id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+            mode                 TEXT    NOT NULL DEFAULT 'normal',
+            target_group         TEXT    NOT NULL DEFAULT 'all',
+            total_gold           REAL    NOT NULL DEFAULT 0,
+            winners_count        INTEGER NOT NULL DEFAULT 0,
+            gold_each            REAL    NOT NULL DEFAULT 0,
+            interval_seconds     INTEGER NOT NULL DEFAULT 0,
+            replacement_enabled  INTEGER NOT NULL DEFAULT 1,
+            status               TEXT    NOT NULL DEFAULT 'pending',
+            created_by_user_id   TEXT    NOT NULL DEFAULT '',
+            created_by_username  TEXT    NOT NULL DEFAULT '',
+            created_at           TEXT    NOT NULL DEFAULT (datetime('now')),
+            started_at           TEXT,
+            completed_at         TEXT,
+            cancelled_at         TEXT,
+            error                TEXT    NOT NULL DEFAULT ''
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS gold_rain_winners (
+            id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_id       INTEGER NOT NULL,
+            user_id        TEXT    NOT NULL DEFAULT '',
+            username       TEXT    NOT NULL DEFAULT '',
+            gold_amount    REAL    NOT NULL DEFAULT 0,
+            rank           INTEGER NOT NULL DEFAULT 0,
+            payout_status  TEXT    NOT NULL DEFAULT 'pending',
+            payout_error   TEXT    NOT NULL DEFAULT '',
+            selected_at    TEXT    NOT NULL DEFAULT (datetime('now')),
+            paid_at        TEXT
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS gold_rain_settings (
+            key        TEXT PRIMARY KEY,
+            value      TEXT    NOT NULL DEFAULT '',
+            updated_at TEXT    NOT NULL DEFAULT (datetime('now'))
+        )
+    """)
+    for _k, _v in [
+        ("default_interval",    "10"),
+        ("replacement_enabled", "true"),
+    ]:
+        conn.execute(
+            "INSERT OR IGNORE INTO gold_rain_settings (key, value) VALUES (?, ?)",
+            (_k, _v),
+        )
+
     # ── Casino state persistence tables ──────────────────────────────────
     conn.execute("""
         CREATE TABLE IF NOT EXISTS casino_active_tables (
@@ -5549,6 +5600,145 @@ def set_gold_setting(key: str, value: str) -> None:
     conn = get_connection()
     conn.execute(
         "INSERT OR REPLACE INTO gold_settings (key, value) VALUES (?, ?)",
+        (key, value),
+    )
+    conn.commit()
+    conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Gold Rain helpers
+# ---------------------------------------------------------------------------
+
+def log_gold_rain_event(
+    mode: str,
+    target_group: str,
+    total_gold: float,
+    winners_count: int,
+    gold_each: float,
+    interval_seconds: int,
+    replacement_enabled: int,
+    status: str,
+    created_by_user_id: str,
+    created_by_username: str,
+) -> int:
+    """Insert a new gold_rain_events row and return its id."""
+    conn = get_connection()
+    cur  = conn.execute(
+        """INSERT INTO gold_rain_events
+               (mode, target_group, total_gold, winners_count, gold_each,
+                interval_seconds, replacement_enabled, status,
+                created_by_user_id, created_by_username)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (mode, target_group, total_gold, winners_count, gold_each,
+         interval_seconds, replacement_enabled, status,
+         created_by_user_id, created_by_username),
+    )
+    row_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return row_id or 0
+
+
+def update_gold_rain_event(event_id: int, status: str) -> None:
+    """Update the status (and completed_at / cancelled_at) of a gold rain event."""
+    if not event_id:
+        return
+    ts_col = "completed_at" if status == "complete" else (
+        "cancelled_at" if status == "cancelled" else None
+    )
+    conn = get_connection()
+    if ts_col:
+        conn.execute(
+            f"UPDATE gold_rain_events SET status=?, {ts_col}=datetime('now') WHERE id=?",
+            (status, event_id),
+        )
+    else:
+        conn.execute(
+            "UPDATE gold_rain_events SET status=? WHERE id=?",
+            (status, event_id),
+        )
+    conn.commit()
+    conn.close()
+
+
+def log_gold_rain_winner(
+    event_id: int,
+    user_id: str,
+    username: str,
+    gold_amount: float,
+    rank: int,
+    payout_status: str,
+    payout_error: str = "",
+) -> None:
+    """Insert one winner row into gold_rain_winners."""
+    conn = get_connection()
+    paid_at = "datetime('now')" if payout_status == "paid" else "NULL"
+    conn.execute(
+        f"""INSERT INTO gold_rain_winners
+               (event_id, user_id, username, gold_amount, rank,
+                payout_status, payout_error, paid_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, {paid_at})""",
+        (event_id, user_id, username, gold_amount, rank,
+         payout_status, payout_error),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_gold_rain_history(limit: int = 8) -> list[dict]:
+    """Return recent gold_rain_events rows, newest first."""
+    conn = get_connection()
+    rows = conn.execute(
+        """SELECT id, mode, target_group, total_gold, winners_count,
+                  gold_each, interval_seconds, status, created_at
+           FROM gold_rain_events
+           ORDER BY id DESC LIMIT ?""",
+        (limit,),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_gold_rain_event(event_id: int) -> dict:
+    """Return a single gold_rain_events row as a dict (or empty dict)."""
+    conn = get_connection()
+    row  = conn.execute(
+        "SELECT * FROM gold_rain_events WHERE id=?", (event_id,)
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else {}
+
+
+def get_gold_rain_winners(event_id: int) -> list[dict]:
+    """Return all winner rows for a given event."""
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT * FROM gold_rain_winners WHERE event_id=? ORDER BY rank ASC",
+        (event_id,),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_gold_rain_setting(key: str) -> str | None:
+    """Return a value from gold_rain_settings, or None if missing."""
+    conn = get_connection()
+    row  = conn.execute(
+        "SELECT value FROM gold_rain_settings WHERE key=?", (key,)
+    ).fetchone()
+    conn.close()
+    return row["value"] if row else None
+
+
+def set_gold_rain_setting(key: str, value: str) -> None:
+    """Upsert a key in gold_rain_settings."""
+    conn = get_connection()
+    conn.execute(
+        """INSERT INTO gold_rain_settings (key, value, updated_at)
+           VALUES (?, ?, datetime('now'))
+           ON CONFLICT(key) DO UPDATE SET value=excluded.value,
+                                          updated_at=excluded.updated_at""",
         (key, value),
     )
     conn.commit()

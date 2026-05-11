@@ -303,7 +303,7 @@ from modules.auto_games import (
 )
 from modules.gold import (
     handle_goldtip, handle_goldrefund,
-    handle_goldrain, handle_goldrainall,
+    handle_goldrain as _handle_goldrain_legacy, handle_goldrainall,
     handle_goldraineligible,
     handle_goldrainrole, handle_goldrainvip,
     handle_goldraintitle, handle_goldrainbadge,
@@ -315,6 +315,15 @@ from modules.gold import (
     set_bot_identity, get_bot_user_id, get_bot_username,
     add_to_room_cache, remove_from_room_cache,
     refresh_room_cache,
+)
+from modules.gold_rain import (
+    handle_goldrain,
+    handle_goldrainstatus,
+    handle_cancelgoldrain,
+    handle_goldrainhistory,
+    handle_goldraininterval,
+    handle_setgoldraininterval,
+    handle_goldrainreplace,
 )
 from modules.time_exp import (
     record_join      as time_exp_record_join,
@@ -988,6 +997,11 @@ DISPLAY_COMMANDS: frozenset[str] = frozenset({
     "displaybadges", "displaytitles", "displayformat", "displaytest",
 })
 NEW_PROJECT_COMMANDS: frozenset[str] = frozenset({
+    # Gold Rain (new system — BankerBot)
+    "raingold", "goldstorm", "golddrop",
+    "goldrainstatus", "cancelgoldrain",
+    "goldrainhistory", "goldraininterval",
+    "setgoldraininterval", "goldrainreplace",
     # System dashboard
     "botdashboard", "botsystem",
     # Reward center
@@ -2622,8 +2636,20 @@ class HangoutBot(BaseBot):
                 await handle_goldtip(self, user, args)
             elif cmd == "goldrefund":
                 await handle_goldrefund(self, user, args)
-            elif cmd == "goldrain":
+            elif cmd in {"goldrain", "raingold", "goldstorm", "golddrop"}:
                 await handle_goldrain(self, user, args)
+            elif cmd == "goldrainstatus":
+                await handle_goldrainstatus(self, user, args)
+            elif cmd == "cancelgoldrain":
+                await handle_cancelgoldrain(self, user, args)
+            elif cmd == "goldrainhistory":
+                await handle_goldrainhistory(self, user, args)
+            elif cmd == "goldraininterval":
+                await handle_goldraininterval(self, user, args)
+            elif cmd == "setgoldraininterval":
+                await handle_setgoldraininterval(self, user, args)
+            elif cmd == "goldrainreplace":
+                await handle_goldrainreplace(self, user, args)
             elif cmd == "goldrainall":
                 await handle_goldrainall(self, user, args)
             elif cmd == "goldraineligible":
