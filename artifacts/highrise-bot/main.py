@@ -59,6 +59,14 @@ from modules.admin_cmds import (
     handle_adminpanel, handle_adminlogs, handle_adminloginfo, handle_checkhelp,
     handle_mycommands, handle_helpsearch,
 )
+from modules.vip import (
+    handle_vip, handle_vipperks, handle_myvip, handle_giftvip,
+    handle_viplist, handle_grantvip,
+    handle_donate, handle_donationgoal, handle_topdonors,
+    handle_sponsor, handle_sponsorgoldrain, handle_sponsorevent,
+    handle_supporter, handle_perks,
+    handle_setdonationgoal, handle_donationaudit, handle_setsponsorprice,
+)
 from modules.shop         import (
     handle_shop, handle_buy, handle_equip, handle_myitems,
     handle_badgeinfo, handle_titleinfo,
@@ -3962,17 +3970,59 @@ class HangoutBot(BaseBot):
         elif cmd == "vipstatus":
             await handle_vipstatus(self, user, args)
 
-        elif cmd == "vipshop":
-            await self.highrise.send_whisper(
-                user.id,
-                "💎 VIP: exclusive perks, gold rain, priority events. Contact an admin to purchase. /vipstatus to check yours."[:249]
-            )
+        elif cmd == "vip":
+            await handle_vip(self, user, args)
 
-        elif cmd == "buyvip":
-            await self.highrise.send_whisper(
-                user.id,
-                "💎 To buy VIP, contact an owner or admin. /vipstatus to check your current status."[:249]
-            )
+        elif cmd == "vipperks":
+            await handle_vipperks(self, user)
+
+        elif cmd == "myvip":
+            await handle_myvip(self, user)
+
+        elif cmd == "giftvip":
+            await handle_giftvip(self, user, args)
+
+        elif cmd in {"viplist", "vips"}:
+            await handle_viplist(self, user)
+
+        elif cmd == "grantvip":
+            await handle_grantvip(self, user, args)
+
+        elif cmd in {"vipshop", "buyvip"}:
+            await handle_vip(self, user, args)
+
+        elif cmd == "donate":
+            await handle_donate(self, user)
+
+        elif cmd == "donationgoal":
+            await handle_donationgoal(self, user)
+
+        elif cmd == "topdonors":
+            await handle_topdonors(self, user)
+
+        elif cmd == "sponsor":
+            await handle_sponsor(self, user)
+
+        elif cmd == "sponsorgoldrain":
+            await handle_sponsorgoldrain(self, user)
+
+        elif cmd == "sponsorevent":
+            await handle_sponsorevent(self, user)
+
+        elif cmd == "supporter":
+            await handle_supporter(self, user)
+
+        elif cmd == "perks":
+            await handle_perks(self, user)
+
+        elif cmd == "setdonationgoal":
+            await handle_setdonationgoal(self, user, args)
+
+        elif cmd == "donationaudit":
+            await handle_donationaudit(self, user, args)
+
+        elif cmd == "setsponsorprice":
+            await handle_setsponsorprice(self, user, args)
 
         elif cmd == "viphelp":
             await _handle_viphelp(self, user, args)

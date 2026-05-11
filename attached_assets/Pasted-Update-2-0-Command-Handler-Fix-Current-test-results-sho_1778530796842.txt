@@ -1,0 +1,257 @@
+Update 2.0 Command Handler Fix
+
+Current test results show:
+
+!help = route YES, handler YES, owner Host
+!subscribe = route YES, handler YES, owner Host
+!msgcap = route YES, handler YES, owner Host
+!bjshoe = route YES, handler YES, owner Blackjack
+
+Broken:
+!rolespawn = route YES, handler NO
+!autospawn = route YES, handler NO
+!minechances = route YES, handler NO
+!fishchances = route YES, handler NO
+!vip = owner UNKNOWN, route NO, handler NO
+
+Also:
+/commandissues says no issues even when handler=NO and owner=UNKNOWN. This is wrong.
+
+==================================================
+PART 1 — FIX HANDLER=NO COMMANDS
+==================================================
+
+Connect real handlers for:
+
+!rolespawn
+!rolespawns
+!setrolespawn
+!delrolespawn
+!autospawn
+!minechances
+!fishchances
+!raritychances
+
+Expected commandtest:
+
+/commandtest !rolespawn
+/commandtest !rolespawns
+/commandtest !setrolespawn
+/commandtest !delrolespawn
+/commandtest !autospawn
+/commandtest !minechances
+/commandtest !fishchances
+/commandtest !raritychances
+
+Target:
+route=YES
+handler=YES
+owner not UNKNOWN
+
+Do not only add them to registry.
+They must call working functions.
+
+==================================================
+PART 2 — FIX VIP MONETIZATION REGISTRY
+==================================================
+
+!vip is not registered.
+
+Add/register/route/handle:
+
+!vip
+!vipperks
+!buyvip
+!giftvip
+!myvip
+!viplist
+!grantvip
+!removevip
+
+Also register sponsor/donation commands if not already done:
+
+!donate
+!donationgoal
+!topdonors
+!sponsor
+!sponsorgoldrain
+!sponsorevent
+!supporter
+!perks
+!setvipprice
+!setdonationgoal
+!donationaudit
+!setsponsorprice
+
+Expected:
+
+/commandtest !vip
+/commandtest !buyvip
+/commandtest !myvip
+/commandtest !donationgoal
+/commandtest !sponsorgoldrain
+
+Target:
+route=YES
+handler=YES
+owner=BankerBot or EmceeBot, not UNKNOWN
+
+==================================================
+PART 3 — FIX COMMAND OWNERS
+==================================================
+
+Current issue:
+Many commands show owner=Host.
+
+Fix owner display and command owner map.
+
+Expected owners:
+
+!help = EmceeBot
+!staffhelp = EmceeBot
+!subscribe = EmceeBot
+!unsubscribe = EmceeBot
+!substatus = EmceeBot
+!notif = EmceeBot
+!notifon = EmceeBot
+!notifoff = EmceeBot
+!notifyon = EmceeBot
+!notifyoff = EmceeBot
+!testnotify = EmceeBot
+!notifydebug = EmceeBot
+!msgcap = EmceeBot or SecurityBot
+!messageaudit = EmceeBot
+!rolespawn = EmceeBot or SecurityBot
+!rolespawns = EmceeBot or SecurityBot
+!setrolespawn = EmceeBot or SecurityBot
+!delrolespawn = EmceeBot or SecurityBot
+!autospawn = EmceeBot or SecurityBot
+!minechances = GreatestProspector or Miner
+!fishchances = MasterAngler or Fisher
+!raritychances = EmceeBot
+!vip = BankerBot
+!buyvip = BankerBot
+!myvip = BankerBot
+!donationgoal = BankerBot
+!sponsorgoldrain = BankerBot
+
+Do not show owner=Host for player-facing commands unless absolutely required internally.
+If internal owner key is host, map display name to EmceeBot.
+
+==================================================
+PART 4 — FIX COMMANDISSUES
+==================================================
+
+Current issue:
+/commandissues says clean even when commandtest shows handler=NO and owner=UNKNOWN.
+
+Fix:
+/commandissues must detect:
+- route=NO
+- handler=NO
+- owner=UNKNOWN
+- owner mismatch
+- registered but no handler
+- handler exists but route missing
+- commands listed in help but not registered
+- commands registered but not callable with !
+
+Expected:
+/commandissues
+
+Should report issues like:
+⚠️ Issues:
+handler missing: !rolespawn, !autospawn, !minechances, !fishchances
+owner unknown: !vip
+route missing: !vip
+
+After fixes:
+/commandissues
+
+Expected:
+✅ No command issues — all routes, handlers, and owners clean.
+
+==================================================
+PART 5 — ROLESPAWN HANDLER REQUIREMENTS
+==================================================
+
+!rolespawn [role]
+Shows saved automatic entry spawn for that role.
+
+!rolespawns
+Shows all role spawn positions.
+
+!setrolespawn [role] here
+Saves current position as automatic entry spawn for that role.
+
+!delrolespawn [role]
+Deletes saved role spawn.
+
+!autospawn on/off/status
+Controls automatic teleport on room entry.
+
+!autospawn debug [user]
+Shows role detection and selected role spawn.
+
+Important:
+RoleSpawn means:
+When a user enters the room, they are automatically teleported to the saved spawn for their role.
+
+==================================================
+PART 6 — CHANCE COMMAND HANDLER REQUIREMENTS
+==================================================
+
+!minechances should show:
+
+⛏️ Mining Chances
+Common: 65%
+Uncommon: 22%
+Rare: 10%
+Epic: 2.75%
+Legendary: 0.23%
+Mythic: 0.015%
+Ultra Rare: 0.004%
+Prismatic: 0.0008%
+Exotic: 0.0002%
+
+!fishchances should show:
+
+🎣 Fishing Chances
+Common: 82%
+Rare: 13%
+Epic: 4.5%
+Legendary: 0.47%
+Mythic: 0.025%
+Prismatic: 0.004%
+Exotic: 0.001%
+
+!raritychances should show both mining and fishing summary.
+
+==================================================
+PART 7 — FINAL TESTS
+==================================================
+
+Run:
+
+/commandtest !rolespawn
+/commandtest !rolespawns
+/commandtest !setrolespawn
+/commandtest !delrolespawn
+/commandtest !autospawn
+/commandtest !minechances
+/commandtest !fishchances
+/commandtest !raritychances
+/commandtest !vip
+/commandtest !buyvip
+/commandtest !myvip
+/commandtest !donationgoal
+/commandissues
+/checkcommands all
+
+Target:
+route=YES
+handler=YES
+owner not UNKNOWN
+No handler=NO
+No owner=Host unless intentionally mapped/displayed
+No owner=UNKNOWN

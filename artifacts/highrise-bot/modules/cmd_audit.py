@@ -523,6 +523,15 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     "staffhelp",
     # ── Rarity chance commands ───────────────────────────────────────────────
     "minechances", "fishchances", "fishingchances", "raritychances",
+    # ── RoleSpawn / AutoSpawn ────────────────────────────────────────────────
+    "rolespawn", "rolespawns", "setrolespawn", "delrolespawn",
+    # ── VIP — player + staff ─────────────────────────────────────────────────
+    "vip", "vipperks", "myvip", "giftvip", "viplist", "grantvip",
+    "removevip", "addvip", "vips", "setvipprice",
+    # ── Donation / Sponsorship ───────────────────────────────────────────────
+    "donate", "donationgoal", "topdonors", "sponsor", "sponsorgoldrain",
+    "sponsorevent", "supporter", "perks",
+    "setdonationgoal", "donationaudit", "setsponsorprice",
 })
 
 # ---------------------------------------------------------------------------
@@ -711,6 +720,15 @@ VISIBLE_CMDS: frozenset[str] = frozenset({
     "messageaudit", "staffhelp",
     # ── Rarity chance commands ───────────────────────────────────────────────
     "minechances", "fishchances", "fishingchances", "raritychances",
+    # ── RoleSpawn / AutoSpawn ────────────────────────────────────────────────
+    "rolespawn", "rolespawns", "setrolespawn", "delrolespawn",
+    # ── VIP — player + staff ─────────────────────────────────────────────────
+    "vip", "vipperks", "myvip", "giftvip", "viplist", "grantvip",
+    "removevip", "addvip", "vips", "setvipprice",
+    # ── Donation / Sponsorship ───────────────────────────────────────────────
+    "donate", "donationgoal", "topdonors", "sponsor", "sponsorgoldrain",
+    "sponsorevent", "supporter", "perks",
+    "setdonationgoal", "donationaudit", "setsponsorprice",
 })
 
 
@@ -839,9 +857,11 @@ async def handle_commandissues(
         except ValueError:
             pass
 
-    if category and category not in ("missing", "noowner", "deprecated", "hidden"):
+    if category and category not in (
+        "missing", "noowner", "nohandler", "deprecated", "hidden"
+    ):
         await _w(bot, user.id,
-                 "Usage: /commandissues [missing|noowner|deprecated|hidden] [page]")
+                 "Usage: !commandissues [missing|noowner|nohandler|deprecated|hidden]")
         return
 
     if all_known is None:
@@ -857,30 +877,48 @@ async def handle_commandissues(
     active = all_known - hidden - depr
 
     if not category:
-        # No-arg: combined summary of broken commands (no-route + no-owner)
+        # No-arg: combined summary of broken commands
         try:
             from modules.multi_bot import _DEFAULT_COMMAND_OWNERS
             owners_set = set(_DEFAULT_COMMAND_OWNERS.keys())
         except Exception:
             owners_set = set()
+        try:
+            from modules.command_registry import get_entry as _reg_get
+            no_handler = sorted(c for c in active if _reg_get(c) is None)
+        except Exception:
+            no_handler = []
         missing_set = sorted(active - ROUTED_COMMANDS)
         noowner_set = sorted(active - owners_set)
-        combined = set(missing_set) | set(noowner_set)
+        combined = set(missing_set) | set(noowner_set) | set(no_handler)
         if not combined:
             await _w(bot, user.id,
-                     "✅ No command issues — all routes and owners clean.")
+                     "✅ No command issues — all routes, handlers, and owners clean.")
             return
+        parts = []
+        if missing_set:
+            parts.append(f"{len(missing_set)} no-route")
+        if noowner_set:
+            parts.append(f"{len(noowner_set)} no-owner")
+        if no_handler:
+            parts.append(f"{len(no_handler)} no-handler")
         await _w(bot, user.id,
-                 f"⚠️ Issues: {len(missing_set)} no-route | "
-                 f"{len(noowner_set)} no-owner\n"
-                 f"/commandissues missing|noowner|deprecated|hidden [page]"[:249])
+                 f"⚠️ Issues: {', '.join(parts)}\n"
+                 f"!commandissues missing|noowner|nohandler|deprecated|hidden [pg]"[:249])
         preview = sorted(combined)[:8]
         await _w(bot, user.id,
-                 "Examples: " + ", ".join(f"/{c}" for c in preview[:249]))
+                 "Examples: " + ", ".join(f"!{c}" for c in preview)[:240])
         return
     elif category == "missing":
         items = sorted(active - ROUTED_COMMANDS)
         title = "Missing routes"
+    elif category == "nohandler":
+        try:
+            from modules.command_registry import get_entry as _reg_get
+            items = sorted(c for c in active if _reg_get(c) is None)
+        except Exception:
+            items = []
+        title = "No handler (not in registry)"
     elif category == "noowner":
         try:
             from modules.multi_bot import _DEFAULT_COMMAND_OWNERS

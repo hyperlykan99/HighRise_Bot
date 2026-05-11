@@ -783,6 +783,44 @@ REGISTRY: dict[str, Cmd] = {
     # ── Auto event + system diagnostics ──────────────────────────────────────
     "aetest":           Cmd("eventhost","events", False, True,  False, perm="manager"),
     "ownercheck":       Cmd("security", "system", False, True,  False, perm="manager"),
+
+    # ── RoleSpawn / AutoSpawn (security + host) ───────────────────────────────
+    "rolespawn":        Cmd("security","teleport", True,  True,  False),
+    "rolespawns":       Cmd("security","teleport", True,  True,  False),
+    "setrolespawn":     Cmd("security","teleport", False, False, True,  perm="manager"),
+    "delrolespawn":     Cmd("security","teleport", False, False, True,  perm="manager"),
+    "autospawn":        Cmd("host",    "teleport", True,  True,  True,  perm="manager"),
+
+    # ── Rarity chance display (miner / fisher / host) ─────────────────────────
+    "minechances":      Cmd("miner",   "mining",  True,  True,  False),
+    "fishchances":      Cmd("fisher",  "fishing", True,  True,  False,
+                            aliases=("fishingchances",)),
+    "raritychances":    Cmd("host",    "mining",  True,  True,  False),
+
+    # ── VIP — player-facing (banker) ──────────────────────────────────────────
+    "vip":              Cmd("banker",  "vip",     True,  True,  False),
+    "vipperks":         Cmd("banker",  "vip",     True,  True,  False),
+    "myvip":            Cmd("banker",  "vip",     True,  True,  False),
+    "giftvip":          Cmd("banker",  "vip",     True,  False, True),
+    "viplist":          Cmd("banker",  "vip",     True,  True,  False),
+    "grantvip":         Cmd("banker",  "vip",     False, False, True,  perm="manager"),
+    "removevip":        Cmd("banker",  "vip",     False, False, True,  perm="manager"),
+    "addvip":           Cmd("banker",  "vip",     False, False, True,  perm="manager"),
+    "vips":             Cmd("banker",  "vip",     False, True,  False, perm="manager"),
+    "setvipprice":      Cmd("banker",  "vip",     False, False, True,  perm="manager"),
+
+    # ── Donation / Sponsorship (banker) ───────────────────────────────────────
+    "donate":           Cmd("banker",  "economy", True,  True,  False),
+    "donationgoal":     Cmd("banker",  "economy", True,  True,  False),
+    "topdonors":        Cmd("banker",  "economy", True,  True,  False),
+    "sponsor":          Cmd("banker",  "economy", True,  True,  False),
+    "sponsorgoldrain":  Cmd("banker",  "goldrain",True,  True,  False),
+    "sponsorevent":     Cmd("eventhost","events", True,  True,  False),
+    "supporter":        Cmd("banker",  "economy", True,  True,  False),
+    "perks":            Cmd("banker",  "vip",     True,  True,  False),
+    "setdonationgoal":  Cmd("banker",  "economy", False, False, True,  perm="manager"),
+    "donationaudit":    Cmd("banker",  "economy", False, True,  False, perm="admin"),
+    "setsponsorprice":  Cmd("banker",  "economy", False, False, True,  perm="manager"),
 }
 
 # ---------------------------------------------------------------------------

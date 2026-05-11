@@ -7190,6 +7190,26 @@ def get_vip_list() -> list[str]:
         return []
 
 
+def get_top_gold_donors(limit: int = 10) -> list[dict]:
+    """Return top gold donors from gold_tip_events, summed by from_username."""
+    try:
+        conn = get_connection()
+        rows = conn.execute(
+            """SELECT from_username AS username,
+                      CAST(SUM(gold_amount) AS INTEGER) AS total_gold
+               FROM gold_tip_events
+               WHERE from_username != ''
+               GROUP BY LOWER(from_username)
+               ORDER BY total_gold DESC
+               LIMIT ?""",
+            (limit,),
+        ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+    except Exception:
+        return []
+
+
 # ===========================================================================
 # EMOJI BADGE MARKET SYSTEM
 # ===========================================================================

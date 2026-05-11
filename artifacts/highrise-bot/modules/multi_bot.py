@@ -478,6 +478,20 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     # miner/fisher — rarity chance commands (new)
     "minechances": "miner", "fishchances": "fisher",
     "fishingchances": "fisher", "raritychances": "host",
+    # security — rolespawn commands (new)
+    "rolespawn": "security", "rolespawns": "security",
+    "setrolespawn": "security", "delrolespawn": "security",
+    # banker — VIP commands (new)
+    "vip": "banker", "vipperks": "banker", "myvip": "banker",
+    "giftvip": "banker", "viplist": "banker", "grantvip": "banker",
+    "setvipprice": "banker", "removevip": "banker", "addvip": "banker",
+    "vips": "banker", "vipstatus": "banker",
+    # banker — donation/sponsor commands (new)
+    "donate": "banker", "donationgoal": "banker", "topdonors": "banker",
+    "sponsor": "banker", "sponsorgoldrain": "banker", "sponsorevent": "eventhost",
+    "supporter": "banker", "perks": "banker",
+    "setdonationgoal": "banker", "donationaudit": "banker",
+    "setsponsorprice": "banker",
     # host — message audit (new)
     "messageaudit": "host", "staffhelp": "host",
     # blackjack — BJ shoe management (new)
@@ -635,10 +649,11 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
 
 # Friendly display names for modes
 _MODE_NAMES: dict[str, str] = {
-    "host": "Host", "banker": "Banker", "blackjack": "Blackjack",
-    "poker": "Poker", "dealer": "Dealer", "miner": "Miner",
-    "shopkeeper": "Shop", "security": "Security",
-    "dj": "DJ", "eventhost": "Events", "all": "Main",
+    "host": "EmceeBot", "banker": "BankingBot", "blackjack": "AceSinatra",
+    "poker": "ChipSoprano", "dealer": "Dealer", "miner": "GreatestProspector",
+    "fisher": "MasterAngler",
+    "shopkeeper": "BankingBot", "security": "KeanuShield",
+    "dj": "DJ_DUDU", "eventhost": "EmceeBot", "all": "Main",
 }
 
 # ---------------------------------------------------------------------------
