@@ -641,9 +641,9 @@ async def handle_myfish(bot: BaseBot, user: User) -> None:
         for r in inv[:3]:
             rl = _rarity_label(r["rarity"])
             lines.append(f"  {rl} {r['fish_name']} {r['weight']}lb")
-        lines.append("→ /sellfish to sell all")
+        lines.append("→ !sellfish to sell all")
     else:
-        lines.append("Bag empty. Fish to fill it! /fish")
+        lines.append("Bag empty. !fish to fill it!")
     await _w(bot, user.id, "\n".join(lines)[:249])
 
 
@@ -658,12 +658,12 @@ async def handle_sellfish(bot: BaseBot, user: User) -> None:
     if count == 0:
         await _w(bot, user.id,
                  "🎣 No unsold fish in your bag.\n"
-                 "Go fishing: /fish  |  View bag: /myfish")
+                 "Go fishing: !fish  |  View bag: !myfish")
         return
     db.adjust_balance(user.id, coins)
     await _w(bot, user.id,
              f"🎣 Sold {count} fish for {_fmt(coins)} coins!\n"
-             f"Balance updated. Keep fishing: /fish")
+             f"Balance updated. Keep fishing: !fish")
 
 
 async def handle_sellallfish(bot: BaseBot, user: User) -> None:
@@ -677,7 +677,7 @@ async def handle_sellfishrarity(bot: BaseBot, user: User, args: list[str]) -> No
     if len(args) < 2:
         await _w(bot, user.id,
                  "Usage: !sellfishrarity <rarity>\n"
-                 "e.g. /sellfishrarity common")
+                 "e.g. !sellfishrarity common")
         return
     raw = args[1].lower()
     rarity = _RARITY_ALIASES.get(raw)
@@ -707,7 +707,7 @@ async def handle_fishbook(bot: BaseBot, user: User) -> None:
     if not species:
         await _w(bot, user.id,
                  "📖 Fish Book empty.\n"
-                 "Catch fish to discover species! /fish")
+                 "Catch fish to discover species! !fish")
         return
     lines = [f"📖 Fish Book ({len(species)} species)"]
     for sp in species[:8]:
@@ -888,20 +888,29 @@ async def handle_fishingevents(bot: BaseBot, user: User) -> None:
 
 async def handle_fishchances(bot: BaseBot, user: User) -> None:
     """!fishchances — show base rarity drop % for fishing."""
-    _BASE_FISH_CHANCES = [
-        ("Common",    82.000),
-        ("Rare",      13.000),
-        ("Epic",       4.500),
-        ("Legendary",  0.470),
-        ("Mythic",     0.025),
-        ("Prismatic",  0.004),
-        ("Exotic",     0.001),
+    _MAIN_CHANCES = [
+        ("common",    82.000),
+        ("rare",      13.000),
+        ("epic",       4.500),
+        ("legendary",  0.470),
+        ("mythic",     0.025),
     ]
-    lines = ["🎣 Fishing Chances"]
-    for label, pct in _BASE_FISH_CHANCES:
+    _RARE_CHANCES = [
+        ("prismatic",  0.004),
+        ("exotic",     0.001),
+    ]
+    lines1 = ["🎣 Fishing Chances"]
+    for rarity, pct in _MAIN_CHANCES:
         pct_str = f"{pct}%" if pct >= 0.01 else f"{pct:.4f}%"
-        lines.append(f"{label}: {pct_str}")
-    await _w(bot, user.id, "\n".join(lines)[:249])
+        lbl = FISH_RARITIES.get(rarity, {}).get("label", rarity.title())
+        lines1.append(f"{lbl}: {pct_str}")
+    await _w(bot, user.id, "\n".join(lines1)[:249])
+    lines2 = ["🎣 Ultra Rare Fish"]
+    for rarity, pct in _RARE_CHANCES:
+        pct_str = f"{pct:.4f}%"
+        lbl = FISH_RARITIES.get(rarity, {}).get("label", rarity.title())
+        lines2.append(f"{lbl}: {pct_str}")
+    await _w(bot, user.id, "\n".join(lines2)[:249])
 
 
 async def handle_fishhelp(bot: BaseBot, user: User) -> None:
@@ -1035,7 +1044,7 @@ async def handle_equiprod(bot: BaseBot, user: User, args: list[str]) -> None:
     db.ensure_user(user.id, user.username)
     if FISHING_RODS[rod_name]["price"] > 0 and not db.player_owns_rod(user.id, rod_name):
         await _w(bot, user.id,
-                 f"🎣 You don't own {rod_name}. Buy it at /rodshop.")
+                 f"🎣 You don't own {rod_name}. Buy it at !rodshop.")
         return
     db.equip_rod(user.id, user.username, rod_name)
     rod = FISHING_RODS[rod_name]
@@ -1070,7 +1079,7 @@ async def handle_rodinfo(bot: BaseBot, user: User, args: list[str]) -> None:
 async def handle_rodupgrade(bot: BaseBot, user: User) -> None:
     """/rodupgrade — direct purchase system."""
     await _w(bot, user.id,
-             "🎣 Rod Upgrade\nBuy better rods at /rodshop.\n"
+             "🎣 Rod Upgrade\nBuy better rods at !rodshop.\n"
              "Each rod is a direct purchase — no upgrade chain.")
 
 

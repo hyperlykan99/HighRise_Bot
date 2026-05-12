@@ -1,0 +1,661 @@
+UPDATE 3.0F — MINING/FISHING REWARD POLISH
+
+Goal:
+Polish mining and fishing player experience without changing core odds or risking bot stability.
+
+Focus:
+- Cleaner inventory display
+- Cleaner chances display
+- Better leaderboard display
+- Better reward/value messages
+- Consistent rarity colors
+- Clear sell/value messages if sell commands already exist
+- Better AutoMine/AutoFish status messages
+
+Do not rewrite core systems.
+Do not change bot tokens.
+Do not change room ID.
+Do not wipe database.
+Do not reset balances, inventories, VIP, blackjack/poker, teleports, role spawns, bot spawns, party tip data, subscriptions, or notifications.
+Do not add AI.
+Do not add hype announcements yet.
+Do not change casino games.
+Do not change mining rarity odds.
+Do not change fishing rarity odds.
+Do not make mythic/prismatic/exotic easier.
+Do not change economy payouts unless it is only message formatting.
+
+==================================================
+PART 1 — KEEP RARITY ODDS UNCHANGED
+==================================================
+
+Important:
+Do not change mining drop rates.
+Do not change fishing drop rates.
+Do not change mythic, prismatic, exotic, ultra rare odds.
+Do not change value multipliers unless already broken.
+
+This update is polish only.
+
+If you see current odds, leave them as-is.
+
+==================================================
+PART 2 — RARITY DISPLAY STANDARD
+==================================================
+
+Make mining and fishing rarity labels consistent.
+
+Suggested rarity display:
+
+Mining:
+[COMMON]
+[UNCOMMON]
+[RARE]
+[EPIC]
+[LEGENDARY]
+[MYTHIC]
+[ULTRA RARE]
+[PRISMATIC]
+[EXOTIC]
+
+Fishing:
+[COMMON]
+[RARE]
+[EPIC]
+[LEGENDARY]
+[MYTHIC]
+[PRISMATIC]
+[EXOTIC]
+
+Rules:
+- Keep existing color codes if already working.
+- Do not remove colored ore/fish names.
+- Do not break big announcements.
+- Do not make messages longer than Highrise limits.
+- If a prismatic name uses rainbow colors, keep it.
+
+==================================================
+PART 3 — POLISH !MINE MESSAGE
+==================================================
+
+Current mining reward messages should be clean and easy to read.
+
+Preferred format:
+
+⛏️ Mining
+You mined [RARITY] [Ore Name]
+⚖️ [weight]kg | 💰 [value]c
+⭐ MXP: +[mxp]
+
+If level up:
+⬆️ Mining Level [level]!
+
+If message is too long:
+Split into two whispers:
+1. ore result
+2. weight/value/XP
+
+Do not change actual reward calculation.
+Do not change actual rarity odds.
+Do not change actual XP unless already calculated.
+
+==================================================
+PART 4 — POLISH !FISH MESSAGE
+==================================================
+
+Fishing reward messages should be clean and easy to read.
+
+Preferred format:
+
+🎣 Fishing
+You caught [RARITY] [Fish Name]
+⚖️ [weight]lb | 💰 [value]c
+⭐ FXP: +[fxp]
+
+If level up:
+⬆️ Fishing Level [level]!
+
+If message is too long:
+Split into two whispers:
+1. fish result
+2. weight/value/XP
+
+Do not change actual reward calculation.
+Do not change actual rarity odds.
+Do not change actual XP.
+
+==================================================
+PART 5 — CLEAN !MINEINV
+==================================================
+
+Polish:
+
+!mineinv
+
+Expected format:
+
+🎒 Mining Inventory
+Coins Earned: [amount]c
+Total Ores: [count]
+Rare Finds: [count]
+
+Top Ores:
+1. [RARITY] [Ore Name] x[qty]
+2. [RARITY] [Ore Name] x[qty]
+3. [RARITY] [Ore Name] x[qty]
+4. [RARITY] [Ore Name] x[qty]
+5. [RARITY] [Ore Name] x[qty]
+
+Use:
+!mineinv all — full inventory
+!mineprofile — mining stats
+
+If inventory is empty:
+🎒 Mining Inventory
+No ores yet.
+Try !mine or !automine.
+
+Rules:
+- Keep message short.
+- If inventory has many ores, show top 5 by rarity/value/quantity.
+- Do not spam huge inventory in one message.
+- If !mineinv all exists, paginate.
+- If !mineinv all does not exist, do not add risky new paging unless simple.
+
+==================================================
+PART 6 — CLEAN !FISHINV
+==================================================
+
+Polish:
+
+!fishinv
+
+Expected format:
+
+🎒 Fishing Inventory
+Coins Earned: [amount]c
+Total Fish: [count]
+Rare Catches: [count]
+
+Top Fish:
+1. [RARITY] [Fish Name] x[qty]
+2. [RARITY] [Fish Name] x[qty]
+3. [RARITY] [Fish Name] x[qty]
+4. [RARITY] [Fish Name] x[qty]
+5. [RARITY] [Fish Name] x[qty]
+
+Use:
+!fishinv all — full inventory
+!fishprofile — fishing stats
+
+If inventory is empty:
+🎒 Fishing Inventory
+No fish yet.
+Try !fish or !autofish.
+
+Rules:
+- Keep message short.
+- If inventory has many fish, show top 5 by rarity/value/quantity.
+- Do not spam huge inventory in one message.
+- If !fishinv all exists, paginate.
+- If !fishinv all does not exist, do not add risky new paging unless simple.
+
+==================================================
+PART 7 — CLEAN !MINEPROFILE
+==================================================
+
+Polish:
+
+!mineprofile
+
+Expected:
+
+⛏️ Mining Profile
+Level: [level]
+MXP: [current]/[needed]
+Tool: [tool name] Lv [level]
+Total Mines: [count]
+Total Ores: [count]
+Rare Finds: [count]
+Best Find: [ore/rank if available]
+
+If command is called !miningprofile instead, keep existing command and add alias only if safe.
+
+Do not break existing command.
+
+==================================================
+PART 8 — CLEAN !FISHPROFILE
+==================================================
+
+Polish:
+
+!fishprofile
+
+Expected:
+
+🎣 Fishing Profile
+Level: [level]
+FXP: [current]/[needed]
+Rod: [rod name] Lv [level]
+Total Catches: [count]
+Rare Catches: [count]
+Best Catch: [fish/rank if available]
+
+If command is called !fishingprofile instead, keep existing command and add alias only if safe.
+
+Do not break existing command.
+
+==================================================
+PART 9 — CLEAN !MINECHANCES
+==================================================
+
+Polish:
+
+!minechances
+
+Expected:
+
+⛏️ Mining Chances
+Common: [percent]
+Uncommon: [percent]
+Rare: [percent]
+Epic: [percent]
+Legendary: [percent]
+Mythic: [percent]
+Ultra Rare: [percent]
+Prismatic: [percent]
+Exotic: [percent]
+
+Mythic+ is extremely rare.
+
+Do not change chance values.
+Only display current values.
+
+If output is too long, split into two messages:
+1. Common → Epic
+2. Legendary → Exotic
+
+==================================================
+PART 10 — CLEAN !FISHCHANCES
+==================================================
+
+Polish:
+
+!fishchances
+
+Expected:
+
+🎣 Fishing Chances
+Common: [percent]
+Rare: [percent]
+Epic: [percent]
+Legendary: [percent]
+Mythic: [percent]
+Prismatic: [percent]
+Exotic: [percent]
+
+Mythic+ is extremely rare.
+
+Do not change chance values.
+Only display current values.
+
+If output is too long, split into two messages.
+
+==================================================
+PART 11 — CLEAN TOOLS / RODS
+==================================================
+
+Polish mining tool messages:
+
+!tool
+
+Expected:
+
+⛏️ Pickaxe
+Level: [level]
+Name: [tool name]
+Cooldown: [seconds]s
+Luck Bonus: +[percent]%
+Upgrade: !upgradetool
+
+!upgradetool
+
+If upgrade possible:
+⬆️ Pickaxe Upgrade
+Next: [tool name] Lv [level]
+Cost: [coins]c
+Required Ores:
+[ore] x[qty]
+[ore] x[qty]
+
+If missing requirements:
+⚠️ Missing:
+[ore] x[needed] more
+Coins needed: [amount]c
+
+Polish fishing rod messages:
+
+!rod
+
+Expected:
+
+🎣 Rod
+Level: [level]
+Name: [rod name]
+Cooldown: [seconds]s
+Luck Bonus: +[percent]%
+Upgrade: !upgraderod or !rods
+
+!rods
+
+Expected:
+🎣 Rod Shop
+1. [rod] — [cost]
+2. [rod] — [cost]
+
+Only show commands that actually exist.
+If !upgraderod does not exist, do not advertise it.
+
+==================================================
+PART 12 — CLEAN AUTOMINE STATUS
+==================================================
+
+Polish AutoMine messages.
+
+When starting:
+⛏️ AutoMine started.
+Duration: [minutes]m
+Limit: [15m regular / 60m VIP]
+Use !stopmine to stop.
+
+When already running:
+⛏️ AutoMine already running.
+Time Left: [minutes]m
+Use !stopmine to stop.
+
+When stopping:
+⛏️ AutoMine stopped.
+
+If duration too high:
+⚠️ AutoMine limit: [limit] minutes.
+VIP can auto mine up to 60 minutes.
+Type !vip for perks.
+
+Do not change automine reward logic.
+Do not change mining cooldown logic.
+Do not bypass cooldown.
+
+==================================================
+PART 13 — CLEAN AUTOFISH STATUS
+==================================================
+
+Polish AutoFish messages.
+
+When starting:
+🎣 AutoFish started.
+Duration: [minutes]m
+Limit: [15m regular / 60m VIP]
+Use !stopfish to stop.
+
+When already running:
+🎣 AutoFish already running.
+Time Left: [minutes]m
+Use !stopfish to stop.
+
+When stopping:
+🎣 AutoFish stopped.
+
+If duration too high:
+⚠️ AutoFish limit: [limit] minutes.
+VIP can auto fish up to 60 minutes.
+Type !vip for perks.
+
+Do not change autofish reward logic.
+Do not change fishing cooldown logic.
+Do not bypass cooldown.
+
+==================================================
+PART 14 — LEADERBOARD POLISH
+==================================================
+
+Polish mining leaderboards if already existing:
+
+!minelb
+!mininglb
+
+Expected:
+
+🏆 Mining Leaderboard
+1. @user — Lv [level] | [total] ores
+2. @user — Lv [level] | [total] ores
+3. @user — Lv [level] | [total] ores
+
+Polish fishing leaderboards if already existing:
+
+!fishlb
+
+Expected:
+
+🏆 Fishing Leaderboard
+1. @user — Lv [level] | [total] fish
+2. @user — Lv [level] | [total] fish
+3. @user — Lv [level] | [total] fish
+
+If no leaderboard data:
+No leaderboard yet.
+Start with !mine / !fish.
+
+Do not add complex new leaderboard system if not already present.
+Polish existing messages only.
+
+==================================================
+PART 15 — SELL / VALUE COMMANDS IF EXISTING
+==================================================
+
+Check if these commands already exist:
+!sellore
+!sellores
+!sellfish
+!sellallore
+!sellallfish
+!orevalue
+!fishvalue
+
+If they exist, polish messages.
+
+If they do not exist, do not add a new sell system in this update unless it is already partially implemented.
+
+Expected sell success:
+
+💰 Sold Ores
+Items sold: [count]
+Total: [amount]c
+New Balance: [balance]c
+
+Expected sell fail:
+
+⚠️ Nothing to sell.
+Try !mine first.
+
+For fishing:
+
+💰 Sold Fish
+Items sold: [count]
+Total: [amount]c
+New Balance: [balance]c
+
+Important:
+Do not change reward economy.
+Only polish existing sell messages.
+
+==================================================
+PART 16 — BIG ANNOUNCEMENT SAFETY
+==================================================
+
+Do not add new hype system in this update.
+
+Only confirm existing rare find announcements still preserve colored ore/fish names.
+
+Rules:
+- Mythic small congratulations can stay if already implemented.
+- Prismatic/big announcements can stay if already implemented.
+- Exotic room pause/mute/hype system should NOT be added in this update.
+- Do not add bot spam.
+- Do not pause games.
+- Do not mute room.
+
+This update is not the hype update.
+
+==================================================
+PART 17 — HELP UPDATE
+==================================================
+
+Make sure 3.0B help still matches:
+
+!help mining:
+!mine — mine once
+!automine — start auto mining
+!stopmine — stop auto mining
+!mineinv — view ores
+!minechances — view mining chances
+!tool — view pickaxe
+!upgradetool — upgrade pickaxe
+
+!help fishing:
+!fish — fish once
+!autofish — start auto fishing
+!stopfish — stop auto fishing
+!fishinv — view fish
+!fishchances — view fishing chances
+!rod — view rod
+!rods — rod shop
+
+No / commands.
+No owner commands in player help.
+
+==================================================
+PART 18 — COMMAND TESTS
+==================================================
+
+Run command tests for all affected commands:
+
+Mining:
+!commandtest !mine
+!commandtest !automine
+!commandtest !stopmine
+!commandtest !mineinv
+!commandtest !minechances
+!commandtest !tool
+!commandtest !upgradetool
+!commandtest !mineprofile
+!commandtest !miningprofile
+!commandtest !minelb
+
+Fishing:
+!commandtest !fish
+!commandtest !autofish
+!commandtest !stopfish
+!commandtest !fishinv
+!commandtest !fishchances
+!commandtest !rod
+!commandtest !rods
+!commandtest !fishprofile
+!commandtest !fishingprofile
+!commandtest !fishlb
+
+Expected:
+Active commands shown in help must be:
+route=YES
+handler=YES
+owner not UNKNOWN
+
+If a command is not active:
+- remove it from help
+- or mark legacy/hidden
+- do not count it as command issue
+
+==================================================
+PART 19 — LIVE TESTS
+==================================================
+
+Run:
+
+!mine
+!mineinv
+!minechances
+!tool
+!mineprofile
+!minelb
+
+!fish
+!fishinv
+!fishchances
+!rod
+!fishprofile
+!fishlb
+
+!automine
+!stopmine
+!autofish
+!stopfish
+
+!help mining
+!help fishing
+
+!commandissues
+!checkcommands
+
+Expected:
+- Messages are cleaner.
+- No / commands.
+- No missing routes.
+- No command issues.
+- Mining/fishing odds unchanged.
+- AutoMine/AutoFish still work.
+- Colored rarity names still work.
+
+==================================================
+PART 20 — STABILITY TESTS
+==================================================
+
+After testing, run:
+
+!bothealth
+!stability status
+!botconflicts
+!modulehealth
+!commandissues
+!checkcommands
+
+Expected:
+- Err: none
+- No bot conflicts
+- No command issues
+- No checkcommands mismatch
+- No reconnect loop
+- No DB lock spam
+- Bots stay online
+
+==================================================
+PART 21 — FINAL REPORT
+==================================================
+
+After finishing, report:
+
+1. Mining messages polished.
+2. Fishing messages polished.
+3. !mineinv result format.
+4. !fishinv result format.
+5. !minechances result format.
+6. !fishchances result format.
+7. AutoMine message updates.
+8. AutoFish message updates.
+9. Leaderboard messages updated.
+10. Sell/value commands found or not found.
+11. Confirmed rarity odds unchanged.
+12. Confirmed colored rarity names still work.
+13. Help mining/fishing updated.
+14. Command tests result.
+15. !commandissues result.
+16. !checkcommands result.
+17. Stability result.

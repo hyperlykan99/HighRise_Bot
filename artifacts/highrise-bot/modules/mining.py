@@ -604,7 +604,7 @@ async def handle_tool(bot: BaseBot, user: User) -> None:
     if lvl < 10:
         reqs  = UPGRADE_REQS.get(lvl + 1, (0, []))
         coins = reqs[0]
-        msg   += f"\nUpgrade: /upgradetool | Cost {_fmt(coins)}c"
+        msg   += f"\nUpgrade: !upgradetool | Cost {_fmt(coins)}c"
     else:
         msg   += "\n🏆 Max level!"
     await _w(bot, user.id, msg[:249])
@@ -645,7 +645,10 @@ async def handle_upgradetool(bot: BaseBot, user: User) -> None:
             missing_parts.append(f"{name} x{qty} (have {have})")
 
     if missing_parts:
-        await _w(bot, user.id, "Need: " + ", ".join(missing_parts))
+        need_str = ", ".join(missing_parts)
+        await _w(bot, user.id,
+                 (f"⛏️ Upgrade to Lv {target_lvl}: Not enough resources.\n"
+                  f"Need: {need_str}")[:249])
         return
 
     # Deduct — atomic-ish (coins first, then ores)
@@ -691,7 +694,7 @@ async def handle_mineprofile(bot: BaseBot, user: User, args: list[str]) -> None:
             f"Lv {lvl} | {_fmt(mxp)}/{_fmt(nxp)} MXP\n"
             f"Pickaxe Lv {pick} {PICKAXE_NAMES.get(pick,'?')}\n"
             f"Boosts:{luck_left}{xp_left}\n"
-            f"Page 2: /mp 2"
+            f"Page 2: !mp 2"
         )
     else:
         event = db.get_active_mining_event()
@@ -711,21 +714,42 @@ async def handle_mineprofile(bot: BaseBot, user: User, args: list[str]) -> None:
 # ---------------------------------------------------------------------------
 
 async def handle_mineinv(bot: BaseBot, user: User, args: list[str]) -> None:
-    inv  = db.get_inventory(user.username)
-    page = int(args[1]) if len(args) > 1 and args[1].isdigit() else 1
+    inv = db.get_inventory(user.username)
     if not inv:
-        await _w(bot, user.id, "🎒 Inventory empty. Use !mine to start mining!")
+        await _w(bot, user.id, "🎒 No ores yet. Use !mine to start mining!")
         return
 
-    per  = 8
-    total_pages = max(1, (len(inv) + per - 1) // per)
-    page = max(1, min(page, total_pages))
-    chunk = inv[(page - 1) * per : page * per]
+    sub = args[1].lower() if len(args) > 1 else ""
 
-    parts = " | ".join(f"{r['emoji']}{r['name']} x{r['quantity']}" for r in chunk)
-    nav   = f"  More: /ores {page+1}" if page < total_pages else ""
-    msg   = f"🎒 Ores ({page}/{total_pages}): {parts}{nav}"
-    await _w(bot, user.id, msg[:249])
+    # Full paginated view: !mineinv all  or  !mineinv <page>
+    if sub == "all" or sub.isdigit():
+        page = max(1, int(sub)) if sub.isdigit() else 1
+        per  = 6
+        total_pages = max(1, (len(inv) + per - 1) // per)
+        page = min(page, total_pages)
+        chunk = inv[(page - 1) * per : page * per]
+        lines = [f"🎒 Ores ({page}/{total_pages})"]
+        for r in chunk:
+            lbl = _ore_short_label(r["rarity"])
+            lines.append(f"{lbl} {r['emoji']}{r['name']} x{r['quantity']}")
+        if page < total_pages:
+            lines.append(f"!mineinv {page + 1}")
+        await _w(bot, user.id, "\n".join(lines)[:249])
+        return
+
+    # Default: top 5 by quantity
+    top5        = sorted(inv, key=lambda r: r["quantity"], reverse=True)[:5]
+    total_types = len(inv)
+    total_qty   = sum(r["quantity"] for r in inv)
+    lines = [f"🎒 Ores | {total_types} types | {_fmt(total_qty)} total"]
+    for r in top5:
+        lbl = _ore_short_label(r["rarity"])
+        lines.append(f"{lbl} {r['emoji']}{r['name']} x{r['quantity']}")
+    if total_types > 5:
+        lines.append("!mineinv all — full list | !sellores to sell")
+    else:
+        lines.append("!sellores to sell all")
+    await _w(bot, user.id, "\n".join(lines)[:249])
 
 
 # ---------------------------------------------------------------------------
@@ -820,7 +844,8 @@ async def handle_minelb(bot: BaseBot, user: User, args: list[str]) -> None:
 
     lines = [title]
     for i, r in enumerate(rows, 1):
-        lines.append(f"{i} @{r['username']} {fmt(r)}")
+        lines.append(f"{i}. @{r['username']} — {fmt(r)}")
+    lines.append("!minelb level|ores|rare|coins")
     await _w(bot, user.id, "\n".join(lines)[:249])
 
 
@@ -842,7 +867,7 @@ async def handle_mineshop(bot: BaseBot, user: User) -> None:
             "currency":  "coins",
             "shop_type": "mineshop",
         })
-    lines.append("Buy: /minebuy <#>  or  /buy <#>")
+    lines.append("Buy: !minebuy <#>  or  !buy <#>")
     msg = "\n".join(lines)
     db.save_shop_session(user.username, "mineshop", 1, session_items)
     await _w(bot, user.id, msg[:249])
@@ -1462,7 +1487,7 @@ async def handle_miningroomrequired(bot: BaseBot, user: User, args: list[str]) -
     else:
         cur = db.get_mine_setting("mining_requires_room", "true")
         await _w(bot, user.id,
-                 f"Room required: {cur}. Set: /miningroomrequired on | off")
+                 f"Room required: {cur}. Set: !miningroomrequired on | off")
 
 
 # ---------------------------------------------------------------------------
@@ -1970,23 +1995,20 @@ async def handle_rerolljob(bot: BaseBot, user: User) -> None:
 
 async def handle_minechances(bot: BaseBot, user: User) -> None:
     """!minechances — show base rarity drop % for mining."""
-    lines = ["⛏️ Mining Chances"]
-    labels = {
-        "common":    "Common",
-        "uncommon":  "Uncommon",
-        "rare":      "Rare",
-        "epic":      "Epic",
-        "legendary": "Legendary",
-        "mythic":    "Mythic",
-        "ultra_rare":"Ultra Rare",
-        "prismatic": "Prismatic",
-        "exotic":    "Exotic",
-    }
-    for r in RARITY_ORDER:
+    _MAIN_TIERS  = ["common", "uncommon", "rare", "epic", "legendary", "mythic"]
+    _ULTRA_TIERS = ["ultra_rare", "prismatic", "exotic"]
+    lines1 = ["⛏️ Mining Chances"]
+    for r in _MAIN_TIERS:
         pct = RARITIES[r][0]
         pct_str = f"{pct}%" if pct >= 0.01 else f"{pct:.4f}%"
-        lines.append(f"{labels.get(r, r)}: {pct_str}")
-    await _w(bot, user.id, "\n".join(lines)[:249])
+        lines1.append(f"{_ore_short_label(r)}: {pct_str}")
+    await _w(bot, user.id, "\n".join(lines1)[:249])
+    lines2 = ["⛏️ Ultra Rare Tiers"]
+    for r in _ULTRA_TIERS:
+        pct = RARITIES[r][0]
+        pct_str = f"{pct:.4f}%"
+        lines2.append(f"{_ore_short_label(r)}: {pct_str}")
+    await _w(bot, user.id, "\n".join(lines2)[:249])
 
 
 async def handle_orechances(bot: BaseBot, user: User) -> None:
@@ -2649,7 +2671,7 @@ async def handle_autominesettings(bot: BaseBot, user: User) -> None:
         f"Session duration: {dur}m",
         f"Session attempts: {att}",
         f"Daily cap: {cap}m (info only)",
-        "Set: /setautomine /setautomineduration /setautomineattempts",
+        "!automine on | off | <mins>  to control your session",
     ]
     await _w(bot, user.id, "\n".join(lines)[:249])
 
