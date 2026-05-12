@@ -786,17 +786,22 @@ async def handle_sellores(bot: BaseBot, user: User) -> None:
     db.ensure_user(user.id, user.username)
     result = db.sell_all_ores(user.username, user.id)
     if result["coins"] == 0:
-        await _w(bot, user.id, "🎒 Nothing to sell. Mine some ores first!")
+        await _w(bot, user.id,
+                 "⚠️ Nothing to sell.\nTry !mine or !automine first.")
         return
     db.update_miner(user.username, coins_earned=db.get_or_create_miner(user.username)["coins_earned"] + result["coins"])
+    new_bal = db.get_balance(user.id)
     await _w(bot, user.id,
-             f"✅ Sold {result['count']} ores for {_fmt(result['coins'])}c.")
+             f"💰 Sold Ores\n"
+             f"Items sold: {result['count']}\n"
+             f"Total: {_fmt(result['coins'])}c\n"
+             f"New Balance: {_fmt(new_bal)}c")
 
 
 async def handle_sellore(bot: BaseBot, user: User, args: list[str]) -> None:
     db.ensure_user(user.id, user.username)
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: !sellore <ore_id> <amount>  or  /sellore all")
+        await _w(bot, user.id, "Usage: !sellore <ore_id> <amount>  or  !sellore all")
         return
     sub = args[1].lower()
     if sub == "all":
@@ -1748,7 +1753,7 @@ async def handle_oreprices(bot: BaseBot, user: User, args: list[str] | None = No
     total_pages = max(1, (len(ores) + _ORE_PAGE_SIZE - 1) // _ORE_PAGE_SIZE)
     if page > total_pages:
         await _w(bot, user.id,
-                 f"Only {total_pages} page(s) for {rar}. /oreprices {rar} {total_pages}")
+                 f"Only {total_pages} page(s) for {rar}. !oreprices {rar} {total_pages}")
         return
 
     rar_disp  = get_rarity_display_name(rar)

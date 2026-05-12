@@ -618,7 +618,7 @@ PROFILE_COMMANDS     = {
 }
 GAME_COMMANDS        = {"trivia", "scramble", "riddle", "coinflip"}
 SHOP_COMMANDS        = {
-    "shop", "buy", "equip", "myitems", "badgeinfo", "titleinfo",
+    "shop", "buy", "equip", "myitems", "inventory", "inv", "badgeinfo", "titleinfo",
     "mybadges", "unequip",
     "badgemarket", "badgelist", "badgebuy", "badgecancel",
     "mybadgelistings", "badgeprices",
@@ -3648,7 +3648,7 @@ class HangoutBot(BaseBot):
             else:
                 await self.highrise.send_whisper(user.id, "Usage: !unequip badge")
 
-        elif cmd == "myitems":
+        elif cmd in {"myitems", "inventory", "inv"}:
             await handle_myitems(self, user)
 
         elif cmd == "mybadges":

@@ -26,13 +26,13 @@ async def _w(bot, uid: str, msg: str) -> None:
 
 # Latest room updates — edit to announce changes
 _ROOM_UPDATES: list[str] = [
-    "BlackJack rebuilt with simultaneous action model.",
     "First Hunt Race: win gold for rare firsts!",
-    "Fish inventory system added (/myfish, /sellfish).",
-    "Subscriber notification preferences added (/notif).",
-    "Weekly Leaderboard added (/weeklylb).",
-    "Bot tip leaderboard added (/tiplb).",
+    "Fish inventory system added (!myfish, !sellfish).",
+    "Subscriber notification preferences added (!notif).",
+    "Weekly Leaderboard added (!weeklylb).",
     "Big-announce system routing fixed.",
+    "Mining exotic/prismatic rarity tiers added.",
+    "Shop now shows VIP info via !shop.",
 ]
 
 # Bot spawn labels — update to match room layout
@@ -192,7 +192,7 @@ async def handle_rewards_inbox(bot, user) -> None:
         lines.append("No rewards pending.")
         lines.append("Play events and races to earn!")
 
-    lines.append("Staff: /rewardpending")
+    lines.append("Staff: !rewardpending")
     await _w(bot, user.id, "\n".join(lines)[:249])
 
 

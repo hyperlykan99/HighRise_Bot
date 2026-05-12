@@ -1,0 +1,650 @@
+UPDATE 3.0H — ROOM ECONOMY + SHOP POLISH
+
+Goal:
+Polish the room economy, shop, VIP/support menus, and sell/value messages without changing core balances or risking bot stability.
+
+Focus:
+- Clean shop commands
+- Clear item prices and perks
+- Better VIP/shop display
+- Donation goal/shop support clarity
+- Sell ore/fish polish if already exists
+- Economy abuse prevention
+- Better economy messages
+- Keep all prices and balances stable unless missing defaults need safe fallback
+
+Do not rewrite core systems.
+Do not change bot tokens.
+Do not change room ID.
+Do not wipe database.
+Do not reset balances, VIP, inventories, mining/fishing data, blackjack/poker data, teleports, role spawns, bot spawns, subscriptions, notifications, party tip wallet, or donation logs.
+Do not add AI.
+Do not add exotic mute/pause.
+Do not change mining/fishing odds.
+Do not change blackjack/poker.
+Do not change casino odds.
+Do not change rarity odds.
+Do not rewrite command routing.
+Do not add risky new economy mechanics.
+
+==================================================
+PART 1 — STABILITY FIRST
+==================================================
+
+Before changing anything, verify:
+
+!commandissues
+!checkcommands
+!bothealth
+!stability status
+!botconflicts
+!modulehealth
+
+Expected:
+- no command issues
+- no checkcommands mismatch
+- Err: none
+- no bot conflicts
+
+If there are errors, fix those first before changing shop/economy messages.
+
+==================================================
+PART 2 — ECONOMY COMMAND AUDIT
+==================================================
+
+Find existing economy/shop commands.
+
+Check for commands like:
+!shop
+!buy
+!inventory
+!inv
+!items
+!badges
+!titles
+!equip
+!unequip
+!balance
+!send
+!transactions
+!vip
+!vipperks
+!buyvip
+!myvip
+!donationgoal
+!topdonors
+!sellore
+!sellores
+!sellfish
+!sellallore
+!sellallfish
+!orevalue
+!fishvalue
+
+Do not add large new systems if these do not exist.
+Polish existing systems first.
+
+Every active command shown in help/shop must pass:
+route=YES
+handler=YES
+owner not UNKNOWN
+
+If a command is broken:
+- route it safely
+- or remove it from player-facing help
+- or mark it hidden/legacy if not used
+
+==================================================
+PART 3 — CLEAN MAIN SHOP MENU
+==================================================
+
+If !shop exists, polish it.
+
+Expected:
+
+🛍️ ChillTopia Shop
+
+Categories:
+!shop vip — VIP perks
+!shop badges — badges
+!shop titles — titles
+!shop boosts — boosts
+!shop support — support room
+
+Buy:
+!buy [item_id]
+
+Your coins:
+!balance
+
+If categories do not exist, show only existing categories.
+
+Rules:
+- Keep under 220 characters per message.
+- Split into multiple whispers if needed.
+- No / commands.
+- No owner commands in player shop.
+- Do not show broken commands.
+
+If !shop does not exist and adding it is simple/safe:
+- add it as a basic menu that points to existing commands only.
+If adding !shop is risky:
+- skip adding it and polish existing !vip / !vipperks / !buy commands instead.
+
+==================================================
+PART 4 — CLEAN BUY COMMAND
+==================================================
+
+If !buy exists, polish usage.
+
+If user types:
+!buy
+
+Reply:
+Usage: !buy [item_id]
+Example: !buy vip_7d
+
+View shop:
+!shop
+
+If item not found:
+⚠️ Item not found.
+Type !shop to view items.
+
+If not enough coins:
+⚠️ Not enough coins.
+Needed: [price]c
+Your balance: [balance]c
+
+If purchase succeeds:
+✅ Purchased!
+Item: [item name]
+Price: [price]c
+New Balance: [balance]c
+
+Rules:
+- no duplicate purchases unless allowed
+- no negative price
+- no zero price unless intended free item
+- no item purchase if hidden/deprecated
+- log purchase if purchase logging already exists
+
+==================================================
+PART 5 — CLEAN PLAYER INVENTORY
+==================================================
+
+If !inventory or !inv exists, polish it.
+
+Expected:
+
+🎒 Inventory
+Badges: [count]
+Titles: [count]
+Boosts: [count]
+VIP: Active/Inactive
+
+Use:
+!badges — view badges
+!titles — view titles
+!myvip — VIP status
+
+If empty:
+🎒 Inventory
+No items yet.
+Type !shop to browse.
+
+Rules:
+- Keep short.
+- Do not confuse this with !mineinv or !fishinv.
+- Mining inventory stays !mineinv.
+- Fishing inventory stays !fishinv.
+
+==================================================
+PART 6 — BADGES AND TITLES POLISH
+==================================================
+
+If badges/titles exist, polish commands.
+
+Suggested commands if already present:
+!badges
+!titles
+!equip [item_id]
+!unequip [badge|title]
+
+Expected !badges:
+
+🏅 Your Badges
+1. [badge name] — !equip [item_id]
+2. [badge name] — !equip [item_id]
+
+If none:
+No badges yet.
+Type !shop badges.
+
+Expected !titles:
+
+🎖️ Your Titles
+1. [title name] — !equip [item_id]
+2. [title name] — !equip [item_id]
+
+If equip succeeds:
+✅ Equipped [item name].
+
+If user does not own item:
+⚠️ You do not own that item.
+
+Rules:
+- Do not add new badge/title economy if not already present.
+- Polish existing messages only unless simple and safe.
+
+==================================================
+PART 7 — VIP SHOP POLISH
+==================================================
+
+Polish VIP/shop support flow.
+
+!vip:
+
+💎 VIP
+Support the room and unlock convenience perks.
+
+Commands:
+!vipperks — view perks
+!buyvip 1d — buy 1 day
+!buyvip 7d — buy 7 days
+!buyvip 30d — buy 30 days
+!myvip — check status
+
+No lifetime VIP.
+
+!vipperks:
+
+💎 VIP Perks
+• Longer !automine sessions
+• Longer !autofish sessions
+• VIP status/badge
+• Supports room upgrades
+
+Buy:
+!buyvip 1d
+!buyvip 7d
+!buyvip 30d
+
+No lifetime VIP.
+
+!buyvip:
+If no args:
+Usage:
+!buyvip 1d
+!buyvip 7d
+!buyvip 30d
+
+If invalid duration:
+⚠️ VIP duration must be 1d, 7d, or 30d.
+No lifetime VIP.
+
+Do not show lifetime/permanent VIP anywhere.
+
+==================================================
+PART 8 — DONATION GOAL POLISH
+==================================================
+
+Polish:
+
+!donationgoal
+
+Expected:
+
+💛 Room Goal
+Goal: [goal name]
+Progress: [current]/[target] gold
+Percent: [percent]%
+
+Support helps room upgrades.
+Thank you!
+
+If no active goal:
+💛 Room Goal
+No active goal yet.
+
+!topdonors:
+
+🏆 Top Supporters
+1. @user — [amount]
+2. @user — [amount]
+3. @user — [amount]
+
+Thank you for supporting ChillTopia!
+
+If no donors:
+🏆 Top Supporters
+No supporters yet.
+
+Rules:
+- Do not create real-money payment system.
+- Do not promise rewards not implemented.
+- Do not fake donor data.
+- Do not expose private info.
+
+==================================================
+PART 9 — SELL ORE/FISH POLISH IF EXISTING
+==================================================
+
+Check if sell commands already exist.
+
+Possible commands:
+!sellore [ore]
+!sellores
+!sellallore
+!sellfish [fish]
+!sellallfish
+!orevalue [ore]
+!fishvalue [fish]
+
+If they exist, polish messages.
+
+Do not create a full new sell system in this update unless the sell system already exists and only needs routing/message cleanup.
+
+Expected ore sell success:
+
+💰 Sold Ores
+Items sold: [count]
+Total: [amount]c
+New Balance: [balance]c
+
+Expected fish sell success:
+
+💰 Sold Fish
+Items sold: [count]
+Total: [amount]c
+New Balance: [balance]c
+
+If nothing to sell:
+⚠️ Nothing to sell.
+Try !mine or !fish first.
+
+For value commands:
+
+!orevalue [ore]
+Expected:
+⛏️ Ore Value
+[Ore Name]
+Rarity: [rarity]
+Base Value: [amount]c
+Weight affects final value.
+
+!fishvalue [fish]
+Expected:
+🎣 Fish Value
+[Fish Name]
+Rarity: [rarity]
+Base Value: [amount]c
+Weight affects final value.
+
+Rules:
+- Do not change item values.
+- Do not change payout calculation.
+- Do not duplicate payouts.
+- Do not allow selling same inventory twice.
+- Use DB transaction if existing sell logic supports it.
+
+==================================================
+PART 10 — ECONOMY ABUSE PREVENTION
+==================================================
+
+Audit economy actions for safety.
+
+For:
+!send
+!buy
+!buyvip
+!sellore
+!sellfish
+!goldtip
+!tip
+!goldrain
+
+Ensure:
+- amount must be positive integer
+- no negative amounts
+- no zero amounts unless intentionally allowed
+- no decimals where not supported
+- no self-exploit
+- no bot target unless explicitly allowed by owner-only system
+- sufficient balance/wallet check happens before deduction
+- deductions and rewards happen once
+- failed transaction does not deduct
+- successful transaction logs if logging exists
+- errors do not crash bot
+
+Do not change normal behavior unless preventing abuse.
+
+==================================================
+PART 11 — SEND/BALANCE MESSAGE POLISH
+==================================================
+
+Polish:
+
+!balance
+
+Expected:
+💰 Balance
+Coins: [amount]c
+VIP: Active/Inactive
+
+!send [user] [amount]
+
+If missing args:
+Usage: !send [user] [amount]
+Example: !send @Player 100
+
+If success:
+✅ Sent [amount]c to @Player.
+Fee: [fee]c
+New Balance: [balance]c
+
+If not enough coins:
+⚠️ Not enough coins.
+Your balance: [balance]c
+
+Rules:
+- Do not change fees/limits unless existing setting missing.
+- Do not let users send negative/zero.
+- Do not let users send to bots if current bank rules block bots.
+- Do not expose user IDs.
+
+==================================================
+PART 12 — SHOP HELP PAGE
+==================================================
+
+Add or polish:
+
+!help shop
+!help support
+
+If these are already added, clean them.
+If not added and safe, add them.
+
+!help shop:
+
+🛍️ Shop Help
+!shop — shop menu
+!buy [item_id] — buy item
+!inventory — your items
+!vip — VIP info
+!donationgoal — room goal
+
+!help support:
+
+💛 Support ChillTopia
+!vip — VIP perks
+!buyvip 1d/7d/30d — buy VIP
+!donationgoal — room goal
+!topdonors — supporters
+
+No lifetime VIP.
+
+Rules:
+- No / commands.
+- No owner-only commands in regular help.
+- Only show commands that route.
+
+==================================================
+PART 13 — BOT BIO CHECK
+==================================================
+
+Make sure bios from 3.0C still look good.
+
+BankingBot bio should mention:
+!balance
+!send [user] [amount]
+!vip
+!donationgoal
+
+ChillTopiaMC bio may mention:
+!help
+!help games
+!help party
+!subscribe
+!notif
+
+Do not show:
+!goldtip
+!goldrain
+!grantvip
+!removevip
+!ptwallet
+owner commands
+debug commands
+
+Run:
+!checkbios
+!checkonboarding
+!checkhelp
+
+Expected:
+Clean.
+
+==================================================
+PART 14 — COMMAND TESTS
+==================================================
+
+Run command tests for active economy/shop commands:
+
+!commandtest !shop
+!commandtest !buy
+!commandtest !inventory
+!commandtest !inv
+!commandtest !badges
+!commandtest !titles
+!commandtest !equip
+!commandtest !balance
+!commandtest !send
+!commandtest !transactions
+!commandtest !vip
+!commandtest !vipperks
+!commandtest !buyvip
+!commandtest !myvip
+!commandtest !donationgoal
+!commandtest !topdonors
+
+Also check sell/value only if they exist:
+!commandtest !sellore
+!commandtest !sellores
+!commandtest !sellfish
+!commandtest !sellallore
+!commandtest !sellallfish
+!commandtest !orevalue
+!commandtest !fishvalue
+
+Expected:
+- Commands shown to players route YES.
+- Commands shown to players handler YES.
+- Owner not UNKNOWN.
+- Commands not implemented should not appear in public help/shop.
+- No command issues.
+
+==================================================
+PART 15 — LIVE TESTS
+==================================================
+
+Run:
+
+!balance
+!vip
+!vipperks
+!buyvip
+!myvip
+!donationgoal
+!topdonors
+!help shop
+!help support
+!checkhelp
+!checkbios
+!checkonboarding
+!commandissues
+!checkcommands
+
+If !shop exists:
+!shop
+
+If !inventory exists:
+!inventory
+
+If sell/value exists:
+!orevalue [known ore]
+!fishvalue [known fish]
+
+Expected:
+- messages are clean
+- no / commands
+- no lifetime VIP
+- no owner commands in public pages
+- no broken routes
+- no command issues
+- no checkcommands mismatch
+
+==================================================
+PART 16 — STABILITY TESTS
+==================================================
+
+After changes, run:
+
+!bothealth
+!stability status
+!botconflicts
+!modulehealth
+!commandissues
+!checkcommands
+
+Expected:
+- Err: none
+- No bot conflicts
+- No command issues
+- No checkcommands mismatch
+- No DB lock spam
+- No reconnect loop
+
+==================================================
+PART 17 — FINAL REPORT
+==================================================
+
+After finishing, report:
+
+1. Economy/shop commands found.
+2. Commands polished.
+3. Whether !shop exists or was skipped.
+4. Whether !buy exists or was skipped.
+5. Whether !inventory exists or was skipped.
+6. VIP menu status.
+7. Donation goal status.
+8. Top donors status.
+9. Sell ore/fish commands found or skipped.
+10. Abuse prevention checks completed.
+11. Help shop/support status.
+12. No lifetime VIP confirmed.
+13. !checkhelp result.
+14. !checkbios result.
+15. !commandissues result.
+16. !checkcommands result.
+17. Stability result.

@@ -263,12 +263,12 @@ async def handle_shop(bot: BaseBot, user: User, args: list[str]):
     else:
         try:
             await bot.highrise.send_whisper(user.id,
-                "-- Shop --\n"
-                "!shop badges — browse badges\n"
-                "!shop titles — browse titles\n"
-                "!myitems — see what you own & equipped\n"
-                "Buy:   !buy badge [id]   !buy title [id]\n"
-                "Equip: !equip badge [id] !equip title [id]"
+                "🛍️ ChillTopia Shop\n"
+                "!shop badges — emoji badges\n"
+                "!shop titles — titles\n"
+                "!vip — VIP info  !buyvip 1d/7d/30d\n"
+                "Buy: !buy [#] after browsing a category\n"
+                "!myitems — your items  !balance — coins"
             )
         except Exception as exc:
             print(f"[SHOP] /shop help error for {user.username}: {exc}")
@@ -345,7 +345,7 @@ async def handle_buy(bot: BaseBot, user: User, args: list[str]):
             user.id,
             f"✅ Purchased {item['display']}  {item_id}!{discount_note}\n"
             f"Paid: {price:,}c | Balance: {new_balance:,}c\n"
-            f"Equip: /equip {item_type} {item_id}"
+            f"Equip: !equip {item_type} {item_id}"
         )
         await check_achievements(bot, user, "purchase")
         from modules.quests import track_quest
@@ -361,7 +361,7 @@ async def handle_equip(bot: BaseBot, user: User, args: list[str]):
     """
     if len(args) < 3:
         await bot.highrise.send_whisper(
-            user.id, "Usage: !equip badge <id>  or  /equip title <id>"
+            user.id, "Usage: !equip badge <id>  or  !equip title <id>"
         )
         return
 

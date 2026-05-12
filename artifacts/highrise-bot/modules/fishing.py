@@ -756,13 +756,15 @@ async def handle_sellfish(bot: BaseBot, user: User) -> None:
     count, coins = db.sell_all_fish_inventory(user.id)
     if count == 0:
         await _w(bot, user.id,
-                 "🎣 No unsold fish in your bag.\n"
-                 "Go fishing: !fish  |  View bag: !myfish")
+                 "⚠️ Nothing to sell.\nTry !fish or !autofish first.")
         return
     db.adjust_balance(user.id, coins)
+    new_bal = db.get_balance(user.id)
     await _w(bot, user.id,
-             f"🎣 Sold {count} fish for {_fmt(coins)} coins!\n"
-             f"Balance updated. Keep fishing: !fish")
+             f"💰 Sold Fish\n"
+             f"Items sold: {count}\n"
+             f"Total: {_fmt(coins)}c\n"
+             f"New Balance: {_fmt(new_bal)}c")
 
 
 async def handle_sellallfish(bot: BaseBot, user: User) -> None:
@@ -832,8 +834,8 @@ async def handle_fishautosell(bot: BaseBot, user: User, args: list[str]) -> None
         db.set_fish_auto_sell(user.id, user.username, 0)
         await _w(bot, user.id,
                  "🎣 Fish Auto-Sell: OFF\n"
-                 "Fish go to your bag (/myfish).\n"
-                 "Sell with /sellfish when ready.")
+                 "Fish go to your bag (!myfish).\n"
+                 "Sell with !sellfish when ready.")
     else:
         _as = db.get_fish_auto_sell_settings(user.id)
         on      = bool(_as.get("auto_sell_enabled", 1))

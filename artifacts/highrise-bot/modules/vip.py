@@ -29,7 +29,8 @@ _VIP_PERKS = (
     "• Longer !autofish sessions (up to 60m)\n"
     "• VIP badge & status in room\n"
     "• Supports ChillTopia upgrades\n"
-    "Buy: !buyvip 1d | !buyvip 7d | !buyvip 30d"
+    "Buy: !buyvip 1d | !buyvip 7d | !buyvip 30d\n"
+    "No lifetime VIP."
 )
 
 # Duration options: key → (days, display_label)

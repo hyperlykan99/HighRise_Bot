@@ -70,7 +70,12 @@ async def handle_balance(bot: BaseBot, user: User, args: list | None = None):
 
         if not raw_target:
             balance = db.get_balance(user.id)
-            await bot.highrise.send_whisper(user.id, f"💰 Balance: {fmt_coins(balance)}")
+            is_vip  = db.owns_item(user.id, "vip")
+            vip_str = "Active 💎" if is_vip else "Inactive"
+            await bot.highrise.send_whisper(
+                user.id,
+                f"💰 Balance\nCoins: {fmt_coins(balance)}\nVIP: {vip_str}"
+            )
             return
 
         # Looking up another player
