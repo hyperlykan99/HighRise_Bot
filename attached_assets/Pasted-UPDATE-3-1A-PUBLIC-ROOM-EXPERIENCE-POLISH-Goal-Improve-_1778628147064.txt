@@ -1,0 +1,585 @@
+UPDATE 3.1A — PUBLIC ROOM EXPERIENCE POLISH
+
+Goal:
+Improve the experience for new and returning players so they understand what to do in ChillTopia quickly.
+
+This update is player onboarding and public room guidance only.
+
+Focus:
+- New player welcome flow
+- First-time player guide
+- “What do I do first?” command
+- Cleaner onboarding message
+- Room activity suggestions
+- Beginner-friendly help
+- Assistant stays quiet unless asked
+- No core system changes
+
+Do not rewrite core systems.
+Do not change bot tokens.
+Do not change room ID.
+Do not wipe database.
+Do not reset balances, VIP, inventories, mining/fishing data, blackjack/poker data, teleports, role spawns, bot spawns, party tip wallet, shop items, badges, titles, donation logs, notifications, subscriptions, or command registry.
+Do not change mining/fishing odds.
+Do not change casino odds.
+Do not change rewards unless explicitly marked as optional and safe.
+Do not add advanced AI.
+Do not add exotic mute/pause.
+Do not add risky economy mechanics.
+Do not make the assistant spam public chat.
+
+==================================================
+PART 1 — STABILITY FIRST
+==================================================
+
+Before changing anything, run:
+
+!launchcheck
+!commandissues
+!checkcommands
+!checkcommands all
+!checkhelp
+!bothealth
+!stability status
+!botconflicts
+!modulehealth
+
+Expected:
+- Launch Check OK
+- Conflicts: none
+- no command issues
+- no checkcommands mismatch
+- no help issues
+- Err: none
+- no bot conflicts
+
+If anything is broken, fix it first before adding 3.1A polish.
+
+==================================================
+PART 2 — ADD / POLISH PLAYER START COMMANDS
+==================================================
+
+Add or polish these player-facing commands:
+
+!start
+!guide
+!new
+!activities
+!roominfo
+
+Aliases:
+!begin = !start
+!newbie = !new
+!whatdoido = !guide
+
+Expected ownership:
+owner=ChillTopiaMC or Host
+route=YES
+handler=YES
+
+These must be safe public commands.
+
+Do not show owner commands.
+Do not show debug commands.
+Do not show broken commands.
+Do not use / commands.
+
+==================================================
+PART 3 — !START COMMAND
+==================================================
+
+Command:
+!start
+
+Purpose:
+Give new players a simple starting path.
+
+Expected response:
+
+👋 Welcome to ChillTopia!
+Start here:
+1. !tele list — explore
+2. !mine or !fish — earn coins
+3. !help games — play
+4. !shop — spend coins
+
+Keep under 220 characters.
+If too long, split safely.
+
+Optional second message:
+
+Need help? Ask:
+“how do I mine?”
+“what games are here?”
+
+Rules:
+- No owner commands.
+- No / commands.
+- No “No lifetime VIP” text.
+- No long paragraphs.
+
+==================================================
+PART 4 — !GUIDE COMMAND
+==================================================
+
+Command:
+!guide
+
+Purpose:
+Give players a simple guide based on main room systems.
+
+Expected response:
+
+🧭 ChillTopia Guide
+Earn: !mine, !fish
+Play: !help games
+Explore: !tele list
+Shop: !shop
+VIP: !vip
+Notifications: DM me !subscribe
+
+Keep under 220 characters.
+
+If users ask:
+!guide mining
+
+Reply:
+⛏️ Mining Guide
+!mine — mine once
+!automine — auto mine
+!mineinv — inventory
+!minechances — odds
+
+If users ask:
+!guide fishing
+
+Reply:
+🎣 Fishing Guide
+!fish — fish once
+!autofish — auto fish
+!fishinv — inventory
+!fishchances — odds
+
+If users ask:
+!guide casino
+
+Reply:
+🎰 Casino Guide
+Blackjack: !bet [amount], !hit, !stand
+Poker: !poker, !joinpoker
+Balance: !balance
+
+If users ask:
+!guide vip
+
+Reply:
+💎 VIP Guide
+Use !vip for info, !vipperks for perks, and !buyvip 1d/7d/30d to buy.
+
+Do not mention lifetime VIP.
+
+==================================================
+PART 5 — !NEW COMMAND
+==================================================
+
+Command:
+!new
+
+Purpose:
+Explain what new players should do first.
+
+Expected response:
+
+🌱 New here?
+Try this:
+1. !tele list
+2. !fish or !mine
+3. !help games
+4. !shop
+Ask “what can I do here?” anytime.
+
+Keep under 220 characters.
+
+Optional:
+If the player has never been seen before, this can be shown once as onboarding, but do not spam every join.
+
+==================================================
+PART 6 — !ACTIVITIES COMMAND
+==================================================
+
+Command:
+!activities
+
+Purpose:
+List current activities in the room.
+
+Expected response:
+
+🎮 Activities
+⛏️ Mining
+🎣 Fishing
+🃏 Blackjack
+♠️ Poker
+🎲 Mini games
+🎉 Party tips/events
+Use !help games to start.
+
+Keep under 220 characters.
+
+If a system is disabled/offline, show:
+OFF
+
+Example:
+🎮 Activities
+Mining: ON
+Fishing: ON
+Blackjack: ON
+Poker: ON
+Party Tips: OFF
+
+Only do status checks if already available and cheap.
+Do not create heavy DB scans.
+
+==================================================
+PART 7 — !ROOMINFO COMMAND
+==================================================
+
+Command:
+!roominfo
+
+Purpose:
+Short description of ChillTopia.
+
+Expected response:
+
+🏠 ChillTopia
+A chill lounge with mining, fishing, casino games, mini games, VIP perks, teleports, and events.
+Start with !start.
+
+Keep under 220 characters.
+
+Do not overpromise rewards.
+Do not mention bot development/debug systems.
+Do not mention owner-only tools.
+
+==================================================
+PART 8 — WELCOME FLOW FOR NEW PLAYERS
+==================================================
+
+Polish onboarding/welcome message for users entering the room.
+
+Goal:
+New players get useful guidance without spam.
+
+Suggested public or whisper message:
+
+👋 Welcome to ChillTopia!
+Type !start for a quick guide.
+
+Rules:
+- Prefer whisper if possible to avoid public spam.
+- If public welcome is currently used, keep it short.
+- Do not greet the same user repeatedly every reconnect.
+- Use existing seen-user tracking if available.
+- If no seen-user tracking exists, keep welcome minimal.
+- Do not auto-subscribe users.
+- Do not give automatic rewards unless already existing.
+
+==================================================
+PART 9 — FIRST-TIME PLAYER TRACKING
+==================================================
+
+If there is already player_seen or onboarding tracking:
+- use it to avoid repeating new player welcome.
+
+If not available:
+- add simple safe tracking only if easy.
+- do not create risky migrations.
+- do not wipe data.
+
+Suggested:
+Track:
+user_id
+first_seen_at
+last_seen_at
+welcomed_version
+
+If migration is risky, skip tracking and use a short low-spam welcome.
+
+==================================================
+PART 10 — BEGINNER HELP PAGE
+==================================================
+
+Add or polish:
+
+!help beginner
+!help new
+
+Expected:
+
+🌱 Beginner Help
+!start — quick start
+!tele list — explore
+!mine / !fish — earn coins
+!help games — games
+!shop — shop
+
+Rules:
+- No / commands.
+- No owner commands.
+- No broken commands.
+- Keep under 220 characters.
+
+If adding !help beginner is risky:
+- skip it and use !start / !guide instead.
+- Do not let it count as command issue.
+
+==================================================
+PART 11 — ASSISTANT INTEGRATION
+==================================================
+
+Update room assistant answers to recommend the new commands.
+
+If user asks:
+what can i do here
+what games are here
+i’m new
+help me start
+
+Reply:
+
+👋 Start with !start.
+You can mine, fish, play games, explore with !tele list, and use !shop.
+
+If user asks:
+guide
+new here
+
+Reply:
+Try !start or !guide for a quick ChillTopia walkthrough.
+
+Rules:
+- Assistant remains low-interference.
+- No cooldown required.
+- Strict intent only.
+- No reply to casual chat.
+- Whisper replies stay whisper.
+- Public replies stay public only when help intent is clear.
+
+==================================================
+PART 12 — DAILY / STREAK PLACEHOLDER ONLY
+==================================================
+
+Do not build full daily rewards in 3.1A.
+
+If !daily already exists:
+- only polish the message.
+
+If !daily does not exist:
+- do not add it yet.
+- 3.1B will handle daily rewards/streaks.
+
+If players ask about daily:
+Reply:
+Daily rewards are coming soon. For now, try !mine, !fish, or !help games.
+
+Do not add rewards yet.
+
+==================================================
+PART 13 — HELP PAGE UPDATE
+==================================================
+
+Update main help to mention:
+
+!start — quick start
+!guide — room guide
+!activities — things to do
+!tele list — explore
+
+Expected main help addition:
+
+New here?
+!start — quick guide
+!activities — things to do
+
+Rules:
+- Keep help under cap by splitting if needed.
+- Do not add broken commands.
+- Do not show owner commands.
+- No / commands.
+- No “No lifetime VIP” text.
+
+==================================================
+PART 14 — COMMAND ROUTING SAFETY
+==================================================
+
+All new commands must route before AI fallback:
+
+!start
+!guide
+!new
+!activities
+!roominfo
+!begin
+!newbie
+!whatdoido
+
+Expected:
+route=YES
+handler=YES
+owner=ChillTopiaMC or Host
+
+If alias is not needed:
+- do not add it
+- do not count it as issue
+
+==================================================
+PART 15 — MESSAGE CAP SAFETY
+==================================================
+
+All messages must stay under 220 characters.
+
+Check:
+!start
+!guide
+!guide mining
+!guide fishing
+!guide casino
+!guide vip
+!new
+!activities
+!roominfo
+!help beginner
+!help new
+
+Expected:
+- no cutoff
+- no half lines
+- no broken tags
+- no giant paragraphs
+
+==================================================
+PART 16 — PRIVACY / SPAM SAFETY
+==================================================
+
+Welcome/onboarding should not spam.
+
+Rules:
+- Do not announce every join with long messages.
+- Prefer whisper for new player guide.
+- Do not repeatedly welcome the same player every few seconds.
+- Do not auto-subscribe.
+- Do not send notifications unless user subscribed manually.
+- Do not use assistant for casual chat.
+
+==================================================
+PART 17 — COMMAND TESTS
+==================================================
+
+Run:
+
+!commandtest !start
+!commandtest !guide
+!commandtest !new
+!commandtest !activities
+!commandtest !roominfo
+!commandtest !begin
+!commandtest !newbie
+!commandtest !whatdoido
+
+Expected:
+- implemented commands route YES
+- implemented commands handler YES
+- owner not UNKNOWN
+- aliases either work or are hidden/skipped
+- no command issues
+
+==================================================
+PART 18 — LIVE TESTS
+==================================================
+
+Run:
+
+!start
+!guide
+!guide mining
+!guide fishing
+!guide casino
+!guide vip
+!new
+!activities
+!roominfo
+!help
+!help beginner
+!help new
+!commandissues
+!checkcommands
+!checkhelp
+
+Assistant tests:
+
+what can i do here
+i’m new
+help me start
+guide
+lol
+haha
+come here
+
+Expected:
+- clear help messages reply
+- casual chat ignored
+- no / commands
+- no “No lifetime VIP” text
+- no command issues
+- no checkhelp issues
+
+==================================================
+PART 19 — LAUNCH CHECK
+==================================================
+
+After changes, run:
+
+!launchcheck
+!commandissues
+!checkcommands
+!checkcommands all
+!checkhelp
+!bothealth
+!stability status
+!botconflicts
+!modulehealth
+
+Expected:
+- Launch Check OK
+- Conflicts: none
+- no command issues
+- no checkcommands mismatch
+- no help issues
+- Err: none
+- no bot conflicts
+
+==================================================
+PART 20 — FINAL REPORT
+==================================================
+
+After finishing, report:
+
+1. !start status.
+2. !guide status.
+3. !new status.
+4. !activities status.
+5. !roominfo status.
+6. New player welcome behavior.
+7. First-time tracking added or skipped.
+8. Beginner help page added or skipped.
+9. Assistant integration updated.
+10. Daily/streak left for 3.1B.
+11. Help pages updated.
+12. Command tests result.
+13. Message cap result.
+14. !launchcheck result.
+15. !commandissues result.
+16. !checkcommands result.
+17. !checkhelp result.
+18. Stability result.

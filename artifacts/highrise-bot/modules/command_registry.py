@@ -1218,8 +1218,13 @@ REGISTRY: dict[str, Cmd] = {
     "coinflip":              Cmd("eventhost",    "economy", True,  False, True),
 
     # ── Player helpers ────────────────────────────────────────────────────────
-    "start":                 Cmd("host",    "help",    True,  True,  False),
-    "guide":                 Cmd("host",    "help",    True,  True,  False),
+    "start":      Cmd("host", "help", True, True, False),
+    "guide":      Cmd("host", "help", True, True, False,
+                      aliases=("whatdoido",)),
+    "new":        Cmd("host", "help", True, True, False,
+                      aliases=("newbie",)),
+    "activities": Cmd("host", "help", True, True, False),
+    "roominfo":   Cmd("host", "help", True, True, False),
 
     # ── Phase B audit additions — DCO orphans ─────────────────────────────────
     "bjshoereset":        Cmd("blackjack","casino", False,False,True,  perm="manager"),

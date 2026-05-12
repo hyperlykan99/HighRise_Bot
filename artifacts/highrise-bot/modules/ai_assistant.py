@@ -50,6 +50,8 @@ BLOCKED       = "BLOCKED"
 _RISK: dict[str, str] = {
     # ── SAFE ──────────────────────────────────────────────────────────────
     "help": SAFE, "mycommands": SAFE, "start": SAFE, "guide": SAFE,
+    "new": SAFE, "activities": SAFE, "roominfo": SAFE,
+    "newbie": SAFE, "whatdoido": SAFE,
     "bal": SAFE, "balance": SAFE, "bank": SAFE, "transactions": SAFE,
     "minehelp": SAFE, "mine": SAFE, "ores": SAFE, "tool": SAFE,
     "orebook": SAFE, "orestats": SAFE, "mineshop": SAFE,
@@ -833,6 +835,34 @@ _INTENTS: list[tuple] = [
     # ────────────────────────────────────────────────────────────────────────
     (re.compile(r"(show|list|see|check).*(delegat|ai\s+task|pending\s+task)\b|aidelegations?\b", re.I),
      "aidelegations", _k(""), _k("show recent AI delegated tasks")),
+
+    # ────────────────────────────────────────────────────────────────────────
+    # ONBOARDING — new player / getting started
+    # ────────────────────────────────────────────────────────────────────────
+    (re.compile(
+        r"\bi'?m\s+new\b|^new\s+here\b|just\s+joined|first\s+time\s+here"
+        r"|what\s+do\s+i\s+do\s+first|^beginner\b|how\s+do\s+i\s+start"
+        r"|getting\s+start|how\s+to\s+start",
+        re.I),
+     "start", _k(""), _k("give you a quick start guide")),
+
+    (re.compile(
+        r"what\s+can\s+i\s+do\s+here|what.{0,10}(there|happening|available|to\s+do)\b"
+        r"|help\s+me\s+start|i\s+need\s+help\s+start",
+        re.I),
+     "start", _k(""), _k("give you a quick start guide")),
+
+    (re.compile(
+        r"^guide\s*$|show\s+me\s+(the\s+)?guide|room\s+guide|chiltopia\s+guide"
+        r"|what.{0,10}guide",
+        re.I),
+     "guide", _k(""), _k("show the room guide")),
+
+    (re.compile(
+        r"what\s+(activities|things|games)\s+(are|can|do)\b"
+        r"|what\s+to\s+do|things\s+to\s+do\s+here",
+        re.I),
+     "activities", _k(""), _k("show current activities")),
 ]
 
 

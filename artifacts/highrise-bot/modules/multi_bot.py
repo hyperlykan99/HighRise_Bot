@@ -629,6 +629,8 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "eventpreset": "eventhost",
     # ── player onboarding aliases ─────────────────────────────────────────────
     "begin": "host", "newplayer": "host",
+    "new": "host", "newbie": "host",
+    "activities": "host", "roominfo": "host", "whatdoido": "host",
     # ── daily quest aliases ───────────────────────────────────────────────────
     "dailies": "banker", "claimdaily": "banker",
     # ── staff audit log ───────────────────────────────────────────────────────

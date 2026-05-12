@@ -905,6 +905,7 @@ ALL_KNOWN_COMMANDS = (
         "marketbuy",
         # Public help tools
         "mycommands", "helpsearch", "start", "guide",
+        "new", "activities", "roominfo", "newbie", "whatdoido",
         # Paged coin help
         "pokerhelp",
         # Mining game — player commands
@@ -1123,6 +1124,7 @@ HELP_TEXT = (
 
 HELP_TEXT_2 = (
     "📋 More Help\n"
+    "New? !start  !activities\n"
     "!help basic  !help games  !help bank\n"
     "!help vip  !help mining  !help fishing\n"
     "!help blackjack  !help poker\n"
@@ -1130,6 +1132,22 @@ HELP_TEXT_2 = (
 )
 
 _HELP_CATEGORIES: dict[str, str] = {
+    "beginner": (
+        "🌱 Beginner Help\n"
+        "!start — quick start\n"
+        "!tele list — explore\n"
+        "!mine / !fish — earn coins\n"
+        "!help games — games\n"
+        "!shop — shop"
+    ),
+    "new": (
+        "🌱 Beginner Help\n"
+        "!start — quick start\n"
+        "!tele list — explore\n"
+        "!mine / !fish — earn coins\n"
+        "!help games — games\n"
+        "!shop — shop"
+    ),
     "basic": (
         "📌 Basic Commands\n"
         "!balance — check your coins\n"
@@ -4533,23 +4551,98 @@ class HangoutBot(BaseBot):
         elif cmd == "repair":
             await handle_repair(self, user)
 
-        elif cmd in {"start", "guide", "begin", "newplayer"}:
+        elif cmd in {"start", "begin", "newplayer"}:
             await self.highrise.send_whisper(user.id,
-                "🎮 Welcome to ChillTopia!\n"
-                "Quick start:\n"
-                "!balance — check coins\n"
-                "!mine — mine once\n"
-                "!fish — fish once\n"
-                "!automine — auto mine\n"
-                "!autofish — auto fish"
+                "👋 Welcome to ChillTopia!\n"
+                "Start here:\n"
+                "1. !tele list — explore\n"
+                "2. !mine or !fish — earn coins\n"
+                "3. !help games — play\n"
+                "4. !shop — spend coins"
             )
             await self.highrise.send_whisper(user.id,
-                "🃏 Blackjack: !bet [amount]\n"
-                "♠️ Poker: !poker join\n"
-                "🗺️ Teleport: !tele list\n"
-                "📅 Daily coins: !daily\n"
-                "🔔 Updates: !subscribe\n"
-                "❓ All commands: !help"
+                "Need help? Ask:\n"
+                "\"how do I mine?\"\n"
+                "\"what games are here?\"\n"
+                "Or try: !guide"
+            )
+
+        elif cmd in {"guide", "whatdoido"}:
+            sub = args[0].lower() if args else ""
+            if sub == "mining":
+                await self.highrise.send_whisper(user.id,
+                    "⛏️ Mining Guide\n"
+                    "!mine — mine once\n"
+                    "!automine — auto mine\n"
+                    "!mineinv — inventory\n"
+                    "!minechances — odds"
+                )
+            elif sub == "fishing":
+                await self.highrise.send_whisper(user.id,
+                    "🎣 Fishing Guide\n"
+                    "!fish — fish once\n"
+                    "!autofish — auto fish\n"
+                    "!fishinv — inventory\n"
+                    "!fishchances — odds"
+                )
+            elif sub == "casino":
+                await self.highrise.send_whisper(user.id,
+                    "🎰 Casino Guide\n"
+                    "Blackjack: !bet [amount], !hit, !stand\n"
+                    "Poker: !poker, !poker join\n"
+                    "Balance: !balance"
+                )
+            elif sub == "vip":
+                await self.highrise.send_whisper(user.id,
+                    "💎 VIP Guide\n"
+                    "Use !vip for info, !vipperks for perks,\n"
+                    "and !buyvip 1d/7d/30d to buy."
+                )
+            else:
+                await self.highrise.send_whisper(user.id,
+                    "🧭 ChillTopia Guide\n"
+                    "Earn: !mine, !fish\n"
+                    "Play: !help games\n"
+                    "Explore: !tele list\n"
+                    "Shop: !shop\n"
+                    "VIP: !vip\n"
+                    "Notifications: !subscribe"
+                )
+                await self.highrise.send_whisper(user.id,
+                    "📖 Topic guides:\n"
+                    "!guide mining  !guide fishing\n"
+                    "!guide casino  !guide vip"
+                )
+
+        elif cmd in {"new", "newbie"}:
+            await self.highrise.send_whisper(user.id,
+                "🌱 New here?\n"
+                "Try this:\n"
+                "1. !tele list\n"
+                "2. !fish or !mine\n"
+                "3. !help games\n"
+                "4. !shop\n"
+                "Ask \"what can I do here?\" anytime."
+            )
+
+        elif cmd == "activities":
+            await self.highrise.send_whisper(user.id,
+                "🎮 Activities\n"
+                "⛏️ Mining — !mine\n"
+                "🎣 Fishing — !fish\n"
+                "🃏 Blackjack — !bet\n"
+                "♠️ Poker — !poker\n"
+                "🎲 Mini games — !help games\n"
+                "🎉 Events — !events\n"
+                "Use !help games to start."
+            )
+
+        elif cmd == "roominfo":
+            await self.highrise.send_whisper(user.id,
+                "🏠 ChillTopia\n"
+                "A chill lounge with mining, fishing, casino games, "
+                "mini games, VIP perks, teleports, and events.\n"
+                "Start with !start."
             )
 
         elif cmd == "casinoadminhelp":
