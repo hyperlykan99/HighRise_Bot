@@ -2177,6 +2177,14 @@ def _migrate_db():
         except Exception:
             pass
 
+    # 3.1B — best_streak column for daily streak tracking
+    try:
+        conn.execute(
+            "ALTER TABLE daily_claims ADD COLUMN best_streak INTEGER NOT NULL DEFAULT 1"
+        )
+    except Exception:
+        pass
+
     conn.commit()
     conn.close()
 
@@ -3037,38 +3045,45 @@ def can_claim_daily(user_id: str) -> bool:
     return row["last_claim"] != str(date.today())
 
 
-def record_daily_claim(user_id: str):
+def record_daily_claim(user_id: str) -> tuple:
+    """Record today's daily claim. Returns (new_streak, total_claims)."""
     from datetime import timedelta
-    conn  = get_connection()
+    conn      = get_connection()
     today     = str(date.today())
     yesterday = str(date.today() - timedelta(days=1))
 
     row = conn.execute(
-        "SELECT last_claim, streak, total_claims FROM daily_claims WHERE user_id = ?",
+        "SELECT last_claim, streak, total_claims, best_streak FROM daily_claims WHERE user_id = ?",
         (user_id,)
     ).fetchone()
 
     if row is None:
-        streak = 1
-        total  = 1
+        streak     = 1
+        total      = 1
+        best_streak = 1
     else:
-        old_streak = row["streak"] or 1
-        old_total  = row["total_claims"] or 1
-        streak = (old_streak + 1) if row["last_claim"] == yesterday else 1
-        total  = old_total + 1
+        old_streak  = row["streak"] or 1
+        old_total   = row["total_claims"] or 1
+        old_best    = row["best_streak"] if row["best_streak"] is not None else old_streak
+        streak      = (old_streak + 1) if row["last_claim"] == yesterday else 1
+        total       = old_total + 1
+        best_streak = max(old_best, streak)
 
     now_ts = __import__("datetime").datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
     conn.execute("""
-        INSERT INTO daily_claims (user_id, last_claim, streak, total_claims, last_claim_ts)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO daily_claims
+            (user_id, last_claim, streak, total_claims, last_claim_ts, best_streak)
+        VALUES (?, ?, ?, ?, ?, ?)
         ON CONFLICT(user_id) DO UPDATE
           SET last_claim    = excluded.last_claim,
               streak        = excluded.streak,
               total_claims  = excluded.total_claims,
-              last_claim_ts = excluded.last_claim_ts
-    """, (user_id, today, streak, total, now_ts))
+              last_claim_ts = excluded.last_claim_ts,
+              best_streak   = excluded.best_streak
+    """, (user_id, today, streak, total, now_ts, best_streak))
     conn.commit()
     conn.close()
+    return (streak, total)
 
 
 # ---------------------------------------------------------------------------
@@ -3126,16 +3141,22 @@ def get_game_wins(user_id: str, game_type: str) -> int:
 
 
 def get_daily_stats(user_id: str) -> dict:
-    """Return current daily streak and total claim count."""
+    """Return current daily streak, best streak, and total claim count."""
     conn = get_connection()
     row  = conn.execute(
-        "SELECT streak, total_claims FROM daily_claims WHERE user_id = ?",
+        "SELECT streak, total_claims, best_streak FROM daily_claims WHERE user_id = ?",
         (user_id,)
     ).fetchone()
     conn.close()
     if row is None:
-        return {"streak": 0, "total_claims": 0}
-    return {"streak": row["streak"] or 0, "total_claims": row["total_claims"] or 0}
+        return {"streak": 0, "total_claims": 0, "best_streak": 0}
+    streak      = row["streak"] or 0
+    best_streak = row["best_streak"] if row["best_streak"] is not None else streak
+    return {
+        "streak":       streak,
+        "total_claims": row["total_claims"] or 0,
+        "best_streak":  best_streak,
+    }
 
 
 def get_owned_item_counts(user_id: str) -> dict:

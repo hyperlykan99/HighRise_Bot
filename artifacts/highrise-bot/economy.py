@@ -115,24 +115,49 @@ async def handle_balance(bot: BaseBot, user: User, args: list | None = None):
 # ---------------------------------------------------------------------------
 
 async def handle_daily(bot: BaseBot, user: User):
-    """
-    Give the player their daily coin reward.
-    Claimable once per calendar day — resets at midnight UTC.
-    """
+    """Daily coin reward with streak tracking. Once per calendar day (UTC)."""
+    from datetime import date, datetime, timedelta
     db.ensure_user(user.id, user.username)
 
     if not db.can_claim_daily(user.id):
-        await bot.highrise.send_whisper(
-            user.id,
-            "⏰ Already claimed today! Come back tomorrow for more coins."
+        stats   = db.get_daily_stats(user.id)
+        streak  = stats["streak"]
+        now     = datetime.utcnow()
+        midnight = (now + timedelta(days=1)).replace(
+            hour=0, minute=0, second=0, microsecond=0)
+        secs    = (midnight - now).total_seconds()
+        hours   = int(secs // 3600)
+        mins    = int((secs % 3600) // 60)
+        s_label = "day" if streak == 1 else "days"
+        await bot.highrise.send_whisper(user.id,
+            f"⏳ Daily already claimed.\n"
+            f"Streak: {streak} {s_label}\n"
+            f"Next claim: ~{hours}h {mins}m"
         )
         return
 
+    # Determine what the new streak will be (peek without writing)
+    yesterday = str(date.today() - timedelta(days=1))
+    _conn = db.get_connection()
+    _row  = _conn.execute(
+        "SELECT last_claim, streak FROM daily_claims WHERE user_id = ?", (user.id,)
+    ).fetchone()
+    _conn.close()
+    if _row is None:
+        new_streak = 1
+    elif _row["last_claim"] == yesterday:
+        new_streak = (_row["streak"] or 1) + 1
+    else:
+        new_streak = 1
+
+    # Streak-based reward: base + 25 per extra day, capped at 500
     benefits     = get_player_benefits(user.id)
     bonus_coins  = benefits["daily_coins_bonus"]
     bonus_xp     = benefits["daily_xp_bonus"]
     base_daily   = db.get_economy_settings()["daily_coins"]
-    actual_coins = base_daily + bonus_coins
+    streak_bonus = (new_streak - 1) * 25
+    raw_coins    = base_daily + bonus_coins + streak_bonus
+    actual_coins = max(min(raw_coins, 500), 1)
     actual_xp    = config.XP_DAILY + bonus_xp
 
     actual_coins = db.adjust_balance_capped(user.id, actual_coins)
@@ -141,13 +166,87 @@ async def handle_daily(bot: BaseBot, user: User):
     track_quest(user.id, "earn_coins", actual_coins)
     await leveling.award_xp(bot, user, actual_xp, actual_coins, is_game_win=False)
     await check_achievements(bot, user, "daily")
-    new_balance = db.get_balance(user.id)
 
-    msg = f"🎁 Daily reward! +{fmt_coins(actual_coins)}"
-    if bonus_coins:
-        msg += f" (incl. +{bonus_coins:,}c bonus)"
-    msg += f"\nBalance: {fmt_coins(new_balance)}"
-    await bot.highrise.send_whisper(user.id, msg[:249])
+    s_label = "day" if new_streak == 1 else "days"
+    print(f"[DAILY] @{user.username} claimed {actual_coins}c streak={new_streak}")
+    await bot.highrise.send_whisper(user.id,
+        f"🎁 Daily Reward Claimed!\n"
+        f"Reward: {actual_coins}c\n"
+        f"Streak: {new_streak} {s_label}\n"
+        f"Next claim: tomorrow"
+    )
+
+
+async def handle_streak(bot: BaseBot, user: User):
+    """Show the player's daily streak status."""
+    from datetime import datetime, timedelta
+    db.ensure_user(user.id, user.username)
+    stats  = db.get_daily_stats(user.id)
+    streak = stats["streak"]
+    best   = stats["best_streak"]
+    total  = stats["total_claims"]
+
+    if total == 0:
+        await bot.highrise.send_whisper(user.id,
+            "🔥 Daily Streak\n"
+            "Current: 0 days\n"
+            "Claim your first reward with !daily."
+        )
+        return
+
+    now      = datetime.utcnow()
+    midnight = (now + timedelta(days=1)).replace(
+        hour=0, minute=0, second=0, microsecond=0)
+    secs      = (midnight - now).total_seconds()
+    hours     = int(secs // 3600)
+    mins      = int((secs % 3600) // 60)
+    can_claim = db.can_claim_daily(user.id)
+    next_str  = "Ready! Type !daily" if can_claim else f"~{hours}h {mins}m"
+
+    s_label = "day" if streak == 1 else "days"
+    b_label = "day" if best   == 1 else "days"
+    await bot.highrise.send_whisper(user.id,
+        f"🔥 Daily Streak\n"
+        f"Current: {streak} {s_label}\n"
+        f"Best: {best} {b_label}\n"
+        f"Total Claims: {total}\n"
+        f"Next Daily: {next_str}"
+    )
+
+
+async def handle_dailystatus(bot: BaseBot, user: User):
+    """Show daily claim status: available/claimed, streak, next reset."""
+    from datetime import datetime, timedelta
+    db.ensure_user(user.id, user.username)
+    stats  = db.get_daily_stats(user.id)
+    streak = stats["streak"]
+    total  = stats["total_claims"]
+
+    if total == 0:
+        await bot.highrise.send_whisper(user.id,
+            "🎁 Daily Status\n"
+            "Today: Available\n"
+            "Streak: 0 days\n"
+            "Type !daily to claim."
+        )
+        return
+
+    now      = datetime.utcnow()
+    midnight = (now + timedelta(days=1)).replace(
+        hour=0, minute=0, second=0, microsecond=0)
+    secs      = (midnight - now).total_seconds()
+    hours     = int(secs // 3600)
+    mins      = int((secs % 3600) // 60)
+    can_claim = db.can_claim_daily(user.id)
+    today_str = "Available" if can_claim else "Claimed"
+    next_str  = "Now!" if can_claim else f"~{hours}h {mins}m"
+    s_label   = "day" if streak == 1 else "days"
+    await bot.highrise.send_whisper(user.id,
+        f"🎁 Daily Status\n"
+        f"Today: {today_str}\n"
+        f"Streak: {streak} {s_label}\n"
+        f"Next Reset: {next_str}"
+    )
 
 
 # ---------------------------------------------------------------------------

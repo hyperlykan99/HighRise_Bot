@@ -39,6 +39,8 @@ import config
 from economy import (
     handle_balance, handle_daily, handle_leaderboard,
     handle_profile, handle_level, handle_xp_leaderboard,
+    handle_streak,
+    handle_dailystatus,
 )
 from games        import handle_game_command, handle_answer as games_handle_answer
 from admin        import handle_admin_command
@@ -1085,6 +1087,10 @@ NEW_PROJECT_COMMANDS: frozenset[str] = frozenset({
     "begin", "newplayer",
     # Daily quest aliases
     "dailies", "claimdaily",
+    # Daily streak / status
+    "streak", "dailystatus",
+    # Command check redirect
+    "commandcheck",
     # Staff audit log
     "auditlog",
     # Weekly leaderboard
@@ -1153,10 +1159,11 @@ _HELP_CATEGORIES: dict[str, str] = {
         "!balance — check your coins\n"
         "!send [user] [amount] — send coins\n"
         "!profile — view your profile\n"
-        "!daily — claim daily reward\n"
-        "!vip — view VIP info\n"
-        "!subscribe — subscribe to notifications\n"
-        "!notif — notification settings"
+        "!daily — daily reward\n"
+        "!streak — streak status\n"
+        "!vip — VIP info\n"
+        "!subscribe — notifications\n"
+        "!notif — settings"
     ),
     "games": (
         "🎮 Games\n"
@@ -3688,6 +3695,18 @@ class HangoutBot(BaseBot):
         elif cmd == "daily":
             await handle_daily(self, user)
 
+        elif cmd == "streak":
+            await handle_streak(self, user)
+
+        elif cmd == "dailystatus":
+            await handle_dailystatus(self, user)
+
+        elif cmd == "commandcheck":
+            await self.highrise.send_whisper(user.id,
+                "Use !commandtest [command].\n"
+                "Example: !commandtest !daily"
+            )
+
         elif cmd == "dailies":
             await handle_dailyquests(self, user)
 
@@ -4564,7 +4583,7 @@ class HangoutBot(BaseBot):
                 "Need help? Ask:\n"
                 "\"how do I mine?\"\n"
                 "\"what games are here?\"\n"
-                "Or try: !guide"
+                "Or try: !guide  !daily"
             )
 
         elif cmd in {"guide", "whatdoido"}:
@@ -4654,6 +4673,7 @@ class HangoutBot(BaseBot):
                 "♠️ Poker — !poker\n"
                 "🎲 Mini games — !help games\n"
                 "🎉 Events — !events\n"
+                "💰 Daily reward — !daily\n"
                 "Use !help games to start."
             )
 

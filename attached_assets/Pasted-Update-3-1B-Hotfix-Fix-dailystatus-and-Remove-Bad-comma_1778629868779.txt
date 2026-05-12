@@ -1,0 +1,111 @@
+Update 3.1B Hotfix — Fix !dailystatus and Remove Bad !commandcheck Confusion
+
+Current issue:
+I accidentally tested:
+!commandcheck !dailystatus
+
+But !commandcheck is not a real command. The correct tool is:
+!commandtest !dailystatus
+
+Goal:
+Make daily commands clean and make command testing clearer.
+
+Do not change tokens.
+Do not wipe data.
+Do not change room ID.
+Do not reset balances, VIP, inventories, mining/fishing, casino data, notifications, teleports, or bot spawns.
+
+==================================================
+PART 1 — VERIFY DAILY COMMANDS
+==================================================
+
+Run:
+
+!commandtest !daily
+!commandtest !streak
+!commandtest !dailystatus
+
+Expected:
+owner=ChillTopiaMC or BankingBot
+route=YES
+handler=YES
+
+If !dailystatus is missing:
+- route it to the same daily status handler
+- or alias it to !streak with claim availability included
+
+==================================================
+PART 2 — FIX !DAILYSTATUS
+==================================================
+
+!dailystatus should reply:
+
+🎁 Daily Status
+Today: Claimed/Available
+Streak: [streak] day(s)
+Next Reset: [time]
+
+If player never claimed:
+
+🎁 Daily Status
+Today: Available
+Streak: 0 days
+Type !daily to claim.
+
+Keep under 220 characters.
+
+==================================================
+PART 3 — OPTIONAL: HANDLE !COMMANDCHECK
+==================================================
+
+If easy and safe, make:
+
+!commandcheck
+
+Reply:
+
+Use !commandtest [command].
+Example: !commandtest !daily
+
+Do not add it as a full duplicate system.
+
+If adding !commandcheck is risky:
+- skip it
+- keep it unknown
+
+==================================================
+PART 4 — HELP UPDATE
+==================================================
+
+Make sure help only shows real commands:
+
+!commandtest [command]
+!checkcommands
+!commandissues
+
+Do not show !commandcheck unless you added the redirect.
+
+==================================================
+PART 5 — TESTS
+==================================================
+
+Run:
+
+!commandtest !daily
+!commandtest !streak
+!commandtest !dailystatus
+!daily
+!daily
+!streak
+!dailystatus
+!commandissues
+!checkcommands
+!launchcheck
+
+Expected:
+- !daily works
+- second !daily says already claimed
+- !streak works
+- !dailystatus works
+- no command issues
+- launchcheck clean

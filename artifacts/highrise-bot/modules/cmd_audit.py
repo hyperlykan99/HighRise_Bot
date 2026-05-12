@@ -220,6 +220,7 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     "tiphelp", "roleshelp", "maintenancehelp",
     "mycommands", "helpsearch", "start", "guide",
     "new", "activities", "roominfo", "newbie", "whatdoido",
+    "streak", "dailystatus", "commandcheck",
     "casinoadminhelp", "bankadminhelp",
     "staffhelp", "modhelp", "managerhelp", "adminhelp", "ownerhelp",
     "goldhelp",

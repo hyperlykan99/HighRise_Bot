@@ -1,0 +1,286 @@
+UPDATE 3.1B — DAILY REWARDS + STREAK POLISH
+
+Goal:
+Add or polish daily rewards and streaks so players have a simple reason to return every day.
+
+This update is daily reward / retention polish only.
+
+Focus:
+- !daily command
+- daily streak tracking
+- clear reward messages
+- safe once-per-day claiming
+- streak bonus if safe
+- no reward abuse
+- no duplicate claims
+- no reset of existing player data
+- public-room friendly messages
+
+Do not rewrite core systems.
+Do not change bot tokens.
+Do not change room ID.
+Do not wipe database.
+Do not reset balances, VIP, inventories, mining/fishing data, blackjack/poker data, teleports, role spawns, bot spawns, party tip wallet, shop items, badges, titles, donation logs, notifications, subscriptions, or command registry.
+Do not change mining/fishing odds.
+Do not change casino odds.
+Do not add advanced AI.
+Do not add risky economy mechanics.
+Do not add real-money rewards.
+Do not auto-subscribe users.
+Do not make rewards too high.
+
+==================================================
+PART 1 — STABILITY FIRST
+==================================================
+
+Before changing anything, run:
+
+!launchcheck
+!commandissues
+!checkcommands
+!checkcommands all
+!checkhelp
+!bothealth
+!stability status
+!botconflicts
+!modulehealth
+
+Expected:
+- Launch Check OK
+- Conflicts: none
+- no command issues
+- no checkcommands mismatch
+- no help issues
+- Err: none
+- no bot conflicts
+
+If anything is broken, fix it first before adding daily rewards.
+
+==================================================
+PART 2 — DAILY COMMAND
+==================================================
+
+Add or polish:
+
+!daily
+
+Purpose:
+Let a player claim one daily coin reward.
+
+Expected command ownership:
+owner=ChillTopiaMC or Host
+route=YES
+handler=YES
+
+Expected first-time claim:
+
+🎁 Daily Reward Claimed!
+Reward: 100c
+Streak: 1 day
+Next claim: tomorrow
+
+Expected returning streak claim:
+
+🎁 Daily Reward Claimed!
+Reward: 125c
+Streak: 3 days
+Next claim: tomorrow
+
+If already claimed today:
+
+⏳ Daily already claimed.
+Streak: 3 days
+Next claim: [time left]
+
+Rules:
+- One claim per player per calendar day or 20-24 hour window.
+- Use the existing room/server timezone if available.
+- If timezone is unclear, use UTC internally and keep message simple.
+- Do not reward bots.
+- Do not allow duplicate claims from reconnects/retries.
+- Do not allow negative reward.
+- Do not crash if DB write fails.
+
+==================================================
+PART 3 — DAILY DATABASE SAFETY
+==================================================
+
+Create or reuse safe table/columns.
+
+Suggested fields:
+user_id
+username
+last_daily_claim_at
+daily_streak
+best_daily_streak
+total_daily_claims
+created_at
+updated_at
+
+Rules:
+- migration must be idempotent
+- do not wipe existing player data
+- do not duplicate rows for same user
+- use user_id as unique key if available
+- preserve old daily data if any exists
+- do not block bot startup if migration fails
+- log migration errors
+
+==================================================
+PART 4 — STREAK LOGIC
+==================================================
+
+Streak rules:
+
+If player claims for the first time:
+streak = 1
+
+If player claimed yesterday or within the valid streak window:
+streak += 1
+
+If player missed more than 1 day:
+streak resets to 1
+
+If player already claimed today:
+no reward
+streak unchanged
+
+Recommended valid streak window:
+- claim once per calendar day
+- streak continues if previous claim was yesterday
+- if using hours, allow 20 to 48 hours since last claim for forgiving streaks
+
+Keep logic simple and safe.
+
+==================================================
+PART 5 — REWARD AMOUNTS
+==================================================
+
+Use safe small rewards.
+
+Base reward:
+100 coins
+
+Streak bonus:
++25 coins every day after day 1
+
+Max daily reward cap:
+500 coins
+
+Formula:
+reward = min(100 + ((streak - 1) * 25), 500)
+
+Examples:
+Day 1 = 100c
+Day 2 = 125c
+Day 3 = 150c
+Day 7 = 250c
+Day 17+ = 500c cap
+
+Do not make rewards too high.
+Do not reward gold.
+Do not affect VIP.
+Do not affect casino odds.
+Do not affect mining/fishing odds.
+
+If there is already a daily reward value in config:
+- use existing config if present
+- otherwise use above defaults
+
+==================================================
+PART 6 — SAFE COIN CREDIT
+==================================================
+
+Daily reward must credit coins safely.
+
+Rules:
+- check eligibility before crediting
+- credit once
+- update last claim and streak in same transaction if possible
+- if coin credit fails, do not mark claim successful
+- if claim state update fails, do not duplicate coins
+- log daily reward claim if transaction logging exists
+
+Success log:
+[DAILY] @Player claimed 150c streak=3
+
+Failure:
+[DAILY ERROR] @Player reason=...
+
+Chat failure response:
+⚠️ Daily reward failed. Try again later.
+
+==================================================
+PART 7 — !STREAK COMMAND
+==================================================
+
+Add or polish:
+
+!streak
+
+Purpose:
+Show player’s daily streak.
+
+Expected:
+
+🔥 Daily Streak
+Current: 3 days
+Best: 7 days
+Total Claims: 12
+Next Daily: [time left or ready]
+
+If no daily record:
+
+🔥 Daily Streak
+Current: 0 days
+Claim your first reward with !daily.
+
+Rules:
+- player-facing
+- no raw DB IDs
+- no private data
+- no / commands
+
+==================================================
+PART 8 — !DAILY HELP / GUIDE
+==================================================
+
+Update help or guide.
+
+Add to beginner/help if safe:
+
+!daily — claim daily coins
+!streak — view streak
+
+Update:
+!start
+!guide
+!activities
+!help games or !help basic if appropriate
+
+Suggested help line:
+
+Daily:
+!daily — claim reward
+!streak — streak status
+
+Rules:
+- do not make help too long
+- no owner commands
+- no / commands
+- shown commands must route
+
+==================================================
+PART 9 — DAILY REMINDER TEXT ONLY
+==================================================
+
+Do not send automatic daily reminders yet unless existing notification system already supports it.
+
+If player asks:
+daily reminder
+
+Reply:
+Daily reminders are not automatic yet. Type !daily when you visit.
+
+Do not auto-subscribe.
+Do not send daily notifications unless user explicitly
