@@ -22,6 +22,7 @@ Column notes for equipped cosmetics:
 import math
 import os
 import sqlite3
+from contextlib import contextmanager
 from datetime import date
 from typing import Optional
 
@@ -37,9 +38,38 @@ def get_connection() -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     try:
         conn.execute("PRAGMA busy_timeout=30000")
+        conn.execute("PRAGMA synchronous=NORMAL")   # WAL best-practice: halves write latency, still crash-safe
+        conn.execute("PRAGMA cache_size=-8000")     # 8 MB page cache (default is ~2 MB)
+        conn.execute("PRAGMA temp_store=MEMORY")    # temp tables in RAM, not disk
     except Exception:
         pass
     return conn
+
+
+@contextmanager
+def db_conn():
+    """Context manager for safe connection lifecycle — commits on success, rolls back on error.
+
+    Use this for new code that needs guaranteed close-on-exception behaviour.
+    Existing helpers that open/close inline are safe under CPython GC, but
+    this makes close-on-exception deterministic and avoids holding WAL readers open.
+
+    Example:
+        with db_conn() as conn:
+            conn.execute("UPDATE ...")
+    """
+    conn = get_connection()
+    try:
+        yield conn
+        conn.commit()
+    except Exception:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        conn.close()
 
 
 # ---------------------------------------------------------------------------
@@ -54,6 +84,7 @@ def init_db():
     """
     conn = get_connection()
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA wal_autocheckpoint=1000")  # checkpoint every 1000 pages; prevents WAL file bloat
 
     conn.execute("""
         CREATE TABLE IF NOT EXISTS users (
