@@ -40,13 +40,15 @@ NOTIF_CATEGORIES: dict[str, str] = {
     "mining":    "Mining",
     "fishing":   "Fishing",
     "events":    "Events",
+    "vip":       "VIP",
+    "goldrain":  "Gold Rain",
+    "updates":   "Updates",
     "blackjack": "BlackJack",
     "poker":     "Poker",
     "rewards":   "Rewards",
     "firsthunt": "First Hunt",
     "donations": "Donations",
     "security":  "Security",
-    "updates":   "Updates",
 }
 
 # Category → bot_mode that should send this category's notifications.
@@ -62,6 +64,8 @@ CATEGORY_BOT_MODE: dict[str, str] = {
     "mining":    "miner",
     "fishing":   "fisher",
     "events":    "eventhost",
+    "vip":       "host",
+    "goldrain":  "host",
     "firsthunt": "eventhost",
     "rewards":   "banker",
     "donations": "banker",
@@ -76,6 +80,8 @@ CATEGORY_HEADERS: dict[str, tuple[str, str]] = {
     "mining":    ("⛏️", "Mining Alert"),
     "fishing":   ("🎣", "Fishing Alert"),
     "events":    ("🎉", "Event Alert"),
+    "vip":       ("💎", "VIP Update"),
+    "goldrain":  ("🌧️", "Gold Rain Alert"),
     "firsthunt": ("🏁", "First Hunt Alert"),
     "rewards":   ("💰", "Reward Alert"),
     "donations": ("💛", "Donation Alert"),
@@ -205,20 +211,28 @@ async def handle_notif(bot, user) -> None:
     prefs      = db.get_sub_notif_prefs(user.id)
     global_row = db.get_sub_notif_global(user.id)
     global_on  = global_row.get("global_enabled", 1)
-    in_room    = _is_in_room(user.id)
 
-    lines = [
-        "🔔 Notification Settings",
-        f"Global: {'ON' if global_on else 'OFF'}",
-    ]
-    for key, label in NOTIF_CATEGORIES.items():
-        on = prefs.get(key, _default_enabled(key))
-        lines.append(f"{label}: {'ON' if on else 'OFF'}")
+    sub = db.get_subscriber_by_user_id(user.id) or db.get_subscriber(user.username.lower())
+    subscribed = bool(sub and sub.get("subscribed"))
 
-    lines.append("DM Status: SDK Unsupported")
-    lines.append("In-Room Whisper: Available while you are in room")
-    lines.append("!notifon [cat] | !notifoff [cat] | !notifall [on|off]")
-    await _w(bot, user.id, "\n".join(lines)[:249])
+    if not subscribed:
+        await _w(bot, user.id,
+                 "You are not subscribed.\n"
+                 "DM me:\n"
+                 "!subscribe")
+        return
+
+    def _yn(cat: str) -> str:
+        return "ON" if prefs.get(cat, _default_enabled(cat)) else "OFF"
+
+    await _w(bot, user.id,
+             f"🔔 Notification Settings\n"
+             f"Status: {'ON' if global_on else 'OFF'}")
+    await _w(bot, user.id,
+             f"events: {_yn('events')} | mining: {_yn('mining')} | fishing: {_yn('fishing')}\n"
+             f"vip: {_yn('vip')} | goldrain: {_yn('goldrain')} | updates: {_yn('updates')}\n"
+             f"Use:\n"
+             f"!notifon [category] | !notifoff [category]")
 
 
 # ---------------------------------------------------------------------------
@@ -227,30 +241,30 @@ async def handle_notif(bot, user) -> None:
 
 async def handle_notifon(bot, user, args: list[str]) -> None:
     if len(args) < 2:
-        cats = " | ".join(NOTIF_CATEGORIES.keys())
-        await _w(bot, user.id, f"Usage: !notifon <category>\nOptions: {cats}"[:249])
+        await _w(bot, user.id,
+                 "Usage: !notifon [category]\n"
+                 "Categories: events, mining, fishing, vip, goldrain, updates")
         return
     cat = args[1].lower()
     if cat not in NOTIF_CATEGORIES:
-        await _w(bot, user.id, _valid_category_msg()[:249])
+        await _w(bot, user.id,
+                 "⚠️ Unknown category.\n"
+                 "Categories: events, mining, fishing, vip, goldrain, updates")
         return
     db.set_sub_notif_pref(user.id, user.username, cat, 1)
     label = NOTIF_CATEGORIES[cat]
-    # Check if player is subscribed and has DM connected
-    import database as _db2
-    sub = _db2.get_subscriber_by_user_id(user.id) or _db2.get_subscriber(user.username.lower())
+    sub = db.get_subscriber_by_user_id(user.id) or db.get_subscriber(user.username.lower())
     subscribed = bool(sub and sub.get("subscribed"))
-    has_conv   = bool(sub and sub.get("conversation_id"))
     if not subscribed:
-        extra = (
-            f"\n⚠️ {label} turned ON, but you are not subscribed yet.\n"
-            "Type !subscribe to receive notifications."
-        )
-        if not has_conv:
-            extra += "\nFor outside-room alerts, DM ChillTopiaMC: subscribe"
-        await _w(bot, user.id, f"🔔 {label}: ON ✅{extra}"[:249])
+        await _w(bot, user.id,
+                 f"✅ Notifications ON\n"
+                 f"Category: {label}\n\n"
+                 f"⚠️ Not subscribed yet.\n"
+                 f"Use !subscribe to receive notifications.")
     else:
-        await _w(bot, user.id, f"🔔 {label} notifications: ON ✅")
+        await _w(bot, user.id,
+                 f"✅ Notifications ON\n"
+                 f"Category: {label}")
 
 
 # ---------------------------------------------------------------------------
@@ -259,15 +273,94 @@ async def handle_notifon(bot, user, args: list[str]) -> None:
 
 async def handle_notifoff(bot, user, args: list[str]) -> None:
     if len(args) < 2:
-        cats = " | ".join(NOTIF_CATEGORIES.keys())
-        await _w(bot, user.id, f"Usage: !notifoff <category>\nOptions: {cats}"[:249])
+        await _w(bot, user.id,
+                 "Usage: !notifoff [category]\n"
+                 "Categories: events, mining, fishing, vip, goldrain, updates")
         return
     cat = args[1].lower()
     if cat not in NOTIF_CATEGORIES:
-        await _w(bot, user.id, _valid_category_msg()[:249])
+        await _w(bot, user.id,
+                 "⚠️ Unknown category.\n"
+                 "Categories: events, mining, fishing, vip, goldrain, updates")
+        return
+    label = NOTIF_CATEGORIES[cat]
+    prefs = db.get_sub_notif_prefs(user.id)
+    if not prefs.get(cat, _default_enabled(cat)):
+        await _w(bot, user.id, f"Notifications already OFF for {label}.")
         return
     db.set_sub_notif_pref(user.id, user.username, cat, 0)
-    await _w(bot, user.id, f"🔔 {NOTIF_CATEGORIES[cat]} notifications: OFF ❌")
+    await _w(bot, user.id,
+             f"✅ Notifications OFF\n"
+             f"Category: {label}")
+
+
+# ---------------------------------------------------------------------------
+# /notifpreview [category]  (owner only)
+# ---------------------------------------------------------------------------
+
+_NOTIF_PREVIEWS: dict[str, str] = {
+    "mining": (
+        "🔔 Notification Preview\n"
+        "Category: Mining\n\n"
+        "⛏️ BIG FIND!\n"
+        "@Player mined [MYTHIC] Dragonstone\n"
+        "⚖️ 12.4kg | 💰 50,000c"
+    ),
+    "fishing": (
+        "🔔 Notification Preview\n"
+        "Category: Fishing\n\n"
+        "🎣 BIG CATCH!\n"
+        "@Player caught [EXOTIC] Azure Jellyfish\n"
+        "⚖️ 8.2lb | 💰 75,000c"
+    ),
+    "events": (
+        "🔔 Notification Preview\n"
+        "Category: Events\n\n"
+        "🎉 Room Event\n"
+        "[Preview Event] is starting!\n"
+        "Type !help games for commands."
+    ),
+    "goldrain": (
+        "🔔 Notification Preview\n"
+        "Category: Gold Rain\n\n"
+        "🌧️ Gold Rain Alert!\n"
+        "Gold rain is starting soon.\n"
+        "Join the room to participate!"
+    ),
+    "vip": (
+        "🔔 Notification Preview\n"
+        "Category: VIP\n\n"
+        "💎 VIP Update\n"
+        "New VIP perks are available.\n"
+        "Type !vipperks to view."
+    ),
+    "updates": (
+        "🔔 Notification Preview\n"
+        "Category: Updates\n\n"
+        "📢 Room Update\n"
+        "[This is a preview announcement.]"
+    ),
+}
+
+
+async def handle_notifpreview(bot, user, args: list[str]) -> None:
+    """/notifpreview [category] — owner: preview a notification message."""
+    from modules.permissions import is_owner as _iown
+    if not _iown(user.username):
+        await _w(bot, user.id, "Owner only.")
+        return
+    if len(args) < 2:
+        await _w(bot, user.id,
+                 "Usage: !notifpreview [category]\n"
+                 "Categories: events, mining, fishing, vip, goldrain, updates")
+        return
+    cat = args[1].lower()
+    preview = _NOTIF_PREVIEWS.get(cat)
+    if not preview:
+        await _w(bot, user.id,
+                 "Usage: !notifpreview [events|mining|fishing|vip|goldrain|updates]")
+        return
+    await _w(bot, user.id, preview[:249])
 
 
 # ---------------------------------------------------------------------------

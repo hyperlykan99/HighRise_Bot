@@ -390,32 +390,34 @@ async def process_incoming_dm(
 # ── /subscribe ────────────────────────────────────────────────────────────────
 
 async def handle_subscribe(bot: BaseBot, user: User, args: list[str]) -> None:
-    """!subscribe / /subscribe — opt in to DM notifications."""
+    """!subscribe / !sub — opt in to DM notifications."""
     db.ensure_user(user.id, user.username)
     uname = user.username.lower()
 
-    # Upsert by user_id first to avoid duplicate rows and fix mismatched records
+    existing = db.get_subscriber_by_user_id(user.id) or db.get_subscriber(uname)
+    if existing and existing.get("subscribed"):
+        await _w(bot, user.id,
+                 "✅ You are already subscribed.\n"
+                 "Use !notif to manage settings.")
+        return
+
     db.upsert_subscriber_by_user_id(user.id, uname)
     db.set_subscribed_by_user_id(user.id, True)
     db.set_subscriber_manually_unsubscribed(uname, False)
     db.ensure_notify_prefs(uname)
 
-    sub = db.get_subscriber_by_user_id(user.id) or db.get_subscriber(uname)
-    has_dm = bool(sub and sub.get("conversation_id") and sub.get("dm_available"))
-
-    if has_dm:
-        await _w(bot, user.id,
-                 "✅ Subscribed! Outside-room alerts are ON. Use !notif to manage categories.")
-    else:
-        await _w(bot, user.id,
-                 "✅ Subscribed. For outside-room alerts, DM ChillTopiaMC: subscribe\n"
-                 "Use !notif to manage categories.")
+    await _w(bot, user.id,
+             "✅ Subscribed!\n"
+             "You will receive room notifications.\n\n"
+             "Manage:\n"
+             "!notif — settings\n"
+             "!unsub — unsubscribe")
 
 
 # ── /unsubscribe ──────────────────────────────────────────────────────────────
 
 async def handle_unsubscribe(bot: BaseBot, user: User, args: list[str]) -> None:
-    """!unsubscribe / /unsubscribe — opt out of DM notifications."""
+    """!unsubscribe / !unsub — opt out of DM notifications."""
     db.ensure_user(user.id, user.username)
     uname = user.username.lower()
     sub = db.get_subscriber_by_user_id(user.id) or db.get_subscriber(uname)
@@ -424,7 +426,9 @@ async def handle_unsubscribe(bot: BaseBot, user: User, args: list[str]) -> None:
         return
     db.set_subscribed_by_user_id(user.id, False)
     db.set_subscriber_manually_unsubscribed(uname, True)
-    await _w(bot, user.id, "✅ Unsubscribed. All bot alerts are OFF.")
+    await _w(bot, user.id,
+             "✅ Unsubscribed.\n"
+             "You will no longer receive room notifications.")
 
 
 # ── /substatus ────────────────────────────────────────────────────────────────

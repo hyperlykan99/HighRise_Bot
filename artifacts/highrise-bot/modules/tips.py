@@ -329,40 +329,18 @@ async def process_tip_event(bot: BaseBot, sender: User, receiver: User, tip) -> 
 
         _safe_log_transaction(sender.username, convertible, coins, bonus, "success", event_hash)
 
-        # ── Auto-subscribe tipper to notifications ─────────────────────────
+        # ── Subscribe hint only — no auto-subscribe from tip ─────────────────
         try:
-            auto_sub = s.get("tip_auto_sub", "1") == "1"
-            if auto_sub:
-                existing_sub = db.get_subscriber(sender.username)
-                already_unsubbed = (
-                    existing_sub is not None and not existing_sub.get("subscribed")
+            existing_sub = db.get_subscriber(sender.username.lower())
+            if not (existing_sub and existing_sub.get("subscribed")):
+                await _whisper(
+                    bot, sender.id,
+                    "💛 Thank you for the support!\n"
+                    "To receive room notifications, DM me:\n"
+                    "!subscribe"
                 )
-                resubscribe = s.get("tip_resubscribe", "0") == "1"
-
-                if already_unsubbed and not resubscribe:
-                    print(f"[TIP] @{sender.username} previously unsubscribed; not resubscribing.")
-                else:
-                    db.upsert_subscriber(sender.username.lower(), sender.id)
-                    db.set_subscribed(sender.username.lower(), True)
-                    db.mark_tip_auto_subscribed(sender.username)
-                    has_dm = (
-                        existing_sub
-                        and bool(existing_sub.get("conversation_id"))
-                        and existing_sub.get("dm_available")
-                    )
-                    if has_dm:
-                        await _whisper(
-                            bot, sender.id,
-                            "✅ Subscribed! You'll receive outside-room notifications."
-                        )
-                    else:
-                        await _whisper(
-                            bot, sender.id,
-                            "📩 DM me 'subscribe' once to get alerts outside the room."
-                        )
-                    print(f"[TIP] @{sender.username} auto-subscribed from tip.")
         except Exception as sub_exc:
-            print(f"[TIP] auto-subscribe error: {sub_exc!r}")
+            print(f"[TIP] notify-hint error: {sub_exc!r}")
 
     except Exception as exc:
         record_debug_error(repr(exc))

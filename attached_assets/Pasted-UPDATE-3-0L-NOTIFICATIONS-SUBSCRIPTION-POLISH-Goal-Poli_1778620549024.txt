@@ -1,0 +1,904 @@
+UPDATE 3.0L — NOTIFICATIONS + SUBSCRIPTION POLISH
+
+Goal:
+Polish room notifications and subscription commands so players can easily subscribe/unsubscribe, choose categories, and receive clean messages without spam.
+
+Important:
+Subscription must be intentional only.
+Players should NOT be auto-subscribed from tipping, donating, buying VIP, joining the room, playing games, mining/fishing, or receiving party tips.
+
+Players should only subscribe manually by sending a direct message/whisper to the bot with:
+
+!sub
+!subscribe
+
+Focus:
+- Clean !sub / !subscribe / !unsub / !unsubscribe
+- Remove auto-subscribe from bot tips/donations
+- Clean !notif / !notifon / !notifoff
+- Make notification categories clear
+- Fix failed DM handling
+- Prevent notification spam
+- Add clean notification previews for owner
+- Make rare find notifications match 3.0G style
+- Respect user opt-out
+- Keep messages under Highrise cap
+
+This update is notification/message polish only.
+
+Do not rewrite core systems.
+Do not change bot tokens.
+Do not change room ID.
+Do not wipe database.
+Do not reset balances, VIP, inventories, mining/fishing data, blackjack/poker data, teleports, role spawns, bot spawns, party tip wallet, shop items, badges, titles, donation logs, or command registry.
+Do not change mining/fishing odds.
+Do not change rewards.
+Do not change casino odds.
+Do not add AI.
+Do not add exotic mute/pause.
+Do not add risky new systems.
+Do not auto-subscribe users from any action except explicit !sub or !subscribe.
+
+==================================================
+PART 1 — STABILITY FIRST
+==================================================
+
+Before changing anything, verify:
+
+!commandissues
+!checkcommands
+!checkhelp
+!bothealth
+!stability status
+!botconflicts
+!modulehealth
+
+Expected:
+- no command issues
+- no checkcommands mismatch
+- no help issues
+- Err: none
+- no bot conflicts
+
+If there are errors, fix those first before changing notifications.
+
+==================================================
+PART 2 — REMOVE AUTO-SUBSCRIBE FROM BOT TIPS
+==================================================
+
+Current issue:
+Players may be auto-subscribed when they tip the bot.
+
+I do NOT want auto-subscribe from tipping because people may get annoyed by notifications.
+
+Goal:
+Players should only subscribe manually by sending a direct message/whisper to the bot with:
+
+!sub
+!subscribe
+
+Do not auto-subscribe users from:
+- tipping the bot
+- sending gold
+- buying VIP
+- joining room
+- playing games
+- mining/fishing
+- party tips
+- donations
+- shop purchases
+- interacting with BankingBot
+- interacting with ChillTopiaMC
+- sending gold to the room
+- supporting the room
+
+Find any logic that auto-subscribes users when:
+- user tips bot
+- user sends gold to bot
+- user donates
+- user supports room
+- user interacts with BankingBot
+- user interacts with ChillTopiaMC
+
+Remove or disable that auto-subscribe behavior.
+
+If the bot receives a tip/donation, it may say thank you, but must NOT subscribe the user automatically.
+
+Allowed thank-you message:
+
+💛 Thank you for the support!
+To receive room notifications, DM me:
+!subscribe
+
+Do not enable notifications from this message.
+Do not add the user to subscriber table from this message.
+Do not turn notification categories ON from this message.
+
+==================================================
+PART 3 — MANUAL SUBSCRIBE ONLY
+==================================================
+
+Subscription should only happen when the user intentionally sends one of these commands directly to the bot:
+
+!sub
+!subscribe
+
+Preferred:
+Require DM/whisper to the bot.
+
+If user types !subscribe in public room:
+Reply:
+🔔 To subscribe, DM me:
+!subscribe
+
+Do not subscribe from public chat if DM/public detection is available.
+
+If DM detection is available:
+- only allow !sub or !subscribe from direct message/whisper
+- public !subscribe should give instructions only
+- public !sub should give instructions only
+
+If DM detection is not available:
+- allow !sub / !subscribe normally
+- but still do NOT auto-subscribe from any other action
+
+Manual subscribe response:
+
+✅ Subscribed!
+You will receive room notifications.
+
+Manage:
+!notif — settings
+!unsub — unsubscribe
+
+If already subscribed:
+
+✅ You are already subscribed.
+Use !notif to manage settings.
+
+Rules:
+- Do not duplicate subscriber rows.
+- Do not spam user.
+- Respect DM/whisper errors.
+- Do not crash if save fails.
+
+If save fails:
+⚠️ Could not update subscription. Try again later.
+
+==================================================
+PART 4 — UNSUBSCRIBE STILL WORKS
+==================================================
+
+Users must be able to unsubscribe easily.
+
+Commands:
+!unsub
+!unsubscribe
+
+Should work in DM or public.
+
+Response:
+✅ Unsubscribed.
+You will no longer receive room notifications.
+
+If user was not subscribed:
+You are not currently subscribed.
+
+Rules:
+- Must disable all notification categories or set main subscribed flag OFF.
+- Do not delete player data.
+- Do not remove VIP or other records.
+- Respect opt-out permanently until user manually subscribes again.
+
+==================================================
+PART 5 — COMMAND OWNERSHIP
+==================================================
+
+Notification commands should be owned by ChillTopiaMC or assigned notification bot.
+
+Commands:
+!sub
+!subscribe
+!unsub
+!unsubscribe
+!notif
+!notifon
+!notifoff
+!notifyon
+!notifyoff
+!notifstatus
+!notifpreview
+
+Expected:
+route=YES
+handler=YES
+owner not UNKNOWN
+
+Aliases:
+!sub = !subscribe
+!unsub = !unsubscribe
+!notifyon = !notifon
+!notifyoff = !notifoff
+
+If some commands are not implemented:
+- do not show them in help
+- do not count them as active issues
+
+Expected command tests:
+
+!commandtest !sub
+!commandtest !subscribe
+!commandtest !unsub
+!commandtest !unsubscribe
+!commandtest !notif
+!commandtest !notifon
+!commandtest !notifoff
+
+Expected:
+owner=ChillTopiaMC or notification bot
+route=YES
+handler=YES
+
+==================================================
+PART 6 — NOTIFICATION SETTINGS MENU
+==================================================
+
+Command:
+!notif
+
+Expected:
+
+🔔 Notification Settings
+Status: ON/OFF
+
+Categories:
+events: ON/OFF
+mining: ON/OFF
+fishing: ON/OFF
+vip: ON/OFF
+goldrain: ON/OFF
+updates: ON/OFF
+
+Use:
+!notifon [category]
+!notifoff [category]
+
+If message is too long, split into two whispers.
+
+Alternative short format:
+
+🔔 Notifications: ON
+events ✅ | mining ✅ | fishing ✅
+vip ✅ | goldrain ✅ | updates ✅
+Use !notifon/!notifoff [category]
+
+Rules:
+- Keep under 220 characters.
+- No / commands.
+- Do not show raw DB values.
+- If user is not subscribed, say:
+
+You are not subscribed.
+DM me:
+!subscribe
+
+Do not auto-subscribe them from !notif.
+
+==================================================
+PART 7 — NOTIFICATION CATEGORIES
+==================================================
+
+Use these categories:
+
+events
+mining
+fishing
+vip
+goldrain
+updates
+
+Optional if already existing:
+party
+shop
+rare
+
+If optional categories are not implemented, do not show them.
+
+Category descriptions:
+
+events — room events and mini games
+mining — rare mining finds
+fishing — rare fishing catches
+vip — VIP/shop updates
+goldrain — gold rain alerts
+updates — room update announcements
+
+Command:
+!notifon [category]
+!notifoff [category]
+
+Examples:
+!notifon mining
+!notifoff goldrain
+
+If invalid category:
+
+⚠️ Unknown category.
+Categories: events, mining, fishing, vip, goldrain, updates
+
+==================================================
+PART 8 — NOTIFON / NOTIFOFF
+==================================================
+
+!notifon [category]
+
+Expected:
+✅ Notifications ON
+Category: mining
+
+If user is not subscribed and types !notifon [category]:
+
+Preferred if DM detection is available and command is public:
+🔔 To subscribe, DM me:
+!subscribe
+
+If command is in DM or DM detection is unavailable:
+✅ Subscribed!
+✅ Notifications ON
+Category: mining
+
+!notifoff [category]
+
+Expected:
+✅ Notifications OFF
+Category: mining
+
+If category already off:
+Notifications already OFF for mining.
+
+Rules:
+- Do not crash if category missing.
+- Do not create duplicate settings.
+- Do not turn on all categories unless user uses !subscribe or explicit all if implemented.
+
+Optional:
+!notifon all
+!notifoff all
+
+If implemented:
+
+!notifon all:
+✅ All notification categories turned ON.
+
+!notifoff all:
+✅ All notification categories turned OFF.
+
+If not implemented, do not show “all” in help.
+
+==================================================
+PART 9 — PRIVACY / ANNOYANCE PREVENTION
+==================================================
+
+Rules:
+- Never subscribe someone without explicit command.
+- Never subscribe from tips.
+- Never subscribe from donations.
+- Never subscribe from VIP purchases.
+- Never subscribe from room join.
+- Never subscribe from game participation.
+- Never subscribe from party tip receiving.
+- Never subscribe from shop purchases.
+- Never subscribe from mining/fishing.
+- Never subscribe from gold rain participation.
+- Respect opt-out permanently until user manually subscribes again.
+- Do not send notifications to unsubscribed users.
+- Do not send notifications to users with category OFF.
+- Do not send notifications to bots.
+
+Main rule:
+Subscription must be intentional only.
+
+==================================================
+PART 10 — FAILED DM / WHISPER HANDLING
+==================================================
+
+Notifications may fail if:
+- user has DMs disabled
+- user left room
+- Highrise API fails
+- rate limit
+- invalid user id
+
+Rules:
+- Catch all send errors.
+- Log failed notification.
+- Do not crash bot.
+- Do not remove subscription immediately from one failure.
+- If repeated failures exceed threshold, mark notification delivery as failed or temporarily paused.
+- Keep user opt-out respected.
+
+Suggested failure tracking:
+- failed_count
+- last_failed_at
+- last_failed_reason
+
+If DM fails:
+console log:
+[NOTIF FAIL] user=@Player category=mining reason=...
+
+No public spam.
+
+==================================================
+PART 11 — NOTIFICATION SPAM PREVENTION
+==================================================
+
+Prevent notification spam.
+
+Rules:
+- One notification per event per user.
+- No duplicate notification if multiple bots receive same event.
+- Use event_id or dedupe key.
+- Rate limit notifications per category.
+- Do not send same rare find notification multiple times.
+- Do not send notifications to bots.
+- Do not send notifications to unsubscribed users.
+- Do not send category notifications if category OFF.
+
+Suggested cooldown:
+- Same event dedupe: permanent by event_id
+- Same category user cooldown: 30 seconds minimum
+- Updates category: owner triggered only
+
+==================================================
+PART 12 — RARE FIND NOTIFICATIONS MATCH 3.0G
+==================================================
+
+Rare find notifications must match 3.0G style.
+
+Mining notification:
+
+⛏️ BIG FIND!
+@Player mined [RARITY] [Ore Name]
+⚖️ [weight]kg | 💰 [value]c
+
+Fishing notification:
+
+🎣 BIG CATCH!
+@Player caught [RARITY] [Fish Name]
+⚖️ [weight]lb | 💰 [value]c
+
+For Prismatic:
+- [PRISMATIC] label is rainbow.
+- ore/fish name is pink.
+- no broken color tags.
+
+For Exotic:
+- [EXOTIC] label/name is red or existing exotic color.
+
+Rules:
+- Keep under 220 characters.
+- If too long, split or remove XP from notification.
+- Do not change rare find announcement behavior.
+- Do not change odds.
+- Do not send to unsubscribed users.
+- Respect mining/fishing category toggles.
+
+==================================================
+PART 13 — EVENT NOTIFICATIONS
+==================================================
+
+If event notifications exist, polish message.
+
+Example:
+
+🎉 Room Event
+[event name] is starting!
+Type !help games for commands.
+
+Rules:
+- Only send to users with events ON.
+- No / commands.
+- No duplicate sends.
+- Keep under 220 characters.
+
+==================================================
+PART 14 — GOLD RAIN NOTIFICATIONS
+==================================================
+
+If goldrain notifications exist, polish message.
+
+Example:
+
+🌧️ Gold Rain Alert!
+Gold rain is starting soon.
+Join the room to participate!
+
+Rules:
+- Only send to users with goldrain ON.
+- Do not promise guaranteed winnings.
+- No duplicate sends.
+- Keep under 220 characters.
+
+==================================================
+PART 15 — VIP / SHOP / UPDATE NOTIFICATIONS
+==================================================
+
+If VIP/shop/update notifications exist, polish.
+
+VIP/shop example:
+
+💎 VIP Update
+New VIP perks are available.
+Type !vipperks to view.
+
+Room update example:
+
+📢 Room Update
+[short update message]
+
+Rules:
+- Only owner/admin can send updates.
+- Only send to subscribed users with category ON.
+- No / commands.
+- No “No lifetime VIP” text.
+- Keep under 220 characters.
+
+==================================================
+PART 16 — OWNER NOTIFICATION PREVIEW
+==================================================
+
+Add or polish owner-only command:
+
+!notifpreview [category]
+
+Examples:
+!notifpreview mining
+!notifpreview fishing
+!notifpreview goldrain
+!notifpreview updates
+
+Expected:
+
+🔔 Notification Preview
+Category: mining
+
+⛏️ BIG FIND!
+@Player mined [MYTHIC] Dragonstone
+⚖️ 12.4kg | 💰 50,000c
+
+Rules:
+- Preview only.
+- Do not send to subscribers.
+- Do not write notification logs as delivered.
+- Owner only.
+- No rewards.
+- No inventory writes.
+- No odds changed.
+
+If invalid category:
+Usage: !notifpreview [events|mining|fishing|vip|goldrain|updates]
+
+If command is risky, skip adding it and do not show it in help.
+
+==================================================
+PART 17 — OWNER BROADCAST / UPDATE COMMAND IF EXISTING
+==================================================
+
+If a broadcast/update command already exists, polish it.
+
+Possible commands:
+!notify [category] [message]
+!sendupdate [message]
+!broadcast [message]
+
+Rules:
+- Owner only.
+- Must respect opt-out.
+- Must respect category if category provided.
+- Must be rate-limited.
+- Must preview or confirm if existing workflow supports it.
+- Do not send to bots.
+- Do not expose subscriber list.
+- Keep messages under 220 characters.
+
+If no such command exists, do not add a risky broadcast system in this update.
+
+==================================================
+PART 18 — HELP UPDATE
+==================================================
+
+Update help pages if needed.
+
+Main help or room help can show:
+
+!subscribe — notification instructions
+!unsubscribe — disable notifications
+!notif — notification settings
+
+Notification help page if it exists:
+
+🔔 Notification Commands
+!sub — subscribe by DM
+!subscribe — subscribe by DM
+!unsub — unsubscribe
+!unsubscribe — unsubscribe
+!notif — settings
+!notifon [category] — turn category on
+!notifoff [category] — turn category off
+
+Categories:
+events, mining, fishing, vip, goldrain, updates
+
+Rules:
+- No / commands.
+- Do not show owner preview/broadcast commands to regular players.
+- Only show commands that route.
+- Make it clear that subscribing is manual.
+
+If public help mentions subscribe, use:
+
+To subscribe, DM ChillTopiaMC:
+!subscribe
+
+or:
+
+DM me !subscribe to receive notifications.
+
+==================================================
+PART 19 — BIOS / ONBOARDING CHECK
+==================================================
+
+Make sure bios/onboarding still mention notifications cleanly.
+
+ChillTopiaMC bio may include:
+!subscribe — notifications
+!notif — settings
+
+Welcome message may include:
+DM me !subscribe — notifications
+
+Rules:
+- No / commands.
+- No “No lifetime VIP” text.
+- No owner commands.
+- Do not imply users are automatically subscribed.
+
+Run:
+!checkbios
+!checkonboarding
+!checkhelp
+
+Expected:
+Clean.
+
+==================================================
+PART 20 — DATABASE SAFETY
+==================================================
+
+Notification tables/settings must be safe.
+
+Rules:
+- Create missing columns/tables with idempotent migrations.
+- Do not drop old subscriber data.
+- Do not wipe opt-outs.
+- Do not create duplicate rows for same user.
+- Use safe DB writes with timeout/retry if current DB helper supports it.
+- Catch DB lock errors and do not crash.
+- If removing auto-subscribe logic, do not delete current subscribers unless explicitly asked.
+- Existing subscribers remain subscribed unless they unsubscribe.
+- Future subscribers must be explicit/manual.
+
+If migration fails:
+- log error
+- keep bot online
+- report failure in final report
+
+==================================================
+PART 21 — COMMAND TESTS
+==================================================
+
+Run:
+
+!commandtest !sub
+!commandtest !subscribe
+!commandtest !unsub
+!commandtest !unsubscribe
+!commandtest !notif
+!commandtest !notifon
+!commandtest !notifoff
+!commandtest !notifyon
+!commandtest !notifyoff
+!commandtest !notifstatus
+!commandtest !notifpreview
+
+Expected:
+- active commands route YES
+- active commands handler YES
+- owner not UNKNOWN
+- aliases route if shown in help
+- owner-only preview protected
+- commands not implemented are not shown in help
+- no command issues
+
+If !notifstatus is not needed, skip or alias to !notif.
+If !notifpreview is skipped, do not count as issue.
+
+==================================================
+PART 22 — LIVE TESTS
+==================================================
+
+Run:
+
+!subscribe
+!sub
+!notif
+!notifoff mining
+!notifon mining
+!notifoff fishing
+!notifon fishing
+!unsubscribe
+!unsub
+!notif
+!subscribe
+!checkhelp
+!checkbios
+!checkonboarding
+!commandissues
+!checkcommands
+
+If preview exists:
+!notifpreview mining
+!notifpreview fishing
+!notifpreview goldrain
+
+Expected:
+- manual subscribe works
+- !sub alias works
+- unsubscribe works
+- !unsub alias works
+- category toggles work
+- !notif shows clear settings
+- opt-out respected
+- no / commands
+- no “No lifetime VIP” text
+- no command issues
+- no checkcommands mismatch
+
+==================================================
+PART 23 — TIP/DONATION AUTO-SUBSCRIBE TEST
+==================================================
+
+Test tipping/donation flow if safe.
+
+Scenario:
+- User tips bot or supports room.
+- Bot may thank user.
+- User must NOT become subscribed automatically.
+- Notification categories must NOT turn ON automatically.
+
+Expected thank-you only:
+
+💛 Thank you for the support!
+To receive room notifications, DM me:
+!subscribe
+
+Then check:
+!notif
+
+Expected if user never manually subscribed:
+You are not subscribed.
+DM me:
+!subscribe
+
+No auto-subscribe.
+
+==================================================
+PART 24 — RARE NOTIFICATION TEST WITHOUT CHANGING ODDS
+==================================================
+
+Do not force rare drops by changing odds.
+
+If preview exists:
+!notifpreview mining
+!notifpreview fishing
+
+Expected:
+- rare notification style matches 3.0G
+- prismatic label rainbow if preview uses prismatic
+- prismatic item name pink
+- message under 220 chars
+- no real notification sent to all users unless preview intentionally does so
+- no rewards given
+
+If no preview:
+- verify code paths only and report.
+
+==================================================
+PART 25 — SEARCH FOR AUTO-SUBSCRIBE SOURCES
+==================================================
+
+Search code for auto-subscribe logic around:
+- tips
+- gold tips
+- donations
+- transactions
+- VIP purchases
+- room join
+- on_user_join
+- on_tip
+- on_transaction
+- support
+- donor
+- gold received
+- bank interaction
+
+Remove or disable any subscription writes from those flows.
+
+Allowed subscription writes only:
+- !sub
+- !subscribe
+- !notifon [category] if manual and allowed
+- admin migration/init that preserves existing data
+
+Not allowed:
+- auto subscribe on tip
+- auto subscribe on donation
+- auto subscribe on VIP purchase
+- auto subscribe on room join
+
+==================================================
+PART 26 — STABILITY TESTS
+==================================================
+
+After changes, run:
+
+!bothealth
+!stability status
+!botconflicts
+!modulehealth
+!commandissues
+!checkcommands
+!checkhelp
+
+Then let bots sit for 10 minutes.
+
+Expected:
+- Err: none
+- No bot conflicts
+- No command issues
+- No checkcommands mismatch
+- No help issues
+- No DB lock spam
+- No reconnect loop
+- No notification spam
+
+==================================================
+PART 27 — FINAL REPORT
+==================================================
+
+After finishing, report:
+
+1. Auto-subscribe from bot tips removed.
+2. Other auto-subscribe sources found/removed.
+3. !sub behavior.
+4. !subscribe behavior.
+5. Public subscribe behavior if DM-only is detectable.
+6. !unsub behavior.
+7. !unsubscribe behavior.
+8. !notif settings display.
+9. Notification categories confirmed.
+10. !notifon / !notifoff behavior.
+11. Failed DM handling confirmed.
+12. Spam/dedupe protection confirmed.
+13. Rare find notification style updated.
+14. Goldrain/event/update notification status.
+15. !notifpreview added or skipped.
+16. Broadcast/update command polished or skipped.
+17. Database migration result.
+18. Tip/donation auto-subscribe test result.
+19. !checkhelp result.
+20. !checkbios result.
+21. !checkonboarding result.
+22. !commandissues result.
+23. !checkcommands result.
+24. Stability result.

@@ -461,6 +461,7 @@ from modules.sub_notif import (
     handle_testnotify as handle_sub_testnotify,
     handle_setsubnotifycooldown,
     handle_notif_dispatch_channel,
+    handle_notifpreview,
 )
 from modules.first_find import (
     handle_firstfindrewards, handle_setfirstfind, handle_setfirstfinditem,
@@ -862,7 +863,8 @@ ALL_KNOWN_COMMANDS = (
         "commandissues", "fixcommandregistry",
         "notifications", "clearnotifications",
         "delivernotifications", "pendingnotifications",
-        "subscribe", "unsubscribe", "substatus", "subhelp",
+        "subscribe", "sub", "unsubscribe", "unsub", "substatus", "subhelp",
+        "notif", "notifon", "notifoff", "notifstatus", "notifpreview",
         "notifysettings", "notify", "notifyhelp",
         "notifystats", "notifyprefs", "notifyuser", "broadcasttest",
         "debugnotify", "testnotify", "testnotifyall",
@@ -4427,7 +4429,7 @@ class HangoutBot(BaseBot):
             await handle_voteevent(self, user, args)
 
         # ── Subscriber notification preferences ───────────────────────────────
-        elif cmd == "notif":
+        elif cmd in {"notif", "notifstatus"}:
             await handle_notif(self, user)
 
         elif cmd in {"notifon", "notifyon"}:
@@ -4435,6 +4437,9 @@ class HangoutBot(BaseBot):
 
         elif cmd in {"notifoff", "notifyoff"}:
             await handle_notifoff(self, user, args)
+
+        elif cmd == "notifpreview":
+            await handle_notifpreview(self, user, args)
 
         elif cmd == "notifall":
             await handle_notifall(self, user, args)
@@ -6178,19 +6183,7 @@ class HangoutBot(BaseBot):
                         print(f"[WHISPER] @{user.username} wrong-bot hint suppressed (cooldown).")
             return  # Don't auto-subscribe when user is sending commands
 
-        # ── Auto-subscribe whisperer (respects manually_unsubscribed flag) ────
-        try:
-            newly_subbed = db.auto_subscribe_whisper(
-                user.username, user.id
-            )
-            if newly_subbed:
-                await self.highrise.send_whisper(
-                    user.id,
-                    "✅ Alerts subscribed. Use /notifysettings to choose alerts."
-                )
-                print(f"[WHISPER] @{user.username} auto-subscribed from whisper.")
-        except Exception as exc:
-            print(f"[WHISPER] auto-subscribe error: {exc!r}")
+        # Auto-subscribe from whisper is disabled — subscription is intentional only.
 
 
 # ---------------------------------------------------------------------------
