@@ -2638,6 +2638,13 @@ class HangoutBot(BaseBot):
         # Store bot identity so gold rain / tip receiver-check can use it
         set_bot_identity(session_metadata.user_id)
         print(f"[HangoutBot] Bot user ID: {session_metadata.user_id}")
+        # Install SDK rate-limit guards — wraps send_whisper + chat on this fresh
+        # Highrise() instance (SDK creates a new one each connect/reconnect)
+        try:
+            from modules.rate_limiter import install_rate_limiter
+            install_rate_limiter(self.highrise, session_metadata.rate_limits)
+        except Exception as _rle:
+            print(f"[RATE] Guard install failed (non-fatal): {_rle}")
 
         # Resolve bot's own username immediately so the direct outfit listener
         # can match "KeanuShield, outfit status" right from the first message.
