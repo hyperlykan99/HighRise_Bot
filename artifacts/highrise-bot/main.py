@@ -3257,6 +3257,51 @@ class HangoutBot(BaseBot):
             elif cmd == "eventstop":
                 await handle_stopevent(self, user, args)
 
+            # ── Bot health / deployment checks (manager+) ─────────────────────
+            elif cmd == "bothealth":
+                await handle_bothealth(self, user, args)
+            elif cmd == "modulehealth":
+                try:
+                    await handle_modulehealth(self, user, args)
+                except Exception as _mh_err:
+                    import traceback as _mh_tb
+                    _mh_tb.print_exc()
+                    print(f"[MODULEHEALTH ERROR] {_mh_err}")
+                    try:
+                        await self.highrise.send_whisper(
+                            user.id,
+                            "⚠️ modulehealth error logged. Bot stayed online.")
+                    except Exception:
+                        pass
+            elif cmd == "deploymentcheck":
+                await handle_deploymentcheck(self, user, args)
+            elif cmd == "botlocks":
+                await handle_botlocks(self, user)
+            elif cmd == "botheartbeat":
+                await handle_botheartbeat(self, user)
+            elif cmd == "moduleowners":
+                await handle_moduleowners(self, user, args)
+            elif cmd == "botconflicts":
+                try:
+                    await handle_botconflicts(self, user)
+                except Exception as _bc_err:
+                    import traceback as _bc_tb
+                    _bc_tb.print_exc()
+                    print(f"[BOTCONFLICTS ERROR] {_bc_err}")
+                    try:
+                        await self.highrise.send_whisper(
+                            user.id,
+                            "⚠️ botconflicts error logged. Bot stayed online.")
+                    except Exception:
+                        pass
+            # ── Bot health repair (admin+) ─────────────────────────────────────
+            elif cmd == "dblockcheck":
+                await handle_dblockcheck(self, user, args)
+            elif cmd == "clearstalebotlocks":
+                await handle_clearstalebotlocks(self, user)
+            elif cmd == "fixbotowners":
+                await handle_fixbotowners(self, user, args)
+
             else:
                 await handle_admin_command(self, user, cmd, args)
             return

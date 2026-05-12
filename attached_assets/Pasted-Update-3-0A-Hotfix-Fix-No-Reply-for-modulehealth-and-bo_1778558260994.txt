@@ -1,0 +1,142 @@
+Update 3.0A Hotfix — Fix No Reply for !modulehealth and !botconflicts
+
+Current issue:
+!commandissues is now clean.
+
+But these commands do not reply live:
+!modulehealth
+!botconflicts
+
+Goal:
+Make both commands reply every time.
+
+Do not add new features.
+Do not change tokens.
+Do not wipe data.
+Do not change room ID.
+
+==================================================
+PART 1 — VERIFY COMMANDTEST
+==================================================
+
+Check:
+
+/commandtest !modulehealth
+/commandtest !botconflicts
+
+Expected:
+route=YES
+handler=YES
+owner=ChillTopiaMC or Host
+
+If owner is not ChillTopiaMC/Host, either:
+- change owner to ChillTopiaMC
+OR
+- make Host/ChillTopiaMC allowed to handle these health/audit commands.
+
+Preferred:
+owner=ChillTopiaMC
+
+==================================================
+PART 2 — FORCE LIVE ROUTING
+==================================================
+
+In the live command router, add explicit early routes:
+
+if cmd == "modulehealth":
+    await safe_call("modulehealth", handle_modulehealth, bot, user, args)
+    return
+
+if cmd == "botconflicts":
+    await safe_call("botconflicts", handle_botconflicts, bot, user)
+    return
+
+These must run before:
+- AI intercept
+- unknown command fallback
+- bot owner skip logic
+- hidden/debug command filtering
+
+==================================================
+PART 3 — FIX PERMISSION BLOCKING
+==================================================
+
+If the handler requires manager+ and owner is not passing the check, fix permission logic.
+
+Owner must always pass:
+- can_manage_games
+- can_manage_economy
+- can_audit
+- manager+
+- admin+
+
+If permission fails, do not silently ignore.
+
+Reply:
+🔒 Manager+ only.
+
+But for owner @4ktreyMarion, it must allow.
+
+==================================================
+PART 4 — WRAP HANDLERS AND ALWAYS REPLY
+==================================================
+
+Wrap both handlers:
+
+try:
+    await handle_modulehealth(...)
+except Exception as e:
+    print("[MODULEHEALTH ERROR]")
+    traceback.print_exc()
+    await bot.highrise.send_whisper(user.id, "⚠️ modulehealth error logged. Bot stayed online.")
+
+try:
+    await handle_botconflicts(...)
+except Exception as e:
+    print("[BOTCONFLICTS ERROR]")
+    traceback.print_exc()
+    await bot.highrise.send_whisper(user.id, "⚠️ botconflicts error logged. Bot stayed online.")
+
+No silent failure.
+
+==================================================
+PART 5 — ADD FALLBACK RESPONSE
+==================================================
+
+If normal modulehealth handler finds no data, still reply:
+
+🧩 Module Health
+Blackjack: OK/Unknown
+Poker: OK/Unknown
+Bank: OK/Unknown
+Host: OK/Unknown
+PartyTip: OK/Unknown
+DB: OK
+
+If normal botconflicts handler finds no conflicts, reply:
+
+✅ No bot conflicts.
+
+If it cannot read bot instance data, reply:
+
+⚠️ Bot conflict check unavailable.
+DB: OK/ERR
+Reason: [short error]
+
+==================================================
+PART 6 — TESTS
+==================================================
+
+Run:
+
+/commandtest !modulehealth
+/commandtest !botconflicts
+!modulehealth
+!botconflicts
+
+Expected:
+!modulehealth replies.
+!botconflicts replies.
+No silent no-response.
+No traceback kills bot.
+Owner @4ktreyMarion is allowed.
