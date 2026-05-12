@@ -1,0 +1,157 @@
+Update 3.0C Hotfix — Route Bio + Onboarding Commands
+
+Current issue:
+After Update 3.0C, these commands were added but not routed:
+
+!bios
+!checkbios
+!checkonboarding
+
+!commandissues shows:
+Issues: 3 no-route
+Examples: !bios, !checkbios, !checkonboarding
+
+!checkcommands shows:
+Known 236 | Routed 232 | Missing 4
+
+Goal:
+Register and route the 3.0C commands properly.
+
+Do not add new features.
+Do not change tokens.
+Do not wipe data.
+Do not change room ID.
+Do not change balances, VIP, mining/fishing, blackjack/poker, teleports, spawns, or party tip data.
+
+==================================================
+PART 1 — ROUTE 3.0C COMMANDS
+==================================================
+
+Route these commands:
+
+!bios
+!checkbios
+!checkonboarding
+
+Expected command tests:
+
+/commandtest !bios
+/commandtest !checkbios
+/commandtest !checkonboarding
+
+Expected:
+owner=ChillTopiaMC
+route=YES
+handler=YES
+permission=Owner/Manager
+
+If owner must be Host instead, that is okay, but route and handler must be YES.
+
+==================================================
+PART 2 — LIVE BEHAVIOR
+==================================================
+
+!bios
+
+Owner/Manager only.
+Shows recommended bot bios in copyable format.
+
+Expected:
+🤖 Bot Bios
+ChillTopiaMC:
+...
+BankingBot:
+...
+BlackJackBot:
+...
+PokerBot:
+...
+GreatestProspector:
+...
+MasterAngler:
+...
+Host:
+...
+
+If too long, split into multiple whispers.
+
+!checkbios
+
+Owner/Manager only.
+Checks configured bio templates.
+
+Expected clean response:
+✅ Bio Audit Clean
+No / commands.
+No owner commands in public bios.
+Blackjack uses !bet [amount].
+Mining includes !automine.
+Fishing includes !autofish.
+
+If code cannot read live Highrise profile bios, say:
+⚠️ Cannot read live Highrise profile bios.
+Checked configured bio templates only.
+
+!checkonboarding
+
+Owner/Manager only.
+Checks onboarding/welcome messages.
+
+Expected clean response:
+✅ Onboarding Audit Clean
+Welcome message OK.
+No / commands.
+Cooldown enabled.
+Blackjack uses !bet [amount].
+Auto mine/fish included.
+
+==================================================
+PART 3 — FIX CHECKCOMMANDS COUNT
+==================================================
+
+After routing these, make sure:
+
+!checkcommands
+
+Expected:
+Known [count] | Routed [same count] | Missing 0 | NoOwner 0
+
+!commandissues
+
+Expected:
+✅ No command issues — all routes, handlers, and owners clean.
+
+==================================================
+PART 4 — DO NOT COUNT HIDDEN/LEGACY
+==================================================
+
+If any missing command is hidden, deprecated, or legacy:
+- move it to hidden/legacy/deprecated command list
+- do not count it as active missing route
+- do not show it in public help
+
+But preferred:
+Make !bios, !checkbios, and !checkonboarding active and routed.
+
+==================================================
+PART 5 — TESTS
+==================================================
+
+Run:
+
+/commandtest !bios
+/commandtest !checkbios
+/commandtest !checkonboarding
+
+!bios
+!checkbios
+!checkonboarding
+!commandissues
+!checkcommands
+
+Expected:
+- !bios replies
+- !checkbios replies
+- !checkonboarding replies
+- !commandissues clean
+- !checkcommands Missing 0
