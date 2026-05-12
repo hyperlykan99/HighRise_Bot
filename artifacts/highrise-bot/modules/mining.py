@@ -514,7 +514,7 @@ async def handle_mine(bot: BaseBot, user: User) -> None:
                 _cap_applied, _rarity_cap if _cap_applied else 0,
             )
     except _FileLockTimeout:
-        await _w(bot, user.id, "⏳ Mining DB busy. Try /mine again.")
+        await _w(bot, user.id, "⏳ Mining DB busy. Try !mine again.")
         return
 
     # Build reply — combined header + ore result format
@@ -714,7 +714,7 @@ async def handle_mineinv(bot: BaseBot, user: User, args: list[str]) -> None:
     inv  = db.get_inventory(user.username)
     page = int(args[1]) if len(args) > 1 and args[1].isdigit() else 1
     if not inv:
-        await _w(bot, user.id, "🎒 Inventory empty. Use /mine to start mining!")
+        await _w(bot, user.id, "🎒 Inventory empty. Use !mine to start mining!")
         return
 
     per  = 8
@@ -746,7 +746,7 @@ async def handle_sellores(bot: BaseBot, user: User) -> None:
 async def handle_sellore(bot: BaseBot, user: User, args: list[str]) -> None:
     db.ensure_user(user.id, user.username)
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /sellore <ore_id> <amount>  or  /sellore all")
+        await _w(bot, user.id, "Usage: !sellore <ore_id> <amount>  or  /sellore all")
         return
     sub = args[1].lower()
     if sub == "all":
@@ -756,7 +756,7 @@ async def handle_sellore(bot: BaseBot, user: User, args: list[str]) -> None:
     ore_id = sub
     it     = db.get_mining_item(ore_id)
     if it is None:
-        await _w(bot, user.id, f"Unknown ore: {ore_id}. Use /orelist.")
+        await _w(bot, user.id, f"Unknown ore: {ore_id}. Use !orelist.")
         return
 
     qty_raw = args[2] if len(args) > 2 else "1"
@@ -855,7 +855,7 @@ def _MINE_SHOP_LIST_ITEMS():
 async def handle_minebuy(bot: BaseBot, user: User, args: list[str]) -> None:
     raw = args[1] if len(args) > 1 else ""
     if not raw.isdigit():
-        await _w(bot, user.id, "Usage: /minebuy <number>  (see /mineshop)")
+        await _w(bot, user.id, "Usage: !minebuy <number>  (see !mineshop)")
         return
 
     n       = int(raw)
@@ -873,7 +873,7 @@ async def handle_minebuy(bot: BaseBot, user: User, args: list[str]) -> None:
             item_id = items_list[n - 1]
 
     if not item_id or item_id not in MINE_SHOP_ITEMS:
-        await _w(bot, user.id, "Invalid number. Use /mineshop to see items.")
+        await _w(bot, user.id, "Invalid number. Use !mineshop to see items.")
         return
 
     it = MINE_SHOP_ITEMS[item_id]
@@ -890,7 +890,7 @@ async def handle_minebuy(bot: BaseBot, user: User, args: list[str]) -> None:
 
     if it["effect"] == "energy":
         await _w(bot, user.id,
-                 f"⛏️ Energy items are no longer used. Try /minebuy 3 (Lucky Charm).")
+                 f"⛏️ Energy items are no longer used. Try !minebuy 3 (Lucky Charm).")
         db.adjust_balance(user.id, it["price"])  # refund
         db.log_mine(user.username, "buy_shop_refund", item_id, 1, it["price"], "energy_removed")
         return
@@ -1107,7 +1107,7 @@ async def handle_startminingevent(bot: BaseBot, user: User, args: list[str]) -> 
     if not _can_mine_admin(user.username):
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /startminingevent <event_id>")
+        await _w(bot, user.id, "Usage: !startminingevent <event_id>")
         return
     eid = args[1].lower()
     if eid not in VALID_MINING_EVENTS:
@@ -1161,14 +1161,14 @@ async def handle_mining_toggle(bot: BaseBot, user: User, args: list[str]) -> Non
         db.set_mine_setting("mining_enabled", "false")
         await _w(bot, user.id, "⛔ Mining OFF.")
     else:
-        await _w(bot, user.id, "Usage: /mining on | /mining off")
+        await _w(bot, user.id, "Usage: !mining on | /mining off")
 
 
 async def handle_setminecooldown(bot: BaseBot, user: User, args: list[str]) -> None:
     if not _can_mine_admin(user.username):
         return
     if len(args) < 2 or not args[1].isdigit():
-        await _w(bot, user.id, "Usage: /setminecooldown <seconds>")
+        await _w(bot, user.id, "Usage: !setminecooldown <seconds>")
         return
     db.set_mine_setting("base_cooldown_seconds", args[1])
     await _w(bot, user.id, f"✅ Mine cooldown set to {args[1]}s.")
@@ -1290,7 +1290,7 @@ async def handle_setminingenergy(bot: BaseBot, user: User, args: list[str]) -> N
     if not _can_mine_admin(user.username):
         return
     if len(args) < 3:
-        await _w(bot, user.id, "Usage: /setminingenergy <username> <amount>")
+        await _w(bot, user.id, "Usage: !setminingenergy <username> <amount>")
         return
     target = args[1].lstrip("@")
     amt    = args[2]
@@ -1309,7 +1309,7 @@ async def handle_addore(bot: BaseBot, user: User, args: list[str]) -> None:
     if not _can_mine_admin(user.username):
         return
     if len(args) < 4:
-        await _w(bot, user.id, "Usage: /addore <username> <ore_id> <amount>")
+        await _w(bot, user.id, "Usage: !addore <username> <ore_id> <amount>")
         return
     target = args[1].lstrip("@")
     ore_id = args[2].lower()
@@ -1319,7 +1319,7 @@ async def handle_addore(bot: BaseBot, user: User, args: list[str]) -> None:
         return
     it = db.get_mining_item(ore_id)
     if not it:
-        await _w(bot, user.id, f"Unknown ore: {ore_id}. Use /orelist.")
+        await _w(bot, user.id, f"Unknown ore: {ore_id}. Use !orelist.")
         return
     db.ensure_miner_row(target)
     db.add_ore(target, ore_id, int(amt))
@@ -1332,7 +1332,7 @@ async def handle_removeore(bot: BaseBot, user: User, args: list[str]) -> None:
     if not _can_mine_admin(user.username):
         return
     if len(args) < 4:
-        await _w(bot, user.id, "Usage: /removeore <username> <ore_id> <amount>")
+        await _w(bot, user.id, "Usage: !removeore <username> <ore_id> <amount>")
         return
     target = args[1].lstrip("@")
     ore_id = args[2].lower()
@@ -1356,7 +1356,7 @@ async def handle_settoollevel(bot: BaseBot, user: User, args: list[str]) -> None
     if not _can_mine_admin(user.username):
         return
     if len(args) < 3:
-        await _w(bot, user.id, "Usage: /settoollevel <username> <1-10>")
+        await _w(bot, user.id, "Usage: !settoollevel <username> <1-10>")
         return
     target = args[1].lstrip("@")
     lvl    = args[2]
@@ -1373,7 +1373,7 @@ async def handle_setminelevel(bot: BaseBot, user: User, args: list[str]) -> None
     if not _can_mine_admin(user.username):
         return
     if len(args) < 3:
-        await _w(bot, user.id, "Usage: /setminelevel <username> <level>")
+        await _w(bot, user.id, "Usage: !setminelevel <username> <level>")
         return
     target = args[1].lstrip("@")
     lvl    = args[2]
@@ -1389,7 +1389,7 @@ async def handle_addminexp(bot: BaseBot, user: User, args: list[str]) -> None:
     if not _can_mine_admin(user.username):
         return
     if len(args) < 3:
-        await _w(bot, user.id, "Usage: /addminexp <username> <amount>")
+        await _w(bot, user.id, "Usage: !addminexp <username> <amount>")
         return
     target = args[1].lstrip("@")
     amt    = args[2]
@@ -1411,7 +1411,7 @@ async def handle_setminexp(bot: BaseBot, user: User, args: list[str]) -> None:
     if not _can_mine_admin(user.username):
         return
     if len(args) < 3:
-        await _w(bot, user.id, "Usage: /setminexp <username> <amount>")
+        await _w(bot, user.id, "Usage: !setminexp <username> <amount>")
         return
     target = args[1].lstrip("@")
     amt    = args[2]
@@ -1427,7 +1427,7 @@ async def handle_resetmining(bot: BaseBot, user: User, args: list[str]) -> None:
     if not _can_mine_admin(user.username):
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /resetmining <username>")
+        await _w(bot, user.id, "Usage: !resetmining <username>")
         return
     target = args[1].lstrip("@")
     conn   = db.get_connection()
@@ -1549,7 +1549,7 @@ async def handle_orelist(bot: BaseBot, user: User, args: list[str] | None = None
     """
     /orelist [rarity] [page]
     Shows ore drop chances grouped by rarity, 5 ores per page.
-    No prices or weights — use /oreprices for those.
+    No prices or weights — use !oreprices for those.
     """
     args = args or []
 
@@ -1561,7 +1561,7 @@ async def handle_orelist(bot: BaseBot, user: User, args: list[str] | None = None
             cnt = len(by_rar.get(r, []))
             if cnt:
                 lines.append(f"[{r.upper()}] — {cnt} ores")
-        lines.append("Use /orelist common to view Common ores.")
+        lines.append("Use !orelist common to view Common ores.")
         lines.append("/oreprices common for prices and weights.")
         await _w(bot, user.id, "\n".join(lines)[:249])
         return
@@ -1671,7 +1671,7 @@ async def handle_oreinfo(bot: BaseBot, user: User, args: list[str] | None = None
     """
     args = args or []
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /oreinfo <ore name>   e.g. /oreinfo gold ore")
+        await _w(bot, user.id, "Usage: !oreinfo <ore name>   e.g. /oreinfo gold ore")
         return
 
     query  = " ".join(args[1:]).lower().strip()
@@ -1697,7 +1697,7 @@ async def handle_oreinfo(bot: BaseBot, user: User, args: list[str] | None = None
             await _w(bot, user.id, f"Multiple matches: {names}\nBe more specific.")
             return
     if not target:
-        await _w(bot, user.id, f"Ore '{query}' not found. Use /orelist to browse.")
+        await _w(bot, user.id, f"Ore '{query}' not found. Use !orelist to browse.")
         return
 
     rar        = target["rarity"]
@@ -1819,7 +1819,7 @@ async def handle_oremastery(bot: BaseBot, user: User) -> None:
 async def handle_claimoremastery(bot: BaseBot, user: User, args: list[str]) -> None:
     """/claimoremastery <1-6> — claim a mastery milestone reward."""
     if len(args) < 2 or not args[1].isdigit():
-        await _w(bot, user.id, "Usage: /claimoremastery <1-6>  (see /oremastery)")
+        await _w(bot, user.id, "Usage: !claimoremastery <1-6>  (see !oremastery)")
         return
     idx = int(args[1]) - 1
     if idx < 0 or idx >= len(_MASTERY_MILESTONES):
@@ -1874,7 +1874,7 @@ async def handle_job(bot: BaseBot, user: User, args: list[str]) -> None:
         cid = int(args[1])
         entry = next((c for c in _CONTRACT_POOL if c[0] == cid), None)
         if not entry:
-            await _w(bot, user.id, f"❌ No contract #{cid}. See /contracts for the list.")
+            await _w(bot, user.id, f"❌ No contract #{cid}. See !contracts for the list.")
             return
         existing = db.get_miner_contract(user.username)
         if existing and existing.get("qty_delivered", 0) < existing.get("qty_needed", 1):
@@ -1913,7 +1913,7 @@ async def handle_deliver(bot: BaseBot, user: User, args: list[str]) -> None:
     delivered = current.get("qty_delivered", 0)
     remaining = max(0, needed - delivered)
     if remaining == 0:
-        await _w(bot, user.id, "✅ Contract complete! Use /claimjob to collect your reward.")
+        await _w(bot, user.id, "✅ Contract complete! Use !claimjob to collect your reward.")
         return
     have = db.get_ore_qty(user.username, ore_id)
     name = ore_id.replace("_", " ").title()
@@ -2019,13 +2019,13 @@ async def handle_orechances(bot: BaseBot, user: User) -> None:
 async def handle_orechance(bot: BaseBot, user: User, args: list[str]) -> None:
     """/orechance <ore_id> — show 1-in-X drop chance for a specific ore."""
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /orechance <ore_id>")
+        await _w(bot, user.id, "Usage: !orechance <ore_id>")
         return
     ore_id = args[1].lower()
     items  = db.get_all_mining_items(drop_enabled=False)
     target = next((it for it in items if it["item_id"].lower() == ore_id), None)
     if not target:
-        await _w(bot, user.id, f"Ore '{ore_id}' not found. Use /orelist to browse.")
+        await _w(bot, user.id, f"Ore '{ore_id}' not found. Use !orelist to browse.")
         return
     rar = target["rarity"]
     by_rarity: dict[str, list] = {}
@@ -2049,13 +2049,13 @@ async def handle_setorechance(
 ) -> None:
     """/setorechance <ore_id> <note_%> — store a display-chance note (manager+).
     Stored in room_settings; shown in /orechance. Does not affect actual drop rolls
-    (those use the RARITIES table). Use /setraritychance to adjust rarity weights.
+    (those use the RARITIES table). Use !setraritychance to adjust rarity weights.
     """
     if not can_manage_economy(user.username):
         await _w(bot, user.id, "Manager/admin/owner only.")
         return
     if len(args) < 3:
-        await _w(bot, user.id, "Usage: /setorechance <ore_id> <note_pct>")
+        await _w(bot, user.id, "Usage: !setorechance <ore_id> <note_pct>")
         return
     ore_id = args[1].lower()
     try:
@@ -2068,7 +2068,7 @@ async def handle_setorechance(
     items  = db.get_all_mining_items(drop_enabled=False)
     target = next((it for it in items if it["item_id"].lower() == ore_id), None)
     if not target:
-        await _w(bot, user.id, f"Ore '{ore_id}' not found. Use /orelist.")
+        await _w(bot, user.id, f"Ore '{ore_id}' not found. Use !orelist.")
         return
     db.set_room_setting(f"mine_ore_displaychance_{ore_id}", str(pct))
     await _w(bot, user.id,
@@ -2088,7 +2088,7 @@ async def handle_setraritychance(
         return
     if len(args) < 3:
         await _w(bot, user.id,
-                 "Usage: /setraritychance <rarity> <chance_pct>\n"
+                 "Usage: !setraritychance <rarity> <chance_pct>\n"
                  "Rarities: common uncommon rare epic legendary mythic "
                  "ultra_rare prismatic exotic")
         return
@@ -2121,7 +2121,7 @@ async def handle_reloadorechances(bot: BaseBot, user: User) -> None:
     items = db.get_all_mining_items(drop_enabled=False)
     await _w(bot, user.id,
              f"✅ Ore chances reloaded. {len(items)} ore(s) in DB. "
-             "Use /orechances to verify.")
+             "Use !orechances to verify.")
 
 
 MINE_HELP_PAGES = [
@@ -2191,7 +2191,7 @@ async def handle_minehelp(bot: BaseBot, user: User, args: list[str]) -> None:
             return
         await _w(bot, user.id, MINE_HELP_PAGES[page - 1])
     else:
-        await _w(bot, user.id, f"Pages 1-{len(MINE_HELP_PAGES)}. Use /minehelp <page>.")
+        await _w(bot, user.id, f"Pages 1-{len(MINE_HELP_PAGES)}. Use !minehelp <page>.")
 
 
 # ---------------------------------------------------------------------------
@@ -2228,7 +2228,7 @@ async def handle_simannounce(bot: BaseBot, user: User, args: list[str]) -> None:
 
     if sub == "ore":
         if len(args) < 3:
-            await _w(bot, user.id, "Usage: /simannounce ore <ore_name_or_id>")
+            await _w(bot, user.id, "Usage: !simannounce ore <ore_name_or_id>")
             return
         query = " ".join(args[2:]).lower().strip()
         for it in items:
@@ -2240,7 +2240,7 @@ async def handle_simannounce(bot: BaseBot, user: User, args: list[str]) -> None:
             if len(matches) == 1:
                 target_item = matches[0]
         if not target_item:
-            await _w(bot, user.id, f"Ore '{query[:40]}' not found. Try /orelist.")
+            await _w(bot, user.id, f"Ore '{query[:40]}' not found. Try !orelist.")
             return
 
     elif sub == "random":
@@ -2309,7 +2309,7 @@ async def handle_forcedrop(bot: BaseBot, user: User, args: list[str]) -> None:
         return
     if len(args) < 3:
         await _w(bot, user.id,
-                 "Usage: /forcedrop <username> <rarity>  e.g. /forcedrop marion legendary")
+                 "Usage: !forcedrop <username> <rarity>  e.g. /forcedrop marion legendary")
         return
 
     target = args[1].lstrip("@").lower()
@@ -2337,7 +2337,7 @@ async def handle_forcedropore(bot: BaseBot, user: User, args: list[str]) -> None
         return
     if len(args) < 3:
         await _w(bot, user.id,
-                 "Usage: /forcedropore <username> <ore_id>  e.g. /forcedropore marion gold_ore")
+                 "Usage: !forcedropore <username> <ore_id>  e.g. /forcedropore marion gold_ore")
         return
 
     target    = args[1].lstrip("@").lower()
@@ -2358,7 +2358,7 @@ async def handle_forcedropore(bot: BaseBot, user: User, args: list[str]) -> None
     if not ore_row:
         await _w(bot, user.id,
                  f"Ore '{ore_query[:40]}' not found. "
-                 f"Try /orelist or use the exact ore name.")
+                 f"Try !orelist or use the exact ore name.")
         return
     ore_id = ore_row["item_id"]
 
@@ -2411,7 +2411,7 @@ async def handle_clearforcedrop(bot: BaseBot, user: User, args: list[str]) -> No
         await _w(bot, user.id, "Owner-only command.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /clearforcedrop <username>")
+        await _w(bot, user.id, "Usage: !clearforcedrop <username>")
         return
 
     target = args[1].lower()
@@ -2549,7 +2549,7 @@ async def handle_automine(bot: BaseBot, user: User, args: list[str]) -> None:
         if user.id in _automine_tasks and not _automine_tasks[user.id].done():
             await _w(bot, user.id,
                      "⛏️ AutoMine is already running.\n"
-                     "Use /automine off to stop it first.")
+                     "Use !automine off to stop it first.")
             return
         if not _is_in_room(user.username):
             await _w(bot, user.id,
@@ -2579,7 +2579,7 @@ async def handle_autominestatus(bot: BaseBot, user: User) -> None:
         f"Status: {'ON' if running else 'OFF'}",
         f"Global: {'Enabled' if enabled else 'Disabled by staff'}",
         f"Limit: {max_att} mines or {max_mins}m",
-        "Use /automine on to start | /automine off to stop",
+        "Use !automine on to start | /automine off to stop",
     ]
     await _w(bot, user.id, "\n".join(lines)[:249])
 
@@ -2610,7 +2610,7 @@ async def handle_setautomine(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Manager/admin/owner only.")
         return
     if len(args) < 2 or args[1].lower() not in ("on", "off"):
-        await _w(bot, user.id, "Usage: /setautomine on|off")
+        await _w(bot, user.id, "Usage: !setautomine on|off")
         return
     val = "1" if args[1].lower() == "on" else "0"
     db.set_auto_activity_setting("automine_enabled", val)
@@ -2626,7 +2626,7 @@ async def handle_setautomineduration(bot: BaseBot, user: User,
         await _w(bot, user.id, "Manager/admin/owner only.")
         return
     if len(args) < 2 or not args[1].isdigit():
-        await _w(bot, user.id, "Usage: /setautomineduration <minutes>")
+        await _w(bot, user.id, "Usage: !setautomineduration <minutes>")
         return
     val = max(5, min(120, int(args[1])))
     db.set_auto_activity_setting("automine_duration_minutes", str(val))
@@ -2641,7 +2641,7 @@ async def handle_setautomineattempts(bot: BaseBot, user: User,
         await _w(bot, user.id, "Manager/admin/owner only.")
         return
     if len(args) < 2 or not args[1].isdigit():
-        await _w(bot, user.id, "Usage: /setautomineattempts <amount>")
+        await _w(bot, user.id, "Usage: !setautomineattempts <amount>")
         return
     val = max(5, min(200, int(args[1])))
     db.set_auto_activity_setting("automine_max_attempts", str(val))
@@ -2656,7 +2656,7 @@ async def handle_setautominedailycap(bot: BaseBot, user: User,
         await _w(bot, user.id, "Manager/admin/owner only.")
         return
     if len(args) < 2 or not args[1].isdigit():
-        await _w(bot, user.id, "Usage: /setautominedailycap <minutes>")
+        await _w(bot, user.id, "Usage: !setautominedailycap <minutes>")
         return
     val = max(30, min(480, int(args[1])))
     db.set_auto_activity_setting("automine_daily_cap_minutes", str(val))

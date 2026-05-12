@@ -11,7 +11,7 @@ Commands (manager+):
   /dailyadmin reports      — open reports & active mutes
   /dailyadmin errors       — bot error log (graceful if missing)
 
-Moderators may use /dailyadmin reports and /dailyadmin errors only.
+Moderators may use !dailyadmin reports and /dailyadmin errors only.
 """
 from __future__ import annotations
 
@@ -283,7 +283,7 @@ async def _section_reports(bot: BaseBot, user: User) -> None:
             f"Open: {open_count} | Newest ID: {newest_id}"
             + (f" (@{newest_user})" if newest_user else "") + "\n"
             f"Active mutes: {active_mutes} | Warnings on file: {active_warns}\n"
-            f"Use /reports or /reportinfo <id>"
+            f"Use !reports or /reportinfo <id>"
         )
         await _w(bot, user.id, summary[:249])
         _log_usage(user.username, "reports", summary)
@@ -324,7 +324,7 @@ async def _section_errors(bot: BaseBot, user: User) -> None:
                 f"Failed today: {failed_today}\n"
                 f"Latest ID: {latest_id} | Type: {latest_cmd}\n"
                 f"Msg: {latest_err}\n"
-                f"Use /notifystats for details"
+                f"Use !notifystats for details"
             )
         else:
             unresolved = _safe_query(
@@ -343,7 +343,7 @@ async def _section_errors(bot: BaseBot, user: User) -> None:
                 f"Unresolved: {unresolved}\n"
                 f"Latest ID: {latest_id} | Cmd: {latest_cmd}\n"
                 f"Msg: {latest_err}\n"
-                f"Use /errors or /lasterror"
+                f"Use !errors or /lasterror"
             )
 
         await _w(bot, user.id, summary[:249])
@@ -368,7 +368,7 @@ async def handle_dailyadmin(bot: BaseBot, user: User, args: list[str]) -> None:
         return
 
     if not is_staff and section not in _MOD_ALLOWED:
-        await _w(bot, user.id, "Moderators may only use: /dailyadmin reports, /dailyadmin errors")
+        await _w(bot, user.id, "Moderators may only use: !dailyadmin reports, /dailyadmin errors")
         return
 
     _SECTIONS = {

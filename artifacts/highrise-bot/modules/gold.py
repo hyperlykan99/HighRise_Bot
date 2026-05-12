@@ -499,7 +499,7 @@ async def handle_goldtip(bot, user, args: list[str], action_type: str = "goldtip
     if len(args) < 3:
         await bot.highrise.send_whisper(
             user.id,
-            f"Usage: /{action_type} <username> <amount>\n"
+            f"Usage: !{action_type} <username> <amount>\n"
             "Or: /goldtip all <amount>",
         )
         return
@@ -588,7 +588,7 @@ async def handle_goldtipbots(bot, user, args: list[str]) -> None:
 
     val = args[1].lower()
     if val not in ("on", "off"):
-        await bot.highrise.send_whisper(user.id, "Usage: /goldtipbots on|off")
+        await bot.highrise.send_whisper(user.id, "Usage: !goldtipbots on|off")
         return
 
     enabled = val == "on"
@@ -620,7 +620,7 @@ async def _handle_goldtip_all(bot, user, args: list[str]) -> None:
     if len(args) < 3:
         await bot.highrise.send_whisper(
             user.id,
-            "Usage: /goldtip all <amount>\nExample: /goldtip all 1",
+            "Usage: !goldtip all <amount>\nExample: /goldtip all 1",
         )
         return
 
@@ -785,7 +785,7 @@ async def handle_goldrain(bot, user, args: list[str]) -> None:
         return
 
     if len(args) < 2:
-        await bot.highrise.send_whisper(user.id, "Usage: /goldrain <amount> [count]")
+        await bot.highrise.send_whisper(user.id, "Usage: !goldrain <amount> [count]")
         return
 
     try:
@@ -840,7 +840,7 @@ async def handle_goldrainall(bot, user, args: list[str]) -> None:
         return
 
     if len(args) < 2:
-        await bot.highrise.send_whisper(user.id, "Usage: /goldrainall <amount>")
+        await bot.highrise.send_whisper(user.id, "Usage: !goldrainall <amount>")
         return
 
     try:
@@ -933,7 +933,7 @@ async def handle_goldtx(bot, user, args: list[str]) -> None:
         await bot.highrise.send_whisper(user.id, "Only owners can view gold logs.")
         return
     if len(args) < 2:
-        await bot.highrise.send_whisper(user.id, "Usage: /goldtx <username>")
+        await bot.highrise.send_whisper(user.id, "Usage: !goldtx <username>")
         return
     target = args[1].lstrip("@")
     rows = db.get_gold_transactions_by_user(target, limit=5)
@@ -980,7 +980,7 @@ async def handle_confirmgoldtip(bot, user, args: list[str]) -> None:
         await bot.highrise.send_whisper(user.id, "Only owners can confirm gold tips.")
         return
     if len(args) < 2:
-        await bot.highrise.send_whisper(user.id, "Usage: /confirmgoldtip <code>")
+        await bot.highrise.send_whisper(user.id, "Usage: !confirmgoldtip <code>")
         return
 
     code  = args[1].upper()
@@ -1019,7 +1019,7 @@ async def handle_setgoldrainstaff(bot, user, args: list[str]) -> None:
         await bot.highrise.send_whisper(user.id, "Only owners can change gold settings.")
         return
     if len(args) < 2 or args[1].lower() not in ("on", "off"):
-        await bot.highrise.send_whisper(user.id, "Usage: /setgoldrainstaff on/off")
+        await bot.highrise.send_whisper(user.id, "Usage: !setgoldrainstaff on/off")
         return
     val   = "true" if args[1].lower() == "on" else "false"
     state = "included in" if val == "true" else "excluded from"
@@ -1035,7 +1035,7 @@ async def handle_setgoldrainmax(bot, user, args: list[str]) -> None:
         await bot.highrise.send_whisper(user.id, "Only owners can change gold settings.")
         return
     if len(args) < 2:
-        await bot.highrise.send_whisper(user.id, "Usage: /setgoldrainmax <amount>")
+        await bot.highrise.send_whisper(user.id, "Usage: !setgoldrainmax <amount>")
         return
     try:
         val = int(args[1])
@@ -1172,7 +1172,7 @@ async def handle_goldrainrole(bot, user, args: list[str]) -> None:
     if len(args) < 3:
         await bot.highrise.send_whisper(
             user.id,
-            f"Usage: /goldrainrole <role> <amount> [count]\n"
+            f"Usage: !goldrainrole <role> <amount> [count]\n"
             f"Roles: {', '.join(sorted(_VALID_ROLES))}"
         )
         return
@@ -1219,7 +1219,7 @@ async def handle_goldrainvip(bot, user, args: list[str]) -> None:
         await bot.highrise.send_whisper(user.id, "Only owners can send gold.")
         return
     if len(args) < 2:
-        await bot.highrise.send_whisper(user.id, "Usage: /goldrainvip <amount> [count]")
+        await bot.highrise.send_whisper(user.id, "Usage: !goldrainvip <amount> [count]")
         return
 
     try:
@@ -1256,7 +1256,7 @@ async def handle_goldraintitle(bot, user, args: list[str]) -> None:
         return
     if len(args) < 3:
         await bot.highrise.send_whisper(
-            user.id, "Usage: /goldraintitle <title_id> <amount> [count]"
+            user.id, "Usage: !goldraintitle <title_id> <amount> [count]"
         )
         return
 
@@ -1296,7 +1296,7 @@ async def handle_goldrainbadge(bot, user, args: list[str]) -> None:
         return
     if len(args) < 3:
         await bot.highrise.send_whisper(
-            user.id, "Usage: /goldrainbadge <badge_id> <amount> [count]"
+            user.id, "Usage: !goldrainbadge <badge_id> <amount> [count]"
         )
         return
 
@@ -1345,7 +1345,7 @@ async def handle_goldrainlist(bot, user, args: list[str]) -> None:
     if len(args) < 2:
         await bot.highrise.send_whisper(
             user.id,
-            "Usage: /goldrainlist role <role> | title <id> | badge <id> | vip"
+            "Usage: !goldrainlist role <role> | title <id> | badge <id> | vip"
         )
         return
 
@@ -1358,7 +1358,7 @@ async def handle_goldrainlist(bot, user, args: list[str]) -> None:
     elif list_type == "role":
         if len(args) < 3:
             await bot.highrise.send_whisper(
-                user.id, f"Usage: /goldrainlist role <role>\nRoles: {', '.join(sorted(_VALID_ROLES))}"
+                user.id, f"Usage: !goldrainlist role <role>\nRoles: {', '.join(sorted(_VALID_ROLES))}"
             )
             return
         role = args[2].lower()
@@ -1371,13 +1371,13 @@ async def handle_goldrainlist(bot, user, args: list[str]) -> None:
         label = role
     elif list_type == "title":
         if len(args) < 3:
-            await bot.highrise.send_whisper(user.id, "Usage: /goldrainlist title <title_id>")
+            await bot.highrise.send_whisper(user.id, "Usage: !goldrainlist title <title_id>")
             return
         eligible = _get_players_by_title(args[2])
         label = f"[{args[2]}] title"
     elif list_type == "badge":
         if len(args) < 3:
-            await bot.highrise.send_whisper(user.id, "Usage: /goldrainlist badge <badge_id>")
+            await bot.highrise.send_whisper(user.id, "Usage: !goldrainlist badge <badge_id>")
             return
         eligible = _get_players_by_badge(args[2])
         label = f"{args[2]} badge"

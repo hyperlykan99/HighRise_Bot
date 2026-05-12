@@ -335,7 +335,7 @@ def _set_per_ore_override(ore_name: str, setting: str) -> None:
 
 async def handle_oreweightlb(bot: BaseBot, user: User, args: list[str]) -> None:
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /oreweightlb <ore_name>  e.g. /oreweightlb gold_ore")
+        await _w(bot, user.id, "Usage: !oreweightlb <ore_name>  e.g. /oreweightlb gold_ore")
         return
     ore_raw = "_".join(args[1:]).strip().lower()
     mode    = get_weight_setting("weight_lb_mode", "best")
@@ -398,7 +398,7 @@ async def handle_setweightlbmode(bot: BaseBot, user: User, args: list[str]) -> N
         await _w(bot, user.id, "Admin only.")
         return
     if len(args) < 2 or args[1].lower() not in ("best", "all"):
-        await _w(bot, user.id, "Usage: /setweightlbmode <best|all>")
+        await _w(bot, user.id, "Usage: !setweightlbmode <best|all>")
         return
     mode = args[1].lower()
     set_weight_setting("weight_lb_mode", mode)
@@ -434,7 +434,7 @@ async def handle_setmineannounce(bot: BaseBot, user: User, args: list[str]) -> N
         return
     if len(args) < 2 or args[1].lower() not in _VALID_ANNOUNCE_VALS:
         await _w(bot, user.id,
-                 "Usage: /setmineannounce <off|common|rare|epic|legendary|mythic|prismatic|exotic>")
+                 "Usage: !setmineannounce <off|common|rare|epic|legendary|mythic|prismatic|exotic>")
         return
     val = args[1].lower()
     if val == "off":
@@ -453,7 +453,7 @@ async def handle_setoreannounce(bot: BaseBot, user: User, args: list[str]) -> No
         await _w(bot, user.id, "Admin only.")
         return
     if len(args) < 3 or args[-1].lower() not in ("on", "off"):
-        await _w(bot, user.id, "Usage: /setoreannounce <ore_name> <on|off>")
+        await _w(bot, user.id, "Usage: !setoreannounce <ore_name> <on|off>")
         return
     ore_name = "_".join(args[1:-1]).lower()
     setting  = args[-1].lower()
@@ -463,7 +463,7 @@ async def handle_setoreannounce(bot: BaseBot, user: User, args: list[str]) -> No
 
 async def handle_oreannounce(bot: BaseBot, user: User, args: list[str]) -> None:
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /oreannounce <ore_name>")
+        await _w(bot, user.id, "Usage: !oreannounce <ore_name>")
         return
     ore_name  = "_".join(args[1:]).lower()
     overrides = _get_per_ore_overrides()
@@ -514,7 +514,7 @@ async def handle_setmineweights(bot: BaseBot, user: User, args: list[str]) -> No
         await _w(bot, user.id, "Admin only.")
         return
     if len(args) < 2 or args[1].lower() not in ("on", "off"):
-        await _w(bot, user.id, "Usage: /setmineweights <on|off>")
+        await _w(bot, user.id, "Usage: !setmineweights <on|off>")
         return
     val   = "1" if args[1].lower() == "on" else "0"
     label = "ON" if val == "1" else "OFF"
@@ -527,7 +527,7 @@ async def handle_setweightscale(bot: BaseBot, user: User, args: list[str]) -> No
         await _w(bot, user.id, "Admin only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /setweightscale <number>  e.g. /setweightscale 0.5")
+        await _w(bot, user.id, "Usage: !setweightscale <number>  e.g. /setweightscale 0.5")
         return
     try:
         scale = float(args[1])
@@ -546,7 +546,7 @@ async def handle_setrarityweightrange(bot: BaseBot, user: User, args: list[str])
         return
     if len(args) < 4:
         await _w(bot, user.id,
-                 "Usage: /setrarityweightrange <rarity> <min_kg> <max_kg>")
+                 "Usage: !setrarityweightrange <rarity> <min_kg> <max_kg>")
         return
     rarity = args[1].lower()
     valid  = set(RARITY_WEIGHT_RANGES) | {"ultra_rare"}

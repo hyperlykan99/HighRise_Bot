@@ -511,10 +511,10 @@ async def handle_privacy(bot: BaseBot, user: User, args: list[str]) -> None:
         return
     field_name = args[1].lower()
     if field_name not in _PRIVACY_FIELDS:
-        await _w(bot, user.id, "Usage: /privacy money|casino|achievements|inventory on/off")
+        await _w(bot, user.id, "Usage: !privacy money|casino|achievements|inventory on/off")
         return
     if len(args) < 3:
-        await _w(bot, user.id, f"Usage: /privacy {field_name} on/off")
+        await _w(bot, user.id, f"Usage: !privacy {field_name} on/off")
         return
     toggle = args[2].lower()
     if toggle not in ("on", "off"):
@@ -539,7 +539,7 @@ async def handle_profileadmin(bot: BaseBot, user: User, args: list[str]) -> None
         await _w(bot, user.id, "Admins and owners only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /profileadmin <username> [page]")
+        await _w(bot, user.id, "Usage: !profileadmin <username> [page]")
         return
     raw_name = args[1].lstrip("@").strip()
     page     = 1
@@ -571,7 +571,7 @@ async def handle_profileprivacy(bot: BaseBot, user: User, args: list[str]) -> No
         await _w(bot, user.id, "Staff only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /profileprivacy <username>")
+        await _w(bot, user.id, "Usage: !profileprivacy <username>")
         return
     target_name = args[1].lstrip("@").strip()
     privacy     = _get_privacy(target_name)
@@ -593,7 +593,7 @@ async def handle_resetprofileprivacy(bot: BaseBot, user: User, args: list[str]) 
         await _w(bot, user.id, "Admins and owners only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /resetprofileprivacy <username>")
+        await _w(bot, user.id, "Usage: !resetprofileprivacy <username>")
         return
     target_name = args[1].lstrip("@").strip()
     db.reset_profile_privacy(target_name)

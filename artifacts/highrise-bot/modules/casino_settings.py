@@ -166,7 +166,7 @@ async def handle_casinotoggles(bot: BaseBot, user: User, args: list[str]) -> Non
         state  = args[3].lower()
         if state not in ("on", "off"):
             await _w(bot, user.id,
-                "Usage: /casinotoggles <bj|rbj> <winlimit|losslimit> <on|off>")
+                "Usage: !casinotoggles <bj|rbj> <winlimit|losslimit> <on|off>")
             return
         val = 1 if state == "on" else 0
         if game == "bj":
@@ -225,7 +225,7 @@ async def handle_setbjlimits(bot: BaseBot, user: User, args: list[str]) -> None:
 
     if len(args) < 5 or not all(a.isdigit() for a in args[1:5]):
         await _w(bot, user.id,
-            "Usage: /setbjlimits <minbet> <maxbet> <winlimit> <losslimit>\n"
+            "Usage: !setbjlimits <minbet> <maxbet> <winlimit> <losslimit>\n"
             "Example: /setbjlimits 10 1000 5000 3000")
         return
 
@@ -263,7 +263,7 @@ async def handle_setrbjlimits(bot: BaseBot, user: User, args: list[str]) -> None
 
     if len(args) < 5 or not all(a.isdigit() for a in args[1:5]):
         await _w(bot, user.id,
-            "Usage: /setrbjlimits <minbet> <maxbet> <winlimit> <losslimit>\n"
+            "Usage: !setrbjlimits <minbet> <maxbet> <winlimit> <losslimit>\n"
             "Example: /setrbjlimits 50 5000 10000 5000")
         return
 

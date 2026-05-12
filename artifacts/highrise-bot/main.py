@@ -1626,7 +1626,7 @@ ROLES_HELP = (
     "Admin: economy/staff\n"
     "Manager: games/events\n"
     "Mod: reports/reset\n"
-    "Use /allstaff"
+    "Use !allstaff"
 )
 
 AUDIT_HELP_TEXT = (
@@ -2020,8 +2020,8 @@ async def _handle_casino_cmd(bot, user, args):
     else:
         await bot.highrise.send_whisper(
             user.id,
-            "Usage: /casino modes | /casino on | /casino off\n"
-            "/casino reset | /casino leaderboard"
+            "Usage: !casino modes | !casino on | !casino off\n"
+            "!casino reset | !casino leaderboard"
         )
 
 
@@ -2276,7 +2276,7 @@ async def _handle_ownerhelp(bot, user, args):
 
 async def _handle_staff_cmd(bot, user, cmd, args):
     if len(args) < 2:
-        await bot.highrise.send_whisper(user.id, f"Usage: /{cmd} <username>")
+        await bot.highrise.send_whisper(user.id, f"Usage: !{cmd} <username>")
         return
     target = args[1].lstrip("@").lower()
     if cmd == "addowner":
@@ -2377,11 +2377,11 @@ async def _cmd_allcommands(bot, user, args):
     page = int(args[1]) if len(args) > 1 and args[1].isdigit() else 0
     n = len(ALLCMDS)
     if page == 0:
-        await bot.highrise.send_whisper(user.id, f"Use /allcommands 1-{n}.")
+        await bot.highrise.send_whisper(user.id, f"Use !allcommands 1-{n}.")
     elif 1 <= page <= n:
         await bot.highrise.send_whisper(user.id, ALLCMDS[page - 1])
     else:
-        await bot.highrise.send_whisper(user.id, f"Use /allcommands 1-{n}.")
+        await bot.highrise.send_whisper(user.id, f"Use !allcommands 1-{n}.")
 
 
 async def _cmd_checkcommands(bot, user):
@@ -2662,48 +2662,60 @@ class HangoutBot(BaseBot):
             print(f"[RECONNECT] mode={BOT_MODE} id={config.BOT_ID}"
                   f" reconnect #{bot_state.RESTART_COUNT - 1} @ {_now_ts}")
         _install_task_exception_handler()
+
+        def _safe_task(coro, label: str):
+            """Wrap a startup coroutine so one failure never kills the bot."""
+            async def _guarded():
+                try:
+                    await coro
+                except Exception as _e:
+                    import traceback as _tb
+                    print(f"[TASK ERROR] {label} failed: {_e!r}")
+                    _tb.print_exc()
+            return asyncio.create_task(_guarded())
+
         # Seed the room user cache from the live room list
-        asyncio.create_task(refresh_room_cache(self))
+        _safe_task(refresh_room_cache(self), "refresh_room_cache")
         # Recover active event — events bot only
         if should_this_bot_run_module("events"):
-            asyncio.create_task(startup_event_check(self))
-            asyncio.create_task(startup_mining_event_check(self))
+            _safe_task(startup_event_check(self),       "startup_event_check")
+            _safe_task(startup_mining_event_check(self),"startup_mining_event_check")
         else:
             print(f"[EVENTS] Startup check skipped — not events bot ({BOT_MODE}).")
         # Recover BJ/RBJ tables — blackjack bot only
         if should_this_bot_run_module("blackjack"):
-            asyncio.create_task(startup_bj_recovery(self))
-            asyncio.create_task(startup_rbj_recovery(self))
+            _safe_task(startup_bj_recovery(self),  "startup_bj_recovery")
+            _safe_task(startup_rbj_recovery(self), "startup_rbj_recovery")
         else:
             print(f"[BJ] Recovery skipped — not blackjack bot ({BOT_MODE}).")
         # Recover poker table — poker bot only
         if should_this_bot_run_module("poker"):
-            asyncio.create_task(startup_poker_recovery(self))
+            _safe_task(startup_poker_recovery(self), "startup_poker_recovery")
         else:
             print(f"[POKER] Recovery skipped — not poker bot ({BOT_MODE}).")
-        # Recover AutoMine / AutoFish sessions — miner bot only
+        # Recover AutoMine / AutoFish sessions — miner/fisher bots only
         if should_this_bot_run_module("mining"):
-            asyncio.create_task(startup_automine_recovery(self))
+            _safe_task(startup_automine_recovery(self), "startup_automine_recovery")
         else:
             print(f"[AUTOMINE] Recovery skipped — not miner bot ({BOT_MODE}).")
         if should_this_bot_run_module("fishing"):
-            asyncio.create_task(startup_autofish_recovery(self))
+            _safe_task(startup_autofish_recovery(self), "startup_autofish_recovery")
         else:
             print(f"[AUTOFISH] Recovery skipped — not fisher bot ({BOT_MODE}).")
-        # Big announce reactor — runs on all non-miner/non-fisher bots
-        asyncio.create_task(startup_big_announce_reactor(self))
-        # First-find announcer — EmceeBot announces winners publicly
+        # Big announce reactor
+        _safe_task(startup_big_announce_reactor(self), "startup_big_announce_reactor")
+        # First-find announcer — host/all bots
         if BOT_MODE in ("host", "all"):
-            asyncio.create_task(startup_firstfind_announcer(self))
-        # First-find banker — BankerBot logs gold tip status
+            _safe_task(startup_firstfind_announcer(self), "startup_firstfind_announcer")
+        # First-find banker — banker/all bots
         if BOT_MODE in ("banker", "all"):
-            asyncio.create_task(startup_firstfind_banker(self))
-        # Start time-in-room EXP loop — host bot only
+            _safe_task(startup_firstfind_banker(self), "startup_firstfind_banker")
+        # Time-in-room EXP loop — host bot only
         if should_this_bot_run_module("timeexp"):
-            asyncio.create_task(time_exp_loop(self))
+            _safe_task(time_exp_loop(self), "time_exp_loop")
         else:
             print(f"[TIME_EXP] Loop skipped — not host bot ({BOT_MODE}).")
-        # Start background automation loops (idempotent — safe on reconnect)
+        # Background automation loops (idempotent — safe on reconnect)
         try:
             start_auto_game_loop(self)
         except Exception:
@@ -2714,26 +2726,29 @@ class HangoutBot(BaseBot):
         except Exception:
             import traceback; traceback.print_exc()
             print("[STARTUP ERROR] start_auto_event_loop failed — bot continues.")
-        # Start room interval message loop
+        # Room interval message loop
         try:
             await start_interval_loop(self)
         except Exception:
             import traceback; traceback.print_exc()
             print("[STARTUP ERROR] start_interval_loop failed — bot continues.")
-        # Start multi-bot heartbeat (no-op in single-bot mode)
-        asyncio.create_task(start_multibot_heartbeat(self))
-        # AI delegated task polling loop (picks up cross-bot outfit/command tasks)
-        asyncio.create_task(_ai_delegated_task_loop(self))
-        # Startup safety checks (logs warnings, does not spam room)
+        # Multi-bot heartbeat
+        _safe_task(start_multibot_heartbeat(self), "start_multibot_heartbeat")
+        # AI delegated task polling loop
+        _safe_task(_ai_delegated_task_loop(self), "_ai_delegated_task_loop")
+        # Startup safety checks (logs warnings only)
         try:
             check_startup_safety()
         except Exception:
             import traceback; traceback.print_exc()
             print("[STARTUP ERROR] check_startup_safety failed — bot continues.")
-        # Conditional startup room announce (respects settings + 10-min cooldown)
-        asyncio.create_task(send_startup_announce(self))
-        # Teleport bot to its configured spawn position (if set)
-        asyncio.create_task(apply_bot_spawn(self, get_bot_username() or config.BOT_USERNAME))
+        # Startup room announce
+        _safe_task(send_startup_announce(self), "send_startup_announce")
+        # Bot spawn
+        _safe_task(
+            apply_bot_spawn(self, get_bot_username() or config.BOT_USERNAME),
+            "apply_bot_spawn"
+        )
 
     # ── on_chat safety wrapper ────────────────────────────────────────────────
     async def on_chat(self, user: User, message: str) -> None:
@@ -2755,9 +2770,24 @@ class HangoutBot(BaseBot):
     async def _on_chat_impl(self, user: User, message: str) -> None:
         """
         Called for every public chat message.
-        Ignores anything that doesn't start with '/'.
+        Accepts ! commands. Redirects / commands to use ! instead.
         """
         message = message.strip()
+
+        # ── / → ! redirect — tell players to use ! commands ──────────────────
+        if message.startswith("/") and not message.startswith("//"):
+            _slash_cmd = message.split()[0] if message.split() else "/"
+            # Only redirect if it looks like a real command attempt (not a URL)
+            if len(_slash_cmd) > 1 and not _slash_cmd.startswith("//"):
+                _bang_equiv = "!" + _slash_cmd[1:]
+                try:
+                    await self.highrise.send_whisper(
+                        user.id,
+                        f"⚠️ Use ! commands only.\nTry: {_bang_equiv}"
+                    )
+                except Exception:
+                    pass
+                return
 
         # ── !help — FIRST THING, before AI intercept, before time-EXP,
         #    before everything.  Bulletproof: no DB, no registry, no name lookup.
@@ -2904,8 +2934,6 @@ class HangoutBot(BaseBot):
                 await handle_bankwatch(self, user, args)
             elif cmd in BANK_ADMIN_SET_CMDS:
                 await handle_bank_set(self, user, cmd, args)
-            elif cmd == "audithelp":
-                await handle_audithelp(self, user)
             elif cmd == "audit":
                 await handle_audit(self, user, args)
             elif cmd == "auditbank":
@@ -2926,8 +2954,6 @@ class HangoutBot(BaseBot):
                 await handle_setgameprice(self, user, args)
             elif cmd == "messageaudit":
                 await handle_messageaudit(self, user, args)
-            elif cmd == "economysettings":
-                await handle_economysettings(self, user)
             elif cmd == "setdailycoins":
                 await handle_setdailycoins(self, user, args)
             elif cmd == "setgamereward":
@@ -2956,14 +2982,6 @@ class HangoutBot(BaseBot):
                 await handle_setrules(self, user, args)
             elif cmd == "automod":
                 await handle_automod(self, user, args)
-            elif cmd == "reports":
-                await handle_reports(self, user)
-            elif cmd == "reportinfo":
-                await handle_reportinfo(self, user, args)
-            elif cmd == "closereport":
-                await handle_closereport(self, user, args)
-            elif cmd == "reportwatch":
-                await handle_reportwatch(self, user, args)
             elif cmd == "profileadmin":
                 await handle_profileadmin(self, user, args)
             elif cmd == "profileprivacy":
@@ -3094,40 +3112,10 @@ class HangoutBot(BaseBot):
                 await handle_dailyadmin(self, user, args)
 
             # ── Poker staff commands ──────────────────────────────────────────
-            elif cmd == "setpokercardmarker":
-                from modules.poker import handle_setpokercardmarker
-                await handle_setpokercardmarker(self, user, args)
-
-            elif cmd == "setpokertimer" or cmd == "setpokerturntimer":
-                print(f"[POKER TIMER] COMMAND RECEIVED | cmd={cmd} user={user.username}")
-                await handle_setpokertimer(self, user, args)
-
-            elif cmd == "setpokerlobbytimer":
-                print(f"[POKER TIMER] COMMAND RECEIVED | cmd={cmd} user={user.username}")
-                await handle_setpokerlobbytimer(self, user, args)
-
-            elif cmd == "setpokerbuyin":
-                await handle_setpokerbuyin(self, user, args)
-
-            elif cmd == "setpokerplayers":
-                await handle_setpokerplayers(self, user, args)
-
-            elif cmd == "setpokerraise":
-                await handle_setpokerraise(self, user, args)
-
-            elif cmd == "setpokerdailywinlimit":
-                await handle_setpokerdailywinlimit(self, user, args)
-
-            elif cmd == "setpokerdailylosslimit":
-                await handle_setpokerdailylosslimit(self, user, args)
-
-            elif cmd == "resetpokerlimits":
-                await handle_resetpokerlimits(self, user, args)
-
             elif cmd == "resetbjlimits":
                 target = args[1].lstrip("@") if len(args) > 1 else ""
                 if not target:
-                    await self.highrise.send_whisper(user.id, "Usage: /resetbjlimits <username>")
+                    await self.highrise.send_whisper(user.id, "Usage: !resetbjlimits <username>")
                 else:
                     rec = db.find_or_stub_user(target)
                     db.reset_bj_daily_limits(rec["user_id"])
@@ -3136,48 +3124,11 @@ class HangoutBot(BaseBot):
             elif cmd == "resetrbjlimits":
                 target = args[1].lstrip("@") if len(args) > 1 else ""
                 if not target:
-                    await self.highrise.send_whisper(user.id, "Usage: /resetrbjlimits <username>")
+                    await self.highrise.send_whisper(user.id, "Usage: !resetrbjlimits <username>")
                 else:
                     rec = db.find_or_stub_user(target)
                     db.reset_rbj_daily_limits(rec["user_id"])
                     await self.highrise.send_whisper(user.id, f"✅ RBJ daily limits reset for @{target}.")
-
-            elif cmd == "setpokerlimits":
-                await handle_setpokerlimits(self, user, args)
-
-            elif cmd == "pokerdebug":
-                await handle_pokerdebug(self, user, args)
-
-            elif cmd == "pokerfix":
-                await handle_pokerfix(self, user, args)
-
-            elif cmd == "pokerrefundall":
-                await handle_pokerrefundall(self, user, args)
-
-            elif cmd == "pokercleanup":
-                await handle_pokercleanup(self, user, args)
-
-            elif cmd == "confirmclosepoker":
-                await handle_confirmclosepoker(self, user, args)
-
-            elif cmd == "casinointegrity":
-                if not can_manage_games(user.username):
-                    await self.highrise.send_whisper(user.id, "Staff only.")
-                else:
-                    sub = args[1].lower() if len(args) > 1 else ""
-                    from modules.casino_integrity import run_casino_integrity
-                    await run_casino_integrity(self, user, sub)
-
-            elif cmd == "integritylogs":
-                from modules.casino_integrity import handle_integritylogs
-                await handle_integritylogs(self, user, args)
-
-            elif cmd == "carddeliverycheck":
-                if not can_manage_games(user.username):
-                    await self.highrise.send_whisper(user.id, "Staff only.")
-                else:
-                    from modules.casino_integrity import run_carddelivery_check
-                    await run_carddelivery_check(self, user, args)
 
             # ── Admin / owner power commands ──────────────────────────────────
             # Coins
@@ -3283,36 +3234,10 @@ class HangoutBot(BaseBot):
                 await handle_adminloginfo(self, user, args)
             elif cmd == "checkhelp":
                 await _audit_checkhelp(self, user, ALL_KNOWN_COMMANDS)
-            elif cmd == "announce_subs":
-                await handle_announce_subs(self, user, args)
-            elif cmd == "dmnotify":
-                await handle_dmnotify(self, user, args)
             elif cmd == "eventstart":
                 await handle_startevent(self, user, args)
             elif cmd == "eventstop":
                 await handle_stopevent(self, user, args)
-
-            # ── Bot health / deployment checks ────────────────────────────────
-            elif cmd == "bothealth":
-                await handle_bothealth(self, user, args)
-            elif cmd == "modulehealth":
-                await handle_modulehealth(self, user, args)
-            elif cmd == "deploymentcheck":
-                await handle_deploymentcheck(self, user, args)
-            elif cmd == "botheartbeat":
-                await handle_botheartbeat(self, user)
-            elif cmd == "botconflicts":
-                await handle_botconflicts(self, user)
-            elif cmd == "botlocks":
-                await handle_botlocks(self, user)
-            elif cmd == "moduleowners":
-                await handle_moduleowners(self, user, args)
-            elif cmd == "dblockcheck":
-                await handle_dblockcheck(self, user, args)
-            elif cmd == "clearstalebotlocks":
-                await handle_clearstalebotlocks(self, user)
-            elif cmd == "fixbotowners":
-                await handle_fixbotowners(self, user, args)
 
             else:
                 await handle_admin_command(self, user, cmd, args)
@@ -3456,12 +3381,12 @@ class HangoutBot(BaseBot):
                 await handle_buy_number(self, user, args)
             # /buy with no valid sub
             elif sub in ("badge", "title"):
-                await self.highrise.send_whisper(user.id, f"Usage: /buy {sub} <id>")
+                await self.highrise.send_whisper(user.id, f"Usage: !buy {sub} <id>")
             else:
                 await self.highrise.send_whisper(
                     user.id,
-                    "Buy by number: /buy <#> (open /shop badges first)\n"
-                    "Or by ID: /buy badge <id>  /buy title <id>"
+                    "Buy by number: !buy <#> (open !shop badges first)\n"
+                    "Or by ID: !buy badge <id>  !buy title <id>"
                 )
 
         elif cmd == "equip":
@@ -3471,7 +3396,7 @@ class HangoutBot(BaseBot):
                 if badge_id:
                     await handle_equip_badge(self, user, badge_id)
                 else:
-                    await self.highrise.send_whisper(user.id, "Usage: /equip badge <id>")
+                    await self.highrise.send_whisper(user.id, "Usage: !equip badge <id>")
             else:
                 await handle_equip(self, user, args)
 
@@ -3480,7 +3405,7 @@ class HangoutBot(BaseBot):
             if sub == "badge":
                 await handle_unequip_badge(self, user)
             else:
-                await self.highrise.send_whisper(user.id, "Usage: /unequip badge")
+                await self.highrise.send_whisper(user.id, "Usage: !unequip badge")
 
         elif cmd == "myitems":
             await handle_myitems(self, user)
@@ -3511,11 +3436,11 @@ class HangoutBot(BaseBot):
                     if item:
                         await handle_badgebuy(self, user, ["badgebuy", str(item["listing_id"])])
                     else:
-                        await self.highrise.send_whisper(user.id, "Invalid number. Open /badgemarket first.")
+                        await self.highrise.send_whisper(user.id, "Invalid number. Open !badgemarket first.")
                 else:
-                    await self.highrise.send_whisper(user.id, "Open /badgemarket first.")
+                    await self.highrise.send_whisper(user.id, "Open !badgemarket first.")
             else:
-                await self.highrise.send_whisper(user.id, "Usage: /marketbuy <#>  (open /badgemarket first)")
+                await self.highrise.send_whisper(user.id, "Usage: !marketbuy <#>  (open !badgemarket first)")
 
         elif cmd == "shopadmin":
             await handle_shopadmin(self, user, args)
@@ -3569,9 +3494,6 @@ class HangoutBot(BaseBot):
 
         elif cmd == "events":
             await handle_events(self, user)
-
-        elif cmd == "eventhelp":
-            await handle_eventhelp(self, user)
 
         elif cmd == "eventstatus":
             await handle_eventstatus(self, user)
@@ -4043,12 +3965,6 @@ class HangoutBot(BaseBot):
         elif cmd == "fixsub":
             await handle_fixsub(self, user, args)
 
-        elif cmd == "dmnotify":
-            await handle_dmnotify(self, user, args)
-
-        elif cmd == "announce_subs":
-            await handle_announce_subs(self, user, args)
-
         elif cmd == "subhelp":
             await handle_subhelp(self, user, args)
 
@@ -4398,7 +4314,7 @@ class HangoutBot(BaseBot):
         elif cmd == "answer":
             answer_text = " ".join(args[1:]).strip()
             if not answer_text:
-                await self.highrise.send_whisper(user.id, "Usage: /answer <your answer>")
+                await self.highrise.send_whisper(user.id, "Usage: !answer <your answer>")
                 return
             await games_handle_answer(self, user, answer_text)
 
@@ -4457,7 +4373,7 @@ class HangoutBot(BaseBot):
                 await handle_poker(self, user, ["poker", "join"] + args[1:])
             else:
                 await self.highrise.send_whisper(
-                    user.id, "Use /p <buyin> to join poker. E.g. /p 500")
+                    user.id, "Use !p <buyin> to join poker. E.g. !p 500")
 
         # /pj <num>  → poker join
         elif cmd == "pj":
@@ -4465,7 +4381,7 @@ class HangoutBot(BaseBot):
                 await handle_poker(self, user, ["poker", "join"] + args[1:])
             else:
                 await self.highrise.send_whisper(
-                    user.id, "Use /pj <buyin> to join poker. E.g. /pj 500")
+                    user.id, "Use !pj <buyin> to join poker. E.g. !pj 500")
 
         elif cmd == "pt":
             await handle_poker(self, user, ["poker", "table"])
@@ -4487,7 +4403,7 @@ class HangoutBot(BaseBot):
                 await handle_poker(self, user, ["poker", "raise"] + args[1:])
             else:
                 await self.highrise.send_whisper(
-                    user.id, "Use /r <amount> to raise. E.g. /r 200")
+                    user.id, "Use !r <amount> to raise. E.g. !r 200")
 
         elif cmd in ("fold", "f"):
             await handle_poker(self, user, ["poker", "fold"])
@@ -5752,9 +5668,12 @@ class HangoutBot(BaseBot):
 
     async def on_user_join(self, user: User, position) -> None:
         """Register new players and greet them when they enter the room."""
-        db.ensure_user(user.id, user.username)
-        add_to_room_cache(user.id, user.username)
-        time_exp_record_join(user.id)
+        try:
+            db.ensure_user(user.id, user.username)
+            add_to_room_cache(user.id, user.username)
+            time_exp_record_join(user.id)
+        except Exception as _e:
+            print(f"[ON_JOIN ERROR] db/cache for @{user.username}: {_e!r}")
         # Update position cache for follow/teleport
         try:
             from highrise.models import Position as _Pos
@@ -5762,18 +5681,23 @@ class HangoutBot(BaseBot):
                 update_user_position(user.id, position)
         except Exception:
             pass
-        # Send custom welcome message if configured (whisper, once per user)
-        asyncio.create_task(send_welcome_if_needed(self, user))
-        # Send per-bot personalized welcome whisper (once per cooldown window)
-        asyncio.create_task(send_bot_welcome(
+
+        def _sj(coro, label):
+            async def _g():
+                try:
+                    await coro
+                except Exception as _e2:
+                    print(f"[ON_JOIN TASK ERROR] {label} @{user.username}: {_e2!r}")
+            return asyncio.create_task(_g())
+
+        _sj(send_welcome_if_needed(self, user), "send_welcome_if_needed")
+        _sj(send_bot_welcome(
             self, user, get_bot_username() or BOT_MODE, stagger_seconds=2.0
-        ))
-        # Deliver any queued bank, subscriber, and typed notifications
-        asyncio.create_task(_deliver_pending_bank_notifications(self, user))
-        asyncio.create_task(deliver_pending_subscriber_messages(self, user.username.lower()))
-        asyncio.create_task(deliver_pending_notifications(self, user.username.lower()))
-        # Auto-spawn: teleport user to their role spawn if enabled
-        asyncio.create_task(_autospawn_user_on_join(self, user))
+        ), "send_bot_welcome")
+        _sj(_deliver_pending_bank_notifications(self, user), "bank_notif")
+        _sj(deliver_pending_subscriber_messages(self, user.username.lower()), "sub_notif")
+        _sj(deliver_pending_notifications(self, user.username.lower()), "typed_notif")
+        _sj(_autospawn_user_on_join(self, user), "autospawn")
 
     async def on_tip(self, sender: User, receiver: User, tip) -> None:
         """
@@ -5831,9 +5755,12 @@ class HangoutBot(BaseBot):
 
     async def on_user_leave(self, user: User) -> None:
         """Log when a player leaves, remove from cache, stop AutoMine/AutoFish."""
-        remove_from_room_cache(user.id)
-        time_exp_record_leave(user.id)
-        print(f"[HangoutBot] {user.username} left.")
+        try:
+            remove_from_room_cache(user.id)
+            time_exp_record_leave(user.id)
+            print(f"[HangoutBot] {user.username} left.")
+        except Exception as _e:
+            print(f"[ON_LEAVE ERROR] cache for @{user.username}: {_e!r}")
         try:
             stop_automine_for_user(user.id, user.username, "player_left")
         except Exception:
@@ -5848,9 +5775,12 @@ class HangoutBot(BaseBot):
         Debug hook — subscribed so the Highrise server sends reaction events.
         Logs every reaction so we can see if gold tips arrive here instead of on_tip.
         """
-        raw = f"reaction={reaction!r} from=@{user.username}({user.id}) to=@{receiver.username}({receiver.id})"
-        print(f"DEBUG EVENT FIRED: on_reaction | {raw}")
-        record_debug_any_event("on_reaction", raw)
+        try:
+            raw = f"reaction={reaction!r} from=@{user.username}({user.id}) to=@{receiver.username}({receiver.id})"
+            print(f"DEBUG EVENT FIRED: on_reaction | {raw}")
+            record_debug_any_event("on_reaction", raw)
+        except Exception as _e:
+            print(f"[ON_REACTION ERROR] {_e!r}")
 
     async def on_channel(self, sender_id: str, message: str, tags: set) -> None:
         """
@@ -5881,13 +5811,14 @@ class HangoutBot(BaseBot):
         Debug hook — overriding BaseBot adds 'emote' to subscriptions.
         Logs emotes silently; only prints if emote ID looks tip-related.
         """
-        time_exp_record_activity(user.id)
-        raw = f"user=@{user.username}({user.id}) emote_id={emote_id!r} receiver={receiver!r}"
-        record_debug_any_event("on_emote", raw)
-        # Only log emote events to console; very high volume, keep quiet
-        # unless explicitly tip-related
-        if "tip" in emote_id.lower() or "gold" in emote_id.lower():
-            print(f"DEBUG EVENT FIRED: on_emote | {raw}")
+        try:
+            time_exp_record_activity(user.id)
+            raw = f"user=@{user.username}({user.id}) emote_id={emote_id!r} receiver={receiver!r}"
+            record_debug_any_event("on_emote", raw)
+            if "tip" in emote_id.lower() or "gold" in emote_id.lower():
+                print(f"DEBUG EVENT FIRED: on_emote | {raw}")
+        except Exception as _e:
+            print(f"[ON_EMOTE ERROR] {_e!r}")
 
     async def on_message(self, user_id: str, conversation_id: str, is_new_conversation: bool) -> None:
         """

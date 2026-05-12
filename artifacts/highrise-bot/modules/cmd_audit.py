@@ -1117,7 +1117,7 @@ async def handle_commandtest(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Staff only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /commandtest <command>")
+        await _w(bot, user.id, "Usage: !commandtest <command>")
         return
     cmd = args[1].lstrip("!/").lower()
     try:
@@ -1334,7 +1334,7 @@ async def handle_commandtestall(
         return
     if len(args) < 2:
         await _w(bot, user.id,
-                 "Usage: /commandtestall <cmd1> <cmd2> ...  (alias: /ctall)")
+                 "Usage: !commandtestall <cmd1> <cmd2> ...  (alias: /ctall)")
         return
     cmds = [a.lower().lstrip("/") for a in args[1:]]
     if all_known is None:
@@ -1388,7 +1388,7 @@ async def handle_commandtestgroup(
         return
     if len(args) < 2:
         await _w(bot, user.id,
-                 "Usage: /commandtestgroup <group>  e.g. /ctgroup mining")
+                 "Usage: !commandtestgroup <group>  e.g. /ctgroup mining")
         return
     group = args[1].lower()
     if all_known is None:

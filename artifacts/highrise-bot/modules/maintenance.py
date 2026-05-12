@@ -191,7 +191,7 @@ async def handle_maintenance(bot: BaseBot, user: User, args: list[str]) -> None:
                 await _chat(bot, "✅ Maintenance complete — all features restored!")
                 await _w(bot, user.id, "✅ Global maintenance disabled.")
         else:
-            await _w(bot, user.id, "Usage: /maintenance all on|off")
+            await _w(bot, user.id, "Usage: !maintenance all on|off")
 
     # ── /maintenance bot <name> on|off [reason] ───────────────────────────────
     elif sub == "bot":
@@ -200,14 +200,14 @@ async def handle_maintenance(bot: BaseBot, user: User, args: list[str]) -> None:
             return
         if len(args) < 4:
             await _w(bot, user.id,
-                     "Usage: /maintenance bot <botname> on|off [reason]")
+                     "Usage: !maintenance bot <botname> on|off [reason]")
             return
         target_bot = args[2].lower()
         toggle     = args[3].lower()
         reason     = " ".join(args[4:])[:100] if len(args) > 4 else ""
         if toggle not in ("on", "off"):
             await _w(bot, user.id,
-                     "Usage: /maintenance bot <botname> on|off [reason]")
+                     "Usage: !maintenance bot <botname> on|off [reason]")
             return
         enabled = toggle == "on"
         try:

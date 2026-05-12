@@ -945,18 +945,18 @@ _HANDLER_MAP: dict[str, tuple[str, str]] = {
 # ---------------------------------------------------------------------------
 
 _SAFE_RESPONSES: dict[str, str] = {
-    "minehelp":      "⛏️ Use /minehelp for the full mining guide.",
-    "daily":         "🎁 Use /daily to claim your daily reward.",
-    "leaderboard":   "🏆 Use /lb to see the top coin holders.",
-    "help":          "❓ Use /help for all commands, /mycommands for your list.",
-    "aicapabilities":"🤖 Use /aicapabilities to see what I can understand.",
-    "bjhelp":        "🃏 Use /bjhelp for blackjack rules.",
-    "rbjhelp":       "🃏 Use /rbjhelp for Realistic Blackjack rules.",
-    "spawninfo":     "📍 Use /spawninfo <name> to view spawn coordinates.",
-    "botoutfit":     "👗 Use /botoutfit to check this bot's saved outfit.",
-    "orebook":       "📖 Use /orebook to read about ore types.",
-    "orestats":      "📊 Use /orestats to see mining leaderboard.",
-    "minebuy":       "⛏️ Use /minebuy <item> to buy mining supplies.",
+    "minehelp":      "⛏️ Use !minehelp for the full mining guide.",
+    "daily":         "🎁 Use !daily to claim your daily reward.",
+    "leaderboard":   "🏆 Use !lb to see the top coin holders.",
+    "help":          "❓ Use !help for all commands, /mycommands for your list.",
+    "aicapabilities":"🤖 Use !aicapabilities to see what I can understand.",
+    "bjhelp":        "🃏 Use !bjhelp for blackjack rules.",
+    "rbjhelp":       "🃏 Use !rbjhelp for Realistic Blackjack rules.",
+    "spawninfo":     "📍 Use !spawninfo <name> to view spawn coordinates.",
+    "botoutfit":     "👗 Use !botoutfit to check this bot's saved outfit.",
+    "orebook":       "📖 Use !orebook to read about ore types.",
+    "orestats":      "📊 Use !orestats to see mining leaderboard.",
+    "minebuy":       "⛏️ Use !minebuy <item> to buy mining supplies.",
 }
 
 
@@ -1242,7 +1242,7 @@ async def _execute_handler(bot, user, cmd: str, args_list: list[str]) -> None:
     """Call a handler from _HANDLER_MAP with correct arity."""
     if cmd not in _HANDLER_MAP:
         await _w(bot, user.id,
-                 f"✅ Try /{cmd}{(' ' + ' '.join(args_list[1:])) if len(args_list) > 1 else ''} manually.")
+                 f"✅ Try !{cmd}{(' ' + ' '.join(args_list[1:])) if len(args_list) > 1 else ''} manually.")
         return
     module_path, fn_name = _HANDLER_MAP[cmd]
     try:
@@ -1316,7 +1316,7 @@ async def _execute_confirmed(bot, user, command: str, args_str: str) -> None:
                 # User named a specific target, but we couldn't resolve it
                 await _w(bot, user.id,
                          f"I don't recognize '@{parts[0].lstrip('@')}' as one of my bot"
-                         f" accounts. Use /bots or /bothealth to see online bots.")
+                         f" accounts. Use !bots or /bothealth to see online bots.")
                 return
 
     # Local execution
@@ -1374,7 +1374,7 @@ async def _handle_ai_text(bot, user, text: str) -> None:
 
     if _is_blocked(text):
         await _w(bot, user.id,
-                 "I can't help with secrets or tokens. Try /help for available commands.")
+                 "I can't help with secrets or tokens. Try !help for available commands.")
         db.log_ai_action(user.username, text[:150], "BLOCKED", BLOCKED, "blocked")
         return
 
@@ -1382,7 +1382,7 @@ async def _handle_ai_text(bot, user, text: str) -> None:
     if intent is None:
         await _w(bot, user.id,
                  "I don't have a command for that yet. "
-                 "Try /help or /aicapabilities.")
+                 "Try !help or /aicapabilities.")
         db.log_ai_action(user.username, text[:150], "unknown", SAFE, "no_match")
         return
 
@@ -1405,7 +1405,7 @@ async def _handle_ai_text(bot, user, text: str) -> None:
             response = _SAFE_RESPONSES.get(cmd)
             if not response:
                 args_hint = f" {intent.args_str}" if intent.args_str else ""
-                response  = f"Use /{cmd}{args_hint} to {intent.human_readable}."
+                response  = f"Use !{cmd}{args_hint} to {intent.human_readable}."
             await _w(bot, user.id, response)
             db.log_ai_action(user.username, text[:150], cmd, risk, "suggested")
         return
@@ -1580,7 +1580,7 @@ async def handle_confirm_cmd(bot, user, args: list[str]) -> None:
         if not consumed:
             await _w(bot, user.id, "You have no pending action to cancel.")
     else:
-        await _w(bot, user.id, "Usage: /confirm yes  or  /confirm no")
+        await _w(bot, user.id, "Usage: !confirm yes  or  /confirm no")
 
 
 # ---------------------------------------------------------------------------
@@ -1622,7 +1622,7 @@ async def handle_aidebug(bot, user, args: list[str]) -> None:
         await _w(bot, user.id, "Admin only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /aidebug <message to test>")
+        await _w(bot, user.id, "Usage: !aidebug <message to test>")
         return
 
     from config import BOT_USERNAME

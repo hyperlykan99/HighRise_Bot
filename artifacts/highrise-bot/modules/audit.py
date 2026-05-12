@@ -88,7 +88,7 @@ async def handle_audit(bot: BaseBot, user: User, args: list[str]):
         return
     target_name = _resolve(args, user.id)
     if not target_name:
-        await _w(bot, user.id, "Usage: /audit <username>")
+        await _w(bot, user.id, "Usage: !audit <username>")
         return
 
     # Ensure user exists in DB (creates placeholder if first lookup)
@@ -122,7 +122,7 @@ async def handle_auditbank(bot: BaseBot, user: User, args: list[str]):
         return
     target_name = _resolve(args, user.id)
     if not target_name:
-        await _w(bot, user.id, "Usage: /auditbank <username>")
+        await _w(bot, user.id, "Usage: !auditbank <username>")
         return
 
     target = db.resolve_or_create_user(target_name)
@@ -169,7 +169,7 @@ async def handle_auditcasino(bot: BaseBot, user: User, args: list[str]):
         return
     target_name = _resolve(args, user.id)
     if not target_name:
-        await _w(bot, user.id, "Usage: /auditcasino <username>")
+        await _w(bot, user.id, "Usage: !auditcasino <username>")
         return
 
     target = db.resolve_or_create_user(target_name)
@@ -200,7 +200,7 @@ async def handle_auditeconomy(bot: BaseBot, user: User, args: list[str]):
         return
     target_name = _resolve(args, user.id)
     if not target_name:
-        await _w(bot, user.id, "Usage: /auditeconomy <username>")
+        await _w(bot, user.id, "Usage: !auditeconomy <username>")
         return
 
     target = db.resolve_or_create_user(target_name)

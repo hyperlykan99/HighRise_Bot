@@ -109,7 +109,7 @@ async def _w(bot: BaseBot, uid: str, msg: str) -> None:
 
 async def handle_rep(bot: BaseBot, user: User, args: list[str]) -> None:
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /rep <username>")
+        await _w(bot, user.id, "Usage: !rep <username>")
         return
 
     target_name = args[1].lstrip("@").strip()
@@ -200,7 +200,7 @@ async def handle_replog(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Staff only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /replog <username>")
+        await _w(bot, user.id, "Usage: !replog <username>")
         return
 
     target_name = args[1].lstrip("@").strip()
@@ -231,7 +231,7 @@ async def handle_addrep(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Admins and owners only.")
         return
     if len(args) < 3 or not args[2].lstrip("-").isdigit():
-        await _w(bot, user.id, "Usage: /addrep <username> <amount>")
+        await _w(bot, user.id, "Usage: !addrep <username> <amount>")
         return
 
     target_name = args[1].lstrip("@").strip()
@@ -256,7 +256,7 @@ async def handle_removerep(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Admins and owners only.")
         return
     if len(args) < 3 or not args[2].lstrip("-").isdigit():
-        await _w(bot, user.id, "Usage: /removerep <username> <amount>")
+        await _w(bot, user.id, "Usage: !removerep <username> <amount>")
         return
 
     target_name = args[1].lstrip("@").strip()

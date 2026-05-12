@@ -515,7 +515,7 @@ async def handle_settiprate(bot: BaseBot, user: User, args: list) -> None:
         await _whisper(bot, user.id, "Admins only.")
         return
     if len(args) < 2 or not args[1].isdigit():
-        await _whisper(bot, user.id, "Usage: /settiprate <coins_per_gold>")
+        await _whisper(bot, user.id, "Usage: !settiprate <coins_per_gold>")
         return
     val = int(args[1])
     if not (1 <= val <= 1000):
@@ -530,7 +530,7 @@ async def handle_settipcap(bot: BaseBot, user: User, args: list) -> None:
         await _whisper(bot, user.id, "Admins only.")
         return
     if len(args) < 2 or not args[1].isdigit():
-        await _whisper(bot, user.id, "Usage: /settipcap <gold_amount>")
+        await _whisper(bot, user.id, "Usage: !settipcap <gold_amount>")
         return
     val = int(args[1])
     if not (100 <= val <= 1_000_000):
@@ -545,7 +545,7 @@ async def handle_settiptier(bot: BaseBot, user: User, args: list) -> None:
         await _whisper(bot, user.id, "Admins only.")
         return
     if len(args) < 3:
-        await _whisper(bot, user.id, "Usage: /settiptier <100|500|1000|5000> <bonus%>")
+        await _whisper(bot, user.id, "Usage: !settiptier <100|500|1000|5000> <bonus%>")
         return
     _TIER_KEYS = {
         "100":  "tier_100_bonus",
@@ -576,7 +576,7 @@ async def handle_settipautosub(bot: BaseBot, user: User, args: list) -> None:
     if len(args) < 2 or args[1].lower() not in ("on", "off"):
         current = db.get_tip_settings().get("tip_auto_sub", "1")
         label = "ON" if current == "1" else "OFF"
-        await _whisper(bot, user.id, f"Tip auto-subscribe is currently {label}. Use /settipautosub on|off")
+        await _whisper(bot, user.id, f"Tip auto-subscribe is currently {label}. Use !settipautosub on|off")
         return
     val = "1" if args[1].lower() == "on" else "0"
     db.set_tip_setting("tip_auto_sub", val)
@@ -592,7 +592,7 @@ async def handle_settipresubscribe(bot: BaseBot, user: User, args: list) -> None
     if len(args) < 2 or args[1].lower() not in ("on", "off"):
         current = db.get_tip_settings().get("tip_resubscribe", "0")
         label = "ON" if current == "1" else "OFF"
-        await _whisper(bot, user.id, f"Tip resubscribe is currently {label}. Use /settipresubscribe on|off")
+        await _whisper(bot, user.id, f"Tip resubscribe is currently {label}. Use !settipresubscribe on|off")
         return
     val = "1" if args[1].lower() == "on" else "0"
     db.set_tip_setting("tip_resubscribe", val)

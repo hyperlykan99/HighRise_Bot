@@ -60,7 +60,7 @@ async def handle_displaybadges(bot, user, args: list[str]) -> None:
         cur = db.get_room_setting("display_badges_enabled", "true")
         state = "ON" if cur == "true" else "OFF"
         await _w(bot, user.id,
-            f"Badge display is currently {state}. Usage: /displaybadges on | off")
+            f"Badge display is currently {state}. Usage: !displaybadges on | off")
 
 
 async def handle_displaytitles(bot, user, args: list[str]) -> None:
@@ -83,7 +83,7 @@ async def handle_displaytitles(bot, user, args: list[str]) -> None:
         cur = db.get_room_setting("display_titles_enabled", "true")
         state = "ON" if cur == "true" else "OFF"
         await _w(bot, user.id,
-            f"Title display is currently {state}. Usage: /displaytitles on | off")
+            f"Title display is currently {state}. Usage: !displaytitles on | off")
 
 
 async def handle_displayformat(bot, user, args: list[str]) -> None:

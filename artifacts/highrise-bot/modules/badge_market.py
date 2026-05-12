@@ -126,14 +126,14 @@ async def handle_shop_badges(bot: BaseBot, user: User, args: list[str]) -> None:
 
 async def handle_badgeinfo(bot: BaseBot, user: User, args: list[str]) -> None:
     if len(args) < 2:
-        await bot.highrise.send_whisper(user.id, "Usage: /badgeinfo <badge_id>")
+        await bot.highrise.send_whisper(user.id, "Usage: !badgeinfo <badge_id>")
         return
 
     badge_id = args[1].lower().strip()
     row      = db.get_emoji_badge(badge_id)
 
     if row is None:
-        await bot.highrise.send_whisper(user.id, f"Badge '{badge_id}' not found. See /shop badges.")
+        await bot.highrise.send_whisper(user.id, f"Badge '{badge_id}' not found. See !shop badges.")
         return
 
     db.ensure_user(user.id, user.username)
@@ -160,7 +160,7 @@ async def handle_buy_badge(bot: BaseBot, user: User, badge_id: str) -> None:
     row      = db.get_emoji_badge(badge_id)
 
     if row is None:
-        await bot.highrise.send_whisper(user.id, f"Badge '{badge_id}' not found. See /shop badges.")
+        await bot.highrise.send_whisper(user.id, f"Badge '{badge_id}' not found. See !shop badges.")
         return
 
     if not row["purchasable"]:
@@ -171,7 +171,7 @@ async def handle_buy_badge(bot: BaseBot, user: User, badge_id: str) -> None:
 
     if db.owns_emoji_badge(user.username, badge_id):
         await bot.highrise.send_whisper(
-            user.id, f"You already own {row['emoji']} {badge_id}! Use /equip badge {badge_id}."
+            user.id, f"You already own {row['emoji']} {badge_id}! Use !equip badge {badge_id}."
         )
         return
 
@@ -368,7 +368,7 @@ async def handle_badgemarket(bot: BaseBot, user: User, args: list[str]) -> None:
 
 async def handle_badgelist(bot: BaseBot, user: User, args: list[str]) -> None:
     if len(args) < 3:
-        await bot.highrise.send_whisper(user.id, "Usage: /badgelist <badge_id> <price>")
+        await bot.highrise.send_whisper(user.id, "Usage: !badgelist <badge_id> <price>")
         return
 
     badge_id  = args[1].lower().strip()
@@ -439,7 +439,7 @@ async def handle_badgelist(bot: BaseBot, user: User, args: list[str]) -> None:
 
 async def handle_badgebuy(bot: BaseBot, user: User, args: list[str]) -> None:
     if len(args) < 2 or not args[1].isdigit():
-        await bot.highrise.send_whisper(user.id, "Usage: /badgebuy <listing_id>")
+        await bot.highrise.send_whisper(user.id, "Usage: !badgebuy <listing_id>")
         return
 
     listing_id = int(args[1])
@@ -489,7 +489,7 @@ async def handle_badgebuy(bot: BaseBot, user: User, args: list[str]) -> None:
 
 async def handle_badgecancel(bot: BaseBot, user: User, args: list[str]) -> None:
     if len(args) < 2 or not args[1].isdigit():
-        await bot.highrise.send_whisper(user.id, "Usage: /badgecancel <listing_id>")
+        await bot.highrise.send_whisper(user.id, "Usage: !badgecancel <listing_id>")
         return
 
     listing_id = int(args[1])
@@ -537,7 +537,7 @@ async def handle_mybadgelistings(bot: BaseBot, user: User) -> None:
 
 async def handle_badgeprices(bot: BaseBot, user: User, args: list[str]) -> None:
     if len(args) < 2:
-        await bot.highrise.send_whisper(user.id, "Usage: /badgeprices <badge_id>")
+        await bot.highrise.send_whisper(user.id, "Usage: !badgeprices <badge_id>")
         return
 
     badge_id = args[1].lower().strip()
@@ -572,7 +572,7 @@ async def handle_addbadge(bot: BaseBot, user: User, args: list[str]) -> None:
         return
     if len(args) < 6:
         await bot.highrise.send_whisper(
-            user.id, "Usage: /addbadge <id> <emoji> <name> <rarity> <price>\n"
+            user.id, "Usage: !addbadge <id> <emoji> <name> <rarity> <price>\n"
                      "Rarities: common uncommon rare epic legendary mythic exclusive"
         )
         return
@@ -619,7 +619,7 @@ async def handle_editbadgeprice(bot: BaseBot, user: User, args: list[str]) -> No
     if not _can_manage(user.username):
         return
     if len(args) < 3:
-        await bot.highrise.send_whisper(user.id, "Usage: /editbadgeprice <badge_id> <price>")
+        await bot.highrise.send_whisper(user.id, "Usage: !editbadgeprice <badge_id> <price>")
         return
 
     badge_id = args[1].lower().strip()
@@ -650,7 +650,7 @@ async def handle_setbadgeflag(
     if not _can_manage(user.username):
         return
     if len(args) < 3:
-        await bot.highrise.send_whisper(user.id, f"Usage: /{field} <badge_id> on/off")
+        await bot.highrise.send_whisper(user.id, f"Usage: !{field} <badge_id> on/off")
         return
 
     badge_id = args[1].lower().strip()
@@ -680,7 +680,7 @@ async def handle_givebadge_emoji(bot: BaseBot, user: User, args: list[str]) -> N
     if not _can_manage(user.username):
         return
     if len(args) < 3:
-        await bot.highrise.send_whisper(user.id, "Usage: /givebadge <username> <badge_id>")
+        await bot.highrise.send_whisper(user.id, "Usage: !givebadge <username> <badge_id>")
         return
 
     target   = args[1].strip().lstrip("@")
@@ -710,7 +710,7 @@ async def handle_removebadge_from(bot: BaseBot, user: User, args: list[str]) -> 
     if not _can_manage(user.username):
         return
     if len(args) < 3:
-        await bot.highrise.send_whisper(user.id, "Usage: /removebadgefrom <username> <badge_id>")
+        await bot.highrise.send_whisper(user.id, "Usage: !removebadgefrom <username> <badge_id>")
         return
 
     target   = args[1].strip().lstrip("@")
@@ -732,7 +732,7 @@ async def handle_giveemojibadge(bot: BaseBot, user: User, args: list[str]) -> No
         return
     if len(args) < 4:
         await bot.highrise.send_whisper(
-            user.id, "Usage: /giveemojibadge <username> <emoji> <name>"
+            user.id, "Usage: !giveemojibadge <username> <emoji> <name>"
         )
         return
 
@@ -801,7 +801,7 @@ async def handle_badgeadmin(bot: BaseBot, user: User, args: list[str]) -> None:
     if not _can_manage(user.username):
         return
     if len(args) < 2:
-        await bot.highrise.send_whisper(user.id, "Usage: /badgeadmin <badge_id>")
+        await bot.highrise.send_whisper(user.id, "Usage: !badgeadmin <badge_id>")
         return
 
     badge_id = args[1].lower().strip()

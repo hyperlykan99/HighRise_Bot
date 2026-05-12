@@ -87,7 +87,7 @@ async def handle_markrewardpaid(bot, user, args: list[str]) -> None:
 
     if len(args) < 2:
         await _w(bot, user.id,
-                 "Usage: /markrewardpaid <id> or /markrewardpaid @username")
+                 "Usage: !markrewardpaid <id> or /markrewardpaid @username")
         return
 
     target = args[1].lstrip("@").strip()

@@ -140,7 +140,7 @@ async def handle_setweeklyreward(bot, user, args: list[str]) -> None:
 
     if len(args) < 5:
         await _w(bot, user.id,
-                 "Usage: /setweeklyreward <category> <rank> "
+                 "Usage: !setweeklyreward <category> <rank> "
                  "<coins|gold_pending> <amount>")
         return
 
@@ -183,5 +183,5 @@ async def handle_weeklystatus(bot, user, args=None) -> None:
             lines.append("No reset on record.")
     except Exception:
         lines.append("No reset on record.")
-    lines.append("Use /weeklyreset to archive.")
+    lines.append("Use !weeklyreset to archive.")
     await _w(bot, user.id, "\n".join(lines)[:249])

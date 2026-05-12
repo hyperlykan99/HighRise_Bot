@@ -235,7 +235,7 @@ async def handle_setgoldrate(bot: BaseBot, user: User, args: list[str]) -> None:
         cur = get_coins_per_gold()
         await _w(bot, user.id,
                  f"Current gold rate: {cur:,} coins/gold. "
-                 f"Usage: /setgoldrate <amount>")
+                 f"Usage: !setgoldrate <amount>")
         return
     try:
         val = int(args[1])
@@ -335,7 +335,7 @@ async def handle_settipcoinrate(bot: BaseBot, user: User, args: list[str]) -> No
         cur = get_coins_per_gold()
         await _w(bot, user.id,
                  f"Current tip coin rate: {cur:,} coins/gold. "
-                 f"Usage: /settipcoinrate <amount>")
+                 f"Usage: !settipcoinrate <amount>")
         return
     try:
         val = int(args[1])
@@ -397,7 +397,7 @@ async def handle_setmingoldtip(bot: BaseBot, user: User, args: list[str]) -> Non
     if len(args) < 2:
         cur = get_min_gold_tip()
         await _w(bot, user.id,
-                 f"Current min gold tip: {cur:g}g. Usage: /setmingoldtip <amount>")
+                 f"Current min gold tip: {cur:g}g. Usage: !setmingoldtip <amount>")
         return
     try:
         val = float(args[1])

@@ -351,7 +351,7 @@ async def handle_roomstatus(bot, user) -> None:
         f"🏠 Room Status\n"
         f"Welcome: {_welcome_on()} | Intervals: {_intervals_on()}\n"
         f"BotPrefix: {_botprefix_on()}\n"
-        f"Use /roomsettings for full config."
+        f"Use !roomsettings for full config."
     )
 
 
@@ -386,7 +386,7 @@ async def handle_toggle(bot, user, args: list[str]) -> None:
     if len(args) < 2:
         await _w(
             bot, user.id,
-            "Usage: /toggle <mining|bj|rbj|poker|welcome|intervals|botprefix>"
+            "Usage: !toggle <mining|bj|rbj|poker|welcome|intervals|botprefix>"
         )
         return
 

@@ -34,7 +34,7 @@ async def handle_notifydebug(bot, user, args: list[str]) -> None:
         await _w(bot, user.id, "Manager/admin/owner only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /notifydebug @username")
+        await _w(bot, user.id, "Usage: !notifydebug @username")
         return
 
     raw = args[1].lstrip("@").lower()
@@ -182,7 +182,7 @@ async def handle_testwhisper(bot, user, args: list[str]) -> None:
         await _w(bot, user.id, "Manager/admin/owner only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /testwhisper @username")
+        await _w(bot, user.id, "Usage: !testwhisper @username")
         return
 
     raw     = args[1].lstrip("@").lower()

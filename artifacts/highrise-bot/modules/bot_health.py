@@ -454,7 +454,7 @@ async def handle_deploymentcheck(bot, user, args: list[str]) -> None:
 
     if fail_count > 0:
         await _w(bot, user.id,
-                 "Use /clearstalebotlocks to clear stale locks. "
+                 "Use !clearstalebotlocks to clear stale locks. "
                  "/botconflicts for details.")
 
 
@@ -493,7 +493,7 @@ async def handle_botlocks(bot, user) -> None:
     await _w(bot, user.id, ("Locks: " + " | ".join(parts))[:249])
     if stale_count:
         await _w(bot, user.id,
-                 f"⚠️ {stale_count} stale lock(s). Use /clearstalebotlocks to remove.")
+                 f"⚠️ {stale_count} stale lock(s). Use !clearstalebotlocks to remove.")
 
 
 # ---------------------------------------------------------------------------
@@ -602,7 +602,7 @@ async def handle_moduleowners(bot, user, args: list[str]) -> None:
     await _w(bot, user.id,
              f"({page}/{total_pages}) Owners: " + " | ".join(parts)[:200])
     if page < total_pages:
-        await _w(bot, user.id, f"Type /moduleowners {page + 1} for next page.")
+        await _w(bot, user.id, f"Type !moduleowners {page + 1} for next page.")
 
 
 # ---------------------------------------------------------------------------
@@ -649,7 +649,7 @@ def _collect_conflicts(instances: list) -> list[str]:
         conflicts.append(
             f"BOT_MODE=all active with split bots "
             f"({', '.join(split_active_modes)}). "
-            f"Use /setmainmode host to fix."
+            f"Use !setmainmode host to fix."
         )
     # 3. Legacy dealer + dedicated bots both active
     dealer_active = _bot_is_online("dealer", instances)
@@ -673,7 +673,7 @@ def _collect_conflicts(instances: list) -> list[str]:
             if lock_holder and lock_holder != autogames_owner and owner_online:
                 conflicts.append(
                     f"AutoGames lock held by '{lock_holder}' "
-                    f"but owner '{autogames_owner}' is online. Run /fixautogames."
+                    f"but owner '{autogames_owner}' is online. Run !fixautogames."
                 )
             # Flag unexpected modes that have no built-in deferral
             true_dupes = [
@@ -687,7 +687,7 @@ def _collect_conflicts(instances: list) -> list[str]:
                 conflicts.append(
                     f"AutoGames owner={autogames_owner} online but bots "
                     f"({', '.join(set(true_dupes))}) may duplicate. "
-                    f"Run /fixautogames."
+                    f"Run !fixautogames."
                 )
     except Exception:
         pass
@@ -729,7 +729,7 @@ async def handle_botconflicts(bot, user) -> None:
         ids = ", ".join(s.get("bot_id", "?") for s in stale[:6])
         await _w(bot, user.id,
                  (f"Stale rows ({len(stale)}): {ids}"
-                  f" | Run /fixbotowners to purge")[:249])
+                  f" | Run !fixbotowners to purge")[:249])
 
 
 # ---------------------------------------------------------------------------
@@ -790,7 +790,7 @@ async def handle_fixbotowners(bot, user, args: list[str]) -> None:
                       f" Added {added} missing cmd owner(s).")[:249])
         else:
             await _w(bot, user.id,
-                     "✅ Nothing to fix. Use /fixbotowners force to overwrite all cmd owners.")
+                     "✅ Nothing to fix. Use !fixbotowners force to overwrite all cmd owners.")
 
 
 async def handle_dblockcheck(bot, user, args: list[str]) -> None:

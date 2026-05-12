@@ -56,7 +56,7 @@ async def handle_setdailycoins(bot: BaseBot, user: User, args: list[str]):
         await _w(bot, user.id, "Admin+ only.")
         return
     if len(args) < 2 or not args[1].isdigit():
-        await _w(bot, user.id, "Usage: /setdailycoins <1-10000>")
+        await _w(bot, user.id, "Usage: !setdailycoins <1-10000>")
         return
     amount = int(args[1])
     if not (1 <= amount <= 10000):
@@ -75,7 +75,7 @@ async def handle_setgamereward(bot: BaseBot, user: User, args: list[str]):
         await _w(bot, user.id, "Admin+ only.")
         return
     if len(args) < 3:
-        await _w(bot, user.id, "Usage: /setgamereward <trivia|scramble|riddle> <amount>")
+        await _w(bot, user.id, "Usage: !setgamereward <trivia|scramble|riddle> <amount>")
         return
     game = args[1].lower()
     if game not in VALID_GAMES:
@@ -101,7 +101,7 @@ async def handle_setmaxbalance(bot: BaseBot, user: User, args: list[str]):
         await _w(bot, user.id, "Owner only.")
         return
     if len(args) < 2 or not args[1].isdigit():
-        await _w(bot, user.id, "Usage: /setmaxbalance <10000-1000000000>")
+        await _w(bot, user.id, "Usage: !setmaxbalance <10000-1000000000>")
         return
     amount = int(args[1])
     if not (10_000 <= amount <= 1_000_000_000):
@@ -120,7 +120,7 @@ async def handle_settransferfee(bot: BaseBot, user: User, args: list[str]):
         await _w(bot, user.id, "Admin+ only.")
         return
     if len(args) < 2 or not args[1].isdigit():
-        await _w(bot, user.id, "Usage: /settransferfee <0-50>")
+        await _w(bot, user.id, "Usage: !settransferfee <0-50>")
         return
     pct = int(args[1])
     if not (0 <= pct <= 50):

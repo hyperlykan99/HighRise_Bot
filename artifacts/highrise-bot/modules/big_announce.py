@@ -227,7 +227,7 @@ async def handle_setbigannounce(bot, user, args: list[str]) -> None:
         return
     if len(args) < 4:
         await bot.highrise.send_whisper(user.id,
-            "Usage: /setbigannounce mining exotic all_bots\n"
+            "Usage: !setbigannounce mining exotic all_bots\n"
             "Modes: miner_only|fishing_only|all_bots|off")
         return
     category = args[1].lower()
@@ -259,7 +259,7 @@ async def handle_setbotbigreact(bot, user, args: list[str]) -> None:
         return
     if len(args) < 3:
         await bot.highrise.send_whisper(user.id,
-            "Usage: /setbotbigreact BankingBot on\n"
+            "Usage: !setbotbigreact BankingBot on\n"
             "Bots: BankingBot EventBot ChillTopiaMC MiningBot FishingBot etc.")
         return
     raw_name = args[1].lower()

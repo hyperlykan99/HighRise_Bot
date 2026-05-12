@@ -49,7 +49,7 @@ async def handle_msgtest(bot, user, args: list[str]) -> None:
         await _w(bot, user.id, "Manager+ only.")
         return
     if len(args) < 2 or not args[1].isdigit():
-        await _w(bot, user.id, "Usage: /msgtest <length>  e.g. /msgtest 200")
+        await _w(bot, user.id, "Usage: !msgtest <length>  e.g. /msgtest 200")
         return
     length = min(max(int(args[1]), 1), 400)
     body = _build_body(length)
@@ -83,7 +83,7 @@ async def handle_msgsplitpreview(bot, user, args: list[str]) -> None:
         await _w(bot, user.id, "Manager+ only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /msgsplitpreview <text to preview>")
+        await _w(bot, user.id, "Usage: !msgsplitpreview <text to preview>")
         return
     from modules.msg_utils import safe_split
     text = " ".join(args[1:])

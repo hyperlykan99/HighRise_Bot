@@ -137,7 +137,7 @@ async def handle_playercheck(bot, user, args: list[str]) -> None:
         await _w(bot, user.id, "Manager/admin/owner only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /playercheck @username")
+        await _w(bot, user.id, "Usage: !playercheck @username")
         return
 
     raw = args[1].lstrip("@").lower()
@@ -336,7 +336,7 @@ async def handle_lastupdate(bot, user, args: list[str]) -> None:
             await _w(bot, user.id, "Manager/admin/owner only.")
             return
         if len(args) < 3:
-            await _w(bot, user.id, "Usage: /lastupdate set <message>")
+            await _w(bot, user.id, "Usage: !lastupdate set <message>")
             return
         msg = " ".join(args[2:])[:180]
         db.set_update_notes([msg], user.username)
@@ -347,7 +347,7 @@ async def handle_lastupdate(bot, user, args: list[str]) -> None:
             await _w(bot, user.id, "Manager/admin/owner only.")
             return
         if len(args) < 3:
-            await _w(bot, user.id, "Usage: /lastupdate add <line>")
+            await _w(bot, user.id, "Usage: !lastupdate add <line>")
             return
         line = " ".join(args[2:])[:120]
         db.add_update_note(line, user.username)
@@ -397,7 +397,7 @@ async def handle_knownissue(bot, user, args: list[str]) -> None:
 
     if sub == "add":
         if len(args) < 3:
-            await _w(bot, user.id, "Usage: /knownissue add <description>")
+            await _w(bot, user.id, "Usage: !knownissue add <description>")
             return
         text = " ".join(args[2:])[:150]
         new_id = db.add_known_issue(text, user.username)
@@ -405,7 +405,7 @@ async def handle_knownissue(bot, user, args: list[str]) -> None:
 
     elif sub == "remove":
         if len(args) < 3 or not args[2].isdigit():
-            await _w(bot, user.id, "Usage: /knownissue remove <id>")
+            await _w(bot, user.id, "Usage: !knownissue remove <id>")
             return
         ok = db.remove_known_issue(int(args[2]))
         await _w(bot, user.id, f"✅ Issue #{args[2]} removed." if ok else "Issue not found.")
@@ -415,7 +415,7 @@ async def handle_knownissue(bot, user, args: list[str]) -> None:
         await _w(bot, user.id, f"✅ {n} issue(s) cleared.")
 
     else:
-        await _w(bot, user.id, "Usage: /knownissue add <text> | remove <id> | clear")
+        await _w(bot, user.id, "Usage: !knownissue add <text> | remove <id> | clear")
 
 
 # ---------------------------------------------------------------------------
@@ -426,9 +426,9 @@ async def handle_feedback(bot, user, args: list[str]) -> None:
     """/feedback <message> — submit feedback."""
     if len(args) < 2:
         await _w(bot, user.id,
-                 "Usage: /feedback <message>\n"
-                 "Use /suggest for feature ideas.\n"
-                 "Use /bugreport for broken systems.")
+                 "Usage: !feedback <message>\n"
+                 "Use !suggest for feature ideas.\n"
+                 "Use !bugreport for broken systems.")
         return
     msg = " ".join(args[1:])[:200]
     db.add_player_feedback(user.id, user.username.lower(), msg)
@@ -466,7 +466,7 @@ async def handle_todo(bot, user, args: list[str]) -> None:
 
     if sub == "add":
         if len(args) < 3:
-            await _w(bot, user.id, "Usage: /todo add <task>")
+            await _w(bot, user.id, "Usage: !todo add <task>")
             return
         task = " ".join(args[2:])[:120]
         new_id = db.add_staff_todo(task, user.id, user.username.lower())
@@ -474,14 +474,14 @@ async def handle_todo(bot, user, args: list[str]) -> None:
 
     elif sub == "done":
         if len(args) < 3 or not args[2].isdigit():
-            await _w(bot, user.id, "Usage: /todo done <id>")
+            await _w(bot, user.id, "Usage: !todo done <id>")
             return
         ok = db.complete_staff_todo(int(args[2]))
         await _w(bot, user.id, f"✅ Todo #{args[2]} done." if ok else "Todo not found.")
 
     elif sub == "remove":
         if len(args) < 3 or not args[2].isdigit():
-            await _w(bot, user.id, "Usage: /todo remove <id>")
+            await _w(bot, user.id, "Usage: !todo remove <id>")
             return
         ok = db.remove_staff_todo(int(args[2]))
         await _w(bot, user.id, f"✅ Todo #{args[2]} removed." if ok else "Todo not found.")
@@ -494,7 +494,7 @@ async def handle_todo(bot, user, args: list[str]) -> None:
         rows = db.get_staff_todo()
         if not rows:
             await _w(bot, user.id,
-                     "📝 Staff Todo\nNo tasks.\nUse /todo add <task> to add one.")
+                     "📝 Staff Todo\nNo tasks.\nUse !todo add <task> to add one.")
             return
         lines = ["📝 Staff Todo"]
         for r in rows[:8]:

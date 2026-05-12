@@ -173,7 +173,7 @@ async def handle_bank(bot: BaseBot, user: User, _args: list[str]):
 async def handle_send(bot: BaseBot, user: User, args: list[str]):
     """/send <username> <amount>"""
     if len(args) < 3:
-        await _w(bot, user.id, "Usage: /send <username> <amount>")
+        await _w(bot, user.id, "Usage: !send <username> <amount>")
         return
 
     # Normalize username immediately (strips @, trims spaces)
@@ -221,7 +221,7 @@ async def handle_send(bot: BaseBot, user: User, args: list[str]):
     # Bank blocked?
     bus = db.get_bank_user_stats(user.id)
     if bus.get("bank_blocked"):
-        await _w(bot, user.id, "❌ Transfer blocked. Check /bank.")
+        await _w(bot, user.id, "❌ Transfer blocked. Check !bank.")
         return
 
     # Eligibility
@@ -331,7 +331,7 @@ async def handle_send(bot: BaseBot, user: User, args: list[str]):
                 from modules.subscribers import add_unsubscribe_footer
                 dm_msg = add_unsubscribe_footer(
                     f"🏦 You received {amount_received:,}c from @{user.username}. "
-                    "Use /transactions."
+                    "Use !transactions."
                 )
                 try:
                     await bot.highrise.send_message(sub["conversation_id"], dm_msg)
@@ -429,7 +429,7 @@ async def handle_viewtx(bot: BaseBot, user: User, args: list[str]):
         await _w(bot, user.id, "Staff only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /viewtx <username> [sent|received] [page]")
+        await _w(bot, user.id, "Usage: !viewtx <username> [sent|received] [page]")
         return
 
     target_name = args[1].lstrip("@").strip()
@@ -461,7 +461,7 @@ async def handle_bankwatch(bot: BaseBot, user: User, args: list[str]):
         await _w(bot, user.id, "Staff only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /bankwatch <username>")
+        await _w(bot, user.id, "Usage: !bankwatch <username>")
         return
 
     clean_name = args[1].lstrip("@").strip()
@@ -492,7 +492,7 @@ async def handle_bankblock(bot: BaseBot, user: User, args: list[str], block: boo
         return
     if len(args) < 2:
         cmd = "bankblock" if block else "bankunblock"
-        await _w(bot, user.id, f"Usage: /{cmd} <username>")
+        await _w(bot, user.id, f"Usage: !{cmd} <username>")
         return
 
     target = db.resolve_or_create_user(args[1].lstrip("@").strip())
@@ -546,7 +546,7 @@ async def handle_bank_set(bot: BaseBot, user: User, cmd: str, args: list[str]):
     # ── on/off toggle ───────────────────────────────────────────────────────
     if cmd == "sethighriskblocks":
         if len(args) < 2 or args[1].lower() not in ("on", "off"):
-            await _w(bot, user.id, "Usage: /sethighriskblocks on|off")
+            await _w(bot, user.id, "Usage: !sethighriskblocks on|off")
             return
         val_str = "true" if args[1].lower() == "on" else "false"
         db.set_bank_setting("high_risk_blocks", val_str)
@@ -574,7 +574,7 @@ async def handle_bank_set(bot: BaseBot, user: User, cmd: str, args: list[str]):
     db_key, mn, mx, unit_fmt, label = _INT_CMDS[cmd]
 
     if len(args) < 2 or not args[1].isdigit():
-        await _w(bot, user.id, f"Usage: /{cmd} <number>")
+        await _w(bot, user.id, f"Usage: !{cmd} <number>")
         return
 
     val = int(args[1])
@@ -670,7 +670,7 @@ async def handle_notifications(bot: BaseBot, user: User):
         ts = r["timestamp"][:10] if r.get("timestamp") else ""
         msg = (
             f"✅ Last deposit: +{r['amount_received']:,}c from @{r['sender_username']}"
-            f"{fee_note} {ts}. Use /transactions for full history."
+            f"{fee_note} {ts}. Use !transactions for full history."
         )[:249]
         await _w(bot, user.id, msg)
 
@@ -692,7 +692,7 @@ async def handle_delivernotifications(bot: BaseBot, user: User, args: list[str])
         await _w(bot, user.id, "Staff only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /delivernotifications <username>")
+        await _w(bot, user.id, "Usage: !delivernotifications <username>")
         return
     target_name = args[1].lstrip("@").lower().strip()
     pending = db.get_pending_notifications_for_staff(target_name)
@@ -722,7 +722,7 @@ async def handle_delivernotifications(bot: BaseBot, user: User, args: list[str])
         else:
             msg = (
                 f"🏦 You have {len(pending)} deposits. "
-                f"Total: {total:,}c. Use /transactions."
+                f"Total: {total:,}c. Use !transactions."
             )[:249]
         await bot.highrise.send_whisper(target_id, msg)
         db.mark_bank_notifications_delivered(target_name)
@@ -741,7 +741,7 @@ async def handle_pendingnotifications(bot: BaseBot, user: User, args: list[str])
         await _w(bot, user.id, "Staff only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /pendingnotifications <username>")
+        await _w(bot, user.id, "Usage: !pendingnotifications <username>")
         return
     target_name = args[1].lstrip("@").lower().strip()
     pending = db.get_pending_notifications_for_staff(target_name)
@@ -769,7 +769,7 @@ async def handle_ledger(bot: BaseBot, user: User, args: list[str]):
         await _w(bot, user.id, "Staff only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /ledger <username> [page]")
+        await _w(bot, user.id, "Usage: !ledger <username> [page]")
         return
 
     target_name = args[1]

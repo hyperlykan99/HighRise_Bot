@@ -1311,7 +1311,7 @@ async def _deliver_cards_sequential(
                 still_missing.append(uname)
                 print(f"[POKER_DEAL] dealing_to={uname} whisper_ok=false attempts=2 err={str(exc)[:40]}")
                 try:
-                    await bot.highrise.send_whisper(pr["user_id"], "⚠️ Cards ready. Type /ph to view.")
+                    await bot.highrise.send_whisper(pr["user_id"], "⚠️ Cards ready. Type !ph to view.")
                 except Exception:
                     pass
         failed = still_missing
@@ -1475,7 +1475,7 @@ async def _start_hand(bot: BaseBot) -> None:
         conn.close()
         print(f"[POKER] _start_hand DB error: {exc}")
         _save_table(phase="recovery_required")
-        await _chat(bot, "⚠️ Poker deal error. Use /poker recoverystatus for fix.")
+        await _chat(bot, "⚠️ Poker deal error. Use !poker recoverystatus for fix.")
         return
     conn.close()
 
@@ -1496,7 +1496,7 @@ async def _start_hand(bot: BaseBot) -> None:
         print(f"[POKER] deal validation FAILED: {err}")
         _clear_players(round_id)
         _save_table(phase="recovery_required")
-        await _chat(bot, f"⚠️ Deal error: {err} | Use /poker recoverystatus.")
+        await _chat(bot, f"⚠️ Deal error: {err} | Use !poker recoverystatus.")
         return
 
     # ── Save table state (before whispering cards) ─────────────────────────
@@ -1764,7 +1764,7 @@ async def _prompt_player(bot: BaseBot, tbl: dict, p: dict,
                f"{_PK_POT}:{pot:,}c | Call:{owe:,}c | /call /r /fold /allin")
     else:
         pub = (f"{_PK_TURN} {_p_disp} | "
-               f"{_PK_POT}:{pot:,}c | /check /r /fold /allin")
+               f"{_PK_POT}:{pot:,}c | /check !r /fold /allin")
     await _chat(bot, pub[:249])
 
     # ── Private whispers (non-fatal: failures silently ignored) ──────────
@@ -2079,7 +2079,7 @@ async def _handle_join(bot: BaseBot, user: User, args: list[str]) -> None:
         return
 
     if len(args) < 3 or not args[2].isdigit():
-        await _w(bot, user.id, "Usage: /p <buyin>  or  /poker join <buyin>")
+        await _w(bot, user.id, "Usage: !p <buyin>  or  /poker join <buyin>")
         return
 
     buyin  = int(args[2])
@@ -2270,7 +2270,7 @@ async def _handle_rebuy(bot: BaseBot, user: User, args: list[str]) -> None:
         return
 
     if len(args) < 3 or not args[2].isdigit():
-        await _w(bot, user.id, "Usage: /rebuy <amount>  or  /poker rebuy <amt>")
+        await _w(bot, user.id, "Usage: !rebuy <amount>  or  /poker rebuy <amt>")
         return
 
     amount = int(args[2])
@@ -2311,7 +2311,7 @@ async def _handle_rebuy(bot: BaseBot, user: User, args: list[str]) -> None:
 
     # If sitting_out and rebought, ask if they want to sit in
     if sp["status"] == "sitting_out":
-        await _w(bot, user.id, "Use /sitin when ready to play.")
+        await _w(bot, user.id, "Use !sitin when ready to play.")
 
 
 # ── Command: /pstacks  /mystack ────────────────────────────────────────────────
@@ -2447,7 +2447,7 @@ async def startup_poker_recovery(bot: BaseBot) -> None:
             _save_table(phase="recovery_required")
             await _chat(bot,
                 f"⚠️ Poker recovery: {len(missing_cards)} player(s) missing cards. "
-                f"Use /poker hardrefund.")
+                f"Use !poker hardrefund.")
             _log_recovery("recovery_required", round_id, phase,
                           f"missing_cards={names}")
             return
@@ -2457,7 +2457,7 @@ async def startup_poker_recovery(bot: BaseBot) -> None:
         for p in active:
             try:
                 await bot.highrise.send_whisper(
-                    p["user_id"], "♻️ Poker restored. Use /ph to see your cards.")
+                    p["user_id"], "♻️ Poker restored. Use !ph to see your cards.")
             except Exception:
                 pass
 
@@ -2530,7 +2530,7 @@ async def startup_poker_recovery(bot: BaseBot) -> None:
     # Corrupted state
     _save_table(phase="recovery_required")
     await _chat(bot,
-        "⚠️ Poker recovery needed. Use /poker recoverystatus for details.")
+        "⚠️ Poker recovery needed. Use !poker recoverystatus for details.")
     _log_recovery("recovery_required", round_id or "", phase, "corrupted state")
 
 
@@ -2553,7 +2553,7 @@ async def _dispatch(bot: BaseBot, user: User, args: list[str]) -> None:
         sp = _get_seated(user.username)
         if sp:
             await _w(bot, user.id,
-                f"♠️ Stack:{sp['table_stack']}c | /ph /check /call /r /fold /ai "
+                f"♠️ Stack:{sp['table_stack']}c | /ph /check !call /r /fold /ai "
                 f"| /sitout /rebuy /poker leave | /phelp")
         else:
             await _w(bot, user.id,
@@ -2676,7 +2676,7 @@ async def _dispatch(bot: BaseBot, user: User, args: list[str]) -> None:
                 await _w(bot, user.id, "Join poker with /p <buyin>.")
             elif sp["status"] == "sitting_out":
                 await _w(bot, user.id,
-                    "You are sitting out. Use /sitin for next hand.")
+                    "You are sitting out. Use !sitin for next hand.")
             else:
                 stack = sp["table_stack"]
                 await _w(bot, user.id,
@@ -2692,7 +2692,7 @@ async def _dispatch(bot: BaseBot, user: User, args: list[str]) -> None:
                 await _w(bot, user.id, "Join poker with /p <buyin>.")
             elif sp["status"] == "sitting_out":
                 await _w(bot, user.id,
-                    "You are sitting out. Use /sitin for next hand.")
+                    "You are sitting out. Use !sitin for next hand.")
             else:
                 await _w(bot, user.id,
                     "No active hand yet. Next hand starts soon.")
@@ -2930,7 +2930,7 @@ async def _dispatch(bot: BaseBot, user: User, args: list[str]) -> None:
             elif sub == "raise":
                 if len(args) < 3 or not args[2].isdigit():
                     min_r = _s("min_raise", 50)
-                    await _w(bot, user.id, f"Use /raise <amount>. Min {min_r}c.")
+                    await _w(bot, user.id, f"Use !raise <amount>. Min {min_r}c.")
                     return
                 await _do_raise(bot, round_id, p, tbl, int(args[2]))
             elif sub == "fold":
@@ -3002,7 +3002,7 @@ async def _dispatch(bot: BaseBot, user: User, args: list[str]) -> None:
             return
         if tbl["phase"] not in ("preflop", "flop", "turn", "river"):
             await _w(bot, user.id,
-                "No active hand to cancel (use /poker close to close table).")
+                "No active hand to cancel (use !poker close to close table).")
             return
         await finish_poker_hand(bot, "cancelled")
         return
@@ -3097,7 +3097,7 @@ async def _dispatch(bot: BaseBot, user: User, args: list[str]) -> None:
             res = _cleanup_finished_hand()
             if res["action"] == "pot_unresolved":
                 await _w(bot, user.id,
-                    f"⚠️ Pot {res['pot']}c — normal refund blocked. Use /poker hardrefund.")
+                    f"⚠️ Pot {res['pot']}c — normal refund blocked. Use !poker hardrefund.")
                 return
             _log_recovery("refund_cleanup", round_id, phase,
                           f"manual by @{user.username} | action={res['action']}")
@@ -3132,7 +3132,7 @@ async def _dispatch(bot: BaseBot, user: User, args: list[str]) -> None:
                 res = _cleanup_finished_hand()
                 if res["action"] == "pot_unresolved":
                     await _w(bot, user.id,
-                        f"⚠️ Pot {res['pot']}c unresolved. Use /poker hardrefund.")
+                        f"⚠️ Pot {res['pot']}c unresolved. Use !poker hardrefund.")
                     return
                 _log_recovery("forcefinish_cleanup", round_id, ph,
                               f"by @{user.username} | action={res['action']}")
@@ -3147,12 +3147,12 @@ async def _dispatch(bot: BaseBot, user: User, args: list[str]) -> None:
                 await _w(bot, user.id, "No active hand to finish.")
                 return
             if ph == "recovery_required":
-                await _w(bot, user.id, "Hand corrupted. Use /poker hardrefund.")
+                await _w(bot, user.id, "Hand corrupted. Use !poker hardrefund.")
                 return
             if ph not in ("preflop", "flop", "turn", "river"):
                 rec = get_poker_recovery_recommendation()
                 await _w(bot, user.id,
-                    f"No active hand (phase={ph}). Use /poker {rec}.")
+                    f"No active hand (phase={ph}). Use !poker {rec}.")
                 return
             # Check for corrupted cards on preflop
             players = _get_players(round_id) if round_id else []
@@ -3160,7 +3160,7 @@ async def _dispatch(bot: BaseBot, user: User, args: list[str]) -> None:
                 missing = [p["username"] for p in players
                            if len(json.loads(p["hole_cards_json"] or "[]")) != 2]
                 if len(missing) == len(players) and players:
-                    await _w(bot, user.id, "Hand corrupted. Use /poker hardrefund.")
+                    await _w(bot, user.id, "Hand corrupted. Use !poker hardrefund.")
                     return
             eligible = _eligible_players(players)
             if len(eligible) >= 2:
@@ -3172,7 +3172,7 @@ async def _dispatch(bot: BaseBot, user: User, args: list[str]) -> None:
             import traceback
             print(f"[POKER] forcefinish error: {exc}\n{traceback.format_exc()}")
             _log_recovery("forcefinish_error", "", "", str(exc)[:200])
-            await _w(bot, user.id, "Forcefinish failed. Use /poker hardrefund.")
+            await _w(bot, user.id, "Forcefinish failed. Use !poker hardrefund.")
         return
 
     # ── hardrefund ─────────────────────────────────────────────────────────────
@@ -3200,7 +3200,7 @@ async def _dispatch(bot: BaseBot, user: User, args: list[str]) -> None:
             return
         pot = int(tbl.get("pot") or 0)
         if pot > 0:
-            await _w(bot, user.id, f"Pot {pot}c exists. Use /poker hardrefund.")
+            await _w(bot, user.id, f"Pot {pot}c exists. Use !poker hardrefund.")
             return
         round_id = tbl.get("round_id")
         _cancel_task(_next_hand_task)
@@ -3274,15 +3274,15 @@ async def _dispatch(bot: BaseBot, user: User, args: list[str]) -> None:
             else:
                 status_line = f"Poker recovery: active hand | pot {pot:,}c | no fix needed."
         elif rec == "forcefinish":
-            status_line = f"Poker recovery: active hand | pot {pot:,}c | use /poker forcefinish."
+            status_line = f"Poker recovery: active hand | pot {pot:,}c | use !poker forcefinish."
         elif rec == "refund":
-            status_line = f"Poker recovery: unresolved pot {pot:,}c | use /poker refund."
+            status_line = f"Poker recovery: unresolved pot {pot:,}c | use !poker refund."
         elif rec == "hardrefund":
-            status_line = f"Poker recovery: corrupt pot {pot:,}c | use /poker hardrefund."
+            status_line = f"Poker recovery: corrupt pot {pot:,}c | use !poker hardrefund."
         elif rec == "clearhand":
-            status_line = f"Poker recovery: finished stuck | use /poker clearhand."
+            status_line = f"Poker recovery: finished stuck | use !poker clearhand."
         elif rec == "closeforce":
-            status_line = f"Poker recovery: severe issue | use /poker closeforce."
+            status_line = f"Poker recovery: severe issue | use !poker closeforce."
         else:
             status_line = f"Poker recovery: unknown ({rec})."
         details_line = (f"Seated:{len(seated)} Active:{len(active)}"
@@ -3310,7 +3310,7 @@ async def _dispatch(bot: BaseBot, user: User, args: list[str]) -> None:
         res = _cleanup_finished_hand()
         if res["action"] == "pot_unresolved":
             await _w(bot, user.id,
-                f"⚠️ Pot {res['pot']}c unresolved. Use /poker hardrefund.")
+                f"⚠️ Pot {res['pot']}c unresolved. Use !poker hardrefund.")
             return
         _log_recovery("cleanup", round_id, tbl["phase"],
                       f"by @{user.username} | action={res['action']}")
@@ -3398,7 +3398,7 @@ async def _dispatch(bot: BaseBot, user: User, args: list[str]) -> None:
                 rebuilt = db.rebuild_delivery_rows(round_id)
                 await _w(bot, user.id,
                     (f"Delivery rebuilt: 0/{rebuilt} sent. "
-                     f"Use /poker resendcards.")[:249])
+                     f"Use !poker resendcards.")[:249])
             else:
                 await _w(bot, user.id, "No active card delivery data.")
             return
@@ -3553,7 +3553,7 @@ async def _dispatch(bot: BaseBot, user: User, args: list[str]) -> None:
             await _w(bot, user.id,
                 f"{'✅' if v=='on' else '⛔'} Poker win limit {v.upper()}.")
         else:
-            await _w(bot, user.id, "Usage: /poker winlimit on|off")
+            await _w(bot, user.id, "Usage: !poker winlimit on|off")
         return
 
     if sub == "losslimit":
@@ -3566,7 +3566,7 @@ async def _dispatch(bot: BaseBot, user: User, args: list[str]) -> None:
             await _w(bot, user.id,
                 f"{'✅' if v=='on' else '⛔'} Poker loss limit {v.upper()}.")
         else:
-            await _w(bot, user.id, "Usage: /poker losslimit on|off")
+            await _w(bot, user.id, "Usage: !poker losslimit on|off")
         return
 
     # ── raiselimit / allintoggle ───────────────────────────────────────────────
@@ -3658,7 +3658,7 @@ async def handle_setpokerbuyin(bot: BaseBot, user: User, args: list[str]) -> Non
         await _w(bot, user.id, "Managers+ only.")
         return
     if len(args) < 3 or not args[1].isdigit() or not args[2].isdigit():
-        await _w(bot, user.id, "Usage: /setpokerbuyin <min> <max>")
+        await _w(bot, user.id, "Usage: !setpokerbuyin <min> <max>")
         return
     mn, mx = int(args[1]), int(args[2])
     if mn < 1:
@@ -3674,7 +3674,7 @@ async def handle_setpokerplayers(bot: BaseBot, user: User, args: list[str]) -> N
         await _w(bot, user.id, "Managers+ only.")
         return
     if len(args) < 3 or not args[1].isdigit() or not args[2].isdigit():
-        await _w(bot, user.id, "Usage: /setpokerplayers <min> <max>")
+        await _w(bot, user.id, "Usage: !setpokerplayers <min> <max>")
         return
     mn, mx = int(args[1]), int(args[2])
     if mn < 2:
@@ -3693,7 +3693,7 @@ async def handle_setpokerlobbytimer(bot: BaseBot, user: User,
         await _w(bot, user.id, "Staff only.")
         return
     if len(args) < 2 or not args[1].isdigit():
-        await _w(bot, user.id, "Use /setpokerlobbytimer 20.")
+        await _w(bot, user.id, "Use !setpokerlobbytimer 20.")
         return
     secs = int(args[1])
     if not (5 <= secs <= 120):
@@ -3708,7 +3708,7 @@ async def handle_setpokertimer(bot: BaseBot, user: User, args: list[str]) -> Non
         await _w(bot, user.id, "Staff only.")
         return
     if len(args) < 2 or not args[1].isdigit():
-        await _w(bot, user.id, "Use /setpokertimer 30.")
+        await _w(bot, user.id, "Use !setpokertimer 30.")
         return
     secs = int(args[1])
     if not (10 <= secs <= 60):
@@ -3723,7 +3723,7 @@ async def handle_setpokerraise(bot: BaseBot, user: User, args: list[str]) -> Non
         await _w(bot, user.id, "Managers+ only.")
         return
     if len(args) < 3 or not args[1].isdigit() or not args[2].isdigit():
-        await _w(bot, user.id, "Usage: /setpokerraise <min> <max>")
+        await _w(bot, user.id, "Usage: !setpokerraise <min> <max>")
         return
     mn, mx = int(args[1]), int(args[2])
     if mn < 1:
@@ -3740,7 +3740,7 @@ async def handle_setpokerdailywinlimit(bot: BaseBot, user: User,
         await _w(bot, user.id, "Managers+ only.")
         return
     if len(args) < 2 or not args[1].isdigit():
-        await _w(bot, user.id, "Usage: /setpokerdailywinlimit <amount>")
+        await _w(bot, user.id, "Usage: !setpokerdailywinlimit <amount>")
         return
     amt = int(args[1])
     if amt < 1:
@@ -3755,7 +3755,7 @@ async def handle_setpokerdailylosslimit(bot: BaseBot, user: User,
         await _w(bot, user.id, "Managers+ only.")
         return
     if len(args) < 2 or not args[1].isdigit():
-        await _w(bot, user.id, "Usage: /setpokerdailylosslimit <amount>")
+        await _w(bot, user.id, "Usage: !setpokerdailylosslimit <amount>")
         return
     amt = int(args[1])
     if amt < 1:
@@ -3770,7 +3770,7 @@ async def handle_resetpokerlimits(bot: BaseBot, user: User,
         await _w(bot, user.id, "Managers+ only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /resetpokerlimits <username>")
+        await _w(bot, user.id, "Usage: !resetpokerlimits <username>")
         return
     target = args[1].lstrip("@")
     _reset_daily(target)
@@ -3816,7 +3816,7 @@ async def handle_pokermode(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id,
                  f"♠️ Current pace mode: {cur}\n"
                  "Options: fast / normal / long\n"
-                 "Usage: /pokermode <mode>")
+                 "Usage: !pokermode <mode>")
         return
     mode = args[1].lower()
     if mode not in _PACE_PRESETS:
@@ -3865,7 +3865,7 @@ async def handle_setpokerpace(bot: BaseBot, user: User, args: list[str]) -> None
     if len(args) < 3:
         keys = ", ".join(sorted(_PACE_SETTING_KEYS))
         await _w(bot, user.id,
-                 f"Usage: /setpokerpace <setting> <value>\nKeys: {keys}"[:249])
+                 f"Usage: !setpokerpace <setting> <value>\nKeys: {keys}"[:249])
         return
     key = args[1].lower()
     val = args[2]
@@ -3916,7 +3916,7 @@ async def handle_setpokerstack(bot: BaseBot, user: User, args: list[str]) -> Non
     if len(args) < 3:
         keys = ", ".join(_STACK_SETTING_MAP.keys())
         await _w(bot, user.id,
-                 f"Usage: /setpokerstack <{keys}> <amount>")
+                 f"Usage: !setpokerstack <{keys}> <amount>")
         return
     key = args[1].lower()
     val = args[2]
@@ -3993,7 +3993,7 @@ async def handle_setpokerlimits(bot: BaseBot, user: User,
     if not can_manage_games(user.username):
         await _w(bot, user.id, "Staff only.")
         return
-    usage = "Use /setpokerlimits 100 5000 50 1000 10000 5000."
+    usage = "Use !setpokerlimits 100 5000 50 1000 10000 5000."
     if len(args) < 7 or not all(a.isdigit() for a in args[1:7]):
         await _w(bot, user.id, usage); return
     min_b, max_b, min_r, max_r, wl, ll = (int(a) for a in args[1:7])
@@ -4021,7 +4021,7 @@ async def handle_setpokerblinds(bot: BaseBot, user: User, args: list[str]) -> No
         await _w(bot, user.id, "Managers+ only.")
         return
     if len(args) < 3 or not args[1].isdigit() or not args[2].isdigit():
-        await _w(bot, user.id, "Usage: /setpokerblinds <small_blind> <big_blind>")
+        await _w(bot, user.id, "Usage: !setpokerblinds <small_blind> <big_blind>")
         return
     sb, bb = int(args[1]), int(args[2])
     if sb < 1:
@@ -4041,11 +4041,11 @@ async def handle_setpokercardmarker(bot: BaseBot, user: User, args: list[str]) -
     if len(args) < 2:
         current = _get_card_marker()
         await _w(bot, user.id,
-            f"Poker card marker: {current} | Use /setpokercardmarker <emoji>")
+            f"Poker card marker: {current} | Use !setpokercardmarker <emoji>")
         return
     marker = args[1].strip()
     if not marker:
-        await _w(bot, user.id, "Usage: /setpokercardmarker <emoji>")
+        await _w(bot, user.id, "Usage: !setpokercardmarker <emoji>")
         return
     db.set_room_setting("poker_card_marker", marker[:10])
     await _w(bot, user.id, f"✅ Poker card marker set to: {marker[:10]}")
@@ -4057,7 +4057,7 @@ async def handle_setpokerante(bot: BaseBot, user: User, args: list[str]) -> None
         await _w(bot, user.id, "Managers+ only.")
         return
     if len(args) < 2 or not args[1].isdigit():
-        await _w(bot, user.id, "Usage: /setpokerante <amount> (0 to disable)")
+        await _w(bot, user.id, "Usage: !setpokerante <amount> (0 to disable)")
         return
     amt = int(args[1])
     if amt < 0:
@@ -4076,7 +4076,7 @@ async def handle_setpokernexthandtimer(bot: BaseBot, user: User,
         await _w(bot, user.id, "Managers+ only.")
         return
     if len(args) < 2 or not args[1].isdigit():
-        await _w(bot, user.id, "Usage: /setpokernexthandtimer <seconds>")
+        await _w(bot, user.id, "Usage: !setpokernexthandtimer <seconds>")
         return
     secs = int(args[1])
     if not (3 <= secs <= 120):
@@ -4094,7 +4094,7 @@ async def handle_setpokermaxstack(bot: BaseBot, user: User,
         return
     if len(args) < 2 or not args[1].isdigit():
         await _w(bot, user.id,
-            "Usage: /setpokermaxstack <amount>. Enable with /poker maxstack on")
+            "Usage: !setpokermaxstack <amount>. Enable with /poker maxstack on")
         return
     amt = int(args[1])
     if amt < 1:
@@ -4110,7 +4110,7 @@ async def handle_setpokeridlestrikes(bot: BaseBot, user: User,
         await _w(bot, user.id, "Managers+ only.")
         return
     if len(args) < 2 or not args[1].isdigit():
-        await _w(bot, user.id, "Usage: /setpokeridlestrikes <n>")
+        await _w(bot, user.id, "Usage: !setpokeridlestrikes <n>")
         return
     n = int(args[1])
     if n < 1:
@@ -4344,7 +4344,7 @@ async def handle_pokerdebug(bot: BaseBot, user: User, args: list[str]) -> None:
         if not all_paid_d and pot_d > 0:
             await _w(bot, user.id,
                 (f"Cleanup preview: pot {pot_d}c unresolved — cannot auto-clear. "
-                 f"Use /poker hardrefund.")[:249])
+                 f"Use !poker hardrefund.")[:249])
         else:
             action_d = "clear paid rows" if all_paid_d else "refund zero-pot rows"
             await _w(bot, user.id,
@@ -4444,7 +4444,7 @@ async def handle_pokerfix(bot: BaseBot, user: User, args: list[str]) -> None:
         return
 
     if phase == "recovery_required":
-        await _w(bot, user.id, "recovery_required — use /poker hardrefund.")
+        await _w(bot, user.id, "recovery_required — use !poker hardrefund.")
         return
 
     if phase in ("finished", "idle"):
@@ -4453,7 +4453,7 @@ async def handle_pokerfix(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, f"Phase was '{phase}' — reset to waiting.")
         return
 
-    await _w(bot, user.id, f"Unknown phase '{phase}' — use /poker refund.")
+    await _w(bot, user.id, f"Unknown phase '{phase}' — use !poker refund.")
 
 
 async def handle_pokerrefundall(bot: BaseBot, user: User, args: list[str]) -> None:
@@ -4605,7 +4605,7 @@ async def handle_pokercleanup(bot: BaseBot, user: User, args: list[str]) -> None
     res = _cleanup_finished_hand()
     if res["action"] == "pot_unresolved":
         await _w(bot, user.id,
-            f"⚠️ Pot {res['pot']}c unresolved. Use /poker hardrefund.")
+            f"⚠️ Pot {res['pot']}c unresolved. Use !poker hardrefund.")
         return
     _log_recovery("cleanup", round_id, tbl["phase"],
                   f"by @{user.username} | action={res['action']}")
@@ -4626,7 +4626,7 @@ async def handle_confirmclosepoker(bot: BaseBot, user: User, args: list[str]) ->
         return
     code = args[1].upper() if len(args) >= 2 else ""
     if not code or code not in _close_confirm_codes:
-        await _w(bot, user.id, "Invalid or expired code. Use /poker closeforce first.")
+        await _w(bot, user.id, "Invalid or expired code. Use !poker closeforce first.")
         return
     _close_confirm_codes.pop(code, None)
 
@@ -4765,7 +4765,7 @@ async def handle_pokerdashboard(bot: BaseBot, user: User) -> None:
 
 
 async def handle_pokerpause(bot: BaseBot, user: User) -> None:
-    """/pokerpause /poker pause — pause all betting actions."""
+    """/pokerpause !poker pause — pause all betting actions."""
     global _poker_paused
     if not can_manage_games(user.username):
         await _w(bot, user.id, "Staff only.")

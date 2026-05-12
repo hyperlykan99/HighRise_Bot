@@ -118,7 +118,7 @@ async def handle_setraritycap(bot, user, args: str) -> None:
     parts = args.strip().split()
     if len(parts) < 2:
         await _w(bot, user.id,
-            "Usage: /setraritycap <rarity> <amount>\n"
+            "Usage: !setraritycap <rarity> <amount>\n"
             "Rarities: common rare epic legendary mythic prismatic exotic")
         return
     rarity = parts[0].lower().replace(" ", "_")

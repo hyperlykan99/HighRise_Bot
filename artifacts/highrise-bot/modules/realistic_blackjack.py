@@ -889,7 +889,7 @@ async def startup_rbj_recovery(bot: BaseBot) -> None:
     if row.get("recovery_required"):
         print("[RECOVERY] RBJ marked recovery_required — alerting in chat.")
         try:
-            await bot.highrise.chat("⚠️ BlackJack (Shoe) recovery needed. Use /rbj recover or /rbj refund.")
+            await bot.highrise.chat("⚠️ BlackJack (Shoe) recovery needed. Use !rbj recover or /rbj refund.")
         except Exception:
             pass
         return
@@ -973,7 +973,7 @@ async def startup_rbj_recovery(bot: BaseBot) -> None:
         except Exception:
             pass
         try:
-            await bot.highrise.chat("⚠️ BlackJack (Shoe) recovery needed. Use /rbj recover or /rbj refund.")
+            await bot.highrise.chat("⚠️ BlackJack (Shoe) recovery needed. Use !rbj recover or /rbj refund.")
         except Exception:
             pass
 
@@ -1029,12 +1029,12 @@ async def handle_rbj(bot: BaseBot, user: User, args: list[str]):
             if len(args) > 2 and args[2].lower() in ("on", "off"):
                 await _cmd_toggle_splitaces(bot, user, args[2].lower() == "on")
             else:
-                await bot.highrise.send_whisper(user.id, "Usage: /rbj splitaces on|off")
+                await bot.highrise.send_whisper(user.id, "Usage: !rbj splitaces on|off")
         elif sub == "betlimit":
             if len(args) > 2 and args[2].lower() in ("on", "off"):
                 await _cmd_toggle_betlimit(bot, user, args[2].lower() == "on")
             else:
-                await bot.highrise.send_whisper(user.id, "Usage: /rbj betlimit on|off")
+                await bot.highrise.send_whisper(user.id, "Usage: !rbj betlimit on|off")
         elif sub == "winlimit":
             if not can_manage_games(user.username):
                 await bot.highrise.send_whisper(user.id, "Staff only.")
@@ -1047,7 +1047,7 @@ async def handle_rbj(bot: BaseBot, user: User, args: list[str]):
                 db.set_rbj_setting("rbj_win_limit_enabled", 0)
                 await bot.highrise.chat("⛔ BlackJack win limit OFF.")
             else:
-                await bot.highrise.send_whisper(user.id, "Use /rbj winlimit on/off.")
+                await bot.highrise.send_whisper(user.id, "Use !rbj winlimit on/off.")
         elif sub == "losslimit":
             if not can_manage_games(user.username):
                 await bot.highrise.send_whisper(user.id, "Staff only.")
@@ -1060,7 +1060,7 @@ async def handle_rbj(bot: BaseBot, user: User, args: list[str]):
                 db.set_rbj_setting("rbj_loss_limit_enabled", 0)
                 await bot.highrise.chat("⛔ BlackJack loss limit OFF.")
             else:
-                await bot.highrise.send_whisper(user.id, "Use /rbj losslimit on/off.")
+                await bot.highrise.send_whisper(user.id, "Use !rbj losslimit on/off.")
         elif sub == "rules":
             await _cmd_rules(bot, user)
         elif sub == "stats":
@@ -1117,7 +1117,7 @@ async def handle_rbj(bot: BaseBot, user: User, args: list[str]):
             else:
                 mode = db.get_bj_settings().get("bj_cards_mode", "whisper")
                 await bot.highrise.send_whisper(
-                    user.id, f"Cards mode: {mode}. Use /bj cards whisper|public"
+                    user.id, f"Cards mode: {mode}. Use !bj cards whisper|public"
                 )
         elif sub == "fairness":
             s_f = _settings()
@@ -1156,7 +1156,7 @@ async def handle_rbj(bot: BaseBot, user: User, args: list[str]):
                 db.set_rbj_setting("dealer_hits_soft_17", 0)
                 await bot.highrise.chat("✅ Dealer stands on soft 17.")
             else:
-                await bot.highrise.send_whisper(user.id, "Use /bj setsoft17 hit|stand")
+                await bot.highrise.send_whisper(user.id, "Use !bj setsoft17 hit|stand")
         elif sub == "setsurrender":
             if not can_manage_games(user.username):
                 await bot.highrise.send_whisper(user.id, "Staff only.")
@@ -1169,7 +1169,7 @@ async def handle_rbj(bot: BaseBot, user: User, args: list[str]):
                     f"{'✅' if val2 == 'on' else '⛔'} BlackJack surrender is now {label}."
                 )
             else:
-                await bot.highrise.send_whisper(user.id, "Use /bj setsurrender on|off")
+                await bot.highrise.send_whisper(user.id, "Use !bj setsurrender on|off")
         elif sub == "setinsurance":
             if not can_manage_games(user.username):
                 await bot.highrise.send_whisper(user.id, "Staff only.")
@@ -1182,7 +1182,7 @@ async def handle_rbj(bot: BaseBot, user: User, args: list[str]):
                     f"{'✅' if val2 == 'on' else '⛔'} BlackJack insurance is now {label}."
                 )
             else:
-                await bot.highrise.send_whisper(user.id, "Use /bj setinsurance on|off")
+                await bot.highrise.send_whisper(user.id, "Use !bj setinsurance on|off")
         elif sub == "setmaxsplits":
             await handle_rbj_set(bot, user, "setrbjmaxsplits", ["setrbjmaxsplits"] + args[2:])
         elif sub == "pace":
@@ -1232,7 +1232,7 @@ async def _cmd_join(bot: BaseBot, user: User, args: list[str]):
         min_b = int(s.get("min_bet", 10))
         max_b = int(s.get("max_bet", 1000))
         await bot.highrise.send_whisper(
-            user.id, f"Usage: /bet <amount>  Min: {min_b:,}c  Max: {max_b:,}c"
+            user.id, f"Usage: !bet <amount>  Min: {min_b:,}c  Max: {max_b:,}c"
         )
         return
 
@@ -1347,7 +1347,7 @@ async def _cmd_leave(bot: BaseBot, user: User):
 
 async def _cmd_players(bot: BaseBot, user: User):
     if _state.phase == "idle":
-        await bot.highrise.send_whisper(user.id, "No BlackJack table active. Use /rjoin <bet>.")
+        await bot.highrise.send_whisper(user.id, "No BlackJack table active. Use !rjoin <bet>.")
         return
     lines = [f"-- BlackJack Players ({_state.phase}) --"]
     for p in _state.players:
@@ -1359,7 +1359,7 @@ async def _cmd_players(bot: BaseBot, user: User):
 
 async def _cmd_table(bot: BaseBot, user: User):
     if _state.phase == "idle":
-        await bot.highrise.send_whisper(user.id, "No BlackJack table active. Use /rjoin <bet>.")
+        await bot.highrise.send_whisper(user.id, "No BlackJack table active. Use !rjoin <bet>.")
         return
     if _state.phase == "lobby":
         count = len(_state.players)
@@ -1806,7 +1806,7 @@ async def _cmd_rbj_state(bot: BaseBot, user: User):
         if row and row.get("active"):
             await bot.highrise.send_whisper(user.id,
                 f"BJ Shoe: idle in memory | DB phase:{row.get('phase')}\n"
-                "Use /rbj recover or /rbj refund.")
+                "Use !rbj recover or /rbj refund.")
         else:
             await bot.highrise.send_whisper(user.id, "BJ Shoe: no active table.")
         return
@@ -1830,7 +1830,7 @@ async def _cmd_rbj_recover(bot: BaseBot, user: User):
         return
     if _state.phase != "idle":
         await bot.highrise.send_whisper(user.id,
-            "BJ Shoe is active. Use /rbj state to inspect, /rbj refund to cancel.")
+            "BJ Shoe is active. Use !rbj state to inspect, /rbj refund to cancel.")
         return
     row = db.load_casino_table("rbj")
     if not row or not row.get("active"):
@@ -1842,7 +1842,7 @@ async def _cmd_rbj_recover(bot: BaseBot, user: User):
     except Exception:
         pass
     await startup_rbj_recovery(bot)
-    await bot.highrise.send_whisper(user.id, "♻️ BJ Shoe recovery attempted. Check /rbj state.")
+    await bot.highrise.send_whisper(user.id, "♻️ BJ Shoe recovery attempted. Check !rbj state.")
 
 
 async def _cmd_rbj_refund(bot: BaseBot, user: User):
@@ -1889,7 +1889,7 @@ async def _cmd_rbj_forcefinish(bot: BaseBot, user: User):
         return
     row = db.load_casino_table("rbj")
     if not row or not row.get("active"):
-        await bot.highrise.send_whisper(user.id, "No active RBJ state. Use /rbj refund instead.")
+        await bot.highrise.send_whisper(user.id, "No active RBJ state. Use !rbj refund instead.")
         return
     await bot.highrise.send_whisper(user.id, "♻️ Loading RBJ state for force-finish...")
     try:
@@ -1900,7 +1900,7 @@ async def _cmd_rbj_forcefinish(bot: BaseBot, user: User):
     if _state.phase == "round":
         asyncio.create_task(_finalize_round(bot))
     else:
-        await bot.highrise.send_whisper(user.id, "Could not restore state. Use /rbj refund.")
+        await bot.highrise.send_whisper(user.id, "Could not restore state. Use !rbj refund.")
 
 
 # ─── Admin setting commands (/setrbjXXX) ──────────────────────────────────────
@@ -1929,7 +1929,7 @@ async def _cmd_bj_pace(bot: BaseBot, user: User, args: list[str]) -> None:
         return
 
     if pace not in _BJ_PACE_PRESETS:
-        await bot.highrise.send_whisper(user.id, "Usage: /bj pace fast|normal|long")
+        await bot.highrise.send_whisper(user.id, "Usage: !bj pace fast|normal|long")
         return
 
     preset = _BJ_PACE_PRESETS[pace]
@@ -1965,7 +1965,7 @@ async def _cmd_bj_force(bot: BaseBot, user: User, sub: str, args: list[str]) -> 
     if sub == "forcecards":
         if len(args) < 5:
             await bot.highrise.send_whisper(
-                user.id, "Usage: /bj forcecards @Player A♠ K♠"
+                user.id, "Usage: !bj forcecards @Player A♠ K♠"
             )
             return
         target = args[2].lstrip("@").lower()
@@ -1984,7 +1984,7 @@ async def _cmd_bj_force(bot: BaseBot, user: User, sub: str, args: list[str]) -> 
 
     elif sub == "forcedealer":
         if len(args) < 4:
-            await bot.highrise.send_whisper(user.id, "Usage: /bj forcedealer A♣ K♦")
+            await bot.highrise.send_whisper(user.id, "Usage: !bj forcedealer A♣ K♦")
             return
         c1 = _parse_card(args[2])
         c2 = _parse_card(args[3])
@@ -2029,7 +2029,7 @@ async def _cmd_bj_force(bot: BaseBot, user: User, sub: str, args: list[str]) -> 
                 user.id, "🧪 Shoe will drain near shuffle threshold before next round."
             )
         else:
-            await bot.highrise.send_whisper(user.id, "Usage: /bj forceshoe low")
+            await bot.highrise.send_whisper(user.id, "Usage: !bj forceshoe low")
 
 
 async def handle_rbj_set(bot: BaseBot, user: User, cmd: str, args: list[str]):
@@ -2131,14 +2131,14 @@ async def handle_rbj_set(bot: BaseBot, user: User, cmd: str, args: list[str]):
 
         elif cmd == "setrbjdailywinlimit":
             if not raw.isdigit() or not (100 <= int(raw) <= 1_000_000):
-                await bot.highrise.send_whisper(user.id, "Use /setrbjdailywinlimit <amount>.")
+                await bot.highrise.send_whisper(user.id, "Use !setrbjdailywinlimit <amount>.")
                 return
             db.set_rbj_setting("rbj_daily_win_limit", int(raw))
             await bot.highrise.send_whisper(user.id, f"✅ RBJ daily win limit set to {int(raw):,}c.")
 
         elif cmd == "setrbjdailylosslimit":
             if not raw.isdigit() or not (100 <= int(raw) <= 1_000_000):
-                await bot.highrise.send_whisper(user.id, "Use /setrbjdailylosslimit <amount>.")
+                await bot.highrise.send_whisper(user.id, "Use !setrbjdailylosslimit <amount>.")
                 return
             db.set_rbj_setting("rbj_daily_loss_limit", int(raw))
             await bot.highrise.send_whisper(user.id, f"✅ RBJ daily loss limit set to {int(raw):,}c.")
@@ -2281,7 +2281,7 @@ async def handle_bet(bot: BaseBot, user: User, args: list) -> None:
             await bot.highrise.send_whisper(
                 user.id,
                 "🃏 No previous bet found.\n"
-                "Use /bet <amount> to place your first bet."
+                "Use !bet <amount> to place your first bet."
             )
             return
         raw = str(last)
@@ -2291,7 +2291,7 @@ async def handle_bet(bot: BaseBot, user: User, args: list) -> None:
         max_b = int(s.get("max_bet", 1000))
         await bot.highrise.send_whisper(
             user.id,
-            f"🃏 BlackJack\nUsage: /bet <amount>\nMin: {min_b:,}c  Max: {max_b:,}c"
+            f"🃏 BlackJack\nUsage: !bet <amount>\nMin: {min_b:,}c  Max: {max_b:,}c"
         )
         return
 

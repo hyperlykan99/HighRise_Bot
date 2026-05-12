@@ -283,7 +283,7 @@ async def handle_botmode(bot: BaseBot, user: User, args: list[str]) -> None:
         if mode:
             await _w(bot, user.id, f"🤖 Mode: {mode['prefix']} | {mode['mode_name']}")
         else:
-            await _w(bot, user.id, "🤖 No mode set. Use /botmodes.")
+            await _w(bot, user.id, "🤖 No mode set. Use !botmodes.")
         return
 
     mode_id = args[1].lower()
@@ -351,7 +351,7 @@ async def handle_setbotmessageformat(bot: BaseBot, user: User, args: list[str]) 
     if len(args) < 2 or args[1].lower() not in ("on", "off"):
         cur = _rs("bot_name_prefix_enabled", "true")
         status = "ON" if cur == "true" else "OFF"
-        await _w(bot, user.id, f"Usage: /setbotmessageformat on|off  (current: {status})")
+        await _w(bot, user.id, f"Usage: !setbotmessageformat on|off  (current: {status})")
         return
     val = "true" if args[1].lower() == "on" else "false"
     import database as _db
@@ -374,7 +374,7 @@ async def handle_botprefix(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "⛔ Bot prefixes OFF.")
     else:
         state = "ON" if is_prefix_enabled() else "OFF"
-        await _w(bot, user.id, f"Bot prefix: {state}. Use /botprefix on|off.")
+        await _w(bot, user.id, f"Bot prefix: {state}. Use !botprefix on|off.")
 
 
 # ---------------------------------------------------------------------------
@@ -394,7 +394,7 @@ async def handle_categoryprefix(bot: BaseBot, user: User, args: list[str]) -> No
         await _w(bot, user.id, "⛔ Category prefixes OFF.")
     else:
         state = "ON" if is_category_prefix_enabled() else "OFF"
-        await _w(bot, user.id, f"Category prefix: {state}. Use /categoryprefix on|off.")
+        await _w(bot, user.id, f"Category prefix: {state}. Use !categoryprefix on|off.")
 
 
 # ---------------------------------------------------------------------------
@@ -406,7 +406,7 @@ async def handle_setbotprefix(bot: BaseBot, user: User, args: list[str]) -> None
         await _w(bot, user.id, "Admin and above only.")
         return
     if len(args) < 3:
-        await _w(bot, user.id, "Usage: /setbotprefix <mode_id> <prefix>")
+        await _w(bot, user.id, "Usage: !setbotprefix <mode_id> <prefix>")
         return
     mode_id = args[1].lower()
     prefix  = " ".join(args[2:])[:50]
@@ -431,7 +431,7 @@ async def handle_setbotdesc(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Admin and above only.")
         return
     if len(args) < 3:
-        await _w(bot, user.id, "Usage: /setbotdesc <mode_id> <description>")
+        await _w(bot, user.id, "Usage: !setbotdesc <mode_id> <description>")
         return
     mode_id = args[1].lower()
     desc    = " ".join(args[2:])[:200]
@@ -456,7 +456,7 @@ async def handle_setbotoutfit(bot: BaseBot, user: User, args: list[str]) -> None
         await _w(bot, user.id, "Admin and above only.")
         return
     if len(args) < 3:
-        await _w(bot, user.id, "Usage: /setbotoutfit <mode_id> <outfit_name>")
+        await _w(bot, user.id, "Usage: !setbotoutfit <mode_id> <outfit_name>")
         return
     mode_id     = args[1].lower()
     outfit_name = " ".join(args[2:])[:100]
@@ -546,7 +546,7 @@ async def handle_dressbot(bot: BaseBot, user: User, args: list[str]) -> None:
     if not (is_admin(user.username) or is_owner(user.username)):
         await _w(bot, user.id, "Admin and above only.")
         return
-    USAGE = "Usage: /dressbot <mode_id> | /dressbot <bot_username> <mode_id>"
+    USAGE = "Usage: !dressbot <mode_id> | /dressbot <bot_username> <mode_id>"
     if len(args) < 2:
         await _w(bot, user.id, USAGE)
         return
@@ -582,7 +582,7 @@ async def handle_dressbot(bot: BaseBot, user: User, args: list[str]) -> None:
     outfit_json = (rec.get("outfit_data_json") or "").strip()
     if not outfit_json or outfit_json in ("{}", "[]", ""):
         msg = (f"No saved outfit data for '{mode_id}'. "
-               f"Dress manually, then use /savebotoutfit {mode_id}.")
+               f"Dress manually, then use !savebotoutfit {mode_id}.")
         if delegated:
             raise RuntimeError(msg)
         await _w(bot, user.id, msg[:249])
@@ -607,7 +607,7 @@ async def handle_dressbot(bot: BaseBot, user: User, args: list[str]) -> None:
         print(f"[OUTFIT] dressbot exception for {mode_id}: {exc}")
         if delegated:
             raise RuntimeError(f"Outfit apply error: {str(exc)[:80]}") from exc
-        await _w(bot, user.id, "Failed to apply outfit. Check /botoutfitlogs for details.")
+        await _w(bot, user.id, "Failed to apply outfit. Check !botoutfitlogs for details.")
 
 
 # ---------------------------------------------------------------------------
@@ -619,7 +619,7 @@ async def handle_savebotoutfit(bot: BaseBot, user: User, args: list[str]) -> Non
     if not (is_admin(user.username) or is_owner(user.username)):
         await _w(bot, user.id, "Admin and above only.")
         return
-    USAGE = ("Usage: /savebotoutfit <mode_id> [name]"
+    USAGE = ("Usage: !savebotoutfit <mode_id> [name]"
              " | /savebotoutfit <bot_username> <mode_id> [name]")
     if len(args) < 2:
         await _w(bot, user.id, USAGE[:249])
@@ -700,7 +700,7 @@ async def handle_copyoutfit(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Admin and above only.")
         return
     if len(args) < 3:
-        await _w(bot, user.id, "Usage: /copyoutfit <username> <mode_id>")
+        await _w(bot, user.id, "Usage: !copyoutfit <username> <mode_id>")
         return
 
     target_name = args[1].lstrip("@")
@@ -762,7 +762,7 @@ async def handle_wearuseroutfit(bot: BaseBot, user: User, args: list[str]) -> No
     if not (is_admin(user.username) or is_owner(user.username)):
         await _w(bot, user.id, "Admin and above only.")
         return
-    USAGE = ("Usage: /wearuseroutfit <source_username>"
+    USAGE = ("Usage: !wearuseroutfit <source_username>"
              " | /wearuseroutfit <bot_username> <source_username>")
     if len(args) < 2:
         await _w(bot, user.id, USAGE[:249])
@@ -847,7 +847,7 @@ async def handle_renamebotoutfit(bot: BaseBot, user: User, args: list[str]) -> N
         await _w(bot, user.id, "Admin and above only.")
         return
     if len(args) < 3:
-        await _w(bot, user.id, "Usage: /renamebotoutfit <mode_id> <name>")
+        await _w(bot, user.id, "Usage: !renamebotoutfit <mode_id> <name>")
         return
     mode_id  = args[1].lower()
     new_name = " ".join(args[2:])[:100]
@@ -875,7 +875,7 @@ async def handle_clearbotoutfit(bot: BaseBot, user: User, args: list[str]) -> No
         await _w(bot, user.id, "Admin and above only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /clearbotoutfit <mode_id>")
+        await _w(bot, user.id, "Usage: !clearbotoutfit <mode_id>")
         return
     mode_id = args[1].lower()
     rec = get_mode_record(mode_id)
@@ -909,7 +909,7 @@ async def handle_createbotmode(bot: BaseBot, user: User, args: list[str]) -> Non
         await _w(bot, user.id, "Owner only.")
         return
     if len(args) < 3:
-        await _w(bot, user.id, "Usage: /createbotmode <mode_id> <mode_name>")
+        await _w(bot, user.id, "Usage: !createbotmode <mode_id> <mode_name>")
         return
     mode_id   = args[1].lower().strip()
     mode_name = " ".join(args[2:])[:60]
@@ -938,7 +938,7 @@ async def handle_deletebotmode(bot: BaseBot, user: User, args: list[str]) -> Non
         await _w(bot, user.id, "Owner only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /deletebotmode <mode_id>")
+        await _w(bot, user.id, "Usage: !deletebotmode <mode_id>")
         return
     mode_id = args[1].lower()
     if mode_id in DEFAULT_MODES:
@@ -960,7 +960,7 @@ async def handle_assignbotmode(bot: BaseBot, user: User, args: list[str]) -> Non
         await _w(bot, user.id, "Admin and above only.")
         return
     if len(args) < 3:
-        await _w(bot, user.id, "Usage: /assignbotmode <bot_username> <mode_id>")
+        await _w(bot, user.id, "Usage: !assignbotmode <bot_username> <mode_id>")
         return
     bot_uname = args[1].lstrip("@")
     mode_id   = args[2].lower()
@@ -1011,7 +1011,7 @@ async def handle_bots(bot: BaseBot, user: User) -> None:
 
 async def handle_botinfo(bot: BaseBot, user: User, args: list[str]) -> None:
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /botinfo <bot_username>")
+        await _w(bot, user.id, "Usage: !botinfo <bot_username>")
         return
     bname = args[1].lstrip("@")
     conn  = db.get_connection()
@@ -1111,7 +1111,7 @@ async def handle_copyoutfitfrom(bot: BaseBot, user: User, args: list[str]) -> No
         await _w(bot, user.id, "Admin and above only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /copyoutfitfrom <username>")
+        await _w(bot, user.id, "Usage: !copyoutfitfrom <username>")
         return
     source = args[1].lstrip("@")
     target_id = await _find_room_user_id(bot, source)
@@ -1151,7 +1151,7 @@ async def handle_savemyoutfit(bot: BaseBot, user: User, args: list[str]) -> None
         await _w(bot, user.id, "Admin and above only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /savemyoutfit <mode_id>")
+        await _w(bot, user.id, "Usage: !savemyoutfit <mode_id>")
         return
     name = args[1].lower()
     rec  = get_mode_record(name)
@@ -1164,7 +1164,7 @@ async def handle_savemyoutfit(bot: BaseBot, user: User, args: list[str]) -> None
             name = rec["mode_id"]
     if not rec:
         await _w(bot, user.id,
-                 f"Unknown mode '{name}'. Use /myoutfits to see available modes.")
+                 f"Unknown mode '{name}'. Use !myoutfits to see available modes.")
         return
     try:
         resp = await bot.highrise.get_my_outfit()
@@ -1202,7 +1202,7 @@ async def handle_wearoutfit(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Admin and above only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /wearoutfit <mode_id>")
+        await _w(bot, user.id, "Usage: !wearoutfit <mode_id>")
         return
     name = args[1].lower()
     rec  = get_mode_record(name)
@@ -1591,7 +1591,7 @@ async def handle_directoutfittest(bot, user, args: list[str]) -> None:
         await _w(bot, user.id, "Admin and above only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /directoutfittest <message to test>")
+        await _w(bot, user.id, "Usage: !directoutfittest <message to test>")
         return
 
     from config import BOT_MODE
@@ -1638,7 +1638,7 @@ async def handle_botoutfitdebug(bot, user, args: list[str]) -> None:
         return
     raw_name = " ".join(args[1:]).strip() if len(args) > 1 else ""
     if not raw_name:
-        await _w(bot, user.id, "Usage: /botoutfitdebug <botname>")
+        await _w(bot, user.id, "Usage: !botoutfitdebug <botname>")
         return
     norm     = re.sub(r"\W+", "", raw_name.lstrip("@").lower())
     key      = f"simple_outfit_{norm}"

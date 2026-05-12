@@ -190,7 +190,7 @@ async def deliver_pending_notifications(
         user_id = sub.get("user_id")
 
         if len(pending) > 3:
-            summary = f"🔔 You have {len(pending)} pending alerts. Use /notifications to see them."
+            summary = f"🔔 You have {len(pending)} pending alerts. Use !notifications to see them."
             if dm_ok:
                 await _dm(bot, conv, summary)
             elif user_id:
@@ -264,7 +264,7 @@ async def handle_notify(bot: BaseBot, user: User, args: list[str]) -> None:
     db.ensure_user(user.id, user.username)
     if len(args) < 3:
         await _w(bot, user.id,
-                 "Usage: /notify <type> on|off\n"
+                 "Usage: !notify <type> on|off\n"
                  "Types: bank events gold vip casino quests shop announcements dm whisper all")
         return
 
@@ -272,7 +272,7 @@ async def handle_notify(bot: BaseBot, user: User, args: list[str]) -> None:
     toggle = args[2].lower().strip()
 
     if toggle not in ("on", "off"):
-        await _w(bot, user.id, "Usage: /notify <type> on|off")
+        await _w(bot, user.id, "Usage: !notify <type> on|off")
         return
 
     val = 1 if toggle == "on" else 0
@@ -383,7 +383,7 @@ async def handle_notifyprefs(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Managers and above only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /notifyprefs <username>")
+        await _w(bot, user.id, "Usage: !notifyprefs <username>")
         return
 
     target = args[1].lstrip("@").lower().strip()
@@ -412,7 +412,7 @@ async def handle_notifyuser(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Admins and owners only.")
         return
     if len(args) < 4:
-        await _w(bot, user.id, "Usage: /notifyuser <username> <type> on|off")
+        await _w(bot, user.id, "Usage: !notifyuser <username> <type> on|off")
         return
 
     target = args[1].lstrip("@").lower().strip()
@@ -420,7 +420,7 @@ async def handle_notifyuser(bot: BaseBot, user: User, args: list[str]) -> None:
     toggle = args[3].lower().strip()
 
     if toggle not in ("on", "off"):
-        await _w(bot, user.id, "Usage: /notifyuser <username> <type> on|off")
+        await _w(bot, user.id, "Usage: !notifyuser <username> <type> on|off")
         return
 
     val = 1 if toggle == "on" else 0
@@ -452,7 +452,7 @@ async def handle_broadcasttest(bot: BaseBot, user: User, args: list[str]) -> Non
         return
     if len(args) < 2:
         await _w(bot, user.id,
-                 "Usage: /broadcasttest <type>\n"
+                 "Usage: !broadcasttest <type>\n"
                  "Types: bank events gold vip casino quests shop announcements staff")
         return
 
@@ -497,7 +497,7 @@ async def handle_debugnotify(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Admins and owners only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /debugnotify <username>")
+        await _w(bot, user.id, "Usage: !debugnotify <username>")
         return
 
     target = args[1].lstrip("@").lower().strip()
@@ -535,7 +535,7 @@ async def handle_testnotify(bot: BaseBot, user: User, args: list[str]) -> None:
         return
     if len(args) < 3:
         await _w(bot, user.id,
-                 "Usage: /testnotify <username> <type>\n"
+                 "Usage: !testnotify <username> <type>\n"
                  "Types: bank events gold vip casino quests shop announcements staff")
         return
 
@@ -576,7 +576,7 @@ async def handle_testnotifyall(bot: BaseBot, user: User, args: list[str]) -> Non
         return
     if len(args) < 2:
         await _w(bot, user.id,
-                 "Usage: /testnotifyall <type>\n"
+                 "Usage: !testnotifyall <type>\n"
                  "Types: bank events gold vip casino quests shop announcements staff")
         return
 
@@ -619,7 +619,7 @@ async def handle_pendingnotify(bot: BaseBot, user: User, args: list[str]) -> Non
         await _w(bot, user.id, "Admins and owners only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /pendingnotify <username>")
+        await _w(bot, user.id, "Usage: !pendingnotify <username>")
         return
 
     target  = args[1].lstrip("@").lower().strip()
@@ -644,7 +644,7 @@ async def handle_clearpendingnotify(bot: BaseBot, user: User, args: list[str]) -
         await _w(bot, user.id, "Admins and owners only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /clearpendingnotify <username>")
+        await _w(bot, user.id, "Usage: !clearpendingnotify <username>")
         return
 
     target  = args[1].lstrip("@").lower().strip()

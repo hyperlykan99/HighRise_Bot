@@ -253,7 +253,7 @@ async def handle_settimeexp(bot, user, args: list[str]) -> None:
     else:
         cur = "ON" if _setting_bool("time_exp_enabled") else "OFF"
         await _w(bot, user.id,
-            f"Time EXP is currently {cur}. Usage: /settimeexp on | off")
+            f"Time EXP is currently {cur}. Usage: !settimeexp on | off")
 
 
 async def handle_settimeexpcap(bot, user, args: list[str]) -> None:
@@ -264,7 +264,7 @@ async def handle_settimeexpcap(bot, user, args: list[str]) -> None:
     if len(args) < 2:
         cur = _setting_int("time_exp_cap")
         await _w(bot, user.id,
-            f"Daily time EXP cap: {cur}. Usage: /settimeexpcap <amount>")
+            f"Daily time EXP cap: {cur}. Usage: !settimeexpcap <amount>")
         return
     try:
         val = int(args[1])
@@ -272,7 +272,7 @@ async def handle_settimeexpcap(bot, user, args: list[str]) -> None:
             raise ValueError
     except ValueError:
         await _w(bot, user.id,
-            "⚠️ Enter a valid positive number. Usage: /settimeexpcap <amount>")
+            "⚠️ Enter a valid positive number. Usage: !settimeexpcap <amount>")
         return
     db.set_room_setting("time_exp_cap", str(val))
     await _w(bot, user.id, f"✅ Daily time EXP cap set to {val} EXP.")
@@ -286,7 +286,7 @@ async def handle_settimeexptick(bot, user, args: list[str]) -> None:
     if len(args) < 2:
         cur = _setting_int("time_exp_tick_seconds")
         await _w(bot, user.id,
-            f"Current tick: {cur}s. Usage: /settimeexptick <seconds>")
+            f"Current tick: {cur}s. Usage: !settimeexptick <seconds>")
         return
     try:
         val = int(args[1])
@@ -316,7 +316,7 @@ async def handle_settimeexpbonus(bot, user, args: list[str]) -> None:
     else:
         cur = "ON" if _setting_bool("time_exp_active_bonus_enabled") else "OFF"
         await _w(bot, user.id,
-            f"Active bonus is {cur}. Usage: /settimeexpbonus on | off")
+            f"Active bonus is {cur}. Usage: !settimeexpbonus on | off")
 
 
 async def handle_timeexpstatus(bot, user, args: list[str]) -> None:
@@ -359,4 +359,4 @@ async def handle_setallowbotxp(bot, user, args: list[str]) -> None:
     else:
         cur = "ON" if _setting_bool("time_exp_bot_exp_enabled") else "OFF"
         await _w(bot, user.id,
-            f"Allow Bot XP is {cur}. Usage: /setallowbotxp on | off")
+            f"Allow Bot XP is {cur}. Usage: !setallowbotxp on | off")

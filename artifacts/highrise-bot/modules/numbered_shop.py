@@ -179,7 +179,7 @@ async def _execute_purchase(bot, user, item, shop_type) -> None:
 
 async def handle_confirmbuy(bot: BaseBot, user: User, args: list[str]) -> None:
     if len(args) < 2:
-        await bot.highrise.send_whisper(user.id, "Usage: /confirmbuy <code>")
+        await bot.highrise.send_whisper(user.id, "Usage: !confirmbuy <code>")
         return
 
     code = args[1].upper().strip()
@@ -222,7 +222,7 @@ async def handle_confirmbuy(bot: BaseBot, user: User, args: list[str]) -> None:
 
 async def handle_cancelbuy(bot: BaseBot, user: User, args: list[str]) -> None:
     if len(args) < 2:
-        await bot.highrise.send_whisper(user.id, "Usage: /cancelbuy <code>")
+        await bot.highrise.send_whisper(user.id, "Usage: !cancelbuy <code>")
         return
 
     code = args[1].upper().strip()
@@ -340,7 +340,7 @@ async def handle_shoptest(bot: BaseBot, user: User, args: list[str]) -> None:
     if not _can_manage(user.username):
         return
     if len(args) < 3:
-        await bot.highrise.send_whisper(user.id, "Usage: /shoptest <username> <badges|titles|event>")
+        await bot.highrise.send_whisper(user.id, "Usage: !shoptest <username> <badges|titles|event>")
         return
 
     target    = args[1].strip().lstrip("@")

@@ -56,7 +56,7 @@ async def handle_coinflip(bot: BaseBot, user: User, args: list[str]):
     # We need exactly 3 parts: the command name, the choice, and the bet amount
     if len(args) < 3:
         await bot.highrise.send_whisper(
-            user.id, "Usage: /coinflip <heads/tails> <bet>\nExample: /coinflip heads 50"
+            user.id, "Usage: !coinflip <heads/tails> <bet>\nExample: /coinflip heads 50"
         )
         return
 
@@ -93,7 +93,7 @@ async def handle_coinflip(bot: BaseBot, user: User, args: list[str]):
     if balance < bet:
         await bot.highrise.send_whisper(
             user.id,
-            f"💸 Not enough coins! You have {balance} but need {bet}. Try /daily!"
+            f"💸 Not enough coins! You have {balance} but need {bet}. Try !daily!"
         )
         return
 

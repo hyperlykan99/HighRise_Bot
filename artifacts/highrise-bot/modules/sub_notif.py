@@ -316,7 +316,7 @@ async def handle_setsubnotifycooldown(bot, user, args: list[str]) -> None:
         await _w(bot, user.id, "Manager/admin/owner only.")
         return
     if len(args) < 2 or not args[1].isdigit():
-        await _w(bot, user.id, f"Usage: /setsubnotifycooldown <minutes>  (current: {_COOLDOWN_SECS // 60}m)")
+        await _w(bot, user.id, f"Usage: !setsubnotifycooldown <minutes>  (current: {_COOLDOWN_SECS // 60}m)")
         return
     mins = max(0, min(60, int(args[1])))
     _COOLDOWN_SECS = mins * 60
@@ -332,7 +332,7 @@ async def handle_subnotify(bot, user, args: list[str], *, invite: bool = False) 
         await _w(bot, user.id, "Manager/admin/owner only.")
         return
     if len(args) < 3:
-        await _w(bot, user.id, "Usage: /subnotify <category> <message>")
+        await _w(bot, user.id, "Usage: !subnotify <category> <message>")
         return
     cat = args[1].lower()
     if cat not in NOTIF_CATEGORIES:
@@ -433,7 +433,7 @@ async def handle_testnotify(bot, user, args: list[str]) -> None:
         await _w(bot, user.id, "Manager/admin/owner only.")
         return
     if len(args) < 4:
-        await _w(bot, user.id, "Usage: /testnotify @username <category> <message>")
+        await _w(bot, user.id, "Usage: !testnotify @username <category> <message>")
         return
 
     raw_target = args[1].lstrip("@").lower()

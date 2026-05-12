@@ -1080,7 +1080,7 @@ async def handle_restoreannounce(bot, user, args: list[str]) -> None:
         label = "ON" if cur == "true" else "OFF"
         await _w(bot, user.id,
                  f"Restore announce: {label} | owner-only enforced. "
-                 f"Usage: /restoreannounce on|off")
+                 f"Usage: !restoreannounce on|off")
         return
     new   = "true" if args[1].lower() == "on" else "false"
     label = "ON" if new == "true" else "OFF"
@@ -1464,7 +1464,7 @@ async def handle_enablebot(bot, user, args: list[str]) -> None:
         await _w(bot, user.id, "Admin and owner only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /enablebot <bot_id>")
+        await _w(bot, user.id, "Usage: !enablebot <bot_id>")
         return
     bid = args[1].lower()
     db.enable_bot_instance(bid, True)
@@ -1476,7 +1476,7 @@ async def handle_disablebot(bot, user, args: list[str]) -> None:
         await _w(bot, user.id, "Admin and owner only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /disablebot <bot_id>")
+        await _w(bot, user.id, "Usage: !disablebot <bot_id>")
         return
     bid = args[1].lower()
     db.enable_bot_instance(bid, False)
@@ -1489,7 +1489,7 @@ async def handle_setbotmodule(bot, user, args: list[str]) -> None:
         await _w(bot, user.id, "Admin and owner only.")
         return
     if len(args) < 3:
-        await _w(bot, user.id, "Usage: /setbotmodule <bot_id> <mode>")
+        await _w(bot, user.id, "Usage: !setbotmodule <bot_id> <mode>")
         return
     bid, mode = args[1].lower(), args[2].lower()
     db.set_bot_instance_module(bid, mode)
@@ -1501,7 +1501,7 @@ async def handle_setcommandowner(bot, user, args: list[str]) -> None:
         await _w(bot, user.id, "Admin and owner only.")
         return
     if len(args) < 3:
-        await _w(bot, user.id, "Usage: /setcommandowner <cmd> <bot_mode>")
+        await _w(bot, user.id, "Usage: !setcommandowner <cmd> <bot_mode>")
         return
     cmd_name = args[1].lstrip("/").lower()
     bot_mode = args[2].lower()
@@ -1523,7 +1523,7 @@ async def handle_setmainmode(bot, user, args: list[str]) -> None:
         await _w(bot, user.id, "Admin and owner only.")
         return
     if len(args) < 2 or args[1].lower() not in ("host", "all"):
-        await _w(bot, user.id, "Usage: /setmainmode host | all")
+        await _w(bot, user.id, "Usage: !setmainmode host | all")
         return
     global _effective_mode_cache, _effective_mode_ts
     new_mode = args[1].lower()
@@ -1545,7 +1545,7 @@ async def handle_botfallback(bot, user, args: list[str]) -> None:
     if len(args) < 2 or args[1].lower() not in ("on", "off"):
         cur = db.get_room_setting("multibot_fallback_enabled", "true")
         await _w(bot, user.id,
-                 f"Fallback: {'ON' if cur == 'true' else 'OFF'}. Usage: /botfallback on|off")
+                 f"Fallback: {'ON' if cur == 'true' else 'OFF'}. Usage: !botfallback on|off")
         return
     new = "true" if args[1].lower() == "on" else "false"
     db.set_room_setting("multibot_fallback_enabled", new)
@@ -1565,7 +1565,7 @@ async def handle_botstartupannounce(bot, user, args: list[str]) -> None:
         cur = db.get_room_setting("bot_startup_announce_enabled", "false")
         await _w(bot, user.id,
                  f"Startup announce: {'ON' if cur == 'true' else 'OFF'}."
-                 " Usage: /botstartupannounce on|off")
+                 " Usage: !botstartupannounce on|off")
         return
     new = "true" if args[1].lower() == "on" else "false"
     db.set_room_setting("bot_startup_announce_enabled", new)
@@ -1673,7 +1673,7 @@ async def handle_startupannounce(bot, user, args: list[str]) -> None:
     if len(args) < 2 or args[1].lower() not in ("on", "off"):
         cur = db.get_room_setting("bot_startup_announce_enabled", "false")
         label = "ON" if cur == "true" else "OFF"
-        await _w(bot, user.id, f"Host startup announce: {label}. Usage: /startupannounce on|off")
+        await _w(bot, user.id, f"Host startup announce: {label}. Usage: !startupannounce on|off")
         return
     new = "true" if args[1].lower() == "on" else "false"
     db.set_room_setting("bot_startup_announce_enabled", new)
@@ -1694,7 +1694,7 @@ async def handle_modulestartup(bot, user, args: list[str]) -> None:
     if len(args) < 2 or args[1].lower() not in ("on", "off"):
         cur = db.get_room_setting("module_startup_announce_enabled", "false")
         label = "ON" if cur == "true" else "OFF"
-        await _w(bot, user.id, f"Module startup announce: {label}. Usage: /modulestartup on|off")
+        await _w(bot, user.id, f"Module startup announce: {label}. Usage: !modulestartup on|off")
         return
     new = "true" if args[1].lower() == "on" else "false"
     db.set_room_setting("module_startup_announce_enabled", new)

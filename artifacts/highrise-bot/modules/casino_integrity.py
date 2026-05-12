@@ -1162,7 +1162,7 @@ async def run_carddelivery_check(bot: BaseBot, user: User, args: list) -> None:
         return
 
     if sub not in ("", "bj", "rbj", "poker"):
-        await _w(bot, uid, "Usage: /carddeliverycheck [bj|rbj|poker|live]")
+        await _w(bot, uid, "Usage: !carddeliverycheck [bj|rbj|poker|live]")
         return
 
     bj_c  = _check_cards_bj()    if sub in ("", "bj")    else []
@@ -1228,7 +1228,7 @@ async def handle_integritylogs(bot: BaseBot, user: User, args: list) -> None:
         conn.close()
 
         if not rows:
-            await _w(bot, uid, "No integrity logs. Run /casinointegrity first."); return
+            await _w(bot, uid, "No integrity logs. Run !casinointegrity first."); return
 
         header = f"Integrity Logs{(' ' + module_filter) if module_filter else ''}:"
         batch  = header

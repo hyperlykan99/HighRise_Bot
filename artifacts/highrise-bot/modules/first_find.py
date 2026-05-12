@@ -23,7 +23,7 @@ Role separation:
 SDK note:
   bot.highrise.tip_user() IS supported. BankerBot must hold sufficient gold.
   If tip fails (player left, insufficient gold) → claim stays pending_manual_gold.
-  Use /firstfindpending to see pending, /paypendingfirstfind to retry.
+  Use !firstfindpending to see pending, /paypendingfirstfind to retry.
 """
 from __future__ import annotations
 import asyncio
@@ -326,7 +326,7 @@ async def handle_setfirstfind(bot, user, args: list[str]) -> None:
     a = _strip_cmd(args)
     usage = (
         "🏁 First Find Race Setup\n"
-        "Usage: /setfirstfind <mining|fishing> <rarity> <winners> <gold>\n"
+        "Usage: !setfirstfind <mining|fishing> <rarity> <winners> <gold>\n"
         "Example: /setfirstfind mining prismatic 1 5\n"
         "Then: /startfirstfind <minutes>"
     )
@@ -373,7 +373,7 @@ async def handle_setfirstfind(bot, user, args: list[str]) -> None:
         f"Target: Any {rar_label}\n"
         f"Winners: {winners_count}\n"
         f"Reward: {gold_amount:g} gold\n"
-        f"Use /startfirstfind <minutes> to begin."
+        f"Use !startfirstfind <minutes> to begin."
     )
     await _w(bot, user.id, reply[:249])
 
@@ -390,7 +390,7 @@ async def handle_setfirstfinditem(bot, user, args: list[str]) -> None:
     a = _strip_cmd(args)
     usage = (
         "🏁 First Find Race Setup (specific item)\n"
-        "Usage: /setfirstfinditem <mining|fishing> <item name> <winners> <gold>\n"
+        "Usage: !setfirstfinditem <mining|fishing> <item name> <winners> <gold>\n"
         "Example: /setfirstfinditem mining Prismatic Pearl 1 5"
     )
     if len(a) < 4:
@@ -427,7 +427,7 @@ async def handle_setfirstfinditem(bot, user, args: list[str]) -> None:
         f"Target: {item_name}\n"
         f"Winners: {winners_count}\n"
         f"Reward: {gold_amount:g} gold\n"
-        f"Use /startfirstfind <minutes> to begin."
+        f"Use !startfirstfind <minutes> to begin."
     )
     await _w(bot, user.id, reply[:249])
 
@@ -443,7 +443,7 @@ async def handle_startfirstfind(bot, user, args: list[str]) -> None:
 
     a = _strip_cmd(args)
     if not a or not a[0].isdigit() or int(a[0]) < 1:
-        await _w(bot, user.id, "Usage: /startfirstfind <minutes>  (e.g. /startfirstfind 30)")
+        await _w(bot, user.id, "Usage: !startfirstfind <minutes>  (e.g. /startfirstfind 30)")
         return
 
     minutes = int(a[0])
@@ -451,7 +451,7 @@ async def handle_startfirstfind(bot, user, args: list[str]) -> None:
     race = db.get_draft_first_find_race()
     if not race:
         await _w(bot, user.id,
-                 "No race configured. Use /setfirstfind or /setfirstfinditem first.")
+                 "No race configured. Use !setfirstfind or /setfirstfinditem first.")
         return
 
     db.start_first_find_race(race["id"], minutes)

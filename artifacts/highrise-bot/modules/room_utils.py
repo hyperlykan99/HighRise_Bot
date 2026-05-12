@@ -110,7 +110,7 @@ async def handle_tpme(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Self teleport is OFF.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /tpme <spawn>  |  Spawns: /spawns")
+        await _w(bot, user.id, "Usage: !tpme <spawn>  |  Spawns: /spawns")
         return
     await _teleport_to_spawn(bot, user, user.username, user.id, args[1])
 
@@ -120,7 +120,7 @@ async def handle_tp(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Managers and above only.")
         return
     if len(args) < 3:
-        await _w(bot, user.id, "Usage: /tp <username> <spawn>")
+        await _w(bot, user.id, "Usage: !tp <username> <spawn>")
         return
     target_name = args[1].lstrip("@")
     pair = await _resolve_user_in_room(bot, target_name)
@@ -136,7 +136,7 @@ async def handle_tphere(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Managers and above only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /tphere <username>")
+        await _w(bot, user.id, "Usage: !tphere <username>")
         return
     target_name = args[1].lstrip("@")
     pair = await _resolve_user_in_room(bot, target_name)
@@ -162,7 +162,7 @@ async def handle_goto(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Managers and above only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /goto <username>")
+        await _w(bot, user.id, "Usage: !goto <username>")
         return
     target_name = args[1].lstrip("@")
     pair = await _resolve_user_in_room(bot, target_name)
@@ -212,12 +212,12 @@ async def handle_tpall(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Admin and above only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /tpall <spawn>")
+        await _w(bot, user.id, "Usage: !tpall <spawn>")
         return
     spawn_name = args[1].lower()
     spawn = db.get_spawn(spawn_name)
     if not spawn:
-        await _w(bot, user.id, f"Spawn '{spawn_name}' not found. Use /spawns.")
+        await _w(bot, user.id, f"Spawn '{spawn_name}' not found. Use !spawns.")
         return
     if _rs("group_teleport_enabled", "true") != "true":
         await _w(bot, user.id, "Group teleport is OFF.")
@@ -239,7 +239,7 @@ async def _teleport_to_spawn(bot: BaseBot, actor: User, target_name: str,
                               target_id: str, spawn_name: str) -> None:
     spawn = db.get_spawn(spawn_name.lower())
     if not spawn:
-        await _w(bot, actor.id, f"Spawn '{spawn_name}' not found. Use /spawns.")
+        await _w(bot, actor.id, f"Spawn '{spawn_name}' not found. Use !spawns.")
         return
     pos = Position(spawn["x"], spawn["y"], spawn["z"], spawn["facing"])
     try:
@@ -263,7 +263,7 @@ async def handle_selftp(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "⛔ Self-teleport OFF.")
     else:
         state = _rs("self_teleport_enabled", "false")
-        await _w(bot, user.id, f"Self-teleport: {'ON' if state == 'true' else 'OFF'}. Use /selftp on|off.")
+        await _w(bot, user.id, f"Self-teleport: {'ON' if state == 'true' else 'OFF'}. Use !selftp on|off.")
 
 
 async def handle_groupteleport(bot: BaseBot, user: User, args: list[str]) -> None:
@@ -279,7 +279,7 @@ async def handle_groupteleport(bot: BaseBot, user: User, args: list[str]) -> Non
         await _w(bot, user.id, "⛔ Group teleport OFF.")
     else:
         state = _rs("group_teleport_enabled", "true")
-        await _w(bot, user.id, f"Group teleport: {'ON' if state == 'true' else 'OFF'}. Use /groupteleport on|off.")
+        await _w(bot, user.id, f"Group teleport: {'ON' if state == 'true' else 'OFF'}. Use !groupteleport on|off.")
 
 
 async def handle_tprole(bot: BaseBot, user: User, args: list[str]) -> None:
@@ -287,7 +287,7 @@ async def handle_tprole(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Managers and above only.")
         return
     if len(args) < 3:
-        await _w(bot, user.id, "Usage: /tprole <role> <spawn>")
+        await _w(bot, user.id, "Usage: !tprole <role> <spawn>")
         return
     role_name  = args[1].lower()
     spawn_name = args[2].lower()
@@ -340,7 +340,7 @@ async def handle_tpstaff(bot: BaseBot, user: User, args: list[str]) -> None:
 async def handle_spawns(bot: BaseBot, user: User) -> None:
     spawns = db.get_all_spawns()
     if not spawns:
-        await _w(bot, user.id, "📍 No spawns saved. Use /setspawn <name>.")
+        await _w(bot, user.id, "📍 No spawns saved. Use !setspawn <name>.")
         return
     names = ", ".join(s["spawn_name"] for s in spawns)
     await _w(bot, user.id, f"📍 Spawns: {names}"[:249])
@@ -349,7 +349,7 @@ async def handle_spawns(bot: BaseBot, user: User) -> None:
 async def handle_spawn(bot: BaseBot, user: User, args: list[str]) -> None:
     if len(args) < 2:
         default = _rs("default_spawn", "lounge")
-        await _w(bot, user.id, f"Default spawn: {default}. Use /spawn <name> or /spawns.")
+        await _w(bot, user.id, f"Default spawn: {default}. Use !spawn <name> or /spawns.")
         return
     if _rs("self_teleport_enabled", "false") == "true":
         await _teleport_to_spawn(bot, user, user.username, user.id, args[1])
@@ -362,13 +362,13 @@ async def handle_setspawn(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Managers and above only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /setspawn <name>  (saves your current position)")
+        await _w(bot, user.id, "Usage: !setspawn <name>  (saves your current position)")
         return
     name   = args[1].lower()
     my_pos = _user_positions.get(user.id)
     if not my_pos:
         await _w(bot, user.id,
-                 "Cannot read your position. Use /setspawncoords <name> <x> <y> <z>.")
+                 "Cannot read your position. Use !setspawncoords <name> <x> <y> <z>.")
         return
     db.save_spawn(name, my_pos.x, my_pos.y, my_pos.z,
                   getattr(my_pos, "facing", "FrontLeft"), user.username)
@@ -381,7 +381,7 @@ async def handle_delspawn(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Admin and above only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /delspawn <name>")
+        await _w(bot, user.id, "Usage: !delspawn <name>")
         return
     name = args[1].lower()
     db.delete_spawn(name)
@@ -390,7 +390,7 @@ async def handle_delspawn(bot: BaseBot, user: User, args: list[str]) -> None:
 
 async def handle_spawninfo(bot: BaseBot, user: User, args: list[str]) -> None:
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /spawninfo <name>")
+        await _w(bot, user.id, "Usage: !spawninfo <name>")
         return
     sp = db.get_spawn(args[1])
     if not sp:
@@ -406,7 +406,7 @@ async def handle_setspawncoords(bot: BaseBot, user: User, args: list[str]) -> No
         await _w(bot, user.id, "Managers and above only.")
         return
     if len(args) < 5:
-        await _w(bot, user.id, "Usage: /setspawncoords <name> <x> <y> <z>")
+        await _w(bot, user.id, "Usage: !setspawncoords <name> <x> <y> <z>")
         return
     name = args[1].lower()
     try:
@@ -535,7 +535,7 @@ async def handle_emote(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Public emotes are OFF.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /emote <id>  |  List: /emotes")
+        await _w(bot, user.id, "Usage: !emote <id>  |  List: /emotes")
         return
     eid = args[1]
     if not eid.startswith("emote-"):
@@ -579,7 +579,7 @@ async def handle_forceemote(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Force emotes are OFF.")
         return
     if len(args) < 3:
-        await _w(bot, user.id, "Usage: /forceemote <username> <emote_id>")
+        await _w(bot, user.id, "Usage: !forceemote <username> <emote_id>")
         return
     target_name = args[1].lstrip("@")
     pair = await _resolve_user_in_room(bot, target_name)
@@ -603,7 +603,7 @@ async def handle_forceemoteall(bot: BaseBot, user: User, args: list[str]) -> Non
         await _w(bot, user.id, "Admin and above only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /forceemoteall <emote_id>")
+        await _w(bot, user.id, "Usage: !forceemoteall <emote_id>")
         return
     eid = args[1]
     if not eid.startswith("emote-"):
@@ -627,7 +627,7 @@ async def handle_loopemote(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Emote loops are OFF.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /loopemote <emote_id>  or  /loopemote <user> <emote_id>")
+        await _w(bot, user.id, "Usage: !loopemote <emote_id>  or  /loopemote <user> <emote_id>")
         return
     # /loopemote <emote_id>  or  /loopemote <username> <emote_id>
     if len(args) >= 3:
@@ -706,7 +706,7 @@ async def handle_synchost(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Sync dance is OFF.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /synchost <username>")
+        await _w(bot, user.id, "Usage: !synchost <username>")
         return
     target_name = args[1].lstrip("@")
     _rset("sync_host_username", target_name)
@@ -738,7 +738,7 @@ async def handle_publicemotes(bot: BaseBot, user: User, args: list[str]) -> None
         _rset("public_emotes_enabled", "false")
         await _w(bot, user.id, "⛔ Public emotes OFF.")
     else:
-        await _w(bot, user.id, "Usage: /publicemotes on|off")
+        await _w(bot, user.id, "Usage: !publicemotes on|off")
 
 
 async def handle_forceemotes(bot: BaseBot, user: User, args: list[str]) -> None:
@@ -753,7 +753,7 @@ async def handle_forceemotes(bot: BaseBot, user: User, args: list[str]) -> None:
         _rset("force_emotes_enabled", "false")
         await _w(bot, user.id, "⛔ Force emotes OFF.")
     else:
-        await _w(bot, user.id, "Usage: /forceemotes on|off")
+        await _w(bot, user.id, "Usage: !forceemotes on|off")
 
 
 async def handle_setemoteloopinterval(bot: BaseBot, user: User, args: list[str]) -> None:
@@ -761,7 +761,7 @@ async def handle_setemoteloopinterval(bot: BaseBot, user: User, args: list[str])
         await _w(bot, user.id, "Managers and above only.")
         return
     if len(args) < 2 or not args[1].isdigit():
-        await _w(bot, user.id, "Usage: /setemoteloopinterval <seconds>")
+        await _w(bot, user.id, "Usage: !setemoteloopinterval <seconds>")
         return
     sec = max(3, int(args[1]))
     _rset("emote_loop_interval_seconds", str(sec))
@@ -851,7 +851,7 @@ async def _do_social(bot: BaseBot, user: User, args: list[str], action: str) -> 
         await _w(bot, user.id, "Social actions are OFF.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, f"Usage: /{action} <username>")
+        await _w(bot, user.id, f"Usage: !{action} <username>")
         return
     target_name = args[1].lstrip("@")
     if target_name.lower() == user.username.lower():
@@ -917,12 +917,12 @@ async def handle_social(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "✅ Social actions ON.")
     else:
         state = "ON" if db.is_social_enabled(user.username) else "OFF"
-        await _w(bot, user.id, f"Social actions: {state}. Use /social on|off.")
+        await _w(bot, user.id, f"Social actions: {state}. Use !social on|off.")
 
 
 async def handle_blocksocial(bot: BaseBot, user: User, args: list[str]) -> None:
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /blocksocial <username>")
+        await _w(bot, user.id, "Usage: !blocksocial <username>")
         return
     target = args[1].lstrip("@")
     db.set_social_block(user.username, target, True)
@@ -931,7 +931,7 @@ async def handle_blocksocial(bot: BaseBot, user: User, args: list[str]) -> None:
 
 async def handle_unblocksocial(bot: BaseBot, user: User, args: list[str]) -> None:
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /unblocksocial <username>")
+        await _w(bot, user.id, "Usage: !unblocksocial <username>")
         return
     target = args[1].lstrip("@")
     db.set_social_block(user.username, target, False)
@@ -958,7 +958,7 @@ async def handle_follow(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Admin and above only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /follow <username>")
+        await _w(bot, user.id, "Usage: !follow <username>")
         return
     target_name = args[1].lstrip("@")
     if _rs("bot_follow_enabled", "true") != "true":
@@ -1062,7 +1062,7 @@ async def handle_vipsinroom(bot: BaseBot, user: User) -> None:
 
 async def handle_rolelist(bot: BaseBot, user: User, args: list[str]) -> None:
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /rolelist <role>  (owner/admin/manager/mod/vip)")
+        await _w(bot, user.id, "Usage: !rolelist <role>  (owner/admin/manager/mod/vip)")
         return
     role = args[1].lower()
     users = await _get_all_room_users(bot)
@@ -1095,7 +1095,7 @@ async def handle_alert(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Admin and above only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /alert <message>")
+        await _w(bot, user.id, "Usage: !alert <message>")
         return
     msg = " ".join(args[1:])
     await bot.highrise.chat(f"🚨 Alert: {msg}"[:249])
@@ -1107,7 +1107,7 @@ async def handle_announce(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Managers and above only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /announce <message>")
+        await _w(bot, user.id, "Usage: !announce <message>")
         return
     msg = " ".join(args[1:])
     await bot.highrise.chat(f"📣 {msg}"[:249])
@@ -1119,7 +1119,7 @@ async def handle_staffalert(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Moderators and above only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /staffalert <message>")
+        await _w(bot, user.id, "Usage: !staffalert <message>")
         return
     msg  = " ".join(args[1:])
     room_users = await _get_all_room_users(bot)
@@ -1139,7 +1139,7 @@ async def handle_vipalert(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Managers and above only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /vipalert <message>")
+        await _w(bot, user.id, "Usage: !vipalert <message>")
         return
     msg  = " ".join(args[1:])
     room_users = await _get_all_room_users(bot)
@@ -1195,7 +1195,7 @@ async def handle_setwelcome(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Managers and above only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /setwelcome <message>")
+        await _w(bot, user.id, "Usage: !setwelcome <message>")
         return
     msg = " ".join(args[1:])[:200]
     _rset("welcome_message", msg)
@@ -1207,7 +1207,7 @@ async def handle_welcometest(bot: BaseBot, user: User) -> None:
     if not _can_manage_room(user.username):
         await _w(bot, user.id, "Managers and above only.")
         return
-    msg = _rs("welcome_message", "👋 Welcome to the Lounge! Type /help to get started.")
+    msg = _rs("welcome_message", "👋 Welcome to the Lounge! Type !help to get started.")
     try:
         await bot.highrise.send_whisper(user.id, msg[:249])
     except Exception:
@@ -1219,7 +1219,7 @@ async def handle_resetwelcome(bot: BaseBot, user: User, args: list[str]) -> None
         await _w(bot, user.id, "Managers and above only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /resetwelcome <username>")
+        await _w(bot, user.id, "Usage: !resetwelcome <username>")
         return
     target = args[1].lstrip("@")
     db.reset_welcome_seen(target)
@@ -1231,7 +1231,7 @@ async def handle_welcomeinterval(bot: BaseBot, user: User, args: list[str]) -> N
         await _w(bot, user.id, "Managers and above only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /welcomeinterval <minutes>|on|off")
+        await _w(bot, user.id, "Usage: !welcomeinterval <minutes>|on|off")
         return
     sub = args[1].lower()
     if sub == "on":
@@ -1245,7 +1245,7 @@ async def handle_welcomeinterval(bot: BaseBot, user: User, args: list[str]) -> N
         _rset("welcome_interval_minutes", str(mins))
         await _w(bot, user.id, f"✅ Welcome interval set to {mins}m.")
     else:
-        await _w(bot, user.id, "Usage: /welcomeinterval <minutes>|on|off")
+        await _w(bot, user.id, "Usage: !welcomeinterval <minutes>|on|off")
 
 
 async def send_welcome_if_needed(bot: BaseBot, user: User) -> None:
@@ -1254,7 +1254,7 @@ async def send_welcome_if_needed(bot: BaseBot, user: User) -> None:
         return
     if db.has_been_welcomed(user.username):
         return
-    msg = _rs("welcome_message", "👋 Welcome to the Lounge! Type /help to get started.")
+    msg = _rs("welcome_message", "👋 Welcome to the Lounge! Type !help to get started.")
     try:
         await bot.highrise.send_whisper(user.id, msg[:249])
     except Exception:
@@ -1272,7 +1272,7 @@ async def handle_intervals(bot: BaseBot, user: User) -> None:
         return
     rows = db.get_all_intervals()
     if not rows:
-        await _w(bot, user.id, "No intervals set. Use /addinterval <min> <msg>.")
+        await _w(bot, user.id, "No intervals set. Use !addinterval <min> <msg>.")
         return
     for r in rows[:6]:
         state = "ON" if r["enabled"] else "OFF"
@@ -1285,7 +1285,7 @@ async def handle_addinterval(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Managers and above only.")
         return
     if len(args) < 3:
-        await _w(bot, user.id, "Usage: /addinterval <minutes> <message>")
+        await _w(bot, user.id, "Usage: !addinterval <minutes> <message>")
         return
     if not args[1].isdigit():
         await _w(bot, user.id, "Minutes must be a positive number.")
@@ -1302,7 +1302,7 @@ async def handle_delinterval(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Managers and above only.")
         return
     if len(args) < 2 or not args[1].isdigit():
-        await _w(bot, user.id, "Usage: /delinterval <id>")
+        await _w(bot, user.id, "Usage: !delinterval <id>")
         return
     db.delete_interval(int(args[1]))
     await _w(bot, user.id, f"✅ Interval #{args[1]} deleted.")
@@ -1313,7 +1313,7 @@ async def handle_interval(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Managers and above only.")
         return
     if len(args) < 3:
-        await _w(bot, user.id, "Usage: /interval on|off <id>")
+        await _w(bot, user.id, "Usage: !interval on|off <id>")
         return
     sub = args[1].lower()
     if not args[2].isdigit():
@@ -1327,7 +1327,7 @@ async def handle_interval(bot: BaseBot, user: User, args: list[str]) -> None:
         db.toggle_interval(iid, False)
         await _w(bot, user.id, f"⛔ Interval #{iid} disabled.")
     else:
-        await _w(bot, user.id, "Usage: /interval on|off <id>")
+        await _w(bot, user.id, "Usage: !interval on|off <id>")
 
 
 async def handle_intervaltest(bot: BaseBot, user: User, args: list[str]) -> None:
@@ -1335,7 +1335,7 @@ async def handle_intervaltest(bot: BaseBot, user: User, args: list[str]) -> None
         await _w(bot, user.id, "Managers and above only.")
         return
     if len(args) < 2 or not args[1].isdigit():
-        await _w(bot, user.id, "Usage: /intervaltest <id>")
+        await _w(bot, user.id, "Usage: !intervaltest <id>")
         return
     iid  = int(args[1])
     rows = [r for r in db.get_all_intervals() if r["id"] == iid]
@@ -1385,7 +1385,7 @@ async def handle_repeatmsg(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Owner only.")
         return
     if len(args) < 4:
-        await _w(bot, user.id, "Usage: /repeatmsg <count> <seconds> <message>")
+        await _w(bot, user.id, "Usage: !repeatmsg <count> <seconds> <message>")
         return
     if not args[1].isdigit() or not args[2].isdigit():
         await _w(bot, user.id, "Count and seconds must be positive integers.")
@@ -1395,7 +1395,7 @@ async def handle_repeatmsg(bot: BaseBot, user: User, args: list[str]) -> None:
     msg     = " ".join(args[3:])[:120]
 
     if _repeat_task and not _repeat_task.done():
-        await _w(bot, user.id, "A repeat is already running. Use /stoprepeat first.")
+        await _w(bot, user.id, "A repeat is already running. Use !stoprepeat first.")
         return
 
     _repeat_status = {"count": count, "seconds": seconds, "msg": msg, "remaining": count}
@@ -1471,7 +1471,7 @@ async def handle_setroomsetting(bot: BaseBot, user: User, args: list[str]) -> No
         await _w(bot, user.id, "Admin and above only.")
         return
     if len(args) < 3:
-        await _w(bot, user.id, "Usage: /setroomsetting <key> <value>")
+        await _w(bot, user.id, "Usage: !setroomsetting <key> <value>")
         return
     key = args[1].lower()
     val = args[2]
@@ -1534,7 +1534,7 @@ async def handle_kick(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Moderators and above only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /kick <username> [reason]")
+        await _w(bot, user.id, "Usage: !kick <username> [reason]")
         return
     target_name = args[1].lstrip("@")
     reason      = " ".join(args[2:]) if len(args) > 2 else "No reason"
@@ -1565,7 +1565,7 @@ async def handle_ban(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Moderators and above only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /ban <username> [reason]")
+        await _w(bot, user.id, "Usage: !ban <username> [reason]")
         return
     target_name = args[1].lstrip("@")
     reason      = " ".join(args[2:]) if len(args) > 2 else "No reason"
@@ -1591,7 +1591,7 @@ async def handle_tempban(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Moderators and above only.")
         return
     if len(args) < 3:
-        await _w(bot, user.id, "Usage: /tempban <username> <minutes> [reason]")
+        await _w(bot, user.id, "Usage: !tempban <username> <minutes> [reason]")
         return
     target_name = args[1].lstrip("@")
     if not args[2].isdigit():
@@ -1615,7 +1615,7 @@ async def handle_unban(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Moderators and above only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /unban <username>")
+        await _w(bot, user.id, "Usage: !unban <username>")
         return
     target_name = args[1].lstrip("@")
     db.room_unban_user(target_name)
@@ -1716,7 +1716,7 @@ async def handle_teleporthelp(bot: BaseBot, user: User) -> None:
 async def handle_emoteinfo(bot: BaseBot, user: User, args: list[str]) -> None:
     """/emoteinfo <name> — show description and full emote-ID for a known emote."""
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /emoteinfo <name>  e.g. /emoteinfo dance")
+        await _w(bot, user.id, "Usage: !emoteinfo <name>  e.g. /emoteinfo dance")
         return
     raw = args[1].lower().strip()
     eid = raw if raw.startswith("emote-") else f"emote-{raw}"
@@ -1724,7 +1724,7 @@ async def handle_emoteinfo(bot: BaseBot, user: User, args: list[str]) -> None:
     if desc:
         in_list = "✅ In emote list." if eid in EMOTE_LIST else "⚠️ Not in list but may work."
         await _w(bot, user.id,
-                 f"💃 {eid}\n{desc}\n{in_list}\nUse: /emote {raw}")
+                 f"💃 {eid}\n{desc}\n{in_list}\nUse: !emote {raw}")
     else:
         close = [e for e in EMOTE_LIST if raw in e.replace("emote-", "")][:4]
         hint  = "Similar: " + ", ".join(e.replace("emote-", "") for e in close) if close else ""
@@ -1984,7 +1984,7 @@ async def handle_positiondebug(bot: BaseBot, user: User, args: list[str]) -> Non
         await _w(bot, user.id, "Admin/owner only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /positiondebug <username>")
+        await _w(bot, user.id, "Usage: !positiondebug <username>")
         return
     target_name = args[1].lstrip("@")
 

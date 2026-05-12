@@ -624,7 +624,7 @@ async def _event_timer(
         try:
             await bot.highrise.chat(
                 f"⏰ {name} event has ended! Thanks for participating. "
-                "Use /eventshop to spend your event points."
+                "Use !eventshop to spend your event points."
             )
         except Exception as exc:
             print(f"[EVENTS] timer chat error: {exc}")
@@ -743,8 +743,8 @@ async def handle_startevent(bot: BaseBot, user: User, args: list[str]) -> None:
 
     if len(args) < 2:
         await _w(bot, user.id,
-                 "Usage: /startevent <id or #> [mins]\n"
-                 "Use /eventlist to see numbered catalog.")
+                 "Usage: !startevent <id or #> [mins]\n"
+                 "Use !eventlist to see numbered catalog.")
         return
 
     raw      = args[1].lower()
@@ -752,7 +752,7 @@ async def handle_startevent(bot: BaseBot, user: User, args: list[str]) -> None:
     if event_id not in EVENTS:
         await _w(bot, user.id,
                  f"Unknown event: {raw}\n"
-                 "Use /eventlist to see the catalog.")
+                 "Use !eventlist to see the catalog.")
         return
 
     dur_mins = 30
@@ -800,7 +800,7 @@ async def handle_startevent(bot: BaseBot, user: User, args: list[str]) -> None:
         await bot.highrise.chat(
             f"🎪 {name} is LIVE for {dur_label}! "
             f"{ev.get('desc','')[:80]} "
-            "Use /eventshop!"[:249]
+            "Use !eventshop!"[:249]
         )
     except Exception as exc:
         print(f"[EVENTS] startevent announce error: {exc}")
@@ -1037,7 +1037,7 @@ async def handle_eventresume(bot: BaseBot, user: User) -> None:
     try:
         await bot.highrise.chat(
             f"🎪 {name} event is ACTIVE! {desc[:100]} "
-            "Use /eventshop for rewards!"[:249]
+            "Use !eventshop for rewards!"[:249]
         )
     except Exception as exc:
         print(f"[EVENTS] eventresume announce error: {exc}")
@@ -1126,7 +1126,7 @@ async def startup_event_check(bot: BaseBot) -> None:
         print(f"[EVENTS] Startup: '{event_id}' expired during downtime, cleared.")
         try:
             await bot.highrise.chat(
-                f"🎉 Event ended: {name}. Use /eventshop to spend your pts!"
+                f"🎉 Event ended: {name}. Use !eventshop to spend your pts!"
             )
         except Exception as exc:
             print(f"[EVENTS] Startup announce error: {exc}")
@@ -1184,7 +1184,7 @@ _SHOP_MSG = (
     "[Casino Night] casino_night_title 100pts\n"
     "[Trivia Champ] trivia_champ_title 100pts\n"
     "[OG Guest] og_guest_title 250pts\n"
-    "Use /buyevent <id>"
+    "Use !buyevent <id>"
 )
 
 
@@ -1227,7 +1227,7 @@ async def handle_eventshop(bot: BaseBot, user: User) -> None:
 
 async def handle_buyevent(bot: BaseBot, user: User, args: list[str]) -> None:
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /buyevent <item_id>  |  See /eventshop")
+        await _w(bot, user.id, "Usage: !buyevent <item_id>  |  See !eventshop")
         return
 
     db.ensure_user(user.id, user.username)
@@ -1235,7 +1235,7 @@ async def handle_buyevent(bot: BaseBot, user: User, args: list[str]) -> None:
     item    = ALL_EVENT_ITEMS.get(item_id)
 
     if item is None:
-        await _w(bot, user.id, f"Unknown item: {item_id}  |  See /eventshop")
+        await _w(bot, user.id, f"Unknown item: {item_id}  |  See !eventshop")
         return
 
     if not db.is_event_active():
@@ -1456,7 +1456,7 @@ async def handle_miningevent_start(
         return
     if len(args) < 2:
         ids = ", ".join(sorted(_ALL_MINE_IDS))
-        await _w(bot, user.id, f"Usage: /miningevent <id> [mins]\nIDs: {ids}"[:249])
+        await _w(bot, user.id, f"Usage: !miningevent <id> [mins]\nIDs: {ids}"[:249])
         return
     eid = args[1].lower()
     if eid not in _ALL_MINE_IDS:
@@ -1696,7 +1696,7 @@ async def handle_autoeventadd(bot: BaseBot, user: User, args: list[str]) -> None
         await _w(bot, user.id, "Manager/admin/owner only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /autoeventadd <id or #>  (see /eventlist)")
+        await _w(bot, user.id, "Usage: !autoeventadd <id or #>  (see !eventlist)")
         return
     raw = args[1].lower()
     eid = _resolve_event_arg(raw) or raw
@@ -1717,7 +1717,7 @@ async def handle_autoeventremove(bot: BaseBot, user: User, args: list[str]) -> N
         await _w(bot, user.id, "Manager/admin/owner only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /autoeventremove <id or #>")
+        await _w(bot, user.id, "Usage: !autoeventremove <id or #>")
         return
     raw = args[1].lower()
     eid = _resolve_event_arg(raw) or raw
@@ -1736,7 +1736,7 @@ async def handle_autoeventinterval(bot: BaseBot, user: User, args: list[str]) ->
         await _w(bot, user.id, "Manager/admin/owner only.")
         return
     if len(args) < 2 or not args[1].isdigit():
-        await _w(bot, user.id, "Usage: /autoeventinterval <minutes>  (1-2880)")
+        await _w(bot, user.id, "Usage: !autoeventinterval <minutes>  (1-2880)")
         return
     mins = max(1, min(2880, int(args[1])))
     db.set_auto_event_setting("auto_event_interval", mins)
@@ -1789,11 +1789,11 @@ async def handle_eventlist(bot: BaseBot, user: User,
 async def handle_eventpreview(bot: BaseBot, user: User, args: list[str]) -> None:
     """/eventpreview <number> — show detail for one event."""
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /eventpreview <number 1-21>")
+        await _w(bot, user.id, "Usage: !eventpreview <number 1-21>")
         return
     eid = _resolve_event_arg(args[1].lower())
     if eid is None:
-        await _w(bot, user.id, "Unknown event. Use /eventlist to see the catalog.")
+        await _w(bot, user.id, "Unknown event. Use !eventlist to see the catalog.")
         return
     entry      = _CATALOG_BY_ID[eid]
     pool_entry = db.get_event_pool_entry(eid)
@@ -1823,7 +1823,7 @@ async def handle_aepool(bot: BaseBot, user: User) -> None:
     pool = db.get_event_pool()
     if not pool:
         await _w(bot, user.id,
-                 "📋 Auto pool is empty. Use /aeadd <#> to add events.")
+                 "📋 Auto pool is empty. Use !aeadd <#> to add events.")
         return
     lines = [f"<#FFD700>📋 Auto Pool ({len(pool)})<#FFFFFF>"]
     for row in pool:
@@ -1847,11 +1847,11 @@ async def handle_aeadd(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Manager/admin/owner only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /aeadd <number>  (see /eventlist)")
+        await _w(bot, user.id, "Usage: !aeadd <number>  (see !eventlist)")
         return
     eid = _resolve_event_arg(args[1].lower())
     if eid is None:
-        await _w(bot, user.id, "Unknown event. Use /eventlist for numbers.")
+        await _w(bot, user.id, "Unknown event. Use !eventlist for numbers.")
         return
     entry = _CATALOG_BY_ID[eid]
     db.add_to_event_pool(eid, entry["default_weight"], entry["cooldown_minutes"])
@@ -1869,11 +1869,11 @@ async def handle_aeremove(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Manager/admin/owner only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /aeremove <number>  (see /eventlist)")
+        await _w(bot, user.id, "Usage: !aeremove <number>  (see !eventlist)")
         return
     eid     = _resolve_event_arg(args[1].lower())
     if eid is None:
-        await _w(bot, user.id, "Unknown event. Use /eventlist for numbers.")
+        await _w(bot, user.id, "Unknown event. Use !eventlist for numbers.")
         return
     removed = db.remove_from_event_pool(eid)
     name    = _CATALOG_BY_ID.get(eid, {}).get("name", eid)
@@ -2049,11 +2049,11 @@ async def handle_seteventcooldown(bot: BaseBot, user: User, args: list[str]) -> 
         await _w(bot, user.id, "Manager/admin/owner only.")
         return
     if len(args) < 3:
-        await _w(bot, user.id, "Usage: /seteventcooldown <number> <minutes>")
+        await _w(bot, user.id, "Usage: !seteventcooldown <number> <minutes>")
         return
     eid = _resolve_event_arg(args[1].lower())
     if eid is None:
-        await _w(bot, user.id, "Unknown event. Use /eventlist for numbers.")
+        await _w(bot, user.id, "Unknown event. Use !eventlist for numbers.")
         return
     if not args[2].isdigit():
         await _w(bot, user.id, "Minutes must be a positive number.")
@@ -2063,7 +2063,7 @@ async def handle_seteventcooldown(bot: BaseBot, user: User, args: list[str]) -> 
     if not db.get_event_pool_entry(eid):
         await _w(bot, user.id,
                  f"{entry['name']} is not in the pool. "
-                 f"Use /aeadd {entry['number']} first.")
+                 f"Use !aeadd {entry['number']} first.")
         return
     db.set_pool_cooldown(eid, cd)
     await _w(bot, user.id,
@@ -2116,11 +2116,11 @@ async def handle_seteventweight(bot: BaseBot, user: User, args: list[str]) -> No
         await _w(bot, user.id, "Manager/admin/owner only.")
         return
     if len(args) < 3:
-        await _w(bot, user.id, "Usage: /seteventweight <number> <weight>")
+        await _w(bot, user.id, "Usage: !seteventweight <number> <weight>")
         return
     eid = _resolve_event_arg(args[1].lower())
     if eid is None:
-        await _w(bot, user.id, "Unknown event. Use /eventlist for numbers.")
+        await _w(bot, user.id, "Unknown event. Use !eventlist for numbers.")
         return
     if not args[2].isdigit():
         await _w(bot, user.id, "Weight must be 0 or a positive number.")
@@ -2130,7 +2130,7 @@ async def handle_seteventweight(bot: BaseBot, user: User, args: list[str]) -> No
     if not db.get_event_pool_entry(eid):
         await _w(bot, user.id,
                  f"{entry['name']} not in pool. "
-                 f"Use /aeadd {entry['number']} first.")
+                 f"Use !aeadd {entry['number']} first.")
         return
     db.set_pool_weight(eid, weight)
     await _w(bot, user.id,
@@ -2237,7 +2237,7 @@ async def handle_eventpreset(bot: BaseBot, user: User, args: list[str]) -> None:
         keys   = list(_PRESETS.keys())
         menu   = "🎉 Event Presets\n"
         menu  += "\n".join(f"{i+1}. {k}" for i, k in enumerate(keys))
-        menu  += "\nUse: /eventpreset <name>"
+        menu  += "\nUse: !eventpreset <name>"
         await _w(bot, user.id, menu[:249])
         await _w(bot, user.id,
                  "Example: /eventpreset jackpot\n"
@@ -2301,7 +2301,7 @@ async def handle_setaeinterval(bot: BaseBot, user: User, args: list[str]) -> Non
         await _w(bot, user.id, "Manager/admin/owner only.")
         return
     if len(args) < 2 or not args[1].isdigit():
-        await _w(bot, user.id, "Usage: /setaeinterval <minutes>  (1-2880)")
+        await _w(bot, user.id, "Usage: !setaeinterval <minutes>  (1-2880)")
         return
     mins = max(1, min(2880, int(args[1])))
     db.set_auto_event_setting("auto_event_interval", mins)
@@ -2318,7 +2318,7 @@ async def handle_setaeduration(bot: BaseBot, user: User, args: list[str]) -> Non
         await _w(bot, user.id, "Manager/admin/owner only.")
         return
     if len(args) < 2 or not args[1].isdigit():
-        await _w(bot, user.id, "Usage: /setaeduration <minutes>  (1-480)")
+        await _w(bot, user.id, "Usage: !setaeduration <minutes>  (1-480)")
         return
     mins = max(1, min(480, int(args[1])))
     db.set_auto_event_setting("auto_event_duration", mins)
@@ -2396,7 +2396,7 @@ async def handle_setnextae(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Manager/admin/owner only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /setnextae <event_name_or_id>")
+        await _w(bot, user.id, "Usage: !setnextae <event_name_or_id>")
         return
     query = " ".join(args[1:]).lower().strip()
     # Try exact ID match first, then name substring
@@ -2411,7 +2411,7 @@ async def handle_setnextae(bot: BaseBot, user: User, args: list[str]) -> None:
                 matched_id = eid
                 break
     if not matched_id:
-        await _w(bot, user.id, f"No event found matching '{query[:30]}'. Try /eventlist.")
+        await _w(bot, user.id, f"No event found matching '{query[:30]}'. Try !eventlist.")
         return
     db.set_auto_event_setting_str("next_event_id", matched_id)
     db.set_auto_event_setting_str("next_event_source", "manual")

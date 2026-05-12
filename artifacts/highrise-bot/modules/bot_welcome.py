@@ -241,7 +241,7 @@ async def handle_botwelcome(bot: BaseBot, user: User) -> None:
     await _w(bot, user.id,
              f"<#66CCFF>Bot Welcomes<#FFFFFF>: {enabled}")
     await _w(bot, user.id,
-             "Use /setbotwelcome <bot> <msg> to customize. "
+             "Use !setbotwelcome <bot> <msg> to customize. "
              "/botwelcomes on|off to toggle.")
 
 
@@ -256,7 +256,7 @@ async def handle_setbotwelcome(bot: BaseBot, user: User, args: list[str]) -> Non
         return
     if len(args) < 3:
         await _w(bot, user.id,
-                 "Usage: /setbotwelcome <bot_username> <message>")
+                 "Usage: !setbotwelcome <bot_username> <message>")
         return
     bot_name = args[1]
     message  = " ".join(args[2:])
@@ -275,7 +275,7 @@ async def handle_resetbotwelcome(bot: BaseBot, user: User, args: list[str]) -> N
         await _w(bot, user.id, "Manager+ only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /resetbotwelcome <bot_username>")
+        await _w(bot, user.id, "Usage: !resetbotwelcome <bot_username>")
         return
     bot_name = args[1]
     _set_setting(bot_name, "message", "")
@@ -293,7 +293,7 @@ async def handle_previewbotwelcome(bot: BaseBot, user: User, args: list[str]) ->
         await _w(bot, user.id, "Manager+ only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /previewbotwelcome <bot_username>")
+        await _w(bot, user.id, "Usage: !previewbotwelcome <bot_username>")
         return
     bot_name = args[1]
     template = _get_message(bot_name)
@@ -320,4 +320,4 @@ async def handle_botwelcomes(bot: BaseBot, user: User, args: list[str]) -> None:
     else:
         cur = "ON" if _global_enabled() else "OFF"
         await _w(bot, user.id,
-                 f"Bot welcomes: {cur}. Usage: /botwelcomes on | off")
+                 f"Bot welcomes: {cur}. Usage: !botwelcomes on | off")

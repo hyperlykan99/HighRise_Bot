@@ -312,7 +312,7 @@ async def _parse_group_total_winners(
     Returns (group, gold_each, winners_req) or None (whisper sent on error).
     """
     if len(args) < 3:
-        await _w(bot, user.id, "🌧️ Usage: /goldrain <group> <total_gold> <winners>")
+        await _w(bot, user.id, "🌧️ Usage: !goldrain <group> <total_gold> <winners>")
         return None
 
     raw_group = args[0].lower()
@@ -440,7 +440,7 @@ async def _handle_normal(bot, user, args: list[str]) -> None:
 
     if _active_rain is not None:
         await _w(bot, user.id,
-                 "🌧️ Gold Rain already running. Use /cancelgoldrain first.")
+                 "🌧️ Gold Rain already running. Use !cancelgoldrain first.")
         return
 
     result = await _parse_group_total_winners(bot, user, args)
@@ -458,7 +458,7 @@ async def _handle_normal(bot, user, args: list[str]) -> None:
             bot, user.id,
             f"🌧️ Gold Rain Error\n"
             f"Only {len(eligible)} eligible {label} players are in the room.\n"
-            f"Use /goldrain {group} {total_gold} {len(eligible)}",
+            f"Use !goldrain {group} {total_gold} {len(eligible)}",
         )
         return
 
@@ -526,14 +526,14 @@ async def _handle_slow(bot, user, args: list[str], mode: str = "slow") -> None:
 
     if _active_rain is not None:
         await _w(bot, user.id,
-                 "🌧️ Gold Rain already running. Use /cancelgoldrain first.")
+                 "🌧️ Gold Rain already running. Use !cancelgoldrain first.")
         return
 
     if len(args) < 3:
         pace_name, pace_iv = _get_pace()
         await _w(
             bot, user.id,
-            f"🌧️ Usage: /goldrain {mode} <group> <total> <winners> [secs]\n"
+            f"🌧️ Usage: !goldrain {mode} <group> <total> <winners> [secs]\n"
             f"Current pace: {_PACE_LABEL.get(pace_name, pace_name)} ({pace_iv}s)",
         )
         return
@@ -565,7 +565,7 @@ async def _handle_slow(bot, user, args: list[str], mode: str = "slow") -> None:
             bot, user.id,
             f"🌧️ Gold Rain Error\n"
             f"Only {len(eligible)} eligible {label} players in room.\n"
-            f"Use /goldrain {mode} {group} {total_gold} {len(eligible)} {interval}",
+            f"Use !goldrain {mode} {group} {total_gold} {len(eligible)} {interval}",
         )
         return
 
@@ -901,7 +901,7 @@ async def handle_setgoldraininterval(bot, user, args: list[str]) -> None:
         return
 
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /setgoldraininterval <seconds>  (1–300)")
+        await _w(bot, user.id, "Usage: !setgoldraininterval <seconds>  (1–300)")
         return
 
     try:
@@ -936,7 +936,7 @@ async def handle_goldrainreplace(bot, user, args: list[str]) -> None:
         await _w(
             bot, user.id,
             f"🌧️ Gold Rain Replacement\nCurrent: {current}\n"
-            "Usage: /goldrainreplace on|off",
+            "Usage: !goldrainreplace on|off",
         )
         return
 
@@ -980,7 +980,7 @@ async def handle_setgoldrainpace(bot, user, args: list[str]) -> None:
     if len(args) < 2:
         await _w(
             bot, user.id,
-            "🌧️ Usage: /setgoldrainpace slow|normal|party|custom [secs]\n"
+            "🌧️ Usage: !setgoldrainpace slow|normal|party|custom [secs]\n"
             "Example: /setgoldrainpace party\n"
             "Example: /setgoldrainpace custom 8",
         )
@@ -1000,7 +1000,7 @@ async def handle_setgoldrainpace(bot, user, args: list[str]) -> None:
             await _w(
                 bot, user.id,
                 "🌧️ Custom pace needs seconds.\n"
-                "Usage: /setgoldrainpace custom <seconds>  (1–300)",
+                "Usage: !setgoldrainpace custom <seconds>  (1–300)",
             )
             return
         try:

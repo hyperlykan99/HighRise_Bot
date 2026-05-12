@@ -489,7 +489,7 @@ async def handle_fish(bot: BaseBot, user: User) -> None:
         msg = (f"🎣 Fishing\n"
                f"You caught {rlabel} {fish['emoji']} {nclr} | "
                f"⚖️ {weight}lb | 📦 Saved to bag | ⭐ +{fxp} FXP\n"
-               f"Use /sellfish to sell")
+               f"Use !sellfish to sell")
     await _w(bot, user.id, msg[:249])
 
     if leveled:
@@ -522,7 +522,7 @@ async def handle_fishlist(bot: BaseBot, user: User, args: list[str]) -> None:
         rarity = _RARITY_ALIASES.get(raw)
         if not rarity:
             await _w(bot, user.id,
-                     "Usage: /fishlist [rarity] — e.g. /fishlist common")
+                     "Usage: !fishlist [rarity] — e.g. /fishlist common")
             return
         page = 1
         if len(args) >= 3 and args[2].isdigit():
@@ -542,7 +542,7 @@ async def handle_fishlist(bot: BaseBot, user: User, args: list[str]) -> None:
         for r in RARITY_ORDER:
             cnt = sum(1 for f in FISH_CATALOG if f["rarity"] == r)
             lines.append(f"[{r.upper()}] — {cnt} fish")
-        lines.append("Use /fishlist common to view Common fish.")
+        lines.append("Use !fishlist common to view Common fish.")
         lines.append("/fishprices common for prices & weights.")
         await _w(bot, user.id, "\n".join(lines)[:249])
 
@@ -555,7 +555,7 @@ async def handle_fishprices(bot: BaseBot, user: User, args: list[str]) -> None:
     """/fishprices [rarity] [page]"""
     if len(args) < 2:
         await _w(bot, user.id,
-                 "Usage: /fishprices <rarity> [page]\n"
+                 "Usage: !fishprices <rarity> [page]\n"
                  "e.g. /fishprices common")
         return
     rarity = _RARITY_ALIASES.get(args[1].lower())
@@ -586,7 +586,7 @@ async def handle_fishprices(bot: BaseBot, user: User, args: list[str]) -> None:
 async def handle_fishinfo(bot: BaseBot, user: User, args: list[str]) -> None:
     """/fishinfo <fish name>"""
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /fishinfo <fish name>")
+        await _w(bot, user.id, "Usage: !fishinfo <fish name>")
         return
     query = " ".join(args[1:])
     fish  = _lookup_fish(query)
@@ -676,7 +676,7 @@ async def handle_sellfishrarity(bot: BaseBot, user: User, args: list[str]) -> No
     db.ensure_user(user.id, user.username)
     if len(args) < 2:
         await _w(bot, user.id,
-                 "Usage: /sellfishrarity <rarity>\n"
+                 "Usage: !sellfishrarity <rarity>\n"
                  "e.g. /sellfishrarity common")
         return
     raw = args[1].lower()
@@ -991,23 +991,23 @@ async def handle_rodshop(bot: BaseBot, user: User) -> None:
 async def handle_buyrod(bot: BaseBot, user: User, args: list[str]) -> None:
     """/buyrod <rod name>"""
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /buyrod <rod name>  (see /rodshop)")
+        await _w(bot, user.id, "Usage: !buyrod <rod name>  (see !rodshop)")
         return
     query    = " ".join(args[1:])
     rod_name = _resolve_rod(query)
     if not rod_name:
         await _w(bot, user.id,
-                 f"Rod not found: {query}\nSee /rodshop for names.")
+                 f"Rod not found: {query}\nSee !rodshop for names.")
         return
     rod = FISHING_RODS[rod_name]
     if rod["price"] == 0:
         await _w(bot, user.id,
-                 f"🎣 {rod_name} is free! Use /equiprod {rod_name}.")
+                 f"🎣 {rod_name} is free! Use !equiprod {rod_name}.")
         return
     db.ensure_user(user.id, user.username)
     if db.player_owns_rod(user.id, rod_name):
         await _w(bot, user.id,
-                 f"🎣 You already own {rod_name}.\nUse /equiprod to equip it.")
+                 f"🎣 You already own {rod_name}.\nUse !equiprod to equip it.")
         return
     bal = db.get_balance(user.id)
     if bal < rod["price"]:
@@ -1019,13 +1019,13 @@ async def handle_buyrod(bot: BaseBot, user: User, args: list[str]) -> None:
     db.add_player_rod(user.id, user.username, rod_name)
     await _w(bot, user.id,
              f"🎣 Purchased {rod_name}!\n"
-             f"Use /equiprod to equip it.")
+             f"Use !equiprod to equip it.")
 
 
 async def handle_equiprod(bot: BaseBot, user: User, args: list[str]) -> None:
     """/equiprod <rod name>"""
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /equiprod <rod name>")
+        await _w(bot, user.id, "Usage: !equiprod <rod name>")
         return
     query    = " ".join(args[1:])
     rod_name = _resolve_rod(query)
@@ -1047,7 +1047,7 @@ async def handle_equiprod(bot: BaseBot, user: User, args: list[str]) -> None:
 async def handle_rodinfo(bot: BaseBot, user: User, args: list[str]) -> None:
     """/rodinfo <rod name>"""
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /rodinfo <rod name>")
+        await _w(bot, user.id, "Usage: !rodinfo <rod name>")
         return
     query    = " ".join(args[1:])
     rod_name = _resolve_rod(query)
@@ -1265,7 +1265,7 @@ async def handle_autofish(bot: BaseBot, user: User, args: list[str]) -> None:
         if user.id in _autofish_tasks and not _autofish_tasks[user.id].done():
             await _w(bot, user.id,
                      "🎣 AutoFish is already running.\n"
-                     "Use /autofish off to stop it first.")
+                     "Use !autofish off to stop it first.")
             return
         if not _is_in_room(user.username):
             await _w(bot, user.id,
@@ -1297,7 +1297,7 @@ async def handle_autofishstatus(bot: BaseBot, user: User) -> None:
         f"Status: {'ON' if running else 'OFF'}",
         f"Global: {'Enabled' if enabled else 'Disabled by staff'}",
         f"Limit: {max_att} catches or {max_mins}m",
-        "Use /autofish on to start | /autofish off to stop",
+        "Use !autofish on to start | /autofish off to stop",
     ]
     await _w(bot, user.id, "\n".join(lines)[:249])
 
@@ -1331,7 +1331,7 @@ async def handle_setautofish(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Manager/admin/owner only.")
         return
     if len(args) < 2 or args[1].lower() not in ("on", "off"):
-        await _w(bot, user.id, "Usage: /setautofish on|off")
+        await _w(bot, user.id, "Usage: !setautofish on|off")
         return
     val = "1" if args[1].lower() == "on" else "0"
     db.set_auto_activity_setting("autofish_enabled", val)
@@ -1345,7 +1345,7 @@ async def handle_setautofishduration(bot: BaseBot, user: User, args: list[str]) 
         await _w(bot, user.id, "Manager/admin/owner only.")
         return
     if len(args) < 2 or not args[1].isdigit():
-        await _w(bot, user.id, "Usage: /setautofishduration <minutes>")
+        await _w(bot, user.id, "Usage: !setautofishduration <minutes>")
         return
     val = max(5, min(120, int(args[1])))
     db.set_auto_activity_setting("autofish_duration_minutes", str(val))
@@ -1358,7 +1358,7 @@ async def handle_setautofishattempts(bot: BaseBot, user: User, args: list[str]) 
         await _w(bot, user.id, "Manager/admin/owner only.")
         return
     if len(args) < 2 or not args[1].isdigit():
-        await _w(bot, user.id, "Usage: /setautofishattempts <amount>")
+        await _w(bot, user.id, "Usage: !setautofishattempts <amount>")
         return
     val = max(5, min(200, int(args[1])))
     db.set_auto_activity_setting("autofish_max_attempts", str(val))
@@ -1371,7 +1371,7 @@ async def handle_setautofishdailycap(bot: BaseBot, user: User, args: list[str]) 
         await _w(bot, user.id, "Manager/admin/owner only.")
         return
     if len(args) < 2 or not args[1].isdigit():
-        await _w(bot, user.id, "Usage: /setautofishdailycap <minutes>")
+        await _w(bot, user.id, "Usage: !setautofishdailycap <minutes>")
         return
     val = max(30, min(480, int(args[1])))
     db.set_auto_activity_setting("autofish_daily_cap_minutes", str(val))
@@ -1448,7 +1448,7 @@ async def handle_forcedropfish(bot: BaseBot, user: User, args: list[str]) -> Non
     if len(args) < 3:
         await _w(bot, user.id,
                  f"🎯 Force Fish Drop\n"
-                 f"Usage: /forcedropfish <username> <rarity>\n"
+                 f"Usage: !forcedropfish <username> <rarity>\n"
                  f"Example: /forcedropfish @Marion exotic\n"
                  f"Rarities: {_FISH_RARITY_LIST}")
         return
@@ -1482,7 +1482,7 @@ async def handle_forcedropfishitem(bot: BaseBot, user: User, args: list[str]) ->
     if len(args) < 3:
         await _w(bot, user.id,
                  f"🎯 Force Fish Item\n"
-                 f"Usage: /forcedropfishitem <username> <fish name>\n"
+                 f"Usage: !forcedropfishitem <username> <fish name>\n"
                  f"Example: /forcedropfishitem @Marion Aurora Koi")
         return
     target     = _norm_uname(args[1])
@@ -1500,7 +1500,7 @@ async def handle_forcedropfishitem(bot: BaseBot, user: User, args: list[str]) ->
             return
     if not fish_item:
         await _w(bot, user.id,
-                 f"❌ Fish '{fish_query[:40]}' not found. Try /fishlist for names.")
+                 f"❌ Fish '{fish_query[:40]}' not found. Try !fishlist for names.")
         return
     fid = fish_item["fish_id"]
     try:
@@ -1550,7 +1550,7 @@ async def handle_forcedropfishstatus(bot: BaseBot, user: User) -> None:
             f"id={d['id']} | exp={exp_str} | err={err_str}"
         )
     if len(drops) > 5:
-        lines.append(f"+{len(drops) - 5} more. Use /forcedropfishdebug @user.")
+        lines.append(f"+{len(drops) - 5} more. Use !forcedropfishdebug @user.")
     await _w(bot, user.id, "\n".join(lines)[:249])
 
 
@@ -1562,7 +1562,7 @@ async def handle_forcedropfishdebug(bot: BaseBot, user: User, args: list[str]) -
         return
     if len(args) < 2:
         await _w(bot, user.id,
-                 "Usage: /forcedropfishdebug <username>\n"
+                 "Usage: !forcedropfishdebug <username>\n"
                  "Example: /forcedropfishdebug @Marion")
         return
     target = _norm_uname(args[1])
@@ -1599,7 +1599,7 @@ async def handle_clearforcedropfish(bot: BaseBot, user: User, args: list[str]) -
     if len(args) < 2:
         await _w(bot, user.id,
                  f"🧹 Clear Force Fish\n"
-                 f"Usage: /clearforcedropfish <username>\n"
+                 f"Usage: !clearforcedropfish <username>\n"
                  f"Example: /clearforcedropfish @Marion")
         return
     target = _norm_uname(args[1])

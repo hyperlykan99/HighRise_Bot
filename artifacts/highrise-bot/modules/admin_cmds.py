@@ -49,7 +49,7 @@ async def handle_setcoins(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Admin and owner only.")
         return
     if len(args) < 3 or not args[2].lstrip("-").isdigit():
-        await _w(bot, user.id, "Usage: /setcoins <user> <amount>")
+        await _w(bot, user.id, "Usage: !setcoins <user> <amount>")
         return
     target = _resolve(args[1])
     if not target:
@@ -79,7 +79,7 @@ async def handle_resetcoins(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Admin and owner only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /resetcoins <user>")
+        await _w(bot, user.id, "Usage: !resetcoins <user>")
         return
     target = _resolve(args[1])
     if not target:
@@ -102,7 +102,7 @@ async def handle_addeventcoins(bot: BaseBot, user: User, args: list[str]) -> Non
         await _w(bot, user.id, "Admin and owner only.")
         return
     if len(args) < 3 or not args[2].lstrip("-").isdigit():
-        await _w(bot, user.id, "Usage: /addeventcoins <user> <amount>")
+        await _w(bot, user.id, "Usage: !addeventcoins <user> <amount>")
         return
     target = _resolve(args[1])
     if not target:
@@ -123,7 +123,7 @@ async def handle_removeeventcoins(bot: BaseBot, user: User, args: list[str]) -> 
         await _w(bot, user.id, "Admin and owner only.")
         return
     if len(args) < 3 or not args[2].lstrip("-").isdigit():
-        await _w(bot, user.id, "Usage: /removeeventcoins <user> <amount>")
+        await _w(bot, user.id, "Usage: !removeeventcoins <user> <amount>")
         return
     target = _resolve(args[1])
     if not target:
@@ -145,7 +145,7 @@ async def handle_seteventcoins(bot: BaseBot, user: User, args: list[str]) -> Non
         await _w(bot, user.id, "Admin and owner only.")
         return
     if len(args) < 3 or not args[2].lstrip("-").isdigit():
-        await _w(bot, user.id, "Usage: /seteventcoins <user> <amount>")
+        await _w(bot, user.id, "Usage: !seteventcoins <user> <amount>")
         return
     target = _resolve(args[1])
     if not target:
@@ -166,7 +166,7 @@ async def handle_reseteventcoins(bot: BaseBot, user: User, args: list[str]) -> N
         await _w(bot, user.id, "Admin and owner only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /reseteventcoins <user>")
+        await _w(bot, user.id, "Usage: !reseteventcoins <user>")
         return
     target = _resolve(args[1])
     if not target:
@@ -187,7 +187,7 @@ async def handle_addxp(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Admin and owner only.")
         return
     if len(args) < 3 or not args[2].lstrip("-").isdigit():
-        await _w(bot, user.id, "Usage: /addxp <user> <amount>")
+        await _w(bot, user.id, "Usage: !addxp <user> <amount>")
         return
     target = _resolve(args[1])
     if not target:
@@ -208,7 +208,7 @@ async def handle_removexp(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Admin and owner only.")
         return
     if len(args) < 3 or not args[2].lstrip("-").isdigit():
-        await _w(bot, user.id, "Usage: /removexp <user> <amount>")
+        await _w(bot, user.id, "Usage: !removexp <user> <amount>")
         return
     target = _resolve(args[1])
     if not target:
@@ -231,7 +231,7 @@ async def handle_setxp(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Admin and owner only.")
         return
     if len(args) < 3 or not args[2].lstrip("-").isdigit():
-        await _w(bot, user.id, "Usage: /setxp <user> <amount>")
+        await _w(bot, user.id, "Usage: !setxp <user> <amount>")
         return
     target = _resolve(args[1])
     if not target:
@@ -251,7 +251,7 @@ async def handle_resetxp(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Admin and owner only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /resetxp <user>")
+        await _w(bot, user.id, "Usage: !resetxp <user>")
         return
     target = _resolve(args[1])
     if not target:
@@ -268,7 +268,7 @@ async def handle_setlevel(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Admin and owner only.")
         return
     if len(args) < 3 or not args[2].isdigit():
-        await _w(bot, user.id, "Usage: /setlevel <user> <level>")
+        await _w(bot, user.id, "Usage: !setlevel <user> <level>")
         return
     target = _resolve(args[1])
     if not target:
@@ -288,7 +288,7 @@ async def handle_addlevel(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Admin and owner only.")
         return
     if len(args) < 3 or not args[2].lstrip("-").isdigit():
-        await _w(bot, user.id, "Usage: /addlevel <user> <amount>")
+        await _w(bot, user.id, "Usage: !addlevel <user> <amount>")
         return
     target = _resolve(args[1])
     if not target:
@@ -314,7 +314,7 @@ async def handle_setrep(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Admin and owner only.")
         return
     if len(args) < 3 or not args[2].lstrip("-").isdigit():
-        await _w(bot, user.id, "Usage: /setrep <user> <amount>")
+        await _w(bot, user.id, "Usage: !setrep <user> <amount>")
         return
     target_name = args[1].lstrip("@").strip()
     amount      = max(0, int(args[2]))
@@ -332,7 +332,7 @@ async def handle_resetrep(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Admin and owner only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /resetrep <user>")
+        await _w(bot, user.id, "Usage: !resetrep <user>")
         return
     target_name = args[1].lstrip("@").strip()
     found       = db.set_rep_direct(target_name, 0)
@@ -353,7 +353,7 @@ async def handle_givetitle(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Admin and owner only.")
         return
     if len(args) < 3:
-        await _w(bot, user.id, "Usage: /givetitle <user> <title_id>")
+        await _w(bot, user.id, "Usage: !givetitle <user> <title_id>")
         return
     target = _resolve(args[1])
     if not target:
@@ -368,7 +368,7 @@ async def handle_givetitle(bot: BaseBot, user: User, args: list[str]) -> None:
     try:
         await bot.highrise.send_whisper(
             target["user_id"],
-            f"🎁 Staff gave you the title '{item_id}'! Use /equip title {item_id}."
+            f"🎁 Staff gave you the title '{item_id}'! Use !equip title {item_id}."
         )
     except Exception:
         pass
@@ -380,7 +380,7 @@ async def handle_removetitle(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Admin and owner only.")
         return
     if len(args) < 3:
-        await _w(bot, user.id, "Usage: /removetitle <user> <title_id>")
+        await _w(bot, user.id, "Usage: !removetitle <user> <title_id>")
         return
     target = _resolve(args[1])
     if not target:
@@ -400,7 +400,7 @@ async def handle_givebadge(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Admin and owner only.")
         return
     if len(args) < 3:
-        await _w(bot, user.id, "Usage: /givebadge <user> <badge_id>")
+        await _w(bot, user.id, "Usage: !givebadge <user> <badge_id>")
         return
     target = _resolve(args[1])
     if not target:
@@ -415,7 +415,7 @@ async def handle_givebadge(bot: BaseBot, user: User, args: list[str]) -> None:
     try:
         await bot.highrise.send_whisper(
             target["user_id"],
-            f"🎁 Staff gave you the badge '{item_id}'! Use /equip badge {item_id}."
+            f"🎁 Staff gave you the badge '{item_id}'! Use !equip badge {item_id}."
         )
     except Exception:
         pass
@@ -427,7 +427,7 @@ async def handle_removebadge(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Admin and owner only.")
         return
     if len(args) < 3:
-        await _w(bot, user.id, "Usage: /removebadge <user> <badge_id>")
+        await _w(bot, user.id, "Usage: !removebadge <user> <badge_id>")
         return
     target = _resolve(args[1])
     if not target:
@@ -451,7 +451,7 @@ async def handle_addvip(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Admin and owner only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /addvip <user>")
+        await _w(bot, user.id, "Usage: !addvip <user>")
         return
     target = _resolve(args[1])
     if not target:
@@ -475,7 +475,7 @@ async def handle_removevip(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Admin and owner only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /removevip <user>")
+        await _w(bot, user.id, "Usage: !removevip <user>")
         return
     target = _resolve(args[1])
     if not target:
@@ -528,7 +528,7 @@ async def handle_resetbjstats(bot: BaseBot, user: User, args: list[str]) -> None
         await _w(bot, user.id, "Admin and owner only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /resetbjstats <user>")
+        await _w(bot, user.id, "Usage: !resetbjstats <user>")
         return
     target = _resolve(args[1])
     if not target:
@@ -545,7 +545,7 @@ async def handle_resetrbjstats(bot: BaseBot, user: User, args: list[str]) -> Non
         await _w(bot, user.id, "Admin and owner only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /resetrbjstats <user>")
+        await _w(bot, user.id, "Usage: !resetrbjstats <user>")
         return
     target = _resolve(args[1])
     if not target:
@@ -562,7 +562,7 @@ async def handle_resetpokerstats(bot: BaseBot, user: User, args: list[str]) -> N
         await _w(bot, user.id, "Admin and owner only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /resetpokerstats <user>")
+        await _w(bot, user.id, "Usage: !resetpokerstats <user>")
         return
     target = _resolve(args[1])
     if not target:
@@ -579,7 +579,7 @@ async def handle_resetcasinostats(bot: BaseBot, user: User, args: list[str]) -> 
         await _w(bot, user.id, "Admin and owner only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /resetcasinostats <user>")
+        await _w(bot, user.id, "Usage: !resetcasinostats <user>")
         return
     target = _resolve(args[1])
     if not target:
@@ -634,7 +634,7 @@ _PANEL_PAGES = {
     ),
     "system": (
         "⚙️ System\n"
-        "/healthcheck /dbstats /backup\n"
+        "/healthcheck !dbstats /backup\n"
         "/maintenance on/off\n"
         "/reloadsettings /adminlogs\n"
         "/checkhelp"
@@ -784,7 +784,7 @@ _HELP_INDEX = [
     ("/rshoe", "view shoe cards remaining"),
     ("/rstats", "your RBJ stats"),
     ("/p buyin", "join poker table"),
-    ("/check /call /raise /fold /ai", "poker actions"),
+    ("/check !call /raise /fold /ai", "poker actions"),
     ("/mystack", "your poker chip stack"),
     ("/pokerstats", "your poker stats"),
     ("/plb", "poker leaderboard"),
@@ -846,7 +846,7 @@ async def handle_removelevel(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Admin and owner only.")
         return
     if len(args) < 3 or not args[2].lstrip("-").isdigit():
-        await _w(bot, user.id, "Usage: /removelevel <user> <amount>")
+        await _w(bot, user.id, "Usage: !removelevel <user> <amount>")
         return
     target = _resolve(args[1])
     if not target:
@@ -882,7 +882,7 @@ async def handle_settitle(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Admin and owner only.")
         return
     if len(args) < 3:
-        await _w(bot, user.id, "Usage: /settitle <user> <title_id>")
+        await _w(bot, user.id, "Usage: !settitle <user> <title_id>")
         return
     target  = _resolve(args[1])
     if not target:
@@ -910,7 +910,7 @@ async def handle_cleartitle(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Admin and owner only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /cleartitle <user>")
+        await _w(bot, user.id, "Usage: !cleartitle <user>")
         return
     target = _resolve(args[1])
     if not target:
@@ -931,7 +931,7 @@ async def handle_setbadge(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Admin and owner only.")
         return
     if len(args) < 3:
-        await _w(bot, user.id, "Usage: /setbadge <user> <badge_id>")
+        await _w(bot, user.id, "Usage: !setbadge <user> <badge_id>")
         return
     target  = _resolve(args[1])
     if not target:
@@ -958,7 +958,7 @@ async def handle_clearbadge(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Admin and owner only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /clearbadge <user>")
+        await _w(bot, user.id, "Usage: !clearbadge <user>")
         return
     target = _resolve(args[1])
     if not target:
@@ -979,7 +979,7 @@ async def handle_setvipprice(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Admin and owner only.")
         return
     if len(args) < 2 or not args[1].isdigit():
-        await _w(bot, user.id, "Usage: /setvipprice <amount>")
+        await _w(bot, user.id, "Usage: !setvipprice <amount>")
         return
     price = max(1, int(args[1]))
     db.set_bot_setting("vip_price", str(price))
@@ -998,7 +998,7 @@ async def handle_adminloginfo(bot: BaseBot, user: User, args: list[str]) -> None
         await _w(bot, user.id, "Admin and owner only.")
         return
     if len(args) < 2 or not args[1].isdigit():
-        await _w(bot, user.id, "Usage: /adminloginfo <log_id>")
+        await _w(bot, user.id, "Usage: !adminloginfo <log_id>")
         return
     log_id = int(args[1])
     entry  = db.get_admin_log_by_id(log_id)
@@ -1018,7 +1018,7 @@ async def handle_adminloginfo(bot: BaseBot, user: User, args: list[str]) -> None
 async def handle_helpsearch(bot: BaseBot, user: User, args: list[str]) -> None:
     """/helpsearch <keyword>  — search all commands by keyword."""
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /helpsearch <keyword>")
+        await _w(bot, user.id, "Usage: !helpsearch <keyword>")
         return
     kw = " ".join(args[1:]).lower().strip()
     matches = [

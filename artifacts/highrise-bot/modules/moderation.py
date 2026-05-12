@@ -65,7 +65,7 @@ async def handle_mute(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Managers and above only.")
         return
     if len(args) < 3:
-        await _w(bot, user.id, "Usage: /mute <username> <minutes>")
+        await _w(bot, user.id, "Usage: !mute <username> <minutes>")
         return
 
     target_name = args[1].lstrip("@").strip()
@@ -105,7 +105,7 @@ async def handle_unmute(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Managers and above only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /unmute <username>")
+        await _w(bot, user.id, "Usage: !unmute <username>")
         return
 
     target_name = args[1].lstrip("@").strip()
@@ -141,7 +141,7 @@ async def handle_mutestatus(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Managers and above only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /mutestatus <username>")
+        await _w(bot, user.id, "Usage: !mutestatus <username>")
         return
 
     target_name = args[1].lstrip("@").strip()
@@ -185,7 +185,7 @@ async def handle_forceunmute(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Admins and owners only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /forceunmute <username>")
+        await _w(bot, user.id, "Usage: !forceunmute <username>")
         return
 
     target_name = args[1].lstrip("@").strip()
@@ -240,7 +240,7 @@ async def handle_warn(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Staff only.")
         return
     if len(args) < 3:
-        await _w(bot, user.id, "Usage: /warn <username> <reason>")
+        await _w(bot, user.id, "Usage: !warn <username> <reason>")
         return
 
     target_name = args[1].lstrip("@").strip()
@@ -278,7 +278,7 @@ async def handle_warnings(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Staff only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /warnings <username>")
+        await _w(bot, user.id, "Usage: !warnings <username>")
         return
 
     target_name = args[1].lstrip("@").strip()
@@ -305,7 +305,7 @@ async def handle_clearwarnings(bot: BaseBot, user: User, args: list[str]) -> Non
         await _w(bot, user.id, "Admins and owners only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /clearwarnings <username>")
+        await _w(bot, user.id, "Usage: !clearwarnings <username>")
         return
 
     target_name = args[1].lstrip("@").strip()
@@ -337,7 +337,7 @@ async def handle_setrules(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Admins and owners only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /setrules <message>")
+        await _w(bot, user.id, "Usage: !setrules <message>")
         return
 
     new_rules = " ".join(args[1:]).strip()
@@ -372,7 +372,7 @@ async def handle_automod(bot: BaseBot, user: User, args: list[str]) -> None:
                  f"🛡️ AutoMod: {status}\n"
                  f"Max cmds/30s: {max_cmds} | Same msg: {max_same}\n"
                  f"Max reports/10m: {max_rep}\n"
-                 f"Use /automod on or /automod off")
+                 f"Use !automod on or /automod off")
         return
 
     sub = args[1].lower().strip()
@@ -383,4 +383,4 @@ async def handle_automod(bot: BaseBot, user: User, args: list[str]) -> None:
         _set_mod_setting("automod_enabled", "0")
         await _w(bot, user.id, "🛡️ AutoMod disabled.")
     else:
-        await _w(bot, user.id, "Usage: /automod on | /automod off")
+        await _w(bot, user.id, "Usage: !automod on | /automod off")

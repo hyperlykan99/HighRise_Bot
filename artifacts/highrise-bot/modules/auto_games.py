@@ -582,7 +582,7 @@ async def handle_setgametimer(bot: BaseBot, user: User, args: list[str]) -> None
         await bot.highrise.send_whisper(user.id, "Manager/admin/owner only.")
         return
     if len(args) < 2:
-        await bot.highrise.send_whisper(user.id, "Usage: /setgametimer <15–180>")
+        await bot.highrise.send_whisper(user.id, "Usage: !setgametimer <15–180>")
         return
     try:
         secs = int(args[1])
@@ -642,7 +642,7 @@ async def handle_autogames(bot: BaseBot, user: User, args: list[str]) -> None:
         await bot.highrise.send_whisper(user.id, "⛔ Auto-games OFF.")
     else:
         await bot.highrise.send_whisper(
-            user.id, "Usage: /autogames on|off|status"
+            user.id, "Usage: !autogames on|off|status"
         )
 
 
@@ -658,7 +658,7 @@ async def handle_setautogameinterval(
         return
     if len(args) < 2:
         await bot.highrise.send_whisper(
-            user.id, "Usage: /setautogameinterval <5–120>"
+            user.id, "Usage: !setautogameinterval <5–120>"
         )
         return
     try:
@@ -704,7 +704,7 @@ async def handle_autoevents(bot: BaseBot, user: User, args: list[str]) -> None:
         await bot.highrise.send_whisper(user.id, "✅ Auto events disabled.")
     else:
         await bot.highrise.send_whisper(
-            user.id, "Usage: /autoevents on|off|status"
+            user.id, "Usage: !autoevents on|off|status"
         )
 
 
@@ -720,7 +720,7 @@ async def handle_setautoeventinterval(
         return
     if len(args) < 2:
         await bot.highrise.send_whisper(
-            user.id, "Usage: /setautoeventinterval <30–1440>"
+            user.id, "Usage: !setautoeventinterval <30–1440>"
         )
         return
     try:
@@ -751,7 +751,7 @@ async def handle_setautoeventduration(
         return
     if len(args) < 2:
         await bot.highrise.send_whisper(
-            user.id, "Usage: /setautoeventduration <5–180>"
+            user.id, "Usage: !setautoeventduration <5–180>"
         )
         return
     try:

@@ -48,7 +48,7 @@ async def _w(bot: BaseBot, uid: str, msg: str) -> None:
 
 async def handle_report(bot: BaseBot, user: User, args: list[str]) -> None:
     if len(args) < 3:
-        await _w(bot, user.id, "Usage: /report <username> <reason>")
+        await _w(bot, user.id, "Usage: !report <username> <reason>")
         return
 
     remaining = check_user_cooldown("report", user.id, _COOLDOWN)
@@ -86,7 +86,7 @@ async def handle_report(bot: BaseBot, user: User, args: list[str]) -> None:
 
 async def handle_bug(bot: BaseBot, user: User, args: list[str]) -> None:
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /bug <describe the issue>")
+        await _w(bot, user.id, "Usage: !bug <describe the issue>")
         return
 
     remaining = check_user_cooldown("report", user.id, _COOLDOWN)
@@ -157,7 +157,7 @@ async def handle_reportinfo(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Staff only.")
         return
     if len(args) < 2 or not args[1].isdigit():
-        await _w(bot, user.id, "Usage: /reportinfo <id>")
+        await _w(bot, user.id, "Usage: !reportinfo <id>")
         return
 
     r = db.get_report_by_id(int(args[1]))
@@ -189,7 +189,7 @@ async def handle_closereport(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Staff only.")
         return
     if len(args) < 2 or not args[1].isdigit():
-        await _w(bot, user.id, "Usage: /closereport <id>")
+        await _w(bot, user.id, "Usage: !closereport <id>")
         return
 
     report_id = int(args[1])
@@ -217,7 +217,7 @@ async def handle_reportwatch(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Staff only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /reportwatch <username>")
+        await _w(bot, user.id, "Usage: !reportwatch <username>")
         return
 
     target = args[1].lstrip("@").strip()

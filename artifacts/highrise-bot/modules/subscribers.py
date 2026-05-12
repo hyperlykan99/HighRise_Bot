@@ -530,7 +530,7 @@ async def handle_dmnotify(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Admins and owners only.")
         return
     if len(args) < 3:
-        await _w(bot, user.id, "Usage: /dmnotify <username> <message>")
+        await _w(bot, user.id, "Usage: !dmnotify <username> <message>")
         return
     target_name = args[1].lstrip("@").lower().strip()
     raw_msg = " ".join(args[2:])
@@ -574,12 +574,12 @@ async def handle_announce_subs(bot: BaseBot, user: User, args: list[str]) -> Non
         await _w(bot, user.id, "Admins and owners only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /announce_subs <message>")
+        await _w(bot, user.id, "Usage: !announce_subs <message>")
         return
 
     raw_msg = " ".join(args[1:]).strip()
     if not raw_msg:
-        await _w(bot, user.id, "Usage: /announce_subs <message>")
+        await _w(bot, user.id, "Usage: !announce_subs <message>")
         return
     if len(raw_msg) > 220:
         await _w(bot, user.id, "Announcement too long. Max 220 characters.")
@@ -617,7 +617,7 @@ async def handle_announce_vip(bot: BaseBot, user: User, args: list[str]) -> None
         await _w(bot, user.id, "Admins and owners only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /announce_vip <message>")
+        await _w(bot, user.id, "Usage: !announce_vip <message>")
         return
     raw_msg = " ".join(args[1:])
     if len(raw_msg) > 200:
@@ -662,7 +662,7 @@ async def handle_announce_staff(bot: BaseBot, user: User, args: list[str]) -> No
         await _w(bot, user.id, "Admins and owners only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /announce_staff <message>")
+        await _w(bot, user.id, "Usage: !announce_staff <message>")
         return
     raw_msg = " ".join(args[1:])
     if len(raw_msg) > 200:
@@ -693,7 +693,7 @@ async def handle_debugsub(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Owner only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /debugsub <username>")
+        await _w(bot, user.id, "Usage: !debugsub <username>")
         return
 
     target = args[1].lstrip("@").lower().strip()

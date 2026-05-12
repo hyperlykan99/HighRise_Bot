@@ -34,7 +34,7 @@ async def _w(bot, uid: str, msg: str) -> None:
 async def handle_suggest(bot, user, args: list[str]) -> None:
     """/suggest <message> — submit a suggestion."""
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /suggest <your suggestion>")
+        await _w(bot, user.id, "Usage: !suggest <your suggestion>")
         return
     message = " ".join(args[1:])[:400]
     db.add_suggestion(user.id, user.username, message)
@@ -71,7 +71,7 @@ async def handle_suggestions(bot, user) -> None:
 async def handle_bugreport(bot, user, args: list[str]) -> None:
     """/bugreport <message> — report a bug."""
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /bugreport <describe the bug>")
+        await _w(bot, user.id, "Usage: !bugreport <describe the bug>")
         return
     message = " ".join(args[1:])[:400]
     db.add_bug_report(user.id, user.username, message)
@@ -130,7 +130,7 @@ async def handle_voteevent(bot, user, args: list[str]) -> None:
     """/voteevent <choice> — cast or change your event vote."""
     if len(args) < 2:
         opts = "/".join(sorted(_VOTE_CHOICES))
-        await _w(bot, user.id, f"Usage: /voteevent <{opts}>")
+        await _w(bot, user.id, f"Usage: !voteevent <{opts}>")
         return
     choice = args[1].lower()
     if choice not in _VOTE_CHOICES:
