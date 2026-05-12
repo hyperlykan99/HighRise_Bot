@@ -803,6 +803,8 @@ REGISTRY: dict[str, Cmd] = {
     "pton":             Cmd("host",    "party_tip",True,  False, True,  perm="manager"),
     "ptoff":            Cmd("host",    "party_tip",True,  False, True,  perm="manager"),
     "ptstatus":         Cmd("host",    "party_tip",True,  True,  False),
+    "ptenable":         Cmd("host",    "party_tip",True,  False, True,  perm="owner"),
+    "ptdisable":        Cmd("host",    "party_tip",True,  False, True,  perm="owner"),
     "ptwallet":         Cmd("host",    "party_tip",True,  False, True,  perm="owner",
                             aliases=("partywallet","setpartywallet")),
     "ptadd":            Cmd("host",    "party_tip",True,  False, True,  perm="owner",

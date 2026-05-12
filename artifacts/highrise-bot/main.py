@@ -540,6 +540,8 @@ from modules.party_tip import (
     handle_pton,
     handle_ptoff,
     handle_ptstatus,
+    handle_ptenable,
+    handle_ptdisable,
     handle_ptwallet,
     handle_ptadd,
     handle_ptremove,
@@ -2664,22 +2666,54 @@ class HangoutBot(BaseBot):
         else:
             print(f"[TIME_EXP] Loop skipped — not host bot ({BOT_MODE}).")
         # Start background automation loops (idempotent — safe on reconnect)
-        start_auto_game_loop(self)
-        start_auto_event_loop(self)
+        try:
+            start_auto_game_loop(self)
+        except Exception:
+            import traceback; traceback.print_exc()
+            print("[STARTUP ERROR] start_auto_game_loop failed — bot continues.")
+        try:
+            start_auto_event_loop(self)
+        except Exception:
+            import traceback; traceback.print_exc()
+            print("[STARTUP ERROR] start_auto_event_loop failed — bot continues.")
         # Start room interval message loop
-        await start_interval_loop(self)
+        try:
+            await start_interval_loop(self)
+        except Exception:
+            import traceback; traceback.print_exc()
+            print("[STARTUP ERROR] start_interval_loop failed — bot continues.")
         # Start multi-bot heartbeat (no-op in single-bot mode)
         asyncio.create_task(start_multibot_heartbeat(self))
         # AI delegated task polling loop (picks up cross-bot outfit/command tasks)
         asyncio.create_task(_ai_delegated_task_loop(self))
         # Startup safety checks (logs warnings, does not spam room)
-        check_startup_safety()
+        try:
+            check_startup_safety()
+        except Exception:
+            import traceback; traceback.print_exc()
+            print("[STARTUP ERROR] check_startup_safety failed — bot continues.")
         # Conditional startup room announce (respects settings + 10-min cooldown)
         asyncio.create_task(send_startup_announce(self))
         # Teleport bot to its configured spawn position (if set)
         asyncio.create_task(apply_bot_spawn(self, get_bot_username() or config.BOT_USERNAME))
 
+    # ── on_chat safety wrapper ────────────────────────────────────────────────
     async def on_chat(self, user: User, message: str) -> None:
+        """Crash-proof wrapper — no command can kill the bot."""
+        try:
+            await self._on_chat_impl(user, message)
+        except Exception:
+            import traceback as _tb
+            print(f"[ON_CHAT ERROR] mode={BOT_MODE} user={user.username!r} msg={message!r}")
+            _tb.print_exc()
+            try:
+                await self.highrise.send_whisper(
+                    user.id, "⚠️ Command error logged. Bot stayed online."
+                )
+            except Exception:
+                pass
+
+    async def _on_chat_impl(self, user: User, message: str) -> None:
         """
         Called for every public chat message.
         Ignores anything that doesn't start with '/'.
@@ -5249,6 +5283,10 @@ class HangoutBot(BaseBot):
             await handle_ptstatus(self, user)
         elif cmd == "tipall":
             await handle_tipall_redirect(self, user)
+        elif cmd == "ptenable":
+            await handle_ptenable(self, user)
+        elif cmd == "ptdisable":
+            await handle_ptdisable(self, user)
         elif cmd in ("ptwallet", "partywallet", "setpartywallet"):
             await handle_ptwallet(self, user, args)
         elif cmd in ("ptadd", "partytipperadd"):

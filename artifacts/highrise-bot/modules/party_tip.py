@@ -251,6 +251,40 @@ def _log_party_tip(
 
 
 # ---------------------------------------------------------------------------
+# Party tip enabled/disabled kill switch
+# ---------------------------------------------------------------------------
+
+def _party_tip_enabled() -> bool:
+    """Returns False only when explicitly disabled via !ptdisable."""
+    return db.get_room_setting("party_tip_enabled", "1") == "1"
+
+
+# ---------------------------------------------------------------------------
+# !ptenable / !ptdisable — instant kill switch (owner only)
+# ---------------------------------------------------------------------------
+
+async def handle_ptenable(bot: BaseBot, user: User) -> None:
+    """!ptenable — re-enable party tipping (owner only)."""
+    if not is_owner(user.username):
+        await _w(bot, user.id, "🔒 Owner only.")
+        return
+    db.set_room_setting("party_tip_enabled", "1")
+    await _w(bot, user.id,
+             "✅ Party Tip System: ENABLED\n!tip commands are now active.")
+
+
+async def handle_ptdisable(bot: BaseBot, user: User) -> None:
+    """!ptdisable — instantly disable all party tipping (owner only)."""
+    if not is_owner(user.username):
+        await _w(bot, user.id, "🔒 Owner only.")
+        return
+    db.set_room_setting("party_tip_enabled", "0")
+    await _w(bot, user.id,
+             "🛑 Party Tip System: DISABLED\n"
+             "!tip commands are paused. Use !ptenable to restore.")
+
+
+# ---------------------------------------------------------------------------
 # !pton / !ptoff / !ptstatus — simple party mode controls (manager+)
 # ---------------------------------------------------------------------------
 
@@ -278,11 +312,14 @@ async def handle_ptoff(bot: BaseBot, user: User) -> None:
 
 async def handle_ptstatus(bot: BaseBot, user: User) -> None:
     """!ptstatus — show party mode and wallet status (public)."""
-    mode   = "ON" if _party_mode_on() else "OFF"
-    wallet = _get_wallet()
-    count  = len(_list_tippers())
+    enabled = _party_tip_enabled()
+    mode    = "ON" if _party_mode_on() else "OFF"
+    wallet  = _get_wallet()
+    count   = len(_list_tippers())
+    system  = "ENABLED" if enabled else "DISABLED"
     await _w(bot, user.id,
-             f"🎉 Party Status\nMode: {mode}\nParty Wallet: {wallet}g\nParty Tippers: {count}")
+             f"🎉 Party Status\nSystem: {system}\nMode: {mode}\n"
+             f"Party Wallet: {wallet}g\nParty Tippers: {count}")
 
 
 # ---------------------------------------------------------------------------
@@ -498,6 +535,11 @@ async def handle_tip(bot: BaseBot, user: User, args: list[str]) -> None:
       !tip [count] [amount]    — tip N random players
       !tip all [amount]        — tip all eligible players
     """
+    if not _party_tip_enabled():
+        await _w(bot, user.id,
+                 "🛑 Party Tip is temporarily disabled.\n"
+                 "Ask the owner to use !ptenable to restore.")
+        return
     owner  = is_owner(user.username)
     tipper = _is_active_tipper(user.username)
     if not owner and not tipper:

@@ -1,0 +1,393 @@
+EMERGENCY STABILITY HOTFIX — Stop Blackjack, Banker, ChillTopiaMC, and Poker Quick Restarts
+
+Current issue:
+BlackjackBot, BankingBot/BankerBot, ChillTopiaMC, and PokerBot keep quick restarting.
+This started after recent Update 2.1A / Party Tip / command routing changes.
+
+Goal:
+Keep all bots online and stable first.
+Do not add new features right now.
+Do not wipe data.
+Do not change bot tokens.
+Do not change room ID.
+
+==================================================
+PART 1 — FIND THE REAL CRASH
+==================================================
+
+Check Replit console logs for the first traceback before each restart.
+
+Print the exact:
+- file
+- line number
+- function
+- exception type
+- exception message
+- bot mode / bot name
+
+Add safe top-level logging around:
+- on_start
+- on_chat
+- on_user_join
+- on_user_leave
+- startup recovery tasks
+- background tasks
+- party_tip module calls
+- blackjack startup recovery
+- poker startup recovery
+- banker/gold startup logic
+
+Do not guess.
+Log the exact crashing function.
+
+==================================================
+PART 2 — MAKE ON_CHAT CRASH-PROOF
+==================================================
+
+Wrap the entire on_chat command dispatch so no command can kill the bot.
+
+Required pattern:
+
+try:
+    await route_command(...)
+except Exception as e:
+    import traceback
+    print("[ON_CHAT ERROR]", bot_mode, user.username, message)
+    traceback.print_exc()
+    try:
+        await bot.highrise.send_whisper(user.id, "⚠️ Command error logged. Bot stayed online.")
+    except Exception:
+        pass
+    return
+
+Important:
+An error in !tip, !goldtip, !bj, !poker, !help, or any command must not restart the bot.
+
+==================================================
+PART 3 — MAKE STARTUP CRASH-PROOF
+==================================================
+
+Wrap startup tasks individually.
+
+Do not let one failed task kill the whole bot.
+
+Startup tasks to wrap:
+- blackjack startup recovery
+- poker startup recovery
+- RBJ startup recovery
+- automine recovery
+- autofish recovery
+- first-find announcer
+- first-find banker
+- big announcement reactor
+- auto game loop
+- auto event loop
+- time EXP loop
+- multi-bot heartbeat
+- party tip migration/init
+- any database migrations
+
+Pattern:
+
+try:
+    await startup_bj_recovery(...)
+except Exception:
+    print("[STARTUP ERROR] blackjack recovery failed")
+    traceback.print_exc()
+
+Continue running after failures.
+
+==================================================
+PART 4 — PARTY TIP SAFETY
+==================================================
+
+The new party_tip.py uses DB tables:
+- party_tippers
+- party_tip_log
+
+Add a safe migration/init function:
+
+ensure_party_tip_tables()
+
+It must create tables if missing:
+
+party_tippers:
+- id INTEGER PRIMARY KEY AUTOINCREMENT
+- user_id TEXT
+- username TEXT UNIQUE
+- added_by TEXT
+- added_at TEXT
+- expires_at TEXT
+- daily_used INTEGER DEFAULT 0
+- last_reset TEXT
+
+party_tip_log:
+- id INTEGER PRIMARY KEY AUTOINCREMENT
+- tipper_id TEXT
+- tipper_name TEXT
+- receiver_id TEXT
+- receiver_name TEXT
+- amount INTEGER
+- wallet_before INTEGER
+- wallet_after INTEGER
+- party_mode TEXT
+- result TEXT
+- note TEXT
+- created_at TEXT
+
+Call ensure_party_tip_tables() safely before:
+- _is_active_tipper
+- _get_daily_used
+- _add_daily_used
+- _add_tipper
+- _remove_tipper
+- _clear_tippers
+- _list_tippers
+- _log_party_tip
+
+If table creation fails:
+- log error
+- return safe response
+- do not crash bot
+
+==================================================
+PART 5 — FIX PARTY TIP REAL GOLD SAFELY
+==================================================
+
+Important:
+Party Tip should actually send Highrise gold only if intended.
+If using real Highrise gold:
+- call tip_user safely
+- catch insufficient_funds
+- catch bot_user errors
+- never crash
+- only deduct Party Wallet after successful send
+- if send fails, do not deduct wallet
+
+If Party Wallet is only a tracking wallet and does not actually call tip_user, clearly label it as simulated.
+But current screenshots show real gold behavior, so make it real and safe.
+
+For every party tip:
+1. Validate target is real player.
+2. Decompose amount into valid Highrise gold bars.
+3. Call bot.highrise.tip_user safely.
+4. If success:
+   - deduct Party Wallet
+   - log success
+   - public chat: 💸 Tipped @username [amount] gold!
+5. If fail:
+   - do not deduct wallet
+   - log fail
+   - continue or stop safely based on setting
+   - do not restart bot
+
+==================================================
+PART 6 — BOT EXCLUSION SAFETY
+==================================================
+
+Bots must be excluded from:
+- !tip
+- !tip all
+- !tip [count] [amount]
+- !goldtip
+- !goldtip all
+- !tipall
+- !goldtipall
+- Gold Rain
+
+Known bot usernames:
+ChillTopiaMC
+EmceeBot
+BankerBot
+BankingBot
+GreatestProspector
+MasterAngler
+BlackJackBot
+PokerBot
+SecurityBot
+EventBot
+AceSinatra
+ChipSoprano
+KeanuShield
+DJ_DUDU
+
+Also exclude:
+- username ending in bot
+- current bot user ID
+- known bot IDs discovered in room
+- internal bot marks
+
+If bot target detected:
+Reply:
+🤖 Bots cannot receive gold tips.
+
+Do not call tip_user on bot targets.
+
+==================================================
+PART 7 — STOP !TIPALL FROM BANKERBOT
+==================================================
+
+Current problem:
+!tipall can still trigger BankingBot Gold Tip All.
+
+Required:
+!tipall must not trigger BankingBot Gold Tip All.
+
+Preferred behavior:
+!tipall [amount] replies:
+
+⚠️ Use !tip all [amount] for Party Tips.
+Example: !tip all 5
+
+Do not send gold.
+Do not call BankingBot goldtip all.
+Do not deduct BankerBot wallet.
+
+Keep owner-only BankerBot commands:
+!goldtip
+!goldtip all
+!goldtipall if owner-only and intentional
+!goldtipbots
+
+But:
+!tip = ChillTopiaMC Party Tip
+!tipall = disabled redirect
+
+==================================================
+PART 8 — BLACKJACK AND POKER STABILITY
+==================================================
+
+Blackjack and Poker bots should not crash because of Party Tip imports or command registry issues.
+
+Add safety:
+- if party_tip import fails, disable party tip but keep blackjack/poker online
+- if command registry for !tip fails, keep blackjack/poker online
+- blackjack startup recovery errors should not kill BlackjackBot
+- poker startup recovery errors should not kill PokerBot
+
+Wrap blackjack/poker command handlers:
+- !bj
+- !hit
+- !stand
+- !double
+- !split
+- !bjshoe
+- !poker
+- !joinpoker
+- !bet
+- !call
+- !raise
+- !fold
+- !check
+
+If handler errors:
+- log traceback
+- send short error whisper
+- keep bot online
+
+==================================================
+PART 9 — ADD SAFE MODE SWITCH FOR PARTY TIP
+==================================================
+
+Add room setting:
+
+party_tip_enabled = 1
+
+Commands:
+!ptenable
+!ptdisable
+!ptstatus
+
+Owner only:
+!ptenable
+!ptdisable
+
+If party_tip_enabled = 0:
+- !tip replies: Party Tip is temporarily disabled.
+- !ptwallet still viewable by owner.
+- no tip_user calls.
+- no party tipper edits except owner.
+
+This lets me turn off Party Tip instantly if it causes restarts.
+
+==================================================
+PART 10 — COMMAND TESTS
+==================================================
+
+Run:
+
+/commandtest !tip
+/commandtest !tipall
+/commandtest !ptwallet
+/commandtest !ptadd
+/commandtest !ptlist
+/commandtest !bj
+/commandtest !bjshoe
+/commandtest !poker
+/commandtest !goldtip
+/commandissues
+/checkcommands all
+
+Expected:
+No active command issues.
+No handler=NO.
+No owner UNKNOWN.
+
+Expected owners:
+!tip = ChillTopiaMC
+!tipall = ChillTopiaMC disabled redirect
+!ptwallet = ChillTopiaMC
+!bj = BlackJackBot
+!bjshoe = BlackJackBot
+!poker = PokerBot
+!goldtip = BankingBot/BankerBot owner-only
+
+==================================================
+PART 11 — LIVE STABILITY TEST
+==================================================
+
+Run bots for 10 minutes.
+
+Test:
+
+!help
+!bjshoe
+!bj 10
+!poker
+!ptstatus
+!pton
+!ptwallet 100
+!tip all 1
+!tip 5 1
+!tipall 1
+!goldtip @realplayer 1
+
+Expected:
+- no bot quick restart
+- no unhandled traceback
+- !tipall does not trigger BankingBot Gold Tip All
+- bots excluded from tipping
+- BlackjackBot stays online
+- BankingBot stays online
+- ChillTopiaMC stays online
+- PokerBot stays online
+
+==================================================
+FINAL REPORT
+==================================================
+
+After finishing, tell me:
+
+1. Exact crash cause found from logs.
+2. Files changed.
+3. Whether on_chat is now crash-proof.
+4. Whether startup tasks are individually wrapped.
+5. Whether party_tip tables are safely created.
+6. Whether !tip sends real gold safely.
+7. Whether !tipall is disabled/redirected.
+8. Whether BlackjackBot stayed online.
+9. Whether BankingBot stayed online.
+10. Whether ChillTopiaMC stayed online.
+11. Whether PokerBot stayed online.
+12. /commandissues result.
+13. /checkcommands all result.

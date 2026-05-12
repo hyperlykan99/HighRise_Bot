@@ -238,6 +238,7 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     # ── host — Party Tip Wallet (ChillTopiaMC) ───────────────────────────────
     "tip": "host", "party": "host",
     "pton": "host", "ptoff": "host", "ptstatus": "host",
+    "ptenable": "host", "ptdisable": "host",
     "ptwallet": "host", "ptadd": "host", "ptremove": "host",
     "ptclear": "host", "ptlist": "host", "ptlimits": "host", "ptlimit": "host",
     "partytipper": "host",
