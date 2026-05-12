@@ -533,11 +533,11 @@ async def handle_fish(bot: BaseBot, user: User) -> None:
         print(f"[FISH] race_win error: {_ffe}")
     rarity_info = FISH_RARITIES.get(fish["rarity"], {})
     if rarity_info.get("announce"):
-        extra = f" — {weight}lb, {_fmt(value)}c"
         try:
             await send_big_fish_announce(
                 bot, fish["rarity"], uname,
-                fish["name"], fish.get("emoji", "🐟"), extra)
+                fish["name"], fish.get("emoji", "🐟"),
+                weight=weight, value=value, xp=fxp)
         except Exception as _bae:
             print(f"[FISH] big_announce error: {_bae}")
 
@@ -1262,11 +1262,11 @@ async def _autofish_loop(bot: BaseBot, user: User) -> None:
                 print(f"[AUTOFISH] race_win error: {_ffe}")
             rinfo = FISH_RARITIES.get(fish["rarity"], {})
             if rinfo.get("announce"):
-                extra = f" — {weight}lb, {_fmt(value)}c"
                 try:
                     await send_big_fish_announce(
                         bot, fish["rarity"], uname,
-                        fish["name"], fish["emoji"], extra)
+                        fish["name"], fish["emoji"],
+                        weight=weight, value=value, xp=fxp)
                 except Exception as _bae:
                     print(f"[AUTOFISH] big_announce error: {_bae}")
 

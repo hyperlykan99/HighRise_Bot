@@ -1993,6 +1993,10 @@ def _migrate_db():
             note          TEXT DEFAULT '',
             created_at    TEXT DEFAULT ''
         )""",
+        "ALTER TABLE big_announcement_logs ADD COLUMN weight_str  TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE big_announcement_logs ADD COLUMN value_str   TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE big_announcement_logs ADD COLUMN xp_str      TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE big_announcement_logs ADD COLUMN item_emoji  TEXT NOT NULL DEFAULT ''",
     ]:
         try:
             conn.execute(sql)
@@ -10442,14 +10446,18 @@ def get_all_big_announce_bot_reactions() -> list:
 
 
 def add_big_announce_pending(category: str, rarity: str, item_name: str,
-                              user_id: str, username: str) -> int:
+                              user_id: str, username: str,
+                              weight_str: str = "", value_str: str = "",
+                              xp_str: str = "", item_emoji: str = "") -> int:
     """Write a pending big announcement for reaction polling by other bots."""
     conn = get_connection()
     cur  = conn.execute(
         "INSERT INTO big_announcement_logs "
-        "(category, rarity, item_name, user_id, username, routing_mode, status) "
-        "VALUES (?,?,?,?,?,'all_bots','pending')",
-        (category, rarity, item_name, user_id, username),
+        "(category, rarity, item_name, user_id, username, routing_mode, status,"
+        " weight_str, value_str, xp_str, item_emoji) "
+        "VALUES (?,?,?,?,?,'all_bots','pending',?,?,?,?)",
+        (category, rarity, item_name, user_id, username,
+         weight_str, value_str, xp_str, item_emoji),
     )
     row_id = cur.lastrowid
     conn.commit()

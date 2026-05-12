@@ -1,0 +1,146 @@
+EXTRA FIX — BIG ANNOUNCEMENTS SHOULD REPEAT THE ACTUAL FIND/CATCH DETAILS
+
+Current issue:
+When a player gets a big mine/fish find, the other bots only say a generic congratulations message.
+
+I want all bot announcement messages to repeat what the mining/fishing bot says, including:
+- player name
+- rarity
+- ore/fish name
+- weight
+- value
+- XP
+- colored rarity label
+- prismatic rainbow label
+- prismatic item name pink
+
+Goal:
+When a big find/catch happens, every announcement bot should repeat the actual result details, not just say “congrats.”
+
+Do not change odds.
+Do not change rewards.
+Do not add extra hype phases.
+Do not add room mute/pause yet.
+Do not spam too much.
+Do not break message cap.
+
+==================================================
+PART 1 — STANDARD BIG FIND MESSAGE
+==================================================
+
+For mining big announcements, use this format:
+
+⛏️ BIG FIND!
+@Player mined [RARITY] [Ore Name]
+⚖️ [weight]kg | 💰 [value]c | ⭐ +[mxp] MXP
+
+For fishing big announcements, use this format:
+
+🎣 BIG CATCH!
+@Player caught [RARITY] [Fish Name]
+⚖️ [weight]lb | 💰 [value]c | ⭐ +[fxp] FXP
+
+If message is too long:
+Split into 2 short messages under 220 characters.
+
+Message 1:
+⛏️ BIG FIND!
+@Player mined [RARITY] [Ore Name]
+
+Message 2:
+⚖️ [weight]kg | 💰 [value]c | ⭐ +[mxp] MXP
+
+or
+
+Message 1:
+🎣 BIG CATCH!
+@Player caught [RARITY] [Fish Name]
+
+Message 2:
+⚖️ [weight]lb | 💰 [value]c | ⭐ +[fxp] FXP
+
+==================================================
+PART 2 — ALL BOTS REPEAT SAME DETAILS
+==================================================
+
+When big announcement is sent by multiple bots, each bot should include the actual find/catch details.
+
+Bad:
+🎉 Congrats @Player on the big find!
+
+Good:
+⛏️ BIG FIND!
+@Player mined [MYTHIC] Dragonstone
+⚖️ 12.4kg | 💰 50,000c | ⭐ +300 MXP
+
+Bad:
+🔥 Big catch by @Player!
+
+Good:
+🎣 BIG CATCH!
+@Player caught [PRISMATIC] Aurora Koi
+⚖️ 24.1lb | 💰 180,000c | ⭐ +500 FXP
+
+==================================================
+PART 3 — PRESERVE COLORS
+==================================================
+
+Formatting rules:
+- [PRISMATIC] must be rainbow.
+- Prismatic ore/fish name must be pink.
+- Exotic should stay red.
+- Mythic should keep existing mythic color.
+- Colored names must not be cut.
+- Every color tag must close with <#FFFFFF>.
+
+If color tags make message too long:
+- split message
+- do not remove colors first
+- only remove extra words if needed
+
+==================================================
+PART 4 — MESSAGE CAP SAFETY
+==================================================
+
+All big announcement messages must stay under 220 characters.
+
+Do not blindly slice strings.
+
+If too long:
+- split on line breaks
+- never split color tags
+- never end with half an item name
+- never cut off value/weight/XP
+
+==================================================
+PART 5 — WHICH BOTS ANNOUNCE
+==================================================
+
+Use existing announcement bot list.
+
+Do not add new bots.
+Do not change announcement owner.
+Do not change hype tiers.
+
+Just change the content from generic congrats to actual result detail.
+
+==================================================
+PART 6 — TEST WITHOUT CHANGING ODDS
+==================================================
+
+If a safe owner-only preview command exists, use it.
+
+Example:
+!previewannounce mining prismatic
+!previewannounce fishing prismatic
+
+If no preview command exists, test formatting internally without forcing a real rare drop.
+
+Do not change odds to test.
+
+Expected:
+- All announcement bots use actual ore/fish details.
+- Prismatic label is rainbow.
+- Prismatic item name is pink.
+- No message cut off.
+- No command issues.

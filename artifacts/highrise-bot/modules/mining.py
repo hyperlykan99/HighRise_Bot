@@ -570,10 +570,10 @@ async def handle_mine(bot: BaseBot, user: User) -> None:
     except Exception as _ffe:
         print(f"[MINING] race_win error: {_ffe}")
     if should_announce(item["rarity"], item["item_id"]):
-        extra = f" — {ore_weight}kg, {_fmt(final_val)}c" if ore_weight is not None else ""
         try:
             await send_big_mine_announce(bot, item["rarity"], uname,
-                                        item["name"], item["emoji"], extra)
+                                         item["name"], item["emoji"],
+                                         weight=ore_weight, value=final_val, xp=mxp)
         except Exception as _bae:
             print(f"[MINING] big_announce error: {_bae}")
 

@@ -472,6 +472,7 @@ from modules.first_find import (
 from modules.big_announce import (
     handle_setbigannounce, handle_bigannouncestatus,
     handle_setbotbigreact, handle_bigannounce_help,
+    handle_previewannounce,
     startup_big_announce_reactor,
 )
 from modules.control_panel import (
@@ -715,7 +716,7 @@ FIRSTFIND_COMMANDS = {
     "startfirstfind", "stopfirstfind", "firstfindwinners",
     "firstfindpending", "firstfindpay", "paypendingfirstfind", "retryfirstfind",
     "bigannounce", "bigannouncestatus", "setbigannounce",
-    "setbigreact", "setbotbigreact",
+    "setbigreact", "setbotbigreact", "previewannounce",
 }
 
 TIP_COMMANDS = {"tiprate", "tipstats", "tipleaderboard"}
@@ -5202,6 +5203,9 @@ class HangoutBot(BaseBot):
 
         elif cmd == "bigannounce":
             await handle_bigannounce_help(self, user)
+
+        elif cmd == "previewannounce":
+            await handle_previewannounce(self, user, args)
 
         elif cmd == "orebook":
             await handle_orebook(self, user)
