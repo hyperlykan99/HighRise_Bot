@@ -1,0 +1,137 @@
+Update 3.0H Hotfix — Fix !inv / !inventory Registry + Remove !help shop Requirement
+
+Current issue:
+!inv works live and shows player items, but !commandissues reports:
+2 no-route, 2 no-owner, 2 no-handler
+Examples: !inv, !inventory
+
+Also:
+!help shop is unknown.
+
+Goal:
+Make command audits clean without adding unnecessary help pages.
+
+Do not change tokens.
+Do not wipe data.
+Do not change room ID.
+Do not reset inventories, badges, titles, VIP, balances, mining/fishing, casino data, teleports, or party tip data.
+
+==================================================
+PART 1 — FIX !INV AND !INVENTORY REGISTRY
+==================================================
+
+!inv already works live.
+
+Register these properly:
+
+!inv
+!inventory
+
+Expected:
+
+!commandtest !inv
+owner=ChillTopiaMC
+route=YES
+handler=YES
+
+!commandtest !inventory
+owner=ChillTopiaMC
+route=YES
+handler=YES
+
+Both should call the same inventory/items handler.
+
+Preferred:
+!inventory -> alias of !inv
+
+Do not duplicate inventory logic.
+Do not create separate broken handlers.
+
+==================================================
+PART 2 — CLEAN INVENTORY MESSAGE
+==================================================
+
+Current !inv message works. Just polish lightly.
+
+Preferred:
+
+🎒 @Player's Items
+Badge: none
+Title: [Immortal] immortal
+
+Badges: none — !shop badges
+Titles: immortal
+
+Rules:
+- Keep under 220 characters.
+- No / commands.
+- Do not show owner commands.
+- Do not change owned items.
+- Do not reset badges/titles.
+
+==================================================
+PART 3 — REMOVE !HELP SHOP REQUIREMENT
+==================================================
+
+!help shop is unknown and not needed right now.
+
+Do NOT require !help shop for 3.0H.
+
+Remove !help shop from:
+- test list
+- public help
+- checkhelp expectations
+- shop/economy audit requirements
+
+Use these instead:
+
+!shop — main shop menu
+!vip — VIP info
+!vipperks — VIP perks
+!donationgoal — room goal
+!topdonors — supporters
+
+If !help support exists and works, keep it.
+If !help support does not exist, do not force it.
+
+==================================================
+PART 4 — OPTIONAL: REDIRECT !HELP SHOP
+==================================================
+
+If easy and safe, make:
+
+!help shop
+
+Reply:
+Use !shop to view the shop.
+
+But if this is risky, skip it.
+
+Preferred simple fix:
+Remove !help shop from all help/testing expectations.
+
+==================================================
+PART 5 — TESTS
+==================================================
+
+Run:
+
+!commandtest !inv
+!commandtest !inventory
+!inv
+!inventory
+!shop
+!vip
+!vipperks
+!commandissues
+!checkcommands
+
+Expected:
+- !inv works.
+- !inventory works.
+- Both route YES.
+- Both handler YES.
+- Owner not UNKNOWN.
+- !commandissues clean.
+- !checkcommands clean.
+- No need for !help shop.

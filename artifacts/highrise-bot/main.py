@@ -1188,6 +1188,14 @@ _HELP_CATEGORIES: dict[str, str] = {
         "!fishlist — fish list\n"
         "!rods — rods  !rodshop"
     ),
+    "shop": (
+        "🛍️ Shop Help\n"
+        "Use !shop to view the shop.\n"
+        "!shop badges — emoji badges\n"
+        "!shop titles — titles\n"
+        "!buy [#] — buy shown item\n"
+        "!myitems — your items  !balance"
+    ),
     "bank": (
         "🏦 Bank Commands\n"
         "!balance — check your coins\n"
@@ -3509,7 +3517,7 @@ class HangoutBot(BaseBot):
             "profile", "me", "whois", "pinfo",
             "stats", "badges", "titles", "privacy",
             "wallet", "w", "dash", "dashboard", "casinodash", "mycasino",
-            "level", "balance", "bal", "b", "coins", "coin", "money", "myitems",
+            "level", "balance", "bal", "b", "coins", "coin", "money", "myitems", "inventory", "inv",
             "myreports", "report", "bug",
             "botstatus", "maintenance",
             "rules", "warnings", "vipstatus",

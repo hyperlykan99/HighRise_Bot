@@ -164,6 +164,7 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "badgebuy": "shopkeeper", "badgecancel": "shopkeeper",
     "mybadgelistings": "shopkeeper", "badgeprices": "shopkeeper",
     "equip": "shopkeeper", "myitems": "shopkeeper",
+    "inventory": "shopkeeper", "inv": "shopkeeper",
     "titleinfo": "shopkeeper", "shophelp": "host",
     "shopadmin": "shopkeeper", "vipstatus": "shopkeeper",
     # ── security ────────────────────────────────────────────────────────────
