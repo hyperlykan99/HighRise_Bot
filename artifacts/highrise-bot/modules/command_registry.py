@@ -349,6 +349,7 @@ REGISTRY: dict[str, Cmd] = {
 
     # ── Host: audit (new) ────────────────────────────────────────────────────
     "commandissues":    Cmd("host","audit",  True, True, False, perm="admin"),
+    "launchcheck":      Cmd("host","audit",  True, True, False, perm="owner"),
     "fixcommandregistry": Cmd("host","audit",True, False,False, perm="owner"),
 
     # ── Host: bot spawn management (new) ─────────────────────────────────────
