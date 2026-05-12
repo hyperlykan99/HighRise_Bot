@@ -1,0 +1,151 @@
+Update 3.0F Hotfix — Fix 255 Character Message Cutoff
+
+Current issue:
+Mining/Fishing polish messages are getting cut off because Highrise has about a 255 character message cap.
+
+Example:
+!minechances shows the second message cut off:
+<#FF000
+
+Goal:
+All bot messages must stay under 255 characters and must not cut color tags in half.
+
+Do not change mining odds.
+Do not change fishing odds.
+Do not change rewards.
+Do not change tokens.
+Do not wipe data.
+Do not change room ID.
+
+==================================================
+PART 1 — CREATE SAFE MESSAGE HELPER
+==================================================
+
+Create or update a helper:
+
+safe_whisper(bot, user_id, message)
+safe_chat(bot, message)
+
+Rules:
+- Max message length: 240 characters for safety.
+- Never slice blindly at 249/255 if message contains color tags.
+- Prefer manually split messages into short chunks.
+- If forced to split, split on newline or separator first.
+- Never split inside:
+  <#FFFFFF>
+  <#FF0000>
+  any <#XXXXXX> color tag
+
+==================================================
+PART 2 — FIX !minechances
+==================================================
+
+Split !minechances into 3 short messages.
+
+Message 1:
+
+⛏️ Mining Chances
+Common: 65.0%
+Uncommon: 22.0%
+Rare: 10.0%
+
+Message 2:
+
+Epic: 2.75%
+Legendary: 0.23%
+Mythic: 0.015%
+
+Message 3:
+
+Ultra Rare: 0.0040%
+Prismatic: 0.0008%
+Exotic: 0.0002%
+
+Mythic+ is extremely rare.
+
+Keep colors if safe, but do not use long rainbow/color formatting in chance messages.
+Readable is more important than color here.
+
+==================================================
+PART 3 — FIX !fishchances
+==================================================
+
+Split !fishchances into short messages.
+
+Message 1:
+
+🎣 Fishing Chances
+Common: [percent]
+Rare: [percent]
+Epic: [percent]
+
+Message 2:
+
+Legendary: [percent]
+Mythic: [percent]
+Prismatic: [percent]
+Exotic: [percent]
+
+Message 3 if needed:
+
+Mythic+ is extremely rare.
+
+Do not cut color tags.
+
+==================================================
+PART 4 — FIX INVENTORY AND PROFILE MESSAGES
+==================================================
+
+Apply same 240-char safe split to:
+!mineinv
+!fishinv
+!mineprofile
+!fishprofile
+!tool
+!rod
+!minelb
+!fishlb
+!automine messages
+!autofish messages
+
+If a message is too long:
+- split into multiple whispers
+- keep each under 240 characters
+- do not cut color tags
+- do not cut item names awkwardly
+
+==================================================
+PART 5 — FIX RARITY COLOR TAG SAFETY
+==================================================
+
+When using colored rarity labels:
+- do not slice strings after color formatting
+- either shorten message before adding colors
+- or remove colors from long chance/list messages
+- keep colored ore/fish names for actual reward messages if they fit
+
+For chance displays:
+Prefer plain rarity names over long color tags if needed.
+
+==================================================
+PART 6 — TESTS
+==================================================
+
+Run:
+
+!minechances
+!fishchances
+!mineinv
+!fishinv
+!tool
+!rod
+!commandissues
+!checkcommands
+
+Expected:
+- No message is cut off.
+- No broken color tags like <#FF000.
+- All messages are readable.
+- No command issues.
+- No checkcommands mismatch.
+- Mining/fishing odds unchanged.

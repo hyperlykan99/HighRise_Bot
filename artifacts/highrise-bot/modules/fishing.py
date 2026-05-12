@@ -26,9 +26,24 @@ from modules.permissions import can_manage_economy, can_moderate
 # Helpers
 # ---------------------------------------------------------------------------
 
+def _safe_clip(msg: str, limit: int = 240) -> str:
+    """Clip to limit chars without cutting a <#RRGGBB> color tag in half."""
+    if len(msg) <= limit:
+        return msg
+    cut = limit
+    for i in range(cut - 1, max(cut - 10, -1), -1):
+        if msg[i] == '<':
+            if i + 1 < len(msg) and msg[i + 1] == '#':
+                close_pos = msg.find('>', i)
+                if close_pos < 0 or close_pos >= cut:
+                    cut = i
+            break
+    return msg[:cut]
+
+
 async def _w(bot: BaseBot, uid: str, msg: str) -> None:
     try:
-        await bot.highrise.send_whisper(uid, msg[:249])
+        await bot.highrise.send_whisper(uid, _safe_clip(str(msg)))
     except Exception:
         pass
 
@@ -99,6 +114,22 @@ _RARITY_ALIASES: dict[str, str] = {
 
 def _rarity_label(rarity: str) -> str:
     return FISH_RARITIES.get(rarity, FISH_RARITIES["common"])["label"]
+
+
+_FISH_PLAIN_NAMES: dict[str, str] = {
+    "common":    "Common",
+    "rare":      "Rare",
+    "epic":      "Epic",
+    "legendary": "Legendary",
+    "mythic":    "Mythic",
+    "prismatic": "Prismatic",
+    "exotic":    "Exotic",
+}
+
+
+def _rar_plain(rarity: str) -> str:
+    """Plain-text rarity name (no color tags) — safe for list/inventory display."""
+    return _FISH_PLAIN_NAMES.get(rarity.lower(), rarity.replace("_", " ").title())
 
 
 def _name_colored(rarity: str, name: str) -> str:
@@ -639,12 +670,12 @@ async def handle_myfish(bot: BaseBot, user: User) -> None:
         total_val = sum(r["value"] for r in inv)
         lines.append(f"Unsold ({len(inv)}+) | Value: {_fmt(total_val)}c:")
         for r in inv[:3]:
-            rl = _rarity_label(r["rarity"])
-            lines.append(f"  {rl} {r['fish_name']} {r['weight']}lb")
+            rl = _rar_plain(r["rarity"])
+            lines.append(f"  [{rl}] {r['fish_name']} {r['weight']}lb")
         lines.append("→ !sellfish to sell all")
     else:
         lines.append("Bag empty. !fish to fill it!")
-    await _w(bot, user.id, "\n".join(lines)[:249])
+    await _w(bot, user.id, "\n".join(lines))
 
 
 # ---------------------------------------------------------------------------
@@ -887,30 +918,29 @@ async def handle_fishingevents(bot: BaseBot, user: User) -> None:
 # ---------------------------------------------------------------------------
 
 async def handle_fishchances(bot: BaseBot, user: User) -> None:
-    """!fishchances — show base rarity drop % for fishing."""
-    _MAIN_CHANCES = [
+    """!fishchances — show base rarity drop % for fishing (plain text, 2 messages)."""
+    _CHANCES = [
         ("common",    82.000),
         ("rare",      13.000),
         ("epic",       4.500),
         ("legendary",  0.470),
         ("mythic",     0.025),
-    ]
-    _RARE_CHANCES = [
         ("prismatic",  0.004),
         ("exotic",     0.001),
     ]
-    lines1 = ["🎣 Fishing Chances"]
-    for rarity, pct in _MAIN_CHANCES:
-        pct_str = f"{pct}%" if pct >= 0.01 else f"{pct:.4f}%"
-        lbl = FISH_RARITIES.get(rarity, {}).get("label", rarity.title())
-        lines1.append(f"{lbl}: {pct_str}")
-    await _w(bot, user.id, "\n".join(lines1)[:249])
-    lines2 = ["🎣 Ultra Rare Fish"]
-    for rarity, pct in _RARE_CHANCES:
-        pct_str = f"{pct:.4f}%"
-        lbl = FISH_RARITIES.get(rarity, {}).get("label", rarity.title())
-        lines2.append(f"{lbl}: {pct_str}")
-    await _w(bot, user.id, "\n".join(lines2)[:249])
+    def _pct(p: float) -> str:
+        return f"{p}%" if p >= 0.01 else f"{p:.4f}%"
+    await _w(bot, user.id,
+             f"🎣 Fishing Chances\n"
+             f"Common: {_pct(82.000)}\n"
+             f"Rare: {_pct(13.000)}\n"
+             f"Epic: {_pct(4.500)}")
+    await _w(bot, user.id,
+             f"Legendary: {_pct(0.470)}\n"
+             f"Mythic: {_pct(0.025)}\n"
+             f"Prismatic: {_pct(0.004)}\n"
+             f"Exotic: {_pct(0.001)}\n"
+             f"Mythic+ is extremely rare.")
 
 
 async def handle_fishhelp(bot: BaseBot, user: User) -> None:

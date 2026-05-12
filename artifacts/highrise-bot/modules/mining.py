@@ -43,8 +43,23 @@ _MINE_WRITE_LOCK = FileLock(_cfg.DB_PATH + ".write.lock", timeout=3)
 # Helpers
 # ---------------------------------------------------------------------------
 
+def _safe_clip(msg: str, limit: int = 240) -> str:
+    """Clip to limit chars without cutting a <#RRGGBB> color tag in half."""
+    if len(msg) <= limit:
+        return msg
+    cut = limit
+    for i in range(cut - 1, max(cut - 10, -1), -1):
+        if msg[i] == '<':
+            if i + 1 < len(msg) and msg[i + 1] == '#':
+                close_pos = msg.find('>', i)
+                if close_pos < 0 or close_pos >= cut:
+                    cut = i
+            break
+    return msg[:cut]
+
+
 def _w(bot, user_id, msg):
-    return bot.highrise.send_whisper(user_id, str(msg)[:249])
+    return bot.highrise.send_whisper(user_id, _safe_clip(str(msg)))
 
 
 def _fmt(val: int) -> str:
@@ -724,17 +739,17 @@ async def handle_mineinv(bot: BaseBot, user: User, args: list[str]) -> None:
     # Full paginated view: !mineinv all  or  !mineinv <page>
     if sub == "all" or sub.isdigit():
         page = max(1, int(sub)) if sub.isdigit() else 1
-        per  = 6
+        per  = 4
         total_pages = max(1, (len(inv) + per - 1) // per)
         page = min(page, total_pages)
         chunk = inv[(page - 1) * per : page * per]
         lines = [f"🎒 Ores ({page}/{total_pages})"]
         for r in chunk:
-            lbl = _ore_short_label(r["rarity"])
-            lines.append(f"{lbl} {r['emoji']}{r['name']} x{r['quantity']}")
+            lbl = _rar_plain(r["rarity"])
+            lines.append(f"[{lbl}] {r['emoji']}{r['name']} x{r['quantity']}")
         if page < total_pages:
             lines.append(f"!mineinv {page + 1}")
-        await _w(bot, user.id, "\n".join(lines)[:249])
+        await _w(bot, user.id, "\n".join(lines))
         return
 
     # Default: top 5 by quantity
@@ -743,13 +758,13 @@ async def handle_mineinv(bot: BaseBot, user: User, args: list[str]) -> None:
     total_qty   = sum(r["quantity"] for r in inv)
     lines = [f"🎒 Ores | {total_types} types | {_fmt(total_qty)} total"]
     for r in top5:
-        lbl = _ore_short_label(r["rarity"])
-        lines.append(f"{lbl} {r['emoji']}{r['name']} x{r['quantity']}")
+        lbl = _rar_plain(r["rarity"])
+        lines.append(f"[{lbl}] {r['emoji']}{r['name']} x{r['quantity']}")
     if total_types > 5:
         lines.append("!mineinv all — full list | !sellores to sell")
     else:
         lines.append("!sellores to sell all")
-    await _w(bot, user.id, "\n".join(lines)[:249])
+    await _w(bot, user.id, "\n".join(lines))
 
 
 # ---------------------------------------------------------------------------
@@ -1542,6 +1557,24 @@ def _ore_short_label(rarity: str) -> str:
     return _SHORT_RAR_LABELS.get(rarity.lower(), rarity.replace("_", " ").title())
 
 
+_PLAIN_RAR_NAMES: dict[str, str] = {
+    "common":     "Common",
+    "uncommon":   "Uncommon",
+    "rare":       "Rare",
+    "epic":       "Epic",
+    "legendary":  "Legendary",
+    "mythic":     "Mythic",
+    "ultra_rare": "Ultra Rare",
+    "prismatic":  "Prismatic",
+    "exotic":     "Exotic",
+}
+
+
+def _rar_plain(rarity: str) -> str:
+    """Plain-text rarity name (no color tags) — safe for list/inventory display."""
+    return _PLAIN_RAR_NAMES.get(rarity.lower(), rarity.replace("_", " ").title())
+
+
 def _one_in_x(rarity: str, n_ores: int) -> int:
     """Return the 1-in-X whole number for an individual ore of the given rarity."""
     prob_pct = RARITIES.get(rarity, RARITIES["common"])[0]
@@ -1994,21 +2027,24 @@ async def handle_rerolljob(bot: BaseBot, user: User) -> None:
 # ---------------------------------------------------------------------------
 
 async def handle_minechances(bot: BaseBot, user: User) -> None:
-    """!minechances — show base rarity drop % for mining."""
-    _MAIN_TIERS  = ["common", "uncommon", "rare", "epic", "legendary", "mythic"]
-    _ULTRA_TIERS = ["ultra_rare", "prismatic", "exotic"]
-    lines1 = ["⛏️ Mining Chances"]
-    for r in _MAIN_TIERS:
-        pct = RARITIES[r][0]
-        pct_str = f"{pct}%" if pct >= 0.01 else f"{pct:.4f}%"
-        lines1.append(f"{_ore_short_label(r)}: {pct_str}")
-    await _w(bot, user.id, "\n".join(lines1)[:249])
-    lines2 = ["⛏️ Ultra Rare Tiers"]
-    for r in _ULTRA_TIERS:
-        pct = RARITIES[r][0]
-        pct_str = f"{pct:.4f}%"
-        lines2.append(f"{_ore_short_label(r)}: {pct_str}")
-    await _w(bot, user.id, "\n".join(lines2)[:249])
+    """!minechances — show base rarity drop % for mining (plain text, 3 messages)."""
+    def _pct(r: str) -> str:
+        p = RARITIES[r][0]
+        return f"{p}%" if p >= 0.01 else f"{p:.4f}%"
+    await _w(bot, user.id,
+             f"⛏️ Mining Chances\n"
+             f"Common: {_pct('common')}\n"
+             f"Uncommon: {_pct('uncommon')}\n"
+             f"Rare: {_pct('rare')}")
+    await _w(bot, user.id,
+             f"Epic: {_pct('epic')}\n"
+             f"Legendary: {_pct('legendary')}\n"
+             f"Mythic: {_pct('mythic')}")
+    await _w(bot, user.id,
+             f"Ultra Rare: {_pct('ultra_rare')}\n"
+             f"Prismatic: {_pct('prismatic')}\n"
+             f"Exotic: {_pct('exotic')}\n"
+             f"Mythic+ is extremely rare.")
 
 
 async def handle_orechances(bot: BaseBot, user: User) -> None:
