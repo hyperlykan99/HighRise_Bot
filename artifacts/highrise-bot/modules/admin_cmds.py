@@ -1075,18 +1075,22 @@ async def handle_stability(bot: BaseBot, user: User, args: list[str]) -> None:
     else:
         stab = db.get_room_setting("stability_mode", "0") == "1"
         pt   = db.get_room_setting("party_tip_enabled", "1") == "1"
-        from modules import bot_state
+        from modules import bot_state as _bs
         import datetime as _dt
+        import config as _cfg
         uptime_secs = int(
-            (_dt.datetime.now(_dt.timezone.utc) - bot_state.PROC_START).total_seconds()
+            (_dt.datetime.now(_dt.timezone.utc) - _bs.PROC_START).total_seconds()
         )
-        mins, secs = divmod(uptime_secs, 60)
-        hrs,  mins = divmod(mins, 60)
-        uptime_str = (f"{hrs}h {mins}m" if hrs else f"{mins}m {secs}s")
+        _m, _s = divmod(uptime_secs, 60)
+        _h, _m = divmod(_m, 60)
+        uptime_str  = f"{_h}h {_m}m" if _h else f"{_m}m {_s}s"
+        reconnects  = max(0, _bs.RESTART_COUNT - 1)
+        last_rc     = _bs.LAST_RECONNECT_AT or "never"
+        last_err    = (_bs.LAST_ERROR[:32] or "none")
+        rg_info     = _bs.RATE_GUARD_INFO or ("ON" if _bs.RATE_GUARD_ACTIVE else "OFF")
         await _w(bot, user.id,
-                 (f"🛡️ Stability: {'ON' if stab else 'OFF'}\n"
-                  f"Party Tip: {'ON' if pt else 'OFF'}\n"
-                  f"Uptime: {uptime_str}\n"
-                  f"Restarts: {bot_state.RESTART_COUNT}\n"
-                  f"Last Err: {bot_state.LAST_ERROR[:30] or 'none'}\n"
-                  f"Use !stability on|off")[:249])
+                 (f"🛡️ [{_cfg.BOT_MODE}] Stab: {'ON' if stab else 'OFF'}"
+                  f" | RateGuard: {rg_info}\n"
+                  f"Uptime: {uptime_str} | Reconnects: {reconnects}\n"
+                  f"Last RC: {last_rc} | Err: {last_err}\n"
+                  f"PartyTip: {'ON' if pt else 'OFF'} | !stability on|off")[:249])

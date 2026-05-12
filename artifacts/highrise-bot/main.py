@@ -2612,6 +2612,7 @@ def _install_task_exception_handler() -> None:
         print(f"[TASK ERROR] {name} mode={config.BOT_MODE}")
         if exc:
             _tb.print_exception(type(exc), exc, exc.__traceback__)
+            bot_state.LAST_ERROR = f"task:{name[:28]}"
 
     try:
         asyncio.get_event_loop().set_exception_handler(_handler)
@@ -2675,6 +2676,7 @@ class HangoutBot(BaseBot):
         if bot_state.RESTART_COUNT == 1:
             print(f"[START] mode={BOT_MODE} id={config.BOT_ID} first_connect @ {_now_ts}")
         else:
+            bot_state.LAST_RECONNECT_AT = _now_ts
             print(f"[RECONNECT] mode={BOT_MODE} id={config.BOT_ID}"
                   f" reconnect #{bot_state.RESTART_COUNT - 1} @ {_now_ts}")
         _install_task_exception_handler()

@@ -102,3 +102,9 @@ def install_rate_limiter(
         f"chat {chat_bucket} | whisper {whisper_bucket} | "
         f"server_keys={list(rate_limits.keys())}"
     )
+    try:
+        import modules.bot_state as _bs
+        _bs.RATE_GUARD_ACTIVE = True
+        _bs.RATE_GUARD_INFO   = f"chat {chat_bucket}|w {whisper_bucket}"
+    except Exception:
+        pass
