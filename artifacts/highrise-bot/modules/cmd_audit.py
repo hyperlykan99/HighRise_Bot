@@ -469,7 +469,7 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     "paypendingfirstfind", "retryfirstfind",
     # ── Big announcement ─────────────────────────────────────────────────────
     "bigannounce", "bigannouncestatus", "setbigannounce",
-    "setbigreact", "setbotbigreact",
+    "setbigreact", "setbotbigreact", "previewannounce",
     # ── BJ surrender + stay alias ────────────────────────────────────────────
     "bsurrender", "stay",
     # ── Auto-games hint/reveal (eventhost-owned) ─────────────────────────────

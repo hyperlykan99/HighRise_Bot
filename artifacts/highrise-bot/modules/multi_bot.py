@@ -617,6 +617,7 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     # ── big announcement ─────────────────────────────────────────────────────
     "bigannounce": "host", "bigannouncestatus": "host",
     "setbigannounce": "host", "setbigreact": "host", "setbotbigreact": "host",
+    "previewannounce": "host",
     # ── system dashboard ─────────────────────────────────────────────────────
     "botdashboard": "host", "botsystem": "host",
     # ── reward center ────────────────────────────────────────────────────────

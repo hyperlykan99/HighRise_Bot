@@ -1,0 +1,152 @@
+Update 3.0F Hotfix — Fix !previewannounce Command Issue
+
+Current issue:
+!commandissues shows:
+1 no-route, 1 no-owner, 1 no-handler
+Example:
+!previewannounce
+
+Goal:
+Fix !previewannounce so command issues are clean.
+
+Do not change mining odds.
+Do not change fishing odds.
+Do not force rare drops.
+Do not change rewards.
+Do not wipe data.
+Do not change tokens.
+Do not change room ID.
+
+==================================================
+PART 1 — MAKE !previewannounce OWNER-ONLY
+==================================================
+
+Register and route:
+
+!previewannounce
+
+Expected:
+
+!commandtest !previewannounce
+
+owner=ChillTopiaMC
+route=YES
+handler=YES
+permission=Owner
+
+This command is for safe preview/testing only.
+
+==================================================
+PART 2 — COMMAND USAGE
+==================================================
+
+If owner types:
+
+!previewannounce
+
+Reply:
+
+Usage:
+!previewannounce mining [mythic|prismatic|exotic]
+!previewannounce fishing [mythic|prismatic|exotic]
+
+Examples:
+!previewannounce mining prismatic
+!previewannounce fishing exotic
+
+==================================================
+PART 3 — SAFE PREVIEW ONLY
+==================================================
+
+!previewannounce must NOT:
+- change mining odds
+- change fishing odds
+- give player items
+- give coins
+- give XP
+- write inventory
+- trigger real rare find records
+- affect economy
+- spam all bots unless preview mode says so
+
+It should only show what the big announcement message would look like.
+
+==================================================
+PART 4 — PREVIEW FORMAT
+==================================================
+
+Example:
+
+!previewannounce mining prismatic
+
+Response:
+
+⛏️ BIG FIND PREVIEW
+@4ktreyMarion mined [PRISMATIC] Prismite
+⚖️ 12.4kg | 💰 50,000c | ⭐ +300 MXP
+
+Example:
+
+!previewannounce fishing prismatic
+
+Response:
+
+🎣 BIG CATCH PREVIEW
+@4ktreyMarion caught [PRISMATIC] Aurora Koi
+⚖️ 24.1lb | 💰 180,000c | ⭐ +500 FXP
+
+Rules:
+- [PRISMATIC] label must be rainbow.
+- Prismatic ore/fish name must be pink.
+- Exotic must be red.
+- Mythic keeps existing color.
+- Message under 220 characters.
+- No broken color tags.
+
+==================================================
+PART 5 — DO NOT SHOW IN PLAYER HELP
+==================================================
+
+!previewannounce is owner-only debug/testing.
+
+Do not show it in:
+!help
+!help games
+!help mining
+!help fishing
+!help party
+
+Only show it in owner/debug help if needed.
+
+==================================================
+PART 6 — IF YOU DO NOT WANT THIS COMMAND
+==================================================
+
+If implementing !previewannounce is risky, then remove it from active command registry and mark it hidden/deprecated so it does not count in !commandissues.
+
+Preferred:
+Route it properly as owner-only.
+
+==================================================
+PART 7 — TESTS
+==================================================
+
+Run:
+
+!commandtest !previewannounce
+!previewannounce
+!previewannounce mining prismatic
+!previewannounce fishing prismatic
+!commandissues
+!checkcommands
+
+Expected:
+- !previewannounce owner=ChillTopiaMC
+- route=YES
+- handler=YES
+- owner-only
+- preview works
+- no odds changed
+- no rewards given
+- !commandissues clean
+- !checkcommands clean

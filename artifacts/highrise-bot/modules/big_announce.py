@@ -20,7 +20,7 @@ from __future__ import annotations
 import asyncio
 import database as db
 import config as _cfg
-from modules.permissions import can_manage_economy
+from modules.permissions import can_manage_economy, is_owner
 
 _RARITY_ORDER = [
     "common", "rare", "epic", "legendary",
@@ -413,17 +413,21 @@ async def handle_bigannounce_help(bot, user) -> None:
 
 
 async def handle_previewannounce(bot, user, args: list[str]) -> None:
-    """/previewannounce <mining|fishing> <rarity> [item_name...]
-    Whispers a preview of the formatted big announcement, then sends it
-    to the room once so staff can verify colors and layout.
+    """/previewannounce <mining|fishing> <rarity>
+    Owner-only: whisper a preview of the formatted big announcement.
+    Safe — no drops, no rewards, no economy changes.
     """
-    if not can_manage_economy(user.username):
-        await bot.highrise.send_whisper(user.id, "Manager/admin/owner only.")
+    if not is_owner(user.username):
+        await bot.highrise.send_whisper(user.id, "Owner only.")
         return
     if len(args) < 3:
         await bot.highrise.send_whisper(user.id,
-            "Usage: !previewannounce mining prismatic [item name]\n"
-            "Example: !previewannounce fishing prismatic Aurora Koi")
+            "Usage:\n"
+            "!previewannounce mining [mythic|prismatic|exotic]\n"
+            "!previewannounce fishing [mythic|prismatic|exotic]\n\n"
+            "Examples:\n"
+            "!previewannounce mining prismatic\n"
+            "!previewannounce fishing exotic")
         return
     category = args[1].lower()
     rarity   = args[2].lower()
@@ -435,24 +439,41 @@ async def handle_previewannounce(bot, user, args: list[str]) -> None:
             f"Valid rarities: {', '.join(_RARITY_ORDER)}")
         return
 
-    item_name  = " ".join(args[3:]) if len(args) > 3 else (
-        "Opal Prism Ore" if category == "mining" else "Aurora Koi"
+    # Default item names per rarity+category
+    _DEFAULTS: dict[tuple[str, str], tuple[str, str]] = {
+        ("mining",  "mythic"):     ("🌑", "Black Opal"),
+        ("mining",  "ultra_rare"): ("✨", "Alexandrite"),
+        ("mining",  "prismatic"):  ("🌈", "Prismite"),
+        ("mining",  "exotic"):     ("💔", "Demon Heart Crystal"),
+        ("fishing", "mythic"):     ("🦈", "Moonlight Leviathan"),
+        ("fishing", "ultra_rare"): ("🌊", "Tidal Phantom"),
+        ("fishing", "prismatic"):  ("🌈", "Aurora Koi"),
+        ("fishing", "exotic"):     ("🔥", "Bloodfin Leviathan"),
+    }
+    _def_emoji, _def_name = _DEFAULTS.get(
+        (category, rarity),
+        ("💎", "Opal Prism Ore") if category == "mining" else ("🐟", "Aurora Koi"),
     )
-    emoji      = "💎" if category == "mining" else "🐟"
-    weight_str = "2.5kg" if category == "mining" else "24.1lb"
-    value_str  = "180,000"
-    xp_str     = "500"
+    item_name  = " ".join(args[3:]) if len(args) > 3 else _def_name
+    emoji      = _def_emoji
+    weight_str = "12.4kg" if category == "mining" else "24.1lb"
+    value_str  = "50,000" if category == "mining" else "180,000"
+    xp_str     = "300" if category == "mining" else "500"
 
     rar_label  = _ANN_LBLS.get(rarity, f"[{rarity.replace('_', ' ').upper()}]")
     disp_name  = _display_name(rarity, item_name)
-    msgs       = _fmt_ann(category, user.username, rar_label, disp_name,
-                          emoji, weight_str, value_str, xp_str)
 
-    await bot.highrise.send_whisper(user.id,
-        f"📣 Preview — {rarity} {category} ({len(msgs)} msg):")
-    for m in msgs:
-        await bot.highrise.send_whisper(user.id, m[:249])
+    # Build a clean PREVIEW whisper (header says PREVIEW, not FIND/CATCH)
+    unit  = "MXP" if category == "mining" else "FXP"
+    verb  = "mined" if category == "mining" else "caught"
+    phdr  = "⛏️ BIG FIND PREVIEW" if category == "mining" else "🎣 BIG CATCH PREVIEW"
+    line2 = f"@{user.username} {verb} {rar_label} {disp_name}"
+    line3 = f"⚖️ {weight_str} | 💰 {value_str}c | ⭐ +{xp_str} {unit}"
+    await bot.highrise.send_whisper(user.id, f"{phdr}\n{line2}\n{line3}"[:249])
 
+    # Also send the real announcement format to room chat so staff see live colors
+    msgs = _fmt_ann(category, user.username, rar_label, disp_name,
+                    emoji, weight_str, value_str, xp_str)
     for m in msgs:
         try:
             await asyncio.sleep(0.3)

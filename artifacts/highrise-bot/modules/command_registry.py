@@ -661,6 +661,7 @@ REGISTRY: dict[str, Cmd] = {
     "setbigannounce":       Cmd("host","economy",   False,False, True,  perm="manager"),
     "setbigreact":          Cmd("host","economy",   False,False, True,  perm="manager"),
     "setbotbigreact":       Cmd("host","economy",   False,False, True,  perm="manager"),
+    "previewannounce":      Cmd("host","economy",   False,True,  False, perm="owner"),
     # ── BJ card display / rules / bonus viewer ────────────────────────────────
     "bjcards":          Cmd("blackjack","casino", True, True,  False, aliases=("blackjackcards","cardmode","bjcardmode")),
     "bjrules":          Cmd("blackjack","casino", True, True,  False),

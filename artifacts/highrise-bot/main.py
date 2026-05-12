@@ -800,6 +800,7 @@ OWNER_ONLY_CMDS = {
     "restartbot",
     "testnotifyall",
     "fixcommandregistry",
+    "previewannounce",
 }
 
 STAFF_CMDS = MOD_ONLY_CMDS | MANAGER_ONLY_CMDS | ADMIN_ONLY_CMDS | OWNER_ONLY_CMDS
