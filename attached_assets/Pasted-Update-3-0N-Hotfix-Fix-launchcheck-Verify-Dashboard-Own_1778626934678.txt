@@ -1,0 +1,150 @@
+Update 3.0N Hotfix — Fix !launchcheck + Verify Dashboard Owner
+
+Current issue:
+!commandissues shows:
+1 no-route, 1 no-owner, 1 no-handler
+Example:
+!launchcheck
+
+Also verify:
+!dashboard should NOT be handled by BankingBot.
+
+Goal:
+Clean command issues and make owner dashboard tools owned by ChillTopiaMC or Host.
+
+Do not change tokens.
+Do not wipe data.
+Do not change room ID.
+Do not reset economy, VIP, mining/fishing, casino, party tip, notifications, teleports, role spawns, or bot spawns.
+
+==================================================
+PART 1 — FIX !LAUNCHCHECK
+==================================================
+
+Preferred:
+Route !launchcheck as owner-only.
+
+Expected:
+
+!commandtest !launchcheck
+
+owner=ChillTopiaMC or Host
+route=YES
+handler=YES
+permission=Owner
+
+Live response:
+
+🚀 Launch Check
+Commands: OK
+Help: OK
+Bots: OK
+Conflicts: none
+Assistant: OK
+Notifications: OK
+Economy: OK
+Games: OK
+
+Keep under 220 characters.
+
+If something is not OK, show short warning:
+
+🚀 Launch Check
+Commands: ⚠️
+Help: OK
+Bots: OK
+Use !commandissues.
+
+==================================================
+PART 2 — IF !LAUNCHCHECK IS NOT WANTED
+==================================================
+
+If !launchcheck is risky or not implemented:
+- remove it from active registry
+- mark hidden/legacy/deprecated
+- remove it from help/dashboard
+- do not count it in !commandissues
+
+Preferred:
+Route it properly.
+
+==================================================
+PART 3 — VERIFY !DASHBOARD OWNER
+==================================================
+
+Check:
+
+!commandtest !dashboard
+!commandtest !ownerpanel
+
+Expected:
+
+!dashboard:
+owner=ChillTopiaMC or Host
+route=YES
+handler=YES
+permission=Owner
+
+!ownerpanel:
+owner=ChillTopiaMC or Host
+route=YES
+handler=YES
+permission=Owner
+
+If owner is BankingBot:
+- change owner to ChillTopiaMC or Host
+- keep BankingBot for banking/economy only
+
+BankingBot should not own:
+!dashboard
+!ownerpanel
+!launchcheck
+!commandissues
+!checkcommands
+!checkhelp
+!modulehealth
+!bothealth
+!stability
+
+==================================================
+PART 4 — ROUTE OWNER TOOLS EARLY
+==================================================
+
+Owner/admin tools must route before AI/chat fallback:
+
+!dashboard
+!ownerpanel
+!launchcheck
+!commandissues
+!checkcommands
+!checkhelp
+!bothealth
+!modulehealth
+!botconflicts
+!stability
+
+Do not let assistant/AI intercept these.
+
+==================================================
+PART 5 — TESTS
+==================================================
+
+Run:
+
+!commandtest !launchcheck
+!launchcheck
+!commandtest !dashboard
+!commandtest !ownerpanel
+!dashboard
+!ownerpanel
+!commandissues
+!checkcommands
+!checkhelp
+
+Expected:
+- !launchcheck routes or is hidden.
+- !dashboard owner is ChillTopiaMC or Host, not BankingBot.
+- !ownerpanel owner is ChillTopiaMC or Host.
+- !commandissues clean.
+- !checkcommands clean.
+- !checkhelp clean.

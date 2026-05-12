@@ -172,7 +172,7 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     "addvip", "removevip", "vips", "setvipprice",
     "resetbjstats", "resetrbjstats", "resetpokerstats", "resetcasinostats",
     "adminpanel", "adminlogs", "adminloginfo",
-    "checkcommands", "checkhelp",
+    "checkcommands", "checkhelp", "launchcheck",
     "missingcommands", "routecheck", "silentcheck", "commandtest",
     "fixcommands", "testcommands",
     # ── via handle_admin_command (always replies) ─────────────────────────────

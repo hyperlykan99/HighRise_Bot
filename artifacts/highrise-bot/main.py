@@ -2627,36 +2627,49 @@ async def _cmd_launchcheck(bot, user):
 
     _g = globals()
 
-    def _ok(sym: str) -> str:
-        return "✅" if _g.get(sym) is not None else "❌"
+    def _chk(sym: str) -> str:
+        return "OK" if _g.get(sym) is not None else "⚠️"
 
-    def _rs(key: str, default: str = "0") -> str:
-        try:
-            return db.get_room_setting(key, default)
-        except Exception:
-            return default
-
-    cmd_ok   = "✅" if _g.get("handle_bj") and _g.get("handle_balance") else "❌"
-    help_ok  = "✅" if _g.get("HELP_TEXT") else "❌"
-    bots_ok  = "✅" if _g.get("handle_bothealth") else "❌"
-    asst_ok  = "✅" if _g.get("handle_ask") else "❌"
-    notif_ok = "✅" if _g.get("handle_notify") else "❌"
-    econ_ok  = "✅" if _g.get("handle_balance") and _g.get("handle_shop") else "❌"
-    games_ok = "✅" if _g.get("handle_bj") and _g.get("handle_rbj") and _g.get("handle_poker") else "❌"
+    cmd_ok   = "OK" if _g.get("handle_bj") and _g.get("handle_balance") else "⚠️"
+    help_ok  = "OK" if _g.get("HELP_TEXT") else "⚠️"
+    bots_ok  = "OK" if _g.get("handle_bothealth") else "⚠️"
+    asst_ok  = "OK" if _g.get("handle_ai_assistant") or _g.get("handle_aidelegations") else "⚠️"
+    notif_ok = "OK" if _g.get("handle_banknotify") or _g.get("handle_notify") else "⚠️"
+    econ_ok  = "OK" if _g.get("handle_balance") and _g.get("handle_shop") else "⚠️"
+    games_ok = "OK" if _g.get("handle_bj") and _g.get("handle_rbj") and _g.get("handle_poker") else "⚠️"
 
     try:
-        from modules.multi_bot import get_command_conflicts
-        conflicts = get_command_conflicts()
-        conf_txt = "none" if not conflicts else f"{len(conflicts)} conflict(s)"
+        from modules.cmd_audit import ROUTED_COMMANDS
+        from modules.multi_bot import _DEFAULT_COMMAND_OWNERS
+        from modules.command_registry import get_entry as _reg_get
+        active = {c for c in ALL_KNOWN_COMMANDS}
+        missing  = len(active - ROUTED_COMMANDS)
+        noowner  = len(active - set(_DEFAULT_COMMAND_OWNERS.keys()))
+        nohandle = len([c for c in active if _reg_get(c) is None])
+        if missing == 0 and noowner == 0 and nohandle == 0:
+            conf_txt = "none"
+        else:
+            parts = []
+            if missing:  parts.append(f"{missing} no-route")
+            if noowner:  parts.append(f"{noowner} no-owner")
+            if nohandle: parts.append(f"{nohandle} no-handler")
+            conf_txt = ", ".join(parts)
     except Exception:
         conf_txt = "skipped"
 
+    all_ok = all(x == "OK" for x in [cmd_ok, help_ok, bots_ok, asst_ok, notif_ok, econ_ok, games_ok])
+    if all_ok and conf_txt == "none":
+        summary = "✅ All systems ready."
+    else:
+        summary = "⚠️ Use !commandissues." if conf_txt not in ("none", "skipped") else "⚠️ Check above."
+
     msg = (
         f"🚀 Launch Check\n"
-        f"Commands:{cmd_ok} Help:{help_ok} Bots:{bots_ok}\n"
-        f"Conflicts:{conf_txt}\n"
-        f"Assistant:{asst_ok} Notif:{notif_ok}\n"
-        f"Economy:{econ_ok} Games:{games_ok}"
+        f"Commands: {cmd_ok}\nHelp: {help_ok}\nBots: {bots_ok}\n"
+        f"Conflicts: {conf_txt}\n"
+        f"Assistant: {asst_ok}\nNotifications: {notif_ok}\n"
+        f"Economy: {econ_ok}\nGames: {games_ok}\n"
+        f"{summary}"
     )
     await bot.highrise.send_whisper(user.id, msg[:249])
 
