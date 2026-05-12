@@ -532,6 +532,14 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     "donate", "donationgoal", "topdonors", "sponsor", "sponsorgoldrain",
     "sponsorevent", "supporter", "perks",
     "setdonationgoal", "donationaudit", "setsponsorprice",
+    # ── Party Tip Wallet (ChillTopiaMC / host) ────────────────────────────────
+    "party", "tip",
+    "ptwallet", "ptadd", "ptremove", "ptclear",
+    "ptlist", "ptlimits", "ptlimit",
+    "partytipper",
+    "partywallet", "setpartywallet",
+    "partytipperadd", "partytipperremove", "partytipperclear",
+    "partytippers", "partytipperlimits", "setpartytipperlimit",
 })
 
 # ---------------------------------------------------------------------------

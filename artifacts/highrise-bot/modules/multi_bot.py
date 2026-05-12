@@ -234,8 +234,13 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "audit": "security", "audithelp": "security",
     "auditbank": "security", "auditcasino": "security",
     "auditeconomy": "security",
+    # ── host — Party Tip Wallet (ChillTopiaMC) ───────────────────────────────
+    "tip": "host", "party": "host",
+    "ptwallet": "host", "ptadd": "host", "ptremove": "host",
+    "ptclear": "host", "ptlist": "host", "ptlimits": "host", "ptlimit": "host",
+    "partytipper": "host",
     # ── banker (additions) ───────────────────────────────────────────────────
-    "tip": "banker", "gift": "banker",
+    "gift": "banker",
     "addcoins": "banker", "removecoins": "banker",
     "bankstats": "banker", "banknotify": "banker",
     "bankhelp": "banker", "coinhelp": "banker",

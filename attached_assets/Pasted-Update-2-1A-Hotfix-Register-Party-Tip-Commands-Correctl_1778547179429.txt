@@ -1,0 +1,281 @@
+Update 2.1A Hotfix — Register Party Tip Commands Correctly
+
+Current issue:
+!tip is registered, but owner shows BankingBot.
+Party tip owner should be ChillTopiaMC.
+
+These commands are missing:
+!ptwallet
+!ptadd
+!ptremove
+!ptclear
+!ptlist
+!ptlimits
+!ptlimit
+
+They currently show:
+owner=UNKNOWN
+route=NO
+handler=NO
+
+Goal:
+Register all Party Tip Wallet commands and route them to real handlers.
+
+==================================================
+PART 1 — FIX !tip OWNER AND ROUTING
+==================================================
+
+!tip must be the ChillTopiaMC Party Tip Wallet command.
+
+Expected:
+/commandtest !tip
+
+Target:
+ct: tip
+owner=ChillTopiaMC
+route=YES
+handler=YES
+
+Rules:
+- !tip must not route to BankingBot.
+- !tip must not route to regular bank/send/tip command.
+- !tip must not use BankerBot wallet.
+- !tip must use ChillTopiaMC Party Wallet only.
+- !tip works only during Party Mode.
+- !tip allowed only for Owner or active Party Tipper.
+
+Command formats:
+!tip [user] [amount]
+!tip all [amount]
+
+==================================================
+PART 2 — REGISTER SIMPLE OWNER COMMANDS
+==================================================
+
+Register and route these commands:
+
+!ptwallet
+!ptadd
+!ptremove
+!ptclear
+!ptlist
+!ptlimits
+!ptlimit
+
+Expected:
+/commandtest !ptwallet
+/commandtest !ptadd
+/commandtest !ptremove
+/commandtest !ptclear
+/commandtest !ptlist
+/commandtest !ptlimits
+/commandtest !ptlimit
+
+Target:
+owner=ChillTopiaMC
+route=YES
+handler=YES
+
+==================================================
+PART 3 — CONNECT REAL HANDLERS
+==================================================
+
+Handlers needed:
+
+handle_ptwallet
+handle_ptadd
+handle_ptremove
+handle_ptclear
+handle_ptlist
+handle_ptlimits
+handle_ptlimit
+handle_party_tip
+
+Do not only add these to registry.
+They must actually execute.
+
+==================================================
+PART 4 — COMMAND BEHAVIOR
+==================================================
+
+!ptwallet [amount]
+Owner only.
+Sets ChillTopiaMC Party Wallet.
+
+Example:
+!ptwallet 300
+
+Response:
+🎉 Party Wallet Set
+Wallet: 300g
+Handled by: ChillTopiaMC
+BankerBot affected: NO
+
+!ptadd [user] [minutes]
+Owner only.
+Adds temporary Party Tipper.
+
+Example:
+!ptadd @Player 60
+
+Response:
+✅ Party Tipper Added
+User: @Player
+Duration: 60m
+Can use: !tip only
+Party Mode Required: YES
+
+!ptremove [user]
+Owner only.
+Removes one Party Tipper.
+
+!ptclear
+Owner only.
+Clears all Party Tippers.
+
+!ptlist
+Shows current Party Tippers.
+
+!ptlimits
+Shows limits.
+
+!ptlimit [single|all|daily|max] [amount]
+Owner only.
+Changes limits.
+
+==================================================
+PART 5 — PARTY TIP RULES
+==================================================
+
+!tip [user] [amount]:
+- Owner or active Party Tipper only.
+- Party Mode must be ON.
+- Uses ChillTopiaMC Party Wallet only.
+- Does not touch BankerBot wallet.
+- Cannot tip bots.
+- Cannot tip negative or zero.
+- Respects single tip limit.
+- Respects daily cap.
+
+!tip all [amount]:
+- Owner or active Party Tipper only.
+- Party Mode must be ON.
+- Tips all eligible real players in room.
+- Excludes bots.
+- Excludes self if self-tip OFF.
+- Respects all-tip limit.
+- Respects wallet balance.
+- Logs summary.
+
+==================================================
+PART 6 — DEFAULT LIMITS
+==================================================
+
+single = 10g
+all = 5g each
+daily = 100g per Party Tipper
+max = 500g Party Wallet max
+duration max = 120 minutes
+party mode required = YES
+bots excluded = YES
+self-tip = OFF
+
+==================================================
+PART 7 — ERROR RESPONSES
+==================================================
+
+If Party Mode is OFF:
+
+🎉 Party Mode is OFF.
+Party tipping only works during Party Mode.
+
+If user is not Owner or active Party Tipper:
+
+🔒 Party Tipper only.
+Ask the owner for temporary party tipping access.
+
+If Party Wallet is empty:
+
+⚠️ Party Wallet is empty.
+Owner must add party gold.
+
+If not enough wallet:
+
+⚠️ Not enough Party Wallet gold.
+Needed: [amount]g
+Available: [wallet]g
+
+If command usage wrong:
+
+Usage:
+!tip [user] [amount]
+!tip all [amount]
+
+==================================================
+PART 8 — DO NOT BREAK EXISTING GOLDTIP
+==================================================
+
+Keep these as BankingBot/BankerBot owner-only:
+
+!goldtip
+!goldtip all
+!goldtipbots
+!goldtipall
+!tipall
+
+Important:
+!tip is Party Tip Wallet.
+!tipall remains old goldtip-all alias unless removed later.
+
+==================================================
+PART 9 — TESTS
+==================================================
+
+Run:
+
+/commandtest !tip
+/commandtest !ptwallet
+/commandtest !ptadd
+/commandtest !ptremove
+/commandtest !ptclear
+/commandtest !ptlist
+/commandtest !ptlimits
+/commandtest !ptlimit
+
+Expected:
+owner=ChillTopiaMC
+route=YES
+handler=YES
+
+Then live test:
+
+!party on
+!ptwallet 300
+!ptadd @Friend 60
+!ptlist
+!ptlimits
+
+From @Friend:
+!tip @Player 5
+!tip all 2
+
+Expected:
+Uses ChillTopiaMC Party Wallet.
+BankerBot wallet affected: NO.
+
+Then:
+!party off
+
+From @Friend:
+!tip @Player 5
+
+Expected:
+🎉 Party Mode is OFF.
+Party tipping only works during Party Mode.
+
+Final:
+/commandissues
+/checkcommands all
+
+Expected:
+No active command issues.
