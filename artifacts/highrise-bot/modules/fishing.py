@@ -296,6 +296,38 @@ def _display_chance(drop_weight: float) -> str:
     return f"1 in {r:,}"
 
 
+def _compact_1in_fish(n: int) -> str:
+    """Format 1-in-N as compact string: 1:2.86M, 1:178K, 1:500"""
+    if n >= 1_000_000:
+        v = round(n / 1_000_000, 2)
+        return f"1:{v:g}M"
+    if n >= 10_000:
+        return f"1:{round(n / 1_000):g}K"
+    if n >= 1_000:
+        v = round(n / 1_000, 1)
+        return f"1:{v:g}K"
+    return f"1:{n}"
+
+
+def _compact_fish_chance(drop_weight: float) -> str:
+    """Return compact 1:X string for a fish based on its drop_weight."""
+    ratio = _TOTAL_WEIGHT / drop_weight if drop_weight else 9999
+    return _compact_1in_fish(int(round(ratio)))
+
+
+def _safe_per_page_fish(header: str, item_lines: list[str], limit: int = 220) -> int:
+    """Return how many items from item_lines fit after header within limit chars."""
+    count = 0
+    msg   = header
+    for line in item_lines[:8]:
+        candidate = msg + "\n" + line
+        if len(candidate) > limit:
+            break
+        msg = candidate
+        count += 1
+    return max(1, count)
+
+
 # ---------------------------------------------------------------------------
 # Fishing Rods
 # ---------------------------------------------------------------------------
@@ -547,28 +579,8 @@ async def handle_fish(bot: BaseBot, user: User) -> None:
 # ---------------------------------------------------------------------------
 
 async def handle_fishlist(bot: BaseBot, user: User, args: list[str]) -> None:
-    """/fishlist [rarity] [page]"""
-    if len(args) >= 2:
-        raw = args[1].lower()
-        rarity = _RARITY_ALIASES.get(raw)
-        if not rarity:
-            await _w(bot, user.id,
-                     "Usage: !fishlist [rarity] — e.g. /fishlist common")
-            return
-        page = 1
-        if len(args) >= 3 and args[2].isdigit():
-            page = max(1, int(args[2]))
-        pool = [f for f in FISH_CATALOG if f["rarity"] == rarity]
-        total_pages = max(1, (len(pool) + 4) // 5)
-        page = min(page, total_pages)
-        start = (page - 1) * 5
-        chunk = pool[start: start + 5]
-        hdr   = FISH_RARITIES[rarity]["label"]
-        lines = [f"{hdr} p{page}/{total_pages}"]
-        for f in chunk:
-            lines.append(f"{f['emoji']} {f['name']} — {_display_chance(f['drop_weight'])}")
-        await _w(bot, user.id, "\n".join(lines)[:249])
-    else:
+    """/fishlist [rarity] [page] — compact format, prismatic/exotic names colored."""
+    if len(args) < 2:
         lines = ["🎣 Fish List"]
         for r in RARITY_ORDER:
             cnt = sum(1 for f in FISH_CATALOG if f["rarity"] == r)
@@ -576,6 +588,59 @@ async def handle_fishlist(bot: BaseBot, user: User, args: list[str]) -> None:
         lines.append("Use !fishlist common to view Common fish.")
         lines.append("!fishprices common for prices & weights.")
         await _w(bot, user.id, "\n".join(lines)[:249])
+        return
+
+    raw    = args[1].lower()
+    rarity = _RARITY_ALIASES.get(raw)
+    if not rarity:
+        await _w(bot, user.id,
+                 "Usage: !fishlist [rarity]\n"
+                 "Example: !fishlist rare\n"
+                 "Rarities: common rare epic legendary mythic prismatic exotic")
+        return
+
+    page = 1
+    if len(args) >= 3 and args[2].isdigit():
+        page = max(1, int(args[2]))
+
+    pool = [f for f in FISH_CATALOG if f["rarity"] == rarity]
+    if not pool:
+        await _w(bot, user.id, f"No fish found for rarity: {rarity}.")
+        return
+
+    rar_label = FISH_RARITIES[rarity]["label"]
+
+    def _line(f: dict) -> str:
+        chance = _compact_fish_chance(f["drop_weight"])
+        if rarity == "prismatic":
+            name = f"<#FF66CC>{f['name']}<#FFFFFF>"
+        elif rarity == "exotic":
+            name = f"<#FF0000>{f['name']}<#FFFFFF>"
+        else:
+            name = f["name"]
+        return f"{f['emoji']} {name} — {chance}"
+
+    all_lines   = [_line(f) for f in pool]
+    test_hdr    = f"🎣 {rar_label} Fish p1/10"
+    per_page    = _safe_per_page_fish(test_hdr, all_lines)
+    total_pages = max(1, (len(pool) + per_page - 1) // per_page)
+
+    if page > total_pages:
+        await _w(bot, user.id,
+                 f"⚠️ Page not found.\nUse: !fishlist {rarity} 1")
+        return
+
+    header = f"🎣 {rar_label} Fish p{page}/{total_pages}"
+    start  = (page - 1) * per_page
+    chunk  = list(all_lines[start:start + per_page])
+    msg    = header + "\n" + "\n".join(chunk)
+
+    # Safety: trim from end if still over limit
+    while len(msg) > 220 and len(chunk) > 1:
+        chunk = chunk[:-1]
+        msg = header + "\n" + "\n".join(chunk)
+
+    await _w(bot, user.id, msg[:249])
 
 
 # ---------------------------------------------------------------------------

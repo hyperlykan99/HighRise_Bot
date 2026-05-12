@@ -5054,7 +5054,7 @@ class HangoutBot(BaseBot):
         elif cmd in {"fish", "cast", "reel"}:
             await handle_fish(self, user)
 
-        elif cmd in {"fishlist", "fishrarity"}:
+        elif cmd in {"fishlist", "fishrarity", "fishes"}:
             await handle_fishlist(self, user, args)
 
         elif cmd in {"fishprices", "fishvalues"}:

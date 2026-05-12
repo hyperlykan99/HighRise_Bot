@@ -736,6 +736,13 @@ async def handle_mineinv(bot: BaseBot, user: User, args: list[str]) -> None:
 
     sub = args[1].lower() if len(args) > 1 else ""
 
+    # Rarity filter: !ores prismatic → delegate to handle_orelist
+    if sub and sub not in ("all",) and not sub.isdigit():
+        rar_check = _resolve_rarity_arg(sub)
+        if rar_check in RARITIES:
+            await handle_orelist(bot, user, ["ores", sub] + list(args[2:]))
+            return
+
     # Full paginated view: !mineinv all  or  !mineinv <page>
     if sub == "all" or sub.isdigit():
         page = max(1, int(sub)) if sub.isdigit() else 1
@@ -1588,6 +1595,32 @@ def _one_in_x(rarity: str, n_ores: int) -> int:
     return max(1, round(100 / per_ore))
 
 
+def _compact_1in(n: int) -> str:
+    """Format 1-in-N as compact string: 1:2.86M, 1:178K, 1:500"""
+    if n >= 1_000_000:
+        v = round(n / 1_000_000, 2)
+        return f"1:{v:g}M"
+    if n >= 10_000:
+        return f"1:{round(n / 1_000):g}K"
+    if n >= 1_000:
+        v = round(n / 1_000, 1)
+        return f"1:{v:g}K"
+    return f"1:{n}"
+
+
+def _safe_per_page(header: str, item_lines: list[str], limit: int = 220) -> int:
+    """Return how many items from item_lines fit after header within limit chars."""
+    count = 0
+    msg   = header
+    for line in item_lines[:8]:
+        candidate = msg + "\n" + line
+        if len(candidate) > limit:
+            break
+        msg = candidate
+        count += 1
+    return max(1, count)
+
+
 def _by_rarity_map() -> dict[str, list]:
     items: list[dict] = db.get_all_mining_items(drop_enabled=False)
     by_rar: dict[str, list] = {}
@@ -1609,13 +1642,12 @@ def _resolve_rarity_arg(arg: str) -> str:
 
 async def handle_orelist(bot: BaseBot, user: User, args: list[str] | None = None) -> None:
     """
-    /orelist [rarity] [page]
-    Shows ore drop chances grouped by rarity, 5 ores per page.
+    !orelist [rarity] [page]
+    Shows ore drop chances with compact format. Prismatic/exotic names colored.
     No prices or weights — use !oreprices for those.
     """
     args = args or []
 
-    # No rarity arg → show summary (count per rarity)
     if len(args) < 2:
         by_rar = _by_rarity_map()
         lines  = ["⛏️ Ore List"]
@@ -1631,11 +1663,10 @@ async def handle_orelist(bot: BaseBot, user: User, args: list[str] | None = None
     rar = _resolve_rarity_arg(args[1])
     if rar not in RARITIES:
         await _w(bot, user.id,
-                 f"Unknown rarity: {args[1]}\n"
-                 "Use: common uncommon rare epic legendary mythic prismatic exotic")
+                 "Usage: !ores [rarity]\nExample: !ores rare\n"
+                 "Rarities: common uncommon rare epic legendary mythic prismatic exotic")
         return
 
-    # Page number
     page = 1
     if len(args) >= 3 and args[2].isdigit():
         page = max(1, int(args[2]))
@@ -1646,25 +1677,39 @@ async def handle_orelist(bot: BaseBot, user: User, args: list[str] | None = None
         await _w(bot, user.id, f"No ores found for rarity: {rar}.")
         return
 
-    total_pages = max(1, (len(ores) + _ORE_PAGE_SIZE - 1) // _ORE_PAGE_SIZE)
-    if page > total_pages:
-        await _w(bot, user.id, f"Only {total_pages} page(s) for {rar}. /orelist {rar} {total_pages}")
-        return
-
     one_in    = _one_in_x(rar, len(ores))
     rar_label = _ore_short_label(rar)
-    header    = f"{rar_label} — Page {page}/{total_pages}"
+    chance    = _compact_1in(one_in)
 
-    start  = (page - 1) * _ORE_PAGE_SIZE
-    subset = ores[start:start + _ORE_PAGE_SIZE]
+    def _line(it: dict) -> str:
+        if rar == "prismatic":
+            name = f"<#FF66CC>{it['name']}<#FFFFFF>"
+        elif rar == "exotic":
+            name = f"<#FF0000>{it['name']}<#FFFFFF>"
+        else:
+            name = it["name"]
+        return f"{it['emoji']} {name} — {chance}"
 
-    # Ore names are always plain text in /orelist (no color tags in the name field)
-    lines = [f"{it['emoji']} {it['name']} — 1 in {one_in:,}" for it in subset]
-    # Auto-shrink: long rarity headers (e.g. prismatic rainbow) may need fewer ores
-    msg = header + "\n" + "\n".join(lines)
-    while len(msg) > 249 and len(lines) > 2:
-        lines = lines[:-1]
-        msg = header + "\n" + "\n".join(lines)
+    all_lines   = [_line(it) for it in ores]
+    test_hdr    = f"⛏️ {rar_label} Ores p1/10"
+    per_page    = _safe_per_page(test_hdr, all_lines)
+    total_pages = max(1, (len(ores) + per_page - 1) // per_page)
+
+    if page > total_pages:
+        await _w(bot, user.id,
+                 f"⚠️ Page not found.\nUse: !orelist {rar} 1")
+        return
+
+    header = f"⛏️ {rar_label} Ores p{page}/{total_pages}"
+    start  = (page - 1) * per_page
+    chunk  = list(all_lines[start:start + per_page])
+    msg    = header + "\n" + "\n".join(chunk)
+
+    # Safety: trim from end if somehow still over limit
+    while len(msg) > 220 and len(chunk) > 1:
+        chunk = chunk[:-1]
+        msg = header + "\n" + "\n".join(chunk)
+
     await _w(bot, user.id, msg[:249])
 
 
@@ -2055,7 +2100,7 @@ async def handle_minechances(bot: BaseBot, user: User) -> None:
     ]))
     await _w(bot, user.id, "\n".join([
         "⛏️ Ultra Rare Ores",
-        _ln("ultra_rare"), _ln("prismatic"), _ln("exotic"),
+        _ln("prismatic"), _ln("exotic"),
     ]))
 
 

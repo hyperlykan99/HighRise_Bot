@@ -1,0 +1,442 @@
+Update 3.0F Hotfix — Remove Ultra Rare From Mining Chances + Fix Rarity List Cutoff + Big Announcement Details
+
+Current issues:
+1. !minechances still shows [ULTRA RARE]. I want Ultra Rare removed from mining chances display.
+2. !fishlist prismatic / rarity list pages are getting cut off because messages are too long.
+3. Big find/catch announcements from other bots only say generic congrats. I want all announcement bots to repeat the actual mine/fish result details.
+
+Goals:
+- Mining chances should only show Common, Uncommon, Rare, Epic, Legendary, Mythic, Prismatic, Exotic.
+- Rarity list commands must never exceed Highrise message cap.
+- Big announcements must include the actual ore/fish result details.
+- Keep Prismatic label rainbow everywhere.
+- Keep Prismatic ore/fish names pink everywhere.
+- Do not change mining odds.
+- Do not change fishing odds.
+- Do not change rewards.
+- Do not wipe data.
+- Do not change tokens.
+- Do not change room ID.
+
+==================================================
+PART 1 — REMOVE ULTRA RARE FROM !MINECHANCES DISPLAY
+==================================================
+
+Update !minechances display to:
+
+Message 1:
+⛏️ Mining Chances
+[COMMON]: 65.0%
+[UNCOMMON]: 22.0%
+[RARE]: 10.0%
+[EPIC]: 2.75%
+[LEGENDARY]: 0.23%
+[MYTHIC]: 0.015%
+
+Message 2:
+⛏️ Ultra Rare Ores
+[PRISMATIC]: 0.0008%
+[EXOTIC]: 0.0002%
+
+Important:
+- Do not show [ULTRA RARE] in !minechances.
+- Keep the title “Ultra Rare Ores” if desired because it means the section is for very rare ores.
+- Keep [PRISMATIC] rainbow.
+- Keep [EXOTIC] red.
+- Keep colored rarity labels.
+- Do not cut messages.
+- Keep each message under 220 characters.
+- No broken color tags.
+
+==================================================
+PART 2 — CHECK IF ULTRA RARE IS ACTIVE OR LEGACY
+==================================================
+
+Search mining code for:
+Ultra Rare
+ultra_rare
+ultrarare
+
+If Ultra Rare is only used in display:
+- remove it from display only.
+
+If Ultra Rare exists as an actual drop tier:
+- do not delete player data.
+- do not break old inventory.
+- hide it from chance display.
+- keep legacy inventory display safe if players already own Ultra Rare ores.
+
+If Ultra Rare is deprecated:
+- mark it hidden/legacy.
+- do not show it in !minechances.
+- do not show it in regular help.
+
+==================================================
+PART 3 — DO NOT TOUCH FISHING CHANCES
+==================================================
+
+Do not change fishing odds.
+
+Keep !fishchances in the current style:
+
+Message 1:
+🎣 Fishing Chances
+[COMMON]: 82.0%
+[RARE]: 13.0%
+[EPIC]: 4.5%
+[LEGENDARY]: 0.47%
+[MYTHIC]: 0.025%
+
+Message 2:
+🎣 Ultra Rare Fish
+[PRISMATIC]: 0.0040%
+[EXOTIC]: 0.0010%
+
+Keep [PRISMATIC] rainbow.
+Keep [EXOTIC] red.
+No cutoff.
+
+==================================================
+PART 4 — FIX RARITY LIST COMMAND CUTOFF
+==================================================
+
+Current issue:
+!fishlist prismatic / rarity list pages are getting cut off.
+
+Example bad output:
+[PRISMATIC]
+p1/2
+🌈 Rainbow Leviathan — 1 in 1,430,834
+🌈 Aurora Koi — 1 in 1,430,834
+🌈 Prismfin — 1 in 1,430,834
+🌈 Spectrum Marlin — 1 in 1,430,834
+🌈 C
+
+The message is too long and gets cut.
+
+Applies to:
+!ores [rarity]
+!orelist [rarity]
+!fishlist [rarity]
+!fishes [rarity]
+
+Goal:
+No message should be cut.
+No half item names.
+No broken color tags.
+No line ending like “🌈 C”.
+
+==================================================
+PART 5 — SHORTEN RARITY LIST FORMAT
+==================================================
+
+Use shorter format.
+
+Instead of:
+
+🌈 Rainbow Leviathan — 1 in 1,430,834
+
+Use:
+
+🌈 Rainbow Leviathan — 1:1.43M
+
+Preferred format:
+
+🎣 [PRISMATIC] Fish p1/2
+🌈 Rainbow Leviathan — 1:1.43M
+🌈 Aurora Koi — 1:1.43M
+🌈 Prismfin — 1:1.43M
+
+Page 2:
+
+🎣 [PRISMATIC] Fish p2/2
+🌈 Spectrum Marlin — 1:1.43M
+🌈 Chroma Shark — 1:1.43M
+🌈 Aurora Whale — 1:1.43M
+
+For ores:
+
+⛏️ [PRISMATIC] Ores p1/2
+🌈 Prismite — 1:1.43M
+🌈 Aurora Crystal — 1:1.43M
+🌈 Chroma Ore — 1:1.43M
+
+==================================================
+PART 6 — LIMIT ITEMS PER MESSAGE
+==================================================
+
+Use max 3 items per message for long rarity names.
+
+Rules:
+- Prismatic, exotic, mythic lists: max 3 items per page.
+- Common/rare lists: max 4 items per page only if names are short.
+- Always check final string length before sending.
+- If message is over 220 characters, reduce items per page automatically.
+- Never split in the middle of an item line.
+- Never end with a partial item like “🌈 C”.
+
+==================================================
+PART 7 — ABBREVIATE CHANCE TEXT
+==================================================
+
+Use compact chance text:
+
+1:1.43M
+1:178K
+1:19K
+1:2.86M
+
+Do not use:
+
+1 in 1,430,834
+
+because it makes messages too long.
+
+==================================================
+PART 8 — PAGE COMMANDS
+==================================================
+
+Support optional page number:
+
+!fishlist prismatic
+!fishlist prismatic 1
+!fishlist prismatic 2
+
+!ores prismatic
+!ores prismatic 1
+!ores prismatic 2
+
+If user asks page too high:
+⚠️ Page not found.
+Use: !fishlist prismatic 1
+
+If user types invalid rarity:
+Usage: !fishlist [rarity]
+Example: !fishlist rare
+
+or
+
+Usage: !ores [rarity]
+Example: !ores rare
+
+==================================================
+PART 9 — SAFE SEND FOR RARITY LISTS
+==================================================
+
+Before sending any rarity list message:
+- calculate len(message)
+- if over 220 chars, split smaller
+- do not cut blindly
+- do not cut color tags
+- do not end with half item like “🌈 C”
+- each message must complete full item lines only
+
+Priority:
+1. No cutoff
+2. No broken color tags
+3. Readable item names
+4. Colors
+
+==================================================
+PART 10 — PRISMATIC STYLE EVERYWHERE
+==================================================
+
+Prismatic display rule:
+- [PRISMATIC] label must always be rainbow.
+- Prismatic ore/fish name must be pink.
+- Use pink item color: <#FF66CC>Item Name<#FFFFFF>
+
+Apply to:
+!mine
+!fish
+!mineinv
+!fishinv
+!ores prismatic
+!fishlist prismatic
+!mineprofile best find
+!fishprofile best catch
+!minelb if it shows item
+!fishlb if it shows item
+big mining announcements
+big fishing announcements
+first-find announcements
+
+If color tags make a rarity list too long:
+- shorten text first
+- reduce items per page
+- do not cut color tags
+- do not break formatting
+
+==================================================
+PART 11 — BIG ANNOUNCEMENTS SHOULD REPEAT ACTUAL FIND/CATCH DETAILS
+==================================================
+
+Current issue:
+When a player gets a big mine/fish find, the other bots only say generic congratulations.
+
+I want all bot announcement messages to repeat the actual result details, including:
+- player name
+- rarity
+- ore/fish name
+- weight
+- value
+- XP
+- colored rarity label
+- prismatic rainbow label
+- prismatic item name pink
+
+Goal:
+When a big find/catch happens, every announcement bot should repeat the actual mine/fish result details, not just say “congrats.”
+
+Do not change odds.
+Do not change rewards.
+Do not add extra hype phases.
+Do not add room mute/pause yet.
+Do not spam too much.
+Do not break message cap.
+
+==================================================
+PART 12 — STANDARD BIG FIND MESSAGE
+==================================================
+
+For mining big announcements, use:
+
+⛏️ BIG FIND!
+@Player mined [RARITY] [Ore Name]
+⚖️ [weight]kg | 💰 [value]c | ⭐ +[mxp] MXP
+
+For fishing big announcements, use:
+
+🎣 BIG CATCH!
+@Player caught [RARITY] [Fish Name]
+⚖️ [weight]lb | 💰 [value]c | ⭐ +[fxp] FXP
+
+If message is too long:
+Split into 2 short messages under 220 characters.
+
+Mining split:
+Message 1:
+⛏️ BIG FIND!
+@Player mined [RARITY] [Ore Name]
+
+Message 2:
+⚖️ [weight]kg | 💰 [value]c | ⭐ +[mxp] MXP
+
+Fishing split:
+Message 1:
+🎣 BIG CATCH!
+@Player caught [RARITY] [Fish Name]
+
+Message 2:
+⚖️ [weight]lb | 💰 [value]c | ⭐ +[fxp] FXP
+
+==================================================
+PART 13 — ALL BOTS REPEAT SAME DETAILS
+==================================================
+
+When big announcement is sent by multiple bots, each bot should include actual find/catch details.
+
+Bad:
+🎉 Congrats @Player on the big find!
+
+Good:
+⛏️ BIG FIND!
+@Player mined [MYTHIC] Dragonstone
+⚖️ 12.4kg | 💰 50,000c | ⭐ +300 MXP
+
+Bad:
+🔥 Big catch by @Player!
+
+Good:
+🎣 BIG CATCH!
+@Player caught [PRISMATIC] Aurora Koi
+⚖️ 24.1lb | 💰 180,000c | ⭐ +500 FXP
+
+Use the existing announcement bot list.
+Do not add new bots.
+Do not change announcement owner.
+Do not change hype tiers.
+Only change the content from generic congrats to actual result details.
+
+==================================================
+PART 14 — BIG ANNOUNCEMENT COLOR RULES
+==================================================
+
+Formatting rules:
+- [PRISMATIC] must be rainbow.
+- Prismatic ore/fish name must be pink.
+- Exotic should stay red.
+- Mythic should keep existing mythic color.
+- Colored names must not be cut.
+- Every color tag must close with <#FFFFFF>.
+
+If color tags make message too long:
+- split message
+- do not remove colors first
+- only remove extra words if needed
+
+==================================================
+PART 15 — MESSAGE CAP SAFETY
+==================================================
+
+All rarity list and big announcement messages must stay under 220 characters.
+
+Do not blindly slice strings.
+
+If too long:
+- split on line breaks
+- never split color tags
+- never end with half an item name
+- never cut off value/weight/XP
+
+==================================================
+PART 16 — TEST WITHOUT CHANGING ODDS
+==================================================
+
+If a safe owner-only preview command exists, use it.
+
+Example:
+!previewannounce mining prismatic
+!previewannounce fishing prismatic
+
+If no preview command exists:
+- test formatting internally without forcing a real rare drop.
+- do not change odds to test.
+
+Expected:
+- All announcement bots use actual ore/fish details.
+- Prismatic label is rainbow.
+- Prismatic item name is pink.
+- No message cut off.
+- No command issues.
+
+==================================================
+PART 17 — TESTS
+==================================================
+
+Run:
+
+!minechances
+!fishchances
+!fishlist prismatic
+!fishlist prismatic 2
+!ores prismatic
+!ores prismatic 2
+!fishlist exotic
+!ores exotic
+!commandissues
+!checkcommands
+
+Expected:
+- !minechances no longer shows Ultra Rare.
+- !fishchances unchanged.
+- Rarity lists do not cut off.
+- No half item names.
+- No broken color tags.
+- No line ending like “🌈 C”.
+- [PRISMATIC] is rainbow.
+- Prismatic item names are pink where item names appear.
+- Big announcement formatting updated.
+- Mining/fishing odds unchanged.
+- Command issues clean.
+- Checkcommands clean.

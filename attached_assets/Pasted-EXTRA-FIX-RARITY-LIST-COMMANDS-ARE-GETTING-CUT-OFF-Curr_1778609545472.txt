@@ -1,0 +1,158 @@
+EXTRA FIX — RARITY LIST COMMANDS ARE GETTING CUT OFF
+
+Current issue:
+!fishlist prismatic / rarity list pages are getting cut off.
+
+Example shown:
+[PRISMATIC]
+p1/2
+🌈 Rainbow Leviathan — 1 in 1,430,834
+🌈 Aurora Koi — 1 in 1,430,834
+🌈 Prismfin — 1 in 1,430,834
+🌈 Spectrum Marlin — 1 in 1,430,834
+🌈 C
+
+The message is too long and gets cut.
+
+Goal:
+Rarity list commands must never exceed Highrise 255 character cap.
+Use max 220 characters per message for safety.
+
+Applies to:
+!ores [rarity]
+!orelist [rarity]
+!fishlist [rarity]
+!fishes [rarity]
+
+==================================================
+PART 1 — SHORTEN RARITY LIST FORMAT
+==================================================
+
+Use shorter format.
+
+Instead of:
+
+🌈 Rainbow Leviathan — 1 in 1,430,834
+
+Use:
+
+🌈 Rainbow Leviathan
+1:1,430,834
+
+Or even shorter:
+
+🌈 Rainbow Leviathan — 1:1.43M
+
+Preferred format:
+
+🎣 [PRISMATIC] Fish p1/2
+🌈 Rainbow Leviathan — 1:1.43M
+🌈 Aurora Koi — 1:1.43M
+🌈 Prismfin — 1:1.43M
+
+Then page 2:
+
+🎣 [PRISMATIC] Fish p2/2
+🌈 Spectrum Marlin — 1:1.43M
+🌈 Chroma Shark — 1:1.43M
+🌈 Aurora Whale — 1:1.43M
+
+==================================================
+PART 2 — LIMIT ITEMS PER MESSAGE
+==================================================
+
+Use max 3 items per message for long rarity names.
+
+Rules:
+- Prismatic/exotic/mythic lists: max 3 items per page.
+- Common/rare lists: max 4 items per page if names are short.
+- Always check final string length before sending.
+- If message is over 220 chars, reduce items per page automatically.
+
+==================================================
+PART 3 — ABBREVIATE CHANCE TEXT
+==================================================
+
+Use compact chance text:
+
+1:1.43M
+1:178K
+1:19K
+1:2.86M
+
+Do not use:
+
+1 in 1,430,834
+
+because it makes messages too long.
+
+==================================================
+PART 4 — PAGE COMMANDS
+==================================================
+
+Support optional page number:
+
+!fishlist prismatic
+!fishlist prismatic 1
+!fishlist prismatic 2
+
+!ores prismatic
+!ores prismatic 1
+!ores prismatic 2
+
+If user asks page too high:
+⚠️ Page not found.
+Use: !fishlist prismatic 1
+
+==================================================
+PART 5 — SAFE SEND
+==================================================
+
+Before sending any rarity list message:
+- calculate len(message)
+- if over 220 chars, split smaller
+- do not cut blindly
+- do not cut color tags
+- do not end with half item like "🌈 C"
+- each message must complete full item lines only
+
+==================================================
+PART 6 — PRISMATIC STYLE
+==================================================
+
+Keep:
+- [PRISMATIC] label rainbow
+- prismatic item names pink if color tags fit safely
+- if color tags make the message too long, keep rainbow emoji and readable name, but do not cut off
+
+Priority:
+1. No cutoff
+2. No broken color tags
+3. Readable item names
+4. Colors
+
+==================================================
+PART 7 — TESTS
+==================================================
+
+Run:
+
+!fishlist prismatic
+!fishlist prismatic 2
+!ores prismatic
+!ores prismatic 2
+!fishlist exotic
+!ores exotic
+!minechances
+!fishchances
+!commandissues
+!checkcommands
+
+Expected:
+- No message cutoff.
+- No half item names.
+- No broken color tags.
+- No line ending like "🌈 C".
+- Mining chances no longer show Ultra Rare.
+- Prismatic still shows rainbow.
+- Command issues clean.
