@@ -110,7 +110,7 @@ async def handle_tpme(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Self teleport is OFF.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: !tpme <spawn>  |  Spawns: /spawns")
+        await _w(bot, user.id, "Usage: !tpme <spawn>  |  Spawns: !spawns")
         return
     await _teleport_to_spawn(bot, user, user.username, user.id, args[1])
 
@@ -349,7 +349,7 @@ async def handle_spawns(bot: BaseBot, user: User) -> None:
 async def handle_spawn(bot: BaseBot, user: User, args: list[str]) -> None:
     if len(args) < 2:
         default = _rs("default_spawn", "lounge")
-        await _w(bot, user.id, f"Default spawn: {default}. Use !spawn <name> or /spawns.")
+        await _w(bot, user.id, f"Default spawn: {default}. Use !spawn <name> or !spawns.")
         return
     if _rs("self_teleport_enabled", "false") == "true":
         await _teleport_to_spawn(bot, user, user.username, user.id, args[1])
@@ -527,7 +527,7 @@ async def handle_emotes(bot: BaseBot, user: User, args: list[str] | None = None)
     chunk  = short[start:start + _EMOTE_PAGE_SIZE]
     await _w(bot, user.id,
              f"💃 Emotes ({page_num}/{pages}): " + ", ".join(chunk) +
-             (f" | /emotes {page_num+1} for more" if page_num < pages else ""))
+             (f" | !emotes {page_num+1} for more" if page_num < pages else ""))
 
 
 async def handle_emote(bot: BaseBot, user: User, args: list[str]) -> None:
@@ -535,7 +535,7 @@ async def handle_emote(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Public emotes are OFF.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: !emote <id>  |  List: /emotes")
+        await _w(bot, user.id, "Usage: !emote <id>  |  List: !emotes")
         return
     eid = args[1]
     if not eid.startswith("emote-"):

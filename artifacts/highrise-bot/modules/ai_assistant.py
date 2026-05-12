@@ -948,7 +948,7 @@ _SAFE_RESPONSES: dict[str, str] = {
     "minehelp":      "⛏️ Use !minehelp for the full mining guide.",
     "daily":         "🎁 Use !daily to claim your daily reward.",
     "leaderboard":   "🏆 Use !lb to see the top coin holders.",
-    "help":          "❓ Use !help for all commands, /mycommands for your list.",
+    "help":          "❓ Use !help for all commands, !mycommands for your list.",
     "aicapabilities":"🤖 Use !aicapabilities to see what I can understand.",
     "bjhelp":        "🃏 Use !bjhelp for blackjack rules.",
     "rbjhelp":       "🃏 Use !rbjhelp for Realistic Blackjack rules.",
@@ -1540,7 +1540,7 @@ async def handle_ask_command(bot, user, args: list[str]) -> None:
         return
     text = " ".join(args[1:]).strip()
     if not text:
-        hint = "Type /ask <question>. E.g. /ask how do I mine?"
+        hint = "Type !ask <question>. E.g. !ask how do I mine?"
         await _w(bot, user.id, f"{_persona()} {hint}")
         return
     await _handle_ai_text(bot, user, text)
@@ -1580,7 +1580,7 @@ async def handle_confirm_cmd(bot, user, args: list[str]) -> None:
         if not consumed:
             await _w(bot, user.id, "You have no pending action to cancel.")
     else:
-        await _w(bot, user.id, "Usage: !confirm yes  or  /confirm no")
+        await _w(bot, user.id, "Usage: !confirm yes  or  !confirm no")
 
 
 # ---------------------------------------------------------------------------

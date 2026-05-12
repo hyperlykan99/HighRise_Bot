@@ -772,7 +772,7 @@ ADMIN_ONLY_CMDS = {
     "checkcommands", "checkhelp",
     "missingcommands", "routecheck", "silentcheck", "commandtest",
     "fixcommands", "testcommands",
-    "commandintegrity", "commandrepair", "commandissues",
+    "commandintegrity", "commandrepair", "commandissues", "launchcheck",
     # ── Economy settings ─────────────────────────────────────────────────────
     "setdailycoins", "setgamereward", "settransferfee",
     # ── Event aliases ────────────────────────────────────────────────────────
@@ -807,6 +807,7 @@ OWNER_ONLY_CMDS = {
     "testnotifyall",
     "fixcommandregistry",
     "previewannounce",
+    "launchcheck",
 }
 
 STAFF_CMDS = MOD_ONLY_CMDS | MANAGER_ONLY_CMDS | ADMIN_ONLY_CMDS | OWNER_ONLY_CMDS
@@ -2617,6 +2618,49 @@ async def _cmd_checkcommands(bot, user):
     await bot.highrise.send_whisper(user.id, msg[:245])
 
 
+async def _cmd_launchcheck(bot, user):
+    """Owner-only: quick launch readiness summary for public opening."""
+    from modules.permissions import is_owner
+    if not is_owner(user.username):
+        await bot.highrise.send_whisper(user.id, "Owner only.")
+        return
+
+    _g = globals()
+
+    def _ok(sym: str) -> str:
+        return "✅" if _g.get(sym) is not None else "❌"
+
+    def _rs(key: str, default: str = "0") -> str:
+        try:
+            return db.get_room_setting(key, default)
+        except Exception:
+            return default
+
+    cmd_ok   = "✅" if _g.get("handle_bj") and _g.get("handle_balance") else "❌"
+    help_ok  = "✅" if _g.get("HELP_TEXT") else "❌"
+    bots_ok  = "✅" if _g.get("handle_bothealth") else "❌"
+    asst_ok  = "✅" if _g.get("handle_ask") else "❌"
+    notif_ok = "✅" if _g.get("handle_notify") else "❌"
+    econ_ok  = "✅" if _g.get("handle_balance") and _g.get("handle_shop") else "❌"
+    games_ok = "✅" if _g.get("handle_bj") and _g.get("handle_rbj") and _g.get("handle_poker") else "❌"
+
+    try:
+        from modules.multi_bot import get_command_conflicts
+        conflicts = get_command_conflicts()
+        conf_txt = "none" if not conflicts else f"{len(conflicts)} conflict(s)"
+    except Exception:
+        conf_txt = "skipped"
+
+    msg = (
+        f"🚀 Launch Check\n"
+        f"Commands:{cmd_ok} Help:{help_ok} Bots:{bots_ok}\n"
+        f"Conflicts:{conf_txt}\n"
+        f"Assistant:{asst_ok} Notif:{notif_ok}\n"
+        f"Economy:{econ_ok} Games:{games_ok}"
+    )
+    await bot.highrise.send_whisper(user.id, msg[:249])
+
+
 # ---------------------------------------------------------------------------
 # Bank notification delivery helper
 # ---------------------------------------------------------------------------
@@ -3136,6 +3180,8 @@ class HangoutBot(BaseBot):
                 await handle_commandrepair(self, user)
             elif cmd == "commandissues":
                 await handle_commandissues(self, user, args, ALL_KNOWN_COMMANDS)
+            elif cmd == "launchcheck":
+                await _cmd_launchcheck(self, user)
             elif cmd in {"commandtestall", "ctall"}:
                 await handle_commandtestall(self, user, args, ALL_KNOWN_COMMANDS)
             elif cmd in {"commandtestgroup", "ctgroup"}:

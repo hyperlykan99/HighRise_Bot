@@ -448,24 +448,24 @@ def _build_actions_compact(p: "_Player", s: dict) -> str:
     if h is None or h["status"] != "active":
         return ""
     cards = h["cards"]
-    acts  = ["🃏/hit", "🛑/stand"]
+    acts  = ["🃏!hit", "🛑!stand"]
     if int(s.get("rbj_double_enabled", 1)) and len(cards) == 2 and not h.get("doubled"):
-        acts.append("💰/dbl")
+        acts.append("💰!dbl")
     if (int(s.get("rbj_split_enabled", 1))
             and len(cards) == 2
             and cards[0][0] == cards[1][0]
             and p.split_count < int(s.get("rbj_max_splits", 1))):
-        acts.append("✂️/split")
+        acts.append("✂️!split")
     dealer_up    = _state.dealer_hand[0] if _state.dealer_hand else None
     is_first_two = len(cards) == 2 and p.split_count == 0 and not p.insurance_taken
     if (dealer_up and dealer_up[0] == "A"
             and int(s.get("rbj_insurance_enabled", 1))
             and is_first_two):
-        acts.append("🛡️/ins")
+        acts.append("🛡️!ins")
     if (int(s.get("rbj_surrender_enabled", 1))
             and len(cards) == 2 and p.split_count == 0
             and not p.insurance_taken):
-        acts.append("🏳️/sur")
+        acts.append("🏳️!sur")
     return " ".join(acts)
 
 
@@ -475,24 +475,24 @@ def _build_actions(p: "_Player", s: dict) -> str:
     if h is None or h["status"] != "active":
         return ""
     cards = h["cards"]
-    acts  = ["🃏 /hit", "🛑 /stand or /stay"]
+    acts  = ["🃏 !hit", "🛑 !stand or !stay"]
     if int(s.get("rbj_double_enabled", 1)) and len(cards) == 2 and not h.get("doubled"):
-        acts.append("💰 /double")
+        acts.append("💰 !double")
     if (int(s.get("rbj_split_enabled", 1))
             and len(cards) == 2
             and cards[0][0] == cards[1][0]
             and p.split_count < int(s.get("rbj_max_splits", 1))):
-        acts.append("✂️ /split")
+        acts.append("✂️ !split")
     dealer_up    = _state.dealer_hand[0] if _state.dealer_hand else None
     is_first_two = len(cards) == 2 and p.split_count == 0 and not p.insurance_taken
     if (dealer_up and dealer_up[0] == "A"
             and int(s.get("rbj_insurance_enabled", 1))
             and is_first_two):
-        acts.append("🛡️ /insurance")
+        acts.append("🛡️ !insurance")
     if (int(s.get("rbj_surrender_enabled", 1))
             and len(cards) == 2 and p.split_count == 0
             and not p.insurance_taken):
-        acts.append("🏳️ /surrender")
+        acts.append("🏳️ !surrender")
     return "\n".join(acts)
 
 
@@ -889,7 +889,7 @@ async def startup_rbj_recovery(bot: BaseBot) -> None:
     if row.get("recovery_required"):
         print("[RECOVERY] RBJ marked recovery_required — alerting in chat.")
         try:
-            await bot.highrise.chat("⚠️ BlackJack (Shoe) recovery needed. Use !rbj recover or /rbj refund.")
+            await bot.highrise.chat("⚠️ BlackJack (Shoe) recovery needed. Use !rbj recover or !rbj refund.")
         except Exception:
             pass
         return
@@ -973,7 +973,7 @@ async def startup_rbj_recovery(bot: BaseBot) -> None:
         except Exception:
             pass
         try:
-            await bot.highrise.chat("⚠️ BlackJack (Shoe) recovery needed. Use !rbj recover or /rbj refund.")
+            await bot.highrise.chat("⚠️ BlackJack (Shoe) recovery needed. Use !rbj recover or !rbj refund.")
         except Exception:
             pass
 
@@ -1806,7 +1806,7 @@ async def _cmd_rbj_state(bot: BaseBot, user: User):
         if row and row.get("active"):
             await bot.highrise.send_whisper(user.id,
                 f"BJ Shoe: idle in memory | DB phase:{row.get('phase')}\n"
-                "Use !rbj recover or /rbj refund.")
+                "Use !rbj recover or !rbj refund.")
         else:
             await bot.highrise.send_whisper(user.id, "BJ Shoe: no active table.")
         return
@@ -1830,7 +1830,7 @@ async def _cmd_rbj_recover(bot: BaseBot, user: User):
         return
     if _state.phase != "idle":
         await bot.highrise.send_whisper(user.id,
-            "BJ Shoe is active. Use !rbj state to inspect, /rbj refund to cancel.")
+            "BJ Shoe is active. Use !rbj state to inspect, !rbj refund to cancel.")
         return
     row = db.load_casino_table("rbj")
     if not row or not row.get("active"):

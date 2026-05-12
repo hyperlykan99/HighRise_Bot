@@ -460,11 +460,11 @@ async def _start_action_phase(bot: BaseBot):
                     and len(p.hands[0]["cards"]) == 2
                     and p.hands[0]["status"] == "active"
                 )
-                acts = "🃏 /bh  🛑 /bs"
+                acts = "🃏 !bh  🛑 !bs"
                 if is_first_two:
-                    acts += "  💰 /bd  ✂️ /bsp  🏳️ /bsurrender"
+                    acts += "  💰 !bd  ✂️ !bsp  🏳️ !bsurrender"
                 if ins_on and dealer_ace and not p.insurance_taken and is_first_two:
-                    acts += "  🛡️ /bi"
+                    acts += "  🛡️ !bi"
                 if s_cards == "public":
                     pub_text = (
                         f"🟢 {_dn(p)}: {cards_line}\n"

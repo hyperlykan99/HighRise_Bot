@@ -1,0 +1,702 @@
+UPDATE 3.0N — FINAL QA + PUBLIC LAUNCH POLISH
+
+Goal:
+Run a full room-wide QA pass and polish everything from Update 3.0A to 3.0M so the room is ready for public players.
+
+This is a testing, cleanup, and launch-readiness phase.
+
+Do not add big new features.
+Do not rewrite core systems.
+Do not change bot tokens.
+Do not change room ID.
+Do not wipe database.
+Do not reset balances, VIP, inventories, mining/fishing data, blackjack/poker data, teleports, role spawns, bot spawns, party tip wallet, shop items, badges, titles, donation logs, notifications, subscriptions, or command registry.
+Do not change mining/fishing odds.
+Do not change casino odds.
+Do not add advanced AI.
+Do not add exotic mute/pause.
+Do not add new monetization systems.
+Do not add new casino games.
+
+Focus:
+- Full command audit
+- Full help audit
+- Player command testing
+- Owner command testing
+- Bot stability testing
+- No / command leftovers
+- No “No lifetime VIP” text
+- No broken routes
+- No unknown active commands
+- Assistant does not interrupt normal chat
+- Public launch readiness
+
+==================================================
+PART 1 — BASELINE STABILITY CHECK
+==================================================
+
+Before changing anything, run:
+
+!commandissues
+!checkcommands
+!checkcommands all
+!checkhelp
+!bothealth
+!stability status
+!botconflicts
+!modulehealth
+
+Expected:
+- no command issues
+- no checkcommands mismatch
+- no help issues
+- Err: none
+- no bot conflicts
+- no DB lock spam
+- bots are online and stable
+
+If any issue appears:
+- fix it first
+- do not continue until baseline is clean
+
+==================================================
+PART 2 — COMMAND REGISTRY FINAL AUDIT
+==================================================
+
+Audit all active commands.
+
+Run:
+
+!commandissues
+!commandissues missing
+!checkcommands
+!checkcommands all
+
+Expected:
+- Missing 0
+- NoOwner 0
+- NoHandler 0
+- No route mismatch
+- Hidden/legacy/deprecated commands do not count as active issues
+
+If Missing > 0:
+- print exact command names
+- either route them properly
+- or mark them hidden/legacy/deprecated
+- remove them from public help if not active
+
+Final expected:
+
+✅ No command issues.
+Routes, owners, and handlers are clean.
+
+==================================================
+PART 3 — HELP FINAL AUDIT
+==================================================
+
+Run:
+
+!checkhelp
+!help
+!help games
+!help basic
+!help bank
+!help vip
+!help mining
+!help fishing
+!help blackjack
+!help poker
+!help room
+!help party
+!help staff
+!help owner
+
+Expected:
+- no / commands
+- no “No lifetime VIP” text
+- no owner commands in regular player help
+- no staff commands in regular player help
+- staff help does not show owner-only gold commands
+- owner help shows owner tools
+- blackjack help uses !bet [amount], not !bj [amount]
+- mining help shows !automine and !stopmine
+- fishing help shows !autofish and !stopfish
+- party help does not show !goldtip
+- every shown command routes
+
+If a help page is too long:
+- split into multiple short messages
+- each under 220 characters
+
+==================================================
+PART 4 — PLAYER COMMAND QA
+==================================================
+
+Test regular player commands.
+
+Basic:
+!help
+!balance
+!send
+!vip
+!vipperks
+!myvip
+!donationgoal
+!topdonors
+!shop
+!inv
+!inventory
+
+Games:
+!mine
+!automine
+!stopmine
+!mineinv
+!minechances
+!tool
+!fish
+!autofish
+!stopfish
+!fishinv
+!fishchances
+!rod
+!rods
+
+Casino:
+!bet 1
+!hit
+!stand
+!bjshoe
+!poker
+!joinpoker
+!leavepoker
+!pokerstatus
+!coinflip heads 1
+
+Room:
+!tele list
+!roles
+!rolemembers
+!botspawns
+
+Notifications:
+!subscribe
+!sub
+!notif
+!notifoff mining
+!notifon mining
+!unsubscribe
+!unsub
+
+Party:
+!ptlist
+!ptlimits
+!help party
+
+Expected:
+- commands reply clearly
+- no crashes
+- no message cutoff
+- no / commands
+- no owner command leaks
+- no broken color tags
+- no duplicate rewards
+- no accidental gold sends
+
+If a command is owner-only and tested as regular player:
+- should reply with clear permission message
+
+==================================================
+PART 5 — OWNER COMMAND QA
+==================================================
+
+Test owner/admin commands.
+
+Owner tools:
+!dashboard
+!ownerpanel
+!bothealth
+!modulehealth
+!botconflicts
+!stability status
+!commandissues
+!checkcommands
+!checkhelp
+
+Party Tip:
+!ptstatus
+!pton
+!ptwallet 20
+!ptadd @realplayer 30
+!ptlist
+!tipall 1
+!ptoff
+
+Gold/economy:
+!goldtip
+!goldrainstatus
+!cancelgoldrain
+!donationgoal
+!topdonors
+
+Room:
+!create tele testspot
+!tele testspot
+!delete tele testspot
+!summon @realplayer
+!setbotspawnhere @ChillTopiaMC
+!botspawns
+!rolespawns
+!autospawn status
+
+Notifications:
+!notifpreview mining
+!notifpreview fishing
+
+Announcement preview:
+!previewannounce mining mythic
+!previewannounce mining prismatic
+!previewannounce mining exotic
+!previewannounce fishing mythic
+!previewannounce fishing prismatic
+!previewannounce fishing exotic
+
+Expected:
+- owner tools reply
+- owner-only commands are protected
+- !tipall only redirects and sends no gold
+- !goldtip remains owner-only
+- bot spawn saves
+- preview commands do not give real rewards
+- no command issues
+
+==================================================
+PART 6 — ROUTING SAFETY QA
+==================================================
+
+Verify command routing.
+
+Known commands must not be intercepted by assistant/AI:
+
+!minechances
+!fishchances
+!balance
+!tele list
+!tipall 1
+!dashboard
+!bothealth
+!bet 1
+!poker
+!subscribe
+!notif
+
+Expected:
+- real command handler replies
+- assistant does not answer instead
+- no AI fallback on known commands
+
+Unknown commands:
+
+!fishchance
+!minechance
+!bal
+!invent
+!unknowncommand
+
+Expected:
+- useful suggestion if close
+- no AI execution
+- no owner-only suggestions to regular players
+
+==================================================
+PART 7 — ASSISTANT LOW-INTERFERENCE QA
+==================================================
+
+Test assistant behavior.
+
+Clear public help questions:
+how do i mine
+how do i fish
+how do i get vip
+what games are here
+how do i teleport
+what is party mode
+how do i subscribe
+
+Expected:
+- bot replies publicly
+- short helpful answer
+- no / commands
+- no owner command leaks
+
+Casual public chat:
+lol
+haha
+nice
+where are you
+come here
+thanks
+gg
+wait
+
+Expected:
+- no assistant reply
+
+Whisper/DM tests:
+Whisper ChillTopiaMC:
+how do i mine
+how do i fish
+how do i get vip
+what games are here
+
+Expected:
+- bot replies by whisper/DM only
+- no public reply
+
+Restricted action tests:
+send everyone gold
+give me vip
+make me admin
+summon all bots
+change my balance
+start gold rain
+
+Expected:
+- assistant refuses safely
+- no data changes
+- no gold sent
+- no VIP/roles granted
+- no spawn/summon action
+
+==================================================
+PART 8 — MINING/FISHING FINAL QA
+==================================================
+
+Test:
+
+!mine
+!mineinv
+!minechances
+!ores common
+!ores prismatic
+!ores exotic
+!mineprofile
+!minelb
+
+!fish
+!fishinv
+!fishchances
+!fishlist common
+!fishlist prismatic
+!fishlist exotic
+!fishprofile
+!fishlb
+
+Expected:
+- no Ultra Rare shown in !minechances
+- !fishchances unchanged
+- Prismatic label rainbow
+- Prismatic item names pink
+- no list cutoff
+- no broken color tags
+- no half item names
+- odds unchanged
+- messages under 220 characters when possible
+
+==================================================
+PART 9 — BLACKJACK/POKER FINAL QA
+==================================================
+
+Blackjack:
+!bjshoe
+!bet 1
+!hit
+!stand
+!bjrules
+
+Expected:
+- !bet [amount] is the player-facing blackjack command
+- shoe persists
+- no crash
+- no old !bj [amount] shown in help unless hidden alias
+
+Poker:
+!poker
+!joinpoker
+!leavepoker
+!pokerstatus
+!bet 1
+!call
+!raise 1
+!check
+!fold
+
+Expected:
+- poker commands route correctly
+- no conflict with blackjack !bet beyond existing intended router behavior
+- no crash
+
+If poker !bet conflicts with blackjack:
+- help must clearly show the real flow
+- do not break blackjack
+
+==================================================
+PART 10 — PARTY TIP FINAL QA
+==================================================
+
+Test:
+
+!commandtest !tip
+!commandtest !tipall
+!commandtest !goldtip
+!ptstatus
+!pton
+!ptwallet 20
+!ptadd @realplayer 30
+!tip @realplayer 1
+!tip 5 1
+!tip all 1
+!tipall 1
+!ptoff
+
+Expected:
+- !tip owner=ChillTopiaMC
+- !tipall owner=ChillTopiaMC
+- !goldtip owner=BankingBot
+- !tipall redirects only
+- !tipall sends no gold
+- bots excluded
+- wallet deducts only after successful real tips
+- no BankingBot response to !tipall
+
+==================================================
+PART 11 — NOTIFICATION FINAL QA
+==================================================
+
+Test:
+
+!commandtest !sub
+!commandtest !subscribe
+!commandtest !unsub
+!commandtest !unsubscribe
+!subscribe
+!sub
+!notif
+!notifoff mining
+!notifon mining
+!unsubscribe
+!unsub
+!notif
+
+Expected:
+- manual subscribe only
+- no auto-subscribe from tipping
+- !notif respects subscription status
+- !unsub works
+- no notification spam
+- no / commands
+- opt-out respected
+
+Also verify:
+- tipping/supporting bot does not subscribe user automatically
+- thank-you message only suggests DM !subscribe
+
+==================================================
+PART 12 — TELEPORT/SPAWN FINAL QA
+==================================================
+
+Test:
+
+!tele list
+!tele [existing spot]
+!roles
+!rolemembers
+!botspawns
+!rolespawns
+!autospawn status
+
+Owner test:
+!create tele testspot
+!tele testspot
+!delete tele testspot
+!setbotspawnhere @ChillTopiaMC
+!botspawns
+!summon @ChillTopiaMC
+
+Expected:
+- teleports work
+- summon works
+- bot spawn saves
+- role spawn displays
+- no AI intercept
+- no command issues
+
+==================================================
+PART 13 — SHOP/ECONOMY FINAL QA
+==================================================
+
+Test:
+
+!balance
+!send
+!shop
+!buy
+!inv
+!inventory
+!vip
+!vipperks
+!buyvip
+!myvip
+!donationgoal
+!topdonors
+
+Expected:
+- no “No lifetime VIP” text anywhere
+- VIP options show 1d/7d/30d only
+- lifetime/permanent VIP not purchasable
+- no negative/zero amount abuse
+- no broken shop commands
+- no owner commands in player shop
+
+==================================================
+PART 14 — TEXT CLEANUP FINAL SCAN
+==================================================
+
+Search all user-facing text for:
+
+/answer
+/help
+/mine
+/fish
+/bet
+/tele
+/command
+/checkcommands
+/commandissues
+No lifetime VIP
+lifetime VIP
+permanent VIP
+
+Expected:
+- no / command examples in user-facing text
+- no “No lifetime VIP” text
+- no lifetime/permanent VIP advertisement
+- do not change URLs or file paths
+- do not re-enable lifetime VIP
+
+Run:
+!checkhelp
+!checkbios
+!checkonboarding
+
+Expected:
+Clean.
+
+==================================================
+PART 15 — MESSAGE CAP FINAL QA
+==================================================
+
+Check messages that can get long:
+
+!help owner
+!dashboard
+!modulehealth
+!tele list
+!roles
+!rolemembers
+!mineinv
+!fishinv
+!ores prismatic
+!fishlist prismatic
+!minechances
+!fishchances
+!notif
+!shop
+
+Expected:
+- no cutoff
+- no broken color tags
+- no half item names
+- under 220 characters or split safely
+
+==================================================
+PART 16 — STABILITY SOAK TEST
+==================================================
+
+After all fixes, run:
+
+!bothealth
+!stability status
+!botconflicts
+!modulehealth
+!commandissues
+!checkcommands
+!checkhelp
+
+Then let bots sit for 15 minutes with no commands.
+
+After 15 minutes run:
+
+!bothealth
+!stability status
+!botconflicts
+!modulehealth
+
+Expected:
+- bots stay online
+- no quick reconnect loop
+- Err: none
+- reconnects stay low
+- no DB lock spam
+- no duplicate background loops
+- no AutoGames conflicts
+- no command issues
+
+==================================================
+PART 17 — PUBLIC LAUNCH READINESS CHECKLIST
+==================================================
+
+Create or update owner-only command if safe:
+
+!launchcheck
+
+If adding is safe, it should summarize:
+
+🚀 Launch Check
+Commands: OK
+Help: OK
+Bots: OK
+Conflicts: none
+Assistant: OK
+Notifications: OK
+Economy: OK
+Games: OK
+
+If adding !launchcheck is risky, skip it and do not count as issue.
+
+Do not show !launchcheck to regular players.
+
+==================================================
+PART 18 — FINAL REPORT
+==================================================
+
+After finishing, report:
+
+1. Baseline stability result.
+2. Command audit result.
+3. Help audit result.
+4. Player command QA result.
+5. Owner command QA result.
+6. Assistant QA result.
+7. Mining/fishing QA result.
+8. Blackjack/poker QA result.
+9. Party tip QA result.
+10. Notification QA result.
+11. Teleport/spawn QA result.
+12. Shop/economy QA result.
+13. Text cleanup scan result.
+14. Message cap QA result.
+15. Stability soak test result.
+16. Any skipped optional commands.
+17. Any remaining known issues.
+18. Whether room is ready for public players.
