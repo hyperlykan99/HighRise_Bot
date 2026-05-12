@@ -2569,8 +2569,17 @@ async def _execute_delegated_task(bot, task: dict) -> None:
         pass
 
 
+_ai_delegate_task: asyncio.Task | None = None
+
+
 async def _ai_delegated_task_loop(bot) -> None:
     """Poll every 2 s for AI delegated tasks assigned to this bot's username."""
+    global _ai_delegate_task
+    _current = asyncio.current_task()
+    if _ai_delegate_task and not _ai_delegate_task.done() and _ai_delegate_task is not _current:
+        print("[AI_DELEGATE] Loop already running — skipping duplicate start (reconnect).")
+        return
+    _ai_delegate_task = _current
     from config import BOT_USERNAME
     await asyncio.sleep(4)  # let startup settle
     while True:

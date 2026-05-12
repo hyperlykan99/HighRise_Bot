@@ -194,19 +194,30 @@ async def _run_tick(bot) -> None:
 # Background loop — started only by the host bot
 # ---------------------------------------------------------------------------
 
+_time_exp_running: bool = False
+
+
 async def time_exp_loop(bot) -> None:
     """Main time-EXP loop. Must only be started on the host bot."""
+    global _time_exp_running
+    if _time_exp_running:
+        print("[TIME_EXP] Loop already running — skipping duplicate start (reconnect).")
+        return
+    _time_exp_running = True
     print("[TIME_EXP] Loop started.")
-    await asyncio.sleep(30)  # allow room cache to populate before first tick
-    while True:
-        tick = max(30, _setting_int("time_exp_tick_seconds"))
-        await asyncio.sleep(tick)
-        if not _setting_bool("time_exp_enabled"):
-            continue
-        try:
-            await _run_tick(bot)
-        except Exception as exc:
-            print(f"[TIME_EXP] Tick error: {exc}")
+    try:
+        await asyncio.sleep(30)  # allow room cache to populate before first tick
+        while True:
+            tick = max(30, _setting_int("time_exp_tick_seconds"))
+            await asyncio.sleep(tick)
+            if not _setting_bool("time_exp_enabled"):
+                continue
+            try:
+                await _run_tick(bot)
+            except Exception as exc:
+                print(f"[TIME_EXP] Tick error: {exc}")
+    finally:
+        _time_exp_running = False
 
 
 # ---------------------------------------------------------------------------

@@ -1346,8 +1346,16 @@ async def handle_intervaltest(bot: BaseBot, user: User, args: list[str]) -> None
     await _w(bot, user.id, f"✅ Interval #{iid} test sent.")
 
 
+_interval_loop_task: asyncio.Task | None = None
+
+
 async def start_interval_loop(bot: BaseBot) -> None:
     """Background loop — call this from before_start."""
+    global _interval_loop_task
+    if _interval_loop_task and not _interval_loop_task.done():
+        print("[INTERVAL] Loop already running — skipping duplicate start (reconnect).")
+        return
+
     async def _loop():
         while True:
             try:
@@ -1372,7 +1380,7 @@ async def start_interval_loop(bot: BaseBot) -> None:
                 pass
             await asyncio.sleep(60)
 
-    asyncio.create_task(_loop())
+    _interval_loop_task = asyncio.create_task(_loop())
 
 
 # ---------------------------------------------------------------------------
