@@ -476,6 +476,15 @@ async def handle_softrestart(bot: BaseBot, user: User) -> None:
         await _w(bot, user.id, "Owner only.")
         return
 
+    # Stability mode suppression
+    import database as _db_stab
+    if _db_stab.get_room_setting("stability_mode", "0") == "1":
+        print(f"[STABILITY] /softrestart suppressed (stability ON) — req @{user.username}")
+        await _w(bot, user.id,
+                 "🛡️ Stability Mode is ON.\n"
+                 "Soft restart suppressed. Use !stability off first.")
+        return
+
     print(f"[MAINT] /softrestart initiated by @{user.username}")
 
     # ── Announce before any work so the owner knows it started ────────────────
@@ -598,6 +607,15 @@ async def handle_restartbot(bot: BaseBot, user: User) -> None:
     """
     if not is_owner(user.username):
         await _w(bot, user.id, "Owner only.")
+        return
+
+    # Stability mode suppression
+    import database as _db_stab2
+    if _db_stab2.get_room_setting("stability_mode", "0") == "1":
+        print(f"[STABILITY] /restartbot suppressed (stability ON) — req @{user.username}")
+        await _w(bot, user.id,
+                 "🛡️ Stability Mode is ON.\n"
+                 "Bot restart suppressed. Use !stability off first.")
         return
 
     print(f"[MAINT] /restartbot initiated by @{user.username}")

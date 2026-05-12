@@ -1038,3 +1038,55 @@ async def handle_helpsearch(bot: BaseBot, user: User, args: list[str]) -> None:
         total += len(line) + 1
     suffix = f"\n+{len(matches)-len(shown)} more" if len(matches) > len(shown) else ""
     await _w(bot, user.id, f"🔍 '{kw}':\n" + "\n".join(shown) + suffix)
+
+
+# ---------------------------------------------------------------------------
+# !stability on|off|status — owner-only emergency kill switch
+# ---------------------------------------------------------------------------
+
+async def handle_stability(bot: BaseBot, user: User, args: list[str]) -> None:
+    """
+    !stability on|off|status
+    Owner only. Pauses non-critical background systems to keep bots online.
+    When ON: party tip disabled, auto-restart commands suppressed.
+    """
+    from modules.permissions import is_owner as _is_owner
+    if not _is_owner(user.username):
+        await _w(bot, user.id, "🔒 Owner only.")
+        return
+
+    sub = args[1].lower() if len(args) > 1 else "status"
+
+    if sub == "on":
+        db.set_room_setting("stability_mode", "1")
+        print(f"[STABILITY] Stability Mode ON — requested by @{user.username}")
+        await _w(bot, user.id,
+                 "🛡️ Stability Mode: ON\n"
+                 "Party Tip + auto restarts suppressed.\n"
+                 "Bots should remain online.\n"
+                 "Use !stability off to restore.")
+
+    elif sub == "off":
+        db.set_room_setting("stability_mode", "0")
+        print(f"[STABILITY] Stability Mode OFF — requested by @{user.username}")
+        await _w(bot, user.id,
+                 "✅ Stability Mode: OFF\nAll systems restored.")
+
+    else:
+        stab = db.get_room_setting("stability_mode", "0") == "1"
+        pt   = db.get_room_setting("party_tip_enabled", "1") == "1"
+        from modules import bot_state
+        import datetime as _dt
+        uptime_secs = int(
+            (_dt.datetime.now(_dt.timezone.utc) - bot_state.PROC_START).total_seconds()
+        )
+        mins, secs = divmod(uptime_secs, 60)
+        hrs,  mins = divmod(mins, 60)
+        uptime_str = (f"{hrs}h {mins}m" if hrs else f"{mins}m {secs}s")
+        await _w(bot, user.id,
+                 (f"🛡️ Stability: {'ON' if stab else 'OFF'}\n"
+                  f"Party Tip: {'ON' if pt else 'OFF'}\n"
+                  f"Uptime: {uptime_str}\n"
+                  f"Restarts: {bot_state.RESTART_COUNT}\n"
+                  f"Last Err: {bot_state.LAST_ERROR[:30] or 'none'}\n"
+                  f"Use !stability on|off")[:249])

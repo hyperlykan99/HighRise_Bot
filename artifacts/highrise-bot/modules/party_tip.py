@@ -255,7 +255,9 @@ def _log_party_tip(
 # ---------------------------------------------------------------------------
 
 def _party_tip_enabled() -> bool:
-    """Returns False only when explicitly disabled via !ptdisable."""
+    """Returns False when disabled via !ptdisable OR when stability mode is ON."""
+    if db.get_room_setting("stability_mode", "0") == "1":
+        return False
     return db.get_room_setting("party_tip_enabled", "1") == "1"
 
 

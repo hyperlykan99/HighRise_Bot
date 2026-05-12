@@ -1,0 +1,272 @@
+EMERGENCY STABILITY DIAGNOSTIC — Bots Keep Quick Reconnecting / Poofing
+
+Current issue:
+BlackjackBot, BankingBot, ChillTopiaMC, and PokerBot keep quickly disappearing and reconnecting.
+They poof very quickly and come back.
+This happens often now after recent Party Tip / routing / Update 2.1A work.
+
+Goal:
+Find the exact cause and keep bots stable.
+Do not add new features.
+Do not wipe data.
+Do not change bot tokens.
+Do not change room ID.
+
+==================================================
+PART 1 — CONFIRM IF IT IS CRASH OR RECONNECT
+==================================================
+
+Add logging to clearly show if each bot is:
+
+1. Crashing due to exception
+2. Being disconnected by Highrise
+3. Being restarted by Replit
+4. Being restarted by our own code
+5. Reconnecting because of stale bot lock / heartbeat
+
+Log these events:
+
+[BOOT] bot_mode=...
+[START] bot joined room
+[DISCONNECT] reason=...
+[RECONNECT] reason=...
+[CRASH] traceback=...
+[PROCESS START] timestamp=...
+[PROCESS EXIT] timestamp=...
+[HEARTBEAT] bot_mode=...
+[STALE LOCK] detected=...
+[RESTART REQUESTED] source=...
+
+Important:
+Print the exact file/line/function for any traceback.
+
+==================================================
+PART 2 — WRAP ALL BACKGROUND TASKS SAFELY
+==================================================
+
+No background task should kill or restart the whole bot.
+
+Wrap these loops/tasks individually:
+
+- multi-bot heartbeat
+- auto game loop
+- auto event loop
+- blackjack startup recovery
+- realistic blackjack startup recovery
+- poker startup recovery
+- automine recovery
+- autofish recovery
+- first-find announcer
+- first-find banker
+- big announcement reactor
+- time EXP loop
+- notification delivery
+- pending subscriber delivery
+- party tip init/migration
+- bot spawn/autospawn join hook
+
+Pattern:
+try:
+    await task()
+except Exception:
+    print("[TASK ERROR] task_name")
+    traceback.print_exc()
+    continue / disable that task only
+
+Do not let failed task crash the bot.
+
+==================================================
+PART 3 — ADD BOT STABILITY MODE
+==================================================
+
+Add a room setting:
+
+stability_mode = 1
+
+Command:
+!stability on
+!stability off
+!stability status
+
+When stability mode is ON:
+- disable Party Tip sending
+- disable auto games
+- disable auto events
+- disable hype systems if any
+- disable non-critical background loops
+- keep only core commands:
+  !help
+  !balance
+  !bjshoe
+  !bj
+  !poker
+  !mine
+  !fish
+  !tele
+  !summon
+  !botspawns
+  !commandissues
+
+Response:
+🛡️ Stability Mode: ON
+Non-critical background systems paused.
+Bots should remain online.
+
+==================================================
+PART 4 — DISABLE SELF-RESTART COMMANDS / LOOPS TEMPORARILY
+==================================================
+
+Temporarily prevent code from auto restarting bots unless manually requested by owner.
+
+Check and disable automatic restart triggers from:
+- handle_restartbot
+- handle_softrestart
+- stale heartbeat recovery
+- deployment check auto restart
+- module owner conflict fix
+- bot lock auto repair
+- startup safety auto restart
+
+If a stale lock or module conflict is detected:
+Log it, but do not restart the bot automatically.
+
+Response/log:
+[STABILITY] Auto restart suppressed. Reason: ...
+
+==================================================
+PART 5 — DATABASE LOCK SAFETY
+==================================================
+
+Because multiple bots share the same database, add SQLite safety:
+
+- use timeout=30 on connections
+- use WAL mode if not already enabled
+- use busy_timeout
+- ensure each DB connection closes properly
+- wrap DB writes in try/except
+- do not crash on database locked
+- retry small DB writes once or twice
+
+If DB lock happens:
+Log:
+[DB LOCK] function=... table=...
+Do not crash bot.
+
+Especially protect:
+- party_tip tables
+- gold transactions
+- blackjack shoe save
+- poker state save
+- command audit
+- bot heartbeat
+- room settings
+
+==================================================
+PART 6 — PARTY TIP SAFE DISABLE
+==================================================
+
+Party Tip may be causing instability.
+
+Make !ptdisable fully stop party tip actions:
+
+When party_tip_enabled = 0:
+- !tip does not call tip_user
+- !tip all does not call tip_user
+- !tip [count] [amount] does not call tip_user
+- !tipall redirect only
+- no party tip DB writes except status commands
+- no party tip background task
+
+Add:
+!ptdisable
+!ptenable
+!ptstatus
+
+Owner only:
+!ptdisable
+!ptenable
+
+Expected:
+!ptdisable
+🛑 Party Tip disabled.
+No party gold will be sent until !ptenable.
+
+==================================================
+PART 7 — BOT HEALTH COMMAND
+==================================================
+
+Improve or add:
+
+!bothealth
+
+Show:
+- bot mode
+- uptime
+- last restart time
+- restart count
+- last disconnect reason
+- last exception
+- active background tasks
+- DB status
+- stability mode ON/OFF
+- party tip enabled ON/OFF
+
+Expected:
+
+🤖 Bot Health
+Bot: ChillTopiaMC
+Uptime: 12m
+Restarts Today: 0
+Last Error: none
+DB: OK
+Stability Mode: ON
+Party Tip: OFF
+
+==================================================
+PART 8 — COMMAND TESTS
+==================================================
+
+Run:
+
+!stability on
+!ptdisable
+!bothealth
+!commandissues
+/checkcommands all
+
+Then let bots sit for 10 minutes.
+
+Expected:
+- bots do not poof/reconnect repeatedly
+- no unhandled traceback
+- no auto restart loop
+
+Then test one bot at a time:
+
+!help
+!bjshoe
+!poker
+!balance
+!mine
+!fish
+
+Expected:
+Commands work.
+Bots stay online.
+
+==================================================
+PART 9 — FINAL REPORT
+==================================================
+
+After finishing, tell me:
+
+1. Is it a crash, reconnect, or auto-restart?
+2. Exact traceback if any.
+3. Exact bot causing first failure.
+4. Exact file and line causing first failure.
+5. Whether stability mode was added.
+6. Whether auto-restart was suppressed.
+7. Whether DB lock protection was added.
+8. Whether Party Tip can be fully disabled.
+9. Bot uptime after 10 minutes.
+10. Restart count after 10 minutes.

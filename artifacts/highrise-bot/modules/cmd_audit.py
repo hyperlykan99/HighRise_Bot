@@ -336,6 +336,7 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     "botfallback", "botstartupannounce", "startupannounce", "modulestartup",
     "startupstatus", "multibothelp", "setmainmode",
     "bothealth", "modulehealth", "deploymentcheck", "botheartbeat", "botconflicts",
+    "stability",
     "moduleowners", "botlocks", "dblockcheck", "clearstalebotlocks", "fixbotowners",
     "taskowners", "activetasks", "taskconflicts", "fixtaskowners",
     "restoreannounce", "restorestatus",

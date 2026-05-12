@@ -136,6 +136,7 @@ REGISTRY: dict[str, Cmd] = {
     # ── Host: bot health / audit ─────────────────────────────────────────────
     "bots":             Cmd("host","status",  True, True, False),
     "bothealth":        Cmd("host","status",  True, True, False, perm="manager"),
+    "stability":        Cmd("host","status",  True, False,True,  perm="owner"),
     "modulehealth":     Cmd("host","status",  True, True, False, perm="manager"),
     "deploymentcheck":  Cmd("host","status",  True, True, False, perm="manager"),
     "botheartbeat":     Cmd("host","status",  True, True, False, perm="manager"),

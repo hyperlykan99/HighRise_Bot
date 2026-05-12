@@ -225,7 +225,32 @@ async def handle_bothealth(bot, user, args: list[str]) -> None:
         await _w(bot, user.id, msg[:249])
         return
 
-    # Summary
+    # ── Line 1: This bot's runtime health ─────────────────────────────────────
+    try:
+        from modules import bot_state as _bs
+        import datetime as _dt
+        uptime_secs = int(
+            (_dt.datetime.now(_dt.timezone.utc) - _bs.PROC_START).total_seconds())
+        _m, _s = divmod(uptime_secs, 60)
+        _h, _m = divmod(_m, 60)
+        uptime_str = f"{_h}h {_m}m" if _h else f"{_m}m {_s}s"
+        restarts  = _bs.RESTART_COUNT
+        last_err  = (_bs.LAST_ERROR[:28] or "none")
+    except Exception:
+        uptime_str, restarts, last_err = "?", 0, "?"
+
+    stab  = db.get_room_setting("stability_mode",   "0") == "1"
+    pt    = db.get_room_setting("party_tip_enabled", "1") == "1"
+    stab_str = "ON 🛡️" if stab else "OFF"
+    pt_str   = "ON" if pt else "DISABLED"
+
+    await _w(bot, user.id,
+             (f"🤖 {_MODE_NAMES.get(BOT_MODE, BOT_MODE.title())}\n"
+              f"Uptime: {uptime_str} | Reconnects: {restarts - 1}\n"
+              f"Stability: {stab_str} | Party Tip: {pt_str}\n"
+              f"Last Err: {last_err}")[:249])
+
+    # ── Line 2: Multi-bot status summary ──────────────────────────────────────
     parts: list[str] = []
     modes_seen: set[str] = set()
     for inst in instances:

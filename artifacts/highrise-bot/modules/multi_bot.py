@@ -260,7 +260,7 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "missingcommands": "host", "routecheck": "host",
     "silentcheck": "host", "commandtest": "host",
     "fixcommands": "host", "testcommands": "host",
-    "deploymentcheck": "host", "bothealth": "host",
+    "deploymentcheck": "host", "bothealth": "host", "stability": "host",
     "botconflicts": "host", "botmodules": "host",
     "modulehealth": "host", "botheartbeat": "host",
     "botstatus": "host", "botstatus_cluster": "host",

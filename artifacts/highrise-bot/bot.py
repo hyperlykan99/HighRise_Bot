@@ -201,6 +201,9 @@ async def _run_bot_forever(spec: _BotSpec) -> None:
     while True:
         proc: asyncio.subprocess.Process | None = None
         started_at = asyncio.get_event_loop().time()
+        _ts = __import__("datetime").datetime.now(
+            __import__("datetime").timezone.utc).strftime("%H:%M:%S UTC")
+        print(f"[PROCESS START] {spec.label} mode={spec.bot_mode} id={spec.bot_id} @ {_ts}")
         try:
             proc = await asyncio.create_subprocess_exec(
                 sys.executable, main_path,
@@ -209,6 +212,10 @@ async def _run_bot_forever(spec: _BotSpec) -> None:
             )
             code = await proc.wait()
             uptime = asyncio.get_event_loop().time() - started_at
+            _ts2 = __import__("datetime").datetime.now(
+                __import__("datetime").timezone.utc).strftime("%H:%M:%S UTC")
+            print(f"[PROCESS EXIT] {spec.label} mode={spec.bot_mode}"
+                  f" code={code} uptime={uptime:.0f}s @ {_ts2}")
 
             if uptime < 60:
                 # Fast exit — likely a bad token or immediate connection error

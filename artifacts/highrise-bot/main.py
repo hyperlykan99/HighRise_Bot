@@ -28,6 +28,7 @@ Future bot layout (example):
 """
 
 import asyncio
+import modules.bot_state as bot_state
 from highrise import BaseBot, User
 from highrise.__main__ import BotDefinition, main as highrise_main
 
@@ -58,6 +59,7 @@ from modules.admin_cmds import (
     handle_resetpokerstats, handle_resetcasinostats,
     handle_adminpanel, handle_adminlogs, handle_adminloginfo, handle_checkhelp,
     handle_mycommands, handle_helpsearch,
+    handle_stability,
 )
 from modules.vip import (
     handle_vip, handle_vipperks, handle_myvip, handle_giftvip,
@@ -2583,6 +2585,32 @@ async def _ai_delegated_task_loop(bot) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Bot startup logging + background task exception hook
+# ---------------------------------------------------------------------------
+
+print(f"[BOOT] mode={config.BOT_MODE} id={config.BOT_ID}"
+      f" ts={bot_state.PROC_START.strftime('%H:%M:%S UTC')}")
+
+
+def _install_task_exception_handler() -> None:
+    """Route all unhandled background-task exceptions to the console."""
+    import traceback as _tb
+
+    def _handler(loop, ctx):
+        exc  = ctx.get("exception")
+        task = ctx.get("task")
+        name = task.get_name() if task else ctx.get("message", "?")
+        print(f"[TASK ERROR] {name} mode={config.BOT_MODE}")
+        if exc:
+            _tb.print_exception(type(exc), exc, exc.__traceback__)
+
+    try:
+        asyncio.get_event_loop().set_exception_handler(_handler)
+    except Exception:
+        pass
+
+
+# ---------------------------------------------------------------------------
 # Bot class
 # ---------------------------------------------------------------------------
 
@@ -2624,6 +2652,16 @@ class HangoutBot(BaseBot):
             print(f"[HangoutBot] Event subscriptions: {subs or '(all)'}")
         except Exception:
             pass
+        # ── Bot lifecycle logging + task exception handler ────────────────────
+        bot_state.RESTART_COUNT += 1
+        _now_ts = __import__("datetime").datetime.now(
+            __import__("datetime").timezone.utc).strftime("%H:%M:%S UTC")
+        if bot_state.RESTART_COUNT == 1:
+            print(f"[START] mode={BOT_MODE} id={config.BOT_ID} first_connect @ {_now_ts}")
+        else:
+            print(f"[RECONNECT] mode={BOT_MODE} id={config.BOT_ID}"
+                  f" reconnect #{bot_state.RESTART_COUNT - 1} @ {_now_ts}")
+        _install_task_exception_handler()
         # Seed the room user cache from the live room list
         asyncio.create_task(refresh_room_cache(self))
         # Recover active event — events bot only
@@ -2706,6 +2744,7 @@ class HangoutBot(BaseBot):
             import traceback as _tb
             print(f"[ON_CHAT ERROR] mode={BOT_MODE} user={user.username!r} msg={message!r}")
             _tb.print_exc()
+            bot_state.LAST_ERROR = f"{user.username}:{message[:40]}"
             try:
                 await self.highrise.send_whisper(
                     user.id, "⚠️ Command error logged. Bot stayed online."
@@ -5287,6 +5326,8 @@ class HangoutBot(BaseBot):
             await handle_ptenable(self, user)
         elif cmd == "ptdisable":
             await handle_ptdisable(self, user)
+        elif cmd == "stability":
+            await handle_stability(self, user, args)
         elif cmd in ("ptwallet", "partywallet", "setpartywallet"):
             await handle_ptwallet(self, user, args)
         elif cmd in ("ptadd", "partytipperadd"):
