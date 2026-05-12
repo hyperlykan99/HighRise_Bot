@@ -908,13 +908,13 @@ async def handle_fishhelp(bot: BaseBot, user: User) -> None:
     """/fishhelp — fishing command reference."""
     await _w(bot, user.id,
              "🎣 Fishing Commands\n"
-             "!fish !cast !reel — catch a fish\n"
-             "!fishlist [rarity] — fish by rarity\n"
-             "!fishprices [rarity] — prices & weights\n"
-             "!fishinfo [name] — fish details\n"
-             "!myfish — your catches\n"
-             "!fishlevel — FXP & level\n"
-             "!rods !rodshop !buyrod !equiprod")
+             "!fish — fish once\n"
+             "!autofish — auto fish\n"
+             "!autofish off — stop auto fish\n"
+             "!fishinv — view fish inventory\n"
+             "!fishchances — view fishing chances\n"
+             "!myrod — view equipped rod\n"
+             "!rods — rod shop")
 
 
 # ---------------------------------------------------------------------------
@@ -984,7 +984,7 @@ async def handle_rodshop(bot: BaseBot, user: User) -> None:
         if r["price"] == 0:
             continue
         lines.append(f"{i}. {name} — {_fmt(r['price'])}c | {r['cooldown']}s cd")
-    lines.append("Buy: /buyrod <name>")
+    lines.append("Buy: !buyrod [name]")
     await _w(bot, user.id, "\n".join(lines)[:249])
 
 

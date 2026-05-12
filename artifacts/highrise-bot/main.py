@@ -1092,90 +1092,163 @@ ALL_KNOWN_COMMANDS = (
 
 
 # ---------------------------------------------------------------------------
-# Help texts  (all ≤ 249 chars)
+# Help texts  (all ≤ 249 chars per whisper)
 # ---------------------------------------------------------------------------
 
 HELP_TEXT = (
-    "🎤 ChillTopiaMC Help\n"
-    "!help basic — profile, balance, daily\n"
-    "!help games — mining, fishing, casino\n"
-    "!help economy — coins, gold, prices\n"
-    "!help notifications — alerts, subscribe\n"
-    "!help teleports — tele, spawn, roles\n"
-    "!help vip — VIP perks & info\n"
-    "!help events — active events\n"
-    "!help staff — staff controls"
+    "🎤 ChillTopia Help\n"
+    "!balance  !send [user] [amount]\n"
+    "!profile  !daily  !vip  !subscribe\n"
+    "!mine  !automine  !automine off\n"
+    "!fish  !autofish  !autofish off\n"
+    "!bet [amount]  !poker\n"
+    "!tele list  !tele [spot]  !notif"
+)
+
+HELP_TEXT_2 = (
+    "📋 More Help\n"
+    "!help basic  !help games  !help bank\n"
+    "!help vip  !help mining  !help fishing\n"
+    "!help blackjack  !help poker\n"
+    "!help room  !help party"
 )
 
 _HELP_CATEGORIES: dict[str, str] = {
     "basic": (
-        "👤 Basic Commands\n"
-        "!start — get started\n"
-        "!profile — your profile\n"
-        "!balance — check coins\n"
+        "📌 Basic Commands\n"
+        "!balance — check your coins\n"
+        "!send [user] [amount] — send coins\n"
+        "!profile — view your profile\n"
         "!daily — claim daily reward\n"
-        "!missions — see tasks\n"
-        "!leaderboard — top players"
-    ),
-    "player": (
-        "👤 Player Commands\n"
-        "!balance  !daily  !claimrewards\n"
-        "!notif  !notifon [cat]  !notifoff [cat]\n"
-        "!tele list  !tele [spot]\n"
-        "!games  !leaderboard\n"
-        "!subscribe  !substatus\n"
-        "!help games  !help notifications"
+        "!vip — view VIP info\n"
+        "!subscribe — subscribe to notifications\n"
+        "!notif — notification settings"
     ),
     "games": (
         "🎮 Games\n"
-        "!mine — mine ores\n"
-        "!fish — catch fish\n"
-        "!bj [amount] — blackjack\n"
-        "!poker — poker table\n"
-        "!missions — see tasks\n"
-        "!help mining  !help fishing  !help casino"
-    ),
-    "mining": (
-        "⛏️ Mining\n"
-        "!mine  !mineprofile  !tool\n"
-        "!mineinv  !sellores  !orelist\n"
-        "!minechances  !orechances\n"
-        "!automine  !autominestatus\n"
-        "!minehelp — full mining help"
-    ),
-    "fishing": (
-        "🎣 Fishing\n"
-        "!fish  !fishlevel  !fishbag\n"
-        "!fishlist [rarity]  !sellfish\n"
-        "!fishchances  !fishhelp\n"
-        "!autofish  !rods  !rodshop"
-    ),
-    "casino": (
-        "🃏 Casino\n"
-        "!bj [amount] — blackjack\n"
-        "!bjhit  !bjstand  !bjdouble  !bjsplit\n"
-        "!bjhelp — full BJ help\n"
-        "!poker join  !poker bet  !poker fold\n"
-        "!pokerhelp — full poker help"
+        "!mine — mine once\n"
+        "!automine — auto mine\n"
+        "!automine off — stop auto mine\n"
+        "!fish — fish once\n"
+        "!autofish — auto fish\n"
+        "!autofish off — stop auto fish\n"
+        "!bet [amount] — play blackjack\n"
+        "!poker — poker info\n"
+        "!coinflip [heads|tails] [amount]"
     ),
     "blackjack": (
         "🃏 Blackjack\n"
-        "!bj [amount] — join/bet\n"
-        "!bjhit  !bjstand  !bjdouble  !bjsplit\n"
-        "!bjhelp — full BJ help\n"
-        "!bjshoe — shoe status"
+        "!bet [amount] — place bet\n"
+        "!hit — draw card\n"
+        "!stand — hold hand\n"
+        "!stay — same as stand\n"
+        "!double — double bet\n"
+        "!split — split hand\n"
+        "!insurance — take insurance\n"
+        "!surrender — surrender\n"
+        "!bjshoe — shoe status\n"
+        "!bjrules — rules"
     ),
     "poker": (
         "♠️ Poker\n"
-        "!poker join  !poker bet  !poker fold\n"
-        "!pokerhelp — full poker help"
+        "!poker — poker info\n"
+        "!poker join — join table\n"
+        "!poker leave — leave table\n"
+        "!call — call bet\n"
+        "!raise [amount] — raise\n"
+        "!check — check\n"
+        "!fold — fold\n"
+        "!poker status — table status"
+    ),
+    "mining": (
+        "⛏️ Mining\n"
+        "!mine — mine once\n"
+        "!automine — auto mine\n"
+        "!automine off — stop auto mine\n"
+        "!mineinv — view ores\n"
+        "!minechances — mining chances\n"
+        "!tool — view pickaxe\n"
+        "!upgradetool — upgrade pickaxe"
+    ),
+    "fishing": (
+        "🎣 Fishing\n"
+        "!fish — fish once\n"
+        "!autofish — auto fish\n"
+        "!autofish off — stop auto fish\n"
+        "!fishinv — view fish\n"
+        "!fishchances — fishing chances\n"
+        "!myrod — view equipped rod\n"
+        "!rods — rod shop"
+    ),
+    "bank": (
+        "🏦 Bank Commands\n"
+        "!balance — check your coins\n"
+        "!send [user] [amount] — send coins\n"
+        "!transactions — view recent transactions\n"
+        "!bank — bank menu\n"
+        "!vip — VIP info\n"
+        "!donationgoal — room donation goal"
+    ),
+    "vip": (
+        "💎 VIP Commands\n"
+        "!vip — view VIP info\n"
+        "!vipperks — view VIP perks\n"
+        "!buyvip [1d|7d|30d] — buy VIP\n"
+        "!myvip — check your VIP status\n"
+        "!donationgoal — view room goal\n"
+        "!topdonors — view top supporters"
+    ),
+    "room": (
+        "🏠 Room Commands\n"
+        "!tele list — view teleport spots\n"
+        "!tele [spot] — teleport to spot\n"
+        "!roles — view roles\n"
+        "!rolemembers — view users by role\n"
+        "!botspawns — view saved bot spawns"
+    ),
+    "party": (
+        "🎉 Party Tip\n"
+        "!ptlist — view active party tippers\n"
+        "!ptlimits — view party tip limits\n"
+        "Party Tipper Commands:\n"
+        "!tip [user] [amount] — tip one player\n"
+        "!tip [players] [amount] — tip random\n"
+        "!tip all [amount] — tip everyone"
+    ),
+    "staff": (
+        "🛠️ Staff Commands\n"
+        "!mute [user] [mins] [reason]\n"
+        "!unmute [user]  !warn [user] [reason]\n"
+        "!reports  !roomstatus\n"
+        "!bothealth  !modulehealth\n"
+        "!botconflicts — check conflicts\n"
+        "!summon [user]  !rolemembers [role]"
+    ),
+    "owner": (
+        "👑 Owner Commands\n"
+        "!goldtip [user] [amount]\n"
+        "!goldtip all [amount]\n"
+        "!goldrain [amount] [winners]\n"
+        "!grantvip [user] [days]\n"
+        "!removevip [user]\n"
+        "!stability [on|off|status]\n"
+        "!commandissues  !checkcommands\n"
+        "!fixautogames  !clearstalebotlocks"
+    ),
+    "player": (
+        "👤 Player Commands\n"
+        "!balance  !daily  !profile\n"
+        "!notif  !subscribe  !substatus\n"
+        "!tele list  !tele [spot]\n"
+        "!help games  !help mining  !help fishing"
     ),
     "economy": (
         "💰 Economy\n"
-        "!balance  !coins  !claimrewards\n"
-        "!goldrain [group] [gold] [winners]\n"
-        "!goldrainstatus  !gameprices\n"
-        "!rewardlogs"
+        "!balance — check your coins\n"
+        "!send [user] [amount] — send coins\n"
+        "!transactions — view history\n"
+        "!bank — bank summary\n"
+        "!donationgoal — room goal"
     ),
     "notifications": (
         "🔔 Notifications\n"
@@ -1194,31 +1267,12 @@ _HELP_CATEGORIES: dict[str, str] = {
         "!rolemembers [role] — who's in each role\n"
         "!rolespawns"
     ),
-    "vip": (
-        "💎 VIP\n"
-        "!vip — VIP info\n"
-        "!vipperks — see perks\n"
-        "!buyvip — purchase VIP\n"
-        "!myvip — check your status\n"
-        "!giftvip — gift VIP to someone"
-    ),
     "events": (
         "🎉 Events\n"
         "!eventhelp  !event\n"
         "!eventlist  !eventvote\n"
         "!minechances  !fishchances\n"
         "!raritychances"
-    ),
-    "staff": (
-        "🛠️ Staff Help:\n"
-        "!staffhelp room\n"
-        "!staffhelp teleports\n"
-        "!staffhelp notifications\n"
-        "!staffhelp economy\n"
-        "!staffhelp events\n"
-        "!staffhelp games\n"
-        "!staffhelp moderation\n"
-        "!staffhelp debug"
     ),
     "admin": (
         "⚙️ Admin Commands\n"
@@ -1227,11 +1281,13 @@ _HELP_CATEGORIES: dict[str, str] = {
         "!setgameprice [game] [setting] [value]\n"
         "!autospawn [on|off|debug [user]]"
     ),
-    "owner": (
-        "👑 Owner Commands\n"
-        "!ownerhelp — full owner reference\n"
-        "!commandissues  !checkcommands all\n"
-        "!messageaudit  !msgcap"
+    "casino": (
+        "🃏 Casino\n"
+        "!bet [amount] — blackjack\n"
+        "!hit  !stand  !double  !split\n"
+        "!bjhelp — full BJ help\n"
+        "!poker join  !call  !fold\n"
+        "!pokerhelp — full poker help"
     ),
 }
 
@@ -1242,9 +1298,10 @@ _HELP_CATEGORIES: dict[str, str] = {
 
 _HELP_UNKNOWN_MSG = (
     "Unknown help page.\n"
-    "Try: !help basic  !help games\n"
-    "!help notifications  !help teleports\n"
-    "!help vip  !help economy"
+    "Try: !help basic  !help games  !help bank\n"
+    "!help vip  !help mining  !help fishing\n"
+    "!help blackjack  !help poker\n"
+    "!help room  !help party"
 )
 
 
@@ -1258,7 +1315,7 @@ async def _handle_safe_help(bot, user, raw_message: str) -> None:
         return
 
     parts = raw_message.strip().split()
-    # parts[0] = "!help" or "/help", parts[1] = optional category
+    # parts[0] = "!help", parts[1] = optional category
     cat = parts[1].lower() if len(parts) > 1 else ""
 
     async def _w(msg: str) -> None:
@@ -1269,13 +1326,34 @@ async def _handle_safe_help(bot, user, raw_message: str) -> None:
 
     if not cat:
         await _w(HELP_TEXT)
+        await _w(HELP_TEXT_2)
         try:
-            from modules.permissions import can_moderate
-            if can_moderate(user.username):
-                await _w("⚙️ Staff: !staffhelp  Owner: !adminhelp  Gold: !goldhelp")
+            from modules.permissions import can_moderate, is_owner
+            if is_owner(user.username):
+                await _w("⚙️ Staff: !help staff  Owner: !help owner  Gold: !goldhelp")
+            elif can_moderate(user.username):
+                await _w("⚙️ Staff: !help staff  Full: !staffhelp  !adminhelp")
         except Exception:
             pass
         return
+
+    if cat == "staff":
+        try:
+            from modules.permissions import can_moderate
+            if not can_moderate(user.username):
+                await _w("Staff help is for staff only.")
+                return
+        except Exception:
+            return
+
+    if cat == "owner":
+        try:
+            from modules.permissions import is_owner
+            if not is_owner(user.username):
+                await _w("Owner help is for owners only.")
+                return
+        except Exception:
+            return
 
     page = _HELP_CATEGORIES.get(cat)
     if page:
@@ -1287,16 +1365,16 @@ async def _handle_safe_help(bot, user, raw_message: str) -> None:
 GAME_HELP_PAGES = [
     (
         "🎮 Games\n"
-        "/trivia /scramble /riddle\n"
-        "/answer <answer>\n"
-        "/coinflip heads/tails <bet>\n"
-        "Auto games: /autogames status"
+        "!trivia  !scramble  !riddle\n"
+        "!answer [answer]\n"
+        "!coinflip [heads|tails] [bet]\n"
+        "Auto games: !autogames status"
     ),
     (
         "🎮 Game Timers\n"
         "Games have answer timers.\n"
-        "Staff: /setgametimer <sec>\n"
-        "Auto: /autogames on/off"
+        "Staff: !setgametimer [sec]\n"
+        "Auto: !autogames on|off"
     ),
 ]
 GAME_HELP = GAME_HELP_PAGES[0]
@@ -1304,24 +1382,24 @@ GAME_HELP = GAME_HELP_PAGES[0]
 CASINO_HELP_PAGES = [
     (
         "🎰 Casino\n"
-        "BlackJack: /bet 100\n"
-        "Poker: /p 1000\n"
-        "Help: /bjhelp /pokerhelp"
+        "BlackJack: !bet [amount]\n"
+        "Poker: !poker join\n"
+        "Help: !bjhelp  !pokerhelp"
     ),
     (
         "🎰 Casino 2\n"
-        "/bt table | /rt table\n"
-        "/bhand | /rhand | /rshoe\n"
-        "/bstats | /rstats\n"
-        "/mycasino — your casino dashboard"
+        "!bj table  !rbj table\n"
+        "!bj hand  !rbj hand  !bjshoe\n"
+        "!bj stats  !rbj stats\n"
+        "!mycasino — your casino dashboard"
     ),
     (
         "🎰 Casino Settings\n"
-        "Staff: /casinosettings\n"
-        "Staff: /casinolimits\n"
-        "Staff: /casinotoggles\n"
-        "Recovery: /bj recover /rbj recover\n"
-        "/poker cleanup /poker refundtable"
+        "Staff: !casinosettings\n"
+        "Staff: !casinolimits\n"
+        "Staff: !casinotoggles\n"
+        "Recovery: !bj recover  !rbj recover\n"
+        "!poker cleanup  !poker refundtable"
     ),
 ]
 CASINO_HELP = CASINO_HELP_PAGES[0]
@@ -1329,18 +1407,18 @@ CASINO_HELP = CASINO_HELP_PAGES[0]
 COIN_HELP_PAGES = [
     (
         "💰 Coins\n"
-        "/bal - check your balance\n"
-        "/bal user - check another player\n"
-        "/daily - claim daily coins\n"
-        "/wallet /w - coin & casino dashboard\n"
-        "/leaderboard - top coin holders"
+        "!balance — check your balance\n"
+        "!balance [user] — check another player\n"
+        "!daily — claim daily coins\n"
+        "!wallet — coin & casino dashboard\n"
+        "!leaderboard — top coin holders"
     ),
     (
         "💰 Coins 2\n"
-        "/tiprate - gold-to-coin tip rates\n"
-        "/tipstats - your tip history\n"
-        "/tipleaderboard - top tippers\n"
-        "/coinflip - flip a coin for coins"
+        "!tiprate — gold-to-coin tip rates\n"
+        "!tipstats — your tip history\n"
+        "!tipleaderboard — top tippers\n"
+        "!coinflip [heads|tails] [bet] — flip a coin"
     ),
 ]
 COIN_HELP = COIN_HELP_PAGES[0]
@@ -1348,19 +1426,19 @@ COIN_HELP = COIN_HELP_PAGES[0]
 BANK_HELP_PAGES = [
     (
         "🏦 Bank\n"
-        "/send user amt - send coins to a player\n"
-        "/bank - your bank summary\n"
-        "/bankstats - transfer stats\n"
-        "/transactions - your history\n"
-        "/banknotify on/off - send/receive alerts"
+        "!send [user] [amount] — send coins\n"
+        "!bank — your bank summary\n"
+        "!bankstats — transfer stats\n"
+        "!transactions — your history\n"
+        "!banknotify on|off — send/receive alerts"
     ),
     (
         "🏦 Bank 2\n"
-        "/notifications - pending alerts\n"
-        "/clearnotifications - clear alerts\n"
-        "Staff: /viewtx user - view history\n"
-        "Staff: /bankwatch user - flag player\n"
-        "Staff: /banksettings - bank config"
+        "!notifications — pending alerts\n"
+        "!clearnotifications — clear alerts\n"
+        "Staff: !viewtx [user] — view history\n"
+        "Staff: !bankwatch [user] — flag player\n"
+        "Staff: !banksettings — bank config"
     ),
 ]
 BANK_HELP = BANK_HELP_PAGES[0]
@@ -1368,255 +1446,265 @@ BANK_HELP = BANK_HELP_PAGES[0]
 SHOP_HELP_PAGES = [
     (
         "🛒 Shop\n"
-        "/shop badges - emoji badge shop\n"
-        "/shop titles - title shop\n"
-        "/buy <#> - buy shown item by number\n"
-        "/shop next - next page\n"
-        "/shop prev - previous page\n"
-        "/buy badge id - buy by ID"
+        "!shop badges — emoji badge shop\n"
+        "!shop titles — title shop\n"
+        "!buy [#] — buy shown item by number\n"
+        "!shop next — next page\n"
+        "!shop prev — previous page\n"
+        "!buy badge [id] — buy by ID"
     ),
     (
         "🛒 Shop 2\n"
-        "/mybadges - your emoji badges\n"
-        "/myitems - all owned items\n"
-        "/equip badge id - wear a badge\n"
-        "/equip title id - wear a title\n"
-        "/confirmbuy code - confirm purchase\n"
-        "/vipstatus - check VIP"
+        "!mybadges — your emoji badges\n"
+        "!myitems — all owned items\n"
+        "!equip badge [id] — wear a badge\n"
+        "!equip title [id] — wear a title\n"
+        "!vipstatus — check VIP"
     ),
     (
         "🏷️ Badge Market\n"
-        "/badgemarket - player listings\n"
-        "/badgebuy <#> - buy by number\n"
-        "/badgelist id price - sell your badge\n"
-        "/badgecancel id - cancel listing\n"
-        "/mybadgelistings - your listings\n"
-        "/badgeprices id - recent prices"
+        "!badgemarket — player listings\n"
+        "!badgebuy [#] — buy by number\n"
+        "!badgelist [id] [price] — sell your badge\n"
+        "!badgecancel [id] — cancel listing\n"
+        "!mybadgelistings — your listings\n"
+        "!badgeprices [id] — recent prices"
     ),
 ]
 SHOP_HELP = SHOP_HELP_PAGES[0]
 
 PROFILE_HELP = (
     "👤 Profile\n"
-    "/profile [user] [1-6] - view player profile\n"
-    "/whois user - quick player lookup\n"
-    "/me - view your own profile\n"
-    "/stats [user] - stats summary\n"
-    "/badges [user] - view badges\n"
-    "/titles [user] - view titles\n"
-    "/privacy field on/off - privacy settings\n"
-    "/dashboard - full economy overview"
+    "!profile [user] [1-6] — view player profile\n"
+    "!whois [user] — quick player lookup\n"
+    "!me — view your own profile\n"
+    "!stats [user] — stats summary\n"
+    "!badges [user] — view badges\n"
+    "!titles [user] — view titles\n"
+    "!privacy [field] on|off — privacy settings\n"
+    "!dashboard — full economy overview"
 )
 
 PROGRESS_HELP = (
     "🏆 Progress\n"
-    "/quests /dailyquests\n"
-    "/weeklyquests\n"
-    "/claimquest\n"
-    "/achievements\n"
-    "/claimachievements"
+    "!quests  !dailyquests\n"
+    "!weeklyquests\n"
+    "!claimquest\n"
+    "!achievements\n"
+    "!claimachievements"
 )
 
 EVENT_HELP_PAGES = [
     (
         "🎉 Events\n"
-        "/eventshop - numbered event shop\n"
-        "/buy <#> - buy shown event item\n"
-        "/eventshop next - next page\n"
-        "/eventpoints - your event coins\n"
-        "/eventstatus\n"
-        "Staff: /startevent <id>"
+        "!eventshop — numbered event shop\n"
+        "!buy [#] — buy shown event item\n"
+        "!eventshop next — next page\n"
+        "!eventpoints — your event coins\n"
+        "!eventstatus\n"
+        "Staff: !startevent [id]"
     ),
     (
         "🎉 Auto Events\n"
-        "/autoevents status\n"
-        "Staff: /autoevents on/off\n"
-        "Staff: /setautoeventinterval <min>\n"
-        "Staff: /setautoeventduration <min>"
+        "!autoevents status\n"
+        "Staff: !autoevents on|off\n"
+        "Staff: !setautoeventinterval [mins]\n"
+        "Staff: !setautoeventduration [mins]"
     ),
 ]
 
 BJ_HELP_PAGES = [
     (
-        "🃏 BlackJack\n"
-        "/bet <amount> — join or update bet\n"
-        "🃏 /hit  🛑 /stand or /stay\n"
-        "💰 /double  ✂️ /split\n"
-        "🛡️ /insurance  🏳️ /surrender\n"
-        "/bj rules  /bj shoe  /bj stats"
+        "🃏 Blackjack\n"
+        "!bet [amount] — place bet\n"
+        "!hit — draw card\n"
+        "!stand — hold hand\n"
+        "!stay — same as stand\n"
+        "!double — double bet\n"
+        "!split — split hand\n"
+        "!insurance — take insurance\n"
+        "!surrender — surrender\n"
+        "!bjshoe — shoe status\n"
+        "!bjrules — rules"
     ),
     (
-        "🃏 BlackJack Info\n"
-        "/bj hand — view your hand\n"
-        "/bj table — table status\n"
-        "/bj limits — daily limits\n"
-        "/bj fairness — shoe & payout info\n"
-        "/bj cards whisper|public\n"
-        "Staff: /bj on/off  /bj recover"
+        "🃏 Blackjack Info\n"
+        "!bj hand — view your hand\n"
+        "!bj table — table status\n"
+        "!bj limits — daily limits\n"
+        "!bj fairness — shoe & payout info\n"
+        "!bjcards whisper|public\n"
+        "Staff: !bj on|off  !bj recover"
     ),
 ]
 
 RBJ_HELP_PAGES = [
     (
-        "🃏 BlackJack\n"
-        "/bet <amount> — join or update bet\n"
-        "🃏 /hit  🛑 /stand or /stay\n"
-        "💰 /double  ✂️ /split\n"
-        "🛡️ /insurance  🏳️ /surrender\n"
-        "/bj rules  /bj shoe  /bj stats"
+        "🃏 Blackjack\n"
+        "!bet [amount] — place bet\n"
+        "!hit — draw card\n"
+        "!stand — hold hand\n"
+        "!stay — same as stand\n"
+        "!double — double bet\n"
+        "!split — split hand\n"
+        "!insurance — take insurance\n"
+        "!surrender — surrender\n"
+        "!bjshoe — shoe status\n"
+        "!bjrules — rules"
     ),
     (
-        "🃏 BlackJack Staff\n"
-        "/bj on/off  /bj recover  /bj refund\n"
-        "/bj setminbet  /bj setmaxbet\n"
-        "/bj setsurrender on|off\n"
-        "/bj setinsurance on|off\n"
-        "/bj setsoft17 hit|stand\n"
-        "/bj setdecks  /bj shuffleat"
+        "🃏 Blackjack Staff\n"
+        "!bj on|off  !bj recover  !bj refund\n"
+        "!bj setminbet  !bj setmaxbet\n"
+        "!bj setsurrender on|off\n"
+        "!bj setinsurance on|off\n"
+        "!bj setsoft17 hit|stand\n"
+        "!bj setdecks  !bj shuffleat"
     ),
 ]
 
 CASINO_ADMIN_HELP_PAGES = [
     (
         "🎰 Casino Admin 1\n"
-        "/casinosettings\n"
-        "/casinolimits\n"
-        "/casinotoggles\n"
-        "/bj on/off\n"
-        "/rbj on/off\n"
-        "/poker on/off"
+        "!casinosettings\n"
+        "!casinolimits\n"
+        "!casinotoggles\n"
+        "!bj on|off\n"
+        "!rbj on|off\n"
+        "!poker on|off"
     ),
     (
         "🎰 Casino Admin 2\n"
-        "/bj winlimit on/off\n"
-        "/bj losslimit on/off\n"
-        "/rbj winlimit on/off\n"
-        "/rbj losslimit on/off\n"
-        "/resetbjlimits <user>\n"
-        "/resetrbjlimits <user>"
+        "!bj winlimit on|off\n"
+        "!bj losslimit on|off\n"
+        "!rbj winlimit on|off\n"
+        "!rbj losslimit on|off\n"
+        "!resetbjlimits [user]\n"
+        "!resetrbjlimits [user]"
     ),
     (
         "🎰 Casino Admin 2b\n"
-        "/setbjlimits min max win loss\n"
-        "/setrbjlimits min max win loss\n"
-        "/setbjactiontimer <sec>\n"
-        "/setrbjactiontimer <sec>"
+        "!setbjlimits [min] [max] [win] [loss]\n"
+        "!setrbjlimits [min] [max] [win] [loss]\n"
+        "!setbjactiontimer [sec]\n"
+        "!setrbjactiontimer [sec]"
     ),
     (
         "🎰 Casino Admin 2c\n"
-        "/bj double on/off\n"
-        "/rbj double on/off\n"
-        "/bj split on/off\n"
-        "/rbj split on/off\n"
-        "/setbjmaxsplits <n>\n"
-        "/setrbjmaxsplits <n>"
+        "!bj double on|off\n"
+        "!rbj double on|off\n"
+        "!bj split on|off\n"
+        "!rbj split on|off\n"
+        "!setbjmaxsplits [n]\n"
+        "!setrbjmaxsplits [n]"
     ),
     (
         "🎰 Casino Admin 3\n"
-        "/bj state\n"
-        "/rbj state\n"
-        "/bj recover\n"
-        "/rbj recover\n"
-        "/bj refund\n"
-        "/rbj refund"
+        "!bj state\n"
+        "!rbj state\n"
+        "!bj recover\n"
+        "!rbj recover\n"
+        "!bj refund\n"
+        "!rbj refund"
     ),
     (
         "🎰 Casino Admin 4\n"
-        "/bj forcefinish\n"
-        "/rbj forcefinish\n"
-        "/poker cancel/refund\n"
-        "/poker forcefinish\n"
-        "/casino reset"
+        "!bj forcefinish\n"
+        "!rbj forcefinish\n"
+        "!poker cancel  !poker refund\n"
+        "!poker forcefinish\n"
+        "!casino reset"
     ),
     (
         "🎰 Casino Admin 5 — Poker\n"
-        "/setpokerbuyin <min> <max>\n"
-        "/setpokerplayers <min> <max>\n"
-        "/setpokertimer <sec>\n"
-        "/setpokerraise <min> <max>"
+        "!setpokerbuyin [min] [max]\n"
+        "!setpokerplayers [min] [max]\n"
+        "!setpokertimer [sec]\n"
+        "!setpokerraise [min] [max]"
     ),
     (
         "🎰 Casino Admin 6 — Poker\n"
-        "/setpokerdailywinlimit <amt>\n"
-        "/setpokerdailylosslimit <amt>\n"
-        "/poker winlimit on/off\n"
-        "/poker losslimit on/off\n"
-        "/resetpokerlimits <user>"
+        "!setpokerdailywinlimit [amount]\n"
+        "!setpokerdailylosslimit [amount]\n"
+        "!poker winlimit on|off\n"
+        "!poker losslimit on|off\n"
+        "!resetpokerlimits [user]"
     ),
 ]
 
 BANK_ADMIN_HELP_PAGES = [
     (
         "🏦 Bank Staff 1\n"
-        "/viewtx <user>\n"
-        "/bankwatch <user>\n"
-        "/ledger <user>\n"
-        "/auditbank <user>"
+        "!viewtx [user]\n"
+        "!bankwatch [user]\n"
+        "!ledger [user]\n"
+        "!auditbank [user]"
     ),
     (
         "🏦 Bank Admin 2\n"
-        "/bankblock <user>\n"
-        "/bankunblock <user>\n"
-        "/banksettings\n"
-        "/setsendlimit <amt>"
+        "!bankblock [user]\n"
+        "!bankunblock [user]\n"
+        "!banksettings\n"
+        "!setsendlimit [amount]"
     ),
     (
         "🏦 Bank Admin 3\n"
-        "/setminsend <amt>\n"
-        "/setmaxsend <amt>\n"
-        "/setnewaccountdays <days>\n"
-        "/setminlevelsend <lvl>"
+        "!setminsend [amount]\n"
+        "!setmaxsend [amount]\n"
+        "!setnewaccountdays [days]\n"
+        "!setminlevelsend [level]"
     ),
     (
         "🏦 Bank Admin 4\n"
-        "/setmintotalearned <amt>\n"
-        "/setmindailyclaims <amt>\n"
-        "/setsendtax <percent>\n"
-        "/sethighriskblocks on/off"
+        "!setmintotalearned [amount]\n"
+        "!setmindailyclaims [amount]\n"
+        "!setsendtax [percent]\n"
+        "!sethighriskblocks on|off"
     ),
 ]
 
 REP_HELP = (
     "⭐ Reputation\n"
-    "/rep <user>\n"
-    "/reputation\n"
-    "/repstats\n"
-    "/toprep\n"
-    "/repleaderboard"
+    "!rep [user]\n"
+    "!reputation\n"
+    "!repstats\n"
+    "!toprep\n"
+    "!repleaderboard"
 )
 
 AUTO_HELP = (
     "🤖 Auto Systems\n"
-    "/autogames status\n"
-    "/autoevents status\n"
-    "/gameconfig\n"
+    "!autogames status\n"
+    "!autoevents status\n"
+    "!gameconfig\n"
     "Staff can enable/disable."
 )
 
 VIP_HELP_PAGES = [
     (
         "💎 VIP\n"
-        "/vipshop - browse VIP items\n"
-        "/buyvip - purchase VIP status\n"
-        "/vipstatus - check your VIP status\n"
-        "/vips - list all VIPs (staff)\n"
-        "Perks: daily bonus, tip bonus, gold rain"
+        "!vip — view VIP info\n"
+        "!vipperks — see VIP perks\n"
+        "!buyvip [1d|7d|30d] — purchase VIP\n"
+        "!myvip — check your VIP status\n"
+        "!donationgoal — room goal\n"
+        "!topdonors — top supporters"
     ),
     (
         "💎 VIP Staff\n"
-        "/addvip user - grant VIP status\n"
-        "/removevip user - revoke VIP status\n"
-        "/vips - list all VIP players\n"
-        "/goldrainvip amt - rain gold to VIPs"
+        "!grantvip [user] [days] — grant VIP\n"
+        "!removevip [user] — revoke VIP\n"
+        "!setvipprice [1d|7d|30d] [amount]\n"
+        "!vips — list all VIP players"
     ),
 ]
 
 TIP_HELP = (
     "💰 Tips\n"
     "Tip the bot gold to get coins.\n"
-    "/tiprate\n"
-    "/tipstats\n"
-    "/tipleaderboard\n"
+    "!tiprate\n"
+    "!tipstats\n"
+    "!tipleaderboard\n"
     "Min tip reward: 10g"
 )
 
@@ -1631,38 +1719,38 @@ ROLES_HELP = (
 
 AUDIT_HELP_TEXT = (
     "🔍 Audit\n"
-    "/audit <user>\n"
-    "/auditbank <user>\n"
-    "/auditcasino <user>\n"
-    "/auditeconomy <user>\n"
-    "/ledger <user>"
+    "!audit [user]\n"
+    "!auditbank [user]\n"
+    "!auditcasino [user]\n"
+    "!auditeconomy [user]\n"
+    "!ledger [user]"
 )
 
 REPORT_HELP_PAGES = [
     (
         "🚩 Reports\n"
-        "/report <user> <reason>\n"
-        "/bug <message>\n"
-        "/myreports"
+        "!report [user] [reason]\n"
+        "!bug [message]\n"
+        "!myreports"
     ),
     (
         "🚩 Staff Reports\n"
-        "/reports\n"
-        "/reportinfo <id>\n"
-        "/closereport <id>\n"
-        "/reportwatch <user>"
+        "!reports\n"
+        "!reportinfo [id]\n"
+        "!closereport [id]\n"
+        "!reportwatch [user]"
     ),
 ]
 
 MAINTENANCE_HELP_TEXT = (
     "🛠️ Maintenance\n"
-    "/botstatus\n"
-    "/dbstats\n"
-    "/backup\n"
-    "/maintenance on/off\n"
-    "/reloadsettings\n"
-    "/cleanup\n"
-    "/softrestart"
+    "!botstatus\n"
+    "!dbstats\n"
+    "!backup\n"
+    "!maintenance on|off\n"
+    "!reloadsettings\n"
+    "!cleanup\n"
+    "!softrestart"
 )
 
 # ── Staff help texts ──────────────────────────────────────────────────────────
@@ -1689,255 +1777,255 @@ STAFF_HELP_TEXT_2 = (
 MOD_HELP_PAGES = [
     (
         "🔨 Mod 1 — Reports\n"
-        "/reports - view open reports\n"
-        "/reportinfo id - report details\n"
-        "/closereport id - close a report\n"
-        "/reportwatch user - flag a player\n"
-        "/myreports - view your reports"
+        "!reports — view open reports\n"
+        "!reportinfo [id] — report details\n"
+        "!closereport [id] — close a report\n"
+        "!reportwatch [user] — flag a player\n"
+        "!myreports — view your reports"
     ),
     (
         "🔨 Mod 2 — Moderation\n"
-        "/warn user reason - issue a warning\n"
-        "/warnings user - view warnings\n"
-        "/mute user min - bot-mute a player\n"
-        "/unmute user - remove mute\n"
-        "/mutes - list active mutes"
+        "!warn [user] [reason] — issue a warning\n"
+        "!warnings [user] — view warnings\n"
+        "!mute [user] [mins] — bot-mute a player\n"
+        "!unmute [user] — remove mute\n"
+        "!mutes — list active mutes"
     ),
     (
         "🔨 Mod 3 — Audit\n"
-        "/viewtx user - transaction history\n"
-        "/bankwatch user - flag bank activity\n"
-        "/ledger user - full ledger\n"
-        "/audit user - full audit trail"
+        "!viewtx [user] — transaction history\n"
+        "!bankwatch [user] — flag bank activity\n"
+        "!ledger [user] — full ledger\n"
+        "!audit [user] — full audit trail"
     ),
     (
         "🔨 Mod 4 — Tools\n"
-        "/announce msg - room announcement\n"
-        "/resetgame - clear stuck games\n"
-        "/casino reset - reset casino\n"
-        "/rules - show room rules\n"
-        "/dailyadmin reports - daily report"
+        "!announce [msg] — room announcement\n"
+        "!resetgame — clear stuck games\n"
+        "!casino reset — reset casino\n"
+        "!rules — show room rules\n"
+        "!dailyadmin reports — daily report"
     ),
 ]
 
 MANAGER_HELP_PAGES = [
     (
         "🧰 Manager 1 — Control\n"
-        "/control - control center\n"
-        "/control room - room tools\n"
-        "/control games - mining/events\n"
-        "/control casino - casino panel\n"
-        "/quicktoggles - toggle modules"
+        "!control — control center\n"
+        "!control room — room tools\n"
+        "!control games — mining/events\n"
+        "!control casino — casino panel\n"
+        "!quicktoggles — toggle modules"
     ),
     (
         "🧰 Manager 2 — Events\n"
-        "/startevent id - start an event\n"
-        "/stopevent - stop current event\n"
-        "/autogames on/off - toggle auto games\n"
-        "/autoevents on/off - toggle auto events\n"
-        "/gameconfig - game configuration"
+        "!startevent [id] — start an event\n"
+        "!stopevent — stop current event\n"
+        "!autogames on|off — toggle auto games\n"
+        "!autoevents on|off — toggle auto events\n"
+        "!gameconfig — game configuration"
     ),
     (
-        "🧰 Manager 2 — Casino\n"
-        "/bj on/off - toggle blackjack\n"
-        "/rbj on/off - toggle realistic BJ\n"
-        "/casino reset - reset all games\n"
-        "/casinosettings - view settings\n"
-        "/casinotoggles - toggle features"
+        "🧰 Manager 3 — Casino\n"
+        "!bj on|off — toggle blackjack\n"
+        "!rbj on|off — toggle realistic BJ\n"
+        "!casino reset — reset all games\n"
+        "!casinosettings — view settings\n"
+        "!casinotoggles — toggle features"
     ),
     (
-        "🧰 Manager 3 — BJ Settings\n"
-        "/setbjlimits min max win loss\n"
-        "/setrbjlimits min max win loss\n"
-        "/setbjactiontimer sec - action timer\n"
-        "/setrbjactiontimer sec - RBJ timer\n"
-        "/bj settings - view BJ settings"
+        "🧰 Manager 4 — BJ Settings\n"
+        "!setbjlimits [min] [max] [win] [loss]\n"
+        "!setrbjlimits [min] [max] [win] [loss]\n"
+        "!setbjactiontimer [sec]\n"
+        "!setrbjactiontimer [sec]\n"
+        "!bj settings — view BJ settings"
     ),
     (
-        "🧰 Manager 4 — Poker\n"
-        "/setpokerbuyin min max - buy-in range\n"
-        "/setpokertimer sec - turn timer\n"
-        "/setpokerraise min max - raise range\n"
-        "/poker state - table status\n"
-        "/healthcheck - bot health"
+        "🧰 Manager 5 — Poker\n"
+        "!setpokerbuyin [min] [max]\n"
+        "!setpokertimer [sec] — turn timer\n"
+        "!setpokerraise [min] [max]\n"
+        "!poker state — table status\n"
+        "!healthcheck — bot health"
     ),
     (
-        "🧰 Manager 5 — Reports\n"
-        "/dailyadmin - full daily report\n"
-        "/dailyadmin casino - casino stats\n"
-        "/dailyadmin events - event stats\n"
-        "/dailyadmin bank - bank stats\n"
-        "/automod on/off - auto moderation"
+        "🧰 Manager 6 — Reports\n"
+        "!dailyadmin — full daily report\n"
+        "!dailyadmin casino — casino stats\n"
+        "!dailyadmin events — event stats\n"
+        "!dailyadmin bank — bank stats\n"
+        "!automod on|off — auto moderation"
     ),
 ]
 
 ADMIN_HELP_PAGES = [
     (
         "🛡️ Admin 0 — Control\n"
-        "/control - control center\n"
-        "/control economy - economy panel\n"
-        "/control casino - casino panel\n"
-        "/control shop - shop panel\n"
-        "/control system - system panel"
+        "!control — control center\n"
+        "!control economy — economy panel\n"
+        "!control casino — casino panel\n"
+        "!control shop — shop panel\n"
+        "!control system — system panel"
     ),
     (
         "🛡️ Admin 1 — Economy\n"
-        "/addcoins user amt - add coins\n"
-        "/removecoins user amt - remove coins\n"
-        "/setcoins user amt - set exact balance\n"
-        "/editcoins user amt - alias for setcoins\n"
-        "/resetcoins user - zero a balance"
+        "!addcoins [user] [amount]\n"
+        "!removecoins [user] [amount]\n"
+        "!setcoins [user] [amount]\n"
+        "!editcoins [user] [amount]\n"
+        "!resetcoins [user]"
     ),
     (
         "🛡️ Admin 2 — XP & Level\n"
-        "/addxp user amt - add XP\n"
-        "/removexp user amt - remove XP\n"
-        "/setxp user amt - set exact XP\n"
-        "/setlevel user lvl - set level\n"
-        "/addlevel user amt - add levels\n"
-        "/removelevel user amt - remove levels"
+        "!addxp [user] [amount]\n"
+        "!removexp [user] [amount]\n"
+        "!setxp [user] [amount]\n"
+        "!setlevel [user] [level]\n"
+        "!addlevel [user] [amount]\n"
+        "!removelevel [user] [amount]"
     ),
     (
         "🛡️ Admin 3 — Rep & Events\n"
-        "/addrep user amt - add reputation\n"
-        "/removerep user amt - remove rep\n"
-        "/setrep user amt - set rep exact\n"
-        "/resetrep user - zero reputation\n"
-        "/addeventcoins user amt - event coins\n"
-        "/seteventcoins user amt - set event coins"
+        "!addrep [user] [amount]\n"
+        "!removerep [user] [amount]\n"
+        "!setrep [user] [amount]\n"
+        "!resetrep [user]\n"
+        "!addeventcoins [user] [amount]\n"
+        "!seteventcoins [user] [amount]"
     ),
     (
         "🛡️ Admin 4 — Items & VIP\n"
-        "/givetitle user id - give a title\n"
-        "/settitle user id - give+equip title\n"
-        "/givebadge user id - give a badge\n"
-        "/setbadge user id - give+equip badge\n"
-        "/addvip user - grant VIP\n"
-        "/setvipprice amt - set VIP price"
+        "!givetitle [user] [id]\n"
+        "!settitle [user] [id]\n"
+        "!givebadge [user] [id]\n"
+        "!setbadge [user] [id]\n"
+        "!grantvip [user] [days]\n"
+        "!setvipprice [amount]"
     ),
     (
         "🛡️ Admin 5 — Roles\n"
-        "/addmanager user - promote to manager\n"
-        "/removemanager user - demote manager\n"
-        "/addmoderator user - promote to mod\n"
-        "/removemoderator user - demote mod\n"
-        "/allstaff - list all staff"
+        "!addmanager [user]\n"
+        "!removemanager [user]\n"
+        "!addmoderator [user]\n"
+        "!removemoderator [user]\n"
+        "!allstaff — list all staff"
     ),
     (
         "🛡️ Admin 6 — Casino\n"
-        "/resetbjstats user - reset BJ stats\n"
-        "/resetrbjstats user - reset RBJ stats\n"
-        "/resetpokerstats user - reset poker\n"
-        "/resetcasinostats user - reset all\n"
-        "/resetbjlimits user - reset limits"
+        "!resetbjstats [user]\n"
+        "!resetrbjstats [user]\n"
+        "!resetpokerstats [user]\n"
+        "!resetcasinostats [user]\n"
+        "!resetbjlimits [user]"
     ),
     (
         "🛡️ Admin 7 — System\n"
-        "/adminlogs [user] - action log\n"
-        "/adminloginfo id - log detail\n"
-        "/adminpanel - control panel\n"
-        "/dbstats - database stats\n"
-        "/maintenance on/off - maint mode\n"
-        "/bankblock user - block transfers"
+        "!adminlogs [user] — action log\n"
+        "!adminloginfo [id] — log detail\n"
+        "!adminpanel — control panel\n"
+        "!dbstats — database stats\n"
+        "!maintenance on|off\n"
+        "!bankblock [user]"
     ),
     (
         "🛡️ Admin 8 — Cmd Audit\n"
-        "/checkcommands - audit routes\n"
-        "/checkhelp - audit help menus\n"
-        "/missingcommands - unrouted cmds\n"
-        "/routecheck - unlisted routes\n"
-        "/silentcheck - silent risk cmds\n"
-        "/commandtest cmd - test a route"
+        "!checkcommands — audit routes\n"
+        "!checkhelp — audit help menus\n"
+        "!missingcommands — unrouted cmds\n"
+        "!routecheck — unlisted routes\n"
+        "!silentcheck — silent risk cmds\n"
+        "!commandtest [cmd] — test a route"
     ),
 ]
 
 OWNER_HELP_PAGES = [
     (
         "👑 Owner 0 — Control\n"
-        "/control - full control center\n"
-        "/ownerpanel - owner hub\n"
-        "/control staff 3 - owner roles\n"
-        "/control system 3 - owner system\n"
-        "/quicktoggles - toggle modules"
+        "!control — full control center\n"
+        "!ownerpanel — owner hub\n"
+        "!control staff 3 — owner roles\n"
+        "!control system 3 — owner system\n"
+        "!quicktoggles — toggle modules"
     ),
     (
         "👑 Owner 1 — Roles\n"
-        "/addowner user - add an owner\n"
-        "/removeowner user - remove owner\n"
-        "/owners - list owners\n"
-        "/addadmin user - promote to admin\n"
-        "/removeadmin user - demote admin"
+        "!addowner [user] — add an owner\n"
+        "!removeowner [user] — remove owner\n"
+        "!owners — list owners\n"
+        "!addadmin [user] — promote to admin\n"
+        "!removeadmin [user] — demote admin"
     ),
     (
         "👑 Owner 2 — Economy\n"
-        "/setcoins user amt - set balance\n"
-        "/addeventcoins user amt - event coins\n"
-        "/setlevel user lvl - set level\n"
-        "/setrep user amt - set reputation\n"
-        "/givetitle user id - give title"
+        "!setcoins [user] [amount]\n"
+        "!addeventcoins [user] [amount]\n"
+        "!setlevel [user] [level]\n"
+        "!setrep [user] [amount]\n"
+        "!givetitle [user] [id]"
     ),
     (
         "👑 Owner 3 — Items & VIP\n"
-        "/givebadge user id - give badge\n"
-        "/addvip user - grant VIP status\n"
-        "/resetcasinostats user - all casino\n"
-        "/adminlogs [user] - action log\n"
-        "/adminpanel - control panel"
+        "!givebadge [user] [id]\n"
+        "!grantvip [user] [days]\n"
+        "!resetcasinostats [user]\n"
+        "!adminlogs [user] — action log\n"
+        "!adminpanel — control panel"
     ),
     (
         "👑 Owner 4 — Gold\n"
-        "/goldtip user amt - send gold tip\n"
-        "/goldrain amt - rain gold to room\n"
-        "/goldrainall amt - rain to everyone\n"
-        "/goldrefund user - refund gold\n"
-        "/goldrainvip amt - VIP gold rain"
+        "!goldtip [user] [amount]\n"
+        "!goldtip all [amount]\n"
+        "!goldrain [amount] [winners]\n"
+        "!goldrefund [user]\n"
+        "!goldrainvip [amount]"
     ),
     (
         "👑 Owner 5B — Party Tip\n"
-        "!party on|off - toggle party mode\n"
-        "!ptwallet [amt] - set party wallet\n"
-        "!ptadd [user] [mins] - add tipper\n"
-        "!ptremove [user] - remove tipper\n"
-        "!ptclear - clear all tippers\n"
-        "!ptlimit [type] [amt] - set limits"
+        "!pton — party mode on\n"
+        "!ptoff — party mode off\n"
+        "!ptwallet [amount] — set party wallet\n"
+        "!ptadd [user] [mins] — add tipper\n"
+        "!ptremove [user] — remove tipper\n"
+        "!ptclear  !ptlimit [type] [amount]"
     ),
     (
         "👑 Owner 5 — System\n"
-        "/allstaff - list all staff\n"
-        "/allcommands - full command list\n"
-        "/backup - backup database\n"
-        "/softrestart - reload bot\n"
-        "/restartbot - full restart\n"
-        "/checkhelp - help system check"
+        "!allstaff — list all staff\n"
+        "!allcommands — full command list\n"
+        "!backup — backup database\n"
+        "!softrestart — reload bot\n"
+        "!restartbot — full restart\n"
+        "!checkhelp — help system check"
     ),
     (
         "👑 Owner 6 — Cmd Audit\n"
-        "/checkcommands - audit routes\n"
-        "/checkhelp - audit help menus\n"
-        "/missingcommands - unrouted cmds\n"
-        "/routecheck - unlisted routes\n"
-        "/silentcheck - silent risk cmds\n"
-        "/commandtest cmd - test a route"
+        "!checkcommands — audit routes\n"
+        "!checkhelp — audit help menus\n"
+        "!missingcommands — unrouted cmds\n"
+        "!routecheck — unlisted routes\n"
+        "!silentcheck — silent risk cmds\n"
+        "!commandtest [cmd] — test a route"
     ),
     (
         "👑 Owner 7 — Recovery\n"
-        "/poker recoverystatus - diagnose poker\n"
-        "/poker state - poker state info\n"
-        "/poker cleanup - cleanup stuck hand\n"
-        "/casinointegrity full - integrity check\n"
-        "/poker closeforce - emergency close"
+        "!poker recoverystatus\n"
+        "!poker state — poker state info\n"
+        "!poker cleanup — cleanup stuck hand\n"
+        "!casinointegrity full\n"
+        "!poker closeforce — emergency close"
     ),
 ]
 
 ALLCMDS = [
-    "Cmds 1 Help\n!help /gamehelp /casinohelp\n!coinhelp /bankhelp\n!shophelp /profilehelp",
-    "Cmds 2 Games\n!trivia /scramble /riddle\n!answer /coinflip\n!autogames status\n!gameconfig",
-    "Cmds 3 Casino\n!bet <amt> /hit /stand /double\n!split /insurance /surrender\n!bj rules|stats|shoe|table",
+    "Cmds 1 Help\n!help  !gamehelp  !casinohelp\n!coinhelp  !bankhelp\n!shophelp  !profilehelp",
+    "Cmds 2 Games\n!trivia  !scramble  !riddle\n!answer  !coinflip\n!autogames status\n!gameconfig",
+    "Cmds 3 Casino\n!bet [amount]  !hit  !stand  !double\n!split  !insurance  !surrender\n!bj rules|stats|shoe|table",
     "Cmds 4 Casino Staff\n!casinosettings\n!casinolimits\n!casinotoggles\n!setbjlimits\n!setrbjlimits\n!setbjactiontimer\n!setrbjactiontimer",
-    "Cmds 5 Bank\n!send /bank /bankstats\n!transactions\n!banknotify\n!tiprate /tipstats",
-    "Cmds 6 Shop/Profile\n!shop titles/badges\n!titleinfo /badgeinfo\n!buy /equip\n!profile /level",
-    "Cmds 7 Progress\n!quests /dailyquests\n!weeklyquests\n!claimquest\n!achievements\n!reputation",
-    "Cmds 8 Events\n!event /events\n!eventstatus\n!startevent\n!stopevent\n!autoevents status",
+    "Cmds 5 Bank\n!send  !bank  !bankstats\n!transactions\n!banknotify\n!tiprate  !tipstats",
+    "Cmds 6 Shop/Profile\n!shop titles|badges\n!titleinfo  !badgeinfo\n!buy  !equip\n!profile  !level",
+    "Cmds 7 Progress\n!quests  !dailyquests\n!weeklyquests\n!claimquest\n!achievements\n!reputation",
+    "Cmds 8 Events\n!event  !events\n!eventstatus\n!startevent\n!stopevent\n!autoevents status",
     "Cmds 9 Staff\n!staffhelp !modhelp\n!managerhelp !adminhelp\n!ownerhelp !allstaff",
     "Cmds 10 Gold/Owner\n!goldhelp\n!goldtip\n!goldrain\n!goldrefund\n!backup\n!softrestart",
     "Cmds 11 Party Tip\n!party on|off\n!ptwallet [amt]\n!ptadd [u] [m]\n!ptlist\n!ptlimits\n!ptlimit",
@@ -4046,10 +4134,10 @@ class HangoutBot(BaseBot):
             await self.highrise.send_whisper(
                 user.id,
                 "💰 Coins\n"
-                "/balance - show balance\n"
-                "/daily - daily reward\n"
-                "/send @user amt - send coins\n"
-                "/tip @user amt - tip player"
+                "!balance — show balance\n"
+                "!daily — daily reward\n"
+                "!send [user] [amount] — send coins\n"
+                "!tip [user] [amount] — tip player"
             )
 
         elif cmd == "bankerhelp":
@@ -4257,24 +4345,24 @@ class HangoutBot(BaseBot):
         elif cmd in {"start", "guide", "begin", "newplayer"}:
             await self.highrise.send_whisper(user.id,
                 "👋 Welcome to HR Lounge!\n"
-                "⛏️ Mine: /mine\n"
-                "🎣 Fish: /fish\n"
-                "💰 Balance: /bal\n"
-                "👤 Profile: /profile"
+                "⛏️ Mine: !mine\n"
+                "🎣 Fish: !fish\n"
+                "💰 Balance: !balance\n"
+                "👤 Profile: !profile"
             )
             await self.highrise.send_whisper(user.id,
                 "🎮 Games:\n"
-                "🃏 Blackjack: /bjhelp\n"
-                "♠️ Poker: /pokerhelp\n"
-                "🎉 Events: /events\n"
-                "/aestatus /firstfindstatus"
+                "🃏 Blackjack: !bjhelp\n"
+                "♠️ Poker: !pokerhelp\n"
+                "🎉 Events: !events\n"
+                "!aestatus  !firstfindstatus"
             )
             await self.highrise.send_whisper(user.id,
-                "🛒 Shop: /shop\n"
-                "🏆 Weekly LB: /weeklylb\n"
-                "📅 Daily Coins: /daily\n"
-                "❓ All help: /help\n"
-                "Tip: start with /mine or /fish!"
+                "🛒 Shop: !shop\n"
+                "🏆 Weekly LB: !weeklylb\n"
+                "📅 Daily Coins: !daily\n"
+                "❓ All help: !help\n"
+                "Tip: start with !mine or !fish!"
             )
 
         elif cmd == "casinoadminhelp":
