@@ -108,7 +108,7 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "pokerhistory": "poker", "pokerdebug": "poker",
     "pokerfix": "poker", "pokercleanup": "poker",
     "confirmclosepoker": "poker",
-    "casinointegrity": "host", "integritylogs": "host", "carddeliverycheck": "host",
+    "casinointegrity": "host", "integritylogs": "poker", "carddeliverycheck": "poker",
     # ── AI assistant ─────────────────────────────────────────────────────────
     "ask": "host", "ai": "host", "assistant": "host",
     "pendingaction": "host", "confirm": "host", "aidebug": "host", "aicapabilities": "host",
@@ -176,7 +176,7 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "tempban": "security", "unban": "security", "bans": "security",
     "modlog": "security", "roomlogs": "security",
     "modhelp": "security", "staffhelp": "security",
-    "automod": "security", "setrules": "security",
+    "automod": "security", "setrules": "host",
     # ── dj ──────────────────────────────────────────────────────────────────
     "emote": "dj", "emotes": "dj",
     "stopemote": "dj", "dance": "dj", "wave": "dj",
@@ -198,15 +198,15 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "aeskipnext": "eventhost", "skipnextae": "eventhost",
     "eventpoints": "eventhost", "eventshop": "eventhost",
     "buyevent": "eventhost",
-    "alert": "eventhost", "staffalert": "eventhost",
-    "vipalert": "eventhost", "roomalert": "eventhost",
+    "alert": "eventhost", "staffalert": "host",
+    "vipalert": "host", "roomalert": "host",
     "announce_subs": "eventhost", "dmnotify": "eventhost",
     "announce": "eventhost", "announce_vip": "eventhost",
     "announce_staff": "eventhost",
     "eventstart": "eventhost", "eventstop": "eventhost",
-    "addeventcoins": "eventhost", "removeeventcoins": "eventhost",
-    "seteventcoins": "eventhost", "editeventcoins": "eventhost",
-    "reseteventcoins": "eventhost",
+    "addeventcoins": "banker", "removeeventcoins": "banker",
+    "seteventcoins": "banker", "editeventcoins": "banker",
+    "reseteventcoins": "banker",
     "autogames": "eventhost", "autoevents": "eventhost",
     "gameconfig": "eventhost", "fixautogames": "eventhost",
     "autogamesowner": "eventhost",
@@ -288,7 +288,7 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     # host — navigation / admin tools
     "gamehelp": "host", "profilehelp": "host", "progresshelp": "host",
     "adminhelp": "host", "managerhelp": "host", "ownerhelp": "host",
-    "adminpanel": "host", "adminlogs": "host", "adminloginfo": "host",
+    "adminpanel": "host", "adminlogs": "security", "adminloginfo": "security",
     "quicktoggles": "host", "ownerpanel": "host",
     "stats": "host", "allstaff": "host",
     "addmanager": "host", "removemanager": "host",
@@ -299,11 +299,11 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "addlevel": "host", "removelevel": "host",
     "resetcasinostats": "host", "dbstats": "host", "maintenance": "host",
     # banker — bank notifications / settings
-    "notifications": "banker", "clearnotifications": "banker",
+    "notifications": "host", "clearnotifications": "host",
     "bankwatch": "banker", "banksettings": "banker",
     # shopkeeper — shop misc
     "confirmbuy": "shopkeeper",
-    "givetitle": "shopkeeper", "settitle": "shopkeeper",
+    "givetitle": "host", "settitle": "host",
     "givebadge": "shopkeeper", "setbadge": "shopkeeper",
     "addvip": "shopkeeper", "setvipprice": "shopkeeper",
     # security — mod role commands
@@ -316,7 +316,7 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "coinflip": "eventhost", "setgametimer": "eventhost",
     "quests": "eventhost", "dailyquests": "eventhost",
     "weeklyquests": "eventhost", "claimquest": "eventhost",
-    "achievements": "eventhost", "claimachievements": "eventhost",
+    "achievements": "host", "claimachievements": "host",
     "setautoeventinterval": "eventhost", "setautoeventduration": "eventhost",
     # blackjack — casino resets
     "resetbjstats": "blackjack", "resetrbjstats": "blackjack",
@@ -334,7 +334,7 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "rolespawns": "host", "delrolespawn": "host",
     "staffonline": "host", "vipsinroom": "host", "rolelist": "host",
     "players": "host", "online": "host",
-    "roomsettings": "host", "setroomsetting": "host", "roomlogs": "host",
+    "roomsettings": "host", "setroomsetting": "host", "roomlogs": "security",
     "roomstatus": "host", "roomboost": "host", "boostroom": "host",
     "toggle": "host", "managerpanel": "host",
     "welcome": "host", "setwelcome": "host", "welcometest": "host",
@@ -357,8 +357,8 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "clearpendingnotify": "host", "clearstalebotlocks": "host",
     "commandaudit": "host", "commandowners": "host",
     "confirmcasinoreset": "host", "crashlogs": "host", "createbotmode": "host",
-    "dailyadmin": "host", "debugnotify": "host", "debugsub": "host",
-    "debugtips": "host", "deletebotmode": "host",
+    "dailyadmin": "banker", "debugnotify": "host", "debugsub": "host",
+    "debugtips": "banker", "deletebotmode": "host",
     "delivernotifications": "host", "disablebot": "host", "dressbot": "host",
     "editlevel": "host", "editrep": "host", "editxp": "host",
     "enablebot": "host", "fixbotowners": "host",
@@ -384,13 +384,13 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "botmodehelp": "host", "bots": "host",
     "commandissues": "host",
     # security — mod-only
-    "moderators": "security", "profileprivacy": "security", "replog": "security",
+    "moderators": "host", "profileprivacy": "host", "replog": "security",
     # banker — notify / tips / economy settings
-    "casinodash": "banker", "economysettings": "banker",
-    "notify": "banker", "notifyhelp": "banker", "notifyprefs": "banker",
-    "notifysettings": "banker", "notifystats": "banker",
+    "casinodash": "host", "economysettings": "banker",
+    "notify": "host", "notifyhelp": "host", "notifyprefs": "host",
+    "notifysettings": "host", "notifystats": "host",
     "tipleaderboard": "banker", "tiprate": "banker", "tipstats": "banker",
-    "tiphelp": "banker",
+    "tiphelp": "host",
     "setdailycoins": "banker", "settransferfee": "banker",
     "sethighriskblocks": "banker", "setmaxbalance": "banker",
     "setmaxsend": "banker", "setmindailyclaims": "banker",
@@ -402,18 +402,18 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     # shopkeeper — badge market / shop admin
     "addbadge": "shopkeeper", "badgeadmin": "shopkeeper", "badgecatalog": "shopkeeper",
     "badgemarketlogs": "shopkeeper", "buyitem": "shopkeeper", "cancelbuy": "shopkeeper",
-    "clearbadge": "shopkeeper", "cleartitle": "shopkeeper",
+    "clearbadge": "shopkeeper", "cleartitle": "host",
     "editbadgeprice": "shopkeeper", "giveemojibadge": "shopkeeper",
     "marketbuy": "shopkeeper", "purchase": "shopkeeper",
     "removebadge": "shopkeeper", "removebadgefrom": "shopkeeper",
-    "removetitle": "shopkeeper", "removevip": "shopkeeper",
+    "removetitle": "host", "removevip": "shopkeeper",
     "setbadgemarketfee": "shopkeeper", "setbadgepurchasable": "shopkeeper",
     "setbadgesellable": "shopkeeper", "setbadgetradeable": "shopkeeper",
-    "seteventconfirm": "shopkeeper", "setshopconfirm": "shopkeeper",
+    "seteventconfirm": "eventhost", "setshopconfirm": "shopkeeper",
     "shopadmin": "shopkeeper", "shoptest": "shopkeeper",
-    "unequip": "shopkeeper", "viphelp": "shopkeeper", "vips": "shopkeeper",
+    "unequip": "shopkeeper", "viphelp": "host", "vips": "shopkeeper",
     # eventhost — autogames / quests / subs
-    "fixautogames": "eventhost", "questhelp": "eventhost",
+    "fixautogames": "eventhost", "questhelp": "host",
     "setautogameinterval": "eventhost", "setgamereward": "eventhost",
     "subscribers": "eventhost",
     # poker — admin / leaderboard / refund / limits
@@ -433,8 +433,8 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "setrbjwinpayout": "blackjack",
     # dj — emotes / social / movement
     "follow": "dj", "followme": "dj", "followstatus": "dj", "stopfollow": "dj",
-    "forceemotes": "dj", "giveheart": "dj", "micstart": "dj", "micstatus": "dj",
-    "publicemotes": "dj", "reactheart": "dj", "startmic": "dj",
+    "forceemotes": "dj", "giveheart": "dj", "micstart": "host", "micstatus": "host",
+    "publicemotes": "dj", "reactheart": "dj", "startmic": "host",
     "setemoteloopinterval": "dj",
     # poker — all-in alias
     "all-in": "poker",
@@ -487,8 +487,8 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "minechances": "miner", "fishchances": "fisher",
     "fishingchances": "fisher", "raritychances": "host",
     # security — rolespawn commands (new)
-    "rolespawn": "security", "rolespawns": "security",
-    "setrolespawn": "security", "delrolespawn": "security",
+    "rolespawn": "host", "rolespawns": "host",
+    "setrolespawn": "host", "delrolespawn": "host",
     # banker — VIP commands (new)
     "vip": "banker", "vipperks": "banker", "myvip": "banker",
     "giftvip": "banker", "viplist": "banker", "grantvip": "banker",
@@ -501,7 +501,7 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "setdonationgoal": "banker", "donationaudit": "banker",
     "setsponsorprice": "banker",
     # host — message audit (new)
-    "messageaudit": "host", "staffhelp": "host",
+    "messageaudit": "host", "staffhelp": "security",
     # blackjack — BJ shoe management (new)
     "bjshoereset": "blackjack",
     # host — economy audit (admin-level, answered by host)
@@ -653,6 +653,13 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "notifdm": "host", "opennotifs": "host",
     "testnotify": "host", "setsubnotifycooldown": "host",
     "subnotify": "host", "subnotifyinvite": "host", "subnotifystatus": "host",
+
+    # ── Phase B audit additions ────────────────────────────────────────────
+    "botoutfitdebug": "host",
+    "bsurrender": "blackjack",
+    "notifyuser": "host",
+    "rolemembers": "host",
+    "subnotif": "host",
 }
 
 # Friendly display names for modes — sourced from bot_names.py (edit there)

@@ -37,7 +37,7 @@ class Cmd(NamedTuple):
 REGISTRY: dict[str, Cmd] = {
 
     # ── Host: help pages ─────────────────────────────────────────────────────
-    "help":             Cmd("host","help",    True, True, False, aliases=("answer",)),
+    "help":             Cmd("host","help",    True, True, False, aliases=()),
     "shophelp":         Cmd("host","help",    True, True, False),
     "casinohelp":       Cmd("host","help",    True, True, False, aliases=("gamehelp",)),
     "coinhelp":         Cmd("banker","help",   True, True, False),
@@ -130,7 +130,7 @@ REGISTRY: dict[str, Cmd] = {
                             aliases=("clearnotifications",)),
     "subscribe":        Cmd("host","profile", True, False,True,
                             aliases=("unsubscribe","substatus")),
-    "quests":           Cmd("host","profile", True, True, False,
+    "quests":              Cmd("eventhost","profile", True, True, False,
                             aliases=("dailyquests","weeklyquests","claimquest")),
 
     # ── Host: bot health / audit ─────────────────────────────────────────────
@@ -262,7 +262,7 @@ REGISTRY: dict[str, Cmd] = {
     "badgeprices":      Cmd("shopkeeper","shop",False,True, False),
     "titles":           Cmd("shopkeeper","shop",False,True, False, aliases=("titleinfo",)),
     "vipshop":          Cmd("shopkeeper","shop",False,True, False, aliases=("buyvip",)),
-    "vipstatus":        Cmd("shopkeeper","shop",False,True, False),
+    "vipstatus":              Cmd("banker","shop",False,True, False),
 
     # ── EventHost ────────────────────────────────────────────────────────────
     "event":            Cmd("eventhost","events",False,True, False, aliases=("events",)),
@@ -427,7 +427,6 @@ REGISTRY: dict[str, Cmd] = {
     "dealstatus":       Cmd("poker","casino", False, True,  False, perm="staff"),
     "pokerdealstatus":  Cmd("poker","casino", False, True,  False, perm="staff",
                             aliases=()),
-    "resendcards":      Cmd("poker","casino", False, True,  False),
     "cards":            Cmd("poker","casino", False, True,  False,
                             aliases=("resendcards",)),
     "pokerplayers":     Cmd("poker","casino", False, True,  False, perm="staff"),
@@ -475,9 +474,6 @@ REGISTRY: dict[str, Cmd] = {
     # ── Banker: gold rain commands ────────────────────────────────────────
     "goldrain":          Cmd("banker","goldrain",False,False,True,  perm="manager",
                              aliases=("raingold","goldstorm","golddrop")),
-    "raingold":          Cmd("banker","goldrain",True, False,True,  perm="manager"),
-    "goldstorm":         Cmd("banker","goldrain",True, False,True,  perm="manager"),
-    "golddrop":          Cmd("banker","goldrain",True, False,True,  perm="manager"),
     "goldrainstatus":    Cmd("banker","goldrain",False,True, False, perm="manager"),
     "cancelgoldrain":    Cmd("banker","goldrain",False,False,True,  perm="manager"),
     "goldrainhistory":   Cmd("banker","goldrain",False,True, False, perm="manager"),
@@ -508,21 +504,12 @@ REGISTRY: dict[str, Cmd] = {
     "setgoldrainmax":    Cmd("banker","goldrain",False,False,True,  perm="owner"),
     "tipgold":         Cmd("banker","goldtip", False, False, True,  perm="owner",
                            aliases=("goldreward", "rewardgold")),
-    "goldreward":      Cmd("banker","goldtip", False, False, True,  perm="owner"),
-    "rewardgold":      Cmd("banker","goldtip", False, False, True,  perm="owner"),
     "tiplb":           Cmd("banker","goldtip", False, True,  False,
                            aliases=("tipleaderboard", "bottiplb", "bottipleaderboard")),
-    "tipleaderboard":  Cmd("banker","goldtip", False, True,  False),
-    "bottiplb":        Cmd("banker","goldtip", False, True,  False),
-    "bottipleaderboard": Cmd("banker","goldtip", False, True, False),
     "roomtiplb":       Cmd("banker","goldtip", False, True,  False,
                            aliases=("roomtipleaderboard", "alltiplb", "alltipleaderboard")),
-    "roomtipleaderboard": Cmd("banker","goldtip", False, True, False),
-    "alltiplb":        Cmd("banker","goldtip", False, True,  False),
-    "alltipleaderboard": Cmd("banker","goldtip", False, True, False),
     "tipreceiverlb":   Cmd("banker","goldtip", False, True,  False,
                            aliases=("topreceivers",)),
-    "topreceivers":    Cmd("banker","goldtip", False, True,  False),
 
     # ── EventHost: new mining events (B-project) ──────────────────────────────
     "mineevents":       Cmd("eventhost","events", False, True,  False),
@@ -654,16 +641,13 @@ REGISTRY: dict[str, Cmd] = {
     "startfirstfind":        Cmd("banker","economy", False,False, True,  perm="admin"),
     "stopfirstfind":         Cmd("banker","economy", False,False, True,  perm="admin"),
     "firstfindstatus":       Cmd("banker","economy", True, True,  False, aliases=("firstfindcheck",)),
-    "firstfindcheck":        Cmd("banker","economy", True, True,  False),
     "firstfindwinners":      Cmd("banker","economy", True, True,  False),
     "firstfindrewards":      Cmd("banker","economy", True, True,  False, aliases=("firstfindlist","firstfindreward")),
     "resetfirstfind":        Cmd("banker","economy", False,False, True,  perm="admin"),
     "firstfindpending":      Cmd("banker","economy", False, True, False, perm="admin",
                                  aliases=("firstfindpay",)),
-    "firstfindpay":          Cmd("banker","economy", False, True, False, perm="admin"),
     "paypendingfirstfind":   Cmd("banker","economy", False,False, True,  perm="admin",
                                  aliases=("retryfirstfind",)),
-    "retryfirstfind":        Cmd("banker","economy", False,False, True,  perm="admin"),
     # ── Fishing force drop (owner-only) ──────────────────────────────────────
     "forcedropfish":        Cmd("fisher","fishing", False, False, True,  perm="owner", aliases=("forcefishdrop","forcefish")),
     "forcedropfishitem":    Cmd("fisher","fishing", False, False, True,  perm="owner", aliases=("forcefishdropfish",)),
@@ -705,9 +689,6 @@ REGISTRY: dict[str, Cmd] = {
 
     # ── Event presets (eventhost) ─────────────────────────────────────────────
     "eventpreset":      Cmd("eventhost","events", False, False, True,  perm="manager"),
-
-    # ── Player onboarding aliases (host) ──────────────────────────────────────
-    "begin":            Cmd("host",    "help",    True,  True,  False, aliases=("newplayer",)),
 
     # ── Daily quest aliases (banker) ──────────────────────────────────────────
     "dailies":          Cmd("banker",  "quests",  True,  True,  False),
@@ -883,11 +864,11 @@ REGISTRY: dict[str, Cmd] = {
     "seteventcoins":     Cmd("banker",  "economy", False, False, True,  perm="admin"),
     "editeventcoins":    Cmd("banker",  "economy", False, False, True,  perm="admin"),
     "reseteventcoins":   Cmd("banker",  "economy", False, False, True,  perm="admin"),
-    "addxp":             Cmd("banker",  "economy", False, False, True,  perm="admin"),
-    "removexp":          Cmd("banker",  "economy", False, False, True,  perm="admin"),
-    "setxp":             Cmd("banker",  "economy", False, False, True,  perm="admin"),
-    "editxp":            Cmd("banker",  "economy", False, False, True,  perm="admin"),
-    "resetxp":           Cmd("banker",  "economy", False, False, True,  perm="admin"),
+    "addxp":              Cmd("host",  "economy", False, False, True,  perm="admin"),
+    "removexp":              Cmd("host",  "economy", False, False, True,  perm="admin"),
+    "setxp":              Cmd("host",  "economy", False, False, True,  perm="admin"),
+    "editxp":              Cmd("host",  "economy", False, False, True,  perm="admin"),
+    "resetxp":              Cmd("host",  "economy", False, False, True,  perm="admin"),
     "setlevel":          Cmd("host",    "admin",   False, False, True,  perm="admin"),
     "addlevel":          Cmd("host",    "admin",   False, False, True,  perm="admin"),
     "removelevel":       Cmd("host",    "admin",   False, False, True,  perm="admin"),
@@ -950,7 +931,7 @@ REGISTRY: dict[str, Cmd] = {
     "banknotify":            Cmd("banker",  "economy", True,  False, True),
     "setmaxbalance":         Cmd("banker",  "economy", False, False, True,  perm="owner"),
     "setdailycoins":         Cmd("banker",  "economy", False, False, True,  perm="admin"),
-    "setgamereward":         Cmd("banker",  "economy", False, False, True,  perm="admin"),
+    "setgamereward":              Cmd("eventhost",  "economy", False, False, True,  perm="admin"),
     "settransferfee":        Cmd("banker",  "economy", False, False, True,  perm="admin"),
     "setminsend":            Cmd("banker",  "economy", False, False, True,  perm="admin"),
     "setmaxsend":            Cmd("banker",  "economy", False, False, True,  perm="admin"),
@@ -1210,12 +1191,12 @@ REGISTRY: dict[str, Cmd] = {
     "clearpendingnotify":    Cmd("host",    "admin",   False, False, True,  perm="admin"),
     "pendingnotifications":  Cmd("host",    "admin",   False, True,  False, perm="admin"),
     "delivernotifications":  Cmd("host",    "admin",   False, False, True,  perm="admin"),
-    "subscribers":           Cmd("host",    "admin",   False, True,  False, perm="staff"),
+    "subscribers":              Cmd("eventhost",    "admin",   False, True,  False, perm="staff"),
     "dailyadmin":            Cmd("banker",  "economy", False, True,  False, perm="manager"),
-    "announce_subs":         Cmd("host",    "admin",   False, False, True,  perm="admin"),
-    "announce_vip":          Cmd("host",    "admin",   False, False, True,  perm="admin"),
-    "announce_staff":        Cmd("host",    "admin",   False, False, True,  perm="admin"),
-    "dmnotify":              Cmd("host",    "admin",   False, False, True,  perm="admin"),
+    "announce_subs":              Cmd("eventhost",    "admin",   False, False, True,  perm="admin"),
+    "announce_vip":              Cmd("eventhost",    "admin",   False, False, True,  perm="admin"),
+    "announce_staff":              Cmd("eventhost",    "admin",   False, False, True,  perm="admin"),
+    "dmnotify":              Cmd("eventhost",    "admin",   False, False, True,  perm="admin"),
 
     # ── Event admin ───────────────────────────────────────────────────────────
     "eventstart":            Cmd("eventhost","events", False, False, True,  perm="admin"),
@@ -1227,11 +1208,37 @@ REGISTRY: dict[str, Cmd] = {
     "trivia":                Cmd("eventhost","events", True,  False, True),
     "scramble":              Cmd("eventhost","events", True,  False, True),
     "riddle":                Cmd("eventhost","events", True,  False, True),
-    "coinflip":              Cmd("host",    "economy", True,  False, True),
+    "coinflip":              Cmd("eventhost",    "economy", True,  False, True),
 
     # ── Player helpers ────────────────────────────────────────────────────────
     "start":                 Cmd("host",    "help",    True,  True,  False),
     "guide":                 Cmd("host",    "help",    True,  True,  False),
+
+    # ── Phase B audit additions — DCO orphans ─────────────────────────────────
+    "bjshoereset":        Cmd("blackjack","casino", False,False,True,  perm="manager"),
+    "botstatus_cluster":  Cmd("host",    "status",  True, True, False, perm="admin"),
+    "economyaudit":       Cmd("host",    "admin",   False,True, False, perm="admin"),
+    "fixsub":             Cmd("host",    "profile", False,False,True,  perm="admin"),
+    "forcesub":           Cmd("host",    "profile", False,False,True,  perm="admin"),
+    "gameprice":          Cmd("host",    "admin",   False,True, False, perm="manager"),
+    "gameprices":         Cmd("host",    "admin",   False,True, False, perm="manager"),
+    "setgameprice":       Cmd("host",    "admin",   False,False,True,  perm="manager"),
+    "messageaudit":       Cmd("host",    "audit",   False,True, False, perm="admin"),
+    "notifyoff":          Cmd("host",    "profile", True, False,True),
+    "notifyon":           Cmd("host",    "profile", True, False,True),
+    "pokerhistory":       Cmd("poker",   "casino",  False,True, False, perm="staff"),
+    "setbj":              Cmd("blackjack","casino", False,False,True,  perm="manager"),
+    "setrbj":             Cmd("blackjack","casino", False,False,True,  perm="manager"),
+    "setpokermaxplayers": Cmd("poker",   "casino",  False,False,True,  perm="manager"),
+    "setpokerminplayers": Cmd("poker",   "casino",  False,False,True,  perm="manager"),
+    "sub":                Cmd("host",    "profile", True, False,True,
+                              aliases=("unsub",)),
+    "tag":                Cmd("host",    "room_admin",True,False,True,  perm="manager"),
+    "tutorial":           Cmd("host",    "help",    True, True, False,
+                              aliases=("newbiehelp","begin","newplayer")),
+    # ── Game answer command (eventhost) ─────────────────────────────────────────
+    "answer":             Cmd("eventhost","events",False,False,True),
+
 }
 
 # ---------------------------------------------------------------------------
