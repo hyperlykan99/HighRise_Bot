@@ -25,14 +25,22 @@ _w = lambda bot, uid, msg: bot.highrise.send_whisper(uid, msg[:249])
 
 _VIP_PERKS = (
     "💎 VIP Perks:\n"
-    "• Gold Rain eligibility\n"
-    "• Priority event entry\n"
-    "• Bonus daily coins (+50%)\n"
-    "• Exclusive VIP badge\n"
-    "• VIP spawn point\n"
-    "• !giftvip — gift VIP to a friend\n"
-    "!setvipprice to see price."
+    "• Longer !automine sessions (up to 60m)\n"
+    "• Longer !autofish sessions (up to 60m)\n"
+    "• VIP badge & status in room\n"
+    "• Supports ChillTopia upgrades\n"
+    "Buy: !buyvip 1d | !buyvip 7d | !buyvip 30d"
 )
+
+# Duration options: key → (days, display_label)
+_VIP_DURATIONS: dict[str, tuple[int, str]] = {
+    "1d":  (1,  "1 day"),
+    "7d":  (7,  "7 days"),
+    "30d": (30, "30 days"),
+}
+_VIP_DEFAULT_PRICES: dict[str, int] = {
+    "1d": 10_000, "7d": 50_000, "30d": 150_000,
+}
 
 _SUPPORTER_PERKS = (
     "🌟 Supporter Perks:\n"
@@ -49,14 +57,18 @@ _SUPPORTER_PERKS = (
 # ---------------------------------------------------------------------------
 
 async def handle_vip(bot: "BaseBot", user: "User", args: list[str]) -> None:
-    """!vip  — show VIP overview and how to get VIP."""
-    price = db.get_room_setting("vip_price", "5000")
+    """!vip  — show VIP overview and how to buy."""
     is_vip = db.owns_item(user.id, "vip")
-    status = "💎 You ARE VIP!" if is_vip else f"Price: {price} coins. Contact staff."
+    status = "Active 💎" if is_vip else "Inactive"
+    p1  = db.get_room_setting("vip_price_1d",  str(_VIP_DEFAULT_PRICES["1d"]))
+    p7  = db.get_room_setting("vip_price_7d",  str(_VIP_DEFAULT_PRICES["7d"]))
+    p30 = db.get_room_setting("vip_price_30d", str(_VIP_DEFAULT_PRICES["30d"]))
     await _w(bot, user.id,
-             f"💎 VIP Status: {status}\n"
-             f"Perks: gold rain, bonus daily, priority events.\n"
-             f"!vipperks  !myvip  !giftvip")
+             f"💎 VIP — {status}\n"
+             f"Support the room & unlock convenience perks.\n"
+             f"!vipperks — view perks | !myvip — status\n"
+             f"!buyvip 1d ({p1}c) | 7d ({p7}c) | 30d ({p30}c)\n"
+             f"No lifetime VIP.")
 
 
 # ---------------------------------------------------------------------------
@@ -74,16 +86,78 @@ async def handle_vipperks(bot: "BaseBot", user: "User") -> None:
 
 async def handle_myvip(bot: "BaseBot", user: "User") -> None:
     """!myvip  — check your own VIP status."""
-    is_vip = db.owns_item(user.id, "vip")
+    is_vip   = db.owns_item(user.id, "vip")
+    expires  = db.get_room_setting(f"vip_expires_{user.id}", "")
+    exp_line = expires if expires else "Active (staff-granted)"
     if is_vip:
         await _w(bot, user.id,
-                 f"💎 @{user.username}: You are VIP!\n"
-                 f"Enjoy gold rain, priority events, and bonus daily coins.")
+                 f"💎 VIP Status\n"
+                 f"Status: Active\n"
+                 f"Expires: {exp_line}\n"
+                 f"Perks: Longer AutoMine, Longer AutoFish, VIP status")
     else:
-        price = db.get_room_setting("vip_price", "5000")
+        p1 = db.get_room_setting("vip_price_1d", str(_VIP_DEFAULT_PRICES["1d"]))
         await _w(bot, user.id,
-                 f"@{user.username}: Not VIP yet.\n"
-                 f"Cost: {price} coins. Contact staff or !giftvip from a VIP friend.")
+                 f"💎 VIP Status\n"
+                 f"Status: Inactive\n"
+                 f"!buyvip 1d ({p1}c) | !buyvip 7d | !buyvip 30d\n"
+                 f"!vipperks — view perks")
+
+
+# ---------------------------------------------------------------------------
+# !buyvip <1d|7d|30d>  — purchase VIP with coins
+# ---------------------------------------------------------------------------
+
+import datetime as _dt
+
+async def handle_buyvip(bot: "BaseBot", user: "User", args: list[str]) -> None:
+    """!buyvip <1d|7d|30d>  — buy VIP with coins."""
+    if len(args) < 2:
+        p1  = db.get_room_setting("vip_price_1d",  str(_VIP_DEFAULT_PRICES["1d"]))
+        p7  = db.get_room_setting("vip_price_7d",  str(_VIP_DEFAULT_PRICES["7d"]))
+        p30 = db.get_room_setting("vip_price_30d", str(_VIP_DEFAULT_PRICES["30d"]))
+        await _w(bot, user.id,
+                 f"💎 Buy VIP:\n"
+                 f"!buyvip 1d — {p1} coins\n"
+                 f"!buyvip 7d — {p7} coins\n"
+                 f"!buyvip 30d — {p30} coins\n"
+                 f"No lifetime VIP.")
+        return
+
+    dur = args[1].lower().strip()
+    if dur in ("lifetime", "permanent", "perm", "forever", "life"):
+        await _w(bot, user.id,
+                 "Lifetime VIP is disabled.\nUse 1d, 7d, or 30d.")
+        return
+    if dur not in _VIP_DURATIONS:
+        await _w(bot, user.id,
+                 "Usage:\n!buyvip 1d\n!buyvip 7d\n!buyvip 30d\n"
+                 "No lifetime VIP.")
+        return
+
+    days, label = _VIP_DURATIONS[dur]
+    price = int(db.get_room_setting(f"vip_price_{dur}",
+                                    str(_VIP_DEFAULT_PRICES[dur])))
+    balance = db.get_balance(user.id)
+    if balance < price:
+        await _w(bot, user.id,
+                 f"⚠️ Not enough coins.\n"
+                 f"Needed: {price}  Your balance: {balance}\n"
+                 f"Earn coins: !mine !fish !automine !autofish")
+        return
+
+    db.adjust_balance(user.id, -price)
+    db.grant_item(user.id, "vip", "vip")
+    db.log_admin_action(user.username, user.username, "buyvip", "", dur)
+    expires_dt  = _dt.datetime.now(_dt.timezone.utc) + _dt.timedelta(days=days)
+    expires_str = expires_dt.strftime("%Y-%m-%d")
+    db.set_room_setting(f"vip_expires_{user.id}", expires_str)
+    await _w(bot, user.id,
+             f"✅ VIP Activated!\n"
+             f"Duration: {label}\n"
+             f"Expires: {expires_str}\n"
+             f"Perks: Longer AutoMine, Longer AutoFish, VIP status\n"
+             f"Thank you for supporting ChillTopia!")
 
 
 # ---------------------------------------------------------------------------
@@ -140,25 +214,41 @@ async def handle_viplist(bot: "BaseBot", user: "User") -> None:
 # ---------------------------------------------------------------------------
 
 async def handle_grantvip(bot: "BaseBot", user: "User", args: list[str]) -> None:
-    """!grantvip <user>  — grant VIP (manager+)."""
+    """!grantvip <user> [1d|7d|30d]  — grant VIP (manager+)."""
     if not can_manage_economy(user.username):
         await _w(bot, user.id, "Manager and above only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: !grantvip <username>")
+        await _w(bot, user.id,
+                 "Usage: !grantvip <username> [1d|7d|30d]\nNo lifetime VIP.")
         return
     target_name = args[1].lstrip("@").strip()
+    # Optional duration argument
+    dur = args[2].lower().strip() if len(args) >= 3 else "30d"
+    if dur in ("lifetime", "permanent", "perm", "forever", "life"):
+        await _w(bot, user.id,
+                 "Lifetime VIP is disabled.\nUse 1d, 7d, or 30d.")
+        return
+    if dur not in _VIP_DURATIONS:
+        await _w(bot, user.id,
+                 "Valid durations: 1d, 7d, 30d\nNo lifetime VIP.")
+        return
     rec = db.get_user_by_username(target_name)
     if not rec:
         await _w(bot, user.id, f"❌ @{target_name} not found.")
         return
+    days, label = _VIP_DURATIONS[dur]
     db.grant_item(rec["user_id"], "vip", "vip")
-    db.log_admin_action(user.username, rec["username"], "grantvip", "", "vip")
-    await _w(bot, user.id, f"✅ @{rec['username']} is now VIP 💎.")
+    db.log_admin_action(user.username, rec["username"], "grantvip", "", dur)
+    expires_dt  = _dt.datetime.now(_dt.timezone.utc) + _dt.timedelta(days=days)
+    expires_str = expires_dt.strftime("%Y-%m-%d")
+    db.set_room_setting(f"vip_expires_{rec['user_id']}", expires_str)
+    await _w(bot, user.id,
+             f"✅ @{rec['username']} is now VIP 💎 ({label}, exp: {expires_str}).")
     try:
         await bot.highrise.send_whisper(
             rec["user_id"],
-            "💎 You have been granted VIP by staff! Enjoy your perks."[:249]
+            f"💎 VIP granted by staff! Duration: {label}. Enjoy your perks."[:249]
         )
     except Exception:
         pass
@@ -169,22 +259,32 @@ async def handle_grantvip(bot: "BaseBot", user: "User", args: list[str]) -> None
 # ---------------------------------------------------------------------------
 
 async def handle_setvipprice_vip(bot: "BaseBot", user: "User", args: list[str]) -> None:
-    """!setvipprice <coins>  — set VIP coin price (manager+)."""
+    """!setvipprice <1d|7d|30d> <coins>  — set VIP price per duration (manager+)."""
     if not can_manage_economy(user.username):
         await _w(bot, user.id, "Manager and above only.")
         return
-    if len(args) < 2:
-        await _w(bot, user.id, "Usage: !setvipprice <coins>")
+    if len(args) < 3:
+        p1  = db.get_room_setting("vip_price_1d",  str(_VIP_DEFAULT_PRICES["1d"]))
+        p7  = db.get_room_setting("vip_price_7d",  str(_VIP_DEFAULT_PRICES["7d"]))
+        p30 = db.get_room_setting("vip_price_30d", str(_VIP_DEFAULT_PRICES["30d"]))
+        await _w(bot, user.id,
+                 f"Usage: !setvipprice <1d|7d|30d> <coins>\n"
+                 f"Current: 1d={p1}c | 7d={p7}c | 30d={p30}c")
+        return
+    dur = args[1].lower().strip()
+    if dur not in _VIP_DURATIONS:
+        await _w(bot, user.id, "Duration must be 1d, 7d, or 30d.")
         return
     try:
-        price = int(args[1])
+        price = int(args[2])
         if price < 0:
             raise ValueError
     except ValueError:
         await _w(bot, user.id, "❌ Price must be a positive number.")
         return
-    db.set_room_setting("vip_price", str(price))
-    await _w(bot, user.id, f"✅ VIP price set to {price} coins.")
+    db.set_room_setting(f"vip_price_{dur}", str(price))
+    _, label = _VIP_DURATIONS[dur]
+    await _w(bot, user.id, f"✅ VIP {label} price set to {price} coins.")
 
 
 # ---------------------------------------------------------------------------
@@ -210,19 +310,30 @@ async def handle_donate(bot: "BaseBot", user: "User") -> None:
 
 async def handle_donationgoal(bot: "BaseBot", user: "User") -> None:
     """!donationgoal  — show donation goal progress."""
-    goal      = db.get_room_setting("donation_goal", "0")
-    collected = db.get_room_setting("donation_collected", "0")
+    goal_raw  = db.get_room_setting("donation_goal", "0")
+    coll_raw  = db.get_room_setting("donation_collected", "0")
     label     = db.get_room_setting("donation_goal_label", "Room Upgrades")
     try:
-        pct = min(100, round(int(collected) / max(1, int(goal)) * 100))
+        goal      = int(goal_raw)
+        collected = int(coll_raw)
+    except Exception:
+        goal, collected = 0, 0
+    if goal <= 0:
+        await _w(bot, user.id,
+                 "💛 Room Goal\n"
+                 "No active goal yet.\n"
+                 "Owner can set a goal soon.")
+        return
+    try:
+        pct = min(100, round(collected / max(1, goal) * 100))
     except Exception:
         pct = 0
     bar = "█" * (pct // 10) + "░" * (10 - pct // 10)
     await _w(bot, user.id,
-             f"💛 Goal: {label}\n"
-             f"{bar} {pct}%\n"
-             f"Collected: {collected}/{goal} gold\n"
-             f"Gold-tip BankingBot to contribute!")
+             f"💛 Room Goal: {label}\n"
+             f"Progress: {collected}/{goal} gold\n"
+             f"Percent: {pct}%  {bar}\n"
+             f"Use gold tips/donations to support room upgrades.")
 
 
 # ---------------------------------------------------------------------------
@@ -237,14 +348,17 @@ async def handle_topdonors(bot: "BaseBot", user: "User") -> None:
         rows = []
     if not rows:
         await _w(bot, user.id,
-                 "💛 No donations yet. Gold-tip BankingBot to be first!")
+                 "🏆 Top Supporters\n"
+                 "No supporters yet.\n"
+                 "Gold-tip BankingBot to be first!")
         return
-    lines = [f"💛 Top Donors:"]
+    lines = ["🏆 Top Supporters"]
     for i, row in enumerate(rows[:8], 1):
         name  = row.get("username", "?")
         total = row.get("total_gold", 0)
         lines.append(f"{i}. @{name} — {total}g")
-    await _w(bot, user.id, "\n".join(lines))
+    lines.append("Thank you for supporting ChillTopia!")
+    await _w(bot, user.id, "\n".join(lines)[:249])
 
 
 # ---------------------------------------------------------------------------

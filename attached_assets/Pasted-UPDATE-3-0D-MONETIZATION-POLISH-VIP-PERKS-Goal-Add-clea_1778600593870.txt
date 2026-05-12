@@ -1,0 +1,546 @@
+UPDATE 3.0D — MONETIZATION POLISH + VIP PERKS
+
+Goal:
+Add clean, safe monetization polish for the room without breaking stability.
+
+Focus:
+- VIP/subscription perk clarity
+- Longer automine/autofish for VIP
+- Donation goal polish
+- Party tip safety
+- Clear player-facing VIP benefits
+- No lifetime VIP
+- No pay-to-win economy breaking
+
+This update should be small and safe.
+Do not rewrite core systems.
+Do not change bot tokens.
+Do not change room ID.
+Do not wipe database.
+Do not reset balances, VIP, mining/fishing, blackjack/poker, teleports, role spawns, bot spawns, subscriptions, notifications, or party tip data.
+Do not add AI.
+Do not add hype announcements.
+Do not change casino odds.
+Do not change mining/fishing rarity odds unless specifically asked later.
+
+==================================================
+PART 1 — VIP / SUBSCRIPTION RULES
+==================================================
+
+No lifetime VIP.
+
+Allowed VIP durations:
+- 1 day
+- 7 days
+- 30 days
+
+If any old lifetime VIP option exists:
+- hide it from help
+- hide it from shop
+- do not sell it
+- do not advertise it
+- do not delete existing data unless explicitly told
+
+VIP should feel useful, but not game-breaking.
+
+VIP perks should be:
+- convenience
+- longer auto sessions
+- small bonus
+- cosmetic/status
+- better experience
+
+VIP should NOT:
+- guarantee rare/mythic drops
+- bypass cooldown completely
+- give unlimited gold
+- give unlimited coins
+- break casino fairness
+- give owner/staff permissions
+
+==================================================
+PART 2 — VIP BENEFIT MENU
+==================================================
+
+Create or clean:
+
+!vipperks
+
+Expected regular player response:
+
+💎 VIP Perks
+
+VIP gives:
+• Longer !automine sessions
+• Longer !autofish sessions
+• Small coin/XP bonus if enabled
+• VIP badge/status
+• Supports the room
+
+VIP options:
+!buyvip 1d
+!buyvip 7d
+!buyvip 30d
+
+No lifetime VIP.
+
+Keep message under Highrise limits.
+Split into multiple whispers if needed.
+
+==================================================
+PART 3 — BUY VIP MENU
+==================================================
+
+Clean:
+
+!vip
+!buyvip
+!myvip
+
+!vip should show:
+
+💎 VIP
+Support the room and unlock convenience perks.
+
+Commands:
+!vipperks — view perks
+!buyvip 1d — buy 1 day
+!buyvip 7d — buy 7 days
+!buyvip 30d — buy 30 days
+!myvip — check status
+
+No lifetime VIP.
+
+!buyvip with no args should reply:
+
+Usage:
+!buyvip 1d
+!buyvip 7d
+!buyvip 30d
+
+No lifetime VIP.
+
+!myvip should reply:
+
+💎 VIP Status
+Status: Active/Inactive
+Expires: [date/time or none]
+Perks: [short list]
+
+==================================================
+PART 4 — VIP PRICES
+==================================================
+
+If VIP prices already exist in database/config, do not overwrite unless missing.
+
+If missing, use safe default coin prices:
+
+1d = 10,000 coins
+7d = 50,000 coins
+30d = 150,000 coins
+
+Owner can change prices later if existing commands already support it.
+
+Do not create real-money payment handling.
+This is in-game coin VIP only unless external purchase flow already exists.
+
+==================================================
+PART 5 — LONGER AUTOMINE FOR VIP
+==================================================
+
+Add or polish automine duration limits.
+
+Regular player:
+- default max automine session: 15 minutes
+
+VIP:
+- max automine session: 60 minutes
+
+Optional if already supported:
+!automine [minutes]
+
+Behavior:
+!automine
+- starts default auto mining session
+
+!automine 30
+- starts 30-minute automine if allowed
+
+If regular player tries:
+!automine 60
+
+Reply:
+⛏️ AutoMine limit: 15 minutes.
+VIP can auto mine up to 60 minutes.
+Type !vip for perks.
+
+If VIP:
+!automine 60 works.
+
+Do not make automine unlimited.
+Do not bypass cooldowns completely.
+Do not change mining rarity odds.
+Do not change mythic+ odds.
+
+==================================================
+PART 6 — LONGER AUTOFISH FOR VIP
+==================================================
+
+Add or polish autofish duration limits.
+
+Regular player:
+- default max autofish session: 15 minutes
+
+VIP:
+- max autofish session: 60 minutes
+
+Optional if already supported:
+!autofish [minutes]
+
+Behavior:
+!autofish
+- starts default auto fishing session
+
+!autofish 30
+- starts 30-minute autofish if allowed
+
+If regular player tries:
+!autofish 60
+
+Reply:
+🎣 AutoFish limit: 15 minutes.
+VIP can auto fish up to 60 minutes.
+Type !vip for perks.
+
+If VIP:
+!autofish 60 works.
+
+Do not make autofish unlimited.
+Do not bypass cooldowns completely.
+Do not change fishing rarity odds.
+Do not change mythic/prismatic/exotic odds.
+
+==================================================
+PART 7 — AUTO SESSION STATUS
+==================================================
+
+Add or clean:
+
+!autominestatus
+!autofishstatus
+
+If these already exist, polish messages only.
+
+!autominestatus expected:
+
+⛏️ AutoMine Status
+Status: ON/OFF
+Time Left: [minutes]
+Limit: 15m regular / 60m VIP
+VIP: Active/Inactive
+
+!autofishstatus expected:
+
+🎣 AutoFish Status
+Status: ON/OFF
+Time Left: [minutes]
+Limit: 15m regular / 60m VIP
+VIP: Active/Inactive
+
+If commands are not currently routed and adding them is risky, skip adding new commands and only improve existing auto messages.
+
+==================================================
+PART 8 — DONATION GOAL POLISH
+==================================================
+
+Clean:
+
+!donationgoal
+
+Expected:
+
+💛 Room Goal
+Goal: [goal name]
+Progress: [current]/[target] gold
+Percent: [percent]%
+Use gold tips/donations to support room upgrades.
+
+If no goal set:
+
+💛 Room Goal
+No active goal yet.
+Owner can set a goal soon.
+
+Do not create real-money donation system.
+Do not take payments outside Highrise.
+Do not promise rewards that are not implemented.
+
+==================================================
+PART 9 — TOP DONORS / SUPPORTERS
+==================================================
+
+Clean:
+
+!topdonors
+
+Expected:
+
+🏆 Top Supporters
+1. @user — [amount]
+2. @user — [amount]
+3. @user — [amount]
+
+Thank you for supporting ChillTopia!
+
+If no donors:
+
+🏆 Top Supporters
+No supporters yet.
+
+Keep message short.
+
+==================================================
+PART 10 — PARTY TIP SAFETY POLISH
+==================================================
+
+Party Tip should remain separate from BankingBot and owner gold.
+
+Ensure:
+- !tip uses ChillTopiaMC Party Wallet only.
+- !tip does not use BankingBot wallet.
+- !tipall does not trigger BankingBot gold tip all.
+- Party Tipper can only use !tip.
+- Party Tipper cannot use !goldtip.
+- Bots are excluded from all tips.
+- Wallet is checked before sending.
+- Wallet deducts only after real tip succeeds.
+- If Party Tip disabled, no gold sends.
+
+Polish messages:
+
+If party mode off:
+🎉 Party Mode is OFF.
+Party tipping only works during Party Mode.
+
+If not party tipper:
+🔒 Party Tipper only.
+Ask the owner for temporary party tipping access.
+
+If bot target:
+🤖 Bots cannot receive gold tips.
+
+If !tipall:
+⚠️ Use !tip all [amount] for Party Tips.
+Example: !tip all 5
+
+==================================================
+PART 11 — MONETIZATION HELP PAGE
+==================================================
+
+Add or clean:
+
+!help vip
+!help party
+
+Also add:
+
+!help support
+
+If adding new help page is safe.
+
+!help support expected:
+
+💛 Support ChillTopia
+
+Ways to support:
+!vip — VIP perks
+!buyvip 1d/7d/30d — buy VIP with coins
+!donationgoal — room goal
+!topdonors — supporters
+
+VIP gives longer auto mine/fish sessions and supports room upgrades.
+
+No lifetime VIP.
+
+If !help support is risky, include support info inside !help vip only.
+
+==================================================
+PART 12 — PLAYER-FACING VIP MESSAGES
+==================================================
+
+When a player buys VIP, response should be clear:
+
+✅ VIP Activated!
+Duration: [1d/7d/30d]
+Expires: [date/time]
+
+Perks:
+• Longer AutoMine
+• Longer AutoFish
+• VIP status
+
+Thank you for supporting ChillTopia!
+
+If not enough coins:
+
+⚠️ Not enough coins.
+Needed: [price]
+Your balance: [balance]
+
+Earn coins:
+!mine
+!fish
+!automine
+!autofish
+
+==================================================
+PART 13 — OWNER VIP MANAGEMENT SAFETY
+==================================================
+
+If owner VIP commands exist, keep them owner-only:
+
+!grantvip [user] [days]
+!removevip [user]
+!setvipprice [1d|7d|30d] [amount]
+
+Rules:
+- Owner only.
+- Staff cannot grant VIP unless already intentionally allowed.
+- No lifetime VIP duration.
+- If owner types lifetime/permanent:
+Reply:
+Lifetime VIP is disabled.
+Use 1d, 7d, or 30d.
+
+==================================================
+PART 14 — COMMAND TESTS
+==================================================
+
+Run command tests for affected commands:
+
+!commandtest !vip
+!commandtest !vipperks
+!commandtest !buyvip
+!commandtest !myvip
+!commandtest !donationgoal
+!commandtest !topdonors
+!commandtest !automine
+!commandtest !stopmine
+!commandtest !autofish
+!commandtest !stopfish
+!commandtest !tip
+!commandtest !tipall
+!commandtest !goldtip
+
+Expected:
+route=YES
+handler=YES
+owner not UNKNOWN
+
+Expected ownership:
+!vip = BankingBot or ChillTopiaMC depending current system
+!vipperks = BankingBot or ChillTopiaMC
+!buyvip = BankingBot
+!myvip = BankingBot
+!donationgoal = BankingBot
+!topdonors = BankingBot
+!automine = GreatestProspector
+!autofish = MasterAngler
+!tip = ChillTopiaMC
+!tipall = ChillTopiaMC disabled redirect
+!goldtip = BankingBot owner-only
+
+Do not break command ownership.
+
+==================================================
+PART 15 — LIVE TESTS
+==================================================
+
+Run:
+
+!vip
+!vipperks
+!buyvip
+!myvip
+!donationgoal
+!topdonors
+!automine
+!autofish
+!tipall 1
+!commandissues
+!checkcommands
+
+Expected:
+- VIP menu works.
+- No lifetime VIP shown.
+- VIP perks mention longer automine/autofish.
+- AutoMine/AutoFish work.
+- !tipall does not send gold.
+- !commandissues clean.
+- !checkcommands clean.
+
+If possible, test duration limits:
+
+Regular user:
+!automine 60
+Expected:
+AutoMine limit 15 minutes. VIP can use 60.
+
+VIP user:
+!automine 60
+Expected:
+Works.
+
+Regular user:
+!autofish 60
+Expected:
+AutoFish limit 15 minutes. VIP can use 60.
+
+VIP user:
+!autofish 60
+Expected:
+Works.
+
+==================================================
+PART 16 — DO NOT BREAK STABILITY
+==================================================
+
+After changes, run:
+
+!bothealth
+!stability status
+!botconflicts
+!modulehealth
+!commandissues
+!checkcommands
+
+Expected:
+- No command issues.
+- No bot conflicts.
+- Err: none.
+- Reconnects stay low.
+- No DB lock spam.
+- No quick restart loop.
+
+==================================================
+PART 17 — FINAL REPORT
+==================================================
+
+After finishing, report:
+
+1. VIP menus changed.
+2. VIP durations confirmed.
+3. Lifetime VIP hidden/disabled.
+4. VIP prices used.
+5. Regular automine max duration.
+6. VIP automine max duration.
+7. Regular autofish max duration.
+8. VIP autofish max duration.
+9. Donation goal message updated.
+10. Top donors message updated.
+11. Party tip safety confirmed.
+12. !tipall redirect confirmed.
+13. Commands tested.
+14. !commandissues result.
+15. !checkcommands result.
+16. !bothealth/stability result.

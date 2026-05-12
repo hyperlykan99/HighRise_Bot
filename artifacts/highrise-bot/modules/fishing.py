@@ -1090,6 +1090,8 @@ async def handle_rodstats(bot: BaseBot, user: User) -> None:
 # ---------------------------------------------------------------------------
 
 _autofish_tasks: dict[str, asyncio.Task] = {}
+# Per-user duration override (set by handle_autofish when player requests minutes)
+_autofish_duration_override: dict[str, int] = {}
 
 
 def _get_af_setting(key: str, default: str) -> str:
@@ -1103,15 +1105,18 @@ async def _autofish_loop(bot: BaseBot, user: User) -> None:
     """Background AutoFish loop for one player."""
     uid       = user.id
     uname     = user.username
-    max_att   = int(_get_af_setting("autofish_max_attempts",   "30"))
-    max_mins  = int(_get_af_setting("autofish_duration_minutes", "30"))
+    max_att   = int(_get_af_setting("autofish_max_attempts", "30"))
+    # Use per-user override if set by handle_autofish, else fall back to DB setting
+    max_mins  = _autofish_duration_override.pop(uid, None)
+    if max_mins is None:
+        max_mins = int(_get_af_setting("autofish_duration_minutes", "30"))
     start_t   = datetime.now(timezone.utc)
     attempts  = 0
 
     await _w(bot, uid,
              f"🎣 AutoFish Started\n"
              f"Limit: {max_att} catches or {max_mins}m.\n"
-             f"Stops if you leave. /autofish off to stop.")
+             f"Stops if you leave. !autofish off to stop.")
 
     _af_started_at = datetime.now(timezone.utc).isoformat()
     try:
@@ -1253,10 +1258,46 @@ def stop_autofish_for_user(user_id: str, username: str,
     return False
 
 
-async def handle_autofish(bot: BaseBot, user: User, args: list[str]) -> None:
-    """/autofish on|off|status"""
-    sub = args[1].lower() if len(args) >= 2 else "status"
+_AUTOFISH_REG_LIMIT = 15   # minutes — regular player max explicit duration
+_AUTOFISH_VIP_LIMIT = 60   # minutes — VIP player max explicit duration
 
+
+async def handle_autofish(bot: BaseBot, user: User, args: list[str]) -> None:
+    """/autofish [minutes]|on|off|status"""
+    sub = args[1].lower() if len(args) >= 2 else "on"
+
+    # ── Numeric duration request: !autofish <minutes> ─────────────────────
+    if sub.isdigit():
+        req_mins = int(sub)
+        if req_mins < 1:
+            await _w(bot, user.id, "🎣 Duration must be at least 1 minute.")
+            return
+        is_vip  = db.owns_item(user.id, "vip")
+        cap     = _AUTOFISH_VIP_LIMIT if is_vip else _AUTOFISH_REG_LIMIT
+        if req_mins > cap:
+            if not is_vip:
+                await _w(bot, user.id,
+                         f"🎣 AutoFish limit: {_AUTOFISH_REG_LIMIT} minutes.\n"
+                         f"VIP can auto fish up to {_AUTOFISH_VIP_LIMIT} minutes.\n"
+                         f"Type !vip for perks.")
+                return
+            req_mins = _AUTOFISH_VIP_LIMIT
+        if _get_af_setting("autofish_enabled", "1") != "1":
+            await _w(bot, user.id, "🎣 AutoFish is currently disabled by staff.")
+            return
+        if user.id in _autofish_tasks and not _autofish_tasks[user.id].done():
+            await _w(bot, user.id,
+                     "🎣 AutoFish already running. Use !autofish off first.")
+            return
+        if not _is_in_room(user.username):
+            await _w(bot, user.id, "🎣 You must be in the room to start AutoFish.")
+            return
+        _autofish_duration_override[user.id] = req_mins
+        task = asyncio.create_task(_autofish_loop(bot, user))
+        _autofish_tasks[user.id] = task
+        return
+
+    # ── on/start ───────────────────────────────────────────────────────────
     if sub in ("on", "start"):
         if _get_af_setting("autofish_enabled", "1") != "1":
             await _w(bot, user.id,
@@ -1274,13 +1315,12 @@ async def handle_autofish(bot: BaseBot, user: User, args: list[str]) -> None:
         task = asyncio.create_task(_autofish_loop(bot, user))
         _autofish_tasks[user.id] = task
 
+    # ── off/stop ───────────────────────────────────────────────────────────
     elif sub in ("off", "stop"):
         if stop_autofish_for_user(user.id, user.username, "user_stopped"):
-            await _w(bot, user.id,
-                     "🎣 AutoFish stopped.")
+            await _w(bot, user.id, "🎣 AutoFish stopped.")
         else:
-            await _w(bot, user.id,
-                     "🎣 No active AutoFish session.")
+            await _w(bot, user.id, "🎣 No active AutoFish session.")
 
     else:
         await handle_autofishstatus(bot, user)
@@ -1292,12 +1332,16 @@ async def handle_autofishstatus(bot: BaseBot, user: User) -> None:
     enabled  = _get_af_setting("autofish_enabled", "1") == "1"
     max_att  = _get_af_setting("autofish_max_attempts",    "30")
     max_mins = _get_af_setting("autofish_duration_minutes", "30")
+    is_vip   = db.owns_item(user.id, "vip")
+    vip_str  = "Active" if is_vip else "Inactive"
     lines = [
         "🎣 AutoFish Status",
         f"Status: {'ON' if running else 'OFF'}",
         f"Global: {'Enabled' if enabled else 'Disabled by staff'}",
         f"Limit: {max_att} catches or {max_mins}m",
-        "Use !autofish on to start | /autofish off to stop",
+        f"Duration cap: {_AUTOFISH_REG_LIMIT}m regular / {_AUTOFISH_VIP_LIMIT}m VIP",
+        f"VIP: {vip_str}",
+        "!autofish on to start | !autofish off to stop",
     ]
     await _w(bot, user.id, "\n".join(lines)[:249])
 

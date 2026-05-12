@@ -63,7 +63,7 @@ from modules.admin_cmds import (
 )
 from modules.vip import (
     handle_vip, handle_vipperks, handle_myvip, handle_giftvip,
-    handle_viplist, handle_grantvip,
+    handle_viplist, handle_grantvip, handle_buyvip,
     handle_donate, handle_donationgoal, handle_topdonors,
     handle_sponsor, handle_sponsorgoldrain, handle_sponsorevent,
     handle_supporter, handle_perks,
@@ -1197,12 +1197,21 @@ _HELP_CATEGORIES: dict[str, str] = {
     ),
     "vip": (
         "💎 VIP Commands\n"
-        "!vip — view VIP info\n"
-        "!vipperks — view VIP perks\n"
-        "!buyvip [1d|7d|30d] — buy VIP\n"
-        "!myvip — check your VIP status\n"
-        "!donationgoal — view room goal\n"
-        "!topdonors — view top supporters"
+        "!vip — VIP overview & prices\n"
+        "!vipperks — view perks\n"
+        "!buyvip 1d/7d/30d — buy VIP with coins\n"
+        "!myvip — check status & expiry\n"
+        "No lifetime VIP."
+    ),
+    "support": (
+        "💛 Support ChillTopia\n"
+        "Ways to support:\n"
+        "!vip — VIP perks info\n"
+        "!buyvip 1d/7d/30d — buy VIP with coins\n"
+        "!donationgoal — room goal progress\n"
+        "!topdonors — top supporters\n"
+        "VIP gives longer !automine/!autofish sessions.\n"
+        "No lifetime VIP."
     ),
     "room": (
         "🏠 Room Commands\n"
@@ -4271,7 +4280,7 @@ class HangoutBot(BaseBot):
             await handle_grantvip(self, user, args)
 
         elif cmd in {"vipshop", "buyvip"}:
-            await handle_vip(self, user, args)
+            await handle_buyvip(self, user, args)
 
         elif cmd == "donate":
             await handle_donate(self, user)
