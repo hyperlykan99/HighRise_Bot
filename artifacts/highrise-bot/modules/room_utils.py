@@ -1777,37 +1777,40 @@ async def handle_socialhelp(bot: BaseBot, user: User) -> None:
 # ---------------------------------------------------------------------------
 
 async def handle_setbotspawn(bot: BaseBot, user: User, args: list[str]) -> None:
-    """/setbotspawn <bot_username> <spawn_name> — save a spawn for a specific bot."""
-    if not is_admin(user.username) and not is_owner(user.username):
-        await _w(bot, user.id, "Admin/owner only.")
+    """!setbotspawn @BotName <spawn_name> — save a named spawn for a specific bot."""
+    if not _can_manage_room(user.username):
+        await _w(bot, user.id, "Manager+ only.")
         return
     if len(args) < 3:
         await _w(bot, user.id,
-                 "Usage: /setbotspawn <bot_username> <spawn_name>\n"
-                 "Bot must be online and the spawn must exist.")
+                 "Usage: !setbotspawn @BotName <spawn_name>\n"
+                 "The spawn must already exist (!spawns to list).")
         return
     bot_username = args[1].lstrip("@").lower()
     spawn_name   = args[2].lower()
-    # Look up the spawn coordinates
     spawn = db.get_spawn(spawn_name)
     if not spawn:
         await _w(bot, user.id,
-                 f"Spawn '{spawn_name}' not found. /spawns to list saves.")
+                 f"Spawn '{spawn_name}' not found. !spawns to list saves.")
         return
     x, y, z = spawn["x"], spawn["y"], spawn["z"]
     facing   = spawn.get("facing", "FrontRight")
     db.set_bot_spawn(bot_username, spawn_name, x, y, z, facing, user.username)
-    await _w(bot, user.id,
-             f"✅ Bot @{bot_username} spawn → '{spawn_name}' ({x},{y},{z}) saved.")
+    msg = (
+        f"🤖 Bot Spawn Saved\n"
+        f"Bot: @{bot_username}\n"
+        f"Position: {x} {y} {z} {facing}"
+    )
+    await _w(bot, user.id, msg[:249])
 
 
 async def handle_setbotspawnhere(bot: BaseBot, user: User, args: list[str]) -> None:
-    """/setbotspawnhere <bot_username> — save bot's spawn at user's current position."""
-    if not is_admin(user.username) and not is_owner(user.username):
-        await _w(bot, user.id, "Admin/owner only.")
+    """!setbotspawnhere @BotName — save bot's spawn at the command user's position."""
+    if not _can_manage_room(user.username):
+        await _w(bot, user.id, "Manager+ only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /setbotspawnhere <bot_username>")
+        await _w(bot, user.id, "Usage: !setbotspawnhere @BotName")
         return
     bot_username = args[1].lstrip("@").lower()
 
@@ -1837,37 +1840,82 @@ async def handle_setbotspawnhere(bot: BaseBot, user: User, args: list[str]) -> N
     x, y, z = pos.x, pos.y, pos.z
     facing   = getattr(pos, "facing", "FrontRight")
     db.set_bot_spawn(bot_username, "custom", x, y, z, str(facing), user.username)
-    await _w(bot, user.id,
-             f"✅ Saved @{bot_username} spawn at your position ({x:.1f},{y:.1f},{z:.1f}).")
+
+    # Teleport the target bot to that position right now if it's in the room
+    moved = "NO"
+    try:
+        result = await _resolve_user_in_room(bot, bot_username)
+        if result:
+            target_user, _ = result
+            await bot.highrise.teleport(target_user.id, pos)
+            moved = "YES"
+    except Exception:
+        pass
+
+    msg = (
+        f"🤖 Bot Spawn Saved\n"
+        f"Bot: @{bot_username}\n"
+        f"Moved Here: {moved}\n"
+        f"Auto-return on rejoin: YES"
+    )
+    await _w(bot, user.id, msg[:249])
 
 
 async def handle_botspawns(bot: BaseBot, user: User) -> None:
-    """/botspawns — list all saved bot spawns."""
-    if not is_admin(user.username) and not is_owner(user.username):
-        await _w(bot, user.id, "Admin/owner only.")
+    """!botspawns — list all known bots with saved/not-set spawn status."""
+    if not _can_manage_room(user.username):
+        await _w(bot, user.id, "Manager+ only.")
         return
-    spawns = db.list_bot_spawns()
-    if not spawns:
-        await _w(bot, user.id, "No bot spawns saved yet. Use /setbotspawn.")
+
+    saved_map = {s["bot_username"]: s for s in db.list_bot_spawns()}
+
+    # Collect known bot usernames from bot_instances table
+    seen: list[str] = []
+    seen_lower: set[str] = set()
+    for inst in db.get_bot_instances():
+        bn = (inst.get("bot_username") or "").strip()
+        if bn and bn.lower() not in seen_lower:
+            seen.append(bn)
+            seen_lower.add(bn.lower())
+    # Also include any saved bots not in bot_instances
+    for bn in saved_map:
+        if bn.lower() not in seen_lower:
+            seen.append(bn)
+            seen_lower.add(bn.lower())
+
+    if not seen:
+        await _w(bot, user.id, "No bots registered yet. Use !setbotspawnhere @BotName.")
         return
-    parts = []
-    for s in spawns:
-        parts.append(f"@{s['bot_username']}→{s['spawn_name']} ({s['x']:.0f},{s['y']:.0f},{s['z']:.0f})")
-    await _w(bot, user.id, ("🤖 Bot spawns: " + "  |  ".join(parts))[:249])
+
+    lines = ["🤖 Bot Spawns"]
+    for bn in seen:
+        status = "saved" if bn.lower() in saved_map else "not set"
+        lines.append(f"@{bn} — {status}")
+
+    chunk = lines[0]
+    for line in lines[1:]:
+        candidate = chunk + "\n" + line
+        if len(candidate) <= 249:
+            chunk = candidate
+        else:
+            await _w(bot, user.id, chunk)
+            chunk = line
+    if chunk:
+        await _w(bot, user.id, chunk)
 
 
 async def handle_clearbotspawn(bot: BaseBot, user: User, args: list[str]) -> None:
-    """/clearbotspawn <bot_username> — remove a bot's saved spawn."""
-    if not is_admin(user.username) and not is_owner(user.username):
-        await _w(bot, user.id, "Admin/owner only.")
+    """!clearbotspawn @BotName — remove a bot's saved spawn."""
+    if not _can_manage_room(user.username):
+        await _w(bot, user.id, "Manager+ only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: /clearbotspawn <bot_username>")
+        await _w(bot, user.id, "Usage: !clearbotspawn @BotName")
         return
     bot_username = args[1].lstrip("@").lower()
     removed = db.clear_bot_spawn(bot_username)
     if removed:
-        await _w(bot, user.id, f"✅ Spawn for @{bot_username} cleared.")
+        await _w(bot, user.id, f"🗑️ Bot Spawn Cleared\nBot: @{bot_username}")
     else:
         await _w(bot, user.id, f"No spawn found for @{bot_username}.")
 

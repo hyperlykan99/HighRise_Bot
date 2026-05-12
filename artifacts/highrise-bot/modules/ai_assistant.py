@@ -1510,6 +1510,15 @@ async def handle_ai_intercept(bot, user, message: str) -> bool:
     if message.startswith("/"):
         return False
 
+    # Known !commands must NEVER be intercepted by AI — let the router handle them.
+    # e.g. !setbotspawnhere @ChillTopiaMC contains "@chilltopiamc" which would
+    # otherwise match the AI trigger; we bypass here for any registered command.
+    if message.startswith("!"):
+        from modules.command_registry import get_entry as _get_entry
+        _cmd_tok = message[1:].split()[0].lower() if len(message) > 1 else ""
+        if _cmd_tok and _get_entry(_cmd_tok) is not None:
+            return False
+
     if not _is_ai_trigger(message, BOT_USERNAME):
         return False
 

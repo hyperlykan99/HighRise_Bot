@@ -1,0 +1,198 @@
+Update 2.0 Hotfix — Bot Spawn Commands Being Intercepted by ChillTopiaMC AI
+
+Current issue:
+When I type:
+!setbotspawnhere @ChillTopiaMC
+
+ChillTopiaMC replies with an AI/lounge assistant message instead of running the bot spawn command.
+
+Also when I use:
+!summon @ChillTopiaMC
+
+It sometimes replies with text instead of executing the command.
+
+Goal:
+Bot spawn and summon commands must route before AI/chat assistant intercepts.
+
+==================================================
+PART 1 — ROUTE BOT SPAWN COMMANDS BEFORE AI
+==================================================
+
+In main.py / command router, these commands must be handled before:
+- AI assistant intercept
+- direct bot chat handler
+- fallback chatbot response
+- unknown command assistant response
+
+Commands:
+!setbotspawnhere
+!setbotspawn
+!botspawns
+!clearbotspawn
+!summon
+
+Required routing:
+!setbotspawnhere -> handle_setbotspawnhere
+!setbotspawn -> handle_setbotspawn
+!botspawns -> handle_botspawns
+!clearbotspawn -> handle_clearbotspawn
+!summon -> handle_summon
+
+Do not let AI assistant respond to these commands.
+
+==================================================
+PART 2 — AI MUST IGNORE REAL COMMANDS
+==================================================
+
+Update AI intercept logic:
+
+If message starts with "!" and command is a known command:
+- Do not answer as AI.
+- Let command router handle it.
+
+Only AI should answer:
+- normal chat messages
+- !ask [question]
+- approved AI commands
+
+AI should never intercept:
+!help
+!balance
+!mine
+!fish
+!bjshoe
+!summon
+!setbotspawnhere
+!setbotspawn
+!botspawns
+!clearbotspawn
+!tele
+!rolespawn
+!autospawn
+
+==================================================
+PART 3 — FIX BOT SPAWN COMMAND BEHAVIOR
+==================================================
+
+!setbotspawnhere @BotName
+
+Behavior:
+1. Check user is Owner/Admin/Manager, or Owner only if safer.
+2. Read command user position.
+3. Save that position as @BotName's spawn.
+4. Teleport @BotName to that position now if bot is in room.
+5. Reply with confirmation.
+
+Example:
+!setbotspawnhere @ChillTopiaMC
+
+Expected:
+🤖 Bot Spawn Saved
+Bot: @ChillTopiaMC
+Moved Here: YES
+Auto-return on rejoin: YES
+
+!setbotspawn @BotName x y z facing
+
+Expected:
+🤖 Bot Spawn Saved
+Bot: @BotName
+Position: x y z facing
+
+!botspawns
+
+Expected:
+🤖 Bot Spawns
+@ChillTopiaMC — saved
+@BankerBot — saved
+@BlackJackBot — not set
+
+!clearbotspawn @BotName
+
+Expected:
+🗑️ Bot Spawn Cleared
+Bot: @BotName
+
+==================================================
+PART 4 — FIX SUMMON BEHAVIOR
+==================================================
+
+!summon @BotName or !summon @Player
+
+Behavior:
+1. Check permission.
+2. Read command user's current position.
+3. Teleport target to command user's position.
+4. Reply confirmation.
+
+Expected:
+✅ Summoned @ChillTopiaMC to you.
+
+Do not trigger AI response.
+
+==================================================
+PART 5 — COMMAND TESTS
+==================================================
+
+Run:
+
+/commandtest !setbotspawnhere
+/commandtest !setbotspawn
+/commandtest !botspawns
+/commandtest !clearbotspawn
+/commandtest !summon
+
+Expected:
+route=YES
+handler=YES
+owner=Host
+or owner=ChillTopiaMC if bot spawn stays in room_utils, but handler must be YES.
+
+No AI response.
+
+==================================================
+PART 6 — LIVE TESTS
+==================================================
+
+Stand where I want ChillTopiaMC.
+
+Run:
+!setbotspawnhere @ChillTopiaMC
+
+Expected:
+🤖 Bot Spawn Saved
+Bot: @ChillTopiaMC
+Moved Here: YES
+Auto-return on rejoin: YES
+
+Then run:
+!botspawns
+
+Expected:
+@ChillTopiaMC — saved
+
+Then run:
+!summon @ChillTopiaMC
+
+Expected:
+✅ Summoned @ChillTopiaMC to you.
+
+No lounge assistant message.
+No AI message.
+No generic chat response.
+
+==================================================
+PART 7 — SAFETY
+==================================================
+
+Do not:
+- change bot tokens
+- change room ID
+- wipe database
+- wipe saved teleports
+- wipe role spawns
+- wipe bot spawns
+- let AI intercept real commands
+- break !help
+- break !tele
+- break !summon
