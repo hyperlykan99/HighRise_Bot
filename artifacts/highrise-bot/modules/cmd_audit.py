@@ -513,7 +513,7 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     # ── Message cap testing (host / EmceeBot) ────────────────────────────────
     "msgcap", "setmsgcap",
     # ── Autospawn + role listing (host / security) ───────────────────────────
-    "autospawn", "roles",
+    "autospawn", "roles", "rolemembers",
     # ── BJ shoe management ───────────────────────────────────────────────────
     "bjshoereset",
     # ── Economy audit ────────────────────────────────────────────────────────

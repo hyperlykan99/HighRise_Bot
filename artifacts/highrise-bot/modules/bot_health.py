@@ -24,6 +24,7 @@ _MODULE_MAP: dict[str, dict] = {
     "rbj":       {"owner": "blackjack", "cmds": ["rbj", "rjoin", "rh"], "label": "RBJ"},
     "poker":     {"owner": "poker",     "cmds": ["poker", "p", "fold"], "label": "Poker"},
     "mining":    {"owner": "miner",     "cmds": ["mine", "ores"],       "label": "Mining"},
+    "fishing":   {"owner": "fisher",    "cmds": ["fish", "autofish"],   "label": "Fishing"},
     "bank":      {"owner": "banker",    "cmds": ["bal", "send"],        "label": "Bank"},
     "shop":      {"owner": "shopkeeper","cmds": ["shop", "buy"],        "label": "Shop"},
     "security":  {"owner": "security",  "cmds": ["report", "warn"],     "label": "Security"},
@@ -331,6 +332,7 @@ async def handle_modulehealth(bot, user, args: list[str]) -> None:
         return
 
     # Summary of all modules
+    await _w(bot, user.id, "🔍 Module health check...")
     # A module is OK when its owner bot is online, OR when the host/all bot
     # is online and fallback is enabled (host handles commands when dedicated
     # bot is offline — e.g. eventhost shares a token with host).
@@ -702,6 +704,7 @@ async def handle_botconflicts(bot, user) -> None:
     if not can_manage_games(user.username):
         await _w(bot, user.id, "Manager and above only.")
         return
+    await _w(bot, user.id, "🔍 Checking bot conflicts...")
     instances = db.get_bot_instances()
     conflicts = _collect_conflicts(instances)
     stale = _get_stale_instances(instances)

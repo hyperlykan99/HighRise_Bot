@@ -241,6 +241,7 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "ptenable": "host", "ptdisable": "host",
     "ptwallet": "host", "ptadd": "host", "ptremove": "host",
     "ptclear": "host", "ptlist": "host", "ptlimits": "host", "ptlimit": "host",
+    "partytippers": "host", "partytipperlimits": "host",
     "partytipper": "host",
     # ── banker (additions) ───────────────────────────────────────────────────
     "gift": "banker",

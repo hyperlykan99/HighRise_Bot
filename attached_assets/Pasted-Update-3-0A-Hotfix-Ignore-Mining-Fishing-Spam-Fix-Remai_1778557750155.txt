@@ -1,0 +1,179 @@
+Update 3.0A Hotfix — Ignore Mining/Fishing Spam, Fix Remaining Command Issues
+
+Current status:
+Ignore mining/fishing/automine/autofish messages. They are not part of this fix.
+
+Important current results:
+!stability status works.
+Bot health shows:
+- Uptime around 8 minutes
+- Reconnects: 1
+- Err: none
+- PartyTip: ON
+- Stability: OFF
+
+Remaining issue:
+!commandissues still reports:
+- 1 no-route
+- 2 no-owner
+
+Examples:
+!partytipperlimits
+!partytippers
+!rolemembers
+
+Also:
+!modulehealth and !botconflicts did not clearly reply in-room, or the reply was hidden by bot spam.
+
+Goal:
+Fix only command cleanup and visibility.
+Do not change mining.
+Do not change fishing.
+Do not add features.
+Do not wipe data.
+Do not change tokens.
+Do not change room ID.
+
+==================================================
+PART 1 — FIX PARTY TIP ALIASES
+==================================================
+
+Make these aliases active, routed, owned, and handled:
+
+!partytipperlimits -> same handler as !ptlimits
+!partytippers -> same handler as !ptlist
+
+Expected:
+/commandtest !partytipperlimits
+owner=ChillTopiaMC
+route=YES
+handler=YES
+alias_of=ptlimits
+
+/commandtest !partytippers
+owner=ChillTopiaMC
+route=YES
+handler=YES
+alias_of=ptlist
+
+If you choose not to keep these aliases:
+move them to LEGACY/DEPRECATED and do not count them in active !commandissues.
+
+Preferred:
+Keep them as aliases.
+
+==================================================
+PART 2 — FIX !rolemembers
+==================================================
+
+Make !rolemembers active, routed, owned, and handled.
+
+Expected:
+/commandtest !rolemembers
+owner=Host
+route=YES
+handler=YES
+
+Live:
+!rolemembers
+
+Expected:
+Shows room roles and current users.
+
+If !rolemembers is intentionally replaced by another command:
+move it to legacy/deprecated and do not count it in active !commandissues.
+
+Preferred:
+Keep !rolemembers active under Host.
+
+==================================================
+PART 3 — MAKE COMMANDISSUES CLEAN
+==================================================
+
+After fixing aliases:
+
+!commandissues
+
+Expected:
+✅ No active command issues.
+
+Do not let !commandissues report:
+- hidden commands
+- deprecated commands
+- legacy aliases
+- inactive aliases
+
+/checkcommands already shows clean:
+Known 232 | Routed 232 | Missing 0 | NoOwner 0
+
+Make !commandissues agree with !checkcommands for active visible commands.
+
+==================================================
+PART 4 — FIX MODULEHEALTH AND BOTCONFLICTS VISIBILITY
+==================================================
+
+Make sure these commands reply clearly:
+
+!modulehealth
+!botconflicts
+
+Expected command tests:
+/commandtest !modulehealth
+/commandtest !botconflicts
+
+Expected:
+route=YES
+handler=YES
+owner=ChillTopiaMC or Host
+permission=Manager+
+
+Live responses:
+
+!modulehealth
+
+Expected:
+Modules:
+Blackjack OK
+Poker OK
+Bank OK
+Host OK
+PartyTip OK
+Mining OK/OFF
+Fishing OK/OFF
+
+!botconflicts
+
+Expected if clean:
+✅ No bot conflicts.
+
+If not clean:
+Show exact conflict and fix suggestion.
+
+Keep each message under 240 characters.
+If needed, split into multiple whispers.
+
+==================================================
+PART 5 — TESTS
+==================================================
+
+Run:
+
+/commandtest !partytipperlimits
+/commandtest !partytippers
+/commandtest !rolemembers
+/commandtest !modulehealth
+/commandtest !botconflicts
+
+Then run:
+
+!commandissues
+!checkcommands
+!modulehealth
+!botconflicts
+
+Expected:
+- No active command issues.
+- !checkcommands still clean.
+- !modulehealth replies.
+- !botconflicts replies.
+- Ignore mining/fishing spam.
