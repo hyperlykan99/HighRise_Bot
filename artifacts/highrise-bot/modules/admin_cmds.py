@@ -706,23 +706,23 @@ async def handle_checkhelp(bot: BaseBot, user: User, args: list[str]) -> None:
 # ---------------------------------------------------------------------------
 
 _MY_CMDS_PLAYER = [
-    "💰 Cmds — Coins & Profile\n/bal /daily /wallet /send\n/bank /transactions\n/profile /me /privacy\n/helpsearch keyword",
-    "🎮 Cmds — Games & Mining\n/mine /ores /tool\n/bjoin /rjoin /p\n/events /eventpoints\n/shop /buy /myitems",
-    "🏠 Cmds — More\n/rep /report /bug\n/subscribe /mycommands\n/players /emotes /spawns\n/start — new player guide",
+    "💰 Cmds — Coins & Profile\n!bal !daily !wallet !send\n!bank !transactions\n!profile !me !privacy\n!helpsearch keyword",
+    "🎮 Cmds — Games & Mining\n!mine !ores !tool\n!bjoin !rjoin !p\n!events !eventpoints\n!shop !buy !myitems",
+    "🏠 Cmds — More\n!rep !report !bug\n!subscribe !mycommands\n!players !emotes !spawns\n!start — new player guide",
 ]
 _MY_CMDS_MOD = [
-    "🔨 Mod Cmds\n/reports /reportinfo /closereport\n/warn /warnings /mute /unmute\n/audit /viewtx\n/modhelp - full list",
+    "🔨 Mod Cmds\n!reports !reportinfo !closereport\n!warn !warnings !mute !unmute\n!audit !viewtx\n!modhelp - full list",
 ]
 _MY_CMDS_MANAGER = [
-    "🧰 Manager Cmds\n/startevent /stopevent\n/autogames /autoevents\n/casinosettings /bj /rbj\n/managerhelp - full list",
+    "🧰 Manager Cmds\n!startevent !stopevent\n!autogames !autoevents\n!casinosettings !bj !rbj\n!managerhelp - full list",
 ]
 _MY_CMDS_ADMIN = [
-    "🛡️ Admin Cmds 1/2\n/addcoins /removecoins /setcoins\n/givetitle /givebadge /addvip\n/addmanager /addmoderator\n/adminhelp - full list",
-    "🛡️ Admin Cmds 2/2\n/addxp /setlevel /setrep\n/resetbjstats /resetpokerstats\n/bankblock /maintenance\n/adminlogs /adminpanel",
+    "🛡️ Admin Cmds 1/2\n!addcoins !removecoins !setcoins\n!givetitle !givebadge !addvip\n!addmanager !addmoderator\n!adminhelp - full list",
+    "🛡️ Admin Cmds 2/2\n!addxp !setlevel !setrep\n!resetbjstats !resetpokerstats\n!bankblock !maintenance\n!adminlogs !adminpanel",
 ]
 _MY_CMDS_OWNER = [
-    "👑 Owner Cmds 1/2\n/setcoins /givetitle /addvip\n/addowner /addadmin /goldtip\n/goldrain /backup /softrestart\n/ownerhelp - full list",
-    "👑 Owner Cmds 2/2\n/setlevel /setxp /addeventcoins\n/setrep /resetrep\n/resetcasinostats\n/adminlogs /adminpanel /checkhelp",
+    "👑 Owner Cmds 1/2\n!setcoins !givetitle !addvip\n!addowner !addadmin !goldtip\n!goldrain !backup !softrestart\n!ownerhelp - full list",
+    "👑 Owner Cmds 2/2\n!setlevel !setxp !addeventcoins\n!setrep !resetrep\n!resetcasinostats\n!adminlogs !adminpanel !checkhelp",
 ]
 
 async def handle_mycommands(bot: BaseBot, user: User, args: list[str]) -> None:

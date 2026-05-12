@@ -25,7 +25,7 @@ import database as db
 ACHIEVEMENTS: dict[str, dict] = {
     # ── Beginner ──────────────────────────────────────────────────────────
     "first_win":        {"name": "First Win",          "desc": "Win any mini game once",        "coins": 50,     "xp": 10,    "cat": "Beginner"},
-    "getting_started":  {"name": "Getting Started",    "desc": "Claim /daily 3 times",          "coins": 100,    "xp": 25,    "cat": "Beginner"},
+    "getting_started":  {"name": "Getting Started",    "desc": "Claim !daily 3 times",          "coins": 100,    "xp": 25,    "cat": "Beginner"},
     "first_purchase":   {"name": "First Purchase",     "desc": "Buy any shop item",             "coins": 100,    "xp": 25,    "cat": "Beginner"},
     # ── Game ──────────────────────────────────────────────────────────────
     "trivia_rookie":    {"name": "Trivia Rookie",      "desc": "Win 10 trivia games",           "coins": 250,    "xp": 50,    "cat": "Game"},
@@ -215,8 +215,8 @@ async def handle_achievements(bot, user, args: list[str]) -> None:
                 await bot.highrise.send_whisper(
                     user.id,
                     f"No achievements yet!\n"
-                    f"Play games, claim /daily, and visit the shop.\n"
-                    f"Type /achievements all to see all {len(ACHIEVEMENTS)} achievements."
+                    f"Play games, claim !daily, and visit the shop.\n"
+                    f"Type !achievements all to see all {len(ACHIEVEMENTS)} achievements."
                 )
                 return
 

@@ -6,7 +6,7 @@ Word Scramble mini-game for the Mini Game Bot.
 How it works:
   1. Any player types /scramble to start a game (public room announcement).
   2. The bot scrambles a word and posts the scrambled letters to the room.
-  3. Players unscramble it with /answer <word>.
+  3. Players unscramble it with !answer <word>.
   4. The first player to type the correct word wins SCRAMBLE_REWARD coins.
   5. Only one scramble game can be active at a time.
 """
@@ -113,7 +113,7 @@ async def _post_scramble(bot: BaseBot) -> None:
     await bot.highrise.chat(
         f"🔀 WORD SCRAMBLE! ({timer}s)\n"
         f"Unscramble: {_active['scrambled'].upper()}\n"
-        f"Type /answer to win {reward} coins! 🪙"
+        f"Type !answer to win {reward} coins! 🪙"
     )
 
 
@@ -128,7 +128,7 @@ async def start_game(bot: BaseBot, user: User):
     if _active is not None:
         await bot.highrise.send_whisper(
             user.id,
-            "🔀 Scramble is already going! Type /answer to guess."
+            "🔀 Scramble is already going! Type !answer to guess."
         )
         return
 
@@ -178,7 +178,7 @@ async def handle_answer(bot: BaseBot, user: User, answer_text: str):
 
     if _active is None:
         await bot.highrise.send_whisper(
-            user.id, "No scramble game is active. Type /scramble to start one!"
+            user.id, "No scramble game is active. Type !scramble to start one!"
         )
         return
 

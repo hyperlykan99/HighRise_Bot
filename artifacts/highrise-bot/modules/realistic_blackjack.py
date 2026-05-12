@@ -1201,7 +1201,7 @@ async def handle_rbj(bot: BaseBot, user: User, args: list[str]):
                 f"👁️ BlackJack Watch ON\n"
                 f"Phase: {phase} | Players: {players_in}\n"
                 f"You'll get whispers of key round events.\n"
-                f"/bj unwatch to stop."
+                f"!bj unwatch to stop."
             )
         elif sub == "unwatch":
             _bj_watchers.pop(user.id, None)
@@ -1304,7 +1304,7 @@ async def _cmd_join(bot: BaseBot, user: User, args: list[str]):
         _save_table_state()
         _state.lobby_task = asyncio.create_task(_lobby_countdown(bot, countdown))
         await bot.highrise.chat(
-            f"🃏 BlackJack table opened! Round starts in {countdown}s.\nJoin with /bet <amount>"
+            f"🃏 BlackJack table opened! Round starts in {countdown}s.\nJoin with !bet <amount>"
         )
     else:
         _save_table_state()
@@ -1973,7 +1973,7 @@ async def _cmd_bj_force(bot: BaseBot, user: User, sub: str, args: list[str]) -> 
         c2 = _parse_card(args[4])
         if not c1 or not c2:
             await bot.highrise.send_whisper(
-                user.id, "🧪 Invalid card. Example: /bj forcecards @Player A♠ K♠"
+                user.id, "🧪 Invalid card. Example: !bj forcecards @Player A♠ K♠"
             )
             return
         _force_state["player_cards"][target] = (c1, c2)
@@ -1990,7 +1990,7 @@ async def _cmd_bj_force(bot: BaseBot, user: User, sub: str, args: list[str]) -> 
         c2 = _parse_card(args[3])
         if not c1 or not c2:
             await bot.highrise.send_whisper(
-                user.id, "🧪 Invalid card. Example: /bj forcedealer A♣ K♦"
+                user.id, "🧪 Invalid card. Example: !bj forcedealer A♣ K♦"
             )
             return
         _force_state["dealer_cards"] = (c1, c2)
@@ -2255,11 +2255,11 @@ async def _cmd_bj_help(bot: BaseBot, user: User):
         user.id,
         f"🃏 BlackJack (Casino Shoe)\n"
         f"Bet: {min_b:,}–{max_b:,}c\n"
-        f"/bet <amount> — join or update bet\n"
-        f"🃏 /hit  🛑 /stand or /stay\n"
-        f"💰 /double  ✂️ /split\n"
-        f"🛡️ /insurance  🏳️ /surrender\n"
-        f"/bj rules  /bj stats  /bj shoe"
+        f"!bet <amount> — join or update bet\n"
+        f"🃏 !hit  🛑 !stand or !stay\n"
+        f"💰 !double  ✂️ !split\n"
+        f"🛡️ !insurance  🏳️ !surrender\n"
+        f"!bj rules  !bj stats  !bj shoe"
     )
 
 
@@ -2309,7 +2309,7 @@ async def handle_bet(bot: BaseBot, user: User, args: list) -> None:
     # Round active + player NOT in → wait message
     if _state.phase == "round" and _state.get_player(user.id) is None:
         await bot.highrise.send_whisper(
-            user.id, "Round in progress. Wait for next game, then /bet <amount>."
+            user.id, "Round in progress. Wait for next game, then !bet <amount>."
         )
         return
 

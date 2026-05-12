@@ -6,7 +6,7 @@ Trivia mini-game for the Mini Game Bot.
 How it works:
   1. Any player types /trivia to start a question (public room announcement).
   2. The bot posts the question to the room so everyone can see it.
-  3. Players answer with /answer <their answer>.
+  3. Players answer with !answer <their answer>.
   4. The first player to type the correct answer wins TRIVIA_REWARD coins.
   5. Only one trivia question can be active at a time.
 """
@@ -144,7 +144,7 @@ async def _post_trivia(bot: BaseBot) -> None:
     await bot.highrise.chat(
         f"🎯 TRIVIA TIME! ({timer}s)\n"
         f"{_active['question']}\n"
-        f"Type /answer to win {reward} coins! 🪙"
+        f"Type !answer to win {reward} coins! 🪙"
     )
 
 
@@ -159,7 +159,7 @@ async def start_game(bot: BaseBot, user: User):
     if _active is not None:
         await bot.highrise.send_whisper(
             user.id,
-            "❓ Trivia is already going! Type /answer to play."
+            "❓ Trivia is already going! Type !answer to play."
         )
         return
 
@@ -208,7 +208,7 @@ async def handle_answer(bot: BaseBot, user: User, answer_text: str):
     # This should not happen if bot.py checks is_active() first, but guard anyway
     if _active is None:
         await bot.highrise.send_whisper(
-            user.id, "No trivia question is active right now. Type /trivia to start one!"
+            user.id, "No trivia question is active right now. Type !trivia to start one!"
         )
         return
 

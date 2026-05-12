@@ -851,7 +851,7 @@ async def startup_bj_recovery(bot: BaseBot) -> None:
     if row.get("recovery_required"):
         print("[RECOVERY] BJ marked recovery_required — alerting in chat.")
         try:
-            await bot.highrise.chat("⚠️ BJ recovery needed. Use !bj recover or /bj refund.")
+            await bot.highrise.chat("⚠️ BJ recovery needed. Use !bj recover or !bj refund.")
         except Exception:
             pass
         return
@@ -930,7 +930,7 @@ async def startup_bj_recovery(bot: BaseBot) -> None:
         except Exception:
             pass
         try:
-            await bot.highrise.chat("⚠️ BJ recovery needed. Use !bj recover or /bj refund.")
+            await bot.highrise.chat("⚠️ BJ recovery needed. Use !bj recover or !bj refund.")
         except Exception:
             pass
 
@@ -1148,7 +1148,7 @@ async def _cmd_join(bot: BaseBot, user: User, args: list[str]):
         _cancel_task(_state.lobby_task, "Countdown")
         _save_table_state()
         _state.lobby_task = asyncio.create_task(_lobby_countdown(bot, countdown))
-        await bot.highrise.chat(f"🃏 BJ lobby open! /bjoin <bet>. Starts in {countdown}s.")
+        await bot.highrise.chat(f"🃏 BJ lobby open! !bjoin <bet>. Starts in {countdown}s.")
     else:
         _save_table_state()
 
@@ -1696,7 +1696,7 @@ async def _cmd_bj_state(bot: BaseBot, user: User):
         if row and row.get("active"):
             await bot.highrise.send_whisper(user.id,
                 f"BJ: idle in memory | DB phase:{row.get('phase')}\n"
-                "Use !bj recover or /bj refund.")
+                "Use !bj recover or !bj refund.")
         else:
             await bot.highrise.send_whisper(user.id, "BJ: no active table.")
         return
@@ -1725,7 +1725,7 @@ async def _cmd_bj_recover(bot: BaseBot, user: User):
         return
     if _state.phase != "idle":
         await bot.highrise.send_whisper(user.id,
-            "BJ is active. Use !bj state to inspect, /bj refund to cancel.")
+            "BJ is active. Use !bj state to inspect, !bj refund to cancel.")
         return
     row = db.load_casino_table("bj")
     if not row or not row.get("active"):

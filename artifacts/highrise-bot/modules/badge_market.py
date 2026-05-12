@@ -113,7 +113,7 @@ async def handle_shop_badges(bot: BaseBot, user: User, args: list[str]) -> None:
         for item in session_items:
             tick = "✅" if db.owns_emoji_badge(user.username, item["item_id"]) else ""
             lines.append(f"{item['num']} {tick}{item['emoji']} {_short(item['price'])}c")
-        lines.append("Buy: /buy <#>  More: /shop next")
+        lines.append("Buy: !buy <#>  More: !shop next")
         msg = "\n".join(lines)[:249]
 
     db.save_shop_session(user.username, "badges", page, session_items)
@@ -217,7 +217,7 @@ async def handle_equip_badge(bot: BaseBot, user: User, badge_id: str) -> None:
 
     if not db.owns_emoji_badge(user.username, badge_id):
         await bot.highrise.send_whisper(
-            user.id, f"You don't own {row['emoji']} {badge_id}. Buy: /buy badge {badge_id}."
+            user.id, f"You don't own {row['emoji']} {badge_id}. Buy: !buy badge {badge_id}."
         )
         return
 
@@ -252,7 +252,7 @@ async def handle_mybadges(bot: BaseBot, user: User) -> None:
 
     if not owned:
         await bot.highrise.send_whisper(
-            user.id, "You have no emoji badges. Browse: /shop badges"
+            user.id, "You have no emoji badges. Browse: !shop badges"
         )
         return
 

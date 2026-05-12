@@ -206,7 +206,7 @@ def _build_page1(uid: str, uname: str, p: dict, privacy: dict,
         f"Joined: {first}",
     ]
     if not is_self:
-        lines.append(f"More: /profile @{uname} 2")
+        lines.append(f"More: !profile @{uname} 2")
     return "\n".join(lines)[:249]
 
 
@@ -217,7 +217,7 @@ def _build_page2(uid: str, uname: str, p: dict, privacy: dict,
         return (
             f"💰 Economy — @{uname}\n"
             f"Coins: Hidden by player.\n"
-            f"More: /profile @{uname} 3"
+            f"More: !profile @{uname} 3"
         )[:249]
     balance = p.get("balance", 0)
     earned  = p.get("total_coins_earned", 0)
@@ -246,7 +246,7 @@ def _build_page2(uid: str, uname: str, p: dict, privacy: dict,
         f"Earned: {fmt_coins(earned)} | Wins: {wins}",
         f"Sent: {fmt_coins(sent)} | Recv: {fmt_coins(recv)}",
         f"Race Wins: {race_wins} | Streak: {streak}d",
-        f"More: /profile @{uname} 3",
+        f"More: !profile @{uname} 3",
     ]
     return "\n".join(lines)[:249]
 
@@ -258,7 +258,7 @@ def _build_page3(uid: str, uname: str, p: dict, privacy: dict,
         return (
             f"🎰 Casino — @{uname}\n"
             f"Casino stats hidden.\n"
-            f"More: /profile @{uname} 4"
+            f"More: !profile @{uname} 4"
         )[:249]
     bj_w = bj_l = bj_net = 0
     try:
@@ -292,7 +292,7 @@ def _build_page3(uid: str, uname: str, p: dict, privacy: dict,
         f"RBJ: {rbj_w}W/{rbj_l}L Net {_fmt_net(rbj_net)}c",
         f"Poker: {pk_w}W/{pk_l}L Net {_fmt_net(pk_net)}c",
         f"Rank: {casino_rank}",
-        f"More: /profile @{uname} 4",
+        f"More: !profile @{uname} 4",
     ]
     return "\n".join(lines)[:249]
 
@@ -304,7 +304,7 @@ def _build_page4(uid: str, uname: str, p: dict, privacy: dict,
         return (
             f"🛒 Items — @{uname}\n"
             f"Inventory hidden.\n"
-            f"More: /profile @{uname} 5"
+            f"More: !profile @{uname} 5"
         )[:249]
     badge = p.get("equipped_badge") or "None"
     title = p.get("equipped_title") or "None"
@@ -321,7 +321,7 @@ def _build_page4(uid: str, uname: str, p: dict, privacy: dict,
         f"Badge: {badge} | Title: {title}",
         f"Badges: {n_badges} | Titles: {n_titles}",
         f"VIP: {vip}",
-        f"More: /profile @{uname} 5",
+        f"More: !profile @{uname} 5",
     ]
     return "\n".join(lines)[:249]
 
@@ -333,7 +333,7 @@ def _build_page5(uid: str, uname: str, p: dict, privacy: dict,
         return (
             f"🏆 Progress — @{uname}\n"
             f"Achievements hidden.\n"
-            f"More: /profile @{uname} 6"
+            f"More: !profile @{uname} 6"
         )[:249]
     n_ach  = 0
     latest = "None"
@@ -356,7 +356,7 @@ def _build_page5(uid: str, uname: str, p: dict, privacy: dict,
         f"Achievements: {n_ach}",
         f"Latest: {latest}",
         f"Rep: {rep} | Rank: {reprank}",
-        f"More: /profile @{uname} 6",
+        f"More: !profile @{uname} 6",
     ]
     return "\n".join(lines)[:249]
 

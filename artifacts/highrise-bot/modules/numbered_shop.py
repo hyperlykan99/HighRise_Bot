@@ -81,7 +81,7 @@ async def handle_buy_number(bot: BaseBot, user: User, args: list[str]) -> None:
     session = db.get_shop_session(user.username)
     if session is None:
         await bot.highrise.send_whisper(
-            user.id, "Open a shop first. Example: /shop badges"
+            user.id, "Open a shop first. Example: !shop badges"
         )
         return True
 
@@ -356,7 +356,7 @@ async def handle_shoptest(bot: BaseBot, user: User, args: list[str]) -> None:
     uid = rec["user_id"] if rec else user.id
     fake_user = _FakeUser(uid, target)
 
-    await bot.highrise.send_whisper(user.id, f"🛍️ Simulating /shop {shop_type} for @{target}:")
+    await bot.highrise.send_whisper(user.id, f"🛍️ Simulating !shop {shop_type} for @{target}:")
 
     if shop_type == "badges":
         from modules.badge_market import handle_shop_badges

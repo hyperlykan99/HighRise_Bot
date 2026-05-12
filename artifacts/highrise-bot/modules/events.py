@@ -1212,7 +1212,7 @@ async def handle_eventshop(bot: BaseBot, user: User) -> None:
             "shop_type": "event",
         })
 
-    lines.append("Buy: /buy <#>")
+    lines.append("Buy: !buy <#>")
     msg = "\n".join(lines)
     if len(msg) > 249:
         msg = msg[:249]
@@ -1423,7 +1423,7 @@ async def handle_miningblessing(bot: BaseBot, user: User, args: list[str]) -> No
     try:
         await bot.highrise.chat(
             f"🔥 Admin's Mining Blessing is LIVE for {mins}m! "
-            "All mining boosts active. /mine now!"[:249]
+            "All mining boosts active. !mine now!"[:249]
         )
     except Exception:
         pass
@@ -1441,7 +1441,7 @@ async def handle_luckevent(bot: BaseBot, user: User, args: list[str]) -> None:
     await _w(bot, user.id, f"✅ Lucky Rush started ({mins}m)! 🍀 Luck +25%.")
     try:
         await bot.highrise.chat(
-            f"🍀 Lucky Rush is LIVE for {mins}m! Mine Rare+ ore easier. /mine"[:249]
+            f"🍀 Lucky Rush is LIVE for {mins}m! Mine Rare+ ore easier. !mine"[:249]
         )
     except Exception:
         pass
@@ -1474,7 +1474,7 @@ async def handle_miningevent_start(
     await _w(bot, user.id, f"✅ {name} started ({mins}m)!\n{eff}"[:249])
     try:
         await bot.highrise.chat(
-            f"⛏️ {name} is LIVE for {mins}m! {eff} /mine now!"[:249]
+            f"⛏️ {name} is LIVE for {mins}m! {eff} !mine now!"[:249]
         )
     except Exception:
         pass
@@ -2284,7 +2284,7 @@ async def handle_eventpreset(bot: BaseBot, user: User, args: list[str]) -> None:
         msg = (
             f"🎉 {preset['name']} is LIVE! "
             + " + ".join(started)
-            + " — /mine /fish now!"
+            + " — !mine !fish now!"
         )[:249]
         await bot.highrise.chat(msg)
     except Exception:

@@ -221,7 +221,7 @@ async def _send_catalog_page(
             owned = db.owns_item(user.id, item["item_id"])
             tick  = "✅" if owned else ""
             lines.append(f"{item['num']} {tick}{item['name']} {_fmt_p(item['price'])}")
-        lines.append("Buy: /buy <#>  More: /shop next")
+        lines.append("Buy: !buy <#>  More: !shop next")
         msg = "\n".join(lines)[:249]
 
     db.save_shop_session(user.username, shop_type, page, session_items)
@@ -282,8 +282,8 @@ async def handle_buy(bot: BaseBot, user: User, args: list[str]):
     if len(args) < 3:
         await bot.highrise.send_whisper(
             user.id,
-            "Usage: !buy badge <id>  or  /buy title <id>\n"
-            "See: /shop badges  or  /shop titles"
+            "Usage: !buy badge <id>  or  !buy title <id>\n"
+            "See: !shop badges  or  !shop titles"
         )
         return
 
@@ -384,11 +384,11 @@ async def handle_equip(bot: BaseBot, user: User, args: list[str]):
 
     if not db.owns_item(user.id, item_id):
         if item.get("event_cost") is not None:
-            hint = f"Get it from the event shop: /buyevent {item_id}"
+            hint = f"Get it from the event shop: !buyevent {item_id}"
         elif item.get("rep_threshold") is not None:
             hint = f"Earn {item['rep_threshold']} reputation to unlock it."
         else:
-            hint = f"Buy it first: /buy {item_type} {item_id}  ({item['price']:,} coins)"
+            hint = f"Buy it first: !buy {item_type} {item_id}  ({item['price']:,} coins)"
         await bot.highrise.send_whisper(
             user.id, f"You don't own {item['display']} {item_id}!  {hint}"
         )
@@ -430,8 +430,8 @@ async def handle_myitems(bot: BaseBot, user: User):
             text  = ", ".join(shown)
             return text + (f" +{rest}" if rest > 0 else "")
 
-        b_list = _compact(my_badges) if my_badges else "none — /shop badges"
-        t_list = _compact(my_titles) if my_titles else "none — /shop titles"
+        b_list = _compact(my_badges) if my_badges else "none — !shop badges"
+        t_list = _compact(my_titles) if my_titles else "none — !shop titles"
 
         await bot.highrise.send_whisper(user.id, "\n".join([
             f"-- {user.username}'s Items --",
@@ -454,7 +454,7 @@ async def handle_badgeinfo(bot: BaseBot, user: User, args: list[str]) -> None:
         item = BADGES.get(badge_id)
         if item is None:
             await bot.highrise.send_whisper(
-                user.id, "Item not found. Check !shop badges or /shop titles."
+                user.id, "Item not found. Check !shop badges or !shop titles."
             )
             return
 
@@ -473,7 +473,7 @@ async def handle_badgeinfo(bot: BaseBot, user: User, args: list[str]) -> None:
         print(f"[SHOP] badgeinfo error for {user.username}: {exc}")
         try:
             await bot.highrise.send_whisper(
-                user.id, "Item not found. Check !shop badges or /shop titles."
+                user.id, "Item not found. Check !shop badges or !shop titles."
             )
         except Exception:
             pass
@@ -486,7 +486,7 @@ async def handle_titleinfo(bot: BaseBot, user: User, args: list[str]) -> None:
         item = TITLES.get(title_id)
         if item is None:
             await bot.highrise.send_whisper(
-                user.id, "Item not found. Check !shop badges or /shop titles."
+                user.id, "Item not found. Check !shop badges or !shop titles."
             )
             return
 
@@ -505,7 +505,7 @@ async def handle_titleinfo(bot: BaseBot, user: User, args: list[str]) -> None:
         print(f"[SHOP] titleinfo error for {user.username}: {exc}")
         try:
             await bot.highrise.send_whisper(
-                user.id, "Item not found. Check !shop badges or /shop titles."
+                user.id, "Item not found. Check !shop badges or !shop titles."
             )
         except Exception:
             pass

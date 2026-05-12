@@ -969,7 +969,7 @@ async def handle_minebuy(bot: BaseBot, user: User, args: list[str]) -> None:
 
 async def handle_useenergy(bot: BaseBot, user: User, args: list[str]) -> None:
     await _w(bot, user.id,
-             "⛏️ Energy is no longer used in mining. Mine freely! /mine")
+             "⛏️ Energy is no longer used in mining. Mine freely! !mine")
 
 
 async def handle_useluckboost(bot: BaseBot, user: User) -> None:
@@ -1226,7 +1226,7 @@ async def handle_setminecooldown(bot: BaseBot, user: User, args: list[str]) -> N
 
 
 async def handle_setmineenergycost(bot: BaseBot, user: User, args: list[str]) -> None:
-    await _w(bot, user.id, "⛏️ Energy system removed. /mine has no energy cost.")
+    await _w(bot, user.id, "⛏️ Energy system removed. !mine has no energy cost.")
 
 
 async def handle_mineconfig(bot: BaseBot, user: User) -> None:
@@ -1893,7 +1893,7 @@ async def handle_orebook(bot: BaseBot, user: User) -> None:
     """/orebook — ore collection summary."""
     inv = db.get_inventory(user.username)
     if not inv:
-        await _w(bot, user.id, "📘 Ore Book: empty. /mine to start collecting!")
+        await _w(bot, user.id, "📘 Ore Book: empty. !mine to start collecting!")
         return
     total_types = len(inv)
     total_qty = sum(r.get("quantity", 0) for r in inv)
@@ -2025,7 +2025,7 @@ async def handle_deliver(bot: BaseBot, user: User, args: list[str]) -> None:
     have = db.get_ore_qty(user.username, ore_id)
     name = ore_id.replace("_", " ").title()
     if have == 0:
-        await _w(bot, user.id, f"❌ You have no {name}. /mine to collect some!")
+        await _w(bot, user.id, f"❌ You have no {name}. !mine to collect some!")
         return
     give = min(have, remaining)
     if not db.remove_ore(user.username, ore_id, give):

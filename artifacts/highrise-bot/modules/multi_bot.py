@@ -1460,9 +1460,9 @@ async def handle_commandowners(bot, user) -> None:
     rows = db.get_all_command_owners()
     if not rows:
         await _w(bot, user.id,
-                 "No DB overrides. Defaults: /bj→Blackjack | /p→Poker | /bal→Banker")
+                 "No DB overrides. Defaults: !bj→Blackjack | !p→Poker | !bal→Banker")
         return
-    parts = [f"/{r['command']}→{r['owner_bot_mode']}" for r in rows[:15]]
+    parts = [f"!{r['command']}→{r['owner_bot_mode']}" for r in rows[:15]]
     await _w(bot, user.id, ("Owners: " + " | ".join(parts))[:249])
 
 
@@ -1649,7 +1649,7 @@ async def send_startup_announce(bot) -> None:
             host_enabled = False
         if host_enabled and _cooldown_ok("last_host_startup_announce_at"):
             try:
-                await bot.highrise.chat("🎙️ Host online. Type /help or /tutorial.")
+                await bot.highrise.chat("🎙️ Host online. Type !help or !tutorial.")
                 db.set_room_setting("last_host_startup_announce_at", now.isoformat())
             except Exception as exc:
                 print(f"[BOT] Startup announce error: {exc}")

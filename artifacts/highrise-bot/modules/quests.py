@@ -41,10 +41,10 @@ import modules.leveling as leveling
 
 DAILY_QUESTS: list[dict] = [
     {"id": "daily_play_3",     "label": "games",    "desc": "Win 3 mini games",      "target": 3,    "coins": 100, "xp": 25},
-    {"id": "daily_claim",      "label": "daily",    "desc": "Claim /daily",           "target": 1,    "coins": 50,  "xp": 10},
+    {"id": "daily_claim",      "label": "daily",    "desc": "Claim !daily",           "target": 1,    "coins": 50,  "xp": 10},
     {"id": "daily_coinflip_3", "label": "coinflip", "desc": "Play coinflip 3x",       "target": 3,    "coins": 75,  "xp": 15},
     {"id": "daily_bj_2",       "label": "BJ",       "desc": "Play 2 BJ rounds",       "target": 2,    "coins": 100, "xp": 25},
-    {"id": "daily_answer_5",   "label": "ans",      "desc": "Submit 5 /answer tries", "target": 5,    "coins": 75,  "xp": 15},
+    {"id": "daily_answer_5",   "label": "ans",      "desc": "Submit 5 !answer tries", "target": 5,    "coins": 75,  "xp": 15},
 ]
 
 WEEKLY_QUESTS: list[dict] = [

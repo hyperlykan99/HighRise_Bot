@@ -1183,7 +1183,7 @@ async def handle_rodstats(bot: BaseBot, user: User) -> None:
     """/rodstats — rod stat explanation."""
     await _w(bot, user.id,
              "🎣 Rod Stats Guide\n"
-             "Cooldown: time between /fish casts\n"
+             "Cooldown: time between !fish casts\n"
              "Luck: boosts chance of rare fish\n"
              "Weight: shifts fish toward heavier end\n"
              "Value: % bonus to coin reward\n"
@@ -1613,7 +1613,7 @@ async def handle_forcedropfish(bot: BaseBot, user: User, args: list[str]) -> Non
                  f"Target: @{target}\n"
                  f"Type: rarity | Value: {raw_r}\n"
                  f"Status: pending | ID: {drop_id}\n"
-                 f"Next /fish or /autofish consumes this.")
+                 f"Next !fish or !autofish consumes this.")
     except Exception as exc:
         await _w(bot, user.id, f"❌ Failed to save forced drop: {exc!r}"[:249])
 
@@ -1659,7 +1659,7 @@ async def handle_forcedropfishitem(bot: BaseBot, user: User, args: list[str]) ->
                  f"Target: @{target}\n"
                  f"Type: fish | Value: {fish_item['name']}\n"
                  f"Status: pending | ID: {drop_id}\n"
-                 f"Next /fish or /autofish consumes this.")
+                 f"Next !fish or !autofish consumes this.")
     except Exception as exc:
         await _w(bot, user.id, f"❌ Failed to save forced drop: {exc!r}"[:249])
 

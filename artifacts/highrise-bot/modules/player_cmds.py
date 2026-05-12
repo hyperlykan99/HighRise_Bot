@@ -58,14 +58,14 @@ async def handle_menu(bot, user) -> None:
     """/menu — category help overview."""
     await _w(bot, user.id,
              "📋 Menu\n"
-             "Main: /start /profile /bal /rewards\n"
-             "Mine: /mine /automine /orebag /mineprofile\n"
-             "Fish: /fish /autofish /myfish /fishautosell")
+             "Main: !start !profile !bal !rewards\n"
+             "Mine: !mine !automine !orebag !mineprofile\n"
+             "Fish: !fish !autofish !myfish !fishautosell")
     await _w(bot, user.id,
-             "Games: /bj help /pokerhelp /coinflip\n"
-             "Events: /events /active /firstfindstatus\n"
-             "Economy: /shop /bank /daily /weeklylb\n"
-             "Help: /mycommands /rules /wherebots")
+             "Games: !bj help !pokerhelp !coinflip\n"
+             "Events: !events !active !firstfindstatus\n"
+             "Economy: !shop !bank !daily !weeklylb\n"
+             "Help: !mycommands !rules !wherebots")
 
 
 # ---------------------------------------------------------------------------
@@ -122,7 +122,7 @@ async def handle_cooldowns_cmd(bot, user) -> None:
         if rec and rec.get("claimed_today"):
             lines.append("Daily: claimed ✅")
         else:
-            lines.append("Daily: available /daily")
+            lines.append("Daily: available !daily")
     except Exception:
         lines.append("Daily: unknown")
 
@@ -238,10 +238,10 @@ async def handle_rankup(bot, user) -> None:
     """/rankup — guide on how to level up and improve rank."""
     await _w(bot, user.id,
              "📈 How to Rank Up\n"
-             "• Mine (/mine) for MXP and ore value\n"
-             "• Fish (/fish) for FXP and coin rewards\n"
-             "• Claim daily coins (/daily)\n"
-             "• Win First Hunt races (/firstfind)\n"
-             "• Complete quests (/quests)\n"
-             "• Play events (/events)\n"
-             "• Check your stats: /profile /mineprofile")
+             "• Mine (!mine) for MXP and ore value\n"
+             "• Fish (!fish) for FXP and coin rewards\n"
+             "• Claim daily coins (!daily)\n"
+             "• Win First Hunt races (!firstfind)\n"
+             "• Complete quests (!quests)\n"
+             "• Play events (!events)\n"
+             "• Check your stats: !profile !mineprofile")

@@ -6,7 +6,7 @@ Riddle mini-game for the Mini Game Bot.
 How it works:
   1. Any player types /riddle to start a game (public room announcement).
   2. The bot posts a riddle to the room.
-  3. Players answer with /answer <answer>.
+  3. Players answer with !answer <answer>.
   4. The first player to answer correctly wins RIDDLE_REWARD coins.
   5. Only one riddle can be active at a time.
 """
@@ -201,7 +201,7 @@ async def _post_riddle(bot: BaseBot) -> None:
     await bot.highrise.chat(
         f"🤔 RIDDLE TIME! ({timer}s)\n"
         f"{_active['riddle']}\n"
-        f"Type /answer to win {reward} coins! 🪙"
+        f"Type !answer to win {reward} coins! 🪙"
     )
 
 
@@ -216,7 +216,7 @@ async def start_game(bot: BaseBot, user: User):
     if _active is not None:
         await bot.highrise.send_whisper(
             user.id,
-            "🤔 A riddle is already out there! Type /answer to solve it."
+            "🤔 A riddle is already out there! Type !answer to solve it."
         )
         return
 
@@ -262,7 +262,7 @@ async def handle_answer(bot: BaseBot, user: User, answer_text: str):
 
     if _active is None:
         await bot.highrise.send_whisper(
-            user.id, "No riddle is active right now. Type /riddle to start one!"
+            user.id, "No riddle is active right now. Type !riddle to start one!"
         )
         return
 
