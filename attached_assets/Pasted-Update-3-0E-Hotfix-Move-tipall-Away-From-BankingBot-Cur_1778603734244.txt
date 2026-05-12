@@ -1,0 +1,143 @@
+Update 3.0E Hotfix — Move !tipall Away From BankingBot
+
+Current issue:
+!commandtest !tipall shows:
+
+owner=BankingBot
+banker_handles=true
+route=YES
+handler=YES
+
+This is wrong.
+
+Required:
+!tipall must be owned by ChillTopiaMC, not BankingBot.
+
+Current good results:
+!tip = ChillTopiaMC
+!ptwallet = ChillTopiaMC
+
+Goal:
+Fix !tipall ownership and make sure it never triggers BankingBot gold tipping.
+
+Do not change tokens.
+Do not wipe data.
+Do not change room ID.
+Do not change balances, VIP, mining/fishing, blackjack/poker, teleports, spawns, or command registry except this route/owner.
+
+==================================================
+PART 1 — CHANGE !tipall OWNER
+==================================================
+
+Set:
+
+!tipall
+owner=ChillTopiaMC
+route=YES
+handler=YES
+status=disabled_redirect
+
+Expected:
+
+!commandtest !tipall
+
+ct: tipall | owner=ChillTopiaMC | route=YES | handler=YES
+
+It must NOT show:
+owner=BankingBot
+banker_handles=true
+
+==================================================
+PART 2 — DISABLE BANKINGBOT !TIPALL HANDLER
+==================================================
+
+BankingBot must not handle:
+
+!tipall
+!tip all
+!tip
+
+BankingBot only handles:
+
+!goldtip
+!goldtip all
+!goldtipbots
+!goldrain
+!goldrainstatus
+!cancelgoldrain
+
+If old BankingBot !tipall code exists:
+- remove from active route
+- mark legacy/deprecated
+- do not count as active
+- do not let it call goldtip all
+
+==================================================
+PART 3 — CHILLTOPIAMC !TIPALL RESPONSE
+==================================================
+
+Live:
+
+!tipall 1
+
+Response from ChillTopiaMC:
+
+⚠️ Use !tip all [amount] for Party Tips.
+Example: !tip all 5
+
+Rules:
+- Do not send gold.
+- Do not call BankingBot.
+- Do not deduct Party Wallet.
+- Do not call goldtip all.
+- Do not call party tip all.
+- Redirect only.
+
+==================================================
+PART 4 — ROUTING PRIORITY
+==================================================
+
+Make sure !tipall is caught by ChillTopiaMC before any BankingBot/gold route.
+
+Explicit early route:
+
+if cmd == "tipall":
+    await handle_tipall_redirect(...)
+    return
+
+This must happen before:
+- BankingBot route
+- goldtip route
+- alias expansion
+- unknown fallback
+
+==================================================
+PART 5 — TESTS
+==================================================
+
+Run:
+
+!commandtest !tip
+!commandtest !tipall
+!commandtest !ptwallet
+!commandtest !goldtip
+!tipall 1
+!commandissues
+!checkcommands
+
+Expected:
+
+!tip owner=ChillTopiaMC
+!tipall owner=ChillTopiaMC
+!ptwallet owner=ChillTopiaMC
+!goldtip owner=BankingBot
+
+Live !tipall 1:
+ChillTopiaMC replies:
+⚠️ Use !tip all [amount] for Party Tips.
+Example: !tip all 5
+
+No gold sent.
+No Party Wallet deducted.
+No BankingBot response.
+No command issues.

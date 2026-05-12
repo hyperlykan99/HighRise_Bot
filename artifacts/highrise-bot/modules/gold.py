@@ -764,12 +764,6 @@ async def _handle_goldtip_all(bot, user, args: list[str]) -> None:
     await bot.highrise.send_whisper(user.id, summary[:249])
 
 
-async def handle_tipall(bot, user, args: list[str]) -> None:
-    """/tipall <amount> — alias for /goldtip all <amount>."""
-    new_args = ["goldtip", "all"] + args[1:]
-    await _handle_goldtip_all(bot, user, new_args)
-
-
 async def handle_goldtipall(bot, user, args: list[str]) -> None:
     """/goldtipall <amount> — alias for /goldtip all <amount>."""
     new_args = ["goldtip", "all"] + args[1:]

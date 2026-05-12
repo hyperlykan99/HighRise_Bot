@@ -2114,7 +2114,7 @@ def _migrate_db():
         ("setgoldrainstaff",  "goldrain", "banker", 0),
         ("setgoldrainmax",    "goldrain", "banker", 0),
         ("goldtipbots",       "goldtip",  "banker", 0),
-        ("tipall",            "goldtip",  "banker", 0),
+        ("tipall",            "party_tip", "host",   0),
         ("goldtipall",        "goldtip",  "banker", 0),
         # Msg cap → EmceeBot (host)
         ("msgcap",            "msg_cap",  "host",   1),

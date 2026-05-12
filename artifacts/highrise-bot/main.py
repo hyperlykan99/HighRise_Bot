@@ -324,7 +324,7 @@ from modules.gold import (
     handle_pendinggold, handle_confirmgoldtip,
     handle_setgoldrainstaff, handle_setgoldrainmax,
     handle_goldhelp,
-    handle_goldtipbots, handle_tipall, handle_goldtipall,
+    handle_goldtipbots, handle_goldtipall,
     set_bot_identity, get_bot_user_id, get_bot_username,
     add_to_room_cache, remove_from_room_cache,
     refresh_room_cache,
@@ -3260,7 +3260,7 @@ class HangoutBot(BaseBot):
             elif cmd == "goldtipbots":
                 await handle_goldtipbots(self, user, args)
             elif cmd == "goldtipall":
-                await handle_tipall(self, user, args)
+                await handle_goldtipall(self, user, args)
             elif cmd == "debugtips":
                 await handle_debugtips(self, user, args)
             elif cmd == "restarthelp":
