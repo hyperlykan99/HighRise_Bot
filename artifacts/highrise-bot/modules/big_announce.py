@@ -113,9 +113,20 @@ async def send_big_mine_announce(bot, rarity: str, username: str,
     mode = _get_routing("mining", rarity)
     if mode == "off":
         return
-    rar_label = rarity.replace("_", " ").upper()
+    _LBLS = {
+        "legendary":  "<#FFD700>[LEGENDARY]<#FFFFFF>",
+        "mythic":     "<#FF66CC>[MYTHIC]<#FFFFFF>",
+        "ultra_rare": "<#FF66CC>[ULTRA RARE]<#FFFFFF>",
+        "prismatic":  ("<#FF0000>[P<#FF9900>R<#FFFF00>I<#00FF00>S"
+                       "<#00CCFF>M<#3366FF>A<#9933FF>T<#FF66CC>I<#FF0000>C]<#FFFFFF>"),
+        "exotic":     "<#FF0000>[EXOTIC]<#FFFFFF>",
+    }
+    rar_label   = _LBLS.get(rarity, f"[{rarity.replace('_', ' ').upper()}]")
+    display_name = (f"<#FF66CC>{item_name}<#FFFFFF>" if rarity == "prismatic" else
+                    f"<#FF0000>{item_name}<#FFFFFF>" if rarity == "exotic" else
+                    item_name)
     ann = (f"📣 Big Find\n"
-           f"{item_emoji} @{username} mined [{rar_label}] {item_name}{extra}")
+           f"{item_emoji} @{username} mined {rar_label} {display_name}{extra}")
     if mode in ("miner_only", "all_bots"):
         try:
             await bot.highrise.chat(ann[:249])
@@ -135,9 +146,19 @@ async def send_big_fish_announce(bot, rarity: str, username: str,
     mode = _get_routing("fishing", rarity)
     if mode == "off":
         return
-    rar_label = rarity.replace("_", " ").upper()
+    _LBLS = {
+        "legendary":  "<#FFD700>[LEGENDARY]<#FFFFFF>",
+        "mythic":     "<#FF66CC>[MYTHIC]<#FFFFFF>",
+        "prismatic":  ("<#FF0000>[P<#FF9900>R<#FFFF00>I<#00FF00>S"
+                       "<#00CCFF>M<#3366FF>A<#9933FF>T<#FF66CC>I<#FF0000>C]<#FFFFFF>"),
+        "exotic":     "<#FF0000>[EXOTIC]<#FFFFFF>",
+    }
+    rar_label    = _LBLS.get(rarity, f"[{rarity.replace('_', ' ').upper()}]")
+    display_name = (f"<#FF66CC>{fish_name}<#FFFFFF>" if rarity == "prismatic" else
+                    f"<#FF0000>{fish_name}<#FFFFFF>" if rarity == "exotic" else
+                    fish_name)
     ann = (f"📣 Big Catch\n"
-           f"{fish_emoji} @{username} caught [{rar_label}] {fish_name}{extra}")
+           f"{fish_emoji} @{username} caught {rar_label} {display_name}{extra}")
     if mode in ("fishing_only", "all_bots"):
         try:
             await bot.highrise.chat(ann[:249])

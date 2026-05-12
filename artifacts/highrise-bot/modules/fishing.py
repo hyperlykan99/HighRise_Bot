@@ -669,9 +669,12 @@ async def handle_myfish(bot: BaseBot, user: User) -> None:
     if inv:
         total_val = sum(r["value"] for r in inv)
         lines.append(f"Unsold ({len(inv)}+) | Value: {_fmt(total_val)}c:")
-        for r in inv[:3]:
+        for r in inv[:2]:
             rl = _rar_plain(r["rarity"])
-            lines.append(f"  [{rl}] {r['fish_name']} {r['weight']}lb")
+            _fn = (f"<#FF66CC>{r['fish_name']}<#FFFFFF>" if r["rarity"] == "prismatic" else
+                   f"<#FF0000>{r['fish_name']}<#FFFFFF>" if r["rarity"] == "exotic" else
+                   r["fish_name"])
+            lines.append(f"  [{rl}] {_fn} {r['weight']}lb")
         lines.append("→ !sellfish to sell all")
     else:
         lines.append("Bag empty. !fish to fill it!")
@@ -925,7 +928,7 @@ async def handle_fishchances(bot: BaseBot, user: User) -> None:
         "epic":      "<#B266FF>[EPIC]<#FFFFFF>",
         "legendary": "<#FFD700>[LEGENDARY]<#FFFFFF>",
         "mythic":    "<#FF66CC>[MYTHIC]<#FFFFFF>",
-        "prismatic": "<#FF66CC>[PRISMATIC]<#FFFFFF>",
+        "prismatic": FISH_RARITIES["prismatic"]["label"],
         "exotic":    "<#FF0000>[EXOTIC]<#FFFFFF>",
     }
     _MAIN = [("common", 82.000), ("rare", 13.000), ("epic", 4.500),

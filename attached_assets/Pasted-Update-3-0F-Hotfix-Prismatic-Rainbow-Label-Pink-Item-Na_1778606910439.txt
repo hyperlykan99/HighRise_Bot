@@ -1,0 +1,202 @@
+Update 3.0F Hotfix — Prismatic Rainbow Label + Pink Item Name Everywhere
+
+Current issue:
+[PRISMATIC] should always display as rainbow.
+The ore/fish name itself should be pink.
+This must apply everywhere, including big announcements.
+
+Goal:
+Standardize Prismatic formatting across mining and fishing.
+
+Do not change rarity odds.
+Do not change rewards.
+Do not change item values.
+Do not change tokens.
+Do not wipe data.
+Do not change room ID.
+
+==================================================
+PART 1 — PRISMATIC DISPLAY RULE
+==================================================
+
+For rarity label:
+
+[PRISMATIC] must always be rainbow-colored.
+
+For item name:
+
+Ore/fish name must be pink.
+
+Example mining reward:
+
+You mined [RAINBOW PRISMATIC] <#FF66CC>Opal Prism Ore<#FFFFFF>
+
+Example fishing reward:
+
+You caught [RAINBOW PRISMATIC] <#FF66CC>Aurora Koi<#FFFFFF>
+
+Use the same pink for prismatic item names:
+
+<#FF66CC>Item Name<#FFFFFF>
+
+==================================================
+PART 2 — CREATE SHARED FORMAT HELPERS
+==================================================
+
+Create or update shared rarity formatting helpers for mining/fishing:
+
+format_rarity_label(rarity)
+format_item_name(name, rarity)
+
+Rules:
+
+if rarity == "prismatic":
+    label = rainbow [PRISMATIC]
+    item name = <#FF66CC>{name}<#FFFFFF>
+
+if rarity == "exotic":
+    label = red [EXOTIC]
+    item name = red or existing exotic color
+
+if rarity == "mythic":
+    label = pink/purple [MYTHIC]
+    item name = existing mythic color
+
+Do not duplicate inconsistent prismatic logic in multiple files.
+Use shared helper where possible.
+
+==================================================
+PART 3 — APPLY TO MINING
+==================================================
+
+Apply prismatic formatting to:
+
+!mine
+!mineinv
+!minechances
+!mineprofile if it shows best find
+!minelb if it shows rarity/item
+big mining announcements
+first find mining announcements
+weight/value record display if shown to player
+
+Mining expected:
+- [PRISMATIC] label = rainbow
+- prismatic ore name = pink
+- color tag closes correctly with <#FFFFFF>
+- no broken color tags
+- no message over 240 characters
+
+==================================================
+PART 4 — APPLY TO FISHING
+==================================================
+
+Apply prismatic formatting to:
+
+!fish
+!fishinv
+!fishchances
+!fishprofile if it shows best catch
+!fishlb if it shows rarity/item
+big fishing announcements
+first find fishing announcements
+
+Fishing expected:
+- [PRISMATIC] label = rainbow
+- prismatic fish name = pink
+- color tag closes correctly with <#FFFFFF>
+- no broken color tags
+- no message over 240 characters
+
+==================================================
+PART 5 — BIG ANNOUNCEMENTS
+==================================================
+
+Update big announcements so prismatic always uses:
+
+Rainbow [PRISMATIC] label
+Pink ore/fish name
+
+Example:
+
+🌈 PRISMATIC FIND!
+@Player found [RAINBOW PRISMATIC] <#FF66CC>Ore Name<#FFFFFF>
+
+or
+
+🌈 PRISMATIC CATCH!
+@Player caught [RAINBOW PRISMATIC] <#FF66CC>Fish Name<#FFFFFF>
+
+Rules:
+- Preserve colored rarity label.
+- Preserve pink item name.
+- Do not cut message.
+- Keep under 240 characters.
+- Do not add new hype behavior.
+- Do not pause room.
+- Do not mute players.
+- Do not spam extra bot messages.
+
+==================================================
+PART 6 — CHANCES DISPLAY
+==================================================
+
+Keep the current 2-message chances style.
+
+For !fishchances:
+
+Message 1:
+🎣 Fishing Chances
+[COMMON]: 82.0%
+[RARE]: 13.0%
+[EPIC]: 4.5%
+[LEGENDARY]: 0.47%
+[MYTHIC]: 0.025%
+
+Message 2:
+🎣 Ultra Rare Fish
+[RAINBOW PRISMATIC]: 0.0040%
+[EXOTIC]: 0.0010%
+
+For !minechances:
+
+Message 1:
+⛏️ Mining Chances
+[COMMON]: 65.0%
+[UNCOMMON]: 22.0%
+[RARE]: 10.0%
+[EPIC]: 2.75%
+[LEGENDARY]: 0.23%
+[MYTHIC]: 0.015%
+
+Message 2:
+⛏️ Ultra Rare Ores
+[ULTRA RARE]: 0.0040%
+[RAINBOW PRISMATIC]: 0.0008%
+[EXOTIC]: 0.0002%
+
+Keep [PRISMATIC] rainbow.
+Do not use plain pink [PRISMATIC].
+
+==================================================
+PART 7 — TESTS
+==================================================
+
+Run:
+
+!minechances
+!fishchances
+!commandissues
+!checkcommands
+
+Also test prismatic formatting by using existing safe display/debug method if available.
+Do not change actual odds.
+
+Expected:
+- [PRISMATIC] is rainbow everywhere.
+- Prismatic ore/fish names are pink.
+- Big announcements use rainbow label + pink name.
+- No broken color tags.
+- No message cutoff.
+- No command issues.
+- No checkcommands mismatch.

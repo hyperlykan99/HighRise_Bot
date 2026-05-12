@@ -746,7 +746,9 @@ async def handle_mineinv(bot: BaseBot, user: User, args: list[str]) -> None:
         lines = [f"🎒 Ores ({page}/{total_pages})"]
         for r in chunk:
             lbl = _rar_plain(r["rarity"])
-            lines.append(f"[{lbl}] {r['emoji']}{r['name']} x{r['quantity']}")
+            _n = (f"<#FF66CC>{r['name']}<#FFFFFF>" if r["rarity"] in ("prismatic", "ultra_rare") else
+                  f"<#FF0000>{r['name']}<#FFFFFF>" if r["rarity"] == "exotic" else r["name"])
+            lines.append(f"[{lbl}] {r['emoji']}{_n} x{r['quantity']}")
         if page < total_pages:
             lines.append(f"!mineinv {page + 1}")
         await _w(bot, user.id, "\n".join(lines))
@@ -759,7 +761,9 @@ async def handle_mineinv(bot: BaseBot, user: User, args: list[str]) -> None:
     lines = [f"🎒 Ores | {total_types} types | {_fmt(total_qty)} total"]
     for r in top5:
         lbl = _rar_plain(r["rarity"])
-        lines.append(f"[{lbl}] {r['emoji']}{r['name']} x{r['quantity']}")
+        _n = (f"<#FF66CC>{r['name']}<#FFFFFF>" if r["rarity"] in ("prismatic", "ultra_rare") else
+              f"<#FF0000>{r['name']}<#FFFFFF>" if r["rarity"] == "exotic" else r["name"])
+        lines.append(f"[{lbl}] {r['emoji']}{_n} x{r['quantity']}")
     if total_types > 5:
         lines.append("!mineinv all — full list | !sellores to sell")
     else:
@@ -2036,7 +2040,7 @@ async def handle_minechances(bot: BaseBot, user: User) -> None:
         "legendary":  "<#FFD700>[LEGENDARY]<#FFFFFF>",
         "mythic":     "<#FF66CC>[MYTHIC]<#FFFFFF>",
         "ultra_rare": "<#FF66CC>[ULTRA RARE]<#FFFFFF>",
-        "prismatic":  "<#FF66CC>[PRISMATIC]<#FFFFFF>",
+        "prismatic":  _ore_short_label("prismatic"),
         "exotic":     "<#FF0000>[EXOTIC]<#FFFFFF>",
     }
     def _pct(r: str) -> str:
