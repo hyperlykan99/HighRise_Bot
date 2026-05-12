@@ -1,0 +1,93 @@
+Update 3.0A Hotfix — Fix Fisher AutoGames Conflict
+
+Current issue:
+!botconflicts still reports:
+
+AutoGames owner=eventhost online but bots (fisher) may duplicate.
+Run !fixautogames. Fix: !clearstalebotlocks
+
+Goal:
+Fisher/MasterAngler must never be detected as an AutoGames duplicate.
+
+Do not change mining.
+Do not change fishing gameplay.
+Do not wipe data.
+Do not change tokens.
+Do not change room ID.
+
+==================================================
+PART 1 — FIX AUTOGAMES OWNER MAP
+==================================================
+
+AutoGames must only be owned by eventhost or the configured AutoGames owner.
+
+Rules:
+- autogames -> eventhost only
+- autoevents -> eventhost only
+- fisher/MasterAngler must never own or run AutoGames
+- miner/GreatestProspector must never own or run AutoGames
+- banker must never own or run AutoGames
+- blackjack must never own or run AutoGames
+- poker must never own or run AutoGames
+
+Update:
+should_this_bot_run_module()
+_MODULE_OWNER_MODES
+autogames owner logic
+botconflicts detection logic
+
+==================================================
+PART 2 — FIX FALSE POSITIVE BOTCONFLICTS
+==================================================
+
+If fisher has no active AutoGames lock and is not actually running AutoGames, do not report fisher as duplicate.
+
+!botconflicts should only report real conflicts:
+- duplicate live bot modes
+- active non-owner AutoGames lock
+- stale lock still active
+- BOT_MODE=all conflict with split bots
+
+Do not report fisher just because it is online.
+
+==================================================
+PART 3 — CLEAR STALE AUTOGAMES LOCKS
+==================================================
+
+Update !fixautogames to:
+1. Clear stale AutoGames locks.
+2. Ensure AutoGames owner is eventhost.
+3. Remove fisher/miner/banker/blackjack/poker from AutoGames ownership.
+4. Suppress AutoGames loop on fisher.
+5. Report what was changed.
+
+Expected:
+
+!fixautogames
+
+✅ AutoGames ownership fixed.
+Owner: eventhost
+Removed duplicate candidates: fisher
+Cleared stale locks: [count]
+
+==================================================
+PART 4 — TESTS
+==================================================
+
+Run:
+
+!fixautogames
+!clearstalebotlocks
+!botconflicts
+!modulehealth
+!commandissues
+
+Expected:
+!botconflicts:
+✅ No bot conflicts.
+
+!modulehealth:
+AutoGames OK
+
+!commandissues:
+✅ No command issues

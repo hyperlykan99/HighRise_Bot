@@ -663,7 +663,7 @@ def _collect_conflicts(instances: list) -> list[str]:
     # they skip autogames when the owner is online, so they are NOT real conflicts.
     # Only flag modes that have no deferral logic and are not the configured owner.
     _AUTOGAMES_NEVER = frozenset({
-        "blackjack", "poker", "miner", "banker", "shopkeeper", "security", "dj"
+        "blackjack", "poker", "miner", "fisher", "banker", "shopkeeper", "security", "dj"
     })
     _AUTOGAMES_FALLBACK = frozenset({"host", "all"})
     try:

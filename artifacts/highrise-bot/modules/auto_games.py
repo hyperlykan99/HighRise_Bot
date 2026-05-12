@@ -41,7 +41,7 @@ import modules.riddle   as riddle
 
 # Modes that may NEVER run auto-games unless explicitly set as owner via setting
 _NEVER_AUTOGAMES_MODES = frozenset({
-    "blackjack", "poker", "miner", "banker", "shopkeeper", "security", "dj"
+    "blackjack", "poker", "miner", "fisher", "banker", "shopkeeper", "security", "dj"
 })
 
 _AG_MODE_NAMES: dict[str, str] = {
@@ -948,20 +948,40 @@ async def handle_fixautogames(bot: BaseBot, user: User) -> None:
 
     db.set_room_setting("autogames_owner_bot_mode", "eventhost")
 
+    locks_cleared = 0
     try:
         conn = db.get_connection()
-        conn.execute(
+        cur = conn.execute(
             "DELETE FROM bot_module_locks "
             "WHERE module IN ('autogames', 'autogames_event')"
         )
+        locks_cleared = cur.rowcount
         conn.commit()
         conn.close()
     except Exception:
         pass
 
-    await bot.highrise.send_whisper(
-        user.id, "✅ AutoGames fixed. Owner: Event Bot."
-    )
+    # Report which non-owner bots are online (confirmed suppressed)
+    _non_owners = frozenset({
+        "blackjack", "poker", "miner", "fisher",
+        "banker", "shopkeeper", "security", "dj",
+    })
+    suppressed: list[str] = []
+    try:
+        instances = db.get_bot_instances()
+        suppressed = sorted({
+            inst.get("bot_mode", "?")
+            for inst in instances
+            if inst.get("bot_mode") in _non_owners
+        })
+    except Exception:
+        pass
+
+    parts = ["✅ AutoGames ownership fixed.", "Owner: eventhost"]
+    if suppressed:
+        parts.append(f"Removed duplicate candidates: {', '.join(suppressed)}")
+    parts.append(f"Cleared stale locks: {locks_cleared}")
+    await bot.highrise.send_whisper(user.id, " | ".join(parts)[:249])
 
 
 def get_current_auto_game() -> str | None:
