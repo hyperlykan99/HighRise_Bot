@@ -1254,7 +1254,15 @@ async def send_welcome_if_needed(bot: BaseBot, user: User) -> None:
         return
     if db.has_been_welcomed(user.username):
         return
-    msg = _rs("welcome_message", "👋 Welcome to the Lounge! Type !help to get started.")
+    msg = _rs(
+        "welcome_message",
+        "👋 Welcome to ChillTopia!\n"
+        "!help — command menu\n"
+        "!balance — coins  !mine / !fish — earn\n"
+        "!bet [amount] — blackjack\n"
+        "!tele list — spots  !subscribe — notifs\n"
+        "Have fun and chill!",
+    )
     try:
         await bot.highrise.send_whisper(user.id, msg[:249])
     except Exception:

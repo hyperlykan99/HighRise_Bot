@@ -40,59 +40,142 @@ def _utcnow() -> str:
 
 _DEFAULT_MESSAGES: dict[str, str] = {
     "emceebot":           (
-        "Welcome {username}! I'm ChillTopiaMC. "
-        "I handle room commands, events & AI help. "
-        "Type !help or ask 'Chill, what can I do?'"
+        "👋 Hi {username}! I'm ChillTopiaMC — room assistant. "
+        "!help — command menu. "
+        "!subscribe — notifications."
     ),
     "chilltopia":         (
-        "Welcome {username}! I'm ChillTopiaMC. "
-        "I handle room commands, events & AI help. "
-        "Type !help or ask 'Chill, what can I do?'"
+        "👋 Hi {username}! I'm ChillTopiaMC — room assistant. "
+        "!help — command menu. "
+        "!subscribe — notifications."
     ),
     "chilltopiamc":       (
-        "Welcome {username}! I'm ChillTopiaMC. "
-        "I handle room commands, events & AI help. "
-        "Type !help or ask 'Chill, what can I do?'"
+        "👋 Hi {username}! I'm ChillTopiaMC — room assistant. "
+        "!help — command menu. "
+        "!subscribe — notifications."
     ),
     "bankingbot":         (
-        "Welcome {username}! I'm BankingBot. "
-        "I handle coins, balances, transfers & gold tips. "
-        "Type /bal or /bankhelp."
+        "👋 Hi {username}! I'm BankingBot — coins & VIP. "
+        "!balance — your coins. "
+        "!vip — VIP info. "
+        "!donationgoal — room goal."
     ),
     "greatestprospector": (
-        "Welcome {username}! I'm GreatestProspector. "
-        "I run mining, ores, tools & ore weight leaderboards. "
-        "Type /mine or /minehelp."
+        "👋 Hi {username}! I'm GreatestProspector — mining. "
+        "!mine — mine ores. "
+        "!automine — auto mine. "
+        "!mineinv — your ores."
     ),
     "chipsoprano":        (
-        "Welcome {username}! I'm ChipSoprano. "
-        "I run poker tables. "
-        "Type /pokerhelp or /poker join."
+        "👋 Hi {username}! I'm ChipSoprano — poker. "
+        "!poker — poker info. "
+        "!poker join — join table. "
+        "!pokerhelp — rules."
     ),
     "acesinatra":         (
-        "Welcome {username}! I run Realistic Blackjack. "
-        "Type /bj or /bjhelp."
+        "👋 Hi {username}! I'm AceSinatra — blackjack. "
+        "!bet [amount] — place a bet. "
+        "!bjrules — game rules."
     ),
     "keanuShield":        (
-        "Welcome {username}! I'm KeanuShield. "
-        "I help staff with room safety and controls."
+        "👋 Hi {username}! I'm KeanuShield — room safety. "
+        "Type !help for commands."
     ),
     "dj_dudu":            (
-        "Welcome {username}! I'm the DJ. "
-        "I manage the music queue. "
-        "Type /djhelp to see what I can do."
+        "👋 Hi {username}! I'm DJ DUDU — room vibes. "
+        "Type !help for commands."
     ),
     "masterangler":       (
-        "Welcome {username}! I'm MasterAngler. "
-        "I run fishing — rods, catches & leaderboards. "
-        "Type /fish to cast or /fishhelp for commands."
+        "👋 Hi {username}! I'm MasterAngler — fishing. "
+        "!fish — cast your line. "
+        "!autofish — auto fish. "
+        "!fishinv — your fish."
     ),
 }
 
 # Fallback for any bot not in the map
 _DEFAULT_FALLBACK = (
-    "Welcome {username}! Type /help to see what's available."
+    "👋 Hi {username}! Welcome to ChillTopia. Type !help to see commands."
 )
+
+# ---------------------------------------------------------------------------
+# Bot profile bio templates — used by !bios (for manual copy/paste)
+# Highrise profile bios cannot be set via API; these are reference templates.
+# ---------------------------------------------------------------------------
+
+_BOT_BIO_TEMPLATES: list[tuple[str, str]] = [
+    ("ChillTopiaMC", (
+        "🎤 ChillTopiaMC\n"
+        "Room help + events + notifications\n"
+        "!help — command menu\n"
+        "!help games — games\n"
+        "!subscribe — notifications\n"
+        "!notif — settings\n"
+        "!ptlist — party tippers"
+    )),
+    ("BankingBot", (
+        "🏦 BankingBot\n"
+        "Coins + VIP + room goals\n"
+        "!balance — check coins\n"
+        "!send [user] [amount]\n"
+        "!vip — VIP info\n"
+        "!donationgoal — room goal"
+    )),
+    ("AceSinatra (BlackJack)", (
+        "🃏 BlackJackBot\n"
+        "Play blackjack with coins\n"
+        "!bet [amount] — place bet\n"
+        "!hit  !stand  !double  !split\n"
+        "!bjshoe — shoe status\n"
+        "!bjrules — rules"
+    )),
+    ("ChipSoprano (Poker)", (
+        "♠️ PokerBot\n"
+        "Poker table commands\n"
+        "!poker — poker info\n"
+        "!poker join — join table\n"
+        "!call  !raise [amount]  !fold\n"
+        "!check  !pokerhelp"
+    )),
+    ("GreatestProspector (Mining)", (
+        "⛏️ GreatestProspector\n"
+        "Mine ores + upgrade tools\n"
+        "!mine — mine once\n"
+        "!automine — auto mine\n"
+        "!automine off — stop\n"
+        "!mineinv  !minechances  !tool"
+    )),
+    ("MasterAngler (Fishing)", (
+        "🎣 MasterAngler\n"
+        "Catch fish + upgrade rods\n"
+        "!fish — fish once\n"
+        "!autofish — auto fish\n"
+        "!autofish off — stop\n"
+        "!fishinv  !fishchances  !rods"
+    )),
+    ("KeanuShield (Security)", (
+        "🛡️ SecurityBot\n"
+        "Room safety + moderation\n"
+        "Need help? Type !help"
+    )),
+    ("DJ_DUDU", (
+        "🎧 DJ Bot\n"
+        "Room vibes + events\n"
+        "Type !help for commands\n"
+        "!subscribe — notifications"
+    )),
+]
+
+# Staff/owner commands that must NOT appear in public bios
+_OWNER_STAFF_CMDS = {
+    "goldtip", "goldrain", "grantvip", "removevip", "setvipprice",
+    "addcoins", "removecoins", "setcoins", "resetcoins",
+    "addadmin", "removeadmin", "addmanager", "removemanager",
+    "addmoderator", "removemoderator", "addowner", "removeowner",
+    "setbotspawnhere", "clearBotspawn", "setrolespawn",
+    "adminpanel", "adminlogs", "checkcommands", "checkhelp",
+    "maintenance", "softrestart", "restartbot", "backup",
+}
 
 
 def _get_default_message(bot_username: str) -> str:
@@ -262,7 +345,7 @@ async def handle_setbotwelcome(bot: BaseBot, user: User, args: list[str]) -> Non
     message  = " ".join(args[2:])
     _set_setting(bot_name, "message", message)
     await _w(bot, user.id,
-             f"✅ Welcome for {bot_name} updated. /previewbotwelcome {bot_name} to test.")
+             f"✅ Welcome for {bot_name} updated. !previewbotwelcome {bot_name} to test.")
 
 
 # ---------------------------------------------------------------------------
@@ -321,3 +404,123 @@ async def handle_botwelcomes(bot: BaseBot, user: User, args: list[str]) -> None:
         cur = "ON" if _global_enabled() else "OFF"
         await _w(bot, user.id,
                  f"Bot welcomes: {cur}. Usage: !botwelcomes on | off")
+
+
+# ---------------------------------------------------------------------------
+# !bios — owner-only, whispers all recommended bot profile bios
+# ---------------------------------------------------------------------------
+
+async def handle_bios(bot: BaseBot, user: User) -> None:
+    """!bios — whisper all recommended bot profile bios for manual copy/paste."""
+    if not is_owner(user.username):
+        await _w(bot, user.id, "Owner only.")
+        return
+    await _w(bot, user.id,
+             "📋 Bot bios below. Copy each and paste into the bot's Highrise profile manually.")
+    for bot_name, bio_text in _BOT_BIO_TEMPLATES:
+        header = f"── {bot_name} ──"
+        await _w(bot, user.id, header[:249])
+        await _w(bot, user.id, bio_text[:249])
+
+
+# ---------------------------------------------------------------------------
+# !checkbios — owner/manager, audits bio templates for issues
+# ---------------------------------------------------------------------------
+
+import re as _re
+
+_SLASH_CMD_RE = _re.compile(r'(?:^| )/[a-z]')
+_BJ_AMOUNT_WRONG = _re.compile(r'!bj\s+\[')
+
+async def handle_checkbios(bot: BaseBot, user: User) -> None:
+    """!checkbios — audit configured bot bio templates for common issues."""
+    if not _can_manage(user.username):
+        await _w(bot, user.id, "Manager+ only.")
+        return
+
+    issues: list[str] = []
+    mining_bio = ""
+    fishing_bio = ""
+
+    for bot_name, bio_text in _BOT_BIO_TEMPLATES:
+        if _SLASH_CMD_RE.search(bio_text):
+            issues.append(f"{bot_name}: contains / command")
+        if _BJ_AMOUNT_WRONG.search(bio_text):
+            issues.append(f"{bot_name}: shows !bj [amount] — use !bet [amount]")
+        if "Mining" in bot_name or "Prospector" in bot_name:
+            mining_bio = bio_text
+        if "Fishing" in bot_name or "Angler" in bot_name:
+            fishing_bio = bio_text
+
+    if mining_bio and "!automine" not in mining_bio:
+        issues.append("Mining bio missing !automine")
+    if fishing_bio and "!autofish" not in fishing_bio:
+        issues.append("Fishing bio missing !autofish")
+
+    await _w(bot, user.id,
+             "⚠️ Cannot read live Highrise profile bios. Checked configured templates only.")
+    if not issues:
+        await _w(bot, user.id,
+                 "✅ Bio Audit Clean\n"
+                 "No / commands.\n"
+                 "Blackjack uses !bet [amount].\n"
+                 "Mining includes !automine.\n"
+                 "Fishing includes !autofish.")
+    else:
+        await _w(bot, user.id, f"⚠️ Bio Audit Issues ({len(issues)}):")
+        for issue in issues:
+            await _w(bot, user.id, f"  • {issue}"[:249])
+
+
+# ---------------------------------------------------------------------------
+# !checkonboarding — owner/manager, audits welcome/onboarding settings
+# ---------------------------------------------------------------------------
+
+async def handle_checkonboarding(bot: BaseBot, user: User) -> None:
+    """!checkonboarding — audit welcome/onboarding messages for issues."""
+    import database as _db
+    if not _can_manage(user.username):
+        await _w(bot, user.id, "Manager+ only.")
+        return
+
+    issues: list[str] = []
+
+    welcome_enabled = _db.get_room_setting("welcome_enabled", "true") == "true"
+    if not welcome_enabled:
+        issues.append("Room welcome is disabled (!setwelcome on to enable)")
+
+    welcome_msg = _db.get_room_setting(
+        "welcome_message",
+        "👋 Welcome to ChillTopia! !help — commands. !mine / !fish — earn coins. "
+        "!bet [amount] — blackjack. !tele list — spots. !subscribe — notifications.",
+    )
+    if _SLASH_CMD_RE.search(welcome_msg):
+        issues.append("Welcome message contains / command")
+    if "!bet" not in welcome_msg and "blackjack" not in welcome_msg.lower():
+        issues.append("Welcome message does not mention !bet [amount] for blackjack")
+    if "!automine" not in welcome_msg and "!mine" not in welcome_msg:
+        issues.append("Welcome message does not mention mining")
+    if "!autofish" not in welcome_msg and "!fish" not in welcome_msg:
+        issues.append("Welcome message does not mention fishing")
+
+    bw_enabled = _global_enabled()
+    for bname, msg in _DEFAULT_MESSAGES.items():
+        if _SLASH_CMD_RE.search(msg):
+            issues.append(f"Bot welcome ({bname}) contains / command")
+
+    cooldown_note = "Cooldown: bot_welcome_seen tracks per-bot per-user (default 24h)."
+
+    if not issues:
+        await _w(bot, user.id,
+                 "✅ Onboarding Audit Clean\n"
+                 "Welcome message OK.\n"
+                 "No / commands.\n"
+                 "Cooldown enabled.")
+        await _w(bot, user.id, cooldown_note[:249])
+        bw_state = "ON" if bw_enabled else "OFF"
+        await _w(bot, user.id, f"Bot welcomes global: {bw_state}")
+    else:
+        await _w(bot, user.id, f"⚠️ Onboarding Audit Issues ({len(issues)}):")
+        for issue in issues:
+            await _w(bot, user.id, f"  • {issue}"[:249])
+        await _w(bot, user.id, cooldown_note[:249])

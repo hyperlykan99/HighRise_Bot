@@ -366,6 +366,9 @@ from modules.bot_welcome import (
     handle_resetbotwelcome,
     handle_previewbotwelcome,
     handle_botwelcomes,
+    handle_bios,
+    handle_checkbios,
+    handle_checkonboarding,
 )
 from modules.gold_tips import (
     handle_goldtipsettings,
@@ -1023,6 +1026,8 @@ ALL_KNOWN_COMMANDS = (
         # ── Per-bot welcome messages (new) ────────────────────────────────────
         "botwelcome", "setbotwelcome", "resetbotwelcome",
         "previewbotwelcome", "botwelcomes",
+        # ── Bio + onboarding audit commands (3.0C) ────────────────────────────
+        "bios", "checkbios", "checkonboarding",
         # ── Gold tip commands (new) ────────────────────────────────────────────
         "goldtipsettings", "setgoldrate",
         "goldtiplogs", "mygoldtips", "goldtipstatus",
@@ -2221,17 +2226,17 @@ _handle_rbjhelp         = _paged_send(RBJ_HELP_PAGES)
 async def _handle_bankerhelp(bot, user, _args):
     await bot.highrise.send_whisper(
         user.id,
-        "🏦 Banker: /balance /coinhelp /bankhelp /economydbcheck"
+        "🏦 Banker: !balance  !coinhelp  !bankhelp"
     )
 
 
 async def _handle_howtoplay(bot, user, _args=None):
     """How-to-play / game guide — whispered to caller."""
     lines = [
-        "🃏 Games: BlackJack → /bet <amount>  Poker → /p <buyin>",
-        "🃏 BlackJack: 🃏/hit  🛑/stand  💰/double  ✂️/split  🛡️/insurance  🏳️/surrender | /bjhelp",
-        "♠️ Poker: /call /raise /fold /check /allin | /poker for table status",
-        "💰 Economy: /daily /balance /shop | /bjhelp /rbjhelp for rules",
+        "🎮 Games: Blackjack → !bet [amount]  Poker → !poker join",
+        "🃏 Blackjack: !hit  !stand  !double  !split  !bjrules  !bjhelp",
+        "♠️ Poker: !call  !raise [amount]  !fold  !check  !pokerhelp",
+        "💰 Economy: !daily  !balance  !shop  !mine  !fish  !help",
     ]
     for line in lines:
         await bot.highrise.send_whisper(user.id, line[:249])
@@ -4404,25 +4409,21 @@ class HangoutBot(BaseBot):
 
         elif cmd in {"start", "guide", "begin", "newplayer"}:
             await self.highrise.send_whisper(user.id,
-                "👋 Welcome to HR Lounge!\n"
-                "⛏️ Mine: !mine\n"
-                "🎣 Fish: !fish\n"
-                "💰 Balance: !balance\n"
-                "👤 Profile: !profile"
+                "🎮 Welcome to ChillTopia!\n"
+                "Quick start:\n"
+                "!balance — check coins\n"
+                "!mine — mine once\n"
+                "!fish — fish once\n"
+                "!automine — auto mine\n"
+                "!autofish — auto fish"
             )
             await self.highrise.send_whisper(user.id,
-                "🎮 Games:\n"
-                "🃏 Blackjack: !bjhelp\n"
-                "♠️ Poker: !pokerhelp\n"
-                "🎉 Events: !events\n"
-                "!aestatus  !firstfindstatus"
-            )
-            await self.highrise.send_whisper(user.id,
-                "🛒 Shop: !shop\n"
-                "🏆 Weekly LB: !weeklylb\n"
-                "📅 Daily Coins: !daily\n"
-                "❓ All help: !help\n"
-                "Tip: start with !mine or !fish!"
+                "🃏 Blackjack: !bet [amount]\n"
+                "♠️ Poker: !poker join\n"
+                "🗺️ Teleport: !tele list\n"
+                "📅 Daily coins: !daily\n"
+                "🔔 Updates: !subscribe\n"
+                "❓ All commands: !help"
             )
 
         elif cmd == "casinoadminhelp":
@@ -5270,6 +5271,14 @@ class HangoutBot(BaseBot):
             await handle_previewbotwelcome(self, user, args)
         elif cmd == "botwelcomes":
             await handle_botwelcomes(self, user, args)
+
+        # ── Bio + onboarding audit (3.0C) ─────────────────────────────────────
+        elif cmd == "bios":
+            await handle_bios(self, user)
+        elif cmd == "checkbios":
+            await handle_checkbios(self, user)
+        elif cmd == "checkonboarding":
+            await handle_checkonboarding(self, user)
 
         # ── Gold tip commands ─────────────────────────────────────────────────
         elif cmd == "goldtipsettings":

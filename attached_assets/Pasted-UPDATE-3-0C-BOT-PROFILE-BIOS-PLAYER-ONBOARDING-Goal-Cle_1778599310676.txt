@@ -1,0 +1,707 @@
+UPDATE 3.0C — BOT PROFILE BIOS + PLAYER ONBOARDING
+
+Goal:
+Clean and update all bot profile bios, onboarding messages, and beginner guidance so players instantly understand what each bot does and what basic commands to use.
+
+This update is only for:
+- bot profile bios
+- welcome/onboarding messages
+- simple player guidance
+- command discovery
+- beginner-friendly instructions
+
+Do not add new game features.
+Do not rewrite core systems.
+Do not change bot tokens.
+Do not change room ID.
+Do not wipe database.
+Do not change balances, VIP, subscriptions, notifications, mining/fishing data, blackjack/poker data, teleports, role spawns, bot spawns, party tip wallet, or command registry.
+
+Important:
+Use only working commands from Update 3.0B.
+Use ! commands only.
+Do not show / commands anywhere.
+Do not show owner/staff commands in public bios.
+Do not show broken, hidden, deprecated, or legacy commands.
+
+==================================================
+PART 1 — GENERAL BIO RULES
+==================================================
+
+Every bot profile bio should be short, clear, and player-friendly.
+
+Rules:
+- Show only basic player commands.
+- No owner commands in public bios.
+- No staff commands in public bios.
+- No debug/audit commands in public bios.
+- No / commands.
+- No confusing long explanations.
+- Every command with arguments must show [user], [amount], [spot], etc.
+- Keep bios short enough for Highrise profile limits.
+- If profile bio limit is strict, use the shorter version.
+
+Tone:
+Friendly, clean, simple.
+
+==================================================
+PART 2 — CHILLTOPIAMC BIO
+==================================================
+
+ChillTopiaMC is the main room assistant / emcee / help bot.
+
+Preferred bio:
+
+🎤 ChillTopiaMC
+Room help + events + notifications
+
+Commands:
+!help — command menu
+!help games — games
+!help party — party tips
+!subscribe — notifications
+!notif — notif settings
+!ptlist — party tippers
+!ptlimits — party limits
+
+Ask me:
+!help
+
+Short bio fallback:
+
+🎤 ChillTopiaMC
+Main room assistant
+
+!help — command menu
+!subscribe — notifications
+!notif — settings
+!help games — games
+!help party — party tips
+
+==================================================
+PART 3 — BANKINGBOT BIO
+==================================================
+
+BankingBot handles coins, sending coins, VIP, donations, and economy basics.
+
+Preferred bio:
+
+🏦 BankingBot
+Coins + VIP + room goals
+
+Commands:
+!balance — check coins
+!send [user] [amount] — send coins
+!vip — VIP info
+!myvip — check VIP
+!donationgoal — room goal
+!topdonors — supporters
+
+Short bio fallback:
+
+🏦 BankingBot
+Coins + VIP
+
+!balance — coins
+!send [user] [amount]
+!vip — VIP info
+!donationgoal — room goal
+
+Important:
+Do not show:
+!goldtip
+!goldrain
+!grantvip
+!removevip
+!setvipprice
+
+Those are owner/staff only and must not appear in public bio.
+
+==================================================
+PART 4 — BLACKJACKBOT BIO
+==================================================
+
+BlackJackBot handles blackjack.
+
+Important:
+Current live blackjack command is:
+
+!bet [amount]
+
+Do not advertise:
+
+!bj [amount]
+
+Preferred bio:
+
+🃏 BlackJackBot
+Play blackjack with coins
+
+Commands:
+!bet [amount] — place bet
+!hit — draw card
+!stand — hold
+!stay — same as stand
+!double — double bet
+!split — split hand
+!bjshoe — shoe status
+!bjrules — rules
+
+Short bio fallback:
+
+🃏 Blackjack
+!bet [amount]
+!hit
+!stand
+!double
+!split
+!bjshoe
+
+==================================================
+PART 5 — POKERBOT BIO
+==================================================
+
+PokerBot handles poker.
+
+Preferred bio:
+
+♠️ PokerBot
+Poker table commands
+
+Commands:
+!poker — poker info
+!joinpoker — join table
+!leavepoker — leave
+!bet [amount] — bet
+!call — call
+!raise [amount] — raise
+!check — check
+!fold — fold
+
+Short bio fallback:
+
+♠️ PokerBot
+!poker — info
+!joinpoker — join
+!bet [amount]
+!call
+!raise [amount]
+!fold
+
+Important:
+If there is a real command conflict between blackjack !bet and poker !bet, make bio match current router behavior.
+Do not show a poker command that is not actually routed.
+
+==================================================
+PART 6 — GREATESTPROSPECTOR BIO
+==================================================
+
+GreatestProspector handles mining.
+
+Preferred bio:
+
+⛏️ GreatestProspector
+Mine ores + upgrade tools
+
+Commands:
+!mine — mine once
+!automine — auto mine
+!stopmine — stop auto mine
+!mineinv — view ores
+!minechances — drop chances
+!tool — pickaxe
+!upgradetool — upgrade
+
+Short bio fallback:
+
+⛏️ Mining
+!mine
+!automine
+!stopmine
+!mineinv
+!minechances
+!tool
+
+==================================================
+PART 7 — MASTERANGLER BIO
+==================================================
+
+MasterAngler handles fishing.
+
+Preferred bio:
+
+🎣 MasterAngler
+Catch fish + upgrade rods
+
+Commands:
+!fish — fish once
+!autofish — auto fish
+!stopfish — stop auto fish
+!fishinv — view fish
+!fishchances — drop chances
+!rod — current rod
+!rods — rod shop
+
+Short bio fallback:
+
+🎣 Fishing
+!fish
+!autofish
+!stopfish
+!fishinv
+!fishchances
+!rod
+
+==================================================
+PART 8 — HOST / ROOM BOT BIO
+==================================================
+
+Host bot handles room navigation and role/spawn info.
+
+Preferred bio:
+
+🏠 Room Host
+Navigation + room info
+
+Commands:
+!tele list — teleport spots
+!tele [spot] — teleport
+!roles — view roles
+!rolemembers — role members
+!botspawns — saved bot spots
+!help room — room help
+
+Short bio fallback:
+
+🏠 Room Host
+!tele list
+!tele [spot]
+!roles
+!rolemembers
+!help room
+
+Important:
+Do not show owner-only setup commands in public bio:
+!create tele
+!delete tele
+!summon
+!setrolespawn
+!setbotspawnhere
+!clearbotspawn
+
+==================================================
+PART 9 — SECURITYBOT BIO IF EXISTS
+==================================================
+
+If SecurityBot exists and has a profile/bio, keep it simple.
+
+Preferred bio:
+
+🛡️ SecurityBot
+Room safety + moderation
+
+Need help?
+Ask staff or type:
+!help
+
+Short bio fallback:
+
+🛡️ SecurityBot
+Room safety
+Type !help for commands
+
+Do not show staff moderation commands publicly unless the bot profile is staff-only.
+
+==================================================
+PART 10 — EVENTBOT / EVENTHOST BIO IF EXISTS
+==================================================
+
+If EventBot/EventHost exists, update bio.
+
+Preferred bio:
+
+🎉 EventHost
+Mini games + room events
+
+Commands:
+!help games — game commands
+!subscribe — event notifications
+!notif — notification settings
+
+Short bio fallback:
+
+🎉 EventHost
+Room events
+!help games
+!subscribe
+!notif
+
+Do not show owner event setup commands publicly.
+
+==================================================
+PART 11 — DJ / RADIO BOT BIO IF EXISTS
+==================================================
+
+If DJ or Radio bot exists, update bio carefully.
+
+Preferred bio:
+
+🎧 DJ Bot
+Room music + vibes
+
+Commands:
+!help — room commands
+!subscribe — notifications
+
+Short bio fallback:
+
+🎧 DJ Bot
+Music + vibes
+Type !help
+
+Important:
+Do not show music commands unless they actually work.
+Do not show risky YouTube/download/rip wording.
+Do not mention ripping audio.
+
+==================================================
+PART 12 — WELCOME MESSAGE FOR NEW PLAYERS
+==================================================
+
+Create or clean a short onboarding message for users entering the room.
+
+Rules:
+- Do not spam every time if they rejoin quickly.
+- Add cooldown per user, recommended 30–60 minutes.
+- Keep message short.
+- Whisper is preferred over public chat.
+- New player welcome should show only basic commands.
+
+Preferred whisper:
+
+👋 Welcome to ChillTopia!
+
+Start here:
+!help — command menu
+!balance — check coins
+!mine / !fish — earn coins
+!bet [amount] — blackjack
+!tele list — teleport spots
+!subscribe — notifications
+
+Have fun and chill!
+
+Short fallback:
+
+👋 Welcome to ChillTopia!
+Type !help to see commands.
+Try !mine, !fish, !balance, or !tele list.
+
+==================================================
+PART 13 — RETURNING PLAYER MESSAGE
+==================================================
+
+If there is a returning player message, make it very short or disable it.
+
+Preferred:
+Do not send returning message every join.
+
+If enabled, use cooldown and whisper:
+
+Welcome back, [name]!
+Type !help if you need commands.
+
+Cooldown:
+At least 60 minutes per user.
+
+==================================================
+PART 14 — FIRST-TIME PLAYER START MESSAGE
+==================================================
+
+If the room uses !start, make it beginner-friendly.
+
+!start response:
+
+🎮 Welcome to ChillTopia!
+
+Quick start:
+!balance — check coins
+!mine — mine once
+!fish — fish once
+!automine — auto mine
+!autofish — auto fish
+!bet [amount] — blackjack
+!tele list — teleport spots
+!help — all commands
+
+Optional:
+!subscribe — get room updates
+
+==================================================
+PART 15 — HELP PROMPTS WHEN UNKNOWN COMMAND
+==================================================
+
+Unknown command response should stay short.
+
+Preferred:
+
+Unknown command.
+Type !help.
+
+If close match exists:
+
+Unknown command.
+Did you mean ![command]?
+Type !help.
+
+Do not use AI to answer unknown commands unless explicitly set.
+Do not show / commands.
+
+==================================================
+PART 16 — BASIC COMMAND EXPLANATIONS
+==================================================
+
+When players ask normal beginner phrases, ChillTopiaMC may respond with simple help.
+
+Examples:
+
+If player says:
+how do I earn coins
+
+Reply:
+Earn coins with:
+!mine — mine ores
+!fish — catch fish
+!automine — auto mine
+!autofish — auto fish
+!bet [amount] — blackjack
+
+If player says:
+how do I play blackjack
+
+Reply:
+Blackjack:
+!bet [amount] — start
+!hit — draw
+!stand — hold
+!double — double
+!split — split
+!bjrules — rules
+
+If player says:
+how do I teleport
+
+Reply:
+Teleport:
+!tele list — see spots
+!tele [spot] — go there
+
+Keep these short.
+Do not let AI intercept real ! commands.
+
+==================================================
+PART 17 — PARTY TIP ONBOARDING
+==================================================
+
+Party tip public/basic explanation:
+
+🎉 Party Tips
+During party mode, selected helpers can tip players.
+
+View:
+!ptlist — party tippers
+!ptlimits — limits
+
+If user is party tipper:
+!tip [user] [amount]
+!tip [players] [amount]
+!tip all [amount]
+
+If user is not party tipper:
+Tell them:
+Only active Party Tippers can use !tip during party mode.
+
+Do not show party owner commands to regular players.
+
+==================================================
+PART 18 — PROFILE BIO STORAGE / UPDATE METHOD
+==================================================
+
+If bios are stored in config/database:
+- update the stored profile bio strings.
+
+If bios require manual setting in Highrise and cannot be changed through code:
+- create a command or output list for owner to copy/paste manually.
+- Do not falsely claim bios were changed automatically if Highrise API does not allow it.
+
+Add owner command if useful:
+
+!bios
+
+Owner only.
+Shows all recommended bot bios in copyable format.
+
+If profile bio cannot be set automatically, !bios should output:
+- ChillTopiaMC bio
+- BankingBot bio
+- BlackJackBot bio
+- PokerBot bio
+- GreatestProspector bio
+- MasterAngler bio
+- Host bio
+
+Keep each bio in separate whisper/message.
+
+==================================================
+PART 19 — BIO AUDIT
+==================================================
+
+Add or update:
+
+!checkbios
+
+Owner/Manager only.
+
+Purpose:
+Check current configured bot bio text for:
+- / command leftovers
+- owner commands in public bios
+- staff commands in public bios
+- !bj [amount] shown instead of !bet [amount]
+- missing !automine in mining bio
+- missing !autofish in fishing bio
+- commands with missing usage placeholders
+
+Expected clean response:
+
+✅ Bio Audit Clean
+No / commands.
+No owner commands in public bios.
+Blackjack uses !bet [amount].
+Mining includes !automine.
+Fishing includes !autofish.
+
+If issues:
+
+⚠️ Bio Audit Issues
+BlackJackBot bio shows !bj [amount]
+GreatestProspector bio missing !automine
+MasterAngler bio missing !autofish
+
+If current Highrise profile bios cannot be read by code:
+Say:
+⚠️ Cannot read live Highrise profile bios.
+Checked configured bio templates only.
+
+==================================================
+PART 20 — ONBOARDING AUDIT
+==================================================
+
+Add or update:
+
+!checkonboarding
+
+Owner/Manager only.
+
+Checks:
+- welcome message uses ! commands
+- no / commands
+- blackjack says !bet [amount]
+- automine/autofish included
+- no owner/staff commands shown to regular players
+- join cooldown enabled
+
+Expected:
+
+✅ Onboarding Audit Clean
+Welcome message OK.
+No / commands.
+Cooldown enabled.
+
+==================================================
+PART 21 — COMMANDS TO REGISTER
+==================================================
+
+Register these if not already registered:
+
+!bios
+!checkbios
+!checkonboarding
+
+Expected:
+/commandtest !bios
+/commandtest !checkbios
+/commandtest !checkonboarding
+
+owner=ChillTopiaMC or Host
+route=YES
+handler=YES
+permission=Owner/Manager
+
+If already registered, verify they work.
+
+==================================================
+PART 22 — DO NOT BREAK 3.0A/3.0B CLEAN STATUS
+==================================================
+
+After changes, these must stay clean:
+
+!commandissues
+!checkcommands
+!checkhelp
+
+Expected:
+No command issues.
+No broken help.
+No / commands in help.
+
+==================================================
+PART 23 — TESTS
+==================================================
+
+Run:
+
+!bios
+!checkbios
+!checkonboarding
+!checkhelp
+!commandissues
+!checkcommands
+
+Test welcome/onboarding:
+- simulate new user join if possible
+- or run internal preview command if available
+
+Expected:
+- Bios are correct or copyable.
+- Onboarding message is short and player-friendly.
+- No / commands.
+- No owner commands in public bios.
+- No staff commands in public bios.
+- Blackjack uses !bet [amount].
+- Mining includes !automine.
+- Fishing includes !autofish.
+- Command issues stay clean.
+
+==================================================
+PART 24 — FINAL REPORT
+==================================================
+
+After finishing, report:
+
+1. Which bot bios were updated.
+2. Whether bios were changed automatically or generated for manual copy/paste.
+3. Whether !bios works.
+4. Whether !checkbios works.
+5. Whether !checkonboarding works.
+6. Welcome message text.
+7. Returning player cooldown.
+8. Any / command leftovers found.
+9. Whether BlackJackBot bio uses !bet [amount].
+10. Whether mining bio includes !automine.
+11. Whether fishing bio includes !autofish.
+12. !checkbios result.
+13. !checkonboarding result.
+14. !checkhelp result.
+15. !commandissues result.
+16. !checkcommands result.

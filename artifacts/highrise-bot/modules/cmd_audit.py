@@ -728,6 +728,7 @@ VISIBLE_CMDS: frozenset[str] = frozenset({
     "autospawn", "roles", "bjshoereset",
     "economyaudit", "gameprices", "gameprice", "setgameprice",
     "messageaudit", "helpaudit", "staffhelp",
+    "bios", "checkbios", "checkonboarding",
     # ── Rarity chance commands ───────────────────────────────────────────────
     "minechances", "fishchances", "fishingchances", "raritychances",
     # ── RoleSpawn / AutoSpawn ────────────────────────────────────────────────

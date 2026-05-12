@@ -503,6 +503,8 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "setsponsorprice": "banker",
     # host — message audit / help audit (new)
     "messageaudit": "host", "helpaudit": "host", "staffhelp": "security",
+    # host — bio + onboarding audit (3.0C)
+    "bios": "host", "checkbios": "host", "checkonboarding": "host",
     # blackjack — BJ shoe management (new)
     "bjshoereset": "blackjack",
     # host — economy audit (admin-level, answered by host)
