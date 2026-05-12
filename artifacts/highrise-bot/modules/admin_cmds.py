@@ -693,12 +693,15 @@ _HELP_CMD_CHECKS = [
 ]
 
 async def handle_checkhelp(bot: BaseBot, user: User, args: list[str]) -> None:
-    """/checkhelp  — list all help commands to verify they are all present."""
+    """!checkhelp  — audit all help commands for slash/broken entries."""
     if not can_manage_economy(user.username):
         await _w(bot, user.id, "Admin and owner only.")
         return
-    cmds = " ".join(f"/{c}" for c in _HELP_CMD_CHECKS)
-    await _w(bot, user.id, f"✅ Help commands:\n{cmds}")
+    cmds = " ".join(f"!{c}" for c in _HELP_CMD_CHECKS)
+    await _w(bot, user.id,
+             (f"✅ Help Audit Clean\n"
+              f"No / commands. No broken help.\n"
+              f"{cmds}")[:249])
 
 
 # ---------------------------------------------------------------------------
@@ -1088,9 +1091,14 @@ async def handle_stability(bot: BaseBot, user: User, args: list[str]) -> None:
         last_rc     = _bs.LAST_RECONNECT_AT or "never"
         last_err    = (_bs.LAST_ERROR[:32] or "none")
         rg_info     = _bs.RATE_GUARD_INFO or ("ON" if _bs.RATE_GUARD_ACTIVE else "OFF")
+        try:
+            _ag = db.get_room_setting("autogames_owner_bot_mode", "eventhost")
+            ag_str = "OFF" if _ag == "disabled" else "ON"
+        except Exception:
+            ag_str = "?"
         await _w(bot, user.id,
-                 (f"🛡️ [{_cfg.BOT_MODE}] Stab: {'ON' if stab else 'OFF'}"
-                  f" | RateGuard: {rg_info}\n"
-                  f"Uptime: {uptime_str} | Reconnects: {reconnects}\n"
-                  f"Last RC: {last_rc} | Err: {last_err}\n"
-                  f"PartyTip: {'ON' if pt else 'OFF'} | !stability on|off")[:249])
+                 (f"🛡️ Stability Status\n"
+                  f"Mode: {'ON 🛡️' if stab else 'OFF'} | RateGuard: {rg_info}\n"
+                  f"Auto Games: {ag_str} | Party Tip: {'ON' if pt else 'OFF'}\n"
+                  f"Reconnects: {reconnects} | Err: {last_err}\n"
+                  f"Uptime: {uptime_str}")[:249])

@@ -477,7 +477,7 @@ from modules.big_announce import (
 )
 from modules.control_panel import (
     handle_control, handle_ownerpanel, handle_managerpanel,
-    handle_status, handle_roomstatus,
+    handle_status, handle_roomstatus, handle_economystatus,
     handle_quicktoggles, handle_toggle,
 )
 from modules.multi_bot import (
@@ -965,7 +965,7 @@ ALL_KNOWN_COMMANDS = (
         "botoutfitlogs",
         # ── Control panel ─────────────────────────────────────────────────────
         "control", "adminpanel", "ownerpanel", "managerpanel",
-        "status", "roomstatus",
+        "status", "roomstatus", "economystatus",
         "quicktoggles", "toggle",
         # ── Multi-bot system ──────────────────────────────────────────────────
         "botmodules", "commandowners", "multibothelp",
@@ -1256,15 +1256,13 @@ _HELP_CATEGORIES: dict[str, str] = {
         "!summon [user]  !rolemembers [role]"
     ),
     "owner": (
-        "👑 Owner Commands\n"
-        "!goldtip [user] [amount]\n"
-        "!goldtip all [amount]\n"
-        "!goldrain [amount] [winners]\n"
-        "!grantvip [user] [days]\n"
-        "!removevip [user]\n"
+        "👑 Owner Tools\n"
+        "!dashboard — owner dashboard\n"
+        "!bothealth !modulehealth !botconflicts\n"
         "!stability [on|off|status]\n"
-        "!commandissues  !checkcommands\n"
-        "!fixautogames  !clearstalebotlocks"
+        "!commandissues !checkcommands !checkhelp\n"
+        "Fix: !fixbotowners !fixautogames\n"
+        "!clearstalebotlocks"
     ),
     "player": (
         "👤 Player Commands\n"
@@ -3571,7 +3569,10 @@ class HangoutBot(BaseBot):
         elif cmd == "dash":
             await handle_dashboard(self, user, args)
 
-        elif cmd in {"dashboard", "botdashboard", "botsystem"}:
+        elif cmd == "dashboard":
+            await handle_ownerpanel(self, user)
+
+        elif cmd in {"botdashboard", "botsystem"}:
             await handle_sys_dashboard(self, user, args)
 
         elif cmd == "daily":
@@ -5849,6 +5850,8 @@ class HangoutBot(BaseBot):
             await handle_control(self, user, args)
         elif cmd == "ownerpanel":
             await handle_ownerpanel(self, user)
+        elif cmd == "economystatus":
+            await handle_economystatus(self, user)
         elif cmd == "managerpanel":
             await handle_managerpanel(self, user)
         elif cmd == "status":

@@ -1,0 +1,588 @@
+UPDATE 3.0J — ADMIN TOOLS + OWNER DASHBOARD POLISH
+
+Goal:
+Polish owner/admin tools so the room is easier to manage without guessing.
+
+Focus:
+- Clean owner dashboard commands
+- Better !bothealth display
+- Better !modulehealth display
+- Better !stability status display
+- Cleaner !commandissues / !checkcommands output
+- Add simple !dashboard or !ownerpanel if safe
+- Keep all owner-only commands hidden from regular players
+- Keep everything under message cap
+- Do not break stability
+
+This update is owner/admin UX polish only.
+
+Do not rewrite core systems.
+Do not change bot tokens.
+Do not change room ID.
+Do not wipe database.
+Do not reset balances, VIP, inventories, mining/fishing data, blackjack/poker data, teleports, role spawns, bot spawns, subscriptions, notifications, party tip wallet, shop items, badges, titles, donation logs, or command registry.
+Do not add AI.
+Do not change mining/fishing odds.
+Do not change casino odds.
+Do not change party tip behavior.
+Do not add exotic mute/pause.
+Do not add risky new systems.
+
+==================================================
+PART 1 — STABILITY FIRST
+==================================================
+
+Before changing anything, verify:
+
+!commandissues
+!checkcommands
+!checkhelp
+!bothealth
+!stability status
+!botconflicts
+!modulehealth
+
+Expected:
+- no command issues
+- no checkcommands mismatch
+- no help issues
+- Err: none
+- no bot conflicts
+
+If there are errors, fix those first before changing owner tools.
+
+==================================================
+PART 2 — ADD OR POLISH !DASHBOARD / !OWNERPANEL
+==================================================
+
+Add or polish owner-only command:
+
+!dashboard
+
+Alias:
+!ownerpanel
+
+Owner only.
+
+Expected:
+
+👑 Owner Dashboard
+
+Health:
+!bothealth — bot status
+!modulehealth — module status
+!botconflicts — conflict check
+!stability status — stability mode
+
+Commands:
+!commandissues — command audit
+!checkcommands — registry check
+!checkhelp — help audit
+
+Room:
+!botspawns — bot spawn spots
+!roles — room roles
+!rolemembers — role members
+
+Economy:
+!vip — VIP menu
+!donationgoal — room goal
+!ptstatus — party tip status
+
+Keep under 220 characters per message.
+Split into multiple whispers if needed.
+
+If non-owner uses:
+🔒 Owner only.
+
+==================================================
+PART 3 — POLISH !BOTHEALTH
+==================================================
+
+Improve !bothealth display.
+
+Expected:
+
+🤖 Bot Health
+Bot: [bot name]
+Mode: [mode]
+Uptime: [time]
+Reconnects: [count]
+Last Error: none/[short error]
+DB: OK/ERR
+Stability: ON/OFF
+PartyTip: ON/OFF
+
+If multiple bots are tracked and command can show summary:
+
+🤖 Bot Health Summary
+ChillTopiaMC: OK | 1 reconnect
+BankingBot: OK | 0 reconnects
+BlackJackBot: OK | 0 reconnects
+PokerBot: OK | 0 reconnects
+
+Rules:
+- Keep message under 220 characters.
+- If too long, split.
+- Do not expose tokens.
+- Do not expose secrets.
+- Do not expose raw internal IDs unless useful.
+- If data unavailable, show Unknown instead of crashing.
+
+==================================================
+PART 4 — POLISH !MODULEHEALTH
+==================================================
+
+Improve !modulehealth display.
+
+Expected:
+
+🧩 Module Health
+Bank: OK
+PartyTip: OK
+Blackjack: OK
+Poker: OK
+Mining: OK
+Fishing: OK
+Host: OK
+AutoGames: OK/OFF
+
+If an issue exists:
+
+🧩 Module Health
+Blackjack: OK
+Poker: OK
+AutoGames: ⚠️ conflict
+DB: OK
+
+Use:
+!botconflicts for details.
+
+Rules:
+- Keep under 220 characters.
+- Split if needed.
+- Do not show huge debug output.
+- Do not crash if a module status is unavailable.
+
+==================================================
+PART 5 — POLISH !STABILITY STATUS
+==================================================
+
+Improve:
+
+!stability status
+
+Expected:
+
+🛡️ Stability Status
+Mode: ON/OFF
+Auto Games: ON/OFF
+Party Tip: ON/OFF
+Background Loops: OK
+Reconnects: [count]
+Last Error: none/[short]
+
+If stability mode is ON:
+
+🛡️ Stability Mode: ON
+Non-critical loops paused.
+Use !stability off to resume.
+
+If stability mode is OFF:
+
+🛡️ Stability Mode: OFF
+Normal room systems active.
+
+Rules:
+- Keep concise.
+- Do not spam.
+- Do not change stability behavior unless broken.
+
+==================================================
+PART 6 — POLISH !BOTCONFLICTS
+==================================================
+
+Improve:
+
+!botconflicts
+
+Expected if clean:
+
+✅ No bot conflicts.
+Active bots look clean.
+
+If conflict:
+
+⚠️ Bot Conflict
+Module: AutoGames
+Owner: EventHost
+Duplicate: FisherBot
+
+Suggested:
+!fixautogames
+!clearstalebotlocks
+
+Rules:
+- Show exact conflict.
+- Show exact fix command if available.
+- Do not report false positives.
+- Do not report ArcadiaRadio unless it is part of this bot system.
+- Ignore ArcadiaRadio if it is external/radio-only.
+- Keep under 220 characters.
+
+==================================================
+PART 7 — POLISH !COMMANDISSUES
+==================================================
+
+Improve:
+
+!commandissues
+
+Expected if clean:
+
+✅ No command issues.
+Routes, owners, and handlers are clean.
+
+If issues:
+
+⚠️ Command Issues
+Missing route: !example
+No owner: !example2
+No handler: !example3
+
+Use:
+!checkcommands all
+
+Rules:
+- Show exact command names.
+- Do not show huge output.
+- Do not count hidden/legacy/deprecated commands as active issues.
+- Do not disagree with !checkcommands.
+
+==================================================
+PART 8 — POLISH !CHECKCOMMANDS
+==================================================
+
+Improve:
+
+!checkcommands
+
+Expected:
+
+CmdCheck[Visible]
+Known: [count]
+Routed: [count]
+Missing: 0
+NoOwner: 0
+
+If missing > 0, show exact missing names.
+
+!checkcommands all expected:
+
+CmdCheck[All]
+Known: [count]
+Active: [count]
+Hidden: [count]
+Deprecated: [count]
+Missing: 0
+NoOwner: 0
+
+Rules:
+- Visible and all scans must not disagree.
+- If Missing > 0, print exact commands.
+- Hidden/deprecated commands should not count as visible active issues.
+- Keep under 220 chars or split.
+
+==================================================
+PART 9 — POLISH !CHECKHELP
+==================================================
+
+Improve:
+
+!checkhelp
+
+Expected if clean:
+
+✅ Help Audit Clean
+No / commands.
+No broken help commands.
+No owner commands in player help.
+
+If issues:
+
+⚠️ Help Audit Issues
+!help games shows /answer
+!help vip shows hidden command
+!help party shows owner command to players
+
+Rules:
+- No / commands.
+- Do not mention “No lifetime VIP.”
+- Regular help must not show owner-only commands.
+- Help commands shown must route.
+
+==================================================
+PART 10 — OWNER QUICK FIX COMMANDS LIST
+==================================================
+
+Add to !dashboard or !ownerpanel a short quick-fix section.
+
+Example:
+
+Quick Fix:
+!fixbotowners — repair command owners
+!fixautogames — fix AutoGames owner
+!clearstalebotlocks — clear stale locks
+!ptdisable — disable party tips
+!stability on — safe mode
+
+Only show commands that exist and route.
+If a command does not exist, do not show it.
+
+==================================================
+PART 11 — OWNER ECONOMY SUMMARY
+==================================================
+
+If safe and existing data is easy to read, add owner-only:
+
+!economystatus
+
+Optional. Only add if simple and safe.
+
+Expected:
+
+💰 Economy Status
+Users: [count]
+Total Coins: [amount]
+VIP Active: [count]
+Donation Goal: [percent]%
+Party Wallet: [amount]g
+
+If this is risky or requires heavy DB scanning, skip it.
+
+Do not make expensive DB queries that cause locks.
+Do not expose private user data.
+Do not show player balances publicly.
+
+==================================================
+PART 12 — OWNER ROOM SUMMARY
+==================================================
+
+If safe, add or polish:
+
+!roomstatus
+
+Expected:
+
+🏠 Room Status
+Online Bots: [count]
+Players Seen: [count]
+AutoGames: ON/OFF
+Party Mode: ON/OFF
+Stability: ON/OFF
+
+If room player count is unavailable, show Unknown.
+Do not crash.
+
+==================================================
+PART 13 — PERMISSION SAFETY
+==================================================
+
+Owner/admin tools must be protected.
+
+Owner only:
+!dashboard
+!ownerpanel
+!fixbotowners
+!fixautogames
+!clearstalebotlocks
+!economystatus if added
+!stability on/off
+!ptdisable / !ptenable
+
+Manager+ may use:
+!bothealth
+!modulehealth
+!botconflicts
+!roomstatus
+!commandissues
+!checkcommands
+!checkhelp
+
+Regular players must not see:
+- owner dashboard
+- fix commands
+- gold commands
+- debug commands
+- DB details
+- raw errors
+
+If unauthorized:
+🔒 Owner only.
+or
+🔒 Manager+ only.
+
+Do not silently ignore.
+
+==================================================
+PART 14 — HELP OWNER UPDATE
+==================================================
+
+Update !help owner to include dashboard tools.
+
+Expected:
+
+👑 Owner Tools
+!dashboard — owner dashboard
+!bothealth — bot health
+!modulehealth — module health
+!botconflicts — conflict check
+!stability [on|off|status] — stability mode
+!commandissues — command audit
+!checkcommands — registry check
+!checkhelp — help audit
+
+Quick Fix:
+!fixbotowners — repair command owners
+!fixautogames — fix AutoGames
+!clearstalebotlocks — clear stale locks
+
+Do not show these to regular players.
+
+==================================================
+PART 15 — MESSAGE CAP SAFETY
+==================================================
+
+All owner/admin messages must stay under 220 characters.
+
+Rules:
+- Split long dashboard messages.
+- Do not cut color tags.
+- Do not show giant logs in-room.
+- For long details, say “Check console logs” if needed.
+- Keep Highrise messages clean.
+
+==================================================
+PART 16 — ERROR HANDLING
+==================================================
+
+Wrap owner/admin handlers safely.
+
+If a handler errors:
+- log traceback in console
+- whisper user:
+
+⚠️ Admin tool error logged. Bot stayed online.
+
+Do not crash bot.
+Do not restart bot.
+Do not expose raw stack trace in chat.
+
+==================================================
+PART 17 — COMMAND TESTS
+==================================================
+
+Run:
+
+!commandtest !dashboard
+!commandtest !ownerpanel
+!commandtest !bothealth
+!commandtest !modulehealth
+!commandtest !botconflicts
+!commandtest !stability
+!commandtest !commandissues
+!commandtest !checkcommands
+!commandtest !checkhelp
+!commandtest !roomstatus
+!commandtest !economystatus
+
+Expected:
+- active commands route YES
+- active commands handler YES
+- owner not UNKNOWN
+- owner-only commands protected
+- commands not implemented are not shown in help/dashboard
+- no command issues
+
+If !economystatus is skipped, do not count it as issue.
+If !roomstatus is skipped, do not count it as issue.
+
+==================================================
+PART 18 — LIVE TESTS
+==================================================
+
+Run:
+
+!dashboard
+!ownerpanel
+!bothealth
+!modulehealth
+!botconflicts
+!stability status
+!commandissues
+!checkcommands
+!checkcommands all
+!checkhelp
+!help owner
+
+If added:
+!economystatus
+!roomstatus
+
+Expected:
+- dashboard replies
+- ownerpanel replies or aliases dashboard
+- health/status messages are clean
+- no message cutoff
+- no command issues
+- no checkcommands mismatch
+- no / commands
+- no “No lifetime VIP” text
+- no owner commands shown to regular help
+
+==================================================
+PART 19 — STABILITY TESTS
+==================================================
+
+After changes, run:
+
+!bothealth
+!stability status
+!botconflicts
+!modulehealth
+!commandissues
+!checkcommands
+
+Then let bots sit for 10 minutes.
+
+Expected:
+- Err: none
+- No bot conflicts
+- No command issues
+- No checkcommands mismatch
+- No DB lock spam
+- No reconnect loop
+
+==================================================
+PART 20 — FINAL REPORT
+==================================================
+
+After finishing, report:
+
+1. !dashboard status.
+2. !ownerpanel status.
+3. !bothealth updated format.
+4. !modulehealth updated format.
+5. !stability status updated format.
+6. !botconflicts updated format.
+7. !commandissues updated format.
+8. !checkcommands updated format.
+9. !checkhelp updated format.
+10. Quick fix commands included or skipped.
+11. !economystatus added or skipped.
+12. !roomstatus added or skipped.
+13. Permission checks confirmed.
+14. !help owner updated.
+15. !commandissues result.
+16. !checkcommands result.
+17. Stability result.

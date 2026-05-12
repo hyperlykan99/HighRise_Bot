@@ -291,7 +291,7 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "gamehelp": "host", "profilehelp": "host", "progresshelp": "host",
     "adminhelp": "host", "managerhelp": "host", "ownerhelp": "host",
     "adminpanel": "host", "adminlogs": "security", "adminloginfo": "security",
-    "quicktoggles": "host", "ownerpanel": "host",
+    "quicktoggles": "host", "ownerpanel": "host", "economystatus": "host",
     "stats": "host", "allstaff": "host",
     "addmanager": "host", "removemanager": "host",
     "addrep": "host", "removerep": "host",

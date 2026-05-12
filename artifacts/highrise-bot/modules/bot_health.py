@@ -246,9 +246,10 @@ async def handle_bothealth(bot, user, args: list[str]) -> None:
     pt_str   = "ON" if pt else "DISABLED"
 
     await _w(bot, user.id,
-             (f"🤖 {_MODE_NAMES.get(BOT_MODE, BOT_MODE.title())}\n"
+             (f"🤖 Bot Health\n"
+              f"Bot: {_MODE_NAMES.get(BOT_MODE, BOT_MODE.title())} | Mode: {BOT_MODE}\n"
               f"Uptime: {uptime_str} | Reconnects: {restarts - 1}\n"
-              f"Stability: {stab_str} | Party Tip: {pt_str}\n"
+              f"DB: {'OK' if db_ok else 'ERR'} | Stability: {stab_str} | PartyTip: {pt_str}\n"
               f"Last Err: {last_err}")[:249])
 
     # ── Line 2: Multi-bot status summary ──────────────────────────────────────
@@ -260,16 +261,18 @@ async def handle_bothealth(bot, user, args: list[str]) -> None:
             continue
         modes_seen.add(mode)
         online = _bot_is_online(mode, instances)
-        parts.append(f"{_MODE_NAMES.get(mode, mode)} {'ON' if online else 'OFF'}")
+        parts.append(f"{_MODE_NAMES.get(mode, mode)}: {'OK' if online else 'OFF'}")
 
     if not parts:
-        parts = [f"Main ({'ON' if _check_db() else 'ERR'})"]
+        parts = [f"Main: {'OK' if _check_db() else 'ERR'}"]
 
-    db_str = "DB OK" if db_ok else "DB ERR"
     conflict_count = _count_conflicts(instances)
+    summary_line = " | ".join(parts)
+    if len(summary_line) > 195:
+        summary_line = summary_line[:195] + "…"
     await _w(bot, user.id,
-             (f"Health: {' | '.join(parts)} | {db_str}"
-              f" | Conflicts {conflict_count}")[:249])
+             (f"🤖 Bot Health Summary\n{summary_line}"
+              f"\nConflicts: {conflict_count}")[:249])
 
 
 # ---------------------------------------------------------------------------
@@ -332,7 +335,7 @@ async def handle_modulehealth(bot, user, args: list[str]) -> None:
         return
 
     # Summary of all modules
-    await _w(bot, user.id, "🔍 Module health check...")
+    await _w(bot, user.id, "🧩 Module Health")
     # A module is OK when its owner bot is online, OR when the host/all bot
     # is online and fallback is enabled (host handles commands when dedicated
     # bot is offline — e.g. eventhost shares a token with host).
@@ -359,7 +362,7 @@ async def handle_modulehealth(bot, user, args: list[str]) -> None:
     if line:
         chunk.append(line)
     for c in chunk[:3]:
-        await _w(bot, user.id, ("Modules: " + c)[:249])
+        await _w(bot, user.id, ("🧩 " + c)[:249])
 
 
 # ---------------------------------------------------------------------------
@@ -710,22 +713,22 @@ async def handle_botconflicts(bot, user) -> None:
     stale = _get_stale_instances(instances)
 
     if not conflicts and not stale:
-        await _w(bot, user.id, "✅ No bot conflicts found.")
+        await _w(bot, user.id, "✅ No bot conflicts.\nActive bots look clean.")
         return
 
     if conflicts:
         await _w(bot, user.id, f"⚠️ {len(conflicts)} conflict(s):")
         for c in conflicts[:4]:
             if "BOT_MODE=all" in c:
-                hint = "Fix: /setmainmode host"
+                hint = "Fix: !setmainmode host"
             elif "AutoGames lock" in c or "AutoGames owner" in c:
-                hint = "Fix: /clearstalebotlocks"
+                hint = "Fix: !clearstalebotlocks"
             elif "Duplicate mode" in c:
-                hint = "Fix: /fixbotowners"
+                hint = "Fix: !fixbotowners"
             elif "dealer" in c:
-                hint = "Fix: /disablebot dealer"
+                hint = "Fix: !disablebot dealer"
             else:
-                hint = "Fix: /fixbotowners"
+                hint = "Fix: !fixbotowners"
             await _w(bot, user.id, (f"• {c} | {hint}")[:249])
 
     if stale:

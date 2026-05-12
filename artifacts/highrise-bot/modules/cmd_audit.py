@@ -918,7 +918,7 @@ async def handle_commandissues(
         combined = set(missing_set) | set(noowner_set) | set(no_handler)
         if not combined:
             await _w(bot, user.id,
-                     "✅ No command issues — all routes, handlers, and owners clean.")
+                     "✅ No command issues.\nRoutes, owners, and handlers are clean.")
             return
         parts = []
         if missing_set:
@@ -966,7 +966,7 @@ async def handle_commandissues(
     msg, total_pages = _paginate(title, items, page)
     await _w(bot, user.id, msg)
     if page < total_pages:
-        await _w(bot, user.id, f"More: /commandissues {category} {page + 1}")
+        await _w(bot, user.id, f"More: !commandissues {category} {page + 1}")
 
 
 # ---------------------------------------------------------------------------
@@ -1040,7 +1040,7 @@ async def handle_missingcommands(bot: BaseBot, user: User, args: list[str] | Non
     msg, total_pages = _paginate("Missing", missing, page)
     await _w(bot, user.id, msg)
     if page < total_pages:
-        await _w(bot, user.id, f"More: /missingcommands {page + 1}")
+        await _w(bot, user.id, f"More: !missingcommands {page + 1}")
 
 
 # ---------------------------------------------------------------------------
@@ -1097,7 +1097,7 @@ async def handle_routecheck(bot: BaseBot, user: User, args: list[str] | None = N
     msg, total_pages = _paginate("Unlisted", unlisted_full, page)
     await _w(bot, user.id, msg)
     if page < total_pages:
-        await _w(bot, user.id, f"More: /routecheck {page + 1}")
+        await _w(bot, user.id, f"More: !routecheck {page + 1}")
 
 
 # ---------------------------------------------------------------------------

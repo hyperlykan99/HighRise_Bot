@@ -278,13 +278,25 @@ async def handle_control(bot, user, args: list[str]) -> None:
 # ---------------------------------------------------------------------------
 
 async def handle_ownerpanel(bot, user) -> None:
-    """!ownerpanel — owner-only control hub shortcut."""
+    """!ownerpanel / !dashboard — owner-only control hub."""
     if not is_owner(user.username):
-        await _w(bot, user.id, "Owner only.")
+        await _w(bot, user.id, "🔒 Owner only.")
         return
-    await _w(bot, user.id, _MAIN_PANEL)
-    await _w(bot, user.id, _MAIN_EXTRA)
-    await _w(bot, user.id, "👑 Owner: !control staff 3 | !control system 3 | !backup | !softrestart")
+    await _w(bot, user.id,
+             "👑 Owner Dashboard\n"
+             "Health:\n"
+             "!bothealth !modulehealth\n"
+             "!botconflicts !stability status")
+    await _w(bot, user.id,
+             "Commands:\n"
+             "!commandissues !checkcommands !checkhelp\n"
+             "Room: !botspawns !roles !rolemembers\n"
+             "Economy: !vip !donationgoal !ptstatus")
+    await _w(bot, user.id,
+             "Quick Fix:\n"
+             "!fixbotowners !fixautogames\n"
+             "!clearstalebotlocks\n"
+             "!stability on — safe mode")
 
 
 async def handle_managerpanel(bot, user) -> None:
@@ -342,17 +354,94 @@ async def handle_status(bot, user) -> None:
 
 
 async def handle_roomstatus(bot, user) -> None:
-    """!roomstatus — staff room-utility status snapshot."""
-    if not can_moderate(user.username):
-        await _w(bot, user.id, "Staff only.")
+    """!roomstatus — manager+ room status snapshot."""
+    if not can_manage_games(user.username):
+        await _w(bot, user.id, "🔒 Manager+ only.")
         return
+    # Online bot count
+    try:
+        from modules.bot_health import _bot_is_online as _bh_online
+        _instances = db.get_bot_instances()
+        _modes_seen: set = set()
+        _online_count = 0
+        for _i in _instances:
+            _m = _i.get("bot_mode", "")
+            if _m not in _modes_seen:
+                _modes_seen.add(_m)
+                if _bh_online(_m, _instances):
+                    _online_count += 1
+        online_bots: object = _online_count
+    except Exception:
+        online_bots = "?"
+    # Players seen (total registered users)
+    try:
+        _conn = db.get_connection()
+        players_seen: object = _conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+        _conn.close()
+    except Exception:
+        players_seen = "?"
+    # AutoGames on/off
+    try:
+        _ag = db.get_room_setting("autogames_owner_bot_mode", "eventhost")
+        ag_str = "OFF" if _ag == "disabled" else "ON"
+    except Exception:
+        ag_str = "?"
+    pt_on  = db.get_room_setting("party_tip_enabled", "1") == "1"
+    stab_on = db.get_room_setting("stability_mode", "0") == "1"
     await _w(
         bot, user.id,
         f"🏠 Room Status\n"
-        f"Welcome: {_welcome_on()} | Intervals: {_intervals_on()}\n"
-        f"BotPrefix: {_botprefix_on()}\n"
-        f"Use !roomsettings for full config."
+        f"Online Bots: {online_bots} | Players Seen: {players_seen}\n"
+        f"AutoGames: {ag_str} | Party Mode: {'ON' if pt_on else 'OFF'}\n"
+        f"Stability: {'ON 🛡️' if stab_on else 'OFF'}"
     )
+
+
+# ---------------------------------------------------------------------------
+# !economystatus  (owner only)
+# ---------------------------------------------------------------------------
+
+async def handle_economystatus(bot, user) -> None:
+    """!economystatus — quick economy snapshot for owners."""
+    if not is_owner(user.username):
+        await _w(bot, user.id, "🔒 Owner only.")
+        return
+    try:
+        _conn = db.get_connection()
+        user_count: object = _conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+        total_coins: object = _conn.execute(
+            "SELECT COALESCE(SUM(coins),0) FROM users"
+        ).fetchone()[0]
+        vip_count: object = _conn.execute(
+            "SELECT COUNT(*) FROM users WHERE vip_expires_at > datetime('now')"
+        ).fetchone()[0]
+        _conn.close()
+    except Exception:
+        user_count = total_coins = vip_count = "?"
+    # Donation goal
+    try:
+        goal_target = int(db.get_room_setting("donation_goal_target", "0") or 0)
+        goal_current = int(db.get_room_setting("donation_goal_current", "0") or 0)
+        goal_str = (f"{min(100, int(goal_current * 100 / goal_target))}%"
+                    if goal_target else "N/A")
+    except Exception:
+        goal_str = "?"
+    # Party wallet
+    try:
+        party_wallet: object = db.get_room_setting("party_tip_wallet", "0")
+    except Exception:
+        party_wallet = "?"
+    # Format coins
+    try:
+        from economy import fmt_coins
+        coins_str = fmt_coins(int(total_coins)) if str(total_coins).isdigit() else str(total_coins)
+    except Exception:
+        coins_str = str(total_coins)
+    await _w(bot, user.id,
+             (f"💰 Economy Status\n"
+              f"Users: {user_count} | Total Coins: {coins_str}\n"
+              f"VIP Active: {vip_count} | Donation Goal: {goal_str}\n"
+              f"Party Wallet: {party_wallet}g")[:249])
 
 
 # ---------------------------------------------------------------------------
