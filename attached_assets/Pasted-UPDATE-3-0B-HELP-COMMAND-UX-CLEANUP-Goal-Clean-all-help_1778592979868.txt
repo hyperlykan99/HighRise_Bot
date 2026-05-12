@@ -1,0 +1,470 @@
+UPDATE 3.0B — HELP + COMMAND UX CLEANUP
+
+Goal:
+Clean all help pages and command usage so players can easily understand what to type.
+
+This update is only for help/usage/message cleanup.
+Do not add new features.
+Do not rewrite core systems.
+Do not change bot tokens.
+Do not change room ID.
+Do not wipe database.
+Do not change balances, VIP, subscriptions, mining/fishing data, blackjack/poker data, teleports, role spawns, or bot spawns.
+
+==================================================
+PART 1 — PLAYER HELP MUST BE SIMPLE
+==================================================
+
+Main command:
+
+!help
+
+Regular player help should show only basic useful commands.
+
+Expected:
+
+🎤 ChillTopia Help
+
+Basic:
+!balance — check your coins
+!send [user] [amount] — send coins
+!profile — view your profile
+!vip — VIP info
+
+Games:
+!mine — mine ores
+!fish — catch fish
+!bj [amount] — play blackjack
+!poker — poker info
+
+Room:
+!tele list — view teleport spots
+!subscribe — enable notifications
+!notif — notification settings
+
+More:
+!help games
+!help bank
+!help vip
+!help mining
+!help fishing
+!help blackjack
+!help poker
+!help room
+
+Rules:
+- Do not show owner commands to regular players.
+- Do not show staff commands to regular players.
+- Do not show broken/deprecated commands.
+- Do not show / commands.
+- Use ! commands only.
+
+==================================================
+PART 2 — EVERY HELP COMMAND NEEDS USAGE FORMAT
+==================================================
+
+Every command in help must show what to type after it.
+
+Examples:
+
+Good:
+!send [user] [amount] — send coins to a player
+!bj [amount] — start blackjack bet
+!tip [user] [amount] — party tip one player
+!tip [players] [amount] — tip random players
+!tip all [amount] — tip everyone eligible
+!ptadd [user] [minutes] — add party tipper
+!tele [spot] — teleport to saved spot
+!summon [user] — bring user to you
+!setbotspawnhere [bot] — save bot spawn at your position
+
+Bad:
+!send
+!tip
+!tele
+!ptadd
+
+==================================================
+PART 3 — HELP CATEGORIES
+==================================================
+
+Create or clean these help pages:
+
+!help basic
+!help games
+!help bank
+!help vip
+!help mining
+!help fishing
+!help blackjack
+!help poker
+!help room
+!help party
+!help staff
+!help owner
+
+==================================================
+PART 4 — BASIC HELP
+==================================================
+
+!help basic
+
+Expected:
+
+📌 Basic Commands
+!balance — check your coins
+!send [user] [amount] — send coins
+!profile — view your profile
+!daily — claim daily reward
+!vip — view VIP info
+!subscribe — subscribe to notifications
+!notif — notification settings
+
+==================================================
+PART 5 — BANK HELP
+==================================================
+
+!help bank
+
+Expected:
+
+🏦 Bank Commands
+!balance — check your coins
+!send [user] [amount] — send coins
+!transactions — view recent transactions
+!bank — bank menu
+!vip — VIP info
+!donationgoal — room donation goal
+
+Do not show:
+!goldtip
+!goldrain
+!setvipprice
+!grantvip
+!removevip
+
+Those are owner/staff only.
+
+==================================================
+PART 6 — GAME HELP
+==================================================
+
+!help games
+
+Expected:
+
+🎮 Game Commands
+!mine — mine ores
+!fish — catch fish
+!bj [amount] — play blackjack
+!poker — poker info
+!coinflip [heads/tails] [amount] — flip coin
+
+==================================================
+PART 7 — BLACKJACK HELP
+==================================================
+
+!help blackjack
+
+Expected:
+
+🃏 Blackjack Commands
+!bj [amount] — start blackjack
+!hit — draw card
+!stand — hold hand
+!double — double bet
+!split — split hand if possible
+!bjshoe — view shoe status
+!bjrules — blackjack rules
+
+==================================================
+PART 8 — POKER HELP
+==================================================
+
+!help poker
+
+Expected:
+
+♠️ Poker Commands
+!poker — poker info
+!joinpoker — join table
+!leavepoker — leave table
+!bet [amount] — place bet
+!call — call bet
+!raise [amount] — raise bet
+!check — check
+!fold — fold
+!pokerstatus — table status
+
+==================================================
+PART 9 — MINING HELP
+==================================================
+
+!help mining
+
+Expected:
+
+⛏️ Mining Commands
+!mine — mine once
+!automine — start auto mining
+!stopmine — stop auto mining
+!mineinv — view ores
+!minechances — view mining chances
+!tool — view tool
+!upgradetool — upgrade tool
+
+==================================================
+PART 10 — FISHING HELP
+==================================================
+
+!help fishing
+
+Expected:
+
+🎣 Fishing Commands
+!fish — fish once
+!autofish — start auto fishing
+!stopfish — stop auto fishing
+!fishinv — view fish
+!fishchances — view fishing chances
+!rod — view rod
+!rods — rod shop
+
+==================================================
+PART 11 — ROOM HELP
+==================================================
+
+!help room
+
+Expected:
+
+🏠 Room Commands
+!tele list — view teleport spots
+!tele [spot] — teleport to spot
+!roles — view roles
+!rolemembers — view users by role
+!botspawns — view saved bot spawns
+
+Only show commands regular players can use.
+Owner-only teleport setup commands go to owner help.
+
+==================================================
+PART 12 — PARTY TIP HELP
+==================================================
+
+!help party
+
+For regular players:
+
+🎉 Party Tip
+During party mode, selected helpers can tip players.
+
+Commands:
+!ptlist — view active party tippers
+!ptlimits — view party tip limits
+
+If user is owner, also show:
+
+Owner Party Commands:
+!pton — turn party mode on
+!ptoff — turn party mode off
+!ptwallet [amount] — set party wallet
+!ptadd [user] [minutes] — add party tipper
+!ptremove [user] — remove party tipper
+!ptclear — clear party tippers
+!ptlimit [single|all|daily|max] [amount] — set limits
+
+Party Tipper Commands:
+!tip [user] [amount] — tip one player
+!tip [players] [amount] — tip random players
+!tip all [amount] — tip everyone eligible
+
+Do not show !goldtip here.
+
+==================================================
+PART 13 — STAFF HELP
+==================================================
+
+!help staff
+
+Only staff/manager/owner can see this.
+
+Expected:
+
+🛠️ Staff Commands
+!mute [user] [minutes] [reason] — mute user
+!unmute [user] — unmute user
+!warn [user] [reason] — warn user
+!reports — view reports
+!roomstatus — view room status
+!bothealth — view bot health
+!modulehealth — view module health
+!botconflicts — check bot conflicts
+
+Do not show owner-only gold commands to staff.
+
+==================================================
+PART 14 — OWNER HELP
+==================================================
+
+!help owner
+
+Owner only.
+
+Expected:
+
+👑 Owner Commands
+!goldtip [user] [amount] — tip gold to one player
+!goldtip all [amount] — tip gold to all eligible players
+!goldtipbots [on|off] — allow/block bot gold tips
+!goldrain [amount] [winners] — start gold rain
+!grantvip [user] [days] — grant VIP
+!removevip [user] — remove VIP
+!setrolespawn [role] here — set role spawn
+!setbotspawnhere [bot] — set bot spawn here
+!stability [on|off|status] — stability mode
+!commandissues — command audit
+!checkcommands — command registry check
+
+Party Owner:
+!pton — party mode on
+!ptoff — party mode off
+!ptwallet [amount] — set party wallet
+!ptadd [user] [minutes] — add party tipper
+!ptremove [user] — remove party tipper
+!ptclear — clear party tippers
+!ptlimit [single|all|daily|max] [amount] — set limits
+
+==================================================
+PART 15 — COMMAND USAGE ERRORS
+==================================================
+
+Every command with missing arguments should reply with usage.
+
+Examples:
+
+If user types:
+!send
+
+Reply:
+Usage: !send [user] [amount]
+Example: !send @Player 100
+
+If user types:
+!bj
+
+Reply:
+Usage: !bj [amount]
+Example: !bj 50
+
+If user types:
+!ptadd
+
+Reply:
+Usage: !ptadd [user] [minutes]
+Example: !ptadd @Player 60
+
+If user types:
+!tip
+
+Reply:
+Usage:
+!tip [user] [amount]
+!tip [players] [amount]
+!tip all [amount]
+
+Examples:
+!tip @Player 5
+!tip 5 5
+!tip all 1
+
+==================================================
+PART 16 — REMOVE / COMMANDS FROM MESSAGES
+==================================================
+
+Search the codebase for user-facing text containing "/" command examples.
+
+Replace with !.
+
+Examples:
+"/help" -> "!help"
+"/checkcommands" -> "!checkcommands"
+"/bothealth" -> "!bothealth"
+"/goldtip" -> "!goldtip"
+
+If user types a / command, reply:
+
+Use ! commands only.
+Example: !help
+
+Do not support / commands anymore.
+
+==================================================
+PART 17 — AUDIT HELP AGAINST COMMAND REGISTRY
+==================================================
+
+Every command shown in help must pass:
+
+route=YES
+handler=YES
+owner not UNKNOWN
+
+Run internally:
+
+!messageaudit help
+!commandissues
+!checkcommands
+
+Expected:
+No active command issues.
+No broken help commands.
+No / command examples.
+
+==================================================
+PART 18 — TESTS
+==================================================
+
+Run:
+
+!help
+!help basic
+!help games
+!help bank
+!help vip
+!help mining
+!help fishing
+!help blackjack
+!help poker
+!help room
+!help party
+!help staff
+!help owner
+!messageaudit help
+!commandissues
+!checkcommands
+
+Expected:
+- All help pages reply.
+- Help messages are short enough for Highrise.
+- No message exceeds chat/whisper limit.
+- No / command examples.
+- Regular players do not see owner commands.
+- Staff does not see owner-only gold commands.
+- Owner sees owner commands.
+- Every command has [user], [amount], [role], [minutes], etc. where needed.
+
+==================================================
+FINAL REPORT
+==================================================
+
+After finishing, tell me:
+
+1. Help pages changed.
+2. Commands hidden from regular players.
+3. Owner-only commands confirmed.
+4. Staff help confirmed.
+5. Any deprecated commands removed from help.
+6. Any / command leftovers found and replaced.
+7. !messageaudit help result.
+8. !commandissues result.
+9. !checkcommands result.
