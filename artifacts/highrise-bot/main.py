@@ -5938,15 +5938,34 @@ class HangoutBot(BaseBot):
 
 def run():
     """Connect the bot to Highrise and start the event loop."""
-    asyncio.run(
-        highrise_main(
-            [BotDefinition(
+    import signal as _signal
+
+    async def _main():
+        loop = asyncio.get_running_loop()
+        task = asyncio.create_task(
+            highrise_main([BotDefinition(
                 bot=HangoutBot(),
                 room_id=config.ROOM_ID,
                 api_token=config.BOT_TOKEN,
-            )]
+            )])
         )
-    )
+
+        def _shutdown(sig: int) -> None:
+            print(f"[SHUTDOWN] {_signal.Signals(sig).name} — stopping bot...")
+            task.cancel()
+
+        try:
+            loop.add_signal_handler(_signal.SIGTERM, _shutdown, _signal.SIGTERM)
+            loop.add_signal_handler(_signal.SIGINT,  _shutdown, _signal.SIGINT)
+        except (NotImplementedError, OSError):
+            pass  # Windows / restricted env fallback
+
+        try:
+            await task
+        except asyncio.CancelledError:
+            print("[SHUTDOWN] Bot stopped cleanly.")
+
+    asyncio.run(_main())
 
 
 if __name__ == "__main__":

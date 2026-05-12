@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import signal
 import sys
 from pathlib import Path
 from typing import NamedTuple
@@ -258,13 +259,30 @@ async def _run_bot_forever(spec: _BotSpec) -> None:
 
 
 async def _run_all(specs: list[_BotSpec]) -> None:
-    tasks = [asyncio.create_task(_run_bot_forever(s)) for s in specs]
+    loop  = asyncio.get_running_loop()
+    tasks = [asyncio.create_task(_run_bot_forever(s), name=s.label) for s in specs]
+
+    def _shutdown(sig: int) -> None:
+        alive = sum(1 for t in tasks if not t.done())
+        print(f"[SHUTDOWN] {signal.Signals(sig).name} received — "
+              f"cancelling {alive}/{len(tasks)} bot task(s)...")
+        for t in tasks:
+            if not t.done():
+                t.cancel()
+
+    try:
+        loop.add_signal_handler(signal.SIGTERM, _shutdown, signal.SIGTERM)
+        loop.add_signal_handler(signal.SIGINT,  _shutdown, signal.SIGINT)
+    except (NotImplementedError, OSError):
+        pass  # Windows / restricted env fallback
+
     try:
         await asyncio.gather(*tasks)
     except asyncio.CancelledError:
         for t in tasks:
             t.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
+        print(f"[SHUTDOWN] All {len(tasks)} bot(s) stopped cleanly.")
 
 
 # ---------------------------------------------------------------------------
