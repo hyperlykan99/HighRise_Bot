@@ -237,7 +237,7 @@ VALID_MINING_EVENTS = {
     "double_ore":             "Drop quantities x2",
     "double_mxp":             "Mining XP x2",
     "lucky_hour":             "Rare chance +50% relative",
-    "energy_free":            "/mine costs 0 energy",
+    "energy_free":            "!mine costs 0 energy",
     "meteor_rush":            "Ultra rare chance x2",
     # New mining events (B-project)
     "lucky_rush":             "Luck +25% — better Rare+ drops",
@@ -1144,10 +1144,10 @@ async def handle_miningadmin(bot: BaseBot, user: User) -> None:
         return
     await _w(bot, user.id,
              "⛏️ Mining Admin\n"
-             "/mining on/off — enable/disable\n"
-             "/setminecooldown <sec>\n"
-             "/addore <user> <ore> <amt>\n"
-             "/settoollevel <user> <1-10>")
+             "!mining on|off — enable/disable\n"
+             "!setminecooldown [sec]\n"
+             "!addore [user] [ore] [amt]\n"
+             "!settoollevel [user] [1-10]")
 
 
 async def handle_mining_toggle(bot: BaseBot, user: User, args: list[str]) -> None:
@@ -1259,8 +1259,8 @@ async def handle_minepanel(bot: BaseBot, user: User) -> None:
     await _w(bot, user.id,
              f"Events: {ev_str} | Rare finds today: {rare_today}")
     await _w(bot, user.id,
-             "/setminecooldown /setmineweights /setweightscale "
-             "/setmineannounce /setrarityweightrange"[:249])
+             "!setminecooldown !setmineweights !setweightscale "
+             "!setmineannounce !setrarityweightrange"[:249])
 
 
 async def handle_mineeventstatus(bot: BaseBot, user: User) -> None:
@@ -1477,7 +1477,7 @@ _ORE_PAGE_SIZE = 5
 
 _ORELIST_MENU = (
     "<#66CCFF>⛏️ Ore List<#FFFFFF>\n"
-    "/orelist <rarity> [page]\n"
+    "!orelist [rarity] [page]\n"
     "common  uncommon  rare\n"
     "epic  legendary  mythic\n"
     "prismatic  exotic"
@@ -1485,7 +1485,7 @@ _ORELIST_MENU = (
 
 _OREPRICES_MENU = (
     "<#FFD700>💰 Ore Prices<#FFFFFF>\n"
-    "/oreprices <rarity> [page]\n"
+    "!oreprices [rarity] [page]\n"
     "common  uncommon  rare\n"
     "epic  legendary  mythic\n"
     "prismatic  exotic"
@@ -1562,7 +1562,7 @@ async def handle_orelist(bot: BaseBot, user: User, args: list[str] | None = None
             if cnt:
                 lines.append(f"[{r.upper()}] — {cnt} ores")
         lines.append("Use !orelist common to view Common ores.")
-        lines.append("/oreprices common for prices and weights.")
+        lines.append("!oreprices common for prices and weights.")
         await _w(bot, user.id, "\n".join(lines)[:249])
         return
 
@@ -1812,7 +1812,7 @@ async def handle_oremastery(bot: BaseBot, user: User) -> None:
         else:
             state = f"{_fmt(total)}/{threshold}"
         lines.append(f"{i}. {state} {title} ({threshold}) → {reward}c")
-    lines.append("/claimoremastery <1-6> to claim 🎁 rewards.")
+    lines.append("!claimoremastery [1-6] to claim 🎁 rewards.")
     await _w(bot, user.id, "\n".join(lines)[:249])
 
 
@@ -2219,7 +2219,7 @@ async def handle_simannounce(bot: BaseBot, user: User, args: list[str]) -> None:
 
     if len(args) < 2:
         await _w(bot, user.id,
-                 "/simannounce <rarity> [user] | random [user] | ore <name>")
+                 "!simannounce [rarity] [user] | random [user] | ore [name]")
         return
 
     sub   = args[1].lower()

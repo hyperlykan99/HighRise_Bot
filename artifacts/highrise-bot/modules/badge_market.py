@@ -101,10 +101,10 @@ async def handle_shop_badges(bot: BaseBot, user: User, args: list[str]) -> None:
 
     nav = []
     if page > 1:
-        nav.append("/shop prev")
+        nav.append("!shop prev")
     if page < total_pages:
-        nav.append("/shop next")
-    footer = "Buy: /buy <#>" + (f"  {' | '.join(nav)}" if nav else "")
+        nav.append("!shop next")
+    footer = "Buy: !buy [#]" + (f"  {' | '.join(nav)}" if nav else "")
     lines.append(footer)
 
     msg = "\n".join(lines)
@@ -344,10 +344,10 @@ async def handle_badgemarket(bot: BaseBot, user: User, args: list[str]) -> None:
 
     nav = []
     if page > 1:
-        nav.append("/badgemarket prev")
+        nav.append("!badgemarket prev")
     if page < total_pages:
-        nav.append("/badgemarket next")
-    footer = "Buy: /badgebuy <#>" + (f"  {' | '.join(nav)}" if nav else "")
+        nav.append("!badgemarket next")
+    footer = "Buy: !badgebuy [#]" + (f"  {' | '.join(nav)}" if nav else "")
     lines.append(footer)
 
     msg = "\n".join(lines)

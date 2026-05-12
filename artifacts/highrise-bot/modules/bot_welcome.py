@@ -188,7 +188,7 @@ def _mark_sent(bot_username: str, user_id: str, username: str) -> None:
 
 
 def _render(template: str, username: str, bot_username: str,
-            prefix: str = "", help_cmd: str = "/help") -> str:
+            prefix: str = "", help_cmd: str = "!help") -> str:
     return template.format(
         username=username,
         bot=bot_username,
@@ -241,8 +241,8 @@ async def handle_botwelcome(bot: BaseBot, user: User) -> None:
     await _w(bot, user.id,
              f"<#66CCFF>Bot Welcomes<#FFFFFF>: {enabled}")
     await _w(bot, user.id,
-             "Use !setbotwelcome <bot> <msg> to customize. "
-             "/botwelcomes on|off to toggle.")
+             "Use !setbotwelcome [bot] [msg] to customize. "
+             "!botwelcomes on|off to toggle.")
 
 
 # ---------------------------------------------------------------------------

@@ -709,11 +709,11 @@ async def handle_eventhelp(bot: BaseBot, user: User) -> None:
     """/eventhelp — show event command reference."""
     await _w(bot, user.id,
              "🎉 Events\n"
-             "/event /events\n"
+             "!event  !events\n"
              "Auto events every 1h.\n"
-             "Staff: /startevent /stopevent /autoevents\n"
-             "/eventstatus /eventpoints\n"
-             "/eventshop /buyevent <id>")
+             "Staff: !startevent  !stopevent  !autoevents\n"
+             "!eventstatus  !eventpoints\n"
+             "!eventshop  !buyevent [id]")
 
 
 async def handle_eventstatus(bot: BaseBot, user: User) -> None:
@@ -1546,8 +1546,8 @@ async def handle_eventpanel(bot: BaseBot, user: User) -> None:
         f"AutoEvents: {'ON' if ev_on == '1' else 'OFF'} every {ev_int}h"
     )
     lines.append(
-        "/startevent <id> <mins> | /stopevent\n"
-        "/miningevent <id> <mins>"
+        "!startevent [id] [mins] | !stopevent\n"
+        "!miningevent [id] [mins]"
     )
     await _w(bot, user.id, "\n".join(lines)[:249])
 
@@ -1765,7 +1765,7 @@ async def handle_eventlist(bot: BaseBot, user: User,
         for ev in EVENT_CATALOG[6:12]:
             mo = " [manual]" if ev["manual_only"] else ""
             lines2.append(f"{ev['number']}. {ev['emoji']} {ev['name']}{mo}")
-        lines2.append("/eventlist 2 for Fishing events")
+        lines2.append("!eventlist 2 for Fishing events")
         await _w(bot, user.id, "\n".join(lines2)[:249])
     else:
         lines1 = ["<#00CCFF>📋 Events 13-17 (Fishing)<#FFFFFF>"]

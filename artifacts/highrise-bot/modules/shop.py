@@ -208,10 +208,10 @@ async def _send_catalog_page(
 
     nav = []
     if page > 1:
-        nav.append("/shop prev")
+        nav.append("!shop prev")
     if page < total_pages:
-        nav.append("/shop next")
-    footer = "Buy: /buy <#>" + (f"  {' | '.join(nav)}" if nav else "")
+        nav.append("!shop next")
+    footer = "Buy: !buy [#]" + (f"  {' | '.join(nav)}" if nav else "")
     lines.append(footer)
 
     msg = "\n".join(lines)
@@ -264,11 +264,11 @@ async def handle_shop(bot: BaseBot, user: User, args: list[str]):
         try:
             await bot.highrise.send_whisper(user.id,
                 "-- Shop --\n"
-                "/shop badges    browse badges  (before your name)\n"
-                "/shop titles    browse titles  (after your name)\n"
-                "/myitems        see what you own & have equipped\n"
-                "Buy:   /buy badge <id>    /buy title <id>\n"
-                "Equip: /equip badge <id>  /equip title <id>"
+                "!shop badges — browse badges\n"
+                "!shop titles — browse titles\n"
+                "!myitems — see what you own & equipped\n"
+                "Buy:   !buy badge [id]   !buy title [id]\n"
+                "Equip: !equip badge [id] !equip title [id]"
             )
         except Exception as exc:
             print(f"[SHOP] /shop help error for {user.username}: {exc}")

@@ -258,10 +258,10 @@ async def handle_maintenance(bot: BaseBot, user: User, args: list[str]) -> None:
         status = "ON 🔧" if _maintenance_on else "OFF ✅"
         await _w(bot, user.id,
                  f"Maintenance mode: {status}\n"
-                 "Cmds: /maintenance on|off\n"
-                 "/maintenance all on|off\n"
-                 "/maintenance bot <name> on|off [reason]\n"
-                 "/maintenance status")
+                 "Cmds: !maintenance on|off\n"
+                 "!maintenance all on|off\n"
+                 "!maintenance bot [name] on|off [reason]\n"
+                 "!maintenance status")
 
 
 # ── /reloadsettings ───────────────────────────────────────────────────────────
@@ -399,8 +399,8 @@ async def handle_restarthelp(bot: BaseBot, user: User) -> None:
         return
     await _w(bot, user.id,
              "🔄 Restart\n"
-             "/softrestart - reload systems\n"
-             "/restartbot - full process restart\n"
+             "!softrestart — reload systems\n"
+             "!restartbot — full process restart\n"
              "Owner only.")
 
 

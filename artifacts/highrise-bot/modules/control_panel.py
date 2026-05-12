@@ -1,6 +1,6 @@
 """
 modules/control_panel.py
-Bot Control Center — /control, /status, /quicktoggles, /toggle
+Bot Control Center — !control, !status, !quicktoggles, !toggle
 All messages ≤ 249 chars.
 """
 
@@ -56,154 +56,154 @@ def _event_status() -> str:
 
 
 # ---------------------------------------------------------------------------
-# /control  —  main dispatcher
+# !control  —  main dispatcher
 # ---------------------------------------------------------------------------
 
 _MAIN_PANEL = (
     "⚙️ Control\n"
-    "/control room - room tools\n"
-    "/control economy - coins/bank\n"
-    "/control casino - BJ/RBJ/Poker\n"
-    "/control games - mining/events"
+    "!control room — room tools\n"
+    "!control economy — coins/bank\n"
+    "!control casino — BJ/RBJ/Poker\n"
+    "!control games — mining/events"
 )
-_MAIN_EXTRA = "More: /control shop | staff | system"
+_MAIN_EXTRA = "More: !control shop | staff | system"
 
 _ROOM_PAGES = [
     (
         "🏠 Room\n"
-        "/roomsettings - settings\n"
-        "/spawns - spawns\n"
-        "/welcomehelp - welcome\n"
-        "/intervals - auto msgs"
+        "!roomsettings — settings\n"
+        "!spawns — spawns\n"
+        "!welcomehelp — welcome\n"
+        "!intervals — auto msgs"
     ),
     (
         "🏠 Room 2\n"
-        "/teleporthelp - teleport\n"
-        "/emotehelp - emotes\n"
-        "/socialhelp - social\n"
-        "/botmodehelp - bot modes"
+        "!teleporthelp — teleport\n"
+        "!emotehelp — emotes\n"
+        "!socialhelp — social\n"
+        "!botmodehelp — bot modes"
     ),
 ]
 
 _ECONOMY_PAGES = [
     (
         "💰 Economy\n"
-        "/bal user - balance\n"
-        "/setcoins user amt - set\n"
-        "/addcoins user amt - add\n"
-        "/adminlogs - logs"
+        "!bal [user] — balance\n"
+        "!setcoins [user] [amt] — set\n"
+        "!addcoins [user] [amt] — add\n"
+        "!adminlogs — logs"
     ),
     (
         "🏦 Bank\n"
-        "/banksettings - settings\n"
-        "/viewtx user - tx\n"
-        "/bankblock user - block\n"
-        "/resetbanklimits user - reset"
+        "!banksettings — settings\n"
+        "!viewtx [user] — tx\n"
+        "!bankblock [user] — block\n"
+        "!resetbanklimits [user] — reset"
     ),
 ]
 
 _CASINO_PAGES = [
     (
         "🎰 Casino\n"
-        "/casinosettings - settings\n"
-        "/bj limits - BJ\n"
-        "/rbj limits - RBJ\n"
-        "/poker settings - poker"
+        "!casinosettings — settings\n"
+        "!bj limits — BJ\n"
+        "!rbj limits — RBJ\n"
+        "!poker settings — poker"
     ),
     (
         "🎰 Casino 2\n"
-        "/bj recover\n"
-        "/rbj recover\n"
-        "/poker state\n"
-        "/poker cleanup\n"
-        "/poker refundtable"
+        "!bj recover\n"
+        "!rbj recover\n"
+        "!poker state\n"
+        "!poker cleanup\n"
+        "!poker refundtable"
     ),
 ]
 
 _GAMES_PAGES = [
     (
         "🎮 Games\n"
-        "/miningadmin - mining\n"
-        "/miningevent - event\n"
-        "/startminingevent id\n"
-        "/minelb - mining LB"
+        "!miningadmin — mining\n"
+        "!miningevent — event\n"
+        "!startminingevent [id]\n"
+        "!minelb — mining LB"
     ),
     (
         "🎉 Events\n"
-        "/events - list\n"
-        "/startevent id\n"
-        "/stopevent\n"
-        "/eventshop"
+        "!events — list\n"
+        "!startevent [id]\n"
+        "!stopevent\n"
+        "!eventshop"
     ),
 ]
 
 _SHOP_PAGES = [
     (
         "🛒 Shop\n"
-        "/shopadmin - shop admin\n"
-        "/shop badges\n"
-        "/shop titles\n"
-        "/vipshop"
+        "!shopadmin — shop admin\n"
+        "!shop badges\n"
+        "!shop titles\n"
+        "!vipshop"
     ),
     (
         "🏷️ Badges\n"
-        "/addbadge id emoji name rarity price\n"
-        "/givebadge user id\n"
-        "/badgemarketlogs"
+        "!addbadge [id] [emoji] [name] [rarity] [price]\n"
+        "!givebadge [user] [id]\n"
+        "!badgemarketlogs"
     ),
 ]
 
 _STAFF_PAGES = [
     (
         "🛡️ Staff\n"
-        "/allstaff - list\n"
-        "/addmoderator user\n"
-        "/addmanager user\n"
-        "/reports - reports"
+        "!allstaff — list\n"
+        "!addmoderator [user]\n"
+        "!addmanager [user]\n"
+        "!reports — reports"
     ),
     (
         "🔨 Moderation\n"
-        "/warn user reason\n"
-        "/mute user min reason\n"
-        "/ban user reason\n"
-        "/modlog user"
+        "!warn [user] [reason]\n"
+        "!mute [user] [min] [reason]\n"
+        "!ban [user] [reason]\n"
+        "!modlog [user]"
     ),
     (
         "👑 Owner Roles\n"
-        "/addowner user\n"
-        "/addadmin user\n"
-        "/removeadmin user\n"
-        "/owners"
+        "!addowner [user]\n"
+        "!addadmin [user]\n"
+        "!removeadmin [user]\n"
+        "!owners"
     ),
 ]
 
 _SYSTEM_PAGES = [
     (
         "🧰 System\n"
-        "/healthcheck - health\n"
-        "/restartstatus - restart\n"
-        "/checkcommands - routes\n"
-        "/checkhelp - help"
+        "!healthcheck — health\n"
+        "!restartstatus — restart\n"
+        "!checkcommands — routes\n"
+        "!checkhelp — help"
     ),
     (
         "🧰 System 2\n"
-        "/missingcommands\n"
-        "/silentcheck\n"
-        "/roomlogs\n"
-        "/botoutfitlogs"
+        "!missingcommands\n"
+        "!silentcheck\n"
+        "!roomlogs\n"
+        "!botoutfitlogs"
     ),
     (
         "👑 Owner System\n"
-        "/backup\n"
-        "/softrestart\n"
-        "/adminlogs\n"
-        "/dbstats"
+        "!backup\n"
+        "!softrestart\n"
+        "!adminlogs\n"
+        "!dbstats"
     ),
 ]
 
 
 async def handle_control(bot, user, args: list[str]) -> None:
-    """/control [section] [page]"""
+    """!control [section] [page]"""
     if not can_moderate(user.username):
         await _w(bot, user.id, "Staff only.")
         return
@@ -267,41 +267,41 @@ async def handle_control(bot, user, args: list[str]) -> None:
 
     n = len(pages)
     if page < 1 or page > n:
-        await _w(bot, user.id, f"Pages 1-{n} for /control {sub}.")
+        await _w(bot, user.id, f"Pages 1-{n} for !control {sub}.")
         return
     await _w(bot, user.id, pages[page - 1])
 
 
 # ---------------------------------------------------------------------------
-# /adminpanel alias  (already exists in admin_cmds; kept separate here
-# for /managerpanel and /ownerpanel shortcuts)
+# !adminpanel alias  (already exists in admin_cmds; kept separate here
+# for !managerpanel and !ownerpanel shortcuts)
 # ---------------------------------------------------------------------------
 
 async def handle_ownerpanel(bot, user) -> None:
-    """/ownerpanel — owner-only control hub shortcut."""
+    """!ownerpanel — owner-only control hub shortcut."""
     if not is_owner(user.username):
         await _w(bot, user.id, "Owner only.")
         return
     await _w(bot, user.id, _MAIN_PANEL)
     await _w(bot, user.id, _MAIN_EXTRA)
-    await _w(bot, user.id, "👑 Owner: /control staff 3 | system 3 | /backup | /softrestart")
+    await _w(bot, user.id, "👑 Owner: !control staff 3 | !control system 3 | !backup | !softrestart")
 
 
 async def handle_managerpanel(bot, user) -> None:
-    """/managerpanel — manager control hub shortcut."""
+    """!managerpanel — manager control hub shortcut."""
     if not can_manage_games(user.username):
         await _w(bot, user.id, "Manager and above only.")
         return
     await _w(bot, user.id, _MAIN_PANEL)
-    await _w(bot, user.id, "🧰 Manager: /control room | games | casino")
+    await _w(bot, user.id, "🧰 Manager: !control room | games | casino")
 
 
 # ---------------------------------------------------------------------------
-# /status  /roomstatus
+# !status  !roomstatus
 # ---------------------------------------------------------------------------
 
 async def handle_status(bot, user) -> None:
-    """/status — public summary; staff get an extended view."""
+    """!status — public summary; staff get an extended view."""
     mining  = _mining_on()
     bj_s    = db.get_bj_settings()
     rbj_s   = db.get_rbj_settings()
@@ -342,7 +342,7 @@ async def handle_status(bot, user) -> None:
 
 
 async def handle_roomstatus(bot, user) -> None:
-    """/roomstatus — staff room-utility status snapshot."""
+    """!roomstatus — staff room-utility status snapshot."""
     if not can_moderate(user.username):
         await _w(bot, user.id, "Staff only.")
         return
@@ -356,11 +356,11 @@ async def handle_roomstatus(bot, user) -> None:
 
 
 # ---------------------------------------------------------------------------
-# /quicktoggles
+# !quicktoggles
 # ---------------------------------------------------------------------------
 
 async def handle_quicktoggles(bot, user) -> None:
-    """/quicktoggles — show all toggle states at a glance."""
+    """!quicktoggles — show all toggle states at a glance."""
     if not can_manage_games(user.username):
         await _w(bot, user.id, "Manager and above only.")
         return
@@ -374,11 +374,11 @@ async def handle_quicktoggles(bot, user) -> None:
 
 
 # ---------------------------------------------------------------------------
-# /toggle <module>
+# !toggle <module>
 # ---------------------------------------------------------------------------
 
 async def handle_toggle(bot, user, args: list[str]) -> None:
-    """/toggle <mining|bj|rbj|poker|welcome|intervals|botprefix>"""
+    """!toggle <mining|bj|rbj|poker|welcome|intervals|botprefix>"""
     if not can_manage_games(user.username):
         await _w(bot, user.id, "Manager and above only.")
         return

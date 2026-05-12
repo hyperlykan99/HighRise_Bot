@@ -543,7 +543,7 @@ async def handle_fishlist(bot: BaseBot, user: User, args: list[str]) -> None:
             cnt = sum(1 for f in FISH_CATALOG if f["rarity"] == r)
             lines.append(f"[{r.upper()}] — {cnt} fish")
         lines.append("Use !fishlist common to view Common fish.")
-        lines.append("/fishprices common for prices & weights.")
+        lines.append("!fishprices common for prices & weights.")
         await _w(bot, user.id, "\n".join(lines)[:249])
 
 
@@ -765,7 +765,7 @@ async def handle_fishautosellrare(bot: BaseBot, user: User, args: list[str]) -> 
         rare_on = bool(_as.get("auto_sell_rare_enabled", 0))
         await _w(bot, user.id,
                  f"🎣 Rare Auto-Sell: {'ON' if rare_on else 'OFF'}\n"
-                 "/fishautosellrare on|off")
+                 "!fishautosellrare on|off")
 
 
 # ---------------------------------------------------------------------------

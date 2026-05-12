@@ -156,7 +156,7 @@ async def _wallet_p1(bot: BaseBot, user: User) -> None:
     ]
     if stack is not None:
         lines.append(f"Poker stack: {fmt_coins(stack)}")
-    lines.append("/wallet 2 for bank & alerts")
+    lines.append("!wallet 2 for bank & alerts")
     await bot.highrise.send_whisper(user.id, "\n".join(lines)[:249])
 
 

@@ -4134,50 +4134,50 @@ async def handle_setpokermaxplayers(bot: BaseBot, user: User,
 POKER_HELP_PAGES = [
     (
         "♠️ Poker 1/6 — Join & Table\n"
-        "/p <buyin>  or  /poker join <buyin>\n"
-        "/poker leave  — cash out your stack\n"
-        "/sitout  /sitin  — sit out / back in\n"
-        "/rebuy <amount>  — add chips to stack\n"
-        "/mystack  /pstacks  — view stacks"
+        "!p [buyin]  or  !poker join [buyin]\n"
+        "!poker leave — cash out your stack\n"
+        "!sitout  !sitin — sit out / back in\n"
+        "!rebuy [amount] — add chips to stack\n"
+        "!mystack  !pstacks — view stacks"
     ),
     (
         "♠️ Poker 2/6 — Actions\n"
-        "/check  or  /ch\n"
-        "/call   or  /ca\n"
-        "/raise <amt>  or  /r <amt>\n"
-        "/fold   or  /f\n"
-        "/allin  or  /ai  or  /shove"
+        "!check  or  !ch\n"
+        "!call   or  !ca\n"
+        "!raise [amt]  or  !r [amt]\n"
+        "!fold   or  !f\n"
+        "!allin  or  !ai  or  !shove"
     ),
     (
         "♠️ Poker 3/6 — Info & Stats\n"
-        "/pt  — table info  /ph  — your cards\n"
-        "/po  — win odds estimate\n"
-        "/pstats  or  /pokerstats [user]\n"
-        "/plb wins|pots|allins|hands|profit\n"
-        "/poker settings [2|3]  /poker rules"
+        "!pt — table info  !ph — your cards\n"
+        "!po — win odds estimate\n"
+        "!pstats  or  !pokerstats [user]\n"
+        "!plb wins|pots|allins|hands|profit\n"
+        "!poker settings [2|3]  !poker rules"
     ),
     (
         "♠️ Poker 4/6 — Staff\n"
-        "/poker on|off|close|cancel|start\n"
-        "/poker winlimit|losslimit on|off\n"
-        "/poker blinds|rebuy|maxstack on|off\n"
-        "/poker autositout|autostart on|off\n"
-        "/poker raiselimit|allin on|off"
+        "!poker on|off|close|cancel|start\n"
+        "!poker winlimit|losslimit on|off\n"
+        "!poker blinds|rebuy|maxstack on|off\n"
+        "!poker autositout|autostart on|off\n"
+        "!poker raiselimit|allin on|off"
     ),
     (
         "♠️ Poker 5/6 — Settings (Mgr+)\n"
-        "/setpokerbuyin <min> <max>\n"
-        "/setpokerblinds <SB> <BB>\n"
-        "/setpokerante <amt>  /setpokerplayers <mn> <mx>\n"
-        "/setpokertimer <sec>  /setpokernexthandtimer <sec>\n"
-        "/setpokermaxstack <amt>  /setpokeridlestrikes <n>"
+        "!setpokerbuyin [min] [max]\n"
+        "!setpokerblinds [SB] [BB]\n"
+        "!setpokerante [amt]  !setpokerplayers [mn] [mx]\n"
+        "!setpokertimer [sec]  !setpokernexthandtimer [sec]\n"
+        "!setpokermaxstack [amt]  !setpokeridlestrikes [n]"
     ),
     (
         "♠️ Poker 6/6 — Recovery\n"
-        "/poker state  /poker recoverystatus\n"
-        "/poker cleanup  /poker refund\n"
-        "/poker forcefinish  /poker hardrefund\n"
-        "/poker clearhand|closeforce (Admin)"
+        "!poker state  !poker recoverystatus\n"
+        "!poker cleanup  !poker refund\n"
+        "!poker forcefinish  !poker hardrefund\n"
+        "!poker clearhand|closeforce (Admin)"
     ),
 ]
 
@@ -4760,8 +4760,8 @@ async def handle_pokerdashboard(bot: BaseBot, user: User) -> None:
 
     # Line 4: quick control reminder
     await _w(bot, user.id,
-        "/poker pause|resume|forceadvance|forceresend|turn|pots|"
-        "actions|resetturn|resethand|resettable | /pokerfix"[:249])
+        "!poker pause|resume|forceadvance|forceresend|turn|pots|"
+        "actions|resetturn|resethand|resettable | !pokerfix"[:249])
 
 
 async def handle_pokerpause(bot: BaseBot, user: User) -> None:

@@ -64,10 +64,10 @@ def _resolve(args: list[str], bot_user_id: str) -> str | None:
 
 AUDIT_HELP = (
     "🔍 Audit Commands\n"
-    "/audit <user>\n"
-    "/auditbank <user>\n"
-    "/auditcasino <user>\n"
-    "/auditeconomy <user>"
+    "!audit [user]\n"
+    "!auditbank [user]\n"
+    "!auditcasino [user]\n"
+    "!auditeconomy [user]"
 )
 
 

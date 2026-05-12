@@ -148,7 +148,7 @@ async def _create_confirmation(bot, user, item, shop_type) -> None:
     await bot.highrise.send_whisper(
         user.id,
         f"Confirm {_fmt(price)}{unit} purchase of {name}:\n"
-        f"/confirmbuy {code}\n"
+        f"!confirmbuy {code}\n"
         f"(expires in 5 min)"
     )
 
@@ -329,10 +329,10 @@ async def handle_shopadmin(bot: BaseBot, user: User, args: list[str]) -> None:
         await bot.highrise.send_whisper(
             user.id,
             "🛍️ Shop Admin\n"
-            "/shopadmin badges — badge catalog\n"
-            "/shopadmin titles — title catalog\n"
-            "/shopadmin event  — event shop\n"
-            "/shoptest <user> <badges|titles|event>"
+            "!shopadmin badges — badge catalog\n"
+            "!shopadmin titles — title catalog\n"
+            "!shopadmin event  — event shop\n"
+            "!shoptest [user] [badges|titles|event]"
         )
 
 

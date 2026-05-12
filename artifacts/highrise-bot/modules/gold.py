@@ -1427,11 +1427,11 @@ async def handle_goldraineligible(bot, user, args: list[str]) -> None:
 async def handle_goldhelp(bot, user, args: list[str]) -> None:
     msg = (
         "👑 Gold Cmds (Owner)\n"
-        "/goldtip <user> <amt>  /goldtip all <amt>\n"
-        "/tipall <amt>  /goldrefund <user> <amt>\n"
-        "/goldtipbots on|off  /goldrain <amt> [count]\n"
-        "/goldrainall <amt>  /goldrainrole <role> <amt>\n"
-        "/goldrainvip <amt>  /goldraineligible\n"
-        "/setgoldrainstaff on|off  /setgoldrainmax <amt>"
+        "!goldtip [user] [amt]  !goldtip all [amt]\n"
+        "!tipall [amt]  !goldrefund [user] [amt]\n"
+        "!goldtipbots on|off  !goldrain [amt] [count]\n"
+        "!goldrainall [amt]  !goldrainrole [role] [amt]\n"
+        "!goldrainvip [amt]  !goldraineligible\n"
+        "!setgoldrainstaff on|off  !setgoldrainmax [amt]"
     )
     await bot.highrise.send_whisper(user.id, msg[:249])

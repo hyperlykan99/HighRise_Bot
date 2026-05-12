@@ -457,7 +457,7 @@ async def handle_deploymentcheck(bot, user, args: list[str]) -> None:
     if fail_count > 0:
         await _w(bot, user.id,
                  "Use !clearstalebotlocks to clear stale locks. "
-                 "/botconflicts for details.")
+                 "!botconflicts for details.")
 
 
 # ---------------------------------------------------------------------------

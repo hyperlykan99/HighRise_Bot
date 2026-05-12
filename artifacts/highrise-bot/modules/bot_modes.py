@@ -1057,12 +1057,12 @@ async def handle_botoutfitlogs(bot: BaseBot, user: User) -> None:
 
 async def handle_botmodehelp(bot: BaseBot, user: User) -> None:
     await _w(bot, user.id,
-             "🤖 /botmode /botmodes /botprofile /bots "
-             "| /botoutfit [mode] /botoutfits [page] "
-             "| (admin) /dressbot /savebotoutfit /copyoutfit /wearuseroutfit "
-             "/renamebotoutfit /clearbotoutfit "
-             "| (per-bot) /copymyoutfit /copyoutfitfrom /savemyoutfit /wearoutfit "
-             "/myoutfits /myoutfitstatus")
+             "🤖 !botmode !botmodes !botprofile !bots "
+             "| !botoutfit [mode] !botoutfits [page] "
+             "| (admin) !dressbot !savebotoutfit !copyoutfit !wearuseroutfit "
+             "!renamebotoutfit !clearbotoutfit "
+             "| (per-bot) !copymyoutfit !copyoutfitfrom !savemyoutfit !wearoutfit "
+             "!myoutfits !myoutfitstatus")
 
 
 # ---------------------------------------------------------------------------

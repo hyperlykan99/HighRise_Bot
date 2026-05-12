@@ -308,7 +308,7 @@ async def handle_bigannounce_help(bot, user) -> None:
     """/bigannounce — show Big Announce help."""
     await bot.highrise.send_whisper(user.id,
         "📣 Big Announce Settings\n"
-        "/setbigannounce mining exotic all_bots\n"
-        "/setbigannounce fishing prismatic fishing_only\n"
-        "/setbotbigreact BankingBot on\n"
-        "/bigannouncestatus")
+        "!setbigannounce mining exotic all_bots\n"
+        "!setbigannounce fishing prismatic fishing_only\n"
+        "!setbotbigreact BankingBot on\n"
+        "!bigannouncestatus")

@@ -1953,12 +1953,12 @@ async def _cmd_bj_force(bot: BaseBot, user: User, sub: str, args: list[str]) -> 
         await bot.highrise.send_whisper(
             user.id,
             "🧪 BJ Debug Commands\n"
-            "/bj forcecards @Player A♠ K♠\n"
-            "/bj forcedealer A♣ K♦\n"
-            "/bj forcedealerace\n"
-            "/bj forceplayerpair [@Player]\n"
-            "/bj forceblackjack [@Player]\n"
-            "/bj forceshoe low"
+            "!bj forcecards @Player A♠ K♠\n"
+            "!bj forcedealer A♣ K♦\n"
+            "!bj forcedealerace\n"
+            "!bj forceplayerpair [@Player]\n"
+            "!bj forceblackjack [@Player]\n"
+            "!bj forceshoe low"
         )
         return
 
@@ -2146,10 +2146,10 @@ async def handle_rbj_set(bot: BaseBot, user: User, cmd: str, args: list[str]):
         else:
             await bot.highrise.send_whisper(
                 user.id,
-                "RBJ settings: /setrbjdecks /setrbjminbet /setrbjmaxbet\n"
-                "/setrbjshuffle /setrbjblackjackpayout /setrbjwinpayout\n"
-                "/setrbjcountdown /setrbjactiontimer /setrbjmaxsplits\n"
-                "/setrbjdailywinlimit /setrbjdailylosslimit"
+                "RBJ settings: !setrbjdecks !setrbjminbet !setrbjmaxbet\n"
+                "!setrbjshuffle !setrbjblackjackpayout !setrbjwinpayout\n"
+                "!setrbjcountdown !setrbjactiontimer !setrbjmaxsplits\n"
+                "!setrbjdailywinlimit !setrbjdailylosslimit"
             )
 
     except Exception as exc:

@@ -1058,9 +1058,9 @@ async def handle_bj(bot: BaseBot, user: User, args: list[str]):
         else:
             await bot.highrise.send_whisper(
                 user.id,
-                "🃏 BJ: /bjoin <bet>  /bh hit  /bs stand\n"
-                "/bd double  /bsp split\n"
-                "/bt table  /bhand  /bj rules  /bstats"
+                "🃏 BJ: !bjoin [bet]  !bh hit  !bs stand\n"
+                "!bd double  !bsp split\n"
+                "!bt table  !bhand  !bj rules  !bstats"
             )
     except Exception as exc:
         print(f"[BJ] /{' '.join(args)} error for {user.username}: {exc}")
@@ -1923,11 +1923,11 @@ async def handle_bj_set(bot: BaseBot, user: User, cmd: str, args: list[str]):
         else:
             await bot.highrise.send_whisper(
                 user.id,
-                "BJ settings: /setbjminbet /setbjmaxbet\n"
-                "/setbjcountdown /setbjactiontimer\n"
-                "/setbjmaxsplits /setbjdailywinlimit /setbjdailylosslimit\n"
-                "/setbjbonus on|off  /setbjbonuscap <coins>\n"
-                "/setbjbonuspair|color|perfect <pct>  /setbjinsurance on|off"
+                "BJ settings: !setbjminbet !setbjmaxbet\n"
+                "!setbjcountdown !setbjactiontimer\n"
+                "!setbjmaxsplits !setbjdailywinlimit !setbjdailylosslimit\n"
+                "!setbjbonus on|off  !setbjbonuscap [coins]\n"
+                "!setbjbonuspair|color|perfect [pct]  !setbjinsurance on|off"
             )
 
     except Exception as exc:

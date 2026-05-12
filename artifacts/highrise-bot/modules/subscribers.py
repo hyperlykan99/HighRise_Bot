@@ -468,10 +468,10 @@ async def handle_subhelp(bot: BaseBot, user: User, args: list[str]) -> None:
             return
         await _w(bot, user.id,
                  "📣 Announce\n"
-                 "/announce_subs <msg>\n"
-                 "/announce_vip <msg>\n"
-                 "/announce_staff <msg>\n"
-                 "/dmnotify <user> <msg>")
+                 "!announce_subs [msg]\n"
+                 "!announce_vip [msg]\n"
+                 "!announce_staff [msg]\n"
+                 "!dmnotify [user] [msg]")
         return
 
     if page == "3":
@@ -479,20 +479,20 @@ async def handle_subhelp(bot: BaseBot, user: User, args: list[str]) -> None:
             await _w(bot, user.id, "Page 3 is for staff only.")
             return
         await _w(bot, user.id,
-                 "Debug: /debugnotify <user>\n"
-                 "/testnotify <user> <type>\n"
-                 "/testnotifyall <type> (owner)\n"
-                 "/pendingnotify <user>\n"
-                 "/clearpendingnotify <user>")
+                 "Debug: !debugnotify [user]\n"
+                 "!testnotify [user] [type]\n"
+                 "!testnotifyall [type] (owner)\n"
+                 "!pendingnotify [user]\n"
+                 "!clearpendingnotify [user]")
         return
 
     await _w(bot, user.id,
              "🔔 Subscribe\n"
-             "/subscribe\n"
-             "/unsubscribe\n"
-             "/substatus\n"
-             "/notifysettings\n"
-             "/notify <type> on/off")
+             "!subscribe\n"
+             "!unsubscribe\n"
+             "!substatus\n"
+             "!notifysettings\n"
+             "!notify [type] on|off")
 
 
 # ── /subscribers (staff) ──────────────────────────────────────────────────────

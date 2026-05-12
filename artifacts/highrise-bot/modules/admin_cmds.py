@@ -600,44 +600,44 @@ async def handle_resetcasinostats(bot: BaseBot, user: User, args: list[str]) -> 
 _PANEL_PAGES = {
     "": (
         "⚙️ Admin Panel\n"
-        "/adminpanel economy\n"
-        "/adminpanel xp\n"
-        "/adminpanel items\n"
-        "/adminpanel casino\n"
-        "/adminpanel system"
+        "!adminpanel economy\n"
+        "!adminpanel xp\n"
+        "!adminpanel items\n"
+        "!adminpanel casino\n"
+        "!adminpanel system"
     ),
     "economy": (
         "⚙️ Economy\n"
-        "/setcoins /addcoins /removecoins /resetcoins\n"
-        "/addeventcoins /seteventcoins /reseteventcoins\n"
-        "/addrep /setrep /resetrep"
+        "!setcoins !addcoins !removecoins !resetcoins\n"
+        "!addeventcoins !seteventcoins !reseteventcoins\n"
+        "!addrep !setrep !resetrep"
     ),
     "xp": (
         "⚙️ XP / Level\n"
-        "/addxp /removexp /setxp /resetxp\n"
-        "/setlevel /addlevel\n"
+        "!addxp !removexp !setxp !resetxp\n"
+        "!setlevel !addlevel\n"
         "Lv→XP: 50*L*(L-1)"
     ),
     "items": (
         "⚙️ Items / VIP\n"
-        "/givetitle user id\n"
-        "/givebadge user id\n"
-        "/removetitle /removebadge\n"
-        "/addvip /removevip"
+        "!givetitle [user] [id]\n"
+        "!givebadge [user] [id]\n"
+        "!removetitle  !removebadge\n"
+        "!addvip  !removevip"
     ),
     "casino": (
         "⚙️ Casino\n"
-        "/casinosettings\n"
-        "/resetbjstats /resetrbjstats\n"
-        "/resetpokerstats /resetcasinostats\n"
-        "/casino reset"
+        "!casinosettings\n"
+        "!resetbjstats  !resetrbjstats\n"
+        "!resetpokerstats  !resetcasinostats\n"
+        "!casino reset"
     ),
     "system": (
         "⚙️ System\n"
-        "/healthcheck !dbstats /backup\n"
-        "/maintenance on/off\n"
-        "/reloadsettings /adminlogs\n"
-        "/checkhelp"
+        "!healthcheck  !dbstats  !backup\n"
+        "!maintenance on|off\n"
+        "!reloadsettings  !adminlogs\n"
+        "!checkhelp"
     ),
 }
 
@@ -757,83 +757,83 @@ async def handle_mycommands(bot: BaseBot, user: User, args: list[str]) -> None:
 # ---------------------------------------------------------------------------
 
 _HELP_INDEX = [
-    ("/bal /balance /coins", "check your coin balance"),
-    ("/bal user", "check another player's balance"),
-    ("/daily", "claim daily coins"),
-    ("/wallet /w", "coin and casino dashboard"),
-    ("/leaderboard", "top coin holders"),
-    ("/tiprate /tipstats", "tip rates and stats"),
-    ("/tipleaderboard", "top tippers"),
-    ("/coinflip", "coin flip game"),
-    ("/profile [user]", "view player profile (6 pages)"),
-    ("/whois user", "quick player lookup"),
-    ("/privacy field on/off", "toggle your privacy settings"),
-    ("/badges [user]", "view a player's badges"),
-    ("/titles [user]", "view a player's titles"),
-    ("/stats [user]", "player stats summary"),
-    ("/dashboard", "full economy overview"),
-    ("/level", "your level and XP"),
-    ("/xpleaderboard", "top XP players"),
-    ("/bjoin bet", "join blackjack"),
-    ("/bh hit | /bs stand", "BJ actions"),
-    ("/bd double | /bsp split", "BJ double / split"),
-    ("/bhand", "view your BJ hand"),
-    ("/blimits", "your BJ daily limits"),
-    ("/bstats", "your BJ stats"),
-    ("/rjoin bet", "join realistic BJ"),
-    ("/rshoe", "view shoe cards remaining"),
-    ("/rstats", "your RBJ stats"),
-    ("/p buyin", "join poker table"),
-    ("/check !call /raise /fold /ai", "poker actions"),
-    ("/mystack", "your poker chip stack"),
-    ("/pokerstats", "your poker stats"),
-    ("/plb", "poker leaderboard"),
-    ("/send user amt", "send coins to a player"),
-    ("/bank", "your bank summary"),
-    ("/transactions", "your transaction history"),
-    ("/banknotify on/off", "bank alert toggle"),
-    ("/shop titles", "browse titles for sale"),
-    ("/shop badges", "browse badges for sale"),
-    ("/buy title id", "buy a title from shop"),
-    ("/buy badge id", "buy a badge from shop"),
-    ("/equip title id", "equip a title"),
-    ("/equip badge id", "equip a badge"),
-    ("/myitems", "your owned items"),
-    ("/buyvip", "buy VIP status"),
-    ("/vipstatus", "check VIP status"),
-    ("/events", "list available events"),
-    ("/eventpoints", "your event coin balance"),
-    ("/eventshop", "spend event coins"),
-    ("/rep user", "give reputation to a player"),
-    ("/reputation", "your rep score"),
-    ("/toprep", "top rep players"),
-    ("/quests", "view active quests"),
-    ("/claimquest", "claim completed quest"),
-    ("/achievements", "view achievements"),
-    ("/report user reason", "report a player"),
-    ("/bug msg", "submit a bug report"),
-    ("/subscribe", "subscribe to notifications"),
-    ("/mycommands", "commands for your role"),
-    ("/helpsearch keyword", "search commands by keyword"),
-    ("/addcoins user amt", "add coins (admin)"),
-    ("/removecoins user amt", "remove coins (admin)"),
-    ("/setcoins user amt", "set exact balance (admin)"),
-    ("/addxp user amt", "add XP (admin)"),
-    ("/setlevel user lvl", "set player level (admin)"),
-    ("/givetitle user id", "give title (admin)"),
-    ("/givebadge user id", "give badge (admin)"),
-    ("/addvip user", "grant VIP (admin)"),
-    ("/addrep user amt", "add rep (admin)"),
-    ("/setrep user amt", "set rep (admin)"),
-    ("/resetbjstats user", "reset BJ stats (admin)"),
-    ("/resetpokerstats user", "reset poker stats (admin)"),
-    ("/adminlogs", "admin action log (admin)"),
-    ("/adminpanel", "admin control panel (admin)"),
-    ("/warn user reason", "warn a player (mod)"),
-    ("/mute user min", "mute a player (mod)"),
-    ("/reports", "open reports (mod)"),
-    ("/startevent id", "start an event (manager)"),
-    ("/staffhelp", "staff command index"),
+    ("!bal  !balance  !coins", "check your coin balance"),
+    ("!bal [user]", "check another player's balance"),
+    ("!daily", "claim daily coins"),
+    ("!wallet  !w", "coin and casino dashboard"),
+    ("!leaderboard", "top coin holders"),
+    ("!tiprate  !tipstats", "tip rates and stats"),
+    ("!tipleaderboard", "top tippers"),
+    ("!coinflip", "coin flip game"),
+    ("!profile [user]", "view player profile (6 pages)"),
+    ("!whois [user]", "quick player lookup"),
+    ("!privacy [field] on|off", "toggle your privacy settings"),
+    ("!badges [user]", "view a player's badges"),
+    ("!titles [user]", "view a player's titles"),
+    ("!stats [user]", "player stats summary"),
+    ("!dashboard", "full economy overview"),
+    ("!level", "your level and XP"),
+    ("!xpleaderboard", "top XP players"),
+    ("!bjoin [bet]", "join blackjack"),
+    ("!bh hit | !bs stand", "BJ actions"),
+    ("!bd double | !bsp split", "BJ double / split"),
+    ("!bhand", "view your BJ hand"),
+    ("!blimits", "your BJ daily limits"),
+    ("!bstats", "your BJ stats"),
+    ("!rjoin [bet]", "join realistic BJ"),
+    ("!rshoe", "view shoe cards remaining"),
+    ("!rstats", "your RBJ stats"),
+    ("!p [buyin]", "join poker table"),
+    ("!check  !call  !raise  !fold  !ai", "poker actions"),
+    ("!mystack", "your poker chip stack"),
+    ("!pokerstats", "your poker stats"),
+    ("!plb", "poker leaderboard"),
+    ("!send [user] [amt]", "send coins to a player"),
+    ("!bank", "your bank summary"),
+    ("!transactions", "your transaction history"),
+    ("!banknotify on|off", "bank alert toggle"),
+    ("!shop titles", "browse titles for sale"),
+    ("!shop badges", "browse badges for sale"),
+    ("!buy title [id]", "buy a title from shop"),
+    ("!buy badge [id]", "buy a badge from shop"),
+    ("!equip title [id]", "equip a title"),
+    ("!equip badge [id]", "equip a badge"),
+    ("!myitems", "your owned items"),
+    ("!buyvip", "buy VIP status"),
+    ("!vipstatus", "check VIP status"),
+    ("!events", "list available events"),
+    ("!eventpoints", "your event coin balance"),
+    ("!eventshop", "spend event coins"),
+    ("!rep [user]", "give reputation to a player"),
+    ("!reputation", "your rep score"),
+    ("!toprep", "top rep players"),
+    ("!quests", "view active quests"),
+    ("!claimquest", "claim completed quest"),
+    ("!achievements", "view achievements"),
+    ("!report [user] [reason]", "report a player"),
+    ("!bug [msg]", "submit a bug report"),
+    ("!subscribe", "subscribe to notifications"),
+    ("!mycommands", "commands for your role"),
+    ("!helpsearch [keyword]", "search commands by keyword"),
+    ("!addcoins [user] [amt]", "add coins (admin)"),
+    ("!removecoins [user] [amt]", "remove coins (admin)"),
+    ("!setcoins [user] [amt]", "set exact balance (admin)"),
+    ("!addxp [user] [amt]", "add XP (admin)"),
+    ("!setlevel [user] [lvl]", "set player level (admin)"),
+    ("!givetitle [user] [id]", "give title (admin)"),
+    ("!givebadge [user] [id]", "give badge (admin)"),
+    ("!addvip [user]", "grant VIP (admin)"),
+    ("!addrep [user] [amt]", "add rep (admin)"),
+    ("!setrep [user] [amt]", "set rep (admin)"),
+    ("!resetbjstats [user]", "reset BJ stats (admin)"),
+    ("!resetpokerstats [user]", "reset poker stats (admin)"),
+    ("!adminlogs", "admin action log (admin)"),
+    ("!adminpanel", "admin control panel (admin)"),
+    ("!warn [user] [reason]", "warn a player (mod)"),
+    ("!mute [user] [min]", "mute a player (mod)"),
+    ("!reports", "open reports (mod)"),
+    ("!startevent [id]", "start an event (manager)"),
+    ("!staffhelp", "staff command index"),
 ]
 
 # ---------------------------------------------------------------------------

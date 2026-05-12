@@ -2093,7 +2093,7 @@ async def _handle_casino_cmd(bot, user, args):
                 user.id,
                 f"⚠️ Active tables: {', '.join(tables)}.\n"
                 f"To confirm reset+refund, type:\n"
-                f"/confirmcasinoreset {code}\n"
+                f"!confirmcasinoreset {code}\n"
                 "(expires in 60s)"
             )
             return
@@ -4045,11 +4045,11 @@ class HangoutBot(BaseBot):
                 elif asyncio.get_event_loop().time() - pending["ts"] > 60:
                     _pending_casino_reset.pop(user.id, None)
                     await self.highrise.send_whisper(
-                        user.id, "Confirmation expired. Use /casino reset again."
+                        user.id, "Confirmation expired. Use !casino reset again."
                     )
                 elif len(args) < 2 or args[1] != pending["code"]:
                     await self.highrise.send_whisper(
-                        user.id, f"Wrong code. Expected: /confirmcasinoreset {pending['code']}"
+                        user.id, f"Wrong code. Expected: !confirmcasinoreset {pending['code']}"
                     )
                 else:
                     _pending_casino_reset.pop(user.id, None)

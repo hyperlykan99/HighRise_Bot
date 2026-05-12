@@ -366,10 +366,10 @@ async def handle_goldrain(bot, user, args: list[str]) -> None:
         await _w(
             bot, user.id,
             "🌧️ Gold Rain\n"
-            "/goldrain <group> <total_gold> <winners>\n"
-            "/goldrain slow <group> <total> <winners> [secs]\n"
-            "/goldrain party <group> <total> <winners> [secs]\n"
-            "/goldrain test <group> <total> <winners>\n"
+            "!goldrain [group] [total_gold] [winners]\n"
+            "!goldrain slow [group] [total] [winners] [secs]\n"
+            "!goldrain party [group] [total] [winners] [secs]\n"
+            "!goldrain test [group] [total] [winners]\n"
             f"Pace: {_PACE_LABEL.get(pace_name, pace_name)}  Interval: {pace_iv}s\n"
             "Groups: all subs vip players nonstaff",
         )

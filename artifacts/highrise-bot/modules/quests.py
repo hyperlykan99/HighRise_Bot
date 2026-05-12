@@ -151,11 +151,11 @@ def _progress_line(quests: list[dict], period: str, user_id: str) -> list[str]:
 
 QUEST_HELP = (
     "📜 Quests\n"
-    "/quests — overview\n"
-    "/dailyquests — daily progress\n"
-    "/weeklyquests — weekly progress\n"
-    "/claimquest — claim all done\n"
-    "/claimquest <id> — claim one"
+    "!quests — overview\n"
+    "!dailyquests — daily progress\n"
+    "!weeklyquests — weekly progress\n"
+    "!claimquest — claim all done\n"
+    "!claimquest [id] — claim one"
 )
 
 

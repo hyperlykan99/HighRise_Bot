@@ -310,11 +310,11 @@ async def handle_notifyhelp(bot: BaseBot, user: User, args: list[str]) -> None:
     else:
         await _w(bot, user.id,
                  "🔔 Notify\n"
-                 "/notifysettings\n"
-                 "/notify bank on/off\n"
-                 "/notify events on/off\n"
-                 "/notify gold on/off\n"
-                 "/notify all on/off")
+                 "!notifysettings\n"
+                 "!notify bank on|off\n"
+                 "!notify events on|off\n"
+                 "!notify gold on|off\n"
+                 "!notify all on|off")
 
 
 # ── /notifications ────────────────────────────────────────────────────────────

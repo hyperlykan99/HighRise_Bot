@@ -1760,28 +1760,28 @@ async def handle_botstartupannounce(bot, user, args: list[str]) -> None:
 _MULTIBOT_HELP_PAGES = [
     (
         "🤖 Multi-Bot\n"
-        "/bots - bot list\n"
-        "/bothealth - health\n"
-        "/modulehealth - modules\n"
-        "/deploymentcheck - check setup\n"
-        "/botstatus id - bot details"
+        "!bots — bot list\n"
+        "!bothealth — health\n"
+        "!modulehealth — modules\n"
+        "!deploymentcheck — check setup\n"
+        "!botstatus [id] — bot details"
     ),
     (
         "🔍 Diagnostics\n"
-        "/botlocks - active locks\n"
-        "/botconflicts - find conflicts\n"
-        "/botheartbeat - this bot status\n"
-        "/moduleowners - cmd owners\n"
-        "/commandowners - DB overrides"
+        "!botlocks — active locks\n"
+        "!botconflicts — find conflicts\n"
+        "!botheartbeat — this bot status\n"
+        "!moduleowners — cmd owners\n"
+        "!commandowners — DB overrides"
     ),
     (
         "👑 Owner Controls\n"
-        "/setcommandowner cmd mode\n"
-        "/enablebot id | /disablebot id\n"
-        "/setbotmodule id mode\n"
-        "/botfallback on|off\n"
-        "/fixbotowners [force]\n"
-        "/clearstalebotlocks"
+        "!setcommandowner [cmd] [mode]\n"
+        "!enablebot [id] | !disablebot [id]\n"
+        "!setbotmodule [id] [mode]\n"
+        "!botfallback on|off\n"
+        "!fixbotowners [force]\n"
+        "!clearstalebotlocks"
     ),
 ]
 

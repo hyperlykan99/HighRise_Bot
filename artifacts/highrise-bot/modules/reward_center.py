@@ -48,7 +48,7 @@ async def handle_rewardpending(bot, user, args=None) -> None:
         amt = r.get("gold_amount", 0)
         tv  = r.get("target_value") or r.get("race_target") or "?"
         lines.append(f"#{r['id']} @{r['username']} — {tv} — {amt:g}g")
-    lines.append("/markrewardpaid <id> to confirm.")
+    lines.append("!markrewardpaid [id] to confirm.")
     await _w(bot, user.id, "\n".join(lines)[:249])
 
 

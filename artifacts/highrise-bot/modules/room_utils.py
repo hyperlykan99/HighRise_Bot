@@ -1704,21 +1704,21 @@ def _safe_room_ban(username: str, banned_by: str, reason: str,
 async def handle_roomhelp(bot: BaseBot, user: User) -> None:
     await _w(bot, user.id,
              "🏠 Room\n"
-             "/players - room list\n"
-             "/spawns - spawn list\n"
-             "/roomsettings - settings\n"
-             "/welcome - welcome info\n"
-             "/roomhelp | /teleporthelp | /emotehelp")
+             "!players — room list\n"
+             "!spawns — spawn list\n"
+             "!roomsettings — settings\n"
+             "!welcome — welcome info\n"
+             "!roomhelp | !teleporthelp | !emotehelp")
 
 
 async def handle_teleporthelp(bot: BaseBot, user: User) -> None:
     await _w(bot, user.id,
              "📍 Teleport\n"
-             "/tpme spawn - self TP\n"
-             "/tp user spawn - staff TP\n"
-             "/bring user - bring here\n"
-             "/tpall spawn - all\n"
-             "/spawns - list spawns")
+             "!tpme [spawn] — self TP\n"
+             "!tp [user] [spawn] — staff TP\n"
+             "!bring [user] — bring here\n"
+             "!tpall [spawn] — all\n"
+             "!spawns — list spawns")
 
 
 async def handle_emoteinfo(bot: BaseBot, user: User, args: list[str]) -> None:
@@ -1737,47 +1737,47 @@ async def handle_emoteinfo(bot: BaseBot, user: User, args: list[str]) -> None:
         close = [e for e in EMOTE_LIST if raw in e.replace("emote-", "")][:4]
         hint  = "Similar: " + ", ".join(e.replace("emote-", "") for e in close) if close else ""
         await _w(bot, user.id,
-                 f"❓ Unknown emote '{raw}'. {hint}\n/emotes to list all."[:249])
+                 f"❓ Unknown emote '{raw}'. {hint}\n!emotes to list all."[:249])
 
 
 async def handle_emotehelp(bot: BaseBot, user: User) -> None:
     await _w(bot, user.id,
              "💃 Emotes\n"
-             "/emotes [page] - list\n"
-             "/emote id - use\n"
-             "/emoteinfo id - details\n"
-             "/loopemote id - loop\n"
-             "/forceemote user id")
+             "!emotes [page] — list\n"
+             "!emote [id] — use\n"
+             "!emoteinfo [id] — details\n"
+             "!loopemote [id] — loop\n"
+             "!forceemote [user] [id]")
 
 
 async def handle_alerthelp(bot: BaseBot, user: User) -> None:
     await _w(bot, user.id,
              "📣 Alerts\n"
-             "/announce msg - room\n"
-             "/alert msg - urgent\n"
-             "/staffalert msg\n"
-             "/vipalert msg\n"
-             "/dmnotify user msg")
+             "!announce [msg] — room\n"
+             "!alert [msg] — urgent\n"
+             "!staffalert [msg]\n"
+             "!vipalert [msg]\n"
+             "!dmnotify [user] [msg]")
 
 
 async def handle_welcomehelp(bot: BaseBot, user: User) -> None:
     await _w(bot, user.id,
              "👋 Welcome\n"
-             "/welcome on/off\n"
-             "/setwelcome msg\n"
-             "/welcometest\n"
-             "/welcomeinterval min\n"
-             "/resetwelcome user")
+             "!welcome on|off\n"
+             "!setwelcome [msg]\n"
+             "!welcometest\n"
+             "!welcomeinterval [min]\n"
+             "!resetwelcome [user]")
 
 
 async def handle_socialhelp(bot: BaseBot, user: User) -> None:
     await _w(bot, user.id,
              "💬 Social\n"
-             "/hug /kiss /slap /punch\n"
-             "/highfive /boop /waveat /cheer\n"
-             "/heart user\n"
-             "/social off - disable\n"
-             "/blocksocial user")
+             "!hug  !kiss  !slap  !punch\n"
+             "!highfive  !boop  !waveat  !cheer\n"
+             "!heart [user]\n"
+             "!social off — disable\n"
+             "!blocksocial [user]")
 
 
 # ---------------------------------------------------------------------------
