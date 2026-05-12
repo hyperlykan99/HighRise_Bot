@@ -2639,10 +2639,10 @@ async def _cmd_launchcheck(bot, user):
     games_ok = "OK" if _g.get("handle_bj") and _g.get("handle_rbj") and _g.get("handle_poker") else "⚠️"
 
     try:
-        from modules.cmd_audit import ROUTED_COMMANDS
+        from modules.cmd_audit import ROUTED_COMMANDS, HIDDEN_CMDS, DEPRECATED_CMDS
         from modules.multi_bot import _DEFAULT_COMMAND_OWNERS
         from modules.command_registry import get_entry as _reg_get
-        active = {c for c in ALL_KNOWN_COMMANDS}
+        active = ALL_KNOWN_COMMANDS - (HIDDEN_CMDS & ALL_KNOWN_COMMANDS) - (DEPRECATED_CMDS & ALL_KNOWN_COMMANDS)
         missing  = len(active - ROUTED_COMMANDS)
         noowner  = len(active - set(_DEFAULT_COMMAND_OWNERS.keys()))
         nohandle = len([c for c in active if _reg_get(c) is None])
