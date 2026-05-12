@@ -56,7 +56,7 @@ async def handle_coinflip(bot: BaseBot, user: User, args: list[str]):
     # We need exactly 3 parts: the command name, the choice, and the bet amount
     if len(args) < 3:
         await bot.highrise.send_whisper(
-            user.id, "Usage: !coinflip <heads/tails> <bet>\nExample: /coinflip heads 50"
+            user.id, "Usage: !coinflip <heads/tails> <bet>\nExample: !coinflip heads 50"
         )
         return
 
@@ -66,14 +66,14 @@ async def handle_coinflip(bot: BaseBot, user: User, args: list[str]):
     # Validate the choice
     if choice_raw not in ("heads", "tails"):
         await bot.highrise.send_whisper(
-            user.id, "Choose heads or tails. Example: /coinflip heads 50"
+            user.id, "Choose heads or tails. Example: !coinflip heads 50"
         )
         return
 
     # Validate the bet is a number
     if not bet_raw.isdigit():
         await bot.highrise.send_whisper(
-            user.id, "Your bet must be a whole number. Example: /coinflip tails 25"
+            user.id, "Your bet must be a whole number. Example: !coinflip tails 25"
         )
         return
 

@@ -624,7 +624,7 @@ async def handle_autogames(bot: BaseBot, user: User, args: list[str]) -> None:
             f" | Every {gs['auto_minigame_interval']}m"
         )
         if conflict:
-            msg += " ⚠️ /fixautogames"
+            msg += " ⚠️ !fixautogames"
         await bot.highrise.send_whisper(user.id, msg[:249])
         return
 

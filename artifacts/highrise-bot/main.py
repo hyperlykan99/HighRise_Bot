@@ -1136,13 +1136,12 @@ _HELP_CATEGORIES: dict[str, str] = {
         "🎮 Games\n"
         "!mine — mine once\n"
         "!automine — auto mine\n"
-        "!automine off — stop auto mine\n"
         "!fish — fish once\n"
         "!autofish — auto fish\n"
-        "!autofish off — stop auto fish\n"
         "!bet [amount] — play blackjack\n"
         "!poker — poker info\n"
-        "!coinflip [heads|tails] [amount]"
+        "!coinflip [heads|tails] [amount]\n"
+        "!answer [answer] — answer trivia"
     ),
     "blackjack": (
         "🃏 Blackjack\n"
@@ -1210,8 +1209,7 @@ _HELP_CATEGORIES: dict[str, str] = {
         "!vip — VIP overview & prices\n"
         "!vipperks — view perks\n"
         "!buyvip 1d/7d/30d — buy VIP with coins\n"
-        "!myvip — check status & expiry\n"
-        "No lifetime VIP."
+        "!myvip — check status & expiry"
     ),
     "support": (
         "💛 Support ChillTopia\n"
@@ -1220,8 +1218,7 @@ _HELP_CATEGORIES: dict[str, str] = {
         "!buyvip 1d/7d/30d — buy VIP with coins\n"
         "!donationgoal — room goal progress\n"
         "!topdonors — top supporters\n"
-        "VIP gives longer !automine/!autofish sessions.\n"
-        "No lifetime VIP."
+        "VIP gives longer !automine/!autofish sessions."
     ),
     "room": (
         "🏠 Room Commands\n"

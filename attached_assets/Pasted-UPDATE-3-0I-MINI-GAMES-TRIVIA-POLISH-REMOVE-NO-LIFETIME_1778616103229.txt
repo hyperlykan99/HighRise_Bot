@@ -1,0 +1,749 @@
+UPDATE 3.0I — MINI GAMES + TRIVIA POLISH + REMOVE “NO LIFETIME VIP” TEXT
+
+Goal:
+Polish mini games, trivia, answer handling, rewards, cooldowns, and player-facing messages without changing core casino/mining/fishing systems.
+
+Also remove the phrase “No lifetime VIP” from shop, help, VIP menus, bios, onboarding, and any player-facing text.
+
+Focus:
+- Trivia messages use !answer, not /answer
+- !answer routing and usage are clean
+- Mini game start/end messages are clear
+- Rewards are safe and consistent
+- Cooldowns prevent spam
+- No duplicate winners
+- No broken routes
+- No bot crashes
+- No / commands anywhere
+- Remove “No lifetime VIP” text everywhere visible to players
+
+This update is polish + safety only.
+
+Do not rewrite core systems.
+Do not change bot tokens.
+Do not change room ID.
+Do not wipe database.
+Do not reset balances, VIP, inventories, mining/fishing data, blackjack/poker data, teleports, role spawns, bot spawns, subscriptions, notifications, party tip wallet, shop items, badges, titles, or donation logs.
+Do not add AI.
+Do not change mining/fishing odds.
+Do not change blackjack/poker/casino odds.
+Do not change rare find announcements unless needed for message cap safety.
+Do not add exotic mute/pause.
+Do not add risky new game systems.
+Do not re-enable lifetime VIP.
+Do not advertise lifetime VIP.
+Do not sell lifetime VIP.
+
+==================================================
+PART 1 — STABILITY FIRST
+==================================================
+
+Before changing anything, verify:
+
+!commandissues
+!checkcommands
+!bothealth
+!stability status
+!botconflicts
+!modulehealth
+
+Expected:
+- no command issues
+- no checkcommands mismatch
+- Err: none
+- no bot conflicts
+
+If there are errors, fix those first before changing mini games.
+
+==================================================
+PART 2 — REMOVE “NO LIFETIME VIP” TEXT EVERYWHERE
+==================================================
+
+Current issue:
+Some shop/help/VIP messages say:
+
+No lifetime VIP.
+
+I want that text removed from all player-facing messages.
+
+Goal:
+Do not mention lifetime VIP at all.
+
+Remove this exact phrase and similar wording from:
+- !vip
+- !vipperks
+- !buyvip
+- !myvip
+- !shop
+- !help
+- !help vip
+- !help support
+- !help shop if it exists
+- bot bios
+- onboarding
+- shop menus
+- support menus
+- error messages
+- usage messages
+- any player-facing text
+
+Remove or replace these phrases:
+No lifetime VIP.
+Lifetime VIP is disabled.
+Lifetime VIP is not available.
+No permanent VIP.
+Permanent VIP is disabled.
+Lifetime/permanent VIP is not supported.
+
+Preferred:
+Simply show available VIP options without mentioning lifetime VIP.
+
+Good VIP menu:
+
+💎 VIP
+Support the room and unlock convenience perks.
+
+Commands:
+!vipperks — view perks
+!buyvip 1d — buy 1 day
+!buyvip 7d — buy 7 days
+!buyvip 30d — buy 30 days
+!myvip — check status
+
+Good buyvip usage:
+
+Usage:
+!buyvip 1d
+!buyvip 7d
+!buyvip 30d
+
+Bad:
+No lifetime VIP.
+
+==================================================
+PART 3 — KEEP LIFETIME VIP DISABLED INTERNALLY
+==================================================
+
+Important:
+Remove the text only.
+
+Do not re-enable lifetime VIP.
+Do not sell lifetime VIP.
+Do not show lifetime VIP in shop.
+Do not create lifetime VIP option.
+
+If a user types:
+!buyvip lifetime
+!buyvip permanent
+
+Reply without mentioning lifetime VIP:
+
+⚠️ VIP duration must be 1d, 7d, or 30d.
+
+Do not say:
+No lifetime VIP.
+
+If owner types:
+!grantvip @user lifetime
+
+Reply:
+⚠️ VIP duration must be a number of days.
+
+or:
+Usage: !grantvip [user] [days]
+Example: !grantvip @Player 7
+
+Do not mention lifetime/permanent.
+
+==================================================
+PART 4 — FIND EXISTING MINI GAME COMMANDS
+==================================================
+
+Audit existing mini game/trivia commands.
+
+Look for commands like:
+!answer
+!trivia
+!starttrivia
+!stoptrivia
+!skiptrivia
+!minigame
+!minigames
+!gamestatus
+!coinflip
+!riddle
+!guess
+!word
+!scramble
+!quickmath
+!math
+!question
+!setgamereward
+!gamecooldown
+
+Do not add big new game systems if they do not exist.
+Polish existing mini games first.
+
+Every command shown in help/messages must pass:
+route=YES
+handler=YES
+owner not UNKNOWN
+
+If a command is broken:
+- route it safely
+- or remove it from player-facing help
+- or mark it hidden/legacy if not used
+
+==================================================
+PART 5 — FIX /ANSWER LEFTOVER
+==================================================
+
+Current issue:
+Trivia/mini game messages may still say:
+
+Type /answer to win 20 coins!
+
+This is wrong.
+
+Replace all user-facing text:
+
+/answer -> !answer
+/answer [answer] -> !answer [answer]
+
+Correct trivia format:
+
+🎯 TRIVIA TIME! (60s)
+[Question]
+Type !answer [your answer] to win [reward] coins!
+
+Or short format:
+
+🎯 TRIVIA TIME! (60s)
+[Question]
+Type !answer to win [reward] coins!
+
+Rules:
+- Do not show /answer anywhere.
+- Do not show /help anywhere.
+- Do not show any / command in mini game messages.
+- Do not change trivia questions unless needed for formatting.
+- Do not change reward amounts unless missing/default is broken.
+
+==================================================
+PART 6 — !ANSWER ROUTING
+==================================================
+
+Make sure !answer works.
+
+Expected:
+
+!commandtest !answer
+
+owner=ChillTopiaMC or EventHost
+route=YES
+handler=YES
+
+Usage:
+
+If no active question:
+⚠️ No active trivia right now.
+
+If active question and user types:
+!answer
+
+Reply:
+Usage: !answer [your answer]
+Example: !answer mars
+
+If user answers wrong:
+❌ Not quite. Try again!
+
+If user answers correct:
+✅ Correct, @Player!
+You won [reward] coins!
+
+Rules:
+- Only one winner per question unless current game intentionally allows multiple.
+- Winner reward is paid once.
+- Do not pay duplicate reward for repeated same answer.
+- Do not reward bots.
+- Do not crash if answer text is empty.
+- Do not crash if answer has spaces.
+- Answer matching should be case-insensitive.
+- Trim extra spaces.
+
+==================================================
+PART 7 — TRIVIA GAME STATE SAFETY
+==================================================
+
+Make sure trivia state is safe.
+
+Rules:
+- Only one active trivia question at a time per room.
+- If a new trivia starts while one is active, either cancel old one or refuse.
+- If timer expires, mark question inactive.
+- After correct answer, mark question inactive.
+- After timeout, no one can still answer and receive coins.
+- If bot restarts, stale active trivia should expire safely.
+- No duplicate timeout messages.
+- No duplicate reward messages.
+- No duplicate background loops.
+
+Timeout message:
+
+⏰ Time's up!
+Answer: [answer]
+
+If answer is sensitive/spoiler formatting, keep simple.
+
+==================================================
+PART 8 — TRIVIA START MESSAGE
+==================================================
+
+Polish trivia start.
+
+Preferred:
+
+🎯 TRIVIA TIME! (60s)
+[Question]
+Type !answer [your answer] to win [reward] coins!
+
+If message is too long, split:
+
+Message 1:
+🎯 TRIVIA TIME! (60s)
+[Question]
+
+Message 2:
+Type !answer [your answer] to win [reward] coins!
+
+Keep each message under 220 characters.
+No / commands.
+No broken formatting.
+
+==================================================
+PART 9 — TRIVIA ANSWER MATCHING
+==================================================
+
+Answer matching should handle:
+- case differences
+- extra spaces
+- punctuation differences if safe
+- common aliases if already supported
+
+Examples:
+Answer: Mars
+Accept:
+mars
+Mars
+MARS
+ mars
+
+If answer has multiple accepted forms, support list if existing data supports it.
+
+Do not make matching too loose if it causes wrong answers to pass.
+
+==================================================
+PART 10 — REWARD SAFETY
+==================================================
+
+Trivia/mini game rewards must be safe.
+
+Rules:
+- amount must be positive integer
+- no negative rewards
+- no decimal rewards
+- no massive accidental reward
+- default reward stays current if already set
+- if missing reward, default to 20 coins
+- reward only real players, not bots
+- reward once per question
+- failed reward should not mark winner as paid unless intentional
+- log reward if logging already exists
+
+If reward fails:
+⚠️ Reward failed. Please tell the owner.
+
+Do not crash bot.
+
+==================================================
+PART 11 — MINI GAME AUTO LOOP SAFETY
+==================================================
+
+If random mini games auto-start:
+- keep existing interval
+- prevent duplicate loops
+- prevent multiple bots starting the same mini game
+- only assigned owner/eventhost should start mini games
+- fishing/mining/banking/casino bots should not start trivia unless intentionally configured
+- respect stability mode if stability mode pauses extra loops
+- do not start mini games too often
+
+If auto mini game starts:
+🎲 Random mini game starting!
+
+Then show the actual game.
+
+Do not spam.
+
+==================================================
+PART 12 — MINI GAME COOLDOWNS
+==================================================
+
+Add/polish cooldowns if already supported.
+
+Suggested safe cooldowns:
+- !answer wrong answer cooldown: 2 seconds per user
+- mini game manual start cooldown: 60 seconds
+- auto mini game interval: existing interval, do not change unless broken
+- reward claim cooldown: one reward per question
+
+If a user spams answer:
+⏳ Slow down. Try again in [seconds]s.
+
+Do not punish normal players too heavily.
+
+==================================================
+PART 13 — OWNER / STAFF MINI GAME COMMANDS
+==================================================
+
+If owner/staff commands exist, make them clean and permission-safe.
+
+Possible owner/staff commands:
+!starttrivia
+!stoptrivia
+!skiptrivia
+!setgamereward [amount]
+!gamecooldown [seconds]
+!gamestatus
+
+Expected:
+- Owner/Manager only for controls.
+- Regular players cannot start/stop games unless intended.
+- Permission failure replies:
+🔒 Manager+ only.
+
+If command is not implemented, do not show it in help.
+
+==================================================
+PART 14 — MINI GAME STATUS
+==================================================
+
+If !gamestatus or !minigamestatus exists, polish it.
+
+Expected:
+
+🎲 Mini Game Status
+Active: Trivia/None
+Question: [short question or hidden]
+Reward: [amount]c
+Time Left: [seconds]s
+Auto Games: ON/OFF
+
+If no active game:
+🎲 Mini Game Status
+Active: none
+Auto Games: ON/OFF
+
+Keep under 220 characters.
+Do not reveal answer while game is active.
+
+==================================================
+PART 15 — COINFLIP POLISH IF EXISTING
+==================================================
+
+If !coinflip exists, polish only.
+
+Expected usage:
+!coinflip [heads/tails] [amount]
+
+If missing args:
+Usage: !coinflip [heads/tails] [amount]
+Example: !coinflip heads 50
+
+Rules:
+- Do not change odds.
+- Do not change payout unless broken.
+- No negative bets.
+- No zero bets.
+- No decimal bets.
+- Check balance before bet.
+- Deduct/pay exactly once.
+- No bot betting.
+
+Success/win:
+🪙 Coinflip: Heads!
+You won [amount]c.
+
+Loss:
+🪙 Coinflip: Tails!
+You lost [amount]c.
+
+Do not change casino odds.
+
+==================================================
+PART 16 — RIDDLE / SCRAMBLE / QUICKMATH IF EXISTING
+==================================================
+
+If these mini games exist, polish messages only.
+
+Riddle:
+🧩 RIDDLE TIME! (60s)
+[Question]
+Type !answer [your answer] to win [reward] coins!
+
+Scramble:
+🔤 WORD SCRAMBLE! (60s)
+Unscramble: [letters]
+Type !answer [word] to win [reward] coins!
+
+Quick math:
+➕ QUICK MATH! (60s)
+[problem]
+Type !answer [number] to win [reward] coins!
+
+Rules:
+- All use !answer.
+- No /answer.
+- Same reward safety.
+- Same no duplicate winner.
+- Same timeout handling.
+
+==================================================
+PART 17 — HELP UPDATE
+==================================================
+
+Update help only if needed.
+
+!help games should include mini games only if they are active.
+
+Suggested:
+
+Mini Games:
+!answer [answer] — answer trivia
+!coinflip [heads/tails] [amount] — coinflip
+
+If manual mini game commands are manager-only, do not show them to regular players.
+
+If !help mini or !help minigames exists, polish it:
+
+🎲 Mini Games
+!answer [answer] — answer active mini game
+!coinflip [heads/tails] [amount] — coinflip
+Wait for trivia/riddle/scramble to start in chat.
+
+No / commands.
+
+Also make sure no help page says:
+No lifetime VIP.
+Lifetime VIP is disabled.
+Permanent VIP is disabled.
+No permanent VIP.
+
+Remove those lines entirely.
+
+==================================================
+PART 18 — SHOP/VIP TEXT CHECK
+==================================================
+
+Search all player-facing shop/VIP text for lifetime/permanent VIP wording.
+
+Check:
+!vip
+!vipperks
+!buyvip
+!myvip
+!shop
+!help vip
+!help support
+!help games
+!help
+!checkhelp
+bot bios
+onboarding
+
+Expected:
+- VIP options show 1d, 7d, 30d only.
+- No “No lifetime VIP” text.
+- No “lifetime VIP disabled” text.
+- No permanent VIP text.
+- Lifetime VIP still not available for purchase.
+
+==================================================
+PART 19 — MESSAGE CAP SAFETY
+==================================================
+
+Every mini game message must be under 220 characters.
+
+Rules:
+- split long questions
+- split long explanations
+- no broken color tags
+- no cutoff
+- no half sentence if possible
+- no / commands
+- no “No lifetime VIP” text
+
+Use existing safe send helper if available.
+
+==================================================
+PART 20 — COMMAND TESTS
+==================================================
+
+Run command tests for commands that exist:
+
+!commandtest !answer
+!commandtest !trivia
+!commandtest !starttrivia
+!commandtest !stoptrivia
+!commandtest !skiptrivia
+!commandtest !minigame
+!commandtest !minigames
+!commandtest !gamestatus
+!commandtest !coinflip
+!commandtest !setgamereward
+!commandtest !gamecooldown
+
+Expected:
+- active commands shown to players route YES
+- active commands shown to players handler YES
+- owner not UNKNOWN
+- manager/owner commands protected
+- commands not implemented are not shown in public help
+- no command issues
+
+==================================================
+PART 21 — LIVE TESTS
+==================================================
+
+Run:
+
+!commandtest !answer
+!answer
+!coinflip heads 1
+!help games
+!vip
+!vipperks
+!buyvip
+!shop
+!checkhelp
+!commandissues
+!checkcommands
+
+If owner/staff commands exist:
+!gamestatus
+!starttrivia
+!stoptrivia
+
+Trigger or wait for trivia:
+Expected message:
+🎯 TRIVIA TIME! (60s)
+Question...
+Type !answer [your answer] to win 20 coins!
+
+Then test:
+!answer wronganswer
+!answer correctanswer
+
+Expected:
+- wrong answer gives clear response
+- correct answer rewards once
+- after correct answer, further answers do not pay
+- timeout does not pay after expired
+- no /answer appears
+- no “No lifetime VIP” appears anywhere
+
+==================================================
+PART 22 — SEARCH FOR / COMMAND LEFTOVERS
+==================================================
+
+Search user-facing text for:
+- /answer
+- /help
+- /mine
+- /fish
+- /bet
+- /tele
+- /command
+- /checkcommands
+- /commandissues
+
+Replace with ! versions in user-facing text.
+
+Do not change:
+- URLs
+- file paths
+- internal comments
+- markdown/code docs not shown to users
+
+Run:
+!checkhelp
+
+Expected:
+No / commands in help/user-facing text.
+
+==================================================
+PART 23 — SEARCH FOR LIFETIME/PERMANENT VIP LEFTOVERS
+==================================================
+
+Search user-facing text for:
+- No lifetime VIP
+- lifetime VIP
+- lifetime
+- permanent VIP
+- permanent
+
+For user-facing VIP/shop/help text:
+- remove those mentions.
+- do not advertise lifetime/permanent VIP.
+- do not tell players “No lifetime VIP.”
+- only show available durations: 1d, 7d, 30d.
+
+Do not remove unrelated words from code comments unless they appear in player-facing messages.
+
+==================================================
+PART 24 — STABILITY TESTS
+==================================================
+
+After changes, run:
+
+!bothealth
+!stability status
+!botconflicts
+!modulehealth
+!commandissues
+!checkcommands
+
+Expected:
+- Err: none
+- No bot conflicts
+- No command issues
+- No checkcommands mismatch
+- No DB lock spam
+- No reconnect loop
+- No duplicate mini game loops
+
+==================================================
+PART 25 — FINAL REPORT
+==================================================
+
+After finishing, report:
+
+1. Trivia /answer text fixed to !answer.
+2. !answer route/handler status.
+3. Trivia start message format.
+4. Trivia timeout message format.
+5. Reward safety confirmed.
+6. Duplicate winner prevention confirmed.
+7. Mini game loop safety checked.
+8. Coinflip polished or skipped.
+9. Other mini games found/polished/skipped.
+10. Help games updated.
+11. / command leftovers removed.
+12. “No lifetime VIP” text removed.
+13. VIP/shop text only shows 1d, 7d, 30d.
+14. Lifetime/permanent VIP still not purchasable.
+15. !checkhelp result.
+16. !commandissues result.
+17. !checkcommands result.
+18. Stability result.

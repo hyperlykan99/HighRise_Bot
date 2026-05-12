@@ -29,8 +29,7 @@ _VIP_PERKS = (
     "• Longer !autofish sessions (up to 60m)\n"
     "• VIP badge & status in room\n"
     "• Supports ChillTopia upgrades\n"
-    "Buy: !buyvip 1d | !buyvip 7d | !buyvip 30d\n"
-    "No lifetime VIP."
+    "Buy: !buyvip 1d | !buyvip 7d | !buyvip 30d"
 )
 
 # Duration options: key → (days, display_label)
@@ -68,8 +67,7 @@ async def handle_vip(bot: "BaseBot", user: "User", args: list[str]) -> None:
              f"💎 VIP — {status}\n"
              f"Support the room & unlock convenience perks.\n"
              f"!vipperks — view perks | !myvip — status\n"
-             f"!buyvip 1d ({p1}c) | 7d ({p7}c) | 30d ({p30}c)\n"
-             f"No lifetime VIP.")
+             f"!buyvip 1d ({p1}c) | 7d ({p7}c) | 30d ({p30}c)")
 
 
 # ---------------------------------------------------------------------------
@@ -121,19 +119,17 @@ async def handle_buyvip(bot: "BaseBot", user: "User", args: list[str]) -> None:
                  f"💎 Buy VIP:\n"
                  f"!buyvip 1d — {p1} coins\n"
                  f"!buyvip 7d — {p7} coins\n"
-                 f"!buyvip 30d — {p30} coins\n"
-                 f"No lifetime VIP.")
+                 f"!buyvip 30d — {p30} coins")
         return
 
     dur = args[1].lower().strip()
     if dur in ("lifetime", "permanent", "perm", "forever", "life"):
         await _w(bot, user.id,
-                 "Lifetime VIP is disabled.\nUse 1d, 7d, or 30d.")
+                 "⚠️ VIP duration must be 1d, 7d, or 30d.")
         return
     if dur not in _VIP_DURATIONS:
         await _w(bot, user.id,
-                 "Usage:\n!buyvip 1d\n!buyvip 7d\n!buyvip 30d\n"
-                 "No lifetime VIP.")
+                 "Usage:\n!buyvip 1d\n!buyvip 7d\n!buyvip 30d")
         return
 
     days, label = _VIP_DURATIONS[dur]
@@ -221,18 +217,18 @@ async def handle_grantvip(bot: "BaseBot", user: "User", args: list[str]) -> None
         return
     if len(args) < 2:
         await _w(bot, user.id,
-                 "Usage: !grantvip <username> [1d|7d|30d]\nNo lifetime VIP.")
+                 "Usage: !grantvip <username> [1d|7d|30d]")
         return
     target_name = args[1].lstrip("@").strip()
     # Optional duration argument
     dur = args[2].lower().strip() if len(args) >= 3 else "30d"
     if dur in ("lifetime", "permanent", "perm", "forever", "life"):
         await _w(bot, user.id,
-                 "Lifetime VIP is disabled.\nUse 1d, 7d, or 30d.")
+                 "⚠️ VIP duration must be a number of days.\nUse 1d, 7d, or 30d.")
         return
     if dur not in _VIP_DURATIONS:
         await _w(bot, user.id,
-                 "Valid durations: 1d, 7d, 30d\nNo lifetime VIP.")
+                 "Valid durations: 1d, 7d, 30d.")
         return
     rec = db.get_user_by_username(target_name)
     if not rec:
