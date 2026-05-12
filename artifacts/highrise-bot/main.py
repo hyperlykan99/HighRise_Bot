@@ -1225,8 +1225,8 @@ _HELP_CATEGORIES: dict[str, str] = {
         "!tele list — view teleport spots\n"
         "!tele [spot] — teleport to spot\n"
         "!roles — view roles\n"
-        "!rolemembers — view users by role\n"
-        "!botspawns — view saved bot spawns"
+        "!rolemembers [role] — role members\n"
+        "!botspawns — saved bot spots"
     ),
     "party": (
         "🎉 Party Tip\n"
@@ -1383,6 +1383,29 @@ async def _handle_safe_help(bot, user, raw_message: str) -> None:
                 return
         except Exception:
             return
+
+    if cat == "room":
+        await _w(_HELP_CATEGORIES["room"])
+        try:
+            from modules.permissions import is_owner as _iown, is_admin as _iadm
+            from modules.permissions import is_manager as _imgr
+            if _iown(user.username) or _iadm(user.username) or _imgr(user.username):
+                await _w(
+                    "🏠 Room Setup (Manager+)\n"
+                    "!create tele [spot] — save here\n"
+                    "!delete tele [spot] — delete it\n"
+                    "!summon [user] — bring to you"
+                )
+                await _w(
+                    "🏠 Spawn Setup (Manager+)\n"
+                    "!setrolespawn [role] here\n"
+                    "!autospawn [on|off|status]\n"
+                    "!setbotspawnhere [bot]\n"
+                    "!clearbotspawn [bot]"
+                )
+        except Exception:
+            pass
+        return
 
     page = _HELP_CATEGORIES.get(cat)
     if page:

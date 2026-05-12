@@ -1,0 +1,759 @@
+UPDATE 3.0K — TELEPORT, ROLE SPAWN, AND BOT SPAWN POLISH
+
+Goal:
+Polish room navigation, teleports, role spawns, bot spawns, summon behavior, and role display.
+
+Focus:
+- Clean !tele list display
+- Clean !tele [spot] messages
+- Improve !summon [user]
+- Improve !roles and !rolemembers
+- Verify role spawn works on room entry
+- Verify bot spawn works after bot restart/rejoin
+- Add clear owner usage messages
+- Keep regular player commands simple
+- Prevent AI/chat assistant from intercepting teleport/spawn commands
+
+This update is navigation/spawn polish only.
+
+Do not rewrite core systems.
+Do not change bot tokens.
+Do not change room ID.
+Do not wipe database.
+Do not reset balances, VIP, inventories, mining/fishing data, blackjack/poker data, party tip wallet, shop items, badges, titles, donation logs, or command registry.
+Do not change economy.
+Do not change casino.
+Do not change mining/fishing odds.
+Do not add AI.
+Do not add exotic mute/pause.
+Do not add risky new systems.
+
+==================================================
+PART 1 — STABILITY FIRST
+==================================================
+
+Before changing anything, verify:
+
+!commandissues
+!checkcommands
+!checkhelp
+!bothealth
+!stability status
+!botconflicts
+!modulehealth
+
+Expected:
+- no command issues
+- no checkcommands mismatch
+- no help issues
+- Err: none
+- no bot conflicts
+
+If there are errors, fix those first before changing teleport/spawn systems.
+
+==================================================
+PART 2 — COMMAND OWNERSHIP
+==================================================
+
+Teleport/spawn commands should be owned by Host or assigned room-management bot.
+
+Expected owner:
+Host
+
+Commands:
+!tele
+!tele list
+!create tele
+!delete tele
+!summon
+!roles
+!rolemembers
+!rolespawn
+!rolespawns
+!setrolespawn
+!delrolespawn
+!autospawn
+!setbotspawnhere
+!setbotspawn
+!botspawns
+!clearbotspawn
+
+Expected:
+route=YES
+handler=YES
+owner not UNKNOWN
+
+If any command is hidden/legacy/deprecated:
+- do not show it in help
+- do not count it as active issue
+
+==================================================
+PART 3 — PLAYER TELEPORT COMMANDS
+==================================================
+
+Regular players should only need:
+
+!tele list
+!tele [spot]
+
+!tele list expected:
+
+🏠 Teleport Spots
+1. lobby
+2. games
+3. casino
+4. fishing
+5. mining
+
+Use:
+!tele [spot]
+
+Example:
+!tele games
+
+Rules:
+- Keep under 220 characters.
+- If many teleports, paginate.
+- Do not show owner setup commands to regular players.
+- Do not show coordinates to regular players unless already intended.
+- No / commands.
+
+If no teleports:
+
+🏠 Teleport Spots
+No saved spots yet.
+
+If user types:
+!tele
+
+Reply:
+Usage:
+!tele list
+!tele [spot]
+
+Example:
+!tele games
+
+If user types invalid spot:
+⚠️ Teleport spot not found.
+Use !tele list.
+
+If teleport succeeds:
+✅ Teleported to [spot].
+
+==================================================
+PART 4 — TELEPORT LIST PAGINATION
+==================================================
+
+If there are many teleports, split safely.
+
+Support:
+!tele list
+!tele list 1
+!tele list 2
+
+Expected:
+
+🏠 Teleport Spots p1/2
+1. lobby
+2. games
+3. casino
+4. fishing
+5. mining
+
+Use:
+!tele [spot]
+
+Rules:
+- 5 to 8 spots per page depending message length.
+- Every message under 220 characters.
+- Do not cut names.
+- Do not cut color tags.
+- If page invalid:
+⚠️ Page not found.
+Use: !tele list 1
+
+==================================================
+PART 5 — CREATE / DELETE TELEPORTS
+==================================================
+
+Owner/Manager only:
+
+!create tele [spot]
+!delete tele [spot]
+
+Behavior:
+
+!create tele [spot]
+- saves command user’s current position as teleport spot
+- spot name should be lowercase/safe
+- no duplicate unless overwriting is allowed
+- if duplicate:
+⚠️ Spot already exists.
+Use !delete tele [spot] first.
+
+Success:
+✅ Teleport saved.
+Spot: [spot]
+
+Usage if missing:
+Usage: !create tele [spot]
+Example: !create tele casino
+
+!delete tele [spot]
+Success:
+🗑️ Teleport deleted.
+Spot: [spot]
+
+Usage:
+Usage: !delete tele [spot]
+Example: !delete tele casino
+
+Rules:
+- Owner/Manager only.
+- Do not let regular players create/delete.
+- Do not crash if user position unavailable.
+- If position unavailable:
+⚠️ I could not read your position. Move slightly and try again.
+
+==================================================
+PART 6 — SUMMON POLISH
+==================================================
+
+Command:
+!summon [user]
+
+Owner/Manager only.
+
+Behavior:
+- Reads command user’s current position.
+- Teleports target user/bot to command user’s position.
+- Works for players and bots currently in room.
+- Does not save spawn.
+- Does not AI/chat respond.
+- Does not silently fail.
+
+Usage:
+Usage: !summon [user]
+Example: !summon @Player
+
+If target not found:
+⚠️ User not found in room.
+
+If cannot read owner position:
+⚠️ I could not read your position. Move slightly and try again.
+
+Success:
+✅ Summoned @Player to you.
+
+Important:
+!summon @ChillTopiaMC should summon now only.
+It should not save spawn.
+Bot spawn is handled by !setbotspawnhere.
+
+==================================================
+PART 7 — ROLES DISPLAY
+==================================================
+
+Polish:
+
+!roles
+
+Expected:
+
+🏷️ Room Roles
+Owner: [count]
+Admin: [count]
+Manager: [count]
+Staff: [count]
+VIP: [count]
+Party Tipper: [count]
+
+Use:
+!rolemembers [role]
+
+If roles are custom, show current configured roles.
+
+Rules:
+- Keep under 220 characters.
+- Do not expose private data.
+- Do not show raw DB IDs.
+- If roles unavailable:
+⚠️ Roles unavailable right now.
+
+==================================================
+PART 8 — ROLE MEMBERS DISPLAY
+==================================================
+
+Command:
+!rolemembers
+!rolemembers [role]
+
+Behavior:
+!rolemembers shows role summary or top roles.
+
+Expected:
+
+🏷️ Role Members
+Use:
+!rolemembers [role]
+
+Examples:
+!rolemembers vip
+!rolemembers manager
+
+For specific role:
+
+🏷️ VIP Members
+1. @Player
+2. @Player2
+3. @Player3
+
+If no members:
+No users found in role: [role]
+
+Rules:
+- Paginate if many users.
+- Keep under 220 characters.
+- Do not cut usernames.
+- Do not show raw user IDs.
+- Owner/Manager may see all roles.
+- Regular players may see public role lists only if already intended.
+
+==================================================
+PART 9 — ROLE SPAWN SYSTEM
+==================================================
+
+Clarify behavior:
+Role spawn is NOT “spawn a role whenever I want.”
+Role spawn means:
+
+When a user with a role enters the room, they automatically spawn at the saved role spawn spot.
+
+Commands:
+!setrolespawn [role] here
+!rolespawn [role]
+!rolespawns
+!delrolespawn [role]
+!autospawn on
+!autospawn off
+!autospawn status
+
+Owner/Manager only for setup.
+
+!setrolespawn [role] here:
+- saves current position as spawn for that role
+
+Success:
+✅ Role spawn saved.
+Role: [role]
+Auto-spawn users with this role: YES
+
+Usage:
+Usage: !setrolespawn [role] here
+Example: !setrolespawn vip here
+
+!rolespawn [role]:
+- shows saved spawn for role
+- does not move all users
+
+Expected:
+🏷️ Role Spawn
+Role: vip
+Status: saved
+Autospawn: ON/OFF
+
+!rolespawns:
+Shows saved role spawns.
+
+Expected:
+🏷️ Role Spawns
+vip — saved
+manager — saved
+staff — not set
+
+!delrolespawn [role]:
+Deletes role spawn.
+
+!autospawn on/off/status:
+Controls whether users are automatically moved on room entry.
+
+Expected:
+!autospawn status
+
+🏷️ AutoSpawn
+Status: ON
+Saved Role Spawns: [count]
+
+==================================================
+PART 10 — ROLE SPAWN ENTRY BEHAVIOR
+==================================================
+
+On user join:
+- check if autospawn is ON
+- check user’s role(s)
+- choose highest priority role spawn
+- teleport user to that role’s saved spawn
+- do not spam public chat
+- optionally whisper:
+
+🏷️ Welcome!
+You were moved to your role spawn.
+
+If teleport fails:
+- log error
+- do not crash
+- do not repeatedly retry forever
+
+Priority example:
+Owner > Admin > Manager > Staff > VIP > Subscriber > Player
+
+If multiple roles exist, highest priority wins.
+
+Do not move bots using role spawn.
+Bots use bot spawn.
+
+==================================================
+PART 11 — BOT SPAWN SYSTEM
+==================================================
+
+Bot spawn means:
+When a bot joins/rejoins/restarts, it moves to its saved bot spawn.
+
+Commands:
+!setbotspawnhere [bot]
+!setbotspawn [bot] [x] [y] [z] [facing]
+!botspawns
+!clearbotspawn [bot]
+
+Owner/Manager only.
+
+!setbotspawnhere [bot]:
+- saves command user’s current position as spawn for target bot
+- moves target bot there now if in room
+- target must be known bot or current room bot account
+
+Success:
+🤖 Bot Spawn Saved
+Bot: @ChillTopiaMC
+Moved Here: YES
+Auto-return on rejoin: YES
+
+Usage:
+Usage: !setbotspawnhere [bot]
+Example: !setbotspawnhere @ChillTopiaMC
+
+If bot not found:
+⚠️ Bot not found in room.
+
+If cannot read owner position:
+⚠️ I could not read your position. Move slightly and try again.
+
+!setbotspawn [bot] [x] [y] [z] [facing]:
+Saves bot spawn from coordinates.
+
+Usage:
+Usage: !setbotspawn [bot] [x] [y] [z] [facing]
+Example: !setbotspawn @ChillTopiaMC 10 0 5 FrontLeft
+
+!botspawns:
+Shows saved bot spawns.
+
+Expected:
+🤖 Bot Spawns
+@ChillTopiaMC — saved
+@BankingBot — saved
+@BlackJackBot — not set
+
+!clearbotspawn [bot]:
+Clears saved bot spawn.
+
+Expected:
+🗑️ Bot Spawn Cleared
+Bot: @ChillTopiaMC
+
+==================================================
+PART 12 — BOT SPAWN REJOIN BEHAVIOR
+==================================================
+
+On bot start/rejoin:
+- check saved spawn for that bot username
+- teleport bot to saved spot
+- log success/failure
+- do not crash if teleport fails
+- do not loop teleport forever
+- do not use role spawn for bots
+
+Expected log:
+[BOTSPAWN] @ChillTopiaMC moved to saved spawn.
+
+If failed:
+[BOTSPAWN ERROR] @ChillTopiaMC: reason
+
+No repeated spam in room.
+
+==================================================
+PART 13 — BOT SUMMON SHORTCUT OPTIONAL
+==================================================
+
+Optional only if safe:
+
+User wanted:
+!@BotName
+
+Meaning:
+Summon bot to owner/manager current position and save that as the bot’s spawn.
+
+Example:
+!@ChillTopiaMC
+
+Behavior:
+- Owner/Manager only
+- Read command user position
+- Move @ChillTopiaMC to user
+- Save this position as @ChillTopiaMC bot spawn
+
+Success:
+🤖 Bot summoned and spawn saved.
+Bot: @ChillTopiaMC
+
+If this is risky, skip it for now.
+Do not break existing ! commands.
+
+Preferred:
+Keep official command as !setbotspawnhere [bot].
+Shortcut can be added later if risky.
+
+==================================================
+PART 14 — AI / CHAT INTERCEPT PREVENTION
+==================================================
+
+These commands must route before any AI/chat fallback:
+
+!tele
+!summon
+!roles
+!rolemembers
+!rolespawn
+!rolespawns
+!setrolespawn
+!delrolespawn
+!autospawn
+!setbotspawnhere
+!setbotspawn
+!botspawns
+!clearbotspawn
+!create
+!delete
+
+AI/chat assistant must not reply to these commands.
+
+If command starts with ! and is known:
+- route it
+- do not AI reply
+
+If unknown:
+Unknown command.
+Type !help.
+
+==================================================
+PART 15 — HELP ROOM UPDATE
+==================================================
+
+Update !help room.
+
+Regular player version:
+
+🏠 Room Commands
+!tele list — view teleport spots
+!tele [spot] — teleport to spot
+!roles — view roles
+!rolemembers [role] — role members
+!botspawns — saved bot spots
+
+Manager/Owner extra:
+
+Setup:
+!create tele [spot] — save teleport here
+!delete tele [spot] — delete teleport
+!summon [user] — bring user to you
+!setrolespawn [role] here — save role spawn
+!autospawn [on|off|status] — role autospawn
+!setbotspawnhere [bot] — save bot spawn here
+!clearbotspawn [bot] — clear bot spawn
+
+Rules:
+- No / commands.
+- Do not show owner/manager setup commands to regular players.
+- Commands shown must route.
+
+==================================================
+PART 16 — MESSAGE CAP SAFETY
+==================================================
+
+All teleport/spawn/role messages must stay under 220 characters.
+
+Rules:
+- Split long lists.
+- Paginate role members.
+- Paginate teleport lists.
+- Do not cut usernames.
+- Do not cut spot names.
+- Do not show giant raw DB dumps.
+- No / commands.
+
+==================================================
+PART 17 — ERROR HANDLING
+==================================================
+
+Wrap handlers safely.
+
+If a teleport/spawn handler errors:
+- log traceback in console
+- whisper user:
+
+⚠️ Room command error logged. Bot stayed online.
+
+Do not crash bot.
+Do not restart bot.
+Do not expose raw stack trace in chat.
+
+==================================================
+PART 18 — COMMAND TESTS
+==================================================
+
+Run:
+
+!commandtest !tele
+!commandtest !summon
+!commandtest !roles
+!commandtest !rolemembers
+!commandtest !rolespawn
+!commandtest !rolespawns
+!commandtest !setrolespawn
+!commandtest !delrolespawn
+!commandtest !autospawn
+!commandtest !setbotspawnhere
+!commandtest !setbotspawn
+!commandtest !botspawns
+!commandtest !clearbotspawn
+!commandtest !create
+!commandtest !delete
+
+Expected:
+- active commands route YES
+- active commands handler YES
+- owner not UNKNOWN
+- owner/manager commands protected
+- commands not implemented are not shown in help
+- no command issues
+
+==================================================
+PART 19 — LIVE TESTS
+==================================================
+
+Run:
+
+!tele
+!tele list
+!roles
+!rolemembers
+!rolemembers vip
+!botspawns
+!autospawn status
+!rolespawns
+!help room
+!commandissues
+!checkcommands
+
+Owner/Manager test:
+
+Stand in target spot, then run:
+!create tele testspot
+!tele testspot
+!delete tele testspot
+
+Stand where bot should spawn:
+!setbotspawnhere @ChillTopiaMC
+!botspawns
+!summon @ChillTopiaMC
+
+Role spawn test:
+!setrolespawn vip here
+!rolespawn vip
+!rolespawns
+!autospawn on
+!autospawn status
+
+Expected:
+- teleports work
+- summon works
+- bot spawn saves
+- role spawn saves
+- lists do not cut off
+- no AI response
+- no command issues
+
+==================================================
+PART 20 — RESTART / REJOIN TEST
+==================================================
+
+After saving bot spawn:
+- restart/rejoin one bot safely if needed
+- verify bot returns to saved spawn
+- run !bothealth
+
+Expected:
+- bot returns to saved spawn
+- no reconnect loop
+- no crash
+- no DB lock spam
+
+If full restart is risky, skip live restart and only verify saved spawn data.
+
+==================================================
+PART 21 — STABILITY TESTS
+==================================================
+
+After changes, run:
+
+!bothealth
+!stability status
+!botconflicts
+!modulehealth
+!commandissues
+!checkcommands
+!checkhelp
+
+Expected:
+- Err: none
+- No bot conflicts
+- No command issues
+- No checkcommands mismatch
+- No help issues
+- No DB lock spam
+- No reconnect loop
+
+==================================================
+PART 22 — FINAL REPORT
+==================================================
+
+After finishing, report:
+
+1. Teleport list polish result.
+2. !tele [spot] behavior.
+3. !create tele / !delete tele status.
+4. !summon behavior.
+5. !roles result.
+6. !rolemembers result.
+7. Role spawn setup result.
+8. Autospawn status.
+9. Bot spawn setup result.
+10. Bot spawn rejoin behavior.
+11. Whether !@BotName shortcut was added or skipped.
+12. AI intercept prevention confirmed.
+13. !help room updated.
+14. !commandissues result.
+15. !checkcommands result.
+16. !checkhelp result.
+17. Stability result.

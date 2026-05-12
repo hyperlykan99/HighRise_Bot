@@ -99,17 +99,23 @@ def _check_spot_permission(username: str, permission: str) -> bool:
 async def handle_tele(bot: BaseBot, user: User, args: list[str]) -> None:
     if len(args) < 2:
         await _w(bot, user.id,
-                 "🌀 Teleport\n"
-                 "!tele list — see all spots\n"
-                 "!tele <spot> — go to spot\n"
-                 "!tele @player — go to player (staff)\n"
-                 "!tele @player <x> <y> <z> — send to coords")
+                 "Usage:\n"
+                 "!tele list\n"
+                 "!tele [spot]\n\n"
+                 "Example:\n"
+                 "!tele games")
         return
 
     sub = args[1].lower()
 
     if sub == "list":
-        await _handle_tele_list(bot, user)
+        page_num = 1
+        if len(args) > 2:
+            try:
+                page_num = int(args[2])
+            except ValueError:
+                page_num = 1
+        await _handle_tele_list(bot, user, page_num)
     elif sub == "permission":
         await _handle_tele_permission(bot, user, args)
     elif sub == "role":
@@ -128,23 +134,27 @@ async def handle_tele(bot: BaseBot, user: User, args: list[str]) -> None:
 # !tele list
 # ---------------------------------------------------------------------------
 
-async def _handle_tele_list(bot: BaseBot, user: User) -> None:
+async def _handle_tele_list(bot: BaseBot, user: User, page: int = 1) -> None:
     spots = db.get_all_spawns()
     if not spots:
-        await _w(bot, user.id,
-                 "🌀 No teleport spots saved yet.\n"
-                 "Use !create tele <spot>")
+        await _w(bot, user.id, "🏠 Teleport Spots\nNo saved spots yet.")
         return
-    chunk: list[str] = ["🌀 Saved Teleports"]
-    for i, s in enumerate(spots, 1):
-        perm = s.get("permission", "everyone") or "everyone"
-        line = f"{i}. {s['spawn_name']} — {perm}"
-        if len("\n".join(chunk) + "\n" + line) > 248:
-            await _w(bot, user.id, "\n".join(chunk))
-            chunk = []
-        chunk.append(line)
-    if chunk:
-        await _w(bot, user.id, "\n".join(chunk))
+    PER_PAGE = 7
+    total_pages = max(1, (len(spots) + PER_PAGE - 1) // PER_PAGE)
+    if page < 1 or page > total_pages:
+        await _w(bot, user.id, "⚠️ Page not found.\nUse: !tele list 1")
+        return
+    start = (page - 1) * PER_PAGE
+    page_spots = spots[start:start + PER_PAGE]
+    header = (f"🏠 Teleport Spots p{page}/{total_pages}"
+              if total_pages > 1 else "🏠 Teleport Spots")
+    lines = [header]
+    for i, s in enumerate(page_spots, start + 1):
+        lines.append(f"{i}. {s['spawn_name']}")
+    lines.append("Use:\n!tele [spot]")
+    await _w(bot, user.id, "\n".join(lines)[:220])
+    if page < total_pages:
+        await _w(bot, user.id, f"More: !tele list {page + 1}")
 
 
 # ---------------------------------------------------------------------------
@@ -155,8 +165,8 @@ async def _handle_tele_to_spot(bot: BaseBot, user: User, spot: str) -> None:
     spawn = db.get_spawn(spot)
     if not spawn:
         await _w(bot, user.id,
-                 "❌ Teleport spot not found.\n"
-                 "Use !tele list to see saved teleports.")
+                 "⚠️ Teleport spot not found.\n"
+                 "Use !tele list.")
         return
     perm = spawn.get("permission", "everyone") or "everyone"
     if not _check_spot_permission(user.username, perm):
@@ -166,7 +176,7 @@ async def _handle_tele_to_spot(bot: BaseBot, user: User, spot: str) -> None:
                    spawn.get("facing", "FrontLeft"))
     try:
         await bot.highrise.teleport(user.id, pos)
-        await _w(bot, user.id, f"🌀 Teleporting you to {spot}...")
+        await _w(bot, user.id, f"✅ Teleported to {spot}.")
     except Exception as exc:
         await _w(bot, user.id, f"❌ Teleport failed: {str(exc)[:60]}")
 
@@ -352,20 +362,25 @@ async def handle_create_tele(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Manager+ only.")
         return
     if len(args) < 3:
-        await _w(bot, user.id, "Usage: !create tele <spot>")
+        await _w(bot, user.id,
+                 "Usage: !create tele [spot]\n"
+                 "Example: !create tele casino")
         return
-    name   = args[2].lower()
+    name = args[2].lower()
+    if db.get_spawn(name):
+        await _w(bot, user.id,
+                 f"⚠️ Spot already exists.\n"
+                 f"Use !delete tele {name} first.")
+        return
     my_pos = _user_positions.get(user.id)
     if not my_pos:
         await _w(bot, user.id,
-                 "🌀 Teleport Save Failed\n"
-                 "Move your avatar first, then try again.")
+                 "⚠️ I could not read your position.\n"
+                 "Move slightly and try again.")
         return
     db.save_spawn(name, my_pos.x, my_pos.y, my_pos.z,
                   getattr(my_pos, "facing", "FrontLeft"), user.username)
-    await _w(bot, user.id,
-             f"🌀 Teleport Saved\nSpot: {name}\n"
-             f"Position updated to your current location.")
+    await _w(bot, user.id, f"✅ Teleport saved.\nSpot: {name}")
 
 
 # ---------------------------------------------------------------------------
@@ -377,14 +392,16 @@ async def handle_delete_tele(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Manager+ only.")
         return
     if len(args) < 3:
-        await _w(bot, user.id, "Usage: !delete tele <spot>")
+        await _w(bot, user.id,
+                 "Usage: !delete tele [spot]\n"
+                 "Example: !delete tele casino")
         return
     name = args[2].lower()
     if not db.get_spawn(name):
-        await _w(bot, user.id, "❌ Teleport spot not found.")
+        await _w(bot, user.id, "⚠️ Teleport spot not found.")
         return
     db.delete_spawn(name)
-    await _w(bot, user.id, f"🗑️ Teleport Deleted\nSpot: {name}")
+    await _w(bot, user.id, f"🗑️ Teleport deleted.\nSpot: {name}")
 
 
 # ---------------------------------------------------------------------------
@@ -396,17 +413,20 @@ async def handle_summon(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Manager+ only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: !summon @username")
+        await _w(bot, user.id,
+                 "Usage: !summon [user]\n"
+                 "Example: !summon @Player")
         return
     raw    = args[1].lstrip("@").lower()
     my_pos = _user_positions.get(user.id)
     if not my_pos:
         await _w(bot, user.id,
-                 "❌ Cannot read your position. Move your avatar first.")
+                 "⚠️ I could not read your position.\n"
+                 "Move slightly and try again.")
         return
     result = await _resolve_user_in_room(bot, raw)
     if not result:
-        await _w(bot, user.id, f"❌ @{raw} is not in the room.")
+        await _w(bot, user.id, "⚠️ User not found in room.")
         return
     target, _ = result
     try:
@@ -426,15 +446,16 @@ async def handle_setrolespawn(bot: BaseBot, user: User, args: list[str]) -> None
         return
     if len(args) < 3:
         await _w(bot, user.id,
-                 "Usage: !setrolespawn <role> here\n"
-                 "       !setrolespawn <role> <x> <y> <z> [facing]")
+                 "Usage: !setrolespawn [role] here\n"
+                 "Example: !setrolespawn vip here")
         return
     role = args[1].lower()
     if args[2].lower() == "here":
         my_pos = _user_positions.get(user.id)
         if not my_pos:
             await _w(bot, user.id,
-                     "❌ Cannot read your position. Move first.")
+                     "⚠️ I could not read your position.\n"
+                     "Move slightly and try again.")
             return
         x, y, z = my_pos.x, my_pos.y, my_pos.z
         facing  = getattr(my_pos, "facing", "FrontLeft")
@@ -447,12 +468,14 @@ async def handle_setrolespawn(bot: BaseBot, user: User, args: list[str]) -> None
         facing = args[5] if len(args) > 5 else "FrontLeft"
     else:
         await _w(bot, user.id,
-                 "Usage: !setrolespawn <role> here\n"
-                 "       !setrolespawn <role> <x> <y> <z> [facing]")
+                 "Usage: !setrolespawn [role] here\n"
+                 "Example: !setrolespawn vip here")
         return
     db.save_role_spawn(role, x, y, z, facing, user.username)
     await _w(bot, user.id,
-             f"✅ Role spawn for '{role}' set to ({x:.1f},{y:.1f},{z:.1f}).")
+             f"✅ Role spawn saved.\n"
+             f"Role: {role}\n"
+             f"Auto-spawn users with this role: YES")
 
 
 async def handle_rolespawn(bot: BaseBot, user: User, args: list[str]) -> None:
@@ -460,36 +483,41 @@ async def handle_rolespawn(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "Manager+ only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: !rolespawn <role>")
+        await _w(bot, user.id, "Usage: !rolespawn [role]")
         return
-    role = args[1].lower()
-    rs   = db.get_role_spawn(role)
+    role    = args[1].lower()
+    rs      = db.get_role_spawn(role)
+    enabled = db.get_room_setting("autospawn_enabled", "0") == "1"
     if not rs:
         await _w(bot, user.id,
-                 f"❌ No spawn set for role '{role}'.\n"
-                 f"Use !setrolespawn {role} here")
+                 f"❌ No spawn saved for role '{role}'.\n"
+                 f"Use: !setrolespawn {role} here")
         return
-    pos = Position(rs["x"], rs["y"], rs["z"],
-                   rs.get("facing", "FrontLeft"))
-    try:
-        await bot.highrise.teleport(user.id, pos)
-        await _w(bot, user.id, f"🌀 Teleporting you to {role} spawn...")
-    except Exception as exc:
-        await _w(bot, user.id, f"❌ Teleport failed: {str(exc)[:60]}")
+    await _w(bot, user.id,
+             f"🏷️ Role Spawn\n"
+             f"Role: {role}\n"
+             f"Status: saved\n"
+             f"Autospawn: {'ON' if enabled else 'OFF'}")
 
 
 async def handle_rolespawns(bot: BaseBot, user: User) -> None:
-    rows = db.get_all_role_spawns()
-    if not rows:
+    _STANDARD_ROLES = ("owner", "admin", "manager", "staff", "vip", "subscriber")
+    saved_map = {r["role"]: r for r in (db.get_all_role_spawns() or [])}
+    if not saved_map:
         await _w(bot, user.id,
-                 "📍 No role spawns saved yet.\n"
-                 "Use !setrolespawn <role> here")
+                 "🏷️ Role Spawns\n"
+                 "No role spawns saved yet.\n"
+                 "Use !setrolespawn [role] here")
         return
-    lines = ["📍 Role Spawns"]
-    for r in rows:
-        lines.append(
-            f"{r['role']}: ({r['x']:.1f},{r['y']:.1f},{r['z']:.1f})"
-        )
+    lines = ["🏷️ Role Spawns"]
+    shown: set[str] = set()
+    for role in _STANDARD_ROLES:
+        status = "saved" if role in saved_map else "not set"
+        lines.append(f"{role} — {status}")
+        shown.add(role)
+    for role in saved_map:
+        if role not in shown:
+            lines.append(f"{role} — saved")
     await _w(bot, user.id, "\n".join(lines)[:249])
 
 
@@ -818,11 +846,10 @@ async def handle_autospawn(bot: BaseBot, user: User, args: list[str]) -> None:
     else:
         enabled = db.get_room_setting("autospawn_enabled", "0") == "1"
         rows    = db.get_all_role_spawns() or []
-        spawns  = ", ".join(r["role"] for r in rows) or "none"
         await _w(bot, user.id,
-                 f"📍 Auto Spawn: {'ON' if enabled else 'OFF'}\n"
-                 f"Configured roles: {spawns}\n"
-                 f"!autospawn [on|off|status|debug [user]]")
+                 f"🏷️ AutoSpawn\n"
+                 f"Status: {'ON' if enabled else 'OFF'}\n"
+                 f"Saved Role Spawns: {len(rows)}")
 
 
 def get_autospawn_spawn_for_user(username: str) -> dict | None:
@@ -870,27 +897,57 @@ def get_autospawn_spawn_for_user(username: str) -> dict | None:
 # ---------------------------------------------------------------------------
 
 async def handle_roles(bot: BaseBot, user: User, args: list[str] | None = None) -> None:
-    # Forward to rolemembers for sub-commands
     if args and len(args) > 1 and args[1].lower() in ("members", "list", "all"):
         await handle_rolemembers(bot, user, [])
         return
-    rows    = db.get_all_role_spawns() or []
-    enabled = db.get_room_setting("autospawn_enabled", "0") == "1"
 
-    if not rows:
-        await _w(bot, user.id,
-                 "📍 No role spawns configured.\n"
-                 "Use: !setrolespawn <role> here\n"
-                 f"Auto spawn: {'ON' if enabled else 'OFF'}")
-        return
+    all_users = await _get_all_room_users(bot)
+    _KNOWN_BOTS: frozenset[str] = frozenset({
+        "chilltopiamc", "bankingbot", "acesinastra", "chipsoprano",
+        "dj_dudu", "keanushield", "masterangler", "greatestprospector",
+    })
+    try:
+        vip_set = {v.lower() for v in db.get_vip_list()}
+    except Exception:
+        vip_set = set()
+    try:
+        import sqlite3 as _sq
+        import config as _cfg
+        with _sq.connect(_cfg.DB_PATH, timeout=10) as _c:
+            _pt_rows = _c.execute(
+                "SELECT username FROM party_tippers"
+            ).fetchall()
+        pt_set: set[str] = {r[0].lower() for r in _pt_rows if r[0]}
+    except Exception:
+        pt_set = set()
 
-    lines = [f"📍 Role Spawns (Auto: {'ON' if enabled else 'OFF'})"]
-    for r in rows:
-        lines.append(
-            f"  {r['role']}: ({r['x']:.1f},{r['y']:.1f},{r['z']:.1f})"
-        )
-    lines.append("!rolespawn <role>  !rolemembers")
-    await _w(bot, user.id, "\n".join(lines)[:249])
+    owners = admins = managers = staff_cnt = vips = party_tippers = 0
+    for u, _ in all_users:
+        ulow = u.username.lower()
+        if ulow in _KNOWN_BOTS:
+            continue
+        if is_owner(u.username):
+            owners += 1
+        elif is_admin(u.username):
+            admins += 1
+        elif is_manager(u.username):
+            managers += 1
+        elif can_moderate(u.username):
+            staff_cnt += 1
+        elif ulow in vip_set:
+            vips += 1
+        if ulow in pt_set:
+            party_tippers += 1
+
+    await _w(bot, user.id,
+             f"🏷️ Room Roles\n"
+             f"Owner: {owners}\n"
+             f"Admin: {admins}\n"
+             f"Manager: {managers}\n"
+             f"Staff: {staff_cnt}\n"
+             f"VIP: {vips}\n"
+             f"Party Tipper: {party_tippers}\n\n"
+             f"Use:\n!rolemembers [role]")
 
 
 # ---------------------------------------------------------------------------
@@ -899,15 +956,25 @@ async def handle_roles(bot: BaseBot, user: User, args: list[str] | None = None) 
 
 async def handle_rolemembers(bot: BaseBot, user: User, args: list[str]) -> None:
     """!rolemembers [role] — show who is in each role right now."""
+    role_filter = args[1].lower() if len(args) > 1 else ""
+
+    if not role_filter:
+        await _w(bot, user.id,
+                 "🏷️ Role Members\n"
+                 "Use:\n"
+                 "!rolemembers [role]\n\n"
+                 "Examples:\n"
+                 "!rolemembers vip\n"
+                 "!rolemembers manager")
+        return
+
     all_users = await _get_all_room_users(bot)
 
-    # Load VIP list (best-effort)
     try:
         vip_set = {v.lower() for v in db.get_vip_list()}
     except Exception:
         vip_set = set()
 
-    # Classify room users
     owners:   list[str] = []
     admins:   list[str] = []
     managers: list[str] = []
@@ -919,7 +986,7 @@ async def handle_rolemembers(bot: BaseBot, user: User, args: list[str]) -> None:
 
     _KNOWN_BOTS: frozenset[str] = frozenset({
         "chilltopiamc", "bankingbot", "acesinastra", "chipsoprano",
-        "dj_dudu", "keanushield", "masterangler",
+        "dj_dudu", "keanushield", "masterangler", "greatestprospector",
     })
 
     for u, _ in all_users:
@@ -947,48 +1014,56 @@ async def handle_rolemembers(bot: BaseBot, user: User, args: list[str]) -> None:
             except Exception:
                 regulars.append(u.username)
 
-    def _fmt(lst: list[str]) -> str:
-        return ", ".join(f"@{n}" for n in lst) if lst else "none"
+    _ROLE_MAP: dict[str, tuple[str, list[str]]] = {
+        "owner":      ("👑 Owner Members",     owners),
+        "admin":      ("🛡️ Admin Members",     admins),
+        "admins":     ("🛡️ Admin Members",     admins),
+        "manager":    ("⚙️ Manager Members",   managers),
+        "managers":   ("⚙️ Manager Members",   managers),
+        "mod":        ("🛠️ Mod Members",       mods),
+        "mods":       ("🛠️ Mod Members",       mods),
+        "moderator":  ("🛠️ Mod Members",       mods),
+        "moderators": ("🛠️ Mod Members",       mods),
+        "staff":      ("🛠️ Staff Members",     owners + admins + managers + mods),
+        "vip":        ("💎 VIP Members",       vips),
+        "sub":        ("🔔 Subscriber Members", subs),
+        "subs":       ("🔔 Subscriber Members", subs),
+        "subscriber":  ("🔔 Subscriber Members", subs),
+        "subscribers": ("🔔 Subscriber Members", subs),
+        "regular":    ("👤 Regular Members",   regulars),
+        "regulars":   ("👤 Regular Members",   regulars),
+        "player":     ("👤 Regular Members",   regulars),
+        "players":    ("👤 Regular Members",   regulars),
+        "bot":        ("🤖 Bots",              bots_in),
+        "bots":       ("🤖 Bots",              bots_in),
+    }
 
-    role_filter = args[1].lower() if len(args) > 1 else ""
+    entry = _ROLE_MAP.get(role_filter)
+    if not entry:
+        await _w(bot, user.id,
+                 f"⚠️ Unknown role: {role_filter}\n"
+                 "Try: owner, admin, manager, staff, vip, sub, regular")
+        return
 
-    if role_filter in ("owner",):
-        await _w(bot, user.id, f"👑 Owners\n{_fmt(owners)}"[:249])
-    elif role_filter in ("admin", "admins"):
-        await _w(bot, user.id, f"🛡️ Admins\n{_fmt(admins)}"[:249])
-    elif role_filter in ("manager", "managers"):
-        await _w(bot, user.id, f"⚙️ Managers\n{_fmt(managers)}"[:249])
-    elif role_filter in ("mod", "mods", "moderator", "moderators"):
-        await _w(bot, user.id, f"🛠️ Mods\n{_fmt(mods)}"[:249])
-    elif role_filter in ("staff",):
-        staff = owners + admins + managers + mods
-        await _w(bot, user.id, f"🛠️ Staff\n{_fmt(staff)}"[:249])
-    elif role_filter in ("vip",):
-        await _w(bot, user.id, f"💎 VIP\n{_fmt(vips)}"[:249])
-    elif role_filter in ("sub", "subs", "subscriber", "subscribers"):
-        await _w(bot, user.id, f"🔔 Subscribers\n{_fmt(subs)}"[:249])
-    elif role_filter in ("regular", "regulars", "player", "players"):
-        await _w(bot, user.id, f"👤 Regular\n{_fmt(regulars)}"[:249])
-    elif role_filter in ("bot", "bots"):
-        await _w(bot, user.id, f"🤖 Bots\n{_fmt(bots_in)}"[:249])
-    else:
-        # Summary: send two whispers to stay ≤ 249 chars each
-        part1 = (
-            f"🧑‍🤝‍🧑 Room Roles\n"
-            f"👑 Owner: {_fmt(owners)}\n"
-            f"🛡️ Admin: {_fmt(admins)}\n"
-            f"⚙️ Manager: {_fmt(managers)}\n"
-            f"🛠️ Mod: {_fmt(mods)}"
-        )
-        part2 = (
-            f"💎 VIP: {_fmt(vips)}\n"
-            f"🔔 Sub: {_fmt(subs)}\n"
-            f"👤 Regular: {_fmt(regulars)}\n"
-            f"🤖 Bots: {_fmt(bots_in)}\n"
-            f"Filter: !rolemembers [role]"
-        )
-        await _w(bot, user.id, part1[:249])
-        await _w(bot, user.id, part2[:249])
+    label, members = entry
+    if not members:
+        await _w(bot, user.id, f"No users found in role: {role_filter}")
+        return
+
+    lines = [label]
+    for i, name in enumerate(members, 1):
+        lines.append(f"{i}. @{name}")
+
+    chunk = lines[0]
+    for line in lines[1:]:
+        candidate = chunk + "\n" + line
+        if len(candidate) <= 249:
+            chunk = candidate
+        else:
+            await _w(bot, user.id, chunk)
+            chunk = line
+    if chunk:
+        await _w(bot, user.id, chunk)
 
 
 # ---------------------------------------------------------------------------
