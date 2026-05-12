@@ -4568,8 +4568,33 @@ class HangoutBot(BaseBot):
             )
 
         elif cmd in {"guide", "whatdoido"}:
-            sub = args[0].lower() if args else ""
-            if sub == "mining":
+            # args[0] = the command itself; topic is at args[1]
+            raw_topic = args[1].strip().lower() if len(args) > 1 else ""
+            _GUIDE_ALIASES = {
+                "mine": "mining", "mining": "mining",
+                "fish": "fishing", "fishing": "fishing",
+                "casino": "casino", "games": "casino",
+                "blackjack": "casino", "poker": "casino",
+                "vip": "vip", "perks": "vip",
+            }
+            topic = _GUIDE_ALIASES.get(raw_topic, raw_topic)
+            if not raw_topic:
+                await self.highrise.send_whisper(user.id,
+                    "🧭 ChillTopia Guide\n"
+                    "Earn: !mine, !fish\n"
+                    "Play: !help games\n"
+                    "Explore: !tele list\n"
+                    "Shop: !shop\n"
+                    "VIP: !vip"
+                )
+                await self.highrise.send_whisper(user.id,
+                    "Topic guides:\n"
+                    "!guide mining\n"
+                    "!guide fishing\n"
+                    "!guide casino\n"
+                    "!guide vip"
+                )
+            elif topic == "mining":
                 await self.highrise.send_whisper(user.id,
                     "⛏️ Mining Guide\n"
                     "!mine — mine once\n"
@@ -4577,7 +4602,7 @@ class HangoutBot(BaseBot):
                     "!mineinv — inventory\n"
                     "!minechances — odds"
                 )
-            elif sub == "fishing":
+            elif topic == "fishing":
                 await self.highrise.send_whisper(user.id,
                     "🎣 Fishing Guide\n"
                     "!fish — fish once\n"
@@ -4585,33 +4610,28 @@ class HangoutBot(BaseBot):
                     "!fishinv — inventory\n"
                     "!fishchances — odds"
                 )
-            elif sub == "casino":
+            elif topic == "casino":
                 await self.highrise.send_whisper(user.id,
                     "🎰 Casino Guide\n"
                     "Blackjack: !bet [amount], !hit, !stand\n"
-                    "Poker: !poker, !poker join\n"
+                    "Poker: !poker, !joinpoker\n"
                     "Balance: !balance"
                 )
-            elif sub == "vip":
+            elif topic == "vip":
                 await self.highrise.send_whisper(user.id,
                     "💎 VIP Guide\n"
-                    "Use !vip for info, !vipperks for perks,\n"
-                    "and !buyvip 1d/7d/30d to buy."
+                    "!vip — VIP info\n"
+                    "!vipperks — perks\n"
+                    "!buyvip 1d/7d/30d — buy VIP\n"
+                    "!myvip — status"
                 )
             else:
                 await self.highrise.send_whisper(user.id,
-                    "🧭 ChillTopia Guide\n"
-                    "Earn: !mine, !fish\n"
-                    "Play: !help games\n"
-                    "Explore: !tele list\n"
-                    "Shop: !shop\n"
-                    "VIP: !vip\n"
-                    "Notifications: !subscribe"
-                )
-                await self.highrise.send_whisper(user.id,
-                    "📖 Topic guides:\n"
-                    "!guide mining  !guide fishing\n"
-                    "!guide casino  !guide vip"
+                    f"⚠️ Unknown guide topic.\n"
+                    f"Try: mining, fishing, casino, vip\n"
+                    f"Examples:\n"
+                    f"!guide mining\n"
+                    f"!guide fishing"
                 )
 
         elif cmd in {"new", "newbie"}:

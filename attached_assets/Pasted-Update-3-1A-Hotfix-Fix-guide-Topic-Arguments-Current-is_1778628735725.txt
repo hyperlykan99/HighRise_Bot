@@ -1,0 +1,179 @@
+Update 3.1A Hotfix — Fix !guide Topic Arguments
+
+Current issue:
+!guide works, but these all show the same default guide:
+
+!guide mining
+!guide fishing
+!guide casino
+!guide vip
+
+Goal:
+Make !guide detect topic arguments and return the correct topic guide.
+
+Do not change core systems.
+Do not change tokens.
+Do not wipe data.
+Do not change room ID.
+Do not change mining/fishing/casino/economy/VIP values.
+
+==================================================
+PART 1 — FIX ARG PARSING
+==================================================
+
+In the !guide handler, parse the first argument after !guide.
+
+Examples:
+
+!guide
+topic = none
+
+!guide mining
+topic = "mining"
+
+!guide fishing
+topic = "fishing"
+
+!guide casino
+topic = "casino"
+
+!guide vip
+topic = "vip"
+
+Make sure args are not being dropped by the router.
+
+If the command parser passes args as a string, split it safely.
+If it passes args as a list, use args[0].
+
+Normalize topic:
+- lowercase
+- strip spaces
+
+==================================================
+PART 2 — TOPIC GUIDE RESPONSES
+==================================================
+
+If topic is mining:
+
+⛏️ Mining Guide
+!mine — mine once
+!automine — auto mine
+!mineinv — inventory
+!minechances — odds
+
+If topic is fishing:
+
+🎣 Fishing Guide
+!fish — fish once
+!autofish — auto fish
+!fishinv — inventory
+!fishchances — odds
+
+If topic is casino:
+
+🎰 Casino Guide
+Blackjack: !bet [amount], !hit, !stand
+Poker: !poker, !joinpoker
+Balance: !balance
+
+If topic is vip:
+
+💎 VIP Guide
+!vip — VIP info
+!vipperks — perks
+!buyvip 1d/7d/30d — buy VIP
+!myvip — status
+
+Do not mention lifetime VIP.
+
+==================================================
+PART 3 — DEFAULT GUIDE
+==================================================
+
+If no topic:
+
+🧭 ChillTopia Guide
+Earn: !mine, !fish
+Play: !help games
+Explore: !tele list
+Shop: !shop
+VIP: !vip
+
+Second message if needed:
+
+Topic guides:
+!guide mining
+!guide fishing
+!guide casino
+!guide vip
+
+==================================================
+PART 4 — UNKNOWN TOPIC
+==================================================
+
+If topic is unknown:
+
+⚠️ Unknown guide topic.
+Try: mining, fishing, casino, vip
+
+Examples:
+!guide mining
+!guide fishing
+
+==================================================
+PART 5 — ALIASES
+==================================================
+
+Support safe aliases:
+
+mining: mine, mining
+fishing: fish, fishing
+casino: casino, games, blackjack, poker
+vip: vip, perks
+
+Examples:
+!guide mine -> mining guide
+!guide fish -> fishing guide
+!guide blackjack -> casino guide
+!guide poker -> casino guide
+!guide perks -> vip guide
+
+==================================================
+PART 6 — TESTS
+==================================================
+
+Run:
+
+!guide
+!guide mining
+!guide fishing
+!guide casino
+!guide vip
+!guide mine
+!guide fish
+!guide blackjack
+!guide poker
+!guide perks
+!guide random
+
+Expected:
+- !guide shows default guide.
+- !guide mining shows mining guide.
+- !guide fishing shows fishing guide.
+- !guide casino shows casino guide.
+- !guide vip shows VIP guide.
+- aliases work.
+- random topic shows unknown topic message.
+- no / commands.
+- no “No lifetime VIP” text.
+- no command issues.
+
+Final:
+
+!commandissues
+!checkcommands
+!checkhelp
+!launchcheck
+
+Expected:
+Clean.
