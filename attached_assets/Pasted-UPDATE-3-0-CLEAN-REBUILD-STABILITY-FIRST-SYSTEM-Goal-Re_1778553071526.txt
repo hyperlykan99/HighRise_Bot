@@ -1,0 +1,1033 @@
+UPDATE 3.0 — CLEAN REBUILD / STABILITY-FIRST SYSTEM
+
+Goal:
+Rewrite and clean the whole bot system into a stable, organized, modular Highrise multi-bot project.
+
+Main purpose:
+- Stop quick restarting/reconnecting.
+- Remove old broken code from too many patches.
+- Remove duplicate command routing.
+- Remove old / command leftovers.
+- Make every command use ! only.
+- Make each bot have clear command ownership.
+- Preserve player data and database records.
+- Keep current working features, but rebuild the structure cleanly.
+
+DO NOT:
+- Do not wipe database.
+- Do not wipe balances.
+- Do not wipe player profiles.
+- Do not wipe VIP data.
+- Do not wipe donation logs.
+- Do not wipe subscriptions.
+- Do not wipe notification preferences.
+- Do not wipe mining/fishing inventories.
+- Do not wipe blackjack/poker stats.
+- Do not wipe saved teleports.
+- Do not wipe role spawns.
+- Do not wipe bot spawns.
+- Do not expose tokens.
+- Do not change room ID.
+- Do not change bot tokens unless I explicitly ask.
+- Do not add new features beyond this prompt.
+- Do not keep / command support.
+- Do not let AI intercept real commands.
+- Do not let one failed module crash all bots.
+
+==================================================
+PHASE 0 — BACKUP FIRST
+==================================================
+
+Before rewriting anything:
+
+1. Create a full backup copy of the current project.
+2. Create a full backup of the database.
+3. Create a backup branch/checkpoint named:
+
+Update_2_Backup_Before_3_0_Clean_Rebuild
+
+4. Do not delete old files until the new structure works.
+5. If a module is replaced, keep the old version in an archive folder:
+
+archive_old_2_x/
+
+==================================================
+PHASE 1 — CLEAN PROJECT STRUCTURE
+==================================================
+
+Create this clean structure:
+
+core/
+  router.py
+  permissions.py
+  config.py
+  database.py
+  migrations.py
+  bot_identity.py
+  message_utils.py
+  command_registry.py
+  stability.py
+  logging_utils.py
+
+bots/
+  chilltopiamc.py
+  bankingbot.py
+  blackjackbot.py
+  pokerbot.py
+  hostbot.py
+  minerbot.py
+  fisherbot.py
+
+modules/
+  help.py
+  bank.py
+  gold.py
+  party_tip.py
+  blackjack.py
+  poker.py
+  mining.py
+  fishing.py
+  teleport.py
+  roles.py
+  bot_spawn.py
+  notifications.py
+  vip.py
+  audit.py
+  health.py
+
+main.py
+
+Rules:
+- main.py should be clean and simple.
+- main.py should start the correct bot mode.
+- No giant command router inside main.py.
+- Router logic belongs in core/router.py.
+- Command registry belongs in core/command_registry.py.
+- Database migrations belong in core/migrations.py.
+- Stability/error handling belongs in core/stability.py.
+
+==================================================
+PHASE 2 — COMMAND ROUTER RULES
+==================================================
+
+Build one clean command router.
+
+Rules:
+- All commands must start with !
+- No / command support.
+- If a message starts with /, reply:
+
+Use ! commands only.
+Example: !help
+
+- Every command must have:
+  - command name
+  - owner bot
+  - permission level
+  - handler function
+  - help text
+  - usage text
+
+- No duplicate command owners.
+- No duplicate handlers for the same command.
+- No command should have owner UNKNOWN.
+- No command should have handler=NO.
+- No command should have route=NO if active.
+
+AI / chat assistant rule:
+- If message starts with ! and command exists, route it first.
+- AI must never intercept real commands.
+- AI only handles !ask or normal non-command chat if enabled.
+- If command is unknown, do not use AI unless explicitly enabled.
+- Unknown command response:
+
+Unknown command.
+Type !help.
+
+==================================================
+PHASE 3 — COMMAND OWNERSHIP
+==================================================
+
+Use this clean ownership map.
+
+ChillTopiaMC:
+!help
+!start
+!subscribe
+!unsubscribe
+!notif
+!notifon
+!notifoff
+!notifyon
+!notifyoff
+!pton
+!ptoff
+!ptstatus
+!ptwallet
+!ptadd
+!ptremove
+!ptclear
+!ptlist
+!ptlimits
+!ptlimit
+!tip
+!tipall
+!ask
+
+BankingBot:
+!balance
+!bal
+!send
+!pay
+!bank
+!transactions
+!vip
+!vipperks
+!buyvip
+!myvip
+!donationgoal
+!topdonors
+!goldtip
+!goldtip all
+!goldtipbots
+!goldrain
+!goldrainstatus
+!cancelgoldrain
+
+BlackJackBot:
+!bj
+!hit
+!stand
+!stay
+!double
+!split
+!surrender
+!insurance
+!bjshoe
+!bjshoereset
+!bjrules
+!blackjackstatus
+
+PokerBot:
+!poker
+!joinpoker
+!leavepoker
+!bet
+!call
+!raise
+!fold
+!check
+!pokerstatus
+
+Host:
+!tele
+!tele list
+!create tele
+!delete tele
+!summon
+!roles
+!rolemembers
+!rolespawn
+!rolespawns
+!setrolespawn
+!delrolespawn
+!autospawn
+!setbotspawnhere
+!setbotspawn
+!botspawns
+!clearbotspawn
+
+GreatestProspector:
+!mine
+!automine
+!stopmine
+!minechances
+!mineinv
+!miningprofile
+!minelb
+!tool
+!upgradetool
+
+MasterAngler:
+!fish
+!autofish
+!stopfish
+!fishchances
+!fishinv
+!fishprofile
+!fishlb
+!rod
+!rods
+
+Audit / Health:
+!commandtest
+!commandissues
+!checkcommands
+!bothealth
+!stability
+!ptdisable
+!ptenable
+
+==================================================
+PHASE 4 — PERMISSIONS
+==================================================
+
+Create clean permission levels:
+
+owner
+admin
+manager
+moderator
+staff
+vip
+subscriber
+party_tipper
+player
+public
+
+Rules:
+- Owner has everything.
+- Admin does not automatically get owner-only gold commands.
+- Manager can manage room systems, but not owner-only gold.
+- Party Tipper can only use !tip during party mode.
+- Party Tipper cannot use BankingBot commands.
+- Party Tipper cannot use !goldtip.
+- Party Tipper cannot use VIP/admin/economy commands.
+- Normal players only see basic commands.
+
+==================================================
+PHASE 5 — STABILITY SYSTEM
+==================================================
+
+Add stability protection everywhere.
+
+Every bot must have:
+- crash-proof on_start
+- crash-proof on_chat
+- crash-proof on_user_join
+- crash-proof on_user_leave
+- crash-proof background tasks
+
+No command should ever crash or restart a bot.
+
+If a command fails:
+- log full traceback
+- whisper user:
+
+⚠️ Command error logged. Bot stayed online.
+
+- keep bot online
+
+Add logging:
+[BOOT]
+[START]
+[COMMAND]
+[COMMAND ERROR]
+[TASK ERROR]
+[DB LOCK]
+[DISCONNECT]
+[RECONNECT]
+[CRASH]
+[PROCESS START]
+
+Add command:
+
+!bothealth
+
+Show:
+- bot name
+- bot mode
+- uptime
+- restart count
+- last error
+- active modules
+- database status
+- stability mode
+- party tip enabled
+
+Add command:
+
+!stability on
+!stability off
+!stability status
+
+When stability mode is ON:
+- disable non-critical background loops
+- disable party tip sending
+- disable auto games/events
+- keep core commands only
+
+Core commands:
+!help
+!balance
+!bjshoe
+!bj
+!poker
+!mine
+!fish
+!tele
+!summon
+!botspawns
+!commandissues
+!bothealth
+
+==================================================
+PHASE 6 — DATABASE MIGRATIONS
+==================================================
+
+Create safe migrations.
+
+Rules:
+- Migrations must be idempotent.
+- Running migration twice must not break anything.
+- Never drop existing tables unless explicitly instructed.
+- Never wipe records.
+- Add missing columns safely.
+- Create missing tables safely.
+- Use SQLite WAL mode.
+- Use busy_timeout.
+- Use timeout=30 on connections.
+- Close all DB connections.
+- Retry small writes if database is locked.
+
+Tables to preserve:
+- users
+- balances
+- bank transactions
+- gold transactions
+- VIP records
+- donation logs
+- subscriptions
+- notification preferences
+- mining data
+- fishing data
+- blackjack data
+- poker data
+- teleports/spawns
+- role spawns
+- bot spawns
+- party tippers
+- party tip logs
+
+Add/ensure tables:
+
+party_tippers:
+- id INTEGER PRIMARY KEY AUTOINCREMENT
+- user_id TEXT
+- username TEXT UNIQUE
+- added_by TEXT
+- added_at TEXT
+- expires_at TEXT
+- daily_used INTEGER DEFAULT 0
+- last_reset TEXT
+
+party_tip_log:
+- id INTEGER PRIMARY KEY AUTOINCREMENT
+- tipper_id TEXT
+- tipper_name TEXT
+- receiver_id TEXT
+- receiver_name TEXT
+- amount INTEGER
+- wallet_before INTEGER
+- wallet_after INTEGER
+- party_mode TEXT
+- result TEXT
+- note TEXT
+- created_at TEXT
+
+blackjack_shoe_state:
+- game TEXT PRIMARY KEY
+- shoe_json TEXT
+- discard_json TEXT
+- decks_count INTEGER
+- cards_remaining INTEGER
+- last_saved_at TEXT
+- loaded_from_restart INTEGER
+- rebuild_reason TEXT
+
+bot_spawns:
+- bot_username TEXT PRIMARY KEY
+- x REAL
+- y REAL
+- z REAL
+- facing TEXT
+- saved_by TEXT
+- saved_at TEXT
+
+==================================================
+PHASE 7 — HELP SYSTEM
+==================================================
+
+Build a clean safe help system.
+
+!help must never crash.
+
+!help should be static/safe first.
+
+Main help:
+
+🎤 ChillTopiaMC Help
+
+Basic:
+!start — start using the room
+!balance — check balance
+!profile — check profile
+!vip — VIP info
+
+Games:
+!mine — mine ores
+!fish — catch fish
+!bj [amount] — blackjack
+!poker — poker
+
+Room:
+!tele list — see teleports
+!notif — notification settings
+
+Use !help [category]
+
+Categories:
+!help basic
+!help games
+!help bank
+!help vip
+!help blackjack
+!help poker
+!help mining
+!help fishing
+!help teleport
+!help partytip
+!help owner
+!help staff
+
+Rules:
+- No / commands in help.
+- Do not show owner commands to normal players.
+- Do not show staff commands to normal players.
+- Do not show !goldtip to normal players.
+- Show !goldtip only in owner help.
+- Show party tip owner commands only to owner.
+- Every command shown in help must have route=YES and handler=YES.
+
+==================================================
+PHASE 8 — BANKINGBOT / GOLD SYSTEM
+==================================================
+
+Keep BankingBot separate from Party Tip.
+
+BankingBot commands:
+!balance
+!send [user] [amount]
+!pay [user] [amount]
+!transactions
+!vip
+!vipperks
+!buyvip [1d|7d|30d]
+!myvip
+!donationgoal
+!topdonors
+
+Owner-only real gold:
+!goldtip [user] [amount]
+!goldtip all [amount]
+!goldtipbots [on|off]
+!goldrain [group] [amount] [winners]
+!goldrainstatus
+!cancelgoldrain
+
+Rules:
+- !goldtip is owner-only.
+- Admins cannot use !goldtip.
+- Managers cannot use !goldtip.
+- Staff cannot use !goldtip.
+- Party Tippers cannot use !goldtip.
+- Bots are excluded from gold tipping.
+- Gold Rain permissions remain separate.
+- !tipall must not trigger BankingBot goldtip all.
+
+Bots excluded:
+ChillTopiaMC
+EmceeBot
+BankerBot
+BankingBot
+GreatestProspector
+MasterAngler
+BlackJackBot
+PokerBot
+SecurityBot
+EventBot
+AceSinatra
+ChipSoprano
+KeanuShield
+DJ_DUDU
+any username ending with bot
+known bot IDs
+current bot ID
+
+==================================================
+PHASE 9 — CHILLTOPIAMC PARTY TIP SYSTEM
+==================================================
+
+Build Party Tip cleanly.
+
+Party Tip is handled by ChillTopiaMC only.
+
+Commands:
+!pton
+!ptoff
+!ptstatus
+!ptwallet [amount]
+!ptadd [user] [minutes]
+!ptremove [user]
+!ptclear
+!ptlist
+!ptlimits
+!ptlimit [single|all|daily|max] [amount]
+!tip [user] [amount]
+!tip [players] [amount]
+!tip all [amount]
+!tipall [amount]
+
+Rules:
+- !tip is Party Tip Wallet only.
+- !tip does not use BankerBot wallet.
+- !tip does not route to BankingBot.
+- !tip only works when Party Mode is ON.
+- !tip can be used by owner or active Party Tipper only.
+- Party Tipper can only use !tip.
+- Party Tipper cannot use !goldtip.
+- Party Tipper cannot use any other economy/admin command.
+- Bots are excluded from all Party Tips.
+- Party Wallet must have enough gold.
+- Do not deduct wallet until real gold tip succeeds.
+- Log every tip.
+- If tip_user fails, do not crash.
+
+Command behavior:
+
+!tip @Player 5
+- tips that player 5 gold
+- public chat:
+💸 Tipped @Player 5 gold!
+
+!tip 5 5
+- tips 5 random eligible real players 5 gold each
+- after every successful tip, public chat:
+💸 Tipped @username 5 gold!
+
+If only 3 eligible players:
+- do not stop
+- say:
+⚠️ Only 3 eligible player(s) found.
+Tipping 3 player(s) instead.
+- then tip those 3
+
+!tip all 1
+- tips all eligible real players 1 gold each
+- after each successful tip:
+💸 Tipped @username 1 gold!
+
+!tipall 5
+- must NOT use BankingBot
+- safest response:
+⚠️ Use !tip all [amount] for Party Tips.
+Example: !tip all 5
+
+Default limits:
+single = 10g
+all = 5g each
+daily = 100g per Party Tipper
+max = 500g Party Wallet max
+duration max = 120 minutes
+party mode required = YES
+bots excluded = YES
+self-tip = OFF
+
+==================================================
+PHASE 10 — BLACKJACKBOT
+==================================================
+
+Rebuild/clean BlackjackBot while preserving stats and blackjack shoe.
+
+Commands:
+!bj [amount]
+!hit
+!stand
+!stay
+!double
+!split
+!surrender
+!insurance
+!bjshoe
+!bjshoereset
+!bjrules
+!blackjackstatus
+
+Requirements:
+- Blackjack shoe must persist across bot restart.
+- Shoe must not reset at round end.
+- Shoe must save after every card draw.
+- !bjshoe shows real persistent shoe.
+- !bjshoereset owner/admin only.
+- Blackjack command errors must not crash bot.
+- Blackjack startup recovery must be safe.
+- If table recovery fails, log and keep bot online.
+
+!bjshoe expected:
+🃏 Blackjack Shoe
+Decks: 6
+Cards Remaining: [count]
+Saved: YES
+Loaded From Restart: YES/NO
+Last Saved: [timestamp]
+Rebuild Reason: [reason]
+
+==================================================
+PHASE 11 — POKERBOT
+==================================================
+
+Rebuild/clean PokerBot.
+
+Commands:
+!poker
+!joinpoker
+!leavepoker
+!bet [amount]
+!call
+!raise [amount]
+!fold
+!check
+!pokerstatus
+
+Rules:
+- Poker errors must not crash bot.
+- Poker startup recovery must be safe.
+- Poker table state should persist if already supported.
+- No command should restart PokerBot.
+- No party tip imports should affect PokerBot.
+
+==================================================
+PHASE 12 — HOST TELEPORT / SPAWN SYSTEM
+==================================================
+
+Host owns all teleport/spawn commands.
+
+Commands:
+!tele list
+!tele [spot]
+!tele @user
+!tele @user [x] [y] [z] [facing]
+!create tele [spot]
+!delete tele [spot]
+!summon @user
+!roles
+!rolemembers
+!rolemembers [role]
+!setrolespawn [role] here
+!rolespawn [role]
+!rolespawns
+!delrolespawn [role]
+!autospawn on
+!autospawn off
+!autospawn status
+!setbotspawnhere @BotName
+!setbotspawn @BotName [x] [y] [z] [facing]
+!botspawns
+!clearbotspawn @BotName
+
+Rules:
+- Teleports owned by Host.
+- !summon @user brings target to command user.
+- !setbotspawnhere saves bot spawn and moves bot there.
+- Bot spawn commands route before AI.
+- AI must not intercept teleport commands.
+- Role spawn triggers when user enters room if autospawn ON.
+- Bot spawn triggers when bot rejoins/restarts.
+- Commands must use live room users.
+
+==================================================
+PHASE 13 — MINING AND FISHING
+==================================================
+
+Keep mining/fishing stable.
+
+GreatestProspector:
+!mine
+!automine
+!stopmine
+!minechances
+!mineinv
+!miningprofile
+!minelb
+!tool
+!upgradetool
+
+MasterAngler:
+!fish
+!autofish
+!stopfish
+!fishchances
+!fishinv
+!fishprofile
+!fishlb
+!rods
+
+Rules:
+- Preserve mining data.
+- Preserve fishing data.
+- Preserve inventories.
+- Preserve rarity settings.
+- Mythic and above should remain extremely rare.
+- Commands must not crash bots.
+- Auto loops must be safely wrapped.
+
+==================================================
+PHASE 14 — NOTIFICATIONS
+==================================================
+
+Keep notification system but cleanly.
+
+Commands:
+!subscribe
+!unsubscribe
+!notif
+!notifon [category]
+!notifoff [category]
+!notifyon [category]
+!notifyoff [category]
+
+Categories:
+events
+mining
+fishing
+vip
+goldrain
+updates
+
+Rules:
+- Users must DM bot or subscribe correctly.
+- Respect opt-outs.
+- Do not send to unsubscribed users.
+- Do not crash if DM fails.
+- Log failed notifications.
+
+==================================================
+PHASE 15 — COMMAND AUDIT
+==================================================
+
+Build reliable audit.
+
+Commands:
+!commandtest [command]
+!commandissues
+!checkcommands
+!messageaudit
+
+!commandtest !tip expected:
+command=tip
+owner=ChillTopiaMC
+route=YES
+handler=YES
+permission=Owner or Party Tipper
+
+!commandtest !goldtip expected:
+owner=BankingBot
+route=YES
+handler=YES
+permission=Owner only
+
+!commandtest !bj expected:
+owner=BlackJackBot
+route=YES
+handler=YES
+
+!commandtest !tele expected:
+owner=Host
+route=YES
+handler=YES
+
+!commandissues default:
+- Check active commands only.
+- Do not report deprecated/hidden/legacy commands.
+- Report route=NO, handler=NO, owner UNKNOWN.
+
+Expected:
+✅ No active command issues.
+
+==================================================
+PHASE 16 — REMOVE OLD / COMMAND LEFTOVERS
+==================================================
+
+Search entire codebase for user-facing "/" command usage.
+
+Replace with !.
+
+Examples:
+Usage: /goldtip -> Usage: !goldtip
+Use /help -> Use !help
+/adminpanel -> !adminpanel or remove if deprecated
+
+Do not show / commands in:
+- help
+- usage errors
+- bot bios
+- command tests
+- audit messages
+- notifications
+- onboarding
+- admin panels
+
+If user types /command:
+Reply:
+Use ! commands only.
+Example: !help
+
+==================================================
+PHASE 17 — SAFE STARTUP TASKS
+==================================================
+
+All startup tasks must be individually wrapped.
+
+If one task fails:
+- log error
+- disable that task
+- continue bot startup
+
+Tasks to wrap:
+- blackjack recovery
+- poker recovery
+- RBJ recovery
+- automine recovery
+- autofish recovery
+- notification delivery
+- subscriber pending delivery
+- auto games
+- auto events
+- first find
+- big announcement
+- time EXP
+- multi-bot heartbeat
+- bot spawn/autospawn
+
+No startup task should kill a bot.
+
+==================================================
+PHASE 18 — TEST PLAN
+==================================================
+
+After rebuild, run these tests.
+
+Basic:
+!help
+!balance
+!bothealth
+!commandissues
+!checkcommands
+
+Party Tip:
+!pton
+!ptwallet 300
+!ptadd @realplayer 60
+!ptlist
+!tip @realplayer 5
+!tip 5 5
+!tip all 1
+!tipall 5
+!ptoff
+
+Expected:
+- !tip uses ChillTopiaMC
+- !tipall does not use BankingBot
+- bots excluded
+- per-tip public messages appear
+- wallet deducts only after success
+
+Banking:
+!balance
+!send @realplayer 10
+!goldtip @realplayer 1
+!goldtip @ChillTopiaMC 1
+
+Expected:
+- !goldtip owner-only
+- bots blocked
+
+Blackjack:
+!bjshoe
+!bj 10
+!hit
+!stand
+restart bot
+!bjshoe
+
+Expected:
+- shoe persists
+
+Poker:
+!poker
+!joinpoker
+!pokerstatus
+
+Teleport:
+!tele list
+!create tele test
+!tele test
+!summon @realplayer
+!setbotspawnhere @ChillTopiaMC
+!botspawns
+
+Notifications:
+!subscribe
+!notif
+!notifon events
+!notifoff events
+
+Stability:
+Let all bots run for 15 minutes.
+
+Expected:
+- no quick restart loop
+- no uncaught tracebacks
+- bots stay online
+- !bothealth shows stable uptime
+
+==================================================
+PHASE 19 — FINAL REPORT
+==================================================
+
+After finishing, report:
+
+1. Files created.
+2. Files archived.
+3. Database migration summary.
+4. Commands registered by owner.
+5. Any commands removed/deprecated.
+6. How ! routing works.
+7. How AI intercept is prevented.
+8. How Party Tip is separated from BankingBot.
+9. How !tip 5 5 works.
+10. How !tipall is blocked/redirected.
+11. How bots are excluded from gold tips.
+12. How blackjack shoe persists.
+13. How bot spawn persists.
+14. How role spawn/autospawn works.
+15. How stability mode works.
+16. How startup tasks are protected.
+17. !commandissues result.
+18. !checkcommands result.
+19. !bothealth result for each bot.
+20. 15-minute stability test result.
+
+==================================================
+MOST IMPORTANT RULE
+==================================================
+
+Stability first.
+
+If a feature is risky or not finished:
+- disable it safely
+- keep the bot online
+- log the issue
+- report it
+
+Do not let unfinished features crash or restart bots.
