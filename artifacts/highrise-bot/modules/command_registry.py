@@ -1224,6 +1224,7 @@ REGISTRY: dict[str, Cmd] = {
     "gameprices":         Cmd("host",    "admin",   False,True, False, perm="manager"),
     "setgameprice":       Cmd("host",    "admin",   False,False,True,  perm="manager"),
     "messageaudit":       Cmd("host",    "audit",   False,True, False, perm="admin"),
+    "helpaudit":          Cmd("host",    "audit",   False,True, False, perm="admin"),
     "notifyoff":          Cmd("host",    "profile", True, False,True),
     "notifyon":           Cmd("host",    "profile", True, False,True),
     "pokerhistory":       Cmd("poker",   "casino",  False,True, False, perm="staff"),

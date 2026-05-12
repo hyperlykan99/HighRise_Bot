@@ -501,8 +501,8 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "supporter": "banker", "perks": "banker",
     "setdonationgoal": "banker", "donationaudit": "banker",
     "setsponsorprice": "banker",
-    # host — message audit (new)
-    "messageaudit": "host", "staffhelp": "security",
+    # host — message audit / help audit (new)
+    "messageaudit": "host", "helpaudit": "host", "staffhelp": "security",
     # blackjack — BJ shoe management (new)
     "bjshoereset": "blackjack",
     # host — economy audit (admin-level, answered by host)

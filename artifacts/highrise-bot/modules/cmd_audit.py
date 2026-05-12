@@ -727,7 +727,7 @@ VISIBLE_CMDS: frozenset[str] = frozenset({
     # ── New staff controls ───────────────────────────────────────────────────
     "autospawn", "roles", "bjshoereset",
     "economyaudit", "gameprices", "gameprice", "setgameprice",
-    "messageaudit", "staffhelp",
+    "messageaudit", "helpaudit", "staffhelp",
     # ── Rarity chance commands ───────────────────────────────────────────────
     "minechances", "fishchances", "fishingchances", "raritychances",
     # ── RoleSpawn / AutoSpawn ────────────────────────────────────────────────

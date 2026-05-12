@@ -1,0 +1,145 @@
+Update 3.0B Hotfix — Fix or Replace !messageaudit help
+
+Current issue:
+!messageaudit help does not work.
+
+Goal:
+Make help auditing work, or replace it with a working help audit command.
+
+Do not add new features.
+Do not change tokens.
+Do not wipe data.
+Do not change room ID.
+
+==================================================
+PART 1 — CHECK IF !messageaudit EXISTS
+==================================================
+
+Run/check:
+
+!commandtest !messageaudit
+!commandtest !helpaudit
+!commandtest !checkhelp
+
+If !messageaudit is not routed or has no handler:
+- either register it correctly
+- or remove it from all instructions/help/testing
+
+Preferred:
+Make !messageaudit help work.
+
+Expected:
+/commandtest !messageaudit
+
+owner=ChillTopiaMC or Host
+route=YES
+handler=YES
+
+==================================================
+PART 2 — IMPLEMENT !messageaudit help
+==================================================
+
+Command:
+
+!messageaudit help
+
+Purpose:
+Audit help pages for:
+- / command leftovers
+- commands shown in help but not routed
+- commands shown in help with handler=NO
+- commands shown in help with owner UNKNOWN
+- missing usage placeholders like [user], [amount], [minutes], [role], [spot]
+- owner commands shown in regular player help
+- staff commands shown in regular player help
+
+Expected response:
+
+✅ Help Audit Clean
+No / commands found.
+No broken help commands.
+No owner commands in regular help.
+No missing usage format.
+
+If issues exist:
+
+⚠️ Help Audit Issues
+/help blackjack shows /hit
+/help games shows !bj [amount] but real command is !bet [amount]
+/help party shows !ptwallet to regular users
+
+==================================================
+PART 3 — ADD ALIAS
+==================================================
+
+Add easier alias:
+
+!helpaudit = !messageaudit help
+
+Expected:
+/commandtest !helpaudit
+owner=ChillTopiaMC or Host
+route=YES
+handler=YES
+
+Live:
+!helpaudit
+
+Should run the same help audit.
+
+==================================================
+PART 4 — FALLBACK IF AUDIT IS TOO HARD
+==================================================
+
+If full dynamic help audit is too risky right now, make !helpaudit do a static checklist audit:
+
+Check these help pages:
+!help
+!help games
+!help blackjack
+!help mining
+!help fishing
+!help party
+!help owner
+
+Scan the actual help text strings for:
+- "/"
+- "!bj [amount]"
+- missing !bet [amount]
+- missing !automine
+- missing !autofish
+- regular help showing !goldtip
+- regular help showing !ptwallet
+- regular help showing !grantvip
+
+Return clean/issues.
+
+==================================================
+PART 5 — UPDATE 3.0B TESTS
+==================================================
+
+Replace:
+
+!messageaudit help
+
+With:
+
+!helpaudit
+
+Final 3.0B tests should be:
+
+!help
+!help games
+!help blackjack
+!help mining
+!help fishing
+!help party
+!help owner
+!helpaudit
+!commandissues
+!checkcommands
+
+Expected:
+!helpaudit works.
+!commandissues clean.
+!checkcommands clean.

@@ -13,8 +13,13 @@ Commands (manager+):
 """
 from __future__ import annotations
 
+import re
 import database as db
 from modules.permissions import is_owner, is_admin, is_manager, can_moderate
+
+# Matches "/" followed by a lowercase letter at the start of a line or after a
+# space — this catches actual slash commands while ignoring "on/off" patterns.
+_SLASH_CMD_RE = re.compile(r'(?:^|\n| )/[a-z]')
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -219,6 +224,46 @@ async def handle_setgameprice(bot, user, args: list[str]) -> None:
 
 
 # ---------------------------------------------------------------------------
+# !helpaudit  /  !messageaudit help
+# ---------------------------------------------------------------------------
+
+async def handle_helpaudit(bot, user, args: list[str], pages: list) -> None:
+    """Scan all help text pages for / prefix commands and over-length pages.
+
+    pages: list of (label: str, text: str) tuples built by main.py.
+    """
+    if not _can_audit(user.username):
+        await _w(bot, user.id, "Manager/admin/owner only.")
+        return
+
+    slash_issues: list[str] = []
+    len_issues:   list[str] = []
+
+    for label, text in pages:
+        if _SLASH_CMD_RE.search(text):
+            slash_issues.append(label)
+        if len(text) > 249:
+            len_issues.append(f"{label}({len(text)}c)")
+
+    if not slash_issues and not len_issues:
+        await _w(bot, user.id,
+                 "✅ Help Audit Clean\n"
+                 "No / commands found.\n"
+                 "No over-length pages.\n"
+                 "All help uses ! prefix.")
+        return
+
+    lines = [f"⚠️ Help Issues ({len(slash_issues)+len(len_issues)})"]
+    if slash_issues:
+        shown = ", ".join(slash_issues[:5])
+        lines.append(f"Slash cmds in: {shown}")
+    if len_issues:
+        shown = ", ".join(len_issues[:3])
+        lines.append(f"Over 249c: {shown}")
+    await _w(bot, user.id, "\n".join(lines)[:249])
+
+
+# ---------------------------------------------------------------------------
 # !messageaudit
 # ---------------------------------------------------------------------------
 
@@ -236,19 +281,10 @@ async def handle_messageaudit(bot, user, args: list[str]) -> None:
                  "Run !staffhelp and !help to verify.\n"
                  "Unknown cmd messages use !help.")
 
-    elif sub == "help":
-        await _w(bot, user.id,
-                 "🧾 Help Audit Checks\n"
-                 "• Help uses ! prefix only\n"
-                 "• Commands show [arg] placeholders\n"
-                 "• No staff cmds shown to players\n"
-                 "• All pages ≤ 249 chars\n"
-                 "• No unregistered commands listed")
-
     else:
         await _w(bot, user.id,
                  "🧾 Message Audit\n"
+                 "!helpaudit — live help page scan\n"
                  "!messageaudit slash — / prefix check\n"
-                 "!messageaudit help — help page audit\n"
                  "!msgcap — check message cap limits\n"
                  "!commandissues — unrouted commands")

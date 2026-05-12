@@ -115,6 +115,7 @@ from modules.realistic_blackjack import (
     startup_rbj_recovery,
 )
 from modules.poker import (
+    POKER_HELP_PAGES,
     handle_poker, handle_pokerhelp,
     handle_pokerstats, handle_pokerlb,
     handle_setpokerbuyin, handle_setpokerplayers,
@@ -556,7 +557,7 @@ from modules.party_tip import (
 )
 from modules.economy_audit import (
     handle_economyaudit, handle_gameprices, handle_gameprice,
-    handle_setgameprice, handle_messageaudit,
+    handle_setgameprice, handle_messageaudit, handle_helpaudit,
 )
 from modules.room_utils import (
     handle_tpme, handle_tp, handle_tphere, handle_goto,
@@ -2033,6 +2034,59 @@ ALLCMDS = [
 
 
 # ---------------------------------------------------------------------------
+# Help audit page builder — used by !helpaudit / !messageaudit help
+# ---------------------------------------------------------------------------
+
+def _build_audit_help_pages() -> list[tuple[str, str]]:
+    """Collect every help text string into (label, text) pairs for scanning."""
+    pages: list[tuple[str, str]] = []
+
+    pages.append(("help",  HELP_TEXT))
+    pages.append(("help2", HELP_TEXT_2))
+
+    for cat, text in _HELP_CATEGORIES.items():
+        pages.append((f"help:{cat}", text))
+
+    for i, p in enumerate(BJ_HELP_PAGES):
+        pages.append((f"bj p{i+1}", p))
+    for i, p in enumerate(RBJ_HELP_PAGES):
+        pages.append((f"rbj p{i+1}", p))
+    for i, p in enumerate(MINE_HELP_PAGES):
+        pages.append((f"mine p{i+1}", p))
+    for i, p in enumerate(POKER_HELP_PAGES):
+        pages.append((f"poker p{i+1}", p))
+    for i, p in enumerate(CASINO_ADMIN_HELP_PAGES):
+        pages.append((f"casino_admin p{i+1}", p))
+    for i, p in enumerate(BANK_ADMIN_HELP_PAGES):
+        pages.append((f"bank_admin p{i+1}", p))
+    for i, p in enumerate(VIP_HELP_PAGES):
+        pages.append((f"vip p{i+1}", p))
+    for i, p in enumerate(REPORT_HELP_PAGES):
+        pages.append((f"report p{i+1}", p))
+    for i, p in enumerate(MOD_HELP_PAGES):
+        pages.append((f"mod p{i+1}", p))
+    for i, p in enumerate(MANAGER_HELP_PAGES):
+        pages.append((f"manager p{i+1}", p))
+    for i, p in enumerate(ADMIN_HELP_PAGES):
+        pages.append((f"admin p{i+1}", p))
+    for i, p in enumerate(OWNER_HELP_PAGES):
+        pages.append((f"owner p{i+1}", p))
+
+    pages.append(("staff_help",  STAFF_HELP_TEXT))
+    pages.append(("staff_help2", STAFF_HELP_TEXT_2))
+    pages.append(("tip_help",    TIP_HELP))
+    pages.append(("rep_help",    REP_HELP))
+    pages.append(("auto_help",   AUTO_HELP))
+    pages.append(("audit_help",  AUDIT_HELP_TEXT))
+    pages.append(("maint_help",  MAINTENANCE_HELP_TEXT))
+
+    for i, p in enumerate(ALLCMDS):
+        pages.append((f"allcmds p{i+1}", p))
+
+    return pages
+
+
+# ---------------------------------------------------------------------------
 # Module-level helpers for casino and manager commands
 # ---------------------------------------------------------------------------
 
@@ -3059,7 +3113,13 @@ class HangoutBot(BaseBot):
             elif cmd == "setgameprice":
                 await handle_setgameprice(self, user, args)
             elif cmd == "messageaudit":
-                await handle_messageaudit(self, user, args)
+                sub = args[1].lower() if len(args) > 1 else ""
+                if sub == "help":
+                    await handle_helpaudit(self, user, args, _build_audit_help_pages())
+                else:
+                    await handle_messageaudit(self, user, args)
+            elif cmd == "helpaudit":
+                await handle_helpaudit(self, user, args, _build_audit_help_pages())
             elif cmd == "setdailycoins":
                 await handle_setdailycoins(self, user, args)
             elif cmd == "setgamereward":
