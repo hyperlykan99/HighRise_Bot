@@ -1,0 +1,118 @@
+Update 3.0M Hotfix — Fix Room Assistant Missing Replies
+
+Current issue:
+Room assistant replies to “how do i fish” correctly, but does not always reply to:
+- how do i mine
+- how do i get vip
+- what is vip
+
+Goal:
+Make the assistant reliably answer common room guide questions while keeping cooldowns safe.
+
+Do not change command routing.
+Do not let AI execute commands.
+Do not change economy, VIP, mining, fishing, casino, admin, tips, or spawns.
+
+==================================================
+PART 1 — FIX MINING QUESTION MATCH
+==================================================
+
+Assistant should reply to:
+
+how do i mine
+how to mine
+how mining works
+mine help
+mining help
+
+Reply:
+
+⛏️ Type !mine to mine once. Use !automine for auto mining, !mineinv for inventory, and !minechances for odds.
+
+==================================================
+PART 2 — FIX VIP QUESTION MATCH
+==================================================
+
+Assistant should reply to:
+
+how do i get vip
+how to get vip
+what is vip
+vip help
+how vip works
+
+Reply:
+
+💎 VIP gives convenience perks like longer automine/autofish. Use !vip or !vipperks to learn more.
+
+Do not mention lifetime VIP.
+
+==================================================
+PART 3 — COOLDOWN ADJUSTMENT
+==================================================
+
+Current cooldown may be blocking different help questions too aggressively.
+
+Change cooldown behavior:
+- Do not block different topics from same user.
+- Cooldown should be per topic, not one global assistant cooldown.
+- Example: user can ask fishing, mining, VIP back-to-back and get replies.
+- Only suppress repeated same topic within 30 seconds.
+
+Topics:
+greeting
+room_help
+mining
+fishing
+vip
+teleport
+party
+notifications
+shop
+unknown_command
+
+==================================================
+PART 4 — TYPO HANDLING
+==================================================
+
+If user types:
+how do i dish
+
+Treat as possible typo for fish if close enough.
+
+Reply:
+
+Did you mean fishing? 🎣 Type !fish to fish once. Use !autofish, !fishinv, and !fishchances.
+
+==================================================
+PART 5 — TESTS
+==================================================
+
+Run:
+
+how do i mine
+how do i fish
+how do i get vip
+what is vip
+how do i teleport
+what is party mode
+how do i dish
+
+Expected:
+- Each different topic replies.
+- No spam.
+- No command interception.
+- No / commands.
+- No “No lifetime VIP” text.
+
+Then run:
+
+!commandissues
+!checkcommands
+!checkhelp
+!bothealth
+!stability status
+
+Expected:
+- clean
+- Err: none

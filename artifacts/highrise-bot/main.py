@@ -516,6 +516,7 @@ from modules.ai_assistant import (
 )
 from modules.room_assistant import (
     handle_room_assistant_chat,
+    handle_room_assistant_whisper,
     handle_unknown_command,
 )
 from modules.bot_modes import (
@@ -6193,6 +6194,13 @@ class HangoutBot(BaseBot):
             return  # Don't auto-subscribe when user is sending commands
 
         # Auto-subscribe from whisper is disabled — subscription is intentional only.
+
+        # Room assistant — non-command whispers answered by whisper (host bot only)
+        if BOT_MODE in ("host", "all"):
+            try:
+                await handle_room_assistant_whisper(self, user, message)
+            except Exception as _ra_err:
+                print(f"[ROOM_ASSIST] whisper handler error: {_ra_err!r}")
 
 
 # ---------------------------------------------------------------------------

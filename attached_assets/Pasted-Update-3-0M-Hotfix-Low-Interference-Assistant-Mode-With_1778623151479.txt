@@ -1,0 +1,483 @@
+Update 3.0M Hotfix — Low-Interference Assistant Mode With No Cooldown + Whisper Replies
+
+Current concern:
+If players are talking normally, ChillTopiaMC might keep answering and become annoying.
+
+Goal:
+Make ChillTopiaMC helpful but quiet.
+
+Important:
+Do NOT use cooldowns.
+Instead, use strict intent rules so the assistant only replies when the message clearly needs help.
+
+Also:
+If a player whispers/DMs the bot, the bot must reply in whisper/DM.
+If a player talks in public chat, the bot may reply publicly only when intent is clear.
+
+Do not change command routing.
+Do not let AI execute commands.
+Do not change economy, VIP, mining, fishing, casino, admin, tips, notifications, teleports, roles, or spawns.
+Do not add advanced AI actions.
+
+==================================================
+PART 1 — REMOVE ASSISTANT COOLDOWNS
+==================================================
+
+Remove or disable assistant cooldown blocking for:
+- greeting replies
+- room guide replies
+- mining help
+- fishing help
+- VIP help
+- teleport help
+- party help
+- shop help
+- notification help
+
+Reason:
+If a player asks different clear questions back-to-back, the bot should answer each one.
+
+Example:
+how do i mine
+how do i fish
+how do i get vip
+
+Expected:
+All three should reply.
+
+Do not block different help questions.
+
+==================================================
+PART 2 — REPLY LOCATION RULE
+==================================================
+
+Assistant replies must match the incoming message type.
+
+If the user whispers/DMs the bot:
+- reply by whisper/DM to that user
+- do not reply publicly
+
+If the user talks in public chat:
+- reply publicly only if intent is clear
+- do not whisper unless the response is owner/admin/private
+
+If the user asks owner/admin/private info publicly:
+- if owner, whisper the response
+- if not owner, reply:
+🔒 Owner-only tool.
+
+Expected:
+Player whispers:
+“How do I fish?”
+
+Bot whispers back:
+🎣 Type !fish to fish once. Use !autofish for auto fishing, !fishinv for inventory, and !fishchances for odds.
+
+Expected:
+Player public chat:
+“How do I fish?”
+
+Bot public reply:
+🎣 Type !fish to fish once. Use !autofish for auto fishing, !fishinv for inventory, and !fishchances for odds.
+
+==================================================
+PART 3 — STRICT INTENT RULES
+==================================================
+
+Assistant may reply only if one of these is true:
+
+1. Message mentions bot name:
+ChillTopiaMC
+chilltopia
+chilltopia mc
+
+2. Message is a DM/whisper to the bot.
+
+3. Message starts with a clear help phrase:
+how do i
+how to
+what can i do
+what games
+what is this room
+where can i
+help
+guide
+teach me
+
+4. Message is a direct room topic question:
+how do i mine
+how do i fish
+how do i get vip
+how do i teleport
+what is party mode
+what is vip
+what games are here
+how do i subscribe
+how do i buy
+how do i play blackjack
+how do i play poker
+
+5. Message is an unknown !command.
+
+If none of these are true:
+Do not reply.
+
+Important:
+Whisper/DM messages are allowed to be answered more often because they are private, but still do not execute restricted actions.
+
+==================================================
+PART 4 — IGNORE NORMAL PUBLIC CONVERSATION
+==================================================
+
+Assistant must ignore casual public chat like:
+
+haha
+lol
+okay
+ok
+yes
+no
+maybe
+nice
+thanks
+omg
+bro
+where are you
+come here
+i like this room
+that was crazy
+good game
+gg
+wait
+hold on
+brb
+
+Unless the message also clearly asks for help or mentions ChillTopiaMC.
+
+Examples:
+
+Public:
+“where are you”
+No reply.
+
+Public:
+“ChillTopiaMC where can I teleport?”
+Reply publicly.
+
+Public:
+“come here”
+No reply.
+
+Whisper:
+“where can I teleport?”
+Reply by whisper.
+
+==================================================
+PART 5 — NO GLOBAL COOLDOWN
+==================================================
+
+Do not add:
+- global assistant cooldown
+- per-user assistant cooldown
+- per-topic cooldown
+- max replies per 5 minutes
+
+Instead, rely only on strict intent matching.
+
+If the message is clear help intent, reply.
+If not clear, ignore.
+
+==================================================
+PART 6 — COMMAND ROUTER SAFETY
+==================================================
+
+All messages starting with ! must go through command router first.
+
+Rules:
+- Known !commands route normally.
+- Unknown !commands use unknown command handler.
+- Do not send !commands to AI fallback.
+- Do not let assistant execute commands.
+- Do not let assistant guess admin/economy actions.
+
+If a known command was sent in whisper, reply in whisper if that command normally supports whisper responses.
+If a known command was sent in public, keep normal command behavior.
+
+Do not change existing command reply behavior unless needed for assistant fallback.
+
+==================================================
+PART 7 — FIX MINING QUESTION MATCH
+==================================================
+
+Assistant should reply to:
+
+how do i mine
+how to mine
+how mining works
+mine help
+mining help
+
+Reply:
+
+⛏️ Type !mine to mine once. Use !automine for auto mining, !mineinv for inventory, and !minechances for odds.
+
+==================================================
+PART 8 — FIX FISHING QUESTION MATCH
+==================================================
+
+Assistant should reply to:
+
+how do i fish
+how to fish
+how fishing works
+fish help
+fishing help
+
+Reply:
+
+🎣 Type !fish to fish once. Use !autofish for auto fishing, !fishinv for inventory, and !fishchances for odds.
+
+If user types:
+how do i dish
+
+Treat as possible typo for fish.
+
+Reply:
+
+Did you mean fishing? 🎣 Type !fish to fish once. Use !autofish, !fishinv, and !fishchances.
+
+==================================================
+PART 9 — FIX VIP QUESTION MATCH
+==================================================
+
+Assistant should reply to:
+
+how do i get vip
+how to get vip
+what is vip
+vip help
+how vip works
+
+Reply:
+
+💎 VIP gives convenience perks like longer automine/autofish. Use !vip or !vipperks to learn more.
+
+Do not mention lifetime VIP.
+Do not mention “No lifetime VIP.”
+
+==================================================
+PART 10 — OTHER ROOM GUIDE MATCHES
+==================================================
+
+Teleport:
+
+how do i teleport
+where can i go
+teleport help
+
+Reply:
+
+🏠 Use !tele list to see spots. Then type !tele [spot], example: !tele games.
+
+Party:
+
+what is party mode
+party tip
+how party tips work
+
+Reply:
+
+🎉 Party Mode lets approved Party Tippers send gold from the Party Wallet. Use !help party for details.
+
+Notifications:
+
+how do i subscribe
+notifications
+notif help
+
+Reply:
+
+🔔 To receive room notifications, DM me !subscribe. Use !notif to manage categories and !unsub to stop.
+
+Shop:
+
+shop
+how do i buy
+where to buy
+
+Reply:
+
+🛍️ Use !shop to browse items and !buy [item_id] to buy. Use !inv to view your items.
+
+Room:
+
+what can i do here
+what games are here
+what is this room
+
+Reply:
+
+🎮 In ChillTopia, you can mine, fish, play blackjack/poker, join mini games, chill, and use party tips during events. Start with !help games.
+
+==================================================
+PART 11 — IGNORE OTHER BOTS
+==================================================
+
+Assistant must ignore messages from known bots:
+- BankingBot
+- GreatestProspector
+- MasterAngler
+- BlackJackBot
+- PokerBot
+- ArcadiaRadio
+- any account marked bot
+
+Bot messages should never trigger assistant replies.
+
+==================================================
+PART 12 — SHORT RESPONSES ONLY
+==================================================
+
+All assistant replies must be under 220 characters.
+
+Rules:
+- Prefer one message.
+- No long paragraphs.
+- No / commands.
+- No “No lifetime VIP” text.
+- No owner/admin command leaks.
+- No raw debug output.
+
+==================================================
+PART 13 — RESTRICTED ACTION SAFETY
+==================================================
+
+If user asks assistant to do restricted actions, do not execute.
+
+Restricted examples:
+send everyone gold
+give me vip
+make me admin
+summon all bots
+set bot spawn here
+start gold rain
+change my balance
+fix commands
+turn stability off
+
+Reply:
+
+I can’t do that from chat. Owner tools are protected.
+
+Do not run commands.
+Do not change data.
+Do not send gold.
+Do not grant VIP/roles.
+Do not move players/bots.
+
+If restricted request was whispered, reply by whisper.
+If restricted request was public, reply publicly unless it reveals owner/admin info.
+
+==================================================
+PART 14 — IMPLEMENT SAFE REPLY HELPER
+==================================================
+
+Add or update helper:
+
+send_assistant_reply(bot, user, message, source)
+
+Behavior:
+- If source is whisper/DM:
+  await bot.highrise.send_whisper(user.id, message)
+
+- If source is public chat:
+  await bot.highrise.chat(message)
+
+- If source is unknown:
+  prefer whisper to user if user.id is available
+
+Rules:
+- Keep message under 220 characters.
+- Do not cut color tags.
+- Do not crash if whisper fails.
+- If whisper fails, log error.
+- Do not fallback to public for private/whisper messages unless explicitly safe.
+
+==================================================
+PART 15 — TESTS
+==================================================
+
+Test clear help messages in public:
+
+how do i mine
+how do i fish
+how do i get vip
+what is vip
+how do i teleport
+what is party mode
+how do i subscribe
+what games are here
+how do i dish
+
+Expected:
+Each one replies publicly.
+
+Test clear help messages by whisper/DM to ChillTopiaMC:
+
+how do i mine
+how do i fish
+how do i get vip
+what games are here
+
+Expected:
+Each one replies by whisper/DM only.
+No public chat reply.
+
+Test casual public messages:
+
+lol
+haha
+nice
+where are you
+come here
+thanks
+gg
+wait
+
+Expected:
+No assistant reply.
+
+Test known commands:
+
+!minechances
+!fishchances
+!balance
+!tele list
+!dashboard
+
+Expected:
+Commands route normally.
+Assistant does not intercept.
+
+Test restricted text:
+
+send everyone gold
+give me vip
+make me admin
+summon all bots
+
+Expected:
+Assistant refuses safely.
+No data changes.
+
+Final tests:
+
+!commandissues
+!checkcommands
+!checkhelp
+!bothealth
+!stability status
+
+Expected:
+Clean.
+Err: none.
