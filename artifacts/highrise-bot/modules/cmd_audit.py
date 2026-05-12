@@ -520,8 +520,8 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     "bjshoereset",
     # ── Economy audit ────────────────────────────────────────────────────────
     "economyaudit", "gameprices", "gameprice", "setgameprice",
-    # ── Message audit ────────────────────────────────────────────────────────
-    "messageaudit",
+    # ── Message audit + help audit ───────────────────────────────────────────
+    "messageaudit", "helpaudit",
     # ── Staff help navigation ─────────────────────────────────────────────────
     "staffhelp",
     # ── Rarity chance commands ───────────────────────────────────────────────
@@ -813,33 +813,45 @@ async def handle_checkcommands(bot: BaseBot, user: User, args: list | None = Non
         except Exception:
             active_no_owner = -1
 
-        active_missing = len(active - ROUTED_COMMANDS)
+        active_missing_names = sorted(active - ROUTED_COMMANDS)
+        active_missing       = len(active_missing_names)
 
         print(f"[AUDIT] /checkcommands all @{user.username}: "
               f"known={len(all_set)} active={len(active)} hidden={len(hidden)} "
-              f"depr={len(depr)} missing={active_missing} noowner={active_no_owner}")
+              f"depr={len(depr)} missing={active_missing} names={active_missing_names} "
+              f"noowner={active_no_owner}")
         await _w(bot, user.id,
                  (f"CmdCheck[All]: Known {len(all_set)} | Active {len(active)} | "
                   f"Hidden {len(hidden)} | Depr {len(depr)}")[:249])
         await _w(bot, user.id,
                  (f"  Active: Routed {len(active & ROUTED_COMMANDS)} | "
                   f"Missing {active_missing} | NoOwner {active_no_owner}"
-                  f"  (/commandissues for details)")[:249])
+                  f"  (!commandissues for details)")[:249])
+        if active_missing_names:
+            names_str = ", ".join(f"!{c}" for c in active_missing_names)
+            await _w(bot, user.id, f"Missing: {names_str}"[:249])
     else:
-        check_set = VISIBLE_CMDS
+        # Subtract hidden + deprecated so this scan agrees with the 'all' scan's
+        # active-set definition (ALL_KNOWN_COMMANDS - hidden - depr).
+        check_set = VISIBLE_CMDS - HIDDEN_CMDS - DEPRECATED_CMDS
         routed_ok = len(ROUTED_COMMANDS & check_set)
-        missing   = len(check_set - ROUTED_COMMANDS)
+        missing_names = sorted(check_set - ROUTED_COMMANDS)
+        missing   = len(missing_names)
         try:
             from modules.multi_bot import _DEFAULT_COMMAND_OWNERS
             no_owner = len(check_set - set(_DEFAULT_COMMAND_OWNERS.keys()))
         except Exception:
             no_owner = -1
         print(f"[AUDIT] /checkcommands(Visible) @{user.username}: "
-              f"set={len(check_set)} routed={routed_ok} missing={missing} no_owner={no_owner}")
+              f"set={len(check_set)} routed={routed_ok} missing={missing} "
+              f"names={missing_names} no_owner={no_owner}")
         await _w(bot, user.id,
                  (f"CmdCheck[Visible]: Known {len(check_set)} | Routed {routed_ok} | "
                   f"Missing {missing} | NoOwner {no_owner}"
-                  f"  (/checkcommands all = full scan)")[:249])
+                  f"  (!checkcommands all = full scan)")[:249])
+        if missing_names:
+            names_str = ", ".join(f"!{c}" for c in missing_names)
+            await _w(bot, user.id, f"Missing: {names_str}"[:249])
 
 
 # ---------------------------------------------------------------------------

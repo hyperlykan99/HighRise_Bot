@@ -1,0 +1,124 @@
+Update 3.0D Hotfix — Fix !checkcommands Visible vs All Mismatch
+
+Current issue:
+!checkcommands all and !checkcommands disagree.
+
+Current results:
+!checkcommands all:
+Known 877 | Active 815 | Hidden 62 | Depr 0
+Active: Routed 815 | Missing 0 | NoOwner 0
+
+!checkcommands:
+Known 236 | Routed 235 | Missing 1 | NoOwner 0
+
+This means the full active scan is clean, but the visible scan is incorrectly counting 1 missing command.
+
+Goal:
+Make !checkcommands and !checkcommands all use the same active/visible filtering logic and show the exact missing command if any.
+
+Do not add features.
+Do not change tokens.
+Do not wipe data.
+Do not change room ID.
+
+==================================================
+PART 1 — SHOW EXACT MISSING COMMAND
+==================================================
+
+When !checkcommands shows Missing > 0, it must print the exact missing command name.
+
+Example:
+
+CmdCheck[Visible]:
+Known 236 | Routed 235 | Missing 1 | NoOwner 0
+Missing:
+!examplecommand
+
+Do not only show the count.
+
+==================================================
+PART 2 — FIX FILTER LOGIC
+==================================================
+
+Fix the visible scan so it does not count commands that are:
+- hidden
+- deprecated
+- legacy
+- alias-only without primary route
+- internal/debug-only
+- owner-only hidden audit tools
+- command groups, not real commands
+
+Visible scan should include only visible active commands.
+
+Full scan should include:
+- active commands
+- hidden commands
+- aliases
+- internal commands if intentionally registered
+
+But both scans should agree that active visible commands have:
+route=YES
+handler=YES
+owner not UNKNOWN
+
+==================================================
+PART 3 — RECONCILE ACTIVE COUNTS
+==================================================
+
+If !checkcommands all says:
+Active Missing 0
+
+Then !checkcommands should not say Missing 1 unless the missing command is truly visible and active.
+
+If it is truly visible and active:
+- route it
+- handler=YES
+- owner not UNKNOWN
+
+If it is not truly visible:
+- move it to hidden/legacy/deprecated list
+- exclude it from visible scan
+
+==================================================
+PART 4 — MAKE AUDITS AGREE
+==================================================
+
+These should agree:
+
+!commandissues
+!commandissues missing
+!checkcommands
+!checkcommands all
+
+Expected final:
+
+!commandissues:
+✅ No command issues — all routes, handlers, and owners clean.
+
+!commandissues missing:
+Missing routes: none — all clean.
+
+!checkcommands:
+CmdCheck[Visible]: Known [count] | Routed [same count] | Missing 0 | NoOwner 0
+
+!checkcommands all:
+CmdCheck[All]: Known [count] | Active [count] | Hidden [count] | Depr [count]
+Active: Routed [same active count] | Missing 0 | NoOwner 0
+
+==================================================
+PART 5 — TESTS
+==================================================
+
+Run:
+
+!checkcommands
+!checkcommands all
+!commandissues
+!commandissues missing
+
+Expected:
+All show Missing 0 and NoOwner 0.
+
+If any Missing > 0:
+Print exact command name(s).
