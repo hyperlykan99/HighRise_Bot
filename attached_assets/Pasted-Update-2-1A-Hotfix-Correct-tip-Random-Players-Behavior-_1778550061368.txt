@@ -1,0 +1,285 @@
+Update 2.1A Hotfix — Correct !tip Random Players Behavior
+
+Current issue:
+!tip 5 5 should tip random players, but it is not completing the full tipping flow correctly.
+
+Required behavior:
+
+!tip 5 5
+
+Means:
+Tip 5 random eligible real players with 5 gold each.
+
+Format:
+!tip [number_of_players] [amount_each]
+
+Examples:
+!tip 5 5 = tip 5 random players, 5g each
+!tip 3 10 = tip 3 random players, 10g each
+!tip all 1 = tip all eligible real players, 1g each
+!tip @user 5 = tip one player, 5g
+
+==================================================
+PART 1 — RANDOM PLAYER TIP FLOW
+==================================================
+
+When owner or active Party Tipper types:
+
+!tip 5 5
+
+Do this:
+
+1. Check Party Mode is ON.
+2. Check user is Owner or active Party Tipper.
+3. Check Party Wallet has enough gold.
+4. Build eligible room player list.
+5. Exclude all bots.
+6. Exclude ChillTopiaMC.
+7. Exclude BankerBot/BankingBot.
+8. Exclude all known bot usernames.
+9. Exclude usernames ending with "bot".
+10. Exclude self if self-tip is OFF.
+11. Randomly select up to 5 eligible players.
+12. Tip each selected player 5g.
+13. After each successful tip, ChillTopiaMC publicly says:
+
+💸 Tipped @username 5 gold!
+
+14. After all tips, send final summary.
+
+==================================================
+PART 2 — IF NOT ENOUGH ELIGIBLE PLAYERS
+==================================================
+
+If user types:
+
+!tip 5 5
+
+but only 3 eligible real players are in the room:
+
+Do not stop.
+
+First say:
+
+⚠️ Only 3 eligible player(s) found.
+Tipping 3 player(s) instead.
+
+Then continue tipping those 3 players.
+
+Example:
+
+💸 Tipped @Player1 5 gold!
+💸 Tipped @Player2 5 gold!
+💸 Tipped @Player3 5 gold!
+
+Then final summary:
+
+🎉 Party Tip Random
+Players tipped: 3
+Amount each: 5g
+Total: 15g
+Party Wallet Left: [remaining]g
+
+Only stop if eligible count is 0.
+
+If eligible count is 0:
+
+⚠️ No eligible real players found.
+Bots are excluded from all gold tipping.
+
+==================================================
+PART 3 — PER-TIP PUBLIC ANNOUNCEMENT
+==================================================
+
+Every successful Party Tip must trigger a public chat message from ChillTopiaMC:
+
+💸 Tipped @username [amount] gold!
+
+This applies to:
+
+!tip [number_of_players] [amount]
+!tip all [amount]
+!tip @username [amount]
+
+Examples:
+
+!tip 5 5:
+💸 Tipped @aCuNNN 5 gold!
+💸 Tipped @Player2 5 gold!
+💸 Tipped @Player3 5 gold!
+
+!tip all 1:
+💸 Tipped @aCuNNN 1 gold!
+💸 Tipped @Player2 1 gold!
+
+!tip @aCuNNN 5:
+💸 Tipped @aCuNNN 5 gold!
+
+==================================================
+PART 4 — BOTS EXCLUDED FROM ALL GOLD TIPPING
+==================================================
+
+Bots must be excluded from:
+
+!tip [number_of_players] [amount]
+!tip all [amount]
+!tip @botname [amount]
+!goldtip
+!goldtip all
+!tipall
+!goldtipall
+Gold Rain
+Gold Rain All
+
+Known bots to exclude:
+ChillTopiaMC
+EmceeBot
+BankerBot
+BankingBot
+GreatestProspector
+MasterAngler
+BlackJackBot
+PokerBot
+SecurityBot
+EventBot
+AceSinatra
+ChipSoprano
+KeanuShield
+DJ_DUDU
+
+Also exclude:
+- current bot user ID
+- any known bot user IDs discovered in room
+- any username ending in "bot"
+- any account marked as bot internally
+
+If someone tries:
+
+!tip @ChillTopiaMC 5
+
+Reply:
+
+🤖 Bots cannot receive gold tips.
+
+If someone tries:
+
+!goldtip @BankingBot 5
+
+Reply:
+
+🤖 Bots cannot receive gold tips.
+
+==================================================
+PART 5 — WALLET CHECK
+==================================================
+
+For !tip 5 5:
+
+Needed gold = selected_count * amount_each
+
+If requested 5 players but only 3 eligible:
+Needed = 3 * 5 = 15g
+
+If wallet has less than needed:
+
+⚠️ Not enough Party Wallet gold.
+Needed: 15g
+Available: [wallet]g
+
+Do not send partial tips unless explicitly allowed later.
+
+==================================================
+PART 6 — FINAL SUMMARY
+==================================================
+
+After !tip [number] [amount]:
+
+🎉 Party Tip Random
+Players tipped: [count]
+Amount each: [amount]g
+Total: [total]g
+Party Wallet Left: [remaining]g
+
+After !tip all [amount]:
+
+🎉 Party Tip All
+Players tipped: [count]
+Amount each: [amount]g
+Total: [total]g
+Party Wallet Left: [remaining]g
+
+After !tip @user [amount]:
+
+🎉 Party Tip Sent
+To: @username
+Amount: [amount]g
+Party Wallet Left: [remaining]g
+
+==================================================
+PART 7 — SAFETY
+==================================================
+
+Do not:
+- tip bots
+- tip ChillTopiaMC
+- tip BankerBot/BankingBot
+- tip any username ending with bot
+- let !tip use BankerBot wallet
+- let !tipall trigger BankingBot
+- allow negative tips
+- allow zero tips
+- ignore Party Mode
+- ignore Party Wallet
+- stop after "only X eligible" warning
+- skip per-tip public messages
+
+==================================================
+PART 8 — TESTS
+==================================================
+
+Run:
+
+!pton
+!ptwallet 300
+
+Test random:
+!tip 5 5
+
+Expected if only 3 eligible:
+⚠️ Only 3 eligible player(s) found.
+Tipping 3 player(s) instead.
+💸 Tipped @Player1 5 gold!
+💸 Tipped @Player2 5 gold!
+💸 Tipped @Player3 5 gold!
+🎉 Party Tip Random
+Players tipped: 3
+Amount each: 5g
+Total: 15g
+Party Wallet Left: 285g
+
+Test all:
+!tip all 1
+
+Expected:
+💸 Tipped @Player1 1 gold!
+💸 Tipped @Player2 1 gold!
+🎉 Party Tip All
+Players tipped: [count]
+Amount each: 1g
+Total: [total]g
+Party Wallet Left: [remaining]g
+
+Test bot block:
+!tip @ChillTopiaMC 5
+
+Expected:
+🤖 Bots cannot receive gold tips.
+
+Test old command:
+!tipall 5
+
+Expected:
+No BankingBot gold tip all.
+Reply:
+⚠️ Use !tip all [amount] for Party Tips.
+Example: !tip all 5

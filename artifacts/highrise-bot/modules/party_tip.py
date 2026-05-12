@@ -79,13 +79,22 @@ _DEF_DUR    = 120   # minutes
 
 # Known bot usernames (lowercase) — excluded from room-wide tips
 _BOT_NAMES: frozenset[str] = frozenset({
-    "chilltopiamc", "bankingbot", "acesinastra", "chipsoprano",
-    "dj_dudu", "keanushield", "masterangler",
+    "chilltopiamc", "bankingbot", "bankbot", "bankerbot",
+    "acesinastra", "chipsoprano", "dj_dudu", "keanushield",
+    "masterangler", "greatestprospector",
+    "emceebot", "blackjackbot", "pokerbot", "securitybot",
+    "eventbot", "djbot",
 })
 
 
 def _is_bot(username: str) -> bool:
-    return username.lower() in _BOT_NAMES
+    name = username.lower().strip()
+    if name in _BOT_NAMES:
+        return True
+    # Exclude anything ending in "bot"
+    if name.endswith("bot"):
+        return True
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -557,7 +566,7 @@ async def handle_tip(bot: BaseBot, user: User, args: list[str]) -> None:
                  f"Remaining: {remaining}g")
         return
     if _is_bot(target_raw):
-        await _w(bot, user.id, "🤖 Bots cannot receive party tips.")
+        await _w(bot, user.id, "🤖 Bots cannot receive gold tips.")
         return
     wallet_before = wallet
     wallet_after  = wallet - amount
@@ -565,9 +574,12 @@ async def handle_tip(bot: BaseBot, user: User, args: list[str]) -> None:
     _add_daily_used(user.username, amount)
     _log_party_tip(user.id, user.username, "", target_raw,
                    amount, wallet_before, wallet_after, "success")
+    try:
+        await bot.highrise.chat(f"💸 Tipped @{target_raw} {amount} gold!")
+    except Exception:
+        pass
     await _w(bot, user.id,
              f"🎉 Party Tip Sent\n"
-             f"From: ChillTopiaMC Party Wallet\n"
              f"To: @{target_raw}\n"
              f"Amount: {amount}g\n"
              f"Party Wallet Left: {wallet_after}g")
@@ -576,7 +588,7 @@ async def handle_tip(bot: BaseBot, user: User, args: list[str]) -> None:
 async def _handle_tip_random(
     bot: BaseBot, user: User, args: list[str], wallet: int, count: int
 ) -> None:
-    """Tip exactly *count* random eligible players."""
+    """Tip exactly *count* random eligible players with per-tip announcements."""
     import random as _random
     try:
         amount = int(args[2])
@@ -607,9 +619,11 @@ async def _handle_tip_random(
         if not _is_bot(u.username) and u.id != user.id
     ]
     if not eligible:
-        await _w(bot, user.id, "No eligible players to tip.")
+        await _w(bot, user.id,
+                 "⚠️ No eligible real players found.\n"
+                 "Bots are excluded from all gold tipping.")
         return
-    # Cap by daily remaining
+    # Cap by daily remaining and eligible count
     daily_remaining = max(0, daily_cap - used)
     max_by_daily    = daily_remaining // max(amount, 1)
     actual_count    = min(count, len(eligible), max_by_daily)
@@ -617,7 +631,7 @@ async def _handle_tip_random(
         await _w(bot, user.id,
                  f"⚠️ Daily cap reached.\nUsed: {used}g / {daily_cap}g")
         return
-    warned = False
+    # Warn if we couldn't fill the requested count, then continue
     if actual_count < count:
         found = min(count, len(eligible))
         if found < count:
@@ -627,7 +641,6 @@ async def _handle_tip_random(
         else:
             await _w(bot, user.id,
                      f"⚠️ Daily cap limits tip to {actual_count} player(s).")
-        warned = True
     selected     = _random.sample(eligible, actual_count)
     total_needed = amount * actual_count
     if wallet < total_needed:
@@ -642,6 +655,12 @@ async def _handle_tip_random(
     _log_party_tip(user.id, user.username, "[random]", "[random]",
                    total_needed, wallet_before, wallet_after,
                    "success_random", f"players={actual_count}")
+    # Per-tip public announcements
+    for u in selected:
+        try:
+            await bot.highrise.chat(f"💸 Tipped @{u.username} {amount} gold!")
+        except Exception:
+            pass
     await _w(bot, user.id,
              f"🎉 Party Tip Random\n"
              f"Players tipped: {actual_count}\n"
@@ -680,7 +699,9 @@ async def _handle_tip_all(bot: BaseBot, user: User, args: list[str], wallet: int
         if not _is_bot(u.username) and u.id != user.id
     ]
     if not eligible:
-        await _w(bot, user.id, "No eligible players to tip.")
+        await _w(bot, user.id,
+                 "⚠️ No eligible real players found.\n"
+                 "Bots are excluded from all gold tipping.")
         return
     # Cap by daily remaining
     daily_remaining = max(0, daily_cap - used)
@@ -703,10 +724,16 @@ async def _handle_tip_all(bot: BaseBot, user: User, args: list[str], wallet: int
     _log_party_tip(user.id, user.username, "[all]", "[all]",
                    total_needed, wallet_before, wallet_after,
                    "success_all", f"players={len(eligible)}")
+    # Per-tip public announcements
+    for u in eligible:
+        try:
+            await bot.highrise.chat(f"💸 Tipped @{u.username} {amount} gold!")
+        except Exception:
+            pass
     await _w(bot, user.id,
              f"🎉 Party Tip All\n"
-             f"Amount: {amount}g each\n"
              f"Players tipped: {len(eligible)}\n"
+             f"Amount each: {amount}g\n"
              f"Total: {total_needed}g\n"
              f"Party Wallet Left: {wallet_after}g")
 
