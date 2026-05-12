@@ -918,29 +918,27 @@ async def handle_fishingevents(bot: BaseBot, user: User) -> None:
 # ---------------------------------------------------------------------------
 
 async def handle_fishchances(bot: BaseBot, user: User) -> None:
-    """!fishchances — show base rarity drop % for fishing (plain text, 2 messages)."""
-    _CHANCES = [
-        ("common",    82.000),
-        ("rare",      13.000),
-        ("epic",       4.500),
-        ("legendary",  0.470),
-        ("mythic",     0.025),
-        ("prismatic",  0.004),
-        ("exotic",     0.001),
-    ]
+    """!fishchances — show base rarity drop % for fishing (colored, 2 messages)."""
+    _CL = {
+        "common":    "<#AAAAAA>[COMMON]<#FFFFFF>",
+        "rare":      "<#3399FF>[RARE]<#FFFFFF>",
+        "epic":      "<#B266FF>[EPIC]<#FFFFFF>",
+        "legendary": "<#FFD700>[LEGENDARY]<#FFFFFF>",
+        "mythic":    "<#FF66CC>[MYTHIC]<#FFFFFF>",
+        "prismatic": "<#FF66CC>[PRISMATIC]<#FFFFFF>",
+        "exotic":    "<#FF0000>[EXOTIC]<#FFFFFF>",
+    }
+    _MAIN = [("common", 82.000), ("rare", 13.000), ("epic", 4.500),
+             ("legendary", 0.470), ("mythic", 0.025)]
+    _RARE = [("prismatic", 0.004), ("exotic", 0.001)]
     def _pct(p: float) -> str:
         return f"{p}%" if p >= 0.01 else f"{p:.4f}%"
-    await _w(bot, user.id,
-             f"🎣 Fishing Chances\n"
-             f"Common: {_pct(82.000)}\n"
-             f"Rare: {_pct(13.000)}\n"
-             f"Epic: {_pct(4.500)}")
-    await _w(bot, user.id,
-             f"Legendary: {_pct(0.470)}\n"
-             f"Mythic: {_pct(0.025)}\n"
-             f"Prismatic: {_pct(0.004)}\n"
-             f"Exotic: {_pct(0.001)}\n"
-             f"Mythic+ is extremely rare.")
+    await _w(bot, user.id, "\n".join(
+        ["🎣 Fishing Chances"] + [f"{_CL[r]}: {_pct(p)}" for r, p in _MAIN]
+    ))
+    await _w(bot, user.id, "\n".join(
+        ["🎣 Ultra Rare Fish"] + [f"{_CL[r]}: {_pct(p)}" for r, p in _RARE]
+    ))
 
 
 async def handle_fishhelp(bot: BaseBot, user: User) -> None:

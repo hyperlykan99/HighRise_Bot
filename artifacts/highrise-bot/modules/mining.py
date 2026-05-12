@@ -2027,24 +2027,32 @@ async def handle_rerolljob(bot: BaseBot, user: User) -> None:
 # ---------------------------------------------------------------------------
 
 async def handle_minechances(bot: BaseBot, user: User) -> None:
-    """!minechances — show base rarity drop % for mining (plain text, 3 messages)."""
+    """!minechances — show base rarity drop % for mining (colored, 2 messages)."""
+    _CL = {
+        "common":     "<#AAAAAA>[COMMON]<#FFFFFF>",
+        "uncommon":   "<#66BBAA>[UNCOMMON]<#FFFFFF>",
+        "rare":       "<#3399FF>[RARE]<#FFFFFF>",
+        "epic":       "<#B266FF>[EPIC]<#FFFFFF>",
+        "legendary":  "<#FFD700>[LEGENDARY]<#FFFFFF>",
+        "mythic":     "<#FF66CC>[MYTHIC]<#FFFFFF>",
+        "ultra_rare": "<#FF66CC>[ULTRA RARE]<#FFFFFF>",
+        "prismatic":  "<#FF66CC>[PRISMATIC]<#FFFFFF>",
+        "exotic":     "<#FF0000>[EXOTIC]<#FFFFFF>",
+    }
     def _pct(r: str) -> str:
         p = RARITIES[r][0]
         return f"{p}%" if p >= 0.01 else f"{p:.4f}%"
-    await _w(bot, user.id,
-             f"⛏️ Mining Chances\n"
-             f"Common: {_pct('common')}\n"
-             f"Uncommon: {_pct('uncommon')}\n"
-             f"Rare: {_pct('rare')}")
-    await _w(bot, user.id,
-             f"Epic: {_pct('epic')}\n"
-             f"Legendary: {_pct('legendary')}\n"
-             f"Mythic: {_pct('mythic')}")
-    await _w(bot, user.id,
-             f"Ultra Rare: {_pct('ultra_rare')}\n"
-             f"Prismatic: {_pct('prismatic')}\n"
-             f"Exotic: {_pct('exotic')}\n"
-             f"Mythic+ is extremely rare.")
+    def _ln(r: str) -> str:
+        return f"{_CL[r]}: {_pct(r)}"
+    await _w(bot, user.id, "\n".join([
+        "⛏️ Mining Chances",
+        _ln("common"), _ln("uncommon"), _ln("rare"),
+        _ln("epic"),   _ln("legendary"), _ln("mythic"),
+    ]))
+    await _w(bot, user.id, "\n".join([
+        "⛏️ Ultra Rare Ores",
+        _ln("ultra_rare"), _ln("prismatic"), _ln("exotic"),
+    ]))
 
 
 async def handle_orechances(bot: BaseBot, user: User) -> None:

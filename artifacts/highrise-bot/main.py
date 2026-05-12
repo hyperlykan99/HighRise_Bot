@@ -5101,7 +5101,7 @@ class HangoutBot(BaseBot):
         elif cmd in {"topweightfish", "biggestfish", "heaviestfish"}:
             await handle_topweightfish(self, user)
 
-        elif cmd in {"rods", "fishroads", "listfishrods"}:
+        elif cmd in {"rods", "rod", "fishroads", "listfishrods"}:
             await handle_rods(self, user)
 
         elif cmd in {"myrod", "equippedrod"}:
