@@ -242,31 +242,58 @@ def _log_party_tip(
 
 
 # ---------------------------------------------------------------------------
-# !party [on|off]  — toggle party mode  (owner only)
+# !pton / !ptoff / !ptstatus — simple party mode controls (manager+)
+# ---------------------------------------------------------------------------
+
+async def handle_pton(bot: BaseBot, user: User) -> None:
+    """!pton — turn Party Mode ON (manager+)."""
+    from modules.permissions import is_manager
+    if not (is_owner(user.username) or is_manager(user.username)):
+        await _w(bot, user.id, "🔒 Manager+ only.")
+        return
+    db.set_room_setting("party_mode", "1")
+    wallet = _get_wallet()
+    await _w(bot, user.id,
+             f"🎉 Party Mode: ON\nParty tipping enabled.\nWallet: {wallet}g")
+
+
+async def handle_ptoff(bot: BaseBot, user: User) -> None:
+    """!ptoff — turn Party Mode OFF (manager+)."""
+    from modules.permissions import is_manager
+    if not (is_owner(user.username) or is_manager(user.username)):
+        await _w(bot, user.id, "🔒 Manager+ only.")
+        return
+    db.set_room_setting("party_mode", "0")
+    await _w(bot, user.id, "🎉 Party Mode: OFF\nParty tipping disabled.")
+
+
+async def handle_ptstatus(bot: BaseBot, user: User) -> None:
+    """!ptstatus — show party mode and wallet status (public)."""
+    mode   = "ON" if _party_mode_on() else "OFF"
+    wallet = _get_wallet()
+    count  = len(_list_tippers())
+    await _w(bot, user.id,
+             f"🎉 Party Status\nMode: {mode}\nParty Wallet: {wallet}g\nParty Tippers: {count}")
+
+
+# ---------------------------------------------------------------------------
+# !party [on|off|status]  — toggle party mode  (manager+ for on/off)
 # ---------------------------------------------------------------------------
 
 async def handle_party(bot: BaseBot, user: User, args: list[str]) -> None:
-    if not is_owner(user.username):
-        await _w(bot, user.id, "🔒 Owner only.")
-        return
+    from modules.permissions import is_manager
     if len(args) < 2:
-        status = "ON" if _party_mode_on() else "OFF"
-        wallet = _get_wallet()
-        await _w(bot, user.id,
-                 f"🎉 Party Mode: {status}\nParty Wallet: {wallet}g\n"
-                 f"Use: !party on|off")
+        await handle_ptstatus(bot, user)
         return
     val = args[1].lower()
     if val == "on":
-        db.set_room_setting("party_mode", "1")
-        wallet = _get_wallet()
-        await _w(bot, user.id,
-                 f"🎉 Party Mode: ON\nWallet: {wallet}g\nParty tippers may now use !tip")
+        await handle_pton(bot, user)
     elif val == "off":
-        db.set_room_setting("party_mode", "0")
-        await _w(bot, user.id, "🎉 Party Mode: OFF\n!tip is now disabled.")
+        await handle_ptoff(bot, user)
+    elif val in ("status", "info"):
+        await handle_ptstatus(bot, user)
     else:
-        await _w(bot, user.id, "Usage: !party on|off")
+        await _w(bot, user.id, "Usage: !party on|off|status")
 
 
 # ---------------------------------------------------------------------------

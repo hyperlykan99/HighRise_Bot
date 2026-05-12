@@ -537,6 +537,9 @@ from modules.tele import (
 )
 from modules.party_tip import (
     handle_party,
+    handle_pton,
+    handle_ptoff,
+    handle_ptstatus,
     handle_ptwallet,
     handle_ptadd,
     handle_ptremove,
@@ -787,13 +790,6 @@ OWNER_ONLY_CMDS = {
     "restartbot",
     "testnotifyall",
     "fixcommandregistry",
-    # Party Tip Wallet (owner management)
-    "party",
-    "ptwallet", "partywallet", "setpartywallet",
-    "ptadd", "partytipperadd",
-    "ptremove", "partytipperremove",
-    "ptclear", "partytipperclear",
-    "ptlimit", "setpartytipperlimit",
 }
 
 STAFF_CMDS = MOD_ONLY_CMDS | MANAGER_ONLY_CMDS | ADMIN_ONLY_CMDS | OWNER_ONLY_CMDS
@@ -5244,6 +5240,12 @@ class HangoutBot(BaseBot):
         # ── Party Tip Wallet (ChillTopiaMC) ──────────────────────────────────
         elif cmd == "party":
             await handle_party(self, user, args)
+        elif cmd == "pton":
+            await handle_pton(self, user)
+        elif cmd == "ptoff":
+            await handle_ptoff(self, user)
+        elif cmd == "ptstatus":
+            await handle_ptstatus(self, user)
         elif cmd in ("ptwallet", "partywallet", "setpartywallet"):
             await handle_ptwallet(self, user, args)
         elif cmd in ("ptadd", "partytipperadd"):

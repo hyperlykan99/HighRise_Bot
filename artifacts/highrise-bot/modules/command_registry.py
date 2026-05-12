@@ -799,7 +799,10 @@ REGISTRY: dict[str, Cmd] = {
     "roles":            Cmd("host",    "teleport", True,  True,  False),
     "rolemembers":      Cmd("host",    "teleport", True,  True,  False),
     # ── Party Tip Wallet (host / ChillTopiaMC) ────────────────────────────────
-    "party":            Cmd("host",    "party_tip",True,  False, True,  perm="owner"),
+    "party":            Cmd("host",    "party_tip",True,  False, True,  perm="manager"),
+    "pton":             Cmd("host",    "party_tip",True,  False, True,  perm="manager"),
+    "ptoff":            Cmd("host",    "party_tip",True,  False, True,  perm="manager"),
+    "ptstatus":         Cmd("host",    "party_tip",True,  True,  False),
     "ptwallet":         Cmd("host",    "party_tip",True,  False, True,  perm="owner",
                             aliases=("partywallet","setpartywallet")),
     "ptadd":            Cmd("host",    "party_tip",True,  False, True,  perm="owner",

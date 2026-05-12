@@ -1,0 +1,201 @@
+Update 2.1A Hotfix — Fix Live Party Tip Commands
+
+Current issue:
+Commandtest shows these are registered:
+!tip
+!ptwallet
+!ptadd
+!ptlist
+
+But live commands are not replying correctly.
+
+Also:
+!party on says unknown command.
+Party tipping requires Party Mode ON, so add simple party mode commands.
+
+Do not add full Update 2.1.
+Do not add missions, hype, AI, raffles, roomstats, or farm monetization.
+Do not change tokens.
+Do not wipe data.
+
+==================================================
+PART 1 — MAKE PARTY TIP COMMANDS EXECUTE LIVE
+==================================================
+
+Fix live command routing so these commands actually execute and reply:
+
+!ptwallet [amount]
+!ptadd [user] [minutes]
+!ptremove [user]
+!ptclear
+!ptlist
+!ptlimits
+!ptlimit [single|all|daily|max] [amount]
+!tip [user] [amount]
+!tip all [amount]
+
+Important:
+Do not only make /commandtest pass.
+The live commands must run.
+
+Expected live test:
+
+!ptwallet 300
+
+Response:
+🎉 Party Wallet Set
+Wallet: 300g
+Handled by: ChillTopiaMC
+BankerBot affected: NO
+
+!ptadd @Player 60
+
+Response:
+✅ Party Tipper Added
+User: @Player
+Duration: 60m
+Can use: !tip only
+Party Mode Required: YES
+
+!ptlist
+
+Response:
+🎉 Party Tippers
+@Player — expires in 60m — used 0g/100g
+
+!ptlimits
+
+Response:
+🎉 Party Tip Limits
+Single: 10g
+All: 5g each
+Daily: 100g
+Wallet Max: 500g
+Party Mode Required: YES
+
+==================================================
+PART 2 — ADD SIMPLE PARTY MODE COMMANDS
+==================================================
+
+Add these simple owner commands:
+
+!pton
+!ptoff
+!ptstatus
+
+Aliases:
+!party on = !pton
+!party off = !ptoff
+!party status = !ptstatus
+
+Behavior:
+
+!pton
+Owner/Manager+ only.
+Turns Party Mode ON.
+
+Response:
+🎉 Party Mode: ON
+Party tipping enabled.
+
+!ptoff
+Owner/Manager+ only.
+Turns Party Mode OFF.
+
+Response:
+🎉 Party Mode: OFF
+Party tipping disabled.
+
+!ptstatus
+Shows party mode and party wallet status.
+
+Response:
+🎉 Party Status
+Mode: ON
+Party Wallet: 300g
+Party Tippers: 1
+
+==================================================
+PART 3 — FIX !TIP PARTY MODE CHECK
+==================================================
+
+!tip must check the same party mode setting used by:
+
+!pton
+!ptoff
+!ptstatus
+
+If party mode is OFF:
+
+🎉 Party Mode is OFF.
+Party tipping only works during Party Mode.
+
+If party mode is ON and user is owner or active party tipper:
+!tip works.
+
+==================================================
+PART 4 — FIX UNKNOWN COMMAND MESSAGE
+==================================================
+
+If user types the typo:
+
+!pttlist
+
+Reply:
+Unknown command. Did you mean !ptlist?
+
+If user types:
+!party on
+
+It should work as alias for !pton, not unknown.
+
+==================================================
+PART 5 — DO NOT BREAK BANKERBOT
+==================================================
+
+Keep:
+!goldtip = BankerBot owner-only
+!goldtip all = BankerBot owner-only
+!tipall = old goldtip-all alias if currently active
+
+But:
+!tip = ChillTopiaMC Party Wallet only
+
+==================================================
+PART 6 — TESTS
+==================================================
+
+Run command tests:
+
+/commandtest !pton
+/commandtest !ptoff
+/commandtest !ptstatus
+/commandtest !party
+/commandtest !ptwallet
+/commandtest !ptadd
+/commandtest !ptlist
+/commandtest !tip
+
+Expected:
+route=YES
+handler=YES
+owner=ChillTopiaMC
+
+Live tests:
+
+!pton
+!ptwallet 300
+!ptadd @Friend 60
+!ptlist
+!ptstatus
+!tip @Friend 5
+!ptoff
+!tip @Friend 5
+
+Expected:
+- !pton turns Party Mode ON
+- !ptwallet replies with wallet set
+- !ptadd replies with party tipper added
+- !ptlist shows party tippers
+- !tip works while Party Mode is ON
+- !tip blocks when Party Mode is OFF
