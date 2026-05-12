@@ -414,69 +414,84 @@ async def handle_bigannounce_help(bot, user) -> None:
 
 async def handle_previewannounce(bot, user, args: list[str]) -> None:
     """/previewannounce <mining|fishing> <rarity>
-    Owner-only: whisper a preview of the formatted big announcement.
-    Safe — no drops, no rewards, no economy changes.
+    Owner-only: whisper + room preview of the formatted big announcement.
+    Safe — no drops, no rewards, no inventory, no economy changes.
     """
-    if not is_owner(user.username):
-        await bot.highrise.send_whisper(user.id, "Owner only.")
-        return
-    if len(args) < 3:
-        await bot.highrise.send_whisper(user.id,
-            "Usage:\n"
-            "!previewannounce mining [mythic|prismatic|exotic]\n"
-            "!previewannounce fishing [mythic|prismatic|exotic]\n\n"
-            "Examples:\n"
-            "!previewannounce mining prismatic\n"
-            "!previewannounce fishing exotic")
-        return
-    category = args[1].lower()
-    rarity   = args[2].lower()
-    if category not in ("mining", "fishing"):
-        await bot.highrise.send_whisper(user.id, "Category: mining or fishing")
-        return
-    if rarity not in _RARITY_ORDER:
-        await bot.highrise.send_whisper(user.id,
-            f"Valid rarities: {', '.join(_RARITY_ORDER)}")
-        return
+    import traceback
+    try:
+        if not is_owner(user.username):
+            await bot.highrise.send_whisper(user.id, "🔒 Owner only.")
+            return
+        if len(args) < 3:
+            await bot.highrise.send_whisper(user.id,
+                "Usage:\n"
+                "!previewannounce mining [mythic|prismatic|exotic]\n"
+                "!previewannounce fishing [mythic|prismatic|exotic]\n\n"
+                "Examples:\n"
+                "!previewannounce mining prismatic\n"
+                "!previewannounce fishing exotic")
+            return
+        category = args[1].lower()
+        rarity   = args[2].lower()
+        if category not in ("mining", "fishing"):
+            await bot.highrise.send_whisper(user.id, "⚠️ Use mining or fishing.")
+            return
+        if rarity not in _RARITY_ORDER:
+            await bot.highrise.send_whisper(user.id,
+                "⚠️ Use mythic, prismatic, or exotic.")
+            return
 
-    # Default item names per rarity+category
-    _DEFAULTS: dict[tuple[str, str], tuple[str, str]] = {
-        ("mining",  "mythic"):     ("🌑", "Black Opal"),
-        ("mining",  "ultra_rare"): ("✨", "Alexandrite"),
-        ("mining",  "prismatic"):  ("🌈", "Prismite"),
-        ("mining",  "exotic"):     ("💔", "Demon Heart Crystal"),
-        ("fishing", "mythic"):     ("🦈", "Moonlight Leviathan"),
-        ("fishing", "ultra_rare"): ("🌊", "Tidal Phantom"),
-        ("fishing", "prismatic"):  ("🌈", "Aurora Koi"),
-        ("fishing", "exotic"):     ("🔥", "Bloodfin Leviathan"),
-    }
-    _def_emoji, _def_name = _DEFAULTS.get(
-        (category, rarity),
-        ("💎", "Opal Prism Ore") if category == "mining" else ("🐟", "Aurora Koi"),
-    )
-    item_name  = " ".join(args[3:]) if len(args) > 3 else _def_name
-    emoji      = _def_emoji
-    weight_str = "12.4kg" if category == "mining" else "24.1lb"
-    value_str  = "50,000" if category == "mining" else "180,000"
-    xp_str     = "300" if category == "mining" else "500"
+        # Default item names per rarity+category
+        _DEFS: dict[tuple[str, str], tuple[str, str]] = {
+            ("mining",  "mythic"):     ("🌑", "Black Opal"),
+            ("mining",  "ultra_rare"): ("✨", "Alexandrite"),
+            ("mining",  "prismatic"):  ("🌈", "Prismite"),
+            ("mining",  "exotic"):     ("💔", "Demon Heart Crystal"),
+            ("fishing", "mythic"):     ("🦈", "Moonlight Leviathan"),
+            ("fishing", "ultra_rare"): ("🌊", "Tidal Phantom"),
+            ("fishing", "prismatic"):  ("🌈", "Aurora Koi"),
+            ("fishing", "exotic"):     ("🔥", "Bloodfin Leviathan"),
+        }
+        _def_emoji, _def_name = _DEFS.get(
+            (category, rarity),
+            ("💎", "Opal Prism Ore") if category == "mining" else ("🐟", "Aurora Koi"),
+        )
+        item_name  = " ".join(args[3:]) if len(args) > 3 else _def_name
+        emoji      = _def_emoji
+        weight_str = "12.4kg" if category == "mining" else "24.1lb"
+        value_str  = "50,000" if category == "mining" else "180,000"
+        xp_str     = "300" if category == "mining" else "500"
 
-    rar_label  = _ANN_LBLS.get(rarity, f"[{rarity.replace('_', ' ').upper()}]")
-    disp_name  = _display_name(rarity, item_name)
+        rar_label = _ANN_LBLS.get(rarity, f"[{rarity.replace('_', ' ').upper()}]")
+        disp_name = _display_name(rarity, item_name)
 
-    # Build a clean PREVIEW whisper (header says PREVIEW, not FIND/CATCH)
-    unit  = "MXP" if category == "mining" else "FXP"
-    verb  = "mined" if category == "mining" else "caught"
-    phdr  = "⛏️ BIG FIND PREVIEW" if category == "mining" else "🎣 BIG CATCH PREVIEW"
-    line2 = f"@{user.username} {verb} {rar_label} {disp_name}"
-    line3 = f"⚖️ {weight_str} | 💰 {value_str}c | ⭐ +{xp_str} {unit}"
-    await bot.highrise.send_whisper(user.id, f"{phdr}\n{line2}\n{line3}"[:249])
+        # Whisper: PREVIEW header so owner can read it privately first
+        unit  = "MXP" if category == "mining" else "FXP"
+        verb  = "mined" if category == "mining" else "caught"
+        phdr  = "⛏️ BIG FIND PREVIEW" if category == "mining" else "🎣 BIG CATCH PREVIEW"
+        line2 = f"@{user.username} {verb} {rar_label} {disp_name}"
+        line3 = f"⚖️ {weight_str} | 💰 {value_str}c | ⭐ +{xp_str} {unit}"
+        preview = f"{phdr}\n{line2}\n{line3}"
+        if len(preview) <= 249:
+            await bot.highrise.send_whisper(user.id, preview)
+        else:
+            await bot.highrise.send_whisper(user.id, f"{phdr}\n{line2}"[:249])
+            await asyncio.sleep(0.3)
+            await bot.highrise.send_whisper(user.id, line3[:249])
 
-    # Also send the real announcement format to room chat so staff see live colors
-    msgs = _fmt_ann(category, user.username, rar_label, disp_name,
-                    emoji, weight_str, value_str, xp_str)
-    for m in msgs:
-        try:
+        # Room chat: real announcement format so staff can verify colors live
+        msgs = _fmt_ann(category, user.username, rar_label, disp_name,
+                        emoji, weight_str, value_str, xp_str)
+        for m in msgs:
             await asyncio.sleep(0.3)
             await bot.highrise.chat(_safe_clip(m, 220))
+
+    except Exception:
+        print("[PREVIEWANNOUNCE ERROR]")
+        traceback.print_exc()
+        try:
+            await bot.highrise.send_whisper(
+                user.id,
+                "⚠️ previewannounce error logged. Bot stayed online.")
         except Exception:
             pass

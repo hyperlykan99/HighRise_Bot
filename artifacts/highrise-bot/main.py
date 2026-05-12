@@ -3035,6 +3035,11 @@ class HangoutBot(BaseBot):
             asyncio.create_task(_deliver_pending_bank_notifications(self, user))
             asyncio.create_task(deliver_pending_subscriber_messages(self, _uname))
 
+        # ── Early owner-only routes (bypass STAFF_CMDS block) ────────────────
+        if cmd == "previewannounce":
+            await handle_previewannounce(self, user, args)
+            return
+
         # ── Staff gate ────────────────────────────────────────────────────────
         if cmd in STAFF_CMDS:
             if cmd in OWNER_ONLY_CMDS:

@@ -1,0 +1,175 @@
+Update 3.0F Hotfix — Fix !previewannounce Live No Reply
+
+Current issue:
+!commandtest !previewannounce shows:
+owner=ChillTopiaMC
+route=YES
+handler=YES
+
+But live commands do not reply:
+!previewannounce mining prismatic
+!previewannounce fishing prismatic
+
+Goal:
+Make !previewannounce reply every time.
+
+Do not change mining odds.
+Do not change fishing odds.
+Do not give real rewards.
+Do not add inventory.
+Do not add coins.
+Do not add XP.
+Do not wipe data.
+Do not change tokens.
+Do not change room ID.
+
+==================================================
+PART 1 — FORCE LIVE ROUTE EARLY
+==================================================
+
+In the live command router, add explicit early route:
+
+if cmd == "previewannounce":
+    await handle_previewannounce(bot, user, args)
+    return
+
+This must run before:
+- AI intercept
+- unknown command fallback
+- command filter/debug filter
+- owner skip logic
+- announcement dispatch logic
+
+==================================================
+PART 2 — OWNER PERMISSION
+==================================================
+
+!previewannounce is owner-only.
+
+Owner @4ktreyMarion must pass permission.
+
+If non-owner uses it:
+🔒 Owner only.
+
+Do not silently ignore permission failure.
+
+==================================================
+PART 3 — USAGE RESPONSE
+==================================================
+
+If user types:
+
+!previewannounce
+
+Reply:
+
+Usage:
+!previewannounce mining [mythic|prismatic|exotic]
+!previewannounce fishing [mythic|prismatic|exotic]
+
+Examples:
+!previewannounce mining prismatic
+!previewannounce fishing exotic
+
+If user types invalid mode:
+⚠️ Use mining or fishing.
+
+If user types invalid rarity:
+⚠️ Use mythic, prismatic, or exotic.
+
+==================================================
+PART 4 — LIVE PREVIEW RESPONSE
+==================================================
+
+When owner types:
+
+!previewannounce mining prismatic
+
+Reply visibly from ChillTopiaMC:
+
+⛏️ BIG FIND PREVIEW
+@4ktreyMarion mined [PRISMATIC] Prismite
+⚖️ 12.4kg | 💰 50,000c | ⭐ +300 MXP
+
+When owner types:
+
+!previewannounce fishing prismatic
+
+Reply visibly from ChillTopiaMC:
+
+🎣 BIG CATCH PREVIEW
+@4ktreyMarion caught [PRISMATIC] Aurora Koi
+⚖️ 24.1lb | 💰 180,000c | ⭐ +500 FXP
+
+Rules:
+- Preview only.
+- Do not create ore/fish.
+- Do not add coins.
+- Do not add XP.
+- Do not write inventory.
+- Do not update records.
+- Do not trigger real rare logs.
+- Do not change odds.
+
+==================================================
+PART 5 — ERROR WRAP
+==================================================
+
+Wrap handler:
+
+try:
+    ...
+except Exception:
+    print("[PREVIEWANNOUNCE ERROR]")
+    traceback.print_exc()
+    await bot.highrise.send_whisper(user.id, "⚠️ previewannounce error logged. Bot stayed online.")
+
+No silent failure.
+
+==================================================
+PART 6 — COLOR FORMAT
+==================================================
+
+Preview must use real formatting helpers.
+
+Expected:
+- [PRISMATIC] label rainbow.
+- Prismatic item name pink.
+- Exotic label/name red.
+- Mythic uses existing mythic color.
+- No broken color tags.
+- Under 220 chars per message.
+
+If the formatted line is too long, split:
+
+Message 1:
+⛏️ BIG FIND PREVIEW
+@4ktreyMarion mined [PRISMATIC] Prismite
+
+Message 2:
+⚖️ 12.4kg | 💰 50,000c | ⭐ +300 MXP
+
+==================================================
+PART 7 — TESTS
+==================================================
+
+Run:
+
+!commandtest !previewannounce
+!previewannounce
+!previewannounce mining mythic
+!previewannounce mining prismatic
+!previewannounce mining exotic
+!previewannounce fishing mythic
+!previewannounce fishing prismatic
+!previewannounce fishing exotic
+!commandissues
+!checkcommands
+
+Expected:
+- !previewannounce with no args shows usage.
+- all preview commands reply.
+- no real rewards added.
+- no odds changed.
+- commandissues clean.
+- checkcommands clean.
