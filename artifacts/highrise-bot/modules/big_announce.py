@@ -26,7 +26,7 @@ _RARITY_ORDER = [
     "common", "rare", "epic", "legendary",
     "mythic", "ultra_rare", "prismatic", "exotic",
 ]
-_VALID_MODES = {"miner_only", "fishing_only", "all_bots", "off"}
+_VALID_MODES = {"miner_only", "fishing_only", "all_bots", "host_only", "off"}
 
 # bot_mode → friendly name stored in big_announcement_bot_reactions
 _MODE_TO_FRIENDLY: dict[str, str] = {
@@ -95,15 +95,27 @@ def _fmt_num(v: object) -> str:
         return str(v)
 
 
+_RARITY_HEADERS: dict[tuple[str, str], str] = {
+    ("mining",  "mythic"):    "✨ MYTHIC FIND!",
+    ("fishing", "mythic"):    "✨ MYTHIC CATCH!",
+    ("mining",  "prismatic"): "🌈 PRISMATIC FIND!",
+    ("fishing", "prismatic"): "🌈 PRISMATIC CATCH!",
+    ("mining",  "exotic"):    "🔥 EXOTIC FIND!",
+    ("fishing", "exotic"):    "🔥 EXOTIC CATCH!",
+}
+
+
 def _fmt_ann(category: str, username: str, rar_label: str, disp_name: str,
-             emoji: str, weight_str: str, value_str: str, xp_str: str) -> list[str]:
+             emoji: str, weight_str: str, value_str: str, xp_str: str,
+             rarity: str = "") -> list[str]:
     """
     Build announcement message(s). Returns [one_msg] if ≤220 chars,
     else [header+name_line, stats_line] — always safe to send.
     """
     unit = "MXP" if category == "mining" else "FXP"
     verb = "mined" if category == "mining" else "caught"
-    hdr  = "⛏️ BIG FIND!" if category == "mining" else "🎣 BIG CATCH!"
+    default_hdr = "⛏️ BIG FIND!" if category == "mining" else "🎣 BIG CATCH!"
+    hdr = _RARITY_HEADERS.get((category, rarity), default_hdr)
 
     line2 = f"{emoji} @{username} {verb} {rar_label} {disp_name}"
 
@@ -139,12 +151,12 @@ def _get_routing(category: str, rarity: str) -> str:
         pass
     _DEFAULTS: dict[tuple[str, str], str] = {
         ("mining",  "legendary"):  "miner_only",
-        ("mining",  "mythic"):     "miner_only",
+        ("mining",  "mythic"):     "host_only",
         ("mining",  "ultra_rare"): "miner_only",
         ("mining",  "prismatic"):  "all_bots",
         ("mining",  "exotic"):     "all_bots",
         ("fishing", "legendary"):  "fishing_only",
-        ("fishing", "mythic"):     "fishing_only",
+        ("fishing", "mythic"):     "host_only",
         ("fishing", "ultra_rare"): "fishing_only",
         ("fishing", "prismatic"):  "all_bots",
         ("fishing", "exotic"):     "all_bots",
@@ -174,7 +186,7 @@ async def send_big_mine_announce(bot, rarity: str, username: str,
     xp_str     = str(int(xp)) if xp is not None else ""
 
     msgs = _fmt_ann("mining", username, rar_label, disp_name, item_emoji,
-                    weight_str, value_str, xp_str)
+                    weight_str, value_str, xp_str, rarity=rarity)
 
     if mode in ("miner_only", "all_bots"):
         for i, m in enumerate(msgs):
@@ -185,7 +197,7 @@ async def send_big_mine_announce(bot, rarity: str, username: str,
             if i < len(msgs) - 1:
                 await asyncio.sleep(0.5)
 
-    if mode == "all_bots":
+    if mode in ("all_bots", "host_only"):
         try:
             db.add_big_announce_pending(
                 "mining", rarity, item_name, "", username,
@@ -214,7 +226,7 @@ async def send_big_fish_announce(bot, rarity: str, username: str,
     xp_str     = str(int(xp)) if xp is not None else ""
 
     msgs = _fmt_ann("fishing", username, rar_label, disp_name, fish_emoji,
-                    weight_str, value_str, xp_str)
+                    weight_str, value_str, xp_str, rarity=rarity)
 
     if mode in ("fishing_only", "all_bots"):
         for i, m in enumerate(msgs):
@@ -225,7 +237,7 @@ async def send_big_fish_announce(bot, rarity: str, username: str,
             if i < len(msgs) - 1:
                 await asyncio.sleep(0.5)
 
-    if mode == "all_bots":
+    if mode in ("all_bots", "host_only"):
         try:
             db.add_big_announce_pending(
                 "fishing", rarity, fish_name, "", username,
@@ -294,10 +306,16 @@ async def _poll_react(bot, bot_mode: str, friendly: str) -> None:
         xp_str     = log.get("xp_str", "")
         emoji      = log.get("item_emoji", "") or ("💎" if category == "mining" else "🐟")
 
+        # host_only entries: only the host bot processes; all others skip
+        entry_routing = _get_routing(category, rarity)
+        if entry_routing == "host_only" and bot_mode != "host":
+            db.mark_big_announce_reacted(log_id, friendly)
+            continue
+
         rar_label  = _ANN_LBLS.get(rarity, f"[{rarity.replace('_', ' ').upper()}]")
         disp_name  = _display_name(rarity, item_name)
         msgs = _fmt_ann(category, username, rar_label, disp_name, emoji,
-                        weight_str, value_str, xp_str)
+                        weight_str, value_str, xp_str, rarity=rarity)
 
         try:
             await asyncio.sleep(1)
@@ -305,6 +323,10 @@ async def _poll_react(bot, bot_mode: str, friendly: str) -> None:
                 await bot.highrise.chat(_safe_clip(m, 220))
                 if i < len(msgs) - 1:
                     await asyncio.sleep(0.5)
+            # Exotic: host bot adds a short hype line after the details
+            if rarity == "exotic" and bot_mode == "host":
+                await asyncio.sleep(0.4)
+                await bot.highrise.chat("🔥 THE ROOM JUST WITNESSED AN EXOTIC!")
         except Exception:
             pass
 
@@ -468,7 +490,11 @@ async def handle_previewannounce(bot, user, args: list[str]) -> None:
         # Whisper: PREVIEW header so owner can read it privately first
         unit  = "MXP" if category == "mining" else "FXP"
         verb  = "mined" if category == "mining" else "caught"
-        phdr  = "⛏️ BIG FIND PREVIEW" if category == "mining" else "🎣 BIG CATCH PREVIEW"
+        _base_hdr = _RARITY_HEADERS.get(
+            (category, rarity),
+            "⛏️ BIG FIND!" if category == "mining" else "🎣 BIG CATCH!",
+        ).rstrip("!")
+        phdr  = f"{_base_hdr} PREVIEW"
         line2 = f"@{user.username} {verb} {rar_label} {disp_name}"
         line3 = f"⚖️ {weight_str} | 💰 {value_str}c | ⭐ +{xp_str} {unit}"
         preview = f"{phdr}\n{line2}\n{line3}"
@@ -481,7 +507,7 @@ async def handle_previewannounce(bot, user, args: list[str]) -> None:
 
         # Room chat: real announcement format so staff can verify colors live
         msgs = _fmt_ann(category, user.username, rar_label, disp_name,
-                        emoji, weight_str, value_str, xp_str)
+                        emoji, weight_str, value_str, xp_str, rarity=rarity)
         for m in msgs:
             await asyncio.sleep(0.3)
             await bot.highrise.chat(_safe_clip(m, 220))

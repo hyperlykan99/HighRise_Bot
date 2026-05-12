@@ -1,0 +1,611 @@
+UPDATE 3.0G — RARE FIND ANNOUNCEMENT POLISH
+
+Goal:
+Polish rare mining/fishing announcements so rare finds feel exciting, clear, and consistent without breaking stability.
+
+Focus:
+- Mythic = small congratulations from ChillTopiaMC/emcee only
+- Prismatic = all announcement bots congratulate and repeat actual find/catch details
+- Exotic = stronger hype announcement, but safe version only
+- Preserve colored rarity labels
+- [PRISMATIC] label must always be rainbow
+- Prismatic ore/fish names must be pink
+- All messages under 220 characters
+- Fix trivia /answer leftover to !answer
+
+This update is announcement/message polish only.
+
+Do not change mining odds.
+Do not change fishing odds.
+Do not change rewards.
+Do not change values.
+Do not add items.
+Do not wipe data.
+Do not change tokens.
+Do not change room ID.
+Do not change casino systems.
+Do not add AI.
+Do not add room mute/pause yet.
+Do not pause games yet.
+Do not force rare drops to test.
+Do not spam too much.
+
+==================================================
+PART 1 — ANNOUNCEMENT TIERS
+==================================================
+
+Use these announcement rules:
+
+MYTHIC:
+- Small congratulations only.
+- ChillTopiaMC/emcee only.
+- No all-bot spam.
+- No room pause.
+- No mute.
+- No game pause.
+
+PRISMATIC:
+- Bigger announcement.
+- All announcement bots may congratulate.
+- All bots should repeat the actual mine/fish result details.
+- Send mining/fishing notification if notification system already supports it.
+- No mute.
+- No room pause.
+- No game pause.
+
+EXOTIC:
+- Stronger hype announcement.
+- Safe version only for now.
+- All announcement bots repeat actual mine/fish result details.
+- Add short hype messages if already supported.
+- Do not mute everyone yet.
+- Do not pause casino/mining/fishing/games yet.
+- Do not freeze room yet.
+
+Important:
+The old idea of muting everyone and pausing every game for Exotic is NOT included in this update yet. That will be a later update after stability testing.
+
+==================================================
+PART 2 — STANDARD RESULT DETAILS
+==================================================
+
+Every rare find/catch announcement must include actual result details:
+
+Mining:
+- player name
+- rarity
+- ore name
+- weight
+- value
+- MXP
+
+Fishing:
+- player name
+- rarity
+- fish name
+- weight
+- value
+- FXP
+
+Mining format:
+
+⛏️ BIG FIND!
+@Player mined [RARITY] [Ore Name]
+⚖️ [weight]kg | 💰 [value]c | ⭐ +[mxp] MXP
+
+Fishing format:
+
+🎣 BIG CATCH!
+@Player caught [RARITY] [Fish Name]
+⚖️ [weight]lb | 💰 [value]c | ⭐ +[fxp] FXP
+
+If too long, split into two messages:
+
+Message 1:
+⛏️ BIG FIND!
+@Player mined [RARITY] [Ore Name]
+
+Message 2:
+⚖️ [weight]kg | 💰 [value]c | ⭐ +[mxp] MXP
+
+or:
+
+Message 1:
+🎣 BIG CATCH!
+@Player caught [RARITY] [Fish Name]
+
+Message 2:
+⚖️ [weight]lb | 💰 [value]c | ⭐ +[fxp] FXP
+
+==================================================
+PART 3 — MYTHIC ANNOUNCEMENT
+==================================================
+
+For Mythic mining:
+
+ChillTopiaMC only:
+
+✨ MYTHIC FIND!
+@Player mined [MYTHIC] [Ore Name]
+⚖️ [weight]kg | 💰 [value]c | ⭐ +[mxp] MXP
+
+For Mythic fishing:
+
+ChillTopiaMC only:
+
+✨ MYTHIC CATCH!
+@Player caught [MYTHIC] [Fish Name]
+⚖️ [weight]lb | 💰 [value]c | ⭐ +[fxp] FXP
+
+Rules:
+- One emcee announcement only.
+- Keep it short.
+- No all-bot congratulations.
+- No notification blast unless already part of existing mythic behavior.
+- No game pause.
+- No mute.
+
+==================================================
+PART 4 — PRISMATIC ANNOUNCEMENT
+==================================================
+
+For Prismatic mining:
+
+Main message:
+
+🌈 PRISMATIC FIND!
+@Player mined [PRISMATIC] [Ore Name]
+⚖️ [weight]kg | 💰 [value]c | ⭐ +[mxp] MXP
+
+For Prismatic fishing:
+
+Main message:
+
+🌈 PRISMATIC CATCH!
+@Player caught [PRISMATIC] [Fish Name]
+⚖️ [weight]lb | 💰 [value]c | ⭐ +[fxp] FXP
+
+Rules:
+- [PRISMATIC] label must be rainbow.
+- Ore/fish name must be pink.
+- All announcement bots repeat the same actual result details.
+- If notification system exists, send mining/fishing notification.
+- No mute.
+- No room pause.
+- No game pause.
+
+All-bot announcement style:
+Each bot should say the actual result, not generic congrats.
+
+Bad:
+🎉 Congrats @Player!
+
+Good:
+🌈 PRISMATIC CATCH!
+@Player caught [PRISMATIC] Aurora Koi
+⚖️ 24.1lb | 💰 180,000c | ⭐ +500 FXP
+
+==================================================
+PART 5 — EXOTIC ANNOUNCEMENT SAFE VERSION
+==================================================
+
+For Exotic mining:
+
+🔥 EXOTIC FIND!
+@Player mined [EXOTIC] [Ore Name]
+⚖️ [weight]kg | 💰 [value]c | ⭐ +[mxp] MXP
+
+For Exotic fishing:
+
+🔥 EXOTIC CATCH!
+@Player caught [EXOTIC] [Fish Name]
+⚖️ [weight]lb | 💰 [value]c | ⭐ +[fxp] FXP
+
+Rules:
+- Exotic label/name should be red or current Exotic color.
+- All announcement bots may repeat actual result details.
+- Add only short hype if safe.
+- Do not mute room.
+- Do not pause room.
+- Do not pause casino.
+- Do not pause mining.
+- Do not pause fishing.
+- Do not spam too many messages.
+
+Optional safe hype message from ChillTopiaMC only:
+
+🔥 THE ROOM JUST WITNESSED AN EXOTIC!
+
+Keep this under 220 characters.
+
+==================================================
+PART 6 — COLOR RULES
+==================================================
+
+Use shared rarity formatting helpers if available.
+
+Rules:
+- [PRISMATIC] must always be rainbow.
+- Prismatic ore/fish name must be pink.
+- Use pink item color:
+  <#FF66CC>Item Name<#FFFFFF>
+- Exotic label/name should be red or existing exotic color.
+- Mythic should keep existing mythic color.
+- Every color tag must close with <#FFFFFF>.
+- Never cut color tags.
+- Never send broken color tags.
+- Never split message in the middle of color formatting.
+
+Apply to:
+- rare find main result
+- all-bot announcement messages
+- notification messages
+- preview announcement messages
+- first-find announcements if they use rare formatting
+
+==================================================
+PART 7 — MESSAGE CAP SAFETY
+==================================================
+
+Every announcement message must be under 220 characters.
+
+Rules:
+- Do not blindly slice strings.
+- Split on line breaks.
+- Never cut color tags.
+- Never cut item names.
+- Never cut value/weight/XP.
+- If message is too long, remove extra hype words first.
+- If still too long, split into two messages.
+
+Safe send helper:
+- Use existing safe_whisper/safe_chat helper if available.
+- If not available, add one.
+- Max message length: 220 characters.
+- Split on full lines only.
+
+==================================================
+PART 8 — ALL-BOT ANNOUNCEMENT CONTROL
+==================================================
+
+Use existing announcement bot list.
+
+Do not add new bots.
+Do not change bot tokens.
+Do not change room IDs.
+
+For Prismatic:
+- announcement bots can repeat actual result details once each.
+
+For Exotic:
+- announcement bots can repeat actual result details once each.
+- optional one extra ChillTopiaMC hype line only.
+
+For Mythic:
+- only ChillTopiaMC/emcee announces.
+
+Add rate safety:
+- small delay between announcement bot messages if needed.
+- do not trigger rate limit.
+- do not trigger bot reconnect.
+
+==================================================
+PART 9 — NOTIFICATION INTEGRATION
+==================================================
+
+If notification system already supports mining/fishing rare alerts:
+
+Prismatic:
+- send mining/fishing notification to subscribed users if enabled.
+
+Exotic:
+- send mining/fishing notification to subscribed users if enabled.
+
+Mythic:
+- only send if existing system already does; otherwise do not add new notification behavior.
+
+Notification text should include actual details:
+
+🌈 PRISMATIC CATCH!
+@Player caught [PRISMATIC] Aurora Koi
+⚖️ 24.1lb | 💰 180,000c
+
+Keep under 220 characters.
+No broken color tags.
+
+==================================================
+PART 10 — PREVIEW ANNOUNCE COMMAND
+==================================================
+
+Make sure owner-only preview works.
+
+Command:
+!previewannounce [mining|fishing] [mythic|prismatic|exotic]
+
+Examples:
+!previewannounce mining mythic
+!previewannounce mining prismatic
+!previewannounce mining exotic
+!previewannounce fishing mythic
+!previewannounce fishing prismatic
+!previewannounce fishing exotic
+
+Expected:
+- Replies every time.
+- Owner only.
+- Preview only.
+- Does not give items.
+- Does not give coins.
+- Does not give XP.
+- Does not write inventory.
+- Does not change odds.
+- Does not trigger real rare logs.
+- Does not spam all bots unless explicitly in preview mode.
+
+If no args:
+
+Usage:
+!previewannounce mining [mythic|prismatic|exotic]
+!previewannounce fishing [mythic|prismatic|exotic]
+
+Examples:
+!previewannounce mining prismatic
+!previewannounce fishing exotic
+
+If non-owner:
+🔒 Owner only.
+
+==================================================
+PART 11 — PREVIEW ANNOUNCE OUTPUT
+==================================================
+
+Preview should show the same formatting style as real announcement.
+
+Example:
+
+!previewannounce mining prismatic
+
+Response:
+
+🌈 PRISMATIC FIND PREVIEW
+@4ktreyMarion mined [PRISMATIC] Prismite
+⚖️ 12.4kg | 💰 50,000c | ⭐ +300 MXP
+
+Example:
+
+!previewannounce fishing exotic
+
+Response:
+
+🔥 EXOTIC CATCH PREVIEW
+@4ktreyMarion caught [EXOTIC] Abyssal Kraken
+⚖️ 88.8lb | 💰 500,000c | ⭐ +900 FXP
+
+Rules:
+- [PRISMATIC] rainbow.
+- Prismatic item name pink.
+- Exotic red.
+- Mythic existing color.
+- Under 220 chars.
+- No cutoff.
+
+==================================================
+PART 12 — FIX TRIVIA /ANSWER LEFTOVER
+==================================================
+
+Current issue:
+Trivia still says:
+
+Type /answer to win 20 coins!
+
+This is wrong. The system uses ! only.
+
+Goal:
+Replace all trivia/game message text from /answer to !answer.
+
+Change:
+
+Type /answer to win 20 coins!
+
+To:
+
+Type !answer to win 20 coins!
+
+Also replace:
+- /answer [answer] -> !answer [answer]
+- /answer -> !answer
+
+Do not change trivia rewards.
+Do not change trivia logic.
+Do not change mini game odds.
+Do not change mini game questions.
+Do not wipe data.
+
+==================================================
+PART 13 — ANSWER COMMAND ROUTING
+==================================================
+
+Make sure !answer is routed and working.
+
+Expected:
+
+!commandtest !answer
+
+owner=ChillTopiaMC or EventHost
+route=YES
+handler=YES
+
+If /answer still exists internally:
+- do not advertise it.
+- preferably redirect with:
+
+Use ! commands only.
+Example: !answer mars
+
+Do not show /answer anywhere.
+
+==================================================
+PART 14 — SEARCH FOR / COMMAND LEFTOVERS
+==================================================
+
+Search user-facing text for:
+- /answer
+- /help
+- /mine
+- /fish
+- /bet
+- /tele
+- /command
+- /checkcommands
+- /commandissues
+
+Replace with ! versions.
+
+Do not change:
+- URLs
+- file paths
+- markdown paths
+- code comments that are not user-facing
+
+==================================================
+PART 15 — HELP CHECK
+==================================================
+
+Make sure help/onboarding still uses ! only.
+
+Run/check:
+!checkhelp
+!commandissues
+!checkcommands
+
+Expected:
+- No / commands in user-facing messages.
+- No command issues.
+- Checkcommands clean.
+
+==================================================
+PART 16 — TESTING WITHOUT CHANGING ODDS
+==================================================
+
+Do not force real mythic/prismatic/exotic drops by changing odds.
+
+Use:
+!previewannounce
+
+Test:
+!previewannounce mining mythic
+!previewannounce mining prismatic
+!previewannounce mining exotic
+!previewannounce fishing mythic
+!previewannounce fishing prismatic
+!previewannounce fishing exotic
+
+Expected:
+- All previews reply.
+- No real rewards.
+- No inventory writes.
+- No odds changed.
+- No command issues.
+
+==================================================
+PART 17 — COMMAND TESTS
+==================================================
+
+Run:
+
+!commandtest !previewannounce
+!commandtest !answer
+!commandissues
+!checkcommands
+
+Expected:
+!previewannounce:
+owner=ChillTopiaMC
+route=YES
+handler=YES
+permission=Owner
+
+!answer:
+owner=ChillTopiaMC or EventHost
+route=YES
+handler=YES
+
+No command issues.
+No checkcommands mismatch.
+
+==================================================
+PART 18 — LIVE TESTS
+==================================================
+
+Run:
+
+!previewannounce
+!previewannounce mining mythic
+!previewannounce mining prismatic
+!previewannounce mining exotic
+!previewannounce fishing mythic
+!previewannounce fishing prismatic
+!previewannounce fishing exotic
+
+!commandtest !answer
+!checkhelp
+!commandissues
+!checkcommands
+!bothealth
+!stability status
+
+Also trigger trivia if safe, or wait for trivia.
+
+Expected trivia message:
+
+🎯 TRIVIA TIME! (60s)
+Question...
+Type !answer to win 20 coins!
+
+Not:
+Type /answer to win 20 coins!
+
+==================================================
+PART 19 — STABILITY RULES
+==================================================
+
+After changes:
+- no reconnect loop
+- no DB lock spam
+- no bot crash
+- no command issues
+- no checkcommands mismatch
+- no message cutoff
+- no broken color tags
+
+Run:
+!bothealth
+!stability status
+!botconflicts
+!modulehealth
+
+Expected:
+Err: none
+No bot conflicts.
+
+==================================================
+PART 20 — FINAL REPORT
+==================================================
+
+After finishing, report:
+
+1. Mythic announcement behavior.
+2. Prismatic announcement behavior.
+3. Exotic announcement behavior.
+4. Whether all bots repeat actual result details.
+5. Whether [PRISMATIC] is rainbow.
+6. Whether prismatic item names are pink.
+7. Whether big announcement messages stay under 220 chars.
+8. Whether !previewannounce works.
+9. Whether !answer routes.
+10. Whether trivia now says !answer.
+11. Whether /answer leftovers were removed.
+12. !checkhelp result.
+13. !commandissues result.
+14. !checkcommands result.
+15. Stability result.
