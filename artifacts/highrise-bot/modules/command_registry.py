@@ -126,6 +126,7 @@ REGISTRY: dict[str, Cmd] = {
     "control":          Cmd("host","info",    True, True, False),
     "status":           Cmd("host","info",    True, True, False),
     "roomstatus":       Cmd("host","info",    True, True, False),
+    "economystatus":    Cmd("host","info",    False,True, False, perm="owner"),
     "notifications":    Cmd("host","profile", True, True, False,
                             aliases=("clearnotifications",)),
     "subscribe":        Cmd("host","profile", True, False,True,
@@ -253,6 +254,8 @@ REGISTRY: dict[str, Cmd] = {
     "buy":              Cmd("shopkeeper","shop",False,False,True),
     "equip":            Cmd("shopkeeper","shop",False,False,True),
     "myitems":          Cmd("shopkeeper","shop",False,True, False),
+    "inv":              Cmd("shopkeeper","shop",False,True, False),
+    "inventory":        Cmd("shopkeeper","shop",False,True, False),
     "badges":           Cmd("shopkeeper","shop",False,True, False,
                             aliases=("mybadges","badgecatalog")),
     "badgeinfo":        Cmd("shopkeeper","shop",False,True, False),
@@ -731,6 +734,8 @@ REGISTRY: dict[str, Cmd] = {
 
     # ── Subscriber notification preferences (host) ────────────────────────────
     "notif":            Cmd("host",    "help",    True,  True,  False),
+    "notifstatus":      Cmd("host",    "help",    True,  True,  False),
+    "notifpreview":     Cmd("host",    "help",    False, False, True,  perm="owner"),
     "notifon":          Cmd("host",    "help",    True,  False, True),
     "notifoff":         Cmd("host",    "help",    True,  False, True),
     "notifall":         Cmd("host",    "help",    True,  False, True),

@@ -193,7 +193,7 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     "privacy",
     "level",
     "xpleaderboard",
-    "shop", "buy", "equip", "myitems", "badgeinfo", "titleinfo",
+    "shop", "buy", "equip", "myitems", "inv", "inventory", "badgeinfo", "titleinfo",
     "event", "events", "eventhelp", "eventstatus",
     "startevent", "stopevent",
     "eventpoints", "eventshop", "buyevent",
@@ -250,7 +250,7 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     # ── tip (alias for send) ─────────────────────────────────────────────────
     "tip",
     # ── control panel (own elif block, not via STAFF_CMDS) ───────────────────
-    "control", "status", "quicktoggles", "ownerpanel",
+    "control", "status", "roomstatus", "economystatus", "quicktoggles", "ownerpanel",
     # ── mining ──────────────────────────────────────────────────────────────
     "mine", "m", "dig",
     "tool", "pickaxe",
@@ -504,6 +504,7 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     "eventvote", "voteevent",
     # ── Subscriber notification preferences ───────────────────────────────────
     "notif", "notifon", "notifoff", "notifall",
+    "notifstatus", "notifpreview",
     "notifyon", "notifyoff",
     "sub", "unsub", "forcesub", "fixsub",
     "subnotify", "subnotifyinvite", "subnotifystatus",

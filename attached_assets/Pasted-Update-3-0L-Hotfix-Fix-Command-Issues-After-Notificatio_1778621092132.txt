@@ -1,0 +1,173 @@
+Update 3.0L Hotfix — Fix Command Issues After Notifications Update
+
+Current issue:
+!commandissues shows:
+
+Issues: 5 no-route, 5 no-handler
+Examples:
+!economystatus, !inv, !inventory, !notifpreview, !notifstatus
+
+Goal:
+Make command issues clean by properly routing useful commands and hiding skipped optional commands.
+
+Do not change tokens.
+Do not wipe data.
+Do not change room ID.
+Do not reset balances, VIP, inventories, mining/fishing, casino data, party tip data, notifications, subscriptions, shop items, badges, titles, teleports, role spawns, or bot spawns.
+
+==================================================
+PART 1 — FIX !INV AND !INVENTORY
+==================================================
+
+!inv and !inventory should work and route to the existing player items/inventory handler.
+
+Expected:
+
+!commandtest !inv
+owner=ChillTopiaMC
+route=YES
+handler=YES
+
+!commandtest !inventory
+owner=ChillTopiaMC
+route=YES
+handler=YES
+
+Preferred:
+!inventory is alias of !inv.
+
+Do not create duplicate inventory logic.
+Do not reset items.
+Do not change badges/titles.
+
+==================================================
+PART 2 — FIX !NOTIFSTATUS
+==================================================
+
+!notifstatus should be an alias of !notif.
+
+Expected:
+
+!commandtest !notifstatus
+owner=ChillTopiaMC
+route=YES
+handler=YES
+
+Live:
+!notifstatus
+
+Should show same output as:
+!notif
+
+If user is not subscribed:
+You are not subscribed.
+DM me:
+!subscribe
+
+==================================================
+PART 3 — FIX OR HIDE !NOTIFPREVIEW
+==================================================
+
+If !notifpreview was implemented, route it owner-only.
+
+Expected:
+
+!commandtest !notifpreview
+owner=ChillTopiaMC
+route=YES
+handler=YES
+permission=Owner
+
+Usage:
+!notifpreview [events|mining|fishing|vip|goldrain|updates]
+
+Example:
+!notifpreview mining
+
+If !notifpreview was NOT implemented or is risky:
+- remove it from active command registry
+- mark hidden/legacy/deprecated
+- do not show it in help
+- do not count it in commandissues
+
+Preferred:
+Route it owner-only if handler exists.
+Otherwise hide it.
+
+==================================================
+PART 4 — FIX OR HIDE !ECONOMYSTATUS
+==================================================
+
+If !economystatus exists and is safe, route it owner-only.
+
+Expected:
+
+!commandtest !economystatus
+owner=ChillTopiaMC
+route=YES
+handler=YES
+permission=Owner
+
+Expected live response:
+
+💰 Economy Status
+Users: [count]
+VIP Active: [count]
+Donation Goal: [percent]%
+Party Wallet: [amount]g
+
+Keep under 220 chars.
+Do not expose private user balances.
+
+If !economystatus was skipped or is risky:
+- remove it from active command registry
+- mark hidden/legacy/deprecated
+- do not show it in dashboard/help
+- do not count it in commandissues
+
+Preferred:
+Hide it unless the safe handler already exists.
+
+==================================================
+PART 5 — REMOVE SKIPPED OPTIONAL COMMANDS FROM HELP/DASHBOARD
+==================================================
+
+If !notifpreview or !economystatus are skipped, remove them from:
+
+!dashboard
+!ownerpanel
+!help owner
+!help notifications
+!checkhelp expectations
+command registry active list
+
+They must not appear as broken active commands.
+
+==================================================
+PART 6 — TESTS
+==================================================
+
+Run:
+
+!commandtest !inv
+!commandtest !inventory
+!commandtest !notifstatus
+!commandtest !notifpreview
+!commandtest !economystatus
+
+!inv
+!inventory
+!notifstatus
+!commandissues
+!checkcommands
+!checkhelp
+
+Expected:
+- !inv routes and works.
+- !inventory routes and works.
+- !notifstatus routes as alias to !notif.
+- !notifpreview either routes owner-only OR is hidden and not counted.
+- !economystatus either routes owner-only OR is hidden and not counted.
+- !commandissues clean.
+- !checkcommands clean.
+- !checkhelp clean.
