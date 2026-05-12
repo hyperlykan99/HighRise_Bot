@@ -23,6 +23,7 @@ DB tables: party_tippers, party_tip_log  (room_settings stores wallet amount + l
 """
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone, timedelta
 
 import database as db
@@ -80,10 +81,10 @@ _DEF_DUR    = 120   # minutes
 # Known bot usernames (lowercase) — excluded from room-wide tips
 _BOT_NAMES: frozenset[str] = frozenset({
     "chilltopiamc", "bankingbot", "bankbot", "bankerbot",
-    "acesinastra", "chipsoprano", "dj_dudu", "keanushield",
+    "acesinatra", "chipsoprano", "dj_dudu", "keanushield",
     "masterangler", "greatestprospector",
     "emceebot", "blackjackbot", "pokerbot", "securitybot",
-    "eventbot", "djbot",
+    "eventbot", "djbot", "arcadiaradio",
 })
 
 
@@ -314,14 +315,25 @@ async def handle_ptoff(bot: BaseBot, user: User) -> None:
 
 async def handle_ptstatus(bot: BaseBot, user: User) -> None:
     """!ptstatus — show party mode and wallet status (public)."""
-    enabled = _party_tip_enabled()
-    mode    = "ON" if _party_mode_on() else "OFF"
-    wallet  = _get_wallet()
-    count   = len(_list_tippers())
-    system  = "ENABLED" if enabled else "DISABLED"
-    await _w(bot, user.id,
-             f"🎉 Party Status\nSystem: {system}\nMode: {mode}\n"
-             f"Party Wallet: {wallet}g\nParty Tippers: {count}")
+    enabled  = _party_tip_enabled()
+    mode     = "ON" if _party_mode_on() else "OFF"
+    wallet   = _get_wallet()
+    count    = len(_list_tippers())
+    system   = "Enabled" if enabled else "Disabled"
+    single   = _limit("single",   _DEF_SINGLE)
+    all_lim  = _limit("all",      _DEF_ALL)
+    daily    = _limit("daily",    _DEF_DAILY)
+    msg = (
+        f"🎉 Party Status\n"
+        f"Mode: {mode}\n"
+        f"Party Tip System: {system}\n"
+        f"Wallet: {wallet}g\n"
+        f"Active Tippers: {count}\n"
+        f"Limits: single {single}g | all {all_lim}g | daily {daily}g"
+    )
+    if not enabled:
+        msg += "\nUse !ptenable to enable."
+    await _w(bot, user.id, msg)
 
 
 # ---------------------------------------------------------------------------
@@ -357,7 +369,7 @@ async def handle_ptwallet(bot: BaseBot, user: User, args: list[str]) -> None:
         max_w  = _limit("max", _DEF_MAX)
         mode   = "ON" if _party_mode_on() else "OFF"
         await _w(bot, user.id,
-                 f"🎉 Party Wallet: {wallet}g / {max_w}g max\n"
+                 f"💰 Party Wallet\nBalance: {wallet}g / {max_w}g max\n"
                  f"Mode: {mode}\nUsage: !ptwallet [amount]")
         return
     try:
@@ -365,18 +377,17 @@ async def handle_ptwallet(bot: BaseBot, user: User, args: list[str]) -> None:
         if amount < 0:
             raise ValueError
     except ValueError:
-        await _w(bot, user.id, "⚠️ Enter a valid positive amount.")
+        await _w(bot, user.id, "⚠️ Enter a valid positive whole number.")
         return
     max_w = _limit("max", _DEF_MAX)
     if amount > max_w:
         await _w(bot, user.id,
-                 f"⚠️ Exceeds wallet max of {max_w}g.\n"
-                 f"Use !ptlimit max to raise it first.")
+                 f"⚠️ Max Party Wallet is {max_w}g.\n"
+                 f"Use !ptlimit max [amount] to change it.")
         return
     _set_wallet(amount)
     await _w(bot, user.id,
-             f"🎉 Party Wallet Set\nWallet: {amount}g\n"
-             f"Handled by: ChillTopiaMC\nBankerBot affected: NO")
+             f"💰 Party Wallet updated.\nBalance: {amount}g")
 
 
 # ---------------------------------------------------------------------------
@@ -398,9 +409,14 @@ async def handle_ptadd(bot: BaseBot, user: User, args: list[str]) -> None:
         if minutes < 1:
             raise ValueError
     except ValueError:
-        await _w(bot, user.id, "⚠️ Duration must be at least 1 minute.")
+        await _w(bot, user.id, "⚠️ Duration must be a whole number (at least 1 minute).")
         return
-    minutes = min(minutes, _DEF_DUR)
+    max_dur = _limit("duration", _DEF_DUR)
+    if minutes > max_dur:
+        await _w(bot, user.id,
+                 f"⚠️ Max party tipper duration is {max_dur} minutes.\n"
+                 f"Use !ptlimit duration [amount] to raise it.")
+        return
     # Attempt to resolve user_id from room (best-effort)
     target_id = f"offline_{target.lower()}"
     try:
@@ -413,8 +429,7 @@ async def handle_ptadd(bot: BaseBot, user: User, args: list[str]) -> None:
         pass
     _add_tipper(target_id, target, minutes, user.username)
     await _w(bot, user.id,
-             f"✅ Party Tipper Added\nUser: @{target}\nDuration: {minutes}m\n"
-             f"Can use: !tip only\nParty Mode Required: YES")
+             f"✅ Added @{target} as Party Tipper for {minutes} minutes.")
 
 
 # ---------------------------------------------------------------------------
@@ -430,9 +445,9 @@ async def handle_ptremove(bot: BaseBot, user: User, args: list[str]) -> None:
         return
     target = args[1].lstrip("@")
     if _remove_tipper(target):
-        await _w(bot, user.id, f"✅ Party Tipper Removed\nUser: @{target}")
+        await _w(bot, user.id, f"✅ Removed @{target} from Party Tippers.")
     else:
-        await _w(bot, user.id, f"@{target} is not a party tipper.")
+        await _w(bot, user.id, f"@{target} is not a Party Tipper.")
 
 
 # ---------------------------------------------------------------------------
@@ -444,7 +459,8 @@ async def handle_ptclear(bot: BaseBot, user: User) -> None:
         await _w(bot, user.id, "🔒 Owner only.")
         return
     count = _clear_tippers()
-    await _w(bot, user.id, f"✅ All Party Tippers Cleared\nRemoved: {count}")
+    noun  = "tipper" if count == 1 else "tippers"
+    await _w(bot, user.id, f"✅ Cleared all Party Tippers. ({count} {noun} removed)")
 
 
 # ---------------------------------------------------------------------------
@@ -487,15 +503,17 @@ async def handle_ptlist(bot: BaseBot, user: User) -> None:
 # ---------------------------------------------------------------------------
 
 async def handle_ptlimits(bot: BaseBot, user: User) -> None:
-    single  = _limit("single", _DEF_SINGLE)
-    all_lim = _limit("all",    _DEF_ALL)
-    daily   = _limit("daily",  _DEF_DAILY)
-    max_w   = _limit("max",    _DEF_MAX)
+    single   = _limit("single",   _DEF_SINGLE)
+    all_lim  = _limit("all",      _DEF_ALL)
+    daily    = _limit("daily",    _DEF_DAILY)
+    max_w    = _limit("max",      _DEF_MAX)
+    dur      = _limit("duration", _DEF_DUR)
     await _w(bot, user.id,
              f"🎉 Party Tip Limits\n"
              f"Single: {single}g\nAll: {all_lim}g each\n"
              f"Daily: {daily}g\nWallet Max: {max_w}g\n"
-             f"Party Mode Required: YES")
+             f"Tipper Duration Max: {dur}m\n"
+             f"Self Tip: OFF\nBots Excluded: ON")
 
 
 # ---------------------------------------------------------------------------
@@ -506,10 +524,10 @@ async def handle_ptlimit(bot: BaseBot, user: User, args: list[str]) -> None:
     if not is_owner(user.username):
         await _w(bot, user.id, "🔒 Owner only.")
         return
-    valid = ("single", "all", "daily", "max")
+    valid = ("single", "all", "daily", "max", "duration")
     if len(args) < 3 or args[1].lower() not in valid:
         await _w(bot, user.id,
-                 "Usage: !ptlimit [single|all|daily|max] [amount]\n"
+                 "Usage: !ptlimit [single|all|daily|max|duration] [amount]\n"
                  "Example: !ptlimit single 10")
         return
     limit_type = args[1].lower()
@@ -521,8 +539,16 @@ async def handle_ptlimit(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "⚠️ Enter a positive whole number.")
         return
     _set_limit(limit_type, amount)
-    await _w(bot, user.id,
-             f"✅ Party Tip Limit Updated\n{limit_type} = {amount}g")
+    _LABELS = {
+        "single":   "Single tip limit",
+        "all":      "Tip-all limit",
+        "daily":    "Daily tipper limit",
+        "max":      "Party wallet max",
+        "duration": "Party tipper duration max",
+    }
+    unit = "minutes" if limit_type == "duration" else "g"
+    label = _LABELS.get(limit_type, limit_type)
+    await _w(bot, user.id, f"✅ {label} set to {amount}{unit}.")
 
 
 # ---------------------------------------------------------------------------
@@ -585,78 +611,88 @@ async def handle_tip(bot: BaseBot, user: User, args: list[str]) -> None:
 
     # ── !tip @user [amount] ───────────────────────────────────────────────
     target_raw = target.lstrip("@")
+    # Block self-tips
+    if target_raw.lower() == user.username.lower():
+        await _w(bot, user.id, "⚠️ You cannot tip yourself.")
+        return
+    if _is_bot(target_raw):
+        await _w(bot, user.id, "🤖 Bots cannot receive gold tips.")
+        return
     try:
         amount = int(args[2])
         if amount < 1:
             raise ValueError
     except ValueError:
-        await _w(bot, user.id, "Amount must be at least 1g.")
+        await _w(bot, user.id, "⚠️ Amount must be a positive whole number.")
         return
     single_cap = _limit("single", _DEF_SINGLE)
     daily_cap  = _limit("daily",  _DEF_DAILY)
     if amount > single_cap:
-        await _w(bot, user.id,
-                 f"⚠️ Single tip limit: {single_cap}g\nDaily cap: {daily_cap}g")
+        await _w(bot, user.id, f"⚠️ Single tip limit is {single_cap}g.")
         return
     if wallet < amount:
         await _w(bot, user.id,
-                 f"⚠️ Not enough party gold.\nNeeded: {amount}g  Available: {wallet}g")
+                 f"⚠️ Not enough Party Wallet gold.\n"
+                 f"Needed: {amount}g  Available: {wallet}g")
         return
     used = _get_daily_used(user.username)
     if used + amount > daily_cap:
         remaining = max(0, daily_cap - used)
         await _w(bot, user.id,
-                 f"⚠️ Daily cap reached.\nUsed: {used}g / {daily_cap}g\n"
-                 f"Remaining: {remaining}g")
-        return
-    if _is_bot(target_raw):
-        await _w(bot, user.id, "🤖 Bots cannot receive gold tips.")
+                 f"⚠️ This tip would exceed your daily limit.\n"
+                 f"Available today: {remaining}g")
         return
     wallet_before = wallet
     wallet_after  = wallet - amount
+    # Announce first — only deduct if announce succeeds
+    try:
+        await bot.highrise.chat(f"💸 Tipped @{target_raw} {amount} gold!")
+    except Exception as e:
+        _log_party_tip(user.id, user.username, "", target_raw,
+                       amount, wallet_before, wallet_before, "fail", str(e)[:80])
+        await _w(bot, user.id,
+                 f"⚠️ Tip failed for @{target_raw}.\n"
+                 f"Reason: send error\nWallet not deducted.")
+        return
     _set_wallet(wallet_after)
     _add_daily_used(user.username, amount)
     _log_party_tip(user.id, user.username, "", target_raw,
                    amount, wallet_before, wallet_after, "success")
-    try:
-        await bot.highrise.chat(f"💸 Tipped @{target_raw} {amount} gold!")
-    except Exception:
-        pass
+    daily_used_now = used + amount
     await _w(bot, user.id,
              f"🎉 Party Tip Sent\n"
-             f"To: @{target_raw}\n"
-             f"Amount: {amount}g\n"
-             f"Party Wallet Left: {wallet_after}g")
+             f"To: @{target_raw}\nAmount: {amount}g\n"
+             f"Party Wallet Left: {wallet_after}g\n"
+             f"Daily Used: {daily_used_now}/{daily_cap}g")
 
 
 async def _handle_tip_random(
     bot: BaseBot, user: User, args: list[str], wallet: int, count: int
 ) -> None:
-    """Tip exactly *count* random eligible players with per-tip announcements."""
+    """Tip exactly *count* random eligible players with per-tip deduction."""
     import random as _random
     try:
         amount = int(args[2])
         if amount < 1:
             raise ValueError
     except ValueError:
-        await _w(bot, user.id, "Amount must be at least 1g.")
+        await _w(bot, user.id, "⚠️ Amount must be a positive whole number.")
         return
     all_cap   = _limit("all",   _DEF_ALL)
     daily_cap = _limit("daily", _DEF_DAILY)
     if amount > all_cap:
-        await _w(bot, user.id,
-                 f"⚠️ Per-player tip limit: {all_cap}g each\nDaily cap: {daily_cap}g")
+        await _w(bot, user.id, f"⚠️ Random tip limit is {all_cap}g each.")
         return
     used = _get_daily_used(user.username)
     if used >= daily_cap:
         await _w(bot, user.id,
-                 f"⚠️ Daily cap reached.\nUsed: {used}g / {daily_cap}g")
+                 f"⚠️ Daily party tip limit reached.\nUsed: {used}g / {daily_cap}g")
         return
     try:
         from modules.room_utils import _get_all_room_users
         all_users = await _get_all_room_users(bot)
     except Exception:
-        await _w(bot, user.id, "Could not fetch room users.")
+        await _w(bot, user.id, "⚠️ Could not fetch room users.")
         return
     eligible = [
         u for u, _ in all_users
@@ -667,50 +703,61 @@ async def _handle_tip_random(
                  "⚠️ No eligible real players found.\n"
                  "Bots are excluded from all gold tipping.")
         return
-    # Cap by daily remaining and eligible count
+    # Cap to daily remaining and eligible count
     daily_remaining = max(0, daily_cap - used)
     max_by_daily    = daily_remaining // max(amount, 1)
     actual_count    = min(count, len(eligible), max_by_daily)
     if actual_count <= 0:
         await _w(bot, user.id,
-                 f"⚠️ Daily cap reached.\nUsed: {used}g / {daily_cap}g")
+                 f"⚠️ Daily party tip limit reached.\nUsed: {used}g / {daily_cap}g")
         return
-    # Warn if we couldn't fill the requested count, then continue
-    if actual_count < count:
-        found = min(count, len(eligible))
-        if found < count:
-            await _w(bot, user.id,
-                     f"⚠️ Only {found} eligible player(s) found.\n"
-                     f"Tipping {actual_count} player(s) instead.")
-        else:
-            await _w(bot, user.id,
-                     f"⚠️ Daily cap limits tip to {actual_count} player(s).")
-    selected     = _random.sample(eligible, actual_count)
     total_needed = amount * actual_count
     if wallet < total_needed:
+        # Try fewer players if wallet can't cover requested count
+        max_by_wallet = wallet // max(amount, 1)
+        actual_count  = min(actual_count, max_by_wallet)
+        total_needed  = amount * actual_count
+        if actual_count <= 0:
+            await _w(bot, user.id,
+                     f"⚠️ Not enough Party Wallet gold.\n"
+                     f"Needed: {amount}g  Available: {wallet}g")
+            return
+    # Warn if fewer than requested
+    found = min(count, len(eligible))
+    if actual_count < count:
         await _w(bot, user.id,
-                 f"⚠️ Not enough Party Wallet gold.\n"
-                 f"Needed: {total_needed}g  Available: {wallet}g")
-        return
-    wallet_before = wallet
-    wallet_after  = wallet - total_needed
-    _set_wallet(wallet_after)
-    _add_daily_used(user.username, total_needed)
-    _log_party_tip(user.id, user.username, "[random]", "[random]",
-                   total_needed, wallet_before, wallet_after,
-                   "success_random", f"players={actual_count}")
-    # Per-tip public announcements
+                 f"⚠️ Only {found} eligible player(s) found.\n"
+                 f"Tipping {actual_count} player(s) instead.")
+    selected   = _random.sample(eligible, actual_count)
+    succeeded  = 0
+    failed     = 0
+    cur_wallet = wallet
     for u in selected:
+        if cur_wallet < amount:
+            await _w(bot, user.id, "⚠️ Party Wallet ran out. Stopping early.")
+            break
         try:
             await bot.highrise.chat(f"💸 Tipped @{u.username} {amount} gold!")
-        except Exception:
-            pass
+            cur_wallet -= amount
+            _set_wallet(cur_wallet)
+            _add_daily_used(user.username, amount)
+            _log_party_tip(user.id, user.username, u.id, u.username,
+                           amount, cur_wallet + amount, cur_wallet, "success")
+            succeeded += 1
+        except Exception as e:
+            _log_party_tip(user.id, user.username, u.id, u.username,
+                           amount, cur_wallet, cur_wallet, "fail", str(e)[:80])
+            failed += 1
+        await asyncio.sleep(1.2)
+    daily_used_now = _get_daily_used(user.username)
     await _w(bot, user.id,
              f"🎉 Party Tip Random\n"
-             f"Players tipped: {actual_count}\n"
+             f"Players tipped: {succeeded}\n"
              f"Amount each: {amount}g\n"
-             f"Total: {total_needed}g\n"
-             f"Party Wallet Left: {wallet_after}g")
+             f"Total: {succeeded * amount}g\n"
+             f"Failed: {failed}\n"
+             f"Party Wallet Left: {cur_wallet}g\n"
+             f"Daily Used: {daily_used_now}/{daily_cap}g")
 
 
 async def _handle_tip_all(bot: BaseBot, user: User, args: list[str], wallet: int) -> None:
@@ -719,24 +766,23 @@ async def _handle_tip_all(bot: BaseBot, user: User, args: list[str], wallet: int
         if amount < 1:
             raise ValueError
     except ValueError:
-        await _w(bot, user.id, "Amount must be at least 1g.")
+        await _w(bot, user.id, "⚠️ Amount must be a positive whole number.")
         return
     all_cap   = _limit("all",   _DEF_ALL)
     daily_cap = _limit("daily", _DEF_DAILY)
     if amount > all_cap:
-        await _w(bot, user.id,
-                 f"⚠️ All-tip limit: {all_cap}g each\nDaily cap: {daily_cap}g")
+        await _w(bot, user.id, f"⚠️ Tip-all limit is {all_cap}g each.")
         return
     used = _get_daily_used(user.username)
     if used >= daily_cap:
         await _w(bot, user.id,
-                 f"⚠️ Daily cap reached.\nUsed: {used}g / {daily_cap}g")
+                 f"⚠️ Daily party tip limit reached.\nUsed: {used}g / {daily_cap}g")
         return
     try:
         from modules.room_utils import _get_all_room_users
         all_users = await _get_all_room_users(bot)
     except Exception:
-        await _w(bot, user.id, "Could not fetch room users.")
+        await _w(bot, user.id, "⚠️ Could not fetch room users.")
         return
     eligible = [
         u for u, _ in all_users
@@ -747,39 +793,66 @@ async def _handle_tip_all(bot: BaseBot, user: User, args: list[str], wallet: int
                  "⚠️ No eligible real players found.\n"
                  "Bots are excluded from all gold tipping.")
         return
-    # Cap by daily remaining
+    # Cap by daily remaining and wallet
     daily_remaining = max(0, daily_cap - used)
-    max_players     = min(len(eligible), daily_remaining // max(amount, 1))
+    max_by_daily    = min(len(eligible), daily_remaining // max(amount, 1))
+    max_by_wallet   = wallet // max(amount, 1)
+    max_players     = min(max_by_daily, max_by_wallet)
     if max_players <= 0:
-        await _w(bot, user.id,
-                 f"⚠️ Daily cap reached.\nUsed: {used}g / {daily_cap}g")
+        if daily_remaining // max(amount, 1) <= 0:
+            await _w(bot, user.id,
+                     f"⚠️ Daily party tip limit reached.\nUsed: {used}g / {daily_cap}g")
+        else:
+            total_needed = amount * len(eligible)
+            await _w(bot, user.id,
+                     f"⚠️ Not enough Party Wallet gold.\n"
+                     f"Needed: {total_needed}g  Available: {wallet}g")
         return
-    eligible        = eligible[:max_players]
-    total_needed    = amount * len(eligible)
-    if wallet < total_needed:
-        await _w(bot, user.id,
-                 f"⚠️ Not enough party gold.\n"
-                 f"Needed: {total_needed}g  Available: {wallet}g")
-        return
-    wallet_before = wallet
-    wallet_after  = wallet - total_needed
-    _set_wallet(wallet_after)
-    _add_daily_used(user.username, total_needed)
-    _log_party_tip(user.id, user.username, "[all]", "[all]",
-                   total_needed, wallet_before, wallet_after,
-                   "success_all", f"players={len(eligible)}")
-    # Per-tip public announcements
+    eligible     = eligible[:max_players]
+    total_needed = amount * len(eligible)
+    # Start message
+    await _w(bot, user.id,
+             f"🎉 Party Tip All Started\n"
+             f"Eligible: {len(eligible)}\n"
+             f"Amount: {amount}g each\n"
+             f"Total Needed: {total_needed}g")
+    # Per-tip with rate-limit delay and per-tip wallet deduction
+    succeeded  = 0
+    failed     = 0
+    cur_wallet = wallet
     for u in eligible:
+        if cur_wallet < amount:
+            await _w(bot, user.id, "⚠️ Party Wallet ran out. Stopping early.")
+            break
         try:
             await bot.highrise.chat(f"💸 Tipped @{u.username} {amount} gold!")
-        except Exception:
-            pass
+            cur_wallet -= amount
+            _set_wallet(cur_wallet)
+            _add_daily_used(user.username, amount)
+            _log_party_tip(user.id, user.username, u.id, u.username,
+                           amount, cur_wallet + amount, cur_wallet, "success")
+            succeeded += 1
+        except Exception as e:
+            err = str(e)
+            if "rate" in err.lower():
+                await _w(bot, user.id,
+                         f"⚠️ Party Tip paused due to rate limit.\n"
+                         f"Successful: {succeeded}  Failed: {failed}\n"
+                         f"Wallet deducted only for successful tips.")
+                break
+            _log_party_tip(user.id, user.username, u.id, u.username,
+                           amount, cur_wallet, cur_wallet, "fail", err[:80])
+            failed += 1
+        await asyncio.sleep(1.2)
+    daily_used_now = _get_daily_used(user.username)
     await _w(bot, user.id,
-             f"🎉 Party Tip All\n"
-             f"Players tipped: {len(eligible)}\n"
+             f"🎉 Party Tip All Complete\n"
+             f"Players tipped: {succeeded}\n"
              f"Amount each: {amount}g\n"
-             f"Total: {total_needed}g\n"
-             f"Party Wallet Left: {wallet_after}g")
+             f"Total: {succeeded * amount}g\n"
+             f"Failed: {failed}\n"
+             f"Party Wallet Left: {cur_wallet}g\n"
+             f"Daily Used: {daily_used_now}/{daily_cap}g")
 
 
 # ---------------------------------------------------------------------------

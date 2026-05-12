@@ -1223,12 +1223,21 @@ _HELP_CATEGORIES: dict[str, str] = {
     ),
     "party": (
         "🎉 Party Tip\n"
-        "!ptlist — view active party tippers\n"
-        "!ptlimits — view party tip limits\n"
-        "Party Tipper Commands:\n"
+        "During party mode, selected helpers can tip players.\n"
+        "View:\n"
+        "!ptlist — party tippers\n"
+        "!ptlimits — party limits\n"
+        "Party Tipper:\n"
         "!tip [user] [amount] — tip one player\n"
-        "!tip [players] [amount] — tip random\n"
-        "!tip all [amount] — tip everyone"
+        "!tip [players] [amount] — tip random players\n"
+        "!tip all [amount] — tip everyone eligible\n"
+        "Owner:\n"
+        "!pton / !ptoff — party mode on/off\n"
+        "!ptwallet [amount] — set wallet\n"
+        "!ptadd [user] [mins] — add tipper\n"
+        "!ptremove [user] — remove tipper\n"
+        "!ptclear — clear all tippers\n"
+        "!ptlimit [type] [amount] — set limit"
     ),
     "staff": (
         "🛠️ Staff Commands\n"

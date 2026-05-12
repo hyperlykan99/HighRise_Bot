@@ -1,0 +1,781 @@
+UPDATE 3.0E — PARTY TIP FINAL POLISH + SAFETY
+
+Goal:
+Finalize Party Tip so it is clean, safe, easy to use, and fully separated from BankingBot gold commands.
+
+Focus:
+- !tip [user] [amount]
+- !tip [players] [amount]
+- !tip all [amount]
+- party wallet safety
+- party tipper limits
+- bots excluded
+- clear messages
+- no BankingBot interference
+- no accidental gold drain
+
+This update should be small and safe.
+Do not rewrite core systems.
+Do not change bot tokens.
+Do not change room ID.
+Do not wipe database.
+Do not reset balances, VIP, mining/fishing, blackjack/poker, teleports, role spawns, bot spawns, subscriptions, notifications, or command registry.
+Do not add AI.
+Do not add hype announcements.
+Do not change casino games.
+Do not change mining/fishing rarity odds.
+
+==================================================
+PART 1 — PARTY TIP OWNERSHIP
+==================================================
+
+Party Tip must belong to ChillTopiaMC only.
+
+Commands owned by ChillTopiaMC:
+!pton
+!ptoff
+!ptstatus
+!ptwallet
+!ptadd
+!ptremove
+!ptclear
+!ptlist
+!ptlimits
+!ptlimit
+!tip
+!tipall
+!ptenable
+!ptdisable
+
+Expected command tests:
+!commandtest !tip
+!commandtest !tipall
+!commandtest !ptwallet
+!commandtest !ptadd
+!commandtest !ptlist
+!commandtest !ptlimits
+
+Expected:
+owner=ChillTopiaMC
+route=YES
+handler=YES
+
+Important:
+!tip must never route to BankingBot.
+!tipall must never route to BankingBot.
+!tipall must never trigger BankingBot Gold Tip All.
+
+==================================================
+PART 2 — BANKINGBOT SEPARATION
+==================================================
+
+BankingBot keeps owner-only gold commands only:
+
+!goldtip [user] [amount]
+!goldtip all [amount]
+!goldtipbots [on|off]
+!goldrain
+!goldrainstatus
+!cancelgoldrain
+
+Rules:
+- !goldtip is owner-only.
+- !goldtip uses BankingBot gold system.
+- !tip uses ChillTopiaMC Party Wallet system.
+- !tipall must redirect to !tip all [amount].
+- Party Tippers cannot use !goldtip.
+- Staff cannot use !goldtip unless owner explicitly allowed already.
+- Do not change owner-only gold system beyond safety checks.
+
+==================================================
+PART 3 — PARTY MODE
+==================================================
+
+Party Tip only works when Party Mode is ON.
+
+Commands:
+
+!pton
+Response:
+🎉 Party Mode ON.
+Party tipping is now active.
+
+!ptoff
+Response:
+🎉 Party Mode OFF.
+Party tipping is paused.
+
+!ptstatus
+Response:
+🎉 Party Status
+Mode: ON/OFF
+Party Tip System: Enabled/Disabled
+Wallet: [amount]g
+Active Tippers: [count]
+Limits: single [x]g | all [x]g | daily [x]g
+
+If party tip system disabled:
+Party Tip: Disabled
+Use !ptenable to enable.
+
+==================================================
+PART 4 — PARTY TIP SYSTEM ENABLE / DISABLE
+==================================================
+
+Owner-only:
+
+!ptenable
+Response:
+✅ Party Tip system enabled.
+
+!ptdisable
+Response:
+🛑 Party Tip system disabled.
+No party gold will be sent.
+
+When disabled:
+- !tip does not send gold.
+- !tip all does not send gold.
+- !tip [players] [amount] does not send gold.
+- !tipall does not send gold.
+- !ptwallet, !ptstatus, !ptlist should still work for owner.
+- No silent failure.
+
+If disabled and user tries !tip:
+🛑 Party Tip is currently disabled.
+
+==================================================
+PART 5 — PARTY WALLET
+==================================================
+
+Party Wallet is separate from BankingBot.
+
+Owner-only:
+!ptwallet
+!ptwallet [amount]
+
+Behavior:
+
+!ptwallet
+Shows current wallet:
+💰 Party Wallet
+Balance: [amount]g
+
+!ptwallet 500
+Sets wallet to 500g:
+💰 Party Wallet updated.
+Balance: 500g
+
+Rules:
+- Amount must be positive integer.
+- No negative wallet.
+- No decimals.
+- Max wallet limit should follow !ptlimit max.
+- If amount exceeds max:
+⚠️ Max Party Wallet is [max]g.
+Use !ptlimit max [amount] to change it.
+
+Do not use BankingBot wallet.
+Do not affect player coin balances.
+Do not affect donation goal.
+
+==================================================
+PART 6 — PARTY TIPPERS
+==================================================
+
+Owner-only management:
+
+!ptadd [user] [minutes]
+!ptremove [user]
+!ptclear
+!ptlist
+
+!ptadd @Player 60
+Response:
+✅ Added @Player as Party Tipper for 60 minutes.
+
+Rules:
+- Max duration default: 120 minutes.
+- If duration missing:
+Usage: !ptadd [user] [minutes]
+Example: !ptadd @Player 60
+- If duration exceeds max:
+⚠️ Max party tipper duration is 120 minutes.
+
+!ptremove @Player
+Response:
+✅ Removed @Player from Party Tippers.
+
+!ptclear
+Response:
+✅ Cleared all Party Tippers.
+
+!ptlist
+Response:
+🎉 Active Party Tippers
+@Player — 45m left
+@Player2 — 20m left
+
+If none:
+🎉 No active Party Tippers.
+
+==================================================
+PART 7 — PARTY LIMITS
+==================================================
+
+Owner-only:
+!ptlimits
+!ptlimit [single|all|daily|max|duration] [amount]
+
+Default limits:
+single = 10g
+all = 5g each
+daily = 100g per Party Tipper
+max = 500g Party Wallet max
+duration = 120 minutes
+self_tip = OFF
+bots_excluded = ON
+
+!ptlimits response:
+
+🎉 Party Tip Limits
+Single: 10g
+All: 5g each
+Daily: 100g
+Wallet Max: 500g
+Tipper Duration Max: 120m
+Self Tip: OFF
+Bots Excluded: ON
+
+!ptlimit single 20
+Response:
+✅ Single tip limit set to 20g.
+
+!ptlimit all 10
+Response:
+✅ Tip-all limit set to 10g each.
+
+!ptlimit daily 200
+Response:
+✅ Daily tipper limit set to 200g.
+
+!ptlimit max 1000
+Response:
+✅ Party wallet max set to 1000g.
+
+!ptlimit duration 180
+Response:
+✅ Party tipper duration max set to 180 minutes.
+
+Usage if wrong:
+Usage: !ptlimit [single|all|daily|max|duration] [amount]
+
+==================================================
+PART 8 — TIP ONE PLAYER
+==================================================
+
+Command:
+!tip [user] [amount]
+
+Example:
+!tip @Player 5
+
+Requirements:
+1. Party Tip system enabled.
+2. Party Mode ON.
+3. User is owner or active Party Tipper.
+4. Target is real player.
+5. Target is not a bot.
+6. Target is in room if room check is available.
+7. Amount is positive integer.
+8. Amount <= single limit.
+9. Party Wallet has enough gold.
+10. Daily tipper limit not exceeded.
+11. Real Highrise tip succeeds before wallet is deducted.
+
+Success public message from ChillTopiaMC:
+💸 Tipped @Player 5 gold!
+
+Then whisper summary to tipper:
+🎉 Party Tip Sent
+To: @Player
+Amount: 5g
+Party Wallet Left: [remaining]g
+Daily Used: [used]/[limit]g
+
+If target is bot:
+🤖 Bots cannot receive gold tips.
+
+If amount too high:
+⚠️ Single tip limit is [limit]g.
+
+If not enough wallet:
+⚠️ Not enough Party Wallet gold.
+Needed: [needed]g
+Available: [wallet]g
+
+If not party tipper:
+🔒 Party Tipper only.
+Ask the owner for temporary party tipping access.
+
+If party mode off:
+🎉 Party Mode is OFF.
+Party tipping only works during Party Mode.
+
+==================================================
+PART 9 — TIP RANDOM PLAYERS
+==================================================
+
+Command:
+!tip [players] [amount]
+
+Example:
+!tip 5 5
+
+Meaning:
+Tip 5 random eligible real players with 5 gold each.
+
+Requirements:
+1. Exclude bots.
+2. Exclude current bot.
+3. Exclude ChillTopiaMC.
+4. Exclude BankingBot/BankerBot.
+5. Exclude all known bot usernames.
+6. Exclude usernames ending in bot.
+7. Exclude self if self-tip OFF.
+8. Randomly select up to requested count.
+9. If fewer eligible players exist, tip available eligible players instead.
+10. Wallet check uses actual selected count.
+11. Tip each player one by one.
+12. Deduct wallet only after each successful real tip.
+13. Continue if one player fails, but log failure.
+14. Do not crash.
+
+If user types:
+!tip 5 5
+
+and only 3 eligible players are found:
+
+Reply first:
+⚠️ Only 3 eligible player(s) found.
+Tipping 3 player(s) instead.
+
+Then for every successful tip, public chat:
+💸 Tipped @Player1 5 gold!
+💸 Tipped @Player2 5 gold!
+💸 Tipped @Player3 5 gold!
+
+Final whisper summary:
+🎉 Party Tip Random
+Players tipped: 3
+Amount each: 5g
+Total: 15g
+Failed: 0
+Party Wallet Left: [remaining]g
+Daily Used: [used]/[limit]g
+
+If no eligible players:
+⚠️ No eligible real players found.
+Bots are excluded from all gold tipping.
+
+If amount exceeds all limit:
+⚠️ Random tip limit is [limit]g each.
+
+==================================================
+PART 10 — TIP ALL PLAYERS
+==================================================
+
+Command:
+!tip all [amount]
+
+Example:
+!tip all 1
+
+Meaning:
+Tip every eligible real player in room with 1 gold each.
+
+Requirements:
+1. Exclude bots.
+2. Exclude current bot.
+3. Exclude ChillTopiaMC.
+4. Exclude BankingBot/BankerBot.
+5. Exclude all known bot usernames.
+6. Exclude usernames ending in bot.
+7. Exclude self if self-tip OFF.
+8. Amount <= all limit.
+9. Wallet has enough gold for eligible count * amount.
+10. Daily tipper limit not exceeded.
+11. Deduct wallet only after successful real tip.
+12. Do not crash.
+
+Start message:
+🎉 Party Tip All Started
+Eligible: [count]
+Amount: [amount]g each
+Total Needed: [total]g
+
+For every successful tip, public chat:
+💸 Tipped @Player 1 gold!
+
+Final whisper summary:
+🎉 Party Tip All Complete
+Players tipped: [count]
+Amount each: [amount]g
+Total: [total]g
+Failed: [failed]
+Party Wallet Left: [remaining]g
+Daily Used: [used]/[limit]g
+
+If no eligible players:
+⚠️ No eligible real players found.
+Bots are excluded from all gold tipping.
+
+If not enough wallet:
+⚠️ Not enough Party Wallet gold.
+Needed: [needed]g
+Available: [wallet]g
+
+==================================================
+PART 11 — !TIPALL REDIRECT
+==================================================
+
+Command:
+!tipall [amount]
+
+This command must NOT send gold.
+
+Response from ChillTopiaMC:
+⚠️ Use !tip all [amount] for Party Tips.
+Example: !tip all 5
+
+Rules:
+- !tipall owner=ChillTopiaMC
+- route=YES
+- handler=YES
+- status=disabled_redirect
+- does not call BankingBot
+- does not call goldtip all
+- does not deduct party wallet
+- does not send Highrise gold
+
+==================================================
+PART 12 — BOT EXCLUSION
+==================================================
+
+Bots must be excluded from all Party Tips and all gold tipping unless owner explicitly enables bot gold tips for BankingBot only.
+
+Party Tip always excludes bots.
+
+Known bot usernames:
+ChillTopiaMC
+EmceeBot
+BankerBot
+BankingBot
+GreatestProspector
+MasterAngler
+BlackJackBot
+PokerBot
+SecurityBot
+EventBot
+AceSinatra
+ChipSoprano
+KeanuShield
+DJ_DUDU
+ArcadiaRadio
+
+Also exclude:
+- current bot user ID
+- known bot user IDs discovered in room
+- any username ending with bot
+- any account marked bot internally
+- any bot mode account
+
+If target bot:
+🤖 Bots cannot receive gold tips.
+
+==================================================
+PART 13 — REAL GOLD SEND SAFETY
+==================================================
+
+Before calling Highrise tip API:
+- validate amount
+- validate recipient
+- validate wallet
+- validate limits
+- validate party mode
+- validate permission
+
+When calling real gold tip:
+- catch exceptions
+- catch insufficient funds
+- catch target not found
+- catch bot target error
+- catch API/rate limit error
+- do not crash
+- do not deduct party wallet if send fails
+
+If send fails:
+⚠️ Tip failed for @Player.
+Reason: [short safe reason]
+Wallet not deducted.
+
+If random/all:
+Continue to next user if safe.
+Log failures.
+
+==================================================
+PART 14 — RATE LIMIT / DELAY SAFETY
+==================================================
+
+For random/all tipping:
+- Add small delay between gold tips to avoid rate limits.
+- Recommended delay: 1.0 to 1.5 seconds.
+- If rate limit detected, pause briefly or stop safely.
+- Do not spam too fast.
+- Do not trigger bot reconnect.
+
+If stopped due to rate limit:
+⚠️ Party Tip paused due to rate limit.
+Successful: [count]
+Failed: [failed]
+Wallet deducted only for successful tips.
+
+==================================================
+PART 15 — DAILY LIMITS
+==================================================
+
+Track daily usage per Party Tipper.
+
+Rules:
+- Owner can bypass daily limit or follow it based on existing setting.
+- Party Tipper must follow daily limit.
+- Daily usage resets daily.
+- Usage counts only successful real tips.
+- Failed tips do not count.
+- Wallet failed tips do not count.
+
+If daily limit exceeded:
+⚠️ Daily party tip limit reached.
+Used: [used]g
+Limit: [limit]g
+
+If requested would exceed limit:
+⚠️ This tip would exceed your daily limit.
+Available today: [remaining]g
+
+For random/all:
+If total exceeds available daily:
+- Do not send partial unless safe setting allows.
+- Preferred: stop and tell available amount.
+
+==================================================
+PART 16 — LOGGING
+==================================================
+
+Log every party tip attempt.
+
+party_tip_log should include:
+- tipper_id
+- tipper_name
+- receiver_id
+- receiver_name
+- amount
+- wallet_before
+- wallet_after
+- party_mode
+- result success/fail
+- note/error
+- created_at
+
+Do not log sensitive tokens.
+Do not expose internal IDs to players.
+
+==================================================
+PART 17 — COMMAND USAGE
+==================================================
+
+If user types:
+!tip
+
+Reply:
+Usage:
+!tip [user] [amount]
+!tip [players] [amount]
+!tip all [amount]
+
+Examples:
+!tip @Player 5
+!tip 5 5
+!tip all 1
+
+If user types:
+!ptadd
+
+Reply:
+Usage: !ptadd [user] [minutes]
+Example: !ptadd @Player 60
+
+If user types:
+!ptwallet
+
+Show wallet.
+
+If user types:
+!ptlimit
+
+Reply:
+Usage: !ptlimit [single|all|daily|max|duration] [amount]
+Example: !ptlimit single 10
+
+==================================================
+PART 18 — HELP UPDATE
+==================================================
+
+Update !help party only if needed.
+
+Regular player:
+
+🎉 Party Tip
+During party mode, selected helpers can tip players.
+
+View:
+!ptlist — party tippers
+!ptlimits — party limits
+
+Party Tipper:
+!tip [user] [amount] — tip one player
+!tip [players] [amount] — tip random players
+!tip all [amount] — tip everyone eligible
+
+Owner:
+!pton — party mode on
+!ptoff — party mode off
+!ptwallet [amount] — set wallet
+!ptadd [user] [minutes] — add tipper
+!ptremove [user] — remove tipper
+!ptclear — clear tippers
+!ptlimit [type] [amount] — set limit
+
+Do not show !goldtip here.
+
+==================================================
+PART 19 — COMMAND TESTS
+==================================================
+
+Run:
+
+!commandtest !tip
+!commandtest !tipall
+!commandtest !pton
+!commandtest !ptoff
+!commandtest !ptstatus
+!commandtest !ptwallet
+!commandtest !ptadd
+!commandtest !ptremove
+!commandtest !ptclear
+!commandtest !ptlist
+!commandtest !ptlimits
+!commandtest !ptlimit
+!commandtest !goldtip
+
+Expected:
+!tip owner=ChillTopiaMC route=YES handler=YES
+!tipall owner=ChillTopiaMC route=YES handler=YES
+!pt commands owner=ChillTopiaMC route=YES handler=YES
+!goldtip owner=BankingBot route=YES handler=YES permission=Owner
+
+==================================================
+PART 20 — LIVE TESTS
+==================================================
+
+Run:
+
+!ptstatus
+!pton
+!ptwallet 100
+!ptlimits
+!ptadd @realplayer 30
+!ptlist
+!tip @realplayer 1
+!tip 5 1
+!tip all 1
+!tipall 1
+!ptoff
+
+Expected:
+- !tip one player works.
+- !tip 5 1 tips random eligible players.
+- If fewer players, warns then tips available players.
+- !tip all 1 tips eligible real players only.
+- !tipall 1 redirects only and does not send gold.
+- Bots are excluded.
+- Wallet deducts only for successful tips.
+- No BankingBot response to !tipall.
+- No command issues.
+
+==================================================
+PART 21 — NEGATIVE / BAD INPUT TESTS
+==================================================
+
+Run:
+
+!tip @Player -5
+!tip @Player 0
+!tip @Player abc
+!tip 5 abc
+!tip all abc
+!tip @ChillTopiaMC 1
+!ptwallet -100
+!ptadd @Player abc
+!ptlimit single abc
+
+Expected:
+- No crash.
+- Clear usage or validation error.
+- No wallet deduction.
+- No gold sent.
+
+==================================================
+PART 22 — STABILITY TESTS
+==================================================
+
+After Party Tip tests, run:
+
+!commandissues
+!checkcommands
+!bothealth
+!stability status
+!botconflicts
+!modulehealth
+
+Expected:
+- command issues clean
+- checkcommands clean
+- Err: none
+- no bot conflicts
+- no reconnect loop
+- no DB lock spam
+- no quick restarting
+
+==================================================
+PART 23 — FINAL REPORT
+==================================================
+
+After finishing, report:
+
+1. Party Tip ownership confirmed.
+2. BankingBot separation confirmed.
+3. !tip one player tested.
+4. !tip random players tested.
+5. !tip all tested.
+6. !tipall redirect tested.
+7. Bots excluded confirmed.
+8. Party Wallet safety confirmed.
+9. Daily limits confirmed.
+10. Rate limit delay added/confirmed.
+11. Failed tips do not deduct wallet.
+12. Party tip logs confirmed.
+13. Bad input tests passed.
+14. !commandissues result.
+15. !checkcommands result.
+16. !bothealth/stability result.
