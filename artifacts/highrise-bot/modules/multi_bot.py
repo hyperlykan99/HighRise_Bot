@@ -226,7 +226,8 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "goldtips": "banker", "goldtx": "banker",
     "pendinggold": "banker", "confirmgoldtip": "banker",
     "setgoldrainstaff": "banker", "setgoldrainmax": "banker",
-    "goldtipbots": "banker", "tipall": "banker", "goldtipall": "banker",
+    "goldtipbots": "banker", "goldtipall": "banker",
+    "tipall": "host",
     # ── security (additions) ─────────────────────────────────────────────────
     "clearwarnings": "security",
     "reportinfo": "security", "closereport": "security",

@@ -1,0 +1,283 @@
+Update 2.1A Hotfix — Party Tip Count Format + Stop BankingBot !tipall
+
+Current issue:
+!tip works for ChillTopiaMC Party Wallet, but I want this command format:
+
+!tip [players] [amount]
+
+Example:
+!tip 5 5
+
+Meaning:
+Tip 5 random eligible players, 5g each.
+
+Also:
+!tipall is still being handled by BankingBot and triggers BankingBot Gold Tip All.
+I do not want !tipall to use BankingBot for party tipping.
+
+==================================================
+PART 1 — CHANGE PARTY TIP FORMAT
+==================================================
+
+Update ChillTopiaMC Party Tip command:
+
+Supported formats:
+
+!tip [user] [amount]
+!tip [players] [amount]
+!tip all [amount]
+
+Examples:
+
+!tip @Player 5
+- Tips @Player 5g from ChillTopiaMC Party Wallet.
+
+!tip 5 5
+- Tips 5 random eligible players 5g each from ChillTopiaMC Party Wallet.
+
+!tip all 5
+- Tips all eligible players 5g each from ChillTopiaMC Party Wallet.
+
+Rules:
+- !tip is owned by ChillTopiaMC.
+- !tip uses ChillTopiaMC Party Wallet only.
+- !tip does not touch BankingBot/BankerBot gold wallet.
+- !tip only works when Party Mode is ON.
+- !tip can be used only by Owner or active Party Tipper.
+- Bots are excluded.
+- Self-tip is OFF by default unless owner changes it.
+- Every party tip is logged.
+
+==================================================
+PART 2 — !TIP [PLAYERS] [AMOUNT]
+==================================================
+
+Command:
+!tip [players] [amount]
+
+Example:
+!tip 5 5
+
+Behavior:
+1. First number = number of random eligible players.
+2. Second number = gold amount per player.
+3. Select random eligible real players currently in room.
+4. Exclude bots.
+5. Exclude self if self-tip OFF.
+6. Respect Party Wallet balance.
+7. Respect all-tip limit.
+8. Respect daily party tipper cap.
+9. Send tips from ChillTopiaMC Party Wallet only.
+
+Expected response:
+
+🎉 Party Tip Random
+Players tipped: 5
+Amount each: 5g
+Total: 25g
+Party Wallet Left: 275g
+
+If not enough eligible players:
+
+⚠️ Only [count] eligible players found.
+Tipping [count] players instead.
+
+If wallet is not enough:
+
+⚠️ Not enough Party Wallet gold.
+Needed: 25g
+Available: 10g
+
+==================================================
+PART 3 — KEEP !TIP ALL [AMOUNT]
+==================================================
+
+Command:
+!tip all [amount]
+
+Example:
+!tip all 5
+
+Behavior:
+Tips all eligible real players in room 5g each.
+
+Expected response:
+
+🎉 Party Tip All
+Players tipped: [count]
+Amount each: 5g
+Total: [total]g
+Party Wallet Left: [remaining]g
+
+==================================================
+PART 4 — KEEP !TIP @USER [AMOUNT]
+==================================================
+
+Command:
+!tip @Player [amount]
+
+Example:
+!tip @aCuNNN 5
+
+Expected response:
+
+🎉 Party Tip Sent
+From: ChillTopiaMC Party Wallet
+To: @aCuNNN
+Amount: 5g
+Party Wallet Left: [remaining]g
+
+==================================================
+PART 5 — STOP BANKINGBOT FROM HANDLING !TIPALL
+==================================================
+
+Current problem:
+!tipall is handled by BankingBot and triggers Gold Tip All.
+
+Fix options:
+Preferred:
+Disable !tipall completely and tell users to use !tip all [amount].
+
+When someone types:
+!tipall 5
+
+Response from ChillTopiaMC or BankingBot:
+
+⚠️ Use !tip all [amount] for Party Tips.
+Example: !tip all 5
+
+Do not send gold.
+Do not trigger BankingBot Gold Tip All.
+
+Alternative acceptable:
+Make !tipall an alias for ChillTopiaMC Party Tip:
+!tipall 5 = !tip all 5
+
+But preferred safest option:
+Disable !tipall to avoid confusion.
+
+Required:
+!tipall must NOT trigger BankingBot Gold Tip All anymore.
+
+==================================================
+PART 6 — KEEP BANKER/BANKING GOLD COMMANDS SEPARATE
+==================================================
+
+Keep these owner-only under BankingBot/BankerBot:
+
+!goldtip [user] [amount]
+!goldtip all [amount]
+!goldtipbots [on|off]
+!goldtipall [amount] if still needed for owner only
+
+But:
+!tip = ChillTopiaMC Party Wallet
+!tip all = ChillTopiaMC Party Wallet
+!tip [players] [amount] = ChillTopiaMC Party Wallet
+!tipall = disabled or redirected to !tip all
+
+==================================================
+PART 7 — COMMAND TESTS
+==================================================
+
+Run:
+
+/commandtest !tip
+/commandtest !tipall
+/commandtest !goldtip
+/commandtest !goldtipall
+
+Expected:
+
+!tip:
+owner=ChillTopiaMC
+route=YES
+handler=YES
+
+!tipall:
+Either:
+owner=ChillTopiaMC
+route=YES
+handler=YES
+status=redirect_to_tip_all
+
+OR:
+owner=ChillTopiaMC
+route=YES
+handler=YES
+status=disabled_alias
+
+But NOT:
+owner=BankingBot
+
+!goldtip:
+owner=BankingBot
+route=YES
+handler=YES
+permission=Owner only
+
+!goldtipall:
+owner=BankingBot
+route=YES
+handler=YES
+permission=Owner only
+
+==================================================
+PART 8 — LIVE TESTS
+==================================================
+
+Set up:
+
+!pton
+!ptwallet 300
+!ptstatus
+
+Test one player:
+
+!tip @aCuNNN 5
+
+Expected:
+ChillTopiaMC Party Wallet sends 5g.
+BankingBot does not respond.
+
+Test random players:
+
+!tip 2 5
+
+Expected:
+ChillTopiaMC tips 2 random eligible players 5g each.
+BankingBot does not respond.
+
+Test all:
+
+!tip all 5
+
+Expected:
+ChillTopiaMC tips all eligible players 5g each.
+BankingBot does not respond.
+
+Test old command:
+
+!tipall 5
+
+Expected:
+No BankingBot Gold Tip All.
+Response:
+⚠️ Use !tip all [amount] for Party Tips.
+Example: !tip all 5
+
+==================================================
+PART 9 — SAFETY
+==================================================
+
+Do not:
+- let !tipall use BankingBot
+- let Party Tippers use !goldtip
+- let Party Tippers use !goldtip all
+- let !tip use BankingBot wallet
+- tip bots
+- allow negative or zero tips
+- ignore wallet balance
+- ignore party mode
+- wipe logs
+- wipe wallet

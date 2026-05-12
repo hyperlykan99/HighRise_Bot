@@ -965,7 +965,7 @@ REGISTRY: dict[str, Cmd] = {
     "settiptier":            Cmd("banker",  "economy", False, False, True,  perm="admin"),
     "settipautosub":         Cmd("banker",  "economy", False, False, True,  perm="admin"),
     "settipresubscribe":     Cmd("banker",  "economy", False, False, True,  perm="admin"),
-    "tipall":                Cmd("banker",  "goldtip", False, False, True,  perm="owner"),
+    "tipall":                Cmd("host",    "party_tip",True,  True,  False),
     "goldtipbots":           Cmd("banker",  "goldtip", False, True,  False, perm="owner"),
     "goldtipall":            Cmd("banker",  "goldtip", False, False, True,  perm="owner"),
 

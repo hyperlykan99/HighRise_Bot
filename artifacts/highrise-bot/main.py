@@ -548,6 +548,7 @@ from modules.party_tip import (
     handle_ptlimits,
     handle_ptlimit,
     handle_tip as handle_party_tip,
+    handle_tipall_redirect,
 )
 from modules.economy_audit import (
     handle_economyaudit, handle_gameprices, handle_gameprice,
@@ -782,7 +783,7 @@ OWNER_ONLY_CMDS = {
     "goldrainrole", "goldrainvip", "goldraintitle", "goldrainbadge", "goldrainlist",
     "goldwallet", "goldtips", "goldtx", "pendinggold",
     "confirmgoldtip", "setgoldrainstaff", "setgoldrainmax",
-    "goldtipbots", "tipall", "goldtipall",
+    "goldtipbots", "goldtipall",
     "debugsub",
     "debugtips",
     "restarthelp", "restartstatus",
@@ -2978,7 +2979,7 @@ class HangoutBot(BaseBot):
                 await handle_setgoldrainmax(self, user, args)
             elif cmd == "goldtipbots":
                 await handle_goldtipbots(self, user, args)
-            elif cmd in ("tipall", "goldtipall"):
+            elif cmd == "goldtipall":
                 await handle_tipall(self, user, args)
             elif cmd == "debugtips":
                 await handle_debugtips(self, user, args)
@@ -5246,6 +5247,8 @@ class HangoutBot(BaseBot):
             await handle_ptoff(self, user)
         elif cmd == "ptstatus":
             await handle_ptstatus(self, user)
+        elif cmd == "tipall":
+            await handle_tipall_redirect(self, user)
         elif cmd in ("ptwallet", "partywallet", "setpartywallet"):
             await handle_ptwallet(self, user, args)
         elif cmd in ("ptadd", "partytipperadd"):

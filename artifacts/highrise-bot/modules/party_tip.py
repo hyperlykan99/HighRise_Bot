@@ -482,7 +482,13 @@ async def handle_ptlimit(bot: BaseBot, user: User, args: list[str]) -> None:
 # ---------------------------------------------------------------------------
 
 async def handle_tip(bot: BaseBot, user: User, args: list[str]) -> None:
-    """!tip — party tip from ChillTopiaMC Party Wallet."""
+    """!tip — party tip from ChillTopiaMC Party Wallet.
+
+    Formats:
+      !tip @user [amount]      — tip one player
+      !tip [count] [amount]    — tip N random players
+      !tip all [amount]        — tip all eligible players
+    """
     owner  = is_owner(user.username)
     tipper = _is_active_tipper(user.username)
     if not owner and not tipper:
@@ -497,18 +503,35 @@ async def handle_tip(bot: BaseBot, user: User, args: list[str]) -> None:
         return
     if len(args) < 3:
         await _w(bot, user.id,
-                 "Usage: !tip [user] [amount]\nOr: !tip all [amount]")
+                 "Usage: !tip @user [amt] | !tip all [amt] | !tip [count] [amt]")
         return
     wallet = _get_wallet()
     if wallet <= 0:
         await _w(bot, user.id,
                  "⚠️ Party Wallet is empty.\nOwner must add party gold with !ptwallet")
         return
-    if args[1].lower() == "all":
+
+    target = args[1]
+
+    # ── !tip all [amount] ────────────────────────────────────────────────
+    if target.lower() == "all":
         await _handle_tip_all(bot, user, args, wallet)
         return
-    # ── Single tip ────────────────────────────────────────────────────────
-    target_raw = args[1].lstrip("@")
+
+    # ── !tip [count] [amount]  (first arg is a positive integer) ─────────
+    try:
+        count = int(target)
+        if count >= 1:
+            await _handle_tip_random(bot, user, args, wallet, count)
+            return
+        else:
+            await _w(bot, user.id, "⚠️ Player count must be at least 1.")
+            return
+    except ValueError:
+        pass
+
+    # ── !tip @user [amount] ───────────────────────────────────────────────
+    target_raw = target.lstrip("@")
     try:
         amount = int(args[2])
         if amount < 1:
@@ -547,6 +570,83 @@ async def handle_tip(bot: BaseBot, user: User, args: list[str]) -> None:
              f"From: ChillTopiaMC Party Wallet\n"
              f"To: @{target_raw}\n"
              f"Amount: {amount}g\n"
+             f"Party Wallet Left: {wallet_after}g")
+
+
+async def _handle_tip_random(
+    bot: BaseBot, user: User, args: list[str], wallet: int, count: int
+) -> None:
+    """Tip exactly *count* random eligible players."""
+    import random as _random
+    try:
+        amount = int(args[2])
+        if amount < 1:
+            raise ValueError
+    except ValueError:
+        await _w(bot, user.id, "Amount must be at least 1g.")
+        return
+    all_cap   = _limit("all",   _DEF_ALL)
+    daily_cap = _limit("daily", _DEF_DAILY)
+    if amount > all_cap:
+        await _w(bot, user.id,
+                 f"⚠️ Per-player tip limit: {all_cap}g each\nDaily cap: {daily_cap}g")
+        return
+    used = _get_daily_used(user.username)
+    if used >= daily_cap:
+        await _w(bot, user.id,
+                 f"⚠️ Daily cap reached.\nUsed: {used}g / {daily_cap}g")
+        return
+    try:
+        from modules.room_utils import _get_all_room_users
+        all_users = await _get_all_room_users(bot)
+    except Exception:
+        await _w(bot, user.id, "Could not fetch room users.")
+        return
+    eligible = [
+        u for u, _ in all_users
+        if not _is_bot(u.username) and u.id != user.id
+    ]
+    if not eligible:
+        await _w(bot, user.id, "No eligible players to tip.")
+        return
+    # Cap by daily remaining
+    daily_remaining = max(0, daily_cap - used)
+    max_by_daily    = daily_remaining // max(amount, 1)
+    actual_count    = min(count, len(eligible), max_by_daily)
+    if actual_count <= 0:
+        await _w(bot, user.id,
+                 f"⚠️ Daily cap reached.\nUsed: {used}g / {daily_cap}g")
+        return
+    warned = False
+    if actual_count < count:
+        found = min(count, len(eligible))
+        if found < count:
+            await _w(bot, user.id,
+                     f"⚠️ Only {found} eligible player(s) found.\n"
+                     f"Tipping {actual_count} player(s) instead.")
+        else:
+            await _w(bot, user.id,
+                     f"⚠️ Daily cap limits tip to {actual_count} player(s).")
+        warned = True
+    selected     = _random.sample(eligible, actual_count)
+    total_needed = amount * actual_count
+    if wallet < total_needed:
+        await _w(bot, user.id,
+                 f"⚠️ Not enough Party Wallet gold.\n"
+                 f"Needed: {total_needed}g  Available: {wallet}g")
+        return
+    wallet_before = wallet
+    wallet_after  = wallet - total_needed
+    _set_wallet(wallet_after)
+    _add_daily_used(user.username, total_needed)
+    _log_party_tip(user.id, user.username, "[random]", "[random]",
+                   total_needed, wallet_before, wallet_after,
+                   "success_random", f"players={actual_count}")
+    await _w(bot, user.id,
+             f"🎉 Party Tip Random\n"
+             f"Players tipped: {actual_count}\n"
+             f"Amount each: {amount}g\n"
+             f"Total: {total_needed}g\n"
              f"Party Wallet Left: {wallet_after}g")
 
 
@@ -609,3 +709,13 @@ async def _handle_tip_all(bot: BaseBot, user: User, args: list[str], wallet: int
              f"Players tipped: {len(eligible)}\n"
              f"Total: {total_needed}g\n"
              f"Party Wallet Left: {wallet_after}g")
+
+
+# ---------------------------------------------------------------------------
+# !tipall redirect — disabled alias, redirects to !tip all [amount]
+# ---------------------------------------------------------------------------
+
+async def handle_tipall_redirect(bot: BaseBot, user: User) -> None:
+    """!tipall is disabled. Redirects users to !tip all [amount]."""
+    await _w(bot, user.id,
+             "⚠️ Use !tip all [amount] for Party Tips.\nExample: !tip all 5")
