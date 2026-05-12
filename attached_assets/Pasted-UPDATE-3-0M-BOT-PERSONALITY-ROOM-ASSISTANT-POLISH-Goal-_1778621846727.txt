@@ -1,0 +1,482 @@
+UPDATE 3.0M — BOT PERSONALITY + ROOM ASSISTANT POLISH
+
+Goal:
+Make ChillTopiaMC feel more friendly, helpful, and useful as a room assistant while keeping all important systems safe.
+
+Focus:
+- Better greeting/personality
+- Better unknown command replies
+- Helpful room assistant answers
+- Better player guidance
+- Prevent AI/chat from intercepting real commands
+- Keep economy, casino, admin, teleport, party tip, and notification systems protected
+- Keep replies short under Highrise message cap
+
+This update is assistant/personality polish only.
+
+Do not rewrite core systems.
+Do not change bot tokens.
+Do not change room ID.
+Do not wipe database.
+Do not reset balances, VIP, inventories, mining/fishing data, blackjack/poker data, teleports, role spawns, bot spawns, party tip wallet, shop items, badges, titles, donation logs, notification settings, or command registry.
+Do not change mining/fishing odds.
+Do not change casino odds.
+Do not change rewards.
+Do not add advanced autonomous AI.
+Do not let AI run admin/economy/casino/tip/spawn commands.
+Do not let AI send gold.
+Do not let AI buy items.
+Do not let AI change settings.
+Do not let AI start or stop systems.
+
+==================================================
+PART 1 — STABILITY FIRST
+==================================================
+
+Before changing anything, verify:
+
+!commandissues
+!checkcommands
+!checkhelp
+!bothealth
+!stability status
+!botconflicts
+!modulehealth
+
+Expected:
+- no command issues
+- no checkcommands mismatch
+- no help issues
+- Err: none
+- no bot conflicts
+
+If there are errors, fix those first before changing assistant/personality behavior.
+
+==================================================
+PART 2 — ROOM ASSISTANT SCOPE
+==================================================
+
+ChillTopiaMC can answer simple room-help questions.
+
+Allowed topics:
+- what to do in the room
+- games available
+- blackjack/poker help
+- mining help
+- fishing help
+- VIP info
+- party tip info
+- notification/subscription info
+- teleport info
+- shop info
+- donation goal info
+- basic room rules
+- how to use help commands
+
+ChillTopiaMC must NOT control or execute restricted actions through AI.
+
+Restricted systems:
+- economy
+- gold tips
+- party tips
+- BankingBot wallet
+- VIP grants/removals
+- casino bets/actions
+- blackjack/poker actions
+- teleport/spawn management
+- bot spawns
+- role spawns
+- role management
+- stability/admin commands
+- command registry fixes
+- notification broadcasts
+- database edits
+
+If a user asks assistant-style text to do a restricted action, reply with the real command or say owner-only.
+
+Example:
+User: give everyone gold
+Reply:
+I can’t send gold from chat. Owner tools use !goldtip or party tips use !tip during Party Mode.
+
+==================================================
+PART 3 — COMMAND ROUTER SAFETY
+==================================================
+
+All messages starting with ! must go through command router first.
+
+AI/chat fallback must NOT intercept known commands.
+
+Known commands must route before AI:
+!tip
+!tipall
+!goldtip
+!buyvip
+!send
+!balance
+!bet
+!hit
+!stand
+!double
+!split
+!fold
+!call
+!raise
+!mine
+!fish
+!automine
+!autofish
+!tele
+!summon
+!setbotspawn
+!setbotspawnhere
+!setrolespawn
+!stability
+!dashboard
+!ownerpanel
+!commandissues
+!checkcommands
+!ptwallet
+!pton
+!ptoff
+!grantvip
+!removevip
+!fixbotowners
+!fixautogames
+!clearstalebotlocks
+!subscribe
+!sub
+!unsubscribe
+!unsub
+!notif
+
+Rules:
+- If message starts with ! and command is known, route command.
+- If message starts with ! and command is unknown, use unknown command handler.
+- Do not send command text to AI fallback.
+- Do not let AI guess command execution.
+
+==================================================
+PART 4 — UNKNOWN COMMAND POLISH
+==================================================
+
+Improve unknown command replies.
+
+Default unknown command:
+
+⚠️ Unknown command.
+Try !help, !help games, !tele list, or !shop.
+
+If command looks close to an existing command, suggest the closest match.
+
+Examples:
+
+User:
+!fishchance
+
+Reply:
+⚠️ Unknown command.
+Did you mean !fishchances?
+
+User:
+!minechance
+
+Reply:
+⚠️ Unknown command.
+Did you mean !minechances?
+
+User:
+!bal
+
+Reply:
+⚠️ Unknown command.
+Did you mean !balance?
+
+User:
+!invent
+
+Reply:
+⚠️ Unknown command.
+Did you mean !inventory?
+
+Rules:
+- Keep under 220 characters.
+- Do not spam multiple suggestions.
+- Do not suggest owner-only commands to regular players.
+- Do not suggest hidden/deprecated commands.
+- Do not suggest / commands.
+
+==================================================
+PART 5 — GREETING PERSONALITY
+==================================================
+
+Polish ChillTopiaMC greeting.
+
+When a player asks:
+hi
+hello
+hey
+yo
+what’s up
+
+Reply with a friendly short message.
+
+Examples:
+
+👋 Welcome to ChillTopia!
+Type !help games to play, !tele list to explore, or ask me what you can do here.
+
+Or:
+
+Hey! 👋 You can mine, fish, play casino games, chill, or check VIP perks. Type !help games to start.
+
+Rules:
+- Do not greet every single normal message.
+- Cooldown greeting per user: at least 60 seconds.
+- Keep under 220 characters.
+- Do not interrupt active command responses.
+
+==================================================
+PART 6 — ROOM GUIDE QUESTIONS
+==================================================
+
+Add helpful responses for common questions.
+
+If user asks:
+what can i do here
+what is this room
+what games are here
+what do i do
+
+Reply:
+
+🎮 In ChillTopia, you can mine, fish, play blackjack/poker, join mini games, chill, and use party tips during events.
+Start with !help games.
+
+If user asks:
+how do i mine
+
+Reply:
+
+⛏️ Type !mine to mine once.
+Use !automine for auto mining, !mineinv for inventory, and !minechances for odds.
+
+If user asks:
+how do i fish
+
+Reply:
+
+🎣 Type !fish to fish once.
+Use !autofish for auto fishing, !fishinv for inventory, and !fishchances for odds.
+
+If user asks:
+how do i play blackjack
+
+Reply:
+
+🃏 Blackjack:
+!bet [amount] to start
+!hit to draw
+!stand to hold
+Use !bjhelp for more.
+
+If user asks:
+how do i play poker
+
+Reply:
+
+♠️ Poker:
+Use !poker or !pokerhelp to see rules and commands.
+Bet carefully and check your balance with !balance.
+
+If user asks:
+how do i get vip
+what is vip
+
+Reply:
+
+💎 VIP gives convenience perks like longer automine/autofish.
+Use !vip or !vipperks to learn more.
+
+If user asks:
+how do i subscribe
+notifications
+
+Reply:
+
+🔔 To receive room notifications, DM me !subscribe.
+Use !notif to manage categories and !unsub to stop.
+
+If user asks:
+how do i teleport
+where can i go
+
+Reply:
+
+🏠 Use !tele list to see spots.
+Then type !tele [spot], example: !tele games.
+
+If user asks:
+what is party mode
+party tip
+
+Reply:
+
+🎉 Party Mode lets approved Party Tippers send gold from the Party Wallet.
+Use !help party for details.
+
+If user asks:
+shop
+how do i buy
+
+Reply:
+
+🛍️ Use !shop to browse items and !buy [item_id] to buy.
+Use !inv to view your items.
+
+==================================================
+PART 7 — SHORT ASSISTANT RESPONSES
+==================================================
+
+All assistant responses must be short.
+
+Rules:
+- Max 220 characters.
+- Prefer 1 message.
+- Split only if needed.
+- No long paragraphs.
+- No raw debug output.
+- No secrets.
+- No command lists longer than needed.
+
+==================================================
+PART 8 — PLAYER-FACING TONE
+==================================================
+
+ChillTopiaMC tone:
+- friendly
+- chill
+- helpful
+- short
+- not spammy
+- not too robotic
+- not too flirty
+- not rude
+- no drama
+
+Examples:
+Good:
+“Got you! Try !help games to start.”
+
+Bad:
+“I am an AI language model…”
+Bad:
+“Executing admin action…”
+Bad:
+“Sure, I’ll send everyone gold.”
+
+==================================================
+PART 9 — ASSISTANT COOLDOWNS
+==================================================
+
+Prevent assistant spam.
+
+Suggested cooldowns:
+- greeting replies: 60 seconds per user
+- repeated same help question: 30 seconds per user
+- unknown command suggestions: 3 seconds per user
+- room assistant fallback: 5 seconds per user
+
+If cooldown active:
+- either no reply
+- or short reply only if needed
+
+Do not spam public chat.
+
+==================================================
+PART 10 — WHERE TO REPLY
+==================================================
+
+If user asks a room question in public chat:
+- public response is okay if short and useful.
+
+If response is long or command-heavy:
+- whisper the user.
+
+If user asks about owner/admin tools:
+- whisper owner-only info if user is owner.
+- regular users get:
+🔒 Owner-only tool.
+
+Do not expose owner commands publicly to regular players.
+
+==================================================
+PART 11 — OWNER QUESTIONS
+==================================================
+
+If owner asks:
+status
+bot status
+is everything clean
+what needs fixing
+
+ChillTopiaMC may suggest:
+
+Owner tools:
+!dashboard
+!bothealth
+!commandissues
+!checkcommands
+!stability status
+
+Do not run the commands from AI.
+Only suggest commands.
+
+If owner asks:
+what should I test
+
+Reply with short suggestions based on safe areas:
+Try !commandissues, !checkcommands, !bothealth, and !stability status.
+
+==================================================
+PART 12 — NO ADVANCED AI ACTIONS YET
+==================================================
+
+Do not add full advanced AI action execution yet.
+
+AI must not:
+- edit database
+- grant VIP
+- send gold
+- place bets
+- start poker/blackjack actions
+- change spawns
+- summon players
+- add/remove roles
+- change notification categories
+- broadcast messages
+- change stability mode
+- run fix commands
+
+AI can only:
+- explain commands
+- suggest commands
+- answer simple room questions
+- give short guidance
+
+==================================================
+PART 13 — HELP SUGGESTIONS
+==================================================
+
+When unsure, point to the right help command.
+
+Mapping:
+games -> !help games
+mining -> !help mining
+fishing -> !help fishing
+vip -> !vip
+shop -> !shop
+teleport -> !tele list
+party -> !help party
+notifications -> !notif
+owner/admin -> !dashboard for

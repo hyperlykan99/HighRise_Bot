@@ -514,6 +514,10 @@ from modules.ai_assistant import (
     handle_aicapabilities,
     handle_aidelegations,
 )
+from modules.room_assistant import (
+    handle_room_assistant_chat,
+    handle_unknown_command,
+)
 from modules.bot_modes import (
     handle_botmode, handle_botmodes, handle_botprofile,
     handle_botprefix, handle_categoryprefix,
@@ -3037,6 +3041,9 @@ class HangoutBot(BaseBot):
             return
 
         if not (message.startswith("/") or message.startswith("!")):
+            # Room assistant — greetings + Q&A (host bot only, with cooldowns)
+            if await handle_room_assistant_chat(self, user, message):
+                return
             # Direct auto-game answer detection (no /answer prefix needed)
             await try_direct_answer(self, user, message)
             return
@@ -5937,18 +5944,20 @@ class HangoutBot(BaseBot):
                 return
             if cmd.startswith("gold") and not can_manage_economy(user.username):
                 await self.highrise.send_whisper(user.id, "Gold commands are staff only.")
-            elif cmd in STAFF_CMDS and not can_moderate(user.username):
-                await self.highrise.send_whisper(user.id, "Staff command unavailable. Type !help.")
             elif cmd.startswith("vip"):
-                await self.highrise.send_whisper(user.id, "Unknown VIP command. Try !viphelp.")
+                await self.highrise.send_whisper(user.id,
+                    "⚠️ Unknown VIP command. Try !viphelp.")
             elif cmd.startswith("poker") or cmd in {"pp", "pj", "pt", "ph", "po"}:
-                await self.highrise.send_whisper(user.id, "Unknown poker command. Try !phelp.")
+                await self.highrise.send_whisper(user.id,
+                    "⚠️ Unknown poker command. Try !phelp.")
             elif cmd.startswith("bj") or cmd in {"bjoin", "bh", "bs", "bd", "bsp", "bt"}:
-                await self.highrise.send_whisper(user.id, "Unknown BJ command. Try !bjhelp.")
+                await self.highrise.send_whisper(user.id,
+                    "⚠️ Unknown BJ command. Try !bjhelp.")
             elif cmd.startswith("rbj") or cmd in {"rjoin", "rh", "rs", "rd", "rsp", "rt"}:
-                await self.highrise.send_whisper(user.id, "Unknown RBJ command. Try !rbjhelp.")
+                await self.highrise.send_whisper(user.id,
+                    "⚠️ Unknown RBJ command. Try !rbjhelp.")
             else:
-                await self.highrise.send_whisper(user.id, "Unknown command. Type !help.")
+                await handle_unknown_command(self, user, cmd)
 
     async def on_user_join(self, user: User, position) -> None:
         """Register new players and greet them when they enter the room."""
