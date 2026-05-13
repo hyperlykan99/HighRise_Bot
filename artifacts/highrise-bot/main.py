@@ -122,7 +122,7 @@ from modules.realistic_blackjack import (
     handle_bet,
     handle_hit, handle_stand, handle_double, handle_split,
     handle_insurance, handle_surrender,
-    handle_bjstatus, handle_bjforce,
+    handle_bjstatus, handle_bjforce, handle_bjadmin,
     reset_table as rbj_reset_table,
     soft_reset_table as rbj_soft_reset_table,
     startup_rbj_recovery,
@@ -4363,6 +4363,9 @@ class HangoutBot(BaseBot):
 
         elif cmd == "bjforce":
             await handle_bjforce(self, user, args)
+
+        elif cmd in {"bjadmin", "bjadminhelp", "staffbj", "staffbjhelp"}:
+            await handle_bjadmin(self, user, args)
 
         elif cmd == "bjshoe":
             await handle_bj_shoe(self, user)

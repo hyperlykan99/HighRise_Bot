@@ -244,6 +244,7 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     "sitout", "sitin", "rebuy", "pstacks", "mystack",
     "poker", "pokerhelp", "pokerstatus",
     "bjstatus", "blackjackhelp", "bjforce",
+    "bjadmin", "bjadminhelp", "staffbj", "staffbjhelp",
     "botstatus", "dbstats", "backup",
     "maintenance", "reloadsettings", "cleanup",
     "trivia", "scramble", "riddle", "coinflip",
@@ -532,6 +533,7 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     "autospawn", "roles", "rolemembers",
     # ── BJ shoe management ───────────────────────────────────────────────────
     "bjshoereset", "bjforce",
+    "bjadmin", "bjadminhelp", "staffbj", "staffbjhelp",
     # ── Economy audit ────────────────────────────────────────────────────────
     "economyaudit", "gameprices", "gameprice", "setgameprice",
     # ── Message audit + help audit ───────────────────────────────────────────
@@ -601,6 +603,7 @@ HELP_CMDS: frozenset[str] = frozenset({
     "setpokerdailywinlimit", "setpokerdailylosslimit", "resetpokerlimits",
     "poker", "pokerhelp", "pokerstatus", "pokercleanup",
     "bjstatus", "blackjackhelp", "bjforce",
+    "bjadmin", "bjadminhelp", "staffbj", "staffbjhelp",
     "send", "bank", "bankstats", "transactions", "banknotify",
     "viewtx", "bankwatch", "ledger", "auditbank", "banksettings",
     "bankblock", "bankunblock",
@@ -759,6 +762,7 @@ VISIBLE_CMDS: frozenset[str] = frozenset({
     "tipreceiverlb", "topreceivers",
     # ── New staff controls ───────────────────────────────────────────────────
     "autospawn", "roles", "bjshoereset", "bjforce",
+    "bjadmin", "bjadminhelp", "staffbj", "staffbjhelp",
     "economyaudit", "gameprices", "gameprice", "setgameprice",
     "messageaudit", "helpaudit", "staffhelp",
     "bios", "checkbios", "checkonboarding",

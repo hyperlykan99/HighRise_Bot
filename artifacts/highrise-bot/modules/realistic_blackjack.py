@@ -184,13 +184,16 @@ _state = _RBJState()
 # ─── Force / debug state (owner-only, one-use per round) ──────────────────────
 
 _force_state: dict = {
-    "player_cards": {},    # {username_lower: ((rank,suit),(rank,suit))}
-    "dealer_cards":  None, # ((rank,suit),(rank,suit)) | None
-    "dealer_ace":    False,
-    "player_pair":   None, # username_lower or None (None = not set)
-    "player_bj":     None, # username_lower or None (None = not set)
-    "shoe_low":      False,
-    "next_cards":    [],   # ordered sequence injected to shoe front before next deal
+    "player_cards":       {},    # {username_lower: [(rank,suit),...]}  2 or 3 cards
+    "dealer_cards":       None,  # ((rank,suit),(rank,suit)) | None
+    "dealer_ace":         False,
+    "player_pair":        None,  # username_lower or None
+    "player_bj":          None,  # username_lower or None
+    "shoe_low":           False,
+    "next_cards":         [],    # ordered sequence injected to shoe front before next deal
+    "mode":               "fake",   # "fake" | "shoe" | "fakepayout"
+    "forced_test_round":  False,    # set True when fake mode fires this round
+    "fake_payout_round":  False,    # set True when fakepayout mode fires this round
 }
 
 _SUIT_MAP: dict[str, str] = {
@@ -389,28 +392,55 @@ async def _start_round(bot: BaseBot):
         _state.dealer_hand.append(_shoe.pop())
 
     # Apply forced dealer/player cards (owner debug, one-use)
-    if (_force_state["dealer_cards"] or _force_state["dealer_ace"]
-            or _force_state["player_cards"]
-            or _force_state["player_pair"] is not None
-            or _force_state["player_bj"] is not None):
+    _fmode    = _force_state.get("mode", "fake")
+    _any_force = (
+        _force_state["dealer_cards"] or _force_state["dealer_ace"]
+        or _force_state["player_cards"]
+        or _force_state["player_pair"] is not None
+        or _force_state["player_bj"] is not None
+    )
+    if _any_force:
+        # ── Dealer cards ──────────────────────────────────────────────────────
         if _force_state["dealer_cards"] and len(_state.dealer_hand) >= 2:
-            dc = _force_state["dealer_cards"]
-            _state.dealer_hand[0] = dc[0]
-            _state.dealer_hand[1] = dc[1]
+            dc = list(_force_state["dealer_cards"])
+            if _fmode == "shoe":
+                for i, fc in enumerate(dc[:2]):
+                    if i < len(_state.dealer_hand):
+                        displaced = _state.dealer_hand[i]
+                        if fc in _shoe._cards:
+                            _shoe._cards.remove(fc)
+                            _shoe._cards.insert(random.randint(0, len(_shoe._cards)), displaced)
+                        else:
+                            print(f"[FORCE][SHOE] Dealer {card_str(fc)} not in shoe — using anyway")
+                        _state.dealer_hand[i] = fc
+            else:
+                _state.dealer_hand[0] = dc[0]
+                _state.dealer_hand[1] = dc[1]
             _force_state["dealer_cards"] = None
-            print(f"[RBJ] [FORCE] Dealer: {dc[0]} {dc[1]}")
+            print(f"[RBJ] [FORCE] Dealer: {dc[0]} {dc[1]} (mode={_fmode})")
         if _force_state["dealer_ace"] and _state.dealer_hand:
             _state.dealer_hand[0] = ("A", random.choice(["♠", "♥", "♦", "♣"]))
             _force_state["dealer_ace"] = False
-            print(f"[RBJ] [FORCE] Dealer ace forced")
+            print("[RBJ] [FORCE] Dealer ace forced")
+        # ── Player cards ──────────────────────────────────────────────────────
         for p in _state.players:
             uname = p.username.lower()
             if uname in _force_state["player_cards"]:
-                fc = _force_state["player_cards"][uname]
+                fc = list(_force_state["player_cards"][uname])
                 if p.hands:
-                    p.hands[0]["cards"] = list(fc)
+                    if _fmode == "shoe":
+                        current = list(p.hands[0]["cards"])
+                        for i, new_c in enumerate(fc[:len(current)]):
+                            if i < len(current):
+                                old_c = current[i]
+                                if new_c in _shoe._cards:
+                                    _shoe._cards.remove(new_c)
+                                    _shoe._cards.insert(random.randint(0, len(_shoe._cards)), old_c)
+                                else:
+                                    print(f"[FORCE][SHOE] {card_str(new_c)} not in shoe — using anyway")
+                    p.hands[0]["cards"] = fc
                 del _force_state["player_cards"][uname]
-                print(f"[RBJ] [FORCE] @{p.username} cards: {fc}")
+                print(f"[RBJ] [FORCE] @{p.username} cards: {fc} (mode={_fmode})")
             elif (_force_state["player_pair"] is not None
                   and _force_state["player_pair"] == uname):
                 rank  = random.choice(["2","3","4","5","6","7","8","9","10"])
@@ -423,11 +453,29 @@ async def _start_round(bot: BaseBot):
                 p.hands[0]["cards"] = [("A", "♠"), ("K", "♠")]
                 _force_state["player_bj"] = None
                 print(f"[RBJ] [FORCE] @{p.username} blackjack: A♠ K♠")
-        # Clear any owner-self pair/BJ force after first player processed
+        # Clear any owner-self pair/BJ force after loop
         if _force_state["player_pair"] == "":
             _force_state["player_pair"] = None
         if _force_state["player_bj"] == "":
             _force_state["player_bj"] = None
+        # ── Set round-level force flags ────────────────────────────────────────
+        if _fmode == "fake":
+            _force_state["forced_test_round"] = True
+            _force_state["fake_payout_round"] = False
+        elif _fmode == "fakepayout":
+            _force_state["forced_test_round"] = False
+            _force_state["fake_payout_round"] = True
+        else:  # shoe — real round, save shoe with swapped cards
+            _force_state["forced_test_round"] = False
+            _force_state["fake_payout_round"] = False
+            _save_table_state()
+
+    # ── Auto-stand any forced 3+-card hand already at 21 ──────────────────────
+    for p in _state.players:
+        for h in p.hands:
+            if h["status"] == "active" and hand_value(h["cards"]) == 21 and len(h["cards"]) >= 3:
+                h["status"] = "stood"
+                print(f"[RBJ] {p.username} auto-stood: forced 21 ({len(h['cards'])} cards)")
 
     for p in _state.players:
         if is_blackjack(p.hands[0]["cards"]):
@@ -683,6 +731,27 @@ async def _finalize_round(bot: BaseBot):
                 return
             _save_table_state()
 
+        # ── Fake test round — refund all bets, skip payout entirely ────────────
+        is_forced_test = _force_state.get("forced_test_round", False)
+        is_fakepayout  = _force_state.get("fake_payout_round", False)
+        if is_forced_test:
+            for p in _state.players:
+                try:
+                    refund = p.total_bet()
+                    db.adjust_balance(p.user_id, refund)
+                    db.add_ledger_entry(p.user_id, p.username, refund, "rbj_force_test_refund")
+                    await bot.highrise.send_whisper(
+                        p.user_id, f"🧪 TEST round over. Bet {refund:,}c refunded."
+                    )
+                except Exception as _e:
+                    print(f"[FORCE] fake refund error {p.username}: {_e}")
+            await bot.highrise.chat("🧪 TEST Blackjack complete. All bets refunded.")
+            _force_state["forced_test_round"] = False
+            _force_state["mode"]               = "fake"
+            db.clear_casino_table("rbj")
+            _state.reset()
+            return
+
         s           = _settings()
         hits_soft17 = bool(int(s.get("dealer_hits_soft_17", 1)))
         win_payout  = float(s.get("win_payout", 2.0))
@@ -747,10 +816,12 @@ async def _finalize_round(bot: BaseBot):
                 except Exception as exc:
                     print(f"[RBJ] Insurance resolve error for {p.username}: {exc}")
 
+        skip_stats = is_fakepayout
         for p in _state.players:
             try:
-                track_quest(p.user_id, "bj_round")
-                if _rbj_event_pts:
+                if not skip_stats:
+                    track_quest(p.user_id, "bj_round")
+                if not skip_stats and _rbj_event_pts:
                     db.add_event_points(p.user_id, 1)
                 benefits  = get_player_benefits(p.user_id)
                 bonus_pct = min(
@@ -786,8 +857,9 @@ async def _finalize_round(bot: BaseBot):
                         if round_id:
                             db.save_round_result("rbj", round_id, hkey, p.user_id,
                                                  hbet, "bust", 0, -hbet)
-                        db.update_rbj_stats(p.user_id, loss=1, bet=hbet, lost=hbet)
-                        db.add_rbj_daily_net(p.user_id, -hbet)
+                        if not skip_stats:
+                            db.update_rbj_stats(p.user_id, loss=1, bet=hbet, lost=hbet)
+                            db.add_rbj_daily_net(p.user_id, -hbet)
                         total_net -= hbet
                         result_parts.append(f"H{i+1} bust")
                         if round_id:
@@ -804,8 +876,9 @@ async def _finalize_round(bot: BaseBot):
                                                  hbet, "blackjack", payout, payout - hbet)
                         db.adjust_balance(p.user_id, payout)
                         db.add_coins_earned(p.user_id, payout - hbet)
-                        db.update_rbj_stats(p.user_id, win=1, bj=1, bet=hbet, won=payout)
-                        db.add_rbj_daily_net(p.user_id, payout - hbet)
+                        if not skip_stats:
+                            db.update_rbj_stats(p.user_id, win=1, bj=1, bet=hbet, won=payout)
+                            db.add_rbj_daily_net(p.user_id, payout - hbet)
                         total_net += payout - hbet
                         result_parts.append(f"H{i+1} {bj_tag} +{payout:,}c")
                         if round_id:
@@ -816,19 +889,20 @@ async def _finalize_round(bot: BaseBot):
                         win_bonus  = 0.0
                         win_tag    = "win"
                         if card_count >= 5:
-                            win_bonus += 0.25
-                            win_tag    = "5-Card Charlie 🃏"
-                            if htotal == 21:
-                                win_bonus += 0.10
-                                win_tag    = "Perfect 21 ⭐"
+                            win_bonus = 0.25
+                            win_tag   = "5-Card Charlie 🃏"
+                        elif htotal == 21 and card_count >= 3:
+                            win_bonus = 0.10
+                            win_tag   = "Perfect 21 ⭐"
                         payout = int(hbet * win_payout * (1.0 + bonus_pct + win_bonus))
                         if round_id:
                             db.save_round_result("rbj", round_id, hkey, p.user_id,
                                                  hbet, "win", payout, payout - hbet)
                         db.adjust_balance(p.user_id, payout)
                         db.add_coins_earned(p.user_id, payout - hbet)
-                        db.update_rbj_stats(p.user_id, win=1, bet=hbet, won=payout)
-                        db.add_rbj_daily_net(p.user_id, payout - hbet)
+                        if not skip_stats:
+                            db.update_rbj_stats(p.user_id, win=1, bet=hbet, won=payout)
+                            db.add_rbj_daily_net(p.user_id, payout - hbet)
                         total_net += payout - hbet
                         result_parts.append(f"H{i+1} {win_tag} +{payout:,}c")
                         if round_id:
@@ -841,7 +915,8 @@ async def _finalize_round(bot: BaseBot):
                                                  hbet, "push", refund, 0 if refund else -hbet)
                         if push_rule == "refund":
                             db.adjust_balance(p.user_id, hbet)
-                        db.update_rbj_stats(p.user_id, push=1, bet=hbet)
+                        if not skip_stats:
+                            db.update_rbj_stats(p.user_id, push=1, bet=hbet)
                         result_parts.append(f"H{i+1} push")
                         if round_id:
                             db.mark_result_paid("rbj", round_id, hkey)
@@ -850,8 +925,9 @@ async def _finalize_round(bot: BaseBot):
                         if round_id:
                             db.save_round_result("rbj", round_id, hkey, p.user_id,
                                                  hbet, "loss", 0, -hbet)
-                        db.update_rbj_stats(p.user_id, loss=1, bet=hbet, lost=hbet)
-                        db.add_rbj_daily_net(p.user_id, -hbet)
+                        if not skip_stats:
+                            db.update_rbj_stats(p.user_id, loss=1, bet=hbet, lost=hbet)
+                            db.add_rbj_daily_net(p.user_id, -hbet)
                         total_net -= hbet
                         result_parts.append(f"H{i+1} loss")
                         if round_id:
@@ -860,7 +936,8 @@ async def _finalize_round(bot: BaseBot):
                 if result_parts:
                     net_str = f"+{total_net:,}c" if total_net >= 0 else f"{total_net:,}c"
                     inner   = " | ".join(result_parts)
-                    summary = f"{_dn(p)}: {inner} | Net {net_str}"
+                    pfx     = "🧪 FORCE PAYOUT TEST\n" if is_fakepayout else ""
+                    summary = f"{pfx}{_dn(p)}: {inner} | Net {net_str}"
                     await bot.highrise.chat(summary[:249])
                     try:
                         hlines = []
@@ -888,6 +965,10 @@ async def _finalize_round(bot: BaseBot):
         print(f"[RBJ] finalize_round error: {exc}")
     finally:
         print("[RBJ] Round ended")
+        if _force_state.get("fake_payout_round"):
+            _force_state["fake_payout_round"] = False
+            _force_state["mode"]               = "fake"
+            print("[FORCE] Fakepayout round complete. Mode reset to fake.")
         db.clear_casino_table("rbj")
         _state.reset()
 
@@ -2506,50 +2587,80 @@ async def handle_bjforce(bot: "BaseBot", user: "User", args: list[str]) -> None:
         await bot.highrise.send_whisper(user.id, "🔒 Owner only.")
         return
 
-    sub = args[1].lower() if len(args) > 1 else "help"
+    # Robust arg parser: handle both "bjforce sub ..." and already-stripped "sub ..."
+    if args and args[0].lower() == "bjforce":
+        sargs = args[1:]
+    else:
+        sargs = list(args)
+    sub   = sargs[0].lower() if sargs else "help"
+    fmode = _force_state.get("mode", "fake")
 
     # ── status ────────────────────────────────────────────────────────────────
     if sub == "status":
-        parts: list[str] = []
+        parts: list[str] = [f"Mode: {fmode}"]
+        if _force_state.get("forced_test_round"):
+            parts.append("Round: fake test active")
+        if _force_state.get("fake_payout_round"):
+            parts.append("Round: fakepayout active")
         nc = _force_state.get("next_cards", [])
         if nc:
-            parts.append(f"Sequence: {' '.join(card_str(c) for c in nc)}")
+            parts.append(f"Seq: {' '.join(card_str(c) for c in nc)}")
         if _force_state["dealer_cards"]:
             dc = _force_state["dealer_cards"]
             parts.append(f"Dealer: {card_str(dc[0])} [{card_str(dc[1])}]")
         if _force_state["dealer_ace"]:
             parts.append("Dealer ace: forced")
         for uname, fc in _force_state["player_cards"].items():
-            parts.append(f"@{uname}: {card_str(fc[0])} {card_str(fc[1])}")
+            parts.append(f"@{uname}: {' '.join(card_str(c) for c in fc)}")
         if _force_state["player_bj"]:
             parts.append(f"BJ: @{_force_state['player_bj']}")
         if _force_state["player_pair"] is not None:
             parts.append(f"Pair: @{_force_state['player_pair']}")
-        msg = ("🧪 Force state:\n" + "\n".join(parts)) if parts else "🧪 No force cards set."
+        real_pay = fmode in ("shoe", "fakepayout")
+        parts.append(f"Real payout: {'yes' if real_pay else 'no'}")
+        msg = "🧪 BJ Force\n" + "\n".join(parts)
         await bot.highrise.send_whisper(user.id, msg[:249])
 
     # ── clear ─────────────────────────────────────────────────────────────────
     elif sub == "clear":
-        _force_state["next_cards"]    = []
-        _force_state["dealer_cards"]  = None
-        _force_state["dealer_ace"]    = False
-        _force_state["player_cards"]  = {}
-        _force_state["player_bj"]     = None
-        _force_state["player_pair"]   = None
-        _force_state["shoe_low"]      = False
-        await bot.highrise.send_whisper(user.id, "🧪 All force cards cleared.")
+        _force_state["next_cards"]         = []
+        _force_state["dealer_cards"]       = None
+        _force_state["dealer_ace"]         = False
+        _force_state["player_cards"]       = {}
+        _force_state["player_bj"]          = None
+        _force_state["player_pair"]        = None
+        _force_state["shoe_low"]           = False
+        _force_state["forced_test_round"]  = False
+        _force_state["fake_payout_round"]  = False
+        _force_state["mode"]               = "fake"
+        await bot.highrise.send_whisper(user.id, "🧪 Force cards cleared. Mode reset to fake.")
         print("[FORCE] State cleared by owner.")
+
+    # ── mode fake|shoe|fakepayout ─────────────────────────────────────────────
+    elif sub == "mode":
+        new_mode = sargs[1].lower() if len(sargs) > 1 else ""
+        _MODE_LABELS = {
+            "fake":       "Fake (refund, no stats)",
+            "shoe":       "Shoe (real cards, real payout)",
+            "fakepayout": "Fake cards + real payout (no stats)",
+        }
+        if new_mode not in _MODE_LABELS:
+            await bot.highrise.send_whisper(user.id, "⚠️ Modes: fake | shoe | fakepayout")
+            return
+        _force_state["mode"] = new_mode
+        await bot.highrise.send_whisper(user.id, f"🧪 Mode set: {_MODE_LABELS[new_mode]}")
+        print(f"[FORCE] mode={new_mode}")
 
     # ── next [card] ───────────────────────────────────────────────────────────
     elif sub == "next":
-        if len(args) < 3:
+        if len(sargs) < 2:
             await bot.highrise.send_whisper(user.id, "Usage: !bjforce next A♦")
             return
-        card = _parse_card(args[2])
+        card = _parse_card(sargs[1])
         if not card:
             await bot.highrise.send_whisper(user.id, "⚠️ Invalid card. Use: A♦ K♣ 10♥")
             return
-        if card not in _shoe._cards:
+        if fmode == "shoe" and card not in _shoe._cards:
             await bot.highrise.send_whisper(user.id, f"⚠️ {card_str(card)} not in shoe.")
             return
         _force_state["next_cards"] = [card]
@@ -2558,25 +2669,26 @@ async def handle_bjforce(bot: "BaseBot", user: "User", args: list[str]) -> None:
 
     # ── sequence [cards...] ───────────────────────────────────────────────────
     elif sub == "sequence":
-        if len(args) < 3:
+        if len(sargs) < 2:
             await bot.highrise.send_whisper(user.id, "Usage: !bjforce sequence A♦ K♣ J♥")
             return
         cards: list[tuple] = []
-        for raw in args[2:]:
+        for raw in sargs[1:]:
             c = _parse_card(raw)
             if not c:
                 await bot.highrise.send_whisper(user.id, f"⚠️ Invalid card: {raw}")
                 return
             cards.append(c)
-        shoe_copy = list(_shoe._cards)
-        for c in cards:
-            if c in shoe_copy:
-                shoe_copy.remove(c)
-            else:
-                await bot.highrise.send_whisper(
-                    user.id, f"⚠️ {card_str(c)} not available in shoe."
-                )
-                return
+        if fmode == "shoe":
+            shoe_copy = list(_shoe._cards)
+            for c in cards:
+                if c in shoe_copy:
+                    shoe_copy.remove(c)
+                else:
+                    await bot.highrise.send_whisper(
+                        user.id, f"⚠️ {card_str(c)} not available in shoe."
+                    )
+                    return
         _force_state["next_cards"] = cards
         seq = " ".join(card_str(c) for c in cards)
         await bot.highrise.send_whisper(user.id, f"🧪 Sequence set: {seq}"[:249])
@@ -2584,14 +2696,19 @@ async def handle_bjforce(bot: "BaseBot", user: "User", args: list[str]) -> None:
 
     # ── dealer [visible] [hidden] ─────────────────────────────────────────────
     elif sub == "dealer":
-        if len(args) < 4:
+        if len(sargs) < 3:
             await bot.highrise.send_whisper(user.id, "Usage: !bjforce dealer A♦ 6♣")
             return
-        c1 = _parse_card(args[2])
-        c2 = _parse_card(args[3])
+        c1 = _parse_card(sargs[1])
+        c2 = _parse_card(sargs[2])
         if not c1 or not c2:
             await bot.highrise.send_whisper(user.id, "⚠️ Invalid card. Use: A♦ K♣ 10♥")
             return
+        if fmode == "shoe":
+            missing = [card_str(c) for c in (c1, c2) if c not in _shoe._cards]
+            if missing:
+                await bot.highrise.send_whisper(user.id, f"⚠️ Not in shoe: {' '.join(missing)}")
+                return
         _force_state["dealer_cards"] = (c1, c2)
         await bot.highrise.send_whisper(
             user.id,
@@ -2601,15 +2718,20 @@ async def handle_bjforce(bot: "BaseBot", user: "User", args: list[str]) -> None:
 
     # ── player @user [c1] [c2] ────────────────────────────────────────────────
     elif sub == "player":
-        if len(args) < 5:
+        if len(sargs) < 4:
             await bot.highrise.send_whisper(user.id, "Usage: !bjforce player @user A♦ K♣")
             return
-        target = args[2].lstrip("@").lower()
-        c1 = _parse_card(args[3])
-        c2 = _parse_card(args[4])
+        target = sargs[1].lstrip("@").lower()
+        c1 = _parse_card(sargs[2])
+        c2 = _parse_card(sargs[3])
         if not c1 or not c2:
             await bot.highrise.send_whisper(user.id, "⚠️ Invalid card. Use: A♦ K♣ 10♥")
             return
+        if fmode == "shoe":
+            missing = [card_str(c) for c in (c1, c2) if c not in _shoe._cards]
+            if missing:
+                await bot.highrise.send_whisper(user.id, f"⚠️ Not in shoe: {' '.join(missing)}")
+                return
         _force_state["player_cards"][target] = (c1, c2)
         await bot.highrise.send_whisper(
             user.id,
@@ -2619,48 +2741,81 @@ async def handle_bjforce(bot: "BaseBot", user: "User", args: list[str]) -> None:
 
     # ── blackjack @user ───────────────────────────────────────────────────────
     elif sub == "blackjack":
-        target = args[2].lstrip("@").lower() if len(args) > 2 else user.username.lower()
+        target = sargs[1].lstrip("@").lower() if len(sargs) > 1 else user.username.lower()
         _force_state["player_bj"]   = target
         _force_state["player_pair"] = None
         _force_state["player_cards"].pop(target, None)
-        await bot.highrise.send_whisper(user.id, f"🧪 Natural BJ (A♠ K♠) forced for @{target}.")
+        await bot.highrise.send_whisper(
+            user.id, f"✅ Force queued. @{target} will get natural BJ next round."
+        )
         print(f"[FORCE] player_bj=@{target}")
 
     # ── suitedbj @user ────────────────────────────────────────────────────────
     elif sub == "suitedbj":
         import random as _r
-        target = args[2].lstrip("@").lower() if len(args) > 2 else user.username.lower()
+        target = sargs[1].lstrip("@").lower() if len(sargs) > 1 else user.username.lower()
         suit   = _r.choice(["♠", "♥", "♦", "♣"])
         _force_state["player_cards"][target] = (("A", suit), ("K", suit))
         _force_state["player_bj"]            = None
         await bot.highrise.send_whisper(
             user.id,
-            f"🧪 Suited BJ (A{suit} K{suit}) forced for @{target}."
+            f"✅ Force queued. @{target} will get suited BJ A{suit} K{suit} next round."
         )
         print(f"[FORCE] suitedbj @{target} A{suit} K{suit}")
 
-    # ── twentyone @user ───────────────────────────────────────────────────────
+    # ── twentyone @user — real 3-card 21: 7♠ 4♦ 10♣ = 21 ────────────────────
     elif sub == "twentyone":
-        target = args[2].lstrip("@").lower() if len(args) > 2 else user.username.lower()
-        _force_state["player_cards"][target] = (("A", "♠"), ("5", "♠"))
+        target = sargs[1].lstrip("@").lower() if len(sargs) > 1 else user.username.lower()
+        _force_state["player_cards"][target] = [("7", "♠"), ("4", "♦"), ("10", "♣")]
         await bot.highrise.send_whisper(
             user.id,
-            f"🧪 @{target} set A♠ 5♠ (16). Hit !hit and draw a 5 for 21."
+            f"✅ Force queued. @{target} will get 7♠ 4♦ 10♣=21 next round."
         )
-        print(f"[FORCE] twentyone @{target} A♠ 5♠")
+        print(f"[FORCE] twentyone @{target} 7♠ 4♦ 10♣")
 
     # ── help / fallback ───────────────────────────────────────────────────────
     else:
         lines = [
             "🧪 !bjforce (owner only)",
-            "!bjforce status",
-            "!bjforce clear",
-            "!bjforce next [card]",
-            "!bjforce sequence [cards...]",
-            "!bjforce dealer [vis] [hid]",
-            "!bjforce player @user [c1] [c2]",
-            "!bjforce blackjack @user",
-            "!bjforce suitedbj @user",
-            "!bjforce twentyone @user",
+            "status | clear",
+            "mode fake|shoe|fakepayout",
+            "next [card]  |  sequence [cards...]",
+            "dealer [vis] [hid]",
+            "player @user [c1] [c2]",
+            "blackjack @user  |  suitedbj @user",
+            "twentyone @user",
         ]
         await bot.highrise.send_whisper(user.id, "\n".join(lines)[:249])
+
+
+async def handle_bjadmin(bot: "BaseBot", user: "User", args: list[str]) -> None:
+    """!bjadmin / !bjadminhelp / !staffbj / !staffbjhelp — blackjack staff/owner helper."""
+    from modules.permissions import is_owner, can_moderate
+    if not can_moderate(user.username):
+        await bot.highrise.send_whisper(user.id, "🔒 Staff only.")
+        return
+    if is_owner(user.username):
+        msg1 = (
+            "🛠️ BJ Owner Help\n"
+            "!bjforce status/clear\n"
+            "!bjforce mode fake|shoe|fakepayout\n"
+            "!bjforce dealer [c1] [c2]"
+        )
+        msg2 = (
+            "!bjforce player @user [c1] [c2]\n"
+            "!bjforce blackjack @user\n"
+            "!bjforce suitedbj @user\n"
+            "!bjforce twentyone @user"
+        )
+        await bot.highrise.send_whisper(user.id, msg1[:249])
+        await bot.highrise.send_whisper(user.id, msg2[:249])
+    else:
+        msg = (
+            "🛠️ Blackjack Staff Help\n"
+            "!bjstatus — table status\n"
+            "!bjshoe — shoe status\n"
+            "!bjplayers — players\n"
+            "!bjcancel — cancel/refund\n"
+            "Ask owner for force-card tests."
+        )
+        await bot.highrise.send_whisper(user.id, msg[:249])
