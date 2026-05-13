@@ -1,0 +1,741 @@
+UPDATE 3.1H — MINING/FISHING COLLECTION BOOK + AUTO SUMMARY DM
+
+Goal:
+Add a collection book system for mining and fishing, plus direct-message summaries after auto-mining and auto-fishing finish.
+
+Main features:
+1. !collection — overall collection progress
+2. !orebook — mining collection book
+3. !fishbook — fishing collection book
+4. Discovered ores/fish tracking
+5. Completion percentage
+6. Rare find history
+7. Top collectors
+8. Auto-mining completion summary DM
+9. Auto-fishing completion summary DM
+
+Do not change tokens.
+Do not change room ID.
+Do not wipe database.
+Do not reset balances, VIP, badges, titles, leaderboards, donations, market data, casino data, blackjack shoe, daily streaks, teleports, bot spawns, or player inventories.
+Do not change mining odds.
+Do not change fishing odds.
+Do not change mining reward values.
+Do not change fishing reward values.
+Do not re-add reward caps.
+Do not add reward cap text.
+Do not break automining/autofishing.
+Do not spam public chat with long summaries.
+
+==================================================
+PART 1 — STABILITY FIRST
+==================================================
+
+Before changing anything, run:
+
+!launchcheck
+!commandissues
+!checkcommands
+!checkcommands all
+!checkhelp
+!bothealth
+!stability status
+
+Expected:
+- Launch Check OK
+- no command issues
+- no checkhelp issues
+- no bot conflicts
+- Err: none
+
+Fix baseline issues first.
+
+==================================================
+PART 2 — COLLECTION TRACKING
+==================================================
+
+Track discovered mining/fishing items per player.
+
+Mining collection should track:
+- ore/item name
+- rarity
+- first discovered date
+- total found count
+- best value if available
+- last found date
+
+Fishing collection should track:
+- fish/item name
+- rarity
+- first caught date
+- total caught count
+- best value if available
+- last caught date
+
+Important:
+- Existing mining/fishing inventory can be used to backfill discovered items if safe.
+- Do not wipe existing inventory.
+- Do not duplicate inventory.
+- Collection book is tracking/discovery, not a replacement for inventory.
+
+==================================================
+PART 3 — DATABASE / STORAGE
+==================================================
+
+Add idempotent migrations if needed.
+
+Suggested table:
+
+player_collection:
+id INTEGER PRIMARY KEY AUTOINCREMENT
+user_id TEXT
+username TEXT
+collection_type TEXT
+item_key TEXT
+item_name TEXT
+rarity TEXT
+first_seen_at TEXT
+last_seen_at TEXT
+count INTEGER DEFAULT 0
+best_value INTEGER DEFAULT 0
+
+Unique:
+user_id + collection_type + item_key
+
+collection_type:
+mining
+fishing
+
+Rules:
+- Migration must be safe/idempotent.
+- Do not wipe data.
+- If table exists, do not recreate destructively.
+- Update count when player finds/catches item.
+- Insert on first discovery.
+- Preserve first_seen_at.
+- Update last_seen_at.
+- Update username if changed.
+
+==================================================
+PART 4 — UPDATE MINING/FISHING REWARD HOOKS
+==================================================
+
+Whenever player mines an item:
+- record it in mining collection
+- increment count
+- update rarity/value
+- detect if it is first discovery
+- detect if it completes collection milestone
+
+Whenever player catches fish:
+- record it in fishing collection
+- increment count
+- update rarity/value
+- detect first discovery
+- detect completion milestone
+
+Do not change odds/rewards.
+Do not add reward caps.
+
+First discovery message can be short:
+
+📖 New collection find!
+@Player discovered Mythril Ore.
+
+or for fish:
+
+📖 New collection catch!
+@Player caught Golden Koi.
+
+If too spammy:
+- whisper first discoveries instead of public
+- public announce only rare/epic/legendary/mythic discoveries
+
+==================================================
+PART 5 — !COLLECTION COMMAND
+==================================================
+
+Command:
+!collection
+
+Expected:
+
+📖 Collection Book
+Mining: 12/40 discovered
+Fishing: 9/35 discovered
+Total: 21/75
+Use !orebook or !fishbook.
+
+Rules:
+- Show caller’s collection.
+- Whisper if possible.
+- Keep under 220 characters.
+- If no records yet:
+
+📖 Collection Book
+No discoveries yet.
+Try !mine or !fish.
+
+==================================================
+PART 6 — !OREBOOK COMMAND
+==================================================
+
+Command:
+!orebook
+
+Expected:
+
+⛏️ Ore Book
+Discovered: 12/40
+Common: 5/5
+Rare: 3/8
+Epic: 1/6
+Use !orebook rare.
+
+Support filters:
+
+!orebook common
+!orebook uncommon
+!orebook rare
+!orebook epic
+!orebook legendary
+!orebook mythic
+!orebook missing
+!orebook all
+
+Expected filtered page:
+
+⛏️ Rare Ores
+✅ Silver Ore x12
+✅ Crystal Ore x3
+❔ Unknown
+Page 1/2
+
+Rules:
+- Do not dump all items at once.
+- Use direct pages:
+  !orebook rare 2
+  !orebook all 3
+- No next-page spam.
+- Whisper if possible.
+- Keep each message under 220 characters.
+
+==================================================
+PART 7 — !FISHBOOK COMMAND
+==================================================
+
+Command:
+!fishbook
+
+Expected:
+
+🎣 Fish Book
+Discovered: 9/35
+Common: 4/4
+Rare: 2/7
+Epic: 1/5
+Use !fishbook rare.
+
+Support filters:
+
+!fishbook common
+!fishbook uncommon
+!fishbook rare
+!fishbook epic
+!fishbook legendary
+!fishbook mythic
+!fishbook missing
+!fishbook all
+
+Expected filtered page:
+
+🎣 Rare Fish
+✅ Tuna x8
+✅ Golden Koi x1
+❔ Unknown
+Page 1/2
+
+Rules:
+- Do not dump all fish at once.
+- Use direct pages:
+  !fishbook rare 2
+  !fishbook all 3
+- No next-page spam.
+- Whisper if possible.
+- Keep each message under 220 characters.
+
+==================================================
+PART 8 — COLLECTION COMPLETION PERCENTAGE
+==================================================
+
+Calculate completion:
+
+mining_completion = discovered_mining_items / total_mining_items
+fishing_completion = discovered_fishing_items / total_fishing_items
+overall_completion = total_discovered / total_available
+
+Display as percentage:
+
+Mining: 30%
+Fishing: 26%
+Overall: 28%
+
+If total item list cannot be detected safely:
+- use configured mining/fishing drop tables
+- do not guess
+- report based on known configured items only
+
+==================================================
+PART 9 — RARE FIND HISTORY
+==================================================
+
+Add:
+
+!rarelog
+!orelog
+!fishlog
+
+or if you prefer fewer commands:
+Use subcommands:
+
+!collection rare
+!orebook rarelog
+!fishbook rarelog
+
+Expected:
+
+✨ Rare Finds
+⛏️ Mythril Ore — 2x
+🎣 Golden Koi — 1x
+Last: today
+
+Rules:
+- Show only rare+ items.
+- Whisper if possible.
+- Keep under 220 chars.
+- If no rare finds:
+
+✨ Rare Finds
+No rare finds yet.
+
+Optional:
+Owner/admin can see global rare log:
+!collection globalrare
+
+Only if safe.
+
+==================================================
+PART 10 — TOP COLLECTORS
+==================================================
+
+Add leaderboard commands:
+
+!topcollectors
+!toporebook
+!topfishbook
+
+Expected:
+
+🏆 Top Collectors
+1. @Player — 48/75
+2. @User — 31/75
+3. @User2 — 20/75
+
+Ore:
+
+⛏️ Top Ore Collectors
+1. @Player — 25/40
+
+Fish:
+
+🎣 Top Fish Collectors
+1. @Player — 20/35
+
+Rules:
+- Count unique discovered items, not total inventory.
+- Do not include bots.
+- Keep short.
+- No reward caps.
+- No automatic rewards unless already existing and safe.
+
+==================================================
+PART 11 — AUTO-MINING COMPLETION SUMMARY DM
+==================================================
+
+When automining finishes, send the player a direct message/whisper summary.
+
+Trigger:
+- automining session completes normally
+- automining stops due to duration/end
+- automining stops due to inventory/full/condition if applicable
+- automining is cancelled by player
+
+Expected DM:
+
+⛏️ Auto-Mining Complete
+Mined: 25 times
+Coins earned: 3,450c
+Best find: Mythril Ore
+New discoveries: 2
+Rare finds: 1
+
+Second message if needed:
+
+📖 Collection
+Ore Book: 14/40 discovered
+New: Silver Ore, Mythril Ore
+
+Rules:
+- DM/whisper the player.
+- Do not spam public chat.
+- If whisper fails, send one short public fallback:
+  @Player, auto-mining complete. Use !orebook for details.
+- Keep each DM under 220 characters.
+- Do not include reward cap text.
+- Include rewards actually earned.
+- Include rare finds if any.
+- Include new collection discoveries if any.
+- Include total actions completed.
+
+==================================================
+PART 12 — AUTO-FISHING COMPLETION SUMMARY DM
+==================================================
+
+When autofishing finishes, send the player a direct message/whisper summary.
+
+Expected DM:
+
+🎣 Auto-Fishing Complete
+Casts: 25
+Coins earned: 2,900c
+Best catch: Golden Koi
+New catches: 1
+Rare catches: 2
+
+Second message if needed:
+
+📖 Collection
+Fish Book: 10/35 discovered
+New: Golden Koi
+
+Rules:
+- DM/whisper the player.
+- Do not spam public chat.
+- If whisper fails, send one short public fallback:
+  @Player, auto-fishing complete. Use !fishbook for details.
+- Keep each DM under 220 characters.
+- Do not include reward cap text.
+- Include rewards actually earned.
+- Include rare catches if any.
+- Include new collection discoveries if any.
+- Include total casts completed.
+
+==================================================
+PART 13 — SESSION SUMMARY TRACKING
+==================================================
+
+For auto-mining and auto-fishing sessions, track:
+
+session_id
+user_id
+username
+started_at
+ended_at
+actions_attempted
+actions_completed
+coins_earned
+items_found list
+rare_finds list
+new_discoveries list
+best_find
+best_value
+stopped_reason
+
+Use in-memory session object if current system uses in-memory.
+Persist if needed for crash safety.
+
+Do not break existing automine/autofish loops.
+
+==================================================
+PART 14 — SUMMARY FORMAT RULES
+==================================================
+
+Keep summary clear and short.
+
+Good:
+⛏️ Auto-Mining Complete
+Mined: 25
+Earned: 3,450c
+Best: Mythril Ore
+New: 2 | Rare: 1
+
+Bad:
+Long giant paragraph with every item.
+
+If many items:
+- summarize counts
+- list top 3 items only
+- tell player to use !orebook or !fishbook
+
+Optional detailed command:
+!lastminesummary
+!lastfishsummary
+
+Add only if safe.
+
+==================================================
+PART 15 — FIRST DISCOVERY + COLLECTION MILESTONES
+==================================================
+
+Optional but recommended:
+
+When player reaches collection milestones:
+25%, 50%, 75%, 100%
+
+Whisper:
+
+📖 Collection Milestone!
+Ore Book: 50% complete.
+
+or:
+
+🎣 Fish Book complete!
+You discovered all fish.
+
+No large coin rewards unless already configured.
+No reward caps.
+
+==================================================
+PART 16 — HELP UPDATES
+==================================================
+
+Update:
+
+!help mining
+!help fishing
+!help games
+!collection
+!orebook
+!fishbook
+
+Expected:
+
+⛏️ Mining Help
+!mine — mine once
+!automine — auto mine
+!orebook — ore collection
+!toporebook — top miners
+
+Fishing:
+
+🎣 Fishing Help
+!fish — fish once
+!autofish — auto fish
+!fishbook — fish collection
+!topfishbook — top fishers
+
+Collection:
+
+📖 Collection Help
+!collection
+!orebook
+!fishbook
+!topcollectors
+!rarelog
+
+Rules:
+- Only show commands that route.
+- No broken aliases.
+- No reward cap text.
+- Keep under 220 chars.
+- Whisper if long.
+
+==================================================
+PART 17 — COMMAND REGISTRY
+==================================================
+
+Register:
+
+!collection
+!orebook
+!fishbook
+!topcollectors
+!toporebook
+!topfishbook
+!rarelog
+
+Optional:
+!orelog
+!fishlog
+!lastminesummary
+!lastfishsummary
+
+Expected owner:
+ChillTopiaMC or relevant mining/fishing bot.
+
+Expected:
+route=YES
+handler=YES
+owner not UNKNOWN
+
+If optional commands are skipped:
+- hide them
+- do not show them in help
+- do not count them as command issues.
+
+==================================================
+PART 18 — NO REWARD CAP REGRESSION
+==================================================
+
+Make sure this update does not re-add reward caps.
+
+Search changed mining/fishing files for:
+cap
+daily cap
+reward cap
+max reward
+capped
+limit reached
+
+Do not add cap messages.
+
+Keep:
+- cooldowns if already used
+- duplicate prevention
+- anti-spam safety
+- valid positive reward checks
+
+==================================================
+PART 19 — TESTS: COLLECTION COMMANDS
+==================================================
+
+Run:
+
+!collection
+!orebook
+!orebook rare
+!orebook missing
+!fishbook
+!fishbook rare
+!fishbook missing
+!rarelog
+!topcollectors
+!toporebook
+!topfishbook
+
+Expected:
+- commands route
+- no command errors
+- whisper works
+- no giant spam
+- progress displays
+- filters work
+- missing items show as unknown
+- no reward cap text
+
+==================================================
+PART 20 — TESTS: MINING/FISHING HOOKS
+==================================================
+
+Run:
+
+!mine
+!collection
+!orebook
+
+Expected:
+- mined item appears in orebook
+- count increments
+- first discovery tracked if new
+
+Run:
+
+!fish
+!collection
+!fishbook
+
+Expected:
+- caught fish appears in fishbook
+- count increments
+- first discovery tracked if new
+
+==================================================
+PART 21 — TESTS: AUTO SUMMARY DM
+==================================================
+
+Run automining:
+
+!automine
+
+Let it finish or stop it if stop command exists.
+
+Expected:
+- player receives DM/whisper summary
+- summary includes mined count, coins earned, best find, new discoveries, rare finds
+- public chat is not spammed
+- no reward cap text
+
+Run autofishing:
+
+!autofish
+
+Let it finish or stop it if stop command exists.
+
+Expected:
+- player receives DM/whisper summary
+- summary includes casts, coins earned, best catch, new catches, rare catches
+- public chat is not spammed
+- no reward cap text
+
+==================================================
+PART 22 — FINAL QA
+==================================================
+
+Run:
+
+!commandtest !collection
+!commandtest !orebook
+!commandtest !fishbook
+!commandtest !topcollectors
+!commandtest !toporebook
+!commandtest !topfishbook
+!commandtest !rarelog
+
+!commandissues
+!checkcommands
+!checkhelp
+!launchcheck
+!bothealth
+!stability status
+
+Expected:
+- no command issues
+- no no-owner commands
+- no help issues
+- launchcheck clean
+- mining/fishing still work
+- no reward caps
+
+==================================================
+PART 23 — FINAL REPORT
+==================================================
+
+Report:
+1. !collection added.
+2. !orebook added.
+3. !fishbook added.
+4. Discovery tracking added.
+5. Completion percentage added.
+6. Rare find history added.
+7. Top collectors added.
+8. Mining hook updates collection.
+9. Fishing hook updates collection.
+10. Auto-mining completion DM summary added.
+11. Auto-fishing completion DM summary added.
+12. Whisper fallback behavior confirmed.
+13. Help pages updated.
+14. No reward cap regression confirmed.
+15. !commandissues result.
+16. !checkcommands result.
+17. !checkhelp result.
+18. !launchcheck result.

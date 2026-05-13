@@ -159,6 +159,9 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "forcedropstatus": "miner", "clearforcedrop": "miner",
     "oreinfo": "miner", "oredetail": "miner", "oredetails": "miner",
     "orebook": "miner", "oremastery": "miner", "claimoremastery": "miner", "orestats": "miner",
+    "collection": "miner", "mybook": "miner", "collectbook": "miner",
+    "topcollectors": "miner", "topore": "miner", "toporecollectors": "miner",
+    "topfishcollectors": "fisher", "fishcollectors": "fisher",
     "contracts": "miner", "miningjobs": "miner",
     "job": "miner", "deliver": "miner", "claimjob": "miner", "rerolljob": "miner",
     # ── shopkeeper ──────────────────────────────────────────────────────────
@@ -599,6 +602,7 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "fishboosts": "fisher", "fishingevents": "fisher",
     "fishhelp": "fisher", "fishinghelp": "fisher",
     "topfish": "fisher", "topfishing": "fisher", "fishlb": "fisher",
+    "fishbook": "fisher", "topfishcollectors": "fisher", "fishcollectors": "fisher",
     "topweightfish": "fisher", "biggestfish": "fisher", "heaviestfish": "fisher",
     "rods": "fisher", "myrod": "fisher", "equippedrod": "fisher",
     "rodshop": "fisher", "fishrodshop": "fisher",

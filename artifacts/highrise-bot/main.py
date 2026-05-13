@@ -459,6 +459,7 @@ from modules.fishing import (
     handle_forcedropfishstatus, handle_forcedropfishdebug,
     handle_clearforcedropfish,
 )
+from modules.collection import handle_collection, handle_topcollectors
 from modules.safe_mode import handle_safemode, handle_active, handle_repair
 from modules.leaderboards import (
     handle_toprich, handle_topminers, handle_topfishers, handle_topstreaks,
@@ -949,6 +950,8 @@ ALL_KNOWN_COMMANDS = (
         "miningevent", "miningevents",
         "orelist",
         "orebook", "oremastery", "claimoremastery", "orestats",
+        "collection", "mybook", "collectbook",
+        "topcollectors", "topore", "toporecollectors",
         "contracts", "miningjobs", "job", "deliver", "claimjob", "rerolljob",
         "minehelp",
         # Mining game — staff commands
@@ -5511,7 +5514,10 @@ class HangoutBot(BaseBot):
             await handle_sellfishrarity(self, user, args)
 
         elif cmd == "fishbook":
-            await handle_fishbook(self, user)
+            await handle_fishbook(self, user, args)
+
+        elif cmd in {"topfishcollectors", "fishcollectors"}:
+            await handle_topcollectors(self, user, ["topcollectors", "fish"])
 
         elif cmd in {"fishautosell", "autosellfish"}:
             await handle_fishautosell(self, user, args)
@@ -5643,7 +5649,16 @@ class HangoutBot(BaseBot):
             await handle_previewannounce(self, user, args)
 
         elif cmd == "orebook":
-            await handle_orebook(self, user)
+            await handle_orebook(self, user, args)
+
+        elif cmd in {"collection", "mybook", "collectbook"}:
+            await handle_collection(self, user, args)
+
+        elif cmd in {"topcollectors", "topore", "toporecollectors"}:
+            if cmd == "topore":
+                await handle_topcollectors(self, user, ["topcollectors", "ore"])
+            else:
+                await handle_topcollectors(self, user, args)
 
         elif cmd == "oremastery":
             await handle_oremastery(self, user)

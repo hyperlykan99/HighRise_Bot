@@ -2036,6 +2036,21 @@ def _migrate_db():
             amount           INTEGER NOT NULL DEFAULT 0,
             PRIMARY KEY(trade_id, user_id)
         )""",
+        # ── Collection book (3.1H) ─────────────────────────────────────────────
+        """CREATE TABLE IF NOT EXISTS player_collection (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id         TEXT    NOT NULL DEFAULT '',
+            username        TEXT    NOT NULL DEFAULT '',
+            collection_type TEXT    NOT NULL DEFAULT '',
+            item_key        TEXT    NOT NULL DEFAULT '',
+            item_name       TEXT    NOT NULL DEFAULT '',
+            rarity          TEXT    NOT NULL DEFAULT 'common',
+            first_seen_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+            last_seen_at    TEXT    NOT NULL DEFAULT (datetime('now')),
+            count           INTEGER NOT NULL DEFAULT 0,
+            best_value      INTEGER NOT NULL DEFAULT 0,
+            UNIQUE(user_id, collection_type, item_key)
+        )""",
     ]:
         try:
             conn.execute(sql)
@@ -12193,6 +12208,150 @@ def get_fish_book(user_id: str) -> list:
     ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+
+# ── Collection book (3.1H) ────────────────────────────────────────────────────
+
+def record_collection_item(user_id: str, username: str, ctype: str,
+                           item_key: str, item_name: str, rarity: str,
+                           value: int = 0) -> bool:
+    """UPSERT a discovered item. Returns True on first discovery."""
+    conn = get_connection()
+    existing = conn.execute(
+        "SELECT id FROM player_collection "
+        "WHERE user_id=? AND collection_type=? AND item_key=?",
+        (user_id, ctype, item_key),
+    ).fetchone()
+    is_new = existing is None
+    if is_new:
+        conn.execute(
+            """INSERT INTO player_collection
+               (user_id, username, collection_type, item_key, item_name, rarity,
+                first_seen_at, last_seen_at, count, best_value)
+               VALUES (?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'), 1, ?)""",
+            (user_id, username, ctype, item_key, item_name, rarity, value),
+        )
+    else:
+        conn.execute(
+            """UPDATE player_collection
+               SET count=count+1,
+                   last_seen_at=datetime('now'),
+                   best_value=MAX(best_value, ?),
+                   username=?
+               WHERE user_id=? AND collection_type=? AND item_key=?""",
+            (value, username, user_id, ctype, item_key),
+        )
+    conn.commit()
+    conn.close()
+    return is_new
+
+
+def get_player_collection(user_id: str, ctype: str,
+                          rarity: str | None = None) -> list:
+    """Return discovered items for a player in a collection type."""
+    conn = get_connection()
+    if rarity:
+        rows = conn.execute(
+            """SELECT * FROM player_collection
+               WHERE user_id=? AND collection_type=? AND rarity=?
+               ORDER BY rarity, item_name""",
+            (user_id, ctype, rarity),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            """SELECT * FROM player_collection
+               WHERE user_id=? AND collection_type=?
+               ORDER BY rarity, item_name""",
+            (user_id, ctype),
+        ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_collection_counts(user_id: str) -> dict:
+    """Return {collection_type: discovered_count} for a player."""
+    conn = get_connection()
+    rows = conn.execute(
+        """SELECT collection_type, COUNT(*) AS cnt
+           FROM player_collection WHERE user_id=?
+           GROUP BY collection_type""",
+        (user_id,),
+    ).fetchall()
+    conn.close()
+    result: dict = {"mining": 0, "fishing": 0}
+    for r in rows:
+        result[r["collection_type"]] = r["cnt"]
+    return result
+
+
+def count_collection_items(user_id: str, ctype: str) -> int:
+    """Return count of distinct discovered items for a player in a type."""
+    conn = get_connection()
+    n = conn.execute(
+        "SELECT COUNT(*) FROM player_collection WHERE user_id=? AND collection_type=?",
+        (user_id, ctype),
+    ).fetchone()[0]
+    conn.close()
+    return n
+
+
+def get_top_collectors(ctype: str | None = None, limit: int = 5) -> list:
+    """Leaderboard by unique item discoveries, bots excluded."""
+    bot_filter = _get_bot_name_filter()
+    conn       = get_connection()
+    if ctype:
+        rows = conn.execute(
+            """SELECT user_id, username, COUNT(*) AS disc
+               FROM player_collection WHERE collection_type=?
+               GROUP BY user_id ORDER BY disc DESC LIMIT ?""",
+            (ctype, limit + 25),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            """SELECT user_id, username, COUNT(*) AS disc
+               FROM player_collection
+               GROUP BY user_id ORDER BY disc DESC LIMIT ?""",
+            (limit + 25,),
+        ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows
+            if r["username"].lower() not in bot_filter][:limit]
+
+
+def get_rare_finds_collection(user_id: str, ctype: str | None = None) -> list:
+    """Return rare+ collection items for a player."""
+    _rare = "('rare','epic','legendary','mythic','ultra_rare','prismatic','exotic')"
+    conn  = get_connection()
+    if ctype:
+        rows = conn.execute(
+            f"""SELECT * FROM player_collection
+                WHERE user_id=? AND collection_type=?
+                  AND rarity IN {_rare}
+                ORDER BY rarity, item_name""",
+            (user_id, ctype),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            f"""SELECT * FROM player_collection
+                WHERE user_id=? AND rarity IN {_rare}
+                ORDER BY collection_type, rarity, item_name""",
+            (user_id,),
+        ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_mining_totals_by_rarity() -> dict:
+    """Return {rarity: count} of all mining items in the catalog."""
+    try:
+        conn  = get_connection()
+        rows  = conn.execute(
+            "SELECT rarity, COUNT(*) AS n FROM mining_items GROUP BY rarity"
+        ).fetchall()
+        conn.close()
+        return {r["rarity"]: r["n"] for r in rows}
+    except Exception:
+        return {}
 
 
 # ── Subscriber notification preferences ───────────────────────────────────────

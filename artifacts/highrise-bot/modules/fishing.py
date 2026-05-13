@@ -506,6 +506,20 @@ async def handle_fish(bot: BaseBot, user: User) -> None:
 
     db.save_fish_catch(fish["name"], fish["rarity"], weight,
                        fish["base_value"], value, fxp, user.id, uname)
+
+    # ── Collection tracking (manual fish only) ────────────────────────────────
+    try:
+        _is_new_fish = db.record_collection_item(
+            user.id, uname, "fishing",
+            fish["fish_id"], fish["name"], fish["rarity"], value,
+        )
+        if _is_new_fish:
+            await _w(bot, user.id,
+                     f"📖 New catch! {fish['emoji']} {fish['name']} "
+                     f"added to your Fish Book!"[:249])
+    except Exception:
+        pass
+
     new_fxp  = profile.get("fishing_xp", 0) + fxp
     new_lvl, leveled = _do_level_up(profile, new_fxp)
     leftover = new_fxp - sum(_fish_level_threshold(l)
@@ -801,24 +815,106 @@ async def handle_fishbag(bot: BaseBot, user: User) -> None:
     await handle_myfish(bot, user)
 
 
-async def handle_fishbook(bot: BaseBot, user: User) -> None:
-    """/fishbook — show distinct fish species caught."""
-    db.ensure_user(user.id, user.username)
-    species = db.get_fish_book(user.id)
-    if not species:
-        await _w(bot, user.id,
-                 "📖 Fish Book empty.\n"
-                 "Catch fish to discover species! !fish")
+_FISH_RAR_ORDER = [
+    "common", "rare", "epic", "legendary", "mythic", "prismatic", "exotic",
+]
+_FISH_RAR_ABBR = {
+    "common": "Com", "rare": "Rar", "epic": "Epi",
+    "legendary": "Leg", "mythic": "Myt", "prismatic": "Pri", "exotic": "Ext",
+}
+_FISH_BOOK_PER = 5
+
+
+async def handle_fishbook(bot: BaseBot, user: User, args: list) -> None:
+    """/fishbook [rarity|missing|all|rarelog] [page] — fish collection book."""
+    uid = user.id
+    sub = args[1].lower() if len(args) > 1 else ""
+    try:
+        page = max(1, int(args[2])) if len(args) > 2 and args[2].isdigit() else 1
+    except (ValueError, IndexError):
+        page = 1
+
+    from collections import defaultdict as _dd
+    cat: dict = _dd(list)
+    for f in FISH_ITEMS:
+        cat[f["rarity"]].append(f)
+    totals_rar = {r: len(v) for r, v in cat.items()}
+    grand_t    = sum(totals_rar.values())
+
+    found   = db.get_player_collection(uid, "fishing")
+    found_d = {r["item_key"]: r for r in found}
+    by_rar: dict = {}
+    for r in found:
+        by_rar.setdefault(r["rarity"], []).append(r)
+
+    valid = set(_FISH_RAR_ORDER) | {"missing", "all", "rarelog"}
+
+    # ── Overview ──────────────────────────────────────────────────────────────
+    if not sub or sub not in valid:
+        if not found:
+            await _w(bot, uid, "🎣 Fish Book\nNo catches yet. !fish to start!")
+            return
+        parts = [
+            f"{_FISH_RAR_ABBR.get(r, r[:3])}:{len(by_rar.get(r,[]))}/{totals_rar.get(r,0)}"
+            for r in _FISH_RAR_ORDER if totals_rar.get(r, 0) > 0
+        ]
+        out = f"🎣 Fish Book — {len(found)}/{grand_t}\n" + "  ".join(parts[:4])
+        if parts[4:]:
+            out += "\n" + "  ".join(parts[4:])
+        out += "\n!fishbook <rarity>  !fishbook missing"
+        await _w(bot, uid, out[:249])
         return
-    lines = [f"📖 Fish Book ({len(species)} species)"]
-    for sp in species[:8]:
-        rl    = _rarity_label(sp["rarity"])
-        total = sp.get("total_caught", 0)
-        best  = sp.get("best_weight", 0)
-        lines.append(f"{rl} {sp['fish_name']} | {total}x | Best: {best}lb")
-    if len(species) > 8:
-        lines.append(f"... and {len(species) - 8} more")
-    await _w(bot, user.id, "\n".join(lines)[:249])
+
+    # ── Rarelog ───────────────────────────────────────────────────────────────
+    if sub == "rarelog":
+        _rset = {"epic", "legendary", "mythic", "prismatic", "exotic"}
+        items = [r for r in found if r["rarity"] in _rset]
+        if not items:
+            await _w(bot, uid, "🎣 Rare Log\nNo rare fish discovered yet.")
+            return
+        lines = [f"🎣 Rare Log ({len(items)} types)"]
+        for r in items[:6]:
+            lines.append(f"✅ {r['item_name']} x{r['count']}")
+        if len(items) > 6:
+            lines.append(f"+{len(items)-6} more")
+        await _w(bot, uid, "\n".join(lines)[:249])
+        return
+
+    # ── Build paginated list ──────────────────────────────────────────────────
+    if sub == "missing":
+        lst = [
+            {"label": f"❔ {f['name']}"}
+            for r in _FISH_RAR_ORDER
+            for f in cat.get(r, [])
+            if f["fish_id"] not in found_d
+        ]
+        hdr = f"🎣 Missing ({len(lst)}/{grand_t})"
+    elif sub == "all":
+        _key = lambda x: (_FISH_RAR_ORDER.index(x["rarity"])
+                          if x["rarity"] in _FISH_RAR_ORDER else 99,
+                          x["item_name"])
+        lst = [{"label": f"✅ {r['item_name']} x{r['count']}"}
+               for r in sorted(found, key=_key)]
+        hdr = f"🎣 All Discovered ({len(lst)}/{grand_t})"
+    else:
+        rar = sub
+        lst = []
+        for f in cat.get(rar, []):
+            if f["fish_id"] in found_d:
+                lst.append({"label": f"✅ {f['name']} x{found_d[f['fish_id']]['count']}"})
+            else:
+                lst.append({"label": f"❔ {f['name']}"})
+        disc_r = len(by_rar.get(rar, []))
+        hdr    = f"🎣 {rar.replace('_', ' ').title()} ({disc_r}/{totals_rar.get(rar, 0)})"
+
+    total_p = max(1, (len(lst) + _FISH_BOOK_PER - 1) // _FISH_BOOK_PER)
+    page    = min(page, total_p)
+    chunk   = lst[(page - 1) * _FISH_BOOK_PER: page * _FISH_BOOK_PER]
+    lines   = [hdr] + [it["label"] for it in chunk]
+    if total_p > 1:
+        nxt = f"  !fishbook {sub} {page + 1}" if page < total_p else ""
+        lines.append(f"Pg {page}/{total_p}{nxt}")
+    await _w(bot, uid, "\n".join(lines)[:249])
 
 
 async def handle_fishautosell(bot: BaseBot, user: User, args: list[str]) -> None:
@@ -1196,7 +1292,8 @@ async def handle_rodstats(bot: BaseBot, user: User) -> None:
 # AutoFish — per-user asyncio tasks
 # ---------------------------------------------------------------------------
 
-_autofish_tasks: dict[str, asyncio.Task] = {}
+_autofish_tasks:  dict[str, asyncio.Task] = {}
+_af_session_stats: dict[str, dict]        = {}  # uid → in-memory accumulator for summary DM
 # Per-user duration override (set by handle_autofish when player requests minutes)
 _autofish_duration_override: dict[str, int] = {}
 
@@ -1206,6 +1303,37 @@ def _get_af_setting(key: str, default: str) -> str:
         return db.get_auto_activity_setting(key, default)
     except Exception:
         return default
+
+
+async def _send_autofish_summary(bot: BaseBot, uid: str, uname: str,
+                                 stats: dict) -> None:
+    """Whisper AutoFish session summary to player."""
+    casts   = stats.get("count", 0)
+    earned  = stats.get("value", 0)
+    best    = stats.get("best_name", "—")
+    new_cnt = len(stats.get("new_discoveries", []))
+    rare_ct = len(stats.get("rare_finds", []))
+    msg1 = (f"🎣 Auto-Fishing Complete\n"
+            f"Casts: {casts}  Earned: {_fmt(earned)}c\n"
+            f"Best: {best}\n"
+            f"New: {new_cnt} | Rare: {rare_ct}")
+    try:
+        await bot.highrise.send_whisper(uid, msg1[:249])
+    except Exception:
+        pass
+    if new_cnt > 0:
+        disc  = stats["new_discoveries"][:3]
+        names = ", ".join(disc)
+        if len(stats["new_discoveries"]) > 3:
+            names += f" +{len(stats['new_discoveries']) - 3}"
+        total_fish = db.count_collection_items(uid, "fishing")
+        total_t    = len(FISH_ITEMS)
+        msg2 = (f"📖 Fish Book: {total_fish}/{total_t} discovered\n"
+                f"New: {names}")
+        try:
+            await bot.highrise.send_whisper(uid, msg2[:249])
+        except Exception:
+            pass
 
 
 async def _autofish_loop(bot: BaseBot, user: User) -> None:
@@ -1230,6 +1358,11 @@ async def _autofish_loop(bot: BaseBot, user: User) -> None:
         db.save_auto_fish_session(uid, uname, _af_started_at, max_att, max_mins)
     except Exception:
         pass
+
+    _af_session_stats[uid] = {
+        "count": 0, "value": 0, "best_value": 0,
+        "best_name": "—", "rare_finds": [], "new_discoveries": [],
+    }
 
     try:
         while True:
@@ -1291,6 +1424,29 @@ async def _autofish_loop(bot: BaseBot, user: User) -> None:
 
             db.save_fish_catch(fish["name"], fish["rarity"], weight,
                                fish["base_value"], value, fxp, uid, uname)
+
+            # ── Collection tracking (AutoFish inline) ─────────────────────────
+            try:
+                _is_new_af = db.record_collection_item(
+                    uid, uname, "fishing",
+                    fish["fish_id"], fish["name"], fish["rarity"], value,
+                )
+            except Exception:
+                _is_new_af = False
+            _af_s = _af_session_stats.get(uid)
+            if _af_s is not None:
+                _af_s["count"]  += 1
+                _af_s["value"]  += value
+                _is_rare_af = fish["rarity"] in (
+                    "epic", "legendary", "mythic", "prismatic", "exotic")
+                if _is_rare_af:
+                    _af_s["rare_finds"].append(fish["name"])
+                if _is_new_af:
+                    _af_s["new_discoveries"].append(fish["name"])
+                if value > _af_s["best_value"]:
+                    _af_s["best_value"] = value
+                    _af_s["best_name"]  = f"{fish['emoji']} {fish['name']}"
+
             new_xp  = profile.get("fishing_xp", 0) + fxp
             new_lvl, leveled = _do_level_up(profile, new_xp)
             leftover = new_xp - sum(_fish_level_threshold(l)
@@ -1345,6 +1501,12 @@ async def _autofish_loop(bot: BaseBot, user: User) -> None:
         print(f"[AUTOFISH] Loop error for {uname}: {exc}")
     finally:
         _autofish_tasks.pop(uid, None)
+        _af_stats = _af_session_stats.pop(uid, None)
+        if _af_stats and _af_stats.get("count", 0) > 0:
+            try:
+                await _send_autofish_summary(bot, uid, uname, _af_stats)
+            except Exception:
+                pass
         try:
             db.stop_auto_fish_session(uid)
         except Exception:
