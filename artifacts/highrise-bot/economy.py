@@ -254,18 +254,15 @@ async def handle_dailystatus(bot: BaseBot, user: User):
 # ---------------------------------------------------------------------------
 
 async def handle_leaderboard(bot: BaseBot, user: User):
-    """Whisper the top players sorted by coin balance."""
-    top = db.get_leaderboard(config.LEADERBOARD_SIZE)
-
-    if not top:
-        await bot.highrise.send_whisper(user.id, "No players on the leaderboard yet!")
-        return
-
-    lines = [f"-- Top {len(top)} Players --"]
-    for entry in top:
-        lines.append(f"#{entry['rank']} {entry['username']} {fmt_coins(entry['balance'])}")
-
-    await bot.highrise.send_whisper(user.id, "\n".join(lines)[:249])
+    """!leaderboard / !lb / !top — leaderboard navigation menu."""
+    await bot.highrise.send_whisper(user.id, (
+        "🏆 Leaderboards\n"
+        "!toprich — richest players\n"
+        "!topminers — top miners\n"
+        "!topfishers — top fishers\n"
+        "!topstreaks — daily streaks\n"
+        "!profile — your stats"
+    ))
 
 
 # ---------------------------------------------------------------------------

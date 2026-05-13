@@ -448,6 +448,9 @@ from modules.fishing import (
     handle_clearforcedropfish,
 )
 from modules.safe_mode import handle_safemode, handle_active, handle_repair
+from modules.leaderboards import (
+    handle_toprich, handle_topminers, handle_topfishers, handle_topstreaks,
+)
 from modules.player_cmds import (
     handle_menu, handle_cooldowns_cmd, handle_rewards_inbox,
     handle_wherebots, handle_updates, handle_rankup,
@@ -618,7 +621,11 @@ from modules.room_utils import (
 # Command sets
 # ---------------------------------------------------------------------------
 
-ECONOMY_COMMANDS     = {"balance", "bal", "b", "coins", "coin", "money", "daily", "leaderboard"}
+ECONOMY_COMMANDS     = {
+    "balance", "bal", "b", "coins", "coin", "money", "daily",
+    "leaderboard", "lb", "top",
+    "toprich", "topminers", "topfishers", "topstreaks",
+}
 PROFILE_COMMANDS     = {
     "profile", "me", "whois", "pinfo",
     "stats", "badges", "titles",
@@ -3721,8 +3728,20 @@ class HangoutBot(BaseBot):
         elif cmd == "claimdaily":
             await handle_claimquest(self, user, args)
 
-        elif cmd == "leaderboard":
+        elif cmd in {"leaderboard", "lb", "top"}:
             await handle_leaderboard(self, user)
+
+        elif cmd == "toprich":
+            await handle_toprich(self, user)
+
+        elif cmd == "topminers":
+            await handle_topminers(self, user)
+
+        elif cmd == "topfishers":
+            await handle_topfishers(self, user)
+
+        elif cmd == "topstreaks":
+            await handle_topstreaks(self, user)
 
         elif cmd in {"profile", "me", "whois", "pinfo"}:
             await handle_profile_cmd(self, user, args)

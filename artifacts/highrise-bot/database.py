@@ -12122,3 +12122,88 @@ def get_economy_audit_log(limit: int = 20) -> list:
     ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Leaderboard helpers — 3.1D
+# ---------------------------------------------------------------------------
+
+def _get_bot_name_filter() -> frozenset:
+    """Return a lowercase frozenset of known bot usernames for LB filtering."""
+    _FALLBACK: frozenset = frozenset({
+        "bankingbot", "chilltopiamc", "greatestprospector", "masterangler",
+        "chipsopranol", "acesinatara", "keanushield", "dj_dudu",
+    })
+    try:
+        conn = get_connection()
+        rows = conn.execute(
+            "SELECT LOWER(bot_username) AS n FROM bot_instances "
+            "WHERE bot_username IS NOT NULL AND bot_username != ''"
+        ).fetchall()
+        conn.close()
+        names = frozenset(r["n"] for r in rows)
+        return names | _FALLBACK if names else _FALLBACK
+    except Exception:
+        return _FALLBACK
+
+
+def get_top_balances(limit: int = 5) -> list[dict]:
+    """Return top players by coin balance, bots excluded."""
+    try:
+        bot_filter = _get_bot_name_filter()
+        conn = get_connection()
+        rows = conn.execute(
+            "SELECT username, balance FROM users ORDER BY balance DESC LIMIT ?",
+            (limit + 25,),
+        ).fetchall()
+        conn.close()
+        return [
+            {"username": r["username"], "balance": r["balance"]}
+            for r in rows
+            if r["username"].lower() not in bot_filter
+        ][:limit]
+    except Exception:
+        return []
+
+
+def get_top_miners(limit: int = 5) -> list[dict]:
+    """Return top players by mining XP, bots excluded."""
+    try:
+        bot_filter = _get_bot_name_filter()
+        conn = get_connection()
+        rows = conn.execute(
+            "SELECT username, mining_xp, mining_level, total_ores "
+            "FROM mining_players ORDER BY mining_xp DESC LIMIT ?",
+            (limit + 25,),
+        ).fetchall()
+        conn.close()
+        return [
+            dict(r)
+            for r in rows
+            if r["username"].lower() not in bot_filter
+        ][:limit]
+    except Exception:
+        return []
+
+
+def get_top_streaks(limit: int = 5) -> list[dict]:
+    """Return top players by best daily streak, bots excluded."""
+    try:
+        bot_filter = _get_bot_name_filter()
+        conn = get_connection()
+        rows = conn.execute(
+            """SELECT u.username, dc.streak, dc.best_streak, dc.total_claims
+               FROM daily_claims dc
+               JOIN users u ON u.user_id = dc.user_id
+               ORDER BY dc.best_streak DESC
+               LIMIT ?""",
+            (limit + 25,),
+        ).fetchall()
+        conn.close()
+        return [
+            dict(r)
+            for r in rows
+            if r["username"].lower() not in bot_filter
+        ][:limit]
+    except Exception:
+        return []
