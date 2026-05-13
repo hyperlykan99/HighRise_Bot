@@ -78,6 +78,7 @@ REGISTRY: dict[str, Cmd] = {
     "blackjackhelp":    Cmd("blackjack","help",False,True,False),
     "bjstatus":         Cmd("blackjack","help",False,True,False),
     "bjforce":          Cmd("blackjack","casino",False,False,True, perm="owner"),
+    "bjtest":           Cmd("blackjack","casino",False,False,True, perm="admin"),
     "bjadmin":          Cmd("blackjack","casino",False,False,True, perm="staff"),
     "bjadminhelp":      Cmd("blackjack","casino",False,False,True, perm="staff"),
     "staffbj":          Cmd("blackjack","casino",False,False,True, perm="staff"),

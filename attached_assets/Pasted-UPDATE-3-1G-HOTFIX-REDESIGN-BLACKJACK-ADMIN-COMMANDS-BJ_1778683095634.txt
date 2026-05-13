@@ -1,0 +1,1180 @@
+UPDATE 3.1G HOTFIX — REDESIGN BLACKJACK ADMIN COMMANDS + BJTEST SYSTEM + PERMISSION LEVELS
+
+Goal:
+Redesign blackjack admin/staff/testing commands into a clean system.
+
+Main command groups:
+
+PUBLIC PLAYER COMMANDS:
+!bet [amount]
+!hit
+!stand
+!double
+!split
+!bjstatus
+!bjrules
+!bjhelp
+!bjshoe
+
+STAFF / ADMIN CONTROL:
+!bjadmin
+
+TESTING / FORCE CARDS:
+!bjtest
+
+LEGACY:
+!bjforce should remain as a hidden owner-only alias to !bjtest so old commands still work.
+
+Main requirements:
+1. !bjadmin shows blackjack admin commands grouped by permission level.
+2. !bjtest replaces force-card testing.
+3. !bjforce becomes hidden legacy alias.
+4. Fix !bjforce / !bjtest parser crashes.
+5. Fix force cards being applied after normal cards are dealt.
+6. Add fake, shoe, and payout test modes.
+7. Support full bonus testing: natural BJ, suited BJ, Perfect 21, 5-Card Charlie, push, bust, dealer bust.
+8. Keep public help clean.
+9. Keep blackjack table format exact.
+10. Preserve shoe restore and prevent duplicate payout/timer bugs.
+
+Do not change tokens.
+Do not change room ID.
+Do not wipe database.
+Do not reset balances, VIP, badges, market, mining/fishing, leaderboards, donations, daily streaks, teleports, role spawns, bot spawns, or player data.
+Do not change poker.
+Do not change normal blackjack odds.
+Do not change normal blackjack payout rules except fixing natural blackjack/bonus payout bugs.
+Do not expose testing commands to regular players.
+Do not show !bjadmin, !bjtest, or !bjforce in public blackjack help.
+
+==================================================
+PART 1 — COMMAND DESIGN
+==================================================
+
+Use this structure:
+
+!bjadmin
+= staff/admin blackjack table control, safety, status, and settings help
+
+!bjtest
+= admin/owner blackjack test and bonus testing system
+
+!bjforce
+= hidden legacy alias to !bjtest
+
+Do not create many separate admin commands like:
+!bjcancel
+!bjrefund
+!bjrestore
+!bjforcecard
+
+Use subcommands under !bjadmin and !bjtest instead.
+
+==================================================
+PART 2 — PERMISSION LEVELS
+==================================================
+
+Use these permission levels:
+
+STAFF:
+!bjadmin
+!bjadmin status
+!bjadmin table
+!bjadmin players
+!bjadmin shoe
+!bjadmin health
+
+MANAGER:
+All Staff commands plus:
+!bjadmin pause
+!bjadmin resume
+!bjadmin cancel
+!bjadmin refund
+!bjadmin restore
+
+ADMIN:
+All Manager commands plus:
+!bjadmin settings
+!bjadmin set timer [seconds]
+!bjadmin set minbet [amount]
+!bjadmin set maxbet [amount]
+!bjadmin set shuffle [percent]
+
+OWNER:
+All Admin commands plus:
+!bjadmin resetshoe
+!bjadmin unlock
+!bjadmin emergencyrefund
+!bjtest
+!bjforce legacy alias
+
+Testing permissions:
+- Staff can view !bjtest help only.
+- Admin can use !bjtest fake and shoe modes.
+- Owner only can use !bjtest mode payout.
+- !bjforce legacy alias is owner-only.
+
+If permission system is unclear:
+- make !bjadmin staff+
+- make !bjtest owner-only
+- make !bjforce owner-only
+- do not expose to public help
+
+==================================================
+PART 3 — BJADMIN MAIN MENU
+==================================================
+
+Command:
+!bjadmin
+
+If regular player:
+🔒 Staff only.
+
+If Staff:
+Show staff-level commands only.
+
+Expected:
+
+🛠️ BJ Staff Commands
+!bjadmin status/table/players
+!bjadmin shoe/health
+
+If Manager/Admin:
+Show staff + manager/admin commands.
+
+Message 1:
+
+🛠️ BJ Staff Commands
+!bjadmin status/table/players
+!bjadmin shoe/health
+
+Message 2:
+
+🛠️ BJ Manager Commands
+!bjadmin pause/resume
+!bjadmin cancel/refund/restore
+
+Message 3:
+
+🛠️ BJ Admin Settings
+!bjadmin settings
+!bjadmin set timer/minbet/maxbet/shuffle
+
+If Owner:
+Show staff + manager/admin + owner/test commands.
+
+Owner extra message:
+
+👑 BJ Owner Commands
+!bjadmin resetshoe/unlock
+!bjadmin emergencyrefund
+!bjtest — testing system
+
+Owner test message:
+
+🧪 BJ Test Commands
+!bjtest status/clear
+!bjtest mode fake|shoe|payout
+!bjtest natural/suited/perfect21/charlie @user
+
+Rules:
+- Prefer whisper.
+- Split into multiple messages.
+- Keep every message under 220 characters.
+- Only show commands the user has permission to use.
+- No raw debug info.
+- No / commands.
+- Do not show owner-only commands to normal staff.
+
+==================================================
+PART 4 — BJADMIN SUBCOMMANDS
+==================================================
+
+Add or polish:
+
+!bjadmin help
+!bjadmin status
+!bjadmin table
+!bjadmin players
+!bjadmin shoe
+!bjadmin health
+!bjadmin pause
+!bjadmin resume
+!bjadmin cancel
+!bjadmin refund
+!bjadmin restore
+!bjadmin settings
+!bjadmin set timer [seconds]
+!bjadmin set minbet [amount]
+!bjadmin set maxbet [amount]
+!bjadmin set shuffle [percent]
+!bjadmin resetshoe
+!bjadmin unlock
+!bjadmin emergencyrefund
+
+If some commands are risky:
+- skip them
+- hide them
+- do not count them as command issues
+
+==================================================
+PART 5 — BJADMIN STATUS
+==================================================
+
+Command:
+!bjadmin status
+
+Expected:
+
+🃏 BJ Status
+Phase: round
+Players: 2
+Timer: 12s
+Round: active
+
+If no round:
+
+🃏 BJ Status
+No active blackjack round.
+
+Include if safe:
+- phase
+- players count
+- timer left
+- round_id short
+- payouts_done yes/no
+- forced_test yes/no
+
+No raw debug dumps.
+
+==================================================
+PART 6 — BJADMIN TABLE
+==================================================
+
+Command:
+!bjadmin table
+
+Show the current blackjack table using the same public format:
+
+AceSinatra:
+Dealer Cards: A♦️[?]=11
+
+AceSinatra:
+Player Cards:
+@4ktreyMarion: J♦️ K♣️=20
+@User2: 9♥️ 10♠️=19
+
+Actions: !hit / !stand / !double
+Timer: 15s
+
+If no table:
+⚠️ No active blackjack table.
+
+==================================================
+PART 7 — BJADMIN PLAYERS
+==================================================
+
+Command:
+!bjadmin players
+
+Expected:
+
+🃏 BJ Players
+@4ktreyMarion — 10,000c — active
+@User2 — 5,000c — stood
+
+Rules:
+- Show username, bet, status.
+- No raw IDs.
+- Keep short.
+
+==================================================
+PART 8 — BJADMIN SHOE
+==================================================
+
+Command:
+!bjadmin shoe
+
+Expected:
+
+🃏 BJ Shoe
+Cards left: 298
+Used: 14
+Decks: 6
+Restored: yes
+
+Rules:
+- Do not show full shoe order publicly.
+- Owner debug may show more if needed.
+- Staff can view count only.
+
+==================================================
+PART 9 — BJADMIN HEALTH
+==================================================
+
+Command:
+!bjadmin health
+
+Expected:
+
+🩺 BJ Health
+Shoe: OK
+Dealer: OK
+Players: OK
+Timer: OK
+Payout Lock: OK
+
+If issue:
+
+🩺 BJ Health
+Issue: dealer_cards missing
+Use !bjadmin refund or !bjadmin restore
+
+Rules:
+- Detect missing dealer cards.
+- Detect missing shoe.
+- Detect stuck timer.
+- Detect duplicate timer if possible.
+- Detect payouts_done mismatch.
+
+==================================================
+PART 10 — BJADMIN SETTINGS
+==================================================
+
+Command:
+!bjadmin settings
+
+Expected:
+
+⚙️ BJ Settings
+Timer: [sec]s
+Min Bet: [amount]c
+Max Bet: [amount]c
+Shuffle: [percent]%
+
+Keep under 220 characters.
+
+Setting commands:
+
+!bjadmin set timer [seconds]
+!bjadmin set minbet [amount]
+!bjadmin set maxbet [amount]
+!bjadmin set shuffle [percent]
+
+Rules:
+- Admin/Owner only.
+- Validate positive numbers.
+- Do not reset active rounds unless required.
+- Do not change payout rules here.
+
+==================================================
+PART 11 — BJADMIN CONTROL COMMANDS
+==================================================
+
+!bjadmin pause
+Expected:
+⏸️ Blackjack paused.
+
+!bjadmin resume
+Expected:
+▶️ Blackjack resumed.
+
+!bjadmin cancel
+Expected:
+⚠️ Blackjack round cancelled.
+Active bets refunded.
+
+!bjadmin refund
+Expected:
+💰 Blackjack refund complete.
+Reason: stuck/corrupt round.
+
+!bjadmin restore
+Expected:
+♻️ Blackjack restored.
+Same cards loaded. Timer restarted.
+
+Rules:
+- Refund active bets once.
+- Do not duplicate refunds.
+- Do not duplicate payouts.
+- Do not reset shoe unless round is cancelled/refunded.
+- Manager/Admin/Owner only for risky commands.
+
+==================================================
+PART 12 — PERMISSION CHECKS FOR SUBCOMMANDS
+==================================================
+
+Each command must check permission.
+
+If no permission:
+
+🔒 You do not have permission for this BJ admin command.
+
+Examples:
+- Staff using !bjadmin cancel should be denied.
+- Manager using !bjadmin set maxbet should be denied.
+- Admin using !bjtest mode payout should be denied unless owner.
+- Owner can use all.
+
+==================================================
+PART 13 — BJTEST IS THE NEW FORCE SYSTEM
+==================================================
+
+Replace force-card testing with:
+
+!bjtest
+
+Legacy:
+!bjforce should call the same handler as !bjtest, but hidden from help.
+
+Supported commands:
+
+!bjtest
+!bjtest help
+!bjtest status
+!bjtest clear
+!bjtest mode fake
+!bjtest mode shoe
+!bjtest mode payout
+
+!bjtest dealer [card1] [card2]
+!bjtest player @user [card1] [card2]
+!bjtest natural @user
+!bjtest suited @user
+!bjtest perfect21 @user
+!bjtest charlie @user
+!bjtest push @user
+!bjtest bust @user
+!bjtest dealerbust @user
+!bjtest regularwin @user
+!bjtest regularloss @user
+
+Aliases:
+!bjtest blackjack @user = !bjtest natural @user
+!bjtest suitedbj @user = !bjtest suited @user
+!bjtest twentyone @user = !bjtest perfect21 @user
+
+Legacy aliases:
+!bjforce blackjack @user = !bjtest natural @user
+!bjforce suitedbj @user = !bjtest suited @user
+!bjforce twentyone @user = !bjtest perfect21 @user
+!bjforce mode fakepayout = !bjtest mode payout
+
+==================================================
+PART 14 — FIX ARG PARSER FOR BJTEST/BJFORCE
+==================================================
+
+Parser must support both router styles.
+
+Possible args:
+["status"]
+["bjtest", "status"]
+["bjforce", "status"]
+["mode", "fake"]
+["bjtest", "mode", "fake"]
+["bjforce", "mode", "fake"]
+
+Parser logic:
+
+raw_args = list(args or [])
+
+if raw_args and raw_args[0].lower() in {"bjtest", "bjforce"}:
+    raw_args = raw_args[1:]
+
+sub = raw_args[0].lower() if raw_args else "help"
+rest = raw_args[1:]
+
+Examples:
+!bjtest status
+sub=status
+rest=[]
+
+!bjtest mode payout
+sub=mode
+rest=["payout"]
+
+!bjtest natural @4ktreyMarion
+sub=natural
+rest=["@4ktreyMarion"]
+
+Never use fixed args[1] blindly.
+Never crash on missing args.
+
+==================================================
+PART 15 — BJTEST MODES
+==================================================
+
+Use 3 modes:
+
+fake:
+- fake cards
+- no real payout
+- bet refunded
+- no stats
+- no leaderboards
+- no quests
+- no achievements
+- default mode
+
+shoe:
+- forced cards are pulled from real shoe
+- real payout allowed
+- shoe count decreases correctly
+- fair live test mode
+
+payout:
+- fake cards
+- real payout allowed
+- owner only
+- no stats
+- no leaderboards
+- no quests
+- no achievements
+- max bet 10,000c
+- auto-reset to fake after one round
+
+Mode commands:
+
+!bjtest mode fake
+✅ BJ test mode set: fake
+
+!bjtest mode shoe
+✅ BJ test mode set: shoe
+
+!bjtest mode payout
+✅ BJ test mode set: payout
+
+Invalid:
+⚠️ Use: !bjtest mode fake|shoe|payout
+
+==================================================
+PART 16 — BJTEST STATUS
+==================================================
+
+Command:
+!bjtest status
+
+Expected:
+
+🧪 BJ Test
+Mode: fake
+Dealer: none
+Players: none
+Real payout: no
+
+If queued:
+
+🧪 BJ Test
+Mode: payout
+Dealer: 9♦️ 7♣️
+@4ktreyMarion: natural
+Real payout: yes
+
+Rules:
+- Never crash.
+- Use .get() for missing keys.
+- Handle old force_state keys.
+- Keep under 220 characters.
+- Whisper to staff/admin/owner.
+
+==================================================
+PART 17 — BJTEST CLEAR
+==================================================
+
+Command:
+!bjtest clear
+
+Expected:
+✅ BJ test queue cleared.
+
+Must clear:
+- next_cards
+- dealer_cards
+- player_cards/player_hands
+- player_bj
+- player_pair
+- dealer_ace
+- shoe_low
+- forced_test_round
+- fake_payout_round
+- test cases
+
+Do not reset mode unless owner says:
+!bjtest mode fake
+
+==================================================
+PART 18 — CARD PARSER
+==================================================
+
+Support:
+A♦️ K♦️ Q♦️ J♦️ 10♦️
+A♥️ K♥️ Q♥️ J♥️ 10♥️
+A♣️ K♣️ Q♣️ J♣️ 10♣️
+A♠️ K♠️ Q♠️ J♠️ 10♠️
+
+Also support:
+AD AH AC AS
+10D 10H 10C 10S
+
+Normalize display to:
+A♦️
+K♣️
+10♠️
+J♥️
+
+If invalid:
+⚠️ Invalid card. Use: A♦️, K♣️, 10♥️
+
+==================================================
+PART 19 — USER LOOKUP FOR BJTEST
+==================================================
+
+Accept:
+!bjtest natural @4ktreyMarion
+!bjtest natural @4ktreymarion
+!bjtest natural 4ktreyMarion
+!bjtest natural 4ktreymarion
+
+Rules:
+- strip @
+- compare lowercase username
+- support display_name lowercase if available
+- if player is not found, still allow queue by lowercase username if bot can match when they join/bet
+- do not crash on missing user object
+
+If not found and cannot queue:
+⚠️ Player not found. Make sure they are in the room or joined recently.
+
+==================================================
+PART 20 — BJTEST TEST CASES
+==================================================
+
+!bjtest natural @user
+Player: A♠️ K♦️
+Dealer: 9♦️ 7♣️
+Expected: natural blackjack, 2.5x total return
+
+!bjtest suited @user
+Player: A♥️ K♥️
+Dealer: 9♦️ 7♣️
+Expected: suited blackjack, 3x total return
+
+!bjtest perfect21 @user
+Player: 7♠️ 4♦️ K♣️ = 21
+Dealer: 9♦️ 7♣️
+Expected: normal win + Perfect 21 bonus
+Important: NOT natural blackjack
+
+!bjtest charlie @user
+Player: 2♠️ 3♦️ 4♣️ 5♥️ 6♠️ = 20
+Dealer: 9♦️ 7♣️
+Expected: 5-Card Charlie bonus
+
+!bjtest push @user
+Player: 10♠️ 8♦️ = 18
+Dealer: 10♥️ 8♣️ = 18
+Expected: push/refund
+
+!bjtest bust @user
+Player: K♠️ 8♦️ 6♣️ = 24
+Dealer: 9♦️ 7♣️
+Expected: player bust/loss
+
+!bjtest dealerbust @user
+Player: 10♠️ 8♦️ = 18
+Dealer: K♥️ 6♣️ 8♦️ = 24
+Expected: player win
+
+!bjtest regularwin @user
+Player: 10♠️ 9♦️ = 19
+Dealer: 10♥️ 7♣️ = 17
+Expected: normal win
+
+!bjtest regularloss @user
+Player: 10♠️ 7♦️ = 17
+Dealer: 10♥️ 9♣️ = 19
+Expected: normal loss
+
+==================================================
+PART 21 — DEALING LOGIC MUST USE TEST BEFORE NORMAL DRAW
+==================================================
+
+Fix current bad behavior:
+Normal cards are dealt first, then forced cards overwrite them.
+
+Correct behavior:
+At deal time, choose source first.
+
+For each needed card:
+- if a bjtest forced card exists:
+  - fake mode: use fake card, do not touch shoe
+  - payout mode: use fake card, do not touch shoe
+  - shoe mode: remove exact card from shoe
+- else:
+  - draw normal card from shoe
+
+Do not:
+- draw normal card then overwrite it
+- remove normal card from shoe then replace hand with fake card
+- duplicate cards in shoe mode
+- corrupt shoe count
+
+==================================================
+PART 22 — SHOE MODE RULES
+==================================================
+
+In shoe mode:
+- Validate all forced cards exist in shoe before round starts.
+- Remove forced cards when dealt.
+- Save shoe immediately after removal.
+- No duplicate cards.
+- Real payout allowed.
+- Shoe count decreases correctly.
+
+If card not available:
+⚠️ Card not available in shoe.
+
+Do not fall back to fake cards in shoe mode.
+
+==================================================
+PART 23 — FAKE MODE RULES
+==================================================
+
+In fake mode:
+- Use fake cards.
+- Do not pull from shoe.
+- Do not change shoe count.
+- Mark round forced_test_round = true.
+- No real payout.
+- Refund bet.
+- No stats/leaderboards.
+
+Result example:
+
+🧪 BJ TEST
+@Player: BLACKJACK 2.5x preview
+Bet refunded. No real payout.
+
+==================================================
+PART 24 — PAYOUT MODE RULES
+==================================================
+
+In payout mode:
+- Use fake cards.
+- Do not pull from shoe.
+- Do not change shoe count.
+- Real payout allowed.
+- Owner only.
+- Max bet 10,000c.
+- No stats/leaderboards/quests/achievements.
+- Log as blackjack_forced_bonus_test.
+- Auto-reset mode to fake after completed round.
+
+If non-owner tries payout:
+🔒 Owner only.
+
+If bet over cap:
+⚠️ BJ payout test max bet is 10,000c.
+
+Result example:
+
+🧪 BJ PAYOUT TEST
+@4ktreyMarion: SUITED BJ
+Bet: 100c
+Return: 300c
+Profit: +200c
+
+==================================================
+PART 25 — BONUS PAYOUT RULES
+==================================================
+
+Natural Blackjack:
+- exactly 2 cards
+- Ace + 10-value
+- total return = 2.5x bet
+- profit = +1.5x bet
+
+Suited Blackjack:
+- natural blackjack with same suit
+- total return = 3x bet
+- profit = +2x bet
+
+Perfect 21:
+- 3+ cards totaling 21
+- not natural blackjack
+- normal win + 10% bonus profit
+
+5-Card Charlie:
+- 5 cards without busting
+- normal win + 25% bonus profit
+
+Rules:
+- Highest bonus wins.
+- Bonus applies once.
+- Save bonus_applied per hand.
+- No duplicate bonus after restart.
+- Payout mode tests real payout.
+- Fake mode previews only.
+- Shoe mode normal payout.
+
+==================================================
+PART 26 — EXACT BLACKJACK TABLE FORMAT
+==================================================
+
+When a round starts/restores, send exactly this style.
+
+Bot Chat 1:
+
+AceSinatra:
+Dealer Cards: A♦️[?]=11
+
+Bot Chat 2:
+
+AceSinatra:
+Player Cards:
+@4ktreyMarion: J♦️ K♣️=20
+@User2: 9♥️ 10♠️=19
+
+Actions: !hit / !stand / !double
+Timer: 15s
+
+Rules:
+- Include AceSinatra: prefix.
+- No “Visible Total”.
+- No extra line like “Everyone’s Cards”.
+- No color coding.
+- Keep card emojis.
+- Actions/timer only once for the whole table.
+- If many players, split player cards but actions/timer only on the last message.
+
+==================================================
+PART 27 — DEALER REVEAL FORMAT
+==================================================
+
+When dealer plays:
+
+AceSinatra:
+Dealer Reveals: 6♣️
+Dealer Cards: A♦️ 6♣️=17
+
+If dealer hits:
+
+AceSinatra:
+Dealer Hits: 4♥️
+Dealer Cards: A♦️ 6♣️ 4♥️=21
+
+Never show:
+Dealer reveals: = 0
+
+Dealer total must include all dealer cards.
+
+==================================================
+PART 28 — SHOE RESTORE
+==================================================
+
+Shoe must persist across restart/crash.
+
+On active round restore:
+- load exact shoe
+- load dealer cards
+- load player cards
+- load bets
+- do not reshuffle
+- do not redeal
+- restart action timer
+- show exact table again
+
+If shoe data missing/corrupt:
+- refund active bets once
+- cancel round
+- clear table
+- message:
+⚠️ Blackjack restore failed.
+Shoe data missing. Bets refunded.
+
+==================================================
+PART 29 — DUPLICATE PROTECTION
+==================================================
+
+Use persisted flags:
+timer_round_id
+dealer_play_started
+dealer_play_completed
+resolved
+payouts_done
+
+Rules:
+- one timer per round
+- one dealer play per round
+- one payout per round
+- after restart, do not duplicate timer
+- after restart, do not duplicate payout
+- payout mode resets after payout
+
+==================================================
+PART 30 — PUBLIC HELP SAFETY
+==================================================
+
+Public help should NOT show:
+!bjtest
+!bjforce
+!bjadmin
+!staffbj
+
+Public blackjack help should show only:
+!bet [amount]
+!hit
+!stand
+!double
+!split
+!bjstatus
+!bjshoe
+!bjrules
+
+Staff/admin help is only via:
+!bjadmin
+
+Testing help is only via:
+!bjtest
+
+Legacy !bjforce is hidden.
+
+==================================================
+PART 31 — COMMAND REGISTRY
+==================================================
+
+Register:
+
+!bjadmin
+!bjtest
+!bjforce
+
+Expected:
+
+!commandtest !bjadmin
+owner=AceSinatra or Host
+route=YES
+handler=YES
+permission=Staff/Admin
+
+!commandtest !bjtest
+owner=AceSinatra or Host
+route=YES
+handler=YES
+permission=Admin/Owner
+
+!commandtest !bjforce
+owner=AceSinatra or Host
+route=YES
+handler=YES
+permission=Owner
+hidden=true if supported
+
+Do not create no-owner commands.
+
+==================================================
+PART 32 — TESTS: COMMAND STABILITY
+==================================================
+
+Run:
+
+!bjadmin
+!bjadmin status
+!bjadmin table
+!bjadmin players
+!bjadmin shoe
+!bjadmin health
+!bjadmin settings
+
+!bjtest
+!bjtest status
+!bjtest mode fake
+!bjtest status
+!bjtest mode payout
+!bjtest status
+!bjtest clear
+!bjtest status
+
+!bjforce status
+
+Expected:
+- no command error
+- no generic crash message
+- permissions correct
+- status always works
+- mode always works
+- legacy bjforce works as alias
+- !bjadmin shows commands by permission level
+
+==================================================
+PART 33 — TESTS: BONUS PAYOUT
+==================================================
+
+Natural blackjack payout test:
+
+!bjtest clear
+!bjtest mode payout
+!bjtest natural @4ktreyMarion
+!bjtest status
+!bjshoe
+!bet 100
+
+Expected:
+- fake cards used
+- shoe count unchanged
+- natural blackjack pays 2.5x total return
+- result says BJ PAYOUT TEST
+- no stats/leaderboards
+- mode resets to fake
+
+Suited blackjack payout test:
+
+!bjtest clear
+!bjtest mode payout
+!bjtest suited @4ktreyMarion
+!bet 100
+
+Expected:
+- suited blackjack pays 3x total return
+
+Perfect 21 payout test:
+
+!bjtest clear
+!bjtest mode payout
+!bjtest perfect21 @4ktreyMarion
+!bet 100
+
+Expected:
+- 3-card 21
+- not natural blackjack
+- Perfect 21 bonus applies
+
+5-Card Charlie test:
+
+!bjtest clear
+!bjtest mode payout
+!bjtest charlie @4ktreyMarion
+!bet 100
+
+Expected:
+- 5 cards without bust
+- 5-Card Charlie bonus applies
+
+==================================================
+PART 34 — TESTS: SHOE MODE
+==================================================
+
+Run:
+
+!bjtest clear
+!bjtest mode shoe
+!bjtest dealer A♦️ 6♣️
+!bjtest player @4ktreyMarion J♦️ K♣️
+!bjshoe
+!bet 100
+!bjshoe
+
+Expected:
+- cards pulled from shoe
+- shoe count decreases correctly
+- real payout allowed
+- no duplicates
+
+==================================================
+PART 35 — TESTS: RESTORE
+==================================================
+
+Run:
+
+!bjtest clear
+!bjtest mode payout
+!bjtest dealer A♦️ 6♣️
+!bjtest player @4ktreyMarion J♦️ K♣️
+!bjshoe
+!bet 100
+
+Restart bot during round.
+
+After restart:
+
+!bjshoe
+!bjstatus
+!bjadmin table
+
+Expected:
+- same cards shown
+- same shoe count
+- timer restarted
+- no redeal
+- no shoe reset
+- no duplicate payout
+
+Then:
+!stand
+
+Expected:
+- dealer reveals 6♣️
+- dealer total = 17
+- no Dealer reveals: = 0
+
+==================================================
+PART 36 — FINAL QA
+==================================================
+
+Run:
+
+!commandtest !bjadmin
+!commandtest !bjtest
+!commandtest !bjforce
+!commandtest !bjstatus
+!commandtest !bjshoe
+!commandtest !bet
+!commandtest !hit
+!commandtest !stand
+!commandtest !double
+!commandtest !bjhelp
+!commandtest !bjrules
+
+!commandissues
+!checkcommands
+!checkhelp
+!launchcheck
+!bothealth
+!stability status
+
+Expected:
+- no command issues
+- no checkhelp leaks
+- no public force/test/admin commands
+- launchcheck clean
+- bjtest stable
+- bjadmin stable
+- legacy bjforce alias stable
+
+==================================================
+PART 37 — FINAL REPORT
+==================================================
+
+Report:
+1. !bjadmin added/redesigned.
+2. !bjadmin shows commands grouped by permission level.
+3. Staff/Manager/Admin/Owner permission checks confirmed.
+4. !bjtest added as force/testing system.
+5. !bjforce hidden alias added.
+6. !bjforce status/mode crash fixed.
+7. Public help does not leak staff/test commands.
+8. Fake mode confirmed.
+9. Shoe mode confirmed.
+10. Payout mode confirmed.
+11. Natural blackjack 2.5x confirmed.
+12. Suited blackjack 3x confirmed.
+13. Perfect 21 confirmed.
+14. 5-Card Charlie confirmed.
+15. Exact table format confirmed.
+16. Shoe restore confirmed.
+17. Duplicate payout/timer protection confirmed.
+18. !commandissues result.
+19. !checkcommands result.
+20. !checkhelp result.
+21. !launchcheck result.

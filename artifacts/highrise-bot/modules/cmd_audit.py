@@ -243,7 +243,7 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     "phelp",
     "sitout", "sitin", "rebuy", "pstacks", "mystack",
     "poker", "pokerhelp", "pokerstatus",
-    "bjstatus", "blackjackhelp", "bjforce",
+    "bjstatus", "blackjackhelp", "bjforce", "bjtest",
     "bjadmin", "bjadminhelp", "staffbj", "staffbjhelp",
     "botstatus", "dbstats", "backup",
     "maintenance", "reloadsettings", "cleanup",
@@ -532,7 +532,7 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     # ── Autospawn + role listing (host / security) ───────────────────────────
     "autospawn", "roles", "rolemembers",
     # ── BJ shoe management ───────────────────────────────────────────────────
-    "bjshoereset", "bjforce",
+    "bjshoereset", "bjforce", "bjtest",
     "bjadmin", "bjadminhelp", "staffbj", "staffbjhelp",
     # ── Economy audit ────────────────────────────────────────────────────────
     "economyaudit", "gameprices", "gameprice", "setgameprice",
@@ -602,7 +602,7 @@ HELP_CMDS: frozenset[str] = frozenset({
     "setpokerbuyin", "setpokerplayers", "setpokertimer", "setpokerraise",
     "setpokerdailywinlimit", "setpokerdailylosslimit", "resetpokerlimits",
     "poker", "pokerhelp", "pokerstatus", "pokercleanup",
-    "bjstatus", "blackjackhelp", "bjforce",
+    "bjstatus", "blackjackhelp", "bjforce", "bjtest",
     "bjadmin", "bjadminhelp", "staffbj", "staffbjhelp",
     "send", "bank", "bankstats", "transactions", "banknotify",
     "viewtx", "bankwatch", "ledger", "auditbank", "banksettings",
@@ -761,7 +761,7 @@ VISIBLE_CMDS: frozenset[str] = frozenset({
     "roomtiplb", "roomtipleaderboard", "alltiplb", "alltipleaderboard",
     "tipreceiverlb", "topreceivers",
     # ── New staff controls ───────────────────────────────────────────────────
-    "autospawn", "roles", "bjshoereset", "bjforce",
+    "autospawn", "roles", "bjshoereset", "bjforce", "bjtest",
     "bjadmin", "bjadminhelp", "staffbj", "staffbjhelp",
     "economyaudit", "gameprices", "gameprice", "setgameprice",
     "messageaudit", "helpaudit", "staffhelp",
