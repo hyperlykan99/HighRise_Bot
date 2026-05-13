@@ -3022,6 +3022,12 @@ class HangoutBot(BaseBot):
         # First-find banker — banker/all bots
         if BOT_MODE in ("banker", "all"):
             _safe_task(startup_firstfind_banker(self), "startup_firstfind_banker")
+            # Backfill donation leaderboard from tip_transactions (idempotent)
+            try:
+                n = db.backfill_gold_donations_from_tip_transactions()
+                print(f"[BANKER] Donation backfill complete: {n} new row(s) added to gold_tip_events")
+            except Exception as _bf_exc:
+                print(f"[BANKER] Donation backfill error: {_bf_exc!r}")
         # Time-in-room EXP loop — host bot only
         if should_this_bot_run_module("timeexp"):
             _safe_task(time_exp_loop(self), "time_exp_loop")

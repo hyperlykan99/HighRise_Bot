@@ -329,6 +329,10 @@ async def process_tip_event(bot: BaseBot, sender: User, receiver: User, tip) -> 
 
         _safe_log_transaction(sender.username, convertible, coins, bonus, "success", event_hash)
 
+        # ── Log donation for !topdonators leaderboard ─────────────────────────
+        _safe_record_donation(sender.id, sender.username, receiver.username,
+                              convertible, coins, event_hash)
+
         # ── Subscribe hint only — no auto-subscribe from tip ─────────────────
         try:
             existing_sub = db.get_subscriber(sender.username.lower())
@@ -356,6 +360,27 @@ def _safe_log_transaction(
         db.log_tip_transaction(username, gold, coins, bonus, status, event_hash)
     except Exception as e:
         print(f"[TIP] log_tip_transaction error: {e!r}")
+
+
+def _safe_record_donation(
+    donor_id: str,
+    donor_username: str,
+    receiver_bot: str,
+    gold_amount: int,
+    coins: int,
+    event_hash: str,
+) -> None:
+    """Write donation into gold_tip_events so !topdonators stays current."""
+    try:
+        inserted = db.record_gold_donation(
+            donor_id, donor_username, receiver_bot, gold_amount, coins, event_hash
+        )
+        if inserted:
+            print(f"[TIP] Donation logged: @{donor_username} {gold_amount}g → gold_tip_events")
+        else:
+            print(f"[TIP] Donation already in gold_tip_events (dup): {event_hash}")
+    except Exception as e:
+        print(f"[TIP] _safe_record_donation error: {e!r}")
 
 
 # ---------------------------------------------------------------------------

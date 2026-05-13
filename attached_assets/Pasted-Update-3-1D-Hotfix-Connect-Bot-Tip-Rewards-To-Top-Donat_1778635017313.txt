@@ -1,0 +1,233 @@
+Update 3.1D Hotfix — Connect Bot Tip Rewards To Top Donators
+
+Current issue:
+When I tip BankingBot, the bot rewards coins correctly:
+
+@4ktreyMarion tipped 50g and received 500 coins!
+
+But !topdonators still says:
+No gold donations yet.
+
+That means the tip reward system is working, but it is not writing to the donation leaderboard log, or !topdonators is reading the wrong table.
+
+Goal:
+Every real gold tip to any owned bot that gives coin rewards must also count toward:
+!topdonators
+!topdonors
+!donators
+!donationgoal if integrated
+
+Do not change token.
+Do not wipe data.
+Do not change room ID.
+Do not change coin reward rate.
+Do not duplicate coin rewards.
+Do not auto-subscribe users.
+
+==================================================
+PART 1 — FIND EXISTING TIP REWARD HANDLER
+==================================================
+
+Find the code that produced this message:
+
+"@4ktreyMarion tipped 50g and received 500 coins!"
+
+This is the correct source of truth.
+
+In that exact handler, after validating the tip and before/after coin reward success, also write the donation record.
+
+Do not create a separate listener that might double-reward.
+Do not create duplicate donation records.
+
+==================================================
+PART 2 — WRITE DONATION LOG FROM SAME EVENT
+==================================================
+
+When a real player tips an owned bot and receives coins, log:
+
+donor_id
+donor_username
+receiver_bot
+gold_amount
+coin_reward
+source = "gold_tip_reward"
+created_at
+event_id if available
+
+Use existing donation table if available.
+
+If no reliable donation table exists, create:
+
+room_donations:
+id INTEGER PRIMARY KEY AUTOINCREMENT
+event_id TEXT UNIQUE NULL
+donor_id TEXT
+donor_username TEXT
+receiver_bot TEXT
+amount INTEGER
+coin_reward INTEGER DEFAULT 0
+source TEXT DEFAULT 'gold_tip_reward'
+created_at TEXT
+
+Rules:
+- amount must be positive integer
+- coin_reward must be the actual reward given
+- no duplicate records for same tip event
+- no duplicate coin rewards
+- no auto-subscribe
+- exclude bots as donors
+
+==================================================
+PART 3 — TOPDONATORS MUST READ THIS LOG
+==================================================
+
+Update:
+
+!topdonators
+!topdonors
+!donators
+
+to total gold amount from the same donation source used by the tip reward handler.
+
+Expected after I tip 50g:
+
+💛 Top Donators
+1. @4ktreyMarion — 50g
+
+If I tip again 10g:
+
+💛 Top Donators
+1. @4ktreyMarion — 60g
+
+Do not read from an empty old table if the real tip reward data is stored elsewhere.
+
+==================================================
+PART 4 — BACKFILL FROM EXISTING REAL TIP REWARD LOGS
+==================================================
+
+If there is already a table/log that recorded:
+
+@4ktreyMarion tipped 50g and received 500 coins
+
+Then backfill !topdonators from that real data.
+
+Possible sources:
+- tip reward logs
+- gold tip reward table
+- coin reward transactions
+- donation_logs
+- banking transactions
+- support logs
+
+Only backfill from real recorded tip events.
+Do not fake data.
+Do not guess tips that were not logged.
+
+If the 50g tip was not stored anywhere, report:
+"Past tip could not be backfilled because it was not logged. Future tips will track."
+
+==================================================
+PART 5 — DONATION GOAL INTEGRATION
+==================================================
+
+If !donationgoal tracks gold support, make it use the same room_donations total.
+
+A 50g bot tip should add 50g progress.
+
+Do not count:
+- Party Tips
+- !tip all
+- owner !goldtip
+- gold rain
+- player-to-player coin sends
+- casino bets
+- mining/fishing rewards
+- shop/VIP purchases
+
+==================================================
+PART 6 — THANK YOU MESSAGE STAYS SAME
+==================================================
+
+Keep current reward message, or slightly polish:
+
+💛 @Player tipped [amount]g and received [coins] coins!
+
+Optional second line:
+Tip 100g+ for a bonus! Daily cap left [amount]g.
+
+Do not auto-subscribe.
+Do not turn notifications ON.
+
+==================================================
+PART 7 — OWNER DEBUG COMMAND
+==================================================
+
+Add owner-only debug if safe:
+
+!donationdebug @4ktreyMarion
+
+Expected:
+
+💛 Donation Debug
+User: @4ktreyMarion
+Gold Donated: 50g
+Coin Rewards: 500c
+Records: 1
+
+Also add:
+
+!donationaudit
+
+Expected:
+
+💛 Donation Audit
+Tip reward source: OK
+Donation log: OK
+Topdonators source: OK
+
+If risky, skip debug commands and do not count them as issues.
+
+==================================================
+PART 8 — TESTS
+==================================================
+
+Run before tipping:
+
+!topdonators
+!topdonors
+!donationgoal
+!commandissues
+!checkcommands
+
+Then real flow:
+1. Tip BankingBot 1g.
+2. Confirm coin reward message appears.
+3. Run !topdonators.
+4. Tip MasterAngler 1g.
+5. Run !topdonators.
+6. Tip any other owned bot 1g.
+7. Run !topdonators.
+
+Expected:
+- each real bot tip gives coins once
+- each real bot tip logs donation once
+- !topdonators updates immediately
+- !donationgoal updates if integrated
+- no auto-subscribe
+- no duplicate rewards
+- no command issues
+
+==================================================
+PART 9 — FINAL REPORT
+==================================================
+
+Report:
+1. Exact tip reward handler found.
+2. Donation table/log used.
+3. Whether the previous 50g tip was backfilled.
+4. Whether !topdonators reads the correct source.
+5. Whether !donationgoal uses the same source.
+6. Confirmed no auto-subscribe from tipping.
+7. Confirmed no duplicate coin rewards.
+8. !commandissues result.
+9. !checkcommands result.

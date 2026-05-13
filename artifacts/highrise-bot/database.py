@@ -7395,6 +7395,101 @@ def get_user_gold_donated(username: str) -> dict:
         return {}
 
 
+def record_gold_donation(
+    donor_id: str,
+    donor_username: str,
+    receiver_bot: str,
+    gold_amount: float,
+    coins: int,
+    event_id: str,
+) -> bool:
+    """
+    Write one gold tip into gold_tip_events for donation tracking.
+    Uses INSERT OR IGNORE so it is safe to call even if already present.
+    Returns True if a new row was inserted, False if duplicate.
+    """
+    conn = get_connection()
+    try:
+        rate = round(float(coins) / max(1.0, float(gold_amount)), 4)
+        cur = conn.execute(
+            """INSERT OR IGNORE INTO gold_tip_events
+               (event_id, from_user_id, from_username, receiving_bot,
+                gold_amount, coins_converted, conversion_rate,
+                processed_by, status, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
+            (
+                event_id,
+                donor_id,
+                donor_username.lower(),
+                receiver_bot.lower(),
+                float(gold_amount),
+                coins,
+                rate,
+                receiver_bot.lower(),
+                "rewarded",
+            ),
+        )
+        conn.commit()
+        return cur.rowcount > 0
+    except Exception:
+        return False
+    finally:
+        conn.close()
+
+
+def backfill_gold_donations_from_tip_transactions() -> int:
+    """
+    One-time idempotent backfill: copy every successful tip_transactions row
+    into gold_tip_events so !topdonators reflects all-time tipping history.
+    Safe to call on every startup — INSERT OR IGNORE skips already-present rows.
+    Returns count of newly inserted rows.
+    """
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            """SELECT username, gold_amount, coins_awarded,
+                      event_id_or_hash, timestamp
+               FROM tip_transactions
+               WHERE status = 'success'
+               AND event_id_or_hash != ''
+               AND gold_amount > 0"""
+        ).fetchall()
+        inserted = 0
+        for r in rows:
+            rate = round(
+                float(r["coins_awarded"]) / max(1.0, float(r["gold_amount"])), 4
+            )
+            cur = conn.execute(
+                """INSERT OR IGNORE INTO gold_tip_events
+                   (event_id, from_user_id, from_username, receiving_bot,
+                    gold_amount, coins_converted, conversion_rate,
+                    processed_by, status, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    r["event_id_or_hash"],
+                    "",
+                    r["username"].lower(),
+                    "",
+                    float(r["gold_amount"]),
+                    int(r["coins_awarded"]),
+                    rate,
+                    "backfill",
+                    "rewarded",
+                    r["timestamp"],
+                ),
+            )
+            inserted += cur.rowcount
+        conn.commit()
+        if inserted:
+            print(f"[BACKFILL] gold_tip_events ← tip_transactions: {inserted} row(s) added")
+        return inserted
+    except Exception as e:
+        print(f"[BACKFILL] backfill_gold_donations error: {e!r}")
+        return 0
+    finally:
+        conn.close()
+
+
 # ===========================================================================
 # EMOJI BADGE MARKET SYSTEM
 # ===========================================================================
