@@ -74,7 +74,7 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "bjh": "blackjack", "bjs": "blackjack", "bjd": "blackjack", "bjsp": "blackjack",
     "bt": "blackjack", "bhand": "blackjack", "bjhand": "blackjack",
     "blimits": "blackjack", "bstats": "blackjack", "bjhelp": "blackjack",
-    "bjstatus": "blackjack", "blackjackhelp": "blackjack",
+    "bjstatus": "blackjack", "bjforce": "blackjack", "blackjackhelp": "blackjack",
     "setbjlimits": "blackjack", "resetbjlimits": "blackjack",
     "setbjactiontimer": "blackjack", "setbjmaxsplits": "blackjack",
     "setbj": "blackjack",

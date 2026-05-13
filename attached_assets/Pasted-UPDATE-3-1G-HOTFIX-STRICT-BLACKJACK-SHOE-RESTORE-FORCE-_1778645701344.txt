@@ -1,0 +1,517 @@
+UPDATE 3.1G HOTFIX — STRICT BLACKJACK SHOE RESTORE + FORCE CARDS + EXACT TABLE FORMAT
+
+Current issues:
+1. Blackjack shoe still resets when the bot restarts/crashes.
+2. Public blackjack display is not following the requested format.
+3. Need owner-only force card commands for testing.
+4. Actions/timer should show once for the whole table, not per player.
+
+Goal:
+Fix blackjack persistence and display exactly.
+
+Do not change bot tokens.
+Do not change room ID.
+Do not wipe database.
+Do not reset balances, VIP, badges, market, mining/fishing, leaderboards, or player data.
+Do not change normal blackjack odds except when owner uses force-card test commands.
+Do not expose force-card commands to public help.
+
+==================================================
+PART 1 — SHOE MUST NOT RESET ON BOT RESTART
+==================================================
+
+Critical rule:
+If there is an active blackjack round, the shoe/deck must be restored exactly as saved.
+
+The shoe must NOT be rebuilt on startup.
+The shoe must NOT reshuffle on startup.
+The shoe must NOT reset just because the bot restarted.
+
+Persist the exact ordered remaining shoe as JSON.
+
+Required saved fields:
+- shoe_id
+- shoe_cards_remaining_json
+- shoe_discarded_json if used
+- dealer_cards_json
+- player_hands_json
+- player_bets_json
+- player_status_json
+- round_id
+- table_id
+- phase
+- action_deadline
+- payouts_done
+- resolved
+
+After every card draw:
+1. Remove card from shoe_cards_remaining.
+2. Add card to player/dealer hand.
+3. Save shoe_cards_remaining_json immediately.
+4. Save hand state immediately.
+
+Do not draw first and save later.
+
+==================================================
+PART 2 — STARTUP RESTORE LOGIC
+==================================================
+
+On bot startup:
+
+If active blackjack round exists:
+- load saved shoe_cards_remaining_json
+- load dealer_cards_json
+- load player_hands_json
+- restore exact round
+- restart action timer
+- re-show same table cards
+
+Do NOT call create_new_shoe().
+Do NOT call shuffle().
+Do NOT redeal.
+Do NOT reset dealer_cards.
+Do NOT reset player cards.
+
+Only create new shoe if:
+- no active round exists
+- previous round is fully resolved
+- previous round is cancelled/refunded
+- shoe data is corrupt and round was refunded
+
+If active round exists but shoe_cards_remaining_json is missing/corrupt:
+- refund all active bets once
+- cancel the round
+- clear table
+- message:
+
+⚠️ Blackjack restore failed.
+Shoe data missing. Bets refunded.
+
+==================================================
+PART 3 — EXACT PUBLIC TABLE FORMAT
+==================================================
+
+When blackjack round starts or restores, show exactly 2 bot chat messages.
+
+No extra visible count line.
+No extra separator line.
+No color coding.
+Keep card emojis.
+
+BOT CHAT 1 FORMAT:
+
+AceSinatra:
+Dealer Cards: A♦️[?]=11
+
+BOT CHAT 2 FORMAT:
+
+AceSinatra:
+Player Cards:
+@4ktreyMarion: J♦️ K♣️=20
+@User2: 9♥️ 10♠️=19
+
+Actions: !hit / !stand / !double
+Timer: 15s
+
+Rules:
+- Dealer hidden card always shows as [?] before reveal.
+- Dealer total before reveal uses visible card only.
+- Format must be simple.
+- Do not say “Visible Total”.
+- Do not say “Everyone’s Cards”.
+- Do not add long explanations.
+- Actions/timer appear only once for all players.
+- If many players make message too long, split player cards into multiple messages, but actions/timer still only appears once at the end.
+
+==================================================
+PART 4 — RESTORE DISPLAY
+==================================================
+
+After restart, show:
+
+♻️ Blackjack restored. Timer restarted.
+
+Then immediately show the same 2-message table format:
+
+AceSinatra:
+Dealer Cards: A♦️[?]=11
+
+AceSinatra:
+Player Cards:
+@4ktreyMarion: J♦️ K♣️=20
+@User2: 9♥️ 10♠️=19
+
+Actions: !hit / !stand / !double
+Timer: 15s
+
+The cards must be the exact same cards from before restart.
+
+==================================================
+PART 5 — DEALER REVEAL FORMAT
+==================================================
+
+When dealer plays, reveal the hidden card cleanly.
+
+Example:
+
+AceSinatra:
+Dealer Reveals: 6♣️
+Dealer Cards: A♦️ 6♣️=17
+
+If dealer hits:
+
+AceSinatra:
+Dealer Hits: 4♥️
+Dealer Cards: A♦️ 6♣️ 4♥️=21
+
+Never show:
+
+Dealer reveals: = 0
+
+Never let dealer total start from 0 if dealer has cards.
+
+==================================================
+PART 6 — PLAYER ACTIONS
+==================================================
+
+During action timer:
+- all active players can act freely
+- no strict turn order
+- each player can !hit, !stand, or !double if allowed
+- one player acting does not block another player
+- if player reaches 21, auto-stand them
+- if player busts, mark busted
+- if all players are done, dealer may play early
+
+Actions/timer should not be repeated per player.
+
+==================================================
+PART 7 — FORCE CARD COMMANDS FOR TESTING
+==================================================
+
+Add owner-only force card commands.
+
+These are for testing only.
+Do not show in public help.
+Do not allow regular players to use them.
+
+Commands:
+
+!bjforce status
+Shows current force-card queue.
+
+!bjforce clear
+Clears all forced cards.
+
+!bjforce next [card]
+Forces the next drawn card.
+
+Example:
+!bjforce next A♦️
+
+!bjforce sequence [cards...]
+Forces the next cards in exact order.
+
+Example:
+!bjforce sequence A♦️ K♣️ J♥️ 9♠️ 6♦️
+
+!bjforce dealer [visible] [hidden]
+Forces dealer starting cards next round.
+
+Example:
+!bjforce dealer A♦️ 6♣️
+
+!bjforce player @user [card1] [card2]
+Forces a player starting hand next round.
+
+Example:
+!bjforce player @4ktreyMarion J♦️ K♣️
+
+!bjforce blackjack @user
+Forces natural blackjack for user next round.
+
+!bjforce suitedbj @user
+Forces suited natural blackjack for user next round.
+
+!bjforce twentyone @user
+Forces regular 3-card 21 test if possible.
+
+==================================================
+PART 8 — FORCE CARD SAFETY
+==================================================
+
+Force-card rules:
+- owner only
+- test mode only
+- hidden from public help
+- should not affect normal randomness when queue is empty
+- forced cards must be removed from shoe correctly
+- forced card must not duplicate a card already drawn
+- if forced card is not available in shoe, reject it
+- force queue clears after round or with !bjforce clear
+- log force usage to console/debug
+
+If invalid card:
+
+⚠️ Invalid card. Use format: A♦️, K♣️, 10♥️
+
+If card not in shoe:
+
+⚠️ Card not available in shoe.
+
+If non-owner:
+
+🔒 Owner only.
+
+==================================================
+PART 9 — CARD PARSER
+==================================================
+
+Support card input:
+
+A♦️ K♦️ Q♦️ J♦️ 10♦️ 9♦️ etc.
+A♥️ K♥️ Q♥️ J♥️ 10♥️
+A♣️ K♣️ Q♣️ J♣️ 10♣️
+A♠️ K♠️ Q♠️ J♠️ 10♠️
+
+Normalize:
+- 10 not T
+- suits with emoji symbols
+- trim spaces
+
+Display cards exactly like:
+
+A♦️
+K♣️
+10♠️
+J♥️
+
+==================================================
+PART 10 — SHOE + FORCE CARD INTERACTION
+==================================================
+
+When a force card is used:
+- take that exact card from shoe_cards_remaining
+- save shoe immediately
+- save hand immediately
+
+Do not create fake cards outside the shoe.
+Do not leave forced cards inside the shoe after drawing.
+Do not duplicate cards.
+
+If forced card queue contains unavailable card:
+- stop force draw
+- show owner warning
+- fall back to normal draw only if safe
+- preferably reject before round starts
+
+==================================================
+PART 11 — NATURAL BLACKJACK PAYOUT
+==================================================
+
+Natural blackjack:
+- exactly 2 cards
+- Ace + 10-value card
+- total 21
+
+Payout:
+- total return = 2.5x bet
+- profit = 1.5x bet
+
+Example:
+Bet 10,000c
+Total returned: 25,000c
+Profit shown: +15,000c
+
+Regular 21 after hit is NOT natural blackjack.
+
+==================================================
+PART 12 — BONUS SYSTEM
+==================================================
+
+Implement or verify:
+
+Suited Blackjack:
+- natural blackjack with same suit
+- total return = 3x bet
+
+Natural Blackjack:
+- total return = 2.5x bet
+
+5-Card Charlie:
+- 5 cards without bust
+- normal win + 25% bonus profit
+
+Perfect 21:
+- 3+ cards totaling exactly 21
+- normal win + 10% bonus profit
+
+Rules:
+- highest applicable bonus wins
+- bonus applies once
+- save bonus_applied per hand
+- no duplicate bonus after restart
+
+==================================================
+PART 13 — DUPLICATE TIMER / PAYOUT PROTECTION
+==================================================
+
+Use persisted flags:
+
+timer_round_id
+dealer_play_started
+dealer_play_completed
+resolved
+payouts_done
+
+Rules:
+- one timer per round
+- one dealer play per round
+- one payout per round
+- after restart, do not duplicate old timer
+- after restart, do not repay resolved round
+
+==================================================
+PART 14 — TESTS
+==================================================
+
+Run:
+
+!bjforce clear
+!bjforce dealer A♦️ 6♣️
+!bjforce player @4ktreyMarion J♦️ K♣️
+!bet 100
+
+Expected BOT CHAT 1:
+
+AceSinatra:
+Dealer Cards: A♦️[?]=11
+
+Expected BOT CHAT 2:
+
+AceSinatra:
+Player Cards:
+@4ktreyMarion: J♦️ K♣️=20
+
+Actions: !hit / !stand / !double
+Timer: 15s
+
+Then restart bot during round.
+
+Expected:
+- same cards show again
+- shoe does not reset
+- timer restarts
+- same dealer cards
+- same player cards
+- no redeal
+
+Then:
+
+!stand
+
+Expected:
+Dealer reveals 6♣️.
+Dealer total = 17.
+No “Dealer reveals: = 0”.
+
+==================================================
+PART 15 — SHOE RESTORE TEST
+==================================================
+
+Test:
+
+1. Run !bjshoe before round.
+2. Start round with forced cards.
+3. Run !bjshoe after cards are dealt.
+4. Restart bot.
+5. Run !bjshoe again.
+
+Expected:
+- cards left after restart is same as before restart
+- shoe_id is same
+- shoe does not reset to full deck
+- forced/drawn cards are not back in shoe
+
+==================================================
+PART 16 — FORCE PAYOUT TESTS
+==================================================
+
+Natural blackjack test:
+
+!bjforce clear
+!bjforce dealer 9♦️ 7♣️
+!bjforce player @4ktreyMarion A♥️ K♠️
+!bet 100
+
+Expected:
+Natural blackjack pays 2.5x total return.
+
+Suited blackjack test:
+
+!bjforce clear
+!bjforce dealer 9♦️ 7♣️
+!bjforce player @4ktreyMarion A♥️ K♥️
+!bet 100
+
+Expected:
+Suited blackjack pays 3x total return.
+
+Regular 21 test:
+Force 3-card 21 if supported.
+
+Expected:
+Regular 21 does not pay natural blackjack 2.5x.
+Only Perfect 21 bonus applies if enabled.
+
+==================================================
+PART 17 — FINAL QA
+==================================================
+
+Run:
+
+!commandtest !bjforce
+!commandtest !bjstatus
+!commandtest !bjshoe
+!commandtest !bet
+!commandtest !hit
+!commandtest !stand
+!commandtest !double
+!commandtest !bjhelp
+!commandtest !bjrules
+
+!commandissues
+!checkcommands
+!checkhelp
+!launchcheck
+!bothealth
+!stability status
+
+Expected:
+- no command issues
+- launchcheck clean
+- shoe persists
+- force cards work owner-only
+- blackjack format is exact
+- no duplicate payouts
+- no duplicate timers
+
+==================================================
+PART 18 — FINAL REPORT
+==================================================
+
+Report:
+1. Shoe restore fixed.
+2. Shoe no longer resets on restart.
+3. Exact public table format implemented.
+4. Action/timer shown once for table.
+5. Force card commands added.
+6. Force cards owner-only.
+7. Natural blackjack 2.5x fixed.
+8. Suited blackjack 3x added.
+9. 5-Card Charlie added or skipped.
+10. Perfect 21 added or skipped.
+11. Restart test result.
+12. Shoe count before/after restart result.
+13. !commandissues result.
+14. !launchcheck result.
