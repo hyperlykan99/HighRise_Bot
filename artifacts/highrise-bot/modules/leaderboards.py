@@ -106,3 +106,57 @@ async def handle_topstreaks(bot: BaseBot, user: User) -> None:
         best = r.get("best_streak") or r.get("streak", 0)
         lines.append(f"{i}. @{r['username']} — {best}-day best streak")
     await _w(bot, user.id, "\n".join(lines)[:249])
+
+
+# ---------------------------------------------------------------------------
+# !toptippers — P2P gold senders
+# ---------------------------------------------------------------------------
+
+async def handle_toptippers(bot: BaseBot, user: User) -> None:
+    """!toptippers — top players by gold sent to other real players."""
+    rows = db.get_top_p2p_senders(limit=5)
+    if not rows:
+        await _w(bot, user.id,
+                 "💸 Top Gold Tippers\nNo player-to-player gold tips yet.")
+        return
+    lines = ["💸 Top Gold Tippers"]
+    for i, r in enumerate(rows, 1):
+        lines.append(f"{i}. @{r['username']} — {r['total_gold']}g")
+    await _w(bot, user.id, "\n".join(lines)[:249])
+
+
+# ---------------------------------------------------------------------------
+# !toptipped / !toptipreceivers — P2P gold receivers
+# ---------------------------------------------------------------------------
+
+async def handle_toptipped(bot: BaseBot, user: User) -> None:
+    """!toptipped / !toptipreceivers — top players by gold received from real players."""
+    rows = db.get_top_p2p_receivers(limit=5)
+    if not rows:
+        await _w(bot, user.id,
+                 "🎁 Most Tipped Players\nNo player-to-player gold received yet.")
+        return
+    lines = ["🎁 Most Tipped Players"]
+    for i, r in enumerate(rows, 1):
+        lines.append(f"{i}. @{r['username']} — {r['total_gold']}g")
+    await _w(bot, user.id, "\n".join(lines)[:249])
+
+
+# ---------------------------------------------------------------------------
+# !p2pgolddebug — owner-only P2P gold stats lookup
+# ---------------------------------------------------------------------------
+
+async def handle_p2pgolddebug(bot: BaseBot, user: User, args: list) -> None:
+    """!p2pgolddebug [@user] — owner-only P2P gold sent/received debug."""
+    from modules.permissions import is_owner
+    if not is_owner(user.username):
+        await _w(bot, user.id, "Owner only.")
+        return
+    target = args[0].lstrip("@") if args else user.username
+    data = db.get_user_p2p_stats(target)
+    await _w(bot, user.id,
+             f"💸 P2P Gold Debug\n"
+             f"User: @{target}\n"
+             f"Gold Sent: {data['gold_sent']}g\n"
+             f"Gold Received: {data['gold_received']}g\n"
+             f"Records: {data['records']}")

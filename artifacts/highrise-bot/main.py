@@ -306,6 +306,7 @@ from modules.tips import (
     handle_settipautosub, handle_settipresubscribe,
     handle_debugtips,
     record_debug_any_event,
+    extract_gold_from_tip,
     _SDK_VERSION as _TIP_SDK_VERSION,
 )
 from modules.auto_games import (
@@ -451,6 +452,7 @@ from modules.fishing import (
 from modules.safe_mode import handle_safemode, handle_active, handle_repair
 from modules.leaderboards import (
     handle_toprich, handle_topminers, handle_topfishers, handle_topstreaks,
+    handle_toptippers, handle_toptipped, handle_p2pgolddebug,
 )
 from modules.player_cmds import (
     handle_menu, handle_cooldowns_cmd, handle_rewards_inbox,
@@ -627,6 +629,7 @@ ECONOMY_COMMANDS     = {
     "leaderboard", "lb", "top",
     "toprich", "topminers", "topfishers", "topstreaks",
     "topdonors", "topdonators", "donators",
+    "toptippers", "toptipped", "toptipreceivers",
 }
 PROFILE_COMMANDS     = {
     "profile", "me", "whois", "pinfo",
@@ -3751,6 +3754,15 @@ class HangoutBot(BaseBot):
         elif cmd == "topstreaks":
             await handle_topstreaks(self, user)
 
+        elif cmd == "toptippers":
+            await handle_toptippers(self, user)
+
+        elif cmd in {"toptipped", "toptipreceivers"}:
+            await handle_toptipped(self, user)
+
+        elif cmd == "p2pgolddebug":
+            await handle_p2pgolddebug(self, user, args)
+
         elif cmd in {"profile", "me", "whois", "pinfo"}:
             await handle_profile_cmd(self, user, args)
 
@@ -6258,8 +6270,35 @@ class HangoutBot(BaseBot):
         if bot_uid and receiver.id != bot_uid:
             print(
                 f"  [TIP] Receiver {receiver.username}({receiver.id}) "
-                f"!= bot ({bot_uid}) — ignoring (tip between players)."
+                f"!= bot ({bot_uid}) — P2P tip."
             )
+            # Log P2P gold tips for leaderboards — banker only to avoid duplicates
+            if BOT_MODE == "banker":
+                try:
+                    gold = extract_gold_from_tip(tip)
+                    if gold and gold > 0:
+                        _bf = db._get_bot_name_filter()
+                        if (sender.username.lower() not in _bf
+                                and receiver.username.lower() not in _bf):
+                            import hashlib as _hl, time as _pt
+                            _eid = _hl.md5(
+                                f"p2p|{sender.id}|{receiver.id}|{gold}"
+                                f"|{int(_pt.time())//10}".encode()
+                            ).hexdigest()[:20]
+                            _ins = db.record_p2p_gold_tip(
+                                sender.id, sender.username,
+                                receiver.id, receiver.username,
+                                gold, _eid,
+                            )
+                            print(f"  [P2P] @{sender.username}→@{receiver.username} "
+                                  f"{gold}g ({'logged' if _ins else 'dup'})")
+                        else:
+                            print(f"  [P2P] Skipped — bot in chain "
+                                  f"({sender.username}→{receiver.username})")
+                    else:
+                        print(f"  [P2P] Non-gold: type={getattr(tip,'type','?')}")
+                except Exception as _p2p_e:
+                    print(f"  [P2P] Log error: {_p2p_e!r}")
             return
 
         # Route gold (non-coin) tips to the gold tip handler

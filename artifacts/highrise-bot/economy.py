@@ -262,8 +262,10 @@ async def handle_leaderboard(bot: BaseBot, user: User):
         "!topfishers — fishing\n"
         "!topstreaks — streaks\n"
         "!topdonators — gold supporters\n"
+        "!toptippers — P2P senders\n"
+        "!toptipped — P2P receivers\n"
         "!profile — your stats"
-    ))
+    )[:249])
 
 
 # ---------------------------------------------------------------------------

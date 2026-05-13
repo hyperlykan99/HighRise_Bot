@@ -1,0 +1,549 @@
+Update 3.1D Hotfix — Real Gold P2P Tipper Leaderboards
+
+Goal:
+Add separate leaderboards for real player-to-player Highrise gold tips.
+
+Important correction:
+P2P means REAL GOLD tipped from one real player to another real player.
+
+P2P does NOT mean coin transfers.
+Do NOT use !send coin transactions for this leaderboard.
+
+This leaderboard must be separate from:
+- !topdonators = gold tipped to my bots/room
+- !toprich = coin balance
+- !send / coin transfers = coins only
+
+Do not wipe data.
+Do not change tokens.
+Do not change room ID.
+Do not reset balances, VIP, mining/fishing, casino, party tip, notifications, daily streaks, or existing donation data.
+Do not change coin reward rates.
+Do not auto-subscribe users.
+Do not give coins for P2P gold tips unless an existing system already intentionally does that.
+
+==================================================
+PART 1 — COMMANDS
+==================================================
+
+Add or polish:
+
+!toptippers
+!toptipped
+!toptipreceivers
+
+Meaning:
+
+!toptippers
+= real players who tipped the most gold to other real players
+
+!toptipped / !toptipreceivers
+= real players who received the most gold tips from other real players
+
+Aliases:
+!toptipreceivers = !toptipped
+
+Expected:
+
+!commandtest !toptippers
+owner=ChillTopiaMC or BankingBot
+route=YES
+handler=YES
+
+!commandtest !toptipped
+owner=ChillTopiaMC or BankingBot
+route=YES
+handler=YES
+
+!commandtest !toptipreceivers
+owner=ChillTopiaMC or BankingBot
+route=YES
+handler=YES
+
+If !toptipreceivers is skipped, hide it and do not count it as issue.
+
+==================================================
+PART 2 — WHAT COUNTS AS REAL P2P GOLD TIP
+==================================================
+
+Count only real Highrise gold tip events where:
+
+sender = real player
+receiver = real player
+amount = positive gold amount
+
+Examples that COUNT:
+@PlayerA tips @PlayerB 10g
+@PlayerA tips @PlayerC 5g
+@PlayerB tips @PlayerA 1g
+
+Examples that DO NOT COUNT:
+@Player tips BankingBot
+@Player tips ChillTopiaMC
+@Player tips MasterAngler
+@Player tips any owned bot
+bot tips player
+owner !goldtip to player
+Party Tip wallet tips to player
+!tip all
+!tip [players] [amount] from party wallet
+gold rain
+!send coin transfer
+!pay coin transfer
+blackjack/poker bets
+mining/fishing rewards
+daily rewards
+VIP/shop purchases
+admin balance adjustments
+
+Important:
+Gold tipped to bots belongs in !topdonators.
+Gold tipped player-to-player belongs in !toptippers / !toptipped.
+
+==================================================
+PART 3 — USE REAL HIGHRlSE TIP EVENT HANDLER
+==================================================
+
+Find the event handler that detects real Highrise gold tips.
+
+Possible names:
+on_tip
+on_user_tip
+on_gold_tip
+on_transaction
+on_wallet_tip
+handle_tip
+handle_gold_tip
+
+Use the same event source that currently detects:
+@4ktreyMarion tipped 50g and received 500 coins!
+
+But for P2P:
+- sender is real player
+- receiver is another real player
+- receiver is NOT a bot
+
+Do not use !send coin logs.
+Do not use coin transaction table unless it specifically stores real gold tips.
+
+==================================================
+PART 4 — RECEIVER CLASSIFICATION
+==================================================
+
+Classify the gold tip receiver.
+
+If receiver is an owned bot:
+- count as room donation
+- update !topdonators
+- apply existing bot-tip coin reward if current system does that
+
+If receiver is a real player:
+- count as P2P gold tip
+- update !toptippers and !toptipped
+- do NOT update !topdonators
+- do NOT apply bot donation coin reward
+
+If receiver is unknown:
+- log as ignored/unknown
+- do not count unless safely classified
+
+==================================================
+PART 5 — BOT FILTER LIST
+==================================================
+
+Exclude these as P2P receivers/senders:
+
+ChillTopiaMC
+BankingBot
+BankerBot
+BlackJackBot
+PokerBot
+GreatestProspector
+MasterAngler
+Host
+EventHost
+SecurityBot
+AceSinatra
+ChipSoprano
+KeanuShield
+DJ_DUDU
+ArcadiaRadio if external/radio-only
+any account marked bot
+any account in known_bot_list
+any account in bot_spawn list
+any account in bot owner map
+any active room bot registry account
+
+Rules:
+- bot -> player tips do not count
+- player -> bot tips count only for !topdonators
+- player -> player tips count only for P2P leaderboards
+
+==================================================
+PART 6 — P2P GOLD TIP LOGGING
+==================================================
+
+When a successful real player-to-player gold tip happens, log:
+
+event_id if available
+sender_id
+sender_username
+receiver_id
+receiver_username
+gold_amount
+source = p2p_gold_tip
+created_at
+
+Use existing real gold tip table if available.
+
+If no reliable P2P gold tip table exists, create safely:
+
+p2p_gold_tip_logs:
+id INTEGER PRIMARY KEY AUTOINCREMENT
+event_id TEXT UNIQUE NULL
+sender_id TEXT
+sender_username TEXT
+receiver_id TEXT
+receiver_username TEXT
+amount INTEGER
+source TEXT DEFAULT 'p2p_gold_tip'
+created_at TEXT
+
+Rules:
+- idempotent migration
+- do not wipe old data
+- amount must be positive integer
+- log only successful real gold tips
+- no duplicate records
+- dedupe by event_id if available
+- if no event_id, dedupe by sender_id + receiver_id + amount + short timestamp window
+- do not expose raw user IDs in chat
+
+==================================================
+PART 7 — TOP P2P GOLD SENDERS
+==================================================
+
+Command:
+!toptippers
+
+Expected:
+
+💸 Top Gold Tippers
+1. @Player — 250g
+2. @Player2 — 100g
+3. @Player3 — 50g
+
+If no data:
+
+💸 Top Gold Tippers
+No player-to-player gold tips yet.
+
+Rules:
+- Show top 5 max.
+- Exclude bots/system accounts.
+- Do not show raw user IDs.
+- Keep under 220 characters.
+- Total by gold amount sent to real players only.
+
+==================================================
+PART 8 — TOP P2P GOLD RECEIVERS
+==================================================
+
+Commands:
+!toptipped
+!toptipreceivers
+
+Expected:
+
+🎁 Most Tipped Players
+1. @Player — 300g
+2. @Player2 — 150g
+3. @Player3 — 75g
+
+If no data:
+
+🎁 Most Tipped Players
+No player-to-player gold received yet.
+
+Rules:
+- Show top 5 max.
+- Exclude bots/system accounts.
+- Do not show raw user IDs.
+- Keep under 220 characters.
+- Total by gold amount received from real players only.
+
+==================================================
+PART 9 — PROFILE INTEGRATION
+==================================================
+
+If safe, add P2P gold totals to:
+
+!profile
+!stats
+!me
+
+Example:
+
+👤 @Player
+Coins: 1,250c | Streak: 3d
+Gold Tipped: 50g
+Gold Received: 25g
+
+If profile gets too long:
+- split into second message
+- or skip P2P gold stats from profile
+
+Do not show transaction history.
+Only show total gold tipped/received.
+
+==================================================
+PART 10 — MAIN LEADERBOARD MENU UPDATE
+==================================================
+
+Update:
+
+!leaderboard
+!lb
+!top
+
+Add:
+
+!toptippers — P2P gold senders
+!toptipped — P2P gold receivers
+!topdonators — room/bot gold supporters
+
+If too long, split:
+
+🏆 Leaderboards
+!toprich — richest
+!topminers — mining
+!topfishers — fishing
+!topstreaks — streaks
+
+Second message:
+
+💛 Gold Boards
+!topdonators — room supporters
+!toptippers — P2P senders
+!toptipped — P2P receivers
+
+==================================================
+PART 11 — KEEP TOPDONATORS SEPARATE
+==================================================
+
+!topdonators must only count:
+
+real player -> owned bot gold tips
+
+Examples:
+@Player tips BankingBot = !topdonators
+@Player tips ChillTopiaMC = !topdonators
+@Player tips MasterAngler = !topdonators
+
+!topdonators must NOT count:
+@PlayerA tips @PlayerB
+
+P2P gold tips must only affect:
+!toptippers
+!toptipped
+!toptipreceivers
+
+==================================================
+PART 12 — DO NOT USE COIN TRANSFERS
+==================================================
+
+Do not count:
+
+!send @Player 100
+!pay @Player 100
+coin transfers
+bank coin transactions
+
+Those are coins, not real gold.
+
+If there are old coin-based P2P logs from previous attempt:
+- do not use them for gold P2P leaderboards
+- either ignore them
+- or keep them separate if already added, but do not show as gold tip leaderboard
+
+Preferred:
+Remove coin P2P leaderboard references from player-facing help if they were added by mistake.
+
+==================================================
+PART 13 — THANK-YOU MESSAGE OPTIONAL
+==================================================
+
+If bot can see player-to-player gold tips and currently responds, keep it minimal.
+
+Optional:
+💸 @Sender tipped @Receiver [amount]g!
+
+If this would spam public chat, skip public thank-you for P2P tips.
+
+Do not auto-subscribe.
+Do not give coins.
+Do not trigger donation goal.
+Do not trigger room donation thank-you.
+
+==================================================
+PART 14 — BACKFILL IF SAFE
+==================================================
+
+If existing logs contain real player-to-player gold tips:
+- backfill from those logs
+- do not duplicate records
+- do not modify balances
+- do not guess missing tips
+
+If no old real P2P gold logs exist, report:
+
+Old P2P gold tips could not be backfilled because no reliable log exists. Future P2P gold tips will track.
+
+Do not fake old data.
+
+==================================================
+PART 15 — OWNER DEBUG OPTIONAL
+==================================================
+
+Optional owner-only command if safe:
+
+!p2pgolddebug @Player
+
+Expected:
+
+💸 P2P Gold Debug
+User: @Player
+Gold Sent: [amount]g
+Gold Received: [amount]g
+Records: [count]
+
+If risky, skip and do not show in help.
+
+==================================================
+PART 16 — SAFETY RULES
+==================================================
+
+Rules:
+- Do not change balances.
+- Do not give coins for P2P gold tips.
+- Do not affect bot donation rewards.
+- Do not affect donation goal.
+- Do not count failed tips.
+- Do not count zero/negative amounts.
+- Do not count bot/system accounts.
+- Do not count Party Tips.
+- Do not count owner reward commands.
+- Do not expose raw user IDs.
+- Do not expose detailed transaction history.
+- Do not cause DB locks.
+
+If DB write fails:
+- log error
+- do not crash bot
+- do not retry in a way that duplicates records
+
+==================================================
+PART 17 — COMMAND TESTS
+==================================================
+
+Run:
+
+!commandtest !toptippers
+!commandtest !toptipped
+!commandtest !toptipreceivers
+!commandtest !leaderboard
+!commandtest !profile
+!commandtest !stats
+
+Expected:
+- route=YES
+- handler=YES
+- owner not UNKNOWN
+- skipped optional commands hidden
+- no command issues
+
+==================================================
+PART 18 — LIVE TESTS
+==================================================
+
+Run before P2P gold tip:
+
+!toptippers
+!toptipped
+!topdonators
+!leaderboard
+!profile
+
+Then test real P2P gold flow:
+
+1. Real Player A tips Real Player B 1g using Highrise gold tip.
+2. Run:
+!toptippers
+!toptipped
+!topdonators
+!profile
+
+Expected:
+- sender appears/increases in !toptippers
+- receiver appears/increases in !toptipped
+- !topdonators does NOT change
+- no coins are rewarded for P2P gold tip
+- no auto-subscribe
+
+Then test bot donation flow:
+
+1. Player tips BankingBot 1g.
+2. Run:
+!topdonators
+!toptippers
+!toptipped
+
+Expected:
+- !topdonators increases
+- !toptippers does NOT increase from bot tip
+- !toptipped does NOT include bot
+- existing bot-tip coin reward still works once
+
+==================================================
+PART 19 — FINAL QA
+==================================================
+
+Run:
+
+!commandissues
+!checkcommands
+!checkhelp
+!launchcheck
+!bothealth
+!stability status
+
+Expected:
+- no command issues
+- no checkcommands mismatch
+- no help issues
+- launchcheck clean
+- Err: none
+
+==================================================
+PART 20 — FINAL REPORT
+==================================================
+
+Report:
+
+1. Real Highrise tip handler found.
+2. How receiver is classified as bot vs real player.
+3. Data table used for P2P gold tips.
+4. Whether old P2P gold data was found/backfilled.
+5. Whether future P2P gold tracking was added.
+6. !toptippers status.
+7. !toptipped status.
+8. !toptipreceivers status.
+9. Whether profile shows P2P gold stats.
+10. Confirmed coin !send transfers are excluded.
+11. Confirmed bot donations are excluded from P2P boards.
+12. Confirmed P2P gold tips are excluded from !topdonators.
+13. Confirmed Party Tips are excluded.
+14. Confirmed owner !goldtip/goldrain are excluded.
+15. !commandissues result.
+16. !checkcommands result.
+17. Stability result.

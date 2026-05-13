@@ -539,6 +539,7 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     # ── Donation / Sponsorship ───────────────────────────────────────────────
     "donate", "donationgoal", "topdonors", "topdonators", "donators",
     "donationdebug",
+    "toptippers", "toptipped", "toptipreceivers", "p2pgolddebug",
     "sponsor", "sponsorgoldrain",
     "sponsorevent", "supporter", "perks",
     "setdonationgoal", "donationaudit", "setsponsorprice",
@@ -754,6 +755,7 @@ VISIBLE_CMDS: frozenset[str] = frozenset({
     # ── Donation / Sponsorship ───────────────────────────────────────────────
     "donate", "donationgoal", "topdonors", "topdonators", "donators",
     "donationdebug",
+    "toptippers", "toptipped", "toptipreceivers", "p2pgolddebug",
     "sponsor", "sponsorgoldrain",
     "sponsorevent", "supporter", "perks",
     "setdonationgoal", "donationaudit", "setsponsorprice",

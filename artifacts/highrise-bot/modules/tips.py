@@ -362,6 +362,10 @@ def _safe_log_transaction(
         print(f"[TIP] log_tip_transaction error: {e!r}")
 
 
+# Public alias so on_tip can classify gold for P2P routing
+extract_gold_from_tip = _extract_gold_from_tip
+
+
 def _safe_record_donation(
     donor_id: str,
     donor_username: str,

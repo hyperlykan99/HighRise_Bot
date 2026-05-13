@@ -1993,6 +1993,17 @@ def _migrate_db():
             note          TEXT DEFAULT '',
             created_at    TEXT DEFAULT ''
         )""",
+        """CREATE TABLE IF NOT EXISTS p2p_gold_tip_logs (
+            id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_id          TEXT UNIQUE,
+            sender_id         TEXT NOT NULL DEFAULT '',
+            sender_username   TEXT NOT NULL DEFAULT '',
+            receiver_id       TEXT NOT NULL DEFAULT '',
+            receiver_username TEXT NOT NULL DEFAULT '',
+            amount            REAL NOT NULL DEFAULT 0.0,
+            source            TEXT NOT NULL DEFAULT 'p2p_gold_tip',
+            created_at        TEXT NOT NULL DEFAULT (datetime('now'))
+        )""",
         "ALTER TABLE big_announcement_logs ADD COLUMN weight_str  TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE big_announcement_logs ADD COLUMN value_str   TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE big_announcement_logs ADD COLUMN xp_str      TEXT NOT NULL DEFAULT ''",
@@ -7393,6 +7404,103 @@ def get_user_gold_donated(username: str) -> dict:
         return dict(row) if row else {}
     except Exception:
         return {}
+
+
+def record_p2p_gold_tip(
+    sender_id: str,
+    sender_username: str,
+    receiver_id: str,
+    receiver_username: str,
+    amount: float,
+    event_id: str,
+) -> bool:
+    """Log a real player-to-player gold tip. Returns True if inserted, False if duplicate."""
+    conn = get_connection()
+    try:
+        cur = conn.execute(
+            """INSERT OR IGNORE INTO p2p_gold_tip_logs
+               (event_id, sender_id, sender_username, receiver_id, receiver_username, amount)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (event_id, sender_id, sender_username.lower(),
+             receiver_id, receiver_username.lower(), float(amount)),
+        )
+        conn.commit()
+        return cur.rowcount > 0
+    except Exception:
+        return False
+    finally:
+        conn.close()
+
+
+def get_top_p2p_senders(limit: int = 5) -> list[dict]:
+    """Top players by total gold sent P2P, bots excluded."""
+    try:
+        bot_filter = _get_bot_name_filter()
+        conn = get_connection()
+        rows = conn.execute(
+            """SELECT sender_username AS username,
+                      CAST(SUM(amount) AS INTEGER) AS total_gold
+               FROM p2p_gold_tip_logs
+               WHERE sender_username != ''
+               GROUP BY LOWER(sender_username)
+               ORDER BY total_gold DESC
+               LIMIT ?""",
+            (limit + 20,),
+        ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows if r["username"].lower() not in bot_filter][:limit]
+    except Exception:
+        return []
+
+
+def get_top_p2p_receivers(limit: int = 5) -> list[dict]:
+    """Top players by total gold received P2P, bots excluded."""
+    try:
+        bot_filter = _get_bot_name_filter()
+        conn = get_connection()
+        rows = conn.execute(
+            """SELECT receiver_username AS username,
+                      CAST(SUM(amount) AS INTEGER) AS total_gold
+               FROM p2p_gold_tip_logs
+               WHERE receiver_username != ''
+               GROUP BY LOWER(receiver_username)
+               ORDER BY total_gold DESC
+               LIMIT ?""",
+            (limit + 20,),
+        ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows if r["username"].lower() not in bot_filter][:limit]
+    except Exception:
+        return []
+
+
+def get_user_p2p_stats(username: str) -> dict:
+    """Return P2P gold sent and received totals for one user."""
+    try:
+        conn = get_connection()
+        sent = conn.execute(
+            "SELECT CAST(COALESCE(SUM(amount),0) AS INTEGER) AS t "
+            "FROM p2p_gold_tip_logs WHERE LOWER(sender_username)=LOWER(?)",
+            (username,),
+        ).fetchone()
+        recv = conn.execute(
+            "SELECT CAST(COALESCE(SUM(amount),0) AS INTEGER) AS t "
+            "FROM p2p_gold_tip_logs WHERE LOWER(receiver_username)=LOWER(?)",
+            (username,),
+        ).fetchone()
+        cnt = conn.execute(
+            "SELECT COUNT(*) AS c FROM p2p_gold_tip_logs "
+            "WHERE LOWER(sender_username)=LOWER(?) OR LOWER(receiver_username)=LOWER(?)",
+            (username, username),
+        ).fetchone()
+        conn.close()
+        return {
+            "gold_sent":     sent["t"] if sent else 0,
+            "gold_received": recv["t"] if recv else 0,
+            "records":       cnt["c"]  if cnt  else 0,
+        }
+    except Exception:
+        return {"gold_sent": 0, "gold_received": 0, "records": 0}
 
 
 def record_gold_donation(
