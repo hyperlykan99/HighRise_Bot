@@ -1148,10 +1148,19 @@ async def handle_fishhelp(bot: BaseBot, user: User) -> None:
              "!fishbook — fish discovery book\n"
              "!topfishcollectors — top collectors\n"
              "!lastfishsummary — last session\n"
-             "!fishchances  !myrod  !rods")
+             "!fishchances  !myrod  !rods  !fishluck")
     await _w(bot, user.id,
              "📩 DM me !enabledm to receive\n"
              "auto-fishing summaries to your inbox.")
+    if can_manage_economy(user.username):
+        await _w(bot, user.id,
+                 "🎣 Fishing Admin\n"
+                 "!fishpanel\n"
+                 "!fishadmin settings\n"
+                 "!setfishcooldown\n"
+                 "!setfishweights\n"
+                 "!setfishweightscale\n"
+                 "!setfishannounce")
 
 
 # ---------------------------------------------------------------------------
@@ -1710,6 +1719,192 @@ async def handle_fishadmin(bot: BaseBot, user: User, args: list[str]) -> None:
              "!fishadmin set <key> <value>\n"
              "Keys: baseduration, baseinterval, baseluck, "
              "vipluck, vipduration, vipspeed, mininterval")
+
+
+async def handle_fishpanel(bot: BaseBot, user: User) -> None:
+    """!fishpanel !fishingpanel — fishing staff configuration panel."""
+    if not can_manage_economy(user.username):
+        await _w(bot, user.id, "Admin/manager only.")
+        return
+
+    # Enabled / cooldown
+    en      = db.get_auto_activity_setting("autofish_enabled", "1") == "1"
+    cd_raw  = db.get_room_setting("fishing_base_cooldown", "0")
+    cd_str  = f"{cd_raw}s" if cd_raw != "0" else "Rod-based"
+
+    # Weight settings
+    w_on    = db.get_room_setting("fishing_weights_enabled", "1") == "1"
+    scale   = db.get_room_setting("fishing_weight_scale", "1.0")
+
+    # Announce settings
+    ann_on  = db.get_room_setting("fishing_announce_enabled", "1") == "1"
+    ann_min = db.get_room_setting("fishing_announce_min_rarity", "legendary")
+
+    # Override count (fish_weight_settings if exists, else 0)
+    ovr_c = 0
+    try:
+        import database as _db
+        conn  = _db.get_connection()
+        ovr_c = conn.execute(
+            "SELECT COUNT(*) FROM fish_weight_settings WHERE key LIKE 'fish_announce_%'"
+        ).fetchone()[0]
+        conn.close()
+    except Exception:
+        ovr_c = 0
+
+    # Active fishing event
+    ev_str = "none"
+    try:
+        eff = _get_fishing_event_effects()
+        eid = eff.get("event_id", "")
+        if eid:
+            ev_str = eid
+    except Exception:
+        pass
+
+    # Rare catches today
+    rare_today = 0
+    try:
+        import database as _db2
+        conn2 = _db2.get_connection()
+        rare_today = conn2.execute(
+            """SELECT COUNT(*) FROM fish_catch_records
+               WHERE rarity IN ('legendary','mythic','prismatic','exotic')
+               AND date(caught_at)=date('now')"""
+        ).fetchone()[0]
+        conn2.close()
+    except Exception:
+        rare_today = 0
+
+    await _w(bot, user.id, "<#00CCFF>🎣 Fishing Panel<#FFFFFF>")
+    await _w(bot, user.id,
+             f"Status: {'ON' if en else 'OFF'} | Cooldown: {cd_str} | "
+             f"Weights: {'ON' if w_on else 'OFF'}")
+    await _w(bot, user.id,
+             f"Scale: {scale} | "
+             f"Announce: {ann_min.capitalize()}+ {'ON' if ann_on else 'OFF'} "
+             f"| Overrides: {ovr_c}")
+    await _w(bot, user.id,
+             f"Events: {ev_str} | Rare catches today: {rare_today}")
+    await _w(bot, user.id,
+             "!setfishcooldown !setfishweights !setfishweightscale "
+             "!setfishannounce !setfishrarityweightrange"[:249])
+
+
+async def handle_setfishcooldown(bot: BaseBot, user: User, args: list[str]) -> None:
+    """!setfishcooldown <seconds|rod> — override fish cooldown or restore rod-based."""
+    if not can_manage_economy(user.username):
+        await _w(bot, user.id, "Manager/admin/owner only.")
+        return
+    if len(args) < 2:
+        cur = db.get_room_setting("fishing_base_cooldown", "0")
+        cd_str = f"{cur}s" if cur != "0" else "Rod-based"
+        await _w(bot, user.id,
+                 f"Current cooldown: {cd_str}\n"
+                 "Usage: !setfishcooldown <5-300> or !setfishcooldown rod")
+        return
+    arg = args[1].lower()
+    if arg == "rod":
+        db.set_room_setting("fishing_base_cooldown", "0")
+        await _w(bot, user.id, "🎣 Fish cooldown: Rod-based (default).")
+        return
+    if not args[1].isdigit():
+        await _w(bot, user.id, "Usage: !setfishcooldown <5-300> or !setfishcooldown rod")
+        return
+    val = max(5, min(300, int(args[1])))
+    db.set_room_setting("fishing_base_cooldown", str(val))
+    await _w(bot, user.id, f"🎣 Fish cooldown override: {val}s.")
+
+
+async def handle_setfishweights(bot: BaseBot, user: User, args: list[str]) -> None:
+    """!setfishweights on|off — enable/disable weighted rarity rolls."""
+    if not can_manage_economy(user.username):
+        await _w(bot, user.id, "Manager/admin/owner only.")
+        return
+    if len(args) < 2 or args[1].lower() not in ("on", "off"):
+        cur = "ON" if db.get_room_setting("fishing_weights_enabled", "1") == "1" else "OFF"
+        await _w(bot, user.id, f"Fish weights: {cur}\nUsage: !setfishweights on|off")
+        return
+    val = "1" if args[1].lower() == "on" else "0"
+    db.set_room_setting("fishing_weights_enabled", val)
+    await _w(bot, user.id, f"🎣 Fishing weights: {'ON' if val=='1' else 'OFF'}.")
+
+
+async def handle_setfishweightscale(bot: BaseBot, user: User, args: list[str]) -> None:
+    """!setfishweightscale <value> — set weight display/sell scale multiplier."""
+    if not can_manage_economy(user.username):
+        await _w(bot, user.id, "Manager/admin/owner only.")
+        return
+    if len(args) < 2:
+        cur = db.get_room_setting("fishing_weight_scale", "1.0")
+        await _w(bot, user.id,
+                 f"Fish weight scale: {cur}\n"
+                 "Usage: !setfishweightscale <0.1-10.0>")
+        return
+    try:
+        val = round(max(0.1, min(10.0, float(args[1]))), 2)
+    except ValueError:
+        await _w(bot, user.id, "Usage: !setfishweightscale <0.1-10.0>")
+        return
+    db.set_room_setting("fishing_weight_scale", str(val))
+    await _w(bot, user.id, f"🎣 Fish weight scale: {val}.")
+
+
+async def handle_setfishannounce(bot: BaseBot, user: User, args: list[str]) -> None:
+    """!setfishannounce <rarity|off> — set room announcement threshold."""
+    if not can_manage_economy(user.username):
+        await _w(bot, user.id, "Manager/admin/owner only.")
+        return
+    valid = ("common", "rare", "epic", "legendary", "mythic", "prismatic", "exotic", "off")
+    if len(args) < 2 or args[1].lower() not in valid:
+        cur_on  = db.get_room_setting("fishing_announce_enabled", "1") == "1"
+        cur_min = db.get_room_setting("fishing_announce_min_rarity", "legendary")
+        status  = f"{cur_min.capitalize()}+" if cur_on else "OFF"
+        await _w(bot, user.id,
+                 f"Announce: {status}\n"
+                 "Usage: !setfishannounce <legendary|epic|rare|mythic|off>")
+        return
+    arg = args[1].lower()
+    if arg == "off":
+        db.set_room_setting("fishing_announce_enabled", "0")
+        await _w(bot, user.id, "🎣 Fish announcements: OFF.")
+    else:
+        db.set_room_setting("fishing_announce_enabled", "1")
+        db.set_room_setting("fishing_announce_min_rarity", arg)
+        await _w(bot, user.id, f"🎣 Fish announce threshold: {arg.capitalize()}+.")
+
+
+async def handle_setfishrarityweightrange(bot: BaseBot, user: User,
+                                           args: list[str]) -> None:
+    """!setfishrarityweightrange <rarity> <min> <max> — set rarity weight range."""
+    if not can_manage_economy(user.username):
+        await _w(bot, user.id, "Manager/admin/owner only.")
+        return
+    valid_rar = ("common", "rare", "epic", "legendary", "mythic", "prismatic", "exotic")
+    if len(args) < 4:
+        await _w(bot, user.id,
+                 "Usage: !setfishrarityweightrange <rarity> <min> <max>\n"
+                 "Rarities: common rare epic legendary mythic prismatic exotic")
+        return
+    rar = _RARITY_ALIASES.get(args[1].lower())
+    if not rar:
+        await _w(bot, user.id,
+                 f"Unknown rarity: {args[1]}\n"
+                 "Rarities: common rare epic legendary mythic prismatic exotic")
+        return
+    try:
+        lo = round(float(args[2]), 2)
+        hi = round(float(args[3]), 2)
+    except ValueError:
+        await _w(bot, user.id, "Min and max must be numbers (e.g. 0.5 200.0).")
+        return
+    if lo > hi:
+        lo, hi = hi, lo
+    db.set_room_setting(f"fish_weight_range_{rar}_min", str(lo))
+    db.set_room_setting(f"fish_weight_range_{rar}_max", str(hi))
+    await _w(bot, user.id,
+             f"🎣 {rar.capitalize()} weight range: {lo}–{hi}lb (stored; "
+             f"takes effect when fish weight system reads overrides).")
 
 
 async def handle_autofishstatus(bot: BaseBot, user: User) -> None:

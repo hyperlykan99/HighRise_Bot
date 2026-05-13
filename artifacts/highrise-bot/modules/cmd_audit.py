@@ -420,6 +420,9 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     # ── 3.1I luck stack + admin commands ─────────────────────────────────────
     "mineadmin", "mineluck", "minestack",
     "fishadmin", "fishluck", "fishstack",
+    "fishpanel", "fishingpanel",
+    "setfishcooldown", "setfishweights", "setfishweightscale",
+    "setfishannounce", "setfishrarityweightrange",
     "boostadmin", "luck", "myluck",
     # ── Time EXP bot exclusion (new) ─────────────────────────────────────────
     "setallowbotxp",

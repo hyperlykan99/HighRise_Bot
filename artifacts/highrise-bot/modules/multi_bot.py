@@ -508,6 +508,10 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "minepanel": "miner", "miningpanel": "miner",
     "mineadmin": "miner", "mineluck": "miner", "minestack": "miner",
     "fishadmin": "fisher", "fishluck": "fisher", "fishstack": "fisher",
+    "fishpanel": "fisher", "fishingpanel": "fisher",
+    "setfishcooldown": "fisher", "setfishweights": "fisher",
+    "setfishweightscale": "fisher", "setfishannounce": "fisher",
+    "setfishrarityweightrange": "fisher",
     "boostadmin": "host",
     "luck": "miner", "myluck": "miner",
     # host — bulk command testing (new)

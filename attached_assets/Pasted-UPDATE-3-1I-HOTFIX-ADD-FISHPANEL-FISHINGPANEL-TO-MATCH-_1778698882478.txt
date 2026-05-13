@@ -1,0 +1,246 @@
+UPDATE 3.1I HOTFIX — ADD FISHPANEL / FISHINGPANEL TO MATCH MINEPANEL
+
+Current live issue:
+!minepanel works.
+
+But:
+!fishpanel = Unknown command
+!commandtest !fishpanel = owner UNKNOWN | route NO | handler NO
+!commandtest !fishingpanel = owner UNKNOWN | route NO | handler NO
+
+Goal:
+Add fishing admin panel commands that mirror the mining panel system.
+
+Do not change tokens.
+Do not change room ID.
+Do not wipe data.
+Do not reset fishing inventory, fishbook, collection data, coins, VIP, boosts, or player data.
+Do not change fishing odds unless admin changes settings.
+Do not re-add reward caps.
+Do not break !fish, !autofish, !fishbook, !fishluck, or !lastfishsummary.
+
+==================================================
+PART 1 — REGISTER FISH PANEL COMMANDS
+==================================================
+
+Register these commands:
+
+!fishpanel
+!fishingpanel
+
+Both should route to the same handler.
+
+Expected owner:
+MasterAngler
+
+Expected:
+
+!commandtest !fishpanel
+owner=MasterAngler
+route=YES
+handler=YES
+
+!commandtest !fishingpanel
+owner=MasterAngler
+route=YES
+handler=YES
+
+==================================================
+PART 2 — FISH PANEL SHOULD MATCH MINE PANEL STYLE
+==================================================
+
+Make !fishpanel output similar to !minepanel.
+
+Expected:
+
+🎣 Fishing Panel
+Status: ON | Cooldown: 30s | Weights: ON
+
+Second message:
+
+Scale: 1.0 | LB: best | Announce: Legendary+ ON | Overrides: 0
+
+Third message:
+
+Events: none | Rare catches today: [count]
+
+Fourth message:
+
+!setfishcooldown !setfishweights !setfishweightscale
+!setfishannounce !setfishrarityweightrange
+
+Keep each message under 220 characters.
+
+==================================================
+PART 3 — ADD FISHING SETTING COMMANDS IF MISSING
+==================================================
+
+If missing, add/register these commands:
+
+!setfishcooldown
+!setfishweights
+!setfishweightscale
+!setfishannounce
+!setfishrarityweightrange
+
+Expected owner:
+MasterAngler
+
+Admin/Owner only.
+
+If some already exist, do not duplicate them.
+
+==================================================
+PART 4 — COMMAND BEHAVIOR
+==================================================
+
+!setfishcooldown [seconds]
+Sets manual fishing cooldown.
+
+!setfishweights on/off
+Turns rarity weighted fishing on/off.
+
+!setfishweightscale [number]
+Sets fishing weight scale.
+
+!setfishannounce [rarity]
+Sets public announcement threshold.
+Example: legendary, epic, rare, off
+
+!setfishrarityweightrange [rarity] [min] [max]
+Adjusts rarity weight range if system supports it.
+
+If a setting is risky or not supported:
+- show helpful message
+- do not crash
+- do not show it in panel unless supported
+
+==================================================
+PART 5 — FISHPANEL MUST USE FISHING SETTINGS SOURCE
+==================================================
+
+!fishpanel must read the same settings used by:
+
+!fish
+!autofish
+!fishluck
+!fishadmin settings
+!boostadmin fishing
+!fishbook
+
+Do not read mining settings.
+Do not show mining values.
+Do not create separate duplicate fishing settings if one already exists.
+
+==================================================
+PART 6 — OPTIONAL: MAKE FISHADMIN ALIAS
+==================================================
+
+If !fishadmin exists, it should still work.
+
+Recommended:
+
+!fishadmin = detailed timer/luck admin
+!fishpanel = quick classic fishing panel
+
+If simpler:
+!fishpanel can call !fishadmin settings plus panel-style info.
+
+Do not make duplicate conflicting systems.
+
+==================================================
+PART 7 — HELP UPDATE
+==================================================
+
+Update owner/admin fishing help to include:
+
+🎣 Fishing Admin
+!fishpanel
+!fishadmin settings
+!setfishcooldown
+!setfishweights
+!setfishweightscale
+!setfishannounce
+
+Do not show staff/admin commands in public player help.
+
+Public fishing help should only show:
+!fish
+!autofish
+!fishluck
+!fishbook
+!lastfishsummary
+
+==================================================
+PART 8 — ROUTING CONFLICT SAFETY
+==================================================
+
+Only MasterAngler should respond to fishing admin commands:
+
+!fishpanel
+!fishingpanel
+!setfishcooldown
+!setfishweights
+!setfishweightscale
+!setfishannounce
+!setfishrarityweightrange
+
+ChillTopiaMC should not say Unknown command for these if MasterAngler owns them.
+
+==================================================
+PART 9 — TESTS
+==================================================
+
+Run:
+
+!commandtest !fishpanel
+!commandtest !fishingpanel
+!commandtest !setfishcooldown
+!commandtest !setfishweights
+!commandtest !setfishweightscale
+!commandtest !setfishannounce
+!commandtest !setfishrarityweightrange
+
+Expected:
+- owner=MasterAngler
+- route=YES
+- handler=YES
+- or hidden/skipped if unsupported
+
+Then run:
+
+!fishpanel
+!fishingpanel
+
+Expected:
+- fishing panel displays
+- no Unknown command
+- no command error
+
+Then run:
+
+!commandissues
+!checkcommands
+!checkhelp
+!launchcheck
+
+Expected:
+- no no-route fish panel commands
+- no no-owner fish panel commands
+- no help issues
+- launchcheck clean
+
+==================================================
+PART 10 — FINAL REPORT
+==================================================
+
+Report:
+1. !fishpanel registered.
+2. !fishingpanel registered.
+3. MasterAngler owns fish panel commands.
+4. Fish panel output matches mine panel style.
+5. Fishing setting commands registered or skipped safely.
+6. Fishing help updated.
+7. No public admin command leaks.
+8. !commandissues result.
+9. !launchcheck result.

@@ -460,6 +460,10 @@ from modules.fishing import (
     handle_fishluck, handle_fishadmin,
     handle_forcedropfishstatus, handle_forcedropfishdebug,
     handle_clearforcedropfish,
+    handle_fishpanel,
+    handle_setfishcooldown, handle_setfishweights,
+    handle_setfishweightscale, handle_setfishannounce,
+    handle_setfishrarityweightrange,
 )
 from modules.collection import (
     handle_collection, handle_topcollectors, handle_rarelog,
@@ -1094,6 +1098,9 @@ ALL_KNOWN_COMMANDS = (
         "forcefishstatus", "clearforcefish",
         "topfishcollectors", "fishcollectors", "lastfishsummary",
         "fishluck", "fishstack", "fishadmin",
+        "fishpanel", "fishingpanel",
+        "setfishcooldown", "setfishweights", "setfishweightscale",
+        "setfishannounce", "setfishrarityweightrange",
         "boostadmin", "luck", "myluck",
     }
     | ECONOMY_COMMANDS | PROFILE_COMMANDS | GAME_COMMANDS
@@ -5603,6 +5610,24 @@ class HangoutBot(BaseBot):
 
         elif cmd == "fishadmin":
             await handle_fishadmin(self, user, args)
+
+        elif cmd in {"fishpanel", "fishingpanel"}:
+            await handle_fishpanel(self, user)
+
+        elif cmd == "setfishcooldown":
+            await handle_setfishcooldown(self, user, args)
+
+        elif cmd == "setfishweights":
+            await handle_setfishweights(self, user, args)
+
+        elif cmd == "setfishweightscale":
+            await handle_setfishweightscale(self, user, args)
+
+        elif cmd == "setfishannounce":
+            await handle_setfishannounce(self, user, args)
+
+        elif cmd == "setfishrarityweightrange":
+            await handle_setfishrarityweightrange(self, user, args)
 
         elif cmd == "boostadmin":
             await handle_boostadmin(self, user, args)
