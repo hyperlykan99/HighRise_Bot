@@ -83,23 +83,55 @@ async def handle_vipperks(bot: "BaseBot", user: "User") -> None:
 # !myvip  — personal VIP status
 # ---------------------------------------------------------------------------
 
+def _calc_vip_remaining(exp_str: str) -> str:
+    """Return 'Xd Yh' remaining from a YYYY-MM-DD expiry string, or ''."""
+    import datetime as _dt2
+    if not exp_str:
+        return ""
+    try:
+        exp_dt = _dt2.datetime.strptime(exp_str, "%Y-%m-%d").replace(
+            hour=23, minute=59, second=59,
+            tzinfo=_dt2.timezone.utc,
+        )
+        now   = _dt2.datetime.now(_dt2.timezone.utc)
+        delta = exp_dt - now
+        if delta.total_seconds() <= 0:
+            return "Expired"
+        days  = delta.days
+        hours = int(delta.seconds // 3600)
+        return f"{days}d {hours}h" if days > 0 else f"{hours}h"
+    except Exception:
+        return ""
+
+
 async def handle_myvip(bot: "BaseBot", user: "User") -> None:
     """!myvip  — check your own VIP status."""
-    is_vip   = db.owns_item(user.id, "vip")
-    expires  = db.get_room_setting(f"vip_expires_{user.id}", "")
-    exp_line = expires if expires else "Active (staff-granted)"
+    is_vip  = db.owns_item(user.id, "vip")
+    expires = db.get_room_setting(f"vip_expires_{user.id}", "")
     if is_vip:
+        rem = _calc_vip_remaining(expires)
+        if rem and rem != "Expired":
+            exp_line = f"{expires} ({rem} left)"
+        elif rem == "Expired":
+            exp_line = f"{expires} (Expired — renew!)"
+        else:
+            exp_line = "Active (staff-granted)"
         await _w(bot, user.id,
-                 f"💎 VIP Status\n"
-                 f"Status: Active\n"
+                 f"💎 VIP Status: Active\n"
                  f"Expires: {exp_line}\n"
-                 f"Perks: Longer AutoMine, Longer AutoFish, VIP status")
+                 f"Perks: longer AutoMine/AutoFish, VIP badge")
     else:
-        p1 = db.get_room_setting("vip_price_1d", str(_VIP_DEFAULT_PRICES["1d"]))
+        p1  = db.get_room_setting("vip_price_1d",  str(_VIP_DEFAULT_PRICES["1d"]))
+        try:
+            from modules.luxe import get_luxe_price as _glp, get_vip_luxe_duration as _gvd
+            p_lx  = _glp("vip")
+            dur   = _gvd()
+            luxe_line = f"\n💎 Luxe: !buyticket vip ({p_lx:,}🎫, {dur}d)"
+        except Exception:
+            luxe_line = ""
         await _w(bot, user.id,
-                 f"💎 VIP Status\n"
-                 f"Status: Inactive\n"
-                 f"!buyvip 1d ({p1}c) | !buyvip 7d | !buyvip 30d\n"
+                 f"💎 VIP Status: Inactive\n"
+                 f"🪙 Coins: !buyvip 1d ({p1}c) | 7d | 30d{luxe_line}\n"
                  f"!vipperks — view perks")
 
 

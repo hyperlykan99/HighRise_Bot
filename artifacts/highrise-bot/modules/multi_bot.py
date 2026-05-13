@@ -67,6 +67,14 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "coinhelp": "banker", "bankadminhelp": "banker",
     "bankerhelp": "banker",
     "economydbcheck": "banker", "economyrepair": "banker",
+    # ── Luxe Tickets premium economy (3.1I ADDON) ────────────────────────────
+    "tickets": "banker", "luxe": "banker",
+    "luxeshop": "banker", "premiumshop": "banker",
+    "buyticket": "banker", "buyluxe": "banker",
+    "buycoins": "banker",
+    "use": "banker",
+    "luxeadmin": "banker",
+    "vipadmin": "banker",
     "dash": "host", "dashboard": "host",
     # ── blackjack (Casual BJ + RBJ) ─────────────────────────────────────────
     "bj": "blackjack", "bjoin": "blackjack",

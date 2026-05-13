@@ -194,9 +194,27 @@ async def handle_incoming_gold_tip(
     except Exception as exc:
         print(f"[GOLDTIP] Balance credit error: {exc}")
 
+    # Award Luxe Tickets alongside coins
+    luxe_amt = 0
+    try:
+        from modules.luxe import (
+            add_luxe_balance    as _alb,
+            log_luxe_transaction as _llt,
+            get_luxe_rate        as _glr,
+        )
+        luxe_rate = _glr()
+        luxe_amt  = max(1, int(gold_amount * luxe_rate))
+        _alb(sender.id, sender.username, luxe_amt)
+        _llt(sender.id, sender.username, "gold_tip",
+             luxe_amt, "luxe", f"{gold_amount:g}g")
+        print(f"[GOLDTIP] Luxe: @{sender.username} +{luxe_amt} 🎫")
+    except Exception as _le:
+        print(f"[GOLDTIP] Luxe award error: {_le!r}")
+
     # Public thank-you
-    msg = (f"💛 Thank you for supporting ChillTopia, @{sender.username}!\n"
-           f"Donation: {gold_amount:g}g | Coins earned: {coins:,}c")
+    luxe_str = f" | +{luxe_amt:,} 🎫 Luxe" if luxe_amt else ""
+    msg = (f"💛 Thank you @{sender.username}!\n"
+           f"{gold_amount:g}g → {coins:,} 🪙{luxe_str}")
     try:
         await bot.highrise.chat(msg[:249])
     except Exception:

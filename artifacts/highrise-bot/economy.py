@@ -72,9 +72,14 @@ async def handle_balance(bot: BaseBot, user: User, args: list | None = None):
             balance = db.get_balance(user.id)
             is_vip  = db.owns_item(user.id, "vip")
             vip_str = "Active 💎" if is_vip else "Inactive"
+            try:
+                from modules.luxe import get_luxe_balance as _glb
+                luxe_line = f"\n🎫 Luxe Tickets: {fmt_coins(_glb(user.id))}"
+            except Exception:
+                luxe_line = ""
             await bot.highrise.send_whisper(
                 user.id,
-                f"💰 Balance\nCoins: {fmt_coins(balance)}\nVIP: {vip_str}"
+                f"💰 Balance\n🪙 Coins: {fmt_coins(balance)}{luxe_line}\nVIP: {vip_str}"
             )
             return
 

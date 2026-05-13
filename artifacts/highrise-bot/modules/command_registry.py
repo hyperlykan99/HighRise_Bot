@@ -1338,6 +1338,18 @@ REGISTRY: dict[str, Cmd] = {
     # ── Game answer command (eventhost) ─────────────────────────────────────────
     "answer":             Cmd("eventhost","events",False,False,True),
 
+    # ── Luxe Tickets premium economy (3.1I ADDON) ────────────────────────────
+    "tickets":      Cmd("banker", "economy", True,  True,  False,
+                        aliases=("luxe",)),
+    "luxeshop":     Cmd("banker", "economy", True,  True,  False,
+                        aliases=("premiumshop",)),
+    "buyticket":    Cmd("banker", "economy", True,  False, True,
+                        aliases=("buyluxe",)),
+    "buycoins":     Cmd("banker", "economy", True,  False, True),
+    "use":          Cmd("banker", "economy", True,  False, True),
+    "luxeadmin":    Cmd("banker", "admin",   False, True,  False, perm="admin"),
+    "vipadmin":     Cmd("banker", "admin",   False, True,  False, perm="admin"),
+
 }
 
 # ---------------------------------------------------------------------------

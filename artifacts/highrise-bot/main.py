@@ -72,6 +72,11 @@ from modules.vip import (
     handle_supporter, handle_perks,
     handle_setdonationgoal, handle_donationaudit, handle_setsponsorprice,
 )
+from modules.luxe import (
+    handle_tickets, handle_luxeshop, handle_buyticket,
+    handle_buycoins, handle_use as handle_use_permit,
+    handle_luxeadmin, handle_vipadmin,
+)
 from modules.shop         import (
     handle_shop, handle_buy, handle_equip, handle_myitems,
     handle_badgeinfo, handle_titleinfo,
@@ -1152,12 +1157,26 @@ NEW_PROJECT_COMMANDS: frozenset[str] = frozenset({
     "tele", "summon", "create", "delete",
     "roles", "rolemembers",
 })
+
+LUXE_COMMANDS: frozenset[str] = frozenset({
+    # Player-facing
+    "tickets", "luxe",
+    "luxeshop", "premiumshop",
+    "buyticket", "buyluxe",
+    "buycoins",
+    "use",
+    # Admin
+    "luxeadmin",
+    "vipadmin",
+})
+
 ALL_KNOWN_COMMANDS = (
     ALL_KNOWN_COMMANDS
     | TIME_EXP_COMMANDS
     | DISPLAY_COMMANDS
     | FIRSTFIND_COMMANDS
     | NEW_PROJECT_COMMANDS
+    | LUXE_COMMANDS
 )
 
 
@@ -4638,6 +4657,27 @@ class HangoutBot(BaseBot):
         elif cmd in {"vipshop", "buyvip"}:
             await handle_buyvip(self, user, args)
 
+        elif cmd in {"tickets", "luxe"}:
+            await handle_tickets(self, user, args)
+
+        elif cmd in {"luxeshop", "premiumshop"}:
+            await handle_luxeshop(self, user)
+
+        elif cmd in {"buyticket", "buyluxe"}:
+            await handle_buyticket(self, user, args)
+
+        elif cmd == "buycoins":
+            await handle_buycoins(self, user, args)
+
+        elif cmd == "use":
+            await handle_use_permit(self, user, args)
+
+        elif cmd == "luxeadmin":
+            await handle_luxeadmin(self, user, args)
+
+        elif cmd == "vipadmin":
+            await handle_vipadmin(self, user, args)
+
         elif cmd == "donate":
             await handle_donate(self, user)
 
@@ -5470,7 +5510,10 @@ class HangoutBot(BaseBot):
             await handle_reloadorechances(self, user)
 
         elif cmd in {"automine", "am"}:
-            await handle_automine(self, user, args)
+            if len(args) >= 2 and args[1].lower() == "1h":
+                await handle_use_permit(self, user, ["use", "automine1h"])
+            else:
+                await handle_automine(self, user, args)
 
         elif cmd in {"autominestatus", "amstatus"}:
             await handle_autominestatus(self, user)
@@ -5597,7 +5640,10 @@ class HangoutBot(BaseBot):
             await handle_rodupgrade(self, user)
 
         elif cmd in {"autofish", "af"}:
-            await handle_autofish(self, user, args)
+            if len(args) >= 2 and args[1].lower() == "1h":
+                await handle_use_permit(self, user, ["use", "autofish1h"])
+            else:
+                await handle_autofish(self, user, args)
 
         elif cmd in {"autofishstatus", "afstatus"}:
             await handle_autofishstatus(self, user)

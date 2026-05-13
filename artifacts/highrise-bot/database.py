@@ -2096,6 +2096,28 @@ def _migrate_db():
             created_by    TEXT    NOT NULL DEFAULT '',
             created_at    TEXT    NOT NULL DEFAULT (datetime('now'))
         )""",
+        # ── Luxe Tickets premium economy (3.1I ADDON) ─────────────────────────
+        """CREATE TABLE IF NOT EXISTS premium_balances (
+            user_id       TEXT    PRIMARY KEY,
+            username      TEXT    NOT NULL DEFAULT '',
+            luxe_tickets  INTEGER NOT NULL DEFAULT 0,
+            updated_at    TEXT    NOT NULL DEFAULT (datetime('now'))
+        )""",
+        """CREATE TABLE IF NOT EXISTS premium_transactions (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id       TEXT    NOT NULL DEFAULT '',
+            username      TEXT    NOT NULL DEFAULT '',
+            type          TEXT    NOT NULL DEFAULT '',
+            amount        INTEGER NOT NULL DEFAULT 0,
+            currency      TEXT    NOT NULL DEFAULT 'luxe',
+            details       TEXT    NOT NULL DEFAULT '',
+            created_at    TEXT    NOT NULL DEFAULT (datetime('now'))
+        )""",
+        """CREATE TABLE IF NOT EXISTS premium_settings (
+            key           TEXT    PRIMARY KEY,
+            value         TEXT    NOT NULL DEFAULT '',
+            updated_at    TEXT    NOT NULL DEFAULT (datetime('now'))
+        )""",
     ]:
         try:
             conn.execute(sql)
