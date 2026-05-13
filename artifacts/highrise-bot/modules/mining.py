@@ -606,6 +606,15 @@ async def handle_mine(bot: BaseBot, user: User) -> None:
         except Exception as _bae:
             print(f"[MINING] big_announce error: {_bae}")
 
+    # Mission progress tracking (3.1J)
+    try:
+        from modules.missions import track_mission
+        track_mission(user.id, uname, "mine")
+        if item["rarity"] in ANNOUNCE_RARITIES:
+            track_mission(user.id, uname, "legendary_find")
+    except Exception:
+        pass
+
     # Level up announce
     if new_lvl > cur_lvl:
         _disp = db.get_display_name(user.id, uname)

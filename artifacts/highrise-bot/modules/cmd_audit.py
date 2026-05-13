@@ -591,6 +591,19 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     "economydefaults",
     "luxeadmin",
     "vipadmin",
+    # 3.1J missions
+    "missions", "dailymissions", "dailygoals",
+    "weekly", "weeklymissions", "weeklygoals",
+    "claimmission",
+    "claimdaily",
+    "claimweekly",
+    "milestones", "collectionrewards",
+    "claimmilestone",
+    "xp", "rank",
+    "season", "topseason", "seasonrewards",
+    "today", "progress",
+    "missionadmin",
+    "retentionadmin",
 })
 
 # ---------------------------------------------------------------------------

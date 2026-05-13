@@ -1357,6 +1357,26 @@ REGISTRY: dict[str, Cmd] = {
                            perm="owner"),
     "luxeadmin":       Cmd("banker", "admin",   False, True,  False, perm="admin"),
     "vipadmin":        Cmd("banker", "admin",   False, True,  False, perm="admin"),
+    # 3.1J — Player Retention Missions
+    "missions":        Cmd("host", "retention", True,  True,  True,
+                           aliases=("dailymissions", "dailygoals")),
+    "weekly":          Cmd("host", "retention", True,  True,  True,
+                           aliases=("weeklymissions", "weeklygoals")),
+    "claimmission":    Cmd("host", "retention", True,  False, True),
+    "claimdaily":      Cmd("host", "retention", True,  False, True),
+    "claimweekly":     Cmd("host", "retention", True,  False, True),
+    "milestones":      Cmd("host", "retention", True,  True,  True,
+                           aliases=("collectionrewards",)),
+    "claimmilestone":  Cmd("host", "retention", True,  False, True),
+    "xp":              Cmd("host", "retention", True,  True,  True,
+                           aliases=("rank",)),
+    "season":          Cmd("host", "retention", True,  True,  True),
+    "topseason":       Cmd("host", "retention", True,  True,  True),
+    "seasonrewards":   Cmd("host", "retention", True,  True,  True),
+    "today":           Cmd("host", "retention", True,  True,  True,
+                           aliases=("progress",)),
+    "missionadmin":    Cmd("host", "admin",     False, True,  False, perm="admin"),
+    "retentionadmin":  Cmd("host", "admin",     False, True,  False, perm="admin"),
 
 }
 

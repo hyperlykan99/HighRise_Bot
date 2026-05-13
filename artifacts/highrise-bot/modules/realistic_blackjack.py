@@ -955,6 +955,11 @@ async def _finalize_round(bot: BaseBot):
             try:
                 if not skip_stats:
                     track_quest(p.user_id, "bj_round")
+                    try:
+                        from modules.missions import track_mission
+                        track_mission(p.user_id, getattr(p, "username", ""), "game")
+                    except Exception:
+                        pass
                 if not skip_stats and _rbj_event_pts:
                     db.add_event_points(p.user_id, 1)
                 benefits  = get_player_benefits(p.user_id)

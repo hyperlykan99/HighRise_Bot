@@ -155,30 +155,55 @@ async def handle_daily(bot: BaseBot, user: User):
     else:
         new_streak = 1
 
-    # Streak-based reward: base + 25 per extra day (no cap — 3.1G)
+    # 3.1J — Structured streak rewards (Days 1-7, then flat after 7)
+    _STREAK_COIN_BONUS   = {1: 0, 2: 1000, 3: 2000, 4: 4000, 5: 0,    6: 4000, 7: 0}
+    _STREAK_TICKET_BONUS = {5: 10, 7: 25}
+
     benefits     = get_player_benefits(user.id)
     bonus_coins  = benefits["daily_coins_bonus"]
     bonus_xp     = benefits["daily_xp_bonus"]
     base_daily   = db.get_economy_settings()["daily_coins"]
-    streak_bonus = (new_streak - 1) * 25
-    raw_coins    = base_daily + bonus_coins + streak_bonus
-    actual_coins = max(raw_coins, 1)
-    actual_xp    = config.XP_DAILY + bonus_xp
+    _day         = min(new_streak, 7)
+    streak_bonus  = _STREAK_COIN_BONUS.get(_day, (_day - 1) * 25)
+    bonus_tickets = _STREAK_TICKET_BONUS.get(_day, 0)
+    chest_bonus   = 25000 if new_streak == 7 else 0
+    actual_coins  = max(base_daily + bonus_coins + streak_bonus + chest_bonus, 1)
+    actual_xp     = config.XP_DAILY + bonus_xp
 
     db.adjust_balance(user.id, actual_coins)
+    if bonus_tickets:
+        try:
+            db.adjust_luxe_balance(user.id, bonus_tickets)
+        except Exception:
+            pass
+    if new_streak == 7:
+        import random as _rand
+        if _rand.random() < 0.40:
+            _extra = _rand.randint(10, 25)
+            try:
+                db.adjust_luxe_balance(user.id, _extra)
+                bonus_tickets += _extra
+            except Exception:
+                pass
+
     db.record_daily_claim(user.id)
     track_quest(user.id, "daily_claim")
     track_quest(user.id, "earn_coins", actual_coins)
     await leveling.award_xp(bot, user, actual_xp, actual_coins, is_game_win=False)
     await check_achievements(bot, user, "daily")
 
+    extra_txt = ""
+    if bonus_tickets:
+        extra_txt = f" +{bonus_tickets} 🎫"
+    if new_streak == 7:
+        extra_txt += " 🎁 Streak Chest!"
     s_label = "day" if new_streak == 1 else "days"
     print(f"[DAILY] @{user.username} claimed {actual_coins} coins streak={new_streak}")
     await bot.highrise.send_whisper(user.id,
-        f"🎁 Daily Reward Claimed!\n"
-        f"Reward: {actual_coins:,} 🪙\n"
-        f"Streak: {new_streak} {s_label}\n"
-        f"Next claim: tomorrow"
+        (f"🎁 Daily Reward Claimed!\n"
+         f"Reward: {actual_coins:,} 🪙{extra_txt}\n"
+         f"Streak: {new_streak} {s_label}\n"
+         f"Next claim: tomorrow")[:249]
     )
 
 

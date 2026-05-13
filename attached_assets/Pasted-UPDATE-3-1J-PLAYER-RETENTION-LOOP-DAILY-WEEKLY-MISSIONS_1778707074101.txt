@@ -1,0 +1,839 @@
+UPDATE 3.1J — PLAYER RETENTION LOOP + DAILY/WEEKLY MISSIONS
+
+Goal:
+Add player retention systems that make players come back daily and weekly.
+
+Main features:
+1. Daily missions
+2. Weekly missions
+3. Mission progress tracking
+4. Mission rewards
+5. Streak chest upgrades
+6. Collection milestone rewards
+7. Player XP/level progression
+8. Seasonal leaderboard foundation
+9. Event/activity loop polish
+10. Help/guide updates
+
+Currencies:
+🪙 ChillCoins = gameplay currency
+🎫 Luxe Tickets = premium currency
+
+Do not change tokens.
+Do not change room ID.
+Do not wipe database.
+Do not reset balances, tickets, VIP, badges, market, casino, blackjack, poker, mining/fishing data, collection book, tools, rods, boosts, or player inventory.
+Do not re-add reward caps.
+Do not add “cap reached” or “daily cap left” text.
+Do not break Luxe shop.
+Do not break timer-based automine/autofish.
+Do not break collection book.
+Do not create HR Gold rewards yet.
+
+==================================================
+PART 1 — STABILITY FIRST
+==================================================
+
+Before changing anything, run:
+
+!launchcheck
+!commandissues
+!checkcommands
+!checkcommands all
+!checkhelp
+!bothealth
+!stability status
+
+Expected:
+- Launch Check OK
+- no command issues
+- no help issues
+- Err: none
+
+Fix baseline issues first.
+
+==================================================
+PART 2 — DAILY MISSIONS
+==================================================
+
+Add command:
+
+!missions
+!dailymissions
+!dailygoals
+
+Expected:
+
+📋 Daily Missions
+1. Mine 25 times — 5,000 🪙
+2. Fish 25 times — 5,000 🪙
+3. Answer 3 trivia — 3,000 🪙
+4. Play 3 games — 3,000 🪙
+Complete all: Daily Chest
+
+Rules:
+- Missions reset daily.
+- Track progress per player.
+- Show progress:
+  Mine 12/25
+- Rewards must be claimable once.
+- No reward caps.
+- No duplicate claims.
+- Use 🪙 and 🎫 icons.
+
+==================================================
+PART 3 — DAILY MISSION DEFAULTS
+==================================================
+
+Default daily missions:
+
+1. Mine 25 times
+Reward: 5,000 🪙
+
+2. Fish 25 times
+Reward: 5,000 🪙
+
+3. Answer 3 trivia correctly
+Reward: 3,000 🪙
+
+4. Play 3 mini-games/casino rounds
+Reward: 3,000 🪙
+
+5. Claim daily reward
+Reward: 1 Lucky Potion or 2,000 🪙 if potion system unavailable
+
+Complete all daily missions:
+Reward: Daily Chest
+
+Daily Chest default:
+- 10,000 🪙
+- small chance 5–10 🎫
+- chance Lucky Potion
+- chance Speed Potion
+
+Rules:
+- Chest rewards should be fun but not overpowered.
+- No HR Gold.
+- No reward caps.
+- If potion/chest system is not ready, reward ChillCoins only and report skipped.
+
+==================================================
+PART 4 — WEEKLY MISSIONS
+==================================================
+
+Add command:
+
+!weekly
+!weeklymissions
+!weeklygoals
+
+Expected:
+
+📅 Weekly Goals
+Mine 500: 120/500
+Fish 500: 80/500
+Find 3 Legendary+: 1/3
+Complete 5 dailies: 2/5
+Reward: Weekly Chest
+
+Rules:
+- Missions reset weekly.
+- Track progress per player.
+- Rewards claimable once per week.
+- No duplicate claims.
+- No reward caps.
+
+==================================================
+PART 5 — WEEKLY MISSION DEFAULTS
+==================================================
+
+Default weekly missions:
+
+1. Mine 500 times
+Reward: 50,000 🪙
+
+2. Fish 500 times
+Reward: 50,000 🪙
+
+3. Find 3 Legendary+ items from mining/fishing
+Reward: 50 🎫 or 75,000 🪙 if tickets disabled
+
+4. Complete 5 daily mission sets
+Reward: 1 VIP Trial Day or 100 🎫 if VIP trial unavailable
+
+5. Reach 7-day login streak
+Reward: Weekly Chest
+
+Weekly Chest default:
+- 100,000 🪙
+- 25–100 🎫 chance
+- Lucky Hour Boost chance
+- Treasure Hour Boost chance
+- VIP Trial 1 day chance
+
+Rules:
+- No guaranteed HR Gold.
+- No reward caps.
+- If VIP trial is risky, skip and use 🎫/🪙 reward.
+
+==================================================
+PART 6 — MISSION PROGRESS HOOKS
+==================================================
+
+Update progress from existing actions:
+
+Mining:
+!mine
+!automine
+!automine luxe
+
+Fishing:
+!fish
+!autofish
+!autofish luxe
+
+Trivia:
+correct answers
+
+Mini-games:
+blackjack round completed
+poker round completed
+other games if tracked
+
+Collection:
+new ore/fish discovery
+rare/legendary/mythic find
+
+Daily:
+daily claim
+
+Rules:
+- Automine/autofish should count actual completed actions.
+- Luxe auto should count actions too.
+- Do not count failed actions.
+- Do not double-count after restart.
+- Use idempotent session IDs if needed.
+
+==================================================
+PART 7 — MISSION CLAIMING
+==================================================
+
+Commands:
+
+!claimmission [number]
+!claimdaily
+!claimweekly
+
+Examples:
+
+!claimmission 1
+✅ Mission complete!
+Reward: 5,000 🪙
+
+If incomplete:
+⚠️ Mission not complete yet.
+Progress: 12/25
+
+If already claimed:
+⚠️ Already claimed.
+
+Complete all daily:
+!claimdaily
+
+Expected:
+🎁 Daily set complete!
+You received a Daily Chest.
+
+Weekly:
+!claimweekly
+
+Expected:
+🎁 Weekly goals complete!
+You received a Weekly Chest.
+
+Rules:
+- Prevent duplicate claims.
+- Use transaction/lock if possible.
+- Log rewards.
+- No reward caps.
+
+==================================================
+PART 8 — STREAK CHEST UPGRADE
+==================================================
+
+Upgrade existing daily streak rewards.
+
+Default 7-day streak:
+
+Day 1: 1,000 🪙
+Day 2: 2,000 🪙
+Day 3: Lucky Potion
+Day 4: 5,000 🪙
+Day 5: 10 🎫
+Day 6: Treasure Potion
+Day 7: 25 🎫 + Streak Chest
+
+If potion/chest system unavailable:
+Convert potion to fair 🪙 reward.
+
+Streak Chest:
+- 25,000 🪙
+- chance 10–25 🎫
+- chance boost/potion
+- chance badge/title fragment if available
+
+Rules:
+- Keep once-per-day claim logic.
+- No reward caps.
+- No “No lifetime VIP” text.
+- Show next reward.
+
+==================================================
+PART 9 — COLLECTION MILESTONE REWARDS
+==================================================
+
+Use orebook/fishbook progress.
+
+Milestones:
+25%
+50%
+75%
+100%
+
+Ore Book rewards:
+25%: 10,000 🪙
+50%: 25 🎫
+75%: Lucky Hour Boost
+100%: Collector Badge/Title + 100 🎫
+
+Fish Book rewards:
+25%: 10,000 🪙
+50%: 25 🎫
+75%: Lucky Hour Boost
+100%: Angler Badge/Title + 100 🎫
+
+Commands:
+
+!milestones
+!collectionrewards
+
+Expected:
+
+📖 Collection Milestones
+Ore: 30% — 25% claimed
+Fish: 18% — next 25%
+Use !claimmilestone.
+
+Command:
+!claimmilestone ore 25
+!claimmilestone fish 25
+
+Rules:
+- Claim each milestone once.
+- No duplicate claims.
+- If badge/title system unavailable, give 🎫/🪙 fallback.
+- No reward caps.
+
+==================================================
+PART 10 — PLAYER XP / LEVEL SYSTEM
+==================================================
+
+Add lightweight XP system.
+
+Commands:
+
+!level
+!xp
+!rank
+!profile should include level if safe
+
+XP sources:
+Mine action: +2 XP
+Fish action: +2 XP
+Trivia correct: +10 XP
+Daily mission complete: +25 XP
+Weekly mission complete: +100 XP
+New collection discovery: +20 XP
+Legendary+ find: +50 XP
+
+Level formula:
+Use simple scaling:
+Level 1 to 10 easy
+Higher levels gradually harder
+
+Example:
+XP needed = 100 * level
+
+Expected:
+
+⭐ Level
+@Player
+Level: 12
+XP: 850/1,200
+Title: Rising Collector
+
+Rules:
+- No XP reward caps.
+- Prevent duplicate XP from same event.
+- Do not over-spam XP messages.
+- Show level-up messages only.
+
+Level-up message:
+
+⭐ Level Up!
+@Player reached Level 13.
+
+==================================================
+PART 11 — TITLES FROM LEVELS
+==================================================
+
+Optional but recommended.
+
+Default titles:
+Level 5: Rookie Explorer
+Level 10: Lucky Miner
+Level 15: Skilled Angler
+Level 25: Treasure Hunter
+Level 50: ChillTopia Legend
+Level 100: Mythic Collector
+
+If title system exists:
+- unlock title
+- allow equip through existing title command
+
+If title system not ready:
+- show title in !level only
+- report skipped integration
+
+==================================================
+PART 12 — SEASONAL LEADERBOARD FOUNDATION
+==================================================
+
+Add foundation for weekly/monthly seasons.
+
+Commands:
+
+!season
+!topseason
+!seasonrewards
+
+Season categories:
+- Weekly Miner
+- Weekly Fisher
+- Weekly Collector
+- Weekly Trivia
+- Weekly Casino
+- Weekly Tipper
+
+Expected:
+
+🏆 Current Season
+Ends in: 5d 12h
+Top categories:
+!topseason mining
+!topseason fishing
+!topseason collection
+
+!topseason mining:
+
+⛏️ Weekly Miners
+1. @Player — 850 mines
+2. @User — 600 mines
+
+Rules:
+- Keep all-time leaderboards.
+- Seasonal leaderboards reset weekly/monthly.
+- Rewards can be manual at first.
+- No automatic HR Gold rewards.
+- No reward caps.
+
+==================================================
+PART 13 — EVENT / ACTIVITY LOOP POLISH
+==================================================
+
+Update or add:
+
+!events
+!event
+!schedule
+
+Expected:
+
+🎉 Room Events
+Mining Rush: +2 mining luck
+Fishing Frenzy: +2 fishing luck
+Double XP Hour
+Collection Hunt
+Use !event active.
+
+If active event:
+
+🎉 Active Event
+Mining Rush
+Bonus: +2 mining luck
+Ends in: 42m
+
+Rules:
+- Events should show in !luck stack.
+- Do not start events automatically unless already scheduled.
+- Admin can control events if existing.
+- No HR Gold events yet.
+
+==================================================
+PART 14 — RETENTION DASHBOARD
+==================================================
+
+Add player command:
+
+!today
+!progress
+
+Expected:
+
+📌 Today
+Daily: 2/5 missions
+Weekly: 1/5 goals
+Streak: Day 4
+Level: 12
+Collection: 28%
+
+Rules:
+- Short.
+- Whisper if possible.
+- This should be the “what should I do next?” command.
+
+==================================================
+PART 15 — ADMIN CONTROLS
+==================================================
+
+Add or polish:
+
+!missionadmin
+!missionadmin settings
+!missionadmin resetdaily
+!missionadmin resetweekly
+!missionadmin set dailyreward [mission] [amount]
+!missionadmin set weeklyreward [mission] [amount]
+!missionadmin enable
+!missionadmin disable
+
+Add or polish:
+
+!retentionadmin
+!retentionadmin settings
+!retentionadmin stats
+!retentionadmin resetseason
+!retentionadmin eventstatus
+
+Expected:
+- Owner/Admin only.
+- Staff can view if safe.
+- No player access to admin controls.
+
+==================================================
+PART 16 — DATABASE / STORAGE
+==================================================
+
+Add safe/idempotent tables if needed:
+
+player_missions:
+id INTEGER PRIMARY KEY AUTOINCREMENT
+user_id TEXT
+username TEXT
+mission_type TEXT
+mission_key TEXT
+period_key TEXT
+progress INTEGER DEFAULT 0
+target INTEGER DEFAULT 0
+claimed INTEGER DEFAULT 0
+updated_at TEXT
+
+mission_type:
+daily
+weekly
+
+player_mission_sets:
+id INTEGER PRIMARY KEY AUTOINCREMENT
+user_id TEXT
+username TEXT
+period_key TEXT
+set_type TEXT
+completed INTEGER DEFAULT 0
+claimed INTEGER DEFAULT 0
+updated_at TEXT
+
+player_xp:
+user_id TEXT UNIQUE
+username TEXT
+xp INTEGER DEFAULT 0
+level INTEGER DEFAULT 1
+updated_at TEXT
+
+collection_milestone_claims:
+id INTEGER PRIMARY KEY AUTOINCREMENT
+user_id TEXT
+username TEXT
+collection_type TEXT
+milestone INTEGER
+claimed_at TEXT
+
+season_points:
+id INTEGER PRIMARY KEY AUTOINCREMENT
+user_id TEXT
+username TEXT
+season_key TEXT
+category TEXT
+points INTEGER DEFAULT 0
+updated_at TEXT
+
+Rules:
+- Do not wipe data.
+- Migrations must be idempotent.
+- Use period keys like YYYY-MM-DD for daily and YYYY-WW for weekly.
+
+==================================================
+PART 17 — HELP UPDATES
+==================================================
+
+Update:
+
+!help
+!guide
+!missions
+!weekly
+!daily
+!profile
+!collection
+!minehelp
+!fishhelp
+!event
+!season
+
+Expected help:
+
+📋 Retention
+!missions — daily goals
+!weekly — weekly goals
+!today — your progress
+!level — XP/level
+!milestones — collection rewards
+
+Mining help should mention:
+- mining counts toward missions
+- automine counts actual mined actions
+
+Fishing help should mention:
+- fishing counts toward missions
+- autofish counts actual casts
+
+Rules:
+- No broken commands.
+- No admin commands in public help.
+- No reward cap text.
+- Use 🪙 and 🎫.
+
+==================================================
+PART 18 — COMMAND REGISTRY
+==================================================
+
+Register or verify:
+
+!missions
+!dailymissions
+!dailygoals
+!weekly
+!weeklymissions
+!weeklygoals
+!claimmission
+!claimdaily
+!claimweekly
+!milestones
+!collectionrewards
+!claimmilestone
+!level
+!xp
+!rank
+!season
+!topseason
+!seasonrewards
+!today
+!progress
+!missionadmin
+!retentionadmin
+
+Expected:
+route=YES
+handler=YES
+owner not UNKNOWN
+
+If optional commands are skipped:
+- hide them
+- do not show in help
+- do not count as command issue.
+
+==================================================
+PART 19 — TESTS: DAILY MISSIONS
+==================================================
+
+Run:
+
+!missions
+!mine
+!fish
+!missions
+!claimmission 1
+!claimdaily
+
+Expected:
+- progress updates
+- incomplete missions cannot claim
+- completed missions claim once
+- reward uses 🪙/🎫
+- no reward cap text
+
+==================================================
+PART 20 — TESTS: WEEKLY MISSIONS
+==================================================
+
+Run:
+
+!weekly
+Do several tracked actions.
+!weekly
+!claimweekly
+
+Expected:
+- progress updates
+- incomplete weekly cannot claim
+- no duplicate claims
+- no reward cap text
+
+==================================================
+PART 21 — TESTS: XP / LEVEL
+==================================================
+
+Run:
+
+!level
+!mine
+!fish
+Answer trivia if available.
+!level
+
+Expected:
+- XP increases
+- level displays
+- no spam
+- level-up works if threshold reached
+
+==================================================
+PART 22 — TESTS: COLLECTION MILESTONES
+==================================================
+
+Run:
+
+!collection
+!milestones
+!claimmilestone ore 25
+!claimmilestone fish 25
+
+Expected:
+- milestone progress displays
+- claim only if milestone reached
+- no duplicate claim
+- fallback reward works if badge/title unavailable
+
+==================================================
+PART 23 — TESTS: TODAY / PROGRESS
+==================================================
+
+Run:
+
+!today
+!progress
+
+Expected:
+
+📌 Today
+Daily: [x]/[y]
+Weekly: [x]/[y]
+Streak: Day [n]
+Level: [n]
+Collection: [percent]%
+
+==================================================
+PART 24 — TESTS: SEASON
+==================================================
+
+Run:
+
+!season
+!topseason mining
+!topseason fishing
+!topseason collection
+
+Expected:
+- season info displays
+- points update from actions
+- no crash
+
+==================================================
+PART 25 — FINAL QA
+==================================================
+
+Run:
+
+!commandtest !missions
+!commandtest !weekly
+!commandtest !claimmission
+!commandtest !claimdaily
+!commandtest !claimweekly
+!commandtest !milestones
+!commandtest !claimmilestone
+!commandtest !level
+!commandtest !today
+!commandtest !season
+!commandtest !topseason
+!commandtest !missionadmin
+!commandtest !retentionadmin
+
+!commandissues
+!checkcommands
+!checkhelp
+!launchcheck
+!bothealth
+!stability status
+
+Expected:
+- no command issues
+- no broken help
+- no reward cap text
+- no HR Gold rewards
+- retention systems work
+- launchcheck clean
+
+==================================================
+PART 26 — FINAL REPORT
+==================================================
+
+Report:
+1. Daily missions added.
+2. Weekly missions added.
+3. Mission progress hooks added.
+4. Mission claiming works.
+5. Daily set reward/chest added or fallback used.
+6. Weekly reward/chest added or fallback used.
+7. Streak rewards upgraded.
+8. Collection milestones added.
+9. Player XP/level added.
+10. Level titles added or skipped.
+11. Seasonal leaderboard foundation added.
+12. Event/activity loop polished.
+13. !today / !progress added.
+14. Admin controls added.
+15. Help/guides updated.
+16. No reward cap regression.
+17. No HR Gold rewards added.
+18. !commandissues result.
+19. !checkhelp result.
+20. !launchcheck result.

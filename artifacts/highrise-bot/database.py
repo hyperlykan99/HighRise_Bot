@@ -2336,6 +2336,72 @@ def _migrate_db():
     except Exception:
         pass
 
+    # 3.1J Player Retention — missions, collection milestones, season points
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS player_missions (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id     TEXT NOT NULL,
+                username    TEXT NOT NULL DEFAULT '',
+                mission_key TEXT NOT NULL,
+                period_key  TEXT NOT NULL,
+                progress    INTEGER NOT NULL DEFAULT 0,
+                claimed     INTEGER NOT NULL DEFAULT 0,
+                updated_at  TEXT NOT NULL DEFAULT '',
+                UNIQUE(user_id, mission_key, period_key)
+            )
+        """)
+    except Exception:
+        pass
+
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS player_mission_sets (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id    TEXT NOT NULL,
+                username   TEXT NOT NULL DEFAULT '',
+                period_key TEXT NOT NULL,
+                set_type   TEXT NOT NULL,
+                completed  INTEGER NOT NULL DEFAULT 0,
+                claimed    INTEGER NOT NULL DEFAULT 0,
+                updated_at TEXT NOT NULL DEFAULT '',
+                UNIQUE(user_id, set_type, period_key)
+            )
+        """)
+    except Exception:
+        pass
+
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS collection_milestone_claims (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id         TEXT NOT NULL,
+                username        TEXT NOT NULL DEFAULT '',
+                collection_type TEXT NOT NULL,
+                milestone       INTEGER NOT NULL,
+                claimed_at      TEXT NOT NULL DEFAULT '',
+                UNIQUE(user_id, collection_type, milestone)
+            )
+        """)
+    except Exception:
+        pass
+
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS season_points (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id    TEXT NOT NULL,
+                username   TEXT NOT NULL DEFAULT '',
+                season_key TEXT NOT NULL,
+                category   TEXT NOT NULL,
+                points     INTEGER NOT NULL DEFAULT 0,
+                updated_at TEXT NOT NULL DEFAULT '',
+                UNIQUE(user_id, season_key, category)
+            )
+        """)
+    except Exception:
+        pass
+
     conn.commit()
     conn.close()
 
@@ -13841,3 +13907,270 @@ def get_top_streaks(limit: int = 5) -> list[dict]:
         ][:limit]
     except Exception:
         return []
+
+
+# ---------------------------------------------------------------------------
+# 3.1J — Mission progress helpers
+# ---------------------------------------------------------------------------
+
+def get_mission_progress(user_id: str, mission_key: str, period_key: str) -> int:
+    """Return current progress for a player's mission."""
+    try:
+        conn = get_connection()
+        row  = conn.execute(
+            "SELECT progress FROM player_missions "
+            "WHERE user_id=? AND mission_key=? AND period_key=?",
+            (user_id, mission_key, period_key),
+        ).fetchone()
+        conn.close()
+        return row["progress"] if row else 0
+    except Exception:
+        return 0
+
+
+def increment_mission_progress(
+    user_id: str,
+    username: str,
+    mission_key: str,
+    period_key: str,
+    amount: int = 1,
+    target: int = 9999,
+) -> int:
+    """Increment mission progress capped at target. Returns new progress."""
+    try:
+        conn = get_connection()
+        row  = conn.execute(
+            "SELECT progress FROM player_missions "
+            "WHERE user_id=? AND mission_key=? AND period_key=?",
+            (user_id, mission_key, period_key),
+        ).fetchone()
+        cur = row["progress"] if row else 0
+        if cur >= target:
+            conn.close()
+            return cur
+        new_prog = min(cur + amount, target)
+        conn.execute(
+            """INSERT INTO player_missions
+                   (user_id, username, mission_key, period_key, progress, claimed, updated_at)
+               VALUES (?, ?, ?, ?, ?, 0, datetime('now'))
+               ON CONFLICT(user_id, mission_key, period_key) DO UPDATE SET
+                   progress=excluded.progress, updated_at=excluded.updated_at""",
+            (user_id, username, mission_key, period_key, new_prog),
+        )
+        conn.commit()
+        conn.close()
+        return new_prog
+    except Exception:
+        return 0
+
+
+def is_mission_claimed(user_id: str, mission_key: str, period_key: str) -> bool:
+    try:
+        conn = get_connection()
+        row  = conn.execute(
+            "SELECT claimed FROM player_missions "
+            "WHERE user_id=? AND mission_key=? AND period_key=?",
+            (user_id, mission_key, period_key),
+        ).fetchone()
+        conn.close()
+        return bool(row and row["claimed"])
+    except Exception:
+        return False
+
+
+def claim_mission_db(user_id: str, mission_key: str, period_key: str) -> None:
+    """Mark a mission as claimed."""
+    try:
+        conn = get_connection()
+        conn.execute(
+            """INSERT INTO player_missions
+                   (user_id, username, mission_key, period_key, progress, claimed, updated_at)
+               VALUES (?, '', ?, ?, 0, 1, datetime('now'))
+               ON CONFLICT(user_id, mission_key, period_key) DO UPDATE SET
+                   claimed=1, updated_at=datetime('now')""",
+            (user_id, mission_key, period_key),
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+
+def is_set_claimed(user_id: str, set_type: str, period_key: str) -> bool:
+    try:
+        conn = get_connection()
+        row  = conn.execute(
+            "SELECT claimed FROM player_mission_sets "
+            "WHERE user_id=? AND set_type=? AND period_key=?",
+            (user_id, set_type, period_key),
+        ).fetchone()
+        conn.close()
+        return bool(row and row["claimed"])
+    except Exception:
+        return False
+
+
+def claim_mission_set_db(
+    user_id: str, username: str, set_type: str, period_key: str
+) -> None:
+    try:
+        conn = get_connection()
+        conn.execute(
+            """INSERT INTO player_mission_sets
+                   (user_id, username, period_key, set_type, completed, claimed, updated_at)
+               VALUES (?, ?, ?, ?, 1, 1, datetime('now'))
+               ON CONFLICT(user_id, set_type, period_key) DO UPDATE SET
+                   completed=1, claimed=1, updated_at=datetime('now')""",
+            (user_id, username, period_key, set_type),
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+
+def increment_weekly_daily_sets(
+    user_id: str, username: str, weekly_period: str
+) -> int:
+    """Track daily sets completed this week. Returns new count."""
+    try:
+        conn = get_connection()
+        row  = conn.execute(
+            "SELECT completed FROM player_mission_sets "
+            "WHERE user_id=? AND set_type='weekly_daily_sets' AND period_key=?",
+            (user_id, weekly_period),
+        ).fetchone()
+        cur   = row["completed"] if row else 0
+        new_v = cur + 1
+        conn.execute(
+            """INSERT INTO player_mission_sets
+                   (user_id, username, period_key, set_type, completed, claimed, updated_at)
+               VALUES (?, ?, ?, 'weekly_daily_sets', ?, 0, datetime('now'))
+               ON CONFLICT(user_id, set_type, period_key) DO UPDATE SET
+                   completed=excluded.completed, updated_at=excluded.updated_at""",
+            (user_id, username, weekly_period, new_v),
+        )
+        conn.commit()
+        conn.close()
+        return new_v
+    except Exception:
+        return 0
+
+
+def is_milestone_claimed(
+    user_id: str, collection_type: str, milestone: int
+) -> bool:
+    try:
+        conn = get_connection()
+        row  = conn.execute(
+            "SELECT id FROM collection_milestone_claims "
+            "WHERE user_id=? AND collection_type=? AND milestone=?",
+            (user_id, collection_type, milestone),
+        ).fetchone()
+        conn.close()
+        return row is not None
+    except Exception:
+        return False
+
+
+def record_milestone_claim(
+    user_id: str, username: str, collection_type: str, milestone: int
+) -> None:
+    try:
+        conn = get_connection()
+        conn.execute(
+            """INSERT OR IGNORE INTO collection_milestone_claims
+                   (user_id, username, collection_type, milestone, claimed_at)
+               VALUES (?, ?, ?, ?, datetime('now'))""",
+            (user_id, username, collection_type, milestone),
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+
+def add_season_points(
+    user_id: str, username: str, season_key: str, category: str, points: int
+) -> None:
+    try:
+        conn = get_connection()
+        conn.execute(
+            """INSERT INTO season_points
+                   (user_id, username, season_key, category, points, updated_at)
+               VALUES (?, ?, ?, ?, ?, datetime('now'))
+               ON CONFLICT(user_id, season_key, category) DO UPDATE SET
+                   points=points+excluded.points, updated_at=excluded.updated_at""",
+            (user_id, username, season_key, category, points),
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+
+def get_season_leaderboard(
+    season_key: str, category: str, limit: int = 10
+) -> list[dict]:
+    try:
+        conn = get_connection()
+        rows = conn.execute(
+            """SELECT user_id, username, points FROM season_points
+               WHERE season_key=? AND category=?
+               ORDER BY points DESC LIMIT ?""",
+            (season_key, category, limit),
+        ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+    except Exception:
+        return []
+
+
+def get_player_xp_info(user_id: str) -> dict:
+    """Return level and total_xp from users table."""
+    try:
+        conn = get_connection()
+        row  = conn.execute(
+            "SELECT xp, level FROM users WHERE user_id=?",
+            (user_id,),
+        ).fetchone()
+        conn.close()
+        if row:
+            return {"total_xp": row["xp"] or 0, "level": row["level"] or 1}
+        return {"total_xp": 0, "level": 1}
+    except Exception:
+        return {"total_xp": 0, "level": 1}
+
+
+def count_active_missions(mission_type: str, period_key: str) -> int:
+    """Count distinct players who started missions this period."""
+    try:
+        prefix = "daily_" if mission_type == "daily" else "weekly_"
+        conn   = get_connection()
+        row    = conn.execute(
+            "SELECT COUNT(DISTINCT user_id) AS cnt FROM player_missions "
+            "WHERE mission_key LIKE ? AND period_key=?",
+            (f"{prefix}%", period_key),
+        ).fetchone()
+        conn.close()
+        return row["cnt"] if row else 0
+    except Exception:
+        return 0
+
+
+def reset_missions_for_user(user_id: str, period_key: str) -> None:
+    """Delete all mission progress for a user for a given period."""
+    try:
+        conn = get_connection()
+        conn.execute(
+            "DELETE FROM player_missions WHERE user_id=? AND period_key=?",
+            (user_id, period_key),
+        )
+        conn.execute(
+            "DELETE FROM player_mission_sets WHERE user_id=? AND period_key=?",
+            (user_id, period_key),
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass

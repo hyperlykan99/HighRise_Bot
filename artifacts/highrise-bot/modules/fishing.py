@@ -577,6 +577,17 @@ async def handle_fish(bot: BaseBot, user: User) -> None:
         await check_race_win(bot, user.id, uname, "fishing", fish["rarity"], fish.get("name", ""))
     except Exception as _ffe:
         print(f"[FISH] race_win error: {_ffe}")
+
+    # Mission progress tracking (3.1J)
+    try:
+        from modules.missions import track_mission
+        _LEG_PLUS = {"legendary", "mythic", "prismatic", "exotic"}
+        track_mission(user.id, uname, "fish")
+        if fish["rarity"] in _LEG_PLUS:
+            track_mission(user.id, uname, "legendary_find")
+    except Exception:
+        pass
+
     rarity_info = FISH_RARITIES.get(fish["rarity"], {})
     if rarity_info.get("announce"):
         try:

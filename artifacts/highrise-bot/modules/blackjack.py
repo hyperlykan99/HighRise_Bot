@@ -610,6 +610,11 @@ async def _finalize_round(bot: BaseBot):
         for p in _state.players:
             try:
                 track_quest(p.user_id, "bj_round")
+                try:
+                    from modules.missions import track_mission
+                    track_mission(p.user_id, getattr(p, "username", ""), "game")
+                except Exception:
+                    pass
                 if _bj_event_pts:
                     db.add_event_points(p.user_id, 1)
                 benefits  = get_player_benefits(p.user_id)

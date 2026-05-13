@@ -266,6 +266,22 @@ from modules.quests import (
     handle_questhelp, handle_quests,
     handle_dailyquests, handle_weeklyquests, handle_claimquest,
 )
+from modules.missions import (
+    handle_missions,
+    handle_weekly       as handle_weekly_missions,
+    handle_claimmission,
+    handle_claimdaily   as handle_claimdaily_missions,
+    handle_claimweekly,
+    handle_milestones,
+    handle_claimmilestone,
+    handle_level        as handle_mission_level,
+    handle_season,
+    handle_topseason,
+    handle_seasonrewards,
+    handle_today,
+    handle_missionadmin,
+    handle_retentionadmin,
+)
 from modules.events import (
     handle_event, handle_events, handle_eventhelp, handle_eventstatus,
     handle_nextevent, handle_eventloop,
@@ -4985,6 +5001,48 @@ class HangoutBot(BaseBot):
 
         elif cmd == "quests":
             await handle_quests(self, user)
+
+        elif cmd in {"missions", "dailymissions", "dailygoals"}:
+            await handle_missions(self, user, args)
+
+        elif cmd in {"weekly", "weeklymissions", "weeklygoals"}:
+            await handle_weekly_missions(self, user, args)
+
+        elif cmd == "claimmission":
+            await handle_claimmission(self, user, args)
+
+        elif cmd == "claimdaily":
+            await handle_claimdaily_missions(self, user, args)
+
+        elif cmd == "claimweekly":
+            await handle_claimweekly(self, user, args)
+
+        elif cmd in {"milestones", "collectionrewards"}:
+            await handle_milestones(self, user, args)
+
+        elif cmd == "claimmilestone":
+            await handle_claimmilestone(self, user, args)
+
+        elif cmd in {"xp", "rank"}:
+            await handle_mission_level(self, user, args)
+
+        elif cmd == "season":
+            await handle_season(self, user, args)
+
+        elif cmd == "topseason":
+            await handle_topseason(self, user, args)
+
+        elif cmd == "seasonrewards":
+            await handle_seasonrewards(self, user, args)
+
+        elif cmd in {"today", "progress"}:
+            await handle_today(self, user, args)
+
+        elif cmd == "missionadmin":
+            await handle_missionadmin(self, user, args)
+
+        elif cmd == "retentionadmin":
+            await handle_retentionadmin(self, user, args)
 
         elif cmd == "dailyquests":
             await handle_dailyquests(self, user)
