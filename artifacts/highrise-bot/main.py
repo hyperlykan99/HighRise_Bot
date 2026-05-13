@@ -67,6 +67,7 @@ from modules.vip import (
     handle_vip, handle_vipperks, handle_myvip, handle_giftvip,
     handle_viplist, handle_grantvip, handle_buyvip,
     handle_donate, handle_donationgoal, handle_topdonors,
+    handle_donationdebug,
     handle_sponsor, handle_sponsorgoldrain, handle_sponsorevent,
     handle_supporter, handle_perks,
     handle_setdonationgoal, handle_donationaudit, handle_setsponsorprice,
@@ -4499,6 +4500,9 @@ class HangoutBot(BaseBot):
 
         elif cmd == "donationaudit":
             await handle_donationaudit(self, user, args)
+
+        elif cmd == "donationdebug":
+            await handle_donationdebug(self, user, args)
 
         elif cmd == "setsponsorprice":
             await handle_setsponsorprice(self, user, args)

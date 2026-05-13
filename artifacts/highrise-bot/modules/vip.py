@@ -341,6 +341,32 @@ async def handle_donationgoal(bot: "BaseBot", user: "User") -> None:
 # !topdonors  — top gold donors
 # ---------------------------------------------------------------------------
 
+async def handle_donationdebug(bot: "BaseBot", user: "User", args: list) -> None:
+    """!donationdebug [@user] — owner-only donation record lookup."""
+    if not is_owner(user.username):
+        await _w(bot, user.id, "Owner only.")
+        return
+    target = args[0].lstrip("@") if args else user.username
+    data = db.get_user_gold_donated(target)
+    if not data:
+        await _w(bot, user.id, f"💛 Donation Debug\nNo records for @{target}.")
+        return
+    total  = data.get("total_gold", 0)
+    count  = data.get("record_count", 0)
+    last   = str(data.get("last_tip", "N/A"))[:16].replace("T", " ")
+    try:
+        from modules.gold_tips import get_coins_per_gold
+        coins_est = int(total) * get_coins_per_gold()
+    except Exception:
+        coins_est = 0
+    await _w(bot, user.id,
+             f"💛 Donation Debug\n"
+             f"User: @{target}\n"
+             f"Total: {total}g | Records: {count}\n"
+             f"Coins rewarded: ~{coins_est:,}c\n"
+             f"Last: {last}")
+
+
 async def handle_topdonors(bot: "BaseBot", user: "User") -> None:
     """!topdonors / !topdonators / !donators — top gold donors."""
     try:

@@ -843,6 +843,7 @@ REGISTRY: dict[str, Cmd] = {
     "donate":           Cmd("banker",  "economy", True,  True,  False),
     "donationgoal":     Cmd("banker",  "economy", True,  True,  False),
     "topdonors":        Cmd("banker",  "economy", True,  True,  False, aliases=("topdonators","donators")),
+    "donationdebug":    Cmd("banker",  "economy", False, False, True,  perm="owner"),
     "sponsor":          Cmd("banker",  "economy", True,  True,  False),
     "sponsorgoldrain":  Cmd("banker",  "goldrain",True,  True,  False),
     "sponsorevent":     Cmd("eventhost","events", True,  True,  False),
