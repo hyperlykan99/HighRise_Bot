@@ -7651,7 +7651,7 @@ def get_emoji_badges_page(
         total_pages = max(1, -(-total // per_page))  # ceiling div
         offset = (max(1, page) - 1) * per_page
         rows   = conn.execute(
-            f"SELECT * FROM emoji_badges {clause} "
+            f"SELECT rowid, * FROM emoji_badges {clause} "
             "ORDER BY CASE rarity "
             "WHEN 'common' THEN 1 WHEN 'uncommon' THEN 2 WHEN 'rare' THEN 3 "
             "WHEN 'epic' THEN 4 WHEN 'legendary' THEN 5 WHEN 'mythic' THEN 6 "
@@ -7717,6 +7717,197 @@ def find_emoji_badge_by_name(name: str) -> dict | None:
         return dict(row) if row else None
     except Exception:
         return None
+
+
+def get_emoji_badge_by_rowid(rowid: int) -> dict | None:
+    """Look up a badge by SQLite rowid (used for B### display IDs)."""
+    try:
+        conn = get_connection()
+        row  = conn.execute(
+            "SELECT rowid, * FROM emoji_badges WHERE rowid = ?", (rowid,)
+        ).fetchone()
+        conn.close()
+        return dict(row) if row else None
+    except Exception:
+        return None
+
+
+def search_emoji_badges(
+    query: str,
+    purchasable_only: bool = True,
+    limit: int = 5,
+) -> list[dict]:
+    """Full-text search across badge name and badge_id. Returns up to limit rows."""
+    try:
+        conn   = get_connection()
+        where  = ["(lower(name) LIKE lower(?) OR lower(badge_id) LIKE lower(?))"]
+        params: list = [f"%{query}%", f"%{query}%"]
+        if purchasable_only:
+            where.append("purchasable = 1")
+            where.append("COALESCE(enabled, 1) = 1")
+        clause = "WHERE " + " AND ".join(where)
+        rows   = conn.execute(
+            f"SELECT rowid, * FROM emoji_badges {clause} ORDER BY price ASC LIMIT ?",
+            params + [limit],
+        ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+    except Exception:
+        return []
+
+
+def get_emoji_badges_by_ids(
+    badge_ids: list,
+    page: int = 1,
+    per_page: int = 5,
+    purchasable_only: bool = True,
+) -> tuple[list[dict], int]:
+    """Return paginated badges filtered to a specific list of badge_ids."""
+    if not badge_ids:
+        return [], 1
+    try:
+        conn         = get_connection()
+        placeholders = ",".join("?" * len(badge_ids))
+        where        = [f"badge_id IN ({placeholders})"]
+        params: list = list(badge_ids)
+        if purchasable_only:
+            where.append("purchasable = 1")
+            where.append("COALESCE(enabled, 1) = 1")
+        clause = "WHERE " + " AND ".join(where)
+        total  = conn.execute(
+            f"SELECT COUNT(*) AS n FROM emoji_badges {clause}", params
+        ).fetchone()["n"]
+        total_pages = max(1, -(-total // per_page))
+        offset = (max(1, page) - 1) * per_page
+        rows   = conn.execute(
+            f"SELECT rowid, * FROM emoji_badges {clause} "
+            "ORDER BY price ASC LIMIT ? OFFSET ?",
+            params + [per_page, offset],
+        ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows], total_pages
+    except Exception:
+        return [], 1
+
+
+def get_affordable_badges(
+    balance: int,
+    page: int = 1,
+    per_page: int = 5,
+) -> tuple[list[dict], int]:
+    """Return paginated badges the player can afford (price <= balance, purchasable=1)."""
+    try:
+        conn   = get_connection()
+        clause = "WHERE purchasable = 1 AND COALESCE(enabled,1) = 1 AND price <= ?"
+        params: list = [balance]
+        total  = conn.execute(
+            f"SELECT COUNT(*) AS n FROM emoji_badges {clause}", params
+        ).fetchone()["n"]
+        total_pages = max(1, -(-total // per_page))
+        offset = (max(1, page) - 1) * per_page
+        rows   = conn.execute(
+            f"SELECT rowid, * FROM emoji_badges {clause} "
+            "ORDER BY price ASC LIMIT ? OFFSET ?",
+            params + [per_page, offset],
+        ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows], total_pages
+    except Exception:
+        return [], 1
+
+
+def get_sold_badges(
+    page: int = 1,
+    per_page: int = 5,
+) -> tuple[list[dict], int]:
+    """Return paginated shop badges that have been sold (purchasable=0, source=shop)."""
+    try:
+        conn   = get_connection()
+        clause = "WHERE purchasable = 0 AND source = 'shop'"
+        total  = conn.execute(
+            f"SELECT COUNT(*) AS n FROM emoji_badges {clause}"
+        ).fetchone()["n"]
+        total_pages = max(1, -(-total // per_page))
+        offset = (max(1, page) - 1) * per_page
+        rows   = conn.execute(
+            f"SELECT rowid, * FROM emoji_badges {clause} "
+            "ORDER BY price DESC LIMIT ? OFFSET ?",
+            [per_page, offset],
+        ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows], total_pages
+    except Exception:
+        return [], 1
+
+
+def search_badge_listings(
+    query: str,
+    page: int = 1,
+    per_page: int = 3,
+) -> tuple[list[dict], int]:
+    """Search active badge market listings by badge_id or badge name."""
+    try:
+        conn   = get_connection()
+        params = [f"%{query}%", f"%{query}%"]
+        clause = (
+            "WHERE bml.status = 'active' AND "
+            "(lower(bml.badge_id) LIKE lower(?) OR lower(COALESCE(eb.name,'')) LIKE lower(?))"
+        )
+        total  = conn.execute(
+            "SELECT COUNT(*) AS n FROM badge_market_listings bml "
+            f"LEFT JOIN emoji_badges eb ON eb.badge_id = bml.badge_id {clause}",
+            params,
+        ).fetchone()["n"]
+        total_pages = max(1, -(-total // per_page))
+        offset = (max(1, page) - 1) * per_page
+        rows   = conn.execute(
+            "SELECT bml.*, COALESCE(eb.name, bml.badge_id) AS badge_name "
+            "FROM badge_market_listings bml "
+            f"LEFT JOIN emoji_badges eb ON eb.badge_id = bml.badge_id {clause} "
+            "ORDER BY bml.price ASC LIMIT ? OFFSET ?",
+            params + [per_page, offset],
+        ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows], total_pages
+    except Exception:
+        return [], 1
+
+
+def get_badge_listings_filtered(
+    rarity: str | None = None,
+    sort: str = "default",
+    page: int = 1,
+    per_page: int = 3,
+) -> tuple[list[dict], int]:
+    """Get active badge market listings, optionally filtered by rarity and/or sorted."""
+    try:
+        conn   = get_connection()
+        where  = ["bml.status = 'active'"]
+        params: list = []
+        if rarity:
+            where.append("eb.rarity = ?")
+            params.append(rarity)
+        clause = "WHERE " + " AND ".join(where)
+        total  = conn.execute(
+            "SELECT COUNT(*) AS n FROM badge_market_listings bml "
+            f"LEFT JOIN emoji_badges eb ON eb.badge_id = bml.badge_id {clause}",
+            params,
+        ).fetchone()["n"]
+        total_pages = max(1, -(-total // per_page))
+        offset = (max(1, page) - 1) * per_page
+        order  = "bml.price ASC" if sort == "cheap" else "bml.id DESC"
+        rows   = conn.execute(
+            "SELECT bml.*, COALESCE(eb.name, bml.badge_id) AS badge_name, "
+            "COALESCE(eb.rarity,'') AS badge_rarity "
+            "FROM badge_market_listings bml "
+            f"LEFT JOIN emoji_badges eb ON eb.badge_id = bml.badge_id {clause} "
+            f"ORDER BY {order} LIMIT ? OFFSET ?",
+            params + [per_page, offset],
+        ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows], total_pages
+    except Exception:
+        return [], 1
 
 
 def set_emoji_badge_enabled(badge_id: str, enabled: int) -> bool:

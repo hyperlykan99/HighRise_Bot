@@ -1,0 +1,309 @@
+Update 3.1E Hotfix — Fix Badge Shop Browsing for 184 Badges
+
+Current issue:
+There are 184 emoji badges.
+Players have a hard time scrolling through many pages.
+If they keep typing shop next / badges next repeatedly, Highrise may trigger spam detection.
+
+Goal:
+Replace endless next-page browsing with category, search, filter, and direct page commands.
+
+Do not wipe badge data.
+Do not reset ownership.
+Do not reset balances.
+Do not duplicate badges.
+Do not break 1/1 badge rules.
+Do not change bot tokens.
+Do not change room ID.
+
+==================================================
+PART 1 — CHANGE MAIN BADGE SHOP MENU
+==================================================
+
+!badges should NOT show the first giant page of all badges.
+
+Instead, !badges shows categories:
+
+🏷️ Badge Shop
+Browse:
+!badges faces
+!badges hearts
+!badges animals
+!badges food
+!badges objects
+!badges rare
+!badges legendary
+
+More:
+!badges search [name]
+!badges available
+!badges affordable
+
+Keep under 220 characters.
+
+==================================================
+PART 2 — CATEGORY BROWSING
+==================================================
+
+Support:
+
+!badges faces
+!badges hearts
+!badges stars
+!badges animals
+!badges food
+!badges objects
+!badges activities
+!badges symbols
+!badges room
+!badges rare
+!badges epic
+!badges legendary
+!badges mythic
+
+Optional page number:
+
+!badges animals 1
+!badges animals 2
+!badges rare 1
+
+Expected:
+
+🐾 Animal Badges p1/3
+B041 🐶 Dog — 2,500c
+B042 🐱 Cat — 2,500c
+B043 🐉 Dragon — 25,000c
+
+Use:
+!buybadge B043
+
+Rules:
+- Show max 5 badges per page.
+- Prefer whisper output to avoid public spam.
+- Keep each message under 220 characters.
+- Do not require players to type next repeatedly.
+- Direct page numbers only.
+
+==================================================
+PART 3 — REMOVE OR REDIRECT NEXT SPAM
+==================================================
+
+If players type:
+
+!badges next
+!shop next
+
+Do not page forward endlessly.
+
+Reply:
+
+Use direct pages:
+!badges animals 2
+!badges rare 1
+!badges search crown
+
+Reason:
+Avoid spam detection.
+
+If current system has next-page session memory, keep it optional but do not encourage it.
+
+==================================================
+PART 4 — SEARCH COMMAND
+==================================================
+
+Add:
+
+!badges search [text]
+
+Examples:
+!badges search crown
+!badges search dragon
+!badges search heart
+!badges search fire
+
+Expected:
+
+🔎 Badge Search: crown
+B058 👑 Crown — 25,000c
+Use !buybadge B058
+
+If no result:
+
+🔎 No badges found.
+Try: fire, crown, heart, dragon
+
+Rules:
+- Search emoji name, badge name, tier, and category.
+- Show max 5 results.
+- Whisper results if possible.
+- No cutoff.
+
+==================================================
+PART 5 — FILTERS
+==================================================
+
+Add:
+
+!badges available
+Shows only unsold badges.
+
+!badges sold
+Shows sold badges if player wants to browse collectibles.
+
+!badges affordable
+Shows badges the player can afford based on coin balance.
+
+!badges common
+!badges uncommon
+!badges rare
+!badges epic
+!badges legendary
+!badges mythic
+
+Expected:
+
+✅ Available Badges p1/10
+B001 😀 Smile — 1,000c
+B002 😎 Cool — 1,000c
+B003 🔥 Fire — 10,000c
+
+==================================================
+PART 6 — BADGE IDS
+==================================================
+
+Every badge must have a short stable ID.
+
+Format:
+B001
+B002
+B003
+
+Use the ID everywhere:
+
+!buybadge B001
+!sellbadge B001 10000
+!setbadge B001
+
+Rules:
+- IDs must not change after migration.
+- Do not rely only on emoji because some emojis are hard to type.
+- Name buying still works:
+  !buybadge crown
+but ID is preferred.
+
+==================================================
+PART 7 — WHISPER BADGE SHOP PAGES
+==================================================
+
+Badge browsing should whisper to the user when possible.
+
+For public:
+User types !badges animals
+
+Bot whispers badge page to user.
+
+Public reply optional:
+📩 I sent you the badge list in whisper.
+
+If whisper fails:
+Send one short public page only.
+
+Goal:
+Avoid public chat spam.
+
+==================================================
+PART 8 — EMOJI SUPPORT SAFETY
+==================================================
+
+Keep !emojitest for owner.
+
+Owner can test emojis:
+
+!emojitest animals
+!emojitest hearts
+!emojitest 1
+
+If an emoji displays broken:
+!disableemoji [emoji]
+
+Disabled emojis:
+- stay in catalog
+- hidden from shop
+- cannot be purchased
+- existing owners keep badge safely
+
+==================================================
+PART 9 — MARKET BROWSING ALSO NEEDS FILTERS
+==================================================
+
+For player market, support:
+
+!badgemarket
+!badgemarket available
+!badgemarket search [name]
+!badgemarket rare
+!badgemarket cheap
+
+Expected:
+
+🏷️ Badge Market
+#12 👑 Crown — 20,000c
+#13 🔥 Fire — 12,000c
+Use !buybadge listing [id]
+
+Rules:
+- Max 3 listings per page.
+- Whisper if possible.
+- Do not show bound staff badges.
+- Do not show sold/cancelled listings.
+
+==================================================
+PART 10 — HELP UPDATE
+==================================================
+
+Update !help badges:
+
+🏷️ Badge Help
+!badges — categories
+!badges [category] — browse
+!badges search [name]
+!badges available
+!buybadge [id]
+!badgemarket — player market
+
+Do not tell players to use next repeatedly.
+
+==================================================
+PART 11 — TESTS
+==================================================
+
+Run:
+
+!badges
+!badges animals
+!badges animals 2
+!badges rare
+!badges legendary
+!badges search crown
+!badges available
+!badges affordable
+!badges next
+!shop next
+!buybadge B001
+!mybadges
+!badgemarket
+!help badges
+!commandissues
+!checkcommands
+!launchcheck
+
+Expected:
+- players no longer need to scroll through 23 pages
+- category browsing works
+- search works
+- available filter works
+- affordable filter works
+- next commands redirect to direct page/search/category
+- badge pages whisper when possible
+- no spammy public output
+- no command issues

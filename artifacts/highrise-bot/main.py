@@ -89,6 +89,7 @@ from modules.badge_market import (
     handle_setbadgemarketfee, handle_badgemarketlogs,
     handle_buybadge_cmd, handle_staffbadge,
     handle_emojitest, handle_disableemoji, handle_enableemoji,
+    handle_badges_cmd_router, handle_badge_help,
 )
 from modules.numbered_shop import (
     handle_buy_number,
@@ -3784,20 +3785,7 @@ class HangoutBot(BaseBot):
             await handle_stats_cmd(self, user, args)
 
         elif cmd in {"badges", "badgeshop"}:
-            # !badges @user → view that user's badge collection
-            # !badges [page/rarity] → badge shop
-            first = args[1] if len(args) > 1 else ""
-            if first.startswith("@") or (
-                first
-                and not first.isdigit()
-                and first.lower() not in {
-                    "common","uncommon","rare","epic","legendary","mythic","exclusive"
-                }
-            ):
-                await handle_badges_view(self, user, args)
-            else:
-                page_arg = first if first.isdigit() else "1"
-                await handle_shop_badges(self, user, ["shop", "badges", page_arg])
+            await handle_badges_cmd_router(self, user, args)
 
         elif cmd == "titles":
             await handle_badges_cmd(self, user, args)
@@ -3815,9 +3803,20 @@ class HangoutBot(BaseBot):
         elif cmd == "shop":
             sub = args[1].lower() if len(args) > 1 else ""
             if sub == "badges":
-                await handle_shop_badges(self, user, args)
+                await handle_badges_cmd_router(self, user, args[1:])
             elif sub in ("next", "prev", "page"):
-                await handle_shop_nav(self, user, args)
+                # If the active session is badges, redirect to category browsing
+                session = db.get_shop_session(user.username) if sub in ("next", "prev") else None
+                if session and session.get("shop_type") == "badges":
+                    await self.highrise.send_whisper(
+                        user.id,
+                        "Use direct pages:\n"
+                        "!badges animals 2\n"
+                        "!badges rare 1\n"
+                        "!badges search crown"
+                    )
+                else:
+                    await handle_shop_nav(self, user, args)
             else:
                 await handle_shop(self, user, args)
 
@@ -4491,6 +4490,9 @@ class HangoutBot(BaseBot):
 
         elif cmd == "shophelp":
             await _handle_shophelp(self, user, args)
+
+        elif cmd in {"badgehelp", "helpbadge", "helpbadges"}:
+            await handle_badge_help(self, user)
 
         elif cmd == "progresshelp":
             await self.highrise.send_whisper(user.id, PROGRESS_HELP)
