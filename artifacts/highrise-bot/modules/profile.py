@@ -429,30 +429,18 @@ async def _send_public_card(
     badge  = _equipped_badge_display(uid)
     col_pct = _collection_pct(uid)
 
-    # VIP visibility
-    vip_pub = (
-        _get_profile_setting(uid, "vip_visibility") == "public"
-        or is_self or is_staff
-    )
+    # Visibility rules for PUBLIC card:
+    # - is_staff can bypass any setting (admins see everything)
+    # - is_self does NOT bypass — public card respects privacy even for owner
+    # - Only !stats / !profile private always shows own full data
+    vip_pub    = _get_profile_setting(uid, "vip_visibility")    == "public" or is_staff
+    badge_pub  = _get_profile_setting(uid, "badge_visibility")  == "public" or is_staff
+    level_pub  = _get_profile_setting(uid, "level_visibility")  == "public" or is_staff
+    col_pub    = _get_profile_setting(uid, "collection_visibility") == "public" or is_staff
+    bal_pub    = _get_profile_setting(uid, "balance_visibility") == "public" or is_staff
+    season_pub = _get_profile_setting(uid, "season_visibility") == "public" or is_staff
+
     vip_str = _vip_status_str(uid) if vip_pub else None
-
-    # Badge visibility
-    badge_pub = (
-        _get_profile_setting(uid, "badge_visibility") == "public"
-        or is_self or is_staff
-    )
-
-    # Level visibility
-    level_pub = (
-        _get_profile_setting(uid, "level_visibility") == "public"
-        or is_self or is_staff
-    )
-
-    # Collection visibility
-    col_pub = (
-        _get_profile_setting(uid, "collection_visibility") == "public"
-        or is_self or is_staff
-    )
 
     lines1 = [f"👤 @{uname}"]
     lines1.append(f"Title: {title}")
@@ -462,39 +450,27 @@ async def _send_public_card(
         lines1.append(f"VIP: {vip_str}")
     if badge_pub:
         lines1.append(f"Badges: {badge}")
-    if col_pub:
-        col_str = f"{col_pct}%" if col_pct > 0 else "Not started"
-        lines1.append(f"Collection: {col_str}")
+    if col_pub and col_pct > 0:
+        lines1.append(f"Collection: {col_pct}%")
     if not is_self:
         lines1.append(f"!profile @{uname} 2 for more")
 
     await _w(bot, requester_id, "\n".join(lines1)[:220])
 
-    # Message 2 — progress + balance (self or permitted)
+    # Message 2 — progress + optional balance (own profile or staff only)
+    # Balance only shows when balance_visibility = public; is_self never overrides.
     if is_self or is_staff:
         d_done, d_total, w_done, w_total = _mission_progress(uid)
         s_rank = _season_rank_str(uid, uname)
-
-        # Balance visibility
-        bal_pub   = _get_profile_setting(uid, "balance_visibility") == "public"
-        coins     = db.get_balance(uid)
-        tickets   = _luxe_tickets(uid)
-        bal_str   = (
-            f"{coins:,} 🪙 | {tickets:,} 🎫"
-            if (bal_pub or is_self or is_staff) else None
-        )
-
-        season_pub = (
-            _get_profile_setting(uid, "season_visibility") == "public"
-            or is_self or is_staff
-        )
 
         lines2 = ["📊 Progress"]
         lines2.append(f"Daily: {d_done}/{d_total} | Weekly: {w_done}/{w_total}")
         if season_pub:
             lines2.append(f"Season Rank: {s_rank}")
-        if bal_str:
-            lines2.append(f"Balance: {bal_str}")
+        if bal_pub:
+            coins   = db.get_balance(uid)
+            tickets = _luxe_tickets(uid)
+            lines2.append(f"Balance: {coins:,} 🪙 | {tickets:,} 🎫")
 
         await _w(bot, requester_id, "\n".join(lines2)[:220])
 
@@ -589,21 +565,35 @@ async def _send_flex_card(
     bot: BaseBot, requester_id: str,
     uid: str, uname: str, p: dict,
 ) -> None:
-    """Send a public flex card."""
-    level  = p.get("level", 1) or 1
-    title  = _equipped_title_display(uid, level)
-    badge  = _equipped_badge_display(uid)
-    col_pct = _collection_pct(uid)
-    s_rank  = _season_rank_str(uid, uname)
+    """Send a PUBLIC room flex card — respects privacy, never shows private balance."""
+    level = p.get("level", 1) or 1
+    title = _equipped_title_display(uid, level)
 
-    lines = [
-        f"✨ @{uname} Flex",
-        f"Level {level} {title}",
-        f"Badges: {badge}",
-        f"Collection: {col_pct}%",
-        f"Season: {s_rank}",
-    ]
-    await _w(bot, requester_id, "\n".join(lines)[:220])
+    # Flex only shows fields that are public (no is_self bypass — this is a public room message)
+    badge_pub  = _get_profile_setting(uid, "badge_visibility")      == "public"
+    col_pub    = _get_profile_setting(uid, "collection_visibility")  == "public"
+    season_pub = _get_profile_setting(uid, "season_visibility")      == "public"
+
+    lines = [f"✨ @{uname} Flex", f"Level {level} {title}"]
+
+    if badge_pub:
+        badge = _equipped_badge_display(uid)
+        lines.append(f"Badges: {badge}")
+
+    if col_pub:
+        col_pct = _collection_pct(uid)
+        if col_pct > 0:
+            lines.append(f"Collection: {col_pct}%")
+
+    if season_pub:
+        s_rank = _season_rank_str(uid, uname)
+        lines.append(f"Season: {s_rank}")
+
+    msg = "\n".join(lines)[:220]
+    try:
+        await bot.highrise.chat(msg)
+    except Exception:
+        await _w(bot, requester_id, msg)
 
 
 # ---------------------------------------------------------------------------

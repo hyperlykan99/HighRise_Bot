@@ -1,0 +1,343 @@
+UPDATE 3.1L HOTFIX — FIX PROFILE BALANCE PRIVACY + MAKE FLEX PUBLIC
+
+Current live issues:
+1. Balance privacy does not work.
+   When player sets:
+   !profile settings balance private
+
+   Their balance still shows publicly.
+
+2. !flex is not public.
+   Flex should be a public social/showoff command.
+   If flex whispers/private messages only, it defeats the purpose.
+
+Goal:
+Fix profile privacy enforcement and make flex/showoff/card public-safe.
+
+Do not change tokens.
+Do not change room ID.
+Do not wipe data.
+Do not reset balances, tickets, VIP, badges, titles, market, missions, XP, seasons, or collection data.
+Do not change economy.
+Do not re-add reward caps.
+Do not add HR Gold rewards.
+
+==================================================
+PART 1 — FIX BALANCE PRIVACY SETTING
+==================================================
+
+Command:
+!profile settings balance private
+
+Expected:
+✅ Balance visibility set to private.
+
+Command:
+!profile settings balance public
+
+Expected:
+✅ Balance visibility set to public.
+
+Storage:
+player_profile_settings.balance_visibility must save as:
+public
+private
+
+Rules:
+- Setting must persist after restart.
+- Setting must be read every time !profile is generated.
+- Do not cache old visibility incorrectly.
+- If setting missing, default to private.
+
+==================================================
+PART 2 — PUBLIC PROFILE MUST RESPECT BALANCE PRIVACY
+==================================================
+
+Command:
+!profile
+
+If balance_visibility = private:
+
+Do NOT show:
+Balance: 125,000 🪙 | 50 🎫
+
+Instead show either:
+
+Balance: Private
+
+or omit the balance line completely.
+
+Recommended:
+
+👤 @Player
+Title: Lucky Miner
+Level: 12 | XP: 850/1,200
+VIP: Active 29d
+Badges: 👑 🔥 🎣
+Collection: 28%
+
+No public balance line.
+
+If balance_visibility = public:
+
+Show:
+
+Balance: 125,000 🪙 | 50 🎫
+
+Rules:
+- Public self-profile still respects privacy setting.
+- Public @user profile respects target user's privacy setting.
+- Private !stats can always show own full balance.
+- Admin tools may show balance only to admin/owner.
+
+==================================================
+PART 3 — PROFILE OTHER USER PRIVACY
+==================================================
+
+Command:
+!profile @user
+
+If @user has balance private:
+- do not show their 🪙 or 🎫 balance.
+
+If @user has balance public:
+- show their balance.
+
+Rules:
+- Do not show another player’s Luxe Tickets unless balance public.
+- Default other-player balance visibility = private.
+- Do not expose hidden/private values.
+
+==================================================
+PART 4 — PRIVATE PROFILE / STATS ALWAYS SHOW OWN BALANCE
+==================================================
+
+Commands:
+!stats
+!profile private
+
+For the caller only, always show:
+
+🪙 [amount] | 🎫 [amount]
+
+Even if balance_visibility = private.
+
+Reason:
+Private balance means hidden from public, not hidden from yourself.
+
+Rules:
+- Whisper/DM private profile.
+- Never show private profile in public.
+- If whisper fails, say:
+⚠️ Could not send private profile. Try again.
+
+==================================================
+PART 5 — FIX FLEX TO BE PUBLIC
+==================================================
+
+Commands:
+!flex
+!showoff
+!card
+
+These should send a PUBLIC room message.
+
+Expected:
+
+✨ @Player Flex
+Level 12 Lucky Miner
+Badges: 👑 🔥 🎣
+Collection: 28%
+Season: Mining #4
+
+Rules:
+- Do not whisper flex by default.
+- Do not DM flex.
+- Flex is meant to show off publicly.
+- Keep under 220 characters.
+- Use cooldown if needed to prevent spam.
+- Recommended cooldown: 30 seconds per user.
+
+==================================================
+PART 6 — FLEX MUST BE PUBLIC-SAFE
+==================================================
+
+Since !flex is public, it must respect privacy.
+
+Do NOT show private balance unless balance_visibility = public.
+
+Recommended:
+Flex should not show balance at all by default.
+
+Safe flex fields:
+- username
+- title
+- level
+- equipped badges
+- collection percentage if public
+- best season rank if public
+- VIP if public
+
+Do not show:
+- Luxe Ticket balance
+- private balance
+- admin notes
+- hidden inventory
+- private stats
+
+==================================================
+PART 7 — FLEX TARGET USER
+==================================================
+
+Command:
+!flex @user
+
+Expected:
+Shows @user’s public-safe flex card.
+
+If user not found:
+⚠️ Player not found.
+
+Rules:
+- Respect target user's privacy.
+- Public room message.
+- No private balance leak.
+
+==================================================
+PART 8 — PROFILE SETTINGS MENU
+==================================================
+
+Command:
+!profile settings
+
+Expected:
+
+⚙️ Profile Settings
+Balance: private
+Collections: public
+Badges: public
+VIP: public
+Season: public
+Level: public
+
+Rules:
+- Values must reflect saved settings.
+- If balance was set private, menu must show private.
+- Do not show stale value.
+
+==================================================
+PART 9 — FIX COMMON CAUSES
+==================================================
+
+Check for these likely bugs:
+
+1. Public profile hardcodes balance line.
+Fix:
+Only render balance if balance_visibility == "public".
+
+2. Settings save but profile reads wrong column/key.
+Fix:
+Use same key:
+balance_visibility
+
+3. Self-profile ignores privacy.
+Fix:
+!profile is public, so it must respect privacy even for self.
+
+4. !stats uses same renderer as !profile.
+Fix:
+Private renderer can show balance, public renderer cannot.
+
+5. !flex calls private send/whisper helper.
+Fix:
+Use public room chat send helper.
+
+6. !flex uses full profile renderer.
+Fix:
+Use separate public-safe flex renderer.
+
+==================================================
+PART 10 — TESTS
+==================================================
+
+Run:
+
+!profile settings
+!profile settings balance private
+!profile settings
+!profile
+
+Expected:
+- settings shows Balance: private
+- !profile does NOT show 🪙 or 🎫 balance
+
+Then:
+
+!stats
+
+Expected:
+- private stats DOES show own 🪙 and 🎫 balance
+
+Then:
+
+!profile settings balance public
+!profile
+
+Expected:
+- !profile shows balance
+
+Then:
+
+!profile settings balance private
+!flex
+
+Expected:
+- !flex sends public room message
+- !flex does NOT show private balance
+
+Then:
+
+!flex @4ktreyMarion
+
+Expected:
+- public room message
+- target privacy respected
+
+==================================================
+PART 11 — COMMAND TESTS
+==================================================
+
+Run:
+
+!commandtest !profile
+!commandtest !stats
+!commandtest !flex
+!commandtest !showoff
+!commandtest !card
+
+!commandissues
+!checkcommands
+!checkhelp
+!launchcheck
+
+Expected:
+- no command issues
+- flex route works
+- profile privacy works
+- launchcheck clean
+
+==================================================
+PART 12 — FINAL REPORT
+==================================================
+
+Report:
+1. Balance privacy setting fixed.
+2. Public !profile respects balance privacy.
+3. !profile @user respects target privacy.
+4. !stats/private profile still shows caller balance.
+5. !profile settings reflects saved values.
+6. !flex is now public.
+7. !flex respects privacy.
+8. !flex @user works or skipped safely.
+9. !commandissues result.
+10. !launchcheck result.
