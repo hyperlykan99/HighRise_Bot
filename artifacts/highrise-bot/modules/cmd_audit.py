@@ -579,12 +579,13 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     "partywallet", "setpartywallet",
     "partytipperadd", "partytipperremove", "partytipperclear",
     "partytippers", "partytipperlimits", "setpartytipperlimit",
-    # ── Luxe Tickets premium economy (3.1I ADDON) ────────────────────────────
+    # ── Luxe Tickets premium economy (3.1I ADDON / UPDATE) ───────────────────
     "tickets", "luxe",
     "luxeshop", "premiumshop",
     "buyticket", "buyluxe",
     "buycoins",
     "use",
+    "autotime", "minetime", "fishtime",
     "luxeadmin",
     "vipadmin",
 })

@@ -2118,6 +2118,15 @@ def _migrate_db():
             value         TEXT    NOT NULL DEFAULT '',
             updated_at    TEXT    NOT NULL DEFAULT (datetime('now'))
         )""",
+        # Stackable Luxe auto time (3.1I UPDATE)
+        """CREATE TABLE IF NOT EXISTS luxe_auto_time (
+            user_id          TEXT    NOT NULL,
+            username         TEXT    NOT NULL DEFAULT '',
+            auto_type        TEXT    NOT NULL,
+            remaining_seconds INTEGER NOT NULL DEFAULT 0,
+            updated_at       TEXT    NOT NULL DEFAULT (datetime('now')),
+            UNIQUE(user_id, auto_type)
+        )""",
     ]:
         try:
             conn.execute(sql)
@@ -11102,6 +11111,68 @@ def get_all_active_auto_fish_sessions() -> list[dict]:
     ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+
+# ── Luxe auto time helpers (3.1I UPDATE) ──────────────────────────────────────
+
+def get_luxe_auto_time(user_id: str, auto_type: str) -> int:
+    """Return remaining Luxe auto seconds for user. auto_type: 'mining'|'fishing'."""
+    try:
+        conn = get_connection()
+        row  = conn.execute(
+            "SELECT remaining_seconds FROM luxe_auto_time WHERE user_id=? AND auto_type=?",
+            (user_id, auto_type),
+        ).fetchone()
+        conn.close()
+        return max(0, int(row["remaining_seconds"])) if row else 0
+    except Exception:
+        return 0
+
+
+def set_luxe_auto_time(user_id: str, username: str, auto_type: str, seconds: int) -> int:
+    """Set remaining Luxe auto seconds. Returns the new value (clamped ≥ 0)."""
+    seconds = max(0, int(seconds))
+    try:
+        conn = get_connection()
+        conn.execute(
+            """INSERT INTO luxe_auto_time (user_id, username, auto_type, remaining_seconds, updated_at)
+               VALUES (?, ?, ?, ?, datetime('now'))
+               ON CONFLICT(user_id, auto_type)
+               DO UPDATE SET remaining_seconds=excluded.remaining_seconds,
+                             username=excluded.username,
+                             updated_at=excluded.updated_at""",
+            (user_id, username.lower(), auto_type, seconds),
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+    return seconds
+
+
+def add_luxe_auto_time(user_id: str, username: str, auto_type: str, seconds: int) -> int:
+    """Add Luxe auto seconds. Returns new total."""
+    current = get_luxe_auto_time(user_id, auto_type)
+    return set_luxe_auto_time(user_id, username, auto_type, current + max(0, seconds))
+
+
+def deduct_luxe_auto_time(user_id: str, auto_type: str, seconds: int) -> int:
+    """Deduct seconds from Luxe auto time (floor 0). Returns remaining."""
+    current = get_luxe_auto_time(user_id, auto_type)
+    new_val = max(0, current - int(seconds))
+    try:
+        conn = get_connection()
+        conn.execute(
+            """UPDATE luxe_auto_time
+               SET remaining_seconds=?, updated_at=datetime('now')
+               WHERE user_id=? AND auto_type=?""",
+            (new_val, user_id, auto_type),
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+    return new_val
 
 
 # ── First-find reward helpers ──────────────────────────────────────────────────

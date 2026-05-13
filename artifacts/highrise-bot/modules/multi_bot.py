@@ -67,7 +67,7 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "coinhelp": "banker", "bankadminhelp": "banker",
     "bankerhelp": "banker",
     "economydbcheck": "banker", "economyrepair": "banker",
-    # ── Luxe Tickets premium economy (3.1I ADDON) ────────────────────────────
+    # ── Luxe Tickets premium economy (3.1I ADDON / UPDATE) ───────────────────
     "tickets": "banker", "luxe": "banker",
     "luxeshop": "banker", "premiumshop": "banker",
     "buyticket": "banker", "buyluxe": "banker",
@@ -75,6 +75,9 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "use": "banker",
     "luxeadmin": "banker",
     "vipadmin": "banker",
+    # Luxe auto time — info is miner/fisher; miner owns combined !autotime
+    "autotime": "miner", "minetime": "miner",
+    "fishtime": "fisher",
     "dash": "host", "dashboard": "host",
     # ── blackjack (Casual BJ + RBJ) ─────────────────────────────────────────
     "bj": "blackjack", "bjoin": "blackjack",

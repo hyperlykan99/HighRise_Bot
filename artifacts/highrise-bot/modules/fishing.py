@@ -1591,9 +1591,237 @@ _AUTOFISH_REG_LIMIT = 15   # minutes — regular player max explicit duration
 _AUTOFISH_VIP_LIMIT = 60   # minutes — VIP player max explicit duration
 
 
+_luxe_autofish_tasks: dict[str, asyncio.Task] = {}
+
+
+async def _luxe_autofish_loop(bot: BaseBot, user: User) -> None:
+    """Luxe Auto-Fish loop — time-budget driven, saves remaining seconds on stop."""
+    from modules.luck_stack import get_fish_luck_stack
+
+    uid, uname = user.id, user.username
+
+    total_secs = db.get_luxe_auto_time(uid, "fishing")
+    if total_secs <= 0:
+        await _w(bot, uid,
+                 "⚠️ No Luxe Auto-Fish time.\n"
+                 "Buy from !luxeshop fishing")
+        _luxe_autofish_tasks.pop(uid, None)
+        return
+
+    stack         = get_fish_luck_stack(uid, uname)
+    interval_secs = stack["interval_secs"]
+    luck_total    = stack["luck_total"]
+
+    def _fmt_secs_f(secs: int) -> str:
+        secs = max(0, int(secs))
+        h = secs // 3600
+        m = (secs % 3600) // 60
+        if h > 0 and m > 0:
+            return f"{h}h {m}m"
+        if h > 0:
+            return f"{h}h"
+        return f"{m}m"
+
+    await _w(bot, uid,
+             f"🎣 Luxe Auto-Fishing Started\n"
+             f"Time Available: {_fmt_secs_f(total_secs)}\n"
+             f"Luck: {luck_total}  Speed: {interval_secs}s/cast\n"
+             f"Use !autofish off to pause.")
+
+    _started_at = datetime.now(timezone.utc)
+    _af_session_stats[uid] = {
+        "count": 0, "value": 0, "best_value": 0,
+        "best_name": "—", "rare_finds": [], "new_discoveries": [],
+        "duration_mins": round(total_secs / 60, 1), "luck_total": luck_total,
+        "luxe": True,
+    }
+
+    remaining_secs = total_secs
+    attempts       = 0
+
+    try:
+        while remaining_secs > 0:
+            if _get_af_setting("autofish_enabled", "1") != "1":
+                await _w(bot, uid, "🎣 Luxe AutoFish paused — disabled by staff.")
+                break
+            if not _is_in_room(uname):
+                await _w(bot, uid,
+                         f"🎣 Luxe AutoFish paused — left room.\n"
+                         f"Catches: {attempts}")
+                break
+
+            # Roll fish
+            profile  = db.get_or_create_fish_profile(uid, uname)
+            rod_name = profile.get("equipped_rod") or "Driftwood Rod"
+            rod      = FISHING_RODS.get(rod_name, FISHING_RODS["Driftwood Rod"])
+            eff      = _get_fishing_event_effects()
+            fish     = _roll_fish(rod_name, eff)
+
+            _af_forced, _af_err = _resolve_forced_fish(uid, uname, rod_name, eff)
+            if _af_forced is not None:
+                fish = _af_forced
+            elif _af_err:
+                print(f"[LUXE_AUTOFISH] forced drop error for @{uname}: {_af_err}")
+
+            weight = _roll_weight(fish, rod_name, eff)
+            value  = _calc_value(fish, weight, rod_name, eff)
+            fxp    = _calc_fxp(fish, rod_name, eff)
+
+            db.save_fish_catch(fish["name"], fish["rarity"], weight,
+                               fish["base_value"], value, fxp, uid, uname)
+
+            try:
+                _is_new_af = db.record_collection_item(
+                    uid, uname, "fishing",
+                    fish["fish_id"], fish["name"], fish["rarity"], value,
+                )
+            except Exception:
+                _is_new_af = False
+
+            _af_s = _af_session_stats.get(uid)
+            if _af_s is not None:
+                _af_s["count"]  += 1
+                _af_s["value"]  += value
+                _is_rare_af = fish["rarity"] in (
+                    "epic", "legendary", "mythic", "prismatic", "exotic")
+                if _is_rare_af:
+                    _af_s["rare_finds"].append(fish["name"])
+                if _is_new_af:
+                    _af_s["new_discoveries"].append(fish["name"])
+                if value > _af_s["best_value"]:
+                    _af_s["best_value"] = value
+                    _af_s["best_name"]  = f"{fish['emoji']} {fish['name']}"
+
+            new_xp  = profile.get("fishing_xp", 0) + fxp
+            new_lvl, leveled = _do_level_up(profile, new_xp)
+            leftover = new_xp - sum(_fish_level_threshold(l)
+                                    for l in range(1, new_lvl))
+            db.update_fish_profile(uid, uname,
+                                   fishing_level=new_lvl,
+                                   fishing_xp=max(0, leftover),
+                                   total_catches=profile.get("total_catches", 0) + 1,
+                                   last_fish_at=_now_iso(),
+                                   best_fish_name=fish["name"]
+                                       if weight > (profile.get("best_fish_weight") or 0)
+                                       else (profile.get("best_fish_name") or fish["name"]),
+                                   best_fish_weight=max(weight, profile.get("best_fish_weight") or 0),
+                                   best_fish_value=max(value, profile.get("best_fish_value") or 0))
+            db.adjust_balance(uid, value)
+            attempts += 1
+            try:
+                db.update_auto_fish_attempts(uid, attempts)
+            except Exception:
+                pass
+
+            rlabel = _rarity_label(fish["rarity"])
+            nclr   = _name_colored(fish["rarity"], fish["name"])
+            msg    = (f"🎣 Luxe #{attempts}\n"
+                      f"{rlabel} {fish['emoji']} {nclr} | "
+                      f"⚖️ {weight}lb | 💰 {_fmt(value)} 🪙 | ⭐ +{fxp} FXP")
+            await _w(bot, uid, msg[:249])
+
+            if leveled:
+                await _w(bot, uid, f"🎣 Level Up! Fishing Lv {new_lvl}!")
+
+            try:
+                await check_race_win(bot, uid, uname, "fishing", fish["rarity"], fish.get("name", ""))
+            except Exception as _ffe:
+                print(f"[LUXE_AUTOFISH] race_win error: {_ffe}")
+            rinfo = FISH_RARITIES.get(fish["rarity"], {})
+            if rinfo.get("announce"):
+                try:
+                    await send_big_fish_announce(
+                        bot, fish["rarity"], uname,
+                        fish["name"], fish["emoji"],
+                        weight=weight, value=value, xp=fxp)
+                except Exception:
+                    pass
+
+            elapsed = (datetime.now(timezone.utc) - _started_at).total_seconds()
+            remaining_secs = max(0, total_secs - elapsed)
+            if remaining_secs <= 0:
+                break
+            await asyncio.sleep(min(interval_secs, remaining_secs))
+
+    except asyncio.CancelledError:
+        pass
+    except Exception as exc:
+        print(f"[LUXE_AUTOFISH] Loop error for {uname}: {exc}")
+    finally:
+        _luxe_autofish_tasks.pop(uid, None)
+        elapsed_total  = (datetime.now(timezone.utc) - _started_at).total_seconds()
+        used_secs      = int(min(elapsed_total, total_secs))
+        remaining_save = max(0, total_secs - used_secs)
+        db.set_luxe_auto_time(uid, uname, "fishing", remaining_save)
+
+        _af_stats = _af_session_stats.pop(uid, None)
+        if _af_stats and _af_stats.get("count", 0) > 0:
+            used_fmt = _fmt_secs_f(used_secs)
+            rem_fmt  = _fmt_secs_f(remaining_save)
+            casts    = _af_stats.get("count", 0)
+            earned   = _af_stats.get("value", 0)
+            best     = _af_stats.get("best_name", "—")
+            luck     = _af_stats.get("luck_total", "?")
+            msg = (f"🎣 Luxe Auto-Fishing Summary\n"
+                   f"Time Used: {used_fmt}  Remaining: {rem_fmt}\n"
+                   f"Casts: {casts}  Earned: {earned:,} 🪙\n"
+                   f"Best: {best}  Luck: {luck}")
+            try:
+                db.save_auto_session_summary(uid, uname, "fishing", msg[:500])
+            except Exception:
+                pass
+            conv_id = None
+            try:
+                row = db.get_player_dm_conv(uid)
+                if row:
+                    conv_id = row.get("conversation_id")
+            except Exception:
+                pass
+            if conv_id:
+                try:
+                    await bot.highrise.send_message(conv_id, msg[:249])
+                except Exception:
+                    try:
+                        await bot.highrise.send_whisper(uid, msg[:249])
+                    except Exception:
+                        pass
+            else:
+                try:
+                    await bot.highrise.send_whisper(uid, msg[:249])
+                except Exception:
+                    pass
+        elif remaining_save > 0:
+            try:
+                await bot.highrise.send_whisper(uid,
+                    f"🎣 Luxe AutoFish paused.\n"
+                    f"Remaining: {_fmt_secs_f(remaining_save)}\n"
+                    f"Use !autofish luxe to continue.")
+            except Exception:
+                pass
+
+
 async def handle_autofish(bot: BaseBot, user: User, args: list[str]) -> None:
     """/autofish [on|off] — timer-based auto fishing (3.1I)."""
     sub = args[1].lower() if len(args) >= 2 else "on"
+
+    # ── Luxe auto-fish ────────────────────────────────────────────────────
+    if sub == "luxe":
+        if not _is_in_room(user.username):
+            await _w(bot, user.id, "🎣 You must be in the room to start Luxe AutoFish.")
+            return
+        if user.id in _luxe_autofish_tasks and not _luxe_autofish_tasks[user.id].done():
+            await _w(bot, user.id,
+                     "🎣 Luxe AutoFish already running.\n"
+                     "Use !autofish off to pause.")
+            return
+        if user.id in _autofish_tasks and not _autofish_tasks[user.id].done():
+            await _w(bot, user.id,
+                     "🎣 Regular AutoFish is running.\n"
+                     "Use !autofish off first.")
+            return
+        task = asyncio.create_task(_luxe_autofish_loop(bot, user))
+        _luxe_autofish_tasks[user.id] = task
+        return
 
     # ── Numeric arg: warn timer-based now ────────────────────────────────
     if sub.lstrip("-").isdigit():

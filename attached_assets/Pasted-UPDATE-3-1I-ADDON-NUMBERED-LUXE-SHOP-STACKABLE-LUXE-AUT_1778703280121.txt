@@ -1,0 +1,780 @@
+UPDATE 3.1I ADDON — NUMBERED LUXE SHOP + STACKABLE LUXE AUTO TIME + BOT SHOP MIGRATION + CURRENCY ICON FORMAT
+
+Goal:
+Polish the Luxe Tickets premium system and shop UX.
+
+Main requests:
+1. Make !luxeshop easy and numbered.
+2. Players should buy Luxe Shop items by number.
+3. Luxe auto-mining/fishing should have 1h, 3h, and 5h options.
+4. Luxe auto-mining/fishing time should stack.
+5. If Luxe auto-mining/fishing stops early, remaining time is saved and can continue later.
+6. Luxe auto-mining/fishing items are currently handled by BankingBot. Migrate them to the correct bot shops.
+7. Update all help/guides with the new Luxe features.
+8. Currency amounts should end with their corresponding icon instead of “c”.
+   Example: 10,000 🪙 and 500 🎫
+
+Currencies:
+🪙 ChillCoins = free/play currency
+🎫 Luxe Tickets = premium room currency
+
+Do not change tokens.
+Do not change room ID.
+Do not wipe data.
+Do not reset balances, tickets, VIP, badges, market, mining/fishing data, collection data, tools, rods, boosts, or player inventory.
+Do not re-add reward caps.
+Do not change mining/fishing odds unless admin settings already control them.
+Do not let normal chat text credit Luxe Tickets.
+Only verified Highrise payment/tip events can add Luxe Tickets.
+
+==================================================
+PART 1 — CURRENCY DISPLAY FORMAT
+==================================================
+
+Update all player-facing currency displays.
+
+Use:
+
+10,000 🪙
+500 🎫
+
+Do NOT use:
+
+10,000c
+500 tickets
+500 Luxe
+500 gems
+
+Rules:
+- ChillCoins always end with 🪙.
+- Luxe Tickets always end with 🎫.
+- Update balance, shop, rewards, purchases, admin settings, VIP, mining/fishing summaries, blackjack/poker payouts, trivia rewards, badge prices, market listings, and daily rewards where possible.
+- Do not change database column names if risky; only display names.
+- Keep internal variables if needed, but player-facing text must use icons.
+
+Examples:
+
+Old:
+You won 500c.
+
+New:
+You won 500 🪙.
+
+Old:
+VIP costs 500 Luxe Tickets.
+
+New:
+VIP costs 500 🎫.
+
+==================================================
+PART 2 — NUMBERED LUXE SHOP
+==================================================
+
+Make !luxeshop numbered and easy.
+
+Command:
+!luxeshop
+!premiumshop
+
+Expected:
+
+🎫 Luxe Shop
+1. VIP Pass — 500 🎫
+2. Auto-Mine 1h — 100 🎫
+3. Auto-Mine 3h — 250 🎫
+4. Auto-Mine 5h — 400 🎫
+Use !buyluxe [#]
+
+Second page/message if needed:
+
+5. Auto-Fish 1h — 100 🎫
+6. Auto-Fish 3h — 250 🎫
+7. Auto-Fish 5h — 400 🎫
+8. Lucky Hour — 150 🎫
+
+Third page/message:
+
+9. Treasure Hour — 200 🎫
+10. Small Coins — 50 🎫
+11. Medium Coins — 100 🎫
+12. Large Coins — 250 🎫
+
+Rules:
+- Keep each message under 220 characters.
+- Whisper if possible.
+- Do not dump a giant message.
+- Numbers should be stable.
+- Buying by number should work.
+- If more items are added later, keep the numbers stable if possible.
+
+==================================================
+PART 3 — BUY LUXE ITEMS BY NUMBER
+==================================================
+
+Add or polish:
+
+!buyluxe [number]
+!buyticket [number]
+!buy premium [number]
+
+Examples:
+!buyluxe 1
+!buyluxe 2
+!buyluxe 5
+
+Expected:
+!buyluxe 1 buys VIP Pass.
+!buyluxe 2 buys Auto-Mine 1h.
+!buyluxe 5 buys Auto-Fish 1h.
+
+Also support quantity if safe:
+
+!buyluxe 2 3
+
+Meaning:
+Buy three Auto-Mine 1h permits.
+
+If quantity is not implemented, reply:
+⚠️ Use: !buyluxe [number]
+
+If invalid number:
+⚠️ Item not found. Use !luxeshop.
+
+If not enough tickets:
+⚠️ Not enough 🎫.
+Need: 100 🎫
+You have: 50 🎫
+
+==================================================
+PART 4 — DEFAULT LUXE SHOP ITEMS AND PRICES
+==================================================
+
+Set default numbered items:
+
+1. VIP Pass — 500 🎫
+2. Auto-Mine 1h — 100 🎫
+3. Auto-Mine 3h — 250 🎫
+4. Auto-Mine 5h — 400 🎫
+5. Auto-Fish 1h — 100 🎫
+6. Auto-Fish 3h — 250 🎫
+7. Auto-Fish 5h — 400 🎫
+8. Lucky Hour Boost — 150 🎫
+9. Treasure Hour Boost — 200 🎫
+10. Small ChillCoins — 50 🎫 = 50,000 🪙
+11. Medium ChillCoins — 100 🎫 = 125,000 🪙
+12. Large ChillCoins — 250 🎫 = 350,000 🪙
+
+Rules:
+- Prices must be editable in game.
+- Purchases must be logged.
+- No duplicate transaction.
+- No negative balances.
+- No reward caps.
+
+==================================================
+PART 5 — MIGRATE LUXE ITEMS TO CORRESPONDING BOT SHOPS
+==================================================
+
+Current issue:
+Luxe auto-mining/fishing items are being handled by BankingBot.
+
+Goal:
+Move Luxe auto items to the correct bot shops/owners.
+
+Correct ownership:
+
+BankingBot:
+- Luxe Ticket balance
+- Highrise Gold to Luxe Ticket conversion
+- !tickets
+- !luxe
+- !balance if global balance
+- coin packs / !buycoins if currently BankingBot owns economy
+
+GreatestProspector:
+- Auto-Mine 1h
+- Auto-Mine 3h
+- Auto-Mine 5h
+- mining Luxe boosts
+- mining shop / mining premium shop
+- !automine luxe
+- !mineshop luxe if added
+
+MasterAngler:
+- Auto-Fish 1h
+- Auto-Fish 3h
+- Auto-Fish 5h
+- fishing Luxe boosts
+- fishing shop / fishing premium shop
+- !autofish luxe
+- !fishshop luxe if added
+
+ChillTopiaMC / Host:
+- global !luxeshop menu if needed
+- help/guides
+- routing only if it delegates to correct bot/module
+
+Important:
+- BankingBot should not execute auto-mining or auto-fishing permits.
+- BankingBot can deduct/transfer 🎫 if it owns premium balance, but the actual permit should be granted to the mining/fishing module.
+- Command owner registry should show the correct owner.
+
+Expected:
+!commandtest !automine
+owner=GreatestProspector
+
+!commandtest !autofish
+owner=MasterAngler
+
+!commandtest !luxeshop
+owner=ChillTopiaMC or BankingBot is acceptable if it only displays/delegates.
+
+==================================================
+PART 6 — CATEGORY SHOPS
+==================================================
+
+Add optional category views:
+
+!luxeshop mining
+!luxeshop fishing
+!luxeshop boosts
+!luxeshop coins
+!luxeshop vip
+
+Mining:
+
+⛏️ Luxe Mining
+1. Auto-Mine 1h — 100 🎫
+2. Auto-Mine 3h — 250 🎫
+3. Auto-Mine 5h — 400 🎫
+Use !buyluxe [#]
+
+Fishing:
+
+🎣 Luxe Fishing
+5. Auto-Fish 1h — 100 🎫
+6. Auto-Fish 3h — 250 🎫
+7. Auto-Fish 5h — 400 🎫
+Use !buyluxe [#]
+
+Rules:
+- Numbers stay the same as main shop.
+- Do not create confusing separate numbers per page unless session-based buying is implemented.
+- Simple stable global item numbers are preferred.
+
+==================================================
+PART 7 — STACKABLE LUXE AUTO TIME
+==================================================
+
+Luxe auto-mining and auto-fishing time should stack.
+
+When player buys:
+Auto-Mine 1h -> add 3600 seconds mining_luxe_time
+Auto-Mine 3h -> add 10800 seconds mining_luxe_time
+Auto-Mine 5h -> add 18000 seconds mining_luxe_time
+
+Auto-Fish 1h -> add 3600 seconds fishing_luxe_time
+Auto-Fish 3h -> add 10800 seconds fishing_luxe_time
+Auto-Fish 5h -> add 18000 seconds fishing_luxe_time
+
+Example:
+Player buys Auto-Mine 1h twice.
+Remaining Luxe Auto-Mine Time: 2h.
+
+Player buys Auto-Fish 3h + 5h.
+Remaining Luxe Auto-Fish Time: 8h.
+
+Commands:
+!autotime
+!minetime
+!fishtime
+
+Expected:
+
+⏱️ Luxe Auto Time
+Mining: 2h 30m
+Fishing: 1h 0m
+
+==================================================
+PART 8 — USE LUXE AUTO TIME
+==================================================
+
+Normal auto remains:
+
+!automine
+!autofish
+
+These use normal timer-based free/VIP auto duration.
+
+Luxe auto should be explicit:
+
+!automine luxe
+!autofish luxe
+
+or:
+
+!use automine
+!use autofish
+
+Expected:
+
+!automine luxe
+
+If player has Luxe mining time:
+⛏️ Luxe Auto-Mining Started
+Time Available: 1h 20m
+Luck: 13
+Speed: 8s/mine
+Use !stopmine to pause.
+
+If no Luxe mining time:
+⚠️ No Luxe Auto-Mining time.
+Buy from !luxeshop mining.
+
+!autofish luxe
+
+If player has Luxe fishing time:
+🎣 Luxe Auto-Fishing Started
+Time Available: 3h
+Luck: 12
+Speed: 9s/cast
+Use !stopfish to pause.
+
+If no Luxe fishing time:
+⚠️ No Luxe Auto-Fishing time.
+Buy from !luxeshop fishing.
+
+==================================================
+PART 9 — STOPPING LUXE AUTO SAVES REMAINING TIME
+==================================================
+
+If player stops/cancels Luxe auto-mining or auto-fishing early, remaining time must be saved.
+
+Example:
+Player has 1h Auto-Mine time.
+Runs for 20 minutes.
+Stops.
+
+Remaining:
+40 minutes.
+
+Next time:
+!automine luxe
+continues with 40 minutes.
+
+Rules:
+- Deduct only actual elapsed time.
+- Save remaining seconds on stop/cancel/error.
+- If bot restarts, remaining time should persist.
+- If auto stops because of an error, save unused time.
+- If session completes naturally, remaining time becomes 0.
+- Do not consume all time instantly at start.
+- Do not lose time if bot crashes.
+
+==================================================
+PART 10 — LUXE AUTO AND NORMAL AUTO DIFFERENCE
+==================================================
+
+Normal auto:
+- based on base duration + VIP + tools/rods + boosts
+- no Luxe time required
+- uses !automine / !autofish
+
+Luxe auto:
+- uses purchased Luxe time balance
+- can run up to remaining Luxe time
+- uses same luck stack, tools, rods, potions, boosts, VIP, events
+- uses !automine luxe / !autofish luxe
+
+Important:
+Luxe auto does not guarantee rare items.
+It only provides longer paid auto time.
+
+==================================================
+PART 11 — LUXE AUTO SUMMARY
+==================================================
+
+When Luxe auto-mining completes/stops:
+
+⛏️ Luxe Auto-Mining Summary
+Time Used: 20m
+Remaining: 40m
+Mined: 150
+Earned: 25,000 🪙
+Best: Mythril Ore
+Luck Used: 13
+
+When Luxe auto-fishing completes/stops:
+
+🎣 Luxe Auto-Fishing Summary
+Time Used: 20m
+Remaining: 40m
+Casts: 135
+Earned: 22,000 🪙
+Best: Golden Koi
+Luck Used: 12
+
+Rules:
+- Save summary.
+- Send true DM only if conversation_id exists.
+- If no DM conversation, whisper short fallback:
+  📩 Luxe auto summary saved. Use !lastminesummary.
+- No public spam.
+- No reward cap text.
+
+==================================================
+PART 12 — LUXE ADMIN PRICE SETTINGS
+==================================================
+
+Owner/Admin can set prices in-game.
+
+Commands:
+
+!luxeadmin prices
+!luxeadmin set price [number/item] [amount]
+
+Examples:
+!luxeadmin set price 2 100
+!luxeadmin set price automine1h 100
+!luxeadmin set price autofish3h 250
+!luxeadmin set price vip 500
+
+Expected:
+✅ Price updated.
+Auto-Mine 1h: 100 🎫
+
+Rules:
+- Owner/Admin only.
+- Amount must be positive.
+- Persist after restart.
+- Number and item code both accepted.
+
+==================================================
+PART 13 — LUXE AUTO DURATION SETTINGS
+==================================================
+
+Owner/Admin can set duration for Luxe auto items.
+
+Commands:
+
+!luxeadmin set duration automine1h 60
+!luxeadmin set duration automine3h 180
+!luxeadmin set duration automine5h 300
+
+!luxeadmin set duration autofish1h 60
+!luxeadmin set duration autofish3h 180
+!luxeadmin set duration autofish5h 300
+
+Duration is in minutes.
+
+Expected:
+✅ Auto-Mine 1h duration set to 60m.
+
+Rules:
+- Do not hardcode if admin changes.
+- Item label can remain 1h/3h/5h unless admin renames later.
+- Validate positive minutes.
+
+==================================================
+PART 14 — BUYING COIN PACKS WITH NUMBER
+==================================================
+
+Numbered shop should support:
+
+!buyluxe 10
+!buyluxe 11
+!buyluxe 12
+
+Expected:
+10 = Small ChillCoins
+11 = Medium ChillCoins
+12 = Large ChillCoins
+
+Messages:
+
+✅ Purchased 50,000 🪙 for 50 🎫.
+
+Not:
+✅ Purchased 50000c.
+
+==================================================
+PART 15 — VIP PURCHASE WITH NUMBER
+==================================================
+
+!buyluxe 1
+
+Expected:
+👑 VIP activated!
+Cost: 500 🎫
+Remaining: 30d
+
+If VIP already active:
+👑 VIP extended!
+Added: 30d
+Remaining: 45d 3h
+
+VIP status should always show duration:
+
+!vip
+
+👑 VIP Status
+Status: Active
+Remaining: 29d 4h
+Expires: [date/time]
+Price: 500 🎫
+
+==================================================
+PART 16 — UPDATE HELP AND GUIDES
+==================================================
+
+Update all relevant help/guides:
+
+!help
+!shop
+!luxeshop
+!premiumshop
+!tickets
+!luxe
+!vip
+!automine help
+!autofish help
+!minehelp
+!fishhelp
+!mineluck
+!fishluck
+!mineadmin
+!fishadmin
+!luxeadmin
+
+Public help should include:
+
+🎫 Luxe Tickets
+!luxeshop — premium shop
+!buyluxe [#] — buy by number
+!autotime — Luxe auto time
+!automine luxe — use mining time
+!autofish luxe — use fishing time
+
+Mining help:
+
+⛏️ Mining
+!automine — normal auto
+!automine luxe — Luxe auto time
+!mineluck — stack
+!autotime — time left
+
+Fishing help:
+
+🎣 Fishing
+!autofish — normal auto
+!autofish luxe — Luxe auto time
+!fishluck — stack
+!autotime — time left
+
+Admin help:
+
+🎫 Luxe Admin
+!luxeadmin prices
+!luxeadmin set price [#] [amt]
+!luxeadmin set duration [item] [min]
+!luxeadmin rate
+
+Rules:
+- No broken commands in help.
+- No BankingBot handling mining/fishing Luxe items.
+- No reward cap text.
+- Currency icons only.
+
+==================================================
+PART 17 — DATABASE / STORAGE
+==================================================
+
+Add safe/idempotent storage:
+
+premium_balances:
+user_id TEXT UNIQUE
+username TEXT
+luxe_tickets INTEGER DEFAULT 0
+updated_at TEXT
+
+luxe_auto_time:
+user_id TEXT
+username TEXT
+auto_type TEXT
+remaining_seconds INTEGER DEFAULT 0
+updated_at TEXT
+
+Unique:
+user_id + auto_type
+
+auto_type:
+mining
+fishing
+
+luxe_shop_items:
+item_key TEXT UNIQUE
+item_number INTEGER UNIQUE
+item_name TEXT
+owner_bot TEXT
+price_tickets INTEGER
+duration_minutes INTEGER
+enabled INTEGER DEFAULT 1
+updated_at TEXT
+
+premium_transactions:
+id INTEGER PRIMARY KEY AUTOINCREMENT
+user_id TEXT
+username TEXT
+type TEXT
+item_key TEXT
+amount INTEGER
+currency TEXT
+details TEXT
+created_at TEXT
+
+Rules:
+- Idempotent migrations.
+- Do not wipe existing data.
+- Persist stacked time.
+- Persist prices.
+- Persist durations.
+
+==================================================
+PART 18 — ROUTING / OWNERSHIP TESTS
+==================================================
+
+Run:
+
+!commandtest !luxeshop
+!commandtest !premiumshop
+!commandtest !buyluxe
+!commandtest !buyticket
+!commandtest !autotime
+!commandtest !automine
+!commandtest !autofish
+!commandtest !luxeadmin
+
+Expected:
+- !automine owner=GreatestProspector
+- !autofish owner=MasterAngler
+- Luxe auto item execution not owned by BankingBot
+- BankingBot only owns balance/payment/ticket conversion if needed
+- route=YES
+- handler=YES
+- owner not UNKNOWN
+
+==================================================
+PART 19 — LIVE TESTS
+==================================================
+
+Run:
+
+!luxeshop
+!buyluxe 2
+!autotime
+!automine luxe
+
+Expected:
+- buys Auto-Mine 1h
+- adds 1h mining time
+- starts Luxe auto-mining
+- uses GreatestProspector
+- displays currency as 🎫 and 🪙
+
+Stop after a short time:
+
+!stopmine
+
+Expected:
+- remaining time saved
+- summary shows time used and remaining
+
+Then:
+
+!automine luxe
+
+Expected:
+- continues remaining time
+
+Fishing:
+
+!buyluxe 5
+!autotime
+!autofish luxe
+!stopfish
+!autofish luxe
+
+Expected:
+- same behavior for fishing
+- uses MasterAngler
+
+VIP:
+
+!buyluxe 1
+!vip
+
+Expected:
+- VIP bought/extended
+- duration shown
+- price shown as 500 🎫
+
+Coin pack:
+
+!buyluxe 10
+!balance
+
+Expected:
+- ChillCoins added
+- display uses 🪙
+
+==================================================
+PART 20 — FINAL QA
+==================================================
+
+Run:
+
+!commandissues
+!checkcommands
+!checkhelp
+!launchcheck
+!bothealth
+!stability status
+
+Expected:
+- no command issues
+- no no-owner commands
+- no broken help
+- no BankingBot owning mining/fishing Luxe auto execution
+- Luxe shop numbered
+- buy by number works
+- stacked time persists
+- remaining time saves after stop
+- currency icons display correctly
+- no reward cap text
+
+==================================================
+PART 21 — FINAL REPORT
+==================================================
+
+Report:
+1. Numbered !luxeshop added.
+2. !buyluxe [#] works.
+3. Stable Luxe item numbers added.
+4. Auto-Mine 1h/3h/5h added.
+5. Auto-Fish 1h/3h/5h added.
+6. Luxe auto time stacks.
+7. Remaining time saves after stop/cancel/error.
+8. !autotime added.
+9. Luxe mining items migrated to GreatestProspector.
+10. Luxe fishing items migrated to MasterAngler.
+11. BankingBot no longer executes Luxe auto mining/fishing.
+12. Prices editable by number/item.
+13. Durations editable.
+14. Help/guides updated.
+15. Currency format updated to 🪙 and 🎫.
+16. VIP buy-by-number works.
+17. VIP duration still displays.
+18. Coin packs buy-by-number work.
+19. !commandissues result.
+20. !checkhelp result.
+21. !launchcheck result.

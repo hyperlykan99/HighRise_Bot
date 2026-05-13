@@ -2877,6 +2877,25 @@ async def handle_automine(bot: BaseBot, user: User, args: list[str]) -> None:
     """/automine [on|off] — timer-based auto mining (3.1I)."""
     sub = args[1].lower() if len(args) >= 2 else "on"
 
+    # ── Luxe auto-mine ────────────────────────────────────────────────────
+    if sub == "luxe":
+        if not _is_in_room(user.username):
+            await _w(bot, user.id, "⛏️ You must be in the room to start Luxe AutoMine.")
+            return
+        if user.id in _luxe_automine_tasks and not _luxe_automine_tasks[user.id].done():
+            await _w(bot, user.id,
+                     "⛏️ Luxe AutoMine already running.\n"
+                     "Use !automine off to pause.")
+            return
+        if user.id in _automine_tasks and not _automine_tasks[user.id].done():
+            await _w(bot, user.id,
+                     "⛏️ Regular AutoMine is running.\n"
+                     "Use !automine off first.")
+            return
+        task = asyncio.create_task(_luxe_automine_loop(bot, user))
+        _luxe_automine_tasks[user.id] = task
+        return
+
     # ── Numeric arg: warn timer-based now ────────────────────────────────
     if sub.lstrip("-").isdigit():
         await _w(bot, user.id,
@@ -2922,6 +2941,151 @@ async def handle_automine(bot: BaseBot, user: User, args: list[str]) -> None:
             return
         task = asyncio.create_task(_automine_loop(bot, user))
         _automine_tasks[user.id] = task
+
+
+# ── Luxe Auto-Mine ────────────────────────────────────────────────────────────
+
+_luxe_automine_tasks: dict[str, asyncio.Task] = {}
+
+
+async def _luxe_automine_loop(bot: BaseBot, user: User) -> None:
+    """Luxe Auto-Mine loop — time-budget driven, saves remaining seconds on stop."""
+    from datetime import datetime as _dt2, timezone as _tz2
+    from modules.luck_stack import get_mine_luck_stack
+
+    uid, uname = user.id, user.username
+
+    # Read remaining budget
+    total_secs = db.get_luxe_auto_time(uid, "mining")
+    if total_secs <= 0:
+        await _w(bot, uid,
+                 "⚠️ No Luxe Auto-Mine time.\n"
+                 "Buy from !luxeshop mining")
+        _luxe_automine_tasks.pop(uid, None)
+        return
+
+    stack         = get_mine_luck_stack(uid, uname)
+    interval_secs = stack["interval_secs"]
+    luck_total    = stack["luck_total"]
+
+    await _w(bot, uid,
+             f"⛏️ Luxe Auto-Mining Started\n"
+             f"Time Available: {_fmt_secs(total_secs)}\n"
+             f"Luck: {luck_total}  Speed: {interval_secs}s/mine\n"
+             f"Use !automine off to pause.")
+
+    _started_at = _dt2.now(_tz2.utc)
+    _am_session_stats[uid] = {
+        "count": 0, "value": 0, "best_value": 0,
+        "best_name": "—", "rare_finds": [], "new_discoveries": [],
+        "duration_mins": round(total_secs / 60, 1), "luck_total": luck_total,
+        "luxe": True,
+    }
+
+    remaining_secs = total_secs
+    attempts       = 0
+
+    try:
+        while remaining_secs > 0:
+            if _get_am_setting("automine_enabled", "1") != "1":
+                await _w(bot, uid, "⛏️ Luxe AutoMine paused — disabled by staff.")
+                break
+            if not _is_in_room(uname):
+                await _w(bot, uid,
+                         f"⛏️ Luxe AutoMine paused — left room.\n"
+                         f"Mines: {attempts}")
+                break
+
+            _auto_mining_active.add(uid)
+            try:
+                await handle_mine(bot, user)
+                attempts += 1
+            except Exception as exc:
+                print(f"[LUXE_AUTOMINE] action error for {uname}: {exc}")
+            finally:
+                _auto_mining_active.discard(uid)
+
+            elapsed = (_dt2.now(_tz2.utc) - _started_at).total_seconds()
+            remaining_secs = max(0, total_secs - elapsed)
+
+            if remaining_secs <= 0:
+                break
+            await asyncio.sleep(min(interval_secs, remaining_secs))
+
+    except asyncio.CancelledError:
+        pass
+    except Exception as exc:
+        print(f"[LUXE_AUTOMINE] Loop error for {uname}: {exc}")
+    finally:
+        _luxe_automine_tasks.pop(uid, None)
+        _auto_mining_active.discard(uid)
+        elapsed_total = (_dt2.now(_tz2.utc) - _started_at).total_seconds()
+        used_secs     = int(min(elapsed_total, total_secs))
+        remaining_save = max(0, total_secs - used_secs)
+        db.set_luxe_auto_time(uid, uname, "mining", remaining_save)
+
+        _am_stats = _am_session_stats.pop(uid, None)
+        if _am_stats and _am_stats.get("count", 0) > 0:
+            _am_stats["elapsed_mins"] = round(elapsed_total / 60, 1)
+            used_fmt = _fmt_secs(used_secs)
+            rem_fmt  = _fmt_secs(remaining_save)
+            mines    = _am_stats.get("count", 0)
+            earned   = _am_stats.get("value", 0)
+            best     = _am_stats.get("best_name", "—")
+            luck     = _am_stats.get("luck_total", "?")
+            msg = (f"⛏️ Luxe Auto-Mining Summary\n"
+                   f"Time Used: {used_fmt}  Remaining: {rem_fmt}\n"
+                   f"Mined: {mines}  Earned: {_fc_m(earned)} 🪙\n"
+                   f"Best: {best}  Luck: {luck}")
+            # Save summary
+            try:
+                db.save_auto_session_summary(uid, uname, "mining", msg[:500])
+            except Exception:
+                pass
+            # Deliver via DM or whisper
+            conv_id = None
+            try:
+                row = db.get_player_dm_conv(uid)
+                if row:
+                    conv_id = row.get("conversation_id")
+            except Exception:
+                pass
+            if conv_id:
+                try:
+                    await bot.highrise.send_message(conv_id, msg[:249])
+                except Exception:
+                    try:
+                        await bot.highrise.send_whisper(uid, msg[:249])
+                    except Exception:
+                        pass
+            else:
+                try:
+                    await bot.highrise.send_whisper(uid, msg[:249])
+                except Exception:
+                    pass
+        elif remaining_save > 0:
+            try:
+                await bot.highrise.send_whisper(uid,
+                    f"⛏️ Luxe AutoMine paused.\n"
+                    f"Remaining: {_fmt_secs(remaining_save)}\n"
+                    f"Use !automine luxe to continue.")
+            except Exception:
+                pass
+
+
+def _fc_m(n: int) -> str:
+    return f"{n:,}"
+
+
+def _fmt_secs(secs: int) -> str:
+    secs = max(0, int(secs))
+    h = secs // 3600
+    m = (secs % 3600) // 60
+    if h > 0 and m > 0:
+        return f"{h}h {m}m"
+    if h > 0:
+        return f"{h}h"
+    return f"{m}m"
 
 
 async def handle_mineluck(bot: BaseBot, user: User, args: list[str]) -> None:

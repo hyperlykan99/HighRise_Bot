@@ -1338,7 +1338,7 @@ REGISTRY: dict[str, Cmd] = {
     # ── Game answer command (eventhost) ─────────────────────────────────────────
     "answer":             Cmd("eventhost","events",False,False,True),
 
-    # ── Luxe Tickets premium economy (3.1I ADDON) ────────────────────────────
+    # ── Luxe Tickets premium economy (3.1I ADDON / UPDATE) ───────────────────
     "tickets":      Cmd("banker", "economy", True,  True,  False,
                         aliases=("luxe",)),
     "luxeshop":     Cmd("banker", "economy", True,  True,  False,
@@ -1347,6 +1347,9 @@ REGISTRY: dict[str, Cmd] = {
                         aliases=("buyluxe",)),
     "buycoins":     Cmd("banker", "economy", True,  False, True),
     "use":          Cmd("banker", "economy", True,  False, True),
+    "autotime":     Cmd("miner",  "economy", True,  True,  False,
+                        aliases=("minetime",)),
+    "fishtime":     Cmd("fisher", "economy", True,  True,  False),
     "luxeadmin":    Cmd("banker", "admin",   False, True,  False, perm="admin"),
     "vipadmin":     Cmd("banker", "admin",   False, True,  False, perm="admin"),
 

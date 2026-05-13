@@ -73,9 +73,10 @@ from modules.vip import (
     handle_setdonationgoal, handle_donationaudit, handle_setsponsorprice,
 )
 from modules.luxe import (
-    handle_tickets, handle_luxeshop, handle_buyticket,
-    handle_buycoins, handle_use as handle_use_permit,
-    handle_luxeadmin, handle_vipadmin,
+    handle_tickets, handle_luxeshop, handle_buyluxe,
+    handle_buyticket, handle_buycoins,
+    handle_use as handle_use_permit,
+    handle_autotime, handle_luxeadmin, handle_vipadmin,
 )
 from modules.shop         import (
     handle_shop, handle_buy, handle_equip, handle_myitems,
@@ -1165,6 +1166,8 @@ LUXE_COMMANDS: frozenset[str] = frozenset({
     "buyticket", "buyluxe",
     "buycoins",
     "use",
+    # Luxe auto time
+    "autotime", "minetime", "fishtime",
     # Admin
     "luxeadmin",
     "vipadmin",
@@ -4661,16 +4664,25 @@ class HangoutBot(BaseBot):
             await handle_tickets(self, user, args)
 
         elif cmd in {"luxeshop", "premiumshop"}:
-            await handle_luxeshop(self, user)
+            await handle_luxeshop(self, user, args)
 
         elif cmd in {"buyticket", "buyluxe"}:
-            await handle_buyticket(self, user, args)
+            await handle_buyluxe(self, user, args)
 
         elif cmd == "buycoins":
             await handle_buycoins(self, user, args)
 
         elif cmd == "use":
             await handle_use_permit(self, user, args)
+
+        elif cmd in {"autotime", "minetime", "fishtime"}:
+            # minetime / fishtime pass category hint as first arg
+            if cmd == "minetime":
+                await handle_autotime(self, user, ["autotime", "mine"])
+            elif cmd == "fishtime":
+                await handle_autotime(self, user, ["autotime", "fish"])
+            else:
+                await handle_autotime(self, user, args)
 
         elif cmd == "luxeadmin":
             await handle_luxeadmin(self, user, args)
