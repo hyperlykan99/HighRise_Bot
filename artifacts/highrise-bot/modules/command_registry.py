@@ -272,6 +272,10 @@ REGISTRY: dict[str, Cmd] = {
 
     # ── EventHost ────────────────────────────────────────────────────────────
     "event":            Cmd("eventhost","events",False,True, False, aliases=("events",)),
+    "nextevent":        Cmd("eventhost","events",False,True, False, aliases=("next","schedule")),
+    "next":             Cmd("eventhost","events",False,True, False),
+    "schedule":         Cmd("eventhost","events",False,True, False),
+    "eventloop":        Cmd("eventhost","events",False,True, False),
     "eventstatus":      Cmd("eventhost","events",True, True, False),
     "eventpoints":      Cmd("eventhost","events",True, True, False),
     "eventshop":        Cmd("eventhost","events",False,True, False),

@@ -36,7 +36,7 @@ from datetime import datetime, timezone, timedelta
 from highrise import BaseBot, User
 
 import database as db
-from modules.permissions import can_manage_economy
+from modules.permissions import can_manage_economy, is_owner
 
 
 # ---------------------------------------------------------------------------
@@ -700,9 +700,99 @@ async def handle_event(bot: BaseBot, user: User,
 
 
 async def handle_events(bot: BaseBot, user: User) -> None:
-    """/events — list available event IDs."""
-    lines = "\n".join(f"• {eid} — {ev['name']}" for eid, ev in EVENTS.items())
-    await _w(bot, user.id, f"🎪 Event IDs:\n{lines}"[:249])
+    """!events — show today's ChillTopia activity schedule."""
+    try:
+        ag     = db.get_auto_game_settings()
+        ae     = db.get_auto_event_settings()
+        mg_min = ag.get("auto_minigame_interval", 10)
+        ae_min = ae.get("auto_event_interval", 60)
+        mg_on  = bool(ag.get("auto_minigames_enabled", 1))
+        ae_on  = bool(ae.get("auto_events_enabled", 1))
+    except Exception:
+        mg_min, ae_min, mg_on, ae_on = 10, 60, True, True
+    try:
+        pt_on = db.get_room_setting("party_tip_enabled", "1") == "1"
+    except Exception:
+        pt_on = True
+    mg_str = f"~{mg_min} min" if mg_on else "paused"
+    ae_str = f"~{ae_min} min" if ae_on else "paused"
+    pt_str = "active" if pt_on else "off"
+    await _w(bot, user.id, (
+        f"📅 ChillTopia Events\n"
+        f"🎲 Mini Games — every {mg_str}\n"
+        f"🎪 Room Events — every {ae_str}\n"
+        f"🎉 Party Tips — {pt_str}\n"
+        f"Type !nextevent."
+    )[:249])
+
+
+async def handle_nextevent(bot: BaseBot, user: User) -> None:
+    """!nextevent — show the next planned activity."""
+    mine_ev = db.get_active_mining_event()
+    gen_ev  = db.get_active_event()
+    if mine_ev:
+        ev   = EVENTS.get(mine_ev["event_id"], {})
+        name = ev.get("name", mine_ev["event_id"])
+        left = _time_remaining(mine_ev["ends_at"])
+        await _w(bot, user.id, (
+            f"⏭️ Next Event\n"
+            f"Active: {name}\n"
+            f"Ends in: {left}\n"
+            f"Type !eventstatus."
+        )[:249])
+        return
+    if gen_ev:
+        ev   = EVENTS.get(gen_ev["event_id"], {})
+        name = ev.get("name", gen_ev["event_id"])
+        left = _time_remaining(gen_ev["expires_at"])
+        await _w(bot, user.id, (
+            f"⏭️ Next Event\n"
+            f"Active: {name}\n"
+            f"Ends in: {left}\n"
+            f"Type !eventstatus."
+        )[:249])
+        return
+    next_id = db.get_auto_event_setting_str("next_event_id", "")
+    next_at = db.get_auto_event_setting_str("next_event_at", "")
+    if next_at:
+        left      = _time_remaining(next_at)
+        next_name = ""
+        if next_id:
+            next_name = (
+                _CATALOG_BY_ID.get(next_id, {}).get("name", "")
+                or EVENTS.get(next_id, {}).get("name", "")
+            )
+        if next_name:
+            await _w(bot, user.id, (
+                f"⏭️ Next Event\n"
+                f"{next_name}\n"
+                f"Starts in: {left}\n"
+                f"Watch chat for the start!"
+            )[:249])
+        else:
+            await _w(bot, user.id, (
+                f"⏭️ Next Event\n"
+                f"Starts in: {left}\n"
+                f"Watch chat for the start!"
+            )[:249])
+        return
+    try:
+        ag = db.get_auto_game_settings()
+        if ag.get("auto_minigames_enabled", 1):
+            mg_min = ag.get("auto_minigame_interval", 10)
+            await _w(bot, user.id, (
+                f"⏭️ Next Event\n"
+                f"🎲 Mini Game coming soon (~{mg_min} min)\n"
+                f"Answer with !answer when trivia starts."
+            )[:249])
+            return
+    except Exception:
+        pass
+    await _w(bot, user.id, (
+        "⏭️ Next Event\n"
+        "No event scheduled right now.\n"
+        "Try !activities."
+    ))
 
 
 async def handle_eventhelp(bot: BaseBot, user: User) -> None:
@@ -717,18 +807,79 @@ async def handle_eventhelp(bot: BaseBot, user: User) -> None:
 
 
 async def handle_eventstatus(bot: BaseBot, user: User) -> None:
-    """/eventstatus — detailed active event info (mining + room unified)."""
-    active = _get_all_active_events()
-    if not active:
-        await _w(bot, user.id, "🔴 No event is currently active.")
+    """!eventstatus — show event system status and any active events."""
+    try:
+        ae    = db.get_auto_event_settings()
+        ag    = db.get_auto_game_settings()
+        ae_on = bool(ae.get("auto_events_enabled", 1))
+        mg_on = bool(ag.get("auto_minigames_enabled", 1))
+    except Exception:
+        ae_on = mg_on = None
+    try:
+        pt_on = db.get_room_setting("party_tip_enabled", "1") == "1"
+    except Exception:
+        pt_on = None
+    ae_str = "ON"  if ae_on else ("OFF"     if ae_on is not None else "Unknown")
+    mg_str = "ON"  if mg_on else ("OFF"     if mg_on is not None else "Unknown")
+    pt_str = "ON"  if pt_on else ("OFF"     if pt_on is not None else "Unknown")
+    next_id = db.get_auto_event_setting_str("next_event_id", "")
+    next_at = db.get_auto_event_setting_str("next_event_at", "")
+    active  = _get_all_active_events()
+    if active:
+        next_str = f"{active[0]['name']} (now)"
+    elif next_at:
+        left      = _time_remaining(next_at)
+        next_name = _CATALOG_BY_ID.get(next_id, {}).get("name", "") if next_id else ""
+        next_str  = f"{next_name} in {left}" if next_name else f"in {left}"
+    else:
+        next_str = "none"
+    await _w(bot, user.id, (
+        f"📡 Event Status\n"
+        f"Activity Loop: {ae_str}\n"
+        f"Mini Games: {mg_str}\n"
+        f"Party Tips: {pt_str}\n"
+        f"Next: {next_str}"
+    )[:249])
+    if active:
+        pts   = db.get_event_points(user.id)
+        lines = ["✨ Active Events"]
+        for ev in active:
+            left = _time_remaining(ev["ends_at"]) if ev["ends_at"] else "?"
+            lines.append(f"{ev['emoji']} {ev['name']} — {left}")
+        lines.append(f"Your pts: {pts}")
+        await _w(bot, user.id, "\n".join(lines)[:249])
+
+
+async def handle_eventloop(bot: BaseBot, user: User, args: list[str]) -> None:
+    """!eventloop [on|off|status] — view or toggle the auto-event loop."""
+    sub = args[1].strip().lower() if len(args) > 1 else "status"
+    if sub == "status":
+        try:
+            ae       = db.get_auto_event_settings()
+            ae_on    = bool(ae.get("auto_events_enabled", 1))
+            interval = ae.get("auto_event_interval", 60)
+            next_at  = db.get_auto_event_setting_str("next_event_at", "")
+            next_str = _time_remaining(next_at) if next_at else "soon"
+            await _w(bot, user.id, (
+                f"📡 Event Loop\n"
+                f"Status: {'ON' if ae_on else 'OFF'}\n"
+                f"Interval: {interval}m\n"
+                f"Next: {next_str}"
+            )[:249])
+        except Exception as exc:
+            await _w(bot, user.id, f"📡 Event Loop — unable to read status: {exc}"[:249])
         return
-    pts   = db.get_event_points(user.id)
-    lines = ["✨ Active Events"]
-    for ev in active:
-        left = _time_remaining(ev["ends_at"]) if ev["ends_at"] else "?"
-        lines.append(f"{ev['emoji']} {ev['name']} — active — ends in {left}")
-    lines.append(f"Your event pts: {pts}")
-    await _w(bot, user.id, "\n".join(lines)[:249])
+    if not is_owner(user.username):
+        await _w(bot, user.id, "🔒 Owner only.")
+        return
+    if sub in ("on", "enable"):
+        db.set_auto_event_setting("auto_events_enabled", 1)
+        await _w(bot, user.id, "✅ Event loop enabled.")
+    elif sub in ("off", "disable"):
+        db.set_auto_event_setting("auto_events_enabled", 0)
+        await _w(bot, user.id, "✅ Event loop disabled.")
+    else:
+        await _w(bot, user.id, "Usage: !eventloop [on|off|status]")
 
 
 # ---------------------------------------------------------------------------

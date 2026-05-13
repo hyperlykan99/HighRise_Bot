@@ -250,6 +250,7 @@ from modules.quests import (
 )
 from modules.events import (
     handle_event, handle_events, handle_eventhelp, handle_eventstatus,
+    handle_nextevent, handle_eventloop,
     handle_startevent, handle_stopevent,
     handle_eventpoints, handle_eventshop, handle_buyevent,
     startup_event_check,
@@ -307,7 +308,7 @@ from modules.tips import (
     _SDK_VERSION as _TIP_SDK_VERSION,
 )
 from modules.auto_games import (
-    start_auto_game_loop, start_auto_event_loop,
+    start_auto_game_loop, start_auto_event_loop, start_activity_prompt_loop,
     handle_autogames, handle_autoevents,
     handle_setgametimer, handle_setautogameinterval,
     handle_setautoeventinterval, handle_setautoeventduration,
@@ -831,6 +832,7 @@ ALL_KNOWN_COMMANDS = (
         "quests", "claimquest",
         "dailyquests", "weeklyquests", "questhelp",
         "event", "events", "eventhelp", "eventstatus",
+        "nextevent", "next", "schedule", "eventloop",
         "startevent", "stopevent",
         "eventpoints", "eventshop", "buyevent",
         "autogames", "autoevents", "gameconfig",
@@ -1331,10 +1333,11 @@ _HELP_CATEGORIES: dict[str, str] = {
     ),
     "events": (
         "🎉 Events\n"
-        "!eventhelp  !event\n"
-        "!eventlist  !eventvote\n"
-        "!minechances  !fishchances\n"
-        "!raritychances"
+        "!events — schedule\n"
+        "!nextevent — next event\n"
+        "!eventstatus — status\n"
+        "!event — active event\n"
+        "!eventhelp  !eventlist"
     ),
     "admin": (
         "⚙️ Admin Commands\n"
@@ -3026,6 +3029,11 @@ class HangoutBot(BaseBot):
         except Exception:
             import traceback; traceback.print_exc()
             print("[STARTUP ERROR] start_auto_event_loop failed — bot continues.")
+        try:
+            start_activity_prompt_loop(self)
+        except Exception:
+            import traceback; traceback.print_exc()
+            print("[STARTUP ERROR] start_activity_prompt_loop failed — bot continues.")
         # Room interval message loop
         try:
             await start_interval_loop(self)
@@ -3870,6 +3878,15 @@ class HangoutBot(BaseBot):
 
         elif cmd == "events":
             await handle_events(self, user)
+
+        elif cmd in ("nextevent", "next"):
+            await handle_nextevent(self, user)
+
+        elif cmd == "schedule":
+            await handle_events(self, user)
+
+        elif cmd == "eventloop":
+            await handle_eventloop(self, user, args)
 
         elif cmd == "eventstatus":
             await handle_eventstatus(self, user)

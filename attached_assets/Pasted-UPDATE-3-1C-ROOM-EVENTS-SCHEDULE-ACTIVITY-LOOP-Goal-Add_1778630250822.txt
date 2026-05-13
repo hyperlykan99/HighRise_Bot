@@ -1,0 +1,561 @@
+UPDATE 3.1C — ROOM EVENTS SCHEDULE + ACTIVITY LOOP
+
+Goal:
+Add or polish a simple room events schedule and low-spam activity loop so ChillTopia feels active for public players.
+
+This update is event schedule/player activity polish only.
+
+Focus:
+- !events command
+- !nextevent command
+- !eventstatus command
+- simple event schedule display
+- low-spam event reminders
+- party tip event reminders
+- mining/fishing/casino activity prompts
+- mini-game activity prompts
+- clear owner event controls if already existing
+- no core economy/casino/mining/fishing changes
+
+Do not rewrite core systems.
+Do not change bot tokens.
+Do not change room ID.
+Do not wipe database.
+Do not reset balances, VIP, inventories, mining/fishing data, blackjack/poker data, teleports, role spawns, bot spawns, party tip wallet, shop items, badges, titles, donation logs, notifications, subscriptions, daily streaks, or command registry.
+Do not change mining/fishing odds.
+Do not change casino odds.
+Do not change daily rewards.
+Do not add advanced AI.
+Do not add exotic mute/pause.
+Do not send gold automatically.
+Do not force events to run too often.
+Do not spam public chat.
+
+==================================================
+PART 1 — STABILITY FIRST
+==================================================
+
+Before changing anything, run:
+
+!launchcheck
+!commandissues
+!checkcommands
+!checkcommands all
+!checkhelp
+!bothealth
+!stability status
+!botconflicts
+!modulehealth
+
+Expected:
+- Launch Check OK
+- Conflicts: none
+- no command issues
+- no checkcommands mismatch
+- no help issues
+- Err: none
+- no bot conflicts
+
+If anything is broken, fix it first before adding 3.1C.
+
+==================================================
+PART 2 — EVENT COMMANDS
+==================================================
+
+Add or polish these player-facing commands:
+
+!events
+!nextevent
+!eventstatus
+
+Optional aliases:
+!schedule = !events
+!next = !nextevent
+
+Expected owner:
+ChillTopiaMC or EventHost
+
+Expected:
+
+!commandtest !events
+!commandtest !nextevent
+!commandtest !eventstatus
+
+owner=ChillTopiaMC or EventHost
+route=YES
+handler=YES
+
+If optional aliases are skipped:
+- do not show them in help
+- do not count them as command issues
+
+==================================================
+PART 3 — !EVENTS COMMAND
+==================================================
+
+Command:
+!events
+
+Purpose:
+Show today’s ChillTopia activity schedule.
+
+Expected response:
+
+📅 ChillTopia Events
+🎲 Mini Games — every 10–15 min
+⛏️ Mining Rush — hourly
+🎣 Fishing Hour — hourly
+🎉 Party Tips — owner hosted
+
+Use !nextevent.
+
+Keep under 220 characters.
+
+If dynamic schedule exists, use real schedule.
+If no dynamic schedule exists, use simple static schedule.
+
+Do not promise exact event times unless the system actually supports exact scheduling.
+
+==================================================
+PART 4 — !NEXTEVENT COMMAND
+==================================================
+
+Command:
+!nextevent
+
+Purpose:
+Show the next planned activity.
+
+Expected response:
+
+⏭️ Next Event
+🎲 Mini Game soon
+Watch chat for the start message.
+
+Or, if scheduled event data exists:
+
+⏭️ Next Event
+🎣 Fishing Hour
+Starts in: 12m
+Reward: normal fish rewards
+
+Rules:
+- Keep short.
+- Do not promise gold rewards.
+- Do not promise rare drops.
+- Do not change odds.
+- If no scheduled event:
+No event scheduled right now.
+Try !activities.
+
+==================================================
+PART 5 — !EVENTSTATUS COMMAND
+==================================================
+
+Command:
+!eventstatus
+
+Purpose:
+Show whether event/activity loop is ON.
+
+Expected response:
+
+📡 Event Status
+Activity Loop: ON/OFF
+Mini Games: ON/OFF
+Party Tips: ON/OFF
+Next: [event or none]
+
+If unavailable:
+
+📡 Event Status
+Activity Loop: Unknown
+Mini Games: Unknown
+Party Tips: Unknown
+
+Keep under 220 characters.
+Do not crash if one status cannot be read.
+
+==================================================
+PART 6 — OWNER EVENT CONTROLS
+==================================================
+
+Only add owner controls if simple and safe.
+
+Optional owner commands:
+!eventloop on
+!eventloop off
+!eventloop status
+!announceevent [message]
+
+Expected:
+Owner only.
+
+If non-owner:
+🔒 Owner only.
+
+If adding these is risky, skip them.
+
+If added:
+
+!eventloop status
+
+📡 Event Loop
+Status: ON
+Interval: [minutes]m
+Last Prompt: [time]
+
+!eventloop off
+
+✅ Event loop disabled.
+
+!eventloop on
+
+✅ Event loop enabled.
+
+Rules:
+- Do not create duplicate loops.
+- Do not start multiple background tasks.
+- Do not spam public chat.
+- Do not affect mini-game reward logic.
+
+==================================================
+PART 7 — LOW-SPAM ACTIVITY LOOP
+==================================================
+
+If an activity loop exists, polish it.
+If not, add only a simple safe loop if the project already has background task helpers.
+
+Activity loop purpose:
+Occasionally remind players what they can do.
+
+Suggested interval:
+15–25 minutes.
+
+Random prompts:
+
+🎮 Looking for something to do? Try !mine, !fish, !help games, or !tele list.
+
+🎣 Fishing break! Type !fish or !autofish to start.
+
+⛏️ Mining time! Type !mine or !automine to earn coins.
+
+🃏 Casino tables are open. Blackjack: !bet [amount]. Poker: !poker.
+
+🎁 Don’t forget your daily reward: !daily.
+
+📅 Want events? Type !events or !nextevent.
+
+Rules:
+- Max one activity prompt per interval.
+- Do not prompt if room is empty.
+- Do not prompt if bot is in stability mode ON.
+- Do not prompt during command spam.
+- Do not prompt more than 4 times per hour.
+- Do not start duplicate loops after reconnect.
+- Do not send to DMs. Public only.
+- Keep under 220 characters.
+
+==================================================
+PART 8 — PARTY TIP EVENT REMINDERS
+==================================================
+
+If Party Tip system is ON, allow light reminders.
+
+Example:
+
+🎉 Party Tips are active!
+Approved Party Tippers can use !tip during events.
+
+Do not say everyone can send gold.
+Do not expose owner gold commands.
+Do not mention !goldtip.
+Do not auto-start party tips.
+Do not deduct wallet.
+Do not send gold.
+
+If Party Tip is OFF:
+Do not announce it repeatedly.
+
+==================================================
+PART 9 — MINI GAME REMINDERS
+==================================================
+
+If AutoGames/MiniGames are ON, reminders can say:
+
+🎲 Mini games pop up in chat.
+Answer with !answer [answer] when trivia starts.
+
+Rules:
+- Do not start extra mini games unless existing AutoGames system does that.
+- Do not duplicate mini-game loops.
+- No /answer.
+- No reward changes.
+
+==================================================
+PART 10 — MINING/FISHING EVENT LABELS
+==================================================
+
+Optional polish only.
+
+If Mining Rush / Fishing Hour labels already exist, clean messages.
+
+Example:
+
+⛏️ Mining Rush is active!
+Mine with !mine or !automine.
+
+🎣 Fishing Hour is active!
+Fish with !fish or !autofish.
+
+Do not change:
+- odds
+- rewards
+- inventory
+- rare chances
+- XP
+
+If these events do not actually exist, do not pretend they are active. Use general activity prompts instead.
+
+==================================================
+PART 11 — NOTIFICATION INTEGRATION
+==================================================
+
+If notifications are already enabled and user subscribed manually:
+
+Events category may receive:
+
+🎉 Event Reminder
+Mini games are starting soon.
+Type !help games.
+
+Rules:
+- Respect opt-out.
+- Respect events category.
+- Do not send to unsubscribed users.
+- Do not auto-subscribe.
+- No duplicate notifications.
+- No notification spam.
+- Keep under 220 characters.
+
+If notification integration is risky, skip it.
+
+==================================================
+PART 12 — HELP UPDATE
+==================================================
+
+Update help pages if needed.
+
+Add to player help:
+
+!events — event schedule
+!nextevent — next event
+!activities — things to do
+!daily — daily reward
+
+Add to !start or !guide if short:
+
+Events: !events
+Daily: !daily
+
+Rules:
+- No / commands.
+- No owner-only commands in player help.
+- No “No lifetime VIP” text.
+- Only show commands that route.
+- Keep under 220 characters.
+
+==================================================
+PART 13 — ASSISTANT INTEGRATION
+==================================================
+
+Update assistant answers.
+
+If user asks:
+what events are there
+when is the next event
+what is happening
+is there an event
+event schedule
+
+Reply:
+
+📅 Type !events to see the room schedule or !nextevent for the next activity.
+
+If user asks:
+what should i do
+
+Reply:
+
+Try !daily, !mine, !fish, !help games, or !events.
+
+Rules:
+- Assistant remains low-interference.
+- Whisper stays whisper.
+- Public only replies when clear help intent.
+- No advanced actions.
+- No command execution through AI.
+
+==================================================
+PART 14 — DATABASE SAFETY
+==================================================
+
+If event schedule data is stored:
+- use safe idempotent migration
+- do not wipe old data
+- do not create duplicate event rows
+- do not run heavy queries
+- catch DB lock errors
+
+If static schedule is used:
+- no DB changes needed
+
+Preferred for 3.1C:
+Use static schedule or existing config unless a safe schedule table already exists.
+
+==================================================
+PART 15 — DUPLICATE LOOP PREVENTION
+==================================================
+
+If adding or polishing background event loop:
+
+Rules:
+- only one activity loop per bot process
+- use existing safe_task wrapper
+- guard with module owner mode
+- do not run on every bot unless intended
+- EventHost or ChillTopiaMC should own activity loop
+- BankingBot, MiningBot, FishingBot, Casino bots should not start event loop unless explicitly designed
+
+On startup:
+- check if loop already running
+- do not duplicate
+
+On reconnect:
+- do not spawn a second loop
+
+On shutdown:
+- cancel gracefully if current lifecycle supports it
+
+==================================================
+PART 16 — COMMAND TESTS
+==================================================
+
+Run:
+
+!commandtest !events
+!commandtest !nextevent
+!commandtest !eventstatus
+!commandtest !schedule
+!commandtest !next
+!commandtest !eventloop
+!commandtest !announceevent
+
+Expected:
+- implemented commands route YES
+- implemented commands handler YES
+- owner not UNKNOWN
+- optional skipped commands hidden/skipped
+- owner commands protected
+- no command issues
+
+==================================================
+PART 17 — LIVE TESTS
+==================================================
+
+Run:
+
+!events
+!nextevent
+!eventstatus
+!activities
+!daily
+!start
+!guide
+
+If owner controls added:
+!eventloop status
+!eventloop off
+!eventloop on
+
+Assistant tests:
+what events are there
+when is the next event
+what should i do
+lol
+haha
+come here
+
+Expected:
+- event commands reply cleanly
+- assistant replies only to clear help
+- casual chat ignored
+- no / commands
+- no owner command leaks
+- no message cutoff
+
+==================================================
+PART 18 — ACTIVITY LOOP TEST
+==================================================
+
+If activity loop exists or was added:
+- confirm it posts no more than intended interval
+- confirm no duplicate prompts
+- confirm it stops or pauses during stability mode if designed
+- confirm it does not run from every bot
+- confirm prompts stay under 220 characters
+
+If no loop was added:
+- report skipped, static !events only.
+
+==================================================
+PART 19 — FINAL QA
+==================================================
+
+After changes, run:
+
+!launchcheck
+!commandissues
+!checkcommands
+!checkcommands all
+!checkhelp
+!bothealth
+!stability status
+!botconflicts
+!modulehealth
+
+Expected:
+- Launch Check OK
+- Conflicts: none
+- no command issues
+- no checkcommands mismatch
+- no help issues
+- Err: none
+- no bot conflicts
+- no duplicate loops
+
+==================================================
+PART 20 — FINAL REPORT
+==================================================
+
+After finishing, report:
+
+1. !events status.
+2. !nextevent status.
+3. !eventstatus status.
+4. Static or dynamic schedule used.
+5. Activity loop added, polished, or skipped.
+6. Activity loop interval.
+7. Duplicate loop prevention confirmed.
+8. Party tip reminders added or skipped.
+9. Mini-game reminders added or skipped.
+10. Notification integration added or skipped.
+11. Help pages updated.
+12. Assistant event responses updated.
+13. Command tests result.
+14. Message cap result.
+15. !launchcheck result.
+16. !commandissues result.
+17. !checkcommands result.
+18. !checkhelp result.
+19. Stability result.

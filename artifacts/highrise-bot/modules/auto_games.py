@@ -993,3 +993,90 @@ def get_current_auto_game() -> str | None:
     if riddle.is_active():
         return "Riddle"
     return None
+
+
+# ---------------------------------------------------------------------------
+# Activity prompt loop — low-spam periodic reminders (eventhost only)
+# ---------------------------------------------------------------------------
+
+_activity_prompt_task: asyncio.Task | None = None
+_activity_prompt_hour_start: float = 0.0
+_activity_prompts_this_hour: int = 0
+
+_ACTIVITY_PROMPTS: list[str] = [
+    "🎮 Looking for something to do? Try !mine, !fish, !help games, or !tele list.",
+    "🎣 Fishing break! Type !fish or !autofish to start.",
+    "⛏️ Mining time! Type !mine or !automine to earn coins.",
+    "🃏 Casino tables are open. Blackjack: !bet [amount]. Poker: !poker.",
+    "🎁 Don't forget your daily reward! Type !daily to claim.",
+    "📅 Want events? Type !events or !nextevent.",
+]
+
+
+def _get_room_user_count() -> int:
+    """Return approximate number of users in the room cache."""
+    try:
+        from modules.gold import _room_cache
+        return len(_room_cache)
+    except Exception:
+        return 1  # Assume non-empty on error
+
+
+async def _activity_prompt_loop(bot: BaseBot) -> None:
+    global _activity_prompt_hour_start, _activity_prompts_this_hour
+    print("[ACTIVITY] Activity prompt loop started.")
+    _activity_prompt_hour_start = asyncio.get_event_loop().time()
+    _activity_prompts_this_hour = 0
+    try:
+        while True:
+            interval = random.randint(15, 25) * 60  # 15–25 min in seconds
+            await asyncio.sleep(interval)
+
+            if is_maintenance():
+                continue
+            if _get_room_user_count() < 1:
+                continue
+
+            should_run, _ = should_this_bot_run_autogames()
+            if not should_run:
+                print("[ACTIVITY] Ownership changed; stopping activity loop.")
+                return
+
+            now     = asyncio.get_event_loop().time()
+            elapsed = now - _activity_prompt_hour_start
+            if elapsed >= 3600:
+                _activity_prompt_hour_start   = now
+                _activity_prompts_this_hour   = 0
+
+            if _activity_prompts_this_hour >= 4:
+                print("[ACTIVITY] Max 4 prompts/hour reached, skipping.")
+                continue
+
+            msg = random.choice(_ACTIVITY_PROMPTS)
+            try:
+                await bot.highrise.chat(msg)
+                _activity_prompts_this_hour += 1
+                print(f"[ACTIVITY] Sent prompt ({_activity_prompts_this_hour}/4 this hour).")
+            except Exception as exc:
+                print(f"[ACTIVITY] Chat error: {exc}")
+
+    except asyncio.CancelledError:
+        pass
+    except Exception as exc:
+        print(f"[ACTIVITY] Prompt loop crashed: {exc}")
+    finally:
+        print("[ACTIVITY] Activity prompt loop ended.")
+
+
+def start_activity_prompt_loop(bot: BaseBot) -> None:
+    """Start the activity prompt loop — eventhost only, no duplicates."""
+    global _activity_prompt_task
+    if _activity_prompt_task and not _activity_prompt_task.done():
+        print("[ACTIVITY] Activity prompt loop already running.")
+        return
+    should_run, reason = should_this_bot_run_autogames()
+    if not should_run:
+        print(f"[ACTIVITY] Skipped on {BOT_MODE}; {reason}.")
+        return
+    print(f"[ACTIVITY] Starting on {BOT_MODE} bot.")
+    _activity_prompt_task = asyncio.create_task(_activity_prompt_loop(bot))

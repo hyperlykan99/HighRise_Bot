@@ -57,6 +57,7 @@ _RISK: dict[str, str] = {
     "orebook": SAFE, "orestats": SAFE, "mineshop": SAFE,
     "pokerhelp": SAFE, "bjhelp": SAFE, "rbjhelp": SAFE,
     "shop": SAFE, "eventhelp": SAFE, "event": SAFE, "events": SAFE,
+    "nextevent": SAFE, "schedule": SAFE,
     "eventstatus": SAFE, "eventpoints": SAFE,
     "me": SAFE, "profile": SAFE, "stats": SAFE,
     "leaderboard": SAFE, "lb": SAFE, "daily": SAFE,
@@ -431,6 +432,18 @@ _INTENTS: list[tuple] = [
 
     (re.compile(r"(stop|end|cancel|turn\s+off|disable)\s+(the\s+|current\s+)?(event|game)\b", re.I),
      "stopevent", _k(""), _k("stop the current event")),
+
+    (re.compile(
+        r"next\s+event|when\s+(is|are)\s+(the\s+)?next\s+event|upcoming\s+event"
+        r"|what.{0,10}next\s+event",
+        re.I),
+     "nextevent", _k(""), _k("show the next event")),
+
+    (re.compile(
+        r"event\s+schedule|room\s+schedule|schedule.{0,15}event"
+        r"|what\s+events?\s+(are|is)\s+(there|planned|happening|scheduled|on)\b",
+        re.I),
+     "events", _k(""), _k("show the event schedule")),
 
     (re.compile(r"(events?\s*(help)?\s*$|what.*events?|show.*events?|event\s+(info|guide|help))", re.I),
      "eventhelp", _k(""), _k("show event help")),
@@ -879,6 +892,8 @@ _HANDLER_MAP: dict[str, tuple[str, str]] = {
     "shop":                  ("modules.shop",       "handle_shop"),
     "mycommands":            ("modules.admin_cmds", "handle_mycommands"),
     "eventhelp":             ("modules.events",     "handle_eventhelp"),
+    "events":                ("modules.events",     "handle_events"),
+    "nextevent":             ("modules.events",     "handle_nextevent"),
     "eventstatus":           ("modules.events",     "handle_eventstatus"),
     "minehelp":              ("modules.mining",     "handle_minehelp"),
     "mine":                  ("modules.mining",     "handle_mine"),
