@@ -195,8 +195,8 @@ async def handle_incoming_gold_tip(
         print(f"[GOLDTIP] Balance credit error: {exc}")
 
     # Public thank-you
-    msg = (f"💛 Thank you @{sender.username} for the {gold_amount:g} gold tip! "
-           f"You received {coins:,} coins.")
+    msg = (f"💛 Thank you for supporting ChillTopia, @{sender.username}!\n"
+           f"Donation: {gold_amount:g}g | Coins earned: {coins:,}c")
     try:
         await bot.highrise.chat(msg[:249])
     except Exception:

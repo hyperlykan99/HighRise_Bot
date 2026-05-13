@@ -290,11 +290,15 @@ async def handle_setvipprice_vip(bot: "BaseBot", user: "User", args: list[str]) 
 
 async def handle_donate(bot: "BaseBot", user: "User") -> None:
     """!donate  — show donation info."""
-    goal      = db.get_room_setting("donation_goal", "0")
-    collected = db.get_room_setting("donation_collected", "0")
+    goal_raw = db.get_room_setting("donation_goal", "0")
+    collected = db.get_total_gold_donated()
+    try:
+        goal = int(goal_raw)
+    except Exception:
+        goal = 0
     msg = (
-        "💛 Support the room by gold-tipping BankingBot!\n"
-        f"Goal: {goal} gold  Collected: {collected} gold\n"
+        "💛 Support ChillTopia by tipping any room bot gold!\n"
+        f"Goal: {goal}g  Collected: {collected}g\n"
         "Top donors get the Supporter badge + perks.\n"
         "!topdonors  !donationgoal  !supporter"
     )
@@ -308,18 +312,18 @@ async def handle_donate(bot: "BaseBot", user: "User") -> None:
 async def handle_donationgoal(bot: "BaseBot", user: "User") -> None:
     """!donationgoal  — show donation goal progress."""
     goal_raw  = db.get_room_setting("donation_goal", "0")
-    coll_raw  = db.get_room_setting("donation_collected", "0")
     label     = db.get_room_setting("donation_goal_label", "Room Upgrades")
     try:
-        goal      = int(goal_raw)
-        collected = int(coll_raw)
+        goal = int(goal_raw)
     except Exception:
-        goal, collected = 0, 0
+        goal = 0
+    # Always read collected dynamically from gold_tip_events (all owned bots)
+    collected = db.get_total_gold_donated()
     if goal <= 0:
         await _w(bot, user.id,
-                 "💛 Room Goal\n"
-                 "No active goal yet.\n"
-                 "Owner can set a goal soon.")
+                 f"💛 Room Goal: {label}\n"
+                 f"Total donated: {collected}g (no target set)\n"
+                 "Tip any room bot gold to support us!")
         return
     try:
         pct = min(100, round(collected / max(1, goal) * 100))
@@ -328,9 +332,9 @@ async def handle_donationgoal(bot: "BaseBot", user: "User") -> None:
     bar = "█" * (pct // 10) + "░" * (10 - pct // 10)
     await _w(bot, user.id,
              f"💛 Room Goal: {label}\n"
-             f"Progress: {collected}/{goal} gold\n"
-             f"Percent: {pct}%  {bar}\n"
-             f"Use gold tips/donations to support room upgrades.")
+             f"Progress: {collected}/{goal}g  {pct}%\n"
+             f"{bar}\n"
+             f"Tip any room bot gold to help reach the goal!")
 
 
 # ---------------------------------------------------------------------------

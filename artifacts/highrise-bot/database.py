@@ -7333,6 +7333,7 @@ def get_vip_list() -> list[str]:
 def get_top_gold_donors(limit: int = 10) -> list[dict]:
     """Return top gold donors from gold_tip_events, summed by from_username."""
     try:
+        bot_filter = _get_bot_name_filter()
         conn = get_connection()
         rows = conn.execute(
             """SELECT from_username AS username,
@@ -7342,12 +7343,56 @@ def get_top_gold_donors(limit: int = 10) -> list[dict]:
                GROUP BY LOWER(from_username)
                ORDER BY total_gold DESC
                LIMIT ?""",
-            (limit,),
+            (limit + 20,),
         ).fetchall()
         conn.close()
-        return [dict(r) for r in rows]
+        filtered = [
+            dict(r) for r in rows
+            if r["username"].lower() not in bot_filter
+        ]
+        return filtered[:limit]
     except Exception:
         return []
+
+
+def get_total_gold_donated() -> int:
+    """Sum all gold tips from real players (bots excluded) across gold_tip_events."""
+    try:
+        bot_filter = _get_bot_name_filter()
+        conn = get_connection()
+        rows = conn.execute(
+            """SELECT from_username, CAST(SUM(gold_amount) AS INTEGER) AS total
+               FROM gold_tip_events
+               WHERE from_username != ''
+               GROUP BY LOWER(from_username)"""
+        ).fetchall()
+        conn.close()
+        return sum(
+            int(r["total"]) for r in rows
+            if r["from_username"].lower() not in bot_filter
+        )
+    except Exception:
+        return 0
+
+
+def get_user_gold_donated(username: str) -> dict:
+    """Return total donated gold, record count, and last tip timestamp for one user."""
+    try:
+        conn = get_connection()
+        row = conn.execute(
+            """SELECT from_username,
+                      CAST(SUM(gold_amount) AS INTEGER) AS total_gold,
+                      COUNT(*) AS record_count,
+                      MAX(created_at) AS last_tip
+               FROM gold_tip_events
+               WHERE LOWER(from_username) = LOWER(?)
+               GROUP BY LOWER(from_username)""",
+            (username,),
+        ).fetchone()
+        conn.close()
+        return dict(row) if row else {}
+    except Exception:
+        return {}
 
 
 # ===========================================================================
@@ -12131,8 +12176,9 @@ def get_economy_audit_log(limit: int = 20) -> list:
 def _get_bot_name_filter() -> frozenset:
     """Return a lowercase frozenset of known bot usernames for LB filtering."""
     _FALLBACK: frozenset = frozenset({
-        "bankingbot", "chilltopiamc", "greatestprospector", "masterangler",
-        "chipsopranol", "acesinatara", "keanushield", "dj_dudu",
+        "bankingbot", "bankerbot", "chilltopiamc",
+        "greatestprospector", "masterangler",
+        "chipsoprano", "acesinatra", "keanushield", "dj_dudu",
     })
     try:
         conn = get_connection()

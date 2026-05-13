@@ -1,0 +1,248 @@
+Update 3.1D Hotfix — Track Gold Tips To Any Owned Bot As Donation + Coin Reward
+
+Current issue:
+My room system rewards players with coins when they tip any of my bots.
+
+So donation tracking should include tips sent to ANY of my owned room bots, not just BankingBot or ChillTopiaMC.
+
+Goal:
+When a real player tips gold to any owned ChillTopia bot, it should:
+1. Log the player as a room donator.
+2. Count toward !topdonators / !topdonors.
+3. Count toward !donationgoal if donation goal uses gold support.
+4. Give the player the correct coin reward if the current system already does that.
+5. NOT auto-subscribe the player.
+
+Do not wipe data.
+Do not change tokens.
+Do not change room ID.
+Do not reset balances, VIP, mining/fishing, casino, party tip, notifications, or leaderboard data.
+Do not change the coin reward rate unless already broken.
+
+==================================================
+PART 1 — APPROVED BOT RECEIVERS
+==================================================
+
+Track gold tips sent to ANY owned ChillTopia bot.
+
+Approved receiver bots include:
+
+ChillTopiaMC
+BankingBot
+BankerBot
+BlackJackBot
+PokerBot
+GreatestProspector
+MasterAngler
+Host
+EventHost
+SecurityBot
+AceSinatra
+ChipSoprano
+KeanuShield
+DJ_DUDU
+
+Also include any bot account configured in:
+- BOT_USERNAME
+- BOT_MODE accounts
+- bot spawn list
+- bot owner map
+- known bot list
+- active room bot registry
+
+Important:
+ArcadiaRadio should only be included if it is one of my owned reward bots.
+If ArcadiaRadio is external or should be ignored, exclude it.
+
+==================================================
+PART 2 — WHAT COUNTS
+==================================================
+
+Count only:
+
+Real player → owned bot gold tips
+
+Examples:
+@Player tips BankingBot 10g = count donation
+@Player tips MasterAngler 5g = count donation
+@Player tips BlackJackBot 1g = count donation
+@Player tips ChillTopiaMC 20g = count donation
+
+Do NOT count:
+- bot-to-bot tips
+- bot-to-player tips
+- owner !goldtip to players
+- Party Tip wallet tips to players
+- !tip all
+- !tip [players] [amount]
+- gold rain
+- player-to-player coin sends
+- blackjack/poker bets
+- mining/fishing rewards
+- VIP coin purchases
+- shop coin purchases
+
+==================================================
+PART 3 — KEEP EXISTING COIN REWARD SYSTEM
+==================================================
+
+If the current system already gives coins when a player tips a bot:
+- keep that behavior
+- make sure it works for all approved owned bots
+- do not change reward rate unless broken
+- do not duplicate coin rewards
+
+Important:
+Each real gold tip event should reward coins only once.
+
+If the same tip event is received by multiple bots/listeners:
+- dedupe by event_id if available
+- otherwise dedupe by donor_id + receiver_bot + amount + timestamp window
+
+==================================================
+PART 4 — DONATION LOGGING
+==================================================
+
+When a real player tips an approved bot, log:
+
+donor_id
+donor_username
+receiver_bot
+gold_amount
+coin_reward_given
+source = gold_tip_to_owned_bot
+created_at
+event_id if available
+
+Use existing donation/support log if available.
+If no reliable table exists, create safe table:
+
+room_donations:
+id INTEGER PRIMARY KEY AUTOINCREMENT
+event_id TEXT UNIQUE NULL
+donor_id TEXT
+donor_username TEXT
+receiver_bot TEXT
+amount INTEGER
+coin_reward INTEGER DEFAULT 0
+source TEXT DEFAULT 'gold_tip_to_owned_bot'
+created_at TEXT
+
+Rules:
+- idempotent migration
+- do not wipe old donation data
+- amount must be positive integer
+- no duplicate logging
+- no duplicate coin reward
+
+==================================================
+PART 5 — TOP DONATORS
+==================================================
+
+!topdonators should total gold tips sent from real players to any approved owned bot.
+
+Aliases:
+!topdonors = !topdonators
+!donators = !topdonators
+
+Expected:
+
+💛 Top Donators
+1. @Player — 500g
+2. @Player2 — 250g
+3. @Player3 — 100g
+
+If I tip any owned bot, I should appear here.
+
+==================================================
+PART 6 — DONATION GOAL
+==================================================
+
+If !donationgoal tracks gold support, include all approved bot-received gold tips.
+
+Example:
+Player tips MasterAngler 5g.
+Donation goal progress increases by 5g.
+
+Do not count Party Tips or owner gold tips.
+
+==================================================
+PART 7 — THANK YOU MESSAGE
+==================================================
+
+When player tips any approved bot:
+
+💛 Thank you for supporting ChillTopia, @Player!
+Donation: [amount]g
+Coins earned: [coin_reward]c
+
+If coin reward system fails:
+💛 Thank you for supporting ChillTopia, @Player!
+Donation logged.
+Coin reward failed — owner notified.
+
+Important:
+Do NOT auto-subscribe the player.
+Optional second line:
+To receive room notifications, DM me !subscribe
+
+==================================================
+PART 8 — AUTO-SUBSCRIBE MUST STAY OFF
+==================================================
+
+Tipping any bot must NOT:
+- subscribe the user
+- enable notification categories
+- DM notifications automatically
+- add them to subscription list
+
+Only manual:
+!sub
+!subscribe
+
+==================================================
+PART 9 — OWNER DEBUG
+==================================================
+
+Optional owner-only:
+
+!donationdebug @user
+
+Expected:
+💛 Donation Debug
+User: @Player
+Total Donated: [amount]g
+Records: [count]
+Coin Rewards: [amount]c
+
+If risky, skip it.
+
+==================================================
+PART 10 — TESTS
+==================================================
+
+Run:
+
+!commandtest !topdonators
+!commandtest !topdonors
+!topdonators
+!donationgoal
+!commandissues
+!checkcommands
+
+Real flow test:
+1. Tip BankingBot 1g.
+2. Run !topdonators.
+3. Tip MasterAngler 1g.
+4. Run !topdonators.
+5. Tip BlackJackBot 1g.
+6. Run !topdonators.
+
+Expected:
+- all approved bot tips count
+- donor total increases correctly
+- coin reward is given once per tip
+- donation goal updates if integrated
+- user is not auto-subscribed
+- no duplicate rewards
+- no command issues
