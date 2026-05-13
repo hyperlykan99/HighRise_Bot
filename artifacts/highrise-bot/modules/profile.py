@@ -340,6 +340,20 @@ def _set_profile_setting(user_id: str, username: str, field: str, value: str) ->
         pass
 
 
+def can_show_balance(target_uid: str, viewer_uid: str, is_private_view: bool = False) -> bool:
+    """Single source of truth for balance visibility.
+
+    Rules:
+    - is_private_view=True AND viewer is the target → always show (own !stats/!profile private)
+    - balance_visibility == "public" → show to anyone
+    - Everything else → hide
+    - NO staff bypass here; admins use !profileadmin for full data
+    """
+    if is_private_view and target_uid == viewer_uid:
+        return True
+    return _get_profile_setting(target_uid, "balance_visibility") == "public"
+
+
 # ---------------------------------------------------------------------------
 # Privacy helpers (legacy + new)
 # ---------------------------------------------------------------------------
@@ -429,19 +443,21 @@ async def _send_public_card(
     badge  = _equipped_badge_display(uid)
     col_pct = _collection_pct(uid)
 
-    # Visibility rules for PUBLIC card:
-    # - is_staff can bypass any setting (admins see everything)
-    # - is_self does NOT bypass — public card respects privacy even for owner
-    # - Only !stats / !profile private always shows own full data
-    vip_pub    = _get_profile_setting(uid, "vip_visibility")    == "public" or is_staff
-    badge_pub  = _get_profile_setting(uid, "badge_visibility")  == "public" or is_staff
-    level_pub  = _get_profile_setting(uid, "level_visibility")  == "public" or is_staff
-    col_pub    = _get_profile_setting(uid, "collection_visibility") == "public" or is_staff
-    bal_pub    = _get_profile_setting(uid, "balance_visibility") == "public" or is_staff
-    season_pub = _get_profile_setting(uid, "season_visibility") == "public" or is_staff
+    # ── Visibility: only balance uses the strict can_show_balance() helper (no staff bypass).
+    # Other fields allow staff bypass so admins can see identity info for moderation.
+    # Balance: NEVER shown on public card unless balance_visibility == "public" — not
+    # even to the profile owner (use !stats / !profile private to see own balance).
+    vip_pub    = _get_profile_setting(uid, "vip_visibility")         == "public" or is_staff
+    badge_pub  = _get_profile_setting(uid, "badge_visibility")       == "public" or is_staff
+    level_pub  = _get_profile_setting(uid, "level_visibility")       == "public" or is_staff
+    col_pub    = _get_profile_setting(uid, "collection_visibility")  == "public" or is_staff
+    season_pub = _get_profile_setting(uid, "season_visibility")      == "public" or is_staff
+    # Balance uses the single shared helper — no exceptions, no staff bypass
+    show_bal   = can_show_balance(uid, requester_id, is_private_view=False)
 
     vip_str = _vip_status_str(uid) if vip_pub else None
 
+    # ── Message 1: identity card ─────────────────────────────────────────────
     lines1 = [f"👤 @{uname}"]
     lines1.append(f"Title: {title}")
     if level_pub:
@@ -457,8 +473,9 @@ async def _send_public_card(
 
     await _w(bot, requester_id, "\n".join(lines1)[:220])
 
-    # Message 2 — progress + optional balance (own profile or staff only)
-    # Balance only shows when balance_visibility = public; is_self never overrides.
+    # ── Message 2: progress card (sent to all viewers; balance conditional) ──
+    # Shown for self/staff so they get their own mission & season data.
+    # Other-player view omits this (their progress is private).
     if is_self or is_staff:
         d_done, d_total, w_done, w_total = _mission_progress(uid)
         s_rank = _season_rank_str(uid, uname)
@@ -467,7 +484,8 @@ async def _send_public_card(
         lines2.append(f"Daily: {d_done}/{d_total} | Weekly: {w_done}/{w_total}")
         if season_pub:
             lines2.append(f"Season Rank: {s_rank}")
-        if bal_pub:
+        # Balance: only if explicitly set public — no self/staff bypass
+        if show_bal:
             coins   = db.get_balance(uid)
             tickets = _luxe_tickets(uid)
             lines2.append(f"Balance: {coins:,} 🪙 | {tickets:,} 🎫")
@@ -643,15 +661,14 @@ def _build_page1(uid: str, uname: str, p: dict, privacy: dict,
 
 def _build_page2(uid: str, uname: str, p: dict, privacy: dict,
                  is_self: bool, is_staff: bool) -> str:
-    see = _can_see("show_money", privacy, is_self, is_staff)
-    if not see:
-        return (
-            f"💰 Economy — @{uname}\n"
-            f"Balance: Hidden\n"
-            f"More: !profile @{uname} 3"
-        )[:249]
-    coins   = db.get_balance(uid)
-    tickets = _luxe_tickets(uid)
+    # Dual-gate: respect BOTH old show_money AND new balance_visibility setting.
+    # Balance is hidden unless both allow it (or admin override via is_staff for
+    # old show_money only; balance_visibility has NO staff bypass).
+    old_ok  = _can_see("show_money", privacy, is_self, is_staff)
+    # For page2, viewer_uid == uid when is_self, else we treat as a non-private view
+    viewer  = uid if is_self else ""
+    new_ok  = can_show_balance(uid, viewer, is_private_view=is_self)
+    show_bal = old_ok and new_ok
     earned  = p.get("total_coins_earned", 0)
     wins    = p.get("total_games_won", 0)
     sent = recv = 0
@@ -667,14 +684,18 @@ def _build_page2(uid: str, uname: str, p: dict, privacy: dict,
         streak = ds.get("streak", 0)
     except Exception:
         pass
-    lines = [
-        f"💰 Economy — @{uname}",
-        f"🪙 {coins:,} | 🎫 {tickets:,}",
-        f"Earned: {earned:,} 🪙 | Wins: {wins}",
-        f"Sent: {sent:,} | Recv: {recv:,} 🪙",
-        f"Streak: {streak}d",
-        f"More: !profile @{uname} 3",
-    ]
+    lines = [f"💰 Economy — @{uname}"]
+    if show_bal:
+        coins   = db.get_balance(uid)
+        tickets = _luxe_tickets(uid)
+        lines.append(f"🪙 {coins:,} | 🎫 {tickets:,}")
+        lines.append(f"Earned: {earned:,} 🪙 | Wins: {wins}")
+        lines.append(f"Sent: {sent:,} | Recv: {recv:,} 🪙")
+    else:
+        lines.append("Balance: Private")
+        lines.append(f"Earned: {earned:,} 🪙 | Wins: {wins}")
+    lines.append(f"Streak: {streak}d")
+    lines.append(f"More: !profile @{uname} 3")
     return "\n".join(lines)[:249]
 
 
@@ -1102,10 +1123,11 @@ async def handle_profileadmin(bot: BaseBot, user: User, args: list[str]) -> None
     sub      = args[1].lower() if len(args) >= 2 else "help"
     raw_name = args[2].lstrip("@").strip() if len(args) >= 3 else None
 
-    if sub == "help" or (sub not in ("view", "resetprivacy", "refresh", "rebuild") and not raw_name):
+    if sub == "help" or (sub not in ("view", "resetprivacy", "refresh", "rebuild", "privacy") and not raw_name):
         await _w(bot, user.id,
                  "🛠️ Profile Admin\n"
                  "!profileadmin view @user\n"
+                 "!profileadmin privacy @user\n"
                  "!profileadmin resetprivacy @user\n"
                  "!profileadmin refresh @user")
         return
@@ -1130,6 +1152,32 @@ async def handle_profileadmin(bot: BaseBot, user: User, args: list[str]) -> None
         await _w(bot, user.id, f"[Admin] {msg}"[:249])
         await asyncio.sleep(0.3)
         await _send_public_card(bot, user.id, t_id, t_name, p, False, True)
+        return
+
+    # --- privacy (debug: show saved settings for target) ---
+    if sub == "privacy":
+        if not raw_name:
+            await _w(bot, user.id, "Usage: !profileadmin privacy @user")
+            return
+        target = db.get_user_by_username(raw_name)
+        if not target:
+            await _w(bot, user.id, f"@{raw_name} not found.")
+            return
+        t_id   = target["user_id"]
+        t_name = target["username"]
+        bal  = _get_profile_setting(t_id, "balance_visibility")
+        col  = _get_profile_setting(t_id, "collection_visibility")
+        bdg  = _get_profile_setting(t_id, "badge_visibility")
+        vip  = _get_profile_setting(t_id, "vip_visibility")
+        ssn  = _get_profile_setting(t_id, "season_visibility")
+        lvl  = _get_profile_setting(t_id, "level_visibility")
+        old  = db.get_profile_privacy(t_name)
+        await _w(bot, user.id,
+                 f"🔒 Profile Privacy — @{t_name}\n"
+                 f"Balance: {bal}\n"
+                 f"Collections: {col} | Badges: {bdg}\n"
+                 f"VIP: {vip} | Season: {ssn} | Level: {lvl}\n"
+                 f"(legacy) Money:{old.get('show_money',1)} Casino:{old.get('show_casino',1)}")
         return
 
     # --- resetprivacy ---

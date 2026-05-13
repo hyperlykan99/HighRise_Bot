@@ -1,0 +1,322 @@
+UPDATE 3.1L HOTFIX — STRICT REMOVE BALANCE FROM PUBLIC PROFILE WHEN PRIVATE
+
+Current issue:
+Balance is STILL showing publicly even after:
+
+!profile settings balance private
+
+Goal:
+Force public profile and flex to hide balance unless balance visibility is explicitly public.
+
+Do not change tokens.
+Do not wipe data.
+Do not reset balances.
+Do not change economy.
+Do not change profile stats except privacy display.
+
+==================================================
+PART 1 — FIND ALL PROFILE RENDERERS
+==================================================
+
+Search the whole project for every place that displays balance inside profile/flex:
+
+Balance:
+ChillCoins
+Luxe Tickets
+🪙
+🎫
+profile balance
+render_profile
+show_profile
+handle_profile
+profile_card
+flex
+showoff
+card
+stats
+
+There may be multiple profile renderers.
+
+Fix ALL of them:
+- !profile
+- !profile @user
+- !me
+- !myprofile
+- !flex
+- !showoff
+- !card
+
+Do not only fix !profile settings.
+
+==================================================
+PART 2 — PUBLIC PROFILE MUST NEVER HARDCODE BALANCE
+==================================================
+
+Remove hardcoded public lines like:
+
+Balance: 125,000 🪙 | 50 🎫
+
+Replace with conditional logic:
+
+if is_private_profile:
+    show balance
+elif balance_visibility == "public":
+    show balance
+else:
+    do not show balance
+
+Default:
+balance_visibility = "private"
+
+Important:
+!profile is PUBLIC even when the player checks themselves.
+So !profile must hide balance if private.
+
+Only !stats or !profile private can show balance to the owner.
+
+==================================================
+PART 3 — ADD ONE SHARED PRIVACY FUNCTION
+==================================================
+
+Create/use one helper:
+
+get_profile_visibility(user_id, field)
+
+For balance:
+
+def can_show_balance(target_user_id, viewer_user_id, is_private_view=False):
+    if is_private_view and target_user_id == viewer_user_id:
+        return True
+    setting = get_profile_visibility(target_user_id, "balance")
+    return setting == "public"
+
+Use this helper everywhere.
+
+Do not duplicate privacy logic across handlers.
+
+==================================================
+PART 4 — FIX SETTINGS READ/WRITE KEY MISMATCH
+==================================================
+
+Make sure both saving and reading use the same exact column/key:
+
+balance_visibility
+
+Accepted values:
+public
+private
+
+Command:
+!profile settings balance private
+
+Must save:
+balance_visibility = private
+
+Command:
+!profile settings
+
+Must read the same stored value.
+
+Public profile must also read:
+balance_visibility
+
+Possible bug:
+Settings saves "balance" but profile reads "show_balance".
+Fix mismatch.
+
+==================================================
+PART 5 — PUBLIC PROFILE OUTPUT WHEN PRIVATE
+==================================================
+
+After:
+
+!profile settings balance private
+
+Expected !profile:
+
+👤 @Player
+Title: Lucky Miner
+Level: 12 | XP: 850/1,200
+VIP: Active 29d
+Badges: 👑 🔥 🎣
+Collection: 28%
+
+There should be NO line containing:
+Balance
+🪙
+🎫
+
+Do not show:
+Balance: Private
+
+Better:
+Omit the balance line completely.
+
+==================================================
+PART 6 — PRIVATE STATS STILL SHOW BALANCE
+==================================================
+
+Command:
+!stats
+
+or:
+
+!profile private
+
+Expected private/whisper output:
+
+👤 Private Profile
+Level: 12
+XP: 850/1,200
+125,000 🪙 | 50 🎫
+VIP: Active 29d
+
+Rules:
+- Only caller can see their own balance here.
+- Must whisper/DM if possible.
+- Never send private stats publicly.
+
+==================================================
+PART 7 — FLEX MUST NEVER SHOW BALANCE BY DEFAULT
+==================================================
+
+Because !flex is public, remove balance from flex completely.
+
+Expected !flex:
+
+✨ @Player Flex
+Level 12 Lucky Miner
+Badges: 👑 🔥 🎣
+Collection: 28%
+Season: Mining #4
+
+Do not show:
+🪙
+🎫
+Balance
+
+Even if balance is public, flex should stay clean unless specifically configured later.
+
+==================================================
+PART 8 — PROFILE @USER MUST RESPECT TARGET PRIVACY
+==================================================
+
+Command:
+!profile @user
+
+If target has balance private:
+- hide balance
+
+If target has balance public:
+- show balance
+
+Do not use viewer’s privacy setting.
+Use target user’s privacy setting.
+
+==================================================
+PART 9 — DEBUG COMMAND FOR OWNER
+==================================================
+
+Add temporary owner/admin debug:
+
+!profileadmin privacy @user
+
+Expected:
+
+🔒 Profile Privacy
+User: @user
+Balance: private
+Collections: public
+Badges: public
+VIP: public
+
+This helps confirm the saved value.
+
+Owner only.
+Do not show in public help.
+
+==================================================
+PART 10 — EXACT TESTS
+==================================================
+
+Run:
+
+!profile settings balance private
+!profile settings
+!profile
+
+Expected:
+- settings says Balance: private
+- !profile has NO balance line
+- !profile has NO 🪙
+- !profile has NO 🎫
+
+Then run:
+
+!stats
+
+Expected:
+- !stats shows own 🪙 and 🎫 privately
+
+Then run:
+
+!flex
+
+Expected:
+- public message
+- no 🪙
+- no 🎫
+
+Then run:
+
+!profile settings balance public
+!profile
+
+Expected:
+- balance appears
+
+Then run:
+
+!profile settings balance private
+!profile
+
+Expected:
+- balance disappears again
+
+==================================================
+PART 11 — FINAL QA
+==================================================
+
+Run:
+
+!commandtest !profile
+!commandtest !stats
+!commandtest !flex
+!commandtest !profileadmin
+
+!commandissues
+!checkcommands
+!checkhelp
+!launchcheck
+
+Expected:
+- balance privacy works
+- flex public and no balance leak
+- no command issues
+- launchcheck clean
+
+==================================================
+PART 12 — FINAL REPORT
+==================================================
+
+Report:
+1. All profile renderers audited.
+2. Hardcoded balance line removed from public profile.
+3. Shared balance privacy helper added.
+4. Settings read/write mismatch fixed.
+5. !profile hides balance when private.
+6. !stats shows own balance privately.
+7. !flex is public and never shows balance.
+8. !profile @user respects target privacy.
+9. !profileadmin privacy added.
+10. Test results.
