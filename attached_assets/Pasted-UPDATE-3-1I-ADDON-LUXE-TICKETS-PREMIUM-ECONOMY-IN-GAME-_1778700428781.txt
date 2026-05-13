@@ -1,0 +1,583 @@
+UPDATE 3.1I ADDON — LUXE TICKETS PREMIUM ECONOMY + IN-GAME PRICE SETTINGS + VIP DURATION DISPLAY
+
+Goal:
+Add premium currency system using 🎫 Luxe Tickets, allow owner/admin to set shop prices in-game, add configurable Highrise Gold tip conversion rate, allow players to buy ChillCoins with Luxe Tickets, and show VIP duration in VIP status.
+
+Currencies:
+🪙 ChillCoins = free/play currency
+🎫 Luxe Tickets = premium room currency
+
+Do not change tokens.
+Do not change room ID.
+Do not wipe balances, VIP, tools, rods, boosts, inventory, badges, market, casino, mining/fishing data, or collection data.
+Do not re-add reward caps.
+Do not credit Luxe Tickets from normal chat text.
+Only credit Luxe Tickets from verified tip/payment events.
+
+==================================================
+PART 1 — CURRENCY NAMING
+==================================================
+
+Rename/display bot credits as:
+
+🪙 ChillCoins
+
+Add paid premium currency:
+
+🎫 Luxe Tickets
+
+Balance display:
+
+💰 Balance
+🪙 ChillCoins: [amount]
+🎫 Luxe Tickets: [amount]
+VIP: Active / Inactive
+
+Commands:
+!balance
+!coins
+!tickets
+!luxe
+
+Expected:
+!tickets shows Luxe Ticket balance and how to get them.
+
+🎫 Luxe Tickets
+Balance: 250
+Earned from verified Highrise Gold tips/purchases.
+Use !luxeshop.
+
+==================================================
+PART 2 — HIGHRISE GOLD TO LUXE TICKET RATE
+==================================================
+
+Add configurable conversion rate:
+
+Default:
+1 Highrise Gold = 1 🎫 Luxe Ticket
+
+Admin command:
+
+!luxeadmin rate
+Shows current rate.
+
+!luxeadmin set rate [tickets_per_gold]
+
+Examples:
+!luxeadmin set rate 1
+✅ Luxe rate set: 1 Gold = 1 🎫 Luxe Ticket.
+
+!luxeadmin set rate 2
+✅ Luxe rate set: 1 Gold = 2 🎫 Luxe Tickets.
+
+Rules:
+- Owner/Admin only.
+- Must be positive number.
+- Do not allow negative rate.
+- Do not credit from chat messages like “I tipped 500.”
+- Only credit from official verified Highrise tip/payment event.
+- Log conversion.
+
+==================================================
+PART 3 — VERIFIED TIP CONVERSION
+==================================================
+
+When player tips/buys with Highrise Gold and the bot receives a verified official event:
+
+tickets_awarded = gold_amount * luxe_rate
+
+Example:
+Gold tip: 100
+Rate: 1
+Award: 100 🎫 Luxe Tickets
+
+Message:
+
+🎫 @Player received 100 Luxe Tickets.
+Thanks for supporting the room!
+
+If rate is 2:
+100 Gold = 200 🎫 Luxe Tickets
+
+Do not auto-subscribe players.
+Do not auto-buy VIP from tips unless player uses purchase command.
+Tips only add Luxe Tickets.
+
+==================================================
+PART 4 — LUXE SHOP
+==================================================
+
+Add:
+
+!luxeshop
+!premiumshop
+
+Both show premium shop.
+
+Default shop:
+
+🎫 Luxe Shop
+1h Auto-Mining — 100 🎫
+1h Auto-Fishing — 100 🎫
+Lucky Hour Boost — 150 🎫
+Treasure Hour Boost — 200 🎫
+VIP Pass — 500 🎫
+
+Commands:
+
+!buyticket [item]
+!buyluxe [item]
+!buy premium [item]
+
+Examples:
+!buyticket automine1h
+!buyticket autofish1h
+!buyticket luckyhour
+!buyticket treasurehour
+!buyticket vip
+
+==================================================
+PART 5 — DEFAULT PRICES
+==================================================
+
+Set default prices:
+
+automine1h = 100 🎫
+autofish1h = 100 🎫
+luckyhour = 150 🎫
+treasurehour = 200 🎫
+vip = 500 🎫
+
+Also add ChillCoins purchase packs:
+
+coins_small = 50 🎫 -> 50,000 🪙 ChillCoins
+coins_medium = 100 🎫 -> 125,000 🪙 ChillCoins
+coins_large = 250 🎫 -> 350,000 🪙 ChillCoins
+
+Default coin pack display:
+
+🪙 ChillCoin Packs
+Small: 50 🎫 = 50,000 🪙
+Medium: 100 🎫 = 125,000 🪙
+Large: 250 🎫 = 350,000 🪙
+
+==================================================
+PART 6 — IN-GAME PRICE SETTINGS
+==================================================
+
+Owner/Admin can change prices in-game.
+
+Commands:
+
+!luxeadmin prices
+Shows all Luxe Shop prices.
+
+!luxeadmin set price [item] [amount]
+
+Examples:
+!luxeadmin set price automine1h 100
+!luxeadmin set price autofish1h 100
+!luxeadmin set price luckyhour 150
+!luxeadmin set price treasurehour 200
+!luxeadmin set price vip 500
+!luxeadmin set price coins_small 50
+!luxeadmin set price coins_medium 100
+!luxeadmin set price coins_large 250
+
+Expected:
+✅ Price updated.
+automine1h: 100 🎫
+
+Rules:
+- Owner/Admin only.
+- Amount must be positive.
+- No negative prices.
+- No zero unless owner explicitly uses disable command.
+- Keep settings persistent after restart.
+
+==================================================
+PART 7 — COIN PACK SETTINGS
+==================================================
+
+Owner/Admin can set ChillCoins given by Luxe Ticket packs.
+
+Commands:
+
+!luxeadmin set coinpack small [tickets] [coins]
+!luxeadmin set coinpack medium [tickets] [coins]
+!luxeadmin set coinpack large [tickets] [coins]
+
+Examples:
+!luxeadmin set coinpack small 50 50000
+!luxeadmin set coinpack medium 100 125000
+!luxeadmin set coinpack large 250 350000
+
+Expected:
+✅ Small coin pack set: 50 🎫 = 50,000 🪙.
+
+==================================================
+PART 8 — BUY CHILLCOINS WITH LUXE TICKETS
+==================================================
+
+Players can buy ChillCoins using Luxe Tickets.
+
+Commands:
+
+!buycoins small
+!buycoins medium
+!buycoins large
+
+Example:
+!buycoins small
+
+If enough tickets:
+✅ Purchased 50,000 🪙 ChillCoins for 50 🎫 Luxe Tickets.
+
+If not enough:
+⚠️ Not enough Luxe Tickets.
+Need: 50 🎫
+Your balance: [amount] 🎫
+
+Rules:
+- Deduct Luxe Tickets.
+- Add ChillCoins.
+- Log transaction.
+- No reward cap.
+- Prevent duplicate transaction.
+
+==================================================
+PART 9 — 1H AUTO-MINING / AUTO-FISHING PERMITS
+==================================================
+
+Premium auto options:
+
+!buyticket automine1h
+!buyticket autofish1h
+
+When bought:
+- Deduct Luxe Tickets.
+- Add one 1-hour permit to player account.
+- Do not start automatically unless command says so.
+
+Use commands:
+
+!automine 1h
+!autofish 1h
+
+or:
+
+!use automine1h
+!use autofish1h
+
+Expected:
+⛏️ 1h Auto-Mining started.
+Uses your current luck stack.
+
+🎣 1h Auto-Fishing started.
+Uses your current luck stack.
+
+Rules:
+- Uses player’s current tool/rod, VIP, potions, boosts, event luck.
+- Does not guarantee rare items.
+- No reward caps.
+- Auto summary still works after completion.
+- If player has no permit, tell them to buy from !luxeshop.
+
+==================================================
+PART 10 — VIP PURCHASE WITH LUXE TICKETS
+==================================================
+
+VIP can be bought with 🎫 Luxe Tickets.
+
+Default:
+VIP Pass = 500 🎫
+
+Command:
+!buyticket vip
+
+Expected:
+👑 VIP activated!
+Duration: [duration]
+Expires: [date/time]
+
+If player already has VIP:
+Extend VIP duration instead of overwriting.
+
+Example:
+Current VIP remaining: 3 days
+Buy VIP 30 days
+New remaining: 33 days
+
+Rules:
+- Do not auto-buy VIP from tips.
+- Player must manually buy VIP.
+- Deduct Luxe Tickets.
+- Log transaction.
+
+==================================================
+PART 11 — VIP DURATION SETTINGS
+==================================================
+
+Owner/Admin can set VIP duration.
+
+Command:
+!vipadmin settings
+
+Expected:
+👑 VIP Settings
+Price: 500 🎫
+Duration: 30d
+
+Commands:
+!vipadmin set price [tickets]
+!vipadmin set duration [days]
+
+Examples:
+!vipadmin set price 500
+!vipadmin set duration 30
+
+Expected:
+✅ VIP duration set: 30 days.
+
+==================================================
+PART 12 — SHOW VIP DURATION IN VIP STATUS
+==================================================
+
+Update:
+
+!vip
+!vipstatus
+!profile if it shows VIP
+
+If not VIP:
+
+👑 VIP Status
+Status: Inactive
+Price: 500 🎫
+Use !buyticket vip.
+
+If VIP active:
+
+👑 VIP Status
+Status: Active
+Remaining: 29d 4h
+Expires: May 30, 2026
+Perks: +luck, faster auto, longer auto sessions
+
+If lifetime VIP exists:
+Status: Lifetime
+Remaining: Forever
+
+Rules:
+- Always show remaining duration.
+- If expired, mark inactive.
+- Auto-clean expired VIP status.
+- Do not show “No lifetime VIP” text.
+
+==================================================
+PART 13 — ADMIN HELP
+==================================================
+
+Add:
+
+!luxeadmin
+!vipadmin
+
+!luxeadmin help:
+
+🎫 Luxe Admin
+!luxeadmin rate
+!luxeadmin set rate [x]
+!luxeadmin prices
+!luxeadmin set price [item] [amt]
+
+Second message:
+
+🪙 Coin Packs
+!luxeadmin set coinpack small [tickets] [coins]
+!luxeadmin set coinpack medium [tickets] [coins]
+!luxeadmin set coinpack large [tickets] [coins]
+
+!vipadmin help:
+
+👑 VIP Admin
+!vipadmin settings
+!vipadmin set price [tickets]
+!vipadmin set duration [days]
+
+==================================================
+PART 14 — DATABASE / STORAGE
+==================================================
+
+Add safe/idempotent tables or columns:
+
+premium_balances:
+user_id TEXT UNIQUE
+username TEXT
+luxe_tickets INTEGER DEFAULT 0
+updated_at TEXT
+
+premium_transactions:
+id INTEGER PRIMARY KEY AUTOINCREMENT
+user_id TEXT
+username TEXT
+type TEXT
+amount INTEGER
+currency TEXT
+details TEXT
+created_at TEXT
+
+premium_settings:
+key TEXT UNIQUE
+value TEXT
+updated_at TEXT
+
+vip_status:
+user_id TEXT UNIQUE
+username TEXT
+vip_active INTEGER
+vip_expires_at TEXT
+vip_type TEXT
+updated_at TEXT
+
+If existing tables already exist:
+- migrate safely
+- do not wipe
+- do not duplicate balances
+
+==================================================
+PART 15 — SECURITY / SAFETY
+==================================================
+
+Critical:
+- Never trust normal chat text for payments.
+- Only official verified Highrise events can add Luxe Tickets.
+- Do not let users give themselves tickets.
+- Owner/Admin add-ticket commands, if any, must be owner-only and logged.
+- No negative balances.
+- No duplicate transaction processing.
+- Use event IDs if available to prevent double credit.
+
+Optional owner command:
+!luxeadmin grant @user [amount]
+Owner only.
+
+!luxeadmin revoke @user [amount]
+Owner only.
+
+Log both.
+
+==================================================
+PART 16 — HELP UPDATE
+==================================================
+
+Update public help:
+
+!balance
+!shop
+!luxeshop
+!premiumshop
+!tickets
+!vip
+!buycoins
+
+Expected shop help:
+
+🛒 Shop
+!shop — ChillCoins shop
+!luxeshop — Luxe Ticket shop
+!buycoins small/medium/large
+!vip — VIP info
+
+Do not show admin commands in public help.
+
+==================================================
+PART 17 — TESTS
+==================================================
+
+Run:
+
+!balance
+!tickets
+!luxeshop
+!premiumshop
+!buycoins small
+!vip
+!vipstatus
+
+Expected:
+- displays ChillCoins and Luxe Tickets
+- shop prices show default
+- buying fails cleanly if not enough tickets
+- VIP status shows duration/price
+
+Admin tests:
+
+!luxeadmin
+!luxeadmin rate
+!luxeadmin set rate 1
+!luxeadmin prices
+!luxeadmin set price automine1h 100
+!luxeadmin set coinpack small 50 50000
+!vipadmin settings
+!vipadmin set price 500
+!vipadmin set duration 30
+
+Expected:
+- settings update
+- no crash
+- persists after restart
+
+==================================================
+PART 18 — FINAL QA
+==================================================
+
+Run:
+
+!commandtest !luxeadmin
+!commandtest !vipadmin
+!commandtest !luxeshop
+!commandtest !premiumshop
+!commandtest !tickets
+!commandtest !buycoins
+!commandtest !vip
+!commandtest !vipstatus
+
+!commandissues
+!checkcommands
+!checkhelp
+!launchcheck
+!bothealth
+!stability status
+
+Expected:
+- no command issues
+- no public admin leaks
+- VIP duration displays
+- Luxe prices configurable
+- Highrise Gold conversion rate configurable
+- no reward caps
+
+==================================================
+PART 19 — FINAL REPORT
+==================================================
+
+Report:
+1. 🎫 Luxe Tickets added.
+2. 🪙 ChillCoins display updated.
+3. Highrise Gold to Luxe Ticket rate added.
+4. Verified tip conversion added.
+5. !luxeshop added.
+6. In-game price settings added.
+7. Coin packs added.
+8. Players can buy ChillCoins with Luxe Tickets.
+9. VIP purchase with Luxe Tickets added.
+10. VIP duration display added.
+11. VIP duration extension works.
+12. !luxeadmin works.
+13. !vipadmin works.
+14. Payment safety confirmed.
+15. No reward cap regression.
+16. !commandissues result.
+17. !checkhelp result.
+18. !launchcheck result.
