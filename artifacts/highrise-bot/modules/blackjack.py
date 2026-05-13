@@ -1968,36 +1968,33 @@ async def handle_bj_cards(bot: BaseBot, user: User, args: list[str]) -> None:
 
 
 async def handle_bj_rules(bot: BaseBot, user: User) -> None:
-    """/bjrules — show current BJ table rules."""
-    s        = _settings()
-    payout   = float(s.get("blackjack_payout", 2.5))
-    soft17   = int(s.get("dealer_hits_soft_17", 1))
+    """/bjrules — reads canonical RBJ settings (realistic_blackjack.py)."""
+    # All values come from RBJ settings — the single source of truth for active BJ.
+    from modules.realistic_blackjack import _settings as rbj_settings
+    rs       = rbj_settings()
+    s        = _settings()  # casual BJ — only used for double/split flags
+    payout   = float(rs.get("blackjack_payout", 2.5))
+    soft17   = int(rs.get("dealer_hits_soft_17", int(s.get("dealer_hits_soft_17", 1))))
     dbl_on   = int(s.get("bj_double_enabled", 1))
     split_on = int(s.get("bj_split_enabled", 1))
-    min_b    = int(s.get("min_bet", 10))
-    max_b    = int(s.get("max_bet", 1000))
-    bj_str   = "3:2" if payout >= 2.5 else "6:5" if payout >= 2.2 else f"{payout:.1f}x"
+    min_b    = int(rs.get("min_bet", 10))
+    max_b    = int(rs.get("max_bet", 1000))   # 0 = unlimited
+    s_pay    = float(rs.get("rbj_suited_payout", 3.0))
+    p21      = int(float(rs.get("rbj_perfect21_pct", 10.0)))
+    ch_pct   = int(float(rs.get("rbj_charlie_pct", 25.0)))
     soft_str = "Hits soft 17" if soft17 else "Stands on soft 17"
-    dbl_str  = "First 2 cards only" if dbl_on else "OFF"
-    spl_str  = "Matching ranks only" if split_on else "OFF"
-    # get RBJ bonus settings for display (shared payout table)
-    from modules.realistic_blackjack import _settings as rbj_settings
-    rs     = rbj_settings()
-    s_pay  = float(rs.get("rbj_suited_payout", 3.0))
-    p21    = int(float(rs.get("rbj_perfect21_pct", 10.0)))
-    ch_pct = int(float(rs.get("rbj_charlie_pct", 25.0)))
+    dbl_str  = "ON" if dbl_on else "OFF"
+    spl_str  = "ON" if split_on else "OFF"
+    max_str  = "Unlimited" if max_b == 0 else f"{max_b:,}"
     await bot.highrise.send_whisper(user.id, (
         f"🃏 BJ Payouts\n"
-        f"Win: 2x return\n"
-        f"Natural BJ: {payout}x\n"
-        f"Suited BJ: {s_pay}x\n"
+        f"Win: 2x  Natural BJ: {payout}x  Suited BJ: {s_pay}x\n"
         f"Push: refund  Bust: lose\n"
-        f"Min/Max: {min_b:,} / {max_b:,}"
+        f"Min/Max: {min_b:,} / {max_str}"
     )[:249])
     await bot.highrise.send_whisper(user.id, (
         f"🎁 BJ Bonuses\n"
-        f"Perfect 21: +{p21}%\n"
-        f"5-Card Charlie: +{ch_pct}%\n"
+        f"Perfect 21: +{p21}%  5-Card Charlie: +{ch_pct}%\n"
         f"Dealer: {soft_str}\n"
         f"Double: {dbl_str}  Split: {spl_str}"
     )[:249])

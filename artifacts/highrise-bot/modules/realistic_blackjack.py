@@ -2561,14 +2561,15 @@ async def _cmd_surrender_rbj(bot: BaseBot, user: User):
 async def _cmd_bj_help(bot: BaseBot, user: User):
     s       = _settings()
     min_b   = int(s.get("min_bet", 10))
-    max_b   = int(s.get("max_bet", 1000))
+    max_b   = int(s.get("max_bet", 1000))   # 0 = unlimited
     bj_pay  = float(s.get("blackjack_payout", 2.5))
     s_pay   = float(s.get("rbj_suited_payout", 3.0))
     p21_pct = int(float(s.get("rbj_perfect21_pct", 10.0)))
     ch_pct  = int(float(s.get("rbj_charlie_pct", 25.0)))
+    max_str = "Unlimited" if max_b == 0 else f"{max_b:,}"
     await bot.highrise.send_whisper(user.id, (
         f"🃏 Blackjack Help\n"
-        f"Bet: {min_b:,}–{max_b:,}c\n"
+        f"Bet: {min_b:,}–{max_str}c\n"
         f"Join: !bet [amount]\n"
         f"Actions: !hit  !stand\n"
         f"More: !double  !split\n"

@@ -1,0 +1,164 @@
+UPDATE 3.1G HOTFIX — FIX BJRULES MIN/MAX SETTINGS SOURCE
+
+Current issue:
+!bjrules shows:
+
+Min/Max: 10 / 1,000
+
+But !bjadmin settings shows the real blackjack max bet is 10,000.
+
+Goal:
+Make !bjrules read the same min/max bet settings as !bjadmin settings and !bet validation.
+
+Do not change tokens.
+Do not wipe data.
+Do not reset balances.
+Do not change blackjack odds.
+Do not reset shoe.
+Do not restore casual blackjack.
+Do not re-add reward caps.
+
+==================================================
+PART 1 — FIX BJRULES SETTINGS SOURCE
+==================================================
+
+Find !bjrules handler.
+
+Remove any hardcoded values like:
+
+Min/Max: 10 / 1,000
+
+or old settings source like:
+
+bj_max_bet
+blackjack_max_bet
+casual_blackjack_settings
+old_bj_settings
+
+!bjrules must use the canonical AceSinatra realistic blackjack settings source.
+
+It must match:
+
+!bjadmin settings
+!bet validation
+
+==================================================
+PART 2 — SINGLE SETTINGS FUNCTION
+==================================================
+
+Create or use one shared function:
+
+get_active_blackjack_settings()
+
+It should return:
+- min_bet
+- max_bet
+- max_bet_unlimited true/false
+- action_timer
+- shuffle_percent
+- natural_bj_multiplier
+- suited_bj_multiplier
+- perfect21_bonus_percent
+- charlie_bonus_percent
+- dealer_soft17 setting
+
+Use this function for:
+!bjadmin settings
+!bjrules
+!bjhelp if it shows limits
+!bet validation
+!bjadmin bonuses
+
+==================================================
+PART 3 — BJRULES DISPLAY
+==================================================
+
+If max bet is 10,000:
+
+🃏 BJ Payouts
+Win: 2x return
+Natural BJ: 2.5x
+Suited BJ: 3x
+Push: refund  Bust: lose
+Min/Max: 10 / 10,000
+
+If max bet is unlimited:
+
+🃏 BJ Payouts
+Win: 2x return
+Natural BJ: 2.5x
+Suited BJ: 3x
+Push: refund  Bust: lose
+Min/Max: 10 / Unlimited
+
+Keep under 220 characters.
+
+==================================================
+PART 4 — REMOVE CASUAL SETTINGS RESIDUE
+==================================================
+
+Search for old blackjack limits in:
+!bjrules
+!bjhelp
+!casinohelp
+!help blackjack
+!bet validation
+
+Remove hardcoded:
+1000
+1,000
+10 / 1,000
+min/max old blackjack limits
+
+Do not let old casual blackjack settings feed any current blackjack help.
+
+==================================================
+PART 5 — VALIDATION TEST
+==================================================
+
+Run:
+
+!bjadmin settings
+!bjrules
+!bjhelp
+
+Expected:
+All show the same min/max bet values.
+
+If !bjadmin settings says:
+Min Bet: 10c
+Max Bet: 10,000c
+
+Then !bjrules must say:
+Min/Max: 10 / 10,000
+
+Then test:
+
+!bet 100000
+
+If max bet is 10,000:
+Expected:
+⚠️ Maximum blackjack bet is 10,000c.
+
+==================================================
+PART 6 — FINAL QA
+==================================================
+
+Run:
+
+!commandtest !bjrules
+!commandtest !bjhelp
+!commandtest !bjadmin
+!commandtest !bet
+
+!commandissues
+!checkcommands
+!checkhelp
+!launchcheck
+
+Expected:
+- !bjrules reads correct settings
+- !bjhelp reads correct settings if displayed
+- !bet enforces same max bet
+- no old casual blackjack settings shown
+- no command issues
