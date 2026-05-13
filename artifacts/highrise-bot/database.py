@@ -2196,6 +2196,14 @@ def _migrate_db():
     except Exception:
         pass
 
+    # 3.1E — enabled flag on emoji_badges (owner can hide badges from shop)
+    try:
+        conn.execute(
+            "ALTER TABLE emoji_badges ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1"
+        )
+    except Exception:
+        pass
+
     conn.commit()
     conn.close()
 
@@ -7632,6 +7640,7 @@ def get_emoji_badges_page(
         params: list = []
         if purchasable_only:
             where.append("purchasable = 1")
+            where.append("COALESCE(enabled, 1) = 1")
         if rarity:
             where.append("rarity = ?")
             params.append(rarity)
@@ -7680,7 +7689,7 @@ def add_emoji_badge(
 
 def update_emoji_badge_field(badge_id: str, field: str, value) -> bool:
     """Update a single field of an emoji_badge row."""
-    _allowed = {"price", "purchasable", "tradeable", "sellable", "rarity", "name", "emoji"}
+    _allowed = {"price", "purchasable", "tradeable", "sellable", "rarity", "name", "emoji", "enabled"}
     if field not in _allowed:
         return False
     try:
@@ -7688,6 +7697,35 @@ def update_emoji_badge_field(badge_id: str, field: str, value) -> bool:
         conn.execute(
             f"UPDATE emoji_badges SET {field} = ? WHERE badge_id = ?",
             (value, badge_id.lower().strip()),
+        )
+        conn.commit()
+        conn.close()
+        return True
+    except Exception:
+        return False
+
+
+def find_emoji_badge_by_name(name: str) -> dict | None:
+    """Find an emoji badge by case-insensitive name match. Returns first match or None."""
+    try:
+        conn = get_connection()
+        row  = conn.execute(
+            "SELECT * FROM emoji_badges WHERE lower(name) = lower(?) LIMIT 1",
+            (name.strip(),)
+        ).fetchone()
+        conn.close()
+        return dict(row) if row else None
+    except Exception:
+        return None
+
+
+def set_emoji_badge_enabled(badge_id: str, enabled: int) -> bool:
+    """Enable (1) or disable (0) a badge in the shop. Does not affect ownership."""
+    try:
+        conn = get_connection()
+        conn.execute(
+            "UPDATE emoji_badges SET enabled = ? WHERE badge_id = ?",
+            (1 if enabled else 0, badge_id.lower().strip()),
         )
         conn.commit()
         conn.close()
@@ -8097,6 +8135,138 @@ _BADGE_SEED: list[tuple] = [
     ("phoenixbadge","🐦‍🔥","Phoenix","exclusive",0,0,0,0,"exclusive"),
     ("dragoncrest","🔱","Dragon Crest","exclusive",0,0,0,0,"exclusive"),
     ("pirate","🏴‍☠️","Pirate","exclusive",0,0,0,0,"exclusive"),
+    # ── Faces (common 1500c) ─────────────────────────────────────────────────
+    ("smile","😀","Smile","common",1500,1,1,1,"shop"),
+    ("grin","😃","Grin","common",1500,1,1,1,"shop"),
+    ("laugh","😄","Laugh","common",1500,1,1,1,"shop"),
+    ("beaming","😁","Beaming","common",1500,1,1,1,"shop"),
+    ("squintlaugh","😆","Squint Laugh","common",1500,1,1,1,"shop"),
+    ("sweat","😅","Sweat Smile","common",1500,1,1,1,"shop"),
+    ("rofl","😂","ROFL","common",1500,1,1,1,"shop"),
+    ("slightsmile","🙂","Slight Smile","common",1500,1,1,1,"shop"),
+    ("upsidedown","🙃","Upside Down","common",1500,1,1,1,"shop"),
+    ("wink","😉","Wink","common",1500,1,1,1,"shop"),
+    ("blush","😊","Blush","common",1500,1,1,1,"shop"),
+    ("shades","😎","Shades","common",1500,1,1,1,"shop"),
+    ("starstruck","🤩","Starstruck","common",1500,1,1,1,"shop"),
+    ("partying","🥳","Partying","common",1500,1,1,1,"shop"),
+    ("halo","😇","Halo","common",1500,1,1,1,"shop"),
+    ("devil","😈","Devil","common",1500,1,1,1,"shop"),
+    ("ghost","👻","Ghost","common",1500,1,1,1,"shop"),
+    ("skull","💀","Skull","common",1500,1,1,1,"shop"),
+    ("robot","🤖","Robot","common",1500,1,1,1,"shop"),
+    # ── Extra Hearts (common 1500c) ─────────────────────────────────────────
+    ("brownheart","🤎","Brown Heart","common",1500,1,1,1,"shop"),
+    ("sparkleheart","💖","Sparkle Heart","common",1500,1,1,1,"shop"),
+    ("growingheart","💗","Growing Heart","common",1500,1,1,1,"shop"),
+    ("beatingheart","💓","Beating Heart","common",1500,1,1,1,"shop"),
+    ("revolvingheart","💞","Revolving Heart","common",1500,1,1,1,"shop"),
+    ("twohearts","💕","Two Hearts","common",1500,1,1,1,"shop"),
+    ("arrowheart","💘","Arrow Heart","common",1500,1,1,1,"shop"),
+    ("ribbonheart","💝","Ribbon Heart","common",1500,1,1,1,"shop"),
+    # ── Sky & Nature extras (uncommon 7500c) ────────────────────────────────
+    ("cloud","☁️","Cloud","uncommon",7500,1,1,1,"shop"),
+    ("wave","🌊","Wave","uncommon",7500,1,1,1,"shop"),
+    ("earth","🌍","Earth","uncommon",7500,1,1,1,"shop"),
+    ("earth2","🌎","Earth Americas","uncommon",7500,1,1,1,"shop"),
+    ("earth3","🌏","Earth Asia","uncommon",7500,1,1,1,"shop"),
+    # ── Animals (uncommon 7500c) ────────────────────────────────────────────
+    ("dog","🐶","Dog","uncommon",7500,1,1,1,"shop"),
+    ("cat","🐱","Cat","uncommon",7500,1,1,1,"shop"),
+    ("mouse","🐭","Mouse","uncommon",7500,1,1,1,"shop"),
+    ("hamster","🐹","Hamster","uncommon",7500,1,1,1,"shop"),
+    ("rabbit","🐰","Rabbit","uncommon",7500,1,1,1,"shop"),
+    ("bear","🐻","Bear","uncommon",7500,1,1,1,"shop"),
+    ("koala","🐨","Koala","uncommon",7500,1,1,1,"shop"),
+    ("cow","🐮","Cow","uncommon",7500,1,1,1,"shop"),
+    ("pig","🐷","Pig","uncommon",7500,1,1,1,"shop"),
+    ("frog","🐸","Frog","uncommon",7500,1,1,1,"shop"),
+    ("monkey","🐵","Monkey","uncommon",7500,1,1,1,"shop"),
+    ("bee","🐝","Bee","uncommon",7500,1,1,1,"shop"),
+    ("turtle","🐢","Turtle","uncommon",7500,1,1,1,"shop"),
+    ("shark","🦈","Shark","uncommon",7500,1,1,1,"shop"),
+    ("dolphin","🐬","Dolphin","uncommon",7500,1,1,1,"shop"),
+    ("whale","🐳","Whale","uncommon",7500,1,1,1,"shop"),
+    # ── Food (common 1500c) ─────────────────────────────────────────────────
+    ("apple","🍎","Apple","common",1500,1,1,1,"shop"),
+    ("orange","🍊","Orange","common",1500,1,1,1,"shop"),
+    ("lemon","🍋","Lemon","common",1500,1,1,1,"shop"),
+    ("banana","🍌","Banana","common",1500,1,1,1,"shop"),
+    ("watermelon","🍉","Watermelon","common",1500,1,1,1,"shop"),
+    ("grapes","🍇","Grapes","common",1500,1,1,1,"shop"),
+    ("strawberry","🍓","Strawberry","common",1500,1,1,1,"shop"),
+    ("cherry","🍒","Cherry","common",1500,1,1,1,"shop"),
+    ("peach","🍑","Peach","common",1500,1,1,1,"shop"),
+    ("pineapple","🍍","Pineapple","common",1500,1,1,1,"shop"),
+    ("coconut","🥥","Coconut","common",1500,1,1,1,"shop"),
+    ("avocado","🥑","Avocado","common",1500,1,1,1,"shop"),
+    ("burger","🍔","Burger","common",1500,1,1,1,"shop"),
+    ("pizza","🍕","Pizza","common",1500,1,1,1,"shop"),
+    ("taco","🌮","Taco","common",1500,1,1,1,"shop"),
+    ("sushi","🍣","Sushi","common",1500,1,1,1,"shop"),
+    ("donut","🍩","Donut","common",1500,1,1,1,"shop"),
+    ("cookie","🍪","Cookie","common",1500,1,1,1,"shop"),
+    ("cake","🍰","Cake","common",1500,1,1,1,"shop"),
+    ("lollipop","🍭","Lollipop","common",1500,1,1,1,"shop"),
+    # ── Objects (common & uncommon) ─────────────────────────────────────────
+    ("phone","📱","Phone","common",1500,1,1,1,"shop"),
+    ("gift","🎁","Gift","common",1500,1,1,1,"shop"),
+    ("key","🔑","Key","common",1500,1,1,1,"shop"),
+    ("tophat","🎩","Top Hat","uncommon",7500,1,1,1,"shop"),
+    ("headphones","🎧","Headphones","uncommon",7500,1,1,1,"shop"),
+    ("joystick","🕹️","Joystick","uncommon",7500,1,1,1,"shop"),
+    ("laptop","💻","Laptop","uncommon",7500,1,1,1,"shop"),
+    ("goldmedal","🥇","Gold Medal","uncommon",7500,1,1,1,"shop"),
+    ("moneywings","💸","Money Wings","uncommon",7500,1,1,1,"shop"),
+    # ── Activities & Sports (uncommon 7500c) ────────────────────────────────
+    ("soccer","⚽","Soccer","uncommon",7500,1,1,1,"shop"),
+    ("basketball","🏀","Basketball","uncommon",7500,1,1,1,"shop"),
+    ("football","🏈","Football","uncommon",7500,1,1,1,"shop"),
+    ("baseball","⚾","Baseball","uncommon",7500,1,1,1,"shop"),
+    ("tennis","🎾","Tennis","uncommon",7500,1,1,1,"shop"),
+    ("volleyball","🏐","Volleyball","uncommon",7500,1,1,1,"shop"),
+    ("pingpong","🏓","Ping Pong","uncommon",7500,1,1,1,"shop"),
+    ("boxing","🥊","Boxing","uncommon",7500,1,1,1,"shop"),
+    ("fishing","🎣","Fishing","uncommon",7500,1,1,1,"shop"),
+    ("pickaxe","⛏️","Pickaxe","uncommon",7500,1,1,1,"shop"),
+    ("microphone","🎤","Microphone","uncommon",7500,1,1,1,"shop"),
+    ("musicnotes","🎶","Music Notes","uncommon",7500,1,1,1,"shop"),
+    ("palette","🎨","Palette","uncommon",7500,1,1,1,"shop"),
+    ("car","🚗","Car","uncommon",7500,1,1,1,"shop"),
+    ("airplane","✈️","Airplane","uncommon",7500,1,1,1,"shop"),
+    # ── Zodiac (common 1500c) ────────────────────────────────────────────────
+    ("aries","♈","Aries","common",1500,1,1,1,"shop"),
+    ("taurus","♉","Taurus","common",1500,1,1,1,"shop"),
+    ("gemini","♊","Gemini","common",1500,1,1,1,"shop"),
+    ("cancer","♋","Cancer","common",1500,1,1,1,"shop"),
+    ("leo","♌","Leo","common",1500,1,1,1,"shop"),
+    ("virgo","♍","Virgo","common",1500,1,1,1,"shop"),
+    ("libra","♎","Libra","common",1500,1,1,1,"shop"),
+    ("scorpio","♏","Scorpio","common",1500,1,1,1,"shop"),
+    ("sagittarius","♐","Sagittarius","common",1500,1,1,1,"shop"),
+    ("capricorn","♑","Capricorn","common",1500,1,1,1,"shop"),
+    ("aquarius","♒","Aquarius","common",1500,1,1,1,"shop"),
+    ("pisces","♓","Pisces","common",1500,1,1,1,"shop"),
+    # ── Symbols (common 1500c) ──────────────────────────────────────────────
+    ("check","✅","Check","common",1500,1,1,1,"shop"),
+    ("cross","❌","Cross","common",1500,1,1,1,"shop"),
+    ("exclaim","❗","Exclaim","common",1500,1,1,1,"shop"),
+    ("question","❓","Question","common",1500,1,1,1,"shop"),
+    ("hundred","💯","Hundred","common",1500,1,1,1,"shop"),
+    ("bell","🔔","Bell","common",1500,1,1,1,"shop"),
+    ("locked","🔒","Locked","common",1500,1,1,1,"shop"),
+    ("unlocked","🔓","Unlocked","common",1500,1,1,1,"shop"),
+    # ── Room & Highrise (common & uncommon) ─────────────────────────────────
+    ("house","🏠","House","common",1500,1,1,1,"shop"),
+    ("party","🎉","Party","common",1500,1,1,1,"shop"),
+    ("confetti","🎊","Confetti","common",1500,1,1,1,"shop"),
+    ("couch","🛋️","Couch","common",1500,1,1,1,"shop"),
+    ("bed","🛏️","Bed","common",1500,1,1,1,"shop"),
+    ("island","🏝️","Island","uncommon",7500,1,1,1,"shop"),
+    ("night","🌃","Night City","uncommon",7500,1,1,1,"shop"),
+    ("discoball","🪩","Disco Ball","uncommon",7500,1,1,1,"shop"),
+    ("maledancer","🕺","Dancer","uncommon",7500,1,1,1,"shop"),
+    ("femaledancer","💃","Dancer Girl","uncommon",7500,1,1,1,"shop"),
 ]
 
 

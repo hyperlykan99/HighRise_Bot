@@ -1,0 +1,1014 @@
+UPDATE 3.1E — PLAYER PROFILE + TITLES/BADGES POLISH + FULL EMOJI BADGE CATALOG
+
+Goal:
+Polish player identity systems: profile, inventory, titles, badges, badge shop, and player badge market.
+
+Main request:
+Badges should be 1/1 collectible emoji badges.
+All safe Highrise-compatible emojis should be included in the badge catalog.
+Every emoji badge must have a price.
+Badges are tradable and can be placed in a player market where players set their own price.
+Staff can duplicate or set their own badge, but staff-created/duplicated badges must be bound and cannot be sold.
+
+This update is identity/profile/market polish only.
+
+Do not change bot tokens.
+Do not change room ID.
+Do not wipe database.
+Do not reset balances, VIP, inventories, mining/fishing, casino, party tip, notifications, daily streaks, leaderboards, donations, P2P gold tips, teleports, role spawns, bot spawns, or command registry.
+Do not change mining/fishing odds.
+Do not change casino odds.
+Do not change daily rewards.
+Do not add advanced AI.
+Do not add risky economy mechanics.
+Do not give free coins except through existing safe systems.
+
+==================================================
+PART 1 — STABILITY FIRST
+==================================================
+
+Before changing anything, run:
+
+!launchcheck
+!commandissues
+!checkcommands
+!checkcommands all
+!checkhelp
+!bothealth
+!stability status
+!botconflicts
+!modulehealth
+
+Expected:
+- Launch Check OK
+- Conflicts: none
+- no command issues
+- no checkcommands mismatch
+- no help issues
+- Err: none
+- no bot conflicts
+
+Fix baseline issues first before changing badges/profile.
+
+==================================================
+PART 2 — FULL EMOJI BADGE CATALOG
+==================================================
+
+Create a full emoji badge catalog with safe common emojis that display well in Highrise.
+
+Important:
+Do not blindly activate broken emojis.
+If any emoji renders as a box or broken icon in Highrise:
+- mark it disabled
+- hide it from !badges shop
+- do not allow purchase
+- keep it in catalog as disabled
+
+Use these categories.
+
+Faces:
+😀 😃 😄 😁 😆 😅 😂 🙂 🙃 😉 😊 😎 🤩 🥳 😇 😈 👻 💀 🤖
+
+Hearts:
+❤️ 🧡 💛 💚 💙 💜 🖤 🤍 🤎 💖 💗 💓 💞 💕 💘 💝
+
+Stars/Sky:
+⭐ 🌟 ✨ ⚡ 🔥 🌙 ☀️ 🌈 ☁️ ❄️ 🌊 🌌 🪐 🌍 🌎 🌏
+
+Animals:
+🐶 🐱 🐭 🐹 🐰 🦊 🐻 🐼 🐨 🐯 🦁 🐮 🐷 🐸 🐵 🐺 🐉 🦄 🦋 🐝 🐢 🦈 🐬 🐳
+
+Food:
+🍎 🍊 🍋 🍌 🍉 🍇 🍓 🍒 🍑 🍍 🥥 🥑 🍔 🍕 🌮 🍣 🍩 🍪 🍰 🍭
+
+Objects:
+💎 👑 🎩 🎧 🎮 🕹️ 📱 💻 🛡️ ⚔️ 🏆 🥇 🎲 🎯 🎁 🔑 💰 💸
+
+Activities:
+⚽ 🏀 🏈 ⚾ 🎾 🏐 🏓 🥊 🎣 ⛏️ 🎤 🎵 🎶 🎨 🚗 ✈️ 🚀
+
+Zodiac/Symbols:
+♈ ♉ ♊ ♋ ♌ ♍ ♎ ♏ ♐ ♑ ♒ ♓ ✅ ❌ ❗ ❓ 💯 🔔 🔒 🔓
+
+Highrise/Room style:
+🏠 🏝️ 🌃 🎉 🎊 🪩 🛋️ 🛏️ 🕺 💃 🧿 🪽
+
+Rules:
+- Use emoji only, no custom images.
+- Avoid emojis that break into boxes.
+- Badge names should be clean and short.
+- Prices are in room coins, not gold.
+- Every emoji badge in the public shop is 1/1.
+- Existing owned badges must remain safe.
+
+==================================================
+PART 3 — PRICE EVERY EMOJI BADGE
+==================================================
+
+Every emoji badge must have a tier and price.
+
+Use tier pricing:
+
+Common Badge — 1,000c
+Uncommon Badge — 2,500c
+Rare Badge — 5,000c
+Epic Badge — 10,000c
+Legendary Badge — 25,000c
+Mythic Badge — 50,000c
+
+Suggested tier rules:
+
+Common:
+basic faces, basic food, simple symbols
+
+Uncommon:
+animals, sports, objects
+
+Rare:
+hearts, stars, music, games, tools
+
+Epic:
+💎 👑 🔥 ⚡ 🌈 🐉 🦄 🧿 🛡️ ⚔️
+
+Legendary:
+👑 Crown
+💎 Diamond
+🌈 Rainbow
+🐉 Dragon
+🦄 Unicorn
+🏆 Trophy
+🪽 Angel Wing
+
+Mythic:
+rare/special owner-selected emojis only
+
+Store on every badge:
+emoji
+name
+category
+tier
+shop_price
+status
+
+==================================================
+PART 4 — BADGE NAMES
+==================================================
+
+Generate clean badge names automatically.
+
+Examples:
+
+🔥 = Fire Badge
+👑 = Crown Badge
+💎 = Diamond Badge
+🐉 = Dragon Badge
+🎮 = Gamer Badge
+🎣 = Angler Badge
+⛏️ = Miner Badge
+💛 = Yellow Heart Badge
+🏆 = Champion Badge
+🪽 = Angel Wing Badge
+🌈 = Rainbow Badge
+
+If name cannot be generated:
+Use:
+[Emoji] Badge
+
+Example:
+🧿 Badge
+
+==================================================
+PART 5 — 1/1 BADGE RULE
+==================================================
+
+Each shop badge is 1/1.
+
+Meaning:
+- Only one original copy of each emoji badge can be bought from the badge shop.
+- Once a player buys it, the shop marks it SOLD.
+- The buyer becomes the only original owner.
+- That owner can keep it, equip it, or sell it in player market.
+- No other regular player can buy the same badge from the shop again.
+
+Example:
+Player buys 👑 Crown Badge.
+Shop now shows:
+👑 Crown Badge — SOLD
+
+Rules:
+- Do not create duplicate shop originals.
+- Do not let two users buy the same 1/1 badge.
+- Purchase must be atomic/safe.
+- If two users try at the same time, only one succeeds.
+- Staff duplicates do not affect public 1/1 shop ownership because staff duplicates are bound and not sellable.
+
+==================================================
+PART 6 — BADGE DATABASE
+==================================================
+
+Create or update safe badge tables.
+
+Suggested tables:
+
+badges:
+badge_id TEXT PRIMARY KEY
+emoji TEXT
+name TEXT
+category TEXT
+tier TEXT
+shop_price INTEGER
+original_owner_id TEXT NULL
+original_owner_username TEXT NULL
+status TEXT DEFAULT 'available'
+enabled INTEGER DEFAULT 1
+created_at TEXT
+sold_at TEXT NULL
+
+player_badges:
+id INTEGER PRIMARY KEY AUTOINCREMENT
+badge_id TEXT
+emoji TEXT
+name TEXT
+owner_id TEXT
+owner_username TEXT
+source TEXT
+tradable INTEGER DEFAULT 1
+sellable INTEGER DEFAULT 1
+bound INTEGER DEFAULT 0
+equipped INTEGER DEFAULT 0
+listed INTEGER DEFAULT 0
+created_at TEXT
+
+badge_market:
+listing_id INTEGER PRIMARY KEY AUTOINCREMENT
+badge_instance_id INTEGER
+seller_id TEXT
+seller_username TEXT
+emoji TEXT
+name TEXT
+price INTEGER
+status TEXT DEFAULT 'active'
+created_at TEXT
+sold_at TEXT NULL
+buyer_id TEXT NULL
+buyer_username TEXT NULL
+
+Rules:
+- idempotent migrations only.
+- Do not wipe existing inventory.
+- If current inventory/badge tables already exist, adapt safely.
+- Do not duplicate badge instances.
+- Use transactions for buy/list/purchase/cancel.
+- Catch DB lock errors.
+- No raw user IDs in chat.
+
+==================================================
+PART 7 — MIGRATION / EXISTING DATA SAFETY
+==================================================
+
+If player already owns badges:
+- do not delete them
+- do not rename unless safe
+- do not duplicate them
+- do not remove equipped badges
+- preserve owner/sellable/tradable/bound status
+
+Migration should:
+- add missing emoji badges to catalog
+- preserve existing badge ownership
+- mark already-owned shop badges as SOLD
+- keep disabled/broken emojis hidden
+- preserve staff-created badges as bound if already marked staff/source
+
+If duplicate records already exist:
+- do not delete blindly
+- mark duplicates legacy/hidden if needed
+- do not create marketplace duplicates
+
+==================================================
+PART 8 — EMOJI SUPPORT TEST COMMAND
+==================================================
+
+Add owner-only command:
+
+!emojitest
+
+Purpose:
+Show emoji pages so owner can check what displays correctly in Highrise.
+
+Expected:
+
+🧪 Emoji Test p1/10
+😀 😃 😄 😁 😆 😅 😂 🙂 🙃 😉
+
+Use:
+!emojitest 2
+
+Rules:
+- 20 emojis max per page
+- under 220 characters
+- no broken formatting
+- owner only
+
+Optional owner commands:
+
+!disableemoji [emoji]
+Expected:
+✅ Emoji disabled from badge shop.
+
+!enableemoji [emoji]
+Expected:
+✅ Emoji enabled in badge shop.
+
+If enable/disable commands are risky, skip them and do not show them in help.
+
+==================================================
+PART 9 — BADGE SHOP COMMANDS
+==================================================
+
+Commands:
+
+!badges
+!badge shop
+!badgeshop
+!buybadge [badge_id/name]
+!mybadges
+!setbadge [badge_id/name]
+!equipbadge [badge_id/name]
+!removebadge
+
+Aliases:
+!badgeshop = !badge shop
+!equipbadge = !setbadge
+
+Expected command ownership:
+ChillTopiaMC or Host
+
+Expected:
+route=YES
+handler=YES
+owner not UNKNOWN
+
+==================================================
+PART 10 — !BADGES / !BADGE SHOP DISPLAY
+==================================================
+
+!badges or !badge shop should show paginated badge shop.
+
+Commands:
+!badges
+!badges 1
+!badges 2
+!badges common
+!badges rare
+!badges epic
+!badges legendary
+!badges mythic
+
+Expected:
+
+🏷️ Badge Shop p1/12
+1. 😀 Smile — 1,000c
+2. 🔥 Fire — 10,000c
+3. 💎 Diamond — 25,000c
+Use !buybadge [id]
+
+If sold:
+
+👑 Crown — SOLD
+
+Rules:
+- Paginate.
+- 5 badges per page max.
+- Hide disabled emojis.
+- Show SOLD if already bought.
+- Show price clearly.
+- Do not show staff-only badges.
+- Do not show disabled/broken emoji badges.
+- Sold badges should not be purchasable from shop.
+- Keep under 220 characters.
+- No cutoff.
+- No broken emoji lines.
+
+==================================================
+PART 11 — BUY BADGE
+==================================================
+
+Command:
+!buybadge [badge_id/name]
+
+Examples:
+!buybadge crown
+!buybadge fire
+!buybadge 4
+
+If available and player has enough coins:
+
+✅ Badge purchased!
+👑 Crown Badge
+Price: 7,500c
+
+If sold:
+
+⚠️ That badge is already owned.
+Check !badgemarket.
+
+If not enough coins:
+
+⚠️ Not enough coins.
+Need: 7,500c
+
+If invalid:
+
+⚠️ Badge not found.
+Use !badges.
+
+Rules:
+- Deduct coins once.
+- Create player badge once.
+- Mark shop badge SOLD.
+- No duplicate purchase.
+- No negative/zero prices.
+- No bot purchases.
+- Transaction safe.
+- Do not auto-equip unless already intended.
+
+==================================================
+PART 12 — PLAYER BADGE INVENTORY
+==================================================
+
+Command:
+!mybadges
+
+Expected:
+
+🏷️ Your Badges
+Equipped: 👑 Crown
+Owned: 🌟 🔥 👑
+Use !setbadge [name]
+
+If none:
+
+🏷️ Your Badges
+None yet.
+Use !badges to shop.
+
+If player has bound badges:
+Show 🔒 for bound badges.
+
+Example:
+Owned: 👑 Crown, 🔒🛡️ Guardian
+
+Rules:
+- Keep under 220 characters.
+- If many badges, paginate.
+- Show bound staff badges with 🔒.
+- Do not expose raw instance IDs unless needed.
+- Listed badges should show as listed if possible.
+
+==================================================
+PART 13 — EQUIP BADGE
+==================================================
+
+Command:
+!setbadge [badge_id/name]
+Alias:
+!equipbadge [badge_id/name]
+
+Expected:
+
+✅ Badge equipped: 👑 Crown
+
+If player does not own it:
+
+⚠️ You do not own that badge.
+
+If invalid:
+
+⚠️ Badge not found.
+Use !mybadges.
+
+Command:
+!removebadge
+
+Expected:
+
+✅ Badge removed.
+
+Rules:
+- Player can equip one badge at a time.
+- Equipped badge appears in !profile and !inv.
+- Do not remove ownership.
+- Staff-bound badges can be equipped but not sold.
+- Badges listed in market should not be equippable unless existing system safely allows it.
+- Preferred: listed badges cannot be equipped until listing is cancelled.
+
+==================================================
+PART 14 — BADGE MARKET COMMANDS
+==================================================
+
+Commands:
+
+!badgemarket
+!marketbadges
+!sellbadge [badge] [price]
+!buybadge listing [listing_id]
+!cancelbadge [listing_id]
+
+Aliases:
+!marketbadges = !badgemarket
+
+Purpose:
+Players can list tradable badges and set their own coin price.
+
+==================================================
+PART 15 — BADGE MARKET DISPLAY
+==================================================
+
+!badgemarket expected:
+
+🏷️ Badge Market p1/2
+#12 👑 Crown — 20,000c by @Player
+#13 🌈 Rainbow — 30,000c by @Player2
+Use !buybadge listing [id]
+
+If empty:
+
+🏷️ Badge Market
+No badge listings yet.
+
+Rules:
+- Show active listings only.
+- Max 3 listings per message.
+- Keep under 220 characters.
+- Do not show staff-bound badges.
+- Do not show sold/cancelled listings.
+- Paginate if needed.
+
+==================================================
+PART 16 — SELL BADGE
+==================================================
+
+Command:
+!sellbadge [badge] [price]
+
+Expected:
+
+✅ Badge listed!
+👑 Crown — 20,000c
+Listing ID: #12
+
+If badge is bound/staff-created:
+
+⚠️ This badge is bound and cannot be sold.
+
+If badge not owned:
+
+⚠️ You do not own that badge.
+
+If already listed:
+
+⚠️ Badge already listed.
+Use !cancelbadge [id] first.
+
+If invalid price:
+
+⚠️ Price must be a positive number.
+
+Rules:
+- Seller sets their own price.
+- Price must be positive integer.
+- Suggested max listing price: 999,999c unless existing economy supports more.
+- Listing removes badge from equipped state if currently equipped.
+- Badge remains owned by seller until purchased, but locked from transfer/equip if listed.
+- No bot listings.
+- No staff-bound listings.
+- No listed badge duplicates.
+
+==================================================
+PART 17 — BUY MARKET LISTING
+==================================================
+
+Command:
+!buybadge listing [listing_id]
+
+Expected:
+
+✅ Badge bought!
+👑 Crown from @Seller
+Price: 20,000c
+
+Seller receives coins:
+
+💰 Your badge sold!
+👑 Crown — 20,000c
+
+If listing missing:
+
+⚠️ Listing not found.
+
+If buyer lacks coins:
+
+⚠️ Not enough coins.
+
+If buyer is seller:
+
+⚠️ You cannot buy your own listing.
+
+Rules:
+- Deduct buyer coins once.
+- Credit seller coins once.
+- Transfer badge ownership once.
+- Mark listing sold.
+- Transaction safe.
+- No duplicate purchases.
+- No bot buying.
+- No buying inactive/sold/cancelled listing.
+
+==================================================
+PART 18 — CANCEL BADGE LISTING
+==================================================
+
+Command:
+!cancelbadge [listing_id]
+
+Expected:
+
+✅ Badge listing cancelled.
+👑 Crown returned to inventory.
+
+If not seller or owner:
+
+🔒 You can only cancel your own listing.
+
+Owner/admin may cancel abusive listings if existing moderation policy supports it.
+
+Rules:
+- Mark listing cancelled.
+- Badge becomes usable/sellable again.
+- Do not duplicate badge.
+- Do not refund/transfer coins on cancel.
+
+==================================================
+PART 19 — STAFF BADGES
+==================================================
+
+Staff can duplicate or set their own badge, but staff-created/duplicated badges cannot be sold.
+
+Commands:
+
+!staffbadge [emoji] [name]
+!givebadge @user [emoji] [name]
+
+Permission:
+!staffbadge = Staff/Manager/Admin/Owner only
+!givebadge = Owner/Admin only
+
+Preferred behavior:
+!staffbadge creates/equips a badge for the staff member only.
+!givebadge gives a bound badge by default unless owner explicitly creates a sellable custom badge later.
+
+Expected:
+
+✅ Staff badge set.
+🛡️ Guardian
+Bound: yes
+
+Rules:
+- Staff-created badge source = staff_created
+- Staff duplicate badge source = staff_duplicate
+- tradable = 0
+- sellable = 0
+- bound = 1
+- cannot be listed in badge market
+- can be equipped
+- can show in profile
+- does not affect 1/1 shop badge ownership
+- does not make extra sellable copies of shop badges
+
+If staff tries to sell it:
+
+⚠️ This badge is bound and cannot be sold.
+
+==================================================
+PART 20 — DUPLICATE BADGE SAFETY
+==================================================
+
+Staff/admin duplicate behavior:
+
+If a staff duplicates a badge for themselves:
+- it must be bound
+- sellable = false
+- tradable = false
+- source = staff_duplicate
+
+If owner/admin gives a badge to staff:
+- default bound unless explicitly using safe owner-only mint command
+- do not create sellable duplicates of 1/1 shop badges
+
+Do not let staff duplicate 1/1 badges for sale.
+
+Important:
+Shop badges = 1/1 sellable collectibles.
+Player market badges = player-priced and tradable.
+Staff-created/duplicated badges = bound, equip only, never sellable.
+
+==================================================
+PART 21 — PROFILE POLISH
+==================================================
+
+Update:
+
+!profile
+!stats
+!me
+
+Expected:
+
+👤 @Player
+Badge: 👑 Crown
+Title: immortal
+Coins: 1,250c | Streak: 3d
+Mining: 450 MXP | Fishing: 320 FXP
+
+If too long, split or use compact format.
+
+Include if available:
+- equipped badge
+- equipped title
+- coins
+- daily streak
+- mining XP
+- fishing XP
+- donated gold
+- P2P gold tipped/received if already added
+
+No raw IDs.
+No private logs.
+No transaction history.
+
+==================================================
+PART 22 — INVENTORY POLISH
+==================================================
+
+Update:
+
+!inv
+!inventory
+
+Expected:
+
+🎒 @Player's Items
+Badge: 👑 Crown
+Title: immortal
+Badges: 3 owned
+Titles: 1 owned
+Use !mybadges or !titles
+
+If no badge:
+Badge: none
+
+Rules:
+- Keep under 220 characters.
+- No cutoff.
+- No owner commands.
+- No / commands.
+
+==================================================
+PART 23 — TITLES POLISH
+==================================================
+
+If title system already exists, polish only.
+
+Commands:
+!titles
+!settitle [title]
+!removetitle
+
+Expected:
+
+🏷️ Your Titles
+1. immortal
+Use !settitle [title]
+
+Rules:
+- Do not wipe titles.
+- Do not change old ownership.
+- Do not add risky title marketplace yet unless already exists.
+- Keep title display clean in !profile and !inv.
+
+==================================================
+PART 24 — HELP UPDATE
+==================================================
+
+Update help pages:
+
+!help profile
+!help badges
+!help shop
+
+Include:
+
+!profile — view profile
+!mybadges — your badges
+!badges — badge shop
+!buybadge [badge] — buy badge
+!badgemarket — player badge market
+!sellbadge [badge] [price] — sell badge
+!setbadge [badge] — equip badge
+
+Do not show staff badge commands to regular players.
+
+Staff help may show:
+!staffbadge [emoji] [name]
+
+Owner help may show:
+!givebadge @user [emoji] [name]
+!emojitest — test emojis
+!disableemoji [emoji] — hide emoji
+!enableemoji [emoji] — enable emoji
+
+Rules:
+- No / commands.
+- No “No lifetime VIP” text.
+- Commands shown must route.
+- Keep under 220 characters or split.
+
+==================================================
+PART 25 — MARKET ABUSE SAFETY
+==================================================
+
+Rules:
+- No negative price.
+- No zero price.
+- No decimal price.
+- No selling bound badges.
+- No selling badges not owned.
+- No selling already listed badge.
+- No buying own listing.
+- No duplicate badge transfer.
+- No duplicate coin payment.
+- Exclude bots.
+- Log listing/sale/cancel events if current logging supports it.
+
+If sale transaction fails:
+⚠️ Badge purchase failed. Try again later.
+
+Do not crash bot.
+
+==================================================
+PART 26 — MESSAGE CAP SAFETY
+==================================================
+
+All badge/profile/market messages must stay under 220 characters.
+
+Check:
+!badges
+!badges 2
+!badges common
+!badges epic
+!badges legendary
+!badgemarket
+!mybadges
+!profile
+!inv
+!emojitest
+!emojitest 2
+
+Expected:
+- no cutoff
+- no broken emoji lines
+- no giant paragraphs
+- no raw IDs
+
+==================================================
+PART 27 — COMMAND TESTS
+==================================================
+
+Run:
+
+!commandtest !profile
+!commandtest !stats
+!commandtest !me
+!commandtest !inv
+!commandtest !inventory
+!commandtest !badges
+!commandtest !badgeshop
+!commandtest !buybadge
+!commandtest !mybadges
+!commandtest !setbadge
+!commandtest !equipbadge
+!commandtest !removebadge
+!commandtest !badgemarket
+!commandtest !marketbadges
+!commandtest !sellbadge
+!commandtest !cancelbadge
+!commandtest !staffbadge
+!commandtest !givebadge
+!commandtest !emojitest
+!commandtest !disableemoji
+!commandtest !enableemoji
+
+Expected:
+- implemented commands route YES
+- implemented commands handler YES
+- owner not UNKNOWN
+- staff/owner commands protected
+- optional skipped commands hidden
+- no command issues
+
+==================================================
+PART 28 — LIVE TESTS
+==================================================
+
+Run:
+
+!badges
+!badges 2
+!badges common
+!badges epic
+!badges legendary
+!badges mythic
+!emojitest
+!emojitest 2
+!buybadge fire
+!mybadges
+!setbadge fire
+!profile
+!inv
+!badgemarket
+!sellbadge fire 10000
+!badgemarket
+!cancelbadge [listing_id]
+!mybadges
+
+If testing market with another player:
+Player A buys badge.
+Player A lists badge.
+Player B buys listing.
+Verify badge transfers and coins transfer once.
+
+Staff test:
+!staffbadge 🛡️ Guardian
+!mybadges
+!setbadge guardian
+!sellbadge guardian 10000
+
+Expected:
+- staff badge equips
+- staff badge cannot be sold
+- no command issues
+
+==================================================
+PART 29 — FINAL QA
+==================================================
+
+Run:
+
+!launchcheck
+!commandissues
+!checkcommands
+!checkcommands all
+!checkhelp
+!bothealth
+!stability status
+!botconflicts
+!modulehealth
+
+Expected:
+- Launch Check OK
+- Conflicts: none
+- no command issues
+- no checkcommands mismatch
+- no help issues
+- Err: none
+- no bot conflicts
+- no DB lock spam
+
+==================================================
+PART 30 — FINAL REPORT
+==================================================
+
+Report:
+
+1. Badge shop status.
+2. Full emoji catalog status.
+3. Number of emojis added.
+4. Disabled/broken emojis if any.
+5. 1/1 badge enforcement confirmed.
+6. Badge prices/tier pricing added.
+7. Emoji display safety handled.
+8. !emojitest status.
+9. Badge market status.
+10. Player-set market prices confirmed.
+11. Staff badge command status.
+12. Staff badge bound/not sellable confirmed.
+13. Profile display updated.
+14. Inventory display updated.
+15. Titles polish result.
+16. Help pages updated.
+17. Market abuse protections confirmed.
+18. !launchcheck result.
+19. !commandissues result.
+20. !checkcommands result.
+21. Stability result.

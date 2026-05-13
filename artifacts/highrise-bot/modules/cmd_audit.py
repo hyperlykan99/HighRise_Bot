@@ -251,6 +251,8 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     "mybadges", "confirmbuy",
     "badgemarket", "badgebuy", "badgelist", "badgecancel",
     "mybadgelistings", "badgeprices",
+    "buybadge", "badgeshop", "marketbadges", "sellbadge", "cancelbadge",
+    "equipbadge", "staffbadge", "emojitest", "disableemoji", "enableemoji",
     # ── tip (alias for send) ─────────────────────────────────────────────────
     "tip",
     # ── control panel (own elif block, not via STAFF_CMDS) ───────────────────
@@ -691,6 +693,8 @@ VISIBLE_CMDS: frozenset[str] = frozenset({
     "mybadges",
     "badgemarket", "badgebuy", "badgelist", "badgecancel",
     "mybadgelistings", "badgeprices",
+    "buybadge", "badgeshop", "marketbadges", "sellbadge", "cancelbadge",
+    "equipbadge", "staffbadge",
     # ── /profilehelp ────────────────────────────────────────────────────────
     "profile", "whois", "me", "stats", "badges", "titles", "privacy", "dashboard",
     # ── /progresshelp ───────────────────────────────────────────────────────

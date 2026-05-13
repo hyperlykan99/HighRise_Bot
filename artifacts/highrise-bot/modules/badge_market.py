@@ -190,11 +190,13 @@ async def handle_buy_badge(bot: BaseBot, user: User, badge_id: str) -> None:
         return
 
     db.grant_emoji_badge(user.username, badge_id, source="shop")
+    # Enforce 1/1: mark badge sold — no longer purchasable from shop
+    db.update_emoji_badge_field(badge_id, "purchasable", 0)
     new_bal = db.get_balance(user.id)
     await bot.highrise.send_whisper(
         user.id,
         f"✅ Bought {row['emoji']} {badge_id}! Balance: {new_bal:,}c\n"
-        f"Equip: !equip badge {badge_id}"
+        f"Equip: !equipbadge {badge_id}"
     )
     db.log_badge_market_action(
         "purchased", user.username, "", badge_id, row["emoji"], price, 0, "shop"
@@ -261,16 +263,17 @@ async def handle_mybadges(bot: BaseBot, user: User) -> None:
 
     parts = []
     for b in owned:
-        marker = " *" if b["badge_id"] == eq_id else ""
+        marker = " ★" if b["badge_id"] == eq_id else ""
         listed = " [M]" if db.is_badge_listed(user.username, b["badge_id"]) else ""
+        bound  = " 🔒" if b.get("locked") else ""
         emoji  = b.get("emoji") or b["badge_id"]
-        parts.append(f"{emoji}{marker}{listed}")
+        parts.append(f"{emoji}{marker}{listed}{bound}")
 
     preview = " ".join(parts)
     if len(preview) > 200:
         preview = " ".join(parts[:10]) + f" +{len(parts)-10} more"
 
-    msg = f"Your badges ({len(owned)}): {preview}\n* = equipped  [M] = on market"
+    msg = f"Your badges ({len(owned)}): {preview}\n★=equipped [M]=market 🔒=bound"
     await bot.highrise.send_whisper(user.id, msg[:249])
 
 
@@ -882,3 +885,158 @@ async def handle_badgemarketlogs(bot: BaseBot, user: User, args: list[str]) -> N
         return
 
     await bot.highrise.send_whisper(user.id, msg)
+
+
+# ===========================================================================
+# 3.1E  NEW BADGE COMMANDS
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# !buybadge [badge_id or name] — player-friendly direct badge purchase
+# ---------------------------------------------------------------------------
+
+async def handle_buybadge_cmd(bot: BaseBot, user: User, args: list[str]) -> None:
+    """!buybadge [badge_id/name] — buy a badge from the shop by ID or name."""
+    if len(args) < 2:
+        await bot.highrise.send_whisper(
+            user.id, "Usage: !buybadge <badge_id>  Browse: !badges"
+        )
+        return
+    query = " ".join(args[1:]).strip().lower()
+    row = db.get_emoji_badge(query)
+    if row is None:
+        row = db.find_emoji_badge_by_name(query)
+    if row is None:
+        await bot.highrise.send_whisper(
+            user.id, f"⚠️ Badge '{query}' not found. Browse: !badges"
+        )
+        return
+    await handle_buy_badge(bot, user, row["badge_id"])
+
+
+# ---------------------------------------------------------------------------
+# !staffbadge [emoji] [name] — staff creates a bound badge for themselves
+# ---------------------------------------------------------------------------
+
+async def handle_staffbadge(bot: BaseBot, user: User, args: list[str]) -> None:
+    """!staffbadge [emoji] [name] — manager+: create & equip a bound staff badge."""
+    from modules.permissions import is_manager, is_admin, is_owner
+    if not (is_manager(user.username) or is_admin(user.username) or is_owner(user.username)):
+        await bot.highrise.send_whisper(user.id, "Staff (manager+) only.")
+        return
+    if len(args) < 3:
+        await bot.highrise.send_whisper(
+            user.id, "Usage: !staffbadge [emoji] [name]"
+        )
+        return
+    emoji    = args[1].strip()
+    name     = " ".join(args[2:]).strip()
+    slug     = name.lower().replace(" ", "_")[:14]
+    badge_id = f"staff_{user.username.lower()[:8]}_{slug}"
+
+    existing = db.get_emoji_badge(badge_id)
+    if existing is None:
+        db.add_emoji_badge(
+            badge_id, emoji, name, "staff", 0,
+            purchasable=0, tradeable=0, sellable=0,
+            source="staff_created", created_by=user.username,
+        )
+
+    if not db.owns_emoji_badge(user.username, badge_id):
+        db.grant_emoji_badge(user.username, badge_id, source="staff_created", locked=1)
+
+    db.equip_item(user.id, badge_id, "badge", emoji)
+    await bot.highrise.send_whisper(
+        user.id,
+        f"✅ Staff badge set: {emoji} {name}\n"
+        f"ID: {badge_id}  🔒 Bound"
+    )
+
+
+# ---------------------------------------------------------------------------
+# !emojitest [page] — owner-only paginated emoji viewer
+# ---------------------------------------------------------------------------
+
+_EMOJI_TEST_LIST: list[str] = [
+    "😀","😃","😄","😁","😆","😅","😂","🙂","🙃","😉",
+    "😊","😎","🤩","🥳","😇","😈","👻","💀","🤖","❤️",
+    "🧡","💛","💚","💙","💜","🖤","🤍","🤎","💖","💗",
+    "💓","💞","💕","💘","💝","⭐","🌟","✨","⚡","🔥",
+    "🌙","☀️","🌈","☁️","❄️","🌊","🌌","🪐","🌍","🌎",
+    "🌏","🐶","🐱","🐭","🐹","🐰","🦊","🐻","🐼","🐨",
+    "🐯","🦁","🐮","🐷","🐸","🐵","🐺","🐉","🦄","🦋",
+    "🐝","🐢","🦈","🐬","🐳","🍎","🍊","🍋","🍌","🍉",
+    "🍇","🍓","🍒","🍑","🍍","🥥","🥑","🍔","🍕","🌮",
+    "🍣","🍩","🍪","🍰","🍭","💎","👑","🎩","🎧","🎮",
+    "🕹️","📱","💻","🛡️","⚔️","🏆","🥇","🎲","🎯","🎁",
+    "🔑","💰","💸","⚽","🏀","🏈","⚾","🎾","🏐","🏓",
+    "🥊","🎣","⛏️","🎤","🎵","🎶","🎨","🚗","✈️","🚀",
+    "♈","♉","♊","♋","♌","♍","♎","♏","♐","♑","♒","♓",
+    "✅","❌","❗","❓","💯","🔔","🔒","🔓","🏠","🏝️",
+    "🌃","🎉","🎊","🪩","🛋️","🛏️","🕺","💃","🧿","🪽",
+]
+
+
+async def handle_emojitest(bot: BaseBot, user: User, args: list[str]) -> None:
+    """!emojitest [page] — owner-only paginated emoji viewer."""
+    from modules.permissions import is_owner
+    if not is_owner(user.username):
+        await bot.highrise.send_whisper(user.id, "Owner only.")
+        return
+    raw  = args[1] if len(args) > 1 else "1"
+    page = int(raw) if raw.isdigit() else 1
+    per_page    = 20
+    total_pages = max(1, -(-len(_EMOJI_TEST_LIST) // per_page))
+    page        = max(1, min(page, total_pages))
+    start       = (page - 1) * per_page
+    chunk       = _EMOJI_TEST_LIST[start:start + per_page]
+    msg = f"🧪 Emoji Test p{page}/{total_pages}\n" + " ".join(chunk)
+    await bot.highrise.send_whisper(user.id, msg[:249])
+
+
+# ---------------------------------------------------------------------------
+# !disableemoji [badge_id] — owner-only: hide badge from shop
+# ---------------------------------------------------------------------------
+
+async def handle_disableemoji(bot: BaseBot, user: User, args: list[str]) -> None:
+    """!disableemoji [badge_id] — owner: hide a badge from the badge shop."""
+    from modules.permissions import is_owner
+    if not is_owner(user.username):
+        await bot.highrise.send_whisper(user.id, "Owner only.")
+        return
+    if len(args) < 2:
+        await bot.highrise.send_whisper(user.id, "Usage: !disableemoji <badge_id>")
+        return
+    badge_id = args[1].strip().lower()
+    row = db.get_emoji_badge(badge_id)
+    if row is None:
+        await bot.highrise.send_whisper(user.id, f"Badge '{badge_id}' not found.")
+        return
+    db.set_emoji_badge_enabled(badge_id, 0)
+    await bot.highrise.send_whisper(
+        user.id, f"✅ {row['emoji']} {badge_id} hidden from badge shop."
+    )
+
+
+# ---------------------------------------------------------------------------
+# !enableemoji [badge_id] — owner-only: restore badge to shop
+# ---------------------------------------------------------------------------
+
+async def handle_enableemoji(bot: BaseBot, user: User, args: list[str]) -> None:
+    """!enableemoji [badge_id] — owner: restore a badge to the badge shop."""
+    from modules.permissions import is_owner
+    if not is_owner(user.username):
+        await bot.highrise.send_whisper(user.id, "Owner only.")
+        return
+    if len(args) < 2:
+        await bot.highrise.send_whisper(user.id, "Usage: !enableemoji <badge_id>")
+        return
+    badge_id = args[1].strip().lower()
+    row = db.get_emoji_badge(badge_id)
+    if row is None:
+        await bot.highrise.send_whisper(user.id, f"Badge '{badge_id}' not found.")
+        return
+    db.set_emoji_badge_enabled(badge_id, 1)
+    await bot.highrise.send_whisper(
+        user.id, f"✅ {row['emoji']} {badge_id} restored to badge shop."
+    )

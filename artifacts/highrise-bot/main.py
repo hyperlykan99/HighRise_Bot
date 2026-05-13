@@ -87,6 +87,8 @@ from modules.badge_market import (
     handle_givebadge_emoji, handle_removebadge_from as handle_removebadge_emoji,
     handle_giveemojibadge, handle_badgecatalog, handle_badgeadmin,
     handle_setbadgemarketfee, handle_badgemarketlogs,
+    handle_buybadge_cmd, handle_staffbadge,
+    handle_emojitest, handle_disableemoji, handle_enableemoji,
 )
 from modules.numbered_shop import (
     handle_buy_number,
@@ -3521,11 +3523,23 @@ class HangoutBot(BaseBot):
             elif cmd == "givebadge":
                 await handle_givebadge_emoji(self, user, args)
             elif cmd == "removebadge":
-                await handle_removebadge(self, user, args)
+                # Admin: !removebadge @user badge_id  — Player: !removebadge (unequip own)
+                if is_admin(user.username) and len(args) > 2 and args[1].startswith("@"):
+                    await handle_removebadge(self, user, args)
+                else:
+                    await handle_unequip_badge(self, user)
             elif cmd == "removebadgefrom":
                 await handle_removebadge_emoji(self, user, args)
-            elif cmd == "setbadge":
-                await handle_setbadge(self, user, args)
+            elif cmd in {"setbadge", "equipbadge"}:
+                # Admin: !setbadge @user badge_id  — Player: !setbadge badge_id
+                if is_admin(user.username) and len(args) > 2 and args[1].startswith("@"):
+                    await handle_setbadge(self, user, args)
+                elif len(args) > 1:
+                    await handle_equip_badge(self, user, args[1].lstrip("@").lower().strip())
+                else:
+                    await self.highrise.send_whisper(
+                        user.id, "Usage: !equipbadge <badge_id>  See: !mybadges"
+                    )
             elif cmd == "clearbadge":
                 await handle_clearbadge(self, user, args)
             # Emoji Badge Market — admin commands
@@ -3769,7 +3783,23 @@ class HangoutBot(BaseBot):
         elif cmd == "stats":
             await handle_stats_cmd(self, user, args)
 
-        elif cmd in {"badges", "titles"}:
+        elif cmd in {"badges", "badgeshop"}:
+            # !badges @user → view that user's badge collection
+            # !badges [page/rarity] → badge shop
+            first = args[1] if len(args) > 1 else ""
+            if first.startswith("@") or (
+                first
+                and not first.isdigit()
+                and first.lower() not in {
+                    "common","uncommon","rare","epic","legendary","mythic","exclusive"
+                }
+            ):
+                await handle_badges_view(self, user, args)
+            else:
+                page_arg = first if first.isdigit() else "1"
+                await handle_shop_badges(self, user, ["shop", "badges", page_arg])
+
+        elif cmd == "titles":
             await handle_badges_cmd(self, user, args)
 
         elif cmd == "privacy":
@@ -3910,6 +3940,30 @@ class HangoutBot(BaseBot):
 
         elif cmd == "badgeprices":
             await handle_badgeprices(self, user, args)
+
+        elif cmd == "buybadge":
+            await handle_buybadge_cmd(self, user, args)
+
+        elif cmd in {"marketbadges", "badgemarkets"}:
+            await handle_badgemarket_nav(self, user, args)
+
+        elif cmd == "sellbadge":
+            await handle_badgelist(self, user, args)
+
+        elif cmd == "cancelbadge":
+            await handle_badgecancel(self, user, args)
+
+        elif cmd == "staffbadge":
+            await handle_staffbadge(self, user, args)
+
+        elif cmd == "emojitest":
+            await handle_emojitest(self, user, args)
+
+        elif cmd == "disableemoji":
+            await handle_disableemoji(self, user, args)
+
+        elif cmd == "enableemoji":
+            await handle_enableemoji(self, user, args)
 
         # ── Event commands ────────────────────────────────────────────────────
         elif cmd == "event":
