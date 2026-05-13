@@ -1,0 +1,169 @@
+UPDATE 3.1G HOTFIX — FIX BJADMIN/BJTEST ROUTING + BLACKJACK SHOE PERSISTENCE
+
+Current live issues:
+1. !bjadmin still shows old !bjforce help.
+2. !bjadmin status incorrectly shows the same help menu instead of real BJ status.
+3. !bjforce twentyone 4ktreymarion crashes.
+4. New !bjtest redesign was not fully applied.
+5. !bjforce should only be a hidden legacy alias, not the main testing command.
+6. Blackjack shoe/deck still does NOT save/restore correctly after bot restart/crash.
+7. After restart, !bjshoe appears to reset instead of loading the saved shoe.
+8. The shoe must persist even when no active round exists.
+
+Goal:
+Make !bjadmin, !bjtest, and blackjack shoe persistence reliable.
+
+Do not change tokens.
+Do not change room ID.
+Do not wipe data.
+Do not reset balances, VIP, badges, market, mining/fishing, leaderboards, donations, daily streaks, teleports, bot spawns, or player data.
+Do not change poker.
+Do not change normal blackjack odds.
+Do not expose !bjadmin, !bjtest, or !bjforce in public help.
+Do not create many separate blackjack admin commands.
+Use !bjadmin and !bjtest subcommands.
+
+==================================================
+PART 1 — FIX BJADMIN PARSER
+==================================================
+
+!bjadmin must parse subcommands correctly.
+
+Examples:
+
+!bjadmin
+sub = help
+
+!bjadmin status
+sub = status
+
+!bjadmin table
+sub = table
+
+!bjadmin settings
+sub = settings
+
+Do not make every !bjadmin subcommand show help.
+
+Parser logic:
+
+raw_args = list(args or [])
+
+if raw_args and raw_args[0].lower() == "bjadmin":
+    raw_args = raw_args[1:]
+
+sub = raw_args[0].lower() if raw_args else "help"
+rest = raw_args[1:]
+
+Then route:
+help -> show permission menu
+status -> show BJ status
+table -> show table
+players -> show players
+shoe -> show shoe
+health -> show health
+settings -> show settings
+
+==================================================
+PART 2 — FIX !BJADMIN MAIN MENU
+==================================================
+
+When owner types !bjadmin, do NOT show old !bjforce help.
+
+Expected owner output:
+
+🛠️ BJ Staff Commands
+!bjadmin status/table/players
+!bjadmin shoe/health
+
+Second message:
+
+🛠️ BJ Manager Commands
+!bjadmin pause/resume
+!bjadmin cancel/refund/restore
+
+Third message:
+
+🛠️ BJ Admin Settings
+!bjadmin settings
+!bjadmin set timer/minbet/maxbet/shuffle
+
+Fourth message:
+
+👑 BJ Owner Commands
+!bjadmin resetshoe/unlock
+!bjadmin emergencyrefund
+!bjtest — testing system
+
+Fifth message:
+
+🧪 BJ Test Commands
+!bjtest status/clear
+!bjtest mode fake|shoe|payout
+!bjtest natural/suited/perfect21/charlie @user
+
+Rules:
+- Prefer whisper.
+- Keep each message under 220 characters.
+- Do not show !bjforce as the main help.
+- !bjforce is legacy hidden alias only.
+- Do not show owner-only commands to normal staff.
+
+==================================================
+PART 3 — FIX !BJADMIN STATUS
+==================================================
+
+Command:
+!bjadmin status
+
+Expected:
+
+🃏 BJ Status
+Phase: [idle/lobby/round]
+Players: [count]
+Timer: [seconds]s
+Round: active/inactive
+
+If no active round:
+
+🃏 BJ Status
+No active blackjack round.
+
+Do not show help when subcommand is status.
+
+==================================================
+PART 4 — FIX !BJADMIN TABLE
+==================================================
+
+Command:
+!bjadmin table
+
+If active round, show current table:
+
+AceSinatra:
+Dealer Cards: A♦️[?]=11
+
+AceSinatra:
+Player Cards:
+@4ktreyMarion: J♦️ K♣️=20
+@User2: 9♥️ 10♠️=19
+
+Actions: !hit / !stand / !double
+Timer: 15s
+
+If no active round:
+
+⚠️ No active blackjack table.
+
+==================================================
+PART 5 — FIX !BJADMIN PLAYERS
+==================================================
+
+Command:
+!bjadmin players
+
+Expected:
+
+🃏 BJ Players
+@4ktreyMarion — 10,000c — active
+@

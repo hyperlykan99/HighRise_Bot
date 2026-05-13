@@ -6097,6 +6097,39 @@ def load_bj_shoe_state() -> "dict | None":
     return dict(row) if row else None
 
 
+def save_rbj_shoe_state(shoe_json: str, decks_count: int, cards_remaining: int) -> None:
+    """Upsert the dedicated blackjack_shoe_state row (game='rbj')."""
+    from datetime import datetime as _dt
+    conn = get_connection()
+    now  = _dt.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+    conn.execute(
+        """
+        INSERT INTO blackjack_shoe_state
+            (game, shoe_json, decks_count, cards_remaining,
+             last_saved_at, loaded_from_restart, rebuild_reason)
+        VALUES ('rbj', ?, ?, ?, ?, 0, '')
+        ON CONFLICT(game) DO UPDATE SET
+            shoe_json       = excluded.shoe_json,
+            decks_count     = excluded.decks_count,
+            cards_remaining = excluded.cards_remaining,
+            last_saved_at   = excluded.last_saved_at
+        """,
+        (shoe_json, decks_count, cards_remaining, now),
+    )
+    conn.commit()
+    conn.close()
+
+
+def load_rbj_shoe_state() -> "dict | None":
+    """Return the blackjack_shoe_state row for game='rbj', or None."""
+    conn = get_connection()
+    row  = conn.execute(
+        "SELECT * FROM blackjack_shoe_state WHERE game = 'rbj'"
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
 def save_casino_player(mode: str, data: dict) -> None:
     """Upsert a player row in casino_active_players."""
     from datetime import datetime as _dt

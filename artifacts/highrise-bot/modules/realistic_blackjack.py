@@ -248,6 +248,44 @@ def _force_shoe_front() -> None:
 
 # ─── DB persistence ───────────────────────────────────────────────────────────
 
+def _save_rbj_shoe() -> None:
+    """Persist the current RBJ shoe to a dedicated DB row so it survives round resets."""
+    try:
+        shoe_json = json.dumps({
+            "cards": _shoe._cards,
+            "total": _shoe._total,
+            "decks": _shoe._decks,
+        })
+        db.save_rbj_shoe_state(shoe_json, _shoe._decks, _shoe.remaining)
+    except Exception as exc:
+        print(f"[RBJ] _save_rbj_shoe error: {exc}")
+
+
+def _load_rbj_shoe() -> bool:
+    """Load the persisted RBJ shoe from DB. Returns True if restored successfully."""
+    try:
+        row = db.load_rbj_shoe_state()
+        if not row:
+            return False
+        shoe_data = json.loads(row.get("shoe_json") or "{}")
+        if isinstance(shoe_data, dict) and shoe_data.get("cards"):
+            cards = shoe_data["cards"]
+            if len(cards) >= 15:
+                _shoe._cards = cards
+                _shoe._total = int(shoe_data.get("total", len(cards)))
+                _shoe._decks = int(shoe_data.get("decks", 6))
+                print(f"[RBJ] Shoe loaded from standalone DB: {_shoe.remaining} cards")
+                return True
+        elif isinstance(shoe_data, list) and len(shoe_data) >= 15:
+            _shoe._cards = shoe_data
+            _shoe._total = max(len(shoe_data), _shoe._total)
+            print(f"[RBJ] Shoe loaded (list) from standalone DB: {_shoe.remaining} cards")
+            return True
+    except Exception as exc:
+        print(f"[RBJ] _load_rbj_shoe error: {exc}")
+    return False
+
+
 def _save_table_state() -> None:
     try:
         shoe_snapshot = json.dumps({
@@ -268,6 +306,7 @@ def _save_table_state() -> None:
             "active":               1 if _state.phase != "idle" else 0,
             "recovery_required":    0,
         })
+        _save_rbj_shoe()
     except Exception as exc:
         print(f"[RBJ] save_table_state error: {exc}")
 
@@ -364,6 +403,7 @@ async def _start_round(bot: BaseBot):
 
     if _shoe.needs_shuffle(threshold):
         _shoe.shuffle_now(decks)
+        _save_rbj_shoe()
         await bot.highrise.chat(
             f"🔀 Shoe reshuffled! {_shoe.total} cards ({decks} decks) ready."
         )
@@ -1057,6 +1097,7 @@ def reset_table() -> str:
             print(f"[RBJ] reset_table refund error for {p.username}: {exc}")
     _cancel_task(_state.lobby_task, "Countdown")
     _cancel_task(_state.action_task, "Action timer")
+    _save_rbj_shoe()
     db.clear_casino_table("rbj")
     _state.reset()
     print("[RBJ] Table reset by admin")
@@ -1104,6 +1145,9 @@ def _restore_player_from_db(pd: dict) -> "_Player":
 
 
 async def startup_rbj_recovery(bot: BaseBot) -> None:
+    # Always try to restore the shoe — even when no active round exists
+    _load_rbj_shoe()
+
     row = db.load_casino_table("rbj")
     if not row or not row.get("active") or row.get("phase", "idle") == "idle":
         return
@@ -1129,9 +1173,11 @@ async def startup_rbj_recovery(bot: BaseBot) -> None:
                     _shoe._total = int(shoe_data.get("total", len(_shoe._cards)))
                     _shoe._decks = int(shoe_data.get("decks", 6))
                     print(f"[RECOVERY] RBJ shoe restored: {_shoe.remaining} cards")
+                    _save_rbj_shoe()
                 elif isinstance(shoe_data, list) and shoe_data:
                     _shoe._cards = shoe_data
                     _shoe._total = max(len(shoe_data), _shoe._total)
+                    _save_rbj_shoe()
             except Exception as exc:
                 print(f"[RECOVERY] RBJ shoe restore error: {exc}")
 
@@ -2000,6 +2046,7 @@ async def _cmd_cancel(bot: BaseBot, user: User):
         db.add_ledger_entry(p.user_id, p.username, refund, "rbj_cancel_refund")
     _cancel_task(_state.lobby_task, "Countdown")
     _cancel_task(_state.action_task, "Action timer")
+    _save_rbj_shoe()
     db.clear_casino_table("rbj")
     _state.reset()
     await bot.highrise.chat("🃏 BlackJack cancelled. All bets refunded.")
@@ -2113,6 +2160,7 @@ async def _cmd_rbj_refund(bot: BaseBot, user: User):
 
     _cancel_task(_state.lobby_task, "Countdown")
     _cancel_task(_state.action_task, "Action timer")
+    _save_rbj_shoe()
     db.clear_casino_table("rbj")
     _state.reset()
     print(f"[RBJ] /rbj refund: {refunded:,}c total")
