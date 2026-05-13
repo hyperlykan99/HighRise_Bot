@@ -1357,6 +1357,12 @@ REGISTRY: dict[str, Cmd] = {
                            perm="owner"),
     "luxeadmin":       Cmd("banker", "admin",   False, True,  False, perm="admin"),
     "vipadmin":        Cmd("banker", "admin",   False, True,  False, perm="admin"),
+    # 3.1K — Event sub-command aliases
+    "eventschedule":   Cmd("host", "events",    True,  True,  True),
+    "eventactive":     Cmd("host", "events",    True,  True,  True),
+    "eventnext":       Cmd("host", "events",    True,  True,  True),
+    "seasonpayout":    Cmd("host", "admin",     False, True,  False, perm="admin"),
+    "payouthistory":   Cmd("host", "admin",     False, True,  False, perm="admin"),
     # 3.1J — Player Retention Missions
     "missions":        Cmd("host", "retention", True,  True,  True,
                            aliases=("dailymissions", "dailygoals")),

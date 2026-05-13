@@ -1899,6 +1899,13 @@ async def handle_fishluck(bot: BaseBot, user: User, args: list[str]) -> None:
         lines.append(f"Event: +{s['event_luck']}")
     lines.append(f"Total: {s['luck_total']}")
     lines.append(f"Speed: {s['interval_secs']}s | Auto: {s['duration_mins']}m")
+    try:
+        from modules.events import get_event_effect as _gee
+        _eff = _gee()
+        if _eff.get("xp", 1.0) > 1.0:
+            lines.append(f"⭐ XP Event: {_eff['xp']:.0f}x active")
+    except Exception:
+        pass
     await _w(bot, user.id, "\n".join(lines)[:249])
 
 

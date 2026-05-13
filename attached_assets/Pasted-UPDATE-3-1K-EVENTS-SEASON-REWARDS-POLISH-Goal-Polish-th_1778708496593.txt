@@ -1,0 +1,210 @@
+UPDATE 3.1K — EVENTS + SEASON REWARDS POLISH
+
+Goal:
+Polish the room event system and seasonal rewards so players have reasons to return during scheduled events and compete weekly.
+
+Main features:
+1. Better !events and !event active
+2. Scheduled room events
+3. Mining Rush / Fishing Frenzy / Double XP / Collection Hunt
+4. Event boosts shown in !luck / !mineluck / !fishluck
+5. Event announcements
+6. Weekly season rewards
+7. Manual admin payout for season winners
+8. Season reward history
+9. Help/guide updates
+10. No HR Gold rewards yet
+
+Currencies:
+🪙 ChillCoins = gameplay currency
+🎫 Luxe Tickets = premium currency
+
+Do not change tokens.
+Do not change room ID.
+Do not wipe database.
+Do not reset balances, tickets, VIP, badges, market, casino, blackjack, poker, mining/fishing data, collection book, tools, rods, boosts, missions, XP, levels, or player inventory.
+Do not re-add reward caps.
+Do not add “cap reached” or “daily cap left” text.
+Do not add HR Gold rewards yet.
+Do not break Luxe shop.
+Do not break timer-based automine/autofish.
+Do not break daily/weekly missions.
+Do not break collection book.
+Do not break season leaderboard data.
+
+==================================================
+PART 1 — STABILITY FIRST
+==================================================
+
+Before changing anything, run:
+
+!launchcheck
+!commandissues
+!checkcommands
+!checkcommands all
+!checkhelp
+!bothealth
+!stability status
+
+Expected:
+- Launch Check OK
+- no command issues
+- no help issues
+- Err: none
+
+Fix baseline issues first.
+
+==================================================
+PART 2 — EVENT SYSTEM OVERVIEW
+==================================================
+
+Create/polish room events that can be active, scheduled, announced, and shown in player commands.
+
+Core event types:
+
+Mining Rush
+- +2 mining luck
+- optional +1 mining speed
+- affects !mine, !automine, !automine luxe
+
+Fishing Frenzy
+- +2 fishing luck
+- optional +1 fishing speed
+- affects !fish, !autofish, !autofish luxe
+
+Double XP Hour
+- 2x XP from mining, fishing, trivia, missions, games
+- does not double ChillCoins unless explicitly configured
+
+Collection Hunt
+- +2 collection luck
+- better chance for missing collection items if system supports it
+- if missing-item targeting is risky, apply +2 general mining/fishing luck only
+
+Casino Night
+- bonus season points for casino activity
+- no odds changes
+- no payout changes
+
+Trivia Rush
+- bonus XP and season points for trivia
+- no reward caps
+
+Rules:
+- Events should affect activity/boosts, not guarantee rare items.
+- Events must appear in !luck / !mineluck / !fishluck if relevant.
+- Events must not add HR Gold rewards.
+- Events must not create reward caps.
+
+==================================================
+PART 3 — PLAYER EVENT COMMANDS
+==================================================
+
+Add or polish:
+
+!events
+!event
+!event active
+!event schedule
+!event next
+
+Expected !events:
+
+🎉 Room Events
+Active: Mining Rush
+Next: Fishing Frenzy in 2h
+Use !event active or !event schedule.
+
+If no active event:
+
+🎉 Room Events
+Active: none
+Next: Mining Rush at 7 PM
+Use !event schedule.
+
+Expected !event active:
+
+🎉 Active Event
+Mining Rush
+Bonus: +2 mining luck
+Ends in: 42m
+
+If none:
+
+🎉 Active Event
+No active event right now.
+Use !event schedule.
+
+Expected !event schedule:
+
+📅 Event Schedule
+Mon: Mining Rush
+Wed: Fishing Frenzy
+Fri: Double XP
+Sun: Collection Hunt
+
+Rules:
+- Keep each message under 220 characters.
+- Whisper if long.
+- Do not show admin commands in public output.
+- Use simple time display.
+- If exact schedule system is not ready, show configured upcoming events only.
+
+==================================================
+PART 4 — EVENT BOOST STACK INTEGRATION
+==================================================
+
+Events must show inside luck stack commands.
+
+Update:
+
+!luck
+!mineluck
+!fishluck
+
+Example:
+
+⛏️ Mining Stack
+Base: +1
+Tool: +5
+VIP: +2
+Event: +2
+Total: 10
+Speed: 8s
+Auto: 15m
+
+Fishing example:
+
+🎣 Fishing Stack
+Base: +1
+Rod: +5
+Potion: +3
+Event: +2
+Total: 11
+Speed: 9s
+Auto: 15m
+
+Rules:
+- Event bonuses must be included in total luck.
+- Expired events must not apply.
+- Event boost should not be hidden from players.
+- If Double XP is active, show in !luck summary:
+
+⭐ XP Event: 2x active
+
+==================================================
+PART 5 — EVENT ANNOUNCEMENTS
+==================================================
+
+When event starts, announce:
+
+🎉 Event Started!
+⛏️ Mining Rush is active for 1h.
+Bonus: +2 mining luck.
+Use !mineluck.
+
+When event ends:
+
+🎉 Event Ended
+Mining Rush has ended.
+Thanks for

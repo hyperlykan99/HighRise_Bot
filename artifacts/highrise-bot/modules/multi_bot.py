@@ -78,6 +78,9 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "autoconvert": "banker",
     "tipadmin": "banker", "tipconfig": "banker",
     "economydefaults": "banker",
+    # 3.1K — new event sub-command aliases
+    "eventschedule": "host", "eventactive": "host", "eventnext": "host",
+    "seasonpayout": "host", "payouthistory": "host",
     # 3.1J — missions (host owns; any bot responds)
     "missions": "host", "dailymissions": "host", "dailygoals": "host",
     "weekly": "host", "weeklymissions": "host", "weeklygoals": "host",

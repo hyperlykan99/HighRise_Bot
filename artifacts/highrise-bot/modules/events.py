@@ -73,6 +73,42 @@ EVENTS: dict[str, dict] = {
         "desc": "2x XP, 2x Coins, 2x Mining, Tax-Free, 20% Shop Sale, +1 event pt/round. "
                 "All boosts active simultaneously!",
     },
+    # ── 3.1K Room event types ────────────────────────────────────────────────
+    "mining_rush": {
+        "name":       "Mining Rush",
+        "emoji":      "⛏️",
+        "desc":       "+2 mining luck! Better ore drops for all miners.",
+        "event_type": "room",
+        "boost_desc": "+2 mining luck",
+    },
+    "fishing_frenzy": {
+        "name":       "Fishing Frenzy",
+        "emoji":      "🎣",
+        "desc":       "+2 fishing luck! Better catches for all fishers.",
+        "event_type": "room",
+        "boost_desc": "+2 fishing luck",
+    },
+    "collection_hunt": {
+        "name":       "Collection Hunt",
+        "emoji":      "📖",
+        "desc":       "+2 mining & fishing luck! Hunt for rare collection items.",
+        "event_type": "room",
+        "boost_desc": "+2 mining & fishing luck",
+    },
+    "casino_night": {
+        "name":       "Casino Night",
+        "emoji":      "🎰",
+        "desc":       "Bonus season points for casino activity. No odds changes!",
+        "event_type": "room",
+        "boost_desc": "+season pts for casino",
+    },
+    "trivia_rush": {
+        "name":       "Trivia Rush",
+        "emoji":      "🎯",
+        "desc":       "Bonus XP and season points for every trivia win!",
+        "event_type": "room",
+        "boost_desc": "+XP & season pts for trivia",
+    },
     # ── Mining-specific events (EventHost owned, stored in mining event table) ──
     "lucky_rush": {
         "name": "Lucky Rush",
@@ -330,6 +366,12 @@ _SHORT_DISPLAY: dict[str, str] = {
     "prismatic_tide":         "Prism Tide",
     "exotic_tide":            "Exotic Tide",
     "ultimate_fishing_rush":  "Ult Fish Rush",
+    # 3.1K room events
+    "mining_rush":            "Mining Rush",
+    "fishing_frenzy":         "Fishing Frenzy",
+    "collection_hunt":        "Collection Hunt",
+    "casino_night":           "Casino Night",
+    "trivia_rush":            "Trivia Rush",
 }
 
 
@@ -550,6 +592,9 @@ def get_event_effect() -> dict:
         "legendary_plus_fish_chance_boost":  0.0,
         "prismatic_fish_chance_boost":       0.0,
         "exotic_fish_chance_boost":          0.0,
+        # 3.1K room event flags
+        "casino_night_active":               False,
+        "trivia_rush_active":                False,
     }
     if info:
         eid = info["event_id"]
@@ -573,6 +618,18 @@ def get_event_effect() -> dict:
             base["casino_bet_mult"]  = 2.0
             base["trivia_coins_pct"] = 0.50
             base["mining_boost"]     = True
+        elif eid == "mining_rush":
+            base["mining_luck_boost"] = 0.2          # → event_luck = 2
+        elif eid == "fishing_frenzy":
+            base["fish_luck_boost"]   = 0.2
+        elif eid == "collection_hunt":
+            base["mining_luck_boost"] = 0.2
+            base["fish_luck_boost"]   = 0.2
+        elif eid == "casino_night":
+            base["casino_night_active"] = True
+        elif eid == "trivia_rush":
+            base["trivia_rush_active"]  = True
+            base["xp"]                  = max(base.get("xp", 1.0), 1.5)
         elif eid == "time_exp_boost":
             base["time_exp_multiplier"] = 2.0
         elif eid == "event_points_boost":
@@ -623,8 +680,7 @@ async def _event_timer(
         print(f"[EVENTS] Timer expired: '{event_id}' ended naturally.")
         try:
             await bot.highrise.chat(
-                f"⏰ {name} event has ended! Thanks for participating. "
-                "Use !eventshop to spend your event points."
+                f"🎉 Event Ended\n{name} has ended.\nThanks for participating!"[:249]
             )
         except Exception as exc:
             print(f"[EVENTS] timer chat error: {exc}")
@@ -660,9 +716,56 @@ def _time_remaining(expires_at_iso: str) -> str:
 # Public commands
 # ---------------------------------------------------------------------------
 
+async def _handle_event_active(bot: BaseBot, user: User) -> None:
+    """Show currently active event in the polished 3.1K format."""
+    active = _get_all_active_events()
+    if not active:
+        await _w(bot, user.id,
+                 "🎉 Active Event\nNo active event right now.\nUse !event schedule.")
+        return
+    ev        = active[0]
+    left      = _time_remaining(ev["ends_at"]) if ev["ends_at"] else "?"
+    info      = EVENTS.get(ev["event_id"], {})
+    boost_txt = info.get("boost_desc", info.get("desc", "")[:60])
+    await _w(bot, user.id,
+             (f"🎉 Active Event\n"
+              f"{ev.get('emoji','🎪')} {ev['name']}\n"
+              f"Bonus: {boost_txt}\n"
+              f"Ends in: {left}")[:249])
+
+
+async def _handle_event_schedule(bot: BaseBot, user: User) -> None:
+    """Show the weekly event schedule stored in room_settings."""
+    sched_str = db.get_room_setting(
+        "event_weekly_schedule",
+        "Mon:mining_rush,Wed:fishing_frenzy,Fri:double_xp,Sun:collection_hunt",
+    )
+    lines = ["📅 Event Schedule"]
+    for entry in sched_str.split(","):
+        entry = entry.strip()
+        if ":" in entry:
+            day, eid = entry.split(":", 1)
+            name = EVENTS.get(eid.strip(), {}).get("name", eid.strip())
+            lines.append(f"{day.strip()}: {name}")
+    if len(lines) == 1:
+        lines.append("No schedule configured.")
+    await _w(bot, user.id, "\n".join(lines)[:249])
+
+
 async def handle_event(bot: BaseBot, user: User,
                        args: list[str] | None = None) -> None:
-    """/event [number] [mins] — show active event, or start one by number (manager+)."""
+    """/event [active|schedule|next|number [mins]] — show or start events."""
+    sub = (args[1].lower() if args and len(args) >= 2 else "")
+    if sub == "active":
+        await _handle_event_active(bot, user)
+        return
+    if sub == "schedule":
+        await _handle_event_schedule(bot, user)
+        return
+    if sub in ("next", "nextevent"):
+        await handle_nextevent(bot, user)
+        return
+
     # /event <number> [mins] — staff shortcut to start by catalog number
     if args and len(args) >= 2 and args[1].isdigit():
         if can_manage_economy(user.username):
@@ -700,30 +803,35 @@ async def handle_event(bot: BaseBot, user: User,
 
 
 async def handle_events(bot: BaseBot, user: User) -> None:
-    """!events — show today's ChillTopia activity schedule."""
-    try:
-        ag     = db.get_auto_game_settings()
-        ae     = db.get_auto_event_settings()
-        mg_min = ag.get("auto_minigame_interval", 10)
-        ae_min = ae.get("auto_event_interval", 60)
-        mg_on  = bool(ag.get("auto_minigames_enabled", 1))
-        ae_on  = bool(ae.get("auto_events_enabled", 1))
-    except Exception:
-        mg_min, ae_min, mg_on, ae_on = 10, 60, True, True
-    try:
-        pt_on = db.get_room_setting("party_tip_enabled", "1") == "1"
-    except Exception:
-        pt_on = True
-    mg_str = f"~{mg_min} min" if mg_on else "paused"
-    ae_str = f"~{ae_min} min" if ae_on else "paused"
-    pt_str = "active" if pt_on else "off"
-    await _w(bot, user.id, (
-        f"📅 ChillTopia Events\n"
-        f"🎲 Mini Games — every {mg_str}\n"
-        f"🎪 Room Events — every {ae_str}\n"
-        f"🎉 Party Tips — {pt_str}\n"
-        f"Type !nextevent."
-    )[:249])
+    """!events — show active event and next scheduled event."""
+    active     = _get_all_active_events()
+    active_str = active[0]["name"] if active else "none"
+    active_left = ""
+    if active and active[0]["ends_at"]:
+        active_left = f" ({_time_remaining(active[0]['ends_at'])} left)"
+
+    next_id   = db.get_auto_event_setting_str("next_event_id", "")
+    next_at   = db.get_auto_event_setting_str("next_event_at", "")
+    next_name = (
+        _CATALOG_BY_ID.get(next_id, {}).get("name", "")
+        or EVENTS.get(next_id, {}).get("name", "")
+        if next_id else ""
+    )
+    if next_at and not active:
+        left     = _time_remaining(next_at)
+        next_str = f"{next_name} in {left}" if next_name else f"in {left}"
+    elif next_name and active:
+        next_str = f"{next_name} (after current)"
+    else:
+        next_str = "see !event schedule"
+
+    lines = [
+        "🎉 Room Events",
+        f"Active: {active_str}{active_left}",
+        f"Next: {next_str}",
+        "Use !event active or !event schedule.",
+    ]
+    await _w(bot, user.id, "\n".join(lines)[:249])
 
 
 async def handle_nextevent(bot: BaseBot, user: User) -> None:
@@ -948,11 +1056,20 @@ async def handle_startevent(bot: BaseBot, user: User, args: list[str]) -> None:
     _event_task = asyncio.create_task(_event_timer(bot, event_id, duration))
 
     try:
-        await bot.highrise.chat(
-            f"🎪 {name} is LIVE for {dur_label}! "
-            f"{ev.get('desc','')[:80]} "
-            "Use !eventshop!"[:249]
-        )
+        boost_desc = ev.get("boost_desc", "")
+        ev_emoji   = ev.get("emoji", "🎪")
+        if boost_desc:
+            await bot.highrise.chat(
+                (f"🎉 Event Started!\n"
+                 f"{ev_emoji} {name} is active for {dur_label}.\n"
+                 f"Bonus: {boost_desc}.\nUse !events.")[:249]
+            )
+        else:
+            await bot.highrise.chat(
+                (f"🎪 {name} is LIVE for {dur_label}! "
+                 f"{ev.get('desc','')[:80]} "
+                 "Use !eventshop!")[:249]
+            )
     except Exception as exc:
         print(f"[EVENTS] startevent announce error: {exc}")
 

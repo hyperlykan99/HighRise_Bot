@@ -4080,6 +4080,18 @@ class HangoutBot(BaseBot):
         elif cmd == "event":
             await handle_event(self, user, args)
 
+        elif cmd == "eventschedule":
+            await handle_event(self, user, ["event", "schedule"])
+
+        elif cmd == "eventactive":
+            await handle_event(self, user, ["event", "active"])
+
+        elif cmd == "eventnext":
+            await handle_nextevent(self, user)
+
+        elif cmd in {"seasonpayout", "payouthistory"}:
+            await handle_retentionadmin(self, user, ["retentionadmin", cmd, *args[1:]])
+
         elif cmd == "events":
             await handle_events(self, user)
 
@@ -5761,13 +5773,20 @@ class HangoutBot(BaseBot):
 
         elif cmd in {"luck", "myluck"}:
             from modules.luck_stack import get_mine_luck_stack, get_fish_luck_stack
-            _ms = get_mine_luck_stack(user.id, user.username)
-            _fs = get_fish_luck_stack(user.id, user.username)
+            from modules.events import get_event_effect as _luck_gee
+            _ms  = get_mine_luck_stack(user.id, user.username)
+            _fs  = get_fish_luck_stack(user.id, user.username)
+            _eff = _luck_gee()
+            _xp_line = (f"\n⭐ XP Event: {_eff['xp']:.0f}x active"
+                        if _eff.get("xp", 1.0) > 1.0 else "")
+            _ev_m = f" (+{_ms['event_luck']} event)" if _ms["event_luck"] else ""
+            _ev_f = f" (+{_fs['event_luck']} event)" if _fs["event_luck"] else ""
             await self.highrise.send_whisper(
                 user.id,
                 (f"🍀 Your Luck\n"
-                 f"⛏️ {_ms['luck_total']} luck | {_ms['interval_secs']}s/mine\n"
-                 f"🎣 {_fs['luck_total']} luck | {_fs['interval_secs']}s/cast\n"
+                 f"⛏️ {_ms['luck_total']} luck{_ev_m} | {_ms['interval_secs']}s/mine\n"
+                 f"🎣 {_fs['luck_total']} luck{_ev_f} | {_fs['interval_secs']}s/cast"
+                 f"{_xp_line}\n"
                  f"!mineluck or !fishluck for details.")[:249])
 
         elif cmd == "setautofish":

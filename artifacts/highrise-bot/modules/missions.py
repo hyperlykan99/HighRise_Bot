@@ -602,12 +602,21 @@ async def handle_topseason(bot: BaseBot, user: User, args: list) -> None:
 # ---------------------------------------------------------------------------
 
 async def handle_seasonrewards(bot: BaseBot, user: User, args: list) -> None:
-    await _w(bot, user.id,
-             "🏆 Season Rewards\n"
-             "Season winners are recognized weekly.\n"
-             "Top player per category gets a shout-out.\n"
-             "Rewards are manual — admin announces.\n"
-             "Use !topseason [category] to see standings.")
+    sk   = _season_key()
+    hist = db.get_season_reward_history(sk, limit=5)
+    lines = [
+        "🏆 Season Rewards",
+        f"Season: {sk}",
+        "Top per category earns a shout-out + coins.",
+        "Admin: !retentionadmin payout <cat> <user> <coins>",
+    ]
+    if hist:
+        lines.append("Recent payouts:")
+        for r in hist[:3]:
+            lines.append(f"  @{r['username']} ({r['category']}): {r['reward_coins']:,} 🪙")
+    else:
+        lines.append("No payouts recorded yet this season.")
+    await _w(bot, user.id, "\n".join(lines)[:249])
 
 
 # ---------------------------------------------------------------------------
@@ -812,8 +821,68 @@ async def handle_retentionadmin(bot: BaseBot, user: User, args: list) -> None:
         except Exception:
             await _w(bot, user.id, "No event data available.")
 
+    elif sub == "payout":
+        # !retentionadmin payout <category> <username> <coins>
+        if len(args) < 5:
+            await _w(bot, user.id,
+                     "Usage: !retentionadmin payout <cat> <user> <coins>\n"
+                     "Categories: mining fishing collection trivia casino tipper")
+            return
+        cat         = args[2].lower()
+        target_uname = args[3].lower()
+        try:
+            amount = int(args[4])
+            if amount <= 0:
+                raise ValueError
+        except ValueError:
+            await _w(bot, user.id, "Amount must be a positive number.")
+            return
+        target_uid = db.get_user_id_by_username(target_uname)
+        if not target_uid:
+            await _w(bot, user.id, f"User '{target_uname}' not found in database.")
+            return
+        db.adjust_balance(target_uid, amount)
+        db.record_season_reward(target_uid, target_uname, sk, cat, amount, user.username)
+        try:
+            await bot.highrise.chat(
+                (f"🏆 Season Winner!\n"
+                 f"Category: {cat.title()}\n"
+                 f"Winner: @{target_uname}\n"
+                 f"Prize: {amount:,} 🪙\n"
+                 f"Congrats!")[:249]
+            )
+        except Exception:
+            pass
+        await _w(bot, user.id,
+                 f"✅ Paid {amount:,} 🪙 to @{target_uname} for {cat} season winner.")
+
+    elif sub == "payouthistory":
+        hist = db.get_season_reward_history(sk, limit=10)
+        if not hist:
+            await _w(bot, user.id, f"No payouts yet this season ({sk}).")
+            return
+        lines = [f"📋 Payout History [{sk}]"]
+        for r in hist:
+            lines.append(f"@{r['username']} {r['category']}: {r['reward_coins']:,} 🪙")
+        await _w(bot, user.id, "\n".join(lines)[:249])
+
+    elif sub == "schedule":
+        # !retentionadmin schedule [set <day:eid,...>|show]
+        if len(args) >= 4 and args[2].lower() == "set":
+            new_sched = args[3]
+            db.set_room_setting("event_weekly_schedule", new_sched)
+            await _w(bot, user.id, f"✅ Event schedule updated: {new_sched}")
+        else:
+            sched = db.get_room_setting("event_weekly_schedule",
+                                        "Mon:mining_rush,Wed:fishing_frenzy,"
+                                        "Fri:double_xp,Sun:collection_hunt")
+            await _w(bot, user.id, f"📅 Event Schedule:\n{sched}")
+
     else:
         await _w(bot, user.id,
                  "!retentionadmin settings|stats\n"
                  "!retentionadmin resetseason\n"
-                 "!retentionadmin eventstatus")
+                 "!retentionadmin eventstatus\n"
+                 "!retentionadmin payout <cat> <user> <coins>\n"
+                 "!retentionadmin payouthistory\n"
+                 "!retentionadmin schedule set <day:eid,...>")

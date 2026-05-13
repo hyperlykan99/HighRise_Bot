@@ -2402,6 +2402,23 @@ def _migrate_db():
     except Exception:
         pass
 
+    # 3.1K — Season reward history
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS season_reward_history (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id      TEXT NOT NULL,
+                username     TEXT NOT NULL DEFAULT '',
+                season_key   TEXT NOT NULL,
+                category     TEXT NOT NULL DEFAULT '',
+                reward_coins INTEGER NOT NULL DEFAULT 0,
+                awarded_by   TEXT NOT NULL DEFAULT '',
+                awarded_at   TEXT NOT NULL DEFAULT ''
+            )
+        """)
+    except Exception:
+        pass
+
     conn.commit()
     conn.close()
 
@@ -14174,3 +14191,54 @@ def reset_missions_for_user(user_id: str, period_key: str) -> None:
         conn.close()
     except Exception:
         pass
+
+
+def get_user_id_by_username(username: str) -> str | None:
+    """Return user_id for the given username (case-insensitive), or None."""
+    try:
+        conn = get_connection()
+        row  = conn.execute(
+            "SELECT user_id FROM users WHERE LOWER(username)=?",
+            (username.lower(),),
+        ).fetchone()
+        conn.close()
+        return row["user_id"] if row else None
+    except Exception:
+        return None
+
+
+def record_season_reward(
+    user_id: str,
+    username: str,
+    season_key: str,
+    category: str,
+    reward_coins: int,
+    awarded_by: str,
+) -> None:
+    try:
+        conn = get_connection()
+        conn.execute(
+            """INSERT INTO season_reward_history
+                   (user_id, username, season_key, category, reward_coins, awarded_by, awarded_at)
+               VALUES (?, ?, ?, ?, ?, ?, datetime('now'))""",
+            (user_id, username, season_key, category, reward_coins, awarded_by),
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+
+def get_season_reward_history(season_key: str, limit: int = 10) -> list[dict]:
+    try:
+        conn = get_connection()
+        rows = conn.execute(
+            """SELECT username, category, reward_coins, awarded_by, awarded_at
+               FROM season_reward_history WHERE season_key=?
+               ORDER BY awarded_at DESC LIMIT ?""",
+            (season_key, limit),
+        ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+    except Exception:
+        return []

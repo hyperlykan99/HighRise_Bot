@@ -591,6 +591,9 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     "economydefaults",
     "luxeadmin",
     "vipadmin",
+    # 3.1K event sub-command aliases
+    "eventschedule", "eventactive", "eventnext",
+    "seasonpayout", "payouthistory",
     # 3.1J missions
     "missions", "dailymissions", "dailygoals",
     "weekly", "weeklymissions", "weeklygoals",
