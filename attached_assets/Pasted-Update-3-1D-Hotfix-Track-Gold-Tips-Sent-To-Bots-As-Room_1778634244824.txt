@@ -1,0 +1,182 @@
+Update 3.1D Hotfix — Track Gold Tips Sent To Bots As Room Donations
+
+Current issue:
+I tipped BankingBot, but I was not marked as a donator.
+I should appear in !topdonators because I tipped gold to the room/bot.
+
+Goal:
+Track real Highrise gold tips sent to approved room bots as room donations.
+
+Do not wipe data.
+Do not change tokens.
+Do not change room ID.
+Do not reset balances, VIP, mining/fishing, casino, party tip, notification, or leaderboard data.
+Do not auto-subscribe users from tips.
+
+==================================================
+PART 1 — TRACK BOT-RECEIVED GOLD TIPS
+==================================================
+
+When a real user tips gold to one of the approved room bots, log it as a room donation.
+
+Approved receiver bots:
+BankingBot
+BankerBot
+ChillTopiaMC
+EmceeBot
+Host
+EventHost
+
+If user tips these bots:
+- record donor user_id
+- record donor username
+- record receiver bot username
+- record gold amount
+- record timestamp
+- mark type = room_donation
+
+This should count toward:
+!topdonators
+!topdonors
+!donators
+!donationgoal if donation goal uses gold progress
+
+==================================================
+PART 2 — DO NOT COUNT WRONG TIP TYPES
+==================================================
+
+Do NOT count:
+- Party Tip wallet tips to players
+- !tip all
+- !tip [players] [amount]
+- !goldtip owner-to-player
+- !goldrain
+- player-to-player coin sends
+- blackjack/poker bets
+- mining/fishing rewards
+- VIP coin purchases
+- shop coin purchases
+- bot-to-player tips
+- tips sent by bots
+
+Only count:
+real player gold tips sent TO approved room bots.
+
+==================================================
+PART 3 — DATABASE TABLE / LOGGING
+==================================================
+
+Use existing donation table if available:
+donation_logs
+gold_donations
+room_support_logs
+gold_transactions
+
+If no reliable table exists, create safe table:
+
+room_donations:
+id INTEGER PRIMARY KEY AUTOINCREMENT
+donor_id TEXT
+donor_username TEXT
+receiver_bot TEXT
+amount INTEGER
+source TEXT DEFAULT 'gold_tip_to_bot'
+created_at TEXT
+
+Rules:
+- idempotent migration
+- do not wipe old data
+- amount must be positive integer
+- no duplicate logging for same event if event_id exists
+- if event_id exists, store it and dedupe
+
+==================================================
+PART 4 — THANK YOU MESSAGE WITHOUT AUTO-SUBSCRIBE
+==================================================
+
+When bot receives gold tip:
+
+💛 Thank you for supporting ChillTopia, @Player!
+Your donation: [amount]g
+
+Optional second line:
+To receive room notifications, DM me !subscribe
+
+Important:
+Do NOT auto-subscribe the user.
+Do NOT turn notification categories ON.
+Do NOT give automatic VIP unless already intentionally implemented.
+
+==================================================
+PART 5 — TOP DONATORS COMMAND
+==================================================
+
+!topdonators should read from room donation logs.
+
+Expected:
+
+💛 Top Donators
+1. @4ktreyMarion — [amount]g
+
+If only I tipped BankingBot, I should show as #1.
+
+Aliases:
+!topdonors = !topdonators
+!donators = !topdonators
+
+==================================================
+PART 6 — DONATION GOAL INTEGRATION
+==================================================
+
+If !donationgoal tracks room gold support, include bot-received gold tips in progress.
+
+Example:
+Goal: 1000g
+Progress: [total bot donations]/1000g
+
+If donationgoal uses a different system, do not break it.
+Just report what data source it uses.
+
+==================================================
+PART 7 — DEBUG / OWNER CHECK
+==================================================
+
+Add or polish owner-only command if useful:
+
+!donationdebug @user
+
+Expected:
+💛 Donation Debug
+User: @4ktreyMarion
+Total Donated: [amount]g
+Records: [count]
+Last: [timestamp]
+
+If risky, skip this command.
+
+==================================================
+PART 8 — TESTS
+==================================================
+
+Run:
+
+!commandtest !topdonators
+!commandtest !topdonors
+!topdonators
+!topdonors
+!donationgoal
+!commandissues
+!checkcommands
+
+Then test real flow:
+1. Tip BankingBot 1g.
+2. Wait for bot thank-you/log.
+3. Run !topdonators.
+
+Expected:
+- donor is recorded
+- @4ktreyMarion appears on !topdonators
+- donation amount is correct
+- donationgoal updates if integrated
+- user is NOT auto-subscribed
+- no command issues
