@@ -75,6 +75,9 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "use": "banker",
     "luxeadmin": "banker",
     "vipadmin": "banker",
+    "autoconvert": "banker",
+    "tipadmin": "banker", "tipconfig": "banker",
+    "economydefaults": "banker",
     # Luxe auto time — info is miner/fisher; miner owns combined !autotime
     "autotime": "miner", "minetime": "miner",
     "fishtime": "fisher",

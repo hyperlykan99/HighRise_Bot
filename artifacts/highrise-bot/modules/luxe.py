@@ -576,10 +576,260 @@ async def handle_buyticket(bot: "BaseBot", user: "User", args: list[str]) -> Non
 # !buycoins (legacy) — keep working
 # ---------------------------------------------------------------------------
 
+async def _do_buycoins_max(
+    bot: "BaseBot",
+    user: "User",
+    _silent: bool = False,
+    _whisper_prefix: str = "",
+) -> None:
+    """Buy the best combination of coin packs using all available Luxe Tickets."""
+    db.ensure_user(user.id, user.username)
+    bal = get_luxe_balance(user.id)
+    if bal <= 0:
+        if not _silent:
+            await _w(bot, user.id,
+                     "⚠️ No 🎫 to spend.\n"
+                     "Tip the bot to earn Luxe Tickets!")
+        return
+
+    cl_t, cl_c = get_coinpack("largecoins")
+    cm_t, cm_c = get_coinpack("mediumcoins")
+    cs_t, cs_c = get_coinpack("smallcoins")
+
+    remaining   = bal
+    total_cost  = 0
+    total_coins = 0
+    parts: list[str] = []
+
+    for t, c, lbl in [(cl_t, cl_c, "Large"), (cm_t, cm_c, "Medium"), (cs_t, cs_c, "Small")]:
+        if t > 0 and remaining >= t:
+            qty        = remaining // t
+            cost       = qty * t
+            earned     = qty * c
+            remaining -= cost
+            total_cost  += cost
+            total_coins += earned
+            parts.append(f"{qty}x{lbl} ({cost:,}🎫={earned:,}🪙)")
+
+    if total_cost == 0:
+        min_t = min((t for t in [cs_t, cm_t, cl_t] if t > 0), default=50)
+        if not _silent:
+            await _w(bot, user.id,
+                     f"⚠️ Not enough 🎫. You have {_fc(bal)} 🎫.\n"
+                     f"Minimum: {min_t:,} 🎫 for a pack.")
+        return
+
+    if not deduct_luxe_balance(user.id, user.username, total_cost):
+        await _w(bot, user.id, "⚠️ Transaction failed. Try again.")
+        return
+
+    db.add_balance(user.id, total_coins)
+    log_luxe_transaction(user.id, user.username, "buycoins_max",
+                         total_cost, "luxe", f"+{total_coins} coins")
+    new_bal   = get_luxe_balance(user.id)
+    summary   = " | ".join(parts)
+    prefix    = _whisper_prefix
+    await _w(bot, user.id,
+             f"{prefix}✅ {total_cost:,} 🎫 → {total_coins:,} 🪙\n"
+             f"{summary}\n"
+             f"Remaining: {_fc(new_bal)} 🎫")
+
+
+# ---------------------------------------------------------------------------
+# Auto-convert helpers
+# ---------------------------------------------------------------------------
+
+def _get_autoconvert(user_id: str) -> bool:
+    """Return True if player has auto-convert enabled."""
+    conn = db.get_connection()
+    try:
+        row = conn.execute(
+            "SELECT enabled FROM player_auto_convert WHERE user_id=?",
+            (user_id,)
+        ).fetchone()
+        return bool(row["enabled"]) if row else False
+    except Exception:
+        return False
+    finally:
+        conn.close()
+
+
+def _set_autoconvert(user_id: str, username: str, enabled: bool) -> None:
+    conn = db.get_connection()
+    try:
+        conn.execute(
+            """INSERT INTO player_auto_convert (user_id, username, enabled, updated_at)
+               VALUES (?, ?, ?, datetime('now'))
+               ON CONFLICT(user_id) DO UPDATE SET
+                 enabled=excluded.enabled,
+                 username=excluded.username,
+                 updated_at=excluded.updated_at""",
+            (user_id, username.lower(), 1 if enabled else 0)
+        )
+        conn.commit()
+    except Exception:
+        pass
+    finally:
+        conn.close()
+
+
+async def handle_autoconvert(bot: "BaseBot", user: "User", args: list[str]) -> None:
+    """!autoconvert coins on/off/status — auto-convert 🎫 to 🪙 on tip."""
+    db.ensure_user(user.id, user.username)
+    sub  = args[1].lower() if len(args) >= 2 else "status"
+    sub2 = args[2].lower() if len(args) >= 3 else ""
+
+    # !autoconvert status  OR  !autoconvert coins status
+    if sub == "status" or (sub == "coins" and sub2 in ("status", "")):
+        enabled = _get_autoconvert(user.id)
+        status  = "ON" if enabled else "OFF"
+        await _w(bot, user.id,
+                 f"🔄 Auto-Convert: {status}\n"
+                 f"!autoconvert coins on — convert 🎫→🪙 on tip\n"
+                 f"!autoconvert coins off — keep 🎫")
+
+    elif sub == "coins" and sub2 in ("on", "off"):
+        enabled = sub2 == "on"
+        _set_autoconvert(user.id, user.username, enabled)
+        if enabled:
+            await _w(bot, user.id,
+                     "✅ Auto-Convert ON\n"
+                     "Tips will auto-convert 🎫 into 🪙.\n"
+                     "!autoconvert coins off to stop.")
+        else:
+            await _w(bot, user.id,
+                     "✅ Auto-Convert OFF\n"
+                     "Tips will add 🎫 to your balance.\n"
+                     "!autoconvert coins on to enable.")
+    else:
+        await _w(bot, user.id,
+                 "🔄 Auto-Convert\n"
+                 "!autoconvert coins on\n"
+                 "!autoconvert coins off\n"
+                 "!autoconvert status")
+
+
+# ---------------------------------------------------------------------------
+# !economydefaults — owner-only economy defaults preview/apply
+# ---------------------------------------------------------------------------
+
+_ECONOMY_DEFAULTS: dict[str, str] = {
+    "daily_coins":     "1000",
+    "trivia_reward":   "500",
+    "scramble_reward": "500",
+    "riddle_reward":   "750",
+}
+_ROOM_DEFAULTS: dict[str, str] = {
+    "gold_tip_coins_per_gold": "1000",
+    "gold_tip_enabled":        "1",
+    "after_tip_menu":          "1",
+    "gold_tip_min_amount":     "1.0",
+}
+_LUXE_SETTING_DEFAULTS: dict[str, str] = {
+    "luxe_rate":          "1",
+    "price_vip":          "500",
+    "price_automine1h":   "100",
+    "price_automine3h":   "250",
+    "price_automine5h":   "400",
+    "price_autofish1h":   "100",
+    "price_autofish3h":   "250",
+    "price_autofish5h":   "400",
+    "price_luckyhour":    "150",
+    "price_treasurehour": "200",
+    "price_smallcoins":   "50",
+    "price_mediumcoins":  "100",
+    "price_largecoins":   "250",
+    "coins_smallcoins":   "50000",
+    "coins_mediumcoins":  "125000",
+    "coins_largecoins":   "350000",
+    "vip_duration_days":  "30",
+    "dur_automine1h":     "60",
+    "dur_automine3h":     "180",
+    "dur_automine5h":     "300",
+    "dur_autofish1h":     "60",
+    "dur_autofish3h":     "180",
+    "dur_autofish5h":     "300",
+}
+_MISSING = "__not_set__"
+
+
+async def handle_economydefaults(bot: "BaseBot", user: "User", args: list[str]) -> None:
+    """!economydefaults preview|apply — show or apply economy defaults (owner only)."""
+    from modules.permissions import is_owner
+    if not is_owner(user.username):
+        await _w(bot, user.id, "🔒 Owner only.")
+        return
+
+    sub = args[1].lower() if len(args) >= 2 else "preview"
+
+    if sub == "preview":
+        lines = ["📋 Economy Defaults (preview)"]
+        for k, v in _ECONOMY_DEFAULTS.items():
+            lines.append(f"  daily_coins={_ECONOMY_DEFAULTS['daily_coins']} "
+                         f"trivia={_ECONOMY_DEFAULTS['trivia_reward']}")
+            break
+        await _w(bot, user.id,
+                 f"📋 Economy Defaults\n"
+                 f"daily_coins: {_ECONOMY_DEFAULTS['daily_coins']} 🪙\n"
+                 f"trivia_reward: {_ECONOMY_DEFAULTS['trivia_reward']} 🪙\n"
+                 f"gold_tip rate: {_ROOM_DEFAULTS['gold_tip_coins_per_gold']} 🪙/gold")
+        await _w(bot, user.id,
+                 f"Luxe: VIP {_LUXE_SETTING_DEFAULTS['price_vip']} 🎫 | "
+                 f"Mine1h {_LUXE_SETTING_DEFAULTS['price_automine1h']} 🎫\n"
+                 f"Coins: S={_LUXE_SETTING_DEFAULTS['coins_smallcoins']} "
+                 f"M={_LUXE_SETTING_DEFAULTS['coins_mediumcoins']} "
+                 f"L={_LUXE_SETTING_DEFAULTS['coins_largecoins']} 🪙\n"
+                 f"Run !economydefaults apply to set missing values.")
+
+    elif sub == "apply":
+        changed: list[str] = []
+        # economy_settings — only insert if missing
+        conn = db.get_connection()
+        try:
+            for k, v in _ECONOMY_DEFAULTS.items():
+                r = conn.execute(
+                    "SELECT value FROM economy_settings WHERE key=?", (k,)
+                ).fetchone()
+                if r is None:
+                    conn.execute(
+                        "INSERT OR IGNORE INTO economy_settings (key, value) VALUES (?,?)",
+                        (k, v)
+                    )
+                    changed.append(f"econ:{k}")
+            conn.commit()
+        except Exception as exc:
+            print(f"[ECONDEFAULTS] DB error: {exc}")
+        finally:
+            conn.close()
+        # room settings
+        for k, v in _ROOM_DEFAULTS.items():
+            cur = db.get_room_setting(k, _MISSING)
+            if cur == _MISSING:
+                db.set_room_setting(k, v)
+                changed.append(f"room:{k}")
+        # luxe settings
+        for k, v in _LUXE_SETTING_DEFAULTS.items():
+            cur = db.get_room_setting(f"luxe_{k}", _MISSING)
+            if cur == _MISSING:
+                set_luxe_setting(k, v)
+                changed.append(f"luxe:{k}")
+        n = len(changed)
+        await _w(bot, user.id,
+                 f"✅ Economy defaults applied: {n} value(s) set.\n"
+                 f"Existing values were not overwritten.")
+        if changed:
+            await _w(bot, user.id, (", ".join(changed))[:249])
+    else:
+        await _w(bot, user.id,
+                 "📋 Economy Defaults\n"
+                 "!economydefaults preview\n"
+                 "!economydefaults apply (owner only)")
+
+
 async def handle_buycoins(bot: "BaseBot", user: "User", args: list[str]) -> None:
     db.ensure_user(user.id, user.username)
     _map = {"small": "smallcoins", "medium": "mediumcoins", "large": "largecoins"}
-    sizes = ("small", "medium", "large")
+    sizes = ("small", "medium", "large", "max")
 
     if len(args) < 2 or args[1].lower() not in sizes:
         cs_t, cs_c = get_coinpack("smallcoins")
@@ -590,10 +840,15 @@ async def handle_buycoins(bot: "BaseBot", user: "User", args: list[str]) -> None
                  f"Small:  {_fc(cs_t)} 🎫 → {_fc(cs_c)} 🪙\n"
                  f"Medium: {_fc(cm_t)} 🎫 → {_fc(cm_c)} 🪙\n"
                  f"Large:  {_fc(cl_t)} 🎫 → {_fc(cl_c)} 🪙\n"
-                 f"Usage: !buycoins small/medium/large")
+                 f"Usage: !buycoins small/medium/large/max")
         return
 
-    item_key = _map[args[1].lower()]
+    sub = args[1].lower()
+    if sub == "max":
+        await _do_buycoins_max(bot, user)
+        return
+
+    item_key = _map[sub]
     await _do_purchase(bot, user, item_key, 1)
 
 

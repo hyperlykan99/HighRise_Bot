@@ -1347,11 +1347,16 @@ REGISTRY: dict[str, Cmd] = {
                         aliases=("buyluxe",)),
     "buycoins":     Cmd("banker", "economy", True,  False, True),
     "use":          Cmd("banker", "economy", True,  False, True),
-    "autotime":     Cmd("miner",  "economy", True,  True,  False,
-                        aliases=("minetime",)),
-    "fishtime":     Cmd("fisher", "economy", True,  True,  False),
-    "luxeadmin":    Cmd("banker", "admin",   False, True,  False, perm="admin"),
-    "vipadmin":     Cmd("banker", "admin",   False, True,  False, perm="admin"),
+    "autotime":        Cmd("miner",  "economy", True,  True,  False,
+                           aliases=("minetime",)),
+    "fishtime":        Cmd("fisher", "economy", True,  True,  False),
+    "autoconvert":     Cmd("banker", "economy", True,  False, True),
+    "tipadmin":        Cmd("banker", "admin",   False, True,  False,
+                           perm="admin", aliases=("tipconfig",)),
+    "economydefaults": Cmd("banker", "admin",   False, True,  False,
+                           perm="owner"),
+    "luxeadmin":       Cmd("banker", "admin",   False, True,  False, perm="admin"),
+    "vipadmin":        Cmd("banker", "admin",   False, True,  False, perm="admin"),
 
 }
 

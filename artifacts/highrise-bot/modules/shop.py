@@ -162,10 +162,10 @@ _PAGE_SIZE = 5
 
 def _fmt_p(val: int) -> str:
     if val >= 1_000_000:
-        return f"{val / 1_000_000:.1f}M"
+        return f"{val / 1_000_000:.1f}M 🪙"
     if val >= 1_000:
-        return f"{val // 1_000}K"
-    return f"{val:,}c"
+        return f"{val // 1_000}K 🪙"
+    return f"{val:,} 🪙"
 
 
 async def _send_catalog_page(
@@ -344,7 +344,7 @@ async def handle_buy(bot: BaseBot, user: User, args: list[str]):
         await bot.highrise.send_whisper(
             user.id,
             f"✅ Purchased {item['display']}  {item_id}!{discount_note}\n"
-            f"Paid: {price:,}c | Balance: {new_balance:,}c\n"
+            f"Paid: {price:,} 🪙 | Balance: {new_balance:,} 🪙\n"
             f"Equip: !equip {item_type} {item_id}"
         )
         await check_achievements(bot, user, "purchase")
@@ -464,7 +464,7 @@ async def handle_badgeinfo(bot: BaseBot, user: User, args: list[str]) -> None:
 
         await bot.highrise.send_whisper(user.id,
             f"-- {item['display']} {badge_id} --\n"
-            f"Price: {item['price']:,}c\n"
+            f"Price: {item['price']:,} 🪙\n"
             f"Benefit: {item.get('description', 'Cosmetic only')}\n"
             f"Owned: {'Yes' if owned else 'No'}  "
             f"Equipped: {'Yes' if equipped else 'No'}"
@@ -496,7 +496,7 @@ async def handle_titleinfo(bot: BaseBot, user: User, args: list[str]) -> None:
 
         await bot.highrise.send_whisper(user.id,
             f"-- {item['display']} {title_id} --\n"
-            f"Price: {item['price']:,}c\n"
+            f"Price: {item['price']:,} 🪙\n"
             f"Benefit: {item.get('description', 'Cosmetic only')}\n"
             f"Owned: {'Yes' if owned else 'No'}  "
             f"Equipped: {'Yes' if equipped else 'No'}"

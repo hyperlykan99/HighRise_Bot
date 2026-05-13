@@ -1,0 +1,834 @@
+UPDATE 3.1I ECONOMY BALANCE — SET SYSTEM PRICES, REWARDS, LUXE CONVERSION + EASY CHILLCOINS AFTER TIP
+
+Goal:
+Set fair default prices and rewards across the whole bot economy.
+
+Currencies:
+🪙 ChillCoins = gameplay/free currency
+🎫 Luxe Tickets = premium room currency
+1 verified Highrise Gold tip = 1 🎫 Luxe Ticket by default
+
+Main requests:
+1. Set fair default prices for shops, VIP, Luxe shop, boosts, tools, rods, badges, and coin packs.
+2. Set fair default rewards for mining, fishing, trivia, daily, streaks, games, and events.
+3. Set fair ore/fish sell values.
+4. Make players easily convert 🎫 Luxe Tickets to 🪙 ChillCoins.
+5. After a player tips the bot, show easy ChillCoin purchase options.
+6. Keep all prices editable in-game by owner/admin.
+7. Use currency icons everywhere:
+   10,000 🪙
+   500 🎫
+   Do NOT use “c”.
+
+Do not change tokens.
+Do not change room ID.
+Do not wipe database.
+Do not reset player balances, tickets, VIP, badges, market, casino, mining/fishing data, collection book, tools, rods, boosts, or inventory.
+Do not re-add reward caps.
+Do not add cap text.
+Do not trust normal chat text as payment.
+Only official verified Highrise tip/payment events can add 🎫 Luxe Tickets.
+
+==================================================
+PART 1 — CURRENCY FORMAT EVERYWHERE
+==================================================
+
+Update all player-facing economy messages.
+
+Use:
+10,000 🪙
+500 🎫
+
+Do NOT use:
+10,000c
+500 tickets
+500 gems
+credits
+
+Update:
+- !balance
+- !shop
+- !luxeshop
+- !premiumshop
+- mining rewards
+- fishing rewards
+- sell messages
+- blackjack/poker payouts
+- trivia rewards
+- daily/streak rewards
+- VIP
+- badge shop
+- player market
+- donation/tip messages
+- admin settings
+- leaderboards if money is shown
+
+==================================================
+PART 2 — DEFAULT TIP CONVERSION
+==================================================
+
+Verified tip/payment event conversion:
+
+Default:
+1 Highrise Gold = 1 🎫 Luxe Ticket
+
+When player tips the bot:
+
+🎫 Thanks @Player!
+Tip: 100 Gold
+Added: 100 🎫
+Use !luxeshop or !buycoins.
+
+Important:
+- Do not auto-buy VIP from tips.
+- Do not auto-buy ChillCoins from tips unless player enabled auto-convert.
+- Do not credit from normal chat text.
+- Prevent duplicate crediting from the same tip event.
+
+==================================================
+PART 3 — EASY CHILLCOIN CONVERSION AFTER TIP
+==================================================
+
+After a verified tip gives 🎫 Luxe Tickets, show easy coin-buy options:
+
+🎫 Luxe Tickets added.
+Quick ChillCoins:
+10) 50 🎫 = 50,000 🪙
+11) 100 🎫 = 125,000 🪙
+12) 250 🎫 = 350,000 🪙
+Use !buyluxe 10, 11, or 12.
+
+Also add direct commands:
+
+!buycoins small
+!buycoins medium
+!buycoins large
+!buycoins max
+
+!buycoins max behavior:
+- Buy the best combination of coin packs using available 🎫.
+- Prefer Large, then Medium, then Small.
+- Confirm purchases clearly.
+- Do not spend tickets on VIP/auto/boosts.
+
+Example:
+Player has 300 🎫.
+!buycoins max
+Buys:
+1 Large pack for 250 🎫
+1 Small pack for 50 🎫
+Total: 400,000 🪙
+Cost: 300 🎫
+
+Message:
+✅ Converted 300 🎫 into 400,000 🪙.
+
+==================================================
+PART 4 — OPTIONAL AUTO-CONVERT SETTING
+==================================================
+
+Add optional player setting:
+
+!autoconvert coins on
+!autoconvert coins off
+!autoconvert status
+
+If ON:
+When player tips bot, convert received 🎫 into ChillCoins automatically using best coin pack combination.
+
+Example:
+Player tips 100 Gold.
+Receives 100 🎫.
+Auto-convert ON.
+Bot converts 100 🎫 into 125,000 🪙.
+
+Message:
+🎫 Tip received: 100 Gold
+✅ Auto-converted 100 🎫 into 125,000 🪙.
+Use !autoconvert coins off to stop.
+
+Default:
+OFF
+
+Rules:
+- Default OFF so players keep premium currency unless they choose.
+- Always save transaction log.
+- Never auto-convert below Small pack price unless admin sets smaller pack.
+
+==================================================
+PART 5 — NUMBERED LUXE SHOP DEFAULTS
+==================================================
+
+Set default numbered Luxe shop:
+
+1. VIP Pass — 500 🎫
+2. Auto-Mine 1h — 100 🎫
+3. Auto-Mine 3h — 250 🎫
+4. Auto-Mine 5h — 400 🎫
+5. Auto-Fish 1h — 100 🎫
+6. Auto-Fish 3h — 250 🎫
+7. Auto-Fish 5h — 400 🎫
+8. Lucky Hour Boost — 150 🎫
+9. Treasure Hour Boost — 200 🎫
+10. Small ChillCoins — 50 🎫 = 50,000 🪙
+11. Medium ChillCoins — 100 🎫 = 125,000 🪙
+12. Large ChillCoins — 250 🎫 = 350,000 🪙
+
+Commands:
+!luxeshop
+!premiumshop
+!buyluxe [number]
+!buyticket [number]
+!buycoins small/medium/large/max
+
+Rules:
+- Stable numbers.
+- Prices editable by owner/admin.
+- Purchase logs required.
+- No duplicate transaction.
+
+==================================================
+PART 6 — VIP DEFAULTS
+==================================================
+
+VIP default:
+Price: 500 🎫
+Duration: 30 days
+
+VIP perks:
+- +2 mining luck
+- +2 fishing luck
+- -1s mining speed
+- -1s fishing speed
+- +10m normal automine time
+- +10m normal autofish time
+- VIP title/badge if existing
+- Better summary details if existing
+
+Commands:
+!vip
+!vipstatus
+!buyticket vip
+!buyluxe 1
+
+VIP status must show duration:
+
+👑 VIP Status
+Status: Active
+Remaining: 29d 4h
+Expires: [date/time]
+Price: 500 🎫
+
+If player buys again:
+Extend duration, do not overwrite.
+
+==================================================
+PART 7 — LUXE AUTO DEFAULTS
+==================================================
+
+Luxe auto time prices:
+
+Auto-Mine:
+1h = 100 🎫
+3h = 250 🎫
+5h = 400 🎫
+
+Auto-Fish:
+1h = 100 🎫
+3h = 250 🎫
+5h = 400 🎫
+
+Rules:
+- Time stacks.
+- If stopped early, remaining time saves.
+- If bot restarts/crashes, remaining time persists.
+- Uses same luck stack.
+- Does not guarantee rare items.
+- Mining Luxe auto handled by GreatestProspector.
+- Fishing Luxe auto handled by MasterAngler.
+- BankingBot can handle tickets/payment only, not auto execution.
+
+==================================================
+PART 8 — CHILLCOIN SHOP DEFAULTS
+==================================================
+
+Set regular ChillCoins shop prices.
+
+Mining tools:
+
+Starter Pickaxe — Free
+Iron Pickaxe — 25,000 🪙
+Gold Pickaxe — 75,000 🪙
+Crystal Pickaxe — 200,000 🪙
+Mythic Pickaxe — 500,000 🪙
+
+Fishing rods:
+
+Starter Rod — Free
+Iron Rod — 25,000 🪙
+Gold Rod — 75,000 🪙
+Crystal Rod — 200,000 🪙
+Mythic Rod — 500,000 🪙
+
+Potions:
+
+Lucky Potion 30m — 25,000 🪙
+Speed Potion 30m — 35,000 🪙
+Treasure Potion 15m — 60,000 🪙
+Mining Charm 20m — 40,000 🪙
+Fishing Bait 20m — 40,000 🪙
+
+Rules:
+- Prices editable.
+- No reward caps.
+- Purchases logged.
+- Use 🪙 display.
+
+==================================================
+PART 9 — TOOL / ROD DEFAULT STATS
+==================================================
+
+Mining tools:
+
+Starter Pickaxe:
++1 luck, 0s speed, +0m auto
+
+Iron Pickaxe:
++3 luck, -1s speed, +1m auto
+
+Gold Pickaxe:
++5 luck, -2s speed, +2m auto
+
+Crystal Pickaxe:
++8 luck, -3s speed, +3m auto
+
+Mythic Pickaxe:
++12 luck, -4s speed, +5m auto
+
+Fishing rods:
+
+Starter Rod:
++1 luck, 0s speed, +0m auto
+
+Iron Rod:
++3 luck, -1s speed, +1m auto
+
+Gold Rod:
++5 luck, -2s speed, +2m auto
+
+Crystal Rod:
++8 luck, -3s speed, +3m auto
+
+Mythic Rod:
++12 luck, -4s speed, +5m auto
+
+==================================================
+PART 10 — MINING / FISHING AUTO DEFAULTS
+==================================================
+
+Normal auto defaults:
+
+Base auto duration:
+5 minutes
+
+Base action interval:
+12 seconds
+
+Minimum action interval:
+5 seconds
+
+Base luck:
++1
+
+VIP:
++10m duration
++2 luck
+-1s interval
+
+Expected average:
+Base free auto should feel useful but not overpowered.
+Luxe auto is convenience/time, not guaranteed profit.
+
+==================================================
+PART 11 — ORE SELL VALUE DEFAULTS
+==================================================
+
+Set ore sell ranges by rarity.
+
+If individual ore values exist, keep names but normalize values into these fair bands unless owner custom values are already set.
+
+Common:
+10–50 🪙
+
+Uncommon:
+60–150 🪙
+
+Rare:
+200–600 🪙
+
+Epic:
+800–2,000 🪙
+
+Legendary:
+3,000–8,000 🪙
+
+Mythic:
+10,000–25,000 🪙
+
+Secret/Event:
+25,000–75,000 🪙
+
+Recommended default midpoint if missing:
+Common: 30 🪙
+Uncommon: 100 🪙
+Rare: 400 🪙
+Epic: 1,250 🪙
+Legendary: 5,000 🪙
+Mythic: 15,000 🪙
+Secret/Event: 40,000 🪙
+
+==================================================
+PART 12 — FISH SELL VALUE DEFAULTS
+==================================================
+
+Set fish sell ranges by rarity.
+
+Common:
+10–60 🪙
+
+Uncommon:
+70–175 🪙
+
+Rare:
+250–700 🪙
+
+Epic:
+900–2,250 🪙
+
+Legendary:
+3,500–9,000 🪙
+
+Mythic:
+12,000–30,000 🪙
+
+Secret/Event:
+30,000–80,000 🪙
+
+Recommended default midpoint if missing:
+Common: 40 🪙
+Uncommon: 120 🪙
+Rare: 500 🪙
+Epic: 1,500 🪙
+Legendary: 6,000 🪙
+Mythic: 18,000 🪙
+Secret/Event: 50,000 🪙
+
+==================================================
+PART 13 — GAME REWARD DEFAULTS
+==================================================
+
+Set fair default gameplay rewards.
+
+Trivia:
+Correct answer: 500 🪙
+Fast answer bonus if supported: +250 🪙
+Streak bonus if supported: +100 🪙 per streak step
+
+Daily:
+Day 1: 1,000 🪙
+Day 2: 1,500 🪙
+Day 3: 2,000 🪙
+Day 4: 3,000 🪙
+Day 5: 4,000 🪙
+Day 6: 5,000 🪙
+Day 7: 10,000 🪙
+
+Streak weekly bonus:
+7-day completion: 15,000 🪙
+
+Mini-games:
+Small win: 500–2,000 🪙
+Medium win: 2,000–10,000 🪙
+Large/event win: 10,000–50,000 🪙
+
+Rules:
+- No reward caps.
+- Cooldowns/claim limits are allowed.
+- No duplicate payout.
+- Use 🪙 display.
+
+==================================================
+PART 14 — CASINO DEFAULTS
+==================================================
+
+Keep casino betting controlled by game settings, not reward caps.
+
+Blackjack:
+Use current !bjadmin settings.
+Default if missing:
+Min Bet: 10 🪙
+Max Bet: 10,000 🪙
+Natural BJ: 2.5x
+Suited BJ: 3x
+Perfect 21: +10%
+5-Card Charlie: +25%
+
+Poker:
+Keep existing poker limits.
+Display currency as 🪙.
+Do not add casino reward caps.
+
+==================================================
+PART 15 — BADGE / MARKET DEFAULTS
+==================================================
+
+Badge shop:
+Keep current badge prices if already configured.
+If missing:
+Common badge: 25,000 🪙
+Rare badge: 75,000 🪙
+Epic badge: 150,000 🪙
+Legendary badge: 300,000 🪙
+1/1 badge premium floor: 500 🎫 or owner-set
+
+Player market:
+Use 🪙 for regular market.
+Use 🎫 only if item is premium/Luxe-specific.
+Keep current market fee if any.
+If missing, default market fee:
+5%
+
+==================================================
+PART 16 — ADMIN COMMANDS FOR PRICES
+==================================================
+
+Add/verify admin commands:
+
+!economyaudit
+!economydefaults preview
+!economydefaults apply
+
+!luxeadmin prices
+!luxeadmin set price [number/item] [amount]
+!luxeadmin set coinpack small [tickets] [coins]
+!luxeadmin set coinpack medium [tickets] [coins]
+!luxeadmin set coinpack large [tickets] [coins]
+
+!shopadmin prices
+!shopadmin set price [item] [amount]
+
+!mineadmin prices
+!mineadmin set sell [item_key] [amount]
+!mineadmin set rarityvalue [rarity] [min] [max]
+
+!fishadmin prices
+!fishadmin set sell [item_key] [amount]
+!fishadmin set rarityvalue [rarity] [min] [max]
+
+!vipadmin settings
+!vipadmin set price [tickets]
+!vipadmin set duration [days]
+
+!tipadmin settings
+!tipadmin set luxerate [amount]
+!tipadmin set mode luxe/coins/split
+!tipadmin set coinrate [amount]
+!tipadmin set aftertipmenu on/off
+
+==================================================
+PART 17 — TIP ADMIN DEFAULTS
+==================================================
+
+Default:
+
+!tipadmin settings
+
+💰 Tip Conversion
+Mode: Luxe
+Rate: 1 Gold = 1 🎫
+Coin Rate: 1 Gold = 1,000 🪙
+After-tip menu: ON
+P2P tips: leaderboard only
+
+Modes:
+
+luxe:
+Verified bot tips give 🎫 only.
+
+coins:
+Verified bot tips give 🪙 only.
+
+split:
+Verified bot tips give both 🎫 and 🪙.
+
+Default mode:
+luxe
+
+P2P player-to-player tips:
+Track leaderboard only.
+Do not mint extra currency unless owner explicitly enables it.
+
+==================================================
+PART 18 — AFTER-TIP MENU
+==================================================
+
+If after-tip menu is ON, after any verified bot tip:
+
+🎫 Added: [amount] 🎫
+Quick options:
+!buyluxe 1 = VIP
+!buyluxe 2 = Mine 1h
+!buyluxe 5 = Fish 1h
+!buycoins max = 🪙
+
+Keep under 220 chars.
+Whisper if possible.
+Do not spam public chat if many tips.
+
+==================================================
+PART 19 — ECONOMY BALANCE RULES
+==================================================
+
+Important balancing:
+
+100 🎫 coin pack = 125,000 🪙.
+
+Therefore:
+1h Luxe auto should usually average below 125,000 🪙 because it also gives:
+- XP
+- collection progress
+- rare chance
+- leaderboard progress
+- convenience
+
+Target average:
+Base auto 1h: 30,000–60,000 🪙
+VIP auto 1h: 50,000–90,000 🪙
+Boosted/Luxe auto 1h: 70,000–110,000 🪙
+
+Do not add reward caps.
+Balance using:
+- sell values
+- odds
+- action interval
+- boost strength
+- duration
+
+==================================================
+PART 20 — ECONOMY DEFAULT APPLY
+==================================================
+
+Because this update sets system prices/rewards, implement:
+
+!economydefaults preview
+Shows all proposed changes.
+
+!economydefaults apply
+Applies the defaults listed in this prompt.
+
+Owner only.
+
+If safe, Replit may apply defaults immediately to missing config values.
+But do not overwrite existing custom values unless:
+- owner runs apply
+- value is missing
+- value is obviously broken, negative, or zero
+
+Log all changed values.
+
+==================================================
+PART 21 — DATABASE SAFETY
+==================================================
+
+Add/update config tables safely:
+
+economy_settings:
+key TEXT UNIQUE
+value TEXT
+updated_at TEXT
+
+shop_items:
+item_key TEXT UNIQUE
+item_name TEXT
+price_amount INTEGER
+currency_icon TEXT
+category TEXT
+enabled INTEGER DEFAULT 1
+updated_at TEXT
+
+sell_values:
+item_key TEXT UNIQUE
+item_name TEXT
+system TEXT
+rarity TEXT
+sell_value INTEGER
+updated_at TEXT
+
+premium_settings:
+key TEXT UNIQUE
+value TEXT
+updated_at TEXT
+
+premium_transactions:
+id INTEGER PRIMARY KEY AUTOINCREMENT
+user_id TEXT
+username TEXT
+type TEXT
+amount INTEGER
+currency TEXT
+details TEXT
+event_id TEXT
+created_at TEXT
+
+player_auto_convert:
+user_id TEXT UNIQUE
+username TEXT
+convert_to TEXT
+enabled INTEGER DEFAULT 0
+updated_at TEXT
+
+Do not wipe data.
+Use idempotent migrations.
+
+==================================================
+PART 22 — HELP UPDATES
+==================================================
+
+Update:
+
+!help
+!guide
+!economy
+!balance
+!tickets
+!luxe
+!shop
+!luxeshop
+!premiumshop
+!buycoins
+!tiphelp
+!vip
+!minehelp
+!fishhelp
+
+Player-facing economy help:
+
+💰 Economy
+🪙 ChillCoins = earned by playing
+🎫 Luxe Tickets = from verified Gold tips
+Use !luxeshop and !buycoins.
+
+Tip help:
+
+🎫 Tipping Bot
+Verified Gold tips give 🎫.
+Use !buycoins max to convert to 🪙.
+Use !autoconvert coins on for automatic conversion.
+
+==================================================
+PART 23 — TESTS
+==================================================
+
+Run:
+
+!balance
+!tickets
+!luxeshop
+!buycoins small
+!buycoins max
+!tipadmin settings
+!autoconvert status
+!economyaudit
+!economydefaults preview
+
+Expected:
+- icons display correctly
+- easy conversion works
+- not enough ticket errors are clean
+- audit works
+- preview does not wipe anything
+
+Admin tests:
+
+!luxeadmin prices
+!luxeadmin set price 2 100
+!luxeadmin set coinpack small 50 50000
+!vipadmin settings
+!shopadmin prices
+!mineadmin prices
+!fishadmin prices
+
+Expected:
+- no crash
+- settings persist
+- display uses 🪙 and 🎫
+
+Tip event test:
+Simulate or use verified tip event.
+
+Expected:
+- 🎫 awarded
+- after-tip quick menu shows
+- duplicate event not credited twice
+- if autoconvert coins on, converts into 🪙
+
+==================================================
+PART 24 — FINAL QA
+==================================================
+
+Run:
+
+!commandtest !economyaudit
+!commandtest !economydefaults
+!commandtest !buycoins
+!commandtest !autoconvert
+!commandtest !tipadmin
+!commandtest !luxeadmin
+!commandtest !shopadmin
+!commandtest !mineadmin
+!commandtest !fishadmin
+!commandtest !vipadmin
+
+!commandissues
+!checkcommands
+!checkhelp
+!launchcheck
+!bothealth
+!stability status
+
+Expected:
+- no command issues
+- no broken help
+- no reward caps
+- no “c” currency display
+- icons display correctly
+- prices are fair and editable
+- Luxe-to-ChillCoins conversion is easy
+
+==================================================
+PART 25 — FINAL REPORT
+==================================================
+
+Report:
+1. All currency displays changed to 🪙 and 🎫.
+2. Luxe tip conversion set to 1 Gold = 1 🎫.
+3. Easy ChillCoin conversion added.
+4. After-tip quick conversion menu added.
+5. !buycoins max added.
+6. Optional auto-convert setting added.
+7. Luxe shop prices set.
+8. VIP price/duration set.
+9. Tool/rod prices set.
+10. Potion/boost prices set.
+11. Ore sell values set.
+12. Fish sell values set.
+13. Trivia/daily/game rewards set.
+14. Casino display updated.
+15. Badge/market defaults checked.
+16. Admin price commands added.
+17. Economy audit added.
+18. No reward cap regression.
+19. Duplicate payment protection confirmed.
+20. !commandissues result.
+21. !checkhelp result.
+22. !launchcheck result.

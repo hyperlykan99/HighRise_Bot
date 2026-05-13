@@ -212,15 +212,41 @@ async def handle_incoming_gold_tip(
         print(f"[GOLDTIP] Luxe award error: {_le!r}")
 
     # Public thank-you
-    luxe_str = f" | +{luxe_amt:,} 🎫 Luxe" if luxe_amt else ""
-    msg = (f"💛 Thank you @{sender.username}!\n"
-           f"{gold_amount:g}g → {coins:,} 🪙{luxe_str}")
+    luxe_str = f" | +{luxe_amt:,} 🎫" if luxe_amt else ""
+    msg = (f"💛 Thanks @{sender.username}! "
+           f"{gold_amount:g} Gold → {coins:,} 🪙{luxe_str}")
     try:
         await bot.highrise.chat(msg[:249])
     except Exception:
         pass
-    print(f"[GOLDTIP] Rewarded: @{sender.username} +{coins:,} coins "
+    print(f"[GOLDTIP] Rewarded: @{sender.username} +{coins:,} 🪙 "
           f"(event_id={event_id})")
+
+    # Auto-convert check — if player has autoconvert on, convert tickets to coins
+    _autoconverted = False
+    try:
+        from modules.luxe import (
+            _get_autoconvert as _gac,
+            _do_buycoins_max as _dbm,
+        )
+        if luxe_amt > 0 and _gac(sender.id):
+            _autoconverted = True
+            await _dbm(bot, sender, _silent=True, _whisper_prefix=f"🎫 Tip: {luxe_amt:,} 🎫\n")
+    except Exception as _ace:
+        print(f"[GOLDTIP] Auto-convert error: {_ace!r}")
+
+    # After-tip menu — show quick conversion options if after-tip menu is ON
+    if not _autoconverted:
+        try:
+            after_tip_on = db.get_room_setting("after_tip_menu", "1") == "1"
+            if after_tip_on and luxe_amt > 0:
+                menu = (f"🎫 Added: {luxe_amt:,} 🎫\n"
+                        f"Quick options:\n"
+                        f"!buyluxe 1=VIP  !buyluxe 2=Mine 1h\n"
+                        f"!buyluxe 5=Fish 1h  !buycoins max=🪙")
+                await bot.highrise.send_whisper(sender.id, menu[:249])
+        except Exception as _me:
+            print(f"[GOLDTIP] After-tip menu error: {_me!r}")
 
 
 # ---------------------------------------------------------------------------
@@ -232,12 +258,13 @@ async def handle_goldtipsettings(bot: BaseBot, user: User) -> None:
     if not _can_staff(user.username):
         await _w(bot, user.id, "Staff only.")
         return
-    enabled = "ON" if gold_tip_enabled() else "OFF"
-    rate    = get_coins_per_gold()
+    enabled      = "ON" if gold_tip_enabled() else "OFF"
+    rate         = get_coins_per_gold()
+    after_tip    = "ON" if db.get_room_setting("after_tip_menu", "1") == "1" else "OFF"
     await _w(bot, user.id,
              f"<#FFD700>💰 Gold Tip Settings<#FFFFFF>\n"
-             f"Enabled: {enabled} | Rate: {rate:,} coins/gold | "
-             f"Dedup: ON (event_id hash)")
+             f"Enabled: {enabled} | Rate: {rate:,} 🪙/gold | "
+             f"After-tip menu: {after_tip} | Dedup: ON")
 
 
 # ---------------------------------------------------------------------------
@@ -252,7 +279,7 @@ async def handle_setgoldrate(bot: BaseBot, user: User, args: list[str]) -> None:
     if len(args) < 2:
         cur = get_coins_per_gold()
         await _w(bot, user.id,
-                 f"Current gold rate: {cur:,} coins/gold. "
+                 f"Current gold rate: {cur:,} 🪙/gold. "
                  f"Usage: !setgoldrate <amount>")
         return
     try:
@@ -263,7 +290,7 @@ async def handle_setgoldrate(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "⚠️ Enter a positive integer.")
         return
     db.set_room_setting("gold_tip_coins_per_gold", str(val))
-    await _w(bot, user.id, f"✅ Gold rate set: {val:,} coins per gold.")
+    await _w(bot, user.id, f"✅ Gold rate set: {val:,} 🪙/gold.")
 
 
 # ---------------------------------------------------------------------------
@@ -283,7 +310,7 @@ async def handle_goldtiplogs(bot: BaseBot, user: User) -> None:
     for r in rows:
         dt  = r["created_at"][:16] if r.get("created_at") else "?"
         line = (f"@{r['from_username']} → {r['gold_amount']:g}g "
-                f"= {r['coins_converted']:,}c via {r['receiving_bot']} [{dt}]")
+                f"= {r['coins_converted']:,} 🪙 via {r['receiving_bot']} [{dt}]")
         await _w(bot, user.id, line[:249])
 
 
@@ -301,10 +328,10 @@ async def handle_mygoldtips(bot: BaseBot, user: User) -> None:
     total_coins = sum(r["coins_converted"] for r in rows)
     await _w(bot, user.id,
              f"<#FFD700>💰 My Gold Tips<#FFFFFF>: "
-             f"{total_gold:g} gold → {total_coins:,} coins total")
+             f"{total_gold:g} gold → {total_coins:,} 🪙 total")
     for r in rows[:5]:
         dt   = r["created_at"][:10] if r.get("created_at") else "?"
-        line = (f"{r['gold_amount']:g}g → {r['coins_converted']:,}c "
+        line = (f"{r['gold_amount']:g}g → {r['coins_converted']:,} 🪙 "
                 f"via {r['receiving_bot']} ({dt})")
         await _w(bot, user.id, line[:249])
 
@@ -320,8 +347,8 @@ async def handle_goldtipstatus(bot: BaseBot, user: User) -> None:
     min_g   = get_min_gold_tip()
     await _w(bot, user.id,
              f"<#FFD700>💰 Gold Tips<#FFFFFF>: {enabled} | "
-             f"Rate: {rate:,} coins/gold | Min: {min_g:g}g | "
-             f"Handled by: BankingBot")
+             f"Rate: {rate:,} 🪙/gold | Min: {min_g:g}g | "
+             f"BankingBot")
 
 
 # ---------------------------------------------------------------------------
@@ -336,7 +363,7 @@ async def handle_tipcoinrate(bot: BaseBot, user: User) -> None:
     rate  = get_coins_per_gold()
     min_g = get_min_gold_tip()
     await _w(bot, user.id,
-             f"<#FFD700>💰 Tip Coin Rate<#FFFFFF>: {rate:,} coins per 1 gold | "
+             f"<#FFD700>💰 Tip Coin Rate<#FFFFFF>: {rate:,} 🪙/gold | "
              f"Min tip: {min_g:g}g")
 
 
@@ -352,7 +379,7 @@ async def handle_settipcoinrate(bot: BaseBot, user: User, args: list[str]) -> No
     if len(args) < 2:
         cur = get_coins_per_gold()
         await _w(bot, user.id,
-                 f"Current tip coin rate: {cur:,} coins/gold. "
+                 f"Current tip coin rate: {cur:,} 🪙/gold. "
                  f"Usage: !settipcoinrate <amount>")
         return
     try:
@@ -363,7 +390,7 @@ async def handle_settipcoinrate(bot: BaseBot, user: User, args: list[str]) -> No
         await _w(bot, user.id, "⚠️ Enter a positive integer.")
         return
     db.set_room_setting("gold_tip_coins_per_gold", str(val))
-    await _w(bot, user.id, f"✅ Tip coin rate set: {val:,} coins per gold.")
+    await _w(bot, user.id, f"✅ Tip coin rate set: {val:,} 🪙/gold.")
 
 
 # ---------------------------------------------------------------------------
@@ -383,7 +410,7 @@ async def handle_bottiplogs(bot: BaseBot, user: User) -> None:
     for r in rows:
         dt   = r["created_at"][:16] if r.get("created_at") else "?"
         line = (f"@{r['from_username']} → {r['gold_amount']:g}g "
-                f"= {r['coins_converted']:,}c via {r['receiving_bot']} [{dt}]")
+                f"= {r['coins_converted']:,} 🪙 via {r['receiving_bot']} [{dt}]")
         await _w(bot, user.id, line[:249])
 
 
@@ -400,7 +427,7 @@ async def handle_mingoldtip(bot: BaseBot, user: User) -> None:
     rate  = get_coins_per_gold()
     await _w(bot, user.id,
              f"<#FFD700>💰 Min Gold Tip<#FFFFFF>: {min_g:g}g | "
-             f"Rate: {rate:,} coins/gold")
+             f"Rate: {rate:,} 🪙/gold")
 
 
 # ---------------------------------------------------------------------------
@@ -521,6 +548,74 @@ async def handle_roomtiplb(bot: BaseBot, user: User) -> None:
         line = (f"{i}. @{r['from_username']} — {r['total']:g}g | "
                 f"{cnt} tip{'s' if cnt != 1 else ''}")
         await _w(bot, user.id, line[:249])
+
+
+# ---------------------------------------------------------------------------
+# /tipreceiverlb  /topreceivers
+# ---------------------------------------------------------------------------
+
+async def handle_tipadmin(bot: BaseBot, user: User, args: list[str]) -> None:
+    """!tipadmin settings/set — manage tip conversion settings (admin+)."""
+    if not _can_admin(user.username):
+        await _w(bot, user.id, "Admin+ only.")
+        return
+    sub = args[1].lower() if len(args) >= 2 else "settings"
+
+    if sub == "settings":
+        enabled   = "ON" if gold_tip_enabled() else "OFF"
+        rate      = get_coins_per_gold()
+        min_g     = get_min_gold_tip()
+        after_tip = "ON" if db.get_room_setting("after_tip_menu", "1") == "1" else "OFF"
+        try:
+            from modules.luxe import get_luxe_rate as _glr
+            luxe_rate = _glr()
+        except Exception:
+            luxe_rate = 1
+        await _w(bot, user.id,
+                 f"<#FFD700>💰 Tip Conversion<#FFFFFF>\n"
+                 f"Mode: Luxe | 1 Gold = {luxe_rate} 🎫\n"
+                 f"Coin Rate: 1 Gold = {rate:,} 🪙\n"
+                 f"After-tip menu: {after_tip} | Min: {min_g:g}g")
+
+    elif sub == "set" and len(args) >= 4:
+        what    = args[2].lower()
+        val_str = args[3]
+        if what == "luxerate":
+            try:
+                from modules.luxe import set_luxe_setting as _sls
+                val = int(val_str)
+                if val < 1:
+                    raise ValueError
+                _sls("luxe_rate", str(val))
+                await _w(bot, user.id, f"✅ Luxe rate: 1 Gold = {val} 🎫")
+            except Exception:
+                await _w(bot, user.id, "⚠️ Enter a positive integer.")
+        elif what == "coinrate":
+            try:
+                val = int(val_str)
+                if val < 1:
+                    raise ValueError
+                db.set_room_setting("gold_tip_coins_per_gold", str(val))
+                await _w(bot, user.id, f"✅ Coin rate: 1 Gold = {val:,} 🪙")
+            except Exception:
+                await _w(bot, user.id, "⚠️ Enter a positive integer.")
+        elif what == "aftertipmenu":
+            val    = "1" if val_str.lower() in ("on", "1", "yes") else "0"
+            db.set_room_setting("after_tip_menu", val)
+            status = "ON" if val == "1" else "OFF"
+            await _w(bot, user.id, f"✅ After-tip menu: {status}")
+        else:
+            await _w(bot, user.id,
+                     "!tipadmin set luxerate <n>\n"
+                     "!tipadmin set coinrate <n>\n"
+                     "!tipadmin set aftertipmenu on|off")
+    else:
+        await _w(bot, user.id,
+                 "💰 Tip Admin\n"
+                 "!tipadmin settings\n"
+                 "!tipadmin set luxerate <n>\n"
+                 "!tipadmin set coinrate <n>\n"
+                 "!tipadmin set aftertipmenu on|off")
 
 
 # ---------------------------------------------------------------------------

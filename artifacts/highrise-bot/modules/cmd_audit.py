@@ -586,6 +586,9 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     "buycoins",
     "use",
     "autotime", "minetime", "fishtime",
+    "autoconvert",
+    "tipadmin", "tipconfig",
+    "economydefaults",
     "luxeadmin",
     "vipadmin",
 })

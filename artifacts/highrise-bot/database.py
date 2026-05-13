@@ -2323,6 +2323,19 @@ def _migrate_db():
     except Exception:
         pass
 
+    # 3.1I Economy Balance — player auto-convert setting table
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS player_auto_convert (
+                user_id    TEXT PRIMARY KEY,
+                username   TEXT NOT NULL DEFAULT '',
+                enabled    INTEGER NOT NULL DEFAULT 0,
+                updated_at TEXT NOT NULL DEFAULT ''
+            )
+        """)
+    except Exception:
+        pass
+
     conn.commit()
     conn.close()
 

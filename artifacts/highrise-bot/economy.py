@@ -33,11 +33,11 @@ from modules.permissions  import can_moderate, is_admin
 
 def fmt_coins(amount: int) -> str:
     """
-    Return a human-readable coin string.
-    Under 1 000: just '999c'.
-    1 000+:      '1,250,000c / 1.25M' (both comma form and short form).
+    Return a human-readable coin string with 🪙 icon.
+    Under 1 000: just '999 🪙'.
+    1 000+:      '1,250,000 🪙 / 1.25M' (both comma form and short form).
     """
-    s = f"{amount:,}c"
+    s = f"{amount:,} 🪙"
     if amount >= 1_000_000_000_000:
         k = round(amount / 1_000_000_000_000, 2)
         return f"{s} / {k:g}T"
@@ -173,10 +173,10 @@ async def handle_daily(bot: BaseBot, user: User):
     await check_achievements(bot, user, "daily")
 
     s_label = "day" if new_streak == 1 else "days"
-    print(f"[DAILY] @{user.username} claimed {actual_coins}c streak={new_streak}")
+    print(f"[DAILY] @{user.username} claimed {actual_coins} coins streak={new_streak}")
     await bot.highrise.send_whisper(user.id,
         f"🎁 Daily Reward Claimed!\n"
-        f"Reward: {actual_coins}c\n"
+        f"Reward: {actual_coins:,} 🪙\n"
         f"Streak: {new_streak} {s_label}\n"
         f"Next claim: tomorrow"
     )
@@ -296,7 +296,7 @@ async def handle_profile(bot: BaseBot, user: User):
         f"-- {p['username']} --\n"
         f"💰 {fmt_coins(p['balance'])} | Lv {level}\n"
         f"✨ {xp} XP (need {xp_needed} for Lv {level + 1})\n"
-        f"🏆 {p['total_games_won']} wins | 🪙 {p['total_coins_earned']:,}c earned\n"
+        f"🏆 {p['total_games_won']} wins | {p['total_coins_earned']:,} 🪙 earned\n"
         f"⭐ Rep: {rep} ({rank})\n"
         f"🎨 {badge} | 🏷️ {title_}"
     )[:249])

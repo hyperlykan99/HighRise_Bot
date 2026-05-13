@@ -77,6 +77,7 @@ from modules.luxe import (
     handle_buyticket, handle_buycoins,
     handle_use as handle_use_permit,
     handle_autotime, handle_luxeadmin, handle_vipadmin,
+    handle_autoconvert, handle_economydefaults,
 )
 from modules.shop         import (
     handle_shop, handle_buy, handle_equip, handle_myitems,
@@ -406,6 +407,7 @@ from modules.gold_tips import (
     handle_tiplb,
     handle_roomtiplb,
     handle_tipreceiverlb,
+    handle_tipadmin,
 )
 from modules.mining import (
     handle_mine, handle_tool, handle_upgradetool,
@@ -4683,6 +4685,15 @@ class HangoutBot(BaseBot):
                 await handle_autotime(self, user, ["autotime", "fish"])
             else:
                 await handle_autotime(self, user, args)
+
+        elif cmd == "autoconvert":
+            await handle_autoconvert(self, user, args)
+
+        elif cmd in {"tipadmin", "tipconfig"}:
+            await handle_tipadmin(self, user, args)
+
+        elif cmd == "economydefaults":
+            await handle_economydefaults(self, user, args)
 
         elif cmd == "luxeadmin":
             await handle_luxeadmin(self, user, args)
