@@ -1,0 +1,612 @@
+UPDATE 3.1D — PLAYER RETENTION + LEADERBOARDS
+
+Goal:
+Improve player retention by adding/polishing leaderboards, player stats, and profile displays so players have goals and reasons to return.
+
+This update is leaderboard/player stats polish only.
+
+Focus:
+- Better leaderboard system
+- Top miners / fishers / richest players
+- Daily streak leaderboard
+- Activity stats
+- Player profile polish
+- “Who’s active?” engagement
+- No economy/odds changes
+- No risky data changes
+
+Do not rewrite core systems.
+Do not change bot tokens.
+Do not change room ID.
+Do not wipe database.
+Do not reset balances, VIP, inventories, mining/fishing data, blackjack/poker data, teleports, role spawns, bot spawns, party tip wallet, shop items, badges, titles, donation logs, notifications, subscriptions, daily streaks, event schedule, or command registry.
+Do not change mining/fishing odds.
+Do not change casino odds.
+Do not change daily rewards.
+Do not add advanced AI.
+Do not add exotic mute/pause.
+Do not give gold.
+Do not create fake leaderboard data.
+Do not expose private user IDs.
+
+==================================================
+PART 1 — STABILITY FIRST
+==================================================
+
+Before changing anything, run:
+
+!launchcheck
+!commandissues
+!checkcommands
+!checkcommands all
+!checkhelp
+!bothealth
+!stability status
+!botconflicts
+!modulehealth
+
+Expected:
+- Launch Check OK
+- Conflicts: none
+- no command issues
+- no checkcommands mismatch
+- no help issues
+- Err: none
+- no bot conflicts
+
+If anything is broken, fix it first before adding 3.1D.
+
+==================================================
+PART 2 — LEADERBOARD COMMANDS
+==================================================
+
+Add or polish these player-facing commands:
+
+!leaderboard
+!lb
+!top
+!topminers
+!topfishers
+!toprich
+!topstreaks
+!profile
+!stats
+
+Aliases:
+!leaderboards = !leaderboard
+!rank = !profile
+!me = !profile
+
+Expected owner:
+ChillTopiaMC or Host
+
+Expected command tests:
+
+!commandtest !leaderboard
+!commandtest !lb
+!commandtest !top
+!commandtest !topminers
+!commandtest !topfishers
+!commandtest !toprich
+!commandtest !topstreaks
+!commandtest !profile
+!commandtest !stats
+
+Expected:
+owner=ChillTopiaMC or Host
+route=YES
+handler=YES
+
+If optional aliases are skipped:
+- do not show them in help
+- do not count them as command issues
+
+==================================================
+PART 3 — MAIN LEADERBOARD MENU
+==================================================
+
+Command:
+!leaderboard
+!lb
+!top
+
+Expected response:
+
+🏆 Leaderboards
+!toprich — richest players
+!topminers — mining leaders
+!topfishers — fishing leaders
+!topstreaks — daily streaks
+!profile — your stats
+
+Keep under 220 characters.
+
+Rules:
+- No owner commands.
+- No debug commands.
+- No / commands.
+- No fake rankings.
+- Only show commands that route.
+
+==================================================
+PART 4 — TOP RICH PLAYERS
+==================================================
+
+Command:
+!toprich
+
+Purpose:
+Show top coin balances.
+
+Expected response:
+
+💰 Richest Players
+1. @Player — 12,500c
+2. @Player2 — 9,800c
+3. @Player3 — 7,200c
+
+If no data:
+
+💰 Richest Players
+No coin data yet.
+
+Rules:
+- Show top 5 only by default.
+- Keep under 220 characters.
+- Do not show raw user IDs.
+- Do not include bots.
+- Do not include banned/test/system users if those filters exist.
+- Do not expose private transaction data.
+- Do not change balances.
+
+Optional pagination:
+!toprich 2
+
+Only add pagination if already easy/safe.
+
+==================================================
+PART 5 — TOP MINERS
+==================================================
+
+Command:
+!topminers
+
+Purpose:
+Show mining leaders.
+
+Use whichever existing data is available safely:
+- total mining XP
+- total ores mined
+- highest value ore
+- total mining value
+
+Preferred if available:
+Sort by mining XP or total ores mined.
+
+Expected response:
+
+⛏️ Top Miners
+1. @Player — 12,500 MXP
+2. @Player2 — 9,200 MXP
+3. @Player3 — 7,100 MXP
+
+If using ores mined:
+
+⛏️ Top Miners
+1. @Player — 320 ores
+2. @Player2 — 210 ores
+3. @Player3 — 180 ores
+
+If no data:
+⛏️ Top Miners
+No mining data yet.
+
+Rules:
+- Do not calculate by scanning huge inventory tables if expensive.
+- Use existing stats table if available.
+- Do not change mining rewards/odds.
+- Exclude bots.
+- Keep under 220 characters.
+
+==================================================
+PART 6 — TOP FISHERS
+==================================================
+
+Command:
+!topfishers
+
+Purpose:
+Show fishing leaders.
+
+Use whichever existing data is available safely:
+- total fishing XP
+- total fish caught
+- highest value fish
+- total fishing value
+
+Preferred if available:
+Sort by fishing XP or total fish caught.
+
+Expected response:
+
+🎣 Top Fishers
+1. @Player — 12,500 FXP
+2. @Player2 — 9,200 FXP
+3. @Player3 — 7,100 FXP
+
+If using fish caught:
+
+🎣 Top Fishers
+1. @Player — 320 fish
+2. @Player2 — 210 fish
+3. @Player3 — 180 fish
+
+If no data:
+🎣 Top Fishers
+No fishing data yet.
+
+Rules:
+- Do not scan huge tables if expensive.
+- Use existing stats table if available.
+- Do not change fishing rewards/odds.
+- Exclude bots.
+- Keep under 220 characters.
+
+==================================================
+PART 7 — TOP DAILY STREAKS
+==================================================
+
+Command:
+!topstreaks
+
+Purpose:
+Show daily reward streak leaders.
+
+Expected response:
+
+🔥 Top Daily Streaks
+1. @Player — 14 days
+2. @Player2 — 9 days
+3. @Player3 — 7 days
+
+If no data:
+🔥 Top Daily Streaks
+No streaks yet.
+Type !daily to start!
+
+Rules:
+- Use daily rewards table from 3.1B.
+- Do not change streaks.
+- Do not create fake streak data.
+- Exclude bots.
+- Keep under 220 characters.
+
+==================================================
+PART 8 — PROFILE COMMAND
+==================================================
+
+Command:
+!profile
+!stats
+!me
+
+Purpose:
+Show the user’s main public stats.
+
+Expected response:
+
+👤 @Player
+Coins: 1,250c
+Daily Streak: 3 days
+Mining: 450 MXP
+Fishing: 320 FXP
+Title: [title or none]
+
+If message is too long, split safely.
+
+Alternative compact:
+
+👤 @Player
+Coins: 1,250c | Streak: 3d
+Mining: 450 MXP | Fishing: 320 FXP
+Title: none
+
+Rules:
+- User can view their own profile.
+- Optional: !profile @user if already safe.
+- Do not show private IDs.
+- Do not show sensitive logs.
+- Do not expose admin/debug info.
+- Exclude bot profiles unless owner checks them.
+
+==================================================
+PART 9 — PROFILE TARGETING OPTIONAL
+==================================================
+
+Optional:
+!profile @Player
+
+If easy and safe, support viewing public stats of another player.
+
+Expected:
+
+👤 @Player
+Coins: 1,250c | Streak: 3d
+Mining: 450 MXP | Fishing: 320 FXP
+
+If user not found:
+⚠️ Player not found.
+
+Rules:
+- Public stats only.
+- No raw user IDs.
+- No transaction history.
+- No private settings.
+- If risky, skip targeting and only support self profile.
+
+==================================================
+PART 10 — ACTIVITY STATS
+==================================================
+
+Add or polish:
+
+!activity
+!active
+
+Optional. Only add if safe.
+
+Expected:
+
+📊 Room Activity
+Today: [claims] daily claims
+Mining: [count] actions
+Fishing: [count] actions
+Games: [count] plays
+
+If data unavailable:
+
+📊 Room Activity
+Activity tracking unavailable.
+Try !leaderboard.
+
+If risky or no stats available:
+- skip !activity / !active
+- do not show in help
+- do not count as issue
+
+==================================================
+PART 11 — LEADERBOARD DATA SAFETY
+==================================================
+
+Rules:
+- Use existing stats/balance/daily tables.
+- Do not create fake leaderboard data.
+- Do not use expensive full inventory scans if tables are large.
+- Limit results to top 5.
+- Add indexes only if safe/idempotent.
+- Catch DB lock errors.
+- If DB read fails, reply:
+
+⚠️ Leaderboard unavailable right now.
+
+Do not crash bot.
+Do not block other commands.
+
+==================================================
+PART 12 — BOT/TEST USER FILTERING
+==================================================
+
+Leaderboards should exclude:
+- known bots
+- system/bank accounts
+- ArcadiaRadio
+- BankingBot
+- ChillTopiaMC
+- GreatestProspector
+- MasterAngler
+- BlackJackBot
+- PokerBot
+- any account marked bot
+
+If bot filtering data is unavailable:
+- filter by known names/usernames list
+- do not crash
+
+==================================================
+PART 13 — HELP UPDATE
+==================================================
+
+Update help pages if needed.
+
+Add to !help games or !help basic:
+
+!leaderboard — rankings
+!profile — your stats
+!daily — daily reward
+
+Add to !guide or !activities if short:
+
+Rankings: !leaderboard
+Profile: !profile
+
+Rules:
+- No / commands.
+- No owner commands.
+- No broken commands.
+- No “No lifetime VIP” text.
+- Keep help pages under 220 characters or split.
+
+==================================================
+PART 14 — ASSISTANT INTEGRATION
+==================================================
+
+Update assistant answers.
+
+If user asks:
+leaderboard
+who is top
+who is richest
+who mines the most
+who fishes the most
+my stats
+my profile
+
+Reply:
+
+🏆 Use !leaderboard for rankings or !profile to see your stats.
+
+If user asks:
+how do i rank up
+
+Reply:
+
+Earn coins, mine, fish, claim !daily, and play games. Check rankings with !leaderboard.
+
+Rules:
+- Assistant remains low-interference.
+- Whisper stays whisper.
+- Public only replies when clear help intent.
+- No advanced actions.
+- No command execution through AI.
+
+==================================================
+PART 15 — MESSAGE CAP SAFETY
+==================================================
+
+All leaderboard/profile messages must stay under 220 characters.
+
+Check:
+!leaderboard
+!toprich
+!topminers
+!topfishers
+!topstreaks
+!profile
+!stats
+
+Expected:
+- no cutoff
+- no huge paragraphs
+- no broken formatting
+- no raw IDs
+- usernames not cut badly
+
+If top 5 is too long:
+- show top 3
+- or split safely
+
+==================================================
+PART 16 — COMMAND TESTS
+==================================================
+
+Run:
+
+!commandtest !leaderboard
+!commandtest !lb
+!commandtest !top
+!commandtest !toprich
+!commandtest !topminers
+!commandtest !topfishers
+!commandtest !topstreaks
+!commandtest !profile
+!commandtest !stats
+!commandtest !me
+!commandtest !activity
+!commandtest !active
+
+Expected:
+- implemented commands route YES
+- implemented commands handler YES
+- owner not UNKNOWN
+- optional skipped commands hidden/skipped
+- no command issues
+
+==================================================
+PART 17 — LIVE TESTS
+==================================================
+
+Run:
+
+!leaderboard
+!lb
+!top
+!toprich
+!topminers
+!topfishers
+!topstreaks
+!profile
+!stats
+!me
+
+If added:
+!activity
+!active
+
+Assistant tests:
+who is top
+what is my profile
+how do i rank up
+leaderboard
+lol
+haha
+come here
+
+Expected:
+- leaderboard commands reply cleanly
+- profile commands reply cleanly
+- assistant replies only to clear help
+- casual chat ignored
+- no / commands
+- no owner command leaks
+- no message cutoff
+
+==================================================
+PART 18 — FINAL QA
+==================================================
+
+After changes, run:
+
+!launchcheck
+!commandissues
+!checkcommands
+!checkcommands all
+!checkhelp
+!bothealth
+!stability status
+!botconflicts
+!modulehealth
+
+Expected:
+- Launch Check OK
+- Conflicts: none
+- no command issues
+- no checkcommands mismatch
+- no help issues
+- Err: none
+- no bot conflicts
+- no DB lock spam
+
+==================================================
+PART 19 — FINAL REPORT
+==================================================
+
+After finishing, report:
+
+1. !leaderboard status.
+2. !lb / !top status.
+3. !toprich status.
+4. !topminers status.
+5. !topfishers status.
+6. !topstreaks status.
+7. !profile / !stats status.
+8. !activity / !active added or skipped.
+9. Data source used for each leaderboard.
+10. Bot/test user filtering confirmed.
+11. Help pages updated.
+12. Assistant leaderboard responses updated.
+13. Message cap result.
+14. !launchcheck result.
+15. !commandissues result.
+16. !checkcommands result.
+17. !checkhelp result.
+18. Stability result.
