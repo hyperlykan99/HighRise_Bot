@@ -2437,6 +2437,55 @@ def _migrate_db():
     except Exception:
         pass
 
+    # 3.1M — Onboarding / tutorial tracking
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS player_onboarding (
+                user_id               TEXT PRIMARY KEY,
+                username              TEXT NOT NULL DEFAULT '',
+                joined_at             TEXT NOT NULL DEFAULT (datetime('now')),
+                welcome_sent          INTEGER NOT NULL DEFAULT 0,
+                tutorial_started      INTEGER NOT NULL DEFAULT 0,
+                tutorial_completed    INTEGER NOT NULL DEFAULT 0,
+                current_step          INTEGER NOT NULL DEFAULT 0,
+                starter_reward_claimed INTEGER NOT NULL DEFAULT 0,
+                last_reminder_at      TEXT,
+                updated_at            TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+        """)
+    except Exception:
+        pass
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS player_tutorial_steps (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id      TEXT NOT NULL,
+                username     TEXT NOT NULL DEFAULT '',
+                step_key     TEXT NOT NULL,
+                completed    INTEGER NOT NULL DEFAULT 0,
+                reward_claimed INTEGER NOT NULL DEFAULT 0,
+                completed_at TEXT,
+                UNIQUE(user_id, step_key)
+            )
+        """)
+    except Exception:
+        pass
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS onboarding_rewards_log (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id    TEXT NOT NULL,
+                username   TEXT NOT NULL DEFAULT '',
+                reward_key TEXT NOT NULL,
+                amount     INTEGER NOT NULL DEFAULT 0,
+                currency   TEXT NOT NULL DEFAULT 'coins',
+                details    TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+        """)
+    except Exception:
+        pass
+
     conn.commit()
     conn.close()
 

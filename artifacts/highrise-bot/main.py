@@ -227,6 +227,16 @@ from modules.profile import (
     handle_profile_settings,
     handle_profile_help,
 )
+from modules.onboarding import (
+    on_join_welcome,
+    check_tutorial_step,
+    handle_start       as handle_onboarding_start,
+    handle_guide       as handle_onboarding_guide,
+    handle_newbie      as handle_onboarding_newbie,
+    handle_tutorial    as handle_onboarding_tutorial,
+    handle_starter     as handle_onboarding_starter,
+    handle_onboardadmin,
+)
 from modules.dashboard import handle_wallet, handle_casino_dash, handle_dashboard
 from modules.audit import (
     handle_audithelp, handle_audit,
@@ -3850,6 +3860,7 @@ class HangoutBot(BaseBot):
 
         elif cmd in {"profile", "me", "whois", "pinfo", "myprofile"}:
             await handle_profile_cmd(self, user, args)
+            asyncio.create_task(check_tutorial_step(self, user, "profile"))
 
         elif cmd == "stats":
             await handle_stats_cmd(self, user, args)
@@ -3898,6 +3909,7 @@ class HangoutBot(BaseBot):
                     await handle_shop_nav(self, user, args)
             else:
                 await handle_shop(self, user, args)
+            asyncio.create_task(check_tutorial_step(self, user, "shop"))
 
         elif cmd in ("buy", "buyitem", "purchase"):
             sub = args[1].lower() if len(args) > 1 else ""
@@ -4106,6 +4118,7 @@ class HangoutBot(BaseBot):
 
         elif cmd == "events":
             await handle_events(self, user)
+            asyncio.create_task(check_tutorial_step(self, user, "events"))
 
         elif cmd in ("nextevent", "next"):
             await handle_nextevent(self, user)
@@ -4882,98 +4895,22 @@ class HangoutBot(BaseBot):
             await handle_repair(self, user)
 
         elif cmd in {"start", "begin", "newplayer"}:
-            await self.highrise.send_whisper(user.id,
-                "👋 Welcome to ChillTopia!\n"
-                "Start here:\n"
-                "1. !tele list — explore\n"
-                "2. !mine or !fish — earn coins\n"
-                "3. !help games — play\n"
-                "4. !shop — spend coins"
-            )
-            await self.highrise.send_whisper(user.id,
-                "Need help? Ask:\n"
-                "\"how do I mine?\"\n"
-                "\"what games are here?\"\n"
-                "Or try: !guide  !daily"
-            )
+            await handle_onboarding_start(self, user, args)
 
-        elif cmd in {"guide", "whatdoido"}:
-            # args[0] = the command itself; topic is at args[1]
-            raw_topic = args[1].strip().lower() if len(args) > 1 else ""
-            _GUIDE_ALIASES = {
-                "mine": "mining", "mining": "mining",
-                "fish": "fishing", "fishing": "fishing",
-                "casino": "casino", "games": "casino",
-                "blackjack": "casino", "poker": "casino",
-                "vip": "vip", "perks": "vip",
-            }
-            topic = _GUIDE_ALIASES.get(raw_topic, raw_topic)
-            if not raw_topic:
-                await self.highrise.send_whisper(user.id,
-                    "🧭 ChillTopia Guide\n"
-                    "Earn: !mine, !fish\n"
-                    "Play: !help games\n"
-                    "Explore: !tele list\n"
-                    "Shop: !shop\n"
-                    "VIP: !vip"
-                )
-                await self.highrise.send_whisper(user.id,
-                    "Topic guides:\n"
-                    "!guide mining\n"
-                    "!guide fishing\n"
-                    "!guide casino\n"
-                    "!guide vip"
-                )
-            elif topic == "mining":
-                await self.highrise.send_whisper(user.id,
-                    "⛏️ Mining Guide\n"
-                    "!mine — mine once\n"
-                    "!automine — auto mine\n"
-                    "!mineinv — inventory\n"
-                    "!minechances — odds"
-                )
-            elif topic == "fishing":
-                await self.highrise.send_whisper(user.id,
-                    "🎣 Fishing Guide\n"
-                    "!fish — fish once\n"
-                    "!autofish — auto fish\n"
-                    "!fishinv — inventory\n"
-                    "!fishchances — odds"
-                )
-            elif topic == "casino":
-                await self.highrise.send_whisper(user.id,
-                    "🎰 Casino Guide\n"
-                    "Blackjack: !bet [amount], !hit, !stand\n"
-                    "Poker: !poker, !joinpoker\n"
-                    "Balance: !balance"
-                )
-            elif topic == "vip":
-                await self.highrise.send_whisper(user.id,
-                    "💎 VIP Guide\n"
-                    "!vip — VIP info\n"
-                    "!vipperks — perks\n"
-                    "!buyvip 1d/7d/30d — buy VIP\n"
-                    "!myvip — status"
-                )
-            else:
-                await self.highrise.send_whisper(user.id,
-                    f"⚠️ Unknown guide topic.\n"
-                    f"Try: mining, fishing, casino, vip\n"
-                    f"Examples:\n"
-                    f"!guide mining\n"
-                    f"!guide fishing"
-                )
+        elif cmd in {"guide", "whatdoido", "roomguide"}:
+            await handle_onboarding_guide(self, user, args)
 
         elif cmd in {"new", "newbie"}:
-            await self.highrise.send_whisper(user.id,
-                "🌱 New here?\n"
-                "Try this:\n"
-                "1. !tele list\n"
-                "2. !fish or !mine\n"
-                "3. !help games\n"
-                "4. !shop\n"
-                "Ask \"what can I do here?\" anytime."
-            )
+            await handle_onboarding_newbie(self, user, args)
+
+        elif cmd in {"tutorial", "newbiehelp"}:
+            await handle_onboarding_tutorial(self, user, args)
+
+        elif cmd in {"starter", "startermissions"}:
+            await handle_onboarding_starter(self, user, args)
+
+        elif cmd == "onboardadmin":
+            await handle_onboardadmin(self, user, args)
 
         elif cmd == "activities":
             await self.highrise.send_whisper(user.id,
@@ -5028,6 +4965,7 @@ class HangoutBot(BaseBot):
 
         elif cmd in {"missions", "dailymissions", "dailygoals"}:
             await handle_missions(self, user, args)
+            asyncio.create_task(check_tutorial_step(self, user, "missions"))
 
         elif cmd in {"weekly", "weeklymissions", "weeklygoals"}:
             await handle_weekly_missions(self, user, args)
@@ -5061,6 +4999,7 @@ class HangoutBot(BaseBot):
 
         elif cmd in {"today", "progress"}:
             await handle_today(self, user, args)
+            asyncio.create_task(check_tutorial_step(self, user, "today"))
 
         elif cmd == "missionadmin":
             await handle_missionadmin(self, user, args)
@@ -5436,6 +5375,7 @@ class HangoutBot(BaseBot):
         # ── Mining game ───────────────────────────────────────────────────────
         elif cmd in {"mine", "m", "dig"}:
             await handle_mine(self, user)
+            asyncio.create_task(check_tutorial_step(self, user, "mine"))
 
         elif cmd in {"tool", "pickaxe"}:
             await handle_tool(self, user)
@@ -5665,6 +5605,7 @@ class HangoutBot(BaseBot):
         # ── Fishing commands ─────────────────────────────────────────────────
         elif cmd in {"fish", "cast", "reel"}:
             await handle_fish(self, user)
+            asyncio.create_task(check_tutorial_step(self, user, "fish"))
 
         elif cmd in {"fishlist", "fishrarity", "fishes"}:
             await handle_fishlist(self, user, args)
@@ -6624,6 +6565,9 @@ class HangoutBot(BaseBot):
             return asyncio.create_task(_g())
 
         _sj(send_welcome_if_needed(self, user), "send_welcome_if_needed")
+        # on_join_welcome: run only from host bot to prevent multi-bot spam
+        if should_this_bot_run_module("timeexp"):
+            _sj(on_join_welcome(self, user), "on_join_welcome")
         _sj(send_bot_welcome(
             self, user, get_bot_username() or BOT_MODE, stagger_seconds=2.0
         ), "send_bot_welcome")

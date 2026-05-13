@@ -1335,6 +1335,12 @@ REGISTRY: dict[str, Cmd] = {
     "tag":                Cmd("host",    "room_admin",True,False,True,  perm="manager"),
     "tutorial":           Cmd("host",    "help",    True, True, False,
                               aliases=("newbiehelp","begin","newplayer")),
+    # ── 3.1M Onboarding & tutorial ────────────────────────────────────────────
+    "roomguide":          Cmd("host",    "help",    True, True, False),
+    "starter":            Cmd("host",    "help",    True, True, False,
+                              aliases=("startermissions",)),
+    "onboardadmin":       Cmd("host",    "admin",   False,True, False,
+                              perm="admin"),
     # ── Game answer command (eventhost) ─────────────────────────────────────────
     "answer":             Cmd("eventhost","events",False,False,True),
 

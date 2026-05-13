@@ -1,0 +1,913 @@
+UPDATE 3.1M — ROOM ONBOARDING + NEW PLAYER TUTORIAL
+
+Goal:
+Add a clean onboarding system for new players so they understand the room, currencies, games, mining, fishing, profiles, missions, events, and Luxe shop without being overwhelmed.
+
+Main features:
+1. Welcome new players
+2. First-time starter guide
+3. Tutorial missions
+4. Tutorial rewards
+5. New player help commands
+6. Explain 🪙 ChillCoins and 🎫 Luxe Tickets
+7. Explain mining/fishing/casino/profile/events
+8. Reduce help spam
+9. New player retention flow
+10. Staff/admin onboarding tools
+
+Currencies:
+🪙 ChillCoins = gameplay currency
+🎫 Luxe Tickets = premium currency
+
+Do not change tokens.
+Do not change room ID.
+Do not wipe database.
+Do not reset balances, tickets, VIP, badges, titles, market, casino, blackjack, poker, mining/fishing data, collection book, missions, XP, levels, events, seasons, tools, rods, boosts, profile settings, or player inventory.
+Do not re-add reward caps.
+Do not add HR Gold rewards.
+Do not change mining/fishing odds.
+Do not change casino odds.
+Do not change Luxe shop prices.
+Do not show “c” for currency.
+Use 🪙 and 🎫.
+
+==================================================
+PART 1 — STABILITY FIRST
+==================================================
+
+Before changing anything, run:
+
+!launchcheck
+!commandissues
+!checkcommands
+!checkcommands all
+!checkhelp
+!bothealth
+!stability status
+
+Expected:
+- Launch Check OK
+- no command issues
+- no help issues
+- Err: none
+
+Fix baseline issues first.
+
+==================================================
+PART 2 — NEW PLAYER DETECTION
+==================================================
+
+Detect when a player is new to the room/bot.
+
+A player is new if:
+- no profile record exists
+- no onboarding record exists
+- first time joining since onboarding system was added
+
+Create onboarding table if needed:
+
+player_onboarding:
+user_id TEXT UNIQUE
+username TEXT
+joined_at TEXT
+welcome_sent INTEGER DEFAULT 0
+tutorial_started INTEGER DEFAULT 0
+tutorial_completed INTEGER DEFAULT 0
+current_step INTEGER DEFAULT 0
+starter_reward_claimed INTEGER DEFAULT 0
+updated_at TEXT
+
+Rules:
+- Do not spam welcome every time they enter.
+- Welcome once per player.
+- If they leave/rejoin, do not restart unless they type !start.
+- If table exists, migrate safely.
+- Do not wipe old players.
+
+==================================================
+PART 3 — WELCOME MESSAGE
+==================================================
+
+When a new player joins, send one short welcome.
+
+Expected public message:
+
+👋 Welcome @Player!
+Type !start for the quick guide.
+Earn 🪙 ChillCoins by playing.
+Use 🎫 Luxe Tickets for premium perks.
+
+Rules:
+- Keep under 220 characters.
+- Do not spam if multiple joins.
+- Cooldown welcome messages if room is busy.
+- If whisper is available, send detailed guide privately.
+- Public welcome should be short.
+
+==================================================
+PART 4 — STARTER COMMANDS
+==================================================
+
+Add commands:
+
+!start
+!newbie
+!tutorial
+!guide
+!roomguide
+
+Expected:
+- !start starts the tutorial
+- !newbie shows beginner guide
+- !tutorial shows current tutorial progress
+- !guide shows room guide menu
+- !roomguide alias to !guide
+
+If aliases are risky:
+- hide unused aliases
+- do not show them in help
+- do not count as command issues
+
+==================================================
+PART 5 — !START TUTORIAL FLOW
+==================================================
+
+Command:
+!start
+
+Expected:
+
+🌟 Welcome to ChillTopia!
+Step 1: Check your profile.
+Type !profile
+
+After player types !profile, tutorial progresses:
+
+✅ Step 1 complete!
+Step 2: Check your missions.
+Type !missions
+
+Then:
+
+Step 3: Try mining.
+Type !mine
+
+Then:
+
+Step 4: Try fishing.
+Type !fish
+
+Then:
+
+Step 5: Check your progress.
+Type !today
+
+Then:
+
+Step 6: View the shop.
+Type !shop
+
+Then:
+
+Step 7: View events.
+Type !events
+
+Final:
+
+🎉 Tutorial Complete!
+Reward: 5,000 🪙 + Starter Chest
+Use !guide anytime.
+
+Rules:
+- Track progress.
+- Do not require exact order if player already did the action.
+- If player repeats !start, show current step.
+- If completed, show:
+  ✅ Tutorial already complete. Use !guide.
+
+==================================================
+PART 6 — TUTORIAL STEPS
+==================================================
+
+Default tutorial steps:
+
+1. !profile
+Reward: 500 🪙
+
+2. !missions
+Reward: 500 🪙
+
+3. !mine
+Reward: 1,000 🪙
+
+4. !fish
+Reward: 1,000 🪙
+
+5. !today
+Reward: 500 🪙
+
+6. !shop
+Reward: 500 🪙
+
+7. !events
+Reward: 500 🪙
+
+Completion reward:
+5,000 🪙 + Starter Chest
+
+Starter Chest default:
+- 10,000 🪙
+- Lucky Potion 30m if available
+- Starter title: New Explorer if title system exists
+
+If chest/potion/title system unavailable:
+Reward: 10,000 🪙 fallback
+
+Rules:
+- Each step reward once.
+- Completion reward once.
+- No reward caps.
+- No duplicate rewards.
+- Use 🪙 and 🎫 icons.
+
+==================================================
+PART 7 — GUIDE MENU
+==================================================
+
+Command:
+!guide
+
+Expected:
+
+📘 Room Guide
+1. !guide economy
+2. !guide mining
+3. !guide fishing
+4. !guide missions
+5. !guide events
+6. !guide profile
+
+Second message:
+
+More:
+!guide casino
+!guide shop
+!guide luxe
+!guide vip
+!guide commands
+
+Rules:
+- Keep messages under 220 characters.
+- Whisper if possible.
+- Do not dump everything at once.
+- No broken guide topics.
+
+==================================================
+PART 8 — ECONOMY GUIDE
+==================================================
+
+Command:
+!guide economy
+
+Expected:
+
+💰 Economy
+🪙 ChillCoins: earned by playing.
+🎫 Luxe Tickets: from verified Gold tips.
+Use !balance, !shop, !luxeshop.
+
+Second message:
+
+Convert 🎫 to 🪙:
+!buycoins small/medium/large
+!buycoins max
+
+Rules:
+- Explain simply.
+- Do not mention USD.
+- Do not mention HR Gold pricing unless needed.
+- No “c” currency.
+
+==================================================
+PART 9 — MINING GUIDE
+==================================================
+
+Command:
+!guide mining
+
+Expected:
+
+⛏️ Mining
+!mine — mine once
+!automine — timer auto mine
+!automine luxe — use Luxe time
+!mineluck — luck stack
+!orebook — collection
+
+Second message:
+
+Buy tools in !shop.
+Luxe auto time stacks.
+Use !autotime to check time.
+
+Rules:
+- No old count-based automine instructions.
+- No reward cap text.
+
+==================================================
+PART 10 — FISHING GUIDE
+==================================================
+
+Command:
+!guide fishing
+
+Expected:
+
+🎣 Fishing
+!fish — fish once
+!autofish — timer auto fish
+!autofish luxe — use Luxe time
+!fishluck — luck stack
+!fishbook — collection
+
+Second message:
+
+Buy rods in !shop.
+Luxe auto time stacks.
+Use !autotime to check time.
+
+Rules:
+- No old count-based autofish instructions.
+- No reward cap text.
+
+==================================================
+PART 11 — MISSIONS GUIDE
+==================================================
+
+Command:
+!guide missions
+
+Expected:
+
+📋 Missions
+!missions — daily goals
+!weekly — weekly goals
+!today — progress
+Complete goals for 🪙, 🎫, chests, XP.
+
+Rules:
+- Mention daily/weekly.
+- Mention rewards.
+- No reward cap text.
+
+==================================================
+PART 12 — EVENTS GUIDE
+==================================================
+
+Command:
+!guide events
+
+Expected:
+
+🎉 Events
+!events — schedule
+!event active — current boost
+!season — weekly season
+!topseason [category] — rankings
+
+Second message:
+
+Events boost luck, XP, or season points.
+No HR Gold rewards yet.
+
+Rules:
+- Keep clear.
+- No admin commands.
+- No HR Gold reward promises.
+
+==================================================
+PART 13 — PROFILE GUIDE
+==================================================
+
+Command:
+!guide profile
+
+Expected:
+
+👤 Profile
+!profile — public card
+!stats — private details
+!flex — public showoff
+!profile settings — privacy
+
+Second message:
+
+Show title, badges, level, VIP, collection, missions, season rank.
+
+Rules:
+- Mention privacy.
+- Do not leak balances.
+
+==================================================
+PART 14 — SHOP GUIDE
+==================================================
+
+Command:
+!guide shop
+
+Expected:
+
+🛒 Shops
+!shop — ChillCoins shop
+!luxeshop — Luxe shop
+!buyluxe [#] — buy Luxe item
+!buycoins max — convert 🎫 to 🪙
+
+Rules:
+- Include numbered Luxe shop.
+- Include conversion.
+- No admin prices.
+
+==================================================
+PART 15 — LUXE GUIDE
+==================================================
+
+Command:
+!guide luxe
+
+Expected:
+
+🎫 Luxe Tickets
+Earned from verified Gold tips.
+Use for VIP, Luxe auto time, boosts, and 🪙 packs.
+Use !luxeshop.
+
+Second message:
+
+Luxe auto:
+!automine luxe
+!autofish luxe
+!autotime
+
+Rules:
+- Do not say normal chat tips count.
+- Must say verified tips only.
+
+==================================================
+PART 16 — VIP GUIDE
+==================================================
+
+Command:
+!guide vip
+
+Expected:
+
+👑 VIP
+Use !vip to view status.
+Buy with 🎫 in !luxeshop.
+VIP gives luck, faster auto, longer auto time.
+
+Rules:
+- Show duration if already active when using !vip.
+- No “No lifetime VIP” text.
+
+==================================================
+PART 17 — CASINO GUIDE
+==================================================
+
+Command:
+!guide casino
+
+Expected:
+
+🎰 Casino
+Blackjack: !bet, !hit, !stand
+Rules: !bjrules
+Status: !bjstatus
+
+Second message:
+
+Poker and other games use 🪙.
+Play responsibly.
+No HR Gold rewards.
+
+Rules:
+- Do not show staff commands.
+- Use current blackjack system only.
+- No casual blackjack residue.
+
+==================================================
+PART 18 — COMMANDS GUIDE
+==================================================
+
+Command:
+!guide commands
+
+Expected:
+
+📜 Commands
+Progress: !today, !missions, !weekly
+Profile: !profile, !stats, !flex
+Mining/Fishing: !mine, !fish
+
+Second message:
+
+Shops: !shop, !luxeshop
+Events: !events, !season
+Help: !guide [topic]
+
+Rules:
+- Keep short.
+- No admin commands.
+- No broken commands.
+
+==================================================
+PART 19 — STARTER MISSIONS
+==================================================
+
+Add command:
+
+!starter
+!startermissions
+
+Expected:
+
+🌱 Starter Missions
+1. View profile — done/not done
+2. Mine once — done/not done
+3. Fish once — done/not done
+4. View missions — done/not done
+Reward: Starter Chest
+
+Rules:
+- Starter missions use same tutorial progress if possible.
+- Rewards once.
+- No reward caps.
+- Good for players who skip !start.
+
+==================================================
+PART 20 — NEW PLAYER STARTER KIT
+==================================================
+
+Optional but recommended.
+
+First-time player receives starter kit after tutorial completion:
+
+Starter Kit:
+- 10,000 🪙
+- Starter Pickaxe if missing
+- Starter Rod if missing
+- New Explorer title if title system exists
+- Lucky Potion if potion system exists
+
+Rules:
+- Only once per player.
+- Do not duplicate starter tools.
+- If player already has tool/rod, skip duplicate.
+- Log reward.
+
+==================================================
+PART 21 — ANTI-SPAM / HELP SPAM CONTROL
+==================================================
+
+Add cooldowns for guide/help commands:
+
+!guide cooldown:
+5 seconds per user
+
+!start cooldown:
+10 seconds per user
+
+Welcome message cooldown:
+Do not send more than 1 public welcome every 30 seconds if many new players join.
+
+Rules:
+- Do not block core commands.
+- Cooldown message should be short:
+  ⚠️ Please wait a few seconds.
+
+==================================================
+PART 22 — ONBOARDING REMINDERS
+==================================================
+
+If player has not completed tutorial, occasionally remind them after actions.
+
+Example after they mine/fish:
+
+📘 Tip: Finish !start to unlock your Starter Chest.
+
+Rules:
+- Do not spam.
+- Max one reminder every 10 minutes per player.
+- Stop reminders after tutorial complete.
+- Whisper if possible.
+
+==================================================
+PART 23 — STAFF ONBOARDING TOOLS
+==================================================
+
+Add:
+
+!onboardadmin
+!onboardadmin status @user
+!onboardadmin reset @user
+!onboardadmin complete @user
+!onboardadmin stats
+
+Expected:
+
+🛠️ Onboarding Admin
+!onboardadmin status @user
+!onboardadmin reset @user
+!onboardadmin stats
+
+Rules:
+- Owner/Admin only.
+- Do not wipe player progress except onboarding progress.
+- Useful if tutorial gets stuck.
+
+==================================================
+PART 24 — ONBOARDING STATS
+==================================================
+
+Command:
+
+!onboardadmin stats
+
+Expected:
+
+📊 Onboarding Stats
+Started: 42
+Completed: 28
+Completion: 67%
+Starter rewards claimed: 25
+
+Rules:
+- Owner/Admin only.
+- Helps evaluate retention.
+- No personal private details.
+
+==================================================
+PART 25 — DATABASE / STORAGE
+==================================================
+
+Add safe/idempotent tables if needed:
+
+player_onboarding:
+user_id TEXT UNIQUE
+username TEXT
+joined_at TEXT
+welcome_sent INTEGER DEFAULT 0
+tutorial_started INTEGER DEFAULT 0
+tutorial_completed INTEGER DEFAULT 0
+current_step INTEGER DEFAULT 0
+starter_reward_claimed INTEGER DEFAULT 0
+last_reminder_at TEXT
+updated_at TEXT
+
+player_tutorial_steps:
+id INTEGER PRIMARY KEY AUTOINCREMENT
+user_id TEXT
+username TEXT
+step_key TEXT
+completed INTEGER DEFAULT 0
+reward_claimed INTEGER DEFAULT 0
+completed_at TEXT
+
+onboarding_rewards_log:
+id INTEGER PRIMARY KEY AUTOINCREMENT
+user_id TEXT
+username TEXT
+reward_key TEXT
+amount INTEGER
+currency TEXT
+details TEXT
+created_at TEXT
+
+Rules:
+- Do not wipe data.
+- Idempotent migrations.
+- Prevent duplicate rewards.
+
+==================================================
+PART 26 — TUTORIAL HOOKS
+==================================================
+
+Hook tutorial progress into commands:
+
+!profile completes profile step
+!missions completes missions step
+!mine completes mining step
+!fish completes fishing step
+!today completes progress step
+!shop completes shop step
+!events completes events step
+
+Rules:
+- Step should complete even if command output has fallback.
+- Reward step once.
+- Do not break existing commands.
+
+==================================================
+PART 27 — HELP UPDATES
+==================================================
+
+Update:
+
+!help
+!guide
+!newbie
+!start
+!commands
+!profile help
+!minehelp
+!fishhelp
+!shop
+!luxeshop
+!events
+!missions
+
+Add public help section:
+
+🌟 New here?
+Use !start for tutorial.
+Use !guide for room guide.
+
+Rules:
+- No admin command leaks.
+- No broken commands.
+- No reward cap text.
+- Use 🪙 and 🎫.
+
+==================================================
+PART 28 — COMMAND REGISTRY
+==================================================
+
+Register/verify:
+
+!start
+!newbie
+!tutorial
+!guide
+!roomguide
+!starter
+!startermissions
+!onboardadmin
+
+Expected:
+route=YES
+handler=YES
+owner not UNKNOWN
+
+If optional aliases skipped:
+- hide them
+- do not show in help
+- do not count as command issue.
+
+==================================================
+PART 29 — TESTS: NEW PLAYER FLOW
+==================================================
+
+Use a test user or reset onboarding for yourself:
+
+!onboardadmin reset @4ktreyMarion
+!start
+
+Expected:
+- tutorial starts
+- Step 1 tells player to use !profile
+
+Run:
+!profile
+
+Expected:
+- step completes
+- reward given once
+- next step shown
+
+Continue:
+!missions
+!mine
+!fish
+!today
+!shop
+!events
+
+Expected:
+- tutorial completes
+- starter reward given once
+- no duplicate reward if repeated
+
+==================================================
+PART 30 — TESTS: GUIDE TOPICS
+==================================================
+
+Run:
+
+!guide
+!guide economy
+!guide mining
+!guide fishing
+!guide missions
+!guide events
+!guide profile
+!guide shop
+!guide luxe
+!guide vip
+!guide casino
+!guide commands
+
+Expected:
+- no crashes
+- no giant spam
+- no broken commands
+- messages under 220 characters
+- no admin leaks
+- no reward cap text
+
+==================================================
+PART 31 — TESTS: STARTER MISSIONS
+==================================================
+
+Run:
+
+!starter
+!startermissions
+
+Expected:
+- shows starter progress
+- syncs with tutorial
+- rewards once
+- no duplicate starter kit
+
+==================================================
+PART 32 — TESTS: ONBOARDING ADMIN
+==================================================
+
+Run:
+
+!onboardadmin
+!onboardadmin status @4ktreyMarion
+!onboardadmin stats
+
+Expected:
+- admin tools work
+- no crash
+- no public private leak
+
+==================================================
+PART 33 — FINAL QA
+==================================================
+
+Run:
+
+!commandtest !start
+!commandtest !newbie
+!commandtest !tutorial
+!commandtest !guide
+!commandtest !roomguide
+!commandtest !starter
+!commandtest !startermissions
+!commandtest !onboardadmin
+
+!commandissues
+!checkcommands
+!checkhelp
+!launchcheck
+!bothealth
+!stability status
+
+Expected:
+- no command issues
+- no no-owner commands
+- no help issues
+- no reward cap text
+- onboarding works
+- launchcheck clean
+
+==================================================
+PART 34 — FINAL REPORT
+==================================================
+
+Report:
+1. New player detection added.
+2. Welcome message added.
+3. !start tutorial added.
+4. Tutorial steps added.
+5. Tutorial rewards added.
+6. Starter chest/kit added or fallback used.
+7. !guide menu added.
+8. Guide topics added.
+9. Economy guide added.
+10. Mining/fishing guide added.
+11. Missions/events/profile/shop/luxe/vip/casino guides added.
+12. Starter missions added.
+13. Anti-spam cooldowns added.
+14. Onboarding reminders added.
+15. Onboard admin tools added.
+16. Help/guides updated.
+17. No reward cap regression.
+18. No HR Gold rewards added.
+19. !commandissues result.
+20. !checkhelp result.
+21. !launchcheck result.

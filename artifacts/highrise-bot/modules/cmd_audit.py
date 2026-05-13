@@ -431,6 +431,9 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     "previewbotwelcome", "botwelcomes",
     # ── Bio + onboarding audit (3.0C) ────────────────────────────────────────
     "bios", "checkbios", "checkonboarding",
+    # ── 3.1M Onboarding & tutorial ───────────────────────────────────────────
+    "tutorial", "newbiehelp", "starter", "startermissions",
+    "roomguide", "onboardadmin",
     # ── Gold tip commands (new) ───────────────────────────────────────────────
     "goldtipsettings", "setgoldrate",
     "goldtiplogs", "mygoldtips", "goldtipstatus",
