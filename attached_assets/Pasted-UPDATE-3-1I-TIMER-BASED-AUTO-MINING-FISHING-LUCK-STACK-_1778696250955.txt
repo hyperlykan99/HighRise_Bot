@@ -1,0 +1,909 @@
+UPDATE 3.1I — TIMER-BASED AUTO MINING/FISHING + LUCK STACK REDESIGN
+
+Goal:
+Redesign auto-mining and auto-fishing to work like a Prospecting-style system.
+
+Main changes:
+1. Remove set catch/count from auto-mining and auto-fishing.
+2. Auto-mining and auto-fishing should depend on timer/duration.
+3. Duration, speed, and luck depend on VIP, admin settings, tools/rods, potions, boosts, and events.
+4. Players can see their full luck stack.
+5. Mining and fishing should have clear stack breakdowns.
+6. Auto completion summaries should show time, attempts, rewards, best find, rare finds, new discoveries, and luck used.
+7. Keep collection book integration.
+8. Do not re-add reward caps.
+
+Do not change tokens.
+Do not change room ID.
+Do not wipe database.
+Do not reset balances, VIP, badges, casino, blackjack, poker, leaderboards, collection book, mining inventory, fishing inventory, tools, rods, or player data.
+Do not change mining/fishing item tables unless needed safely.
+Do not add reward caps.
+Do not add cap text.
+Do not break !collection, !orebook, !fishbook, !lastminesummary, or !lastfishsummary.
+
+==================================================
+PART 1 — REMOVE SET CATCH / SET COUNT AUTO SYSTEM
+==================================================
+
+Remove player-selected catch/count logic from:
+
+!automine [count]
+!autofish [count]
+
+Players should no longer decide how many mines/casts they get.
+
+New behavior:
+
+!automine
+Starts timer-based auto-mining.
+
+!autofish
+Starts timer-based auto-fishing.
+
+If player types:
+
+!automine 50
+!autofish 50
+
+Reply:
+
+⚠️ Auto sessions are timer-based now.
+Use !automine or !autofish.
+
+Rules:
+- Do not let players choose count.
+- Do not use old count-based auto loops.
+- Keep stop/cancel command if already exists.
+- Do not break manual !mine and !fish.
+
+==================================================
+PART 2 — TIMER-BASED AUTO SYSTEM
+==================================================
+
+Auto session should calculate:
+
+auto_duration
+action_interval
+total_attempts
+
+Formula:
+
+total_attempts = floor(auto_duration_seconds / action_interval_seconds)
+
+Example:
+Auto Time: 15 minutes
+Speed: 10s/action
+Attempts: 90
+
+Rules:
+- Duration comes from base settings + VIP + tool/rod + potion + boost + event.
+- Action speed comes from base interval reduced by tool/rod + VIP + potion + boost + event.
+- Enforce a minimum interval to prevent spam.
+- Do not allow zero-second action speed.
+- Do not run infinite loops.
+
+==================================================
+PART 3 — LUCK STACK FORMULA
+==================================================
+
+Create one clear luck formula.
+
+Mining:
+
+Total Mining Luck =
+Base Luck
++ Tool Luck
++ Potion Luck
++ Boost Luck
++ Event Luck
++ VIP Luck
+
+Fishing:
+
+Total Fishing Luck =
+Base Luck
++ Rod Luck
++ Bait Luck
++ Potion Luck
++ Boost Luck
++ Event Luck
++ VIP Luck
+
+Example:
+
+⛏️ Mining Stack
+Base: +1
+Tool: +5
+Potion: +3
+VIP: +2
+Event: +2
+Total Luck: 13
+
+Fishing example:
+
+🎣 Fishing Stack
+Base: +1
+Rod: +5
+Bait: +3
+Potion: +2
+VIP: +2
+Event: +2
+Total Luck: 13
+
+Rules:
+- Luck improves rare chance.
+- Luck does not guarantee rare finds.
+- Keep rarity odds fair.
+- Do not secretly hide luck values from players.
+- Do not use reward caps.
+
+==================================================
+PART 4 — PLAYER LUCK COMMANDS
+==================================================
+
+Add or polish:
+
+!luck
+!mineluck
+!fishluck
+
+!luck shows both mining and fishing summary.
+
+Expected:
+
+🍀 Your Luck
+Mining: 13 luck | 8s/action
+Fishing: 11 luck | 9s/cast
+Use !mineluck or !fishluck.
+
+!mineluck expected:
+
+⛏️ Mining Stack
+Base: +1
+Tool: +5
+Potion: +3
+VIP: +2
+Event: +2
+Total: 13
+Speed: 8s
+Auto: 15m
+
+!fishluck expected:
+
+🎣 Fishing Stack
+Base: +1
+Rod: +5
+Bait: +3
+Potion: +2
+VIP: +2
+Event: +2
+Total: 13
+Speed: 9s
+Auto: 15m
+
+Rules:
+- Whisper if possible.
+- Keep each message under 220 characters.
+- Split into multiple messages if needed.
+- Do not show raw debug data.
+
+==================================================
+PART 5 — TOOLS AND RODS
+==================================================
+
+Tools/rods should affect:
+1. Luck
+2. Speed
+3. Optional auto duration
+
+Mining tool example:
+
+Rusty Pickaxe:
++1 luck
+0s speed bonus
+0m auto time
+
+Iron Pickaxe:
++3 luck
+-1s speed
++1m auto time
+
+Gold Pickaxe:
++5 luck
+-2s speed
++2m auto time
+
+Crystal Pickaxe:
++8 luck
+-3s speed
++3m auto time
+
+Mythic Pickaxe:
++12 luck
+-4s speed
++5m auto time
+
+Fishing rod example:
+
+Wood Rod:
++1 luck
+0s speed
+0m auto time
+
+Iron Rod:
++3 luck
+-1s speed
++1m auto time
+
+Gold Rod:
++5 luck
+-2s speed
++2m auto time
+
+Crystal Rod:
++8 luck
+-3s speed
++3m auto time
+
+Mythic Rod:
++12 luck
+-4s speed
++5m auto time
+
+Rules:
+- Use existing tools/rods if already implemented.
+- Do not wipe player-owned tools/rods.
+- If no tool/rod exists, use default starter tool/rod.
+- Do not create overpowered values unless admin config allows.
+
+==================================================
+PART 6 — POTIONS / BOOSTS / EVENTS
+==================================================
+
+Support active bonuses:
+
+Mining:
+- luck potion
+- speed potion
+- treasure potion
+- room mining boost
+- event boost
+- VIP boost
+- tool boost
+
+Fishing:
+- luck potion
+- speed potion
+- bait boost
+- treasure potion
+- room fishing boost
+- event boost
+- VIP boost
+- rod boost
+
+Each active boost should have:
+- bonus type
+- amount
+- expires_at
+- source
+
+Examples:
+
+Lucky Potion:
++3 luck for 30m
+
+Speed Potion:
+-2s action interval for 30m
+
+Treasure Potion:
++5 rare luck for 15m
+
+Room Event Boost:
++2 luck for all players
+
+Rules:
+- Expired boosts should not apply.
+- Do not stack duplicate identical expired boosts.
+- Allow stack display.
+- Do not create reward caps.
+
+==================================================
+PART 7 — VIP EFFECTS
+==================================================
+
+VIP should improve auto systems.
+
+Suggested default:
+
+Non-VIP:
+Base Auto Time: 5m
+Base Luck: +1
+Base Speed: 12s/action
+
+VIP:
+Auto Time Bonus: +10m
+VIP Luck: +2
+VIP Speed Bonus: -1s/action
+
+Rules:
+- Use existing VIP status.
+- Do not auto-subscribe players.
+- Do not reset VIP.
+- VIP effects should appear in !luck, !mineluck, and !fishluck.
+
+==================================================
+PART 8 — ADMIN SETTINGS
+==================================================
+
+Add or polish mining admin commands:
+
+!mineadmin
+!mineadmin settings
+!mineadmin set baseduration [minutes]
+!mineadmin set baseinterval [seconds]
+!mineadmin set baseluck [amount]
+!mineadmin set vipluck [amount]
+!mineadmin set vipduration [minutes]
+!mineadmin set vipspeed [seconds]
+!mineadmin set mininterval [seconds]
+
+Add or polish fishing admin commands:
+
+!fishadmin
+!fishadmin settings
+!fishadmin set baseduration [minutes]
+!fishadmin set baseinterval [seconds]
+!fishadmin set baseluck [amount]
+!fishadmin set vipluck [amount]
+!fishadmin set vipduration [minutes]
+!fishadmin set vipspeed [seconds]
+!fishadmin set mininterval [seconds]
+
+Expected !mineadmin settings:
+
+⛏️ Mine Settings
+Base Time: 5m
+Base Speed: 12s
+Base Luck: +1
+VIP: +10m, +2 luck, -1s
+Min Speed: 5s
+
+Expected !fishadmin settings:
+
+🎣 Fish Settings
+Base Time: 5m
+Base Speed: 12s
+Base Luck: +1
+VIP: +10m, +2 luck, -1s
+Min Speed: 5s
+
+Rules:
+- Admin/Owner only for settings.
+- Staff can view settings if safe.
+- Validate values.
+- No negative duration.
+- No zero interval.
+- Minimum interval must be enforced.
+
+==================================================
+PART 9 — BOOST ADMIN COMMANDS
+==================================================
+
+Add or polish:
+
+!boostadmin
+!boostadmin start mining luck [amount] [minutes]
+!boostadmin start mining speed [seconds] [minutes]
+!boostadmin start fishing luck [amount] [minutes]
+!boostadmin start fishing speed [seconds] [minutes]
+!boostadmin stop mining
+!boostadmin stop fishing
+!boostadmin status
+
+Examples:
+
+!boostadmin start mining luck 2 30
+✅ Mining luck boost started: +2 for 30m.
+
+!boostadmin start fishing speed 1 30
+✅ Fishing speed boost started: -1s for 30m.
+
+Rules:
+- Admin/Owner only.
+- Boosts should show in !mineluck and !fishluck.
+- Expired boosts ignored.
+- No reward caps.
+
+==================================================
+PART 10 — AUTO-MINING START MESSAGE
+==================================================
+
+When player starts !automine, show:
+
+⛏️ Auto-Mining Started
+Time: 15m
+Speed: 8s/mine
+Attempts: 112
+Luck: 13
+Use !stopmine to stop.
+
+If command is different, use existing stop command.
+
+Rules:
+- Whisper if possible.
+- Public message can be short:
+  @Player started auto-mining. Use !mineluck for stack.
+- Do not spam.
+- Do not show reward caps.
+
+==================================================
+PART 11 — AUTO-FISHING START MESSAGE
+==================================================
+
+When player starts !autofish, show:
+
+🎣 Auto-Fishing Started
+Time: 15m
+Speed: 9s/cast
+Casts: 100
+Luck: 12
+Use !stopfish to stop.
+
+Rules:
+- Whisper if possible.
+- Public message can be short.
+- Do not spam.
+- Do not show reward caps.
+
+==================================================
+PART 12 — AUTO-MINING COMPLETION SUMMARY
+==================================================
+
+When auto-mining completes, generate summary:
+
+⛏️ Auto-Mining Complete
+Time: 15m
+Mined: 112
+Earned: 12,450c
+Best: Mythril Ore
+New: 2 | Rare: 4
+Luck Used: 13
+
+Rules:
+- Save summary.
+- Send true DM/inbox only if conversation_id exists.
+- If no conversation_id, whisper:
+  📩 Auto-mining summary saved. Use !lastminesummary.
+- Do not dump long summary publicly.
+- No reward cap text.
+
+==================================================
+PART 13 — AUTO-FISHING COMPLETION SUMMARY
+==================================================
+
+When auto-fishing completes, generate summary:
+
+🎣 Auto-Fishing Complete
+Time: 15m
+Casts: 100
+Earned: 10,800c
+Best: Golden Koi
+New: 1 | Rare: 3
+Luck Used: 12
+
+Rules:
+- Save summary.
+- Send true DM/inbox only if conversation_id exists.
+- If no conversation_id, whisper:
+  📩 Auto-fishing summary saved. Use !lastfishsummary.
+- Do not dump long summary publicly.
+- No reward cap text.
+
+==================================================
+PART 14 — LAST SUMMARY COMMANDS
+==================================================
+
+Keep/fix:
+
+!lastminesummary
+!lastfishsummary
+
+Expected:
+
+!lastminesummary
+
+⛏️ Last Mining Summary
+Time: 15m
+Mined: 112
+Earned: 12,450c
+Best: Mythril Ore
+New: 2 | Rare: 4
+Luck: 13
+
+!lastfishsummary
+
+🎣 Last Fishing Summary
+Time: 15m
+Casts: 100
+Earned: 10,800c
+Best: Golden Koi
+New: 1 | Rare: 3
+Luck: 12
+
+==================================================
+PART 15 — COLLECTION BOOK INTEGRATION
+==================================================
+
+Auto-mining should update:
+- collection book
+- orebook count
+- new discoveries
+- rare find count
+- best find
+
+Auto-fishing should update:
+- collection book
+- fishbook count
+- new catches
+- rare catch count
+- best catch
+
+Do not break:
+!collection
+!orebook
+!fishbook
+!fishbook missing
+!orebook missing
+
+==================================================
+PART 16 — RARITY / LUCK EFFECT
+==================================================
+
+Luck should influence rarity chances.
+
+Use safe weighted adjustment:
+
+- Base odds come from existing mining/fishing drop tables.
+- Luck should slightly improve rare+ chances.
+- Luck should not guarantee rare items.
+- Luck should not remove common items completely.
+- Admin settings may tune scaling later.
+
+Suggested:
+Each luck point slightly increases rare/epic/legendary/mythic weight.
+Keep common/uncommon still possible.
+
+Do not change item values unless already configured.
+
+==================================================
+PART 17 — REMOVE OLD AUTO COUNT SETTINGS
+==================================================
+
+Remove or deprecate old admin settings like:
+
+set auto catch count
+set automine count
+set autofish count
+set catches
+set mines
+max catches
+auto catch amount
+
+If those commands exist, reply:
+
+⚠️ Auto sessions are timer-based now.
+Use !mineadmin settings or !fishadmin settings.
+
+Do not show old count commands in help.
+
+==================================================
+PART 18 — HELP UPDATES
+==================================================
+
+Update mining help:
+
+⛏️ Mining Help
+!mine — mine once
+!automine — timer auto mine
+!mineluck — view stack
+!orebook — collection
+!lastminesummary
+
+Update fishing help:
+
+🎣 Fishing Help
+!fish — fish once
+!autofish — timer auto fish
+!fishluck — view stack
+!fishbook — collection
+!lastfishsummary
+
+Update general help:
+
+🍀 Luck
+!luck
+!mineluck
+!fishluck
+
+Admin help:
+!mineadmin settings
+!fishadmin settings
+!boostadmin status
+
+Rules:
+- Only show commands that route.
+- No old count commands.
+- No reward cap text.
+
+==================================================
+PART 19 — DATABASE SAFETY
+==================================================
+
+Add safe/idempotent tables if needed:
+
+player_active_boosts:
+id INTEGER PRIMARY KEY AUTOINCREMENT
+user_id TEXT
+username TEXT
+boost_type TEXT
+target_system TEXT
+amount REAL
+expires_at TEXT
+source TEXT
+created_at TEXT
+
+room_active_boosts:
+id INTEGER PRIMARY KEY AUTOINCREMENT
+target_system TEXT
+boost_type TEXT
+amount REAL
+expires_at TEXT
+source TEXT
+created_by TEXT
+created_at TEXT
+
+auto_session_summaries:
+id INTEGER PRIMARY KEY AUTOINCREMENT
+user_id TEXT
+username TEXT
+summary_type TEXT
+summary_text TEXT
+created_at TEXT
+
+Do not wipe existing data.
+
+==================================================
+PART 20 — COMMAND REGISTRY
+==================================================
+
+Register or verify:
+
+!luck
+!mineluck
+!fishluck
+!mineadmin
+!fishadmin
+!boostadmin
+!automine
+!autofish
+!lastminesummary
+!lastfishsummary
+
+Expected:
+route=YES
+handler=YES
+owner not UNKNOWN
+
+If optional alias skipped:
+- hide it
+- do not show in help
+- do not count as command issue.
+
+==================================================
+PART 21 — TESTS: LUCK DISPLAY
+==================================================
+
+Run:
+
+!luck
+!mineluck
+!fishluck
+
+Expected:
+- stack breakdown visible
+- base luck shown
+- tool/rod shown
+- VIP shown if active
+- boosts/events shown if active
+- total luck shown
+- speed shown
+- auto duration shown
+- no command errors
+
+==================================================
+PART 22 — TESTS: AUTO TIMER SYSTEM
+==================================================
+
+Run:
+
+!automine 50
+
+Expected:
+⚠️ Auto sessions are timer-based now.
+Use !automine.
+
+Run:
+
+!automine
+
+Expected:
+- starts timer-based session
+- shows time, speed, attempts, luck
+- no set count used
+
+Run:
+
+!autofish 50
+
+Expected:
+⚠️ Auto sessions are timer-based now.
+Use !autofish.
+
+Run:
+
+!autofish
+
+Expected:
+- starts timer-based session
+- shows time, speed, casts, luck
+
+==================================================
+PART 23 — TESTS: ADMIN SETTINGS
+==================================================
+
+Run:
+
+!mineadmin settings
+!fishadmin settings
+!boostadmin status
+
+Then:
+
+!mineadmin set baseduration 5
+!mineadmin set baseinterval 12
+!mineadmin set baseluck 1
+!mineadmin set vipluck 2
+!mineadmin set vipduration 10
+!mineadmin set mininterval 5
+
+!fishadmin set baseduration 5
+!fishadmin set baseinterval 12
+!fishadmin set baseluck 1
+!fishadmin set vipluck 2
+!fishadmin set vipduration 10
+!fishadmin set mininterval 5
+
+Expected:
+- settings update
+- no crash
+- displayed stack changes accordingly
+
+==================================================
+PART 24 — TESTS: BOOSTS
+==================================================
+
+Run:
+
+!boostadmin start mining luck 2 30
+!mineluck
+
+Expected:
+Mining boost appears as +2.
+
+Run:
+
+!boostadmin start fishing luck 2 30
+!fishluck
+
+Expected:
+Fishing boost appears as +2.
+
+Run:
+
+!boostadmin stop mining
+!boostadmin stop fishing
+!boostadmin status
+
+Expected:
+Boosts removed/stopped safely.
+
+==================================================
+PART 25 — TESTS: AUTO SUMMARY
+==================================================
+
+Run:
+
+!automine
+
+Let it finish or stop it.
+
+Expected:
+- summary saved
+- true DM if conversation exists
+- fallback whisper if no DM conversation
+- !lastminesummary works
+- summary includes Time, Mined, Earned, Best, New, Rare, Luck Used
+
+Run:
+
+!autofish
+
+Expected:
+- summary saved
+- true DM if conversation exists
+- fallback whisper if no DM conversation
+- !lastfishsummary works
+- summary includes Time, Casts, Earned, Best, New, Rare, Luck Used
+
+==================================================
+PART 26 — FINAL QA
+==================================================
+
+Run:
+
+!commandtest !luck
+!commandtest !mineluck
+!commandtest !fishluck
+!commandtest !mineadmin
+!commandtest !fishadmin
+!commandtest !boostadmin
+!commandtest !automine
+!commandtest !autofish
+!commandtest !lastminesummary
+!commandtest !lastfishsummary
+
+!commandissues
+!checkcommands
+!checkhelp
+!launchcheck
+!bothealth
+!stability status
+
+Expected:
+- no command issues
+- no help issues
+- no reward caps
+- no old set catch commands in help
+- automine/autofish timer-based
+- luck stack visible
+- launchcheck clean
+
+==================================================
+PART 27 — FINAL REPORT
+==================================================
+
+Report:
+1. Auto-mining count input removed.
+2. Auto-fishing count input removed.
+3. Timer-based auto-mining implemented.
+4. Timer-based auto-fishing implemented.
+5. Mining luck stack implemented.
+6. Fishing luck stack implemented.
+7. !luck added.
+8. !mineluck added.
+9. !fishluck added.
+10. Tool/rod luck and speed included.
+11. VIP duration/luck/speed included.
+12. Potions/boosts/events included.
+13. Mine admin settings added.
+14. Fish admin settings added.
+15. Boost admin added.
+16. Auto-mining summary updated.
+17. Auto-fishing summary updated.
+18. Collection book integration preserved.
+19. Old set catch/count commands removed from help.
+20. No reward cap regression.
+21. !commandissues result.
+22. !checkhelp result.
+23. !launchcheck result.

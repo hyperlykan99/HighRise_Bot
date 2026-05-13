@@ -1342,15 +1342,17 @@ def _get_af_setting(key: str, default: str) -> str:
 async def _send_autofish_summary(bot: BaseBot, uid: str, uname: str,
                                  stats: dict) -> None:
     """DM/whisper AutoFish session summary and save it for !lastfishsummary."""
-    casts   = stats.get("count", 0)
-    earned  = stats.get("value", 0)
-    best    = stats.get("best_name", "—")
-    new_cnt = len(stats.get("new_discoveries", []))
-    rare_ct = len(stats.get("rare_finds", []))
+    casts     = stats.get("count", 0)
+    earned    = stats.get("value", 0)
+    best      = stats.get("best_name", "—")
+    new_cnt   = len(stats.get("new_discoveries", []))
+    rare_ct   = len(stats.get("rare_finds", []))
+    elapsed_m = stats.get("elapsed_mins", stats.get("duration_mins", "?"))
+    luck      = stats.get("luck_total", "?")
     msg1 = (f"🎣 Auto-Fishing Complete\n"
-            f"Casts: {casts}  Earned: {_fmt(earned)}c\n"
-            f"Best: {best}\n"
-            f"New: {new_cnt} | Rare: {rare_ct}")
+            f"Time: {elapsed_m}m | Casts: {casts}\n"
+            f"Earned: {_fmt(earned)}c | Best: {best}\n"
+            f"New: {new_cnt} | Rare: {rare_ct} | Luck: {luck}")
     msg2 = ""
     if new_cnt > 0:
         disc  = stats["new_discoveries"][:3]
@@ -1406,39 +1408,41 @@ async def _send_autofish_summary(bot: BaseBot, uid: str, uname: str,
 
 
 async def _autofish_loop(bot: BaseBot, user: User) -> None:
-    """Background AutoFish loop for one player."""
-    uid       = user.id
-    uname     = user.username
-    max_att   = int(_get_af_setting("autofish_max_attempts", "30"))
-    # Use per-user override if set by handle_autofish, else fall back to DB setting
-    max_mins  = _autofish_duration_override.pop(uid, None)
-    if max_mins is None:
-        max_mins = int(_get_af_setting("autofish_duration_minutes", "30"))
-    start_t   = datetime.now(timezone.utc)
-    attempts  = 0
+    """Timer-based AutoFish loop (3.1I) — duration/speed driven by luck stack."""
+    from modules.luck_stack import get_fish_luck_stack
+
+    uid, uname = user.id, user.username
+
+    stack         = get_fish_luck_stack(uid, uname)
+    duration_mins = stack["duration_mins"]
+    interval_secs = stack["interval_secs"]
+    luck_total    = stack["luck_total"]
+    total_att     = stack["total_attempts"]
 
     await _w(bot, uid,
-             f"🎣 AutoFish Started\n"
-             f"Limit: {max_att} catches or {max_mins}m.\n"
-             f"Stops if you leave. !autofish off to stop.")
+             f"🎣 Auto-Fishing Started\n"
+             f"Time: {duration_mins}m | Speed: {interval_secs}s/cast\n"
+             f"Casts: {total_att} | Luck: {luck_total}\n"
+             f"!autofish off to stop.")
 
-    _af_started_at = datetime.now(timezone.utc).isoformat()
+    _started_at = datetime.now(timezone.utc)
     try:
-        db.save_auto_fish_session(uid, uname, _af_started_at, max_att, max_mins)
+        db.save_auto_fish_session(uid, uname, _started_at.isoformat(), total_att, duration_mins)
     except Exception:
         pass
 
     _af_session_stats[uid] = {
         "count": 0, "value": 0, "best_value": 0,
         "best_name": "—", "rare_finds": [], "new_discoveries": [],
+        "duration_mins": duration_mins, "luck_total": luck_total,
     }
 
+    attempts = 0
     try:
-        while True:
+        for i in range(total_att):
             # Check global flag
             if _get_af_setting("autofish_enabled", "1") != "1":
-                await _w(bot, uid,
-                         "🎣 AutoFish Stopped\nReason: Disabled by staff.")
+                await _w(bot, uid, "🎣 AutoFish Stopped\nReason: Disabled by staff.")
                 break
 
             # Room presence check
@@ -1446,41 +1450,17 @@ async def _autofish_loop(bot: BaseBot, user: User) -> None:
                 await _w(bot, uid,
                          f"🎣 AutoFish Stopped\n"
                          f"Reason: You left the room.\n"
-                         f"Catches: {attempts}/{max_att}")
+                         f"Catches: {attempts}")
                 break
 
-            # Session limits
-            elapsed_mins = (datetime.now(timezone.utc) - start_t).total_seconds() / 60
-            if attempts >= max_att:
-                await _w(bot, uid,
-                         f"🎣 AutoFish Stopped\n"
-                         f"Reason: Session limit reached.\n"
-                         f"Catches: {attempts}/{max_att}")
-                break
-            if elapsed_mins >= max_mins:
-                await _w(bot, uid,
-                         f"🎣 AutoFish Stopped\n"
-                         f"Reason: Time limit reached.\n"
-                         f"Catches: {attempts}/{max_att}")
-                break
-
-            # Attempt a fish — respect cooldown
+            # Fetch profile + roll fish (no cooldown check — timer drives timing)
             profile  = db.get_or_create_fish_profile(uid, uname)
             rod_name = profile.get("equipped_rod") or "Driftwood Rod"
             rod      = FISHING_RODS.get(rod_name, FISHING_RODS["Driftwood Rod"])
-            cooldown = rod["cooldown"]
             eff      = _get_fishing_event_effects()
-            cd_red   = eff.get("fishing_cooldown_reduction", 0.0)
-            eff_cd   = max(5.0, cooldown * (1 - cd_red))
-            secs_ago = _seconds_since(profile.get("last_fish_at"))
+            fish     = _roll_fish(rod_name, eff)
 
-            if secs_ago < eff_cd:
-                wait = max(1, int(eff_cd - secs_ago) + 1)
-                await asyncio.sleep(wait)
-                continue
-            fish   = _roll_fish(rod_name, eff)
-
-            # Owner-forced fish drop override — applied before payout
+            # Owner-forced fish drop override
             _af_forced, _af_err = _resolve_forced_fish(uid, uname, rod_name, eff)
             if _af_forced is not None:
                 fish = _af_forced
@@ -1545,8 +1525,7 @@ async def _autofish_loop(bot: BaseBot, user: User) -> None:
             await _w(bot, uid, msg[:249])
 
             if leveled:
-                await _w(bot, uid,
-                         f"🎣 Level Up! Fishing Lv {new_lvl}!")
+                await _w(bot, uid, f"🎣 Level Up! Fishing Lv {new_lvl}!")
 
             try:
                 await check_race_win(bot, uid, uname, "fishing", fish["rarity"], fish.get("name", ""))
@@ -1562,7 +1541,8 @@ async def _autofish_loop(bot: BaseBot, user: User) -> None:
                 except Exception as _bae:
                     print(f"[AUTOFISH] big_announce error: {_bae}")
 
-            await asyncio.sleep(cooldown + 1)
+            if i < total_att - 1:
+                await asyncio.sleep(interval_secs)
 
     except asyncio.CancelledError:
         pass
@@ -1570,8 +1550,10 @@ async def _autofish_loop(bot: BaseBot, user: User) -> None:
         print(f"[AUTOFISH] Loop error for {uname}: {exc}")
     finally:
         _autofish_tasks.pop(uid, None)
+        elapsed = (datetime.now(timezone.utc) - _started_at).total_seconds()
         _af_stats = _af_session_stats.pop(uid, None)
         if _af_stats and _af_stats.get("count", 0) > 0:
+            _af_stats["elapsed_mins"] = round(elapsed / 60, 1)
             try:
                 await _send_autofish_summary(bot, uid, uname, _af_stats)
             except Exception:
@@ -1601,45 +1583,21 @@ _AUTOFISH_VIP_LIMIT = 60   # minutes — VIP player max explicit duration
 
 
 async def handle_autofish(bot: BaseBot, user: User, args: list[str]) -> None:
-    """/autofish [minutes]|on|off|status"""
+    """/autofish [on|off] — timer-based auto fishing (3.1I)."""
     sub = args[1].lower() if len(args) >= 2 else "on"
 
-    # ── Numeric duration request: !autofish <minutes> ─────────────────────
-    if sub.isdigit():
-        req_mins = int(sub)
-        if req_mins < 1:
-            await _w(bot, user.id, "🎣 Duration must be at least 1 minute.")
-            return
-        is_vip  = db.owns_item(user.id, "vip")
-        cap     = _AUTOFISH_VIP_LIMIT if is_vip else _AUTOFISH_REG_LIMIT
-        if req_mins > cap:
-            if not is_vip:
-                await _w(bot, user.id,
-                         f"🎣 AutoFish limit: {_AUTOFISH_REG_LIMIT} minutes.\n"
-                         f"VIP can auto fish up to {_AUTOFISH_VIP_LIMIT} minutes.\n"
-                         f"Type !vip for perks.")
-                return
-            req_mins = _AUTOFISH_VIP_LIMIT
-        if _get_af_setting("autofish_enabled", "1") != "1":
-            await _w(bot, user.id, "🎣 AutoFish is currently disabled by staff.")
-            return
-        if user.id in _autofish_tasks and not _autofish_tasks[user.id].done():
-            await _w(bot, user.id,
-                     "🎣 AutoFish already running. Use !autofish off first.")
-            return
-        if not _is_in_room(user.username):
-            await _w(bot, user.id, "🎣 You must be in the room to start AutoFish.")
-            return
-        _autofish_duration_override[user.id] = req_mins
-        task = asyncio.create_task(_autofish_loop(bot, user))
-        _autofish_tasks[user.id] = task
+    # ── Numeric arg: warn timer-based now ────────────────────────────────
+    if sub.lstrip("-").isdigit():
+        await _w(bot, user.id,
+                 "⚠️ Auto sessions are timer-based now.\n"
+                 "Use !autofish or !autofish off.\n"
+                 "Use !fishluck to see your stack.")
         return
 
     # ── on/start ───────────────────────────────────────────────────────────
     if sub in ("on", "start"):
         if _get_af_setting("autofish_enabled", "1") != "1":
-            await _w(bot, user.id,
-                     "🎣 AutoFish is currently disabled by staff.")
+            await _w(bot, user.id, "🎣 AutoFish is currently disabled by staff.")
             return
         if user.id in _autofish_tasks and not _autofish_tasks[user.id].done():
             await _w(bot, user.id,
@@ -1647,8 +1605,7 @@ async def handle_autofish(bot: BaseBot, user: User, args: list[str]) -> None:
                      "Use !autofish off to stop it first.")
             return
         if not _is_in_room(user.username):
-            await _w(bot, user.id,
-                     "🎣 You must be in the room to start AutoFish.")
+            await _w(bot, user.id, "🎣 You must be in the room to start AutoFish.")
             return
         task = asyncio.create_task(_autofish_loop(bot, user))
         _autofish_tasks[user.id] = task
@@ -1661,7 +1618,98 @@ async def handle_autofish(bot: BaseBot, user: User, args: list[str]) -> None:
             await _w(bot, user.id, "🎣 No active AutoFish session.")
 
     else:
-        await handle_autofishstatus(bot, user)
+        # Default bare !autofish — start session
+        if _get_af_setting("autofish_enabled", "1") != "1":
+            await _w(bot, user.id, "🎣 AutoFish is currently disabled by staff.")
+            return
+        if user.id in _autofish_tasks and not _autofish_tasks[user.id].done():
+            await _w(bot, user.id,
+                     "🎣 AutoFish already running. Use !autofish off to stop.")
+            return
+        if not _is_in_room(user.username):
+            await _w(bot, user.id, "🎣 You must be in the room to start AutoFish.")
+            return
+        task = asyncio.create_task(_autofish_loop(bot, user))
+        _autofish_tasks[user.id] = task
+
+
+async def handle_fishluck(bot: BaseBot, user: User, args: list[str]) -> None:
+    """!fishluck — show full fishing luck/speed/duration stack."""
+    from modules.luck_stack import get_fish_luck_stack
+    s = get_fish_luck_stack(user.id, user.username)
+    lines = ["🎣 Fishing Stack", f"Base: +{s['base_luck']}",
+             f"Rod: +{s['rod_luck']}"]
+    if s["bait_luck"]:
+        lines.append(f"Bait: +{s['bait_luck']}")
+    if s["vip_luck"]:
+        lines.append(f"VIP: +{s['vip_luck']}")
+    if s["potion_luck"]:
+        lines.append(f"Potion: +{s['potion_luck']}")
+    if s["room_luck"]:
+        lines.append(f"Boost: +{s['room_luck']}")
+    if s["event_luck"]:
+        lines.append(f"Event: +{s['event_luck']}")
+    lines.append(f"Total: {s['luck_total']}")
+    lines.append(f"Speed: {s['interval_secs']}s | Auto: {s['duration_mins']}m")
+    await _w(bot, user.id, "\n".join(lines)[:249])
+
+
+async def handle_fishadmin(bot: BaseBot, user: User, args: list[str]) -> None:
+    """!fishadmin [settings | set <key> <val>] — fish timer/luck admin (admin+)."""
+    from modules.permissions import is_admin, is_owner
+    if not (is_admin(user.username) or is_owner(user.username)):
+        await _w(bot, user.id, "🔒 Admin/owner only.")
+        return
+
+    sub = args[1].lower() if len(args) >= 2 else "settings"
+
+    _FISH_KEYS = {
+        "baseduration": ("fish_base_duration",  1,  1440, "Base auto time (minutes)"),
+        "baseinterval": ("fish_base_interval",  3,   120, "Base cast interval (seconds)"),
+        "baseluck":     ("fish_base_luck",       0,    50, "Base luck"),
+        "vipluck":      ("fish_vip_luck",        0,    20, "VIP luck bonus"),
+        "vipduration":  ("fish_vip_duration",    0,   120, "VIP duration bonus (minutes)"),
+        "vipspeed":     ("fish_vip_speed",       0,    20, "VIP speed bonus (seconds faster)"),
+        "mininterval":  ("fish_min_interval",    2,    60, "Min allowed interval (seconds)"),
+    }
+
+    if sub == "settings":
+        dur  = db.get_auto_activity_setting("fish_base_duration")  or "5"
+        intv = db.get_auto_activity_setting("fish_base_interval")  or "12"
+        luck = db.get_auto_activity_setting("fish_base_luck")      or "1"
+        vl   = db.get_auto_activity_setting("fish_vip_luck")       or "2"
+        vd   = db.get_auto_activity_setting("fish_vip_duration")   or "10"
+        vs   = db.get_auto_activity_setting("fish_vip_speed")      or "1"
+        mi   = db.get_auto_activity_setting("fish_min_interval")   or "5"
+        await _w(bot, user.id,
+                 f"🎣 Fish Settings\n"
+                 f"Base Time: {dur}m | Speed: {intv}s | Luck: +{luck}\n"
+                 f"VIP: +{vd}m, +{vl} luck, -{vs}s\n"
+                 f"Min Speed: {mi}s")
+        return
+
+    if sub == "set" and len(args) >= 4:
+        key_alias = args[2].lower()
+        val_s     = args[3]
+        if key_alias not in _FISH_KEYS:
+            await _w(bot, user.id,
+                     "Keys: baseduration, baseinterval, baseluck, "
+                     "vipluck, vipduration, vipspeed, mininterval")
+            return
+        db_key, lo, hi, label = _FISH_KEYS[key_alias]
+        if not val_s.lstrip("-").isdigit():
+            await _w(bot, user.id, f"Value must be a number ({lo}–{hi}).")
+            return
+        val = max(lo, min(hi, int(val_s)))
+        db.set_auto_activity_setting(db_key, str(val))
+        await _w(bot, user.id, f"✅ {label} → {val}")
+        return
+
+    await _w(bot, user.id,
+             "Usage: !fishadmin settings\n"
+             "!fishadmin set <key> <value>\n"
+             "Keys: baseduration, baseinterval, baseluck, "
+             "vipluck, vipduration, vipspeed, mininterval")
 
 
 async def handle_autofishstatus(bot: BaseBot, user: User) -> None:

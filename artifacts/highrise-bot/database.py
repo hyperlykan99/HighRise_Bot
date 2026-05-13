@@ -2073,6 +2073,29 @@ def _migrate_db():
             updated_at      TEXT    NOT NULL DEFAULT (datetime('now')),
             UNIQUE(user_id, bot_name)
         )""",
+        # ── Player active boosts / potions (3.1I) ─────────────────────────────
+        """CREATE TABLE IF NOT EXISTS player_active_boosts (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id       TEXT    NOT NULL DEFAULT '',
+            username      TEXT    NOT NULL DEFAULT '',
+            boost_type    TEXT    NOT NULL DEFAULT '',
+            target_system TEXT    NOT NULL DEFAULT '',
+            amount        REAL    NOT NULL DEFAULT 0,
+            expires_at    TEXT    NOT NULL DEFAULT '',
+            source        TEXT    NOT NULL DEFAULT '',
+            created_at    TEXT    NOT NULL DEFAULT (datetime('now'))
+        )""",
+        # ── Room-wide active boosts (3.1I) ────────────────────────────────────
+        """CREATE TABLE IF NOT EXISTS room_active_boosts (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            target_system TEXT    NOT NULL DEFAULT '',
+            boost_type    TEXT    NOT NULL DEFAULT '',
+            amount        REAL    NOT NULL DEFAULT 0,
+            expires_at    TEXT    NOT NULL DEFAULT '',
+            source        TEXT    NOT NULL DEFAULT '',
+            created_by    TEXT    NOT NULL DEFAULT '',
+            created_at    TEXT    NOT NULL DEFAULT (datetime('now'))
+        )""",
     ]:
         try:
             conn.execute(sql)
@@ -12361,6 +12384,78 @@ def get_rare_finds_collection(user_id: str, ctype: str | None = None) -> list:
         ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+
+def get_active_room_boosts(target_system: str) -> list[dict]:
+    """Return all non-expired room boosts for a target system (mining/fishing)."""
+    conn = get_connection()
+    rows = conn.execute(
+        """SELECT * FROM room_active_boosts
+           WHERE target_system=? AND expires_at > datetime('now')
+           ORDER BY created_at""",
+        (target_system,),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def add_room_boost(target_system: str, boost_type: str, amount: float,
+                   expires_at: str, source: str, created_by: str) -> int:
+    """Insert a new room-wide boost. Returns the new row id."""
+    conn = get_connection()
+    cur = conn.execute(
+        """INSERT INTO room_active_boosts
+               (target_system, boost_type, amount, expires_at, source, created_by)
+           VALUES (?, ?, ?, ?, ?, ?)""",
+        (target_system, boost_type, amount, expires_at, source, created_by),
+    )
+    rowid = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return rowid
+
+
+def remove_room_boosts(target_system: str) -> int:
+    """Delete all room boosts for a system. Returns number deleted."""
+    conn = get_connection()
+    cur = conn.execute(
+        "DELETE FROM room_active_boosts WHERE target_system=?",
+        (target_system,),
+    )
+    n = cur.rowcount
+    conn.commit()
+    conn.close()
+    return n
+
+
+def get_active_player_boosts(user_id: str, target_system: str) -> list[dict]:
+    """Return all non-expired player boosts for a given system."""
+    conn = get_connection()
+    rows = conn.execute(
+        """SELECT * FROM player_active_boosts
+           WHERE user_id=? AND target_system=? AND expires_at > datetime('now')
+           ORDER BY created_at""",
+        (user_id, target_system),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def add_player_boost(user_id: str, username: str, boost_type: str,
+                     target_system: str, amount: float,
+                     expires_at: str, source: str) -> int:
+    """Insert a new player boost. Returns the new row id."""
+    conn = get_connection()
+    cur = conn.execute(
+        """INSERT INTO player_active_boosts
+               (user_id, username, boost_type, target_system, amount, expires_at, source)
+           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+        (user_id, username, boost_type, target_system, amount, expires_at, source),
+    )
+    rowid = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return rowid
 
 
 def save_player_dm_conv(user_id: str, username: str,

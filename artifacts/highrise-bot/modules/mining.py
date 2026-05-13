@@ -410,7 +410,7 @@ async def handle_mine(bot: BaseBot, user: User) -> None:
     if _cd_red > 0:
         cooldown = max(5, int(cooldown * (1 - _cd_red)))
     secs_ago = _seconds_since(miner["last_mine_at"])
-    if secs_ago < cooldown:
+    if user.id not in _auto_mining_active and secs_ago < cooldown:
         wait = int(cooldown - secs_ago)
         await _w(bot, user.id,
                  f"<#FFCC00>⏳ Cooldown<#FFFFFF>: Mine again in {wait}s.")
@@ -2387,12 +2387,11 @@ MINE_HELP_PAGES = [
     (
         "⛏️ Mining\n"
         "!mine — mine once (!m !dig)\n"
-        "!automine — auto mine\n"
-        "!automine off — stop auto mine\n"
-        "!mineinv — ores inventory\n"
-        "!sellores — sell all ores\n"
-        "!tool — view pickaxe\n"
-        "!upgradetool — upgrade pickaxe\n"
+        "!automine — timer auto mine\n"
+        "!automine off — stop\n"
+        "!mineluck — view luck stack\n"
+        "!orebook — ore collection\n"
+        "!lastminesummary\n"
         "📩 DM !enabledm — inbox summaries"
     ),
     (
@@ -2694,7 +2693,8 @@ async def handle_clearforcedrop(bot: BaseBot, user: User, args: list[str]) -> No
 
 _automine_tasks:  dict[str, asyncio.Task] = {}
 _am_session_stats: dict[str, dict]        = {}  # uid → in-memory accumulator for summary DM
-# Per-user duration override (set by handle_automine when player requests minutes)
+_auto_mining_active: set[str]             = set()  # UIDs in timer auto-mine (bypass cooldown)
+# Per-user duration override — DEPRECATED in 3.1I (timer uses luck stack)
 _automine_duration_override: dict[str, int] = {}
 
 
@@ -2708,15 +2708,17 @@ def _get_am_setting(key: str, default: str) -> str:
 async def _send_automine_summary(bot: BaseBot, uid: str, uname: str,
                                  stats: dict) -> None:
     """DM/whisper AutoMine session summary and save it for !lastminesummary."""
-    mines   = stats.get("count", 0)
-    value   = stats.get("value", 0)
-    best    = stats.get("best_name", "—")
-    new_cnt = len(stats.get("new_discoveries", []))
-    rare_ct = len(stats.get("rare_finds", []))
+    mines     = stats.get("count", 0)
+    value     = stats.get("value", 0)
+    best      = stats.get("best_name", "—")
+    new_cnt   = len(stats.get("new_discoveries", []))
+    rare_ct   = len(stats.get("rare_finds", []))
+    elapsed_m = stats.get("elapsed_mins", stats.get("duration_mins", "?"))
+    luck      = stats.get("luck_total", "?")
     msg1 = (f"⛏️ Auto-Mining Complete\n"
-            f"Mined: {mines}  Value: {_fmt(value)}c\n"
-            f"Best: {best}\n"
-            f"New: {new_cnt} | Rare: {rare_ct}")
+            f"Time: {elapsed_m}m | Mined: {mines}\n"
+            f"Earned: {_fmt(value)}c | Best: {best}\n"
+            f"New: {new_cnt} | Rare: {rare_ct} | Luck: {luck}")
     msg2 = ""
     if new_cnt > 0:
         disc  = stats["new_discoveries"][:3]
@@ -2772,76 +2774,51 @@ async def _send_automine_summary(bot: BaseBot, uid: str, uname: str,
 
 
 async def _automine_loop(bot: BaseBot, user: User) -> None:
-    """Background AutoMine loop for one player."""
-    uid      = user.id
-    uname    = user.username
-    max_att  = int(_get_am_setting("automine_max_attempts", "30"))
-    # Use per-user override if set by handle_automine, else fall back to DB setting
-    max_mins = _automine_duration_override.pop(uid, None)
-    if max_mins is None:
-        max_mins = int(_get_am_setting("automine_duration_minutes", "30"))
-    start_t  = __import__("datetime").datetime.now(__import__("datetime").timezone.utc)
-    attempts = 0
+    """Timer-based AutoMine loop (3.1I) — duration/speed driven by luck stack."""
+    from modules.luck_stack import get_mine_luck_stack
+    from datetime import datetime as _dt, timezone as _tz
+
+    uid, uname = user.id, user.username
+
+    stack         = get_mine_luck_stack(uid, uname)
+    duration_mins = stack["duration_mins"]
+    interval_secs = stack["interval_secs"]
+    luck_total    = stack["luck_total"]
+    total_att     = stack["total_attempts"]
 
     await _w(bot, uid,
-             f"⛏️ AutoMine Started\n"
-             f"Limit: {max_att} mines or {max_mins}m.\n"
-             f"Stops if you leave. !automine off to stop.")
+             f"⛏️ Auto-Mining Started\n"
+             f"Time: {duration_mins}m | Speed: {interval_secs}s/mine\n"
+             f"Attempts: {total_att} | Luck: {luck_total}\n"
+             f"!automine off to stop.")
 
-    from datetime import datetime as _dt2, timezone as _tz2
-    _am_started_at = _dt2.now(_tz2.utc).isoformat()
+    _started_at = _dt.now(_tz.utc)
     try:
-        db.save_auto_mine_session(uid, uname, _am_started_at, max_att, max_mins)
+        db.save_auto_mine_session(uid, uname, _started_at.isoformat(), total_att, duration_mins)
     except Exception:
         pass
 
     _am_session_stats[uid] = {
         "count": 0, "value": 0, "best_value": 0,
         "best_name": "—", "rare_finds": [], "new_discoveries": [],
+        "duration_mins": duration_mins, "luck_total": luck_total,
     }
 
+    attempts = 0
     try:
-        while True:
+        for i in range(total_att):
             if _get_am_setting("automine_enabled", "1") != "1":
-                await _w(bot, uid,
-                         "⛏️ AutoMine Stopped\nReason: Disabled by staff.")
+                await _w(bot, uid, "⛏️ AutoMine Stopped\nReason: Disabled by staff.")
                 break
 
             if not _is_in_room(uname):
                 await _w(bot, uid,
                          f"⛏️ AutoMine Stopped\n"
                          f"Reason: You left the room.\n"
-                         f"Mines: {attempts}/{max_att}")
+                         f"Mines: {attempts}")
                 break
 
-            from datetime import datetime as _dt, timezone as _tz
-            elapsed_mins = (_dt.now(_tz.utc) - start_t).total_seconds() / 60
-            if attempts >= max_att:
-                await _w(bot, uid,
-                         f"⛏️ AutoMine Stopped\n"
-                         f"Reason: Session limit reached.\n"
-                         f"Mines: {attempts}/{max_att}")
-                break
-            if elapsed_mins >= max_mins:
-                await _w(bot, uid,
-                         f"⛏️ AutoMine Stopped\n"
-                         f"Reason: Time limit reached.\n"
-                         f"Mines: {attempts}/{max_att}")
-                break
-
-            # Respect the mine cooldown — wait until ready
-            miner    = db.get_or_create_miner(uname)
-            base_cd  = int(db.get_mine_setting("base_cooldown_seconds", "30"))
-            tool_cd  = COOLDOWNS.get(miner["tool_level"], 60)
-            cooldown = min(base_cd, tool_cd)
-            secs_ago = _seconds_since(miner["last_mine_at"])
-
-            if secs_ago < cooldown:
-                wait = max(1, int(cooldown - secs_ago) + 1)
-                await asyncio.sleep(wait)
-                continue
-
-            # Delegate to handle_mine — it handles events, whispers, etc.
+            _auto_mining_active.add(uid)
             try:
                 await handle_mine(bot, user)
                 attempts += 1
@@ -2850,9 +2827,12 @@ async def _automine_loop(bot: BaseBot, user: User) -> None:
                 except Exception:
                     pass
             except Exception as exc:
-                print(f"[AUTOMINE] handle_mine error for {uname}: {exc}")
+                print(f"[AUTOMINE] action error for {uname}: {exc}")
+            finally:
+                _auto_mining_active.discard(uid)
 
-            await asyncio.sleep(cooldown + 1)
+            if i < total_att - 1:
+                await asyncio.sleep(interval_secs)
 
     except asyncio.CancelledError:
         pass
@@ -2860,8 +2840,11 @@ async def _automine_loop(bot: BaseBot, user: User) -> None:
         print(f"[AUTOMINE] Loop error for {uname}: {exc}")
     finally:
         _automine_tasks.pop(uid, None)
+        _auto_mining_active.discard(uid)
+        elapsed = (_dt.now(_tz.utc) - _started_at).total_seconds()
         _am_stats = _am_session_stats.pop(uid, None)
         if _am_stats and _am_stats.get("count", 0) > 0:
+            _am_stats["elapsed_mins"] = round(elapsed / 60, 1)
             try:
                 await _send_automine_summary(bot, uid, uname, _am_stats)
             except Exception:
@@ -2891,45 +2874,21 @@ _AUTOMINE_VIP_LIMIT = 60   # minutes — VIP player max explicit duration
 
 
 async def handle_automine(bot: BaseBot, user: User, args: list[str]) -> None:
-    """/automine [minutes]|on|off|status"""
+    """/automine [on|off] — timer-based auto mining (3.1I)."""
     sub = args[1].lower() if len(args) >= 2 else "on"
 
-    # ── Numeric duration request: !automine <minutes> ─────────────────────
-    if sub.isdigit():
-        req_mins = int(sub)
-        if req_mins < 1:
-            await _w(bot, user.id, "⛏️ Duration must be at least 1 minute.")
-            return
-        is_vip  = db.owns_item(user.id, "vip")
-        cap     = _AUTOMINE_VIP_LIMIT if is_vip else _AUTOMINE_REG_LIMIT
-        if req_mins > cap:
-            if not is_vip:
-                await _w(bot, user.id,
-                         f"⛏️ AutoMine limit: {_AUTOMINE_REG_LIMIT} minutes.\n"
-                         f"VIP can auto mine up to {_AUTOMINE_VIP_LIMIT} minutes.\n"
-                         f"Type !vip for perks.")
-                return
-            req_mins = _AUTOMINE_VIP_LIMIT
-        if _get_am_setting("automine_enabled", "1") != "1":
-            await _w(bot, user.id, "⛏️ AutoMine is currently disabled by staff.")
-            return
-        if user.id in _automine_tasks and not _automine_tasks[user.id].done():
-            await _w(bot, user.id,
-                     "⛏️ AutoMine already running. Use !automine off first.")
-            return
-        if not _is_in_room(user.username):
-            await _w(bot, user.id, "⛏️ You must be in the room to start AutoMine.")
-            return
-        _automine_duration_override[user.id] = req_mins
-        task = asyncio.create_task(_automine_loop(bot, user))
-        _automine_tasks[user.id] = task
+    # ── Numeric arg: warn timer-based now ────────────────────────────────
+    if sub.lstrip("-").isdigit():
+        await _w(bot, user.id,
+                 "⚠️ Auto sessions are timer-based now.\n"
+                 "Use !automine or !automine off.\n"
+                 "Use !mineluck to see your stack.")
         return
 
     # ── on/start ───────────────────────────────────────────────────────────
     if sub in ("on", "start"):
         if _get_am_setting("automine_enabled", "1") != "1":
-            await _w(bot, user.id,
-                     "⛏️ AutoMine is currently disabled by staff.")
+            await _w(bot, user.id, "⛏️ AutoMine is currently disabled by staff.")
             return
         if user.id in _automine_tasks and not _automine_tasks[user.id].done():
             await _w(bot, user.id,
@@ -2937,8 +2896,7 @@ async def handle_automine(bot: BaseBot, user: User, args: list[str]) -> None:
                      "Use !automine off to stop it first.")
             return
         if not _is_in_room(user.username):
-            await _w(bot, user.id,
-                     "⛏️ You must be in the room to start AutoMine.")
+            await _w(bot, user.id, "⛏️ You must be in the room to start AutoMine.")
             return
         task = asyncio.create_task(_automine_loop(bot, user))
         _automine_tasks[user.id] = task
@@ -2951,7 +2909,96 @@ async def handle_automine(bot: BaseBot, user: User, args: list[str]) -> None:
             await _w(bot, user.id, "⛏️ No active AutoMine session.")
 
     else:
-        await handle_autominesettings(bot, user)
+        # Default bare !automine — start session
+        if _get_am_setting("automine_enabled", "1") != "1":
+            await _w(bot, user.id, "⛏️ AutoMine is currently disabled by staff.")
+            return
+        if user.id in _automine_tasks and not _automine_tasks[user.id].done():
+            await _w(bot, user.id,
+                     "⛏️ AutoMine already running. Use !automine off to stop.")
+            return
+        if not _is_in_room(user.username):
+            await _w(bot, user.id, "⛏️ You must be in the room to start AutoMine.")
+            return
+        task = asyncio.create_task(_automine_loop(bot, user))
+        _automine_tasks[user.id] = task
+
+
+async def handle_mineluck(bot: BaseBot, user: User, args: list[str]) -> None:
+    """!mineluck — show full mining luck/speed/duration stack."""
+    from modules.luck_stack import get_mine_luck_stack
+    s = get_mine_luck_stack(user.id, user.username)
+    lines = ["⛏️ Mining Stack", f"Base: +{s['base_luck']}",
+             f"Tool: +{s['tool_luck']}"]
+    if s["vip_luck"]:
+        lines.append(f"VIP: +{s['vip_luck']}")
+    if s["potion_luck"]:
+        lines.append(f"Potion: +{s['potion_luck']}")
+    if s["room_luck"]:
+        lines.append(f"Boost: +{s['room_luck']}")
+    if s["event_luck"]:
+        lines.append(f"Event: +{s['event_luck']}")
+    lines.append(f"Total: {s['luck_total']}")
+    lines.append(f"Speed: {s['interval_secs']}s | Auto: {s['duration_mins']}m")
+    await _w(bot, user.id, "\n".join(lines)[:249])
+
+
+async def handle_mineadmin(bot: BaseBot, user: User, args: list[str]) -> None:
+    """!mineadmin [settings | set <key> <val>] — mine timer/luck admin (admin+)."""
+    from modules.permissions import is_admin, is_owner
+    if not (is_admin(user.username) or is_owner(user.username)):
+        await _w(bot, user.id, "🔒 Admin/owner only.")
+        return
+
+    sub = args[1].lower() if len(args) >= 2 else "settings"
+
+    _MINE_KEYS = {
+        "baseduration": ("mine_base_duration",  1,  1440, "Base auto time (minutes)"),
+        "baseinterval": ("mine_base_interval",  3,   120, "Base mine interval (seconds)"),
+        "baseluck":     ("mine_base_luck",       0,    50, "Base luck"),
+        "vipluck":      ("mine_vip_luck",        0,    20, "VIP luck bonus"),
+        "vipduration":  ("mine_vip_duration",    0,   120, "VIP duration bonus (minutes)"),
+        "vipspeed":     ("mine_vip_speed",       0,    20, "VIP speed bonus (seconds faster)"),
+        "mininterval":  ("mine_min_interval",    2,    60, "Min allowed interval (seconds)"),
+    }
+
+    if sub == "settings":
+        dur   = db.get_auto_activity_setting("mine_base_duration")  or "5"
+        intv  = db.get_auto_activity_setting("mine_base_interval")  or "12"
+        luck  = db.get_auto_activity_setting("mine_base_luck")      or "1"
+        vl    = db.get_auto_activity_setting("mine_vip_luck")       or "2"
+        vd    = db.get_auto_activity_setting("mine_vip_duration")   or "10"
+        vs    = db.get_auto_activity_setting("mine_vip_speed")      or "1"
+        mi    = db.get_auto_activity_setting("mine_min_interval")   or "5"
+        await _w(bot, user.id,
+                 f"⛏️ Mine Settings\n"
+                 f"Base Time: {dur}m | Speed: {intv}s | Luck: +{luck}\n"
+                 f"VIP: +{vd}m, +{vl} luck, -{vs}s\n"
+                 f"Min Speed: {mi}s")
+        return
+
+    if sub == "set" and len(args) >= 4:
+        key_alias = args[2].lower()
+        val_s     = args[3]
+        if key_alias not in _MINE_KEYS:
+            await _w(bot, user.id,
+                     "Keys: baseduration, baseinterval, baseluck, "
+                     "vipluck, vipduration, vipspeed, mininterval")
+            return
+        db_key, lo, hi, label = _MINE_KEYS[key_alias]
+        if not val_s.lstrip("-").isdigit():
+            await _w(bot, user.id, f"Value must be a number ({lo}–{hi}).")
+            return
+        val = max(lo, min(hi, int(val_s)))
+        db.set_auto_activity_setting(db_key, str(val))
+        await _w(bot, user.id, f"✅ {label} → {val}")
+        return
+
+    await _w(bot, user.id,
+             "Usage: !mineadmin settings\n"
+             "!mineadmin set <key> <value>\n"
+             "Keys: baseduration, baseinterval, baseluck, "
+             "vipluck, vipduration, vipspeed, mininterval")
 
 
 async def handle_autominestatus(bot: BaseBot, user: User) -> None:

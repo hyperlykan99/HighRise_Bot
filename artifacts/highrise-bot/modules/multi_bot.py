@@ -505,7 +505,11 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "setweightscale": "miner", "setrarityweightrange": "miner",
     "oreweightsettings": "miner",
     # miner — mining panel (new)
-    "minepanel": "miner", "miningpanel": "miner", "mineadmin": "miner",
+    "minepanel": "miner", "miningpanel": "miner",
+    "mineadmin": "miner", "mineluck": "miner", "minestack": "miner",
+    "fishadmin": "fisher", "fishluck": "fisher", "fishstack": "fisher",
+    "boostadmin": "host",
+    "luck": "miner", "myluck": "miner",
     # host — bulk command testing (new)
     "commandtestall": "host", "ctall": "host",
     "commandtestgroup": "host", "ctgroup": "host",

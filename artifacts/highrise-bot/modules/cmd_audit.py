@@ -416,7 +416,11 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     # ── Command registry repair ───────────────────────────────────────────────
     "fixcommandregistry",
     # ── Mining panel (new) ────────────────────────────────────────────────────
-    "minepanel", "miningpanel", "mineadmin",
+    "minepanel", "miningpanel",
+    # ── 3.1I luck stack + admin commands ─────────────────────────────────────
+    "mineadmin", "mineluck", "minestack",
+    "fishadmin", "fishluck", "fishstack",
+    "boostadmin", "luck", "myluck",
     # ── Time EXP bot exclusion (new) ─────────────────────────────────────────
     "setallowbotxp",
     # ── Per-bot welcome messages (new) ───────────────────────────────────────

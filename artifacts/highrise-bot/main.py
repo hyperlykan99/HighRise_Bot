@@ -432,6 +432,7 @@ from modules.mining import (
     handle_setautomineattempts, handle_setautominedailycap,
     stop_automine_for_user, startup_automine_recovery,
     MINE_HELP_PAGES,
+    handle_mineluck, handle_mineadmin,
 )
 from modules.economy import (
     handle_economypanel,
@@ -456,6 +457,7 @@ from modules.fishing import (
     handle_setautofishattempts, handle_setautofishdailycap,
     stop_autofish_for_user, startup_autofish_recovery,
     handle_forcedropfish, handle_forcedropfishitem,
+    handle_fishluck, handle_fishadmin,
     handle_forcedropfishstatus, handle_forcedropfishdebug,
     handle_clearforcedropfish,
 )
@@ -494,6 +496,7 @@ from modules.first_find import (
     handle_firstfindpending, handle_paypendingfirstfind,
     startup_firstfind_announcer, startup_firstfind_banker,
 )
+from modules.boost_admin import handle_boostadmin
 from modules.big_announce import (
     handle_setbigannounce, handle_bigannouncestatus,
     handle_setbotbigreact, handle_bigannounce_help,
@@ -957,6 +960,7 @@ ALL_KNOWN_COMMANDS = (
         "collection", "mybook", "collectbook",
         "topcollectors", "topore", "toporecollectors",
         "rarelog", "lastminesummary", "collectionhelp", "bookhelp",
+        "mineluck", "minestack", "mineadmin",
         "enabledm", "summarydm",
         "contracts", "miningjobs", "job", "deliver", "claimjob", "rerolljob",
         "minehelp",
@@ -1066,7 +1070,7 @@ ALL_KNOWN_COMMANDS = (
         "pokerturn", "pokerpots", "pokeractions",
         "pokerresetturn", "pokerresethand", "pokerresettable",
         # ── Mining panel (new) ────────────────────────────────────────────────
-        "minepanel", "miningpanel", "mineadmin",
+        "minepanel", "miningpanel",
         # ── Time EXP bot exclusion (new) ──────────────────────────────────────
         "setallowbotxp",
         # ── Per-bot welcome messages (new) ────────────────────────────────────
@@ -1089,6 +1093,8 @@ ALL_KNOWN_COMMANDS = (
         "forcefishdrop", "forcefish", "forcefishdropfish",
         "forcefishstatus", "clearforcefish",
         "topfishcollectors", "fishcollectors", "lastfishsummary",
+        "fishluck", "fishstack", "fishadmin",
+        "boostadmin", "luck", "myluck",
     }
     | ECONOMY_COMMANDS | PROFILE_COMMANDS | GAME_COMMANDS
     | SHOP_COMMANDS | ACHIEVEMENT_COMMANDS | BJ_COMMANDS
@@ -5378,8 +5384,11 @@ class HangoutBot(BaseBot):
         elif cmd == "mineeventstatus":
             await handle_mineeventstatus(self, user)
 
-        elif cmd in {"minepanel", "miningpanel", "mineadmin"}:
+        elif cmd in {"minepanel", "miningpanel"}:
             await handle_minepanel(self, user)
+
+        elif cmd == "mineadmin":
+            await handle_mineadmin(self, user, args)
 
         elif cmd == "orelist":
             await handle_orelist(self, user, args)
@@ -5461,6 +5470,9 @@ class HangoutBot(BaseBot):
 
         elif cmd == "autominesettings":
             await handle_autominesettings(self, user)
+
+        elif cmd in {"mineluck", "minestack"}:
+            await handle_mineluck(self, user, args)
 
         elif cmd == "setautomine":
             await handle_setautomine(self, user, args)
@@ -5585,6 +5597,26 @@ class HangoutBot(BaseBot):
 
         elif cmd == "autofishsettings":
             await handle_autofishsettings(self, user)
+
+        elif cmd in {"fishluck", "fishstack"}:
+            await handle_fishluck(self, user, args)
+
+        elif cmd == "fishadmin":
+            await handle_fishadmin(self, user, args)
+
+        elif cmd == "boostadmin":
+            await handle_boostadmin(self, user, args)
+
+        elif cmd in {"luck", "myluck"}:
+            from modules.luck_stack import get_mine_luck_stack, get_fish_luck_stack
+            _ms = get_mine_luck_stack(user.id, user.username)
+            _fs = get_fish_luck_stack(user.id, user.username)
+            await self.highrise.send_whisper(
+                user.id,
+                (f"🍀 Your Luck\n"
+                 f"⛏️ {_ms['luck_total']} luck | {_ms['interval_secs']}s/mine\n"
+                 f"🎣 {_fs['luck_total']} luck | {_fs['interval_secs']}s/cast\n"
+                 f"!mineluck or !fishluck for details.")[:249])
 
         elif cmd == "setautofish":
             await handle_setautofish(self, user, args)

@@ -265,6 +265,9 @@ REGISTRY: dict[str, Cmd] = {
                             aliases=("topore","toporecollectors")),
     "rarelog":          Cmd("miner","mining",False,True, False),
     "lastminesummary":  Cmd("miner","mining",False,True, False),
+    "mineluck":         Cmd("miner","mining",False,True, False,
+                            aliases=("minestack",)),
+    "mineadmin":        Cmd("miner","mining",False,False,True),
     "collectionhelp":   Cmd("miner","mining",False,True, False,
                             aliases=("bookhelp",)),
     "enabledm":         Cmd("host", "utility",False,True, False,
@@ -512,7 +515,7 @@ REGISTRY: dict[str, Cmd] = {
 
     # ── Miner: panel (new) ────────────────────────────────────────────────────
     "minepanel":    Cmd("miner","mining", False, True,  False, perm="manager",
-                        aliases=("miningpanel","mineadmin")),
+                        aliases=("miningpanel",)),
 
     # ── Host: Time EXP bot exclusion (new) ───────────────────────────────────
     "setallowbotxp": Cmd("host","timeexp", False, False, True, perm="admin"),
@@ -668,6 +671,12 @@ REGISTRY: dict[str, Cmd] = {
     "topfishcollectors": Cmd("fisher","fishing", True, True,  False,
                              aliases=("fishcollectors",)),
     "lastfishsummary":   Cmd("fisher","fishing", True, True,  False),
+    "fishluck":          Cmd("fisher","fishing", True, True,  False,
+                             aliases=("fishstack",)),
+    "fishadmin":         Cmd("fisher","fishing", True, False, True),
+    "boostadmin":        Cmd("host",  "utility", True, False, True),
+    "luck":              Cmd("miner", "mining",  False,True,  False,
+                             aliases=("myluck",)),
     "fishautosell":     Cmd("fisher","fishing", True, True,  False),
     "fishautosellrare": Cmd("fisher","fishing", True, True,  False),
     "fishlevel":        Cmd("fisher","fishing", True, True,  False, aliases=("fishxp","fishlvl")),
