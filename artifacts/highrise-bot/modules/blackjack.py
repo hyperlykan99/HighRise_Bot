@@ -1,6 +1,12 @@
 """
 modules/blackjack.py
 --------------------
+DEPRECATED (3.1G): Casual blackjack module — no longer handles player commands.
+AceSinatra realistic blackjack (realistic_blackjack.py) is the only active
+blackjack system. This file is retained only for legacy imports (handle_bj,
+handle_bj_rules, handle_bj_cards, handle_bj_shoe, etc.) still referenced in
+main.py. Do not route !bet / !hit / !stand / !double / !split here.
+--------------------
 Casual lobby-style blackjack — SIMULTANEOUS action model.
 
 State lifecycle:

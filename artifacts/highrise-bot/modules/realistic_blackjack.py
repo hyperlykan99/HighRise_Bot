@@ -1534,17 +1534,18 @@ async def _cmd_join(bot: BaseBot, user: User, args: list[str]):
 
     bet     = int(args[2])
     min_bet = int(s.get("min_bet", 10))
-    max_bet = int(s.get("max_bet", 1000))
+    max_bet = int(s.get("max_bet", 1000))  # 0 = unlimited
 
     from modules.events import get_event_effect as _gee
     _ev_rbj     = _gee()
-    eff_max_bet = int(max_bet * _ev_rbj["casino_bet_mult"])
+    eff_max_bet = int(max_bet * _ev_rbj["casino_bet_mult"]) if max_bet > 0 else 0
 
-    bet_limit_on = int(s.get("rbj_betlimit_enabled", 1))
-    if bet_limit_on and (bet < min_bet or bet > eff_max_bet):
-        note = " (Casino Hour 2x limit!)" if _ev_rbj["casino_bet_mult"] > 1 else ""
+    unlimited = (max_bet == 0)
+    if not unlimited and (bet < min_bet or bet > eff_max_bet):
+        note    = " (Casino Hour 2x limit!)" if _ev_rbj["casino_bet_mult"] > 1 else ""
+        max_str = f"{eff_max_bet:,}" if eff_max_bet > 0 else "Unlimited"
         await bot.highrise.send_whisper(
-            user.id, f"Bet must be {min_bet:,}–{eff_max_bet:,} coins.{note}"
+            user.id, f"Bet must be {min_bet:,}–{max_str} coins.{note}"
         )
         return
 
@@ -2645,15 +2646,16 @@ async def handle_bet(bot: BaseBot, user: User, args: list) -> None:
     if _state.phase == "lobby" and _state.get_player(user.id) is not None:
         p       = _state.get_player(user.id)
         min_bet = int(s.get("min_bet", 10))
-        max_bet = int(s.get("max_bet", 1000))
+        max_bet = int(s.get("max_bet", 1000))  # 0 = unlimited
         from modules.events import get_event_effect as _gee
         _ev      = _gee()
-        eff_max  = int(max_bet * _ev["casino_bet_mult"])
-        bet_limit_on = int(s.get("rbj_betlimit_enabled", 1))
-        if bet_limit_on and (bet < min_bet or bet > eff_max):
-            note = " (Casino Hour 2x limit!)" if _ev["casino_bet_mult"] > 1 else ""
+        eff_max  = int(max_bet * _ev["casino_bet_mult"]) if max_bet > 0 else 0
+        unlimited_upd = (max_bet == 0)
+        if not unlimited_upd and (bet < min_bet or bet > eff_max):
+            note    = " (Casino Hour 2x limit!)" if _ev["casino_bet_mult"] > 1 else ""
+            max_str = f"{eff_max:,}" if eff_max > 0 else "Unlimited"
             await bot.highrise.send_whisper(
-                user.id, f"Bet must be {min_bet:,}–{eff_max:,} coins.{note}"
+                user.id, f"Bet must be {min_bet:,}–{max_str} coins.{note}"
             )
             return
         db.ensure_user(user.id, user.username)
@@ -3319,12 +3321,14 @@ async def handle_bjadmin(bot: "BaseBot", user: "User", args: list[str]) -> None:
         if not is_admin(user.username):
             await bot.highrise.send_whisper(user.id, "🔒 Admin/owner only.")
             return
-        s = _settings()
+        s       = _settings()
+        max_b   = int(s.get("max_bet", 1000))
+        max_str = "Unlimited" if max_b == 0 else f"{max_b:,}c"
         msg = (
             f"⚙️ BJ Settings\n"
             f"Timer: {s.get('rbj_action_timer', 30)}s\n"
             f"Min Bet: {int(s.get('min_bet', 10)):,}c\n"
-            f"Max Bet: {int(s.get('max_bet', 1000)):,}c\n"
+            f"Max Bet: {max_str}\n"
             f"Shuffle: {s.get('shuffle_used_percent', 75)}%"
         )
         await bot.highrise.send_whisper(user.id, msg[:249])
@@ -3343,9 +3347,16 @@ async def handle_bjadmin(bot: "BaseBot", user: "User", args: list[str]) -> None:
             )
             return
         key     = rest[0].lower()
-        val_str = rest[1]
+        val_str = rest[1].lower()
+
+        # Handle maxbet unlimited as a special case
+        if key == "maxbet" and val_str in ("unlimited", "off", "0", "none"):
+            db.set_rbj_setting("max_bet", 0)
+            await bot.highrise.send_whisper(user.id, "✅ Max bet set to Unlimited.")
+            return
+
         if not val_str.replace(".", "").isdigit():
-            await bot.highrise.send_whisper(user.id, "⚠️ Value must be a positive number.")
+            await bot.highrise.send_whisper(user.id, "⚠️ Value must be a positive number (or 'unlimited' for maxbet).")
             return
         val = float(val_str)
         if val < 0:
@@ -3365,7 +3376,7 @@ async def handle_bjadmin(bot: "BaseBot", user: "User", args: list[str]) -> None:
             await bot.highrise.send_whisper(user.id, f"✅ Min bet set to {int(val):,}c")
         elif key == "maxbet":
             if val <= 0:
-                await bot.highrise.send_whisper(user.id, "⚠️ Max bet must be > 0.")
+                await bot.highrise.send_whisper(user.id, "⚠️ Use 'unlimited' or a positive number.")
                 return
             db.set_rbj_setting("max_bet", int(val))
             await bot.highrise.send_whisper(user.id, f"✅ Max bet set to {int(val):,}c")

@@ -306,8 +306,6 @@ async def process_tip_event(bot: BaseBot, sender: User, receiver: User, tip) -> 
             parts.append(f"+{bonus}% bonus!")
         else:
             parts.append("Tip 100g+ for a bonus!")
-        cap_left = max(0, daily_cap - daily_used - convertible)
-        parts.append(f"Daily cap left: {cap_left:,}g.")
         await _whisper(bot, sender.id, "💛 " + " ".join(parts))
 
         # ── DB writes (each independently wrapped) ────────────────────────
@@ -401,7 +399,7 @@ async def handle_tiprate(bot: BaseBot, user: User, _args) -> None:
     t5000 = s.get("tier_5000_bonus", "50")
     await _whisper(bot, user.id,
         f"💰 Tip Rate: 1g={rate}c | Bonus: 100g+{t100}% 500g+{t500}% "
-        f"1k+{t1000}% 5k+{t5000}% | Daily cap: {cap:,}g"
+        f"1k+{t1000}% 5k+{t5000}%"
     )
 
 
@@ -415,7 +413,7 @@ async def handle_tipstats(bot: BaseBot, user: User, _args) -> None:
         await _whisper(bot, user.id,
             f"💛 @{user.username} Tips\n"
             f"Total: {stats['total_gold']:,}g → {stats['total_coins']:,}c\n"
-            f"Today: {stats['today_gold']:,}g | Cap left: {remaining:,}g"
+            f"Today: {stats['today_gold']:,}g"
         )
     except Exception as e:
         await _whisper(bot, user.id, "⚠️ Error fetching tip stats.")

@@ -150,17 +150,17 @@ async def handle_daily(bot: BaseBot, user: User):
     else:
         new_streak = 1
 
-    # Streak-based reward: base + 25 per extra day, capped at 500
+    # Streak-based reward: base + 25 per extra day (no cap — 3.1G)
     benefits     = get_player_benefits(user.id)
     bonus_coins  = benefits["daily_coins_bonus"]
     bonus_xp     = benefits["daily_xp_bonus"]
     base_daily   = db.get_economy_settings()["daily_coins"]
     streak_bonus = (new_streak - 1) * 25
     raw_coins    = base_daily + bonus_coins + streak_bonus
-    actual_coins = max(min(raw_coins, 500), 1)
+    actual_coins = max(raw_coins, 1)
     actual_xp    = config.XP_DAILY + bonus_xp
 
-    actual_coins = db.adjust_balance_capped(user.id, actual_coins)
+    db.adjust_balance(user.id, actual_coins)
     db.record_daily_claim(user.id)
     track_quest(user.id, "daily_claim")
     track_quest(user.id, "earn_coins", actual_coins)

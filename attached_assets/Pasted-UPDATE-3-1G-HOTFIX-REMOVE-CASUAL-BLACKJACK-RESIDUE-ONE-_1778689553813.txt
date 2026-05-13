@@ -1,0 +1,605 @@
+UPDATE 3.1G HOTFIX — REMOVE CASUAL BLACKJACK RESIDUE + ONE BLACKJACK SYSTEM + REMOVE ALL REWARD CAPS
+
+Current live issues:
+1. !bjadmin settings says Max Bet: 10,000c.
+2. But !bet 100000 still joins blackjack.
+3. This means there are likely 2 blackjack modules:
+   - old/casual blackjack handler
+   - realistic blackjack handler
+4. !shoe and !bjshoe were previously different, proving duplicate blackjack state existed.
+5. Trivia rewards still say capped.
+6. Global reward cap logic is still active somewhere.
+
+Goal:
+Completely unify blackjack into ONE system and remove casual blackjack residue.
+Also fully remove reward caps from all reward systems.
+
+Do not change tokens.
+Do not change room ID.
+Do not wipe player balances.
+Do not wipe VIP, badges, markets, mining/fishing data, leaderboards, donations, daily streaks, teleports, or player inventories.
+Do not delete useful database tables unless safely migrated/ignored.
+Do not break blackjack shoe persistence.
+Do not break AceSinatra blackjack.
+Do not break poker.
+Do not break trivia itself.
+Do not remove cooldowns unless they are reward caps.
+Do not remove anti-duplicate payout safety.
+
+==================================================
+PART 1 — BLACKJACK MUST HAVE ONE ACTIVE SYSTEM ONLY
+==================================================
+
+There must be only ONE active blackjack system.
+
+The active system should be:
+
+AceSinatra realistic blackjack
+
+All blackjack player commands must route to the same active module:
+
+!bet
+!hit
+!stand
+!double
+!split
+!bjhelp
+!bjrules
+!bjstatus
+!bjshoe
+!shoe
+!bjadmin
+!bjtest
+!bjforce legacy alias
+
+Disable or remove old casual blackjack handlers.
+
+Search for old/casual blackjack modules and handlers:
+
+blackjack.py
+casual_blackjack.py
+bj.py
+simple_blackjack.py
+old_blackjack
+handle_bet
+handle_blackjack
+cmd_bet
+cmd_hit
+cmd_stand
+blackjack_game
+bj_game
+casino blackjack
+
+If duplicate handlers exist:
+- remove them from command routing
+- mark them deprecated
+- do not let them respond to commands
+- do not let them own !bet, !hit, !stand, !shoe, !bjhelp, or !bjstatus
+
+==================================================
+PART 2 — COMMAND OWNER MUST BE ACESINATRA
+==================================================
+
+Set these commands to owner AceSinatra only:
+
+!bet
+!hit
+!stand
+!double
+!split
+!bjhelp
+!bjrules
+!bjstatus
+!bjshoe
+!shoe
+!bjadmin
+!bjtest
+!bjforce
+
+Expected:
+
+!commandtest !bet
+owner=AceSinatra
+route=YES
+handler=YES
+
+!commandtest !bjadmin
+owner=AceSinatra
+route=YES
+handler=YES
+
+!commandtest !shoe
+owner=AceSinatra
+route=YES
+handler=YES
+
+ChillTopiaMC must not handle blackjack commands.
+BankingBot must not handle blackjack commands.
+PokerBot must not handle blackjack commands.
+
+If another bot sees a blackjack command it does not own:
+- silently ignore
+- do not send unknown command message
+
+==================================================
+PART 3 — REMOVE CASUAL BLACKJACK FROM ROUTER
+==================================================
+
+Find the command router.
+
+For commands:
+!bet
+!hit
+!stand
+!double
+!split
+
+Make sure there is only one route path:
+AceSinatra realistic blackjack handler.
+
+Bad behavior:
+!bet uses casual blackjack settings while !bjadmin settings uses realistic blackjack settings.
+
+Good behavior:
+!bet uses the same settings shown in !bjadmin settings.
+
+==================================================
+PART 4 — MAX BET MUST BE ENFORCED BY ACTIVE SYSTEM
+==================================================
+
+If !bjadmin settings shows:
+
+Max Bet: 10,000c
+
+Then:
+
+!bet 100000
+
+must be rejected:
+
+⚠️ Maximum blackjack bet is 10,000c.
+
+If owner wants unlimited:
+
+!bjadmin set maxbet unlimited
+
+Then !bjadmin settings should show:
+
+Max Bet: Unlimited
+
+and !bet 100000 should be allowed.
+
+Important:
+Max bet is NOT a reward cap.
+Max bet is table risk control.
+
+Reward caps should be removed.
+Max bet should remain configurable and enforced.
+
+==================================================
+PART 5 — SETTINGS SINGLE SOURCE OF TRUTH
+==================================================
+
+There must be one active blackjack settings source.
+
+!bjadmin settings
+!bet validation
+!bjrules
+!bjhelp
+blackjack payout logic
+blackjack bonus logic
+
+must all read from the same settings.
+
+Search for duplicate settings keys:
+
+bj_settings
+blackjack_settings
+rbj_settings
+get_bj_settings
+get_rbj_settings
+max_bet
+rbj_max_bet
+bj_max_bet
+blackjack_max_bet
+min_bet
+rbj_min_bet
+
+Pick the realistic blackjack settings source as canonical.
+
+If old casual settings still exist:
+- ignore them
+- do not use them for live commands
+- optionally migrate values if needed
+- do not let them override realistic blackjack settings
+
+==================================================
+PART 6 — SHOE SINGLE SOURCE OF TRUTH
+==================================================
+
+Keep the already fixed rule:
+
+!shoe
+!bjshoe
+!bjadmin shoe
+blackjack dealing
+blackjack restart restore
+
+must all use the same AceSinatra realistic blackjack shoe.
+
+No old casual shoe.
+No second shoe.
+No fresh shoe from casual module.
+
+==================================================
+PART 7 — DEPRECATE CASUAL BLACKJACK SAFELY
+==================================================
+
+If casual blackjack files/classes are still imported:
+- stop importing them into main router
+- remove command registration
+- mark deprecated
+- keep file only if other code depends on import
+- do not call it
+
+Add comment:
+
+Casual blackjack deprecated by 3.1G.
+AceSinatra realistic blackjack is the only active blackjack system.
+
+Do not delete tables unless safe.
+Do not wipe old player records.
+
+==================================================
+PART 8 — BLACKJACK HELP SHOULD NOT MENTION CASUAL SYSTEM
+==================================================
+
+Update:
+
+!bjhelp
+!bjrules
+!casinohelp
+!help blackjack
+!help casino
+
+to only describe AceSinatra realistic blackjack.
+
+No casual blackjack wording.
+No old commands.
+No duplicate help.
+
+==================================================
+PART 9 — BLACKJACK ADMIN TESTS
+==================================================
+
+Run:
+
+!commandtest !bet
+!commandtest !hit
+!commandtest !stand
+!commandtest !double
+!commandtest !split
+!commandtest !bjadmin
+!commandtest !bjshoe
+!commandtest !shoe
+
+Expected:
+- owner=AceSinatra
+- route=YES
+- handler=YES
+- no duplicate handler
+- no unknown response from ChillTopiaMC
+
+Then:
+
+!bjadmin settings
+!bet 100000
+
+If Max Bet is 10,000c:
+Expected:
+⚠️ Maximum blackjack bet is 10,000c.
+
+Then:
+
+!bjadmin set maxbet unlimited
+!bjadmin settings
+!bet 100000
+
+Expected:
+Allowed.
+
+Then:
+
+!bjadmin set maxbet 10000
+!bjadmin settings
+!bet 100000
+
+Expected:
+Rejected again.
+
+==================================================
+PART 10 — REMOVE ALL REWARD CAPS GLOBALLY
+==================================================
+
+Current live issue:
+Trivia reward says rewards are capped.
+
+Goal:
+Remove all reward cap logic from the entire bot.
+
+Search for cap logic across project:
+
+reward_cap
+daily_reward_cap
+daily_cap
+max_reward
+max_daily_reward
+earning_cap
+earnings_cap
+casino_cap
+mining_cap
+fishing_cap
+trivia_cap
+game_cap
+event_cap
+tip_reward_cap
+party_tip_cap
+donation_reward_cap
+vip_reward_cap
+bonus_cap
+leaderboard_cap
+_CASINO_CAP
+_RBJ_CASINO_CAP
+MAX_REWARD_CAP
+cap_left
+daily cap left
+capped
+reward capped
+rewards are capped
+cap reached
+daily limit
+earning limit
+reward limit
+
+Remove/disable cap enforcement for:
+- trivia rewards
+- mini-game rewards
+- blackjack rewards
+- poker rewards
+- mining rewards
+- fishing rewards
+- daily rewards
+- streak rewards
+- event rewards
+- donation/tip coin rewards
+- party tip coin rewards
+- VIP bonus rewards
+- assistant/event rewards
+- bonus payouts
+
+Important:
+Do not remove cooldowns if cooldowns prevent spam.
+Do not remove one-claim-per-day logic for daily rewards.
+Do not remove duplicate payout prevention.
+Do not remove validation.
+
+Remove only reward amount ceilings/caps.
+
+==================================================
+PART 11 — TRIVIA CAP FIX
+==================================================
+
+Find trivia reward code.
+
+Search for:
+trivia
+trivia_reward
+answer reward
+quiz reward
+cap
+daily cap
+reward cap
+
+Remove the logic that blocks or reduces trivia rewards due to cap.
+
+If player wins trivia:
+Expected:
+
+✅ Correct! @Player won [amount] coins.
+
+Do NOT say:
+- rewards are capped
+- cap reached
+- daily cap left
+- capped at
+- you hit your cap
+
+If trivia reward is configured as 20 coins, pay 20 coins.
+If event/VIP multiplier applies, apply it.
+No internal cap should reduce it.
+
+==================================================
+PART 12 — REMOVE CAP TEXT FROM ALL PLAYER MESSAGES
+==================================================
+
+Remove player-facing text:
+
+Daily cap left
+Reward cap reached
+You hit today’s cap
+Max reward reached
+Rewards are capped
+Bonus capped
+Cap remaining
+Daily limit reached
+Earning limit reached
+
+Replace with normal reward messages.
+
+Example old:
+You won 20 coins but rewards are capped.
+
+New:
+✅ Correct! You won 20 coins.
+
+Example old:
+You received 500 coins. Daily cap left: 9,500c.
+
+New:
+You received 500 coins.
+
+==================================================
+PART 13 — KEEP SAFETY VALIDATION
+==================================================
+
+Removing reward caps does NOT mean unsafe rewards.
+
+Keep:
+- no negative rewards
+- no NaN rewards
+- no infinite rewards
+- no duplicate payouts
+- no duplicate trivia claims
+- no duplicate blackjack payouts
+- no duplicate daily claims
+- no crash on huge amount
+- no real Highrise gold generation
+- no bypass of platform limits
+- no duplicate ledger entries
+
+Disable caps, not safety.
+
+==================================================
+PART 14 — CONFIG CLEANUP
+==================================================
+
+If cap columns/settings exist in DB:
+- keep them for compatibility
+- set ignored/disabled
+- do not apply them
+- do not show them in public help
+- do not show cap remaining text
+
+Add safe comments/logs:
+Reward caps disabled by 3.1G.
+
+==================================================
+PART 15 — REWARD CAP TESTS
+==================================================
+
+Trivia test:
+Start trivia and answer correctly.
+
+Expected:
+- reward is paid
+- no capped message
+- no cap reduction
+
+Donation/tip reward test if available:
+Expected:
+- coin reward paid
+- no daily cap left text
+
+Mining/fishing test:
+Expected:
+- reward paid
+- no cap message
+
+Blackjack test:
+Expected:
+- payout based on valid bet and rules
+- no reward cap
+- max bet still enforced unless unlimited
+
+Daily/streak:
+Expected:
+- normal once-per-day logic remains
+- reward amount not capped by global cap
+
+==================================================
+PART 16 — ROUTING CONFLICT TESTS
+==================================================
+
+Run:
+
+!bjadmin settings
+!bjhelp
+!bjshoe
+!shoe
+!bet 100
+
+Expected:
+Only AceSinatra responds for blackjack commands.
+
+No ChillTopiaMC:
+Unknown BJ command.
+
+Run:
+
+!commandissues
+!checkcommands
+!checkhelp
+
+Expected:
+- no duplicate owners
+- no no-owner blackjack commands
+- no public help leaks
+- no broken commands
+
+==================================================
+PART 17 — FINAL QA
+==================================================
+
+Run:
+
+!commandtest !bet
+!commandtest !hit
+!commandtest !stand
+!commandtest !double
+!commandtest !split
+!commandtest !bjhelp
+!commandtest !bjrules
+!commandtest !bjstatus
+!commandtest !bjshoe
+!commandtest !shoe
+!commandtest !bjadmin
+!commandtest !bjtest
+!commandtest !bjforce
+
+!commandissues
+!checkcommands
+!checkhelp
+!launchcheck
+!bothealth
+!stability status
+
+Expected:
+- one blackjack system only
+- AceSinatra owns blackjack
+- max bet behavior matches settings
+- reward caps removed globally
+- trivia rewards not capped
+- no command issues
+- launchcheck clean
+
+==================================================
+PART 18 — FINAL REPORT
+==================================================
+
+Report:
+1. Casual blackjack routes removed/disabled.
+2. AceSinatra is the only active blackjack system.
+3. !bet uses same settings as !bjadmin settings.
+4. Max bet enforcement fixed.
+5. Unlimited maxbet option works.
+6. !shoe, !bjshoe, !bjadmin shoe still unified.
+7. Old casual shoe/settings ignored.
+8. Trivia reward cap removed.
+9. All reward cap searches completed.
+10. Cap text removed from player messages.
+11. Cooldowns/duplicate safety preserved.
+12. Blackjack reward caps removed but max bet preserved.
+13. !commandissues result.
+14. !checkcommands result.
+15. !checkhelp result.
+16. !launchcheck result.

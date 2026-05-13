@@ -202,8 +202,9 @@ async def handle_answer(bot: BaseBot, user: User, answer_text: str):
             intended = int(intended * (1.0 + _ev["trivia_coins_pct"]))
         xp_amount = int(config.XP_SCRAMBLE * _ev["xp"])
 
-        # ── Credit coins (do NOT overwrite 'intended' with the return value) ─
-        credited = db.adjust_balance_capped(user.id, intended)
+        # ── Credit coins (reward caps removed in 3.1G) ───────────────────────
+        db.adjust_balance(user.id, intended)
+        credited = intended
 
         # ── Console logging ───────────────────────────────────────────────────
         print(
@@ -231,22 +232,9 @@ async def handle_answer(bot: BaseBot, user: User, answer_text: str):
         word_hint = f"{_active['scrambled'].upper()}={_active['word'].upper()}"
         xp_tag    = " Double XP!" if _ev["xp"] >= 2 else ""
 
-        if credited == 0 and intended > 0:
-            await bot.highrise.chat(
-                f"🎉 {display} unscrambled it! {word_hint}"
-            )
-            await bot.highrise.send_whisper(
-                user.id,
-                "Reward capped. You are at max balance. Spend some coins first!"
-            )
-        elif credited < intended:
-            await bot.highrise.chat(
-                f"🎉 {display} got it! {word_hint} | +{credited}c +{xp_amount}XP (capped){xp_tag}"
-            )
-        else:
-            await bot.highrise.chat(
-                f"🎉 {display} got it! {word_hint} | +{intended}c +{xp_amount}XP{xp_tag}"
-            )
+        await bot.highrise.chat(
+            f"🎉 {display} got it! {word_hint} | +{credited}c +{xp_amount}XP{xp_tag}"
+        )
 
         _active = None
     else:
