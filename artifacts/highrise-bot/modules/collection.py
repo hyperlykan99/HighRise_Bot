@@ -189,3 +189,11 @@ async def handle_collectionhelp(bot: BaseBot, user: User, args: list) -> None:
              "!topcollectors — top collectors\n"
              "!rarelog — rare finds log\n"
              "!lastminesummary / !lastfishsummary")
+
+
+async def handle_enabledm(bot: BaseBot, user: User, args: list) -> None:
+    """!enabledm — prompt player to DM the bot to enable inbox summaries."""
+    await _w(bot, user.id,
+             "📩 To enable inbox summaries,\n"
+             "DM me directly: !enabledm\n"
+             "I'll send auto-mining/fishing results to your inbox.")

@@ -2392,7 +2392,8 @@ MINE_HELP_PAGES = [
         "!mineinv — ores inventory\n"
         "!sellores — sell all ores\n"
         "!tool — view pickaxe\n"
-        "!upgradetool — upgrade pickaxe"
+        "!upgradetool — upgrade pickaxe\n"
+        "📩 DM !enabledm — inbox summaries"
     ),
     (
         "⛏️ Mining 2\n"
@@ -2706,7 +2707,7 @@ def _get_am_setting(key: str, default: str) -> str:
 
 async def _send_automine_summary(bot: BaseBot, uid: str, uname: str,
                                  stats: dict) -> None:
-    """Whisper AutoMine session summary and save it for !lastminesummary."""
+    """DM/whisper AutoMine session summary and save it for !lastminesummary."""
     mines   = stats.get("count", 0)
     value   = stats.get("value", 0)
     best    = stats.get("best_name", "—")
@@ -2716,7 +2717,6 @@ async def _send_automine_summary(bot: BaseBot, uid: str, uname: str,
             f"Mined: {mines}  Value: {_fmt(value)}c\n"
             f"Best: {best}\n"
             f"New: {new_cnt} | Rare: {rare_ct}")
-    saved_text = msg1
     msg2 = ""
     if new_cnt > 0:
         disc  = stats["new_discoveries"][:3]
@@ -2727,18 +2727,46 @@ async def _send_automine_summary(bot: BaseBot, uid: str, uname: str,
         total_t   = sum(db.get_mining_totals_by_rarity().values()) or 25
         msg2 = (f"📖 Ore Book: {total_ore}/{total_t} discovered\n"
                 f"New: {names}")
-        saved_text = f"{msg1}\n{msg2}"
+    saved_text = f"{msg1}\n{msg2}" if msg2 else msg1
     try:
         db.save_auto_session_summary(uid, uname, "mining", saved_text[:500])
     except Exception:
         pass
+
+    # ── Delivery: true DM if conversation_id saved, else short whisper ────────
+    conv_id = None
     try:
-        await bot.highrise.send_whisper(uid, msg1[:249])
+        row = db.get_player_dm_conv(uid)
+        if row:
+            conv_id = row.get("conversation_id")
     except Exception:
         pass
-    if msg2:
+
+    if conv_id:
+        dm_ok = False
         try:
-            await bot.highrise.send_whisper(uid, msg2[:249])
+            await bot.highrise.send_message(conv_id, msg1[:249])
+            if msg2:
+                await bot.highrise.send_message(conv_id, msg2[:249])
+            dm_ok = True
+        except Exception as exc:
+            print(f"[AUTOMINE] DM failed for {uid}: {exc}")
+            try:
+                db.mark_player_dm_conv_stale(uid, conv_id)
+            except Exception:
+                pass
+        if not dm_ok:
+            try:
+                await bot.highrise.send_whisper(uid,
+                    "📩 I saved your auto summary.\n"
+                    "DM me !enabledm again, or use !lastminesummary.")
+            except Exception:
+                pass
+    else:
+        try:
+            await bot.highrise.send_whisper(uid,
+                "📩 Auto-mining summary saved.\n"
+                "DM me !enabledm for inbox summaries, or use !lastminesummary.")
         except Exception:
             pass
 

@@ -2061,6 +2061,18 @@ def _migrate_db():
             created_at   TEXT    NOT NULL DEFAULT (datetime('now')),
             UNIQUE(user_id, summary_type)
         )""",
+        # ── Player DM conversation_ids (3.1H hotfix) ───────────────────────────
+        """CREATE TABLE IF NOT EXISTS player_dm_conversations (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id         TEXT    NOT NULL DEFAULT '',
+            username        TEXT    NOT NULL DEFAULT '',
+            conversation_id TEXT    NOT NULL DEFAULT '',
+            bot_name        TEXT    NOT NULL DEFAULT '',
+            stale           INTEGER NOT NULL DEFAULT 0,
+            created_at      TEXT    NOT NULL DEFAULT (datetime('now')),
+            updated_at      TEXT    NOT NULL DEFAULT (datetime('now')),
+            UNIQUE(user_id, bot_name)
+        )""",
     ]:
         try:
             conn.execute(sql)
@@ -12349,6 +12361,90 @@ def get_rare_finds_collection(user_id: str, ctype: str | None = None) -> list:
         ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+
+def save_player_dm_conv(user_id: str, username: str,
+                        conversation_id: str, bot_name: str) -> None:
+    """Upsert a player's inbox conversation_id for a specific bot."""
+    conn = get_connection()
+    conn.execute(
+        """INSERT INTO player_dm_conversations
+               (user_id, username, conversation_id, bot_name, stale, updated_at)
+           VALUES (?, ?, ?, ?, 0, datetime('now'))
+           ON CONFLICT(user_id, bot_name) DO UPDATE SET
+               conversation_id = excluded.conversation_id,
+               username        = excluded.username,
+               stale           = 0,
+               updated_at      = datetime('now')""",
+        (user_id, username, conversation_id, bot_name),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_player_dm_conv(user_id: str) -> dict | None:
+    """Return the most recently updated non-stale DM conversation_id for a player."""
+    conn = get_connection()
+    row = conn.execute(
+        """SELECT * FROM player_dm_conversations
+           WHERE user_id=? AND stale=0
+           ORDER BY updated_at DESC LIMIT 1""",
+        (user_id,),
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def mark_player_dm_conv_stale(user_id: str, conversation_id: str) -> None:
+    """Mark a specific conversation_id as stale (delivery failed)."""
+    conn = get_connection()
+    conn.execute(
+        """UPDATE player_dm_conversations SET stale=1, updated_at=datetime('now')
+           WHERE user_id=? AND conversation_id=?""",
+        (user_id, conversation_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+def backfill_fishing_collection(user_id: str, username: str) -> int:
+    """
+    Seed player_collection(fishing) from existing fish_catch_records.
+    Uses fish_name → normalised item_key (lowercase + underscores).
+    Returns the number of new collection rows inserted.
+    """
+    conn  = get_connection()
+    rows  = conn.execute(
+        """SELECT fish_name, rarity,
+                  COUNT(*)        AS cnt,
+                  MAX(final_value) AS best_val
+           FROM fish_catch_records
+           WHERE user_id = ?
+           GROUP BY fish_name, rarity""",
+        (user_id,),
+    ).fetchall()
+    added = 0
+    for r in rows:
+        item_key = r["fish_name"].lower().replace(" ", "_")
+        existing = conn.execute(
+            "SELECT id FROM player_collection "
+            "WHERE user_id=? AND collection_type='fishing' AND item_key=?",
+            (user_id, item_key),
+        ).fetchone()
+        if not existing:
+            conn.execute(
+                """INSERT INTO player_collection
+                   (user_id, username, collection_type, item_key, item_name, rarity,
+                    first_seen_at, last_seen_at, count, best_value)
+                   VALUES (?, ?, 'fishing', ?, ?, ?, datetime('now'), datetime('now'), ?, ?)""",
+                (user_id, username, item_key, r["fish_name"],
+                 r["rarity"] or "common", r["cnt"], r["best_val"] or 0),
+            )
+            added += 1
+    if added:
+        conn.commit()
+    conn.close()
+    return added
 
 
 def get_mining_totals_by_rarity() -> dict:

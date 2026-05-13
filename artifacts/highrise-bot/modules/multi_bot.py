@@ -164,6 +164,7 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "rarelog": "miner",
     "lastminesummary": "miner",
     "collectionhelp": "miner", "bookhelp": "miner",
+    "enabledm": "host", "summarydm": "host",
     "topfishcollectors": "fisher", "fishcollectors": "fisher",
     "lastfishsummary": "fisher",
     "contracts": "miner", "miningjobs": "miner",

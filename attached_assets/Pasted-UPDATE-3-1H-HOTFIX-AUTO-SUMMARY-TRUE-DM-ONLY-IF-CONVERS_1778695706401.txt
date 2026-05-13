@@ -1,0 +1,288 @@
+UPDATE 3.1H HOTFIX — AUTO SUMMARY TRUE DM ONLY IF CONVERSATION EXISTS
+
+Current issue:
+Highrise bots cannot reliably start a brand-new inbox DM with a room player unless the bot already has a conversation_id from that player messaging the bot first.
+
+Goal:
+Make auto-mining and auto-fishing summaries use true DM only when possible, otherwise save the summary and whisper a short fallback.
+
+Do not change tokens.
+Do not change room ID.
+Do not change mining/fishing odds.
+Do not change rewards.
+Do not re-add reward caps.
+Do not spam public chat.
+
+==================================================
+PART 1 — SAVE PLAYER DM CONVERSATION ID
+==================================================
+
+When a player sends a direct message/inbox message to the bot, capture and save:
+
+user_id
+username
+conversation_id
+bot_name
+created_at
+updated_at
+
+Suggested table:
+
+player_dm_conversations:
+id INTEGER PRIMARY KEY AUTOINCREMENT
+user_id TEXT
+username TEXT
+conversation_id TEXT
+bot_name TEXT
+created_at TEXT
+updated_at TEXT
+
+Unique:
+user_id + bot_name
+
+Rules:
+- Save/update conversation_id whenever the player DMs the bot.
+- Do not store message content unless already needed.
+- Do not store secrets/tokens.
+- Use this conversation_id later for true DM summaries.
+
+==================================================
+PART 2 — DM ENABLE COMMAND
+==================================================
+
+Add or support:
+
+!dm
+!enabledm
+!summarydm
+
+If used inside room chat:
+
+📩 To enable inbox summaries, DM me:
+!enabledm
+
+If used inside bot DM/inbox:
+
+✅ Inbox summaries enabled.
+I’ll DM your auto-mining and auto-fishing summaries here.
+
+Rules:
+- If command is received in DM and conversation_id exists, save it.
+- If command is received in room, explain that the player must DM the bot first.
+- Keep message short.
+
+==================================================
+PART 3 — AUTO-MINING SUMMARY DELIVERY
+==================================================
+
+When automining completes:
+
+1. Build summary.
+2. Save summary to database.
+3. Check if player has saved conversation_id.
+4. If yes, send true DM/inbox message using conversation_id.
+5. If no, whisper short fallback only.
+
+True DM body:
+
+⛏️ Auto-Mining Complete
+Mined: [count]
+Earned: [coins]c
+Best: [best item]
+New: [new] | Rare: [rare]
+
+Optional second DM:
+
+📖 Ore Book
+Progress: [discovered]/[total]
+Use !orebook.
+
+Fallback whisper if no conversation_id:
+
+📩 Auto-mining summary saved.
+DM me !enabledm for inbox summaries, or use !lastminesummary.
+
+Rules:
+- Do not dump long summary in room whisper.
+- Do not public spam.
+- No reward cap text.
+
+==================================================
+PART 4 — AUTO-FISHING SUMMARY DELIVERY
+==================================================
+
+When autofishing completes:
+
+1. Build summary.
+2. Save summary to database.
+3. Check if player has saved conversation_id.
+4. If yes, send true DM/inbox message using conversation_id.
+5. If no, whisper short fallback only.
+
+True DM body:
+
+🎣 Auto-Fishing Complete
+Casts: [count]
+Earned: [coins]c
+Best: [best catch]
+New: [new] | Rare: [rare]
+
+Optional second DM:
+
+📖 Fish Book
+Progress: [discovered]/[total]
+Use !fishbook.
+
+Fallback whisper if no conversation_id:
+
+📩 Auto-fishing summary saved.
+DM me !enabledm for inbox summaries, or use !lastfishsummary.
+
+Rules:
+- Do not dump long summary in room whisper.
+- Do not public spam.
+- No reward cap text.
+
+==================================================
+PART 5 — SUMMARY STORAGE
+==================================================
+
+Add or fix table:
+
+auto_session_summaries:
+id INTEGER PRIMARY KEY AUTOINCREMENT
+user_id TEXT
+username TEXT
+summary_type TEXT
+summary_text TEXT
+created_at TEXT
+
+summary_type:
+mining
+fishing
+
+Rules:
+- Always save summary even if DM succeeds.
+- Latest summary can be retrieved with !lastminesummary or !lastfishsummary.
+- Do not wipe old summaries.
+
+==================================================
+PART 6 — LAST SUMMARY COMMANDS
+==================================================
+
+Add/fix:
+
+!lastminesummary
+!lastfishsummary
+
+!lastminesummary:
+
+⛏️ Last Mining Summary
+Mined: [count]
+Earned: [coins]c
+Best: [best item]
+New: [new] | Rare: [rare]
+
+!lastfishsummary:
+
+🎣 Last Fishing Summary
+Casts: [count]
+Earned: [coins]c
+Best: [best catch]
+New: [new] | Rare: [rare]
+
+If none:
+
+No auto-mining summary yet.
+Try !automine.
+
+No auto-fishing summary yet.
+Try !autofish.
+
+==================================================
+PART 7 — DM SEND FAILURE HANDLING
+==================================================
+
+If conversation_id exists but DM send fails:
+
+1. Mark conversation_id as stale if needed.
+2. Keep summary saved.
+3. Whisper fallback:
+
+📩 I saved your auto summary.
+DM me !enabledm again, or use !lastfishsummary / !lastminesummary.
+
+Do not crash.
+Log real error to console.
+
+==================================================
+PART 8 — HELP UPDATE
+==================================================
+
+Update mining/fishing help:
+
+Mining Help:
+!automine
+!orebook
+!lastminesummary
+DM me !enabledm for inbox summaries.
+
+Fishing Help:
+!autofish
+!fishbook
+!lastfishsummary
+DM me !enabledm for inbox summaries.
+
+Keep under 220 characters.
+No reward cap text.
+
+==================================================
+PART 9 — TESTS
+==================================================
+
+Test without DM enabled:
+
+1. Run !automine and let it finish.
+Expected:
+- summary saved
+- short whisper fallback only
+- !lastminesummary works
+
+2. Run !autofish and let it finish.
+Expected:
+- summary saved
+- short whisper fallback only
+- !lastfishsummary works
+
+Test with DM enabled:
+
+1. DM the bot:
+!enabledm
+
+Expected:
+✅ Inbox summaries enabled.
+
+2. Run !automine.
+Expected:
+- true DM/inbox summary sent
+- summary also saved
+
+3. Run !autofish.
+Expected:
+- true DM/inbox summary sent
+- summary also saved
+
+Final:
+
+!commandtest !enabledm
+!commandtest !lastminesummary
+!commandtest !lastfishsummary
+!commandissues
+!checkcommands
+!checkhelp
+!launchcheck
+
+Expected:
+- no command issues
+- no public spam
+- summaries work with or without conversation_id

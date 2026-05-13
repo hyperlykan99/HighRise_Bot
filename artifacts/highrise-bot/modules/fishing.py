@@ -842,12 +842,20 @@ async def handle_fishbook(bot: BaseBot, user: User, args: list) -> None:
 
         from collections import defaultdict as _dd
         cat: dict = _dd(list)
-        for f in FISH_ITEMS:
+        for f in FISH_CATALOG:
             cat[f["rarity"]].append(f)
         totals_rar = {r: len(v) for r, v in cat.items()}
         grand_t    = sum(totals_rar.values())
 
         found   = db.get_player_collection(uid, "fishing")
+        # ── Backfill from catch records for returning players ──────────────────
+        if not found:
+            try:
+                backfilled = db.backfill_fishing_collection(uid, user.username.lower())
+                if backfilled:
+                    found = db.get_player_collection(uid, "fishing")
+            except Exception:
+                pass
         found_d = {r["item_key"]: r for r in found}
         by_rar: dict = {}
         for r in found:
@@ -1141,6 +1149,9 @@ async def handle_fishhelp(bot: BaseBot, user: User) -> None:
              "!topfishcollectors — top collectors\n"
              "!lastfishsummary — last session\n"
              "!fishchances  !myrod  !rods")
+    await _w(bot, user.id,
+             "📩 DM me !enabledm to receive\n"
+             "auto-fishing summaries to your inbox.")
 
 
 # ---------------------------------------------------------------------------
@@ -1330,7 +1341,7 @@ def _get_af_setting(key: str, default: str) -> str:
 
 async def _send_autofish_summary(bot: BaseBot, uid: str, uname: str,
                                  stats: dict) -> None:
-    """Whisper AutoFish session summary and save it for !lastfishsummary."""
+    """DM/whisper AutoFish session summary and save it for !lastfishsummary."""
     casts   = stats.get("count", 0)
     earned  = stats.get("value", 0)
     best    = stats.get("best_name", "—")
@@ -1340,7 +1351,6 @@ async def _send_autofish_summary(bot: BaseBot, uid: str, uname: str,
             f"Casts: {casts}  Earned: {_fmt(earned)}c\n"
             f"Best: {best}\n"
             f"New: {new_cnt} | Rare: {rare_ct}")
-    saved_text = msg1
     msg2 = ""
     if new_cnt > 0:
         disc  = stats["new_discoveries"][:3]
@@ -1348,21 +1358,49 @@ async def _send_autofish_summary(bot: BaseBot, uid: str, uname: str,
         if len(stats["new_discoveries"]) > 3:
             names += f" +{len(stats['new_discoveries']) - 3}"
         total_fish = db.count_collection_items(uid, "fishing")
-        total_t    = len(FISH_ITEMS)
+        total_t    = len(FISH_CATALOG)
         msg2 = (f"📖 Fish Book: {total_fish}/{total_t} discovered\n"
                 f"New: {names}")
-        saved_text = f"{msg1}\n{msg2}"
+    saved_text = f"{msg1}\n{msg2}" if msg2 else msg1
     try:
         db.save_auto_session_summary(uid, uname, "fishing", saved_text[:500])
     except Exception:
         pass
+
+    # ── Delivery: true DM if conversation_id saved, else short whisper ────────
+    conv_id = None
     try:
-        await bot.highrise.send_whisper(uid, msg1[:249])
+        row = db.get_player_dm_conv(uid)
+        if row:
+            conv_id = row.get("conversation_id")
     except Exception:
         pass
-    if msg2:
+
+    if conv_id:
+        dm_ok = False
         try:
-            await bot.highrise.send_whisper(uid, msg2[:249])
+            await bot.highrise.send_message(conv_id, msg1[:249])
+            if msg2:
+                await bot.highrise.send_message(conv_id, msg2[:249])
+            dm_ok = True
+        except Exception as exc:
+            print(f"[AUTOFISH] DM failed for {uid}: {exc}")
+            try:
+                db.mark_player_dm_conv_stale(uid, conv_id)
+            except Exception:
+                pass
+        if not dm_ok:
+            try:
+                await bot.highrise.send_whisper(uid,
+                    "📩 I saved your auto summary.\n"
+                    "DM me !enabledm again, or use !lastfishsummary.")
+            except Exception:
+                pass
+    else:
+        try:
+            await bot.highrise.send_whisper(uid,
+                "📩 Auto-fishing summary saved.\n"
+                "DM me !enabledm for inbox summaries, or use !lastfishsummary.")
         except Exception:
             pass
 

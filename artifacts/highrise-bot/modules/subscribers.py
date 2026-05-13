@@ -304,6 +304,11 @@ async def process_incoming_dm(
 
     # Always save/update conversation_id and mark dm_available (lookup by user_id first)
     db.upsert_subscriber_by_user_id(user_id, uname_lower, conversation_id)
+    # Also save to dedicated DM conv table (used for auto-session summary delivery)
+    try:
+        db.save_player_dm_conv(user_id, uname_lower, conversation_id, BOT_MODE)
+    except Exception:
+        pass
 
     # Deliver any queued pending messages now that we have an active conversation
     await deliver_pending_subscriber_messages(bot, uname_lower, conversation_id)
@@ -343,6 +348,15 @@ async def process_incoming_dm(
             return
 
     # ── Keyword routing ───────────────────────────────────────────────────────
+
+    # ── !enabledm / !summarydm — enable inbox auto-session summaries ─────────
+    if norm in ("enabledm", "summarydm", "dm", "!enabledm", "!summarydm", "!dm",
+                "enable dm", "enable summaries", "summary dm"):
+        reply = ("✅ Inbox summaries enabled.\n"
+                 "I'll DM your auto-mining and auto-fishing summaries here.")
+        await send_dm(bot, conversation_id, reply[:249])
+        print(f"[DM] @{username} enabled inbox summaries via !enabledm.")
+        return
 
     if _is_unsubscribe_request(norm):
         db.set_subscribed(uname_lower, False)

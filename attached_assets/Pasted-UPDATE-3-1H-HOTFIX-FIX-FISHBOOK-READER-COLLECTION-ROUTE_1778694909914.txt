@@ -1,0 +1,775 @@
+UPDATE 3.1H HOTFIX — FIX FISHBOOK READER + COLLECTION ROUTES + TRUE AUTO SUMMARY DM
+
+Current live issues:
+1. !fish works and says:
+   📖 New catch! Small Crab added to your Fish Book!
+
+2. But !fishbook still says:
+   Could not load book. Try again.
+
+3. !fishbook rare and !fishbook missing also fail.
+
+4. !commandissues showed collection commands with no-route:
+   !collectbook
+   !collection
+   !mybook
+   !topcollectors
+   !topore
+   !toporecollectors
+
+5. Auto-mining/autofishing completion summary still does NOT direct message the player.
+   It may whisper in the room, but I want a true DM/inbox/direct message.
+
+Goal:
+Fix collection command routing, fix Fish Book read/write mismatch, and send true DM/inbox summaries after auto-mining/autofishing completion.
+
+Do not change tokens.
+Do not change room ID.
+Do not wipe database.
+Do not reset balances, VIP, badges, casino, blackjack, leaderboards, mining/fishing inventory, collection data, or player data.
+Do not change mining odds.
+Do not change fishing odds.
+Do not change mining rewards.
+Do not change fishing rewards.
+Do not re-add reward caps.
+Do not add cap text.
+Do not spam public chat.
+
+==================================================
+PART 1 — FIX COLLECTION COMMAND ROUTES
+==================================================
+
+Make sure these commands are registered with route + handler + owner:
+
+!collection
+!collectbook
+!mybook
+!orebook
+!fishbook
+!topcollectors
+!topore
+!toporecollectors
+!topfish
+!topfishcollectors
+!rarelog
+
+Expected owner:
+ChillTopiaMC for general collection
+MasterAngler for fishing commands
+Mining bot or ChillTopiaMC for mining commands
+
+Acceptable:
+All collection commands owned by ChillTopiaMC if simpler.
+
+Aliases:
+!collectbook = !collection
+!mybook = !collection
+!topore = !toporecollectors
+!topfish = !topfishcollectors
+
+If an alias is not implemented:
+- hide it
+- do not show it in help
+- do not count it as command issue
+
+Expected:
+
+!commandtest !collection
+route=YES
+handler=YES
+owner not UNKNOWN
+
+==================================================
+PART 2 — FIX FISHBOOK READ/WRITE MISMATCH
+==================================================
+
+Current problem:
+The fishing catch hook writes successfully because !fish says:
+Small Crab added to your Fish Book.
+
+But !fishbook cannot read it.
+
+Find where !fish writes:
+- Small Crab added to Fish Book
+- collection insert/update
+- player_collection
+- fish collection table
+- fishing inventory table
+
+Then make !fishbook read from that exact same source.
+
+Do not create a second fishbook table.
+Do not read from old/legacy fishbook storage.
+Do not read from a different catalog/table unless properly joined.
+Use shared helpers if needed:
+
+record_collection_find(user_id, username, "fishing", item_name, rarity, value)
+get_player_collection(user_id, "fishing")
+get_collection_catalog("fishing")
+
+==================================================
+PART 3 — FISHBOOK MUST NEVER FAIL GENERICALLY
+==================================================
+
+Remove generic player message:
+
+Could not load book. Try again.
+
+Replace with specific safe fallbacks.
+
+If player has no catches:
+
+🎣 Fish Book
+No catches yet.
+Try !fish.
+
+If catalog missing:
+
+🎣 Fish Book
+Fish catalog unavailable.
+Showing discovered catches only.
+
+If database error:
+
+🎣 Fish Book
+Book is temporarily unavailable.
+Your catches are still saved.
+
+Also log the real traceback to console.
+
+Rules:
+- Use try/except around handler.
+- Player response should be helpful.
+- Keep under 220 characters.
+- Whisper or DM if possible.
+
+==================================================
+PART 4 — FIX !FISHBOOK DEFAULT
+==================================================
+
+Command:
+!fishbook
+
+Expected after catching Small Crab:
+
+🎣 Fish Book
+Discovered: 1/[total]
+Common: 1/[total_common]
+Recent: Small Crab x1
+Use !fishbook all.
+
+If total catalog cannot be loaded:
+
+🎣 Fish Book
+Discovered: 1
+Recent: Small Crab x1
+Use !fishbook all.
+
+==================================================
+PART 5 — FIX !FISHBOOK FILTERS
+==================================================
+
+Support safely:
+
+!fishbook all
+!fishbook common
+!fishbook uncommon
+!fishbook rare
+!fishbook epic
+!fishbook legendary
+!fishbook mythic
+!fishbook missing
+!fishbook 1
+!fishbook rare 2
+
+After catching Small Crab:
+
+!fishbook common
+
+Expected:
+
+🎣 Common Fish
+✅ Small Crab x1
+
+If no rare fish:
+
+!fishbook rare
+
+Expected:
+
+🎣 Rare Fish
+No rare catches yet.
+
+If bad filter:
+
+⚠️ Use: !fishbook rare, missing, all
+
+Do not crash.
+Do not show generic load error.
+
+==================================================
+PART 6 — FIX !FISHBOOK MISSING
+==================================================
+
+Command:
+!fishbook missing
+
+If catalog exists:
+
+🎣 Missing Fish
+❔ Unknown Rare
+❔ Unknown Epic
+Page 1/2
+
+If catalog does not exist:
+
+🎣 Missing Fish
+Fish catalog unavailable.
+Use !fishbook all for discovered catches.
+
+If player discovered all:
+
+🎣 Missing Fish
+You discovered all fish!
+
+Do not crash if missing list is empty.
+
+==================================================
+PART 7 — ITEM KEY NORMALIZATION
+==================================================
+
+Normalize fish item keys consistently.
+
+Example:
+Small Crab
+
+Should save/read as stable key:
+small_crab
+
+Rules:
+- lowercase
+- trim spaces
+- replace spaces with underscores
+- remove emoji from item_key
+- keep display name as Small Crab
+
+Fishbook should not fail because of emoji/name mismatch.
+
+==================================================
+PART 8 — MASTERANGLER DB ACCESS
+==================================================
+
+MasterAngler owns fishing commands.
+
+Make sure MasterAngler can access the same database/collection helper used by !fish.
+
+If !fish writes through one module and !fishbook reads through another:
+- move collection read/write into shared helper functions
+- import those helpers in both places
+
+==================================================
+PART 9 — BACKFILL FROM EXISTING FISHING INVENTORY
+==================================================
+
+If player already has fish inventory, !fishbook should backfill discovered catches if safe.
+
+When !fishbook loads:
+- check player_collection fishing
+- if empty, check fishing inventory
+- create collection records from inventory
+- do not duplicate inventory
+- do not reset counts
+
+This helps old players.
+
+==================================================
+PART 10 — FIX OREBOOK SAME WAY
+==================================================
+
+Make !orebook stable too.
+
+Support:
+
+!orebook
+!orebook all
+!orebook common
+!orebook uncommon
+!orebook rare
+!orebook epic
+!orebook legendary
+!orebook mythic
+!orebook missing
+!orebook 1
+!orebook rare 2
+
+If no ore discoveries:
+
+⛏️ Ore Book
+No mining discoveries yet.
+Try !mine.
+
+No crashes.
+
+==================================================
+PART 11 — COLLECTION COMMAND FORMAT
+==================================================
+
+!collection / !collectbook / !mybook should show:
+
+📖 Collection Book
+Mining: 12/40
+Fishing: 9/35
+Total: 21/75
+Use !orebook or !fishbook.
+
+If empty:
+
+📖 Collection Book
+No discoveries yet.
+Try !mine or !fish.
+
+Rules:
+- Do not dump all items.
+- Keep short.
+- Whisper/DM if possible.
+
+==================================================
+PART 12 — TOP COLLECTOR ROUTES
+==================================================
+
+Implement or fix:
+
+!topcollectors
+!toporecollectors
+!topfishcollectors
+
+Aliases:
+!topore = !toporecollectors
+!topfish = !topfishcollectors
+
+Expected:
+
+🏆 Top Collectors
+1. @Player — 48/75
+2. @User — 31/75
+
+Ore:
+
+⛏️ Top Ore Collectors
+1. @Player — 25/40
+
+Fish:
+
+🎣 Top Fish Collectors
+1. @Player — 20/35
+
+Rules:
+- Count unique discovered items.
+- Do not include bots.
+- No rewards needed.
+- No reward caps.
+
+==================================================
+PART 13 — COLLECTION DB SAFETY
+==================================================
+
+If collection table is missing, create it safely.
+
+Suggested table:
+
+player_collection:
+id INTEGER PRIMARY KEY AUTOINCREMENT
+user_id TEXT
+username TEXT
+collection_type TEXT
+item_key TEXT
+item_name TEXT
+rarity TEXT
+first_seen_at TEXT
+last_seen_at TEXT
+count INTEGER DEFAULT 0
+best_value INTEGER DEFAULT 0
+
+Unique:
+user_id + collection_type + item_key
+
+Do not wipe existing data.
+
+==================================================
+PART 14 — TRUE DM FIRST FOR AUTO SUMMARIES
+==================================================
+
+Current issue:
+Auto-mining/autofishing summaries still only whisper in the room.
+
+Goal:
+After automine/autofish completes, send a real direct message/inbox DM to the player.
+
+A room whisper is NOT enough unless true DM is impossible.
+
+When auto-mining finishes, try true DM/inbox first.
+When auto-fishing finishes, try true DM/inbox first.
+
+Check the Highrise SDK/project for available methods such as:
+- send_message
+- send_direct_message
+- send_dm
+- create_conversation
+- inbox API
+- direct message helper
+- existing DM utility used elsewhere in the bot
+
+==================================================
+PART 15 — AUTO-MINING TRUE DM SUMMARY
+==================================================
+
+After automining completes, send true DM:
+
+Title/subject if supported:
+Auto-Mining Summary
+
+Body:
+
+⛏️ Auto-Mining Complete
+Mined: [count]
+Earned: [coins]c
+Best: [best item]
+New: [new discoveries] | Rare: [rare finds]
+
+Second DM if needed:
+
+📖 Ore Book
+Progress: [discovered]/[total]
+New: [top new items]
+
+Trigger after:
+- completion
+- stop
+- cancel
+- inventory full
+- safe error stop
+
+Rules:
+- Include mined count.
+- Include coins earned.
+- Include best find.
+- Include new discoveries.
+- Include rare finds.
+- No reward cap text.
+- No public spam.
+
+==================================================
+PART 16 — AUTO-FISHING TRUE DM SUMMARY
+==================================================
+
+After autofishing completes, send true DM:
+
+Title/subject if supported:
+Auto-Fishing Summary
+
+Body:
+
+🎣 Auto-Fishing Complete
+Casts: [count]
+Earned: [coins]c
+Best: [best catch]
+New: [new catches] | Rare: [rare catches]
+
+Second DM if needed:
+
+📖 Fish Book
+Progress: [discovered]/[total]
+New: [top new catches]
+
+Trigger after:
+- completion
+- stop
+- cancel
+- inventory full
+- safe error stop
+
+Rules:
+- Include casts completed.
+- Include coins earned.
+- Include best catch.
+- Include new catches.
+- Include rare catches.
+- No reward cap text.
+- No public spam.
+
+==================================================
+PART 17 — FALLBACK IF TRUE DM IS NOT SUPPORTED
+==================================================
+
+If true DM/inbox is not supported by the SDK:
+
+1. Save summary to database.
+2. Whisper the player only this short fallback:
+
+I saved your auto summary.
+Use !lastminesummary or !lastfishsummary.
+
+Do NOT dump the whole summary in public chat.
+Do NOT spam room whisper with long summary.
+
+==================================================
+PART 18 — ADD LAST SUMMARY COMMANDS
+==================================================
+
+Add or fix:
+
+!lastminesummary
+!lastfishsummary
+
+!lastminesummary expected:
+
+⛏️ Last Mining Summary
+Mined: [count]
+Earned: [coins]c
+Best: [best item]
+New: [new] | Rare: [rare]
+
+!lastfishsummary expected:
+
+🎣 Last Fishing Summary
+Casts: [count]
+Earned: [coins]c
+Best: [best catch]
+New: [new] | Rare: [rare]
+
+Rules:
+- Must route.
+- Must not crash.
+- Shows latest saved summary for caller.
+
+If none:
+
+No auto-mining summary yet.
+Try !automine.
+
+or:
+
+No auto-fishing summary yet.
+Try !autofish.
+
+==================================================
+PART 19 — SUMMARY STORAGE
+==================================================
+
+Add safe table if needed:
+
+auto_session_summaries:
+id INTEGER PRIMARY KEY AUTOINCREMENT
+user_id TEXT
+username TEXT
+summary_type TEXT
+summary_text TEXT
+created_at TEXT
+
+summary_type:
+mining
+fishing
+
+Rules:
+- Idempotent migration.
+- Do not wipe data.
+- Store latest summaries.
+- Keep summaries short.
+- Do not store secrets/tokens.
+
+==================================================
+PART 20 — HELP UPDATE
+==================================================
+
+Update help to show only working commands.
+
+Collection help:
+
+📖 Collection Help
+!collection
+!orebook
+!fishbook
+!topcollectors
+!rarelog
+
+Mining help:
+
+⛏️ Mining Help
+!mine
+!automine
+!orebook
+!toporecollectors
+!lastminesummary
+
+Fishing help:
+
+🎣 Fishing Help
+!fish
+!autofish
+!fishbook
+!topfishcollectors
+!lastfishsummary
+
+Only show !lastminesummary / !lastfishsummary if implemented.
+No broken aliases.
+No cap text.
+
+==================================================
+PART 21 — COMMAND TESTS
+==================================================
+
+Run:
+
+!commandtest !collection
+!commandtest !collectbook
+!commandtest !mybook
+!commandtest !orebook
+!commandtest !fishbook
+!commandtest !topcollectors
+!commandtest !topore
+!commandtest !toporecollectors
+!commandtest !topfish
+!commandtest !topfishcollectors
+!commandtest !rarelog
+!commandtest !lastminesummary
+!commandtest !lastfishsummary
+
+Expected:
+- route=YES or hidden if skipped
+- handler=YES if shown
+- owner not UNKNOWN
+- no no-route issues
+
+==================================================
+PART 22 — LIVE FISHBOOK TESTS
+==================================================
+
+Run:
+
+!fish
+!fishbook
+!fishbook all
+!fishbook common
+!fishbook rare
+!fishbook missing
+
+Expected:
+- !fish adds catch to Fish Book
+- !fishbook loads successfully
+- Small Crab appears in common/all if caught
+- rare shows no rare catches if none
+- missing does not crash
+- no generic “Could not load book”
+
+==================================================
+PART 23 — LIVE OREBOOK TESTS
+==================================================
+
+Run:
+
+!mine
+!orebook
+!orebook all
+!orebook common
+!orebook rare
+!orebook missing
+
+Expected:
+- !mine adds item to Ore Book
+- !orebook loads successfully
+- filters work
+- missing does not crash
+
+==================================================
+PART 24 — AUTO SUMMARY DM TESTS
+==================================================
+
+Run:
+
+!automine
+
+Let it finish or stop it.
+
+Expected:
+- true DM/inbox summary sent if supported
+- if true DM unsupported, summary saved
+- fallback whisper tells user to use !lastminesummary
+- no public spam
+- no reward cap text
+
+Then run:
+
+!lastminesummary
+
+Expected:
+- shows last mining summary
+
+Run:
+
+!autofish
+
+Let it finish or stop it.
+
+Expected:
+- true DM/inbox summary sent if supported
+- if true DM unsupported, summary saved
+- fallback whisper tells user to use !lastfishsummary
+- no public spam
+- no reward cap text
+
+Then run:
+
+!lastfishsummary
+
+Expected:
+- shows last fishing summary
+
+==================================================
+PART 25 — FINAL QA
+==================================================
+
+Run:
+
+!commandissues
+!checkcommands
+!checkhelp
+!launchcheck
+!bothealth
+!stability status
+
+Expected:
+- no no-route collection commands
+- no fishbook crash
+- no orebook crash
+- true DM attempted for summaries
+- fallback saved summaries work if true DM unsupported
+- no reward cap text
+- launchcheck clean
+
+==================================================
+PART 26 — FINAL REPORT
+==================================================
+
+Report:
+1. Fishbook read/write mismatch fixed.
+2. !fishbook loads after !fish catch.
+3. Small Crab appears in Fish Book.
+4. !fishbook all works.
+5. !fishbook common works.
+6. !fishbook rare works safely.
+7. !fishbook missing works safely.
+8. !orebook stable.
+9. Collection aliases routed or hidden.
+10. Top collector routes fixed.
+11. Collection DB migration safe.
+12. True DM attempted for automining summary.
+13. True DM attempted for autofishing summary.
+14. True DM method used, or confirmed SDK does not support true DM.
+15. Fallback saved summary added.
+16. !lastminesummary works.
+17. !lastfishsummary works.
+18. No public spam.
+19. No reward cap text.
+20. !commandissues result.
+21. !checkhelp result.
+22. !launchcheck result.
