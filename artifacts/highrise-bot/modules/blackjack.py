@@ -277,16 +277,14 @@ def _card_color_group(suit: str) -> str:
 
 
 def _card_clr(card: tuple) -> str:
-    """Return a color-coded card string for Highrise chat."""
+    """Return a plain card string."""
     r, s = card
-    if s in ("♥", "♦"):
-        return f"<#FF5555>{r}{s}<#FFFFFF>"
     return f"{r}{s}"
 
 
 def _hand_colored(cards: list) -> str:
-    """Space-joined color-coded card strings."""
-    return " ".join(_card_clr(c) for c in cards)
+    """Space-joined plain card strings."""
+    return hand_str(cards)
 
 
 def _check_pair_bonus(cards: list, bet: int, s: dict) -> tuple[str, int]:
@@ -398,7 +396,7 @@ async def _start_round(bot: BaseBot):
                     c1, c2 = p.hands[0]["cards"][0], p.hands[0]["cards"][1]
                     bonus_msg = (
                         f"🎁 {_dn(p)} {lbl}! "
-                        f"{_card_clr(c1)}{_card_clr(c2)} +{bamt:,}c"
+                        f"{card_str(c1)} {card_str(c2)} +{bamt:,}c"
                     )
                     if vip_mult != 1.0:
                         bonus_msg += f" ({vip_mult}x VIP)"
@@ -438,7 +436,7 @@ async def _start_action_phase(bot: BaseBot):
     # ── Msg 1 (public): Dealer Cards ─────────────────────────────────────────
     upcard_str = card_str(_state.dealer_hand[0]) if _state.dealer_hand else "?"
     dealer_ace = bool(_state.dealer_hand) and _state.dealer_hand[0][0] == "A"
-    dealer_up  = _card_clr(_state.dealer_hand[0]) if _state.dealer_hand else "?"
+    dealer_up  = card_str(_state.dealer_hand[0]) if _state.dealer_hand else "?"
     s_cards    = str(s.get("bj_cards_mode", "whisper")).lower()
     await bot.highrise.chat(
         f"🃏 Dealer Cards\nDealer: {upcard_str} [?] | Total: ? | {timer}s to act"[:249]
@@ -474,10 +472,10 @@ async def _start_action_phase(bot: BaseBot):
                     await bot.highrise.chat(pub_text[:249])
                 else:
                     wtext = (
-                        f"<#00FF66>🟢 Player Cards\n"
+                        f"🟢 Player Cards\n"
                         f"You: {cards_line}\n"
                         f"Dealer: {dealer_up} [?] | Bet: {p.total_bet():,}c\n"
-                        f"{acts}<#FFFFFF>"
+                        f"{acts}"
                     )
                     await bot.highrise.send_whisper(p.user_id, wtext[:249])
             except Exception:
@@ -738,10 +736,10 @@ async def _finalize_round(bot: BaseBot):
                         hlines = []
                         for i, h in enumerate(p.hands):
                             hlines.append(
-                                f"H{i+1}: {_hand_colored(h['cards'])}"
+                                f"H{i+1}: {hand_str(h['cards'])}"
                                 f"={hand_value(h['cards'])} [{h['status']}]"
                             )
-                        dlr_disp = _hand_colored(_state.dealer_hand)
+                        dlr_disp = hand_str(_state.dealer_hand)
                         dlr_val  = hand_value(_state.dealer_hand)
                         wparts   = [
                             "🏁 Result",

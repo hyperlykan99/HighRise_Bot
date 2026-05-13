@@ -298,13 +298,11 @@ def _is_soft_17(hand: list) -> bool:
 
 def _card_clr(card: tuple) -> str:
     r, s = card
-    if s in ("♥", "♦"):
-        return f"<#FF5555>{r}{s}<#FFFFFF>"
     return f"{r}{s}"
 
 
 def _hand_colored(cards: list) -> str:
-    return " ".join(_card_clr(c) for c in cards)
+    return hand_str(cards)
 
 
 def _all_done() -> bool:
@@ -511,7 +509,7 @@ async def _start_action_phase(bot: BaseBot):
     s_cards   = str(db.get_bj_settings().get("bj_cards_mode", "whisper")).lower()
     upcard    = _state.dealer_hand[0] if _state.dealer_hand else None
     upcard_str = card_str(upcard) if upcard else "?"
-    dealer_up  = _card_clr(upcard) if upcard else "?"
+    dealer_up  = card_str(upcard) if upcard else "?"
     vis_total  = _visible_dealer_total()
 
     # Msg 1 (always public): Dealer Cards
@@ -572,11 +570,11 @@ async def _start_action_phase(bot: BaseBot):
                     cards_line = " | ".join(hparts)
                     acts       = _build_actions(p, s)
                     wtext = (
-                        f"<#00FF66>🟢 Player Cards\n"
+                        f"🟢 Player Cards\n"
                         f"You: {cards_line}\n"
                         f"Dealer: {dealer_up} [?] | Visible: {vis_total}\n"
                         f"Bet: {p.total_bet():,}c\n"
-                        f"{acts}<#FFFFFF>"
+                        f"{acts}"
                     )
                     await bot.highrise.send_whisper(p.user_id, wtext[:249])
                 except Exception:
@@ -629,6 +627,25 @@ async def _finalize_round(bot: BaseBot):
     _state.action_task     = None
     _state._action_ends_at = ""
     try:
+        # Guard: if dealer hand is missing after a crash/restore, deal fresh cards
+        if len(_state.dealer_hand) < 2:
+            print(f"[RBJ] Dealer hand only {len(_state.dealer_hand)} card(s) — dealing from shoe")
+            while len(_state.dealer_hand) < 2 and _shoe.remaining > 0:
+                _state.dealer_hand.append(_shoe.pop())
+            if len(_state.dealer_hand) < 2:
+                await bot.highrise.chat("⚠️ BJ error: dealer hand missing. All bets refunded.")
+                for p in _state.players:
+                    try:
+                        db.adjust_balance(p.user_id, p.total_bet())
+                        db.add_ledger_entry(p.user_id, p.username,
+                                            p.total_bet(), "rbj_dealer_error_refund")
+                    except Exception:
+                        pass
+                db.clear_casino_table("rbj")
+                _state.reset()
+                return
+            _save_table_state()
+
         s           = _settings()
         hits_soft17 = bool(int(s.get("dealer_hits_soft_17", 1)))
         win_payout  = float(s.get("win_payout", 2.0))
@@ -733,7 +750,11 @@ async def _finalize_round(bot: BaseBot):
                             db.mark_result_paid("rbj", round_id, hkey)
 
                     elif hst == "blackjack":
-                        payout = int(hbet * bj_payout * (1.0 + bonus_pct))
+                        suited = (len(h["cards"]) == 2
+                                  and h["cards"][0][1] == h["cards"][1][1])
+                        eff_bj  = 3.0 if suited else bj_payout
+                        bj_tag  = "Suited BJ 🎴" if suited else "BJ"
+                        payout  = int(hbet * eff_bj * (1.0 + bonus_pct))
                         if round_id:
                             db.save_round_result("rbj", round_id, hkey, p.user_id,
                                                  hbet, "blackjack", payout, payout - hbet)
@@ -742,12 +763,21 @@ async def _finalize_round(bot: BaseBot):
                         db.update_rbj_stats(p.user_id, win=1, bj=1, bet=hbet, won=payout)
                         db.add_rbj_daily_net(p.user_id, payout - hbet)
                         total_net += payout - hbet
-                        result_parts.append(f"H{i+1} BJ +{payout:,}c")
+                        result_parts.append(f"H{i+1} {bj_tag} +{payout:,}c")
                         if round_id:
                             db.mark_result_paid("rbj", round_id, hkey)
 
                     elif dealer_bust or htotal > dealer_total:
-                        payout = int(hbet * win_payout * (1.0 + bonus_pct))
+                        card_count = len(h["cards"])
+                        win_bonus  = 0.0
+                        win_tag    = "win"
+                        if card_count >= 5:
+                            win_bonus += 0.25
+                            win_tag    = "5-Card Charlie 🃏"
+                            if htotal == 21:
+                                win_bonus += 0.10
+                                win_tag    = "Perfect 21 ⭐"
+                        payout = int(hbet * win_payout * (1.0 + bonus_pct + win_bonus))
                         if round_id:
                             db.save_round_result("rbj", round_id, hkey, p.user_id,
                                                  hbet, "win", payout, payout - hbet)
@@ -756,7 +786,7 @@ async def _finalize_round(bot: BaseBot):
                         db.update_rbj_stats(p.user_id, win=1, bet=hbet, won=payout)
                         db.add_rbj_daily_net(p.user_id, payout - hbet)
                         total_net += payout - hbet
-                        result_parts.append(f"H{i+1} win +{payout:,}c")
+                        result_parts.append(f"H{i+1} {win_tag} +{payout:,}c")
                         if round_id:
                             db.mark_result_paid("rbj", round_id, hkey)
 
@@ -792,10 +822,10 @@ async def _finalize_round(bot: BaseBot):
                         hlines = []
                         for i, h in enumerate(p.hands):
                             hlines.append(
-                                f"H{i+1}: {_hand_colored(h['cards'])}"
+                                f"H{i+1}: {hand_str(h['cards'])}"
                                 f"={hand_value(h['cards'])} [{h['status']}]"
                             )
-                        dlr_disp = _hand_colored(_state.dealer_hand)
+                        dlr_disp = hand_str(_state.dealer_hand)
                         dlr_val  = hand_value(_state.dealer_hand)
                         wlines   = [
                             "🏁 Result",
@@ -1424,7 +1454,8 @@ async def _cmd_hit(bot: BaseBot, user: User):
 
     card  = _shoe.pop()
     h["cards"].append(card)
-    total = hand_value(h["cards"])
+    total      = hand_value(h["cards"])
+    card_count = len(h["cards"])
     hidx  = p.active_hand_idx + 1
     print(f"[RBJ] @{p.username} H{hidx} hit → {card_str(card)} total={total}")
     _save_table_state()
@@ -1444,6 +1475,17 @@ async def _cmd_hit(bot: BaseBot, user: User):
         _save_player_state(p)
         _save_table_state()
         await bot.highrise.chat(f"🃏 {_dn(p)} H{hidx}: 21 — auto-stand!")
+        p.advance_hand()
+        if not await _check_and_resolve(bot):
+            _save_player_state(p)
+    elif card_count >= 5:
+        h["status"] = "stood"
+        _save_player_state(p)
+        _save_table_state()
+        bonus_label = "Perfect 21 ⭐" if total == 21 else "5-Card Charlie 🃏"
+        await bot.highrise.chat(
+            f"🃏 {_dn(p)} H{hidx}: {bonus_label}! {hand_str(h['cards'])} = {total}"[:249]
+        )
         p.advance_hand()
         if not await _check_and_resolve(bot):
             _save_player_state(p)
