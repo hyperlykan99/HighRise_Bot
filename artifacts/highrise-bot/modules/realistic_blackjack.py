@@ -2371,3 +2371,37 @@ async def handle_insurance(bot: BaseBot, user: User) -> None:
 
 async def handle_surrender(bot: BaseBot, user: User) -> None:
     await _cmd_surrender_rbj(bot, user)
+
+
+async def handle_bjstatus(bot: BaseBot, user: User) -> None:
+    """!bjstatus — show the player's current blackjack hand."""
+    p = _state.get_player(user.id)
+    if p is None or _state.phase not in ("round", "lobby"):
+        await bot.highrise.send_whisper(
+            user.id,
+            "🃏 Blackjack Status\n"
+            "No active hand.\n"
+            "Start with !bet [amount]."
+        )
+        return
+    hand = p.current_hand()
+    if not hand or not hand.get("cards"):
+        await bot.highrise.send_whisper(
+            user.id,
+            "🃏 Blackjack Status\n"
+            "No active hand.\n"
+            "Start with !bet [amount]."
+        )
+        return
+    hv        = hand_value(hand["cards"])
+    h_str     = hand_str(hand["cards"])
+    bet       = p.total_bet()
+    dealer_up = card_str(_state.dealer_hand[0]) if _state.dealer_hand else "?"
+    msg = (
+        f"🃏 BJ Status\n"
+        f"Bet: {bet:,}c\n"
+        f"You: {h_str} = {hv}\n"
+        f"Dealer: {dealer_up}\n"
+        f"Use !hit or !stand."
+    )
+    await bot.highrise.send_whisper(user.id, msg[:249])

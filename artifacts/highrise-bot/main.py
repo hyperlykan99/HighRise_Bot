@@ -122,13 +122,14 @@ from modules.realistic_blackjack import (
     handle_bet,
     handle_hit, handle_stand, handle_double, handle_split,
     handle_insurance, handle_surrender,
+    handle_bjstatus,
     reset_table as rbj_reset_table,
     soft_reset_table as rbj_soft_reset_table,
     startup_rbj_recovery,
 )
 from modules.poker import (
     POKER_HELP_PAGES,
-    handle_poker, handle_pokerhelp,
+    handle_poker, handle_pokerhelp, handle_pokerstatus,
     handle_pokerstats, handle_pokerlb,
     handle_setpokerbuyin, handle_setpokerplayers,
     handle_setpokerlobbytimer, handle_setpokertimer,
@@ -1199,29 +1200,29 @@ _HELP_CATEGORIES: dict[str, str] = {
         "!coinflip [heads|tails] [amount]\n"
         "!answer [answer] — answer trivia"
     ),
+    "casino": (
+        "🎰 Casino Help\n"
+        "Blackjack: !bjhelp\n"
+        "Poker: !pokerhelp\n"
+        "Balance: !balance\n"
+        "Start BJ: !bet [amount]"
+    ),
     "blackjack": (
         "🃏 Blackjack\n"
-        "!bet [amount] — place bet\n"
-        "!hit — draw card\n"
-        "!stand — hold hand\n"
-        "!stay — same as stand\n"
-        "!double — double bet\n"
-        "!split — split hand\n"
-        "!insurance — take insurance\n"
-        "!surrender — surrender\n"
-        "!bjshoe — shoe status\n"
-        "!bjrules — rules"
+        "!bet [amount] — start\n"
+        "!hit — draw\n"
+        "!stand — hold\n"
+        "!bjstatus — status\n"
+        "!balance — coins\n"
+        "!bjhelp — more"
     ),
     "poker": (
         "♠️ Poker\n"
-        "!poker — poker info\n"
-        "!poker join — join table\n"
-        "!poker leave — leave table\n"
-        "!call — call bet\n"
-        "!raise [amount] — raise\n"
-        "!check — check\n"
-        "!fold — fold\n"
-        "!poker status — table status"
+        "!poker — start/table\n"
+        "!poker join [buyin]\n"
+        "!pokerstatus — status\n"
+        "!check/!call/!raise/!fold\n"
+        "!pokerhelp — more"
     ),
     "mining": (
         "⛏️ Mining\n"
@@ -1490,10 +1491,11 @@ GAME_HELP = GAME_HELP_PAGES[0]
 
 CASINO_HELP_PAGES = [
     (
-        "🎰 Casino\n"
-        "BlackJack: !bet [amount]\n"
+        "🎰 Casino Help\n"
+        "Blackjack: !bet [amount]\n"
         "Poker: !poker join\n"
-        "Help: !bjhelp  !pokerhelp"
+        "Balance: !balance\n"
+        "Use !bjhelp or !pokerhelp for details."
     ),
     (
         "🎰 Casino 2\n"
@@ -1628,11 +1630,9 @@ BJ_HELP_PAGES = [
         "!bet [amount] — place bet\n"
         "!hit — draw card\n"
         "!stand — hold hand\n"
-        "!stay — same as stand\n"
+        "!bjstatus — check status\n"
         "!double — double bet\n"
         "!split — split hand\n"
-        "!insurance — take insurance\n"
-        "!surrender — surrender\n"
         "!bjshoe — shoe status\n"
         "!bjrules — rules"
     ),
@@ -1653,11 +1653,9 @@ RBJ_HELP_PAGES = [
         "!bet [amount] — place bet\n"
         "!hit — draw card\n"
         "!stand — hold hand\n"
-        "!stay — same as stand\n"
+        "!bjstatus — check status\n"
         "!double — double bet\n"
         "!split — split hand\n"
-        "!insurance — take insurance\n"
-        "!surrender — surrender\n"
         "!bjshoe — shoe status\n"
         "!bjrules — rules"
     ),
@@ -4560,6 +4558,12 @@ class HangoutBot(BaseBot):
         elif cmd == "bjhelp":
             await _handle_bjhelp(self, user, args)
 
+        elif cmd == "blackjackhelp":
+            await _handle_bjhelp(self, user, args)
+
+        elif cmd == "bjstatus":
+            await handle_bjstatus(self, user)
+
         elif cmd == "rbjhelp":
             await _handle_rbjhelp(self, user, args)
 
@@ -4915,7 +4919,14 @@ class HangoutBot(BaseBot):
             _casino_known = {"modes", "on", "off", "reset", "leaderboard"}
             _casino_sub   = args[1].lower().lstrip("@") if len(args) > 1 else ""
             if not _casino_sub or _casino_sub.isdigit():
-                await handle_casino_dash(self, user, args)
+                await self.highrise.send_whisper(
+                    user.id,
+                    "🎰 ChillTopia Casino\n"
+                    "Blackjack: !bjhelp\n"
+                    "Poker: !pokerhelp\n"
+                    "Balance: !balance\n"
+                    "Start blackjack: !bet [amount]"
+                )
             elif _casino_sub in _casino_known:
                 await _handle_casino_cmd(self, user, args)
             else:
@@ -5101,6 +5112,9 @@ class HangoutBot(BaseBot):
 
         elif cmd == "pokerhelp":
             await handle_pokerhelp(self, user, args)
+
+        elif cmd == "pokerstatus":
+            await handle_pokerstatus(self, user, args)
 
         elif cmd == "setpokerbuyin":
             await handle_setpokerbuyin(self, user, args)

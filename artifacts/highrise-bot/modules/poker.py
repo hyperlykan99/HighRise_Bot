@@ -4192,6 +4192,38 @@ async def handle_pokerhelp(bot: BaseBot, user: User, args: list[str]) -> None:
     await _w(bot, user.id, msg[:249])
 
 
+async def handle_pokerstatus(bot: BaseBot, user: User, args: list[str]) -> None:
+    """!pokerstatus — show current poker table status."""
+    tbl = _get_table()
+    if not tbl or not tbl.get("active"):
+        await _w(
+            bot, user.id,
+            "♠️ Poker Status\n"
+            "No active table.\n"
+            "Use !poker to start."
+        )
+        return
+    phase     = tbl.get("phase", "waiting")
+    pot       = tbl.get("pot", 0)
+    seated    = _get_all_seated()
+    n_players = len(seated)
+    if phase in ("waiting", "between_hands"):
+        msg = (
+            f"♠️ Poker Table\n"
+            f"Status: waiting\n"
+            f"Players: {n_players}\n"
+            f"Use !poker join to join."
+        )
+    else:
+        msg = (
+            f"♠️ Poker Status\n"
+            f"Table: {phase}\n"
+            f"Players: {n_players}\n"
+            f"Pot: {pot:,}c"
+        )
+    await _w(bot, user.id, msg[:249])
+
+
 # ── Debug / fix / refund tools ────────────────────────────────────────────────
 
 async def handle_pokerdebug(bot: BaseBot, user: User, args: list[str]) -> None:

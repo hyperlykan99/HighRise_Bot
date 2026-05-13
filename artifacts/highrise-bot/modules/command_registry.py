@@ -75,8 +75,11 @@ REGISTRY: dict[str, Cmd] = {
     "ownerhelp":        Cmd("host","help",    True, True, False, perm="owner"),
     "minehelp":         Cmd("miner","help",   False,True, False),
     "bjhelp":           Cmd("blackjack","help",False,True,False),
+    "blackjackhelp":    Cmd("blackjack","help",False,True,False),
+    "bjstatus":         Cmd("blackjack","help",False,True,False),
     "rbjhelp":          Cmd("blackjack","help",False,True,False),
     "pokerhelp":        Cmd("poker","help",   False,True, False, aliases=("phelp","ph")),
+    "pokerstatus":      Cmd("poker",    "help",False,True, False),
     "eventhelp":        Cmd("eventhost","help",True, True,False),
     "goldhelp":         Cmd("banker","goldrain",False,True, False),
 
