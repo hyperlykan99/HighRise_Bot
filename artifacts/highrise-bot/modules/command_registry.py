@@ -265,6 +265,8 @@ REGISTRY: dict[str, Cmd] = {
                             aliases=("topore","toporecollectors")),
     "rarelog":          Cmd("miner","mining",False,True, False),
     "lastminesummary":  Cmd("miner","mining",False,True, False),
+    "collectionhelp":   Cmd("miner","mining",False,True, False,
+                            aliases=("bookhelp",)),
     "contracts":        Cmd("miner","mining",False,True, False,
                             aliases=("miningjobs",)),
     "job":              Cmd("miner","mining",False,True, False,

@@ -1135,12 +1135,12 @@ async def handle_fishhelp(bot: BaseBot, user: User) -> None:
     await _w(bot, user.id,
              "🎣 Fishing Commands\n"
              "!fish — fish once\n"
-             "!autofish — auto fish\n"
-             "!autofish off — stop auto fish\n"
-             "!fishinv — view fish inventory\n"
-             "!fishchances — view fishing chances\n"
-             "!myrod — view equipped rod\n"
-             "!rods — rod shop")
+             "!autofish / !autofish off\n"
+             "!fishinv — fish inventory\n"
+             "!fishbook — fish discovery book\n"
+             "!topfishcollectors — top collectors\n"
+             "!lastfishsummary — last session\n"
+             "!fishchances  !myrod  !rods")
 
 
 # ---------------------------------------------------------------------------

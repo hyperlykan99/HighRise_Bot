@@ -2413,12 +2413,13 @@ MINE_HELP_PAGES = [
         "Example: !orelist rare 2"
     ),
     (
-        "📘 Goals\n"
-        "!orebook — ore collection\n"
-        "!oremastery — mastery rewards\n"
-        "!orestats — detailed stats\n"
-        "!contracts — ore jobs\n"
-        "!job [#] — accept a contract"
+        "📘 Goals & Collection\n"
+        "!orebook — ore discovery book\n"
+        "!collection — full book overview\n"
+        "!rarelog — rare finds log\n"
+        "!topcollectors ore — leaderboard\n"
+        "!lastminesummary — last session\n"
+        "!oremastery / !contracts"
     ),
     (
         "⚖️ Ore Weights\n"

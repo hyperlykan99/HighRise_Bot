@@ -256,6 +256,7 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     "orebook", "fishbook",
     "rarelog",
     "lastminesummary", "lastfishsummary",
+    "collectionhelp", "bookhelp",
     # ── shop / badge market (public elif branches) ───────────────────────────
     "mybadges", "confirmbuy",
     "badgemarket", "badgebuy", "badgelist", "badgecancel",

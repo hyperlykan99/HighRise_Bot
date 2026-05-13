@@ -461,7 +461,7 @@ from modules.fishing import (
 )
 from modules.collection import (
     handle_collection, handle_topcollectors, handle_rarelog,
-    handle_lastminesummary, handle_lastfishsummary,
+    handle_lastminesummary, handle_lastfishsummary, handle_collectionhelp,
 )
 from modules.safe_mode import handle_safemode, handle_active, handle_repair
 from modules.leaderboards import (
@@ -955,7 +955,7 @@ ALL_KNOWN_COMMANDS = (
         "orebook", "oremastery", "claimoremastery", "orestats",
         "collection", "mybook", "collectbook",
         "topcollectors", "topore", "toporecollectors",
-        "rarelog", "lastminesummary",
+        "rarelog", "lastminesummary", "collectionhelp", "bookhelp",
         "contracts", "miningjobs", "job", "deliver", "claimjob", "rerolljob",
         "minehelp",
         # Mining game — staff commands
@@ -5661,6 +5661,9 @@ class HangoutBot(BaseBot):
 
         elif cmd in {"collection", "mybook", "collectbook"}:
             await handle_collection(self, user, args)
+
+        elif cmd in {"collectionhelp", "bookhelp"}:
+            await handle_collectionhelp(self, user, args)
 
         elif cmd == "rarelog":
             await handle_rarelog(self, user, args)

@@ -177,3 +177,15 @@ async def handle_lastfishsummary(bot: BaseBot, user: User, args: list) -> None:
     except Exception:
         import traceback; traceback.print_exc()
         await _w(bot, user.id, "⚠️ Could not load summary. Try again.")
+
+
+async def handle_collectionhelp(bot: BaseBot, user: User, args: list) -> None:
+    """!collectionhelp — collection book command reference."""
+    await _w(bot, user.id,
+             "📖 Collection Book\n"
+             "!collection — book overview\n"
+             "!orebook — ore discoveries\n"
+             "!fishbook — fish discoveries\n"
+             "!topcollectors — top collectors\n"
+             "!rarelog — rare finds log\n"
+             "!lastminesummary / !lastfishsummary")
