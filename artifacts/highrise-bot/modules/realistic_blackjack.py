@@ -33,7 +33,7 @@ from modules.cards       import make_shoe, hand_str, hand_value, is_blackjack, c
 from modules.shop        import get_player_benefits
 from modules.permissions import can_manage_games, can_moderate, is_owner
 
-_RBJ_CASINO_CAP = 5.0
+# Note: internal VIP bonus cap removed in 3.1G — bonus_pct is uncapped.
 
 # Watchers: user_id -> username — receive whisper copies of round events
 _bj_watchers: dict[str, str] = {}
@@ -119,6 +119,7 @@ class _Shoe:
 
 
 _shoe = _Shoe(6)
+_shoe_loaded_from_db: bool = False   # set True when _load_rbj_shoe succeeds
 
 
 # ─── In-memory game state ─────────────────────────────────────────────────────
@@ -263,6 +264,7 @@ def _save_rbj_shoe() -> None:
 
 def _load_rbj_shoe() -> bool:
     """Load the persisted RBJ shoe from DB. Returns True if restored successfully."""
+    global _shoe_loaded_from_db
     try:
         row = db.load_rbj_shoe_state()
         if not row:
@@ -274,16 +276,35 @@ def _load_rbj_shoe() -> bool:
                 _shoe._cards = cards
                 _shoe._total = int(shoe_data.get("total", len(cards)))
                 _shoe._decks = int(shoe_data.get("decks", 6))
+                _shoe_loaded_from_db = True
                 print(f"[RBJ] Shoe loaded from standalone DB: {_shoe.remaining} cards")
                 return True
         elif isinstance(shoe_data, list) and len(shoe_data) >= 15:
             _shoe._cards = shoe_data
             _shoe._total = max(len(shoe_data), _shoe._total)
+            _shoe_loaded_from_db = True
             print(f"[RBJ] Shoe loaded (list) from standalone DB: {_shoe.remaining} cards")
             return True
     except Exception as exc:
         print(f"[RBJ] _load_rbj_shoe error: {exc}")
     return False
+
+
+def _shoe_status_info() -> dict:
+    """Return a dict of unified shoe status fields — single source of truth for all shoe commands."""
+    s         = _settings()
+    threshold = float(s.get("shuffle_used_percent", 75))
+    saved     = db.load_rbj_shoe_state() is not None
+    return {
+        "remaining": _shoe.remaining,
+        "total":     _shoe.total,
+        "decks":     _shoe._decks,
+        "used_pct":  round(_shoe.used_pct, 1),
+        "threshold": threshold,
+        "soon":      _shoe.needs_shuffle(threshold),
+        "saved":     "YES" if saved else "NO",
+        "loaded":    "YES" if _shoe_loaded_from_db else "NO",
+    }
 
 
 def _save_table_state() -> None:
@@ -864,8 +885,11 @@ async def _finalize_round(bot: BaseBot):
 
         s           = _settings()
         hits_soft17 = bool(int(s.get("dealer_hits_soft_17", 1)))
-        win_payout  = float(s.get("win_payout", 2.0))
-        bj_payout   = float(s.get("blackjack_payout", 2.5))
+        win_payout    = float(s.get("win_payout", 2.0))
+        bj_payout     = float(s.get("blackjack_payout", 2.5))
+        suited_payout = float(s.get("rbj_suited_payout", 3.0))
+        perfect21_pct = float(s.get("rbj_perfect21_pct", 10.0)) / 100.0
+        charlie_pct   = float(s.get("rbj_charlie_pct", 25.0)) / 100.0
         push_rule   = s.get("push_rule", "refund")
 
         dealer_total = hand_value(_state.dealer_hand)
@@ -934,10 +958,7 @@ async def _finalize_round(bot: BaseBot):
                 if not skip_stats and _rbj_event_pts:
                     db.add_event_points(p.user_id, 1)
                 benefits  = get_player_benefits(p.user_id)
-                bonus_pct = min(
-                    float(benefits.get("coinflip_payout_pct", 0.0)),
-                    _RBJ_CASINO_CAP
-                ) / 100.0
+                bonus_pct = float(benefits.get("coinflip_payout_pct", 0.0)) / 100.0
 
                 total_net    = 0
                 result_parts = []
@@ -978,7 +999,7 @@ async def _finalize_round(bot: BaseBot):
                     elif hst == "blackjack":
                         suited = (len(h["cards"]) == 2
                                   and h["cards"][0][1] == h["cards"][1][1])
-                        eff_bj  = 3.0 if suited else bj_payout
+                        eff_bj  = suited_payout if suited else bj_payout
                         bj_tag  = "Suited BJ 🎴" if suited else "BJ"
                         payout  = int(hbet * eff_bj * (1.0 + bonus_pct))
                         if round_id:
@@ -999,10 +1020,10 @@ async def _finalize_round(bot: BaseBot):
                         win_bonus  = 0.0
                         win_tag    = "win"
                         if card_count >= 5:
-                            win_bonus = 0.25
+                            win_bonus = charlie_pct
                             win_tag   = "5-Card Charlie 🃏"
                         elif htotal == 21 and card_count >= 3:
-                            win_bonus = 0.10
+                            win_bonus = perfect21_pct
                             win_tag   = "Perfect 21 ⭐"
                         payout = int(hbet * win_payout * (1.0 + bonus_pct + win_bonus))
                         if round_id:
@@ -1987,16 +2008,16 @@ async def _cmd_stats(bot: BaseBot, user: User):
 
 
 async def _cmd_shoe(bot: BaseBot, user: User):
-    s         = _settings()
-    threshold = float(s.get("shuffle_used_percent", 75))
-    pct       = round(_shoe.used_pct, 1)
-    soon      = _shoe.needs_shuffle(threshold)
-    await bot.highrise.send_whisper(user.id,
-        f"-- BlackJack Shoe --\n"
-        f"Cards left: {_shoe.remaining}/{_shoe.total}\n"
-        f"Decks used: {_shoe.decks_used}  Shuffle at: {threshold}%\n"
-        f"Used: {pct}%  {'⚠️ Reshuffle coming!' if soon else '✅ Shoe fresh'}"
-    )
+    i = _shoe_status_info()
+    await bot.highrise.send_whisper(user.id, (
+        f"🃏 Blackjack Shoe\n"
+        f"Decks: {i['decks']}\n"
+        f"Cards Remaining: {i['remaining']}/{i['total']}\n"
+        f"Used: {i['used_pct']}%"
+        f"{'  ⚠️ Reshuffle soon' if i['soon'] else ''}\n"
+        f"Saved: {i['saved']}\n"
+        f"Loaded From Restart: {i['loaded']}"
+    )[:249])
 
 
 async def _cmd_limits(bot: BaseBot, user: User):
@@ -2537,19 +2558,32 @@ async def _cmd_surrender_rbj(bot: BaseBot, user: User):
 # ─── Help ──────────────────────────────────────────────────────────────────────
 
 async def _cmd_bj_help(bot: BaseBot, user: User):
-    s     = _settings()
-    min_b = int(s.get("min_bet", 10))
-    max_b = int(s.get("max_bet", 1000))
-    await bot.highrise.send_whisper(
-        user.id,
-        f"🃏 BlackJack (Casino Shoe)\n"
+    s       = _settings()
+    min_b   = int(s.get("min_bet", 10))
+    max_b   = int(s.get("max_bet", 1000))
+    bj_pay  = float(s.get("blackjack_payout", 2.5))
+    s_pay   = float(s.get("rbj_suited_payout", 3.0))
+    p21_pct = int(float(s.get("rbj_perfect21_pct", 10.0)))
+    ch_pct  = int(float(s.get("rbj_charlie_pct", 25.0)))
+    await bot.highrise.send_whisper(user.id, (
+        f"🃏 Blackjack Help\n"
         f"Bet: {min_b:,}–{max_b:,}c\n"
-        f"!bet <amount> — join or update bet\n"
-        f"🃏 !hit  🛑 !stand or !stay\n"
-        f"💰 !double  ✂️ !split\n"
-        f"🛡️ !insurance  🏳️ !surrender\n"
-        f"!bj rules  !bj stats  !bj shoe"
-    )
+        f"Join: !bet [amount]\n"
+        f"Actions: !hit  !stand\n"
+        f"More: !double  !split\n"
+        f"Status: !bjstatus\n"
+        f"Shoe: !bjshoe or !shoe\n"
+        f"Rules: !bjrules  Balance: !balance"
+    )[:249])
+    await bot.highrise.send_whisper(user.id, (
+        f"🃏 BJ Payouts\n"
+        f"Win: 2x return\n"
+        f"Natural BJ: {bj_pay}x\n"
+        f"Suited BJ: {s_pay}x\n"
+        f"Push: refund  Bust: lose\n"
+        f"🎁 Bonuses\n"
+        f"Perfect 21: +{p21_pct}%  5-Card Charlie: +{ch_pct}%"
+    )[:249])
 
 
 # ─── Primary join command (/bet <amount>) ──────────────────────────────────────
@@ -3049,11 +3083,20 @@ async def handle_bjadmin(bot: "BaseBot", user: "User", args: list[str]) -> None:
             await bot.highrise.send_whisper(user.id, msg_mgr[:249])
         if is_admin(user.username):
             msg_adm = (
-                "🛠️ BJ Admin Settings\n"
+                "⚙️ BJ Admin Settings\n"
                 "!bjadmin settings\n"
                 "!bjadmin set timer/minbet/maxbet/shuffle"
             )
+            msg_bonus = (
+                "🎁 BJ Bonus Settings\n"
+                "!bjadmin bonuses\n"
+                "!bjadmin set naturalbj [x]\n"
+                "!bjadmin set suitedbj [x]\n"
+                "!bjadmin set perfect21 [%]\n"
+                "!bjadmin set charlie [%]"
+            )
             await bot.highrise.send_whisper(user.id, msg_adm[:249])
+            await bot.highrise.send_whisper(user.id, msg_bonus[:249])
         if is_owner(user.username):
             msg_own = (
                 "👑 BJ Owner Commands\n"
@@ -3127,15 +3170,15 @@ async def handle_bjadmin(bot: "BaseBot", user: "User", args: list[str]) -> None:
 
     # ── shoe (staff+) ─────────────────────────────────────────────────────────
     elif sub == "shoe":
-        s         = _settings()
-        threshold = float(s.get("shuffle_used_percent", 75))
-        soon      = _shoe.needs_shuffle(threshold)
+        i = _shoe_status_info()
         msg = (
             f"🃏 BJ Shoe\n"
-            f"Cards left: {_shoe.remaining}\n"
-            f"Used: {_shoe.used}\n"
-            f"Decks: {_shoe._decks}\n"
-            f"{'⚠️ Reshuffle soon' if soon else '✅ Shoe OK'}"
+            f"Cards left: {i['remaining']}/{i['total']}\n"
+            f"Used: {i['used_pct']}%"
+            f"{'  ⚠️ Reshuffle soon' if i['soon'] else ''}\n"
+            f"Decks: {i['decks']}\n"
+            f"Saved: {i['saved']}\n"
+            f"Restored: {i['loaded']}"
         )
         await bot.highrise.send_whisper(user.id, msg[:249])
 
@@ -3252,6 +3295,25 @@ async def handle_bjadmin(bot: "BaseBot", user: "User", args: list[str]) -> None:
         await startup_rbj_recovery(bot)
         await bot.highrise.send_whisper(user.id, "♻️ Restore attempted. Check !bjadmin status.")
 
+    # ── bonuses (admin+) ──────────────────────────────────────────────────────
+    elif sub in ("bonuses", "bonus"):
+        if not is_admin(user.username):
+            await bot.highrise.send_whisper(user.id, "🔒 Admin/owner only.")
+            return
+        s      = _settings()
+        bj_pay = float(s.get("blackjack_payout", 2.5))
+        s_pay  = float(s.get("rbj_suited_payout", 3.0))
+        p21    = float(s.get("rbj_perfect21_pct", 10.0))
+        ch     = float(s.get("rbj_charlie_pct", 25.0))
+        msg = (
+            f"🎁 BJ Bonus Settings\n"
+            f"Natural BJ: {bj_pay}x\n"
+            f"Suited BJ: {s_pay}x\n"
+            f"Perfect 21: +{p21:.0f}%\n"
+            f"5-Card Charlie: +{ch:.0f}%"
+        )
+        await bot.highrise.send_whisper(user.id, msg[:249])
+
     # ── settings (admin+) ─────────────────────────────────────────────────────
     elif sub == "settings":
         if not is_admin(user.username):
@@ -3267,37 +3329,75 @@ async def handle_bjadmin(bot: "BaseBot", user: "User", args: list[str]) -> None:
         )
         await bot.highrise.send_whisper(user.id, msg[:249])
 
-    # ── set timer|minbet|maxbet|shuffle (admin+) ──────────────────────────────
+    # ── set timer|minbet|maxbet|shuffle|naturalbj|suitedbj|perfect21|charlie ─
     elif sub == "set":
         if not is_admin(user.username):
             await bot.highrise.send_whisper(user.id, "🔒 Admin/owner only.")
             return
         if len(rest) < 2:
             await bot.highrise.send_whisper(
-                user.id, "Usage: !bjadmin set timer|minbet|maxbet|shuffle [value]"
+                user.id,
+                "Usage: !bjadmin set [option] [value]\n"
+                "Options: timer minbet maxbet shuffle\n"
+                "naturalbj suitedbj perfect21 charlie"
             )
             return
         key     = rest[0].lower()
         val_str = rest[1]
-        if not val_str.replace(".", "").isdigit() or float(val_str) <= 0:
+        if not val_str.replace(".", "").isdigit():
             await bot.highrise.send_whisper(user.id, "⚠️ Value must be a positive number.")
             return
         val = float(val_str)
+        if val < 0:
+            await bot.highrise.send_whisper(user.id, "⚠️ Value must be >= 0.")
+            return
         if key == "timer":
+            if val <= 0:
+                await bot.highrise.send_whisper(user.id, "⚠️ Timer must be > 0.")
+                return
             db.set_rbj_setting("rbj_action_timer", int(val))
             await bot.highrise.send_whisper(user.id, f"✅ BJ timer set to {int(val)}s")
         elif key == "minbet":
+            if val <= 0:
+                await bot.highrise.send_whisper(user.id, "⚠️ Min bet must be > 0.")
+                return
             db.set_rbj_setting("min_bet", int(val))
             await bot.highrise.send_whisper(user.id, f"✅ Min bet set to {int(val):,}c")
         elif key == "maxbet":
+            if val <= 0:
+                await bot.highrise.send_whisper(user.id, "⚠️ Max bet must be > 0.")
+                return
             db.set_rbj_setting("max_bet", int(val))
             await bot.highrise.send_whisper(user.id, f"✅ Max bet set to {int(val):,}c")
         elif key == "shuffle":
+            if val <= 0:
+                await bot.highrise.send_whisper(user.id, "⚠️ Shuffle % must be > 0.")
+                return
             db.set_rbj_setting("shuffle_used_percent", float(val))
             await bot.highrise.send_whisper(user.id, f"✅ Shuffle threshold set to {val}%")
+        elif key in ("naturalbj", "natural"):
+            if val <= 0:
+                await bot.highrise.send_whisper(user.id, "⚠️ Use: !bjadmin set naturalbj 2.5")
+                return
+            db.set_rbj_setting("blackjack_payout", val)
+            await bot.highrise.send_whisper(user.id, f"✅ Natural BJ payout set to {val}x.")
+        elif key in ("suitedbj", "suited"):
+            if val <= 0:
+                await bot.highrise.send_whisper(user.id, "⚠️ Use: !bjadmin set suitedbj 3")
+                return
+            db.set_rbj_setting("rbj_suited_payout", val)
+            await bot.highrise.send_whisper(user.id, f"✅ Suited BJ payout set to {val}x.")
+        elif key == "perfect21":
+            db.set_rbj_setting("rbj_perfect21_pct", val)
+            await bot.highrise.send_whisper(user.id, f"✅ Perfect 21 bonus set to +{val:.0f}%.")
+        elif key == "charlie":
+            db.set_rbj_setting("rbj_charlie_pct", val)
+            await bot.highrise.send_whisper(user.id, f"✅ 5-Card Charlie bonus set to +{val:.0f}%.")
         else:
             await bot.highrise.send_whisper(
-                user.id, "⚠️ Options: timer | minbet | maxbet | shuffle"
+                user.id,
+                "⚠️ Options: timer | minbet | maxbet | shuffle\n"
+                "naturalbj | suitedbj | perfect21 | charlie"
             )
 
     # ── resetshoe (owner) ─────────────────────────────────────────────────────

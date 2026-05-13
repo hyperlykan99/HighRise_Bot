@@ -34,7 +34,7 @@ from modules.quests      import track_quest
 from modules.shop        import get_player_benefits
 from modules.permissions import can_manage_games, can_moderate
 
-_BJ_CASINO_CAP = 5.0
+# Note: internal VIP bonus cap removed in 3.1G — bonus_pct is uncapped.
 
 
 def _dn(p: "_Player") -> str:
@@ -300,16 +300,15 @@ def _check_pair_bonus(cards: list, bet: int, s: dict) -> tuple[str, int]:
     r2, s2 = cards[1]
     if r1 != r2:
         return "none", 0
-    cap = int(s.get("bj_bonus_cap", "10000"))
     if s1 == s2:  # perfect pair (same suit)
         pct = int(s.get("bj_bonus_perfect_pct", "50"))
-        return "perfect_pair", min(max(1, int(bet * pct / 100)), cap)
+        return "perfect_pair", max(1, int(bet * pct / 100))
     if _card_color_group(s1) == _card_color_group(s2):  # same color
         pct = int(s.get("bj_bonus_color_pct", "25"))
-        return "color_pair", min(max(1, int(bet * pct / 100)), cap)
+        return "color_pair", max(1, int(bet * pct / 100))
     # mixed-color pair
     pct = int(s.get("bj_bonus_pair_pct", "10"))
-    return "pair", min(max(1, int(bet * pct / 100)), cap)
+    return "pair", max(1, int(bet * pct / 100))
 
 
 def _get_bj_bonus_multiplier(user_id: str, username: str) -> float:
@@ -317,8 +316,6 @@ def _get_bj_bonus_multiplier(user_id: str, username: str) -> float:
     try:
         benefits = get_player_benefits(user_id)
         vip_pct  = float(benefits.get("coinflip_payout_pct", 0.0))
-        if vip_pct >= _BJ_CASINO_CAP:
-            return 1.5
         if vip_pct > 0:
             return 1.25
     except Exception:
@@ -387,8 +384,7 @@ async def _start_round(bot: BaseBot):
                 if bamt > 0:
                     vip_mult = _get_bj_bonus_multiplier(p.user_id, p.username)
                     if vip_mult != 1.0:
-                        cap  = int(_bj_s.get("bj_bonus_cap", "10000"))
-                        bamt = min(int(bamt * vip_mult), cap)
+                        bamt = int(bamt * vip_mult)
                     db.adjust_balance(p.user_id, bamt)
                     db.add_ledger_entry(p.user_id, p.username, bamt, "bj_pair_bonus")
                     _state.pair_bonuses[p.user_id] = (btype, bamt, vip_mult)
@@ -611,10 +607,7 @@ async def _finalize_round(bot: BaseBot):
                 if _bj_event_pts:
                     db.add_event_points(p.user_id, 1)
                 benefits  = get_player_benefits(p.user_id)
-                bonus_pct = min(
-                    float(benefits.get("coinflip_payout_pct", 0.0)),
-                    _BJ_CASINO_CAP
-                ) / 100.0
+                bonus_pct = float(benefits.get("coinflip_payout_pct", 0.0)) / 100.0
 
                 total_net    = 0
                 result_parts = []
@@ -1970,7 +1963,7 @@ async def handle_bj_cards(bot: BaseBot, user: User, args: list[str]) -> None:
 
 async def handle_bj_rules(bot: BaseBot, user: User) -> None:
     """/bjrules — show current BJ table rules."""
-    s = _settings()
+    s        = _settings()
     payout   = float(s.get("blackjack_payout", 2.5))
     soft17   = int(s.get("dealer_hits_soft_17", 1))
     dbl_on   = int(s.get("bj_double_enabled", 1))
@@ -1981,17 +1974,27 @@ async def handle_bj_rules(bot: BaseBot, user: User) -> None:
     soft_str = "Hits soft 17" if soft17 else "Stands on soft 17"
     dbl_str  = "First 2 cards only" if dbl_on else "OFF"
     spl_str  = "Matching ranks only" if split_on else "OFF"
-    await bot.highrise.send_whisper(
-        user.id,
-        f"📜 Blackjack Rules\n"
-        f"Blackjack pays: {bj_str}\n"
-        f"Dealer: {soft_str}\n"
-        f"Insurance: {'ON' if int(s.get('bj_insurance_enabled', 1)) else 'OFF'}\n"
-        f"Surrender: ON\n"
-        f"Double: {dbl_str}\n"
-        f"Split: {spl_str}\n"
+    # get RBJ bonus settings for display (shared payout table)
+    from modules.realistic_blackjack import _settings as rbj_settings
+    rs     = rbj_settings()
+    s_pay  = float(rs.get("rbj_suited_payout", 3.0))
+    p21    = int(float(rs.get("rbj_perfect21_pct", 10.0)))
+    ch_pct = int(float(rs.get("rbj_charlie_pct", 25.0)))
+    await bot.highrise.send_whisper(user.id, (
+        f"🃏 BJ Payouts\n"
+        f"Win: 2x return\n"
+        f"Natural BJ: {payout}x\n"
+        f"Suited BJ: {s_pay}x\n"
+        f"Push: refund  Bust: lose\n"
         f"Min/Max: {min_b:,} / {max_b:,}"
-    )
+    )[:249])
+    await bot.highrise.send_whisper(user.id, (
+        f"🎁 BJ Bonuses\n"
+        f"Perfect 21: +{p21}%\n"
+        f"5-Card Charlie: +{ch_pct}%\n"
+        f"Dealer: {soft_str}\n"
+        f"Double: {dbl_str}  Split: {spl_str}"
+    )[:249])
 
 
 async def handle_bj_shoe(bot: BaseBot, user: User) -> None:

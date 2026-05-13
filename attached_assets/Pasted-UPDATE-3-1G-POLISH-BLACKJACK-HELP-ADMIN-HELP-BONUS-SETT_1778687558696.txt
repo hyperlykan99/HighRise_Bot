@@ -1,0 +1,543 @@
+UPDATE 3.1G POLISH — BLACKJACK HELP, ADMIN HELP, BONUS SETTINGS, REMOVE REWARD CAPS
+
+Goal:
+Polish blackjack help/admin help and remove internal reward caps.
+
+Main requests:
+1. !bjhelp must list all player blackjack commands.
+2. !bjhelp must include blackjack bonus/payout information.
+3. !bjadmin must list all staff/admin/owner blackjack commands by permission level.
+4. If admin command list is too long, DM/whisper the user all commands they can use based on their role.
+5. Add bonus settings commands if not included yet.
+6. Remove blackjack bonus cap.
+7. Remove all internal reward caps in the system.
+
+Important:
+Do not change tokens.
+Do not change room ID.
+Do not wipe data.
+Do not reset balances, VIP, badges, markets, mining/fishing data, casino data, leaderboards, or player inventories.
+Do not break blackjack shoe persistence.
+Do not break !shoe, !bjshoe, or !bjadmin shoe unified source.
+Do not expose staff/admin commands in public player help.
+Do not expose !bjtest or !bjforce in public !bjhelp.
+
+==================================================
+PART 1 — POLISH PLAYER BLACKJACK HELP
+==================================================
+
+Command:
+!bjhelp
+
+Goal:
+Show all player blackjack commands clearly.
+
+Expected output, split into multiple whispers/messages if needed:
+
+Message 1:
+🃏 Blackjack Help
+Join: !bet [amount]
+Actions: !hit, !stand
+More: !double, !split
+Status: !bjstatus
+
+Message 2:
+🃏 More BJ Commands
+Shoe: !bjshoe or !shoe
+Rules: !bjrules
+Balance: !balance
+Leave/cancel hand if supported: !bjleave
+
+Only show commands that actually route.
+
+If !split or !double is disabled, still show only if the command exists, but say:
+!double — if allowed
+!split — if allowed
+
+Rules:
+- Keep each message under 220 characters.
+- Prefer whisper if possible.
+- Do not show admin commands.
+- Do not show !bjadmin, !bjtest, or !bjforce.
+- No / commands.
+
+==================================================
+PART 2 — ADD BONUS INFO TO PLAYER HELP
+==================================================
+
+Add bonus/payout info to:
+
+!bjhelp
+!bjrules
+!casinohelp if blackjack is mentioned
+
+Expected !bjrules:
+
+🃏 BJ Payouts
+Win: 2x return
+Natural BJ: 2.5x
+Suited BJ: 3x
+Push: refund
+Bust: lose
+
+Second message:
+
+🎁 BJ Bonuses
+Perfect 21: +10%
+5-Card Charlie: +25%
+Highest bonus wins.
+
+Important definitions:
+- Natural BJ = first 2 cards Ace + 10-value card.
+- Suited BJ = Natural BJ with same suit.
+- Perfect 21 = 3+ cards totaling 21.
+- 5-Card Charlie = 5 cards without busting.
+
+Keep messages short.
+
+==================================================
+PART 3 — POLISH BJADMIN HELP BY ROLE
+==================================================
+
+Command:
+!bjadmin
+
+If regular player:
+🔒 Staff only.
+
+If Staff:
+Whisper all staff-level commands.
+
+Expected Staff messages:
+
+🛠️ BJ Staff Commands
+!bjadmin status/table
+!bjadmin players/shoe
+!bjadmin health/settings
+
+If Manager/Admin:
+Also whisper manager commands.
+
+🛠️ BJ Manager Commands
+!bjadmin pause/resume
+!bjadmin cancel
+!bjadmin refund
+!bjadmin restore
+
+If Admin:
+Also whisper admin setting commands.
+
+⚙️ BJ Admin Settings
+!bjadmin set timer [sec]
+!bjadmin set minbet [amt]
+!bjadmin set maxbet [amt]
+!bjadmin set shuffle [%]
+
+If Owner:
+Also whisper owner/testing commands.
+
+👑 BJ Owner Commands
+!bjadmin resetshoe
+!bjadmin unlock
+!bjadmin emergencyrefund
+!bjtest — testing system
+
+Rules:
+- Show all commands the user can use based on their role.
+- If too long, split into multiple whispers.
+- Do not cut off commands.
+- Prefer whisper/DM.
+- Do not show owner-only commands to staff/admin unless owner.
+- Do not show !bjforce except maybe owner legacy note:
+  Legacy: !bjforce = !bjtest
+
+==================================================
+PART 4 — ADD BONUS SETTINGS TO BJADMIN
+==================================================
+
+If bonus settings commands do not exist, add them under !bjadmin.
+
+Commands:
+
+!bjadmin bonuses
+!bjadmin set naturalbj [multiplier]
+!bjadmin set suitedbj [multiplier]
+!bjadmin set perfect21 [percent]
+!bjadmin set charlie [percent]
+
+Optional aliases:
+!bjadmin bonus
+!bjadmin set natural [multiplier]
+!bjadmin set suited [multiplier]
+
+Expected:
+
+!bjadmin bonuses
+
+🎁 BJ Bonus Settings
+Natural BJ: 2.5x
+Suited BJ: 3x
+Perfect 21: +10%
+5-Card Charlie: +25%
+
+Setting examples:
+
+!bjadmin set naturalbj 2.5
+✅ Natural BJ payout set to 2.5x.
+
+!bjadmin set suitedbj 3
+✅ Suited BJ payout set to 3x.
+
+!bjadmin set perfect21 10
+✅ Perfect 21 bonus set to +10%.
+
+!bjadmin set charlie 25
+✅ 5-Card Charlie bonus set to +25%.
+
+Permission:
+Admin/Owner only for editing bonus settings.
+Staff can view !bjadmin bonuses if safe.
+
+Validation:
+- Multipliers must be positive.
+- Percent bonuses must be >= 0.
+- No negative values.
+- No non-numeric values.
+- Do not crash on bad input.
+
+Invalid example:
+⚠️ Use: !bjadmin set naturalbj 2.5
+
+==================================================
+PART 5 — ADD BONUS SETTINGS TO BJADMIN HELP
+==================================================
+
+Update !bjadmin for Admin/Owner to include:
+
+🎁 BJ Bonus Settings
+!bjadmin bonuses
+!bjadmin set naturalbj [x]
+!bjadmin set suitedbj [x]
+!bjadmin set perfect21 [%]
+!bjadmin set charlie [%]
+
+If too long, send this as a separate whisper.
+
+==================================================
+PART 6 — REMOVE BLACKJACK BONUS CAP
+==================================================
+
+Remove any blackjack-specific bonus cap.
+
+Search for:
+bonus_cap
+bj_bonus_cap
+blackjack_bonus_cap
+max_bonus
+max_bonus_payout
+bonus_payout_cap
+bonus_reward_cap
+BJ_BONUS_CAP
+
+Remove or disable cap logic for:
+- Natural Blackjack payout
+- Suited Blackjack payout
+- Perfect 21 bonus
+- 5-Card Charlie bonus
+
+Expected:
+Bonus payouts use configured multiplier/percent directly.
+
+Example:
+Bet 10,000c
+Natural BJ 2.5x return = 25,000c total
+Suited BJ 3x return = 30,000c total
+No bonus cap should reduce it.
+
+Keep only basic safety:
+- no negative payout
+- no duplicate payout
+- no integer overflow
+- payout once only
+
+==================================================
+PART 7 — REMOVE ALL INTERNAL REWARD CAPS
+==================================================
+
+Remove internal reward caps across the bot system.
+
+Search for cap logic:
+reward_cap
+daily_reward_cap
+daily_cap
+max_reward
+max_daily_reward
+earning_cap
+casino_cap
+mining_cap
+fishing_cap
+tip_reward_cap
+party_tip_cap
+donation_reward_cap
+vip_reward_cap
+bonus_cap
+leaderboard_cap
+_RBJ_CASINO_CAP
+CASINO_CAP
+MAX_REWARD_CAP
+
+Remove/disable internal caps for room coin rewards in:
+- blackjack rewards
+- poker rewards
+- mining rewards
+- fishing rewards
+- trivia rewards
+- mini-game rewards
+- daily rewards
+- streak rewards
+- donation/tip coin rewards
+- party tip coin rewards
+- VIP bonus rewards
+- event rewards
+- bonus payouts
+
+Important:
+Do not remove basic validation:
+- no negative rewards
+- no NaN rewards
+- no infinite rewards
+- no duplicate payout
+- no duplicate claim
+- no crash if amount is huge
+- no real Highrise gold generation
+- do not bypass platform limits
+
+Meaning:
+Remove internal earning ceilings, but keep anti-bug safety.
+
+==================================================
+PART 8 — REMOVE DAILY CAP TEXT FROM PLAYER MESSAGES
+==================================================
+
+Remove messages like:
+Daily cap left
+Reward cap reached
+You hit today’s cap
+Max reward reached
+Bonus capped at
+
+Replace with normal reward messages.
+
+Example old:
+You received 500 coins. Daily cap left: 9,500c.
+
+New:
+You received 500 coins.
+
+If a command still needs cooldown, keep cooldowns if they prevent spam, but remove reward caps.
+
+==================================================
+PART 9 — CONFIG CLEANUP
+==================================================
+
+If settings exist for caps:
+- keep them in DB if needed for backward compatibility
+- set default to None, 0, or disabled
+- do not show them in player help
+- do not apply them to rewards
+
+If removing cap setting risks breaking DB:
+- leave column but ignore it
+- add comment/log:
+Reward cap disabled by 3.1G polish.
+
+==================================================
+PART 10 — BJ RESULT DISPLAY WITHOUT CAPS
+==================================================
+
+Round result examples:
+
+Natural BJ:
+@Player: BLACKJACK — return 25,000c (+15,000c profit)
+
+Suited BJ:
+@Player: SUITED BJ — return 30,000c (+20,000c profit)
+
+Perfect 21:
+@Player: Perfect 21 bonus — +10%
+
+5-Card Charlie:
+@Player: 5-Card Charlie — +25%
+
+No message should say capped.
+
+==================================================
+PART 11 — HELP CONSISTENCY
+==================================================
+
+Update:
+
+!bjhelp
+!bjrules
+!casinohelp
+!help blackjack
+!help casino
+!bjadmin
+!bjadmin bonuses
+
+Rules:
+- Public help shows player commands and bonus rules only.
+- Staff/admin help shows all commands allowed by role.
+- Owner help shows testing system.
+- No public leak of !bjtest or !bjforce.
+- No broken commands in help.
+- Run !checkhelp.
+
+==================================================
+PART 12 — COMMAND TESTS
+==================================================
+
+Run:
+
+!commandtest !bjhelp
+!commandtest !bjrules
+!commandtest !bjstatus
+!commandtest !bjshoe
+!commandtest !shoe
+!commandtest !bjadmin
+!commandtest !bjtest
+!commandtest !bjforce
+
+!commandissues
+!checkcommands
+!checkhelp
+!launchcheck
+
+Expected:
+- no command issues
+- no no-owner commands
+- no help leaks
+- all shown commands route
+
+==================================================
+PART 13 — LIVE HELP TESTS
+==================================================
+
+Run:
+
+!bjhelp
+!bjrules
+!casinohelp
+!bjadmin
+!bjadmin bonuses
+!bjadmin settings
+
+Expected:
+- !bjhelp lists all player commands
+- !bjrules includes all bonus info
+- !bjadmin whispers all commands user can use by role
+- admin command messages are not cut off
+- bonus setting commands appear in admin/owner help
+- no public force/test command leak
+
+==================================================
+PART 14 — BONUS SETTING TESTS
+==================================================
+
+Run as admin/owner:
+
+!bjadmin bonuses
+!bjadmin set naturalbj 2.5
+!bjadmin set suitedbj 3
+!bjadmin set perfect21 10
+!bjadmin set charlie 25
+!bjadmin bonuses
+
+Expected:
+- settings update
+- no crash
+- no cap applied
+
+Run invalid tests:
+
+!bjadmin set naturalbj abc
+!bjadmin set perfect21 -5
+
+Expected:
+- clean error message
+- no crash
+- no bad setting saved
+
+==================================================
+PART 15 — REWARD CAP REMOVAL TESTS
+==================================================
+
+Test known capped systems if available:
+
+Blackjack:
+- natural BJ payout should not be capped
+- suited BJ payout should not be capped
+
+Donation/tip rewards:
+- no daily cap left text
+- no reward cap reached text
+
+Mining/fishing:
+- rewards still work
+- no internal cap message
+
+Daily/streak/event:
+- rewards still work
+- no cap message
+
+Expected:
+- reward amounts are paid according to rules/config
+- no cap reduction
+- no duplicate reward
+- no negative reward
+
+==================================================
+PART 16 — FINAL QA
+==================================================
+
+Run:
+
+!commandissues
+!checkcommands
+!checkhelp
+!launchcheck
+!bothealth
+!stability status
+!bjshoe
+!shoe
+!bjadmin shoe
+
+Expected:
+- no command issues
+- no help issues
+- launchcheck clean
+- bot stable
+- shoe commands still match
+- no cap messages
+
+==================================================
+PART 17 — FINAL REPORT
+==================================================
+
+Report:
+1. !bjhelp updated with all player commands.
+2. !bjrules updated with bonus info.
+3. !casinohelp updated if needed.
+4. !bjadmin now whispers all role-based admin commands.
+5. Staff/Manager/Admin/Owner command visibility confirmed.
+6. Bonus settings commands added.
+7. !bjadmin bonuses works.
+8. Bonus setting edits work.
+9. Blackjack bonus cap removed.
+10. Internal reward caps removed/disabled.
+11. Cap text removed from player messages.
+12. No duplicate payout protections still active.
+13. No negative/invalid reward safety still active.
+14. !checkhelp result.
+15. !commandissues result.
+16. !launchcheck result.

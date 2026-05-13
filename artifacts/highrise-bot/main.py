@@ -1631,19 +1631,19 @@ BJ_HELP_PAGES = [
         "!hit — draw card\n"
         "!stand — hold hand\n"
         "!bjstatus — check status\n"
-        "!double — double bet\n"
-        "!split — split hand\n"
-        "!bjshoe — shoe status\n"
-        "!bjrules — rules"
+        "!double — double bet (if allowed)\n"
+        "!split — split hand (if allowed)\n"
+        "!bjshoe or !shoe — shoe status\n"
+        "!bjrules — rules & payouts"
     ),
     (
-        "🃏 Blackjack Info\n"
-        "!bj hand — view your hand\n"
-        "!bj table — table status\n"
-        "!bj limits — daily limits\n"
-        "!bj fairness — shoe & payout info\n"
-        "!bjcards whisper|public\n"
-        "Staff: !bj on|off  !bj recover"
+        "🃏 BJ Payouts\n"
+        "Win: 2x return\n"
+        "Natural BJ: 2.5x\n"
+        "Suited BJ: 3x\n"
+        "Push: refund  Bust: lose\n"
+        "🎁 Bonuses\n"
+        "Perfect 21: +10%  5-Card Charlie: +25%"
     ),
 ]
 
@@ -1654,19 +1654,19 @@ RBJ_HELP_PAGES = [
         "!hit — draw card\n"
         "!stand — hold hand\n"
         "!bjstatus — check status\n"
-        "!double — double bet\n"
-        "!split — split hand\n"
-        "!bjshoe — shoe status\n"
-        "!bjrules — rules"
+        "!double — double bet (if allowed)\n"
+        "!split — split hand (if allowed)\n"
+        "!bjshoe or !shoe — shoe status\n"
+        "!bjrules — rules & payouts"
     ),
     (
-        "🃏 Blackjack Staff\n"
-        "!bj on|off  !bj recover  !bj refund\n"
-        "!bj setminbet  !bj setmaxbet\n"
-        "!bj setsurrender on|off\n"
-        "!bj setinsurance on|off\n"
-        "!bj setsoft17 hit|stand\n"
-        "!bj setdecks  !bj shuffleat"
+        "🃏 BJ Payouts\n"
+        "Win: 2x return\n"
+        "Natural BJ: 2.5x\n"
+        "Suited BJ: 3x\n"
+        "Push: refund  Bust: lose\n"
+        "🎁 Bonuses\n"
+        "Perfect 21: +10%  5-Card Charlie: +25%"
     ),
 ]
 
@@ -4371,7 +4371,7 @@ class HangoutBot(BaseBot):
             await handle_bjadmin(self, user, args)
 
         elif cmd == "bjshoe":
-            await handle_bj_shoe(self, user)
+            await handle_rbj(self, user, ["rbj", "shoe"])
         elif cmd == "bjshoereset":
             if not (is_owner(user.username) or is_admin(user.username)):
                 await self.highrise.send_whisper(user.id, "Admin/owner only.")

@@ -1,0 +1,220 @@
+UPDATE 3.1G HOTFIX — UNIFY !SHOE AND !BJSHOE TO ONE BLACKJACK SHOE SOURCE
+
+Current issue:
+!shoe and !bjshoe show different blackjack shoe counts.
+
+Live example:
+!shoe shows:
+Cards left: 295/312
+
+!bjshoe shows:
+Cards Remaining: 312
+
+This proves there are two blackjack shoe sources or two shoe command handlers.
+
+Goal:
+Make !shoe and !bjshoe read the SAME blackjack shoe state.
+
+Do not change tokens.
+Do not wipe data.
+Do not reset balances.
+Do not change blackjack odds.
+Do not reset the shoe.
+Do not create a new shoe unless no saved shoe exists.
+
+==================================================
+PART 1 — SINGLE SOURCE OF TRUTH
+==================================================
+
+There must be only ONE active blackjack shoe source for AceSinatra blackjack.
+
+Use the same source for:
+
+!shoe
+!bjshoe
+!bjadmin shoe
+blackjack dealing
+blackjack restart restore
+
+Preferred source:
+The active realistic blackjack shoe used by AceSinatra.
+
+Both commands must read:
+- same shoe cards remaining
+- same total cards
+- same decks
+- same used percent
+- same saved/restored flags
+
+==================================================
+PART 2 — FIX !SHOE ALIAS
+==================================================
+
+Make:
+
+!shoe
+
+an alias of:
+
+!bjshoe
+
+or make both call the same function:
+
+show_blackjack_shoe_status()
+
+Do not let !shoe use old/legacy blackjack state.
+Do not let !bjshoe use a new/reset DB state.
+
+Expected:
+
+!shoe
+🃏 Blackjack Shoe
+Decks: 6
+Cards Remaining: 295/312
+Used: 5.4%
+Saved: YES
+Loaded From Restart: YES/NO
+
+!bjshoe
+🃏 Blackjack Shoe
+Decks: 6
+Cards Remaining: 295/312
+Used: 5.4%
+Saved: YES
+Loaded From Restart: YES/NO
+
+Both must match exactly.
+
+==================================================
+PART 3 — FIX !BJADMIN SHOE
+==================================================
+
+!bjadmin shoe must also use the same function.
+
+Expected:
+
+🃏 BJ Shoe
+Cards left: 295/312
+Used: 5.4%
+Decks: 6
+Saved: YES
+Restored: YES/NO
+
+==================================================
+PART 4 — REMOVE OLD SHOE REPORTING
+==================================================
+
+Find any old shoe command handlers such as:
+
+handle_shoe
+cmd_shoe
+blackjack_shoe
+legacy_shoe
+show_shoe
+shoe_status
+
+If they use a different shoe object or different database key, replace their logic with the unified shoe status function.
+
+Do not delete the command.
+Just route it to the correct function.
+
+==================================================
+PART 5 — FIX SAVED/RESTORED FLAGS
+==================================================
+
+The display should not say confusing things.
+
+If shoe is saved in DB:
+Saved: YES
+
+If the current in-memory shoe came from DB after startup:
+Loaded From Restart: YES
+
+If bot has not restarted since saving:
+Loaded From Restart: NO is acceptable, but the card count must still match.
+
+Important:
+Saved: YES with Cards Remaining: 312 while !shoe says 295 means the wrong saved record is being read.
+
+Fix that.
+
+==================================================
+PART 6 — STARTUP RESTORE MUST UPDATE BOTH COMMANDS
+==================================================
+
+On bot startup:
+
+1. Load saved realistic blackjack shoe from DB.
+2. Replace in-memory shoe with saved shoe.
+3. Mark restored_from_db = true.
+4. Make !shoe, !bjshoe, and !bjadmin shoe all read that same object.
+
+Do not create separate saved shoe states.
+
+==================================================
+PART 7 — SAVE AFTER EVERY CARD DRAW
+==================================================
+
+Every time a real shoe card is drawn:
+
+- normal deal
+- player hit
+- dealer hit
+- shoe-mode test card
+
+Immediately save the same shoe state used by all commands.
+
+After draw:
+!shoe and !bjshoe must both show the new count.
+
+==================================================
+PART 8 — TESTS
+==================================================
+
+Run:
+
+!shoe
+!bjshoe
+!bjadmin shoe
+
+Expected:
+All three show the same cards remaining.
+
+Then start a round:
+
+!bet 100
+
+After cards are dealt:
+
+!shoe
+!bjshoe
+!bjadmin shoe
+
+Expected:
+All three still match.
+
+Restart bot.
+
+Run:
+
+!shoe
+!bjshoe
+!bjadmin shoe
+
+Expected:
+All three still match.
+Shoe does not reset to 312 unless reshuffle was required.
+
+==================================================
+PART 9 — FINAL REPORT
+==================================================
+
+Report:
+1. !shoe source fixed.
+2. !bjshoe source fixed.
+3. !bjadmin shoe source fixed.
+4. All shoe commands now use one function.
+5. Old/legacy shoe handler removed or rerouted.
+6. Shoe save-after-draw confirmed.
+7. Shoe restore-after-restart confirmed.
+8. Test result showing !shoe and !bjshoe match.
