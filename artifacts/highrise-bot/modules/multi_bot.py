@@ -406,6 +406,8 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "setsendlimit": "banker", "setsendtax": "banker",
     "settipautosub": "banker", "settipcap": "banker", "settiprate": "banker",
     "settipresubscribe": "banker", "settiptier": "banker",
+    # P2P gold tip leaderboards (banker)
+    "toptippers": "banker", "toptipped": "banker", "toptipreceivers": "banker",
     # shopkeeper — badge market / shop admin
     "addbadge": "shopkeeper", "badgeadmin": "shopkeeper", "badgecatalog": "shopkeeper",
     "badgemarketlogs": "shopkeeper", "buyitem": "shopkeeper", "cancelbuy": "shopkeeper",
@@ -419,6 +421,16 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "seteventconfirm": "eventhost", "setshopconfirm": "shopkeeper",
     "shopadmin": "shopkeeper", "shoptest": "shopkeeper",
     "unequip": "shopkeeper", "viphelp": "host", "vips": "shopkeeper",
+    # shopkeeper — 3.1F badge market & trade commands
+    "sellbadge": "shopkeeper", "buybadge": "shopkeeper", "cancelbadge": "shopkeeper",
+    "mylistings": "shopkeeper", "marketsearch": "shopkeeper", "marketfilter": "shopkeeper",
+    "marketaudit": "shopkeeper", "marketdebug": "shopkeeper",
+    "forcelistingcancel": "shopkeeper", "clearbadgelocks": "shopkeeper",
+    "trade": "shopkeeper", "tradeadd": "shopkeeper", "tradecoins": "shopkeeper",
+    "tradeview": "shopkeeper", "tradeconfirm": "shopkeeper", "tradecancel": "shopkeeper",
+    "helpmarket": "shopkeeper", "helptrade": "shopkeeper",
+    "badgehelp": "shopkeeper", "helpbadge": "shopkeeper", "helpbadges": "shopkeeper",
+    "markethelp": "shopkeeper", "tradehelp": "shopkeeper",
     # eventhost — autogames / quests / subs
     "fixautogames": "eventhost", "questhelp": "host",
     "setautogameinterval": "eventhost", "setgamereward": "eventhost",

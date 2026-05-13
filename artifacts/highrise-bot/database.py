@@ -2008,6 +2008,34 @@ def _migrate_db():
         "ALTER TABLE big_announcement_logs ADD COLUMN value_str   TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE big_announcement_logs ADD COLUMN xp_str      TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE big_announcement_logs ADD COLUMN item_emoji  TEXT NOT NULL DEFAULT ''",
+        # ── Badge P2P trade system (3.1F) ─────────────────────────────────────
+        """CREATE TABLE IF NOT EXISTS badge_trades (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_a_id       TEXT NOT NULL DEFAULT '',
+            user_a_name     TEXT NOT NULL DEFAULT '',
+            user_b_id       TEXT NOT NULL DEFAULT '',
+            user_b_name     TEXT NOT NULL DEFAULT '',
+            status          TEXT NOT NULL DEFAULT 'active',
+            user_a_confirmed INTEGER NOT NULL DEFAULT 0,
+            user_b_confirmed INTEGER NOT NULL DEFAULT 0,
+            created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at      TEXT NOT NULL DEFAULT (datetime('now')),
+            expires_at      TEXT NOT NULL DEFAULT (datetime('now','+5 minutes'))
+        )""",
+        """CREATE TABLE IF NOT EXISTS badge_trade_items (
+            id               INTEGER PRIMARY KEY AUTOINCREMENT,
+            trade_id         INTEGER NOT NULL DEFAULT 0,
+            user_id          TEXT NOT NULL DEFAULT '',
+            badge_id         TEXT NOT NULL DEFAULT '',
+            emoji            TEXT NOT NULL DEFAULT '',
+            UNIQUE(trade_id, user_id)
+        )""",
+        """CREATE TABLE IF NOT EXISTS badge_trade_coins (
+            trade_id         INTEGER NOT NULL DEFAULT 0,
+            user_id          TEXT NOT NULL DEFAULT '',
+            amount           INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY(trade_id, user_id)
+        )""",
     ]:
         try:
             conn.execute(sql)
@@ -7878,8 +7906,9 @@ def get_badge_listings_filtered(
     sort: str = "default",
     page: int = 1,
     per_page: int = 3,
+    max_price: int | None = None,
 ) -> tuple[list[dict], int]:
-    """Get active badge market listings, optionally filtered by rarity and/or sorted."""
+    """Get active badge market listings, optionally filtered by rarity, max_price, sorted."""
     try:
         conn   = get_connection()
         where  = ["bml.status = 'active'"]
@@ -7887,6 +7916,9 @@ def get_badge_listings_filtered(
         if rarity:
             where.append("eb.rarity = ?")
             params.append(rarity)
+        if max_price is not None:
+            where.append("bml.price <= ?")
+            params.append(max_price)
         clause = "WHERE " + " AND ".join(where)
         total  = conn.execute(
             "SELECT COUNT(*) AS n FROM badge_market_listings bml "
@@ -8084,20 +8116,52 @@ def create_badge_listing(
 
 def buy_badge_listing(listing_id: int, buyer_username: str, fee_pct: float) -> str:
     """
-    Atomic marketplace purchase.
+    Atomic marketplace purchase with BEGIN IMMEDIATE to prevent race conditions.
     Returns '' on success, or an error string on failure.
     Caller should notify seller separately.
     """
     conn = get_connection()
     try:
+        # BEGIN IMMEDIATE acquires a write lock before any reads — prevents two
+        # simultaneous buyers from both seeing 'active' and both succeeding.
+        conn.execute("BEGIN IMMEDIATE")
+
         listing = conn.execute(
             "SELECT * FROM badge_market_listings WHERE id = ? AND status = 'active'",
             (listing_id,),
         ).fetchone()
         if not listing:
+            conn.rollback()
+            conn.close()
             return "Listing not found or already sold."
         if listing["seller_username"].lower() == buyer_username.lower():
+            conn.rollback()
+            conn.close()
             return "You cannot buy your own listing."
+
+        # Verify badge still belongs to seller and is not bound/staff-created
+        badge_def = conn.execute(
+            "SELECT tradeable, sellable FROM emoji_badges WHERE badge_id=?",
+            (listing["badge_id"],)
+        ).fetchone()
+        if badge_def and (not badge_def["tradeable"] or not badge_def["sellable"]):
+            conn.rollback()
+            conn.close()
+            return "This badge is bound and cannot be sold."
+
+        owns = conn.execute(
+            "SELECT 1 FROM user_badges WHERE lower(username)=lower(?) AND badge_id=? AND locked=0",
+            (listing["seller_username"], listing["badge_id"])
+        ).fetchone()
+        if not owns:
+            # Seller no longer owns the badge — auto-cancel the listing
+            conn.execute(
+                "UPDATE badge_market_listings SET status='cancelled' WHERE id=?",
+                (listing_id,)
+            )
+            conn.commit()
+            conn.close()
+            return "Listing cancelled: seller no longer owns this badge."
 
         price = listing["price"]
         fee   = max(0, int(price * fee_pct / 100))
@@ -8105,10 +8169,12 @@ def buy_badge_listing(listing_id: int, buyer_username: str, fee_pct: float) -> s
 
         # Check buyer balance
         buyer_row = conn.execute(
-            "SELECT balance, user_id FROM users WHERE lower(username)=lower(?)",
+            "SELECT balance FROM users WHERE lower(username)=lower(?)",
             (buyer_username,)
         ).fetchone()
         if not buyer_row or buyer_row["balance"] < price:
+            conn.rollback()
+            conn.close()
             return f"Not enough coins. Need {price:,}c."
 
         seller_row = conn.execute(
@@ -8127,7 +8193,7 @@ def buy_badge_listing(listing_id: int, buyer_username: str, fee_pct: float) -> s
                 (net, listing["seller_username"])
             )
 
-        # Transfer badge ownership
+        # Transfer badge ownership: remove from seller, give to buyer
         conn.execute(
             "DELETE FROM user_badges WHERE lower(username)=lower(?) AND badge_id=?",
             (listing["seller_username"], listing["badge_id"])
@@ -8146,9 +8212,8 @@ def buy_badge_listing(listing_id: int, buyer_username: str, fee_pct: float) -> s
                WHERE id=?""",
             (buyer_username, listing_id)
         )
-        conn.commit()
 
-        # Log
+        # Log inside same transaction
         _log_badge_market_inner(
             conn, "sold", listing["seller_username"], buyer_username,
             listing["badge_id"], listing["emoji"], price, fee, "sold"
@@ -8157,33 +8222,164 @@ def buy_badge_listing(listing_id: int, buyer_username: str, fee_pct: float) -> s
         conn.close()
         return ""
     except Exception as exc:
-        conn.rollback()
+        try:
+            conn.rollback()
+        except Exception:
+            pass
         conn.close()
         return f"Transaction failed: {exc}"
 
 
 def cancel_badge_listing(listing_id: int, requester: str, is_staff: bool = False) -> str:
-    """Cancel a listing and return the badge to seller. Returns '' on success."""
+    """Cancel a listing. Returns '' on success, error string on failure."""
+    conn = get_connection()
     try:
-        conn    = get_connection()
+        conn.execute("BEGIN IMMEDIATE")
         listing = conn.execute(
             "SELECT * FROM badge_market_listings WHERE id=? AND status='active'",
             (listing_id,)
         ).fetchone()
         if not listing:
+            conn.rollback()
+            conn.close()
             return "Listing not found or not active."
         if not is_staff and listing["seller_username"].lower() != requester.lower():
-            return "Only the seller can cancel this listing."
+            conn.rollback()
+            conn.close()
+            return "🔒 You can only cancel your own listing."
 
         conn.execute(
             "UPDATE badge_market_listings SET status='cancelled' WHERE id=?", (listing_id,)
         )
-        # Badge stays in user_badges (was never removed on listing)
+        # Badge stays in user_badges (was never removed at listing time)
         conn.commit()
         conn.close()
         return ""
     except Exception as exc:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        conn.close()
         return f"Error: {exc}"
+
+
+def get_market_audit_stats() -> dict:
+    """Return audit stats for !marketaudit."""
+    try:
+        conn    = get_connection()
+        active  = conn.execute(
+            "SELECT COUNT(*) AS n FROM badge_market_listings WHERE status='active'"
+        ).fetchone()["n"]
+        orphans = conn.execute(
+            """SELECT COUNT(*) AS n FROM badge_market_listings bml
+               WHERE bml.status='active'
+               AND NOT EXISTS (
+                 SELECT 1 FROM user_badges ub
+                 WHERE lower(ub.username)=lower(bml.seller_username)
+                 AND ub.badge_id=bml.badge_id
+               )"""
+        ).fetchone()["n"]
+        trades  = conn.execute(
+            "SELECT COUNT(*) AS n FROM badge_trades WHERE status='active'"
+        ).fetchone()["n"] if _table_exists(conn, "badge_trades") else 0
+        conn.close()
+        return {"active": active, "orphans": orphans, "trades": trades}
+    except Exception:
+        return {"active": 0, "orphans": 0, "trades": 0}
+
+
+def _table_exists(conn, name: str) -> bool:
+    row = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,)
+    ).fetchone()
+    return row is not None
+
+
+def get_badge_listing_detail(listing_id: int) -> dict | None:
+    """Full listing info for !marketdebug."""
+    try:
+        conn = get_connection()
+        row  = conn.execute(
+            "SELECT * FROM badge_market_listings WHERE id=?", (listing_id,)
+        ).fetchone()
+        if not row:
+            conn.close()
+            return None
+        listing = dict(row)
+        # Check if seller still owns the badge
+        owns = conn.execute(
+            "SELECT 1 FROM user_badges WHERE lower(username)=lower(?) AND badge_id=?",
+            (listing["seller_username"], listing["badge_id"])
+        ).fetchone()
+        listing["seller_still_owns"] = owns is not None
+        conn.close()
+        return listing
+    except Exception:
+        return None
+
+
+def force_cancel_badge_listing(listing_id: int, actor: str) -> str:
+    """Owner/admin force-cancel any active listing."""
+    conn = get_connection()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        listing = conn.execute(
+            "SELECT * FROM badge_market_listings WHERE id=? AND status='active'",
+            (listing_id,)
+        ).fetchone()
+        if not listing:
+            conn.rollback()
+            conn.close()
+            return "Listing not found or not active."
+        conn.execute(
+            "UPDATE badge_market_listings SET status='cancelled' WHERE id=?", (listing_id,)
+        )
+        _log_badge_market_inner(
+            conn, "force_cancelled", listing["seller_username"], actor,
+            listing["badge_id"], listing["emoji"], listing["price"], 0, "cancelled"
+        )
+        conn.commit()
+        conn.close()
+        return ""
+    except Exception as exc:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        conn.close()
+        return f"Error: {exc}"
+
+
+def clear_stale_badge_locks(actor: str) -> int:
+    """Cancel orphaned listings where seller no longer owns the badge. Returns count fixed."""
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            """SELECT id, seller_username, badge_id, emoji, price
+               FROM badge_market_listings WHERE status='active'"""
+        ).fetchall()
+        fixed = 0
+        for r in rows:
+            owns = conn.execute(
+                "SELECT 1 FROM user_badges WHERE lower(username)=lower(?) AND badge_id=?",
+                (r["seller_username"], r["badge_id"])
+            ).fetchone()
+            if not owns:
+                conn.execute(
+                    "UPDATE badge_market_listings SET status='cancelled' WHERE id=?", (r["id"],)
+                )
+                _log_badge_market_inner(
+                    conn, "stale_lock_cleared", r["seller_username"], actor,
+                    r["badge_id"], r["emoji"], r["price"], 0, "cancelled"
+                )
+                fixed += 1
+        conn.commit()
+        conn.close()
+        return fixed
+    except Exception:
+        conn.close()
+        return 0
 
 
 def get_badge_recent_prices(badge_id: str, limit: int = 5) -> list[int]:
@@ -8246,6 +8442,302 @@ def get_badge_market_logs(username: str | None = None, limit: int = 8) -> list[d
         return [dict(r) for r in rows]
     except Exception:
         return []
+
+
+# ---------------------------------------------------------------------------
+# Badge P2P Trade system (3.1F)
+# ---------------------------------------------------------------------------
+
+def get_active_trade_for_user(user_id: str) -> dict | None:
+    """Return the active trade involving user_id, or None."""
+    try:
+        conn = get_connection()
+        row  = conn.execute(
+            """SELECT * FROM badge_trades
+               WHERE (user_a_id=? OR user_b_id=?) AND status='active'
+               ORDER BY id DESC LIMIT 1""",
+            (user_id, user_id)
+        ).fetchone()
+        conn.close()
+        return dict(row) if row else None
+    except Exception:
+        return None
+
+
+def create_badge_trade(
+    user_a_id: str, user_a_name: str,
+    user_b_id: str, user_b_name: str
+) -> int:
+    """Create a new active trade. Returns new trade_id, or -1 on error."""
+    try:
+        conn   = get_connection()
+        cursor = conn.execute(
+            """INSERT INTO badge_trades
+               (user_a_id,user_a_name,user_b_id,user_b_name,status,
+                user_a_confirmed,user_b_confirmed,
+                created_at,updated_at,expires_at)
+               VALUES (?,?,?,?,'active',0,0,
+                datetime('now'),datetime('now'),datetime('now','+5 minutes'))""",
+            (user_a_id, user_a_name.lower(), user_b_id, user_b_name.lower())
+        )
+        tid = cursor.lastrowid
+        conn.commit()
+        conn.close()
+        return tid
+    except Exception:
+        return -1
+
+
+def set_trade_badge(trade_id: int, user_id: str, badge_id: str, emoji: str) -> bool:
+    """Set (or replace) the badge a user is offering in a trade. Resets both confirms."""
+    conn = get_connection()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        conn.execute(
+            """INSERT OR REPLACE INTO badge_trade_items
+               (trade_id,user_id,badge_id,emoji) VALUES (?,?,?,?)""",
+            (trade_id, user_id, badge_id.lower(), emoji)
+        )
+        conn.execute(
+            """UPDATE badge_trades
+               SET user_a_confirmed=0, user_b_confirmed=0, updated_at=datetime('now'),
+                   expires_at=datetime('now','+5 minutes')
+               WHERE id=?""",
+            (trade_id,)
+        )
+        conn.commit()
+        conn.close()
+        return True
+    except Exception:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        conn.close()
+        return False
+
+
+def set_trade_coins(trade_id: int, user_id: str, amount: int) -> bool:
+    """Set (or replace) coin offer for a user in a trade. Resets both confirms."""
+    conn = get_connection()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        conn.execute(
+            """INSERT OR REPLACE INTO badge_trade_coins
+               (trade_id,user_id,amount) VALUES (?,?,?)""",
+            (trade_id, user_id, max(0, amount))
+        )
+        conn.execute(
+            """UPDATE badge_trades
+               SET user_a_confirmed=0, user_b_confirmed=0, updated_at=datetime('now'),
+                   expires_at=datetime('now','+5 minutes')
+               WHERE id=?""",
+            (trade_id,)
+        )
+        conn.commit()
+        conn.close()
+        return True
+    except Exception:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        conn.close()
+        return False
+
+
+def confirm_trade_user(trade_id: int, user_id: str, is_a: bool) -> bool:
+    """Mark one side as confirmed. Returns True on success."""
+    try:
+        col  = "user_a_confirmed" if is_a else "user_b_confirmed"
+        conn = get_connection()
+        conn.execute(
+            f"UPDATE badge_trades SET {col}=1, updated_at=datetime('now') WHERE id=?",
+            (trade_id,)
+        )
+        conn.commit()
+        conn.close()
+        return True
+    except Exception:
+        return False
+
+
+def get_trade_items(trade_id: int) -> list[dict]:
+    try:
+        conn  = get_connection()
+        rows  = conn.execute(
+            "SELECT * FROM badge_trade_items WHERE trade_id=?", (trade_id,)
+        ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+    except Exception:
+        return []
+
+
+def get_trade_coins(trade_id: int) -> list[dict]:
+    try:
+        conn  = get_connection()
+        rows  = conn.execute(
+            "SELECT * FROM badge_trade_coins WHERE trade_id=?", (trade_id,)
+        ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+    except Exception:
+        return []
+
+
+def execute_badge_trade(trade_id: int) -> str:
+    """
+    Atomically complete a confirmed trade.
+    Validates ownership, balance, not-bound. Returns '' on success or error string.
+    """
+    conn = get_connection()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        trade = conn.execute(
+            "SELECT * FROM badge_trades WHERE id=? AND status='active'",
+            (trade_id,)
+        ).fetchone()
+        if not trade:
+            conn.rollback()
+            conn.close()
+            return "Trade not found or already complete."
+        if not trade["user_a_confirmed"] or not trade["user_b_confirmed"]:
+            conn.rollback()
+            conn.close()
+            return "Both players must confirm first."
+
+        items = conn.execute(
+            "SELECT * FROM badge_trade_items WHERE trade_id=?", (trade_id,)
+        ).fetchall()
+        coins = conn.execute(
+            "SELECT * FROM badge_trade_coins WHERE trade_id=?", (trade_id,)
+        ).fetchall()
+
+        # Build lookup {user_id: badge_row, ...} and {user_id: coin_amount}
+        item_map = {r["user_id"]: r for r in items}
+        coin_map = {r["user_id"]: r["amount"] for r in coins}
+
+        a_id, b_id = trade["user_a_id"], trade["user_b_id"]
+        a_name, b_name = trade["user_a_name"], trade["user_b_name"]
+
+        # Validate badges (each side)
+        for uid, uname in ((a_id, a_name), (b_id, b_name)):
+            item = item_map.get(uid)
+            if item:
+                badge_def = conn.execute(
+                    "SELECT tradeable,sellable FROM emoji_badges WHERE badge_id=?",
+                    (item["badge_id"],)
+                ).fetchone()
+                if badge_def and (not badge_def["tradeable"] or not badge_def["sellable"]):
+                    conn.rollback()
+                    conn.close()
+                    return f"Badge {item['badge_id']} is bound and cannot be traded."
+                owns = conn.execute(
+                    "SELECT 1 FROM user_badges WHERE lower(username)=lower(?) AND badge_id=? AND locked=0",
+                    (uname, item["badge_id"])
+                ).fetchone()
+                if not owns:
+                    conn.rollback()
+                    conn.close()
+                    return f"@{uname} no longer owns that badge."
+                listed = conn.execute(
+                    "SELECT 1 FROM badge_market_listings WHERE lower(seller_username)=lower(?) AND badge_id=? AND status='active'",
+                    (uname, item["badge_id"])
+                ).fetchone()
+                if listed:
+                    conn.rollback()
+                    conn.close()
+                    return f"Badge is currently listed on market. Cancel listing first."
+
+        # Validate coins
+        for uid, uname in ((a_id, a_name), (b_id, b_name)):
+            amount = coin_map.get(uid, 0)
+            if amount > 0:
+                bal = conn.execute(
+                    "SELECT balance FROM users WHERE lower(username)=lower(?)", (uname,)
+                ).fetchone()
+                if not bal or bal["balance"] < amount:
+                    conn.rollback()
+                    conn.close()
+                    return f"@{uname} doesn't have enough coins."
+
+        # Execute transfers — badges
+        for uid, uname in ((a_id, a_name), (b_id, b_name)):
+            other_name = b_name if uid == a_id else a_name
+            item = item_map.get(uid)
+            if item:
+                conn.execute(
+                    "DELETE FROM user_badges WHERE lower(username)=lower(?) AND badge_id=?",
+                    (uname, item["badge_id"])
+                )
+                conn.execute(
+                    """INSERT OR IGNORE INTO user_badges
+                       (username,badge_id,acquired_at,source,equipped,locked)
+                       VALUES (lower(?),?,datetime('now'),'p2p_trade',0,0)""",
+                    (other_name, item["badge_id"])
+                )
+
+        # Execute transfers — coins
+        for uid, uname in ((a_id, a_name), (b_id, b_name)):
+            other_name = b_name if uid == a_id else a_name
+            amount = coin_map.get(uid, 0)
+            if amount > 0:
+                conn.execute(
+                    "UPDATE users SET balance=balance-? WHERE lower(username)=lower(?)",
+                    (amount, uname)
+                )
+                conn.execute(
+                    "UPDATE users SET balance=balance+? WHERE lower(username)=lower(?)",
+                    (amount, other_name)
+                )
+
+        # Mark trade complete
+        conn.execute(
+            "UPDATE badge_trades SET status='completed',updated_at=datetime('now') WHERE id=?",
+            (trade_id,)
+        )
+        conn.commit()
+        conn.close()
+        return ""
+    except Exception as exc:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        conn.close()
+        return f"Trade failed: {exc}"
+
+
+def cancel_badge_trade(trade_id: int) -> bool:
+    """Cancel an active trade (no transfers). Returns True on success."""
+    try:
+        conn = get_connection()
+        conn.execute(
+            "UPDATE badge_trades SET status='cancelled',updated_at=datetime('now') WHERE id=? AND status='active'",
+            (trade_id,)
+        )
+        conn.commit()
+        conn.close()
+        return True
+    except Exception:
+        return False
+
+
+def expire_stale_trades() -> int:
+    """Cancel trades older than 5 minutes that have not been confirmed. Returns count."""
+    try:
+        conn  = get_connection()
+        cur   = conn.execute(
+            "UPDATE badge_trades SET status='expired',updated_at=datetime('now') "
+            "WHERE status='active' AND expires_at < datetime('now')"
+        )
+        fixed = cur.rowcount
+        conn.commit()
+        conn.close()
+        return fixed
+    except Exception:
+        return 0
 
 
 # ---------------------------------------------------------------------------

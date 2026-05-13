@@ -1,0 +1,284 @@
+Update 3.1D/3.1F Hotfix — Fix P2P Gold Leaderboard Owners + Add Badge Market Help
+
+Current issues:
+1. !commandissues shows 3 no-owner:
+   !toptipped
+   !toptippers
+   !toptipreceivers
+
+2. Badge market commands need to be shown clearly in:
+   !badges
+   !help badges
+   !help market
+   !badgemarket if needed
+
+Goal:
+Clean command owners and make badge market commands easier for players to find.
+
+Do not change tokens.
+Do not wipe data.
+Do not change room ID.
+Do not reset balances, VIP, badges, titles, leaderboards, donations, P2P gold tip logs, or market data.
+
+==================================================
+PART 1 — SET P2P GOLD COMMAND OWNERS
+==================================================
+
+Set owners:
+
+!toptippers = BankingBot
+!toptipped = BankingBot
+!toptipreceivers = BankingBot
+
+Alternative acceptable owner:
+ChillTopiaMC
+
+Preferred:
+BankingBot because these are gold/tipping leaderboard commands.
+
+Expected:
+
+!commandtest !toptippers
+owner=BankingBot
+route=YES
+handler=YES
+
+!commandtest !toptipped
+owner=BankingBot
+route=YES
+handler=YES
+
+!commandtest !toptipreceivers
+owner=BankingBot
+route=YES
+handler=YES
+
+==================================================
+PART 2 — VERIFY P2P GOLD HANDLERS
+==================================================
+
+Make sure these commands route to the P2P real gold leaderboard handlers:
+
+!toptippers
+Shows top real player-to-player gold senders.
+
+!toptipped
+Shows top real player-to-player gold receivers.
+
+!toptipreceivers
+Alias of !toptipped.
+
+Do not count:
+- coin !send transfers
+- bot donations
+- Party Tips
+- owner !goldtip
+- goldrain
+- casino bets
+- mining/fishing rewards
+
+==================================================
+PART 3 — ADD BADGE MARKET COMMANDS TO !BADGES
+==================================================
+
+Update !badges main menu so it shows both shop and market access.
+
+Expected !badges:
+
+🏷️ Badges
+Shop: !badges shop
+Browse: !badges [category]
+Search: !badges search [name]
+Yours: !mybadges
+Market: !badgemarket
+
+If space allows, include:
+
+Sell: !sellbadge [badge] [price]
+
+If too long, split into two whispers/messages.
+
+Do NOT make !badges dump all 184 badges.
+Do NOT tell players to use next-page spam.
+
+==================================================
+PART 4 — ADD BADGE MARKET COMMANDS TO !HELP BADGES
+==================================================
+
+Update !help badges.
+
+Expected:
+
+🏷️ Badge Help
+!badges — badge menu
+!badges [category] — browse
+!buybadge [id] — buy shop badge
+!mybadges — owned badges
+!setbadge [badge] — equip
+
+Second message if needed:
+
+🏷️ Badge Market
+!badgemarket — listings
+!sellbadge [badge] [price]
+!buybadge listing [id]
+!cancelbadge [id]
+!mylistings
+
+Rules:
+- No / commands.
+- No owner commands.
+- No staff commands in public help.
+- Only show commands that route.
+- Keep each message under 220 characters.
+
+==================================================
+PART 5 — ADD OR POLISH !HELP MARKET
+==================================================
+
+If !help market exists, update it.
+
+Expected:
+
+🏷️ Market Help
+!badgemarket — player listings
+!badgemarket search [name]
+!badgemarket cheap
+!sellbadge [badge] [price]
+!buybadge listing [id]
+!mylistings
+
+If !help market does not exist and adding it is safe:
+- add it
+
+If adding it is risky:
+- do not add it
+- do not show it anywhere
+- do not count it as command issue
+
+==================================================
+PART 6 — UPDATE !BADGEMARKET EMPTY MESSAGE
+==================================================
+
+If badge market is empty, make it helpful.
+
+Expected:
+
+🏷️ Badge Market
+No listings yet.
+Sell: !sellbadge [badge] [price]
+Browse shop: !badges
+
+If market has listings:
+
+🏷️ Badge Market
+#12 👑 Crown — 20,000c
+#13 🔥 Fire — 12,000c
+Use !buybadge listing [id]
+
+Keep under 220 characters.
+
+==================================================
+PART 7 — UPDATE !MYBADGES MESSAGE
+==================================================
+
+If player owns badges, include market hint.
+
+Expected:
+
+🏷️ Your Badges
+Equipped: 👑 Crown
+Owned: 🌟 🔥 👑
+Equip: !setbadge [badge]
+Sell: !sellbadge [badge] [price]
+
+If no badges:
+
+🏷️ Your Badges
+None yet.
+Shop: !badges
+Market: !badgemarket
+
+Keep under 220 characters.
+
+==================================================
+PART 8 — VERIFY MARKET COMMAND OWNERS
+==================================================
+
+Make sure badge market commands have owners/routes/handlers:
+
+!badgemarket
+!marketbadges
+!sellbadge
+!buybadge
+!cancelbadge
+!mylistings
+
+Expected owner:
+ChillTopiaMC or Host
+
+Expected:
+route=YES
+handler=YES
+owner not UNKNOWN
+
+If !marketbadges is only an alias, it may be hidden if preferred.
+
+==================================================
+PART 9 — HELP CONSISTENCY
+==================================================
+
+Update these if they mention badges or market:
+
+!help
+!help badges
+!help shop
+!help market
+!badges
+!badgemarket
+!mybadges
+
+Rules:
+- Do not show broken commands.
+- Do not show hidden/skipped aliases.
+- No / commands.
+- No “No lifetime VIP” text.
+- No next-page spam instructions.
+- Keep messages short.
+
+==================================================
+PART 10 — TESTS
+==================================================
+
+Run:
+
+!commandtest !toptippers
+!commandtest !toptipped
+!commandtest !toptipreceivers
+
+!commandtest !badgemarket
+!commandtest !sellbadge
+!commandtest !buybadge
+!commandtest !cancelbadge
+!commandtest !mylistings
+
+!badges
+!help badges
+!help market
+!help shop
+!badgemarket
+!mybadges
+
+!commandissues
+!checkcommands
+!checkhelp
+!launchcheck
+
+Expected:
+- P2P gold commands owner not UNKNOWN.
+- Badge market commands are easy to find.
+- !badges shows shop + market navigation.
+- !help badges shows buy/sell/market commands.
+- No next-page spam instructions.
+- No command issues.
+- Launchcheck clean.

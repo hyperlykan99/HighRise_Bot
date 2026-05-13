@@ -1,0 +1,875 @@
+UPDATE 3.1F — PLAYER MARKET + TRADING SAFETY POLISH
+
+Goal:
+Polish and secure player trading/market systems so badge trading is safe, clear, and hard to abuse.
+
+This update focuses on:
+- Badge market final safety
+- Better listing/buy/cancel messages
+- Player-to-player trade request system
+- Trade confirmation before transfer
+- Prevent scams, duplicate sales, race issues, and bad listings
+- Market search/filter polish
+- Market audit command for owner
+- No economy/odds changes
+
+Do not rewrite core systems.
+Do not change bot tokens.
+Do not change room ID.
+Do not wipe database.
+Do not reset balances, VIP, inventories, badges, titles, mining/fishing data, blackjack/poker data, donations, P2P gold tips, daily streaks, notifications, teleports, role spawns, bot spawns, or command registry.
+Do not change mining/fishing odds.
+Do not change casino odds.
+Do not change daily rewards.
+Do not add advanced AI.
+Do not add risky economy mechanics.
+Do not duplicate badges.
+Do not create fake market listings.
+Do not allow staff-bound badges to be sold or traded.
+
+==================================================
+PART 1 — STABILITY FIRST
+==================================================
+
+Before changing anything, run:
+
+!launchcheck
+!commandissues
+!checkcommands
+!checkcommands all
+!checkhelp
+!bothealth
+!stability status
+!botconflicts
+!modulehealth
+
+Expected:
+- Launch Check OK
+- Conflicts: none
+- no command issues
+- no checkcommands mismatch
+- no help issues
+- Err: none
+- no bot conflicts
+
+Fix baseline issues first before market/trade polish.
+
+==================================================
+PART 2 — MARKET COMMANDS
+==================================================
+
+Polish or add these commands:
+
+!badgemarket
+!marketbadges
+!sellbadge [badge] [price]
+!buybadge listing [listing_id]
+!cancelbadge [listing_id]
+!mylistings
+!marketsearch [text]
+!marketfilter [type]
+
+Optional:
+!trade @user
+!tradeadd [badge]
+!tradecoins [amount]
+!tradeconfirm
+!tradecancel
+!tradeview
+
+Owner-only:
+!marketaudit
+!marketdebug [listing_id]
+!forcelistingcancel [listing_id]
+
+Expected command ownership:
+ChillTopiaMC or Host
+
+Expected:
+route=YES
+handler=YES
+owner not UNKNOWN
+
+If optional commands are skipped:
+- hide them
+- do not show them in help
+- do not count them as command issues
+
+==================================================
+PART 3 — BADGE MARKET DISPLAY
+==================================================
+
+Command:
+!badgemarket
+
+Expected:
+
+🏷️ Badge Market
+#12 👑 Crown — 20,000c
+#13 🔥 Fire — 12,000c
+#14 💎 Diamond — 35,000c
+Use !buybadge listing [id]
+
+Rules:
+- Show max 3 listings per message.
+- Prefer whisper to user if possible.
+- Keep under 220 characters.
+- Show listing ID clearly.
+- Show emoji, name, price, and seller if space allows.
+- Do not show sold/cancelled listings.
+- Do not show staff-bound badges.
+- Do not show disabled/broken badges.
+- Do not show raw user IDs.
+
+If empty:
+
+🏷️ Badge Market
+No badge listings yet.
+Use !sellbadge [badge] [price].
+
+==================================================
+PART 4 — MARKET SEARCH AND FILTERS
+==================================================
+
+Add or polish:
+
+!badgemarket search [text]
+!marketsearch [text]
+
+Examples:
+!badgemarket search crown
+!badgemarket search fire
+!marketsearch dragon
+
+Expected:
+
+🔎 Market Search: crown
+#12 👑 Crown — 20,000c
+Use !buybadge listing 12
+
+If no result:
+
+🔎 No market listings found.
+
+Filters:
+
+!badgemarket cheap
+!badgemarket rare
+!badgemarket legendary
+!badgemarket mythic
+!badgemarket affordable
+
+Expected:
+
+🏷️ Cheap Badge Listings
+#18 😀 Smile — 1,500c
+#22 🎮 Gamer — 2,800c
+
+Rules:
+- Show max 3 listings per page.
+- Support direct pages:
+  !badgemarket cheap 2
+  !badgemarket legendary 1
+- Do not use next-page spam.
+- Do not encourage !next.
+- Keep under 220 characters.
+
+==================================================
+PART 5 — MY LISTINGS
+==================================================
+
+Command:
+!mylistings
+
+Expected:
+
+🏷️ Your Listings
+#12 👑 Crown — 20,000c
+#19 🔥 Fire — 12,000c
+Use !cancelbadge [id]
+
+If none:
+
+🏷️ Your Listings
+No active badge listings.
+
+Rules:
+- Show only caller’s active listings.
+- Keep under 220 characters.
+- Do not expose other user data.
+- If many listings, paginate.
+
+==================================================
+PART 6 — SELL BADGE SAFETY
+==================================================
+
+Command:
+!sellbadge [badge] [price]
+
+Expected success:
+
+✅ Badge listed!
+👑 Crown — 20,000c
+Listing ID: #12
+
+Validation:
+- seller must own badge
+- badge must not be bound
+- badge must be sellable
+- badge must be tradable
+- badge must not already be listed
+- badge must not be staff-created
+- badge must not be staff-duplicated
+- price must be positive integer
+- price must not be zero
+- price must not be negative
+- price must not be decimal
+- seller must not be a bot
+
+If invalid price:
+
+⚠️ Price must be a positive number.
+
+If badge is bound:
+
+⚠️ This badge is bound and cannot be sold.
+
+If already listed:
+
+⚠️ Badge already listed.
+Use !cancelbadge [id] first.
+
+If badge not owned:
+
+⚠️ You do not own that badge.
+
+Rules:
+- Listing should lock the badge.
+- Listed badge should not be equippable unless listing is cancelled.
+- If badge is equipped, unequip it before listing.
+- Do not duplicate badge.
+- Do not transfer badge during listing.
+- Use transaction if possible.
+
+==================================================
+PART 7 — BUY LISTING SAFETY
+==================================================
+
+Command:
+!buybadge listing [listing_id]
+
+Expected success:
+
+✅ Badge bought!
+👑 Crown from @Seller
+Price: 20,000c
+
+Seller message:
+
+💰 Your badge sold!
+👑 Crown — 20,000c
+
+Validation:
+- listing exists
+- listing is active
+- badge still belongs to seller
+- badge is not bound
+- badge is not staff-created
+- buyer is not seller
+- buyer is not bot
+- buyer has enough coins
+- listing price is valid
+
+Failure messages:
+
+⚠️ Listing not found.
+
+⚠️ This listing is no longer available.
+
+⚠️ Not enough coins.
+
+⚠️ You cannot buy your own listing.
+
+Rules:
+- Deduct buyer coins once.
+- Credit seller coins once.
+- Transfer badge ownership once.
+- Mark listing sold once.
+- Set badge listed = 0.
+- Ensure equipped = 0 after transfer.
+- Use DB transaction.
+- Prevent race condition if two buyers buy same listing at same time.
+- Only one buyer should succeed.
+
+==================================================
+PART 8 — CANCEL LISTING SAFETY
+==================================================
+
+Command:
+!cancelbadge [listing_id]
+
+Expected:
+
+✅ Badge listing cancelled.
+👑 Crown returned to inventory.
+
+Validation:
+- listing exists
+- listing active
+- caller is seller or owner/admin
+- badge still exists
+
+If not seller:
+
+🔒 You can only cancel your own listing.
+
+If not found:
+
+⚠️ Listing not found.
+
+Rules:
+- Mark listing cancelled.
+- Set badge listed = 0.
+- Badge remains with seller.
+- Do not transfer coins.
+- Do not duplicate badge.
+- Owner/admin may cancel abusive listings if permission exists.
+
+==================================================
+PART 9 — TRADE REQUEST SYSTEM
+==================================================
+
+Add only if safe. If risky, skip and do not show in help.
+
+Purpose:
+Let players trade badges safely with confirmation.
+
+Commands:
+!trade @user
+!tradeadd [badge]
+!tradecoins [amount]
+!tradeview
+!tradeconfirm
+!tradecancel
+
+Basic flow:
+1. Player A: !trade @PlayerB
+2. Player A adds badge/coins.
+3. Player B adds badge/coins.
+4. Both must type !tradeconfirm.
+5. System swaps items/coins atomically.
+
+Do not allow instant one-sided trade.
+
+==================================================
+PART 10 — TRADE START
+==================================================
+
+Command:
+!trade @user
+
+Expected:
+
+🤝 Trade started with @Player.
+Use !tradeadd [badge] or !tradecoins [amount].
+Both players must confirm.
+
+Target receives:
+
+🤝 @Player wants to trade.
+Use !tradeview, !tradeadd, or !tradecancel.
+
+Validation:
+- target is in room or known player if safe
+- target is not bot
+- cannot trade with self
+- only one active trade per user
+- timeout trade after 5 minutes of inactivity
+
+If risky:
+Skip trading system and keep badge market only.
+
+==================================================
+PART 11 — TRADE ADD BADGE
+==================================================
+
+Command:
+!tradeadd [badge]
+
+Expected:
+
+✅ Added to trade:
+👑 Crown
+
+Validation:
+- active trade exists
+- caller owns badge
+- badge not bound
+- badge tradable
+- badge sellable/tradable
+- badge not listed in market
+- badge not staff-created/duplicated
+- badge not already in another trade
+
+If invalid:
+
+⚠️ This badge cannot be traded.
+
+Rules:
+- Adding/changing offer resets both confirmations.
+- Badge is locked while in trade.
+- Do not transfer until both confirm.
+
+==================================================
+PART 12 — TRADE COINS
+==================================================
+
+Command:
+!tradecoins [amount]
+
+Expected:
+
+✅ Added coins to trade: 5,000c
+
+Validation:
+- active trade exists
+- amount positive integer
+- no zero
+- no negative
+- no decimal
+- caller has enough coins
+- amount locked or revalidated at confirm
+
+If not enough coins:
+
+⚠️ Not enough coins.
+
+Rules:
+- Adding/changing coins resets both confirmations.
+- Do not deduct until both confirm.
+
+==================================================
+PART 13 — TRADE VIEW
+==================================================
+
+Command:
+!tradeview
+
+Expected:
+
+🤝 Trade
+@A offers: 👑 Crown + 5,000c
+@B offers: 🔥 Fire
+Confirm: @A ✅ | @B ❌
+
+Keep under 220 characters.
+If too long, split.
+
+Do not show raw IDs.
+
+==================================================
+PART 14 — TRADE CONFIRM
+==================================================
+
+Command:
+!tradeconfirm
+
+Expected before both confirm:
+
+✅ You confirmed.
+Waiting for @Player.
+
+When both confirm:
+
+✅ Trade complete!
+You received: 🔥 Fire
+
+Other user:
+✅ Trade complete!
+You received: 👑 Crown + 5,000c
+
+Validation at final confirm:
+- both users still own offered badges
+- badges are not bound
+- badges are not listed
+- badges are not in another trade
+- both users have offered coins
+- no bots
+- no self-trade
+- trade not expired
+
+Rules:
+- Transfer all badges/coins atomically.
+- If any part fails, trade fails and nothing transfers.
+- Clear locks after success/failure.
+- Mark trade completed.
+- Do not duplicate badges.
+- Do not duplicate coins.
+
+==================================================
+PART 15 — TRADE CANCEL
+==================================================
+
+Command:
+!tradecancel
+
+Expected:
+
+✅ Trade cancelled.
+
+Other user:
+
+⚠️ Trade cancelled by @Player.
+
+Rules:
+- Clear badge locks.
+- Clear trade state.
+- Do not transfer anything.
+- Expired trades auto-cancel if safe.
+
+==================================================
+PART 16 — BOUND/STAFF BADGE SAFETY
+==================================================
+
+Bound badges must never be:
+- listed
+- sold
+- traded
+- transferred
+- bought through market
+
+This includes:
+- staff_created
+- staff_duplicate
+- owner/admin bound gifts
+- disabled non-tradable badges
+
+They can be:
+- equipped
+- shown in profile
+- shown in inventory with 🔒
+
+If attempted:
+
+⚠️ This badge is bound and cannot be sold or traded.
+
+==================================================
+PART 17 — MARKET/TRADING DB SAFETY
+==================================================
+
+Use transactions for:
+- listing badge
+- cancelling listing
+- buying listing
+- creating trade
+- updating trade offer
+- confirming trade
+- completing trade
+- cancelling trade
+
+Suggested tables if needed:
+
+badge_trades:
+trade_id INTEGER PRIMARY KEY AUTOINCREMENT
+user_a_id TEXT
+user_a_name TEXT
+user_b_id TEXT
+user_b_name TEXT
+status TEXT DEFAULT 'active'
+user_a_confirmed INTEGER DEFAULT 0
+user_b_confirmed INTEGER DEFAULT 0
+created_at TEXT
+updated_at TEXT
+expires_at TEXT
+
+badge_trade_items:
+id INTEGER PRIMARY KEY AUTOINCREMENT
+trade_id INTEGER
+user_id TEXT
+badge_instance_id INTEGER
+created_at TEXT
+
+badge_trade_coins:
+trade_id INTEGER
+user_id TEXT
+amount INTEGER DEFAULT 0
+
+Rules:
+- idempotent migration
+- do not wipe data
+- no duplicate locks
+- no duplicate transfers
+- no DB locks causing crashes
+- if migration risky, skip trade system
+
+==================================================
+PART 18 — MARKET AUDIT OWNER COMMAND
+==================================================
+
+Owner-only:
+
+!marketaudit
+
+Expected:
+
+🏷️ Market Audit
+Active Listings: [count]
+Locked Badges: [count]
+Trades: [count]
+Issues: none
+
+If issues found:
+
+🏷️ Market Audit
+Issues: 2
+Use !marketdebug [id].
+
+Optional:
+!marketdebug [listing_id]
+!forcelistingcancel [listing_id]
+
+Rules:
+- owner-only
+- no raw secrets
+- no massive output
+- keep under 220 characters
+
+If adding audit commands is risky, skip them.
+
+==================================================
+PART 19 — MARKET RECOVERY / STUCK LOCKS
+==================================================
+
+Owner-only optional:
+
+!clearbadgelocks
+
+Purpose:
+Clear stale listed/trade locks older than safe threshold.
+
+Rules:
+- only clear locks for cancelled/expired trades/listings
+- do not unlock active valid listings
+- do not duplicate badges
+- log action
+- owner-only
+
+If risky, skip.
+
+==================================================
+PART 20 — HELP UPDATE
+==================================================
+
+Update:
+
+!help badges
+!help market
+!help trade if trade system added
+
+Player badge help:
+
+🏷️ Badge Market
+!badgemarket — listings
+!sellbadge [badge] [price]
+!buybadge listing [id]
+!cancelbadge [id]
+!mylistings
+
+If trade added:
+
+🤝 Trading
+!trade @user
+!tradeadd [badge]
+!tradecoins [amount]
+!tradeview
+!tradeconfirm
+!tradecancel
+
+Rules:
+- Do not show skipped trade commands if not implemented.
+- Do not show owner audit commands to players.
+- No / commands.
+- No “No lifetime VIP” text.
+- Commands shown must route.
+
+==================================================
+PART 21 — ASSISTANT INTEGRATION
+==================================================
+
+Update assistant answers.
+
+If user asks:
+how do i sell badge
+how do i trade badge
+badge market
+how do i buy badge from player
+
+Reply:
+
+🏷️ Use !badgemarket to browse player listings. Sell with !sellbadge [badge] [price]. Buy with !buybadge listing [id].
+
+If trade system added:
+For direct trades, use !trade @user.
+
+Rules:
+- assistant remains low-interference
+- public only for clear help intent
+- whisper stays whisper
+- no command execution through assistant
+
+==================================================
+PART 22 — COMMAND TESTS
+==================================================
+
+Run:
+
+!commandtest !badgemarket
+!commandtest !marketbadges
+!commandtest !sellbadge
+!commandtest !buybadge
+!commandtest !cancelbadge
+!commandtest !mylistings
+!commandtest !marketsearch
+!commandtest !marketfilter
+!commandtest !trade
+!commandtest !tradeadd
+!commandtest !tradecoins
+!commandtest !tradeview
+!commandtest !tradeconfirm
+!commandtest !tradecancel
+!commandtest !marketaudit
+!commandtest !marketdebug
+!commandtest !forcelistingcancel
+
+Expected:
+- implemented commands route YES
+- implemented commands handler YES
+- owner not UNKNOWN
+- skipped optional commands hidden
+- owner commands protected
+- no command issues
+
+==================================================
+PART 23 — LIVE MARKET TESTS
+==================================================
+
+Run:
+
+!badgemarket
+!badgemarket search crown
+!badgemarket cheap
+!mylistings
+!sellbadge [owned_badge] 10000
+!mylistings
+!badgemarket
+!cancelbadge [listing_id]
+!mylistings
+
+Two-player market test:
+Player A lists badge.
+Player B buys listing.
+Verify:
+- buyer gets badge
+- seller gets coins
+- buyer coins deducted once
+- seller coins credited once
+- listing marked sold
+- badge ownership transferred once
+- no duplicates
+
+Bound badge test:
+!staffbadge 🛡️ Guardian
+!sellbadge guardian 10000
+
+Expected:
+⚠️ This badge is bound and cannot be sold.
+
+==================================================
+PART 24 — LIVE TRADE TESTS IF ADDED
+==================================================
+
+Only if trade system added.
+
+Test:
+Player A: !trade @PlayerB
+Player A: !tradeadd crown
+Player B: !tradeadd fire
+Player A: !tradeview
+Player A: !tradeconfirm
+Player B: !tradeconfirm
+
+Expected:
+- trade completes only after both confirm
+- badges swap once
+- no duplicate badges
+- no coin duplication
+- locks clear
+
+Cancel test:
+Player A: !trade @PlayerB
+Player A: !tradeadd crown
+Player A: !tradecancel
+
+Expected:
+- trade cancelled
+- badge unlocked
+- nothing transferred
+
+Bound badge trade test:
+!tradeadd guardian
+
+Expected:
+⚠️ This badge cannot be traded.
+
+==================================================
+PART 25 — FINAL QA
+==================================================
+
+Run:
+
+!launchcheck
+!commandissues
+!checkcommands
+!checkcommands all
+!checkhelp
+!bothealth
+!stability status
+!botconflicts
+!modulehealth
+
+Expected:
+- Launch Check OK
+- Conflicts: none
+- no command issues
+- no checkcommands mismatch
+- no help issues
+- Err: none
+- no bot conflicts
+- no DB lock spam
+
+==================================================
+PART 26 — FINAL REPORT
+==================================================
+
+Report:
+
+1. Badge market display status.
+2. Market search/filter status.
+3. !mylistings status.
+4. Sell listing safety confirmed.
+5. Buy listing safety confirmed.
+6. Cancel listing safety confirmed.
+7. Bound/staff badges blocked from sale.
+8. Trade system added or skipped.
+9. Trade confirmation behavior if added.
+10. Market audit commands added or skipped.
+11. Stuck lock recovery added or skipped.
+12. Help pages updated.
+13. Assistant market response updated.
+14. Command tests result.
+15. Live market test result.
+16. Live trade test result if added.
+17. !launchcheck result.
+18. !commandissues result.
+19. !checkcommands result.
+20. Stability result.

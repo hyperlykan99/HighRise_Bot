@@ -253,6 +253,12 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     "mybadgelistings", "badgeprices",
     "buybadge", "badgeshop", "marketbadges", "sellbadge", "cancelbadge",
     "equipbadge", "staffbadge", "emojitest", "disableemoji", "enableemoji",
+    # ── 3.1F badge market / trade commands ──────────────────────────────────
+    "mylistings", "marketsearch", "marketfilter", "marketaudit", "marketdebug",
+    "forcelistingcancel", "clearbadgelocks",
+    "trade", "tradeadd", "tradecoins", "tradeview", "tradeconfirm", "tradecancel",
+    "helpmarket", "helptrade", "markethelp", "tradehelp",
+    "badgehelp", "helpbadge", "helpbadges",
     # ── tip (alias for send) ─────────────────────────────────────────────────
     "tip",
     # ── control panel (own elif block, not via STAFF_CMDS) ───────────────────
@@ -695,6 +701,11 @@ VISIBLE_CMDS: frozenset[str] = frozenset({
     "mybadgelistings", "badgeprices",
     "buybadge", "badgeshop", "marketbadges", "sellbadge", "cancelbadge",
     "equipbadge", "staffbadge",
+    "mylistings", "marketsearch", "marketfilter", "marketaudit", "marketdebug",
+    "forcelistingcancel", "clearbadgelocks",
+    "trade", "tradeadd", "tradecoins", "tradeview", "tradeconfirm", "tradecancel",
+    "helpmarket", "helptrade", "markethelp", "tradehelp",
+    "badgehelp", "helpbadge", "helpbadges",
     # ── /profilehelp ────────────────────────────────────────────────────────
     "profile", "whois", "me", "stats", "badges", "titles", "privacy", "dashboard",
     # ── /progresshelp ───────────────────────────────────────────────────────

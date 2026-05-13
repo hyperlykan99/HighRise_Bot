@@ -90,6 +90,12 @@ from modules.badge_market import (
     handle_buybadge_cmd, handle_staffbadge,
     handle_emojitest, handle_disableemoji, handle_enableemoji,
     handle_badges_cmd_router, handle_badge_help,
+    handle_marketsearch, handle_marketfilter,
+    handle_marketaudit, handle_marketdebug,
+    handle_forcelistingcancel, handle_clearbadgelocks,
+    handle_market_help, handle_trade_help,
+    handle_trade_start, handle_tradeadd, handle_tradecoins,
+    handle_tradeview, handle_tradeconfirm, handle_tradecancel,
 )
 from modules.numbered_shop import (
     handle_buy_number,
@@ -3952,6 +3958,51 @@ class HangoutBot(BaseBot):
         elif cmd == "cancelbadge":
             await handle_badgecancel(self, user, args)
 
+        elif cmd in {"mylistings", "mybadgelistings"}:
+            await handle_mybadgelistings(self, user, args)
+
+        elif cmd == "marketsearch":
+            await handle_marketsearch(self, user, args)
+
+        elif cmd == "marketfilter":
+            await handle_marketfilter(self, user, args)
+
+        elif cmd == "marketaudit":
+            await handle_marketaudit(self, user)
+
+        elif cmd == "marketdebug":
+            await handle_marketdebug(self, user, args)
+
+        elif cmd == "forcelistingcancel":
+            await handle_forcelistingcancel(self, user, args)
+
+        elif cmd == "clearbadgelocks":
+            await handle_clearbadgelocks(self, user)
+
+        elif cmd in {"helpmarket", "markethelp"}:
+            await handle_market_help(self, user)
+
+        elif cmd in {"helptrade", "tradehelp"}:
+            await handle_trade_help(self, user)
+
+        elif cmd == "trade":
+            await handle_trade_start(self, user, args)
+
+        elif cmd == "tradeadd":
+            await handle_tradeadd(self, user, args)
+
+        elif cmd == "tradecoins":
+            await handle_tradecoins(self, user, args)
+
+        elif cmd == "tradeview":
+            await handle_tradeview(self, user)
+
+        elif cmd == "tradeconfirm":
+            await handle_tradeconfirm(self, user)
+
+        elif cmd == "tradecancel":
+            await handle_tradecancel(self, user)
+
         elif cmd == "staffbadge":
             await handle_staffbadge(self, user, args)
 
@@ -4493,6 +4544,12 @@ class HangoutBot(BaseBot):
 
         elif cmd in {"badgehelp", "helpbadge", "helpbadges"}:
             await handle_badge_help(self, user)
+
+        elif cmd in {"helpmarket", "markethelp"}:
+            await handle_market_help(self, user)
+
+        elif cmd in {"helptrade", "tradehelp"}:
+            await handle_trade_help(self, user)
 
         elif cmd == "progresshelp":
             await self.highrise.send_whisper(user.id, PROGRESS_HELP)
