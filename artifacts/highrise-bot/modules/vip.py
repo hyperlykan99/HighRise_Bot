@@ -338,21 +338,23 @@ async def handle_donationgoal(bot: "BaseBot", user: "User") -> None:
 # ---------------------------------------------------------------------------
 
 async def handle_topdonors(bot: "BaseBot", user: "User") -> None:
-    """!topdonors  — show top gold donors."""
+    """!topdonors / !topdonators / !donators — top gold donors."""
     try:
-        rows = db.get_top_gold_donors(10)
+        bot_filter = db._get_bot_name_filter()
+        raw   = db.get_top_gold_donors(25)
+        rows  = [r for r in raw if r.get("username", "").lower() not in bot_filter][:5]
     except Exception:
         rows = []
     if not rows:
         await _w(bot, user.id,
-                 "🏆 Top Supporters\n"
-                 "No supporters yet.\n"
-                 "Gold-tip BankingBot to be first!")
+                 "💛 Top Donators\n"
+                 "No gold donations yet.\n"
+                 "Support the room by tipping the bot!")
         return
-    lines = ["🏆 Top Supporters"]
-    for i, row in enumerate(rows[:8], 1):
+    lines = ["💛 Top Donators"]
+    for i, row in enumerate(rows, 1):
         name  = row.get("username", "?")
-        total = row.get("total_gold", 0)
+        total = int(row.get("total_gold", 0))
         lines.append(f"{i}. @{name} — {total}g")
     lines.append("Thank you for supporting ChillTopia!")
     await _w(bot, user.id, "\n".join(lines)[:249])

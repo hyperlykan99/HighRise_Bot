@@ -537,7 +537,8 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     "vip", "vipperks", "myvip", "giftvip", "viplist", "grantvip",
     "removevip", "addvip", "vips", "setvipprice",
     # ── Donation / Sponsorship ───────────────────────────────────────────────
-    "donate", "donationgoal", "topdonors", "sponsor", "sponsorgoldrain",
+    "donate", "donationgoal", "topdonors", "topdonators", "donators",
+    "sponsor", "sponsorgoldrain",
     "sponsorevent", "supporter", "perks",
     "setdonationgoal", "donationaudit", "setsponsorprice",
     # ── Party Tip Wallet (ChillTopiaMC / host) ────────────────────────────────
@@ -750,7 +751,8 @@ VISIBLE_CMDS: frozenset[str] = frozenset({
     "vip", "vipperks", "myvip", "giftvip", "viplist", "grantvip",
     "removevip", "addvip", "vips", "setvipprice",
     # ── Donation / Sponsorship ───────────────────────────────────────────────
-    "donate", "donationgoal", "topdonors", "sponsor", "sponsorgoldrain",
+    "donate", "donationgoal", "topdonors", "topdonators", "donators",
+    "sponsor", "sponsorgoldrain",
     "sponsorevent", "supporter", "perks",
     "setdonationgoal", "donationaudit", "setsponsorprice",
 })

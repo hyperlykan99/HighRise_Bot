@@ -1,0 +1,205 @@
+ADD TO UPDATE 3.1D — TOP DONATOR LEADERBOARD
+
+I want to add a leaderboard for players who tipped/donated the most gold to the bot/room.
+
+Command:
+!topdonators
+
+Aliases:
+!topdonors
+!donators
+
+Purpose:
+Show players who tipped the most gold to the bot/room.
+
+Important:
+This should track gold tipped/donated TO the bot/room only.
+Do not count:
+- Party Tips sent to players
+- !goldtip from owner to players
+- player-to-player coin sends
+- blackjack/poker bets
+- mining/fishing coins
+- VIP coin purchases
+- shop coin purchases
+
+Only count:
+- gold tips sent to the room bot
+- gold donations/support tips to the bot
+- existing donation logs if they already record gold support
+
+==================================================
+PART 1 — DATA SOURCE
+==================================================
+
+Use existing donation/tip logs if available.
+
+Possible tables/logs:
+- donation_logs
+- gold_transactions
+- tip_logs
+- support_logs
+- donor_logs
+- room_support_logs
+
+Find the current source that records players tipping gold to the bot.
+
+If donation logs already exist:
+- use them
+- do not create duplicate tracking
+
+If no reliable log exists:
+- add safe tracking for future donations only
+- do not fake old donation data
+- do not guess past tips
+- say “No donor data yet” until real data exists
+
+==================================================
+PART 2 — COMMAND OUTPUT
+==================================================
+
+!topdonators expected:
+
+💛 Top Donators
+1. @Player — 500g
+2. @Player2 — 250g
+3. @Player3 — 100g
+
+Thank you for supporting ChillTopia!
+
+If no data:
+
+💛 Top Donators
+No gold donations yet.
+
+Support the room by tipping the bot.
+
+Keep under 220 characters.
+Show top 5 max.
+Exclude bots/system accounts.
+
+==================================================
+PART 3 — PROFILE INTEGRATION
+==================================================
+
+If safe, add player’s donated gold to !profile / !stats.
+
+Example:
+
+👤 @Player
+Coins: 1,250c | Streak: 3d
+Mining: 450 MXP | Fishing: 320 FXP
+Donated: 50g
+
+If message gets too long, skip Donated or put it in a second message.
+
+Do not expose private transaction history.
+Only show total donated gold.
+
+==================================================
+PART 4 — MAIN LEADERBOARD MENU
+==================================================
+
+Update:
+
+!leaderboard
+!lb
+!top
+
+Add:
+
+!topdonators — top gold supporters
+
+Expected:
+
+🏆 Leaderboards
+!toprich — richest
+!topminers — mining
+!topfishers — fishing
+!topstreaks — daily streaks
+!topdonators — gold supporters
+
+If message is too long, split safely.
+
+==================================================
+PART 5 — HELP UPDATE
+==================================================
+
+Update help if needed:
+
+!topdonators — top gold supporters
+!donationgoal — room goal
+!topdonors — top supporters
+
+If !topdonors already exists, decide whether it should:
+A. Alias to !topdonators
+OR
+B. Continue showing the same top supporter leaderboard
+
+Preferred:
+!topdonors = alias of !topdonators if it already means gold supporters.
+
+Do not create duplicate/conflicting donor leaderboards.
+
+==================================================
+PART 6 — DONATION TRACKING SAFETY
+==================================================
+
+When a player tips gold to the bot:
+- log donor username/user_id
+- log gold amount
+- log timestamp
+- update total donated if current system supports it
+- do not auto-subscribe the user
+- do not give automatic VIP unless already intentionally implemented
+- do not give coins unless already intentionally implemented
+- do not count bot tips
+- do not count owner gold sent to players
+- do not count Party Tips
+
+Thank-you message may say:
+
+💛 Thank you for supporting ChillTopia!
+To receive room notifications, DM me:
+!subscribe
+
+But do NOT auto-subscribe.
+
+==================================================
+PART 7 — COMMAND TESTS
+==================================================
+
+Run:
+
+!commandtest !topdonators
+!commandtest !topdonors
+!commandtest !donators
+!topdonators
+!topdonors
+!leaderboard
+!profile
+!commandissues
+!checkcommands
+
+Expected:
+- !topdonators route=YES
+- handler=YES
+- owner not UNKNOWN
+- !topdonors either aliases cleanly or stays existing clean command
+- no duplicate broken donor commands
+- no command issues
+- no checkcommands mismatch
+
+==================================================
+PART 8 — FINAL REPORT ADDITION
+==================================================
+
+Report:
+1. Data source used for top donators.
+2. Whether old donation data was found.
+3. Whether !topdonators works.
+4. Whether !topdonors aliases to it or remains separate.
+5. Whether profile shows donated gold.
+6. Confirmed no auto-subscribe from tipping.
+7. Confirmed Party Tips are not counted.
+8. Confirmed owner gold tips to players are not counted.

@@ -625,6 +625,7 @@ ECONOMY_COMMANDS     = {
     "balance", "bal", "b", "coins", "coin", "money", "daily",
     "leaderboard", "lb", "top",
     "toprich", "topminers", "topfishers", "topstreaks",
+    "topdonors", "topdonators", "donators",
 }
 PROFILE_COMMANDS     = {
     "profile", "me", "whois", "pinfo",
@@ -4475,7 +4476,7 @@ class HangoutBot(BaseBot):
         elif cmd == "donationgoal":
             await handle_donationgoal(self, user)
 
-        elif cmd == "topdonors":
+        elif cmd in {"topdonors", "topdonators", "donators"}:
             await handle_topdonors(self, user)
 
         elif cmd == "sponsor":

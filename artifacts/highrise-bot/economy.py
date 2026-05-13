@@ -257,10 +257,11 @@ async def handle_leaderboard(bot: BaseBot, user: User):
     """!leaderboard / !lb / !top — leaderboard navigation menu."""
     await bot.highrise.send_whisper(user.id, (
         "🏆 Leaderboards\n"
-        "!toprich — richest players\n"
-        "!topminers — top miners\n"
-        "!topfishers — top fishers\n"
-        "!topstreaks — daily streaks\n"
+        "!toprich — richest\n"
+        "!topminers — mining\n"
+        "!topfishers — fishing\n"
+        "!topstreaks — streaks\n"
+        "!topdonators — gold supporters\n"
         "!profile — your stats"
     ))
 

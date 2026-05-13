@@ -502,7 +502,8 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "setvipprice": "banker", "removevip": "banker", "addvip": "banker",
     "vips": "banker", "vipstatus": "banker",
     # banker — donation/sponsor commands (new)
-    "donate": "banker", "donationgoal": "banker", "topdonors": "banker",
+    "donate": "banker", "donationgoal": "banker",
+    "topdonors": "banker", "topdonators": "banker", "donators": "banker",
     "sponsor": "banker", "sponsorgoldrain": "banker", "sponsorevent": "eventhost",
     "supporter": "banker", "perks": "banker",
     "setdonationgoal": "banker", "donationaudit": "banker",
