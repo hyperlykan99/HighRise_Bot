@@ -1,30 +1,34 @@
 """
-modules/profile.py
-------------------
-Public player profile system for the Highrise Mini Game Bot.
+modules/profile.py — 3.1L Player Profile + Social Identity Polish
 
 Public commands:
-  /profile [username] [page]   -- view profile (self or target, pages 1-6)
-  /me                          -- own profile (alias for /profile)
-  /whois <username>            -- target profile (alias for /profile <user>)
-  /pinfo <username>            -- target profile (alias for /profile <user>)
-  /stats [username]            -- economy page (page 2)
-  /badges [username]           -- inventory page (page 4)
-  /titles [username]           -- inventory page (page 4)
-  /privacy [field] [on/off]    -- manage your own privacy settings
+  !profile [page]          — own public card (pages 1-6 for legacy detail)
+  !profile @user [page]   — other player's public card
+  !profile private         — own detailed private whisper (same as !stats)
+  !profile settings [...]  — profile privacy settings
+  !profile help            — profile help
+  !me / !myprofile         — alias for !profile
+  !stats                   — private detailed profile
+  !flex [@user]            — social flex card (public, 30s cooldown)
+  !showoff / !card         — alias for !flex
 
 Staff commands:
-  /profileadmin <username> [page]   -- full profile bypassing privacy (admin+)
-  /profileprivacy <username>        -- view target's privacy settings (mod+)
-  /resetprofileprivacy <username>   -- reset privacy to defaults (admin+)
+  !profileadmin <sub> [@user] — admin profile tools
+  !profileprivacy @user       — view target's privacy (mod+)
+  !resetprofileprivacy @user  — reset privacy to defaults (admin+)
 
-All messages <= 249 chars. Missing tables / data handled gracefully.
+All messages <= 249 chars. Missing data handled gracefully.
+Currencies: 🪙 ChillCoins  🎫 Luxe Tickets
 """
+
+import time
+import asyncio
+from datetime import datetime, timezone
 
 from highrise import BaseBot, User
 
 import database as db
-from modules.permissions import is_admin, can_moderate
+from modules.permissions import is_admin, is_owner, can_moderate
 from economy import fmt_coins
 
 
@@ -55,6 +59,16 @@ _CASINO_RANKS: list[tuple[int, str]] = [
     (10_000,  "High Roller"),
     (1_000,   "Lucky"),
     (0,       "New Gambler"),
+]
+
+# Level-based default titles (3.1L)
+_LEVEL_TITLES: list[tuple[int, str]] = [
+    (100, "Mythic Collector"),
+    (50,  "ChillTopia Legend"),
+    (25,  "Treasure Hunter"),
+    (15,  "Skilled Angler"),
+    (10,  "Lucky Miner"),
+    (5,   "Rookie Explorer"),
 ]
 
 
@@ -93,6 +107,14 @@ def _staff_role(username: str) -> str:
     return "Player"
 
 
+def _default_title(level: int) -> str | None:
+    """Return the highest level-unlocked default title, or None."""
+    for threshold, title in _LEVEL_TITLES:
+        if level >= threshold:
+            return title
+    return None
+
+
 def _is_vip(user_id: str) -> bool:
     try:
         return db.owns_item(user_id, "vip")
@@ -105,11 +127,221 @@ def _is_vip(user_id: str) -> bool:
 # ---------------------------------------------------------------------------
 
 async def _w(bot: BaseBot, uid: str, msg: str) -> None:
-    await bot.highrise.send_whisper(uid, msg[:249])
+    try:
+        await bot.highrise.send_whisper(uid, msg[:249])
+    except Exception:
+        pass
 
 
 # ---------------------------------------------------------------------------
-# Privacy helpers
+# 3.1L Data helpers
+# ---------------------------------------------------------------------------
+
+def _vip_status_str(user_id: str) -> str:
+    """Return 'Lifetime', 'Active Xd Yh', or 'Inactive'."""
+    try:
+        conn = db.get_connection()
+        row  = conn.execute(
+            "SELECT vip_expires_at FROM users WHERE user_id=?", (user_id,)
+        ).fetchone()
+        conn.close()
+        if row and row["vip_expires_at"]:
+            exp_str = row["vip_expires_at"]
+            exp = datetime.fromisoformat(exp_str)
+            if exp.tzinfo is None:
+                exp = exp.replace(tzinfo=timezone.utc)
+            now  = datetime.now(timezone.utc)
+            if exp > now:
+                secs = int((exp - now).total_seconds())
+                days, rem = divmod(secs, 86400)
+                hours = rem // 3600
+                if days >= 365 * 10:
+                    return "Lifetime"
+                if days > 0:
+                    return f"Active {days}d {hours}h"
+                return f"Active {hours}h"
+    except Exception:
+        pass
+    if _is_vip(user_id):
+        return "Active"
+    return "Inactive"
+
+
+def _luxe_tickets(user_id: str) -> int:
+    """Return Luxe Ticket balance from premium_balances."""
+    try:
+        conn = db.get_connection()
+        row  = conn.execute(
+            "SELECT luxe_tickets FROM premium_balances WHERE user_id=?",
+            (user_id,),
+        ).fetchone()
+        conn.close()
+        return int(row["luxe_tickets"]) if row else 0
+    except Exception:
+        return 0
+
+
+def _collection_info(user_id: str) -> tuple[int, int, int, int]:
+    """Return (mine_found, mine_total, fish_found, fish_total)."""
+    try:
+        counts  = db.get_collection_counts(user_id)
+        mine_d  = counts.get("mining", 0)
+        fish_d  = counts.get("fishing", 0)
+    except Exception:
+        mine_d = fish_d = 0
+    mine_t = fish_t = 0
+    try:
+        conn   = db.get_connection()
+        mine_t = conn.execute("SELECT COUNT(*) AS c FROM mining_items").fetchone()["c"] or 40
+        fish_t = conn.execute("SELECT COUNT(*) AS c FROM fishing_items").fetchone()["c"] or 35
+        conn.close()
+    except Exception:
+        mine_t, fish_t = 40, 35
+    return mine_d, mine_t, fish_d, fish_t
+
+
+def _collection_pct(user_id: str) -> int:
+    mine_d, mine_t, fish_d, fish_t = _collection_info(user_id)
+    total_d = mine_d + fish_d
+    total_t = mine_t + fish_t
+    if not total_t:
+        return 0
+    return int(100 * total_d / total_t)
+
+
+def _mission_progress(user_id: str) -> tuple[int, int, int, int]:
+    """Return (daily_done, daily_total, weekly_done, weekly_total)."""
+    try:
+        from modules.missions import (
+            DAILY_MISSIONS, WEEKLY_MISSIONS,
+            _daily_period, _weekly_period,
+        )
+        dk = _daily_period()
+        wk = _weekly_period()
+        d_done = sum(
+            1 for m in DAILY_MISSIONS
+            if db.get_mission_progress(user_id, m["key"], dk) >= m["target"]
+        )
+        w_done = 0
+        for m in WEEKLY_MISSIONS:
+            if m["key"] == "weekly_streak7":
+                try:
+                    stats = db.get_daily_stats(user_id)
+                    prog  = stats.get("streak", 0)
+                except Exception:
+                    prog = 0
+            else:
+                prog = db.get_mission_progress(user_id, m["key"], wk)
+            if prog >= m["target"]:
+                w_done += 1
+        return d_done, len(DAILY_MISSIONS), w_done, len(WEEKLY_MISSIONS)
+    except Exception:
+        return 0, 5, 0, 5
+
+
+def _season_rank_str(user_id: str, username: str) -> str:
+    """Return 'Mining #4' or 'Unranked'."""
+    try:
+        from modules.missions import _season_key
+        sk   = _season_key()
+        cats = ["mining", "fishing", "collection", "trivia", "casino", "tipper"]
+        best: list[str] = []
+        for cat in cats:
+            rows = db.get_season_leaderboard(sk, cat, limit=10)
+            for i, r in enumerate(rows):
+                if r["username"].lower() == username.lower():
+                    best.append(f"{cat.title()} #{i + 1}")
+                    break
+        return ", ".join(best[:2]) if best else "Unranked"
+    except Exception:
+        return "Unranked"
+
+
+def _equipped_badge_display(user_id: str) -> str:
+    """Return equipped badge emoji or 'None'."""
+    try:
+        conn = db.get_connection()
+        row  = conn.execute(
+            "SELECT equipped_badge FROM users WHERE user_id=?", (user_id,)
+        ).fetchone()
+        conn.close()
+        badge = (row["equipped_badge"] or "").strip() if row else ""
+        return badge if badge else "None"
+    except Exception:
+        return "None"
+
+
+def _equipped_title_display(user_id: str, level: int = 1) -> str:
+    """Return equipped title, or default level-based title, or 'None'."""
+    try:
+        conn = db.get_connection()
+        row  = conn.execute(
+            "SELECT equipped_title FROM users WHERE user_id=?", (user_id,)
+        ).fetchone()
+        conn.close()
+        title = (row["equipped_title"] or "").strip() if row else ""
+        if title:
+            return title
+    except Exception:
+        pass
+    default = _default_title(level)
+    return default if default else "None"
+
+
+def _get_profile_setting(user_id: str, field: str) -> str:
+    """Get a profile setting value from player_profile_settings."""
+    _defaults = {
+        "balance_visibility":    "private",
+        "collection_visibility": "public",
+        "badge_visibility":      "public",
+        "vip_visibility":        "public",
+        "season_visibility":     "public",
+        "level_visibility":      "public",
+    }
+    try:
+        conn = db.get_connection()
+        conn.execute(
+            "INSERT OR IGNORE INTO player_profile_settings (user_id) VALUES (?)",
+            (user_id,),
+        )
+        conn.commit()
+        row = conn.execute(
+            f"SELECT {field} FROM player_profile_settings WHERE user_id=?",
+            (user_id,),
+        ).fetchone()
+        conn.close()
+        if row and row[field]:
+            return row[field]
+    except Exception:
+        pass
+    return _defaults.get(field, "public")
+
+
+def _set_profile_setting(user_id: str, username: str, field: str, value: str) -> None:
+    _allowed = {
+        "balance_visibility", "collection_visibility", "badge_visibility",
+        "vip_visibility", "season_visibility", "level_visibility",
+    }
+    if field not in _allowed:
+        return
+    try:
+        conn = db.get_connection()
+        conn.execute(
+            "INSERT OR IGNORE INTO player_profile_settings (user_id, username) VALUES (?, ?)",
+            (user_id, username.lower()),
+        )
+        conn.execute(
+            f"UPDATE player_profile_settings SET {field}=?, updated_at=datetime('now') WHERE user_id=?",
+            (value, user_id),
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+
+# ---------------------------------------------------------------------------
+# Privacy helpers (legacy + new)
 # ---------------------------------------------------------------------------
 
 _PRIVACY_FIELDS: dict[str, str] = {
@@ -117,6 +349,17 @@ _PRIVACY_FIELDS: dict[str, str] = {
     "casino":       "show_casino",
     "achievements": "show_achievements",
     "inventory":    "show_inventory",
+}
+
+_PROFILE_SETTING_FIELDS: dict[str, str] = {
+    "balance":    "balance_visibility",
+    "collection": "collection_visibility",
+    "collections": "collection_visibility",
+    "badge":      "badge_visibility",
+    "badges":     "badge_visibility",
+    "vip":        "vip_visibility",
+    "season":     "season_visibility",
+    "level":      "level_visibility",
 }
 
 
@@ -135,7 +378,6 @@ def _can_see(field: str, privacy: dict, is_self: bool, is_staff: bool) -> bool:
 # ---------------------------------------------------------------------------
 
 def _resolve(clean_name: str):
-    """Case-insensitive DB lookup. Returns (user_id, username, profile) or (None, name, None)."""
     target = db.get_user_by_username(clean_name)
     if not target:
         return None, clean_name, None
@@ -146,11 +388,6 @@ def _resolve(clean_name: str):
 
 
 def _setup(requester: User, raw_name: str | None):
-    """
-    Resolve target and build permission flags.
-    Returns (t_id, t_name, p, is_self, is_staff, error_msg).
-    error_msg is non-None only on failure.
-    """
     if not raw_name:
         t_id   = requester.id
         t_name = requester.username
@@ -159,16 +396,218 @@ def _setup(requester: User, raw_name: str | None):
         clean          = raw_name.lstrip("@").strip()
         t_id, t_name, p = _resolve(clean)
         if t_id is None:
-            return None, clean, None, False, False, "User not found. They may need to chat first."
+            return None, clean, None, False, False, (
+                "⚠️ Player not found.\nThey may need to join first."
+            )
     if not p:
-        return None, t_name, None, False, False, "User not found in bot database."
+        return None, t_name if raw_name else requester.username, None, False, False, (
+            "⚠️ Player not found.\nThey may need to join first."
+        )
     is_self  = (t_id == requester.id)
     is_staff = can_moderate(requester.username) or is_admin(requester.username)
     return t_id, t_name, p, is_self, is_staff, None
 
 
 # ---------------------------------------------------------------------------
-# Page builders
+# 3.1L — Polished public card builder
+# ---------------------------------------------------------------------------
+
+async def _send_public_card(
+    bot: BaseBot, requester_id: str,
+    uid: str, uname: str, p: dict,
+    is_self: bool, is_staff: bool,
+) -> None:
+    """Send the 3.1L polished public card (1-2 messages ≤ 220 chars each)."""
+    level = p.get("level", 1) or 1
+    xp    = p.get("xp", 0) or 0
+    try:
+        xp_next = db.xp_for_level(level + 1)
+    except Exception:
+        xp_next = "?"
+
+    title  = _equipped_title_display(uid, level)
+    badge  = _equipped_badge_display(uid)
+    col_pct = _collection_pct(uid)
+
+    # VIP visibility
+    vip_pub = (
+        _get_profile_setting(uid, "vip_visibility") == "public"
+        or is_self or is_staff
+    )
+    vip_str = _vip_status_str(uid) if vip_pub else None
+
+    # Badge visibility
+    badge_pub = (
+        _get_profile_setting(uid, "badge_visibility") == "public"
+        or is_self or is_staff
+    )
+
+    # Level visibility
+    level_pub = (
+        _get_profile_setting(uid, "level_visibility") == "public"
+        or is_self or is_staff
+    )
+
+    # Collection visibility
+    col_pub = (
+        _get_profile_setting(uid, "collection_visibility") == "public"
+        or is_self or is_staff
+    )
+
+    lines1 = [f"👤 @{uname}"]
+    lines1.append(f"Title: {title}")
+    if level_pub:
+        lines1.append(f"Level: {level} | XP: {xp:,}/{xp_next}")
+    if vip_str:
+        lines1.append(f"VIP: {vip_str}")
+    if badge_pub:
+        lines1.append(f"Badges: {badge}")
+    if col_pub:
+        col_str = f"{col_pct}%" if col_pct > 0 else "Not started"
+        lines1.append(f"Collection: {col_str}")
+    if not is_self:
+        lines1.append(f"!profile @{uname} 2 for more")
+
+    await _w(bot, requester_id, "\n".join(lines1)[:220])
+
+    # Message 2 — progress + balance (self or permitted)
+    if is_self or is_staff:
+        d_done, d_total, w_done, w_total = _mission_progress(uid)
+        s_rank = _season_rank_str(uid, uname)
+
+        # Balance visibility
+        bal_pub   = _get_profile_setting(uid, "balance_visibility") == "public"
+        coins     = db.get_balance(uid)
+        tickets   = _luxe_tickets(uid)
+        bal_str   = (
+            f"{coins:,} 🪙 | {tickets:,} 🎫"
+            if (bal_pub or is_self or is_staff) else None
+        )
+
+        season_pub = (
+            _get_profile_setting(uid, "season_visibility") == "public"
+            or is_self or is_staff
+        )
+
+        lines2 = ["📊 Progress"]
+        lines2.append(f"Daily: {d_done}/{d_total} | Weekly: {w_done}/{w_total}")
+        if season_pub:
+            lines2.append(f"Season Rank: {s_rank}")
+        if bal_str:
+            lines2.append(f"Balance: {bal_str}")
+
+        await _w(bot, requester_id, "\n".join(lines2)[:220])
+
+
+# ---------------------------------------------------------------------------
+# 3.1L — Private detailed card (whisper, up to 3 messages)
+# ---------------------------------------------------------------------------
+
+async def _send_private_card(
+    bot: BaseBot, uid: str, uname: str, p: dict,
+) -> None:
+    """Send up to 3 private whisper messages with full profile detail."""
+    level = p.get("level", 1) or 1
+    xp    = p.get("xp", 0) or 0
+    try:
+        xp_next = db.xp_for_level(level + 1)
+    except Exception:
+        xp_next = "?"
+
+    coins   = db.get_balance(uid)
+    tickets = _luxe_tickets(uid)
+    vip_str = _vip_status_str(uid)
+
+    # Message 1 — identity
+    streak = 0
+    try:
+        ds     = db.get_daily_stats(uid)
+        streak = ds.get("streak", 0)
+    except Exception:
+        pass
+
+    msg1 = (
+        f"👤 Private Profile\n"
+        f"Level: {level} | XP: {xp:,}/{xp_next}\n"
+        f"🪙 {coins:,} | 🎫 {tickets:,}\n"
+        f"VIP: {vip_str}"
+    )
+    await _w(bot, uid, msg1[:220])
+
+    # Message 2 — collection
+    mine_d, mine_t, fish_d, fish_t = _collection_info(uid)
+    col_pct = 0
+    if mine_t + fish_t:
+        col_pct = int(100 * (mine_d + fish_d) / (mine_t + fish_t))
+    milestones = 0
+    try:
+        conn = db.get_connection()
+        row  = conn.execute(
+            "SELECT COUNT(*) AS c FROM collection_milestone_claims WHERE user_id=?",
+            (uid,),
+        ).fetchone()
+        conn.close()
+        milestones = row["c"] if row else 0
+    except Exception:
+        pass
+
+    msg2 = (
+        f"📖 Collection ({col_pct}%)\n"
+        f"Ore: {mine_d}/{mine_t}\n"
+        f"Fish: {fish_d}/{fish_t}\n"
+        f"Milestones: {milestones} claimed"
+    )
+    await _w(bot, uid, msg2[:220])
+
+    # Message 3 — progress
+    d_done, d_total, w_done, w_total = _mission_progress(uid)
+    s_rank = _season_rank_str(uid, uname)
+
+    msg3 = (
+        f"📋 Progress\n"
+        f"Daily: {d_done}/{d_total}\n"
+        f"Weekly: {w_done}/{w_total}\n"
+        f"Season: {s_rank}\n"
+        f"Streak: Day {streak}"
+    )
+    await _w(bot, uid, msg3[:220])
+
+
+# ---------------------------------------------------------------------------
+# Flex cooldown
+# ---------------------------------------------------------------------------
+
+_flex_cooldowns: dict[str, float] = {}
+_FLEX_COOLDOWN = 30.0
+
+
+# ---------------------------------------------------------------------------
+# 3.1L — Flex card
+# ---------------------------------------------------------------------------
+
+async def _send_flex_card(
+    bot: BaseBot, requester_id: str,
+    uid: str, uname: str, p: dict,
+) -> None:
+    """Send a public flex card."""
+    level  = p.get("level", 1) or 1
+    title  = _equipped_title_display(uid, level)
+    badge  = _equipped_badge_display(uid)
+    col_pct = _collection_pct(uid)
+    s_rank  = _season_rank_str(uid, uname)
+
+    lines = [
+        f"✨ @{uname} Flex",
+        f"Level {level} {title}",
+        f"Badges: {badge}",
+        f"Collection: {col_pct}%",
+        f"Season: {s_rank}",
+    ]
+    await _w(bot, requester_id, "\n".join(lines)[:220])
+
+
+# ---------------------------------------------------------------------------
+# Legacy page builders (kept for backward compat & profileadmin)
 # ---------------------------------------------------------------------------
 
 def _fmt_net(n: int) -> str:
@@ -181,29 +620,31 @@ def _build_page1(uid: str, uname: str, p: dict, privacy: dict,
         display = db.get_display_name(uid, uname)
     except Exception:
         display = f"@{uname}"
-    role  = _staff_role(uname)
-    vip   = "YES" if _is_vip(uid) else "NO"
-    level = p.get("level", 1)
-    xp    = p.get("xp", 0)
+    role   = _staff_role(uname)
+    level  = p.get("level", 1) or 1
+    xp     = p.get("xp", 0) or 0
     try:
         xp_next = db.xp_for_level(level + 1)
     except Exception:
         xp_next = "?"
     lvrank = _level_rank(level)
-    rep = 0
+    vip    = _vip_status_str(uid)
+    rep    = 0
     try:
         rep_row = db.get_reputation(uid)
         rep = rep_row["rep_received"] if rep_row else 0
     except Exception:
         pass
     reprank = _rep_rank(rep)
-    first = str(p.get("first_seen") or "?")[:10]
+    first   = str(p.get("first_seen") or "?")[:10]
+    title   = _equipped_title_display(uid, level)
+    badge   = _equipped_badge_display(uid)
     lines = [
         f"👤 {display}"[:60],
+        f"Title: {title} | Badge: {badge}",
         f"Role: {role} | VIP: {vip}",
-        f"Lv {level} ({lvrank}) | {xp}/{xp_next} XP",
-        f"Rep: {reprank} {rep}",
-        f"Joined: {first}",
+        f"Lv {level} ({lvrank}) | {xp:,}/{xp_next} XP",
+        f"Rep: {reprank} {rep} | Joined: {first}",
     ]
     if not is_self:
         lines.append(f"More: !profile @{uname} 2")
@@ -216,10 +657,11 @@ def _build_page2(uid: str, uname: str, p: dict, privacy: dict,
     if not see:
         return (
             f"💰 Economy — @{uname}\n"
-            f"Coins: Hidden by player.\n"
+            f"Balance: Hidden\n"
             f"More: !profile @{uname} 3"
         )[:249]
-    balance = p.get("balance", 0)
+    coins   = db.get_balance(uid)
+    tickets = _luxe_tickets(uid)
     earned  = p.get("total_coins_earned", 0)
     wins    = p.get("total_games_won", 0)
     sent = recv = 0
@@ -235,17 +677,12 @@ def _build_page2(uid: str, uname: str, p: dict, privacy: dict,
         streak = ds.get("streak", 0)
     except Exception:
         pass
-    race_wins = 0
-    try:
-        race_wins = db.get_race_wins_count(uid)
-    except Exception:
-        pass
     lines = [
         f"💰 Economy — @{uname}",
-        f"Coins: {fmt_coins(balance)}",
-        f"Earned: {fmt_coins(earned)} | Wins: {wins}",
-        f"Sent: {fmt_coins(sent)} | Recv: {fmt_coins(recv)}",
-        f"Race Wins: {race_wins} | Streak: {streak}d",
+        f"🪙 {coins:,} | 🎫 {tickets:,}",
+        f"Earned: {earned:,} 🪙 | Wins: {wins}",
+        f"Sent: {sent:,} | Recv: {recv:,} 🪙",
+        f"Streak: {streak}d",
         f"More: !profile @{uname} 3",
     ]
     return "\n".join(lines)[:249]
@@ -288,9 +725,9 @@ def _build_page3(uid: str, uname: str, p: dict, privacy: dict,
     casino_rank = _casino_rank(total_net)
     lines = [
         f"🎰 Casino — @{uname}",
-        f"BJ: {bj_w}W/{bj_l}L Net {_fmt_net(bj_net)}c",
-        f"RBJ: {rbj_w}W/{rbj_l}L Net {_fmt_net(rbj_net)}c",
-        f"Poker: {pk_w}W/{pk_l}L Net {_fmt_net(pk_net)}c",
+        f"BJ: {bj_w}W/{bj_l}L {_fmt_net(bj_net)} 🪙",
+        f"RBJ: {rbj_w}W/{rbj_l}L {_fmt_net(rbj_net)} 🪙",
+        f"Poker: {pk_w}W/{pk_l}L {_fmt_net(pk_net)} 🪙",
         f"Rank: {casino_rank}",
         f"More: !profile @{uname} 4",
     ]
@@ -306,9 +743,10 @@ def _build_page4(uid: str, uname: str, p: dict, privacy: dict,
             f"Inventory hidden.\n"
             f"More: !profile @{uname} 5"
         )[:249]
-    badge = p.get("equipped_badge") or "None"
-    title = p.get("equipped_title") or "None"
-    vip   = "YES" if _is_vip(uid) else "NO"
+    level  = p.get("level", 1) or 1
+    badge  = _equipped_badge_display(uid)
+    title  = _equipped_title_display(uid, level)
+    vip    = _vip_status_str(uid)
     n_badges = n_titles = 0
     try:
         counts   = db.get_owned_item_counts(uid)
@@ -316,11 +754,13 @@ def _build_page4(uid: str, uname: str, p: dict, privacy: dict,
         n_titles = counts.get("titles", 0)
     except Exception:
         pass
+    col_pct = _collection_pct(uid)
     lines = [
         f"🛒 Items — @{uname}",
         f"Badge: {badge} | Title: {title}",
         f"Badges: {n_badges} | Titles: {n_titles}",
         f"VIP: {vip}",
+        f"Collection: {col_pct}%",
         f"More: !profile @{uname} 5",
     ]
     return "\n".join(lines)[:249]
@@ -338,7 +778,7 @@ def _build_page5(uid: str, uname: str, p: dict, privacy: dict,
     n_ach  = 0
     latest = "None"
     try:
-        achs = db.get_unlocked_achievements(uid)
+        achs  = db.get_unlocked_achievements(uid)
         n_ach = len(achs)
         if achs:
             latest = achs[-1].replace("_", " ").title()[:20]
@@ -351,11 +791,13 @@ def _build_page5(uid: str, uname: str, p: dict, privacy: dict,
     except Exception:
         pass
     reprank = _rep_rank(rep)
+    d_done, d_total, w_done, w_total = _mission_progress(uid)
+    s_rank = _season_rank_str(uid, uname) if (is_self or is_staff) else ""
     lines = [
         f"🏆 Progress — @{uname}",
-        f"Achievements: {n_ach}",
-        f"Latest: {latest}",
-        f"Rep: {rep} | Rank: {reprank}",
+        f"Daily: {d_done}/{d_total} | Weekly: {w_done}/{w_total}",
+        f"Season: {s_rank}" if s_rank else f"Rep: {rep} | Rank: {reprank}",
+        f"Achievements: {n_ach} | Latest: {latest}",
         f"More: !profile @{uname} 6",
     ]
     return "\n".join(lines)[:249]
@@ -370,7 +812,7 @@ def _build_page6(uid: str, uname: str, p: dict, privacy: dict,
         rep = rep_row["rep_received"] if rep_row else 0
     except Exception:
         pass
-    vip      = "YES" if _is_vip(uid) else "NO"
+    vip      = _vip_status_str(uid)
     sent_str = recv_str = "Hidden"
     if see_money:
         try:
@@ -381,7 +823,7 @@ def _build_page6(uid: str, uname: str, p: dict, privacy: dict,
             pass
     lines = [
         f"🏦 Social — @{uname}",
-        f"Sent/Recv: {sent_str}/{recv_str}c",
+        f"Sent: {sent_str} 🪙 | Recv: {recv_str} 🪙",
         f"Rep: {rep} | VIP: {vip}",
     ]
     if is_staff:
@@ -426,46 +868,174 @@ def _build_page(page: int, uid: str, uname: str, p: dict,
 
 
 # ---------------------------------------------------------------------------
-# /profile [username] [page]   /me   /whois   /pinfo
+# !profile — main handler (routes all subcommands)
 # ---------------------------------------------------------------------------
 
 async def handle_profile_cmd(bot: BaseBot, user: User, args: list[str]) -> None:
-    """Handle /profile, /me, /whois, /pinfo."""
+    """!profile [private|settings|help|@user] [page] — polished profile system."""
     db.ensure_user(user.id, user.username)
+    sub = args[1].lower().strip() if len(args) > 1 else ""
+
+    # --- subcommand: private ---
+    if sub == "private":
+        p = db.get_profile(user.id)
+        if not p:
+            await _w(bot, user.id, "⚠️ Profile not found. Try chatting first.")
+            return
+        await _send_private_card(bot, user.id, user.username, p)
+        return
+
+    # --- subcommand: settings ---
+    if sub == "settings":
+        await handle_profile_settings(bot, user, args)
+        return
+
+    # --- subcommand: help ---
+    if sub == "help":
+        await handle_profile_help(bot, user)
+        return
+
+    # --- subcommand: page number (legacy) ---
     raw_name = None
-    page     = 1
+    page     = 0   # 0 = use polished card
     for a in args[1:]:
         a_clean = a.lstrip("@").strip()
         if a_clean.isdigit() and 1 <= int(a_clean) <= 6:
             page = int(a_clean)
-        elif a_clean:
+        elif a_clean and not a_clean.isdigit():
             raw_name = a_clean
+
     t_id, t_name, p, is_self, is_staff, err = _setup(user, raw_name)
     if err:
         await _w(bot, user.id, err)
         return
-    privacy = _get_privacy(t_name)
-    msg     = _build_page(page, t_id, t_name, p, privacy, is_self, is_staff)
-    await _w(bot, user.id, msg)
+
+    if page:
+        # Legacy paged view
+        privacy = _get_privacy(t_name)
+        msg     = _build_page(page, t_id, t_name, p, privacy, is_self, is_staff)
+        await _w(bot, user.id, msg)
+    else:
+        # 3.1L polished card
+        await _send_public_card(bot, user.id, t_id, t_name, p, is_self, is_staff)
 
 
 # ---------------------------------------------------------------------------
-# /stats [username]
+# !stats — private detailed profile
 # ---------------------------------------------------------------------------
 
 async def handle_stats_cmd(bot: BaseBot, user: User, args: list[str]) -> None:
+    """!stats — private detailed profile (alias for !profile private)."""
     db.ensure_user(user.id, user.username)
+    raw_name = args[1].lstrip("@").strip() if len(args) > 1 else None
+    if raw_name:
+        # Viewing other player's stats page
+        t_id, t_name, p, is_self, is_staff, err = _setup(user, raw_name)
+        if err:
+            await _w(bot, user.id, err)
+            return
+        privacy = _get_privacy(t_name)
+        await _w(bot, user.id, _build_page2(t_id, t_name, p, privacy, is_self, is_staff))
+    else:
+        # Self — full private card
+        p = db.get_profile(user.id)
+        if not p:
+            await _w(bot, user.id, "⚠️ Profile not found. Try chatting first.")
+            return
+        await _send_private_card(bot, user.id, user.username, p)
+
+
+# ---------------------------------------------------------------------------
+# !profile settings
+# ---------------------------------------------------------------------------
+
+async def handle_profile_settings(bot: BaseBot, user: User, args: list[str]) -> None:
+    """!profile settings [field] [public|private]"""
+    db.ensure_user(user.id, user.username)
+    uid    = user.id
+    uname  = user.username
+
+    # Show current settings
+    if len(args) < 3 or (len(args) == 2 and args[1].lower() == "settings"):
+        bal  = _get_profile_setting(uid, "balance_visibility")
+        col  = _get_profile_setting(uid, "collection_visibility")
+        bdg  = _get_profile_setting(uid, "badge_visibility")
+        vip  = _get_profile_setting(uid, "vip_visibility")
+        ssn  = _get_profile_setting(uid, "season_visibility")
+        lvl  = _get_profile_setting(uid, "level_visibility")
+        await _w(bot, uid,
+                 f"⚙️ Profile Settings\n"
+                 f"Balance: {bal}\n"
+                 f"Collections: {col}\n"
+                 f"Badges: {bdg}\n"
+                 f"VIP: {vip} | Season: {ssn} | Level: {lvl}\n"
+                 f"Use: !profile settings <field> public/private")
+        return
+
+    # !profile settings <field> <value>
+    field_raw = args[2].lower() if len(args) > 2 else ""
+    value_raw = args[3].lower() if len(args) > 3 else ""
+    db_field  = _PROFILE_SETTING_FIELDS.get(field_raw)
+
+    if not db_field:
+        valid = " | ".join(_PROFILE_SETTING_FIELDS.keys())
+        await _w(bot, uid, f"⚠️ Valid fields: {valid}")
+        return
+    if value_raw not in ("public", "private"):
+        await _w(bot, uid, "⚠️ Value must be 'public' or 'private'.")
+        return
+
+    _set_profile_setting(uid, uname, db_field, value_raw)
+    await _w(bot, uid, f"✅ {field_raw.capitalize()} visibility set to {value_raw}.")
+
+
+# ---------------------------------------------------------------------------
+# !profile help
+# ---------------------------------------------------------------------------
+
+async def handle_profile_help(bot: BaseBot, user: User) -> None:
+    """!profile help — show profile commands."""
+    await _w(bot, user.id,
+             "👤 Profile Help\n"
+             "!profile — public card\n"
+             "!profile @user\n"
+             "!stats — private details\n"
+             "!profile settings")
+    await asyncio.sleep(0.3)
+    await _w(bot, user.id,
+             "Identity:\n"
+             "!setbadge [badge]\n"
+             "!settitle [title]\n"
+             "!flex — public flex\n"
+             "!privacy — old privacy toggle")
+
+
+# ---------------------------------------------------------------------------
+# !flex / !showoff / !card
+# ---------------------------------------------------------------------------
+
+async def handle_flex(bot: BaseBot, user: User, args: list[str]) -> None:
+    """!flex [@user] — public social flex card (30s cooldown)."""
+    db.ensure_user(user.id, user.username)
+    now = time.monotonic()
+    last = _flex_cooldowns.get(user.id, 0.0)
+    if now - last < _FLEX_COOLDOWN:
+        remaining = int(_FLEX_COOLDOWN - (now - last))
+        await _w(bot, user.id, f"⏳ Flex cooldown: {remaining}s remaining.")
+        return
+
     raw_name = args[1].lstrip("@").strip() if len(args) > 1 else None
     t_id, t_name, p, is_self, is_staff, err = _setup(user, raw_name)
     if err:
         await _w(bot, user.id, err)
         return
-    privacy = _get_privacy(t_name)
-    await _w(bot, user.id, _build_page2(t_id, t_name, p, privacy, is_self, is_staff))
+
+    _flex_cooldowns[user.id] = now
+    await _send_flex_card(bot, user.id, t_id, t_name, p)
 
 
 # ---------------------------------------------------------------------------
-# /badges [username]   /titles [username]
+# !badges [username]  (legacy — kept for routing)
 # ---------------------------------------------------------------------------
 
 async def handle_badges_cmd(bot: BaseBot, user: User, args: list[str]) -> None:
@@ -480,7 +1050,7 @@ async def handle_badges_cmd(bot: BaseBot, user: User, args: list[str]) -> None:
 
 
 # ---------------------------------------------------------------------------
-# /casino <username>   (casino profile page 3)
+# !casino profile (legacy)
 # ---------------------------------------------------------------------------
 
 async def handle_casino_profile(bot: BaseBot, user: User, target_name: str) -> None:
@@ -494,7 +1064,7 @@ async def handle_casino_profile(bot: BaseBot, user: User, target_name: str) -> N
 
 
 # ---------------------------------------------------------------------------
-# /privacy [field] [on/off]
+# !privacy [field] [on/off]  (legacy toggles — kept)
 # ---------------------------------------------------------------------------
 
 async def handle_privacy(bot: BaseBot, user: User, args: list[str]) -> None:
@@ -502,12 +1072,11 @@ async def handle_privacy(bot: BaseBot, user: User, args: list[str]) -> None:
     privacy = _get_privacy(user.username)
     if len(args) < 2:
         def yn(v): return "ON" if v else "OFF"
-        msg = (
-            f"🔒 Privacy — @{user.username}\n"
-            f"Money {yn(privacy['show_money'])} | Casino {yn(privacy['show_casino'])}\n"
-            f"Achievements {yn(privacy['show_achievements'])} | Inventory {yn(privacy['show_inventory'])}"
-        )
-        await _w(bot, user.id, msg)
+        await _w(bot, user.id,
+                 f"🔒 Privacy — @{user.username}\n"
+                 f"Money {yn(privacy['show_money'])} | Casino {yn(privacy['show_casino'])}\n"
+                 f"Achievements {yn(privacy['show_achievements'])} | Inventory {yn(privacy['show_inventory'])}\n"
+                 f"Use !profile settings for 3.1L controls.")
         return
     field_name = args[1].lower()
     if field_name not in _PRIVACY_FIELDS:
@@ -531,39 +1100,116 @@ async def handle_privacy(bot: BaseBot, user: User, args: list[str]) -> None:
 
 
 # ---------------------------------------------------------------------------
-# /profileadmin <username> [page]   (admin+)
+# !profileadmin — admin tools
 # ---------------------------------------------------------------------------
 
 async def handle_profileadmin(bot: BaseBot, user: User, args: list[str]) -> None:
+    """!profileadmin [view|resetprivacy|refresh] @user — admin profile tools."""
     if not is_admin(user.username):
         await _w(bot, user.id, "Admins and owners only.")
         return
-    if len(args) < 2:
-        await _w(bot, user.id, "Usage: !profileadmin <username> [page]")
+
+    sub      = args[1].lower() if len(args) >= 2 else "help"
+    raw_name = args[2].lstrip("@").strip() if len(args) >= 3 else None
+
+    if sub == "help" or (sub not in ("view", "resetprivacy", "refresh", "rebuild") and not raw_name):
+        await _w(bot, user.id,
+                 "🛠️ Profile Admin\n"
+                 "!profileadmin view @user\n"
+                 "!profileadmin resetprivacy @user\n"
+                 "!profileadmin refresh @user")
         return
-    raw_name = args[1].lstrip("@").strip()
-    page     = 1
-    if len(args) >= 3 and args[2].isdigit():
-        page = max(1, min(6, int(args[2])))
-    target = db.get_user_by_username(raw_name)
-    if target is None:
-        await _w(bot, user.id, f"@{raw_name} not found in database.")
+
+    # --- view ---
+    if sub == "view":
+        if not raw_name:
+            await _w(bot, user.id, "Usage: !profileadmin view @user")
+            return
+        target = db.get_user_by_username(raw_name)
+        if target is None:
+            await _w(bot, user.id, f"@{raw_name} not found.")
+            return
+        t_id, t_name = target["user_id"], target["username"]
+        p = db.get_profile(t_id)
+        if not p:
+            await _w(bot, user.id, "No profile data.")
+            return
+        full_priv = {"show_money": 1, "show_casino": 1,
+                     "show_achievements": 1, "show_inventory": 1}
+        msg = _build_page(1, t_id, t_name, p, full_priv, False, True)
+        await _w(bot, user.id, f"[Admin] {msg}"[:249])
+        await asyncio.sleep(0.3)
+        await _send_public_card(bot, user.id, t_id, t_name, p, False, True)
         return
-    t_id, t_name = target["user_id"], target["username"]
-    p = db.get_profile(t_id)
-    if not p:
-        await _w(bot, user.id, "User not found in bot database.")
+
+    # --- resetprivacy ---
+    if sub == "resetprivacy":
+        if not raw_name:
+            await _w(bot, user.id, "Usage: !profileadmin resetprivacy @user")
+            return
+        db.reset_profile_privacy(raw_name)
+        # Also reset player_profile_settings
+        try:
+            target = db.get_user_by_username(raw_name)
+            if target:
+                conn = db.get_connection()
+                conn.execute(
+                    "DELETE FROM player_profile_settings WHERE user_id=?",
+                    (target["user_id"],),
+                )
+                conn.commit()
+                conn.close()
+        except Exception:
+            pass
+        await _w(bot, user.id, f"✅ Privacy reset for @{raw_name}.")
         return
-    full_privacy = {
-        "show_money": 1, "show_casino": 1,
-        "show_achievements": 1, "show_inventory": 1,
-    }
-    msg = _build_page(page, t_id, t_name, p, full_privacy, is_self=False, is_staff=True)
-    await _w(bot, user.id, f"[Admin] {msg}"[:249])
+
+    # --- refresh ---
+    if sub == "refresh":
+        if not raw_name:
+            await _w(bot, user.id, "Usage: !profileadmin refresh @user")
+            return
+        target = db.get_user_by_username(raw_name)
+        if not target:
+            await _w(bot, user.id, f"@{raw_name} not found.")
+            return
+        t_id, t_name = target["user_id"], target["username"]
+        db.ensure_user(t_id, t_name)
+        await _w(bot, user.id, f"✅ Profile refreshed for @{t_name}.")
+        return
+
+    # --- rebuild (no-op since data is live) ---
+    if sub == "rebuild":
+        await _w(bot, user.id, "✅ Profiles are live — no rebuild needed.")
+        return
+
+    # Fallback: treat sub as username for old-style !profileadmin <user>
+    try:
+        page = int(sub) if sub.isdigit() else 1
+        page = max(1, min(6, page))
+        target_name = sub if not sub.isdigit() else (raw_name or "")
+        if not target_name:
+            await _w(bot, user.id, "Usage: !profileadmin view @user")
+            return
+        target = db.get_user_by_username(target_name)
+        if not target:
+            await _w(bot, user.id, f"@{target_name} not found.")
+            return
+        t_id, t_name = target["user_id"], target["username"]
+        p = db.get_profile(t_id)
+        if not p:
+            await _w(bot, user.id, "No profile data.")
+            return
+        full_priv = {"show_money": 1, "show_casino": 1,
+                     "show_achievements": 1, "show_inventory": 1}
+        msg = _build_page(page, t_id, t_name, p, full_priv, False, True)
+        await _w(bot, user.id, f"[Admin] {msg}"[:249])
+    except Exception as exc:
+        await _w(bot, user.id, f"Error: {exc}")
 
 
 # ---------------------------------------------------------------------------
-# /profileprivacy <username>   (mod+)
+# !profileprivacy @user  (mod+)
 # ---------------------------------------------------------------------------
 
 async def handle_profileprivacy(bot: BaseBot, user: User, args: list[str]) -> None:
@@ -571,21 +1217,19 @@ async def handle_profileprivacy(bot: BaseBot, user: User, args: list[str]) -> No
         await _w(bot, user.id, "Staff only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: !profileprivacy <username>")
+        await _w(bot, user.id, "Usage: !profileprivacy @username")
         return
     target_name = args[1].lstrip("@").strip()
     privacy     = _get_privacy(target_name)
     def yn(v): return "ON" if v else "OFF"
-    msg = (
-        f"🔒 Privacy — @{target_name}\n"
-        f"Money {yn(privacy['show_money'])} | Casino {yn(privacy['show_casino'])}\n"
-        f"Ach {yn(privacy['show_achievements'])} | Inv {yn(privacy['show_inventory'])}"
-    )
-    await _w(bot, user.id, msg)
+    await _w(bot, user.id,
+             f"🔒 Privacy — @{target_name}\n"
+             f"Money {yn(privacy['show_money'])} | Casino {yn(privacy['show_casino'])}\n"
+             f"Ach {yn(privacy['show_achievements'])} | Inv {yn(privacy['show_inventory'])}")
 
 
 # ---------------------------------------------------------------------------
-# /resetprofileprivacy <username>   (admin+)
+# !resetprofileprivacy @user  (admin+)
 # ---------------------------------------------------------------------------
 
 async def handle_resetprofileprivacy(bot: BaseBot, user: User, args: list[str]) -> None:
@@ -593,7 +1237,7 @@ async def handle_resetprofileprivacy(bot: BaseBot, user: User, args: list[str]) 
         await _w(bot, user.id, "Admins and owners only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: !resetprofileprivacy <username>")
+        await _w(bot, user.id, "Usage: !resetprofileprivacy @username")
         return
     target_name = args[1].lstrip("@").strip()
     db.reset_profile_privacy(target_name)

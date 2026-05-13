@@ -2402,6 +2402,24 @@ def _migrate_db():
     except Exception:
         pass
 
+    # 3.1L — Player profile settings (balance/collection/badge/vip/season/level visibility)
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS player_profile_settings (
+                user_id               TEXT PRIMARY KEY,
+                username              TEXT NOT NULL DEFAULT '',
+                balance_visibility    TEXT NOT NULL DEFAULT 'private',
+                collection_visibility TEXT NOT NULL DEFAULT 'public',
+                badge_visibility      TEXT NOT NULL DEFAULT 'public',
+                vip_visibility        TEXT NOT NULL DEFAULT 'public',
+                season_visibility     TEXT NOT NULL DEFAULT 'public',
+                level_visibility      TEXT NOT NULL DEFAULT 'public',
+                updated_at            TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+        """)
+    except Exception:
+        pass
+
     # 3.1K — Season reward history
     try:
         conn.execute("""

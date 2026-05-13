@@ -591,6 +591,9 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     "economydefaults",
     "luxeadmin",
     "vipadmin",
+    # 3.1L profile + social
+    "myprofile", "flex", "showoff", "card",
+    "profilesettings", "profilehelp",
     # 3.1K event sub-command aliases
     "eventschedule", "eventactive", "eventnext",
     "seasonpayout", "payouthistory",

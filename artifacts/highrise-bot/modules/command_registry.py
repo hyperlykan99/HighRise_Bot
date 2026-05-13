@@ -1357,6 +1357,13 @@ REGISTRY: dict[str, Cmd] = {
                            perm="owner"),
     "luxeadmin":       Cmd("banker", "admin",   False, True,  False, perm="admin"),
     "vipadmin":        Cmd("banker", "admin",   False, True,  False, perm="admin"),
+    # 3.1L — Profile + Social Identity
+    "myprofile":       Cmd("host", "profile",   True,  True,  True,
+                           aliases=("me", "whois", "pinfo")),
+    "flex":            Cmd("host", "profile",   True,  True,  True,
+                           aliases=("showoff", "card")),
+    "profilesettings": Cmd("host", "profile",   True,  True,  True),
+    "profilehelp":     Cmd("host", "profile",   True,  True,  True),
     # 3.1K — Event sub-command aliases
     "eventschedule":   Cmd("host", "events",    True,  True,  True),
     "eventactive":     Cmd("host", "events",    True,  True,  True),

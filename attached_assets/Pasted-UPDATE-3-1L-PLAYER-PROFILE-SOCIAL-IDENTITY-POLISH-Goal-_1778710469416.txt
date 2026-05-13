@@ -1,0 +1,730 @@
+UPDATE 3.1L — PLAYER PROFILE + SOCIAL IDENTITY POLISH
+
+Goal:
+Polish player profiles so every player can clearly show their progress, identity, status, VIP, badges, title, collections, missions, season rank, and balances.
+
+Main features:
+1. Better !profile display
+2. Public profile and private detailed profile
+3. Show level, XP, title, badges
+4. Show VIP status and duration
+5. Show 🪙 ChillCoins and 🎫 Luxe Tickets cleanly
+6. Show mining/fishing collection progress
+7. Show current daily/weekly mission progress
+8. Show season rank
+9. Show player stats
+10. Add profile privacy settings
+11. Improve title/badge integration
+12. Add social flex commands
+
+Currencies:
+🪙 ChillCoins = gameplay currency
+🎫 Luxe Tickets = premium currency
+
+Do not change tokens.
+Do not change room ID.
+Do not wipe database.
+Do not reset balances, tickets, VIP, badges, titles, market, casino, blackjack, poker, mining/fishing data, collection book, missions, XP, levels, events, seasons, tools, rods, boosts, or inventory.
+Do not re-add reward caps.
+Do not add HR Gold rewards.
+Do not change mining/fishing odds.
+Do not change casino odds.
+Do not change Luxe shop prices.
+Do not show “c” for currency.
+Use 🪙 and 🎫.
+
+==================================================
+PART 1 — STABILITY FIRST
+==================================================
+
+Before changing anything, run:
+
+!launchcheck
+!commandissues
+!checkcommands
+!checkcommands all
+!checkhelp
+!bothealth
+!stability status
+
+Expected:
+- Launch Check OK
+- no command issues
+- no help issues
+- Err: none
+
+Fix baseline issues first.
+
+==================================================
+PART 2 — PROFILE COMMANDS
+==================================================
+
+Add or polish:
+
+!profile
+!profile @user
+!me
+!stats
+!myprofile
+!profile private
+!profile public
+!profile settings
+
+Expected ownership:
+ChillTopiaMC / Host
+
+Expected:
+route=YES
+handler=YES
+owner not UNKNOWN
+
+Aliases:
+!me = !profile
+!myprofile = !profile
+!stats = !profile detailed
+
+If aliases are risky:
+- hide them
+- do not show them in help
+- do not count them as command issues
+
+==================================================
+PART 3 — PUBLIC PROFILE FORMAT
+==================================================
+
+Command:
+!profile
+
+Expected public profile:
+
+👤 @Player
+Title: Lucky Miner
+Level: 12 | XP: 850/1,200
+VIP: Active 29d
+Badges: 👑 🔥 🎣
+Collection: 28%
+
+Second message if needed:
+
+📊 Progress
+Daily: 2/5 | Weekly: 1/5
+Season Rank: Mining #4
+Balance: 125,000 🪙 | 50 🎫
+
+Rules:
+- Keep each message under 220 characters.
+- Use clean format.
+- No raw debug data.
+- No “c” currency.
+- No “No lifetime VIP” text.
+- If user has no title, show Title: None.
+- If user has no badges, show Badges: None.
+- If VIP expired, show VIP: Inactive.
+
+==================================================
+PART 4 — PROFILE OTHER PLAYER
+==================================================
+
+Command:
+!profile @user
+
+Expected:
+
+👤 @User
+Title: Skilled Angler
+Level: 18
+VIP: Active
+Badges: 🎣 🌊 👑
+Collection: 41%
+
+Rules:
+- Do not show private details if privacy disabled.
+- Do not show exact Luxe Tickets of other players unless allowed.
+- Do not expose admin notes or private data.
+- If player not found:
+
+⚠️ Player not found.
+They may need to join first.
+
+==================================================
+PART 5 — PRIVATE DETAILED PROFILE
+==================================================
+
+Command:
+!profile private
+or:
+!stats
+
+Expected whisper/DM if possible:
+
+👤 Private Profile
+Level: 12
+XP: 850/1,200
+🪙 125,000 | 🎫 50
+VIP: Active 29d
+
+Second message:
+
+📖 Collection
+Ore: 14/40
+Fish: 10/35
+Milestones: 2 claimed
+
+Third message:
+
+📋 Progress
+Daily: 2/5
+Weekly: 1/5
+Season: Mining #4
+Streak: Day 5
+
+Rules:
+- Prefer whisper.
+- If true DM exists, optionally send detailed profile to inbox.
+- Keep under 220 characters per message.
+- Only the player can see their private detailed profile.
+- Do not expose private profile to others.
+
+==================================================
+PART 6 — VIP STATUS IN PROFILE
+==================================================
+
+Profile must show VIP duration.
+
+If VIP active:
+
+VIP: Active 29d 4h
+
+If VIP inactive:
+
+VIP: Inactive
+
+If VIP expired:
+- auto-clean status
+- show inactive
+
+If lifetime VIP exists:
+
+VIP: Lifetime
+
+Rules:
+- Do not show “No lifetime VIP”.
+- Use same VIP source as !vip and !vipstatus.
+- Remaining time must match !vip.
+
+==================================================
+PART 7 — BALANCE DISPLAY IN PROFILE
+==================================================
+
+Use:
+
+125,000 🪙
+50 🎫
+
+Do not use:
+125000c
+credits
+tickets without icon
+
+Public profile:
+- Show balances only if player privacy allows.
+- Default recommendation:
+  Public profile can show ChillCoins, but hide Luxe Tickets unless player chooses.
+
+Private profile:
+- Show both 🪙 and 🎫.
+
+Privacy setting:
+!profile settings balance public/private
+
+Default:
+balance private
+
+==================================================
+PART 8 — COLLECTION PROGRESS
+==================================================
+
+Show collection progress from:
+
+!collection
+!orebook
+!fishbook
+
+Expected:
+
+Collection: 28%
+Ore: 14/40
+Fish: 10/35
+
+Rules:
+- Use same source as collection book.
+- Do not recalculate from wrong table.
+- If collection data unavailable:
+
+Collection: Not started
+
+==================================================
+PART 9 — MISSION PROGRESS
+==================================================
+
+Show progress from retention system.
+
+Expected:
+
+Daily: 2/5
+Weekly: 1/5
+
+Use same source as:
+
+!missions
+!weekly
+!today
+
+Rules:
+- Do not show raw mission IDs.
+- If no missions active:
+
+Daily: 0/5
+Weekly: 0/5
+
+==================================================
+PART 10 — SEASON RANK DISPLAY
+==================================================
+
+Show best current season rank.
+
+Expected:
+
+Season Rank: Mining #4
+
+If player ranks in multiple categories, show top/best:
+
+Season: Mining #4, Fishing #9
+
+If not ranked:
+
+Season: Unranked
+
+Rules:
+- Use same source as !topseason.
+- Do not count bots.
+- Keep short.
+
+==================================================
+PART 11 — BADGES IN PROFILE
+==================================================
+
+Use existing badge system.
+
+Profile should show:
+- equipped badge(s)
+- top 3 displayed badges
+- 1/1 badge if equipped
+- staff/bound badge if equipped, but do not show sellable status
+
+Expected:
+
+Badges: 👑 🔥 🎣
+
+If no badges:
+Badges: None
+
+Add command if missing:
+
+!profile badge [emoji]
+or keep existing:
+!setbadge [badge]
+
+Rules:
+- Do not break badge market.
+- Bound/staff badges remain not sellable.
+- No duplicate badge display.
+
+==================================================
+PART 12 — TITLES IN PROFILE
+==================================================
+
+Use existing title system.
+
+Profile should show:
+Title: Lucky Miner
+
+Add or polish:
+
+!titles
+!settitle [title]
+!profile title [title] as alias if safe
+
+Default titles from level:
+Level 5: Rookie Explorer
+Level 10: Lucky Miner
+Level 15: Skilled Angler
+Level 25: Treasure Hunter
+Level 50: ChillTopia Legend
+Level 100: Mythic Collector
+
+Rules:
+- Do not overwrite manually equipped title unless player has none.
+- Unlock title when level reached.
+- No duplicate title unlock spam.
+
+==================================================
+PART 13 — SOCIAL FLEX COMMANDS
+==================================================
+
+Add optional social commands:
+
+!flex
+!flex @user
+!showoff
+!card
+
+Expected:
+
+✨ @Player Flex
+Level 12 Lucky Miner
+Badges: 👑 🔥 🎣
+Collection: 28%
+Season: Mining #4
+
+Rules:
+- Public flex command.
+- Keep short.
+- Do not show private balances unless allowed.
+- No spam.
+- Cooldown 30 seconds per user if needed.
+
+==================================================
+PART 14 — PROFILE PRIVACY SETTINGS
+==================================================
+
+Add:
+
+!profile settings
+!profile settings balance public
+!profile settings balance private
+!profile settings collections public
+!profile settings collections private
+!profile settings badges public
+!profile settings badges private
+!profile settings vip public
+!profile settings vip private
+
+Expected:
+
+⚙️ Profile Settings
+Balance: private
+Collections: public
+Badges: public
+VIP: public
+
+Default:
+Balance: private
+Collections: public
+Badges: public
+VIP: public
+Season: public
+Level: public
+
+Rules:
+- Player controls their own privacy.
+- Owner/admin can still view if needed through admin tools, but do not expose publicly.
+- If setting unknown, use safe default.
+
+==================================================
+PART 15 — PROFILE CARD STORAGE
+==================================================
+
+Add safe/idempotent table if needed:
+
+player_profile_settings:
+user_id TEXT UNIQUE
+username TEXT
+balance_visibility TEXT DEFAULT 'private'
+collection_visibility TEXT DEFAULT 'public'
+badge_visibility TEXT DEFAULT 'public'
+vip_visibility TEXT DEFAULT 'public'
+season_visibility TEXT DEFAULT 'public'
+level_visibility TEXT DEFAULT 'public'
+updated_at TEXT
+
+If profile settings table already exists:
+- migrate safely
+- do not wipe
+
+==================================================
+PART 16 — PLAYER STATS
+==================================================
+
+Track/show player stats if already available:
+
+- total mines
+- total fish/casts
+- trivia correct
+- casino rounds
+- season wins
+- rare finds
+- collection discoveries
+- tips sent/received if already tracked
+
+Command:
+
+!stats
+
+Expected private output:
+
+📊 Stats
+Mines: 1,240
+Fish: 880
+Trivia: 45
+Rare Finds: 12
+Casino: 33 rounds
+
+Rules:
+- Use existing stats if available.
+- Do not create fake values.
+- If stat unavailable, hide it.
+- Keep short.
+
+==================================================
+PART 17 — PROFILE ADMIN TOOLS
+==================================================
+
+Add or polish:
+
+!profileadmin
+!profileadmin view @user
+!profileadmin resetprivacy @user
+!profileadmin refresh @user
+!profileadmin rebuild
+
+Expected:
+
+🛠️ Profile Admin
+!profileadmin view @user
+!profileadmin resetprivacy @user
+!profileadmin refresh @user
+
+Rules:
+- Owner/Admin only.
+- Do not expose private info to normal staff unless allowed.
+- Useful for fixing broken profile data.
+- Do not wipe player progress.
+
+==================================================
+PART 18 — HELP UPDATES
+==================================================
+
+Update:
+
+!help
+!guide
+!profile
+!profile help
+!help profile
+!badges
+!titles
+!vip
+!collection
+!missions
+!season
+
+Expected profile help:
+
+👤 Profile Help
+!profile — public card
+!profile @user
+!stats — private details
+!profile settings
+
+Second message:
+
+Identity:
+!setbadge [badge]
+!settitle [title]
+!flex — public flex
+
+Rules:
+- No broken commands.
+- No admin commands in public help.
+- No reward cap text.
+- Use 🪙 and 🎫 icons.
+
+==================================================
+PART 19 — PROFILE INTEGRATION CHECK
+==================================================
+
+Profile must read from same sources as:
+
+!balance
+!vip
+!level
+!collection
+!missions
+!weekly
+!season
+!badges
+!titles
+
+Do not create duplicate profile-only values.
+
+If a source is unavailable:
+- show fallback
+- do not crash
+
+==================================================
+PART 20 — COMMAND REGISTRY
+==================================================
+
+Register/verify:
+
+!profile
+!me
+!myprofile
+!stats
+!flex
+!showoff
+!card
+!profileadmin
+
+Expected:
+route=YES
+handler=YES
+owner not UNKNOWN
+
+If optional commands are skipped:
+- hide them
+- do not show in help
+- do not count as command issue
+
+==================================================
+PART 21 — TESTS: PROFILE SELF
+==================================================
+
+Run:
+
+!profile
+!me
+!stats
+!profile private
+
+Expected:
+- profile loads
+- no crash
+- level/XP shown
+- VIP duration shown
+- badge/title shown
+- collection shown
+- daily/weekly shown
+- currency uses 🪙 and 🎫
+
+==================================================
+PART 22 — TESTS: PROFILE OTHER USER
+==================================================
+
+Run:
+
+!profile @existingUser
+
+Expected:
+- public profile only
+- privacy respected
+- no private Luxe Ticket balance unless allowed
+- no crash
+
+Run unknown:
+
+!profile @fakeUser
+
+Expected:
+⚠️ Player not found.
+
+==================================================
+PART 23 — TESTS: PROFILE PRIVACY
+==================================================
+
+Run:
+
+!profile settings
+!profile settings balance public
+!profile
+!profile settings balance private
+!profile
+
+Expected:
+- settings update
+- balance visibility changes
+- private profile still shows full balance
+
+==================================================
+PART 24 — TESTS: BADGES/TITLES/FLEX
+==================================================
+
+Run:
+
+!badges
+!titles
+!settitle Lucky Miner
+!profile
+!flex
+
+Expected:
+- title appears
+- badges appear
+- flex uses public-safe profile
+- no badge market issues
+
+==================================================
+PART 25 — FINAL QA
+==================================================
+
+Run:
+
+!commandtest !profile
+!commandtest !me
+!commandtest !myprofile
+!commandtest !stats
+!commandtest !flex
+!commandtest !showoff
+!commandtest !card
+!commandtest !profileadmin
+
+!commandissues
+!checkcommands
+!checkhelp
+!launchcheck
+!bothealth
+!stability status
+
+Expected:
+- no command issues
+- no no-owner commands
+- no help issues
+- no reward cap text
+- no HR Gold rewards
+- profile works
+- launchcheck clean
+
+==================================================
+PART 26 — FINAL REPORT
+==================================================
+
+Report:
+1. !profile polished.
+2. !profile @user added.
+3. !stats/private profile added.
+4. VIP duration shows in profile.
+5. ChillCoins/Luxe Tickets display correctly.
+6. Collection progress integrated.
+7. Daily/weekly mission progress integrated.
+8. Season rank integrated.
+9. Badges integrated.
+10. Titles integrated.
+11. Flex/showoff command added or skipped.
+12. Profile privacy settings added.
+13. Profile admin tools added or skipped.
+14. Help/guides updated.
+15. No duplicate profile data sources.
+16. !commandissues result.
+17. !checkhelp result.
+18. !launchcheck result.

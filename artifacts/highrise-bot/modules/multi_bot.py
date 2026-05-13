@@ -78,6 +78,9 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "autoconvert": "banker",
     "tipadmin": "banker", "tipconfig": "banker",
     "economydefaults": "banker",
+    # 3.1L — profile + social commands
+    "myprofile": "host", "flex": "host", "showoff": "host", "card": "host",
+    "profilesettings": "host", "profilehelp": "host",
     # 3.1K — new event sub-command aliases
     "eventschedule": "host", "eventactive": "host", "eventnext": "host",
     "seasonpayout": "host", "payouthistory": "host",

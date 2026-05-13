@@ -223,6 +223,9 @@ from modules.profile import (
     handle_profileadmin,
     handle_profileprivacy,
     handle_resetprofileprivacy,
+    handle_flex,
+    handle_profile_settings,
+    handle_profile_help,
 )
 from modules.dashboard import handle_wallet, handle_casino_dash, handle_dashboard
 from modules.audit import (
@@ -3845,11 +3848,20 @@ class HangoutBot(BaseBot):
         elif cmd == "p2pgolddebug":
             await handle_p2pgolddebug(self, user, args)
 
-        elif cmd in {"profile", "me", "whois", "pinfo"}:
+        elif cmd in {"profile", "me", "whois", "pinfo", "myprofile"}:
             await handle_profile_cmd(self, user, args)
 
         elif cmd == "stats":
             await handle_stats_cmd(self, user, args)
+
+        elif cmd in {"flex", "showoff", "card"}:
+            await handle_flex(self, user, args)
+
+        elif cmd == "profilesettings":
+            await handle_profile_settings(self, user, ["profile", "settings"] + args[1:])
+
+        elif cmd == "profilehelp":
+            await handle_profile_help(self, user)
 
         elif cmd in {"badges", "badgeshop"}:
             await handle_badges_cmd_router(self, user, args)
