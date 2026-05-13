@@ -1,0 +1,546 @@
+UPDATE 3.1H HOTFIX — FIX COLLECTION COMMAND ROUTES + FISHBOOK CRASH + TRUE DM SUMMARY
+
+Current live issues:
+1. !commandissues shows 6 no-route:
+   !collectbook
+   !collection
+   !mybook
+   !topcollectors
+   !topore
+   !toporecollectors
+
+2. !fishbook crashes:
+   ⚠️ Command error logged. Bot stayed online.
+
+3. !fishbook missing also crashes.
+
+4. Auto-mining/autofishing completion summary only whispers in room.
+   I want a real direct message/inbox DM to the player after completion showing what they got.
+
+Goal:
+Make collection book commands stable and make auto-mine/fish completion summaries send true direct messages when supported.
+
+Do not change tokens.
+Do not change room ID.
+Do not wipe database.
+Do not reset balances, VIP, badges, casino, blackjack, leaderboards, mining/fishing inventory, or player data.
+Do not change mining odds.
+Do not change fishing odds.
+Do not re-add reward caps.
+Do not add cap text.
+
+==================================================
+PART 1 — FIX COMMAND ROUTES
+==================================================
+
+Make sure these commands are registered with route + handler + owner:
+
+!collection
+!collectbook
+!mybook
+!orebook
+!fishbook
+!topcollectors
+!topore
+!toporecollectors
+!topfish
+!topfishcollectors
+!rarelog
+
+Expected owner:
+ChillTopiaMC for general collection
+MasterAngler for fishing commands
+Mining bot/ChillTopiaMC for mining commands
+
+Acceptable:
+All collection commands owned by ChillTopiaMC if simpler.
+
+Expected:
+
+!commandtest !collection
+route=YES
+handler=YES
+owner not UNKNOWN
+
+Aliases:
+!collectbook = !collection
+!mybook = !collection
+!topore = !toporecollectors
+!topfish = !topfishcollectors
+
+If an alias is not implemented:
+- hide it
+- do not show it in help
+- do not count it as command issue
+
+==================================================
+PART 2 — FIX !FISHBOOK CRASH
+==================================================
+
+!fishbook must never crash.
+
+Commands to support:
+
+!fishbook
+!fishbook all
+!fishbook common
+!fishbook uncommon
+!fishbook rare
+!fishbook epic
+!fishbook legendary
+!fishbook mythic
+!fishbook missing
+!fishbook 1
+!fishbook rare 2
+
+If bad filter:
+⚠️ Use: !fishbook rare, missing, all
+
+If player has no fish discoveries:
+
+🎣 Fish Book
+No catches yet.
+Try !fish.
+
+If database/table missing:
+- create table safely
+- return empty book
+- do not crash
+
+If fish drop table cannot be found:
+🎣 Fish Book
+No fish catalog found yet.
+Try !fish first.
+
+Rules:
+- Use try/except around handler.
+- Log traceback to console.
+- Player response should be helpful, not generic command error.
+- Keep under 220 characters.
+- Whisper or DM if possible.
+
+==================================================
+PART 3 — FIX !OREBOOK SAME WAY
+==================================================
+
+Make !orebook stable too.
+
+Commands:
+
+!orebook
+!orebook all
+!orebook common
+!orebook uncommon
+!orebook rare
+!orebook epic
+!orebook legendary
+!orebook mythic
+!orebook missing
+!orebook 1
+!orebook rare 2
+
+If no ore discoveries:
+
+⛏️ Ore Book
+No mining discoveries yet.
+Try !mine.
+
+No crashes.
+
+==================================================
+PART 4 — COLLECTION COMMAND FORMAT
+==================================================
+
+!collection / !collectbook / !mybook should show:
+
+📖 Collection Book
+Mining: 12/40
+Fishing: 9/35
+Total: 21/75
+Use !orebook or !fishbook.
+
+If empty:
+
+📖 Collection Book
+No discoveries yet.
+Try !mine or !fish.
+
+Rules:
+- Do not dump all items.
+- Keep short.
+- Whisper/DM if possible.
+
+==================================================
+PART 5 — FISHBOOK MISSING FORMAT
+==================================================
+
+!fishbook missing should show undiscovered fish safely.
+
+Expected:
+
+🎣 Missing Fish
+❔ Rare Fish
+❔ Epic Fish
+Page 1/2
+
+If names should stay hidden:
+Use:
+❔ Unknown Rare
+❔ Unknown Epic
+
+Do not crash if missing list is empty.
+
+If complete:
+
+🎣 Missing Fish
+You discovered all fish!
+
+==================================================
+PART 6 — OREBOOK MISSING FORMAT
+==================================================
+
+!orebook missing should show undiscovered ores safely.
+
+Expected:
+
+⛏️ Missing Ores
+❔ Unknown Rare
+❔ Unknown Epic
+Page 1/2
+
+If complete:
+
+⛏️ Missing Ores
+You discovered all ores!
+
+==================================================
+PART 7 — TOP COLLECTOR ROUTES
+==================================================
+
+Implement or fix:
+
+!topcollectors
+!toporecollectors
+!topfishcollectors
+
+Aliases:
+!topore = !toporecollectors
+!topfish = !topfishcollectors
+
+Expected:
+
+🏆 Top Collectors
+1. @Player — 48/75
+2. @User — 31/75
+
+Ore:
+
+⛏️ Top Ore Collectors
+1. @Player — 25/40
+
+Fish:
+
+🎣 Top Fish Collectors
+1. @Player — 20/35
+
+Rules:
+- Count unique discovered items.
+- Do not include bots.
+- No rewards needed.
+- No reward caps.
+
+==================================================
+PART 8 — TRUE DIRECT MESSAGE FOR AUTO SUMMARY
+==================================================
+
+Current problem:
+Auto-mining/autofishing summary only uses room whisper.
+
+Goal:
+Send a true direct message/inbox DM to the player after auto-mining or auto-fishing completes.
+
+Implementation priority:
+
+1. Try true Highrise direct message / inbox DM API if SDK supports it.
+   Examples to check:
+   - send_message
+   - send_direct_message
+   - send_dm
+   - create_conversation
+   - inbox message API
+   - any Highrise SDK DM method available in this project
+
+2. If true DM API is unavailable in the current SDK:
+   - save the summary to database
+   - whisper a short fallback:
+     "I saved your auto summary. Use !lastminesummary or !lastfishsummary."
+   - still do NOT spam public chat
+
+Important:
+A room whisper is not the same as direct message.
+Use true DM/inbox if supported.
+
+==================================================
+PART 9 — AUTO-MINING TRUE DM SUMMARY
+==================================================
+
+When automining completes, send true DM:
+
+Subject/title if supported:
+Auto-Mining Summary
+
+Body:
+
+⛏️ Auto-Mining Complete
+Mined: 25
+Earned: 3,450c
+Best: Mythril Ore
+New: 2 | Rare: 1
+
+Second DM if needed:
+
+📖 Ore Book
+Progress: 14/40
+New: Silver Ore, Mythril Ore
+
+Rules:
+- Send after completion, stop, cancel, inventory full, or error-safe stop.
+- Include all items summary if possible.
+- Do not send giant spam.
+- Top 3 item names is enough.
+- No reward cap text.
+- If true DM fails, save summary and whisper fallback.
+
+==================================================
+PART 10 — AUTO-FISHING TRUE DM SUMMARY
+==================================================
+
+When autofishing completes, send true DM:
+
+Subject/title if supported:
+Auto-Fishing Summary
+
+Body:
+
+🎣 Auto-Fishing Complete
+Casts: 25
+Earned: 2,900c
+Best: Golden Koi
+New: 1 | Rare: 2
+
+Second DM if needed:
+
+📖 Fish Book
+Progress: 10/35
+New: Golden Koi
+
+Rules:
+- Send after completion, stop, cancel, inventory full, or error-safe stop.
+- No public spam.
+- No reward cap text.
+- If true DM fails, save summary and whisper fallback.
+
+==================================================
+PART 11 — SAVED SUMMARY FALLBACK
+==================================================
+
+Add commands:
+
+!lastminesummary
+!lastfishsummary
+
+If true DM fails, player can retrieve summary.
+
+!lastminesummary:
+
+⛏️ Last Mining Summary
+Mined: 25
+Earned: 3,450c
+Best: Mythril Ore
+New: 2 | Rare: 1
+
+!lastfishsummary:
+
+🎣 Last Fishing Summary
+Casts: 25
+Earned: 2,900c
+Best: Golden Koi
+New: 1 | Rare: 2
+
+Register routes if added.
+If not added, do not show in help.
+
+==================================================
+PART 12 — COLLECTION DB SAFETY
+==================================================
+
+If collection table is missing, create it safely.
+
+Suggested table:
+
+player_collection:
+id INTEGER PRIMARY KEY AUTOINCREMENT
+user_id TEXT
+username TEXT
+collection_type TEXT
+item_key TEXT
+item_name TEXT
+rarity TEXT
+first_seen_at TEXT
+last_seen_at TEXT
+count INTEGER DEFAULT 0
+best_value INTEGER DEFAULT 0
+
+Unique:
+user_id + collection_type + item_key
+
+Also optional summary table:
+
+auto_session_summaries:
+id INTEGER PRIMARY KEY AUTOINCREMENT
+user_id TEXT
+username TEXT
+summary_type TEXT
+summary_text TEXT
+created_at TEXT
+
+Do not wipe existing data.
+
+==================================================
+PART 13 — HELP UPDATE
+==================================================
+
+Update help to show only working commands:
+
+Collection help:
+📖 Collection Help
+!collection
+!orebook
+!fishbook
+!topcollectors
+!rarelog
+
+Mining help:
+⛏️ Mining Help
+!mine
+!automine
+!orebook
+!toporecollectors
+!lastminesummary
+
+Fishing help:
+🎣 Fishing Help
+!fish
+!autofish
+!fishbook
+!topfishcollectors
+!lastfishsummary
+
+Only show !lastminesummary / !lastfishsummary if implemented.
+
+No broken aliases.
+No cap text.
+
+==================================================
+PART 14 — TESTS
+==================================================
+
+Run:
+
+!commandtest !collection
+!commandtest !collectbook
+!commandtest !mybook
+!commandtest !orebook
+!commandtest !fishbook
+!commandtest !topcollectors
+!commandtest !topore
+!commandtest !toporecollectors
+!commandtest !topfish
+!commandtest !topfishcollectors
+!commandtest !rarelog
+
+Expected:
+- route=YES or hidden if skipped
+- handler=YES if shown
+- owner not UNKNOWN
+- no no-route issues
+
+Run:
+
+!fishbook
+!fishbook missing
+!orebook
+!orebook missing
+!collection
+!topcollectors
+
+Expected:
+- no command error
+- no crash
+- useful output
+
+==================================================
+PART 15 — AUTO SUMMARY DM TEST
+==================================================
+
+Run:
+
+!automine
+
+Let it finish.
+
+Expected:
+- true DM/inbox summary sent if SDK supports it
+- if true DM unsupported, summary saved and fallback whisper tells user how to retrieve it
+- no public spam
+
+Run:
+
+!autofish
+
+Expected same behavior.
+
+Then test fallback commands if added:
+
+!lastminesummary
+!lastfishsummary
+
+==================================================
+PART 16 — FINAL QA
+==================================================
+
+Run:
+
+!commandissues
+!checkcommands
+!checkhelp
+!launchcheck
+!bothealth
+!stability status
+
+Expected:
+- no no-route collection commands
+- no fishbook crash
+- no orebook crash
+- no reward cap text
+- launchcheck clean
+
+==================================================
+PART 17 — FINAL REPORT
+==================================================
+
+Report:
+1. !fishbook crash fixed.
+2. !fishbook missing fixed.
+3. !orebook stable.
+4. !collection aliases routed or hidden.
+5. Top collector routes fixed.
+6. Collection DB migration safe.
+7. True DM attempted for automining summary.
+8. True DM attempted for autofishing summary.
+9. Fallback saved summary added if true DM unsupported.
+10. !lastminesummary added or skipped.
+11. !lastfishsummary added or skipped.
+12. !commandissues result.
+13. !checkhelp result.
+14. !launchcheck result.

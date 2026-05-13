@@ -2051,6 +2051,16 @@ def _migrate_db():
             best_value      INTEGER NOT NULL DEFAULT 0,
             UNIQUE(user_id, collection_type, item_key)
         )""",
+        # ── Auto-session summaries (3.1H hotfix) ───────────────────────────────
+        """CREATE TABLE IF NOT EXISTS auto_session_summaries (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id      TEXT    NOT NULL DEFAULT '',
+            username     TEXT    NOT NULL DEFAULT '',
+            summary_type TEXT    NOT NULL DEFAULT '',
+            summary_text TEXT    NOT NULL DEFAULT '',
+            created_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+            UNIQUE(user_id, summary_type)
+        )""",
     ]:
         try:
             conn.execute(sql)
@@ -12352,6 +12362,39 @@ def get_mining_totals_by_rarity() -> dict:
         return {r["rarity"]: r["n"] for r in rows}
     except Exception:
         return {}
+
+
+def save_auto_session_summary(user_id: str, username: str, stype: str, text: str) -> None:
+    """Save (or replace) an auto-session summary for a player. stype: 'mining' or 'fishing'."""
+    try:
+        conn = get_connection()
+        conn.execute(
+            """INSERT INTO auto_session_summaries
+                   (user_id, username, summary_type, summary_text, created_at)
+               VALUES (?, ?, ?, ?, datetime('now'))
+               ON CONFLICT(user_id, summary_type) DO UPDATE SET
+                   summary_text = excluded.summary_text,
+                   created_at   = excluded.created_at""",
+            (user_id, username.lower(), stype, text),
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+
+def get_auto_session_summary(user_id: str, stype: str) -> str:
+    """Retrieve the last saved auto-session summary text. Returns '' if none."""
+    try:
+        conn = get_connection()
+        row  = conn.execute(
+            "SELECT summary_text FROM auto_session_summaries WHERE user_id=? AND summary_type=?",
+            (user_id, stype),
+        ).fetchone()
+        conn.close()
+        return row["summary_text"] if row else ""
+    except Exception:
+        return ""
 
 
 # ── Subscriber notification preferences ───────────────────────────────────────

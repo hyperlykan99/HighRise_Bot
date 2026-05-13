@@ -249,6 +249,13 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     "maintenance", "reloadsettings", "cleanup",
     "trivia", "scramble", "riddle", "coinflip",
     "reporthelp",
+    # ── collection book (3.1H) ────────────────────────────────────────────────
+    "collection", "mybook", "collectbook",
+    "topcollectors", "topore", "toporecollectors",
+    "topfishcollectors", "fishcollectors",
+    "orebook", "fishbook",
+    "rarelog",
+    "lastminesummary", "lastfishsummary",
     # ── shop / badge market (public elif branches) ───────────────────────────
     "mybadges", "confirmbuy",
     "badgemarket", "badgebuy", "badgelist", "badgecancel",

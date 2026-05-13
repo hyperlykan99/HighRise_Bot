@@ -459,7 +459,10 @@ from modules.fishing import (
     handle_forcedropfishstatus, handle_forcedropfishdebug,
     handle_clearforcedropfish,
 )
-from modules.collection import handle_collection, handle_topcollectors
+from modules.collection import (
+    handle_collection, handle_topcollectors, handle_rarelog,
+    handle_lastminesummary, handle_lastfishsummary,
+)
 from modules.safe_mode import handle_safemode, handle_active, handle_repair
 from modules.leaderboards import (
     handle_toprich, handle_topminers, handle_topfishers, handle_topstreaks,
@@ -952,6 +955,7 @@ ALL_KNOWN_COMMANDS = (
         "orebook", "oremastery", "claimoremastery", "orestats",
         "collection", "mybook", "collectbook",
         "topcollectors", "topore", "toporecollectors",
+        "rarelog", "lastminesummary",
         "contracts", "miningjobs", "job", "deliver", "claimjob", "rerolljob",
         "minehelp",
         # Mining game — staff commands
@@ -1082,6 +1086,7 @@ ALL_KNOWN_COMMANDS = (
         "forcedropfishdebug", "clearforcedropfish", "clearforceddropfish",
         "forcefishdrop", "forcefish", "forcefishdropfish",
         "forcefishstatus", "clearforcefish",
+        "topfishcollectors", "fishcollectors", "lastfishsummary",
     }
     | ECONOMY_COMMANDS | PROFILE_COMMANDS | GAME_COMMANDS
     | SHOP_COMMANDS | ACHIEVEMENT_COMMANDS | BJ_COMMANDS
@@ -5519,6 +5524,9 @@ class HangoutBot(BaseBot):
         elif cmd in {"topfishcollectors", "fishcollectors"}:
             await handle_topcollectors(self, user, ["topcollectors", "fish"])
 
+        elif cmd == "lastfishsummary":
+            await handle_lastfishsummary(self, user, args)
+
         elif cmd in {"fishautosell", "autosellfish"}:
             await handle_fishautosell(self, user, args)
 
@@ -5653,6 +5661,12 @@ class HangoutBot(BaseBot):
 
         elif cmd in {"collection", "mybook", "collectbook"}:
             await handle_collection(self, user, args)
+
+        elif cmd == "rarelog":
+            await handle_rarelog(self, user, args)
+
+        elif cmd == "lastminesummary":
+            await handle_lastminesummary(self, user, args)
 
         elif cmd in {"topcollectors", "topore", "toporecollectors"}:
             if cmd == "topore":

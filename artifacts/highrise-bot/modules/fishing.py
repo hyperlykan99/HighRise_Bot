@@ -828,93 +828,116 @@ _FISH_BOOK_PER = 5
 async def handle_fishbook(bot: BaseBot, user: User, args: list) -> None:
     """/fishbook [rarity|missing|all|rarelog] [page] — fish collection book."""
     uid = user.id
-    sub = args[1].lower() if len(args) > 1 else ""
     try:
-        page = max(1, int(args[2])) if len(args) > 2 and args[2].isdigit() else 1
-    except (ValueError, IndexError):
-        page = 1
+        sub = args[1].lower() if len(args) > 1 else ""
+        # Accept digit-only arg as page number for !fishbook 2
+        if sub.isdigit():
+            page = max(1, int(sub))
+            sub  = ""
+        else:
+            try:
+                page = max(1, int(args[2])) if len(args) > 2 and args[2].isdigit() else 1
+            except (ValueError, IndexError):
+                page = 1
 
-    from collections import defaultdict as _dd
-    cat: dict = _dd(list)
-    for f in FISH_ITEMS:
-        cat[f["rarity"]].append(f)
-    totals_rar = {r: len(v) for r, v in cat.items()}
-    grand_t    = sum(totals_rar.values())
+        from collections import defaultdict as _dd
+        cat: dict = _dd(list)
+        for f in FISH_ITEMS:
+            cat[f["rarity"]].append(f)
+        totals_rar = {r: len(v) for r, v in cat.items()}
+        grand_t    = sum(totals_rar.values())
 
-    found   = db.get_player_collection(uid, "fishing")
-    found_d = {r["item_key"]: r for r in found}
-    by_rar: dict = {}
-    for r in found:
-        by_rar.setdefault(r["rarity"], []).append(r)
+        found   = db.get_player_collection(uid, "fishing")
+        found_d = {r["item_key"]: r for r in found}
+        by_rar: dict = {}
+        for r in found:
+            by_rar.setdefault(r["rarity"], []).append(r)
 
-    valid = set(_FISH_RAR_ORDER) | {"missing", "all", "rarelog"}
+        valid = set(_FISH_RAR_ORDER) | {"missing", "all", "rarelog"}
 
-    # ── Overview ──────────────────────────────────────────────────────────────
-    if not sub or sub not in valid:
-        if not found:
-            await _w(bot, uid, "🎣 Fish Book\nNo catches yet. !fish to start!")
+        # ── Bad filter hint ────────────────────────────────────────────────────
+        if sub and sub not in valid:
+            await _w(bot, uid,
+                     "⚠️ Use: !fishbook rare, epic, legendary,\n"
+                     "  mythic, prismatic, exotic, missing, all")
             return
-        parts = [
-            f"{_FISH_RAR_ABBR.get(r, r[:3])}:{len(by_rar.get(r,[]))}/{totals_rar.get(r,0)}"
-            for r in _FISH_RAR_ORDER if totals_rar.get(r, 0) > 0
-        ]
-        out = f"🎣 Fish Book — {len(found)}/{grand_t}\n" + "  ".join(parts[:4])
-        if parts[4:]:
-            out += "\n" + "  ".join(parts[4:])
-        out += "\n!fishbook <rarity>  !fishbook missing"
-        await _w(bot, uid, out[:249])
-        return
 
-    # ── Rarelog ───────────────────────────────────────────────────────────────
-    if sub == "rarelog":
-        _rset = {"epic", "legendary", "mythic", "prismatic", "exotic"}
-        items = [r for r in found if r["rarity"] in _rset]
-        if not items:
-            await _w(bot, uid, "🎣 Rare Log\nNo rare fish discovered yet.")
+        # ── Overview ──────────────────────────────────────────────────────────
+        if not sub:
+            if not found:
+                await _w(bot, uid,
+                         "🎣 Fish Book\nNo catches yet.\nTry !fish.")
+                return
+            parts = [
+                f"{_FISH_RAR_ABBR.get(r, r[:3])}:{len(by_rar.get(r,[]))}/{totals_rar.get(r,0)}"
+                for r in _FISH_RAR_ORDER if totals_rar.get(r, 0) > 0
+            ]
+            out = f"🎣 Fish Book — {len(found)}/{grand_t}\n" + "  ".join(parts[:4])
+            if len(parts) > 4:
+                out += "\n" + "  ".join(parts[4:])
+            out += "\n!fishbook <rarity>  !fishbook missing"
+            await _w(bot, uid, out[:249])
             return
-        lines = [f"🎣 Rare Log ({len(items)} types)"]
-        for r in items[:6]:
-            lines.append(f"✅ {r['item_name']} x{r['count']}")
-        if len(items) > 6:
-            lines.append(f"+{len(items)-6} more")
+
+        # ── Rarelog ───────────────────────────────────────────────────────────
+        if sub == "rarelog":
+            _rset = {"epic", "legendary", "mythic", "prismatic", "exotic"}
+            items = [r for r in found if r["rarity"] in _rset]
+            if not items:
+                await _w(bot, uid, "🎣 Rare Log\nNo rare fish discovered yet.")
+                return
+            lines = [f"🎣 Rare Log ({len(items)} types)"]
+            for r in items[:6]:
+                lines.append(f"✅ {r['item_name']} x{r['count']}")
+            if len(items) > 6:
+                lines.append(f"+{len(items)-6} more")
+            await _w(bot, uid, "\n".join(lines)[:249])
+            return
+
+        # ── Build paginated list ───────────────────────────────────────────────
+        if sub == "missing":
+            lst = [
+                {"label": f"❔ {f['name']}"}
+                for r in _FISH_RAR_ORDER
+                for f in cat.get(r, [])
+                if f["fish_id"] not in found_d
+            ]
+            if not lst:
+                await _w(bot, uid, "🎣 Missing Fish\nYou discovered all fish!")
+                return
+            hdr = f"🎣 Missing ({len(lst)}/{grand_t})"
+        elif sub == "all":
+            _key = lambda x: (_FISH_RAR_ORDER.index(x["rarity"])
+                              if x["rarity"] in _FISH_RAR_ORDER else 99,
+                              x["item_name"])
+            lst = [{"label": f"✅ {r['item_name']} x{r['count']}"}
+                   for r in sorted(found, key=_key)]
+            hdr = f"🎣 All Discovered ({len(lst)}/{grand_t})"
+        else:
+            rar = sub
+            lst = []
+            for f in cat.get(rar, []):
+                if f["fish_id"] in found_d:
+                    lst.append({"label": f"✅ {f['name']} x{found_d[f['fish_id']]['count']}"})
+                else:
+                    lst.append({"label": f"❔ {f['name']}"})
+            disc_r = len(by_rar.get(rar, []))
+            hdr    = f"🎣 {rar.replace('_', ' ').title()} ({disc_r}/{totals_rar.get(rar, 0)})"
+
+        total_p = max(1, (len(lst) + _FISH_BOOK_PER - 1) // _FISH_BOOK_PER)
+        page    = min(page, total_p)
+        chunk   = lst[(page - 1) * _FISH_BOOK_PER: page * _FISH_BOOK_PER]
+        lines   = [hdr] + [it["label"] for it in chunk]
+        if total_p > 1:
+            nxt = f"  !fishbook {sub} {page + 1}" if page < total_p else ""
+            lines.append(f"Pg {page}/{total_p}{nxt}")
         await _w(bot, uid, "\n".join(lines)[:249])
-        return
 
-    # ── Build paginated list ──────────────────────────────────────────────────
-    if sub == "missing":
-        lst = [
-            {"label": f"❔ {f['name']}"}
-            for r in _FISH_RAR_ORDER
-            for f in cat.get(r, [])
-            if f["fish_id"] not in found_d
-        ]
-        hdr = f"🎣 Missing ({len(lst)}/{grand_t})"
-    elif sub == "all":
-        _key = lambda x: (_FISH_RAR_ORDER.index(x["rarity"])
-                          if x["rarity"] in _FISH_RAR_ORDER else 99,
-                          x["item_name"])
-        lst = [{"label": f"✅ {r['item_name']} x{r['count']}"}
-               for r in sorted(found, key=_key)]
-        hdr = f"🎣 All Discovered ({len(lst)}/{grand_t})"
-    else:
-        rar = sub
-        lst = []
-        for f in cat.get(rar, []):
-            if f["fish_id"] in found_d:
-                lst.append({"label": f"✅ {f['name']} x{found_d[f['fish_id']]['count']}"})
-            else:
-                lst.append({"label": f"❔ {f['name']}"})
-        disc_r = len(by_rar.get(rar, []))
-        hdr    = f"🎣 {rar.replace('_', ' ').title()} ({disc_r}/{totals_rar.get(rar, 0)})"
-
-    total_p = max(1, (len(lst) + _FISH_BOOK_PER - 1) // _FISH_BOOK_PER)
-    page    = min(page, total_p)
-    chunk   = lst[(page - 1) * _FISH_BOOK_PER: page * _FISH_BOOK_PER]
-    lines   = [hdr] + [it["label"] for it in chunk]
-    if total_p > 1:
-        nxt = f"  !fishbook {sub} {page + 1}" if page < total_p else ""
-        lines.append(f"Pg {page}/{total_p}{nxt}")
-    await _w(bot, uid, "\n".join(lines)[:249])
+    except Exception:
+        import traceback; traceback.print_exc()
+        await _w(bot, uid,
+                 "🎣 Fish Book\nCould not load book. Try again.\n"
+                 "!fishbook rare  !fishbook missing  !fishbook all")
 
 
 async def handle_fishautosell(bot: BaseBot, user: User, args: list[str]) -> None:
@@ -1307,7 +1330,7 @@ def _get_af_setting(key: str, default: str) -> str:
 
 async def _send_autofish_summary(bot: BaseBot, uid: str, uname: str,
                                  stats: dict) -> None:
-    """Whisper AutoFish session summary to player."""
+    """Whisper AutoFish session summary and save it for !lastfishsummary."""
     casts   = stats.get("count", 0)
     earned  = stats.get("value", 0)
     best    = stats.get("best_name", "—")
@@ -1317,10 +1340,8 @@ async def _send_autofish_summary(bot: BaseBot, uid: str, uname: str,
             f"Casts: {casts}  Earned: {_fmt(earned)}c\n"
             f"Best: {best}\n"
             f"New: {new_cnt} | Rare: {rare_ct}")
-    try:
-        await bot.highrise.send_whisper(uid, msg1[:249])
-    except Exception:
-        pass
+    saved_text = msg1
+    msg2 = ""
     if new_cnt > 0:
         disc  = stats["new_discoveries"][:3]
         names = ", ".join(disc)
@@ -1330,6 +1351,16 @@ async def _send_autofish_summary(bot: BaseBot, uid: str, uname: str,
         total_t    = len(FISH_ITEMS)
         msg2 = (f"📖 Fish Book: {total_fish}/{total_t} discovered\n"
                 f"New: {names}")
+        saved_text = f"{msg1}\n{msg2}"
+    try:
+        db.save_auto_session_summary(uid, uname, "fishing", saved_text[:500])
+    except Exception:
+        pass
+    try:
+        await bot.highrise.send_whisper(uid, msg1[:249])
+    except Exception:
+        pass
+    if msg2:
         try:
             await bot.highrise.send_whisper(uid, msg2[:249])
         except Exception:

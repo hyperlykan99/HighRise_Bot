@@ -161,7 +161,10 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "orebook": "miner", "oremastery": "miner", "claimoremastery": "miner", "orestats": "miner",
     "collection": "miner", "mybook": "miner", "collectbook": "miner",
     "topcollectors": "miner", "topore": "miner", "toporecollectors": "miner",
+    "rarelog": "miner",
+    "lastminesummary": "miner",
     "topfishcollectors": "fisher", "fishcollectors": "fisher",
+    "lastfishsummary": "fisher",
     "contracts": "miner", "miningjobs": "miner",
     "job": "miner", "deliver": "miner", "claimjob": "miner", "rerolljob": "miner",
     # ── shopkeeper ──────────────────────────────────────────────────────────
