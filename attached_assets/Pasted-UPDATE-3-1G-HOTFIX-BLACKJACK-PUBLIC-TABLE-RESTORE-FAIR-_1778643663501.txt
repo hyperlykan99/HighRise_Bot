@@ -1,0 +1,905 @@
+UPDATE 3.1G HOTFIX — BLACKJACK PUBLIC TABLE RESTORE + FAIR PAYOUTS + BONUS SYSTEM
+
+Goal:
+Fix blackjack restart/restore bugs, improve public blackjack table display, remove blackjack color coding, retain card emojis, fix natural blackjack payout fairness, and add a clear bonus system.
+
+Current bug:
+After bot restart, blackjack restores the table but dealer cards/state can become corrupted.
+
+Bad example:
+Dealer shows: K♥️
+Bot restarts
+Dealer reveals: = 0
+Dealer hits 7♥️. Hand: 7♥️ = 7
+
+This is wrong.
+Dealer must never lose the original visible card or hidden card.
+
+Do not change bot tokens.
+Do not change room ID.
+Do not wipe database.
+Do not reset balances, VIP, badges, titles, inventories, leaderboards, donations, market data, mining/fishing data, teleports, bot spawns, or command registry.
+Do not change deck composition.
+Do not change card randomness.
+Do not change casino odds.
+Do not rewrite the entire casino system.
+Only fix blackjack state, display, timer restore, payouts, and bonus handling.
+
+==================================================
+PART 1 — BLACKJACK STATE MUST RESTORE SAFELY
+==================================================
+
+When bot restarts during blackjack:
+
+Expected behavior:
+1. Restore the same blackjack table.
+2. Restore the same dealer cards.
+3. Restore the same player hands.
+4. Restore the same bets.
+5. Restore player action states.
+6. Restart the action timer.
+7. Re-show the full public table state.
+8. Continue the round safely.
+
+Do NOT:
+- redraw cards after restart
+- reset dealer hand
+- reset player hands
+- reset bets
+- duplicate payouts
+- start dealer from total 0
+- run dealer play twice
+- start multiple action timers
+
+If saved state is valid:
+Continue round.
+
+If saved state is corrupted:
+Refund all active bets.
+Cancel round.
+Clear blackjack table.
+Send:
+
+⚠️ Blackjack round restore failed.
+Bets refunded. Start again with !bet [amount].
+
+==================================================
+PART 2 — DEALER HAND SINGLE SOURCE OF TRUTH
+==================================================
+
+Dealer cards must be stored as one list:
+
+dealer_cards = [visible_card, hidden_card]
+
+At round start:
+- draw dealer visible card
+- draw dealer hidden card
+- store both in dealer_cards immediately
+- persist dealer_cards in blackjack table state
+
+Do not store only visible card separately and forget hidden card.
+Do not display dealer card from a cache if dealer_cards is empty.
+Do not let dealer_play use a different dealer hand.
+
+Before players act:
+dealer_cards length must be 2.
+
+Before dealer plays:
+dealer_cards length must be at least 2.
+
+If dealer_cards is missing/invalid:
+Refund bets and cancel corrupted round safely.
+
+==================================================
+PART 3 — RESTORE AFTER RESTART DISPLAY
+==================================================
+
+When blackjack table restores after restart, bot should say:
+
+♻️ BlackJack table restored after restart.
+Action timer restarted.
+
+Then immediately show the public blackjack table again with the same cards from before restart.
+
+Example:
+
+Dealer Cards: A♦️ [?] = 11
+
+Everyone's Cards:
+@4ktreyMarion: J♥️ K♣️ = 20
+@User: 9♠️ 8♦️ = 17
+
+Actions: !hit / !stand / !double
+Timer: 15s
+
+Rules:
+- same exact cards as before restart
+- do not redraw
+- do not duplicate players
+- do not duplicate bets
+- do not auto-resolve immediately unless round was already in dealer phase
+- restart player action timer if round phase is player_action
+
+==================================================
+PART 4 — PUBLIC BLACKJACK TABLE DISPLAY
+==================================================
+
+During public blackjack mode, round display should look like this:
+
+Dealer Cards: A♦️ [?] = 11
+
+Everyone's Cards:
+@4ktreyMarion: J♥️ K♣️ = 20
+@User: 9♠️ 8♦️ = 17
+
+Actions: !hit / !stand / !double
+Timer: 15s
+
+Rules:
+- dealer cards first
+- hidden card remains [?]
+- dealer visible total only counts visible card
+- show everyone’s cards
+- show each player total
+- show action commands
+- show timer
+- keep messages under Highrise cap
+- split into multiple messages if needed
+
+If many players, split:
+
+Message 1:
+Dealer Cards: A♦️ [?] = 11
+
+Message 2:
+Players p1/2
+@Player1: J♥️ K♣️ = 20
+@Player2: 9♠️ 8♦️ = 17
+@Player3: 5♣️ 6♦️ = 11
+
+Message 3:
+Actions: !hit / !stand / !double
+Timer: 15s
+
+==================================================
+PART 5 — STOP BLACKJACK COLOR CODING
+==================================================
+
+Remove blackjack color coding.
+
+Do NOT use:
+- color tags
+- rarity colors
+- colored player names
+- colored ranks
+- fancy color formatting
+
+Keep:
+- card emojis
+- suit emojis
+- simple clean text
+
+Good:
+A♦️ K♥️ J♣️ 10♠️
+
+Bad:
+colored card tags
+rainbow ranks
+rarity-style formatting
+
+This applies to:
+- round start
+- dealer cards
+- player hands
+- hit/stand results
+- dealer reveal
+- final results
+- blackjack help/status messages
+
+==================================================
+PART 6 — RETAIN CARD EMOJIS
+==================================================
+
+Keep card suits with emojis:
+
+Hearts: ♥️
+Diamonds: ♦️
+Clubs: ♣️
+Spades: ♠️
+
+Examples:
+A♦️
+K♥️
+J♣️
+10♠️
+
+Do not remove emojis.
+Only remove color coding.
+
+==================================================
+PART 7 — FREE-WILL PLAYER ACTIONS
+==================================================
+
+During the public blackjack action timer, each player can act freely.
+
+Meaning:
+- @Player1 can !hit or !stand anytime during action window
+- @Player2 can !hit or !stand anytime during action window
+- no strict turn order unless current system intentionally requires it
+- one player should not block another player
+
+Rules:
+- players who stood cannot hit again
+- players who busted cannot act again
+- players with natural blackjack are auto-done
+- players with 21 should auto-stand unless current system supports further actions safely
+- dealer plays only after all players are done OR timer expires
+- timer expiration auto-stands unfinished players
+
+==================================================
+PART 8 — ACTION TIMER RULES
+==================================================
+
+At round start:
+- start one action timer only
+- default timer: existing value, or 15 seconds if already configured that way
+
+After bot restart:
+- restart one action timer only
+- do not duplicate old timer
+- do not create two dealer_play tasks
+- do not resolve twice
+
+If all players finish early:
+- cancel remaining timer
+- dealer plays immediately once
+
+If timer ends:
+- unfinished players auto-stand
+- dealer plays once
+
+Expected timer end message:
+
+⏰ Action time over.
+Unfinished players auto-stand.
+Dealer plays.
+
+==================================================
+PART 9 — BJSTATUS COMMAND
+==================================================
+
+Update !bjstatus to show the same public table state.
+
+If active round:
+
+Dealer Cards: A♦️ [?] = 11
+
+Everyone's Cards:
+@4ktreyMarion: J♥️ K♣️ = 20
+@User: 9♠️ 8♦️ = 17
+
+Actions: !hit / !stand / !double
+Timer: [remaining]s
+
+If no active round:
+
+🃏 BlackJack
+No active round.
+Start with !bet [amount].
+
+Rules:
+- no color coding
+- keep emojis
+- split if too long
+- do not expose hidden dealer card before reveal
+
+==================================================
+PART 10 — DEALER REVEAL FIX
+==================================================
+
+Bad current output:
+Dealer reveals: = 0
+
+Replace with:
+
+Dealer reveals: 6♣️
+Dealer: A♦️ 6♣️ = 17
+
+Rules:
+- reveal hidden card
+- include visible card
+- calculate total from full dealer_cards
+- never reveal empty card
+- never calculate dealer from empty hand
+- never hit from total 0
+
+If hidden card missing:
+trigger corrupted-state refund flow.
+
+==================================================
+PART 11 — DEALER PLAY FIX
+==================================================
+
+Dealer play must use full dealer_cards.
+
+Example:
+dealer_cards = [K♥️, 6♣️]
+Dealer total = 16
+
+Dealer hits 5♦️:
+dealer_cards = [K♥️, 6♣️, 5♦️]
+Dealer total = 21
+
+Expected output:
+
+Dealer reveals: 6♣️
+Dealer: K♥️ 6♣️ = 16
+Dealer hits 5♦️.
+Dealer: K♥️ 6♣️ 5♦️ = 21
+
+Rules:
+- dealer hand includes original visible card
+- dealer hand includes hidden card
+- hit cards append to dealer_cards
+- total calculator receives full dealer_cards
+- ace logic unchanged
+
+==================================================
+PART 12 — NATURAL BLACKJACK PAYOUT FIX
+==================================================
+
+Fix fairness issue:
+Getting a natural blackjack should actually pay 2.5x total return.
+
+Definition:
+Natural Blackjack = first 2 cards are:
+- Ace + 10-value card
+- total = 21
+- exactly 2 cards
+
+Natural Blackjack payout:
+- total return = bet × 2.5
+- profit = bet × 1.5
+
+Example:
+Bet: 100c
+Natural Blackjack total payout: 250c
+Net profit: 150c
+
+Important:
+Regular 21 after hitting is NOT natural blackjack.
+
+Example:
+7 + 4 + K = 21
+This is a normal win, not blackjack bonus.
+Normal win total return = bet × 2.
+Net profit = bet.
+
+Rules:
+- fix payout if natural blackjack currently only pays normal win
+- do not change normal win payout
+- do not change push refund
+- do not change bust loss
+- do not duplicate payout after restart
+- record payout reason clearly
+
+==================================================
+PART 13 — NATURAL BLACKJACK DISPLAY
+==================================================
+
+If player has natural blackjack:
+
+🃏 @Player has BlackJack!
+A♠️ K♥️ = 21
+Payout: 2.5x
+
+At result:
+
+✅ @Player BlackJack wins!
+Bet: 100c
+Paid: 250c
+
+Keep under cap.
+No color coding.
+Keep card emojis.
+
+==================================================
+PART 14 — BONUS SYSTEM
+==================================================
+
+Implement a simple blackjack bonus system.
+
+Bonuses should be clear, controlled, and not break economy.
+
+Recommended bonuses:
+
+1. Natural Blackjack Bonus
+- Required.
+- 2.5x total payout.
+- This is the main blackjack bonus.
+
+2. Perfect 21 Bonus
+- Optional but requested as part of bonus system.
+- If player reaches exactly 21 after hitting, give a small bonus.
+- Suggested bonus: +10% of bet.
+- Example: bet 100c, normal 21 win pays 200c total, bonus adds 10c.
+- Total paid: 210c.
+- Do NOT make this 2.5x.
+
+3. 5-Card Charlie Bonus
+- If player reaches 5 cards without busting, player auto-wins.
+- Suggested payout: normal win + 25% bet bonus.
+- Example: bet 100c, total paid 225c.
+- Only if current blackjack rules can support it safely.
+
+4. Suited Natural Blackjack Bonus
+- If natural blackjack cards are same suit.
+- Suggested bonus: extra +25% of bet on top of natural blackjack payout.
+- Example: bet 100c, natural BJ pays 250c, suited bonus adds 25c, total 275c.
+
+5. Pair Start Bonus
+- Optional small bonus if first two cards are same rank.
+- Suggested bonus: +5% of bet.
+- Only paid if player does not bust and final result is not loss.
+- If risky, skip this one.
+
+Use conservative bonuses.
+Do not create huge payouts.
+Do not pay bonus twice.
+
+==================================================
+PART 15 — BONUS SYSTEM CONFIG
+==================================================
+
+Add config values if safe:
+
+BLACKJACK_NATURAL_TOTAL_MULTIPLIER = 2.5
+BLACKJACK_PERFECT_21_BONUS = 0.10
+BLACKJACK_FIVE_CARD_CHARLIE_BONUS = 0.25
+BLACKJACK_SUITED_NATURAL_BONUS = 0.25
+BLACKJACK_PAIR_START_BONUS = 0.05
+
+If decimals are risky, store as basis points or percentages:
+
+natural_total_multiplier_bp = 25000
+perfect_21_bonus_bp = 1000
+five_card_charlie_bonus_bp = 2500
+suited_natural_bonus_bp = 2500
+pair_start_bonus_bp = 500
+
+Use integer-safe payout math.
+Round down to integer coins unless existing system uses different safe rounding.
+
+==================================================
+PART 16 — BONUS PAYOUT RULES
+==================================================
+
+Rules:
+- bonuses only apply to player hands
+- no bonus for dealer
+- no bonus if player busts, except natural blackjack cannot bust
+- no bonus for push unless explicitly stated, preferred no bonus on push
+- bonuses must be paid once
+- payout should show base payout + bonus if possible
+- do not duplicate after restart
+- saved hand state should include bonus flags or resolve idempotently
+
+Required tracking per hand:
+- is_natural_blackjack
+- has_perfect_21_bonus_paid or eligible flag
+- has_five_card_charlie
+- has_suited_natural
+- pair_start_eligible
+- resolved
+- paid
+- payout_amount
+- payout_reason
+
+==================================================
+PART 17 — RESULT DISPLAY WITH BONUS
+==================================================
+
+At round result, show clean result.
+
+Example natural:
+
+✅ @Player BlackJack!
+Bet: 100c | Paid: 250c
+
+Example suited natural:
+
+✅ @Player suited BlackJack!
+Bet: 100c | Paid: 275c
+
+Example perfect 21:
+
+✅ @Player wins with 21!
+Bet: 100c | Paid: 210c
+Bonus: Perfect 21
+
+Example normal win:
+
+✅ @Player wins!
+Bet: 100c | Paid: 200c
+
+Example push:
+
+➖ @Player pushes.
+Bet refunded: 100c
+
+Example bust:
+
+❌ @Player busts.
+Lost: 100c
+
+Rules:
+- no color coding
+- keep emojis
+- split if too long
+- no raw debug
+
+==================================================
+PART 18 — PREVENT DUPLICATE PAYOUTS
+==================================================
+
+Critical:
+Restart must not cause double payout.
+
+Before paying:
+- check hand/round resolved flag
+- check payout already recorded
+- use transaction if possible
+- mark paid/resolved atomically
+
+If bot restarts after payout but before message:
+- do not pay again
+- optionally re-send summary if safe, but never duplicate coins
+
+Store:
+round_id
+player_id
+hand_id
+bet
+payout_amount
+payout_reason
+paid_at
+
+If record exists:
+do not pay again.
+
+==================================================
+PART 19 — PUBLIC ACTION MESSAGES
+==================================================
+
+When player hits:
+
+@Player hits 5♦️.
+Hand: J♥️ 5♦️ = 15
+
+When player stands:
+
+@Player stands.
+Hand: J♥️ K♣️ = 20
+
+When player busts:
+
+@Player busts.
+Hand: K♣️ 8♦️ 7♥️ = 25
+
+When player reaches 21:
+
+@Player has 21.
+Auto-stand.
+
+Rules:
+- no color coding
+- keep emojis
+- no hidden dealer reveal early
+
+==================================================
+PART 20 — BLACKJACK HELP UPDATE
+==================================================
+
+Update:
+
+!bjhelp
+!blackjackhelp
+!help blackjack
+!help casino
+
+Expected !bjhelp:
+
+🃏 BlackJack
+Join: !bet [amount]
+Actions: !hit / !stand / !double
+Status: !bjstatus
+Natural BJ pays 2.5x.
+
+Second message if needed:
+
+Bonuses:
+Natural BJ 2.5x
+Perfect 21 bonus
+5-card Charlie bonus
+Suited BJ bonus
+
+Only show bonuses actually implemented.
+
+No / commands.
+No color coding.
+Keep under 220 chars.
+
+==================================================
+PART 21 — BLACKJACK RULES COMMAND
+==================================================
+
+Add or polish:
+
+!bjrules
+
+Expected:
+
+🃏 BlackJack Rules
+Beat dealer without busting.
+Win pays 2x total.
+Natural BJ pays 2.5x.
+Push refunds bet.
+Use !bet [amount].
+
+Optional second message:
+
+Bonuses:
+Perfect 21, 5-card Charlie, suited BlackJack.
+Use !bjhelp.
+
+Only show bonus names implemented.
+
+==================================================
+PART 22 — ROUND RESTORE VALIDATION
+==================================================
+
+On startup/restore, validate each active blackjack table:
+
+Required:
+- round_id exists
+- phase exists
+- dealer_cards length >= 2 if round started
+- every active player has hand cards
+- every active player has bet > 0
+- deck/shoe exists or can safely continue
+- no already resolved unpaid inconsistency
+- no duplicate active timer
+
+If valid:
+- restore
+- restart action timer if needed
+- re-show table
+
+If invalid:
+- refund active bets
+- mark round cancelled_corrupt_restore
+- clear table
+- log reason
+
+==================================================
+PART 23 — TIMER/DEALER TASK LOCKS
+==================================================
+
+Prevent duplicate tasks.
+
+Use lock/flags:
+- action_timer_task_active
+- dealer_play_task_active
+- round_resolving
+- round_resolved
+
+Before starting action timer:
+if action_timer_task_active for same round_id:
+do not start another
+
+Before dealer play:
+if dealer_play_task_active or round_resolving:
+do not start another
+
+Before payout:
+if round_resolved:
+do not pay again
+
+==================================================
+PART 24 — LIVE TESTS
+==================================================
+
+Run:
+
+!bjhelp
+!bjrules
+!bjstatus
+!bet 100
+
+Expected:
+- blackjack table opens
+- dealer shows visible card
+- all player cards display
+- actions/timer display
+- no color coding
+- card emojis retained
+
+Then:
+!hit
+!stand
+!bjstatus
+
+Expected:
+- player actions work
+- public table updates cleanly
+- dealer reveal includes hidden card
+- dealer total includes visible + hidden cards
+- no “Dealer reveals: = 0”
+
+==================================================
+PART 25 — MULTIPLAYER PUBLIC TEST
+==================================================
+
+With 2 players:
+
+Player A:
+!bet 100
+
+Player B:
+!bet 100
+
+Expected round display:
+
+Dealer Cards: A♦️ [?] = 11
+
+Everyone's Cards:
+@PlayerA: J♥️ K♣️ = 20
+@PlayerB: 9♠️ 8♦️ = 17
+
+Actions: !hit / !stand / !double
+Timer: 15s
+
+Then:
+- Player A can !stand
+- Player B can !hit
+- both actions accepted independently
+- dealer plays after both done or timer ends
+
+==================================================
+PART 26 — RESTART TEST
+==================================================
+
+Test if possible:
+
+1. Start blackjack round.
+2. Wait for dealer visible card + player cards.
+3. Restart bot.
+4. Confirm bot says table restored.
+5. Confirm same cards are shown again.
+6. Confirm action timer restarted.
+7. Continue with !hit or !stand.
+
+Expected:
+- no redraw
+- same dealer visible card
+- same player cards
+- same bets
+- timer restarted
+- dealer does not start from 0
+- no duplicate payouts
+
+==================================================
+PART 27 — PAYOUT TESTS
+==================================================
+
+Test or unit-simulate:
+
+Natural blackjack:
+- A + K
+Expected:
+Paid = bet × 2.5 total
+
+Regular 21 after hit:
+- 7 + 4 + K
+Expected:
+Normal win + Perfect 21 bonus if implemented
+NOT natural 2.5x
+
+Normal win:
+Expected:
+Paid = bet × 2 total
+
+Push:
+Expected:
+Refund bet only
+
+Bust:
+Expected:
+Lose bet
+
+Suited natural:
+Expected:
+Natural payout + suited bonus if implemented
+
+5-card Charlie:
+Expected:
+Normal win + 5-card bonus if implemented
+
+Restart after payout:
+Expected:
+No duplicate payout.
+
+==================================================
+PART 28 — COMMAND TESTS
+==================================================
+
+Run:
+
+!commandtest !bjhelp
+!commandtest !bjrules
+!commandtest !bjstatus
+!commandtest !bet
+!commandtest !hit
+!commandtest !stand
+!commandtest !double
+!commandtest !split
+!commandtest !casino
+!commandtest !casinohelp
+
+Expected:
+- route=YES
+- handler=YES
+- owner not UNKNOWN
+- no command issues
+
+==================================================
+PART 29 — FINAL QA
+==================================================
+
+Run:
+
+!commandissues
+!checkcommands
+!checkhelp
+!launchcheck
+!bothealth
+!stability status
+!botconflicts
+!modulehealth
+
+Expected:
+- no command issues
+- no checkcommands mismatch
+- no help issues
+- launchcheck clean
+- Err: none
+- no bot conflicts
+- no duplicate blackjack timers
+- no duplicate dealer tasks
+
+==================================================
+PART 30 — FINAL REPORT
+==================================================
+
+Report:
+
+1. Dealer hand restore fix status.
+2. Dealer reveal = 0 bug fixed.
+3. Restart restore behavior.
+4. Action timer restart behavior.
+5. Public table display updated.
+6. Multi-player free action behavior.
+7. Blackjack color coding removed.
+8. Card emojis retained.
+9. Natural blackjack 2.5x payout fixed.
+10. Bonus system implemented.
+11. Bonus types implemented.
+12. Duplicate payout prevention confirmed.
+13. Restart restore test result.
+14. Multiplayer test result.
+15. Payout test result.
+16. !commandissues result.
+17. !checkcommands result.
+18. !checkhelp result.
+19. !launchcheck result.
+20. Stability result.
