@@ -1470,6 +1470,15 @@ REGISTRY: dict[str, Cmd] = {
     "releasedash":    Cmd("host", "analytics", False, True,  False, perm="admin"),
     "finalaudit":     Cmd("host", "admin",     False, True,  False, perm="owner"),
 
+    # ── 3.2J — Owner QA + Stable Lock ─────────────────────────────────────────
+    "qastatus":       Cmd("host", "admin",     False, True,  False, perm="admin",
+                          aliases=("ownerqa",)),
+    "ownerqa":        Cmd("host", "admin",     False, True,  False, perm="admin"),
+    "ownertest":      Cmd("host", "admin",     False, True,  False, perm="admin"),
+    "stablecheck":    Cmd("host", "admin",     False, True,  False, perm="admin"),
+    "hotfixpolicy":   Cmd("host", "general",   True,  True,  True),
+    "stablelock":     Cmd("host", "admin",     False, True,  False, perm="owner"),
+
     # ── 3.2A — Public Launch + Post-Launch Monitoring ─────────────────────────
     "launchmode":       Cmd("host", "admin",     False, True,  False, perm="owner"),
     "postlaunch":       Cmd("host", "analytics", False, True,  False, perm="admin"),

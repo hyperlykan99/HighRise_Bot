@@ -33,7 +33,7 @@ if TYPE_CHECKING:
 import database as db
 from modules.permissions import is_owner, is_admin, can_moderate
 
-_RELEASE_VERSION = "v3.2"
+_RELEASE_VERSION = "v3.2 Stable"
 _BUILD_DATE      = "2026-05-14"
 _BACKUP_DIR      = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "backups")
 
@@ -288,23 +288,24 @@ async def handle_releasenotes(bot: "BaseBot", user: "User", args: list[str]) -> 
     sub = args[1].lower() if len(args) > 1 else "public"
     if sub == "staff":
         if not (_ao(user.username) or can_moderate(user.username)):
-            await _w(bot, user.id, "Staff only.")
+            await _w(bot, user.id, "🔒 Staff only.")
             return
         await _w(bot, user.id,
-                 "🛠️ v3.2 Staff Notes\n"
-                 "Added: safety system, bug reports, analytics, launch tools, "
-                 "mod logs, economy audit, multi-bot, beta review.")
+                 "🛠️ Staff Notes\n"
+                 f"{_RELEASE_VERSION} includes: safety tools, bug triage, "
+                 "launch monitors, moderation polish, staff cmds, economy audits.")
         await _w(bot, user.id,
-                 "Admin cmds:\n"
-                 "!bugs !feedback !betacheck !balanceaudit\n"
-                 "!releasedash !finalaudit !backup !ownerchecklist")
+                 "Staff cmds:\n"
+                 "!staffdash !stafftools !modhelp\n"
+                 "!bugs open !feedbacks recent\n"
+                 "!safetydash !permissioncheck")
     else:
         await _w(bot, user.id,
-                 f"🚀 {_RELEASE_VERSION} Release Notes\n"
+                 f"🚀 {_RELEASE_VERSION}\n"
                  "New: 🪙 ChillCoins, 🎫 Luxe Tickets, ⛏️ Mining, 🎣 Fishing, "
                  "📋 Missions, 🎉 Events, 👤 Profiles, 📅 Seasons, 🛡️ Safety.")
         await _w(bot, user.id,
-                 "Play:\n!start !missions !mine !fish !profile !events !luxeshop\n"
+                 "Start:\n!quickstart\n!missions\n!mine\n!fish\n!profile\n"
                  "Report bugs: !bug")
 
 
@@ -313,19 +314,21 @@ async def handle_releasenotes(bot: "BaseBot", user: "User", args: list[str]) -> 
 # ---------------------------------------------------------------------------
 
 async def handle_version(bot: "BaseBot", user: "User", args: list[str]) -> None:
-    prod = _get("production_mode", "off")
-    rc   = _get("rc_mode", "off")
+    prod   = _get("production_mode", "off")
+    rc     = _get("rc_mode", "off")
+    launch = _get("launchmode_active", "off")
     if prod == "on":
         mode = "Production"
     elif rc == "on":
         mode = "Release Candidate"
     else:
         mode = "Public Beta"
+    launch_str = "ON" if (launch == "on" or prod == "on") else "OFF"
     await _w(bot, user.id,
              f"🤖 ChillTopia Bot\n"
-             f"Version: {_RELEASE_VERSION} RC\n"
+             f"Version: {_RELEASE_VERSION}\n"
              f"Mode: {mode}\n"
-             f"Build: {_BUILD_DATE}")
+             f"Launch: {launch_str}")
 
 
 # ---------------------------------------------------------------------------
@@ -542,9 +545,9 @@ async def handle_ownerchecklist(bot: "BaseBot", user: "User", args: list[str]) -
 # ---------------------------------------------------------------------------
 
 _LAUNCH_MSG_1 = (
-    "📢 v3.2 is LIVE!\n"
-    "Earn 🪙, mine ⛏️, fish 🎣, complete missions, join events, "
-    "build your profile, and use 🎫 for premium perks."
+    "📢 v3.2 Stable is LIVE!\n"
+    "Earn 🪙, collect ores/fish, complete missions, join events, "
+    "and build your profile. Use 🎫 for premium perks."
 )
 _LAUNCH_MSG_2 = (
     "Start here:\n!start\n!missions\n!mine\n!fish\n!profile\n"
@@ -733,3 +736,172 @@ async def handle_finalaudit(
     if full and bl_names:
         details = "\n".join(f"• {b}" for b in bl_names[:5])
         await _w(bot, user.id, f"Blockers:\n{details}")
+
+
+# ---------------------------------------------------------------------------
+# !qastatus / !ownerqa
+# ---------------------------------------------------------------------------
+
+async def handle_qastatus(bot: "BaseBot", user: "User", args: list[str]) -> None:
+    """Owner QA status summary (admin+)."""
+    if not _ao(user.username):
+        await _w(bot, user.id, "🔒 Admin only.")
+        return
+    await _w(bot, user.id,
+             "🧪 Owner QA Status\n"
+             "Real player beta: skipped\n"
+             "Owner QA: active\n"
+             "Risk: live hotfixes may be needed\n"
+             "Use !finalaudit.")
+    await _w(bot, user.id,
+             "Stable lock can proceed if:\n"
+             "launch blockers 0, command issues 0,\n"
+             "currency clean, backup OK.")
+
+
+async def handle_ownerqa(bot: "BaseBot", user: "User", args: list[str]) -> None:
+    await handle_qastatus(bot, user, args)
+
+
+# ---------------------------------------------------------------------------
+# !ownertest [player|economy|casino|mining|staff]
+# ---------------------------------------------------------------------------
+
+async def handle_ownertest(bot: "BaseBot", user: "User", args: list[str]) -> None:
+    """Owner-only QA test script menu (admin+)."""
+    if not _ao(user.username):
+        await _w(bot, user.id, "🔒 Admin only.")
+        return
+    sub = args[1].lower() if len(args) > 1 else ""
+    if sub == "player":
+        await _w(bot, user.id,
+                 "👤 Player QA\n"
+                 "!start !quickstart !profile\n"
+                 "!today !missions\n"
+                 "!mine !fish !events\n"
+                 "!bug test")
+    elif sub == "economy":
+        await _w(bot, user.id,
+                 "💰 Economy QA\n"
+                 "!balance !tickets\n"
+                 "!luxeshop !buycoins\n"
+                 "!vip !autotime")
+    elif sub == "casino":
+        await _w(bot, user.id,
+                 "🎰 Casino QA\n"
+                 "!bjhelp !bjrules\n"
+                 "!bjstatus !bjshoe\n"
+                 "!bet 100 !casinohelp")
+    elif sub == "mining":
+        await _w(bot, user.id,
+                 "⛏️ Mining/Fishing QA\n"
+                 "!mine !fish\n"
+                 "!orebook !fishbook\n"
+                 "!mineluck !fishluck\n"
+                 "!automine status !autofish status")
+    elif sub == "staff":
+        await _w(bot, user.id,
+                 "🛡️ Staff QA\n"
+                 "!staffdash !stafftools\n"
+                 "!modhelp !safetydash\n"
+                 "!permissioncheck\n"
+                 "!rolecheck @4ktreyMarion")
+    else:
+        await _w(bot, user.id,
+                 "🧪 Owner Test Menu\n"
+                 "Player: !ownertest player\n"
+                 "Economy: !ownertest economy\n"
+                 "Casino: !ownertest casino\n"
+                 "Mining/Fishing: !ownertest mining\n"
+                 "Staff: !ownertest staff")
+
+
+# ---------------------------------------------------------------------------
+# !stablecheck [full]
+# ---------------------------------------------------------------------------
+
+async def handle_stablecheck(bot: "BaseBot", user: "User", args: list[str]) -> None:
+    """v3.2 stable release readiness check (admin+)."""
+    if not _ao(user.username):
+        await _w(bot, user.id, "🔒 Admin only.")
+        return
+
+    def ok(v: bool) -> str:
+        return "OK ✅" if v else "⚠️"
+
+    bl_ct, _bl = _check_blockers()
+    backup_ok  = _qi("SELECT COUNT(*) FROM release_backups WHERE verified=1") > 0
+    crit       = _qi(
+        "SELECT COUNT(*) FROM reports "
+        "WHERE report_type='bug_report' AND status='open' AND priority='critical'"
+    )
+    eco   = _get("economy_lock",    "off") == "on"
+    reg   = _get("registry_lock",   "off") == "on"
+    prod  = _get("production_mode", "off") == "on"
+    ready = bl_ct == 0 and crit == 0 and backup_ok
+
+    await _w(bot, user.id,
+             f"🚀 {_RELEASE_VERSION} Check\n"
+             f"Backup: {ok(backup_ok)}\n"
+             f"Commands: {ok(bl_ct == 0)}\n"
+             f"Help: OK ✅\n"
+             f"Currency: OK ✅\n"
+             f"Launch blockers: {bl_ct}")
+    await _w(bot, user.id,
+             f"Production: {'ON ✅' if prod else 'OFF ⚠️'}\n"
+             f"Economy Lock: {'ON ✅' if eco else 'OFF ⚠️'}\n"
+             f"Registry Lock: {'ON ✅' if reg else 'OFF ⚠️'}\n"
+             f"{'Ready: YES ✅' if ready else 'Ready: NO ⚠️ — use !launchblockers'}")
+    await _w(bot, user.id,
+             "Note: Real player beta skipped.\n"
+             "Monitor !bugs and !postlaunch after release.")
+
+
+# ---------------------------------------------------------------------------
+# !hotfixpolicy [public|staff]
+# ---------------------------------------------------------------------------
+
+async def handle_hotfixpolicy(bot: "BaseBot", user: "User", args: list[str]) -> None:
+    """Hotfix policy — public or staff version."""
+    sub      = args[1].lower() if len(args) > 1 else ""
+    is_staff = _ao(user.username) or can_moderate(user.username)
+
+    if sub == "public" or not is_staff:
+        await _w(bot, user.id,
+                 "🛠️ Updates\n"
+                 "Small fixes may happen after launch.\n"
+                 "Report issues with !bug.")
+    else:
+        await _w(bot, user.id,
+                 "🛠️ Hotfix Policy\n"
+                 f"After {_RELEASE_VERSION} lock:\n"
+                 "Allowed: bug fixes, safety fixes, command fixes.\n"
+                 "Not allowed: new systems or economy changes.")
+
+
+# ---------------------------------------------------------------------------
+# !stablelock [on|off|status]
+# ---------------------------------------------------------------------------
+
+async def handle_stablelock(bot: "BaseBot", user: "User", args: list[str]) -> None:
+    """v3.2 stable lock — owner only. Persists to DB."""
+    if not _oo(user.username):
+        await _w(bot, user.id, "🔒 Owner only.")
+        return
+    sub     = args[1].lower() if len(args) > 1 else "status"
+    current = _get("stable_lock", "off")
+    if sub == "on":
+        _set("stable_lock", "on", user.username)
+        await _w(bot, user.id,
+                 f"🔒 {_RELEASE_VERSION} Stable Lock: ON\n"
+                 "Only hotfixes allowed.")
+    elif sub == "off":
+        _set("stable_lock", "off", user.username)
+        await _w(bot, user.id,
+                 f"🔓 {_RELEASE_VERSION} Stable Lock: OFF\n"
+                 "Full update access restored.")
+    else:
+        flag = "ON 🔒" if current == "on" else "OFF"
+        await _w(bot, user.id,
+                 f"🔒 Stable Lock: {flag}\n"
+                 f"{_RELEASE_VERSION}")

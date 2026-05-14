@@ -1,0 +1,842 @@
+UPDATE 3.2J — OWNER QA STABLE LOCK + v3.2 RELEASE PREP
+
+Goal:
+Prepare v3.2 for launch using owner-only QA instead of real player testing.
+
+Important:
+Real player beta testing is being skipped for now.
+This means the bot may still need hotfixes after launch.
+Do not claim the economy is perfectly balanced without real player data.
+
+Main purpose:
+1. Final owner-only full system QA.
+2. Final command/help/currency audit.
+3. Final launch blockers check.
+4. Final production/launch locks.
+5. Final backup verification.
+6. Final release notes polish.
+7. Stable v3.2 label.
+8. No new features.
+9. No economy changes.
+10. Only hotfixes after this.
+
+Currencies:
+🪙 ChillCoins = gameplay currency
+🎫 Luxe Tickets = premium currency
+
+Do not change tokens.
+Do not change room ID.
+Do not wipe database.
+Do not reset balances, tickets, VIP, badges, titles, market, casino, blackjack, poker, mining/fishing data, collection book, missions, XP, levels, events, seasons, onboarding, safety logs, analytics, tools, rods, boosts, profile settings, bug reports, feedback, backups, release settings, staff notes, moderation logs, or player inventory.
+Do not re-add reward caps.
+Do not add HR Gold rewards.
+Do not change economy prices.
+Do not change rewards.
+Do not change casino odds.
+Do not change mining/fishing odds.
+Do not show “c” for currency.
+Use 🪙 and 🎫.
+
+==================================================
+PART 1 — STABILITY FIRST
+==================================================
+
+Before changing anything, run:
+
+!launchmode status
+!production status
+!featurefreeze status
+!economylock status
+!registrylock status
+!launchblockers
+!finalaudit
+!launchcheck
+!commandissues
+!checkcommands all
+!checkhelp
+!currencycheck
+!bothealth
+!stability status
+
+Expected:
+- Production stable
+- Launch blockers: 0
+- Command issues: 0
+- Currencycheck clean
+- Help clean
+- Bothealth OK
+- Stability OK
+
+Fix blockers first.
+
+==================================================
+PART 2 — OWNER QA LOCK ONLY
+==================================================
+
+This update is final QA and release preparation only.
+
+Allowed:
+- command route fixes
+- help text fixes
+- currency text fixes
+- crash fixes
+- launch blocker fixes
+- backup verification fixes
+- release note polish
+- stable version label
+- public announcement preview polish
+
+Not allowed:
+- new gameplay systems
+- new currency systems
+- economy balancing
+- odds changes
+- reward changes
+- new casino games
+- HR Gold rewards
+- reward caps
+- major feature additions
+
+==================================================
+PART 3 — STABLE VERSION LABEL
+==================================================
+
+Update version commands:
+
+!version
+!botversion
+
+Expected:
+
+🤖 ChillTopia Bot
+Version: v3.2 Stable Candidate
+Mode: Production
+Launch: ON
+
+If you want final stable wording:
+
+🤖 ChillTopia Bot
+Version: v3.2 Stable
+Mode: Production
+Launch: ON
+
+Rules:
+- No secrets.
+- No token/build env details.
+- Show date/build only if safe.
+- Do not call it “fully balanced” because real player testing was skipped.
+
+==================================================
+PART 4 — OWNER QA NOTICE
+==================================================
+
+Add or polish:
+
+!qastatus
+!ownerqa
+
+Expected:
+
+🧪 Owner QA Status
+Real player beta: skipped
+Owner QA: active
+Risk: live hotfixes may be needed
+Use !finalaudit.
+
+Second message:
+
+Stable lock can proceed if:
+launch blockers 0, command issues 0, currency clean, backup OK.
+
+Rules:
+- Owner/Admin only.
+- Honest wording.
+- Do not show scary warning publicly.
+
+==================================================
+PART 5 — FINAL OWNER TEST SCRIPT
+==================================================
+
+Add:
+
+!ownertest
+!ownertest full
+!ownertest player
+!ownertest economy
+!ownertest casino
+!ownertest mining
+!ownertest staff
+
+Expected:
+
+🧪 Owner Test Menu
+Player: !ownertest player
+Economy: !ownertest economy
+Casino: !ownertest casino
+Mining/Fishing: !ownertest mining
+Staff: !ownertest staff
+
+Player script:
+
+👤 Player QA
+!start
+!quickstart
+!profile
+!today
+!missions
+!mine
+!fish
+!events
+!bug test
+
+Economy script:
+
+💰 Economy QA
+!balance
+!tickets
+!luxeshop
+!buycoins small
+!vip
+!autotime
+
+Casino script:
+
+🎰 Casino QA
+!bjhelp
+!bjrules
+!bjstatus
+!bjshoe
+!bet 100
+!casinohelp
+
+Mining script:
+
+⛏️ Mining/Fishing QA
+!mine
+!fish
+!orebook
+!fishbook
+!mineluck
+!fishluck
+!automine status
+!autofish status
+
+Staff script:
+
+🛡️ Staff QA
+!staffdash
+!stafftools
+!modhelp
+!safetydash
+!permissioncheck
+!rolecheck @4ktreyMarion
+
+Rules:
+- This only displays test scripts.
+- It should not automatically run risky commands.
+- Owner/Admin only.
+- Keep messages short.
+
+==================================================
+PART 6 — FINAL PLAYER FLOW QA
+==================================================
+
+Verify player flow commands:
+
+!start
+!quickstart
+!newbie
+!guide
+!guide economy
+!guide mining
+!guide fishing
+!guide luxe
+!today
+!missions
+!weekly
+!profile
+!stats
+!flex
+!balance
+!tickets
+!rules
+!knownissues
+!bug test owner QA
+!feedback test owner QA
+
+Expected:
+- no command errors
+- no admin leaks
+- no old currency text
+- no reward cap text
+- clear next action
+
+Fix only bugs/wording.
+
+==================================================
+PART 7 — FINAL MINING/FISHING QA
+==================================================
+
+Verify:
+
+!mine
+!fish
+!mineluck
+!fishluck
+!orebook
+!fishbook
+!orebook missing
+!fishbook missing
+!autotime
+!automine status
+!autofish status
+!lastminesummary
+!lastfishsummary
+!minehelp
+!fishhelp
+
+Expected:
+- no command errors
+- collection books load
+- luck stacks clear
+- Luxe auto time clear
+- no old currency text
+- no odds/reward changes
+
+==================================================
+PART 8 — FINAL LUXE QA
+==================================================
+
+Verify:
+
+!luxeshop
+!luxeshop mining
+!luxeshop fishing
+!luxeshop coins
+!luxeshop vip
+!tickets
+!luxe
+!vip
+!autotime
+!buycoins
+!buycoins max
+!buyluxe
+!buyluxe 999
+!guide luxe
+!commands luxe
+
+Expected:
+- clear numbered shop
+- clean errors
+- VIP duration shown
+- verified Gold tips wording
+- no pay-to-win wording
+- no price changes
+- no old c/credits/gems
+
+==================================================
+PART 9 — FINAL CASINO QA
+==================================================
+
+Verify:
+
+!casinohelp
+!commands casino
+!bjhelp
+!bjrules
+!bjstatus
+!bjshoe
+!shoe
+!bet 100
+!hit
+!stand
+!pokerhelp
+!pokerstatus
+!casinomonitor
+!bjmonitor
+!pokermonitor
+
+Expected:
+- no casual blackjack residue
+- no old c
+- no command errors
+- poker commands hidden if not implemented
+- no odds/payout changes
+- no payout duplicate warning unless duplicate attempted
+
+==================================================
+PART 10 — FINAL EVENT / SEASON QA
+==================================================
+
+Verify:
+
+!events
+!event active
+!event next
+!event schedule
+!today
+!season
+!topseason
+!seasonrewards
+!eventmonitor
+!seasonreview
+
+Expected:
+- no raw event keys
+- events display friendly names
+- !today agrees with event state
+- no HR Gold rewards
+- no command errors
+
+==================================================
+PART 11 — FINAL STAFF / SAFETY QA
+==================================================
+
+Verify:
+
+!staffdash
+!stafftools
+!modhelp
+!safetydash
+!economysafety
+!audit recent
+!permissioncheck
+!rolecheck @4ktreyMarion
+!bugs open
+!feedbacks recent
+!errors recent
+!launchlocks
+
+Expected:
+- staff tools work live
+- no Unknown command
+- no owner-only leak in public help
+- no raw traceback
+- no private balance leak
+
+==================================================
+PART 12 — FINAL HELP QA
+==================================================
+
+Run:
+
+!help
+!commands
+!commands mining
+!commands fishing
+!commands economy
+!commands luxe
+!commands casino
+!commands staff
+!guide
+!checkhelp
+
+Expected:
+- public help clean
+- staff/admin commands role-gated
+- no broken commands shown
+- no old c/credits/gems
+- no reward cap text
+- no HR Gold reward promises
+
+==================================================
+PART 13 — FINAL CURRENCY QA
+==================================================
+
+Run:
+
+!currencycheck
+!currencycheck details
+!currencycheck details 2
+
+Expected:
+
+💰 Currency Check
+🪙 ChillCoins: OK
+🎫 Luxe Tickets: OK
+Old “c”: 0
+Old “credits”: 0
+Old “gems”: 0
+
+Rules:
+- Highrise Gold text stays “Gold”.
+- Events/casino/games/mining/fishing use 🪙.
+- Luxe uses 🎫.
+
+==================================================
+PART 14 — FINAL BACKUP CHECK
+==================================================
+
+Run:
+
+!backup status
+!backup verify
+!backup list
+
+If no fresh backup exists, create one:
+
+!backup create
+
+Expected:
+
+💾 Backup Status
+Latest: v3.2_...
+Verified: YES
+
+Rules:
+- Do not print raw backup data.
+- Do not export secrets/tokens.
+- Owner only.
+- Backup must be reflected in !ownerchecklist.
+
+==================================================
+PART 15 — FINAL LOCK CHECK
+==================================================
+
+Verify these are ON:
+
+!production status
+!launchmode status
+!featurefreeze status
+!economylock status
+!registrylock status
+
+Expected:
+
+Production: ON
+Launch Mode: ON
+Feature Freeze: ON
+Economy Lock: ON
+Registry Lock: ON
+Maintenance: OFF
+
+If any are OFF, enable only if safe:
+
+!production on
+!launchmode on
+!featurefreeze on
+!economylock on
+!registrylock on
+!maintenance off
+
+Rules:
+- Do not enable production if launch blockers exist.
+- Do not turn off locks.
+
+==================================================
+PART 16 — STABLE RELEASE READINESS COMMAND
+==================================================
+
+Add or polish:
+
+!stablecheck
+!stablecheck full
+
+Expected:
+
+🚀 v3.2 Stable Check
+Backup: OK
+Commands: OK
+Help: OK
+Currency: OK
+Launch blockers: 0
+
+Second message:
+
+Production: ON
+Economy Lock: ON
+Registry Lock: ON
+Ready: YES ✅
+
+If owner QA skipped real players:
+
+Note:
+Real player beta skipped.
+Monitor !bugs and !postlaunch after release.
+
+Rules:
+- Owner/Admin only.
+- Ready YES only if all checks pass.
+- No false ready.
+
+==================================================
+PART 17 — FINAL RELEASE NOTES POLISH
+==================================================
+
+Polish:
+
+!releasenotes
+!releasenotes public
+!releasenotes staff
+!whatsnew
+!v32
+
+Public expected:
+
+🚀 v3.2 Stable
+New: 🪙 ChillCoins, 🎫 Luxe Tickets, mining/fishing books, missions, events, profiles, casino polish.
+
+Second message:
+
+Start:
+!quickstart
+!missions
+!mine
+!fish
+!profile
+Report bugs: !bug
+
+Staff expected:
+
+🛠️ Staff Notes
+v3.2 includes safety tools, bug triage, launch monitors, moderation polish, and economy audits.
+
+Rules:
+- No admin leaks in public.
+- No HR Gold rewards.
+- No old c.
+- No claim that economy is fully balanced.
+
+==================================================
+PART 18 — FINAL LAUNCH ANNOUNCEMENT PREVIEW
+==================================================
+
+Polish:
+
+!launchannounce preview
+
+Expected:
+
+📢 v3.2 Stable is ready!
+Earn 🪙, collect ores/fish, complete missions, join events, and build your profile.
+
+Second message:
+
+Start:
+!quickstart
+!mine
+!fish
+!missions
+Report issues:
+!bug
+
+Rules:
+- Preview only unless owner uses !launchannounce send.
+- Keep under 220 chars per message.
+- No spam.
+- No HR Gold rewards.
+
+==================================================
+PART 19 — POST-LAUNCH HOTFIX WINDOW NOTICE
+==================================================
+
+Add or polish:
+
+!hotfixpolicy
+!hotfixpolicy public
+!hotfixpolicy staff
+
+Expected staff/owner:
+
+🛠️ Hotfix Policy
+After v3.2 lock:
+Allowed: bug fixes, safety fixes, command fixes.
+Not allowed: big new systems or economy changes.
+
+Public:
+
+🛠️ Updates
+Small fixes may happen after launch.
+Report issues with !bug.
+
+Rules:
+- Owner/Admin for full policy.
+- Public version simple.
+
+==================================================
+PART 20 — FINAL KNOWN ISSUES CHECK
+==================================================
+
+Run/polish:
+
+!knownissues
+!bugs open
+!bugdash
+
+Expected:
+- critical bugs: 0 for stable lock
+- minor bugs can remain if listed honestly
+- known issues command does not claim “none” if open bugs exist
+
+If critical bugs exist:
+- stablecheck Ready: NO
+- production stable lock should not proceed
+
+==================================================
+PART 21 — STRICT NO FEATURE MODE
+==================================================
+
+When stable lock is active:
+- no major feature prompts should be accepted without owner disabling featurefreeze
+- economy changes require disabling economylock
+- public command registry changes require disabling registrylock
+- hotfixes are allowed
+
+Add/polish:
+
+!stablelock
+!stablelock on
+!stablelock off
+!stablelock status
+
+Owner only.
+
+Expected:
+
+🔒 v3.2 Stable Lock: ON
+Only hotfixes allowed.
+
+Rules:
+- Persist after restart.
+- Do not block emergency safety fixes.
+- Do not block bug reports.
+- Do not block monitoring.
+
+==================================================
+PART 22 — COMMAND REGISTRY
+==================================================
+
+Register/verify:
+
+!qastatus
+!ownerqa
+!ownertest
+!stablecheck
+!hotfixpolicy
+!stablelock
+
+Expected:
+route=YES
+handler=YES
+owner not UNKNOWN
+
+If optional command is skipped:
+- hide from help
+- do not count as command issue.
+
+==================================================
+PART 23 — FINAL COMMAND AUDIT
+==================================================
+
+Run:
+
+!commandtest !qastatus
+!commandtest !ownerqa
+!commandtest !ownertest
+!commandtest !stablecheck
+!commandtest !hotfixpolicy
+!commandtest !stablelock
+
+!commandissues
+!checkcommands all
+!checkhelp
+
+Expected:
+- no no-route
+- no no-handler
+- no owner UNKNOWN
+- no public help leak
+- command issues 0
+
+==================================================
+PART 24 — FINAL FULL AUDIT
+==================================================
+
+Run:
+
+!stablecheck full
+!ownerchecklist
+!releasedash
+!finalaudit
+!launchblockers
+!launchready
+!launchcheck
+!bothealth
+!stability status
+
+Expected:
+- Backup OK
+- Command issues 0
+- Currency clean
+- Help clean
+- Launch blockers 0
+- Maintenance OFF
+- Production ON
+- Locks ON
+- Ready YES
+
+==================================================
+PART 25 — FINAL QA TEST LIST
+==================================================
+
+Run this final owner QA list:
+
+!quickstart
+!today
+!missions
+!mine
+!fish
+!luxeshop
+!vip
+!bjhelp
+!events
+!season
+!staffdash
+!postlaunch
+!knownissues
+!bug owner final QA
+!feedback owner final QA
+!stablecheck
+!launchblockers
+!finalaudit
+!launchcheck
+
+Expected:
+- no command errors
+- no old currency
+- no admin leaks
+- stable check clean
+
+==================================================
+PART 26 — FINAL REPORT
+==================================================
+
+Report:
+1. Owner QA status added.
+2. Owner test script added.
+3. Version label updated.
+4. Player flow QA passed.
+5. Mining/fishing QA passed.
+6. Luxe QA passed.
+7. Casino QA passed.
+8. Event/season QA passed.
+9. Staff/safety QA passed.
+10. Help QA passed.
+11. Currency QA passed.
+12. Backup verified.
+13. Production/launch locks verified.
+14. Stable check added.
+15. Release notes polished.
+16. Launch announcement preview polished.
+17. Hotfix policy added.
+18. Stable lock added.
+19. No economy changes made.
+20. No reward changes made.
+21. No HR Gold rewards added.
+22. No reward caps added.
+23. Real player beta skipped warning included in owner QA.
+24. !commandissues result.
+25. !checkhelp result.
+26. !currencycheck result.
+27. !launchblockers result.
+28. !launchcheck result.

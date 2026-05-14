@@ -235,6 +235,8 @@ from modules.release import (
     handle_ownerchecklist, handle_launchannounce,
     handle_whatsnew, handle_knownissues,
     handle_releasedash, handle_finalaudit,
+    handle_qastatus, handle_ownerqa, handle_ownertest,
+    handle_stablecheck, handle_hotfixpolicy, handle_stablelock,
 )
 from modules.monitor import (
     handle_launchmode, handle_postlaunch, handle_livehealth,
@@ -1321,6 +1323,9 @@ RELEASE_COMMANDS: frozenset[str] = frozenset({
     "whatsnew", "new", "v32", "knownissues",
     # Dashboards
     "releasedash", "finalaudit",
+    # 3.2J — Owner QA + Stable Lock
+    "qastatus", "ownerqa", "ownertest",
+    "stablecheck", "hotfixpolicy", "stablelock",
 })
 
 MONITOR_COMMANDS: frozenset[str] = frozenset({
@@ -6249,6 +6254,22 @@ class HangoutBot(BaseBot):
 
         elif cmd == "finalaudit":
             await handle_finalaudit(self, user, args)
+
+        # ── 3.2J — Owner QA + Stable Lock ─────────────────────────────────────
+        elif cmd in {"qastatus", "ownerqa"}:
+            await handle_qastatus(self, user, args)
+
+        elif cmd == "ownertest":
+            await handle_ownertest(self, user, args)
+
+        elif cmd == "stablecheck":
+            await handle_stablecheck(self, user, args)
+
+        elif cmd == "hotfixpolicy":
+            await handle_hotfixpolicy(self, user, args)
+
+        elif cmd == "stablelock":
+            await handle_stablelock(self, user, args)
 
         # ── 3.2A — Public Launch + Post-Launch Monitoring ─────────────────────
         elif cmd == "launchmode":

@@ -644,6 +644,8 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     # 3.1S — Release Candidate + Production Lock
     "rcmode", "production", "featurefreeze", "economylock", "registrylock",
     "releasenotes", "version", "botversion",
+    "qastatus", "ownerqa", "ownertest",
+    "stablecheck", "hotfixpolicy", "stablelock",
     "backup", "rollbackplan", "restorebackup",
     "ownerchecklist", "launchownercheck",
     "launchannounce",

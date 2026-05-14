@@ -102,6 +102,9 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "staffdash": "host", "stafftools": "host",
     "staffnote": "security", "staffnotes": "security",
     "permissioncheck": "security", "rolecheck": "security",
+    # 3.2J — Owner QA + Stable Lock
+    "qastatus": "host", "ownerqa": "host", "ownertest": "host",
+    "stablecheck": "host", "hotfixpolicy": "host", "stablelock": "host",
     "testmenu": "host", "betahelp": "host", "quickstart": "host",
     "issueadmin": "host",
     "bugs": "host",
