@@ -1,5 +1,10 @@
 """modules/jail_enforcement.py — Enforcement loop, rejoin re-jail, teleport block (3.4A)."""
 from __future__ import annotations
+
+TELEPORT_BLOCKED_CMDS: frozenset[str] = frozenset({
+    "tele", "tp", "tpme", "goto", "bring", "tphere",
+    "spawn", "rolespawn", "autospawn", "selftp", "groupteleport",
+})
 import asyncio
 import time
 from typing import TYPE_CHECKING

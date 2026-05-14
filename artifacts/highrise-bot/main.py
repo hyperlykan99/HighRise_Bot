@@ -3356,6 +3356,18 @@ class HangoutBot(BaseBot):
             await handle_previewannounce(self, user, args)
             return
 
+        # ── Jail teleport escape block ────────────────────────────────────────
+        try:
+            from modules.jail_enforcement import (
+                is_jailed, jail_block_message, TELEPORT_BLOCKED_CMDS,
+            )
+            if cmd in TELEPORT_BLOCKED_CMDS and is_jailed(user.id):
+                await self.highrise.send_whisper(user.id, jail_block_message(user.id))
+                print(f"[JAIL BLOCK] user={user.username} cmd={cmd}")
+                return
+        except Exception as _je:
+            print(f"[JAIL BLOCK ERROR] ignored: {_je!r}")
+
         # ── Jail runtime commands (any user; KeanuShield/security gate via should_this_bot_handle)
         if cmd in {
             "jail", "bail", "jailstatus", "jailtime", "jailhelp",

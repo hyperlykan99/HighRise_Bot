@@ -1,0 +1,225 @@
+Update ChillTopiaMC / KeanuShield — Safe Jail Enforcement Step 1 Only
+
+Current state:
+I rolled back to stable commit:
+b07a97e275723d5f35019cbab95b7d097e5ccf
+
+Goal:
+Rebuild jail enforcement safely, one small step at a time.
+
+Important:
+Do NOT add gold tip changes.
+Do NOT add Luxe Ticket admin commands.
+Do NOT add restart jail recovery yet.
+Do NOT add rejoin jail enforcement yet.
+Do NOT add AI jail commands yet.
+Do NOT change database structure unless required.
+Do NOT touch unrelated systems.
+
+This update should only:
+- Block jailed players from using teleport/escape commands.
+- Keep bots stable.
+- Avoid startup crashes.
+- Use safe imports.
+- Never break bot startup if jail modules fail.
+
+Security bot:
+KeanuShield
+
+Main host bot:
+ChillTopiaMC
+
+Step 1 — Teleport Block For Jailed Players
+
+Problem:
+Jailing works, but jailed players can teleport out using commands.
+
+Required behavior:
+If a player has an active jail sentence, block these commands:
+- !tele
+- !tp
+- !tpme
+- !goto
+- !bring
+- !tphere
+- !spawn
+- !rolespawn
+- !autospawn
+- !selftp
+- !groupteleport
+
+When blocked, reply:
+🚨 You’re jailed for [time remaining]. Type !bail to leave early.
+
+Do not block:
+- !jailstatus
+- !jailtime
+- !bail
+- !help
+- normal chat
+
+Implementation rules:
+
+1. Use lazy/safe imports only.
+
+Do not add risky top-level imports that can crash startup.
+
+In main.py, do NOT do unsafe imports like this at the top:
+from modules.jail_enforcement import ...
+
+Instead, inside the command handling block, use:
+
+try:
+    from modules.jail_enforcement import is_jailed, jail_block_message, TELEPORT_BLOCKED_CMDS
+except Exception as e:
+    print(f"[JAIL SAFE IMPORT] jail_enforcement unavailable: {e!r}")
+    TELEPORT_BLOCKED_CMDS = frozenset()
+    def is_jailed(user_id): return False
+    def jail_block_message(user_id): return "Jail system temporarily unavailable."
+
+2. Add jail_enforcement.py only if needed.
+
+Create/update:
+modules/jail_enforcement.py
+
+It should be safe to import.
+
+It should include:
+
+TELEPORT_BLOCKED_CMDS = frozenset({
+    "tele", "tp", "tpme", "goto", "bring", "tphere",
+    "spawn", "rolespawn", "autospawn", "selftp", "groupteleport",
+})
+
+def is_jailed(user_id: str) -> bool:
+    - Check if user has active jail sentence.
+    - Return False if jail table is missing.
+    - Return False if any DB error happens.
+    - Never raise an exception.
+
+def get_remaining_seconds(user_id: str) -> int:
+    - Return seconds remaining.
+    - Return 0 on error.
+
+def jail_block_message(user_id: str) -> str:
+    - Return short message with remaining time.
+    - Include bail hint.
+    - Never raise an exception.
+
+Important:
+If jail_sentences table is missing, return False.
+Do not crash.
+
+3. Add the block in main.py after command parsing and after multi-bot gate, but before teleport command handlers.
+
+Pseudo:
+
+# Jail teleport escape block
+try:
+    from modules.jail_enforcement import is_jailed, jail_block_message, TELEPORT_BLOCKED_CMDS
+    if cmd in TELEPORT_BLOCKED_CMDS and is_jailed(user.id):
+        await self.highrise.send_whisper(user.id, jail_block_message(user.id))
+        print(f"[JAIL BLOCK] user={user.username} cmd={cmd}")
+        return
+except Exception as e:
+    print(f"[JAIL BLOCK ERROR] ignored: {e!r}")
+
+This must never crash the bot.
+
+4. Do not enable startup jail recovery yet.
+
+Do not add:
+_safe_task(startup_jail_recovery(self), "startup_jail_recovery")
+
+Leave restart/rejoin recovery for later.
+
+5. Do not change tip rewards yet.
+
+Do not edit:
+- gold_tips.py
+- party_tip.py
+- luxe.py
+- luxe_admin.py
+
+6. Do not add owner ticket commands yet.
+
+Do not add:
+- !addtickets
+- !settickets
+- !removetickets
+- !sendtickets
+
+That will be a separate update later.
+
+7. Keep KeanuShield and ChillTopiaMC routing unchanged except for the teleport block.
+
+Runtime jail commands should still be KeanuShield-owned.
+Setup/debug commands should remain as currently working.
+
+Tests to run:
+
+Compile:
+python -m py_compile main.py
+python -m py_compile modules/jail_enforcement.py
+python -m py_compile modules/jail_system.py
+
+Startup stability:
+- Restart bot.
+- Bots must stay online for at least 2 minutes.
+- No fast-exit loop.
+- No ImportError.
+- No sqlite3.OperationalError.
+- No NameError.
+
+In-game test:
+
+1. Confirm normal player can teleport when not jailed:
+!tele jail
+
+Expected:
+Works.
+
+2. Jail alt:
+!jail @AltName 2 testing teleport block
+confirm
+
+Expected:
+Alt is jailed.
+
+3. On jailed alt:
+!tele jail_release
+!goto 4ktreyMarion
+!spawn
+
+Expected:
+Blocked with:
+🚨 You’re jailed for [time]. Type !bail to leave early.
+
+4. On jailed alt:
+!jailstatus
+!bail
+
+Expected:
+Still works.
+
+5. Wait until jail expires.
+Then on alt:
+!tele jail_release
+
+Expected:
+Teleport works again.
+
+Debug logs:
+[JAIL BLOCK] user=AltName cmd=tele
+[JAIL BLOCK] user=AltName cmd=goto
+[JAIL SAFE IMPORT] only if import fails
+[JAIL BLOCK ERROR] only if block fails, but bot must stay online
+
+Final report:
+1. Files changed
+2. py_compile result
+3. Startup stability result
+4. Normal teleport test result
+5. Jailed teleport block test result
+6. Jailstatus/bail still works result
+7. Bot crash/fast-exit result
