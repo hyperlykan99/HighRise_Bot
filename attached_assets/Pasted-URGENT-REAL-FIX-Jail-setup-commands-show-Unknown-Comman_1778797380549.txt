@@ -1,0 +1,88 @@
+URGENT REAL FIX: Jail setup commands show Unknown Command
+
+Problem:
+Typing !setjailspot returns:
+⚠️ Unknown command.
+
+Root cause:
+In main.py, the actual jail command handlers are inside:
+
+if cmd in STAFF_CMDS:
+    ...
+    elif cmd == "setjailspot":
+        await handle_setjailspot(...)
+
+But setjailspot, setjailguardspot, setsecurityidle, setjailreleasespot, jaildebug, jailadmin are in JAIL_COMMANDS only.
+JAIL_COMMANDS is added to ALL_KNOWN_COMMANDS, but NOT to STAFF_CMDS.
+So commandtest says route/handler YES, but real on_chat never enters the STAFF_CMDS block.
+
+Fix in main.py:
+After JAIL_COMMANDS is defined, add jail staff/admin commands into STAFF_CMDS.
+
+Add this right after JAIL_COMMANDS definition:
+
+JAIL_STAFF_CMDS = frozenset({
+    "unjail", "jailrelease",
+    "jailadmin", "jailactive",
+    "jailsetcost", "jailsetmax", "jailsetmin",
+    "jailsetbailmultiplier",
+    "jailprotectstaff", "jaildebug",
+    "setjailspot", "setjailguardspot",
+    "setsecurityidle", "setjailreleasespot",
+})
+
+STAFF_CMDS = STAFF_CMDS | JAIL_STAFF_CMDS
+
+Also add correct permission group:
+ADMIN_ONLY_CMDS = ADMIN_ONLY_CMDS | {
+    "jailadmin", "jailactive",
+    "jailsetcost", "jailsetmax", "jailsetmin",
+    "jailsetbailmultiplier",
+    "jaildebug",
+    "setjailspot", "setjailguardspot",
+    "setsecurityidle", "setjailreleasespot",
+}
+
+OWNER_ONLY_CMDS = OWNER_ONLY_CMDS | {
+    "jailprotectstaff",
+}
+
+Keep player jail commands OUT of STAFF_CMDS:
+- jail
+- bail
+- jailstatus
+- jailtime
+- jailhelp
+- jailconfirm
+- jailcancel
+
+Those are player commands and should be routed outside the staff-only block if needed.
+
+Also keep the previous multi_bot.py override:
+host/all may handle only jail setup commands:
+setjailspot, setjailguardspot, setsecurityidle, setjailreleasespot, jaildebug, jailadmin
+
+Do not change owner from KeanuShield/security.
+
+Add debug before jail setup handler call:
+print(f"[JAIL ROUTE HIT] cmd={cmd} user={user.username} bot_mode={BOT_MODE}")
+
+Expected test:
+1. Restart bot.
+2. Type:
+!setjailspot
+
+Expected:
+✅ Jail spot saved.
+
+3. Type:
+!jaildebug
+
+Expected:
+jail ✅
+jail_guard maybe ❌ until set
+security_idle maybe ❌ until set
+jail_release maybe ❌ until set
+
+Important:
+If !setjailspot still says Unknown command, then JAIL_STAFF_CMDS was not added to STAFF_CMDS after JAIL_COMMANDS is defined.

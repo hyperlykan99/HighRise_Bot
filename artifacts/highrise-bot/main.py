@@ -1378,6 +1378,25 @@ ALL_KNOWN_COMMANDS = (
     | JAIL_COMMANDS
 )
 
+# Jail staff/admin commands must be in STAFF_CMDS so the on_chat gate lets them through.
+# Player-facing jail commands (jail, bail, jailstatus, jailtime, jailhelp,
+# jailconfirm, jailcancel) are intentionally kept outside STAFF_CMDS.
+JAIL_STAFF_CMDS: frozenset[str] = frozenset({
+    "unjail", "jailrelease",
+    "jailadmin", "jailactive",
+    "jailsetcost", "jailsetmax", "jailsetmin", "jailsetbailmultiplier",
+    "jailprotectstaff", "jaildebug",
+    "setjailspot", "setjailguardspot", "setsecurityidle", "setjailreleasespot",
+})
+STAFF_CMDS = STAFF_CMDS | JAIL_STAFF_CMDS
+ADMIN_ONLY_CMDS = ADMIN_ONLY_CMDS | {
+    "jailadmin", "jailactive",
+    "jailsetcost", "jailsetmax", "jailsetmin", "jailsetbailmultiplier",
+    "jaildebug",
+    "setjailspot", "setjailguardspot", "setsecurityidle", "setjailreleasespot",
+}
+OWNER_ONLY_CMDS = OWNER_ONLY_CMDS | {"jailprotectstaff"}
+
 
 # ---------------------------------------------------------------------------
 # Help texts  (all ≤ 249 chars per whisper)
