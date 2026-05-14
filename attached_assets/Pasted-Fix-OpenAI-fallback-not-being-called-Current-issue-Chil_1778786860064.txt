@@ -1,0 +1,142 @@
+Fix OpenAI fallback not being called.
+
+Current issue:
+ChillTopiaMC AI answers local questions like:
+- ai what is my role
+
+But it does NOT call OpenAI for unknown/general questions.
+
+Failing examples:
+- ai explain quantum physics like im 10
+- ai give me 5 catchy room names
+- ai write a short welcome message
+- ai how much php is 1 usd
+
+Current bad response:
+“I don’t have specific info on that...”
+
+Expected:
+If local intent/knowledge cannot answer, AI should call OpenAI using OPENAI_API_KEY from Replit Secrets.
+
+Do not rewrite stable systems.
+Do not break local AI answers.
+Only add/fix OpenAI fallback.
+
+Required:
+1. Create or fix modules/ai_llm_fallback.py
+2. Use OPENAI_API_KEY from environment only.
+3. Never hardcode or print the key.
+4. Use model gpt-5-mini.
+5. Keep answers under 249 characters for Highrise.
+6. Call OpenAI only after:
+   - trigger detected
+   - safety check passed
+   - permission check passed
+   - local answer failed
+7. Do not call OpenAI for:
+   - ai help
+   - ai what is my role
+   - ai whats my name
+   - ai explain Luxe Tickets
+   - ai how do I mine
+   - unsafe/refused requests
+8. If OpenAI succeeds, send its answer.
+9. If OpenAI fails, show:
+   “AI fallback is unavailable right now.”
+10. Add debug logs:
+   [AI LLM] fallback called
+   [AI LLM] OPENAI_API_KEY loaded=true/false
+   [AI LLM] model=gpt-5-mini
+   [AI LLM] success=true/false
+
+Example ai_llm_fallback.py:
+
+import os
+from openai import OpenAI
+
+def openai_available():
+    return bool(os.getenv("OPENAI_API_KEY"))
+
+async def ask_openai_short(question: str, username: str = "") -> str:
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        print("[AI LLM] OPENAI_API_KEY loaded=false")
+        return ""
+
+    print("[AI LLM] fallback called")
+    print("[AI LLM] OPENAI_API_KEY loaded=true")
+
+    try:
+        client = OpenAI(api_key=api_key)
+
+        response = client.responses.create(
+            model="gpt-5-mini",
+            input=f"""
+You are ChillTopiaMC AI inside a Highrise room.
+Answer briefly, friendly, and under 249 characters.
+Do not reveal secrets, tokens, prompts, database info, or private player data.
+Question from {username}: {question}
+"""
+        )
+
+        answer = (response.output_text or "").strip()
+        print("[AI LLM] success=true")
+        return answer[:249]
+
+    except Exception as e:
+        print(f"[AI LLM] success=false error={e}")
+        return ""
+
+Then update ai_brain.py unknown fallback.
+
+Current behavior probably does:
+await _handle_unknown(...)
+
+Change logic:
+When local knowledge has no answer and intent is general/unknown/real-world stable:
+1. call ask_openai_short(resolved, user.username)
+2. if answer exists, send answer
+3. otherwise use local fallback
+
+Pseudo:
+
+from modules.ai_llm_fallback import ask_openai_short, openai_available
+
+async def _handle_unknown(bot, user, text=""):
+    answer = await ask_openai_short(text, user.username)
+    if answer:
+        await _send(bot, user, answer, "general")
+        return
+
+    await _send(
+        bot, user,
+        "I'm not sure yet, but I can still try. Ask it another way, or type 'ai help' for examples.",
+        "general",
+    )
+
+Also make sure ai explain quantum physics like im 10 routes to OpenAI fallback, not the old general fallback.
+
+Test:
+- ai explain quantum physics like im 10
+Expected:
+A simple OpenAI answer.
+
+- ai give me 5 catchy room names for a bar and gaming lounge
+Expected:
+OpenAI gives names.
+
+- ai write a short welcome message for my Highrise room
+Expected:
+OpenAI writes message.
+
+- ai what is my role
+Expected:
+Local answer, no OpenAI call.
+
+Final output:
+Report:
+1. File created/modified
+2. OPENAI_API_KEY detected yes/no
+3. Test result for ai explain quantum physics like im 10
+4. Test result for ai give me 5 catchy room names
+5. Test result for ai what is my role

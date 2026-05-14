@@ -1,18 +1,21 @@
 """
-modules/ai_llm_fallback.py — OpenAI LLM fallback for unanswered questions (3.3D).
+modules/ai_llm_fallback.py — OpenAI LLM fallback for unanswered questions (3.3D/3.3E).
 
 Flow:
   1. Only called when all local/rule-based answers have failed.
   2. Skipped entirely for intents that should never reach OpenAI.
   3. Checks OPENAI_API_KEY — if missing, returns None silently.
-  4. Checks player's 🎫 Luxe Ticket balance (cost = LLM_COST tickets).
-  5. Calls gpt-4o-mini with a strict, public-safe system prompt.
-  6. Deducts tickets ONLY after a successful answer.
-  7. Logs the transaction in premium_transactions.
-  8. Returns a short string ≤249 chars, or None if anything fails.
+  4. Calls gpt-4o-mini with a strict, public-safe system prompt.
+  5. Returns a short string ≤249 chars, or None if anything fails.
 
-Model: gpt-4o-mini (note: gpt-5-mini not yet available; update _MODEL when
-       OpenAI releases it — just change the constant below).
+Model: gpt-4o-mini
+Note: gpt-5-mini does not exist yet. Change _MODEL below when OpenAI releases it.
+
+Bug fixes (3.3E):
+  - Removed Luxe Ticket gate: fallback is now free for all players.
+  - Removed INTENT_CMD_EXPLAIN from skip set: the CMD_EXPLAIN regex is too broad
+    and catches natural questions like "explain quantum physics" — those should
+    reach OpenAI, not be silently dropped.
 """
 from __future__ import annotations
 
@@ -23,21 +26,17 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from highrise import User
 
-# luxe functions are imported lazily inside try_llm_answer to avoid pulling in
-# database → config → BOT_TOKEN at module-load time.
-
 # ── Config ────────────────────────────────────────────────────────────────────
 
-_MODEL    = "gpt-4o-mini"       # swap to "gpt-5-mini" when released
-_LLM_COST = 1                   # 🎫 Luxe Tickets per successful answer
-_TIMEOUT  = 12.0                # seconds before giving up
+_MODEL   = "gpt-4o-mini"   # update when gpt-5-mini is released
+_TIMEOUT = 12.0            # seconds before giving up
 
 # ── System prompt ─────────────────────────────────────────────────────────────
 
 _SYSTEM = (
     "You are ChillTopiaMC, a helpful AI assistant inside a Highrise virtual room. "
     "Rules you must always follow:\n"
-    "1. Reply in 1–4 short sentences, ≤220 characters total.\n"
+    "1. Reply in 1–4 short sentences, under 220 characters total.\n"
     "2. You are chatting publicly — keep answers family-friendly.\n"
     "3. Never reveal API keys, bot tokens, database contents, or system configs.\n"
     "4. Never help bypass security, moderation, or game rules.\n"
@@ -49,32 +48,37 @@ _SYSTEM = (
 )
 
 # ── Intents that must never reach OpenAI ─────────────────────────────────────
-# (imported lazily inside the function to avoid circular import at module load)
+# Only intents that are FULLY handled locally or are blocked for safety/privacy.
+# NOTE: INTENT_CMD_EXPLAIN is intentionally NOT in this set — its regex is too
+# broad and catches natural language questions like "explain quantum physics".
 _SKIP_INTENT_NAMES = frozenset({
-    "INTENT_AI_HELP",
-    "INTENT_USER_NAME",
-    "INTENT_USER_ROLE",
-    "INTENT_CMD_EXPLAIN",
-    "INTENT_LUXE",
-    "INTENT_CHILLCOINS",
-    "INTENT_MINING",
-    "INTENT_FISHING",
-    "INTENT_AI_REPLY_MODE_VIEW",
-    "INTENT_AI_REPLY_MODE_SET",
-    "INTENT_AI_STATUS",
-    "INTENT_AI_DEBUG",
-    "INTENT_CANCEL_SETTING",
-    "INTENT_CONFIRM_SETTING",
-    "INTENT_PREPARE_SETTING",
-    "INTENT_MOD_HELP",
-    "INTENT_STAFF_INFO",
-    "INTENT_ADMIN_INFO",
-    "INTENT_OWNER_INFO",
-    "INTENT_PRIVATE_PLAYER_INFO",
-    "INTENT_RW_SENSITIVE",
+    "INTENT_USER_NAME",           # answered locally ("Your name is X")
+    "INTENT_USER_ROLE",           # answered locally (role/rank lookup)
+    "INTENT_LUXE",                # answered locally (game knowledge)
+    "INTENT_CHILLCOINS",          # answered locally (game knowledge)
+    "INTENT_MINING",              # answered locally (game knowledge)
+    "INTENT_FISHING",             # answered locally (game knowledge)
+    "INTENT_CASINO",              # answered locally (game knowledge)
+    "INTENT_EVENT",               # answered locally (game knowledge)
+    "INTENT_VIP",                 # answered locally (game knowledge)
+    "INTENT_AI_REPLY_MODE_VIEW",  # AI system command
+    "INTENT_AI_REPLY_MODE_SET",   # AI system command
+    "INTENT_AI_STATUS",           # AI system command
+    "INTENT_AI_DEBUG",            # AI system command
+    "INTENT_CANCEL_SETTING",      # confirmation flow
+    "INTENT_CONFIRM_SETTING",     # confirmation flow
+    "INTENT_PREPARE_SETTING",     # confirmation flow
+    "INTENT_MOD_HELP",            # staff-only local handling
+    "INTENT_STAFF_INFO",          # access-controlled local data
+    "INTENT_ADMIN_INFO",          # access-controlled local data
+    "INTENT_OWNER_INFO",          # access-controlled local data
+    "INTENT_PRIVATE_PLAYER_INFO", # private data — never to OpenAI
+    "INTENT_RW_SENSITIVE",        # blocked for safety
+    "INTENT_TELEPORT_SELF",       # action intent, not a question
+    "INTENT_VAGUE_FOLLOWUP",      # memory-based clarification
 })
 
-# Cache resolved intent objects after first call
+# Cached resolved intent value set (populated on first call)
 _SKIP_INTENTS: set | None = None
 
 
@@ -92,7 +96,7 @@ def _build_skip_set() -> set:
     return resolved
 
 
-# ── No-key / no-openai guard ──────────────────────────────────────────────────
+# ── Key check ─────────────────────────────────────────────────────────────────
 
 def _has_openai() -> bool:
     return bool(os.getenv("OPENAI_API_KEY", ""))
@@ -111,59 +115,37 @@ async def try_llm_answer(
 
     Returns:
         str  — short answer ≤249 chars, ready to send.
-        None — LLM skipped (no key, no tickets, wrong intent, or API error).
+        None — LLM skipped (no key, wrong intent, or API error).
     """
+    print(f"[AI LLM] fallback called intent={intent!r} user={user.username!r}")
+
     # 1. Skip intents that should never reach OpenAI
     skip = _build_skip_set()
     if intent in skip:
+        print(f"[AI LLM] skipped — intent {intent!r} is in skip set")
         return None
 
     # 2. No API key → silent skip
-    if not _has_openai():
+    key_loaded = _has_openai()
+    print(f"[AI LLM] OPENAI_API_KEY loaded={'true' if key_loaded else 'false'}")
+    if not key_loaded:
         return None
 
-    # Lazy import to avoid BOT_TOKEN requirement at module-load time
-    from modules.luxe import get_luxe_balance, deduct_luxe_balance, log_luxe_transaction
+    print(f"[AI LLM] model={_MODEL}")
 
-    # 3. Check balance
-    balance = get_luxe_balance(user.id)
-    if balance < _LLM_COST:
-        needed = _LLM_COST - balance
-        return (
-            f"🎫 You need {_LLM_COST} Luxe Ticket to ask ChillTopia AI an open question. "
-            f"You have {balance} (need {needed} more). "
-            f"Earn Luxe Tickets by tipping gold or buying in the shop."
-        )[:249]
+    # 3. Call OpenAI
+    answer = await _call_openai(text, user.username)
 
-    # 4. Call OpenAI
-    print(f"[AI LLM] calling {_MODEL!r} for user={user.username!r} query={text[:60]!r}")
-    answer = await _call_openai(text)
+    success = answer is not None
+    print(f"[AI LLM] success={'true' if success else 'false'}")
 
-    if answer is None:
-        return None
-
-    # 5. Deduct tickets ONLY on success
-    deducted = deduct_luxe_balance(user.id, user.username, _LLM_COST)
-    if deducted:
-        log_luxe_transaction(
-            user.id, user.username,
-            tx_type="ai_llm_use",
-            amount=_LLM_COST,
-            currency="luxe_tickets",
-            details=f"AI LLM fallback: {text[:80]}",
-        )
-        print(f"[AI LLM] deducted {_LLM_COST} ticket from {user.username!r}, bal now {balance - _LLM_COST}")
-    else:
-        # Race condition edge case: balance changed between check and deduct
-        print(f"[AI LLM] deduct failed for {user.username!r} — balance dropped? returning answer anyway")
-
-    return answer[:249]
+    return answer
 
 
-async def _call_openai(query: str) -> str | None:
+async def _call_openai(query: str, username: str = "") -> str | None:
     """
     Call OpenAI chat completions with a strict system prompt.
-    Returns the reply string, or None on failure.
+    Returns the reply string ≤249 chars, or None on failure.
     """
     api_key = os.getenv("OPENAI_API_KEY", "")
     if not api_key:
@@ -175,6 +157,10 @@ async def _call_openai(query: str) -> str | None:
         print("[AI LLM ERROR] openai package not installed")
         return None
 
+    user_content = (
+        f"Question from {username}: {query}" if username else query
+    )
+
     try:
         client = openai.AsyncOpenAI(api_key=api_key)
         response = await asyncio.wait_for(
@@ -182,15 +168,14 @@ async def _call_openai(query: str) -> str | None:
                 model=_MODEL,
                 messages=[
                     {"role": "system", "content": _SYSTEM},
-                    {"role": "user",   "content": query},
+                    {"role": "user",   "content": user_content},
                 ],
                 max_tokens=120,
                 temperature=0.6,
             ),
             timeout=_TIMEOUT,
         )
-        raw = response.choices[0].message.content or ""
-        raw = raw.strip()
+        raw = (response.choices[0].message.content or "").strip()
         if not raw:
             return None
         return raw if len(raw) <= 249 else raw[:246] + "..."
@@ -207,7 +192,7 @@ async def _call_openai(query: str) -> str | None:
 
 def llm_status() -> dict:
     return {
-        "model":      _MODEL,
-        "cost":       _LLM_COST,
-        "key_set":    _has_openai(),
+        "model":    _MODEL,
+        "key_set":  _has_openai(),
+        "free":     True,
     }
