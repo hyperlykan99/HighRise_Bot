@@ -343,6 +343,7 @@ from modules.safety import (
 from modules.help_cmds import (
     handle_commands as handle_commands_browser,
     handle_command_detail,
+    handle_currencycheck,
 )
 from modules.analytics import (
     handle_ownerdash,
@@ -2120,7 +2121,8 @@ ADMIN_HELP_PAGES = [
         "!missingcommands — unrouted cmds\n"
         "!routecheck — unlisted routes\n"
         "!silentcheck — silent risk cmds\n"
-        "!commandtest [cmd] — test a route"
+        "!commandtest [cmd] — test a route\n"
+        "!currencycheck — currency scan"
     ),
 ]
 
@@ -2190,7 +2192,8 @@ OWNER_HELP_PAGES = [
         "!missingcommands — unrouted cmds\n"
         "!routecheck — unlisted routes\n"
         "!silentcheck — silent risk cmds\n"
-        "!commandtest [cmd] — test a route"
+        "!commandtest [cmd] — test a route\n"
+        "!currencycheck — currency scan"
     ),
     (
         "👑 Owner 7 — Recovery\n"
@@ -3331,6 +3334,8 @@ class HangoutBot(BaseBot):
                 await handle_commandissues(self, user, args, ALL_KNOWN_COMMANDS)
             elif cmd == "launchcheck":
                 await _cmd_launchcheck(self, user)
+            elif cmd == "currencycheck":
+                await handle_currencycheck(self, user, args)
             elif cmd in {"commandtestall", "ctall"}:
                 await handle_commandtestall(self, user, args, ALL_KNOWN_COMMANDS)
             elif cmd in {"commandtestgroup", "ctgroup"}:

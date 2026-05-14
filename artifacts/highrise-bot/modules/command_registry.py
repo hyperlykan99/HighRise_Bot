@@ -1411,9 +1411,10 @@ REGISTRY: dict[str, Cmd] = {
     "retentionadmin":  Cmd("host", "admin",     False, True,  False, perm="admin"),
 
     # ── 3.1P Help + Commands system ───────────────────────────────────────────
-    "commands":    Cmd("host", "general",   True,  True,  True,
-                       aliases=("cmds",)),
-    "command":     Cmd("host", "general",   True,  True,  True),
+    "commands":       Cmd("host", "general",   True,  True,  True,
+                          aliases=("cmds",)),
+    "command":        Cmd("host", "general",   True,  True,  True),
+    "currencycheck":  Cmd("host", "admin",     False, True,  False, perm="admin"),
 
     # ── 3.1O Analytics dashboards ─────────────────────────────────────────────
     "ownerdash":       Cmd("host", "analytics", False, False, False, perm="admin",

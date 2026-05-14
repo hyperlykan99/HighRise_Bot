@@ -1,0 +1,219 @@
+UPDATE 3.1P HOTFIX — FIX !CURRENCYCHECK COMMAND ROUTE + HANDLER
+
+Current issue:
+!currencycheck does not work.
+
+Goal:
+Make !currencycheck route correctly and scan/help-check old currency text.
+
+Do not change tokens.
+Do not wipe data.
+Do not reset balances.
+Do not change economy values.
+Do not re-add reward caps.
+
+==================================================
+PART 1 — REGISTER !CURRENCYCHECK
+==================================================
+
+Register command:
+
+!currencycheck
+
+Expected owner:
+Owner/Admin utility bot, ChillTopiaMC, or KeanuShield/Safety.
+
+Expected:
+
+!commandtest !currencycheck
+owner=ChillTopiaMC or KeanuShield
+route=YES
+handler=YES
+permission=Owner/Admin
+
+If command exists but no route:
+- add route
+- add handler
+- add permission check
+
+If command exists in help but not implemented:
+- implement it
+- do not remove it
+
+==================================================
+PART 2 — PERMISSION
+==================================================
+
+!currencycheck should be Owner/Admin only.
+
+If normal player uses it:
+
+🔒 Owner/Admin only.
+
+Do not show !currencycheck in public help.
+
+Show it only in:
+!commands admin
+!commands owner
+!ownerhelp
+!adminhelp
+
+==================================================
+PART 3 — CURRENCYCHECK OUTPUT
+==================================================
+
+Command:
+!currencycheck
+
+Expected:
+
+💰 Currency Check
+🪙 ChillCoins: OK
+🎫 Luxe Tickets: OK
+Old “c”: 0
+Old “credits”: 0
+Old “gems”: 0
+
+If issues found:
+
+💰 Currency Check
+Old “c”: 3
+Old “credits”: 1
+Old “gems”: 0
+Use !currencycheck details.
+
+==================================================
+PART 4 — DETAILS SUBCOMMAND
+==================================================
+
+Add:
+
+!currencycheck details
+
+Expected:
+
+🔎 Currency Issues
+1. bjrules: “100c”
+2. audit: “earned 0c”
+3. shop: “credits”
+
+Rules:
+- Keep under 220 chars per message.
+- Split if needed.
+- Do not scan secrets/tokens/env files.
+- Scan only help templates, command output templates, shop text, guide text, and known bot message strings if possible.
+
+==================================================
+PART 5 — SAFE SCAN TARGETS
+==================================================
+
+Scan project text/templates for old player-facing currency words:
+
+Old text to flag:
+"c"
+"credits"
+"credit"
+"coins" when it should say ChillCoins if player-facing
+"gems"
+"ticket" without 🎫 if referring to Luxe Tickets
+"Luxe Tickets" without 🎫 if display should use icon
+
+Do NOT flag:
+- code variable names
+- database column names
+- comments if not player-facing
+- file names
+- internal enum values
+- Highrise Gold references
+- normal English words containing c
+
+Important:
+Avoid false positives from every letter “c”.
+Only flag patterns like:
+amount + c
+"100c"
+"{amount}c"
+"credits"
+"gems"
+
+==================================================
+PART 6 — QUICK FIX SUGGESTIONS
+==================================================
+
+If issues found, output suggestions:
+
+Replace:
+100c -> 100 🪙
+credits -> ChillCoins 🪙
+tickets -> 🎫 Luxe Tickets
+gems -> remove/rename to 🎫 Luxe Tickets
+
+Command should not auto-edit unless owner later requests.
+
+==================================================
+PART 7 — COMMAND REGISTRY / HELP UPDATE
+==================================================
+
+Update registry:
+
+!currencycheck
+category: admin/owner
+permission: admin or owner
+hidden from public help
+description: scan old currency text
+usage: !currencycheck / !currencycheck details
+
+Update:
+!commands admin
+!commands owner
+!ownerhelp
+!adminhelp
+
+Do not show in:
+!help
+!commands economy
+!guide economy
+public help
+
+==================================================
+PART 8 — TESTS
+==================================================
+
+Run:
+
+!commandtest !currencycheck
+!currencycheck
+!currencycheck details
+
+Expected:
+- route=YES
+- handler=YES
+- no command error
+- output shows currency check summary
+- details works or says no issues
+
+Then run:
+
+!commandissues
+!checkcommands
+!checkhelp
+!launchcheck
+
+Expected:
+- no command issues
+- no public help leak
+- launchcheck clean
+
+==================================================
+PART 9 — FINAL REPORT
+==================================================
+
+Report:
+1. !currencycheck route fixed.
+2. !currencycheck handler added/fixed.
+3. Permission set to Owner/Admin.
+4. Public help leak checked.
+5. Details scan added.
+6. !commandtest !currencycheck result.
+7. !commandissues result.
+8. !launchcheck result.

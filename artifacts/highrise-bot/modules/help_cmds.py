@@ -215,7 +215,7 @@ _CAT: dict[str, str] = {
         "!missionadmin — mission config\n"
         "!safetyadmin — safety config\n"
         "!luxeadmin — Luxe config\n"
-        "!vipadmin — VIP config\n"
+        "!currencycheck — currency scan\n"
         "!ownerdash — analytics\n"
         "!adminhelp — full reference"
     ),
@@ -225,6 +225,7 @@ _CAT: dict[str, str] = {
         "!ownerdash — analytics dash\n"
         "!economydash  !luxedash\n"
         "!audit [user] — player audit\n"
+        "!currencycheck — currency scan\n"
         "!commandissues — command check\n"
         "!launchcheck — launch health\n"
         "!bothealth  !stability"
@@ -341,6 +342,7 @@ _SEARCHABLE: list[tuple[list[str], str, str]] = [
     (["luxeadmin"],                      "!luxeadmin — Luxe config",        "admin"),
     (["vipadmin"],                       "!vipadmin — VIP config",          "admin"),
     (["adminhelp"],                      "!adminhelp — full admin help",    "admin"),
+    (["currencycheck", "currency"],      "!currencycheck — currency scan",  "admin"),
     # Owner+
     (["ownerdash", "analytics"],         "!ownerdash — owner analytics",    "owner"),
     (["economydash"],                    "!economydash — economy dashboard","owner"),
@@ -546,6 +548,172 @@ async def _handle_search(bot: BaseBot, user: User, term: str) -> None:
             chunk = candidate
     if chunk:
         await bot.highrise.send_whisper(user.id, chunk[:249])
+
+
+# ── Currency scanner ─────────────────────────────────────────────────────────
+
+import ast
+import os
+import re
+
+_BOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+_SCAN_FILES = [
+    "main.py",
+    "modules/mining.py",
+    "modules/fishing.py",
+    "modules/economy.py",
+    "modules/shop.py",
+    "modules/onboarding.py",
+    "modules/blackjack.py",
+    "modules/realistic_blackjack.py",
+    "modules/poker.py",
+    "modules/profile.py",
+    "modules/dj.py",
+    "modules/room_utils.py",
+    "modules/admin_cmds.py",
+    "modules/badge_market.py",
+    "modules/quests.py",
+    "modules/achievements.py",
+    "modules/events.py",
+    "modules/seasons.py",
+    "modules/audit.py",
+    "modules/analytics.py",
+]
+
+_CURRENCY_PATS: list[tuple[str, re.Pattern]] = [
+    ("c",       re.compile(r'\d{2,}c\b|\{[^}]+\}c\b')),   # "100c" or "{n}c"
+    ("credits", re.compile(r'\bcredits?\b', re.IGNORECASE)),
+    ("gems",    re.compile(r'\bgems\b', re.IGNORECASE)),
+]
+
+
+def _scan_currency_issues() -> list[tuple[str, str, str]]:
+    """Scan string literals in player-facing files for old currency text.
+    Returns list of (location, snippet, label).
+    Uses AST so only real string literals are checked — no false positives
+    from variable names, DB column names, or code comments.
+    """
+    results: list[tuple[str, str, str]] = []
+
+    for rel_path in _SCAN_FILES:
+        full_path = os.path.join(_BOT_DIR, rel_path)
+        if not os.path.exists(full_path):
+            continue
+        try:
+            with open(full_path, encoding="utf-8") as fh:
+                source = fh.read()
+            tree = ast.parse(source)
+        except Exception:
+            continue
+
+        short = rel_path.replace("modules/", "").replace(".py", "")
+
+        # Collect module-level docstring linenos to skip (not player-facing)
+        _module_doc_lines: set[int] = set()
+        if (tree.body
+                and isinstance(tree.body[0], ast.Expr)
+                and isinstance(tree.body[0].value, ast.Constant)):
+            _module_doc_lines.add(tree.body[0].value.lineno)
+
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Constant):
+                continue
+            val = node.value
+            if not isinstance(node, ast.Constant) or not isinstance(val, str):
+                continue
+            if len(val) < 4:
+                continue
+            # Skip module-level docstrings (developer docs, not player-facing)
+            if node.lineno in _module_doc_lines:
+                continue
+            # Skip identifier-like strings (setting keys, column names)
+            if val.isidentifier():
+                continue
+            # Skip short strings with no spaces/newlines — likely keys
+            if " " not in val and "\n" not in val and len(val) <= 20:
+                continue
+
+            for label, pat in _CURRENCY_PATS:
+                m = pat.search(val)
+                if m:
+                    start = max(0, m.start() - 8)
+                    raw = val[start:m.end() + 12].replace("\n", " ").strip()
+                    snippet = raw[:35]
+                    loc = f"{short}:{node.lineno}"
+                    results.append((loc, snippet, label))
+                    break  # one hit per string node
+
+    return results
+
+
+async def handle_currencycheck(bot: BaseBot, user: User, args: list[str]) -> None:
+    """!currencycheck [details] — scan player-facing strings for old currency text.
+    Owner/Admin only. Not shown in public help.
+    """
+    if not (is_owner(user.username) or can_manage_economy(user.username)):
+        await _w(bot, user.id, "🔒 Owner/Admin only.")
+        return
+
+    sub = args[1].lower() if len(args) > 1 else ""
+
+    try:
+        findings = _scan_currency_issues()
+    except Exception as e:
+        await _w(bot, user.id, f"Scan error: {str(e)[:100]}")
+        return
+
+    counts: dict[str, int] = {"c": 0, "credits": 0, "gems": 0}
+    for _loc, _snip, label in findings:
+        counts[label] = counts.get(label, 0) + 1
+
+    if sub == "details":
+        if not findings:
+            await _w(bot, user.id,
+                     "🔎 Currency Issues\nNo old currency text found. ✅")
+            return
+        header = ["🔎 Currency Issues"]
+        for i, (loc, snip, label) in enumerate(findings[:12], 1):
+            header.append(f'{i}. {loc}: "{snip}"')
+        chunk = ""
+        for line in header:
+            candidate = (chunk + "\n" + line).lstrip("\n") if chunk else line
+            if len(candidate) > 220:
+                await bot.highrise.send_whisper(user.id, chunk[:249])
+                chunk = line
+            else:
+                chunk = candidate
+        if chunk:
+            await bot.highrise.send_whisper(user.id, chunk[:249])
+        if len(findings) > 12:
+            await _w(bot, user.id,
+                     f"...and {len(findings) - 12} more.\n"
+                     f"Fix with !currencycheck details 2 (coming soon).")
+        # Quick-fix suggestions
+        if counts["c"] > 0:
+            await _w(bot, user.id,
+                     "💡 Fix: Replace 100c → 100 🪙, {n}c → {n} 🪙")
+        if counts["credits"] > 0:
+            await _w(bot, user.id,
+                     "💡 Fix: Replace credits → ChillCoins 🪙")
+        if counts["gems"] > 0:
+            await _w(bot, user.id,
+                     "💡 Fix: Replace gems → 🎫 Luxe Tickets or remove")
+        return
+
+    # Summary view
+    all_ok = all(v == 0 for v in counts.values())
+    lines = ["💰 Currency Check"]
+    lines.append("🪙 ChillCoins: OK")
+    lines.append("🎫 Luxe Tickets: OK")
+    lines.append(f'Old "c": {counts["c"]}')
+    lines.append(f'Old "credits": {counts["credits"]}')
+    lines.append(f'Old "gems": {counts["gems"]}')
+    msg = "\n".join(lines)
+    await _w(bot, user.id, msg)
+    if not all_ok:
+        await _w(bot, user.id,
+                 "⚠️ Issues found.\nUse !currencycheck details to see them.")
 
 
 async def handle_command_detail(bot: BaseBot, user: User, args: list[str]) -> None:
