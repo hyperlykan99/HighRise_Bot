@@ -809,12 +809,13 @@ async def handle_launchblockers(bot: BaseBot, user: User) -> None:
         blockers.append(f"Critical bug(s): {crit}")
 
     # 2. Command routing check
+    unrouted_names: list[str] = []
     try:
         from modules.cmd_audit import ROUTED_COMMANDS
         import main as _m
-        missing = len(_m.ALL_KNOWN_COMMANDS - ROUTED_COMMANDS)
-        if missing > 0:
-            blockers.append(f"Unrouted commands: {missing}")
+        unrouted_names = sorted(_m.ALL_KNOWN_COMMANDS - ROUTED_COMMANDS)
+        if unrouted_names:
+            blockers.append(f"Unrouted commands: {len(unrouted_names)}")
     except Exception:
         pass
 
@@ -839,14 +840,28 @@ async def handle_launchblockers(bot: BaseBot, user: User) -> None:
             "Command issues: 0\n"
             "Currency issues: 0\n"
             "Maintenance: OFF\n"
-            "Ready blocker: none ✅"
+            "Ready: YES ✅"
         )
     else:
         lines = ["🚧 Launch Blockers"]
         for i, b in enumerate(blockers, 1):
             lines.append(f"{i}. {b}")
+        # Show unrouted command names (up to 5 fit in remaining space)
+        if unrouted_names:
+            for name in unrouted_names[:5]:
+                lines.append(f"   • !{name}")
+            if len(unrouted_names) > 5:
+                lines.append(f"   (+{len(unrouted_names) - 5} more — !commandissues missing)")
         lines.append("Ready: NO ⚠️")
-        await _w(bot, user.id, "\n".join(lines)[:249])
+        # May exceed 249 — send in two parts if needed
+        msg = "\n".join(lines)
+        if len(msg) <= 249:
+            await _w(bot, user.id, msg)
+        else:
+            part1 = "\n".join(lines[:len(lines) // 2])
+            part2 = "\n".join(lines[len(lines) // 2:])
+            await _w(bot, user.id, part1[:249])
+            await _w(bot, user.id, part2[:249])
 
 
 # ---------------------------------------------------------------------------

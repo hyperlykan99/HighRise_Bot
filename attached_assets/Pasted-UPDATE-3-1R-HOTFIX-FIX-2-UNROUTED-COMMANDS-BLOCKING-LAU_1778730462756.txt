@@ -1,0 +1,136 @@
+UPDATE 3.1R HOTFIX — FIX 2 UNROUTED COMMANDS BLOCKING LAUNCH
+
+Current issue:
+!launchblockers shows:
+Unrouted commands: 2
+Ready: NO
+
+Goal:
+Find and fix the 2 unrouted commands so launch readiness becomes Ready: YES.
+
+Do not change tokens.
+Do not wipe data.
+Do not reset balances, VIP, Luxe Tickets, missions, profiles, casino, mining/fishing, market, badges, or analytics.
+Do not change economy.
+Do not re-add reward caps.
+
+==================================================
+PART 1 — IDENTIFY THE 2 UNROUTED COMMANDS
+==================================================
+
+Run/check internally:
+
+!commandissues
+!checkcommands
+!checkcommands all
+!launchcheck
+
+Find the exact 2 commands where:
+
+route=NO
+or handler=NO
+or owner=UNKNOWN
+
+Report their names before fixing.
+
+==================================================
+PART 2 — FIX OR HIDE EACH COMMAND
+==================================================
+
+For each unrouted command:
+
+If the command is meant to be active:
+- add it to command registry
+- add live route
+- add handler
+- add owner_bot
+- add permission level
+- add help metadata only if public-safe
+
+If the command is optional/deprecated:
+- mark hidden=true
+- mark deprecated=true if needed
+- remove from public help
+- remove from launch blocker count
+- do not show in !commands
+- do not count as command issue
+
+Rules:
+- Do not leave any shown command with route=NO.
+- Do not leave any shown command with handler=NO.
+- Do not leave any shown command with owner=UNKNOWN.
+
+==================================================
+PART 3 — COMMON CAUSE CHECK
+==================================================
+
+Check recent 3.1R commands:
+
+!betatest
+!topissues
+!balanceaudit
+!livebalance
+!luxebalance
+!retentionreview
+!eventreview
+!seasonreview
+!funnel
+!betareport
+!launchblockers
+!betastaff
+
+If any are optional and not implemented:
+hide them from help/registry launch checks.
+
+If any are shown in help:
+make them route correctly.
+
+==================================================
+PART 4 — LAUNCHBLOCKERS SHOULD SHOW DETAILS
+==================================================
+
+Improve !launchblockers output.
+
+Current:
+Unrouted commands: 2
+
+Add details:
+
+🚧 Launch Blockers
+Unrouted: 2
+1. !commandname
+2. !commandname
+Ready: NO
+
+If too long, split messages.
+
+==================================================
+PART 5 — TESTS
+==================================================
+
+Run:
+
+!commandissues
+!checkcommands
+!checkcommands all
+!launchblockers
+!launchcheck
+
+Expected:
+- Unrouted commands: 0
+- No owner UNKNOWN commands
+- No route=NO commands
+- No handler=NO commands
+- Ready: YES if no other blockers
+
+==================================================
+PART 6 — FINAL REPORT
+==================================================
+
+Report:
+1. Name of the 2 unrouted commands found.
+2. Whether each was fixed or hidden.
+3. !commandissues result.
+4. !checkcommands result.
+5. !launchblockers result.
+6. !launchcheck result.

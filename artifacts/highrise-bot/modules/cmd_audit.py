@@ -131,6 +131,7 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     "goldrainrole", "goldrainvip", "goldraintitle", "goldrainbadge", "goldrainlist",
     "goldwallet", "goldtips", "goldtx", "pendinggold", "confirmgoldtip",
     "setgoldrainstaff", "setgoldrainmax",
+    "goldtipall", "goldtipbots",
     "tiplb", "tipleaderboard", "bottiplb", "bottipleaderboard",
     "roomtiplb", "roomtipleaderboard", "alltiplb", "alltipleaderboard",
     "tipreceiverlb", "topreceivers",
