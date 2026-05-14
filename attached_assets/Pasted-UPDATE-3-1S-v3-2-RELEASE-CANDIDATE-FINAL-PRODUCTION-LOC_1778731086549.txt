@@ -1,0 +1,903 @@
+UPDATE 3.1S — v3.2 RELEASE CANDIDATE + FINAL PRODUCTION LOCK
+
+Goal:
+Prepare the bot for v3.2 public launch by freezing major features, locking the command registry, locking economy defaults, creating release notes, adding backup/export tools, adding production mode, and creating rollback safety.
+
+Main purpose:
+This is not a feature expansion update.
+This is a final stabilization and launch-prep update.
+
+Currencies:
+🪙 ChillCoins = gameplay currency
+🎫 Luxe Tickets = premium currency
+
+Do not change tokens.
+Do not change room ID.
+Do not wipe database.
+Do not reset balances, tickets, VIP, badges, titles, market, casino, blackjack, poker, mining/fishing data, collection book, missions, XP, levels, events, seasons, onboarding, safety logs, analytics, tools, rods, boosts, profile settings, bug reports, feedback, or player inventory.
+Do not re-add reward caps.
+Do not add HR Gold rewards.
+Do not change economy prices unless owner explicitly confirms.
+Do not change odds.
+Do not show “c” for currency.
+Use 🪙 and 🎫.
+
+==================================================
+PART 1 — STABILITY FIRST
+==================================================
+
+Before changing anything, run:
+
+!launchblockers
+!launchcheck
+!launchready
+!betacheck
+!commandissues
+!checkcommands
+!checkcommands all
+!checkhelp
+!currencycheck
+!bothealth
+!stability status
+
+Expected:
+- Launch blockers: 0
+- Ready: YES
+- no command issues
+- no help issues
+- no old c/credits/gems text
+- no reward cap text
+- bothealth OK
+- stability OK
+
+Fix any blocker before continuing.
+
+==================================================
+PART 2 — RELEASE CANDIDATE MODE
+==================================================
+
+Add:
+
+!rcmode
+!rcmode on
+!rcmode off
+!rcmode status
+
+Owner only.
+
+When Release Candidate mode is ON:
+- major feature additions are locked
+- economy auto-apply is locked
+- command registry changes require owner confirmation
+- beta tools still work
+- bug reports still work
+- staff tools still work
+
+Expected:
+
+🚀 Release Candidate Mode: ON
+Major features locked.
+Bug fixes and safety fixes allowed.
+
+Rules:
+- Persist after restart.
+- Owner can disable if needed.
+- Do not block normal player commands.
+- Do not block bug fixes.
+- Do not block safety fixes.
+
+==================================================
+PART 3 — PRODUCTION MODE
+==================================================
+
+Add:
+
+!production
+!production on
+!production off
+!production status
+
+Owner only.
+
+When production mode is ON:
+- beta reminders are disabled or reduced
+- maintenance mode must be OFF
+- all public systems should be stable
+- known critical bugs should be 0
+- launch blockers must be 0
+- economy defaults locked
+- command registry locked
+- staff/admin commands remain available
+
+Expected:
+
+✅ Production Mode: ON
+v3.2 public launch ready.
+
+If blockers exist:
+
+⚠️ Cannot enable production.
+Launch blockers: [count]
+Use !launchblockers.
+
+Rules:
+- Do not allow production ON if launchblockers > 0.
+- Do not allow production ON if maintenance is ON.
+- Do not allow production ON if currencycheck fails.
+- Do not allow production ON if commandissues exist.
+- Persist after restart.
+
+==================================================
+PART 4 — FEATURE FREEZE
+==================================================
+
+Add:
+
+!featurefreeze
+!featurefreeze on
+!featurefreeze off
+!featurefreeze status
+
+Owner only.
+
+When ON:
+- new commands should not be added automatically
+- hidden/experimental commands stay hidden
+- help/registry should be locked
+- only bug/safety/currency fixes allowed
+
+Expected:
+
+🧊 Feature Freeze: ON
+Only bug fixes, safety fixes, and launch blockers are allowed.
+
+Rules:
+- This is a soft lock inside the bot/project.
+- Do not break Replit Agent.
+- Do not block owner emergency fixes.
+- Do not block moderation/safety commands.
+
+==================================================
+PART 5 — ECONOMY LOCK
+==================================================
+
+Add:
+
+!economylock
+!economylock on
+!economylock off
+!economylock status
+
+Owner only.
+
+When ON:
+- shop prices are locked
+- Luxe prices are locked
+- VIP prices/duration are locked
+- ore/fish sell values are locked
+- casino payout settings are locked
+- mission reward settings are locked
+- auto balance apply commands are disabled
+- audit/review commands still work
+
+Expected:
+
+🔒 Economy Lock: ON
+Prices/rewards are frozen for v3.2.
+
+If admin tries to change price:
+
+🔒 Economy is locked.
+Owner must disable !economylock first.
+
+Rules:
+- Owner can still disable lock.
+- Do not block normal purchases.
+- Do not block rewards.
+- Do not change existing prices.
+- Do not reset balances.
+
+==================================================
+PART 6 — COMMAND REGISTRY LOCK
+==================================================
+
+Add:
+
+!registrylock
+!registrylock on
+!registrylock off
+!registrylock status
+
+Owner only.
+
+When ON:
+- public help is locked
+- command registry should not add new public commands
+- deprecated hidden commands remain hidden
+- command fixes allowed only if fixing launch blockers
+
+Expected:
+
+🔒 Registry Lock: ON
+Public command list frozen.
+
+Rules:
+- Do not block existing commands.
+- Do not block hidden safety/admin commands.
+- Do not block launch blocker fixes.
+- Do not allow broken commands into public help.
+
+==================================================
+PART 7 — RELEASE NOTES COMMAND
+==================================================
+
+Add:
+
+!releasenotes
+!releasenotes v3.2
+!releasenotes public
+!releasenotes staff
+
+Expected public:
+
+🚀 v3.2 Release Notes
+New: Luxe Tickets 🎫, ChillCoins 🪙, mining/fishing books, missions, events, profiles, seasons, safety.
+
+Second public message:
+
+Play:
+!start, !missions, !mine, !fish, !profile, !events, !luxeshop
+
+Expected staff:
+
+🛠️ v3.2 Staff Notes
+Added safety, bug reports, analytics, launch tools, moderation logs, economy audit.
+
+Rules:
+- Keep each message under 220 characters.
+- Public notes should be simple.
+- Staff notes can include admin features.
+- No raw implementation details.
+- No secrets.
+
+==================================================
+PART 8 — RELEASE VERSION COMMAND
+==================================================
+
+Add:
+
+!version
+!botversion
+
+Expected:
+
+🤖 ChillTopia Bot
+Version: v3.2 RC
+Mode: Public Beta / Production
+Build: [date or short hash if available]
+
+Rules:
+- No secrets.
+- No token info.
+- If build hash unavailable, show date/time.
+
+==================================================
+PART 9 — BACKUP / EXPORT COMMAND
+==================================================
+
+Add:
+
+!backup
+!backup status
+!backup create
+!backup list
+!backup verify
+
+Owner only.
+
+Purpose:
+Create a safe snapshot/export before v3.2 launch.
+
+Backup should include:
+- player balances
+- Luxe Tickets
+- VIP status
+- badges/titles
+- market data
+- mining/fishing inventory
+- collection books
+- missions
+- XP/levels
+- events/seasons
+- settings
+- economy settings
+- command registry
+- safety logs
+- bug/feedback logs if safe
+
+Expected:
+
+💾 Backup Created
+Name: v3.2_rc_[date]
+Tables: [count]
+Status: verified
+
+Rules:
+- Do not expose backup publicly.
+- Do not print raw data into chat.
+- Store safely in project storage.
+- Do not include tokens/env secrets.
+- If real export is not possible, create local DB snapshot or JSON export.
+- If backup system unavailable, report clearly.
+
+==================================================
+PART 10 — ROLLBACK PLAN COMMAND
+==================================================
+
+Add:
+
+!rollbackplan
+!rollbackplan v3.2
+
+Expected:
+
+↩️ Rollback Plan v3.2
+1. Enable maintenance
+2. Restore latest backup
+3. Disable production
+4. Re-run launchcheck
+5. Announce status
+
+Second message:
+
+Use only if critical bug occurs.
+Owner only actions: !maintenance on, !backup list, restore manually if needed.
+
+Rules:
+- Do not implement destructive rollback unless very safe.
+- Prefer plan/instructions.
+- If restore command exists, owner only and confirmation required.
+
+==================================================
+PART 11 — OPTIONAL RESTORE COMMAND WITH CONFIRMATION
+==================================================
+
+Only if safe.
+
+Add:
+
+!restorebackup [backup_name]
+!restorebackup confirm [backup_name]
+
+Owner only.
+
+Rules:
+- Never restore without confirmation.
+- Always require maintenance mode ON.
+- Always create pre-restore backup first.
+- Do not allow normal staff to restore.
+- If unsafe, do not implement restore; provide rollback plan only.
+
+Expected if unsafe:
+
+⚠️ Restore command not enabled for safety.
+Use manual rollback plan.
+
+==================================================
+PART 12 — FINAL OWNER CHECKLIST
+==================================================
+
+Add:
+
+!ownerchecklist
+!launchownercheck
+
+Expected:
+
+👑 Owner Launch Checklist
+✅ Backup created
+✅ Launch blockers 0
+✅ Currency clean
+✅ Help clean
+✅ Economy locked
+
+Second message:
+
+✅ Registry locked
+✅ Production ready
+✅ Maintenance OFF
+✅ Critical bugs 0
+Ready: YES
+
+Rules:
+- Pull real status when possible.
+- If unknown, show ⚠️.
+- Owner only.
+
+==================================================
+PART 13 — PUBLIC LAUNCH ANNOUNCEMENT
+==================================================
+
+Add:
+
+!launchannounce
+!launchannounce preview
+!launchannounce send
+
+Owner/Admin only.
+
+Preview:
+
+📢 v3.2 Launch
+Welcome to ChillTopia!
+Earn 🪙, collect ores/fish, complete missions, join events, and use 🎫 for premium perks.
+
+Second message:
+
+Start here:
+!start
+!missions
+!mine
+!fish
+!profile
+
+Rules:
+- Preview first.
+- Send only with explicit send.
+- Keep under 220 chars per message.
+- No spam loops.
+- Log announcement.
+
+==================================================
+PART 14 — PUBLIC PLAYER READY COMMAND
+==================================================
+
+Add:
+
+!whatsnew
+!new
+!v32
+
+Expected:
+
+🚀 What’s New v3.2
+🪙 ChillCoins
+🎫 Luxe Tickets
+⛏️ Mining
+🎣 Fishing
+📋 Missions
+🎉 Events
+👤 Profiles
+
+Second message:
+
+Start:
+!start
+Guide:
+!guide
+Report bugs:
+!bug
+
+Rules:
+- Public command.
+- Short and friendly.
+- No admin commands.
+
+==================================================
+PART 15 — FINAL KNOWN ISSUES CLEANUP
+==================================================
+
+Polish:
+
+!knownissues
+!bugs open
+!launchblockers
+
+Launch readiness rules:
+- Critical bugs must be 0 for production ON.
+- Low/medium bugs can remain if knownissues lists them.
+- Known issues should be clear and not scary.
+
+Expected:
+
+🧾 Known Issues
+No critical issues.
+Minor: poker display polish if any.
+Report new bugs: !bug
+
+Rules:
+- Do not claim no issues if open bugs exist.
+- Separate critical from minor.
+
+==================================================
+PART 16 — RELEASE HEALTH DASHBOARD
+==================================================
+
+Add:
+
+!releasedash
+!releasedash full
+
+Owner/Admin only.
+
+Expected:
+
+🚀 Release Dashboard
+Mode: RC
+Production: OFF
+Freeze: ON
+Economy Lock: ON
+Registry Lock: ON
+
+Second message:
+
+Health:
+Commands: OK
+Help: OK
+Currency: OK
+Safety: OK
+Backup: OK
+Ready: YES
+
+Rules:
+- Pull from real checks.
+- No raw debug unless full.
+- Whisper/DM owner/admin.
+
+==================================================
+PART 17 — FINAL COMMAND AUDIT STRICT MODE
+==================================================
+
+Add:
+
+!finalaudit
+!finalaudit full
+
+Owner only.
+
+Checks:
+- commandissues
+- checkcommands all
+- checkhelp
+- currencycheck
+- launchblockers
+- bothealth
+- stability
+- known critical bugs
+- maintenance status
+- production readiness
+- backup status
+- economy lock status
+- registry lock status
+
+Expected:
+
+🔍 Final Audit
+Commands: OK
+Help: OK
+Currency: OK
+Economy: Locked
+Backup: OK
+Ready: YES
+
+Rules:
+- No false Ready YES if blockers exist.
+- If issues exist, list first 5 and tell which command to run.
+
+==================================================
+PART 18 — PRODUCTION SAFETY RULES
+==================================================
+
+When production mode is ON:
+
+- !betamode can remain ON/OFF, but beta spam should be reduced
+- !maintenance can still be used by owner
+- !bug and !feedback remain enabled
+- !knownissues remains enabled
+- economy lock should remain ON
+- registry lock should remain ON
+- feature freeze should remain ON
+- owner/admin can still fix safety bugs
+
+Rules:
+- Production mode should not block normal gameplay.
+- Production mode should not stop analytics.
+- Production mode should not stop bug reports.
+- Production mode should not hide critical safety alerts.
+
+==================================================
+PART 19 — DATABASE / STORAGE
+==================================================
+
+Add safe/idempotent tables if needed:
+
+release_settings:
+key TEXT UNIQUE
+value TEXT
+updated_at TEXT
+
+release_backups:
+id INTEGER PRIMARY KEY AUTOINCREMENT
+backup_name TEXT UNIQUE
+backup_path TEXT
+created_by TEXT
+created_at TEXT
+verified INTEGER DEFAULT 0
+details_json TEXT
+
+release_audits:
+id INTEGER PRIMARY KEY AUTOINCREMENT
+audit_type TEXT
+status TEXT
+summary_json TEXT
+created_at TEXT
+created_by TEXT
+
+release_announcements:
+id INTEGER PRIMARY KEY AUTOINCREMENT
+message TEXT
+announcement_type TEXT
+sent_by TEXT
+sent_at TEXT
+
+Rules:
+- Do not wipe data.
+- Idempotent migrations.
+- Do not store tokens/secrets.
+- Do not print raw backup data to chat.
+
+==================================================
+PART 20 — HELP / COMMAND UPDATES
+==================================================
+
+Update owner/admin help:
+
+🚀 Release Tools
+!rcmode
+!production
+!featurefreeze
+!economylock
+!registrylock
+!backup
+!releasedash
+!finalaudit
+
+Second message:
+
+Launch:
+!releasenotes
+!version
+!ownerchecklist
+!launchannounce
+!rollbackplan
+
+Public help:
+Add:
+!whatsnew
+!version
+!knownissues
+!bug
+!feedback
+
+Rules:
+- No owner release commands in public help.
+- Public !whatsnew is okay.
+- Public !version is okay.
+- Public !knownissues is okay.
+
+==================================================
+PART 21 — COMMAND REGISTRY
+==================================================
+
+Register/verify:
+
+!rcmode
+!production
+!featurefreeze
+!economylock
+!registrylock
+!releasenotes
+!version
+!botversion
+!backup
+!rollbackplan
+!restorebackup if implemented
+!ownerchecklist
+!launchownercheck
+!launchannounce
+!whatsnew
+!new
+!v32
+!releasedash
+!finalaudit
+
+Expected:
+route=YES
+handler=YES
+owner not UNKNOWN
+
+If optional commands are skipped:
+- hide them
+- do not show in help
+- do not count as command issue.
+
+==================================================
+PART 22 — TESTS: RELEASE MODES
+==================================================
+
+Run:
+
+!rcmode on
+!rcmode status
+!featurefreeze on
+!featurefreeze status
+!economylock on
+!economylock status
+!registrylock on
+!registrylock status
+
+Expected:
+- modes turn on
+- persist
+- no normal gameplay break
+- owner can still use admin tools
+
+==================================================
+PART 23 — TESTS: PRODUCTION MODE
+==================================================
+
+Run:
+
+!production status
+!production on
+
+If blockers exist:
+Expected:
+⚠️ Cannot enable production.
+Use !launchblockers.
+
+If no blockers:
+Expected:
+✅ Production Mode: ON
+
+Then:
+
+!version
+!releasedash
+
+Expected:
+- mode shown correctly
+- release dashboard shows health
+
+==================================================
+PART 24 — TESTS: BACKUP
+==================================================
+
+Run:
+
+!backup status
+!backup create
+!backup verify
+!backup list
+
+Expected:
+- backup created or clearly skipped if unsupported
+- no raw data printed
+- no secrets shown
+- status visible
+
+==================================================
+PART 25 — TESTS: RELEASE NOTES / ANNOUNCEMENT
+==================================================
+
+Run:
+
+!releasenotes
+!releasenotes public
+!releasenotes staff
+!whatsnew
+!launchannounce preview
+
+Expected:
+- clear v3.2 notes
+- public safe
+- no admin leaks
+- no old c/credits/gems text
+
+Do not run !launchannounce send unless ready.
+
+==================================================
+PART 26 — TESTS: FINAL AUDIT
+==================================================
+
+Run:
+
+!ownerchecklist
+!releasedash
+!finalaudit
+!launchblockers
+!launchready
+!launchcheck
+!currencycheck
+
+Expected:
+- ready status accurate
+- no false Ready YES
+- blockers listed if any
+- no old currency text
+- launchcheck clean
+
+==================================================
+PART 27 — FINAL QA
+==================================================
+
+Run:
+
+!commandtest !rcmode
+!commandtest !production
+!commandtest !featurefreeze
+!commandtest !economylock
+!commandtest !registrylock
+!commandtest !releasenotes
+!commandtest !version
+!commandtest !backup
+!commandtest !rollbackplan
+!commandtest !ownerchecklist
+!commandtest !launchannounce
+!commandtest !whatsnew
+!commandtest !releasedash
+!commandtest !finalaudit
+
+!commandissues
+!checkcommands
+!checkcommands all
+!checkhelp
+!currencycheck
+!launchblockers
+!launchready
+!launchcheck
+!bothealth
+!stability status
+
+Expected:
+- no command issues
+- no unrouted commands
+- no help leaks
+- no old c/credits/gems
+- no reward cap text
+- backup ready or clearly skipped
+- production readiness accurate
+- launchcheck clean
+
+==================================================
+PART 28 — FINAL REPORT
+==================================================
+
+Report:
+1. Release Candidate mode added.
+2. Production mode added.
+3. Feature freeze added.
+4. Economy lock added.
+5. Registry lock added.
+6. Release notes added.
+7. Version command added.
+8. Backup/export added or skipped safely.
+9. Rollback plan added.
+10. Restore command added or skipped safely.
+11. Owner checklist added.
+12. Launch announcement preview/send added.
+13. Public what’s new command added.
+14. Known issues launch cleanup added.
+15. Release dashboard added.
+16. Final audit added.
+17. Production safety rules added.
+18. Release help updated.
+19. No data wiped.
+20. No economy changed.
+21. No HR Gold rewards added.
+22. No reward caps added.
+23. !commandissues result.
+24. !checkhelp result.
+25. !currencycheck result.
+26. !launchblockers result.
+27. !launchcheck result.

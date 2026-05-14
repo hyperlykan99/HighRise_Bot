@@ -2686,6 +2686,41 @@ def _migrate_db():
     except Exception:
         pass
 
+    # ── 3.1S — Release Candidate + Production Lock tables ────────────────────
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS release_backups (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                backup_name  TEXT    UNIQUE NOT NULL,
+                backup_path  TEXT    NOT NULL DEFAULT '',
+                created_by   TEXT    NOT NULL DEFAULT '',
+                created_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+                verified     INTEGER NOT NULL DEFAULT 0,
+                details_json TEXT    NOT NULL DEFAULT '{}'
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS release_audits (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                audit_type   TEXT NOT NULL DEFAULT '',
+                status       TEXT NOT NULL DEFAULT '',
+                summary_json TEXT NOT NULL DEFAULT '{}',
+                created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+                created_by   TEXT NOT NULL DEFAULT ''
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS release_announcements (
+                id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                message           TEXT NOT NULL DEFAULT '',
+                announcement_type TEXT NOT NULL DEFAULT '',
+                sent_by           TEXT NOT NULL DEFAULT '',
+                sent_at           TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+        """)
+    except Exception:
+        pass
+
     conn.commit()
     conn.close()
 

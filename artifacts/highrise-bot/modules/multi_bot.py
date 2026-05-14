@@ -113,6 +113,15 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "retentionreview": "host", "eventreview": "host", "seasonreview": "host",
     "funnel": "host", "betareport": "host",
     "launchblockers": "host", "betastaff": "host",
+    # 3.1S — Release Candidate + Production Lock
+    "rcmode": "host", "production": "host", "featurefreeze": "host",
+    "economylock": "host", "registrylock": "host",
+    "releasenotes": "host", "version": "host", "botversion": "host",
+    "backup": "host", "rollbackplan": "host", "restorebackup": "host",
+    "ownerchecklist": "host", "launchownercheck": "host",
+    "launchannounce": "host",
+    "whatsnew": "host", "new": "host", "v32": "host", "knownissues": "host",
+    "releasedash": "host", "finalaudit": "host",
     # Luxe auto time — info is miner/fisher; miner owns combined !autotime
     "autotime": "miner", "minetime": "miner",
     "fishtime": "fisher",

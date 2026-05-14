@@ -226,6 +226,15 @@ from modules.beta_review import (
     handle_betareport, handle_launchblockers, handle_betastaff,
     handle_feedbacks_review,
 )
+from modules.release import (
+    handle_rcmode, handle_production, handle_featurefreeze,
+    handle_economylock, handle_registrylock,
+    handle_releasenotes, handle_version,
+    handle_backup, handle_rollbackplan, handle_restorebackup,
+    handle_ownerchecklist, handle_launchannounce,
+    handle_whatsnew, handle_knownissues,
+    handle_releasedash, handle_finalaudit,
+)
 from modules.permissions         import (
     is_owner, is_admin, is_manager, is_moderator,
     can_moderate, can_manage_games, can_manage_economy, can_audit,
@@ -1278,6 +1287,23 @@ BETA_COMMANDS: frozenset[str] = frozenset({
     "betastaff",
 })
 
+RELEASE_COMMANDS: frozenset[str] = frozenset({
+    # Owner mode controls
+    "rcmode", "production", "featurefreeze", "economylock", "registrylock",
+    # Release info
+    "releasenotes", "version", "botversion",
+    # Backup / restore
+    "backup", "rollbackplan", "restorebackup",
+    # Checklists
+    "ownerchecklist", "launchownercheck",
+    # Announce
+    "launchannounce",
+    # Public
+    "whatsnew", "new", "v32", "knownissues",
+    # Dashboards
+    "releasedash", "finalaudit",
+})
+
 ALL_KNOWN_COMMANDS = (
     ALL_KNOWN_COMMANDS
     | TIME_EXP_COMMANDS
@@ -1286,6 +1312,7 @@ ALL_KNOWN_COMMANDS = (
     | NEW_PROJECT_COMMANDS
     | LUXE_COMMANDS
     | BETA_COMMANDS
+    | RELEASE_COMMANDS
 )
 
 
@@ -6122,6 +6149,55 @@ class HangoutBot(BaseBot):
 
         elif cmd == "announceadmin":
             await handle_announceadmin(self, user, args)
+
+        # ── 3.1S — Release Candidate + Production Lock ───────────────────────
+        elif cmd == "rcmode":
+            await handle_rcmode(self, user, args)
+
+        elif cmd == "production":
+            await handle_production(self, user, args)
+
+        elif cmd == "featurefreeze":
+            await handle_featurefreeze(self, user, args)
+
+        elif cmd == "economylock":
+            await handle_economylock(self, user, args)
+
+        elif cmd == "registrylock":
+            await handle_registrylock(self, user, args)
+
+        elif cmd == "releasenotes":
+            await handle_releasenotes(self, user, args)
+
+        elif cmd in {"version", "botversion"}:
+            await handle_version(self, user, args)
+
+        elif cmd == "backup":
+            await handle_backup(self, user, args)
+
+        elif cmd == "rollbackplan":
+            await handle_rollbackplan(self, user, args)
+
+        elif cmd == "restorebackup":
+            await handle_restorebackup(self, user, args)
+
+        elif cmd in {"ownerchecklist", "launchownercheck"}:
+            await handle_ownerchecklist(self, user, args)
+
+        elif cmd == "launchannounce":
+            await handle_launchannounce(self, user, args)
+
+        elif cmd in {"whatsnew", "new", "v32"}:
+            await handle_whatsnew(self, user, args)
+
+        elif cmd == "knownissues":
+            await handle_knownissues(self, user, args)
+
+        elif cmd == "releasedash":
+            await handle_releasedash(self, user, args)
+
+        elif cmd == "finalaudit":
+            await handle_finalaudit(self, user, args)
 
         # ── 3.1R — Beta review + balance audit ───────────────────────────────
         elif cmd == "betatest":
