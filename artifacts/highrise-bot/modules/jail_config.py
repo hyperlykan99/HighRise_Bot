@@ -19,6 +19,7 @@ _DEFAULTS: dict[str, str] = {
     "jail_location_name":          "jail",
     "securitybot_jail_brief_spawn":"jail_guard",
     "securitybot_idle_spawn":      "security_idle",
+    "jail_host_fallback_enabled":  "0",
 }
 
 
@@ -126,3 +127,10 @@ def set_cooldown_seconds(val: int) -> None:
 
 def set_daily_limit(val: int) -> None:
     _set("jail_daily_limit_per_player", str(max(0, val)))
+
+def host_fallback_enabled() -> bool:
+    """If True, ChillTopiaMC may handle runtime jail cmds when KeanuShield is offline."""
+    return _get("jail_host_fallback_enabled") == "1"
+
+def set_host_fallback_enabled(val: bool) -> None:
+    _set("jail_host_fallback_enabled", "1" if val else "0")

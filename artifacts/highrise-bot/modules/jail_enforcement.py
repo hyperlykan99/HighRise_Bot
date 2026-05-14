@@ -128,9 +128,14 @@ async def jail_expiry_loop(bot: "BaseBot") -> None:
                     except Exception:
                         pass
                     try:
-                        await bot.highrise.chat(
-                            f"\u2705 {uname} has been released from jail."[:249]
-                        )
+                        from modules.securitybot_jail import is_security_bot as _is_sec
+                        if _is_sec():
+                            await bot.highrise.chat(
+                                f"\u2705 {uname} has been released from jail."[:249]
+                            )
+                            print(f"[JAIL ANNOUNCER] message=jail_expired sent=true target={uname!r}")
+                        else:
+                            print(f"[JAIL ANNOUNCER] message=jail_expired suppressed=true reason=not_security")
                     except Exception:
                         pass
         except Exception as e:

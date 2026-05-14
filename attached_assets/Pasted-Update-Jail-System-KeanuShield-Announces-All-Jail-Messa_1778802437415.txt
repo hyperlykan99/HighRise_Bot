@@ -1,0 +1,268 @@
+Update Jail System — KeanuShield Announces All Jail Messages
+
+Goal:
+All jail-related public messages and jail action messages must come from the security bot KeanuShield.
+
+Security bot:
+KeanuShield
+
+Main host bot:
+ChillTopiaMC
+
+Problem:
+Some jail messages are being announced by ChillTopiaMC.
+I want all jail messages announced by KeanuShield.
+
+Rule:
+KeanuShield should announce all jail runtime messages.
+ChillTopiaMC should not announce jail actions.
+
+Jail runtime messages include:
+- jail confirmation preview
+- jail successful announcement
+- jail briefing
+- bail cost message
+- bail successful announcement
+- jail release message
+- jail expired message
+- jail status for jailed player
+- jail blocked teleport message if possible
+- jail active list
+- jail help if related to runtime jail
+
+Setup/admin messages can still be ChillTopiaMC if needed:
+- !setjailspot
+- !setjailguardspot
+- !setsecurityidle
+- !setjailreleasespot
+- !jaildebug
+- !jailadmin
+
+But for actual jail gameplay:
+Only KeanuShield should talk.
+
+Ownership design:
+
+SETUP / ADMIN VIEW:
+Handled by ChillTopiaMC:
+- !jailadmin
+- !jaildebug
+- !setjailspot
+- !setjailguardspot
+- !setsecurityidle
+- !setjailreleasespot
+
+RUNTIME JAIL:
+Handled by KeanuShield only:
+- !jail
+- confirm for jail
+- cancel for jail
+- !bail
+- confirm for bail
+- cancel for bail
+- !jailstatus
+- !jailtime
+- !jailhelp
+- !jailactive
+- !unjail
+- !jailrelease
+- jail expired message
+- jail teleport block message
+- jail rejoin message later when enabled
+
+Important:
+If ChillTopiaMC receives a runtime jail command and KeanuShield is online:
+- ChillTopiaMC must ignore it.
+- Do not reply.
+- Do not duplicate.
+
+If KeanuShield is offline:
+ChillTopiaMC may whisper:
+⚠️ KeanuShield is offline. Jail system is temporarily unavailable.
+
+Do not let ChillTopiaMC execute runtime jail actions unless emergency fallback setting is enabled.
+
+Add setting:
+jail_host_fallback_enabled = 0 by default
+
+If owner enables:
+!jailadmin fallback on
+
+Then ChillTopiaMC can handle runtime jail only when KeanuShield is offline.
+
+Default:
+fallback OFF.
+
+Implementation Part 1 — Bot Routing
+
+In multi_bot.py or command ownership logic, define:
+
+JAIL_SETUP_CMDS = {
+    "jailadmin", "jaildebug",
+    "setjailspot", "setjailguardspot",
+    "setsecurityidle", "setjailreleasespot",
+    "jailsetcost", "jailsetmax", "jailsetmin",
+    "jailsetbailmultiplier", "jailsetcooldown",
+    "jailprotectstaff",
+}
+
+JAIL_RUNTIME_CMDS = {
+    "jail", "bail", "jailstatus", "jailtime",
+    "jailhelp", "jailactive", "unjail", "jailrelease",
+    "jailconfirm", "jailcancel",
+}
+
+Routing rules:
+
+If cmd in JAIL_SETUP_CMDS:
+    return current_bot_is_host_or_all()
+
+If cmd in JAIL_RUNTIME_CMDS:
+    return current_bot_is_security_or_keanushield()
+
+Do not let both return true.
+
+Implementation Part 2 — Confirm / Cancel Ownership
+
+Current issue can happen:
+Player types:
+confirm
+
+Both bots may see it.
+
+Fix:
+If user has pending jail/bail confirmation:
+- Only KeanuShield should process confirm/cancel.
+- ChillTopiaMC should ignore confirm/cancel if pending action type is jail or bail.
+
+Pending confirmation should store:
+pending_type = "jail" or "bail"
+handler_bot = "KeanuShield"
+
+When confirm is typed:
+If pending_type in ("jail", "bail"):
+    only KeanuShield processes it
+
+Implementation Part 3 — Message Sender Rules
+
+In jail_system.py and jail_bail.py:
+All runtime messages must be sent from the bot instance that is KeanuShield.
+
+If current bot is not KeanuShield:
+- Do not call bot.highrise.chat for runtime jail messages.
+- Do not whisper jail runtime messages unless it is a setup/admin command.
+
+Add helper:
+
+def is_security_bot_instance() -> bool:
+    return BOT_MODE == "security" or BOT_USERNAME.lower() == "keanushield"
+
+def should_announce_jail_runtime() -> bool:
+    return is_security_bot_instance()
+
+Before every public jail runtime chat:
+if not should_announce_jail_runtime():
+    return
+
+Implementation Part 4 — Jail Teleport Block Message
+
+For jailed player using !tele:
+Preferred:
+KeanuShield whispers the block message.
+
+If current bot detecting the blocked command is ChillTopiaMC:
+Option A:
+- ChillTopiaMC silently blocks and does not message.
+- KeanuShield handles if it also receives the command.
+
+Option B:
+- ChillTopiaMC may whisper only if KeanuShield is offline.
+
+Default:
+Option A if KeanuShield is online.
+
+Important:
+The player must still be blocked.
+Do not allow escape just because only KeanuShield should talk.
+
+Implementation Part 5 — Jail Briefing Flow
+
+When player is jailed:
+
+KeanuShield should:
+1. Teleport target to jail
+2. Teleport itself to jail_guard
+3. Announce:
+
+🚨 @Target has been jailed by @Sender for 1 minute.
+Reason: testing
+Bail: 4 🎫
+Type !bail to leave early.
+
+4. Wait 3 seconds
+5. Teleport itself back to security_idle
+
+ChillTopiaMC should not announce this.
+
+Implementation Part 6 — Debug Logs
+
+Add logs:
+
+[JAIL ROUTE] cmd=jail bot=ChillTopiaMC runtime=false ignored=true
+[JAIL ROUTE] cmd=jail bot=KeanuShield runtime=true handled=true
+[JAIL ANNOUNCER] bot=KeanuShield message=jail_start sent=true
+[JAIL ANNOUNCER] bot=ChillTopiaMC suppressed=true reason=not_security
+[JAIL CONFIRM] user=4ktreyMarion pending=jail handled_by=KeanuShield
+[JAIL BLOCK] user=AltName cmd=tele blocked=true announcer=KeanuShield
+
+Implementation Part 7 — Tests
+
+Test setup/admin:
+!jailadmin
+Expected:
+ChillTopiaMC replies only.
+
+!jaildebug
+Expected:
+ChillTopiaMC replies only.
+
+Test runtime:
+!jail @AltName 1 testing
+Expected:
+KeanuShield replies only with confirmation.
+
+confirm
+Expected:
+KeanuShield executes and announces only.
+
+On jailed alt:
+!jailstatus
+Expected:
+KeanuShield replies only.
+
+On jailed alt:
+!tele casino
+Expected:
+Teleport is blocked.
+KeanuShield should send jail block message if possible.
+ChillTopiaMC should not duplicate.
+
+Wait for timer:
+Expected:
+KeanuShield announces release only.
+
+Bail:
+!bail
+confirm
+Expected:
+KeanuShield handles bail and announces only.
+
+Final output:
+Report:
+1. Files changed
+2. Jail setup/admin handled by ChillTopiaMC only
+3. Jail runtime handled by KeanuShield only
+4. Confirm/cancel ownership test result
+5. Duplicate jail message test result
+6. KeanuShield jail announcement test result
+7. Bot stability result

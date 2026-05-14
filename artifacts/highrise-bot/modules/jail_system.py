@@ -29,6 +29,7 @@ from modules.jail_config import (
     set_cost_per_minute, set_max_minutes, set_min_minutes, set_bail_multiplier,
     set_protect_staff, set_confirm_required, set_jail_enabled,
     set_cooldown_seconds, set_daily_limit,
+    host_fallback_enabled, set_host_fallback_enabled,
 )
 from modules.jail_pricing import cost_for_jail, bail_cost_for
 from modules.jail_permissions import can_actor_jail_target
@@ -527,6 +528,28 @@ async def handle_jailadmin(bot: "BaseBot", user: "User", args: list[str]) -> Non
     if sub == "off":
         set_jail_enabled(False)
         await bot.highrise.send_whisper(user.id, "\u2705 Jail system disabled.")
+        return
+
+    # ── fallback — on/off toggle, no integer value ────────────────────────────
+    if sub == "fallback":
+        if len(args) < 3 or args[2].lower() not in ("on", "off"):
+            cur = "ON" if host_fallback_enabled() else "OFF"
+            await bot.highrise.send_whisper(
+                user.id, f"!jailadmin fallback on|off (current: {cur})"[:249]
+            )
+            return
+        val_b = args[2].lower() == "on"
+        set_host_fallback_enabled(val_b)
+        if val_b:
+            await bot.highrise.send_whisper(
+                user.id,
+                "\u2705 Fallback ON — ChillTopiaMC handles jail when KeanuShield offline."[:249],
+            )
+        else:
+            await bot.highrise.send_whisper(
+                user.id,
+                "\u2705 Fallback OFF — Only KeanuShield handles runtime jail."[:249],
+            )
         return
 
     # ── Subcommands that need a value ─────────────────────────────────────────

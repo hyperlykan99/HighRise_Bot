@@ -87,6 +87,7 @@ async def announce_jail(
     )[:249]
     try:
         await bot.highrise.chat(msg)
+        print(f"[JAIL ANNOUNCER] bot=KeanuShield message=jail_start sent=true target={target_uname!r}")
     except Exception as e:
         print(f"[SECBOT JAIL] announce_jail err: {e!r}")
 
@@ -107,11 +108,13 @@ async def brief_and_return(
     4. Return to security_idle spot
     """
     from modules.jail_config import guard_spot_name, idle_spot_name
+    print(f"[JAIL ANNOUNCER] bot=KeanuShield message=brief_start target={target_uname!r}")
     await _tp_bot_to_spawn(bot, guard_spot_name())
     await asyncio.sleep(0.5)
     await announce_jail(bot, target_uname, by_uname, minutes, bail_cost, reason)
     await asyncio.sleep(4)
     await _tp_bot_to_spawn(bot, idle_spot_name())
+    print(f"[JAIL ANNOUNCER] bot=KeanuShield message=brief_complete returned_to_idle=true")
 
 
 def verify_jail_spots() -> list[str]:

@@ -144,6 +144,11 @@ async def complete_bail(bot: "BaseBot", payer: "User") -> None:
         f"\u2705 {p['target_uname']} bailed out{by_str} for {p['bail_cost']} \U0001f3ab."
     )[:249]
     try:
-        await bot.highrise.chat(pub_msg)
+        from modules.securitybot_jail import is_security_bot as _is_sec
+        if _is_sec():
+            await bot.highrise.chat(pub_msg)
+            print(f"[JAIL ANNOUNCER] message=bail_complete sent=true target={p['target_uname']!r}")
+        else:
+            print(f"[JAIL ANNOUNCER] message=bail_complete suppressed=true reason=not_security")
     except Exception:
         pass

@@ -3196,7 +3196,10 @@ class HangoutBot(BaseBot):
         else:
             print(f"[TIME_EXP] Loop skipped — not host bot ({BOT_MODE}).")
         # Luxe Jail recovery + expiry loop — security bot only
-        _safe_task(startup_jail_recovery(self), "startup_jail_recovery")
+        if should_this_bot_run_module("security"):
+            _safe_task(startup_jail_recovery(self), "startup_jail_recovery")
+        else:
+            print(f"[JAIL] Recovery/expiry loop skipped — not security bot ({BOT_MODE}).")
         # Rotating announcements loop — host bot only
         if should_this_bot_run_module("host"):
             _safe_task(rotating_announcement_loop(self), "rotating_announcement_loop")
@@ -3362,8 +3365,12 @@ class HangoutBot(BaseBot):
                 is_jailed, jail_block_message, TELEPORT_BLOCKED_CMDS,
             )
             if cmd in TELEPORT_BLOCKED_CMDS and is_jailed(user.id):
-                await self.highrise.send_whisper(user.id, jail_block_message(user.id))
-                print(f"[JAIL BLOCK] user={user.username} cmd={cmd}")
+                from modules.securitybot_jail import is_security_bot as _is_sec_blk
+                if _is_sec_blk():
+                    await self.highrise.send_whisper(user.id, jail_block_message(user.id))
+                    print(f"[JAIL BLOCK] user={user.username} cmd={cmd} announcer=KeanuShield blocked=true")
+                else:
+                    print(f"[JAIL BLOCK] user={user.username} cmd={cmd} blocked=true announcer=suppressed")
                 return
         except Exception as _je:
             print(f"[JAIL BLOCK ERROR] ignored: {_je!r}")
