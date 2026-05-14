@@ -1,0 +1,251 @@
+UPDATE 3.1S HOTFIX — FIX !BACKUP CREATE COMMAND ERROR
+
+Current live issue:
+When owner runs:
+
+!backup create
+
+Bot replies:
+⚠️ Command error logged. Bot stayed online.
+
+Goal:
+Fix !backup create so it creates a safe backup or clearly reports why backup is unavailable.
+
+Do not change tokens.
+Do not wipe data.
+Do not reset balances, tickets, VIP, badges, casino, mining/fishing, market, missions, profiles, seasons, analytics, or player data.
+Do not print raw database data into chat.
+Do not expose tokens or env secrets.
+
+==================================================
+PART 1 — FIND BACKUP ERROR
+==================================================
+
+Check the logged error for !backup create.
+
+Fix the real cause, likely one of:
+
+- missing backups directory
+- invalid database path
+- missing release_backups table
+- permission/write error
+- JSON serialization error
+- trying to send huge backup content in chat
+- backup verify crashing
+- file copy error
+
+Report the exact cause in final report.
+
+==================================================
+PART 2 — MAKE BACKUP DIRECTORY SAFELY
+==================================================
+
+Before creating backup, ensure backup directory exists.
+
+Use safe local path:
+
+backups/
+
+If missing:
+create it automatically.
+
+Do not use protected paths.
+Do not use root-only paths.
+Do not expose path to normal players.
+
+Expected:
+backups/v3_2_rc_YYYYMMDD_HHMMSS.db
+or
+backups/v3_2_rc_YYYYMMDD_HHMMSS.json
+
+==================================================
+PART 3 — SUPPORT SQLITE DB BACKUP SAFELY
+==================================================
+
+If project uses SQLite:
+- locate active DB file safely
+- copy DB to backups folder
+- or use sqlite backup API
+- do not lock/crash bot
+- verify backup file exists
+- verify file size > 0
+
+Expected message:
+
+💾 Backup Created
+Name: v3.2_rc_2026xxxx
+Status: verified
+
+==================================================
+PART 4 — SUPPORT JSON EXPORT FALLBACK
+==================================================
+
+If DB file path cannot be found:
+Create JSON export fallback from safe tables.
+
+Export safe tables only:
+- player balances
+- premium balances
+- VIP
+- badges/titles
+- market
+- mining/fishing inventory
+- collection books
+- missions
+- XP/levels
+- events/seasons
+- economy settings
+- command registry
+- bug/feedback reports
+- release settings
+
+Do NOT export:
+- tokens
+- env variables
+- secrets
+- API keys
+- raw logs with secrets
+
+Expected fallback:
+
+💾 Backup Created
+Type: JSON export
+Status: verified
+
+==================================================
+PART 5 — RELEASE_BACKUPS TABLE
+==================================================
+
+Create table safely if missing:
+
+release_backups:
+id INTEGER PRIMARY KEY AUTOINCREMENT
+backup_name TEXT UNIQUE
+backup_path TEXT
+created_by TEXT
+created_at TEXT
+verified INTEGER DEFAULT 0
+details_json TEXT
+
+Do not wipe existing rows.
+
+==================================================
+PART 6 — DO NOT SEND RAW BACKUP IN CHAT
+==================================================
+
+Never print backup contents in Highrise chat.
+
+Only show:
+- backup name
+- status
+- table count
+- verified yes/no
+
+Example:
+
+💾 Backup Created
+Name: v3.2_rc_20260514_1209
+Tables: 42
+Status: verified
+
+==================================================
+PART 7 — BACKUP COMMANDS
+==================================================
+
+Fix/add:
+
+!backup
+!backup status
+!backup create
+!backup list
+!backup verify
+
+Expected:
+
+!backup status
+
+💾 Backup Status
+Latest: v3.2_rc_...
+Verified: YES
+
+!backup list
+
+💾 Backups
+1. v3.2_rc_...
+2. v3.2_rc_...
+
+!backup verify
+
+✅ Latest backup verified.
+
+Rules:
+- Owner only.
+- If admin allowed, admin only if configured.
+- Normal player:
+🔒 Owner only.
+
+==================================================
+PART 8 — SAFE ERROR HANDLING
+==================================================
+
+If backup fails, do not crash.
+
+Expected:
+
+⚠️ Backup failed.
+Reason: database file not found.
+No data was changed.
+
+or:
+
+⚠️ Backup failed.
+Reason: cannot write to backups folder.
+No data was changed.
+
+Do not show raw traceback to player.
+Log traceback internally.
+
+==================================================
+PART 9 — TESTS
+==================================================
+
+Run:
+
+!backup status
+!backup create
+!backup list
+!backup verify
+
+Expected:
+- no command error
+- backup created or clean reason shown
+- no raw data printed
+- no secrets exposed
+
+Then run:
+
+!ownerchecklist
+!releasedash
+!finalaudit
+!launchblockers
+!launchcheck
+
+Expected:
+- backup status is OK if created
+- launch readiness uses backup status correctly
+- no command issues
+
+==================================================
+PART 10 — FINAL REPORT
+==================================================
+
+Report:
+1. Exact cause of !backup create crash.
+2. Backup directory created/verified.
+3. Backup type used: SQLite copy or JSON export.
+4. release_backups table confirmed.
+5. !backup create result.
+6. !backup verify result.
+7. No player data wiped.
+8. No secrets exported.
+9. !launchcheck result.

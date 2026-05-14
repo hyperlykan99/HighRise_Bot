@@ -190,7 +190,7 @@ from modules.notifications import (
     handle_testnotifyall, handle_pendingnotify, handle_clearpendingnotify,
 )
 from modules.maintenance         import (
-    handle_botstatus, handle_dbstats, handle_backup,
+    handle_botstatus, handle_dbstats,
     handle_maintenance, handle_reloadsettings, handle_cleanup,
     handle_healthcheck,
     handle_restarthelp, handle_restartstatus,
@@ -6118,9 +6118,6 @@ class HangoutBot(BaseBot):
 
         elif cmd == "dbstats":
             await handle_dbstats(self, user)
-
-        elif cmd == "backup":
-            await handle_backup(self, user)
 
         elif cmd == "maintenance":
             await handle_maintenance(self, user, args)

@@ -35,7 +35,7 @@ from modules.permissions import is_owner, is_admin, can_moderate
 
 _RELEASE_VERSION = "v3.2"
 _BUILD_DATE      = "2026-05-14"
-_BACKUP_DIR      = os.path.join(os.path.dirname(__file__), "..", "releases", "backups")
+_BACKUP_DIR      = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "backups")
 
 
 # ---------------------------------------------------------------------------
