@@ -50,6 +50,7 @@ from modules.ai_context_manager import active_memory_count
 # ── Existing AI modules ───────────────────────────────────────────────────────
 from modules.ai_permissions import (
     get_perm_level, requires_admin, requires_staff,
+    perm_label,
     PERM_STAFF, PERM_ADMIN, PERM_OWNER,
 )
 from modules.ai_intent_router import (
@@ -70,7 +71,10 @@ from modules.ai_intent_router import (
     INTENT_RW_SENSITIVE, INTENT_RW_CURRENT_INFO,
     INTENT_RW_TRANSLATION, INTENT_RW_MATH,
     INTENT_RW_GENERAL, INTENT_RW_GLOBAL, INTENT_RW_UNKNOWN,
+    # 3.3B identity + translation intents
+    INTENT_USER_NAME, INTENT_USER_ROLE, INTENT_TRANSLATION,
 )
+from modules.ai_translation import get_translation
 from modules.ai_global_time      import get_global_time_reply
 from modules.ai_global_holidays  import get_global_holiday_reply
 from modules.ai_global_knowledge import handle_global_question
@@ -440,6 +444,28 @@ async def _handle_ai_reply_mode_set(bot, user, text, perm):
         await _w(bot, user.id, preview_message(p))
 
 
+async def _handle_role(bot, user):
+    """Return the sender's role/permission level."""
+    perm  = get_perm_level(user.username)
+    label = perm_label(perm)
+    print(f"[AI DEBUG] permission_level={perm!r} role_label={label!r}")
+    msg = f"Your current role is {label}."
+    await _send(bot, user, msg, "general")
+
+
+async def _handle_translation(bot, user, text):
+    """Answer translation questions using the built-in dictionary."""
+    print(f"[AI DEBUG] detected_intent=translation_question source_text={text!r}")
+    reply = get_translation(text)
+    if not reply:
+        reply = (
+            "I can translate hello, thank you, good morning, good night, "
+            "goodbye, love, friend, yes, no, please — in Spanish, Tagalog, "
+            "Japanese, French, and Korean. Try: 'ai translate hello to spanish'."
+        )
+    await _send(bot, user, reply[:249], "general")
+
+
 async def _handle_unknown(bot, user, text=""):
     if text:
         answer = handle_global_question(text, INTENT_RW_UNKNOWN)
@@ -447,7 +473,12 @@ async def _handle_unknown(bot, user, text=""):
         if answer and not any(s in answer for s in skip):
             await _send(bot, user, answer[:249], "general")
             return
-    await _send(bot, user, UNKNOWN_FALLBACK, "general")
+    await _send(
+        bot, user,
+        "I'm not sure yet, but I can still try. "
+        "Ask it another way, or type 'ai help' for examples.",
+        "general",
+    )
 
 
 # ── Dispatch ──────────────────────────────────────────────────────────────────
@@ -471,6 +502,14 @@ async def _dispatch(
         await _handle_ai_reply_mode_view(bot, user, perm)
     elif intent == INTENT_AI_REPLY_MODE_SET:
         await _handle_ai_reply_mode_set(bot, user, text, perm)
+    elif intent == INTENT_USER_NAME:
+        name_reply = f"Your name is {user.username}."
+        print(f"[AI DEBUG] detected_intent=user_name_question username={user.username!r}")
+        await _send(bot, user, name_reply, "general")
+    elif intent == INTENT_USER_ROLE:
+        await _handle_role(bot, user)
+    elif intent == INTENT_TRANSLATION:
+        await _handle_translation(bot, user, text)
     elif intent == INTENT_HOLIDAY:
         await _handle_holiday(bot, user)
     elif intent == INTENT_DATE_TIME:
@@ -585,9 +624,12 @@ async def handle_ai_message(
             return True
 
         # ── 9. Intent detection ───────────────────────────────────────────────
-        intent = detect_intent(resolved)
+        intent     = detect_intent(resolved)
         reply_mode = get_reply_mode()
-        print(f"[AI DEBUG] handler_called=True intent={intent} reply_mode={reply_mode} perm={perm}")
+        print(f"[AI DEBUG] request={resolved!r}")
+        print(f"[AI DEBUG] detected_intent={intent!r}")
+        print(f"[AI DEBUG] permission_level={perm!r}")
+        print(f"[AI DEBUG] reply_mode={reply_mode!r}")
 
         # ── 10. Access check ──────────────────────────────────────────────────
         denial = check_access(intent, perm, resolved)

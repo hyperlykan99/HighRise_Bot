@@ -44,6 +44,11 @@ INTENT_DENIED_PERM          = "denied_permission"
 INTENT_GENERAL              = "general_question"
 INTENT_UNKNOWN              = "unknown"
 
+# ── 3.3B user-identity + translation intents (checked before CMD_EXPLAIN) ───
+INTENT_USER_NAME            = "user_name_question"
+INTENT_USER_ROLE            = "user_role_question"
+INTENT_TRANSLATION          = "translation_question"
+
 # ── 3.3B AI self-management intents ─────────────────────────────────────────
 INTENT_AI_STATUS            = "ai_status_check"
 INTENT_AI_DEBUG             = "ai_debug_summary"
@@ -283,6 +288,44 @@ _RULES: list[tuple[str, re.Pattern]] = [
      re.compile(r"\b(casino|blackjack|how\s+to\s+(play\s+)?(bj|blackjack))\b", re.I)),
     (INTENT_EVENT,
      re.compile(r"\b(event|events|limited.time|bonus\s+event|active\s+event|what\s+events)\b", re.I)),
+
+    # ── 5b. Identity & translation — must come BEFORE CMD_EXPLAIN ───────────
+    # CMD_EXPLAIN regex catches "what is" + any word, so identity / translation
+    # rules MUST be checked first to avoid being swallowed.
+
+    (INTENT_USER_NAME,
+     re.compile(
+         r"\b(what.?s\s+my\s+(name|username)"
+         r"|what\s+is\s+my\s+(name|username)"
+         r"|who\s+am\s+i"
+         r"|tell\s+me\s+my\s+(name|username))\b",
+         re.I,
+     )),
+    (INTENT_USER_ROLE,
+     re.compile(
+         r"\b(what.?s\s+my\s+(role|rank|permission)"
+         r"|what\s+is\s+my\s+(role|rank|permission(\s+level)?)"
+         r"|what\s+(role|rank|permission(\s+level)?)\s+(am\s+i|do\s+i\s+have)"
+         r"|am\s+i\s+(owner|admin|staff|moderator|vip|player)"
+         r"|my\s+(role|rank|permission)(\s+level)?"
+         r"|what\s+rank\s+am\s+i"
+         r"|what\s+access\s+do\s+i\s+have)\b",
+         re.I,
+     )),
+    (INTENT_TRANSLATION,
+     re.compile(
+         r"what\s+is\s+the\s+"
+         r"(?:spanish|tagalog|japanese|french|korean|english|german|chinese|arabic)"
+         r"\s+(?:word\s+for\s+|of\s+).+"
+         r"|what\s+is\s+.+\s+in\s+"
+         r"(?:spanish|tagalog|japanese|french|korean|english|german|chinese|arabic)\b"
+         r"|translate\s+.+\s+to\s+"
+         r"(?:spanish|tagalog|japanese|french|korean|english|german|chinese|arabic)\b"
+         r"|how\s+(?:do\s+you\s+say|to\s+say)\s+.+\s+in\s+"
+         r"(?:spanish|tagalog|japanese|french|korean|english|german|chinese|arabic)\b",
+         re.I,
+     )),
+
     (INTENT_CMD_EXPLAIN,
      re.compile(
          r"\b(explain|what\s+is|what\s+does|how\s+(does|do|to\s+use)\s+)[!/]?\w+\b",
