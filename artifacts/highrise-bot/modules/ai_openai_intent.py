@@ -75,9 +75,10 @@ Player-direct with confirmation (risk=medium, needs_confirmation=true):
 Staff-only, confirmation required (risk=medium, needs_confirmation=true):
   mute       → mute a player (args: [username, minutes, reason])
   warn       → warn a player (args: [username, reason])
-  tele_other → teleport another player to a saved spawn (args: [username, location])
-  goto_user  → go to another player's current position (args: [username])
-  bring_user → bring another player to your position (args: [username])
+  tele_other       → teleport another player to a saved spawn (args: [username, location])
+  goto_user        → go to another player's current position (args: [username])
+  bring_user       → bring another player to your position (args: [username])
+  return_bot_spawn → teleport this bot to its saved spawn (no args)
 
 Admin/Owner, confirmation required (risk=high, needs_confirmation=true):
   startevent   → start a game/event (args: [event_id, duration_minutes])
@@ -105,6 +106,8 @@ Owner-only, confirmation required (risk=high, needs_confirmation=true):
 "teleport Claire to mod" → type=command, command=tele_other, args=["claire","mod"], risk=medium, needs_confirmation=true
 "go to Claire"           → type=command, command=goto_user, args=["claire"], risk=medium, needs_confirmation=true
 "bring Claire to me"     → type=command, command=bring_user, args=["claire"], risk=medium, needs_confirmation=true
+"return to spawn"        → type=command, command=return_bot_spawn, args=[], risk=low, needs_confirmation=false
+"send bots home"         → type=command, command=return_bot_spawn, args=[], risk=low, needs_confirmation=false
 "buy item 2"             → type=command, command=buy, args=["2"], risk=medium, needs_confirmation=true
 "buy vip"                → type=command, command=buyvip, risk=medium, needs_confirmation=true
 "mute john 5 spam"       → type=command, command=mute, args=["john","5","spam"], risk=medium, needs_confirmation=true

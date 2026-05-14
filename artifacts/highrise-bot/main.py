@@ -712,6 +712,7 @@ from modules.room_utils import (
     handle_emotes, handle_emote, handle_stopemote, handle_emoteinfo,
     handle_setbotspawn, handle_setbotspawnhere, handle_botspawns,
     handle_clearbotspawn, apply_bot_spawn,
+    teleport_bot_to_saved_spawn, handle_returnbots,
     handle_mypos, handle_positiondebug,
     handle_dance, handle_wave, handle_sit, handle_clap,
     handle_forceemote, handle_forceemoteall,
@@ -1149,6 +1150,7 @@ ALL_KNOWN_COMMANDS = (
         "emoteinfo",
         # ── Bot spawns ────────────────────────────────────────────────────────
         "setbotspawn", "setbotspawnhere", "botspawns", "clearbotspawn",
+        "returnbots", "botshome",
         "mypos", "positiondebug",
         # ── Events (new) ──────────────────────────────────────────────────────
         "adminsblessing", "adminblessing", "eventresume",
@@ -6313,6 +6315,10 @@ class HangoutBot(BaseBot):
             await handle_botspawns(self, user)
         elif cmd == "clearbotspawn":
             await handle_clearbotspawn(self, user, args)
+        elif cmd in ("returnbots", "botshome"):
+            await handle_returnbots(self, user, args)
+        elif cmd == "botspawn" and len(args) >= 2 and args[1].lower() in ("return", "returnall"):
+            await handle_returnbots(self, user, args)
         elif cmd == "mypos":
             await handle_mypos(self, user, args)
         elif cmd == "positiondebug":

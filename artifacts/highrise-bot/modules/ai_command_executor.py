@@ -137,6 +137,17 @@ async def _bring_user(bot, user, args):
     await handle_tphere(bot, user, ["tphere", args[0]])
 
 
+async def _return_bot_spawn(bot, user, args):
+    from modules.room_utils import teleport_bot_to_saved_spawn
+    success = await teleport_bot_to_saved_spawn(bot, fallback_walk=True)
+    if not success:
+        await bot.highrise.send_whisper(
+            user.id,
+            "\u26a0\ufe0f No saved spawn found for this bot. "
+            "Use !setbotspawnhere @BotName first.",
+        )
+
+
 async def _buyvip(bot, user, args):
     from modules.vip import handle_buyvip
     await handle_buyvip(bot, user, ["buyvip"])
@@ -209,7 +220,8 @@ _DISPATCH: dict[str, callable] = {
     "tele_self":  _tele_self,
     "tele_other": _tele_other,
     "goto_user":  _goto_user,
-    "bring_user": _bring_user,
+    "bring_user":        _bring_user,
+    "return_bot_spawn":  _return_bot_spawn,
     "buyvip":     _buyvip,
     "buy":        _buy,
     "mute":       _mute,

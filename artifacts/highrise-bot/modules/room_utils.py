@@ -1982,29 +1982,102 @@ async def handle_clearbotspawn(bot: BaseBot, user: User, args: list[str]) -> Non
         await _w(bot, user.id, f"No spawn found for @{bot_username}.")
 
 
-async def apply_bot_spawn(bot: BaseBot, bot_username: str) -> None:
-    """Teleport the bot to its saved spawn. Called from on_start."""
-    from modules.gold import get_bot_username as _get_live_uname
-    live_uname = _get_live_uname()
-    if not live_uname:
-        # Fall back to passed-in name (may still be empty on very early calls)
-        live_uname = bot_username
-    if not live_uname:
-        return
-    row = db.get_bot_spawn(live_uname)
+async def teleport_bot_to_saved_spawn(
+    bot:           BaseBot,
+    bot_username:  str | None = None,
+    bot_mode:      str | None = None,
+    fallback_walk: bool       = True,
+) -> bool:
+    """
+    Teleport the bot to its saved spawn using priority lookup:
+      1. exact bot username
+      2. bot mode name  (e.g. 'host', 'miner')
+      3. 'default'
+
+    Uses highrise.teleport() (instant) and falls back to walk_to if that
+    fails and fallback_walk=True.  Returns True on success.
+    """
+    from modules.gold import get_bot_user_id, get_bot_username as _get_uname
+    from highrise.models import Position
+    import config as _cfg
+
+    _username = bot_username or _get_uname() or getattr(_cfg, "BOT_USERNAME", "")
+    _mode     = bot_mode     or getattr(_cfg, "BOT_MODE", "main")
+    bot_uid   = get_bot_user_id()
+
+    # Priority lookup: exact username → mode name → "default"
+    row: dict | None = None
+    for key in filter(None, [_username, _mode, "default"]):
+        row = db.get_bot_spawn(key)
+        if row:
+            print(f"[BOT SPAWN] bot={_username!r} lookup_key={key!r} spawn_found=true")
+            break
+
     if not row:
-        print(f"[BOT_SPAWN] bot={live_uname} spawn_found=false")
+        print(
+            f"[BOT SPAWN] bot={_username!r} spawn_found=false "
+            f"tried=[{_username},{_mode},default]"
+        )
+        return False
+
+    x, y, z    = row["x"], row["y"], row["z"]
+    facing     = row.get("facing", "FrontRight")
+    spawn_name = row.get("spawn_name", "custom")
+    pos        = Position(x, y, z, facing)
+
+    print(
+        f"[BOT SPAWN] bot={_username!r} spawn={spawn_name!r} "
+        f"x={x} y={y} z={z} facing={facing}"
+    )
+    print("[BOT SPAWN] teleport_attempt=true")
+
+    if bot_uid:
+        try:
+            await bot.highrise.teleport(bot_uid, pos)
+            print("[BOT SPAWN] teleport_success=true fallback_walk=false")
+            return True
+        except Exception as exc:
+            print(f"[BOT SPAWN] teleport_success=false error={exc!r}")
+    else:
+        print("[BOT SPAWN] teleport_skipped=true reason=no_bot_uid_yet")
+
+    if fallback_walk:
+        print("[BOT SPAWN] fallback_walk=true")
+        try:
+            await bot.highrise.walk_to(pos)
+            print("[BOT SPAWN] walk_success=true")
+            return True
+        except Exception as exc:
+            print(f"[BOT SPAWN] walk_success=false error={exc!r}")
+    else:
+        print("[BOT SPAWN] fallback_walk=false")
+
+    return False
+
+
+async def apply_bot_spawn(bot: BaseBot, bot_username: str) -> None:
+    """Teleport the bot to its saved spawn on startup. Wraps teleport_bot_to_saved_spawn."""
+    await teleport_bot_to_saved_spawn(bot, bot_username=bot_username, fallback_walk=True)
+
+
+async def handle_returnbots(bot: BaseBot, user: User, args: list[str]) -> None:
+    """
+    !returnbots / !botshome — teleport THIS bot to its saved spawn (manager+).
+    Every running bot handles this message independently, so typing it once
+    in the room causes ALL bots to return to their own saved spawn.
+    """
+    if not _can_manage_room(user.username):
+        await _w(bot, user.id, "Manager+ only.")
         return
-    print(f"[BOT_SPAWN] bot={live_uname} spawn_found=true "
-          f"x={row['x']} y={row['y']} z={row['z']}")
-    try:
-        from highrise.models import Position
-        pos = Position(x=row["x"], y=row["y"], z=row["z"])
-        await bot.highrise.walk_to(pos)
-        print(f"[BOT_SPAWN] bot={live_uname} moved=success "
-              f"spawn={row['spawn_name']}")
-    except Exception as exc:
-        print(f"[BOT_SPAWN] bot={live_uname} moved=fail reason={exc}")
+    success = await teleport_bot_to_saved_spawn(bot, fallback_walk=True)
+    if success:
+        await _w(bot, user.id, "\u2705 Bot returned to saved spawn.")
+    else:
+        await _w(
+            bot, user.id,
+            "\u26a0\ufe0f No saved spawn found for this bot. "
+            "Use !setbotspawnhere @BotName first.",
+        )
 
 
 async def handle_mypos(bot: BaseBot, user: User, args: list[str]) -> None:

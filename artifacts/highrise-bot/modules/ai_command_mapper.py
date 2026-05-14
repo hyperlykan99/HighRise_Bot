@@ -139,6 +139,13 @@ AI_COMMAND_WHITELIST: dict[str, dict] = {
         "requires_confirmation": True,
         "description":        "Bring another player to your position (staff+)",
     },
+    "return_bot_spawn": {
+        "category":           "STAFF_DIRECT",
+        "aliases":            ["return to spawn", "bots home", "send bots home", "reset bot positions"],
+        "requires_permission":"staff",
+        "requires_confirmation": False,
+        "description":        "Teleport this bot to its saved spawn (staff+)",
+    },
     "mute": {
         "category":           "STAFF_DIRECT",
         "aliases":            ["mute player", "silence player"],
@@ -334,6 +341,14 @@ def _setcoins_args(m, text):
 
 
 _NL_PATTERNS: list[tuple[str, re.Pattern, callable]] = [
+    # ── Return bot to saved spawn ─────────────────────────────────────────────
+    ("return_bot_spawn", re.compile(
+        r"\b(return|send|go|move|reset)\b.{0,20}\b(spawn|home)\b"
+        r"|\bbots?\s+home\b"
+        r"|\breturn.{0,10}bots?\b",
+        re.I,
+    ), _no_args),
+
     # ── Teleport other: MUST come before tele_self to avoid ambiguity ─────────
     ("tele_other", re.compile(
         r"\b(tele(?:port)?|send|move|tp)\s+@?[a-z]\w{1,24}\s+to\s+[a-z]\w",

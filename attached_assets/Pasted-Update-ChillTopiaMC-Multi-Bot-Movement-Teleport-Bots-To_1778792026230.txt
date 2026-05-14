@@ -1,0 +1,161 @@
+Update ChillTopiaMC Multi-Bot Movement — Teleport Bots To Saved Spawn Instead Of Walking
+
+Goal:
+When bots need to return to their assigned/saved spawn, they should teleport directly instead of walking across the room.
+
+Current issue:
+Bots walk all the way to their saved bot spawn.
+This looks slow and messy.
+
+Required behavior:
+- If a bot has a saved spawn, teleport directly to that spawn.
+- Do not walk unless teleport fails.
+- Use walking only as fallback.
+- Each bot should use its own saved spawn.
+- Do not teleport players unless command explicitly targets players.
+- Do not break player teleport commands.
+
+Affected systems:
+- bot spawn restore
+- bot startup spawn placement
+- bot welcome/spawn positioning
+- bot mode outfit/persona spawn
+- auto return-to-spawn behavior
+- commands like:
+  !setbotspawnhere
+  !botspawns
+  !clearbotspawn
+  !botoutfit
+  !botmode
+  ai send bot to spawn
+  ai return bots to spawn
+
+Files to inspect/update:
+- modules/room_utils.py
+- modules/bot_modes.py
+- modules/multi_bot.py
+- modules/bot_welcome.py
+- main.py
+- any function named:
+  apply_bot_spawn
+  setbotspawn
+  setbotspawnhere
+  botspawns
+  move_to
+  walk_to
+  teleport
+  highrise.teleport
+  highrise.walk_to
+
+Implementation rules:
+
+1. Add safe helper:
+
+async def teleport_bot_to_saved_spawn(bot, bot_username=None, bot_mode=None, fallback_walk=True):
+    """
+    Teleport current bot to its saved spawn.
+    Use saved bot spawn from existing DB/settings.
+    If teleport fails and fallback_walk=True, walk to spawn.
+    Return success/fail message.
+    """
+
+2. Spawn lookup priority:
+- exact bot username saved spawn
+- bot mode saved spawn
+- default bot spawn
+- fallback: do nothing and log missing spawn
+
+3. Teleport first:
+Use Highrise SDK teleport method for the bot itself if available.
+
+Pseudo:
+await bot.highrise.teleport(bot_user_id, Position(x, y, z, facing))
+
+or existing project helper if already implemented.
+
+Important:
+Use the correct SDK method already used elsewhere in the project.
+Do not invent a new incompatible method if room_utils.py already has teleport helpers.
+
+4. Walk fallback:
+Only if teleport fails:
+- log teleport failure
+- then use existing walk_to logic if available
+
+5. Add debug logs:
+[BOT SPAWN] bot=ChillTopiaMC spawn=host x=... y=... z=...
+[BOT SPAWN] teleport_attempt=true
+[BOT SPAWN] teleport_success=true
+[BOT SPAWN] fallback_walk=false
+
+If fail:
+[BOT SPAWN] teleport_success=false error=...
+[BOT SPAWN] fallback_walk=true
+
+6. Apply on startup:
+When each bot joins the room and has a saved spawn:
+- wait until bot identity/user_id is known
+- teleport to saved spawn
+- do not walk there
+
+7. Apply on AI command:
+Support:
+- ai return to spawn
+- ai return bots to spawn
+- ai send ChillTopiaMC to spawn
+- ai send bots home
+- ai reset bot positions
+
+Permission:
+- return current bot to spawn: owner/admin/manager
+- return all bots to spawn: owner/admin only
+
+8. Direct command support:
+Add or fix:
+- !botspawn return
+- !botspawn returnall
+- !returnbots
+- !botshome
+
+If these already exist, route them to teleport first.
+
+9. Do not break:
+- !tele player commands
+- !goto
+- !bring
+- !tphere
+- player saved teleport spots
+- AI teleport player commands
+
+10. Tests:
+
+Set bot spawn:
+- stand at desired bot position
+- !setbotspawnhere ChillTopiaMC
+
+Restart bot.
+
+Expected:
+ChillTopiaMC appears/teleports to saved spawn quickly instead of walking.
+
+Test command:
+- ai return bots to spawn
+
+Expected:
+Bots teleport to saved spawns.
+
+Test fallback:
+Temporarily force bad spawn data.
+
+Expected:
+Bot logs failure and does not crash.
+
+Final output:
+Report:
+1. Files modified
+2. Spawn lookup method used
+3. Teleport method used
+4. Startup bot spawn test result
+5. AI return bots test result
+6. Fallback walk test result
+7. Any remaining limitations
