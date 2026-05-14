@@ -379,6 +379,10 @@ from modules.help_cmds import (
     handle_command_detail,
     handle_currencycheck,
 )
+from modules.staff_cmds import (
+    handle_staffnote, handle_staffnotes,
+    handle_permissioncheck, handle_rolecheck,
+)
 from modules.analytics import (
     handle_ownerdash,
     handle_playerstats,
@@ -799,6 +803,8 @@ MOD_ONLY_CMDS = {
     "economysettings",
     "reports", "reportinfo", "closereport", "reportwatch",
     "warn", "warnings",
+    "staffnote", "staffnotes",
+    "permissioncheck", "rolecheck",
     "replog",
     "allstaff",
     "subscribers",
@@ -1278,6 +1284,8 @@ BETA_COMMANDS: frozenset[str] = frozenset({
     "staffdash", "stafftools",
     "issueadmin",
     "bugs",
+    "staffnote", "staffnotes",
+    "permissioncheck", "rolecheck",
     "errors",
     "launchready",
     "announceadmin",
@@ -3522,6 +3530,12 @@ class HangoutBot(BaseBot):
                 await handle_softban(self, user, args)
             elif cmd in ("unsoftban", "ecounban"):
                 await handle_unsoftban(self, user, args)
+            elif cmd == "staffnote":
+                await handle_staffnote(self, user, args)
+            elif cmd == "staffnotes":
+                await handle_staffnotes(self, user, args)
+            elif cmd in ("permissioncheck", "rolecheck"):
+                await handle_permissioncheck(self, user, args)
             elif cmd == "setrules":
                 await handle_setrules(self, user, args)
             elif cmd == "automod":

@@ -228,32 +228,64 @@ async def handle_betadash(bot: BaseBot, user: User) -> None:
 # ---------------------------------------------------------------------------
 
 async def handle_staffdash(bot: BaseBot, user: User) -> None:
-    """Role-gated staff quick tool reference (mod+)."""
+    """Role-gated staff dashboard (mod+)."""
     if not can_moderate(user.username):
-        await _w(bot, user.id, "Staff only.")
+        await _w(bot, user.id, "🔒 Staff only.")
         return
 
-    if _is_admin_or_owner(user.username):
-        await _w(
-            bot, user.id,
-            "🛠️ Admin Tools\n"
-            "!betamode status\n"
-            "!maintenance status\n"
-            "!issueadmin list\n"
-            "!bugs open\n"
-            "!announce\n"
-            "!launchready"
-        )
+    is_adm = _is_admin_or_owner(user.username)
+
+    try:
+        conn = db.get_connection()
+        import datetime as _dt
+        today = _dt.date.today().isoformat()
+        open_bugs = conn.execute(
+            "SELECT COUNT(*) FROM reports WHERE report_type='bug_report' AND status='open'"
+        ).fetchone()[0]
+        open_feedback = conn.execute(
+            "SELECT COUNT(*) FROM reports WHERE report_type='feedback' AND status='open'"
+        ).fetchone()[0]
+        warnings_today = conn.execute(
+            "SELECT COUNT(*) FROM moderation_logs WHERE action='warn' AND date(created_at)=?",
+            (today,)
+        ).fetchone()[0]
+        active_mutes = conn.execute(
+            "SELECT COUNT(*) FROM mutes WHERE datetime(expires_at) > datetime('now')"
+        ).fetchone()[0]
+        conn.close()
+    except Exception:
+        open_bugs = open_feedback = warnings_today = active_mutes = 0
+
+    if is_adm:
+        try:
+            conn2 = db.get_connection()
+            today2 = _dt.date.today().isoformat()
+            alerts = conn2.execute(
+                "SELECT COUNT(*) FROM safety_alerts WHERE date(created_at)=?", (today2,)
+            ).fetchone()[0]
+            conn2.close()
+        except Exception:
+            alerts = 0
+        await _w(bot, user.id,
+                 f"🛠️ Admin Dashboard\n"
+                 f"Bugs: {open_bugs} | Feedback: {open_feedback}\n"
+                 f"Safety alerts: {alerts}\n"
+                 f"Warnings today: {warnings_today}\n"
+                 f"Muted: {active_mutes}")
     else:
-        await _w(
-            bot, user.id,
-            "🛡️ Staff Tools\n"
-            "!bugs open\n"
-            "!knownissues\n"
-            "!safetydash\n"
-            "!modhelp\n"
-            "!status"
-        )
+        await _w(bot, user.id,
+                 f"🛡️ Staff Dashboard\n"
+                 f"Bugs open: {open_bugs}\n"
+                 f"Feedback: {open_feedback}\n"
+                 f"Warnings today: {warnings_today}\n"
+                 f"Muted: {active_mutes}")
+        await _w(bot, user.id,
+                 "Quick:\n"
+                 "!modhelp\n"
+                 "!bugs open\n"
+                 "!feedbacks recent\n"
+                 "!knownissues\n"
+                 "!status")
 
 
 # ---------------------------------------------------------------------------
@@ -416,11 +448,12 @@ async def handle_issueadmin(bot: BaseBot, user: User, args: list[str]) -> None:
 # ---------------------------------------------------------------------------
 
 async def handle_bugs_admin(bot: BaseBot, user: User, args: list[str]) -> None:
-    """View and manage bug reports (admin/owner only)."""
-    if not _is_admin_or_owner(user.username):
-        await _w(bot, user.id, "Admin/owner only.")
+    """View and triage bug reports (staff can view, admin/owner can triage)."""
+    if not can_moderate(user.username):
+        await _w(bot, user.id, "🔒 Staff only.")
         return
 
+    is_adm = _is_admin_or_owner(user.username)
     sub = args[1].lower() if len(args) > 1 else "open"
 
     if sub in ("open", "recent"):
@@ -438,6 +471,9 @@ async def handle_bugs_admin(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, "\n".join(lines)[:249])
 
     elif sub == "close":
+        if not is_adm:
+            await _w(bot, user.id, "🔒 Admin only.")
+            return
         if len(args) < 3 or not args[2].isdigit():
             await _w(bot, user.id, "Usage: !bugs close <id>")
             return
@@ -462,8 +498,8 @@ async def handle_bugs_admin(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, f"🐞 Bug #{args[2]}\n@{uname}: {msg}\n{ts} [{st}]")
 
     elif sub == "assign":
-        if not _is_admin_or_owner(user.username):
-            await _w(bot, user.id, "Admin/owner only.")
+        if not is_adm:
+            await _w(bot, user.id, "🔒 Admin only.")
             return
         if len(args) < 4 or not args[2].isdigit():
             await _w(bot, user.id, "Usage: !bugs assign <id> <staff>")
@@ -485,8 +521,8 @@ async def handle_bugs_admin(bot: BaseBot, user: User, args: list[str]) -> None:
         )
 
     elif sub == "priority":
-        if not _is_admin_or_owner(user.username):
-            await _w(bot, user.id, "Admin/owner only.")
+        if not is_adm:
+            await _w(bot, user.id, "🔒 Admin only.")
             return
         if len(args) < 4 or not args[2].isdigit():
             await _w(bot, user.id, "Usage: !bugs priority <id> low|medium|high|critical")
@@ -511,8 +547,8 @@ async def handle_bugs_admin(bot: BaseBot, user: User, args: list[str]) -> None:
         )
 
     elif sub == "tag":
-        if not _is_admin_or_owner(user.username):
-            await _w(bot, user.id, "Admin/owner only.")
+        if not is_adm:
+            await _w(bot, user.id, "🔒 Admin only.")
             return
         if len(args) < 4 or not args[2].isdigit():
             await _w(bot, user.id, "Usage: !bugs tag <id> <tag>")
@@ -534,8 +570,12 @@ async def handle_bugs_admin(bot: BaseBot, user: User, args: list[str]) -> None:
         )
 
     else:
-        await _w(bot, user.id,
-                 "Usage: !bugs open|recent|close <id>|view <id>|assign|priority|tag")
+        if is_adm:
+            await _w(bot, user.id,
+                     "Usage: !bugs open|recent|view <id>|close <id>|assign|priority|tag")
+        else:
+            await _w(bot, user.id,
+                     "Usage: !bugs open|recent|view <id>")
 
 
 # ---------------------------------------------------------------------------

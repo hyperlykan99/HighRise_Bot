@@ -63,10 +63,10 @@ async def _w(bot: BaseBot, uid: str, msg: str) -> None:
 
 async def handle_mute(bot: BaseBot, user: User, args: list[str]) -> None:
     if not can_manage_games(user.username):
-        await _w(bot, user.id, "Managers and above only.")
+        await _w(bot, user.id, "🔒 Manager only.")
         return
     if len(args) < 3:
-        await _w(bot, user.id, "Usage: !mute <username> <minutes>")
+        await _w(bot, user.id, "Usage: !mute @user <minutes> [reason]")
         return
 
     target_name = args[1].lstrip("@").strip()
@@ -100,7 +100,16 @@ async def handle_mute(bot: BaseBot, user: User, args: list[str]) -> None:
         action="mute", reason=reason_str or "muted by staff",
         duration_minutes=minutes,
     )
-    await _w(bot, user.id, f"🔇 @{target['username']} muted for {minutes} min.")
+    name = target["username"][:15]
+    rsn  = reason_str or "muted by staff"
+    await _w(bot, user.id,
+             f"🔇 Muted\n@{name} for {minutes}m\nReason: {rsn[:60]}")
+    try:
+        await _w(bot, target["user_id"],
+                 f"🔇 Your bot commands are muted for {minutes}m.\n"
+                 f"Reason: {rsn[:60]}")
+    except Exception:
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -110,7 +119,7 @@ async def handle_mute(bot: BaseBot, user: User, args: list[str]) -> None:
 
 async def handle_unmute(bot: BaseBot, user: User, args: list[str]) -> None:
     if not can_manage_games(user.username):
-        await _w(bot, user.id, "Managers and above only.")
+        await _w(bot, user.id, "🔒 Manager only.")
         return
     if len(args) < 2:
         await _w(bot, user.id, "Usage: !unmute <username>")
@@ -129,14 +138,13 @@ async def handle_unmute(bot: BaseBot, user: User, args: list[str]) -> None:
     am_warns   = db.clear_automod_warnings(uname)
     reset_tracker(uid)
 
-    parts = []
-    if db_removed:
-        parts.append("DB mute ✓")
-    if am_warns:
-        parts.append(f"{am_warns} AM warn(s) ✓")
-    parts.append("AM tracker ✓")
-    cleared = " | ".join(parts)
-    await _w(bot, user.id, f"🔊 @{uname[:15]} unmuted. Cleared: {cleared}")
+    await _w(bot, user.id,
+             f"🔊 Unmuted\n@{uname[:15]} can use bot commands again.")
+    try:
+        await _w(bot, uid,
+                 "🔊 Your mute has been lifted. Bot commands restored.")
+    except Exception:
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -146,7 +154,7 @@ async def handle_unmute(bot: BaseBot, user: User, args: list[str]) -> None:
 
 async def handle_mutestatus(bot: BaseBot, user: User, args: list[str]) -> None:
     if not can_manage_games(user.username):
-        await _w(bot, user.id, "Managers and above only.")
+        await _w(bot, user.id, "🔒 Manager only.")
         return
     if len(args) < 2:
         await _w(bot, user.id, "Usage: !mutestatus <username>")
@@ -190,7 +198,7 @@ async def handle_mutestatus(bot: BaseBot, user: User, args: list[str]) -> None:
 
 async def handle_forceunmute(bot: BaseBot, user: User, args: list[str]) -> None:
     if not (is_admin(user.username) or is_owner(user.username)):
-        await _w(bot, user.id, "Admins and owners only.")
+        await _w(bot, user.id, "🔒 Admin only.")
         return
     if len(args) < 2:
         await _w(bot, user.id, "Usage: !forceunmute <username>")
@@ -225,7 +233,7 @@ async def handle_forceunmute(bot: BaseBot, user: User, args: list[str]) -> None:
 
 async def handle_mutes(bot: BaseBot, user: User) -> None:
     if not can_manage_games(user.username):
-        await _w(bot, user.id, "Managers and above only.")
+        await _w(bot, user.id, "🔒 Manager only.")
         return
 
     rows = db.get_all_active_mutes(limit=5)
@@ -245,10 +253,10 @@ async def handle_mutes(bot: BaseBot, user: User) -> None:
 
 async def handle_warn(bot: BaseBot, user: User, args: list[str]) -> None:
     if not can_moderate(user.username):
-        await _w(bot, user.id, "Staff only.")
+        await _w(bot, user.id, "🔒 Staff only.")
         return
     if len(args) < 3:
-        await _w(bot, user.id, "Usage: !warn <username> <reason>")
+        await _w(bot, user.id, "Usage: !warn @user [reason]")
         return
 
     target_name = args[1].lstrip("@").strip()
@@ -277,9 +285,16 @@ async def handle_warn(bot: BaseBot, user: User, args: list[str]) -> None:
         target_id=target["user_id"], target_name=target["username"],
         action="warn", reason=reason,
     )
-    name  = target["username"][:15]
-    rsn   = reason[:60]
-    await _w(bot, user.id, f"⚠️ @{name} warned ({total} total). Reason: {rsn}")
+    name = target["username"][:15]
+    rsn  = reason[:60]
+    await _w(bot, user.id,
+             f"⚠️ Warning Added\n@{name} ({total} total)\nReason: {rsn}")
+    try:
+        await _w(bot, target["user_id"],
+                 f"⚠️ You received a warning.\nReason: {rsn}\n"
+                 f"Use !rules to review room rules.")
+    except Exception:
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -288,7 +303,7 @@ async def handle_warn(bot: BaseBot, user: User, args: list[str]) -> None:
 
 async def handle_warnings(bot: BaseBot, user: User, args: list[str]) -> None:
     if not can_moderate(user.username):
-        await _w(bot, user.id, "Staff only.")
+        await _w(bot, user.id, "🔒 Staff only.")
         return
     if len(args) < 2:
         await _w(bot, user.id, "Usage: !warnings <username>")
@@ -315,7 +330,7 @@ async def handle_warnings(bot: BaseBot, user: User, args: list[str]) -> None:
 
 async def handle_clearwarnings(bot: BaseBot, user: User, args: list[str]) -> None:
     if not can_manage_economy(user.username):
-        await _w(bot, user.id, "Admins and owners only.")
+        await _w(bot, user.id, "🔒 Admin only.")
         return
     if len(args) < 2:
         await _w(bot, user.id, "Usage: !clearwarnings <username>")
@@ -371,7 +386,7 @@ async def handle_setrules(bot: BaseBot, user: User, args: list[str]) -> None:
 
 async def handle_automod(bot: BaseBot, user: User, args: list[str]) -> None:
     if not can_manage_games(user.username):
-        await _w(bot, user.id, "Managers and above only.")
+        await _w(bot, user.id, "🔒 Manager only.")
         return
 
     if len(args) < 2:

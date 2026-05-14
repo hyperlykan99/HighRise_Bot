@@ -1662,17 +1662,63 @@ async def handle_bans(bot: BaseBot, user: User) -> None:
 
 async def handle_modlog(bot: BaseBot, user: User, args: list[str]) -> None:
     if not can_moderate(user.username):
-        await _w(bot, user.id, "Moderators and above only.")
+        await _w(bot, user.id, "🔒 Staff only.")
         return
-    target = args[1].lstrip("@") if len(args) > 1 else ""
-    logs   = db.get_room_action_logs(target, limit=8)
-    if not logs:
-        await _w(bot, user.id, "No mod logs found.")
-        return
-    for r in logs[:5]:
-        await _w(bot, user.id,
-                 f"#{r['id']} @{r['actor_username']} → {r['action']} "
-                 f"@{r['target_username']}"[:249])
+
+    sub = args[1].lstrip("@").strip() if len(args) > 1 else "recent"
+
+    try:
+        conn = db.get_connection()
+        if sub.lower() == "recent":
+            rows = conn.execute(
+                """SELECT action, target_name, reason, created_at
+                   FROM moderation_logs
+                   ORDER BY id DESC LIMIT 5"""
+            ).fetchall()
+            conn.close()
+            if not rows:
+                await _w(bot, user.id, "🛡️ No recent mod actions.")
+                return
+            lines = ["🛡️ Recent Mod Actions"]
+            for i, r in enumerate(rows, 1):
+                rsn = (r["reason"] or "")[:20]
+                lines.append(f"{i}. {r['action']} @{r['target_name'][:12]} — {rsn}")
+            await _w(bot, user.id, "\n".join(lines)[:249])
+        else:
+            tname = sub.lower()
+            warns = conn.execute(
+                "SELECT COUNT(*) FROM moderation_logs WHERE LOWER(target_name)=? AND action='warn'",
+                (tname,)
+            ).fetchone()[0]
+            mutes = conn.execute(
+                "SELECT COUNT(*) FROM moderation_logs WHERE LOWER(target_name)=? AND action='mute'",
+                (tname,)
+            ).fetchone()[0]
+            softbans = conn.execute(
+                "SELECT COUNT(*) FROM moderation_logs WHERE LOWER(target_name)=? AND action='softban'",
+                (tname,)
+            ).fetchone()[0]
+            last_row = conn.execute(
+                """SELECT action, reason FROM moderation_logs
+                   WHERE LOWER(target_name)=?
+                   ORDER BY id DESC LIMIT 1""",
+                (tname,)
+            ).fetchone()
+            conn.close()
+
+            last_str = ""
+            if last_row:
+                rsn = (last_row["reason"] or "")[:25]
+                last_str = f"\nLast: {last_row['action']} — {rsn}"
+
+            await _w(bot, user.id,
+                     f"🛡️ Mod Log @{sub[:15]}\n"
+                     f"Warnings: {warns}\n"
+                     f"Mutes: {mutes}\n"
+                     f"Softbans: {softbans}"
+                     f"{last_str}")
+    except Exception as exc:
+        await _w(bot, user.id, f"Mod log error: {str(exc)[:60]}")
 
 
 def _check_role_guard(actor: User, target_name: str) -> None:

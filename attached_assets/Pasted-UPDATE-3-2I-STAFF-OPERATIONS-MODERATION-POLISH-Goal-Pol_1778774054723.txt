@@ -1,0 +1,838 @@
+UPDATE 3.2I — STAFF OPERATIONS + MODERATION POLISH
+
+Goal:
+Polish staff tools, moderation commands, safety alerts, bug/feedback triage, and staff dashboards so staff can help manage the room without seeing owner-only tools or private economy data.
+
+Important:
+This is NOT an economy update.
+Do not change rewards.
+Do not change prices.
+Do not change casino odds.
+Do not add HR Gold rewards.
+Do not add major new systems.
+
+Main focus:
+1. Improve !staffdash and !stafftools.
+2. Polish !modhelp by role.
+3. Improve warning/mute/softban messages.
+4. Improve bug/feedback triage for staff.
+5. Improve safety alerts.
+6. Improve staff quick replies.
+7. Improve moderation logs.
+8. Improve permission checks.
+9. No economy changes.
+10. No reward changes.
+
+Currencies:
+🪙 ChillCoins = gameplay currency
+🎫 Luxe Tickets = premium currency
+
+Do not change tokens.
+Do not change room ID.
+Do not wipe database.
+Do not reset balances, tickets, VIP, badges, titles, market, casino, blackjack, poker, mining/fishing data, collection book, missions, XP, levels, events, seasons, onboarding, safety logs, analytics, tools, rods, boosts, profile settings, bug reports, feedback, backups, release settings, or player inventory.
+Do not re-add reward caps.
+Do not add HR Gold rewards.
+Do not change economy prices.
+Do not change reward values.
+Do not show “c” for currency.
+Use 🪙 and 🎫.
+
+==================================================
+PART 1 — STABILITY FIRST
+==================================================
+
+Before changing anything, run:
+
+!launchmode status
+!production status
+!launchblockers
+!finalaudit
+!launchcheck
+!commandissues
+!checkcommands all
+!checkhelp
+!currencycheck
+!bothealth
+!stability status
+
+Expected:
+- Production stable
+- Launch blockers: 0
+- Command issues: 0
+- Currencycheck clean
+- No old c/credits/gems
+- Launchcheck clean
+
+Fix blockers first.
+
+==================================================
+PART 2 — STAFF POLISH ONLY
+==================================================
+
+Allowed:
+- clearer staff commands
+- better moderation messages
+- better staff dashboard
+- better mod logs
+- better safety alerts
+- better bug/feedback triage
+- permission cleanup
+- help cleanup
+- route cleanup
+- wording fixes
+
+Not allowed:
+- economy changes
+- reward changes
+- punishment automation that bans players without staff confirmation
+- HR Gold rewards
+- new major systems
+- public exposure of private data
+
+==================================================
+PART 3 — STAFF DASHBOARD POLISH
+==================================================
+
+Polish:
+
+!staffdash
+!stafftools
+
+Expected for Staff:
+
+🛡️ Staff Dashboard
+Bugs open: 3
+Feedback: 8
+Warnings today: 2
+Muted: 1
+Use !stafftools.
+
+Second message:
+
+Quick:
+!modhelp
+!bugs open
+!feedbacks recent
+!knownissues
+!status
+
+Expected for Admin/Owner:
+
+🛠️ Admin Dashboard
+Bugs: 3 | Errors: 0
+Safety alerts: 2
+Maintenance: OFF
+Launch: OK
+
+Rules:
+- Whisper if possible.
+- Staff sees staff-safe info only.
+- Admin/Owner sees admin info.
+- Do not expose private balances.
+- No raw tracebacks.
+- Keep each message under 220 characters.
+
+==================================================
+PART 4 — ROLE-BASED MOD HELP
+==================================================
+
+Polish:
+
+!modhelp
+!mod
+!commands staff
+!commands admin
+
+Expected Staff:
+
+🛡️ Staff Mod
+!warn @user [reason]
+!warnings @user
+!modlog @user
+!bugs open
+!feedbacks recent
+
+Expected Manager/Admin:
+
+🛠️ Manager Mod
+!mute @user [min] [reason]
+!unmute @user
+!softban @user [min] [reason]
+!unsoftban @user
+
+Expected Owner/Admin:
+
+👑 Admin Mod
+!clearwarnings @user
+!safetyadmin
+!economysafety
+!audit
+
+Rules:
+- Show only commands caller can use.
+- Whisper.
+- No owner-only tools to staff.
+- No hidden/test commands in public help.
+- Every command shown must route.
+
+==================================================
+PART 5 — WARNING MESSAGE POLISH
+==================================================
+
+Polish:
+
+!warn @user [reason]
+!warnings @user
+!clearwarnings @user
+
+Expected staff command success:
+
+⚠️ Warning Added
+User: @Player
+Reason: spam
+Total warnings: 2
+
+Player-facing message:
+
+⚠️ You received a warning.
+Reason: spam
+Please follow !rules.
+
+If missing reason:
+
+⚠️ Use:
+!warn @user [reason]
+
+Rules:
+- Staff+ only.
+- Log warning.
+- Do not publicly shame player.
+- Do not auto-punish unless already configured and safe.
+- No raw user IDs in public message.
+
+==================================================
+PART 6 — MUTE MESSAGE POLISH
+==================================================
+
+Polish:
+
+!mute @user [minutes] [reason]
+!unmute @user
+
+Expected staff success:
+
+🔇 User Muted
+@Player for 10m
+Reason: spam
+
+Player-facing:
+
+🔇 You are muted from public bot commands for 10m.
+Reason: spam
+
+Unmute:
+
+✅ User Unmuted
+@Player can use public bot commands again.
+
+Rules:
+- Manager/Admin+ only unless current role system allows staff.
+- Muted player can still use !rules, !status, !bug, !feedback if safe.
+- Mute expires automatically.
+- Log action.
+- Do not wipe data.
+
+==================================================
+PART 7 — SOFTBAN MESSAGE POLISH
+==================================================
+
+Polish:
+
+!softban @user [minutes] [reason]
+!unsoftban @user
+
+Expected staff/admin success:
+
+🚫 Economy Restricted
+@Player for 30m
+Reason: exploit check
+
+Player-facing:
+
+🚫 Economy access temporarily restricted for 30m.
+Reason: exploit check
+You can still use !help and !bug.
+
+Unsoftban:
+
+✅ Economy Restriction Removed
+@Player can earn/use economy again.
+
+Rules:
+- Manager/Admin+ only.
+- Softban should block rewards, market, trading, purchases, and games if configured.
+- It should not erase balances.
+- It should not reset data.
+- It should expire automatically.
+- Log action.
+
+==================================================
+PART 8 — MOD LOG POLISH
+==================================================
+
+Polish:
+
+!modlog @user
+!modlog recent
+!warnings @user
+
+Expected:
+
+🛡️ Mod Log @Player
+Warnings: 2
+Mutes: 1
+Softbans: 0
+Last: warning — spam
+
+Recent:
+
+🛡️ Recent Mod Actions
+1. warn @Player — spam
+2. mute @User — 10m
+3. unmute @User
+
+Rules:
+- Staff+ can view basic logs.
+- Admin/Owner can view full logs.
+- Do not expose private economy data.
+- Keep under 220 chars per message.
+
+==================================================
+PART 9 — SAFETY ALERTS POLISH
+==================================================
+
+Polish:
+
+!safetydash
+!economysafety
+!economysafety alerts
+!safetyadmin settings
+
+Expected staff-safe:
+
+🛡️ Safety
+Alerts today: 2
+Duplicate blocks: 4
+Risk: Low
+Use !bugs open for reports.
+
+Expected admin:
+
+🛡️ Safety Dashboard
+Alerts: 2
+Duplicate blocks: 4
+Muted: 1
+Softbanned: 0
+Risk: Low
+
+Rules:
+- Staff sees summary only unless allowed.
+- Admin/Owner sees details.
+- No raw tracebacks.
+- No token/env data.
+- No player private balances publicly.
+
+==================================================
+PART 10 — SAFETY ALERT MESSAGE POLISH
+==================================================
+
+When alert happens:
+
+🚨 Safety Alert
+Type: duplicate payout
+User: @Player
+Blocked: yes
+Use !economysafety alerts.
+
+Rules:
+- Owner/Admin notification only.
+- Do not accuse player publicly.
+- Rate limit alerts:
+  max 1 per type/user per 10 minutes.
+- Log alert.
+
+Player-facing blocked duplicate:
+
+⚠️ This reward was already processed.
+
+Not:
+“Cheating detected.”
+
+==================================================
+PART 11 — BUG TRIAGE POLISH FOR STAFF
+==================================================
+
+Polish:
+
+!bugs open
+!bugs recent
+!bugs view [id]
+!bugs priority [id] low/medium/high/critical
+!bugs tag [id] [tag]
+!bugs close [id]
+
+Expected staff view:
+
+🐞 Open Bugs
+#12 high blackjack text
+#13 medium fishbook page
+#14 low guide typo
+
+View:
+
+🐞 Bug #12
+From: @Player
+Tag: blackjack
+Priority: high
+Status: open
+
+Rules:
+- Staff can view/triage if allowed.
+- Only Admin/Owner can delete/clear.
+- Close only after fixed.
+- Do not expose raw stack traces in bug view.
+- Critical bugs should show in launchblockers.
+
+==================================================
+PART 12 — FEEDBACK TRIAGE POLISH FOR STAFF
+==================================================
+
+Polish:
+
+!feedbacks recent
+!feedbacks top
+!feedbacks view [id]
+!feedbacks tag [id] [tag]
+!feedbacks close [id]
+
+Expected:
+
+💬 Feedback
+#21 shop — clearer prices
+#22 events — more schedule info
+#23 mining — book pages
+
+Summary:
+
+💬 Feedback Summary
+Shop: 4
+Events: 3
+Mining: 2
+
+Rules:
+- Staff can view recent feedback if allowed.
+- Admin/Owner can close/tag.
+- Normal players can only submit.
+- No private data leak.
+
+==================================================
+PART 13 — STAFF QUICK REPLIES
+==================================================
+
+Add/polish optional staff quick replies:
+
+!reply bug [id] [message]
+!reply feedback [id] [message]
+
+If direct replies are not supported:
+- save staff note internally
+- do not crash
+
+Expected:
+
+✅ Staff note added to bug #12.
+
+If player reply/DM is supported:
+📩 Reply sent to @Player.
+
+Rules:
+- Staff/Admin only.
+- Keep messages safe.
+- Do not send raw staff-only details.
+- If unsupported, clearly say note saved.
+
+==================================================
+PART 14 — STAFF NOTES
+==================================================
+
+Add:
+
+!staffnote @user [message]
+!staffnotes @user
+
+Expected:
+
+📝 Staff Note Added
+@Player
+
+View:
+
+📝 Staff Notes @Player
+1. Asked about Luxe shop
+2. Reported poker issue
+
+Rules:
+- Staff/Admin only.
+- Do not show notes to normal players.
+- Do not store secrets/tokens.
+- Notes are for support context, not punishment.
+- Keep short.
+
+==================================================
+PART 15 — PERMISSION AUDIT
+==================================================
+
+Add/polish:
+
+!permissioncheck
+!permissioncheck @user
+!rolecheck @user
+
+Expected:
+
+🔐 Permission Check
+@Player
+Role: Staff
+Allowed: warn, bugs open, feedbacks recent
+Denied: economy grant, production, backup
+
+Rules:
+- Owner/Admin only for checking other users.
+- User can check self if safe.
+- Do not expose owner-only internals publicly.
+
+==================================================
+PART 16 — STAFF COMMAND DENIAL MESSAGES
+==================================================
+
+If normal player uses staff command:
+
+🔒 Staff only.
+
+If staff uses admin command:
+
+🔒 Admin only.
+
+If admin uses owner command:
+
+🔒 Owner only.
+
+Rules:
+- Do not say Unknown command for permission failures.
+- Do not expose full command details.
+- Do not list owner-only commands to lower roles.
+
+==================================================
+PART 17 — MODERATION STORAGE CHECK
+==================================================
+
+Verify or create safe tables:
+
+moderation_logs:
+id INTEGER PRIMARY KEY AUTOINCREMENT
+action_id TEXT UNIQUE
+staff_id TEXT
+staff_name TEXT
+target_id TEXT
+target_name TEXT
+action TEXT
+reason TEXT
+duration_minutes INTEGER
+created_at TEXT
+expires_at TEXT
+active INTEGER DEFAULT 1
+
+staff_notes:
+id INTEGER PRIMARY KEY AUTOINCREMENT
+target_id TEXT
+target_name TEXT
+staff_id TEXT
+staff_name TEXT
+note TEXT
+created_at TEXT
+
+Rules:
+- Idempotent migrations.
+- Do not wipe existing logs.
+- Do not reset warnings/mutes.
+- Do not store tokens.
+
+==================================================
+PART 18 — MUTE/SOFTBAN EXPIRATION
+==================================================
+
+Verify:
+- expired mutes automatically stop blocking
+- expired softbans automatically stop blocking
+- active status updates
+- !modlog shows expired vs active clearly
+
+Expected:
+
+Muted: active 6m left
+
+or:
+
+Muted: expired
+
+Rules:
+- No manual cleanup required by owner.
+- Do not keep player blocked after expiration.
+
+==================================================
+PART 19 — STAFF HELP / COMMAND REGISTRY CLEANUP
+==================================================
+
+Verify shown commands route:
+
+!staffdash
+!stafftools
+!modhelp
+!warn
+!warnings
+!clearwarnings
+!mute
+!unmute
+!softban
+!unsoftban
+!modlog
+!bugs
+!feedbacks
+!safetydash
+!economysafety
+!staffnote
+!staffnotes
+!permissioncheck
+!rolecheck
+
+If optional command is not implemented:
+- hide it from help
+- do not count as command issue.
+
+==================================================
+PART 20 — PLAYER-SAFE PUBLIC HELP
+==================================================
+
+Ensure public help does NOT show:
+- !mute
+- !softban
+- !economysafety
+- !audit
+- !backup
+- !production
+- !luxeadmin grant/revoke
+- owner dashboards
+- staff notes
+
+Public can see:
+!rules
+!bug
+!feedback
+!knownissues
+!status
+
+Rules:
+- No admin leaks.
+- No old c/credits/gems.
+- No reward cap text.
+
+==================================================
+PART 21 — STAFF DASHBOARD ERROR FALLBACKS
+==================================================
+
+If bugs/feedback/safety tables are empty:
+
+!staffdash should show:
+
+🛡️ Staff Dashboard
+Bugs open: 0
+Feedback: 0
+Warnings today: 0
+Safety: OK
+
+Not:
+NoneType error
+SQL error
+undefined
+
+Rules:
+- Use N/A if metric unavailable.
+- Do not crash.
+
+==================================================
+PART 22 — TESTS: STAFF DASHBOARD
+==================================================
+
+Run:
+
+!staffdash
+!stafftools
+!modhelp
+!commands staff
+
+Expected:
+- role-appropriate output
+- no owner-only commands for staff
+- no command errors
+- whisper if possible
+
+==================================================
+PART 23 — TESTS: WARN / MUTE / SOFTBAN
+==================================================
+
+Run with a test user if safe:
+
+!warn @test spam
+!warnings @test
+!modlog @test
+!mute @test 5 spam
+!unmute @test
+!softban @test 5 economy test
+!unsoftban @test
+
+Expected:
+- actions logged
+- messages clear
+- permissions respected
+- no data wiped
+
+If no test user:
+- test parser/permission only
+- report skipped live target.
+
+==================================================
+PART 24 — TESTS: BUG / FEEDBACK TRIAGE
+==================================================
+
+Run:
+
+!bugs open
+!bugs recent
+!bugdash
+!feedbacks recent
+!feedbackdash
+!topissues
+
+Expected:
+- staff/admin can view
+- normal player cannot view admin lists
+- no raw errors
+- no private leak
+
+==================================================
+PART 25 — TESTS: SAFETY / ALERTS
+==================================================
+
+Run:
+
+!safetydash
+!economysafety
+!economysafety alerts
+!safetyadmin settings
+
+Expected:
+- staff/admin permissions correct
+- summary safe
+- no command error
+- no raw tracebacks
+
+==================================================
+PART 26 — TESTS: PERMISSIONS
+==================================================
+
+Run:
+
+!permissioncheck
+!rolecheck @4ktreyMarion
+
+As normal player if possible, try:
+!modhelp
+!mute @user 5 test
+!economysafety
+
+Expected:
+- permission messages are clear
+- no Unknown command for known protected commands
+- no admin leaks
+
+==================================================
+PART 27 — FINAL QA
+==================================================
+
+Run:
+
+!commandtest !staffdash
+!commandtest !stafftools
+!commandtest !modhelp
+!commandtest !warn
+!commandtest !warnings
+!commandtest !mute
+!commandtest !unmute
+!commandtest !softban
+!commandtest !unsoftban
+!commandtest !modlog
+!commandtest !staffnote
+!commandtest !staffnotes
+!commandtest !permissioncheck
+!commandtest !rolecheck
+
+!commandissues
+!checkcommands all
+!checkhelp
+!currencycheck
+!launchblockers
+!finalaudit
+!launchcheck
+!bothealth
+!stability status
+
+Expected:
+- no command issues
+- no staff help leaks
+- no public admin leaks
+- no old c/credits/gems
+- no reward cap text
+- no economy changes
+- launchcheck clean
+
+==================================================
+PART 28 — FINAL REPORT
+==================================================
+
+Report:
+1. !staffdash polished.
+2. !stafftools polished.
+3. !modhelp role-based output polished.
+4. Warning messages polished.
+5. Mute messages polished.
+6. Softban messages polished.
+7. Mod logs polished.
+8. Safety dashboard polished.
+9. Safety alert messages polished.
+10. Bug triage polished.
+11. Feedback triage polished.
+12. Staff quick replies added or skipped safely.
+13. Staff notes added or skipped safely.
+14. Permission audit added.
+15. Permission denial messages polished.
+16. Mute/softban expiration checked.
+17. Public help checked for admin leaks.
+18. No economy changes made.
+19. No reward changes made.
+20. No HR Gold rewards added.
+21. No reward caps added.
+22. !commandissues result.
+23. !checkhelp result.
+24. !currencycheck result.
+25. !launchcheck result.

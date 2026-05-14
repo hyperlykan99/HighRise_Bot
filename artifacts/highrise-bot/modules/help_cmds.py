@@ -207,12 +207,12 @@ _CAT: dict[str, str] = {
 
     "staff": (
         "🛡️ Staff Commands\n"
-        "!modhelp — full mod guide\n"
-        "!warn [user] [reason]\n"
-        "!warnings [user]\n"
-        "!mute [user] [mins]\n"
-        "!unmute [user]\n"
-        "!modlog — recent mod log"
+        "!modhelp — mod guide by role\n"
+        "!warn @user [reason]\n"
+        "!warnings @user\n"
+        "!modlog @user | recent\n"
+        "!staffnote @user [note]\n"
+        "!bugs open  !feedbacks recent"
     ),
 
     "admin": (
@@ -222,8 +222,8 @@ _CAT: dict[str, str] = {
         "!safetyadmin — safety config\n"
         "!luxeadmin — Luxe config\n"
         "!currencycheck — currency scan\n"
-        "!ownerdash — analytics\n"
-        "!adminhelp — full reference"
+        "!adminhelp — full reference\n"
+        "!permissioncheck — role check"
     ),
 
     "owner": (

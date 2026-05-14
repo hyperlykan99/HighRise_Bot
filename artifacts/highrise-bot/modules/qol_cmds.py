@@ -22,7 +22,7 @@ import asyncio
 from datetime import datetime, timezone, timedelta
 
 import database as db
-from modules.permissions import can_manage_economy, is_owner, is_admin
+from modules.permissions import can_manage_economy, is_owner, is_admin, can_moderate
 
 
 async def _w(bot, uid: str, msg: str) -> None:
@@ -436,9 +436,9 @@ async def handle_feedback(bot, user, args: list[str]) -> None:
 
 
 async def handle_feedbacks(bot, user) -> None:
-    """/feedbacks — view recent feedback (manager+)."""
-    if not can_manage_economy(user.username):
-        await _w(bot, user.id, "Manager/admin/owner only.")
+    """/feedbacks — view recent feedback (staff+)."""
+    if not can_moderate(user.username):
+        await _w(bot, user.id, "🔒 Staff only.")
         return
     rows = db.get_recent_feedback(limit=8)
     if not rows:

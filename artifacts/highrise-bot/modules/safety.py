@@ -264,7 +264,7 @@ def log_economy_tx(user_id: str, username: str, currency: str,
 
 async def handle_softban(bot, user, args: list[str]) -> None:
     if not can_manage_games(user.username):
-        await _w(bot, user.id, "Managers and above only.")
+        await _w(bot, user.id, "🔒 Manager only.")
         return
     if len(args) < 2:
         await _w(bot, user.id, "Usage: !softban @user [minutes] [reason]")
@@ -297,8 +297,16 @@ async def handle_softban(bot, user, args: list[str]) -> None:
         reason=reason[:80],
     )
     name = target["username"][:15]
+    rsn  = reason[:60]
     await _w(bot, user.id,
-             f"⚠️ @{name} economy-restricted for {minutes}m. Reason: {reason[:60]}")
+             f"🚫 Economy Restricted\n@{name} for {minutes}m\nReason: {rsn}")
+    try:
+        await _w(bot, target["user_id"],
+                 f"🚫 Your economy access is restricted for {minutes}m.\n"
+                 f"Reason: {rsn}\n"
+                 f"You can still use !help and !bug.")
+    except Exception:
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -307,7 +315,7 @@ async def handle_softban(bot, user, args: list[str]) -> None:
 
 async def handle_unsoftban(bot, user, args: list[str]) -> None:
     if not can_manage_games(user.username):
-        await _w(bot, user.id, "Managers and above only.")
+        await _w(bot, user.id, "🔒 Manager only.")
         return
     if len(args) < 2:
         await _w(bot, user.id, "Usage: !unsoftban @user")
@@ -322,7 +330,13 @@ async def handle_unsoftban(bot, user, args: list[str]) -> None:
     removed = _unsoftban_user(target["user_id"])
     name = target["username"][:15]
     if removed:
-        await _w(bot, user.id, f"✅ @{name} economy access restored.")
+        await _w(bot, user.id,
+                 f"✅ Economy Restriction Removed\n@{name} can earn/use economy again.")
+        try:
+            await _w(bot, target["user_id"],
+                     "✅ Your economy access has been restored. You can earn and spend again.")
+        except Exception:
+            pass
     else:
         await _w(bot, user.id, f"@{name} has no active softban.")
 
@@ -365,7 +379,7 @@ def _set_safety_setting(key: str, value: str) -> None:
 
 async def handle_safetyadmin(bot, user, args: list[str]) -> None:
     if not (is_admin(user.username) or is_owner(user.username)):
-        await _w(bot, user.id, "Admins and owners only.")
+        await _w(bot, user.id, "🔒 Admin only.")
         return
 
     sub = args[1].lower().strip() if len(args) > 1 else "settings"
@@ -429,7 +443,7 @@ async def handle_safetyadmin(bot, user, args: list[str]) -> None:
 
 async def handle_economysafety(bot, user, args: list[str]) -> None:
     if not (is_admin(user.username) or is_owner(user.username)):
-        await _w(bot, user.id, "Admins and owners only.")
+        await _w(bot, user.id, "🔒 Admin only.")
         return
 
     sub = args[1].lower().strip() if len(args) > 1 else ""
@@ -555,13 +569,12 @@ async def handle_economysafety(bot, user, args: list[str]) -> None:
 # ---------------------------------------------------------------------------
 
 async def handle_safetydash(bot, user) -> None:
-    if not (is_admin(user.username) or is_owner(user.username)):
-        if can_manage_games(user.username):
-            # Managers see summary only
-            pass
-        else:
-            await _w(bot, user.id, "Admins and owners only.")
-            return
+    is_adm    = is_admin(user.username) or is_owner(user.username)
+    is_staff  = can_moderate(user.username) or can_manage_games(user.username)
+
+    if not is_staff and not is_adm:
+        await _w(bot, user.id, "🔒 Staff only.")
+        return
 
     try:
         conn = _gc()
@@ -581,16 +594,28 @@ async def handle_safetydash(bot, user) -> None:
             "SELECT COUNT(*) FROM softbans WHERE active=1 AND datetime(expires_at) > datetime('now')",
         ).fetchone()[0]
         conn.close()
-        enabled = _get_safety_setting("automod_enabled", "1") == "1"
-        await _w(bot, user.id,
-                 f"🛡️ Safety Dashboard\n"
-                 f"AutoMod: {'ON' if enabled else 'OFF'}\n"
-                 f"Alerts today: {alerts_today}\n"
-                 f"Duplicate blocks: {blocked_today}\n"
-                 f"Muted: {active_mutes} | Softbanned: {active_softbans}\n"
-                 f"Use !economysafety alerts")
+
+        if is_adm:
+            enabled = _get_safety_setting("automod_enabled", "1") == "1"
+            risk = "High" if alerts_today >= 5 else ("Medium" if alerts_today >= 2 else "Low")
+            await _w(bot, user.id,
+                     f"🛡️ Safety Dashboard\n"
+                     f"AutoMod: {'ON' if enabled else 'OFF'}\n"
+                     f"Alerts: {alerts_today} | Blocks: {blocked_today}\n"
+                     f"Muted: {active_mutes} | Softbanned: {active_softbans}\n"
+                     f"Risk: {risk}\n"
+                     f"Use !economysafety alerts")
+        else:
+            risk = "High" if alerts_today >= 5 else ("Medium" if alerts_today >= 2 else "Low")
+            await _w(bot, user.id,
+                     f"🛡️ Safety\n"
+                     f"Alerts today: {alerts_today}\n"
+                     f"Duplicate blocks: {blocked_today}\n"
+                     f"Muted: {active_mutes}\n"
+                     f"Risk: {risk}\n"
+                     f"Use !bugs open for reports.")
     except Exception as exc:
-        await _w(bot, user.id, f"Dashboard error: {exc!r}"[:100])
+        await _w(bot, user.id, f"Dashboard error: {str(exc)[:60]}")
 
 
 # ---------------------------------------------------------------------------
@@ -600,35 +625,32 @@ async def handle_safetydash(bot, user) -> None:
 
 async def handle_modhelp(bot, user, args: list[str]) -> None:
     if not can_moderate(user.username):
-        await _w(bot, user.id, "Staff only.")
+        await _w(bot, user.id, "🔒 Staff only.")
         return
 
-    is_mgr   = can_manage_games(user.username)
-    is_adm   = is_admin(user.username) or is_owner(user.username)
+    is_mgr = can_manage_games(user.username)
+    is_adm = is_admin(user.username) or is_owner(user.username)
 
-    lines = ["🛡️ Mod Help"]
-    # Staff tier
-    lines += [
-        "!warn @user [reason]",
-        "!warnings @user",
-        "!modlog @user | recent",
-    ]
-    # Manager tier
+    await _w(bot, user.id,
+             "🛡️ Staff Mod\n"
+             "!warn @user [reason]\n"
+             "!warnings @user\n"
+             "!modlog @user\n"
+             "!bugs open\n"
+             "!feedbacks recent")
+
     if is_mgr:
-        lines += [
-            "── Manager ──",
-            "!mute @user [min] [reason]",
-            "!unmute @user  |  !mutes",
-            "!softban @user [min] [reason]",
-            "!unsoftban @user",
-        ]
-    # Admin/owner tier
-    if is_adm:
-        lines += [
-            "── Admin ──",
-            "!clearwarnings @user",
-            "!safetyadmin  |  !safetydash",
-            "!economysafety",
-        ]
+        await _w(bot, user.id,
+                 "🛠️ Manager Mod\n"
+                 "!mute @user [min] [reason]\n"
+                 "!unmute @user\n"
+                 "!softban @user [min] [reason]\n"
+                 "!unsoftban @user")
 
-    await _w(bot, user.id, "\n".join(lines)[:249])
+    if is_adm:
+        await _w(bot, user.id,
+                 "👑 Admin Mod\n"
+                 "!clearwarnings @user\n"
+                 "!safetyadmin\n"
+                 "!economysafety\n"
+                 "!audit")
