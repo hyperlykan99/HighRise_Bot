@@ -629,12 +629,12 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "unjail": "security", "jailrelease": "security",
     "jailactive": "security", "jailhistory": "security",
     "jailconfirm": "security", "jailcancel": "security",
-    # host — Jail setup/admin commands — work from host or security bot
-    "jailadmin": "host", "jaildebug": "host",
-    "jailsetcost": "host", "jailsetmax": "host", "jailsetmin": "host",
-    "jailsetbailmultiplier": "host", "jailprotectstaff": "host",
-    "setjailspot": "host", "setjailguardspot": "host", "setsecurityidle": "host",
-    "setjailreleasespot": "host",
+    # security — Jail setup/admin commands (KeanuShield owns all jail; fallback lets host assist)
+    "jailadmin": "security", "jaildebug": "security",
+    "jailsetcost": "security", "jailsetmax": "security", "jailsetmin": "security",
+    "jailsetbailmultiplier": "security", "jailprotectstaff": "security",
+    "setjailspot": "security", "setjailguardspot": "security", "setsecurityidle": "security",
+    "setjailreleasespot": "security",
     # banker — gold tip commands (new)
     "goldtipsettings": "banker", "setgoldrate": "banker",
     "goldtiplogs": "banker", "mygoldtips": "banker", "goldtipstatus": "banker",

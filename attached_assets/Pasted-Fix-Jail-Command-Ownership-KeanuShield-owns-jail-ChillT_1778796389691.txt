@@ -1,0 +1,163 @@
+Fix Jail Command Ownership — KeanuShield owns jail, ChillTopiaMC only assists setup
+
+Current issue:
+!commandtest !setjailspot shows:
+owner=ChillTopiaMC
+host_handles=true
+route=YES
+handler=YES
+
+This is wrong.
+
+My security bot is:
+KeanuShield
+
+Goal:
+KeanuShield should own the jail system.
+ChillTopiaMC/host should only be allowed to handle owner setup commands as an override.
+
+Correct commandtest for setup commands:
+!commandtest !setjailspot
+Expected:
+owner=KeanuShield
+host_handles=true
+security_handles=true
+route=YES
+handler=YES
+
+Correct commandtest for runtime commands:
+!commandtest !jail
+Expected:
+owner=KeanuShield
+security_handles=true
+host_handles=false or host_handles only if forwarding
+route=YES
+handler=YES
+
+Important:
+Do NOT set jail command owner to ChillTopiaMC.
+Set owner to KeanuShield/security.
+
+Security bot identity:
+SECURITY_BOT_USERNAME=KeanuShield
+SECURITY_BOT_MODE=security
+
+Command ownership:
+
+KeanuShield owns all jail commands:
+- !jail
+- !bail
+- !unjail
+- !jailrelease
+- !jailactive
+- !jailstatus
+- !jailtime
+- !jailhelp
+- !jailadmin
+- !jaildebug
+- !setjailspot
+- !setjailguardspot
+- !setsecurityidle
+- !setjailreleasespot
+
+But setup/admin commands may be handled by host too:
+- !setjailspot
+- !setjailguardspot
+- !setsecurityidle
+- !setjailreleasespot
+- !jaildebug
+- !jailadmin
+
+Runtime jail commands should be handled by KeanuShield/security:
+- !jail
+- !bail
+- !unjail
+- !jailrelease
+- !jailactive
+- !jailstatus
+- !jailtime
+
+Reason:
+Setup commands save room positions and can safely run from ChillTopiaMC if KeanuShield is offline.
+Runtime jail enforcement should be owned by KeanuShield.
+
+Implementation:
+1. Find command ownership defaults.
+2. Change jail command owner from ChillTopiaMC to KeanuShield/security.
+3. Add a separate host/admin override for setup commands only.
+4. Do not make ChillTopiaMC the command owner.
+5. Update commandtest output so owner remains KeanuShield.
+
+Expected logic:
+command_owner = KeanuShield
+security_handles = True
+
+if command is jail setup/admin and user is owner/admin:
+    host_handles = True
+else:
+    host_handles = False for runtime jail commands
+
+Setup commands:
+- host_handles=true
+- security_handles=true
+- owner=KeanuShield
+
+Runtime commands:
+- host_handles=false unless forwarding is implemented
+- security_handles=true
+- owner=KeanuShield
+
+Add debug logs:
+[JAIL OWNER] command=setjailspot owner=KeanuShield host_override=true
+[JAIL OWNER] command=jail owner=KeanuShield host_override=false
+[JAIL SECURITY] security_bot_name=KeanuShield
+
+Tests:
+!commandtest !setjailspot
+Expected:
+owner=KeanuShield
+host_handles=true
+security_handles=true
+route=YES
+handler=YES
+
+!commandtest !setjailguardspot
+Expected:
+owner=KeanuShield
+host_handles=true
+security_handles=true
+route=YES
+handler=YES
+
+!commandtest !setjailreleasespot
+Expected:
+owner=KeanuShield
+host_handles=true
+security_handles=true
+route=YES
+handler=YES
+
+!commandtest !jail
+Expected:
+owner=KeanuShield
+security_handles=true
+route=YES
+handler=YES
+
+Then test:
+!setjailspot
+!setjailguardspot
+!setsecurityidle
+!setjailreleasespot
+!jaildebug
+
+Expected:
+Setup works from ChillTopiaMC, but command owner still displays KeanuShield.
+
+Final output:
+Report:
+1. Jail command owner set to KeanuShield
+2. Setup command host override added
+3. Runtime jail commands still security-owned
+4. commandtest results for setup commands
+5. commandtest result for !jail
