@@ -1,0 +1,223 @@
+Fix SecurityBot Jail Setup Commands Not Routed
+
+Current issue from in-game test:
+
+!tele jail works.
+But these commands do not route:
+!setjailspot
+!setjailguardspot
+
+Command test output:
+!setjailspot | security_handles=true | route=NO | handler=NO
+!setjailguardspot | security_handles=true | route=NO | handler=NO
+
+Goal:
+Register jail setup commands in the main command router and assign them to SecurityBot/security mode.
+
+Commands to add:
+- !setjailspot
+- !setjailguardspot
+- !setsecurityidle
+- !jailadmin
+- !jaildebug
+- !jailhelp
+- !jailactive
+- !jailstatus
+- !jailtime
+- !jail
+- !bail
+- !unjail
+- !jailrelease
+
+Command ownership:
+SecurityBot / BOT_MODE=security owns all jail commands.
+
+Permission rules:
+Owner/Admin:
+- !setjailspot
+- !setjailguardspot
+- !setsecurityidle
+- !jailadmin
+- !jaildebug
+- !unjail
+- !jailrelease
+
+Players:
+- !jail
+- !bail
+- !jailhelp
+- !jailstatus
+- !jailtime
+
+Staff protection still applies.
+
+Implementation:
+
+1. Find main command router in main.py.
+Add routes for jail commands.
+
+Example:
+
+elif cmd == "!setjailspot":
+    await jail_system.handle_set_jail_spot(bot, user)
+
+elif cmd == "!setjailguardspot":
+    await jail_system.handle_set_jail_guard_spot(bot, user)
+
+elif cmd == "!setsecurityidle":
+    await jail_system.handle_set_security_idle(bot, user)
+
+elif cmd == "!jailadmin":
+    await jail_system.handle_jail_admin(bot, user)
+
+elif cmd == "!jaildebug":
+    await jail_system.handle_jail_debug(bot, user)
+
+elif cmd == "!jailhelp":
+    await jail_system.handle_jail_help(bot, user)
+
+elif cmd == "!jail":
+    await jail_system.handle_jail_command(bot, user, args)
+
+elif cmd == "!bail":
+    await jail_system.handle_bail_command(bot, user, args)
+
+elif cmd in ("!unjail", "!jailrelease"):
+    await jail_system.handle_jail_release(bot, user, args)
+
+2. If project uses command registry / command ownership:
+Add jail commands to:
+- ALL_KNOWN_COMMANDS
+- command ownership defaults
+- security bot command list
+- help/audit command list
+- commandtest router map
+
+Required ownership:
+!setjailspot -> security
+!setjailguardspot -> security
+!setsecurityidle -> security
+!jailadmin -> security
+!jaildebug -> security
+!jailhelp -> security
+!jail -> security
+!bail -> security
+!unjail -> security
+!jailrelease -> security
+
+3. Add handlers if missing:
+
+handle_set_jail_spot:
+- owner/admin only
+- saves current user position as room setting/key:
+  jail_location_name or jail_spot
+- reply:
+  “✅ Jail spot saved.”
+
+handle_set_jail_guard_spot:
+- owner/admin only
+- saves current user position as:
+  securitybot_jail_brief_spawn or jail_guard
+- reply:
+  “✅ Jail guard spot saved.”
+
+handle_set_security_idle:
+- owner/admin only
+- saves current user position as:
+  securitybot_idle_spawn or security_idle
+- reply:
+  “✅ SecurityBot idle spot saved.”
+
+4. Use existing position tracking.
+Find existing teleport/save-position helpers used by:
+- !create tele
+- !setbotspawnhere
+- !tele
+- room_utils.py
+
+Do not create a separate incompatible position format.
+Use the same stored position format used by existing teleport spots.
+
+5. Make !jaildebug show setup status:
+
+Required spots:
+- jail
+- jail_guard
+- security_idle
+
+Example output:
+Jail setup:
+jail: ✅ saved
+jail_guard: ✅ saved
+security_idle: ✅ saved
+Security owner: SecurityBot
+Jail enabled: ON
+
+6. Fix commandtest
+
+After registering, this should pass:
+
+!commandtest !setjailspot
+Expected:
+route=YES
+handler=YES
+security_handles=true
+
+!commandtest !setjailguardspot
+Expected:
+route=YES
+handler=YES
+security_handles=true
+
+!commandtest !setsecurityidle
+Expected:
+route=YES
+handler=YES
+security_handles=true
+
+7. Tests
+
+In room:
+
+Stand inside jail:
+!setjailspot
+
+Stand in front of jail:
+!setjailguardspot
+
+Stand where SecurityBot should idle:
+!setsecurityidle
+
+Then:
+!jaildebug
+
+Expected:
+All three spots saved.
+
+Then:
+!commandtest !setjailspot
+!commandtest !setjailguardspot
+!commandtest !setsecurityidle
+
+Expected:
+route=YES handler=YES
+
+Then test:
+ai jail AltName for 1 minute
+confirm
+
+Expected:
+AltName teleports to jail.
+SecurityBot teleports to jail_guard.
+SecurityBot announces jail info.
+SecurityBot returns to security_idle.
+
+Final output:
+Report:
+1. Files modified
+2. Jail commands added to router
+3. Jail commands added to command registry/ownership
+4. Setup handlers added
+5. !commandtest results
+6. !jaildebug result
+7. Jail setup test result

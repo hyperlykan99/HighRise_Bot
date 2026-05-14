@@ -1351,6 +1351,19 @@ MONITOR_COMMANDS: frozenset[str] = frozenset({
     "launchlocks", "snapshot",
 })
 
+JAIL_COMMANDS: frozenset[str] = frozenset({
+    # Player-facing
+    "jail", "bail", "jailstatus", "jailtime", "jailhelp",
+    # Staff+
+    "unjail", "jailrelease", "jailadmin", "jailactive",
+    "jailsetcost", "jailsetmax", "jailsetmin", "jailsetbailmultiplier",
+    "jailprotectstaff", "jaildebug",
+    # Owner setup
+    "setjailspot", "setjailguardspot", "setsecurityidle",
+    # Confirm/cancel aliases
+    "jailconfirm", "jailcancel",
+})
+
 ALL_KNOWN_COMMANDS = (
     ALL_KNOWN_COMMANDS
     | TIME_EXP_COMMANDS
@@ -1361,6 +1374,7 @@ ALL_KNOWN_COMMANDS = (
     | BETA_COMMANDS
     | RELEASE_COMMANDS
     | MONITOR_COMMANDS
+    | JAIL_COMMANDS
 )
 
 

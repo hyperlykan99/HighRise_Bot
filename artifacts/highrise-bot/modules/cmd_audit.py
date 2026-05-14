@@ -120,6 +120,13 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     "softban", "unsoftban",
     "staffnote", "staffnotes",
     "permissioncheck", "rolecheck",
+    # ── Luxe Jail system (3.4A) ───────────────────────────────────────────
+    "jail", "bail", "jailstatus", "jailtime", "jailhelp",
+    "unjail", "jailrelease", "jailadmin", "jailactive",
+    "jailsetcost", "jailsetmax", "jailsetmin", "jailsetbailmultiplier",
+    "jailprotectstaff", "jaildebug",
+    "setjailspot", "setjailguardspot", "setsecurityidle",
+    "jailconfirm", "jailcancel",
     "safetyadmin", "economysafety", "safetydash",
     "setrules", "automod",
     "reports", "reportinfo", "closereport", "reportwatch",
