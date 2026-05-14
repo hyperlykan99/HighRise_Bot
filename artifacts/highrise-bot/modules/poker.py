@@ -4988,17 +4988,17 @@ async def handle_pokerstylepreview(bot: BaseBot, user: User) -> None:
     samples = [
         f"{_PK_DEALER}: Drawing cards...",
         f"{_PK_HAND}: A♠ K♦ | {_PK_BOARD}: 7♣ 2♥ 9♦",
-        f"{_PK_TURN} @You | {_PK_POT}:500c | Call:100c",
+        f"{_PK_TURN} @You | {_PK_POT}: 500 🪙 | Call: 100 🪙",
         f"{_PK_CHECK} — @player",
-        f"{_PK_CALL} — @player called 100c | {_PK_POT}: 300c",
-        f"{_PK_RAISE} — @player +200c | New bet: 300c",
+        f"{_PK_CALL} — @player called 100 🪙 | {_PK_POT}: 300 🪙",
+        f"{_PK_RAISE} — @player +200 🪙 | New bet: 300 🪙",
         f"{_PK_FOLD} — @player",
-        f"{_PK_ALLIN} — @player all-in 500c | {_PK_POT}: 1,000c",
-        f"{_PK_WIN} — @player wins 1,000c with Full House",
+        f"{_PK_ALLIN} — @player all-in 500 🪙 | {_PK_POT}: 1,000 🪙",
+        f"{_PK_WIN} — @player wins 1,000 🪙 with Full House",
         f"{_PK_LOSS} — @player Two Pair",
-        f"{_PK_WARN}: Must call 200c or fold",
-        f"{_PK_BLIND} SB:@p1(50c) BB:@p2(100c) | {_PK_POT}:150c",
-        f"{_PK_TIMER}: 30s | {_PK_STACK}: 1,000c | {_PK_INFO}: Preview done.",
+        f"{_PK_WARN}: Must call 200 🪙 or fold",
+        f"{_PK_BLIND} SB:@p1(50 🪙) BB:@p2(100 🪙) | {_PK_POT}: 150 🪙",
+        f"{_PK_TIMER}: 30s | {_PK_STACK}: 1,000 🪙 | {_PK_INFO}: Preview done.",
     ]
     for s in samples:
         await _w(bot, user.id, s[:249])

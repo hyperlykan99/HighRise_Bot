@@ -1,0 +1,358 @@
+UPDATE 3.1P HOTFIX — FIX ALL REMAINING CURRENCY ISSUES FROM !CURRENCYCHECK
+
+Current status:
+!currencycheck now works and found remaining old currency text.
+
+Current issues found:
+1. realistic_blackjack:2632 — "10,000c"
+2. poker:878 — "credit player's"
+3. poker:4991 — "500c | Call:100c"
+4. poker:4993 — "called 100c"
+5. poker:4993 — "300c"
+6. poker:4994 — "player +200c | New bet"
+7. poker:4996 — "all-in 500c"
+8. poker:4996 — "1,000c"
+9. poker:4997 — "wins 1,000c with Full H"
+10. poker:4999 — "call 200c or fold"
+11. poker:5000 — "SB:@p1(50c) BB:@p2(100"
+12. poker:5001 — "1,000c"
+
+IMPORTANT:
+These are source-code/template line numbers, not player poker data.
+
+Do not delete poker data.
+Do not wipe poker tables.
+Do not reset poker balances.
+Do not delete poker hands, stats, player history, or player progress.
+Only update player-facing display text.
+
+Goal:
+Fix every exact currencycheck result listed above.
+Do not skip any listed poker or realistic_blackjack line.
+After fixing, rerun !currencycheck and keep fixing until:
+
+Old “c”: 0
+Old “credits”: 0
+Old “gems”: 0
+
+Except false positives from internal comments/code that are not player-facing.
+
+Do not change tokens.
+Do not wipe data.
+Do not reset balances.
+Do not change poker math.
+Do not change blackjack math.
+Do not change bets, payouts, or odds.
+Do not re-add reward caps.
+Do not add HR Gold rewards.
+Only fix player-facing currency display text and formatter usage.
+
+==================================================
+PART 1 — FIX REALISTIC BLACKJACK LINE 2632
+==================================================
+
+Find realistic_blackjack around line 2632.
+
+Replace hardcoded:
+
+10,000c
+
+with:
+
+10,000 🪙
+
+Best:
+Use shared formatter:
+
+format_chillcoins(10000)
+
+Expected examples:
+
+Max Bet: 10,000 🪙
+Bet: 10,000 🪙
+Joined with 10,000 🪙
+
+Do not change actual max bet value.
+Do not change blackjack settings.
+Do not change blackjack payout math.
+
+==================================================
+PART 2 — FIX ALL POKER HARD-CODED CURRENCY LINES
+==================================================
+
+Find poker around lines:
+878
+4991
+4993
+4994
+4996
+4997
+4999
+5000
+5001
+
+Replace all player-facing old text:
+
+500c
+100c
+300c
+200c
+1,000c
+50c
+10,000c
+
+with shared formatter:
+
+format_chillcoins(amount)
+
+Examples:
+
+Old:
+500c | Call:100c
+
+New:
+500 🪙 | Call: 100 🪙
+
+Old:
+called 100c
+
+New:
+called 100 🪙
+
+Old:
+player +200c | New bet
+
+New:
+player +200 🪙 | New bet
+
+Old:
+all-in 500c
+
+New:
+all-in 500 🪙
+
+Old:
+wins 1,000c with Full H
+
+New:
+wins 1,000 🪙 with Full H
+
+Old:
+call 200c or fold
+
+New:
+call 200 🪙 or fold
+
+Old:
+SB:@p1(50c) BB:@p2(100c)
+
+New:
+SB:@p1(50 🪙) BB:@p2(100 🪙)
+
+Old:
+Pot: 1,000c
+
+New:
+Pot: 1,000 🪙
+
+==================================================
+PART 3 — HANDLE “CREDIT PLAYER’S” CORRECTLY
+==================================================
+
+Currencycheck found:
+
+poker:878 — "credit player's"
+
+If this is an internal code comment or internal accounting phrase:
+- Do not change poker data.
+- Do not flag it as a currency issue.
+- Update !currencycheck to ignore this false positive.
+
+If it is player-facing output:
+Rewrite it.
+
+Old:
+credit player's funds
+
+New:
+add payout to player balance
+
+or:
+
+Old:
+credit player's balance
+
+New:
+add payout to player balance
+
+Important:
+Do not flag normal internal words like “credit” unless the player-facing text uses “credits” as currency.
+
+==================================================
+PART 4 — USE GLOBAL CURRENCY FORMATTER
+==================================================
+
+Use shared formatter everywhere in poker and blackjack:
+
+format_chillcoins(amount)
+returns:
+1,000 🪙
+
+Do not manually write:
+f"{amount}c"
+
+Do not manually write:
+f"{amount} 🪙"
+
+Use formatter so future display changes are easy.
+
+If format_chillcoins does not exist, create it in the shared economy/format utilities and import it into:
+- realistic_blackjack
+- poker
+- any game module still using old currency display
+
+==================================================
+PART 5 — IMPROVE !CURRENCYCHECK DETAILS PAGING
+==================================================
+
+Current output says:
+Fix with !currencycheck details 2 (coming soon)
+
+Make paging work now.
+
+Support:
+
+!currencycheck details
+!currencycheck details 1
+!currencycheck details 2
+!currencycheck details 3
+
+Expected:
+- Page 1 shows first 5 issues
+- Page 2 shows next 5 issues
+- Page 3 shows remaining issues
+- If no page exists:
+
+No more currency issues.
+
+Keep each message under 220 characters.
+
+==================================================
+PART 6 — DO NOT FLAG CURRENCYCHECK’S OWN SUGGESTIONS
+==================================================
+
+Currencycheck output includes suggestions like:
+
+Fix: Replace 100c -> 100 🪙
+Fix: Replace credits -> ChillCoins 🪙
+
+Do not let !currencycheck scan its own suggestion text and count it as an issue.
+
+Exclude:
+- currencycheck output strings
+- currencycheck suggestions
+- test examples
+- comments
+- documentation-only examples
+- internal code comments
+- internal variable names
+- database column names
+
+Only scan real player-facing command outputs/templates.
+
+==================================================
+PART 7 — KEEP HIGHRISE GOLD TEXT CORRECT
+==================================================
+
+Do not replace Highrise Gold text.
+
+Keep:
+100 Gold
+Highrise Gold
+verified Gold tip
+
+Luxe conversion should stay:
+
+Tip: 100 Gold
+Added: 100 🎫
+
+Do not change Gold to 🪙.
+
+==================================================
+PART 8 — TESTS
+==================================================
+
+Run:
+
+!currencycheck
+!currencycheck details
+!currencycheck details 2
+
+Expected:
+- old poker 100c / 500c / 1,000c issues are gone
+- old blackjack 10,000c issue is gone
+- no false issue from currencycheck’s own suggestions
+- details paging works
+
+Test blackjack:
+
+!bjrules
+!bjadmin settings
+!bet 100
+
+Expected:
+- all amounts show 🪙
+- no “c”
+- no “credits”
+- no “gems”
+
+Test poker if available:
+
+!pokerhelp
+!pokerstatus
+
+If safe, start or preview a poker action.
+
+Expected:
+- all bet/call/pot/win amounts show 🪙
+- no “c”
+- no “credits”
+- no “gems”
+
+Final:
+
+!commandissues
+!checkhelp
+!currencycheck
+!currencycheck details
+!launchcheck
+
+Expected:
+- no command issues
+- no old “c” currency issues
+- no old credits/gems issues
+- launchcheck clean
+
+==================================================
+PART 9 — FINAL REPORT
+==================================================
+
+Report:
+1. realistic_blackjack:2632 fixed.
+2. poker:4991 fixed.
+3. poker:4993 fixed.
+4. poker:4994 fixed.
+5. poker:4996 fixed.
+6. poker:4997 fixed.
+7. poker:4999 fixed.
+8. poker:5000 fixed.
+9. poker:5001 fixed.
+10. poker:878 handled as false positive or rewritten if player-facing.
+11. Poker call/bet/pot/win text uses 🪙.
+12. Blackjack text uses 🪙.
+13. Global formatter used.
+14. !currencycheck details paging added.
+15. !currencycheck no longer scans its own suggestions.
+16. No poker data was deleted/reset.
+17. Final !currencycheck result.
+18. Final !launchcheck result.

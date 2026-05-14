@@ -578,8 +578,13 @@ _SCAN_FILES = [
     "modules/events.py",
     "modules/seasons.py",
     "modules/audit.py",
-    "modules/analytics.py",
 ]
+
+# Patterns that indicate an internal/SQL string — never player-facing
+_SQL_PATS = re.compile(
+    r"section='|WHERE |AND |FROM |INSERT |UPDATE |SELECT |=\?|'credit'",
+    re.IGNORECASE,
+)
 
 _CURRENCY_PATS: list[tuple[str, re.Pattern]] = [
     ("c",       re.compile(r'\d{2,}c\b|\{[^}]+\}c\b')),   # "100c" or "{n}c"
@@ -609,12 +614,17 @@ def _scan_currency_issues() -> list[tuple[str, str, str]]:
 
         short = rel_path.replace("modules/", "").replace(".py", "")
 
-        # Collect module-level docstring linenos to skip (not player-facing)
-        _module_doc_lines: set[int] = set()
-        if (tree.body
-                and isinstance(tree.body[0], ast.Expr)
-                and isinstance(tree.body[0].value, ast.Constant)):
-            _module_doc_lines.add(tree.body[0].value.lineno)
+        # Collect ALL docstring linenos to skip (module + every function/class)
+        _docstring_lines: set[int] = set()
+        for _ds_node in ast.walk(tree):
+            if isinstance(_ds_node, (ast.Module, ast.FunctionDef,
+                                     ast.AsyncFunctionDef, ast.ClassDef)):
+                _body = _ds_node.body
+                if (_body
+                        and isinstance(_body[0], ast.Expr)
+                        and isinstance(_body[0].value, ast.Constant)
+                        and isinstance(_body[0].value.value, str)):
+                    _docstring_lines.add(_body[0].value.lineno)
 
         for node in ast.walk(tree):
             if not isinstance(node, ast.Constant):
@@ -624,14 +634,17 @@ def _scan_currency_issues() -> list[tuple[str, str, str]]:
                 continue
             if len(val) < 4:
                 continue
-            # Skip module-level docstrings (developer docs, not player-facing)
-            if node.lineno in _module_doc_lines:
+            # Skip all docstrings (not player-facing developer docs)
+            if node.lineno in _docstring_lines:
                 continue
             # Skip identifier-like strings (setting keys, column names)
             if val.isidentifier():
                 continue
             # Skip short strings with no spaces/newlines — likely keys
             if " " not in val and "\n" not in val and len(val) <= 20:
+                continue
+            # Skip SQL / internal query strings — never player-facing
+            if _SQL_PATS.search(val):
                 continue
 
             for label, pat in _CURRENCY_PATS:
@@ -655,7 +668,13 @@ async def handle_currencycheck(bot: BaseBot, user: User, args: list[str]) -> Non
         await _w(bot, user.id, "🔒 Owner/Admin only.")
         return
 
-    sub = args[1].lower() if len(args) > 1 else ""
+    sub  = args[1].lower() if len(args) > 1 else ""
+    page = 1
+    if sub == "details" and len(args) > 2:
+        try:
+            page = max(1, int(args[2]))
+        except ValueError:
+            pass
 
     try:
         findings = _scan_currency_issues()
@@ -669,15 +688,23 @@ async def handle_currencycheck(bot: BaseBot, user: User, args: list[str]) -> Non
 
     if sub == "details":
         if not findings:
-            await _w(bot, user.id,
-                     "🔎 Currency Issues\nNo old currency text found. ✅")
+            await _w(bot, user.id, "🔎 Currency Issues\n✅ No old currency text found.")
             return
-        header = ["🔎 Currency Issues"]
-        for i, (loc, snip, label) in enumerate(findings[:12], 1):
-            header.append(f'{i}. {loc}: "{snip}"')
-        chunk = ""
-        for line in header:
-            candidate = (chunk + "\n" + line).lstrip("\n") if chunk else line
+
+        PAGE_SIZE   = 5
+        total_pages = max(1, (len(findings) + PAGE_SIZE - 1) // PAGE_SIZE)
+        start       = (page - 1) * PAGE_SIZE
+        page_items  = findings[start : start + PAGE_SIZE]
+
+        if not page_items:
+            await _w(bot, user.id,
+                     f"No more issues (p{page}/{total_pages}). All done ✅")
+            return
+
+        chunk = f"🔎 Currency Issues (p{page}/{total_pages})"
+        for i, (loc, snip, _lbl) in enumerate(page_items, start + 1):
+            line = f'{i}. {loc}: "{snip}"'
+            candidate = chunk + "\n" + line
             if len(candidate) > 220:
                 await bot.highrise.send_whisper(user.id, chunk[:249])
                 chunk = line
@@ -685,20 +712,21 @@ async def handle_currencycheck(bot: BaseBot, user: User, args: list[str]) -> Non
                 chunk = candidate
         if chunk:
             await bot.highrise.send_whisper(user.id, chunk[:249])
-        if len(findings) > 12:
+
+        if page < total_pages:
             await _w(bot, user.id,
-                     f"...and {len(findings) - 12} more.\n"
-                     f"Fix with !currencycheck details 2 (coming soon).")
-        # Quick-fix suggestions
-        if counts["c"] > 0:
-            await _w(bot, user.id,
-                     "💡 Fix: Replace 100c → 100 🪙, {n}c → {n} 🪙")
-        if counts["credits"] > 0:
-            await _w(bot, user.id,
-                     "💡 Fix: Replace credits → ChillCoins 🪙")
-        if counts["gems"] > 0:
-            await _w(bot, user.id,
-                     "💡 Fix: Replace gems → 🎫 Luxe Tickets or remove")
+                     f"More: !currencycheck details {page + 1}")
+        else:
+            await _w(bot, user.id, f"End of issues (p{page}/{total_pages}) ✅")
+
+        # Suggestions on first page only
+        if page == 1:
+            if counts["c"] > 0:
+                await _w(bot, user.id, "💡 Replace: 100c → 100 🪙")
+            if counts["credits"] > 0:
+                await _w(bot, user.id, "💡 Replace: credits → ChillCoins 🪙")
+            if counts["gems"] > 0:
+                await _w(bot, user.id, "💡 Replace: gems → Luxe 🎫")
         return
 
     # Summary view
@@ -709,11 +737,12 @@ async def handle_currencycheck(bot: BaseBot, user: User, args: list[str]) -> Non
     lines.append(f'Old "c": {counts["c"]}')
     lines.append(f'Old "credits": {counts["credits"]}')
     lines.append(f'Old "gems": {counts["gems"]}')
-    msg = "\n".join(lines)
-    await _w(bot, user.id, msg)
+    await _w(bot, user.id, "\n".join(lines))
     if not all_ok:
+        total = sum(counts.values())
         await _w(bot, user.id,
-                 "⚠️ Issues found.\nUse !currencycheck details to see them.")
+                 f"⚠️ {total} issue(s) found.\n"
+                 f"Use !currencycheck details to see them.")
 
 
 async def handle_command_detail(bot: BaseBot, user: User, args: list[str]) -> None:

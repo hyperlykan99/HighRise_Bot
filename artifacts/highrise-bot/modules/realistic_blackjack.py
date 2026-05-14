@@ -2627,9 +2627,9 @@ async def handle_bet(bot: BaseBot, user: User, args: list) -> None:
 
     bet = int(raw)
 
-    # Payout test mode bet cap (10,000c)
+    # Payout test mode bet cap (10,000 🪙)
     if _force_state.get("mode") == "fakepayout" and bet > 10000:
-        await bot.highrise.send_whisper(user.id, "⚠️ BJ payout test max bet is 10,000c.")
+        await bot.highrise.send_whisper(user.id, "⚠️ BJ payout test max bet is 10,000 🪙.")
         return
 
     # Round active + player already in → reject
