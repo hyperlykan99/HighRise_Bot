@@ -684,13 +684,13 @@ _GUIDE_TOPICS: dict[str, list[str]] = {
     ],
     "events": [
         "🎉 Events\n"
-        "!events — schedule\n"
+        "!events — overview\n"
         "!event active — current boost\n"
-        "!season — weekly season\n"
-        "!topseason [category] — rankings",
+        "!event schedule — upcoming\n"
+        "!event next — next event",
 
         "Events boost luck, XP, or season points.\n"
-        "Use !mineevents for mining boosts.",
+        "No HR Gold rewards yet.",
     ],
     "profile": [
         "👤 Profile\n"

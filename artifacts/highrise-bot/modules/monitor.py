@@ -496,8 +496,18 @@ async def handle_eventmonitor(bot: "BaseBot", user: "User", args: list[str]) -> 
         return
     sub   = args[1].lower() if len(args) > 1 else "last"
     since = _days_ago(7) if sub == "7d" else _days_ago(1)
-    label = "7d" if sub == "7d" else "Last 24h"
+    label = "7d" if sub == "7d" else "24h"
     try:
+        # Active event
+        active_name = "None"
+        try:
+            from modules.events import _get_all_active_events
+            ev_list = _get_all_active_events()
+            if ev_list:
+                active_name = ev_list[0]["name"]
+        except Exception:
+            pass
+
         last_event = _qs(
             "SELECT name FROM event_history ORDER BY id DESC LIMIT 1",
             default="N/A"
@@ -510,12 +520,19 @@ async def handle_eventmonitor(bot: "BaseBot", user: "User", args: list[str]) -> 
             "SELECT COALESCE(SUM(points),0) FROM event_points "
             "WHERE updated_at >= ?", (since,)
         )
-        await _w(bot, user.id,
-                 f"🎉 Event Monitor ({label})\n"
-                 f"Last: {last_event}\n"
-                 f"Players: {_fmt(players)}\n"
-                 f"Season pts: {_fmt(total_pts)}\n"
-                 f"Status: OK ✅")
+
+        if players == 0 and total_pts == 0 and last_event == "N/A":
+            await _w(bot, user.id,
+                     f"🎉 Event Monitor ({label})\nNo recent event data yet.\n"
+                     f"Active: {active_name}\nStatus: OK ✅")
+        else:
+            await _w(bot, user.id,
+                     (f"🎉 Event Monitor ({label})\n"
+                      f"Active: {active_name}\n"
+                      f"Last: {last_event}\n"
+                      f"Players: {_fmt(players)}\n"
+                      f"Season pts: {_fmt(total_pts)}\n"
+                      f"Status: OK ✅")[:249])
     except Exception as e:
         await _w(bot, user.id, f"⚠️ Event monitor error: {str(e)[:80]}")
 

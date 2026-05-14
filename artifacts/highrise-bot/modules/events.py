@@ -671,16 +671,43 @@ async def _event_timer(
 ) -> None:
     """
     Auto-stop the event after sleep_seconds.
+    Fires a halfway reminder and a 10-minute warning (if event is long enough).
     Accepts a shorter duration when resuming after a bot restart.
     """
+    name = EVENTS.get(event_id, {}).get("name", event_id)
     try:
-        await asyncio.sleep(sleep_seconds)
+        remaining = sleep_seconds
+
+        # Halfway reminder (only if event is longer than 20 minutes)
+        if remaining > 1200:
+            half = remaining / 2
+            await asyncio.sleep(half)
+            remaining -= half
+            half_m = max(1, int(remaining // 60))
+            try:
+                await bot.highrise.chat(
+                    f"⏰ {name} — halfway! {half_m}m left. Keep playing!"[:249]
+                )
+            except Exception:
+                pass
+
+        # 10-minute warning (only if more than 11 min remain to avoid double-fire)
+        if remaining > 660:
+            await asyncio.sleep(remaining - 600)
+            remaining = 600
+            try:
+                await bot.highrise.chat(
+                    f"⏰ {name} ends in 10 minutes! Don't miss out!"[:249]
+                )
+            except Exception:
+                pass
+
+        await asyncio.sleep(remaining)
         db.clear_active_event()
-        name = EVENTS.get(event_id, {}).get("name", event_id)
         print(f"[EVENTS] Timer expired: '{event_id}' ended naturally.")
         try:
             await bot.highrise.chat(
-                f"🎉 Event Ended\n{name} has ended.\nThanks for participating!"[:249]
+                f"🎉 {name} has ended. Thanks for playing! Use !events for next."[:249]
             )
         except Exception as exc:
             print(f"[EVENTS] timer chat error: {exc}")
@@ -717,21 +744,25 @@ def _time_remaining(expires_at_iso: str) -> str:
 # ---------------------------------------------------------------------------
 
 async def _handle_event_active(bot: BaseBot, user: User) -> None:
-    """Show currently active event in the polished 3.1K format."""
+    """Show currently active event in the polished 3.2E format."""
     active = _get_all_active_events()
     if not active:
         await _w(bot, user.id,
-                 "🎉 Active Event\nNo active event right now.\nUse !event schedule.")
+                 "🎉 Active Event\nNo event active right now.\n"
+                 "Use !event schedule for upcoming events.")
         return
-    ev        = active[0]
-    left      = _time_remaining(ev["ends_at"]) if ev["ends_at"] else "?"
-    info      = EVENTS.get(ev["event_id"], {})
-    boost_txt = info.get("boost_desc", info.get("desc", "")[:60])
-    await _w(bot, user.id,
-             (f"🎉 Active Event\n"
-              f"{ev.get('emoji','🎪')} {ev['name']}\n"
-              f"Bonus: {boost_txt}\n"
-              f"Ends in: {left}")[:249])
+    for ev in active[:2]:
+        left      = _time_remaining(ev["ends_at"]) if ev["ends_at"] else "?"
+        info      = EVENTS.get(ev["event_id"], {})
+        boost_txt = info.get("boost_desc") or info.get("desc", "")
+        boost_txt = boost_txt[:60] if boost_txt else "Active"
+        emoji     = ev.get("emoji", "🎪")
+        await _w(bot, user.id,
+                 (f"🎉 Active Event\n"
+                  f"{emoji} {ev['name']}\n"
+                  f"Bonus: {boost_txt}\n"
+                  f"Ends in: {left}\n"
+                  f"Try !event schedule for upcoming.")[:249])
 
 
 async def _handle_event_schedule(bot: BaseBot, user: User) -> None:
@@ -743,12 +774,24 @@ async def _handle_event_schedule(bot: BaseBot, user: User) -> None:
     lines = ["📅 Event Schedule"]
     for entry in sched_str.split(","):
         entry = entry.strip()
-        if ":" in entry:
-            day, eid = entry.split(":", 1)
-            name = EVENTS.get(eid.strip(), {}).get("name", eid.strip())
-            lines.append(f"{day.strip()}: {name}")
+        if ":" not in entry:
+            continue
+        day, rest = entry.split(":", 1)
+        rest = rest.strip()
+        # rest may be "event_id" or "event_id@HH:MM"
+        if "@" in rest:
+            eid, time_part = rest.split("@", 1)
+        else:
+            eid, time_part = rest, ""
+        eid  = eid.strip()
+        name = EVENTS.get(eid, {}).get("name", None)
+        if not name:
+            # skip raw internal keys that aren't in EVENTS
+            name = _SHORT_DISPLAY.get(eid, eid)
+        time_disp = f" {time_part.strip()}" if time_part.strip() else ""
+        lines.append(f"{day.strip()}{time_disp} — {name}")
     if len(lines) == 1:
-        lines.append("No schedule configured.")
+        lines.append("No schedule set yet.\nAdmin: !eventadmin set schedule <day> <event>")
     await _w(bot, user.id, "\n".join(lines)[:249])
 
 
@@ -803,20 +846,25 @@ async def handle_event(bot: BaseBot, user: User,
 
 
 async def handle_events(bot: BaseBot, user: User) -> None:
-    """!events — show active event and next scheduled event."""
-    active     = _get_all_active_events()
-    active_str = active[0]["name"] if active else "none"
+    """!events — overview of active and upcoming events."""
+    active      = _get_all_active_events()
     active_left = ""
-    if active and active[0]["ends_at"]:
-        active_left = f" ({_time_remaining(active[0]['ends_at'])} left)"
+    if active:
+        ev          = active[0]
+        active_str  = f"{ev.get('emoji','🎪')} {ev['name']}"
+        if ev["ends_at"]:
+            active_left = f" ({_time_remaining(ev['ends_at'])} left)"
+    else:
+        active_str = "None"
 
     next_id   = db.get_auto_event_setting_str("next_event_id", "")
     next_at   = db.get_auto_event_setting_str("next_event_at", "")
-    next_name = (
-        _CATALOG_BY_ID.get(next_id, {}).get("name", "")
-        or EVENTS.get(next_id, {}).get("name", "")
-        if next_id else ""
-    )
+    next_name = ""
+    if next_id:
+        next_name = (
+            _CATALOG_BY_ID.get(next_id, {}).get("name", "")
+            or EVENTS.get(next_id, {}).get("name", "")
+        )
     if next_at and not active:
         left     = _time_remaining(next_at)
         next_str = f"{next_name} in {left}" if next_name else f"in {left}"
@@ -829,89 +877,266 @@ async def handle_events(bot: BaseBot, user: User) -> None:
         "🎉 Room Events",
         f"Active: {active_str}{active_left}",
         f"Next: {next_str}",
-        "Use !event active or !event schedule.",
+        "!event active | !event schedule",
     ]
     await _w(bot, user.id, "\n".join(lines)[:249])
 
 
 async def handle_nextevent(bot: BaseBot, user: User) -> None:
-    """!nextevent — show the next planned activity."""
-    mine_ev = db.get_active_mining_event()
-    gen_ev  = db.get_active_event()
-    if mine_ev:
-        ev   = EVENTS.get(mine_ev["event_id"], {})
-        name = ev.get("name", mine_ev["event_id"])
-        left = _time_remaining(mine_ev["ends_at"])
+    """!nextevent / !event next — show the next planned or active event."""
+    active = _get_all_active_events()
+    if active:
+        ev   = active[0]
+        left = _time_remaining(ev["ends_at"]) if ev["ends_at"] else "?"
         await _w(bot, user.id, (
             f"⏭️ Next Event\n"
-            f"Active: {name}\n"
+            f"Active now: {ev.get('emoji','🎪')} {ev['name']}\n"
             f"Ends in: {left}\n"
-            f"Type !eventstatus."
+            f"!event schedule for upcoming."
         )[:249])
         return
-    if gen_ev:
-        ev   = EVENTS.get(gen_ev["event_id"], {})
-        name = ev.get("name", gen_ev["event_id"])
-        left = _time_remaining(gen_ev["expires_at"])
-        await _w(bot, user.id, (
-            f"⏭️ Next Event\n"
-            f"Active: {name}\n"
-            f"Ends in: {left}\n"
-            f"Type !eventstatus."
-        )[:249])
-        return
+
     next_id = db.get_auto_event_setting_str("next_event_id", "")
     next_at = db.get_auto_event_setting_str("next_event_at", "")
     if next_at:
         left      = _time_remaining(next_at)
         next_name = ""
         if next_id:
-            next_name = (
-                _CATALOG_BY_ID.get(next_id, {}).get("name", "")
-                or EVENTS.get(next_id, {}).get("name", "")
-            )
+            entry     = _CATALOG_BY_ID.get(next_id, {})
+            next_name = entry.get("name") or EVENTS.get(next_id, {}).get("name", "")
         if next_name:
             await _w(bot, user.id, (
                 f"⏭️ Next Event\n"
                 f"{next_name}\n"
                 f"Starts in: {left}\n"
-                f"Watch chat for the start!"
+                f"Watch chat for the announcement!"
             )[:249])
         else:
             await _w(bot, user.id, (
                 f"⏭️ Next Event\n"
                 f"Starts in: {left}\n"
-                f"Watch chat for the start!"
+                f"Watch chat for the announcement!"
             )[:249])
         return
+
     try:
         ag = db.get_auto_game_settings()
         if ag.get("auto_minigames_enabled", 1):
             mg_min = ag.get("auto_minigame_interval", 10)
             await _w(bot, user.id, (
                 f"⏭️ Next Event\n"
-                f"🎲 Mini Game coming soon (~{mg_min} min)\n"
-                f"Answer with !answer when trivia starts."
+                f"🎲 Mini Game coming soon (~{mg_min}m)\n"
+                f"Type !answer when trivia starts."
             )[:249])
             return
     except Exception:
         pass
+
     await _w(bot, user.id, (
         "⏭️ Next Event\n"
         "No event scheduled right now.\n"
-        "Try !activities."
-    ))
+        "Use !event schedule to see the weekly plan."
+    )[:249])
 
 
 async def handle_eventhelp(bot: BaseBot, user: User) -> None:
     """/eventhelp — show event command reference."""
     await _w(bot, user.id,
              "🎉 Events\n"
-             "!event  !events\n"
-             "Auto events every 1h.\n"
-             "Staff: !startevent  !stopevent  !autoevents\n"
-             "!eventstatus  !eventpoints\n"
-             "!eventshop  !buyevent [id]")
+             "!events — overview\n"
+             "!event active — current boost\n"
+             "!event schedule — upcoming\n"
+             "!event next — next event\n"
+             "Events boost luck, XP, or season points.")
+
+
+# ---------------------------------------------------------------------------
+# Friendly name resolver  (spec Part 18 — no raw event_id keys in output)
+# ---------------------------------------------------------------------------
+
+_FRIENDLY_INPUT_MAP: dict[str, str] = {
+    "miningrush":      "mining_rush",
+    "fishingfrenzy":   "fishing_frenzy",
+    "doublexp":        "double_xp",
+    "collectionhunt":  "collection_hunt",
+    "casinonight":     "casino_night",
+    "triviarush":      "trivia_rush",
+    "doublemxp":       "double_mxp",
+    "doublefxp":       "double_fxp",
+    "luckyrush":       "lucky_rush",
+    "luckyRush":       "lucky_rush",
+    "heavyorerush":    "heavy_ore_rush",
+    "orevaluesurge":   "ore_value_surge",
+    "mininghaste":     "mining_haste",
+    "legendaryrush":   "legendary_rush",
+    "prismatichunt":   "prismatic_hunt",
+    "exotichunt":      "exotic_hunt",
+    "luckytide":       "lucky_tide",
+    "heavycatch":      "heavy_catch",
+    "fishvaluesurge":  "fish_value_surge",
+    "fishinghaste":    "fishing_haste",
+    "legendarytide":   "legendary_tide",
+    "prismatictide":   "prismatic_tide",
+    "exotictide":      "exotic_tide",
+}
+
+
+def _resolve_friendly_event(arg: str) -> str | None:
+    """Resolve a friendly/compact arg to an event_id or None."""
+    clean = arg.lower().replace(" ", "").replace("-", "").replace("_", "")
+    # Try compact map first
+    if clean in _FRIENDLY_INPUT_MAP:
+        return _FRIENDLY_INPUT_MAP[clean]
+    # Try direct EVENTS key
+    if arg in EVENTS:
+        return arg
+    # Try catalog resolver (number or event_id)
+    return _resolve_event_arg(arg)
+
+
+# ---------------------------------------------------------------------------
+# Schedule helper
+# ---------------------------------------------------------------------------
+
+_DAY_MAP: dict[str, str] = {
+    "mon": "Mon", "monday": "Mon",
+    "tue": "Tue", "tuesday": "Tue",
+    "wed": "Wed", "wednesday": "Wed",
+    "thu": "Thu", "thursday": "Thu",
+    "fri": "Fri", "friday": "Fri",
+    "sat": "Sat", "saturday": "Sat",
+    "sun": "Sun", "sunday": "Sun",
+}
+
+
+async def _handle_set_schedule(
+    bot: BaseBot, user: User, parts: list[str]
+) -> None:
+    """Process: !eventadmin set schedule <day> <event_id> [HH:MM]"""
+    if len(parts) < 2:
+        await _w(bot, user.id,
+                 "Usage: !eventadmin set schedule <day> <event> [HH:MM]\n"
+                 "Days: mon/tue/wed/thu/fri/sat/sun")
+        return
+
+    day_raw = parts[0].lower()
+    eid_raw = parts[1]
+    time_raw = parts[2].strip() if len(parts) > 2 else ""
+
+    day = _DAY_MAP.get(day_raw)
+    if not day:
+        await _w(bot, user.id,
+                 f"Unknown day: {day_raw}\nUse mon/tue/wed/thu/fri/sat/sun.")
+        return
+
+    event_id = _resolve_friendly_event(eid_raw)
+    if not event_id or event_id not in EVENTS:
+        await _w(bot, user.id,
+                 f"Unknown event: {eid_raw}\nUse !eventlist to see options.")
+        return
+
+    # Validate time if provided (require HH:MM format)
+    time_str = ""
+    if time_raw:
+        import re as _re
+        if _re.match(r"^\d{1,2}:\d{2}$", time_raw):
+            time_str = time_raw
+        else:
+            await _w(bot, user.id,
+                     "Time must be HH:MM (24h format), e.g. 19:00.")
+            return
+
+    # Read existing schedule, update entry for this day
+    sched = db.get_room_setting("event_weekly_schedule", "")
+    entries: dict[str, str] = {}
+    for e in sched.split(","):
+        e = e.strip()
+        if ":" in e:
+            d, rest = e.split(":", 1)
+            entries[d.strip()] = rest.strip()
+
+    entry_val = f"{event_id}@{time_str}" if time_str else event_id
+    entries[day] = entry_val
+    new_sched = ",".join(f"{d}:{v}" for d, v in entries.items())
+    db.set_room_setting("event_weekly_schedule", new_sched)
+
+    name = EVENTS.get(event_id, {}).get("name", event_id)
+    time_disp = f" {time_str}" if time_str else ""
+    await _w(bot, user.id, f"✅ Schedule Updated\n{day}{time_disp} — {name}")
+
+
+# ---------------------------------------------------------------------------
+# !eventadmin — unified admin command
+# ---------------------------------------------------------------------------
+
+async def handle_eventadmin(
+    bot: BaseBot, user: User, args: list[str]
+) -> None:
+    """!eventadmin [status|start|stop|schedule|set schedule <day> <event> [HH:MM]]"""
+    if not can_manage_economy(user.username):
+        await _w(bot, user.id, "🔒 Manager/admin/owner only.")
+        return
+
+    sub = args[1].lower() if len(args) > 1 else ""
+
+    # Menu
+    if not sub or sub in ("help", "menu"):
+        await _w(bot, user.id, (
+            "🎉 Event Admin\n"
+            "!eventadmin status\n"
+            "!eventadmin start <id|#> [mins]\n"
+            "!eventadmin stop\n"
+            "!eventadmin schedule\n"
+            "!eventadmin set schedule <day> <event>"
+        )[:249])
+        return
+
+    if sub == "status":
+        active = _get_all_active_events()
+        if not active:
+            await _w(bot, user.id,
+                     "🎉 Event Admin\nNo active event.\n"
+                     "Use !eventadmin start <id> to start one.")
+        else:
+            ev    = active[0]
+            left  = _time_remaining(ev["ends_at"]) if ev["ends_at"] else "?"
+            info  = EVENTS.get(ev["event_id"], {})
+            boost = info.get("boost_desc") or info.get("desc", "")
+            boost = boost[:55] if boost else "Active"
+            await _w(bot, user.id, (
+                f"🎉 Event Admin\n"
+                f"Active: {ev.get('emoji','🎪')} {ev['name']}\n"
+                f"Boost: {boost}\n"
+                f"Ends in: {left}\n"
+                f"Stop: !eventadmin stop"
+            )[:249])
+        return
+
+    if sub == "start":
+        # !eventadmin start <id|#> [mins]
+        new_args = [args[0]] + args[2:]
+        await handle_startevent(bot, user, new_args)
+        return
+
+    if sub == "stop":
+        await handle_stopevent(bot, user, args)
+        return
+
+    if sub == "schedule":
+        # !eventadmin schedule  OR  !eventadmin schedule set <day> <event> [time]
+        if len(args) > 2 and args[2].lower() == "set":
+            await _handle_set_schedule(bot, user, args[3:])
+        else:
+            await _handle_event_schedule(bot, user)
+        return
+
+    if sub == "set" and len(args) > 2 and args[2].lower() == "schedule":
+        # !eventadmin set schedule <day> <event> [time]
+        await _handle_set_schedule(bot, user, args[3:])
+        return
+
+    await _w(bot, user.id,
+             "Unknown subcommand.\nUse !eventadmin for the menu.")
 
 
 async def handle_eventstatus(bot: BaseBot, user: User) -> None:

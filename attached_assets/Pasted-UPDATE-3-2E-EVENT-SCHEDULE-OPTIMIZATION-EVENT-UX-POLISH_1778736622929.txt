@@ -1,0 +1,821 @@
+UPDATE 3.2E — EVENT SCHEDULE OPTIMIZATION + EVENT UX POLISH
+
+Goal:
+Polish the event system so players clearly understand active events, upcoming events, event bonuses, schedules, and reminders.
+
+Important:
+This is NOT a new major feature update.
+This is event UX polish and scheduling clarity.
+
+Main focus:
+1. Make !events easier to read.
+2. Improve !event active display.
+3. Polish event start/end announcements.
+4. Improve event schedule layout.
+5. Add event reminders without spam.
+6. Show events better in !today.
+7. Improve event admin controls.
+8. Improve event reward/boost wording.
+9. No HR Gold rewards.
+10. No economy changes.
+
+Currencies:
+🪙 ChillCoins = gameplay currency
+🎫 Luxe Tickets = premium currency
+
+Do not change tokens.
+Do not change room ID.
+Do not wipe database.
+Do not reset balances, tickets, VIP, badges, titles, market, casino, blackjack, poker, mining/fishing data, collection book, missions, XP, levels, events, seasons, onboarding, safety logs, analytics, tools, rods, boosts, profile settings, bug reports, feedback, backups, release settings, or player inventory.
+Do not re-add reward caps.
+Do not add HR Gold rewards.
+Do not change economy prices.
+Do not change mining/fishing odds.
+Do not change casino odds.
+Do not change event rewards unless missing/broken.
+Do not show “c” for currency.
+Use 🪙 and 🎫.
+
+==================================================
+PART 1 — STABILITY FIRST
+==================================================
+
+Before changing anything, run:
+
+!launchmode status
+!production status
+!launchblockers
+!finalaudit
+!launchcheck
+!commandissues
+!checkcommands all
+!checkhelp
+!currencycheck
+!bothealth
+!stability status
+
+Expected:
+- Production stable
+- Launch blockers: 0
+- Command issues: 0
+- Currencycheck clean
+- No old c/credits/gems
+- Launchcheck clean
+
+Fix blockers first.
+
+==================================================
+PART 2 — EVENT UX ONLY
+==================================================
+
+Allowed:
+- clearer event wording
+- better event schedule display
+- better active event display
+- better event reminders
+- better !today event integration
+- better event admin messages
+- bug fixes
+- route/help cleanup
+
+Not allowed:
+- HR Gold rewards
+- changing event odds
+- changing mining/fishing odds
+- changing economy prices
+- changing Luxe prices
+- changing reward values unless missing/broken
+- adding major new systems
+
+==================================================
+PART 3 — POLISH !EVENTS MAIN DISPLAY
+==================================================
+
+Command:
+!events
+
+Expected:
+
+🎉 Room Events
+Active: Mining Rush — 42m left
+Next: Fishing Frenzy — 7 PM
+Use !event active or !event schedule.
+
+If no active event:
+
+🎉 Room Events
+Active: none
+Next: Fishing Frenzy — 7 PM
+Use !event schedule.
+
+If no schedule:
+
+🎉 Room Events
+Active: none
+Schedule not set.
+Use !event active for current event.
+
+Rules:
+- Keep under 220 characters.
+- Do not show admin commands publicly.
+- Do not show raw event keys like miningrush_01.
+- Use player-friendly names.
+- No HR Gold reward promises.
+
+==================================================
+PART 4 — POLISH !EVENT ACTIVE
+==================================================
+
+Command:
+!event active
+
+Expected if active:
+
+🎉 Active Event
+⛏️ Mining Rush
+Bonus: +2 mining luck
+Ends in: 42m
+Try: !mine or !automine
+
+Fishing:
+
+🎉 Active Event
+🎣 Fishing Frenzy
+Bonus: +2 fishing luck
+Ends in: 42m
+Try: !fish or !autofish
+
+Double XP:
+
+🎉 Active Event
+⭐ Double XP
+Bonus: 2x XP
+Ends in: 42m
+Try: !missions
+
+If none:
+
+🎉 Active Event
+No active event right now.
+Next: Mining Rush at 7 PM.
+
+Rules:
+- Show one clear suggested action.
+- Keep short.
+- No raw JSON/debug text.
+- No reward cap text.
+
+==================================================
+PART 5 — POLISH !EVENT SCHEDULE
+==================================================
+
+Command:
+!event schedule
+!events schedule
+
+Expected:
+
+📅 Event Schedule
+Mon 7PM — Mining Rush
+Wed 7PM — Fishing Frenzy
+Fri 7PM — Double XP
+
+Second message if needed:
+
+Sat 8PM — Casino Night
+Sun 7PM — Collection Hunt
+Use !event next.
+
+Rules:
+- Split if too long.
+- Keep each message under 220 characters.
+- Show timezone if configured.
+- If server time only:
+  Times shown in server time.
+- Do not show disabled events.
+
+==================================================
+PART 6 — POLISH !EVENT NEXT
+==================================================
+
+Command:
+!event next
+
+Expected:
+
+⏭️ Next Event
+🎣 Fishing Frenzy
+Starts: 7 PM
+Bonus: +2 fishing luck
+In: 2h 15m
+
+If no next event:
+
+⏭️ Next Event
+No upcoming event scheduled.
+
+Rules:
+- Use best available time data.
+- If exact countdown unavailable, show date/time only.
+- No crash if schedule empty.
+
+==================================================
+PART 7 — EVENT BONUS DISPLAY IN LUCK STACK
+==================================================
+
+Verify event bonuses show in:
+
+!luck
+!mineluck
+!fishluck
+
+Expected mining:
+
+⛏️ Mining Stack
+Base: +1
+Tool: +5
+VIP: +2
+Event: +2
+Total: 10
+Speed: 8s
+
+Expected fishing:
+
+🎣 Fishing Stack
+Base: +1
+Rod: +5
+Potion: +3
+Event: +2
+Total: 11
+Speed: 9s
+
+If no active event:
+Either omit Event line or show:
+Event: +0
+
+Rules:
+- Event bonus must be included in total.
+- Expired events must not apply.
+- Do not double-apply event boosts.
+
+==================================================
+PART 8 — EVENT DISPLAY IN !TODAY
+==================================================
+
+Update:
+
+!today
+!progress
+
+Expected with active event:
+
+📌 Today
+Daily: 2/5 complete
+Weekly: 1/5 progress
+Event: Mining Rush 42m
+Next: !mine 13 more times
+
+If event is related to next action:
+
+Next: !mine during Mining Rush.
+
+If no event:
+
+Event: none
+Next: !missions
+
+Rules:
+- Keep short.
+- Do not make !today too long.
+- Event should not hide mission progress.
+- No reward cap text.
+
+==================================================
+PART 9 — EVENT START ANNOUNCEMENT POLISH
+==================================================
+
+When event starts, announce once:
+
+🎉 Event Started!
+⛏️ Mining Rush is live for 1h.
+Bonus: +2 mining luck.
+Use !event active.
+
+Fishing:
+
+🎉 Event Started!
+🎣 Fishing Frenzy is live for 1h.
+Bonus: +2 fishing luck.
+Use !event active.
+
+Double XP:
+
+🎉 Event Started!
+⭐ Double XP is live for 1h.
+Earn extra XP from activities.
+
+Rules:
+- One start announcement only.
+- Do not duplicate after bot restart.
+- Keep under 220 characters.
+- No HR Gold reward wording.
+
+==================================================
+PART 10 — EVENT REMINDERS WITHOUT SPAM
+==================================================
+
+Add or polish event reminders:
+
+Reminder timing:
+- halfway reminder if event duration >= 30m
+- final reminder at 10m remaining if duration >= 30m
+
+Expected:
+
+⏰ Event Reminder
+Mining Rush ends in 30m.
+Use !mine or !automine.
+
+Final:
+
+⏰ Event Ending Soon
+Mining Rush ends in 10m.
+
+Rules:
+- Max 2 reminders per event.
+- Do not spam on every command.
+- Do not resend reminders after restart if already sent.
+- If reminder tracking unavailable, skip reminders safely.
+
+==================================================
+PART 11 — EVENT END ANNOUNCEMENT POLISH
+==================================================
+
+When event ends:
+
+🎉 Event Ended
+Mining Rush has ended.
+Thanks for playing!
+
+If next event known:
+
+🎉 Event Ended
+Mining Rush ended.
+Next: Fishing Frenzy at 7 PM.
+
+Rules:
+- One end announcement only.
+- Do not duplicate after restart.
+- Expired event bonuses must stop applying.
+
+==================================================
+PART 12 — EVENT RESTORE AFTER RESTART CHECK
+==================================================
+
+On bot restart:
+
+If event is still active:
+- restore with correct remaining time
+- do not restart full duration
+- do not send duplicate start announcement
+- event bonus applies once
+
+If event expired while offline:
+- mark ended
+- do not apply bonus
+- optionally send no announcement to avoid spam
+
+Expected log:
+[Events] Restored Mining Rush: 24m remaining.
+
+Rules:
+- No double bonuses.
+- No duplicate reminders.
+- No duplicate end messages.
+
+==================================================
+PART 13 — EVENT ADMIN UX POLISH
+==================================================
+
+Polish:
+
+!eventadmin
+!eventadmin status
+!eventadmin start [event] [minutes]
+!eventadmin stop
+!eventadmin schedule
+!eventadmin set schedule [day] [event] [time]
+!eventadmin clear schedule
+!eventadmin set bonus [event] [type] [amount]
+
+Expected !eventadmin:
+
+🎉 Event Admin
+!eventadmin status
+!eventadmin start [event] [min]
+!eventadmin stop
+!eventadmin schedule
+
+Second message:
+
+Schedule:
+!eventadmin set schedule [day] [event] [time]
+Bonus:
+!eventadmin set bonus [event] [type] [amount]
+
+Rules:
+- Admin/Owner only.
+- Staff can view status if allowed.
+- Do not show in public help.
+- Validate event names.
+- Friendly errors.
+
+==================================================
+PART 14 — EVENT ADMIN STATUS POLISH
+==================================================
+
+Command:
+!eventadmin status
+
+Expected:
+
+🎉 Event Status
+Active: Mining Rush
+Ends in: 42m
+Bonus: +2 mining luck
+Schedule: ON
+
+If none:
+
+🎉 Event Status
+Active: none
+Next: Fishing Frenzy at 7 PM
+Schedule: ON
+
+Rules:
+- Show whether automatic schedule is ON/OFF.
+- No raw DB fields.
+- No JSON.
+
+==================================================
+PART 15 — EVENT ADMIN START POLISH
+==================================================
+
+Command:
+!eventadmin start miningrush 60
+
+Expected:
+
+✅ Event Started
+Mining Rush for 60m.
+Bonus: +2 mining luck.
+
+If invalid event:
+
+⚠️ Unknown event.
+Use: miningrush, fishingfrenzy, doublexp, collectionhunt, casinonight, triviarush
+
+If invalid duration:
+
+⚠️ Use minutes.
+Example: !eventadmin start miningrush 60
+
+Rules:
+- Do not crash.
+- Do not start duplicate same event unless replacing current event intentionally.
+- If event already active, ask/require stop first or replace safely.
+
+==================================================
+PART 16 — EVENT ADMIN STOP POLISH
+==================================================
+
+Command:
+!eventadmin stop
+
+Expected:
+
+✅ Event Stopped
+Mining Rush ended manually.
+
+If none active:
+
+⚠️ No active event to stop.
+
+Rules:
+- Remove bonuses immediately.
+- Do not trigger duplicate end announcement if already ended.
+- Log admin action.
+
+==================================================
+PART 17 — EVENT SCHEDULE ADMIN POLISH
+==================================================
+
+Command:
+!eventadmin schedule
+
+Expected:
+
+📅 Event Schedule
+Mon 7PM — Mining Rush
+Wed 7PM — Fishing Frenzy
+Fri 7PM — Double XP
+
+Set schedule:
+
+!eventadmin set schedule monday miningrush 19:00
+
+Expected:
+
+✅ Schedule Updated
+Monday 19:00 — Mining Rush
+
+Rules:
+- Accept common day names:
+  mon/monday, tue/tuesday, etc.
+- Accept 7pm or 19:00 if possible.
+- If parsing risky, require 24h HH:MM format.
+- Persist settings.
+
+==================================================
+PART 18 — EVENT TYPES AND FRIENDLY NAMES
+==================================================
+
+Ensure friendly names:
+
+miningrush = Mining Rush
+fishingfrenzy = Fishing Frenzy
+doublexp = Double XP
+collectionhunt = Collection Hunt
+casinonight = Casino Night
+triviarush = Trivia Rush
+
+Do not show raw:
+mining_rush_v2
+event_key
+room_events.settings_json
+
+==================================================
+PART 19 — EVENT GUIDE POLISH
+==================================================
+
+Update:
+
+!guide events
+!events help
+!event help
+
+Expected:
+
+🎉 Events
+!events — overview
+!event active — current boost
+!event schedule — upcoming
+!event next — next event
+
+Second message:
+
+Events boost luck, XP, or season points.
+No HR Gold rewards yet.
+
+Rules:
+- No admin commands.
+- No false reward promises.
+- No HR Gold wording except “No HR Gold rewards yet” if needed.
+
+==================================================
+PART 20 — EVENT COMMAND REGISTRY CHECK
+==================================================
+
+Make sure these commands route if shown:
+
+!events
+!event
+!event active
+!event schedule
+!event next
+!guide events
+!eventadmin
+!eventadmin status
+!eventadmin start
+!eventadmin stop
+!eventadmin schedule
+
+If optional aliases are not implemented:
+- hide them
+- do not count as command issue
+
+==================================================
+PART 21 — EVENT ANALYTICS / MONITORING POLISH
+==================================================
+
+Polish:
+
+!eventmonitor
+!eventreview
+!eventdash
+
+Expected:
+
+🎉 Event Monitor
+Active: Mining Rush
+Players: 18
+Actions: 620
+Duration: 1h
+Result: Good
+
+If no data:
+
+🎉 Event Monitor
+No recent event data yet.
+
+Rules:
+- Owner/Admin only.
+- N/A allowed if no data.
+- Do not crash.
+- Do not expose private data publicly.
+
+==================================================
+PART 22 — EVENT SEASON POINT WORDING
+==================================================
+
+If events affect season points, display clearly:
+
+Mining Rush:
+Bonus: +2 mining luck, 2x mining season points
+
+Fishing Frenzy:
+Bonus: +2 fishing luck, 2x fishing season points
+
+Casino Night:
+Bonus: 2x casino season points
+No payout/odds changes.
+
+Rules:
+- Do not imply casino payout boost if only season points.
+- Do not change casino odds.
+- Do not change payouts.
+
+==================================================
+PART 23 — NO HR GOLD REWARD SAFETY
+==================================================
+
+Search event messages for:
+Gold reward
+HR Gold
+Highrise Gold reward
+jackpot Gold
+Gold Rush
+
+Do not add any HR Gold reward wording.
+
+Allowed:
+- Verified Gold tips for 🎫 Luxe Tickets in economy guide only.
+- Events should not promise Gold rewards.
+
+==================================================
+PART 24 — TESTS: PLAYER EVENT COMMANDS
+==================================================
+
+Run:
+
+!events
+!event active
+!event schedule
+!event next
+!guide events
+!today
+
+Expected:
+- clear active/next event
+- no crash
+- no admin leaks
+- no HR Gold promises
+- no old currency text
+- no reward cap text
+
+==================================================
+PART 25 — TESTS: ADMIN EVENT COMMANDS
+==================================================
+
+Run:
+
+!eventadmin
+!eventadmin status
+!eventadmin start miningrush 10
+!event active
+!mineluck
+!today
+!eventadmin stop
+!event active
+
+Expected:
+- event starts
+- !event active shows bonus
+- !mineluck includes Event +2
+- !today shows event
+- event stops
+- bonus removed
+
+==================================================
+PART 26 — TESTS: EVENT SCHEDULE
+==================================================
+
+Run:
+
+!eventadmin schedule
+!event schedule
+!event next
+
+Then test setting schedule if safe:
+
+!eventadmin set schedule monday miningrush 19:00
+!event schedule
+!event next
+
+Expected:
+- schedule displays
+- no raw keys
+- next event works or says unavailable clearly
+
+==================================================
+PART 27 — TESTS: EVENT RESTORE
+==================================================
+
+If safe:
+1. Start event:
+!eventadmin start miningrush 30
+
+2. Restart bot.
+
+3. Run:
+!event active
+!mineluck
+
+Expected:
+- event restored if time remains
+- remaining time correct
+- event bonus applies once
+- no duplicate start announcement spam
+
+If restart not tested:
+Report skipped.
+
+==================================================
+PART 28 — FINAL QA
+==================================================
+
+Run:
+
+!commandtest !events
+!commandtest !event
+!commandtest !eventadmin
+!commandtest !eventmonitor
+!commandtest !eventreview
+!commandtest !eventdash
+
+!commandissues
+!checkcommands all
+!checkhelp
+!currencycheck
+!launchblockers
+!finalaudit
+!launchcheck
+!bothealth
+!stability status
+
+Expected:
+- no command issues
+- no broken help
+- no old c/credits/gems
+- no reward cap text
+- no HR Gold rewards
+- event UX works
+- launchcheck clean
+
+==================================================
+PART 29 — FINAL REPORT
+==================================================
+
+Report:
+1. !events display polished.
+2. !event active polished.
+3. !event schedule polished.
+4. !event next added/polished.
+5. Event bonuses show in !luck.
+6. Events show in !today.
+7. Start announcements polished.
+8. Reminder system added/polished.
+9. End announcements polished.
+10. Restart restore checked.
+11. Event admin UX polished.
+12. Schedule admin polished.
+13. Friendly event names fixed.
+14. Event guide updated.
+15. Event monitoring polished.
+16. No HR Gold rewards added.
+17. No economy changes made.
+18. No odds changed.
+19. !commandissues result.
+20. !checkhelp result.
+21. !currencycheck result.
+22. !launchcheck result.

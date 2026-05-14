@@ -606,23 +606,30 @@ async def handle_eventreview(bot: BaseBot, user: User, args: list[str]) -> None:
     sub = args[1].lower() if len(args) > 1 else "last"
 
     if sub in ("last", "7d"):
-        # Get recent event entries
         rows = _q(
             "SELECT event_id, COUNT(DISTINCT user_id) as players, "
             "SUM(points) as total_pts "
             "FROM event_points GROUP BY event_id ORDER BY rowid DESC LIMIT 5"
         )
         if not rows:
-            await _w(bot, user.id, "🎉 Event Review\nNo event data available.")
+            await _w(bot, user.id,
+                     "🎉 Event Review\nNo recent event data yet.")
             return
+
+        # Resolve friendly names — never show raw event_id keys
+        try:
+            from modules.events import EVENTS as _EVENTS
+        except Exception:
+            _EVENTS = {}
 
         lines = ["🎉 Event Review"]
         for r in rows[:4]:
-            eid = str(r.get("event_id", "?"))[:20]
-            pl  = r.get("players", 0)
-            pts = r.get("total_pts", 0)
-            grade = "Good activity" if int(pl or 0) >= 5 else "Low participation"
-            lines.append(f"{eid}\nPlayers: {pl} | Pts: {pts}\n{grade}")
+            eid   = str(r.get("event_id", "?"))
+            name  = _EVENTS.get(eid, {}).get("name", eid)[:22]
+            pl    = r.get("players", 0) or 0
+            pts   = r.get("total_pts", 0) or 0
+            grade = "Good activity" if int(pl) >= 5 else "Low participation"
+            lines.append(f"{name} — {pl} players\nPts: {pts} | {grade}")
         await _w(bot, user.id, "\n".join(lines)[:249])
     else:
         await _w(bot, user.id, "Usage: !eventreview [last|7d]")

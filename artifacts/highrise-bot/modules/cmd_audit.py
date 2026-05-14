@@ -200,7 +200,7 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     "shop", "buy", "equip", "myitems", "inv", "inventory", "badgeinfo", "titleinfo",
     "event", "events", "eventhelp", "eventstatus",
     "nextevent", "next", "schedule", "eventloop",
-    "startevent", "stopevent",
+    "eventadmin", "startevent", "stopevent",
     "eventpoints", "eventshop", "buyevent",
     "autogames", "autoevents", "autogamesowner",
     "stopautogames", "killautogames",

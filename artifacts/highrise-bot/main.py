@@ -332,6 +332,7 @@ from modules.events import (
     handle_event, handle_events, handle_eventhelp, handle_eventstatus,
     handle_nextevent, handle_eventloop,
     handle_startevent, handle_stopevent,
+    handle_eventadmin,
     handle_eventpoints, handle_eventshop, handle_buyevent,
     startup_event_check,
     handle_adminsblessing, handle_eventresume,
@@ -969,7 +970,7 @@ ALL_KNOWN_COMMANDS = (
         "dailyquests", "weeklyquests", "questhelp",
         "event", "events", "eventhelp", "eventstatus",
         "nextevent", "next", "schedule", "eventloop",
-        "startevent", "stopevent",
+        "eventadmin", "startevent", "stopevent",
         "eventpoints", "eventshop", "buyevent",
         "autogames", "autoevents", "gameconfig",
         "autogamesowner", "stopautogames", "killautogames", "fixautogames",
@@ -4253,6 +4254,9 @@ class HangoutBot(BaseBot):
 
         elif cmd == "eventstatus":
             await handle_eventstatus(self, user)
+
+        elif cmd == "eventadmin":
+            await handle_eventadmin(self, user, args)
 
         elif cmd == "startevent":
             await handle_startevent(self, user, args)

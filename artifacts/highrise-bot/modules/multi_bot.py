@@ -273,6 +273,7 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "nextevent": "eventhost", "next": "eventhost",
     "schedule": "eventhost", "eventloop": "eventhost",
     "eventhelp": "eventhost", "eventstatus": "eventhost",
+    "eventadmin": "eventhost",
     "startevent": "eventhost", "stopevent": "eventhost",
     "stopae": "eventhost", "stopautoevent": "eventhost",
     "endevent": "eventhost", "endcurrentevent": "eventhost",
