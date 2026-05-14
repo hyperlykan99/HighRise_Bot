@@ -50,15 +50,29 @@ def clear_pending(user_id: str) -> None:
     _PENDING.pop(user_id, None)
 
 
+# ── Simple confirm / cancel word sets (mirrors ai_command_confirmation) ───────
+_SIMPLE_CONFIRM = {"confirm", "yes", "y", "ok", "okay", "approve"}
+_SIMPLE_CANCEL  = {"cancel", "no", "n", "stop", "nevermind", "never mind"}
+
+
+def is_simple_confirm(text: str) -> bool:
+    """Return True if text is a short affirmative word."""
+    return text.strip().lower() in _SIMPLE_CONFIRM
+
+
+def is_simple_cancel(text: str) -> bool:
+    """Return True if text is a short negative word."""
+    return text.strip().lower() in _SIMPLE_CANCEL
+
+
 def preview_message(p: dict) -> str:
     """Build the confirmation prompt whisper (≤ 249 chars)."""
     msg = (
         f"⚙️ Prepared change:\n"
-        f"Setting: {p['label']}\n"
-        f"Current: {p['current_value']}\n"
-        f"New: {p['new_value']}\n"
+        f"{p['label']}: {p['current_value']} → {p['new_value']}\n"
         f"Risk: {p['risk']}\n"
-        f"Reply {p['confirm_phrase']} to apply, or CANCEL."
+        f"Reply confirm to apply, or cancel.\n"
+        f"(Also: {p['confirm_phrase']})"
     )
     return msg[:249]
 

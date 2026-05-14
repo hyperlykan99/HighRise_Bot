@@ -16,6 +16,20 @@ _TIMEOUT: float = 60.0
 CONFIRM_PHRASE = "CONFIRM AI COMMAND"
 CANCEL_PHRASE  = "CANCEL"
 
+# ── Simple confirm / cancel word sets ────────────────────────────────────────
+_SIMPLE_CONFIRM = {"confirm", "yes", "y", "ok", "okay", "approve"}
+_SIMPLE_CANCEL  = {"cancel", "no", "n", "stop", "nevermind", "never mind"}
+
+
+def is_simple_confirm(text: str) -> bool:
+    """Return True if text is a short affirmative word (confirm/yes/y/ok/okay/approve)."""
+    return text.strip().lower() in _SIMPLE_CONFIRM
+
+
+def is_simple_cancel(text: str) -> bool:
+    """Return True if text is a short negative word (cancel/no/n/stop/nevermind)."""
+    return text.strip().lower() in _SIMPLE_CANCEL
+
 
 def prepare_command(
     user_id:    str,
@@ -56,11 +70,15 @@ def has_pending(user_id: str) -> bool:
 
 
 def is_confirm(text: str) -> bool:
-    return text.strip().upper() == CONFIRM_PHRASE
+    """Accept the exact long phrase OR any simple affirmative word."""
+    t = text.strip()
+    return t.upper() == CONFIRM_PHRASE or t.lower() in _SIMPLE_CONFIRM
 
 
 def is_cancel(text: str) -> bool:
-    return text.strip().upper() == CANCEL_PHRASE
+    """Accept the exact long phrase OR any simple negative word."""
+    t = text.strip()
+    return t.upper() == CANCEL_PHRASE or t.lower() in _SIMPLE_CANCEL
 
 
 def build_prompt(command: str, args: list[str], risk: str, perm_label: str, economy_locked: bool) -> str:
@@ -73,6 +91,6 @@ def build_prompt(command: str, args: list[str], risk: str, perm_label: str, econ
         f"⚙️ AI Command Ready:\n"
         f"{cmd_str}\n"
         f"Risk: {risk} | Perm: {perm_label}{lock_note}\n"
-        f"Reply: CONFIRM AI COMMAND or CANCEL (60s)"
+        f"Reply confirm to run, or cancel. (60s)"
     )
     return msg[:249]

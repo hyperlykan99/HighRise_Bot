@@ -1,0 +1,169 @@
+Update AI confirmation system — allow simple “confirm” and “cancel”
+
+Goal:
+When a user has a pending AI confirmation, they should be able to type:
+
+confirm
+cancel
+
+instead of long phrases like:
+CONFIRM AI COMMAND
+CONFIRM VIP PRICE
+CONFIRM AI REPLY MODE
+
+Rules:
+- Only accept simple “confirm” if the same user has a pending AI action.
+- Only the user who created the pending action can confirm it.
+- Confirmation expires after existing timeout.
+- If no pending action exists, “confirm” should do nothing or reply:
+  “You don’t have a pending AI action to confirm.”
+- Do not let another player confirm someone else’s action.
+- Do not let normal players confirm owner/admin actions.
+- Keep permission checks before execution.
+- Keep safety checks before execution.
+- Keep economy lock checks before execution.
+- Keep old long confirmation phrases working too.
+- Support lowercase, uppercase, and mixed case:
+  confirm
+  Confirm
+  CONFIRM
+  yes
+  y
+  cancel
+  Cancel
+  CANCEL
+  no
+  n
+
+Important:
+Only treat “confirm” as AI confirmation when there is an active pending AI action for that same user.
+Do not interfere with existing shop confirmations or other bot confirmation systems unless they are AI pending confirmations.
+
+Implementation:
+
+In ai_confirmation_manager.py, add helper:
+
+def is_simple_confirm(text: str) -> bool:
+    return text.strip().lower() in {
+        "confirm", "yes", "y", "ok", "okay", "approve"
+    }
+
+def is_simple_cancel(text: str) -> bool:
+    return text.strip().lower() in {
+        "cancel", "no", "n", "stop", "nevermind", "never mind"
+    }
+
+Then in ai_brain.py, before normal intent routing:
+
+clean_raw = raw_msg.strip()
+pending = get_pending(user.id)
+
+if pending:
+    if is_simple_confirm(clean_raw):
+        await _handle_confirm(bot, user, pending["confirm_phrase"], perm)
+        return True
+
+    if is_simple_cancel(clean_raw):
+        await _handle_cancel(bot, user)
+        return True
+
+Also keep the old phrase-based confirmation:
+
+if intent == INTENT_CONFIRM_SETTING:
+    await _handle_confirm(bot, user, text, perm)
+
+Update _handle_confirm so it accepts either:
+- exact/contained old confirmation phrase
+- simple confirm from same pending user
+
+Example logic:
+
+async def _handle_confirm(bot, user, text, perm):
+    p = get_pending(user.id)
+    if not p:
+        await _w(bot, user.id, "⚠️ You don’t have a pending AI action to confirm.")
+        return
+
+    phrase = text.upper().strip()
+    simple = text.strip().lower() in {"confirm", "yes", "y", "ok", "okay", "approve"}
+
+    if not simple and p["confirm_phrase"] not in phrase:
+        await _w(bot, user.id, f"⚠️ Wrong phrase. Type confirm or: {p['confirm_phrase']}")
+        return
+
+    # keep existing permission and action execution logic here
+
+Update preview messages.
+
+Old:
+Reply CONFIRM VIP PRICE to apply, or CANCEL.
+
+New:
+Reply confirm to apply, or cancel.
+Advanced: You can also type CONFIRM VIP PRICE.
+
+Examples:
+
+Owner:
+ai set VIP price to 600 tickets
+
+AI:
+Prepared change:
+VIP Price: 500 🎫 → 600 🎫
+Risk: Economy-impacting
+
+Reply confirm to apply, or cancel.
+
+Owner:
+confirm
+
+AI:
+✅ VIP price updated to 600.
+
+Owner:
+ai set reply mode to public
+
+AI:
+Prepared change:
+AI Reply Mode: smart → public
+
+Reply confirm to apply, or cancel.
+
+Owner:
+confirm
+
+AI:
+✅ AI reply mode set to public.
+
+Safety tests:
+1. Owner prepares action.
+2. Different player types confirm.
+Expected:
+Nothing happens, or they get:
+“You don’t have a pending AI action to confirm.”
+
+3. Owner prepares action.
+4. Owner types cancel.
+Expected:
+Pending action cancelled.
+
+4. Owner prepares action.
+5. Owner waits until timeout.
+6. Owner types confirm.
+Expected:
+No pending action.
+
+5. Normal player tries:
+ai set VIP price to 1 ticket
+Expected:
+Denied before confirmation.
+
+Final output:
+Report:
+1. Files modified
+2. Simple confirm support added
+3. Simple cancel support added
+4. Old confirmation phrases still work
+5. Same-user protection test result
+6. Permission test result
+7. Timeout test result

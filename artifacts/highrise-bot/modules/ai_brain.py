@@ -90,6 +90,7 @@ from modules.ai_time_holidays    import get_date_reply, get_time_reply, get_next
 from modules.ai_safety           import is_blocked, blocked_response
 from modules.ai_confirmation_manager import (
     set_pending, get_pending, clear_pending, preview_message,
+    is_simple_confirm, is_simple_cancel,
 )
 from modules.ai_action_executor  import execute_action
 from modules.ai_logs             import log_event
@@ -362,12 +363,14 @@ async def _handle_confirm(bot, user, text, perm):
     p = get_pending(user.id)
     if not p:
         await _w(bot, user.id,
-                 "⚠️ No pending change to confirm.\n"
-                 "(It may have expired after 60 seconds.)")
+                 "⚠️ You don't have a pending AI action to confirm."
+                 " (It may have expired after 60 seconds.)")
         return
-    phrase = text.upper().strip()
-    if p["confirm_phrase"] not in phrase:
-        await _w(bot, user.id, f"⚠️ Wrong phrase. Reply exactly:\n{p['confirm_phrase']}")
+    phrase  = text.upper().strip()
+    simple  = is_simple_confirm(text)
+    if not simple and p["confirm_phrase"] not in phrase:
+        await _w(bot, user.id,
+                 f"⚠️ Wrong phrase. Reply confirm, or: {p['confirm_phrase']}")
         return
     if not requires_admin(perm):
         await _w(bot, user.id, "🔒 Admin or owner only.")
@@ -735,9 +738,25 @@ async def handle_ai_message(
             await _send(bot, user, name_reply, "general")
             return True
 
-        # ── 7c. AI Command pending confirmation / cancellation (3.3F) ─────────
+        # ── 7c. Pending confirmation / cancellation (both systems) ───────────
+        # System A: AI command executor pending (ai_command_confirmation)
+        # is_confirm/is_cancel now also accept simple words (confirm/yes/y/cancel/no/n)
         if await is_confirm_or_cancel(bot, user, resolved):
             return True
+
+        # System B: Settings change pending (ai_confirmation_manager)
+        # Catches simple words AND exact long phrases like "CONFIRM VIP PRICE"
+        _mgr_p = get_pending(user.id)
+        if _mgr_p:
+            _up = resolved.strip().upper()
+            _phrase_match = _mgr_p["confirm_phrase"] in _up
+            _cancel_match = is_simple_cancel(resolved) or _up == "CANCEL"
+            if is_simple_confirm(resolved) or _phrase_match:
+                await _handle_confirm(bot, user, resolved, perm)
+                return True
+            if _cancel_match:
+                await _handle_cancel(bot, user)
+                return True
 
         # ── 8. Hard safety check ──────────────────────────────────────────────
         if is_blocked(resolved):
