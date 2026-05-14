@@ -2776,6 +2776,47 @@ def _migrate_db():
     except Exception:
         pass
 
+    # 3.4A — Luxe Jail system
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS jail_sentences (
+                id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                target_user_id      TEXT NOT NULL DEFAULT '',
+                target_username     TEXT NOT NULL DEFAULT '',
+                jailed_by_user_id   TEXT NOT NULL DEFAULT '',
+                jailed_by_username  TEXT NOT NULL DEFAULT '',
+                start_ts            REAL NOT NULL DEFAULT 0,
+                end_ts              REAL NOT NULL DEFAULT 0,
+                duration_seconds    INTEGER NOT NULL DEFAULT 0,
+                remaining_seconds   INTEGER NOT NULL DEFAULT 0,
+                jail_reason         TEXT NOT NULL DEFAULT 'luxe_jail',
+                jail_source         TEXT NOT NULL DEFAULT 'player',
+                status              TEXT NOT NULL DEFAULT 'active',
+                bail_cost           INTEGER NOT NULL DEFAULT 0,
+                created_at          TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at          TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+        """)
+    except Exception:
+        pass
+
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS jail_logs (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                action          TEXT NOT NULL DEFAULT '',
+                target_user_id  TEXT NOT NULL DEFAULT '',
+                target_username TEXT NOT NULL DEFAULT '',
+                actor_user_id   TEXT NOT NULL DEFAULT '',
+                actor_username  TEXT NOT NULL DEFAULT '',
+                amount          INTEGER NOT NULL DEFAULT 0,
+                details         TEXT NOT NULL DEFAULT '',
+                timestamp       TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+        """)
+    except Exception:
+        pass
+
     conn.commit()
     conn.close()
 

@@ -623,6 +623,16 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "botwelcome": "host", "setbotwelcome": "host",
     "resetbotwelcome": "host", "previewbotwelcome": "host",
     "botwelcomes": "host",
+    # security — Luxe Jail system (3.4A)
+    "jail": "security", "bail": "security",
+    "jailstatus": "security", "jailtime": "security", "jailhelp": "security",
+    "unjail": "security", "jailrelease": "security",
+    "jailadmin": "security", "jailactive": "security", "jailhistory": "security",
+    "jailsetcost": "security", "jailsetmax": "security", "jailsetmin": "security",
+    "jailsetbailmultiplier": "security", "jailprotectstaff": "security",
+    "jaildebug": "security",
+    "setjailspot": "security", "setjailguardspot": "security",
+    "setsecurityidle": "security",
     # banker — gold tip commands (new)
     "goldtipsettings": "banker", "setgoldrate": "banker",
     "goldtiplogs": "banker", "mygoldtips": "banker", "goldtipstatus": "banker",
@@ -901,6 +911,7 @@ _MODULE_OWNER_MODES: dict[str, str] = {
     "host":         "host",
     "ai_assistant": "host",
     "timeexp":      "host",
+    "jail":         "security",
 }
 
 # Split modes: dedicated bots that should never run another module's tasks

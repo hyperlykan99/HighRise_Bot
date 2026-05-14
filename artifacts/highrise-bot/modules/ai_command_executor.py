@@ -211,6 +211,32 @@ async def _buy(bot, user, args):
     await handle_buy(bot, user, full_args)
 
 
+async def _jail(bot, user, args):
+    # args: [target_username] or [target_username, minutes]
+    from modules.jail_system import handle_jail
+    full_args = ["jail"] + args
+    await handle_jail(bot, user, full_args)
+
+
+async def _bail(bot, user, args):
+    # args: [] or [target_username]
+    from modules.jail_system import handle_bail
+    full_args = ["bail"] + args
+    await handle_bail(bot, user, full_args)
+
+
+async def _jailstatus(bot, user, args):
+    from modules.jail_system import handle_jailstatus
+    await handle_jailstatus(bot, user, ["jailstatus"])
+
+
+async def _unjail(bot, user, args):
+    # args: [target_username]
+    from modules.jail_system import handle_unjail
+    full_args = ["unjail"] + args
+    await handle_unjail(bot, user, full_args)
+
+
 async def _mute(bot, user, args):
     # args: [target_username, duration_minutes, reason]
     from modules.moderation import handle_mute
@@ -277,6 +303,10 @@ _DISPATCH: dict[str, callable] = {
     "set_ai_cost_preview": _set_ai_cost_preview,
     "buyvip":     _buyvip,
     "buy":        _buy,
+    "jail":       _jail,
+    "bail":       _bail,
+    "jailstatus": _jailstatus,
+    "unjail":     _unjail,
     "mute":       _mute,
     "warn":       _warn,
     "startevent": _startevent,

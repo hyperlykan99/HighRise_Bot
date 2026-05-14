@@ -153,6 +153,35 @@ AI_COMMAND_WHITELIST: dict[str, dict] = {
         "requires_confirmation": True,
         "description":        "Enable/disable AI cost preview confirmation (owner only)",
     },
+    # ── Jail system (3.4A) ────────────────────────────────────────────────
+    "jail": {
+        "category":           "PAID_PLAYER_ACTION",
+        "aliases":            ["send to jail", "put in jail", "jail player"],
+        "requires_permission":"player",
+        "requires_confirmation": True,
+        "description":        "Jail a player using Luxe Tickets",
+    },
+    "bail": {
+        "category":           "PAID_PLAYER_ACTION",
+        "aliases":            ["bail me out", "pay bail", "bail out"],
+        "requires_permission":"player",
+        "requires_confirmation": True,
+        "description":        "Bail yourself or another player out of jail",
+    },
+    "jailstatus": {
+        "category":           "SAFE_PLAYER_DIRECT",
+        "aliases":            ["jail status", "jailtime", "my jail time"],
+        "requires_permission":"player",
+        "requires_confirmation": False,
+        "description":        "Check your current jail sentence",
+    },
+    "unjail": {
+        "category":           "STAFF_DIRECT",
+        "aliases":            ["release from jail", "unjail player", "free from jail"],
+        "requires_permission":"manager",
+        "requires_confirmation": True,
+        "description":        "Release a jailed player (admin+)",
+    },
     "mute": {
         "category":           "STAFF_DIRECT",
         "aliases":            ["mute player", "silence player"],
@@ -476,6 +505,24 @@ _NL_PATTERNS: list[tuple[str, re.Pattern, callable]] = [
         r"\b(my\s+vip|check\s+vip|vip\s+status|am\s+i\s+vip)\b",
         re.I,
     ), _no_args),
+    # ── Jail system (3.4A) ─────────────────────────────────────────────────
+    ("jail", re.compile(
+        r"\b(?:jail|send\s+to\s+jail|put\s+in\s+jail)\s+@?(\w+)"
+        r"(?:\s+(?:for\s+)?(\d+)\s*(?:min(?:utes?)?)?)?\b",
+        re.I,
+    ), lambda m, _: [m.group(1)] + ([m.group(2)] if m.group(2) else [])),
+    ("bail", re.compile(
+        r"\b(?:bail\s+(?:me\s+)?out|pay\s+bail|bail\s+@?(\w+))\b",
+        re.I,
+    ), lambda m, _: [m.group(1)] if m.group(1) else []),
+    ("jailstatus", re.compile(
+        r"\b(?:jail\s+status|my\s+jail|how\s+long\s+(?:am\s+i\s+)?jailed)\b",
+        re.I,
+    ), _no_args),
+    ("unjail", re.compile(
+        r"\b(?:release|unjail|free)\s+@?(\w+)\s+(?:from\s+)?jail\b",
+        re.I,
+    ), lambda m, _: [m.group(1)]),
 ]
 
 

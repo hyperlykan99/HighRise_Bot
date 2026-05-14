@@ -702,6 +702,16 @@ from modules.economy_audit import (
     handle_economyaudit, handle_gameprices, handle_gameprice,
     handle_setgameprice, handle_messageaudit, handle_helpaudit,
 )
+from modules.jail_system import (
+    handle_jail, handle_bail, handle_jailstatus, handle_jailtime,
+    handle_jailhelp, handle_unjail, handle_jailactive, handle_jailadmin,
+    handle_jailsetcost, handle_jailsetmax, handle_jailsetmin,
+    handle_jailsetbailmultiplier, handle_jailprotectstaff, handle_jaildebug,
+    handle_setjailspot, handle_setjailguardspot, handle_setsecurityidle,
+    handle_jail_confirm, handle_jail_cancel,
+    startup_jail_recovery,
+)
+from modules.jail_enforcement import enforce_jail_on_rejoin, is_jailed
 from modules.room_utils import (
     handle_tpme, handle_tp, handle_tphere, handle_goto,
     handle_bring, handle_bringall, handle_tpall,
@@ -3151,6 +3161,8 @@ class HangoutBot(BaseBot):
             _safe_task(time_exp_loop(self), "time_exp_loop")
         else:
             print(f"[TIME_EXP] Loop skipped — not host bot ({BOT_MODE}).")
+        # Luxe Jail recovery + expiry loop — security bot only
+        _safe_task(startup_jail_recovery(self), "startup_jail_recovery")
         # Rotating announcements loop — host bot only
         if should_this_bot_run_module("host"):
             _safe_task(rotating_announcement_loop(self), "rotating_announcement_loop")
@@ -3268,6 +3280,14 @@ class HangoutBot(BaseBot):
             return
 
         if not (message.startswith("/") or message.startswith("!")):
+            # ── Jail / bail free-text confirm/cancel ─────────────────────────
+            _msg_low = message.strip().lower()
+            if _msg_low in ("confirm", "yes", "ok"):
+                if await handle_jail_confirm(self, user):
+                    return
+            elif _msg_low in ("cancel", "no"):
+                if await handle_jail_cancel(self, user):
+                    return
             # Room assistant — greetings + Q&A (host bot only, with cooldowns)
             if await handle_room_assistant_chat(self, user, message):
                 return
@@ -3452,6 +3472,39 @@ class HangoutBot(BaseBot):
                 await handle_permissioncheck(self, user, args)
             elif cmd == "rolecheck":
                 await handle_rolecheck(self, user, args)
+            # ── Luxe Jail system (3.4A) ───────────────────────────────────
+            elif cmd == "jail":
+                await handle_jail(self, user, args)
+            elif cmd == "bail":
+                await handle_bail(self, user, args)
+            elif cmd in ("jailstatus", "jailtime"):
+                await handle_jailstatus(self, user, args)
+            elif cmd == "jailhelp":
+                await handle_jailhelp(self, user, args)
+            elif cmd in ("unjail", "jailrelease"):
+                await handle_unjail(self, user, args)
+            elif cmd == "jailadmin":
+                await handle_jailadmin(self, user, args)
+            elif cmd == "jailactive":
+                await handle_jailactive(self, user, args)
+            elif cmd == "jailsetcost":
+                await handle_jailsetcost(self, user, args)
+            elif cmd == "jailsetmax":
+                await handle_jailsetmax(self, user, args)
+            elif cmd == "jailsetmin":
+                await handle_jailsetmin(self, user, args)
+            elif cmd == "jailsetbailmultiplier":
+                await handle_jailsetbailmultiplier(self, user, args)
+            elif cmd == "jailprotectstaff":
+                await handle_jailprotectstaff(self, user, args)
+            elif cmd == "jaildebug":
+                await handle_jaildebug(self, user, args)
+            elif cmd == "setjailspot":
+                await handle_setjailspot(self, user, args)
+            elif cmd == "setjailguardspot":
+                await handle_setjailguardspot(self, user, args)
+            elif cmd == "setsecurityidle":
+                await handle_setsecurityidle(self, user, args)
             elif cmd == "setrules":
                 await handle_setrules(self, user, args)
             elif cmd == "automod":
@@ -4021,6 +4074,10 @@ class HangoutBot(BaseBot):
             await handle_titleinfo(self, user, args)
 
         # ── Numbered shop extras ───────────────────────────────────────────────
+        elif cmd in ("confirm", "jailconfirm"):
+            await handle_jail_confirm(self, user)
+        elif cmd in ("cancel", "jailcancel"):
+            await handle_jail_cancel(self, user)
         elif cmd == "confirmbuy":
             await handle_confirmbuy(self, user, args)
 
@@ -6856,6 +6913,9 @@ class HangoutBot(BaseBot):
             return asyncio.create_task(_g())
 
         _sj(send_welcome_if_needed(self, user), "send_welcome_if_needed")
+        # Jail re-enforcement on rejoin — SecurityBot only
+        if should_this_bot_run_module("jail"):
+            _sj(enforce_jail_on_rejoin(self, user.id, user.username), "jail_rejoin")
         # on_join_welcome: run only from host bot to prevent multi-bot spam
         if should_this_bot_run_module("timeexp"):
             _sj(on_join_welcome(self, user), "on_join_welcome")

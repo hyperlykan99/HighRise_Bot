@@ -1,0 +1,475 @@
+Update 3.4A — SecurityBot Luxe Jail System
+
+Goal:
+Create a monetized jail system handled by SecurityBot.
+
+Players can pay 🎫 Luxe Tickets to send another player to jail for a limited time.
+
+SecurityBot should:
+- Handle jail commands
+- Teleport target player to jail
+- Prevent jailed players from teleporting out
+- Keep jailed players in jail if they leave and rejoin
+- Announce who jailed them and for how long
+- Offer bail option using 🎫 Luxe Tickets
+- Return to its idle spawn after briefing
+- Protect staff/admin/owner from being jailed by normal players
+
+Important:
+This is a fun room feature, not a moderation punishment system.
+Do not allow abuse, harassment, permanent jail, or staff targeting.
+
+Primary bot owner:
+SecurityBot
+
+SecurityBot should own:
+- jail module
+- jail teleport enforcement
+- jail persistence
+- bail handling
+- jail announcements
+- jail return-to-idle behavior
+
+Create new modules:
+- jail_system.py
+- jail_config.py
+- jail_store.py
+- jail_pricing.py
+- jail_permissions.py
+- jail_enforcement.py
+- jail_bail.py
+- jail_logs.py
+- securitybot_jail.py
+
+Database:
+Add persistent jail table if missing:
+
+jail_sentences:
+- id
+- target_user_id
+- target_username
+- jailed_by_user_id
+- jailed_by_username
+- start_ts
+- end_ts
+- duration_seconds
+- remaining_seconds
+- jail_reason
+- jail_source
+- status: active, bailed, expired, released, cancelled
+- bail_cost
+- created_at
+- updated_at
+
+Add jail logs table:
+
+jail_logs:
+- id
+- action
+- target_user_id
+- target_username
+- actor_user_id
+- actor_username
+- amount
+- details
+- timestamp
+
+Room settings:
+- jail_enabled = 1
+- jail_cost_per_minute = 2
+- jail_min_minutes = 1
+- jail_max_minutes = 10
+- jail_default_minutes = 3
+- jail_bail_multiplier = 2
+- jail_cooldown_seconds = 300
+- jail_daily_limit_per_player = 5
+- jail_protect_staff = 1
+- jail_allow_staff_jail_staff = 0
+- jail_allow_owner_override = 1
+- jail_location_name = jail
+- securitybot_idle_spawn = security_idle
+- securitybot_jail_brief_spawn = jail_guard
+- jail_prevent_teleport = 1
+- jail_prevent_escape = 1
+- jail_rejoin_enforce = 1
+
+Saved teleport spots needed:
+- jail
+- jail_guard
+- security_idle
+
+If missing:
+SecurityBot should tell owner:
+“Jail spots are not fully set. Required: jail, jail_guard, security_idle.”
+
+Commands:
+
+Player commands:
+- !jail @user
+- !jail @user [minutes]
+- !bail
+- !bail @user
+- !jailstatus
+- !jailtime
+- !jailhelp
+
+AI natural commands:
+- ai jail Claire
+- ai jail Claire for 3 minutes
+- ai send Claire to jail
+- ai bail me out
+- ai bail Claire out
+- ai how much is jail
+- ai jail status
+
+Staff/Admin/Owner commands:
+- !unjail @user
+- !jailrelease @user
+- !jailadmin
+- !jailsetcost [tickets_per_min]
+- !jailsetmax [minutes]
+- !jailsetmin [minutes]
+- !jailsetbailmultiplier [number]
+- !jailprotectstaff on/off
+- !jaildebug
+- !jailactive
+- !jailhistory @user
+- !setjailspot
+- !setjailguardspot
+- !setsecurityidle
+
+AI staff/admin commands:
+- ai release Claire from jail
+- ai jail active list
+- ai set jail cost to 2 tickets per minute
+- ai set max jail time to 10 minutes
+
+1. Jail Purchase Flow
+
+Player:
+!jail Claire 3
+
+or:
+ai jail Claire for 3 minutes
+
+System:
+- Check jail enabled
+- Check target exists in room
+- Check target is not staff/admin/owner unless actor has permission
+- Check actor has enough 🎫 Luxe Tickets
+- Check actor is not on jail cooldown
+- Check actor daily jail limit
+- Check duration within min/max
+- Check target is not already jailed
+- Check target is not SecurityBot or any bot account
+- Deduct 🎫 Luxe Tickets only if jail action succeeds
+- Create active jail sentence
+- Teleport target to jail
+- SecurityBot moves/teleports to jail_guard
+- SecurityBot announces brief
+- SecurityBot returns to security_idle
+
+Pricing:
+cost = minutes * jail_cost_per_minute
+
+Default:
+2 🎫 per minute
+
+Example:
+3 minutes = 6 🎫 Luxe Tickets
+
+If target is protected:
+“You can’t jail staff, admins, owners, or protected users.”
+
+If actor has insufficient tickets:
+“Jailing Claire for 3 minutes costs 6 🎫. You don’t have enough.”
+
+2. Jail Confirmation
+
+For player jail requests, require confirmation before spending tickets.
+
+Example:
+Player:
+ai jail Claire for 3 minutes
+
+SecurityBot/AI:
+“Jail Claire for 3 minutes? Cost: 6 🎫 Luxe Tickets.
+Reply confirm to send them to jail, or cancel.”
+
+Player:
+confirm
+
+Then:
+- deduct tickets
+- jail target
+- announce
+
+Direct command:
+!jail Claire 3
+
+Should also require confirmation unless owner setting disables it.
+
+Setting:
+jail_confirm_required = 1
+
+3. Staff Protection
+
+Protected users:
+- Owner
+- Admin
+- Manager
+- Moderator
+- Staff
+- SecurityBot
+- Other bot accounts
+- Optional VIP protection if owner enables it
+
+Normal players cannot jail protected users.
+
+Staff can jail normal players if allowed.
+Admins/owners can jail staff only if setting allows.
+
+Default:
+- normal player cannot jail staff
+- staff cannot jail staff
+- owner can override if setting is ON
+
+Refusal:
+“Claire is protected and cannot be jailed.”
+
+4. Jail Teleport Behavior
+
+When jail starts:
+- Target player teleports to saved spot: jail
+- SecurityBot teleports to saved spot: jail_guard
+- SecurityBot says public or room message:
+
+“🚨 Claire has been jailed by Marion for 3 minutes.
+Bail cost: 12 🎫 Luxe Tickets.
+Type !bail to get out early.”
+
+Then after 3–5 seconds:
+- SecurityBot teleports back to saved spot: security_idle
+
+Do not walk SecurityBot if teleport is available.
+Teleport first, walk only as fallback.
+
+5. Prevent Jail Escape
+
+While jailed:
+- Target cannot use !tele
+- Target cannot use !goto
+- Target cannot use !bring
+- Target cannot use AI teleport commands
+- Target cannot be moved by normal player teleport commands
+- Target cannot use bot-command teleport escapes
+- If target moves out of jail area, SecurityBot re-teleports them back
+
+Enforcement:
+- On any teleport command, check if user is jailed
+- If jailed, deny:
+“You’re jailed for 2m 15s more. Bail cost: 12 🎫.”
+
+- On movement/location update if available:
+If target is outside jail radius, teleport back to jail.
+
+Jail radius setting:
+jail_radius = 2.5
+
+If movement tracking is not reliable:
+At minimum block teleport commands and enforce on rejoin.
+
+6. Leave/Rejoin Persistence
+
+If jailed player leaves:
+- Do not clear jail sentence
+- Calculate remaining time from end_ts
+- When they rejoin before end_ts:
+  - teleport them to jail
+  - SecurityBot briefs them again
+  - They serve remaining time
+
+Example:
+Claire leaves with 2 minutes remaining.
+Claire rejoins after 30 seconds.
+Claire has 1 minute 30 seconds remaining.
+Claire is teleported back to jail.
+
+If sentence expired while away:
+- Mark as expired
+- Do not jail on rejoin
+
+7. Bail System
+
+Jailed player can pay 🎫 Luxe Tickets to leave early.
+
+Commands:
+- !bail
+- ai bail me out
+
+Other players can bail someone else:
+- !bail Claire
+- ai bail Claire out
+
+Bail cost:
+bail_cost = original_jail_cost * jail_bail_multiplier
+
+Default:
+jail_bail_multiplier = 2
+
+Example:
+Jail cost was 6 🎫.
+Bail cost = 12 🎫.
+
+Bail flow:
+Player:
+!bail
+
+SecurityBot:
+“Bail costs 12 🎫 Luxe Tickets.
+Reply confirm to pay and leave jail, or cancel.”
+
+After confirm:
+- Check payer has enough tickets
+- Deduct tickets
+- Mark jail sentence as bailed
+- Teleport target to default spawn or previous location if stored
+- Announce:
+“✅ Claire has been bailed out by Marion for 12 🎫.”
+
+If jailed player has no tickets:
+“You need 12 🎫 to bail out. Another player can bail you with !bail Claire.”
+
+8. Jail Expiration
+
+When jail time ends:
+- Mark sentence expired
+- Teleport target to normal spawn or release spot
+- Tell target:
+“✅ You served your jail time. You’re free.”
+
+Optional public message:
+“✅ Claire has been released from jail.”
+
+Release spot:
+- jail_release
+Optional.
+If missing, use default room spawn or do nothing.
+
+9. Anti-Abuse Rules
+
+Add:
+- Per-user jail cooldown
+- Daily jail limit
+- Max jail duration
+- Protected roles
+- Cannot jail same target repeatedly within cooldown
+- Cannot jail someone already jailed
+- Cannot jail bots
+- Cannot jail yourself unless owner enables fun self-jail
+
+Default:
+- cooldown: 5 minutes
+- max duration: 10 minutes
+- daily limit: 5 jails per player
+- min duration: 1 minute
+
+Abuse denial:
+“You’re on jail cooldown. Try again in 4m 20s.”
+
+10. Luxe Ticket Economy Integration
+
+Use existing real 🎫 Luxe Ticket functions.
+Do not create fake tickets.
+
+Find and reuse existing functions from:
+- modules/luxe.py
+- database.py
+
+Need helpers:
+- get_luxe_tickets(user_id)
+- deduct_luxe_tickets(user_id, amount, reason)
+- add/refund if jail fails after deduction
+
+Deduct only after:
+- target validated
+- teleport spot exists
+- target can be jailed
+- confirmation completed
+
+If teleport fails after deduction:
+- refund tickets
+- cancel jail
+- log failure
+
+11. SecurityBot Ownership
+
+Only SecurityBot should handle:
+- jail announcements
+- jail movement
+- jail rejoin enforcement
+- jail release messages
+
+Other bots should not duplicate jail replies.
+
+Use BOT_MODE or BOT_USERNAME:
+- SecurityBot
+- BOT_MODE=security
+
+If current bot is not SecurityBot:
+- ignore jail enforcement loops
+- normal commands may route to SecurityBot ownership if multi-bot routing exists
+
+12. AI Integration
+
+AI should understand:
+- ai jail Claire
+- ai jail Claire for 3 minutes
+- ai send Claire to jail
+- ai put Claire in jail
+- ai bail me out
+- ai bail Claire
+- ai how much does jail cost
+- ai release Claire from jail
+- ai jail status
+- ai who is jailed
+
+OpenAI can understand intent.
+Local bot must validate and execute.
+
+OpenAI should return JSON:
+{
+  "type": "command",
+  "intent": "jail_player",
+  "command": "jail",
+  "args": ["Claire", "3"],
+  "target_user": "Claire",
+  "risk": "medium",
+  "needs_confirmation": true,
+  "reply": "I can prepare that jail request."
+}
+
+Local validator must check:
+- permission
+- staff protection
+- ticket balance
+- cooldown
+- jail duration
+- target in room
+- target not bot
+
+13. Jail Help
+
+!jailhelp:
+
+“🚨 Luxe Jail
+!jail @user [mins] — send someone to jail
+!bail — pay to leave jail
+!bail @user — bail someone out
+!jailstatus — check your jail time
+
+Cost: 2 🎫 per minute
+Bail: 2x jail cost
+Staff and bots are protected.”
+
+14. Owner Jail
