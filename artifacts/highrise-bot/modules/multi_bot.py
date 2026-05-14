@@ -100,6 +100,8 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     # 3.1Q — Beta/Launch Readiness
     "betamode": "host", "betacheck": "host", "betadash": "host",
     "staffdash": "host", "stafftools": "host",
+    "staffnote": "security", "staffnotes": "security",
+    "permissioncheck": "security", "rolecheck": "security",
     "testmenu": "host", "betahelp": "host", "quickstart": "host",
     "issueadmin": "host",
     "bugs": "host",

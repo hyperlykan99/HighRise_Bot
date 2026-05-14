@@ -188,4 +188,28 @@ async def handle_permissioncheck(bot, user: User, args: list[str]) -> None:
 
 
 async def handle_rolecheck(bot, user: User, args: list[str]) -> None:
-    await handle_permissioncheck(bot, user, args)
+    is_adm = is_admin(user.username) or is_owner(user.username)
+
+    target_name = args[1].lstrip("@").strip() if len(args) > 1 else user.username
+    checking_other = target_name.lower() != user.username.lower()
+
+    if checking_other and not is_adm:
+        await _w(bot, user.id, "🔒 Admin only for checking other users.")
+        return
+
+    if not target_name:
+        await _w(bot, user.id, "Use: !rolecheck @user")
+        return
+
+    role = _role_label(target_name)
+    is_staff_flag  = "YES" if role in ("Staff", "Manager", "Admin", "Owner") else "NO"
+    is_admin_flag  = "YES" if role in ("Admin", "Owner") else "NO"
+    is_owner_flag  = "YES" if role == "Owner" else "NO"
+
+    await _w(bot, user.id,
+             f"🔐 Role Check\n"
+             f"@{target_name[:20]}\n"
+             f"Role: {role}\n"
+             f"Staff: {is_staff_flag}\n"
+             f"Admin: {is_admin_flag}\n"
+             f"Owner: {is_owner_flag}")

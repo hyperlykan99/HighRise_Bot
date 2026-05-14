@@ -1,0 +1,362 @@
+UPDATE 3.2I HOTFIX — FIX STAFF COMMAND ROUTES + LIVE DISPATCHER
+
+Current live issues:
+!commandissues shows:
+Issues: 4 no-route, 4 no-owner, 4 no-handler
+Examples:
+!permissioncheck, !rolecheck, !staffnote, !staffnotes
+
+Also:
+!staffdash = Unknown command
+!stafftools = Unknown command
+
+Goal:
+Fix all staff operation commands so they route live, have handlers, have owners, and do not show Unknown command.
+
+Do not change tokens.
+Do not wipe data.
+Do not reset balances, tickets, VIP, inventory, missions, profiles, casino, mining/fishing, market, seasons, logs, or player data.
+Do not change economy.
+Do not change rewards.
+Do not add HR Gold rewards.
+Do not add reward caps.
+
+==================================================
+PART 1 — FIX LIVE DISPATCHER
+==================================================
+
+Add these commands to the real live command dispatcher/router, not just command metadata:
+
+!staffdash
+!stafftools
+!permissioncheck
+!rolecheck
+!staffnote
+!staffnotes
+
+Expected:
+
+!commandtest !staffdash
+owner=ChillTopiaMC or KeanuShield
+route=YES
+handler=YES
+
+!commandtest !stafftools
+owner=ChillTopiaMC or KeanuShield
+route=YES
+handler=YES
+
+!commandtest !permissioncheck
+owner=ChillTopiaMC or KeanuShield
+route=YES
+handler=YES
+
+!commandtest !rolecheck
+owner=ChillTopiaMC or KeanuShield
+route=YES
+handler=YES
+
+!commandtest !staffnote
+owner=ChillTopiaMC or KeanuShield
+route=YES
+handler=YES
+
+!commandtest !staffnotes
+owner=ChillTopiaMC or KeanuShield
+route=YES
+handler=YES
+
+Important:
+If commandtest says route YES but live chat says Unknown command, the command was only added to metadata.
+Add it to the actual live message handler.
+
+==================================================
+PART 2 — FIX !STAFFDASH
+==================================================
+
+Command:
+!staffdash
+
+Staff/Admin/Owner only.
+
+Expected staff output:
+
+🛡️ Staff Dashboard
+Bugs open: 0
+Feedback: 0
+Warnings today: 0
+Safety: OK
+
+Second message:
+
+Quick:
+!modhelp
+!bugs open
+!feedbacks recent
+!knownissues
+!status
+
+If admin/owner:
+
+🛠️ Admin Dashboard
+Bugs: 0 | Errors: 0
+Safety alerts: 0
+Maintenance: OFF
+Launch: OK
+
+Rules:
+- Whisper if possible.
+- Do not expose private balances.
+- No raw tracebacks.
+- No Unknown command.
+
+==================================================
+PART 3 — FIX !STAFFTOOLS
+==================================================
+
+Command:
+!stafftools
+
+Staff/Admin/Owner only.
+
+Expected staff output:
+
+🛡️ Staff Tools
+!modhelp
+!bugs open
+!feedbacks recent
+!knownissues
+!status
+
+Admin/Owner second message if allowed:
+
+Admin:
+!safetydash
+!economysafety
+!launchcheck
+!errors recent
+
+Rules:
+- Show only commands caller can use.
+- No owner-only tools to staff.
+- No public leaks.
+- No Unknown command.
+
+==================================================
+PART 4 — FIX !PERMISSIONCHECK
+==================================================
+
+Command:
+!permissioncheck
+!permissioncheck @user
+
+Owner/Admin only for checking others.
+Self-check can be allowed if safe.
+
+Expected:
+
+🔐 Permission Check
+@Player
+Role: Owner
+Allowed: all owner/admin tools
+
+For staff:
+
+🔐 Permission Check
+@Player
+Role: Staff
+Allowed: warn, bugs, feedbacks
+Denied: backup, production
+
+If normal player tries another user:
+
+🔒 Admin only.
+
+Rules:
+- No raw IDs unless owner/admin.
+- No Unknown command.
+- No private balance exposure.
+
+==================================================
+PART 5 — FIX !ROLECHECK
+==================================================
+
+Command:
+!rolecheck @user
+
+Owner/Admin only for others.
+Self-check optional.
+
+Expected:
+
+🔐 Role Check
+@Player
+Role: Owner
+Staff: YES
+Admin: YES
+Owner: YES
+
+If no user:
+Use:
+!rolecheck @user
+
+Rules:
+- No Unknown command.
+- No raw traceback.
+- Respect permissions.
+
+==================================================
+PART 6 — FIX !STAFFNOTE
+==================================================
+
+Command:
+!staffnote @user [message]
+
+Staff/Admin/Owner only.
+
+Expected:
+
+📝 Staff Note Added
+User: @Player
+
+If missing user/message:
+
+Use:
+!staffnote @user [note]
+
+Rules:
+- Save staff note.
+- Do not show note to normal players.
+- Do not store secrets/tokens.
+- No Unknown command.
+
+==================================================
+PART 7 — FIX !STAFFNOTES
+==================================================
+
+Command:
+!staffnotes @user
+
+Staff/Admin/Owner only.
+
+Expected:
+
+📝 Staff Notes @Player
+1. Asked about Luxe shop
+2. Reported poker issue
+
+If no notes:
+
+📝 Staff Notes @Player
+No notes.
+
+Rules:
+- Staff/Admin only.
+- No public leak.
+- No Unknown command.
+
+==================================================
+PART 8 — CREATE STAFF NOTES TABLE IF MISSING
+==================================================
+
+Create safely if missing:
+
+staff_notes:
+id INTEGER PRIMARY KEY AUTOINCREMENT
+target_id TEXT
+target_name TEXT
+staff_id TEXT
+staff_name TEXT
+note TEXT
+created_at TEXT
+
+Rules:
+- Idempotent migration.
+- Do not wipe existing notes.
+- Do not store tokens/secrets.
+
+==================================================
+PART 9 — IF OPTIONAL, HIDE INSTEAD OF BREAKING
+==================================================
+
+If Replit cannot implement any command safely, then:
+
+- mark hidden=true
+- mark deprecated=true if needed
+- remove from staff/admin help
+- remove from commandissues count
+- remove from launchblockers count
+
+But preferred:
+Implement all six commands.
+
+Do not leave any command visible with:
+route=NO
+handler=NO
+owner=UNKNOWN
+
+==================================================
+PART 10 — TESTS
+==================================================
+
+Run:
+
+!commandtest !staffdash
+!commandtest !stafftools
+!commandtest !permissioncheck
+!commandtest !rolecheck
+!commandtest !staffnote
+!commandtest !staffnotes
+
+Expected:
+route=YES
+handler=YES
+owner not UNKNOWN
+
+Live tests:
+
+!staffdash
+!stafftools
+!permissioncheck
+!rolecheck @4ktreyMarion
+!staffnote @4ktreyMarion test note
+!staffnotes @4ktreyMarion
+
+Expected:
+- no Unknown command
+- clean staff-safe output
+- permissions respected
+
+Final:
+
+!commandissues
+!checkcommands all
+!checkhelp
+!currencycheck
+!launchblockers
+!finalaudit
+!launchcheck
+
+Expected:
+- command issues: 0
+- no no-route
+- no no-owner
+- no no-handler
+- no admin public leaks
+- launchcheck clean
+
+==================================================
+PART 11 — FINAL REPORT
+==================================================
+
+Report:
+1. !staffdash live route fixed.
+2. !stafftools live route fixed.
+3. !permissioncheck route/handler/owner fixed.
+4. !rolecheck route/handler/owner fixed.
+5. !staffnote route/handler/owner fixed.
+6. !staffnotes route/handler/owner fixed.
+7. staff_notes table created or confirmed.
+8. Public help leak checked.
+9. !commandissues result.
+10. !launchcheck result.

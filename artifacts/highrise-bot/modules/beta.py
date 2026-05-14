@@ -224,7 +224,7 @@ async def handle_betadash(bot: BaseBot, user: User) -> None:
 
 
 # ---------------------------------------------------------------------------
-# !staffdash / !stafftools
+# !staffdash
 # ---------------------------------------------------------------------------
 
 async def handle_staffdash(bot: BaseBot, user: User) -> None:
@@ -286,6 +286,33 @@ async def handle_staffdash(bot: BaseBot, user: User) -> None:
                  "!feedbacks recent\n"
                  "!knownissues\n"
                  "!status")
+
+
+# ---------------------------------------------------------------------------
+# !stafftools
+# ---------------------------------------------------------------------------
+
+async def handle_stafftools(bot: BaseBot, user: User) -> None:
+    """Role-gated staff tool index (mod+)."""
+    if not can_moderate(user.username):
+        await _w(bot, user.id, "🔒 Staff only.")
+        return
+
+    await _w(bot, user.id,
+             "🛡️ Staff Tools\n"
+             "!modhelp\n"
+             "!bugs open\n"
+             "!feedbacks recent\n"
+             "!knownissues\n"
+             "!status")
+
+    if _is_admin_or_owner(user.username):
+        await _w(bot, user.id,
+                 "Admin:\n"
+                 "!safetydash\n"
+                 "!economysafety\n"
+                 "!launchcheck\n"
+                 "!errors recent")
 
 
 # ---------------------------------------------------------------------------

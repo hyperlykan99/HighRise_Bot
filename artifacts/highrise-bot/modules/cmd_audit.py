@@ -118,6 +118,8 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     "mute", "unmute", "mutes", "mutestatus", "forceunmute",
     "warn", "warnings", "clearwarnings",
     "softban", "unsoftban",
+    "staffnote", "staffnotes",
+    "permissioncheck", "rolecheck",
     "safetyadmin", "economysafety", "safetydash",
     "setrules", "automod",
     "reports", "reportinfo", "closereport", "reportwatch",

@@ -212,7 +212,8 @@ from modules.qol_cmds import (
 )
 from modules.beta import (
     handle_betamode, handle_betacheck, handle_betadash,
-    handle_staffdash, handle_testmenu, handle_betahelp,
+    handle_staffdash, handle_stafftools,
+    handle_testmenu, handle_betahelp,
     handle_quickstart, handle_launchready,
     handle_issueadmin, handle_bugs_admin, handle_errors_admin,
     handle_announce_room, handle_announceadmin,
@@ -3534,8 +3535,10 @@ class HangoutBot(BaseBot):
                 await handle_staffnote(self, user, args)
             elif cmd == "staffnotes":
                 await handle_staffnotes(self, user, args)
-            elif cmd in ("permissioncheck", "rolecheck"):
+            elif cmd == "permissioncheck":
                 await handle_permissioncheck(self, user, args)
+            elif cmd == "rolecheck":
+                await handle_rolecheck(self, user, args)
             elif cmd == "setrules":
                 await handle_setrules(self, user, args)
             elif cmd == "automod":
@@ -3858,8 +3861,10 @@ class HangoutBot(BaseBot):
             elif cmd == "announce":
                 await handle_announce_room(self, user, args)
 
-            elif cmd == "staffdash" or cmd == "stafftools":
+            elif cmd == "staffdash":
                 await handle_staffdash(self, user)
+            elif cmd == "stafftools":
+                await handle_stafftools(self, user)
 
             else:
                 await handle_admin_command(self, user, cmd, args)
