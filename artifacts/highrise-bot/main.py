@@ -712,7 +712,14 @@ from modules.jail_system import (
     handle_jail_confirm, handle_jail_cancel,
     startup_jail_recovery,
 )
-from modules.jail_enforcement import enforce_jail_on_rejoin, is_jailed
+from modules.jail_enforcement import (
+    enforce_jail_on_rejoin, is_jailed,
+    jail_block_message, TELEPORT_BLOCKED_CMDS,
+)
+from modules.luxe_admin import (
+    handle_addtickets, handle_removetickets, handle_settickets, handle_sendtickets,
+    handle_ticketadmin, handle_ticketlogs, handle_ticketbalance,
+)
 from modules.room_utils import (
     handle_tpme, handle_tp, handle_tphere, handle_goto,
     handle_bring, handle_bringall, handle_tpall,
@@ -1396,6 +1403,14 @@ ADMIN_ONLY_CMDS = ADMIN_ONLY_CMDS | {
     "setjailspot", "setjailguardspot", "setsecurityidle", "setjailreleasespot",
 }
 OWNER_ONLY_CMDS = OWNER_ONLY_CMDS | {"jailprotectstaff"}
+
+LUXE_ADMIN_CMDS: frozenset[str] = frozenset({
+    "addtickets", "removetickets", "settickets",
+    "sendtickets", "ticketadmin", "ticketlogs", "ticketbalance",
+})
+STAFF_CMDS      = STAFF_CMDS | LUXE_ADMIN_CMDS
+ADMIN_ONLY_CMDS = ADMIN_ONLY_CMDS | {"sendtickets", "ticketadmin", "ticketlogs"}
+OWNER_ONLY_CMDS = OWNER_ONLY_CMDS | {"addtickets", "removetickets", "settickets"}
 
 
 # ---------------------------------------------------------------------------
@@ -3356,6 +3371,11 @@ class HangoutBot(BaseBot):
             await handle_previewannounce(self, user, args)
             return
 
+        # ── Jail teleport lock — jailed players cannot use movement commands ────
+        if cmd in TELEPORT_BLOCKED_CMDS and is_jailed(user.id):
+            await self.highrise.send_whisper(user.id, jail_block_message(user.id))
+            return
+
         # ── Jail runtime commands (any user; KeanuShield/security gate via should_this_bot_handle)
         if cmd in {
             "jail", "bail", "jailstatus", "jailtime", "jailhelp",
@@ -3567,6 +3587,23 @@ class HangoutBot(BaseBot):
             elif cmd == "setjailreleasespot":
                 import os as _os; print(f"[JAIL ROUTE] cmd=setjailreleasespot bot_mode={_os.getenv('BOT_MODE','?')} allowed=true calling=handle_setjailreleasespot")
                 await handle_setjailreleasespot(self, user, args)
+
+            # ── Luxe Ticket admin ─────────────────────────────────────────────
+            elif cmd == "addtickets":
+                await handle_addtickets(self, user, args)
+            elif cmd == "removetickets":
+                await handle_removetickets(self, user, args)
+            elif cmd == "settickets":
+                await handle_settickets(self, user, args)
+            elif cmd == "sendtickets":
+                await handle_sendtickets(self, user, args)
+            elif cmd == "ticketadmin":
+                await handle_ticketadmin(self, user, args)
+            elif cmd == "ticketlogs":
+                await handle_ticketlogs(self, user, args)
+            elif cmd == "ticketbalance":
+                await handle_ticketbalance(self, user, args)
+
             elif cmd == "setrules":
                 await handle_setrules(self, user, args)
             elif cmd == "automod":

@@ -187,39 +187,38 @@ async def handle_incoming_gold_tip(
         print(f"[GOLDTIP] Duplicate skipped: event_id={event_id}")
         return
 
-    # Credit balance
-    try:
-        db.ensure_user(sender.id, sender.username)
-        db.add_balance(sender.id, coins)
-    except Exception as exc:
-        print(f"[GOLDTIP] Balance credit error: {exc}")
-
-    # Award Luxe Tickets alongside coins
+    # Award Luxe Tickets — 1 gold = 1 🎫 Luxe Ticket (no ChillCoins auto-credit)
     luxe_amt = 0
     try:
-        from modules.luxe import (
-            add_luxe_balance    as _alb,
-            log_luxe_transaction as _llt,
-            get_luxe_rate        as _glr,
-        )
-        luxe_rate = _glr()
-        luxe_amt  = max(1, int(gold_amount * luxe_rate))
+        from modules.luxe import add_luxe_balance as _alb, log_luxe_transaction as _llt
+        luxe_amt = max(1, int(gold_amount))
+        db.ensure_user(sender.id, sender.username)
         _alb(sender.id, sender.username, luxe_amt)
         _llt(sender.id, sender.username, "gold_tip",
              luxe_amt, "luxe", f"{gold_amount:g}g")
-        print(f"[GOLDTIP] Luxe: @{sender.username} +{luxe_amt} 🎫")
+        print(f"[TIP REWARD] from={sender.username} bot={receiving_bot_username} "
+              f"gold={gold_amount} reward={luxe_amt}_luxe_tickets")
+        print(f"[LUXE] add user={sender.username} amount={luxe_amt} reason=gold_tip_reward")
     except Exception as _le:
         print(f"[GOLDTIP] Luxe award error: {_le!r}")
 
-    # Public thank-you
-    luxe_str = f" | +{luxe_amt:,} 🎫" if luxe_amt else ""
-    msg = (f"💛 Thanks @{sender.username}! "
-           f"{gold_amount:g} Gold → {coins:,} 🪙{luxe_str}")
+    # Public acknowledgement — Luxe Tickets awarded, offer buycoins option
+    msg = (
+        f"💎 Thanks @{sender.username}! You received {luxe_amt} \U0001f3ab Luxe Tickets "
+        f"for tipping {gold_amount:g} gold."
+    )[:249]
     try:
-        await bot.highrise.chat(msg[:249])
+        await bot.highrise.chat(msg)
     except Exception:
         pass
-    print(f"[GOLDTIP] Rewarded: @{sender.username} +{coins:,} 🪙 "
+    try:
+        await bot.highrise.send_whisper(
+            sender.id,
+            "Want ChillCoins? Use !buycoins or !buycoins [amount] to convert \U0001f3ab \u2192 \U0001fa99."[:249],
+        )
+    except Exception:
+        pass
+    print(f"[GOLDTIP] Rewarded: @{sender.username} +{luxe_amt} \U0001f3ab "
           f"(event_id={event_id})")
 
     # Auto-convert check — if player has autoconvert on, convert tickets to coins
