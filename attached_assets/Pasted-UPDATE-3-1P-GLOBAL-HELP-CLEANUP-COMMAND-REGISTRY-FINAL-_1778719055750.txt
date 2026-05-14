@@ -1,0 +1,564 @@
+UPDATE 3.1P — GLOBAL HELP CLEANUP + COMMAND REGISTRY FINAL POLISH
+
+Goal:
+Clean the entire command/help system so players, staff, admins, and owners can easily find working commands without broken aliases, old commands, duplicate handlers, or confusing help pages.
+
+Main features:
+1. Clean every help/menu/guide command.
+2. Remove hidden/broken/deprecated commands from public help.
+3. Fix command ownership conflicts.
+4. Group commands by bot/module.
+5. Make !commands clean and searchable.
+6. Add !commands mining/fishing/casino/economy/staff/admin.
+7. Verify all aliases route correctly.
+8. Remove old casual blackjack/help residue.
+9. Ensure all currency uses 🪙 and 🎫.
+10. Final launch-ready command audit.
+
+Currencies:
+🪙 ChillCoins = gameplay currency
+🎫 Luxe Tickets = premium currency
+
+Do not change tokens.
+Do not change room ID.
+Do not wipe database.
+Do not reset balances, tickets, VIP, badges, titles, market, casino, blackjack, poker, mining/fishing data, collection book, missions, XP, levels, events, seasons, onboarding, safety logs, analytics, tools, rods, boosts, or player inventory.
+Do not re-add reward caps.
+Do not add HR Gold rewards.
+Do not change economy prices.
+Do not change odds.
+Do not show “c” for currency.
+Use 🪙 and 🎫.
+
+==================================================
+PART 1 — STABILITY FIRST
+==================================================
+
+Before changing anything, run:
+
+!launchcheck
+!commandissues
+!checkcommands
+!checkcommands all
+!checkhelp
+!bothealth
+!stability status
+
+Expected:
+- Launch Check OK
+- no command issues
+- no help issues
+- Err: none
+
+Fix baseline issues first.
+
+==================================================
+PART 2 — COMMAND REGISTRY SINGLE SOURCE
+==================================================
+
+Create or polish one shared command registry source.
+
+Each command should have:
+
+command_name
+aliases
+owner_bot
+module
+permission_level
+handler_exists
+route_exists
+hidden
+deprecated
+public_help
+staff_help
+admin_help
+description
+usage
+category
+
+Categories:
+general
+onboarding
+economy
+luxe
+vip
+mining
+fishing
+collection
+casino
+blackjack
+poker
+missions
+events
+seasons
+profile
+badges
+market
+moderation
+safety
+analytics
+admin
+owner
+
+Permission levels:
+player
+vip
+staff
+manager
+admin
+owner
+hidden
+
+Rules:
+- Every public command must have route=YES and handler=YES.
+- Hidden/deprecated commands must not show in player help.
+- Owner/admin commands must not show in public help.
+- If command exists only as alias, route it correctly.
+- No command should have owner UNKNOWN if shown in help.
+
+==================================================
+PART 3 — FIX COMMAND OWNERSHIP CONFLICTS
+==================================================
+
+Audit all commands for duplicate handlers and wrong owners.
+
+Known ownership:
+
+ChillTopiaMC / Host:
+- !help
+- !commands
+- !guide
+- !start
+- !profile
+- !missions
+- !weekly
+- !events
+- !season
+- general routing
+
+BankingBot:
+- !balance
+- !tickets
+- !luxe
+- !buycoins
+- tip conversion
+- Luxe Ticket balance/payment
+- economy ledger if centralized
+
+GreatestProspector:
+- !mine
+- !automine
+- !automine luxe
+- !mineluck
+- !orebook
+- !mineadmin
+- !minepanel
+
+MasterAngler:
+- !fish
+- !autofish
+- !autofish luxe
+- !fishluck
+- !fishbook
+- !fishadmin
+- !fishpanel
+
+AceSinatra:
+- !bet
+- !hit
+- !stand
+- !double
+- !split
+- !bjhelp
+- !bjrules
+- !bjstatus
+- !bjshoe
+- !shoe
+- !bjadmin
+- !bjtest
+- !bjforce hidden legacy alias
+
+KeanuShield / Safety:
+- !modhelp
+- !warn
+- !mute
+- !economysafety
+- !safetydash
+- !audit
+- !safetyadmin
+
+Owner Analytics:
+- !ownerdash
+- !analytics
+- !economydash
+- !luxedash
+- !retentiondash
+- !eventdash
+- !seasondash
+
+Rules:
+- A command must not be answered by the wrong bot.
+- If another bot sees a command it does not own, it must silently ignore it.
+- No duplicate public replies.
+- No “Unknown command” from the wrong bot when the correct bot owns it.
+
+==================================================
+PART 4 — REMOVE OLD / DEPRECATED COMMAND RESIDUE
+==================================================
+
+Audit and hide/remove from public help:
+
+- old casual blackjack commands
+- old casual blackjack settings
+- old count-based !automine [count]
+- old count-based !autofish [count]
+- old “credits” wording
+- old “c” currency format
+- broken collection aliases
+- broken fishpanel/fishingpanel aliases
+- old dashboard handlers that point to wrong module
+- old reward cap commands/text
+- old bonus cap commands/text
+- any command with owner UNKNOWN
+- any command with route=NO
+- any command with handler=NO
+
+Rules:
+- Do not delete code if risky.
+- Mark deprecated/hidden.
+- Do not show deprecated commands in public help.
+- If player uses deprecated command, reply with the new command.
+
+Example:
+!automine 50
+
+Reply:
+⚠️ Auto sessions are timer-based now.
+Use !automine or !automine luxe.
+
+==================================================
+PART 5 — GLOBAL !HELP CLEANUP
+==================================================
+
+Command:
+!help
+
+Expected:
+
+📘 ChillTopia Help
+New: !start, !guide
+Progress: !today, !missions
+Earn: !mine, !fish
+Play: !bjhelp, !help games
+
+Second message:
+
+Shops: !shop, !luxeshop
+Profile: !profile, !flex
+Events: !events, !season
+Use !commands for all.
+
+Rules:
+- Keep under 220 chars each.
+- Do not show admin commands.
+- Do not show deprecated commands.
+- Do not show broken commands.
+- Use clean beginner-friendly wording.
+
+==================================================
+PART 6 — !COMMANDS MAIN MENU
+==================================================
+
+Add/polish:
+
+!commands
+
+Expected:
+
+📜 Commands
+!commands earn
+!commands games
+!commands shop
+!commands profile
+!commands events
+!commands staff
+
+Second message:
+
+More:
+!commands mining
+!commands fishing
+!commands casino
+!commands economy
+!commands help
+
+Rules:
+- Keep short.
+- Player only sees public categories.
+- Staff sees staff category if staff.
+- Admin sees admin category if admin.
+- Owner sees owner category if owner.
+
+==================================================
+PART 7 — PLAYER COMMAND CATEGORIES
+==================================================
+
+Add these:
+
+!commands earn
+!commands mining
+!commands fishing
+!commands collection
+!commands games
+!commands casino
+!commands economy
+!commands shop
+!commands luxe
+!commands profile
+!commands missions
+!commands events
+!commands seasons
+!commands help
+
+Expected examples:
+
+!commands mining:
+
+⛏️ Mining
+!mine
+!automine
+!automine luxe
+!mineluck
+!orebook
+!lastminesummary
+
+!commands fishing:
+
+🎣 Fishing
+!fish
+!autofish
+!autofish luxe
+!fishluck
+!fishbook
+!lastfishsummary
+
+!commands economy:
+
+💰 Economy
+!balance
+!tickets
+!buycoins
+!luxeshop
+!vip
+
+!commands casino:
+
+🎰 Casino
+Blackjack: !bjhelp
+Poker: !pokerhelp if available
+Balance: !balance
+
+Rules:
+- Only show commands that route.
+- Hide missing optional commands.
+- No admin leaks.
+- No “c” currency.
+
+==================================================
+PART 8 — STAFF / ADMIN / OWNER COMMAND CATEGORIES
+==================================================
+
+Add role-based:
+
+!commands staff
+!commands admin
+!commands owner
+
+Staff expected:
+
+🛡️ Staff Commands
+!modhelp
+!warn
+!warnings
+!modlog
+
+Admin expected:
+
+🛠️ Admin Commands
+!eventadmin
+!missionadmin
+!safetyadmin
+!luxeadmin
+!vipadmin
+
+Owner expected:
+
+👑 Owner Commands
+!ownerdash
+!economydash
+!audit
+!commandissues
+!launchcheck
+
+Rules:
+- Only show commands the caller can use.
+- Whisper role command lists.
+- Do not show owner-only commands to staff.
+- Do not show hidden/testing commands publicly.
+
+==================================================
+PART 9 — SEARCHABLE COMMANDS
+==================================================
+
+Add:
+
+!commands search [term]
+!commands find [term]
+
+Examples:
+
+!commands search luxe
+
+Expected:
+
+🔎 Commands: luxe
+!luxeshop — Luxe Ticket shop
+!tickets — Luxe balance
+!buyluxe [#] — buy Luxe item
+
+!commands search fish
+
+Expected:
+!fish
+!autofish
+!fishluck
+!fishbook
+!fishpanel if admin
+
+Rules:
+- Respect permissions.
+- Do not show hidden commands unless owner/admin and hidden allowed.
+- If no results:
+No commands found. Try !commands.
+
+==================================================
+PART 10 — COMMAND DETAILS
+==================================================
+
+Add:
+
+!command [command]
+!help [command]
+
+Examples:
+
+!command automine
+
+Expected:
+
+⛏️ !automine
+Starts normal timer-based auto-mining.
+Use !automine luxe for Luxe auto time.
+
+!command buyluxe
+
+Expected:
+
+🎫 !buyluxe [#]
+Buy an item from !luxeshop by number.
+
+Rules:
+- Show usage and short description.
+- Respect permission.
+- If command hidden/deprecated, show replacement if available.
+- Do not expose owner-only usage to normal players.
+
+==================================================
+PART 11 — GUIDE / HELP CONSISTENCY
+==================================================
+
+Audit and sync:
+
+!help
+!guide
+!commands
+!command
+!start
+!newbie
+!minehelp
+!fishhelp
+!bjhelp
+!modhelp
+!adminhelp
+!ownerhelp
+
+Rules:
+- Same command names everywhere.
+- Same aliases everywhere.
+- No old wording:
+  - credits
+  - c
+  - gems
+  - casual blackjack
+  - catch count auto
+  - reward cap
+- No duplicate contradictory instructions.
+
+==================================================
+PART 12 — BLACKJACK HELP FINAL CLEANUP
+==================================================
+
+Ensure AceSinatra blackjack help only shows realistic blackjack.
+
+!bjhelp expected:
+
+🃏 Blackjack Help
+Join: !bet [amount]
+Actions: !hit, !stand
+More: !double, !split
+Status: !bjstatus
+
+Second message:
+
+Rules: !bjrules
+Shoe: !bjshoe or !shoe
+Balance: !balance
+
+!bjadmin:
+Role-based admin help only.
+
+Rules:
+- No casual blackjack commands.
+- No force/test commands in public help.
+- !bjtest only owner/admin help.
+- Currency uses 🪙.
+- Min/max values read from current blackjack settings.
+
+==================================================
+PART 13 — MINING/FISHING HELP FINAL CLEANUP
+==================================================
+
+Mining help must say timer-based auto only.
+
+!minehelp:
+
+⛏️ Mining Help
+!mine — mine once
+!automine — normal auto
+!automine luxe — Luxe time
+!mineluck — stack
+!orebook — book
+
+Fishing help:
+
+🎣 Fishing Help
+!fish — fish once
+!autofish — normal auto
+!autofish luxe — Luxe time
+!fishluck — stack
+!fishbook — book
+
+Rules:
+- No !automine [count].
+- No !autofish [count].
+- Include !autotime if

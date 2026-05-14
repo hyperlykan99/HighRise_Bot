@@ -340,6 +340,10 @@ from modules.safety import (
     is_event_processed, mark_event_processed,
     log_economy_tx,
 )
+from modules.help_cmds import (
+    handle_commands as handle_commands_browser,
+    handle_command_detail,
+)
 from modules.analytics import (
     handle_ownerdash,
     handle_playerstats,
@@ -1244,22 +1248,18 @@ ALL_KNOWN_COMMANDS = (
 # ---------------------------------------------------------------------------
 
 HELP_TEXT = (
-    "🎤 ChillTopia Help\n"
-    "!balance  !send [user] [amount]\n"
-    "!profile  !daily  !vip  !subscribe\n"
-    "!mine  !automine  !automine off\n"
-    "!fish  !autofish  !autofish off\n"
-    "!bet [amount]  !poker\n"
-    "!tele list  !tele [spot]  !notif"
+    "📘 ChillTopia Help\n"
+    "New: !start, !guide\n"
+    "Progress: !today, !missions\n"
+    "Earn: !mine, !fish\n"
+    "Play: !bjhelp, !help games"
 )
 
 HELP_TEXT_2 = (
-    "📋 More Help\n"
-    "New? !start  !activities\n"
-    "!help basic  !help games  !help bank\n"
-    "!help vip  !help mining  !help fishing\n"
-    "!help blackjack  !help poker\n"
-    "!help room  !help party"
+    "Shops: !shop, !luxeshop\n"
+    "Profile: !profile, !flex\n"
+    "Events: !events, !season\n"
+    "Use !commands for all."
 )
 
 _HELP_CATEGORIES: dict[str, str] = {
@@ -1300,13 +1300,6 @@ _HELP_CATEGORIES: dict[str, str] = {
         "!poker — poker info\n"
         "!coinflip [heads|tails] [amount]\n"
         "!answer [answer] — answer trivia"
-    ),
-    "casino": (
-        "🎰 Casino Help\n"
-        "Blackjack: !bjhelp\n"
-        "Poker: !pokerhelp\n"
-        "Balance: !balance\n"
-        "Start BJ: !bet [amount]"
     ),
     "blackjack": (
         "🃏 Blackjack\n"
@@ -1727,47 +1720,31 @@ EVENT_HELP_PAGES = [
 
 BJ_HELP_PAGES = [
     (
-        "🃏 Blackjack\n"
-        "!bet [amount] — place bet\n"
-        "!hit — draw card\n"
-        "!stand — hold hand\n"
-        "!bjstatus — check status\n"
-        "!double — double bet (if allowed)\n"
-        "!split — split hand (if allowed)\n"
-        "!bjshoe or !shoe — shoe status\n"
-        "!bjrules — rules & payouts"
+        "🃏 Blackjack Help\n"
+        "Join: !bet [amount]\n"
+        "Actions: !hit, !stand\n"
+        "More: !double, !split\n"
+        "Status: !bjstatus"
     ),
     (
-        "🃏 BJ Payouts\n"
-        "Win: 2x return\n"
-        "Natural BJ: 2.5x\n"
-        "Suited BJ: 3x\n"
-        "Push: refund  Bust: lose\n"
-        "🎁 Bonuses\n"
-        "Perfect 21: +10%  5-Card Charlie: +25%"
+        "Rules: !bjrules\n"
+        "Shoe: !bjshoe or !shoe\n"
+        "Balance: !balance"
     ),
 ]
 
 RBJ_HELP_PAGES = [
     (
-        "🃏 Blackjack\n"
-        "!bet [amount] — place bet\n"
-        "!hit — draw card\n"
-        "!stand — hold hand\n"
-        "!bjstatus — check status\n"
-        "!double — double bet (if allowed)\n"
-        "!split — split hand (if allowed)\n"
-        "!bjshoe or !shoe — shoe status\n"
-        "!bjrules — rules & payouts"
+        "🃏 Blackjack Help\n"
+        "Join: !bet [amount]\n"
+        "Actions: !hit, !stand\n"
+        "More: !double, !split\n"
+        "Status: !bjstatus"
     ),
     (
-        "🃏 BJ Payouts\n"
-        "Win: 2x return\n"
-        "Natural BJ: 2.5x\n"
-        "Suited BJ: 3x\n"
-        "Push: refund  Bust: lose\n"
-        "🎁 Bonuses\n"
-        "Perfect 21: +10%  5-Card Charlie: +25%"
+        "Rules: !bjrules\n"
+        "Shoe: !bjshoe or !shoe\n"
+        "Balance: !balance"
     ),
 ]
 
@@ -4836,6 +4813,12 @@ class HangoutBot(BaseBot):
 
         elif cmd == "maintenancehelp":
             await _handle_maintenancehelp(self, user)
+
+        elif cmd in {"commands", "cmds"}:
+            await handle_commands_browser(self, user, args)
+
+        elif cmd == "command":
+            await handle_command_detail(self, user, args)
 
         elif cmd == "mycommands":
             await handle_mycommands(self, user, args)

@@ -2394,14 +2394,14 @@ async def handle_reloadorechances(bot: BaseBot, user: User) -> None:
 
 MINE_HELP_PAGES = [
     (
-        "⛏️ Mining\n"
-        "!mine — mine once (!m !dig)\n"
-        "!automine — timer auto mine\n"
+        "⛏️ Mining Help\n"
+        "!mine — mine once\n"
+        "!automine — normal auto\n"
+        "!automine luxe — Luxe time\n"
         "!automine off — stop\n"
-        "!mineluck — view luck stack\n"
-        "!orebook — ore collection\n"
-        "!lastminesummary\n"
-        "📩 DM !enabledm — inbox summaries"
+        "!mineluck — luck stack\n"
+        "!orebook — book\n"
+        "!lastminesummary"
     ),
     (
         "⛏️ Mining 2\n"

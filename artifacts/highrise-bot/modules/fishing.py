@@ -1152,17 +1152,20 @@ async def handle_fishchances(bot: BaseBot, user: User) -> None:
 async def handle_fishhelp(bot: BaseBot, user: User) -> None:
     """/fishhelp — fishing command reference."""
     await _w(bot, user.id,
-             "🎣 Fishing Commands\n"
+             "🎣 Fishing Help\n"
              "!fish — fish once\n"
-             "!autofish / !autofish off\n"
-             "!fishinv — fish inventory\n"
-             "!fishbook — fish discovery book\n"
-             "!topfishcollectors — top collectors\n"
-             "!lastfishsummary — last session\n"
-             "!fishchances  !myrod  !rods  !fishluck")
+             "!autofish — normal auto\n"
+             "!autofish luxe — Luxe time\n"
+             "!autofish off — stop\n"
+             "!fishluck — luck stack\n"
+             "!fishbook — book")
     await _w(bot, user.id,
-             "📩 DM me !enabledm to receive\n"
-             "auto-fishing summaries to your inbox.")
+             "🎣 Fishing 2\n"
+             "!fishinv  !sellfish\n"
+             "!myrod  !rods  !rodshop\n"
+             "!fishchances  !fishlist\n"
+             "!lastfishsummary\n"
+             "📩 !enabledm — inbox summaries")
     if can_manage_economy(user.username):
         await _w(bot, user.id,
                  "🎣 Fishing Admin\n"
