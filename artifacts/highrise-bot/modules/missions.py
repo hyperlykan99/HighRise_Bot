@@ -809,21 +809,27 @@ async def handle_today(bot: BaseBot, user: User, args: list) -> None:
     except Exception:
         streak = 0
 
-    # Active event
+    # Active event — check unified source (room + mining)
     try:
-        ev = db.get_active_event()
-        if ev:
-            ev_name = ev.get("event_name", "Active")
-            try:
-                import time as _time
-                ends_at = ev.get("ends_at") or 0
-                if ends_at:
-                    left    = max(0, int(ends_at - _time.time()))
-                    ev_str  = f"{ev_name} {left // 60}m"
-                else:
-                    ev_str = ev_name
-            except Exception:
-                ev_str = ev_name
+        from modules.events import _get_all_active_events, format_event_name
+        _active_evs = _get_all_active_events()
+        if _active_evs:
+            _ev = _active_evs[0]
+            _name = format_event_name(_ev["event_id"])
+            _ends = _ev.get("ends_at", "")
+            if _ends:
+                from datetime import datetime, timezone as _tz
+                try:
+                    _exp = datetime.fromisoformat(_ends)
+                    if _exp.tzinfo is None:
+                        _exp = _exp.replace(tzinfo=_tz.utc)
+                    _secs = max(0, int((_exp - datetime.now(_tz.utc)).total_seconds()))
+                    _m = _secs // 60
+                    ev_str = f"{_name} {_m}m left" if _m > 0 else _name
+                except Exception:
+                    ev_str = _name
+            else:
+                ev_str = _name
         else:
             ev_str = "none"
     except Exception:
@@ -992,11 +998,14 @@ async def handle_retentionadmin(bot: BaseBot, user: User, args: list) -> None:
 
     elif sub == "eventstatus":
         try:
-            ev = db.get_active_event()
-            if ev:
+            from modules.events import _get_all_active_events, format_event_name
+            _active_evs = _get_all_active_events()
+            if _active_evs:
+                _ev = _active_evs[0]
+                _name = format_event_name(_ev["event_id"])
                 await _w(bot, user.id,
-                         f"🎉 Active Event: {ev.get('event_name','?')}\n"
-                         f"Type: {ev.get('event_type','?')}")
+                         f"🎉 Active Event: {_name}\n"
+                         f"Source: {_ev.get('source','?')}")
             else:
                 await _w(bot, user.id, "No active event.")
         except Exception:

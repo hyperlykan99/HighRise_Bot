@@ -1,0 +1,303 @@
+UPDATE 3.2E HOTFIX — FIX !EVENTADMIN NO-HANDLER + UNIFY ACTIVE EVENT STATE
+
+Current live issues:
+1. !commandissues shows:
+   Issues: 1 no-handler
+   Example: !eventadmin
+
+2. !event next shows an active event:
+   Active now: Ultimate Mining Rush
+   Ends in: 27m
+
+3. !eventadmin stop says:
+   No active event to stop.
+
+4. !today/activity monitor shows raw event key:
+   Events: fish_value_surge
+
+Goal:
+Fix !eventadmin routing/handler and unify all event commands to use one active event source.
+
+Do not change tokens.
+Do not wipe data.
+Do not reset balances, VIP, tickets, inventory, casino, mining/fishing, events, missions, profiles, or player data.
+Do not change economy values.
+Do not change odds.
+Do not add HR Gold rewards.
+Do not add reward caps.
+
+==================================================
+PART 1 — FIX !EVENTADMIN NO-HANDLER
+==================================================
+
+!eventadmin must have:
+
+owner=ChillTopiaMC
+route=YES
+handler=YES
+permission=admin/owner
+
+Command:
+!eventadmin
+
+Expected:
+
+🎉 Event Admin
+!eventadmin status
+!eventadmin start [event] [min]
+!eventadmin stop
+!eventadmin schedule
+
+Do not leave !eventadmin visible if it has no handler.
+
+Run:
+!commandtest !eventadmin
+
+Expected:
+route=YES
+handler=YES
+
+==================================================
+PART 2 — UNIFY ACTIVE EVENT SOURCE
+==================================================
+
+Find all places that read active events:
+
+!events
+!event active
+!event next
+!eventadmin status
+!eventadmin stop
+!today
+!progress
+!eventmonitor
+event reminders
+event bonus/luck stack
+
+Make them all read from the same active event source.
+
+Preferred source:
+room_events table where status='active' and ends_at > now
+
+If there are legacy event systems:
+- migrate/read them into the shared active event helper
+- or ignore legacy active events after converting them
+- do not allow two active event sources to disagree
+
+Create shared helper:
+
+get_active_event()
+stop_active_event()
+get_next_event()
+format_event_name(event_key)
+
+Rules:
+- If !event next sees active event, !eventadmin stop must also see it.
+- If !eventadmin stop stops event, !event active and !event next must show none.
+- Event bonuses must be removed after stop.
+- No duplicate active events unless system intentionally supports multiple events.
+
+==================================================
+PART 3 — FIX !EVENTADMIN STOP
+==================================================
+
+Command:
+!eventadmin stop
+
+If any active event exists from any event source:
+
+✅ Event Stopped
+[Event Name] ended manually.
+
+Then:
+- mark event ended/stopped
+- remove active bonuses
+- prevent reminders from continuing
+- prevent !today from showing it active
+- prevent !event next from showing it active
+
+If no active event:
+
+⚠️ No active event to stop.
+
+Current bug:
+It says no active event while !event next shows active.
+Fix this.
+
+==================================================
+PART 4 — FIX RAW EVENT KEYS IN PLAYER OUTPUT
+==================================================
+
+Current bad output:
+Events: fish_value_surge
+
+Replace raw keys with friendly names.
+
+Examples:
+fish_value_surge -> Fishing Frenzy
+miningrush -> Mining Rush
+ultimate_mining_rush -> Ultimate Mining Rush
+fishingfrenzy -> Fishing Frenzy
+doublexp -> Double XP
+collectionhunt -> Collection Hunt
+casinonight -> Casino Night
+triviarush -> Trivia Rush
+
+If event key is unknown:
+show a cleaned friendly name:
+fish_value_surge -> Fish Value Surge
+
+But do not show underscores.
+
+==================================================
+PART 5 — EVENT TYPE SAFETY
+==================================================
+
+If “Fish Value Surge” changes fish sell values, do not change economy values in this hotfix.
+
+For now:
+- keep existing event behavior if already active
+- but do not add new value-changing event logic
+- do not increase sell values unless already designed
+- event wording should be clear
+
+If the event is only a name/display issue:
+rename it to Fishing Frenzy.
+
+Do not add HR Gold rewards.
+
+==================================================
+PART 6 — FIX EVENT NEXT LOGIC
+==================================================
+
+Command:
+!event next
+
+If active event exists:
+
+⏭️ Current Event
+🔥 Ultimate Mining Rush
+Ends in: 27m
+Next scheduled: use !event schedule
+
+Or if no active event:
+
+⏭️ Next Event
+🎣 Fishing Frenzy
+Starts: 7 PM
+In: 2h 15m
+
+Do not call active event “Next Event” if it is already active.
+Use “Current Event” or “Active now”.
+
+==================================================
+PART 7 — FIX !TODAY EVENT DISPLAY
+==================================================
+
+Current bad:
+Events: fish_value_surge
+
+Expected:
+
+Event: Fishing Frenzy 10m left
+
+or:
+
+Event: none
+
+If event is ending soon:
+show friendly message only once:
+⏰ Fishing Frenzy ends in 10m.
+
+Rules:
+- No raw keys.
+- No underscore names.
+- No spam.
+
+==================================================
+PART 8 — TESTS
+==================================================
+
+Run:
+
+!commandtest !eventadmin
+!commandissues
+
+Expected:
+- !eventadmin no longer no-handler
+- commandissues clean
+
+Run event state test:
+
+!eventadmin status
+!event active
+!event next
+!today
+
+Expected:
+- all agree on active event
+- friendly event names
+
+Run stop test:
+
+!eventadmin stop
+!event active
+!event next
+!today
+!mineluck
+!fishluck
+
+Expected:
+- event stopped
+- no active event shown
+- event bonus removed
+- no raw event keys
+
+Start test:
+
+!eventadmin start miningrush 10
+!event active
+!event next
+!today
+!mineluck
+!eventadmin stop
+
+Expected:
+- event starts
+- all commands show same active event
+- stop works
+
+==================================================
+PART 9 — FINAL QA
+==================================================
+
+Run:
+
+!commandissues
+!checkcommands all
+!checkhelp
+!currencycheck
+!launchblockers
+!finalaudit
+!launchcheck
+
+Expected:
+- command issues: 0
+- no eventadmin no-handler
+- no raw event keys
+- no old c/credits/gems
+- launchcheck clean
+
+==================================================
+PART 10 — FINAL REPORT
+==================================================
+
+Report:
+1. !eventadmin handler fixed.
+2. Active event source unified.
+3. !eventadmin stop now stops active events.
+4. !event next no longer mislabels active events.
+5. Raw event keys fixed in !today/monitor.
+6. Event bonuses removed correctly after stop.
+7. !commandissues result.
+8. !launchcheck result.

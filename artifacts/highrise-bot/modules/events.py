@@ -889,8 +889,8 @@ async def handle_nextevent(bot: BaseBot, user: User) -> None:
         ev   = active[0]
         left = _time_remaining(ev["ends_at"]) if ev["ends_at"] else "?"
         await _w(bot, user.id, (
-            f"⏭️ Next Event\n"
-            f"Active now: {ev.get('emoji','🎪')} {ev['name']}\n"
+            f"⏭️ Current Event\n"
+            f"{ev.get('emoji','🎪')} {ev['name']}\n"
             f"Ends in: {left}\n"
             f"!event schedule for upcoming."
         )[:249])
@@ -979,6 +979,24 @@ _FRIENDLY_INPUT_MAP: dict[str, str] = {
     "prismatictide":   "prismatic_tide",
     "exotictide":      "exotic_tide",
 }
+
+
+def format_event_name(event_id: str) -> str:
+    """
+    Convert a raw event_id key to a friendly display name.
+    Falls back to title-casing the key with underscores removed.
+    Never returns a raw underscore key.
+    """
+    if not event_id:
+        return "Event"
+    name = EVENTS.get(event_id, {}).get("name", "")
+    if name:
+        return name
+    name = _SHORT_DISPLAY.get(event_id, "")
+    if name:
+        return name
+    # Clean the key: replace underscores with spaces and title-case
+    return event_id.replace("_", " ").title()
 
 
 def _resolve_friendly_event(arg: str) -> str | None:
@@ -1119,7 +1137,8 @@ async def handle_eventadmin(
         return
 
     if sub == "stop":
-        await handle_stopevent(bot, user, args)
+        # Pass only the command name so handle_stopevent defaults target to "all"
+        await handle_stopevent(bot, user, [args[0]])
         return
 
     if sub == "schedule":

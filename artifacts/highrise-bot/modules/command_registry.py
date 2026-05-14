@@ -336,6 +336,7 @@ REGISTRY: dict[str, Cmd] = {
     "eventpoints":      Cmd("eventhost","events",True, True, False),
     "eventshop":        Cmd("eventhost","events",False,True, False),
     "buyevent":         Cmd("eventhost","events",False,False,True),
+    "eventadmin":       Cmd("eventhost","events",False,False,True, perm="manager"),
     "startevent":       Cmd("eventhost","events",False,False,True, perm="manager"),
     "stopevent":        Cmd("eventhost","events",False,False,True, perm="manager"),
     "stopae":           Cmd("eventhost","events",False,False,True, perm="manager"),
