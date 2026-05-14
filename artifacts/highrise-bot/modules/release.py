@@ -107,12 +107,27 @@ def _check_blockers() -> tuple[int, list[str]]:
         blockers.append(f"Critical bugs: {crit}")
     if _get("maintenance_mode", "off") == "on":
         blockers.append("Maintenance mode: ON")
+    backup_ok = _qi("SELECT COUNT(*) FROM release_backups WHERE verified=1") > 0
+    if not backup_ok:
+        blockers.append("Backup: missing or unverified")
     try:
         from modules.cmd_audit import ROUTED_COMMANDS
         import main as _m
         missing = len(_m.ALL_KNOWN_COMMANDS - ROUTED_COMMANDS)
         if missing > 0:
             blockers.append(f"Unrouted commands: {missing}")
+    except Exception:
+        pass
+    try:
+        import sys, importlib
+        from modules.command_registry import get_entry as _reg_get
+        from modules.cmd_audit import HIDDEN_CMDS as _HC, DEPRECATED_CMDS as _DC
+        _main = sys.modules.get("__main__") or importlib.import_module("__main__")
+        _all_known = getattr(_main, "ALL_KNOWN_COMMANDS", set())
+        _active = _all_known - (_HC & _all_known) - (_DC & _all_known)
+        no_handler = [c for c in _active if _reg_get(c) is None]
+        if no_handler:
+            blockers.append(f"No-handler cmds: {len(no_handler)} ({', '.join(sorted(no_handler)[:3])})")
     except Exception:
         pass
     return len(blockers), blockers
@@ -347,20 +362,27 @@ async def handle_backup(bot: "BaseBot", user: "User", args: list[str]) -> None:
             dest = os.path.join(_BACKUP_DIR, f"{name}.db")
             src  = _db_path()
             import sqlite3 as _sq
-            with _sq.connect(src) as src_c, _sq.connect(dest) as dst_c:
+            src_c = _sq.connect(src)
+            dst_c = _sq.connect(dest)
+            try:
                 src_c.backup(dst_c)
+            finally:
+                dst_c.close()
+                src_c.close()
+            verified = 1 if (os.path.isfile(dest) and os.path.getsize(dest) > 0) else 0
             tables = _count_tables()
             conn = db.get_connection()
             conn.execute(
                 "INSERT OR IGNORE INTO release_backups "
                 "(backup_name, backup_path, created_by, verified, details_json) "
-                "VALUES (?,?,?,0,?)",
-                (name, dest, user.username, json.dumps({"tables": tables})),
+                "VALUES (?,?,?,?,?)",
+                (name, dest, user.username, verified, json.dumps({"tables": tables})),
             )
             conn.commit()
             conn.close()
+            status = "verified ✅" if verified else "unverified ⚠️"
             await _w(bot, user.id,
-                     f"💾 Backup Created\nName: {name}\nTables: {tables}\nStatus: OK")
+                     f"💾 Backup Created\nName: {name}\nTables: {tables}\nStatus: {status}")
         except Exception as e:
             await _w(bot, user.id, f"⚠️ Backup failed: {str(e)[:80]}")
 
@@ -506,7 +528,7 @@ async def handle_ownerchecklist(bot: "BaseBot", user: "User", args: list[str]) -
         f"{chk(eco_locked)} Economy: {'locked' if eco_locked else 'unlocked'}\n"
         f"{chk(reg_locked)} Registry: {'locked' if reg_locked else 'unlocked'}",
     )
-    ready = bl_ct == 0 and crit == 0 and maint_off
+    ready = bl_ct == 0 and crit == 0 and maint_off and backup_ok
     await _w(
         bot, user.id,
         f"{chk(prod_on)} Production: {'ON' if prod_on else 'OFF'}\n"

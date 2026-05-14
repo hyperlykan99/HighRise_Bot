@@ -1,0 +1,322 @@
+UPDATE 3.1S HOTFIX — FIX BACKUP STATUS SYNC + !NEWBIE NO-HANDLER + STRICT PRODUCTION READINESS
+
+Current live issues:
+1. !backup create works:
+   Backup Created
+   Name: v3.2_rc_20260514_042851
+   Tables: 201
+   Status: OK
+
+But !ownerchecklist still says:
+⚠️ Backup: MISSING
+
+2. !commandissues shows:
+Issues: 1 no-handler
+Example: !newbie
+
+3. Production says:
+Production: ON
+Critical bugs: 0
+Ready: YES
+
+But this is wrong if:
+- backup is missing in checklist
+- commandissues exists
+- !newbie has no handler
+
+Goal:
+Fix backup status detection, fix/hide !newbie, and make production readiness strict.
+
+Do not change tokens.
+Do not wipe data.
+Do not reset balances, tickets, VIP, badges, casino, mining/fishing, market, missions, profiles, seasons, analytics, or player data.
+Do not change economy.
+Do not re-add reward caps.
+
+==================================================
+PART 1 — FIX BACKUP STATUS SYNC
+==================================================
+
+Backup creation works but owner checklist does not see it.
+
+Find why !ownerchecklist reads Backup: MISSING.
+
+Likely causes:
+- !backup create saves to release_backups but !ownerchecklist checks different table/key
+- backup verified field not set correctly
+- backup status command looks for latest backup by wrong name/path
+- backup created but not inserted into release_backups
+- backup created with Status: OK but verified=0
+- owner checklist checks backup_status setting instead of release_backups
+
+Fix so all these commands read the same source:
+
+!backup status
+!backup list
+!backup verify
+!ownerchecklist
+!releasedash
+!finalaudit
+!launchblockers
+!production on
+
+Expected after fix:
+
+!ownerchecklist
+
+👑 Owner Launch Checklist
+✅ Backup: OK
+✅ Launch blockers: 0
+✅ Maintenance: OFF
+✅ Economy: locked
+✅ Registry: locked
+
+Backup should be OK if:
+- at least one backup exists
+- backup file/path exists OR JSON export exists
+- verified = 1 OR Status: OK from create command
+
+==================================================
+PART 2 — SET BACKUP VERIFIED AFTER CREATE
+==================================================
+
+When !backup create succeeds:
+
+- insert row into release_backups
+- backup_name = created backup name
+- backup_path = saved path
+- verified = 1 if file exists and size > 0 or JSON export succeeded
+- details_json includes table count
+
+Expected:
+!backup create
+💾 Backup Created
+Name: v3.2_rc_...
+Tables: 201
+Status: OK
+
+Then:
+!backup status
+💾 Backup Status
+Latest: v3.2_rc_...
+Verified: YES
+
+Then:
+!ownerchecklist
+✅ Backup: OK
+
+==================================================
+PART 3 — FIX !NEWBIE NO-HANDLER
+==================================================
+
+!commandissues shows:
+!newbie = no-handler
+
+Decide one:
+
+Option A — preferred:
+Make !newbie an alias to !start or !quickstart.
+
+Expected:
+!newbie
+
+🌟 Quick Start
+1. !profile
+2. !missions
+3. !mine
+4. !fish
+5. !guide
+
+or:
+starts beginner guide/tutorial.
+
+Registry:
+!newbie
+owner=ChillTopiaMC
+route=YES
+handler=YES
+alias_of=start or quickstart
+
+Option B:
+If !newbie is not needed:
+- mark hidden=true
+- mark deprecated=true
+- remove from public help
+- remove from commandissues count
+- remove from launch blockers
+
+Do not leave !newbie visible with no handler.
+
+==================================================
+PART 4 — STRICT PRODUCTION READINESS
+==================================================
+
+Production readiness must not say Ready: YES if any blocker exists.
+
+Production Ready requires all:
+
+✅ Backup: OK
+✅ Launch blockers: 0
+✅ Command issues: 0
+✅ Currencycheck clean
+✅ Checkhelp clean
+✅ Maintenance OFF
+✅ Critical bugs: 0
+✅ Bothealth OK
+✅ Stability OK
+✅ Economy locked
+✅ Registry locked
+
+If any fail:
+
+Production can be ON if already enabled, but Ready must show:
+Ready: NO ⚠️
+
+If trying to enable production with blockers:
+⚠️ Cannot enable production.
+Fix:
+- Backup status
+- Command issues
+- Currency issues
+- Help issues
+Use !launchblockers.
+
+==================================================
+PART 5 — LAUNCHBLOCKERS SHOULD INCLUDE BACKUP + COMMANDISSUES
+==================================================
+
+Update !launchblockers to include:
+
+- missing backup
+- commandissues count
+- no-handler commands
+- no-route commands
+- no-owner commands
+- currency issues
+- help issues
+- maintenance ON
+- critical bugs
+
+Expected if !newbie still broken:
+
+🚧 Launch Blockers
+Command issues: 1
+1. !newbie — no handler
+Ready: NO
+
+Expected after fix:
+
+🚧 Launch Blockers
+No blockers.
+Ready: YES ✅
+
+==================================================
+PART 6 — OWNER CHECKLIST MUST NOT SHOW FALSE MISSING
+==================================================
+
+After successful backup:
+
+!ownerchecklist must not show Backup: MISSING.
+
+Expected:
+
+👑 Owner Launch Checklist
+✅ Backup: OK
+✅ Launch blockers: 0
+✅ Maintenance: OFF
+✅ Economy: locked
+✅ Registry: locked
+
+Second message if needed:
+
+✅ Production: ON
+✅ Critical bugs: 0
+Ready: YES ✅
+
+Only show Ready YES if all checks pass.
+
+==================================================
+PART 7 — TESTS
+==================================================
+
+Run:
+
+!backup status
+!backup list
+!backup verify
+!ownerchecklist
+
+Expected:
+- latest backup found
+- verified YES
+- owner checklist says Backup OK
+
+Run:
+
+!commandtest !newbie
+!newbie
+!commandissues
+
+Expected:
+- !newbie route=YES handler=YES
+- or hidden/deprecated and not counted
+- commandissues clean
+
+Run:
+
+!launchblockers
+!releasedash
+!finalaudit
+!production status
+
+Expected:
+- no false Ready YES
+- backup status correct
+- commandissues included if any
+- Ready YES only when clean
+
+==================================================
+PART 8 — FINAL QA
+==================================================
+
+Run:
+
+!backup status
+!ownerchecklist
+!commandtest !newbie
+!commandissues
+!checkcommands all
+!checkhelp
+!currencycheck
+!launchblockers
+!releasedash
+!finalaudit
+!production status
+!launchcheck
+!bothealth
+!stability status
+
+Expected:
+- Backup OK
+- !newbie fixed or hidden
+- Command issues: 0
+- Launch blockers: 0
+- Ready: YES
+- Production readiness accurate
+- Launchcheck clean
+
+==================================================
+PART 9 — FINAL REPORT
+==================================================
+
+Report:
+1. Why backup showed missing after create.
+2. Backup status sync fixed.
+3. release_backups verified field fixed.
+4. !backup status result.
+5. !ownerchecklist result.
+6. !newbie fixed as alias or hidden.
+7. !commandissues result.
+8. Strict production readiness fixed.
+9. !launchblockers result.
+10. !launchcheck result.

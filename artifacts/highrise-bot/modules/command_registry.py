@@ -1317,8 +1317,8 @@ REGISTRY: dict[str, Cmd] = {
     "start":      Cmd("host", "help", True, True, False),
     "guide":      Cmd("host", "help", True, True, False,
                       aliases=("whatdoido",)),
-    "new":        Cmd("host", "help", True, True, False,
-                      aliases=("newbie",)),
+    "new":        Cmd("host", "help", True, True, False),
+    "newbie":     Cmd("host", "help", True, True, False),
     "activities": Cmd("host", "help", True, True, False),
     "roominfo":   Cmd("host", "help", True, True, False),
 
