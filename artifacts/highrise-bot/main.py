@@ -877,6 +877,8 @@ ADMIN_ONLY_CMDS = {
     "missingcommands", "routecheck", "silentcheck", "commandtest",
     "fixcommands", "testcommands",
     "commandintegrity", "commandrepair", "commandissues", "launchcheck",
+    "currencycheck",
+    "commandtestall", "ctall", "commandtestgroup", "ctgroup",
     # ── Economy settings ─────────────────────────────────────────────────────
     "setdailycoins", "setgamereward", "settransferfee",
     # ── Event aliases ────────────────────────────────────────────────────────

@@ -1,0 +1,297 @@
+UPDATE 3.1P HOTFIX — FIX !CURRENCYCHECK LIVE DISPATCHER EXECUTION
+
+Current live issue:
+!commandtest !currencycheck says:
+
+owner=ChillTopiaMC
+route=YES
+handler=YES
+
+But when I type:
+
+!currencycheck
+
+The bot replies:
+
+⚠️ Unknown command.
+
+This means !currencycheck exists in command metadata/commandtest registry, but it is NOT wired into the live command dispatcher/router that handles real chat messages.
+
+Goal:
+Make !currencycheck actually execute when typed in chat.
+
+Do not change tokens.
+Do not wipe data.
+Do not reset balances.
+Do not change economy values.
+Do not change game odds.
+Do not re-add reward caps.
+
+==================================================
+PART 1 — FIX LIVE ROUTER, NOT ONLY COMMANDTEST
+==================================================
+
+Find the actual live message handler/dispatcher for ChillTopiaMC.
+
+The command must be added to the same live dispatch path as commands like:
+!commandtest
+!commandissues
+!checkcommands
+!checkhelp
+!launchcheck
+
+Do not only add to:
+- metadata registry
+- commandtest registry
+- help registry
+- documentation list
+
+Add it to the actual command execution map/switch/router.
+
+Expected:
+Typing !currencycheck should call the real currencycheck handler.
+
+==================================================
+PART 2 — CHECK COMMAND NORMALIZATION
+==================================================
+
+Make sure command parsing normalizes correctly:
+
+Input:
+!currencycheck
+
+Should parse as:
+command = currencycheck
+args = []
+
+Input:
+!currencycheck details
+
+Should parse as:
+command = currencycheck
+args = ["details"]
+
+Also support:
+!currency check
+
+Optional alias:
+!currencyaudit
+
+If aliases are added, register them too.
+
+==================================================
+PART 3 — PREVENT UNKNOWN COMMAND AFTER HANDLER
+==================================================
+
+If !currencycheck executes successfully, the bot must NOT also send:
+
+⚠️ Unknown command.
+
+Possible bug:
+The handler runs but dispatcher continues to unknown fallback.
+
+Fix:
+When currencycheck handler matches, return/stop propagation.
+
+Expected:
+Only currencycheck output appears.
+
+==================================================
+PART 4 — CURRENCYCHECK HANDLER OUTPUT
+==================================================
+
+Command:
+!currencycheck
+
+Owner/Admin only.
+
+Expected:
+
+💰 Currency Check
+🪙 ChillCoins: OK
+🎫 Luxe Tickets: OK
+Old “c”: [count]
+Old “credits”: [count]
+Old “gems”: [count]
+
+If there are issues:
+
+Use:
+!currencycheck details
+
+Command:
+!currencycheck details
+
+Expected:
+
+🔎 Currency Issues
+1. blackjack: “100c”
+2. poker: “pot 500c”
+3. trivia: “reward 500c”
+
+If no issues:
+
+✅ No old currency text found.
+
+==================================================
+PART 5 — FIX PERMISSION WITHOUT BREAKING OWNER
+==================================================
+
+Since I am owner, !currencycheck must run for me.
+
+Permission:
+Owner/Admin only.
+
+If normal player uses:
+🔒 Owner/Admin only.
+
+Do not return Unknown command for permission failure.
+Use permission message instead.
+
+==================================================
+PART 6 — FIX ALL OLD GAME CURRENCY TEXT TOO
+==================================================
+
+All games still show old “c” currency.
+
+Create/use shared formatters:
+
+format_chillcoins(amount)
+returns:
+1,000 🪙
+
+format_luxe(amount)
+returns:
+100 🎫
+
+Replace all player-facing old format:
+
+100c
+500c
+10,000c
+credits
+
+With:
+
+100 🪙
+500 🪙
+10,000 🪙
+
+Fix player-facing text in:
+- blackjack
+- poker
+- trivia
+- mining
+- fishing
+- missions
+- daily/streak
+- shop
+- Luxe shop
+- market
+- badge shop
+- audit
+- economy dashboards
+- safety dashboards
+- help/guide text
+
+Do not replace Highrise Gold text.
+Keep:
+100 Gold
+verified Gold tip
+
+==================================================
+PART 7 — BLACKJACK MUST USE 🪙
+==================================================
+
+Fix blackjack messages:
+
+Old:
+joined BlackJack with 10,000c
+Max Bet: 10,000c
+You won 25,000c
+
+New:
+joined BlackJack with 10,000 🪙
+Max Bet: 10,000 🪙
+You won 25,000 🪙
+
+Do not change blackjack math.
+
+==================================================
+PART 8 — TESTS
+==================================================
+
+Run:
+
+!commandtest !currencycheck
+!currencycheck
+!currencycheck details
+
+Expected:
+- commandtest says route=YES handler=YES
+- !currencycheck executes
+- no Unknown command
+- details works
+
+Then test old currency outputs:
+
+!bjrules
+!bjadmin settings
+!bet 100
+!mine
+!fish
+!balance
+!audit @4ktreyMarion
+!missions
+!luxeshop
+
+Expected:
+- no “c”
+- no “credits”
+- ChillCoins show 🪙
+- Luxe Tickets show 🎫
+- Highrise Gold still says Gold
+
+==================================================
+PART 9 — FINAL QA
+==================================================
+
+Run:
+
+!commandissues
+!checkcommands
+!checkhelp
+!currencycheck
+!currencycheck details
+!launchcheck
+!bothealth
+!stability status
+
+Expected:
+- !currencycheck works live
+- no Unknown command
+- no route issue
+- no handler issue
+- old game currency text fixed
+- launchcheck clean
+
+==================================================
+PART 10 — FINAL REPORT
+==================================================
+
+Report:
+1. !currencycheck was added to live dispatcher.
+2. !currencycheck no longer returns Unknown command.
+3. !currencycheck details works.
+4. Permission check works.
+5. Unknown fallback no longer triggers after handler.
+6. Shared currency formatter added.
+7. Blackjack currency text fixed.
+8. Poker currency text fixed.
+9. Trivia currency text fixed.
+10. Mining/fishing currency text fixed.
+11. Mission/daily/shop/audit currency text fixed.
+12. Highrise Gold wording preserved.
+13. !commandtest !currencycheck result.
+14. !currencycheck result.
+15. !launchcheck result.
