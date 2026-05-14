@@ -74,8 +74,9 @@ from modules.ai_intent_router import (
     # 3.3B identity + translation intents
     INTENT_USER_NAME, INTENT_USER_ROLE, INTENT_TRANSLATION,
 )
-from modules.ai_translation import get_translation
-from modules.ai_live_router import handle_live_question, is_live_question, detect_live_type
+from modules.ai_translation  import get_translation
+from modules.ai_live_router  import handle_live_question, is_live_question, detect_live_type
+from modules.ai_llm_fallback import try_llm_answer, llm_status
 from modules.ai_global_time      import get_global_time_reply
 from modules.ai_global_holidays  import get_global_holiday_reply
 from modules.ai_global_knowledge import handle_global_question
@@ -474,13 +475,24 @@ async def _handle_translation(bot, user, text):
     await _send(bot, user, reply[:249], "general")
 
 
-async def _handle_unknown(bot, user, text=""):
+async def _handle_unknown(bot, user, text="", intent=None, perm=0):
+    # 1. Try rule-based global knowledge first
     if text:
         answer = handle_global_question(text, INTENT_RW_UNKNOWN)
         skip   = ("💬 I'm not sure", "🤔 I don't have", "I can answer")
         if answer and not any(s in answer for s in skip):
             await _send(bot, user, answer[:249], "general")
             return
+
+    # 2. Try OpenAI LLM fallback (costs 1 🎫 Luxe Ticket on success)
+    if text and intent is not None:
+        print(f"[AI LLM] local failed — trying LLM for intent={intent!r} query={text[:60]!r}")
+        llm_reply = await try_llm_answer(user, text, intent, perm)
+        if llm_reply:
+            await _send(bot, user, llm_reply[:249], "general")
+            return
+
+    # 3. Canned fallback — nothing could answer
     await _send(
         bot, user,
         "I'm not sure yet, but I can still try. "
@@ -545,7 +557,7 @@ async def _dispatch(
                 kl, priv = "staff", True
             await _send(bot, user, answer[:249], "general", kl, priv)
         else:
-            await _handle_unknown(bot, user, text)
+            await _handle_unknown(bot, user, text, intent, perm)
 
 
 # ── Main entry point ──────────────────────────────────────────────────────────
