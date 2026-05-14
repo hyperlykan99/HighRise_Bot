@@ -1,0 +1,173 @@
+Fix Jail Setup Commands — Real Routing Not Just Commandtest
+
+Current issue:
+!commandtest !setjailspot shows:
+owner=KeanuShield
+host_handles=false
+route=YES
+handler=YES
+
+But typing:
+!setjailspot
+
+does not save the jail spot and does not reply.
+
+Root cause:
+Commandtest only checks audit metadata/registry, not actual execution.
+multi_bot.py blocks host from handling security-owned commands because security is in _HARD_OWNER_MODES.
+
+Goal:
+KeanuShield/security should own the jail system, but ChillTopiaMC/host must be allowed to run jail setup commands as owner/admin override.
+
+Security bot:
+KeanuShield
+BOT_MODE=security
+
+Keep owner:
+Jail commands owner should remain security/KeanuShield.
+
+Do NOT change owner to ChillTopiaMC.
+
+Add a special whitelist in modules/multi_bot.py:
+
+_JAIL_SETUP_HOST_OVERRIDE_CMDS = frozenset({
+    "setjailspot",
+    "setjailguardspot",
+    "setsecurityidle",
+    "setjailreleasespot",
+    "jaildebug",
+    "jailadmin",
+})
+
+Then in should_this_bot_handle(cmd), add this BEFORE the hard-owner block:
+
+if mode in ("host", "all") and owner_mode == "security" and cmd in _JAIL_SETUP_HOST_OVERRIDE_CMDS:
+    return True
+
+Important:
+This must happen before:
+
+if mode in ("host", "eventhost") and owner_mode in _HARD_OWNER_MODES:
+    return False
+
+Runtime jail commands should NOT use host override:
+- jail
+- bail
+- unjail
+- jailrelease
+- jailactive
+- jailstatus
+- jailtime
+- jailconfirm
+- jailcancel
+
+Those should stay owned by KeanuShield/security.
+
+Also update /commandtest display:
+For setup commands, expected:
+owner=KeanuShield
+host_handles=true
+security_handles=true
+route=YES
+handler=YES
+
+For runtime:
+!commandtest !jail
+Expected:
+owner=KeanuShield
+host_handles=false
+security_handles=true
+route=YES
+handler=YES
+
+Second fix:
+Verify main.py actually has real on_chat routing branches for:
+
+!setjailspot
+!setjailguardspot
+!setsecurityidle
+!setjailreleasespot
+!jaildebug
+!jailadmin
+
+They must call:
+handle_setjailspot(bot, user, args)
+handle_setjailguardspot(bot, user, args)
+handle_setsecurityidle(bot, user, args)
+handle_setjailreleasespot(bot, user, args)
+handle_jaildebug(bot, user, args)
+handle_jailadmin(bot, user, args)
+
+If these branches are missing, add them to the real command dispatcher.
+
+Do not rely only on command_registry or ROUTED_COMMANDS.
+
+Add debug logs in main.py before calling handlers:
+
+[JAIL ROUTE] cmd=setjailspot bot_mode=host allowed=true calling=handle_setjailspot
+[JAIL ROUTE] cmd=setjailguardspot bot_mode=host allowed=true calling=handle_setjailguardspot
+[JAIL ROUTE] cmd=setsecurityidle bot_mode=host allowed=true calling=handle_setsecurityidle
+[JAIL ROUTE] cmd=setjailreleasespot bot_mode=host allowed=true calling=handle_setjailreleasespot
+
+Test:
+
+1. Restart bot.
+2. Run:
+!commandtest !setjailspot
+
+Expected:
+owner=KeanuShield
+host_handles=true
+security_handles=true
+route=YES
+handler=YES
+
+3. Stand in jail and run:
+!setjailspot
+
+Expected:
+✅ Jail spot saved.
+
+4. Stand at guard spot and run:
+!setjailguardspot
+
+Expected:
+✅ Jail guard spot saved.
+
+5. Stand at idle spot and run:
+!setsecurityidle
+
+Expected:
+✅ KeanuShield idle spot saved.
+
+6. Stand at release spot and run:
+!setjailreleasespot
+
+Expected:
+✅ Jail release spot saved.
+
+7. Run:
+!jaildebug
+
+Expected:
+jail ✅
+jail_guard ✅
+security_idle ✅
+jail_release ✅
+
+8. Runtime ownership:
+!commandtest !jail
+
+Expected:
+owner=KeanuShield
+host_handles=false
+security_handles=true
+route=YES
+handler=YES
+
+Final report:
+1. multi_bot.py special override added before hard-owner block
+2. main.py real handler branches verified/added
+3. commandtest setup result
+4. actual !setjailspot save result
+5. !jaildebug result

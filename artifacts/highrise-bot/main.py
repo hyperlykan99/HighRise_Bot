@@ -3499,6 +3499,7 @@ class HangoutBot(BaseBot):
             elif cmd in ("unjail", "jailrelease"):
                 await handle_unjail(self, user, args)
             elif cmd == "jailadmin":
+                import os as _os; print(f"[JAIL ROUTE] cmd=jailadmin bot_mode={_os.getenv('BOT_MODE','?')} allowed=true calling=handle_jailadmin")
                 await handle_jailadmin(self, user, args)
             elif cmd == "jailactive":
                 await handle_jailactive(self, user, args)
@@ -3513,14 +3514,19 @@ class HangoutBot(BaseBot):
             elif cmd == "jailprotectstaff":
                 await handle_jailprotectstaff(self, user, args)
             elif cmd == "jaildebug":
+                import os as _os; print(f"[JAIL ROUTE] cmd=jaildebug bot_mode={_os.getenv('BOT_MODE','?')} allowed=true calling=handle_jaildebug")
                 await handle_jaildebug(self, user, args)
             elif cmd == "setjailspot":
+                import os as _os; print(f"[JAIL ROUTE] cmd=setjailspot bot_mode={_os.getenv('BOT_MODE','?')} allowed=true calling=handle_setjailspot")
                 await handle_setjailspot(self, user, args)
             elif cmd == "setjailguardspot":
+                import os as _os; print(f"[JAIL ROUTE] cmd=setjailguardspot bot_mode={_os.getenv('BOT_MODE','?')} allowed=true calling=handle_setjailguardspot")
                 await handle_setjailguardspot(self, user, args)
             elif cmd == "setsecurityidle":
+                import os as _os; print(f"[JAIL ROUTE] cmd=setsecurityidle bot_mode={_os.getenv('BOT_MODE','?')} allowed=true calling=handle_setsecurityidle")
                 await handle_setsecurityidle(self, user, args)
             elif cmd == "setjailreleasespot":
+                import os as _os; print(f"[JAIL ROUTE] cmd=setjailreleasespot bot_mode={_os.getenv('BOT_MODE','?')} allowed=true calling=handle_setjailreleasespot")
                 await handle_setjailreleasespot(self, user, args)
             elif cmd == "setrules":
                 await handle_setrules(self, user, args)

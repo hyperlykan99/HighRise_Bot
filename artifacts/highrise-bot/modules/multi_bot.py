@@ -937,6 +937,16 @@ _HARD_OWNER_MODES: frozenset[str] = frozenset({
     "shopkeeper", "security", "dj",
 })
 
+# Jail setup/admin commands that host is explicitly allowed to run even though
+# security (KeanuShield) owns the jail module.  These only save room positions
+# or show debug info — no economy side-effects — so host running them is safe.
+_JAIL_SETUP_HOST_OVERRIDE_CMDS: frozenset[str] = frozenset({
+    "setjailspot", "setjailguardspot", "setsecurityidle", "setjailreleasespot",
+    "jaildebug", "jailadmin",
+    "jailsetcost", "jailsetmax", "jailsetmin",
+    "jailsetbailmultiplier", "jailprotectstaff",
+})
+
 # Audit/status commands that eventhost may cover when host is offline.
 # host and eventhost share a Highrise account (multilogin alternates them),
 # so exactly one is in the room at any time.
@@ -1305,6 +1315,11 @@ def should_this_bot_handle(cmd: str) -> bool:
     # Combined-mode process: this subprocess covers an extra merged mode because
     # it shares a Highrise account with another bot (deduplicated by bot.py).
     if BOT_EXTRA_MODES and owner_mode in BOT_EXTRA_MODES:
+        return True
+
+    # Jail setup/admin override — host may always run these even though security owns jail.
+    # Must be checked BEFORE the hard-owner block so the hard-owner gate doesn't fire.
+    if mode in ("host", "all") and owner_mode == "security" and cmd in _JAIL_SETUP_HOST_OVERRIDE_CMDS:
         return True
 
     # Hard owners — host/eventhost must NEVER respond to these, regardless of heartbeat.
