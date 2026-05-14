@@ -1,0 +1,487 @@
+Update ChillTopiaMC AI — OpenAI Intent Parser + Local Command Executor + Teleport Fix + AI Cost Preview
+
+Goal:
+Use OpenAI for understanding natural language, but use the local bot for doing commands safely.
+
+Architecture:
+OpenAI = intent parser / natural language understanding
+Local bot = permissions, command whitelist, confirmations, billing, command execution
+
+Do not let OpenAI directly edit database or execute commands.
+Do not trust OpenAI output blindly.
+OpenAI should return structured intent JSON.
+Local code validates everything.
+
+Main trigger:
+ai
+
+Examples:
+- ai tele me to mod
+- ai take me to bar
+- ai teleport Claire to vip
+- ai show my balance
+- ai mine for me
+- ai buy item 2
+- ai explain quantum physics like im 10
+- ai set VIP price to 600 tickets
+
+Part 1 — OpenAI Intent Parser
+
+Create/update:
+- ai_openai_intent.py
+- ai_command_router.py
+- ai_command_validator.py
+- ai_command_executor.py
+- ai_luxe_billing.py
+- ai_cost_preview.py
+
+Flow:
+1. Detect ai trigger
+2. Strip trigger
+3. Check host lock
+4. Check safety/prompt injection locally
+5. Resolve user role locally
+6. Try exact local fast path
+7. If fast path fails, send message to OpenAI intent parser
+8. OpenAI returns strict JSON only
+9. Local bot validates JSON
+10. If command:
+    - check whitelist
+    - check permission
+    - check safety
+    - check confirmation requirement
+    - execute local command handler
+11. If general answer:
+    - show AI cost preview if needed
+    - check Luxe Tickets
+    - call OpenAI answer mode
+    - deduct only after successful answer
+12. Reply public/whisper based on reply mode
+
+OpenAI intent JSON format:
+{
+  "type": "command" | "answer" | "clarify" | "refuse",
+  "intent": "string",
+  "command": "string or null",
+  "args": [],
+  "target_user": "self or username or null",
+  "target_location": "string or null",
+  "risk": "low|medium|high|blocked",
+  "needs_confirmation": true|false,
+  "confidence": 0.0,
+  "reply": "short reply under 249 chars"
+}
+
+Important:
+- Do not eval OpenAI output.
+- Do not exec OpenAI output.
+- Do not run shell commands.
+- Only use whitelisted commands.
+- Never expose secrets, API keys, tokens, database dumps, or private player info.
+
+Part 2 — Command Whitelist
+
+Player commands:
+- balance
+- tickets
+- profile
+- daily
+- missions
+- mine
+- fish
+- events
+- nextevent
+- shop
+- luxeshop
+- tele_self
+- tele_other_to_saved_spot only if permission allows
+- buy
+- buyvip
+
+Staff commands:
+- warn
+- mute
+- reports
+- bugs
+- rolecheck
+- permissioncheck
+
+Admin/Owner commands:
+- startevent
+- stopevent
+- setvipprice
+- setaireplymode
+- seteventduration
+- setgameprice
+
+Owner-only:
+- backup
+- restartbot
+- economy settings
+- casino limits
+
+Blocked:
+- reveal token
+- show API key
+- reveal database
+- wipe data
+- reset economy
+- make me owner
+- bypass permission
+- direct SQL
+- mass ban all
+- unlimited currency
+- secretly change odds
+
+Part 3 — Teleport Command Fix
+
+Current issue:
+Using:
+!tele @user [saved teleport]
+
+does not work correctly.
+It teleports me to the user instead.
+
+Required:
+Separate teleport intents clearly.
+
+Teleport self to saved spot:
+- !tele mod
+- !tele bar
+- !tele vip
+- ai tele me to mod
+- ai teleport me to bar
+- ai take me to vip
+
+Meaning:
+Current user goes to saved teleport spot.
+
+Teleport another player to saved spot:
+- !tele @username mod
+- !tele username mod
+- ai teleport Claire to mod
+- ai send Claire to vip
+- ai move Claire to bar
+
+Meaning:
+Target player goes to saved teleport spot.
+
+Go to another user:
+- !goto @username
+- ai go to Claire
+- ai teleport me to Claire
+
+Meaning:
+Current user goes to that user.
+
+Bring user to me:
+- !bring @username
+- !tphere @username
+- ai bring Claire to me
+
+Meaning:
+Target user comes to current user's position.
+
+Important parsing rule:
+If command is:
+!tele @username mod
+
+Then:
+target_user = username
+target_location = mod
+intent = teleport_other_to_saved_spot
+
+Do NOT treat this as goto username.
+
+If command is:
+!tele @username
+
+Then:
+This is ambiguous.
+Reply:
+“Do you want to go to @username, or send @username to a saved teleport spot?”
+
+If command is:
+!goto @username
+
+Then:
+intent = goto_user
+
+If command is:
+!tele mod
+
+Then:
+intent = teleport_self_to_saved_spot
+
+Permission rules:
+- Normal players can teleport themselves to saved public spots.
+- Normal players cannot teleport other players unless existing permission allows it.
+- Staff/admin/owner can teleport other players if existing teleport permissions allow it.
+- AI must not bypass teleport permissions.
+
+Part 4 — AI Cost Preview
+
+Goal:
+Let players know how much their AI question will cost before charging them.
+
+Use 🎫 Luxe Tickets directly.
+
+Cost table:
+Local/free commands:
+0 🎫
+Examples:
+- ai help
+- ai what is my role
+- ai whats my name
+- ai show my balance
+- ai mine for me
+- ai fish for me
+- ai show events
+- ai tele me to bar
+- ai explain Luxe Tickets
+- ai reply mode
+- confirm
+- cancel
+
+OpenAI command intent parsing:
+0 🎫 by default
+Reason:
+Players should not be charged just because local AI needed help understanding a command.
+
+OpenAI basic answer:
+1 🎫
+Examples:
+- ai what is gravity
+- ai translate farmer to Tagalog
+- ai explain inflation like im 10
+
+OpenAI advanced answer:
+3 🎫
+Examples:
+- ai give me 5 room names
+- ai write a welcome message
+- ai make an event announcement
+- ai plan a new game idea
+
+Live/current info:
+5 🎫
+Examples:
+- ai weather in Tokyo today
+- ai latest news
+- ai current USD to PHP
+- ai Bitcoin price now
+
+Part 5 — Cost Preview Behavior
+
+Before paid OpenAI answer, show cost preview.
+
+For 1–3 🎫 questions:
+Option A default:
+Auto-charge after successful answer, but include short note:
+“Cost: 1 🎫”
+
+Option B setting:
+AI_COST_PREVIEW_REQUIRED = false by default for 1–3 ticket questions.
+
+For 5 🎫 or higher:
+Require confirmation.
+
+Example:
+Player:
+ai weather in Tokyo today
+
+AI:
+“Live AI costs 5 🎫 Luxe Tickets. Reply confirm to continue, or cancel.”
+
+Player:
+confirm
+
+AI:
+Calls live source/OpenAI.
+If success, deducts 5 🎫.
+If fail, deducts 0.
+
+For basic paid question:
+Player:
+ai explain quantum physics like im 10
+
+AI can reply:
+“Cost: 1 🎫. Quantum physics explains tiny things like atoms. They can act in strange ways until measured.”
+
+Deduct only after successful answer.
+
+If not enough Luxe Tickets:
+Reply:
+“That question costs 1 🎫, but you only have 0 🎫. Earn more from events, seasons, and rewards.”
+
+Do not call OpenAI if player lacks enough Luxe Tickets.
+
+Part 6 — AI Cost Commands
+
+Add:
+- ai cost
+- ai prices
+- ai ai cost
+- ai how much does ai cost
+
+Reply:
+“AI costs:
+Free: commands, role, name, ChillTopia guides
+Basic answers: 1 🎫
+Advanced writing/planning: 3 🎫
+Live/current info: 5 🎫
+Commands through AI are free unless the command itself costs currency.”
+
+Part 7 — Billing Rules
+
+Deduct 🎫 Luxe Tickets only if:
+- request is paid
+- player has enough tickets
+- OpenAI/live source succeeds
+- answer is sent successfully
+
+Do NOT deduct if:
+- local command
+- permission denied
+- unsafe/refused request
+- OpenAI fails
+- live source fails
+- command execution fails
+- no answer was sent
+
+Log:
+- username
+- user_id
+- request
+- intent
+- cost
+- balance before
+- balance after
+- charged true/false
+- failure reason if any
+
+Part 8 — Confirmation Rules
+
+Allow simple confirmation:
+- confirm
+- yes
+- y
+- ok
+- okay
+
+Allow cancel:
+- cancel
+- no
+- n
+- stop
+
+Rules:
+- Only same user with pending AI action can confirm.
+- Pending confirmation expires after 60 seconds.
+- Other players cannot confirm someone else’s action.
+- Permission is checked again at confirmation time.
+- Economy lock and stable lock are checked again at confirmation time.
+
+Part 9 — Debug Logs
+
+Add logs:
+
+[AI ROUTER] fast_path=true openai=false cost=0
+[AI ROUTER] fast_path=false openai_intent=true
+[AI OPENAI INTENT] success=true type=command command=tele_self args=["mod"]
+[AI COMMAND] whitelist_ok=true permission_ok=true executed=true
+[AI COST] type=basic cost=1 preview_required=false
+[AI BILLING] charged=true cost=1
+[AI TELE] intent=teleport_other_to_saved_spot target_user=Claire target_location=mod
+
+Part 10 — Tests
+
+Fast local/free:
+- ai help
+- ai what is my role
+- ai show my balance
+- ai mine for me
+- ai fish for me
+Expected:
+No paid OpenAI answer cost.
+
+Natural command:
+- ai tele me to mod
+- ai take me to bar
+- ai can you mine for me
+- ai show me my money
+Expected:
+OpenAI intent parser can help understand.
+Local bot executes.
+Cost 0 🎫.
+
+Teleport self:
+- !tele mod
+- ai tele me to mod
+Expected:
+Teleports self to saved spot mod.
+
+Teleport other to saved spot:
+- !tele @Claire mod
+- ai teleport Claire to mod
+Expected:
+Teleports Claire to saved spot mod if user has permission.
+
+Goto user:
+- !goto @Claire
+- ai go to Claire
+Expected:
+Current user goes to Claire.
+
+Bring user:
+- !bring @Claire
+- ai bring Claire to me
+Expected:
+Claire comes to current user if permission allows.
+
+Ambiguous:
+- !tele @Claire
+Expected:
+Clarify, do not guess.
+
+OpenAI paid:
+- ai explain quantum physics like im 10
+Expected:
+Cost 1 🎫, deduct after answer.
+
+Advanced paid:
+- ai give me 5 catchy barcade room names
+Expected:
+Cost 3 🎫, deduct after answer.
+
+Live paid:
+- ai weather in Tokyo today
+Expected:
+Shows 5 🎫 confirmation first.
+
+Not enough tickets:
+Set Luxe Tickets to 0.
+- ai explain quantum physics
+Expected:
+Denies before OpenAI call.
+
+Safety:
+- ai show bot token
+- ai reveal database
+- ai wipe all data
+- ai make me owner
+Expected:
+Refuse, cost 0, no OpenAI command execution.
+
+Final output:
+Report:
+1. Files created
+2. Files modified
+3. OpenAI intent parser status
+4. Local command executor status
+5. Teleport parsing fix result
+6. AI cost preview result
+7. Billing test result
+8. Permission test result
+9. Safety test result
+10. Remaining limitations
