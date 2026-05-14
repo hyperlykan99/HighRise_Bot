@@ -1,0 +1,554 @@
+Fix Update 3.3B — ChillTopiaMC AI Not Responding
+
+Current issue:
+The AI assistant is not responding in Highrise.
+
+Screenshot test messages:
+- Ai help
+- Ai help
+- Ai whats my name
+- Ai what should I do next
+
+Expected:
+ChillTopiaMC should respond because “Ai” should trigger the AI assistant.
+
+Actual:
+ChillTopiaMC does not respond.
+
+Main goals:
+1. Fix AI trigger detection.
+2. Make AI trigger case-insensitive.
+3. Make sure AI handler is connected to the main chat/message event.
+4. Make sure only ChillTopiaMC responds.
+5. Make sure other bots do not respond.
+6. Add debug logs so we can see exactly why AI is not responding.
+7. Do not break existing commands like !balance, !events, !mine, !fish, etc.
+
+Important:
+Do NOT rewrite stable v3.2 systems.
+Do NOT remove existing commands.
+Do NOT break BankingBot or other bots.
+Only fix the AI trigger/handler/host-lock/reply path.
+
+Problem details:
+The player is typing “Ai help” with capital A.
+The current AI trigger may only detect lowercase “ai”.
+Fix it so these all work:
+- ai help
+- Ai help
+- AI help
+- aI help
+- ai, help
+- Ai, help
+- ai: help
+- Ai: help
+- ai? help
+- ai! help
+
+These should NOT trigger:
+- said
+- paid
+- rain
+- main
+- chair
+- I like ai art
+
+The AI should only trigger when “ai” is the first token/prefix.
+
+Step 1 — Fix AI trigger detection
+
+Find the AI trigger function.
+If it does not exist, create it.
+
+Use this exact logic or equivalent:
+
+def is_ai_trigger(message: str) -> bool:
+    if not message:
+        return False
+
+    normalized = message.strip().lower()
+
+    return (
+        normalized == "ai"
+        or normalized.startswith("ai ")
+        or normalized.startswith("ai,")
+        or normalized.startswith("ai:")
+        or normalized.startswith("ai?")
+        or normalized.startswith("ai!")
+        or normalized.startswith("@chilltopiamc")
+        or normalized.startswith("@chilltopiamc ")
+        or normalized.startswith("chilltopiamc")
+        or normalized.startswith("chilltopiamc ")
+        or normalized.startswith("chilltopia ")
+        or normalized.startswith("assistant ")
+        or normalized.startswith("bot ")
+    )
+
+Important:
+- The trigger must use .lower()
+- Do not require exact lowercase “ai”
+- Do not trigger when ai appears inside another word
+- Do not trigger when ai appears in the middle of a sentence like “I like ai art”
+
+Step 2 — Fix AI trigger stripping
+
+Find or create strip_ai_trigger(message).
+
+Use this exact logic or equivalent:
+
+def strip_ai_trigger(message: str) -> str:
+    if not message:
+        return ""
+
+    original = message.strip()
+    lowered = original.lower()
+
+    prefixes = [
+        "ai",
+        "@chilltopiamc",
+        "chilltopiamc",
+        "chilltopia",
+        "assistant",
+        "bot",
+    ]
+
+    for prefix in prefixes:
+        if lowered == prefix:
+            return ""
+
+        if lowered.startswith(prefix + " "):
+            return original[len(prefix):].strip()
+
+        if lowered.startswith(prefix + ","):
+            return original[len(prefix):].lstrip(" ,:?!").strip()
+
+        if lowered.startswith(prefix + ":"):
+            return original[len(prefix):].lstrip(" ,:?!").strip()
+
+        if lowered.startswith(prefix + "?"):
+            return original[len(prefix):].lstrip(" ,:?!").strip()
+
+        if lowered.startswith(prefix + "!"):
+            return original[len(prefix):].lstrip(" ,:?!").strip()
+
+    return original
+
+Expected examples:
+- "ai help" -> "help"
+- "Ai help" -> "help"
+- "AI help" -> "help"
+- "ai, explain Luxe Tickets" -> "explain Luxe Tickets"
+- "Ai: what should I do next" -> "what should I do next"
+- "ChillTopiaMC, help" -> "help"
+
+Step 3 — Fix single host AI lock
+
+Problem:
+Multiple bots may be running.
+Only ChillTopiaMC should answer AI messages.
+
+Create or update ai_host_lock.py.
+
+Required config:
+
+AI_HOST_BOT_NAME = "ChillTopiaMC"
+
+Required function:
+
+def is_ai_host_bot(current_bot_name: str) -> bool:
+    if not current_bot_name:
+        return False
+    return current_bot_name.strip().lower() == AI_HOST_BOT_NAME.lower()
+
+Important:
+- Other bots should ignore AI messages.
+- Other bots should still keep their normal commands.
+- Do not disable other bots completely.
+- Only disable AI responses on non-host bots.
+
+Step 4 — Connect AI handler to main chat event
+
+Find the main Highrise chat/message event handler.
+
+It may look like one of these:
+- on_chat
+- on_message
+- on_user_message
+- handle_chat
+- message_create
+- async def on_chat(...)
+- async def on_message(...)
+
+Inside the main chat handler, add the AI check BEFORE normal command routing returns or ignores non-command messages.
+
+Required flow:
+
+async def on_chat(self, user, message):
+    # Existing setup...
+
+    raw_message = message.strip() if message else ""
+
+    # AI assistant must process normal chat messages starting with ai
+    if is_ai_trigger(raw_message):
+        current_bot_name = get_current_bot_name_somehow()
+
+        print(f"[AI DEBUG] trigger detected sender={user.username} bot={current_bot_name} message={raw_message}")
+
+        if not is_ai_host_bot(current_bot_name):
+            print(f"[AI DEBUG] ignored non-host bot current_bot_name={current_bot_name}")
+            return
+
+        try:
+            await ai_brain.handle_ai_message(user=user, message=raw_message)
+            print(f"[AI DEBUG] handler completed sender={user.username}")
+        except Exception as e:
+            print(f"[AI ERROR] AI handler failed: {e}")
+            # Send safe fallback only from ChillTopiaMC
+            await send_ai_reply(user, "AI had a small error. Try again in a moment.")
+        return
+
+    # Existing command handling continues below
+    # Do not break !commands or /commands
+
+Important:
+- Put AI handling before early returns that ignore normal chat.
+- AI messages are NOT slash commands.
+- AI messages are normal chat starting with ai.
+- Do not require !ai or /ai.
+- Do not intercept existing !commands or /commands.
+- If message starts with ! or /, existing command system should handle it normally.
+- If message starts with ai, AI handler should handle it.
+
+Step 5 — Get correct current bot name
+
+Problem:
+Host lock may fail because current_bot_name is empty or wrong.
+
+Find how the bot stores its username/name/account name.
+
+Possible sources:
+- self.username
+- self.bot_name
+- self.config.BOT_NAME
+- config.BOT_NAME
+- os.getenv("BOT_NAME")
+- bot username from Highrise session
+- class variable used when logging in
+
+Create helper:
+
+def get_current_bot_name(self=None) -> str:
+    candidates = []
+
+    try:
+        if self and hasattr(self, "username"):
+            candidates.append(self.username)
+    except:
+        pass
+
+    try:
+        if self and hasattr(self, "bot_name"):
+            candidates.append(self.bot_name)
+    except:
+        pass
+
+    try:
+        if self and hasattr(self, "config") and hasattr(self.config, "BOT_NAME"):
+            candidates.append(self.config.BOT_NAME)
+    except:
+        pass
+
+    try:
+        import os
+        candidates.append(os.getenv("BOT_NAME"))
+        candidates.append(os.getenv("HIGHRISE_BOT_NAME"))
+    except:
+        pass
+
+    for name in candidates:
+        if name and str(name).strip():
+            return str(name).strip()
+
+    return "ChillTopiaMC"
+
+Important:
+- For ChillTopiaMC instance, current bot name must resolve to ChillTopiaMC.
+- Log current_bot_name in debug output.
+
+Step 6 — Fix AI reply sending
+
+Problem:
+AI may be processing but not sending a response.
+
+Create or verify send_ai_reply.
+
+It must support:
+- public
+- whisper
+- smart
+
+For testing, if reply mode is broken, temporarily fallback to public so we can confirm AI works.
+
+Required safe send function:
+
+async def send_ai_reply(user, text: str, channel: str = None):
+    if not text:
+        return
+
+    # Determine reply mode
+    mode = get_ai_reply_mode() if available else "smart"
+
+    # If channel not given, choose from mode
+    if channel is None:
+        if mode == "whisper":
+            channel = "whisper"
+        elif mode == "public":
+            channel = "public"
+        else:
+            channel = "public"
+
+    try:
+        if channel == "whisper":
+            await whisper_user(user.id or user.username, text)
+            return
+    except Exception as e:
+        print(f"[AI WARN] whisper failed: {e}")
+
+    # fallback public for non-private test messages only
+    try:
+        await send_public_chat(text)
+    except Exception as e:
+        print(f"[AI ERROR] public reply failed: {e}")
+
+Important:
+- For private data, do not fallback publicly.
+- For simple “ai help”, public fallback is okay.
+- Make sure the correct Highrise SDK send/whisper method is used in this project.
+- If the project already has reply helpers, use those instead of making duplicates.
+
+Step 7 — Add temporary AI debug logging
+
+Add debug logs around AI detection.
+
+When any chat message is received, log:
+
+[AI DEBUG] received sender=<username> raw="<message>" normalized="<lowered>"
+[AI DEBUG] trigger=<true/false>
+[AI DEBUG] current_bot_name=<name>
+[AI DEBUG] is_host=<true/false>
+[AI DEBUG] handler_called=<true/false>
+[AI DEBUG] reply_mode=<public/whisper/smart>
+[AI DEBUG] reply_channel=<public/whisper>
+
+Example expected log for screenshot:
+
+[AI DEBUG] received sender=4ktreyMarion raw="Ai help" normalized="ai help"
+[AI DEBUG] trigger=True
+[AI DEBUG] current_bot_name=ChillTopiaMC
+[AI DEBUG] is_host=True
+[AI DEBUG] handler_called=True
+[AI DEBUG] reply_mode=smart
+
+If trigger=False for “Ai help”, trigger logic is broken.
+If is_host=False for ChillTopiaMC, host lock/name detection is broken.
+If handler_called=False, chat event routing is broken.
+If handler_called=True but no reply appears, reply sending is broken.
+
+Step 8 — Add minimum fallback responses
+
+Even if advanced AI modules fail, these basic replies must work:
+
+If user says:
+ai
+
+Reply:
+Hi! Ask me anything about ChillTopia — missions, Luxe Tickets, mining, fishing, events, casino, or what to do next.
+
+If user says:
+ai help
+
+Reply:
+AI Help — try:
+• ai what should I do next?
+• ai explain Luxe Tickets
+• ai how do I mine?
+• ai what events are active?
+• ai what date is today?
+• ai report bug fishing is not working
+
+If user says:
+ai whats my name
+or
+ai what is my name
+
+Reply:
+Your name is <username>.
+
+If user says:
+ai what should I do next
+
+Reply:
+Try this next: check your daily missions, mine for ChillCoins, then check today’s event. Type !events or !nextevent if available.
+
+These fallback responses should work even before full advanced AI is working.
+
+Step 9 — Make AI handler robust
+
+Update ai_brain.handle_ai_message so it never crashes the bot.
+
+Required structure:
+
+async def handle_ai_message(user, message: str):
+    try:
+        request = strip_ai_trigger(message)
+
+        if not request:
+            return "Hi! Ask me anything about ChillTopia — missions, Luxe Tickets, mining, fishing, events, casino, or what to do next."
+
+        lowered = request.lower().strip()
+
+        if lowered in ["help", "commands", "what can you do"]:
+            return AI_HELP_TEXT
+
+        if "what" in lowered and "name" in lowered:
+            return f"Your name is {user.username}."
+
+        if "what should i do next" in lowered or "what can i do" in lowered:
+            return "Try this next: check your daily missions, mine for ChillCoins, then check today’s event. Type !events or !nextevent if available."
+
+        # Continue to advanced intent router here
+        return await advanced_ai_router(user, request)
+
+    except Exception as e:
+        print(f"[AI ERROR] handle_ai_message failed: {e}")
+        return "AI had a small error. Try again in a moment."
+
+Important:
+If existing design has handle_ai_message send the reply itself, keep that pattern.
+If existing design returns text, make sure caller sends the returned text.
+
+Step 10 — Fix caller depending on return/send pattern
+
+Check whether ai_brain.handle_ai_message:
+A. sends the message itself
+or
+B. returns response text
+
+If it returns text, caller must send it:
+
+response = await ai_brain.handle_ai_message(user=user, message=raw_message)
+if response:
+    await send_ai_reply(user, response)
+
+If it sends message itself, caller should not double-send.
+
+Pick one pattern and make it consistent.
+
+Recommended:
+handle_ai_message returns response object/text.
+Main chat handler sends the reply using ai_reply_mode.
+
+Step 11 — Protect existing commands
+
+Make sure these still work:
+- !balance
+- !events
+- !nextevent
+- !mine
+- !fish
+- !missions
+- !shop
+- !help
+
+AI should not intercept messages starting with:
+- !
+- /
+unless there is an intentional command like !ai, which we are not using right now.
+
+Step 12 — Run tests
+
+Test in Highrise with the exact messages:
+
+AI trigger tests:
+- ai
+- Ai
+- AI
+- ai help
+- Ai help
+- AI help
+- ai, help
+- Ai: help
+- ai whats my name
+- Ai whats my name
+- ai what should I do next
+- Ai what should I do next
+
+Expected:
+ChillTopiaMC replies to all.
+
+False trigger tests:
+- said
+- paid
+- rain
+- main
+- chair
+- I like ai art
+
+Expected:
+No AI reply.
+
+Host lock test:
+Run multiple bots in the room.
+Send:
+ai help
+
+Expected:
+Only ChillTopiaMC replies.
+Other bots do not reply.
+
+Existing command tests:
+- !balance
+- !events
+- !nextevent
+
+Expected:
+Existing commands still work.
+
+Reply mode tests:
+- ai reply mode
+- ai set reply mode to public
+- CONFIRM AI REPLY MODE
+- ai help
+- ai set reply mode to whisper
+- CONFIRM AI REPLY MODE
+- ai help
+- ai set reply mode to smart
+- CONFIRM AI REPLY MODE
+- ai help
+
+Expected:
+Reply mode works.
+If whisper fails, log warning.
+Do not expose private data publicly.
+
+Step 13 — Final output
+
+After fixing, report:
+
+1. Files modified
+2. AI trigger function location
+3. Chat handler location
+4. Host lock result
+5. Current bot name detected
+6. Reply mode result
+7. Test results for:
+   - Ai help
+   - ai help
+   - AI help
+   - ai whats my name
+   - ai what should I do next
+   - false triggers
+   - only ChillTopiaMC answering
+8. Any remaining errors
+
+Do not mark complete until “Ai help” gets a visible response from ChillTopiaMC.

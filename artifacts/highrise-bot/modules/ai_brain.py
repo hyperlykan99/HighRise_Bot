@@ -512,43 +512,70 @@ async def handle_ai_message(
     Main AI orchestrator (3.3B).  Called from handle_acesinatra().
     Returns True when the message is consumed (even if silently).
     """
+    raw_msg   = message.strip() if message else ""
+    normalized = raw_msg.lower()
+
+    # ── Debug: received ───────────────────────────────────────────────────────
+    print(f"[AI DEBUG] received sender={user.username} raw={raw_msg!r} normalized={normalized!r}")
+
     try:
         # ── 1. Host lock ──────────────────────────────────────────────────────
-        if not is_ai_host_bot():
+        host = is_ai_host_bot(debug=True)
+        print(f"[AI DEBUG] is_host={host}")
+
+        if not host:
+            print(f"[AI DEBUG] ignored — not host bot")
             return True  # Consume silently — other bots ignore AI triggers
 
         # ── 2. Rate limit ─────────────────────────────────────────────────────
-        rl = check_rate_limit(user.id, message)
+        rl = check_rate_limit(user.id, raw_msg)
         if rl == "duplicate":
+            print(f"[AI DEBUG] ignored — duplicate message")
             return True
         if rl:
+            print(f"[AI DEBUG] rate-limited sender={user.username}")
             await _w(bot, user.id, rl)
             return True
 
         # ── 3. Abuse guard ────────────────────────────────────────────────────
-        abuse = check_abuse(message)
+        abuse = check_abuse(raw_msg)
         if abuse:
+            print(f"[AI DEBUG] abuse blocked sender={user.username}")
             await _w(bot, user.id, abuse)
             return True
 
         # ── 4. Permission + clean text ────────────────────────────────────────
         perm  = get_perm_level(user.username)
-        clean = strip_ai_trigger(message)
+        clean = strip_ai_trigger(raw_msg)
 
-        # ── 5. Context resolution (resolves "more" → last topic) ───────────────
+        # ── 5. Context resolution (resolves "more" → last topic) ──────────────
         resolved = resolve_context(user.id, clean)
 
         # ── 6. "ai" alone → welcome ───────────────────────────────────────────
         if not clean:
+            reply_mode = get_reply_mode()
+            print(f"[AI DEBUG] handler_called=True intent=welcome reply_mode={reply_mode}")
             await _send(bot, user, get_welcome(), "general")
             log_event(user.username, perm, "welcome", "")
             return True
 
-        # ── 7. "ai help" ──────────────────────────────────────────────────────
         low = resolved.lower().strip()
-        if low == "help":
+
+        # ── 7. "ai help" ──────────────────────────────────────────────────────
+        if low in ("help", "commands", "what can you do", "what do you do"):
+            reply_mode = get_reply_mode()
+            print(f"[AI DEBUG] handler_called=True intent=help reply_mode={reply_mode}")
             await _send(bot, user, AI_HELP, "general")
             log_event(user.username, perm, "help", clean)
+            return True
+
+        # ── 7b. Quick-path: "what's my name" / "what is my name" ─────────────
+        if ("what" in low or "whats" in low) and "name" in low and (
+            "my" in low or "am i" in low
+        ):
+            name_reply = f"Your name is {user.username}."
+            print(f"[AI DEBUG] handler_called=True intent=name_query")
+            await _send(bot, user, name_reply, "general")
             return True
 
         # ── 8. Hard safety check ──────────────────────────────────────────────
@@ -559,6 +586,8 @@ async def handle_ai_message(
 
         # ── 9. Intent detection ───────────────────────────────────────────────
         intent = detect_intent(resolved)
+        reply_mode = get_reply_mode()
+        print(f"[AI DEBUG] handler_called=True intent={intent} reply_mode={reply_mode} perm={perm}")
 
         # ── 10. Access check ──────────────────────────────────────────────────
         denial = check_access(intent, perm, resolved)
@@ -572,11 +601,21 @@ async def handle_ai_message(
         # ── 11. Handler dispatch ───────────────────────────────────────────────
         await _dispatch(bot, user, resolved, intent, perm)
 
-        # ── 12. Update short-term memory ───────────────────────────────────────
+        # ── 12. Update short-term memory ──────────────────────────────────────
         record_interaction(user.id, intent, clean)
 
         return True
 
     except Exception as err:
         print(f"[AI_BRAIN] Error from {user.username}: {err!r}")
-        return False
+        import traceback
+        traceback.print_exc()
+        # Safe fallback so the player knows we got their message
+        try:
+            await bot.highrise.send_whisper(
+                user.id,
+                "🤖 AI had a small hiccup. Try again in a moment!"
+            )
+        except Exception:
+            pass
+        return True
