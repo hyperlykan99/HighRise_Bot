@@ -53,6 +53,10 @@ INTENT_TRANSLATION          = "translation_question"
 INTENT_TELEPORT_SELF        = "teleport_self"
 INTENT_VAGUE_FOLLOWUP       = "vague_followup"
 
+# ── 3.3F AI Command Control Layer intents ────────────────────────────────────
+INTENT_AI_COMMAND           = "ai_command_action"
+INTENT_AI_CMD_HELP          = "ai_command_help"
+
 # ── 3.3B AI self-management intents ─────────────────────────────────────────
 INTENT_AI_STATUS            = "ai_status_check"
 INTENT_AI_DEBUG             = "ai_debug_summary"
@@ -159,6 +163,49 @@ _RULES: list[tuple[str, re.Pattern]] = [
          r"|switch\s+that|change\s+that|toggle\s+that"
          r"|switch\s+back|reverse\s+it|undo\s+that|what\s+did\s+i\s+ask"
          r"|what\s+was\s+that)\s*[?.]?$",
+         re.I,
+     )),
+
+    # ── 1d. AI Command Control Layer (3.3F) — must come before topic patterns ─
+    # Catches "ai commands", "what commands can you run", etc.
+    (INTENT_AI_CMD_HELP,
+     re.compile(
+         r"\b(what\s+commands?\s+(can\s+you\s+run|do\s+you\s+have|are\s+available)"
+         r"|list\s+(all\s+)?commands?"
+         r"|available\s+commands?"
+         r"|command\s+mode"
+         r"|ai\s+commands?\b"
+         r"|what\s+can\s+ai\s+do)\b",
+         re.I,
+     )),
+    # Catches action-oriented phrases: "mine for me", "show my balance", "tele me to bar", etc.
+    # Placed BEFORE mining/fishing/event explanation patterns to intercept action triggers first.
+    (INTENT_AI_COMMAND,
+     re.compile(
+         r"\bmine\s+for\s+(me|us)\b"
+         r"|\bfish\s+for\s+(me|us)\b"
+         r"|\b(show|check|view|get|display)\s+(my\s+)?(balance|coins?|wallet)\b"
+         r"|\bmy\s+(balance|coins?|wallet)\b"
+         r"|\bhow\s+many\s+coins?\b"
+         r"|\b(show|check|view|how\s+many)\s+(my\s+)?(?:luxe\s+)?tickets?\b"
+         r"|\bmy\s+(?:luxe\s+)?tickets?\b"
+         r"|\b(claim|get|take|collect)\s+(my\s+)?daily\b"
+         r"|\bmy\s+daily\b"
+         r"|\b(show|view|check|open|display)\s+(my\s+)?profile\b"
+         r"|\bmy\s+profile\b"
+         r"|\b(show|list|view|display|check)\s+(all\s+)?events?\b"
+         r"|\b(next|upcoming)\s+event\b"
+         r"|\bwhen\s+is\s+(the\s+)?next\s+event\b"
+         r"|\b(open|show|view|browse)\s+(the\s+)?(?:item\s+|luxe\s+|premium\s+)?shop\b"
+         r"|\b(my\s+vip|check\s+vip|vip\s+status|am\s+i\s+vip)\b"
+         r"|\bmute\s+@?\w+"
+         r"|\bwarn\s+@?\w+"
+         r"|\bstart\s+(a\s+)?(?:event|mining\s+rush|lucky\s+rush|legendary\s+rush|prismatic\s+hunt|exotic\s+hunt)\b"
+         r"|\b(stop|end|cancel)\s+(the\s+)?(?:current\s+)?event\b"
+         r"|\bset\s+vip\s+price\b"
+         r"|\bchange\s+vip\s+price\b"
+         r"|\b(add|give)\s+\d[\d,]*\s+coins?\s+to\b"
+         r"|\bset\s+coins?\s+(?:for\s+)?@?\w+",
          re.I,
      )),
 

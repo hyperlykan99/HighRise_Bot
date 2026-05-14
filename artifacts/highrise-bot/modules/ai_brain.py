@@ -75,6 +75,8 @@ from modules.ai_intent_router import (
     INTENT_USER_NAME, INTENT_USER_ROLE, INTENT_TRANSLATION,
     # 3.3E natural-language action intents
     INTENT_TELEPORT_SELF, INTENT_VAGUE_FOLLOWUP,
+    # 3.3F AI Command Control Layer
+    INTENT_AI_COMMAND, INTENT_AI_CMD_HELP,
 )
 from modules.ai_translation  import get_translation
 from modules.ai_live_router  import handle_live_question, is_live_question, detect_live_type
@@ -91,6 +93,9 @@ from modules.ai_confirmation_manager import (
 )
 from modules.ai_action_executor  import execute_action
 from modules.ai_logs             import log_event
+from modules.ai_command_router   import (
+    handle_ai_command, handle_ai_cmd_help, is_confirm_or_cancel,
+)
 
 
 # ── Trigger helpers (kept here to avoid circular imports) ────────────────────
@@ -627,6 +632,10 @@ async def _dispatch(
         await _handle_teleport_self(bot, user, text)
     elif intent == INTENT_VAGUE_FOLLOWUP:
         await _handle_vague_followup(bot, user)
+    elif intent == INTENT_AI_COMMAND:
+        await handle_ai_command(bot, user, text, perm)
+    elif intent == INTENT_AI_CMD_HELP:
+        await handle_ai_cmd_help(bot, user)
     elif intent in RW_INTENTS:
         await _handle_real_world(bot, user, text, intent, perm)
     else:
@@ -721,6 +730,10 @@ async def handle_ai_message(
             name_reply = f"Your name is {user.username}."
             print(f"[AI DEBUG] handler_called=True intent=name_query")
             await _send(bot, user, name_reply, "general")
+            return True
+
+        # ── 7c. AI Command pending confirmation / cancellation (3.3F) ─────────
+        if await is_confirm_or_cancel(bot, user, resolved):
             return True
 
         # ── 8. Hard safety check ──────────────────────────────────────────────
