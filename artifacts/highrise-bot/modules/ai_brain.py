@@ -1,0 +1,582 @@
+"""
+modules/ai_brain.py — ChillTopiaMC AI Brain (3.3B).
+
+Central orchestrator for all AI requests.  Called from handle_acesinatra().
+
+Pipeline per request:
+  1. Host lock  — only ChillTopiaMC answers AI messages
+  2. Rate limit — per-user sliding-window + duplicate suppression
+  3. Abuse guard — prompt-injection / permission-bypass detection
+  4. Permission level resolution
+  5. Trigger stripping + context resolution from short-term memory
+  6. Intent detection
+  7. Permission / access check
+  8. Reply channel selection (public / whisper via reply-mode)
+  9. Handler dispatch
+ 10. Short-term memory update
+"""
+from __future__ import annotations
+
+import re
+from typing import TYPE_CHECKING
+
+import database as db
+
+if TYPE_CHECKING:
+    from highrise import BaseBot, User
+
+# ── New 3.3B modules ─────────────────────────────────────────────────────────
+from modules.ai_host_lock       import is_ai_host_bot
+from modules.ai_rate_limiter    import check_rate_limit
+from modules.ai_abuse_guard     import check_abuse
+from modules.ai_memory_short_term import (
+    get_context_hint, clear_memory,
+)
+from modules.ai_context_manager import resolve_context, record_interaction
+from modules.ai_reply_mode      import (
+    get_reply_mode, set_reply_mode, choose_reply_channel,
+)
+from modules.ai_personalized_guidance import (
+    get_personalized_guidance, summarize_progress,
+)
+from modules.ai_reasoning_templates import (
+    AI_STATUS, AI_HELP, AI_WELCOME,
+    REPLY_MODE_VIEW, REPLY_MODE_OWNER_ONLY, REPLY_MODE_SAME, REPLY_MODE_DONE,
+    DEBUG_TEMPLATE, UNKNOWN_FALLBACK,
+)
+from modules.ai_rate_limiter    import get_status as _rl_status
+from modules.ai_context_manager import active_memory_count
+
+# ── Existing AI modules ───────────────────────────────────────────────────────
+from modules.ai_permissions import (
+    get_perm_level, requires_admin, requires_staff,
+    PERM_STAFF, PERM_ADMIN, PERM_OWNER,
+)
+from modules.ai_intent_router import (
+    detect_intent, RW_INTENTS,
+    INTENT_DATE_TIME, INTENT_HOLIDAY,
+    INTENT_PLAYER_GUIDANCE, INTENT_PERSONALIZED_GUIDANCE,
+    INTENT_CMD_EXPLAIN,
+    INTENT_LUXE, INTENT_CHILLCOINS, INTENT_MINING, INTENT_FISHING,
+    INTENT_CASINO, INTENT_EVENT, INTENT_VIP,
+    INTENT_BUG, INTENT_FEEDBACK, INTENT_SUMMARIZE_BUGS,
+    INTENT_MOD_HELP, INTENT_STAFF_INFO, INTENT_ADMIN_INFO, INTENT_OWNER_INFO,
+    INTENT_PREPARE_SETTING, INTENT_CONFIRM_SETTING, INTENT_CANCEL_SETTING,
+    INTENT_PRIVATE_PLAYER_INFO, INTENT_GENERAL, INTENT_UNKNOWN,
+    INTENT_AI_STATUS, INTENT_AI_DEBUG,
+    INTENT_AI_REPLY_MODE_VIEW, INTENT_AI_REPLY_MODE_SET,
+    INTENT_RW_GLOBAL_TIME, INTENT_RW_GLOBAL_HOLIDAY,
+    INTENT_RW_DATETIME, INTENT_RW_HOLIDAY,
+    INTENT_RW_SENSITIVE, INTENT_RW_CURRENT_INFO,
+    INTENT_RW_TRANSLATION, INTENT_RW_MATH,
+    INTENT_RW_GENERAL, INTENT_RW_GLOBAL, INTENT_RW_UNKNOWN,
+)
+from modules.ai_global_time      import get_global_time_reply
+from modules.ai_global_holidays  import get_global_holiday_reply
+from modules.ai_global_knowledge import handle_global_question
+from modules.ai_knowledge_access import get_knowledge_answer, check_access
+from modules.ai_public_knowledge import get_public_answer, get_welcome
+from modules.ai_time_holidays    import get_date_reply, get_time_reply, get_next_holiday_reply
+from modules.ai_safety           import is_blocked, blocked_response
+from modules.ai_confirmation_manager import (
+    set_pending, get_pending, clear_pending, preview_message,
+)
+from modules.ai_action_executor  import execute_action
+from modules.ai_logs             import log_event
+
+
+# ── Trigger helpers (kept here to avoid circular imports) ────────────────────
+
+def is_ai_trigger(message: str) -> bool:
+    n = message.strip().lower()
+    return (
+        n == "ai"
+        or n.startswith("ai ")
+        or n.startswith("ai,")
+        or n.startswith("ai:")
+        or n.startswith("ai?")
+        or n.startswith("ai!")
+        or n.startswith("@chilltopiamc")
+        or n.startswith("chilltopiamc")
+        or n.startswith("chilltopia ")
+        or n.startswith("assistant ")
+        or n.startswith("bot ")
+    )
+
+
+def strip_ai_trigger(message: str) -> str:
+    s = message.strip()
+    low = s.lower()
+    for prefix in ("@chilltopiamc", "chilltopiamc", "chilltopia",
+                   "assistant", "bot", "ai"):
+        if low.startswith(prefix):
+            rest = s[len(prefix):]
+            rest = re.sub(r"^[\s,!:?]+", "", rest)
+            return rest.strip()
+    return s
+
+
+# ── Send helpers ─────────────────────────────────────────────────────────────
+
+async def _w(bot: "BaseBot", uid: str, msg: str) -> None:
+    """Always-whisper helper for private / sensitive data."""
+    try:
+        await bot.highrise.send_whisper(uid, msg[:249])
+    except Exception:
+        pass
+
+
+async def _send(
+    bot:              "BaseBot",
+    user:             "User",
+    message:          str,
+    response_type:    str  = "general",
+    knowledge_level:  str  = "public",
+    contains_private: bool = False,
+) -> None:
+    """
+    Send through the channel chosen by reply mode.
+    Safety overrides always force whisper for private/staff+ data.
+    Falls back to whisper if public chat fails.
+    """
+    channel = choose_reply_channel(
+        response_type, knowledge_level, contains_private,
+    )
+    try:
+        if channel == "public":
+            await bot.highrise.chat(message[:249])
+        else:
+            await bot.highrise.send_whisper(user.id, message[:249])
+    except Exception:
+        try:
+            await bot.highrise.send_whisper(user.id, message[:249])
+        except Exception:
+            pass
+
+
+# ── Report helper ─────────────────────────────────────────────────────────────
+
+def _save_report(user_id: str, username: str, text: str, category: str) -> bool:
+    try:
+        db.create_report(
+            reporter_id       = user_id,
+            reporter_username = username,
+            target_username   = "",
+            report_type       = "bug_report" if category == "bug" else "feedback",
+            reason            = text[:500],
+        )
+        return True
+    except Exception:
+        return False
+
+
+# ── Intent handlers ───────────────────────────────────────────────────────────
+
+async def _handle_date_time(bot, user, text):
+    low = text.lower()
+    if "holiday" in low:
+        reply = get_next_holiday_reply()
+    elif "time" in low and "date" not in low and "day" not in low:
+        reply = get_time_reply()
+    else:
+        reply = get_date_reply()
+    await _send(bot, user, reply, "general")
+
+
+async def _handle_holiday(bot, user):
+    await _send(bot, user, get_next_holiday_reply(), "general")
+
+
+async def _handle_player_guidance(bot, user, text):
+    """Generic guidance — uses personalized context for richer advice."""
+    low = text.lower()
+    if any(k in low for k in ("summarize", "summary", "progress", "how am i doing")):
+        msg = summarize_progress(user.id)
+    else:
+        msg = get_personalized_guidance(user.id, user.username)
+    await _w(bot, user.id, msg)
+
+
+async def _handle_personalized_guidance(bot, user, text):
+    """Explicit personalized guidance for 'what can I afford?', 'what should I grind?'."""
+    low = text.lower()
+    if any(k in low for k in ("summarize", "summary", "progress", "how am i doing")):
+        msg = summarize_progress(user.id)
+    else:
+        msg = get_personalized_guidance(user.id, user.username)
+    await _w(bot, user.id, msg)
+
+
+async def _handle_bug(bot, user, text):
+    saved = _save_report(user.id, user.username, text, "bug")
+    if saved:
+        await _w(bot, user.id,
+                 "🐛 Bug report saved — thank you!\n"
+                 "Staff will review it. Use !bug to add more detail.")
+    else:
+        await _w(bot, user.id,
+                 "🐛 Noted! Use !bug to file it properly so it's tracked.")
+
+
+async def _handle_feedback(bot, user, text):
+    saved = _save_report(user.id, user.username, text, "feedback")
+    if saved:
+        await _w(bot, user.id,
+                 "💬 Feedback saved — thank you for helping improve ChillTopia!")
+    else:
+        await _w(bot, user.id,
+                 "💬 Thanks! Use !feedback to make sure it's recorded.")
+
+
+async def _handle_mod_help(bot, user, text, perm):
+    if not requires_staff(perm):
+        await _w(bot, user.id, "🔒 Moderation help is staff only.")
+        return
+    low = text.lower()
+    if "spam" in low or "spammer" in low:
+        suggestion = "warn first, then !mute if it continues"
+    elif "harass" in low or "bully" in low:
+        suggestion = "warn, then !kick or escalate to owner"
+    elif "ban" in low:
+        suggestion = "use !ban [username] after documenting the reason"
+    elif "kick" in low:
+        suggestion = "consider a warning first, then !kick [username]"
+    else:
+        suggestion = "warn first, monitor, then escalate to owner if needed"
+    await _w(bot, user.id,
+             f"🛡️ Suggested: {suggestion}.\n"
+             "I won't act automatically — use staff commands directly.")
+
+
+async def _handle_prepare_setting(bot, user, text, perm):
+    if not requires_admin(perm):
+        await _w(bot, user.id, "🔒 Admin or owner only for setting changes.")
+        return
+
+    m = re.search(r"vip\s+price\s+to\s+([\d,]+)", text, re.I)
+    if m:
+        val = m.group(1).replace(",", "")
+        try:
+            current = db.get_room_setting("vip_price", "unknown")
+        except Exception:
+            current = "unknown"
+        set_pending(user_id=user.id, action_key="set_vip_price",
+                    label="VIP Price", confirm_phrase="CONFIRM VIP PRICE",
+                    current_value=f"{current} 🎫", new_value=f"{val} 🎫 Luxe Tickets",
+                    risk="Economy-impacting")
+        p = get_pending(user.id)
+        if p:
+            await _w(bot, user.id, preview_message(p))
+        return
+
+    m2 = re.search(
+        r"start\s+(\w+(?:\s+\w+)?)\s+(?:for\s+)?(?:(\d+)\s*(hour|min|minute))?",
+        text, re.I,
+    )
+    if m2:
+        ev_name = m2.group(1).strip().lower().replace(" ", "_")
+        duration_str = ""
+        if m2.group(2):
+            unit = m2.group(3).lower()
+            mins = int(m2.group(2)) * 60 if "hour" in unit else int(m2.group(2))
+            duration_str = f" for {mins} minutes"
+        set_pending(user_id=user.id, action_key="start_event",
+                    label=f"Start Event: {ev_name}{duration_str}",
+                    confirm_phrase=f"CONFIRM START {ev_name.upper()}",
+                    current_value="No active event", new_value=ev_name,
+                    risk="Room-wide impact")
+        p = get_pending(user.id)
+        if p:
+            await _w(bot, user.id, preview_message(p))
+        return
+
+    m3 = re.search(r"event\s+duration\s+to\s+([\d]+)\s*(min|minute|hour)?", text, re.I)
+    if m3:
+        val  = m3.group(1)
+        unit = (m3.group(2) or "min").lower()
+        mins = int(val) * 60 if "hour" in unit else int(val)
+        try:
+            current = db.get_room_setting("default_event_duration", "60")
+        except Exception:
+            current = "60"
+        set_pending(user_id=user.id, action_key="set_event_duration",
+                    label="Default Event Duration",
+                    confirm_phrase=f"CONFIRM EVENT DURATION {mins}",
+                    current_value=f"{current} min", new_value=f"{mins} minutes",
+                    risk="Room setting change")
+        p = get_pending(user.id)
+        if p:
+            await _w(bot, user.id, preview_message(p))
+        return
+
+    await _w(bot, user.id,
+             "⚙️ Recognized a setting change but couldn't parse it.\n"
+             "Try: 'ai set VIP price to 600 tickets'\n"
+             "or 'ai start mining_rush for 1 hour'")
+
+
+async def _handle_confirm(bot, user, text, perm):
+    p = get_pending(user.id)
+    if not p:
+        await _w(bot, user.id,
+                 "⚠️ No pending change to confirm.\n"
+                 "(It may have expired after 60 seconds.)")
+        return
+    phrase = text.upper().strip()
+    if p["confirm_phrase"] not in phrase:
+        await _w(bot, user.id, f"⚠️ Wrong phrase. Reply exactly:\n{p['confirm_phrase']}")
+        return
+    if not requires_admin(perm):
+        await _w(bot, user.id, "🔒 Admin or owner only.")
+        clear_pending(user.id)
+        return
+
+    # ── Special: AI reply mode change ────────────────────────────────────────
+    if p["action_key"] == "set_ai_reply_mode":
+        success = set_reply_mode(p["new_value"])
+        clear_pending(user.id)
+        if success:
+            await _w(bot, user.id, REPLY_MODE_DONE.format(mode=p["new_value"]))
+        else:
+            await _w(bot, user.id, "❌ Failed to update AI reply mode.")
+        return
+
+    # ── Default action execution ──────────────────────────────────────────────
+    result = await execute_action(bot, user.id, p["action_key"], p["new_value"], user.username)
+    clear_pending(user.id)
+    log_event(user.username, perm, "confirmed_action", text,
+              action=p["action_key"], outcome="executed")
+    await _w(bot, user.id, result)
+
+
+async def _handle_cancel(bot, user):
+    p = get_pending(user.id)
+    if p:
+        clear_pending(user.id)
+        await _w(bot, user.id, "❌ Pending change cancelled.")
+    else:
+        await _w(bot, user.id, "⚠️ Nothing to cancel.")
+
+
+async def _handle_real_world(bot, user, text, intent):
+    """Route real-world intents — sensitive always whispers, others use reply mode."""
+    if intent in (INTENT_RW_SENSITIVE, INTENT_RW_CURRENT_INFO):
+        reply = handle_global_question(text, intent)
+        await _w(bot, user.id, reply[:249])
+        return
+
+    if intent in (INTENT_RW_GLOBAL_TIME, INTENT_RW_DATETIME):
+        reply = get_global_time_reply(text)
+    elif intent in (INTENT_RW_GLOBAL_HOLIDAY, INTENT_RW_HOLIDAY):
+        reply = get_global_holiday_reply(text)
+    else:
+        reply = handle_global_question(text, intent)
+
+    await _send(bot, user, reply[:249], "general")
+
+
+async def _handle_ai_status(bot, user):
+    await _send(bot, user, AI_STATUS, "general")
+
+
+async def _handle_ai_debug(bot, user, perm):
+    if perm != PERM_OWNER:
+        await _w(bot, user.id, "🔒 AI debug summary is owner only.")
+        return
+    from modules.ai_host_lock import AI_HOST_BOT_NAME
+    rl  = _rl_status()
+    mem = active_memory_count()
+    mode = get_reply_mode()
+    msg = DEBUG_TEMPLATE.format(
+        host        = AI_HOST_BOT_NAME,
+        reply_mode  = mode,
+        rate_users  = rl["tracked_users"],
+        memory      = mem,
+        pending     = 0,
+    )
+    await _w(bot, user.id, msg[:249])
+
+
+async def _handle_ai_reply_mode_view(bot, user, perm):
+    mode = get_reply_mode()
+    msg  = REPLY_MODE_VIEW.format(mode=mode)
+    await _send(bot, user, msg, "general")
+
+
+async def _handle_ai_reply_mode_set(bot, user, text, perm):
+    if perm != PERM_OWNER:
+        await _w(bot, user.id, REPLY_MODE_OWNER_ONLY)
+        return
+
+    low  = text.lower()
+    mode = None
+    if "public" in low:
+        mode = "public"
+    elif "whisper" in low:
+        mode = "whisper"
+    elif "smart" in low:
+        mode = "smart"
+
+    if not mode:
+        await _w(bot, user.id, "Which AI reply mode? Choose: public, whisper, or smart.")
+        return
+
+    current = get_reply_mode()
+    if current == mode:
+        await _w(bot, user.id, REPLY_MODE_SAME.format(mode=mode))
+        return
+
+    set_pending(
+        user_id       = user.id,
+        action_key    = "set_ai_reply_mode",
+        label         = "AI Reply Mode",
+        confirm_phrase= "CONFIRM AI REPLY MODE",
+        current_value = current,
+        new_value     = mode,
+        risk          = "Medium — changes how AI replies appear in room",
+    )
+    p = get_pending(user.id)
+    if p:
+        await _w(bot, user.id, preview_message(p))
+
+
+async def _handle_unknown(bot, user, text=""):
+    if text:
+        answer = handle_global_question(text, INTENT_RW_UNKNOWN)
+        skip   = ("💬 I'm not sure", "🤔 I don't have", "I can answer")
+        if answer and not any(s in answer for s in skip):
+            await _send(bot, user, answer[:249], "general")
+            return
+    await _send(bot, user, UNKNOWN_FALLBACK, "general")
+
+
+# ── Dispatch ──────────────────────────────────────────────────────────────────
+
+async def _dispatch(
+    bot:     "BaseBot",
+    user:    "User",
+    text:    str,
+    intent:  str,
+    perm:    str,
+) -> None:
+    if intent == INTENT_CANCEL_SETTING:
+        await _handle_cancel(bot, user)
+    elif intent == INTENT_CONFIRM_SETTING:
+        await _handle_confirm(bot, user, text, perm)
+    elif intent == INTENT_AI_STATUS:
+        await _handle_ai_status(bot, user)
+    elif intent == INTENT_AI_DEBUG:
+        await _handle_ai_debug(bot, user, perm)
+    elif intent == INTENT_AI_REPLY_MODE_VIEW:
+        await _handle_ai_reply_mode_view(bot, user, perm)
+    elif intent == INTENT_AI_REPLY_MODE_SET:
+        await _handle_ai_reply_mode_set(bot, user, text, perm)
+    elif intent == INTENT_HOLIDAY:
+        await _handle_holiday(bot, user)
+    elif intent == INTENT_DATE_TIME:
+        await _handle_date_time(bot, user, text)
+    elif intent in (INTENT_PLAYER_GUIDANCE, INTENT_PERSONALIZED_GUIDANCE):
+        await _handle_player_guidance(bot, user, text)
+    elif intent == INTENT_BUG:
+        await _handle_bug(bot, user, text)
+    elif intent == INTENT_FEEDBACK:
+        await _handle_feedback(bot, user, text)
+    elif intent == INTENT_MOD_HELP:
+        await _handle_mod_help(bot, user, text, perm)
+    elif intent == INTENT_PREPARE_SETTING:
+        await _handle_prepare_setting(bot, user, text, perm)
+    elif intent in RW_INTENTS:
+        await _handle_real_world(bot, user, text, intent)
+    else:
+        # Knowledge access layer (staff/admin/owner info, topic explanations)
+        answer = get_knowledge_answer(user, perm, intent, text)
+        if answer:
+            kl = "public"
+            priv = False
+            if intent in (INTENT_PRIVATE_PLAYER_INFO, INTENT_STAFF_INFO,
+                          INTENT_ADMIN_INFO, INTENT_OWNER_INFO):
+                kl, priv = "staff", True
+            await _send(bot, user, answer[:249], "general", kl, priv)
+        else:
+            await _handle_unknown(bot, user, text)
+
+
+# ── Main entry point ──────────────────────────────────────────────────────────
+
+async def handle_ai_message(
+    bot:     "BaseBot",
+    user:    "User",
+    message: str,
+) -> bool:
+    """
+    Main AI orchestrator (3.3B).  Called from handle_acesinatra().
+    Returns True when the message is consumed (even if silently).
+    """
+    try:
+        # ── 1. Host lock ──────────────────────────────────────────────────────
+        if not is_ai_host_bot():
+            return True  # Consume silently — other bots ignore AI triggers
+
+        # ── 2. Rate limit ─────────────────────────────────────────────────────
+        rl = check_rate_limit(user.id, message)
+        if rl == "duplicate":
+            return True
+        if rl:
+            await _w(bot, user.id, rl)
+            return True
+
+        # ── 3. Abuse guard ────────────────────────────────────────────────────
+        abuse = check_abuse(message)
+        if abuse:
+            await _w(bot, user.id, abuse)
+            return True
+
+        # ── 4. Permission + clean text ────────────────────────────────────────
+        perm  = get_perm_level(user.username)
+        clean = strip_ai_trigger(message)
+
+        # ── 5. Context resolution (resolves "more" → last topic) ───────────────
+        resolved = resolve_context(user.id, clean)
+
+        # ── 6. "ai" alone → welcome ───────────────────────────────────────────
+        if not clean:
+            await _send(bot, user, get_welcome(), "general")
+            log_event(user.username, perm, "welcome", "")
+            return True
+
+        # ── 7. "ai help" ──────────────────────────────────────────────────────
+        low = resolved.lower().strip()
+        if low == "help":
+            await _send(bot, user, AI_HELP, "general")
+            log_event(user.username, perm, "help", clean)
+            return True
+
+        # ── 8. Hard safety check ──────────────────────────────────────────────
+        if is_blocked(resolved):
+            log_event(user.username, perm, "blocked", resolved, outcome="blocked")
+            await _w(bot, user.id, blocked_response())
+            return True
+
+        # ── 9. Intent detection ───────────────────────────────────────────────
+        intent = detect_intent(resolved)
+
+        # ── 10. Access check ──────────────────────────────────────────────────
+        denial = check_access(intent, perm, resolved)
+        if denial:
+            log_event(user.username, perm, intent, resolved, outcome="denied")
+            await _w(bot, user.id, denial)
+            return True
+
+        log_event(user.username, perm, intent, resolved)
+
+        # ── 11. Handler dispatch ───────────────────────────────────────────────
+        await _dispatch(bot, user, resolved, intent, perm)
+
+        # ── 12. Update short-term memory ───────────────────────────────────────
+        record_interaction(user.id, intent, clean)
+
+        return True
+
+    except Exception as err:
+        print(f"[AI_BRAIN] Error from {user.username}: {err!r}")
+        return False

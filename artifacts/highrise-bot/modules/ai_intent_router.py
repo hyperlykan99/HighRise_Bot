@@ -44,6 +44,13 @@ INTENT_DENIED_PERM          = "denied_permission"
 INTENT_GENERAL              = "general_question"
 INTENT_UNKNOWN              = "unknown"
 
+# ── 3.3B AI self-management intents ─────────────────────────────────────────
+INTENT_AI_STATUS            = "ai_status_check"
+INTENT_AI_DEBUG             = "ai_debug_summary"
+INTENT_AI_REPLY_MODE_VIEW   = "ai_reply_mode_view"
+INTENT_AI_REPLY_MODE_SET    = "ai_reply_mode_set"
+INTENT_PERSONALIZED_GUIDANCE = "personalized_guidance"
+
 # ── Real-world intents ───────────────────────────────────────────────────────
 INTENT_RW_GENERAL           = "real_world_general_question"
 INTENT_RW_GLOBAL            = "real_world_global_question"
@@ -102,6 +109,38 @@ _RULES: list[tuple[str, re.Pattern]] = [
      re.compile(r"^cancel\b", re.I)),
     (INTENT_CONFIRM_SETTING,
      re.compile(r"^confirm\b", re.I)),
+
+    # ── 1b. AI self-management (status, debug, reply mode) ──────────────────
+    (INTENT_AI_DEBUG,
+     re.compile(
+         r"\b(debug\s+summary|debug\s+info|ai\s+diagnostics"
+         r"|module\s+status|ai\s+modules?|ai\s+errors?)\b",
+         re.I,
+     )),
+    (INTENT_AI_REPLY_MODE_SET,
+     re.compile(
+         r"\b(set\s+(ai\s+)?reply\s+mode\s+to\b"
+         r"|make\s+ai\s+(public|whisper|smart)\b"
+         r"|ai\s+(reply\s+mode|replies)\s+(to\s+)?(public|whisper|smart)\b"
+         r"|switch\s+(ai\s+)?(to\s+)?(public|whisper|smart)\s+(mode\b|reply\b))\b",
+         re.I,
+     )),
+    (INTENT_AI_REPLY_MODE_VIEW,
+     re.compile(
+         r"\b(reply\s+mode\b"
+         r"|is\s+ai\s+(public|whisper|private|smart)\b"
+         r"|ai\s+(public|whisper|private)\s+or\b"
+         r"|what\s+is\s+(the\s+)?reply\s+mode\b)\b",
+         re.I,
+     )),
+    (INTENT_AI_STATUS,
+     re.compile(
+         r"^status$"
+         r"|\bai\s+status\b"
+         r"|\b(are\s+you\s+online|is\s+ai\s+online|are\s+you\s+there"
+         r"|are\s+you\s+alive|are\s+you\s+working|is\s+the\s+ai\s+on)\b",
+         re.I,
+     )),
 
     # ── 2. Permission-gated ChillTopia ──────────────────────────────────────
     (INTENT_OWNER_INFO,
@@ -168,6 +207,24 @@ _RULES: list[tuple[str, re.Pattern]] = [
      )),
 
     # ── 5. ChillTopia topic intents ─────────────────────────────────────────
+
+    # Personalized guidance (needs real player data — always whispered)
+    (INTENT_PERSONALIZED_GUIDANCE,
+     re.compile(
+         r"\b(what\s+can\s+i\s+afford\b"
+         r"|can\s+i\s+afford\b"
+         r"|summarize\s+(my\s+)?progress\b"
+         r"|how\s+am\s+i\s+doing\b"
+         r"|what\s+should\s+i\s+grind\b"
+         r"|what\s+can\s+i\s+earn\b"
+         r"|how\s+do\s+i\s+earn\s+more\b"
+         r"|help\s+me\s+progress\b"
+         r"|what\s+can\s+i\s+buy\b"
+         r"|how\s+much\s+more\s+do\s+i\s+need\b"
+         r"|my\s+progress\s+summary\b"
+         r"|progress\s+report\b)\b",
+         re.I,
+     )),
     (INTENT_PLAYER_GUIDANCE,
      re.compile(
          r"\b(what\s+(should|can)\s+i\s+do"
