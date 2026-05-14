@@ -78,7 +78,7 @@ from modules.ai_intent_router import (
 )
 from modules.ai_translation  import get_translation
 from modules.ai_live_router  import handle_live_question, is_live_question, detect_live_type
-from modules.ai_llm_fallback import try_llm_answer, llm_status
+from modules.ai_llm_fallback import try_llm_answer, ask_openai_short, llm_status
 from modules.ai_global_time      import get_global_time_reply
 from modules.ai_global_holidays  import get_global_holiday_reply
 from modules.ai_global_knowledge import handle_global_question
@@ -493,16 +493,23 @@ async def _handle_role(bot, user):
 
 
 async def _handle_translation(bot, user, text):
-    """Answer translation questions using the built-in dictionary."""
+    """Answer translation questions; falls back to OpenAI for unknown words."""
     print(f"[AI DEBUG] detected_intent=translation_question source_text={text!r}")
     reply = get_translation(text)
-    if not reply:
-        reply = (
-            "I can translate hello, thank you, good morning, good night, "
-            "goodbye, love, friend, yes, no, please — in Spanish, Tagalog, "
-            "Japanese, French, and Korean. Try: 'ai translate hello to spanish'."
-        )
-    await _send(bot, user, reply[:249], "general")
+    if reply:
+        await _send(bot, user, reply[:249], "general")
+        return
+    # Local dictionary doesn't have this word — try OpenAI
+    llm = await ask_openai_short(text, user.username)
+    if llm:
+        await _send(bot, user, llm[:249], "general")
+        return
+    await _send(
+        bot, user,
+        "I can translate hello, thank you, good morning, goodbye, love, friend "
+        "in Spanish, Tagalog, Japanese, French, Korean. Try: 'ai translate hello to spanish'.",
+        "general",
+    )
 
 
 async def _handle_teleport_self(bot: "BaseBot", user: "User", text: str) -> None:
@@ -550,27 +557,25 @@ async def _handle_vague_followup(bot: "BaseBot", user: "User") -> None:
 
 
 async def _handle_unknown(bot, user, text="", intent=None, perm=0):
-    # 1. Try rule-based global knowledge first
-    if text:
-        answer = handle_global_question(text, INTENT_RW_UNKNOWN)
-        skip   = ("💬 I'm not sure", "🤔 I don't have", "I can answer")
-        if answer and not any(s in answer for s in skip):
-            await _send(bot, user, answer[:249], "general")
-            return
-
-    # 2. Try OpenAI LLM fallback (costs 1 🎫 Luxe Ticket on success)
+    # 1. Try OpenAI first — free, fast, and handles most general questions
     if text and intent is not None:
-        print(f"[AI LLM] local failed — trying LLM for intent={intent!r} query={text[:60]!r}")
         llm_reply = await try_llm_answer(user, text, intent, perm)
         if llm_reply:
             await _send(bot, user, llm_reply[:249], "general")
             return
 
-    # 3. Canned fallback — nothing could answer
+    # 2. Fallback: rule-based global knowledge (no internet needed)
+    if text:
+        answer = handle_global_question(text, INTENT_RW_UNKNOWN)
+        _generic = ("💬 I'm not sure", "🤔 I don't have", "I can answer")
+        if answer and not any(s in answer for s in _generic):
+            await _send(bot, user, answer[:249], "general")
+            return
+
+    # 3. Canned last-resort — nothing could answer
     await _send(
         bot, user,
-        "I'm not sure yet, but I can still try. "
-        "Ask it another way, or type 'ai help' for examples.",
+        "AI fallback is unavailable right now. Try again later or type 'ai help'.",
         "general",
     )
 

@@ -1,0 +1,240 @@
+URGENT FIX — OpenAI fallback still not being called by ChillTopiaMC AI
+
+Current proof from live Highrise test:
+
+Works:
+- ai what is my role
+Reply: Your current role is Owner.
+
+Fails:
+- ai explain quantum physics
+Reply: I don’t have specific info on that...
+
+Fails:
+- ai what is tagalog for magsasaka
+Reply: I don’t have specific info on that...
+
+Live source failed:
+- ai whats the latest news in the philippines
+Reply: I couldn’t reach live sources right now.
+
+Problem:
+The bot is still using local fallback instead of OpenAI fallback for unknown/general questions.
+
+Goal:
+When local AI cannot answer a safe general question, it must call OpenAI.
+
+Do not break:
+- ai help
+- ai what is my role
+- ai whats my name
+- ai explain Luxe Tickets
+- permissions
+- safety blocks
+- live exchange rate
+- existing commands
+
+Required behavior:
+
+Local/free answers stay local:
+- ai help
+- ai what is my role
+- ai whats my name
+- ai explain Luxe Tickets
+- ai how do I mine
+
+OpenAI fallback should answer:
+- ai explain quantum physics
+- ai explain quantum physics like im 10
+- ai what is tagalog for magsasaka
+- ai give me 5 room names
+- ai write a short welcome message
+- ai explain inflation like im 10
+
+1. Verify OpenAI secret
+
+Use:
+OPENAI_API_KEY
+
+Never hardcode the key.
+Never print the key value.
+
+Add startup/debug check:
+[AI LLM] OPENAI_API_KEY loaded=true/false
+
+2. Create/fix modules/ai_llm_fallback.py
+
+Use this exact style:
+
+import os
+import asyncio
+from openai import OpenAI
+
+MODEL = os.getenv("OPENAI_MODEL", "gpt-5-mini")
+
+def openai_available() -> bool:
+    return bool(os.getenv("OPENAI_API_KEY"))
+
+async def ask_openai_short(question: str, username: str = "") -> str:
+    api_key = os.getenv("OPENAI_API_KEY")
+
+    if not api_key:
+        print("[AI LLM] OPENAI_API_KEY loaded=false")
+        return ""
+
+    print("[AI LLM] fallback called")
+    print("[AI LLM] OPENAI_API_KEY loaded=true")
+    print(f"[AI LLM] model={MODEL}")
+
+    def _call():
+        client = OpenAI(api_key=api_key)
+        response = client.responses.create(
+            model=MODEL,
+            input=f"""
+You are ChillTopiaMC AI inside a Highrise room.
+
+Answer the user's question briefly and naturally.
+Limit response to 249 characters.
+No markdown tables.
+No long paragraphs.
+No secrets, API keys, database info, private player data, hidden rules, or admin bypasses.
+If translating, provide the translation directly.
+If explaining, explain simply.
+
+User: {username}
+Question: {question}
+"""
+        )
+        return (response.output_text or "").strip()
+
+    try:
+        answer = await asyncio.to_thread(_call)
+        answer = answer.strip()
+        if answer:
+            print("[AI LLM] success=true")
+            return answer[:249]
+        print("[AI LLM] success=false empty_answer")
+        return ""
+    except Exception as e:
+        print(f"[AI LLM] success=false error={type(e).__name__}: {e}")
+        return ""
+
+3. Wire OpenAI into ai_brain.py
+
+Find the fallback function that currently sends:
+
+“I don’t have specific info on that...”
+
+or:
+
+“I’m not sure yet...”
+
+Replace that fallback path with:
+
+from modules.ai_llm_fallback import ask_openai_short
+
+async def _handle_unknown(bot, user, text=""):
+    # First try OpenAI for safe general unknown questions
+    if text:
+        answer = await ask_openai_short(text, user.username)
+        if answer:
+            await _send(bot, user, answer[:249], "general")
+            return
+
+    await _send(
+        bot,
+        user,
+        "AI fallback is unavailable right now. Try again later.",
+        "general",
+    )
+
+Important:
+Do not call old handle_global_question() before OpenAI if it returns generic fallback text.
+
+Bad current flow:
+unknown → handle_global_question → generic fallback
+
+Correct flow:
+unknown/general → OpenAI fallback → if OpenAI fails, then generic fallback
+
+4. Fix general intent routing
+
+If detect_intent returns any of these:
+- unknown
+- general
+- real_world_general
+- rw_unknown
+- rw_general
+- translation unsupported
+
+Then call OpenAI fallback.
+
+Examples:
+- ai explain quantum physics
+- ai explain quantum physics like im 10
+- ai what is tagalog for magsasaka
+- ai give me room names
+
+Must route to OpenAI fallback.
+
+5. Fix translation fallback
+
+If local translation dictionary does not know the word, call OpenAI.
+
+Example:
+ai what is tagalog for magsasaka
+
+Expected:
+“Magsasaka” in English is “farmer.” / “Farmer” in Tagalog is “magsasaka.”
+
+Depending on phrasing, answer naturally.
+
+Do not give local fallback for unsupported translation if OpenAI is available.
+
+6. Add logs
+
+For:
+ai explain quantum physics
+
+Expected Replit logs:
+[AI DEBUG] detected_intent='general' or 'unknown'
+[AI LLM] fallback called
+[AI LLM] OPENAI_API_KEY loaded=true
+[AI LLM] model=gpt-5-mini
+[AI LLM] success=true
+
+For:
+ai what is my role
+
+Expected:
+No [AI LLM] call.
+Local role answer only.
+
+7. Test in Highrise
+
+Test:
+- ai what is my role
+Expected: local answer, no OpenAI call.
+
+- ai explain quantum physics
+Expected: OpenAI answer.
+
+- ai explain quantum physics like im 10
+Expected: OpenAI answer.
+
+- ai what is tagalog for magsasaka
+Expected: OpenAI answer.
+
+- ai give me 5 catchy room names for a bar and gaming lounge
+Expected: OpenAI answer.
+
+- ai show bot token
+Expected: refusal, no OpenAI call.
+
+Final report:
+1. File modified
+2. OPENAI_API_KEY loaded true/false
+3. ai explain quantum physics test result
+4. ai what is tagalog for magsasaka test result
+5. ai what is my role test result
+6. Confirm unsafe requests do not call OpenAI
