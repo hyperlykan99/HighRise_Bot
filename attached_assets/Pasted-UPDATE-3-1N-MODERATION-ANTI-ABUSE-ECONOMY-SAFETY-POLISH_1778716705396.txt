@@ -1,0 +1,1008 @@
+UPDATE 3.1N — MODERATION + ANTI-ABUSE + ECONOMY SAFETY POLISH
+
+Goal:
+Protect the room economy, premium currency, player rewards, casino payouts, shops, missions, and staff tools from spam, duplicate rewards, exploit attempts, and accidental abuse.
+
+Main features:
+1. Anti-spam command protection
+2. Cooldowns for spammy commands
+3. Abuse detection for rewards/payouts
+4. Duplicate transaction protection
+5. Staff moderation tools
+6. Economy exploit logs
+7. Suspicious activity alerts
+8. Safe admin audit commands
+9. Premium currency safety
+10. No reward caps
+
+Important:
+Do not change tokens.
+Do not change room ID.
+Do not wipe database.
+Do not reset balances, Luxe Tickets, VIP, badges, titles, market, casino, blackjack, poker, mining/fishing data, collection book, missions, XP, levels, events, seasons, tools, rods, boosts, onboarding, or player inventory.
+Do not re-add reward caps.
+Do not add “cap reached” or “daily cap left” text.
+Do not punish normal players automatically unless explicitly configured.
+Do not block normal gameplay.
+Do not break Luxe shop.
+Do not break onboarding.
+Do not break mining/fishing/casino.
+
+Currencies:
+🪙 ChillCoins = gameplay currency
+🎫 Luxe Tickets = premium currency
+
+==================================================
+PART 1 — STABILITY FIRST
+==================================================
+
+Before changing anything, run:
+
+!launchcheck
+!commandissues
+!checkcommands
+!checkcommands all
+!checkhelp
+!bothealth
+!stability status
+
+Expected:
+- Launch Check OK
+- no command issues
+- no help issues
+- Err: none
+
+Fix baseline issues first.
+
+==================================================
+PART 2 — COMMAND SPAM PROTECTION
+==================================================
+
+Add safe anti-spam protection for command spam.
+
+Track per user:
+- commands per 5 seconds
+- commands per 30 seconds
+- repeated same command count
+- ignored command count
+- warning count
+
+Default thresholds:
+- 5 commands in 5 seconds = soft warning
+- 15 commands in 30 seconds = temporary command cooldown
+- repeated same command 8 times in 30 seconds = temporary command cooldown
+
+Response:
+
+⚠️ Slow down. Please wait a few seconds.
+
+Rules:
+- Do not permanently ban automatically.
+- Do not punish due to normal gameplay.
+- Owner/Admin/Staff can be exempt or higher threshold.
+- Critical commands like !help can have cooldown.
+- Core action commands should not break during active games.
+
+==================================================
+PART 3 — COMMAND COOLDOWN GROUPS
+==================================================
+
+Create cooldown groups.
+
+Low cooldown commands:
+!profile
+!balance
+!tickets
+!vip
+!missions
+!weekly
+!today
+!guide
+!help
+
+Suggested cooldown:
+3–5 seconds
+
+Spam-prone commands:
+!flex
+!showoff
+!card
+!luxeshop
+!shop
+!orebook
+!fishbook
+!topseason
+!topcollectors
+!leaderboard
+
+Suggested cooldown:
+10–30 seconds
+
+Action commands:
+!mine
+!fish
+!automine
+!autofish
+!bet
+!hit
+!stand
+!double
+!split
+
+Use existing game cooldowns.
+Do not add extra cooldowns that break gameplay.
+
+Admin commands:
+No cooldown for owner/admin or 1 second safety cooldown.
+
+==================================================
+PART 4 — ANTI-SPAM ADMIN SETTINGS
+==================================================
+
+Add admin command:
+
+!safetyadmin
+!safetyadmin settings
+!safetyadmin cooldowns
+!safetyadmin set spamwindow [seconds]
+!safetyadmin set maxcommands [count]
+!safetyadmin set repeatlimit [count]
+!safetyadmin enable
+!safetyadmin disable
+
+Expected:
+
+🛡️ Safety Settings
+Spam: ON
+Max: 15 cmds/30s
+Repeat: 8
+Action: warn + cooldown
+
+Rules:
+- Owner/Admin only.
+- Staff can view if safe.
+- Settings persist after restart.
+
+==================================================
+PART 5 — STAFF MODERATION TOOLS
+==================================================
+
+Add or polish staff moderation commands:
+
+!mod
+!modhelp
+!warn @user [reason]
+!warnings @user
+!clearwarnings @user
+!mute @user [minutes] [reason]
+!unmute @user
+!softban @user [minutes] [reason]
+!unsoftban @user
+!modlog @user
+
+If Highrise SDK supports kick/room moderation:
+!kick @user [reason]
+
+If not supported:
+- skip actual kick
+- show helpful message
+- log staff action
+
+Rules:
+- Staff+ can warn.
+- Manager/Admin+ can mute/softban.
+- Owner/Admin can clear warnings.
+- No permanent ban unless explicitly existing and safe.
+- Log every moderation action.
+
+==================================================
+PART 6 — MODERATION HELP
+==================================================
+
+Command:
+!modhelp
+
+Expected for Staff:
+
+🛡️ Staff Mod
+!warn @user [reason]
+!warnings @user
+!modlog @user
+
+For Manager/Admin:
+
+🛡️ Manager Mod
+!mute @user [min] [reason]
+!unmute @user
+!softban @user [min] [reason]
+
+For Owner/Admin:
+
+👑 Admin Mod
+!clearwarnings @user
+!safetyadmin
+!economyaudit
+
+Rules:
+- Show only commands user can use.
+- Whisper if possible.
+- Keep messages under 220 characters.
+- Do not show owner-only commands to staff.
+
+==================================================
+PART 7 — MUTE / SOFTBAN BEHAVIOR
+==================================================
+
+Mute:
+- Player can still receive basic bot responses if needed.
+- Player cannot use spammy/social/public commands.
+- Player cannot use !flex, !chat, assistant prompts if any.
+- Player can still use safety commands like !help if allowed.
+
+Softban:
+- Player cannot earn rewards from games/mining/fishing during softban.
+- Player cannot use market/trading.
+- Player cannot buy/sell.
+- Player can still view profile/help.
+- Softban expires automatically.
+
+Messages:
+If muted:
+⚠️ You are muted from public bot commands for [time].
+
+If softbanned:
+⚠️ Economy access temporarily restricted for [time].
+
+Rules:
+- Do not wipe data.
+- Do not steal currency.
+- Do not reset progress.
+- Log action.
+
+==================================================
+PART 8 — ECONOMY TRANSACTION LEDGER
+==================================================
+
+Create or use one central transaction ledger.
+
+Track:
+- ChillCoin additions
+- ChillCoin removals
+- Luxe Ticket additions
+- Luxe Ticket removals
+- VIP purchases
+- shop purchases
+- coin pack purchases
+- casino payouts
+- mining/fishing sell rewards
+- daily/mission/weekly rewards
+- market purchases/sales
+- badge trades
+- tip conversions
+- admin grants/revokes
+
+Suggested table:
+
+economy_transactions:
+id INTEGER PRIMARY KEY AUTOINCREMENT
+tx_id TEXT UNIQUE
+user_id TEXT
+username TEXT
+currency TEXT
+amount INTEGER
+direction TEXT
+source TEXT
+details TEXT
+event_id TEXT
+created_at TEXT
+
+currency:
+chillcoins
+luxe_tickets
+
+direction:
+credit
+debit
+
+Rules:
+- Use unique tx_id.
+- Prevent duplicate transaction processing.
+- Do not break existing balances.
+- Use ledger for audit, not as a replacement unless already safe.
+
+==================================================
+PART 9 — DUPLICATE TRANSACTION PROTECTION
+==================================================
+
+Prevent duplicate credits/debits for:
+
+Verified Highrise tip events:
+- event_id must be unique
+- if same event_id already processed, ignore duplicate
+
+Luxe purchases:
+- unique transaction ID
+- deduct once
+- grant item once
+
+Coin packs:
+- deduct 🎫 once
+- add 🪙 once
+
+VIP purchases:
+- deduct once
+- extend VIP once
+
+Casino payouts:
+- payout once per round_id/hand_id
+
+Mission rewards:
+- claim once per mission/period
+
+Collection milestones:
+- claim once per milestone
+
+Season rewards:
+- payout once per season/category/place
+
+Daily/streak rewards:
+- claim once per day
+
+Market/trading:
+- transfer once per trade/listing purchase
+
+Expected duplicate message:
+⚠️ This reward was already processed.
+
+Do not crash.
+
+==================================================
+PART 10 — ECONOMY EXPLOIT DETECTION
+==================================================
+
+Detect suspicious patterns.
+
+Examples:
+- same reward claimed multiple times quickly
+- balance increases without ledger
+- negative balance attempt
+- huge sudden balance change
+- repeated failed purchases
+- duplicate tip event
+- casino payout repeated
+- market self-buy abuse if applicable
+- badge duplication abuse
+- excessive reward farming from one command
+
+Log suspicious event:
+
+🚨 Economy Alert
+User: @Player
+Issue: duplicate mission claim attempt
+Action: logged only
+
+Rules:
+- Default action: log + alert owner/admin.
+- Do not auto-ban.
+- Do not remove currency automatically.
+- Owner/Admin reviews.
+
+==================================================
+PART 11 — ECONOMY SAFETY ADMIN COMMANDS
+==================================================
+
+Add:
+
+!economysafety
+!economysafety alerts
+!economysafety user @user
+!economysafety ledger @user
+!economysafety recent
+!economysafety tx [tx_id]
+
+Expected:
+
+🛡️ Economy Safety
+Alerts: 2 today
+Duplicate blocks: 4
+Suspicious users: 1
+Use !economysafety alerts.
+
+Rules:
+- Owner/Admin only.
+- Staff can view summary if safe.
+- Do not expose private balances publicly.
+- Whisper/DM if possible.
+
+==================================================
+PART 12 — SUSPICIOUS ACTIVITY ALERTS
+==================================================
+
+When suspicious activity happens, notify owner/admin if online or log for later.
+
+Example:
+
+🚨 Safety Alert
+@Player attempted duplicate payout.
+Source: blackjack round rbj_123
+Blocked: yes
+
+Alert channels:
+- owner whisper if online
+- console log
+- safety alerts table
+
+Do not spam:
+- group repeated alerts
+- max one alert per user/source per minute
+
+==================================================
+PART 13 — PLAYER-FACING SAFETY MESSAGES
+==================================================
+
+Use friendly messages.
+
+Duplicate claim:
+⚠️ Already claimed.
+
+Cooldown:
+⚠️ Please wait a few seconds.
+
+Not enough currency:
+⚠️ Not enough 🎫.
+Need: 100 🎫
+You have: 50 🎫
+
+Muted:
+⚠️ You are muted from public bot commands for [time].
+
+Softban:
+⚠️ Economy access temporarily restricted.
+
+Do not accuse players publicly.
+Do not say “cheater” or “fraud.”
+Do not expose security details.
+
+==================================================
+PART 14 — LUXE TICKET PAYMENT SAFETY
+==================================================
+
+Critical:
+🎫 Luxe Tickets must only be credited from verified Highrise tip/payment events or owner/admin grant.
+
+Do not credit from:
+- normal chat message
+- screenshot
+- “I tipped”
+- fake tip text
+- player command claiming payment
+
+Tip event rules:
+- require verified event object
+- use event_id if available
+- store event_id in ledger
+- block duplicate event_id
+- convert based on !tipadmin rate/mode
+
+Admin grant:
+!luxeadmin grant @user [amount] [reason]
+Owner only.
+
+Admin revoke:
+!luxeadmin revoke @user [amount] [reason]
+Owner only.
+
+Log both.
+
+==================================================
+PART 15 — BALANCE SAFETY
+==================================================
+
+Prevent:
+- negative ChillCoins
+- negative Luxe Tickets
+- NaN balances
+- infinite balances
+- string amount exploits
+- decimal amount if integer required
+- overflow if amount too huge
+
+If invalid:
+⚠️ Invalid amount.
+
+Rules:
+- Amount must be integer >= 0.
+- Purchases must check balance before deducting.
+- Deduct and grant should be atomic if possible.
+- If grant fails, refund automatically.
+
+==================================================
+PART 16 — SHOP / MARKET SAFETY
+==================================================
+
+Protect:
+- !buyluxe
+- !buycoins
+- !shop purchases
+- badge shop
+- player market
+- trading
+- sell ore/fish
+
+Rules:
+- verify item exists
+- verify item enabled
+- verify price is non-negative
+- verify user has enough currency/item
+- deduct once
+- grant once
+- log tx_id
+- block duplicate click/command spam if same purchase repeats too fast
+
+For market:
+- seller cannot buy own listing unless allowed
+- listing must exist and be active
+- lock listing during purchase
+- mark sold once
+- transfer once
+
+==================================================
+PART 17 — CASINO SAFETY
+==================================================
+
+Protect:
+- blackjack payouts
+- poker payouts
+- casino bonuses
+- bjtest/payout test mode
+- force-card test payouts
+
+Rules:
+- blackjack payouts once per round_id/hand_id
+- poker payouts once per game_id
+- test payouts marked clearly
+- fake mode does not pay real rewards
+- payout mode owner-only
+- max bet enforced unless unlimited
+- no reward caps
+- no duplicate payout
+
+Add economy safety alert if:
+- duplicate casino payout attempted
+- payout amount negative
+- payout amount unusually huge
+- payout tries to pay after resolved flag
+
+==================================================
+PART 18 — MINING/FISHING SAFETY
+==================================================
+
+Protect:
+- !mine
+- !fish
+- !automine
+- !autofish
+- Luxe auto time
+- sell ore/fish
+- collection rewards
+
+Rules:
+- auto sessions cannot run multiple times per user for same type unless explicitly allowed
+- Luxe auto time deducts elapsed time only
+- stop/cancel saves remaining time
+- reward per action logged or session-summarized safely
+- no duplicate summary reward
+- no reward caps
+- no negative rewards
+
+Detect:
+- overlapping automine sessions
+- overlapping autofish sessions
+- impossible actions per minute
+- sell same inventory item twice
+
+Default action:
+- block duplicate
+- log alert
+- do not ban automatically
+
+==================================================
+PART 19 — MISSIONS / DAILY / WEEKLY SAFETY
+==================================================
+
+Protect:
+- mission claim
+- daily claim
+- weekly claim
+- streak reward
+- starter/tutorial rewards
+- milestone rewards
+
+Rules:
+- claim once per period/key
+- lock claim while processing
+- no duplicate rewards
+- if reward fails, allow retry or rollback
+- no reward caps
+
+==================================================
+PART 20 — STAFF ACTION LOG
+==================================================
+
+Create/moderation log table:
+
+moderation_logs:
+id INTEGER PRIMARY KEY AUTOINCREMENT
+action_id TEXT UNIQUE
+staff_id TEXT
+staff_name TEXT
+target_id TEXT
+target_name TEXT
+action TEXT
+reason TEXT
+duration_minutes INTEGER
+created_at TEXT
+expires_at TEXT
+active INTEGER DEFAULT 1
+
+Commands:
+!modlog @user
+!modlog recent
+!warnings @user
+
+Expected:
+
+🛡️ Mod Log @User
+Warnings: 2
+Mutes: 1
+Last: spam commands
+
+==================================================
+PART 21 — SAFETY LOG TABLES
+==================================================
+
+Add safe/idempotent tables:
+
+safety_alerts:
+id INTEGER PRIMARY KEY AUTOINCREMENT
+alert_id TEXT UNIQUE
+user_id TEXT
+username TEXT
+alert_type TEXT
+severity TEXT
+source TEXT
+details TEXT
+blocked INTEGER DEFAULT 0
+created_at TEXT
+
+processed_events:
+event_id TEXT UNIQUE
+event_type TEXT
+user_id TEXT
+username TEXT
+source TEXT
+created_at TEXT
+
+command_rate_limits:
+user_id TEXT
+username TEXT
+command TEXT
+window_key TEXT
+count INTEGER DEFAULT 0
+updated_at TEXT
+
+Rules:
+- Idempotent migrations.
+- Do not wipe existing data.
+- Keep logs manageable.
+- Optionally prune old command rate logs.
+
+==================================================
+PART 22 — SAFETY DASHBOARD
+==================================================
+
+Add command:
+
+!safetydash
+
+Expected:
+
+🛡️ Safety Dashboard
+Alerts today: 3
+Duplicate blocks: 8
+Muted: 1
+Softbanned: 0
+Use !economysafety.
+
+Owner/Admin only.
+Staff can view summary if safe.
+
+==================================================
+PART 23 — AUDIT COMMANDS
+==================================================
+
+Add:
+
+!audit
+!audit user @user
+!audit economy @user
+!audit commands @user
+!audit recent
+
+Expected:
+
+📋 Audit @Player
+Recent tx: 5
+Warnings: 1
+Cooldown blocks: 2
+Suspicious: 0
+
+Rules:
+- Owner/Admin only.
+- Do not expose to public.
+- Use whisper/DM if possible.
+
+==================================================
+PART 24 — HELP UPDATES
+==================================================
+
+Update:
+
+!help staff
+!modhelp
+!safetyadmin
+!economysafety
+!safetydash
+!audit
+
+Public help should NOT show:
+!economysafety
+!safetydash
+!audit
+!safetyadmin
+owner-only grant/revoke commands
+
+Staff help should show only staff-level commands.
+
+Rules:
+- No broken commands.
+- No admin leaks.
+- No reward cap text.
+- Use 🪙 and 🎫.
+
+==================================================
+PART 25 — COMMAND REGISTRY
+==================================================
+
+Register/verify:
+
+!mod
+!modhelp
+!warn
+!warnings
+!clearwarnings
+!mute
+!unmute
+!softban
+!unsoftban
+!modlog
+!safetyadmin
+!economysafety
+!safetydash
+!audit
+
+Expected:
+route=YES
+handler=YES
+owner not UNKNOWN
+
+If optional commands skipped:
+- hide them
+- do not show in help
+- do not count as command issue.
+
+==================================================
+PART 26 — TESTS: COMMAND SPAM
+==================================================
+
+Run repeated command quickly:
+
+!profile
+!profile
+!profile
+!profile
+!profile
+!profile
+
+Expected:
+- soft cooldown message
+- no crash
+- no ban
+- normal commands work after cooldown
+
+Test repeated flex:
+!flex several times
+
+Expected:
+- cooldown blocks spam
+- no public spam
+
+==================================================
+PART 27 — TESTS: MODERATION
+==================================================
+
+Run as staff/admin:
+
+!modhelp
+!warn @test spam
+!warnings @test
+!mute @test 5 spam
+!modlog @test
+!unmute @test
+!clearwarnings @test
+
+Expected:
+- commands work by permission
+- actions logged
+- no data wipe
+- no crash
+
+==================================================
+PART 28 — TESTS: ECONOMY DUPLICATES
+==================================================
+
+Test safe duplicates:
+
+!claimdaily twice
+!claimmission 1 twice
+!claimmilestone ore 25 twice if available
+!seasonadmin payout mining twice if available
+
+Expected:
+- first valid claim pays
+- second says already claimed/processed
+- alert/log if suspicious
+- no duplicate payout
+
+Test purchase spam:
+
+!buyluxe 2
+!buyluxe 2 quickly
+
+Expected:
+- each purchase only if enough 🎫
+- no duplicate accidental grant
+- ledger logs both if truly separate
+- no negative balance
+
+==================================================
+PART 29 — TESTS: LUXE TIP EVENT SAFETY
+==================================================
+
+If simulated verified tip event is available:
+- process same event twice
+
+Expected:
+- first credits 🎫
+- second ignored as duplicate
+- alert/log duplicate event
+- no double credit
+
+If simulation not available:
+- verify code path and report skipped.
+
+==================================================
+PART 30 — TESTS: CASINO SAFETY
+==================================================
+
+Run:
+
+!bjstatus
+Start small blackjack if safe.
+Complete round.
+Check duplicate payout logs if possible.
+
+Expected:
+- payout once
+- no duplicate payout alert unless duplicate attempted
+- no reward cap text
+
+If bjtest payout mode exists:
+- ensure owner-only
+- logs as test payout
+
+==================================================
+PART 31 — TESTS: MINING/FISHING SAFETY
+==================================================
+
+Run:
+
+!automine
+!automine
+
+Expected:
+- second automine blocked if one already active
+- no duplicate session
+
+Run:
+
+!autofish
+!autofish
+
+Expected:
+- same protection
+
+Run Luxe auto if available:
+!automine luxe
+!stopmine
+!automine luxe
+
+Expected:
+- remaining time saved
+- no time loss
+- no duplicate active session
+
+==================================================
+PART 32 — FINAL QA
+==================================================
+
+Run:
+
+!commandtest !modhelp
+!commandtest !warn
+!commandtest !warnings
+!commandtest !mute
+!commandtest !unmute
+!commandtest !softban
+!commandtest !modlog
+!commandtest !safetyadmin
+!commandtest !economysafety
+!commandtest !safetydash
+!commandtest !audit
+
+!commandissues
+!checkcommands
+!checkhelp
+!launchcheck
+!bothealth
+!stability status
+
+Expected:
+- no command issues
+- no help leaks
+- no reward cap text
+- economy safety works
+- moderation tools work
+- launchcheck clean
+
+==================================================
+PART 33 — FINAL REPORT
+==================================================
+
+Report:
+1. Command spam protection added.
+2. Cooldown groups added.
+3. Safety admin settings added.
+4. Staff moderation tools added.
+5. Mute/softban behavior added.
+6. Economy transaction ledger added.
+7. Duplicate transaction protection added.
+8. Verified tip event duplicate protection added.
+9. Economy exploit detection added.
+10. Economy safety admin commands added.
+11. Safety alerts added.
+12. Luxe Ticket payment safety confirmed.
+13. Balance safety checks added.
+14. Shop/market safety added.
+15. Casino payout safety confirmed.
+16. Mining/fishing safety added.
+17. Mission/daily/weekly safety added.
+18. Staff action log added.
+19. Safety dashboard added.
+20. Audit commands added.
+21. Help/guides updated.
+22. No reward cap regression.
+23. No automatic harsh punishment added.
+24. !commandissues result.
+25. !checkhelp result.
+26. !launchcheck result.

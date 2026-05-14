@@ -332,6 +332,14 @@ from modules.moderation import (
     handle_rules, handle_setrules, handle_automod,
 )
 from modules.automod import automod_check
+from modules.safety import (
+    handle_softban, handle_unsoftban,
+    handle_safetyadmin, handle_economysafety, handle_safetydash,
+    handle_modhelp as handle_modhelp_tiered,
+    is_softbanned, log_safety_alert,
+    is_event_processed, mark_event_processed,
+    log_economy_tx,
+)
 from modules.reputation import (
     handle_rep, handle_reputation, handle_toprep,
     handle_replog, handle_addrep, handle_removerep,
@@ -3403,6 +3411,10 @@ class HangoutBot(BaseBot):
                 await handle_warnings(self, user, args)
             elif cmd == "clearwarnings":
                 await handle_clearwarnings(self, user, args)
+            elif cmd in ("softban", "ecoban"):
+                await handle_softban(self, user, args)
+            elif cmd in ("unsoftban", "ecounban"):
+                await handle_unsoftban(self, user, args)
             elif cmd == "setrules":
                 await handle_setrules(self, user, args)
             elif cmd == "automod":
@@ -4942,8 +4954,8 @@ class HangoutBot(BaseBot):
         elif cmd == "staffhelp":
             await _handle_staffhelp(self, user)
 
-        elif cmd == "modhelp":
-            await _handle_modhelp(self, user, args)
+        elif cmd in ("modhelp", "mod"):
+            await handle_modhelp_tiered(self, user, args)
 
         elif cmd == "managerhelp":
             await _handle_managerhelp(self, user, args)
@@ -6311,6 +6323,12 @@ class HangoutBot(BaseBot):
             await handle_bans(self, user)
         elif cmd == "modlog":
             await handle_modlog(self, user, args)
+        elif cmd in ("safetyadmin", "antispam", "spamadmin"):
+            await handle_safetyadmin(self, user, args)
+        elif cmd in ("economysafety", "txsafety", "economyalerts"):
+            await handle_economysafety(self, user, args)
+        elif cmd in ("safetydash", "safedash", "safetydashboard"):
+            await handle_safetydash(self, user)
 
         # ── Boost / mic ───────────────────────────────────────────────────────
         elif cmd in {"boostroom", "roomboost"}:

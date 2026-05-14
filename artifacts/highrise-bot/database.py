@@ -2486,6 +2486,91 @@ def _migrate_db():
     except Exception:
         pass
 
+    # ── 3.1N — moderation + anti-abuse + economy safety ──────────────────────
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS softbans (
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id          TEXT NOT NULL,
+                username         TEXT NOT NULL DEFAULT '',
+                banned_by        TEXT NOT NULL DEFAULT '',
+                reason           TEXT NOT NULL DEFAULT '',
+                duration_minutes INTEGER NOT NULL DEFAULT 60,
+                created_at       TEXT NOT NULL DEFAULT (datetime('now')),
+                expires_at       TEXT NOT NULL DEFAULT (datetime('now','+60 minutes')),
+                active           INTEGER NOT NULL DEFAULT 1
+            )
+        """)
+    except Exception:
+        pass
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS economy_transactions (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                tx_id      TEXT UNIQUE NOT NULL,
+                user_id    TEXT NOT NULL DEFAULT '',
+                username   TEXT NOT NULL DEFAULT '',
+                currency   TEXT NOT NULL DEFAULT 'chillcoins',
+                amount     INTEGER NOT NULL DEFAULT 0,
+                direction  TEXT NOT NULL DEFAULT 'credit',
+                source     TEXT NOT NULL DEFAULT '',
+                details    TEXT NOT NULL DEFAULT '',
+                event_id   TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+        """)
+    except Exception:
+        pass
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS moderation_logs (
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                action_id        TEXT UNIQUE NOT NULL,
+                staff_id         TEXT NOT NULL DEFAULT '',
+                staff_name       TEXT NOT NULL DEFAULT '',
+                target_id        TEXT NOT NULL DEFAULT '',
+                target_name      TEXT NOT NULL DEFAULT '',
+                action           TEXT NOT NULL DEFAULT '',
+                reason           TEXT NOT NULL DEFAULT '',
+                duration_minutes INTEGER NOT NULL DEFAULT 0,
+                created_at       TEXT NOT NULL DEFAULT (datetime('now')),
+                expires_at       TEXT NOT NULL DEFAULT '',
+                active           INTEGER NOT NULL DEFAULT 1
+            )
+        """)
+    except Exception:
+        pass
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS safety_alerts (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                alert_id   TEXT UNIQUE NOT NULL,
+                user_id    TEXT NOT NULL DEFAULT '',
+                username   TEXT NOT NULL DEFAULT '',
+                alert_type TEXT NOT NULL DEFAULT '',
+                severity   TEXT NOT NULL DEFAULT 'low',
+                source     TEXT NOT NULL DEFAULT '',
+                details    TEXT NOT NULL DEFAULT '',
+                blocked    INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+        """)
+    except Exception:
+        pass
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS processed_events (
+                event_id   TEXT UNIQUE NOT NULL,
+                event_type TEXT NOT NULL DEFAULT '',
+                user_id    TEXT NOT NULL DEFAULT '',
+                username   TEXT NOT NULL DEFAULT '',
+                source     TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+        """)
+    except Exception:
+        pass
+
     conn.commit()
     conn.close()
 

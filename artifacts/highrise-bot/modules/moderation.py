@@ -25,6 +25,7 @@ from highrise import BaseBot, User
 import database as db
 from modules.permissions import can_moderate, can_manage_games, can_manage_economy, is_admin, is_owner
 from modules.automod import reset_tracker, get_tracker_status, automod_offense_count
+from modules.safety import _log_mod_action
 
 
 def _get_mod_setting(key: str, default: str = "") -> str:
@@ -86,11 +87,18 @@ async def handle_mute(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, f"@{target_name} not found.")
         return
 
+    reason_str = " ".join(args[3:]).strip() if len(args) > 3 else ""
     db.mute_user(
         user_id        = target["user_id"],
         username       = target["username"],
         muted_by       = user.username,
         duration_minutes = minutes,
+    )
+    _log_mod_action(
+        staff_id=user.id, staff_name=user.username,
+        target_id=target["user_id"], target_name=target["username"],
+        action="mute", reason=reason_str or "muted by staff",
+        duration_minutes=minutes,
     )
     await _w(bot, user.id, f"🔇 @{target['username']} muted for {minutes} min.")
 
@@ -263,6 +271,11 @@ async def handle_warn(bot: BaseBot, user: User, args: list[str]) -> None:
         username  = target["username"],
         warned_by = user.username,
         reason    = reason,
+    )
+    _log_mod_action(
+        staff_id=user.id, staff_name=user.username,
+        target_id=target["user_id"], target_name=target["username"],
+        action="warn", reason=reason,
     )
     name  = target["username"][:15]
     rsn   = reason[:60]

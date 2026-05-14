@@ -19,12 +19,16 @@ from modules.permissions import can_moderate
 # ── Per-user in-memory state ──────────────────────────────────────────────────
 
 class _UserTracker:
-    __slots__ = ("cmd_times", "msg_history", "report_times")
+    __slots__ = ("cmd_times", "cmd_times_5s", "msg_history", "report_times",
+                 "last_cmd", "same_cmd_times")
 
     def __init__(self) -> None:
-        self.cmd_times:    deque[float] = deque()   # epoch timestamps of any command
-        self.msg_history:  deque[str]   = deque(maxlen=5)  # last 5 raw messages
-        self.report_times: deque[float] = deque()   # timestamps of /report commands
+        self.cmd_times:     deque[float] = deque()   # epoch timestamps (30s window)
+        self.cmd_times_5s:  deque[float] = deque()   # epoch timestamps (5s window)
+        self.msg_history:   deque[str]   = deque(maxlen=5)  # last 5 raw messages
+        self.report_times:  deque[float] = deque()   # /report timestamps
+        self.last_cmd:      str          = ""         # last command name
+        self.same_cmd_times: deque[float] = deque()  # timestamps of repeated same cmd
 
 
 _trackers: dict[str, _UserTracker] = defaultdict(_UserTracker)
@@ -136,28 +140,52 @@ async def automod_check(bot, user, cmd: str, message: str) -> bool:
         max_cmds    = int(settings.get("max_commands", "8"))
         max_same    = int(settings.get("max_same_message", "3"))
         max_reports = int(settings.get("max_reports", "3"))
+        repeat_limit = max(3, max_same + 5)   # same-cmd repeat before escalating (default 8)
 
         tracker = _trackers[user.id]
         now     = time.monotonic()
 
-        # ── Check 1: command rate (max_commands within 30s) ───────────────────
+        # ── Check 1a: fast burst (5 commands within 5s) → soft warning only ──
+        _purge_old(tracker.cmd_times_5s, 5)
+        tracker.cmd_times_5s.append(now)
+        if len(tracker.cmd_times_5s) > 5:
+            # Soft warn only — do not mute
+            try:
+                await bot.highrise.send_whisper(
+                    user.id,
+                    "⚠️ Slow down. Please wait a few seconds."[:249],
+                )
+            except Exception:
+                pass
+            return False  # allow the command still; only blocking at 30s threshold
+
+        # ── Check 1b: command rate (max_commands within 30s) → escalate ──────
         _purge_old(tracker.cmd_times, 30)
         tracker.cmd_times.append(now)
         if len(tracker.cmd_times) > max_cmds:
             result = await _take_action(bot, user, "Command spam detected")
             return result.startswith("muted")
 
-        # ── Check 2: same message spam (max_same_message within 30s) ─────────
-        # We compare by storing (message_lower, timestamp) pairs
+        # ── Check 2: same-command repeat (repeat_limit within 30s) ───────────
+        if cmd == tracker.last_cmd:
+            tracker.same_cmd_times.append(now)
+        else:
+            tracker.same_cmd_times.clear()
+            tracker.last_cmd = cmd
+        _purge_old(tracker.same_cmd_times, 30)
+        if len(tracker.same_cmd_times) >= repeat_limit:
+            result = await _take_action(bot, user, "Repeated same command spam")
+            return result.startswith("muted")
+
+        # ── Check 3: same message spam (max_same_message within last 5 msgs) ─
         msg_lower = message.lower().strip()
-        # Count how many of the last 5 messages are identical
         recent_same = sum(1 for m in tracker.msg_history if m == msg_lower)
         tracker.msg_history.append(msg_lower)
         if recent_same >= max_same - 1:   # -1 because we already appended
             result = await _take_action(bot, user, "Repeated message spam")
             return result.startswith("muted")
 
-        # ── Check 3: report spam (max_reports within 10 min) ─────────────────
+        # ── Check 4: report spam (max_reports within 10 min) ─────────────────
         if cmd == "report":
             _purge_old(tracker.report_times, 600)
             tracker.report_times.append(now)
