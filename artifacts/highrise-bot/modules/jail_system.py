@@ -561,17 +561,62 @@ async def handle_jailprotectstaff(bot: "BaseBot", user: "User", args: list[str])
 
 
 async def handle_jaildebug(bot: "BaseBot", user: "User", args: list[str]) -> None:
-    if not is_owner(user.username.lower()):
-        await bot.highrise.send_whisper(user.id, "\U0001f512 Owner only.")
+    if not _is_staff_plus(user.username):
+        await bot.highrise.send_whisper(user.id, "\U0001f512 Admin+ only.")
         return
-    from modules.securitybot_jail import verify_jail_spots, is_security_bot
-    missing = verify_jail_spots()
-    active  = len(get_all_active_sentences())
-    msg = (
-        f"\U0001f6a8 JailDebug | SecBot:{is_security_bot()} | Active:{active} | "
-        f"Missing:{', '.join(missing) or 'none'}"
-    )[:249]
-    await bot.highrise.send_whisper(user.id, msg)
+    from modules.securitybot_jail import is_security_bot
+    from modules.jail_config import jail_spot_name, guard_spot_name, idle_spot_name
+    active = len(get_all_active_sentences())
+    spots = {
+        "jail":          jail_spot_name(),
+        "jail_guard":    guard_spot_name(),
+        "security_idle": idle_spot_name(),
+    }
+    lines = []
+    for label, key in spots.items():
+        row = db.get_spawn(key)
+        if row:
+            lines.append(
+                f"{label}: \u2705 ({row['x']:.1f},{row['y']:.1f},{row['z']:.1f})"
+            )
+        else:
+            lines.append(f"{label}: \u274c not set (!set{label.replace('_','')})")
+    enabled = "ON" if is_jail_enabled() else "OFF"
+    header = (
+        f"\U0001f6a8 Jail {enabled} | Active:{active} | SecBot:{is_security_bot()}"
+    )
+    # Send header then spots (two whispers to fit ≤249 chars each)
+    await bot.highrise.send_whisper(user.id, header[:249])
+    await bot.highrise.send_whisper(user.id, " | ".join(lines)[:249])
+
+
+# ── Spawn-setup helpers ───────────────────────────────────────────────────────
+
+async def _get_user_position(bot: "BaseBot", user_id: str):
+    """
+    Return the cached Position for user_id, or fetch live from the SDK.
+    Returns None if the position cannot be determined.
+    Same pattern as handle_setbotspawnhere in room_utils.py.
+    """
+    from highrise.models import Position as _Pos
+    from modules.room_utils import _user_positions, _user_position_times
+    pos = _user_positions.get(user_id)
+    if pos:
+        return pos
+    # Live fallback via SDK
+    try:
+        resp = await bot.highrise.get_room_users()
+        users = resp.content if hasattr(resp, "content") else []
+        for ru, rp in users:
+            if ru.id == user_id:
+                if isinstance(rp, _Pos):
+                    _user_positions[user_id]      = rp
+                    _user_position_times[user_id] = time.time()
+                    return rp
+                break
+    except Exception as e:
+        print(f"[JAIL SETUP] live position fetch error: {e!r}")
+    return None
 
 
 # ── Spawn-setup commands ──────────────────────────────────────────────────────
@@ -580,42 +625,63 @@ async def handle_setjailspot(bot: "BaseBot", user: "User", args: list[str]) -> N
     if not _is_staff_plus(user.username):
         await bot.highrise.send_whisper(user.id, "\U0001f512 Admin+ only.")
         return
-    from modules.room_utils import _user_positions
-    pos = _user_positions.get(user.id)
+    pos = await _get_user_position(bot, user.id)
+    print(f"[JAIL SETUP] command=setjailspot user={user.username} "
+          f"position_found={pos is not None}")
     if not pos:
-        await bot.highrise.send_whisper(user.id, "Move to jail spot first so bot sees your position.")
+        await bot.highrise.send_whisper(
+            user.id,
+            "\u26a0\ufe0f I can't read your current position yet. "
+            "Move one step and try again."[:249],
+        )
         return
     name = jail_spot_name()
-    db.save_spawn(name, pos.x, pos.y, pos.z, getattr(pos, "facing", "FrontRight"), user.username)
-    await bot.highrise.send_whisper(user.id, f"\u2705 Jail spot '{name}' saved at your position.")
+    facing = getattr(pos, "facing", "FrontRight")
+    db.save_spawn(name, pos.x, pos.y, pos.z, facing, user.username)
+    print(f"[JAIL SETUP] saved {name} x={pos.x} y={pos.y} z={pos.z} facing={facing}")
+    await bot.highrise.send_whisper(user.id, "\u2705 Jail spot saved.")
 
 
 async def handle_setjailguardspot(bot: "BaseBot", user: "User", args: list[str]) -> None:
     if not _is_staff_plus(user.username):
         await bot.highrise.send_whisper(user.id, "\U0001f512 Admin+ only.")
         return
-    from modules.room_utils import _user_positions
-    pos = _user_positions.get(user.id)
+    pos = await _get_user_position(bot, user.id)
+    print(f"[JAIL SETUP] command=setjailguardspot user={user.username} "
+          f"position_found={pos is not None}")
     if not pos:
-        await bot.highrise.send_whisper(user.id, "Move to guard spot first.")
+        await bot.highrise.send_whisper(
+            user.id,
+            "\u26a0\ufe0f I can't read your current position yet. "
+            "Move one step and try again."[:249],
+        )
         return
     name = guard_spot_name()
-    db.save_spawn(name, pos.x, pos.y, pos.z, getattr(pos, "facing", "FrontRight"), user.username)
-    await bot.highrise.send_whisper(user.id, f"\u2705 Guard spot '{name}' saved.")
+    facing = getattr(pos, "facing", "FrontRight")
+    db.save_spawn(name, pos.x, pos.y, pos.z, facing, user.username)
+    print(f"[JAIL SETUP] saved {name} x={pos.x} y={pos.y} z={pos.z} facing={facing}")
+    await bot.highrise.send_whisper(user.id, "\u2705 Jail guard spot saved.")
 
 
 async def handle_setsecurityidle(bot: "BaseBot", user: "User", args: list[str]) -> None:
     if not _is_staff_plus(user.username):
         await bot.highrise.send_whisper(user.id, "\U0001f512 Admin+ only.")
         return
-    from modules.room_utils import _user_positions
-    pos = _user_positions.get(user.id)
+    pos = await _get_user_position(bot, user.id)
+    print(f"[JAIL SETUP] command=setsecurityidle user={user.username} "
+          f"position_found={pos is not None}")
     if not pos:
-        await bot.highrise.send_whisper(user.id, "Move to idle spot first.")
+        await bot.highrise.send_whisper(
+            user.id,
+            "\u26a0\ufe0f I can't read your current position yet. "
+            "Move one step and try again."[:249],
+        )
         return
     name = idle_spot_name()
-    db.save_spawn(name, pos.x, pos.y, pos.z, getattr(pos, "facing", "FrontRight"), user.username)
-    await bot.highrise.send_whisper(user.id, f"\u2705 SecurityBot idle spot '{name}' saved.")
+    facing = getattr(pos, "facing", "FrontRight")
+    db.save_spawn(name, pos.x, pos.y, pos.z, facing, user.username)
+    print(f"[JAIL SETUP] saved {name} x={pos.x} y={pos.y} z={pos.z} facing={facing}")
+    await bot.highrise.send_whisper(user.id, "\u2705 SecurityBot idle spot saved.")
 
 
 # ── Startup recovery ──────────────────────────────────────────────────────────

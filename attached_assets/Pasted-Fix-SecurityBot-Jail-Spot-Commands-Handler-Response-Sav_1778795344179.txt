@@ -1,0 +1,130 @@
+Fix SecurityBot Jail Spot Commands Handler Response + Save Logic
+
+Current status:
+!commandtest !setjailspot now shows:
+route=YES | handler=YES
+
+But when owner types:
+!setjailspot
+
+There is no clear confirmation message like:
+✅ Jail spot saved.
+
+Goal:
+Make jail setup commands actually save the owner’s current position and confirm clearly.
+
+Commands:
+!setjailspot
+!setjailguardspot
+!setsecurityidle
+
+Required behavior:
+
+Owner stands at jail location:
+!setjailspot
+
+Bot replies:
+✅ Jail spot saved.
+
+Owner stands where SecurityBot should brief jailed players:
+!setjailguardspot
+
+Bot replies:
+✅ Jail guard spot saved.
+
+Owner stands where SecurityBot should idle:
+!setsecurityidle
+
+Bot replies:
+✅ SecurityBot idle spot saved.
+
+Implementation:
+Use the existing player/user position tracking used by:
+!create tele
+!setbotspawnhere
+!tele
+
+Do not create a new incompatible position format.
+
+Save to room settings or same teleport storage format:
+
+jail spot:
+key/name = jail
+
+jail guard:
+key/name = jail_guard
+
+security idle:
+key/name = security_idle
+
+If the user position is unavailable:
+Reply:
+⚠️ I can’t read your current position yet. Move one step and try again.
+
+Add debug logs:
+[JAIL SETUP] command=setjailspot user=4ktreyMarion position_found=true
+[JAIL SETUP] saved jail x=... y=... z=...
+
+[JAIL SETUP] command=setjailguardspot user=4ktreyMarion position_found=true
+[JAIL SETUP] saved jail_guard x=... y=... z=...
+
+[JAIL SETUP] command=setsecurityidle user=4ktreyMarion position_found=true
+[JAIL SETUP] saved security_idle x=... y=... z=...
+
+Update !jaildebug:
+Show:
+Jail setup:
+jail: ✅ saved
+jail_guard: ✅ saved
+security_idle: ✅ saved
+
+Also show coordinates if owner:
+jail: x=..., y=..., z=...
+jail_guard: x=..., y=..., z=...
+security_idle: x=..., y=..., z=...
+
+Tests:
+1. Stand inside jail.
+2. Type:
+!setjailspot
+
+Expected:
+✅ Jail spot saved.
+
+3. Stand in front of jail.
+4. Type:
+!setjailguardspot
+
+Expected:
+✅ Jail guard spot saved.
+
+5. Stand at SecurityBot idle area.
+6. Type:
+!setsecurityidle
+
+Expected:
+✅ SecurityBot idle spot saved.
+
+7. Type:
+!jaildebug
+
+Expected:
+All 3 spots show ✅ saved.
+
+8. Type:
+!tele jail
+
+Expected:
+Teleports to jail spot.
+
+9. Type:
+!tele jail_guard
+
+Expected:
+Teleports to jail guard spot.
+
+10. Type:
+!tele security_idle
+
+Expected:
+Teleports to SecurityBot idle spot.
