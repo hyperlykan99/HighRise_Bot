@@ -34,6 +34,7 @@ from modules.ai_permissions        import perm_label, PERM_ADMIN, PERM_OWNER
 from modules.ai_luxe_billing       import (
     is_billing_enabled, estimate_cost, check_can_afford,
     charge_luxe, insufficient_funds_msg, TIER_FREE,
+    should_charge, get_balance_for_log,
 )
 from modules.ai_usage_logs         import log_billing, log_llm_call
 
@@ -185,16 +186,26 @@ async def handle_openai_brain(
             await _w(bot, user.id, "I don't have an answer for that. Try being more specific.")
             return
 
-        billing_on = is_billing_enabled()
-        is_live    = "live" in intent.lower() or risk == "high"
-        cost       = estimate_cost(text, intent, is_live) if billing_on else TIER_FREE
+        is_live = "live" in intent.lower() or risk == "high"
+        cost    = estimate_cost(text, intent, is_live)
 
-        print(f"[AI COST] type={'live' if is_live else 'answer'} cost={cost} billing={billing_on}")
+        do_charge, exempt_reason = should_charge(user.id, user.username, perm, cost)
+        print(
+            f"[AI COST] request={text[:50]!r} "
+            f"type={'live' if is_live else 'answer'} cost={cost} "
+            f"billing={is_billing_enabled()} do_charge={do_charge}"
+        )
 
-        if billing_on and cost > TIER_FREE:
+        if do_charge:
+            luxe_before = get_balance_for_log(user.id)
             can_afford, balance = check_can_afford(user.id, cost)
+            print(
+                f"[AI BILLING] user={user.username!r} "
+                f"luxe_before={luxe_before} cost={cost} enough={can_afford}"
+            )
             if not can_afford:
                 log_billing(user.username, cost, False, "insufficient_funds")
+                print(f"[AI BILLING] charged=false reason=not_enough_tickets")
                 await _w(bot, user.id, insufficient_funds_msg(cost, balance))
                 return
 
@@ -212,15 +223,39 @@ async def handle_openai_brain(
                 await _w(bot, user.id, basic_confirm_msg(cost))
                 return
 
-            charge_luxe(user.id, user.username, cost)
-            log_billing(user.username, cost, True)
-            print(f"[AI BILLING] charged=true cost={cost} user={user.username!r}")
-        else:
-            log_billing(user.username, 0, True, "free")
+            # Send answer first, then deduct (only charge after successful send)
+            print(f"[AI BILLING] openai_success=true")
+            log_llm_call(user.username, intent, True)
+            note = cost_note_str(cost)
+            answer_sent = False
+            try:
+                await _pub(bot, user, (reply + note)[:249])
+                answer_sent = True
+            except Exception as _send_err:
+                print(f"[AI BILLING] answer_sent=false send_error={_send_err!r}")
 
-        log_llm_call(user.username, intent, True)
-        note = cost_note_str(cost) if billing_on else ""
-        await _pub(bot, user, (reply + note)[:249])
+            print(f"[AI BILLING] answer_sent={answer_sent}")
+            if answer_sent:
+                ok = charge_luxe(user.id, user.username, cost)
+                if ok:
+                    luxe_after = get_balance_for_log(user.id)
+                    log_billing(user.username, cost, True)
+                    print(
+                        f"[AI BILLING] charged=true cost={cost} "
+                        f"user={user.username!r} luxe_after={luxe_after}"
+                    )
+                else:
+                    print(
+                        f"[AI BILLING] charged=false reason=deduction_failed "
+                        f"CHARGE_RECOVERY_NEEDED user={user.username!r} cost={cost}"
+                    )
+            else:
+                print(f"[AI BILLING] charged=false reason=answer_not_sent")
+        else:
+            print(f"[AI BILLING] charged=false reason={exempt_reason}")
+            log_billing(user.username, 0, True, exempt_reason)
+            log_llm_call(user.username, intent, True)
+            await _pub(bot, user, reply[:249])
         return
 
     # ── Unknown type (shouldn't happen after validation in classify_intent) ───

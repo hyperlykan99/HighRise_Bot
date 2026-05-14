@@ -43,12 +43,66 @@ def estimate_cost(question: str, intent: str = "", is_live: bool = False) -> int
 
 
 def is_billing_enabled() -> bool:
-    """Check the room setting that controls AI billing."""
+    """Return True when AI billing is enabled (default: on)."""
     try:
         import database as db
-        return db.get_room_setting("ai_billing_enabled", "off") == "on"
+        return db.get_room_setting("ai_billing_enabled", "on") == "on"
+    except Exception:
+        return True   # default: charge normally
+
+
+def is_owner_free() -> bool:
+    """Return True when the owner is exempt from AI billing (default: on)."""
+    try:
+        import database as db
+        return db.get_room_setting("owner_free_ai", "on") == "on"
+    except Exception:
+        return True
+
+
+def is_staff_free() -> bool:
+    """Return True when staff/admin are exempt from AI billing (default: off)."""
+    try:
+        import database as db
+        return db.get_room_setting("staff_free_ai", "off") == "on"
     except Exception:
         return False
+
+
+def should_charge(user_id: str, username: str, perm: str, cost: int) -> tuple[bool, str]:
+    """
+    Return (True, "") if the user should be charged, or (False, reason) if exempt.
+    Reasons: free_local, billing_disabled, owner_free, staff_free.
+    """
+    if cost <= 0:
+        return False, "free_local"
+    if not is_billing_enabled():
+        return False, "billing_disabled"
+    if perm == "owner" and is_owner_free():
+        return False, "owner_free"
+    if perm in ("staff", "admin") and is_staff_free():
+        return False, "staff_free"
+    return True, ""
+
+
+def get_balance_for_log(user_id: str) -> int:
+    """Safely read current Luxe balance for debug logging."""
+    try:
+        from modules.luxe import get_luxe_balance
+        return get_luxe_balance(user_id)
+    except Exception:
+        return -1
+
+
+def get_billing_status_msg() -> str:
+    """Status panel for 'ai billing status' queries."""
+    billing = "ON"  if is_billing_enabled() else "OFF"
+    owner_f = "ON"  if is_owner_free()      else "OFF"
+    staff_f = "ON"  if is_staff_free()      else "OFF"
+    return (
+        f"AI Billing: {billing} | Owner free: {owner_f} | Staff free: {staff_f}\n"
+        "Costs: Free=0 | Basic=1 | Advanced=3 | Live=5 \U0001f3ab"
+    )[:249]
 
 
 def check_can_afford(user_id: str, cost: int) -> tuple[bool, int]:

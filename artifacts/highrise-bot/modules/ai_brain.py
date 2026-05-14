@@ -390,6 +390,20 @@ async def _handle_confirm(bot, user, text, perm):
         await _w(bot, user.id, f"\u2705 AI cost preview is now {val.upper()}.")
         return
 
+    # ── Special: AI billing settings (owner only) ────────────────────────────
+    if p["action_key"].startswith("set_billing_"):
+        if perm != PERM_OWNER:
+            await _w(bot, user.id, "\U0001f512 AI billing settings are owner only.")
+            clear_pending(user.id)
+            return
+        import database as _db
+        setting_key = p["action_key"][len("set_billing_"):]
+        _db.set_room_setting(setting_key, p["new_value"])
+        clear_pending(user.id)
+        print(f"[AI BILLING] saved setting={setting_key} value={p['new_value']!r}")
+        await _w(bot, user.id, f"\u2705 {p['label']} is now {p['new_value'].upper()}.")
+        return
+
     # ── Default action execution ──────────────────────────────────────────────
     result = await execute_action(bot, user.id, p["action_key"], p["new_value"], user.username)
     clear_pending(user.id)
@@ -589,6 +603,73 @@ async def _handle_ai_cost_preview_setting(bot, user, text: str, perm: str) -> No
     p = get_pending(user.id)
     if p:
         print(f"[AI COST PREVIEW] pending_confirmation=true")
+        await _w(bot, user.id, preview_message(p))
+
+
+async def _handle_ai_billing_setting(bot, user, text: str, perm: str) -> None:
+    """Handle 'ai billing ...' management locally — owner to change, anyone to view status."""
+    import database as _db
+    from modules.ai_luxe_billing import get_billing_status_msg as _bstatus
+
+    low = text.lower()
+
+    # ── Status — no permission needed ────────────────────────────────────────
+    is_change = any(kw in low for kw in (" on", " off", "enable", "disable", "turn"))
+    if not is_change or "status" in low or low.strip() in ("ai billing", "billing"):
+        await _send(bot, user, _bstatus(), "general")
+        return
+
+    # ── Changes — owner only ──────────────────────────────────────────────────
+    if perm != PERM_OWNER:
+        await _w(bot, user.id, "\U0001f512 AI billing settings are owner only.")
+        return
+
+    # Determine which setting to change
+    if "owner free" in low:
+        setting_key    = "owner_free_ai"
+        label          = "Owner Free AI"
+        confirm_phrase = "CONFIRM OWNER FREE AI"
+        default_val    = "on"
+    elif "staff free" in low:
+        setting_key    = "staff_free_ai"
+        label          = "Staff Free AI"
+        confirm_phrase = "CONFIRM STAFF FREE AI"
+        default_val    = "off"
+    else:
+        setting_key    = "ai_billing_enabled"
+        label          = "AI Billing"
+        confirm_phrase = "CONFIRM AI BILLING"
+        default_val    = "on"
+
+    new_val: str | None = None
+    if any(kw in low for kw in ("enable", " on", ":on", "=on")):
+        new_val = "on"
+    elif any(kw in low for kw in ("disable", " off", ":off", "=off")):
+        new_val = "off"
+
+    if not new_val:
+        await _w(bot, user.id, _bstatus())
+        return
+
+    current = _db.get_room_setting(setting_key, default_val)
+    print(f"[AI BILLING] setting={setting_key} requested={new_val} current={current}")
+
+    if current == new_val:
+        await _w(bot, user.id, f"{label} is already {new_val.upper()}.")
+        return
+
+    set_pending(
+        user_id        = user.id,
+        action_key     = f"set_billing_{setting_key}",
+        label          = label,
+        confirm_phrase = confirm_phrase,
+        current_value  = current,
+        new_value      = new_val,
+        risk           = "Medium",
+    )
+    p = get_pending(user.id)
+    if p:
+        print(f"[AI BILLING] pending_confirmation=true setting={setting_key}")
         await _w(bot, user.id, preview_message(p))
 
 
@@ -895,6 +976,18 @@ async def handle_ai_message(
             for kw in ("cost preview", "ai cost preview", "ticket preview", "preview cost")
         ):
             await _handle_ai_cost_preview_setting(bot, user, resolved, perm)
+            return True
+
+        # ── 7f. AI billing management fast-path ────────────────────────────────
+        _billing_mgmt = (
+            any(kw in _r_low for kw in (
+                "billing status", "set ai billing", "owner free ai", "staff free ai",
+                "ai billing on", "ai billing off",
+            ))
+            or _r_low.strip() in ("ai billing", "billing status")
+        )
+        if _billing_mgmt:
+            await _handle_ai_billing_setting(bot, user, resolved, perm)
             return True
 
         # ── 8. Hard safety check ──────────────────────────────────────────────

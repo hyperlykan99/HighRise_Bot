@@ -1,0 +1,186 @@
+Fix AI Luxe Ticket billing not deducting from players.
+
+Current issue:
+Alt account tested paid AI prompts, but 🎫 Luxe Tickets were not deducted.
+
+Goal:
+Paid AI questions must deduct 🎫 Luxe Tickets after a successful OpenAI/live answer.
+
+Important:
+Do not charge for local/free commands.
+Do not charge for failed OpenAI calls.
+Do not charge for refusals.
+Do not charge if permission denied.
+Do not charge if answer was not sent.
+
+Cost table:
+Free/local commands: 0 🎫
+OpenAI basic answer: 1 🎫
+OpenAI advanced answer: 3 🎫
+Live/current info: 5 🎫
+
+Free/local examples:
+- ai help
+- ai what is my role
+- ai whats my name
+- ai show my balance
+- ai mine for me
+- ai fish for me
+- ai show events
+- ai tele me to bar
+- ai explain Luxe Tickets
+- ai cost
+
+Paid basic examples:
+- ai what is gravity
+- ai explain quantum physics like im 10
+- ai translate farmer to Tagalog
+- ai explain inflation like im 10
+
+Paid advanced examples:
+- ai give me 5 room names
+- ai write a welcome message
+- ai make an event announcement
+- ai plan a new game idea
+
+Live examples:
+- ai weather in Tokyo today
+- ai latest news
+- ai current USD to PHP
+- ai Bitcoin price now
+
+Required billing flow:
+1. Detect AI request
+2. Determine cost
+3. If cost is 0:
+   - answer normally
+   - do not deduct
+4. If cost > 0:
+   - get player Luxe Ticket balance
+   - if not enough, deny before OpenAI call
+   - if cost preview is ON or cost >= 5, create pending confirmation
+   - after confirm, call OpenAI/live source
+   - send answer
+   - deduct Luxe Tickets only after successful answer was sent
+   - log transaction
+
+Important:
+OpenAI intent parsing for commands should cost 0 🎫 by default.
+OpenAI full answer should cost tickets.
+
+Add debug logs:
+[AI COST] request="..."
+[AI COST] type=basic|advanced|live|free
+[AI COST] cost=1
+[AI BILLING] user=...
+[AI BILLING] luxe_before=...
+[AI BILLING] enough=true
+[AI BILLING] openai_success=true
+[AI BILLING] answer_sent=true
+[AI BILLING] charged=true
+[AI BILLING] luxe_after=...
+
+If cost is 0:
+[AI BILLING] charged=false reason=free_local
+
+If not enough:
+[AI BILLING] charged=false reason=not_enough_tickets
+
+If OpenAI fails:
+[AI BILLING] charged=false reason=openai_failed
+
+Need actual Luxe Ticket deduction:
+Find the existing Luxe Ticket balance functions in modules/luxe.py or database.py.
+Use the same functions used by existing Luxe shop / ticket purchases.
+Do not create a separate fake balance.
+Do not deduct ChillCoins.
+Deduct 🎫 Luxe Tickets only.
+
+If existing function is not obvious:
+Search for:
+- handle_tickets
+- handle_luxeshop
+- handle_buyluxe
+- get_luxe_tickets
+- add_luxe_tickets
+- remove_luxe_tickets
+- eventcoins
+- tickets
+
+Create safe helpers if needed:
+get_luxe_ticket_balance(user_id)
+deduct_luxe_tickets(user_id, amount, reason)
+
+Rules:
+- Never allow negative ticket balance.
+- Use transaction/log.
+- If deduction fails, tell user and do not show paid answer if possible.
+- If answer already sent but deduction fails, log AI billing failure for owner review.
+
+Owner/admin/staff bypass:
+Do NOT bypass billing for normal alt accounts.
+Only owner can be free if setting says owner_free_ai=true.
+Default:
+- Owner: free for testing
+- Staff/Admin: same as players unless owner sets staff_free_ai=true
+- Players/VIP: charged normally
+VIP can have discount if implemented.
+
+Add owner settings:
+- ai billing status
+- ai set owner free ai on/off
+- ai set staff free ai on/off
+- ai set ai billing on/off
+
+Default:
+AI_BILLING_ENABLED = true
+OWNER_FREE_AI = true
+STAFF_FREE_AI = false
+
+Testing:
+Alt account:
+1. Check tickets:
+!balance
+2. Ask:
+ai explain quantum physics like im 10
+3. Confirm if asked.
+4. Check tickets:
+!balance
+
+Expected:
+Alt loses 1 🎫 if answer succeeds.
+
+Alt advanced:
+ai give me 5 catchy barcade room names
+Expected:
+Alt loses 3 🎫.
+
+Alt live:
+ai weather in Tokyo today
+Expected:
+Shows 5 🎫 confirmation first, then deducts 5 🎫 after success.
+
+Free:
+ai help
+ai what is my role
+ai show my balance
+Expected:
+0 🎫 deducted.
+
+Not enough tickets:
+Set alt tickets to 0.
+ai explain quantum physics
+Expected:
+Denied before OpenAI call.
+
+Final output:
+Report:
+1. Files modified
+2. Billing enabled status
+3. Luxe balance function used
+4. Deduction function used
+5. Alt basic AI charge test result
+6. Alt advanced AI charge test result
+7. Free command no-charge test result
+8. Not-enough-ticket test result
+9. Billing logs result
