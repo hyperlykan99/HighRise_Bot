@@ -625,6 +625,12 @@ async def handle_setjailspot(bot: "BaseBot", user: "User", args: list[str]) -> N
     if not _is_staff_plus(user.username):
         await bot.highrise.send_whisper(user.id, "\U0001f512 Admin+ only.")
         return
+    from config import SECURITY_BOT_NAME
+    import os as _os
+    _mode = _os.getenv("BOT_MODE", "unknown")
+    _bname = _os.getenv("BOT_USERNAME", _mode)
+    print(f"[JAIL SECURITY] security_bot_name={SECURITY_BOT_NAME} "
+          f"current_bot_name={_bname} current_mode={_mode} setup_allowed=true")
     pos = await _get_user_position(bot, user.id)
     print(f"[JAIL SETUP] command=setjailspot user={user.username} "
           f"position_found={pos is not None}")
@@ -646,6 +652,12 @@ async def handle_setjailguardspot(bot: "BaseBot", user: "User", args: list[str])
     if not _is_staff_plus(user.username):
         await bot.highrise.send_whisper(user.id, "\U0001f512 Admin+ only.")
         return
+    from config import SECURITY_BOT_NAME
+    import os as _os
+    _mode = _os.getenv("BOT_MODE", "unknown")
+    _bname = _os.getenv("BOT_USERNAME", _mode)
+    print(f"[JAIL SECURITY] security_bot_name={SECURITY_BOT_NAME} "
+          f"current_bot_name={_bname} current_mode={_mode} setup_allowed=true")
     pos = await _get_user_position(bot, user.id)
     print(f"[JAIL SETUP] command=setjailguardspot user={user.username} "
           f"position_found={pos is not None}")
@@ -667,6 +679,12 @@ async def handle_setsecurityidle(bot: "BaseBot", user: "User", args: list[str]) 
     if not _is_staff_plus(user.username):
         await bot.highrise.send_whisper(user.id, "\U0001f512 Admin+ only.")
         return
+    from config import SECURITY_BOT_NAME
+    import os as _os
+    _mode = _os.getenv("BOT_MODE", "unknown")
+    _bname = _os.getenv("BOT_USERNAME", _mode)
+    print(f"[JAIL SECURITY] security_bot_name={SECURITY_BOT_NAME} "
+          f"current_bot_name={_bname} current_mode={_mode} setup_allowed=true")
     pos = await _get_user_position(bot, user.id)
     print(f"[JAIL SETUP] command=setsecurityidle user={user.username} "
           f"position_found={pos is not None}")
@@ -681,7 +699,9 @@ async def handle_setsecurityidle(bot: "BaseBot", user: "User", args: list[str]) 
     facing = getattr(pos, "facing", "FrontRight")
     db.save_spawn(name, pos.x, pos.y, pos.z, facing, user.username)
     print(f"[JAIL SETUP] saved {name} x={pos.x} y={pos.y} z={pos.z} facing={facing}")
-    await bot.highrise.send_whisper(user.id, "\u2705 SecurityBot idle spot saved.")
+    await bot.highrise.send_whisper(
+        user.id, f"\u2705 {SECURITY_BOT_NAME} idle spot saved."[:249]
+    )
 
 
 # ── Startup recovery ──────────────────────────────────────────────────────────

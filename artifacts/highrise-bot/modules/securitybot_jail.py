@@ -14,8 +14,15 @@ if TYPE_CHECKING:
 
 
 def is_security_bot() -> bool:
-    """True when the current process is running as SecurityBot."""
-    return os.getenv("BOT_MODE", "").lower() in ("security", "securitybot")
+    """True when the current process is running as SecurityBot (KeanuShield)."""
+    from config import SECURITY_BOT_NAME
+    mode = os.getenv("BOT_MODE", "").lower()
+    result = mode in ("security", "securitybot")
+    current = os.getenv("BOT_USERNAME", os.getenv("BOT_MODE", "unknown"))
+    if result:
+        print(f"[JAIL SECURITY] security_bot_name={SECURITY_BOT_NAME} "
+              f"current_bot_name={current} current_mode={mode} runtime_allowed=true")
+    return result
 
 
 async def _tp_bot_to_spawn(bot: "BaseBot", spawn_key: str) -> bool:

@@ -1,0 +1,115 @@
+Fix SecurityBot identity for Jail System
+
+Important:
+My SecurityBot’s actual Highrise username is:
+
+KeanuShield
+
+Do not assume the security bot is named “SecurityBot”.
+
+Current commandtest shows:
+owner=KeanuShield
+security_handles=true
+host_handles=false
+route=YES
+handler=YES
+
+Goal:
+Update the jail/security system to treat KeanuShield as the SecurityBot.
+
+Required:
+- SECURITY_BOT_NAME = "KeanuShield"
+- SECURITY_BOT_USERNAME = "KeanuShield"
+- BOT_MODE security should still be supported
+- Jail ownership should belong to KeanuShield/security mode
+- Jail announcements should come from KeanuShield if that bot is online
+- If KeanuShield is offline, owner/admin setup commands may still run from ChillTopiaMC
+
+Fix references:
+Replace hardcoded “SecurityBot” identity checks with configurable security bot name.
+
+Use:
+SECURITY_BOT_NAME = os.getenv("SECURITY_BOT_USERNAME", "KeanuShield")
+
+or existing bot username config.
+
+Commands owned by KeanuShield/security:
+- !jail
+- !bail
+- !unjail
+- !jailrelease
+- !jailactive
+- !jailstatus
+- !jailtime
+- jail enforcement
+- jail announcements
+- jail rejoin enforcement
+
+Setup commands allowed from owner/admin on host/all/security:
+- !setjailspot
+- !setjailguardspot
+- !setsecurityidle
+- !jaildebug
+- !jailadmin
+
+Reason:
+These setup commands save room positions and should work even if KeanuShield is offline.
+
+When KeanuShield is online:
+Only KeanuShield should handle jail runtime actions.
+
+When owner runs:
+!commandtest !setjailspot
+
+Expected:
+owner=KeanuShield
+host_handles=true
+security_handles=true
+route=YES
+handler=YES
+
+When owner runs:
+!commandtest !jail
+
+Expected:
+owner=KeanuShield
+security_handles=true
+route=YES
+handler=YES
+
+Add debug logs:
+[JAIL SECURITY] security_bot_name=KeanuShield
+[JAIL SECURITY] current_bot_name=ChillTopiaMC current_mode=host setup_allowed=true
+[JAIL SECURITY] current_bot_name=KeanuShield current_mode=security runtime_allowed=true
+
+Test:
+1. With ChillTopiaMC:
+!setjailspot
+Expected:
+✅ Jail spot saved.
+
+2. With ChillTopiaMC:
+!setjailguardspot
+Expected:
+✅ Jail guard spot saved.
+
+3. With ChillTopiaMC:
+!setsecurityidle
+Expected:
+✅ KeanuShield idle spot saved.
+
+4. With KeanuShield online:
+ai jail AltName for 1 minute
+confirm
+
+Expected:
+KeanuShield teleports to jail_guard, announces jail, then returns to security_idle.
+
+Final output:
+Report:
+1. Security bot name configured as KeanuShield
+2. Hardcoded SecurityBot references removed
+3. Setup commands allowed from host/admin
+4. Runtime jail commands owned by KeanuShield/security
+5. !commandtest results
+6. Jail setup test result

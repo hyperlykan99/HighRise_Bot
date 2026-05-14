@@ -3,11 +3,18 @@ from __future__ import annotations
 from modules.permissions import is_owner, is_admin, is_manager, is_moderator
 from modules.jail_config import protect_staff, allow_owner_override
 
-_BOT_NAME_FRAGMENTS: tuple[str, ...] = (
-    "securitybot", "security_bot", "blackjackbot", "pokerbot", "hostbot",
-    "minerbot", "bankerbot", "shopbot", "djbot", "eventbot", "fisherbot",
-    "hangoutbot",
-)
+def _get_bot_name_fragments() -> tuple[str, ...]:
+    """Include the configured security bot name so it cannot be jailed."""
+    from config import SECURITY_BOT_NAME
+    base = (
+        "securitybot", "security_bot", "blackjackbot", "pokerbot", "hostbot",
+        "minerbot", "bankerbot", "shopbot", "djbot", "eventbot", "fisherbot",
+        "hangoutbot",
+    )
+    extra = SECURITY_BOT_NAME.lower().replace(" ", "").replace("_", "")
+    return base + (extra,) if extra not in base else base
+
+_BOT_NAME_FRAGMENTS: tuple[str, ...] = _get_bot_name_fragments()
 
 
 def is_bot_account(username: str) -> bool:

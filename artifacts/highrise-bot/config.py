@@ -86,3 +86,6 @@ BOT_EXTRA_MODES: frozenset[str] = frozenset(
     for m in os.environ.get("BOT_EXTRA_MODES", "").split(",")
     if m.strip()
 )
+
+# SecurityBot identity — set SECURITY_BOT_USERNAME env var to override
+SECURITY_BOT_NAME: str = os.environ.get("SECURITY_BOT_USERNAME", "KeanuShield")
