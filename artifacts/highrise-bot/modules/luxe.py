@@ -106,25 +106,6 @@ def add_luxe_balance(user_id: str, username: str, amount: int) -> int:
     return int(row["luxe_tickets"]) if row else 0
 
 
-def set_luxe_balance(user_id: str, username: str, amount: int) -> int:
-    """Set luxe ticket balance to an exact amount. Returns new balance."""
-    _ensure_premium_row(user_id, username)
-    conn = db.get_connection()
-    conn.execute(
-        """UPDATE premium_balances
-           SET luxe_tickets = ?,
-               updated_at   = datetime('now')
-           WHERE user_id = ?""",
-        (max(0, amount), user_id),
-    )
-    conn.commit()
-    row = conn.execute(
-        "SELECT luxe_tickets FROM premium_balances WHERE user_id=?", (user_id,)
-    ).fetchone()
-    conn.close()
-    return int(row["luxe_tickets"]) if row else 0
-
-
 def deduct_luxe_balance(user_id: str, username: str, amount: int) -> bool:
     _ensure_premium_row(user_id, username)
     conn = db.get_connection()

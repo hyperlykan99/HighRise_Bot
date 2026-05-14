@@ -10,12 +10,6 @@ if TYPE_CHECKING:
 from modules.jail_store import get_active_sentence, get_all_active_sentences, mark_expired
 from modules.jail_config import rejoin_enforce, jail_spot_name, release_spot_name
 
-# Commands jailed players cannot use — checked in on_chat before dispatch.
-TELEPORT_BLOCKED_CMDS: frozenset[str] = frozenset({
-    "tele", "tp", "tpme", "goto", "bring", "tphere",
-    "spawn", "rolespawn", "autospawn", "selftp", "groupteleport",
-})
-
 
 def is_jailed(user_id: str) -> bool:
     """Return True if the user has an unexpired active sentence."""
@@ -84,30 +78,6 @@ async def enforce_jail_on_rejoin(bot: "BaseBot", user_id: str, username: str) ->
         print(f"[JAIL ENFORCE] re-jailed on rejoin: {username!r} secs={secs}")
     except Exception as e:
         print(f"[JAIL ENFORCE REJOIN] error user={username!r} err={e!r}")
-
-
-async def position_enforce_if_jailed(bot: "BaseBot", user_id: str, username: str) -> None:
-    """
-    Called on any non-jail chat command by a jailed player (SecurityBot only).
-    Re-teleports them to the jail spot if they have an active sentence.
-    Does NOT block the command — just corrects their position silently.
-    """
-    from modules.securitybot_jail import is_security_bot
-    if not is_security_bot():
-        return
-    if not is_jailed(user_id):
-        return
-    try:
-        import database as _db
-        from highrise.models import Position
-        spawn = _db.get_spawn(jail_spot_name())
-        if not spawn:
-            return
-        pos = Position(spawn["x"], spawn["y"], spawn["z"], spawn["facing"])
-        await bot.highrise.teleport(user_id, pos)
-        print(f"[JAIL ENFORCE] position corrected for {username!r}")
-    except Exception as _e:
-        print(f"[JAIL ENFORCE] position_enforce error {username!r}: {_e!r}")
 
 
 async def jail_expiry_loop(bot: "BaseBot") -> None:

@@ -761,75 +761,20 @@ async def handle_setjailreleasespot(
 async def startup_jail_recovery(bot: "BaseBot") -> None:
     """
     Owned by SecurityBot.
-    On restart: expire overdue sentences, re-jail any active players in the room,
-    then start the persistent expiry loop.
+    On restart: expire overdue sentences, then start the expiry loop.
     """
     from modules.multi_bot import should_this_bot_run_module
     from modules.jail_enforcement import jail_expiry_loop
     from modules.jail_store import mark_expired as _mark_exp
     from modules.securitybot_jail import verify_jail_spots
-    from modules.jail_config import jail_spot_name as _jsp
     if not should_this_bot_run_module("jail"):
         return
-
-    # Verify jail_sentences table exists before any DB operations
-    try:
-        import database as _dbchk
-        conn = _dbchk.get_connection()
-        conn.execute("SELECT 1 FROM jail_sentences LIMIT 1").fetchone()
-        conn.close()
-    except Exception as _tbl_e:
-        print(f"[JAIL RECOVERY] WARNING — jail_sentences table error: {_tbl_e!r}. Skipping recovery.")
-        return
-
     await asyncio.sleep(5)
-
     now = time.time()
-    all_active = list(get_all_active_sentences())
-    expired_n = 0
-    for s in all_active:
+    for s in get_all_active_sentences():
         if now >= s["end_ts"]:
             _mark_exp(s["id"])
-            expired_n += 1
             print(f"[JAIL RECOVERY] expired on restart: {s['target_username']!r}")
-
-    still_active = [s for s in all_active if now < s["end_ts"]]
-    print(f"[JAIL RECOVERY] active={len(still_active)} expired={expired_n}")
-
-    # Re-teleport jailed players who are already in the room
-    restored = 0
-    if still_active:
-        try:
-            import database as _db
-            from highrise.models import Position
-            resp      = await bot.highrise.get_room_users()
-            room_uids = {u.id for u, _ in (resp.content if hasattr(resp, "content") else resp)}
-            spawn     = _db.get_spawn(_jsp())
-            for s in still_active:
-                uid   = s["target_user_id"]
-                uname = s["target_username"]
-                rem   = int(s["end_ts"] - now)
-                print(f"[JAIL RECOVERY] user={uname!r} remaining={rem}s")
-                if uid in room_uids and spawn:
-                    try:
-                        pos = Position(spawn["x"], spawn["y"], spawn["z"], spawn["facing"])
-                        await bot.highrise.teleport(uid, pos)
-                        m, sec = rem // 60, rem % 60
-                        t_str  = f"{m}m {sec}s" if m else f"{sec}s"
-                        await bot.highrise.send_whisper(
-                            uid,
-                            (
-                                f"\U0001f6a8 You're still jailed for {t_str}. "
-                                "Bot restarted — returned to jail."
-                            )[:249],
-                        )
-                        restored += 1
-                    except Exception as _te:
-                        print(f"[JAIL RECOVERY] teleport error {uname!r}: {_te!r}")
-        except Exception as _e:
-            print(f"[JAIL RECOVERY] room fetch error: {_e!r}")
-
-    print(f"[JAIL RECOVERY] active={len(still_active)} expired={expired_n} restored={restored}")
     asyncio.create_task(jail_expiry_loop(bot))
     print("[JAIL RECOVERY] expiry loop started")
     missing = verify_jail_spots()
