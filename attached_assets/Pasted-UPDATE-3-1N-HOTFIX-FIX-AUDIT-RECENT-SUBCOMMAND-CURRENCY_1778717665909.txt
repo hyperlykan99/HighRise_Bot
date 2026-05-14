@@ -1,0 +1,159 @@
+UPDATE 3.1N HOTFIX — FIX !AUDIT RECENT SUBCOMMAND + CURRENCY ICONS
+
+Current issue:
+!audit recent is being treated as a username search.
+
+Live bad output:
+🔍 Audit: @recent
+Bal: 100c
+Lvl: 1
+Earned: 0c
+
+Goal:
+Make !audit recent show recent audit/economy/mod/safety activity, not user @recent.
+
+Do not change tokens.
+Do not wipe data.
+Do not reset balances.
+Do not change economy.
+Do not re-add reward caps.
+
+==================================================
+PART 1 — FIX AUDIT PARSER
+==================================================
+
+!audit must parse subcommands before username lookup.
+
+Priority order:
+
+!audit
+= audit help/menu
+
+!audit recent
+= recent audit activity
+
+!audit user @user
+= user audit
+
+!audit economy @user
+= economy audit for user
+
+!audit commands @user
+= command audit for user
+
+!audit @user
+= user audit shortcut
+
+Important:
+The word "recent" must never be treated as username @recent.
+
+==================================================
+PART 2 — EXPECTED !AUDIT RECENT OUTPUT
+==================================================
+
+Command:
+!audit recent
+
+Expected:
+
+📋 Recent Audit
+1. Tip conversion — @User — 100 🎫
+2. Mission claim — @User — 5,000 🪙
+3. Safety block — @User — duplicate claim
+
+If no recent activity:
+
+📋 Recent Audit
+No recent audit events.
+
+Rules:
+- Owner/Admin only.
+- Whisper to user.
+- Keep under 220 characters per message.
+- Pull from economy_transactions, safety_alerts, moderation_logs, processed_events if available.
+- Do not show private secrets/tokens.
+- Do not expose raw DB IDs unless owner asks.
+
+==================================================
+PART 3 — FIX CURRENCY FORMAT IN AUDIT
+==================================================
+
+Replace all old audit currency display:
+
+100c
+0c
+500 credits
+
+With:
+
+100 🪙
+0 🪙
+500 🪙
+
+For Luxe Tickets:
+
+100 🎫
+
+Update:
+!audit
+!audit recent
+!audit user @user
+!audit economy @user
+!economysafety
+!safetydash
+!modlog if money shown
+
+No player-facing audit output should use "c".
+
+==================================================
+PART 4 — FIX !AUDIT USER SHORTCUT
+==================================================
+
+This should still work:
+
+!audit @4ktreyMarion
+
+Expected:
+
+🔍 Audit: @4ktreyMarion
+Bal: 100 🪙 | Level: 1
+Earned: 0 🪙
+Sent: 0 🪙 | Recv: 0 🪙
+Casino Net: +0 🪙
+Blocked: No | Risk: 0
+
+Rules:
+- Use 🪙.
+- Do not show old c.
+- If Luxe Tickets shown, use 🎫.
+- Keep private/admin only.
+
+==================================================
+PART 5 — TESTS
+==================================================
+
+Run:
+
+!audit
+!audit recent
+!audit @4ktreyMarion
+!audit user @4ktreyMarion
+!audit economy @4ktreyMarion
+
+Expected:
+- !audit recent shows recent audit activity
+- it does NOT audit @recent
+- all currency uses 🪙 and 🎫
+- no "c" currency display
+
+Final:
+
+!commandtest !audit
+!commandissues
+!checkcommands
+!checkhelp
+!launchcheck
+
+Expected:
+- no command issues
+- launchcheck clean
