@@ -340,6 +340,23 @@ from modules.safety import (
     is_event_processed, mark_event_processed,
     log_economy_tx,
 )
+from modules.analytics import (
+    handle_ownerdash,
+    handle_playerstats,
+    handle_economydash,
+    handle_luxedash,
+    handle_conversiondash,
+    handle_minedash,
+    handle_fishdash,
+    handle_activitydash,
+    handle_hourlyaudit,
+    handle_shopdash,
+    handle_vipdash,
+    handle_retentiondash,
+    handle_eventdash,
+    handle_seasondash,
+    handle_analyticsdash,
+)
 from modules.reputation import (
     handle_rep, handle_reputation, handle_toprep,
     handle_replog, handle_addrep, handle_removerep,
@@ -6329,6 +6346,38 @@ class HangoutBot(BaseBot):
             await handle_economysafety(self, user, args)
         elif cmd in ("safetydash", "safedash", "safetydashboard"):
             await handle_safetydash(self, user)
+
+        # ── 3.1O Analytics dashboards ──────────────────────────────────────────
+        elif cmd in ("ownerdash", "dashboard", "analytics"):
+            await handle_ownerdash(self, user, args)
+        elif cmd in ("playerstats",):
+            await handle_playerstats(self, user, args)
+        elif cmd in ("economydash",):
+            await handle_economydash(self, user, args)
+        elif cmd in ("luxedash",):
+            await handle_luxedash(self, user, args)
+        elif cmd in ("conversiondash",):
+            await handle_conversiondash(self, user, args)
+        elif cmd in ("minedash",):
+            await handle_minedash(self, user, args)
+        elif cmd in ("fishdash",):
+            await handle_fishdash(self, user, args)
+        elif cmd in ("activitydash",):
+            await handle_activitydash(self, user, args)
+        elif cmd in ("hourlyaudit",):
+            await handle_hourlyaudit(self, user, args)
+        elif cmd in ("shopdash",):
+            await handle_shopdash(self, user, args)
+        elif cmd in ("vipdash",):
+            await handle_vipdash(self, user, args)
+        elif cmd in ("retentiondash",):
+            await handle_retentiondash(self, user, args)
+        elif cmd in ("eventdash",):
+            await handle_eventdash(self, user, args)
+        elif cmd in ("seasondash",):
+            await handle_seasondash(self, user, args)
+        elif cmd in ("analyticsdash", "analyticshelp"):
+            await handle_analyticsdash(self, user, args)
 
         # ── Boost / mic ───────────────────────────────────────────────────────
         elif cmd in {"boostroom", "roomboost"}:

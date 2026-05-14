@@ -2571,6 +2571,25 @@ def _migrate_db():
     except Exception:
         pass
 
+    # ── 3.1O — lightweight analytics event log ────────────────────────────────
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS analytics_events (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_id   TEXT UNIQUE NOT NULL,
+                user_id    TEXT NOT NULL DEFAULT '',
+                username   TEXT NOT NULL DEFAULT '',
+                event_type TEXT NOT NULL DEFAULT '',
+                category   TEXT NOT NULL DEFAULT '',
+                amount     INTEGER NOT NULL DEFAULT 0,
+                currency   TEXT NOT NULL DEFAULT '',
+                details    TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+        """)
+    except Exception:
+        pass
+
     conn.commit()
     conn.close()
 

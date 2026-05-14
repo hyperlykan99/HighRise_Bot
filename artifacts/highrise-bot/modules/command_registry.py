@@ -1410,6 +1410,25 @@ REGISTRY: dict[str, Cmd] = {
     "missionadmin":    Cmd("host", "admin",     False, True,  False, perm="admin"),
     "retentionadmin":  Cmd("host", "admin",     False, True,  False, perm="admin"),
 
+    # ── 3.1O Analytics dashboards ─────────────────────────────────────────────
+    "ownerdash":       Cmd("host", "analytics", False, False, False, perm="admin",
+                           aliases=("dashboard", "analytics")),
+    "playerstats":     Cmd("host", "analytics", False, False, False, perm="admin"),
+    "economydash":     Cmd("host", "analytics", False, False, False, perm="admin"),
+    "luxedash":        Cmd("host", "analytics", False, False, False, perm="admin"),
+    "conversiondash":  Cmd("host", "analytics", False, False, False, perm="admin"),
+    "minedash":        Cmd("host", "analytics", False, False, False, perm="admin"),
+    "fishdash":        Cmd("host", "analytics", False, False, False, perm="admin"),
+    "activitydash":    Cmd("host", "analytics", False, False, False, perm="admin"),
+    "hourlyaudit":     Cmd("host", "analytics", False, False, False, perm="admin"),
+    "shopdash":        Cmd("host", "analytics", False, False, False, perm="admin"),
+    "vipdash":         Cmd("host", "analytics", False, False, False, perm="admin"),
+    "retentiondash":   Cmd("host", "analytics", False, False, False, perm="admin"),
+    "eventdash":       Cmd("host", "analytics", False, False, False, perm="admin"),
+    "seasondash":      Cmd("host", "analytics", False, False, False, perm="admin"),
+    "analyticsdash":   Cmd("host", "analytics", False, False, False, perm="admin",
+                           aliases=("analyticshelp",)),
+
 }
 
 # ---------------------------------------------------------------------------

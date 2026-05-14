@@ -1,0 +1,822 @@
+UPDATE 3.1O — OWNER ANALYTICS + ECONOMY DASHBOARD
+
+Goal:
+Add owner analytics and economy dashboards so I can see what players are doing, how the economy is flowing, and which systems are driving retention/spending.
+
+Main features:
+1. Owner dashboard
+2. Daily active users
+3. New player onboarding completion
+4. Luxe Ticket sales/conversions
+5. ChillCoins earned/spent
+6. Top earning systems
+7. Mining/fishing hourly economy audit
+8. Shop purchase analytics
+9. Retention stats
+10. Event performance
+11. Season/mission activity stats
+12. Safety/economy alerts summary
+
+Currencies:
+🪙 ChillCoins = gameplay currency
+🎫 Luxe Tickets = premium currency
+
+Do not change tokens.
+Do not change room ID.
+Do not wipe database.
+Do not reset balances, tickets, VIP, badges, titles, market, casino, blackjack, poker, mining/fishing data, collection book, missions, XP, levels, events, seasons, tools, rods, boosts, onboarding, moderation logs, safety logs, or player inventory.
+Do not re-add reward caps.
+Do not add HR Gold rewards.
+Do not change shop prices.
+Do not change economy rewards.
+Do not show “c” for currency.
+Use 🪙 and 🎫.
+
+==================================================
+PART 1 — STABILITY FIRST
+==================================================
+
+Before changing anything, run:
+
+!launchcheck
+!commandissues
+!checkcommands
+!checkcommands all
+!checkhelp
+!bothealth
+!stability status
+
+Expected:
+- Launch Check OK
+- no command issues
+- no help issues
+- Err: none
+
+Fix baseline issues first.
+
+==================================================
+PART 2 — OWNER DASHBOARD COMMAND
+==================================================
+
+Add command:
+
+!ownerdash
+!dashboard
+!analytics
+
+Owner/Admin only.
+
+Expected:
+
+📊 Owner Dashboard
+DAU: 24 | New: 6
+Onboarding: 67%
+Earned: 420,000 🪙
+Spent: 310,000 🪙
+
+Second message:
+
+🎫 Luxe
+Tips: 800 🎫
+Spent: 450 🎫
+Converted: 250 🎫
+VIP buys: 2
+
+Third message:
+
+🔥 Activity
+Mine: 1,240
+Fish: 980
+Casino: 45
+Missions: 38
+Events: Mining Rush
+
+Rules:
+- Whisper/DM owner/admin.
+- Keep each message under 220 characters.
+- Do not show to normal players.
+- If command is too long, split into multiple short messages.
+- Use today’s data by default.
+
+==================================================
+PART 3 — DASHBOARD DATE RANGES
+==================================================
+
+Support:
+
+!ownerdash today
+!ownerdash yesterday
+!ownerdash 7d
+!ownerdash 30d
+
+Expected:
+
+📊 Owner Dashboard 7d
+Active Users: 72
+New Players: 18
+Returning: 54
+Onboarding: 61%
+
+Rules:
+- Default is today.
+- If date parsing fails:
+⚠️ Use: !ownerdash today, 7d, or 30d
+
+==================================================
+PART 4 — PLAYER ACTIVITY ANALYTICS
+==================================================
+
+Track and show:
+
+- Daily active users
+- Weekly active users
+- Monthly active users
+- New players
+- Returning players
+- Average session actions if available
+- Top active players
+- Tutorial started/completed
+- Starter reward claimed
+
+Commands:
+
+!playerstats
+!playerstats today
+!playerstats 7d
+
+Expected:
+
+👥 Player Stats
+DAU: 24
+New: 6
+Returning: 18
+Tutorial complete: 4/6
+Top active: @Player
+
+Rules:
+- Owner/Admin only.
+- Do not expose private balances.
+- Do not count bots as players.
+
+==================================================
+PART 5 — ECONOMY DASHBOARD
+==================================================
+
+Add:
+
+!economydash
+!economydash today
+!economydash 7d
+!economydash sources
+!economydash sinks
+
+Expected:
+
+💰 Economy Today
+Earned: 420,000 🪙
+Spent: 310,000 🪙
+Net: +110,000 🪙
+Active wallets: 24
+
+Sources:
+
+🪙 Top Sources
+Mining: 140,000 🪙
+Fishing: 120,000 🪙
+Missions: 60,000 🪙
+Casino: 50,000 🪙
+
+Sinks:
+
+🪙 Top Sinks
+Shop: 150,000 🪙
+Market: 80,000 🪙
+Casino bets: 70,000 🪙
+
+Rules:
+- Use economy_transactions ledger if available.
+- If ledger incomplete, use best available logs.
+- Do not crash if some source missing.
+- No “c” display.
+
+==================================================
+PART 6 — LUXE TICKET ANALYTICS
+==================================================
+
+Add:
+
+!luxedash
+!luxedash today
+!luxedash 7d
+!luxedash purchases
+!luxedash conversions
+
+Expected:
+
+🎫 Luxe Dashboard
+Earned from tips: 800 🎫
+Spent: 450 🎫
+Converted to 🪙: 250 🎫
+Net held: +350 🎫
+
+Purchases:
+
+🛒 Luxe Purchases
+VIP: 2
+Auto-Mine 1h: 5
+Auto-Fish 1h: 4
+Coin Packs: 3
+
+Rules:
+- Only count verified tip/payment event conversions.
+- Do not count fake chat claims.
+- Use processed_events and premium_transactions if available.
+- Owner/Admin only.
+
+==================================================
+PART 7 — CHILLCOINS CONVERSION ANALYTICS
+==================================================
+
+Track/show Luxe-to-ChillCoin conversions:
+
+!conversiondash
+
+Expected:
+
+🔁 Conversions
+Small: 4 buys
+Medium: 3 buys
+Large: 2 buys
+Max conversions: 1
+Total: 550 🎫 → 775,000 🪙
+
+Rules:
+- Include !buycoins small/medium/large/max.
+- Include auto-convert if enabled.
+- No “c” display.
+
+==================================================
+PART 8 — MINING/FISHING ECONOMY AUDIT
+==================================================
+
+Add or polish:
+
+!minedash
+!fishdash
+!activitydash mining
+!activitydash fishing
+
+Expected mining:
+
+⛏️ Mining Dashboard
+Mines: 1,240
+Earned: 140,000 🪙
+Avg/action: 113 🪙
+Rare finds: 12
+Luxe time used: 3h
+
+Fishing:
+
+🎣 Fishing Dashboard
+Casts: 980
+Earned: 120,000 🪙
+Avg/cast: 122 🪙
+Rare catches: 9
+Luxe time used: 2h
+
+Rules:
+- Include normal and Luxe auto if tracked.
+- Show Luxe auto time used.
+- Show collection discoveries.
+- Do not change rewards.
+- Do not add caps.
+
+==================================================
+PART 9 — HOURLY ECONOMY AUDIT
+==================================================
+
+Add:
+
+!hourlyaudit
+!hourlyaudit mining
+!hourlyaudit fishing
+!hourlyaudit luxe
+
+Expected:
+
+⏱️ Hourly Audit
+Mining avg: 58,000 🪙/hr
+Fishing avg: 62,000 🪙/hr
+Luxe target: <125,000 🪙/hr
+Status: OK
+
+Rules:
+- Use real logged data if available.
+- If real data not enough, estimate from EV calculator.
+- Mark as estimate if estimated.
+
+Example:
+
+⏱️ Mining Hourly
+Observed: 56,000 🪙/hr
+Estimated: 60,000 🪙/hr
+Status: OK
+
+==================================================
+PART 10 — SHOP PURCHASE ANALYTICS
+==================================================
+
+Add:
+
+!shopdash
+!shopdash today
+!shopdash 7d
+!shopdash luxe
+!shopdash coins
+
+Expected:
+
+🛒 Shop Dashboard
+Purchases: 18
+Spent: 200,000 🪙
+Top item: Gold Pickaxe
+Luxe buys: 7
+
+Luxe shop:
+
+🎫 Luxe Shop Stats
+VIP: 2
+Auto-Mine 1h: 5
+Auto-Fish 1h: 4
+Coin Packs: 3
+
+Rules:
+- Use shop transaction logs.
+- Do not expose individual private purchases unless owner asks.
+- Owner/Admin only.
+
+==================================================
+PART 11 — VIP ANALYTICS
+==================================================
+
+Add:
+
+!vipdash
+
+Expected:
+
+👑 VIP Dashboard
+Active VIPs: 12
+New today: 2
+Expired today: 1
+Tickets spent: 1,000 🎫
+Avg remaining: 18d
+
+Rules:
+- Count active/non-expired VIPs.
+- Show purchases/extensions.
+- Do not expose private player list unless subcommand used.
+
+Optional:
+!vipdash list
+
+👑 Active VIPs
+@Player — 29d
+@User — 12d
+
+Owner/Admin only.
+
+==================================================
+PART 12 — RETENTION ANALYTICS
+==================================================
+
+Add:
+
+!retentiondash
+!retentiondash today
+!retentiondash 7d
+
+Expected:
+
+📌 Retention
+New: 6
+Tutorial complete: 4
+Daily missions done: 12
+Weekly progress: 31
+Returning players: 18
+
+Track:
+- onboarding started
+- onboarding completed
+- starter reward claimed
+- daily missions completed
+- weekly missions completed
+- players with streak active
+- players returning from previous day
+
+Rules:
+- Use onboarding and mission tables.
+- Do not double-count.
+- Owner/Admin only.
+
+==================================================
+PART 13 — EVENT PERFORMANCE DASHBOARD
+==================================================
+
+Add:
+
+!eventdash
+!eventdash current
+!eventdash last
+!eventdash 7d
+
+Expected:
+
+🎉 Event Performance
+Mining Rush
+Players: 18
+Mines: 620
+New discoveries: 7
+Season points: 1,240
+Duration: 1h
+
+For no event:
+
+🎉 Event Performance
+No recent event data.
+
+Rules:
+- Track actions during events.
+- Show event participation.
+- Show event effectiveness.
+- No HR Gold stats yet.
+
+==================================================
+PART 14 — SEASON DASHBOARD
+==================================================
+
+Add:
+
+!seasondash
+
+Expected:
+
+🏆 Season Dashboard
+Ends in: 5d 12h
+Mining players: 18
+Fishing players: 15
+Rewards pending: yes
+Payout status: unpaid
+
+Second message:
+
+Top:
+Mining: @Player
+Fishing: @User
+Collection: @User2
+
+Rules:
+- Show season payout status.
+- Show if rewards already paid.
+- No duplicate payout.
+
+==================================================
+PART 15 — SAFETY SUMMARY IN DASHBOARD
+==================================================
+
+Integrate safety summary:
+
+!ownerdash safety
+or include in !ownerdash:
+
+🛡️ Safety
+Alerts: 2
+Duplicate blocks: 4
+Muted: 0
+Softbanned: 0
+Risk: Low
+
+Use data from:
+- safety_alerts
+- processed_events
+- moderation_logs
+- economy_transactions
+
+Rules:
+- Do not spam.
+- Do not show security details publicly.
+- Owner/Admin only.
+
+==================================================
+PART 16 — ANALYTICS EVENT LOGGING
+==================================================
+
+Add a lightweight analytics event table if needed:
+
+analytics_events:
+id INTEGER PRIMARY KEY AUTOINCREMENT
+event_id TEXT UNIQUE
+user_id TEXT
+username TEXT
+event_type TEXT
+category TEXT
+amount INTEGER DEFAULT 0
+currency TEXT
+details TEXT
+created_at TEXT
+
+Event examples:
+- player_join
+- onboarding_start
+- onboarding_complete
+- mine_action
+- fish_action
+- rare_find
+- shop_purchase
+- luxe_purchase
+- buycoins
+- vip_purchase
+- mission_claim
+- weekly_claim
+- event_participation
+- casino_round
+- trivia_correct
+- safety_alert
+
+Rules:
+- Idempotent logging.
+- Do not log secrets/tokens.
+- Do not log normal chat content.
+- Do not slow down gameplay.
+- If existing logs are enough, map dashboard queries to existing tables.
+
+==================================================
+PART 17 — ADMIN HELP
+==================================================
+
+Add to admin help:
+
+📊 Analytics
+!ownerdash
+!economydash
+!luxedash
+!playerstats
+!retentiondash
+!eventdash
+!seasondash
+
+Second message:
+
+More:
+!shopdash
+!vipdash
+!hourlyaudit
+!conversiondash
+!safetydash
+
+Rules:
+- Owner/Admin only.
+- Do not show analytics commands in public player help.
+- Keep messages under 220 characters.
+
+==================================================
+PART 18 — DASHBOARD PRIVACY
+==================================================
+
+Analytics commands must be owner/admin only:
+
+!ownerdash
+!analytics
+!playerstats
+!economydash
+!luxedash
+!conversiondash
+!minedash
+!fishdash
+!hourlyaudit
+!shopdash
+!vipdash
+!retentiondash
+!eventdash
+!seasondash
+
+If normal player uses:
+🔒 Owner/Admin only.
+
+Rules:
+- Do not leak private balances.
+- Do not show private Luxe Ticket balances publicly.
+- Whisper/DM output.
+
+==================================================
+PART 19 — DATA FALLBACKS
+==================================================
+
+If data is missing or table not ready:
+
+Show helpful fallback:
+
+📊 Economy Dashboard
+Not enough data yet.
+Start logging now.
+
+Do not crash.
+
+If one metric unavailable:
+- show N/A
+- continue showing other metrics
+
+Example:
+
+Mining avg: N/A
+Fishing avg: 62,000 🪙/hr
+Luxe spent: 450 🎫
+
+==================================================
+PART 20 — COMMAND REGISTRY
+==================================================
+
+Register/verify:
+
+!ownerdash
+!dashboard
+!analytics
+!playerstats
+!economydash
+!luxedash
+!conversiondash
+!minedash
+!fishdash
+!activitydash
+!hourlyaudit
+!shopdash
+!vipdash
+!retentiondash
+!eventdash
+!seasondash
+
+Expected:
+route=YES
+handler=YES
+owner not UNKNOWN
+
+If optional aliases skipped:
+- hide them
+- do not show in help
+- do not count as command issue.
+
+==================================================
+PART 21 — TESTS: OWNER DASHBOARD
+==================================================
+
+Run:
+
+!ownerdash
+!ownerdash today
+!ownerdash 7d
+!ownerdash safety
+
+Expected:
+- no crash
+- shows DAU/new/economy/luxe/activity/safety
+- uses 🪙 and 🎫
+- owner/admin only
+- no public spam
+
+==================================================
+PART 22 — TESTS: ECONOMY DASHBOARDS
+==================================================
+
+Run:
+
+!economydash
+!economydash sources
+!economydash sinks
+!luxedash
+!conversiondash
+!shopdash
+!vipdash
+
+Expected:
+- no crash
+- shows useful metrics or not enough data
+- no “c”
+- no private leak
+
+==================================================
+PART 23 — TESTS: ACTIVITY DASHBOARDS
+==================================================
+
+Run:
+
+!minedash
+!fishdash
+!hourlyaudit
+!hourlyaudit mining
+!hourlyaudit fishing
+
+Expected:
+- shows mining/fishing actions
+- shows earned 🪙
+- shows hourly estimates or observed data
+- no reward changes
+
+==================================================
+PART 24 — TESTS: RETENTION / EVENT / SEASON
+==================================================
+
+Run:
+
+!playerstats
+!retentiondash
+!eventdash
+!seasondash
+
+Expected:
+- onboarding stats show
+- missions stats show
+- event stats show or N/A
+- season stats show
+- no crash
+
+==================================================
+PART 25 — PERMISSION TESTS
+==================================================
+
+Use non-admin test user if possible:
+
+!ownerdash
+!economydash
+!luxedash
+
+Expected:
+🔒 Owner/Admin only.
+
+Admin/owner should receive full dashboard by whisper.
+
+==================================================
+PART 26 — FINAL QA
+==================================================
+
+Run:
+
+!commandtest !ownerdash
+!commandtest !dashboard
+!commandtest !analytics
+!commandtest !playerstats
+!commandtest !economydash
+!commandtest !luxedash
+!commandtest !conversiondash
+!commandtest !minedash
+!commandtest !fishdash
+!commandtest !hourlyaudit
+!commandtest !shopdash
+!commandtest !vipdash
+!commandtest !retentiondash
+!commandtest !eventdash
+!commandtest !seasondash
+
+!commandissues
+!checkcommands
+!checkhelp
+!launchcheck
+!bothealth
+!stability status
+
+Expected:
+- no command issues
+- no help leaks
+- dashboards owner/admin only
+- no reward cap text
+- no HR Gold rewards
+- no “c” currency
+- launchcheck clean
+
+==================================================
+PART 27 — FINAL REPORT
+==================================================
+
+Report:
+1. !ownerdash added.
+2. !dashboard / !analytics aliases added or skipped safely.
+3. Player activity analytics added.
+4. Economy dashboard added.
+5. Luxe dashboard added.
+6. ChillCoin conversion dashboard added.
+7. Mining dashboard added.
+8. Fishing dashboard added.
+9. Hourly audit added.
+10. Shop analytics added.
+11. VIP analytics added.
+12. Retention analytics added.
+13. Event performance dashboard added.
+14. Season dashboard added.
+15. Safety summary integrated.
+16. Analytics logging added or mapped to existing logs.
+17. Admin help updated.
+18. Permissions confirmed.
+19. No currency “c” display.
+20. No reward cap regression.
+21. !commandissues result.
+22. !checkhelp result.
+23. !launchcheck result.
