@@ -804,6 +804,7 @@ MOD_ONLY_CMDS = {
     "economysettings",
     "reports", "reportinfo", "closereport", "reportwatch",
     "warn", "warnings",
+    "staffdash", "stafftools",
     "staffnote", "staffnotes",
     "permissioncheck", "rolecheck",
     "replog",

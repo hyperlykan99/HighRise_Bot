@@ -1,0 +1,257 @@
+UPDATE 3.2I HOTFIX — FIX STAFFDASH / STAFFTOOLS LIVE CHAT DISPATCHER
+
+Current live issue:
+!commandtest !staffdash shows:
+owner=ChillTopiaMC | route=YES | handler=YES
+
+!commandtest !stafftools shows:
+owner=ChillTopiaMC | route=YES | handler=YES
+
+But typing live:
+!staffdash
+!stafftools
+
+returns:
+⚠️ Unknown command.
+
+This means the commands exist in the commandtest registry but are not connected to the actual live message dispatcher.
+
+Goal:
+Make !staffdash and !stafftools execute in real chat, not only pass commandtest.
+
+Do not change tokens.
+Do not wipe data.
+Do not reset balances, VIP, tickets, inventory, casino, mining/fishing, market, missions, profiles, logs, or player data.
+Do not change economy.
+Do not change rewards.
+Do not add HR Gold rewards.
+Do not add reward caps.
+
+==================================================
+PART 1 — FIX REAL LIVE DISPATCHER
+==================================================
+
+Find the actual live command handler for ChillTopiaMC.
+
+This is the handler that processes real room chat messages and sends Unknown command when no command matches.
+
+Add live dispatch cases for:
+
+!staffdash
+!stafftools
+
+Important:
+Do not only update:
+- commandtest registry
+- command metadata
+- help registry
+- commandissues registry
+
+They already pass commandtest.
+The missing part is the real live chat execution path.
+
+Expected:
+Typing !staffdash should call staffdash handler.
+Typing !stafftools should call stafftools handler.
+
+==================================================
+PART 2 — STOP UNKNOWN FALLBACK AFTER MATCH
+==================================================
+
+If !staffdash or !stafftools matches, the dispatcher must return/stop after executing.
+
+Current likely bug:
+The command is matched in metadata but the live dispatcher continues to Unknown command fallback.
+
+Fix:
+After command is handled, return immediately.
+
+Expected:
+No Unknown command after staffdash/stafftools output.
+
+==================================================
+PART 3 — NORMALIZE COMMAND NAMES
+==================================================
+
+Make sure live parser normalizes:
+
+Input:
+!staffdash
+
+Parsed:
+command = staffdash
+args = []
+
+Input:
+!stafftools
+
+Parsed:
+command = stafftools
+args = []
+
+Also support if existing parser strips prefix:
+staffdash
+stafftools
+
+Do not require subcommands.
+
+==================================================
+PART 4 — STAFFDASH LIVE OUTPUT
+==================================================
+
+Command:
+!staffdash
+
+Owner/Admin/Staff only.
+
+Expected for owner/admin:
+
+🛠️ Admin Dashboard
+Bugs: 0 | Errors: 0
+Safety alerts: 0
+Maintenance: OFF
+Launch: OK
+
+Second message if needed:
+
+Quick:
+!modhelp
+!bugs open
+!feedbacks recent
+!safetydash
+!status
+
+Expected for staff:
+
+🛡️ Staff Dashboard
+Bugs open: 0
+Feedback: 0
+Warnings today: 0
+Safety: OK
+
+Rules:
+- Whisper if possible.
+- No raw traceback.
+- No private balances.
+- No Unknown command.
+
+==================================================
+PART 5 — STAFFTOOLS LIVE OUTPUT
+==================================================
+
+Command:
+!stafftools
+
+Owner/Admin/Staff only.
+
+Expected:
+
+🛡️ Staff Tools
+!modhelp
+!bugs open
+!feedbacks recent
+!knownissues
+!status
+
+For admin/owner, add:
+
+Admin:
+!safetydash
+!economysafety
+!launchcheck
+!errors recent
+
+Rules:
+- Show only commands caller can use.
+- No owner-only tools to staff.
+- No Unknown command.
+
+==================================================
+PART 6 — PERMISSION FAILURE SHOULD NOT SAY UNKNOWN
+==================================================
+
+If normal player uses:
+
+!staffdash
+!stafftools
+
+Expected:
+🔒 Staff only.
+
+Do not say:
+Unknown command.
+
+Known command + no permission = permission message.
+
+==================================================
+PART 7 — CHECK OTHER STAFF COMMANDS FOR SAME BUG
+==================================================
+
+Check if these pass commandtest but fail live:
+
+!permissioncheck
+!rolecheck
+!staffnote
+!staffnotes
+
+If yes, add them to the real live dispatcher too.
+
+Expected:
+All commands that pass commandtest must also execute live.
+
+==================================================
+PART 8 — TESTS
+==================================================
+
+Run:
+
+!commandtest !staffdash
+!commandtest !stafftools
+!staffdash
+!stafftools
+
+Expected:
+- commandtest route=YES handler=YES
+- live !staffdash works
+- live !stafftools works
+- no Unknown command
+
+Then run:
+
+!permissioncheck
+!rolecheck @4ktreyMarion
+!staffnote @4ktreyMarion test note
+!staffnotes @4ktreyMarion
+
+Expected:
+- if registered, all work live
+- no Unknown command
+
+Final:
+
+!commandissues
+!checkcommands all
+!checkhelp
+!launchblockers
+!launchcheck
+
+Expected:
+- command issues: 0
+- no no-route
+- no no-handler
+- no owner UNKNOWN
+- launchcheck clean
+
+==================================================
+PART 9 — FINAL REPORT
+==================================================
+
+Report:
+1. Why !staffdash passed commandtest but failed live.
+2. Live dispatcher fixed for !staffdash.
+3. Live dispatcher fixed for !stafftools.
+4. Permission denial fixed.
+5. Unknown fallback stopped after match.
+6. Other staff commands checked.
+7. !commandissues result.
+8. !launchcheck result.
