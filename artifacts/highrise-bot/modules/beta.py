@@ -290,13 +290,14 @@ async def handle_quickstart(bot: BaseBot, user: User) -> None:
         "2. !missions — daily goals\n"
         "3. !mine — earn 🪙\n"
         "4. !fish — collect catches\n"
-        "5. !guide — full tutorial"
+        "5. !today — what to do next"
     )
     await _w(
         bot, user.id,
-        "Earn 🪙 ChillCoins by playing.\n"
-        "🎫 Luxe Tickets via !luxeshop.\n"
-        "Use !bug if something breaks."
+        "Need help?\n"
+        "!guide — room guide\n"
+        "!newbie — beginner tips\n"
+        "Report bugs: !bug [message]"
     )
 
 

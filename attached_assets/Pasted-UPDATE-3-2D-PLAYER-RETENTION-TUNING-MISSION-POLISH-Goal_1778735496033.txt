@@ -1,0 +1,752 @@
+UPDATE 3.2D — PLAYER RETENTION TUNING + MISSION POLISH
+
+Goal:
+Polish the daily/weekly mission and retention experience before real-player balancing.
+
+Important:
+This is NOT economy balancing yet.
+Do not change reward values unless they are missing, broken, or displaying incorrectly.
+Do not tune based on assumptions.
+Make missions clearer, easier to understand, and more useful for players.
+
+Main focus:
+1. Make !today more helpful.
+2. Make !missions easier to read.
+3. Make !weekly easier to read.
+4. Improve starter/tutorial flow messages.
+5. Improve mission reward display.
+6. Improve streak/chest messages.
+7. Add “what should I do next?” suggestions.
+8. Improve mission claim guidance.
+9. Improve retention help/guide text.
+10. No economy balancing yet.
+
+Currencies:
+🪙 ChillCoins = gameplay currency
+🎫 Luxe Tickets = premium currency
+
+Do not change tokens.
+Do not change room ID.
+Do not wipe database.
+Do not reset balances, tickets, VIP, badges, titles, market, casino, blackjack, poker, mining/fishing data, collection book, missions, XP, levels, events, seasons, onboarding, safety logs, analytics, tools, rods, boosts, profile settings, bug reports, feedback, backups, release settings, or player inventory.
+Do not re-add reward caps.
+Do not add HR Gold rewards.
+Do not change economy prices.
+Do not change mining/fishing odds.
+Do not change mission reward values unless missing/broken.
+Do not show “c” for currency.
+Use 🪙 and 🎫.
+
+==================================================
+PART 1 — STABILITY FIRST
+==================================================
+
+Before changing anything, run:
+
+!launchmode status
+!production status
+!launchblockers
+!finalaudit
+!launchcheck
+!commandissues
+!checkcommands all
+!checkhelp
+!currencycheck
+!bothealth
+!stability status
+
+Expected:
+- Production stable
+- Launch blockers: 0
+- Command issues: 0
+- Currencycheck clean
+- No old c/credits/gems
+- Launchcheck clean
+
+Fix blockers first.
+
+==================================================
+PART 2 — RETENTION UX ONLY
+==================================================
+
+This update should polish experience, not balance values.
+
+Allowed:
+- clearer mission wording
+- better progress display
+- better claim instructions
+- better !today suggestions
+- better guide text
+- better streak/chest messages
+- better onboarding prompts
+- better mission completion messages
+- bug fixes
+
+Not allowed:
+- changing mission targets unless broken
+- changing reward amounts unless missing/broken
+- changing Luxe prices
+- changing ore/fish values
+- changing casino payouts
+- changing odds
+- adding HR Gold rewards
+
+==================================================
+PART 3 — IMPROVE !TODAY COMMAND
+==================================================
+
+Polish:
+
+!today
+!progress
+
+Current goal:
+Make this the main “what should I do next?” command.
+
+Expected:
+
+📌 Today
+Daily: 2/5 complete
+Weekly: 1/5 progress
+Streak: Day 4
+Event: Mining Rush 42m
+Next: !mine 13 more times
+
+Second message if needed:
+
+⭐ Progress
+Level: 12
+Collection: 28%
+Season: Mining #4
+Use !missions for details.
+
+Rules:
+- Keep each message under 220 chars.
+- Whisper if possible.
+- Show the next best action.
+- If no active event, show:
+Event: none
+- If player has no missions started, suggest:
+Next: type !missions
+- No old currency text.
+- No reward cap text.
+
+==================================================
+PART 4 — NEXT ACTION SUGGESTION SYSTEM
+==================================================
+
+Add a simple helper:
+
+get_next_player_action(user_id)
+
+Priority:
+1. If tutorial incomplete → suggest next tutorial step.
+2. If daily missions incomplete → suggest closest daily mission.
+3. If weekly missions incomplete → suggest weekly goal.
+4. If active event exists → suggest event-related action.
+5. If collection is low → suggest !orebook or !fishbook.
+6. If no active auto and has Luxe time → suggest !autotime or !automine luxe / !autofish luxe.
+7. Otherwise → suggest !events or !season.
+
+Examples:
+
+Next: !profile to continue tutorial.
+Next: !mine 13 more times.
+Next: !fish 8 more times.
+Next: !event active for current boost.
+Next: !orebook to check collection.
+
+Rules:
+- Do not overwhelm player.
+- Only show one main suggestion.
+- Do not suggest commands that do not route.
+
+==================================================
+PART 5 — IMPROVE !MISSIONS DISPLAY
+==================================================
+
+Polish:
+
+!missions
+!dailymissions
+!dailygoals
+
+Expected:
+
+📋 Daily Missions
+1. Mine 25 — 12/25
+Reward: 5,000 🪙
+2. Fish 25 — 8/25
+Reward: 5,000 🪙
+
+Second message:
+
+3. Trivia 3 — 1/3
+Reward: 3,000 🪙
+4. Play games 3 — 0/3
+Reward: 3,000 🪙
+Claim: !claimmission [#]
+
+If complete:
+
+✅ 1. Mine 25 — complete
+Claim: !claimmission 1
+
+If claimed:
+
+✅ 1. Mine 25 — claimed
+
+Rules:
+- Make status obvious: incomplete / complete / claimed.
+- Show reward with 🪙/🎫.
+- Keep under 220 chars per message.
+- No reward cap text.
+- No confusing raw mission keys.
+
+==================================================
+PART 6 — IMPROVE !WEEKLY DISPLAY
+==================================================
+
+Polish:
+
+!weekly
+!weeklymissions
+!weeklygoals
+
+Expected:
+
+📅 Weekly Goals
+1. Mine 500 — 120/500
+2. Fish 500 — 80/500
+3. Find Legendary+ — 1/3
+
+Second message:
+
+4. Complete 5 dailies — 2/5
+5. 7-day streak — 4/7
+Reward: Weekly Chest
+Claim: !claimweekly
+
+Rules:
+- Show progress clearly.
+- Show complete/claimed status.
+- Use short labels.
+- No raw keys.
+- No old currency text.
+
+==================================================
+PART 7 — CLAIM GUIDANCE
+==================================================
+
+Improve claim messages.
+
+If mission incomplete:
+
+⚠️ Mission not complete.
+Progress: 12/25
+Next: !mine 13 more times.
+
+If mission complete:
+
+✅ Mission complete!
+Reward: 5,000 🪙
+Claimed successfully.
+
+If already claimed:
+
+✅ Already claimed.
+Next: !missions for more goals.
+
+If invalid number:
+
+⚠️ Use: !claimmission [number]
+Example: !claimmission 1
+
+Rules:
+- No duplicate rewards.
+- No reward caps.
+- No raw technical error.
+
+==================================================
+PART 8 — DAILY SET COMPLETION POLISH
+==================================================
+
+Polish:
+
+!claimdaily
+
+If all daily missions complete:
+
+🎁 Daily Set Complete!
+Reward: Daily Chest
+Use !chests or opened automatically if existing.
+
+If not complete:
+
+⚠️ Daily set not complete.
+Progress: 3/5
+Next: !fish 8 more times.
+
+If already claimed:
+
+✅ Daily set already claimed.
+Come back tomorrow.
+
+Rules:
+- Do not duplicate rewards.
+- Do not change reward amount.
+- If chest system unavailable, show fallback reward clearly.
+
+==================================================
+PART 9 — WEEKLY CLAIM POLISH
+==================================================
+
+Polish:
+
+!claimweekly
+
+If complete:
+
+🎁 Weekly Goals Complete!
+Reward: Weekly Chest
+Great job this week!
+
+If incomplete:
+
+⚠️ Weekly goals not complete.
+Progress: 2/5
+Next: Mine 380 more times.
+
+If claimed:
+
+✅ Weekly reward already claimed.
+Next reset: [time if available]
+
+Rules:
+- Keep short.
+- Do not change rewards.
+- No reward caps.
+
+==================================================
+PART 10 — STREAK MESSAGE POLISH
+==================================================
+
+Polish:
+
+!daily
+!streak
+!claimdailyreward if existing
+
+Expected:
+
+🔥 Daily Streak
+Day: 4
+Today: 5,000 🪙
+Tomorrow: 10 🎫
+Claim: !daily
+
+If already claimed:
+
+✅ Daily already claimed.
+Next claim: [time]
+
+If streak chest:
+
+🎁 Streak Chest Ready!
+Claim with !daily or !open streak.
+
+Rules:
+- No “cap left”.
+- No reward cap text.
+- No “No lifetime VIP” text.
+- Use 🪙/🎫.
+
+==================================================
+PART 11 — CHEST MESSAGE POLISH
+==================================================
+
+If chest system exists, polish:
+
+!chests
+!open daily
+!open weekly
+!open streak
+
+Expected:
+
+🎁 Your Chests
+Daily: 1
+Weekly: 0
+Streak: 1
+Open: !open daily
+
+Opening:
+
+🎁 Daily Chest Opened!
+You received: 10,000 🪙 + Lucky Potion
+
+Rules:
+- Do not change rewards unless broken.
+- No duplicate opening.
+- If no chest system exists, hide chest commands from help.
+
+==================================================
+PART 12 — TUTORIAL / STARTER FLOW POLISH
+==================================================
+
+Polish:
+
+!start
+!tutorial
+!starter
+!quickstart
+!newbie
+
+Expected !quickstart:
+
+🌟 Quick Start
+1. !profile
+2. !missions
+3. !mine
+4. !fish
+5. !today
+
+Second message:
+
+Need help?
+!guide
+Report bugs:
+!bug [message]
+
+Tutorial incomplete:
+
+📘 Tutorial
+Step 3/7: Try mining.
+Type !mine.
+
+Tutorial complete:
+
+✅ Tutorial complete.
+Use !today for what to do next.
+
+Rules:
+- Keep short.
+- No repeated starter reward.
+- No duplicate tutorial rewards.
+- No spam.
+
+==================================================
+PART 13 — RETENTION GUIDE POLISH
+==================================================
+
+Update guide topics:
+
+!guide missions
+!guide daily
+!guide weekly
+!guide streak
+!guide retention
+!guide newbie
+
+Expected !guide missions:
+
+📋 Missions
+!missions — daily goals
+!weekly — weekly goals
+!today — next action
+Claim rewards with !claimmission [#].
+
+Expected !guide streak:
+
+🔥 Streaks
+Claim daily to build streaks.
+Higher streaks unlock better rewards and chests.
+
+Rules:
+- No admin commands.
+- No reward cap text.
+- No broken command references.
+
+==================================================
+PART 14 — PROFILE / TODAY INTEGRATION
+==================================================
+
+Profile should help retention without being too long.
+
+If !profile has room, include:
+
+Daily: 2/5
+Season: Mining #4
+
+If profile already too long:
+Do not force it.
+Keep !today as main progress command.
+
+Rules:
+- Respect profile privacy.
+- Do not show private balance if hidden.
+- !flex should not show private balance.
+
+==================================================
+PART 15 — MISSION PROGRESS HOOK VALIDATION
+==================================================
+
+Verify mission progress still updates from:
+
+!mine
+!fish
+!automine
+!autofish
+!automine luxe
+!autofish luxe
+trivia correct
+casino/game rounds
+daily claim
+collection discovery
+
+Fix only broken hooks.
+
+Rules:
+- Automine/autofish should count actual completed actions.
+- Do not double-count.
+- Do not count failed actions.
+- No duplicate reward.
+
+==================================================
+PART 16 — MISSION RESET DISPLAY
+==================================================
+
+Add reset time display if available.
+
+!missions:
+
+Resets: 14h 22m
+
+!weekly:
+
+Resets: 4d 6h
+
+If reset time not available:
+omit it, do not show wrong time.
+
+Rules:
+- Keep short.
+- Do not create inaccurate timers.
+
+==================================================
+PART 17 — RETENTION ADMIN VIEW
+==================================================
+
+Polish:
+
+!retentionreview
+!missionadmin settings
+!retentionadmin stats
+
+Expected:
+
+📌 Retention Review
+Daily completion: 42%
+Weekly progress: 31%
+Tutorial completion: 67%
+Next action use: 18
+
+Rules:
+- Admin/Owner only.
+- Do not auto-change mission targets.
+- Recommendations only.
+
+==================================================
+PART 18 — PLAYER CONFUSION REDUCTION
+==================================================
+
+Search player-facing mission/retention text for confusing words:
+
+- raw keys like mine_25
+- period_key
+- mission_type
+- claimed=0
+- progress=12
+- JSON/debug text
+- “cap”
+- “credits”
+- “c”
+
+Replace with clean text.
+
+Examples:
+
+Old:
+mission_key mine_25 progress=12 target=25
+
+New:
+Mine 25 — 12/25
+
+Old:
+reward capped
+
+New:
+remove entirely
+
+==================================================
+PART 19 — HELP / COMMAND REGISTRY CHECK
+==================================================
+
+Make sure these commands route if shown:
+
+!today
+!progress
+!missions
+!dailymissions
+!dailygoals
+!weekly
+!weeklymissions
+!weeklygoals
+!claimmission
+!claimdaily
+!claimweekly
+!daily
+!streak
+!chests
+!open
+!start
+!tutorial
+!starter
+!quickstart
+!newbie
+
+If any optional command is not implemented:
+- hide it from help
+- do not count it as command issue
+
+==================================================
+PART 20 — TESTS: PLAYER FLOW
+==================================================
+
+Run:
+
+!quickstart
+!today
+!missions
+!weekly
+!mine
+!fish
+!today
+!missions
+!claimmission 1
+!claimdaily
+!weekly
+!claimweekly
+
+Expected:
+- clear progress
+- clear next action
+- no command errors
+- no duplicate rewards
+- no old currency text
+- no reward cap text
+
+==================================================
+PART 21 — TESTS: TUTORIAL FLOW
+==================================================
+
+Run:
+
+!start
+!tutorial
+!starter
+!newbie
+!guide missions
+!guide streak
+
+Expected:
+- no spam
+- tutorial shows current step
+- quickstart clear
+- starter rewards not duplicated
+- guides are short and accurate
+
+==================================================
+PART 22 — TESTS: STREAK/CHEST
+==================================================
+
+Run if available:
+
+!daily
+!streak
+!chests
+!open daily
+!open weekly
+!open streak
+
+Expected:
+- clean messages
+- no duplicate rewards
+- no old currency text
+- no reward cap text
+
+If chest commands are unavailable:
+- hide them from help
+- do not count them as command issues
+
+==================================================
+PART 23 — FINAL QA
+==================================================
+
+Run:
+
+!commandtest !today
+!commandtest !missions
+!commandtest !weekly
+!commandtest !claimmission
+!commandtest !claimdaily
+!commandtest !claimweekly
+!commandtest !daily
+!commandtest !streak
+!commandtest !quickstart
+!commandtest !newbie
+!commandtest !tutorial
+
+!commandissues
+!checkcommands all
+!checkhelp
+!currencycheck
+!launchblockers
+!finalaudit
+!launchcheck
+!bothealth
+!stability status
+
+Expected:
+- no command issues
+- no broken help
+- no old c/credits/gems
+- no reward cap text
+- launchcheck clean
+
+==================================================
+PART 24 — FINAL REPORT
+==================================================
+
+Report:
+1. !today polished.
+2. Next action suggestions added.
+3. !missions display polished.
+4. !weekly display polished.
+5. Claim messages improved.
+6. Daily set messages improved.
+7. Weekly claim messages improved.
+8. Streak messages improved.
+9. Chest messages improved or hidden safely.
+10. Tutorial/quickstart polished.
+11. Retention guides updated.
+12. Mission hooks validated.
+13. Reset display added or skipped.
+14. No reward values changed.
+15. No economy balancing applied.
+16. No HR Gold rewards added.
+17. No reward caps added.
+18. !commandissues result.
+19. !checkhelp result.
+20. !currencycheck result.
+21. !launchcheck result.

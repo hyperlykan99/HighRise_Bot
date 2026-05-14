@@ -9,8 +9,9 @@ mining, fishing, trivia, and game modules.
 """
 from __future__ import annotations
 
+import asyncio
 import random
-from datetime import date
+from datetime import date, datetime, timezone, timedelta
 
 import database as db
 from highrise import BaseBot, User
@@ -60,6 +61,101 @@ def _pct(num: int, den: int) -> int:
     if den == 0:
         return 0
     return int(num * 100 / den)
+
+
+def _time_until_midnight() -> str:
+    """Hours and minutes until next UTC midnight (daily reset)."""
+    now = datetime.now(timezone.utc)
+    midnight = (now + timedelta(days=1)).replace(
+        hour=0, minute=0, second=0, microsecond=0)
+    secs = max(0, int((midnight - now).total_seconds()))
+    h, rem = divmod(secs, 3600)
+    m = rem // 60
+    return f"{h}h {m}m"
+
+
+def _time_until_weekly_reset() -> str:
+    """Days and hours until next Monday UTC (weekly reset)."""
+    now = datetime.now(timezone.utc)
+    days_left = (7 - now.weekday()) % 7 or 7
+    next_mon = (now + timedelta(days=days_left)).replace(
+        hour=0, minute=0, second=0, microsecond=0)
+    secs = max(0, int((next_mon - now).total_seconds()))
+    d, rem = divmod(secs, 86400)
+    h = rem // 3600
+    return f"{d}d {h}h"
+
+
+def get_next_player_action(user_id: str) -> str:
+    """Return the single best next-action suggestion for a player."""
+    try:
+        # 1. Tutorial incomplete?
+        try:
+            from modules.onboarding import (
+                _get_onboarding, _next_step, _completed_steps, _ensure_onboarding)
+            _ensure_onboarding(user_id, "")
+            ob = _get_onboarding(user_id)
+            if not ob.get("tutorial_completed"):
+                done = _completed_steps(user_id)
+                nxt = _next_step(done)
+                if nxt:
+                    _nk, nc, _nl = nxt
+                    return f"Next: {nc} to continue tutorial."
+        except Exception:
+            pass
+
+        dk = _daily_period()
+        wk = _weekly_period()
+
+        # 2. Closest incomplete daily mission
+        for m in DAILY_MISSIONS:
+            prog = db.get_mission_progress(user_id, m["key"], dk)
+            if prog < m["target"] and not db.is_mission_claimed(user_id, m["key"], dk):
+                remaining = m["target"] - prog
+                if m["key"] == "daily_mine":
+                    return f"Next: !mine {remaining} more time(s)."
+                elif m["key"] == "daily_fish":
+                    return f"Next: !fish {remaining} more time(s)."
+                elif m["key"] == "daily_trivia":
+                    return f"Next: answer {remaining} more trivia question(s)."
+                elif m["key"] == "daily_game":
+                    return f"Next: play {remaining} more game(s)."
+
+        # 3. Closest incomplete weekly mission
+        for m in WEEKLY_MISSIONS:
+            if m["key"] == "weekly_streak7":
+                continue
+            prog = db.get_mission_progress(user_id, m["key"], wk)
+            if prog < m["target"] and not db.is_mission_claimed(user_id, m["key"], wk):
+                remaining = m["target"] - prog
+                if m["key"] == "weekly_mine":
+                    return f"Next: !mine {remaining} more for weekly goal."
+                elif m["key"] == "weekly_fish":
+                    return f"Next: !fish {remaining} more for weekly goal."
+                break
+
+        # 4. Active event
+        try:
+            ev = db.get_active_event()
+            if ev:
+                return "Next: !event active for current boost."
+        except Exception:
+            pass
+
+        # 5. Collection nudge
+        try:
+            counts = db.get_collection_counts(user_id)
+            if counts.get("mining", 0) < 10:
+                return "Next: !orebook to check ore collection."
+            if counts.get("fishing", 0) < 10:
+                return "Next: !fishbook to check fish collection."
+        except Exception:
+            pass
+
+        return "Next: !events or !season to see leaderboard."
+
+    except Exception:
+        return "Next: !missions for daily goals."
 
 
 # ---------------------------------------------------------------------------
@@ -171,24 +267,38 @@ def track_mission(
 
 async def handle_missions(bot: BaseBot, user: User, args: list) -> None:
     db.ensure_user(user.id, user.username)
-    dk   = _daily_period()
-    uid  = user.id
-    uname = user.username
-    lines = [f"📋 Daily Missions [{dk}]"]
-    all_done = True
-    for m in DAILY_MISSIONS:
+    dk  = _daily_period()
+    uid = user.id
+
+    reset_str = _time_until_midnight()
+
+    def _mline(m: dict) -> str:
         prog    = db.get_mission_progress(uid, m["key"], dk)
         claimed = db.is_mission_claimed(uid, m["key"], dk)
         bar     = f"{min(prog, m['target'])}/{m['target']}"
-        tick    = " ✓" if claimed else (" !" if prog >= m["target"] else "")
-        rew     = f"{m['coins']:,} 🪙"
-        lines.append(f"{m['num']}. {m['icon']} {m['label']}: {bar}{tick} — {rew}")
-        if not claimed:
-            all_done = False
-    chest_txt = "All done: 🎁 Daily Chest!" if all_done else "Complete all: Daily Chest 🎁"
-    lines.append(chest_txt)
-    lines.append("!claimmission 1-4  !claimdaily")
-    await _w(bot, uid, "\n".join(lines)[:249])
+        if claimed:
+            status = " ✅ claimed"
+        elif prog >= m["target"]:
+            status = " ✅ complete"
+        else:
+            status = ""
+        rew = f"{m['coins']:,} 🪙"
+        return f"{m['num']}. {m['icon']} {m['label']} — {bar}{status}\nReward: {rew}"
+
+    # Message 1: missions 1-2 + reset time
+    lines1 = [f"📋 Daily Missions  Resets: {reset_str}"]
+    for m in DAILY_MISSIONS[:2]:
+        lines1.append(_mline(m))
+    await _w(bot, uid, "\n".join(lines1)[:249])
+
+    await asyncio.sleep(0.3)
+
+    # Message 2: missions 3-4 + claim hint
+    lines2 = []
+    for m in DAILY_MISSIONS[2:]:
+        lines2.append(_mline(m))
+    lines2.append("Claim: !claimmission [#]  or  !claimdaily")
+    await _w(bot, uid, "\n".join(lines2)[:249])
 
 
 # ---------------------------------------------------------------------------
@@ -197,12 +307,12 @@ async def handle_missions(bot: BaseBot, user: User, args: list) -> None:
 
 async def handle_weekly(bot: BaseBot, user: User, args: list) -> None:
     db.ensure_user(user.id, user.username)
-    wk   = _weekly_period()
-    uid  = user.id
-    uname = user.username
-    lines = [f"📅 Weekly Goals [{wk}]"]
-    all_done = True
-    for m in WEEKLY_MISSIONS:
+    wk  = _weekly_period()
+    uid = user.id
+
+    reset_str = _time_until_weekly_reset()
+
+    def _wline(m: dict) -> str:
         if m["key"] == "weekly_streak7":
             try:
                 stats = db.get_daily_stats(uid)
@@ -213,20 +323,29 @@ async def handle_weekly(bot: BaseBot, user: User, args: list) -> None:
             prog = db.get_mission_progress(uid, m["key"], wk)
         claimed = db.is_mission_claimed(uid, m["key"], wk)
         bar     = f"{min(prog, m['target'])}/{m['target']}"
-        tick    = " ✓" if claimed else (" !" if prog >= m["target"] else "")
-        if "tickets" in m:
-            rew = f"{m['tickets']} 🎫"
-        elif m.get("chest"):
-            rew = "Weekly Chest"
+        if claimed:
+            status = " ✅ claimed"
+        elif prog >= m["target"]:
+            status = " ✅ complete"
         else:
-            rew = f"{m['coins']:,} 🪙"
-        lines.append(f"{m['num']}. {m['icon']} {m['label']}: {bar}{tick} — {rew}")
-        if not claimed:
-            all_done = False
-    chest_txt = "All done: 🎁 Weekly Chest!" if all_done else "Complete all: Weekly Chest 🎁"
-    lines.append(chest_txt)
-    lines.append("!claimweekly")
-    await _w(bot, uid, "\n".join(lines)[:249])
+            status = ""
+        return f"{m['num']}. {m['icon']} {m['label']} — {bar}{status}"
+
+    # Message 1: goals 1-3 + reset time
+    lines1 = [f"📅 Weekly Goals  Resets: {reset_str}"]
+    for m in WEEKLY_MISSIONS[:3]:
+        lines1.append(_wline(m))
+    await _w(bot, uid, "\n".join(lines1)[:249])
+
+    await asyncio.sleep(0.3)
+
+    # Message 2: goals 4-5 + claim hint
+    lines2 = []
+    for m in WEEKLY_MISSIONS[3:]:
+        lines2.append(_wline(m))
+    lines2.append("Reward: Weekly Chest 🎁")
+    lines2.append("Claim: !claimweekly")
+    await _w(bot, uid, "\n".join(lines2)[:249])
 
 
 # ---------------------------------------------------------------------------
@@ -241,24 +360,37 @@ async def handle_claimmission(bot: BaseBot, user: User, args: list) -> None:
 
     if len(args) < 2 or not args[1].isdigit():
         await _w(bot, uid,
-                 "Usage: !claimmission [1-4]\n"
-                 "Or: !claimdaily to claim all daily missions.")
+                 "⚠️ Use: !claimmission [1-4]\n"
+                 "Example: !claimmission 1")
         return
 
     num = int(args[1])
     m   = next((x for x in DAILY_MISSIONS if x["num"] == num), None)
     if not m:
-        await _w(bot, uid, f"Mission {num} not found. Valid: 1-{len(DAILY_MISSIONS)}")
+        await _w(bot, uid,
+                 f"⚠️ Use: !claimmission [1-{len(DAILY_MISSIONS)}]\n"
+                 f"Example: !claimmission 1")
         return
 
     prog = db.get_mission_progress(uid, m["key"], dk)
     if prog < m["target"]:
+        remaining = m["target"] - prog
+        action_map = {
+            "daily_mine":   f"!mine {remaining} more time(s).",
+            "daily_fish":   f"!fish {remaining} more time(s).",
+            "daily_trivia": f"answer {remaining} more trivia question(s).",
+            "daily_game":   f"play {remaining} more game(s).",
+        }
+        nxt = action_map.get(m["key"], "!missions to check progress.")
         await _w(bot, uid,
-                 f"⚠️ Mission {num} not complete yet.\n"
-                 f"Progress: {prog}/{m['target']}")
+                 f"⚠️ Mission not complete.\n"
+                 f"Progress: {prog}/{m['target']}\n"
+                 f"Next: {nxt}")
         return
     if db.is_mission_claimed(uid, m["key"], dk):
-        await _w(bot, uid, "⚠️ Already claimed.")
+        await _w(bot, uid,
+                 "✅ Already claimed.\n"
+                 "Next: !missions for more goals.")
         return
 
     db.claim_mission_db(uid, m["key"], dk)
@@ -295,7 +427,17 @@ async def handle_claimdaily(bot: BaseBot, user: User, args: list) -> None:
             claimed_n   += 1
 
     if claimed_n == 0:
-        await _w(bot, uid, "⚠️ No completed missions to claim.\nUse !missions to check progress.")
+        all_already = all(db.is_mission_claimed(uid, m["key"], dk) for m in DAILY_MISSIONS)
+        if all_already:
+            await _w(bot, uid,
+                     "✅ Daily set already claimed.\n"
+                     "Come back tomorrow!")
+        else:
+            nxt = get_next_player_action(uid)
+            await _w(bot, uid,
+                     f"⚠️ No missions complete yet.\n"
+                     f"Use !missions to check progress.\n"
+                     f"{nxt}"[:249])
         return
 
     # Check if ALL 4 daily missions are now claimed → award Daily Chest
@@ -384,9 +526,16 @@ async def handle_claimweekly(bot: BaseBot, user: User, args: list) -> None:
                 total_coins += m.get("coins", 50000)
 
     if claimed_n == 0:
-        await _w(bot, uid,
-                 "⚠️ No completed weekly goals to claim.\n"
-                 "Use !weekly to check progress.")
+        all_wk_claimed = all(db.is_mission_claimed(uid, m["key"], wk) for m in WEEKLY_MISSIONS)
+        if all_wk_claimed:
+            reset = _time_until_weekly_reset()
+            await _w(bot, uid,
+                     f"✅ Weekly reward already claimed.\n"
+                     f"Next reset: {reset}")
+        else:
+            await _w(bot, uid,
+                     "⚠️ Weekly goals not complete.\n"
+                     "Use !weekly to check progress.")
         return
 
     if total_coins > 0:
@@ -408,9 +557,11 @@ async def handle_claimweekly(bot: BaseBot, user: User, args: list) -> None:
         parts.append(f"+{total_coins:,} 🪙")
     if total_tickets:
         parts.append(f"+{total_tickets} 🎫")
-    reward_str = " ".join(parts) if parts else "Rewards issued."
+    reward_str = " | ".join(parts) if parts else "Rewards issued."
     await _w(bot, uid,
-             f"🎁 Weekly Goals claimed! ({claimed_n})\n{reward_str}"[:249])
+             f"🎁 Weekly Goals Complete!\n"
+             f"Reward: {reward_str}\n"
+             f"Great job this week!"[:249])
 
 
 # ---------------------------------------------------------------------------
@@ -625,18 +776,20 @@ async def handle_seasonrewards(bot: BaseBot, user: User, args: list) -> None:
 
 async def handle_today(bot: BaseBot, user: User, args: list) -> None:
     db.ensure_user(user.id, user.username)
-    uid  = user.id
-    dk   = _daily_period()
-    wk   = _weekly_period()
+    uid = user.id
+    dk  = _daily_period()
+    wk  = _weekly_period()
 
     # Daily missions progress
-    d_done = sum(
+    d_total = len(DAILY_MISSIONS)
+    d_done  = sum(
         1 for m in DAILY_MISSIONS
         if db.get_mission_progress(uid, m["key"], dk) >= m["target"]
     )
 
     # Weekly missions progress
-    w_done = 0
+    w_total = len(WEEKLY_MISSIONS)
+    w_done  = 0
     for m in WEEKLY_MISSIONS:
         if m["key"] == "weekly_streak7":
             try:
@@ -656,33 +809,61 @@ async def handle_today(bot: BaseBot, user: User, args: list) -> None:
     except Exception:
         streak = 0
 
-    # Level
+    # Active event
+    try:
+        ev = db.get_active_event()
+        if ev:
+            ev_name = ev.get("event_name", "Active")
+            try:
+                import time as _time
+                ends_at = ev.get("ends_at") or 0
+                if ends_at:
+                    left    = max(0, int(ends_at - _time.time()))
+                    ev_str  = f"{ev_name} {left // 60}m"
+                else:
+                    ev_str = ev_name
+            except Exception:
+                ev_str = ev_name
+        else:
+            ev_str = "none"
+    except Exception:
+        ev_str = "none"
+
+    # Next action
+    nxt = get_next_player_action(uid)
+
+    await _w(bot, uid,
+             f"📌 Today\n"
+             f"Daily: {d_done}/{d_total} done\n"
+             f"Weekly: {w_done}/{w_total} goals\n"
+             f"Streak: Day {streak}\n"
+             f"Event: {ev_str}\n"
+             f"{nxt}"[:249])
+
+    # Second message — level / collection / season
+    await asyncio.sleep(0.3)
+
     try:
         row   = db.get_player_xp_info(uid)
         level = row.get("level", 1)
     except Exception:
         level = 1
 
-    # Collection %
     try:
         counts  = db.get_collection_counts(uid)
         mine_d  = counts.get("mining",  0)
         fish_d  = counts.get("fishing", 0)
-        mine_t  = _get_mining_total()
-        fish_t  = _get_fishing_total()
-        total_d = mine_d + fish_d
-        total_t = mine_t + fish_t
-        col_pct = _pct(total_d, total_t)
+        col_pct = _pct(mine_d + fish_d, _get_mining_total() + _get_fishing_total())
     except Exception:
         col_pct = 0
 
+    sk = _season_key()
     await _w(bot, uid,
-             f"📌 Today\n"
-             f"Daily: {d_done}/{len(DAILY_MISSIONS)} missions\n"
-             f"Weekly: {w_done}/{len(WEEKLY_MISSIONS)} goals\n"
-             f"Streak: Day {streak}\n"
+             f"⭐ Progress\n"
              f"Level: {level}\n"
-             f"Collection: {col_pct}%"[:249])
+             f"Collection: {col_pct}%\n"
+             f"Season: {sk}\n"
+             f"Use !missions for details."[:249])
 
 
 # ---------------------------------------------------------------------------

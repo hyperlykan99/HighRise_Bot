@@ -641,8 +641,46 @@ _GUIDE_TOPICS: dict[str, list[str]] = {
         "📋 Missions\n"
         "!missions — daily goals\n"
         "!weekly — weekly goals\n"
-        "!today — progress\n"
+        "!today — next action\n"
         "Complete goals for 🪙, 🎫, chests, XP.",
+
+        "Claim: !claimmission [#]\n"
+        "Or claim all at once: !claimdaily\n"
+        "Weekly: !claimweekly",
+    ],
+    "daily": [
+        "📅 Daily\n"
+        "!daily — claim daily reward\n"
+        "!streak — view streak\n"
+        "!missions — daily mission goals\n"
+        "!claimdaily — claim completed missions",
+    ],
+    "weekly": [
+        "📋 Weekly\n"
+        "!weekly — weekly goals\n"
+        "!claimweekly — claim weekly reward\n"
+        "Complete all 5 goals for Weekly Chest 🎁\n"
+        "Resets every Monday.",
+    ],
+    "streak": [
+        "🔥 Streaks\n"
+        "Use !daily each day to build a streak.\n"
+        "Higher streaks unlock better rewards.\n"
+        "Don't miss a day!",
+    ],
+    "newbie": [
+        "🌱 New here? Start with:\n"
+        "!start — step-by-step tutorial\n"
+        "!missions — see daily goals\n"
+        "!mine or !fish — earn 🪙\n"
+        "!today — see what to do next",
+    ],
+    "retention": [
+        "📌 Daily Loop\n"
+        "!missions → !claimdaily\n"
+        "!weekly → !claimweekly\n"
+        "!today — next action\n"
+        "!daily each day — build your streak",
     ],
     "events": [
         "🎉 Events\n"
@@ -721,6 +759,11 @@ _GUIDE_ALIASES: dict[str, str] = {
     "casino": "casino", "blackjack": "casino", "bj": "casino",
     "poker": "casino", "games": "casino",
     "cmd": "commands", "cmds": "commands", "help": "commands",
+    "day": "daily", "dailies": "daily",
+    "week": "weekly", "weekgoals": "weekly",
+    "streak": "streak", "streaks": "streak", "fire": "streak",
+    "newbie": "newbie", "beginner": "newbie", "new": "newbie", "starter": "newbie",
+    "retention": "retention", "loop": "retention", "progress": "retention",
 }
 
 
@@ -735,20 +778,17 @@ async def handle_guide(bot: BaseBot, user: User, args: list[str]) -> None:
     if not topic:
         await _w(bot, user.id,
                  "📘 Room Guide\n"
-                 "1. !guide economy\n"
-                 "2. !guide mining\n"
-                 "3. !guide fishing\n"
-                 "4. !guide missions\n"
-                 "5. !guide events\n"
-                 "6. !guide profile")
+                 "!guide economy  !guide mining\n"
+                 "!guide fishing  !guide missions\n"
+                 "!guide daily    !guide weekly\n"
+                 "!guide streak   !guide events")
         await asyncio.sleep(0.3)
         await _w(bot, user.id,
                  "More:\n"
-                 "!guide casino\n"
-                 "!guide shop\n"
-                 "!guide luxe\n"
-                 "!guide vip\n"
-                 "!guide commands")
+                 "!guide profile  !guide casino\n"
+                 "!guide shop  !guide luxe\n"
+                 "!guide vip  !guide commands\n"
+                 "!guide newbie  (new players)")
         return
 
     msgs = _GUIDE_TOPICS.get(topic)
@@ -756,8 +796,8 @@ async def handle_guide(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id,
                  f"⚠️ Unknown topic: {raw}\n"
                  f"Try: economy, mining, fishing,\n"
-                 f"missions, events, profile, shop,\n"
-                 f"luxe, vip, casino, commands")
+                 f"missions, daily, weekly, streak,\n"
+                 f"events, profile, shop, luxe, vip")
         return
 
     for i, msg in enumerate(msgs):
