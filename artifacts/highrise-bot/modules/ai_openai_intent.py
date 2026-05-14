@@ -78,7 +78,8 @@ Staff-only, confirmation required (risk=medium, needs_confirmation=true):
   tele_other       → teleport another player to a saved spawn (args: [username, location])
   goto_user        → go to another player's current position (args: [username])
   bring_user       → bring another player to your position (args: [username])
-  return_bot_spawn → teleport this bot to its saved spawn (no args)
+  return_bot_spawn     → teleport this bot to its saved spawn (no args)
+  set_ai_cost_preview  → enable/disable AI cost preview confirmation (args: [on|off|status])
 
 Admin/Owner, confirmation required (risk=high, needs_confirmation=true):
   startevent   → start a game/event (args: [event_id, duration_minutes])
@@ -108,6 +109,9 @@ Owner-only, confirmation required (risk=high, needs_confirmation=true):
 "bring Claire to me"     → type=command, command=bring_user, args=["claire"], risk=medium, needs_confirmation=true
 "return to spawn"        → type=command, command=return_bot_spawn, args=[], risk=low, needs_confirmation=false
 "send bots home"         → type=command, command=return_bot_spawn, args=[], risk=low, needs_confirmation=false
+"ai set cost preview on"  → type=command, command=set_ai_cost_preview, args=["on"], risk=medium, needs_confirmation=true
+"ai disable cost preview" → type=command, command=set_ai_cost_preview, args=["off"], risk=medium, needs_confirmation=true
+"ai cost preview status"  → type=command, command=set_ai_cost_preview, args=["status"], risk=low, needs_confirmation=false
 "buy item 2"             → type=command, command=buy, args=["2"], risk=medium, needs_confirmation=true
 "buy vip"                → type=command, command=buyvip, risk=medium, needs_confirmation=true
 "mute john 5 spam"       → type=command, command=mute, args=["john","5","spam"], risk=medium, needs_confirmation=true

@@ -148,6 +148,58 @@ async def _return_bot_spawn(bot, user, args):
         )
 
 
+async def _set_ai_cost_preview(bot, user, args):
+    from modules.ai_cost_preview import (
+        is_cost_preview_required, cost_preview_status_msg,
+    )
+    from modules.ai_confirmation_manager import set_pending, get_pending, preview_message
+    from modules.ai_perms import get_perm_level, PERM_OWNER
+
+    perm = get_perm_level(user.username)
+    val  = args[0].lower() if args else ""
+
+    if not val or val in ("status", "?"):
+        await bot.highrise.send_whisper(user.id, cost_preview_status_msg())
+        return
+
+    if perm != PERM_OWNER:
+        await bot.highrise.send_whisper(user.id, "\U0001f512 AI cost preview setting is owner only.")
+        return
+
+    new_val: str | None = None
+    if val in ("on", "enable", "true", "1"):
+        new_val = "on"
+    elif val in ("off", "disable", "false", "0"):
+        new_val = "off"
+
+    if not new_val:
+        await bot.highrise.send_whisper(user.id, cost_preview_status_msg())
+        return
+
+    current = "on" if is_cost_preview_required() else "off"
+    if current == new_val:
+        await bot.highrise.send_whisper(user.id, f"AI cost preview is already {new_val.upper()}.")
+        return
+
+    effect = (
+        "Paid AI answers show cost first."
+        if new_val == "on" else
+        "1\u20133 \U0001f3ab answers auto-charge after success."
+    )
+    set_pending(
+        user_id        = user.id,
+        action_key     = "set_ai_cost_preview",
+        label          = "AI Cost Preview",
+        confirm_phrase = "CONFIRM AI COST PREVIEW",
+        current_value  = current,
+        new_value      = new_val,
+        risk           = f"Medium \u2014 {effect}",
+    )
+    p = get_pending(user.id)
+    if p:
+        await bot.highrise.send_whisper(user.id, preview_message(p))
+
+
 async def _buyvip(bot, user, args):
     from modules.vip import handle_buyvip
     await handle_buyvip(bot, user, ["buyvip"])
@@ -220,8 +272,9 @@ _DISPATCH: dict[str, callable] = {
     "tele_self":  _tele_self,
     "tele_other": _tele_other,
     "goto_user":  _goto_user,
-    "bring_user":        _bring_user,
-    "return_bot_spawn":  _return_bot_spawn,
+    "bring_user":          _bring_user,
+    "return_bot_spawn":    _return_bot_spawn,
+    "set_ai_cost_preview": _set_ai_cost_preview,
     "buyvip":     _buyvip,
     "buy":        _buy,
     "mute":       _mute,

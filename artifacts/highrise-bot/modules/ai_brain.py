@@ -100,6 +100,8 @@ from modules.ai_command_router   import (
 from modules.ai_send             import ai_send as _ai_send_impl, ai_whisper as _ai_whisper_impl
 from modules.ai_cost_preview     import (
     get_live_pending, clear_live_pending, cost_info_message,
+    is_cost_preview_required, set_cost_preview_required,
+    cost_preview_status_msg, get_basic_pending, clear_basic_pending,
 )
 from modules.ai_human_brain      import ask_human_brain
 from modules.ai_openai_brain     import handle_openai_brain
@@ -375,6 +377,19 @@ async def _handle_confirm(bot, user, text, perm):
             await _w(bot, user.id, "❌ Failed to update AI reply mode.")
         return
 
+    # ── Special: AI cost preview setting (owner only) ────────────────────────
+    if p["action_key"] == "set_ai_cost_preview":
+        if perm != PERM_OWNER:
+            await _w(bot, user.id, "\U0001f512 AI cost preview setting is owner only.")
+            clear_pending(user.id)
+            return
+        val = p["new_value"]
+        set_cost_preview_required(val == "on")
+        clear_pending(user.id)
+        print(f"[AI COST PREVIEW] saved={val}")
+        await _w(bot, user.id, f"\u2705 AI cost preview is now {val.upper()}.")
+        return
+
     # ── Default action execution ──────────────────────────────────────────────
     result = await execute_action(bot, user.id, p["action_key"], p["new_value"], user.username)
     clear_pending(user.id)
@@ -410,6 +425,28 @@ async def _handle_live_confirm(bot, user, live_p: dict, perm: str) -> None:
         charge_luxe(user.id, user.username, cost)
         log_billing(user.username, cost, True)
         print(f"[AI BILLING] live_confirmed charged=true cost={cost} user={user.username!r}")
+    await handle_openai_brain(bot, user, query, perm, skip_live_check=True)
+
+
+async def _handle_basic_confirm(bot, user, basic_p: dict, perm: str) -> None:
+    """Execute a stored 1–3\U0001f3ab query after the user confirmed (cost preview ON)."""
+    from modules.ai_cost_preview import clear_basic_pending
+    from modules.ai_luxe_billing import (
+        is_billing_enabled, check_can_afford, charge_luxe, insufficient_funds_msg,
+    )
+    from modules.ai_usage_logs import log_billing
+    clear_basic_pending(user.id)
+    query = basic_p["query"]
+    cost  = basic_p["cost"]
+    print(f"[AI COST PREVIEW] basic_confirmed cost={cost} user={user.username!r}")
+    if is_billing_enabled() and cost > 0:
+        can_afford, balance = check_can_afford(user.id, cost)
+        if not can_afford:
+            await _w(bot, user.id, insufficient_funds_msg(cost, balance))
+            return
+        charge_luxe(user.id, user.username, cost)
+        log_billing(user.username, cost, True)
+        print(f"[AI BILLING] basic_confirmed charged=true cost={cost} user={user.username!r}")
     await handle_openai_brain(bot, user, query, perm, skip_live_check=True)
 
 
@@ -499,6 +536,59 @@ async def _handle_ai_reply_mode_set(bot, user, text, perm):
     )
     p = get_pending(user.id)
     if p:
+        await _w(bot, user.id, preview_message(p))
+
+
+async def _handle_ai_cost_preview_setting(bot, user, text: str, perm: str) -> None:
+    """Handle 'ai cost preview ...' locally — owner to change, anyone to view status."""
+    low = text.lower()
+
+    # ── Status query — no owner check needed ─────────────────────────────────
+    is_change = any(kw in low for kw in (" on", " off", "enable", "disable", "turn"))
+    if not is_change or "status" in low:
+        await _send(bot, user, cost_preview_status_msg(), "general")
+        return
+
+    # ── Change — owner only ───────────────────────────────────────────────────
+    if perm != PERM_OWNER:
+        await _w(bot, user.id, "\U0001f512 AI cost preview setting is owner only.")
+        return
+
+    new_val: str | None = None
+    if any(kw in low for kw in ("enable", " on", ":on", "=on")):
+        new_val = "on"
+    elif any(kw in low for kw in ("disable", " off", ":off", "=off")):
+        new_val = "off"
+
+    if not new_val:
+        await _w(bot, user.id, cost_preview_status_msg())
+        return
+
+    current = "on" if is_cost_preview_required() else "off"
+    print(f"[AI COST PREVIEW] requested={new_val}")
+    print(f"[AI COST PREVIEW] current={current}")
+
+    if current == new_val:
+        await _w(bot, user.id, f"AI cost preview is already {new_val.upper()}.")
+        return
+
+    effect = (
+        "Paid AI answers will show cost before charging."
+        if new_val == "on" else
+        "1\u20133 \U0001f3ab answers can auto-charge after successful answer."
+    )
+    set_pending(
+        user_id        = user.id,
+        action_key     = "set_ai_cost_preview",
+        label          = "AI Cost Preview",
+        confirm_phrase = "CONFIRM AI COST PREVIEW",
+        current_value  = current,
+        new_value      = new_val,
+        risk           = f"Medium \u2014 {effect}",
+    )
+    p = get_pending(user.id)
+    if p:
+        print(f"[AI COST PREVIEW] pending_confirmation=true")
         await _w(bot, user.id, preview_message(p))
 
 
@@ -778,6 +868,17 @@ async def handle_ai_message(
                 await _w(bot, user.id, "\u274c Live AI query cancelled.")
                 return True
 
+        # System D: Basic query pending (1–3🎫 when AI cost preview is ON)
+        _basic_p = get_basic_pending(user.id)
+        if _basic_p:
+            if is_simple_confirm(resolved):
+                await _handle_basic_confirm(bot, user, _basic_p, perm)
+                return True
+            if is_simple_cancel(resolved):
+                clear_basic_pending(user.id)
+                await _w(bot, user.id, "\u274c AI query cancelled.")
+                return True
+
         # ── 7d. AI cost info fast-path ─────────────────────────────────────────
         _r_low = resolved.strip().lower()
         if _r_low in {
@@ -786,6 +887,14 @@ async def handle_ai_message(
             "how much", "how much does ai cost",
         }:
             await _send(bot, user, cost_info_message(), "general")
+            return True
+
+        # ── 7e. AI cost preview setting fast-path ──────────────────────────────
+        if any(
+            kw in _r_low
+            for kw in ("cost preview", "ai cost preview", "ticket preview", "preview cost")
+        ):
+            await _handle_ai_cost_preview_setting(bot, user, resolved, perm)
             return True
 
         # ── 8. Hard safety check ──────────────────────────────────────────────

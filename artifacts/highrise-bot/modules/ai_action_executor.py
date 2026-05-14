@@ -31,6 +31,7 @@ _ALLOWED_ACTIONS: frozenset[str] = frozenset({
     "set_event_duration",
     "update_assistant_setting",
     "update_announcement_text",
+    "set_ai_cost_preview",
 })
 
 _BLOCKED_ACTIONS: frozenset[str] = frozenset({
@@ -129,6 +130,17 @@ async def execute_action(
             db.set_room_setting("ai_assistant_setting", new_value[:100])
             _log_action(action_key, new_value, executed_by)
             return "✅ Assistant setting updated."
+        except Exception as e:
+            return f"⚠️ Action failed: {str(e)[:80]}"
+
+    elif action_key == "set_ai_cost_preview":
+        try:
+            val = new_value.strip().lower()
+            on  = val in ("on", "true", "1", "enable")
+            db.set_room_setting("ai_cost_preview_required", "1" if on else "0")
+            _log_action(action_key, new_value, executed_by)
+            state = "ON" if on else "OFF"
+            return f"\u2705 AI cost preview is now {state}."
         except Exception as e:
             return f"⚠️ Action failed: {str(e)[:80]}"
 

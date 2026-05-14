@@ -45,6 +45,7 @@ if TYPE_CHECKING:
 from modules.ai_send         import ai_whisper as _w_impl, ai_send as _pub_impl
 from modules.ai_cost_preview import (
     requires_live_confirm, set_live_pending, live_confirm_msg, cost_note_str,
+    requires_basic_confirm, set_basic_pending, basic_confirm_msg,
 )
 
 
@@ -202,6 +203,13 @@ async def handle_openai_brain(
                 set_live_pending(user.id, text, cost)
                 log_billing(user.username, cost, False, "live_pending_confirm")
                 await _w(bot, user.id, live_confirm_msg(cost))
+                return
+
+            # 1–3🎫 queries require confirm when AI cost preview is ON
+            if requires_basic_confirm(cost) and not skip_live_check:
+                set_basic_pending(user.id, text, cost)
+                log_billing(user.username, cost, False, "basic_pending_confirm")
+                await _w(bot, user.id, basic_confirm_msg(cost))
                 return
 
             charge_luxe(user.id, user.username, cost)

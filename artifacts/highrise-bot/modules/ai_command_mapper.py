@@ -146,6 +146,13 @@ AI_COMMAND_WHITELIST: dict[str, dict] = {
         "requires_confirmation": False,
         "description":        "Teleport this bot to its saved spawn (staff+)",
     },
+    "set_ai_cost_preview": {
+        "category":           "OWNER_DIRECT",
+        "aliases":            ["set cost preview on", "set cost preview off", "ai cost preview on/off"],
+        "requires_permission":"owner",
+        "requires_confirmation": True,
+        "description":        "Enable/disable AI cost preview confirmation (owner only)",
+    },
     "mute": {
         "category":           "STAFF_DIRECT",
         "aliases":            ["mute player", "silence player"],
@@ -346,6 +353,12 @@ _NL_PATTERNS: list[tuple[str, re.Pattern, callable]] = [
         r"\b(return|send|go|move|reset)\b.{0,20}\b(spawn|home)\b"
         r"|\bbots?\s+home\b"
         r"|\breturn.{0,10}bots?\b",
+        re.I,
+    ), _no_args),
+
+    # ── AI cost preview setting ───────────────────────────────────────────────
+    ("set_ai_cost_preview", re.compile(
+        r"\b(cost\s+preview|ai\s+cost\s+preview|ticket\s+preview|preview\s+cost)\b",
         re.I,
     ), _no_args),
 
