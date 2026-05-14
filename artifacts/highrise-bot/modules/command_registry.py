@@ -414,14 +414,10 @@ REGISTRY: dict[str, Cmd] = {
     "auditcasino":      Cmd("security","admin",     False,True, False, perm="admin"),
     "auditeconomy":     Cmd("security","admin",     False,True, False, perm="admin"),
 
-    # ── AI assistant ─────────────────────────────────────────────────────────
-    "ask":              Cmd("host","ai",  True, True, False, aliases=("assistant",)),
-    "ai":               Cmd("host","ai",  True, True, False),
-    "pendingaction":    Cmd("host","ai",  True, True, False),
-    "confirm":          Cmd("host","ai",  True, False,False),
-    "aidebug":          Cmd("host","ai",  True, True, False, perm="admin"),
-    "aicapabilities":   Cmd("host","ai",  True, True, False),
-    "aidelegations":    Cmd("host","ai",  True, True, False, perm="admin"),
+    # ── AI assistant (3.3A — AceSinatra) ─────────────────────────────────────
+    # Natural-language assistant triggered by "AceSinatra, ..." in chat.
+    # !acesinatra shows a usage hint whisper.
+    "acesinatra":       Cmd("host", "ai", True, True, True),
 
     # ── Host: audit (new) ────────────────────────────────────────────────────
     "commandissues":    Cmd("host","audit",  True, True, False, perm="admin"),

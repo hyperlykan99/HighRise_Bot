@@ -1,0 +1,355 @@
+Continue ChillTopia Highrise Bot development.
+
+Current bot version:
+v3.2 Stable Candidate
+
+Important:
+The existing AI assistant is broken. Do NOT try to patch it directly. Start from scratch and rebuild the AI assistant cleanly.
+
+New phase:
+Update 3.3A — Rebuild AI Assistant From Scratch
+
+Goal:
+Remove/quarantine the broken AI assistant system and create a fresh, safe, modular AI assistant named AceSinatra.
+
+Do not rewrite stable v3.2 systems:
+- Mining/fishing
+- Missions/events/seasons
+- Luxe shop/VIP
+- Blackjack/poker
+- Moderation
+- Dashboards
+- Help registry
+- Economy systems
+- Player data systems
+
+Step 1 — Quarantine old AI assistant
+Find all existing AI assistant files/functions/classes/imports.
+
+Do NOT delete permanently yet.
+
+Move or disable old broken assistant code safely:
+- Rename old AI files with _old_broken
+- Remove old AI imports from startup
+- Remove old AI command hooks
+- Remove old AI message listeners
+- Add comments explaining they were replaced by 3.3A rebuild
+
+Make sure bot can start without the old assistant.
+
+Step 2 — Create fresh AI assistant modules
+
+Create new files:
+
+- ai_assistant_core.py
+- ai_intent_router.py
+- ai_permissions.py
+- ai_confirmation_manager.py
+- ai_knowledge_base.py
+- ai_action_executor.py
+- ai_safety.py
+- ai_logs.py
+- ai_time_holidays.py
+
+Step 3 — Assistant trigger system
+
+AceSinatra should respond when a message starts with or mentions:
+
+- AceSinatra
+- ace
+- assistant
+- bot
+
+Examples:
+- “AceSinatra, what should I do next?”
+- “Ace, explain Luxe Tickets.”
+- “assistant what date is today?”
+- “bot help me with mining”
+
+Do not respond to every chat message. Only respond when clearly triggered.
+
+Step 4 — Intent router
+
+Create safe intent detection for:
+
+- general_question
+- date_time_question
+- holiday_question
+- player_guidance
+- command_explanation
+- luxe_explanation
+- mining_explanation
+- fishing_explanation
+- casino_explanation
+- event_explanation
+- bug_report
+- feedback_report
+- summarize_bugs
+- moderation_help
+- prepare_setting_change
+- confirm_setting_change
+- cancel_setting_change
+- unknown
+
+Keep intent detection simple and reliable first. Use keyword matching and clean fallback logic.
+
+Step 5 — Permissions
+
+Permission levels:
+
+Player:
+- Can ask questions
+- Can ask what to do next
+- Can ask about commands
+- Can ask about Luxe, mining, fishing, casino, events
+- Can submit bugs/feedback
+
+Staff:
+- Everything player can do
+- Can ask for moderation help
+- Can summarize player reports
+- Cannot change economy
+- Cannot change odds
+- Cannot change prices
+
+Admin:
+- Can prepare setting/event changes
+- Must confirm before applying
+- Cannot wipe data
+- Cannot silently change economy/odds/prices
+
+Owner:
+- Can prepare protected changes
+- Must confirm risky changes
+- Can apply confirmed safe actions
+- Still cannot wipe player data through AI
+
+Step 6 — Safety rules
+
+Hard rules:
+- AI must never wipe/reset/delete player data.
+- AI must never grant ChillCoins casually.
+- AI must never grant Luxe Tickets casually.
+- AI must never change casino odds silently.
+- AI must never change prices silently.
+- AI must never change economy rewards silently.
+- AI must never apply admin/owner changes from one message only.
+- AI must always require confirmation for settings changes.
+- AI must log every confirmed action.
+- AI must deny unauthorized users politely.
+
+Step 7 — Confirmation system
+
+When owner/admin requests a setting change, AI should only prepare it.
+
+Example:
+
+User:
+“AceSinatra, set VIP price to 600 tickets.”
+
+AI:
+“Prepared change:
+Setting: VIP Price
+Current: [current value]
+New: 600 🎫 Luxe Tickets
+Risk: Economy-impacting
+
+Reply CONFIRM VIP PRICE to apply, or CANCEL.”
+
+Only apply the change if:
+- Same user replies exact confirmation phrase
+- Confirmation has not expired
+- User has permission
+- Action is allowed by safety rules
+
+Add timeout for pending confirmations.
+
+Step 8 — Knowledge base
+
+Build simple knowledge base answers for:
+
+Luxe Tickets:
+“🎫 Luxe Tickets are premium reward tickets used for Luxe Shop items, VIP perks, and special rewards. You earn them from events, seasons, and selected rewards.”
+
+ChillCoins:
+“🪙 ChillCoins are the main room currency used for regular activities, games, and progression.”
+
+Mining:
+“Mining lets you earn ChillCoins and rewards. Use /mine to start if available.”
+
+Fishing:
+“Fishing lets you catch fish, earn rewards, and progress through relaxing gameplay. Use /fish to start if available.”
+
+Casino:
+“Casino games include Blackjack and Poker. Play responsibly. Odds and rewards are controlled by the owner.”
+
+Missions:
+“Daily and weekly missions help you earn rewards by completing room activities.”
+
+Events:
+“Events are limited-time activities with bonus rewards. Check /events for current events.”
+
+VIP:
+“VIP gives special perks and access depending on the current Luxe Shop setup.”
+
+Step 9 — Date/time/holiday support
+
+Use Philippines timezone by default.
+
+Assistant should answer:
+- today’s date
+- current time
+- day of week
+- next holiday
+- upcoming holidays
+
+Create ai_time_holidays.py with a basic Philippines holiday list structure that can be updated later.
+
+Step 10 — Player guidance
+
+When player asks:
+“What should I do next?”
+
+AI should suggest 2–4 safe actions:
+- Check daily missions
+- Mine
+- Fish
+- Join current event
+- Check Luxe shop
+- Play casual casino games if available
+- Read help guide
+
+Keep responses short.
+
+Example:
+“Try this next: finish your daily mission, mine for ChillCoins, then check today’s event. Type /missions or /mine to start.”
+
+Step 11 — Bug and feedback system
+
+If player says:
+- bug
+- broken
+- not working
+- feedback
+- suggestion
+
+AI should save the report if a feedback/report system already exists.
+
+If no system exists, create a simple safe in-memory or JSON-backed report log:
+- reporter
+- message
+- timestamp
+- category
+- status: open
+
+Owner/staff can ask:
+“AceSinatra, summarize open bugs.”
+
+AI should summarize:
+- total open bugs
+- common issues
+- latest reports
+- suggested priority
+
+Step 12 — Moderation helper
+
+Staff can ask moderation questions.
+
+AI can suggest:
+- warn
+- mute
+- kick
+- monitor
+- ask for clarification
+- escalate to owner
+
+AI must not automatically punish players unless existing staff command is explicitly used.
+
+Example:
+“Suggested action: warn first, then mute if behavior continues. I won’t take action automatically.”
+
+Step 13 — Action executor
+
+Only allow safe confirmed actions.
+
+Allowed prepared actions for now:
+- start event
+- stop event
+- set event duration
+- set VIP price
+- update assistant setting
+- update public announcement text
+
+Blocked actions:
+- wipe data
+- reset economy
+- grant currency
+- change casino odds
+- mass ban
+- delete player profiles
+- edit database directly
+
+For blocked actions, AI should say:
+“I can’t do that through AI because it affects protected data/economy safety.”
+
+Step 14 — Logging
+
+Log:
+- user question
+- detected intent
+- permission level
+- prepared actions
+- confirmed actions
+- denied actions
+- errors
+
+Use a simple AI log file or existing logging system.
+
+Step 15 — Integration
+
+Hook the new assistant into the bot message handler safely.
+
+Requirements:
+- Does not break existing commands
+- Does not intercept slash commands
+- Does not spam public chat
+- Handles errors gracefully
+- If AI fails, bot still runs
+
+Step 16 — Testing
+
+Run these tests:
+
+Player tests:
+- “AceSinatra, what should I do next?”
+- “AceSinatra, explain Luxe Tickets.”
+- “AceSinatra, what date is today?”
+- “AceSinatra, how do I mine?”
+- “AceSinatra, bug fishing is broken”
+
+Staff tests:
+- “AceSinatra, summarize open bugs.”
+- “AceSinatra, how should I handle spam?”
+
+Owner/admin tests:
+- “AceSinatra, set VIP price to 600 tickets.”
+- “CONFIRM VIP PRICE”
+- “CANCEL”
+- “AceSinatra, wipe all player data.”
+
+Expected:
+- Normal questions answer safely
+- Settings changes require confirmation
+- Dangerous requests are blocked
+- Permissions are respected
+- Bot starts without old assistant
+- No stable v3.2 systems are rewritten
+
+Final output:
+After implementation, provide:
+1. Files created
+2. Old AI files disabled/quarantined
+3. Startup test result
+4. Assistant test results
+5. Any errors found
+6. Changelog entry for Update 3.3A

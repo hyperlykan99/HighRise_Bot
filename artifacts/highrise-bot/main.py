@@ -644,15 +644,9 @@ from modules.bot_health import (
     handle_botconflicts, handle_fixbotowners,
     handle_dblockcheck,
 )
-from modules.ai_assistant import (
-    handle_ai_intercept,
-    handle_ask_command,
-    handle_pendingaction,
-    handle_confirm_cmd,
-    handle_aidebug,
-    handle_aicapabilities,
-    handle_aidelegations,
-)
+# 3.3A — Old EmceeBot AI assistant quarantined. Rebuilt as AceSinatra.
+# Old file: modules/ai_assistant_old_broken.py (kept for reference, do not import)
+from modules.ai_assistant_core import handle_acesinatra
 from modules.room_assistant import (
     handle_room_assistant_chat,
     handle_room_assistant_whisper,
@@ -1149,9 +1143,8 @@ ALL_KNOWN_COMMANDS = (
         "taskowners", "activetasks", "taskconflicts", "fixtaskowners",
         "restoreannounce", "restorestatus",
         "commandissues",
-        # ── AI assistant ──────────────────────────────────────────────────────
-        "ask", "ai", "assistant", "pendingaction", "confirm", "aidebug", "aicapabilities",
-        "aidelegations",
+        # ── AI assistant (3.3A — AceSinatra, natural-language) ───────────────
+        "acesinatra",
         # ── Emote extensions ──────────────────────────────────────────────────
         "emoteinfo",
         # ── Bot spawns ────────────────────────────────────────────────────────
@@ -2879,7 +2872,7 @@ async def _cmd_launchcheck(bot, user):
     cmd_ok   = "OK" if _g.get("handle_bj") and _g.get("handle_balance") else "⚠️"
     help_ok  = "OK" if _g.get("HELP_TEXT") else "⚠️"
     bots_ok  = "OK" if _g.get("handle_bothealth") else "⚠️"
-    asst_ok  = "OK" if _g.get("handle_ai_assistant") or _g.get("handle_aidelegations") else "⚠️"
+    asst_ok  = "OK" if _g.get("handle_acesinatra") else "⚠️"
     notif_ok = "OK" if _g.get("handle_banknotify") or _g.get("handle_notify") else "⚠️"
     econ_ok  = "OK" if _g.get("handle_balance") and _g.get("handle_shop") else "⚠️"
     games_ok = "OK" if _g.get("handle_bj") and _g.get("handle_rbj") and _g.get("handle_poker") else "⚠️"
@@ -3002,98 +2995,12 @@ async def _deliver_pending_bank_notifications(bot, user: User) -> None:
 
 
 # ---------------------------------------------------------------------------
-# AI delegated task polling loop (runs on every bot subprocess)
 # ---------------------------------------------------------------------------
-
-async def _execute_delegated_task(bot, task: dict) -> None:
-    """Execute one AI delegated task, calling the handler directly so
-    exceptions from set_outfit failures propagate to proper failure tracking."""
-    import types as _types, importlib, inspect
-    from modules.ai_assistant import _HANDLER_MAP
-    from modules.bot_modes import _in_delegated_context
-
-    task_id    = task["id"]
-    cmd_text   = (task["command_text"] or "").strip()
-    target_bot = (task.get("target_bot_username") or "the bot")
-    parts      = cmd_text.split()
-    if not parts:
-        db.complete_delegated_task(task_id, "Empty command_text")
-        return
-
-    cmd       = parts[0]
-    args_list = parts  # e.g. ["dressbot", "security"] or ["wearuseroutfit", "testuser"]
-
-    # Reconstruct a minimal user-like object from the original requester
-    fake_user = _types.SimpleNamespace(
-        id       = task["user_id"],
-        username = task["username"],
-    )
-
-    if cmd not in _HANDLER_MAP:
-        err = f"No handler registered for /{cmd}"
-        db.complete_delegated_task(task_id, err)
-        print(f"[AI_DELEGATE] task={task_id} {err}")
-        return
-
-    module_path, fn_name = _HANDLER_MAP[cmd]
-    err_msg = ""
-    # Set the delegation context so handlers raise on set_outfit failure
-    token = _in_delegated_context.set(True)
-    try:
-        mod     = importlib.import_module(module_path)
-        fn      = getattr(mod, fn_name)
-        nparams = len(inspect.signature(fn).parameters)
-        if nparams >= 3:
-            await fn(bot, fake_user, args_list)
-        else:
-            await fn(bot, fake_user)
-    except Exception as exc:
-        err_msg = str(exc)[:200]
-        print(f"[AI_DELEGATE] task={task_id} cmd={cmd} FAILED: {err_msg}")
-    finally:
-        _in_delegated_context.reset(token)
-
-    db.complete_delegated_task(task_id, err_msg)
-    success = not err_msg
-    print(f"[AI_DELEGATE] task={task_id} cmd={cmd} {'completed' if success else 'failed'}")
-    try:
-        if success:
-            await bot.highrise.send_whisper(
-                task["user_id"],
-                f"✅ @{target_bot} outfit updated successfully.",
-            )
-        else:
-            short = err_msg[:100] if err_msg else "unknown error"
-            await bot.highrise.send_whisper(
-                task["user_id"],
-                f"⚠️ I tried, but @{target_bot} could not apply the outfit. ({short})",
-            )
-    except Exception:
-        pass
-
-
-_ai_delegate_task: asyncio.Task | None = None
-
-
-async def _ai_delegated_task_loop(bot) -> None:
-    """Poll every 2 s for AI delegated tasks assigned to this bot's username."""
-    global _ai_delegate_task
-    _current = asyncio.current_task()
-    if _ai_delegate_task and not _ai_delegate_task.done() and _ai_delegate_task is not _current:
-        print("[AI_DELEGATE] Loop already running — skipping duplicate start (reconnect).")
-        return
-    _ai_delegate_task = _current
-    from config import BOT_USERNAME
-    await asyncio.sleep(4)  # let startup settle
-    while True:
-        try:
-            db.expire_old_delegated_tasks()
-            tasks = db.get_pending_delegated_tasks_for_bot(BOT_USERNAME)
-            for task in tasks:
-                asyncio.create_task(_execute_delegated_task(bot, task))
-        except Exception as exc:
-            print(f"[AI_DELEGATE] loop error: {exc}")
-        await asyncio.sleep(2)
+# 3.3A — AI delegated task system quarantined
+# The old EmceeBot delegated task loop imported from modules.ai_assistant
+# which is now quarantined as ai_assistant_old_broken.py.
+# AceSinatra does not use cross-bot delegated tasks.
+# ---------------------------------------------------------------------------
 
 
 # ---------------------------------------------------------------------------
@@ -3271,8 +3178,7 @@ class HangoutBot(BaseBot):
             print("[STARTUP ERROR] start_interval_loop failed — bot continues.")
         # Multi-bot heartbeat
         _safe_task(start_multibot_heartbeat(self), "start_multibot_heartbeat")
-        # AI delegated task polling loop
-        _safe_task(_ai_delegated_task_loop(self), "_ai_delegated_task_loop")
+        # 3.3A — AI delegated task loop removed (old EmceeBot system quarantined)
         # Startup safety checks (logs warnings only)
         try:
             check_startup_safety()
@@ -3355,9 +3261,8 @@ class HangoutBot(BaseBot):
             if await handle_direct_bot_outfit_chat(self, user, message):
                 return
 
-        # ── AI intercept — handles yes/no confirmations, "bot," prefix, @mention ──
-        # Runs before the slash-command guard so non-slash triggers work.
-        if await handle_ai_intercept(self, user, message):
+        # ── 3.3A — AceSinatra AI assistant (natural-language trigger) ────────────
+        if await handle_acesinatra(self, user, message):
             return
 
         if not (message.startswith("/") or message.startswith("!")):
@@ -5221,24 +5126,16 @@ class HangoutBot(BaseBot):
             msg = "Moderators: " + ", ".join(f"@{m}" for m in mods) if mods else "No moderators set."
             await self.highrise.send_whisper(user.id, msg[:245])
 
-        # ── AI assistant — /ask /ai /assistant /pendingaction /confirm ───────
-        elif cmd in ("ask", "ai", "assistant"):
-            await handle_ask_command(self, user, args)
-
-        elif cmd == "pendingaction":
-            await handle_pendingaction(self, user)
-
-        elif cmd == "confirm":
-            await handle_confirm_cmd(self, user, args)
-
-        elif cmd == "aidebug":
-            await handle_aidebug(self, user, args)
-
-        elif cmd == "aicapabilities":
-            await handle_aicapabilities(self, user, args)
-
-        elif cmd == "aidelegations":
-            await handle_aidelegations(self, user, args)
+        # ── 3.3A — AceSinatra AI assistant (natural-language, say "AceSinatra, ...") ──
+        # Old commands !ask !ai !assistant !aidebug !aicapabilities removed in 3.3A.
+        elif cmd == "acesinatra":
+            await self.highrise.send_whisper(
+                user.id,
+                "💬 To chat with AceSinatra, just say in room chat:\n"
+                "'AceSinatra, what should I do next?'\n"
+                "'Ace, explain Luxe Tickets.'\n"
+                "'assistant what date is today?'",
+            )
 
         # ── /answer ───────────────────────────────────────────────────────────
         elif cmd == "answer":
