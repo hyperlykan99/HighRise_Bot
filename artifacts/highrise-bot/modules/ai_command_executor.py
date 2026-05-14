@@ -104,6 +104,39 @@ async def _tele(bot, user, args):
     await handle_tpme(bot, user, ["tpme", dest] if dest else ["tpme"])
 
 
+async def _tele_self(bot, user, args):
+    from modules.room_utils import ai_teleport_to_spawn
+    dest = args[0] if args else ""
+    if not dest:
+        await bot.highrise.send_whisper(user.id, "Destination required. Example: ai tele me to bar")
+        return
+    await ai_teleport_to_spawn(bot, user, dest)
+
+
+async def _tele_other(bot, user, args):
+    from modules.room_utils import handle_tp
+    if len(args) < 2:
+        await bot.highrise.send_whisper(user.id, "Usage: teleport <username> to <spawn>")
+        return
+    await handle_tp(bot, user, ["tp", args[0], args[1]])
+
+
+async def _goto_user(bot, user, args):
+    from modules.room_utils import handle_goto
+    if not args:
+        await bot.highrise.send_whisper(user.id, "Usage: go to <username>")
+        return
+    await handle_goto(bot, user, ["goto", args[0]])
+
+
+async def _bring_user(bot, user, args):
+    from modules.room_utils import handle_tphere
+    if not args:
+        await bot.highrise.send_whisper(user.id, "Usage: bring <username>")
+        return
+    await handle_tphere(bot, user, ["tphere", args[0]])
+
+
 async def _buyvip(bot, user, args):
     from modules.vip import handle_buyvip
     await handle_buyvip(bot, user, ["buyvip"])
@@ -173,6 +206,10 @@ _DISPATCH: dict[str, callable] = {
     "luxeshop":   _luxeshop,
     "vipstatus":  _vipstatus,
     "tele":       _tele,
+    "tele_self":  _tele_self,
+    "tele_other": _tele_other,
+    "goto_user":  _goto_user,
+    "bring_user": _bring_user,
     "buyvip":     _buyvip,
     "buy":        _buy,
     "mute":       _mute,

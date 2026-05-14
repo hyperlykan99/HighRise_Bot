@@ -104,11 +104,40 @@ AI_COMMAND_WHITELIST: dict[str, dict] = {
     },
     "tele": {
         "category":           "SAFE_PLAYER_DIRECT",
-        "aliases":            ["teleport me to", "tele me to", "take me to", "go to"],
+        "aliases":            ["teleport me to", "tele me to", "take me to"],
+        "requires_permission":"player",
+        "requires_confirmation": False,
+        "self_only":          True,
+        "description":        "Teleport yourself to a saved spawn (backward compat alias for tele_self)",
+    },
+    "tele_self": {
+        "category":           "SAFE_PLAYER_DIRECT",
+        "aliases":            ["teleport me to", "tele me to", "take me to"],
         "requires_permission":"player",
         "requires_confirmation": False,
         "self_only":          True,
         "description":        "Teleport yourself to a saved spawn",
+    },
+    "tele_other": {
+        "category":           "STAFF_DIRECT",
+        "aliases":            ["teleport <user> to", "tele <user> to", "send <user> to"],
+        "requires_permission":"staff",
+        "requires_confirmation": True,
+        "description":        "Teleport another player to a saved spawn (staff+)",
+    },
+    "goto_user": {
+        "category":           "STAFF_DIRECT",
+        "aliases":            ["go to <user>", "goto <user>"],
+        "requires_permission":"staff",
+        "requires_confirmation": True,
+        "description":        "Go to another player's current position (staff+)",
+    },
+    "bring_user": {
+        "category":           "STAFF_DIRECT",
+        "aliases":            ["bring <user> to me", "tphere <user>"],
+        "requires_permission":"staff",
+        "requires_confirmation": True,
+        "description":        "Bring another player to your position (staff+)",
     },
     "mute": {
         "category":           "STAFF_DIRECT",
@@ -190,6 +219,25 @@ def _tele_args(m, text):
             if dest.endswith(f" {noise}"):
                 dest = dest[: -(len(noise) + 1)].strip()
         return [dest] if dest else []
+    return []
+
+
+def _tele_other_args(m, text):
+    # "tele Claire to mod" → ["claire", "mod"]
+    found = re.search(
+        r"\b(?:tele(?:port)?|send|move|tp)\s+@?(\w+)\s+to\s+([a-z]\w{0,24})\b",
+        text, re.I,
+    )
+    if found:
+        return [found.group(1).lower(), found.group(2).lower()]
+    return []
+
+
+def _bring_args(m, text):
+    # "bring Claire to me" / "bring @Claire here" → ["claire"]
+    found = re.search(r"\bbring\s+@?(\w+)", text, re.I)
+    if found:
+        return [found.group(1).lower()]
     return []
 
 
@@ -286,9 +334,19 @@ def _setcoins_args(m, text):
 
 
 _NL_PATTERNS: list[tuple[str, re.Pattern, callable]] = [
-    # ── Teleport (must come before generic "to" patterns) ────────────────────
-    ("tele", re.compile(
-        r"\b(tele(?:port)?|take|bring|send)\s+(?:me\s+)?to\b",
+    # ── Teleport other: MUST come before tele_self to avoid ambiguity ─────────
+    ("tele_other", re.compile(
+        r"\b(tele(?:port)?|send|move|tp)\s+@?[a-z]\w{1,24}\s+to\s+[a-z]\w",
+        re.I,
+    ), _tele_other_args),
+    # ── Bring another player to self ─────────────────────────────────────────
+    ("bring_user", re.compile(
+        r"\bbring\s+@?\w+\s+(?:to\s+me|here|over)\b",
+        re.I,
+    ), _bring_args),
+    # ── Teleport self (explicit "me") ─────────────────────────────────────────
+    ("tele_self", re.compile(
+        r"\b(tele(?:port)?|take)\s+me\s+to\b",
         re.I,
     ), _tele_args),
 

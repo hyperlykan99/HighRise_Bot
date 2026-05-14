@@ -41,13 +41,21 @@ if TYPE_CHECKING:
     from highrise import BaseBot, User
 
 
-# ── Internal whisper helper ───────────────────────────────────────────────────
+# ── Reply helpers (shared via ai_send.py — no circular import) ───────────────
+from modules.ai_send         import ai_whisper as _w_impl, ai_send as _pub_impl
+from modules.ai_cost_preview import (
+    requires_live_confirm, set_live_pending, live_confirm_msg, cost_note_str,
+)
+
 
 async def _w(bot: "BaseBot", uid: str, msg: str) -> None:
-    try:
-        await bot.highrise.send_whisper(uid, msg[:249])
-    except Exception as e:
-        print(f"[AI OPENAI BRAIN] whisper_error={e}")
+    """Always-whisper for private/sensitive data. Ignores reply mode."""
+    await _w_impl(bot, uid, msg)
+
+
+async def _pub(bot: "BaseBot", user: "User", msg: str, rtype: str = "openai_answer") -> None:
+    """Reply that respects the current public/whisper reply mode."""
+    await _pub_impl(bot, user, msg, rtype)
 
 
 # ── Fallback reply when OpenAI is unavailable ─────────────────────────────────
@@ -61,10 +69,11 @@ _FALLBACK = (
 # ── Main entry point ──────────────────────────────────────────────────────────
 
 async def handle_openai_brain(
-    bot:  "BaseBot",
-    user: "User",
-    text: str,
-    perm: str,
+    bot:             "BaseBot",
+    user:            "User",
+    text:            str,
+    perm:            str,
+    skip_live_check: bool = False,
 ) -> None:
     """
     OpenAI-first pipeline for all natural language AI requests.
@@ -166,7 +175,7 @@ async def handle_openai_brain(
             await _w(bot, user.id, f"I mapped to !{cmd_key} but couldn't run it. Try the direct command.")
         elif reply:
             # Send OpenAI's short acknowledgement (e.g. "Sure, mining now!")
-            await _w(bot, user.id, reply[:249])
+            await _pub(bot, user, reply[:249], "general")
         return
 
     # ── 4d. "answer" — general question, apply billing then send reply ────────
@@ -179,6 +188,8 @@ async def handle_openai_brain(
         is_live    = "live" in intent.lower() or risk == "high"
         cost       = estimate_cost(text, intent, is_live) if billing_on else TIER_FREE
 
+        print(f"[AI COST] type={'live' if is_live else 'answer'} cost={cost} billing={billing_on}")
+
         if billing_on and cost > TIER_FREE:
             can_afford, balance = check_can_afford(user.id, cost)
             if not can_afford:
@@ -186,13 +197,22 @@ async def handle_openai_brain(
                 await _w(bot, user.id, insufficient_funds_msg(cost, balance))
                 return
 
+            # 5🎫 live queries require an explicit "confirm" before charging
+            if requires_live_confirm(cost) and not skip_live_check:
+                set_live_pending(user.id, text, cost)
+                log_billing(user.username, cost, False, "live_pending_confirm")
+                await _w(bot, user.id, live_confirm_msg(cost))
+                return
+
             charge_luxe(user.id, user.username, cost)
             log_billing(user.username, cost, True)
+            print(f"[AI BILLING] charged=true cost={cost} user={user.username!r}")
         else:
             log_billing(user.username, 0, True, "free")
 
         log_llm_call(user.username, intent, True)
-        await _w(bot, user.id, reply[:249])
+        note = cost_note_str(cost) if billing_on else ""
+        await _pub(bot, user, (reply + note)[:249])
         return
 
     # ── Unknown type (shouldn't happen after validation in classify_intent) ───

@@ -34,6 +34,8 @@ _FORCE_WHISPER_TYPES = frozenset({
     "debug_summary",
     "private_balance",
     "personalized_guidance",
+    "billing_error",
+    "cost_confirm",
 })
 
 

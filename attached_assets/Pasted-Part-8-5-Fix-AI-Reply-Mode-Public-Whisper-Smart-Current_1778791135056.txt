@@ -1,0 +1,203 @@
+Part 8.5 — Fix AI Reply Mode Public/Whisper/Smart
+
+Current issue:
+AI reply mode was confirmed as public, but AI replies are still being whispered.
+
+Goal:
+Fix AI reply mode so public mode actually sends public chat messages for safe/public AI replies.
+
+Required behavior:
+
+AI reply modes:
+- public
+- whisper
+- smart
+
+public mode:
+AI should reply publicly for safe/public responses.
+
+Examples that should be public when mode is public:
+- ai help
+- ai cost
+- ai explain Luxe Tickets
+- ai explain quantum physics like im 10
+- ai give me 5 room names
+- ai show events
+- ai next event
+- ai weather in Tokyo today after confirmation if not private
+- ai what is gravity
+- ai translate farmer to Tagalog
+
+whisper mode:
+AI should whisper all AI replies.
+
+smart mode:
+AI should choose automatically:
+Public for general/public answers.
+Whisper for private/sensitive/admin/player-specific info.
+
+Always whisper regardless of mode:
+- player balance
+- Luxe Ticket balance
+- player progress
+- inventory
+- cooldowns
+- mission progress
+- staff reports
+- moderation info
+- owner/admin debug
+- confirmations
+- billing failures
+- not enough Luxe Tickets
+- private errors
+- permission denials
+- anything involving another player’s private data
+
+Important:
+Public mode must not expose private data.
+Private/sensitive data always overrides public mode and whispers.
+
+Find and fix:
+- ai_reply_mode.py
+- choose_reply_channel()
+- _send()
+- any AI handlers that directly call send_whisper instead of using _send()
+- ai_command_router.py replies
+- ai_luxe_billing.py replies
+- ai_cost_preview.py replies
+- ai_openai_intent.py answer replies
+- ai_llm_fallback.py answer replies
+
+Problem likely:
+Some handlers still use:
+await bot.highrise.send_whisper(...)
+
+Instead, safe/public AI answers should use:
+await _send(bot, user, message, response_type="general", knowledge_level="public", contains_private=False)
+
+Only private replies should directly whisper.
+
+Required channel logic:
+
+def choose_reply_channel(response_type, knowledge_level="public", contains_private=False):
+    mode = get_reply_mode()
+
+    if contains_private:
+        return "whisper"
+
+    if knowledge_level in ("PLAYER_PRIVATE", "STAFF", "ADMIN", "OWNER", "private", "staff", "admin", "owner"):
+        return "whisper"
+
+    if response_type in ("confirmation", "billing_error", "permission_denied", "owner_debug", "private_data"):
+        return "whisper"
+
+    if mode == "public":
+        return "public"
+
+    if mode == "whisper":
+        return "whisper"
+
+    # smart mode
+    if response_type in ("general", "public_info", "guide", "openai_answer", "cost_info"):
+        return "public"
+
+    return "whisper"
+
+Required _send behavior:
+async def _send(bot, user, message, response_type="general", knowledge_level="public", contains_private=False):
+    channel = choose_reply_channel(response_type, knowledge_level, contains_private)
+
+    print(f"[AI REPLY] mode={get_reply_mode()} channel={channel} response_type={response_type} private={contains_private}")
+
+    if channel == "public":
+        try:
+            await bot.highrise.chat(message[:249])
+            return
+        except Exception as e:
+            print(f"[AI REPLY] public failed: {e}")
+
+    try:
+        await bot.highrise.send_whisper(user.id, message[:249])
+    except Exception as e:
+        print(f"[AI REPLY] whisper failed: {e}")
+
+Reply mode setting:
+When owner says:
+ai set reply mode to public
+
+AI should prepare confirmation.
+
+When owner says:
+confirm
+
+AI should save setting:
+ai_reply_mode = public
+
+Then:
+ai reply mode
+
+Should answer:
+Current AI reply mode: public
+
+Make sure set_reply_mode("public") persists to DB or room settings.
+Make sure get_reply_mode() reads the saved DB/room setting, not a hardcoded default.
+
+Add debug logs:
+[AI REPLY MODE] current=public
+[AI REPLY MODE] saved=public
+[AI REPLY] mode=public channel=public response_type=general private=false
+
+Test:
+
+Owner:
+ai set reply mode to public
+confirm
+ai reply mode
+
+Expected:
+AI says current mode is public.
+
+Then test:
+ai help
+ai cost
+ai explain quantum physics like im 10
+ai give me 5 barcade room names
+
+Expected:
+Replies appear in public chat.
+
+Private override tests:
+ai show my balance
+ai summarize my progress
+ai debug summary
+ai set VIP price to 600 tickets
+
+Expected:
+Still whispered even when mode is public.
+
+Whisper mode test:
+ai set reply mode to whisper
+confirm
+ai help
+
+Expected:
+Whispered.
+
+Smart mode test:
+ai set reply mode to smart
+confirm
+ai help
+ai show my balance
+
+Expected:
+ai help = public
+ai show my balance = whisper
+
+Final output addition:
+Report:
+- Reply mode storage fixed
+- Public mode test result
+- Whisper mode test result
+- Smart mode test result
+- Private override test result
+- Handlers changed from direct whisper to _send

@@ -65,14 +65,19 @@ Player-direct (risk=low, needs_confirmation=false):
   luxeshop   → open Luxe Shop
   vipstatus  → check VIP status
 
+Player-direct, no confirmation (risk=low, needs_confirmation=false):
+  tele_self  → teleport yourself to a saved spawn (args: [location])
+
 Player-direct with confirmation (risk=medium, needs_confirmation=true):
-  tele       → teleport self to a location (args: [location_name])
   buy        → buy a shop item (args: [item_number])
   buyvip     → buy VIP status
 
 Staff-only, confirmation required (risk=medium, needs_confirmation=true):
   mute       → mute a player (args: [username, minutes, reason])
   warn       → warn a player (args: [username, reason])
+  tele_other → teleport another player to a saved spawn (args: [username, location])
+  goto_user  → go to another player's current position (args: [username])
+  bring_user → bring another player to your position (args: [username])
 
 Admin/Owner, confirmation required (risk=high, needs_confirmation=true):
   startevent   → start a game/event (args: [event_id, duration_minutes])
@@ -95,7 +100,11 @@ Owner-only, confirmation required (risk=high, needs_confirmation=true):
 "show my balance"        → type=command, command=balance, risk=low
 "mine for me"            → type=command, command=mine, risk=low
 "fish for me"            → type=command, command=fish, risk=low
-"tele me to bar"         → type=command, command=tele, args=["bar"], risk=medium, needs_confirmation=true
+"tele me to bar"         → type=command, command=tele_self, args=["bar"], risk=low, needs_confirmation=false
+"take me to vip"         → type=command, command=tele_self, args=["vip"], risk=low, needs_confirmation=false
+"teleport Claire to mod" → type=command, command=tele_other, args=["claire","mod"], risk=medium, needs_confirmation=true
+"go to Claire"           → type=command, command=goto_user, args=["claire"], risk=medium, needs_confirmation=true
+"bring Claire to me"     → type=command, command=bring_user, args=["claire"], risk=medium, needs_confirmation=true
 "buy item 2"             → type=command, command=buy, args=["2"], risk=medium, needs_confirmation=true
 "buy vip"                → type=command, command=buyvip, risk=medium, needs_confirmation=true
 "mute john 5 spam"       → type=command, command=mute, args=["john","5","spam"], risk=medium, needs_confirmation=true

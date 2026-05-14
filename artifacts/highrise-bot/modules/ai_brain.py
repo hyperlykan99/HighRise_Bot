@@ -97,6 +97,10 @@ from modules.ai_logs             import log_event
 from modules.ai_command_router   import (
     handle_ai_command, handle_ai_cmd_help, is_confirm_or_cancel,
 )
+from modules.ai_send             import ai_send as _ai_send_impl, ai_whisper as _ai_whisper_impl
+from modules.ai_cost_preview     import (
+    get_live_pending, clear_live_pending, cost_info_message,
+)
 from modules.ai_human_brain      import ask_human_brain
 from modules.ai_openai_brain     import handle_openai_brain
 
@@ -164,10 +168,7 @@ def _normalize_aliases(text: str) -> str:
 
 async def _w(bot: "BaseBot", uid: str, msg: str) -> None:
     """Always-whisper helper for private / sensitive data."""
-    try:
-        await bot.highrise.send_whisper(uid, msg[:249])
-    except Exception:
-        pass
+    await _ai_whisper_impl(bot, uid, msg)
 
 
 async def _send(
@@ -179,23 +180,10 @@ async def _send(
     contains_private: bool = False,
 ) -> None:
     """
-    Send through the channel chosen by reply mode.
-    Safety overrides always force whisper for private/staff+ data.
-    Falls back to whisper if public chat fails.
+    Route reply through public chat or whisper via ai_send.py.
+    Reply mode, safety overrides, and debug logging are handled there.
     """
-    channel = choose_reply_channel(
-        response_type, knowledge_level, contains_private,
-    )
-    try:
-        if channel == "public":
-            await bot.highrise.chat(message[:249])
-        else:
-            await bot.highrise.send_whisper(user.id, message[:249])
-    except Exception:
-        try:
-            await bot.highrise.send_whisper(user.id, message[:249])
-        except Exception:
-            pass
+    await _ai_send_impl(bot, user, message, response_type, knowledge_level, contains_private)
 
 
 # ── Report helper ─────────────────────────────────────────────────────────────
@@ -399,9 +387,30 @@ async def _handle_cancel(bot, user):
     p = get_pending(user.id)
     if p:
         clear_pending(user.id)
-        await _w(bot, user.id, "❌ Pending change cancelled.")
+        await _w(bot, user.id, "\u274c Pending change cancelled.")
     else:
-        await _w(bot, user.id, "⚠️ Nothing to cancel.")
+        await _w(bot, user.id, "\u26a0\ufe0f Nothing to cancel.")
+
+
+async def _handle_live_confirm(bot, user, live_p: dict, perm: str) -> None:
+    """Execute a stored 5\U0001f3ab live AI query after the user confirmed."""
+    from modules.ai_cost_preview import clear_live_pending
+    from modules.ai_luxe_billing import (
+        is_billing_enabled, check_can_afford, charge_luxe, insufficient_funds_msg,
+    )
+    from modules.ai_usage_logs import log_billing
+    clear_live_pending(user.id)
+    query = live_p["query"]
+    cost  = live_p["cost"]
+    if is_billing_enabled() and cost > 0:
+        can_afford, balance = check_can_afford(user.id, cost)
+        if not can_afford:
+            await _w(bot, user.id, insufficient_funds_msg(cost, balance))
+            return
+        charge_luxe(user.id, user.username, cost)
+        log_billing(user.username, cost, True)
+        print(f"[AI BILLING] live_confirmed charged=true cost={cost} user={user.username!r}")
+    await handle_openai_brain(bot, user, query, perm, skip_live_check=True)
 
 
 async def _handle_real_world(bot, user, text, intent, perm=0):
@@ -757,6 +766,27 @@ async def handle_ai_message(
             if _cancel_match:
                 await _handle_cancel(bot, user)
                 return True
+
+        # System C: Live AI query pending (5🎫 live queries, ai_cost_preview)
+        _live_p = get_live_pending(user.id)
+        if _live_p:
+            if is_simple_confirm(resolved):
+                await _handle_live_confirm(bot, user, _live_p, perm)
+                return True
+            if is_simple_cancel(resolved):
+                clear_live_pending(user.id)
+                await _w(bot, user.id, "\u274c Live AI query cancelled.")
+                return True
+
+        # ── 7d. AI cost info fast-path ─────────────────────────────────────────
+        _r_low = resolved.strip().lower()
+        if _r_low in {
+            "cost", "prices", "price",
+            "ai cost", "ai prices",
+            "how much", "how much does ai cost",
+        }:
+            await _send(bot, user, cost_info_message(), "general")
+            return True
 
         # ── 8. Hard safety check ──────────────────────────────────────────────
         if is_blocked(resolved):
