@@ -46,6 +46,10 @@ INTENT_TOPIC_MAP: dict[str, str] = {
     "real_world_general_question":  "general knowledge",
     "real_world_math_question":     "math",
     "real_world_translation_question":    "translation",
+    # 3.3E action intents stored for vague follow-up resolution
+    "ai_reply_mode_set":                  "AI reply mode",
+    "ai_reply_mode_view":                 "AI reply mode",
+    "teleport_self":                      "teleport spots",
 }
 
 

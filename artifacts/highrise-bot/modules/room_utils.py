@@ -2040,6 +2040,30 @@ async def handle_mypos(bot: BaseBot, user: User, args: list[str]) -> None:
              f"facing={facing} | updated {age}")
 
 
+async def ai_teleport_to_spawn(bot: BaseBot, user: User, spawn_name: str) -> None:
+    """
+    AI-triggered self-teleport to a named spawn (3.3E).
+    Respects the self_teleport_enabled room setting.
+    """
+    if _rs("self_teleport_enabled", "false") != "true":
+        await _w(bot, user.id,
+                 "Self-teleport is currently OFF. A manager can enable it.")
+        return
+    spawn = db.get_spawn(spawn_name.lower())
+    if not spawn:
+        await _w(bot, user.id,
+                 f"Spot '{spawn_name}' not found. Use !spawns to see all spots.")
+        return
+    pos = Position(spawn["x"], spawn["y"], spawn["z"], spawn["facing"])
+    try:
+        await bot.highrise.teleport(user.id, pos)
+        db.log_room_action(user.username, user.username, "ai_teleport",
+                           f"spawn={spawn_name}")
+        await _w(bot, user.id, f"✅ Teleported to {spawn_name}!")
+    except Exception as e:
+        await _w(bot, user.id, f"Teleport failed: {str(e)[:60]}")
+
+
 async def handle_positiondebug(bot: BaseBot, user: User, args: list[str]) -> None:
     """/positiondebug <username> — show last tracked position for a user (admin+)."""
     if not is_admin(user.username) and not is_owner(user.username):

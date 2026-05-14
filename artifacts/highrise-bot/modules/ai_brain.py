@@ -73,6 +73,8 @@ from modules.ai_intent_router import (
     INTENT_RW_GENERAL, INTENT_RW_GLOBAL, INTENT_RW_UNKNOWN,
     # 3.3B identity + translation intents
     INTENT_USER_NAME, INTENT_USER_ROLE, INTENT_TRANSLATION,
+    # 3.3E natural-language action intents
+    INTENT_TELEPORT_SELF, INTENT_VAGUE_FOLLOWUP,
 )
 from modules.ai_translation  import get_translation
 from modules.ai_live_router  import handle_live_question, is_live_question, detect_live_type
@@ -120,6 +122,34 @@ def strip_ai_trigger(message: str) -> str:
             rest = re.sub(r"^[\s,!:?]+", "", rest)
             return rest.strip()
     return s
+
+
+# ── 3.3E Alias normalization ──────────────────────────────────────────────────
+# Applied BEFORE intent detection so natural shorthand phrases reach the right
+# handler. Substitutions are word-boundary safe so they don't mangle unrelated
+# words (e.g. "typical" is not changed by the "tp" rule).
+_ALIAS_SUBS: list[tuple[re.Pattern, str]] = [
+    # Teleport shorthands
+    (re.compile(r"\btele\b", re.I),         "teleport"),
+    (re.compile(r"\btp\b(?=\s|$)", re.I),   "teleport"),
+    # Currency common-names → ISO codes (helps exchange-rate extraction)
+    (re.compile(r"\bpesos?\b", re.I),       "PHP"),
+    (re.compile(r"\bdollars?\b", re.I),     "USD"),
+    (re.compile(r"\beuros?\b", re.I),       "EUR"),
+    (re.compile(r"\byens?\b", re.I),        "JPY"),
+    (re.compile(r"\bpounds?\b", re.I),      "GBP"),
+    # In-game currency shorthands
+    (re.compile(r"\btix\b", re.I),                    "Luxe Tickets"),
+    (re.compile(r"\bluxe\s+coins?\b", re.I),          "Luxe Tickets"),
+    (re.compile(r"\blux\s+tickets?\b", re.I),         "Luxe Tickets"),
+]
+
+
+def _normalize_aliases(text: str) -> str:
+    """Replace common shorthand/typo aliases with canonical forms (3.3E)."""
+    for pat, repl in _ALIAS_SUBS:
+        text = pat.sub(repl, text)
+    return text
 
 
 # ── Send helpers ─────────────────────────────────────────────────────────────
@@ -475,6 +505,50 @@ async def _handle_translation(bot, user, text):
     await _send(bot, user, reply[:249], "general")
 
 
+async def _handle_teleport_self(bot: "BaseBot", user: "User", text: str) -> None:
+    """AI-triggered self-teleport to a named spawn (3.3E)."""
+    from modules.room_utils import ai_teleport_to_spawn
+    # Extract spawn name: last word(s) after "to/at/into"
+    import re as _re
+    m = _re.search(
+        r"\b(?:to|at|into|toward)\s+(?:the\s+)?([a-z][\w\s]{0,25})\s*$",
+        text, _re.I,
+    )
+    spawn = m.group(1).strip().lower() if m else ""
+    # Clean trailing noise words
+    for noise in ("room", "area", "spot", "zone", "place"):
+        if spawn.endswith(f" {noise}"):
+            spawn = spawn[: -(len(noise) + 1)].strip()
+    print(f"[AI DEBUG] intent=teleport_self target_spawn={spawn!r}")
+    if not spawn:
+        await _w(bot, user.id,
+                 "Which spot? Try: 'ai tele me to mod'. See all spots: !spawns")
+        return
+    await ai_teleport_to_spawn(bot, user, spawn)
+
+
+async def _handle_vague_followup(bot: "BaseBot", user: "User") -> None:
+    """Resolve vague action phrases using short-term memory (3.3E)."""
+    from modules.ai_memory_short_term import get_memory
+    mem = get_memory(user.id)
+    last_intent = mem.last_intent or ""
+    last_topic  = mem.last_topic  or ""
+    if "reply_mode" in last_intent or "reply mode" in last_topic.lower():
+        reply = "Switch AI reply to which mode: public, whisper, or smart?"
+    elif "teleport" in last_intent or "teleport spots" in last_topic.lower():
+        reply = "Which spot should I teleport you to? Use !spawns to see all."
+    elif "event" in last_intent or "event" in last_topic.lower():
+        reply = "Which event setting do you want to switch?"
+    elif "mining" in last_intent or "mining" in last_topic.lower():
+        reply = "What mining setting do you want to switch?"
+    elif last_topic:
+        reply = f"What do you want to switch about {last_topic}?"
+    else:
+        reply = "What would you like me to switch or change?"
+    print(f"[AI DEBUG] intent=vague_followup last_intent={last_intent!r} last_topic={last_topic!r}")
+    await _send(bot, user, reply, "general")
+
+
 async def _handle_unknown(bot, user, text="", intent=None, perm=0):
     # 1. Try rule-based global knowledge first
     if text:
@@ -544,6 +618,10 @@ async def _dispatch(
         await _handle_mod_help(bot, user, text, perm)
     elif intent == INTENT_PREPARE_SETTING:
         await _handle_prepare_setting(bot, user, text, perm)
+    elif intent == INTENT_TELEPORT_SELF:
+        await _handle_teleport_self(bot, user, text)
+    elif intent == INTENT_VAGUE_FOLLOWUP:
+        await _handle_vague_followup(bot, user)
     elif intent in RW_INTENTS:
         await _handle_real_world(bot, user, text, intent, perm)
     else:
@@ -606,6 +684,9 @@ async def handle_ai_message(
         # ── 4. Permission + clean text ────────────────────────────────────────
         perm  = get_perm_level(user.username)
         clean = strip_ai_trigger(raw_msg)
+
+        # ── 4b. Alias normalization (tele→teleport, pesos→PHP, etc.) ─────────
+        clean = _normalize_aliases(clean)
 
         # ── 5. Context resolution (resolves "more" → last topic) ──────────────
         resolved = resolve_context(user.id, clean)

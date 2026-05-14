@@ -146,8 +146,21 @@ async def get_weather_answer(query: str) -> str:
 
 # ── Exchange rates ────────────────────────────────────────────────────────────
 
+_AMOUNT_PAT = re.compile(r"\b(\d+(?:\.\d+)?)\b")
+
+
+def _extract_amount(text: str) -> float:
+    """Extract the first numeric amount from query; default 1.0."""
+    m = _AMOUNT_PAT.search(text)
+    if m:
+        return float(m.group(1))
+    return 1.0
+
+
 async def get_exchange_answer(query: str) -> str:
     from_cur, to_cur = _extract_currencies(query)
+    amount = _extract_amount(query)
+    print(f"[AI DEBUG] intent=exchange_rate amount={amount} source_currency={from_cur!r} target_currency={to_cur!r}")
     url = f"https://api.frankfurter.app/latest?from={from_cur}&to={to_cur}"
     try:
         async with aiohttp.ClientSession(timeout=_TIMEOUT) as sess:
@@ -159,9 +172,16 @@ async def get_exchange_answer(query: str) -> str:
         date = data.get("date", "today")
         if rate is None:
             return f"💱 {from_cur}/{to_cur} rate not found. Try a finance site."
+        if amount != 1.0:
+            converted = rate * amount
+            amt_fmt = f"{amount:.0f}" if amount == int(amount) else f"{amount:.2f}"
+            return (
+                f"💱 {amt_fmt} {from_cur} = {converted:.2f} {to_cur} "
+                f"(as of {date}). Rates update daily."
+            )[:249]
         return (
             f"💱 1 {from_cur} = {rate:.4f} {to_cur} "
-            f"(as of {date}). Rates update daily. Source: frankfurter.app"
+            f"(as of {date}). Rates update daily. (frankfurter.app)"
         )[:249]
     except Exception as exc:
         print(f"[AI LIVE ERROR] exchange: {exc!r}")

@@ -1,0 +1,165 @@
+Fix ChillTopiaMC AI natural language intent detection.
+
+Current issue:
+AI works for some exact phrases, but fails on natural wording.
+
+Working:
+- ai exchange rate now
+
+Failing:
+- ai how much php is 1 usd
+- ai tele me to mod
+- ai switch it
+
+Goal:
+Make AI understand more natural player wording.
+
+Do not rewrite stable systems.
+Do not break existing commands.
+Only improve AI intent/entity detection and routing.
+
+1. Improve exchange-rate detection
+
+These should all route to live exchange source:
+
+- ai exchange rate now
+- ai current USD to PHP
+- ai usd to php
+- ai 1 usd to php
+- ai how much php is 1 usd
+- ai how many pesos is 1 dollar
+- ai convert 1 usd to php
+- ai convert 10 dollars to pesos
+- ai dollar to peso rate
+- ai php per usd
+
+Entity extraction:
+- source_currency: USD if user says usd, dollar, dollars
+- target_currency: PHP if user says php, peso, pesos
+- amount: default 1 if missing
+
+Examples:
+User: ai how much php is 1 usd
+AI: 1 USD is about [rate] PHP. Rates change daily.
+
+User: ai convert 10 dollars to pesos
+AI: 10 USD is about [converted amount] PHP.
+
+2. Improve teleport intent detection
+
+These should route to teleport/spawn system:
+
+- ai tele me to mod
+- ai teleport me to mod
+- ai tp me to mod
+- ai take me to mod
+- ai bring me to mod
+- ai go to mod
+- ai send me to mod room
+- ai move me to lounge
+- ai teleport to bar
+
+Treat "tele" as shorthand for teleport.
+
+Entity extraction:
+- action: teleport_self
+- target_spawn: mod / lounge / bar / casino / vip / etc.
+
+If target spawn exists:
+Run safe teleport command equivalent:
+!tele mod
+or existing teleport handler.
+
+If target spawn does not exist:
+Reply:
+“I couldn’t find that teleport spot. Try !tele list to see available spots.”
+
+Do not teleport other players unless staff/admin permissions allow it.
+
+3. Improve vague follow-up memory
+
+User:
+ai set reply mode to whisper
+
+AI prepares or changes mode.
+
+User:
+ai switch it
+
+AI should understand from memory what "it" means.
+
+If last topic was reply mode:
+Ask:
+“Which mode should I switch AI replies to: public, whisper, or smart?”
+
+If last topic was event:
+Ask:
+“Which event setting do you want to switch?”
+
+If no useful memory:
+Reply:
+“What do you want me to switch?”
+
+4. Add typo support
+
+Common typo/shortcut mapping:
+- tele = teleport
+- tp = teleport
+- pesos = PHP
+- peso = PHP
+- dollar = USD
+- dollars = USD
+- tix = Luxe Tickets
+- luxe coins = Luxe Tickets
+- lux tickets = Luxe Tickets
+
+5. Add debug logs
+
+Log:
+[AI DEBUG] request="how much php is 1 usd"
+[AI DEBUG] intent="exchange_rate"
+[AI DEBUG] amount=1
+[AI DEBUG] source_currency="USD"
+[AI DEBUG] target_currency="PHP"
+
+Log:
+[AI DEBUG] request="tele me to mod"
+[AI DEBUG] intent="teleport_self"
+[AI DEBUG] target_spawn="mod"
+
+6. Test cases
+
+Run:
+
+Exchange:
+- ai how much php is 1 usd
+- ai usd to php
+- ai 1 usd to php
+- ai convert 10 dollars to pesos
+- ai how many pesos is 1 dollar
+
+Expected:
+All answer exchange conversion.
+
+Teleport:
+- ai tele me to mod
+- ai teleport me to mod
+- ai tp me to mod
+- ai take me to mod
+
+Expected:
+AI routes to teleport if spot exists, otherwise suggests !tele list.
+
+Vague:
+- ai switch it
+
+Expected:
+AI asks one clarification question, not generic fallback.
+
+Final output:
+Report:
+1. Files modified
+2. Exchange-rate intent fixed
+3. Teleport shorthand fixed
+4. Vague follow-up handling fixed
+5. Test results

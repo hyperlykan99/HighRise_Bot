@@ -49,6 +49,10 @@ INTENT_USER_NAME            = "user_name_question"
 INTENT_USER_ROLE            = "user_role_question"
 INTENT_TRANSLATION          = "translation_question"
 
+# ── 3.3E natural-language action intents ────────────────────────────────────
+INTENT_TELEPORT_SELF        = "teleport_self"
+INTENT_VAGUE_FOLLOWUP       = "vague_followup"
+
 # ── 3.3B AI self-management intents ─────────────────────────────────────────
 INTENT_AI_STATUS            = "ai_status_check"
 INTENT_AI_DEBUG             = "ai_debug_summary"
@@ -144,6 +148,17 @@ _RULES: list[tuple[str, re.Pattern]] = [
          r"|\bai\s+status\b"
          r"|\b(are\s+you\s+online|is\s+ai\s+online|are\s+you\s+there"
          r"|are\s+you\s+alive|are\s+you\s+working|is\s+the\s+ai\s+on)\b",
+         re.I,
+     )),
+
+    # ── 1c. Vague follow-up — must be early & specific ──────────────────────
+    # Short ambiguous action phrases that need memory context to resolve.
+    (INTENT_VAGUE_FOLLOWUP,
+     re.compile(
+         r"^(switch\s+it|change\s+it|toggle\s+it|flip\s+it"
+         r"|switch\s+that|change\s+that|toggle\s+that"
+         r"|switch\s+back|reverse\s+it|undo\s+that|what\s+did\s+i\s+ask"
+         r"|what\s+was\s+that)\s*[?.]?$",
          re.I,
      )),
 
@@ -288,6 +303,17 @@ _RULES: list[tuple[str, re.Pattern]] = [
      re.compile(r"\b(casino|blackjack|how\s+to\s+(play\s+)?(bj|blackjack))\b", re.I)),
     (INTENT_EVENT,
      re.compile(r"\b(event|events|limited.time|bonus\s+event|active\s+event|what\s+events)\b", re.I)),
+
+    # ── 5b-action. Teleport — must come BEFORE CMD_EXPLAIN ─────────────────
+    # Catches "tele/teleport/tp/take/bring me to <spawn>" phrasing.
+    (INTENT_TELEPORT_SELF,
+     re.compile(
+         r"\b(teleport|tele|tp|take|bring|send|move|go|warp)\s*(me)?\s*"
+         r"(to|at|into|toward)\s+(?:the\s+)?(\w[\w\s]{0,25})\s*$"
+         r"|\bsend\s+me\s+to\s+\w"
+         r"|\bwarp\s+me\s+to\s+\w",
+         re.I,
+     )),
 
     # ── 5b. Identity & translation — must come BEFORE CMD_EXPLAIN ───────────
     # CMD_EXPLAIN regex catches "what is" + any word, so identity / translation

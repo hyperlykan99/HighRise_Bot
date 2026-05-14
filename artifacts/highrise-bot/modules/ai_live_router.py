@@ -37,11 +37,28 @@ _WEATHER_PAT = re.compile(
     r"|\b(typhoon|storm|cyclone|tornado)\b",
     re.I,
 )
+_CUR_WORDS = (
+    r"usd|dollar[s]?|eur|euro[s]?|gbp|pound[s]?|jpy|yen|krw|won"
+    r"|php|peso[s]?|idr|rupiah|thb|baht|myr|ringgit|vnd|dong"
+    r"|inr|rupee[s]?|sgd|aud|cad|cny|yuan|rmb|brl|mxn"
+)
 _EXCHANGE_PAT = re.compile(
-    r"\b(exchange\s+rate|forex|currency|usd\s+(to|vs|in)\s+\w+"
-    r"|\w+\s+(to|vs)\s+(usd|php|eur|jpy|gbp|krw|sgd|myr|thb|vnd|idr|inr|brl|cny|mxn)"
-    r"|current\s+rate|money\s+(exchange|rate)|conversion\s+rate"
-    r"|1\s+usd|1\s+dollar|how\s+much\s+is\s+\d+\s+(dollar|peso|eur))\b",
+    # Classic: "USD to PHP", "dollar to peso"
+    rf"\b({_CUR_WORDS})\s+(to|vs|per|in)\s+({_CUR_WORDS})\b"
+    # Classic: "usd to php rate", "exchange rate now"
+    r"|\b(exchange\s+rate|forex|currency|current\s+rate|money\s+(exchange|rate)|conversion\s+rate)\b"
+    # Natural: "how much php is 1 usd", "how much peso for 1 dollar"
+    rf"|\bhow\s+much\s+({_CUR_WORDS})\b"
+    # Natural: "how many pesos is 1 dollar"
+    rf"|\bhow\s+many\s+({_CUR_WORDS})\b"
+    # Natural: "convert 10 dollars to pesos"
+    rf"|\bconvert\s+\d*\.?\d*\s*({_CUR_WORDS})\b"
+    # Natural: "10 usd to php", "1 dollar in pesos"
+    rf"|\b\d+\.?\d*\s+({_CUR_WORDS})\s+(to|in|per)\s+({_CUR_WORDS})\b"
+    # Natural: "php per usd", "peso per dollar"
+    rf"|\b({_CUR_WORDS})\s+per\s+({_CUR_WORDS})\b"
+    # Natural: "what is the dollar to peso rate"
+    r"|\b(dollar|peso|yen|euro|pound)\s+(to|per|rate|in)\b",
     re.I,
 )
 _CRYPTO_PAT = re.compile(
@@ -83,7 +100,13 @@ _LIVE_DETECT_PAT = re.compile(
     r"|latest\s+(highrise|roblox|update)|today.?s\s+(news|price|update)"
     r"|right\s+now\s+in|lotto\s+result|lottery\s+result|current\s+(rate|price|score)"
     r"|flight\s+price|movie\s+schedule|cinema\s+schedule"
-    r"|current\s+law|active\s+promo|new\s+patch)\b",
+    r"|current\s+law|active\s+promo|new\s+patch"
+    # Natural-language exchange additions
+    r"|how\s+much\s+(php|peso|usd|dollar|eur|euro|yen|pound)"
+    r"|how\s+many\s+(php|peso[s]?|dollar[s]?|euro[s]?|yen)"
+    r"|convert\s+\d"
+    r"|dollar\s+to\s+peso|peso\s+to\s+dollar|usd\s+to\s+php|php\s+to\s+usd"
+    r"|(php|usd|eur|peso|dollar)\s+per\s+(usd|php|eur|peso|dollar))\b",
     re.I,
 )
 
