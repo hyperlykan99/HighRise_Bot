@@ -514,9 +514,15 @@ async def handle_fish(bot: BaseBot, user: User) -> None:
             fish["fish_id"], fish["name"], fish["rarity"], value,
         )
         if _is_new_fish:
-            await _w(bot, user.id,
-                     f"📖 New catch! {fish['emoji']} {fish['name']} "
-                     f"added to your Fish Book!"[:249])
+            # suppress per-catch whispers during auto sessions; summary covers them
+            _in_auto = (user.id in _autofish_tasks
+                        and not _autofish_tasks[user.id].done())
+            if not _in_auto:
+                _rlbl    = _rarity_label(fish["rarity"])
+                _new_msg = (f"📖 New Catch!\n"
+                            f"{_rlbl} {fish['emoji']} {fish['name']} added to your Fish Book.\n"
+                            f"Weight: {weight}lb | Value: {_fmt(value)} 🪙 | FXP: +{fxp}")
+                await _w(bot, user.id, _new_msg[:249])
     except Exception:
         pass
 
@@ -784,12 +790,10 @@ async def handle_sellfish(bot: BaseBot, user: User) -> None:
                  "⚠️ Nothing to sell.\nTry !fish or !autofish first.")
         return
     db.adjust_balance(user.id, coins)
-    new_bal = db.get_balance(user.id)
     await _w(bot, user.id,
-             f"💰 Sold Fish\n"
-             f"Items sold: {count}\n"
-             f"Total: {_fmt(coins)} 🪙\n"
-             f"New Balance: {_fmt(new_bal)} 🪙")
+             f"🎣 Fish Sold\n"
+             f"Items: {count}\n"
+             f"Total: {_fmt(coins)} 🪙")
 
 
 async def handle_sellallfish(bot: BaseBot, user: User) -> None:
@@ -818,7 +822,7 @@ async def handle_sellfishrarity(bot: BaseBot, user: User, args: list[str]) -> No
         return
     db.adjust_balance(user.id, coins)
     await _w(bot, user.id,
-             f"🎣 Sold {count} {rarity} fish for {_fmt(coins)} coins!")
+             f"🎣 Fish Sold\n{count} {rarity} fish\nTotal: {_fmt(coins)} 🪙")
 
 
 async def handle_fishbag(bot: BaseBot, user: User) -> None:
@@ -887,15 +891,16 @@ async def handle_fishbook(bot: BaseBot, user: User, args: list) -> None:
                 await _w(bot, uid,
                          "🎣 Fish Book\nNo catches yet.\nTry !fish.")
                 return
-            parts = [
-                f"{_FISH_RAR_ABBR.get(r, r[:3])}:{len(by_rar.get(r,[]))}/{totals_rar.get(r,0)}"
-                for r in _FISH_RAR_ORDER if totals_rar.get(r, 0) > 0
-            ]
-            out = f"🎣 Fish Book — {len(found)}/{grand_t}\n" + "  ".join(parts[:4])
-            if len(parts) > 4:
-                out += "\n" + "  ".join(parts[4:])
-            out += "\n!fishbook <rarity>  !fishbook missing"
-            await _w(bot, uid, out[:249])
+            lines_ov = ["📖 Fish Book", f"Found: {len(found)}/{grand_t}"]
+            for _r in _FISH_RAR_ORDER:
+                if totals_rar.get(_r, 0) == 0:
+                    continue
+                _cnt = len(by_rar.get(_r, []))
+                _tot = totals_rar.get(_r, 0)
+                _chk = " ✅" if _cnt == _tot else ""
+                lines_ov.append(f"{_r.replace('_', ' ').title()}: {_cnt}/{_tot}{_chk}")
+            lines_ov.append("!fishbook <rarity>  !fishbook missing")
+            await _w(bot, uid, "\n".join(lines_ov)[:249])
             return
 
         # ── Rarelog ───────────────────────────────────────────────────────────
@@ -1372,20 +1377,22 @@ async def _send_autofish_summary(bot: BaseBot, uid: str, uname: str,
     rare_ct   = len(stats.get("rare_finds", []))
     elapsed_m = stats.get("elapsed_mins", stats.get("duration_mins", "?"))
     luck      = stats.get("luck_total", "?")
-    msg1 = (f"🎣 Auto-Fishing Complete\n"
-            f"Time: {elapsed_m}m | Casts: {casts}\n"
-            f"Earned: {_fmt(earned)} 🪙 | Best: {best}\n"
-            f"New: {new_cnt} | Rare: {rare_ct} | Luck: {luck}")
+    msg1 = (f"🎣 AutoFish Summary\n"
+            f"Casts: {casts}\n"
+            f"Earned: {_fmt(earned)} 🪙\n"
+            f"FXP: +{rare_ct + casts} | New fish: {new_cnt}")
     msg2 = ""
-    if new_cnt > 0:
+    if best != "—":
+        msg2 = f"Best catch:\n{best}\nUse !lastfishsummary."
+    elif new_cnt > 0:
         disc  = stats["new_discoveries"][:3]
         names = ", ".join(disc)
         if len(stats["new_discoveries"]) > 3:
             names += f" +{len(stats['new_discoveries']) - 3}"
         total_fish = db.count_collection_items(uid, "fishing")
         total_t    = len(FISH_CATALOG)
-        msg2 = (f"📖 Fish Book: {total_fish}/{total_t} discovered\n"
-                f"New: {names}")
+        msg2 = (f"📖 Fish Book: {total_fish}/{total_t}\n"
+                f"New: {names}\nUse !lastfishsummary.")
     saved_text = f"{msg1}\n{msg2}" if msg2 else msg1
     try:
         db.save_auto_session_summary(uid, uname, "fishing", saved_text[:500])
@@ -1443,10 +1450,10 @@ async def _autofish_loop(bot: BaseBot, user: User) -> None:
     total_att     = stack["total_attempts"]
 
     await _w(bot, uid,
-             f"🎣 Auto-Fishing Started\n"
-             f"Time: {duration_mins}m | Speed: {interval_secs}s/cast\n"
-             f"Casts: {total_att} | Luck: {luck_total}\n"
-             f"!autofish off to stop.")
+             f"🎣 AutoFish Started\n"
+             f"Time: {duration_mins}m | Speed: {interval_secs}s\n"
+             f"Luck: {luck_total}\n"
+             f"Use !autofish off to stop.")
 
     _started_at = datetime.now(timezone.utc)
     try:
@@ -1637,9 +1644,10 @@ async def _luxe_autofish_loop(bot: BaseBot, user: User) -> None:
         return f"{m}m"
 
     await _w(bot, uid,
-             f"🎣 Luxe Auto-Fishing Started\n"
-             f"Time Available: {_fmt_secs_f(total_secs)}\n"
-             f"Luck: {luck_total}  Speed: {interval_secs}s/cast\n"
+             f"🎫 Luxe AutoFish Started\n"
+             f"Using remaining Luxe time.\n"
+             f"Time left: {_fmt_secs_f(total_secs)}\n"
+             f"Luck: {luck_total} | Speed: {interval_secs}s\n"
              f"Use !autofish off to pause.")
 
     _started_at = datetime.now(timezone.utc)
@@ -1845,6 +1853,11 @@ async def handle_autofish(bot: BaseBot, user: User, args: list[str]) -> None:
                  "Use !fishluck to see your stack.")
         return
 
+    # ── status ─────────────────────────────────────────────────────────────
+    if sub == "status":
+        await handle_autofishstatus(bot, user)
+        return
+
     # ── on/start ───────────────────────────────────────────────────────────
     if sub in ("on", "start"):
         if _get_af_setting("autofish_enabled", "1") != "1":
@@ -1863,8 +1876,19 @@ async def handle_autofish(bot: BaseBot, user: User, args: list[str]) -> None:
 
     # ── off/stop ───────────────────────────────────────────────────────────
     elif sub in ("off", "stop"):
+        _stats_snap = _af_session_stats.get(user.id)
         if stop_autofish_for_user(user.id, user.username, "user_stopped"):
-            await _w(bot, user.id, "🎣 AutoFish stopped.")
+            _casts  = _stats_snap.get("count", 0)  if _stats_snap else 0
+            _earned = _stats_snap.get("value", 0)  if _stats_snap else 0
+            _new    = len(_stats_snap.get("new_discoveries", [])) if _stats_snap else 0
+            if _casts > 0:
+                await _w(bot, user.id,
+                         f"🎣 AutoFish stopped.\n"
+                         f"Casts: {_casts}\n"
+                         f"Earned: {_fmt(_earned)} 🪙\n"
+                         f"New fish: {_new}")
+            else:
+                await _w(bot, user.id, "🎣 AutoFish stopped.")
         else:
             await _w(bot, user.id, "🎣 No active AutoFish session.")
 
@@ -1901,15 +1925,29 @@ async def handle_fishluck(bot: BaseBot, user: User, args: list[str]) -> None:
     if s["event_luck"]:
         lines.append(f"Event: +{s['event_luck']}")
     lines.append(f"Total: {s['luck_total']}")
-    lines.append(f"Speed: {s['interval_secs']}s | Auto: {s['duration_mins']}m")
+    await _w(bot, user.id, "\n".join(lines)[:249])
+    # Second message — speed/duration/Luxe
+    lines2: list[str] = [
+        f"Speed: {s['interval_secs']}s",
+        f"Auto: {s['duration_mins']}m",
+    ]
     try:
         from modules.events import get_event_effect as _gee
         _eff = _gee()
         if _eff.get("xp", 1.0) > 1.0:
-            lines.append(f"⭐ XP Event: {_eff['xp']:.0f}x active")
+            lines2.append(f"⭐ XP Event: {_eff['xp']:.0f}x active")
     except Exception:
         pass
-    await _w(bot, user.id, "\n".join(lines)[:249])
+    try:
+        _luxe_s = db.get_luxe_auto_time(user.id, "fishing")
+        if _luxe_s > 0:
+            _h = _luxe_s // 3600
+            _m = (_luxe_s % 3600) // 60
+            _ts = f"{_h}h {_m}m" if _h > 0 else f"{_m}m"
+            lines2.append(f"Luxe Auto: {_ts} left")
+    except Exception:
+        pass
+    await _w(bot, user.id, "\n".join(lines2)[:249])
 
 
 async def handle_fishadmin(bot: BaseBot, user: User, args: list[str]) -> None:
@@ -2004,10 +2042,11 @@ async def handle_fishpanel(bot: BaseBot, user: User) -> None:
     # Active fishing event
     ev_str = "none"
     try:
+        from modules.events import format_event_name as _fen
         eff = _get_fishing_event_effects()
         eid = eff.get("event_id", "")
         if eid:
-            ev_str = eid
+            ev_str = _fen(eid)
     except Exception:
         pass
 
@@ -2157,22 +2196,29 @@ async def handle_setfishrarityweightrange(bot: BaseBot, user: User,
 
 
 async def handle_autofishstatus(bot: BaseBot, user: User) -> None:
-    """/autofishstatus /afstatus"""
-    running  = user.id in _autofish_tasks and not _autofish_tasks[user.id].done()
-    enabled  = _get_af_setting("autofish_enabled", "1") == "1"
-    max_att  = _get_af_setting("autofish_max_attempts",    "30")
-    max_mins = _get_af_setting("autofish_duration_minutes", "30")
-    is_vip   = db.owns_item(user.id, "vip")
-    vip_str  = "Active" if is_vip else "Inactive"
-    lines = [
-        "🎣 AutoFish Status",
-        f"Status: {'ON' if running else 'OFF'}",
-        f"Global: {'Enabled' if enabled else 'Disabled by staff'}",
-        f"Limit: {max_att} catches or {max_mins}m",
-        f"Duration cap: {_AUTOFISH_REG_LIMIT}m regular / {_AUTOFISH_VIP_LIMIT}m VIP",
-        f"VIP: {vip_str}",
-        "!autofish on to start | !autofish off to stop",
-    ]
+    """/autofishstatus /autofish status — show current AutoFish status."""
+    from modules.luck_stack import get_fish_luck_stack
+    running      = user.id in _autofish_tasks and not _autofish_tasks[user.id].done()
+    luxe_running = user.id in _luxe_autofish_tasks and not _luxe_autofish_tasks[user.id].done()
+    is_active    = running or luxe_running
+    enabled      = _get_af_setting("autofish_enabled", "1") == "1"
+    if is_active:
+        stack = get_fish_luck_stack(user.id, user.username)
+        kind  = "Luxe " if luxe_running else ""
+        lines = [
+            "🎣 AutoFish",
+            f"Status: {kind}active",
+            f"Speed: {stack['interval_secs']}s",
+            f"Luck: {stack['luck_total']}",
+            "Use !autofish off to stop.",
+        ]
+    else:
+        lines = ["🎣 AutoFish", "Status: inactive"]
+        if not enabled:
+            lines.append("⚠️ Disabled by staff.")
+        else:
+            lines.append("Start: !autofish")
+            lines.append("Luxe: !autofish luxe")
     await _w(bot, user.id, "\n".join(lines)[:249])
 
 

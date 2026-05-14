@@ -545,9 +545,11 @@ async def handle_mine(bot: BaseBot, user: User) -> None:
     if _is_new_disc:
         _am_s = _am_session_stats.get(user.id)
         if _am_s is None:  # manual mine only (not during automine)
-            await _w(bot, user.id,
-                     f"📖 New ore! {item['emoji']} {item['name']} "
-                     f"added to your Ore Book!"[:249])
+            _rar_lbl  = format_mining_rarity(item["rarity"])
+            _new_msg  = (f"📖 New Ore!\n"
+                         f"{_rar_lbl} {item['emoji']} {item['name']} added to your Ore Book.\n"
+                         f"Value: {_fmt(final_val)} 🪙 | XP: +{_fmt(mxp)}")
+            await _w(bot, user.id, _new_msg[:249])
     # Feed session accumulator (automine)
     _am_s = _am_session_stats.get(user.id)
     if _am_s is not None:
@@ -828,12 +830,10 @@ async def handle_sellores(bot: BaseBot, user: User) -> None:
                  "⚠️ Nothing to sell.\nTry !mine or !automine first.")
         return
     db.update_miner(user.username, coins_earned=db.get_or_create_miner(user.username)["coins_earned"] + result["coins"])
-    new_bal = db.get_balance(user.id)
     await _w(bot, user.id,
-             f"💰 Sold Ores\n"
-             f"Items sold: {result['count']}\n"
-             f"Total: {_fmt(result['coins'])} 🪙\n"
-             f"New Balance: {_fmt(new_bal)} 🪙")
+             f"⛏️ Ore Sold\n"
+             f"Items: {result['count']}\n"
+             f"Total: {_fmt(result['coins'])} 🪙")
 
 
 async def handle_sellore(bot: BaseBot, user: User, args: list[str]) -> None:
@@ -1980,15 +1980,16 @@ async def handle_orebook(bot: BaseBot, user: User, args: list) -> None:
                 await _w(bot, uid,
                          "⛏️ Ore Book\nNo mining discoveries yet.\nTry !mine.")
                 return
-            parts = [
-                f"{_ORE_RAR_ABBR.get(r, r[:3])}:{len(by_rar.get(r,[]))}/{totals.get(r,0)}"
-                for r in _ORE_RARITY_ORDER if totals.get(r, 0) > 0
-            ]
-            out = f"⛏️ Ore Book — {len(found)}/{grand_t}\n" + "  ".join(parts[:4])
-            if parts[4:]:
-                out += "\n" + "  ".join(parts[4:])
-            out += "\n!orebook <rarity>  !orebook missing"
-            await _w(bot, uid, out[:249])
+            lines_ov = [f"📖 Ore Book", f"Found: {len(found)}/{grand_t}"]
+            for _r in _ORE_RARITY_ORDER:
+                if totals.get(_r, 0) == 0:
+                    continue
+                _cnt = len(by_rar.get(_r, []))
+                _tot = totals.get(_r, 0)
+                _chk = " ✅" if _cnt == _tot else ""
+                lines_ov.append(f"{_r.replace('_', ' ').title()}: {_cnt}/{_tot}{_chk}")
+            lines_ov.append("!orebook <rarity>  !orebook missing")
+            await _w(bot, uid, "\n".join(lines_ov)[:249])
             return
 
         # ── Rarelog ───────────────────────────────────────────────────────────
@@ -2724,20 +2725,22 @@ async def _send_automine_summary(bot: BaseBot, uid: str, uname: str,
     rare_ct   = len(stats.get("rare_finds", []))
     elapsed_m = stats.get("elapsed_mins", stats.get("duration_mins", "?"))
     luck      = stats.get("luck_total", "?")
-    msg1 = (f"⛏️ Auto-Mining Complete\n"
-            f"Time: {elapsed_m}m | Mined: {mines}\n"
-            f"Earned: {_fmt(value)} 🪙 | Best: {best}\n"
-            f"New: {new_cnt} | Rare: {rare_ct} | Luck: {luck}")
+    msg1 = (f"⛏️ AutoMine Summary\n"
+            f"Runs: {mines}\n"
+            f"Earned: {_fmt(value)} 🪙\n"
+            f"XP: +{rare_ct + mines} | New ores: {new_cnt}")
     msg2 = ""
-    if new_cnt > 0:
+    if best != "—":
+        msg2 = f"Best find:\n{best}\nUse !lastminesummary."
+    elif new_cnt > 0:
         disc  = stats["new_discoveries"][:3]
         names = ", ".join(disc)
         if len(stats["new_discoveries"]) > 3:
             names += f" +{len(stats['new_discoveries']) - 3}"
         total_ore = db.count_collection_items(uid, "mining")
         total_t   = sum(db.get_mining_totals_by_rarity().values()) or 25
-        msg2 = (f"📖 Ore Book: {total_ore}/{total_t} discovered\n"
-                f"New: {names}")
+        msg2 = (f"📖 Ore Book: {total_ore}/{total_t}\n"
+                f"New: {names}\nUse !lastminesummary.")
     saved_text = f"{msg1}\n{msg2}" if msg2 else msg1
     try:
         db.save_auto_session_summary(uid, uname, "mining", saved_text[:500])
@@ -2796,10 +2799,10 @@ async def _automine_loop(bot: BaseBot, user: User) -> None:
     total_att     = stack["total_attempts"]
 
     await _w(bot, uid,
-             f"⛏️ Auto-Mining Started\n"
-             f"Time: {duration_mins}m | Speed: {interval_secs}s/mine\n"
-             f"Attempts: {total_att} | Luck: {luck_total}\n"
-             f"!automine off to stop.")
+             f"⛏️ AutoMine Started\n"
+             f"Time: {duration_mins}m | Speed: {interval_secs}s\n"
+             f"Luck: {luck_total}\n"
+             f"Use !automine off to stop.")
 
     _started_at = _dt.now(_tz.utc)
     try:
@@ -2913,6 +2916,11 @@ async def handle_automine(bot: BaseBot, user: User, args: list[str]) -> None:
                  "Use !mineluck to see your stack.")
         return
 
+    # ── status ─────────────────────────────────────────────────────────────
+    if sub == "status":
+        await handle_autominestatus(bot, user)
+        return
+
     # ── on/start ───────────────────────────────────────────────────────────
     if sub in ("on", "start"):
         if _get_am_setting("automine_enabled", "1") != "1":
@@ -2931,8 +2939,19 @@ async def handle_automine(bot: BaseBot, user: User, args: list[str]) -> None:
 
     # ── off/stop ───────────────────────────────────────────────────────────
     elif sub in ("off", "stop"):
+        _stats_snap = _am_session_stats.get(user.id)
         if stop_automine_for_user(user.id, user.username, "user_stopped"):
-            await _w(bot, user.id, "⛏️ AutoMine stopped.")
+            _mines  = _stats_snap.get("count", 0)  if _stats_snap else 0
+            _earned = _stats_snap.get("value", 0)  if _stats_snap else 0
+            _new    = len(_stats_snap.get("new_discoveries", [])) if _stats_snap else 0
+            if _mines > 0:
+                await _w(bot, user.id,
+                         f"⛏️ AutoMine stopped.\n"
+                         f"Runs: {_mines}\n"
+                         f"Earned: {_fmt(_earned)} 🪙\n"
+                         f"New ores: {_new}")
+            else:
+                await _w(bot, user.id, "⛏️ AutoMine stopped.")
         else:
             await _w(bot, user.id, "⛏️ No active AutoMine session.")
 
@@ -2978,9 +2997,10 @@ async def _luxe_automine_loop(bot: BaseBot, user: User) -> None:
     luck_total    = stack["luck_total"]
 
     await _w(bot, uid,
-             f"⛏️ Luxe Auto-Mining Started\n"
-             f"Time Available: {_fmt_secs(total_secs)}\n"
-             f"Luck: {luck_total}  Speed: {interval_secs}s/mine\n"
+             f"🎫 Luxe AutoMine Started\n"
+             f"Using remaining Luxe time.\n"
+             f"Time left: {_fmt_secs(total_secs)}\n"
+             f"Luck: {luck_total} | Speed: {interval_secs}s\n"
              f"Use !automine off to pause.")
 
     _started_at = _dt2.now(_tz2.utc)
@@ -3112,15 +3132,29 @@ async def handle_mineluck(bot: BaseBot, user: User, args: list[str]) -> None:
     if s["event_luck"]:
         lines.append(f"Event: +{s['event_luck']}")
     lines.append(f"Total: {s['luck_total']}")
-    lines.append(f"Speed: {s['interval_secs']}s | Auto: {s['duration_mins']}m")
+    await _w(bot, user.id, "\n".join(lines)[:249])
+    # Second message — speed/duration/Luxe
+    lines2: list[str] = [
+        f"Speed: {s['interval_secs']}s",
+        f"Auto: {s['duration_mins']}m",
+    ]
     try:
         from modules.events import get_event_effect as _gee
         _eff = _gee()
         if _eff.get("xp", 1.0) > 1.0:
-            lines.append(f"⭐ XP Event: {_eff['xp']:.0f}x active")
+            lines2.append(f"⭐ XP Event: {_eff['xp']:.0f}x active")
     except Exception:
         pass
-    await _w(bot, user.id, "\n".join(lines)[:249])
+    try:
+        _luxe_m = db.get_luxe_auto_time(user.id, "mining")
+        if _luxe_m > 0:
+            _h = _luxe_m // 3600
+            _m = (_luxe_m % 3600) // 60
+            _ts = f"{_h}h {_m}m" if _h > 0 else f"{_m}m"
+            lines2.append(f"Luxe Auto: {_ts} left")
+    except Exception:
+        pass
+    await _w(bot, user.id, "\n".join(lines2)[:249])
 
 
 async def handle_mineadmin(bot: BaseBot, user: User, args: list[str]) -> None:
@@ -3182,22 +3216,29 @@ async def handle_mineadmin(bot: BaseBot, user: User, args: list[str]) -> None:
 
 
 async def handle_autominestatus(bot: BaseBot, user: User) -> None:
-    """/autominestatus — show current AutoMine status."""
-    running  = user.id in _automine_tasks and not _automine_tasks[user.id].done()
-    enabled  = _get_am_setting("automine_enabled", "1") == "1"
-    max_att  = _get_am_setting("automine_max_attempts",    "30")
-    max_mins = _get_am_setting("automine_duration_minutes", "30")
-    is_vip   = db.owns_item(user.id, "vip")
-    vip_str  = "Active" if is_vip else "Inactive"
-    lines = [
-        "⛏️ AutoMine Status",
-        f"Status: {'ON' if running else 'OFF'}",
-        f"Global: {'Enabled' if enabled else 'Disabled by staff'}",
-        f"Limit: {max_att} mines or {max_mins}m",
-        f"Duration cap: {_AUTOMINE_REG_LIMIT}m regular / {_AUTOMINE_VIP_LIMIT}m VIP",
-        f"VIP: {vip_str}",
-        "!automine on to start | !automine off to stop",
-    ]
+    """/autominestatus /automine status — show current AutoMine status."""
+    from modules.luck_stack import get_mine_luck_stack
+    running      = user.id in _automine_tasks and not _automine_tasks[user.id].done()
+    luxe_running = user.id in _luxe_automine_tasks and not _luxe_automine_tasks[user.id].done()
+    is_active    = running or luxe_running
+    enabled      = _get_am_setting("automine_enabled", "1") == "1"
+    if is_active:
+        stack = get_mine_luck_stack(user.id, user.username)
+        kind  = "Luxe " if luxe_running else ""
+        lines = [
+            "⛏️ AutoMine",
+            f"Status: {kind}active",
+            f"Speed: {stack['interval_secs']}s",
+            f"Luck: {stack['luck_total']}",
+            "Use !automine off to stop.",
+        ]
+    else:
+        lines = ["⛏️ AutoMine", "Status: inactive"]
+        if not enabled:
+            lines.append("⚠️ Disabled by staff.")
+        else:
+            lines.append("Start: !automine")
+            lines.append("Luxe: !automine luxe")
     await _w(bot, user.id, "\n".join(lines)[:249])
 
 

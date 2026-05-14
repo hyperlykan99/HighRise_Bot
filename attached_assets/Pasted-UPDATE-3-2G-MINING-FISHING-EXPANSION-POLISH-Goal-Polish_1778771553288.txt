@@ -1,0 +1,915 @@
+UPDATE 3.2G — MINING/FISHING EXPANSION POLISH
+
+Goal:
+Polish mining and fishing displays, collection books, auto summaries, luck stacks, tool/rod progression, and sell messages without changing economy balance.
+
+Important:
+This is NOT mining/fishing economy balancing.
+Do not change ore/fish values.
+Do not change rarity odds.
+Do not change tool/rod stats unless display is wrong.
+Do not change Luxe prices.
+Do not add HR Gold rewards.
+
+Main focus:
+1. Polish !orebook and !fishbook display.
+2. Improve mining/fishing completion summaries.
+3. Improve !mineluck and !fishluck stack display.
+4. Improve tool/rod progression display.
+5. Polish !automine / !autofish status.
+6. Fix collection book errors.
+7. Improve sell ore/fish messages.
+8. Improve mining/fishing help.
+9. No reward value changes.
+10. No odds changes.
+11. No economy balancing yet.
+
+Currencies:
+🪙 ChillCoins = gameplay currency
+🎫 Luxe Tickets = premium currency
+
+Do not change tokens.
+Do not change room ID.
+Do not wipe database.
+Do not reset balances, tickets, VIP, badges, titles, market, casino, blackjack, poker, mining/fishing data, collection book, missions, XP, levels, events, seasons, onboarding, safety logs, analytics, tools, rods, boosts, profile settings, bug reports, feedback, backups, release settings, or player inventory.
+Do not re-add reward caps.
+Do not add HR Gold rewards.
+Do not change economy prices.
+Do not change mining/fishing odds.
+Do not change sell values.
+Do not show “c” for currency.
+Use 🪙 and 🎫.
+
+==================================================
+PART 1 — STABILITY FIRST
+==================================================
+
+Before changing anything, run:
+
+!launchmode status
+!production status
+!launchblockers
+!finalaudit
+!launchcheck
+!commandissues
+!checkcommands all
+!checkhelp
+!currencycheck
+!bothealth
+!stability status
+
+Expected:
+- Production stable
+- Launch blockers: 0
+- Command issues: 0
+- Currencycheck clean
+- No old c/credits/gems
+- Launchcheck clean
+
+Fix blockers first.
+
+==================================================
+PART 2 — MINING/FISHING POLISH ONLY
+==================================================
+
+Allowed:
+- cleaner mining/fishing messages
+- collection book display fixes
+- luck stack display fixes
+- tool/rod display fixes
+- auto status clarity
+- summary clarity
+- sell message clarity
+- help/guide cleanup
+- command route fixes
+- bug fixes
+
+Not allowed:
+- changing ore/fish values
+- changing rarity odds
+- changing tool/rod stats
+- changing Luxe auto prices
+- changing economy conversion
+- adding HR Gold rewards
+- adding reward caps
+- major new systems
+
+==================================================
+PART 3 — POLISH !MINE OUTPUT
+==================================================
+
+Command:
+!mine
+
+Expected:
+
+⛏️ Mining
+You found [COMMON] Stone
+Value: 25 🪙 | XP: +2
+Collection: already found
+
+If new collection item:
+
+📖 New Ore!
+[RARE] Sapphire added to your Ore Book.
+Value: 500 🪙 | XP: +12
+
+Rules:
+- Use 🪙.
+- No old c/credits.
+- No raw keys.
+- No JSON/debug text.
+- Keep under 220 chars.
+- Do not change reward amount.
+- Do not change rarity odds.
+
+==================================================
+PART 4 — POLISH !FISH OUTPUT
+==================================================
+
+Command:
+!fish
+
+Expected:
+
+🎣 Fishing
+You caught [COMMON] Small Crab
+Weight: 0.7lb | Value: 41 🪙 | FXP: +6
+Collection: already found
+
+If new collection item:
+
+📖 New Catch!
+[RARE] Golden Koi added to your Fish Book.
+Weight: 2.1lb | Value: 600 🪙 | FXP: +15
+
+Rules:
+- Use 🪙.
+- No old c/credits.
+- No raw keys.
+- Keep under 220 chars.
+- Do not change reward amount.
+- Do not change rarity odds.
+
+==================================================
+PART 5 — POLISH !OREBOOK
+==================================================
+
+Commands:
+!orebook
+!minebook
+!collection ore
+
+Expected:
+
+📖 Ore Book
+Found: 14/40
+Common: 8/8 ✅
+Rare: 4/10
+Epic: 2/8
+Legendary: 0/6
+
+Second message:
+
+Use:
+!orebook rare
+!orebook missing
+!orebook all
+
+Rules:
+- No “Could not load book” unless real failure.
+- If data unavailable, show safe fallback:
+  Ore Book not ready. Try again.
+- No command error.
+- No raw DB/JSON.
+- No old c.
+- Keep short.
+
+==================================================
+PART 6 — POLISH !FISHBOOK
+==================================================
+
+Commands:
+!fishbook
+!fishingbook
+!collection fish
+
+Expected:
+
+📖 Fish Book
+Found: 10/35
+Common: 6/6 ✅
+Rare: 3/9
+Epic: 1/7
+Legendary: 0/5
+
+Second message:
+
+Use:
+!fishbook rare
+!fishbook missing
+!fishbook all
+
+Rules:
+- Fix any “Could not load book” bug if collection data exists.
+- No command error.
+- No raw DB/JSON.
+- No old c.
+- Keep short.
+
+==================================================
+PART 7 — BOOK FILTERS
+==================================================
+
+Support filters if available:
+
+!orebook common
+!orebook rare
+!orebook epic
+!orebook legendary
+!orebook missing
+!orebook all
+
+!fishbook common
+!fishbook rare
+!fishbook epic
+!fishbook legendary
+!fishbook missing
+!fishbook all
+
+Expected:
+
+📖 Ore Book — Rare
+✅ Sapphire
+✅ Ruby
+❔ Emerald
+❔ Amethyst
+
+Rules:
+- If list is long, split pages.
+- Keep messages under 220 chars.
+- If filter unknown:
+  Use: common, rare, epic, legendary, missing, all
+- Do not crash.
+
+==================================================
+PART 8 — COLLECTION PAGE SUPPORT
+==================================================
+
+If book has many items, support pages:
+
+!orebook all 1
+!orebook all 2
+!fishbook all 1
+!fishbook all 2
+
+Expected:
+
+📖 Ore Book 1/3
+✅ Stone
+✅ Coal
+❔ Copper
+❔ Iron
+
+Rules:
+- Page numbers work.
+- Invalid page:
+  ⚠️ Page not found.
+- No giant spam.
+
+==================================================
+PART 9 — POLISH !MINELUCK
+==================================================
+
+Command:
+!mineluck
+
+Expected:
+
+⛏️ Mining Stack
+Base: +1
+Tool: +5
+VIP: +2
+Potion: +3
+Event: +2
+Total: 13
+
+Second message:
+
+Speed: 8s
+Auto: 15m
+Luxe Auto: 2h left
+
+Rules:
+- Show only active bonuses.
+- If no event, Event can be omitted or +0.
+- Event bonus must match active event.
+- Total must calculate correctly.
+- No raw boost IDs.
+- No old currency text.
+
+==================================================
+PART 10 — POLISH !FISHLICK / !FISH LUCK
+==================================================
+
+Command:
+!fishluck
+
+Expected:
+
+🎣 Fishing Stack
+Base: +1
+Rod: +5
+VIP: +2
+Potion: +3
+Event: +2
+Total: 13
+
+Second message:
+
+Speed: 8s
+Auto: 15m
+Luxe Auto: 2h left
+
+Rules:
+- Show only active bonuses.
+- Total must calculate correctly.
+- No raw boost IDs.
+- No old currency text.
+
+==================================================
+PART 11 — TOOL / ROD PROGRESSION DISPLAY
+==================================================
+
+Polish:
+
+!tools
+!pickaxe
+!rod
+!rods
+!gear
+
+Expected mining:
+
+⛏️ Mining Tool
+Current: Steel Pickaxe
+Luck: +5
+Speed: -2s
+Next: Gold Pickaxe
+
+Expected fishing:
+
+🎣 Fishing Rod
+Current: Carbon Rod
+Luck: +5
+Speed: -2s
+Next: Golden Rod
+
+Rules:
+- Do not change stats.
+- Only display current stats accurately.
+- If no tool/rod:
+  Current: Starter
+- No raw item IDs.
+
+==================================================
+PART 12 — SHOP DISPLAY FOR TOOLS/RODS
+==================================================
+
+Polish mining/fishing shop sections:
+
+!shop mining
+!shop fishing
+!mineshop
+!fishshop
+
+Expected:
+
+⛏️ Mining Shop
+1. Steel Pickaxe — 25,000 🪙
+2. Gold Pickaxe — 100,000 🪙
+Buy: !buytool [#]
+
+Fishing:
+
+🎣 Fishing Shop
+1. Carbon Rod — 25,000 🪙
+2. Golden Rod — 100,000 🪙
+Buy: !buyrod [#]
+
+Rules:
+- Use 🪙.
+- Do not change prices.
+- Hide items not implemented.
+- No old c.
+
+==================================================
+PART 13 — AUTOMINE STATUS POLISH
+==================================================
+
+Commands:
+!automine
+!automine status
+!stopmine
+!lastminesummary
+
+Expected active status:
+
+⛏️ AutoMine
+Status: active
+Time left: 12m
+Speed: 8s
+Luck: 13
+Use !stopmine to stop.
+
+If not active:
+
+⛏️ AutoMine
+Status: inactive
+Start: !automine
+Luxe: !automine luxe
+
+Stop:
+
+⛏️ AutoMine stopped.
+Runs: 42
+Earned: 18,500 🪙
+New ores: 2
+
+Rules:
+- Timer-based only.
+- No old count-based instructions.
+- No reward caps.
+- No duplicate active sessions.
+- Luxe remaining time should be saved.
+
+==================================================
+PART 14 — AUTOFISH STATUS POLISH
+==================================================
+
+Commands:
+!autofish
+!autofish status
+!stopfish
+!lastfishsummary
+
+Expected active status:
+
+🎣 AutoFish
+Status: active
+Time left: 12m
+Speed: 8s
+Luck: 13
+Use !stopfish to stop.
+
+If not active:
+
+🎣 AutoFish
+Status: inactive
+Start: !autofish
+Luxe: !autofish luxe
+
+Stop:
+
+🎣 AutoFish stopped.
+Casts: 42
+Earned: 18,500 🪙
+New fish: 2
+
+Rules:
+- Timer-based only.
+- No old count-based instructions.
+- No reward caps.
+- No duplicate active sessions.
+- Luxe remaining time should be saved.
+
+==================================================
+PART 15 — LUXE AUTO TIME DISPLAY
+==================================================
+
+Polish:
+
+!autotime
+!luxeauto
+!automine luxe
+!autofish luxe
+
+Expected:
+
+🎫 Luxe Auto Time
+Mining: 2h 30m
+Fishing: 1h
+Use:
+!automine luxe
+!autofish luxe
+
+When starting Luxe auto:
+
+🎫 Luxe AutoMine Started
+Using remaining Luxe time.
+Time left: 2h 30m
+
+Rules:
+- Luxe auto can be stacked.
+- If stopped, remaining time preserved.
+- No time loss bug.
+- No old c.
+- No price changes.
+
+==================================================
+PART 16 — AUTO COMPLETION SUMMARY
+==================================================
+
+When automine/autofish completes or stops, save a summary.
+
+Expected direct/whisper if true DM unavailable:
+
+⛏️ AutoMine Summary
+Runs: 120
+Earned: 55,000 🪙
+XP: +240
+New ores: 3
+
+Second message:
+
+Best find:
+[LEGENDARY] Diamond
+Use !lastminesummary.
+
+Fishing:
+
+🎣 AutoFish Summary
+Casts: 120
+Earned: 55,000 🪙
+FXP: +240
+New fish: 3
+
+Rules:
+- Use whisper if true DM is not supported.
+- Do not crash if DM unavailable.
+- Save summary for !lastminesummary / !lastfishsummary.
+- No duplicate reward.
+
+==================================================
+PART 17 — SELL ORE/FISH MESSAGE POLISH
+==================================================
+
+Commands:
+!sellore
+!sellfish
+!sell all ore
+!sell all fish
+
+Expected:
+
+⛏️ Ore Sold
+Items: 24
+Total: 18,500 🪙
+
+Fishing:
+
+🎣 Fish Sold
+Items: 24
+Total: 18,500 🪙
+
+If nothing to sell:
+
+⚠️ Nothing to sell.
+Try !mine or !fish first.
+
+Rules:
+- Do not change sell values.
+- Do not sell same item twice.
+- Use transaction safety.
+- No old c.
+
+==================================================
+PART 18 — COLLECTION MILESTONE POLISH
+==================================================
+
+Polish:
+
+!milestones
+!collection milestones
+!claimmilestone
+
+Expected:
+
+🏆 Collection Milestones
+Ore 25% — ready
+Fish 25% — claimed
+Ore 50% — 14/20
+
+Claim:
+
+✅ Milestone Claimed
+Reward: 10,000 🪙 + title
+
+Rules:
+- No duplicate claims.
+- Use 🪙/🎫.
+- Do not change reward values.
+- Hide missing milestone commands if unavailable.
+
+==================================================
+PART 19 — MINING/FISHING HELP CLEANUP
+==================================================
+
+Update:
+
+!minehelp
+!fishhelp
+!guide mining
+!guide fishing
+!commands mining
+!commands fishing
+
+Expected mining help:
+
+⛏️ Mining Help
+!mine — mine once
+!automine — normal auto
+!automine luxe — Luxe time
+!mineluck — luck stack
+!orebook — collection
+
+Second message:
+
+More:
+!tools
+!sellore
+!lastminesummary
+!autotime
+
+Fishing help:
+
+🎣 Fishing Help
+!fish — fish once
+!autofish — normal auto
+!autofish luxe — Luxe time
+!fishluck — luck stack
+!fishbook — collection
+
+Second message:
+
+More:
+!rods
+!sellfish
+!lastfishsummary
+!autotime
+
+Rules:
+- No old count-based auto instructions.
+- No admin commands in public help.
+- No broken commands shown.
+
+==================================================
+PART 20 — COMMAND ROUTE CHECK
+==================================================
+
+Verify shown commands route:
+
+Mining:
+!mine
+!automine
+!stopmine
+!mineluck
+!orebook
+!tools
+!sellore
+!lastminesummary
+!minehelp
+!mineshop
+
+Fishing:
+!fish
+!autofish
+!stopfish
+!fishluck
+!fishbook
+!rods
+!sellfish
+!lastfishsummary
+!fishhelp
+!fishshop
+
+Shared:
+!autotime
+!collection
+!milestones
+
+If optional command is not implemented:
+- hide from public help
+- do not count as command issue.
+
+==================================================
+PART 21 — RAW KEY CLEANUP
+==================================================
+
+Search player-facing mining/fishing output for:
+- raw item IDs
+- rarity_common
+- ore_stone_01
+- fish_small_crab
+- boost_luck_mining
+- auto_session_id
+- JSON/debug text
+- None
+- undefined
+- c / credits / gems
+- reward cap
+
+Replace with friendly text.
+
+==================================================
+PART 22 — MINING/FISHING MONITOR POLISH
+==================================================
+
+Polish:
+
+!minedash
+!fishdash
+!livebalance mining
+!livebalance fishing
+
+Expected:
+
+⛏️ Mining Dashboard
+Mines: 1,240
+Earned: 140,000 🪙
+Avg/action: 113 🪙
+Rare finds: 12
+
+Fishing:
+
+🎣 Fishing Dashboard
+Casts: 980
+Earned: 120,000 🪙
+Avg/cast: 122 🪙
+Rare catches: 9
+
+Rules:
+- Owner/Admin only.
+- No raw data.
+- N/A if missing data.
+- No old c.
+
+==================================================
+PART 23 — TESTS: MANUAL MINE/FISH
+==================================================
+
+Run:
+
+!mine
+!fish
+!mineluck
+!fishluck
+!orebook
+!fishbook
+!orebook missing
+!fishbook missing
+
+Expected:
+- no command errors
+- clean output
+- no raw keys
+- no old c
+- collection books load
+
+==================================================
+PART 24 — TESTS: AUTO
+==================================================
+
+Run:
+
+!autotime
+!automine
+!automine status
+!stopmine
+!lastminesummary
+
+!autofish
+!autofish status
+!stopfish
+!lastfishsummary
+
+Expected:
+- timer-based auto works
+- status clear
+- stop summary clear
+- no duplicate sessions
+- no old c
+
+==================================================
+PART 25 — TESTS: LUXE AUTO
+==================================================
+
+If Luxe time exists:
+
+!automine luxe
+!stopmine
+!autotime
+!autofish luxe
+!stopfish
+!autotime
+
+Expected:
+- Luxe time decreases correctly
+- stop preserves remaining time
+- summary saved
+- no command error
+
+If no Luxe time:
+
+⚠️ No Luxe Auto time.
+Use !luxeshop.
+
+==================================================
+PART 26 — TESTS: SHOP / SELL
+==================================================
+
+Run:
+
+!shop mining
+!shop fishing
+!mineshop
+!fishshop
+!sellore
+!sellfish
+
+Expected:
+- prices use 🪙
+- no old c
+- sell messages clear
+- no duplicate sell
+
+==================================================
+PART 27 — FINAL QA
+==================================================
+
+Run:
+
+!commandtest !mine
+!commandtest !fish
+!commandtest !automine
+!commandtest !autofish
+!commandtest !mineluck
+!commandtest !fishluck
+!commandtest !orebook
+!commandtest !fishbook
+!commandtest !autotime
+!commandtest !sellore
+!commandtest !sellfish
+!commandtest !lastminesummary
+!commandtest !lastfishsummary
+
+!commandissues
+!checkcommands all
+!checkhelp
+!currencycheck
+!launchblockers
+!finalaudit
+!launchcheck
+!bothealth
+!stability status
+
+Expected:
+- no command issues
+- no broken help
+- no old c/credits/gems
+- no reward cap text
+- no HR Gold rewards
+- no value/odds changes
+- launchcheck clean
+
+==================================================
+PART 28 — FINAL REPORT
+==================================================
+
+Report:
+1. !mine output polished.
+2. !fish output polished.
+3. !orebook polished.
+4. !fishbook polished.
+5. Book filters/pages added or polished.
+6. !mineluck polished.
+7. !fishluck polished.
+8. Tool/rod display polished.
+9. Tool/rod shop display polished.
+10. Automine status polished.
+11. Autofish status polished.
+12. Luxe auto time display polished.
+13. Auto summaries polished.
+14. Sell ore/fish messages polished.
+15. Milestone messages polished.
+16. Mining/fishing help cleaned.
+17. Raw keys removed.
+18. Mining/fishing dashboards polished.
+19. No reward values changed.
+20. No odds changed.
+21. No HR Gold rewards added.
+22. No reward caps added.
+23. !commandissues result.
+24. !checkhelp result.
+25. !currencycheck result.
+26. !launchcheck result.
