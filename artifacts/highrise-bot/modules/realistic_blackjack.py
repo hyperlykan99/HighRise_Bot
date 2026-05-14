@@ -720,7 +720,7 @@ async def _show_table_public(bot: BaseBot, timer: int = 0) -> None:
                 wtext = (
                     f"🃏 Your cards: {cards_line}\n"
                     f"Dealer: {dealer_up} [?] = {vis_total}\n"
-                    f"Bet: {p.total_bet():,}c"
+                    f"Bet: {p.total_bet():,} 🪙"
                 )
                 await bot.highrise.send_whisper(p.user_id, wtext[:249])
             except Exception:
@@ -853,22 +853,22 @@ async def _finalize_round(bot: BaseBot):
                         nc  = len(h["cards"])
                         pfx = f"H{i+1}: " if len(p.hands) > 1 else ""
                         if ht > 21 or hst == "bust":
-                            label = f"BUST (-{hbt:,}c)"
+                            label = f"BUST (-{hbt:,} 🪙)"
                         elif hst == "blackjack" and not dealer_bj_fk:
                             suited_fk = nc == 2 and h["cards"][0][1] == h["cards"][1][1]
                             mult_fk   = 3.0 if suited_fk else bj_pay_fk
                             tag_fk    = "SUITED BJ 3x" if suited_fk else f"BJ {mult_fk}x"
                             profit_fk = int(hbt * (mult_fk - 1))
-                            label     = f"{tag_fk} preview (+{profit_fk:,}c)"
+                            label     = f"{tag_fk} preview (+{profit_fk:,} 🪙)"
                         elif dbust_fk or ht > dt_fk:
                             wb_fk  = 0.25 if nc >= 5 else (0.10 if ht == 21 and nc >= 3 else 0.0)
                             wt_fk  = "5-Card Charlie" if nc >= 5 else ("Perfect 21" if wb_fk else "WIN")
                             pr_fk  = int(hbt * win_pay_fk * (1.0 + wb_fk)) - hbt
-                            label  = f"{wt_fk} preview (+{pr_fk:,}c)"
+                            label  = f"{wt_fk} preview (+{pr_fk:,} 🪙)"
                         elif ht == dt_fk:
                             label = "PUSH preview (refund)"
                         else:
-                            label = f"LOSS (-{hbt:,}c)"
+                            label = f"LOSS (-{hbt:,} 🪙)"
                         preview_rows.append(f"{pfx}{label}")
                     preview_rows.append("Bet refunded. No real payout.")
                     db.adjust_balance(p.user_id, refund)
@@ -938,12 +938,12 @@ async def _finalize_round(bot: BaseBot):
                         db.add_ledger_entry(p.user_id, p.username, ins_payout, "insurance_payout")
                         await bot.highrise.send_whisper(
                             p.user_id,
-                            f"🛡️ Insurance wins! +{p.insurance_bet * 2:,}c profit returned."
+                            f"🛡️ Insurance wins! +{p.insurance_bet * 2:,} 🪙 profit returned."
                         )
                     else:
                         await bot.highrise.send_whisper(
                             p.user_id,
-                            f"🛡️ Insurance lost. -{p.insurance_bet:,}c."
+                            f"🛡️ Insurance lost. -{p.insurance_bet:,} 🪙."
                         )
                     p.insurance_resolved = True
                     _save_player_state(p)
@@ -982,7 +982,7 @@ async def _finalize_round(bot: BaseBot):
                         db.adjust_balance(p.user_id, hbet)
                         db.add_ledger_entry(p.user_id, p.username, hbet, "rbj_deal_refund")
                         result_parts.append(f"H{i+1} refund(no cards)")
-                        print(f"[RBJ] @{p.username} H{i+1} refunded {hbet}c (cards={len(h['cards'])})")
+                        print(f"[RBJ] @{p.username} H{i+1} refunded {hbet} 🪙 (cards={len(h['cards'])})")
                         if round_id:
                             db.save_round_result("rbj", round_id, hkey, p.user_id,
                                                  hbet, "refund", hbet, 0)
@@ -1016,7 +1016,7 @@ async def _finalize_round(bot: BaseBot):
                             db.update_rbj_stats(p.user_id, win=1, bj=1, bet=hbet, won=payout)
                             db.add_rbj_daily_net(p.user_id, payout - hbet)
                         total_net += payout - hbet
-                        result_parts.append(f"H{i+1} {bj_tag} +{payout:,}c")
+                        result_parts.append(f"H{i+1} {bj_tag} +{payout:,} 🪙")
                         if round_id:
                             db.mark_result_paid("rbj", round_id, hkey)
 
@@ -1040,7 +1040,7 @@ async def _finalize_round(bot: BaseBot):
                             db.update_rbj_stats(p.user_id, win=1, bet=hbet, won=payout)
                             db.add_rbj_daily_net(p.user_id, payout - hbet)
                         total_net += payout - hbet
-                        result_parts.append(f"H{i+1} {win_tag} +{payout:,}c")
+                        result_parts.append(f"H{i+1} {win_tag} +{payout:,} 🪙")
                         if round_id:
                             db.mark_result_paid("rbj", round_id, hkey)
 
@@ -1070,7 +1070,7 @@ async def _finalize_round(bot: BaseBot):
                             db.mark_result_paid("rbj", round_id, hkey)
 
                 if result_parts:
-                    net_str = f"+{total_net:,}c" if total_net >= 0 else f"{total_net:,}c"
+                    net_str = f"+{total_net:,} 🪙" if total_net >= 0 else f"{total_net:,} 🪙"
                     inner   = " | ".join(result_parts)
                     pfx     = "🧪 FORCE PAYOUT TEST\n" if is_fakepayout else ""
                     summary = f"{pfx}{_dn(p)}: {inner} | Net {net_str}"
@@ -1290,7 +1290,7 @@ async def _complete_unpaid_payouts(bot: BaseBot, mode: str, unpaid: list) -> Non
                 db.add_ledger_entry(row["user_id"], row["username"], payout,
                                     f"{mode}_recovery_payout")
                 await bot.highrise.chat(
-                    f"♻️ @{row['username']} recovered {row['result']}: {payout:,}c."
+                    f"♻️ @{row['username']} recovered {row['result']}: {payout:,} 🪙."
                 )
             db.mark_result_paid(mode, row["round_id"], row["username"])
         except Exception as exc:
@@ -1533,7 +1533,7 @@ async def _cmd_join(bot: BaseBot, user: User, args: list[str]):
         min_b = int(s.get("min_bet", 10))
         max_b = int(s.get("max_bet", 1000))
         await bot.highrise.send_whisper(
-            user.id, f"Usage: !bet <amount>  Min: {min_b:,}c  Max: {max_b:,}c"
+            user.id, f"Usage: !bet <amount>  Min: {min_b:,} 🪙  Max: {max_b:,} 🪙"
         )
         return
 
@@ -1591,12 +1591,12 @@ async def _cmd_join(bot: BaseBot, user: User, args: list[str]):
     p = _Player(user_id=user.id, username=user.username, bet=bet)
     _state.players.append(p)
     _save_player_state(p)
-    print(f"[RBJ] @{user.username} joined with {bet:,}c")
+    print(f"[RBJ] @{user.username} joined with {bet:,} 🪙")
 
     count   = len(_state.players)
     display = db.get_display_name(user.id, user.username)
     await bot.highrise.chat(
-        f"✅ {display} joined BlackJack with {bet:,}c. Players: {count}/{max_players}"
+        f"✅ {display} joined BlackJack with {bet:,} 🪙. Players: {count}/{max_players}"
     )
 
     if _state.phase == "idle":
@@ -1653,7 +1653,7 @@ async def _cmd_players(bot: BaseBot, user: User):
         return
     lines = [f"-- BlackJack Players ({_state.phase}) --"]
     for p in _state.players:
-        lines.append(f"  {_dn(p)}  {p.total_bet():,}c")
+        lines.append(f"  {_dn(p)}  {p.total_bet():,} 🪙")
     if not _state.players:
         lines.append("  (none)")
     await bot.highrise.send_whisper(user.id, "\n".join(lines)[:249])
@@ -1826,13 +1826,13 @@ async def _cmd_double(bot: BaseBot, user: User):
     if total > 21:
         h["status"] = "bust"
         await bot.highrise.chat(
-            f"💰 {_dn(p)} doubles to {h['bet']:,}c, "
+            f"💰 {_dn(p)} doubles to {h['bet']:,} 🪙, "
             f"draws {card_str(card)}. H{hidx}: {total} — bust!"
         )
     else:
         h["status"] = "stood"
         await bot.highrise.chat(
-            f"💰 {_dn(p)} doubles to {h['bet']:,}c, "
+            f"💰 {_dn(p)} doubles to {h['bet']:,} 🪙, "
             f"draws {card_str(card)}. H{hidx}: {total}."
         )
 
@@ -1990,7 +1990,7 @@ async def _cmd_rules(bot: BaseBot, user: User):
     await bot.highrise.send_whisper(user.id,
         f"🃏 BlackJack Rules\n"
         f"Shoe: {s.get('decks',6)} decks  Reshuffle: {s.get('shuffle_used_percent',75)}%\n"
-        f"Bet: {s.get('min_bet',10):,}–{s.get('max_bet',1000):,}c\n"
+        f"Bet: {s.get('min_bet',10):,}–{s.get('max_bet',1000):,} 🪙\n"
         f"Win: {s.get('win_payout',2.0)}x  BJ: {s.get('blackjack_payout',2.5)}x\n"
         f"Push: {s.get('push_rule','refund')}  "
         f"Soft17: {'hit' if s.get('dealer_hits_soft_17',1) else 'stand'}\n"
@@ -2007,9 +2007,9 @@ async def _cmd_stats(bot: BaseBot, user: User):
         f"-- {user.username} BlackJack Stats --\n"
         f"W:{s['rbj_wins']} L:{s['rbj_losses']} "
         f"P:{s['rbj_pushes']} BJ:{s['rbj_blackjacks']}\n"
-        f"Bet:{s['rbj_total_bet']:,}c  "
-        f"Won:{s['rbj_total_won']:,}c  "
-        f"Lost:{s['rbj_total_lost']:,}c"
+        f"Bet:{s['rbj_total_bet']:,} 🪙  "
+        f"Won:{s['rbj_total_won']:,} 🪙  "
+        f"Lost:{s['rbj_total_lost']:,} 🪙"
     )
 
 
@@ -2037,12 +2037,12 @@ async def _cmd_limits(bot: BaseBot, user: User):
     blon = int(s.get("rbj_betlimit_enabled", 1))
     sign = "+" if net >= 0 else ""
     if blon:
-        bet_str = f"BlackJack bet {s.get('min_bet',10):,}–{s.get('max_bet',1000):,}c ON"
+        bet_str = f"BlackJack bet {s.get('min_bet',10):,}–{s.get('max_bet',1000):,} 🪙 ON"
     else:
         bet_str = "BlackJack bet limit OFF"
     await bot.highrise.send_whisper(user.id,
         f"{bet_str} | W/L {wlim:,}/{llim:,} {won}/{lon}\n"
-        f"Today: {sign}{net:,}c"
+        f"Today: {sign}{net:,} 🪙"
     )
 
 
@@ -2056,7 +2056,7 @@ async def _cmd_leaderboard(bot: BaseBot, user: User):
         name = db.get_display_name(r["user_id"], r["username"])
         net  = r["net"]
         sign = "+" if net >= 0 else ""
-        lines.append(f"{i}. {name}  {sign}{net:,}c")
+        lines.append(f"{i}. {name}  {sign}{net:,} 🪙")
     await bot.highrise.send_whisper(user.id, "\n".join(lines)[:249])
 
 
@@ -2095,7 +2095,7 @@ async def _cmd_settings_show(bot: BaseBot, user: User):
         f"Double {dbl} | Split {spl} | MaxSplits {s.get('rbj_max_splits',1)}\n"
         f"decks:{s.get('decks',6)}  shuffle:{s.get('shuffle_used_percent',75)}%  "
         f"shoe:{_shoe.remaining}/{_shoe.total}\n"
-        f"min:{s.get('min_bet',10):,}c  max:{s.get('max_bet',1000):,}c\n"
+        f"min:{s.get('min_bet',10):,} 🪙  max:{s.get('max_bet',1000):,} 🪙\n"
         f"win:{s.get('win_payout',2.0)}x  bj:{s.get('blackjack_payout',2.5)}x\n"
         f"W/L limit: {win_on}/{loss_on}"
     )
@@ -2134,7 +2134,7 @@ async def _cmd_rbj_state(bot: BaseBot, user: User):
     msg = (
         f"BJ Shoe {_state.phase} | Players:{len(_state.players)}\n"
         f"Active:{len(active_ps)} | Timer:{secs}s | Dealer:{dc}\n"
-        f"Bets:{total_bets:,}c | Shoe:{_shoe.remaining} | id:{rid}"
+        f"Bets:{total_bets:,} 🪙 | Shoe:{_shoe.remaining} | id:{rid}"
     )
     await bot.highrise.send_whisper(user.id, msg[:249])
 
@@ -2190,9 +2190,9 @@ async def _cmd_rbj_refund(bot: BaseBot, user: User):
     _save_rbj_shoe()
     db.clear_casino_table("rbj")
     _state.reset()
-    print(f"[RBJ] /rbj refund: {refunded:,}c total")
-    await bot.highrise.chat(f"♻️ RBJ refunded. Total returned: {refunded:,}c.")
-    await bot.highrise.send_whisper(user.id, f"✅ RBJ cleared. {refunded:,}c refunded.")
+    print(f"[RBJ] /rbj refund: {refunded:,} 🪙 total")
+    await bot.highrise.chat(f"♻️ RBJ refunded. Total returned: {refunded:,} 🪙.")
+    await bot.highrise.send_whisper(user.id, f"✅ RBJ cleared. {refunded:,} 🪙 refunded.")
 
 
 async def _cmd_rbj_forcefinish(bot: BaseBot, user: User):
@@ -2373,7 +2373,7 @@ async def handle_rbj_set(bot: BaseBot, user: User, cmd: str, args: list[str]):
                 await bot.highrise.send_whisper(user.id, "Min bet must be less than max bet.")
                 return
             db.set_rbj_setting("min_bet", val)
-            await bot.highrise.send_whisper(user.id, f"✅ RBJ min bet set to {val:,}c.")
+            await bot.highrise.send_whisper(user.id, f"✅ RBJ min bet set to {val:,} 🪙.")
 
         elif cmd == "setrbjmaxbet":
             if not raw.isdigit() or int(raw) < 1:
@@ -2384,7 +2384,7 @@ async def handle_rbj_set(bot: BaseBot, user: User, cmd: str, args: list[str]):
                 await bot.highrise.send_whisper(user.id, "Max bet must be greater than min bet.")
                 return
             db.set_rbj_setting("max_bet", val)
-            await bot.highrise.send_whisper(user.id, f"✅ RBJ max bet set to {val:,}c.")
+            await bot.highrise.send_whisper(user.id, f"✅ RBJ max bet set to {val:,} 🪙.")
 
         elif cmd == "setrbjshuffle":
             if not raw.isdigit() or not (50 <= int(raw) <= 95):
@@ -2450,14 +2450,14 @@ async def handle_rbj_set(bot: BaseBot, user: User, cmd: str, args: list[str]):
                 await bot.highrise.send_whisper(user.id, "Use !setrbjdailywinlimit <amount>.")
                 return
             db.set_rbj_setting("rbj_daily_win_limit", int(raw))
-            await bot.highrise.send_whisper(user.id, f"✅ RBJ daily win limit set to {int(raw):,}c.")
+            await bot.highrise.send_whisper(user.id, f"✅ RBJ daily win limit set to {int(raw):,} 🪙.")
 
         elif cmd == "setrbjdailylosslimit":
             if not raw.isdigit() or not (100 <= int(raw) <= 1_000_000):
                 await bot.highrise.send_whisper(user.id, "Use !setrbjdailylosslimit <amount>.")
                 return
             db.set_rbj_setting("rbj_daily_loss_limit", int(raw))
-            await bot.highrise.send_whisper(user.id, f"✅ RBJ daily loss limit set to {int(raw):,}c.")
+            await bot.highrise.send_whisper(user.id, f"✅ RBJ daily loss limit set to {int(raw):,} 🪙.")
 
         else:
             await bot.highrise.send_whisper(
@@ -2507,7 +2507,7 @@ async def _cmd_insurance(bot: BaseBot, user: User):
     insurance_bet = max(1, h["bet"] // 2)
     if db.get_balance(user.id) < insurance_bet:
         await bot.highrise.send_whisper(
-            user.id, f"❌ Not enough coins for insurance ({insurance_bet:,}c)."
+            user.id, f"❌ Not enough coins for insurance ({insurance_bet:,} 🪙)."
         )
         return
     db.adjust_balance(user.id, -insurance_bet)
@@ -2519,7 +2519,7 @@ async def _cmd_insurance(bot: BaseBot, user: User):
     _save_table_state()
     await bot.highrise.send_whisper(
         user.id,
-        f"🛡️ Insurance placed: {insurance_bet:,}c. Pays 2:1 if dealer has BlackJack."
+        f"🛡️ Insurance placed: {insurance_bet:,} 🪙. Pays 2:1 if dealer has BlackJack."
     )
 
 
@@ -2554,7 +2554,7 @@ async def _cmd_surrender_rbj(bot: BaseBot, user: User):
     _save_table_state()
     display = db.get_display_name(user.id, user.username)
     await bot.highrise.chat(
-        f"🏳️ {display} surrenders. {refund:,}c returned."[:249]
+        f"🏳️ {display} surrenders. {refund:,} 🪙 returned."[:249]
     )
     p.advance_hand()
     _save_player_state(p)
@@ -2574,7 +2574,7 @@ async def _cmd_bj_help(bot: BaseBot, user: User):
     max_str = "Unlimited" if max_b == 0 else f"{max_b:,}"
     await bot.highrise.send_whisper(user.id, (
         f"🃏 Blackjack Help\n"
-        f"Bet: {min_b:,}–{max_str}c\n"
+        f"Bet: {min_b:,}–{max_str} 🪙\n"
         f"Join: !bet [amount]\n"
         f"Actions: !hit  !stand\n"
         f"More: !double  !split\n"
@@ -2621,7 +2621,7 @@ async def handle_bet(bot: BaseBot, user: User, args: list) -> None:
         max_b = int(s.get("max_bet", 1000))
         await bot.highrise.send_whisper(
             user.id,
-            f"🃏 BlackJack\nUsage: !bet <amount>\nMin: {min_b:,}c  Max: {max_b:,}c"
+            f"🃏 BlackJack\nUsage: !bet <amount>\nMin: {min_b:,} 🪙  Max: {max_b:,} 🪙"
         )
         return
 
@@ -2670,7 +2670,7 @@ async def handle_bet(bot: BaseBot, user: User, args: list) -> None:
         if bal + p.bet < bet:
             await bot.highrise.send_whisper(
                 user.id,
-                f"❌ Not enough coins. Balance: {bal:,}c + current bet: {p.bet:,}c."
+                f"❌ Not enough coins. Balance: {bal:,} 🪙 + current bet: {p.bet:,} 🪙."
             )
             return
         db.adjust_balance(user.id, p.bet)   # refund old bet
@@ -2680,7 +2680,7 @@ async def handle_bet(bot: BaseBot, user: User, args: list) -> None:
         _save_player_state(p)
         _save_table_state()
         await bot.highrise.send_whisper(
-            user.id, f"✅ Bet updated: {old_bet:,}c → {bet:,}c."
+            user.id, f"✅ Bet updated: {old_bet:,} 🪙 → {bet:,} 🪙."
         )
         return
 
@@ -2735,7 +2735,7 @@ async def handle_bjstatus(bot: BaseBot, user: User) -> None:
     dealer_up = card_str(_state.dealer_hand[0]) if _state.dealer_hand else "?"
     msg = (
         f"🃏 BJ Status\n"
-        f"Bet: {bet:,}c\n"
+        f"Bet: {bet:,} 🪙\n"
         f"You: {h_str} = {hv}\n"
         f"Dealer: {dealer_up}\n"
         f"Use !hit or !stand."
@@ -3173,7 +3173,7 @@ async def handle_bjadmin(bot: "BaseBot", user: "User", args: list[str]) -> None:
             h   = p.current_hand() or (p.hands[0] if p.hands else None)
             st  = h.get("status", "?") if h else "?"
             bet = p.total_bet()
-            lines.append(f"@{p.username} — {bet:,}c — {st}")
+            lines.append(f"@{p.username} — {bet:,} 🪙 — {st}")
         await bot.highrise.send_whisper(user.id, "\n".join(lines)[:249])
 
     # ── shoe (staff+) ─────────────────────────────────────────────────────────
@@ -3286,7 +3286,7 @@ async def handle_bjadmin(bot: "BaseBot", user: "User", args: list[str]) -> None:
         _cancel_task(_state.action_task, "Action timer")
         db.clear_casino_table("rbj")
         _state.reset()
-        await bot.highrise.send_whisper(user.id, f"💰 Refund complete. {refunded:,}c returned.")
+        await bot.highrise.send_whisper(user.id, f"💰 Refund complete. {refunded:,} 🪙 returned.")
 
     # ── restore (manager+) ────────────────────────────────────────────────────
     elif sub == "restore":
@@ -3329,11 +3329,11 @@ async def handle_bjadmin(bot: "BaseBot", user: "User", args: list[str]) -> None:
             return
         s       = _settings()
         max_b   = int(s.get("max_bet", 1000))
-        max_str = "Unlimited" if max_b == 0 else f"{max_b:,}c"
+        max_str = "Unlimited" if max_b == 0 else f"{max_b:,} 🪙"
         msg = (
             f"⚙️ BJ Settings\n"
             f"Timer: {s.get('rbj_action_timer', 30)}s\n"
-            f"Min Bet: {int(s.get('min_bet', 10)):,}c\n"
+            f"Min Bet: {int(s.get('min_bet', 10)):,} 🪙\n"
             f"Max Bet: {max_str}\n"
             f"Shuffle: {s.get('shuffle_used_percent', 75)}%"
         )
@@ -3379,13 +3379,13 @@ async def handle_bjadmin(bot: "BaseBot", user: "User", args: list[str]) -> None:
                 await bot.highrise.send_whisper(user.id, "⚠️ Min bet must be > 0.")
                 return
             db.set_rbj_setting("min_bet", int(val))
-            await bot.highrise.send_whisper(user.id, f"✅ Min bet set to {int(val):,}c")
+            await bot.highrise.send_whisper(user.id, f"✅ Min bet set to {int(val):,} 🪙")
         elif key == "maxbet":
             if val <= 0:
                 await bot.highrise.send_whisper(user.id, "⚠️ Use 'unlimited' or a positive number.")
                 return
             db.set_rbj_setting("max_bet", int(val))
-            await bot.highrise.send_whisper(user.id, f"✅ Max bet set to {int(val):,}c")
+            await bot.highrise.send_whisper(user.id, f"✅ Max bet set to {int(val):,} 🪙")
         elif key == "shuffle":
             if val <= 0:
                 await bot.highrise.send_whisper(user.id, "⚠️ Shuffle % must be > 0.")
@@ -3476,9 +3476,9 @@ async def handle_bjadmin(bot: "BaseBot", user: "User", args: list[str]) -> None:
         db.clear_casino_table("rbj")
         _state.reset()
         await bot.highrise.send_whisper(
-            user.id, f"⚠️ Emergency refund: {refunded:,}c returned."
+            user.id, f"⚠️ Emergency refund: {refunded:,} 🪙 returned."
         )
-        print(f"[BJADMIN] Emergency refund {refunded:,}c by {user.username}")
+        print(f"[BJADMIN] Emergency refund {refunded:,} 🪙 by {user.username}")
 
     # ── unknown subcommand ────────────────────────────────────────────────────
     else:

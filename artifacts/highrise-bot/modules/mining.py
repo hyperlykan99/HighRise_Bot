@@ -571,7 +571,7 @@ async def handle_mine(bot: BaseBot, user: User) -> None:
         # Try to fit rarity label + ore + weight + value in one message
         inline = (f"<#66CCFF>⛏️ Mining<#FFFFFF>\n"
                   f"You mined {rar_label} {ore_colored}{qty_str}"
-                  f" | ⚖️ {ore_weight}kg | 💰 {_fmt(final_val)}c{lvlup}")
+                  f" | ⚖️ {ore_weight}kg | 💰 {_fmt(final_val)} 🪙{lvlup}")
         if len(inline) <= 249:
             await _w(bot, user.id, inline)
             await _w(bot, user.id, f"⭐ MXP: +{_fmt(mxp)}")
@@ -581,7 +581,7 @@ async def handle_mine(bot: BaseBot, user: User) -> None:
                      f"You mined {rar_label} {ore_colored}{qty_str}{lvlup}")
             await _w(bot, user.id, line1[:249])
             await _w(bot, user.id,
-                     f"⚖️ {ore_weight}kg | 💰 {_fmt(final_val)}c | ⭐ MXP: +{_fmt(mxp)}")
+                     f"⚖️ {ore_weight}kg | 💰 {_fmt(final_val)} 🪙 | ⭐ MXP: +{_fmt(mxp)}")
         try:
             add_weight_record(uname, user.id, item["item_id"], item["rarity"],
                               ore_weight, item.get("sell_value", 0), final_val, mxp)
@@ -657,7 +657,7 @@ async def handle_tool(bot: BaseBot, user: User) -> None:
     if lvl < 10:
         reqs  = UPGRADE_REQS.get(lvl + 1, (0, []))
         coins = reqs[0]
-        msg   += f"\nUpgrade: !upgradetool | Cost {_fmt(coins)}c"
+        msg   += f"\nUpgrade: !upgradetool | Cost {_fmt(coins)} 🪙"
     else:
         msg   += "\n🏆 Max level!"
     await _w(bot, user.id, msg[:249])
@@ -687,7 +687,7 @@ async def handle_upgradetool(bot: BaseBot, user: User) -> None:
     # Check coins
     missing_parts = []
     if balance < coin_cost:
-        missing_parts.append(f"{_fmt(coin_cost)}c (have {_fmt(balance)}c)")
+        missing_parts.append(f"{_fmt(coin_cost)} 🪙 (have {_fmt(balance)} 🪙)")
 
     # Check ores
     for ore_id, qty in ore_reqs:
@@ -756,7 +756,7 @@ async def handle_mineprofile(bot: BaseBot, user: User, args: list[str]) -> None:
             f"⛏️ @{user.username} Mining Stats\n"
             f"Mines: {_fmt(miner['total_mines'])} | Ores: {_fmt(miner['total_ores'])}\n"
             f"Rare finds: {miner['rare_finds']}\n"
-            f"Coins earned: {_fmt(miner['coins_earned'])}c\n"
+            f"Coins earned: {_fmt(miner['coins_earned'])} 🪙\n"
             f"Streak: {miner['streak_days']} days{evt}"
         )
     await _w(bot, user.id, msg)
@@ -832,8 +832,8 @@ async def handle_sellores(bot: BaseBot, user: User) -> None:
     await _w(bot, user.id,
              f"💰 Sold Ores\n"
              f"Items sold: {result['count']}\n"
-             f"Total: {_fmt(result['coins'])}c\n"
-             f"New Balance: {_fmt(new_bal)}c")
+             f"Total: {_fmt(result['coins'])} 🪙\n"
+             f"New Balance: {_fmt(new_bal)} 🪙")
 
 
 async def handle_sellore(bot: BaseBot, user: User, args: list[str]) -> None:
@@ -872,7 +872,7 @@ async def handle_sellore(bot: BaseBot, user: User, args: list[str]) -> None:
     miner = db.get_or_create_miner(user.username)
     db.update_miner(user.username, coins_earned=miner["coins_earned"] + res["coins"])
     await _w(bot, user.id,
-             f"✅ Sold {it['emoji']} {it['name']} x{qty} for {_fmt(res['coins'])}c.")
+             f"✅ Sold {it['emoji']} {it['name']} x{qty} for {_fmt(res['coins'])} 🪙.")
 
 
 # ---------------------------------------------------------------------------
@@ -897,7 +897,7 @@ async def handle_minelb(bot: BaseBot, user: User, args: list[str]) -> None:
     elif sub == "coins":
         rows  = db.get_mine_leaderboard("coins_earned")
         title = "💰 Mining Coins Earned"
-        fmt   = lambda r: f"{_fmt(r['val'])}c"
+        fmt   = lambda r: f"{_fmt(r['val'])} 🪙"
     elif sub == "meteorite":
         rows  = db.get_meteorite_leaderboard()
         title = "☄️ Meteorite Finds"
@@ -926,7 +926,7 @@ async def handle_mineshop(bot: BaseBot, user: User) -> None:
     lines = ["⛏️ Mine Shop"]
     session_items = []
     for i, (item_id, it) in enumerate(_MINE_SHOP_LIST_ITEMS(), 1):
-        lines.append(f"{i} {it['emoji']} {it['name']} {_fmt(it['price'])}c")
+        lines.append(f"{i} {it['emoji']} {it['name']} {_fmt(it['price'])} 🪙")
         session_items.append({
             "num":       i,
             "item_id":   item_id,
@@ -977,7 +977,7 @@ async def handle_minebuy(bot: BaseBot, user: User, args: list[str]) -> None:
     if not ok:
         bal = db.get_balance(user.id)
         await _w(bot, user.id,
-                 f"Need {_fmt(it['price'])}c — you have {_fmt(bal)}c.")
+                 f"Need {_fmt(it['price'])} 🪙 — you have {_fmt(bal)} 🪙.")
         return
 
     miner = db.get_or_create_miner(user.username)
@@ -1168,7 +1168,7 @@ async def handle_minedaily(bot: BaseBot, user: User) -> None:
         db.grant_item(user.id, "chill_miner", "title")
         extra = " 🏆 Streak 30: [Chill Miner] title!"
 
-    msg = (f"🎁 Mining daily: +{_fmt(coin_gain)}c, +{mxp_gain} MXP. "
+    msg = (f"🎁 Mining daily: +{_fmt(coin_gain)} 🪙, +{mxp_gain} MXP. "
            f"Streak {streak}.{extra}")
     await _w(bot, user.id, msg[:249])
 
@@ -1802,7 +1802,7 @@ async def handle_oreprices(bot: BaseBot, user: User, args: list[str] | None = No
     subset = ores[start:start + _ORE_PAGE_SIZE]
 
     lines = [
-        f"{it['emoji']} {it['name']} — {it.get('sell_value', 0):,}c | {wlo}–{whi}kg"
+        f"{it['emoji']} {it['name']} — {it.get('sell_value', 0):,} 🪙 | {wlo}–{whi}kg"
         for it in subset
     ]
     msg = header + "\n" + "\n".join(lines)
@@ -1874,7 +1874,7 @@ async def handle_oreinfo(bot: BaseBot, user: User, args: list[str] | None = None
         f"{ore_display}\n"
         f"Rarity: {rar_name}\n"
         f"Chance: 1 in {one_in:,}\n"
-        f"Value: {val:,}c\n"
+        f"Value: {val:,} 🪙\n"
         f"Weight: {wlo}–{whi}kg\n"
         f"Announce: {announce}"
     )
@@ -2071,7 +2071,7 @@ async def handle_oremastery(bot: BaseBot, user: User) -> None:
             state = "🎁"
         else:
             state = f"{_fmt(total)}/{threshold}"
-        lines.append(f"{i}. {state} {title} ({threshold}) → {reward}c")
+        lines.append(f"{i}. {state} {title} ({threshold}) → {reward} 🪙")
     lines.append("!claimoremastery [1-6] to claim 🎁 rewards.")
     await _w(bot, user.id, "\n".join(lines)[:249])
 
@@ -2100,7 +2100,7 @@ async def handle_claimoremastery(bot: BaseBot, user: User, args: list[str]) -> N
     if user_row:
         db.add_balance(user_row["user_id"], reward)
     db.update_miner(user.username, coins_earned=miner.get("coins_earned", 0) + reward)
-    await _w(bot, user.id, f"🎉 Mastery '{title}' claimed! +{reward:,}c.")
+    await _w(bot, user.id, f"🎉 Mastery '{title}' claimed! +{reward:,} 🪙.")
 
 
 async def handle_orestats(bot: BaseBot, user: User, args: list[str]) -> None:
@@ -2113,8 +2113,8 @@ async def handle_orestats(bot: BaseBot, user: User, args: list[str]) -> None:
         f"⛏️ {target} Ore Stats",
         f"Total mined: {_fmt(miner.get('total_ores', 0))}",
         f"Rare finds: {_fmt(miner.get('rare_finds', 0))}",
-        f"Coins earned: {_fmt(miner.get('coins_earned', 0))}c",
-        f"Inv value: {_fmt(total_val)}c | Types: {len(inv)}",
+        f"Coins earned: {_fmt(miner.get('coins_earned', 0))} 🪙",
+        f"Inv value: {_fmt(total_val)} 🪙 | Types: {len(inv)}",
     ]
     await _w(bot, user.id, "\n".join(lines)[:249])
 
@@ -2123,7 +2123,7 @@ async def handle_contracts(bot: BaseBot, user: User) -> None:
     """/contracts (/miningjobs) — browse available mining contracts."""
     lines = ["📋 Mining Contracts — /job <#> to accept"]
     for cid, ore_id, qty, reward, name, emoji in _CONTRACT_POOL:
-        lines.append(f"{cid}. {emoji} {name} x{qty} → {reward:,}c")
+        lines.append(f"{cid}. {emoji} {name} x{qty} → {reward:,} 🪙")
     lines.append("Active contract: /job  |  Deliver: /deliver  |  Reroll: /rerolljob")
     await _w(bot, user.id, "\n".join(lines)[:249])
 
@@ -2144,7 +2144,7 @@ async def handle_job(bot: BaseBot, user: User, args: list[str]) -> None:
         import datetime as _dt
         expires = (_dt.datetime.utcnow() + _dt.timedelta(hours=24)).strftime("%Y-%m-%d %H:%M:%S")
         db.set_miner_contract(user.username, cid, ore_id, qty, reward, expires)
-        await _w(bot, user.id, f"📋 Contract: {emoji} {name} x{qty} → {reward:,}c (24h) | /deliver to submit.")
+        await _w(bot, user.id, f"📋 Contract: {emoji} {name} x{qty} → {reward:,} 🪙 (24h) | /deliver to submit.")
         return
     current = db.get_miner_contract(user.username)
     if not current:
@@ -2158,7 +2158,7 @@ async def handle_job(bot: BaseBot, user: User, args: list[str]) -> None:
     await _w(bot, user.id,
              f"📋 Job: {name} x{needed}\n"
              f"Progress: {delivered}/{needed} ({pct}%)\n"
-             f"Reward: {reward:,}c\n"
+             f"Reward: {reward:,} 🪙\n"
              f"/deliver to submit | /claimjob when done | /rerolljob to cancel")
 
 
@@ -2210,7 +2210,7 @@ async def handle_claimjob(bot: BaseBot, user: User) -> None:
         db.add_balance(user_row["user_id"], reward)
     miner = db.get_or_create_miner(user.username)
     db.update_miner(user.username, coins_earned=miner.get("coins_earned", 0) + reward)
-    await _w(bot, user.id, f"🎉 Contract complete! +{reward:,}c earned. /contracts for more jobs.")
+    await _w(bot, user.id, f"🎉 Contract complete! +{reward:,} 🪙 earned. /contracts for more jobs.")
 
 
 async def handle_rerolljob(bot: BaseBot, user: User) -> None:
@@ -2309,7 +2309,7 @@ async def handle_orechance(bot: BaseBot, user: User, args: list[str]) -> None:
              f"⛏️ {target['emoji']} {target['name']}\n"
              f"Rarity: {rar_lbl}\n"
              f"Chance: 1-in-{one_in} per mine\n"
-             f"Value: {target.get('sell_value', 0)}c"[:249])
+             f"Value: {target.get('sell_value', 0)} 🪙"[:249])
 
 
 async def handle_setorechance(
@@ -2550,7 +2550,7 @@ async def handle_simannounce(bot: BaseBot, user: User, args: list[str]) -> None:
     ore_disp  = format_ore_name(
         f"{target_item['emoji']} {target_item['name']}", rar
     )
-    val_str   = f" — {ore_wt}kg, {_fmt(final_v)}c!" if ore_wt is not None else "!"
+    val_str   = f" — {ore_wt}kg, {_fmt(final_v)} 🪙!" if ore_wt is not None else "!"
 
     ann1 = "<#FFD700>📣 Big Find<#FFFFFF>"
     ann2 = f"💎 {display_name} mined {rar_label} {ore_disp}{val_str}"
@@ -2726,7 +2726,7 @@ async def _send_automine_summary(bot: BaseBot, uid: str, uname: str,
     luck      = stats.get("luck_total", "?")
     msg1 = (f"⛏️ Auto-Mining Complete\n"
             f"Time: {elapsed_m}m | Mined: {mines}\n"
-            f"Earned: {_fmt(value)}c | Best: {best}\n"
+            f"Earned: {_fmt(value)} 🪙 | Best: {best}\n"
             f"New: {new_cnt} | Rare: {rare_ct} | Luck: {luck}")
     msg2 = ""
     if new_cnt > 0:

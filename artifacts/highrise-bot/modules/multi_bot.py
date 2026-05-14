@@ -308,6 +308,7 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "tipreceiverlb": "banker", "topreceivers": "banker",
     # ── host (audit / status commands) ───────────────────────────────────────
     "checkcommands": "host", "checkhelp": "host", "launchcheck": "host",
+    "currencycheck": "host",
     "missingcommands": "host", "routecheck": "host",
     "silentcheck": "host", "commandtest": "host",
     "fixcommands": "host", "testcommands": "host",

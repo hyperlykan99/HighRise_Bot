@@ -561,7 +561,7 @@ async def handle_fish(bot: BaseBot, user: User) -> None:
     if _sold_now:
         msg = (f"🎣 Fishing\n"
                f"You caught {rlabel} {fish['emoji']} {nclr} | "
-               f"⚖️ {weight}lb | 💰 {_fmt(value)}c | ⭐ +{fxp} FXP")
+               f"⚖️ {weight}lb | 💰 {_fmt(value)} 🪙 | ⭐ +{fxp} FXP")
     else:
         msg = (f"🎣 Fishing\n"
                f"You caught {rlabel} {fish['emoji']} {nclr} | "
@@ -694,7 +694,7 @@ async def handle_fishprices(bot: BaseBot, user: User, args: list[str]) -> None:
     lines = [f"💰 {rarity.title()} Prices p{page}/{total_pages}"]
     for f in chunk:
         lines.append(
-            f"{f['emoji']} {f['name']} — {_fmt(f['base_value'])}c"
+            f"{f['emoji']} {f['name']} — {_fmt(f['base_value'])} 🪙"
             f" | {f['min_weight']}–{f['max_weight']}lb"
         )
     await _w(bot, user.id, "\n".join(lines)[:249])
@@ -726,7 +726,7 @@ async def handle_fishinfo(bot: BaseBot, user: User, args: list[str]) -> None:
         f"Name: {fish['name']}",
         f"Rarity: {rlabel}",
         f"Chance: {_display_chance(fish['drop_weight'])}",
-        f"Base Value: {_fmt(fish['base_value'])}c",
+        f"Base Value: {_fmt(fish['base_value'])} 🪙",
         f"Weight: {fish['min_weight']}–{fish['max_weight']}lb",
         f"FXP: +{fish['base_fxp']}",
     ]
@@ -758,7 +758,7 @@ async def handle_myfish(bot: BaseBot, user: User) -> None:
     ]
     if inv:
         total_val = sum(r["value"] for r in inv)
-        lines.append(f"Unsold ({len(inv)}+) | Value: {_fmt(total_val)}c:")
+        lines.append(f"Unsold ({len(inv)}+) | Value: {_fmt(total_val)} 🪙:")
         for r in inv[:2]:
             rl = _rar_plain(r["rarity"])
             _fn = (f"<#FF66CC>{r['fish_name']}<#FFFFFF>" if r["rarity"] == "prismatic" else
@@ -788,8 +788,8 @@ async def handle_sellfish(bot: BaseBot, user: User) -> None:
     await _w(bot, user.id,
              f"💰 Sold Fish\n"
              f"Items sold: {count}\n"
-             f"Total: {_fmt(coins)}c\n"
-             f"New Balance: {_fmt(new_bal)}c")
+             f"Total: {_fmt(coins)} 🪙\n"
+             f"New Balance: {_fmt(new_bal)} 🪙")
 
 
 async def handle_sellallfish(bot: BaseBot, user: User) -> None:
@@ -1214,7 +1214,7 @@ async def handle_rods(bot: BaseBot, user: User) -> None:
     """/rods — list all rods."""
     lines = ["🎣 Fishing Rods"]
     for name, r in FISHING_RODS.items():
-        price = f"{_fmt(r['price'])}c" if r["price"] else "Free"
+        price = f"{_fmt(r['price'])} 🪙" if r["price"] else "Free"
         lines.append(f"• {name} — {price} | {r['cooldown']}s cd")
     await _w(bot, user.id, "\n".join(lines)[:249])
 
@@ -1243,7 +1243,7 @@ async def handle_rodshop(bot: BaseBot, user: User) -> None:
     for i, (name, r) in enumerate(FISHING_RODS.items(), 1):
         if r["price"] == 0:
             continue
-        lines.append(f"{i}. {name} — {_fmt(r['price'])}c | {r['cooldown']}s cd")
+        lines.append(f"{i}. {name} — {_fmt(r['price'])} 🪙 | {r['cooldown']}s cd")
     lines.append("Buy: !buyrod [name]")
     await _w(bot, user.id, "\n".join(lines)[:249])
 
@@ -1272,8 +1272,8 @@ async def handle_buyrod(bot: BaseBot, user: User, args: list[str]) -> None:
     bal = db.get_balance(user.id)
     if bal < rod["price"]:
         await _w(bot, user.id,
-                 f"🎣 {rod_name} costs {_fmt(rod['price'])}c.\n"
-                 f"You have {_fmt(bal)}c. Not enough coins.")
+                 f"🎣 {rod_name} costs {_fmt(rod['price'])} 🪙.\n"
+                 f"You have {_fmt(bal)} 🪙. Not enough coins.")
         return
     db.adjust_balance(user.id, -rod["price"])
     db.add_player_rod(user.id, user.username, rod_name)
@@ -1315,7 +1315,7 @@ async def handle_rodinfo(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, f"Rod not found: {query}")
         return
     r = FISHING_RODS[rod_name]
-    price = f"{_fmt(r['price'])}c" if r["price"] else "Free"
+    price = f"{_fmt(r['price'])} 🪙" if r["price"] else "Free"
     lines = [
         f"🎣 {rod_name}",
         f"Price: {price}",
@@ -1374,7 +1374,7 @@ async def _send_autofish_summary(bot: BaseBot, uid: str, uname: str,
     luck      = stats.get("luck_total", "?")
     msg1 = (f"🎣 Auto-Fishing Complete\n"
             f"Time: {elapsed_m}m | Casts: {casts}\n"
-            f"Earned: {_fmt(earned)}c | Best: {best}\n"
+            f"Earned: {_fmt(earned)} 🪙 | Best: {best}\n"
             f"New: {new_cnt} | Rare: {rare_ct} | Luck: {luck}")
     msg2 = ""
     if new_cnt > 0:
@@ -1544,7 +1544,7 @@ async def _autofish_loop(bot: BaseBot, user: User) -> None:
             nclr   = _name_colored(fish["rarity"], fish["name"])
             msg    = (f"🎣 AutoFish #{attempts}\n"
                       f"{rlabel} {fish['emoji']} {nclr} | "
-                      f"⚖️ {weight}lb | 💰 {_fmt(value)}c | ⭐ +{fxp} FXP")
+                      f"⚖️ {weight}lb | 💰 {_fmt(value)} 🪙 | ⭐ +{fxp} FXP")
             await _w(bot, uid, msg[:249])
 
             if leveled:

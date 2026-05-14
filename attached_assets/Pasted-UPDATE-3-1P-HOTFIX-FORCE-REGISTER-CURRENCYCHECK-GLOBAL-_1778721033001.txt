@@ -1,0 +1,428 @@
+UPDATE 3.1P HOTFIX — FORCE REGISTER !CURRENCYCHECK + GLOBAL GAME CURRENCY FORMATTER
+
+Current live issues:
+1. !currencycheck still does not work.
+   !commandtest !currencycheck shows:
+   owner=UNKNOWN | route=NO | handler=NO | fix=add_to_registry
+
+2. Games are still using old currency format:
+   100c
+   500c
+   won 1,000c
+   bet 10,000c
+
+Goal:
+1. Force-add !currencycheck to the command registry, route table, and handler map.
+2. Replace all player-facing game currency text from “c” to 🪙.
+3. Add one shared currency formatter and use it across every game/module.
+
+Do not change tokens.
+Do not wipe data.
+Do not reset balances.
+Do not change economy values.
+Do not change game odds.
+Do not re-add reward caps.
+Do not add HR Gold rewards.
+
+==================================================
+PART 1 — FORCE REGISTER !CURRENCYCHECK EVERYWHERE
+==================================================
+
+Add !currencycheck to ALL command systems used by this project:
+
+- command registry
+- route map
+- handler map
+- command owner map
+- command metadata/help registry
+- commandtest registry
+- checkcommands registry
+
+Command:
+!currencycheck
+
+Owner:
+ChillTopiaMC or KeanuShield
+
+Permission:
+Owner/Admin only
+
+Expected:
+
+!commandtest !currencycheck
+
+ct: currencycheck
+owner=ChillTopiaMC or KeanuShield
+route=YES
+handler=YES
+permission=admin/owner
+
+If there are multiple registries, update all of them.
+Do not only add the function.
+Do not only add help text.
+The command must route.
+
+==================================================
+PART 2 — ADD HANDLER
+==================================================
+
+Implement actual handler:
+
+!currencycheck
+!currencycheck details
+
+If normal player uses:
+🔒 Owner/Admin only.
+
+Owner/Admin output:
+
+💰 Currency Check
+🪙 ChillCoins: OK
+🎫 Luxe Tickets: OK
+Old “c”: [count]
+Old “credits”: [count]
+Old “gems”: [count]
+
+If no issues:
+✅ No old currency text found.
+
+Details:
+
+!currencycheck details
+
+Expected:
+
+🔎 Currency Issues
+1. blackjack: “100c”
+2. trivia: “500c”
+3. poker: “bet 1000c”
+
+Keep each message under 220 chars.
+
+==================================================
+PART 3 — CREATE GLOBAL CURRENCY FORMATTER
+==================================================
+
+Create one shared helper and use it everywhere:
+
+format_chillcoins(amount)
+returns:
+1,000 🪙
+
+format_luxe(amount)
+returns:
+100 🎫
+
+format_currency(amount, currency)
+- chillcoins => 1,000 🪙
+- luxe_tickets => 100 🎫
+- gold/highrise_gold => 100 Gold
+
+Rules:
+- No player-facing command should manually append “c”.
+- No game should use f"{amount}c".
+- No output should use “credits”.
+- Use formatter for all rewards, bets, costs, payouts, balances, and summaries.
+
+==================================================
+PART 4 — REPLACE GAME CURRENCY TEXT
+==================================================
+
+Search all game modules for old text:
+
+"c"
+"{amount}c"
+"{}c"
+"%dc"
+"credits"
+"coin(s)" if shown as old credits
+"bet {amount}c"
+"won {amount}c"
+"lost {amount}c"
+"paid {amount}c"
+"Balance: {amount}c"
+
+Fix all player-facing text in:
+
+Blackjack / AceSinatra:
+- !bet
+- !bjrules
+- !bjhelp
+- !bjstatus
+- round start
+- player joined
+- win/loss/push
+- natural BJ payout
+- suited BJ payout
+- bonuses
+- admin settings
+- force/test payout messages
+
+Poker:
+- buy-in
+- pot
+- winner payout
+- balance
+- admin/settings
+
+Trivia:
+- correct answer reward
+- streak bonus
+- fast answer bonus
+- reward messages
+
+Mining/Fishing:
+- manual rewards
+- auto summaries
+- sell ore/fish
+- shop prices
+- luck/potion prices if shown
+
+Missions/Daily/Weekly:
+- mission rewards
+- chest rewards
+- streak rewards
+
+Casino/All Games:
+- any mini-game payout
+- game help
+- leaderboard values if money shown
+
+Market/Badges:
+- listing price
+- buy/sell
+- badge shop
+- trade messages
+
+Economy/Admin/Audit:
+- !audit
+- !economyaudit
+- !ownerdash
+- !economydash
+- !safetydash if money shown
+
+==================================================
+PART 5 — BLACKJACK SPECIFIC FIX
+==================================================
+
+Blackjack must display:
+
+Old:
+joined BlackJack with 10,000c
+
+New:
+joined BlackJack with 10,000 🪙
+
+Old:
+Max Bet: 10,000c
+
+New:
+Max Bet: 10,000 🪙
+
+Old:
+You won 25,000c
+
+New:
+You won 25,000 🪙
+
+Rules:
+- Do not change blackjack math.
+- Do not change max bet.
+- Do not change payouts.
+- Only display format.
+
+==================================================
+PART 6 — POKER SPECIFIC FIX
+==================================================
+
+Poker must display:
+
+Pot: 50,000 🪙
+Buy-in: 10,000 🪙
+@Player won 100,000 🪙
+
+No “c”.
+
+==================================================
+PART 7 — TRIVIA SPECIFIC FIX
+==================================================
+
+Trivia must display:
+
+✅ Correct!
+@Player won 500 🪙.
+
+No:
+500c
+credits
+reward capped
+
+==================================================
+PART 8 — MINING/FISHING SPECIFIC FIX
+==================================================
+
+Mining/Fishing must display:
+
+You found [ORE] and earned 500 🪙.
+You caught [FISH] and earned 500 🪙.
+Auto summary earned: 50,000 🪙.
+
+No “c”.
+
+==================================================
+PART 9 — DO NOT BREAK HIGHRISE GOLD TEXT
+==================================================
+
+Do not replace real Highrise Gold references with 🪙.
+
+Keep:
+100 Gold
+Highrise Gold
+verified Gold tip
+
+Luxe conversion should be:
+
+Tip: 100 Gold
+Added: 100 🎫
+
+Not:
+Tip: 100 🪙
+
+==================================================
+PART 10 — CURRENCYCHECK SHOULD SCAN REAL OUTPUT TEMPLATES
+==================================================
+
+!currencycheck should scan player-facing strings/templates for:
+
+amount+c patterns:
+100c
+1,000c
+{amount}c
+{bet}c
+{payout}c
+{reward}c
+
+old words:
+credits
+gems
+
+It should report where found.
+
+Do not flag:
+- code variable names
+- database column names
+- comments
+- normal words containing letter c
+- Highrise Gold
+
+==================================================
+PART 11 — UPDATE COMMAND HELP
+==================================================
+
+Show !currencycheck only in:
+
+!commands admin
+!commands owner
+!adminhelp
+!ownerhelp
+
+Do NOT show in:
+!help
+!commands economy
+!guide economy
+public help
+
+==================================================
+PART 12 — TESTS
+==================================================
+
+Run:
+
+!commandtest !currencycheck
+
+Expected:
+owner not UNKNOWN
+route=YES
+handler=YES
+
+Run:
+
+!currencycheck
+
+Expected:
+- command works
+- scans old text
+- owner/admin only
+
+Run:
+
+!currencycheck details
+
+Expected:
+- shows exact old currency locations or says no issues
+
+Then test game outputs:
+
+!bjrules
+!bjadmin settings
+!bet 100
+!trivia or answer trivia
+!mine
+!fish
+!missions
+!daily
+!balance
+!audit @4ktreyMarion
+
+Expected:
+- all use 🪙 and 🎫
+- no “c”
+- no “credits”
+- no “gems”
+
+==================================================
+PART 13 — FINAL QA
+==================================================
+
+Run:
+
+!commandissues
+!checkcommands
+!checkhelp
+!currencycheck
+!currencycheck details
+!launchcheck
+!bothealth
+!stability status
+
+Expected:
+- !currencycheck routes correctly
+- no owner UNKNOWN
+- no route NO
+- no handler NO
+- no old c in game output
+- no old credits/gems in player-facing output
+- launchcheck clean
+
+==================================================
+PART 14 — FINAL REPORT
+==================================================
+
+Report:
+1. !currencycheck added to command registry.
+2. !currencycheck route fixed.
+3. !currencycheck handler fixed.
+4. !currencycheck permission set to Owner/Admin.
+5. Shared ChillCoins formatter added.
+6. Shared Luxe Tickets formatter added.
+7. Blackjack currency display fixed.
+8. Poker currency display fixed.
+9. Trivia currency display fixed.
+10. Mining/Fishing currency display fixed.
+11. Missions/Daily currency display fixed.
+12. Market/Badge currency display fixed.
+13. Audit/Admin currency display fixed.
+14. Highrise Gold wording preserved.
+15. !commandtest !currencycheck result.
+16. !currencycheck result.
+17. !launchcheck result.

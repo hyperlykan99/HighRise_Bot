@@ -2368,7 +2368,7 @@ async def _send_casino_leaderboard(bot, user):
                 name = db.get_display_name(r["user_id"], r["username"])
                 net  = r["net"]
                 sign = "+" if net >= 0 else ""
-                lines.append(f"{i}. {name}  {sign}{net:,}c")
+                lines.append(f"{i}. {name}  {sign}{net:,} 🪙")
             await bot.highrise.send_whisper(user.id, "\n".join(lines))
 
 
@@ -2853,24 +2853,24 @@ async def _deliver_pending_bank_notifications(bot, user: User) -> None:
     try:
         if len(pending) == 1:
             r = pending[0]
-            fee_note = f" Fee: {r['fee']}c." if r["fee"] else ""
+            fee_note = f" Fee: {r['fee']} 🪙." if r["fee"] else ""
             msg = (
-                f"🏦 You received {r['amount_received']:,}c from @{r['sender_username']}."
+                f"🏦 You received {r['amount_received']:,} 🪙 from @{r['sender_username']}."
                 f"{fee_note}"
             )[:249]
         elif len(pending) <= 3:
             lines = [f"🏦 {len(pending)} deposits while you were away:"]
             for r in pending:
-                fee_note = f" Fee:{r['fee']}c" if r["fee"] else ""
+                fee_note = f" Fee:{r['fee']} 🪙" if r["fee"] else ""
                 lines.append(
-                    f"+{r['amount_received']:,}c from @{r['sender_username']}{fee_note}"
+                    f"+{r['amount_received']:,} 🪙 from @{r['sender_username']}{fee_note}"
                 )
             msg = "\n".join(lines)[:249]
         else:
             total = sum(r["amount_received"] for r in pending)
             msg = (
                 f"🏦 You have {len(pending)} deposits. "
-                f"Total: {total:,}c. Use /transactions."
+                f"Total: {total:,} 🪙. Use /transactions."
             )[:249]
         await bot.highrise.send_whisper(user.id, msg)
         # Only mark delivered after the whisper succeeded

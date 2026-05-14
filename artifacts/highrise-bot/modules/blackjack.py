@@ -398,7 +398,7 @@ async def _start_round(bot: BaseBot):
                     c1, c2 = p.hands[0]["cards"][0], p.hands[0]["cards"][1]
                     bonus_msg = (
                         f"🎁 {_dn(p)} {lbl}! "
-                        f"{card_str(c1)} {card_str(c2)} +{bamt:,}c"
+                        f"{card_str(c1)} {card_str(c2)} +{bamt:,} 🪙"
                     )
                     if vip_mult != 1.0:
                         bonus_msg += f" ({vip_mult}x VIP)"
@@ -468,7 +468,7 @@ async def _start_action_phase(bot: BaseBot):
                 if s_cards == "public":
                     pub_text = (
                         f"🟢 {_dn(p)}: {cards_line}\n"
-                        f"Dealer: {upcard_str} [?] | Bet: {p.total_bet():,}c\n"
+                        f"Dealer: {upcard_str} [?] | Bet: {p.total_bet():,} 🪙\n"
                         f"{acts}"
                     )
                     await bot.highrise.chat(pub_text[:249])
@@ -476,7 +476,7 @@ async def _start_action_phase(bot: BaseBot):
                     wtext = (
                         f"🟢 Player Cards\n"
                         f"You: {cards_line}\n"
-                        f"Dealer: {dealer_up} [?] | Bet: {p.total_bet():,}c\n"
+                        f"Dealer: {dealer_up} [?] | Bet: {p.total_bet():,} 🪙\n"
                         f"{acts}"
                     )
                     await bot.highrise.send_whisper(p.user_id, wtext[:249])
@@ -559,7 +559,7 @@ async def _finalize_round(bot: BaseBot):
                 try:
                     await bot.highrise.send_whisper(
                         _ip.user_id,
-                        f"🛡️ Insurance Won! +{_ip.insurance_bet*2:,}c profit (stake returned)"[:249]
+                        f"🛡️ Insurance Won! +{_ip.insurance_bet*2:,} 🪙 profit (stake returned)"[:249]
                     )
                 except Exception:
                     pass
@@ -568,7 +568,7 @@ async def _finalize_round(bot: BaseBot):
                 try:
                     await bot.highrise.send_whisper(
                         _ip.user_id,
-                        f"🛡️ Insurance Lost: -{_ip.insurance_bet:,}c"[:249]
+                        f"🛡️ Insurance Lost: -{_ip.insurance_bet:,} 🪙"[:249]
                     )
                 except Exception:
                     pass
@@ -637,7 +637,7 @@ async def _finalize_round(bot: BaseBot):
                         db.adjust_balance(p.user_id, hbet)
                         db.add_ledger_entry(p.user_id, p.username, hbet, "bj_deal_refund")
                         result_parts.append(f"H{i+1} refund(no cards)")
-                        print(f"[BJ] @{p.username} H{i+1} refunded {hbet}c (cards={len(h['cards'])})")
+                        print(f"[BJ] @{p.username} H{i+1} refunded {hbet} 🪙 (cards={len(h['cards'])})")
                         if round_id:
                             db.save_round_result("bj", round_id, hkey, p.user_id,
                                                  hbet, "refund", hbet, 0)
@@ -678,7 +678,7 @@ async def _finalize_round(bot: BaseBot):
                         db.update_bj_stats(p.user_id, win=1, bj=1, bet=hbet, won=payout)
                         db.add_bj_daily_net(p.user_id, payout - hbet)
                         total_net += payout - hbet
-                        result_parts.append(f"H{i+1} BJ +{payout:,}c")
+                        result_parts.append(f"H{i+1} BJ +{payout:,} 🪙")
                         if round_id:
                             db.mark_result_paid("bj", round_id, hkey)
 
@@ -692,7 +692,7 @@ async def _finalize_round(bot: BaseBot):
                         db.update_bj_stats(p.user_id, win=1, bet=hbet, won=payout)
                         db.add_bj_daily_net(p.user_id, payout - hbet)
                         total_net += payout - hbet
-                        result_parts.append(f"H{i+1} win +{payout:,}c")
+                        result_parts.append(f"H{i+1} win +{payout:,} 🪙")
                         if round_id:
                             db.mark_result_paid("bj", round_id, hkey)
 
@@ -726,12 +726,12 @@ async def _finalize_round(bot: BaseBot):
                     if p.insurance_taken:
                         if dealer_orig_bj:
                             ins_disp_net = p.insurance_bet * 2
-                            ins_line = f"Insurance: +{ins_disp_net:,}c"
+                            ins_line = f"Insurance: +{ins_disp_net:,} 🪙"
                         else:
                             ins_disp_net = -p.insurance_bet
-                            ins_line = f"Insurance: -{p.insurance_bet:,}c"
+                            ins_line = f"Insurance: -{p.insurance_bet:,} 🪙"
                     grand_net = total_net + ins_disp_net
-                    net_str   = f"+{grand_net:,}c" if grand_net >= 0 else f"{grand_net:,}c"
+                    net_str   = f"+{grand_net:,} 🪙" if grand_net >= 0 else f"{grand_net:,} 🪙"
                     inner     = " | ".join(result_parts)
                     summary   = f"{_dn(p)}: {inner} | Net {net_str}"
                     await bot.highrise.chat(summary[:249])
@@ -756,7 +756,7 @@ async def _finalize_round(bot: BaseBot):
                             _bt, _ba, _bm = _state.pair_bonuses[p.user_id]
                             _bl = {"pair": "Pair", "color_pair": "Color Pair",
                                    "perfect_pair": "Perfect Pair"}.get(_bt, "Bonus")
-                            bline = f"Bonus: {_bl} +{_ba:,}c"
+                            bline = f"Bonus: {_bl} +{_ba:,} 🪙"
                             if _bm != 1.0:
                                 bline += f" ({_bm}x VIP)"
                             wparts.append(bline)
@@ -948,7 +948,7 @@ async def _complete_unpaid_payouts(bot: BaseBot, mode: str, unpaid: list) -> Non
                 db.add_ledger_entry(row["user_id"], row["username"], payout,
                                     f"{mode}_recovery_payout")
                 await bot.highrise.chat(
-                    f"♻️ @{row['username']} recovered {row['result']}: {payout:,}c."
+                    f"♻️ @{row['username']} recovered {row['result']}: {payout:,} 🪙."
                 )
             db.mark_result_paid(mode, row["round_id"], row["username"])
         except Exception as exc:
@@ -1136,12 +1136,12 @@ async def _cmd_join(bot: BaseBot, user: User, args: list[str]):
     p = _Player(user_id=user.id, username=user.username, bet=bet)
     _state.players.append(p)
     _save_player_state(p)
-    print(f"[BJ] @{user.username} joined with {bet:,}c")
+    print(f"[BJ] @{user.username} joined with {bet:,} 🪙")
 
     count   = len(_state.players)
     display = db.get_display_name(user.id, user.username)
     await bot.highrise.chat(
-        f"✅ {display} joined BJ with {bet:,}c. Players: {count}/{max_players}"
+        f"✅ {display} joined BJ with {bet:,} 🪙. Players: {count}/{max_players}"
     )
 
     if _state.phase == "idle":
@@ -1182,7 +1182,7 @@ async def _cmd_players(bot: BaseBot, user: User):
         return
     lines = [f"-- BJ Players ({_state.phase}) --"]
     for p in _state.players:
-        lines.append(f"  {_dn(p)}  {p.total_bet():,}c")
+        lines.append(f"  {_dn(p)}  {p.total_bet():,} 🪙")
     if not _state.players:
         lines.append("  (none)")
     await bot.highrise.send_whisper(user.id, "\n".join(lines)[:249])
@@ -1346,13 +1346,13 @@ async def _cmd_double(bot: BaseBot, user: User):
     if total > 21:
         h["status"] = "bust"
         await bot.highrise.chat(
-            f"💰 {_dn(p)} doubles to {h['bet']:,}c, "
+            f"💰 {_dn(p)} doubles to {h['bet']:,} 🪙, "
             f"draws {card_str(card)}. H{hidx}: {total} — bust!"
         )
     else:
         h["status"] = "stood"
         await bot.highrise.chat(
-            f"💰 {_dn(p)} doubles to {h['bet']:,}c, "
+            f"💰 {_dn(p)} doubles to {h['bet']:,} 🪙, "
             f"draws {card_str(card)}. H{hidx}: {total}."
         )
 
@@ -1496,7 +1496,7 @@ async def _cmd_insurance(bot: BaseBot, user: User):
     if db.get_balance(user.id) < insurance_bet:
         await bot.highrise.send_whisper(
             user.id,
-            f"🛡️ Need {insurance_bet:,}c for insurance — not enough coins."[:249]
+            f"🛡️ Need {insurance_bet:,} 🪙 for insurance — not enough coins."[:249]
         )
         return
     db.adjust_balance(user.id, -insurance_bet)
@@ -1506,7 +1506,7 @@ async def _cmd_insurance(bot: BaseBot, user: User):
     _save_player_state(p)
     await bot.highrise.send_whisper(
         user.id,
-        f"🛡️ Insurance Taken\nBet: {insurance_bet:,}c | Pays 2:1 if dealer has BJ."[:249]
+        f"🛡️ Insurance Taken\nBet: {insurance_bet:,} 🪙 | Pays 2:1 if dealer has BJ."[:249]
     )
 
 
@@ -1552,7 +1552,7 @@ async def _cmd_rules(bot: BaseBot, user: User):
     s = _settings()
     await bot.highrise.send_whisper(user.id,
         f"🃏 BJ Rules\n"
-        f"Bet: {s.get('min_bet',10):,}–{s.get('max_bet',1000):,}c\n"
+        f"Bet: {s.get('min_bet',10):,}–{s.get('max_bet',1000):,} 🪙\n"
         f"Win: {s.get('win_payout',2.0)}x  BJ: {s.get('blackjack_payout',2.5)}x\n"
         f"Push: {s.get('push_rule','refund')}  "
         f"Soft17: {'hit' if s.get('dealer_hits_soft_17',1) else 'stand'}\n"
@@ -1569,9 +1569,9 @@ async def _cmd_stats(bot: BaseBot, user: User):
         f"-- {user.username} BJ Stats --\n"
         f"W:{s['bj_wins']} L:{s['bj_losses']} "
         f"P:{s['bj_pushes']} BJ:{s['bj_blackjacks']}\n"
-        f"Bet:{s['bj_total_bet']:,}c  "
-        f"Won:{s['bj_total_won']:,}c  "
-        f"Lost:{s['bj_total_lost']:,}c"
+        f"Bet:{s['bj_total_bet']:,} 🪙  "
+        f"Won:{s['bj_total_won']:,} 🪙  "
+        f"Lost:{s['bj_total_lost']:,} 🪙"
     )
 
 
@@ -1586,12 +1586,12 @@ async def _cmd_limits(bot: BaseBot, user: User):
     blon = int(s.get("bj_betlimit_enabled", 1))
     sign = "+" if net >= 0 else ""
     if blon:
-        bet_str = f"BJ bet {s.get('min_bet',10):,}–{s.get('max_bet',1000):,}c ON"
+        bet_str = f"BJ bet {s.get('min_bet',10):,}–{s.get('max_bet',1000):,} 🪙 ON"
     else:
         bet_str = "BJ bet limit OFF"
     await bot.highrise.send_whisper(user.id,
         f"{bet_str} | W/L {wlim:,}/{llim:,} {won}/{lon}\n"
-        f"Today: {sign}{net:,}c"
+        f"Today: {sign}{net:,} 🪙"
     )
 
 
@@ -1605,7 +1605,7 @@ async def _cmd_leaderboard(bot: BaseBot, user: User):
         name = db.get_display_name(r["user_id"], r["username"])
         net  = r["net"]
         sign = "+" if net >= 0 else ""
-        lines.append(f"{i}. {name}  {sign}{net:,}c")
+        lines.append(f"{i}. {name}  {sign}{net:,} 🪙")
     await bot.highrise.send_whisper(user.id, "\n".join(lines)[:249])
 
 
@@ -1632,7 +1632,7 @@ async def _cmd_surrender(bot: BaseBot, user: User):
     _save_player_state(p)
     _save_table_state()
     await bot.highrise.chat(
-        f"🏳️ {_dn(p)} surrenders. {refund:,}c returned."[:249]
+        f"🏳️ {_dn(p)} surrenders. {refund:,} 🪙 returned."[:249]
     )
     p.advance_hand()
     _save_player_state(p)
@@ -1671,7 +1671,7 @@ async def _cmd_settings(bot: BaseBot, user: User):
         f"-- BJ Settings --\n"
         f"BJ {enabled} | Timer {s.get('bj_action_timer',30)}s | "
         f"Double {dbl} | Split {spl} | MaxSplits {s.get('bj_max_splits',1)}\n"
-        f"min:{s.get('min_bet',10):,}c  max:{s.get('max_bet',1000):,}c\n"
+        f"min:{s.get('min_bet',10):,} 🪙  max:{s.get('max_bet',1000):,} 🪙\n"
         f"win:{s.get('win_payout',2.0)}x  bj:{s.get('blackjack_payout',2.5)}x\n"
         f"lobby:{s.get('lobby_countdown',15)}s  max:{s.get('max_players',6)}p\n"
         f"W/L limit: {win_on}/{loss_on}"
@@ -1716,7 +1716,7 @@ async def _cmd_bj_state(bot: BaseBot, user: User):
     msg = (
         f"🃏 BJ {_state.phase} | Players:{len(_state.players)}\n"
         f"Active:{len(active_ps)} | Timer:{secs}s | Dealer:{dc}\n"
-        f"Deck:{deck_sz}c | Safe:{rec_safe} | Bets:{total_bets:,}c"
+        f"Deck:{deck_sz} 🪙 | Safe:{rec_safe} | Bets:{total_bets:,} 🪙"
     )
     await bot.highrise.send_whisper(user.id, msg[:249])
 
@@ -1771,9 +1771,9 @@ async def _cmd_bj_refund(bot: BaseBot, user: User):
     _cancel_task(_state.action_task, "Action timer")
     db.clear_casino_table("bj")
     _state.reset()
-    print(f"[BJ] /bj refund: {refunded:,}c total")
-    await bot.highrise.chat(f"♻️ BJ refunded. Total returned: {refunded:,}c.")
-    await bot.highrise.send_whisper(user.id, f"✅ BJ cleared. {refunded:,}c refunded.")
+    print(f"[BJ] /bj refund: {refunded:,} 🪙 total")
+    await bot.highrise.chat(f"♻️ BJ refunded. Total returned: {refunded:,} 🪙.")
+    await bot.highrise.send_whisper(user.id, f"✅ BJ cleared. {refunded:,} 🪙 refunded.")
 
 
 async def _cmd_bj_forcefinish(bot: BaseBot, user: User):
@@ -1819,7 +1819,7 @@ async def handle_bj_set(bot: BaseBot, user: User, cmd: str, args: list[str]):
                 await bot.highrise.send_whisper(user.id, "Min bet must be less than max bet.")
                 return
             db.set_bj_setting("min_bet", val)
-            await bot.highrise.send_whisper(user.id, f"✅ BJ min bet set to {val:,}c.")
+            await bot.highrise.send_whisper(user.id, f"✅ BJ min bet set to {val:,} 🪙.")
 
         elif cmd == "setbjmaxbet":
             if not raw.isdigit() or int(raw) < 1:
@@ -1830,7 +1830,7 @@ async def handle_bj_set(bot: BaseBot, user: User, cmd: str, args: list[str]):
                 await bot.highrise.send_whisper(user.id, "Max bet must be greater than min bet.")
                 return
             db.set_bj_setting("max_bet", val)
-            await bot.highrise.send_whisper(user.id, f"✅ BJ max bet set to {val:,}c.")
+            await bot.highrise.send_whisper(user.id, f"✅ BJ max bet set to {val:,} 🪙.")
 
         elif cmd == "setbjcountdown":
             if not raw.isdigit() or not (5 <= int(raw) <= 120):
@@ -1865,14 +1865,14 @@ async def handle_bj_set(bot: BaseBot, user: User, cmd: str, args: list[str]):
                 await bot.highrise.send_whisper(user.id, "Use !setbjdailywinlimit <amount>.")
                 return
             db.set_bj_setting("bj_daily_win_limit", int(raw))
-            await bot.highrise.send_whisper(user.id, f"✅ BJ daily win limit set to {int(raw):,}c.")
+            await bot.highrise.send_whisper(user.id, f"✅ BJ daily win limit set to {int(raw):,} 🪙.")
 
         elif cmd == "setbjdailylosslimit":
             if not raw.isdigit() or not (100 <= int(raw) <= 1_000_000):
                 await bot.highrise.send_whisper(user.id, "Use !setbjdailylosslimit <amount>.")
                 return
             db.set_bj_setting("bj_daily_loss_limit", int(raw))
-            await bot.highrise.send_whisper(user.id, f"✅ BJ daily loss limit set to {int(raw):,}c.")
+            await bot.highrise.send_whisper(user.id, f"✅ BJ daily loss limit set to {int(raw):,} 🪙.")
 
         elif cmd == "setbjbonus":
             if raw.lower() not in ("on", "off"):
@@ -1889,7 +1889,7 @@ async def handle_bj_set(bot: BaseBot, user: User, cmd: str, args: list[str]):
                 await bot.highrise.send_whisper(user.id, "Bonus cap must be >= 100.")
                 return
             db.set_bj_setting("bj_bonus_cap", int(raw))
-            await bot.highrise.send_whisper(user.id, f"✅ BJ bonus cap: {int(raw):,}c.")
+            await bot.highrise.send_whisper(user.id, f"✅ BJ bonus cap: {int(raw):,} 🪙.")
 
         elif cmd == "setbjbonuspair":
             if not raw.isdigit() or not (1 <= int(raw) <= 100):

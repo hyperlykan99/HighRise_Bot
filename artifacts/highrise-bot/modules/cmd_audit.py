@@ -174,7 +174,7 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     "addvip", "removevip", "vips", "setvipprice",
     "resetbjstats", "resetrbjstats", "resetpokerstats", "resetcasinostats",
     "adminpanel", "adminlogs", "adminloginfo",
-    "checkcommands", "checkhelp", "launchcheck",
+    "checkcommands", "checkhelp", "launchcheck", "currencycheck",
     "missingcommands", "routecheck", "silentcheck", "commandtest",
     "fixcommands", "testcommands",
     # ── via handle_admin_command (always replies) ─────────────────────────────
@@ -698,7 +698,7 @@ HELP_CMDS: frozenset[str] = frozenset({
     "givetitle", "removetitle", "givebadge", "removebadge",
     "addmanager", "removemanager", "addmoderator", "removemoderator",
     "allstaff",
-    "adminlogs", "adminpanel", "checkhelp", "checkcommands",
+    "adminlogs", "adminpanel", "checkhelp", "checkcommands", "currencycheck",
     "missingcommands", "routecheck", "silentcheck", "commandtest",
     "dbstats", "maintenance", "bankblock",
     "announce", "resetgame", "setrules", "rules", "dailyadmin",
