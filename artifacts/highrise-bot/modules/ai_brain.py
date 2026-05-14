@@ -97,6 +97,7 @@ from modules.ai_command_router   import (
     handle_ai_command, handle_ai_cmd_help, is_confirm_or_cancel,
 )
 from modules.ai_human_brain      import ask_human_brain
+from modules.ai_openai_brain     import handle_openai_brain
 
 
 # ── Trigger helpers (kept here to avoid circular imports) ────────────────────
@@ -744,28 +745,43 @@ async def handle_ai_message(
             await _w(bot, user.id, blocked_response())
             return True
 
-        # ── 9. Intent detection ───────────────────────────────────────────────
-        intent     = detect_intent(resolved)
-        reply_mode = get_reply_mode()
-        print(f"[AI DEBUG] request={resolved!r}")
-        print(f"[AI DEBUG] detected_intent={intent!r}")
-        print(f"[AI DEBUG] permission_level={perm!r}")
-        print(f"[AI DEBUG] reply_mode={reply_mode!r}")
-
-        # ── 10. Access check ──────────────────────────────────────────────────
-        denial = check_access(intent, perm, resolved)
-        if denial:
-            log_event(user.username, perm, intent, resolved, outcome="denied")
-            await _w(bot, user.id, denial)
+        # ── 9. Local fast-path intents (admin tools — no OpenAI call needed) ────
+        #  detect_intent is still used for a narrow set of meta-commands that
+        #  don't benefit from OpenAI and are handled entirely by local logic.
+        intent = detect_intent(resolved)
+        _LOCAL_FAST_PATH = {
+            INTENT_AI_STATUS,
+            INTENT_AI_DEBUG,
+            INTENT_AI_REPLY_MODE_VIEW,
+            INTENT_AI_REPLY_MODE_SET,
+            INTENT_USER_ROLE,
+            INTENT_BUG,
+            INTENT_FEEDBACK,
+        }
+        if intent in _LOCAL_FAST_PATH:
+            reply_mode = get_reply_mode()
+            print(f"[AI DEBUG] local_fast_path intent={intent!r} permission_level={perm!r}")
+            denial = check_access(intent, perm, resolved)
+            if denial:
+                log_event(user.username, perm, intent, resolved, outcome="denied")
+                await _w(bot, user.id, denial)
+                return True
+            log_event(user.username, perm, intent, resolved)
+            await _dispatch(bot, user, resolved, intent, perm)
+            record_interaction(user.id, intent, clean)
             return True
 
-        log_event(user.username, perm, intent, resolved)
+        # ── 10. OpenAI-first pipeline for everything else ─────────────────────
+        #  OpenAI classifies intent → JSON → local code validates + executes.
+        #  Never evals. Never trusts OpenAI output blindly.
+        print(f"[AI DEBUG] request={resolved!r}")
+        print(f"[AI DEBUG] permission_level={perm!r}")
+        log_event(user.username, perm, "openai_pipeline", resolved)
 
-        # ── 11. Handler dispatch ───────────────────────────────────────────────
-        await _dispatch(bot, user, resolved, intent, perm)
+        await handle_openai_brain(bot, user, resolved, perm)
 
-        # ── 12. Update short-term memory ──────────────────────────────────────
-        record_interaction(user.id, intent, clean)
+        # ── 11. Update short-term memory ──────────────────────────────────────
+        record_interaction(user.id, "openai", clean)
 
         return True
 
