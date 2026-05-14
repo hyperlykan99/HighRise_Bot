@@ -615,6 +615,16 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     "today", "progress",
     "missionadmin",
     "retentionadmin",
+    # 3.1Q — Beta/Launch Readiness
+    "betamode", "betacheck", "betadash",
+    "staffdash", "stafftools",
+    "testmenu", "betahelp", "quickstart",
+    "issueadmin",
+    "bugs",
+    "errors",
+    "launchready",
+    "announce",
+    "announceadmin",
 })
 
 # ---------------------------------------------------------------------------

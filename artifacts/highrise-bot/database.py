@@ -2590,6 +2590,46 @@ def _migrate_db():
     except Exception:
         pass
 
+    # 3.1Q — Beta mode + command error tracking
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS beta_settings (
+                key        TEXT UNIQUE NOT NULL,
+                value      TEXT NOT NULL DEFAULT '',
+                updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+        """)
+    except Exception:
+        pass
+
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS command_error_logs (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id       TEXT NOT NULL DEFAULT '',
+                username      TEXT NOT NULL DEFAULT '',
+                command       TEXT NOT NULL DEFAULT '',
+                args          TEXT NOT NULL DEFAULT '',
+                error_summary TEXT NOT NULL DEFAULT '',
+                traceback     TEXT NOT NULL DEFAULT '',
+                created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+                status        TEXT NOT NULL DEFAULT 'open'
+            )
+        """)
+    except Exception:
+        pass
+
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS rotating_announcements (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                message    TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+        """)
+    except Exception:
+        pass
+
     conn.commit()
     conn.close()
 
@@ -14409,6 +14449,180 @@ def get_season_reward_history(season_key: str, limit: int = 10) -> list[dict]:
                ORDER BY awarded_at DESC LIMIT ?""",
             (season_key, limit),
         ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+    except Exception:
+        return []
+
+
+# ---------------------------------------------------------------------------
+# 3.1Q — Beta settings helpers
+# ---------------------------------------------------------------------------
+
+def get_beta_setting(key: str, default: str = "") -> str:
+    try:
+        conn = get_connection()
+        row  = conn.execute(
+            "SELECT value FROM beta_settings WHERE key=?", (key,)
+        ).fetchone()
+        conn.close()
+        return row["value"] if row else default
+    except Exception:
+        return default
+
+
+def set_beta_setting(key: str, value: str) -> None:
+    try:
+        conn = get_connection()
+        conn.execute(
+            "INSERT INTO beta_settings (key, value, updated_at) VALUES (?, ?, datetime('now')) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at",
+            (key, value),
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+
+# ---------------------------------------------------------------------------
+# 3.1Q — Command error log helpers
+# ---------------------------------------------------------------------------
+
+def add_command_error_log(
+    user_id: str,
+    username: str,
+    command: str,
+    args: str,
+    error_summary: str,
+    traceback: str = "",
+) -> int:
+    try:
+        conn = get_connection()
+        cur  = conn.execute(
+            "INSERT INTO command_error_logs "
+            "(user_id, username, command, args, error_summary, traceback) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (user_id, username, command, args, error_summary[:500], traceback[:2000]),
+        )
+        conn.commit()
+        row_id = cur.lastrowid
+        conn.close()
+        return row_id or 0
+    except Exception:
+        return 0
+
+
+def get_command_error_logs(status: str | None = None, limit: int = 10) -> list[dict]:
+    try:
+        conn = get_connection()
+        if status:
+            rows = conn.execute(
+                "SELECT * FROM command_error_logs WHERE status=? ORDER BY id DESC LIMIT ?",
+                (status, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM command_error_logs ORDER BY id DESC LIMIT ?", (limit,)
+            ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+    except Exception:
+        return []
+
+
+def close_command_error_log(log_id: int) -> bool:
+    try:
+        conn = get_connection()
+        cur  = conn.execute(
+            "UPDATE command_error_logs SET status='closed' WHERE id=?", (log_id,)
+        )
+        conn.commit()
+        conn.close()
+        return cur.rowcount > 0
+    except Exception:
+        return False
+
+
+# ---------------------------------------------------------------------------
+# 3.1Q — Rotating announcements helpers
+# ---------------------------------------------------------------------------
+
+def get_rotating_announcements() -> list[dict]:
+    try:
+        conn = get_connection()
+        rows = conn.execute(
+            "SELECT * FROM rotating_announcements ORDER BY id ASC"
+        ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+    except Exception:
+        return []
+
+
+def add_rotating_announcement(message: str) -> int:
+    try:
+        conn = get_connection()
+        cur  = conn.execute(
+            "INSERT INTO rotating_announcements (message) VALUES (?)", (message,)
+        )
+        conn.commit()
+        row_id = cur.lastrowid
+        conn.close()
+        return row_id or 0
+    except Exception:
+        return 0
+
+
+def remove_rotating_announcement(ann_id: int) -> bool:
+    try:
+        conn = get_connection()
+        cur  = conn.execute(
+            "DELETE FROM rotating_announcements WHERE id=?", (ann_id,)
+        )
+        conn.commit()
+        conn.close()
+        return cur.rowcount > 0
+    except Exception:
+        return False
+
+
+# ---------------------------------------------------------------------------
+# 3.1Q — Bug report helpers (reads from existing reports table)
+# ---------------------------------------------------------------------------
+
+def close_bug_report_by_id(report_id: int) -> bool:
+    try:
+        conn = get_connection()
+        cur  = conn.execute(
+            "UPDATE reports SET status='closed' "
+            "WHERE id=? AND report_type='bug_report'",
+            (report_id,),
+        )
+        conn.commit()
+        conn.close()
+        return cur.rowcount > 0
+    except Exception:
+        return False
+
+
+def get_bug_reports_by_type(
+    status: str | None = None, limit: int = 10
+) -> list[dict]:
+    try:
+        conn = get_connection()
+        if status:
+            rows = conn.execute(
+                "SELECT * FROM reports WHERE report_type='bug_report' "
+                "AND status=? ORDER BY id DESC LIMIT ?",
+                (status, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM reports WHERE report_type='bug_report' "
+                "ORDER BY id DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
         conn.close()
         return [dict(r) for r in rows]
     except Exception:

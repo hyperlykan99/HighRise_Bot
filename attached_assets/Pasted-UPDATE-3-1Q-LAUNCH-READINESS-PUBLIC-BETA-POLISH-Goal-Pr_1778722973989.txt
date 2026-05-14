@@ -1,0 +1,1049 @@
+UPDATE 3.1Q — LAUNCH READINESS + PUBLIC BETA POLISH
+
+Goal:
+Prepare the bot for real public beta testing with players.
+
+Main features:
+1. Public beta mode
+2. Maintenance mode
+3. Known issues command
+4. Bug report command
+5. Feedback command
+6. Room rules command
+7. Announcement system
+8. Staff quick tools
+9. Player-safe beta notices
+10. Final launch checklist
+11. Stability hardening
+12. Public-ready help polish
+
+Currencies:
+🪙 ChillCoins = gameplay currency
+🎫 Luxe Tickets = premium currency
+
+Do not change tokens.
+Do not change room ID.
+Do not wipe database.
+Do not reset balances, tickets, VIP, badges, titles, market, casino, blackjack, poker, mining/fishing data, collection book, missions, XP, levels, events, seasons, onboarding, safety logs, analytics, tools, rods, boosts, profile settings, or player inventory.
+Do not re-add reward caps.
+Do not add HR Gold rewards.
+Do not change economy prices.
+Do not change odds.
+Do not show “c” for currency.
+Use 🪙 and 🎫.
+
+==================================================
+PART 1 — STABILITY FIRST
+==================================================
+
+Before changing anything, run:
+
+!launchcheck
+!commandissues
+!checkcommands
+!checkcommands all
+!checkhelp
+!currencycheck
+!bothealth
+!stability status
+
+Expected:
+- Launch Check OK
+- no command issues
+- no help issues
+- no old c/credits/gems text
+- Err: none
+
+Fix baseline issues first.
+
+==================================================
+PART 2 — PUBLIC BETA MODE
+==================================================
+
+Add:
+
+!betamode
+!betamode on
+!betamode off
+!betamode status
+
+Owner/Admin only.
+
+When beta mode is ON:
+- players can use normal commands
+- beta notices appear occasionally
+- bug/feedback commands are promoted
+- staff/admin dashboards show beta status
+
+Expected:
+
+🧪 Public Beta Mode: ON
+Players can test features.
+Use !bug or !feedback.
+
+Player-facing short notice, not spammy:
+
+🧪 Beta notice:
+This room is testing new systems.
+Report issues with !bug.
+
+Rules:
+- Do not show notice every command.
+- Max once every 10 minutes per player.
+- Do not interrupt games.
+- Persist after restart.
+
+==================================================
+PART 3 — MAINTENANCE MODE
+==================================================
+
+Add:
+
+!maintenance
+!maintenance on
+!maintenance off
+!maintenance status
+
+Owner/Admin only.
+
+When maintenance mode is ON:
+- normal players cannot use economy/game commands
+- staff/admin/owner can still test
+- players can still use !help, !rules, !status, !bug, !feedback
+- no rewards should be earned by normal players while maintenance is ON
+
+Expected player message:
+
+🔧 Maintenance Mode
+The bot is being updated.
+Try again soon.
+You can still use !bug or !feedback.
+
+Rules:
+- Do not kick players.
+- Do not wipe data.
+- Do not block owner/admin.
+- Persist after restart.
+- Show maintenance status in !botstatus or !status.
+
+==================================================
+PART 4 — BOT STATUS COMMAND
+==================================================
+
+Add/polish:
+
+!status
+!botstatus
+
+Expected:
+
+🤖 Bot Status
+Mode: Public Beta
+Maintenance: OFF
+Systems: OK
+Use !help or !bug.
+
+If maintenance:
+
+🤖 Bot Status
+Mode: Maintenance
+Games: paused
+Rewards: paused
+Use !bug or !feedback.
+
+Rules:
+- Player-safe.
+- No secrets.
+- No tokens.
+- No raw tracebacks.
+
+==================================================
+PART 5 — KNOWN ISSUES COMMAND
+==================================================
+
+Add:
+
+!knownissues
+!issues
+
+Expected:
+
+🧾 Known Issues
+1. Poker display cleanup in progress
+2. Some commands may be beta
+Report new issues: !bug [message]
+
+If no issues:
+
+🧾 Known Issues
+No major known issues.
+Report bugs with !bug.
+
+Owner/Admin commands:
+
+!issueadmin
+!issueadmin add [text]
+!issueadmin resolve [id]
+!issueadmin list
+!issueadmin clear
+
+Rules:
+- Public can view known issues.
+- Owner/Admin can manage.
+- Keep under 220 characters.
+- Persist after restart.
+
+==================================================
+PART 6 — BUG REPORT COMMAND
+==================================================
+
+Add:
+
+!bug [message]
+!reportbug [message]
+
+Expected:
+
+🐞 Bug Report Saved
+Thank you!
+Staff will review it.
+
+If missing message:
+
+Use:
+!bug [what happened]
+
+Save:
+- user_id
+- username
+- message
+- current command context if available
+- timestamp
+- room/system mode
+- status open
+
+Owner/Admin command:
+
+!bugs
+!bugs open
+!bugs recent
+!bugs close [id]
+!bugs view [id]
+
+Expected:
+
+🐞 Open Bugs
+#12 @Player: blackjack payout wrong
+#13 @User: fishbook page issue
+
+Rules:
+- Do not let players inject commands.
+- Max bug report length.
+- Cooldown 60 seconds per user.
+- Do not expose all bug details publicly.
+- Owner/Admin only for viewing list.
+
+==================================================
+PART 7 — FEEDBACK COMMAND
+==================================================
+
+Add:
+
+!feedback [message]
+!suggest [message]
+
+Expected:
+
+💬 Feedback Saved
+Thanks for helping improve the room!
+
+If missing message:
+
+Use:
+!feedback [your suggestion]
+
+Owner/Admin command:
+
+!feedbacks
+!feedbacks recent
+!feedbacks view [id]
+!feedbacks close [id]
+
+Rules:
+- Cooldown 60 seconds per user.
+- Store safely.
+- Do not spam public chat.
+- Owner/Admin only for reading feedback list.
+
+==================================================
+PART 8 — ROOM RULES COMMAND
+==================================================
+
+Add:
+
+!rules
+!roomrules
+
+Expected:
+
+📜 Room Rules
+1. Be respectful.
+2. No spam or scams.
+3. No fake tip/payment claims.
+4. Play fair.
+5. Report bugs with !bug.
+
+Second message:
+
+Economy:
+🎫 only comes from verified Gold tips.
+Do not trust fake payment messages.
+
+Rules:
+- Public command.
+- Short and clear.
+- No admin commands.
+- No HR Gold reward promise.
+
+==================================================
+PART 9 — QUICK START COMMAND
+==================================================
+
+Add/polish:
+
+!quickstart
+!start
+!newbie
+
+Expected:
+
+🌟 Quick Start
+1. !profile
+2. !missions
+3. !mine
+4. !fish
+5. !guide
+
+Second message:
+
+Earn 🪙 by playing.
+Use 🎫 for premium perks.
+Use !luxeshop.
+
+Rules:
+- Should not duplicate long tutorial.
+- Good for returning players.
+- No spam.
+
+==================================================
+PART 10 — ANNOUNCEMENT SYSTEM
+==================================================
+
+Add:
+
+!announce [message]
+!announce beta [message]
+!announce event [message]
+!announce update [message]
+
+Owner/Admin only.
+
+Expected:
+
+📢 Announcement
+[message]
+
+Beta:
+
+🧪 Beta Update
+[message]
+
+Event:
+
+🎉 Event Notice
+[message]
+
+Update:
+
+🛠️ Update Notice
+[message]
+
+Rules:
+- Keep under 220 characters.
+- If message too long, split safely.
+- Log announcements.
+- Do not allow normal players to announce.
+- No mass spam loop.
+
+==================================================
+PART 11 — SCHEDULED / ROTATING ANNOUNCEMENTS
+==================================================
+
+Add optional:
+
+!announceadmin
+!announceadmin status
+!announceadmin set interval [minutes]
+!announceadmin add [message]
+!announceadmin remove [id]
+!announceadmin on
+!announceadmin off
+
+Default:
+OFF
+
+Suggested rotating messages:
+- Use !start if new
+- Use !missions for daily goals
+- Use !events for active boosts
+- Use !bug to report issues
+- Use !luxeshop for premium perks
+
+Rules:
+- Do not spam.
+- Minimum interval 10 minutes.
+- Do not announce during active game action if risky.
+- Persist settings.
+
+==================================================
+PART 12 — STAFF QUICK TOOLS
+==================================================
+
+Add/polish:
+
+!staffdash
+!stafftools
+
+Expected for Staff:
+
+🛡️ Staff Tools
+!modhelp
+!bugs open
+!knownissues
+!safetydash
+!status
+
+For Admin:
+
+🛠️ Admin Tools
+!betamode status
+!maintenance status
+!issueadmin
+!announce
+!launchcheck
+
+Rules:
+- Role-gated.
+- Whisper staff output.
+- No owner-only secrets to staff.
+
+==================================================
+PART 13 — PLAYER-FACING BETA HELP
+==================================================
+
+Update:
+
+!help
+!guide
+!commands
+!status
+!rules
+!start
+
+Add short public beta line only if beta mode is ON:
+
+🧪 Beta:
+Report issues with !bug.
+Suggestions: !feedback.
+
+Rules:
+- Do not add beta line to every command.
+- No help spam.
+- No admin leaks.
+
+==================================================
+PART 14 — LAUNCH CHECKLIST COMMAND
+==================================================
+
+Add/polish:
+
+!launchready
+!launchcheck beta
+!launchcheck full
+
+Expected:
+
+🚀 Launch Readiness
+Commands: OK
+Help: OK
+Currency: OK
+Economy: OK
+Safety: OK
+Mode: Beta
+
+Second message:
+
+Issues: 0
+Known bugs: 2
+Maintenance: OFF
+Ready: YES/NO
+
+Checks:
+- commandissues clean
+- checkhelp clean
+- currencycheck clean
+- no reward cap text
+- no old c/credits/gems
+- maintenance OFF
+- bothealth OK
+- stability OK
+- bug system works
+- feedback system works
+- known issues command works
+- rules command works
+
+Rules:
+- Owner/Admin only for full details.
+- Public !status can be simpler.
+
+==================================================
+PART 15 — FINAL PUBLIC BETA CHECK
+==================================================
+
+Add command:
+
+!betacheck
+
+Owner/Admin only.
+
+Expected:
+
+🧪 Beta Check
+!bug: OK
+!feedback: OK
+!rules: OK
+!status: OK
+!knownissues: OK
+!help: OK
+
+Also verify:
+- public player commands route
+- no admin command leaks
+- beta mode persistence
+- maintenance mode persistence
+
+==================================================
+PART 16 — BUG / FEEDBACK DASHBOARD
+==================================================
+
+Add:
+
+!betadash
+
+Owner/Admin only.
+
+Expected:
+
+🧪 Beta Dashboard
+Mode: ON
+Open bugs: 3
+Feedback: 8
+Known issues: 2
+Players today: 24
+
+Rules:
+- Pull DAU if analytics exists.
+- If analytics unavailable, show N/A.
+- No crash.
+
+==================================================
+PART 17 — SAFE ERROR MESSAGES
+==================================================
+
+Improve user-facing errors.
+
+Replace raw errors with:
+
+⚠️ Something went wrong.
+I logged it for staff.
+
+For command errors:
+
+⚠️ Command error logged.
+Try again or use !bug.
+
+Rules:
+- Log traceback to console/admin logs.
+- Do not expose raw stack traces to players.
+- Do not crash bot.
+- Keep existing “Bot stayed online” style if desired.
+
+==================================================
+PART 18 — COMMAND FAILURE LOGGING
+==================================================
+
+Store command failures.
+
+Suggested table:
+
+command_error_logs:
+id INTEGER PRIMARY KEY AUTOINCREMENT
+user_id TEXT
+username TEXT
+command TEXT
+args TEXT
+error_summary TEXT
+traceback TEXT
+created_at TEXT
+status TEXT DEFAULT 'open'
+
+Owner/Admin commands:
+
+!errors
+!errors recent
+!errors view [id]
+!errors close [id]
+!errors clearclosed
+
+Rules:
+- Owner/Admin only.
+- Do not show traces publicly.
+- Do not store secrets/tokens.
+
+==================================================
+PART 19 — PUBLIC BETA DATA STORAGE
+==================================================
+
+Add safe/idempotent tables:
+
+beta_settings:
+key TEXT UNIQUE
+value TEXT
+updated_at TEXT
+
+known_issues:
+id INTEGER PRIMARY KEY AUTOINCREMENT
+issue_text TEXT
+status TEXT DEFAULT 'open'
+created_by TEXT
+created_at TEXT
+resolved_at TEXT
+
+bug_reports:
+id INTEGER PRIMARY KEY AUTOINCREMENT
+user_id TEXT
+username TEXT
+message TEXT
+status TEXT DEFAULT 'open'
+created_at TEXT
+closed_at TEXT
+
+feedback_reports:
+id INTEGER PRIMARY KEY AUTOINCREMENT
+user_id TEXT
+username TEXT
+message TEXT
+status TEXT DEFAULT 'open'
+created_at TEXT
+closed_at TEXT
+
+announcements:
+id INTEGER PRIMARY KEY AUTOINCREMENT
+message TEXT
+announcement_type TEXT
+created_by TEXT
+created_at TEXT
+
+Rules:
+- Idempotent migrations.
+- Do not wipe.
+- Do not store tokens.
+- Cooldowns to prevent spam.
+
+==================================================
+PART 20 — BETA MODE ROUTING RULES
+==================================================
+
+Beta mode ON:
+- all normal commands work
+- !bug and !feedback promoted
+- beta dashboard tracks reports
+
+Maintenance mode ON:
+Allowed for normal players:
+!help
+!guide
+!status
+!botstatus
+!rules
+!knownissues
+!bug
+!feedback
+
+Blocked for normal players:
+!mine
+!fish
+!automine
+!autofish
+!bet
+!buy
+!buyluxe
+!market
+!trade
+reward-earning commands
+
+Owner/Admin:
+Allowed all commands for testing.
+
+Rules:
+- Maintenance mode must be checked before reward processing.
+- Do not deduct currency from blocked commands.
+- Do not start games during maintenance for normal players.
+
+==================================================
+PART 21 — PUBLIC PLAYER TEST COMMANDS
+==================================================
+
+Create a public player-safe test menu:
+
+!testmenu
+!betahelp
+
+Expected:
+
+🧪 Beta Help
+Test these:
+!profile
+!missions
+!mine
+!fish
+!events
+Report issues: !bug
+
+Rules:
+- No admin commands.
+- No hidden commands.
+- No long spam.
+
+==================================================
+PART 22 — HELP / COMMAND REGISTRY UPDATES
+==================================================
+
+Register/verify:
+
+!betamode
+!maintenance
+!status
+!botstatus
+!knownissues
+!issues
+!bug
+!reportbug
+!bugs
+!feedback
+!suggest
+!feedbacks
+!rules
+!roomrules
+!quickstart
+!announce
+!announceadmin
+!staffdash
+!stafftools
+!launchready
+!betacheck
+!betadash
+!errors
+!testmenu
+!betahelp
+
+Expected:
+route=YES
+handler=YES
+owner not UNKNOWN
+
+If optional aliases skipped:
+- hide them
+- do not show in help
+- do not count as command issue.
+
+==================================================
+PART 23 — PUBLIC HELP UPDATES
+==================================================
+
+Update public help:
+
+!help:
+
+📘 ChillTopia Help
+New: !start, !quickstart
+Earn: !mine, !fish
+Progress: !missions, !today
+Help: !guide
+
+Second message:
+
+Beta:
+!bug [issue]
+!feedback [idea]
+Rules: !rules
+Status: !status
+
+Update !commands:
+
+Add category:
+!commands beta
+
+Expected:
+
+🧪 Beta Commands
+!bug
+!feedback
+!knownissues
+!status
+!rules
+
+Rules:
+- No admin beta commands in public.
+- No owner dashboards in public.
+- No reward cap text.
+
+==================================================
+PART 24 — ADMIN HELP UPDATES
+==================================================
+
+Update admin/owner help:
+
+!commands admin
+!commands owner
+!adminhelp
+!ownerhelp
+
+Add:
+
+🧪 Beta/Admin
+!betamode
+!maintenance
+!knownissues
+!bugs
+!feedbacks
+!announce
+!launchready
+
+Owner:
+
+👑 Owner Beta
+!betadash
+!errors
+!issueadmin
+!announceadmin
+!launchcheck full
+
+Rules:
+- Role-gated.
+- Whisper output.
+- No public leaks.
+
+==================================================
+PART 25 — TESTS: BETA MODE
+==================================================
+
+Run:
+
+!betamode status
+!betamode on
+!status
+!betadash
+!help
+
+Expected:
+- beta mode turns on
+- status shows beta
+- betadash works
+- public help mentions !bug and !feedback
+
+Restart bot if possible.
+
+Run:
+!betamode status
+
+Expected:
+- beta mode persisted
+
+==================================================
+PART 26 — TESTS: MAINTENANCE MODE
+==================================================
+
+Run:
+
+!maintenance on
+!status
+
+As normal player if possible:
+!mine
+!fish
+!bet 100
+!bug test
+!feedback test
+!rules
+
+Expected:
+- reward/game commands blocked
+- !bug, !feedback, !rules allowed
+- no currency deducted
+- no reward earned
+
+As owner/admin:
+!mine or safe test command
+
+Expected:
+- owner/admin can test
+
+Then:
+!maintenance off
+
+Expected:
+- normal gameplay resumes
+
+==================================================
+PART 27 — TESTS: BUG / FEEDBACK
+==================================================
+
+Run:
+
+!bug blackjack payout message looked wrong
+!feedback add more events
+!bugs open
+!feedbacks recent
+
+Expected:
+- reports saved
+- owner/admin can view
+- normal player cannot view lists
+- cooldown works
+
+==================================================
+PART 28 — TESTS: KNOWN ISSUES / RULES
+==================================================
+
+Run:
+
+!knownissues
+!issueadmin add Test issue
+!knownissues
+!issueadmin list
+!issueadmin resolve 1
+!knownissues
+
+Run:
+
+!rules
+
+Expected:
+- known issues work
+- rules show
+- no admin leaks
+
+==================================================
+PART 29 — TESTS: ANNOUNCEMENTS
+==================================================
+
+Run:
+
+!announce beta Testing public beta tools.
+!announce event Mining Rush soon.
+!announceadmin status
+
+Expected:
+- announcement sends
+- logs saved
+- no spam
+- normal player cannot announce
+
+==================================================
+PART 30 — TESTS: LAUNCH READINESS
+==================================================
+
+Run:
+
+!launchready
+!launchcheck beta
+!launchcheck full
+!betacheck
+
+Expected:
+- checks command health
+- help health
+- currency health
+- safety health
+- beta tools health
+- reports Ready YES/NO
+
+==================================================
+PART 31 — FINAL QA
+==================================================
+
+Run:
+
+!commandtest !betamode
+!commandtest !maintenance
+!commandtest !status
+!commandtest !knownissues
+!commandtest !bug
+!commandtest !feedback
+!commandtest !rules
+!commandtest !announce
+!commandtest !launchready
+!commandtest !betacheck
+!commandtest !betadash
+!commandtest !errors
+
+!commandissues
+!checkcommands
+!checkhelp
+!currencycheck
+!launchcheck
+!bothealth
+!stability status
+
+Expected:
+- no command issues
+- no help leaks
+- no old c/credits/gems
+- no reward cap text
+- no HR Gold rewards
+- beta tools work
+- maintenance works
+- launchcheck clean
+
+==================================================
+PART 32 — FINAL REPORT
+==================================================
+
+Report:
+1. Public beta mode added.
+2. Maintenance mode added.
+3. !status / !botstatus added.
+4. Known issues system added.
+5. Bug report system added.
+6. Feedback system added.
+7. Room rules command added.
+8. Quickstart/beta help added.
+9. Announcement system added.
+10. Staff quick tools added.
+11. Launch readiness command added.
+12. Beta check command added.
+13. Beta dashboard added.
+14. Safe error messages added.
+15. Command failure logging added.
+16. Beta/maintenance settings persist.
+17. Help/commands updated.
+18. Public commands tested.
+19. Admin commands tested.
+20. No reward cap regression.
+21. No HR Gold rewards added.
+22. No old c/credits/gems text.
+23. !commandissues result.
+24. !checkhelp result.
+25. !currencycheck result.
+26. !launchcheck result.

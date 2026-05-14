@@ -210,6 +210,15 @@ from modules.qol_cmds import (
     handle_todo, handle_aetest, handle_ownercheck,
     handle_botstatus as handle_botstatus_simple,
 )
+from modules.beta import (
+    handle_betamode, handle_betacheck, handle_betadash,
+    handle_staffdash, handle_testmenu, handle_betahelp,
+    handle_quickstart, handle_launchready,
+    handle_issueadmin, handle_bugs_admin, handle_errors_admin,
+    handle_announce_room, handle_announceadmin,
+    is_beta_mode, maybe_send_beta_notice,
+    rotating_announcement_loop,
+)
 from modules.permissions         import (
     is_owner, is_admin, is_manager, is_moderator,
     can_moderate, can_manage_games, can_manage_economy, can_audit,
@@ -1236,6 +1245,19 @@ LUXE_COMMANDS: frozenset[str] = frozenset({
     "vipadmin",
 })
 
+BETA_COMMANDS: frozenset[str] = frozenset({
+    # 3.1Q — public
+    "testmenu", "betahelp", "quickstart",
+    # 3.1Q — admin+
+    "betamode", "betacheck", "betadash",
+    "staffdash", "stafftools",
+    "issueadmin",
+    "bugs",
+    "errors",
+    "launchready",
+    "announceadmin",
+})
+
 ALL_KNOWN_COMMANDS = (
     ALL_KNOWN_COMMANDS
     | TIME_EXP_COMMANDS
@@ -1243,6 +1265,7 @@ ALL_KNOWN_COMMANDS = (
     | FIRSTFIND_COMMANDS
     | NEW_PROJECT_COMMANDS
     | LUXE_COMMANDS
+    | BETA_COMMANDS
 )
 
 
@@ -3126,6 +3149,11 @@ class HangoutBot(BaseBot):
             _safe_task(time_exp_loop(self), "time_exp_loop")
         else:
             print(f"[TIME_EXP] Loop skipped — not host bot ({BOT_MODE}).")
+        # Rotating announcements loop — host bot only
+        if should_this_bot_run_module("host"):
+            _safe_task(rotating_announcement_loop(self), "rotating_announcement_loop")
+        else:
+            print(f"[ANNOUNCE] Rotating loop skipped — not host bot ({BOT_MODE}).")
         # Background automation loops (idempotent — safe on reconnect)
         try:
             start_auto_game_loop(self)
@@ -3733,6 +3761,13 @@ class HangoutBot(BaseBot):
                 await handle_clearstalebotlocks(self, user)
             elif cmd == "fixbotowners":
                 await handle_fixbotowners(self, user, args)
+
+            # ── 3.1Q staff commands ────────────────────────────────────────────
+            elif cmd == "announce":
+                await handle_announce_room(self, user, args)
+
+            elif cmd == "staffdash" or cmd == "stafftools":
+                await handle_staffdash(self, user)
 
             else:
                 await handle_admin_command(self, user, cmd, args)
@@ -6039,6 +6074,38 @@ class HangoutBot(BaseBot):
 
         elif cmd == "maintenance":
             await handle_maintenance(self, user, args)
+
+        # ── 3.1Q — Beta/launch tools ──────────────────────────────────────────
+        elif cmd == "betamode":
+            await handle_betamode(self, user, args)
+
+        elif cmd == "betacheck":
+            await handle_betacheck(self, user)
+
+        elif cmd == "betadash":
+            await handle_betadash(self, user)
+
+        elif cmd == "issueadmin":
+            await handle_issueadmin(self, user, args)
+
+        elif cmd == "bugs":
+            await handle_bugs_admin(self, user, args)
+
+        elif cmd == "errors":
+            await handle_errors_admin(self, user, args)
+
+        elif cmd == "launchready":
+            await handle_launchready(self, user, args)
+
+        elif cmd == "announceadmin":
+            await handle_announceadmin(self, user, args)
+
+        # ── 3.1Q — Public beta commands ───────────────────────────────────────
+        elif cmd in {"testmenu", "betahelp"}:
+            await handle_betahelp(self, user)
+
+        elif cmd == "quickstart":
+            await handle_quickstart(self, user)
 
         elif cmd == "reloadsettings":
             await handle_reloadsettings(self, user)

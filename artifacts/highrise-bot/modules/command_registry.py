@@ -1410,6 +1410,22 @@ REGISTRY: dict[str, Cmd] = {
     "missionadmin":    Cmd("host", "admin",     False, True,  False, perm="admin"),
     "retentionadmin":  Cmd("host", "admin",     False, True,  False, perm="admin"),
 
+    # ── 3.1Q — Beta/Launch Readiness ──────────────────────────────────────────
+    "betamode":       Cmd("host", "admin",     False, True,  False, perm="admin"),
+    "betacheck":      Cmd("host", "admin",     False, True,  False, perm="admin"),
+    "betadash":       Cmd("host", "admin",     False, True,  False, perm="admin"),
+    "staffdash":      Cmd("host", "general",   False, True,  True,  perm="mod",
+                          aliases=("stafftools",)),
+    "testmenu":       Cmd("host", "general",   True,  True,  True,
+                          aliases=("betahelp",)),
+    "quickstart":     Cmd("host", "general",   True,  True,  True),
+    "issueadmin":     Cmd("host", "admin",     False, True,  False, perm="admin"),
+    "bugs":           Cmd("host", "admin",     False, True,  False, perm="admin"),
+    "errors":         Cmd("host", "admin",     False, False, False, perm="owner"),
+    "launchready":    Cmd("host", "admin",     False, True,  False, perm="admin"),
+    "announce":       Cmd("host", "general",   False, True,  False, perm="manager"),
+    "announceadmin":  Cmd("host", "admin",     False, True,  False, perm="admin"),
+
     # ── 3.1P Help + Commands system ───────────────────────────────────────────
     "commands":       Cmd("host", "general",   True,  True,  True,
                           aliases=("cmds",)),

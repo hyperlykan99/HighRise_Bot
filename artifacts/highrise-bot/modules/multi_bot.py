@@ -97,6 +97,16 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "today": "host", "progress": "host",
     "missionadmin": "host",
     "retentionadmin": "host",
+    # 3.1Q — Beta/Launch Readiness
+    "betamode": "host", "betacheck": "host", "betadash": "host",
+    "staffdash": "host", "stafftools": "host",
+    "testmenu": "host", "betahelp": "host", "quickstart": "host",
+    "issueadmin": "host",
+    "bugs": "host",
+    "errors": "host",
+    "launchready": "host",
+    "announce": "host",
+    "announceadmin": "host",
     # Luxe auto time — info is miner/fisher; miner owns combined !autotime
     "autotime": "miner", "minetime": "miner",
     "fishtime": "fisher",
