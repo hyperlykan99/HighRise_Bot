@@ -1875,7 +1875,7 @@ CASINO_ADMIN_HELP_PAGES = [
         "!setrbjactiontimer [sec]"
     ),
     (
-        "🎰 Casino Admin 2c\n"
+        "🎰 Casino Admin 2\n"
         "!bj double on|off\n"
         "!rbj double on|off\n"
         "!bj split on|off\n"

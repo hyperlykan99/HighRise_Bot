@@ -688,7 +688,7 @@ def _check_cards_poker() -> list:
         _log_card_test("poker", "player1", True, normal_hand_msg[:80], ok8)
 
         # 9. Turn whisper contains "Your turn" text and a card marker
-        turn_hand_msg = f"👉 🂠 Your turn | {_fmt_hand(p1_hand)} | Call 100c | Stack 1,000c"
+        turn_hand_msg = f"👉 🂠 Your turn | {_fmt_hand(p1_hand)} | Call 100 🪙 | Stack 1,000 🪙"
         mt  = send_test_card_message("player1", turn_hand_msg, private=True)
         ok9 = (any(mk in mt.content for mk in _known_markers) and
                "Your turn" in mt.content and mt.private)
@@ -696,7 +696,7 @@ def _check_cards_poker() -> list:
         _log_card_test("poker", "player1", True, turn_hand_msg[:80], ok9)
 
         # 10. Recovery card reload message has marker and is private to player
-        rec_cards_msg = f"🂠 Hand restored | Cards: {_fmt_hand(p1_hand)} | Stack: 1,000c"
+        rec_cards_msg = f"🂠 Hand restored | Cards: {_fmt_hand(p1_hand)} | Stack: 1,000 🪙"
         mrc = send_test_card_message("player1", rec_cards_msg, private=True)
         ok10 = any(mk in mrc.content for mk in _known_markers) and mrc.private
         checks.append(_chk("pk_vis:recovery_marker_present", ok10))

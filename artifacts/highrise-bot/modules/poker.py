@@ -4348,7 +4348,7 @@ async def handle_pokerdebug(bot: BaseBot, user: User, args: list[str]) -> None:
         seated_yn  = "yes" if sp else "no"
         in_hand_yn = "yes" if p_row else "no"
         status_str = sp["status"] if sp else "—"
-        stack_str  = str(sp["table_stack"]) + "c" if sp else "—"
+        stack_str  = f"{sp['table_stack']:,} 🪙" if sp else "—"
         if p_row:
             cards = json.loads(p_row["hole_cards_json"] or "[]")
             cards_yn = f"yes({len(cards)})" if cards else "no"
@@ -4591,7 +4591,7 @@ async def handle_pokerlb(bot: BaseBot, user: User, args: list[str]) -> None:
     parts  = []
     for i, r in enumerate(rows):
         val    = r[1]
-        suffix = "c" if mode in ("profit", "pots", "daily") else ""
+        suffix = " 🪙" if mode in ("profit", "pots", "daily") else ""
         sign   = "+" if mode in ("profit", "daily") and isinstance(val, int) and val > 0 else ""
         parts.append(f"#{i+1} @{r[0]} {sign}{val}{suffix}")
     await _w(bot, user.id, (header + "\n" + "\n".join(parts))[:249])

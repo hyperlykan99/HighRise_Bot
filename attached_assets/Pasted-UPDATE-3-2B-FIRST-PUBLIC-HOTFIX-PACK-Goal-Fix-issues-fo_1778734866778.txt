@@ -1,0 +1,741 @@
+UPDATE 3.2B — FIRST PUBLIC HOTFIX PACK
+
+Goal:
+Fix issues found during the first public launch/testing period without adding major new systems.
+
+Main purpose:
+This is a hotfix/stability update, not a feature expansion.
+
+Focus:
+1. Fix bugs reported through !bug.
+2. Fix command errors from !errors.
+3. Fix player feedback issues that are small/safe.
+4. Fix launch blockers.
+5. Fix currency/help text regressions.
+6. Fix public player confusion.
+7. Keep production stable.
+8. No major new features.
+
+Currencies:
+🪙 ChillCoins = gameplay currency
+🎫 Luxe Tickets = premium currency
+
+Do not change tokens.
+Do not change room ID.
+Do not wipe database.
+Do not reset balances, tickets, VIP, badges, titles, market, casino, blackjack, poker, mining/fishing data, collection book, missions, XP, levels, events, seasons, onboarding, safety logs, analytics, tools, rods, boosts, profile settings, bug reports, feedback, backups, release settings, or player inventory.
+Do not re-add reward caps.
+Do not add HR Gold rewards.
+Do not change economy prices unless owner explicitly confirms.
+Do not change odds.
+Do not add big new systems.
+Do not show “c” for currency.
+Use 🪙 and 🎫.
+
+==================================================
+PART 1 — STABILITY FIRST
+==================================================
+
+Before changing anything, run:
+
+!launchmode status
+!production status
+!hotfix start 3.2B first public hotfix
+!launchblockers
+!finalaudit
+!launchcheck
+!launchready
+!commandissues
+!checkcommands all
+!checkhelp
+!currencycheck
+!bothealth
+!stability status
+
+Expected:
+- Production stays stable.
+- Hotfix mode turns ON.
+- Launch blockers are identified before fixing.
+- No data is wiped.
+
+If any critical blocker exists:
+Fix it first.
+
+==================================================
+PART 2 — COLLECT PUBLIC BUGS
+==================================================
+
+Review all public bug reports.
+
+Run:
+
+!bugs open
+!bugs recent
+!bugdash
+!topissues
+
+For each bug:
+- identify command/module
+- reproduce if possible
+- fix only if safe
+- mark priority
+- close only after verified
+
+Commands:
+
+!bugs priority [id] low/medium/high/critical
+!bugs tag [id] [tag]
+!bugs close [id]
+
+Rules:
+- Do not expose private reports publicly.
+- Do not delete bug reports.
+- Do not mark fixed unless tested.
+- Critical bugs must become launch blockers until fixed.
+
+==================================================
+PART 3 — REVIEW COMMAND ERRORS
+==================================================
+
+Run:
+
+!errors recent
+!errors open
+!errordash
+
+Fix command errors in priority:
+
+1. Commands players commonly use:
+!start
+!help
+!guide
+!profile
+!missions
+!mine
+!fish
+!balance
+!luxeshop
+!events
+!bug
+!feedback
+
+2. Economy commands:
+!buycoins
+!buyluxe
+!vip
+!tickets
+
+3. Game commands:
+!bjhelp
+!bet
+!hit
+!stand
+!pokerhelp
+!trivia
+
+4. Admin/owner monitoring:
+!launchcheck
+!currencycheck
+!commandissues
+!postlaunch
+
+Rules:
+- Player-facing errors should say:
+  ⚠️ Command error logged. Try again or use !bug.
+- Raw tracebacks must not be shown to players.
+- Log details internally.
+
+==================================================
+PART 4 — REVIEW PLAYER FEEDBACK
+==================================================
+
+Run:
+
+!feedbacks recent
+!feedbackdash
+!feedbacks top
+
+Apply only safe/small feedback fixes, such as:
+- clearer wording
+- confusing help text
+- missing guide topic
+- typo fixes
+- unclear shop instructions
+- unclear Luxe Ticket explanation
+- unclear VIP duration explanation
+
+Do NOT add major systems in this hotfix.
+
+If feedback requests big features:
+- tag for future update
+- do not implement now
+
+Expected:
+💬 Feedback reviewed.
+Small clarity fixes applied.
+Large feature requests tagged for later.
+
+==================================================
+PART 5 — FIX LAUNCH BLOCKERS
+==================================================
+
+Run:
+
+!launchblockers
+
+Fix any listed blockers:
+- command issues
+- no-route commands
+- no-handler commands
+- owner UNKNOWN commands
+- currency issues
+- help issues
+- maintenance ON
+- critical bugs
+- backup missing
+- bothealth/stability issues
+
+Expected after fixes:
+
+🚧 Launch Blockers
+No blockers.
+Ready: YES ✅
+
+Rules:
+- Do not hide real blockers.
+- If optional command is broken, either implement it or hide it fully.
+- Do not leave broken commands in public help.
+
+==================================================
+PART 6 — CURRENCY REGRESSION CHECK
+==================================================
+
+Run:
+
+!currencycheck
+!currencycheck details
+!currencycheck details 2
+
+Fix any old text:
+- 100c
+- 500c
+- credits
+- gems
+- tickets without 🎫 if referring to Luxe Tickets
+
+Expected:
+Old “c”: 0
+Old “credits”: 0
+Old “gems”: 0
+
+Rules:
+- Keep Highrise Gold text as “Gold”.
+- Do not replace verified Gold tip wording with 🪙.
+- Luxe Tickets use 🎫.
+- ChillCoins use 🪙.
+
+==================================================
+PART 7 — PUBLIC HELP HOTFIX
+==================================================
+
+Run:
+
+!help
+!commands
+!guide
+!quickstart
+!newbie
+!start
+!commands mining
+!commands fishing
+!commands economy
+!commands luxe
+!commands casino
+!commands beta
+
+Fix:
+- broken commands shown in help
+- admin command leaks
+- old “c” text
+- old “credits” text
+- outdated count-based automine/autofish instructions
+- casual blackjack residue
+- confusing Luxe shop instructions
+- missing !bug / !feedback in beta/public launch help
+
+Expected:
+- help is short
+- help is accurate
+- no broken commands
+- no admin leaks
+
+==================================================
+PART 8 — ONBOARDING HOTFIX
+==================================================
+
+Test new player flow:
+
+!start
+!tutorial
+!quickstart
+!guide economy
+!guide mining
+!guide fishing
+!guide luxe
+
+Fix:
+- stuck tutorial step
+- repeated starter reward
+- tutorial not progressing
+- confusing guide text
+- duplicate welcome spam
+- missing !bug or !feedback mention
+
+Rules:
+- Starter rewards must only claim once.
+- Do not reset onboarding progress.
+- Do not wipe old players.
+
+==================================================
+PART 9 — ECONOMY / LUXE HOTFIX
+==================================================
+
+Test:
+
+!balance
+!tickets
+!luxeshop
+!buyluxe 10
+!buycoins small
+!buycoins max
+!vip
+!autotime
+
+Fix:
+- currency display issues
+- not enough 🎫 messages
+- wrong Luxe item number
+- wrong owner for mining/fishing Luxe items
+- missing stacked auto time display
+- VIP duration not showing
+
+Rules:
+- Do not change prices.
+- Do not change conversion rate.
+- Do not auto-convert unless player enabled it.
+- Do not credit tickets from chat text.
+- Only verified Gold events can add 🎫.
+
+==================================================
+PART 10 — MINING/FISHING HOTFIX
+==================================================
+
+Test:
+
+!mine
+!fish
+!automine
+!autofish
+!automine luxe
+!autofish luxe
+!mineluck
+!fishluck
+!orebook
+!fishbook
+!lastminesummary
+!lastfishsummary
+
+Fix:
+- command errors
+- old currency text
+- auto session overlap bugs
+- Luxe auto remaining time bugs
+- collection book display bugs
+- luck stack display bugs
+- summary not saving
+- summary showing wrong currency format
+
+Rules:
+- Do not change mining/fishing odds.
+- Do not change rewards.
+- Do not wipe collection data.
+- No reward caps.
+
+==================================================
+PART 11 — CASINO / GAME HOTFIX
+==================================================
+
+Test:
+
+!bjhelp
+!bjrules
+!bjstatus
+!bjadmin settings
+!bet 100
+!hit
+!stand
+!pokerhelp if available
+!trivia if available
+
+Fix:
+- old “c” display
+- wrong max/min bet display
+- casual blackjack residue
+- duplicate bot replies
+- wrong command owner
+- no-route game commands
+- public admin command leaks
+
+Rules:
+- Do not change odds.
+- Do not change payouts.
+- Do not reset blackjack shoe.
+- Do not wipe casino data.
+- No reward caps.
+
+==================================================
+PART 12 — PROFILE / SOCIAL HOTFIX
+==================================================
+
+Test:
+
+!profile
+!profile settings
+!profile settings balance private
+!profile
+!stats
+!flex
+!profile @4ktreyMarion
+
+Fix:
+- balance privacy leak
+- !flex not public
+- !flex showing private balance
+- wrong VIP duration
+- wrong badge/title display
+- old currency text
+
+Rules:
+- Public !profile respects privacy.
+- !stats can show own private balance.
+- !flex is public and must not leak private balance.
+
+==================================================
+PART 13 — MISSIONS / EVENTS / SEASONS HOTFIX
+==================================================
+
+Test:
+
+!missions
+!weekly
+!today
+!progress
+!events
+!event active
+!season
+!topseason mining
+!seasonrewards
+
+Fix:
+- progress not updating
+- duplicate claims
+- wrong event bonus display
+- event not showing in luck stack
+- season points not updating
+- broken season reward display
+- old currency text
+
+Rules:
+- No duplicate rewards.
+- No reward caps.
+- No HR Gold rewards.
+
+==================================================
+PART 14 — SAFETY / MODERATION HOTFIX
+==================================================
+
+Test:
+
+!modhelp
+!safetyadmin settings
+!economysafety
+!safetydash
+!audit recent
+!audit @4ktreyMarion
+
+Fix:
+- audit parsing issues
+- old currency text
+- staff command permission leaks
+- wrong role command visibility
+- safety dashboard command errors
+
+Rules:
+- No public private data leak.
+- No automatic harsh punishments.
+- No false accusations in player-facing text.
+
+==================================================
+PART 15 — ANALYTICS / MONITORING HOTFIX
+==================================================
+
+Test:
+
+!postlaunch
+!livehealth
+!dailyreview
+!bugdash
+!feedbackdash
+!economymonitor
+!luxemonitor
+!retentionmonitor
+!eventmonitor
+!casinomonitor
+!errordash
+!launchlocks
+
+Fix:
+- command errors
+- missing N/A fallback
+- raw tracebacks
+- old currency text
+- admin-only permission leaks
+- dashboard showing false Ready YES
+
+Rules:
+- Dashboards owner/admin only.
+- Public commands must not expose analytics.
+
+==================================================
+PART 16 — STRICT NO NEW MAJOR FEATURES
+==================================================
+
+Do not add:
+- HR Gold rewards
+- new pet system
+- new casino games
+- new market system
+- new economy currencies
+- new paid items
+- new major progression systems
+
+Allowed:
+- bug fixes
+- safety fixes
+- wording fixes
+- command route fixes
+- currency display fixes
+- duplicate payout fixes
+- privacy fixes
+- launch blockers fixes
+
+==================================================
+PART 17 — HOTFIX LOG
+==================================================
+
+For every fix, add to hotfix log.
+
+Use:
+
+!hotfixlog add [summary]
+
+Examples:
+- Fixed fishbook page crash
+- Fixed blackjack old currency display
+- Fixed !audit recent parsing
+- Fixed !newbie route
+- Fixed Luxe auto remaining time display
+
+If automated logging exists, log internally.
+
+Expected:
+!hotfixlog recent shows all 3.2B fixes.
+
+==================================================
+PART 18 — BUG CLOSURE RULES
+==================================================
+
+When fixing bugs:
+- close only after test passes
+- tag duplicate reports
+- keep unresolved issues open
+- update known issues if still pending
+
+Expected:
+
+!bugs close [id]
+✅ Bug closed.
+
+If not fixed:
+Leave open and tag:
+!bugs tag [id] known
+
+==================================================
+PART 19 — KNOWN ISSUES UPDATE
+==================================================
+
+Update:
+
+!knownissues
+
+Expected:
+- critical issues clearly shown if any
+- minor known issues listed honestly
+- fixed issues removed/resolved
+- report new bugs with !bug
+
+Rules:
+- Do not claim no issues if open critical/high bugs exist.
+- Keep public known issues short.
+
+==================================================
+PART 20 — FINAL BETA/PUBLIC CHECK
+==================================================
+
+Run as owner/admin:
+
+!betatest
+!betareport
+!postlaunch
+!launchblockers
+!finalaudit
+!launchready
+!launchcheck
+
+Expected:
+- hotfixes improved health
+- launch blockers 0
+- no new command issues
+- no old currency text
+- no critical bugs
+
+==================================================
+PART 21 — COMMAND REGISTRY CHECK
+==================================================
+
+Run:
+
+!commandissues
+!checkcommands
+!checkcommands all
+!checkhelp
+
+Fix:
+- no-route
+- no-handler
+- no-owner
+- duplicate-owner
+- public help broken
+- deprecated command leaks
+
+Expected:
+Command issues: 0
+
+If optional command is broken:
+- hide it fully
+- remove from help
+- remove from blocker count
+
+==================================================
+PART 22 — PLAYER TEST SCRIPT
+==================================================
+
+Run normal player-style test:
+
+!quickstart
+!profile
+!missions
+!mine
+!fish
+!events
+!season
+!balance
+!luxeshop
+!knownissues
+!bug test after hotfix
+!feedback test after hotfix
+
+Expected:
+- no command errors
+- no old currency text
+- no admin leaks
+- no confusing output
+
+==================================================
+PART 23 — FINAL QA
+==================================================
+
+Run:
+
+!commandissues
+!checkcommands all
+!checkhelp
+!currencycheck
+!launchblockers
+!finalaudit
+!launchready
+!launchcheck
+!bothealth
+!stability status
+!hotfix status
+!hotfixlog recent
+
+Expected:
+- command issues: 0
+- currencycheck clean
+- launch blockers: 0
+- final audit clean
+- launchcheck clean
+- hotfix log updated
+
+==================================================
+PART 24 — END HOTFIX MODE
+==================================================
+
+If all checks pass:
+
+!hotfix end
+
+Expected:
+🛠️ Hotfix Mode: OFF
+Production stable.
+
+Do not turn off:
+- production mode
+- economy lock
+- registry lock
+- feature freeze
+- launch mode
+
+These should stay ON unless owner says otherwise.
+
+==================================================
+PART 25 — FINAL REPORT
+==================================================
+
+Report:
+1. Number of open bugs reviewed.
+2. Number of bugs fixed.
+3. Number of feedback items reviewed.
+4. Command errors fixed.
+5. Launch blockers fixed.
+6. Currency regressions fixed.
+7. Help/guide fixes applied.
+8. Economy/Luxe fixes applied.
+9. Mining/fishing fixes applied.
+10. Casino/game fixes applied.
+11. Profile/privacy fixes applied.
+12. Mission/event/season fixes applied.
+13. Safety/moderation fixes applied.
+14. Monitoring/dashboard fixes applied.
+15. Known issues updated.
+16. No major new features added.
+17. No economy values changed unless explicitly approved.
+18. No HR Gold rewards added.
+19. No reward caps added.
+20. !commandissues result.
+21. !checkhelp result.
+22. !currencycheck result.
+23. !launchblockers result.
+24. !launchcheck result.
+25. Hotfix mode ended or left on with reason.

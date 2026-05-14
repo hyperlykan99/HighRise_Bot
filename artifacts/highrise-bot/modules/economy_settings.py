@@ -38,11 +38,11 @@ async def handle_economysettings(bot: BaseBot, user: User):
     fee = db.get_bank_setting("send_tax_percent")
     msg = (
         f"⚙️ Economy Settings\n"
-        f"Daily: {s['daily_coins']}c | Fee: {fee}%\n"
-        f"Trivia: {s['trivia_reward']}c  "
-        f"Scramble: {s['scramble_reward']}c  "
-        f"Riddle: {s['riddle_reward']}c\n"
-        f"Max Balance: {s['max_balance']:,}c"
+        f"Daily: {s['daily_coins']:,} 🪙 | Fee: {fee}%\n"
+        f"Trivia: {s['trivia_reward']:,} 🪙  "
+        f"Scramble: {s['scramble_reward']:,} 🪙  "
+        f"Riddle: {s['riddle_reward']:,} 🪙\n"
+        f"Max Balance: {s['max_balance']:,} 🪙"
     )
     await _w(bot, user.id, msg)
 
@@ -63,7 +63,7 @@ async def handle_setdailycoins(bot: BaseBot, user: User, args: list[str]):
         await _w(bot, user.id, "Amount must be 1–10,000.")
         return
     db.set_economy_setting("daily_coins", str(amount))
-    await _w(bot, user.id, f"✅ Daily coins set to {amount:,}c.")
+    await _w(bot, user.id, f"✅ Daily coins set to {amount:,} 🪙.")
 
 
 # ---------------------------------------------------------------------------
@@ -89,7 +89,7 @@ async def handle_setgamereward(bot: BaseBot, user: User, args: list[str]):
         await _w(bot, user.id, "Amount must be 1–10,000.")
         return
     db.set_economy_setting(f"{game}_reward", str(amount))
-    await _w(bot, user.id, f"✅ {game.capitalize()} reward set to {amount:,}c.")
+    await _w(bot, user.id, f"✅ {game.capitalize()} reward set to {amount:,} 🪙.")
 
 
 # ---------------------------------------------------------------------------
@@ -108,7 +108,7 @@ async def handle_setmaxbalance(bot: BaseBot, user: User, args: list[str]):
         await _w(bot, user.id, "Must be between 10,000 and 1,000,000,000.")
         return
     db.set_economy_setting("max_balance", str(amount))
-    await _w(bot, user.id, f"✅ Max balance set to {amount:,}c.")
+    await _w(bot, user.id, f"✅ Max balance set to {amount:,} 🪙.")
 
 
 # ---------------------------------------------------------------------------

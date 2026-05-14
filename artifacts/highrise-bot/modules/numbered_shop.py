@@ -144,7 +144,7 @@ async def _create_confirmation(bot, user, item, shop_type) -> None:
         item.get("item_id", ""), name, price, cur, listing_id
     )
 
-    unit = "EC" if cur == "event_coins" else "c"
+    unit = " EC" if cur == "event_coins" else " 🪙"
     await bot.highrise.send_whisper(
         user.id,
         f"Confirm {_fmt(price)}{unit} purchase of {name}:\n"

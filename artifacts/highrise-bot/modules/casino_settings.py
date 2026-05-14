@@ -56,8 +56,8 @@ def _page1(bj: dict, rbj: dict) -> str:
         f"🎰 Casino 1\n"
         f"BJ: {_on(bj.get('bj_enabled', 1))} | "
         f"RBJ: {_on(rbj.get('rbj_enabled', 1))}\n"
-        f"BJ bet: {_fmt(bj.get('min_bet', 10))}-{_fmt(bj.get('max_bet', 1000))}c\n"
-        f"RBJ bet: {_fmt(rbj.get('min_bet', 10))}-{_fmt(rbj.get('max_bet', 1000))}c"
+        f"BJ bet: {_fmt(bj.get('min_bet', 10))}-{_fmt(bj.get('max_bet', 1000))} 🪙\n"
+        f"RBJ bet: {_fmt(rbj.get('min_bet', 10))}-{_fmt(rbj.get('max_bet', 1000))} 🪙"
     )
 
 
@@ -104,10 +104,10 @@ async def handle_casinosettings(bot: BaseBot, user: User, args: list[str]) -> No
             f"🎰 Casual BJ\n"
             f"Status: {_on(bj.get('bj_enabled', 1))} | "
             f"Timer: {bj.get('bj_turn_timer', 20)}s\n"
-            f"Bet: {_fmt(bj.get('min_bet', 10))}c-{_fmt(bj.get('max_bet', 1000))}c\n"
-            f"Win cap: {_fmt(bj.get('bj_daily_win_limit', 5000))}c "
+            f"Bet: {_fmt(bj.get('min_bet', 10))}-{_fmt(bj.get('max_bet', 1000))} 🪙\n"
+            f"Win cap: {_fmt(bj.get('bj_daily_win_limit', 5000))} 🪙 "
             f"({_on(bj.get('bj_win_limit_enabled', 1))}) | "
-            f"Loss cap: {_fmt(bj.get('bj_daily_loss_limit', 3000))}c "
+            f"Loss cap: {_fmt(bj.get('bj_daily_loss_limit', 3000))} 🪙 "
             f"({_on(bj.get('bj_loss_limit_enabled', 1))})"
         )
 
@@ -117,10 +117,10 @@ async def handle_casinosettings(bot: BaseBot, user: User, args: list[str]) -> No
             f"🎰 Realistic BJ\n"
             f"Status: {_on(rbj.get('rbj_enabled', 1))} | "
             f"Timer: {rbj.get('rbj_turn_timer', 20)}s\n"
-            f"Bet: {_fmt(rbj.get('min_bet', 10))}c-{_fmt(rbj.get('max_bet', 1000))}c\n"
-            f"Win cap: {_fmt(rbj.get('rbj_daily_win_limit', 5000))}c "
+            f"Bet: {_fmt(rbj.get('min_bet', 10))}-{_fmt(rbj.get('max_bet', 1000))} 🪙\n"
+            f"Win cap: {_fmt(rbj.get('rbj_daily_win_limit', 5000))} 🪙 "
             f"({_on(rbj.get('rbj_win_limit_enabled', 1))}) | "
-            f"Loss cap: {_fmt(rbj.get('rbj_daily_loss_limit', 3000))}c "
+            f"Loss cap: {_fmt(rbj.get('rbj_daily_loss_limit', 3000))} 🪙 "
             f"({_on(rbj.get('rbj_loss_limit_enabled', 1))})"
         )
 
@@ -250,7 +250,7 @@ async def handle_setbjlimits(bot: BaseBot, user: User, args: list[str]) -> None:
 
     await _w(bot, user.id,
         f"✅ BJ limits saved.\n"
-        f"Bet: {minbet}-{maxbet}c | W/L: {winlim}/{losslim}"
+        f"Bet: {minbet:,}-{maxbet:,} 🪙 | W/L: {winlim:,}/{losslim:,}"
     )
 
 
@@ -288,5 +288,5 @@ async def handle_setrbjlimits(bot: BaseBot, user: User, args: list[str]) -> None
 
     await _w(bot, user.id,
         f"✅ RBJ limits saved.\n"
-        f"Bet: {minbet}-{maxbet}c | W/L: {winlim}/{losslim}"
+        f"Bet: {minbet:,}-{maxbet:,} 🪙 | W/L: {winlim:,}/{losslim:,}"
     )

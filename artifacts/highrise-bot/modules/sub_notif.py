@@ -304,14 +304,14 @@ _NOTIF_PREVIEWS: dict[str, str] = {
         "Category: Mining\n\n"
         "⛏️ BIG FIND!\n"
         "@Player mined [MYTHIC] Dragonstone\n"
-        "⚖️ 12.4kg | 💰 50,000c"
+        "⚖️ 12.4kg | 💰 50,000 🪙"
     ),
     "fishing": (
         "🔔 Notification Preview\n"
         "Category: Fishing\n\n"
         "🎣 BIG CATCH!\n"
         "@Player caught [EXOTIC] Azure Jellyfish\n"
-        "⚖️ 8.2lb | 💰 75,000c"
+        "⚖️ 8.2lb | 💰 75,000 🪙"
     ),
     "events": (
         "🔔 Notification Preview\n"
