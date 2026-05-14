@@ -67,6 +67,23 @@ _NEVER_PATTERNS: list[tuple[re.Pattern, str]] = [
     ), "I can't run exploits or hacks through AI."),
 
     (re.compile(
+        r"\b(ignore|forget|override|disregard)\s+(your\s+)?"
+        r"(rules?|instructions?|guidelines?|system\s+prompt|restrictions?|limits?)\b",
+        re.I,
+    ), "I can't ignore my safety rules or guidelines."),
+
+    (re.compile(
+        r"\b(pretend|act\s+as\s+if|act\s+like)\s+(you\s+)?"
+        r"(have\s+no\s+rules?|have\s+no\s+restrictions?|are\s+unrestricted|can\s+do\s+anything)\b",
+        re.I,
+    ), "I can't pretend to have no rules. My safety guidelines always apply."),
+
+    (re.compile(
+        r"\bjailbreak\b",
+        re.I,
+    ), "I can't bypass my safety guidelines through AI."),
+
+    (re.compile(
         r"\bgive\s+(me\s+)?(unlimited|infinite|999\d{3,}|\d{6,})\s+(coins?|tokens?|tickets?)\b",
         re.I,
     ), "I can't casually grant unlimited currency. Economy edits require owner confirmation."),

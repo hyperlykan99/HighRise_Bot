@@ -96,6 +96,7 @@ from modules.ai_logs             import log_event
 from modules.ai_command_router   import (
     handle_ai_command, handle_ai_cmd_help, is_confirm_or_cancel,
 )
+from modules.ai_human_brain      import ask_human_brain
 
 
 # ── Trigger helpers (kept here to avoid circular imports) ────────────────────
@@ -504,8 +505,9 @@ async def _handle_translation(bot, user, text):
     if reply:
         await _send(bot, user, reply[:249], "general")
         return
-    # Local dictionary doesn't have this word — try OpenAI
-    llm = await ask_openai_short(text, user.username)
+    # Local dictionary doesn't have this word — try OpenAI (with billing)
+    perm = get_perm_level(user.username)
+    llm = await ask_human_brain(text, user.username, user.id, role=perm_label(perm), intent="translation_question")
     if llm:
         await _send(bot, user, llm[:249], "general")
         return

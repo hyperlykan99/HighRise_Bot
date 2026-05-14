@@ -104,6 +104,17 @@ async def _tele(bot, user, args):
     await handle_tpme(bot, user, ["tpme", dest] if dest else ["tpme"])
 
 
+async def _buyvip(bot, user, args):
+    from modules.vip import handle_buyvip
+    await handle_buyvip(bot, user, ["buyvip"])
+
+
+async def _buy(bot, user, args):
+    from modules.shop import handle_buy
+    full_args = ["buy"] + args
+    await handle_buy(bot, user, full_args)
+
+
 async def _mute(bot, user, args):
     # args: [target_username, duration_minutes, reason]
     from modules.moderation import handle_mute
@@ -162,6 +173,8 @@ _DISPATCH: dict[str, callable] = {
     "luxeshop":   _luxeshop,
     "vipstatus":  _vipstatus,
     "tele":       _tele,
+    "buyvip":     _buyvip,
+    "buy":        _buy,
     "mute":       _mute,
     "warn":       _warn,
     "startevent": _startevent,

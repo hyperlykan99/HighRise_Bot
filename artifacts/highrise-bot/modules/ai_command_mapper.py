@@ -88,6 +88,20 @@ AI_COMMAND_WHITELIST: dict[str, dict] = {
         "requires_confirmation": False,
         "description":        "Check your VIP status",
     },
+    "buyvip": {
+        "category":           "SAFE_PLAYER_DIRECT",
+        "aliases":            ["buy vip", "get vip", "purchase vip", "subscribe vip"],
+        "requires_permission":"player",
+        "requires_confirmation": True,
+        "description":        "Purchase VIP status",
+    },
+    "buy": {
+        "category":           "SAFE_PLAYER_DIRECT",
+        "aliases":            ["buy item", "purchase item", "get item"],
+        "requires_permission":"player",
+        "requires_confirmation": True,
+        "description":        "Buy an item from the shop by number (e.g. buy item 2)",
+    },
     "tele": {
         "category":           "SAFE_PLAYER_DIRECT",
         "aliases":            ["teleport me to", "tele me to", "take me to", "go to"],
@@ -156,6 +170,12 @@ AI_COMMAND_WHITELIST: dict[str, dict] = {
 
 def _no_args(_m, _t):
     return []
+
+
+def _buy_args(m, text):
+    # "buy item 2", "buy #3", "purchase item 5" → ["2"], ["3"], ["5"]
+    found = re.search(r"(?:item\s+|#\s*)?(\d+)", text)
+    return [found.group(1)] if found else []
 
 
 def _tele_args(m, text):
@@ -271,6 +291,16 @@ _NL_PATTERNS: list[tuple[str, re.Pattern, callable]] = [
         r"\b(tele(?:port)?|take|bring|send)\s+(?:me\s+)?to\b",
         re.I,
     ), _tele_args),
+
+    # ── Shop purchases ────────────────────────────────────────────────────────
+    ("buyvip", re.compile(
+        r"\b(buy|get|purchase|subscribe)\s+vip\b",
+        re.I,
+    ), _no_args),
+    ("buy", re.compile(
+        r"\b(buy|purchase|get)\s+(?:item\s+|#\s*)?(\d+)\b",
+        re.I,
+    ), _buy_args),
 
     # ── Staff moderation ──────────────────────────────────────────────────────
     ("mute", re.compile(r"\bmute\s+@?\w+", re.I), _mute_args),
