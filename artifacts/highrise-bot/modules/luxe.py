@@ -265,10 +265,14 @@ async def _deliver_vip(bot: "BaseBot", user: "User") -> None:
     db.set_room_setting(f"vip_expires_{user.id}", new_exp_str)
     db.log_admin_action(user.username, user.username, "buyvip_luxe", "", f"{duration_days}d")
 
+    price    = get_luxe_price("vip")
     rem_days = (new_exp_dt - now_dt).days
+    title    = "👑 VIP Extended" if action == "Extended" else "👑 VIP Purchased"
     await _w(bot, user.id,
-             f"👑 VIP {action}!\n"
-             f"Added: {duration_days}d  |  Remaining: {rem_days}d\n"
+             f"{title}\n"
+             f"Cost: {_fc(price)} 🎫\n"
+             f"Added: {duration_days}d\n"
+             f"Remaining: {rem_days}d\n"
              f"Expires: {new_exp_str}")
 
 
@@ -347,7 +351,8 @@ async def _do_purchase(
     if bal < total:
         await _w(bot, user.id,
                  f"⚠️ Not enough 🎫.\n"
-                 f"Need: {_fc(total)} 🎫  You have: {_fc(bal)} 🎫")
+                 f"Need: {_fc(total)} 🎫\n"
+                 f"You have: {_fc(bal)} 🎫")
         return
 
     if not deduct_luxe_balance(user.id, user.username, total):
@@ -368,14 +373,15 @@ async def _do_purchase(
         total_sec = dur_sec * qty
         if cat == "mining":
             new_secs = db.add_luxe_auto_time(user.id, user.username, "mining", total_sec)
-            label    = "⛏️ Auto-Mine"
         else:
             new_secs = db.add_luxe_auto_time(user.id, user.username, "fishing", total_sec)
-            label    = "🎣 Auto-Fish"
+        _item_name = info[1]
         await _w(bot, user.id,
-                 f"✅ {label} Time Added: {_fmt_secs(total_sec)}\n"
-                 f"Total Available: {_fmt_secs(new_secs)}\n"
-                 f"Use !automine luxe or !autofish luxe to start.")
+                 f"✅ Luxe Purchase\n"
+                 f"Item: {_item_name}\n"
+                 f"Cost: {_fc(total)} 🎫\n"
+                 f"Added: {_fmt_secs(total_sec)}\n"
+                 f"Total: {_fmt_secs(new_secs)}")
     elif cat == "boosts":
         for _ in range(qty):
             await _deliver_boost(bot, user, item_key)
@@ -385,10 +391,10 @@ async def _do_purchase(
         db.add_balance(user.id, total_coins)
         log_luxe_transaction(user.id, user.username, "buycoins_award",
                              total_coins, "coins", item_key)
-        new_bal = db.get_balance(user.id)
         await _w(bot, user.id,
-                 f"✅ Purchased {_fc(total_coins)} 🪙!\n"
-                 f"Paid: {_fc(total)} 🎫  |  Balance: {_fc(new_bal)} 🪙")
+                 f"✅ Conversion Complete\n"
+                 f"Spent: {_fc(total)} 🎫\n"
+                 f"Received: {_fc(total_coins)} 🪙")
 
 
 # ---------------------------------------------------------------------------
@@ -397,21 +403,15 @@ async def _do_purchase(
 
 async def handle_tickets(bot: "BaseBot", user: "User", args: list[str]) -> None:
     db.ensure_user(user.id, user.username)
-    bal      = get_luxe_balance(user.id)
-    rate     = get_luxe_rate()
-    mine_sec = get_mine_luxe_time(user.id)
-    fish_sec = get_fish_luxe_time(user.id)
-    lines = [
-        "🎫 Luxe Tickets",
-        f"Balance: {_fc(bal)} 🎫",
-        f"Earn: tip Highrise Gold ({rate} 🎫/gold)",
-        "Spend: !luxeshop",
-    ]
-    if mine_sec > 0:
-        lines.append(f"⛏️ Auto-Mine time: {_fmt_secs(mine_sec)}")
-    if fish_sec > 0:
-        lines.append(f"🎣 Auto-Fish time: {_fmt_secs(fish_sec)}")
-    await _w(bot, user.id, "\n".join(lines))
+    bal = get_luxe_balance(user.id)
+    await _w(bot, user.id,
+             f"🎫 Luxe Tickets\n"
+             f"Balance: {_fc(bal)} 🎫\n"
+             f"Earned from verified Gold tips.\n"
+             f"Use !luxeshop.")
+    await _w(bot, user.id,
+             "Use 🎫 for VIP, Luxe auto time, boosts, and 🪙 packs.\n"
+             "Convert: !buycoins max")
 
 
 # ---------------------------------------------------------------------------
@@ -420,25 +420,44 @@ async def handle_tickets(bot: "BaseBot", user: "User", args: list[str]) -> None:
 
 async def handle_autotime(bot: "BaseBot", user: "User", args: list[str]) -> None:
     db.ensure_user(user.id, user.username)
-    sub = args[1].lower() if len(args) >= 2 else ""
+    sub      = args[1].lower() if len(args) >= 2 else ""
     mine_sec = get_mine_luxe_time(user.id)
     fish_sec = get_fish_luxe_time(user.id)
     if sub in ("mine", "mining", "minetime"):
-        await _w(bot, user.id,
-                 f"⛏️ Luxe Auto-Mine Time\n"
-                 f"Available: {_fmt_secs(mine_sec)}\n"
-                 f"Use !automine luxe to start.")
+        if mine_sec > 0:
+            await _w(bot, user.id,
+                     f"⛏️ Luxe Mining Time\n"
+                     f"Time left: {_fmt_secs(mine_sec)}\n"
+                     f"Use !automine luxe to start.")
+        else:
+            await _w(bot, user.id,
+                     f"⛏️ Luxe Mining Time\n"
+                     f"Time left: 0m\n"
+                     f"Buy from !luxeshop mining.")
     elif sub in ("fish", "fishing", "fishtime"):
-        await _w(bot, user.id,
-                 f"🎣 Luxe Auto-Fish Time\n"
-                 f"Available: {_fmt_secs(fish_sec)}\n"
-                 f"Use !autofish luxe to start.")
+        if fish_sec > 0:
+            await _w(bot, user.id,
+                     f"🎣 Luxe Fishing Time\n"
+                     f"Time left: {_fmt_secs(fish_sec)}\n"
+                     f"Use !autofish luxe to start.")
+        else:
+            await _w(bot, user.id,
+                     f"🎣 Luxe Fishing Time\n"
+                     f"Time left: 0m\n"
+                     f"Buy from !luxeshop fishing.")
     else:
-        await _w(bot, user.id,
-                 f"⏱️ Luxe Auto Time\n"
-                 f"Mining: {_fmt_secs(mine_sec)}\n"
-                 f"Fishing: {_fmt_secs(fish_sec)}\n"
-                 f"!automine luxe | !autofish luxe")
+        if mine_sec == 0 and fish_sec == 0:
+            await _w(bot, user.id,
+                     f"🎫 Luxe Auto Time\n"
+                     f"Mining: 0m\n"
+                     f"Fishing: 0m\n"
+                     f"Buy time in !luxeshop.")
+        else:
+            await _w(bot, user.id,
+                     f"🎫 Luxe Auto Time\n"
+                     f"Mining: {_fmt_secs(mine_sec)}\n"
+                     f"Fishing: {_fmt_secs(fish_sec)}\n"
+                     f"Use:\n!automine luxe\n!autofish luxe")
 
 
 # ---------------------------------------------------------------------------
@@ -467,22 +486,34 @@ async def handle_luxeshop(bot: "BaseBot", user: "User", args: list[str] = None) 
         if not filtered:
             await _w(bot, user.id, "⚠️ No items in that category. Try: mining fishing boosts coins vip")
             return
-        cat_emojis = {"mining": "⛏️", "fishing": "🎣", "boosts": "🌟", "coins": "🪙", "vip": "👑"}
-        emoji = cat_emojis.get(cat, "🎫")
-        lines = [f"{emoji} Luxe {cat.capitalize()}"]
+        cat_headers = {
+            "mining": "⛏️ Luxe Mining",
+            "fishing": "🎣 Luxe Fishing",
+            "boosts": "🍀 Luxe Boosts",
+            "coins": "🪙 ChillCoin Packs",
+            "vip": "👑 VIP",
+        }
+        header = cat_headers.get(cat, f"🎫 Luxe {cat.capitalize()}")
+        lines  = [header]
         for k, (num, name, _, _, _) in filtered:
             price = get_luxe_price(k)
             if cat == "coins":
                 _, coins = get_coinpack(k)
-                lines.append(f"{num}. {name} — {_fc(price)} 🎫 = {_fc(coins)} 🪙")
+                lines.append(f"{num}. {_fc(price)} 🎫 = {_fc(coins)} 🪙")
             else:
                 lines.append(f"{num}. {name} — {_fc(price)} 🎫")
-        lines.append("Use !buyluxe [#]")
+        if cat == "vip":
+            lines.append("Use !buyluxe 1")
+            lines.append("Check: !vip")
+        elif cat == "coins":
+            lines.append("Use !buycoins max")
+        else:
+            lines.append("Use !buyluxe [#]")
         await _w(bot, user.id, "\n".join(lines)[:249])
         return
 
     # Full shop — 3 pages, ≤220 chars each
-    dur = get_vip_luxe_duration()
+    dur   = get_vip_luxe_duration()
     p_vip = get_luxe_price("vip")
     p_am1 = get_luxe_price("automine1h")
     p_am3 = get_luxe_price("automine3h")
@@ -497,8 +528,8 @@ async def handle_luxeshop(bot: "BaseBot", user: "User", args: list[str] = None) 
     cl_t, cl_c = get_coinpack("largecoins")
 
     await _w(bot, user.id,
-             f"🎫 Luxe Shop  (!buyluxe [#])\n"
-             f"1. VIP Pass ({dur}d) — {_fc(p_vip)} 🎫\n"
+             f"🎫 Luxe Shop\n"
+             f"1. VIP Pass — {_fc(p_vip)} 🎫\n"
              f"2. Auto-Mine 1h — {_fc(p_am1)} 🎫\n"
              f"3. Auto-Mine 3h — {_fc(p_am3)} 🎫\n"
              f"4. Auto-Mine 5h — {_fc(p_am5)} 🎫")
@@ -506,13 +537,13 @@ async def handle_luxeshop(bot: "BaseBot", user: "User", args: list[str] = None) 
              f"5. Auto-Fish 1h — {_fc(p_af1)} 🎫\n"
              f"6. Auto-Fish 3h — {_fc(p_af3)} 🎫\n"
              f"7. Auto-Fish 5h — {_fc(p_af5)} 🎫\n"
-             f"8. Lucky Hour — {_fc(p_lh)} 🎫\n"
-             f"9. Treasure Hour — {_fc(p_th)} 🎫")
+             f"8. Lucky Hour — {_fc(p_lh)} 🎫")
     await _w(bot, user.id,
+             f"9. Treasure Hour — {_fc(p_th)} 🎫\n"
              f"10. Small Coins — {_fc(cs_t)} 🎫 = {_fc(cs_c)} 🪙\n"
-             f"11. Med Coins — {_fc(cm_t)} 🎫 = {_fc(cm_c)} 🪙\n"
+             f"11. Medium Coins — {_fc(cm_t)} 🎫 = {_fc(cm_c)} 🪙\n"
              f"12. Large Coins — {_fc(cl_t)} 🎫 = {_fc(cl_c)} 🪙\n"
-             f"!tickets — balance | !autotime — auto time left")
+             f"Buy: !buyluxe [#]")
 
 
 # ---------------------------------------------------------------------------
@@ -523,7 +554,8 @@ async def handle_buyluxe(bot: "BaseBot", user: "User", args: list[str]) -> None:
     db.ensure_user(user.id, user.username)
     if len(args) < 2:
         await _w(bot, user.id,
-                 "Usage: !buyluxe [#] or !buyluxe [#] [qty]\n"
+                 "⚠️ Use: !buyluxe [number]\n"
+                 "Example: !buyluxe 2\n"
                  "Browse: !luxeshop")
         return
 
@@ -626,13 +658,18 @@ async def _do_buycoins_max(
     db.add_balance(user.id, total_coins)
     log_luxe_transaction(user.id, user.username, "buycoins_max",
                          total_cost, "luxe", f"+{total_coins} coins")
-    new_bal   = get_luxe_balance(user.id)
-    summary   = " | ".join(parts)
-    prefix    = _whisper_prefix
+    # Build clean pack summary: "large x2, small x1"
+    # parts entries are like "3xLarge (...)"
+    pack_summary = ", ".join(
+        f"{p.split('x')[1].split(' ')[0].lower()} x{p.split('x')[0]}"
+        for p in parts
+    )
+    prefix = _whisper_prefix
     await _w(bot, user.id,
-             f"{prefix}✅ {total_cost:,} 🎫 → {total_coins:,} 🪙\n"
-             f"{summary}\n"
-             f"Remaining: {_fc(new_bal)} 🎫")
+             (f"{prefix}✅ Converted\n"
+              f"Spent: {total_cost:,} 🎫\n"
+              f"Received: {total_coins:,} 🪙\n"
+              f"Packs: {pack_summary}")[:249])
 
 
 # ---------------------------------------------------------------------------
@@ -684,9 +721,9 @@ async def handle_autoconvert(bot: "BaseBot", user: "User", args: list[str]) -> N
         enabled = _get_autoconvert(user.id)
         status  = "ON" if enabled else "OFF"
         await _w(bot, user.id,
-                 f"🔄 Auto-Convert: {status}\n"
-                 f"!autoconvert coins on — convert 🎫→🪙 on tip\n"
-                 f"!autoconvert coins off — keep 🎫")
+                 f"🔁 Auto-Convert\n"
+                 f"Status: {status}\n"
+                 f"When ON, verified Gold tips convert 🎫 to 🪙 automatically.")
 
     elif sub == "coins" and sub2 in ("on", "off"):
         enabled = sub2 == "on"
@@ -694,16 +731,14 @@ async def handle_autoconvert(bot: "BaseBot", user: "User", args: list[str]) -> N
         if enabled:
             await _w(bot, user.id,
                      "✅ Auto-Convert ON\n"
-                     "Tips will auto-convert 🎫 into 🪙.\n"
-                     "!autoconvert coins off to stop.")
+                     "Future verified Gold tips will convert 🎫 into 🪙 packs.")
         else:
             await _w(bot, user.id,
                      "✅ Auto-Convert OFF\n"
-                     "Tips will add 🎫 to your balance.\n"
-                     "!autoconvert coins on to enable.")
+                     "Future tips stay as 🎫.")
     else:
         await _w(bot, user.id,
-                 "🔄 Auto-Convert\n"
+                 "🔁 Auto-Convert\n"
                  "!autoconvert coins on\n"
                  "!autoconvert coins off\n"
                  "!autoconvert status")
@@ -837,10 +872,10 @@ async def handle_buycoins(bot: "BaseBot", user: "User", args: list[str]) -> None
         cl_t, cl_c = get_coinpack("largecoins")
         await _w(bot, user.id,
                  f"🪙 ChillCoin Packs\n"
-                 f"Small:  {_fc(cs_t)} 🎫 → {_fc(cs_c)} 🪙\n"
-                 f"Medium: {_fc(cm_t)} 🎫 → {_fc(cm_c)} 🪙\n"
-                 f"Large:  {_fc(cl_t)} 🎫 → {_fc(cl_c)} 🪙\n"
-                 f"Usage: !buycoins small/medium/large/max")
+                 f"small: {_fc(cs_t)} 🎫 = {_fc(cs_c)} 🪙\n"
+                 f"medium: {_fc(cm_t)} 🎫 = {_fc(cm_c)} 🪙\n"
+                 f"large: {_fc(cl_t)} 🎫 = {_fc(cl_c)} 🪙\n"
+                 f"Use !buycoins max.")
         return
 
     sub = args[1].lower()
@@ -1068,17 +1103,22 @@ async def handle_luxeadmin(bot: "BaseBot", user: "User", args: list[str]) -> Non
                  f"🎣 Fish time: {_fmt_secs(fish_sec)}")
 
     else:
+        _rate      = get_luxe_rate()
+        _n_items   = len(_SHOP_ITEMS)
+        _atm_raw   = db.get_room_setting("after_tip_menu", "1")
+        _atm_disp  = "ON" if _atm_raw == "1" else "OFF"
         await _w(bot, user.id,
-                 "🎫 Luxe Admin\n"
+                 f"🎫 Luxe Admin\n"
+                 f"Rate: 1 Gold = {_rate} 🎫\n"
+                 f"Items: {_n_items}\n"
+                 f"After-tip menu: {_atm_disp}\n"
+                 f"Auto-convert default: OFF")
+        await _w(bot, user.id,
                  "!luxeadmin rate | prices\n"
                  "!luxeadmin set rate <n>\n"
                  "!luxeadmin set price <#|key> <tickets>\n"
-                 "!luxeadmin set duration <item> <mins>")
-        await _w(bot, user.id,
-                 "!luxeadmin set coinpack <size> <t> <c>\n"
-                 "!luxeadmin grant @user <n>  (owner)\n"
-                 "!luxeadmin revoke @user <n> (owner)\n"
-                 "!luxeadmin check @user")
+                 "!luxeadmin set duration <item> <mins>\n"
+                 "!luxeadmin grant/revoke/check @user")
 
 
 # ---------------------------------------------------------------------------

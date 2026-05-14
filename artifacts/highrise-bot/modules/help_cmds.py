@@ -138,13 +138,19 @@ _CAT: dict[str, str] = {
     ),
 
     "luxe": (
-        "🎫 Luxe Tickets\n"
-        "!tickets — Luxe balance\n"
-        "!luxeshop — Luxe shop\n"
-        "!buyluxe [#] — buy Luxe item\n"
-        "!buycoins — coin packs\n"
-        "!vip — VIP with 🎫\n"
-        "!autotime — Luxe auto time"
+        "🎫 Luxe Commands\n"
+        "!luxeshop\n"
+        "!buyluxe [#]\n"
+        "!tickets\n"
+        "!buycoins max\n"
+        "!autotime"
+    ),
+
+    "luxe2": (
+        "Use:\n"
+        "!automine luxe\n"
+        "!autofish luxe\n"
+        "!vip"
     ),
 
     "profile": (

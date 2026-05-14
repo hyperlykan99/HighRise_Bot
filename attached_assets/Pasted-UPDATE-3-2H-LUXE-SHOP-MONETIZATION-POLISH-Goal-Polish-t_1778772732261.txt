@@ -1,0 +1,855 @@
+UPDATE 3.2H — LUXE SHOP MONETIZATION POLISH
+
+Goal:
+Polish the Luxe Tickets shop experience so players clearly understand 🎫 Luxe Tickets, numbered shop items, VIP purchases, Luxe auto time, coin conversions, and after-tip options.
+
+Important:
+This is NOT economy balancing.
+Do not change Luxe prices.
+Do not change coin pack values.
+Do not change VIP price/duration.
+Do not change mining/fishing odds.
+Do not add pay-to-win mechanics.
+Do not add HR Gold rewards.
+
+Main focus:
+1. Polish numbered !luxeshop.
+2. Improve !buyluxe confirmations.
+3. Improve Luxe auto 1h/3h/5h display.
+4. Improve VIP purchase/extension messages.
+5. Improve !buycoins conversion flow.
+6. Improve after-tip quick menu.
+7. Check Luxe item ownership by bot.
+8. Improve Luxe help/guide.
+9. No price changes yet.
+10. No economy balancing yet.
+11. No pay-to-win changes.
+
+Currencies:
+🪙 ChillCoins = gameplay currency
+🎫 Luxe Tickets = premium currency
+
+Do not change tokens.
+Do not change room ID.
+Do not wipe database.
+Do not reset balances, tickets, VIP, badges, titles, market, casino, blackjack, poker, mining/fishing data, collection book, missions, XP, levels, events, seasons, onboarding, safety logs, analytics, tools, rods, boosts, profile settings, bug reports, feedback, backups, release settings, or player inventory.
+Do not re-add reward caps.
+Do not add HR Gold rewards.
+Do not change economy prices.
+Do not change Luxe shop prices.
+Do not change conversion rates.
+Do not show “c” for currency.
+Use 🪙 and 🎫.
+
+==================================================
+PART 1 — STABILITY FIRST
+==================================================
+
+Before changing anything, run:
+
+!launchmode status
+!production status
+!launchblockers
+!finalaudit
+!launchcheck
+!commandissues
+!checkcommands all
+!checkhelp
+!currencycheck
+!bothealth
+!stability status
+
+Expected:
+- Production stable
+- Launch blockers: 0
+- Command issues: 0
+- Currencycheck clean
+- No old c/credits/gems
+- Launchcheck clean
+
+Fix blockers first.
+
+==================================================
+PART 2 — LUXE POLISH ONLY
+==================================================
+
+Allowed:
+- clearer Luxe shop wording
+- better numbered shop display
+- better purchase confirmations
+- better not-enough-ticket messages
+- better VIP duration/extension messages
+- better coin conversion messages
+- better after-tip menu
+- help/guide cleanup
+- route/owner cleanup
+- safety fixes
+
+Not allowed:
+- price changes
+- conversion changes
+- reward value changes
+- mining/fishing odds changes
+- casino odds changes
+- HR Gold rewards
+- new paid mechanics that affect rarity beyond existing boosts
+- pay-to-win guarantees
+
+==================================================
+PART 3 — POLISH !LUXESHOP MAIN DISPLAY
+==================================================
+
+Commands:
+!luxeshop
+!premiumshop
+
+Expected:
+
+🎫 Luxe Shop
+1. VIP Pass — 500 🎫
+2. Auto-Mine 1h — 100 🎫
+3. Auto-Mine 3h — 250 🎫
+4. Auto-Mine 5h — 400 🎫
+
+Second message:
+
+5. Auto-Fish 1h — 100 🎫
+6. Auto-Fish 3h — 250 🎫
+7. Auto-Fish 5h — 400 🎫
+8. Lucky Hour — 150 🎫
+
+Third message:
+
+9. Treasure Hour — 200 🎫
+10. Small Coins — 50 🎫
+11. Medium Coins — 100 🎫
+12. Large Coins — 250 🎫
+Buy: !buyluxe [#]
+
+Rules:
+- Keep each message under 220 characters.
+- Use stable item numbers.
+- Use 🎫 only for Luxe price.
+- Use 🪙 only when showing coin pack rewards.
+- No old c/credits/gems.
+- No admin commands in public shop.
+- Do not change default prices.
+
+==================================================
+PART 4 — POLISH CATEGORY LUXE SHOP
+==================================================
+
+Commands:
+!luxeshop mining
+!luxeshop fishing
+!luxeshop vip
+!luxeshop coins
+!luxeshop boosts
+
+Expected mining:
+
+⛏️ Luxe Mining
+2. Auto-Mine 1h — 100 🎫
+3. Auto-Mine 3h — 250 🎫
+4. Auto-Mine 5h — 400 🎫
+Use !buyluxe [#]
+
+Fishing:
+
+🎣 Luxe Fishing
+5. Auto-Fish 1h — 100 🎫
+6. Auto-Fish 3h — 250 🎫
+7. Auto-Fish 5h — 400 🎫
+Use !buyluxe [#]
+
+VIP:
+
+👑 VIP
+1. VIP Pass — 500 🎫
+Use !buyluxe 1
+Check: !vip
+
+Coins:
+
+🪙 ChillCoin Packs
+10. 50 🎫 = 50,000 🪙
+11. 100 🎫 = 125,000 🪙
+12. 250 🎫 = 350,000 🪙
+Use !buycoins max
+
+Boosts:
+
+🍀 Luxe Boosts
+8. Lucky Hour — 150 🎫
+9. Treasure Hour — 200 🎫
+Use !buyluxe [#]
+
+Rules:
+- Keep global numbers.
+- Do not renumber per category.
+- Hide category if no items.
+- No price changes.
+
+==================================================
+PART 5 — POLISH !BUYLUXE BY NUMBER
+==================================================
+
+Commands:
+!buyluxe [number]
+!buyticket [number]
+!buy premium [number]
+
+Expected success:
+
+✅ Luxe Purchase
+Item: Auto-Mine 1h
+Cost: 100 🎫
+Added: 1h mining Luxe time
+
+For VIP:
+
+👑 VIP Purchased
+Cost: 500 🎫
+Added: 30d VIP
+Remaining: 30d
+
+For extension:
+
+👑 VIP Extended
+Cost: 500 🎫
+Added: 30d
+Remaining: 45d 4h
+
+For coin pack:
+
+✅ Conversion Complete
+Spent: 100 🎫
+Received: 125,000 🪙
+
+Rules:
+- Deduct 🎫 once.
+- Grant item once.
+- Log transaction.
+- Use transaction safety.
+- No duplicate accidental purchase.
+- No old c.
+- Do not auto-start auto time after purchase.
+
+==================================================
+PART 6 — INVALID PURCHASE MESSAGES
+==================================================
+
+Invalid number:
+
+⚠️ Item not found.
+Use !luxeshop.
+
+Missing number:
+
+⚠️ Use: !buyluxe [number]
+Example: !buyluxe 2
+
+Not enough tickets:
+
+⚠️ Not enough 🎫.
+Need: 100 🎫
+You have: 50 🎫
+
+Disabled item:
+
+⚠️ This Luxe item is unavailable.
+
+Already owns non-stackable item if any:
+
+⚠️ You already own this item.
+
+Rules:
+- No raw errors.
+- No traceback.
+- No old c.
+- No “tickets” without 🎫 in short money lines.
+
+==================================================
+PART 7 — LUXE AUTO TIME STACK DISPLAY
+==================================================
+
+Polish:
+
+!autotime
+!luxeauto
+
+Expected:
+
+🎫 Luxe Auto Time
+Mining: 2h 30m
+Fishing: 1h 0m
+Use:
+!automine luxe
+!autofish luxe
+
+If none:
+
+🎫 Luxe Auto Time
+Mining: 0m
+Fishing: 0m
+Buy time in !luxeshop.
+
+Rules:
+- Time stacks from 1h/3h/5h purchases.
+- Display hours/minutes clearly.
+- No raw seconds unless admin.
+- No old c.
+
+==================================================
+PART 8 — LUXE AUTOMINE / AUTOFISH START POLISH
+==================================================
+
+Commands:
+!automine luxe
+!autofish luxe
+
+Expected mining:
+
+🎫 Luxe AutoMine Started
+Time: 2h 30m
+Speed: 8s
+Luck: 13
+Use !stopmine to pause.
+
+Fishing:
+
+🎫 Luxe AutoFish Started
+Time: 1h 0m
+Speed: 8s
+Luck: 13
+Use !stopfish to pause.
+
+If no time:
+
+⚠️ No Luxe Auto-Mine time.
+Buy from !luxeshop mining.
+
+or:
+
+⚠️ No Luxe Auto-Fish time.
+Buy from !luxeshop fishing.
+
+Rules:
+- Do not consume all time at start.
+- Deduct elapsed time only.
+- Stop/cancel/error saves remaining time.
+- No reward caps.
+- No odds changes.
+
+==================================================
+PART 9 — LUXE AUTO STOP / SUMMARY POLISH
+==================================================
+
+When player stops Luxe auto:
+
+⛏️ Luxe AutoMine Paused
+Time used: 12m
+Remaining: 48m
+Earned: 18,500 🪙
+
+Fishing:
+
+🎣 Luxe AutoFish Paused
+Time used: 12m
+Remaining: 48m
+Earned: 18,500 🪙
+
+When completed naturally:
+
+⛏️ Luxe AutoMine Complete
+Time used: 1h
+Earned: 82,000 🪙
+Best: Diamond
+
+Rules:
+- Save summary.
+- Remaining time persists after restart.
+- No duplicate rewards.
+- Use 🪙.
+- No old c.
+
+==================================================
+PART 10 — VIP STATUS / PURCHASE POLISH
+==================================================
+
+Polish:
+
+!vip
+!vipstatus
+
+If inactive:
+
+👑 VIP Status
+Status: Inactive
+Price: 500 🎫
+Duration: 30d
+Buy: !buyluxe 1
+
+If active:
+
+👑 VIP Status
+Status: Active
+Remaining: 29d 4h
+Expires: [date/time]
+Perks: luck, speed, longer auto
+
+If lifetime:
+
+👑 VIP Status
+Status: Lifetime
+Remaining: Forever
+
+Rules:
+- Always show duration/remaining.
+- No “No lifetime VIP” text.
+- VIP purchase extends if already active.
+- Use 🎫.
+- No old c.
+
+==================================================
+PART 11 — BUYCOINS FLOW POLISH
+==================================================
+
+Commands:
+!buycoins small
+!buycoins medium
+!buycoins large
+!buycoins max
+
+Expected:
+
+🪙 ChillCoin Packs
+small: 50 🎫 = 50,000 🪙
+medium: 100 🎫 = 125,000 🪙
+large: 250 🎫 = 350,000 🪙
+Use !buycoins max.
+
+Purchase:
+
+✅ Converted
+Spent: 250 🎫
+Received: 350,000 🪙
+
+Max conversion:
+
+✅ Converted
+Spent: 300 🎫
+Received: 400,000 🪙
+Packs: large x1, small x1
+
+If not enough:
+
+⚠️ Not enough 🎫.
+Small pack costs 50 🎫.
+
+Rules:
+- Do not auto-convert unless player enabled it.
+- Deduct once.
+- Grant once.
+- Log transaction.
+- No old c.
+
+==================================================
+PART 12 — AUTO-CONVERT POLISH
+==================================================
+
+Commands:
+!autoconvert status
+!autoconvert coins on
+!autoconvert coins off
+
+Expected:
+
+🔁 Auto-Convert
+Status: OFF
+When ON, verified Gold tips convert 🎫 to 🪙 automatically.
+
+Enable:
+
+✅ Auto-Convert ON
+Future verified Gold tips will convert 🎫 into 🪙 packs.
+
+Disable:
+
+✅ Auto-Convert OFF
+Future tips stay as 🎫.
+
+Rules:
+- Default OFF.
+- Use verified Gold tips only.
+- Do not auto-convert existing balance unless player uses !buycoins.
+- No old c.
+
+==================================================
+PART 13 — AFTER-TIP QUICK MENU POLISH
+==================================================
+
+When player tips bot and verified event adds 🎫:
+
+🎫 Tip Received
+Added: 100 🎫
+Quick:
+!buyluxe 1 = VIP
+!buyluxe 2 = Mine 1h
+!buycoins max = 🪙
+
+If auto-convert ON:
+
+🎫 Tip Received
+Added: 100 🎫
+✅ Auto-converted to 125,000 🪙
+
+Rules:
+- Only from verified Highrise tip/payment event.
+- Never from normal chat text.
+- Do not public spam.
+- Whisper if possible.
+- Keep under 220 chars.
+- Use Gold wording only for actual Highrise Gold tip:
+  Tip: 100 Gold
+  Added: 100 🎫
+
+==================================================
+PART 14 — LUXE TICKET EXPLANATION POLISH
+==================================================
+
+Commands:
+!tickets
+!luxe
+!guide luxe
+
+Expected:
+
+🎫 Luxe Tickets
+Balance: 100 🎫
+Earned from verified Gold tips.
+Use !luxeshop.
+
+Second message:
+
+Use 🎫 for VIP, Luxe auto time, boosts, and 🪙 packs.
+Convert: !buycoins max
+
+Rules:
+- Do not say gems.
+- Do not say credits.
+- Do not imply chat claims count.
+- Must say verified Gold tips.
+
+==================================================
+PART 15 — LUXE ITEM OWNERSHIP BY BOT
+==================================================
+
+Verify ownership:
+
+BankingBot:
+- 🎫 balance
+- tip conversion
+- !tickets
+- !luxe
+- !buycoins
+- !buyluxe transaction/debit if centralized
+
+GreatestProspector:
+- Auto-Mine 1h/3h/5h execution
+- !automine luxe
+- mining Luxe time application
+
+MasterAngler:
+- Auto-Fish 1h/3h/5h execution
+- !autofish luxe
+- fishing Luxe time application
+
+ChillTopiaMC:
+- !luxeshop display
+- guide/help routing
+
+Rules:
+- BankingBot should not execute mining/fishing auto sessions.
+- If BankingBot handles purchases, it grants time to correct module storage.
+- !automine owner remains GreatestProspector.
+- !autofish owner remains MasterAngler.
+- No duplicate replies.
+
+==================================================
+PART 16 — LUXE ADMIN DISPLAY POLISH
+==================================================
+
+Polish:
+
+!luxeadmin
+!luxeadmin prices
+!luxeadmin rate
+!luxeadmin settings
+
+Expected:
+
+🎫 Luxe Admin
+Rate: 1 Gold = 1 🎫
+Items: 12
+After-tip menu: ON
+Auto-convert default: OFF
+
+Prices:
+
+🎫 Luxe Prices
+1 VIP — 500 🎫
+2 Mine 1h — 100 🎫
+3 Mine 3h — 250 🎫
+4 Mine 5h — 400 🎫
+
+Rules:
+- Admin/Owner only.
+- Do not change prices.
+- Use display only.
+- Route all shown commands.
+
+==================================================
+PART 17 — LUXE SAFETY CHECK
+==================================================
+
+Verify:
+- 🎫 cannot go negative
+- 🪙 cannot go negative
+- duplicate tip event not credited twice
+- duplicate purchase command does not grant twice accidentally
+- not-enough-ticket purchase does not deduct
+- failed grant refunds 🎫 or does not deduct
+- logs transaction
+
+Expected duplicate event:
+⚠️ This payment was already processed.
+
+Rules:
+- No public accusation.
+- Log safety alert only.
+
+==================================================
+PART 18 — LUXE HELP / COMMANDS CLEANUP
+==================================================
+
+Update:
+
+!commands luxe
+!commands economy
+!guide luxe
+!guide economy
+!help
+!quickstart if needed
+
+Expected !commands luxe:
+
+🎫 Luxe Commands
+!luxeshop
+!buyluxe [#]
+!tickets
+!buycoins max
+!autotime
+
+Second message:
+
+Use:
+!automine luxe
+!autofish luxe
+!vip
+
+Rules:
+- No admin commands in public.
+- No broken commands.
+- No old c/credits/gems.
+- No pay-to-win claims.
+
+==================================================
+PART 19 — NO PAY-TO-WIN WORDING
+==================================================
+
+Search Luxe shop/help for wording that sounds guaranteed:
+
+Avoid:
+- guaranteed legendary
+- guaranteed mythic
+- guaranteed win
+- casino advantage
+- paid rare guarantee
+- pay to win
+
+Use:
+- convenience
+- longer auto time
+- premium perks
+- boosts
+- does not guarantee rare finds
+
+Add if needed:
+
+Luxe auto gives more time, not guaranteed rare finds.
+
+==================================================
+PART 20 — TESTS: LUXE SHOP
+==================================================
+
+Run:
+
+!luxeshop
+!luxeshop mining
+!luxeshop fishing
+!luxeshop coins
+!luxeshop vip
+!luxeshop boosts
+
+Expected:
+- clear numbered items
+- stable numbers
+- all prices use 🎫
+- coin packs use 🪙
+- no old c
+- no admin leaks
+
+==================================================
+PART 21 — TESTS: BUY FLOW
+==================================================
+
+Run with insufficient and sufficient balance if possible:
+
+!buyluxe
+!buyluxe 999
+!buyluxe 2
+!buyluxe 5
+!buyluxe 1
+!buycoins small
+!buycoins max
+
+Expected:
+- missing/invalid/not enough messages clear
+- successful purchase confirms cost/item
+- VIP extends
+- auto time stacks
+- coin packs convert cleanly
+- no duplicate grants
+
+==================================================
+PART 22 — TESTS: AUTO TIME
+==================================================
+
+Run:
+
+!autotime
+!automine luxe
+!stopmine
+!autotime
+!autofish luxe
+!stopfish
+!autotime
+
+Expected:
+- no Luxe time = clean not-enough message
+- with Luxe time = starts correctly
+- stop preserves remaining time
+- summary uses 🪙
+- no command error
+
+==================================================
+PART 23 — TESTS: VIP / TICKETS
+==================================================
+
+Run:
+
+!tickets
+!luxe
+!vip
+!vipstatus
+!autoconvert status
+!guide luxe
+!commands luxe
+
+Expected:
+- clear Luxe explanation
+- verified Gold tips wording
+- VIP duration shown
+- no old currency text
+- no admin leaks
+
+==================================================
+PART 24 — TESTS: OWNERSHIP / ROUTING
+==================================================
+
+Run:
+
+!commandtest !luxeshop
+!commandtest !buyluxe
+!commandtest !buycoins
+!commandtest !tickets
+!commandtest !luxe
+!commandtest !autotime
+!commandtest !automine
+!commandtest !autofish
+!commandtest !vip
+
+Expected:
+- owner not UNKNOWN
+- route=YES
+- handler=YES
+- automine owner=GreatestProspector
+- autofish owner=MasterAngler
+- Luxe balance/payment owner acceptable as BankingBot/ChillTopiaMC
+
+==================================================
+PART 25 — FINAL QA
+==================================================
+
+Run:
+
+!commandissues
+!checkcommands all
+!checkhelp
+!currencycheck
+!launchblockers
+!finalaudit
+!launchcheck
+!bothealth
+!stability status
+
+Expected:
+- no command issues
+- no broken help
+- no old c/credits/gems
+- no HR Gold rewards
+- no reward cap text
+- no price changes
+- no economy balancing
+- launchcheck clean
+
+==================================================
+PART 26 — FINAL REPORT
+==================================================
+
+Report:
+1. Numbered !luxeshop polished.
+2. Category Luxe shops polished.
+3. !buyluxe confirmations polished.
+4. Invalid/not-enough messages polished.
+5. Luxe auto time display polished.
+6. Luxe auto start/stop messages polished.
+7. VIP status/purchase/extension messages polished.
+8. !buycoins flow polished.
+9. Auto-convert messages polished.
+10. After-tip quick menu polished.
+11. Luxe explanation polished.
+12. Bot ownership/routing checked.
+13. Luxe admin display polished.
+14. Luxe safety checked.
+15. Luxe help cleaned.
+16. Pay-to-win wording removed.
+17. No prices changed.
+18. No economy balancing applied.
+19. No HR Gold rewards added.
+20. No reward caps added.
+21. !commandissues result.
+22. !checkhelp result.
+23. !currencycheck result.
+24. !launchcheck result.

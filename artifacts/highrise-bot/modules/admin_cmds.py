@@ -488,6 +488,7 @@ async def handle_removevip(bot: BaseBot, user: User, args: list[str]) -> None:
 
 async def handle_vipstatus(bot: BaseBot, user: User, args: list[str]) -> None:
     """/vipstatus [user]  — check VIP status for self or another player."""
+    from modules.luxe import get_luxe_price, get_vip_luxe_duration
     target_name = args[1].lstrip("@").strip() if len(args) > 1 else user.username
     is_staff    = can_manage_economy(user.username)
 
@@ -499,9 +500,37 @@ async def handle_vipstatus(bot: BaseBot, user: User, args: list[str]) -> None:
     if not rec:
         await _w(bot, user.id, f"@{target_name} not found in DB.")
         return
-    is_vip = db.owns_item(rec["user_id"], "vip")
-    status = "💎 VIP" if is_vip else "Not VIP"
-    await _w(bot, user.id, f"@{rec['username']}: {status}.")
+
+    is_vip  = db.owns_item(rec["user_id"], "vip")
+    expires = db.get_room_setting(f"vip_expires_{rec['user_id']}", "")
+    label   = f" — @{rec['username']}" if target_name.lower() != user.username.lower() else ""
+
+    if is_vip:
+        lines = [f"👑 VIP Status{label}", "Status: Active"]
+        if expires:
+            # Calculate remaining
+            try:
+                import datetime as _dt2
+                exp_dt = _dt2.datetime.strptime(expires, "%Y-%m-%d").replace(
+                    hour=23, minute=59, second=59, tzinfo=_dt2.timezone.utc)
+                delta  = exp_dt - _dt2.datetime.now(_dt2.timezone.utc)
+                if delta.total_seconds() > 0:
+                    rem = f"{delta.days}d {int(delta.seconds // 3600)}h"
+                    lines.append(f"Remaining: {rem}")
+            except Exception:
+                pass
+            lines.append(f"Expires: {expires}")
+        lines.append("Perks: luck, speed, longer auto")
+        await _w(bot, user.id, "\n".join(lines)[:249])
+    else:
+        price = get_luxe_price("vip")
+        dur   = get_vip_luxe_duration()
+        await _w(bot, user.id,
+                 f"👑 VIP Status{label}\n"
+                 f"Status: Inactive\n"
+                 f"Price: {price:,} 🎫\n"
+                 f"Duration: {dur}d\n"
+                 f"Buy: !buyluxe 1")
 
 
 async def handle_vips(bot: BaseBot, user: User, args: list[str]) -> None:

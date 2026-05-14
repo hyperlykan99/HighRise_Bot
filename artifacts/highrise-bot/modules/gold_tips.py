@@ -231,7 +231,8 @@ async def handle_incoming_gold_tip(
         )
         if luxe_amt > 0 and _gac(sender.id):
             _autoconverted = True
-            await _dbm(bot, sender, _silent=True, _whisper_prefix=f"🎫 Tip: {luxe_amt:,} 🎫\n")
+            await _dbm(bot, sender, _silent=True,
+                       _whisper_prefix=f"🎫 Tip Received\nAdded: {luxe_amt:,} 🎫\n")
     except Exception as _ace:
         print(f"[GOLDTIP] Auto-convert error: {_ace!r}")
 
@@ -240,10 +241,12 @@ async def handle_incoming_gold_tip(
         try:
             after_tip_on = db.get_room_setting("after_tip_menu", "1") == "1"
             if after_tip_on and luxe_amt > 0:
-                menu = (f"🎫 Added: {luxe_amt:,} 🎫\n"
-                        f"Quick options:\n"
-                        f"!buyluxe 1=VIP  !buyluxe 2=Mine 1h\n"
-                        f"!buyluxe 5=Fish 1h  !buycoins max=🪙")
+                menu = (f"🎫 Tip Received\n"
+                        f"Added: {luxe_amt:,} 🎫\n"
+                        f"Quick:\n"
+                        f"!buyluxe 1 = VIP\n"
+                        f"!buyluxe 2 = Mine 1h\n"
+                        f"!buycoins max = 🪙")
                 await bot.highrise.send_whisper(sender.id, menu[:249])
         except Exception as _me:
             print(f"[GOLDTIP] After-tip menu error: {_me!r}")

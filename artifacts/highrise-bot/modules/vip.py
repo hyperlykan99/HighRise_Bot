@@ -57,17 +57,28 @@ _SUPPORTER_PERKS = (
 # ---------------------------------------------------------------------------
 
 async def handle_vip(bot: "BaseBot", user: "User", args: list[str]) -> None:
-    """!vip  — show VIP overview and how to buy."""
-    is_vip = db.owns_item(user.id, "vip")
-    status = "Active 💎" if is_vip else "Inactive"
-    p1  = db.get_room_setting("vip_price_1d",  str(_VIP_DEFAULT_PRICES["1d"]))
-    p7  = db.get_room_setting("vip_price_7d",  str(_VIP_DEFAULT_PRICES["7d"]))
-    p30 = db.get_room_setting("vip_price_30d", str(_VIP_DEFAULT_PRICES["30d"]))
-    await _w(bot, user.id,
-             f"💎 VIP — {status}\n"
-             f"Support the room & unlock convenience perks.\n"
-             f"!vipperks — view perks | !myvip — status\n"
-             f"!buyvip 1d ({p1}c) | 7d ({p7}c) | 30d ({p30}c)")
+    """!vip — VIP status and Luxe purchase info."""
+    from modules.luxe import get_luxe_price, get_vip_luxe_duration
+    is_vip  = db.owns_item(user.id, "vip")
+    expires = db.get_room_setting(f"vip_expires_{user.id}", "")
+    if is_vip:
+        rem = _calc_vip_remaining(expires)
+        lines = ["👑 VIP Status", "Status: Active"]
+        if rem and rem != "Expired":
+            lines.append(f"Remaining: {rem}")
+        if expires:
+            lines.append(f"Expires: {expires}")
+        lines.append("Perks: luck, speed, longer auto")
+        await _w(bot, user.id, "\n".join(lines)[:249])
+    else:
+        price = get_luxe_price("vip")
+        dur   = get_vip_luxe_duration()
+        await _w(bot, user.id,
+                 f"👑 VIP Status\n"
+                 f"Status: Inactive\n"
+                 f"Price: {price:,} 🎫\n"
+                 f"Duration: {dur}d\n"
+                 f"Buy: !buyluxe 1")
 
 
 # ---------------------------------------------------------------------------
