@@ -565,12 +565,21 @@ async def handle_jaildebug(bot: "BaseBot", user: "User", args: list[str]) -> Non
         await bot.highrise.send_whisper(user.id, "\U0001f512 Admin+ only.")
         return
     from modules.securitybot_jail import is_security_bot
-    from modules.jail_config import jail_spot_name, guard_spot_name, idle_spot_name
+    from modules.jail_config import (
+        jail_spot_name, guard_spot_name, idle_spot_name, release_spot_name,
+    )
     active = len(get_all_active_sentences())
     spots = {
         "jail":          jail_spot_name(),
         "jail_guard":    guard_spot_name(),
         "security_idle": idle_spot_name(),
+        "jail_release":  release_spot_name(),
+    }
+    spot_cmd = {
+        "jail":          "setjailspot",
+        "jail_guard":    "setjailguardspot",
+        "security_idle": "setsecurityidle",
+        "jail_release":  "setjailreleasespot",
     }
     lines = []
     for label, key in spots.items():
@@ -580,7 +589,7 @@ async def handle_jaildebug(bot: "BaseBot", user: "User", args: list[str]) -> Non
                 f"{label}: \u2705 ({row['x']:.1f},{row['y']:.1f},{row['z']:.1f})"
             )
         else:
-            lines.append(f"{label}: \u274c not set (!set{label.replace('_','')})")
+            lines.append(f"{label}: \u274c not set (!{spot_cmd[label]})")
     enabled = "ON" if is_jail_enabled() else "OFF"
     header = (
         f"\U0001f6a8 Jail {enabled} | Active:{active} | SecBot:{is_security_bot()}"
@@ -702,6 +711,36 @@ async def handle_setsecurityidle(bot: "BaseBot", user: "User", args: list[str]) 
     await bot.highrise.send_whisper(
         user.id, f"\u2705 {SECURITY_BOT_NAME} idle spot saved."[:249]
     )
+
+
+async def handle_setjailreleasespot(
+    bot: "BaseBot", user: "User", args: list[str]
+) -> None:
+    if not _is_staff_plus(user.username):
+        await bot.highrise.send_whisper(user.id, "\U0001f512 Admin+ only.")
+        return
+    from config import SECURITY_BOT_NAME
+    import os as _os
+    _mode = _os.getenv("BOT_MODE", "unknown")
+    _bname = _os.getenv("BOT_USERNAME", _mode)
+    print(f"[JAIL SECURITY] security_bot_name={SECURITY_BOT_NAME} "
+          f"current_bot_name={_bname} current_mode={_mode} setup_allowed=true")
+    pos = await _get_user_position(bot, user.id)
+    print(f"[JAIL SETUP] command=setjailreleasespot user={user.username} "
+          f"position_found={pos is not None}")
+    if not pos:
+        await bot.highrise.send_whisper(
+            user.id,
+            "\u26a0\ufe0f I can't read your current position yet. "
+            "Move one step and try again."[:249],
+        )
+        return
+    from modules.jail_config import release_spot_name
+    name = release_spot_name()
+    facing = getattr(pos, "facing", "FrontRight")
+    db.save_spawn(name, pos.x, pos.y, pos.z, facing, user.username)
+    print(f"[JAIL SETUP] saved {name} x={pos.x} y={pos.y} z={pos.z} facing={facing}")
+    await bot.highrise.send_whisper(user.id, "\u2705 Jail release spot saved.")
 
 
 # ── Startup recovery ──────────────────────────────────────────────────────────

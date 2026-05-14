@@ -96,6 +96,9 @@ def guard_spot_name() -> str:
 def idle_spot_name() -> str:
     return _get("securitybot_idle_spawn") or "security_idle"
 
+def release_spot_name() -> str:
+    return _get("jail_release_spawn") or "jail_release"
+
 
 def set_jail_enabled(val: bool) -> None:
     _set("jail_enabled", "1" if val else "0")

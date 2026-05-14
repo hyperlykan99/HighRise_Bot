@@ -1,0 +1,193 @@
+Add Jail Release Spot + Release Behavior
+
+Current jail setup now routes through ChillTopiaMC/host correctly.
+
+Add a new saved jail release spot.
+
+New command:
+!setjailreleasespot
+
+Purpose:
+When a jailed player finishes their sentence or gets bailed out, they should teleport to the saved release spot instead of staying in jail.
+
+Saved spots required:
+- jail
+- jail_guard
+- security_idle
+- jail_release
+
+Command behavior:
+
+Owner/admin stands at release location:
+!setjailreleasespot
+
+Bot replies:
+✅ Jail release spot saved.
+
+Permission:
+Owner/admin only.
+
+Route/ownership:
+!setjailreleasespot should be handled by host/security/all setup routing, same as:
+!setjailspot
+!setjailguardspot
+!setsecurityidle
+
+Add to:
+- main command router
+- command registry
+- command ownership/defaults
+- commandtest list
+- jail setup/admin command list
+- !jaildebug output
+
+Expected commandtest:
+!commandtest !setjailreleasespot
+
+Expected:
+route=YES
+handler=YES
+host_handles=true
+security_handles=true if KeanuShield/security is online
+
+Storage:
+Use same teleport/location storage format as:
+!setjailspot
+!setjailguardspot
+!setsecurityidle
+!tele jail
+
+Save name/key:
+jail_release
+
+Do not create incompatible position format.
+
+Jail release behavior:
+
+When jail timer expires:
+1. Mark jail sentence as expired/released.
+2. Remove jailed restrictions.
+3. Allow teleport commands again.
+4. Teleport player to saved spot jail_release.
+5. If jail_release is missing, teleport to default room spawn if available.
+6. If no release/default spawn exists, unlock the player and leave them where they are.
+7. Tell player:
+✅ You served your jail time. You’re free.
+
+Optional public message:
+✅ @player has been released from jail.
+
+Bail behavior:
+
+When jailed player or another player pays bail:
+1. Deduct bail cost only after confirmation and successful validation.
+2. Mark sentence as bailed.
+3. Remove jailed restrictions.
+4. Teleport jailed player to jail_release if saved.
+5. If jail_release missing, use default room spawn.
+6. If no release/default spawn exists, unlock and leave in place.
+7. Message:
+✅ @player has been bailed out.
+
+Rejoin behavior:
+If player rejoins and jail sentence is expired:
+- Do not send them back to jail.
+- Mark sentence expired if needed.
+- Let them spawn normally.
+
+If player rejoins and sentence is still active:
+- Send them back to jail.
+- Keep remaining time.
+
+Update !jaildebug:
+
+Show:
+Jail setup:
+jail: ✅ saved / ❌ missing
+jail_guard: ✅ saved / ❌ missing
+security_idle: ✅ saved / ❌ missing
+jail_release: ✅ saved / ❌ missing
+
+If owner/admin, show coordinates if available.
+
+Add debug logs:
+
+[JAIL SETUP] command=setjailreleasespot user=4ktreyMarion position_found=true
+[JAIL SETUP] saved jail_release x=... y=... z=...
+
+[JAIL RELEASE] target=AltName reason=expired
+[JAIL RELEASE] release_spot=jail_release found=true
+[JAIL RELEASE] teleport_success=true
+[JAIL RELEASE] restrictions_removed=true
+
+[JAIL RELEASE] target=AltName reason=bailed
+[JAIL RELEASE] paid_by=4ktreyMarion cost=...
+[JAIL RELEASE] teleport_success=true
+
+Tests:
+
+1. Command route:
+!commandtest !setjailreleasespot
+
+Expected:
+route=YES handler=YES
+
+2. Save release spot:
+Stand where freed players should appear.
+!setjailreleasespot
+
+Expected:
+✅ Jail release spot saved.
+
+3. Verify teleport spot:
+!tele jail_release
+
+Expected:
+Teleports you to release spot.
+
+4. Debug:
+!jaildebug
+
+Expected:
+jail_release shows ✅ saved.
+
+5. Timer release:
+ai jail AltName for 1 minute
+confirm
+
+Wait for timer to end.
+
+Expected:
+AltName gets teleported to jail_release.
+AltName can use !tele again.
+Jail status inactive.
+
+6. Bail release:
+ai jail AltName for 3 minutes
+confirm
+
+On jailed alt:
+!bail
+confirm
+
+Expected:
+AltName gets teleported to jail_release.
+Sentence status = bailed.
+Teleport restrictions removed.
+
+7. Missing release fallback:
+Temporarily clear jail_release.
+Let sentence expire.
+
+Expected:
+Player is unlocked. If default spawn exists, teleport there. If not, leave in place but allow teleport again.
+
+Final output:
+Report:
+1. Files modified
+2. !setjailreleasespot route result
+3. jail_release save result
+4. !jaildebug result
+5. timer release test result
+6. bail release test result
+7. fallback behavior result

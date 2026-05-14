@@ -1197,6 +1197,7 @@ REGISTRY: dict[str, Cmd] = {
     "setjailspot":           Cmd("host",    "jail",True, False,True,  perm="admin"),
     "setjailguardspot":      Cmd("host",    "jail",True, False,True,  perm="admin"),
     "setsecurityidle":       Cmd("host",    "jail",True, False,True,  perm="admin"),
+    "setjailreleasespot":    Cmd("host",    "jail",True, False,True,  perm="admin"),
 
     # ── Social / emote extended ───────────────────────────────────────────────
     "giveheart":             Cmd("dj",      "social",  True,  False, True),

@@ -708,6 +708,7 @@ from modules.jail_system import (
     handle_jailsetcost, handle_jailsetmax, handle_jailsetmin,
     handle_jailsetbailmultiplier, handle_jailprotectstaff, handle_jaildebug,
     handle_setjailspot, handle_setjailguardspot, handle_setsecurityidle,
+    handle_setjailreleasespot,
     handle_jail_confirm, handle_jail_cancel,
     startup_jail_recovery,
 )
@@ -1359,7 +1360,7 @@ JAIL_COMMANDS: frozenset[str] = frozenset({
     "jailsetcost", "jailsetmax", "jailsetmin", "jailsetbailmultiplier",
     "jailprotectstaff", "jaildebug",
     # Owner setup
-    "setjailspot", "setjailguardspot", "setsecurityidle",
+    "setjailspot", "setjailguardspot", "setsecurityidle", "setjailreleasespot",
     # Confirm/cancel aliases
     "jailconfirm", "jailcancel",
 })
@@ -3519,6 +3520,8 @@ class HangoutBot(BaseBot):
                 await handle_setjailguardspot(self, user, args)
             elif cmd == "setsecurityidle":
                 await handle_setsecurityidle(self, user, args)
+            elif cmd == "setjailreleasespot":
+                await handle_setjailreleasespot(self, user, args)
             elif cmd == "setrules":
                 await handle_setrules(self, user, args)
             elif cmd == "automod":

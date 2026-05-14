@@ -8,7 +8,7 @@ if TYPE_CHECKING:
     from highrise import BaseBot
 
 from modules.jail_store import get_active_sentence, get_all_active_sentences, mark_expired
-from modules.jail_config import rejoin_enforce, jail_spot_name
+from modules.jail_config import rejoin_enforce, jail_spot_name, release_spot_name
 
 
 def is_jailed(user_id: str) -> bool:
@@ -92,10 +92,33 @@ async def jail_expiry_loop(bot: "BaseBot") -> None:
                     uid   = s["target_user_id"]
                     uname = s["target_username"]
                     print(f"[JAIL EXPIRED] {uname!r} sentence_id={s['id']}")
+                    print(f"[JAIL RELEASE] target={uname!r} reason=expired")
+                    # Teleport to jail_release, fallback to default spawn
+                    try:
+                        import database as db
+                        from highrise.models import Position
+                        release_key = release_spot_name()
+                        spawn = db.get_spawn(release_key)
+                        if not spawn:
+                            spawn = (db.get_spawn("default")
+                                     or db.get_spawn("main")
+                                     or db.get_spawn("lobby"))
+                        print(f"[JAIL RELEASE] release_spot={release_key} "
+                              f"found={spawn is not None}")
+                        if spawn:
+                            pos = Position(spawn["x"], spawn["y"],
+                                           spawn["z"], spawn["facing"])
+                            await bot.highrise.teleport(uid, pos)
+                            print(f"[JAIL RELEASE] teleport_success=true")
+                        else:
+                            print(f"[JAIL RELEASE] no release spot — unlocking in place")
+                        print(f"[JAIL RELEASE] restrictions_removed=true")
+                    except Exception as _re:
+                        print(f"[JAIL RELEASE] teleport error: {_re!r}")
                     try:
                         await bot.highrise.send_whisper(
                             uid,
-                            "\u2705 You've served your jail time. You're free!"[:249],
+                            "\u2705 You served your jail time. You're free."[:249],
                         )
                     except Exception:
                         pass

@@ -110,15 +110,26 @@ async def complete_bail(bot: "BaseBot", payer: "User") -> None:
         f"cost={p['bail_cost']}"
     )
 
-    # Teleport to default spawn
+    # Teleport to jail_release, fallback to default spawn
     try:
-        spawn = db.get_spawn("default") or db.get_spawn("main") or db.get_spawn("lobby")
+        from modules.jail_config import release_spot_name
+        release_key = release_spot_name()
+        spawn = db.get_spawn(release_key)
+        if not spawn:
+            spawn = (db.get_spawn("default")
+                     or db.get_spawn("main")
+                     or db.get_spawn("lobby"))
+        print(f"[JAIL RELEASE] target={p['target_uname']!r} reason=bailed")
+        print(f"[JAIL RELEASE] paid_by={payer.username!r} cost={p['bail_cost']}")
         if spawn:
             from highrise.models import Position
             pos = Position(spawn["x"], spawn["y"], spawn["z"], spawn["facing"])
             await bot.highrise.teleport(p["target_uid"], pos)
-    except Exception:
-        pass
+            print(f"[JAIL RELEASE] teleport_success=true")
+        else:
+            print(f"[JAIL RELEASE] no release spot — unlocking in place")
+    except Exception as _re:
+        print(f"[JAIL RELEASE] teleport error: {_re!r}")
 
     try:
         await bot.highrise.send_whisper(

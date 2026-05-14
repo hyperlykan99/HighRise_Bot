@@ -125,7 +125,7 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     "unjail", "jailrelease", "jailadmin", "jailactive",
     "jailsetcost", "jailsetmax", "jailsetmin", "jailsetbailmultiplier",
     "jailprotectstaff", "jaildebug",
-    "setjailspot", "setjailguardspot", "setsecurityidle",
+    "setjailspot", "setjailguardspot", "setsecurityidle", "setjailreleasespot",
     "jailconfirm", "jailcancel",
     "safetyadmin", "economysafety", "safetydash",
     "setrules", "automod",

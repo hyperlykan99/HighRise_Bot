@@ -634,6 +634,7 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "jailsetcost": "host", "jailsetmax": "host", "jailsetmin": "host",
     "jailsetbailmultiplier": "host", "jailprotectstaff": "host",
     "setjailspot": "host", "setjailguardspot": "host", "setsecurityidle": "host",
+    "setjailreleasespot": "host",
     # banker — gold tip commands (new)
     "goldtipsettings": "banker", "setgoldrate": "banker",
     "goldtiplogs": "banker", "mygoldtips": "banker", "goldtipstatus": "banker",
