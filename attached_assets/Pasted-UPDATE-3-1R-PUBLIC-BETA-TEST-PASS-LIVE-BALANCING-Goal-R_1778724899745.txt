@@ -1,0 +1,872 @@
+UPDATE 3.1R — PUBLIC BETA TEST PASS + LIVE BALANCING
+
+Goal:
+Run a full public beta test pass, collect live bugs/feedback, review economy balance, and prepare the bot for a stable v3.2 launch branch.
+
+Main features:
+1. Public beta test checklist
+2. Live bug triage
+3. Feedback review tools
+4. Economy balance review
+5. Mining/fishing reward review
+6. Luxe shop price review
+7. Mission/event/season review
+8. Top reported issue tracker
+9. Beta summary report
+10. v3.2 launch readiness report
+
+Currencies:
+🪙 ChillCoins = gameplay currency
+🎫 Luxe Tickets = premium currency
+
+Do not change tokens.
+Do not change room ID.
+Do not wipe database.
+Do not reset balances, tickets, VIP, badges, titles, market, casino, blackjack, poker, mining/fishing data, collection book, missions, XP, levels, events, seasons, onboarding, safety logs, analytics, tools, rods, boosts, profile settings, bug reports, feedback, or player inventory.
+Do not re-add reward caps.
+Do not add HR Gold rewards.
+Do not change economy prices automatically unless owner confirms.
+Do not change mining/fishing odds automatically unless owner confirms.
+Do not show “c” for currency.
+Use 🪙 and 🎫.
+
+==================================================
+PART 1 — STABILITY FIRST
+==================================================
+
+Before changing anything, run:
+
+!launchcheck
+!launchready
+!betacheck
+!commandissues
+!checkcommands
+!checkcommands all
+!checkhelp
+!currencycheck
+!bothealth
+!stability status
+
+Expected:
+- Launch Check OK
+- no command issues
+- no help issues
+- no old c/credits/gems text
+- beta tools work
+- Err: none
+
+Fix baseline issues first.
+
+==================================================
+PART 2 — PUBLIC BETA TEST MODE
+==================================================
+
+Keep public beta mode active.
+
+Run:
+
+!betamode status
+
+If OFF, enable:
+
+!betamode on
+
+Expected:
+
+🧪 Public Beta Mode: ON
+Players can test features.
+Use !bug or !feedback.
+
+Rules:
+- Do not enable maintenance unless needed.
+- Beta mode should not block normal gameplay.
+- Beta reminders should stay low-spam.
+
+==================================================
+PART 3 — BETA TEST CHECKLIST COMMAND
+==================================================
+
+Add or polish:
+
+!betatest
+!betatest checklist
+!betatest status
+!betatest run
+
+Owner/Admin only.
+
+Expected:
+
+🧪 Beta Test Checklist
+Commands: OK
+Economy: OK
+Games: OK
+Mining/Fishing: OK
+Missions: OK
+
+Second message:
+
+Reports:
+Bugs open: [count]
+Feedback: [count]
+Currency: OK
+Launch: YES/NO
+
+Rules:
+- Pull from existing checks.
+- Do not make destructive changes.
+- Whisper/DM owner/admin.
+- Keep messages under 220 characters.
+
+==================================================
+PART 4 — LIVE PLAYER TEST SCRIPT
+==================================================
+
+Add command:
+
+!betatest script
+
+Expected output:
+
+🧪 Beta Test Script
+1. !start
+2. !profile
+3. !missions
+4. !mine
+5. !fish
+6. !luxeshop
+7. !bug test
+
+Second message:
+
+Also test:
+!events
+!season
+!bjhelp
+!balance
+!feedback test
+
+Rules:
+- This helps staff guide live testers.
+- Public-safe version can be shown with !betahelp.
+- No admin commands in public script.
+
+==================================================
+PART 5 — BUG TRIAGE TOOLS
+==================================================
+
+Polish:
+
+!bugs open
+!bugs recent
+!bugs view [id]
+!bugs close [id]
+!bugs assign [id] [staff]
+!bugs priority [id] low/medium/high/critical
+!bugs tag [id] [tag]
+
+Expected:
+
+🐞 Open Bugs
+#12 high blackjack payout text
+#13 medium fishbook page issue
+#14 low typo in guide
+
+Rules:
+- Owner/Admin/Staff only based on permission.
+- Normal players can submit bugs only.
+- Staff can view open bugs if safe.
+- Owner/Admin can close/priority/tag.
+- Do not expose sensitive error details publicly.
+
+==================================================
+PART 6 — FEEDBACK REVIEW TOOLS
+==================================================
+
+Polish:
+
+!feedbacks recent
+!feedbacks view [id]
+!feedbacks close [id]
+!feedbacks tag [id] [tag]
+!feedbacks top
+
+Expected:
+
+💬 Feedback Summary
+Shop: 4
+Mining: 3
+Events: 2
+Casino: 1
+
+Rules:
+- Owner/Admin/Staff only.
+- Normal players can submit feedback only.
+- Do not expose private player data publicly.
+
+==================================================
+PART 7 — TOP ISSUES DASHBOARD
+==================================================
+
+Add:
+
+!topissues
+!topissues 7d
+!topissues tags
+
+Expected:
+
+🔥 Top Beta Issues
+1. fishbook — 5 reports
+2. poker display — 3 reports
+3. luxe shop — 2 reports
+
+Rules:
+- Group bug reports by tag/keyword if possible.
+- If tagging unavailable, group by simple text similarity or manual tags.
+- Owner/Admin only.
+- No crash if no data.
+
+==================================================
+PART 8 — ECONOMY BALANCE REVIEW
+==================================================
+
+Add or polish:
+
+!balanceaudit
+!balanceaudit today
+!balanceaudit 7d
+!balanceaudit economy
+!balanceaudit luxe
+!balanceaudit mining
+!balanceaudit fishing
+!balanceaudit casino
+
+Expected:
+
+⚖️ Balance Audit
+Earned: 420,000 🪙
+Spent: 310,000 🪙
+Net: +110,000 🪙
+Status: Mild inflation
+
+Second message:
+
+🎫 Luxe
+Earned: 800 🎫
+Spent: 450 🎫
+Converted: 250 🎫
+Status: OK
+
+Rules:
+- Owner/Admin only.
+- Uses existing analytics/economy ledger.
+- Does not auto-change prices.
+- Gives recommendations only.
+
+==================================================
+PART 9 — ECONOMY INFLATION DETECTION
+==================================================
+
+Detect economy inflation risk.
+
+Metrics:
+- ChillCoins earned vs spent
+- average wallet growth
+- top 10 richest player growth
+- coin sources vs sinks
+- daily mission payout totals
+- mining/fishing sell totals
+- casino net payouts
+- Luxe-to-ChillCoin conversions
+
+Expected:
+
+📈 Inflation Check
+Net today: +110,000 🪙
+Source-heavy: Mining
+Sink-heavy: Shop
+Risk: Low/Medium/High
+
+Recommendations:
+- If Low: no change
+- If Medium: review sell values/sinks
+- If High: recommend increasing sinks or lowering rewards carefully
+
+Do not apply automatically.
+
+==================================================
+PART 10 — MINING/FISHING LIVE BALANCE REVIEW
+==================================================
+
+Add:
+
+!livebalance mining
+!livebalance fishing
+!livebalance auto
+!livebalance luxeauto
+
+Expected mining:
+
+⛏️ Mining Balance
+Actions: 1,240
+Earned: 140,000 🪙
+Avg/action: 113 🪙
+Avg/hr: 58,000 🪙
+Status: OK
+
+Fishing:
+
+🎣 Fishing Balance
+Casts: 980
+Earned: 120,000 🪙
+Avg/cast: 122 🪙
+Avg/hr: 62,000 🪙
+Status: OK
+
+Luxe auto:
+
+🎫 Luxe Auto Balance
+1h target: <125,000 🪙
+Observed: 82,000 🪙/hr
+Status: OK
+
+Rules:
+- Use observed data if available.
+- If not enough data, show estimated values.
+- Do not change rewards automatically.
+
+==================================================
+PART 11 — LUXE SHOP PRICE REVIEW
+==================================================
+
+Add:
+
+!luxebalance
+!luxebalance prices
+!luxebalance purchases
+!luxebalance recommendations
+
+Expected:
+
+🎫 Luxe Balance
+VIP buys: 2
+Auto-Mine 1h: 5
+Auto-Fish 1h: 4
+Coin packs: 3
+Status: OK
+
+Recommendations example:
+
+💡 Luxe Recommendations
+Auto-Mine 1h price OK.
+Coin packs selling well.
+VIP price OK.
+No change needed.
+
+Rules:
+- Owner/Admin only.
+- Recommendations only.
+- No auto price change unless owner uses !luxeadmin set price.
+
+==================================================
+PART 12 — MISSION / RETENTION REVIEW
+==================================================
+
+Add:
+
+!retentionreview
+!retentionreview daily
+!retentionreview weekly
+!retentionreview onboarding
+
+Expected:
+
+📌 Retention Review
+Daily mission completion: 42%
+Weekly progress: 31%
+Tutorial completion: 67%
+Return rate: 38%
+
+Recommendations:
+- If daily completion too low, reduce mission target.
+- If too high, keep or slightly increase.
+- If tutorial completion low, shorten guide.
+
+Do not apply automatically.
+
+==================================================
+PART 13 — EVENT PERFORMANCE REVIEW
+==================================================
+
+Add:
+
+!eventreview
+!eventreview last
+!eventreview 7d
+
+Expected:
+
+🎉 Event Review
+Mining Rush
+Players: 18
+Actions: 620
+Avg session: 14m
+Result: Good activity
+
+Recommendations:
+- Repeat event if high participation.
+- Adjust schedule if low participation.
+
+Rules:
+- No HR Gold rewards.
+- No automatic event changes unless owner starts schedule update.
+
+==================================================
+PART 14 — SEASON REVIEW
+==================================================
+
+Add:
+
+!seasonreview
+
+Expected:
+
+🏆 Season Review
+Mining players: 18
+Fishing players: 15
+Collection players: 12
+Rewards pending: yes
+Risk: duplicate payout protected
+
+Rules:
+- Show payout status.
+- Show top categories.
+- No auto payout unless owner uses !seasonadmin payout.
+- No HR Gold.
+
+==================================================
+PART 15 — PLAYER FUNNEL REVIEW
+==================================================
+
+Add:
+
+!funnel
+!funnel today
+!funnel 7d
+
+Expected:
+
+📊 Player Funnel
+Joined: 20
+Started tutorial: 14
+Completed tutorial: 9
+Mined/Fished: 8
+Returned: 5
+
+Rules:
+- Owner/Admin only.
+- Use onboarding/analytics logs.
+- If data missing, show N/A.
+
+==================================================
+PART 16 — BETA SUMMARY REPORT
+==================================================
+
+Add:
+
+!betareport
+!betareport today
+!betareport 7d
+
+Expected:
+
+🧪 Beta Report
+Players: 24
+Bugs: 3 open
+Feedback: 8
+Economy: OK
+Launch: Almost ready
+
+Second message:
+
+Top issue: fishbook
+Top activity: mining
+Retention: 38%
+Risk: Low
+
+Rules:
+- Owner/Admin only.
+- Useful before committing.
+- No raw debug data.
+
+==================================================
+PART 17 — LAUNCH BLOCKERS
+==================================================
+
+Add:
+
+!launchblockers
+
+Expected:
+
+🚧 Launch Blockers
+Critical bugs: 0
+Command issues: 0
+Currency issues: 0
+Maintenance: OFF
+Ready blocker: none
+
+If blockers exist:
+
+🚧 Launch Blockers
+1. Critical bug #12
+2. Currency issues: 3
+3. Maintenance ON
+Ready: NO
+
+Blockers:
+- commandissues not clean
+- checkhelp fails
+- currencycheck has old c/credits/gems
+- critical bug open
+- maintenance mode ON
+- bothealth not OK
+- launchcheck not clean
+
+==================================================
+PART 18 — SAFE LIVE BALANCE RECOMMENDATIONS
+==================================================
+
+Do not auto-change economy.
+
+Instead, show recommendations:
+
+Examples:
+
+💡 Recommendation
+Mining/hr is too high.
+Consider lowering Mythic sell value by 10%.
+
+💡 Recommendation
+Luxe Auto 1h earns below target.
+No change needed.
+
+💡 Recommendation
+Daily missions too hard.
+Mine target 25 → 20.
+
+Rules:
+- Recommendations only.
+- Owner must approve changes manually.
+- Do not modify config silently.
+
+==================================================
+PART 19 — OPTIONAL APPLY COMMANDS REQUIRE CONFIRMATION
+==================================================
+
+If implementing apply commands, require explicit confirmation.
+
+Example:
+
+!balanceapply mining conservative
+
+Bot replies:
+⚠️ Preview only.
+Type !balanceapply confirm mining conservative.
+
+Only after confirm:
+Apply small changes.
+
+Rules:
+- Owner only.
+- Log changes.
+- Never apply if not confirmed.
+- Skip apply if risky.
+
+Safer option:
+Do not implement apply commands yet; report skipped.
+
+==================================================
+PART 20 — BETA STAFF TOOLS
+==================================================
+
+Add:
+
+!betastaff
+!betastaff checklist
+!betastaff bugs
+!betastaff feedback
+!betastaff testscript
+
+Expected:
+
+🛠️ Beta Staff
+!bugs open
+!feedbacks recent
+!betatest script
+!knownissues
+!status
+
+Rules:
+- Staff/Admin/Owner only.
+- Whisper.
+- No economy private data to normal staff unless allowed.
+
+==================================================
+PART 21 — PLAYER BETA PROMPTS
+==================================================
+
+During beta mode, occasional low-spam reminder:
+
+🧪 Beta testing:
+Found an issue? Use !bug.
+Have ideas? Use !feedback.
+
+Rules:
+- Max once every 10 minutes per player.
+- Do not interrupt active games.
+- Do not spam public chat.
+- Stop if beta mode off.
+
+==================================================
+PART 22 — DATABASE / STORAGE
+==================================================
+
+Add safe/idempotent storage if needed:
+
+beta_test_runs:
+id INTEGER PRIMARY KEY AUTOINCREMENT
+run_id TEXT UNIQUE
+started_by TEXT
+started_at TEXT
+status TEXT
+summary_json TEXT
+
+beta_review_snapshots:
+id INTEGER PRIMARY KEY AUTOINCREMENT
+snapshot_type TEXT
+range_key TEXT
+summary_json TEXT
+created_at TEXT
+
+beta_recommendations:
+id INTEGER PRIMARY KEY AUTOINCREMENT
+category TEXT
+severity TEXT
+recommendation TEXT
+status TEXT DEFAULT 'open'
+created_at TEXT
+resolved_at TEXT
+
+Rules:
+- Do not wipe data.
+- Idempotent migrations.
+- Do not store secrets/tokens.
+
+==================================================
+PART 23 — HELP UPDATES
+==================================================
+
+Update admin/owner help:
+
+🧪 Beta Testing
+!betatest
+!betareport
+!topissues
+!balanceaudit
+!livebalance
+!launchblockers
+
+Staff help:
+
+🛠️ Beta Staff
+!betastaff
+!bugs open
+!feedbacks recent
+!knownissues
+
+Public beta help:
+
+🧪 Beta
+!bug [issue]
+!feedback [idea]
+!knownissues
+!status
+
+Rules:
+- No admin command leaks.
+- No broken commands.
+- Use 🪙 and 🎫.
+- No reward cap text.
+
+==================================================
+PART 24 — COMMAND REGISTRY
+==================================================
+
+Register/verify:
+
+!betatest
+!topissues
+!balanceaudit
+!livebalance
+!luxebalance
+!retentionreview
+!eventreview
+!seasonreview
+!funnel
+!betareport
+!launchblockers
+!betastaff
+
+Expected:
+route=YES
+handler=YES
+owner not UNKNOWN
+
+If optional commands skipped:
+- hide them
+- do not show in help
+- do not count as command issue.
+
+==================================================
+PART 25 — TESTS: BETA TOOLS
+==================================================
+
+Run:
+
+!betatest
+!betatest checklist
+!betatest script
+!betareport
+!launchblockers
+!topissues
+
+Expected:
+- no crash
+- useful output
+- owner/admin only where needed
+- no public spam
+
+==================================================
+PART 26 — TESTS: BALANCE TOOLS
+==================================================
+
+Run:
+
+!balanceaudit
+!balanceaudit economy
+!balanceaudit luxe
+!livebalance mining
+!livebalance fishing
+!livebalance luxeauto
+!luxebalance
+!luxebalance recommendations
+
+Expected:
+- no crash
+- observed or estimated values shown
+- recommendations only
+- no automatic changes
+
+==================================================
+PART 27 — TESTS: RETENTION / EVENT / SEASON REVIEW
+==================================================
+
+Run:
+
+!retentionreview
+!eventreview
+!seasonreview
+!funnel
+
+Expected:
+- no crash
+- metrics shown or N/A
+- no automatic changes
+
+==================================================
+PART 28 — TESTS: BUG / FEEDBACK TRIAGE
+==================================================
+
+Run:
+
+!bug test beta bug
+!feedback test beta idea
+!bugs open
+!feedbacks recent
+!topissues
+
+Expected:
+- bug/feedback saved
+- topissues groups if possible
+- no public leak
+
+==================================================
+PART 29 — FINAL QA
+==================================================
+
+Run:
+
+!commandtest !betatest
+!commandtest !topissues
+!commandtest !balanceaudit
+!commandtest !livebalance
+!commandtest !luxebalance
+!commandtest !retentionreview
+!commandtest !eventreview
+!commandtest !seasonreview
+!commandtest !funnel
+!commandtest !betareport
+!commandtest !launchblockers
+!commandtest !betastaff
+
+!commandissues
+!checkcommands
+!checkhelp
+!currencycheck
+!launchcheck
+!launchready
+!betacheck
+!bothealth
+!stability status
+
+Expected:
+- no command issues
+- no help leaks
+- no old c/credits/gems
+- no reward cap text
+- no HR Gold rewards
+- beta review tools work
+- launchcheck clean
+
+==================================================
+PART 30 — FINAL REPORT
+==================================================
+
+Report:
+1. Public beta test checklist added.
+2. Beta test script added.
+3. Bug triage tools polished.
+4. Feedback review tools polished.
+5. Top issues dashboard added.
+6. Economy balance review added.
+7. Economy inflation detection added.
+8. Mining/fishing live balance review added.
+9. Luxe shop price review added.
+10. Mission/retention review added.
+11. Event review added.
+12. Season review added.
+13. Player funnel review added.
+14. Beta summary report added.
+15. Launch blockers command added.
+16. Safe recommendations added.
+17. Beta staff tools added.
+18. Help/commands updated.
+19. No automatic economy changes made.
+20. No HR Gold rewards added.
+21. No reward cap regression.
+22. !commandissues result.
+23. !checkhelp result.
+24. !currencycheck result.
+25. !launchcheck result.

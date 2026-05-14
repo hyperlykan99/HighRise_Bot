@@ -107,6 +107,12 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "launchready": "host",
     "announce": "host",
     "announceadmin": "host",
+    # 3.1R — Beta Review + Live Balancing
+    "betatest": "host", "topissues": "host",
+    "balanceaudit": "host", "livebalance": "host", "luxebalance": "host",
+    "retentionreview": "host", "eventreview": "host", "seasonreview": "host",
+    "funnel": "host", "betareport": "host",
+    "launchblockers": "host", "betastaff": "host",
     # Luxe auto time — info is miner/fisher; miner owns combined !autotime
     "autotime": "miner", "minetime": "miner",
     "fishtime": "fisher",

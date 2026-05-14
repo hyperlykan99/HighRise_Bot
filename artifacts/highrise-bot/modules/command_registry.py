@@ -1426,6 +1426,20 @@ REGISTRY: dict[str, Cmd] = {
     "announce":       Cmd("host", "general",   False, True,  False, perm="manager"),
     "announceadmin":  Cmd("host", "admin",     False, True,  False, perm="admin"),
 
+    # ── 3.1R — Beta Review + Live Balancing ───────────────────────────────────
+    "betatest":       Cmd("host", "admin",     False, True,  False, perm="admin"),
+    "topissues":      Cmd("host", "admin",     False, True,  False, perm="admin"),
+    "balanceaudit":   Cmd("host", "analytics", False, True,  False, perm="admin"),
+    "livebalance":    Cmd("host", "analytics", False, True,  False, perm="admin"),
+    "luxebalance":    Cmd("host", "analytics", False, True,  False, perm="admin"),
+    "retentionreview":Cmd("host", "analytics", False, True,  False, perm="admin"),
+    "eventreview":    Cmd("host", "analytics", False, True,  False, perm="admin"),
+    "seasonreview":   Cmd("host", "analytics", False, True,  False, perm="admin"),
+    "funnel":         Cmd("host", "analytics", False, True,  False, perm="admin"),
+    "betareport":     Cmd("host", "admin",     False, True,  False, perm="admin"),
+    "launchblockers": Cmd("host", "admin",     False, True,  False, perm="admin"),
+    "betastaff":      Cmd("host", "general",   False, True,  True,  perm="mod"),
+
     # ── 3.1P Help + Commands system ───────────────────────────────────────────
     "commands":       Cmd("host", "general",   True,  True,  True,
                           aliases=("cmds",)),

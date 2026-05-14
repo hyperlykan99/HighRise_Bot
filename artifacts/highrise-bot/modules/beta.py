@@ -460,8 +460,81 @@ async def handle_bugs_admin(bot: BaseBot, user: User, args: list[str]) -> None:
         st    = str(row.get("status", "open"))
         await _w(bot, user.id, f"🐞 Bug #{args[2]}\n@{uname}: {msg}\n{ts} [{st}]")
 
+    elif sub == "assign":
+        if not _is_admin_or_owner(user.username):
+            await _w(bot, user.id, "Admin/owner only.")
+            return
+        if len(args) < 4 or not args[2].isdigit():
+            await _w(bot, user.id, "Usage: !bugs assign <id> <staff>")
+            return
+        staff = args[3][:30]
+        try:
+            conn = db.get_connection()
+            cur  = conn.execute(
+                "UPDATE reports SET assigned_to=? WHERE id=? AND report_type='bug_report'",
+                (staff, int(args[2])),
+            )
+            conn.commit(); conn.close()
+            ok = cur.rowcount > 0
+        except Exception:
+            ok = False
+        await _w(
+            bot, user.id,
+            f"✅ Bug #{args[2]} assigned to @{staff}." if ok else f"Bug #{args[2]} not found."
+        )
+
+    elif sub == "priority":
+        if not _is_admin_or_owner(user.username):
+            await _w(bot, user.id, "Admin/owner only.")
+            return
+        if len(args) < 4 or not args[2].isdigit():
+            await _w(bot, user.id, "Usage: !bugs priority <id> low|medium|high|critical")
+            return
+        prio = args[3].lower()
+        if prio not in ("low", "medium", "high", "critical"):
+            await _w(bot, user.id, "Priority: low | medium | high | critical")
+            return
+        try:
+            conn = db.get_connection()
+            cur  = conn.execute(
+                "UPDATE reports SET priority=? WHERE id=? AND report_type='bug_report'",
+                (prio, int(args[2])),
+            )
+            conn.commit(); conn.close()
+            ok = cur.rowcount > 0
+        except Exception:
+            ok = False
+        await _w(
+            bot, user.id,
+            f"✅ Bug #{args[2]} priority: {prio}." if ok else f"Bug #{args[2]} not found."
+        )
+
+    elif sub == "tag":
+        if not _is_admin_or_owner(user.username):
+            await _w(bot, user.id, "Admin/owner only.")
+            return
+        if len(args) < 4 or not args[2].isdigit():
+            await _w(bot, user.id, "Usage: !bugs tag <id> <tag>")
+            return
+        tag = args[3][:30]
+        try:
+            conn = db.get_connection()
+            cur  = conn.execute(
+                "UPDATE reports SET tags=? WHERE id=? AND report_type='bug_report'",
+                (tag, int(args[2])),
+            )
+            conn.commit(); conn.close()
+            ok = cur.rowcount > 0
+        except Exception:
+            ok = False
+        await _w(
+            bot, user.id,
+            f"✅ Bug #{args[2]} tagged [{tag}]." if ok else f"Bug #{args[2]} not found."
+        )
+
     else:
-        await _w(bot, user.id, "Usage: !bugs open|recent|close <id>|view <id>")
+        await _w(bot, user.id,
+                 "Usage: !bugs open|recent|close <id>|view <id>|assign|priority|tag")
 
 
 # ---------------------------------------------------------------------------

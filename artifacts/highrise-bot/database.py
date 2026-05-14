@@ -2630,6 +2630,62 @@ def _migrate_db():
     except Exception:
         pass
 
+    # 3.1R — Beta review: add tags/priority/assigned_to to reports
+    for _col, _dflt in [
+        ("tags",        "''"),
+        ("priority",    "'medium'"),
+        ("assigned_to", "''"),
+    ]:
+        try:
+            conn.execute(
+                f"ALTER TABLE reports ADD COLUMN {_col} TEXT NOT NULL DEFAULT {_dflt}"
+            )
+        except Exception:
+            pass
+
+    # 3.1R — Beta test run log + snapshot store + recommendation store
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS beta_test_runs (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id       TEXT UNIQUE NOT NULL,
+                started_by   TEXT NOT NULL DEFAULT '',
+                started_at   TEXT NOT NULL DEFAULT (datetime('now')),
+                status       TEXT NOT NULL DEFAULT 'running',
+                summary_json TEXT NOT NULL DEFAULT '{}'
+            )
+        """)
+    except Exception:
+        pass
+
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS beta_review_snapshots (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                snapshot_type TEXT NOT NULL DEFAULT '',
+                range_key     TEXT NOT NULL DEFAULT '',
+                summary_json  TEXT NOT NULL DEFAULT '{}',
+                created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+        """)
+    except Exception:
+        pass
+
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS beta_recommendations (
+                id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                category       TEXT NOT NULL DEFAULT '',
+                severity       TEXT NOT NULL DEFAULT 'low',
+                recommendation TEXT NOT NULL DEFAULT '',
+                status         TEXT NOT NULL DEFAULT 'open',
+                created_at     TEXT NOT NULL DEFAULT (datetime('now')),
+                resolved_at    TEXT NOT NULL DEFAULT ''
+            )
+        """)
+    except Exception:
+        pass
+
     conn.commit()
     conn.close()
 

@@ -219,6 +219,13 @@ from modules.beta import (
     is_beta_mode, maybe_send_beta_notice,
     rotating_announcement_loop,
 )
+from modules.beta_review import (
+    handle_betatest, handle_topissues, handle_balanceaudit,
+    handle_livebalance, handle_luxebalance, handle_retentionreview,
+    handle_eventreview, handle_seasonreview, handle_funnel,
+    handle_betareport, handle_launchblockers, handle_betastaff,
+    handle_feedbacks_review,
+)
 from modules.permissions         import (
     is_owner, is_admin, is_manager, is_moderator,
     can_moderate, can_manage_games, can_manage_economy, can_audit,
@@ -1256,6 +1263,19 @@ BETA_COMMANDS: frozenset[str] = frozenset({
     "errors",
     "launchready",
     "announceadmin",
+    # 3.1R — beta review + balance audit
+    "betatest",
+    "topissues",
+    "balanceaudit",
+    "livebalance",
+    "luxebalance",
+    "retentionreview",
+    "eventreview",
+    "seasonreview",
+    "funnel",
+    "betareport",
+    "launchblockers",
+    "betastaff",
 })
 
 ALL_KNOWN_COMMANDS = (
@@ -6051,7 +6071,10 @@ class HangoutBot(BaseBot):
             await handle_feedback(self, user, args)
 
         elif cmd in {"feedbacks", "feedbacklist"}:
-            await handle_feedbacks(self, user)
+            if len(args) > 1:
+                await handle_feedbacks_review(self, user, args)
+            else:
+                await handle_feedbacks(self, user)
 
         elif cmd == "todo":
             await handle_todo(self, user, args)
@@ -6099,6 +6122,43 @@ class HangoutBot(BaseBot):
 
         elif cmd == "announceadmin":
             await handle_announceadmin(self, user, args)
+
+        # ── 3.1R — Beta review + balance audit ───────────────────────────────
+        elif cmd == "betatest":
+            await handle_betatest(self, user, args)
+
+        elif cmd == "topissues":
+            await handle_topissues(self, user, args)
+
+        elif cmd == "balanceaudit":
+            await handle_balanceaudit(self, user, args)
+
+        elif cmd == "livebalance":
+            await handle_livebalance(self, user, args)
+
+        elif cmd == "luxebalance":
+            await handle_luxebalance(self, user, args)
+
+        elif cmd == "retentionreview":
+            await handle_retentionreview(self, user, args)
+
+        elif cmd == "eventreview":
+            await handle_eventreview(self, user, args)
+
+        elif cmd == "seasonreview":
+            await handle_seasonreview(self, user)
+
+        elif cmd == "funnel":
+            await handle_funnel(self, user, args)
+
+        elif cmd == "betareport":
+            await handle_betareport(self, user, args)
+
+        elif cmd == "launchblockers":
+            await handle_launchblockers(self, user)
+
+        elif cmd == "betastaff":
+            await handle_betastaff(self, user, args)
 
         # ── 3.1Q — Public beta commands ───────────────────────────────────────
         elif cmd in {"testmenu", "betahelp"}:
