@@ -623,16 +623,17 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "botwelcome": "host", "setbotwelcome": "host",
     "resetbotwelcome": "host", "previewbotwelcome": "host",
     "botwelcomes": "host",
-    # security — Luxe Jail system (3.4A)
+    # security — Luxe Jail runtime commands (3.4A) — SecurityBot must be online
     "jail": "security", "bail": "security",
     "jailstatus": "security", "jailtime": "security", "jailhelp": "security",
     "unjail": "security", "jailrelease": "security",
-    "jailadmin": "security", "jailactive": "security", "jailhistory": "security",
-    "jailsetcost": "security", "jailsetmax": "security", "jailsetmin": "security",
-    "jailsetbailmultiplier": "security", "jailprotectstaff": "security",
-    "jaildebug": "security",
-    "setjailspot": "security", "setjailguardspot": "security",
-    "setsecurityidle": "security",
+    "jailactive": "security", "jailhistory": "security",
+    "jailconfirm": "security", "jailcancel": "security",
+    # host — Jail setup/admin commands — work from host or security bot
+    "jailadmin": "host", "jaildebug": "host",
+    "jailsetcost": "host", "jailsetmax": "host", "jailsetmin": "host",
+    "jailsetbailmultiplier": "host", "jailprotectstaff": "host",
+    "setjailspot": "host", "setjailguardspot": "host", "setsecurityidle": "host",
     # banker — gold tip commands (new)
     "goldtipsettings": "banker", "setgoldrate": "banker",
     "goldtiplogs": "banker", "mygoldtips": "banker", "goldtipstatus": "banker",
