@@ -947,6 +947,13 @@ _JAIL_SETUP_HOST_OVERRIDE_CMDS: frozenset[str] = frozenset({
     "jailsetbailmultiplier", "jailprotectstaff",
 })
 
+# Runtime jail commands — only KeanuShield/security handles these; host stays silent.
+_JAIL_RUNTIME_CMDS: frozenset[str] = frozenset({
+    "jail", "bail", "unjail", "jailrelease",
+    "jailactive", "jailstatus", "jailtime",
+    "jailhelp", "jailconfirm", "jailcancel",
+})
+
 # Audit/status commands that eventhost may cover when host is offline.
 # host and eventhost share a Highrise account (multilogin alternates them),
 # so exactly one is in the room at any time.
@@ -1316,6 +1323,10 @@ def should_this_bot_handle(cmd: str) -> bool:
     # it shares a Highrise account with another bot (deduplicated by bot.py).
     if BOT_EXTRA_MODES and owner_mode in BOT_EXTRA_MODES:
         return True
+
+    # Security defers jail setup/debug to host when host is online — prevents duplicate replies.
+    if mode == "security" and cmd in _JAIL_SETUP_HOST_OVERRIDE_CMDS and _is_mode_online("host"):
+        return False
 
     # Jail setup/admin override — host may always run these even though security owns jail.
     # Must be checked BEFORE the hard-owner block so the hard-owner gate doesn't fire.

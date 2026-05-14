@@ -1,0 +1,262 @@
+Fix Luxe Jail Runtime Routing + Stop Duplicate Bot Replies + Add Max Time and Reason
+
+Current issue:
+- !jaildebug works and shows jail spots saved.
+- Both KeanuShield and ChillTopiaMC respond to !jaildebug.
+- !jail @user 1 gives no response.
+- Jail setup works, but runtime jail command does not execute.
+
+Root cause:
+Jail setup/admin commands were added into staff routing, but player runtime command !jail is not being dispatched in the normal player command area.
+The !jail handler exists, but main.py only calls it inside a staff/admin block, so normal player/runtime jail requests can fall through silently.
+
+Goal:
+1. !jail @user 1 should respond.
+2. Only one bot should answer each jail command.
+3. KeanuShield should handle runtime jail commands.
+4. ChillTopiaMC should handle setup commands only when needed.
+5. Add max jail time enforcement.
+6. Add jail reason support.
+
+Security bot name:
+KeanuShield
+
+Bot ownership rules:
+
+SETUP COMMANDS:
+- !setjailspot
+- !setjailguardspot
+- !setsecurityidle
+- !setjailreleasespot
+
+Only ChillTopiaMC/host should answer these by default.
+KeanuShield should ignore these if ChillTopiaMC is online.
+
+DEBUG/ADMIN VIEW COMMANDS:
+- !jaildebug
+- !jailadmin
+
+Only ChillTopiaMC should answer these by default to avoid duplicate output.
+
+RUNTIME JAIL COMMANDS:
+- !jail
+- !bail
+- !unjail
+- !jailrelease
+- !jailactive
+- !jailstatus
+- !jailtime
+- !jailhelp
+- !jailconfirm
+- !jailcancel
+
+Only KeanuShield/security should answer these.
+ChillTopiaMC must ignore runtime jail commands when KeanuShield is online.
+
+If KeanuShield is offline:
+ChillTopiaMC may reply:
+“⚠️ KeanuShield is offline. Jail system is unavailable.”
+
+Do not let both bots execute runtime jail commands.
+
+Implementation Part 1 — Fix real !jail runtime dispatch
+
+In main.py, add jail runtime routing outside the STAFF_CMDS block.
+
+Place this after multi-bot gate and before maintenance/mute gates:
+
+if cmd in {
+    "jail", "bail", "jailstatus", "jailtime", "jailhelp",
+    "jailactive", "unjail", "jailrelease",
+    "jailconfirm", "jailcancel"
+}:
+    print(f"[JAIL ROUTE HIT] runtime cmd={cmd} user={user.username} bot_mode={BOT_MODE}")
+
+    if cmd == "jail":
+        await handle_jail(self, user, args)
+    elif cmd == "bail":
+        await handle_bail(self, user, args)
+    elif cmd in ("jailstatus", "jailtime"):
+        await handle_jailstatus(self, user, args)
+    elif cmd == "jailhelp":
+        await handle_jailhelp(self, user, args)
+    elif cmd == "jailactive":
+        await handle_jailactive(self, user, args)
+    elif cmd in ("unjail", "jailrelease"):
+        await handle_unjail(self, user, args)
+    elif cmd == "jailconfirm":
+        await handle_jail_confirm(self, user)
+    elif cmd == "jailcancel":
+        await handle_jail_cancel(self, user)
+    return
+
+Important:
+Do not require !jail to be in STAFF_CMDS.
+Players must be able to use !jail if jail system is enabled and they pay Luxe Tickets.
+
+Implementation Part 2 — Stop duplicate bot replies
+
+In multi_bot.py, update should_this_bot_handle logic:
+
+Runtime jail commands:
+_JAIL_RUNTIME_CMDS = {
+    "jail", "bail", "unjail", "jailrelease",
+    "jailactive", "jailstatus", "jailtime",
+    "jailhelp", "jailconfirm", "jailcancel"
+}
+
+Setup/debug commands:
+_JAIL_SETUP_CMDS = {
+    "setjailspot", "setjailguardspot",
+    "setsecurityidle", "setjailreleasespot",
+    "jaildebug", "jailadmin"
+}
+
+Rules:
+- If cmd in _JAIL_RUNTIME_CMDS:
+    return BOT_MODE == "security" or current bot username == "KeanuShield"
+- If cmd in _JAIL_SETUP_CMDS:
+    return BOT_MODE == "host" or current bot username == "ChillTopiaMC"
+
+This prevents both bots from answering.
+
+Expected:
+!jaildebug = ChillTopiaMC only
+!jail @user 1 = KeanuShield only
+
+Implementation Part 3 — Add max jail time
+
+Settings:
+- jail_min_minutes default 1
+- jail_max_minutes default 10
+- jail_default_minutes default 3
+
+Command:
+!jailsetmax [minutes]
+
+Example:
+!jailsetmax 15
+
+Reply:
+✅ Max jail time set to 15 minutes.
+
+Validation:
+If player tries:
+!jail @user 999
+
+Reply:
+⚠️ Max jail time is 10 minutes.
+
+Do not charge tickets.
+Do not jail target.
+
+Owner/admin can change max time using !jailsetmax.
+
+Implementation Part 4 — Add jail reason
+
+Support:
+!jail @user [minutes] [reason...]
+
+Examples:
+!jail @AshQuinn_ 1 testing jail
+!jail @AshQuinn_ 3 being too loud
+!jail @AshQuinn_
+
+Parsing:
+- args[1] = target username
+- args[2] = minutes if numeric, otherwise default minutes
+- remaining args after minutes = reason
+- if no reason: reason = "No reason given"
+
+Examples:
+!jail @AshQuinn_ 1 testing
+target = AshQuinn_
+minutes = 1
+reason = testing
+
+!jail @AshQuinn_ being silly
+target = AshQuinn_
+minutes = default jail_default_minutes
+reason = being silly
+
+Store reason in jail_sentences:
+jail_reason
+
+Security announcement should include reason:
+
+🚨 @AshQuinn_ has been jailed by @4ktreyMarion for 1 minute.
+Reason: testing jail
+Bail cost: 4 🎫
+Type !bail to leave early.
+
+If reason is too long, truncate to 80 chars.
+
+Implementation Part 5 — Confirmation preview
+
+When user types:
+!jail @AshQuinn_ 1 testing jail
+
+Reply from KeanuShield only:
+🚨 Jail @AshQuinn_ for 1 minute?
+Reason: testing jail
+Cost: 2 🎫 Luxe Tickets
+Reply confirm to continue, or cancel.
+
+Then:
+confirm
+
+Expected:
+- deduct Luxe Tickets after validation
+- teleport target to jail
+- KeanuShield teleports to jail_guard
+- KeanuShield announces
+- KeanuShield returns to security_idle
+
+Implementation Part 6 — Tests
+
+Run:
+
+!jaildebug
+Expected:
+Only ChillTopiaMC responds.
+
+!jail @AshQuinn_ 1 testing
+Expected:
+Only KeanuShield responds with confirmation.
+
+confirm
+Expected:
+Only KeanuShield executes jail.
+
+On jailed alt:
+!jailstatus
+Expected:
+Only KeanuShield responds.
+
+On jailed alt:
+!tele casino
+Expected:
+Denied because jailed.
+
+Wait timer:
+Expected:
+Alt teleports to jail_release.
+
+Max time:
+!jail @AshQuinn_ 999 testing
+Expected:
+Denied with max time message.
+
+Reason:
+!jail @AshQuinn_ 1 spam test
+Expected:
+Announcement includes reason: spam test.
+
+Final output:
+Report:
+1. Runtime !jail route fixed
+2. Duplicate jail replies fixed
+3. KeanuShield runtime-only test result
+4. ChillTopiaMC setup/debug-only test result
+5. Max jail time test result
+6. Jail reason test result

@@ -53,6 +53,7 @@ def _set_jail_pending(
     minutes: int,
     cost: int,
     bail: int,
+    reason: str = "No reason given",
 ) -> None:
     _JAIL_PENDING[user_id] = {
         "target_uid":   target_uid,
@@ -60,6 +61,7 @@ def _set_jail_pending(
         "minutes":      minutes,
         "cost":         cost,
         "bail_cost":    bail,
+        "reason":       reason,
         "expires_at":   time.time() + JAIL_CONFIRM_TTL,
     }
 
@@ -154,6 +156,7 @@ async def _execute_jail(bot: "BaseBot", actor: "User", jp: dict) -> None:
     minutes      = jp["minutes"]
     cost         = jp["cost"]
     bail         = jp["bail_cost"]
+    reason       = jp.get("reason", "No reason given")
 
     # Re-validate target still in room
     found = await _find_user_in_room(bot, target_uname)
@@ -184,7 +187,7 @@ async def _execute_jail(bot: "BaseBot", actor: "User", jp: dict) -> None:
         target_uid, target_uname,
         actor.id, actor.username,
         minutes * 60, bail,
-        reason="luxe_jail",
+        reason=reason,
     )
     log_jail_action(
         "jail_purchase", target_uid, target_uname,
@@ -231,6 +234,12 @@ async def _execute_jail(bot: "BaseBot", actor: "User", jp: dict) -> None:
         )
     except Exception:
         pass
+    try:
+        await bot.highrise.send_whisper(
+            target_uid, f"Reason: {reason[:80]}"[:249],
+        )
+    except Exception:
+        pass
 
     # Whisper actor
     await bot.highrise.send_whisper(
@@ -240,13 +249,13 @@ async def _execute_jail(bot: "BaseBot", actor: "User", jp: dict) -> None:
 
     # SecurityBot: guard spot → announce → return to idle
     if is_security_bot():
-        asyncio.create_task(brief_and_return(bot, target_uname, actor.username, minutes, bail))
+        asyncio.create_task(brief_and_return(bot, target_uname, actor.username, minutes, bail, reason))
     else:
         try:
             await bot.highrise.chat(
                 (
                     f"\U0001f6a8 {target_uname} jailed by {actor.username} for {minutes} min. "
-                    f"Bail: {bail} \U0001f3ab. Type !bail."
+                    f"Bail: {bail} \U0001f3ab. Reason: {reason[:50]}. Type !bail."
                 )[:249]
             )
         except Exception:
@@ -261,31 +270,32 @@ async def handle_jail(bot: "BaseBot", user: "User", args: list[str]) -> None:
         await bot.highrise.send_whisper(user.id, "Jail is currently disabled.")
         return
     if len(args) < 2:
-        await bot.highrise.send_whisper(user.id, "Usage: !jail @user [minutes]")
+        await bot.highrise.send_whisper(user.id, "Usage: !jail @user [minutes] [reason...]")
         return
 
     target_name = args[1].lstrip("@")
     minutes = default_minutes()
+    reason_parts: list[str] = []
     if len(args) >= 3:
         try:
             minutes = int(args[2])
+            reason_parts = args[3:]
         except ValueError:
-            await bot.highrise.send_whisper(
-                user.id, f"Invalid duration. Use {min_minutes()}–{max_minutes()} min."
-            )
-            return
+            reason_parts = args[2:]   # no explicit minutes — treat rest as reason
+    reason = (" ".join(reason_parts)[:80]) if reason_parts else "No reason given"
 
     if not (min_minutes() <= minutes <= max_minutes()):
         await bot.highrise.send_whisper(
             user.id,
-            f"Duration must be {min_minutes()}–{max_minutes()} minutes."[:249],
+            f"\u26a0\ufe0f Max jail time is {max_minutes()} min. "
+            f"Use {min_minutes()}–{max_minutes()} min."[:249],
         )
         return
 
     actor_perm = _perm_level(user.username)
-    allowed, reason = can_actor_jail_target(user.username, actor_perm, target_name)
+    allowed, deny_msg = can_actor_jail_target(user.username, actor_perm, target_name)
     if not allowed:
-        await bot.highrise.send_whisper(user.id, reason[:249])
+        await bot.highrise.send_whisper(user.id, deny_msg[:249])
         return
 
     found = await _find_user_in_room(bot, target_name)
@@ -336,19 +346,22 @@ async def handle_jail(bot: "BaseBot", user: "User", args: list[str]) -> None:
         return
 
     if confirm_required():
-        _set_jail_pending(user.id, target_user.id, target_user.username, minutes, cost, bail)
+        _set_jail_pending(user.id, target_user.id, target_user.username, minutes, cost, bail, reason)
         await bot.highrise.send_whisper(
             user.id,
             (
                 f"\U0001f6a8 Jail {target_user.username} for {minutes} min? "
-                f"Cost: {cost} \U0001f3ab | Bail: {bail} \U0001f3ab. "
-                "Reply confirm or cancel. (60s)"
+                f"Cost: {cost} \U0001f3ab | Bail: {bail} \U0001f3ab."
             )[:249],
+        )
+        await bot.highrise.send_whisper(
+            user.id,
+            f"Reason: {reason[:80]} | Reply confirm or cancel. (60s)"[:249],
         )
     else:
         jp = {
             "target_uid": target_user.id, "target_uname": target_user.username,
-            "minutes": minutes, "cost": cost, "bail_cost": bail,
+            "minutes": minutes, "cost": cost, "bail_cost": bail, "reason": reason,
         }
         await _execute_jail(bot, user, jp)
 

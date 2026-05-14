@@ -3356,6 +3356,26 @@ class HangoutBot(BaseBot):
             await handle_previewannounce(self, user, args)
             return
 
+        # ── Jail runtime commands (any user; KeanuShield/security gate via should_this_bot_handle)
+        if cmd in {
+            "jail", "bail", "jailstatus", "jailtime", "jailhelp",
+            "jailconfirm", "jailcancel",
+        }:
+            print(f"[JAIL ROUTE HIT] runtime cmd={cmd} user={user.username} bot_mode={BOT_MODE}")
+            if cmd == "jail":
+                await handle_jail(self, user, args)
+            elif cmd == "bail":
+                await handle_bail(self, user, args)
+            elif cmd in ("jailstatus", "jailtime"):
+                await handle_jailstatus(self, user, args)
+            elif cmd == "jailhelp":
+                await handle_jailhelp(self, user, args)
+            elif cmd == "jailconfirm":
+                await handle_jail_confirm(self, user)
+            elif cmd == "jailcancel":
+                await handle_jail_cancel(self, user)
+            return
+
         # ── Staff gate ────────────────────────────────────────────────────────
         if cmd in STAFF_CMDS:
             if cmd in OWNER_ONLY_CMDS:

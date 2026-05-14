@@ -78,10 +78,12 @@ async def announce_jail(
     by_uname: str,
     minutes: int,
     bail_cost: int,
+    reason: str = "No reason given",
 ) -> None:
+    reason_short = reason[:50]
     msg = (
         f"\U0001f6a8 {target_uname} jailed by {by_uname} for {minutes} min. "
-        f"Bail: {bail_cost} \U0001f3ab. Type !bail."
+        f"Reason: {reason_short}. Bail: {bail_cost} \U0001f3ab. Type !bail."
     )[:249]
     try:
         await bot.highrise.chat(msg)
@@ -95,6 +97,7 @@ async def brief_and_return(
     by_uname: str,
     minutes: int,
     bail_cost: int,
+    reason: str = "No reason given",
 ) -> None:
     """
     SecurityBot sequence after a jail is purchased:
@@ -106,7 +109,7 @@ async def brief_and_return(
     from modules.jail_config import guard_spot_name, idle_spot_name
     await _tp_bot_to_spawn(bot, guard_spot_name())
     await asyncio.sleep(0.5)
-    await announce_jail(bot, target_uname, by_uname, minutes, bail_cost)
+    await announce_jail(bot, target_uname, by_uname, minutes, bail_cost, reason)
     await asyncio.sleep(4)
     await _tp_bot_to_spawn(bot, idle_spot_name())
 
