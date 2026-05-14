@@ -647,6 +647,12 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     "launchannounce",
     "whatsnew", "new", "v32", "knownissues",
     "releasedash", "finalaudit",
+    # 3.2A — Public Launch + Post-Launch Monitoring
+    "launchmode", "postlaunch", "livehealth",
+    "bugdash", "feedbackdash", "dailyreview",
+    "economymonitor", "luxemonitor", "retentionmonitor",
+    "eventmonitor", "casinomonitor", "bjmonitor", "pokermonitor",
+    "errordash", "hotfix", "hotfixlog", "launchlocks", "snapshot",
 })
 
 # ---------------------------------------------------------------------------

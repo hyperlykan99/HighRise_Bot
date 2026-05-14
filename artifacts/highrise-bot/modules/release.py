@@ -542,11 +542,14 @@ async def handle_ownerchecklist(bot: "BaseBot", user: "User", args: list[str]) -
 # ---------------------------------------------------------------------------
 
 _LAUNCH_MSG_1 = (
-    "📢 v3.2 Launch — Welcome to ChillTopia!\n"
-    "Earn 🪙, collect ores/fish, complete missions, join events, "
-    "and use 🎫 for premium perks."
+    "📢 v3.2 is LIVE!\n"
+    "Earn 🪙, mine ⛏️, fish 🎣, complete missions, join events, "
+    "build your profile, and use 🎫 for premium perks."
 )
-_LAUNCH_MSG_2 = "Start here:\n!start\n!missions\n!mine\n!fish\n!profile"
+_LAUNCH_MSG_2 = (
+    "Start here:\n!start\n!missions\n!mine\n!fish\n!profile\n"
+    "Report issues: !bug"
+)
 
 
 async def handle_launchannounce(

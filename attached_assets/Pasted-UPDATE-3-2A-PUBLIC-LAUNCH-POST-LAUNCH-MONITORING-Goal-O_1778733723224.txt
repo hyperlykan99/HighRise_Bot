@@ -1,0 +1,887 @@
+UPDATE 3.2A — PUBLIC LAUNCH + POST-LAUNCH MONITORING
+
+Goal:
+Officially launch v3.2 publicly, keep production stable, monitor players/economy/errors, and only allow hotfixes unless owner disables production lock.
+
+Main purpose:
+This is a launch and monitoring update, not a new feature update.
+
+Currencies:
+🪙 ChillCoins = gameplay currency
+🎫 Luxe Tickets = premium currency
+
+Do not change tokens.
+Do not change room ID.
+Do not wipe database.
+Do not reset balances, tickets, VIP, badges, titles, market, casino, blackjack, poker, mining/fishing data, collection book, missions, XP, levels, events, seasons, onboarding, safety logs, analytics, tools, rods, boosts, profile settings, bug reports, feedback, release backups, or player inventory.
+Do not re-add reward caps.
+Do not add HR Gold rewards.
+Do not change economy prices.
+Do not change odds.
+Do not show “c” for currency.
+Use 🪙 and 🎫.
+
+==================================================
+PART 1 — PRE-LAUNCH FINAL CHECK
+==================================================
+
+Before doing public launch actions, run:
+
+!finalaudit
+!launchblockers
+!launchready
+!launchcheck
+!commandissues
+!checkcommands all
+!checkhelp
+!currencycheck
+!backup status
+!ownerchecklist
+!releasedash
+!production status
+!bothealth
+!stability status
+
+Expected:
+✅ Backup: OK
+✅ Launch blockers: 0
+✅ Command issues: 0
+✅ Currencycheck clean
+✅ Help clean
+✅ Production: ON
+✅ Economy locked
+✅ Registry locked
+✅ Ready: YES
+
+If any check fails:
+- do not send launch announcement
+- report blockers
+- keep production launch paused until fixed
+
+==================================================
+PART 2 — PUBLIC LAUNCH MODE
+==================================================
+
+Add or polish:
+
+!launchmode
+!launchmode on
+!launchmode off
+!launchmode status
+
+Owner only.
+
+When launch mode is ON:
+- production mode should be ON
+- beta reminders should be reduced or OFF
+- bug/feedback commands remain active
+- monitoring dashboards stay active
+- major feature changes stay locked
+- economy lock remains ON
+- registry lock remains ON
+
+Expected:
+
+🚀 Public Launch Mode: ON
+v3.2 is live.
+Monitoring is active.
+
+Rules:
+- Do not block gameplay.
+- Do not disable bug reports.
+- Do not disable safety alerts.
+- Persist after restart.
+
+==================================================
+PART 3 — LAUNCH ANNOUNCEMENT
+==================================================
+
+Use existing:
+
+!launchannounce preview
+!launchannounce send
+
+Polish launch announcement:
+
+📢 v3.2 is LIVE!
+Earn 🪙, mine ⛏️, fish 🎣, complete missions, join events, build your profile, and use 🎫 for premium perks.
+
+Second message:
+
+Start here:
+!start
+!missions
+!mine
+!fish
+!profile
+Report issues: !bug
+
+Rules:
+- Preview before send.
+- Send only if launch checks are clean.
+- Keep each message under 220 characters.
+- Do not spam.
+- Log announcement.
+
+==================================================
+PART 4 — POST-LAUNCH MONITORING DASHBOARD
+==================================================
+
+Add:
+
+!postlaunch
+!postlaunch today
+!postlaunch 1h
+!postlaunch 24h
+!postlaunch 7d
+
+Owner/Admin only.
+
+Expected:
+
+🚀 Post-Launch Monitor
+Players: 24
+New: 6
+Commands: 420
+Errors: 0
+Bugs: 2 open
+
+Second message:
+
+Economy:
+Earned: 420,000 🪙
+Spent: 310,000 🪙
+Luxe: 800 🎫 in / 450 🎫 spent
+
+Third message:
+
+Health:
+Launch: OK
+Safety: OK
+Currency: OK
+Risk: Low
+
+Rules:
+- Whisper/DM owner/admin.
+- Use analytics if available.
+- Show N/A if data unavailable.
+- Do not crash.
+
+==================================================
+PART 5 — LIVE HEALTH WATCH
+==================================================
+
+Add:
+
+!livehealth
+!livehealth full
+
+Expected:
+
+💓 Live Health
+Bot: Online
+Commands: OK
+Errors/hr: 0
+Avg latency: N/A
+Memory: OK
+DB: OK
+
+If metrics unavailable:
+- show N/A
+- do not crash
+
+Rules:
+- Owner/Admin only.
+- No secrets.
+- No raw traceback.
+
+==================================================
+PART 6 — LAUNCH ALERTS
+==================================================
+
+Add launch alert system.
+
+Alert owner/admin when:
+- command errors spike
+- duplicate payout attempts increase
+- currencycheck finds old text again
+- launchblockers appear
+- economy inflation risk becomes high
+- backup is missing
+- production mode turns OFF
+- maintenance turns ON
+- critical bug is reported
+- bot restarts unexpectedly if tracked
+
+Example:
+
+🚨 Launch Alert
+Command errors increased.
+Errors last hour: 5
+Use !errors recent.
+
+Rules:
+- Do not spam.
+- Max one alert per category every 10 minutes.
+- Log alerts.
+- Owner/Admin only.
+
+==================================================
+PART 7 — BUG TRIAGE AFTER LAUNCH
+==================================================
+
+Polish:
+
+!bugs open
+!bugs critical
+!bugs recent
+!bugs view [id]
+!bugs close [id]
+!bugs priority [id] low/medium/high/critical
+!bugs tag [id] [tag]
+
+Add:
+
+!bugdash
+
+Expected:
+
+🐞 Bug Dashboard
+Open: 3
+Critical: 0
+High: 1
+New today: 2
+Top tag: poker
+
+Rules:
+- Players can only submit with !bug.
+- Staff/Admin can triage based on role.
+- Critical bugs should affect !launchblockers.
+- No public bug data leak.
+
+==================================================
+PART 8 — FEEDBACK AFTER LAUNCH
+==================================================
+
+Polish:
+
+!feedbacks recent
+!feedbacks top
+!feedbacks view [id]
+!feedbacks close [id]
+!feedbacks tag [id] [tag]
+
+Add:
+
+!feedbackdash
+
+Expected:
+
+💬 Feedback Dashboard
+New today: 8
+Top: shop
+Requests: events, badges, mining
+
+Rules:
+- Players can only submit with !feedback.
+- Staff/Admin can review.
+- No private data leaks.
+
+==================================================
+PART 9 — DAILY OWNER REVIEW
+==================================================
+
+Add:
+
+!dailyreview
+!dailyreview launch
+
+Expected:
+
+📋 Daily Launch Review
+Players: 24
+New: 6
+Bugs: 2
+Errors: 0
+Economy: OK
+Retention: 38%
+
+Second message:
+
+Actions:
+1. Review !bugs open
+2. Review !feedbacks top
+3. Check !balanceaudit
+4. Check !launchblockers
+
+Rules:
+- Owner/Admin only.
+- Use today’s data.
+- No automatic changes.
+
+==================================================
+PART 10 — ECONOMY MONITORING
+==================================================
+
+Use existing dashboards and add launch summary:
+
+!economymonitor
+!economymonitor today
+!economymonitor 7d
+
+Expected:
+
+💰 Economy Monitor
+Net: +110,000 🪙
+Inflation: Low
+Top source: Mining
+Top sink: Shop
+Luxe: OK
+
+Rules:
+- Do not change prices automatically.
+- Do not change rewards automatically.
+- Only recommend.
+
+If inflation risk high:
+
+⚠️ Economy Risk: High
+Recommendation: review mining/fishing values.
+No changes applied.
+
+==================================================
+PART 11 — LUXE MONITORING
+==================================================
+
+Add:
+
+!luxemonitor
+!luxemonitor today
+!luxemonitor 7d
+
+Expected:
+
+🎫 Luxe Monitor
+Tips: 800 🎫
+Spent: 450 🎫
+Converted: 250 🎫
+VIP: 2 buys
+Auto: 9 buys
+
+Rules:
+- Only count verified Gold tip conversions.
+- Do not count fake chat.
+- No economy changes.
+
+==================================================
+PART 12 — RETENTION MONITORING
+==================================================
+
+Add:
+
+!retentionmonitor
+!retentionmonitor today
+!retentionmonitor 7d
+
+Expected:
+
+📌 Retention Monitor
+Tutorial complete: 67%
+Daily missions: 42%
+Weekly progress: 31%
+Returning: 38%
+
+Rules:
+- Show trends if available.
+- No automatic mission changes.
+- Recommend only.
+
+==================================================
+PART 13 — EVENT MONITORING
+==================================================
+
+Add:
+
+!eventmonitor
+!eventmonitor last
+!eventmonitor 7d
+
+Expected:
+
+🎉 Event Monitor
+Last: Mining Rush
+Players: 18
+Actions: 620
+Season points: 1,240
+Result: Good
+
+Rules:
+- No automatic event changes.
+- No HR Gold rewards.
+- Recommend timing changes only.
+
+==================================================
+PART 14 — CASINO MONITORING
+==================================================
+
+Add:
+
+!casinomonitor
+!bjmonitor
+!pokermonitor
+
+Expected:
+
+🎰 Casino Monitor
+BJ rounds: 18
+Poker games: 4
+Net payout: +25,000 🪙
+Errors: 0
+
+Rules:
+- No odds changes.
+- No payout changes.
+- Watch duplicate payout alerts.
+- Use 🪙 only.
+
+==================================================
+PART 15 — COMMAND ERROR MONITORING
+==================================================
+
+Polish:
+
+!errors recent
+!errors open
+!errors view [id]
+!errors close [id]
+
+Add:
+
+!errordash
+
+Expected:
+
+⚠️ Error Dashboard
+Open: 2
+Last hour: 0
+Top command: !fishbook
+Status: OK
+
+Rules:
+- Owner/Admin only.
+- No raw tracebacks in public.
+- Store traceback internally only.
+- No secrets.
+
+==================================================
+PART 16 — HOTFIX MODE
+==================================================
+
+Add:
+
+!hotfix
+!hotfix start [reason]
+!hotfix end
+!hotfix status
+
+Owner only.
+
+When hotfix mode is active:
+- production remains ON unless maintenance is needed
+- feature freeze remains ON
+- only bug/safety/currency fixes allowed
+- hotfix actions are logged
+
+Expected:
+
+🛠️ Hotfix Mode: ON
+Reason: fixing poker display
+Feature additions remain locked.
+
+Rules:
+- Does not wipe data.
+- Does not unlock economy unless owner explicitly disables economylock.
+- Does not unlock registry unless needed.
+
+==================================================
+PART 17 — HOTFIX LOG
+==================================================
+
+Add:
+
+!hotfixlog
+!hotfixlog add [message]
+!hotfixlog recent
+
+Expected:
+
+🛠️ Hotfix Log
+#1 Fixed !newbie handler
+#2 Fixed backup status sync
+#3 Fixed poker currency display
+
+Rules:
+- Owner/Admin only.
+- Keep short.
+- Useful for post-launch notes.
+
+==================================================
+PART 18 — POST-LAUNCH KNOWN ISSUES
+==================================================
+
+Polish:
+
+!knownissues
+
+Expected public:
+
+🧾 Known Issues
+Critical: 0
+Minor: 2
+Report new bugs: !bug [issue]
+
+Owner/Admin:
+
+!knownissues full
+
+Shows grouped issues.
+
+Rules:
+- Do not scare players.
+- Be honest.
+- Critical bugs should block launch readiness.
+
+==================================================
+PART 19 — PLAYER SUPPORT COMMANDS
+==================================================
+
+Polish public support commands:
+
+!help
+!guide
+!status
+!bug
+!feedback
+!knownissues
+!rules
+!whatsnew
+!quickstart
+
+Expected:
+- short
+- clear
+- no admin leaks
+- no old c/credits/gems
+- no reward cap text
+
+==================================================
+PART 20 — LAUNCH SAFETY LOCKS
+==================================================
+
+During launch mode:
+- economylock should stay ON
+- registrylock should stay ON
+- featurefreeze should stay ON
+- production should stay ON
+- maintenance should be OFF unless hotfix requires it
+
+Add:
+
+!launchlocks
+
+Expected:
+
+🔒 Launch Locks
+Production: ON
+Feature Freeze: ON
+Economy Lock: ON
+Registry Lock: ON
+Maintenance: OFF
+
+Rules:
+- Owner/Admin only.
+- If any lock is off, warn owner.
+- Do not auto-enable unless owner uses command.
+
+==================================================
+PART 21 — AUTO DAILY SNAPSHOT
+==================================================
+
+Add optional daily snapshot:
+
+!snapshot
+!snapshot create
+!snapshot status
+
+Owner/Admin only.
+
+Expected:
+
+📸 Launch Snapshot
+Players: 24
+Economy net: +110,000 🪙
+Bugs: 2
+Errors: 0
+Saved: YES
+
+Rules:
+- This is not full backup.
+- Just summary metrics.
+- Store in release_audits or launch_snapshots.
+- Do not store secrets.
+
+==================================================
+PART 22 — DATABASE / STORAGE
+==================================================
+
+Add safe/idempotent tables if needed:
+
+launch_settings:
+key TEXT UNIQUE
+value TEXT
+updated_at TEXT
+
+launch_alerts:
+id INTEGER PRIMARY KEY AUTOINCREMENT
+alert_type TEXT
+severity TEXT
+message TEXT
+created_at TEXT
+resolved_at TEXT
+status TEXT DEFAULT 'open'
+
+hotfix_logs:
+id INTEGER PRIMARY KEY AUTOINCREMENT
+message TEXT
+created_by TEXT
+created_at TEXT
+
+launch_snapshots:
+id INTEGER PRIMARY KEY AUTOINCREMENT
+range_key TEXT
+summary_json TEXT
+created_at TEXT
+created_by TEXT
+
+Rules:
+- Do not wipe data.
+- Do not store tokens/secrets.
+- Idempotent migrations.
+
+==================================================
+PART 23 — COMMAND REGISTRY
+==================================================
+
+Register/verify:
+
+!launchmode
+!postlaunch
+!livehealth
+!bugdash
+!feedbackdash
+!dailyreview
+!economymonitor
+!luxemonitor
+!retentionmonitor
+!eventmonitor
+!casinomonitor
+!bjmonitor
+!pokermonitor
+!errordash
+!hotfix
+!hotfixlog
+!launchlocks
+!snapshot
+
+Expected:
+route=YES
+handler=YES
+owner not UNKNOWN
+
+If optional commands are skipped:
+- hide them
+- do not show in help
+- do not count as command issue
+
+==================================================
+PART 24 — HELP UPDATES
+==================================================
+
+Public help:
+Add:
+
+🚀 v3.2 Live
+!quickstart
+!whatsnew
+!bug
+!feedback
+!knownissues
+!status
+
+Owner/Admin help:
+Add:
+
+🚀 Launch Monitor
+!postlaunch
+!dailyreview
+!bugdash
+!feedbackdash
+!economymonitor
+!livehealth
+
+Owner:
+Add:
+
+!launchmode
+!hotfix
+!launchlocks
+!snapshot
+
+Rules:
+- No owner launch commands in public help.
+- No admin leaks.
+- No old currency text.
+
+==================================================
+PART 25 — TESTS: PUBLIC LAUNCH
+==================================================
+
+Run:
+
+!launchmode on
+!status
+!whatsnew
+!quickstart
+!knownissues
+!rules
+!bug test launch bug
+!feedback test launch feedback
+
+Expected:
+- launch mode ON
+- public commands work
+- bug/feedback saves
+- no admin leaks
+
+==================================================
+PART 26 — TESTS: MONITORING
+==================================================
+
+Run:
+
+!postlaunch
+!livehealth
+!dailyreview
+!bugdash
+!feedbackdash
+!economymonitor
+!luxemonitor
+!retentionmonitor
+!eventmonitor
+!casinomonitor
+!errordash
+!launchlocks
+
+Expected:
+- no crash
+- metrics show or N/A
+- owner/admin only
+- no raw secrets
+- no old currency text
+
+==================================================
+PART 27 — TESTS: HOTFIX MODE
+==================================================
+
+Run:
+
+!hotfix status
+!hotfix start testing hotfix mode
+!hotfixlog add Testing hotfix log
+!hotfixlog recent
+!hotfix end
+
+Expected:
+- hotfix mode works
+- logs work
+- no feature unlock
+- no economy change
+
+==================================================
+PART 28 — FINAL QA
+==================================================
+
+Run:
+
+!commandtest !launchmode
+!commandtest !postlaunch
+!commandtest !livehealth
+!commandtest !bugdash
+!commandtest !feedbackdash
+!commandtest !dailyreview
+!commandtest !economymonitor
+!commandtest !luxemonitor
+!commandtest !retentionmonitor
+!commandtest !eventmonitor
+!commandtest !casinomonitor
+!commandtest !errordash
+!commandtest !hotfix
+!commandtest !launchlocks
+!commandtest !snapshot
+
+!commandissues
+!checkcommands all
+!checkhelp
+!currencycheck
+!launchblockers
+!finalaudit
+!launchready
+!launchcheck
+!bothealth
+!stability status
+
+Expected:
+- no command issues
+- no help leaks
+- no old c/credits/gems
+- no reward cap text
+- no HR Gold rewards
+- launch mode works
+- monitoring works
+- production stays stable
+- launchcheck clean
+
+==================================================
+PART 29 — FINAL REPORT
+==================================================
+
+Report:
+1. Public launch mode added.
+2. Launch announcement polished.
+3. Post-launch dashboard added.
+4. Live health monitor added.
+5. Launch alerts added.
+6. Bug dashboard added.
+7. Feedback dashboard added.
+8. Daily owner review added.
+9. Economy monitor added.
+10. Luxe monitor added.
+11. Retention monitor added.
+12. Event monitor added.
+13. Casino monitor added.
+14. Error dashboard added.
+15. Hotfix mode added.
+16. Hotfix log added.
+17. Known issues polished.
+18. Player support commands polished.
+19. Launch locks added.
+20. Snapshot command added.
+21. Help/registry updated.
+22. No economy changes made.
+23. No HR Gold rewards added.
+24. No reward caps added.
+25. !commandissues result.
+26. !checkhelp result.
+27. !currencycheck result.
+28. !launchblockers result.
+29. !launchcheck result.

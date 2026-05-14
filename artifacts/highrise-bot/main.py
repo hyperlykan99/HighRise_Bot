@@ -235,6 +235,14 @@ from modules.release import (
     handle_whatsnew, handle_knownissues,
     handle_releasedash, handle_finalaudit,
 )
+from modules.monitor import (
+    handle_launchmode, handle_postlaunch, handle_livehealth,
+    handle_bugdash, handle_feedbackdash, handle_dailyreview,
+    handle_economymonitor, handle_luxemonitor, handle_retentionmonitor,
+    handle_eventmonitor, handle_casinomonitor, handle_bjmonitor,
+    handle_pokermonitor, handle_errordash,
+    handle_hotfix, handle_hotfixlog, handle_launchlocks, handle_snapshot,
+)
 from modules.permissions         import (
     is_owner, is_admin, is_manager, is_moderator,
     can_moderate, can_manage_games, can_manage_economy, can_audit,
@@ -1304,6 +1312,24 @@ RELEASE_COMMANDS: frozenset[str] = frozenset({
     "releasedash", "finalaudit",
 })
 
+MONITOR_COMMANDS: frozenset[str] = frozenset({
+    # Launch mode
+    "launchmode",
+    # Post-launch dashboards
+    "postlaunch", "livehealth",
+    "bugdash", "feedbackdash", "dailyreview",
+    # Economy / currency monitors
+    "economymonitor", "luxemonitor", "retentionmonitor",
+    # Activity monitors
+    "eventmonitor", "casinomonitor", "bjmonitor", "pokermonitor",
+    # Error dashboard
+    "errordash",
+    # Hotfix
+    "hotfix", "hotfixlog",
+    # Launch safety
+    "launchlocks", "snapshot",
+})
+
 ALL_KNOWN_COMMANDS = (
     ALL_KNOWN_COMMANDS
     | TIME_EXP_COMMANDS
@@ -1313,6 +1339,7 @@ ALL_KNOWN_COMMANDS = (
     | LUXE_COMMANDS
     | BETA_COMMANDS
     | RELEASE_COMMANDS
+    | MONITOR_COMMANDS
 )
 
 
@@ -6195,6 +6222,61 @@ class HangoutBot(BaseBot):
 
         elif cmd == "finalaudit":
             await handle_finalaudit(self, user, args)
+
+        # ── 3.2A — Public Launch + Post-Launch Monitoring ─────────────────────
+        elif cmd == "launchmode":
+            await handle_launchmode(self, user, args)
+
+        elif cmd == "postlaunch":
+            await handle_postlaunch(self, user, args)
+
+        elif cmd == "livehealth":
+            await handle_livehealth(self, user, args)
+
+        elif cmd == "bugdash":
+            await handle_bugdash(self, user, args)
+
+        elif cmd == "feedbackdash":
+            await handle_feedbackdash(self, user, args)
+
+        elif cmd == "dailyreview":
+            await handle_dailyreview(self, user, args)
+
+        elif cmd == "economymonitor":
+            await handle_economymonitor(self, user, args)
+
+        elif cmd == "luxemonitor":
+            await handle_luxemonitor(self, user, args)
+
+        elif cmd == "retentionmonitor":
+            await handle_retentionmonitor(self, user, args)
+
+        elif cmd == "eventmonitor":
+            await handle_eventmonitor(self, user, args)
+
+        elif cmd == "casinomonitor":
+            await handle_casinomonitor(self, user, args)
+
+        elif cmd == "bjmonitor":
+            await handle_bjmonitor(self, user, args)
+
+        elif cmd == "pokermonitor":
+            await handle_pokermonitor(self, user, args)
+
+        elif cmd == "errordash":
+            await handle_errordash(self, user, args)
+
+        elif cmd == "hotfix":
+            await handle_hotfix(self, user, args)
+
+        elif cmd == "hotfixlog":
+            await handle_hotfixlog(self, user, args)
+
+        elif cmd == "launchlocks":
+            await handle_launchlocks(self, user, args)
+
+        elif cmd == "snapshot":
+            await handle_snapshot(self, user, args)
 
         # ── 3.1R — Beta review + balance audit ───────────────────────────────
         elif cmd == "betatest":

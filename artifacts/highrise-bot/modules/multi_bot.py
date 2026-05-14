@@ -122,6 +122,13 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "launchannounce": "host",
     "whatsnew": "host", "new": "host", "v32": "host", "knownissues": "host",
     "releasedash": "host", "finalaudit": "host",
+    # 3.2A — Public Launch + Post-Launch Monitoring
+    "launchmode": "host", "postlaunch": "host", "livehealth": "host",
+    "bugdash": "host", "feedbackdash": "host", "dailyreview": "host",
+    "economymonitor": "host", "luxemonitor": "host", "retentionmonitor": "host",
+    "eventmonitor": "host", "casinomonitor": "host", "bjmonitor": "host",
+    "pokermonitor": "host", "errordash": "host",
+    "hotfix": "host", "hotfixlog": "host", "launchlocks": "host", "snapshot": "host",
     # Luxe auto time — info is miner/fisher; miner owns combined !autotime
     "autotime": "miner", "minetime": "miner",
     "fishtime": "fisher",

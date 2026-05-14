@@ -1465,6 +1465,26 @@ REGISTRY: dict[str, Cmd] = {
     "releasedash":    Cmd("host", "analytics", False, True,  False, perm="admin"),
     "finalaudit":     Cmd("host", "admin",     False, True,  False, perm="owner"),
 
+    # ── 3.2A — Public Launch + Post-Launch Monitoring ─────────────────────────
+    "launchmode":       Cmd("host", "admin",     False, True,  False, perm="owner"),
+    "postlaunch":       Cmd("host", "analytics", False, True,  False, perm="admin"),
+    "livehealth":       Cmd("host", "analytics", False, True,  False, perm="admin"),
+    "bugdash":          Cmd("host", "analytics", False, True,  False, perm="admin"),
+    "feedbackdash":     Cmd("host", "analytics", False, True,  False, perm="admin"),
+    "dailyreview":      Cmd("host", "analytics", False, True,  False, perm="admin"),
+    "economymonitor":   Cmd("host", "analytics", False, True,  False, perm="admin"),
+    "luxemonitor":      Cmd("host", "analytics", False, True,  False, perm="admin"),
+    "retentionmonitor": Cmd("host", "analytics", False, True,  False, perm="admin"),
+    "eventmonitor":     Cmd("host", "analytics", False, True,  False, perm="admin"),
+    "casinomonitor":    Cmd("host", "analytics", False, True,  False, perm="admin"),
+    "bjmonitor":        Cmd("host", "analytics", False, True,  False, perm="admin"),
+    "pokermonitor":     Cmd("host", "analytics", False, True,  False, perm="admin"),
+    "errordash":        Cmd("host", "analytics", False, True,  False, perm="admin"),
+    "hotfix":           Cmd("host", "admin",     False, True,  False, perm="owner"),
+    "hotfixlog":        Cmd("host", "admin",     False, True,  False, perm="admin"),
+    "launchlocks":      Cmd("host", "admin",     False, True,  False, perm="admin"),
+    "snapshot":         Cmd("host", "analytics", False, True,  False, perm="admin"),
+
     # ── 3.1P Help + Commands system ───────────────────────────────────────────
     "commands":       Cmd("host", "general",   True,  True,  True,
                           aliases=("cmds",)),

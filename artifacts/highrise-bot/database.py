@@ -2721,6 +2721,45 @@ def _migrate_db():
     except Exception:
         pass
 
+    # ── 3.2A — Public Launch + Post-Launch Monitoring ─────────────────────────
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS launch_alerts (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                alert_type  TEXT NOT NULL DEFAULT '',
+                severity    TEXT NOT NULL DEFAULT 'info',
+                message     TEXT NOT NULL DEFAULT '',
+                created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+                resolved_at TEXT,
+                status      TEXT NOT NULL DEFAULT 'open'
+            )
+        """)
+    except Exception:
+        pass
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS hotfix_logs (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                message     TEXT NOT NULL DEFAULT '',
+                created_by  TEXT NOT NULL DEFAULT '',
+                created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+        """)
+    except Exception:
+        pass
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS launch_snapshots (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                range_key    TEXT NOT NULL DEFAULT '',
+                summary_json TEXT NOT NULL DEFAULT '{}',
+                created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+                created_by   TEXT NOT NULL DEFAULT ''
+            )
+        """)
+    except Exception:
+        pass
+
     conn.commit()
     conn.close()
 
