@@ -1,14 +1,23 @@
 """
-modules/ai_intent_router.py — Keyword-based intent detection (3.3A rebuild).
+modules/ai_intent_router.py — Keyword-based intent detection (3.3A).
 
 Intent detection is purely keyword/regex based — no external APIs.
 Rules are evaluated top-to-bottom; first match wins.
+
+Priority groups (top → bottom):
+  1. Confirm / cancel
+  2. Permission-gated ChillTopia (owner / admin / staff / player-private)
+  3. Global time / holiday with location (before generic date / holiday)
+  4. Generic date / holiday (Philippines default)
+  5. ChillTopia topic intents (guidance, bugs, feedback, mod, setting, topics)
+  6. Real-world: live-data | sensitive | translation | math | general
+  7. Unknown fallback
 """
 from __future__ import annotations
 
 import re
 
-# ── Intent constants ────────────────────────────────────────────────────────
+# ── ChillTopia intents ───────────────────────────────────────────────────────
 INTENT_DATE_TIME            = "date_time_question"
 INTENT_HOLIDAY              = "holiday_question"
 INTENT_PLAYER_GUIDANCE      = "player_guidance"
@@ -35,16 +44,66 @@ INTENT_DENIED_PERM          = "denied_permission"
 INTENT_GENERAL              = "general_question"
 INTENT_UNKNOWN              = "unknown"
 
-# ── Detection rules (top-to-bottom, first match wins) ───────────────────────
+# ── Real-world intents ───────────────────────────────────────────────────────
+INTENT_RW_GENERAL           = "real_world_general_question"
+INTENT_RW_GLOBAL            = "real_world_global_question"
+INTENT_RW_DATETIME          = "real_world_date_time_question"
+INTENT_RW_GLOBAL_TIME       = "real_world_global_time_question"
+INTENT_RW_HOLIDAY           = "real_world_holiday_question"
+INTENT_RW_GLOBAL_HOLIDAY    = "real_world_global_holiday_question"
+INTENT_RW_CURRENT_INFO      = "real_world_current_info_question"
+INTENT_RW_SENSITIVE         = "real_world_sensitive_question"
+INTENT_RW_TRANSLATION       = "real_world_translation_question"
+INTENT_RW_MATH              = "real_world_math_question"
+INTENT_RW_UNKNOWN           = "real_world_unknown"
+
+# Set of all real-world intents for easy routing in assistant_core
+RW_INTENTS: frozenset[str] = frozenset({
+    INTENT_RW_GENERAL, INTENT_RW_GLOBAL, INTENT_RW_DATETIME,
+    INTENT_RW_GLOBAL_TIME, INTENT_RW_HOLIDAY, INTENT_RW_GLOBAL_HOLIDAY,
+    INTENT_RW_CURRENT_INFO, INTENT_RW_SENSITIVE,
+    INTENT_RW_TRANSLATION, INTENT_RW_MATH, INTENT_RW_UNKNOWN,
+})
+
+# ── Location keywords used in global time / holiday detection ────────────────
+# (shared pattern so we don't repeat the long list)
+_LOC_KW = (
+    r"japan|tokyo|osaka"
+    r"|korea|seoul"
+    r"|singapore"
+    r"|uk|united\s+kingdom|england|london"
+    r"|france|paris"
+    r"|germany|berlin"
+    r"|spain|madrid"
+    r"|italy|rome"
+    r"|australia|sydney|melbourne"
+    r"|new\s+zealand|auckland"
+    r"|canada|toronto|vancouver"
+    r"|new\s+york|nyc|california|los\s+angeles|chicago|texas|miami"
+    r"|united\s+states|usa"
+    r"|brazil|argentina|colombia|peru|chile|mexico"
+    r"|russia|moscow|ukraine"
+    r"|india|mumbai|delhi"
+    r"|china|beijing|shanghai"
+    r"|indonesia|jakarta|bali"
+    r"|thailand|bangkok"
+    r"|vietnam|hanoi"
+    r"|malaysia|kuala\s+lumpur"
+    r"|uae|dubai|saudi\s+arabia|riyadh"
+    r"|egypt|cairo|nigeria|kenya|south\s+africa"
+    r"|turkey|istanbul|iran|iraq|israel"
+)
+
+# ── Detection rules (top-to-bottom, first match wins) ────────────────────────
 _RULES: list[tuple[str, re.Pattern]] = [
 
-    # Confirm / cancel (exact prefix — check first)
+    # ── 1. Confirm / cancel ─────────────────────────────────────────────────
     (INTENT_CANCEL_SETTING,
      re.compile(r"^cancel\b", re.I)),
     (INTENT_CONFIRM_SETTING,
      re.compile(r"^confirm\b", re.I)),
 
-    # Owner-only information requests
+    # ── 2. Permission-gated ChillTopia ──────────────────────────────────────
     (INTENT_OWNER_INFO,
      re.compile(
          r"\b(economy\s+(dashboard|health|summary|logs?)"
@@ -53,8 +112,6 @@ _RULES: list[tuple[str, re.Pattern]] = [
          r"|owner\s+(summary|report|dashboard))\b",
          re.I,
      )),
-
-    # Admin information requests
     (INTENT_ADMIN_INFO,
      re.compile(
          r"\b(show\s+(event|shop|vip|assistant)\s+settings?"
@@ -63,8 +120,6 @@ _RULES: list[tuple[str, re.Pattern]] = [
          r"|admin\s+(config|settings?|info|panel))\b",
          re.I,
      )),
-
-    # Staff information requests
     (INTENT_STAFF_INFO,
      re.compile(
          r"\b(show\s+(reports?|warnings?|support\s+queue)"
@@ -73,8 +128,6 @@ _RULES: list[tuple[str, re.Pattern]] = [
          r"|staff\s+(info|data|panel))\b",
          re.I,
      )),
-
-    # Private player info (own balance, level, progress, inventory)
     (INTENT_PRIVATE_PLAYER_INFO,
      re.compile(
          r"\b(how\s+many\s+(tickets?|coins?|luxe|chillcoins?)\s+(do\s+i|i|do|have)"
@@ -86,11 +139,27 @@ _RULES: list[tuple[str, re.Pattern]] = [
          re.I,
      )),
 
-    # Holidays (more specific — check before date_time)
-    (INTENT_HOLIDAY,
-     re.compile(r"\bholiday(s)?\b", re.I)),
+    # ── 3. Global time / holiday WITH a foreign location ────────────────────
+    # Must come BEFORE generic date/holiday rules so location beats default.
+    (INTENT_RW_GLOBAL_TIME,
+     re.compile(
+         rf"\b(time|date|day|what\s+day|what\s+time|clock|hour)\b.{{0,40}}\b({_LOC_KW})\b"
+         rf"|\b({_LOC_KW})\b.{{0,40}}\b(time|date|day|what\s+time|clock)\b",
+         re.I,
+     )),
+    (INTENT_RW_GLOBAL_HOLIDAY,
+     re.compile(
+         rf"\b(holiday|public\s+holiday|national\s+holiday|when\s+is|next\s+holiday)\b"
+         rf".{{0,60}}\b({_LOC_KW})\b"
+         rf"|\b({_LOC_KW})\b.{{0,60}}\b(holiday|public\s+holiday)\b"
+         rf"|\b(thanksgiving|independence\s+day|golden\s+week|chuseok|seollal"
+         rf"|anzac|boxing\s+day|canada\s+day|australia\s+day|labor\s+day)\b",
+         re.I,
+     )),
 
-    # Date / time
+    # ── 4. Generic date / time / holiday (Philippines default) ──────────────
+    (INTENT_HOLIDAY,
+     re.compile(r"\bholiday\b", re.I)),
     (INTENT_DATE_TIME,
      re.compile(
          r"\b(what.{0,8}(date|time|day)|today|right\s+now|current\s+time"
@@ -98,7 +167,7 @@ _RULES: list[tuple[str, re.Pattern]] = [
          re.I,
      )),
 
-    # Player guidance / what to do next
+    # ── 5. ChillTopia topic intents ─────────────────────────────────────────
     (INTENT_PLAYER_GUIDANCE,
      re.compile(
          r"\b(what\s+(should|can)\s+i\s+do"
@@ -113,32 +182,24 @@ _RULES: list[tuple[str, re.Pattern]] = [
          r"|what\s+should\s+i\s+do\s+next)\b",
          re.I,
      )),
-
-    # Bug summary (staff) — check before generic bug
     (INTENT_SUMMARIZE_BUGS,
      re.compile(
          r"\b(summarize|summary|list|show\s+me)\s+(open\s+)?"
          r"(bugs?|issues?|reports?|errors?)\b",
          re.I,
      )),
-
-    # Bug report
     (INTENT_BUG,
      re.compile(
          r"\b(bug|broken|not\s+working|glitch|crash|error|issue"
          r"|stuck|freezing|lagging|doesnt\s+work|doesn.t\s+work)\b",
          re.I,
      )),
-
-    # Feedback / suggestion
     (INTENT_FEEDBACK,
      re.compile(
          r"\b(feedback|suggestion|suggest|idea|improvement"
          r"|request|feature\s+request)\b",
          re.I,
      )),
-
-    # Moderation help
     (INTENT_MOD_HELP,
      re.compile(
          r"\b(spam|spammer|harass|bully|handle.*player|troublesome"
@@ -146,52 +207,112 @@ _RULES: list[tuple[str, re.Pattern]] = [
          r"|someone\s+(is\s+)?(being|causing)|how\s+should\s+i\s+handle)\b",
          re.I,
      )),
-
-    # Prepared setting change
     (INTENT_PREPARE_SETTING,
      re.compile(
          r"\b(set|change|update|adjust)\s+\w+.{0,30}(to|price|value|amount|rate)\b",
          re.I,
      )),
-
-    # Topic: VIP
     (INTENT_VIP,
      re.compile(r"\b(vip|vip\s+(perks?|access|benefits?|price|cost|buy))\b", re.I)),
-
-    # Topic: Luxe Tickets
     (INTENT_LUXE,
      re.compile(r"\b(luxe\s*ticket|luxe\s*shop|luxe|🎫|premium\s*ticket)\b", re.I)),
-
-    # Topic: ChillCoins
     (INTENT_CHILLCOINS,
      re.compile(r"\b(chillcoin|chill\s*coin|coins?\s+(work|earn|get)|earn\s+coins?)\b", re.I)),
-
-    # Topic: Mining
     (INTENT_MINING,
      re.compile(r"\b(mine|mining|ore|pickaxe|dig|automine|mineinv|minehelp|how\s+to\s+mine)\b", re.I)),
-
-    # Topic: Fishing
     (INTENT_FISHING,
      re.compile(r"\b(fish|fishing|catch|rod|bait|angl|autofish|fishinv|fishhelp|how\s+to\s+fish)\b", re.I)),
-
-    # Topic: Casino
     (INTENT_CASINO,
-     re.compile(r"\b(casino|blackjack|poker|gamble|card\s+game|how\s+to\s+(play\s+)?(bj|poker|blackjack))\b", re.I)),
-
-    # Topic: Events
+     re.compile(r"\b(casino|blackjack|how\s+to\s+(play\s+)?(bj|blackjack))\b", re.I)),
     (INTENT_EVENT,
      re.compile(r"\b(event|events|limited.time|bonus\s+event|active\s+event|what\s+events)\b", re.I)),
-
-    # Command explanation
     (INTENT_CMD_EXPLAIN,
      re.compile(
          r"\b(explain|what\s+is|what\s+does|how\s+(does|do|to\s+use)\s+)[!/]?\w+\b",
          re.I,
      )),
 
-    # General question fallback
-    (INTENT_GENERAL,
-     re.compile(r"\b(what|how|why|when|where|can\s+i|should\s+i|help|tell\s+me)\b", re.I)),
+    # ── 6. Real-world intents ───────────────────────────────────────────────
+
+    # Live / current data (needs internet)
+    (INTENT_RW_CURRENT_INFO,
+     re.compile(
+         r"\b(weather|forecast|temperature\s+in"
+         r"|latest\s+news|breaking\s+news"
+         r"|live\s+score|who\s+won\s+the|current\s+score"
+         r"|usd\s+(to|vs)|exchange\s+rate|forex"
+         r"|bitcoin\s+price|crypto\s+price|stock\s+price"
+         r"|promo\s+code|latest\s+update"
+         r"|current\s+president|prime\s+minister\s+of"
+         r"|flight\s+price|bus\s+schedule|train\s+schedule"
+         r"|cinema\s+schedule|lotto\s+result)\b",
+         re.I,
+     )),
+
+    # Sensitive / emergency (medical, legal, financial, mental health)
+    (INTENT_RW_SENSITIVE,
+     re.compile(
+         r"\b(chest\s+pain|heart\s+attack|can.?t\s+breathe|overdose|poison"
+         r"|suicide|suicidal|self.?harm|bleeding\s+out"
+         r"|medical\s+advice|diagnos|what\s+medicine"
+         r"|legal\s+advice|is\s+it\s+legal\s+to"
+         r"|immigration\s+advice|visa\s+(denial|rejection)"
+         r"|tax\s+(advice|evasion)"
+         r"|mental\s+health\s+crisis|am\s+i\s+depressed"
+         r"|emergency|call\s+(911|112|995|999)|ambulance)\b",
+         re.I,
+     )),
+
+    # Translation requests
+    (INTENT_RW_TRANSLATION,
+     re.compile(
+         r"\b(translate\b|how\s+(do\s+you\s+say|to\s+say)\b"
+         r"|\bin\s+(japanese|korean|spanish|french|german|chinese|arabic|tagalog)\b"
+         r"|\bto\s+(japanese|korean|spanish|french|german|chinese|arabic|tagalog)\b)\b",
+         re.I,
+     )),
+
+    # Math evaluation
+    (INTENT_RW_MATH,
+     re.compile(
+         r"\b(calculate|compute|evaluate|what\s+is\s+\d|solve\s+\d"
+         r"|\d+\s*[\+\-\*\/\^]\s*\d+)\b",
+         re.I,
+     )),
+
+    # General real-world knowledge (science, geography, history, people, etc.)
+    (INTENT_RW_GENERAL,
+     re.compile(
+         r"\b(what\s+is\s+(gravity|photosynthesis|evolution|inflation|gdp|dna"
+         r"|climate\s+change|black\s+hole|the\s+internet|artificial\s+intelligence)"
+         r"|what\s+is\s+the\s+(capital|speed\s+of\s+light|largest|smallest|most\s+populous"
+         r"|longest|highest|tallest|circumference|population)"
+         r"|capital\s+of\b|who\s+(is|was)\s+[A-Z]"
+         r"|who\s+is\s+albert|who\s+is\s+isaac|who\s+is\s+nikola|who\s+is\s+marie"
+         r"|explain\s+(gravity|photosynthesis|evolution|inflation|dna|climate|blackhole"
+         r"|quantum|relativity|capitalism|democracy|physics|biology|chemistry)"
+         r"|fun\s+fact|tell\s+me\s+a\s+fact|random\s+fact"
+         r"|study\s+tip|how\s+to\s+study|how\s+to\s+be\s+productive"
+         r"|how\s+many\s+(planet|language|continent|country|ocean)"
+         r"|how\s+many\s+(countries|planets|continents|languages|oceans)"
+         r"|largest\s+(country|ocean|continent)|smallest\s+country"
+         r"|most\s+spoken\s+language|most\s+populous\s+country"
+         r"|how\s+does\s+the\s+(internet|stock|economy|government|solar\s+system|body)\s+work"
+         r"|what\s+causes\s+(rain|thunder|lightning|earthquake|volcano|inflation)"
+         r"|give\s+me\s+(a\s+)?(study\s+tips?|fun\s+fact|advice|tip)"
+         r"|who\s+invented\s+|who\s+discovered\s+"
+         r"|difference\s+between\s+\w+\s+and\s+\w+"
+         r"|define\s+\w+|what\s+does\s+\w+\s+mean"
+         r"|meaning\s+of\s+\w+)\b",
+         re.I,
+     )),
+
+    # Real-world general catch-all (after all ChillTopia rules)
+    (INTENT_RW_GLOBAL,
+     re.compile(
+         r"\b(what\s+is|who\s+(is|was)|explain|tell\s+me\s+about|how\s+does)\b.{3,}",
+         re.I,
+     )),
 ]
 
 

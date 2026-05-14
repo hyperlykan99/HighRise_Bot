@@ -42,7 +42,16 @@ from modules.ai_intent_router import (
     INTENT_MOD_HELP, INTENT_STAFF_INFO, INTENT_ADMIN_INFO, INTENT_OWNER_INFO,
     INTENT_PREPARE_SETTING, INTENT_CONFIRM_SETTING, INTENT_CANCEL_SETTING,
     INTENT_PRIVATE_PLAYER_INFO, INTENT_CMD_EXPLAIN, INTENT_GENERAL, INTENT_UNKNOWN,
+    RW_INTENTS,
+    INTENT_RW_GLOBAL_TIME, INTENT_RW_GLOBAL_HOLIDAY,
+    INTENT_RW_DATETIME, INTENT_RW_HOLIDAY,
+    INTENT_RW_CURRENT_INFO, INTENT_RW_SENSITIVE,
+    INTENT_RW_TRANSLATION, INTENT_RW_MATH,
+    INTENT_RW_GENERAL, INTENT_RW_GLOBAL, INTENT_RW_UNKNOWN,
 )
+from modules.ai_global_time import get_global_time_reply, clarify_location
+from modules.ai_global_holidays import get_global_holiday_reply
+from modules.ai_global_knowledge import handle_global_question
 from modules.ai_knowledge_access import get_knowledge_answer, check_access
 from modules.ai_public_knowledge import get_public_answer, get_welcome
 from modules.ai_time_holidays import get_date_reply, get_time_reply, get_next_holiday_reply
@@ -327,12 +336,34 @@ async def _handle_cancel(bot: "BaseBot", user: "User") -> None:
         await _w(bot, user.id, "⚠️ Nothing to cancel.")
 
 
-async def _handle_unknown(bot: "BaseBot", user: "User") -> None:
+async def _handle_real_world(
+    bot: "BaseBot", user: "User", text: str, intent: str,
+) -> None:
+    """Route real-world questions to the appropriate global module."""
+    if intent == INTENT_RW_GLOBAL_TIME or intent == INTENT_RW_DATETIME:
+        await _w(bot, user.id, get_global_time_reply(text))
+
+    elif intent == INTENT_RW_GLOBAL_HOLIDAY or intent == INTENT_RW_HOLIDAY:
+        await _w(bot, user.id, get_global_holiday_reply(text))
+
+    else:
+        # CURRENT_INFO, SENSITIVE, TRANSLATION, MATH, GENERAL, GLOBAL, UNKNOWN
+        await _w(bot, user.id, handle_global_question(text, intent))
+
+
+async def _handle_unknown(bot: "BaseBot", user: "User", text: str = "") -> None:
+    # Last-resort: try global knowledge before showing generic message
+    if text:
+        answer = handle_global_question(text, INTENT_RW_UNKNOWN)
+        generic_patterns = ("💬 I'm not sure", "🤔 I don't have", "I can answer")
+        if answer and not any(p in answer for p in generic_patterns):
+            await _w(bot, user.id, answer[:249])
+            return
     await _w(bot, user.id,
              "🤖 I'm ChillTopiaMC AI! I can help with:\n"
-             "• What to do next\n"
-             "• Mining, fishing, casino, events, Luxe Tickets\n"
-             "• Date/time • Bug reports\n"
+             "• Room questions, mining, fishing, casino, events\n"
+             "• Science, geography, fun facts, translations, math\n"
+             "• Date/time anywhere in the world\n"
              "Say 'ai help' for examples.")
 
 
@@ -428,13 +459,16 @@ async def handle_acesinatra(
         elif intent == INTENT_PREPARE_SETTING:
             await _handle_prepare_setting(bot, user, clean, perm)
 
+        elif intent in RW_INTENTS:
+            await _handle_real_world(bot, user, clean, intent)
+
         else:
             # Try knowledge access layer for all other intents
             answer = get_knowledge_answer(user, perm, intent, clean)
             if answer:
                 await _w(bot, user.id, answer[:249])
             else:
-                await _handle_unknown(bot, user)
+                await _handle_unknown(bot, user, clean)
 
         return True
 

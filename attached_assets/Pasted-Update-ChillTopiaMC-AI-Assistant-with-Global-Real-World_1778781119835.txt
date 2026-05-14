@@ -1,0 +1,237 @@
+Update ChillTopiaMC AI Assistant with Global Real-World Question Support.
+
+Players can ask global real-world questions using the “ai” trigger.
+
+Examples:
+- ai what is gravity?
+- ai what is photosynthesis?
+- ai what time is it in Japan?
+- ai what date is it in the US?
+- ai when is Christmas?
+- ai when is Independence Day in the Philippines?
+- ai when is Thanksgiving in the US?
+- ai what is Eid?
+- ai explain inflation
+- ai who is Albert Einstein?
+- ai give me study tips
+- ai translate hello to Japanese
+- ai what is the capital of France?
+- ai explain poker
+- ai tell me a fun fact
+
+Default behavior:
+- If the user does not mention a country/timezone, use Philippines timezone/calendar by default.
+- If the user mentions a country, city, or timezone, use that location instead.
+- If the country/calendar is not available in the local holiday module, say the assistant does not have that holiday calendar loaded yet.
+- Do not pretend to have live internet unless an actual search/API tool is connected.
+
+Add new intent types:
+- real_world_general_question
+- real_world_global_question
+- real_world_date_time_question
+- real_world_global_time_question
+- real_world_holiday_question
+- real_world_global_holiday_question
+- real_world_current_info_question
+- real_world_sensitive_question
+- real_world_translation_question
+- real_world_math_question
+- real_world_unknown
+
+Global support categories:
+
+1. Stable global knowledge:
+AI may answer normally using built-in safe knowledge.
+
+Includes:
+- science
+- history basics
+- geography
+- vocabulary
+- translations
+- study help
+- math explanations
+- basic economics
+- famous people
+- culture basics
+- general life advice
+- jokes and fun facts
+
+Examples:
+User:
+ai what is the capital of France?
+
+AI:
+“The capital of France is Paris.”
+
+User:
+ai explain photosynthesis
+
+AI:
+“Photosynthesis is how plants use sunlight, water, and carbon dioxide to make food and release oxygen.”
+
+2. Global date/time:
+AI should support date/time questions for common countries, cities, and timezones if timezone data is available.
+
+Examples:
+- ai what time is it in Japan?
+- ai what date is it in California?
+- ai what time is it in London?
+- ai what day is it in New York?
+
+If no location is given:
+Use Philippines timezone by default.
+
+If location is unclear:
+Ask a short clarification:
+“Which country or city do you mean?”
+
+3. Global holidays:
+AI should support holiday questions globally when the holiday data exists.
+
+Start with built-in holiday data for:
+- Philippines
+- United States
+- Japan
+- United Kingdom
+- Canada
+- Australia
+- Singapore
+- South Korea
+
+Holiday examples:
+- ai when is Christmas?
+- ai when is New Year’s Day?
+- ai when is Thanksgiving in the US?
+- ai when is Independence Day in the Philippines?
+- ai when is Golden Week in Japan?
+- ai when is Chuseok in Korea?
+- ai when is Canada Day?
+- ai when is Australia Day?
+
+If country is not specified:
+Use Philippines calendar by default.
+
+If holiday is global/common:
+Answer generally.
+
+If the holiday depends on lunar/religious calendar and exact date is not loaded:
+Say:
+“That holiday can change each year. I don’t have the exact calendar loaded yet.”
+
+4. Current/live global questions:
+If the question requires live internet, fresh news, weather, sports scores, prices, exchange rates, current laws, current leader names, new updates, active promos, or current schedules, AI must not pretend it knows.
+
+Examples requiring live data:
+- ai weather in Tokyo today
+- ai latest news in the US
+- ai who won the NBA game today
+- ai current USD to PHP rate
+- ai Bitcoin price now
+- ai latest Highrise update
+- ai current president of [country]
+- ai active Roblox promo codes
+- ai flight prices to Japan
+- ai current product price
+
+Reply:
+“I may need live internet/source access for that, so I can’t guarantee the latest answer from inside the room.”
+
+Optional improved reply:
+“I can answer general info, but live updates like weather, prices, news, sports scores, and exchange rates need internet/source access.”
+
+5. Sensitive real-world questions:
+For medical, legal, financial, mental health, immigration, tax, or emergency questions:
+- Give general helpful information only
+- Do not guarantee professional advice
+- Encourage professional help when appropriate
+- For emergencies, recommend urgent help immediately
+
+Example:
+User:
+ai my chest hurts what should I do?
+
+AI:
+“If you have chest pain, trouble breathing, or feel faint, seek emergency medical help now. I can’t diagnose you, but chest pain can be serious.”
+
+6. Unsafe global questions:
+AI must refuse:
+- hacking
+- stealing accounts
+- bypassing moderation
+- exploiting ChillTopia
+- finding bot secrets
+- making weapons
+- fraud
+- scams
+- self-harm instructions
+- harassment
+- doxxing
+- illegal activity
+
+Example:
+User:
+ai how do I hack someone’s Highrise account?
+
+AI:
+“I can’t help with hacking or stealing accounts. I can help with account safety instead.”
+
+Location handling:
+Create a simple location parser.
+
+If user mentions:
+- Philippines / PH / Manila → Asia/Manila
+- Japan / Tokyo → Asia/Tokyo
+- Korea / Seoul → Asia/Seoul
+- Singapore → Asia/Singapore
+- UK / London → Europe/London
+- France / Paris → Europe/Paris
+- Germany / Berlin → Europe/Berlin
+- UAE / Dubai → Asia/Dubai
+- Canada / Toronto → America/Toronto
+- US / USA / New York → America/New_York
+- California / Los Angeles → America/Los_Angeles
+- Australia / Sydney → Australia/Sydney
+
+If location is not found:
+Use Philippines as default only if location is not important.
+Ask clarification if location affects the answer.
+
+Create or update:
+- ai_global_knowledge.py
+- ai_global_time.py
+- ai_global_holidays.py
+- ai_location_parser.py
+
+Routing logic:
+
+1. Check “ai” trigger.
+2. Strip trigger.
+3. Detect if ChillTopia-related.
+4. If ChillTopia-related:
+   - Use ChillTopia knowledge access layer.
+   - Check permissions.
+   - Answer safely.
+5. If real-world question:
+   - Detect stable/current/sensitive/unsafe.
+   - Detect country/city/timezone if needed.
+   - If stable, answer normally.
+   - If date/time, use requested location or Philippines default.
+   - If holiday, use requested country or Philippines default.
+   - If live/current info, warn that live internet/source access is needed.
+6. If admin/owner action:
+   - Prepare confirmation only.
+7. If unsafe:
+   - Refuse briefly and redirect.
+
+Response style:
+- Short
+- Friendly
+- Human-like
+- Public-chat safe
+- 1–4 sentences by default
+- Use emojis lightly
+- Avoid long lectures unless user asks for detail
+
+Important:
+The AI should answer global general questions, but it must not pretend to have live internet or exact current information unless a real live search/API tool is connected.
