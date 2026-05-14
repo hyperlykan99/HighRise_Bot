@@ -1143,8 +1143,8 @@ ALL_KNOWN_COMMANDS = (
         "taskowners", "activetasks", "taskconflicts", "fixtaskowners",
         "restoreannounce", "restorestatus",
         "commandissues",
-        # ── AI assistant (3.3A — AceSinatra, natural-language) ───────────────
-        "acesinatra",
+        # ── AI assistant (3.3A — ChillTopiaMC AI, say "ai ...") ──────────────
+        "ai",
         # ── Emote extensions ──────────────────────────────────────────────────
         "emoteinfo",
         # ── Bot spawns ────────────────────────────────────────────────────────
@@ -5126,15 +5126,16 @@ class HangoutBot(BaseBot):
             msg = "Moderators: " + ", ".join(f"@{m}" for m in mods) if mods else "No moderators set."
             await self.highrise.send_whisper(user.id, msg[:245])
 
-        # ── 3.3A — AceSinatra AI assistant (natural-language, say "AceSinatra, ...") ──
-        # Old commands !ask !ai !assistant !aidebug !aicapabilities removed in 3.3A.
-        elif cmd == "acesinatra":
+        # ── 3.3A — ChillTopiaMC AI assistant (say "ai [question]" in chat) ─────
+        elif cmd == "ai":
             await self.highrise.send_whisper(
                 user.id,
-                "💬 To chat with AceSinatra, just say in room chat:\n"
-                "'AceSinatra, what should I do next?'\n"
-                "'Ace, explain Luxe Tickets.'\n"
-                "'assistant what date is today?'",
+                "💬 Talk to me by starting your message with 'ai'.\n"
+                "Examples:\n"
+                "• ai what should I do next?\n"
+                "• ai explain Luxe Tickets\n"
+                "• ai what date is today?\n"
+                "• ai how do I mine?",
             )
 
         # ── /answer ───────────────────────────────────────────────────────────

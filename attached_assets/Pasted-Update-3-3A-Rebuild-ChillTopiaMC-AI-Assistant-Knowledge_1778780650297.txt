@@ -1,0 +1,680 @@
+Update 3.3A — Rebuild ChillTopiaMC AI Assistant + Knowledge Access Layer
+
+Current bot:
+ChillTopiaMC
+
+Important:
+The existing AI assistant is broken. Do NOT patch it directly. Start from scratch and rebuild the AI assistant cleanly.
+
+The host bot remains:
+ChillTopiaMC
+
+Primary AI trigger:
+ai
+
+Players should talk to the assistant like this:
+- ai what should I do next?
+- ai explain Luxe Tickets
+- ai what date is today?
+- ai when is the next holiday?
+- ai how do I mine?
+- ai summarize open bugs
+- ai start Mining Rush for 1 hour
+- ai set VIP price to 600 tickets
+
+Do NOT require players to say ChillTopiaMC every time.
+
+Optional triggers:
+- ChillTopiaMC
+- ChillTopia
+- assistant
+- bot
+
+Do NOT use AceSinatra as the assistant name.
+Replace all AceSinatra references with ChillTopiaMC AI.
+
+Main goal:
+Create a fresh AI assistant layer inside ChillTopiaMC that behaves like a smart room host, guide, support helper, and safe admin assistant.
+
+The AI should not have unlimited access to all bot data.
+Create a permission-controlled knowledge system.
+
+Do not rewrite stable v3.2 systems:
+- Mining/fishing
+- Missions/events/seasons
+- Luxe shop/VIP
+- Blackjack/poker
+- Moderation
+- Dashboards
+- Help registry
+- Economy systems
+- Player data systems
+
+Step 1 — Quarantine old broken AI
+
+Find all existing AI assistant files/functions/classes/imports.
+
+Do NOT delete permanently yet.
+
+Safely disable old broken assistant code:
+- Rename old AI files with `_old_broken`
+- Remove old AI imports from startup
+- Remove old AI command hooks
+- Remove old AI message listeners
+- Add comments explaining they were replaced by Update 3.3A
+
+Make sure the bot can start without the old assistant.
+
+Step 2 — Create fresh AI assistant modules
+
+Create:
+
+- ai_assistant_core.py
+- ai_intent_router.py
+- ai_permissions.py
+- ai_confirmation_manager.py
+- ai_knowledge_base.py
+- ai_knowledge_access.py
+- ai_public_knowledge.py
+- ai_player_context.py
+- ai_staff_context.py
+- ai_admin_context.py
+- ai_owner_context.py
+- ai_action_executor.py
+- ai_safety.py
+- ai_logs.py
+- ai_time_holidays.py
+
+Step 3 — AI trigger system
+
+The AI should respond when the message starts with:
+
+- ai
+- ai,
+- ai:
+- ai?
+- ai!
+
+It may also respond to optional bot-name triggers:
+
+- @ChillTopiaMC
+- ChillTopiaMC
+- ChillTopia
+- assistant
+- bot
+
+Trigger rules:
+
+1. Bot should respond when message starts with:
+- ai 
+- ai,
+- ai:
+- ai?
+- ai!
+
+2. Bot should also respond to:
+- @ChillTopiaMC
+- ChillTopiaMC,
+- ChillTopiaMC
+- ChillTopia
+- assistant
+- bot
+
+3. Bot should NOT respond when “ai” appears inside another word.
+
+Examples that SHOULD trigger:
+- ai help
+- ai what should I do next
+- ai, explain tickets
+- ai: start mining rush
+- ai? what date is today
+- ai! summarize bugs
+
+Examples that should NOT trigger:
+- said
+- paid
+- rain
+- main
+- chair
+- I like ai art
+
+For now, only trigger when “ai” is the first word or first token.
+
+Add helper function:
+
+def is_ai_trigger(message: str) -> bool:
+    normalized = message.strip().lower()
+    return (
+        normalized == "ai"
+        or normalized.startswith("ai ")
+        or normalized.startswith("ai,")
+        or normalized.startswith("ai:")
+        or normalized.startswith("ai?")
+        or normalized.startswith("ai!")
+        or normalized.startswith("@chilltopiamc")
+        or normalized.startswith("chilltopiamc")
+        or normalized.startswith("chilltopia ")
+        or normalized.startswith("assistant ")
+        or normalized.startswith("bot ")
+    )
+
+Add helper function:
+
+def strip_ai_trigger(message: str) -> str:
+    Remove the trigger word/prefix and return the actual user request.
+
+Examples:
+- "ai what should I do next" -> "what should I do next"
+- "ai, explain Luxe Tickets" -> "explain Luxe Tickets"
+- "ai: start Mining Rush" -> "start Mining Rush"
+- "ChillTopiaMC, help" -> "help"
+
+Behavior:
+- If user only says "ai", reply:
+  “Hi! Ask me anything about ChillTopia — missions, Luxe Tickets, mining, fishing, events, casino, or what to do next.”
+
+- If user says "ai help", show AI help examples.
+
+- Do not intercept slash commands.
+- Do not respond to every normal chat message.
+- Do not spam public chat.
+- Keep public replies short.
+
+Step 4 — Intent router
+
+Create safe intent detection for:
+
+- general_question
+- date_time_question
+- holiday_question
+- player_guidance
+- command_explanation
+- luxe_explanation
+- chillcoins_explanation
+- mining_explanation
+- fishing_explanation
+- casino_explanation
+- event_explanation
+- vip_explanation
+- bug_report
+- feedback_report
+- summarize_bugs
+- moderation_help
+- prepare_setting_change
+- confirm_setting_change
+- cancel_setting_change
+- private_player_info_request
+- staff_info_request
+- admin_info_request
+- owner_info_request
+- denied_permission
+- unknown
+
+Keep intent detection simple and reliable first.
+Use keyword matching and safe fallback logic.
+
+Step 5 — Knowledge access layer
+
+Create permission-controlled knowledge levels.
+
+Knowledge levels:
+
+PUBLIC:
+Available to everyone.
+
+Includes:
+- command explanations
+- game guides
+- Luxe Tickets explanation
+- ChillCoins explanation
+- mining guide
+- fishing guide
+- casino guide
+- event guide
+- VIP guide
+- public event status
+- public shop info
+
+PLAYER_PRIVATE:
+Available only to the same player.
+
+Includes:
+- own ChillCoins balance
+- own Luxe Tickets balance
+- own level
+- own mission progress
+- own inventory summary
+- own cooldowns
+- own rewards status
+
+STAFF:
+Available to staff/admin/owner.
+
+Includes:
+- open reports
+- bug summaries
+- moderation suggestions
+- recent warnings
+- support queue
+- player support issues
+
+ADMIN:
+Available to admin/owner.
+
+Includes:
+- event settings
+- shop settings
+- VIP settings
+- assistant settings
+- non-sensitive economy settings
+- event schedule settings
+
+OWNER:
+Available only to owner.
+
+Includes:
+- economy dashboard
+- analytics
+- protected logs
+- advanced configuration summaries
+- owner-only system summaries
+
+NEVER_EXPOSE:
+Never reveal through AI chat.
+
+Includes:
+- API keys
+- tokens
+- passwords
+- database credentials
+- raw database dumps
+- private environment variables
+- full hidden casino formulas if not public
+- other players’ private info
+- exploit-sensitive anti-abuse logic
+- raw JSON database records
+- internal secrets
+- backend file paths that expose sensitive structure
+
+Before answering any question, AI must:
+
+1. Detect intent
+2. Detect requested knowledge type
+3. Check user permission
+4. Fetch only allowed context
+5. Refuse or simplify if not allowed
+
+Step 6 — Permissions
+
+Permission levels:
+
+Player:
+- Can ask public questions
+- Can ask what to do next
+- Can ask about commands
+- Can ask about Luxe Tickets
+- Can ask about ChillCoins
+- Can ask about mining
+- Can ask about fishing
+- Can ask about casino
+- Can ask about events
+- Can ask about VIP
+- Can submit bugs/feedback
+- Can ask about their own balance/progress only
+
+Staff:
+- Everything player can do
+- Can ask for moderation help
+- Can summarize player reports
+- Can summarize open bugs
+- Can view support queue summaries
+- Cannot change economy
+- Cannot change odds
+- Cannot change prices
+
+Admin:
+- Everything staff can do
+- Can view admin-safe settings
+- Can prepare event/settings changes
+- Must confirm before applying changes
+- Cannot wipe data
+- Cannot silently change economy
+- Cannot silently change odds
+- Cannot silently change prices
+
+Owner:
+- Everything admin can do
+- Can view owner summaries
+- Can view economy health summaries
+- Can prepare protected changes
+- Must confirm risky changes
+- Can apply confirmed safe actions
+- Still cannot wipe player data through AI
+
+Step 7 — Safety rules
+
+Hard rules:
+- AI must never wipe/reset/delete player data.
+- AI must never grant ChillCoins casually.
+- AI must never grant Luxe Tickets casually.
+- AI must never reveal another player’s private balance.
+- AI must never reveal another player’s private inventory.
+- AI must never reveal raw database records.
+- AI must never reveal API keys, tokens, passwords, or environment variables.
+- AI must never change casino odds silently.
+- AI must never reveal hidden casino formulas unless owner marks them public.
+- AI must never change prices silently.
+- AI must never change economy rewards silently.
+- AI must never apply admin/owner changes from one message only.
+- AI must always require confirmation for settings changes.
+- AI must log every confirmed action.
+- AI must deny unauthorized users politely.
+- AI must simplify answers if full data is not allowed.
+
+Step 8 — Knowledge access examples
+
+Player asks:
+“ai how many Luxe Tickets do I have?”
+
+AI can answer only that player’s own Luxe Ticket balance.
+
+Player asks:
+“ai how many tickets does Claire have?”
+
+AI must deny:
+“I can’t show another player’s private balance.”
+
+Staff asks:
+“ai summarize open bugs.”
+
+AI can summarize bug reports.
+
+Player asks:
+“ai show economy logs.”
+
+AI must deny:
+“That information is owner-only.”
+
+Owner asks:
+“ai summarize economy health.”
+
+AI can show owner dashboard summary.
+
+Player asks:
+“ai show me the database.”
+
+AI must deny:
+“I can’t expose raw database records.”
+
+Player asks:
+“ai what is the bot token?”
+
+AI must deny:
+“I can’t reveal secrets, tokens, passwords, or environment variables.”
+
+Step 9 — Confirmation system
+
+When owner/admin requests a setting change, AI should only prepare it first.
+
+Example:
+
+User:
+“ai set VIP price to 600 tickets.”
+
+AI:
+“Prepared change:
+Setting: VIP Price
+Current: [current value]
+New: 600 🎫 Luxe Tickets
+Risk: Economy-impacting
+
+Reply CONFIRM VIP PRICE to apply, or CANCEL.”
+
+Only apply the change if:
+- Same user replies exact confirmation phrase
+- Confirmation has not expired
+- User has permission
+- Action is allowed by safety rules
+- Action is logged
+
+Add timeout for pending confirmations.
+
+Step 10 — Action executor
+
+Only allow safe confirmed actions.
+
+Allowed prepared actions for now:
+- start event
+- stop event
+- set event duration
+- set VIP price
+- update assistant setting
+- update public announcement text
+
+Blocked actions:
+- wipe data
+- reset economy
+- grant currency
+- grant Luxe Tickets
+- change casino odds
+- reveal casino formulas
+- mass ban
+- delete player profiles
+- edit database directly
+- reveal raw database
+- reveal secrets/env variables
+
+For blocked actions, AI should say:
+“I can’t do that through AI because it affects protected data, economy safety, or private system security.”
+
+Step 11 — Knowledge base answers
+
+Build simple public knowledge base answers.
+
+Luxe Tickets:
+“🎫 Luxe Tickets are premium reward tickets used for Luxe Shop items, VIP perks, and special rewards. You earn them from events, seasons, and selected rewards.”
+
+ChillCoins:
+“🪙 ChillCoins are the main ChillTopia currency used for regular activities, games, and progression.”
+
+Mining:
+“Mining lets you earn ChillCoins and rewards. Use /mine to start if available.”
+
+Fishing:
+“Fishing lets you catch fish, earn rewards, and progress through relaxing gameplay. Use /fish to start if available.”
+
+Casino:
+“Casino games include Blackjack and Poker. Play responsibly. Odds and rewards are controlled by the owner.”
+
+Missions:
+“Daily and weekly missions help you earn rewards by completing room activities.”
+
+Events:
+“Events are limited-time activities with bonus rewards. Check /events for current events.”
+
+VIP:
+“VIP gives special perks and access depending on the current Luxe Shop setup.”
+
+AI Help:
+“Talk to me by starting your message with ‘ai’.
+
+Examples:
+- ai what should I do next?
+- ai explain Luxe Tickets
+- ai how do I mine?
+- ai what events are active?
+- ai what date is today?
+- ai report bug fishing is not working
+- ai summarize open bugs
+
+Owner/Admin examples:
+- ai start Mining Rush for 1 hour
+- ai set VIP price to 600 tickets
+
+Protected changes require confirmation.”
+
+Step 12 — Date/time/holiday support
+
+Use Philippines timezone by default.
+
+Assistant should answer:
+- today’s date
+- current time
+- day of week
+- next holiday
+- upcoming holidays
+
+Create ai_time_holidays.py with a basic Philippines holiday list structure that can be updated later.
+
+Step 13 — Player guidance
+
+When player asks:
+“ai what should I do next?”
+
+AI should suggest 2–4 safe actions:
+- Check daily missions
+- Mine
+- Fish
+- Join current event
+- Check Luxe shop
+- Play casual casino games if available
+- Read help guide
+
+Keep responses short.
+
+Example:
+“Try this next: finish your daily mission, mine for ChillCoins, then check today’s event. Type /missions or /mine to start.”
+
+Step 14 — Bug and feedback system
+
+If player says:
+- bug
+- broken
+- not working
+- feedback
+- suggestion
+
+AI should save the report if a feedback/report system already exists.
+
+If no system exists, create a simple safe JSON-backed report log:
+- reporter
+- message
+- timestamp
+- category
+- status: open
+
+Owner/staff can ask:
+“ai summarize open bugs.”
+
+AI should summarize:
+- total open bugs
+- common issues
+- latest reports
+- suggested priority
+
+Step 15 — Moderation helper
+
+Staff can ask moderation questions.
+
+AI can suggest:
+- warn
+- mute
+- kick
+- monitor
+- ask for clarification
+- escalate to owner
+
+AI must not automatically punish players unless an existing staff command is explicitly used.
+
+Example:
+“Suggested action: warn first, then mute if behavior continues. I won’t take action automatically.”
+
+Step 16 — Logging
+
+Log:
+- user question
+- detected intent
+- requested knowledge level
+- permission level
+- allowed/denied result
+- prepared actions
+- confirmed actions
+- denied actions
+- errors
+
+Use a simple AI log file or existing logging system.
+
+Step 17 — Integration
+
+Hook the new assistant into the bot message handler safely.
+
+Requirements:
+- Does not break existing commands
+- Does not intercept slash commands
+- Does not respond to every chat message
+- Does not trigger on “ai” inside another word
+- Does not spam public chat
+- Handles errors gracefully
+- If AI fails, bot still runs
+- Stable v3.2 systems remain untouched
+
+Step 18 — Testing
+
+Run these tests:
+
+Trigger tests:
+- ai
+- ai help
+- ai what should I do next?
+- ai, explain Luxe Tickets
+- ai: how do I mine?
+- said
+- paid
+- I like ai art
+
+Player tests:
+- ai what should I do next?
+- ai explain Luxe Tickets.
+- ai what date is today?
+- ai how do I mine?
+- ai how many Luxe Tickets do I have?
+- ai how many tickets does Claire have?
+- ai show economy logs
+- ai show database
+- ai what is the bot token?
+- ai bug fishing is broken
+
+Staff tests:
+- ai summarize open bugs.
+- ai how should I handle spam?
+
+Owner/admin tests:
+- ai set VIP price to 600 tickets.
+- CONFIRM VIP PRICE
+- CANCEL
+- ai wipe all player data.
+- ai summarize economy health.
+
+Expected:
+- Normal questions answer safely
+- “ai” trigger works
+- False triggers do not respond
+- Player-private info only shows to same player
+- Other players’ private info is denied
+- Owner-only info is denied to normal players
+- Raw database/secrets are never exposed
+- Settings changes require confirmation
+- Dangerous requests are blocked
+- Permissions are respected
+- Bot starts without old assistant
+- No stable v3.2 systems are rewritten
+
+Final output after implementation:
+1. Files created
+2. Old AI files disabled/quarantined
+3. Startup test result
+4. Trigger test results
+5. Assistant test results
+6. Permission test results
+7. Any errors found
+8. Changelog entry for Update 3.3A

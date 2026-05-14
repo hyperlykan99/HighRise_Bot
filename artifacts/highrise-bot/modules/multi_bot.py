@@ -185,8 +185,8 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "pokerfix": "poker", "pokercleanup": "poker",
     "confirmclosepoker": "poker",
     "casinointegrity": "host", "integritylogs": "poker", "carddeliverycheck": "poker",
-    # ── AI assistant (3.3A — AceSinatra) ─────────────────────────────────────
-    "acesinatra": "host",
+    # ── AI assistant (3.3A — ChillTopiaMC AI) ────────────────────────────────
+    "ai": "host",
     "setpokercardmarker": "poker",
     "resendcards": "poker", "cards": "poker",
     "pokerdealstatus": "poker", "pokerplayers": "poker",
@@ -957,8 +957,8 @@ _HOST_AUDIT_CMDS: frozenset[str] = frozenset({
     "subscribe", "unsubscribe", "substatus",
     "notifications", "clearnotifications",
     "casinointegrity", "integritylogs", "carddeliverycheck",
-    # ── AI assistant (3.3A — AceSinatra) ─────────────────────────────────────
-    "acesinatra",
+    # ── AI assistant (3.3A — ChillTopiaMC AI) ────────────────────────────────
+    "ai",
 })
 
 # Whitelist of eventhost-owned commands that host may handle as fallback

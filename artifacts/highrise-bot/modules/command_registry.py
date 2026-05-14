@@ -414,10 +414,10 @@ REGISTRY: dict[str, Cmd] = {
     "auditcasino":      Cmd("security","admin",     False,True, False, perm="admin"),
     "auditeconomy":     Cmd("security","admin",     False,True, False, perm="admin"),
 
-    # ── AI assistant (3.3A — AceSinatra) ─────────────────────────────────────
-    # Natural-language assistant triggered by "AceSinatra, ..." in chat.
-    # !acesinatra shows a usage hint whisper.
-    "acesinatra":       Cmd("host", "ai", True, True, True),
+    # ── AI assistant (3.3A — ChillTopiaMC AI) ────────────────────────────────
+    # Natural-language: player says "ai [question]" in chat.
+    # !ai shows a usage hint whisper.
+    "ai":               Cmd("host", "ai", True, True, True),
 
     # ── Host: audit (new) ────────────────────────────────────────────────────
     "commandissues":    Cmd("host","audit",  True, True, False, perm="admin"),

@@ -381,8 +381,8 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     "fixautogames",
     # ── /commandissues ────────────────────────────────────────────────────────
     "commandissues",
-    # ── AI assistant (3.3A — AceSinatra) ─────────────────────────────────────
-    "acesinatra",
+    # ── AI assistant (3.3A — ChillTopiaMC AI) ────────────────────────────────
+    "ai",
     # ── Bot-mode outfit commands (pre-existing, routed but previously unregistered) ──
     "dressbot", "savebotoutfit", "botoutfitstatus",
     "copyoutfit", "wearuseroutfit", "renamebotoutfit", "clearbotoutfit",

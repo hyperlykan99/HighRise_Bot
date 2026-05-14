@@ -1,17 +1,21 @@
 """
-modules/ai_assistant_core.py — AceSinatra AI Assistant entry point (3.3A rebuild).
+modules/ai_assistant_core.py — ChillTopiaMC AI Assistant (3.3A clean rebuild).
 
-Trigger words (case-insensitive):
-  - "AceSinatra" / "@AceSinatra" — anywhere in the message
-  - "ace"        / "@ace"        — at start of message or @mention
-  - "assistant"                  — at start of message
-  - "bot"                        — at start of message
+Primary trigger: message starts with "ai" (or "ai," "ai:" "ai?" "ai!").
+Optional triggers: @ChillTopiaMC, ChillTopiaMC, ChillTopia, assistant, bot.
 
-Does NOT respond to every chat message — only clearly triggered ones.
+Trigger rules:
+- "ai" must be the FIRST word — "said", "paid", "rain" do NOT trigger.
+- "bot" / "assistant" / "chilltopia" trigger only at message start.
+- @ChillTopiaMC / ChillTopiaMC trigger anywhere it appears at start.
+
+Special cases:
+- "ai" alone → welcome message
+- "ai help"  → usage examples
+
+All replies via send_whisper — never public chat spam.
 Does NOT intercept !/slash commands.
-All replies are sent via send_whisper (never public chat spam).
-No external API calls — keyword/pattern-based only.
-Falls back gracefully on any error — bot keeps running.
+Falls back gracefully — bot keeps running on any error.
 """
 from __future__ import annotations
 
@@ -32,14 +36,15 @@ from modules.ai_permissions import (
 from modules.ai_intent_router import (
     detect_intent,
     INTENT_DATE_TIME, INTENT_HOLIDAY, INTENT_PLAYER_GUIDANCE,
-    INTENT_LUXE, INTENT_MINING, INTENT_FISHING,
-    INTENT_CASINO, INTENT_EVENT,
+    INTENT_LUXE, INTENT_CHILLCOINS, INTENT_MINING, INTENT_FISHING,
+    INTENT_CASINO, INTENT_EVENT, INTENT_VIP,
     INTENT_BUG, INTENT_FEEDBACK, INTENT_SUMMARIZE_BUGS,
-    INTENT_MOD_HELP, INTENT_PREPARE_SETTING,
-    INTENT_CONFIRM_SETTING, INTENT_CANCEL_SETTING,
-    INTENT_CMD_EXPLAIN, INTENT_GENERAL, INTENT_UNKNOWN,
+    INTENT_MOD_HELP, INTENT_STAFF_INFO, INTENT_ADMIN_INFO, INTENT_OWNER_INFO,
+    INTENT_PREPARE_SETTING, INTENT_CONFIRM_SETTING, INTENT_CANCEL_SETTING,
+    INTENT_PRIVATE_PLAYER_INFO, INTENT_CMD_EXPLAIN, INTENT_GENERAL, INTENT_UNKNOWN,
 )
-from modules.ai_knowledge_base import get_answer
+from modules.ai_knowledge_access import get_knowledge_answer, check_access
+from modules.ai_public_knowledge import get_public_answer, get_welcome
 from modules.ai_time_holidays import get_date_reply, get_time_reply, get_next_holiday_reply
 from modules.ai_safety import is_blocked, blocked_response
 from modules.ai_confirmation_manager import (
@@ -50,44 +55,61 @@ from modules.ai_logs import log_event
 
 
 # ---------------------------------------------------------------------------
-# Trigger detection
+# Trigger detection — exactly per spec
 # ---------------------------------------------------------------------------
 
-_TRIGGER_FULL_RE = re.compile(
-    r"@?acesinatra\b",
-    re.I,
-)
-_TRIGGER_START_RE = re.compile(
-    r"^@?ace(?=[\s,!:?]|$)"
-    r"|^@?assistant(?=[\s,!:?]|$)"
-    r"|^@?bot(?=[\s,!:?]|$)",
-    re.I,
-)
-_TRIGGER_MENTION_RE = re.compile(
-    r"@ace\b|@bot\b|@acesinatra\b",
-    re.I,
-)
+def is_ai_trigger(message: str) -> bool:
+    """
+    Return True when a message is directed at the ChillTopiaMC AI.
+
+    Triggers (first word only for short names to avoid false positives):
+      ai / ai, / ai: / ai? / ai!
+      @chilltopiamc / chilltopiamc / chilltopia
+      assistant / bot (at start only)
+
+    Does NOT trigger on "ai" inside another word (said, paid, rain, main).
+    """
+    normalized = message.strip().lower()
+    return (
+        normalized == "ai"
+        or normalized.startswith("ai ")
+        or normalized.startswith("ai,")
+        or normalized.startswith("ai:")
+        or normalized.startswith("ai?")
+        or normalized.startswith("ai!")
+        or normalized.startswith("@chilltopiamc")
+        or normalized.startswith("chilltopiamc")
+        or normalized.startswith("chilltopia ")
+        or normalized.startswith("assistant ")
+        or normalized.startswith("bot ")
+    )
 
 
-def is_ace_trigger(message: str) -> bool:
-    """Return True when a message is clearly directed at AceSinatra."""
+def strip_ai_trigger(message: str) -> str:
+    """
+    Remove the trigger prefix and return the actual user request.
+
+    Examples:
+      "ai what should I do next" → "what should I do next"
+      "ai, explain Luxe Tickets" → "explain Luxe Tickets"
+      "ai: start Mining Rush"   → "start Mining Rush"
+      "ChillTopiaMC, help"      → "help"
+      "ai"                      → ""
+    """
     s = message.strip()
-    if _TRIGGER_FULL_RE.search(s):
-        return True
-    if _TRIGGER_START_RE.match(s):
-        return True
-    if _TRIGGER_MENTION_RE.search(s):
-        return True
-    return False
+    low = s.lower()
 
-
-def strip_trigger(message: str) -> str:
-    """Remove the trigger prefix and leading punctuation."""
-    s = message.strip()
-    s = _TRIGGER_FULL_RE.sub("", s, count=1)
-    s = _TRIGGER_START_RE.sub("", s.strip(), count=1)
-    s = re.sub(r"^[\s,!:?]+", "", s)
-    return s.strip() or message.strip()
+    prefixes_ordered = [
+        "@chilltopiamc", "chilltopiamc", "chilltopia",
+        "assistant", "bot",
+        "ai",
+    ]
+    for prefix in prefixes_ordered:
+        if low.startswith(prefix):
+            rest = s[len(prefix):]
+            rest = re.sub(r"^[\s,!:?]+", "", rest)
+            return rest.strip()
+    return s
 
 
 # ---------------------------------------------------------------------------
@@ -119,34 +141,8 @@ def _save_report(user_id: str, username: str, text: str, category: str) -> bool:
         return False
 
 
-def _count_open_bugs() -> int:
-    try:
-        conn = db.get_connection()
-        row = conn.execute(
-            "SELECT COUNT(*) FROM reports "
-            "WHERE report_type='bug_report' AND status='open'"
-        ).fetchone()
-        conn.close()
-        return int(row[0]) if row else 0
-    except Exception:
-        return 0
-
-
-def _count_critical_bugs() -> int:
-    try:
-        conn = db.get_connection()
-        row = conn.execute(
-            "SELECT COUNT(*) FROM reports "
-            "WHERE report_type='bug_report' AND status='open' AND priority='critical'"
-        ).fetchone()
-        conn.close()
-        return int(row[0]) if row else 0
-    except Exception:
-        return 0
-
-
 # ---------------------------------------------------------------------------
-# Intent handlers
+# Intent handlers (direct — not routed through knowledge_access)
 # ---------------------------------------------------------------------------
 
 async def _handle_date_time(bot: "BaseBot", user: "User", text: str) -> None:
@@ -164,29 +160,24 @@ async def _handle_holiday(bot: "BaseBot", user: "User") -> None:
 
 
 async def _handle_player_guidance(bot: "BaseBot", user: "User") -> None:
-    answer = get_answer("player_guidance") or (
-        "Try: !missions, !mine, !fish, !daily, !events, !luxeshop"
+    answer = get_public_answer("player_guidance") or (
+        "🎯 Try: !daily, !missions, !mine, !fish, !events, !luxeshop"
     )
     await _w(bot, user.id, answer[:249])
 
 
-async def _handle_bug(
-    bot: "BaseBot", user: "User", text: str,
-) -> None:
+async def _handle_bug(bot: "BaseBot", user: "User", text: str) -> None:
     saved = _save_report(user.id, user.username, text, "bug")
     if saved:
         await _w(bot, user.id,
                  "🐛 Bug report saved — thank you!\n"
-                 "Staff will review it. You can also use !bug for more detail.")
+                 "Staff will review it. Use !bug for more detail.")
     else:
         await _w(bot, user.id,
-                 "🐛 Noted! Please use !bug to file your report "
-                 "so it gets tracked properly.")
+                 "🐛 Noted! Use !bug to file your report so it's tracked properly.")
 
 
-async def _handle_feedback(
-    bot: "BaseBot", user: "User", text: str,
-) -> None:
+async def _handle_feedback(bot: "BaseBot", user: "User", text: str) -> None:
     saved = _save_report(user.id, user.username, text, "feedback")
     if saved:
         await _w(bot, user.id,
@@ -196,26 +187,11 @@ async def _handle_feedback(
                  "💬 Thanks! Use !feedback to make sure it's recorded properly.")
 
 
-async def _handle_summarize_bugs(
-    bot: "BaseBot", user: "User", perm: str,
-) -> None:
-    if not requires_staff(perm):
-        await _w(bot, user.id, "🔒 Staff only.")
-        return
-    total    = _count_open_bugs()
-    critical = _count_critical_bugs()
-    await _w(bot, user.id,
-             f"🐛 Open Bug Reports: {total}\n"
-             f"Critical: {critical}\n"
-             "Use !bugs open for details.\n"
-             "Use !launchblockers for blockers.")
-
-
 async def _handle_mod_help(
     bot: "BaseBot", user: "User", text: str, perm: str,
 ) -> None:
     if not requires_staff(perm):
-        await _w(bot, user.id, "🔒 Staff only.")
+        await _w(bot, user.id, "🔒 Moderation help is staff only.")
         return
     low = text.lower()
     if "spam" in low or "spammer" in low:
@@ -225,9 +201,9 @@ async def _handle_mod_help(
     elif "ban" in low:
         suggestion = "use !ban [username] after documenting the reason"
     elif "kick" in low:
-        suggestion = "use !kick [username] — consider a warning first"
+        suggestion = "consider a warning first, then !kick [username]"
     else:
-        suggestion = "warn first, monitor behavior, escalate to owner if needed"
+        suggestion = "warn first, monitor, then escalate to owner if needed"
     await _w(bot, user.id,
              f"🛡️ Suggested: {suggestion}.\n"
              "I won't act automatically — use staff commands directly.")
@@ -237,8 +213,7 @@ async def _handle_prepare_setting(
     bot: "BaseBot", user: "User", text: str, perm: str,
 ) -> None:
     if not requires_admin(perm):
-        await _w(bot, user.id,
-                 "🔒 Admin or owner only for setting changes.")
+        await _w(bot, user.id, "🔒 Admin or owner only for setting changes.")
         return
 
     # VIP price
@@ -264,16 +239,21 @@ async def _handle_prepare_setting(
         return
 
     # Start event
-    m2 = re.search(r"start\s+event\s+(\w+)", text, re.I)
+    m2 = re.search(r"start\s+(\w+(?:\s+\w+)?)\s+(?:for\s+)?(?:(\d+)\s*(hour|min|minute))?", text, re.I)
     if m2:
-        ev = m2.group(1).lower()
+        ev_name = m2.group(1).strip().lower().replace(" ", "_")
+        duration_str = ""
+        if m2.group(2):
+            unit = m2.group(3).lower()
+            mins = int(m2.group(2)) * 60 if "hour" in unit else int(m2.group(2))
+            duration_str = f" for {mins} minutes"
         set_pending(
             user_id        = user.id,
             action_key     = "start_event",
-            label          = f"Start Event: {ev}",
-            confirm_phrase = f"CONFIRM START {ev.upper()}",
+            label          = f"Start Event: {ev_name}{duration_str}",
+            confirm_phrase = f"CONFIRM START {ev_name.upper()}",
             current_value  = "No active event",
-            new_value      = ev,
+            new_value      = ev_name,
             risk           = "Room-wide impact",
         )
         p = get_pending(user.id)
@@ -282,15 +262,21 @@ async def _handle_prepare_setting(
         return
 
     # Event duration
-    m3 = re.search(r"event\s+duration\s+to\s+([\d]+)\s*(min|minute)?", text, re.I)
+    m3 = re.search(r"event\s+duration\s+to\s+([\d]+)\s*(min|minute|hour)?", text, re.I)
     if m3:
-        mins = m3.group(1)
+        val = m3.group(1)
+        unit = (m3.group(2) or "min").lower()
+        mins = int(val) * 60 if "hour" in unit else int(val)
+        try:
+            current = db.get_room_setting("default_event_duration", "60")
+        except Exception:
+            current = "60"
         set_pending(
             user_id        = user.id,
             action_key     = "set_event_duration",
             label          = "Default Event Duration",
             confirm_phrase = f"CONFIRM EVENT DURATION {mins}",
-            current_value  = db.get_room_setting("default_event_duration", "60"),
+            current_value  = f"{current} min",
             new_value      = f"{mins} minutes",
             risk           = "Room setting change",
         )
@@ -300,8 +286,9 @@ async def _handle_prepare_setting(
         return
 
     await _w(bot, user.id,
-             "⚙️ I recognized a setting change request but couldn't parse it.\n"
-             "Try: 'set VIP price to 600' or 'start event double_coins'.")
+             "⚙️ Recognized a setting change but couldn't parse it.\n"
+             "Try: 'ai set VIP price to 600 tickets'\n"
+             "or 'ai start mining_rush for 1 hour'")
 
 
 async def _handle_confirm(
@@ -310,14 +297,13 @@ async def _handle_confirm(
     p = get_pending(user.id)
     if not p:
         await _w(bot, user.id,
-                 "⚠️ No pending change to confirm. "
+                 "⚠️ No pending change to confirm.\n"
                  "(It may have expired after 60 seconds.)")
         return
     phrase = text.upper().strip()
     if p["confirm_phrase"] not in phrase:
         await _w(bot, user.id,
-                 f"⚠️ Wrong confirmation phrase.\n"
-                 f"Reply exactly: {p['confirm_phrase']}")
+                 f"⚠️ Wrong phrase. Reply exactly:\n{p['confirm_phrase']}")
         return
     if not requires_admin(perm):
         await _w(bot, user.id, "🔒 Admin or owner only.")
@@ -341,60 +327,13 @@ async def _handle_cancel(bot: "BaseBot", user: "User") -> None:
         await _w(bot, user.id, "⚠️ Nothing to cancel.")
 
 
-async def _handle_topic(bot: "BaseBot", user: "User", intent: str) -> None:
-    topic_map = {
-        INTENT_LUXE:    "luxe_tickets",
-        INTENT_MINING:  "mining",
-        INTENT_FISHING: "fishing",
-        INTENT_CASINO:  "casino",
-        INTENT_EVENT:   "events",
-    }
-    topic  = topic_map.get(intent)
-    answer = get_answer(topic) if topic else None
-    if answer:
-        await _w(bot, user.id, answer[:249])
-    else:
-        await _w(bot, user.id,
-                 "I'm not sure about that. Try !help or ask a staff member.")
-
-
-async def _handle_cmd_explain(
-    bot: "BaseBot", user: "User", text: str,
-) -> None:
-    m = re.search(r"[!/]?(\w+)\s*$", text.strip())
-    cmd_name = m.group(1).lower() if m else ""
-    topic_map = {
-        "mine": "mining", "automine": "mining", "mineinv": "mining",
-        "fish": "fishing", "autofish": "fishing", "fishinv": "fishing",
-        "luxeshop": "luxe_tickets", "tickets": "luxe_tickets",
-        "casino": "casino", "bet": "casino", "poker": "casino",
-        "events": "events", "event": "events",
-        "missions": "missions", "daily": "daily",
-        "profile": "profile", "vip": "vip",
-    }
-    topic  = topic_map.get(cmd_name)
-    answer = get_answer(topic) if topic else None
-    if answer:
-        await _w(bot, user.id, answer[:249])
-    else:
-        await _w(bot, user.id,
-                 f"ℹ️ Try !{cmd_name} or !help for usage info."
-                 if cmd_name else
-                 "ℹ️ Try !help for command info.")
-
-
-async def _handle_general(bot: "BaseBot", user: "User", text: str) -> None:
-    await _w(bot, user.id, get_answer("room_overview") or
-             "🏠 Ask me about mining, fishing, events, or what to do next!")
-
-
 async def _handle_unknown(bot: "BaseBot", user: "User") -> None:
     await _w(bot, user.id,
-             "🤖 I'm AceSinatra! I can help with:\n"
-             "• What to do next — just ask!\n"
+             "🤖 I'm ChillTopiaMC AI! I can help with:\n"
+             "• What to do next\n"
              "• Mining, fishing, casino, events, Luxe Tickets\n"
              "• Date/time • Bug reports\n"
-             "Example: 'AceSinatra, explain mining'")
+             "Say 'ai help' for examples.")
 
 
 # ---------------------------------------------------------------------------
@@ -405,17 +344,14 @@ async def handle_acesinatra(
     bot: "BaseBot", user: "User", message: str,
 ) -> bool:
     """
-    AceSinatra natural-language assistant handler.
+    ChillTopiaMC AI assistant handler (internal name kept for registry compatibility).
 
-    Called from on_chat (and on_whisper if desired).
-    Returns True if the message was claimed (prevents further processing).
-
-    Only responds when is_ace_trigger(message) is True.
+    Called from on_chat. Returns True if message was claimed.
+    Only responds when is_ai_trigger(message) returns True.
     Never intercepts !/slash commands.
-    Catches all exceptions so the bot keeps running on errors.
     """
     try:
-        if not is_ace_trigger(message):
+        if not is_ai_trigger(message):
             return False
 
         # Never intercept slash or bot commands
@@ -423,19 +359,48 @@ async def handle_acesinatra(
             return False
 
         perm  = get_perm_level(user.username)
-        clean = strip_trigger(message)
+        clean = strip_ai_trigger(message)
 
-        # Hard safety check
+        # ── "ai" alone → welcome ─────────────────────────────────────────────
+        if not clean:
+            await _w(bot, user.id, get_welcome())
+            log_event(user.username, perm, "welcome", "")
+            return True
+
+        # ── "ai help" → usage examples ───────────────────────────────────────
+        low_clean = clean.lower().strip()
+        if low_clean == "help":
+            answer = get_public_answer("ai_help") or (
+                "Say 'ai [question]'. Examples:\n"
+                "ai what should I do next?\n"
+                "ai explain Luxe Tickets\n"
+                "ai what date is today?\n"
+                "ai report bug: fishing broken"
+            )
+            await _w(bot, user.id, answer[:249])
+            log_event(user.username, perm, "help", clean)
+            return True
+
+        # ── Hard safety check ────────────────────────────────────────────────
         if is_blocked(clean):
             log_event(user.username, perm, "blocked", clean, outcome="blocked")
             await _w(bot, user.id, blocked_response())
             return True
 
-        # Detect intent
+        # ── Detect intent ────────────────────────────────────────────────────
         intent = detect_intent(clean)
+
+        # ── Permission / knowledge access check ──────────────────────────────
+        denial = check_access(intent, perm, clean)
+        if denial:
+            log_event(user.username, perm, intent, clean, outcome="denied")
+            await _w(bot, user.id, denial)
+            return True
+
         log_event(user.username, perm, intent, clean)
 
-        # Route by intent
+        # ── Route intent ─────────────────────────────────────────────────────
+
         if intent == INTENT_CANCEL_SETTING:
             await _handle_cancel(bot, user)
 
@@ -451,9 +416,6 @@ async def handle_acesinatra(
         elif intent == INTENT_PLAYER_GUIDANCE:
             await _handle_player_guidance(bot, user)
 
-        elif intent == INTENT_SUMMARIZE_BUGS:
-            await _handle_summarize_bugs(bot, user, perm)
-
         elif intent == INTENT_BUG:
             await _handle_bug(bot, user, clean)
 
@@ -466,23 +428,16 @@ async def handle_acesinatra(
         elif intent == INTENT_PREPARE_SETTING:
             await _handle_prepare_setting(bot, user, clean, perm)
 
-        elif intent in (
-            INTENT_LUXE, INTENT_MINING, INTENT_FISHING,
-            INTENT_CASINO, INTENT_EVENT,
-        ):
-            await _handle_topic(bot, user, intent)
-
-        elif intent == INTENT_CMD_EXPLAIN:
-            await _handle_cmd_explain(bot, user, clean)
-
-        elif intent == INTENT_GENERAL:
-            await _handle_general(bot, user, clean)
-
         else:
-            await _handle_unknown(bot, user)
+            # Try knowledge access layer for all other intents
+            answer = get_knowledge_answer(user, perm, intent, clean)
+            if answer:
+                await _w(bot, user.id, answer[:249])
+            else:
+                await _handle_unknown(bot, user)
 
         return True
 
     except Exception as err:
-        print(f"[ACESINATRA] Error handling message from {user.username}: {err!r}")
+        print(f"[AI_ASSISTANT] Error from {user.username}: {err!r}")
         return False
