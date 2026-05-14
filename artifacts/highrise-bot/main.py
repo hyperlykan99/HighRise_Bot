@@ -712,14 +712,32 @@ from modules.jail_system import (
     handle_jail_confirm, handle_jail_cancel,
     startup_jail_recovery,
 )
-from modules.jail_enforcement import (
-    enforce_jail_on_rejoin, is_jailed,
-    jail_block_message, TELEPORT_BLOCKED_CMDS,
-)
-from modules.luxe_admin import (
-    handle_addtickets, handle_removetickets, handle_settickets, handle_sendtickets,
-    handle_ticketadmin, handle_ticketlogs, handle_ticketbalance,
-)
+try:
+    from modules.jail_enforcement import (
+        enforce_jail_on_rejoin, is_jailed,
+        jail_block_message, TELEPORT_BLOCKED_CMDS,
+    )
+except Exception as _je:
+    print(f"[SAFE IMPORT] jail_enforcement disabled: {_je!r}")
+    TELEPORT_BLOCKED_CMDS: frozenset = frozenset()
+    def enforce_jail_on_rejoin(*a, **kw): return None  # type: ignore[misc]
+    def is_jailed(user_id: str) -> bool: return False  # type: ignore[misc]
+    def jail_block_message(user_id: str) -> str: return "Jail system temporarily disabled."  # type: ignore[misc]
+
+try:
+    from modules.luxe_admin import (
+        handle_addtickets, handle_removetickets, handle_settickets, handle_sendtickets,
+        handle_ticketadmin, handle_ticketlogs, handle_ticketbalance,
+    )
+except Exception as _lae:
+    print(f"[SAFE IMPORT] luxe_admin disabled: {_lae!r}")
+    async def handle_addtickets(b, u, a): pass  # type: ignore[misc]
+    async def handle_removetickets(b, u, a): pass  # type: ignore[misc]
+    async def handle_settickets(b, u, a): pass  # type: ignore[misc]
+    async def handle_sendtickets(b, u, a): pass  # type: ignore[misc]
+    async def handle_ticketadmin(b, u, a): pass  # type: ignore[misc]
+    async def handle_ticketlogs(b, u, a): pass  # type: ignore[misc]
+    async def handle_ticketbalance(b, u, a): pass  # type: ignore[misc]
 from modules.room_utils import (
     handle_tpme, handle_tp, handle_tphere, handle_goto,
     handle_bring, handle_bringall, handle_tpall,
@@ -3210,8 +3228,11 @@ class HangoutBot(BaseBot):
             _safe_task(time_exp_loop(self), "time_exp_loop")
         else:
             print(f"[TIME_EXP] Loop skipped — not host bot ({BOT_MODE}).")
-        # Luxe Jail recovery + expiry loop — security bot only
-        _safe_task(startup_jail_recovery(self), "startup_jail_recovery")
+        # Luxe Jail recovery + expiry loop — security bot only (guarded)
+        try:
+            _safe_task(startup_jail_recovery(self), "startup_jail_recovery")
+        except Exception as _jrec:
+            print(f"[JAIL RECOVERY] startup task skipped — error: {_jrec!r}")
         # Rotating announcements loop — host bot only
         if should_this_bot_run_module("host"):
             _safe_task(rotating_announcement_loop(self), "rotating_announcement_loop")
@@ -3372,9 +3393,13 @@ class HangoutBot(BaseBot):
             return
 
         # ── Jail teleport lock — jailed players cannot use movement commands ────
-        if cmd in TELEPORT_BLOCKED_CMDS and is_jailed(user.id):
-            await self.highrise.send_whisper(user.id, jail_block_message(user.id))
-            return
+        # (guarded: safe-import fallbacks make TELEPORT_BLOCKED_CMDS empty if module failed)
+        try:
+            if cmd in TELEPORT_BLOCKED_CMDS and is_jailed(user.id):
+                await self.highrise.send_whisper(user.id, jail_block_message(user.id))
+                return
+        except Exception as _jte:
+            print(f"[JAIL TELEPORT GUARD] error: {_jte!r}")
 
         # ── Jail runtime commands (any user; KeanuShield/security gate via should_this_bot_handle)
         if cmd in {

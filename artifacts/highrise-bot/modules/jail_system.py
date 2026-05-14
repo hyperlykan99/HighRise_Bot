@@ -771,6 +771,17 @@ async def startup_jail_recovery(bot: "BaseBot") -> None:
     from modules.jail_config import jail_spot_name as _jsp
     if not should_this_bot_run_module("jail"):
         return
+
+    # Verify jail_sentences table exists before any DB operations
+    try:
+        import database as _dbchk
+        conn = _dbchk.get_connection()
+        conn.execute("SELECT 1 FROM jail_sentences LIMIT 1").fetchone()
+        conn.close()
+    except Exception as _tbl_e:
+        print(f"[JAIL RECOVERY] WARNING — jail_sentences table error: {_tbl_e!r}. Skipping recovery.")
+        return
+
     await asyncio.sleep(5)
 
     now = time.time()
