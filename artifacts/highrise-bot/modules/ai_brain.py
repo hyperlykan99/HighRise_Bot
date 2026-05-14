@@ -75,6 +75,7 @@ from modules.ai_intent_router import (
     INTENT_USER_NAME, INTENT_USER_ROLE, INTENT_TRANSLATION,
 )
 from modules.ai_translation import get_translation
+from modules.ai_live_router import handle_live_question, is_live_question, detect_live_type
 from modules.ai_global_time      import get_global_time_reply
 from modules.ai_global_holidays  import get_global_holiday_reply
 from modules.ai_global_knowledge import handle_global_question
@@ -362,9 +363,16 @@ async def _handle_cancel(bot, user):
         await _w(bot, user.id, "⚠️ Nothing to cancel.")
 
 
-async def _handle_real_world(bot, user, text, intent):
+async def _handle_real_world(bot, user, text, intent, perm=0):
     """Route real-world intents — sensitive always whispers, others use reply mode."""
-    if intent in (INTENT_RW_SENSITIVE, INTENT_RW_CURRENT_INFO):
+    # Live/current info: route through the live router (3.3D)
+    if intent == INTENT_RW_CURRENT_INFO:
+        print(f"[AI LIVE] routing live question: {text!r}")
+        reply = await handle_live_question(user, text, perm)
+        await _send(bot, user, reply[:249], "general")
+        return
+
+    if intent == INTENT_RW_SENSITIVE:
         reply = handle_global_question(text, intent)
         await _w(bot, user.id, reply[:249])
         return
@@ -525,7 +533,7 @@ async def _dispatch(
     elif intent == INTENT_PREPARE_SETTING:
         await _handle_prepare_setting(bot, user, text, perm)
     elif intent in RW_INTENTS:
-        await _handle_real_world(bot, user, text, intent)
+        await _handle_real_world(bot, user, text, intent, perm)
     else:
         # Knowledge access layer (staff/admin/owner info, topic explanations)
         answer = get_knowledge_answer(user, perm, intent, text)
