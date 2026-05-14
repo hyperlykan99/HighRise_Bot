@@ -28,6 +28,7 @@ from modules.jail_config import (
     jail_spot_name, guard_spot_name, idle_spot_name,
     set_cost_per_minute, set_max_minutes, set_min_minutes, set_bail_multiplier,
     set_protect_staff, set_confirm_required, set_jail_enabled,
+    set_cooldown_seconds, set_daily_limit,
 )
 from modules.jail_pricing import cost_for_jail, bail_cost_for
 from modules.jail_permissions import can_actor_jail_target
@@ -476,14 +477,161 @@ async def handle_jailadmin(bot: "BaseBot", user: "User", args: list[str]) -> Non
     if not _is_staff_plus(user.username):
         await bot.highrise.send_whisper(user.id, "\U0001f512 Admin+ only.")
         return
-    enabled = "ON" if is_jail_enabled() else "OFF"
-    msg = (
-        f"\U0001f6a8 Jail {enabled} | {cost_per_minute()}\U0001f3ab/min | "
-        f"Min:{min_minutes()}m Max:{max_minutes()}m | "
-        f"Bail:{bail_multiplier()}x | CD:{cooldown_seconds()//60}m | "
-        f"DL:{daily_limit()}"
-    )[:249]
-    await bot.highrise.send_whisper(user.id, msg)
+
+    sub = args[1].lower() if len(args) >= 2 else "status"
+
+    # ── Status / no-arg display ───────────────────────────────────────────────
+    if sub == "status":
+        enabled = "ON" if is_jail_enabled() else "OFF"
+        cd = cooldown_seconds()
+        if cd == 0:
+            cd_str = "Disabled"
+        elif cd < 60:
+            cd_str = f"{cd}s"
+        else:
+            cd_str = f"{cd // 60}m" + (f" {cd % 60}s" if cd % 60 else "")
+        dl = daily_limit()
+        dl_str = "Unlimited" if dl == 0 else str(dl)
+        await bot.highrise.send_whisper(
+            user.id,
+            (
+                f"\U0001f6a8 Jail Admin\n"
+                f"Status: {enabled}\n"
+                f"Cost: {cost_per_minute()} \U0001f3ab/min\n"
+                f"Min/Max Time: {min_minutes()}m / {max_minutes()}m\n"
+                f"Bail: {bail_multiplier()}x jail cost | CD: {cd_str} | Daily: {dl_str}"
+            )[:249],
+        )
+        await bot.highrise.send_whisper(
+            user.id,
+            (
+                "\u2699\ufe0f !jailadmin on|off | cost [n] | min [n] | max [n] "
+                "| bail [n] | cooldown [s] | dailylimit [n] | status"
+            )[:249],
+        )
+        await bot.highrise.send_whisper(
+            user.id,
+            (
+                "\U0001f4cd Spots: !setjailspot !setjailguardspot "
+                "!setsecurityidle !setjailreleasespot !jaildebug"
+            )[:249],
+        )
+        return
+
+    # ── on / off ─────────────────────────────────────────────────────────────
+    if sub == "on":
+        set_jail_enabled(True)
+        await bot.highrise.send_whisper(user.id, "\u2705 Jail system enabled.")
+        return
+
+    if sub == "off":
+        set_jail_enabled(False)
+        await bot.highrise.send_whisper(user.id, "\u2705 Jail system disabled.")
+        return
+
+    # ── Subcommands that need a value ─────────────────────────────────────────
+    if len(args) < 3:
+        await bot.highrise.send_whisper(
+            user.id, f"Usage: !jailadmin {sub} <value>"[:249]
+        )
+        return
+
+    try:
+        val = int(args[2])
+    except ValueError:
+        await bot.highrise.send_whisper(user.id, "Invalid value — must be a whole number.")
+        return
+
+    if sub == "cost":
+        if val < 1:
+            await bot.highrise.send_whisper(user.id, "Cost must be \u2265 1.")
+            return
+        set_cost_per_minute(val)
+        await bot.highrise.send_whisper(
+            user.id, f"\u2705 Jail cost set to {val} \U0001f3ab per minute."[:249]
+        )
+
+    elif sub == "min":
+        if val < 1:
+            await bot.highrise.send_whisper(user.id, "Min time must be \u2265 1 minute.")
+            return
+        if val > max_minutes():
+            await bot.highrise.send_whisper(
+                user.id,
+                f"Min ({val}m) can't exceed current max ({max_minutes()}m)."[:249],
+            )
+            return
+        set_min_minutes(val)
+        await bot.highrise.send_whisper(
+            user.id,
+            f"\u2705 Minimum jail time set to {val} minute{'s' if val != 1 else ''}."[:249],
+        )
+
+    elif sub == "max":
+        if val < 1:
+            await bot.highrise.send_whisper(user.id, "Max time must be \u2265 1 minute.")
+            return
+        if val < min_minutes():
+            await bot.highrise.send_whisper(
+                user.id,
+                f"Max ({val}m) can't be less than current min ({min_minutes()}m)."[:249],
+            )
+            return
+        set_max_minutes(val)
+        await bot.highrise.send_whisper(
+            user.id,
+            f"\u2705 Maximum jail time set to {val} minute{'s' if val != 1 else ''}."[:249],
+        )
+
+    elif sub == "bail":
+        if val < 1:
+            await bot.highrise.send_whisper(user.id, "Bail multiplier must be \u2265 1.")
+            return
+        set_bail_multiplier(val)
+        await bot.highrise.send_whisper(
+            user.id, f"\u2705 Bail multiplier set to {val}x."[:249]
+        )
+
+    elif sub == "cooldown":
+        if val < 0:
+            await bot.highrise.send_whisper(user.id, "Cooldown must be 0 or more seconds.")
+            return
+        set_cooldown_seconds(val)
+        if val == 0:
+            await bot.highrise.send_whisper(
+                user.id, "\u2705 Jail cooldown disabled for testing."
+            )
+        elif val < 60:
+            await bot.highrise.send_whisper(
+                user.id, f"\u2705 Jail cooldown set to {val} seconds."[:249]
+            )
+        else:
+            mins = val // 60
+            secs = val % 60
+            t = f"{mins}m {secs}s" if secs else f"{mins} minute{'s' if mins != 1 else ''}"
+            await bot.highrise.send_whisper(
+                user.id, f"\u2705 Jail cooldown set to {t}."[:249]
+            )
+
+    elif sub == "dailylimit":
+        if val < 0:
+            await bot.highrise.send_whisper(user.id, "Daily limit must be 0 or more.")
+            return
+        set_daily_limit(val)
+        if val == 0:
+            await bot.highrise.send_whisper(
+                user.id, "\u2705 Daily jail limit removed (unlimited)."
+            )
+        else:
+            await bot.highrise.send_whisper(
+                user.id, f"\u2705 Daily jail limit set to {val} per player."[:249]
+            )
+
+    else:
+        await bot.highrise.send_whisper(
+            user.id,
+            "Unknown setting. Use: on|off|cost|min|max|bail|cooldown|dailylimit|status"[:249],
+        )
 
 
 # ── Settings commands (admin+) ────────────────────────────────────────────────

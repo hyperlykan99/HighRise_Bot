@@ -1,0 +1,240 @@
+Update JailAdmin Settings Design
+
+Goal:
+Improve !jailadmin so the owner can clearly view and change jail settings.
+
+Current display is too short:
+🚨 Jail ON | 2🎫/min | Min:1m Max:10m | Bail:2x | CD:5m | DL:5
+
+New !jailadmin display should be clean, readable, and split into short messages if needed.
+
+Command:
+!jailadmin
+
+Expected output:
+
+🚨 Jail Admin
+Status: ON
+Cost: 2 🎫 / minute
+Min/Max Time: 1m / 10m
+Bail: 2x jail cost
+Cooldown: 5m
+Daily Limit: 5 jails/player
+
+Second message if needed:
+
+⚙️ Jail Settings
+!jailadmin on/off
+!jailadmin cost [tickets]
+!jailadmin min [minutes]
+!jailadmin max [minutes]
+!jailadmin bail [multiplier]
+!jailadmin cooldown [seconds]
+!jailadmin dailylimit [amount]
+
+Third message if needed:
+
+📍 Jail Spots
+!setjailspot
+!setjailguardspot
+!setsecurityidle
+!setjailreleasespot
+!jaildebug
+
+Add subcommands:
+
+1. Enable/disable jail:
+!jailadmin on
+!jailadmin off
+
+Replies:
+✅ Jail system enabled.
+✅ Jail system disabled.
+
+2. Set cost per minute:
+!jailadmin cost 2
+
+Updates:
+jail_cost_per_minute = 2
+
+Reply:
+✅ Jail cost set to 2 🎫 per minute.
+
+3. Set min jail time:
+!jailadmin min 1
+
+Updates:
+jail_min_minutes = 1
+
+Reply:
+✅ Minimum jail time set to 1 minute.
+
+4. Set max jail time:
+!jailadmin max 10
+
+Updates:
+jail_max_minutes = 10
+
+Reply:
+✅ Maximum jail time set to 10 minutes.
+
+Rules:
+- max must be >= min
+- min must be >= 1
+- reject invalid values
+
+5. Set bail multiplier:
+!jailadmin bail 2
+
+Updates:
+jail_bail_multiplier = 2
+
+Reply:
+✅ Bail multiplier set to 2x.
+
+6. Set cooldown:
+!jailadmin cooldown 0
+!jailadmin cooldown 300
+
+Updates:
+jail_cooldown_seconds
+
+Replies:
+✅ Jail cooldown disabled for testing.
+or
+✅ Jail cooldown set to 5 minutes.
+
+Allow 0 for testing.
+
+7. Set daily limit:
+!jailadmin dailylimit 5
+
+Updates:
+jail_daily_limit_per_player = 5
+
+Reply:
+✅ Daily jail limit set to 5 per player.
+
+8. Show current settings:
+!jailadmin status
+or just:
+!jailadmin
+
+9. Optional aliases:
+!jailsetcost 2 should still work
+!jailsetmax 10 should still work
+!jailsetmin 1 should still work
+!jailsetbailmultiplier 2 should still work
+!jailsetcooldown 0 should work if added
+
+But the preferred command should be:
+!jailadmin [setting] [value]
+
+Implementation:
+Use existing room settings:
+- jail_enabled
+- jail_cost_per_minute
+- jail_min_minutes
+- jail_max_minutes
+- jail_bail_multiplier
+- jail_cooldown_seconds
+- jail_daily_limit_per_player
+- jail_confirm_required
+- jail_protect_staff
+
+Update modules/jail_config.py:
+Add setter if missing:
+
+set_cooldown_seconds(val: int)
+set_daily_limit(val: int)
+
+Both must safely store room setting values.
+
+Update modules/jail_system.py:
+Improve handle_jailadmin(bot, user, args)
+
+If no args:
+- show status/settings/help
+
+If args[1] is:
+on/off/cost/min/max/bail/cooldown/dailylimit/status
+- update or show setting
+
+Permission:
+Owner/admin only.
+
+Do not allow normal players to use !jailadmin.
+
+Important:
+Keep all messages under 249 characters.
+Split into multiple whispers if needed.
+
+Examples:
+
+!jailadmin cooldown 0
+Reply:
+✅ Jail cooldown disabled for testing.
+
+!jailadmin cooldown 300
+Reply:
+✅ Jail cooldown set to 5 minutes.
+
+!jailadmin max 1
+Reply:
+✅ Maximum jail time set to 1 minute.
+
+!jailadmin cost 5
+Reply:
+✅ Jail cost set to 5 🎫 per minute.
+
+!jailadmin off
+Reply:
+✅ Jail system disabled.
+
+!jailadmin on
+Reply:
+✅ Jail system enabled.
+
+Testing:
+
+Run:
+!jailadmin
+
+Expected:
+Clean readable settings.
+
+Run:
+!jailadmin cooldown 0
+!jailadmin
+
+Expected:
+Cooldown: 0s or Disabled
+
+Run:
+!jailadmin max 1
+!jailadmin
+
+Expected:
+Max Time: 1m
+
+Run:
+!jail @AltName 1 testing
+confirm
+
+Expected:
+Works.
+
+Run:
+!jail @AltName 1 testing again after release
+
+Expected:
+No cooldown block if cooldown is 0.
+
+Final output:
+Report:
+1. Files changed
+2. !jailadmin display result
+3. cooldown 0 test result
+4. max time test result
+5. cost setting test result
+6. no crash / bot stability result

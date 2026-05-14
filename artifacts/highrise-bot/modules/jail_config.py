@@ -71,7 +71,7 @@ def cooldown_seconds() -> int:
 
 def daily_limit() -> int:
     try:
-        return max(1, int(_get("jail_daily_limit_per_player")))
+        return max(0, int(_get("jail_daily_limit_per_player")))
     except ValueError:
         return 5
 
@@ -120,3 +120,9 @@ def set_protect_staff(val: bool) -> None:
 
 def set_confirm_required(val: bool) -> None:
     _set("jail_confirm_required", "1" if val else "0")
+
+def set_cooldown_seconds(val: int) -> None:
+    _set("jail_cooldown_seconds", str(max(0, val)))
+
+def set_daily_limit(val: int) -> None:
+    _set("jail_daily_limit_per_player", str(max(0, val)))
