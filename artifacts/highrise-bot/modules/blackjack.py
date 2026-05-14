@@ -437,20 +437,42 @@ async def _start_action_phase(bot: BaseBot):
 
     # ── Msg 1 (public): Dealer Cards ─────────────────────────────────────────
     upcard_str = card_str(_state.dealer_hand[0]) if _state.dealer_hand else "?"
+    upcard_val = hand_value([_state.dealer_hand[0]]) if _state.dealer_hand else 0
     dealer_ace = bool(_state.dealer_hand) and _state.dealer_hand[0][0] == "A"
-    dealer_up  = card_str(_state.dealer_hand[0]) if _state.dealer_hand else "?"
     s_cards    = str(s.get("bj_cards_mode", "whisper")).lower()
     await bot.highrise.chat(
-        f"🃏 Dealer Cards\nDealer: {upcard_str} [?] | Total: ? | {timer}s to act"[:249]
+        f"🃏 Dealer: {upcard_str} [?] = {upcard_val} | {timer}s to act"[:249]
     )
 
     # ── Msg 2: Player Cards + Actions (whisper or public per bj_cards_mode) ───
-    for p in _state.players:
-        if not p.is_done():
+    active_ps = [p for p in _state.players if not p.is_done()]
+    if s_cards == "public" and active_ps:
+        # Single combined public message — no color coding
+        plines = ["Player Cards:"]
+        for p in active_ps:
+            hparts = []
+            for i, h in enumerate(p.hands):
+                hdisp = hand_str(h["cards"])
+                hval  = hand_value(h["cards"])
+                note  = f" [{h['status']}]" if h["status"] != "active" else ""
+                hparts.append(f"{hdisp}={hval}{note}")
+            plines.append(f"@{_dn(p)}: {' | '.join(hparts)}")
+        p0   = active_ps[0]
+        _is2 = (len(p0.hands) == 1 and len(p0.hands[0]["cards"]) == 2
+                and p0.hands[0]["status"] == "active")
+        acts = "!bh !bs"
+        if _is2:
+            acts += " !bd !bsp !bsurrender"
+        if ins_on and dealer_ace and _is2:
+            acts += " !bi"
+        plines.append(f"Actions: {acts}")
+        await bot.highrise.chat("\n".join(plines)[:249])
+    else:
+        for p in active_ps:
             try:
                 hparts = []
                 for i, h in enumerate(p.hands):
-                    hdisp = _hand_colored(h["cards"])
+                    hdisp = hand_str(h["cards"])
                     hval  = hand_value(h["cards"])
                     note  = f" [{h['status']}]" if h["status"] != "active" else ""
                     hparts.append(f"H{i+1}: {hdisp}={hval}{note}")
@@ -460,26 +482,18 @@ async def _start_action_phase(bot: BaseBot):
                     and len(p.hands[0]["cards"]) == 2
                     and p.hands[0]["status"] == "active"
                 )
-                acts = "🃏 !bh  🛑 !bs"
+                acts = "!bh hit  !bs stand"
                 if is_first_two:
-                    acts += "  💰 !bd  ✂️ !bsp  🏳️ !bsurrender"
+                    acts += "  !bd double  !bsp split"
                 if ins_on and dealer_ace and not p.insurance_taken and is_first_two:
-                    acts += "  🛡️ !bi"
-                if s_cards == "public":
-                    pub_text = (
-                        f"🟢 {_dn(p)}: {cards_line}\n"
-                        f"Dealer: {upcard_str} [?] | Bet: {p.total_bet():,} 🪙\n"
-                        f"{acts}"
-                    )
-                    await bot.highrise.chat(pub_text[:249])
-                else:
-                    wtext = (
-                        f"🟢 Player Cards\n"
-                        f"You: {cards_line}\n"
-                        f"Dealer: {dealer_up} [?] | Bet: {p.total_bet():,} 🪙\n"
-                        f"{acts}"
-                    )
-                    await bot.highrise.send_whisper(p.user_id, wtext[:249])
+                    acts += "  !bi insure"
+                wtext = (
+                    f"🟢 Your Cards\n"
+                    f"{cards_line}\n"
+                    f"Dealer: {upcard_str} [?] = {upcard_val} | Bet: {p.total_bet():,} 🪙\n"
+                    f"{acts}"
+                )
+                await bot.highrise.send_whisper(p.user_id, wtext[:249])
             except Exception:
                 pass
 
@@ -538,7 +552,7 @@ async def _finalize_round(bot: BaseBot):
 
         dealer_total = hand_value(_state.dealer_hand)
         await bot.highrise.chat(
-            f"Dealer reveals: {hand_str(_state.dealer_hand)} = {dealer_total}"
+            f"🃏 Dealer: {hand_str(_state.dealer_hand)} = {dealer_total}"
         )
 
         # ── Insurance resolution (original 2-card dealer hand) ─────────────────
@@ -597,8 +611,8 @@ async def _finalize_round(bot: BaseBot):
             _save_shoe()
             _save_table_state()
             await bot.highrise.chat(
-                f"Dealer hits {card_str(card)}. "
-                f"Hand: {hand_str(_state.dealer_hand)} = {dealer_total}"
+                f"🃏 Dealer hits {card_str(card)}. "
+                f"{hand_str(_state.dealer_hand)} = {dealer_total}"
             )
 
         dealer_total  = hand_value(_state.dealer_hand)
@@ -1077,7 +1091,7 @@ async def handle_bj(bot: BaseBot, user: User, args: list[str]):
 async def _cmd_join(bot: BaseBot, user: User, args: list[str]):
     s = _settings()
     if not int(s.get("bj_enabled", 1)):
-        await bot.highrise.send_whisper(user.id, "Casual BJ is currently closed.")
+        await bot.highrise.send_whisper(user.id, "Blackjack is currently closed.")
         return
 
     if len(args) < 3 or not args[2].isdigit() or int(args[2]) < 1:
@@ -1096,7 +1110,7 @@ async def _cmd_join(bot: BaseBot, user: User, args: list[str]):
     if bet_limit_on and (bet < min_bet or bet > eff_max_bet):
         note = " (Casino Hour 2x limit!)" if _ev_bj["casino_bet_mult"] > 1 else ""
         await bot.highrise.send_whisper(
-            user.id, f"Bet must be {min_bet:,}–{eff_max_bet:,} coins.{note}"
+            user.id, f"Bet must be {min_bet:,}–{eff_max_bet:,} 🪙.{note}"
         )
         return
 
@@ -1684,7 +1698,7 @@ async def _cmd_bj_mode(bot: BaseBot, user: User, enabled: bool):
         return
     db.set_bj_setting("bj_enabled", 1 if enabled else 0)
     status = "ON" if enabled else "OFF"
-    await bot.highrise.chat(f"{'✅' if enabled else '⛔'} Casual BJ is now {status}.")
+    await bot.highrise.chat(f"{'✅' if enabled else '⛔'} Blackjack is now {status}.")
 
 
 # ─── Recovery staff commands ──────────────────────────────────────────────────

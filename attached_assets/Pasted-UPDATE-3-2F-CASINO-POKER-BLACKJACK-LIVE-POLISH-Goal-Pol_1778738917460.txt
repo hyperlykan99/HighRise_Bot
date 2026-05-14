@@ -1,0 +1,137 @@
+UPDATE 3.2F — CASINO / POKER / BLACKJACK LIVE POLISH
+
+Goal:
+Polish casino, poker, and blackjack public gameplay messages so they are clean, consistent, safe, and easy for players to understand.
+
+Important:
+This is NOT casino balancing.
+Do not change odds.
+Do not change payouts.
+Do not change bet limits unless display is wrong.
+Do not change blackjack shoe logic unless broken.
+Do not reset casino data.
+Do not add HR Gold rewards.
+
+Main focus:
+1. Polish blackjack public messages.
+2. Polish poker public messages.
+3. Verify all casino currency uses 🪙.
+4. Verify blackjack payout safety.
+5. Verify poker pot/winner display.
+6. Remove old casino/casual blackjack residue.
+7. Improve casino help.
+8. Improve casino admin/help separation.
+9. Fix duplicate or confusing casino messages.
+10. Keep production stable.
+
+Currencies:
+🪙 ChillCoins = gameplay currency
+🎫 Luxe Tickets = premium currency
+
+Do not change tokens.
+Do not change room ID.
+Do not wipe database.
+Do not reset balances, tickets, VIP, badges, titles, market, casino, blackjack, poker, mining/fishing data, collection book, missions, XP, levels, events, seasons, onboarding, safety logs, analytics, tools, rods, boosts, profile settings, bug reports, feedback, backups, release settings, or player inventory.
+Do not re-add reward caps.
+Do not add HR Gold rewards.
+Do not change economy prices.
+Do not change casino odds.
+Do not change blackjack payouts.
+Do not change poker payouts.
+Do not show “c” for currency.
+Use 🪙 and 🎫.
+
+==================================================
+PART 1 — STABILITY FIRST
+==================================================
+
+Before changing anything, run:
+
+!launchmode status
+!production status
+!launchblockers
+!finalaudit
+!launchcheck
+!commandissues
+!checkcommands all
+!checkhelp
+!currencycheck
+!bothealth
+!stability status
+
+Expected:
+- Production stable
+- Launch blockers: 0
+- Command issues: 0
+- Currencycheck clean
+- No old c/credits/gems
+- Launchcheck clean
+
+Fix blockers first.
+
+==================================================
+PART 2 — CASINO POLISH ONLY
+==================================================
+
+Allowed:
+- cleaner blackjack messages
+- cleaner poker messages
+- cleaner casino help
+- currency display fixes
+- duplicate message fixes
+- route/help cleanup
+- admin help cleanup
+- payout safety verification
+- command error fixes
+
+Not allowed:
+- changing odds
+- changing payout multipliers
+- changing bet limits unless display is wrong
+- resetting blackjack shoe
+- wiping poker data
+- adding new casino games
+- adding HR Gold rewards
+- economy balancing
+
+==================================================
+PART 3 — BLACKJACK PUBLIC ROUND FORMAT
+==================================================
+
+Polish public blackjack round display.
+
+Expected start format:
+
+AceSinatra:
+Dealer Cards: A♦️ [?] = 11
+
+Second message:
+
+Player Cards:
+@Player1: J♥️ K♣️ = 20
+@Player2: 9♠️ 8♦️ = 17
+
+Actions: !hit, !stand, !double, !split
+Timer: 30s
+
+Rules:
+- Keep messages short.
+- Use emojis/suits.
+- No color coding.
+- No raw debug text.
+- Do not show hidden dealer card.
+- Do not show “Visible Total” as a separate line.
+- Do not spam one message per player if one combined message works.
+- Keep Highrise message length safe.
+
+==================================================
+PART 4 — BLACKJACK DEALER DISPLAY
+==================================================
+
+Dealer display should be simple:
+
+Dealer Cards: K♥️ [?] = 10
+
+After reveal:
+
+Dealer Cards: K♥️ 7

@@ -1686,26 +1686,25 @@ GAME_HELP = GAME_HELP_PAGES[0]
 
 CASINO_HELP_PAGES = [
     (
-        "🎰 Casino Help\n"
-        "Blackjack: !bet [amount]\n"
+        "🎰 Casino\n"
+        "Blackjack: !bjoin [bet]  or  !bet [bet]\n"
         "Poker: !poker join\n"
         "Balance: !balance\n"
-        "Use !bjhelp or !pokerhelp for details."
+        "More: !bjhelp  !rbjhelp  !pokerhelp"
     ),
     (
         "🎰 Casino 2\n"
-        "!bj table  !rbj table\n"
-        "!bj hand  !rbj hand  !bjshoe\n"
-        "!bj stats  !rbj stats\n"
+        "!bt table  !bhand — BJ status\n"
+        "!blimits  !bstats\n"
+        "!pt table  !pokerstats\n"
         "!mycasino — your casino dashboard"
     ),
     (
-        "🎰 Casino Settings\n"
-        "Staff: !casinosettings\n"
-        "Staff: !casinolimits\n"
-        "Staff: !casinotoggles\n"
+        "🎰 Casino Settings (Staff)\n"
+        "!casinosettings  !casinolimits\n"
+        "!casinotoggles\n"
         "Recovery: !bj recover  !rbj recover\n"
-        "!poker cleanup  !poker refundtable"
+        "!poker cleanup  !poker refund"
     ),
 ]
 CASINO_HELP = CASINO_HELP_PAGES[0]
@@ -1821,30 +1820,34 @@ EVENT_HELP_PAGES = [
 
 BJ_HELP_PAGES = [
     (
-        "🃏 Blackjack Help\n"
-        "Join: !bet [amount]\n"
-        "Actions: !hit, !stand\n"
-        "More: !double, !split\n"
-        "Status: !bjstatus"
+        "🃏 Blackjack Help 1/2\n"
+        "Join: !bjoin [bet]  or  !bet [bet]\n"
+        "Hit: !bh    Stand: !bs\n"
+        "Double: !bd    Split: !bsp\n"
+        "Surrender: !bsurrender    Insure: !bi"
     ),
     (
+        "🃏 Blackjack Help 2/2\n"
+        "Table: !bt    Hand: !bhand\n"
+        "Stats: !bstats    Limits: !blimits\n"
         "Rules: !bjrules\n"
-        "Shoe: !bjshoe or !shoe\n"
         "Balance: !balance"
     ),
 ]
 
 RBJ_HELP_PAGES = [
     (
-        "🃏 Blackjack Help\n"
-        "Join: !bet [amount]\n"
-        "Actions: !hit, !stand\n"
-        "More: !double, !split\n"
-        "Status: !bjstatus"
+        "🃏 Blackjack Help 1/2\n"
+        "Join: !bjoin [bet]  or  !bet [bet]\n"
+        "Hit: !bh    Stand: !bs\n"
+        "Double: !bd    Split: !bsp\n"
+        "Surrender: !bsurrender    Insure: !bi"
     ),
     (
+        "🃏 Blackjack Help 2/2\n"
+        "Table: !bt    Hand: !bhand\n"
+        "Stats: !bstats    Limits: !blimits\n"
         "Rules: !bjrules\n"
-        "Shoe: !bjshoe or !shoe\n"
         "Balance: !balance"
     ),
 ]
@@ -1876,7 +1879,7 @@ CASINO_ADMIN_HELP_PAGES = [
         "!setrbjactiontimer [sec]"
     ),
     (
-        "🎰 Casino Admin 2\n"
+        "🎰 Casino Admin 2c\n"
         "!bj double on|off\n"
         "!rbj double on|off\n"
         "!bj split on|off\n"
@@ -2515,8 +2518,8 @@ async def _handle_bankerhelp(bot, user, _args):
 async def _handle_howtoplay(bot, user, _args=None):
     """How-to-play / game guide — whispered to caller."""
     lines = [
-        "🎮 Games: Blackjack → !bet [amount]  Poker → !poker join",
-        "🃏 Blackjack: !hit  !stand  !double  !split  !bjrules  !bjhelp",
+        "🎮 Games: Blackjack → !bjoin [bet]  Poker → !poker join",
+        "🃏 Blackjack: !bh hit  !bs stand  !bd double  !bsp split  !bjhelp",
         "♠️ Poker: !call  !raise [amount]  !fold  !check  !pokerhelp",
         "💰 Economy: !daily  !balance  !shop  !mine  !fish  !help",
     ]
