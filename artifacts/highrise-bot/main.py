@@ -3882,15 +3882,13 @@ class HangoutBot(BaseBot):
                     await handle_unequip_badge(self, user)
             elif cmd == "removebadgefrom":
                 await handle_removebadge_emoji(self, user, args)
-            elif cmd in {"setbadge", "equipbadge"}:
-                # Admin: !setbadge @user badge_id  — Player: !setbadge badge_id
+            elif cmd == "setbadge":
+                # Admin: !setbadge @user badge_id  — only admin path here
                 if is_admin(user.username) and len(args) > 2 and args[1].startswith("@"):
                     await handle_setbadge(self, user, args)
-                elif len(args) > 1:
-                    await handle_equip_badge(self, user, args[1].lstrip("@").lower().strip())
                 else:
                     await self.highrise.send_whisper(
-                        user.id, "Usage: !equipbadge <badge_id>  See: !mybadges"
+                        user.id, "Admin only. Use !equipbadge to equip your own badge."
                     )
             elif cmd == "clearbadge":
                 await handle_clearbadge(self, user, args)
@@ -4285,6 +4283,22 @@ class HangoutBot(BaseBot):
         elif cmd == "mybadges":
             page = int(args[1]) if len(args) > 1 and args[1].isdigit() else 1
             await handle_mybadges(self, user, page)
+
+        elif cmd == "equipbadge":
+            print(f"[BADGE ROUTE] command=!equipbadge user=@{user.username} args={args[1:]}")
+            try:
+                if len(args) > 1:
+                    await handle_equip_badge(self, user, args[1].lstrip("@").lower().strip())
+                else:
+                    await self.highrise.send_whisper(
+                        user.id,
+                        "Use: !equipbadge badge_id\n"
+                        "Example: !equipbadge crown\n"
+                        "Or: !mybadges then !equipbadge 1"
+                    )
+            except Exception as _be:
+                print(f"[BADGE ERROR] equipbadge user={user.username} {_be!r}")
+                await self.highrise.send_whisper(user.id, "⚠️ Badge command error. Please try again.")
 
         elif cmd == "unequipbadge":
             await handle_unequip_badge(self, user)

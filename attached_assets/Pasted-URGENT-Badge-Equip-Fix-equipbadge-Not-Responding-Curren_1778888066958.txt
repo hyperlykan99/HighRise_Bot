@@ -1,0 +1,307 @@
+URGENT Badge Equip Fix — !equipbadge Not Responding
+
+Current live bug:
+!buybadge works.
+!mybadges works.
+!badgemarket works.
+But these commands do nothing:
+!equipbadge crown
+!equipbadge 1
+
+Expected:
+!equipbadge crown
+→ BankingBot whispers:
+✅ Equipped badge: 👑 Crown
+
+!equipbadge 1
+after !mybadges
+→ equips badge #1 from the last !mybadges list.
+
+Do NOT modify:
+- Poker V2
+- jail
+- Luxe Tickets
+- bank transfers
+- notifications
+- blackjack
+- unrelated games
+
+Only modify:
+- main.py command routing
+- modules/badge_market.py
+- help_cmds.py only if needed
+
+==================================================
+PART 1 — Fix Command Routing
+==================================================
+
+Find where commands are routed in main.py.
+
+Make sure these exact commands are registered and routed to badge_market:
+
+!equipbadge
+!unequipbadge
+!mybadges
+!badges
+!badge
+!badgeshop
+!allbadges
+!buybadge
+!badgeinfo
+!badgesearch
+!badgemarket
+!badgebuy
+!sellbadge
+!cancelbadge
+!mybadgelistings
+
+Critical:
+!equipbadge must route to BankingBot / badge_market.
+It must not be ignored.
+It must not be handled by ChillTopiaMC.
+It must not fall through to unknown command.
+
+Add debug log:
+
+[BADGE ROUTE] command=!equipbadge user=@username args=[...]
+
+Test:
+!equipbadge crown
+
+Expected console:
+[BADGE ROUTE] command=!equipbadge user=@4ktreyMarion args=['crown']
+
+==================================================
+PART 2 — Implement / Repair !equipbadge Handler
+==================================================
+
+In modules/badge_market.py, make sure there is a handler for:
+
+!equipbadge badge_id
+
+Function should:
+1. validate badge_id exists
+2. ensure user exists in DB
+3. check user owns badge
+4. check badge is not blocked from equipping
+5. set equipped badge
+6. whisper confirmation
+
+Success:
+✅ Equipped badge: 👑 Crown
+
+If not owned:
+⚠️ You do not own that badge.
+Buy: !buybadge crown
+
+If badge not found:
+⚠️ Badge not found. Try !badgesearch crown
+
+If missing badge id:
+Use: !equipbadge badge_id
+Example: !equipbadge crown
+
+If already equipped:
+✅ That badge is already equipped.
+
+==================================================
+PART 3 — Fix Database Equipped Badge Function
+==================================================
+
+Check database.py for existing equipped badge helpers.
+
+Look for:
+- equip_emoji_badge
+- set_equipped_badge
+- get_equipped_badge
+- user_badges
+- emoji_badges
+
+Use existing helper if available.
+
+If missing, add safe helper:
+
+def set_equipped_emoji_badge(username, badge_id):
+    # verify ownership first
+    # unequip previous equipped badge
+    # set this badge equipped
+    # commit
+
+Do not create duplicate ownership rows.
+Do not delete badge ownership.
+Only update equipped status.
+
+If the DB stores equipped badge as a column in users, use that instead.
+Match existing schema.
+
+==================================================
+PART 4 — Equip By Number From !mybadges
+==================================================
+
+When !mybadges shows:
+
+1) ID: trophy 🏆 Trophy
+2) ID: crown 👑 Crown
+3) ID: taurus ♉ Taurus
+
+Store cache:
+badge_cache[user.id]["mybadges"] = ["trophy", "crown", "taurus"]
+
+Then:
+
+!equipbadge 2
+
+should equip:
+crown
+
+Reply:
+✅ Equipped badge: 👑 Crown
+
+If cache missing:
+⚠️ Use !mybadges first or type the badge ID.
+Example: !equipbadge crown
+
+==================================================
+PART 5 — Fix !mybadges Display
+==================================================
+
+!mybadges should clearly show IDs:
+
+🏷️ Your Badges 1/1
+Equipped: none
+
+1) ID: trophy 🏆 Trophy
+2) ID: crown 👑 Crown [LISTED]
+3) ID: taurus ♉ Taurus
+
+Equip: !equipbadge crown
+Or: !equipbadge 2
+
+If equipped:
+Equipped: 👑 Crown
+
+Use [LISTED], not [M].
+
+==================================================
+PART 6 — Add !unequipbadge
+==================================================
+
+Command:
+!unequipbadge
+
+Success:
+✅ Badge unequipped.
+
+If no badge equipped:
+You do not have a badge equipped.
+
+Route aliases:
+!unequip badge
+!removebadge
+
+==================================================
+PART 7 — Prevent Silent Failures
+==================================================
+
+If any badge command errors, whisper a clear message instead of doing nothing.
+
+Add try/except around badge command router:
+
+except Exception as e:
+    print("[BADGE ERROR]", command, user.username, repr(e))
+    await bot.highrise.send_whisper(user.id, "⚠️ Badge command error. Please try again.")
+
+This is important because the current bug looks like a silent failure.
+
+==================================================
+PART 8 — Commandtest
+==================================================
+
+If !commandtest exists, update:
+
+!commandtest !equipbadge
+
+Expected:
+cmd=equipbadge
+owner=BankingBot
+module=badge_market
+route=YES
+handler=YES
+
+!commandtest !unequipbadge
+
+Expected:
+owner=BankingBot
+module=badge_market
+route=YES
+
+==================================================
+PART 9 — Compile
+==================================================
+
+Run:
+
+python -m py_compile main.py
+python -m py_compile database.py
+python -m py_compile modules/badge_market.py
+
+==================================================
+PART 10 — Live Tests
+==================================================
+
+Test 1:
+!mybadges
+
+Expected:
+Shows:
+1) ID: trophy
+2) ID: crown
+3) ID: taurus
+
+Test 2:
+!equipbadge crown
+
+Expected:
+✅ Equipped badge: 👑 Crown
+
+Test 3:
+!mybadges
+
+Expected:
+Equipped: 👑 Crown
+
+Test 4:
+!unequipbadge
+
+Expected:
+✅ Badge unequipped.
+
+Test 5:
+!mybadges
+!equipbadge 3
+
+Expected:
+✅ Equipped badge: ♉ Taurus
+
+Test 6:
+!equipbadge fakebadge
+
+Expected:
+⚠️ Badge not found. Try !badgesearch fakebadge
+
+Test 7:
+!equipbadge diamond if not owned
+
+Expected:
+⚠️ You do not own that badge.
+
+Final report:
+1. !equipbadge routing fixed
+2. !equipbadge handler confirmed
+3. equipped badge DB helper confirmed/fixed
+4. !equipbadge number shortcut added
+5. !unequipbadge working
+6. !mybadges display cleaned
+7. silent error handling added
+8. py_compile result
+9. live test result
