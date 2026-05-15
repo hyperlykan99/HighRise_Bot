@@ -221,7 +221,11 @@ def _cancel_turn_task() -> None:
 
 def _cancel_countdown_task() -> None:
     t = _T.get("countdown_task")
-    if t and not t.done():
+    try:
+        current = asyncio.current_task()
+    except RuntimeError:
+        current = None
+    if t and not t.done() and t is not current:
         t.cancel()
     _T["countdown_task"] = None
 
@@ -648,7 +652,8 @@ async def _start_hand(bot: BaseBot) -> None:
         _T["phase"] = "waiting"
         return
 
-    _cancel_all_tasks()
+    _cancel_turn_task()
+    _T["countdown_task"] = None
     _T["hand_number"]       += 1
     _T["hand_id"]            = f"pkv2_{uuid.uuid4().hex[:10]}"
     _T["board"]              = []
@@ -717,6 +722,12 @@ async def _start_hand(bot: BaseBot) -> None:
 
     secs = _T.get("turn_seconds", 30)
 
+    # Set preflop phase BEFORE announcing — so !hand works as soon as hand message appears
+    _T["phase"]                 = "preflop"
+    _T["first_turn_ready"]      = True
+    _T["current_turn_username"] = first_actor
+    print(f"[POKER V2 START] first_actor=@{first_actor} phase_set=preflop ready=true")
+
     # Announce hand
     blind_msg = (
         f"Poker hand #{_T['hand_number']}.\n"
@@ -726,51 +737,53 @@ async def _start_hand(bot: BaseBot) -> None:
     )
     await _chat(bot, blind_msg)
 
-    # Await card whisper attempts sequentially before opening the hand
-    delivery_success = 0
-    delivery_failed: list = []
-    for u in seated:
-        p  = _T["players"][u]
-        ok = await _send_card_whisper_confirmed(bot, p)
-        if ok:
-            delivery_success += 1
-        else:
-            delivery_failed.append(u)
-        await asyncio.sleep(0.7)
-
-    if delivery_success == 0:
-        await _chat(bot, "Poker hand cancelled. Could not send cards.")
+    try:
+        # Await card whisper attempts sequentially
+        delivery_success = 0
+        delivery_failed: list = []
         for u in seated:
-            p = _T["players"][u]
-            contributed = p.get("total_contributed", 0)
-            if contributed > 0:
-                _credit(p["user_id"], contributed)
-        _T["phase"]   = "waiting"
-        _T["hand_id"] = None
-        return
+            p  = _T["players"][u]
+            ok = await _send_card_whisper_confirmed(bot, p)
+            if ok:
+                delivery_success += 1
+            else:
+                delivery_failed.append(u)
+            await asyncio.sleep(0.7)
 
-    if delivery_failed:
-        await _chat(bot, "Cards sent. If you did not receive cards, type !hand.")
-    else:
-        await _chat(bot, "Cards sent.")
+        if delivery_success == 0:
+            await _chat(bot, "Poker hand cancelled. Could not send cards.")
+            for u in seated:
+                p = _T["players"][u]
+                contributed = p.get("total_contributed", 0)
+                if contributed > 0:
+                    _credit(p["user_id"], contributed)
+            _T["phase"]   = "waiting"
+            _T["hand_id"] = None
+            return
 
-    # Open preflop — phase set after delivery attempts complete
-    _T["phase"]                 = "preflop"
-    _T["first_turn_ready"]      = True
-    _T["current_turn_username"] = first_actor
-    print(f"[POKER V2 START] first_actor=@{first_actor} phase_set=preflop ready=true")
+        if delivery_failed:
+            await _chat(bot, "Cards sent. If you did not receive cards, type !hand.")
+        else:
+            await _chat(bot, "Cards sent.")
 
-    # Announce first turn
-    await _chat(bot, f"@{first_actor}'s turn. {secs}s")
-    print(f"[POKER V2 START] turn_announced=true")
-    print(f"[POKER V2 OPEN] first_actor=@{first_actor} phase=preflop ready=true")
+        # Announce first turn and start timer
+        await _chat(bot, f"@{first_actor}'s turn. {secs}s")
+        print(f"[POKER V2 START] turn_announced=true")
+        print(f"[POKER V2 OPEN] first_actor=@{first_actor} phase=preflop ready=true")
+        _cancel_turn_task()
+        _T["turn_timer_task"] = asyncio.create_task(_turn_timeout(bot, first_actor))
 
-    # Start turn timer
-    _cancel_turn_task()
-    _T["turn_timer_task"] = asyncio.create_task(_turn_timeout(bot, first_actor))
+        # Await first actor turn reminder (with one retry)
+        await _send_turn_whisper_confirmed(bot, first_actor, first_p)
 
-    # Await first actor turn reminder (with one retry)
-    await _send_turn_whisper_confirmed(bot, first_actor, first_p)
+    except asyncio.CancelledError:
+        print("[POKER V2 START ERROR] start_hand was cancelled")
+        raise
+    except Exception as e:
+        print(f"[POKER V2 START ERROR] {e!r}")
+        if _T["phase"] not in ("preflop", "flop", "turn", "river"):
+            _T["phase"] = "waiting"
+            await _chat(bot, "Poker hand failed to start. Table reset.")
 
 # ── Open first turn (force-open path only) ─────────────────────────────────────
 async def _open_first_turn(bot: BaseBot, first_actor: str, first_p: dict) -> None:
@@ -1057,27 +1070,22 @@ async def _cmd_allin(bot: BaseBot, user: User) -> None:
 # ── !hand ──────────────────────────────────────────────────────────────────────
 async def _cmd_hand(bot: BaseBot, user: User) -> None:
     username = user.username.lower()
-    # Allow !hand during dealing so players who didn't get auto-whisper can still see cards
-    if _T["phase"] not in ("preflop", "flop", "turn", "river", "dealing"):
-        await _w(bot, user.id, "No active hand yet.")
-        return
+    # Cards are the source of truth — show them regardless of phase
     if username not in _T["players"]:
         await _w(bot, user.id, "You are not at the poker table.")
         return
-    # Read cards from in-memory player state (source of truth)
-    p = _T["players"][username]
-    if not p.get("cards"):
-        await _w(bot, user.id, "No cards found for this hand. Type !hand again shortly.")
+    p     = _T["players"][username]
+    cards = p.get("cards", [])
+    if len(cards) == 2:
+        msg  = f"Your cards: {_fcs(cards)}"
+        board = _T.get("board", [])
+        msg += f"\nBoard: {_board_str()}" if board else "\nBoard: —"
+        msg += f"\nPot: {_T['pot']:,} coins"
+        await _w(bot, user.id, msg[:249])
+        print(f"[POKER V2 HAND] @{username} cards_found=true phase={_T['phase']}")
         return
-    cstr = _fcs(p["cards"])
-    msg  = f"Your cards: {cstr}"
-    board = _T.get("board", [])
-    if board:
-        msg += f"\nBoard: {_board_str()}"
-    else:
-        msg += "\nBoard: —"
-    msg += f"\nPot: {_T['pot']:,} coins"
-    await _w(bot, user.id, msg)
+    await _w(bot, user.id, "No cards found for this hand yet.")
+    print(f"[POKER V2 HAND] @{username} cards_found=false phase={_T['phase']}")
 
 # ── !table ─────────────────────────────────────────────────────────────────────
 async def _cmd_table(bot: BaseBot, user: User) -> None:

@@ -1,0 +1,173 @@
+Poker V2 Critical Fix — Stop Cancelling The Hand Start Task
+
+I pushed the latest fix, but Poker V2 still fails.
+
+Live proof:
+- Poker hand #1 is announced.
+- SB/BB/Pot are announced.
+- Player types !hand.
+- Bot says “No active hand yet.”
+
+GitHub review:
+In modules/poker_v2.py:
+_start_hand_countdown() awaits _start_hand(bot)
+
+But _start_hand(bot) still calls:
+_cancel_all_tasks()
+
+_cancel_all_tasks() calls:
+_cancel_countdown_task()
+
+_cancel_countdown_task() cancels _T["countdown_task"]
+
+That countdown task is the same task currently running _start_hand(bot).
+
+This can cancel/interrupt the hand start before it finishes setting the hand active and making cards available.
+
+Goal:
+Fix the self-cancel bug permanently.
+
+Do NOT modify:
+- blackjack
+- jail
+- Luxe Tickets
+- tips
+- workflows
+- other games
+
+PART 1 — Fix _cancel_countdown_task
+
+Replace _cancel_countdown_task with:
+
+def _cancel_countdown_task() -> None:
+    t = _T.get("countdown_task")
+    current = None
+    try:
+        current = asyncio.current_task()
+    except RuntimeError:
+        current = None
+
+    if t and not t.done() and t is not current:
+        t.cancel()
+
+    _T["countdown_task"] = None
+
+Important:
+Never cancel the current task.
+
+PART 2 — Fix _start_hand
+
+Inside _start_hand(bot), remove:
+
+_cancel_all_tasks()
+
+Replace it with:
+
+_cancel_turn_task()
+_T["countdown_task"] = None
+
+Important:
+_start_hand must not call _cancel_all_tasks().
+_start_hand must not cancel the countdown task that launched it.
+
+PART 3 — Set active phase before public hand message
+
+In _start_hand(), after cards are dealt and first actor is selected, set these BEFORE sending the public Poker hand # message:
+
+_T["phase"] = "preflop"
+_T["first_turn_ready"] = True
+_T["current_turn_username"] = first_actor
+
+This guarantees !hand works immediately after players see “Poker hand #1.”
+
+PART 4 — Make !hand ignore phase if cards exist
+
+In _cmd_hand(), change the logic:
+
+If the user is in _T["players"] and player["cards"] exists:
+    show cards immediately
+    return
+
+Only say “No active hand yet” if the player has no cards.
+
+Use:
+
+async def _cmd_hand(bot, user):
+    username = user.username.lower()
+
+    if username not in _T["players"]:
+        await _w(bot, user.id, "You are not at the poker table.")
+        return
+
+    p = _T["players"][username]
+    cards = p.get("cards", [])
+
+    if len(cards) == 2:
+        msg = f"Your cards: {_fcs(cards)}"
+        msg += f"\nBoard: {_board_str()}"
+        msg += f"\nPot: {_T['pot']:,} coins"
+        await _w(bot, user.id, msg)
+        print(f"[POKER V2 HAND] user=@{username} cards_found=true phase={_T['phase']}")
+        return
+
+    await _w(bot, user.id, "No cards found for this hand yet.")
+    print(f"[POKER V2 HAND] user=@{username} cards_found=false phase={_T['phase']}")
+
+PART 5 — Add hand-start exception logging
+
+Wrap _start_hand body with try/except so silent errors show:
+
+async def _start_hand(bot):
+    try:
+        ...
+    except asyncio.CancelledError:
+        print("[POKER V2 START ERROR] start_hand was cancelled")
+        raise
+    except Exception as e:
+        print(f"[POKER V2 START ERROR] {e!r}")
+        _T["phase"] = "waiting"
+        await _chat(bot, "Poker hand failed to start. Table reset.")
+        return
+
+PART 6 — Compile and test
+
+Run:
+
+python -m py_compile modules/poker_v2.py
+python -m py_compile main.py
+
+Restart bots.
+
+Test:
+Player 1:
+!join 5000
+
+Player 2:
+!join 5000
+
+Expected:
+Poker hand #1.
+SB...
+BB...
+Pot...
+
+Immediately type:
+!hand
+
+Expected:
+Your cards: [two cards]
+Board: —
+Pot: 150 coins
+
+If it fails, check console logs for:
+[POKER V2 START ERROR]
+[POKER V2 START ERROR] start_hand was cancelled
+
+Final report:
+1. _cancel_countdown_task no longer cancels current task
+2. _start_hand no longer calls _cancel_all_tasks
+3. phase is set preflop before public hand message
+4. !hand ignores phase if cards exist
+5. py_compile result
+6. !hand test result
+7. bot stability result
