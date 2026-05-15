@@ -51,75 +51,38 @@ def jail_block_message(user_id: str) -> str:
 
 async def enforce_jail_on_rejoin(bot: "BaseBot", user_id: str, username: str) -> None:
     """
-    Called from on_user_join.
+    Called from on_user_join (via SecurityBot ownership guard).
     Re-teleports player to jail if they still have time remaining.
-    Never raises — all errors are caught and logged.
     """
-    # ── Security bot gate (defence-in-depth; on_user_join already gates via
-    #    should_this_bot_run_module("jail") → security, but this makes the
-    #    function self-defending if called from another path) ─────────────────
-    try:
-        from modules.securitybot_jail import is_security_bot as _is_sec
-        if not _is_sec():
-            print(f"[JAIL REJOIN] skipped_not_security_bot=true user={username!r}")
-            return
-    except Exception:
-        return
-
     if not rejoin_enforce():
         return
-
-    # ── Look up active sentence ───────────────────────────────────────────────
-    try:
-        s = get_active_sentence(user_id)
-    except Exception as e:
-        print(f"[JAIL REJOIN ERROR] ignored: {e!r}")
-        return
+    s = get_active_sentence(user_id)
     if not s:
         return
-
     now = time.time()
     if now >= s["end_ts"]:
-        try:
-            mark_expired(s["id"])
-        except Exception:
-            pass
-        print(f"[JAIL REJOIN] expired_while_away user={username!r}")
+        mark_expired(s["id"])
         return
-
-    remaining = max(0, int(s["end_ts"] - now))
-    print(f"[JAIL REJOIN] user={username!r} active=true remaining={remaining}s")
-
     await asyncio.sleep(2.0)
-
-    # ── Teleport back to jail spot ────────────────────────────────────────────
-    spot_key = jail_spot_name()
     try:
         import database as db
         from highrise.models import Position
-        spawn = db.get_spawn(spot_key)
+        spawn = db.get_spawn(jail_spot_name())
         if spawn:
             pos = Position(spawn["x"], spawn["y"], spawn["z"], spawn["facing"])
             await bot.highrise.teleport(user_id, pos)
-            print(f"[JAIL REJOIN] teleport_back=true spot={spot_key}")
-        else:
-            print(f"[JAIL REJOIN] no_spot user={username!r} spot={spot_key} — skipping teleport")
-    except Exception as e:
-        print(f"[JAIL REJOIN ERROR] ignored: {e!r}")
-
-    # ── Whisper remaining time ────────────────────────────────────────────────
-    try:
-        secs2 = max(0, int(s["end_ts"] - time.time()))
-        m = secs2 // 60
-        sec_ = secs2 % 60
+        secs = int(s["end_ts"] - time.time())
+        bail = s["bail_cost"]
+        m = secs // 60; sec_ = secs % 60
         time_str = f"{m}m {sec_}s" if m else f"{sec_}s"
         msg = (
-            f"\U0001f6a8 You are still jailed for {time_str}. "
-            f"Returned to jail. Type !bail to leave early."
+            f"\U0001f6a8 You're still jailed for {time_str}. "
+            f"Bail: {bail} \U0001f3ab. Type !bail."
         )[:249]
         await bot.highrise.send_whisper(user_id, msg)
+        print(f"[JAIL ENFORCE] re-jailed on rejoin: {username!r} secs={secs}")
     except Exception as e:
-        print(f"[JAIL REJOIN ERROR] ignored: {e!r}")
+        print(f"[JAIL ENFORCE REJOIN] error user={username!r} err={e!r}")
 
 
 async def jail_expiry_loop(bot: "BaseBot") -> None:
