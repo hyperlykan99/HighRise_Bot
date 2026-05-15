@@ -344,7 +344,11 @@ async def _do_purchase(
         await _w(bot, user.id, f"⚠️ Item not found. Use !luxeshop.")
         return
 
-    price = get_luxe_price(item_key)
+    cat = info[2]
+    if cat == "coins":
+        price, _ = get_coinpack(item_key)
+    else:
+        price = get_luxe_price(item_key)
     total = price * qty
     bal   = get_luxe_balance(user.id)
 
@@ -363,7 +367,6 @@ async def _do_purchase(
                          f"{item_key} x{qty}")
 
     # Deliver
-    cat = info[2]
     if cat == "vip":
         for _ in range(qty):
             await _deliver_vip(bot, user)

@@ -1,0 +1,113 @@
+Fix Luxe coinpack purchase cost mismatch.
+
+Current issue:
+!luxeshop shows:
+10. Small Coins — 100 🎫 = 1,000 🪙
+11. Medium Coins — 500 🎫 = 5,750 🪙
+12. Large Coins — 5,000 🎫 = 65,000 🪙
+
+But when buying:
+!buyluxe 12
+
+It charges only 250 🎫 and gives 65,000 🪙.
+
+Cause:
+In modules/luxe.py, _do_purchase() uses:
+price = get_luxe_price(item_key)
+
+That works for VIP, auto time, and boosts.
+But for coin packs, price must come from:
+get_coinpack(item_key)[0]
+
+Goal:
+For coin packs only:
+- cost must use get_coinpack(item_key)[0]
+- reward must use get_coinpack(item_key)[1]
+
+Fix _do_purchase in modules/luxe.py.
+
+Current logic probably does:
+price = get_luxe_price(item_key)
+total = price * qty
+
+Change to:
+
+cat = info[2]
+
+if cat == "coins":
+    coin_cost, coin_reward = get_coinpack(item_key)
+    price = coin_cost
+else:
+    price = get_luxe_price(item_key)
+
+total = price * qty
+
+Then continue normal balance check and deduction.
+
+Important:
+- Small coins should charge 100 🎫 and give 1,000 🪙
+- Medium coins should charge 500 🎫 and give 5,750 🪙
+- Large coins should charge 5,000 🎫 and give 65,000 🪙
+- Do not use get_luxe_price() for coin packs anymore.
+- Do not change non-coin Luxe items.
+- Do not change jail.
+- Do not change blackjack.
+- Do not change workflows.
+
+Also update purchase confirmation if needed:
+For coins:
+✅ Conversion Complete
+Spent: 5,000 🎫
+Received: 65,000 🪙
+
+Tests:
+1. Run:
+python -m py_compile modules/luxe.py
+python -m py_compile main.py
+
+2. Restart bots.
+
+3. Check:
+!luxeshop coins
+or
+!buycoins
+
+Expected:
+small: 100 🎫 = 1,000 🪙
+medium: 500 🎫 = 5,750 🪙
+large: 5,000 🎫 = 65,000 🪙
+
+4. Before buying:
+!bal
+
+5. Buy large:
+!buyluxe 12
+
+Expected:
+Luxe Tickets decrease by 5,000
+Coins increase by 65,000
+Message:
+Spent: 5,000 🎫
+Received: 65,000 🪙
+
+6. Buy medium:
+!buyluxe 11
+
+Expected:
+Luxe Tickets decrease by 500
+Coins increase by 5,750
+
+7. Buy small:
+!buyluxe 10
+
+Expected:
+Luxe Tickets decrease by 100
+Coins increase by 1,000
+
+Final report:
+1. File changed
+2. _do_purchase coinpack cost fix
+3. Large pack purchase test result
+4. Medium pack purchase test result
+5. Small pack purchase test result
+6. Bot stability result
