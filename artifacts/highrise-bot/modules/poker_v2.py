@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import random
+import time
 import uuid
 from itertools import combinations
 from collections import Counter
@@ -97,6 +98,7 @@ _T: dict = {
     "hand_number":          0,
     "first_turn_ready":     False,
     "turn_seconds":         30,
+    "dealing_started_at":   0.0,
 }
 
 def _new_player(user_id: str, username: str, stack: int) -> dict:
@@ -566,9 +568,10 @@ async def _start_hand(bot: BaseBot) -> None:
         return
 
     _cancel_all_tasks()
-    _T["phase"]            = "dealing"
-    _T["first_turn_ready"] = False
-    _T["hand_number"]     += 1
+    _T["phase"]              = "dealing"
+    _T["first_turn_ready"]   = False
+    _T["dealing_started_at"] = time.time()
+    _T["hand_number"]       += 1
     _T["hand_id"]          = f"pkv2_{uuid.uuid4().hex[:10]}"
 
     print(f"[POKER V2] hand_start players={len(seated)} hand={_T['hand_number']}")
@@ -644,12 +647,15 @@ async def _start_hand(bot: BaseBot) -> None:
     await _chat(bot, blind_msg)
     await asyncio.sleep(3)
 
+    print(f"[POKER V2] blinds posted sb={sb_user}:{actual_sb} bb={bb_user}:{actual_bb} pot={_T['pot']}")
+
     # Whisper cards to every player
+    print("[POKER V2] whisper all players start")
     for u in seated:
-        p        = _T["players"][u]
-        cstr     = _fcs(p["cards"])
-        sent     = await _w(bot, p["user_id"], f"Your cards: {cstr}")
-        print(f"[POKER V2] cards_dealt user={u} ok={str(sent).lower()}")
+        p    = _T["players"][u]
+        cstr = _fcs(p["cards"])
+        sent = await _w(bot, p["user_id"], f"Your cards: {cstr}")
+        print(f"[POKER V2] whisper user=@{u} ok={str(sent).lower()}")
 
     # First actor preflop: UTG (left of BB); heads-up: SB acts first
     if n == 2:
@@ -659,8 +665,13 @@ async def _start_hand(bot: BaseBot) -> None:
     first_actor = seated[first_preflop_idx]
     first_p     = _T["players"][first_actor]
 
-    # Hard gate: whisper first actor — cancel hand if it fails
-    owe  = max(0, _T["current_bet"] - first_p["current_bet"])
+    print(f"[POKER V2] first actor=@{first_actor}")
+    await _open_first_turn(bot, first_actor, first_p)
+
+# ── Open first turn (non-blocking, open even if whisper fails) ─────────────────
+async def _open_first_turn(bot: BaseBot, first_actor: str, first_p: dict) -> None:
+    """Whisper first actor's cards, then open preflop. Never stays in dealing."""
+    owe = max(0, _T["current_bet"] - first_p["current_bet"])
     cstr = _fcs(first_p["cards"])
     pot  = _T["pot"]
     if owe > 0:
@@ -678,38 +689,27 @@ async def _start_hand(bot: BaseBot) -> None:
         )
 
     gate_ok = await _w(bot, first_p["user_id"], gate_msg)
-    print(
-        f"[POKER V2] first_actor user={first_actor} "
-        f"whisper_ok={str(gate_ok).lower()} "
-        f"gate_open={str(gate_ok).lower()}"
-    )
+    print(f"[POKER V2] first whisper ok={str(gate_ok).lower()}")
 
     if not gate_ok:
-        # Cancel hand — refund blind contributions to stacks
-        await _chat(bot, "Poker hand cancelled. Could not deliver cards.")
-        for u in seated:
-            p = _T["players"][u]
-            p["stack"]             += p["total_contributed"]
-            p["current_bet"]        = 0
-            p["total_contributed"]  = 0
-            p["status"]             = "waiting"
-            p["cards"]              = []
-        _T["pot"]            = 0
-        _T["current_bet"]    = 0
-        _T["phase"]          = "waiting"
-        _T["hand_id"]        = None
-        _T["first_turn_ready"] = False
-        return
+        print("[POKER V2] first card whisper failed, opening turn anyway")
+        try:
+            await bot.highrise.send_whisper(
+                first_p["user_id"],
+                "Could not auto-send your cards. Type !hand to view them."
+            )
+        except Exception:
+            pass
 
-    # Open preflop action
     secs = _T.get("turn_seconds", 30)
-    await _chat(bot, f"@{first_actor}'s turn. {secs}s")
-
     _T["phase"]                 = "preflop"
     _T["current_turn_username"] = first_actor
     _T["first_turn_ready"]      = True
     _cancel_turn_task()
     _T["turn_timer_task"] = asyncio.create_task(_turn_timeout(bot, first_actor))
+    await _chat(bot, f"@{first_actor}'s turn. {secs}s")
+    print(f"[POKER V2] phase=preflop first_turn_ready=true opening turn anyway=true")
+
 
 # ── Action guard ───────────────────────────────────────────────────────────────
 async def _action_guard(bot: BaseBot, user: User) -> bool:
@@ -719,6 +719,23 @@ async def _action_guard(bot: BaseBot, user: User) -> bool:
 
     if phase not in ("preflop", "flop", "turn", "river"):
         if phase == "dealing":
+            # Safety: if stuck in dealing > 10s, force-open first turn
+            elapsed = time.time() - _T.get("dealing_started_at", 0.0)
+            if elapsed > 10 and username in _T["players"] and _T["players"][username].get("cards"):
+                seated = _seated()
+                n = len(seated)
+                if n >= 2:
+                    dealer_idx = _T["dealer_index"]
+                    if n == 2:
+                        first_idx = dealer_idx
+                    else:
+                        bb_idx    = (dealer_idx + 2) % n
+                        first_idx = (bb_idx + 1) % n
+                    first_actor = seated[first_idx]
+                    first_p     = _T["players"][first_actor]
+                    print(f"[POKER V2] force_open_first_turn after {elapsed:.1f}s stuck in dealing")
+                    await _open_first_turn(bot, first_actor, first_p)
+                    return _T["current_turn_username"] == username
             await _w(bot, user.id, "Dealer is preparing the hand. Please wait.")
         else:
             await _w(bot, user.id, "No active poker hand.")
@@ -969,17 +986,25 @@ async def _cmd_allin(bot: BaseBot, user: User) -> None:
 # ── !hand ──────────────────────────────────────────────────────────────────────
 async def _cmd_hand(bot: BaseBot, user: User) -> None:
     username = user.username.lower()
-    if _T["phase"] not in ("preflop", "flop", "turn", "river"):
+    # Allow !hand during dealing so players who didn't get auto-whisper can still see cards
+    if _T["phase"] not in ("preflop", "flop", "turn", "river", "dealing"):
         await _w(bot, user.id, "No active hand yet.")
         return
-    if username not in _T["players"] or not _T["players"][username]["cards"]:
-        await _w(bot, user.id, "You are not in the current hand.")
+    if username not in _T["players"]:
+        await _w(bot, user.id, "You are not at the poker table.")
         return
-    p    = _T["players"][username]
+    # Read cards from in-memory player state (source of truth)
+    p = _T["players"][username]
+    if not p.get("cards"):
+        await _w(bot, user.id, "Your cards are not yet dealt. Please wait.")
+        return
     cstr = _fcs(p["cards"])
     msg  = f"Your cards: {cstr}"
-    if _T["board"]:
+    board = _T.get("board", [])
+    if board:
         msg += f"\nBoard: {_board_str()}"
+    else:
+        msg += "\nBoard: —"
     msg += f"\nPot: {_T['pot']:,} coins"
     await _w(bot, user.id, msg)
 
@@ -997,6 +1022,25 @@ async def _cmd_table(bot: BaseBot, user: User) -> None:
         await _w(bot, user.id,
             f"Poker table:\nNext hand starting soon.\nPlayers: {cnt}")
     elif phase == "dealing":
+        elapsed = time.time() - _T.get("dealing_started_at", 0.0)
+        if elapsed > 10:
+            # Stuck — force-open first turn now
+            seated = _seated()
+            n = len(seated)
+            if n >= 2:
+                dealer_idx = _T["dealer_index"]
+                if n == 2:
+                    first_idx = dealer_idx
+                else:
+                    bb_idx    = (dealer_idx + 2) % n
+                    first_idx = (bb_idx + 1) % n
+                first_actor = seated[first_idx]
+                first_p     = _T["players"][first_actor]
+                await _w(bot, user.id,
+                    f"Poker table:\nOpening first turn now.\nPlayers: {cnt}")
+                print(f"[POKER V2] table_cmd force_open after {elapsed:.1f}s")
+                await _open_first_turn(bot, first_actor, first_p)
+                return
         await _w(bot, user.id,
             f"Poker table:\nDealer is preparing the hand.\nPlayers: {cnt}")
     elif phase in ("preflop", "flop", "turn", "river"):
