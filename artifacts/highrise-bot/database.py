@@ -2229,6 +2229,31 @@ def _migrate_db():
         )""",
         "CREATE INDEX IF NOT EXISTS idx_ltl_user_id ON luxe_ticket_logs(user_id, created_at)",
         "CREATE INDEX IF NOT EXISTS idx_ltl_ref_id  ON luxe_ticket_logs(ref_id)",
+        # ── Manual-subscribe-only notification subscriptions ──────────────────
+        """CREATE TABLE IF NOT EXISTS notification_subscriptions (
+            user_id       TEXT PRIMARY KEY,
+            username      TEXT NOT NULL DEFAULT '',
+            subscribed    INTEGER NOT NULL DEFAULT 0,
+            events        INTEGER NOT NULL DEFAULT 1,
+            games         INTEGER NOT NULL DEFAULT 1,
+            announcements INTEGER NOT NULL DEFAULT 1,
+            promos        INTEGER NOT NULL DEFAULT 1,
+            tips          INTEGER NOT NULL DEFAULT 0,
+            source        TEXT NOT NULL DEFAULT 'manual',
+            created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
+        )""",
+        "CREATE INDEX IF NOT EXISTS idx_ns_subscribed ON notification_subscriptions(subscribed)",
+        # ── Notification action log ────────────────────────────────────────────
+        """CREATE TABLE IF NOT EXISTS notification_action_logs (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            action     TEXT NOT NULL DEFAULT '',
+            user_id    TEXT NOT NULL DEFAULT '',
+            username   TEXT NOT NULL DEFAULT '',
+            category   TEXT NOT NULL DEFAULT '',
+            details    TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )""",
     ]:
         try:
             conn.execute(sql)
@@ -6299,6 +6324,164 @@ def get_luxe_ticket_logs(
     except Exception as e:
         print(f"[LUXE LOG] get_luxe_ticket_logs error: {e!r}")
         return []
+
+
+# ── Notification subscription helpers (manual subscribe only) ─────────────────
+
+_NOTIF_CATEGORIES = ("events", "games", "announcements", "promos", "tips")
+
+
+def ensure_notification_subscription(user_id: str, username: str) -> None:
+    """Create a notification_subscriptions row if not present. Never raises."""
+    try:
+        conn = get_connection()
+        conn.execute(
+            """INSERT OR IGNORE INTO notification_subscriptions
+               (user_id, username, subscribed, events, games, announcements, promos, tips,
+                source, created_at, updated_at)
+               VALUES (?, ?, 0, 1, 1, 1, 1, 0, 'manual', datetime('now'), datetime('now'))""",
+            (user_id, username.lower()),
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[NOTIFY] ensure_notification_subscription error: {e!r}")
+
+
+def get_notification_subscription(user_id: str) -> dict:
+    """Return the notification_subscriptions row for user_id, or an empty dict."""
+    try:
+        conn = get_connection()
+        row = conn.execute(
+            "SELECT * FROM notification_subscriptions WHERE user_id=?", (user_id,)
+        ).fetchone()
+        conn.close()
+        return dict(row) if row else {}
+    except Exception as e:
+        print(f"[NOTIFY] get_notification_subscription error: {e!r}")
+        return {}
+
+
+def set_notification_subscribed(
+    user_id: str, username: str, subscribed: bool, source: str = "manual"
+) -> None:
+    """Upsert subscription status. source must always be 'manual'. Never raises."""
+    if source != "manual":
+        print(f"[NOTIFY] BLOCKED non-manual subscription source={source!r} for uid={user_id[:12]}")
+        return
+    try:
+        conn = get_connection()
+        conn.execute(
+            """INSERT INTO notification_subscriptions
+               (user_id, username, subscribed, source, updated_at)
+               VALUES (?, ?, ?, 'manual', datetime('now'))
+               ON CONFLICT(user_id) DO UPDATE SET
+                 subscribed=excluded.subscribed,
+                 source='manual',
+                 updated_at=excluded.updated_at""",
+            (user_id, username.lower(), 1 if subscribed else 0),
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[NOTIFY] set_notification_subscribed error: {e!r}")
+
+
+def set_notification_category(
+    user_id: str, username: str, category: str, enabled: bool
+) -> None:
+    """Enable/disable a specific notification category. Never raises."""
+    if category not in _NOTIF_CATEGORIES:
+        print(f"[NOTIFY] set_notification_category: invalid category {category!r}")
+        return
+    try:
+        conn = get_connection()
+        conn.execute(
+            f"""INSERT INTO notification_subscriptions
+               (user_id, username, {category}, updated_at)
+               VALUES (?, ?, ?, datetime('now'))
+               ON CONFLICT(user_id) DO UPDATE SET
+                 {category}=excluded.{category},
+                 updated_at=excluded.updated_at""",
+            (user_id, username.lower(), 1 if enabled else 0),
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[NOTIFY] set_notification_category error: {e!r}")
+
+
+def is_notification_allowed(user_id: str, category: str) -> bool:
+    """Return True if user is subscribed and the category is enabled."""
+    try:
+        row = get_notification_subscription(user_id)
+        if not row:
+            return False
+        if not row.get("subscribed"):
+            return False
+        return bool(row.get(category, 1))
+    except Exception:
+        return False
+
+
+def get_subscribed_users_for_category(category: str) -> list:
+    """Return all users subscribed=1 AND category=1."""
+    try:
+        conn = get_connection()
+        if category not in _NOTIF_CATEGORIES:
+            conn.close()
+            return []
+        rows = conn.execute(
+            f"SELECT user_id, username FROM notification_subscriptions "
+            f"WHERE subscribed=1 AND {category}=1",
+        ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+    except Exception as e:
+        print(f"[NOTIFY] get_subscribed_users_for_category error: {e!r}")
+        return []
+
+
+def get_notification_subscription_counts() -> dict:
+    """Return aggregate counts for admin !subcount command."""
+    try:
+        conn = get_connection()
+        total = conn.execute(
+            "SELECT COUNT(*) FROM notification_subscriptions WHERE subscribed=1"
+        ).fetchone()[0]
+        counts = {"total": total}
+        for cat in _NOTIF_CATEGORIES:
+            counts[cat] = conn.execute(
+                f"SELECT COUNT(*) FROM notification_subscriptions "
+                f"WHERE subscribed=1 AND {cat}=1"
+            ).fetchone()[0]
+        conn.close()
+        return counts
+    except Exception as e:
+        print(f"[NOTIFY] get_notification_subscription_counts error: {e!r}")
+        return {"total": 0}
+
+
+def insert_notification_action_log(
+    action: str,
+    user_id: str = "",
+    username: str = "",
+    category: str = "",
+    details: str = "",
+) -> None:
+    """Write one row to notification_action_logs. Never raises."""
+    try:
+        conn = get_connection()
+        conn.execute(
+            """INSERT INTO notification_action_logs
+               (action, user_id, username, category, details, created_at)
+               VALUES (?, ?, ?, ?, ?, datetime('now'))""",
+            (action, user_id, username.lower() if username else "", category, details),
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[NOTIFY] insert_notification_action_log error: {e!r}")
 
 
 def get_tip_settings() -> dict:

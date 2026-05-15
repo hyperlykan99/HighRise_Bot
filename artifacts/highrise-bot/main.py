@@ -193,6 +193,20 @@ from modules.notifications import (
     handle_debugnotify, handle_testnotify,
     handle_testnotifyall, handle_pendingnotify, handle_clearpendingnotify,
 )
+from modules.notif_v2 import (
+    handle_notifysettings_v2,
+    handle_notify_v2,
+    handle_notifyhelp_player,
+    handle_announcement,
+    handle_promo,
+    handle_eventalert,
+    handle_gamealert,
+    handle_tipalert,
+    handle_substatus_admin,
+    handle_subcount,
+    handle_unsubuser,
+    handle_notifyadmin_help,
+)
 from modules.maintenance         import (
     handle_botstatus, handle_dbstats,
     handle_maintenance, handle_reloadsettings, handle_cleanup,
@@ -1046,10 +1060,12 @@ ALL_KNOWN_COMMANDS = (
         "delivernotifications", "pendingnotifications",
         "subscribe", "sub", "unsubscribe", "unsub", "substatus", "subhelp",
         "notif", "notifon", "notifoff", "notifstatus", "notifpreview",
-        "notifysettings", "notify", "notifyhelp",
+        "notifysettings", "alerts", "notify", "notifyhelp", "notifyhelp2",
         "notifystats", "notifyprefs", "notifyuser", "broadcasttest",
         "debugnotify", "testnotify", "testnotifyall",
         "pendingnotify", "clearpendingnotify",
+        "announcement", "promo", "eventalert", "gamealert", "tipalert",
+        "subcount", "unsubuser", "notifyadmin",
         "dailyadmin",
         "rules", "setrules", "automod",
         "announce_subs", "announce_vip", "announce_staff", "dmnotify",
@@ -4875,14 +4891,41 @@ class HangoutBot(BaseBot):
         elif cmd == "clearnotifications":
             await handle_clearnotifications(self, user, args)
 
-        elif cmd == "notifysettings":
-            await handle_notifysettings(self, user, args)
+        elif cmd in {"notifysettings", "alerts"}:
+            await handle_notifysettings_v2(self, user)
 
         elif cmd == "notify":
-            await handle_notify(self, user, args)
+            await handle_notify_v2(self, user, args)
 
         elif cmd == "notifyhelp":
             await handle_notifyhelp(self, user, args)
+
+        elif cmd == "notifyhelp2":
+            await handle_notifyhelp_player(self, user)
+
+        elif cmd == "announcement":
+            await handle_announcement(self, user, args)
+
+        elif cmd == "promo":
+            await handle_promo(self, user, args)
+
+        elif cmd == "eventalert":
+            await handle_eventalert(self, user, args)
+
+        elif cmd == "gamealert":
+            await handle_gamealert(self, user, args)
+
+        elif cmd == "tipalert":
+            await handle_tipalert(self, user, args)
+
+        elif cmd == "subcount":
+            await handle_subcount(self, user)
+
+        elif cmd == "unsubuser":
+            await handle_unsubuser(self, user, args)
+
+        elif cmd == "notifyadmin":
+            await handle_notifyadmin_help(self, user)
 
         elif cmd == "delivernotifications":
             await handle_delivernotifications(self, user, args)
@@ -4897,7 +4940,10 @@ class HangoutBot(BaseBot):
             await handle_unsubscribe(self, user, args)
 
         elif cmd == "substatus":
-            await handle_substatus(self, user, args)
+            if args and len(args) >= 2:
+                await handle_substatus_admin(self, user, args)
+            else:
+                await handle_substatus(self, user, args)
 
         elif cmd == "subscribers":
             await handle_subscribers(self, user, args)

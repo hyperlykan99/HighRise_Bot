@@ -374,18 +374,8 @@ async def process_tip_event(bot: BaseBot, sender: User, receiver: User, tip) -> 
         except Exception as _ae:
             print(f"[TIP] Ack whisper error: {_ae!r}")
 
-        # ── Subscribe hint only — no auto-subscribe from tip ─────────────────
-        try:
-            existing_sub = db.get_subscriber(sender.username.lower())
-            if not (existing_sub and existing_sub.get("subscribed")):
-                await _whisper(
-                    bot, sender.id,
-                    "💛 Thank you for the support!\n"
-                    "To receive room notifications, DM me:\n"
-                    "!subscribe"
-                )
-        except Exception as sub_exc:
-            print(f"[TIP] notify-hint error: {sub_exc!r}")
+        # [NOTIFY] tip_no_autosubscribe — tip flow never subscribes or hints
+        print(f"[NOTIFY] tip_no_autosubscribe user=@{sender.username}")
 
     except Exception as exc:
         record_debug_error(repr(exc))

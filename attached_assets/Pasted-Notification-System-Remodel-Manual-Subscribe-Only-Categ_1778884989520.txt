@@ -1,0 +1,675 @@
+Notification System Remodel — Manual Subscribe Only + Categories + Broadcasts
+
+Current issue:
+Tipping still auto-subscribes players and repeatedly DMs:
+
+✅ Alerts ON. Use notifysettings to choose alerts. Stop: reply unsubscribe.
+
+This must stop.
+
+Goal:
+Rebuild/clean the notification system so:
+1. Players only subscribe manually.
+2. Tipping never auto-subscribes anyone.
+3. Notifications are direct messages/whispers.
+4. Notification categories are configurable.
+5. Owner/admin can send announcements, promos, events, games, and tip alerts.
+6. Bank transfer notifications stay separate and always send as transactional messages.
+
+Do NOT modify:
+- Poker V2
+- blackjack
+- jail logic
+- Luxe Ticket conversion except removing notification auto-subscribe from tip flow
+- bank transfer transactional notifications except making sure they bypass subscription checks
+- unrelated games
+
+Only modify:
+- notification / alert modules
+- DM command handling
+- help text
+- tip handler only where it triggers notification auto-subscribe
+- database.py if safe migration is needed
+- main.py only if routing is needed
+
+==================================================
+PART 1 — Remove Tip Auto-Subscribe
+==================================================
+
+Search entire project for notification auto-subscribe logic.
+
+Search terms:
+autosubscribe
+auto_subscribe
+subscribe
+subscribed
+Alerts ON
+notifysettings
+unsubscribe
+enabledm
+enable dm
+tip
+tip_reaction
+gold tip
+notification
+
+Remove or disable any code path where:
+- player tips bot
+- bot calls subscribe / enable alerts / enable DM notifications
+- bot sends “Alerts ON” automatically
+- bot creates notification subscription after tip
+
+Tip flow should only:
+- award Luxe Tickets
+- send tip acknowledgement
+- log tip
+
+Tip flow should NOT:
+- subscribe user
+- enable alerts
+- DM “Alerts ON”
+- DM notifysettings
+- change notification settings
+
+Add log:
+[NOTIFY] tip_no_autosubscribe user=@Player
+
+==================================================
+PART 2 — Manual Subscribe Only
+==================================================
+
+Players subscribe manually only.
+
+Commands:
+!sub
+!subscribe
+
+Preferred:
+Player sends the bot a direct message/whisper:
+!sub
+
+Reply:
+
+✅ Alerts ON.
+Use !notifysettings to choose alerts.
+Use !unsub to stop.
+
+If player types !sub in public room chat:
+Whisper only:
+Send me !sub in DM to subscribe to notifications.
+
+Or allow public !sub, but never reply publicly.
+
+If player is already subscribed:
+You are already subscribed.
+Use !notifysettings to edit alerts or !unsub to stop.
+
+Do not send repeated Alerts ON messages.
+
+==================================================
+PART 3 — Manual Unsubscribe
+==================================================
+
+Commands:
+!unsub
+!unsubscribe
+unsubscribe
+stop
+
+Reply:
+
+✅ Alerts OFF.
+You are unsubscribed.
+Use !sub to subscribe again.
+
+Unsubscribe should work in DM and public chat, but reply privately if possible.
+
+If player replies “unsubscribe” or “stop,” it must actually unsubscribe them.
+
+==================================================
+PART 4 — Notification Categories
+==================================================
+
+Add notification categories:
+
+events
+games
+announcements
+promos
+tips
+
+Aliases:
+promos = promotions
+announcements = announcement
+events = event
+games = game
+tips = tip
+
+Default settings after manual !sub:
+
+subscribed = ON
+events = ON
+games = ON
+announcements = ON
+promos = ON
+tips = OFF
+
+Tips default OFF because tip alerts may be spammy.
+
+==================================================
+PART 5 — Notification Settings Command
+==================================================
+
+Commands:
+!notifysettings
+!notifications
+!alerts
+
+Reply:
+
+🔔 Notification Settings
+Status: ON
+Events: ON
+Games: ON
+Announcements: ON
+Promos: ON
+Tips: OFF
+
+Commands:
+!notify events on/off
+!notify games on/off
+!notify announcements on/off
+!notify promos on/off
+!notify tips on/off
+
+Keep under 249 characters. Split into two messages if needed.
+
+If not subscribed:
+Status: OFF
+Use !sub to subscribe.
+
+==================================================
+PART 6 — Change Category Settings
+==================================================
+
+Command:
+
+!notify [category] [on/off]
+
+Examples:
+!notify events on
+!notify games off
+!notify announcements on
+!notify promos off
+!notify tips on
+
+Rules:
+- User must be subscribed first.
+- Category must be valid.
+- on/off must be valid.
+- Save settings.
+
+Messages:
+✅ Events alerts ON.
+✅ Games alerts OFF.
+✅ Announcements alerts ON.
+✅ Promo alerts OFF.
+✅ Tip alerts ON.
+
+Invalid category:
+Use: !notify events/games/announcements/promos/tips on/off
+
+Invalid value:
+Use: !notify events on or !notify events off
+
+==================================================
+PART 7 — Subscription Database
+==================================================
+
+If database.py can be safely modified, add:
+
+CREATE TABLE IF NOT EXISTS notification_subscriptions (
+    user_id TEXT PRIMARY KEY,
+    username TEXT DEFAULT '',
+    subscribed INTEGER DEFAULT 0,
+    events INTEGER DEFAULT 1,
+    games INTEGER DEFAULT 1,
+    announcements INTEGER DEFAULT 1,
+    promos INTEGER DEFAULT 1,
+    tips INTEGER DEFAULT 0,
+    source TEXT DEFAULT 'manual',
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+);
+
+Rules:
+- subscribed = 1 only from manual !sub / !subscribe
+- subscribed = 0 from !unsub / unsubscribe / stop
+- source must be manual
+- never set source = tip
+- never create subscribed=1 from tip events
+
+If DB fails:
+- do not crash bot
+- print warning
+- safe default: not subscribed
+
+==================================================
+PART 8 — Notification Helpers
+==================================================
+
+Create or clean helpers:
+
+get_notification_subscription(user_id)
+set_notification_subscribed(user_id, username, subscribed)
+set_notification_category(user_id, category, enabled)
+is_notification_allowed(user_id, category)
+get_subscribed_users_for_category(category)
+
+Broadcast checks:
+Only send if:
+subscribed = 1
+AND category = 1
+
+If not subscribed:
+skip
+
+If category off:
+skip
+
+Log skipped reason:
+[NOTIFY] skipped user=@Player reason=not_subscribed
+[NOTIFY] skipped user=@Player reason=category_off category=promos
+
+==================================================
+PART 9 — Owner/Admin Broadcast Commands
+==================================================
+
+Add owner/admin-only commands:
+
+!announce [message]
+!announcement [message]
+!promo [message]
+!eventalert [message]
+!gamealert [message]
+!tipalert [message]
+
+Category mapping:
+!announce / !announcement → announcements
+!promo → promos
+!eventalert → events
+!gamealert → games
+!tipalert → tips
+
+Broadcast rules:
+- send DM/whisper only
+- do not public spam
+- send only to subscribed users with that category ON
+- keep each DM under 249 characters
+- if message is long, split into chunks safely
+- report delivery result to admin
+
+Example admin confirmation:
+📣 Announcement sent.
+Delivered: 12
+Skipped: 4
+Failed: 1
+
+Message sent to users:
+
+📣 Announcement
+[message]
+
+Promo:
+
+🎁 Promo
+[message]
+
+Event:
+
+🎉 Event Alert
+[message]
+
+Game:
+
+🎮 Game Alert
+[message]
+
+Tip:
+
+💰 Tip Alert
+[message]
+
+==================================================
+PART 10 — Broadcast Rate Safety
+==================================================
+
+Do not blast all users at once.
+
+When broadcasting:
+- send one DM at a time
+- sleep 0.3 to 0.7 seconds between sends
+- catch exceptions
+- continue if one DM fails
+
+Log:
+[NOTIFY BROADCAST] category=announcements delivered=12 failed=1 skipped=4
+
+==================================================
+PART 11 — Admin Notification Tools
+==================================================
+
+Add owner/admin-only commands:
+
+!substatus @user
+!subcount
+!unsubuser @user
+
+!substatus @user:
+@User notifications: ON
+Events: ON
+Games: ON
+Announcements: ON
+Promos: ON
+Tips: OFF
+Source: manual
+
+!subcount:
+Subscribed users: X
+Events ON: X
+Games ON: X
+Announcements ON: X
+Promos ON: X
+Tips ON: X
+
+!unsubuser @user:
+✅ @User unsubscribed from notifications.
+
+Normal players:
+⚠️ Staff only.
+
+==================================================
+PART 12 — Notification Logs
+==================================================
+
+Add logs:
+
+notification_subscribe
+notification_unsubscribe
+notification_settings_change
+notification_broadcast
+notification_dm_sent
+notification_dm_failed
+notification_dm_skipped_unsubscribed
+notification_dm_skipped_category_off
+tip_no_autosubscribe
+
+If safe, add DB table:
+
+CREATE TABLE IF NOT EXISTS notification_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    action TEXT NOT NULL,
+    user_id TEXT DEFAULT '',
+    username TEXT DEFAULT '',
+    category TEXT DEFAULT '',
+    details TEXT DEFAULT '',
+    created_at TEXT DEFAULT (datetime('now'))
+);
+
+Do not log private message content unless needed.
+Prefer logging category and status only.
+
+==================================================
+PART 13 — Clean Old Text
+==================================================
+
+Remove old repeated text:
+
+✅ Alerts ON. Use notifysettings to choose alerts. Stop: reply unsubscribe.
+
+Replace with manual subscribe confirmation only:
+
+✅ Alerts ON.
+Use !notifysettings to choose alerts.
+Use !unsub to stop.
+
+Do not send this after tips.
+Do not send this after bank transfers.
+Do not send this repeatedly.
+
+==================================================
+PART 14 — Bank Transfer Notifications Stay Separate
+==================================================
+
+Bank transfer notifications are transactional.
+
+They should always be attempted:
+- sender confirmation
+- receiver confirmation
+
+They do NOT require:
+!sub
+subscribed = 1
+category ON
+
+Do not route bank transfers through promotional notification subscription checks.
+
+Code comment:
+# Transactional bank messages bypass notification subscriptions.
+
+Examples:
+Sender:
+✅ Sent 5,000 ChillCoins to @User.
+Balance: 25,000 coins.
+
+Receiver:
+💰 @Sender sent you 5,000 ChillCoins.
+Balance: 12,500 coins.
+
+==================================================
+PART 15 — Help Text
+==================================================
+
+Player help:
+
+🔔 Notifications
+DM bot: !sub
+Stop: !unsub
+Settings: !notifysettings
+
+Settings:
+!notify events on/off
+!notify games on/off
+!notify announcements on/off
+!notify promos on/off
+!notify tips on/off
+
+Admin help:
+
+🔔 Notification Admin
+!announce message
+!promo message
+!eventalert message
+!gamealert message
+!tipalert message
+!substatus @user
+!subcount
+!unsubuser @user
+
+Do not say tipping subscribes you.
+Do not say tips enable alerts.
+Do not say bank transfers require subscription.
+
+==================================================
+PART 16 — Command Routing
+==================================================
+
+Make sure these route correctly:
+
+Player:
+!sub
+!subscribe
+!unsub
+!unsubscribe
+unsubscribe
+stop
+!notifysettings
+!notifications
+!alerts
+!notify
+
+Admin:
+!announce
+!announcement
+!promo
+!eventalert
+!gamealert
+!tipalert
+!substatus
+!subcount
+!unsubuser
+
+Only one bot should respond.
+If notification commands belong to ChillTopiaMC or main bot, guard ownership to prevent duplicates.
+
+==================================================
+PART 17 — Safety / Validation
+==================================================
+
+Validate:
+- broadcast message cannot be empty
+- category must be valid
+- on/off must be valid
+- user must be resolvable for admin user commands
+- normal players cannot use broadcast/admin commands
+
+Do not crash if:
+- DB is missing
+- a user cannot be whispered
+- no subscribers exist
+
+If no subscribers:
+No subscribed users for this category.
+
+==================================================
+PART 18 — Compile
+==================================================
+
+Run:
+
+python -m py_compile main.py
+python -m py_compile database.py
+
+Also compile changed modules, for example:
+python -m py_compile modules/notifications.py
+python -m py_compile modules/gold_tips.py
+python -m py_compile modules/luxe_admin.py
+
+Adjust filenames to actual project files.
+
+==================================================
+PART 19 — Tests
+==================================================
+
+Test 1 — Tip no auto-sub:
+Player tips 10 gold.
+
+Expected:
+- Luxe Tickets awarded
+- no “Alerts ON”
+- no notifysettings DM
+- user is not subscribed automatically
+
+Test 2 — Manual subscribe:
+Player DMs:
+!sub
+
+Expected:
+✅ Alerts ON.
+Use !notifysettings to choose alerts.
+Use !unsub to stop.
+
+Test 3 — Duplicate subscribe:
+Subscribed player sends:
+!sub
+
+Expected:
+You are already subscribed.
+No repeated Alerts ON spam.
+
+Test 4 — Settings:
+!notifysettings
+
+Expected:
+Shows events/games/announcements/promos/tips ON/OFF.
+
+Test 5 — Category change:
+!notify promos off
+
+Expected:
+✅ Promo alerts OFF.
+
+Test 6 — Broadcast announcement:
+Admin:
+!announce Hello ChillTopia!
+
+Expected:
+Only subscribed users with announcements ON receive DM.
+
+Test 7 — Broadcast promo off:
+User has promos OFF.
+Admin sends:
+!promo Sale today.
+
+Expected:
+User does not receive promo.
+
+Test 8 — Unsubscribe:
+Player sends:
+!unsub
+or:
+unsubscribe
+or:
+stop
+
+Expected:
+✅ Alerts OFF.
+User receives no future category broadcasts.
+
+Test 9 — Admin tools:
+!substatus @user
+!subcount
+!unsubuser @user
+
+Expected:
+Owner/admin only.
+
+Test 10 — Bank transfer bypass:
+User is not subscribed.
+Someone sends them ChillCoins.
+
+Expected:
+They still receive bank transfer notification.
+
+Test 11 — Tip after subscribed:
+Subscribed player tips.
+
+Expected:
+Only tip reward message.
+No repeated Alerts ON message.
+
+Final report:
+1. Tip auto-subscribe removed
+2. Manual !sub / !subscribe only added
+3. !unsub / unsubscribe / stop added
+4. Categories added: events, games, announcements, promos, tips
+5. notifysettings cleaned
+6. !notify category on/off added
+7. admin broadcast commands added
+8. broadcast category checks working
+9. repeat Alerts ON spam removed
+10. bank transfer notifications bypass subscription
+11. admin notification tools added
+12. help text updated
+13. py_compile result
+14. bot stability result

@@ -1,0 +1,402 @@
+Notification System Remodel — Manual Subscribe Only, No Auto-Subscribe From Tips
+
+Current issue:
+When a player tips a bot, the bot auto-subscribes them to notifications and repeatedly DMs:
+
+✅ Alerts ON. Use notifysettings to choose alerts. Stop: reply unsubscribe.
+
+This is annoying and should stop.
+
+Goal:
+Tipping should NEVER auto-subscribe a player.
+Players must manually subscribe through direct message only:
+!sub
+!subscribe
+
+Do NOT modify:
+- Poker V2
+- blackjack
+- jail logic
+- Luxe Tickets conversion, except removing notification auto-subscribe from tip flow
+- unrelated games
+
+Only modify:
+- notification / alert modules
+- DM command handling
+- tip handler only where it triggers subscription
+- help text if needed
+
+==================================================
+PART 1 — Remove Tip Auto-Subscribe
+==================================================
+
+Search entire project for notification auto-subscribe logic.
+
+Search terms:
+autosubscribe
+auto_subscribe
+subscribe
+subscribed
+Alerts ON
+notifysettings
+unsubscribe
+enable dm
+enabledm
+tip
+tip_reaction
+gold tip
+
+Remove or disable any code path where:
+- player tips bot
+- bot calls subscribe/enable alerts/enable DM notifications
+- bot sends “Alerts ON” automatically
+- bot creates notification subscription after tip
+
+Important:
+Tip flow should only do tip reward logic:
+- award Luxe Tickets
+- send tip acknowledgement
+- log tip
+
+Tip flow should NOT:
+- subscribe user
+- enable alerts
+- DM “Alerts ON”
+- send notifysettings message
+
+==================================================
+PART 2 — Manual Subscribe Only By DM
+==================================================
+
+A player can only subscribe by sending the bot a direct message:
+
+!sub
+!subscribe
+
+When received in DM/private message:
+
+✅ Alerts ON.
+You are subscribed to ChillTopiaMC notifications.
+Use !unsub to stop.
+Use !notifysettings to choose alerts.
+
+Aliases:
+!sub
+!subscribe
+
+Do not require a tip.
+Do not auto-subscribe from room chat.
+
+==================================================
+PART 3 — Manual Unsubscribe
+==================================================
+
+Add / clean unsubscribe commands in DM:
+
+!unsub
+!unsubscribe
+stop
+
+Reply:
+
+✅ Alerts OFF.
+You are unsubscribed from ChillTopiaMC notifications.
+Use !sub to subscribe again.
+
+Also support:
+unsubscribe
+
+Important:
+If a player replies “unsubscribe” like the current bot message says, it must actually unsubscribe them.
+
+==================================================
+PART 4 — Notification Settings
+==================================================
+
+Add / clean:
+
+!notifysettings
+!notifications
+!alerts
+
+Reply with current settings:
+
+🔔 Notification Settings
+Status: ON/OFF
+Events: ON/OFF
+Games: ON/OFF
+Tips: ON/OFF
+Promos: ON/OFF
+
+Commands:
+!notify events on/off
+!notify games on/off
+!notify tips on/off
+!notify promos on/off
+
+Keep under 249 chars. Split into multiple messages if needed.
+
+==================================================
+PART 5 — Subscription Database
+==================================================
+
+If database.py can be safely modified, add:
+
+CREATE TABLE IF NOT EXISTS notification_subscriptions (
+    user_id TEXT PRIMARY KEY,
+    username TEXT DEFAULT '',
+    subscribed INTEGER DEFAULT 0,
+    events INTEGER DEFAULT 1,
+    games INTEGER DEFAULT 1,
+    tips INTEGER DEFAULT 0,
+    promos INTEGER DEFAULT 1,
+    source TEXT DEFAULT 'manual',
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+);
+
+Rules:
+- subscribed = 1 only when user manually uses !sub / !subscribe
+- subscribed = 0 when user uses !unsub / unsubscribe / stop
+- source must be "manual"
+- Never set source = "tip"
+- Never create subscribed=1 from a tip event
+
+If DB fails:
+- do not crash bot
+- print warning
+- keep safe default: not subscribed
+
+==================================================
+PART 6 — Prevent Repeat “Alerts ON” Spam
+==================================================
+
+If player already subscribed and sends !sub again:
+
+You are already subscribed.
+Use !notifysettings to edit alerts or !unsub to stop.
+
+Do NOT send repeated “Alerts ON” every time they tip.
+
+If player tips while subscribed:
+- no notification subscription message
+- only tip reward message
+
+If player tips while unsubscribed:
+- no subscription message
+- only tip reward message
+
+==================================================
+PART 7 — DM vs Room Chat Rules
+==================================================
+
+Subscription commands should work best in DM.
+
+If player types !sub in public room chat:
+Whisper:
+Send me !sub in DM to subscribe to notifications.
+
+Or allow it, but do NOT spam public chat.
+
+Preferred:
+- Public !sub replies with whisper only.
+- DM !sub confirms subscription.
+
+Unsubscribe can work in both DM and whisper/public, but reply privately if possible.
+
+==================================================
+PART 8 — Notification Broadcast Rules
+==================================================
+
+Only send notification DMs to users where:
+subscribed = 1
+
+Before sending any alert:
+check subscription status.
+
+If not subscribed:
+do not DM.
+
+If subscribed but category off:
+do not DM.
+
+Examples:
+Auto event alert:
+- send only if subscribed=1 and events=1
+
+Game promo:
+- send only if subscribed=1 and games=1 or promos=1
+
+Tip alerts:
+- send only if subscribed=1 and tips=1
+
+==================================================
+PART 9 — Clean Old Text
+==================================================
+
+Remove old repeated message:
+
+✅ Alerts ON. Use notifysettings to choose alerts. Stop: reply unsubscribe.
+
+Replace with manual subscribe confirmation only:
+
+✅ Alerts ON.
+Use !notifysettings to choose alerts.
+Use !unsub to stop.
+
+Do not send this after tips.
+
+==================================================
+PART 10 — Help Text
+==================================================
+
+Update help:
+
+Player help:
+🔔 Notifications
+DM the bot: !sub
+Stop: !unsub
+Settings: !notifysettings
+
+Do not say tipping subscribes you.
+Do not say tips enable alerts.
+
+==================================================
+PART 11 — Admin Commands
+==================================================
+
+Add admin-only notification checks:
+
+!substatus @user
+Shows:
+@User notifications: ON/OFF
+Events: ON/OFF
+Games: ON/OFF
+Tips: ON/OFF
+Promos: ON/OFF
+Source: manual
+
+!subcount
+Shows:
+Subscribed users: X
+
+!unsubuser @user
+Admin force-unsubscribe user.
+
+Use owner/admin permissions only.
+
+==================================================
+PART 12 — Logs
+==================================================
+
+Add logs:
+
+notification_subscribe
+notification_unsubscribe
+notification_settings_change
+notification_dm_sent
+notification_dm_skipped_unsubscribed
+notification_dm_skipped_category_off
+
+Important:
+Do not log private message content, only actions.
+
+Print useful logs:
+[NOTIFY] manual_subscribe user=@Player
+[NOTIFY] manual_unsubscribe user=@Player
+[NOTIFY] skipped user=@Player reason=not_subscribed
+[NOTIFY] tip_no_autosubscribe user=@Player
+
+==================================================
+PART 13 — Tests
+==================================================
+
+Run:
+
+python -m py_compile main.py
+python -m py_compile database.py
+
+Also compile changed modules, for example:
+python -m py_compile modules/notifications.py
+python -m py_compile modules/gold_tips.py
+python -m py_compile modules/luxe_admin.py
+
+Adjust filenames to actual project files.
+
+Test 1 — Tip no auto-sub:
+Player tips 10 gold.
+
+Expected:
+- Player receives Luxe Tickets.
+- No “Alerts ON” message.
+- No notifysettings message.
+- Player is not subscribed automatically.
+
+Test 2 — Manual DM subscribe:
+Player DMs bot:
+!sub
+
+Expected:
+✅ Alerts ON.
+Use !notifysettings to choose alerts.
+Use !unsub to stop.
+
+Test 3 — Duplicate subscribe:
+Subscribed player sends:
+!sub
+
+Expected:
+You are already subscribed.
+No duplicate spam.
+
+Test 4 — Unsubscribe:
+Player sends:
+!unsub
+or:
+unsubscribe
+or:
+stop
+
+Expected:
+✅ Alerts OFF.
+User no longer receives alerts.
+
+Test 5 — Notify settings:
+!notifysettings
+
+Expected:
+Shows ON/OFF settings.
+
+Test 6 — Broadcast:
+Send test event alert.
+
+Expected:
+Only subscribed users receive DM.
+
+Test 7 — Tip after subscribe:
+Subscribed player tips.
+
+Expected:
+Only tip reward message.
+No “Alerts ON” repeat.
+
+Test 8 — Admin:
+!substatus @user
+!subcount
+!unsubuser @user
+
+Expected:
+Works for owner/admin only.
+
+Final report:
+1. Tip auto-subscribe removed
+2. Manual DM !sub / !subscribe added
+3. !unsub / unsubscribe / stop added
+4. notifysettings cleaned
+5. notification DB table added or confirmed
+6. repeat Alerts ON spam removed
+7. broadcast checks subscription before DM
+8. help text updated
+9. admin tools added
+10. py_compile result
+11. bot stability result

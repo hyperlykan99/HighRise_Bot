@@ -361,25 +361,44 @@ async def process_incoming_dm(
     if _is_unsubscribe_request(norm):
         db.set_subscribed(uname_lower, False)
         db.set_subscriber_manually_unsubscribed(uname_lower, True)
-        reply = "✅ Unsubscribed. All bot alerts are OFF."
+        try:
+            db.set_notification_subscribed(user_id, uname_lower, False, source="manual")
+            db.insert_notification_action_log("notification_unsubscribe", user_id, uname_lower)
+        except Exception:
+            pass
+        reply = ("✅ Alerts OFF.\n"
+                 "You are unsubscribed.\n"
+                 "Use !sub to subscribe again.")
         await send_dm(bot, conversation_id, reply)
         db.set_subscriber_last_dm(uname_lower)
-        print(f"[DM] @{username} unsubscribed via DM (keyword: {norm!r}).")
+        print(f"[NOTIFY] notification_unsubscribe user=@{username} via DM (keyword: {norm!r})")
         return
 
     if _is_subscribe_request(norm):
+        existing_sub = db.get_subscriber_by_user_id(user_id) or db.get_subscriber(uname_lower)
+        if existing_sub and existing_sub.get("subscribed"):
+            reply = ("You are already subscribed.\n"
+                     "Use !notifysettings to manage.\n"
+                     "Use !unsub to stop.")
+            await send_dm(bot, conversation_id, reply[:249])
+            print(f"[DM] @{username} already subscribed — duplicate !sub suppressed.")
+            return
         db.set_subscribed_by_user_id(user_id, True)
         db.set_dm_available(uname_lower, True)
         db.set_subscriber_manually_unsubscribed(uname_lower, False)
         db.ensure_notify_prefs(uname_lower)
-        reply = (
-            "✅ Subscribed.\n"
-            "Outside-room alerts are connected.\n"
-            "Use !notif to manage categories."
-        )
+        try:
+            db.ensure_notification_subscription(user_id, uname_lower)
+            db.set_notification_subscribed(user_id, uname_lower, True, source="manual")
+            db.insert_notification_action_log("notification_subscribe", user_id, uname_lower)
+        except Exception:
+            pass
+        reply = ("✅ Alerts ON.\n"
+                 "Use !notifysettings to choose alerts.\n"
+                 "Use !unsub to stop.")
         await send_dm(bot, conversation_id, reply[:249])
         db.set_subscriber_last_dm(uname_lower)
-        print(f"[DM] @{username} subscribed via DM (keyword: {norm!r}).")
+        print(f"[NOTIFY] notification_subscribe user=@{username} source=manual")
         return
 
     # Unknown non-command message.
@@ -393,9 +412,9 @@ async def process_incoming_dm(
     is_subscribed = bool(sub and sub.get("subscribed"))
 
     if is_subscribed:
-        reply = "✅ Alerts ON. Use notifysettings to choose alerts. Stop: reply unsubscribe."
+        reply = "✅ Alerts ON.\nUse !notifysettings to manage.\nUse !unsub to stop."
     else:
-        reply = "Reply 'subscribe' for alerts, or 'unsubscribe' to opt out."
+        reply = "Use !sub to subscribe for alerts.\nUse !unsub to unsubscribe."
 
     await send_dm(bot, conversation_id, reply)
     print(f"[DM] @{username} sent unknown msg (subscribed={is_subscribed}). Replied with status.")
@@ -411,21 +430,26 @@ async def handle_subscribe(bot: BaseBot, user: User, args: list[str]) -> None:
     existing = db.get_subscriber_by_user_id(user.id) or db.get_subscriber(uname)
     if existing and existing.get("subscribed"):
         await _w(bot, user.id,
-                 "✅ You are already subscribed.\n"
-                 "Use !notif to manage settings.")
+                 "You are already subscribed.\n"
+                 "Use !notifysettings to edit alerts or !unsub to stop.")
         return
 
     db.upsert_subscriber_by_user_id(user.id, uname)
     db.set_subscribed_by_user_id(user.id, True)
     db.set_subscriber_manually_unsubscribed(uname, False)
     db.ensure_notify_prefs(uname)
+    try:
+        db.ensure_notification_subscription(user.id, uname)
+        db.set_notification_subscribed(user.id, uname, True, source="manual")
+        db.insert_notification_action_log("notification_subscribe", user.id, uname)
+    except Exception:
+        pass
 
     await _w(bot, user.id,
-             "✅ Subscribed!\n"
-             "You will receive room notifications.\n\n"
-             "Manage:\n"
-             "!notif — settings\n"
-             "!unsub — unsubscribe")
+             "✅ Alerts ON.\n"
+             "Use !notifysettings to choose alerts.\n"
+             "Use !unsub to stop.")
+    print(f"[NOTIFY] notification_subscribe user=@{user.username} source=manual")
 
 
 # ── /unsubscribe ──────────────────────────────────────────────────────────────
@@ -440,9 +464,16 @@ async def handle_unsubscribe(bot: BaseBot, user: User, args: list[str]) -> None:
         return
     db.set_subscribed_by_user_id(user.id, False)
     db.set_subscriber_manually_unsubscribed(uname, True)
+    try:
+        db.set_notification_subscribed(user.id, uname, False, source="manual")
+        db.insert_notification_action_log("notification_unsubscribe", user.id, uname)
+    except Exception:
+        pass
     await _w(bot, user.id,
-             "✅ Unsubscribed.\n"
-             "You will no longer receive room notifications.")
+             "✅ Alerts OFF.\n"
+             "You are unsubscribed.\n"
+             "Use !sub to subscribe again.")
+    print(f"[NOTIFY] notification_unsubscribe user=@{user.username}")
 
 
 # ── /substatus ────────────────────────────────────────────────────────────────
