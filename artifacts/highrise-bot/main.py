@@ -514,6 +514,11 @@ from modules.luxe_admin import (
     handle_sendtickets, handle_ticketbalance, handle_ticketlogs,
     handle_ticketadmin, handle_ticketrate,
 )
+from modules.tip_audit import (
+    handle_tipaudit,
+    handle_tipauditdetails,
+    handle_conversionlogs,
+)
 from modules.mining import (
     handle_mine, handle_tool, handle_upgradetool,
     handle_mineprofile, handle_mineinv, handle_sellores, handle_sellore,
@@ -1417,6 +1422,14 @@ ADMIN_ONLY_CMDS  = ADMIN_ONLY_CMDS | {
 OWNER_ONLY_CMDS  = OWNER_ONLY_CMDS | {
     "addtickets", "removetickets", "settickets",
 }
+
+# ── Tip / conversion audit commands (admin+, banker owns) ────────────────
+TIP_AUDIT_COMMANDS: frozenset[str] = frozenset({
+    "tipaudit", "tipauditdetails", "conversionlogs",
+})
+ALL_KNOWN_COMMANDS = ALL_KNOWN_COMMANDS | TIP_AUDIT_COMMANDS
+STAFF_CMDS         = STAFF_CMDS   | TIP_AUDIT_COMMANDS
+ADMIN_ONLY_CMDS    = ADMIN_ONLY_CMDS | TIP_AUDIT_COMMANDS
 
 
 # ---------------------------------------------------------------------------
@@ -5012,6 +5025,15 @@ class HangoutBot(BaseBot):
 
         elif cmd == "ticketrate":
             await handle_ticketrate(self, user)
+
+        elif cmd == "tipaudit":
+            await handle_tipaudit(self, user, args)
+
+        elif cmd == "tipauditdetails":
+            await handle_tipauditdetails(self, user, args)
+
+        elif cmd == "conversionlogs":
+            await handle_conversionlogs(self, user, args)
 
         elif cmd == "donate":
             await handle_donate(self, user)

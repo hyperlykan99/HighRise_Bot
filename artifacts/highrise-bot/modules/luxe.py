@@ -389,11 +389,31 @@ async def _do_purchase(
         for _ in range(qty):
             await _deliver_boost(bot, user, item_key)
     elif cat == "coins":
-        cost_u, coins = get_coinpack(item_key)
-        total_coins   = coins * qty
+        cost_u, coins  = get_coinpack(item_key)
+        total_coins    = coins * qty
+        _lux_after     = get_luxe_balance(user.id)       # after deduction
+        _coins_before  = db.get_balance(user.id)
         db.add_balance(user.id, total_coins)
         log_luxe_transaction(user.id, user.username, "buycoins_award",
                              total_coins, "coins", item_key)
+        _coins_after = db.get_balance(user.id)
+        try:
+            db.log_luxe_conversion(
+                user_id=user.id,
+                username=user.username.lower(),
+                item_key=item_key,
+                tickets_spent=total,
+                coins_awarded=total_coins,
+                luxe_balance_before=_lux_after + total,
+                luxe_balance_after=_lux_after,
+                coins_balance_before=_coins_before,
+                coins_balance_after=_coins_after,
+                status="success",
+            )
+        except Exception as _ce:
+            print(f"[LUXE CONVERSION AUDIT] log error: {_ce!r}")
+        print(f"[LUXE CONVERSION AUDIT] user={user.username} item={item_key} "
+              f"spent={total} coins={total_coins} status=success")
         await _w(bot, user.id,
                  f"✅ Conversion Complete\n"
                  f"Spent: {_fc(total)} 🎫\n"

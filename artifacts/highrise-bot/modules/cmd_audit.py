@@ -609,6 +609,8 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     "addtickets", "removetickets", "settickets",
     "sendtickets", "ticketbalance", "ticketlogs",
     "ticketadmin", "ticketrate",
+    # ── Tip / conversion audit commands ──────────────────────────────────────
+    "tipaudit", "tipauditdetails", "conversionlogs",
     # 3.1L profile + social
     "myprofile", "flex", "showoff", "card",
     "profilesettings", "profilehelp",
@@ -743,6 +745,7 @@ HELP_CMDS: frozenset[str] = frozenset({
     "addtickets", "removetickets", "settickets",
     "sendtickets", "ticketbalance", "ticketlogs",
     "ticketadmin", "ticketrate",
+    "tipaudit", "tipauditdetails", "conversionlogs",
     "mingoldtip", "setmingoldtip",
     "tiplb", "tipleaderboard", "bottiplb", "bottipleaderboard",
     "roomtiplb", "roomtipleaderboard", "alltiplb", "alltipleaderboard",

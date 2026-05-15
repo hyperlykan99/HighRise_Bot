@@ -33,6 +33,59 @@ from highrise import BaseBot, User
 import database as db
 from modules.permissions import is_owner, is_admin
 
+try:
+    from config import BOT_MODE as _BOT_MODE
+except Exception:
+    _BOT_MODE = ""
+
+
+def _log_tip_audit_safe(
+    event_hash: str,
+    sender: "User",
+    receiver: "User",
+    tip_kind: str,
+    tip_iid: str,
+    gold: int,
+    luxe_expected: int,
+    luxe_awarded: int,
+    lux_before: int,
+    lux_after: int,
+    status: str,
+    failure_reason: str = "",
+    duplicate: int = 0,
+) -> None:
+    """Write one row to tip_audit_logs. Never raises."""
+    try:
+        db.log_tip_audit(
+            event_hash=event_hash or "",
+            sender_user_id=getattr(sender, "id", ""),
+            sender_username=getattr(sender, "username", ""),
+            receiver_user_id=getattr(receiver, "id", ""),
+            receiver_username=getattr(receiver, "username", ""),
+            bot_mode=_BOT_MODE,
+            raw_tip_type=tip_kind or "",
+            raw_tip_id=str(tip_iid or ""),
+            gold_amount=gold or 0,
+            luxe_expected=luxe_expected,
+            luxe_awarded=luxe_awarded,
+            luxe_balance_before=lux_before,
+            luxe_balance_after=lux_after,
+            coins_awarded=0,
+            coins_balance_before=0,
+            coins_balance_after=0,
+            status=status,
+            failure_reason=failure_reason,
+            duplicate_detected=duplicate,
+        )
+        print(
+            f"[TIP AUDIT] user={getattr(sender, 'username', '')} "
+            f"bot={_BOT_MODE} gold={gold or 0} "
+            f"expected={luxe_expected} awarded={luxe_awarded} "
+            f"status={status}"
+        )
+    except Exception as _ae:
+        print(f"[TIP AUDIT] log error: {_ae!r}")
+
 # ---------------------------------------------------------------------------
 # Gold-bar item ID → gold value map
 # These IDs are exactly what Highrise server sends in Item.id when a player
@@ -230,6 +283,8 @@ async def process_tip_event(bot: BaseBot, sender: User, receiver: User, tip) -> 
                 f"(class={tip_class} type={tip_kind}"
                 + (f" id={tip_iid}" if tip_iid else "") + ")"
             )
+            _log_tip_audit_safe("", sender, receiver, tip_kind, str(tip_iid or ""),
+                                 0, 0, 0, 0, 0, "ignored_non_gold", "not_gold_tip")
             return
 
         # ── Load settings (all have safe defaults) ────────────────────────
@@ -244,6 +299,9 @@ async def process_tip_event(bot: BaseBot, sender: User, receiver: User, tip) -> 
         # ── In-memory dedup ───────────────────────────────────────────────
         if _in_memory_seen(sender.id, gold):
             print(f"[TIP] Duplicate (memory) ignored: @{sender.username} {gold}g")
+            _log_tip_audit_safe("", sender, receiver, tip_kind, str(tip_iid or ""),
+                                 gold, gold, 0, 0, 0, "duplicate_ignored",
+                                 "in_memory_dedup", duplicate=1)
             return
 
         # ── DB dedup ──────────────────────────────────────────────────────
@@ -251,6 +309,10 @@ async def process_tip_event(bot: BaseBot, sender: User, receiver: User, tip) -> 
         try:
             if db.is_tip_duplicate(event_hash):
                 print(f"[TIP] Duplicate (DB) ignored: @{sender.username} {gold}g")
+                _log_tip_audit_safe(event_hash, sender, receiver,
+                                     tip_kind, str(tip_iid or ""),
+                                     gold, gold, 0, 0, 0, "duplicate_ignored",
+                                     "db_dedup", duplicate=1)
                 return
         except Exception as e:
             print(f"[TIP] is_tip_duplicate error (skipping dedup check): {e!r}")
@@ -262,19 +324,34 @@ async def process_tip_event(bot: BaseBot, sender: User, receiver: User, tip) -> 
         # ── Award Luxe Tickets ────────────────────────────────────────────
         _luxe_ok = False
         try:
-            from modules.luxe import add_luxe_balance as _alb, log_luxe_transaction as _llt
+            from modules.luxe import (
+                add_luxe_balance as _alb,
+                log_luxe_transaction as _llt,
+                get_luxe_balance as _glb,
+            )
             db.ensure_user(sender.id, sender.username)
+            _lux_before = _glb(sender.id)
             new_bal = _alb(sender.id, sender.username, luxe_amt)
             _llt(sender.id, sender.username, "gold_tip_reward",
                  luxe_amt, "luxe",
                  f"gold_tip:{convertible}g receiver:{receiver.username} balance_after:{new_bal}")
             _luxe_ok = True
+            _log_tip_audit_safe(
+                event_hash, sender, receiver, tip_kind, str(tip_iid or ""),
+                convertible, luxe_amt, luxe_amt, _lux_before, new_bal,
+                "success_luxe",
+            )
             print(f"[TIP REWARD] user={sender.username} gold={convertible} "
                   f"reward={luxe_amt}_luxe_tickets (fallback path)")
             print(f"[LUXE] add user={sender.username} amount={luxe_amt} "
                   f"reason=gold_tip_reward_fallback")
         except Exception as _le:
             print(f"[TIP] Luxe award error: {_le!r}")
+            _log_tip_audit_safe(
+                event_hash, sender, receiver, tip_kind, str(tip_iid or ""),
+                convertible, luxe_amt, 0, 0, 0,
+                "failed_luxe", repr(_le),
+            )
 
         _safe_log_transaction(sender.username, convertible, 0, 0, "success_luxe", event_hash)
 

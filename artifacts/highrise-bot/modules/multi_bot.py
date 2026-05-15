@@ -340,6 +340,8 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "addtickets": "banker", "removetickets": "banker", "settickets": "banker",
     "sendtickets": "banker", "ticketbalance": "banker", "ticketlogs": "banker",
     "ticketadmin": "banker", "ticketrate": "banker",
+    # ── Tip / conversion audit ──────────────────────────────────────────────
+    "tipaudit": "banker", "tipauditdetails": "banker", "conversionlogs": "banker",
     "bottiplogs": "banker", "mingoldtip": "banker", "setmingoldtip": "banker",
     "tipgold": "banker", "goldreward": "banker", "rewardgold": "banker",
     "tiplb": "banker", "tipleaderboard": "banker",

@@ -1174,6 +1174,68 @@ def init_db():
         )
     """)
 
+    # ── Tip Audit Log (tracks every tip event for owner review) ─────────────
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS tip_audit_logs (
+            id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_hash           TEXT DEFAULT '',
+            sender_user_id       TEXT DEFAULT '',
+            sender_username      TEXT DEFAULT '',
+            receiver_user_id     TEXT DEFAULT '',
+            receiver_username    TEXT DEFAULT '',
+            bot_mode             TEXT DEFAULT '',
+            raw_tip_type         TEXT DEFAULT '',
+            raw_tip_id           TEXT DEFAULT '',
+            gold_amount          INTEGER DEFAULT 0,
+            luxe_expected        INTEGER DEFAULT 0,
+            luxe_awarded         INTEGER DEFAULT 0,
+            luxe_balance_before  INTEGER DEFAULT 0,
+            luxe_balance_after   INTEGER DEFAULT 0,
+            coins_awarded        INTEGER DEFAULT 0,
+            coins_balance_before INTEGER DEFAULT 0,
+            coins_balance_after  INTEGER DEFAULT 0,
+            status               TEXT DEFAULT '',
+            failure_reason       TEXT DEFAULT '',
+            duplicate_detected   INTEGER DEFAULT 0,
+            created_at           TEXT DEFAULT (datetime('now'))
+        )
+    """)
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_tip_audit_sender "
+        "ON tip_audit_logs(sender_username, created_at)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_tip_audit_receiver "
+        "ON tip_audit_logs(receiver_username, created_at)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_tip_audit_event_hash "
+        "ON tip_audit_logs(event_hash)"
+    )
+
+    # ── Luxe Conversion Log (tracks !buycoins / !buyluxe coin pack purchases) ─
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS luxe_conversion_logs (
+            id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id              TEXT DEFAULT '',
+            username             TEXT DEFAULT '',
+            item_key             TEXT DEFAULT '',
+            tickets_spent        INTEGER DEFAULT 0,
+            coins_awarded        INTEGER DEFAULT 0,
+            luxe_balance_before  INTEGER DEFAULT 0,
+            luxe_balance_after   INTEGER DEFAULT 0,
+            coins_balance_before INTEGER DEFAULT 0,
+            coins_balance_after  INTEGER DEFAULT 0,
+            status               TEXT DEFAULT '',
+            failure_reason       TEXT DEFAULT '',
+            created_at           TEXT DEFAULT (datetime('now'))
+        )
+    """)
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_luxe_conv_username "
+        "ON luxe_conversion_logs(username, created_at)"
+    )
+
     conn.commit()
     conn.close()
     _migrate_db()
@@ -5890,6 +5952,96 @@ def log_tip_transaction(
     )
     conn.commit()
     conn.close()
+
+
+def log_tip_audit(
+    event_hash: str,
+    sender_user_id: str,
+    sender_username: str,
+    receiver_user_id: str,
+    receiver_username: str,
+    bot_mode: str,
+    raw_tip_type: str,
+    raw_tip_id: str,
+    gold_amount: int,
+    luxe_expected: int,
+    luxe_awarded: int,
+    luxe_balance_before: int,
+    luxe_balance_after: int,
+    coins_awarded: int,
+    coins_balance_before: int,
+    coins_balance_after: int,
+    status: str,
+    failure_reason: str = "",
+    duplicate_detected: int = 0,
+) -> None:
+    """Insert one row into tip_audit_logs. Never raises."""
+    try:
+        conn = get_connection()
+        conn.execute(
+            """
+            INSERT INTO tip_audit_logs (
+                event_hash, sender_user_id, sender_username,
+                receiver_user_id, receiver_username, bot_mode,
+                raw_tip_type, raw_tip_id, gold_amount,
+                luxe_expected, luxe_awarded,
+                luxe_balance_before, luxe_balance_after,
+                coins_awarded, coins_balance_before, coins_balance_after,
+                status, failure_reason, duplicate_detected
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                event_hash, sender_user_id, sender_username,
+                receiver_user_id, receiver_username, bot_mode,
+                raw_tip_type, raw_tip_id, gold_amount,
+                luxe_expected, luxe_awarded,
+                luxe_balance_before, luxe_balance_after,
+                coins_awarded, coins_balance_before, coins_balance_after,
+                status, failure_reason, duplicate_detected,
+            ),
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[TIP AUDIT ERROR] ignored: {e!r}")
+
+
+def log_luxe_conversion(
+    user_id: str,
+    username: str,
+    item_key: str,
+    tickets_spent: int,
+    coins_awarded: int,
+    luxe_balance_before: int,
+    luxe_balance_after: int,
+    coins_balance_before: int,
+    coins_balance_after: int,
+    status: str,
+    failure_reason: str = "",
+) -> None:
+    """Insert one row into luxe_conversion_logs. Never raises."""
+    try:
+        conn = get_connection()
+        conn.execute(
+            """
+            INSERT INTO luxe_conversion_logs (
+                user_id, username, item_key, tickets_spent, coins_awarded,
+                luxe_balance_before, luxe_balance_after,
+                coins_balance_before, coins_balance_after,
+                status, failure_reason
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                user_id, username, item_key, tickets_spent, coins_awarded,
+                luxe_balance_before, luxe_balance_after,
+                coins_balance_before, coins_balance_after,
+                status, failure_reason,
+            ),
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[LUXE CONVERSION AUDIT] error: {e!r}")
 
 
 def get_tip_settings() -> dict:

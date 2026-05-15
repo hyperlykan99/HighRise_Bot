@@ -1,0 +1,291 @@
+Add Tip Audit Log System for Luxe Tickets and ChillCoins
+
+Goal:
+Log every player tip to any bot so owner can verify complaints like:
+- “I tipped but didn’t receive Luxe Tickets”
+- “I bought ChillCoins but didn’t receive coins”
+- “The bot rewarded the wrong amount”
+- “I tipped the wrong bot”
+
+Do not change:
+- jail system
+- blackjack
+- poker
+- workflows
+- bot startup
+- coinpack pricing logic unless logging needs it
+
+Part 1 — Create tip audit table
+
+In database.py init_db(), create:
+
+CREATE TABLE IF NOT EXISTS tip_audit_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_hash TEXT,
+    sender_user_id TEXT,
+    sender_username TEXT,
+    receiver_user_id TEXT,
+    receiver_username TEXT,
+    bot_mode TEXT DEFAULT '',
+    raw_tip_type TEXT DEFAULT '',
+    raw_tip_id TEXT DEFAULT '',
+    gold_amount INTEGER DEFAULT 0,
+    luxe_expected INTEGER DEFAULT 0,
+    luxe_awarded INTEGER DEFAULT 0,
+    luxe_balance_before INTEGER DEFAULT 0,
+    luxe_balance_after INTEGER DEFAULT 0,
+    coins_awarded INTEGER DEFAULT 0,
+    coins_balance_before INTEGER DEFAULT 0,
+    coins_balance_after INTEGER DEFAULT 0,
+    status TEXT DEFAULT '',
+    failure_reason TEXT DEFAULT '',
+    duplicate_detected INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT (datetime('now'))
+);
+
+Add index:
+CREATE INDEX IF NOT EXISTS idx_tip_audit_sender ON tip_audit_logs(sender_username, created_at);
+CREATE INDEX IF NOT EXISTS idx_tip_audit_receiver ON tip_audit_logs(receiver_username, created_at);
+CREATE INDEX IF NOT EXISTS idx_tip_audit_event_hash ON tip_audit_logs(event_hash);
+
+Part 2 — Add DB helper
+
+Add function in database.py:
+
+def log_tip_audit(
+    event_hash,
+    sender_user_id,
+    sender_username,
+    receiver_user_id,
+    receiver_username,
+    bot_mode,
+    raw_tip_type,
+    raw_tip_id,
+    gold_amount,
+    luxe_expected,
+    luxe_awarded,
+    luxe_balance_before,
+    luxe_balance_after,
+    coins_awarded,
+    coins_balance_before,
+    coins_balance_after,
+    status,
+    failure_reason="",
+    duplicate_detected=0,
+):
+    insert into tip_audit_logs
+
+Never raise. Wrap in try/except and print:
+[TIP AUDIT ERROR] ignored: ...
+
+Part 3 — Log every tip in modules/tips.py
+
+In process_tip_event, log these cases:
+
+A. Non-gold tip:
+status = "ignored_non_gold"
+gold_amount = 0
+luxe_awarded = 0
+failure_reason = "not_gold_tip"
+
+B. Duplicate:
+status = "duplicate_ignored"
+duplicate_detected = 1
+gold_amount = gold
+luxe_awarded = 0
+
+C. Luxe reward success:
+status = "success_luxe"
+gold_amount = gold
+luxe_expected = gold
+luxe_awarded = gold
+luxe_balance_before = before
+luxe_balance_after = after
+coins_awarded = 0
+
+D. Luxe reward failed:
+status = "failed_luxe"
+gold_amount = gold
+luxe_expected = gold
+luxe_awarded = 0
+failure_reason = repr(error)
+
+Important:
+1g = 1 🎫 Luxe Ticket.
+No bonus.
+No ChillCoins from tips.
+
+Part 4 — Log ChillCoin conversions too
+
+When player uses:
+!buycoins
+!buyluxe 10
+!buyluxe 11
+!buyluxe 12
+
+Log conversion to tip_audit_logs or a separate conversion table.
+
+Preferred separate table:
+
+CREATE TABLE IF NOT EXISTS luxe_conversion_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT,
+    username TEXT,
+    item_key TEXT,
+    tickets_spent INTEGER DEFAULT 0,
+    coins_awarded INTEGER DEFAULT 0,
+    luxe_balance_before INTEGER DEFAULT 0,
+    luxe_balance_after INTEGER DEFAULT 0,
+    coins_balance_before INTEGER DEFAULT 0,
+    coins_balance_after INTEGER DEFAULT 0,
+    status TEXT DEFAULT '',
+    failure_reason TEXT DEFAULT '',
+    created_at TEXT DEFAULT (datetime('now'))
+);
+
+Add helper:
+db.log_luxe_conversion(...)
+
+In modules/luxe.py, when buying coin packs:
+- log success
+- log failed/not enough tickets if possible
+
+Part 5 — Owner commands
+
+Add owner/admin commands:
+
+!tipaudit @user
+!tipaudit @user 10
+!tipaudit last
+!tipaudit failed
+!tipaudit event [event_hash]
+!conversionlogs @user
+!conversionlogs last
+
+Permissions:
+Owner/admin only.
+
+Command results should be short.
+
+!tipaudit @angelkisses18
+
+Reply:
+🧾 Tip Audit @angelkisses18
+1) 10g → +10🎫 to BankingBot ✅
+2) 100g → +100🎫 to ChillTopiaMC ✅
+3) 10g duplicate ignored ⚠️
+
+!tipaudit failed
+
+Reply:
+⚠️ Failed Tip Rewards
+@user 10g → failed_luxe: error text
+@user 5g → duplicate_ignored
+
+!conversionlogs @angelkisses18
+
+Reply:
+🪙 Conversion Logs @angelkisses18
+1) largecoins: -5,000🎫 +65,000🪙 ✅
+2) mediumcoins: -500🎫 +5,750🪙 ✅
+
+Part 6 — Detailed owner lookup
+
+Add:
+
+!tipauditdetails [log_id]
+
+Reply in 2 whispers:
+🧾 Tip Audit #123
+From: @Player
+To Bot: BankingBot
+Gold: 10g
+Expected: +10🎫
+Awarded: +10🎫
+Status: success_luxe
+
+Second whisper:
+Before: 997,897🎫
+After: 997,907🎫
+Event hash: abc123...
+Time: 2026-05-15 01:23
+
+Part 7 — Add command routing and registry
+
+Route:
+- tipaudit
+- tipauditdetails
+- conversionlogs
+
+Add to command registry / commandtest.
+
+Preferred owner:
+BankingBot
+
+Part 8 — Console logs
+
+Print logs:
+
+[TIP AUDIT] user=angelkisses18 bot=BankingBot gold=10 expected=10 awarded=10 status=success_luxe
+[TIP AUDIT] user=angelkisses18 bot=BankingBot gold=10 status=duplicate_ignored
+[LUXE CONVERSION AUDIT] user=angelkisses18 item=largecoins spent=5000 coins=65000 status=success
+
+Part 9 — Tests
+
+Run:
+python -m py_compile database.py
+python -m py_compile modules/tips.py
+python -m py_compile modules/luxe.py
+python -m py_compile main.py
+
+Restart bots.
+
+Test 1:
+Tip 1g to BankingBot.
+Expected:
++1 🎫
+Audit log created.
+
+Run:
+!tipaudit @yourname
+Expected:
+Shows 1g → +1🎫 ✅
+
+Test 2:
+Tip 10g to ChillTopiaMC.
+Expected:
++10 🎫
+Audit log created.
+
+Run:
+!tipaudit @yourname 5
+Expected:
+Shows latest tip logs.
+
+Test 3:
+Buy coin pack:
+!buyluxe 12
+
+Expected:
+Luxe decreases by correct pack price.
+Coins increase by correct amount.
+
+Run:
+!conversionlogs @yourname
+Expected:
+Shows -tickets +coins.
+
+Test 4:
+Duplicate tip event if detected.
+Expected:
+Duplicate logged as duplicate_ignored.
+
+Final report:
+1. Files changed
+2. tip_audit_logs table created
+3. luxe_conversion_logs table created
+4. Tip reward audit test result
+5. Failed/duplicate audit test result
+6. Conversion log test result
+7. Command routing result
+8. Bot stability result

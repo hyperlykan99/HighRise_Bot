@@ -1405,6 +1405,10 @@ REGISTRY: dict[str, Cmd] = {
     "ticketlogs":      Cmd("banker", "economy", False, True,  False, perm="admin"),
     "ticketadmin":     Cmd("banker", "help",    True,  True,  False, perm="admin"),
     "ticketrate":      Cmd("banker", "help",    True,  True,  False, perm="player"),
+    # ── Tip / conversion audit ────────────────────────────────────────────────
+    "tipaudit":        Cmd("banker", "audit",   False, True,  False, perm="admin"),
+    "tipauditdetails": Cmd("banker", "audit",   False, True,  False, perm="admin"),
+    "conversionlogs":  Cmd("banker", "audit",   False, True,  False, perm="admin"),
     # 3.1L — Profile + Social Identity
     "myprofile":       Cmd("host", "profile",   True,  True,  True,
                            aliases=("me", "whois", "pinfo")),
