@@ -34,19 +34,48 @@ def remaining_seconds(user_id: str) -> float:
     return max(0.0, s["end_ts"] - time.time())
 
 
+def format_duration(seconds: float) -> str:
+    """Format seconds into a short human-readable string."""
+    secs = int(seconds)
+    if secs < 60:
+        return f"{secs}s"
+    if secs < 3600:
+        return f"{secs // 60}m {secs % 60}s"
+    return f"{secs // 3600}h {(secs % 3600) // 60}m"
+
+
+# ── Per-process cooldown: one whisper per (user, cmd) per 3 seconds ──────────
+_jail_block_msg_cooldown: dict[tuple[str, str], float] = {}
+_JAIL_BLOCK_MSG_TTL = 3.0
+
+
+def can_send_jail_block_msg(user_id: str, cmd: str) -> bool:
+    """Return True and record timestamp if block message may be sent now.
+    Prevents duplicate whisper spam when player spams a blocked command."""
+    key = (user_id, cmd)
+    now = time.time()
+    if now - _jail_block_msg_cooldown.get(key, 0.0) < _JAIL_BLOCK_MSG_TTL:
+        return False
+    _jail_block_msg_cooldown[key] = now
+    # Prune stale entries to prevent unbounded growth
+    cutoff = now - _JAIL_BLOCK_MSG_TTL * 10
+    for k in [k for k, v in _jail_block_msg_cooldown.items() if v < cutoff]:
+        del _jail_block_msg_cooldown[k]
+    return True
+
+
 def jail_block_message(user_id: str) -> str:
-    """Short whisper message shown when a jailed player tries to escape."""
-    secs = remaining_seconds(user_id)
-    if secs <= 0:
-        return "You're not jailed."
-    mins = int(secs // 60)
-    sec_ = int(secs % 60)
-    s    = get_active_sentence(user_id)
-    bail = s["bail_cost"] if s else 0
-    time_str = f"{mins}m {sec_}s" if mins else f"{sec_}s"
-    return (
-        f"\U0001f6a8 Jailed for {time_str} more. Bail: {bail} \U0001f3ab. Type !bail."
-    )[:249]
+    """Whisper shown when a jailed player tries a blocked teleport command."""
+    try:
+        secs = remaining_seconds(user_id)
+        if secs > 0:
+            return (
+                f"\U0001f6a8 You're jailed for {format_duration(secs)}. "
+                "Type !bail to leave early."
+            )[:249]
+    except Exception:
+        pass
+    return "\U0001f6a8 You're jailed right now. Type !bail to leave early."
 
 
 async def enforce_jail_on_rejoin(bot: "BaseBot", user_id: str, username: str) -> None:

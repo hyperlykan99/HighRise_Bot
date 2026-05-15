@@ -3363,12 +3363,27 @@ class HangoutBot(BaseBot):
         try:
             from modules.jail_enforcement import (
                 is_jailed, jail_block_message, TELEPORT_BLOCKED_CMDS,
+                can_send_jail_block_msg,
             )
             if cmd in TELEPORT_BLOCKED_CMDS and is_jailed(user.id):
                 from modules.securitybot_jail import is_security_bot as _is_sec_blk
                 if _is_sec_blk():
-                    await self.highrise.send_whisper(user.id, jail_block_message(user.id))
-                    print(f"[JAIL BLOCK] user={user.username} cmd={cmd} announcer=KeanuShield blocked=true")
+                    if can_send_jail_block_msg(user.id, cmd):
+                        try:
+                            await self.highrise.send_whisper(
+                                user.id, jail_block_message(user.id)
+                            )
+                        except Exception as _bme:
+                            print(f"[JAIL BLOCK MESSAGE ERROR] ignored: {_bme!r}")
+                        print(
+                            f"[JAIL BLOCK] user={user.username} cmd={cmd} "
+                            f"announcer=KeanuShield message_sent=true"
+                        )
+                    else:
+                        print(
+                            f"[JAIL BLOCK] user={user.username} cmd={cmd} "
+                            f"announcer=KeanuShield cooldown=true"
+                        )
                 else:
                     print(f"[JAIL BLOCK] user={user.username} cmd={cmd} blocked=true announcer=suppressed")
                 return

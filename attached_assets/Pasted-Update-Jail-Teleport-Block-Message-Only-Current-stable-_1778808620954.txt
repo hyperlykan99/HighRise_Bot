@@ -1,0 +1,135 @@
+Update Jail Teleport Block Message Only
+
+Current stable state:
+- Bots are running fine after rollback.
+- Jail system works.
+- Rejoin jail works.
+- Teleport commands are blocked for jailed players.
+- The only missing feature: when jailed player tries to teleport, the bot should tell them why.
+
+Goal:
+When a jailed player tries to use a blocked teleport command, KeanuShield should whisper them a short jail message.
+
+Do NOT change:
+- jail logic
+- jail timers
+- rejoin enforcement
+- restart recovery
+- economy
+- Luxe tickets
+- tips
+- AI
+- workflows
+- database schema
+
+Only add/repair the blocked teleport message.
+
+Blocked commands:
+- !tele
+- !tp
+- !goto
+- !bring
+- !tphere
+- !spawn
+- !rolespawn
+- !autospawn
+- !selftp
+- !groupteleport
+
+Required behavior:
+If jailed player uses any blocked teleport command:
+
+KeanuShield whispers:
+🚨 You’re jailed for [remaining time]. Type !bail to leave early.
+
+Example:
+🚨 You’re jailed for 1m 42s. Type !bail to leave early.
+
+If remaining time cannot be read:
+🚨 You’re jailed right now. Type !bail to leave early.
+
+Important:
+- Player must remain blocked from teleporting.
+- Do not allow teleport if message fails.
+- Do not crash if message fails.
+- Only one bot should send the message.
+- Prefer KeanuShield/security bot.
+- ChillTopiaMC should not duplicate the message.
+
+Implementation:
+Find the current teleport block where jailed players are already prevented from using !tele / !goto / !spawn.
+
+Add message before return:
+
+try:
+    remaining = get_jail_remaining(user.id)
+    msg = f"🚨 You’re jailed for {format_duration(remaining)}. Type !bail to leave early."
+except Exception:
+    msg = "🚨 You’re jailed right now. Type !bail to leave early."
+
+try:
+    await self.highrise.send_whisper(user.id, msg)
+except Exception as e:
+    print(f"[JAIL BLOCK MESSAGE ERROR] ignored: {e!r}")
+
+print(f"[JAIL BLOCK] user={user.username} cmd={cmd} message_sent=true")
+return
+
+If current bot is not KeanuShield:
+- If KeanuShield also receives the command, let KeanuShield message.
+- If only ChillTopiaMC sees the blocked command, ChillTopiaMC may whisper the message only as fallback.
+- Do not send duplicate messages.
+
+Simple duplicate-safe rule:
+Use a short in-memory cooldown per user+cmd:
+_jail_block_msg_cooldown[(user.id, cmd)] = timestamp
+
+Do not send another jail block message for the same user within 3 seconds.
+
+Add helper if needed:
+format_duration(seconds):
+- 0–59 = "Xs"
+- 60–3599 = "Xm Ys"
+- 3600+ = "Xh Ym"
+
+Testing:
+1. Jail alt:
+!jail @AltName 3 testing tele message
+confirm
+
+2. On jailed alt:
+!tele casino
+
+Expected:
+No teleport.
+One whisper:
+🚨 You’re jailed for Xm Ys. Type !bail to leave early.
+
+3. On jailed alt:
+!goto 4ktreyMarion
+
+Expected:
+No teleport.
+One whisper.
+
+4. Spam:
+!tele casino
+!tele casino
+!tele casino
+
+Expected:
+No duplicate spam. Message cooldown works.
+
+5. Allowed commands:
+!jailstatus
+!bail
+
+Expected:
+Still works normally.
+
+Final report:
+1. Files changed
+2. Teleport block message result
+3. Duplicate message prevention result
+4. KeanuShield/ChillTopiaMC duplicate result
+5. Bot stability result
