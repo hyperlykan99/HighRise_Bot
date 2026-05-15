@@ -1,0 +1,217 @@
+Fix Poker Turn Sequence — Public Turn Message + Private Card Whisper
+
+Current issue:
+Poker public chat currently says:
+👉 YOUR TURN @Player | POT:200 | !check !r !fold !allin
+
+I do NOT want that public message.
+
+Wanted behavior:
+Public room message:
+⏳ @Player’s turn. 30s
+
+Private whisper to current player only:
+🎯 Your turn. Cards: [card1] [card2]
+Pot: 200 🪙
+Use !check, !call, !raise [amount], !fold, or !allin.
+
+Also:
+First hand still does not show first player’s hand in whisper.
+
+Goal:
+1. Public chat only shows whose turn it is + timer.
+2. Current player gets their cards by whisper.
+3. First player after blinds gets a guaranteed card whisper.
+4. Other players do not see command list spam.
+5. Other players can see whose turn it is.
+
+Do not change:
+- blackjack
+- jail
+- luxe tickets
+- tip audit
+- coinpacks
+- workflows
+
+Part 1 — Replace public “YOUR TURN” message
+
+Search poker code for messages containing:
+- "YOUR TURN"
+- "👉 YOUR TURN"
+- "POT:"
+- "!check !r !fold !allin"
+- "your turn"
+
+Likely in:
+- modules/poker.py
+- poker turn announcement function
+- advance_turn
+- announce_turn
+- start_betting_round
+- next_player_turn
+
+Replace public chat message with:
+
+⏳ @Player’s turn. 30s
+
+If timer variable exists, use it:
+⏳ @Player’s turn. {turn_seconds}s
+
+If no timer variable exists, default:
+⏳ @Player’s turn. 30s
+
+Important:
+Public message must NOT include:
+- YOUR TURN
+- command list
+- cards
+- pot unless you want it later
+- action commands
+
+Part 2 — Add private current-player whisper
+
+Whenever a turn starts, whisper current player:
+
+🎯 Your turn. Cards: [card1] [card2]
+Pot: [pot] 🪙
+Use !check, !call, !raise [amount], !fold, or !allin.
+
+If message too long, use:
+🎯 Your turn. Cards: [card1] [card2] | Pot: [pot] 🪙
+
+This whisper should be sent to:
+current_turn_user_id only
+
+Part 3 — Guaranteed first player card whisper
+
+After blinds are posted and first actor is chosen:
+
+1. Announce blinds publicly:
+🃏 Dealer: Hand #[n]
+🟡 Blinds SB:@SmallBlind ([amount] 🪙) BB:@BigBlind ([amount] 🪙)
+POT:[amount] 🪙
+
+2. Wait 5 seconds:
+await asyncio.sleep(5)
+
+3. Set current player / first actor.
+
+4. Whisper first actor:
+🎯 Your turn. Cards: [card1] [card2]
+Pot: [pot] 🪙
+Use !check, !call, !raise [amount], !fold, or !allin.
+
+5. Public chat:
+⏳ @FirstActor’s turn. 30s
+
+6. Start turn timer after the whisper is sent.
+
+Important:
+Do not allow first actor action before cards whisper is sent.
+If action comes too early:
+⏳ Dealer is preparing your turn. Please wait.
+
+Part 4 — Send cards to all players at hand start, but resend current actor
+
+At hand start:
+- deal hole cards to everyone
+- save cards
+- attempt to whisper cards to all players
+
+But for the first actor:
+- after the 5-second blind delay, whisper their cards again as guaranteed delivery.
+
+This fixes first player missing hand.
+
+Part 5 — Card lookup must use same stored state
+
+Make sure the whisper uses the actual stored hole cards.
+
+Do not create new cards.
+Do not redeal.
+Do not shuffle again.
+
+Use existing table/player hand state:
+player.hand
+player.cards
+table.hole_cards[user_id]
+or whatever the poker module already uses.
+
+Part 6 — Not-your-turn response
+
+If a non-current player tries:
+!call
+!check
+!raise
+!fold
+!allin
+
+Reply only to that player:
+
+⏳ It’s @CurrentPlayer’s turn.
+
+Do not process their action.
+
+Part 7 — Logs
+
+Add logs:
+
+[POKER TURN PUBLIC] current=@AshQuinn_ timer=30 sent=true
+[POKER TURN WHISPER] user=@AshQuinn_ cards_found=true sent=true
+[POKER FIRST TURN] delay=5s first_actor=@AshQuinn_ cards_resend=true
+[POKER BLOCK] user=@Other current=@AshQuinn_ reason=not_turn
+
+Part 8 — Tests
+
+Run:
+python -m py_compile main.py
+python -m py_compile modules/poker.py
+
+Restart bots.
+
+In-game test with 2 players:
+
+1. Player 1:
+!p 5000
+
+2. Player 2:
+!p 5000
+
+Expected:
+Dealer announces blinds.
+
+After 5 seconds:
+Public message:
+⏳ @FirstPlayer’s turn. 30s
+
+First player receives whisper:
+🎯 Your turn. Cards: [card1] [card2]
+
+No public:
+👉 YOUR TURN
+No public:
+!check !r !fold !allin
+
+3. Second player types:
+!call
+
+Expected:
+⏳ It’s @FirstPlayer’s turn.
+
+4. First player acts.
+
+Expected:
+Next public:
+⏳ @SecondPlayer’s turn. 30s
+
+Second player receives whisper:
+🎯 Your turn. Cards: [card1] [card2]
+
+Final report:
+1. Files changed
+2. Old public YOUR TURN message removed
+3. Public turn timer message result
+4. First actor card whisper result
+5. Turn-change card whisper result
+6. Not-your-turn response result
+7. Bot stability result

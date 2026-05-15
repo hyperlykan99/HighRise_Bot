@@ -1602,11 +1602,12 @@ async def _start_hand(bot: BaseBot) -> None:
                        f"{_fa_acts}")[:249]
             try:
                 await bot.highrise.send_whisper(_first_actor_pl["user_id"], _fa_msg)
-                print(f"[POKER SEQ] first_actor=@{_first_actor_pl['username']} "
-                      f"cards_whispered=true")
+                print(f"[POKER FIRST TURN] delay=5s "
+                      f"first_actor=@{_first_actor_pl['username']} cards_resend=true")
             except Exception as _fa_exc:
-                print(f"[POKER SEQ] first_actor=@{_first_actor_pl['username']} "
-                      f"cards_whispered=false err={str(_fa_exc)[:60]}")
+                print(f"[POKER FIRST TURN] delay=5s "
+                      f"first_actor=@{_first_actor_pl['username']} cards_resend=false "
+                      f"err={str(_fa_exc)[:60]}")
         else:
             try:
                 await bot.highrise.send_whisper(
@@ -1615,8 +1616,9 @@ async def _start_hand(bot: BaseBot) -> None:
                     "Type !cards or ask staff.")
             except Exception:
                 pass
-            print(f"[POKER SEQ] first_actor=@{_first_actor_pl['username']} "
-                  f"cards_whispered=false reason=no_cards")
+            print(f"[POKER FIRST TURN] delay=5s "
+                  f"first_actor=@{_first_actor_pl['username']} cards_resend=false "
+                  f"reason=no_cards")
 
     # ── Start preflop ──────────────────────────────────────────────────────
     tbl_new = _get_table()
@@ -1810,15 +1812,9 @@ async def _prompt_player(bot: BaseBot, tbl: dict, p: dict,
     stack = p["stack"]
 
     # ── Public room announcement ──────────────────────────────────────────
-    _p_disp = _pdn(p)
-    if owe > 0:
-        pub = (f"{_PK_TURN} {_p_disp} | "
-               f"{_PK_POT}:{pot:,} 🪙 | Call:{owe:,} 🪙 | !call !r !fold !allin")
-    else:
-        pub = (f"{_PK_TURN} {_p_disp} | "
-               f"{_PK_POT}:{pot:,} 🪙 | !check !r !fold !allin")
+    pub = f"⏳ @{p['username']}'s turn. {turn_secs}s"
     await _chat(bot, pub[:249])
-    print(f"[POKER TURN] current=@{p['username']} public_announced=true")
+    print(f"[POKER TURN PUBLIC] current=@{p['username']} timer={turn_secs} sent=true")
 
     # ── Private whispers (non-fatal: failures silently ignored) ──────────
     try:
@@ -1829,20 +1825,25 @@ async def _prompt_player(bot: BaseBot, tbl: dict, p: dict,
                 cards = json.loads(pp["hole_cards_json"] or "[]")
                 board = json.loads(tbl2["community_cards_json"] or "[]")
                 if cards:
-                    # Whisper 1: turn header with first-actor flag
-                    first_pfx = "First to act! " if is_first_actor else ""
+                    # Whisper 1: cards + pot + action hint
+                    _cards_str = _fcs(cards)
                     if stack < owe and owe > 0:
-                        hdr = (f"{_PK_TURN} — {first_pfx}"
-                               f"Need {owe:,} 🪙, you have {stack:,} 🪙")
+                        hdr = (f"🎯 Your turn. {_PK_CARDS}: {_cards_str} | "
+                               f"Pot:{pot:,} 🪙 | Need {owe:,} 🪙 (!allin or !fold)")
                     elif owe > 0:
-                        hdr = (f"{_PK_TURN} — {first_pfx}"
-                               f"Call {owe:,} 🪙 | Stack:{stack:,} 🪙")
+                        hdr = (f"🎯 Your turn. {_PK_CARDS}: {_cards_str} | "
+                               f"Pot:{pot:,} 🪙 | Call:{owe:,} 🪙")
                     else:
-                        hdr = f"{_PK_TURN} — {first_pfx}Stack:{stack:,} 🪙"
+                        hdr = (f"🎯 Your turn. {_PK_CARDS}: {_cards_str} | "
+                               f"Pot:{pot:,} 🪙 | Use !check, !raise or !fold")
+                    _w1_sent = False
                     try:
                         await bot.highrise.send_whisper(p["user_id"], hdr[:249])
+                        _w1_sent = True
                     except Exception:
                         pass
+                    print(f"[POKER TURN WHISPER] user=@{p['username']} "
+                          f"cards_found=true sent={str(_w1_sent).lower()}")
 
                     # Whisper 2: cards + board + hand strength
                     if board:
@@ -2970,8 +2971,8 @@ async def _dispatch(bot: BaseBot, user: User, args: list[str]) -> None:
                 cur = players[idx]
                 if cur["user_id"] != user.id:
                     _cur_disp = _pdn(cur)
-                    print(f"[POKER BLOCK] user=@{user.username} tried={sub} "
-                          f"current=@{cur['username']}")
+                    print(f"[POKER BLOCK] user=@{user.username} "
+                          f"current=@{cur['username']} reason=not_turn")
                     await _w(bot, user.id, f"⏳ It's {_cur_disp}'s turn.")
                     return
             if sub == "check":
