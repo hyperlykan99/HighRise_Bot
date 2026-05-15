@@ -1,0 +1,202 @@
+Fix Poker Start Sequence — Blinds First, Then First Player Cards, Then Turn Announcement
+
+Current problems:
+1. First player after round starts still does not receive their cards.
+2. Other players still do not see whose turn it is.
+
+Goal:
+When a poker hand starts, follow a strict sequence:
+
+1. Dealer opens/starts round.
+2. Dealer announces blinds.
+3. Wait 5 seconds.
+4. First player whose turn it is receives their private cards by whisper.
+5. All other players see:
+   ⏳ @FirstPlayer’s turn.
+6. Current player sees:
+   🎯 Your turn. Cards: [card1] [card2]
+7. Do not allow actions before the first player card whisper is sent.
+
+Do not change:
+- blackjack
+- jail
+- luxe tickets
+- tips
+- economy
+- workflows
+
+Part 1 — Strict hand start sequence
+
+Find poker hand start function:
+- start_hand
+- begin_hand
+- open_table
+- start_round
+- deal_hole_cards
+- announce_blinds
+- set_current_turn
+
+Change the flow to:
+
+async def start_poker_hand(...):
+    deal hole cards to all active players
+    save cards to state/database
+
+    announce:
+    🃏 Poker hand started.
+    Blinds: SB [amount] / BB [amount]
+
+    await asyncio.sleep(5)
+
+    set current_turn_user_id to first actor
+
+    await send_first_turn_cards_and_announce(bot, table)
+
+Important:
+Do not start turn timer until after send_first_turn_cards_and_announce finishes.
+
+Part 2 — New helper
+
+Add helper:
+
+async def send_first_turn_cards_and_announce(bot, table):
+    current_id = table.current_turn_user_id
+    current_player = get_player_by_id(table, current_id)
+
+    cards = get_hole_cards(table, current_id)
+
+    if cards exist:
+        whisper current player:
+        🎯 Your turn. Cards: [card1] [card2]
+        Use !check, !call, !raise [amount], or !fold.
+    else:
+        whisper current player:
+        🎯 Your turn, but your cards were not found. Type !cards or ask staff.
+        print error.
+
+    public chat:
+    ⏳ @CurrentPlayer’s turn.
+
+This public message lets everyone else know whose turn it is.
+
+Part 3 — Send all player cards safely too
+
+Still send cards to everyone when the hand starts, but the first actor gets an extra guaranteed whisper after 5 seconds.
+
+Flow:
+1. Deal cards.
+2. Try to whisper all players their cards.
+3. Announce blinds.
+4. Wait 5 seconds.
+5. Guaranteed resend to first actor.
+6. Announce first actor turn publicly.
+
+This fixes first player missing cards.
+
+Part 4 — Turn change announcement
+
+Every time current_turn_user_id changes, call:
+
+await announce_poker_turn(bot, table)
+
+Behavior:
+- Whisper current player their cards again:
+  🎯 Your turn. Cards: [card1] [card2]
+- Public chat:
+  ⏳ @Player’s turn.
+
+If current bet exists:
+Public chat:
+⏳ @Player’s turn. Call [amount] 🪙, raise, or fold.
+
+Part 5 — Not-your-turn response
+
+For all poker action commands:
+!check
+!call
+!raise
+!fold
+!allin
+!bet
+aliases too
+
+Before processing:
+if user.id != table.current_turn_user_id:
+    current = get_current_turn_player(table)
+    await bot.highrise.send_whisper(user.id, f"⏳ It’s @{current.username}’s turn.")
+    return
+
+Part 6 — Prevent action before first turn ready
+
+Add flag:
+table.first_turn_ready = False
+
+When hand starts:
+table.first_turn_ready = False
+
+After 5-second sequence and first actor card whisper:
+table.first_turn_ready = True
+
+If any player tries action before ready:
+whisper:
+⏳ Dealer is preparing the first turn. Please wait.
+
+Part 7 — Logs
+
+Add logs:
+
+[POKER SEQ] hand_start=true players=...
+[POKER SEQ] blinds_announced=true sb=... bb=...
+[POKER SEQ] waiting_before_first_turn=5s
+[POKER SEQ] first_actor=@Player cards_whispered=true
+[POKER TURN] current=@Player public_announced=true
+[POKER BLOCK] user=@Other tried=call current=@Player
+
+Part 8 — Test
+
+Compile:
+python -m py_compile main.py
+python -m py_compile modules/poker.py
+
+If poker file is different, compile the real poker module.
+
+In-game test with 2 players:
+
+1. Player 1:
+!poker
+!pjoin
+
+2. Player 2:
+!pjoin
+
+3. Start/bet/open hand.
+
+Expected sequence:
+- Dealer announces blinds.
+- Wait about 5 seconds.
+- First turn player receives whisper:
+  🎯 Your turn. Cards: [card1] [card2]
+- Room sees:
+  ⏳ @FirstPlayer’s turn.
+
+4. Second player types:
+!call
+
+Expected:
+⏳ It’s @FirstPlayer’s turn.
+
+5. First player acts.
+
+Expected:
+- Next player gets whisper with their cards.
+- Room sees:
+  ⏳ @SecondPlayer’s turn.
+
+Final report:
+1. Files changed
+2. Blind announcement sequence result
+3. 5-second delay result
+4. First player guaranteed card whisper result
+5. Public turn announcement result
+6. Not-your-turn response result
+7. Poker stability result

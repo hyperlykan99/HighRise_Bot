@@ -1374,6 +1374,7 @@ async def _start_hand(bot: BaseBot) -> None:
 
     seated = active[:max_pl]
     n      = len(seated)
+    print(f"[POKER SEQ] hand_start=true players={n}")
 
     # ── Rotate dealer button ───────────────────────────────────────────────
     prev_dealer = tbl.get("dealer_button_index") or 0
@@ -1534,9 +1535,11 @@ async def _start_hand(bot: BaseBot) -> None:
             f"{_PK_DEALER}: Hand #{hand_num} | "
             f"{_PK_BLIND} SB:{_sb_disp}({sb_amt} 🪙) BB:{_bb_disp}({bb_amt} 🪙) | "
             f"{_PK_POT}:{initial_pot:,} 🪙")[:249])
+        print(f"[POKER SEQ] blinds_announced=true sb={sb_amt} bb={bb_amt}")
     else:
         order_str = "  ".join(f"@{sp['username']}" for sp in seated)
         await _chat(bot, f"{_PK_DEALER}: Hand #{hand_num} | {order_str[:110]}"[:249])
+        print(f"[POKER SEQ] blinds_announced=false (blinds_off)")
 
     # ── Part 4: sequential card delivery with dealer simulation ───────────
     sent_count, failed_players = await _deliver_cards_sequential(
@@ -1569,11 +1572,53 @@ async def _start_hand(bot: BaseBot) -> None:
             bot, round_id, hand_num, only_usernames=need_deliver
         )
 
-    # Brief pause — ensures all card whispers reach clients before turn prompt
-    await asyncio.sleep(0.5)
+    # ── 5-second window: all whispers settle, then resend to first actor ──
+    print(f"[POKER SEQ] waiting_before_first_turn=5s")
+    await asyncio.sleep(5.0)
+
+    # ── Guaranteed first-actor card whisper ────────────────────────────────
+    players = _get_players(round_id)
+    _first_actor_pl: dict | None = None
+    for _fi in range(len(players)):
+        _fidx = (first_preflop_idx + _fi) % len(players) if players else 0
+        _fc_candidate = players[_fidx]
+        if _fc_candidate["status"] == "active":
+            _first_actor_pl = _fc_candidate
+            break
+    if _first_actor_pl:
+        _fa_hc = db.get_hole_cards(round_id, _first_actor_pl["username"])
+        if _fa_hc and _fa_hc.get("card1") and _fa_hc.get("card2"):
+            _fa_cards = [_fa_hc["card1"], _fa_hc["card2"]]
+        else:
+            _fa_cards = json.loads(_first_actor_pl.get("hole_cards_json") or "[]")
+        if len(_fa_cards) == 2:
+            _fa_owe = max(0, tbl.get("current_bet", 0) -
+                          _first_actor_pl.get("current_bet", 0))
+            if _fa_owe > 0:
+                _fa_acts = f"!call {_fa_owe:,}, !raise or !fold"
+            else:
+                _fa_acts = "!check, !raise or !fold"
+            _fa_msg = (f"🎯 Your turn. {_PK_CARDS}: {_fcs(_fa_cards)} | "
+                       f"{_fa_acts}")[:249]
+            try:
+                await bot.highrise.send_whisper(_first_actor_pl["user_id"], _fa_msg)
+                print(f"[POKER SEQ] first_actor=@{_first_actor_pl['username']} "
+                      f"cards_whispered=true")
+            except Exception as _fa_exc:
+                print(f"[POKER SEQ] first_actor=@{_first_actor_pl['username']} "
+                      f"cards_whispered=false err={str(_fa_exc)[:60]}")
+        else:
+            try:
+                await bot.highrise.send_whisper(
+                    _first_actor_pl["user_id"],
+                    "🎯 Your turn, but your cards were not found. "
+                    "Type !cards or ask staff.")
+            except Exception:
+                pass
+            print(f"[POKER SEQ] first_actor=@{_first_actor_pl['username']} "
+                  f"cards_whispered=false reason=no_cards")
 
     # ── Start preflop ──────────────────────────────────────────────────────
-    players = _get_players(round_id)
     tbl_new = _get_table()
     if tbl_new:
         await _start_street_from(
@@ -1773,6 +1818,7 @@ async def _prompt_player(bot: BaseBot, tbl: dict, p: dict,
         pub = (f"{_PK_TURN} {_p_disp} | "
                f"{_PK_POT}:{pot:,} 🪙 | !check !r !fold !allin")
     await _chat(bot, pub[:249])
+    print(f"[POKER TURN] current=@{p['username']} public_announced=true")
 
     # ── Private whispers (non-fatal: failures silently ignored) ──────────
     try:
@@ -2924,6 +2970,8 @@ async def _dispatch(bot: BaseBot, user: User, args: list[str]) -> None:
                 cur = players[idx]
                 if cur["user_id"] != user.id:
                     _cur_disp = _pdn(cur)
+                    print(f"[POKER BLOCK] user=@{user.username} tried={sub} "
+                          f"current=@{cur['username']}")
                     await _w(bot, user.id, f"⏳ It's {_cur_disp}'s turn.")
                     return
             if sub == "check":
