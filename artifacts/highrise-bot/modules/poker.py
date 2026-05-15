@@ -1239,6 +1239,7 @@ async def _deliver_cards_sequential(
     deal_delay = max(0.1, min(deal_delay, 3.0))
 
     active_rows = [pr for pr in player_rows if pr["status"] in ("active", "allin")]
+    print(f"[POKER CARDS] hand_id={round_id[-8:]} sending_to={len(active_rows)}")
     print(f"[POKER_DEAL] hand={round_id[-8:]} | players={len(active_rows)} | delay={deal_delay}s | sb={sb_name} bb={bb_name}")
 
     await _chat(bot, f"{_PK_DEALER}: Drawing cards...")
@@ -1284,8 +1285,10 @@ async def _deliver_cards_sequential(
             print(f"[POKER_DEAL] big_blind={pr['username']} delivered={str(delivered).lower()}")
         if delivered:
             sent_count += 1
+            print(f"[POKER CARDS] user=@{pr['username']} cards_sent=true")
         else:
             failed.append(pr["username"])
+            print(f"[POKER CARDS] user=@{pr['username']} cards_sent=false error={fail_reason}")
 
     # Retry pass — one more attempt for any failures
     if failed:
@@ -1566,6 +1569,9 @@ async def _start_hand(bot: BaseBot) -> None:
             bot, round_id, hand_num, only_usernames=need_deliver
         )
 
+    # Brief pause — ensures all card whispers reach clients before turn prompt
+    await asyncio.sleep(0.5)
+
     # ── Start preflop ──────────────────────────────────────────────────────
     players = _get_players(round_id)
     tbl_new = _get_table()
@@ -1737,6 +1743,7 @@ async def _start_street_from(bot: BaseBot, phase: str, round_id: str,
             _save_table(current_player_index=idx)
             tbl = _get_table()
             if tbl:
+                print(f"[POKER CARDS] first_actor=@{p['username']} cards_verified=true")
                 await _prompt_player(bot, tbl, p, is_first_actor=first_actor)
             return
         first_actor = False
@@ -2689,7 +2696,7 @@ async def _dispatch(bot: BaseBot, user: User, args: list[str]) -> None:
             p = _get_player_by_name(tbl["round_id"], user.username)
         if p is None:
             if sp is None:
-                await _w(bot, user.id, "Join poker with !p <buyin>.")
+                await _w(bot, user.id, "⚠️ You are not in the current hand.")
             elif sp["status"] == "sitting_out":
                 await _w(bot, user.id,
                     "You are sitting out. Use !sitin for next hand.")
@@ -2706,7 +2713,7 @@ async def _dispatch(bot: BaseBot, user: User, args: list[str]) -> None:
             cards = json.loads(p["hole_cards_json"] or "[]")
         if not cards or len(cards) != 2:
             await _w(bot, user.id,
-                "Cards not found. Ask staff: !poker resendcards.")
+                "⚠️ Your cards were not found. Ask staff: !pokerforceresend.")
             print(f"[POKER] /ph: no cards for {user.username} "
                   f"round={tbl['round_id']}")
             return
@@ -2916,7 +2923,8 @@ async def _dispatch(bot: BaseBot, user: User, args: list[str]) -> None:
             if 0 <= idx < len(players):
                 cur = players[idx]
                 if cur["user_id"] != user.id:
-                    await _w(bot, user.id, f"{_PK_INVAL} — Not your turn.")
+                    _cur_disp = _pdn(cur)
+                    await _w(bot, user.id, f"⏳ It's {_cur_disp}'s turn.")
                     return
             if sub == "check":
                 if tbl["current_bet"] > p["current_bet"]:

@@ -1,0 +1,211 @@
+Polish Poker Bot — Fix First Player Cards + Show Whose Turn
+
+Current issue:
+After a poker round starts, the first player sometimes does not see their cards.
+
+Also, when it is not a player’s turn, I want the bot to tell them whose turn it is.
+
+Goal:
+1. Ensure every seated player receives their private hole cards when a hand starts.
+2. Especially fix the first player after round start.
+3. If a player tries an action when it is not their turn, reply:
+“⏳ It’s @username’s turn.”
+4. If a player asks/checks while waiting, show:
+“⏳ Waiting for @username’s turn.”
+
+Do not change:
+- blackjack
+- jail system
+- luxe tickets
+- tip logs
+- economy
+- workflows
+
+Part 1 — Fix first player missing cards
+
+Find poker hand start logic:
+- modules/poker.py
+- modules/texas_holdem.py
+- modules/poker_game.py
+- handle_poker_start
+- start_hand
+- deal_hole_cards
+- send_private_cards
+- resend_cards
+- poker round timer
+
+Problem to fix:
+The first active player after hand start may not receive their private card whisper before the turn begins.
+
+Required behavior:
+When a hand starts:
+1. Deal 2 hole cards to every active player.
+2. Save each player’s cards in table state.
+3. Whisper cards to every active player.
+4. Only after all card whispers are attempted, announce first turn.
+
+Do not start first turn before cards are sent.
+
+Add safe flow:
+
+await deal_hole_cards(table)
+await send_hole_cards_to_all_players(bot, table)
+await announce_current_turn(bot, table)
+
+Important:
+- If a whisper fails for one player, log it but continue.
+- Do not crash the hand.
+- Do not skip first player.
+- Add retry once after 1 second if first whisper fails.
+
+Part 2 — Add card delivery confirmation logs
+
+Add logs:
+
+[POKER CARDS] hand_id=123 sending_to=6
+[POKER CARDS] user=@Player cards_sent=true
+[POKER CARDS] user=@Player cards_sent=false error=...
+[POKER CARDS] first_actor=@Player cards_verified=true
+
+Part 3 — Add resend cards safety
+
+If a player types:
+
+!cards
+!pcards
+!hand
+
+They should receive their current private cards again.
+
+Reply:
+🃏 Your hand: [card1] [card2]
+
+If they are not in the current hand:
+⚠️ You are not in the current hand.
+
+If cards are missing:
+⚠️ Your cards were not found. Ask staff to use !pokerforceresend.
+
+Part 4 — Not-your-turn message
+
+Find poker action commands:
+- !check
+- !call
+- !raise
+- !fold
+- !allin
+- !bet
+- !pcheck
+- !pcall
+- !praise
+- !pfold
+- any aliases
+
+Before processing the action, check:
+
+current_turn_user_id = table.current_turn_user_id
+
+If user.id != current_turn_user_id:
+    current_username = get_username(current_turn_user_id)
+    await whisper or chat:
+    “⏳ It’s @current_username’s turn.”
+    return
+
+Message should be short:
+⏳ It’s @Player’s turn.
+
+Part 5 — Waiting status message
+
+For status commands like:
+!pokerstatus
+!ptable
+!pplayers
+!pturn
+
+Show current turn:
+
+🃏 Poker Table
+Pot: 20,000 🪙
+Turn: @Player
+Your status: waiting
+
+If the user is in the hand but not current actor:
+⏳ Waiting for @Player’s turn.
+
+Part 6 — Turn announcement
+
+When a turn starts, announce publicly:
+
+🎯 @Player’s turn. Use !check, !call, !raise, or !fold.
+
+Keep under 249 characters.
+
+If there is a current bet:
+🎯 @Player’s turn. Call 5,000 🪙, raise, or fold.
+
+Part 7 — Avoid spam
+
+Do not announce “@user’s turn” repeatedly every second.
+
+Only announce:
+- when turn changes
+- when someone tries to act out of turn
+- when someone requests status
+
+Part 8 — Tests
+
+Compile:
+python -m py_compile main.py
+python -m py_compile modules/poker.py
+
+If poker file name is different, compile the actual poker module too.
+
+In-game tests:
+
+Test 1 — Start hand:
+Have 2 players join poker.
+Start/bet hand.
+
+Expected:
+- Both players receive hole cards.
+- First player also receives cards before their turn starts.
+- Bot announces:
+🎯 @FirstPlayer’s turn.
+
+Test 2 — First player card check:
+First player types:
+!cards
+
+Expected:
+🃏 Your hand: [card1] [card2]
+
+Test 3 — Second player acts early:
+Second player types:
+!call or !fold while it is first player’s turn.
+
+Expected:
+⏳ It’s @FirstPlayer’s turn.
+
+No action is taken.
+
+Test 4 — Turn changes:
+First player acts.
+Expected:
+Bot announces:
+🎯 @SecondPlayer’s turn.
+
+Test 5 — Status:
+Waiting player types:
+!pokerstatus
+
+Expected:
+Shows current turn:
+Turn: @SecondPlayer
+
+Final report:
+1. Files changed
+2. First player card delivery fix
+3. Card resend command result
+4. Not-your-turn message result
+5. Turn announcement result
+6. Poker hand stability result
