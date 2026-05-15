@@ -368,7 +368,7 @@ async def _resolve(bot: BaseBot) -> None:
         winner  = nf[0]
         win_amt = _T["pot"]
         _T["players"][winner]["stack"] += win_amt
-        await _chat(bot, f"🏆 @{winner} wins {win_amt:,} coins. Everyone else folded.")
+        await _chat(bot, f"🏆 @{winner} wins {win_amt:,} coins.\nReason: Everyone else folded.")
         print(f"[POKER V2] resolve action=fold_win winner={winner}")
         await _complete_hand(bot, "fold_win")
         return
@@ -418,7 +418,7 @@ async def _prompt_turn(bot: BaseBot, username: str) -> None:
     if owe > 0:
         wh = f"🎯 Your turn.\n🃏 Your cards: {csz}\nPot: {pot:,} coins\nCall: {owe:,} coins"
     else:
-        wh = f"🎯 Your turn.\n🃏 Your cards: {csz}\nPot: {pot:,} coins\n!check, !raise, !fold, !allin"
+        wh = f"🎯 Your turn.\n🃏 Your cards: {csz}\nPot: {pot:,} coins\nYou can check or raise."
 
     wh_ok = await _w(bot, uid, wh[:249])
     print(f"[POKER V2] whisper user={username} ok={str(wh_ok).lower()}")
@@ -540,7 +540,7 @@ async def _showdown(bot: BaseBot) -> None:
     board    = _T["board"]
     eligible = _eligible_in_hand()
 
-    await _chat(bot, f"♠️ Showdown.\nBoard: {_board_str()}")
+    await _chat(bot, f"👀 Showdown\nBoard: {_board_str()}")
     await asyncio.sleep(1)
 
     # Evaluate each eligible player's best hand
@@ -580,11 +580,12 @@ async def _showdown(bot: BaseBot) -> None:
             _T["players"][w]["stack"] += share + (remainder if i == 0 else 0)
         if len(winners) == 1:
             w = winners[0]
-            await _chat(bot,
-                f"🏆 @{w} wins {pot_info['amount']:,} coins with {_hand_name(scores[w])}.")
+            await _chat(bot, f"🏆 @{w} wins {pot_info['amount']:,} coins.")
         else:
-            names = " and ".join(f"@{w}" for w in winners)
-            await _chat(bot, f"🏆 Split pot. {names} each receive {share:,} coins.")
+            split_lines = ["🤝 Split pot."]
+            for w in winners:
+                split_lines.append(f"@{w} receives {share:,} coins.")
+            await _chat(bot, "\n".join(split_lines)[:249])
 
     print(f"[POKER V2] resolve action=showdown")
     await _complete_hand(bot, "showdown")
@@ -598,7 +599,7 @@ async def _complete_hand(bot: BaseBot, reason: str) -> None:
     # Show current stacks before removal
     seated_now = _seated()
     if seated_now:
-        parts = [f"@{u} {_T['players'][u]['stack']:,}" for u in seated_now[:6]]
+        parts = [f"@{u}: {_T['players'][u]['stack']:,}" for u in seated_now[:6]]
         await _chat(bot, ("💰 Stacks:\n" + "\n".join(parts))[:249])
 
     # Cash out / remove players marked for removal or busted
@@ -849,7 +850,7 @@ async def _action_guard(bot: BaseBot, user: User) -> bool:
         await _w(bot, user.id, "🏳️ You have already folded.")
         return False
     if p["status"] == "allin":
-        await _w(bot, user.id, "You are all-in.")
+        await _w(bot, user.id, "🔥 You are all-in. Wait for showdown.")
         return False
     if p["status"] != "active":
         await _w(bot, user.id, "You are not active in this hand.")
@@ -857,7 +858,7 @@ async def _action_guard(bot: BaseBot, user: User) -> bool:
 
     if _T["current_turn_username"] != username:
         cur = _T["current_turn_username"] or "?"
-        await _w(bot, user.id, f"It is @{cur}'s turn.")
+        await _w(bot, user.id, f"⏳ It is @{cur}'s turn.")
         return False
 
     return True
@@ -1101,33 +1102,33 @@ async def _cmd_table(bot: BaseBot, user: User) -> None:
 
     if phase == "waiting":
         if cnt == 1:
-            await _w(bot, user.id, "Poker table:\nWaiting for 1 more player.\nUse !join 5000.")
+            await _w(bot, user.id, "♠️ Poker table\nWaiting for 1 more player.\nUse !join 5000.")
         else:
-            await _w(bot, user.id, "Poker table:\nWaiting for players.\nUse !join 5000.")
+            await _w(bot, user.id, "♠️ Poker table\nWaiting for players.\nUse !join 5000.")
     elif phase == "countdown":
         await _w(bot, user.id,
-            f"Poker table:\nNext hand starting soon.\nPlayers: {cnt}")
+            f"♠️ Poker table\nNext hand starting soon.\nPlayers: {cnt}")
     elif phase == "dealing":
         elapsed = time.time() - _T.get("dealing_started_at", 0.0)
         if elapsed > 5:
-            await _w(bot, user.id, f"Poker table:\nOpening first turn now.\nPlayers: {cnt}")
+            await _w(bot, user.id, f"♠️ Poker table\nOpening first turn now.\nPlayers: {cnt}")
             await _force_open_first_turn(bot)
             return
         await _w(bot, user.id,
-            f"Poker table:\nDealer is dealing cards.\nPlayers: {cnt}")
+            f"♠️ Poker table\nDealing cards...\nPlayers: {cnt}")
     elif phase in ("preflop", "flop", "turn", "river"):
         turn = _T["current_turn_username"] or "?"
         pot  = _T["pot"]
         await _w(bot, user.id, (
-            f"Poker table:\nPhase: {phase.title()}\n"
+            f"♠️ Poker table\nPhase: {phase.title()}\n"
             f"Pot: {pot:,} coins\nTurn: @{turn}\n"
             f"Board: {_board_str()}\nPlayers: {cnt}"
         )[:249])
     elif phase == "between_hands":
         await _w(bot, user.id,
-            f"Poker table:\nNext hand soon.\nPlayers: {cnt}")
+            f"♠️ Poker table\nNext hand soon.\nPlayers: {cnt}")
     else:
-        await _w(bot, user.id, "Poker table:\nWaiting for players.\nUse !join 5000.")
+        await _w(bot, user.id, "♠️ Poker table\nWaiting for players.\nUse !join 5000.")
 
 # ── !poker debugcards ──────────────────────────────────────────────────────────
 async def _cmd_debugcards(bot: BaseBot, user: User) -> None:
@@ -1239,7 +1240,7 @@ async def handle_poker_v2(bot: BaseBot, user: User, cmd: str, args: list) -> Non
             await _w(bot, user.id, f"Use !join {amt} to join poker.")
         else:
             await _w(bot, user.id, (
-                "Poker commands:\n"
+                "♠️ Poker Commands\n"
                 "Join: !join 5000\n"
                 "Play: !check, !call, !raise 500, !fold, !allin\n"
                 "Info: !hand, !table\n"

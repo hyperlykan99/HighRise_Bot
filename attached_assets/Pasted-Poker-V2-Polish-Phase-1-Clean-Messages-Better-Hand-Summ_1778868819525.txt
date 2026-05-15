@@ -1,0 +1,400 @@
+Poker V2 Polish Phase 1 — Clean Messages + Better Hand Summary
+
+Current status:
+Poker V2 core loop is now working.
+Do not rebuild the poker engine.
+Do not change core game logic unless needed for message formatting.
+
+Goal:
+Polish player-facing messages so poker feels cleaner, easier to understand, and more professional.
+
+Do NOT modify:
+- blackjack
+- jail
+- Luxe Tickets
+- tips
+- workflows
+- mining/fishing
+- bot runner
+- unrelated economy systems
+
+Only modify:
+- modules/poker_v2.py
+- main.py only if needed for poker command routing/help
+
+==================================================
+PART 1 — Message Style Rules
+==================================================
+
+Use simple readable emojis.
+Do not use hex color codes.
+Do not make messages too long.
+Keep each chat/whisper under 249 characters.
+
+Use “coins” consistently.
+
+Use these emojis:
+♠️ poker/table/next hand
+🃏 cards
+⏳ turn/timer
+✅ check/join/success
+💰 call/stacks/pot
+📈 raise
+🏳️ fold
+🔥 all-in
+🏆 winner
+👀 showdown
+🚪 leave during hand
+👋 leave/cash out
+⚠️ warnings/errors
+⏰ AFK/timeout
+
+==================================================
+PART 2 — Join / Waiting / Countdown Messages
+==================================================
+
+Update join message:
+
+✅ @Player joined poker with 5,000 coins. Players: 2/6
+
+If already seated:
+
+You are already seated with 5,000 coins. Use !leave to cash out.
+
+Waiting message:
+
+♠️ Waiting for 1 more player. Use !join 5000.
+
+Countdown message:
+
+♠️ Starting first hand in 10s.
+
+Between hands:
+
+♠️ Next hand in 10s.
+
+==================================================
+PART 3 — Card Messages
+==================================================
+
+Card whisper:
+
+🃏 Your cards: A♠ K♦
+
+First actor turn whisper:
+
+🎯 Your turn.
+🃏 Your cards: A♠ K♦
+Pot: 150 coins
+Call: 50 coins
+
+If no call required:
+
+🎯 Your turn.
+🃏 Your cards: A♠ K♦
+Pot: 150 coins
+You can check or raise.
+
+If card delivery completed:
+
+🃏 Cards sent.
+
+If some players may not have received cards:
+
+🃏 Cards sent. If you did not receive them, type !hand.
+
+==================================================
+PART 4 — Hand Start Message
+==================================================
+
+Use this exact public format:
+
+♠️ Poker hand #12
+SB: @Player1 50 coins
+BB: @Player2 100 coins
+Pot: 150 coins
+
+Do not add extra text unless needed.
+
+==================================================
+PART 5 — Turn Message
+==================================================
+
+Public turn message:
+
+⏳ @Player's turn. 30s
+
+Wrong turn whisper:
+
+⏳ It is @CurrentPlayer's turn.
+
+No public message for invalid/wrong-turn actions.
+
+==================================================
+PART 6 — Public Action Messages
+==================================================
+
+After every valid action, send a short public message before resolving the hand.
+
+Check:
+
+✅ @Player checked.
+
+Call:
+
+💰 @Player called 50 coins.
+
+Raise:
+
+📈 @Player raised to 500 coins.
+
+Fold:
+
+🏳️ @Player folded.
+
+All-in:
+
+🔥 @Player is all-in for 5,000 coins.
+
+Timeout auto-check:
+
+⏰ @Player timed out and checked. AFK 1/3.
+
+Timeout auto-fold:
+
+⏰ @Player timed out and folded. AFK 1/3.
+
+Important:
+Correct order in command handlers:
+1. validate action
+2. update state
+3. send public action message
+4. call resolver
+
+Do not let win message appear before the action message.
+
+==================================================
+PART 7 — Winner Summary
+==================================================
+
+After fold win:
+
+🏆 @Winner wins 150 coins.
+Reason: Everyone else folded.
+
+Then stack summary:
+
+💰 Stacks:
+@Player1: 5,050
+@Player2: 4,950
+
+Then next hand:
+
+♠️ Next hand in 10s.
+
+If fewer than 2 players remain:
+
+♠️ Waiting for 1 more player. Use !join 5000.
+
+Important:
+After winner announcement, next hand countdown must still start if 2+ players remain.
+Do not break current auto-next-hand behavior.
+
+==================================================
+PART 8 — Showdown Summary
+==================================================
+
+If showdown already exists, format it like this:
+
+👀 Showdown
+Board: A♠ 8♦ 8♣ K♥ 2♠
+
+@Player1: A♦ K♦ — Two Pair
+@Player2: Q♣ Q♥ — One Pair
+
+🏆 @Player1 wins 5,000 coins.
+
+If split pot:
+
+🤝 Split pot.
+@Player1 receives 2,500 coins.
+@Player2 receives 2,500 coins.
+
+Keep messages under 249 chars by splitting into multiple messages if needed.
+
+Do not rewrite hand evaluator in this phase unless necessary.
+
+==================================================
+PART 9 — Leave Messages
+==================================================
+
+If player leaves before active hand:
+
+👋 @Player left table. Cashed out 5,000 coins.
+
+If player leaves during active hand and is not all-in:
+
+🚪 @Player left during the hand and folded.
+
+If player leaves during hand and is all-in:
+
+🚪 @Player is all-in and will leave after showdown.
+
+If player already folded and tries to act:
+
+🏳️ You have already folded.
+
+If player is all-in and tries to act:
+
+🔥 You are all-in. Wait for showdown.
+
+==================================================
+PART 10 — Table Status Message
+==================================================
+
+!table when waiting:
+
+♠️ Poker table
+Waiting for players.
+Use !join 5000.
+
+!table when one player seated:
+
+♠️ Poker table
+Waiting for 1 more player.
+Use !join 5000.
+
+!table during countdown:
+
+♠️ Poker table
+Next hand starting soon.
+Players: 2
+
+!table during active hand:
+
+♠️ Poker table
+Phase: Preflop
+Pot: 150 coins
+Turn: @Player
+Board: —
+Players: 2
+
+!table between hands:
+
+♠️ Poker table
+Next hand soon.
+Players: 2
+
+Never show:
+Phase: Finished
+
+==================================================
+PART 11 — Poker Help Message
+==================================================
+
+When player types !poker or !phelp:
+
+♠️ Poker Commands
+Join: !join 5000
+Play: !check, !call, !raise 500, !fold, !allin
+Info: !hand, !table
+Leave: !leave
+
+Do not advertise old aliases.
+
+==================================================
+PART 12 — Hidden Owner Debug Messages
+==================================================
+
+Keep owner debug commands hidden from normal help.
+
+Owner commands can keep simple output:
+!poker v2debug
+!poker debugcards
+!poker resetv2
+!poker resendcards
+
+Do not reveal private card values in debugcards.
+
+==================================================
+PART 13 — Compile
+==================================================
+
+Run:
+
+python -m py_compile main.py
+python -m py_compile modules/poker_v2.py
+
+==================================================
+PART 14 — Tests
+==================================================
+
+Test 1 — Join:
+!join 5000
+
+Expected:
+✅ @Player joined poker with 5,000 coins. Players: 1/6
+
+Test 2 — Second player joins:
+!join 5000
+
+Expected:
+✅ @Player joined poker with 5,000 coins. Players: 2/6
+♠️ Starting first hand in 10s.
+
+Test 3 — Cards:
+Expected private:
+🃏 Your cards: A♠ K♦
+
+Expected public:
+🃏 Cards sent.
+
+Test 4 — Hand start:
+Expected:
+♠️ Poker hand #1
+SB: @Player 50 coins
+BB: @Player 100 coins
+Pot: 150 coins
+
+Test 5 — Turn:
+Expected:
+⏳ @Player's turn. 30s
+
+Test 6 — Check:
+!check
+
+Expected:
+✅ @Player checked.
+
+Test 7 — Fold:
+!fold
+
+Expected:
+🏳️ @Player folded.
+🏆 @Winner wins 150 coins.
+Reason: Everyone else folded.
+💰 Stacks:
+...
+♠️ Next hand in 10s.
+
+Test 8 — Wrong turn:
+Wrong player types !call
+
+Expected whisper only:
+⏳ It is @CurrentPlayer's turn.
+
+Test 9 — Table:
+!table
+
+Expected clean table message.
+
+Final report:
+1. Message style cleaned
+2. Emojis added
+3. Public action messages added
+4. Winner summary improved
+5. Stack summary improved
+6. Table/help messages improved
+7. Auto next hand still works
+8. Py_compile result
+9. Bot stability result
