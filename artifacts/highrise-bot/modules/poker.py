@@ -940,6 +940,7 @@ async def finish_poker_hand(bot: BaseBot, reason: str) -> None:
     players   = _get_players(round_id)
 
     _save_table(phase="finished")
+    print(f"[POKER CLEANUP] phase=finished round={round_id} reason={reason}")
 
     # ── Determine winner(s) and update table_stacks ──────────────────────────
 
@@ -1017,24 +1018,28 @@ async def finish_poker_hand(bot: BaseBot, reason: str) -> None:
 
                 board  = _fcs(community)
                 hname  = _HAND_NAMES.get(best[0], "High Card")
+                # Step 1: Announce showdown + board
+                await _chat(bot, f"👀 Showdown! Board: {board}")
+                # Step 2: Show each eligible player's hole cards + hand rank
+                for p in eligible:
+                    h      = _fcs(json.loads(p["hole_cards_json"] or "[]"))
+                    hn_p   = _HAND_NAMES.get(scores.get(p["username"], (0,))[0], "High Card")
+                    p_disp = db.get_display_name(p["user_id"], p["username"])
+                    await _chat(bot, f"@{p['username']}: {h} — {hn_p}")
+                # Step 3: Announce winner(s)
                 if len(winners) == 1:
                     w = winners[0]
                     w_disp = db.get_display_name(w["user_id"], w["username"])
-                    await _chat(bot, f"👀 Showdown! Board: {board}")
-                    await _chat(bot, f"{_PK_WIN} — {w_disp} wins {pot:,} 🪙 with {hname}.")
-                    for p in eligible:
-                        h     = _fcs(json.loads(p["hole_cards_json"] or "[]"))
-                        hn    = _HAND_NAMES.get(scores.get(p["username"], (0,))[0], "")
-                        lbl   = _PK_WIN if p["username"] == w["username"] else _PK_LOSS
-                        p_disp = db.get_display_name(p["user_id"], p["username"])
-                        await _chat(bot, f"{lbl} {p_disp}: {h} — {hn}")
+                    await _chat(bot, f"{_PK_WIN} {w_disp} wins {pot:,} 🪙 with {hname}.")
+                    print(f"[POKER SHOWDOWN] winner=@{w['username']} amount={pot} hand={hname}")
                 else:
                     wnames = " & ".join(
                         db.get_display_name(w["user_id"], w["username"])
                         for w in winners
                     )
                     await _chat(bot,
-                        f"🤝 Split: {wnames} each get {share} 🪙. {hname}.")
+                        f"🤝 Split: {wnames} each get {share:,} 🪙. {hname}.")
+                    print(f"[POKER SHOWDOWN] split winners={[w['username'] for w in winners]} share={share} hand={hname}")
 
                 for p in players:
                     won     = p["username"] in winner_set
@@ -1684,22 +1689,50 @@ async def advance_turn_or_round(bot: BaseBot) -> None:
 
 
 async def _deal_to_showdown(bot: BaseBot, tbl: dict) -> None:
-    round_id  = tbl["round_id"]
-    deck      = json.loads(tbl["deck_json"] or "[]")
-    community = json.loads(tbl["community_cards_json"] or "[]")
+    deck      = json.loads(tbl.get("deck_json") or "[]")
+    community = json.loads(tbl.get("community_cards_json") or "[]")
 
-    new_cards: list[str] = []
-    while len(community) < 5 and deck:
-        c = deck.pop()
-        community.append(c)
-        new_cards.append(c)
+    needs_more = len(community) < 5
+    if needs_more:
+        await _chat(bot, "🔥 All-in! Running the board...")
+        await asyncio.sleep(0.5)
 
-    if new_cards:
-        await _chat(bot, f"🔥 All-in! Board: {_fcs(community)}")
-        _save_table(phase="river",
+    # Deal flop (3 cards) if not dealt yet
+    if len(community) < 3:
+        f: list[str] = []
+        for _ in range(3):
+            if deck:
+                f.append(deck.pop())
+        community.extend(f)
+        _save_table(phase="flop",
                     deck_json=json.dumps(deck),
                     community_cards_json=json.dumps(community))
+        await _chat(bot, f"🃏 Flop: {_fcs(f)}")
+        await asyncio.sleep(1.0)
 
+    # Deal turn (1 card) if not dealt yet
+    if len(community) < 4:
+        if deck:
+            t = deck.pop()
+            community.append(t)
+            _save_table(phase="turn",
+                        deck_json=json.dumps(deck),
+                        community_cards_json=json.dumps(community))
+            await _chat(bot, f"🃏 Turn: {_fc(t)}")
+            await asyncio.sleep(1.0)
+
+    # Deal river (1 card) if not dealt yet
+    if len(community) < 5:
+        if deck:
+            r = deck.pop()
+            community.append(r)
+            _save_table(phase="river",
+                        deck_json=json.dumps(deck),
+                        community_cards_json=json.dumps(community))
+            await _chat(bot, f"🃏 River: {_fc(r)}")
+            await asyncio.sleep(1.0)
+
+    print(f"[POKER BOARD] all-in showdown — board={_fcs(community)}")
     await finish_poker_hand(bot, "showdown")
 
 
@@ -2706,11 +2739,34 @@ async def _dispatch(bot: BaseBot, user: User, args: list[str]) -> None:
                     f"Use !join [amount]")
             return
         phase = tbl["phase"]
-        if phase in ("waiting", "between_hands", "idle"):
+        if phase == "between_hands":
+            count = _seated_count()
+            await _w(bot, user.id,
+                f"♠️ Poker Table\nNext hand soon.\nPlayers: {count}")
+            return
+        if phase in ("waiting", "idle"):
             count = _seated_count()
             await _w(bot, user.id,
                 f"♠️ Poker Table\nWaiting for players. ({count} seated)\n"
                 f"Use !join [amount]")
+            return
+        if phase == "finished":
+            # Auto-repair if safe; otherwise show recovery notice
+            res = _cleanup_finished_hand()
+            if res["action"] == "pot_unresolved":
+                await _w(bot, user.id,
+                    "♠️ Poker Table\nRecovering. Staff: !poker recoverystatus")
+            else:
+                tbl2 = _get_table()
+                ph2  = tbl2["phase"] if tbl2 else "waiting"
+                cnt  = _seated_count()
+                if ph2 == "between_hands":
+                    await _w(bot, user.id,
+                        f"♠️ Poker Table\nNext hand soon.\nPlayers: {cnt}")
+                else:
+                    await _w(bot, user.id,
+                        f"♠️ Poker Table\nWaiting for players. ({cnt} seated)\n"
+                        f"Use !join [amount]")
             return
         community = json.loads(tbl["community_cards_json"] or "[]")
         board     = _fcs(community) or "—"
@@ -2783,16 +2839,16 @@ async def _dispatch(bot: BaseBot, user: User, args: list[str]) -> None:
             return
 
         community = json.loads(tbl["community_cards_json"] or "[]")
-        board_str = _fcs(community) if community else "none"
-        strength  = _hand_strength_label(cards, community)
-        draws     = _detect_draws(cards, community)
-        rank_lbl  = strength + (" + " + draws if draws else "")
-        hn        = tbl.get("hand_number", 0) if tbl else 0
-        ph_msg = _fmt_private_hand(cards, p["stack"], hand_num=hn, rank_label=rank_lbl)
-        if community and len(ph_msg) + len(board_str) + 20 < 249:
-            ph_msg = (ph_msg + f" | {_PK_BOARD}: {board_str}")[:249]
+        board_str = _fcs(community) if community else "—"
+        pot       = tbl.get("pot", 0) or 0
+        c1, c2    = _fc(cards[0]), _fc(cards[1])
+        hand_msg  = (
+            f"🃏 Your hand: {c1} {c2}\n"
+            f"Board: {board_str}\n"
+            f"Pot: {pot:,} 🪙"
+        )[:249]
         try:
-            await bot.highrise.send_whisper(user.id, ph_msg[:249])
+            await bot.highrise.send_whisper(user.id, hand_msg)
             if tbl.get("round_id"):
                 db.ensure_delivery_row(
                     tbl["round_id"], user.username, user.username)
