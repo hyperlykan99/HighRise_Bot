@@ -551,6 +551,21 @@ def init_db():
         )
 
     conn.execute("""
+        CREATE TABLE IF NOT EXISTS poker_logs (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            hand_number INTEGER DEFAULT 0,
+            action      TEXT NOT NULL,
+            user_id     TEXT DEFAULT '',
+            username    TEXT DEFAULT '',
+            amount      INTEGER DEFAULT 0,
+            pot         INTEGER DEFAULT 0,
+            stack       INTEGER DEFAULT 0,
+            details     TEXT DEFAULT '',
+            created_at  TEXT DEFAULT (datetime('now'))
+        )
+    """)
+
+    conn.execute("""
         CREATE TABLE IF NOT EXISTS poker_active_table (
             id                     INTEGER PRIMARY KEY CHECK (id = 1),
             active                 INTEGER DEFAULT 0,
@@ -4184,6 +4199,61 @@ def get_poker_settings() -> dict:
             except (ValueError, TypeError):
                 result[row["key"]] = row["value"]
     return result
+
+
+def save_poker_v2_setting(key: str, value) -> None:
+    """Upsert a Poker V2 setting into poker_settings."""
+    conn = get_connection()
+    conn.execute(
+        "INSERT OR REPLACE INTO poker_settings (key, value) VALUES (?, ?)",
+        (str(key), str(value)),
+    )
+    conn.commit()
+    conn.close()
+
+
+def insert_poker_log(
+    hand_number: int = 0,
+    action: str = "",
+    user_id: str = "",
+    username: str = "",
+    amount: int = 0,
+    pot: int = 0,
+    stack: int = 0,
+    details: str = "",
+) -> None:
+    """Insert one row into poker_logs."""
+    conn = get_connection()
+    conn.execute(
+        """INSERT INTO poker_logs
+           (hand_number, action, user_id, username, amount, pot, stack, details)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+        (hand_number, action, user_id, username, amount, pot, stack, details),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_poker_v2_logs(limit: int = 20, username: str = "", hand_number: int = -1) -> list:
+    """Fetch poker_logs rows. Filter by username or hand_number when provided."""
+    conn = get_connection()
+    if username:
+        rows = conn.execute(
+            "SELECT * FROM poker_logs WHERE username=? ORDER BY id DESC LIMIT ?",
+            (username.lower(), limit),
+        ).fetchall()
+    elif hand_number >= 0:
+        rows = conn.execute(
+            "SELECT * FROM poker_logs WHERE hand_number=? ORDER BY id DESC LIMIT ?",
+            (hand_number, limit),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT * FROM poker_logs ORDER BY id DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
 
 
 def reset_bj_daily_limits(user_id: str) -> None:

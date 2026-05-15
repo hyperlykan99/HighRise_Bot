@@ -1022,6 +1022,8 @@ ALL_KNOWN_COMMANDS = (
         "phelp", "pokerlb", "pokerleaderboard", "pleaderboard",
         "sitout", "sitin", "sitback", "rebuy", "pstacks", "mystack",
         "lasthand", "handlog", "pokerguide",
+        "pokerlogs", "pokeraudit", "pokerhandlog",
+        "pokertest", "pokereconomy", "pokerverify",
         "botstatus", "dbstats", "backup",
         "maintenance", "reloadsettings", "cleanup",
         "restarthelp", "restartstatus", "softrestart", "restartbot",
@@ -5517,6 +5519,18 @@ class HangoutBot(BaseBot):
 
         elif cmd == "pokerstatus":
             await handle_pokerstatus(self, user, args)
+
+        elif cmd in ("pokerlogs", "pokeraudit", "pokerhandlog"):
+            await handle_poker_v2(self, user, "pokerlogs", args)
+
+        elif cmd == "pokertest":
+            await handle_poker_v2(self, user, "pokertest", args)
+
+        elif cmd == "pokereconomy":
+            await handle_poker_v2(self, user, "pokereconomy", args)
+
+        elif cmd == "pokerverify":
+            await handle_poker_v2(self, user, "pokerverify", args)
 
         elif cmd == "setpokerbuyin":
             await handle_setpokerbuyin(self, user, args)

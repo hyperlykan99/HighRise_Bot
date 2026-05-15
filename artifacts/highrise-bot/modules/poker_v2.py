@@ -8,6 +8,7 @@ Coins deducted at !join, returned at !leave or removal only.
 from __future__ import annotations
 
 import asyncio
+import datetime
 import random
 import time
 import uuid
@@ -22,6 +23,7 @@ from config import BOT_MODE
 
 # ── Bot mode guard ─────────────────────────────────────────────────────────────
 _POKER_MODES = {"poker", "all"}
+_settings_loaded = False
 
 def _is_poker_bot() -> bool:
     return BOT_MODE in _POKER_MODES
@@ -185,6 +187,10 @@ _T: dict = {
     # Hand history
     "last_hand":            None,
     "last_winner_lines":    [],
+    # Audit / safety
+    "audit_logs":           [],
+    "credited_refs":        set(),
+    "current_hand_actions": [],
 }
 
 def _new_player(user_id: str, username: str, stack: int) -> dict:
@@ -331,6 +337,120 @@ def _credit(user_id: str, amount: int) -> None:
     except Exception:
         pass
 
+# ── Audit log ──────────────────────────────────────────────────────────────────
+def log_poker(action: str, username: str = "", user_id: str = "", amount: int = 0, details: str = "") -> None:
+    ukey = username.lower() if username else ""
+    entry = {
+        "hand_number": _T.get("hand_number", 0),
+        "action":      action,
+        "user_id":     user_id,
+        "username":    ukey,
+        "amount":      amount,
+        "pot":         _T.get("pot", 0),
+        "stack":       _T["players"].get(ukey, {}).get("stack", 0) if ukey else 0,
+        "details":     details,
+        "ts":          datetime.datetime.utcnow().strftime("%H:%M:%S"),
+    }
+    logs = _T.setdefault("audit_logs", [])
+    logs.append(entry)
+    if len(logs) > 200:
+        _T["audit_logs"] = logs[-200:]
+    try:
+        db.insert_poker_log(
+            hand_number=entry["hand_number"],
+            action=action,
+            user_id=user_id,
+            username=ukey,
+            amount=amount,
+            pot=entry["pot"],
+            stack=entry["stack"],
+            details=details,
+        )
+    except Exception:
+        pass
+
+
+def safe_credit_wallet_once(user_id: str, amount: int, reason: str, ref_id: str) -> bool:
+    """Credit wallet exactly once per ref_id. Returns True if credited."""
+    refs = _T.setdefault("credited_refs", set())
+    if ref_id in refs:
+        log_poker("duplicate_credit_prevented", user_id=user_id, amount=amount,
+                  details=f"ref={ref_id} reason={reason}")
+        print(f"[POKER V2] duplicate_credit_prevented ref={ref_id}")
+        return False
+    refs.add(ref_id)
+    _credit(user_id, amount)
+    return True
+
+
+def verify_poker_state() -> list:
+    """Sanity-check in-memory table state. Returns list of issue strings (empty = OK)."""
+    issues = []
+    phase = _T["phase"]
+    if _T["pot"] < 0:
+        issues.append(f"Negative pot ({_T['pot']})")
+    if len(_T["seats"]) != len(set(_T["seats"])):
+        issues.append("Duplicate seat entries")
+    for u in _T["seats"]:
+        if u not in _T["players"]:
+            issues.append(f"Seat @{u} has no player record")
+            continue
+        p = _T["players"][u]
+        if p["stack"] < 0:
+            issues.append(f"Negative stack @{u} ({p['stack']})")
+    if phase in ("preflop", "flop", "turn", "river"):
+        cur = _T.get("current_turn_username")
+        if cur and cur not in _T["players"]:
+            issues.append(f"Turn player @{cur} not in players")
+        elif cur:
+            st = _T["players"][cur]["status"]
+            if st not in ("active",):
+                issues.append(f"Turn @{cur} status={st}")
+    if phase in ("waiting", "between_hands") and _T["pot"] != 0:
+        issues.append(f"Pot={_T['pot']} during {phase}")
+    if issues:
+        log_poker("error", details=f"verify: {'; '.join(issues)}")
+    return issues
+
+
+def _save_setting(key: str, value) -> None:
+    """Persist a Poker V2 setting to the DB under key v2_<key>."""
+    try:
+        db.save_poker_v2_setting(f"v2_{key}", value)
+    except Exception as e:
+        print(f"[POKER V2] save_setting failed key=v2_{key}: {e}")
+
+
+def load_poker_v2_settings() -> None:
+    """Load persisted Poker V2 settings from DB and apply to _T."""
+    try:
+        settings = db.get_poker_settings()
+        int_keys = {
+            "v2_small_blind":       "small_blind",
+            "v2_big_blind":         "big_blind",
+            "v2_turn_seconds":      "turn_seconds",
+            "v2_min_buyin":         "min_buyin",
+            "v2_max_buyin":         "max_buyin",
+            "v2_max_players":       "max_players",
+            "v2_afk_strikes_limit": "afk_strikes_limit",
+        }
+        for db_key, t_key in int_keys.items():
+            if db_key in settings:
+                try:
+                    _T[t_key] = int(settings[db_key])
+                except Exception:
+                    pass
+        if "v2_afk_remove_enabled" in settings:
+            raw = str(settings["v2_afk_remove_enabled"])
+            _T["afk_remove_enabled"] = raw not in ("0", "false", "False", "no", "off")
+        if "v2_paused" in settings:
+            raw = str(settings["v2_paused"])
+            _T["paused"] = raw not in ("0", "false", "False", "no", "off")
+        print(f"[POKER V2 STARTUP] settings_loaded=true sb={_T['small_blind']} bb={_T['big_blind']}")
+    except Exception as e:
+        print(f"[POKER V2 STARTUP] settings_load_failed: {e}")
+
+
 # ── Board helper ───────────────────────────────────────────────────────────────
 def _board_str() -> str:
     return _fcs(_T["board"]) if _T["board"] else "—"
@@ -430,12 +550,15 @@ async def _turn_timeout(bot: BaseBot, username: str) -> None:
         action = "auto-fold"
         await _chat(bot, f"⏰ @{username} timed out and folded. AFK {p['afk_strikes']}/3.")
     print(f"[POKER V2] timeout user={username} action={action} strikes={p['afk_strikes']}")
+    log_poker(action, username=username, details=f"afk_strikes={p['afk_strikes']}")
+    _T.setdefault("current_hand_actions", []).append(f"@{username} {action}")
 
     afk_limit   = _T.get("afk_strikes_limit", 3)
     afk_remove  = _T.get("afk_remove_enabled", True)
     if afk_remove and p["afk_strikes"] >= afk_limit:
         await _chat(bot, f"⏰ @{username} removed from poker for AFK.")
         p["remove_after_hand"] = True
+        log_poker("afk_remove", username=username)
         print(f"[POKER V2] afk_remove user={username}")
 
     await _resolve(bot)
@@ -456,6 +579,8 @@ async def _resolve(bot: BaseBot) -> None:
         win_msg = f"🏆 @{winner} wins {win_amt:,} coins.\nReason: Everyone else folded."
         await _chat(bot, win_msg)
         _T["last_winner_lines"] = [win_msg]
+        log_poker("winner", username=winner, amount=win_amt, details="fold_win")
+        _T.setdefault("current_hand_actions", []).append(f"@{winner} wins {win_amt:,} (fold)")
         print(f"[POKER V2] resolve action=fold_win winner={winner}")
         await _complete_hand(bot, "fold_win")
         return
@@ -552,6 +677,8 @@ async def _advance_street(bot: BaseBot) -> None:
         _T["board"].extend(flop)
         _T["phase"] = "flop"
         await _chat(bot, f"♠️ Flop: {_fcs(flop)}\nPot: {_T['pot']:,} coins")
+        _T.setdefault("current_hand_actions", []).append(f"Flop: {_fcs(flop)}")
+        log_poker("street_flop", details=_fcs(flop))
         print(f"[POKER V2 TURN ORDER] players={n} street=flop first=@{first_u or '?'} reason={reason}")
 
     elif phase == "flop":
@@ -560,6 +687,8 @@ async def _advance_street(bot: BaseBot) -> None:
         _T["board"].append(turn_c)
         _T["phase"] = "turn"
         await _chat(bot, f"♠️ Turn: {_fc(turn_c)}\nBoard: {_board_str()}")
+        _T.setdefault("current_hand_actions", []).append(f"Turn: {_fc(turn_c)}")
+        log_poker("street_turn", details=_fc(turn_c))
         print(f"[POKER V2 TURN ORDER] players={n} street=turn first=@{first_u or '?'} reason={reason}")
 
     elif phase == "turn":
@@ -568,6 +697,8 @@ async def _advance_street(bot: BaseBot) -> None:
         _T["board"].append(river_c)
         _T["phase"] = "river"
         await _chat(bot, f"♠️ River: {_fc(river_c)}\nBoard: {_board_str()}")
+        _T.setdefault("current_hand_actions", []).append(f"River: {_fc(river_c)}")
+        log_poker("street_river", details=_fc(river_c))
         print(f"[POKER V2 TURN ORDER] players={n} street=river first=@{first_u or '?'} reason={reason}")
 
     elif phase == "river":
@@ -717,6 +848,8 @@ async def _showdown(bot: BaseBot) -> None:
             await _chat(bot, line[:249])
             winner_lines.append(line)
     _T["last_winner_lines"] = winner_lines
+    for wl in winner_lines:
+        log_poker("winner", details=str(wl)[:120])
 
     print(f"[POKER V2] resolve action=showdown")
     await _complete_hand(bot, "showdown")
@@ -758,6 +891,7 @@ async def _complete_hand(bot: BaseBot, reason: str) -> None:
             "reason":       reason,
             "winner_lines": list(_T.get("last_winner_lines", [])),
             "players":      hand_players,
+            "actions":      list(_T.get("current_hand_actions", [])),
         }
         _T["last_winner_lines"] = []
     except Exception as snap_err:
@@ -771,11 +905,16 @@ async def _complete_hand(bot: BaseBot, reason: str) -> None:
 
     # Cash out / remove players marked for removal or busted
     to_remove: list = []
+    hn = _T.get("hand_number", 0)
     for u in list(_T["seats"]):
         p = _T["players"][u]
         if p.get("remove_after_hand") or p["stack"] <= 0:
             if p["stack"] > 0:
-                _credit(p["user_id"], p["stack"])
+                ref_id = f"complete_{u}_{hn}"
+                credited = safe_credit_wallet_once(p["user_id"], p["stack"], "complete_hand", ref_id)
+                if credited:
+                    log_poker("cashout", username=u, user_id=p["user_id"],
+                              amount=p["stack"], details="remove_after_hand")
                 await _chat(bot, f"👋 @{u} left table. Cashed out {p['stack']:,} coins.")
             else:
                 await _chat(bot, f"@{u} busted out.")
@@ -865,6 +1004,8 @@ async def _start_hand(bot: BaseBot) -> None:
     _T["card_delivery_log"]  = {}
 
     print(f"[POKER V2 START] begin hand={_T['hand_number']} players={len(seated)}")
+    log_poker("hand_start", details=f"hand={_T['hand_number']} players={len(seated)}")
+    _T["current_hand_actions"] = []
 
     # Rotate dealer
     n          = len(seated)
@@ -1113,6 +1254,7 @@ async def _cmd_join(bot: BaseBot, user: User, args: list) -> None:
     _T["seats"].append(username)
     cnt = len(_T["seats"])
     await _chat(bot, f"✅ @{user.username} joined poker with {amount:,} coins. Players: {cnt}/{max_players}")
+    log_poker("join", username=username, user_id=user.id, amount=amount)
     print(f"[POKER V2] join user={user.username} amount={amount}")
 
     if cnt >= 2 and _T["phase"] == "waiting":
@@ -1157,6 +1299,7 @@ async def _cmd_leave(bot: BaseBot, user: User) -> None:
         del _T["players"][username]
         if stack > 0:
             _credit(user.id, stack)
+            log_poker("cashout", username=username, user_id=user.id, amount=stack, details="leave")
             await _chat(bot, f"👋 @{user.username} left table. Cashed out {stack:,} coins.")
         else:
             await _chat(bot, f"👋 @{user.username} left table.")
@@ -1178,6 +1321,8 @@ async def _cmd_check(bot: BaseBot, user: User) -> None:
         return
     p["acted"] = True
     await _chat(bot, f"✅ @{user.username} checked.")
+    log_poker("check", username=username, user_id=user.id)
+    _T.setdefault("current_hand_actions", []).append(f"@{user.username} check")
     print(f"[POKER V2] action user={user.username} action=check")
     await _resolve(bot)
 
@@ -1209,6 +1354,8 @@ async def _cmd_call(bot: BaseBot, user: User) -> None:
         p["acted"] = True
         await _chat(bot, f"💰 @{user.username} called {call_amt:,} coins.")
 
+    log_poker("call", username=username, user_id=user.id, amount=call_amt)
+    _T.setdefault("current_hand_actions", []).append(f"@{user.username} call {call_amt:,}")
     print(f"[POKER V2] action user={user.username} action=call amount={call_amt}")
     await _resolve(bot)
 
@@ -1258,6 +1405,8 @@ async def _cmd_raise(bot: BaseBot, user: User, args: list) -> None:
             _T["players"][u]["acted"] = False
 
     await _chat(bot, f"📈 @{user.username} raised to {total_raise:,} coins.")
+    log_poker("raise", username=username, user_id=user.id, amount=total_raise, details=f"raise_size={raise_size}")
+    _T.setdefault("current_hand_actions", []).append(f"@{user.username} raise {total_raise:,}")
     print(f"[POKER V2 RAISE] user=@{user.username} old_bet={old_bet} new_bet={total_raise} raise_size={raise_size} min_raise={last_raise_amt} full_raise=true")
     await _resolve(bot)
 
@@ -1270,6 +1419,8 @@ async def _cmd_fold(bot: BaseBot, user: User) -> None:
     p["status"] = "folded"
     p["acted"]  = True
     await _chat(bot, f"🏳️ @{user.username} folded.")
+    log_poker("fold", username=username, user_id=user.id)
+    _T.setdefault("current_hand_actions", []).append(f"@{user.username} fold")
     print(f"[POKER V2] action user={user.username} action=fold")
     await _resolve(bot)
 
@@ -1309,6 +1460,8 @@ async def _cmd_allin(bot: BaseBot, user: User) -> None:
             print(f"[POKER V2 RAISE] user=@{user.username} short_allin=true reopen_action=false raise_size={raise_size}")
 
     await _chat(bot, f"🔥 @{user.username} is all-in for {amt:,} coins!")
+    log_poker("allin", username=username, user_id=user.id, amount=amt)
+    _T.setdefault("current_hand_actions", []).append(f"@{user.username} allin {amt:,}")
     print(f"[POKER V2] action user={user.username} action=allin amount={amt}")
     await _resolve(bot)
 
@@ -1490,6 +1643,8 @@ async def _cmd_pause(bot: BaseBot, user: User) -> None:
         await _w(bot, user.id, "Owner/admin only.")
         return
     _T["paused"] = True
+    _save_setting("paused", "1")
+    log_poker("admin_pause", username=user.username.lower(), user_id=user.id)
     await _chat(bot, "⏸️ Poker paused. Current hand may finish, but no new hand will start.")
 
 # ── Admin: resume ──────────────────────────────────────────────────────────────
@@ -1498,6 +1653,8 @@ async def _cmd_resume(bot: BaseBot, user: User) -> None:
         await _w(bot, user.id, "Owner/admin only.")
         return
     _T["paused"] = False
+    _save_setting("paused", "0")
+    log_poker("admin_resume", username=user.username.lower(), user_id=user.id)
     await _chat(bot, "▶️ Poker resumed.")
     phase     = _T["phase"]
     remaining = _seated()
@@ -1511,10 +1668,17 @@ async def _cmd_close(bot: BaseBot, user: User) -> None:
         await _w(bot, user.id, "Owner/admin only.")
         return
     _cancel_all_tasks()
+    log_poker("admin_close", username=user.username.lower(), user_id=user.id,
+              details=f"players={len(_T['seats'])}")
+    hn = _T.get("hand_number", 0)
     for u in list(_T["seats"]):
         p = _T["players"].get(u)
         if p and p["stack"] > 0:
-            _credit(p["user_id"], p["stack"])
+            ref_id = f"close_{u}_{hn}"
+            credited = safe_credit_wallet_once(p["user_id"], p["stack"], "admin_close", ref_id)
+            if credited:
+                log_poker("cashout", username=u, user_id=p["user_id"], amount=p["stack"],
+                          details="admin_close")
     _T["seats"]                 = []
     _T["players"]               = {}
     _T["phase"]                 = "waiting"
@@ -1526,6 +1690,7 @@ async def _cmd_close(bot: BaseBot, user: User) -> None:
     _T["hand_id"]               = None
     _T["hand_ended"]            = False
     _T["cleanup_in_progress"]   = False
+    _T["credited_refs"]         = set()
     await _chat(bot, "🛑 Poker table closed. All players cashed out.")
 
 # ── Admin: refund ──────────────────────────────────────────────────────────────
@@ -1548,6 +1713,8 @@ async def _cmd_refund(bot: BaseBot, user: User, args: list) -> None:
         if p["stack"] > 0:
             _credit(p["user_id"], p["stack"])
         disp = p["username"]
+        log_poker("admin_refund_player", username=target, user_id=p["user_id"],
+                  amount=p["stack"], details=f"by @{user.username}")
         _T["seats"].remove(target)
         del _T["players"][target]
         await _chat(bot, f"💸 @{disp} refunded and cashed out.")
@@ -1573,6 +1740,7 @@ async def _cmd_refund(bot: BaseBot, user: User, args: list) -> None:
     _T["hand_ended"]            = False
     _T["cleanup_in_progress"]   = False
     _T["phase"]                 = "between_hands" if len(_seated()) >= 2 else "waiting"
+    log_poker("admin_refund_hand", username=user.username.lower(), user_id=user.id)
     await _chat(bot, "💸 Current hand refunded. Players remain seated.")
 
 # ── Admin: forcefinish ─────────────────────────────────────────────────────────
@@ -1693,6 +1861,7 @@ async def _cmd_rebuy(bot: BaseBot, user: User, args: list) -> None:
         return
     p["stack"] += amount
     await _chat(bot, f"💰 @{user.username} added {amount:,} coins to their poker stack.")
+    log_poker("rebuy", username=username, user_id=user.id, amount=amount, details=f"new_stack={p['stack']}")
     print(f"[POKER V2] rebuy user={user.username} amount={amount} new_stack={p['stack']}")
 
 # ── !lasthand ──────────────────────────────────────────────────────────────────
@@ -1723,6 +1892,10 @@ async def _cmd_lasthand(bot: BaseBot, user: User) -> None:
                 chunk = test
         if chunk and chunk != header:
             await _w(bot, user.id, chunk[:249])
+    actions = lh.get("actions", [])
+    if actions:
+        lines = ["Actions:"] + [str(a)[:60] for a in actions[-8:]]
+        await _w(bot, user.id, "\n".join(lines)[:249])
 
 # ── Admin: minbuyin ────────────────────────────────────────────────────────────
 async def _cmd_minbuyin(bot: BaseBot, user: User, args: list) -> None:
@@ -1738,6 +1911,8 @@ async def _cmd_minbuyin(bot: BaseBot, user: User, args: list) -> None:
         await _w(bot, user.id, "Min buy-in must be positive.")
         return
     _T["min_buyin"] = val
+    _save_setting("min_buyin", val)
+    log_poker("admin_setting", username=user.username.lower(), amount=val, details="min_buyin")
     await _chat(bot, f"✅ Poker min buy-in set to {val:,} coins.")
 
 # ── Admin: maxbuyin ────────────────────────────────────────────────────────────
@@ -1754,6 +1929,8 @@ async def _cmd_maxbuyin(bot: BaseBot, user: User, args: list) -> None:
         await _w(bot, user.id, "Max buy-in must be positive.")
         return
     _T["max_buyin"] = val
+    _save_setting("max_buyin", val)
+    log_poker("admin_setting", username=user.username.lower(), amount=val, details="max_buyin")
     await _chat(bot, f"✅ Poker max buy-in set to {val:,} coins.")
 
 # ── Admin: maxplayers ──────────────────────────────────────────────────────────
@@ -1770,6 +1947,8 @@ async def _cmd_maxplayers(bot: BaseBot, user: User, args: list) -> None:
         await _w(bot, user.id, "Max players must be between 2 and 6.")
         return
     _T["max_players"] = val
+    _save_setting("max_players", val)
+    log_poker("admin_setting", username=user.username.lower(), amount=val, details="max_players")
     await _chat(bot, f"✅ Poker max players set to {val}.")
 
 # ── Admin: blinds ──────────────────────────────────────────────────────────────
@@ -1787,6 +1966,9 @@ async def _cmd_blinds(bot: BaseBot, user: User, args: list) -> None:
         return
     _T["small_blind"] = sb
     _T["big_blind"]   = bb
+    _save_setting("small_blind", sb)
+    _save_setting("big_blind", bb)
+    log_poker("admin_setting", username=user.username.lower(), details=f"blinds={sb}/{bb}")
     await _chat(bot, f"✅ Poker blinds set to {sb:,}/{bb:,}.")
 
 # ── Admin: timer ───────────────────────────────────────────────────────────────
@@ -1803,6 +1985,8 @@ async def _cmd_timer_set(bot: BaseBot, user: User, args: list) -> None:
         await _w(bot, user.id, "Timer must be between 10 and 120 seconds.")
         return
     _T["turn_seconds"] = val
+    _save_setting("turn_seconds", val)
+    log_poker("admin_setting", username=user.username.lower(), amount=val, details="turn_seconds")
     await _chat(bot, f"✅ Poker turn timer set to {val}s.")
 
 # ── Admin: afktime ─────────────────────────────────────────────────────────────
@@ -1819,6 +2003,8 @@ async def _cmd_afktime(bot: BaseBot, user: User, args: list) -> None:
         await _w(bot, user.id, "AFK timer must be 10–120 seconds.")
         return
     _T["turn_seconds"] = val
+    _save_setting("turn_seconds", val)
+    log_poker("admin_setting", username=user.username.lower(), amount=val, details="afk_timer")
     await _chat(bot, f"✅ Poker AFK timer set to {val}s.")
 
 # ── Admin: afkstrikes ──────────────────────────────────────────────────────────
@@ -1835,6 +2021,8 @@ async def _cmd_afkstrikes(bot: BaseBot, user: User, args: list) -> None:
         await _w(bot, user.id, "AFK strikes must be between 1 and 10.")
         return
     _T["afk_strikes_limit"] = val
+    _save_setting("afk_strikes_limit", val)
+    log_poker("admin_setting", username=user.username.lower(), amount=val, details="afk_strikes_limit")
     await _chat(bot, f"✅ Poker AFK strikes set to {val}.")
 
 # ── Admin: afkremove ───────────────────────────────────────────────────────────
@@ -1845,9 +2033,13 @@ async def _cmd_afkremove(bot: BaseBot, user: User, args: list) -> None:
     raw = next((a.lower() for a in args if a.lower() in ("on","off","yes","no","true","false","1","0")), "")
     if raw in ("on", "yes", "true", "1"):
         _T["afk_remove_enabled"] = True
+        _save_setting("afk_remove_enabled", "1")
+        log_poker("admin_setting", username=user.username.lower(), details="afk_remove_enabled=1")
         await _chat(bot, "✅ AFK removal enabled.")
     elif raw in ("off", "no", "false", "0"):
         _T["afk_remove_enabled"] = False
+        _save_setting("afk_remove_enabled", "0")
+        log_poker("admin_setting", username=user.username.lower(), details="afk_remove_enabled=0")
         await _chat(bot, "✅ AFK removal disabled.")
     else:
         await _w(bot, user.id, "Use: !poker afkremove on/off")
@@ -1901,9 +2093,103 @@ async def _cmd_staffhelp(bot: BaseBot, user: User) -> None:
         "!poker afkstrikes 3\n"
         "!poker afkremove on/off")
 
+# ── Staff: pokerlogs ───────────────────────────────────────────────────────────
+async def _cmd_pokerlogs(bot: BaseBot, user: User, args: list) -> None:
+    if not (is_owner(user.username) or is_admin(user.username) or is_manager(user.username)):
+        await _w(bot, user.id, "Staff only.")
+        return
+    logs = _T.get("audit_logs", [])
+    # Optional filter by username
+    target = None
+    if len(args) > 1:
+        cand = args[1].lower().lstrip("@")
+        if cand and cand not in ("last", "hand"):
+            target = cand
+    filtered = [e for e in logs if e.get("username") == target] if target else logs
+    last5 = filtered[-5:]
+    if not last5:
+        await _w(bot, user.id, "No poker logs yet.")
+        return
+    lines = [f"Poker Logs ({len(filtered)} total):"]
+    for e in last5:
+        hn  = e.get("hand_number", 0)
+        act = e.get("action", "?")
+        un  = e.get("username", "")
+        amt = e.get("amount", 0)
+        ts  = e.get("ts", "")
+        parts = [f"#{hn}", act]
+        if un:
+            parts.append(f"@{un}")
+        if amt:
+            parts.append(f"{amt:,}")
+        if ts:
+            parts.append(ts)
+        lines.append(" ".join(parts))
+    await _w(bot, user.id, "\n".join(lines)[:249])
+
+
+# ── Staff: pokertest ───────────────────────────────────────────────────────────
+async def _cmd_poker_test(bot: BaseBot, user: User) -> None:
+    if not (is_owner(user.username) or is_admin(user.username) or is_manager(user.username)):
+        await _w(bot, user.id, "Staff only.")
+        return
+    phase        = _T["phase"]
+    seated       = len(_T["seats"])
+    pot          = _T["pot"]
+    turn         = _T.get("current_turn_username") or "—"
+    has_cards    = any(_T["players"].get(u, {}).get("cards") for u in _T["seats"])
+    timer_ok     = bool(_T.get("turn_timer_task") and not _T["turn_timer_task"].done())
+    cleanup      = _T.get("cleanup_in_progress", False)
+    paused       = _T.get("paused", False)
+    log_count    = len(_T.get("audit_logs", []))
+    msg = (
+        f"Poker V2 Test\n"
+        f"Phase: {phase} | Players: {seated}\n"
+        f"Pot: {pot:,} | Turn: @{turn}\n"
+        f"Cards: {'yes' if has_cards else 'no'} | "
+        f"Timer: {'on' if timer_ok else 'off'}\n"
+        f"Cleanup: {cleanup} | Paused: {paused}\n"
+        f"Logs: {log_count}"
+    )
+    await _w(bot, user.id, msg[:249])
+
+
+# ── Staff: pokereconomy ────────────────────────────────────────────────────────
+async def _cmd_poker_economy(bot: BaseBot, user: User) -> None:
+    if not (is_owner(user.username) or is_admin(user.username) or is_manager(user.username)):
+        await _w(bot, user.id, "Staff only.")
+        return
+    pot   = _T["pot"]
+    lines = [f"Poker Economy\nPot: {pot:,}"]
+    for u in _T["seats"]:
+        p     = _T["players"].get(u, {})
+        stack = p.get("stack", 0)
+        cont  = p.get("total_contributed", 0)
+        lines.append(f"@{u} stack={stack:,} in={cont:,}")
+    await _w(bot, user.id, "\n".join(lines)[:249])
+
+
+# ── Staff: pokerverify ─────────────────────────────────────────────────────────
+async def _cmd_poker_verify(bot: BaseBot, user: User) -> None:
+    if not (is_owner(user.username) or is_admin(user.username) or is_manager(user.username)):
+        await _w(bot, user.id, "Staff only.")
+        return
+    issues = verify_poker_state()
+    if not issues:
+        await _w(bot, user.id, "Poker verify: OK")
+    else:
+        msg = "Poker verify issues:\n" + "\n".join(f"- {i}" for i in issues)
+        await _w(bot, user.id, msg[:249])
+
+
 # ── Entry point ────────────────────────────────────────────────────────────────
 async def handle_poker_v2(bot: BaseBot, user: User, cmd: str, args: list) -> None:
     """Entry point for all Poker V2 player commands. Called by main.py."""
+    global _settings_loaded
+    if not _settings_loaded:
+        load_poker_v2_settings()
+        _settings_loaded = True
+
     if not _is_poker_bot():
         return
 
@@ -1952,6 +2238,10 @@ async def handle_poker_v2(bot: BaseBot, user: User, cmd: str, args: list) -> Non
         elif sub == "afktime":     await _cmd_afktime(bot, user, args[1:])
         elif sub == "afkstrikes":  await _cmd_afkstrikes(bot, user, args[1:])
         elif sub == "afkremove":   await _cmd_afkremove(bot, user, args[1:])
+        elif sub in ("pokerlogs", "logs", "audit"): await _cmd_pokerlogs(bot, user, args[1:])
+        elif sub in ("pokertest", "test"):          await _cmd_poker_test(bot, user)
+        elif sub in ("pokereconomy", "economy"):   await _cmd_poker_economy(bot, user)
+        elif sub in ("pokerverify", "verify"):      await _cmd_poker_verify(bot, user)
         else:
             await _w(bot, user.id,
                 "♠️ Poker Commands\n"
@@ -1994,3 +2284,7 @@ async def handle_poker_v2(bot: BaseBot, user: User, cmd: str, args: list) -> Non
     elif cmd == "resendcards":   await _cmd_resendcards(bot, user)
     elif cmd == "resetv2":       await _cmd_resetv2(bot, user)
     elif cmd == "v2debug":       await _cmd_v2debug(bot, user)
+    elif cmd in ("pokerlogs", "pokeraudit", "pokerhandlog"): await _cmd_pokerlogs(bot, user, args)
+    elif cmd == "pokertest":     await _cmd_poker_test(bot, user)
+    elif cmd == "pokereconomy":  await _cmd_poker_economy(bot, user)
+    elif cmd == "pokerverify":   await _cmd_poker_verify(bot, user)

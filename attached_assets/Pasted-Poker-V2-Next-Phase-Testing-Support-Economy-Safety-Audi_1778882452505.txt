@@ -1,0 +1,532 @@
+Poker V2 Next Phase — Testing Support, Economy Safety Audit, Logs, and Settings Persistence
+
+Current status:
+Poker V2 gameplay and command polish are mostly complete.
+Now add safety tools so the table is ready for real players.
+
+Goal:
+Add poker audit logs, economy protection, owner review commands, and persistent poker settings.
+
+Do NOT rebuild poker.
+Do NOT modify:
+- blackjack
+- jail
+- Luxe Tickets
+- tips
+- mining/fishing
+- workflows
+- bot runner
+- unrelated economy systems
+
+Only modify:
+- modules/poker_v2.py
+- database.py if persistence/log tables are needed
+- main.py only if needed for poker routing
+
+==================================================
+PART 1 — Economy Safety Rules
+==================================================
+
+Poker economy must follow these rules:
+
+1. Wallet balance:
+- Deduct only when player joins or rebuys.
+- Add only when player leaves, is removed, or table is closed/refunded.
+
+2. Poker table stack:
+- Winnings go to table stack first.
+- Pot payout increases table stack.
+- Player wallet does not receive winnings until cashout/leave.
+
+3. Current hand contributions:
+- Blinds, calls, raises, all-ins move from player table stack into pot.
+- They must not be duplicated.
+
+4. Refund:
+- Current hand refund returns each player’s total_contributed back to their table stack.
+- It does not credit wallet directly unless the table is closing/cashing out.
+
+5. Cashout:
+- Cashout credits wallet once.
+- Then removes player from table or sets stack to 0.
+- Never cash out the same stack twice.
+
+Add safety helper:
+
+safe_credit_wallet_once(user_id, amount, reason, ref_id)
+
+Use a per-action ref_id to avoid duplicate credit if function runs twice.
+
+For in-memory protection, keep:
+_T["credited_refs"] = set()
+
+If ref_id already used:
+- do not credit again
+- log duplicate prevented
+
+==================================================
+PART 2 — Add Poker Audit Logs
+==================================================
+
+Create poker audit logging.
+
+If database.py can be safely modified, add table:
+
+CREATE TABLE IF NOT EXISTS poker_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    hand_number INTEGER DEFAULT 0,
+    action TEXT NOT NULL,
+    user_id TEXT DEFAULT '',
+    username TEXT DEFAULT '',
+    amount INTEGER DEFAULT 0,
+    pot INTEGER DEFAULT 0,
+    stack INTEGER DEFAULT 0,
+    details TEXT DEFAULT '',
+    created_at TEXT DEFAULT (datetime('now'))
+);
+
+If database change is risky, keep in-memory logs first:
+
+_T["audit_logs"] = []
+
+Keep last 200 logs.
+
+Add helper:
+
+log_poker(action, user=None, amount=0, details="")
+
+Every log entry should include:
+- hand_number
+- action
+- user_id
+- username
+- amount
+- pot
+- stack
+- details
+- timestamp
+
+==================================================
+PART 3 — Log Important Poker Events
+==================================================
+
+Log these:
+
+join
+rebuy
+leave_request
+leave_cashout
+sitout
+sitback
+hand_start
+cards_dealt
+card_whisper_success
+card_whisper_failed
+small_blind
+big_blind
+check
+call
+raise
+fold
+allin
+timeout_check
+timeout_fold
+afk_remove
+street_flop
+street_turn
+street_river
+showdown
+winner
+side_pot
+split_pot
+refund_hand
+cashout
+admin_pause
+admin_resume
+admin_refund
+admin_close
+admin_forcefinish
+admin_setting_change
+next_hand_countdown
+table_waiting
+duplicate_credit_prevented
+error
+
+Examples:
+
+log_poker("join", user, amount=5000, details="buyin")
+log_poker("winner", username=winner, amount=pot, details="fold_win")
+log_poker("cashout", username=user, amount=stack, details="leave")
+log_poker("admin_close", user, details="closed table and cashed out players")
+
+==================================================
+PART 4 — Owner Log Commands
+==================================================
+
+Add owner/admin-only commands:
+
+!pokerlogs last
+!pokerlogs @user
+!pokerlogs hand
+!pokerhandlog last
+!poker audit
+!pokeraudit
+
+Outputs must be short and readable.
+
+!pokerlogs last:
+Shows last 5 poker logs.
+
+Example:
+🧾 Poker Logs
+#22 join @A 5,000
+#22 call @B 100
+#22 fold @A
+#22 winner @B 150
+#22 cashout @B 5,150
+
+!pokerlogs @user:
+Shows last 5 logs for that player.
+
+!pokerlogs hand:
+Shows logs for current hand number.
+
+!pokerhandlog last:
+Shows last completed hand summary:
+Hand number
+Board
+Winner
+Pot
+Player cards/ranks
+Actions summary if available
+
+If no logs:
+No poker logs yet.
+
+Normal players:
+⚠️ Staff only.
+
+==================================================
+PART 5 — Hand Action Summary
+==================================================
+
+For each hand, keep:
+
+_T["current_hand_actions"] = []
+
+Append short actions:
+@A posts SB 50
+@B posts BB 100
+@A calls 50
+@B checks
+Flop A♠ K♦ 7♣
+@B bets/raises 500
+@A folds
+@B wins 1,200
+
+Store into _T["last_hand"]["actions"] after hand ends.
+
+!pokerhandlog last should show:
+🧾 Hand #12
+@A SB 50
+@B BB 100
+@A called 50
+@B checked
+Flop: A♠ K♦ 7♣
+@A folded
+🏆 @B won 1,200
+
+Split into multiple messages under 249 chars.
+
+==================================================
+PART 6 — Add Test / Diagnostic Commands
+==================================================
+
+Owner/admin-only:
+
+!poker test
+Shows quick self-check:
+
+Poker V2 Test:
+Phase: preflop
+Players: 2
+Pot: 150
+Turn: @A
+Cards: yes
+Timer: running
+Cleanup lock: false
+Paused: false
+
+!poker economy
+Shows seated players and stacks:
+
+Poker Economy:
+@A table stack: 5,050
+@B table stack: 4,950
+Pot: 150
+Contributed:
+@A 50
+@B 100
+
+!poker verify
+Runs internal sanity checks:
+- pot equals sum of current contributions if hand active
+- no negative stacks
+- no duplicate seats
+- current turn is valid
+- active hand has at least 2 non-left players
+- cards exist for active players
+
+Output:
+✅ Poker verify passed.
+
+Or:
+⚠️ Poker verify issues:
+- Pot mismatch
+- Duplicate seat
+- Turn player not active
+
+==================================================
+PART 7 — Economy Sanity Checks
+==================================================
+
+Add function:
+
+verify_poker_state()
+
+Checks:
+- no negative player stack
+- no negative pot
+- no duplicate usernames in seats
+- every seat has player record
+- every active player has 2 cards during active hand
+- current_turn_username exists and is active if phase active
+- total pot is not negative
+- if cleanup_in_progress, actions are blocked
+- if phase waiting, pot should be 0
+- if phase between_hands, pot should be 0
+
+Call verify_poker_state after:
+- join
+- rebuy
+- blind post
+- call
+- raise
+- allin
+- fold
+- refund
+- cashout
+- complete_hand
+
+If issues are found:
+- print warning
+- log_poker("error", details=...)
+- do not crash bot
+
+==================================================
+PART 8 — Persist Poker Settings
+==================================================
+
+Settings should survive bot restart.
+
+Persist:
+- small_blind
+- big_blind
+- turn_seconds
+- min_buyin
+- max_buyin
+- max_players
+- afk_strikes_limit
+- afk_remove_enabled
+- paused
+
+If database.py can be safely modified, add:
+
+CREATE TABLE IF NOT EXISTS poker_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TEXT DEFAULT (datetime('now'))
+);
+
+Helpers:
+load_poker_settings()
+save_poker_setting(key, value)
+
+On module load or bot startup:
+- load settings from DB
+- apply to _T
+- if missing, use defaults
+
+When admin changes setting:
+- update _T
+- save to DB
+- log admin_setting_change
+
+If database is not ready:
+- do not crash
+- print warning
+- use memory defaults
+
+==================================================
+PART 9 — Startup Safety
+==================================================
+
+On bot start/reload:
+- Do not restore active hands.
+- Reset table to waiting.
+- Do not restore seated players unless already supported safely.
+- Keep settings persistent only.
+- Clear in-memory hands/stacks because players can rejoin manually.
+
+Print:
+[POKER V2 STARTUP] settings_loaded=true
+[POKER V2 STARTUP] table_reset=waiting
+
+==================================================
+PART 10 — Admin Close / Refund Safety
+==================================================
+
+Make sure:
+
+!poker close:
+- cancels timer/countdown
+- refunds current hand contributions into table stacks
+- cashes out every seated player to wallet once
+- clears table
+- phase = waiting
+- pot = 0
+- logs every cashout
+
+!poker refund:
+- cancels current hand
+- returns current hand contributions to table stacks
+- pot = 0
+- clears board/cards/current turn
+- keeps players seated
+- phase = between_hands or waiting
+- if 2+ players and not paused, next hand countdown starts
+
+!poker forcefinish:
+- if one eligible player remains, award pot
+- if 2+ eligible and showdown valid, showdown
+- if unsafe, refund hand
+- log action
+
+==================================================
+PART 11 — Player Complaint Review Flow
+==================================================
+
+Owner should be able to review complaints.
+
+Add:
+
+!pokerlogs @player
+Shows recent poker logs for player.
+
+!poker economy
+Shows current table stacks and pot.
+
+!lasthand
+Shows last completed hand.
+
+This should answer:
+- Did player join?
+- Did wallet deduct?
+- Did player win?
+- Did player leave/cashout?
+- Was refund given?
+
+==================================================
+PART 12 — Compile
+==================================================
+
+Run:
+
+python -m py_compile main.py
+python -m py_compile modules/poker_v2.py
+python -m py_compile database.py
+
+==================================================
+PART 13 — Tests
+==================================================
+
+Test 1 — Join log:
+!join 5000
+
+Expected:
+Audit log created:
+join @Player 5000
+
+Test 2 — Hand logs:
+Play one hand with call/check/fold.
+
+Expected:
+Logs show blind, call/check/fold, winner, next hand.
+
+Test 3 — Last hand:
+!lasthand
+!pokerhandlog last
+
+Expected:
+Last hand summary shows winner, board, player cards/ranks, actions.
+
+Test 4 — Player logs:
+!pokerlogs @Player
+
+Expected:
+Last 5 player poker logs.
+
+Test 5 — Economy:
+!poker economy
+
+Expected:
+Shows table stacks, pot, contributions.
+
+Test 6 — Verify:
+!poker verify
+
+Expected:
+✅ Poker verify passed.
+
+Test 7 — Close safety:
+!poker close
+
+Expected:
+All players cashed out once.
+Table cleared.
+Logs created.
+
+Test 8 — Refund safety:
+Start hand then:
+!poker refund
+
+Expected:
+Contributions returned to table stacks.
+Players remain seated.
+No duplicate wallet credit.
+
+Test 9 — Settings persistence:
+!poker blinds 100 200
+Restart bot.
+!poker status
+
+Expected:
+Blinds still 100/200.
+
+Test 10 — Bot stability:
+No crashes.
+No duplicate payouts.
+No negative stacks.
+
+Final report:
+1. Poker audit logs added
+2. Poker log commands added
+3. Hand action summary added
+4. Economy safety helpers added
+5. Duplicate wallet credit protection added
+6. Verify/test/economy commands added
+7. Settings persistence added
+8. Startup safety added
+9. Close/refund safety confirmed
+10. Py_compile result
+11. Bot stability result
