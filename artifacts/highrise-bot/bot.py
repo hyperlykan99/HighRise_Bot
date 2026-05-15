@@ -286,11 +286,60 @@ async def _run_all(specs: list[_BotSpec]) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Startup diagnostics (never prints token values)
+# ---------------------------------------------------------------------------
+
+def _print_startup_diagnostics(specs: list[_BotSpec]) -> None:
+    """Print safe startup diagnostics. Called before any subprocess is spawned."""
+    try:
+        # ── ROOM_ID ──────────────────────────────────────────────────────────
+        room_id = os.environ.get("ROOM_ID", "")
+        if room_id:
+            masked = (room_id[:5] + "..." + room_id[-5:]) if len(room_id) >= 10 else (room_id[:2] + "***")
+            print(f"[RUNNER DIAG] ROOM_ID present=true masked={masked}")
+        else:
+            print("[RUNNER DIAG] ROOM_ID present=false")
+            print("[RUNNER FIX] Check ROOM_ID in Replit Secrets. It must be the target room id.")
+
+        # ── Token env vars ────────────────────────────────────────────────────
+        _token_envs = [
+            "BOT_TOKEN", "MAIN_BOT_TOKEN",
+            "HOST_BOT_TOKEN", "SECURITY_BOT_TOKEN",
+            "BLACKJACK_BOT_TOKEN", "POKER_BOT_TOKEN",
+            "MINER_BOT_TOKEN", "BANKER_BOT_TOKEN",
+            "SHOP_BOT_TOKEN", "DJ_BOT_TOKEN",
+            "EVENT_BOT_TOKEN", "FISHING_BOT_TOKEN",
+        ]
+        for _env_key in _token_envs:
+            _present = bool(os.environ.get(_env_key, ""))
+            print(f"[RUNNER DIAG] {_env_key} present={str(_present).lower()}")
+
+        # ── Scheduled bot list ────────────────────────────────────────────────
+        if specs:
+            print(f"[RUNNER DIAG] scheduled bots:")
+            for _s in specs:
+                _uname = _s.bot_username or "(no username set)"
+                print(f"  - {_s.label} mode={_s.bot_mode} username={_uname} token_env={_s.token_env}")
+        else:
+            print("[RUNNER DIAG] scheduled bots: NONE")
+            _has_any = any(os.environ.get(e) for e in _token_envs)
+            if not _has_any:
+                print("[RUNNER DIAG] reason: no token env vars configured")
+                print("[RUNNER FIX] Set BOT_TOKEN in Replit Secrets for single-bot mode.")
+            else:
+                print("[RUNNER DIAG] reason: tokens present but deduplication or merge removed all bots")
+
+    except Exception as _de:
+        print(f"[RUNNER DIAG ERROR] diagnostics failed: {_de!r}")
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
 def run() -> None:
     specs = _collect_bots()
+    _print_startup_diagnostics(specs)
 
     if not specs:
         print(

@@ -3109,12 +3109,30 @@ class HangoutBot(BaseBot):
         # update the room cache in full — the extra call is negligible overhead.
         try:
             _ru_resp = await self.highrise.get_room_users()
+            _rid_raw  = config.ROOM_ID
+            _rid_mask = (
+                (_rid_raw[:5] + "..." + _rid_raw[-5:]) if len(_rid_raw) >= 10 else (_rid_raw[:2] + "***")
+            ) if _rid_raw else "(none)"
             if hasattr(_ru_resp, "content"):
+                _user_count  = len(_ru_resp.content)
+                _bot_visible = False
                 for _ru, _ in _ru_resp.content:
                     if _ru.id == session_metadata.user_id:
                         set_bot_identity(session_metadata.user_id, _ru.username)
                         print(f"[HangoutBot] Bot username: {_ru.username}")
+                        print(
+                            f"[JOIN OK] bot_username={_ru.username} "
+                            f"bot_mode={BOT_MODE} room_id_masked={_rid_mask}"
+                        )
+                        _bot_visible = True
                         break
+                print(f"[JOIN CHECK] room user count={_user_count}")
+                print(f"[JOIN CHECK] bot visible in room={str(_bot_visible).lower()}")
+                if not _bot_visible:
+                    print(
+                        f"[JOIN CHECK] WARNING: bot user_id={session_metadata.user_id} "
+                        f"not found in room list — possible join failure or room mismatch"
+                    )
         except Exception as _e:
             print(f"[HangoutBot] Could not resolve bot username at startup: {_e}")
 
