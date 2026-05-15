@@ -2254,6 +2254,22 @@ def _migrate_db():
             details    TEXT NOT NULL DEFAULT '',
             created_at TEXT NOT NULL DEFAULT (datetime('now'))
         )""",
+        # ── Badge wishlist (Final Features) ───────────────────────────────────
+        """CREATE TABLE IF NOT EXISTS badge_wishlist (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id    TEXT NOT NULL,
+            username   TEXT DEFAULT '',
+            badge_id   TEXT NOT NULL,
+            created_at TEXT DEFAULT (datetime('now')),
+            UNIQUE(user_id, badge_id)
+        )""",
+        # ── Badge starter claims (Final Features) ─────────────────────────────
+        """CREATE TABLE IF NOT EXISTS badge_claims (
+            user_id    TEXT PRIMARY KEY,
+            username   TEXT DEFAULT '',
+            badge_id   TEXT DEFAULT '',
+            claimed_at TEXT DEFAULT (datetime('now'))
+        )""",
     ]:
         try:
             conn.execute(sql)
@@ -9137,7 +9153,12 @@ def get_badge_listings_filtered(
         ).fetchone()["n"]
         total_pages = max(1, -(-total // per_page))
         offset = (max(1, page) - 1) * per_page
-        order  = "bml.price ASC" if sort == "cheap" else "bml.id DESC"
+        if sort == "cheap":
+            order = "bml.price ASC"
+        elif sort == "expensive":
+            order = "bml.price DESC"
+        else:
+            order = "bml.id DESC"
         rows   = conn.execute(
             "SELECT bml.*, COALESCE(eb.name, bml.badge_id) AS badge_name, "
             "COALESCE(eb.rarity,'') AS badge_rarity "
@@ -9165,6 +9186,188 @@ def set_emoji_badge_enabled(badge_id: str, enabled: int) -> bool:
         return True
     except Exception:
         return False
+
+
+# ---------------------------------------------------------------------------
+# Badge wishlist helpers  (badge_wishlist table)
+# ---------------------------------------------------------------------------
+
+def add_badge_wishlist(user_id: str, username: str, badge_id: str) -> str:
+    """Add badge to wishlist. Returns 'ok', 'duplicate', or 'error'."""
+    try:
+        conn = get_connection()
+        conn.execute(
+            "INSERT INTO badge_wishlist (user_id, username, badge_id) VALUES (?, ?, ?)",
+            (user_id, username.lower(), badge_id.lower()),
+        )
+        conn.commit()
+        conn.close()
+        return "ok"
+    except Exception as e:
+        if "UNIQUE" in str(e).upper():
+            return "duplicate"
+        return "error"
+
+
+def get_badge_wishlist(username: str) -> list[dict]:
+    """Return all wishlist entries for a user."""
+    try:
+        conn = get_connection()
+        rows = conn.execute(
+            "SELECT * FROM badge_wishlist WHERE lower(username)=lower(?) ORDER BY created_at ASC",
+            (username,),
+        ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+    except Exception:
+        return []
+
+
+def remove_badge_wishlist(user_id: str, badge_id: str) -> bool:
+    """Remove a badge from the wishlist. Returns True if a row was deleted."""
+    try:
+        conn = get_connection()
+        cur  = conn.execute(
+            "DELETE FROM badge_wishlist WHERE user_id=? AND badge_id=?",
+            (user_id, badge_id.lower()),
+        )
+        conn.commit()
+        conn.close()
+        return cur.rowcount > 0
+    except Exception:
+        return False
+
+
+# ---------------------------------------------------------------------------
+# Badge starter claim helpers  (badge_claims table)
+# ---------------------------------------------------------------------------
+
+def has_claimed_badge(user_id: str) -> bool:
+    """Return True if the user has already claimed a starter badge."""
+    try:
+        conn = get_connection()
+        row  = conn.execute(
+            "SELECT 1 FROM badge_claims WHERE user_id=?", (user_id,)
+        ).fetchone()
+        conn.close()
+        return row is not None
+    except Exception:
+        return False
+
+
+def claim_starter_badge(user_id: str, username: str, badge_id: str) -> bool:
+    """Record a starter badge claim. Returns True if inserted."""
+    try:
+        conn = get_connection()
+        conn.execute(
+            "INSERT OR IGNORE INTO badge_claims (user_id, username, badge_id) VALUES (?, ?, ?)",
+            (user_id, username.lower(), badge_id.lower()),
+        )
+        conn.commit()
+        conn.close()
+        return True
+    except Exception:
+        return False
+
+
+# ---------------------------------------------------------------------------
+# Badge lock / unlock helpers  (user_badges.locked column)
+# ---------------------------------------------------------------------------
+
+def lock_emoji_badge(username: str, badge_id: str) -> bool:
+    """Set locked=1 on a user's badge. Returns True on success."""
+    try:
+        conn = get_connection()
+        cur  = conn.execute(
+            "UPDATE user_badges SET locked=1 WHERE lower(username)=lower(?) AND badge_id=?",
+            (username, badge_id.lower()),
+        )
+        conn.commit()
+        conn.close()
+        return cur.rowcount > 0
+    except Exception:
+        return False
+
+
+def unlock_emoji_badge(username: str, badge_id: str) -> bool:
+    """Set locked=0 on a user's badge. Returns True on success."""
+    try:
+        conn = get_connection()
+        cur  = conn.execute(
+            "UPDATE user_badges SET locked=0 WHERE lower(username)=lower(?) AND badge_id=?",
+            (username, badge_id.lower()),
+        )
+        conn.commit()
+        conn.close()
+        return cur.rowcount > 0
+    except Exception:
+        return False
+
+
+def get_locked_badges(username: str) -> list[dict]:
+    """Return all locked badges for a user, joined with emoji_badges for display info."""
+    try:
+        conn = get_connection()
+        rows = conn.execute(
+            "SELECT ub.badge_id, eb.emoji, eb.name, eb.rarity "
+            "FROM user_badges ub "
+            "LEFT JOIN emoji_badges eb ON eb.badge_id = ub.badge_id "
+            "WHERE lower(ub.username)=lower(?) AND ub.locked=1 "
+            "ORDER BY ub.badge_id ASC",
+            (username,),
+        ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+    except Exception:
+        return []
+
+
+# ---------------------------------------------------------------------------
+# Badge ownership transfer  (gift / trade)
+# ---------------------------------------------------------------------------
+
+def transfer_badge_ownership(from_username: str, to_username: str, badge_id: str) -> str | None:
+    """
+    Move a badge from one user to another atomically.
+    Returns None on success, or an error string on failure.
+    """
+    bid = badge_id.lower()
+    try:
+        conn = get_connection()
+        # Verify source still owns it and it is not locked
+        src = conn.execute(
+            "SELECT locked FROM user_badges WHERE lower(username)=lower(?) AND badge_id=?",
+            (from_username, bid),
+        ).fetchone()
+        if src is None:
+            conn.close()
+            return "Sender does not own this badge"
+        if src["locked"]:
+            conn.close()
+            return "Badge is locked"
+        # Verify destination does not already own it
+        dst = conn.execute(
+            "SELECT 1 FROM user_badges WHERE lower(username)=lower(?) AND badge_id=?",
+            (to_username, bid),
+        ).fetchone()
+        if dst is not None:
+            conn.close()
+            return "Receiver already owns this badge"
+        # Transfer
+        conn.execute(
+            "DELETE FROM user_badges WHERE lower(username)=lower(?) AND badge_id=?",
+            (from_username, bid),
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO user_badges (username, badge_id, acquired_at, source, equipped, locked) "
+            "VALUES (?, ?, datetime('now'), 'gift', 0, 0)",
+            (to_username.lower(), bid),
+        )
+        conn.commit()
+        conn.close()
+        return None
+    except Exception as exc:
+        return str(exc)
 
 
 # ---------------------------------------------------------------------------

@@ -1,0 +1,610 @@
+Badge System Final Features — Profile, Showcase, Wishlist, Gift, Lock, Market Sort, Confirm Buy, Audit, Starter Badge
+
+Current status:
+Badge system already has:
+- badge shop
+- categories
+- all badges
+- my badges
+- equip/unequip handlers
+- market listings
+- market buy
+- market cancel
+- badge logs
+- admin tools
+- cache support
+- duplicate purchase dedup
+
+Important:
+Before adding these features, make sure !equipbadge routing works first.
+If !equipbadge is still not responding, fix routing first.
+
+Goal:
+Add final badge features to make badges easier, safer, and more fun.
+
+Do NOT modify:
+- Poker V2
+- jail
+- Luxe Tickets
+- bank transfer notifications
+- notification subscription system
+- blackjack
+- unrelated games
+
+Only modify:
+- modules/badge_market.py
+- database.py only if safe and needed
+- main.py only if badge command routing needs cleanup
+- help_cmds.py only if badge help needs cleanup
+
+==================================================
+PART 1 — Badge Profile / Preview
+==================================================
+
+Add commands:
+
+!profilebadge
+!badgeprofile
+!badgestatus
+
+Shows the player their badge profile.
+
+Example:
+
+🏷️ Badge Profile
+@4ktreyMarion
+Equipped: 👑 Crown
+Owned: 3 badges
+Listings: 1 active
+
+If no equipped badge:
+Equipped: none
+Use: !equipbadge badge_id
+
+Also allow:
+
+!badgeprofile @user
+
+Shows:
+
+🏷️ @User's Badge Profile
+Equipped: ♉ Taurus
+Owned: 5 badges
+Listings: 2 active
+
+Respect existing inventory privacy if your system has it.
+If private:
+@User's badge profile is private.
+
+==================================================
+PART 2 — Badge Showcase / Flex
+==================================================
+
+Add commands:
+
+!showbadge
+!flexbadge
+
+Public room message:
+
+🏷️ @Player is showing off 👑 Crown!
+
+If no equipped badge:
+Whisper:
+You do not have a badge equipped.
+Use: !mybadges
+
+Optional:
+Allow showing a specific owned badge:
+
+!showbadge crown
+
+Public:
+🏷️ @Player is showing off 👑 Crown!
+
+Rules:
+- player must own badge
+- badge must exist
+- do not require it to be equipped if they typed a badge_id
+- if no badge_id, use equipped badge
+
+==================================================
+PART 3 — Easy Rarity Commands
+==================================================
+
+Add shortcut commands:
+
+!commonbadges
+!rarebadges
+!epicbadges
+!legendarybadges
+!mythicbadges
+
+These should redirect to:
+
+!badgeshop common
+!badgeshop rare
+!badgeshop epic
+!badgeshop legendary
+!badgeshop mythic
+
+Example:
+!legendarybadges
+
+Reply same as:
+!badgeshop legendary
+
+Make sure badge IDs and prices are shown.
+
+==================================================
+PART 4 — Badge Wishlist
+==================================================
+
+Add player commands:
+
+!wishlist badge_id
+!mywishlist
+!removewishlist badge_id
+
+Also aliases:
+!wishbadge badge_id
+!badgewishlist
+!unwishlist badge_id
+
+Database table if safe:
+
+CREATE TABLE IF NOT EXISTS badge_wishlist (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    username TEXT DEFAULT '',
+    badge_id TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now')),
+    UNIQUE(user_id, badge_id)
+);
+
+!wishlist crown:
+Rules:
+- badge must exist
+- cannot add duplicate
+- save to wishlist
+
+Message:
+⭐ Added 👑 Crown to your wishlist.
+
+If already wished:
+👑 Crown is already in your wishlist.
+
+!mywishlist:
+Show:
+
+⭐ Your Badge Wishlist
+1) ID: crown 👑 Crown — 100,000c
+2) ID: diamond 💎 Diamond — Market only
+
+Buy: !buybadge crown
+Remove: !removewishlist crown
+
+If empty:
+Your badge wishlist is empty.
+Browse: !allbadges
+
+!removewishlist crown:
+✅ Removed 👑 Crown from your wishlist.
+
+==================================================
+PART 5 — Badge Gift System
+==================================================
+
+Add command:
+
+!giftbadge @user badge_id
+
+Example:
+!giftbadge @ashquinn_ crown
+
+Rules:
+- sender must own badge
+- sender cannot gift to self
+- receiver must exist / be resolvable
+- badge must exist
+- badge must be tradeable
+- badge must not be equipped by sender
+- badge must not be listed in market
+- badge must not be locked by sender
+- receiver must not already own the same badge if duplicates are not allowed
+- transfer badge ownership safely
+- log gift
+
+Messages:
+
+Sender:
+🎁 Sent badge 👑 Crown to @ashquinn_.
+
+Receiver:
+🎁 @4ktreyMarion gifted you 👑 Crown.
+Equip: !equipbadge crown
+
+If equipped:
+⚠️ Unequip this badge before gifting.
+Use: !unequipbadge
+
+If listed:
+⚠️ Cancel the market listing before gifting.
+Use: !cancelbadge listing_id
+
+If locked:
+🔒 This badge is locked. Unlock it first:
+!unlockbadge crown
+
+If receiver already owns:
+@User already owns this badge.
+
+==================================================
+PART 6 — Badge Lock / Unlock
+==================================================
+
+Add commands:
+
+!lockbadge badge_id
+!unlockbadge badge_id
+!lockedbadges
+
+Purpose:
+Prevent accidental selling/gifting.
+
+Rules:
+- player must own badge
+- locked badge cannot be sold
+- locked badge cannot be gifted
+- locked badge can still be equipped
+- lock status appears in !mybadges
+
+Database:
+If user badge ownership table already has a locked field, use it.
+If not, safely add locked INTEGER DEFAULT 0 to the ownership table.
+
+!lockbadge crown:
+🔒 Locked 👑 Crown. It cannot be sold or gifted.
+
+!unlockbadge crown:
+🔓 Unlocked 👑 Crown.
+
+!lockedbadges:
+🔒 Locked Badges
+1) ID: crown 👑 Crown
+2) ID: taurus ♉ Taurus
+
+If none:
+You have no locked badges.
+
+Update !mybadges display:
+1) ID: crown 👑 Crown [LOCKED]
+2) ID: taurus ♉ Taurus [EQUIPPED]
+
+If multiple statuses:
+[LOCKED] [EQUIPPED]
+[LOCKED] [LISTED]
+
+==================================================
+PART 7 — Badge Market Sort / Filters
+==================================================
+
+Add or clean commands:
+
+!badgemarket cheap
+!badgemarket expensive
+!badgemarket newest
+!badgemarket rare
+!badgemarket epic
+!badgemarket legendary
+!badgemarket mythic
+!badgemarket search crown
+
+Expected:
+
+!badgemarket cheap:
+shows lowest price first.
+
+!badgemarket expensive:
+shows highest price first.
+
+!badgemarket newest:
+shows newest listings first.
+
+!badgemarket rare:
+shows only rare badge listings.
+
+Display:
+
+🏷️ Market: Cheap — Page 1/2
+#1 ID: crown 👑 Crown — 20,000c by @User
+#2 ID: fire 🔥 Fire — 30,000c by @User
+
+Buy: !badgebuy 1
+
+Store listing IDs in market cache so:
+!buybadge 1
+works after filtered market views too.
+
+==================================================
+PART 8 — Expensive Purchase Confirmation
+==================================================
+
+Add confirmation for expensive badge purchases.
+
+Default threshold:
+100,000 coins
+
+Commands:
+!badgebuy listing_id
+!confirmbuy listing_id
+!cancelbuy
+
+If listing price >= threshold:
+Do not buy immediately.
+
+Reply:
+⚠️ Confirm purchase:
+💎 Diamond for 1,000,000 coins.
+Type: !confirmbuy 1
+Cancel: !cancelbuy
+
+Store pending confirmation:
+pending_badge_buy[user.id] = {
+  listing_id,
+  price,
+  expires_at
+}
+
+Expiration:
+60 seconds.
+
+!confirmbuy 1:
+- listing must still exist
+- price must still match
+- buyer must still have enough coins
+- then process purchase
+
+If expired:
+Purchase confirmation expired.
+Use !badgebuy 1 again.
+
+If price/listing changed:
+Listing changed. Please check !badgemarket again.
+
+!cancelbuy:
+✅ Badge purchase cancelled.
+
+Small purchases under threshold:
+Process immediately as before.
+
+Admin setting if easy:
+!setbadgeconfirm 100000
+
+Owner/admin only.
+Sets threshold.
+
+==================================================
+PART 9 — Badge Ownership Audit
+==================================================
+
+Add owner/admin command:
+
+!badgeaudit @user
+
+Shows:
+- owned badges count
+- equipped badge
+- active market listings
+- locked badges
+- wishlist count
+- recent badge transactions
+
+Example:
+
+🧾 Badge Audit: @User
+Owned: 5
+Equipped: 👑 Crown
+Listings: 1
+Locked: 2
+Wishlist: 3
+
+Second message:
+Recent:
+bought taurus 1,500c
+listed crown 100,000c
+gifted fire to @A
+
+Normal players:
+⚠️ Staff only.
+
+==================================================
+PART 10 — Starter Badge Claim
+==================================================
+
+Add command:
+
+!claimbadge
+
+Purpose:
+New players can claim one free starter badge.
+
+Default starter badge:
+star
+
+If star does not exist, use first available common purchasable badge.
+If no starter badge exists, admin should get safe error in console, player gets:
+Starter badge is not available right now.
+
+Rules:
+- claim once per user
+- user cannot claim if already claimed
+- grant starter badge
+- log claim
+
+Database if safe:
+
+CREATE TABLE IF NOT EXISTS badge_claims (
+    user_id TEXT PRIMARY KEY,
+    username TEXT DEFAULT '',
+    badge_id TEXT DEFAULT '',
+    claimed_at TEXT DEFAULT (datetime('now'))
+);
+
+Message:
+✅ You claimed your starter badge: ⭐ Star.
+Equip: !equipbadge star
+
+If already claimed:
+You already claimed your starter badge.
+
+Optional:
+Show in !badgehelp:
+Starter: !claimbadge
+
+==================================================
+PART 11 — Badge Transfer Safety
+==================================================
+
+Any transfer-like action must be safe:
+- market buy
+- gift badge
+- admin give
+- cancel listing
+- lock/unlock
+
+Add checks:
+- badge exists
+- ownership exists
+- no duplicate ownership if duplicates not allowed
+- no selling locked badge
+- no gifting locked badge
+- no selling equipped badge
+- no gifting equipped badge
+- no buying own listing
+- no market listing if badge already listed
+
+Log failures:
+[BADGE ERROR] action=gift reason=locked user=@Player badge=crown
+
+==================================================
+PART 12 — Badge Help Update
+==================================================
+
+Update !badgehelp:
+
+Message 1:
+🏷️ Badge Commands
+Browse: !badgeshop
+All: !allbadges
+Search: !badgesearch crown
+Info: !badgeinfo crown
+
+Message 2:
+Owned: !mybadges
+Equip: !equipbadge crown
+Profile: !badgeprofile
+Show: !showbadge
+
+Message 3:
+Market: !badgemarket
+Buy: !badgebuy 1
+Sell: !sellbadge crown 20000
+Wishlist: !wishlist crown
+
+Message 4:
+Gift: !giftbadge @user crown
+Lock: !lockbadge crown
+Starter: !claimbadge
+
+Keep messages under 249 chars.
+
+==================================================
+PART 13 — Badge Menu Update
+==================================================
+
+Update !badges:
+
+🏷️ Badge Menu
+Shop: !badgeshop
+All: !allbadges
+Owned: !mybadges
+Profile: !badgeprofile
+Market: !badgemarket
+Help: !badgehelp
+
+==================================================
+PART 14 — Routing
+==================================================
+
+Make sure these commands route to BankingBot / badge_market:
+
+Existing:
+!badges
+!badge
+!badgeshop
+!allbadges
+!badgehelp
+!mybadges
+!equipbadge
+!unequipbadge
+!badgeinfo
+!buybadge
+!badgesearch
+!badgemarket
+!badgebuy
+!sellbadge
+!cancelbadge
+!mybadgelistings
+!badgeprices
+
+New:
+!profilebadge
+!badgeprofile
+!badgestatus
+!showbadge
+!flexbadge
+!commonbadges
+!rarebadges
+!epicbadges
+!legendarybadges
+!mythicbadges
+!wishlist
+!wishbadge
+!mywishlist
+!badgewishlist
+!removewishlist
+!unwishlist
+!giftbadge
+!lockbadge
+!unlockbadge
+!lockedbadges
+!confirmbuy
+!cancelbuy
+!claimbadge
+!badgeaudit
+!setbadgeconfirm
+
+ChillTopiaMC must not respond unknown command to badge commands.
+
+==================================================
+PART 15 — Admin Help Update
+==================================================
+
+Update !badgeadminhelp:
+
+🛠️ Badge Admin
+!addbadge id emoji name rarity price
+!editbadgeprice id price
+!setbadgepurchasable id on/off
+!setbadgemarketfee 5
+!setbadgeconfirm 100000
+!badgeaudit @user
+
+Keep existing admin commands working:
+!setbadgetradeable
+!setbadgesellable
+!giveemojibadge
+!badgecatalog
+!badgeadmin
+!badgemarketlogs

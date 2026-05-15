@@ -107,6 +107,16 @@ from modules.badge_market import (
     handle_market_help, handle_trade_help,
     handle_trade_start, handle_tradeadd, handle_tradecoins,
     handle_tradeview, handle_tradeconfirm, handle_tradecancel,
+    # Badge Final Features
+    handle_badge_profile,
+    handle_show_badge,
+    handle_badge_category,
+    handle_wishlist_add, handle_wishlist_view, handle_wishlist_remove,
+    handle_gift_badge,
+    handle_lock_badge, handle_unlock_badge, handle_locked_badges,
+    handle_badge_confirmbuy, handle_badge_cancelbuy, handle_set_badge_confirm,
+    handle_badge_audit,
+    handle_claim_badge,
 )
 from modules.numbered_shop import (
     handle_buy_number,
@@ -812,6 +822,15 @@ SHOP_COMMANDS        = {
     "badgemarket", "badgelist", "badgebuy", "badgecancel",
     "mybadgelistings", "badgeprices", "badgelogs",
     "badgehelp", "badgeadminhelp",
+    # Badge Final Features
+    "profilebadge", "badgeprofile", "badgestatus",
+    "showbadge", "flexbadge",
+    "commonbadges", "rarebadges", "epicbadges", "legendarybadges", "mythicbadges",
+    "wishlist", "wishbadge", "mywishlist", "badgewishlist", "removewishlist", "unwishlist",
+    "giftbadge",
+    "lockbadge", "unlockbadge", "lockedbadges",
+    "claimbadge",
+    "badgeaudit", "setbadgeconfirm",
 }
 ACHIEVEMENT_COMMANDS = {"achievements", "claimachievements"}
 BJ_COMMANDS          = {
@@ -4323,10 +4342,12 @@ class HangoutBot(BaseBot):
         elif cmd in ("cancel", "jailcancel"):
             await handle_jail_cancel(self, user)
         elif cmd == "confirmbuy":
-            await handle_confirmbuy(self, user, args)
+            if not await handle_badge_confirmbuy(self, user, args):
+                await handle_confirmbuy(self, user, args)
 
         elif cmd == "cancelbuy":
-            await handle_cancelbuy(self, user, args)
+            if not await handle_badge_cancelbuy(self, user):
+                await handle_cancelbuy(self, user, args)
 
         elif cmd == "marketbuy":
             # /marketbuy <number> uses market_badges session
@@ -5049,6 +5070,52 @@ class HangoutBot(BaseBot):
 
         elif cmd == "badgelogs":
             await handle_badgelogs(self, user, args)
+
+        # ── Badge Final Features routing ───────────────────────────────────────
+        elif cmd in {"profilebadge", "badgeprofile", "badgestatus"}:
+            await handle_badge_profile(self, user, args)
+
+        elif cmd in {"showbadge", "flexbadge"}:
+            await handle_show_badge(self, user, args)
+
+        elif cmd in {"commonbadges", "rarebadges", "epicbadges", "legendarybadges", "mythicbadges"}:
+            rarity_map = {
+                "commonbadges": "common", "rarebadges": "rare",
+                "epicbadges": "epic", "legendarybadges": "legendary",
+                "mythicbadges": "mythic",
+            }
+            rarity = rarity_map[cmd]
+            await handle_badge_category(self, user, rarity)
+
+        elif cmd in {"wishlist", "wishbadge"}:
+            await handle_wishlist_add(self, user, args)
+
+        elif cmd in {"mywishlist", "badgewishlist"}:
+            await handle_wishlist_view(self, user)
+
+        elif cmd in {"removewishlist", "unwishlist"}:
+            await handle_wishlist_remove(self, user, args)
+
+        elif cmd == "giftbadge":
+            await handle_gift_badge(self, user, args)
+
+        elif cmd == "lockbadge":
+            await handle_lock_badge(self, user, args)
+
+        elif cmd == "unlockbadge":
+            await handle_unlock_badge(self, user, args)
+
+        elif cmd == "lockedbadges":
+            await handle_locked_badges(self, user)
+
+        elif cmd == "claimbadge":
+            await handle_claim_badge(self, user)
+
+        elif cmd == "badgeaudit":
+            await handle_badge_audit(self, user, args)
+
+        elif cmd == "setbadgeconfirm":
+            await handle_set_badge_confirm(self, user, args)
 
         elif cmd in {"helpmarket", "markethelp"}:
             await handle_market_help(self, user)
