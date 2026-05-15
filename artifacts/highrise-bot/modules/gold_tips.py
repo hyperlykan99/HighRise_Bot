@@ -215,8 +215,8 @@ async def handle_incoming_gold_tip(
             _lbl = "Luxe Ticket" if luxe_amt == 1 else "Luxe Tickets"
             _ack = (
                 f"💎 Thanks @{sender.username}! "
-                f"You received {luxe_amt:,} 🎫 {_lbl} for tipping {gold_amount:g} gold.\n"
-                f"Want 🪙 ChillCoins too? Use !buycoins or !buycoins [amount]."
+                f"You received {luxe_amt:,} 🎫 {_lbl} for tipping {gold_amount:g}g. "
+                f"Convert to 🪙 ChillCoins with !buycoins or !buycoins [amount]."
             )[:249]
         else:
             _ack = "⚠️ Tip received, but Luxe reward failed. Please contact owner."

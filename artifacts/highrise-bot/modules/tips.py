@@ -239,21 +239,7 @@ async def process_tip_event(bot: BaseBot, sender: User, receiver: User, tip) -> 
             print(f"[TIP] get_tip_settings error: {e!r} — using defaults")
             s = {}
 
-        min_gold  = int(s.get("min_tip_gold",   10))
-        daily_cap = int(s.get("daily_cap_gold", 10_000))
-        rate      = int(s.get("coins_per_gold", 10))
-
-        print(f"[TIP] Processing: @{sender.username} | gold={gold} | min={min_gold} | rate={rate}c/g")
-
-        # ── Below minimum ─────────────────────────────────────────────────
-        if gold < min_gold:
-            await _whisper(
-                bot, sender.id,
-                f"🙏 Thanks @{sender.username}! Minimum for coin reward is {min_gold}g."
-            )
-            _safe_log_transaction(sender.username, gold, 0, 0, "below_min", "")
-            print(f"[TIP] @{sender.username} below min ({gold}g < {min_gold}g)")
-            return
+        print(f"[TIP] Processing: @{sender.username} | gold={gold}")
 
         # ── In-memory dedup ───────────────────────────────────────────────
         if _in_memory_seen(sender.id, gold):
@@ -269,42 +255,21 @@ async def process_tip_event(bot: BaseBot, sender: User, receiver: User, tip) -> 
         except Exception as e:
             print(f"[TIP] is_tip_duplicate error (skipping dedup check): {e!r}")
 
-        # ── Daily cap ─────────────────────────────────────────────────────
-        daily_used = 0
-        try:
-            daily_used = db.get_daily_gold_converted(sender.id)
-        except Exception as e:
-            print(f"[TIP] get_daily_gold_converted error (skipping cap): {e!r}")
+        # 1 gold = 1 Luxe Ticket — flat, no minimum, no cap, no multiplier
+        convertible = int(gold)
+        luxe_amt    = convertible
 
-        remaining = max(0, daily_cap - daily_used)
-        if remaining == 0:
-            await _whisper(
-                bot, sender.id,
-                f"⚠️ Daily tip cap ({daily_cap:,}g) reached. Resets at midnight!"
-            )
-            _safe_log_transaction(sender.username, gold, 0, 0, "cap_reached", event_hash)
-            print(f"[TIP] @{sender.username} cap reached ({daily_used}/{daily_cap}g)")
-            return
-
-        convertible = min(gold, remaining)
-
-        # ── Award Luxe Tickets — 1g = 1 ticket, no bonus, no ChillCoins ──
-        luxe_amt = 0
+        # ── Award Luxe Tickets ────────────────────────────────────────────
         _luxe_ok = False
         try:
-            from modules.luxe import (
-                add_luxe_balance    as _alb,
-                log_luxe_transaction as _llt,
-                get_luxe_rate        as _glr,
-            )
+            from modules.luxe import add_luxe_balance as _alb, log_luxe_transaction as _llt
             db.ensure_user(sender.id, sender.username)
-            luxe_rate = _glr()
-            luxe_amt  = max(1, int(convertible * luxe_rate))
-            _alb(sender.id, sender.username, luxe_amt)
+            new_bal = _alb(sender.id, sender.username, luxe_amt)
             _llt(sender.id, sender.username, "gold_tip_reward",
-                 luxe_amt, "luxe", f"{convertible:g}g_fallback")
+                 luxe_amt, "luxe",
+                 f"gold_tip:{convertible}g receiver:{receiver.username} balance_after:{new_bal}")
             _luxe_ok = True
-            print(f"[TIP REWARD] user={sender.username} gold={convertible:g} "
+            print(f"[TIP REWARD] user={sender.username} gold={convertible} "
                   f"reward={luxe_amt}_luxe_tickets (fallback path)")
             print(f"[LUXE] add user={sender.username} amount={luxe_amt} "
                   f"reason=gold_tip_reward_fallback")
@@ -323,8 +288,8 @@ async def process_tip_event(bot: BaseBot, sender: User, receiver: User, tip) -> 
                 _lbl = "Luxe Ticket" if luxe_amt == 1 else "Luxe Tickets"
                 _ack = (
                     f"💎 Thanks @{sender.username}! "
-                    f"You received {luxe_amt:,} 🎫 {_lbl} for tipping {convertible:g} gold.\n"
-                    f"Want 🪙 ChillCoins too? Use !buycoins or !buycoins [amount]."
+                    f"You received {luxe_amt:,} 🎫 {_lbl} for tipping {convertible}g. "
+                    f"Convert to 🪙 ChillCoins with !buycoins or !buycoins [amount]."
                 )[:249]
             else:
                 _ack = "⚠️ Tip received, but Luxe reward failed. Please contact owner."
@@ -391,16 +356,9 @@ def _safe_record_donation(
 # ---------------------------------------------------------------------------
 
 async def handle_tiprate(bot: BaseBot, user: User, _args) -> None:
-    s     = db.get_tip_settings()
-    rate  = s.get("coins_per_gold",  "10")
-    cap   = int(s.get("daily_cap_gold", 10_000))
-    t100  = s.get("tier_100_bonus",  "10")
-    t500  = s.get("tier_500_bonus",  "20")
-    t1000 = s.get("tier_1000_bonus", "30")
-    t5000 = s.get("tier_5000_bonus", "50")
     await _whisper(bot, user.id,
-        f"💰 Tip Rate: 1g={rate}c | Bonus: 100g+{t100}% 500g+{t500}% "
-        f"1k+{t1000}% 5k+{t5000}%"
+        "💎 Tip Rate: 1g = 1 🎫 Luxe Ticket. No bonus. "
+        "Convert to 🪙 ChillCoins with !buycoins."
     )
 
 
