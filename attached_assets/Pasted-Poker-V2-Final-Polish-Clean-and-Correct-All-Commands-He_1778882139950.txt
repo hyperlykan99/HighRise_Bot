@@ -1,0 +1,566 @@
+Poker V2 Final Polish — Clean and Correct All Commands, Help, Guide, Staff/Admin Help
+
+Current status:
+Poker V2 gameplay is working and has many features.
+Now clean the command system everywhere so players, staff, and owner are not confused.
+
+Goal:
+Make all Poker V2 commands consistent across:
+- player help
+- poker guide
+- table messages
+- wrong command replies
+- staff help
+- admin/owner help
+- main command registry
+- commandtest
+- hidden aliases
+- old poker command cleanup
+
+Do NOT modify:
+- blackjack
+- jail
+- Luxe Tickets
+- tips
+- mining/fishing
+- workflows
+- bot runner
+- unrelated economy systems
+
+Only modify:
+- modules/poker_v2.py
+- main.py only if needed for routing/help/command registry
+
+==================================================
+PART 1 — Canonical Player Commands
+==================================================
+
+These are the official player commands:
+
+!join 5000
+!check
+!call
+!raise 500
+!fold
+!allin
+!hand
+!table
+!leave
+!rebuy 5000
+!sitout
+!sitback
+!lasthand
+!poker
+
+Only these should be shown to normal players.
+
+Do NOT advertise old aliases:
+!p
+!ph
+!cards
+!r
+!pleave
+!ptable
+!phand
+!poker join
+!poker hand
+!poker leave
+!poker table
+
+Old aliases can still work silently or redirect, but do not advertise them.
+
+==================================================
+PART 2 — Canonical Staff/Admin Commands
+==================================================
+
+Staff/Admin commands:
+
+!poker status
+!poker pause
+!poker resume
+!poker close
+!poker refund
+!poker refund @user
+!poker forcefinish
+!poker resendcards
+!poker debugcards
+!poker v2debug
+!poker resetv2
+
+Owner/Admin table settings:
+
+!poker blinds 50 100
+!poker timer 30
+!poker minbuyin 1000
+!poker maxbuyin 50000
+!poker maxplayers 6
+!poker afktime 30
+!poker afkstrikes 3
+!poker afkremove on
+!poker afkremove off
+
+Keep admin commands hidden from normal player help.
+
+==================================================
+PART 3 — Normal Player Help
+==================================================
+
+When normal player types:
+
+!poker
+!phelp
+!poker help
+
+Reply with short help:
+
+♠️ Poker Commands
+Join: !join 5000
+Play: !check, !call, !raise 500, !fold, !allin
+Info: !hand, !table, !lasthand
+More: !rebuy 5000, !sitout, !sitback, !leave
+
+Keep under 249 characters.
+
+Do not show admin commands to normal players.
+
+==================================================
+PART 4 — Poker Guide
+==================================================
+
+Add or clean:
+
+!pokerguide
+!poker guide
+
+Normal player guide should be simple and split into multiple short messages if needed.
+
+Message 1:
+♠️ Texas Hold’em
+Join with !join 5000. You get 2 private cards. The dealer reveals flop, turn, and river. Best 5-card hand wins.
+
+Message 2:
+Turns:
+Use !check if free, !call to match, !raise 500 to raise, !fold to quit the hand, or !allin to bet all chips.
+
+Message 3:
+Info:
+Use !hand to see your cards, !table for table status, !lasthand to review the last hand, and !leave to cash out.
+
+Message 4:
+Extras:
+Use !rebuy 5000 to add chips, !sitout to skip hands, and !sitback to play again.
+
+==================================================
+PART 5 — Staff/Admin Help
+==================================================
+
+Add:
+
+!poker staff
+!poker admin
+!poker staffhelp
+!poker adminhelp
+
+If user is not owner/admin/staff:
+Whisper:
+⚠️ Staff only.
+
+If staff/admin/owner:
+
+Message 1:
+🛡️ Poker Staff Commands
+!poker status
+!poker pause
+!poker resume
+!poker forcefinish
+!poker resendcards
+
+Message 2:
+🛠️ Poker Admin Commands
+!poker refund
+!poker refund @user
+!poker close
+!poker resetv2
+!poker debugcards
+!poker v2debug
+
+Message 3:
+⚙️ Poker Settings
+!poker blinds 50 100
+!poker timer 30
+!poker minbuyin 1000
+!poker maxbuyin 50000
+!poker maxplayers 6
+!poker afkstrikes 3
+!poker afkremove on/off
+
+Keep each message under 249 characters.
+
+==================================================
+PART 6 — Command Routing Cleanup
+==================================================
+
+Make sure these commands route to Poker V2 / ChipSoprano:
+
+Player:
+!join
+!check
+!call
+!raise
+!fold
+!allin
+!hand
+!table
+!leave
+!rebuy
+!sitout
+!sitback
+!lasthand
+!poker
+!phelp
+!pokerguide
+
+Poker subcommands:
+!poker help
+!poker guide
+!poker status
+!poker pause
+!poker resume
+!poker close
+!poker refund
+!poker forcefinish
+!poker resendcards
+!poker debugcards
+!poker v2debug
+!poker resetv2
+!poker blinds
+!poker timer
+!poker minbuyin
+!poker maxbuyin
+!poker maxplayers
+!poker afktime
+!poker afkstrikes
+!poker afkremove
+!poker staff
+!poker admin
+!poker staffhelp
+!poker adminhelp
+
+ChillTopiaMC must not reply unknown command to any Poker V2 command.
+
+==================================================
+PART 7 — Old Alias Behavior
+==================================================
+
+Old aliases should not be advertised, but should not confuse players.
+
+If player types:
+
+!p 5000
+Reply:
+Use !join 5000 to join poker.
+
+!ph or !cards
+Either:
+- show cards using _cmd_hand
+OR reply:
+Use !hand to view your cards.
+
+Preferred:
+!ph and !cards should call _cmd_hand.
+
+!r 500
+Either:
+- route to !raise 500
+OR reply:
+Use !raise 500.
+
+Preferred:
+!r should call _cmd_raise.
+
+!pleave
+Preferred:
+call _cmd_leave.
+
+!ptable
+Preferred:
+call _cmd_table.
+
+!phand
+Preferred:
+call _cmd_hand.
+
+!poker leave
+call _cmd_leave.
+
+!poker hand
+call _cmd_hand.
+
+!poker table
+call _cmd_table.
+
+!poker rebuy 5000
+call _cmd_rebuy.
+
+!poker sitout
+call _cmd_sitout.
+
+!poker sitback
+call _cmd_sitback.
+
+!poker lasthand / !poker last / !poker handlog
+call _cmd_lasthand.
+
+==================================================
+PART 8 — Wrong Usage Replies
+==================================================
+
+Clean all usage replies.
+
+!join without amount:
+Use: !join 5000
+
+!join below min:
+Minimum poker buy-in is 1,000 coins. Use !join 1000.
+
+!join above max:
+Maximum poker buy-in is 50,000 coins.
+
+!raise without amount:
+Use: !raise 500
+
+!rebuy without amount:
+Use: !rebuy 5000
+
+!poker refund @missing:
+Use: !poker refund @user
+
+!poker blinds invalid:
+Use: !poker blinds 50 100
+
+!poker timer invalid:
+Use: !poker timer 30
+
+!poker afkremove invalid:
+Use: !poker afkremove on or !poker afkremove off
+
+==================================================
+PART 9 — Keep Player Help Short In Gameplay
+==================================================
+
+Do not spam long help during the hand.
+
+Invalid action replies should be short:
+
+Wrong turn:
+⏳ It is @Player's turn.
+
+Already folded:
+🏳️ You already folded.
+
+All-in:
+🔥 You are all-in. Wait for showdown.
+
+Not seated:
+You are not at the poker table. Use !join 5000.
+
+No active hand:
+No active poker hand yet.
+
+No cards:
+No cards found for this hand yet.
+
+Paused:
+⏸️ Poker is paused.
+
+==================================================
+PART 10 — Update Main Help / Global Help
+==================================================
+
+If there is a global room help or game help command, make sure Poker section says:
+
+Poker:
+!join 5000, !check, !call, !raise 500, !fold, !allin, !hand, !table
+
+Optional:
+More poker: !poker
+
+Do not list old poker commands.
+
+==================================================
+PART 11 — Commandtest Support
+==================================================
+
+If commandtest exists, update expected routing:
+
+!commandtest !join
+owner=ChipSoprano
+module=poker_v2
+route=YES
+
+!commandtest !check
+owner=ChipSoprano
+module=poker_v2
+route=YES
+
+!commandtest !poker status
+owner=ChipSoprano
+module=poker_v2
+admin=YES
+
+!commandtest !pleave
+owner=ChipSoprano
+module=poker_v2
+alias_to=!leave
+
+!commandtest !ph
+owner=ChipSoprano
+module=poker_v2
+alias_to=!hand
+
+==================================================
+PART 12 — Hide Admin Commands From Player Help
+==================================================
+
+Normal players should not see:
+!poker close
+!poker refund
+!poker resetv2
+!poker v2debug
+!poker debugcards
+!poker resendcards
+!poker pause
+!poker resume
+!poker blinds
+!poker timer
+!poker minbuyin
+!poker maxbuyin
+!poker maxplayers
+!poker afkstrikes
+!poker afkremove
+
+Only show these to staff/admin/owner through:
+!poker staff
+!poker admin
+!poker staffhelp
+!poker adminhelp
+
+==================================================
+PART 13 — Consistent Naming
+==================================================
+
+Use these labels consistently:
+
+Poker table
+Poker hand
+coins
+Dealer
+SB
+BB
+Pot
+Board
+Hand
+Rank
+To Call
+Stack
+Actions
+
+Do not mix:
+chips / coin / coins
+dealer cards / board cards
+
+Use “Board” for public community cards.
+
+Private turn whisper should use:
+Board:
+Hand:
+Rank:
+Pot:
+To Call:
+Stack:
+Actions:
+
+==================================================
+PART 14 — Compile
+==================================================
+
+Run:
+
+python -m py_compile main.py
+python -m py_compile modules/poker_v2.py
+
+==================================================
+PART 15 — Tests
+==================================================
+
+Test 1 — Normal help:
+!poker
+
+Expected:
+Only player commands.
+
+Test 2 — Guide:
+!pokerguide
+!poker guide
+
+Expected:
+Simple Hold’em guide.
+
+Test 3 — Admin help:
+Owner/admin:
+!poker admin
+
+Expected:
+Admin commands shown.
+
+Normal player:
+!poker admin
+
+Expected:
+⚠️ Staff only.
+
+Test 4 — Aliases:
+!ph
+Expected:
+same as !hand.
+
+!pleave
+Expected:
+same as !leave.
+
+!ptable
+Expected:
+same as !table.
+
+!r 500
+Expected:
+same as !raise 500 or clear redirect.
+
+Test 5 — Poker subcommands:
+!poker leave
+!poker hand
+!poker table
+!poker rebuy 5000
+!poker lasthand
+
+Expected:
+All route correctly.
+
+Test 6 — Unknown command prevention:
+ChillTopiaMC should not respond unknown command to poker commands.
+
+Test 7 — Global help:
+Room/game help no longer shows old poker commands.
+
+Final report:
+1. Player help cleaned
+2. Poker guide added/cleaned
+3. Admin/staff help added/cleaned
+4. Old aliases hidden but routed safely
+5. !poker subcommands routed correctly
+6. Wrong usage replies cleaned
+7. Global help poker section cleaned
+8. Commandtest updated
+9. Admin commands hidden from normal help
+10. Py_compile result
+11. Bot stability result

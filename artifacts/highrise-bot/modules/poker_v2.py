@@ -142,7 +142,7 @@ def _build_turn_whisper(player: dict, board: list, current_bet: int, pot: int) -
     msg = (
         f"YOUR TURN:\nBoard: {board_str}\nHand: {hand_str}\n"
         f"Rank: {rank_str}\n"
-        f"Pot: {pot:,} | Call: {owe:,} | Stack: {stack:,}\n"
+        f"Pot: {pot:,} | To Call: {owe:,} | Stack: {stack:,}\n"
         f"{actions}"
     )
     return msg[:249]
@@ -1039,16 +1039,16 @@ async def _action_guard(bot: BaseBot, user: User) -> bool:
     phase    = _T["phase"]
 
     if phase not in ("preflop", "flop", "turn", "river"):
-        await _w(bot, user.id, "No active poker hand.")
+        await _w(bot, user.id, "No active poker hand yet.")
         return False
 
     if username not in _T["players"]:
-        await _w(bot, user.id, "You are not at the poker table.")
+        await _w(bot, user.id, "You are not at the poker table. Use !join 5000.")
         return False
 
     p = _T["players"][username]
     if p["status"] == "folded":
-        await _w(bot, user.id, "🏳️ You have already folded.")
+        await _w(bot, user.id, "🏳️ You already folded.")
         return False
     if p["status"] == "allin":
         await _w(bot, user.id, "🔥 You are all-in. Wait for showdown.")
@@ -1094,10 +1094,10 @@ async def _cmd_join(bot: BaseBot, user: User, args: list) -> None:
         return
 
     if amount < min_buyin:
-        await _w(bot, user.id, f"Minimum buy-in is {min_buyin:,} coins.")
+        await _w(bot, user.id, f"Minimum poker buy-in is {min_buyin:,} coins. Use !join {min_buyin:,}.")
         return
     if amount > max_buyin:
-        await _w(bot, user.id, f"Maximum buy-in is {max_buyin:,} coins.")
+        await _w(bot, user.id, f"Maximum poker buy-in is {max_buyin:,} coins.")
         return
 
     bal = _get_balance(user.id)
@@ -1852,6 +1852,55 @@ async def _cmd_afkremove(bot: BaseBot, user: User, args: list) -> None:
     else:
         await _w(bot, user.id, "Use: !poker afkremove on/off")
 
+# ── Poker guide (4 messages) ───────────────────────────────────────────────────
+async def _cmd_pokerguide(bot: BaseBot, user: User) -> None:
+    await _w(bot, user.id,
+        "♠️ Texas Hold'em\n"
+        "Join with !join 5000. You get 2 private cards. The dealer reveals "
+        "flop, turn, and river. Best 5-card hand wins.")
+    await _w(bot, user.id,
+        "Turns:\n"
+        "Use !check if free, !call to match, !raise 500 to raise, "
+        "!fold to quit the hand, or !allin to bet all chips.")
+    await _w(bot, user.id,
+        "Info:\n"
+        "Use !hand to see your cards, !table for table status, "
+        "!lasthand to review the last hand, and !leave to cash out.")
+    await _w(bot, user.id,
+        "Extras:\n"
+        "Use !rebuy 5000 to add chips, !sitout to skip hands, "
+        "and !sitback to play again.")
+
+# ── Staff/admin help (3 messages, permission-gated) ───────────────────────────
+async def _cmd_staffhelp(bot: BaseBot, user: User) -> None:
+    if not (is_owner(user.username) or is_admin(user.username) or is_manager(user.username)):
+        await _w(bot, user.id, "⚠️ Staff only.")
+        return
+    await _w(bot, user.id,
+        "🛡️ Poker Staff Commands\n"
+        "!poker status\n"
+        "!poker pause\n"
+        "!poker resume\n"
+        "!poker forcefinish\n"
+        "!poker resendcards")
+    await _w(bot, user.id,
+        "🛠️ Poker Admin Commands\n"
+        "!poker refund\n"
+        "!poker refund @user\n"
+        "!poker close\n"
+        "!poker resetv2\n"
+        "!poker debugcards\n"
+        "!poker v2debug")
+    await _w(bot, user.id,
+        "⚙️ Poker Settings\n"
+        "!poker blinds 50 100\n"
+        "!poker timer 30\n"
+        "!poker minbuyin 1000\n"
+        "!poker maxbuyin 50000\n"
+        "!poker maxplayers 6\n"
+        "!poker afkstrikes 3\n"
+        "!poker afkremove on/off")
+
 # ── Entry point ────────────────────────────────────────────────────────────────
 async def handle_poker_v2(bot: BaseBot, user: User, cmd: str, args: list) -> None:
     """Entry point for all Poker V2 player commands. Called by main.py."""
@@ -1861,19 +1910,55 @@ async def handle_poker_v2(bot: BaseBot, user: User, cmd: str, args: list) -> Non
     print(f"[POKER V2] command user={user.username} cmd={cmd}")
 
     if cmd == "poker":
-        # If the first arg looks like a number the player tried !poker 5000
-        if len(args) > 1 and args[1].replace(",", "").isdigit():
-            amt = args[1]
-            await _w(bot, user.id, f"Use !join {amt} to join poker.")
-        else:
-            await _w(bot, user.id, (
+        sub = args[1].lower().strip() if len(args) > 1 else ""
+        # Number supplied — old !poker 5000 pattern
+        if sub and sub.replace(",", "").isdigit():
+            await _w(bot, user.id, f"Use !join {sub} to join poker.")
+            return
+        # Subcommand routing
+        if sub in ("help", ""):
+            await _w(bot, user.id,
                 "♠️ Poker Commands\n"
                 "Join: !join 5000\n"
                 "Play: !check, !call, !raise 500, !fold, !allin\n"
-                "Info: !hand, !table\n"
-                "Leave: !leave\n"
-                "More: !rebuy, !sitout, !sitback"
-            ))
+                "Info: !hand, !table, !lasthand\n"
+                "More: !rebuy 5000, !sitout, !sitback, !leave")
+        elif sub in ("guide",):
+            await _cmd_pokerguide(bot, user)
+        elif sub in ("staff", "admin", "staffhelp", "adminhelp"):
+            await _cmd_staffhelp(bot, user)
+        elif sub == "leave":       await _cmd_leave(bot, user)
+        elif sub == "hand":        await _cmd_hand(bot, user)
+        elif sub == "table":       await _cmd_table(bot, user)
+        elif sub == "sitout":      await _cmd_sitout(bot, user)
+        elif sub in ("sitback", "sitin"): await _cmd_sitback(bot, user)
+        elif sub == "rebuy":       await _cmd_rebuy(bot, user, args[1:])
+        elif sub in ("lasthand", "last", "handlog"): await _cmd_lasthand(bot, user)
+        elif sub == "status":      await _cmd_status(bot, user)
+        elif sub == "pause":       await _cmd_pause(bot, user)
+        elif sub == "resume":      await _cmd_resume(bot, user)
+        elif sub == "close":       await _cmd_close(bot, user)
+        elif sub == "refund":      await _cmd_refund(bot, user, args[1:])
+        elif sub == "forcefinish": await _cmd_forcefinish(bot, user)
+        elif sub == "resendcards": await _cmd_resendcards(bot, user)
+        elif sub in ("debugcards", "debugdeal"): await _cmd_debugcards(bot, user)
+        elif sub == "v2debug":     await _cmd_v2debug(bot, user)
+        elif sub == "resetv2":     await _cmd_resetv2(bot, user)
+        elif sub == "blinds":      await _cmd_blinds(bot, user, args[1:])
+        elif sub == "timer":       await _cmd_timer_set(bot, user, args[1:])
+        elif sub == "minbuyin":    await _cmd_minbuyin(bot, user, args[1:])
+        elif sub == "maxbuyin":    await _cmd_maxbuyin(bot, user, args[1:])
+        elif sub == "maxplayers":  await _cmd_maxplayers(bot, user, args[1:])
+        elif sub == "afktime":     await _cmd_afktime(bot, user, args[1:])
+        elif sub == "afkstrikes":  await _cmd_afkstrikes(bot, user, args[1:])
+        elif sub == "afkremove":   await _cmd_afkremove(bot, user, args[1:])
+        else:
+            await _w(bot, user.id,
+                "♠️ Poker Commands\n"
+                "Join: !join 5000\n"
+                "Play: !check, !call, !raise 500, !fold, !allin\n"
+                "Info: !hand, !table, !lasthand\n"
+                "More: !rebuy 5000, !sitout, !sitback, !leave")
         return
 
     if   cmd == "join":          await _cmd_join(bot, user, args)
@@ -1889,6 +1974,8 @@ async def handle_poker_v2(bot: BaseBot, user: User, cmd: str, args: list) -> Non
     elif cmd in ("sitback", "sitin"): await _cmd_sitback(bot, user)
     elif cmd == "rebuy":         await _cmd_rebuy(bot, user, args)
     elif cmd in ("lasthand", "handlog", "last"): await _cmd_lasthand(bot, user)
+    elif cmd in ("guide", "pokerguide"): await _cmd_pokerguide(bot, user)
+    elif cmd in ("staff", "admin", "staffhelp", "adminhelp"): await _cmd_staffhelp(bot, user)
     elif cmd == "pause":         await _cmd_pause(bot, user)
     elif cmd == "resume":        await _cmd_resume(bot, user)
     elif cmd == "close":         await _cmd_close(bot, user)

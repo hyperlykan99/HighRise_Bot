@@ -1020,7 +1020,8 @@ ALL_KNOWN_COMMANDS = (
         "allin", "all-in", "shove",
         "pp", "pplayers", "pstats", "plb", "pleaderboard",
         "phelp", "pokerlb", "pokerleaderboard", "pleaderboard",
-        "sitout", "sitin", "rebuy", "pstacks", "mystack",
+        "sitout", "sitin", "sitback", "rebuy", "pstacks", "mystack",
+        "lasthand", "handlog", "pokerguide",
         "botstatus", "dbstats", "backup",
         "maintenance", "reloadsettings", "cleanup",
         "restarthelp", "restartstatus", "softrestart", "restartbot",
@@ -5468,15 +5469,28 @@ class HangoutBot(BaseBot):
         elif cmd == "pleave":
             await handle_poker_v2(self, user, "leave", args)
 
-        elif cmd in ("po", "pcards", "resendcards",
-                     "cards", "podds", "pp", "pplayers", "pstacks",
-                     "mystack", "sitout", "sitin", "rebuy"):
+        elif cmd in ("sitout",):
+            await handle_poker_v2(self, user, "sitout", args)
+
+        elif cmd in ("sitback", "sitin"):
+            await handle_poker_v2(self, user, "sitback", args)
+
+        elif cmd == "rebuy":
+            await handle_poker_v2(self, user, "rebuy", args)
+
+        elif cmd in ("lasthand", "handlog"):
+            await handle_poker_v2(self, user, "lasthand", args)
+
+        elif cmd in ("cards", "pcards"):
+            await handle_poker_v2(self, user, "hand", args)
+
+        elif cmd == "resendcards":
+            await handle_poker_v2(self, user, "resendcards", args)
+
+        elif cmd in ("po", "podds", "pp", "pplayers", "pstacks", "mystack"):
             try:
                 await self.highrise.send_whisper(
-                    user.id,
-                    "Use !join, !hand, !table, !leave, "
-                    "!check, !call, !raise, !fold, or !allin."
-                )
+                    user.id, "Use !table or !hand for poker info.")
             except Exception:
                 pass
 
@@ -5489,22 +5503,17 @@ class HangoutBot(BaseBot):
             await handle_pokerlb(self, user, mode_args)
 
         elif cmd in ("phelp",):
-            await handle_pokerhelp(self, user, args)
+            await handle_poker_v2(self, user, "poker", args)
 
-        # ── Poker — !poker command: V2 help (no args) or admin sub-commands ──
+        elif cmd == "pokerguide":
+            await handle_poker_v2(self, user, "guide", args)
+
+        # ── Poker — !poker command: all subcommands routed inside poker_v2 ───
         elif cmd == "poker":
-            sub = args[1].lower() if len(args) > 1 else ""
-            if not sub:
-                await handle_poker_v2(self, user, "poker", args)
-            elif sub in ("debugcards", "debugdeal", "resendcards", "resetv2", "v2debug",
-                         "leave", "hand", "table", "status", "pause", "resume",
-                         "close", "refund", "forcefinish"):
-                await handle_poker_v2(self, user, sub, args)
-            else:
-                await handle_poker(self, user, args)
+            await handle_poker_v2(self, user, "poker", args)
 
         elif cmd == "pokerhelp":
-            await handle_pokerhelp(self, user, args)
+            await handle_poker_v2(self, user, "poker", args)
 
         elif cmd == "pokerstatus":
             await handle_pokerstatus(self, user, args)

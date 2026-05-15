@@ -229,8 +229,9 @@ REGISTRY: dict[str, Cmd] = {
 
     # ── Poker ────────────────────────────────────────────────────────────────
     "poker":            Cmd("poker","casino",False,False,True, aliases=("p","pj","pt","ptable","ph","pleave","phelp")),
+    "pokerguide":       Cmd("poker","casino",False,True, False),
     "pleave":           Cmd("poker","casino",False,False,True),
-    "phand":            Cmd("poker","casino",False,True, False, aliases=("ph",)),
+    "phand":            Cmd("poker","casino",False,True, False, aliases=("ph","cards","pcards")),
     "pokerstats":       Cmd("poker","casino",False,True, False, aliases=("pstats",)),
     "pokerlb":          Cmd("poker","casino",False,True, False,
                             aliases=("plb","pleaderboard","pokerleaderboard")),
