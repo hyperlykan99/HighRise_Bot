@@ -362,11 +362,11 @@ async def process_tip_event(bot: BaseBot, sender: User, receiver: User, tip) -> 
         # ── Whisper acknowledgement ───────────────────────────────────────
         try:
             if _luxe_ok and luxe_amt > 0:
-                _lbl = "Luxe Ticket" if luxe_amt == 1 else "Luxe Tickets"
                 _ack = (
-                    f"💎 Thanks @{sender.username}! "
-                    f"You received {luxe_amt:,} 🎫 {_lbl} for tipping {convertible}g. "
-                    f"Convert to 🪙 ChillCoins with !buycoins or !buycoins [amount]."
+                    f"🎟️ Thank you @{sender.username}!\n"
+                    f"You received {luxe_amt:,} 🎫 Luxe Tickets.\n"
+                    f"Balance: {new_bal:,} 🎫\n"
+                    f"Use !buypack for 🪙 ChillCoins."
                 )[:249]
             else:
                 _ack = "⚠️ Tip received, but Luxe reward failed. Please contact owner."

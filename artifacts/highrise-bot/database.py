@@ -2205,6 +2205,30 @@ def _migrate_db():
             updated_at       TEXT    NOT NULL DEFAULT (datetime('now')),
             UNIQUE(user_id, auto_type)
         )""",
+        # ── Numbered Coin Pack config ──────────────────────────────────────────
+        """CREATE TABLE IF NOT EXISTS coin_packs (
+            pack_id           INTEGER PRIMARY KEY,
+            ticket_cost       INTEGER NOT NULL DEFAULT 0,
+            chillcoins_amount INTEGER NOT NULL DEFAULT 0,
+            enabled           INTEGER NOT NULL DEFAULT 1,
+            updated_at        TEXT    NOT NULL DEFAULT (datetime('now'))
+        )""",
+        # ── Luxe Ticket audit log ─────────────────────────────────────────────
+        """CREATE TABLE IF NOT EXISTS luxe_ticket_logs (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            action          TEXT    NOT NULL DEFAULT '',
+            user_id         TEXT    NOT NULL DEFAULT '',
+            username        TEXT    NOT NULL DEFAULT '',
+            target_user_id  TEXT    NOT NULL DEFAULT '',
+            target_username TEXT    NOT NULL DEFAULT '',
+            amount          INTEGER NOT NULL DEFAULT 0,
+            balance_after   INTEGER NOT NULL DEFAULT 0,
+            reason          TEXT    NOT NULL DEFAULT '',
+            ref_id          TEXT    NOT NULL DEFAULT '',
+            created_at      TEXT    NOT NULL DEFAULT (datetime('now'))
+        )""",
+        "CREATE INDEX IF NOT EXISTS idx_ltl_user_id ON luxe_ticket_logs(user_id, created_at)",
+        "CREATE INDEX IF NOT EXISTS idx_ltl_ref_id  ON luxe_ticket_logs(ref_id)",
     ]:
         try:
             conn.execute(sql)
@@ -2222,6 +2246,9 @@ def _migrate_db():
     seed_room_settings()
     from modules.bot_modes import seed_bot_modes as _seed_bot_modes
     _seed_bot_modes()
+
+    # Seed default numbered coin packs (idempotent)
+    init_default_coin_packs()
 
     # Seed mining ore catalog (idempotent)
     seed_mining_items()
@@ -6113,6 +6140,165 @@ def log_luxe_conversion(
         conn.close()
     except Exception as e:
         print(f"[LUXE CONVERSION AUDIT] error: {e!r}")
+
+
+# ── Coin pack helpers ─────────────────────────────────────────────────────────
+
+_DEFAULT_COIN_PACKS = [
+    (1, 100,  1_000),
+    (2, 500,  5_500),
+    (3, 5_000, 60_000),
+]
+
+
+def init_default_coin_packs() -> None:
+    """Seed default coin packs if not present. Safe to call every startup."""
+    try:
+        conn = get_connection()
+        for pack_id, cost, coins in _DEFAULT_COIN_PACKS:
+            conn.execute(
+                """INSERT OR IGNORE INTO coin_packs
+                   (pack_id, ticket_cost, chillcoins_amount, enabled, updated_at)
+                   VALUES (?, ?, ?, 1, datetime('now'))""",
+                (pack_id, cost, coins),
+            )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[COIN PACKS] init_default_coin_packs error: {e!r}")
+
+
+def get_all_coin_packs() -> list:
+    """Return all enabled coin packs ordered by pack_id."""
+    try:
+        conn = get_connection()
+        rows = conn.execute(
+            "SELECT pack_id, ticket_cost, chillcoins_amount, enabled "
+            "FROM coin_packs ORDER BY pack_id"
+        ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+    except Exception as e:
+        print(f"[COIN PACKS] get_all_coin_packs error: {e!r}")
+        return []
+
+
+def get_coin_pack_by_id(pack_id: int):
+    """Return (ticket_cost, chillcoins_amount) for a pack, or None."""
+    try:
+        conn = get_connection()
+        row = conn.execute(
+            "SELECT ticket_cost, chillcoins_amount FROM coin_packs "
+            "WHERE pack_id=? AND enabled=1",
+            (pack_id,),
+        ).fetchone()
+        conn.close()
+        if row:
+            return (int(row["ticket_cost"]), int(row["chillcoins_amount"]))
+        return None
+    except Exception as e:
+        print(f"[COIN PACKS] get_coin_pack_by_id error: {e!r}")
+        return None
+
+
+def set_coin_pack(pack_id: int, ticket_cost: int, chillcoins_amount: int) -> None:
+    """Upsert a numbered coin pack."""
+    try:
+        conn = get_connection()
+        conn.execute(
+            """INSERT INTO coin_packs (pack_id, ticket_cost, chillcoins_amount, enabled, updated_at)
+               VALUES (?, ?, ?, 1, datetime('now'))
+               ON CONFLICT(pack_id) DO UPDATE SET
+                 ticket_cost=excluded.ticket_cost,
+                 chillcoins_amount=excluded.chillcoins_amount,
+                 enabled=1,
+                 updated_at=excluded.updated_at""",
+            (pack_id, ticket_cost, chillcoins_amount),
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[COIN PACKS] set_coin_pack error: {e!r}")
+
+
+# ── Luxe ticket log helpers ────────────────────────────────────────────────────
+
+def insert_luxe_ticket_log(
+    action: str,
+    user_id: str,
+    username: str,
+    target_user_id: str = "",
+    target_username: str = "",
+    amount: int = 0,
+    balance_after: int = 0,
+    reason: str = "",
+    ref_id: str = "",
+) -> None:
+    """Write one row to luxe_ticket_logs. Never raises."""
+    try:
+        conn = get_connection()
+        conn.execute(
+            """INSERT INTO luxe_ticket_logs
+               (action, user_id, username, target_user_id, target_username,
+                amount, balance_after, reason, ref_id, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
+            (action, user_id, username.lower(), target_user_id,
+             target_username.lower() if target_username else "",
+             amount, balance_after, reason, ref_id),
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[LUXE LOG] insert_luxe_ticket_log error: {e!r}")
+
+
+def is_luxe_ref_duplicate(ref_id: str) -> bool:
+    """Return True if ref_id already exists in luxe_ticket_logs."""
+    if not ref_id:
+        return False
+    try:
+        conn = get_connection()
+        row = conn.execute(
+            "SELECT 1 FROM luxe_ticket_logs WHERE ref_id=? AND action='tip_award' LIMIT 1",
+            (ref_id,),
+        ).fetchone()
+        conn.close()
+        return row is not None
+    except Exception:
+        return False
+
+
+def get_luxe_ticket_logs(
+    user_id: str = "",
+    action: str = "",
+    ref_id: str = "",
+    limit: int = 10,
+) -> list:
+    """Fetch luxe_ticket_logs rows with optional filters."""
+    try:
+        conn = get_connection()
+        clauses = []
+        params: list = []
+        if user_id:
+            clauses.append("(user_id=? OR target_user_id=?)")
+            params += [user_id, user_id]
+        if action:
+            clauses.append("action=?")
+            params.append(action)
+        if ref_id:
+            clauses.append("ref_id=?")
+            params.append(ref_id)
+        where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
+        params.append(limit)
+        rows = conn.execute(
+            f"SELECT * FROM luxe_ticket_logs {where} ORDER BY id DESC LIMIT ?",
+            params,
+        ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+    except Exception as e:
+        print(f"[LUXE LOG] get_luxe_ticket_logs error: {e!r}")
+        return []
 
 
 def get_tip_settings() -> dict:

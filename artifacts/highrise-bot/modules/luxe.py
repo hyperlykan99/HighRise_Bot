@@ -887,27 +887,32 @@ async def handle_economydefaults(bot: "BaseBot", user: "User", args: list[str]) 
 async def handle_buycoins(bot: "BaseBot", user: "User", args: list[str]) -> None:
     db.ensure_user(user.id, user.username)
     _map = {"small": "smallcoins", "medium": "mediumcoins", "large": "largecoins"}
-    sizes = ("small", "medium", "large", "max")
+    sizes_legacy = ("small", "medium", "large", "max")
 
-    if len(args) < 2 or args[1].lower() not in sizes:
-        cs_t, cs_c = get_coinpack("smallcoins")
-        cm_t, cm_c = get_coinpack("mediumcoins")
-        cl_t, cl_c = get_coinpack("largecoins")
-        await _w(bot, user.id,
-                 f"🪙 ChillCoin Packs\n"
-                 f"small: {_fc(cs_t)} 🎫 = {_fc(cs_c)} 🪙\n"
-                 f"medium: {_fc(cm_t)} 🎫 = {_fc(cm_c)} 🪙\n"
-                 f"large: {_fc(cl_t)} 🎫 = {_fc(cl_c)} 🪙\n"
-                 f"Use !buycoins max.")
+    # No argument — show numbered packs (new) + legacy menu
+    if len(args) < 2:
+        await handle_buypack(bot, user, args)
         return
 
-    sub = args[1].lower()
-    if sub == "max":
+    raw = args[1].lower().strip()
+
+    # Numbered pack — !buycoins 1 / !buycoins 2 / !buycoins 3
+    if raw.isdigit():
+        await _do_purchase_numbered_pack(bot, user, int(raw))
+        return
+
+    # Legacy: max
+    if raw == "max":
         await _do_buycoins_max(bot, user)
         return
 
-    item_key = _map[sub]
-    await _do_purchase(bot, user, item_key, 1)
+    # Legacy: small / medium / large
+    if raw in _map:
+        await _do_purchase(bot, user, _map[raw], 1)
+        return
+
+    # Unknown arg — show pack menu
+    await handle_buypack(bot, user, args)
 
 
 # ---------------------------------------------------------------------------
@@ -1147,6 +1152,203 @@ async def handle_luxeadmin(bot: "BaseBot", user: "User", args: list[str]) -> Non
 # ---------------------------------------------------------------------------
 # Admin: !vipadmin
 # ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Numbered Coin Pack system  (packs 1/2/3 — configurable via !setcoinpack)
+# ---------------------------------------------------------------------------
+
+_COIN_PACKS_CACHE: dict[int, tuple[int, int]] = {}
+_packs_loaded: bool = False
+
+_DEFAULT_NUMBERED_PACKS: dict[int, tuple[int, int]] = {
+    1: (100,   1_000),
+    2: (500,   5_500),
+    3: (5_000, 60_000),
+}
+
+
+def _load_coin_packs() -> None:
+    global _packs_loaded
+    try:
+        db.init_default_coin_packs()
+        rows = db.get_all_coin_packs()
+        if rows:
+            _COIN_PACKS_CACHE.clear()
+            for r in rows:
+                _COIN_PACKS_CACHE[int(r["pack_id"])] = (
+                    int(r["ticket_cost"]),
+                    int(r["chillcoins_amount"]),
+                )
+        else:
+            _COIN_PACKS_CACHE.update(_DEFAULT_NUMBERED_PACKS)
+    except Exception as e:
+        print(f"[COIN PACKS] _load_coin_packs error: {e!r}")
+        _COIN_PACKS_CACHE.update(_DEFAULT_NUMBERED_PACKS)
+    _packs_loaded = True
+
+
+def _ensure_packs_loaded() -> None:
+    if not _packs_loaded:
+        _load_coin_packs()
+
+
+def get_numbered_pack(pack_id: int) -> tuple[int, int] | None:
+    """Return (ticket_cost, chillcoins) for a numbered pack, or None."""
+    _ensure_packs_loaded()
+    result = db.get_coin_pack_by_id(pack_id)
+    if result:
+        _COIN_PACKS_CACHE[pack_id] = result
+        return result
+    return _COIN_PACKS_CACHE.get(pack_id)
+
+
+def set_numbered_pack(pack_id: int, ticket_cost: int, chillcoins: int) -> None:
+    """Persist and cache a numbered pack."""
+    db.set_coin_pack(pack_id, ticket_cost, chillcoins)
+    _COIN_PACKS_CACHE[pack_id] = (ticket_cost, chillcoins)
+
+
+async def handle_buypack(bot: "BaseBot", user: "User", args: list[str]) -> None:
+    """!buypack / !packs / !coinpack — show numbered coin pack menu."""
+    db.ensure_user(user.id, user.username)
+    _ensure_packs_loaded()
+    rows = db.get_all_coin_packs()
+    if not rows:
+        rows = [
+            {"pack_id": k, "ticket_cost": v[0], "chillcoins_amount": v[1], "enabled": 1}
+            for k, v in sorted(_DEFAULT_NUMBERED_PACKS.items())
+        ]
+    enabled = [r for r in rows if r.get("enabled", 1)]
+    if not enabled:
+        await _w(bot, user.id, "⚠️ No coin packs configured. Ask staff.")
+        return
+    lines = ["💰 ChillCoin Packs"]
+    for r in enabled:
+        lines.append(
+            f"{r['pack_id']}) {_fc(r['ticket_cost'])} 🎫 → {_fc(r['chillcoins_amount'])} 🪙"
+        )
+    lines.append("Buy: !buycoins [1/2/3]")
+    await _w(bot, user.id, "\n".join(lines)[:249])
+
+
+async def handle_setcoinpack(bot: "BaseBot", user: "User", args: list[str]) -> None:
+    """!setcoinpack [pack_id] [ticket_cost] [coins]  — admin only."""
+    if not _can_luxe_admin(user.username):
+        await _w(bot, user.id, "🔒 Admin/owner only.")
+        return
+    if len(args) < 4:
+        await _w(bot, user.id,
+                 "Usage: !setcoinpack [id] [tickets] [coins]\n"
+                 "Example: !setcoinpack 2 500 5500")
+        return
+    try:
+        pack_id  = int(args[1])
+        cost     = int(args[2])
+        coins_n  = int(args[3])
+        if pack_id < 1 or pack_id > 10:
+            raise ValueError("pack_id 1-10")
+        if cost < 1 or coins_n < 1:
+            raise ValueError("must be positive")
+    except (ValueError, IndexError) as e:
+        await _w(bot, user.id, f"⚠️ Invalid values: {e}")
+        return
+    set_numbered_pack(pack_id, cost, coins_n)
+    print(f"[COINPACK ADMIN] setcoinpack id={pack_id} cost={cost} coins={coins_n} by={user.username}")
+    await _w(bot, user.id,
+             f"✅ Pack {pack_id} updated:\n"
+             f"{_fc(cost)} 🎫 → {_fc(coins_n)} 🪙\n"
+             f"!buypack to verify.")
+
+
+async def handle_coinpackadmin(bot: "BaseBot", user: "User") -> None:
+    """!coinpackadmin — show all coin pack configs (admin)."""
+    if not _can_luxe_admin(user.username):
+        await _w(bot, user.id, "🔒 Admin/owner only.")
+        return
+    _ensure_packs_loaded()
+    rows = db.get_all_coin_packs()
+    if not rows:
+        rows = [
+            {"pack_id": k, "ticket_cost": v[0], "chillcoins_amount": v[1], "enabled": 1}
+            for k, v in sorted(_DEFAULT_NUMBERED_PACKS.items())
+        ]
+    lines = ["🎫 Coin Pack Admin"]
+    for r in rows:
+        status = "ON" if r.get("enabled", 1) else "OFF"
+        lines.append(
+            f"{r['pack_id']}) {_fc(r['ticket_cost'])} 🎫 → "
+            f"{_fc(r['chillcoins_amount'])} 🪙 [{status}]"
+        )
+    lines.append("!setcoinpack [id] [tickets] [coins]")
+    await _w(bot, user.id, "\n".join(lines)[:249])
+
+
+async def _do_purchase_numbered_pack(
+    bot: "BaseBot", user: "User", pack_id: int
+) -> None:
+    """Buy a numbered coin pack by pack_id."""
+    pack = get_numbered_pack(pack_id)
+    if pack is None:
+        await _w(bot, user.id,
+                 f"⚠️ Pack {pack_id} not found. Use !buypack to see options.")
+        return
+    cost, coins = pack
+    bal = get_luxe_balance(user.id)
+    if bal < cost:
+        await _w(bot, user.id,
+                 f"⚠️ Not enough 🎫.\n"
+                 f"Pack {pack_id} costs: {_fc(cost)} 🎫\n"
+                 f"You have: {_fc(bal)} 🎫")
+        return
+    if not deduct_luxe_balance(user.id, user.username, cost):
+        await _w(bot, user.id, "⚠️ Transaction failed. Try again.")
+        return
+    lux_after = get_luxe_balance(user.id)
+    db.add_balance(user.id, coins)
+    coins_after = db.get_balance(user.id)
+    log_luxe_transaction(user.id, user.username, "coinpack_purchase",
+                         cost, "luxe", f"pack{pack_id}:{coins}coins")
+    try:
+        db.log_luxe_conversion(
+            user_id=user.id,
+            username=user.username.lower(),
+            item_key=f"coin_pack_{pack_id}",
+            tickets_spent=cost,
+            coins_awarded=coins,
+            luxe_balance_before=lux_after + cost,
+            luxe_balance_after=lux_after,
+            coins_balance_before=coins_after - coins,
+            coins_balance_after=coins_after,
+            status="success",
+        )
+    except Exception as _ce:
+        print(f"[COINPACK] log error: {_ce!r}")
+    try:
+        db.insert_luxe_ticket_log(
+            "coinpack_purchase", user.id, user.username,
+            amount=cost, balance_after=lux_after,
+            reason=f"pack{pack_id}:{coins}coins",
+        )
+    except Exception:
+        pass
+    print(f"[COINPACK] user={user.username} pack={pack_id} spent={cost} coins={coins} status=success")
+    await _w(bot, user.id,
+             f"✅ @{user.username} bought Pack {pack_id}!\n"
+             f"Received: {_fc(coins)} 🪙\n"
+             f"Spent: {_fc(cost)} 🎫\n"
+             f"Tickets left: {_fc(lux_after)} 🎫")
+
+
+async def handle_luxehelp(bot: "BaseBot", user: "User") -> None:
+    """!luxe / !luxehelp — player help for Luxe Tickets."""
+    await _w(bot, user.id,
+             "🎟️ Luxe Tickets\n"
+             "!tickets — check balance\n"
+             "!sendtickets @user 100\n"
+             "!buypack — view 🪙 packs\n"
+             "!buycoins 1/2/3 — buy a pack\n"
+             "!luxeshop — full shop")
+
 
 async def handle_vipadmin(bot: "BaseBot", user: "User", args: list[str]) -> None:
     if not _can_luxe_admin(user.username):

@@ -273,11 +273,11 @@ async def handle_incoming_gold_tip(
     # Whisper acknowledgement to the tipper
     try:
         if _luxe_ok and luxe_amt > 0:
-            _lbl = "Luxe Ticket" if luxe_amt == 1 else "Luxe Tickets"
             _ack = (
-                f"💎 Thanks @{sender.username}! "
-                f"You received {luxe_amt:,} 🎫 {_lbl} for tipping {gold_amount:g}g. "
-                f"Convert to 🪙 ChillCoins with !buycoins or !buycoins [amount]."
+                f"🎟️ Thank you @{sender.username}!\n"
+                f"You received {luxe_amt:,} 🎫 Luxe Tickets.\n"
+                f"Balance: {_lux_after:,} 🎫\n"
+                f"Use !buypack for 🪙 ChillCoins."
             )[:249]
         else:
             _ack = "⚠️ Tip received, but Luxe reward failed. Please contact owner."
@@ -307,12 +307,10 @@ async def handle_incoming_gold_tip(
         try:
             after_tip_on = db.get_room_setting("after_tip_menu", "1") == "1"
             if after_tip_on and luxe_amt > 0:
-                menu = (f"🎫 Tip Received\n"
-                        f"Added: {luxe_amt:,} 🎫\n"
-                        f"Quick:\n"
-                        f"!buyluxe 1 = VIP\n"
-                        f"!buyluxe 2 = Mine 1h\n"
-                        f"!buycoins max = 🪙")
+                menu = (f"🎫 Quick Spend\n"
+                        f"!buypack — view 🪙 ChillCoin packs\n"
+                        f"!luxeshop — full Luxe Shop\n"
+                        f"!buyluxe 1 — VIP Pass")
                 await bot.highrise.send_whisper(sender.id, menu[:249])
         except Exception as _me:
             print(f"[GOLDTIP] After-tip menu error: {_me!r}")

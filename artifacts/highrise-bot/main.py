@@ -78,6 +78,8 @@ from modules.luxe import (
     handle_use as handle_use_permit,
     handle_autotime, handle_luxeadmin, handle_vipadmin,
     handle_autoconvert, handle_economydefaults,
+    handle_buypack, handle_setcoinpack, handle_coinpackadmin,
+    handle_luxehelp,
 )
 from modules.shop         import (
     handle_shop, handle_buy, handle_equip, handle_myitems,
@@ -515,6 +517,7 @@ from modules.luxe_admin import (
     handle_addtickets, handle_removetickets, handle_settickets,
     handle_sendtickets, handle_ticketbalance, handle_ticketlogs,
     handle_ticketadmin, handle_ticketrate,
+    handle_player_sendtickets, handle_ticketlog_self, handle_tiplogs,
 )
 from modules.tip_audit import (
     handle_tipaudit,
@@ -1292,14 +1295,20 @@ LUXE_COMMANDS: frozenset[str] = frozenset({
     "tickets", "luxe",
     "luxeshop", "premiumshop",
     "buyticket", "buyluxe",
-    "buycoins",
-    "use",
+    "buycoins", "buychillcoins",
+    "buypack", "packs", "coinpack",
+    "sendtickets",
+    "ticketlog",
     "ticketrate",
+    "luxehelp",
+    "use",
     # Luxe auto time
     "autotime", "minetime", "fishtime",
     # Admin
     "luxeadmin",
     "vipadmin",
+    "setcoinpack",
+    "coinpackadmin",
 })
 
 BETA_COMMANDS: frozenset[str] = frozenset({
@@ -1383,7 +1392,8 @@ JAIL_COMMANDS: frozenset[str] = frozenset({
 
 TICKET_ADMIN_COMMANDS: frozenset[str] = frozenset({
     "addtickets", "removetickets", "settickets",
-    "sendtickets", "ticketbalance", "ticketlogs", "ticketadmin",
+    "ticketbalance", "ticketlogs", "ticketadmin",
+    "tiplogs",
 })
 
 ALL_KNOWN_COMMANDS = (
@@ -1422,11 +1432,13 @@ OWNER_ONLY_CMDS = OWNER_ONLY_CMDS | {"jailprotectstaff"}
 # ── Ticket admin permission gates (TICKET_ADMIN_COMMANDS defined above) ──────
 STAFF_CMDS       = STAFF_CMDS | TICKET_ADMIN_COMMANDS
 ADMIN_ONLY_CMDS  = ADMIN_ONLY_CMDS | {
-    "sendtickets", "ticketbalance", "ticketlogs", "ticketadmin",
+    "ticketbalance", "ticketlogs", "ticketadmin",
+    "tiplogs",
 }
 OWNER_ONLY_CMDS  = OWNER_ONLY_CMDS | {
     "addtickets", "removetickets", "settickets",
 }
+# sendtickets — handled publicly; permission check done inside the handler
 
 # ── Tip / conversion audit commands (admin+, banker owns) ────────────────
 TIP_AUDIT_COMMANDS: frozenset[str] = frozenset({
@@ -3975,13 +3987,18 @@ class HangoutBot(BaseBot):
             elif cmd == "settickets":
                 await handle_settickets(self, user, args)
             elif cmd == "sendtickets":
-                await handle_sendtickets(self, user, args)
+                if is_owner(user.username) or can_manage_economy(user.username):
+                    await handle_sendtickets(self, user, args)
+                else:
+                    await handle_player_sendtickets(self, user, args)
             elif cmd == "ticketbalance":
                 await handle_ticketbalance(self, user, args)
             elif cmd == "ticketlogs":
                 await handle_ticketlogs(self, user, args)
             elif cmd == "ticketadmin":
                 await handle_ticketadmin(self, user)
+            elif cmd == "tiplogs":
+                await handle_tiplogs(self, user, args)
 
             # ── Tip / conversion audit ────────────────────────────────────────────
             elif cmd == "tipaudit":
@@ -5039,6 +5056,27 @@ class HangoutBot(BaseBot):
 
         elif cmd == "ticketrate":
             await handle_ticketrate(self, user)
+
+        elif cmd in {"buypack", "packs", "coinpack", "buychillcoins"}:
+            await handle_buypack(self, user, args)
+
+        elif cmd in {"luxehelp"}:
+            await handle_luxehelp(self, user)
+
+        elif cmd == "ticketlog":
+            await handle_ticketlog_self(self, user)
+
+        elif cmd == "sendtickets":
+            if is_owner(user.username) or can_manage_economy(user.username):
+                await handle_sendtickets(self, user, args)
+            else:
+                await handle_player_sendtickets(self, user, args)
+
+        elif cmd == "setcoinpack":
+            await handle_setcoinpack(self, user, args)
+
+        elif cmd == "coinpackadmin":
+            await handle_coinpackadmin(self, user)
 
         elif cmd == "donate":
             await handle_donate(self, user)

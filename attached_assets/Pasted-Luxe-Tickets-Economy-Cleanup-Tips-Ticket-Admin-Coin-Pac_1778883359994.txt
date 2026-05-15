@@ -1,0 +1,534 @@
+Luxe Tickets Economy Cleanup — Tips, Ticket Admin, Coin Packs, Logs, and Help
+
+Current status:
+Poker is stable. Now move off poker and clean the Luxe Tickets economy.
+
+Goal:
+Make Luxe Tickets reliable because they connect to tips, jail, bail, chillcoins, and room monetization.
+
+Do NOT modify:
+- Poker V2
+- blackjack gameplay
+- bot runner/workflows
+- unrelated games
+
+Only modify:
+- modules related to Luxe Tickets
+- gold tips / tipping modules
+- coin pack / chillcoin conversion modules
+- help/command routing if needed
+- database.py if safe migrations are needed
+
+==================================================
+PART 1 — Core Luxe Ticket Rules
+==================================================
+
+Gold tips should give Luxe Tickets, not ChillCoins.
+
+Rule:
+1 HR gold tipped = 1 Luxe Ticket
+
+No bonus.
+No multiplier.
+No rounding bonus.
+
+Examples:
+100 gold tip = 100 Luxe Tickets
+500 gold tip = 500 Luxe Tickets
+1,000 gold tip = 1,000 Luxe Tickets
+
+Important:
+Do not also give ChillCoins automatically from tip.
+ChillCoins should only be given if player converts/buys a coin pack with Luxe Tickets.
+
+==================================================
+PART 2 — Tip Acknowledgement Message
+==================================================
+
+When player tips any bot and receives Luxe Tickets, bot should reply:
+
+🎟️ Thank you @Player!
+You received 100 Luxe Tickets.
+Balance: 250 tickets
+
+To buy ChillCoins:
+!buypack
+
+If short message needed:
+
+🎟️ @Player received 100 Luxe Tickets. Balance: 250. Use !buypack for ChillCoins.
+
+Do not say ChillCoins were awarded from the tip.
+
+==================================================
+PART 3 — Prevent Double Ticket Awarding
+==================================================
+
+Check for duplicate ticket-award logic.
+
+There should be only ONE source of truth for tip-to-ticket conversion.
+
+Search and fix:
+- duplicate tip handlers
+- old chillcoin tip reward code
+- duplicate add_ticket calls
+- multiple bots responding to same tip
+- both ChillTopiaMC and another bot awarding tickets
+
+Add duplicate protection:
+Each tip event should have a unique ref_id.
+
+If same tip ref_id is processed twice:
+- do not award again
+- log duplicate prevented
+
+Log:
+[LUXE TIP] duplicate prevented ref_id=...
+
+==================================================
+PART 4 — Luxe Ticket Storage
+==================================================
+
+Ensure database has Luxe Ticket balances.
+
+If safe, add table:
+
+CREATE TABLE IF NOT EXISTS luxe_tickets (
+    user_id TEXT PRIMARY KEY,
+    username TEXT DEFAULT '',
+    balance INTEGER DEFAULT 0,
+    updated_at TEXT DEFAULT (datetime('now'))
+);
+
+Helpers:
+get_luxe_balance(user_id)
+add_luxe_tickets(user_id, username, amount, reason, ref_id="")
+remove_luxe_tickets(user_id, amount, reason, ref_id="")
+set_luxe_tickets(user_id, username, amount, reason)
+send_luxe_tickets(from_user_id, to_user_id, amount, reason)
+
+Rules:
+- Balance cannot go below 0.
+- Amount must be positive integer.
+- Every change should log.
+- Duplicate ref_id should not award twice.
+
+==================================================
+PART 5 — Luxe Ticket Logs
+==================================================
+
+Add table if safe:
+
+CREATE TABLE IF NOT EXISTS luxe_ticket_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    action TEXT NOT NULL,
+    user_id TEXT DEFAULT '',
+    username TEXT DEFAULT '',
+    target_user_id TEXT DEFAULT '',
+    target_username TEXT DEFAULT '',
+    amount INTEGER DEFAULT 0,
+    balance_after INTEGER DEFAULT 0,
+    reason TEXT DEFAULT '',
+    ref_id TEXT DEFAULT '',
+    created_at TEXT DEFAULT (datetime('now'))
+);
+
+Log actions:
+tip_award
+admin_add
+admin_remove
+admin_set
+admin_send
+player_send
+coinpack_purchase
+jail_purchase
+bail_purchase
+refund
+duplicate_prevented
+error
+
+Owner commands:
+!ticketlogs @user
+!ticketlogs last
+!ticketlogs ref [ref_id]
+
+Normal players:
+!ticketlog
+Shows their last 5 Luxe Ticket changes.
+
+==================================================
+PART 6 — Player Luxe Commands
+==================================================
+
+Add / clean player commands:
+
+!tickets
+Shows:
+🎟️ Luxe Tickets: 250
+
+!ticketbalance
+Alias to !tickets
+
+!sendtickets @user amount
+Player sends tickets to another player.
+
+Rules:
+- sender must have enough
+- amount positive
+- cannot send to self
+- log both debit and credit
+
+Message sender:
+🎟️ Sent 100 Luxe Tickets to @User.
+
+Message receiver:
+🎟️ @Sender sent you 100 Luxe Tickets.
+
+!buypack
+Shows available ChillCoin packs.
+
+!buycoins [pack]
+Buys a ChillCoin pack using Luxe Tickets.
+
+Aliases:
+!coinpack
+!packs
+!buychillcoins
+
+==================================================
+PART 7 — Owner/Admin Luxe Commands
+==================================================
+
+Owner/admin commands:
+
+!ticketadmin
+Shows admin ticket commands.
+
+!addtickets @user amount
+!removetickets @user amount
+!settickets @user amount
+!sendtickets @user amount
+!ticketlogs @user
+!ticketlogs last
+!ticketbalance @user
+
+Rules:
+- Only owner/admin can add/remove/set/check others.
+- Normal players can only check their own balance.
+- Admin sends should not require admin balance.
+- Player sends should require sender balance.
+
+Admin messages:
+✅ Added 100 Luxe Tickets to @User. Balance: 500.
+✅ Removed 100 Luxe Tickets from @User. Balance: 400.
+✅ Set @User Luxe Tickets to 1,000.
+🎟️ Sent 100 Luxe Tickets to @User.
+
+==================================================
+PART 8 — ChillCoin Coin Packs
+==================================================
+
+Coin packs convert Luxe Tickets into ChillCoins.
+
+Default packs:
+
+Pack 1:
+100 Luxe Tickets = 1,000 ChillCoins
+
+Pack 2:
+500 Luxe Tickets = 5,500 ChillCoins
+
+Pack 3:
+5,000 Luxe Tickets = 60,000 ChillCoins
+
+Because you wanted:
+100 = 1000
+500 = 5000 + bonus
+5000 = 50000 + bonus
+
+Use bonus:
+500 pack gives +500 bonus
+5,000 pack gives +10,000 bonus
+
+Commands:
+!buypack
+!packs
+!coinpack
+
+Shows:
+💰 ChillCoin Packs
+1) 100 tickets → 1,000 coins
+2) 500 tickets → 5,500 coins
+3) 5,000 tickets → 60,000 coins
+Buy: !buycoins 1
+
+Buy command:
+!buycoins 1
+!buycoins 2
+!buycoins 3
+
+On purchase:
+- remove Luxe Tickets
+- add ChillCoins
+- log ticket debit
+- log chillcoin credit if coin logs exist
+
+Message:
+✅ @Player bought 5,500 ChillCoins for 500 Luxe Tickets.
+🎟️ Tickets left: 250
+
+==================================================
+PART 9 — Owner Coin Pack Settings
+==================================================
+
+Owner/admin commands:
+
+!setcoinpack 1 100 1000
+!setcoinpack 2 500 5500
+!setcoinpack 3 5000 60000
+
+Format:
+!setcoinpack [pack_id] [ticket_cost] [chillcoins_amount]
+
+Rules:
+- pack_id 1–10
+- ticket_cost positive
+- chillcoins_amount positive
+- save settings persistently if possible
+- update !buypack display immediately
+
+Command:
+!coinpackadmin
+
+Shows:
+!setcoinpack 1 100 1000
+!setcoinpack 2 500 5500
+!setcoinpack 3 5000 60000
+
+==================================================
+PART 10 — Coin Pack Persistence
+==================================================
+
+If safe, add table:
+
+CREATE TABLE IF NOT EXISTS coin_packs (
+    pack_id INTEGER PRIMARY KEY,
+    ticket_cost INTEGER NOT NULL,
+    chillcoins_amount INTEGER NOT NULL,
+    enabled INTEGER DEFAULT 1,
+    updated_at TEXT DEFAULT (datetime('now'))
+);
+
+On startup:
+- load coin packs from DB
+- if missing, create default packs
+
+If DB fails:
+- use default in-memory packs
+- do not crash bot
+
+==================================================
+PART 11 — Help Menus
+==================================================
+
+Add player Luxe help:
+
+!luxe
+!luxehelp
+
+Reply:
+🎟️ Luxe Tickets
+!tickets - check balance
+!sendtickets @user 100
+!buypack - view ChillCoin packs
+!buycoins 1 - buy a pack
+
+Add admin Luxe help:
+
+!ticketadmin
+
+Reply:
+🎟️ Ticket Admin
+!addtickets @user 100
+!removetickets @user 100
+!settickets @user 1000
+!ticketlogs @user
+!setcoinpack 1 100 1000
+
+Keep messages under 249 chars.
+
+==================================================
+PART 12 — Command Routing
+==================================================
+
+Make sure these route correctly:
+
+Player:
+!tickets
+!ticketbalance
+!sendtickets
+!buypack
+!packs
+!coinpack
+!buycoins
+!buychillcoins
+!luxe
+!luxehelp
+!ticketlog
+
+Admin:
+!ticketadmin
+!addtickets
+!removetickets
+!settickets
+!ticketlogs
+!setcoinpack
+!coinpackadmin
+
+Do not let multiple bots respond.
+Only the correct economy/bank/main bot should respond.
+
+If all bots receive the command, use command ownership guard to prevent duplicate replies.
+
+==================================================
+PART 13 — Tip Logs / Complaint Tools
+==================================================
+
+Owner should be able to check complaints:
+
+!tiplogs @user
+!tiplogs last
+
+Shows recent tip awards:
+Tip Logs:
+@Player tipped 100 gold → 100 tickets
+Ref: abc123
+Time: ...
+
+If no DB table exists for tips, use luxe_ticket_logs action=tip_award.
+
+==================================================
+PART 14 — Safety And Validation
+==================================================
+
+Validate:
+- amount must be integer
+- amount must be positive
+- user must exist or be resolvable from mention/cache
+- cannot remove more tickets than user has unless admin set is used
+- cannot buy pack if insufficient tickets
+- cannot create pack with 0 cost or 0 coins
+- duplicate ref_id should not award twice
+
+Never allow negative Luxe Ticket balance.
+
+==================================================
+PART 15 — Compile
+==================================================
+
+Run:
+
+python -m py_compile main.py
+python -m py_compile database.py
+
+Also compile changed modules, for example:
+python -m py_compile modules/luxe_admin.py
+python -m py_compile modules/gold_tips.py
+python -m py_compile modules/coin_packs.py
+
+Adjust filenames to actual project files.
+
+==================================================
+PART 16 — Tests
+==================================================
+
+Test 1 — Tip award:
+Simulate or test a 100 gold tip.
+
+Expected:
+🎟️ @Player received 100 Luxe Tickets.
+Balance increases by 100.
+No ChillCoins added automatically.
+
+Test 2 — Duplicate tip:
+Process same ref_id twice.
+
+Expected:
+Only one ticket award.
+Duplicate prevented log created.
+
+Test 3 — Balance:
+!tickets
+
+Expected:
+Shows correct Luxe Ticket balance.
+
+Test 4 — Admin add:
+!addtickets @user 100
+
+Expected:
+Balance increases and log created.
+
+Test 5 — Admin set:
+!settickets @user 1000
+
+Expected:
+Balance exactly 1000.
+
+Test 6 — Player send:
+!sendtickets @user 100
+
+Expected:
+Sender loses 100, receiver gains 100.
+
+Test 7 — Packs:
+!buypack
+
+Expected:
+Shows packs:
+100 → 1,000
+500 → 5,500
+5,000 → 60,000
+
+Test 8 — Buy coins:
+!buycoins 2
+
+Expected:
+Deducts 500 Luxe Tickets.
+Adds 5,500 ChillCoins.
+
+Test 9 — Set pack:
+!setcoinpack 2 500 6000
+
+Expected:
+Pack 2 updates.
+!buypack shows 500 → 6,000.
+
+Test 10 — Logs:
+!ticketlogs @user
+!tiplogs @user
+
+Expected:
+Shows recent ticket/tip activity.
+
+Test 11 — Help:
+!luxe
+!ticketadmin
+
+Expected:
+Clean player/admin help.
+
+Final report:
+1. Tip-to-Luxe conversion fixed
+2. ChillCoin auto-tip reward removed
+3. Duplicate tip protection added
+4. Luxe balance helpers added/fixed
+5. Luxe logs added
+6. Player ticket commands working
+7. Admin ticket commands working
+8. Coin packs working
+9. Coin pack settings persistent
+10. Help menus cleaned
+11. Complaint log commands working
+12. Py_compile result
+13. Bot stability result
