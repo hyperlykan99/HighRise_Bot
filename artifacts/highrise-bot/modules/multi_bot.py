@@ -519,6 +519,10 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "tradeview": "shopkeeper", "tradeconfirm": "shopkeeper", "tradecancel": "shopkeeper",
     "helpmarket": "shopkeeper", "helptrade": "shopkeeper",
     "badgehelp": "shopkeeper", "helpbadge": "shopkeeper", "helpbadges": "shopkeeper",
+    "badgeadminhelp": "shopkeeper", "badgesearch": "shopkeeper",
+    "equipbadge": "shopkeeper", "unequipbadge": "shopkeeper",
+    "badgeshop": "shopkeeper", "allbadges": "shopkeeper",
+    "badgelogs": "shopkeeper",
     "markethelp": "shopkeeper", "tradehelp": "shopkeeper",
     # eventhost — autogames / quests / subs
     "fixautogames": "eventhost", "questhelp": "host",

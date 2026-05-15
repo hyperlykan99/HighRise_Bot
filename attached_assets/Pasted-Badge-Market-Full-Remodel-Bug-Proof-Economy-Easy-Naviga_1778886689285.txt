@@ -1,0 +1,1009 @@
+Badge Market Full Remodel — Bug-Proof Economy, Easy Navigation, Clear Badge IDs, Show All Badges
+
+Current live issues:
+1. !buybadge works for shop badges, but badge market buying is confusing.
+2. !equipbadge was routed incorrectly before.
+3. !badgemarket shows listing numbers, but !buybadge 1 does not always buy listing #1.
+4. Players cannot easily tell the difference between:
+   - buying from shop
+   - buying from player market
+   - equipping owned badges
+   - selling owned badges
+5. Badge IDs are not always clear enough.
+6. Need to make sure ChillCoins are deducted from buyer and credited to seller correctly.
+7. Badge market needs to be bug-proof before players use it.
+
+Goal:
+Rebuild/polish badge browsing, buying, equipping, selling, and market economy safety.
+
+Do NOT modify:
+- Poker V2
+- jail
+- Luxe Tickets
+- bank transfer notifications
+- notification subscription system
+- blackjack
+- unrelated games
+
+Only modify:
+- modules/badge_market.py
+- database.py only if safe and needed
+- main.py only if badge command routing needs cleanup
+- help_cmds.py only if badge help needs cleanup
+
+==================================================
+PART 1 — Official Simple Player Commands
+==================================================
+
+Make these the official badge commands shown to players:
+
+!badges
+!badgeshop
+!allbadges
+!mybadges
+!badgeinfo badge_id
+!buybadge badge_id
+!equipbadge badge_id
+!unequipbadge
+!badgesearch name
+!badgemarket
+!badgebuy listing_id
+!sellbadge badge_id price
+!cancelbadge listing_id
+!mybadgelistings
+!badgehelp
+
+Aliases may still work, but do not advertise complicated syntax.
+
+Aliases:
+!badge -> !badges
+!shop badges -> !badgeshop
+!buy badge id -> !buybadge id
+!equip badge id -> !equipbadge id
+!unequip badge -> !unequipbadge
+!badges search name -> !badgesearch name
+!badgelist id price -> !sellbadge id price
+!badgecancel id -> !cancelbadge id
+
+==================================================
+PART 2 — Command Ownership / Routing
+==================================================
+
+Make sure these commands are handled by BankingBot / badge_market module:
+
+!badges
+!badge
+!badgeshop
+!allbadges
+!badgehelp
+!mybadges
+!equipbadge
+!unequipbadge
+!badgeinfo
+!buybadge
+!badgesearch
+!badgemarket
+!badgebuy
+!sellbadge
+!cancelbadge
+!mybadgelistings
+!badgeprices
+
+ChillTopiaMC must NOT reply unknown command to badge commands.
+
+Live bug to prevent:
+!equipbadge taurus should never go to ChillTopiaMC.
+
+Expected:
+!equipbadge taurus
+
+BankingBot replies:
+✅ Equipped badge: ♉ Taurus
+
+==================================================
+PART 3 — Main Badge Menu
+==================================================
+
+When player types:
+
+!badges
+!badge
+
+Reply:
+
+🏷️ Badge Menu
+Shop: !badgeshop
+All: !allbadges
+Owned: !mybadges
+Equip: !equipbadge badge_id
+Market: !badgemarket
+Help: !badgehelp
+
+Keep under 249 characters.
+
+Do not show admin commands here.
+
+==================================================
+PART 4 — Badge Help
+==================================================
+
+When player types:
+
+!badgehelp
+
+Reply in clear short messages:
+
+Message 1:
+🏷️ Badge Commands
+Browse: !badgeshop
+All: !allbadges
+Search: !badgesearch crown
+Info: !badgeinfo crown
+
+Message 2:
+Owned: !mybadges
+Equip: !equipbadge crown
+Unequip: !unequipbadge
+Buy shop: !buybadge crown
+
+Message 3:
+Market: !badgemarket
+Buy market: !badgebuy 1
+Sell: !sellbadge crown 20000
+Cancel: !cancelbadge 1
+
+Keep each message under 249 characters.
+
+==================================================
+PART 5 — Badge Shop Categories
+==================================================
+
+When player types:
+
+!badgeshop
+
+Show simple category list:
+
+🏷️ Badge Shop
+Categories:
+⭐ stars | ❤️ hearts | 😀 faces
+🐾 animals | 🍎 food | ⚽ sports
+💎 rare | 🌌 epic | 👑 legendary
+
+Use:
+!badgeshop hearts
+!badgeshop rare
+!allbadges
+
+If player types:
+
+!badgeshop hearts
+
+Show 5 badges per page.
+
+Format:
+
+❤️ Hearts — Page 1/3
+ID: redheart ❤️ Red Heart — 1,000c
+ID: blueheart 💙 Blue Heart — 1,000c
+ID: purpleheart 💜 Purple Heart — 1,500c
+
+Buy: !buybadge redheart
+Info: !badgeinfo redheart
+Next: !badgeshop hearts 2
+
+Important:
+Always show badge IDs using “ID: badge_id”.
+Show price clearly.
+Show status if applicable:
+[OWNED]
+[EQUIPPED]
+[LISTED]
+[NOT FOR SALE]
+
+==================================================
+PART 6 — Show All Badges
+==================================================
+
+Add command:
+
+!allbadges
+!allbadges page
+
+Also allow:
+!badges all
+!badgeshop all
+
+Behavior:
+Show all badges in the catalog, paginated.
+
+Format:
+
+🏷️ All Badges — Page 1/10
+ID: crown 👑 Crown — 100,000c
+ID: taurus ♉ Taurus — 1,500c
+ID: diamond 💎 Diamond — Market only
+
+Buy: !buybadge crown
+Info: !badgeinfo crown
+Next: !allbadges 2
+
+Rules:
+- Show 5 badges per page.
+- Include badge IDs.
+- If purchasable from shop, show price.
+- If not purchasable but market-listed, show “Market only”.
+- If not purchasable and not market-listed, show “Not for sale”.
+- If player owns it, add [OWNED].
+- If equipped, add [EQUIPPED].
+- If listed by player, add [LISTED].
+
+==================================================
+PART 7 — My Badges
+==================================================
+
+When player types:
+
+!mybadges
+!mybadges page
+
+Show owned badges clearly:
+
+🏷️ Your Badges — Page 1/1
+Equipped: ♉ Taurus
+
+1) ID: trophy 🏆 Trophy
+2) ID: crown 👑 Crown [LISTED]
+3) ID: taurus ♉ Taurus [EQUIPPED]
+
+Equip: !equipbadge taurus
+Unequip: !unequipbadge
+
+If no equipped badge:
+Equipped: none
+
+If no owned badges:
+You do not own badges yet.
+Browse: !badgeshop
+
+If many badges:
+8 per page.
+Support:
+!mybadges 2
+
+Store temporary per-user cache:
+badge_cache[user.id]["mybadges"] = ["trophy", "crown", "taurus"]
+
+Allow:
+!equipbadge 3
+to equip the 3rd badge from the last !mybadges result.
+
+If cache missing:
+⚠️ Use !mybadges first or type the badge ID.
+
+==================================================
+PART 8 — Equip Badge
+==================================================
+
+Command:
+
+!equipbadge badge_id
+
+Also support:
+!equipbadge number
+if number exists in last !mybadges cache.
+
+Rules:
+- player must own badge
+- badge must exist
+- if badge is listed in market, block equip unless current system allows it
+Preferred:
+Block listed badge equip.
+
+Messages:
+
+Success:
+✅ Equipped badge: ♉ Taurus
+
+Already equipped:
+✅ That badge is already equipped.
+
+Not owned:
+⚠️ You do not own that badge.
+Buy: !buybadge taurus
+
+Listed badge:
+⚠️ This badge is listed in the market.
+Cancel listing first: !cancelbadge listing_id
+
+Unknown:
+⚠️ Badge not found. Try !badgesearch name.
+
+==================================================
+PART 9 — Unequip Badge
+==================================================
+
+Command:
+
+!unequipbadge
+
+Message:
+✅ Badge unequipped.
+
+If none equipped:
+You do not have a badge equipped.
+
+==================================================
+PART 10 — Badge Info
+==================================================
+
+Command:
+
+!badgeinfo badge_id
+
+Message:
+
+♉ Taurus
+ID: taurus
+Rarity: Common
+Shop Price: 1,500 coins
+Owned: Yes
+Equipped: Yes
+Market: Not listed
+
+Commands:
+Buy: !buybadge taurus
+Equip: !equipbadge taurus
+Sell: !sellbadge taurus 20000
+
+If not shop purchasable but market-listed:
+
+💎 Diamond
+ID: diamond
+Shop: Not for sale
+Market: listed from 1,000,000c
+Buy market: !badgebuy 1
+
+If not for sale anywhere:
+Shop: Not for sale
+Market: No listings
+
+==================================================
+PART 11 — Buy Badge From Shop
+==================================================
+
+Command:
+
+!buybadge badge_id
+
+Rules for shop purchase:
+- badge must exist
+- badge must be purchasable from shop
+- player must not already own it
+- player must have enough ChillCoins
+- deduct ChillCoins from buyer
+- grant badge
+- log purchase
+- prevent duplicate purchase if command double fires
+
+Message success:
+✅ Bought badge: ♉ Taurus for 1,500 coins.
+Equip: !equipbadge taurus
+
+Insufficient coins:
+⚠️ Not enough ChillCoins.
+Price: 1,500
+Balance: 500
+
+Already owned:
+You already own this badge.
+Equip: !equipbadge taurus
+
+Not purchasable from shop but market listing exists:
+💎 Diamond is not sold by the shop.
+Market listings available.
+Use: !badgemarket
+Buy: !badgebuy 1
+
+Not purchasable anywhere:
+❌ 💎 Diamond is not for sale.
+
+==================================================
+PART 12 — Buy Badge Number Shortcut
+==================================================
+
+If player types:
+
+!buybadge 1
+
+Behavior priority:
+1. If last !badgemarket cache exists and listing #1 exists:
+   route to !badgebuy 1.
+2. Else if last !badgeshop / !allbadges cache exists and badge #1 exists:
+   route to !buybadge badge_id.
+3. Else:
+   reply:
+⚠️ Use !badgemarket or !badgeshop first, or type the badge ID.
+
+This makes numbered browsing easy.
+
+Cache:
+badge_cache[user.id]["market"] = [listing_ids]
+badge_cache[user.id]["shop"] = [badge_ids]
+badge_cache[user.id]["all"] = [badge_ids]
+
+==================================================
+PART 13 — Badge Search
+==================================================
+
+Command:
+
+!badgesearch name
+
+Format:
+
+🔎 Badge Search: crown
+1) ID: crown 👑 Crown — 100,000c
+2) ID: goldbadge 🏅 Gold Badge — 15,000c
+
+Buy: !buybadge crown
+Info: !badgeinfo crown
+
+If result is market-only:
+ID: diamond 💎 Diamond — Market only
+Market: !badgemarket
+
+If no result:
+No badges found for “crown”.
+Try: !allbadges
+
+Store search cache:
+badge_cache[user.id]["search"] = [badge_ids]
+
+Allow:
+!buybadge 1
+after search to buy first purchasable badge, or route to market if market-only.
+
+==================================================
+PART 14 — Badge Market Display
+==================================================
+
+Command:
+
+!badgemarket
+!badgemarket page
+
+Display:
+
+🏷️ Badge Market — Page 1/2
+#1 ID: diamond 💎 Diamond — 1,000,000c by @angelkiss
+#2 ID: crown 👑 Crown — 100,000c by @4ktreyMarion
+
+Buy: !badgebuy 1
+Tip: !buybadge 1 also works
+
+Rules:
+- Always show listing number with #
+- Always show badge ID
+- Always show price
+- Always show seller
+- 5 listings per page
+- Store listing IDs in market cache for number shortcuts
+
+==================================================
+PART 15 — Market Buy Bug-Proof Economy
+==================================================
+
+Command:
+
+!badgebuy listing_id
+
+This is the player-market purchase command.
+
+Validation order:
+1. listing_id must be a number.
+2. listing must exist and be active.
+3. buyer must not be seller.
+4. badge must still exist.
+5. seller must still own badge.
+6. badge must still be listed by seller.
+7. badge must be tradeable/sellable.
+8. buyer must have enough ChillCoins.
+9. buyer must not already own the same badge if duplicates are not allowed.
+10. price must be valid and positive.
+
+Transaction must be safe:
+- Deduct buyer ChillCoins first.
+- Transfer badge ownership from seller to buyer.
+- Credit seller ChillCoins minus market fee.
+- Remove/cancel listing.
+- If buyer had no equipped badge, optionally suggest equip but do not auto-equip.
+- Log all steps.
+
+If any step fails after buyer deduction:
+- rollback buyer deduction if possible
+- do not leave coins or badge duplicated
+- log error
+- tell buyer transaction failed safely
+
+Success buyer message:
+✅ Bought badge: 💎 Diamond for 1,000,000 coins.
+Equip: !equipbadge diamond
+
+Success seller message:
+💰 Your badge 💎 Diamond sold for 1,000,000 coins.
+You received: 950,000 coins.
+
+If buyer is seller:
+⚠️ You cannot buy your own listing.
+
+If not enough coins:
+⚠️ Not enough ChillCoins.
+Price: 1,000,000
+Balance: 500,000
+
+If listing gone:
+⚠️ Listing not found. Use !badgemarket.
+
+If seller no longer owns badge:
+⚠️ Listing is no longer valid.
+
+==================================================
+PART 16 — Market Fee
+==================================================
+
+Use existing badge_market_fee_percent if present.
+
+Default:
+5%
+
+Seller receives:
+price - fee
+
+Example:
+Price: 1,000,000
+Fee 5% = 50,000
+Seller receives 950,000
+
+Show fee in badgeadmin or market settings if admin asks.
+
+Do not charge buyer extra beyond listed price.
+
+==================================================
+PART 17 — Sell Badge
+==================================================
+
+Command:
+
+!sellbadge badge_id price
+
+Rules:
+- player must own badge
+- badge must exist
+- badge must be sellable/tradeable
+- price must be positive integer
+- price must be within min/max
+- badge cannot already be listed
+- if equipped, block and ask to unequip first
+- create listing
+- log listing
+
+Missing price:
+Use: !sellbadge badge_id price
+Example: !sellbadge crown 20000
+
+Invalid price:
+⚠️ Price must be a number.
+Example: !sellbadge crown 20000
+
+Not owned:
+⚠️ You do not own that badge.
+
+Equipped:
+⚠️ Unequip this badge before selling.
+Use: !unequipbadge
+
+Already listed:
+⚠️ This badge is already listed.
+Cancel: !cancelbadge listing_id
+
+Success:
+✅ Listed badge: 👑 Crown for 20,000 coins.
+Market: !badgemarket
+
+==================================================
+PART 18 — Cancel Listing
+==================================================
+
+Command:
+
+!cancelbadge listing_id
+
+Rules:
+- listing must exist
+- player must be seller or admin
+- cancel listing
+- badge stays with seller
+- log cancel
+
+Success:
+✅ Cancelled badge listing #12.
+
+If not seller:
+⚠️ You can only cancel your own listing.
+
+If not found:
+⚠️ Listing not found. Use !mybadgelistings.
+
+==================================================
+PART 19 — My Badge Listings
+==================================================
+
+Command:
+
+!mybadgelistings
+
+Show:
+
+🏷️ Your Listings
+#12 ID: crown 👑 Crown — 100,000c
+#15 ID: fire 🔥 Fire — 50,000c
+
+Cancel: !cancelbadge 12
+
+If none:
+You have no active badge listings.
+Sell: !sellbadge crown 20000
+
+==================================================
+PART 20 — Badge Prices
+==================================================
+
+Command:
+
+!badgeprices badge_id
+
+Show recent sale prices if logs exist:
+
+📈 Crown price history
+Last sale: 100,000c
+Average: 95,000c
+Lowest: 80,000c
+Highest: 120,000c
+
+If no history:
+No sale history for crown yet.
+
+==================================================
+PART 21 — Economy Safety / No Dupes
+==================================================
+
+Add protections:
+- no negative ChillCoin balance
+- buyer cannot be charged twice
+- seller cannot be credited twice
+- listing cannot be purchased twice
+- badge cannot be duplicated
+- badge cannot disappear without payment/refund
+- market buy should be atomic as much as possible
+
+Use ref_id for market purchases:
+badge_market_buy_{listing_id}_{buyer_id}_{timestamp_or_uuid}
+
+Before processing:
+- check purchase log ref_id if available
+- if already processed, do not process again
+- tell buyer duplicate ignored
+
+Log:
+[BADGE MARKET] duplicate prevented ref_id=...
+
+==================================================
+PART 22 — Badge Logs
+==================================================
+
+Log these actions:
+
+badge_shop_buy
+badge_market_list
+badge_market_cancel
+badge_market_buy
+badge_market_fee
+badge_transfer
+badge_equip
+badge_unequip
+badge_buy_failed
+badge_sell_failed
+duplicate_prevented
+market_transaction_error
+
+If DB logging exists, use it.
+If not, print logs safely.
+
+Owner/admin command if easy:
+!badgelogs @user
+!badgelogs last
+
+Output:
+🧾 Badge Logs
+@A bought taurus for 1,500
+@B listed diamond for 1,000,000
+@A bought diamond from @B
+
+==================================================
+PART 23 — Admin Commands Stay Working
+==================================================
+
+Do not break existing admin commands:
+
+!addbadge id emoji name rarity price
+!editbadgeprice id price
+!setbadgepurchasable id on/off
+!setbadgetradeable id on/off
+!setbadgesellable id on/off
+!giveemojibadge @user emoji name
+!badgecatalog
+!badgeadmin id
+!setbadgemarketfee percent
+!badgemarketlogs
+
+Add/clean:
+
+!badgeadminhelp
+
+Reply:
+🛠️ Badge Admin
+!addbadge id emoji name rarity price
+!editbadgeprice id price
+!setbadgepurchasable id on/off
+!setbadgemarketfee 5
+!badgecatalog
+
+Keep admin commands hidden from normal help.
+
+==================================================
+PART 24 — Error Message Cleanup
+==================================================
+
+Use clear errors:
+
+Missing badge ID:
+Use: !buybadge badge_id
+Example: !buybadge taurus
+
+Missing market listing:
+Use: !badgebuy listing_id
+Example: !badgebuy 1
+
+Missing sell price:
+Use: !sellbadge badge_id price
+Example: !sellbadge crown 20000
+
+Unknown badge:
+⚠️ Badge not found. Try !badgesearch name.
+
+Not owned:
+⚠️ You do not own that badge.
+
+Not enough coins:
+⚠️ Not enough ChillCoins.
+Price: X
+Balance: Y
+
+Own listing:
+⚠️ You cannot buy your own listing.
+
+Market only:
+This badge is only available in the market.
+Use: !badgemarket
+
+==================================================
+PART 25 — Route Guard / Commandtest
+==================================================
+
+If commandtest exists, update expected routing:
+
+!commandtest !equipbadge
+owner=BankingBot
+module=badge_market
+route=YES
+
+!commandtest !buybadge
+owner=BankingBot
+module=badge_market
+route=YES
+
+!commandtest !badgemarket
+owner=BankingBot
+module=badge_market
+route=YES
+
+!commandtest !badgebuy
+owner=BankingBot
+module=badge_market
+route=YES
+
+!commandtest !sellbadge
+owner=BankingBot
+module=badge_market
+route=YES
+
+!commandtest !allbadges
+owner=BankingBot
+module=badge_market
+route=YES
+
+==================================================
+PART 26 — Compile
+==================================================
+
+Run:
+
+python -m py_compile main.py
+python -m py_compile database.py
+python -m py_compile modules/badge_market.py
+python -m py_compile modules/help_cmds.py
+python -m py_compile modules/admin_cmds.py
+
+Adjust filenames if needed.
+
+==================================================
+PART 27 — Tests
+==================================================
+
+Test 1 — Routing:
+!equipbadge taurus
+
+Expected:
+BankingBot replies:
+✅ Equipped badge: ♉ Taurus
+
+ChillTopiaMC must not say unknown command.
+
+Test 2 — Badge menu:
+!badges
+
+Expected:
+Simple menu with shop/all/owned/equip/market/help.
+
+Test 3 — Show all:
+!allbadges
+
+Expected:
+Paginated all badges with ID, price/status.
+
+Test 4 — Shop category:
+!badgeshop hearts
+
+Expected:
+Badges show with ID and price.
+
+Test 5 — My badges:
+!mybadges
+
+Expected:
+Owned badges show with IDs and equipped/listed status.
+
+Test 6 — Equip by ID:
+!equipbadge taurus
+
+Expected:
+Equips taurus.
+
+Test 7 — Equip by number:
+After !mybadges:
+!equipbadge 3
+
+Expected:
+Equips third badge from list.
+
+Test 8 — Shop buy:
+!buybadge taurus
+
+Expected:
+ChillCoins deducted.
+Badge granted.
+Purchase logged.
+
+Test 9 — Market display:
+!badgemarket
+
+Expected:
+Shows listing numbers, badge IDs, price, seller.
+
+Test 10 — Market buy:
+!badgebuy 1
+
+Expected:
+Buyer loses ChillCoins.
+Seller gains ChillCoins minus fee.
+Badge transfers to buyer.
+Listing removed.
+
+Test 11 — Market buy shortcut:
+After !badgemarket:
+!buybadge 1
+
+Expected:
+Same as !badgebuy 1.
+
+Test 12 — Market-only badge:
+!buybadge diamond
+
+Expected:
+If diamond is market-listed but not shop-sold:
+Bot says market only and points to !badgemarket / !badgebuy listing_id.
+
+Test 13 — Own listing:
+!badgebuy own_listing_id
+
+Expected:
+⚠️ You cannot buy your own listing.
+No coins deducted.
+
+Test 14 — Not enough coins:
+Try to buy listing above balance.
+
+Expected:
+No badge transfer.
+No seller credit.
+Clear not enough coins message.
+
+Test 15 — Seller no longer owns badge:
+Invalidate listing if possible.
+
+Expected:
+Transaction safely fails.
+No coin loss.
+
+Test 16 — Sell missing price:
+!sellbadge crown
+
+Expected:
+Use: !sellbadge badge_id price
+Example: !sellbadge crown 20000
+
+Test 17 — Sell equipped badge:
+Equip crown then:
+!sellbadge crown 20000
+
+Expected:
+⚠️ Unequip this badge before selling.
+
+Test 18 — Cancel listing:
+!cancelbadge listing_id
+
+Expected:
+Listing cancelled.
+Badge remains owned by seller.
+
+Test 19 — Logs:
+!badgelogs last
+
+Expected:
+Recent badge actions.
+
+Test 20 — Compile:
+No syntax errors.
+
+Final report:
+1. Badge routing fixed
+2. ChillTopiaMC no longer handles badge commands
+3. !allbadges added
+4. Badge IDs shown everywhere
+5. !mybadges improved
+6. !badgeshop improved
+7. !buybadge shop flow fixed
+8. !badgebuy market flow fixed
+9. !buybadge number shortcut added
+10. Market-only badge message fixed
+11. ChillCoins deducted from buyer correctly
+12. Seller credited correctly minus fee
+13. Listing removed after purchase
+14. Duplicate purchase protection added
+15. Badge duplication/loss protection added
+16. Sell/cancel listing improved
+17. Logs added
+18. Help cleaned
+19. Py_compile result
+20. Bot stability result
