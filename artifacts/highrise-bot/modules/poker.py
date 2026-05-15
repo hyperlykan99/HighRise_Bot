@@ -1116,7 +1116,7 @@ async def finish_poker_hand(bot: BaseBot, reason: str) -> None:
                         f"👋 {_pdn(s)} cashed out {s['table_stack']} 🪙.")
         _set("table_closing", 0)
         _full_clear_table()
-        await _chat(bot, "♠️ Poker table closed. !poker join <amt> to open.")
+        await _chat(bot, "♠️ Poker table closed. !join <amount> to open.")
         return
 
     if len(active) < min_pl:
@@ -1896,23 +1896,33 @@ async def _turn_timeout(bot: BaseBot, uid: str, uname: str,
     if p is None or p["status"] != "active":
         return
 
+    _td    = _udn(uid, uname)
+    sp     = _get_seated(uname)
+    limit  = _s("idle_strikes_limit", 3)
     if must_call and tbl["current_bet"] > p["current_bet"]:
         _save_player(round_id, uid, status="folded", acted=1)
-        _td = _udn(uid, uname)
-        await _chat(bot, f"⏰ {_PK_FOLD} — {_td} timed out.")
-        # Idle-strike tracking
-        sp = _get_seated(uname)
-        if sp and _s("autositout_enabled", 0):
-            strikes = sp.get("idle_strikes", 0) + 1
-            limit   = _s("idle_strikes_limit", 3)
+        strikes = (sp.get("idle_strikes", 0) if sp else 0) + 1
+        if sp:
             _update_seated(uname, idle_strikes=strikes)
-            if strikes >= limit:
+        if _s("autositout_enabled", 0) and strikes >= limit:
+            if sp:
                 _update_seated(uname, status="sitting_out", idle_strikes=0)
-                await _chat(bot,
-                    f"⚠️ {_td} auto-sat-out after {limit} idle timeouts.")
+            await _chat(bot, f"⏰ @{uname} timed out. Removed from poker (AFK).")
+        else:
+            await _chat(bot,
+                f"⏰ @{uname} timed out. AFK warning {strikes}/{limit}.")
     else:
         _save_player(round_id, uid, acted=1)
-        await _chat(bot, f"⏰ {_PK_CHECK} — {_udn(uid, uname)} timed out.")
+        strikes = (sp.get("idle_strikes", 0) if sp else 0) + 1
+        if sp:
+            _update_seated(uname, idle_strikes=strikes)
+        if _s("autositout_enabled", 0) and strikes >= limit:
+            if sp:
+                _update_seated(uname, status="sitting_out", idle_strikes=0)
+            await _chat(bot, f"⏰ @{uname} auto-checked (AFK). Removed from table.")
+        else:
+            await _chat(bot,
+                f"⏰ @{uname} auto-checked (AFK warning {strikes}/{limit}).")
 
     await advance_turn_or_round(bot)
 
@@ -2133,7 +2143,7 @@ async def _handle_join(bot: BaseBot, user: User, args: list[str]) -> None:
         return
 
     if len(args) < 3 or not args[2].isdigit():
-        await _w(bot, user.id, "Usage: !p <buyin>  or  !poker join <buyin>")
+        await _w(bot, user.id, "Usage: !join <buyin>  E.g. !join 5000")
         return
 
     buyin  = int(args[2])
@@ -2283,7 +2293,7 @@ async def _handle_sitin(bot: BaseBot, user: User) -> None:
     global _next_hand_task
     sp = _get_seated(user.username)
     if sp is None:
-        await _w(bot, user.id, "You're not at the table. !p <buyin> to join.")
+        await _w(bot, user.id, "You're not at the table. !join <amount> to join.")
         return
     if sp["status"] == "seated":
         await _w(bot, user.id, "Already active at the table.")
@@ -2320,7 +2330,7 @@ async def _handle_rebuy(bot: BaseBot, user: User, args: list[str]) -> None:
     sp = _get_seated(user.username)
     if sp is None:
         await _w(bot, user.id,
-            "You're not at the table. !p <buyin> to join first.")
+            "You're not at the table. !join <amount> to join first.")
         return
 
     if len(args) < 3 or not args[2].isdigit():
@@ -2611,7 +2621,7 @@ async def _dispatch(bot: BaseBot, user: User, args: list[str]) -> None:
                 f"| !sitout !rebuy !poker leave | !phelp")
         else:
             await _w(bot, user.id,
-                "♠️ !p <buyin> to join poker. !phelp for help.")
+                "♠️ !join <amount> to join poker. !phelp for help.")
         return
 
     sub = args[1].lower()
@@ -2686,26 +2696,33 @@ async def _dispatch(bot: BaseBot, user: User, args: list[str]) -> None:
     if sub == "table":
         tbl = _get_table()
         if not tbl or not tbl["active"]:
-            await _w(bot, user.id, "No active poker table.")
+            count = _seated_count()
+            if count == 0:
+                await _w(bot, user.id,
+                    "♠️ Poker Table\nWaiting for players.\nUse !join [amount]")
+            else:
+                await _w(bot, user.id,
+                    f"♠️ Poker Table\nWaiting for players. ({count} seated)\n"
+                    f"Use !join [amount]")
             return
         phase = tbl["phase"]
         if phase in ("waiting", "between_hands", "idle"):
             count = _seated_count()
             await _w(bot, user.id,
-                f"♠️ Table {phase} | {count} seated | Hand #{tbl.get('hand_number',0)}")
+                f"♠️ Poker Table\nWaiting for players. ({count} seated)\n"
+                f"Use !join [amount]")
             return
         community = json.loads(tbl["community_cards_json"] or "[]")
         board     = _fcs(community) or "—"
         players   = _get_players(tbl["round_id"]) if tbl.get("round_id") else []
         idx       = tbl["current_player_index"]
         turn_name = players[idx]["username"] if 0 <= idx < len(players) else "?"
-        owe       = tbl["current_bet"]
-        sb        = tbl.get("small_blind_username") or "—"
-        bb        = tbl.get("big_blind_username") or "—"
+        pot       = tbl["pot"]
         await _w(bot, user.id, (
-            f"{_PK_INFO}: {phase.title()} | "
-            f"{_PK_BOARD}: {board} | {_PK_POT}:{tbl['pot']:,} 🪙 | "
-            f"Call:{owe:,} 🪙 | {_PK_TURN} @{turn_name} | SB:@{sb} BB:@{bb}")[:249])
+            f"♠️ Poker Table\n"
+            f"Phase: {phase.title()} | Pot: {pot:,} 🪙\n"
+            f"Turn: @{turn_name} | Board: {board}\n"
+            f"Players: {len(players)}")[:249])
         return
 
     if sub in ("hand", "cards"):
@@ -2727,7 +2744,7 @@ async def _dispatch(bot: BaseBot, user: User, args: list[str]) -> None:
         if not tbl or not tbl["active"] or tbl["phase"] not in (
                 "preflop", "flop", "turn", "river"):
             if sp is None:
-                await _w(bot, user.id, "Join poker with !p <buyin>.")
+                await _w(bot, user.id, "Join poker with !join <amount>.")
             elif sp["status"] == "sitting_out":
                 await _w(bot, user.id,
                     "You are sitting out. Use !sitin for next hand.")
@@ -4190,51 +4207,25 @@ async def handle_setpokermaxplayers(bot: BaseBot, user: User,
 
 POKER_HELP_PAGES = [
     (
-        "♠️ Poker 1/6 — Join & Table\n"
-        "!p [buyin]  or  !poker join [buyin]\n"
-        "!poker leave — cash out your stack\n"
-        "!sitout  !sitin — sit out / back in\n"
-        "!rebuy [amount] — add chips to stack\n"
-        "!mystack  !pstacks — view stacks"
+        "♠️ Poker Commands\n"
+        "Join: !join [amount]\n"
+        "Play: !check | !call | !raise [amt] | !fold | !allin\n"
+        "Info: !hand | !table\n"
+        "Leave: !leave"
     ),
     (
-        "♠️ Poker 2/6 — Actions\n"
-        "!check  or  !ch\n"
-        "!call   or  !ca\n"
-        "!raise [amt]  or  !r [amt]\n"
-        "!fold   or  !f\n"
-        "!allin  or  !ai  or  !shove"
+        "♠️ Poker Info\n"
+        "Odds: !po  Stats: !pokerstats [user]\n"
+        "Leaderboard: !pokerlb wins|pots|hands\n"
+        "Sit out: !sitout  Back in: !sitin\n"
+        "Rebuy: !rebuy [amount]  Stack: !mystack"
     ),
     (
-        "♠️ Poker 3/6 — Info & Stats\n"
-        "!pt — table info  !ph — your cards\n"
-        "!po — win odds estimate\n"
-        "!pstats  or  !pokerstats [user]\n"
-        "!plb wins|pots|allins|hands|profit\n"
-        "!poker settings [2|3]  !poker rules"
-    ),
-    (
-        "♠️ Poker 4/6 — Staff\n"
-        "!poker on|off|close|cancel|start\n"
-        "!poker winlimit|losslimit on|off\n"
-        "!poker blinds|rebuy|maxstack on|off\n"
-        "!poker autositout|autostart on|off\n"
-        "!poker raiselimit|allin on|off"
-    ),
-    (
-        "♠️ Poker 5/6 — Settings (Mgr+)\n"
+        "♠️ Poker Staff (Mgr+)\n"
+        "!poker on|off|cancel|start|close\n"
         "!setpokerbuyin [min] [max]\n"
         "!setpokerblinds [SB] [BB]\n"
-        "!setpokerante [amt]  !setpokerplayers [mn] [mx]\n"
-        "!setpokertimer [sec]  !setpokernexthandtimer [sec]\n"
-        "!setpokermaxstack [amt]  !setpokeridlestrikes [n]"
-    ),
-    (
-        "♠️ Poker 6/6 — Recovery\n"
-        "!poker state  !poker recoverystatus\n"
-        "!poker cleanup  !poker refund\n"
-        "!poker forcefinish  !poker hardrefund\n"
-        "!poker clearhand|closeforce (Admin)"
+        "!setpokertimer [sec]  !poker recoverystatus"
     ),
 ]
 
@@ -4269,7 +4260,7 @@ async def handle_pokerstatus(bot: BaseBot, user: User, args: list[str]) -> None:
             f"♠️ Poker Table\n"
             f"Status: waiting\n"
             f"Players: {n_players}\n"
-            f"Use !poker join to join."
+            f"Use !join [amount]"
         )
     else:
         msg = (
@@ -5105,3 +5096,69 @@ async def handle_pokerplayers(bot: BaseBot, user: User) -> None:
             chunk = line
     if chunk:
         await _w(bot, user.id, chunk)
+
+
+# ── handle_poker_user_left — called from on_user_leave ────────────────────────
+
+async def handle_poker_user_left(bot: "BaseBot", user: "User") -> None:
+    """Handle room-exit for a poker player.
+
+    - Not seated → no-op.
+    - Before hand (or not in this hand): cash out table_stack to wallet.
+    - In active hand, all-in: keep eligible for showdown; cash out after hand.
+    - In active hand, active: auto-fold, advance turn, cash out remaining after hand.
+    """
+    import os as _os
+    sp = _get_seated(user.username)
+    if sp is None:
+        return
+
+    tbl   = _get_table()
+    phase = tbl["phase"] if tbl else "idle"
+    _td   = db.get_display_name(user.id, user.username)
+
+    if phase in ("preflop", "flop", "turn", "river"):
+        round_id = tbl["round_id"]
+        p = _get_player(round_id, user.id)
+        if p is None:
+            p = _get_player_by_name(round_id, user.username)
+
+        if p and p["status"] == "allin":
+            # All-in — keep eligible for showdown, cash out automatically after
+            _update_seated(user.username, leaving_after_hand=1)
+            await _chat(bot,
+                f"🚪 @{user.username} left but is all-in. Hand runs to showdown.")
+            print(f"[POKER LEAVE] @{user.username} left room, status=allin — kept for showdown")
+            return
+
+        if p and p["status"] == "active":
+            # Active — auto-fold and advance
+            _save_player(round_id, user.id, status="folded", acted=1)
+            _update_seated(user.username, leaving_after_hand=1)
+            await _chat(bot,
+                f"🚪 @{user.username} left during hand. Auto-folded.")
+            print(f"[POKER LEAVE] @{user.username} auto-folded, stack cashed after hand")
+            # Only the poker bot advances the turn
+            if _os.getenv("BOT_MODE", "") == "poker":
+                await advance_turn_or_round(bot)
+            return
+
+        # Folded / observer — cash out table stack now
+        stack = sp["table_stack"]
+        _remove_seated(user.username)
+        if stack > 0:
+            db.adjust_balance(user.id, stack)
+            db.add_ledger_entry(user.id, user.username, stack,
+                                "Poker leave (room exit, not in hand)")
+            await _chat(bot, f"🚪 {_td} left poker. Cashed out {stack:,} 🪙.")
+        print(f"[POKER LEAVE] @{user.username} left room, not in hand, cashed {stack}")
+    else:
+        # No active hand — cash out immediately
+        stack = sp["table_stack"]
+        _remove_seated(user.username)
+        if stack > 0:
+            db.adjust_balance(user.id, stack)
+            db.add_ledger_entry(user.id, user.username, stack,
+                                "Poker leave (room exit)")
+            await _chat(bot, f"🚪 {_td} left poker. Cashed out {stack:,} 🪙.")
+        print(f"[POKER LEAVE] @{user.username} left room, cashed out {stack}")

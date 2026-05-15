@@ -163,6 +163,7 @@ from modules.poker import (
     handle_pokerturn, handle_pokerpots, handle_pokeractions,
     handle_pokerstylepreview,
     handle_pokerresetturn, handle_pokerresethand, handle_pokerresettable,
+    handle_poker_user_left,
 )
 from modules.casino_settings     import (
     handle_casinosettings, handle_casinolimits, handle_casinotoggles,
@@ -5464,6 +5465,22 @@ class HangoutBot(BaseBot):
         elif cmd in ("ptable",):
             await handle_poker(self, user, ["poker", "table"])
 
+        elif cmd == "join":
+            if len(args) >= 2 and args[1].isdigit() and int(args[1]) > 0:
+                await handle_poker(self, user, ["poker", "join"] + args[1:])
+            else:
+                await self.highrise.send_whisper(
+                    user.id, "Use !join <amount> to join poker. E.g. !join 5000")
+
+        elif cmd == "table":
+            await handle_poker(self, user, ["poker", "table"])
+
+        elif cmd == "hand":
+            await handle_poker(self, user, ["poker", "hand"])
+
+        elif cmd == "leave":
+            await handle_poker(self, user, ["poker", "leave"])
+
         elif cmd in ("pcards", "resendcards", "cards"):
             await handle_poker(self, user, ["poker", "hand"])
 
@@ -7187,6 +7204,10 @@ class HangoutBot(BaseBot):
             stop_autofish_for_user(user.id, user.username, "player_left")
         except Exception:
             pass
+        try:
+            await handle_poker_user_left(self, user)
+        except Exception as _pe:
+            print(f"[ON_LEAVE POKER] @{user.username}: {_pe!r}")
 
     async def on_reaction(self, user: User, reaction: str, receiver: User) -> None:
         """
