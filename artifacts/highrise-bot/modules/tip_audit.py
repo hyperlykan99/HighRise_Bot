@@ -272,12 +272,31 @@ def _query_recent_tips(username: str | None, limit: int) -> list[dict]:
     try:
         conn = db.get_connection()
         if username:
-            rows = conn.execute(
-                "SELECT * FROM tip_audit_logs "
-                "WHERE sender_username = ? "
-                "ORDER BY id DESC LIMIT ?",
-                (username.lower(), limit),
-            ).fetchall()
+            # Resolve to user_id if possible for a precise match
+            resolved_id: str | None = None
+            try:
+                rec = db.find_or_stub_user(username.lower())
+                resolved_id = rec.get("user_id") if rec else None
+            except Exception:
+                pass
+            print(f"[TIP AUDIT QUERY] target={username} "
+                  f"resolved_id={resolved_id}")
+            if resolved_id:
+                rows = conn.execute(
+                    "SELECT * FROM tip_audit_logs "
+                    "WHERE sender_user_id = ? "
+                    "   OR lower(sender_username) = lower(?) "
+                    "ORDER BY id DESC LIMIT ?",
+                    (resolved_id, username.lower(), limit),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM tip_audit_logs "
+                    "WHERE lower(sender_username) = lower(?) "
+                    "ORDER BY id DESC LIMIT ?",
+                    (username.lower(), limit),
+                ).fetchall()
+            print(f"[TIP AUDIT QUERY] rows={len(rows)}")
         else:
             rows = conn.execute(
                 "SELECT * FROM tip_audit_logs ORDER BY id DESC LIMIT ?",

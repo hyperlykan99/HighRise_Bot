@@ -188,17 +188,21 @@ async def handle_incoming_gold_tip(
         return
 
     # Award Luxe Tickets — gold tips no longer give ChillCoins automatically
-    luxe_amt = 0
-    _luxe_ok = False
+    luxe_amt   = 0
+    _luxe_ok   = False
+    _lux_before = 0
+    _lux_after  = 0
     try:
         from modules.luxe import (
             add_luxe_balance    as _alb,
             log_luxe_transaction as _llt,
             get_luxe_rate        as _glr,
+            get_luxe_balance     as _glb,
         )
-        luxe_rate = _glr()
-        luxe_amt  = max(1, int(gold_amount * luxe_rate))
-        _alb(sender.id, sender.username, luxe_amt)
+        luxe_rate   = _glr()
+        luxe_amt    = max(1, int(gold_amount * luxe_rate))
+        _lux_before = _glb(sender.id)
+        _lux_after  = _alb(sender.id, sender.username, luxe_amt)
         _llt(sender.id, sender.username, "gold_tip_reward",
              luxe_amt, "luxe", f"{gold_amount:g}g")
         _luxe_ok = True
@@ -206,8 +210,65 @@ async def handle_incoming_gold_tip(
               f"reward={luxe_amt}_luxe_tickets bot={receiving_bot_username}")
         print(f"[LUXE] add user={sender.username} amount={luxe_amt} "
               f"reason=gold_tip_reward")
+        # ── Tip audit log ────────────────────────────────────────────────
+        import os as _os
+        _bot_mode = _os.getenv("BOT_MODE", receiving_bot_username)
+        print(f"[TIP AUDIT WRITE] sender={sender.username} "
+              f"sender_id={sender.id} receiver={receiving_bot_username} "
+              f"gold={gold_amount:g} status=success_luxe")
+        try:
+            db.log_tip_audit(
+                event_hash=event_id,
+                sender_user_id=sender.id,
+                sender_username=sender.username.lower(),
+                receiver_user_id="",
+                receiver_username=receiving_bot_username.lower(),
+                bot_mode=_bot_mode,
+                raw_tip_type="gold_tip",
+                raw_tip_id=event_id,
+                gold_amount=int(gold_amount),
+                luxe_expected=luxe_amt,
+                luxe_awarded=luxe_amt,
+                luxe_balance_before=_lux_before,
+                luxe_balance_after=_lux_after,
+                coins_awarded=0,
+                coins_balance_before=0,
+                coins_balance_after=0,
+                status="success_luxe",
+                failure_reason="",
+                duplicate_detected=0,
+            )
+            print(f"[TIP AUDIT WRITE] inserted=true event_hash={event_id}")
+        except Exception as _audit_e:
+            print(f"[TIP AUDIT WRITE] error: {_audit_e!r}")
     except Exception as _le:
         print(f"[GOLDTIP] Luxe award error: {_le!r}")
+        import os as _os
+        _bot_mode = _os.getenv("BOT_MODE", receiving_bot_username)
+        try:
+            db.log_tip_audit(
+                event_hash=event_id,
+                sender_user_id=sender.id,
+                sender_username=sender.username.lower(),
+                receiver_user_id="",
+                receiver_username=receiving_bot_username.lower(),
+                bot_mode=_bot_mode,
+                raw_tip_type="gold_tip",
+                raw_tip_id=event_id,
+                gold_amount=int(gold_amount),
+                luxe_expected=luxe_amt,
+                luxe_awarded=0,
+                luxe_balance_before=_lux_before,
+                luxe_balance_after=_lux_after,
+                coins_awarded=0,
+                coins_balance_before=0,
+                coins_balance_after=0,
+                status="failed_luxe",
+                failure_reason=repr(_le),
+                duplicate_detected=0,
+            )
+        except Exception as _ae:
+            print(f"[TIP AUDIT WRITE] failed_luxe log error: {_ae!r}")
 
     # Whisper acknowledgement to the tipper
     try:

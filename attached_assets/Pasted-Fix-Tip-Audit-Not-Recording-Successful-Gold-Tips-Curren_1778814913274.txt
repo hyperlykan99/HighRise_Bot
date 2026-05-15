@@ -1,0 +1,157 @@
+Fix Tip Audit Not Recording Successful Gold Tips
+
+Current issue:
+Player tipped 50g to GreatestProspector.
+Bot correctly replied:
+“Thanks @4ktreyMarion! You received 50 🎫 Luxe Tickets for tipping 50g.”
+
+But after that:
+!tipaudit @4ktreymarion
+
+BankingBot replies:
+“No tip audit logs found for @4ktreymarion.”
+
+This means the tip reward is working, but the audit log is not being written or not being queried correctly.
+
+Goal:
+Every successful gold tip reward must create a tip_audit_logs row.
+
+Do not change:
+- Luxe reward amount
+- 1g = 1 🎫 rule
+- coinpack prices
+- jail
+- poker
+- blackjack
+- workflows
+
+Part 1 — Fix successful tip audit logging
+
+In modules/tips.py, find the exact path that sends this message:
+
+“Thanks @Player! You received X 🎫 Luxe Tickets for tipping Xg.”
+
+Immediately before or after that message, insert audit logging:
+
+1. Get balance before reward:
+luxe_before = get_luxe_balance(sender.id)
+
+2. Add tickets:
+luxe_after = add_luxe_balance(sender.id, sender.username, gold)
+
+3. Log tip audit:
+db.log_tip_audit(
+    event_hash=event_hash,
+    sender_user_id=sender.id,
+    sender_username=sender.username.lower(),
+    receiver_user_id=receiver.id,
+    receiver_username=receiver.username.lower(),
+    bot_mode=getattr(bot, "bot_mode", "") or os.getenv("BOT_MODE", ""),
+    raw_tip_type=str(type(tip).__name__),
+    raw_tip_id=str(getattr(tip, "id", "")),
+    gold_amount=gold,
+    luxe_expected=gold,
+    luxe_awarded=gold,
+    luxe_balance_before=luxe_before,
+    luxe_balance_after=luxe_after,
+    coins_awarded=0,
+    coins_balance_before=0,
+    coins_balance_after=0,
+    status="success_luxe",
+    failure_reason="",
+    duplicate_detected=0,
+)
+
+Important:
+- Use sender.id, not username only.
+- Store sender_username lowercase.
+- Store receiver_username lowercase.
+- Never skip audit log on success.
+- If audit log fails, print error but do not block reward.
+
+Part 2 — Confirm database helper exists and works
+
+In database.py, confirm this function exists:
+
+log_tip_audit(...)
+
+If missing, add it.
+
+It must insert into tip_audit_logs.
+It must never raise.
+If insert fails, print:
+[TIP AUDIT ERROR] ignored: ...
+
+Part 3 — Make !tipaudit query both username and user_id
+
+In the !tipaudit handler:
+- Resolve @username to user_id using db.get_user_by_username()
+- Query tip_audit_logs by sender_user_id first
+- Also fallback query by lower(sender_username)
+
+Example:
+WHERE sender_user_id = ?
+OR lower(sender_username) = lower(?)
+
+This prevents “no logs found” when casing differs:
+4ktreyMarion
+4ktreymarion
+4ktreyMarion_
+
+Part 4 — Add debug console logs
+
+When successful tip reward happens, print:
+
+[TIP AUDIT WRITE] sender=4ktreyMarion sender_id=... receiver=GreatestProspector gold=50 status=success_luxe
+
+After insert:
+[TIP AUDIT WRITE] inserted=true event_hash=...
+
+When !tipaudit runs:
+[TIP AUDIT QUERY] target=4ktreymarion resolved_id=... rows=...
+
+Part 5 — Test
+
+Run:
+python -m py_compile database.py
+python -m py_compile modules/tips.py
+python -m py_compile modules/tip_audit.py
+python -m py_compile main.py
+
+Restart bots.
+
+In game:
+
+1. Tip 1g to GreatestProspector.
+Expected:
++1 🎫 Luxe Ticket
+
+2. Run:
+!tipaudit @4ktreymarion
+
+Expected:
+🧾 Tip Audit @4ktreymarion
+1) 1g → +1🎫 to GreatestProspector ✅
+
+3. Tip 50g to BankingBot.
+Run:
+!tipaudit @4ktreymarion
+
+Expected:
+Shows both:
+50g → +50🎫 to BankingBot ✅
+1g → +1🎫 to GreatestProspector ✅
+
+4. Run:
+!tipaudit last
+
+Expected:
+Shows latest tip logs.
+
+Final report:
+1. Files changed
+2. Tip success audit write fixed
+3. Username/user_id query fixed
+4. Audit after 1g tip result
+5. Audit after 50g tip result
+6. Bot stability result
