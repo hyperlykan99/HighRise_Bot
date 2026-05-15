@@ -5447,10 +5447,21 @@ class HangoutBot(BaseBot):
             await handle_poker_v2(self, user, "table", args)
 
         # ── Poker — deprecated short aliases (redirect) ───────────────────────
-        elif cmd in ("p", "pj", "pt", "ph", "po", "ptable",
-                     "pcards", "resendcards", "cards", "podds",
-                     "pp", "pplayers", "pstacks", "mystack",
-                     "sitout", "sitin", "rebuy"):
+        elif cmd in ("p", "pj"):
+            # Old join aliases — if amount supplied, redirect to join syntax
+            try:
+                if len(args) >= 2 and args[1].replace(",", "").isdigit():
+                    await self.highrise.send_whisper(
+                        user.id, f"Use !join {args[1]} to join poker.")
+                else:
+                    await self.highrise.send_whisper(
+                        user.id, "Use !join 5000 to join poker.")
+            except Exception:
+                pass
+
+        elif cmd in ("pt", "ph", "po", "ptable", "pcards", "resendcards",
+                     "cards", "podds", "pp", "pplayers", "pstacks",
+                     "mystack", "sitout", "sitin", "rebuy"):
             try:
                 await self.highrise.send_whisper(
                     user.id,

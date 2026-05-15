@@ -1,0 +1,149 @@
+Fix Poker V2 join routing and player feedback.
+
+Current issue:
+Poker V2 is active, but commands are not behaving correctly.
+
+Live proof:
+- !join 5000 gives no clear response
+- !p 5000 replies only with “Use !join...”
+- Table says 1 seated, waiting for players
+- Player does not know if they are already seated or if join failed
+
+Goal:
+Make !join [amount] the only working join command and always reply clearly.
+
+Do not modify:
+- blackjack
+- jail
+- Luxe Tickets
+- tips
+- workflows
+- old poker.py except disabling route conflicts
+
+Part 1 — Fix !join routing
+
+In main.py command router:
+
+If cmd == "join":
+    route to poker_v2 handle_join
+    return
+
+Important:
+!join must not be handled by ChillTopiaMC.
+!join must be owned by ChipSoprano only.
+ChillTopiaMC should ignore !join, not reply unknown.
+
+Part 2 — Fix old alias behavior
+
+If player types:
+!p 5000
+!poker 5000
+
+Reply:
+Use !join 5000 to join poker.
+
+Do not process old join aliases.
+Do not show full command list every time.
+
+Part 3 — Always reply to !join
+
+When player types:
+!join
+
+Reply:
+Use: !join 5000
+
+When player types:
+!join 500
+
+If below minimum:
+Minimum poker buy-in is 1,000 coins. Use !join 1000.
+
+When player types:
+!join 5000
+
+If they are not seated:
+Deduct 5,000 coins.
+Seat them.
+Reply:
+@Player joined poker with 5,000 coins. Players: 2/6
+
+If they are already seated:
+Reply:
+You are already seated with 5,000 coins. Use !leave to cash out.
+
+If they are already seated and want to add chips:
+Do not silently ignore.
+Reply:
+You are already seated. Use !leave first, then !join [amount].
+
+Part 4 — Fix table waiting state
+
+If table has 1 seated player:
+!table should show:
+Poker table:
+Waiting for 1 more player.
+Use !join 5000.
+
+If table has 2+ seated players and no hand active:
+Start countdown automatically.
+
+Message:
+Starting first hand in 10s.
+
+Part 5 — Fix command ownership
+
+Add commandtest support:
+
+!commandtest !join
+Expected:
+owner=ChipSoprano
+route=YES
+handler=YES
+
+!commandtest !p
+Expected:
+owner=ChipSoprano
+route=YES
+handler=YES
+alias_to=join_help
+
+Part 6 — Compile and test
+
+Run:
+python -m py_compile main.py
+python -m py_compile modules/poker_v2.py
+
+Restart bots.
+
+Test:
+
+!table
+Expected:
+Waiting for players or waiting for 1 more player.
+
+!join
+Expected:
+Use: !join 5000
+
+!join 500
+Expected:
+Minimum poker buy-in is 1,000 coins.
+
+!join 5000
+Expected:
+@Player joined poker with 5,000 coins. Players: 1/6 or 2/6.
+
+Second player:
+!join 5000
+
+Expected:
+Starting first hand in 10s.
+
+Final report:
+1. main.py !join routing fixed
+2. old aliases disabled with simple redirect
+3. already-seated message added
+4. table waiting message fixed
+5. commandtest !join result
+6. bot stability result

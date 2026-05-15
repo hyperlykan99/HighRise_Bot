@@ -756,22 +756,30 @@ async def _cmd_join(bot: BaseBot, user: User, args: list) -> None:
     min_buyin = 1000
 
     if username in _T["players"]:
-        await _w(bot, user.id, "You are already at the poker table.")
+        stack = _T["players"][username]["stack"]
+        await _w(bot, user.id,
+            f"You are already seated with {stack:,} coins. Use !leave to cash out.")
         return
 
     if len(_T["seats"]) >= 6:
         await _w(bot, user.id, "Poker table is full. (6/6)")
         return
 
-    amt_str = args[1] if len(args) > 1 else str(min_buyin)
+    # No amount provided → prompt
+    if len(args) < 2:
+        await _w(bot, user.id, "Use: !join 5000")
+        return
+
+    amt_str = args[1]
     try:
         amount = int(str(amt_str).replace(",", ""))
     except (ValueError, TypeError):
-        await _w(bot, user.id, f"Use: !join <amount>. Min {min_buyin:,} coins.")
+        await _w(bot, user.id, "Use: !join 5000")
         return
 
     if amount < min_buyin:
-        await _w(bot, user.id, f"Minimum buy-in is {min_buyin:,} coins.")
+        await _w(bot, user.id,
+            f"Minimum poker buy-in is {min_buyin:,} coins. Use !join {min_buyin:,}.")
         return
 
     bal = _get_balance(user.id)
@@ -981,7 +989,10 @@ async def _cmd_table(bot: BaseBot, user: User) -> None:
     cnt   = len(_T["seats"])
 
     if phase == "waiting":
-        await _w(bot, user.id, "Poker table:\nWaiting for players.\nUse !join 5000.")
+        if cnt == 1:
+            await _w(bot, user.id, "Poker table:\nWaiting for 1 more player.\nUse !join 5000.")
+        else:
+            await _w(bot, user.id, "Poker table:\nWaiting for players.\nUse !join 5000.")
     elif phase == "countdown":
         await _w(bot, user.id,
             f"Poker table:\nNext hand starting soon.\nPlayers: {cnt}")
@@ -1011,13 +1022,18 @@ async def handle_poker_v2(bot: BaseBot, user: User, cmd: str, args: list) -> Non
     print(f"[POKER V2] command user={user.username} cmd={cmd}")
 
     if cmd == "poker":
-        await _w(bot, user.id, (
-            "Poker commands:\n"
-            "Join: !join 5000\n"
-            "Play: !check, !call, !raise 500, !fold, !allin\n"
-            "Info: !hand, !table\n"
-            "Leave: !leave"
-        ))
+        # If the first arg looks like a number the player tried !poker 5000
+        if len(args) > 1 and args[1].replace(",", "").isdigit():
+            amt = args[1]
+            await _w(bot, user.id, f"Use !join {amt} to join poker.")
+        else:
+            await _w(bot, user.id, (
+                "Poker commands:\n"
+                "Join: !join 5000\n"
+                "Play: !check, !call, !raise 500, !fold, !allin\n"
+                "Info: !hand, !table\n"
+                "Leave: !leave"
+            ))
         return
 
     if   cmd == "join":   await _cmd_join(bot, user, args)
