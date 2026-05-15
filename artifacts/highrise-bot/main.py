@@ -5459,7 +5459,16 @@ class HangoutBot(BaseBot):
             except Exception:
                 pass
 
-        elif cmd in ("pt", "ph", "po", "ptable", "pcards", "resendcards",
+        elif cmd in ("pt", "ptable"):
+            await handle_poker_v2(self, user, "table", args)
+
+        elif cmd == "ph":
+            await handle_poker_v2(self, user, "hand", args)
+
+        elif cmd == "pleave":
+            await handle_poker_v2(self, user, "leave", args)
+
+        elif cmd in ("po", "pcards", "resendcards",
                      "cards", "podds", "pp", "pplayers", "pstacks",
                      "mystack", "sitout", "sitin", "rebuy"):
             try:
@@ -5487,7 +5496,9 @@ class HangoutBot(BaseBot):
             sub = args[1].lower() if len(args) > 1 else ""
             if not sub:
                 await handle_poker_v2(self, user, "poker", args)
-            elif sub in ("debugcards", "debugdeal", "resendcards", "resetv2", "v2debug"):
+            elif sub in ("debugcards", "debugdeal", "resendcards", "resetv2", "v2debug",
+                         "leave", "hand", "table", "status", "pause", "resume",
+                         "close", "refund", "forcefinish"):
                 await handle_poker_v2(self, user, sub, args)
             else:
                 await handle_poker(self, user, args)

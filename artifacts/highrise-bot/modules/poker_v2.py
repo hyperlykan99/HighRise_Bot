@@ -37,7 +37,8 @@ _HAND_NAMES = {
 }
 
 def _fc(card: str) -> str:
-    return card[0].upper() + _SUIT_SYM[card[1]]
+    rank = "10" if card[0] == "T" else card[0].upper()
+    return rank + _SUIT_SYM[card[1]]
 
 def _fcs(cards: list) -> str:
     return " ".join(_fc(c) for c in cards)
@@ -79,6 +80,65 @@ def _best_hand(all_cards: list) -> tuple:
 def _hand_name(score: tuple) -> str:
     return _HAND_NAMES.get(score[0], "High Card")
 
+# ── Readable rank helpers ───────────────────────────────────────────────────────
+_RANK_DISPLAY_LIST = ["2","3","4","5","6","7","8","9","10","J","Q","K","A"]
+_RANK_PLURAL_LIST  = ["2s","3s","4s","5s","6s","7s","8s","9s","10s",
+                       "Jacks","Queens","Kings","Aces"]
+
+def _rank_label(idx: int) -> str:
+    return _RANK_DISPLAY_LIST[idx] if 0 <= idx < 13 else "?"
+
+def _rank_label_pl(idx: int) -> str:
+    return _RANK_PLURAL_LIST[idx] if 0 <= idx < 13 else "?"
+
+def _readable_rank(hole: list, board: list = []) -> str:
+    """Human-readable hand rank for private display. Never shown publicly."""
+    all_cards = hole + list(board)
+    n = len(all_cards)
+    if n < 2:
+        return "?"
+    # Preflop (only hole cards): simple pair / high-card check
+    if n == 2:
+        r0 = _RANKS.index(hole[0][0])
+        r1 = _RANKS.index(hole[1][0])
+        if r0 == r1:
+            return f"Pair of {_rank_label_pl(r0)}"
+        return f"High Card {_rank_label(max(r0, r1))}"
+    try:
+        score = _best_hand(all_cards) if n >= 5 else _score5(all_cards + all_cards[:5 - n])
+    except Exception:
+        return "?"
+    cat = score[0]
+    kr  = list(score[1:])
+    if cat == 9: return "Royal Flush"
+    if cat == 8: return f"Str. Flush to {_rank_label(kr[0])}"
+    if cat == 7: return f"Four of a Kind: {_rank_label_pl(kr[0])}"
+    if cat == 6: return f"Full House: {_rank_label_pl(kr[0])} over {_rank_label_pl(kr[1] if len(kr)>1 else 0)}"
+    if cat == 5:
+        sc = Counter(c[1] for c in all_cards)
+        fs = _SUIT_SYM.get(max(sc, key=sc.get), "?")
+        return f"Flush {fs}"
+    if cat == 4: return f"Straight to {_rank_label(kr[0])}"
+    if cat == 3: return f"Three of a Kind: {_rank_label_pl(kr[0])}"
+    if cat == 2: return f"Two Pair: {_rank_label_pl(kr[0])} & {_rank_label_pl(kr[1] if len(kr)>1 else 0)}"
+    if cat == 1: return f"Pair of {_rank_label_pl(kr[0])}"
+    return f"High Card {_rank_label(kr[0])}"
+
+def _build_turn_whisper(player: dict, board: list, current_bet: int, pot: int) -> str:
+    """Build the full private turn whisper with board, hand, rank, and actions."""
+    cards     = player.get("cards", [])
+    hand_str  = _fcs(cards) if cards else "?"
+    board_str = _fcs(board) if board else "—"
+    owe       = max(0, current_bet - player.get("current_bet", 0))
+    try:
+        rank_str = _readable_rank(cards, board) if cards else "?"
+    except Exception:
+        rank_str = "?"
+    call_line = f"💰 !call {owe:,}" if owe > 0 else "✅ !check"
+    actions   = f"{call_line} | 📈 !raise | 🏳️ !fold | 🔥 !allin"
+    msg = f"YOUR TURN:\nBoard: {board_str}\nHand: {hand_str}\nRank: {rank_str}\n{actions}"
+    return msg[:249]
+
 # ── Table state ────────────────────────────────────────────────────────────────
 _T: dict = {
     "phase":                "waiting",
@@ -101,6 +161,9 @@ _T: dict = {
     "dealing_started_at":   0.0,
     "room_id_cache":        {},   # username_lower → user_id, refreshed each hand
     "card_delivery_log":    {},   # username → {cards, whisper, live_id}
+    "hand_ended":           False,
+    "cleanup_in_progress":  False,
+    "paused":               False,
 }
 
 def _new_player(user_id: str, username: str, stack: int) -> dict:
@@ -166,24 +229,11 @@ async def _send_turn_whisper_confirmed(bot: BaseBot, username: str, player: dict
     cards = player.get("cards", [])
     if len(cards) != 2:
         return False
-    owe = max(0, _T["current_bet"] - player.get("current_bet", 0))
-    if owe > 0:
-        msg = (
-            f"🎯 Your turn.\n"
-            f"🃏 Your cards: {_fcs(cards)}\n"
-            f"Pot: {_T['pot']:,} coins\n"
-            f"Call: {owe:,} coins"
-        )
-    else:
-        msg = (
-            f"🎯 Your turn.\n"
-            f"🃏 Your cards: {_fcs(cards)}\n"
-            f"Pot: {_T['pot']:,} coins"
-        )
-    ok = await _w(bot, player["user_id"], msg[:249])
+    msg = _build_turn_whisper(player, _T["board"], _T["current_bet"], _T["pot"])
+    ok = await _w(bot, player["user_id"], msg)
     if not ok:
         await asyncio.sleep(1)
-        ok = await _w(bot, player["user_id"], msg[:249])
+        ok = await _w(bot, player["user_id"], msg)
     print(f"[POKER V2 TURN WHISPER] @{username} ok={ok}")
     return bool(ok)
 
@@ -361,6 +411,8 @@ async def _turn_timeout(bot: BaseBot, username: str) -> None:
 # ── Betting resolver ───────────────────────────────────────────────────────────
 async def _resolve(bot: BaseBot) -> None:
     """Called after every player action. Decides the next state."""
+    if _T.get("hand_ended") or _T.get("cleanup_in_progress"):
+        return
 
     # One player left → fold win
     nf = _not_folded()
@@ -368,6 +420,7 @@ async def _resolve(bot: BaseBot) -> None:
         winner  = nf[0]
         win_amt = _T["pot"]
         _T["players"][winner]["stack"] += win_amt
+        _T["hand_ended"] = True
         await _chat(bot, f"🏆 @{winner} wins {win_amt:,} coins.\nReason: Everyone else folded.")
         print(f"[POKER V2] resolve action=fold_win winner={winner}")
         await _complete_hand(bot, "fold_win")
@@ -407,25 +460,23 @@ async def _resolve(bot: BaseBot) -> None:
 async def _prompt_turn(bot: BaseBot, username: str) -> None:
     p    = _T["players"][username]
     uid  = p["user_id"]
-    owe  = max(0, _T["current_bet"] - p["current_bet"])
-    pot  = _T["pot"]
-    csz  = _fcs(p["cards"]) if p["cards"] else "?"
     secs = _T.get("turn_seconds", 30)
 
     _cancel_turn_task()
     _T["turn_timer_task"] = asyncio.create_task(_turn_timeout(bot, username))
 
-    if owe > 0:
-        wh = f"🎯 Your turn.\n🃏 Your cards: {csz}\nPot: {pot:,} coins\nCall: {owe:,} coins"
-    else:
-        wh = f"🎯 Your turn.\n🃏 Your cards: {csz}\nPot: {pot:,} coins\nYou can check or raise."
-
-    wh_ok = await _w(bot, uid, wh[:249])
-    print(f"[POKER V2] whisper user={username} ok={str(wh_ok).lower()}")
+    # Public first, then private whisper
     await _chat(bot, f"⏳ @{username}'s turn. {secs}s")
+    print(f"[POKER V2 TURN] public_first=true user=@{username}")
+
+    wh    = _build_turn_whisper(p, _T["board"], _T["current_bet"], _T["pot"])
+    wh_ok = await _w(bot, uid, wh)
+    print(f"[POKER V2 TURN] whisper_after_public=true user=@{username} ok={str(wh_ok).lower()}")
 
 # ── Street advancement ─────────────────────────────────────────────────────────
 async def _advance_street(bot: BaseBot) -> None:
+    if _T.get("hand_ended") or _T.get("cleanup_in_progress"):
+        return
     phase = _T["phase"]
     deck  = _T["deck"]
 
@@ -490,6 +541,17 @@ async def _advance_street(bot: BaseBot) -> None:
 # ── All-in run-out ─────────────────────────────────────────────────────────────
 async def _run_to_showdown(bot: BaseBot) -> None:
     """Deal remaining board cards then go to showdown."""
+    if _T.get("hand_ended") or _T.get("cleanup_in_progress"):
+        return
+    # Safety: if fewer than 2 eligible players remain, treat as fold win
+    nf = _not_folded()
+    if len(nf) == 1:
+        await _resolve(bot)
+        return
+    if len(nf) == 0:
+        _T["hand_ended"] = True
+        await _complete_hand(bot, "no_eligible")
+        return
     _cancel_turn_task()
     phase = _T["phase"]
     deck  = _T["deck"]
@@ -593,7 +655,12 @@ async def _showdown(bot: BaseBot) -> None:
 # ── Complete hand ──────────────────────────────────────────────────────────────
 async def _complete_hand(bot: BaseBot, reason: str) -> None:
     """Post-hand cleanup. Always called after any hand ends."""
-    print(f"[POKER V2 CLEANUP] reason={reason}")
+    if _T.get("cleanup_in_progress"):
+        print(f"[POKER V2 CLEANUP] skipped reason=already_in_progress")
+        return
+    _T["cleanup_in_progress"] = True
+    _T["hand_ended"]          = True
+    print(f"[POKER V2 CLEANUP] start reason={reason}")
     _cancel_all_tasks()
 
     # Show current stacks before removal
@@ -635,13 +702,22 @@ async def _complete_hand(bot: BaseBot, reason: str) -> None:
         p["status"]            = "waiting"
         p["acted"]             = False
 
+    # Reset cleanup flags before starting next hand
+    _T["hand_ended"]          = False
+    _T["cleanup_in_progress"] = False
+
     # Start next hand or wait
     remaining = _seated()
-    print(f"[POKER V2 CLEANUP] reason={reason} remaining={len(remaining)}")
+    print(f"[POKER V2 CLEANUP] remaining={len(remaining)}")
     if len(remaining) >= 2:
-        await _chat(bot, "♠️ Next hand in 10s.")
-        _start_next_hand_countdown(bot)
-        print(f"[POKER V2 NEXT HAND] countdown_started=true delay=10")
+        if _T.get("paused"):
+            _T["phase"] = "waiting"
+            await _chat(bot, "⏸️ Poker is paused.")
+            print(f"[POKER V2 NEXT HAND] not_started reason=paused")
+        else:
+            await _chat(bot, "♠️ Next hand in 10s.")
+            _start_next_hand_countdown(bot)
+            print(f"[POKER V2 NEXT HAND] countdown_started=true delay=10")
     else:
         _T["phase"] = "waiting"
         await _chat(bot, "♠️ Waiting for 1 more player. Use !join 5000.")
@@ -925,19 +1001,28 @@ async def _cmd_leave(bot: BaseBot, user: User) -> None:
     p     = _T["players"][username]
     phase = _T["phase"]
 
-    if phase in ("preflop", "flop", "turn", "river"):
+    # If hand already ended (between_hands/cleanup), just cash out immediately
+    if _T.get("hand_ended") or _T.get("cleanup_in_progress") or phase not in (
+            "preflop", "flop", "turn", "river"):
+        pass  # fall through to cash-out block below
+    elif phase in ("preflop", "flop", "turn", "river"):
         if p["status"] == "allin":
             p["remove_after_hand"] = True
             await _chat(bot, f"🚪 @{user.username} is all-in and will leave after showdown.")
+            return
         elif p["status"] == "active":
             p["status"]            = "folded"
             p["remove_after_hand"] = True
             await _chat(bot, f"🚪 @{user.username} left during the hand and folded.")
             await _resolve(bot)
+            return
         else:
+            # Already folded or other; mark for removal and cash out after
             p["remove_after_hand"] = True
             await _w(bot, user.id, "You will be removed after this hand.")
-    else:
+            return
+
+    if True:  # cash-out block (reached when not in active hand)
         stack = p["stack"]
         _T["seats"].remove(username)
         del _T["players"][username]
@@ -1078,17 +1163,24 @@ async def _cmd_allin(bot: BaseBot, user: User) -> None:
 # ── !hand ──────────────────────────────────────────────────────────────────────
 async def _cmd_hand(bot: BaseBot, user: User) -> None:
     username = user.username.lower()
-    # Cards are the source of truth — show them regardless of phase
     if username not in _T["players"]:
         await _w(bot, user.id, "You are not at the poker table.")
         return
     p     = _T["players"][username]
     cards = p.get("cards", [])
     if len(cards) == 2:
-        msg  = f"🃏 Your cards: {_fcs(cards)}"
-        board = _T.get("board", [])
-        msg += f"\nBoard: {_board_str()}" if board else "\nBoard: —"
-        msg += f"\nPot: {_T['pot']:,} coins"
+        board     = _T.get("board", [])
+        board_str = _fcs(board) if board else "—"
+        try:
+            rank_str = _readable_rank(cards, board)
+        except Exception:
+            rank_str = "?"
+        msg = (
+            f"🃏 Your cards: {_fcs(cards)}\n"
+            f"Board: {board_str}\n"
+            f"Rank: {rank_str}\n"
+            f"Pot: {_T['pot']:,} coins"
+        )
         await _w(bot, user.id, msg[:249])
         print(f"[POKER V2 HAND] @{username} cards_found=true phase={_T['phase']}")
         return
@@ -1097,8 +1189,13 @@ async def _cmd_hand(bot: BaseBot, user: User) -> None:
 
 # ── !table ─────────────────────────────────────────────────────────────────────
 async def _cmd_table(bot: BaseBot, user: User) -> None:
-    phase = _T["phase"]
-    cnt   = len(_T["seats"])
+    phase  = _T["phase"]
+    cnt    = len(_T["seats"])
+    paused = _T.get("paused", False)
+
+    if paused and phase not in ("preflop", "flop", "turn", "river", "dealing"):
+        await _w(bot, user.id, f"♠️ Poker table\nPaused.\nPlayers: {cnt}")
+        return
 
     if phase == "waiting":
         if cnt == 1:
@@ -1226,6 +1323,143 @@ async def _cmd_v2debug(bot: BaseBot, user: User) -> None:
 
 
 # ── Main command dispatch ──────────────────────────────────────────────────────
+# ── Admin: pause ───────────────────────────────────────────────────────────────
+async def _cmd_pause(bot: BaseBot, user: User) -> None:
+    if not (is_owner(user.username) or is_admin(user.username) or is_manager(user.username)):
+        await _w(bot, user.id, "Owner/admin only.")
+        return
+    _T["paused"] = True
+    await _chat(bot, "⏸️ Poker paused. Current hand may finish, but no new hand will start.")
+
+# ── Admin: resume ──────────────────────────────────────────────────────────────
+async def _cmd_resume(bot: BaseBot, user: User) -> None:
+    if not (is_owner(user.username) or is_admin(user.username) or is_manager(user.username)):
+        await _w(bot, user.id, "Owner/admin only.")
+        return
+    _T["paused"] = False
+    await _chat(bot, "▶️ Poker resumed.")
+    phase     = _T["phase"]
+    remaining = _seated()
+    if len(remaining) >= 2 and phase in ("waiting", "between_hands"):
+        await _chat(bot, "♠️ Next hand in 10s.")
+        _start_next_hand_countdown(bot)
+
+# ── Admin: close ───────────────────────────────────────────────────────────────
+async def _cmd_close(bot: BaseBot, user: User) -> None:
+    if not (is_owner(user.username) or is_admin(user.username) or is_manager(user.username)):
+        await _w(bot, user.id, "Owner/admin only.")
+        return
+    _cancel_all_tasks()
+    for u in list(_T["seats"]):
+        p = _T["players"].get(u)
+        if p and p["stack"] > 0:
+            _credit(p["user_id"], p["stack"])
+    _T["seats"]                 = []
+    _T["players"]               = {}
+    _T["phase"]                 = "waiting"
+    _T["pot"]                   = 0
+    _T["board"]                 = []
+    _T["deck"]                  = []
+    _T["current_bet"]           = 0
+    _T["current_turn_username"] = None
+    _T["hand_id"]               = None
+    _T["hand_ended"]            = False
+    _T["cleanup_in_progress"]   = False
+    await _chat(bot, "🛑 Poker table closed. All players cashed out.")
+
+# ── Admin: refund ──────────────────────────────────────────────────────────────
+async def _cmd_refund(bot: BaseBot, user: User, args: list) -> None:
+    if not (is_owner(user.username) or is_admin(user.username) or is_manager(user.username)):
+        await _w(bot, user.id, "Owner/admin only.")
+        return
+    # Optional: !poker refund @username
+    target = args[2].lstrip("@").lower() if len(args) > 2 else None
+    if target:
+        if target not in _T["players"]:
+            await _w(bot, user.id, f"@{target} is not at the table.")
+            return
+        p = _T["players"][target]
+        refund = p.get("total_contributed", 0)
+        if refund > 0:
+            p["stack"]             += refund
+            _T["pot"]               = max(0, _T["pot"] - refund)
+            p["total_contributed"]  = 0
+        if p["stack"] > 0:
+            _credit(p["user_id"], p["stack"])
+        disp = p["username"]
+        _T["seats"].remove(target)
+        del _T["players"][target]
+        await _chat(bot, f"💸 @{disp} refunded and cashed out.")
+        return
+    # Refund entire current hand
+    _cancel_turn_task()
+    for u in list(_T["seats"]):
+        p = _T["players"].get(u)
+        if p:
+            contributed         = p.get("total_contributed", 0)
+            p["stack"]         += contributed
+            p["total_contributed"] = 0
+            p["current_bet"]    = 0
+            p["status"]         = "waiting"
+            p["acted"]          = False
+            p["cards"]          = []
+    _T["pot"]                   = 0
+    _T["board"]                 = []
+    _T["deck"]                  = []
+    _T["current_bet"]           = 0
+    _T["current_turn_username"] = None
+    _T["hand_id"]               = None
+    _T["hand_ended"]            = False
+    _T["cleanup_in_progress"]   = False
+    _T["phase"]                 = "between_hands" if len(_seated()) >= 2 else "waiting"
+    await _chat(bot, "💸 Current hand refunded. Players remain seated.")
+
+# ── Admin: forcefinish ─────────────────────────────────────────────────────────
+async def _cmd_forcefinish(bot: BaseBot, user: User) -> None:
+    if not (is_owner(user.username) or is_admin(user.username) or is_manager(user.username)):
+        await _w(bot, user.id, "Owner/admin only.")
+        return
+    phase = _T["phase"]
+    if phase not in ("preflop", "flop", "turn", "river", "dealing"):
+        await _w(bot, user.id, "No active hand to force-finish.")
+        return
+    await _chat(bot, "⚠️ Poker hand force-finished.")
+    nf = _not_folded()
+    if len(nf) == 1:
+        winner  = nf[0]
+        win_amt = _T["pot"]
+        _T["players"][winner]["stack"] += win_amt
+        _T["hand_ended"] = True
+        await _chat(bot, f"🏆 @{winner} wins {win_amt:,} coins.\nReason: Force-finished.")
+        await _complete_hand(bot, "forcefinish")
+    elif len(nf) >= 2:
+        _T["hand_ended"] = True
+        await _run_to_showdown(bot)
+    else:
+        _T["hand_ended"] = True
+        await _complete_hand(bot, "forcefinish_no_eligible")
+
+# ── Admin: status ──────────────────────────────────────────────────────────────
+async def _cmd_status(bot: BaseBot, user: User) -> None:
+    if not (is_owner(user.username) or is_admin(user.username) or is_manager(user.username)):
+        await _w(bot, user.id, "Owner/admin only.")
+        return
+    phase   = _T["phase"]
+    pot     = _T["pot"]
+    turn    = _T["current_turn_username"] or "—"
+    players = len(_T["seats"])
+    paused  = _T.get("paused", False)
+    locked  = _T.get("cleanup_in_progress", False)
+    ended   = _T.get("hand_ended", False)
+    msg = (
+        f"♠️ Poker Status\n"
+        f"Phase: {phase}\nPlayers: {players}\nPot: {pot:,}\n"
+        f"Turn: @{turn}\nPaused: {paused}\n"
+        f"Cleanup lock: {locked}\nHand ended: {ended}"
+    )
+    await _w(bot, user.id, msg[:249])
+
+# ── Entry point ────────────────────────────────────────────────────────────────
 async def handle_poker_v2(bot: BaseBot, user: User, cmd: str, args: list) -> None:
     """Entry point for all Poker V2 player commands. Called by main.py."""
     if not _is_poker_bot():
@@ -1248,16 +1482,22 @@ async def handle_poker_v2(bot: BaseBot, user: User, cmd: str, args: list) -> Non
             ))
         return
 
-    if   cmd == "join":        await _cmd_join(bot, user, args)
-    elif cmd == "check":       await _cmd_check(bot, user)
-    elif cmd == "call":        await _cmd_call(bot, user)
-    elif cmd == "raise":       await _cmd_raise(bot, user, args)
-    elif cmd == "fold":        await _cmd_fold(bot, user)
-    elif cmd == "allin":       await _cmd_allin(bot, user)
-    elif cmd == "hand":        await _cmd_hand(bot, user)
-    elif cmd == "leave":       await _cmd_leave(bot, user)
-    elif cmd == "table":       await _cmd_table(bot, user)
+    if   cmd == "join":          await _cmd_join(bot, user, args)
+    elif cmd == "check":         await _cmd_check(bot, user)
+    elif cmd == "call":          await _cmd_call(bot, user)
+    elif cmd == "raise":         await _cmd_raise(bot, user, args)
+    elif cmd == "fold":          await _cmd_fold(bot, user)
+    elif cmd == "allin":         await _cmd_allin(bot, user)
+    elif cmd == "hand":          await _cmd_hand(bot, user)
+    elif cmd == "leave":         await _cmd_leave(bot, user)
+    elif cmd == "table":         await _cmd_table(bot, user)
+    elif cmd == "pause":         await _cmd_pause(bot, user)
+    elif cmd == "resume":        await _cmd_resume(bot, user)
+    elif cmd == "close":         await _cmd_close(bot, user)
+    elif cmd == "refund":        await _cmd_refund(bot, user, args)
+    elif cmd == "forcefinish":   await _cmd_forcefinish(bot, user)
+    elif cmd in ("status", "pokerstatus"): await _cmd_status(bot, user)
     elif cmd in ("debugcards", "debugdeal"): await _cmd_debugcards(bot, user)
-    elif cmd == "resendcards": await _cmd_resendcards(bot, user)
-    elif cmd == "resetv2":     await _cmd_resetv2(bot, user)
-    elif cmd == "v2debug":     await _cmd_v2debug(bot, user)
+    elif cmd == "resendcards":   await _cmd_resendcards(bot, user)
+    elif cmd == "resetv2":       await _cmd_resetv2(bot, user)
+    elif cmd == "v2debug":       await _cmd_v2debug(bot, user)

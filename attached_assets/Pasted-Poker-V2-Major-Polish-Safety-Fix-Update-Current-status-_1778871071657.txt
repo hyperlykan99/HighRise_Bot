@@ -1,0 +1,804 @@
+Poker V2 Major Polish + Safety Fix Update
+
+Current status:
+Poker V2 core loop works now, but there are important bugs and polish changes needed.
+
+Current bugs from live screenshots:
+1. After winner announcement, the next hand does not always start cleanly.
+2. !leave during/between hands is confused.
+3. !join says player is seated, but !poker leave says player is not at table.
+4. !pleave still goes to ChillTopiaMC unknown command.
+5. If a player leaves/folds, the bot can incorrectly run flop/turn/river/showdown.
+6. Board/showdown must NOT run when everyone else folded or left.
+7. Current player action messages are not detailed enough.
+8. Player turn whisper needs better format and current hand ranking.
+9. Cards should display 10, not T.
+
+Goal:
+Polish Poker V2 without breaking the working core.
+Fix hand-end cleanup, leave routing, turn whisper formatting, admin safety commands, and private hand ranking.
+
+Do NOT modify:
+- blackjack
+- jail
+- Luxe Tickets
+- tips
+- mining/fishing
+- workflows
+- bot runner
+- unrelated economy systems
+
+Only modify:
+- modules/poker_v2.py
+- main.py only if needed for poker command routing
+
+==================================================
+PART 1 — Fix Player Key / Username Consistency
+==================================================
+
+Use one normalized player key everywhere:
+
+key = user.username.lower().strip()
+
+When joining:
+_T["players"][key] = player
+_T["seats"] stores key only
+
+When checking seated:
+key in _T["players"]
+
+When leaving:
+key in _T["players"]
+
+When acting:
+key in _T["players"]
+
+When displaying username:
+use player["username"] original display name
+
+Fix this contradiction:
+!join says “You are already seated”
+but
+!poker leave says “You’re not at the table.”
+
+Add log:
+[POKER V2 USERKEY] raw=4ktreyMarion key=4ktreymarion exists=true
+
+==================================================
+PART 2 — Fix !leave / !poker leave / !pleave Routing
+==================================================
+
+All of these should work:
+
+!leave
+!poker leave
+!pleave
+
+Behavior:
+- If no active hand: cash out immediately.
+- If active hand and player is not all-in: fold and remove after hand.
+- If active hand and player is all-in: keep eligible until showdown, then remove.
+
+Important:
+ChillTopiaMC must NOT reply unknown command to !pleave.
+Poker commands should be owned by ChipSoprano.
+
+In handle_poker_v2(), parse poker subcommands:
+
+!poker leave -> _cmd_leave
+!poker hand -> _cmd_hand
+!poker table -> _cmd_table
+!poker status -> _cmd_status or _cmd_table
+!poker pause -> admin pause
+!poker resume -> admin resume
+!poker close -> admin close
+!poker refund -> admin refund
+!poker forcefinish -> admin force finish
+!poker debugcards -> debugcards
+!poker resendcards -> resendcards
+!poker resetv2 -> resetv2
+!poker v2debug -> v2debug
+
+In main.py, route:
+pleave -> poker_v2 leave
+phand -> poker_v2 hand
+ptable -> poker_v2 table
+
+Or at minimum:
+!pleave should whisper:
+Use !leave to leave poker.
+
+But ChillTopiaMC must not answer unknown command.
+
+==================================================
+PART 3 — Add Hand-End Lock
+==================================================
+
+Add a hand cleanup lock:
+
+_T["cleanup_in_progress"] = False
+_T["hand_ended"] = False
+
+When a winner is determined:
+_T["hand_ended"] = True
+_T["cleanup_in_progress"] = True
+
+During cleanup:
+- block actions
+- block duplicate resolver calls
+- block board run
+- block showdown run
+- allow !table and !hand only as safe read commands
+- allow !leave but process it as between-hand leave if hand already ended
+
+Action guard:
+If cleanup_in_progress:
+    whisper "Hand is settling. Please wait."
+    return
+
+Resolver:
+If hand_ended is True:
+    return immediately
+
+This prevents:
+- fold win followed by board run
+- leave followed by all-in board run
+- duplicate payouts
+
+==================================================
+PART 4 — Fix Fold/Leave Winner Logic
+==================================================
+
+If only one non-folded player remains:
+- award pot immediately
+- DO NOT run flop/turn/river
+- DO NOT run showdown
+- call complete_hand(bot, reason="fold_win")
+
+Correct message:
+
+🏆 @Winner wins 150 coins.
+Reason: Everyone else folded.
+
+If a player leaves and folds:
+- mark folded
+- resolve
+- if one player remains, winner gets pot
+- no board run
+
+If no eligible players remain:
+- cancel/refund safely
+- no board run
+
+Important:
+Board run/showdown is only allowed when:
+- at least 2 eligible players remain
+AND
+- they are all-in or betting is complete to river
+
+Never run board after everyone else folded.
+
+==================================================
+PART 5 — Fix Post-Hand Cleanup + Auto Next Hand
+==================================================
+
+Create or fix one cleanup function:
+
+complete_hand(bot, reason)
+
+This function must run after:
+- fold win
+- showdown
+- all-in showdown
+- AFK fold win
+- leave fold win
+- force finish
+- cancel/refund
+
+complete_hand must:
+1. Cancel turn timer.
+2. Set cleanup_in_progress = True.
+3. Award pot if winner exists.
+4. Show winner message.
+5. Show stack summary.
+6. Process remove_after_hand players.
+7. Cash out players who left.
+8. Remove busted players if stack <= 0.
+9. Clear board, cards, current_bet, pot.
+10. Reset current_turn_username = None.
+11. Set hand_ended = False after cleanup.
+12. Set cleanup_in_progress = False.
+13. Count remaining seated players.
+14. If 2+ players remain:
+    phase = "between_hands"
+    public: ♠️ Next hand in 10s.
+    start countdown task.
+15. If fewer than 2 players remain:
+    phase = "waiting"
+    public: ♠️ Waiting for 1 more player. Use !join 5000.
+
+Never leave phase as:
+finished
+preflop
+flop
+turn
+river
+showdown
+
+after a hand ends.
+
+After winner announcement, phase must become only:
+between_hands
+or
+waiting
+
+Add logs:
+[POKER V2 CLEANUP] start reason=fold_win
+[POKER V2 CLEANUP] payout winner=@Player amount=150
+[POKER V2 CLEANUP] remaining=2 next=between_hands
+[POKER V2 NEXT HAND] countdown_started=true delay=10
+[POKER V2 NEXT HAND] not_started reason=need_more_players
+
+==================================================
+PART 6 — Fix Leave Behavior
+==================================================
+
+If player types !leave during between_hands, waiting, countdown, or after hand_ended:
+cash out immediately.
+
+Message:
+👋 @Player left table. Cashed out 5,000 coins.
+
+If player types !leave during active hand and not all-in:
+- status = folded
+- remove_after_hand = True
+- public:
+🚪 @Player left during the hand and folded.
+- call resolver
+
+If player types !leave during active hand and all-in:
+- remove_after_hand = True
+- public:
+🚪 @Player is all-in and will leave after showdown.
+
+If player already folded and tries action:
+🏳️ You have already folded.
+
+If player is marked remove_after_hand:
+🚪 You will be removed after this hand.
+
+Important:
+If the hand already ended, do not say:
+“You will be removed after this hand.”
+
+Cash out immediately.
+
+==================================================
+PART 7 — Public Action Messages With Emojis
+==================================================
+
+After every valid action, send a public message BEFORE resolver.
+
+!check:
+✅ @Player checked.
+
+!call:
+💰 @Player called 50 coins.
+
+!raise 500:
+📈 @Player raised to 500 coins.
+
+!fold:
+🏳️ @Player folded.
+
+!allin:
+🔥 @Player is all-in for 5,000 coins.
+
+Timeout auto-check:
+⏰ @Player timed out and checked. AFK 1/3.
+
+Timeout auto-fold:
+⏰ @Player timed out and folded. AFK 1/3.
+
+Leave fold:
+🚪 @Player left during the hand and folded.
+
+Wrong turn:
+Whisper only:
+⏳ It is @CurrentPlayer's turn.
+
+Correct order:
+1. validate action
+2. update state
+3. public action message
+4. resolve
+
+==================================================
+PART 8 — Public Turn First, Then Private Whisper
+==================================================
+
+When a new turn starts:
+
+1. Public first:
+⏳ @Player's turn. 30s
+
+2. Then private whisper to the current player with full turn details.
+
+Do not whisper first then public turn.
+The public “@user’s turn” should always appear first.
+
+Add log:
+[POKER V2 TURN] public_first=true user=@Player
+[POKER V2 TURN] whisper_after_public=true user=@Player
+
+==================================================
+PART 9 — New Private Turn Whisper Format
+==================================================
+
+Replace current private turn whisper with this exact style:
+
+YOUR TURN:
+Dealer/Board Cards: A♠ K♥ Q♦
+
+Your Hand: A♣ 10♣
+Current Rank: Pair of Aces
+
+Actions:
+✅ !check
+💰 !call
+📈 !raise 500
+🏳️ !fold
+🔥 !allin
+
+If no board yet:
+
+YOUR TURN:
+Dealer/Board Cards: —
+
+Your Hand: A♣ 10♣
+Current Rank: High Card Ace
+
+Actions:
+💰 !call
+📈 !raise 500
+🏳️ !fold
+🔥 !allin
+
+If no call is needed, show !check.
+If call is needed, show !call.
+Always show:
+📈 !raise 500
+🏳️ !fold
+🔥 !allin
+
+Keep under 249 characters.
+If too long, shorten:
+
+YOUR TURN:
+Board: —
+Hand: A♣ 10♣
+Rank: High Card Ace
+
+✅ !check | 📈 !raise 500 | 🏳️ !fold | 🔥 !allin
+
+==================================================
+PART 10 — Add Card Ranking To Turn Whisper
+==================================================
+
+Add current hand ranking to:
+- private turn whisper
+- !hand whisper
+
+Do NOT reveal ranking publicly.
+
+Preflop:
+Use only 2 hole cards.
+
+Examples:
+A♠ A♦ -> Pair of Aces
+K♠ K♦ -> Pair of Kings
+A♠ K♦ -> High Card Ace
+10♠ 9♦ -> High Card 10
+
+Postflop:
+Use hole cards + board to determine best rank.
+
+Ranks:
+Royal Flush
+Straight Flush
+Four of a Kind
+Full House
+Flush
+Straight
+Three of a Kind
+Two Pair
+Pair
+High Card
+
+Readable examples:
+Pair of Aces
+Two Pair: Aces and Kings
+Three of a Kind: Queens
+Straight to Ace
+Flush: Spades
+Full House: Kings over Tens
+Four of a Kind: Nines
+High Card Ace
+
+If full evaluator already exists, reuse it.
+If not, add a simple evaluator that returns readable rank text.
+
+Do not rewrite all showdown logic unless necessary.
+
+==================================================
+PART 11 — Show 10 Instead Of T
+==================================================
+
+Fix card formatting everywhere.
+
+If internal card is "TH" or "T♥", display as:
+10♥
+
+Examples:
+T♠ -> 10♠
+TH -> 10♥
+TD -> 10♦
+TC -> 10♣
+TS -> 10♠
+
+This applies to:
+- card whisper
+- turn whisper
+- board
+- showdown
+- !hand
+- logs if user-facing
+
+Do not show T to players.
+
+==================================================
+PART 12 — Heads-Up Turn Rules
+==================================================
+
+For 2-player poker:
+
+Preflop:
+- Small blind / dealer acts first.
+- Big blind acts second.
+
+Postflop:
+- Big blind acts first.
+- Small blind / dealer acts second.
+
+Example:
+SB: @ashquinn_ 50 coins
+BB: @4ktreyMarion 100 coins
+
+Correct preflop first turn:
+⏳ @ashquinn_'s turn. 30s
+
+Correct flop first turn:
+⏳ @4ktreyMarion's turn. 30s
+
+Add logs:
+[POKER V2 TURN] street=preflop first_actor=@ashquinn_ reason=heads_up_sb_first
+[POKER V2 TURN] street=flop first_actor=@4ktreyMarion reason=heads_up_bb_first
+
+==================================================
+PART 13 — Admin Safety Commands
+==================================================
+
+Add owner/admin-only commands.
+
+Commands:
+
+!poker pause
+- Pause auto-starting new hands.
+- Active hand may finish, but no next hand starts.
+Message:
+⏸️ Poker paused. Current hand may finish, but no new hand will start.
+
+!poker resume
+- Resume auto-start.
+- If 2+ seated and no active hand, start countdown.
+Message:
+▶️ Poker resumed.
+
+!poker close
+- Close poker table safely.
+- If no active hand: cash out all seated players and clear table.
+- If active hand: stop timer, refund current hand contributions, cash out stacks, clear table.
+Message:
+🛑 Poker table closed. All players cashed out.
+
+!poker refund
+- Refund current active hand only.
+- Return current hand contributions to player stacks.
+- Clear current hand.
+- Keep players seated.
+Message:
+💸 Current hand refunded. Players remain seated.
+
+!poker refund @user
+- Refund/cash out specific player if seated.
+- If active hand and player is in hand, fold/remove safely.
+Message:
+💸 @Player refunded/cashed out.
+
+!poker forcefinish
+- Safely finish active hand.
+- If one eligible player remains, award pot.
+- If 2+ eligible players remain, go to showdown only if valid.
+- Otherwise refund hand.
+Message:
+⚠️ Poker hand force-finished.
+
+!poker status
+- Owner/admin status summary:
+Phase
+Players
+Pot
+Turn
+Paused true/false
+Cleanup lock true/false
+Hand ended true/false
+
+Existing commands:
+!poker resetv2
+!poker v2debug
+!poker debugcards
+!poker resendcards
+
+Keep them hidden from normal help.
+
+==================================================
+PART 14 — Pause Flag
+==================================================
+
+Add:
+_T["paused"] = False
+
+If paused:
+- no new countdown starts
+- !join can still seat players
+- after a hand ends, do not start next hand
+- show:
+⏸️ Poker is paused.
+
+When resumed:
+- if 2+ players seated and no active hand, start countdown
+
+==================================================
+PART 15 — Table Status Update
+==================================================
+
+!table should show:
+
+Waiting:
+♠️ Poker table
+Waiting for players.
+Use !join 5000.
+
+One player:
+♠️ Poker table
+Waiting for 1 more player.
+Use !join 5000.
+
+Active:
+♠️ Poker table
+Phase: Preflop
+Pot: 150 coins
+Turn: @Player
+Board: —
+Players: 2
+
+Between hands:
+♠️ Poker table
+Next hand soon.
+Players: 2
+
+Paused:
+♠️ Poker table
+Paused.
+Players: 2
+
+Never show:
+Phase: Finished
+
+==================================================
+PART 16 — Better Winner / Showdown Messages
+==================================================
+
+Fold win:
+
+🏆 @Winner wins 150 coins.
+Reason: Everyone else folded.
+
+Stacks:
+
+💰 Stacks:
+@Player1: 5,050
+@Player2: 4,950
+
+Showdown:
+
+👀 Showdown
+Board: A♠ K♥ Q♦ J♣ 10♠
+
+@Player1: A♣ 10♣ — Two Pair
+@Player2: K♣ Q♣ — Two Pair
+
+🏆 @Player1 wins 5,000 coins.
+
+If split:
+
+🤝 Split pot.
+@Player1 receives 2,500 coins.
+@Player2 receives 2,500 coins.
+
+Keep each message under 249 characters.
+Split into multiple messages if needed.
+
+==================================================
+PART 17 — Prevent Board Run After Fold/Leave
+==================================================
+
+Before running flop/turn/river/showdown:
+
+Check:
+eligible = players with status active or allin
+
+If len(eligible) < 2:
+    do not run board
+    award pot to last remaining player
+    complete_hand(reason="fold_win")
+    return
+
+If hand_ended:
+    return
+
+If cleanup_in_progress:
+    return
+
+This fixes the bug where:
+@Player left during the hand and folded.
+Then bot says:
+All-in! Running the board...
+
+That must never happen.
+
+==================================================
+PART 18 — Tests
+==================================================
+
+Run:
+python -m py_compile main.py
+python -m py_compile modules/poker_v2.py
+
+Restart bots.
+
+Test 1 — Turn order:
+2 players join.
+
+Expected:
+Preflop first turn is small blind.
+Postflop first turn is big blind.
+
+Test 2 — Public action:
+Current player types:
+!check
+
+Expected:
+✅ @Player checked.
+Then next turn message.
+
+Test 3 — Turn whisper:
+Current player receives:
+
+YOUR TURN:
+Dealer/Board Cards: —
+Your Hand: A♣ 10♣
+Current Rank: High Card Ace
+Actions:
+...
+
+Test 4 — 10 formatting:
+If player has 10 card, it shows 10, not T.
+
+Test 5 — Fold win:
+Player folds.
+
+Expected:
+🏳️ @Player folded.
+🏆 @Winner wins X coins.
+Reason: Everyone else folded.
+💰 Stacks...
+♠️ Next hand in 10s.
+
+No board run.
+
+Test 6 — Leave during hand:
+Player types !leave.
+
+Expected:
+🚪 @Player left during the hand and folded.
+If only one player remains:
+winner message.
+No all-in board run.
+
+Test 7 — Between-hand leave:
+After winner message but before next hand, player types !leave.
+
+Expected:
+👋 @Player left table. Cashed out X coins.
+
+Not:
+You will be removed after this hand.
+
+Test 8 — !poker leave:
+Player types:
+!poker leave
+
+Expected:
+same as !leave.
+
+Test 9 — !pleave:
+Player types:
+!pleave
+
+Expected:
+same as !leave or “Use !leave to leave poker.”
+ChillTopiaMC must not say unknown command.
+
+Test 10 — Admin pause:
+Owner:
+!poker pause
+
+Expected:
+⏸️ Poker paused.
+After current hand, no next hand starts.
+
+Test 11 — Admin resume:
+Owner:
+!poker resume
+
+Expected:
+▶️ Poker resumed.
+If 2+ players seated, countdown starts.
+
+Test 12 — Admin close:
+Owner:
+!poker close
+
+Expected:
+🛑 Poker table closed. All players cashed out.
+
+Test 13 — Admin refund:
+Owner:
+!poker refund
+
+Expected:
+💸 Current hand refunded. Players remain seated.
+
+Test 14 — Auto next hand:
+After normal winner and 2+ players remain:
+
+Expected:
+♠️ Next hand in 10s.
+Then new hand starts.
+
+Final report:
+1. Hand-end lock added
+2. Fold/leave no longer triggers board run
+3. Leave routing fixed
+4. !poker leave fixed
+5. !pleave handled or redirected
+6. Public action messages added
+7. Public turn appears before private whisper
+8. Turn whisper format updated
+9. Current hand rank added
+10. 10 card display fixed
+11. Admin pause/resume/close/refund/forcefinish/status added
+12. Auto next hand still works
+13. Py_compile result
+14. Bot stability result
