@@ -355,7 +355,7 @@ def _clear_hand() -> None:
         "turn_ends_at=NULL, round_started_at=NULL, lobby_started_at=NULL, "
         "lobby_ends_at=NULL, restored_after_restart=0, "
         "small_blind_username=NULL, big_blind_username=NULL, "
-        "next_hand_starts_at=NULL "
+        "first_turn_ready=1, next_hand_starts_at=NULL "
         "WHERE id=1"
     )
     conn.commit()
@@ -1515,7 +1515,8 @@ async def _start_hand(bot: BaseBot) -> None:
 
     _save_table(
         active=1,
-        phase="preflop",
+        phase="dealing",
+        first_turn_ready=0,
         round_id=round_id,
         created_at=_now(),
         round_started_at=_now(),
@@ -1577,60 +1578,10 @@ async def _start_hand(bot: BaseBot) -> None:
             bot, round_id, hand_num, only_usernames=need_deliver
         )
 
-    # ── 5-second window: all whispers settle, then resend to first actor ──
-    print(f"[POKER SEQ] waiting_before_first_turn=5s")
-    await asyncio.sleep(5.0)
-
-    # ── Guaranteed first-actor card whisper ────────────────────────────────
+    # ── Hard gate: guaranteed first-actor whisper before preflop opens ─────
     players = _get_players(round_id)
-    _first_actor_pl: dict | None = None
-    for _fi in range(len(players)):
-        _fidx = (first_preflop_idx + _fi) % len(players) if players else 0
-        _fc_candidate = players[_fidx]
-        if _fc_candidate["status"] == "active":
-            _first_actor_pl = _fc_candidate
-            break
-    if _first_actor_pl:
-        _fa_hc = db.get_hole_cards(round_id, _first_actor_pl["username"])
-        if _fa_hc and _fa_hc.get("card1") and _fa_hc.get("card2"):
-            _fa_cards = [_fa_hc["card1"], _fa_hc["card2"]]
-        else:
-            _fa_cards = json.loads(_first_actor_pl.get("hole_cards_json") or "[]")
-        if len(_fa_cards) == 2:
-            _fa_owe = max(0, tbl.get("current_bet", 0) -
-                          _first_actor_pl.get("current_bet", 0))
-            if _fa_owe > 0:
-                _fa_acts = f"!call {_fa_owe:,}, !raise or !fold"
-            else:
-                _fa_acts = "!check, !raise or !fold"
-            _fa_msg = (f"🎯 Your turn. {_PK_CARDS}: {_fcs(_fa_cards)} | "
-                       f"{_fa_acts}")[:249]
-            try:
-                await bot.highrise.send_whisper(_first_actor_pl["user_id"], _fa_msg)
-                print(f"[POKER FIRST TURN] delay=5s "
-                      f"first_actor=@{_first_actor_pl['username']} cards_resend=true")
-            except Exception as _fa_exc:
-                print(f"[POKER FIRST TURN] delay=5s "
-                      f"first_actor=@{_first_actor_pl['username']} cards_resend=false "
-                      f"err={str(_fa_exc)[:60]}")
-        else:
-            try:
-                await bot.highrise.send_whisper(
-                    _first_actor_pl["user_id"],
-                    "🎯 Your turn, but your cards were not found. "
-                    "Type !cards or ask staff.")
-            except Exception:
-                pass
-            print(f"[POKER FIRST TURN] delay=5s "
-                  f"first_actor=@{_first_actor_pl['username']} cards_resend=false "
-                  f"reason=no_cards")
-
-    # ── Start preflop ──────────────────────────────────────────────────────
-    tbl_new = _get_table()
-    if tbl_new:
-        await _start_street_from(
-            bot, "preflop", round_id, players, first_preflop_idx
-        )
+    print(f"[POKER SEQ] blinds_sent=true round={round_id[-8:]}")
+    await open_first_turn_hard_gate(bot, round_id, first_preflop_idx, players)
 
     # Increment hands_at_table for all participants
     conn = db.get_connection()
@@ -1799,6 +1750,139 @@ async def _advance_street(bot: BaseBot, tbl: dict, players: list[dict]) -> None:
 
     elif phase == "river":
         await finish_poker_hand(bot, "showdown")
+
+
+async def open_first_turn_hard_gate(
+    bot: BaseBot,
+    round_id: str,
+    first_preflop_idx: int,
+    players: list[dict],
+) -> bool:
+    """Hard-gate the first preflop turn.
+
+    Sleeps 5 s so all card whispers can settle, then guarantees the first
+    actor receives a cards whisper before the hand opens for action.
+    Sets phase=preflop + first_turn_ready=1 only if the whisper succeeds.
+    On failure sets phase=recovery_required and blocks all betting.
+    """
+    global _turn_task
+
+    await asyncio.sleep(5.0)
+
+    # ── Find first active player ──────────────────────────────────────────
+    n = len(players)
+    first_actor_idx: int = -1
+    first_actor: dict | None = None
+    for i in range(n):
+        idx = (first_preflop_idx + i) % n
+        p = players[idx]
+        if p["status"] == "active":
+            first_actor_idx = idx
+            first_actor = p
+            break
+
+    if first_actor is None:
+        # All players are all-in — skip gate, run to showdown
+        _save_table(phase="preflop", first_turn_ready=1,
+                    current_player_index=first_preflop_idx)
+        tbl = _get_table()
+        if tbl:
+            await _deal_to_showdown(bot, tbl)
+        return False
+
+    uid   = first_actor["user_id"]
+    uname = first_actor["username"]
+    print(f"[POKER FIRST GATE] start first_actor=@{uname} user_id={uid}")
+
+    # ── Load cards — normalized key first, raw column fallback ───────────
+    hc = db.get_hole_cards(round_id, uname.lower())
+    if hc and hc.get("card1") and hc.get("card2"):
+        cards    = [hc["card1"], hc["card2"]]
+        cards_src = "poker_hole_cards"
+    else:
+        raw      = first_actor.get("hole_cards_json") or "[]"
+        cards    = json.loads(raw)
+        cards_src = "hole_cards_json"
+
+    if len(cards) != 2:
+        print(f"[POKER FIRST GATE] cards_missing user=@{uname}")
+        _save_table(phase="recovery_required", first_turn_ready=0)
+        await _chat(bot,
+            "⚠️ Poker card delivery failed. Hand paused. Staff: !poker recoverystatus")
+        print(f"[POKER FIRST GATE] gate_open=false reason=cards_missing")
+        return False
+
+    print(f"[POKER FIRST GATE] cards_source={cards_src} cards_found=true cards=hidden")
+
+    tbl = _get_table()
+    if not tbl:
+        return False
+    owe   = max(0, tbl.get("current_bet", 0) - first_actor.get("current_bet", 0))
+    pot   = tbl.get("pot", 0)
+    c_str = _fcs(cards)
+    if owe > 0:
+        msg = (f"🎯 Your turn. {_PK_CARDS}: {c_str} | "
+               f"Pot:{pot:,} 🪙 | Call:{owe:,} 🪙")
+    else:
+        msg = (f"🎯 Your turn. {_PK_CARDS}: {c_str} | "
+               f"Pot:{pot:,} 🪙 | !check, !raise or !fold")
+
+    # ── Whisper attempt 1 ─────────────────────────────────────────────────
+    whisper_ok = False
+    try:
+        await bot.highrise.send_whisper(uid, msg[:249])
+        whisper_ok = True
+        print(f"[POKER FIRST GATE] whisper_attempt=1 ok=true")
+    except Exception as _we:
+        print(f"[POKER FIRST GATE] whisper_attempt=1 ok=false err={str(_we)[:60]}")
+
+    # ── Retry (attempt 2) ─────────────────────────────────────────────────
+    if not whisper_ok:
+        await asyncio.sleep(1.0)
+        try:
+            await bot.highrise.send_whisper(uid, msg[:249])
+            whisper_ok = True
+            print(f"[POKER FIRST GATE] whisper_attempt=2 ok=true")
+        except Exception as _we2:
+            print(f"[POKER FIRST GATE] whisper_attempt=2 ok=false err={str(_we2)[:60]}")
+
+    if not whisper_ok:
+        _save_table(phase="recovery_required", first_turn_ready=0)
+        await _chat(bot,
+            "⚠️ Poker card whisper failed. Hand paused. Staff: !poker recoverystatus")
+        print(f"[POKER FIRST GATE] gate_open=false reason=whisper_failed")
+        return False
+
+    # ── Public turn announcement ──────────────────────────────────────────
+    turn_secs = _s("turn_timer", 20)
+    pub_ok = False
+    try:
+        await _chat(bot, f"⏳ @{uname}'s turn. {turn_secs}s")
+        pub_ok = True
+        print(f"[POKER FIRST GATE] public_turn ok=true")
+    except Exception as _pe:
+        print(f"[POKER FIRST GATE] public_turn ok=false err={str(_pe)[:60]}")
+
+    if not pub_ok:
+        _save_table(phase="recovery_required", first_turn_ready=0)
+        print(f"[POKER FIRST GATE] gate_open=false reason=public_turn_failed")
+        return False
+
+    # ── Open the gate ─────────────────────────────────────────────────────
+    _save_table(
+        phase="preflop",
+        current_player_index=first_actor_idx,
+        first_turn_ready=1,
+    )
+
+    _cancel_task(_turn_task)
+    _turn_task = asyncio.create_task(
+        _turn_timeout(bot, uid, uname, round_id, owe > 0)
+    )
+
+    print(f"[POKER FIRST GATE] phase=preflop first_turn_ready=1")
+    print(f"[POKER FIRST GATE] gate_open=true")
+    return True
 
 
 async def _start_street_from(bot: BaseBot, phase: str, round_id: str,
@@ -2634,6 +2718,12 @@ async def startup_poker_recovery(bot: BaseBot) -> None:
 # ── Main dispatcher ────────────────────────────────────────────────────────────
 
 async def handle_poker(bot: BaseBot, user: User, args: list[str]) -> None:
+    import os as _os
+    _bm = _os.getenv("BOT_MODE", "")
+    if _bm not in ("poker", "all"):
+        print(f"[POKER OWNER] bot={_bm} ignored_poker=true")
+        return
+    print(f"[POKER OWNER] bot={_bm} mode=poker handling=true")
     try:
         await _dispatch(bot, user, args)
     except Exception as exc:
@@ -2749,6 +2839,15 @@ async def _dispatch(bot: BaseBot, user: User, args: list[str]) -> None:
             await _w(bot, user.id,
                 f"♠️ Poker Table\nWaiting for players. ({count} seated)\n"
                 f"Use !join [amount]")
+            return
+        if phase == "dealing":
+            count = _seated_count()
+            await _w(bot, user.id,
+                f"♠️ Poker Table\nDealer is preparing the first turn.\nPlayers: {count}")
+            return
+        if phase == "recovery_required":
+            await _w(bot, user.id,
+                "♠️ Poker Table\n⚠️ Hand paused. Staff recovery needed.")
             return
         if phase == "finished":
             # Auto-repair if safe; otherwise show recovery notice
@@ -3016,6 +3115,14 @@ async def _dispatch(bot: BaseBot, user: User, args: list[str]) -> None:
         tbl = _get_table()
         if not tbl or not tbl["active"]:
             await _w(bot, user.id, "No poker hand active.")
+            return
+        if tbl["phase"] == "dealing" or not tbl.get("first_turn_ready", 1):
+            await _w(bot, user.id,
+                "⏳ Dealer is preparing the first turn. Please wait.")
+            return
+        if tbl["phase"] == "recovery_required":
+            await _w(bot, user.id,
+                "⚠️ Poker hand paused. Staff recovery needed.")
             return
         if tbl["phase"] not in ("preflop", "flop", "turn", "river"):
             await _w(bot, user.id, "No active betting round.")

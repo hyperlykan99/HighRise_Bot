@@ -1,0 +1,283 @@
+EMERGENCY POKER FIX — Stop Patching, Force First Player Card Gate
+
+The previous poker rebuild did NOT actually fix the core issue.
+
+Current live proof:
+- Dealer/blind message appears publicly.
+- First player does NOT receive hand whisper automatically.
+- First player can only see cards by typing !ph.
+- That means cards are saved, but automatic first-turn whisper is not firing or is not required.
+- Game continues anyway, which is wrong.
+- Dealer message is coming from ChillTopiaMC instead of ChipSoprano, so poker ownership/routing may still be wrong.
+
+Goal:
+Force poker to stop after blinds until the first player’s cards are successfully whispered.
+
+This is not optional.
+Do not let the game continue if first player card whisper fails.
+
+Do not modify:
+- blackjack
+- jail
+- luxe tickets
+- tips
+- workflows
+- other bots
+
+==================================================
+PART 1 — Poker Bot Ownership
+==================================================
+
+Poker messages should be owned by ChipSoprano only.
+
+Fix routing so these commands/messages are handled by poker bot:
+!join
+!check
+!call
+!raise
+!fold
+!allin
+!hand
+!leave
+!table
+!poker
+!ph
+
+ChillTopiaMC must not run poker hand start, dealer messages, or poker turn flow.
+
+If ChillTopiaMC receives poker commands, it should route/ignore, not run poker logic.
+
+Add log:
+[POKER OWNER] bot=ChipSoprano mode=poker handling=true
+[POKER OWNER] bot=ChillTopiaMC ignored_poker=true
+
+==================================================
+PART 2 — Hard Stop After Blinds
+==================================================
+
+Find the exact function that sends this public message:
+
+Dealer:
+Hand #1 | BLIND SB:... BB:... POT:150
+
+Immediately after this message:
+
+1. Set phase = dealing
+2. Set first_turn_ready = 0
+3. Sleep 5 seconds
+4. Find first actor
+5. Load first actor cards
+6. Whisper cards to first actor
+7. If whisper succeeds:
+   - send public turn message
+   - set phase = preflop
+   - set first_turn_ready = 1
+   - start turn timer
+8. If whisper fails:
+   - set phase = recovery_required
+   - do NOT start turn timer
+   - do NOT allow actions
+   - tell staff:
+     ⚠️ Poker card whisper failed. Hand paused.
+
+Important:
+Do not call _start_street_from()
+Do not call _prompt_player()
+Do not allow !check / !call / !raise / !fold / !allin
+until first_turn_ready = 1.
+
+==================================================
+PART 3 — Replace First Turn Start With Dedicated Function
+==================================================
+
+Create a dedicated function:
+
+async def open_first_turn_hard_gate(bot, round_id, first_actor_index):
+    tbl = _get_table()
+    players = _get_players(round_id)
+    first = players[first_actor_index]
+
+    cards = load cards from:
+    1. poker_hole_cards by user_id if available
+    2. poker_hole_cards by lower(username)
+    3. poker_active_players.hole_cards_json fallback
+
+    if cards missing:
+        print("[POKER FIRST GATE] cards_missing")
+        _save_table(phase="recovery_required", first_turn_ready=0)
+        await _chat(bot, "⚠️ Poker card delivery failed. Hand paused.")
+        return False
+
+    msg = f"🎯 Your turn. Cards: {cards}. Pot: {pot} 🪙"
+
+    try:
+        await bot.highrise.send_whisper(first["user_id"], msg[:249])
+        whisper_ok = True
+    except Exception as e:
+        print(f"[POKER FIRST GATE] whisper_failed {e!r}")
+        whisper_ok = False
+
+    if not whisper_ok:
+        await asyncio.sleep(1)
+        try:
+            await bot.highrise.send_whisper(first["user_id"], msg[:249])
+            whisper_ok = True
+        except Exception as e:
+            print(f"[POKER FIRST GATE] whisper_retry_failed {e!r}")
+            whisper_ok = False
+
+    if not whisper_ok:
+        _save_table(phase="recovery_required", first_turn_ready=0)
+        await _chat(bot, "⚠️ Poker card whisper failed. Hand paused.")
+        return False
+
+    try:
+        await _chat(bot, f"⏳ @{first['username']}’s turn. {turn_secs}s")
+        public_ok = True
+    except Exception as e:
+        print(f"[POKER FIRST GATE] public_turn_failed {e!r}")
+        public_ok = False
+
+    if not public_ok:
+        _save_table(phase="recovery_required", first_turn_ready=0)
+        return False
+
+    _save_table(
+        phase="preflop",
+        current_player_index=first_actor_index,
+        first_turn_ready=1,
+    )
+
+    start_turn_timer(first)
+    print("[POKER FIRST GATE] gate_open=true")
+    return True
+
+Use this function after blinds.
+Do not use the old generic prompt function for the first turn.
+
+==================================================
+PART 4 — Block Actions Until Gate Opens
+==================================================
+
+Before processing:
+!check
+!call
+!raise
+!fold
+!allin
+
+Add:
+
+tbl = _get_table()
+
+if tbl and tbl["phase"] == "dealing":
+    await whisper(user.id, "⏳ Dealer is preparing the first turn. Please wait.")
+    return
+
+if tbl and tbl.get("first_turn_ready", 0) == 0:
+    await whisper(user.id, "⏳ Dealer is preparing the first turn. Please wait.")
+    return
+
+If phase = recovery_required:
+    await whisper(user.id, "⚠️ Poker hand paused due to card delivery issue.")
+    return
+
+==================================================
+PART 5 — Fix !table
+==================================================
+
+!table must never show:
+Phase: Finished
+
+If internal phase is finished:
+- run cleanup immediately
+- show waiting or between_hands
+
+If phase = dealing:
+♠️ Poker Table
+Dealer is preparing the first turn.
+Players: 2
+
+If phase = recovery_required:
+♠️ Poker Table
+⚠️ Hand paused. Staff recovery needed.
+
+==================================================
+PART 6 — Debug Logs Required
+==================================================
+
+Add these exact logs:
+
+[POKER SEQ] blinds_sent=true round=...
+[POKER FIRST GATE] start first_actor=@AshQuinn_ user_id=...
+[POKER FIRST GATE] cards_source=poker_hole_cards cards_found=true cards=hidden
+[POKER FIRST GATE] whisper_attempt=1 ok=true
+[POKER FIRST GATE] public_turn ok=true
+[POKER FIRST GATE] phase=preflop first_turn_ready=1
+[POKER FIRST GATE] gate_open=true
+
+If failed:
+[POKER FIRST GATE] gate_open=false reason=...
+
+==================================================
+PART 7 — Test
+==================================================
+
+Compile:
+python -m py_compile main.py
+python -m py_compile modules/poker.py
+
+Restart bots.
+
+Test with 2 players:
+
+Player 1:
+!join 5000
+
+Player 2:
+!join 5000
+
+Expected:
+Dealer/blinds message appears.
+
+Then wait 5 seconds.
+
+Expected:
+First player receives whisper:
+🎯 Your turn. Cards: [two cards]
+
+Public:
+⏳ @FirstPlayer’s turn. 30s
+
+If the whisper does not happen:
+Expected:
+Hand pauses.
+No betting allowed.
+No silent continue.
+
+Test:
+Before public turn message, type:
+!check
+
+Expected:
+⏳ Dealer is preparing the first turn. Please wait.
+
+After public turn:
+Current player:
+!check or !call works.
+
+Non-current player:
+!call
+
+Expected:
+⏳ It’s @CurrentPlayer’s turn.
+
+Final report:
+1. Confirmed poker owned by ChipSoprano only
+2. Dealer/blinds message source
+3. First gate logs
+4. First player whisper success result
+5. Public turn message success result
+6. Action block before gate result
+7. No Phase Finished stuck result
+8. Bot stability result

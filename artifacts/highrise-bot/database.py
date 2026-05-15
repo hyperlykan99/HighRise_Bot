@@ -1299,6 +1299,7 @@ def _migrate_db():
         "ALTER TABLE poker_active_table ADD COLUMN big_blind_username   TEXT",
         "ALTER TABLE poker_active_table ADD COLUMN next_hand_starts_at  TEXT",
         "ALTER TABLE poker_active_table ADD COLUMN table_closing        INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE poker_active_table ADD COLUMN first_turn_ready     INTEGER NOT NULL DEFAULT 1",
         "CREATE TABLE IF NOT EXISTS admin_action_logs ("
         "id INTEGER PRIMARY KEY AUTOINCREMENT, "
         "timestamp TEXT DEFAULT (datetime('now')), "
