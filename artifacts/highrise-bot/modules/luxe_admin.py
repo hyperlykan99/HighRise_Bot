@@ -264,3 +264,13 @@ async def handle_ticketadmin(bot: "BaseBot", user: "User") -> None:
              "!sendtickets @user amount\n"
              "!ticketbalance @user\n"
              "!ticketlogs @user")
+
+
+# ---------------------------------------------------------------------------
+# !ticketrate   — show current ticket rate (public)
+# ---------------------------------------------------------------------------
+
+async def handle_ticketrate(bot: "BaseBot", user: "User") -> None:
+    await _w(bot, user.id,
+             "💎 Ticket Rate: 1g = 1 🎫 Luxe Ticket. No bonus. "
+             "Convert to 🪙 ChillCoins with !buycoins.")

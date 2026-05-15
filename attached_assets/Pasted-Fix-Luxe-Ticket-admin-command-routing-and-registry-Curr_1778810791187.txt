@@ -1,0 +1,220 @@
+Fix Luxe Ticket admin command routing and registry.
+
+Current issue:
+!commandtest !ticketadmin shows:
+ct: ticketadmin | owner=UNKNOWN | route=NO | handler=NO | fix=add_to_registry
+
+!commandtest !addtickets shows:
+ct: addtickets | owner=UNKNOWN | route=NO | handler=NO | fix=add_to_registry
+
+That means modules/luxe_admin.py exists, but the commands are not registered/routed in main.py and command registry.
+
+Goal:
+Make these commands work:
+!ticketadmin
+!addtickets @user amount
+!removetickets @user amount
+!settickets @user amount
+!sendtickets @user amount
+!ticketbalance @user
+!ticketlogs @user
+!ticketrate
+
+Do not modify blackjack.
+Do not modify jail.
+Do not modify workflows.
+Do not modify tips again unless needed for !ticketrate wording.
+
+Part 1 — Import handlers in main.py
+
+Add near the other module imports:
+
+from modules.luxe_admin import (
+    handle_addtickets,
+    handle_removetickets,
+    handle_settickets,
+    handle_sendtickets,
+    handle_ticketbalance,
+    handle_ticketlogs,
+    handle_ticketadmin,
+)
+
+Part 2 — Add routing in main.py
+
+In the main command handler where cmd is routed, add:
+
+elif cmd == "addtickets":
+    await handle_addtickets(self, user, args)
+    return
+
+elif cmd == "removetickets":
+    await handle_removetickets(self, user, args)
+    return
+
+elif cmd == "settickets":
+    await handle_settickets(self, user, args)
+    return
+
+elif cmd == "sendtickets":
+    await handle_sendtickets(self, user, args)
+    return
+
+elif cmd == "ticketbalance":
+    await handle_ticketbalance(self, user, args)
+    return
+
+elif cmd == "ticketlogs":
+    await handle_ticketlogs(self, user, args)
+    return
+
+elif cmd == "ticketadmin":
+    await handle_ticketadmin(self, user)
+    return
+
+Part 3 — Add !ticketrate
+
+If !ticketrate does not exist yet, add a simple handler or route it to tiprate.
+
+Preferred reply:
+💎 Ticket Rate: 1g = 1 🎫 Luxe Ticket. No bonus. Convert to 🪙 ChillCoins with !buycoins.
+
+Command:
+!ticketrate
+
+Part 4 — Add to command registry
+
+Find command registry / command ownership / commandtest registry.
+
+Add:
+
+addtickets:
+  owner: BankingBot or ChillTopiaMC
+  route: host/banker
+  handler: handle_addtickets
+  permission: owner
+
+removetickets:
+  owner: BankingBot or ChillTopiaMC
+  route: host/banker
+  handler: handle_removetickets
+  permission: owner
+
+settickets:
+  owner: BankingBot or ChillTopiaMC
+  route: host/banker
+  handler: handle_settickets
+  permission: owner
+
+sendtickets:
+  owner: BankingBot or ChillTopiaMC
+  route: host/banker
+  handler: handle_sendtickets
+  permission: admin
+
+ticketbalance:
+  owner: BankingBot or ChillTopiaMC
+  route: host/banker
+  handler: handle_ticketbalance
+  permission: admin
+
+ticketlogs:
+  owner: BankingBot or ChillTopiaMC
+  route: host/banker
+  handler: handle_ticketlogs
+  permission: admin
+
+ticketadmin:
+  owner: BankingBot or ChillTopiaMC
+  route: host/banker
+  handler: handle_ticketadmin
+  permission: admin
+
+ticketrate:
+  owner: BankingBot or ChillTopiaMC
+  route: host/banker
+  handler: ticketrate handler
+  permission: player
+
+Important:
+!commandtest !ticketadmin should no longer show:
+route=NO
+handler=NO
+fix=add_to_registry
+
+Part 5 — Multi-bot ownership
+
+These commands should be handled by only one bot, preferably BankingBot because it owns currency:
+
+Preferred:
+BankingBot handles:
+!tickets
+!ticketbalance
+!ticketadmin
+!addtickets
+!removetickets
+!settickets
+!sendtickets
+!ticketlogs
+!ticketrate
+
+ChillTopiaMC should not duplicate replies if BankingBot handles them.
+
+If BankingBot is not available, ChillTopiaMC can be fallback.
+
+Part 6 — Compile and test
+
+Run:
+python -m py_compile main.py
+python -m py_compile modules/luxe_admin.py
+python -m py_compile modules/luxe.py
+python -m py_compile modules/tips.py
+
+Restart bots.
+
+Test in game:
+
+!commandtest !ticketadmin
+Expected:
+route=YES
+handler=YES
+
+!commandtest !addtickets
+Expected:
+route=YES
+handler=YES
+
+!ticketadmin
+Expected:
+🎫 Ticket Admin
+!addtickets @user amount
+!removetickets @user amount
+!settickets @user amount
+!sendtickets @user amount
+!ticketbalance @user
+!ticketlogs @user
+
+!addtickets @ashquinn_ 1000
+Expected:
+✅ Added 1,000 🎫 Luxe Tickets to @ashquinn_.
+
+!ticketbalance @ashquinn_
+Expected:
+🎫 @ashquinn_ has [balance] Luxe Tickets.
+
+!settickets @ashquinn_ 1000
+Expected:
+✅ Set @ashquinn_ Luxe Tickets to 1,000 🎫.
+
+!ticketrate
+Expected:
+💎 Ticket Rate: 1g = 1 🎫 Luxe Ticket. No bonus. Convert to 🪙 ChillCoins with !buycoins.
+
+Final report:
+1. Files changed
+2. main.py imports added
+3. command routes added
+4. command registry updated
+5. commandtest results
+6. ticketadmin test result
+7. addtickets/settickets test result
+8. bot stability result

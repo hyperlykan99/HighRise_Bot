@@ -605,6 +605,10 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     "economydefaults",
     "luxeadmin",
     "vipadmin",
+    # ── Luxe Ticket admin commands ────────────────────────────────────────────
+    "addtickets", "removetickets", "settickets",
+    "sendtickets", "ticketbalance", "ticketlogs",
+    "ticketadmin", "ticketrate",
     # 3.1L profile + social
     "myprofile", "flex", "showoff", "card",
     "profilesettings", "profilehelp",
@@ -736,6 +740,9 @@ HELP_CMDS: frozenset[str] = frozenset({
     "goldrainreplace", "goldrainpace", "setgoldrainpace",
     "msgcap", "setmsgcap",
     "tipcoinrate", "settipcoinrate", "bottiplogs",
+    "addtickets", "removetickets", "settickets",
+    "sendtickets", "ticketbalance", "ticketlogs",
+    "ticketadmin", "ticketrate",
     "mingoldtip", "setmingoldtip",
     "tiplb", "tipleaderboard", "bottiplb", "bottipleaderboard",
     "roomtiplb", "roomtipleaderboard", "alltiplb", "alltipleaderboard",

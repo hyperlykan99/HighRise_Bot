@@ -1396,6 +1396,15 @@ REGISTRY: dict[str, Cmd] = {
                            perm="owner"),
     "luxeadmin":       Cmd("banker", "admin",   False, True,  False, perm="admin"),
     "vipadmin":        Cmd("banker", "admin",   False, True,  False, perm="admin"),
+    # ── Luxe Ticket admin (banker owns all) ──────────────────────────────────
+    "addtickets":      Cmd("banker", "economy", False, False, True,  perm="owner"),
+    "removetickets":   Cmd("banker", "economy", False, False, True,  perm="owner"),
+    "settickets":      Cmd("banker", "economy", False, False, True,  perm="owner"),
+    "sendtickets":     Cmd("banker", "economy", False, False, True,  perm="admin"),
+    "ticketbalance":   Cmd("banker", "economy", False, True,  False, perm="admin"),
+    "ticketlogs":      Cmd("banker", "economy", False, True,  False, perm="admin"),
+    "ticketadmin":     Cmd("banker", "help",    True,  True,  False, perm="admin"),
+    "ticketrate":      Cmd("banker", "help",    True,  True,  False, perm="player"),
     # 3.1L — Profile + Social Identity
     "myprofile":       Cmd("host", "profile",   True,  True,  True,
                            aliases=("me", "whois", "pinfo")),

@@ -336,6 +336,10 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "bankstats": "banker", "banknotify": "banker",
     "bankhelp": "banker", "coinhelp": "banker",
     "tipcoinrate": "banker", "settipcoinrate": "banker",
+    # ── Luxe Ticket admin ───────────────────────────────────────────────────
+    "addtickets": "banker", "removetickets": "banker", "settickets": "banker",
+    "sendtickets": "banker", "ticketbalance": "banker", "ticketlogs": "banker",
+    "ticketadmin": "banker", "ticketrate": "banker",
     "bottiplogs": "banker", "mingoldtip": "banker", "setmingoldtip": "banker",
     "tipgold": "banker", "goldreward": "banker", "rewardgold": "banker",
     "tiplb": "banker", "tipleaderboard": "banker",

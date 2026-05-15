@@ -512,7 +512,7 @@ from modules.gold_tips import (
 from modules.luxe_admin import (
     handle_addtickets, handle_removetickets, handle_settickets,
     handle_sendtickets, handle_ticketbalance, handle_ticketlogs,
-    handle_ticketadmin,
+    handle_ticketadmin, handle_ticketrate,
 )
 from modules.mining import (
     handle_mine, handle_tool, handle_upgradetool,
@@ -1284,6 +1284,7 @@ LUXE_COMMANDS: frozenset[str] = frozenset({
     "buyticket", "buyluxe",
     "buycoins",
     "use",
+    "ticketrate",
     # Luxe auto time
     "autotime", "minetime", "fishtime",
     # Admin
@@ -5008,6 +5009,9 @@ class HangoutBot(BaseBot):
 
         elif cmd == "ticketadmin":
             await handle_ticketadmin(self, user)
+
+        elif cmd == "ticketrate":
+            await handle_ticketrate(self, user)
 
         elif cmd == "donate":
             await handle_donate(self, user)
