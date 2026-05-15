@@ -509,6 +509,11 @@ from modules.gold_tips import (
     handle_tipreceiverlb,
     handle_tipadmin,
 )
+from modules.luxe_admin import (
+    handle_addtickets, handle_removetickets, handle_settickets,
+    handle_sendtickets, handle_ticketbalance, handle_ticketlogs,
+    handle_ticketadmin,
+)
 from modules.mining import (
     handle_mine, handle_tool, handle_upgradetool,
     handle_mineprofile, handle_mineinv, handle_sellores, handle_sellore,
@@ -1365,6 +1370,11 @@ JAIL_COMMANDS: frozenset[str] = frozenset({
     "jailconfirm", "jailcancel",
 })
 
+TICKET_ADMIN_COMMANDS: frozenset[str] = frozenset({
+    "addtickets", "removetickets", "settickets",
+    "sendtickets", "ticketbalance", "ticketlogs", "ticketadmin",
+})
+
 ALL_KNOWN_COMMANDS = (
     ALL_KNOWN_COMMANDS
     | TIME_EXP_COMMANDS
@@ -1376,6 +1386,7 @@ ALL_KNOWN_COMMANDS = (
     | RELEASE_COMMANDS
     | MONITOR_COMMANDS
     | JAIL_COMMANDS
+    | TICKET_ADMIN_COMMANDS
 )
 
 # Jail staff/admin commands must be in STAFF_CMDS so the on_chat gate lets them through.
@@ -1396,6 +1407,15 @@ ADMIN_ONLY_CMDS = ADMIN_ONLY_CMDS | {
     "setjailspot", "setjailguardspot", "setsecurityidle", "setjailreleasespot",
 }
 OWNER_ONLY_CMDS = OWNER_ONLY_CMDS | {"jailprotectstaff"}
+
+# ── Ticket admin permission gates (TICKET_ADMIN_COMMANDS defined above) ──────
+STAFF_CMDS       = STAFF_CMDS | TICKET_ADMIN_COMMANDS
+ADMIN_ONLY_CMDS  = ADMIN_ONLY_CMDS | {
+    "sendtickets", "ticketbalance", "ticketlogs", "ticketadmin",
+}
+OWNER_ONLY_CMDS  = OWNER_ONLY_CMDS | {
+    "addtickets", "removetickets", "settickets",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -4967,6 +4987,27 @@ class HangoutBot(BaseBot):
 
         elif cmd == "vipadmin":
             await handle_vipadmin(self, user, args)
+
+        elif cmd == "addtickets":
+            await handle_addtickets(self, user, args)
+
+        elif cmd == "removetickets":
+            await handle_removetickets(self, user, args)
+
+        elif cmd == "settickets":
+            await handle_settickets(self, user, args)
+
+        elif cmd == "sendtickets":
+            await handle_sendtickets(self, user, args)
+
+        elif cmd == "ticketbalance":
+            await handle_ticketbalance(self, user, args)
+
+        elif cmd == "ticketlogs":
+            await handle_ticketlogs(self, user, args)
+
+        elif cmd == "ticketadmin":
+            await handle_ticketadmin(self, user)
 
         elif cmd == "donate":
             await handle_donate(self, user)

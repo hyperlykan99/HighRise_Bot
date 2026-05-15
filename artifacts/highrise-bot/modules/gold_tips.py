@@ -187,15 +187,9 @@ async def handle_incoming_gold_tip(
         print(f"[GOLDTIP] Duplicate skipped: event_id={event_id}")
         return
 
-    # Credit balance
-    try:
-        db.ensure_user(sender.id, sender.username)
-        db.add_balance(sender.id, coins)
-    except Exception as exc:
-        print(f"[GOLDTIP] Balance credit error: {exc}")
-
-    # Award Luxe Tickets alongside coins
+    # Award Luxe Tickets — gold tips no longer give ChillCoins automatically
     luxe_amt = 0
+    _luxe_ok = False
     try:
         from modules.luxe import (
             add_luxe_balance    as _alb,
@@ -205,21 +199,32 @@ async def handle_incoming_gold_tip(
         luxe_rate = _glr()
         luxe_amt  = max(1, int(gold_amount * luxe_rate))
         _alb(sender.id, sender.username, luxe_amt)
-        _llt(sender.id, sender.username, "gold_tip",
+        _llt(sender.id, sender.username, "gold_tip_reward",
              luxe_amt, "luxe", f"{gold_amount:g}g")
-        print(f"[GOLDTIP] Luxe: @{sender.username} +{luxe_amt} 🎫")
+        _luxe_ok = True
+        print(f"[TIP REWARD] user={sender.username} gold={gold_amount:g} "
+              f"reward={luxe_amt}_luxe_tickets bot={receiving_bot_username}")
+        print(f"[LUXE] add user={sender.username} amount={luxe_amt} "
+              f"reason=gold_tip_reward")
     except Exception as _le:
         print(f"[GOLDTIP] Luxe award error: {_le!r}")
 
-    # Public thank-you
-    luxe_str = f" | +{luxe_amt:,} 🎫" if luxe_amt else ""
-    msg = (f"💛 Thanks @{sender.username}! "
-           f"{gold_amount:g} Gold → {coins:,} 🪙{luxe_str}")
+    # Whisper acknowledgement to the tipper
     try:
-        await bot.highrise.chat(msg[:249])
-    except Exception:
-        pass
-    print(f"[GOLDTIP] Rewarded: @{sender.username} +{coins:,} 🪙 "
+        if _luxe_ok and luxe_amt > 0:
+            _lbl = "Luxe Ticket" if luxe_amt == 1 else "Luxe Tickets"
+            _ack = (
+                f"💎 Thanks @{sender.username}! "
+                f"You received {luxe_amt:,} 🎫 {_lbl} for tipping {gold_amount:g} gold.\n"
+                f"Want 🪙 ChillCoins too? Use !buycoins or !buycoins [amount]."
+            )[:249]
+        else:
+            _ack = "⚠️ Tip received, but Luxe reward failed. Please contact owner."
+        await _w(bot, sender.id, _ack)
+    except Exception as _ae:
+        print(f"[GOLDTIP] Ack whisper error: {_ae!r}")
+
+    print(f"[GOLDTIP] Rewarded: @{sender.username} +{luxe_amt:,} 🎫 "
           f"(event_id={event_id})")
 
     # Auto-convert check — if player has autoconvert on, convert tickets to coins

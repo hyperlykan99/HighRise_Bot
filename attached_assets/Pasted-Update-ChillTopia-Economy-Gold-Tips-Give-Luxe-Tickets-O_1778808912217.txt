@@ -1,0 +1,275 @@
+Update ChillTopia Economy — Gold Tips Give Luxe Tickets + Owner Luxe Ticket Admin
+
+Current stable state:
+- Bots are running fine.
+- Jail system works.
+- Rejoin jail works.
+- Teleport block works.
+- Do not modify jail logic in this update.
+
+Goal:
+Fix gold tip rewards and add owner commands for 🎫 Luxe Tickets.
+
+Current problem:
+When a player tips any bot, they receive 🪙 ChillCoins.
+This is wrong.
+
+New rule:
+When a player tips any bot with Highrise gold:
+1 HR gold = 1 🎫 Luxe Ticket
+
+Examples:
+- tip 1 gold = +1 🎫 Luxe Ticket
+- tip 10 gold = +10 🎫 Luxe Tickets
+- tip 100 gold = +100 🎫 Luxe Tickets
+
+Do NOT automatically give ChillCoins from tips anymore.
+
+Part 1 — Gold Tip Reward Change
+
+Find current tip handling code:
+- modules/gold_tips.py
+- modules/tips.py
+- on_tip / tip_reaction / handle_tip / process_tip_event
+- any code that currently adds ChillCoins when a bot receives gold
+
+Change behavior:
+- Remove automatic ChillCoins reward from gold tips.
+- Add 🎫 Luxe Tickets instead.
+- Use the existing real Luxe Ticket storage system.
+- Do not create a fake separate ticket balance.
+
+Required helper behavior:
+add_luxe_tickets(user_id, amount, reason="gold_tip_reward")
+
+If existing helper has a different name, use the existing one.
+
+Log:
+[TIP REWARD] user=Player gold=10 reward=10_luxe_tickets bot=ChillTopiaMC
+[LUXE] add user=Player amount=10 reason=gold_tip_reward
+
+Part 2 — Tip Acknowledgement Message
+
+When a player tips any bot, the bot should acknowledge:
+
+💎 Thanks @Player! You received 10 🎫 Luxe Tickets for tipping 10 gold.
+Want 🪙 ChillCoins too? Use !buycoins or !buycoins [amount].
+
+If the tip amount is 1:
+
+💎 Thanks @Player! You received 1 🎫 Luxe Ticket for tipping 1 gold.
+Want 🪙 ChillCoins too? Use !buycoins or !buycoins [amount].
+
+Rules:
+- Keep message under Highrise message length limit.
+- Do not spam duplicate messages if multiple bots receive the same tip event.
+- Only the tipped bot should acknowledge the tip.
+- If tip reward fails, do not lie. Reply:
+⚠️ Tip received, but Luxe reward failed. Please contact owner.
+
+Part 3 — Buy ChillCoins Option
+
+Do not auto-convert.
+Only tell players they can use:
+
+!buycoins
+!buycoins [amount]
+
+If !buycoins already exists, do not rewrite it unless broken.
+If !buycoins uses 🎫 Luxe Tickets to buy 🪙 ChillCoins, keep existing rates.
+
+Part 4 — Owner Luxe Ticket Admin Commands
+
+Add owner commands:
+
+!addtickets @user amount
+!removetickets @user amount
+!settickets @user amount
+!sendtickets @user amount
+!ticketbalance @user
+!ticketlogs @user
+!ticketadmin
+
+Permissions:
+Owner only for:
+- !addtickets
+- !removetickets
+- !settickets
+
+Owner/admin allowed for:
+- !sendtickets
+- !ticketbalance
+- !ticketlogs
+
+Players can still use:
+!tickets
+to see their own Luxe Tickets.
+
+Command behavior:
+
+!addtickets @AshQuinn_ 100
+Reply:
+✅ Added 100 🎫 Luxe Tickets to @AshQuinn_.
+
+!removetickets @AshQuinn_ 50
+Reply:
+✅ Removed 50 🎫 Luxe Tickets from @AshQuinn_.
+
+!settickets @AshQuinn_ 500
+Reply:
+✅ Set @AshQuinn_ Luxe Tickets to 500 🎫.
+
+!sendtickets @AshQuinn_ 25
+Reply:
+✅ Sent 25 🎫 Luxe Tickets to @AshQuinn_.
+
+!ticketbalance @AshQuinn_
+Reply:
+🎫 @AshQuinn_ has 500 Luxe Tickets.
+
+Rules:
+- Amount must be positive integer.
+- Do not allow negative ticket balances.
+- Do not affect ChillCoins.
+- Use real Luxe Ticket storage.
+- Log every owner/admin ticket action.
+- Never expose database rows or raw JSON in chat.
+
+Part 5 — Ticket Logs
+
+Log fields:
+- timestamp
+- actor_user_id
+- actor_username
+- target_user_id
+- target_username
+- action
+- amount
+- balance_before
+- balance_after
+- reason
+
+Reasons:
+- gold_tip_reward
+- owner_addtickets
+- owner_removetickets
+- owner_settickets
+- admin_sendtickets
+
+!ticketlogs @user should show a short summary only:
+🎫 Recent ticket logs for @User:
++100 owner_addtickets by @4ktreyMarion
+-50 owner_removetickets by @4ktreyMarion
+
+Keep it short.
+
+Part 6 — Command Registry / Help
+
+Add commands to:
+- main.py routing
+- command_registry.py
+- admin help / owner help
+- commandtest support
+
+Commands:
+- addtickets
+- removetickets
+- settickets
+- sendtickets
+- ticketbalance
+- ticketlogs
+- ticketadmin
+
+!ticketadmin should show:
+
+🎫 Ticket Admin
+!addtickets @user amount
+!removetickets @user amount
+!settickets @user amount
+!sendtickets @user amount
+!ticketbalance @user
+!ticketlogs @user
+
+Part 7 — Safety
+
+Do not modify:
+- jail system
+- Replit workflows
+- AI system
+- casino odds
+- blackjack/poker
+- mining/fishing
+- existing ChillCoins economy except removing gold-tip auto ChillCoins reward
+
+Do not let OpenAI/AI directly change tickets in this update.
+Only command handlers.
+
+Part 8 — Tests
+
+Compile:
+python -m py_compile main.py
+python -m py_compile modules/gold_tips.py
+python -m py_compile modules/luxe.py
+
+If new file created:
+python -m py_compile modules/luxe_admin.py
+
+Startup:
+- Restart bots.
+- Bots must stay online.
+- No fast-exit loop.
+- No ImportError.
+- No NameError.
+- No sqlite3.OperationalError.
+
+In-game tests:
+
+Test 1 — Tip reward:
+Player tips ChillTopiaMC 1 gold.
+Expected:
++1 🎫 Luxe Ticket
+0 🪙 ChillCoins added from tip
+Message:
+💎 Thanks @Player! You received 1 🎫 Luxe Ticket for tipping 1 gold.
+Want 🪙 ChillCoins too? Use !buycoins or !buycoins [amount].
+
+Test 2:
+Player tips KeanuShield 10 gold.
+Expected:
++10 🎫 Luxe Tickets
+No ChillCoins added from tip
+
+Test 3 — Owner add:
+!addtickets @AltName 100
+!ticketbalance @AltName
+Expected:
+AltName has +100 🎫.
+
+Test 4 — Owner remove:
+!removetickets @AltName 50
+Expected:
+AltName loses 50 🎫.
+
+Test 5 — Owner set:
+!settickets @AltName 500
+Expected:
+AltName has exactly 500 🎫.
+
+Test 6 — Send:
+!sendtickets @AltName 25
+Expected:
+AltName receives 25 🎫.
+
+Test 7 — Logs:
+!ticketlogs @AltName
+Expected:
+Short recent log summary.
+
+Final report:
+1. Files changed
+2. Tip reward conversion result
+3. Tip acknowledgement result
+4. ChillCoins no-longer-added result
+5. Owner ticket admin command result
+6. Ticket logs result
+7. Bot stability result
