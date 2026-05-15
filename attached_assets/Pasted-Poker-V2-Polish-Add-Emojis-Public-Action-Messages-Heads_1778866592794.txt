@@ -1,0 +1,409 @@
+Poker V2 Polish — Add Emojis, Public Action Messages, Heads-Up Turn Rules, and Auto Next Hand
+
+Current issue:
+Poker V2 is now dealing cards and starting the turn, but action messages are not clear enough.
+
+Example:
+Bot says:
+@ashquinn_'s turn. 30s
+
+If AshQuinn checks, the bot should publicly say:
+✅ @ashquinn_ checked.
+
+Also:
+- Add simple emojis back to poker messages.
+- After winner announcement, the next hand does not start automatically.
+- Fix post-hand cleanup so the next game starts if 2+ players are still seated.
+
+Do NOT modify:
+- blackjack
+- jail
+- Luxe Tickets
+- tips
+- workflows
+- other games
+
+==================================================
+PART 1 — Confirm Correct Heads-Up Turn Order
+==================================================
+
+For 2-player poker:
+
+Preflop:
+- Small blind / dealer acts first.
+- Big blind acts second.
+
+Postflop:
+- Big blind acts first.
+- Small blind / dealer acts second.
+
+Example:
+SB: @ashquinn_ 50 coins
+BB: @4ktreyMarion 100 coins
+
+Correct preflop first turn:
+@ashquinn_'s turn. 30s
+
+Do not change this rule.
+
+==================================================
+PART 2 — Add Public Action Announcements
+==================================================
+
+After every valid action, send a short public message.
+
+!check:
+✅ @Player checked.
+
+!call:
+💰 @Player called 50 coins.
+
+!raise 500:
+📈 @Player raised to 500 coins.
+
+!fold:
+🏳️ @Player folded.
+
+!allin:
+🔥 @Player is all-in for 5,000 coins.
+
+Timeout auto-check:
+⏰ @Player timed out and checked. AFK 1/3.
+
+Timeout auto-fold:
+⏰ @Player timed out and folded. AFK 1/3.
+
+Wrong turn:
+Whisper only:
+It is @CurrentPlayer's turn.
+
+Do not publicly announce invalid actions.
+
+==================================================
+PART 3 — Add Simple Emojis To Poker Messages
+==================================================
+
+Use readable emojis, not color coding.
+
+Join:
+✅ @Player joined poker with 5,000 coins. Players: 2/6
+
+Countdown:
+♠️ Starting first hand in 10s.
+
+Card whisper:
+🃏 Your cards: A♠ K♦
+
+Cards sent:
+🃏 Cards sent.
+
+Hand start:
+♠️ Poker hand #1.
+SB: @Player1 50 coins
+BB: @Player2 100 coins
+Pot: 150 coins
+
+Turn:
+⏳ @Player's turn. 30s
+
+Private turn whisper:
+🎯 Your turn.
+🃏 Your cards: A♠ K♦
+Pot: 150 coins
+Call: 50 coins
+
+Win:
+🏆 @Player wins 150 coins. Everyone else folded.
+
+Stacks:
+💰 Stacks:
+@Player1 5,050
+@Player2 4,950
+
+Next hand:
+♠️ Next hand in 10s.
+
+Waiting:
+♠️ Waiting for 1 more player. Use !join 5000.
+
+Leave:
+👋 @Player left table. Cashed out 5,000 coins.
+
+Leave during active hand:
+🚪 @Player will leave after this hand.
+
+Already folded:
+🏳️ You have already folded.
+
+==================================================
+PART 4 — Action Message Placement
+==================================================
+
+In each command handler:
+
+_cmd_check:
+- validate action
+- update player state
+- public chat: ✅ @Player checked.
+- call resolver
+
+_cmd_call:
+- validate action
+- calculate call amount
+- update stack/pot
+- public chat: 💰 @Player called X coins.
+- call resolver
+
+_cmd_raise:
+- validate action
+- update bet/pot
+- public chat: 📈 @Player raised to X coins.
+- call resolver
+
+_cmd_fold:
+- validate action
+- status = folded
+- public chat: 🏳️ @Player folded.
+- call resolver
+
+_cmd_allin:
+- validate action
+- commit stack
+- public chat: 🔥 @Player is all-in for X coins.
+- call resolver
+
+Important:
+Do not call resolver before sending the action message, or the win message may appear without showing what caused it.
+
+Correct order:
+1. process action
+2. announce action
+3. resolve betting state
+4. announce next turn or winner
+
+==================================================
+PART 5 — Leave During Hand
+==================================================
+
+If player uses !leave during active hand:
+
+If not all-in:
+- mark status folded
+- mark remove_after_hand = True
+- public:
+🚪 @Player left during the hand and folded.
+
+If all-in:
+- keep player eligible
+- mark remove_after_hand = True
+- public:
+🚪 @Player is all-in and will leave after showdown.
+
+If player tries to act after leaving/folding:
+Whisper:
+🏳️ You have already folded.
+
+This is correct behavior.
+
+==================================================
+PART 6 — Postflop Heads-Up Turn Fix
+==================================================
+
+When moving from preflop to flop/turn/river:
+
+For 2 players:
+- first actor should be the big blind if still active.
+
+For 3+ players:
+- first active player left of dealer.
+
+Add logs:
+[POKER V2 TURN] street=preflop first_actor=@ashquinn_ reason=heads_up_sb_first
+[POKER V2 TURN] street=flop first_actor=@4ktreyMarion reason=heads_up_bb_first
+
+==================================================
+PART 7 — Auto Next Hand After Winner
+==================================================
+
+Current bug:
+After the bot announces the winner, the next hand does not start automatically.
+
+Fix:
+After every hand ends, always run one cleanup function:
+
+complete_hand(bot, reason)
+
+This must run after:
+- everyone else folded
+- showdown
+- all-in showdown
+- AFK fold win
+- leave fold win
+- force finish
+- cancel/refund
+
+complete_hand must:
+1. Cancel turn timer.
+2. Award pot to winner.
+3. Show win message.
+4. Show stack summary.
+5. Clear board/cards/current bet/pot.
+6. Process remove_after_hand players.
+7. Cash out players who left.
+8. Remove busted players.
+9. Set remaining players status = waiting.
+10. Count remaining seated players.
+11. If 2+ players remain:
+    - set phase = between_hands
+    - public: ♠️ Next hand in 10s.
+    - start countdown task:
+      _T["countdown_task"] = asyncio.create_task(_start_hand_countdown(bot, 10))
+12. If fewer than 2 players remain:
+    - set phase = waiting
+    - public: ♠️ Waiting for 1 more player. Use !join 5000.
+
+Important:
+Do not leave phase as:
+finished
+preflop
+flop
+turn
+river
+
+after winner announcement.
+
+After winner announcement, phase must become only:
+between_hands
+or
+waiting
+
+==================================================
+PART 8 — Prevent Countdown Task Bugs
+==================================================
+
+Before starting next hand countdown:
+
+- cancel old turn timer
+- do not cancel the current countdown task if it is already running
+- make sure only one countdown task exists
+
+Use:
+
+def _start_next_hand_countdown(bot):
+    old = _T.get("countdown_task")
+    if old and not old.done():
+        old.cancel()
+
+    _T["phase"] = "between_hands"
+    _T["countdown_task"] = asyncio.create_task(_start_hand_countdown(bot, 10))
+
+After winner:
+await _chat(bot, "♠️ Next hand in 10s.")
+_start_next_hand_countdown(bot)
+
+Add logs:
+[POKER V2 CLEANUP] reason=fold_win remaining=2 next=between_hands
+[POKER V2 NEXT HAND] countdown_started=true delay=10
+[POKER V2 NEXT HAND] not_started reason=need_more_players
+
+==================================================
+PART 9 — Table Status After Winner
+==================================================
+
+!table after a hand ends should show:
+
+If 2+ players remain:
+Poker table:
+Next hand soon.
+Players: 2
+
+If fewer than 2:
+Poker table:
+Waiting for 1 more player.
+Use !join 5000.
+
+Never show:
+Phase: Finished
+
+==================================================
+PART 10 — Tests
+==================================================
+
+Run:
+python -m py_compile main.py
+python -m py_compile modules/poker_v2.py
+
+Restart bots.
+
+Test 1 — Heads-up preflop:
+SB: @ashquinn_
+BB: @4ktreyMarion
+
+Expected:
+⏳ @ashquinn_'s turn. 30s
+
+Test 2 — Check:
+AshQuinn types:
+!check
+
+Expected public:
+✅ @ashquinn_ checked.
+
+Then next turn:
+⏳ @4ktreyMarion's turn. 30s
+
+Test 3 — Call:
+Player types:
+!call
+
+Expected:
+💰 @Player called X coins.
+
+Test 4 — Fold:
+Player types:
+!fold
+
+Expected:
+🏳️ @Player folded.
+Then:
+🏆 @Winner wins X coins. Everyone else folded.
+💰 Stacks:
+@A 5,050
+@B 4,950
+♠️ Next hand in 10s.
+
+Test 5 — Auto next hand:
+After winner announcement, wait 10 seconds.
+
+Expected:
+New hand starts automatically:
+🃏 cards are sent
+♠️ Poker hand #2.
+SB...
+BB...
+Pot...
+⏳ @Player's turn. 30s
+
+Test 6 — Fewer than 2 players:
+One player leaves after hand.
+
+Expected:
+♠️ Waiting for 1 more player. Use !join 5000.
+
+Test 7 — Postflop:
+After preflop betting closes in heads-up.
+
+Expected:
+BB acts first postflop.
+
+Final report:
+1. Public check/call/raise/fold/allin messages added
+2. Emojis added
+3. Heads-up preflop turn confirmed SB first
+4. Heads-up postflop turn confirmed BB first
+5. Leave during hand behavior confirmed
+6. Winner cleanup result
+7. Auto next hand countdown result
+8. New hand starts after winner result
+9. No stuck finished phase result
+10. Bot stability result

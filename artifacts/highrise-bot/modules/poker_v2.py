@@ -148,7 +148,7 @@ async def _send_card_whisper_confirmed(bot: BaseBot, player: dict) -> bool:
         _T["card_delivery_log"][username] = {"cards": False, "whisper": False, "reason": "cards_missing"}
         print(f"[POKER V2 CARD SEND] @{username} failed cards_missing")
         return False
-    msg = f"Your cards: {_fcs(cards)}"
+    msg = f"🃏 Your cards: {_fcs(cards)}"
     ok  = await _w(bot, player["user_id"], msg)
     if not ok:
         await asyncio.sleep(1)
@@ -169,15 +169,15 @@ async def _send_turn_whisper_confirmed(bot: BaseBot, username: str, player: dict
     owe = max(0, _T["current_bet"] - player.get("current_bet", 0))
     if owe > 0:
         msg = (
-            f"Your turn.\n"
-            f"Your cards: {_fcs(cards)}\n"
+            f"🎯 Your turn.\n"
+            f"🃏 Your cards: {_fcs(cards)}\n"
             f"Pot: {_T['pot']:,} coins\n"
             f"Call: {owe:,} coins"
         )
     else:
         msg = (
-            f"Your turn.\n"
-            f"Your cards: {_fcs(cards)}\n"
+            f"🎯 Your turn.\n"
+            f"🃏 Your cards: {_fcs(cards)}\n"
             f"Pot: {_T['pot']:,} coins"
         )
     ok = await _w(bot, player["user_id"], msg[:249])
@@ -195,7 +195,7 @@ async def _whisper_v2_cards(bot: BaseBot, player: dict, reason: str = "deal") ->
         print(f"[POKER V2 CARD SEND] @{username} ok=false reason=cards_missing")
         return False
     cstr = _fcs(cards)
-    msg  = f"Your cards: {cstr}"
+    msg  = f"🃏 Your cards: {cstr}"
     ok   = False
     try:
         await bot.highrise.send_whisper(player["user_id"], msg[:249])
@@ -343,12 +343,12 @@ async def _turn_timeout(bot: BaseBot, username: str) -> None:
     if owe == 0:
         p["acted"] = True
         action = "auto-check"
+        await _chat(bot, f"⏰ @{username} timed out and checked. AFK {p['afk_strikes']}/3.")
     else:
         p["status"] = "folded"
         p["acted"]  = True
         action = "auto-fold"
-
-    await _chat(bot, f"@{username} timed out. AFK warning {p['afk_strikes']}/3.")
+        await _chat(bot, f"⏰ @{username} timed out and folded. AFK {p['afk_strikes']}/3.")
     print(f"[POKER V2] timeout user={username} action={action} strikes={p['afk_strikes']}")
 
     if p["afk_strikes"] >= 3:
@@ -368,7 +368,7 @@ async def _resolve(bot: BaseBot) -> None:
         winner  = nf[0]
         win_amt = _T["pot"]
         _T["players"][winner]["stack"] += win_amt
-        await _chat(bot, f"@{winner} wins {win_amt:,} coins. Everyone else folded.")
+        await _chat(bot, f"🏆 @{winner} wins {win_amt:,} coins. Everyone else folded.")
         print(f"[POKER V2] resolve action=fold_win winner={winner}")
         await _complete_hand(bot, "fold_win")
         return
@@ -416,13 +416,13 @@ async def _prompt_turn(bot: BaseBot, username: str) -> None:
     _T["turn_timer_task"] = asyncio.create_task(_turn_timeout(bot, username))
 
     if owe > 0:
-        wh = f"Your cards: {csz}\nPot: {pot:,} coins\nCall: {owe:,} coins"
+        wh = f"🎯 Your turn.\n🃏 Your cards: {csz}\nPot: {pot:,} coins\nCall: {owe:,} coins"
     else:
-        wh = f"Your cards: {csz}\nPot: {pot:,} coins\n!check, !raise, !fold, !allin"
+        wh = f"🎯 Your turn.\n🃏 Your cards: {csz}\nPot: {pot:,} coins\n!check, !raise, !fold, !allin"
 
-    wh_ok = await _w(bot, uid, wh)
+    wh_ok = await _w(bot, uid, wh[:249])
     print(f"[POKER V2] whisper user={username} ok={str(wh_ok).lower()}")
-    await _chat(bot, f"@{username}'s turn. {secs}s")
+    await _chat(bot, f"⏳ @{username}'s turn. {secs}s")
 
 # ── Street advancement ─────────────────────────────────────────────────────────
 async def _advance_street(bot: BaseBot) -> None:
@@ -438,6 +438,7 @@ async def _advance_street(bot: BaseBot) -> None:
             p["acted"]       = False
 
     # First to act postflop: first active player left of dealer
+    # Heads-up: dealer=SB at dealer_idx, so (dealer_idx+1)%2 = BB → BB acts first postflop ✓
     dealer_idx = _T["dealer_index"]
     seats      = _T["seats"]
     n          = len(seats)
@@ -453,21 +454,27 @@ async def _advance_street(bot: BaseBot) -> None:
         flop = [deck.pop(), deck.pop(), deck.pop()]
         _T["board"].extend(flop)
         _T["phase"] = "flop"
-        await _chat(bot, f"Flop: {_fcs(flop)}\nPot: {_T['pot']:,} coins")
+        await _chat(bot, f"♠️ Flop: {_fcs(flop)}\nPot: {_T['pot']:,} coins")
+        reason = "heads_up_bb_first" if n == 2 else "left_of_dealer"
+        print(f"[POKER V2 TURN] street=flop first_actor=@{first_u or '?'} reason={reason}")
 
     elif phase == "flop":
         deck.pop()
         turn_c = deck.pop()
         _T["board"].append(turn_c)
         _T["phase"] = "turn"
-        await _chat(bot, f"Turn: {_fc(turn_c)}\nBoard: {_board_str()}")
+        await _chat(bot, f"♠️ Turn: {_fc(turn_c)}\nBoard: {_board_str()}")
+        reason = "heads_up_bb_first" if n == 2 else "left_of_dealer"
+        print(f"[POKER V2 TURN] street=turn first_actor=@{first_u or '?'} reason={reason}")
 
     elif phase == "turn":
         deck.pop()
         river_c = deck.pop()
         _T["board"].append(river_c)
         _T["phase"] = "river"
-        await _chat(bot, f"River: {_fc(river_c)}\nBoard: {_board_str()}")
+        await _chat(bot, f"♠️ River: {_fc(river_c)}\nBoard: {_board_str()}")
+        reason = "heads_up_bb_first" if n == 2 else "left_of_dealer"
+        print(f"[POKER V2 TURN] street=river first_actor=@{first_u or '?'} reason={reason}")
 
     elif phase == "river":
         await _showdown(bot)
@@ -487,7 +494,7 @@ async def _run_to_showdown(bot: BaseBot) -> None:
     phase = _T["phase"]
     deck  = _T["deck"]
 
-    await _chat(bot, "All-in. Running the board...")
+    await _chat(bot, "🔥 All-in! Running the board...")
     await asyncio.sleep(1)
 
     if phase == "preflop":
@@ -533,7 +540,7 @@ async def _showdown(bot: BaseBot) -> None:
     board    = _T["board"]
     eligible = _eligible_in_hand()
 
-    await _chat(bot, f"Showdown.\nBoard: {_board_str()}")
+    await _chat(bot, f"♠️ Showdown.\nBoard: {_board_str()}")
     await asyncio.sleep(1)
 
     # Evaluate each eligible player's best hand
@@ -574,10 +581,10 @@ async def _showdown(bot: BaseBot) -> None:
         if len(winners) == 1:
             w = winners[0]
             await _chat(bot,
-                f"@{w} wins {pot_info['amount']:,} coins with {_hand_name(scores[w])}.")
+                f"🏆 @{w} wins {pot_info['amount']:,} coins with {_hand_name(scores[w])}.")
         else:
             names = " and ".join(f"@{w}" for w in winners)
-            await _chat(bot, f"Split pot. {names} each receive {share:,} coins.")
+            await _chat(bot, f"🏆 Split pot. {names} each receive {share:,} coins.")
 
     print(f"[POKER V2] resolve action=showdown")
     await _complete_hand(bot, "showdown")
@@ -585,14 +592,14 @@ async def _showdown(bot: BaseBot) -> None:
 # ── Complete hand ──────────────────────────────────────────────────────────────
 async def _complete_hand(bot: BaseBot, reason: str) -> None:
     """Post-hand cleanup. Always called after any hand ends."""
-    print(f"[POKER V2] complete reason={reason}")
+    print(f"[POKER V2 CLEANUP] reason={reason}")
     _cancel_all_tasks()
 
     # Show current stacks before removal
     seated_now = _seated()
     if seated_now:
         parts = [f"@{u} {_T['players'][u]['stack']:,}" for u in seated_now[:6]]
-        await _chat(bot, ("Stacks: " + " | ".join(parts))[:249])
+        await _chat(bot, ("💰 Stacks:\n" + "\n".join(parts))[:249])
 
     # Cash out / remove players marked for removal or busted
     to_remove: list = []
@@ -601,7 +608,7 @@ async def _complete_hand(bot: BaseBot, reason: str) -> None:
         if p.get("remove_after_hand") or p["stack"] <= 0:
             if p["stack"] > 0:
                 _credit(p["user_id"], p["stack"])
-                await _chat(bot, f"@{u} left table. Cashed out {p['stack']:,} coins.")
+                await _chat(bot, f"👋 @{u} left table. Cashed out {p['stack']:,} coins.")
             else:
                 await _chat(bot, f"@{u} busted out.")
             to_remove.append(u)
@@ -629,15 +636,24 @@ async def _complete_hand(bot: BaseBot, reason: str) -> None:
 
     # Start next hand or wait
     remaining = _seated()
+    print(f"[POKER V2 CLEANUP] reason={reason} remaining={len(remaining)}")
     if len(remaining) >= 2:
-        _T["phase"] = "between_hands"
-        await _chat(bot, "Next hand in 10s.")
-        _T["countdown_task"] = asyncio.create_task(_start_hand_countdown(bot, 10))
-        print(f"[POKER V2] complete next=between_hands")
+        await _chat(bot, "♠️ Next hand in 10s.")
+        _start_next_hand_countdown(bot)
+        print(f"[POKER V2 NEXT HAND] countdown_started=true delay=10")
     else:
         _T["phase"] = "waiting"
-        await _chat(bot, "Waiting for one more player. Use !join 5000.")
-        print(f"[POKER V2] complete next=waiting")
+        await _chat(bot, "♠️ Waiting for 1 more player. Use !join 5000.")
+        print(f"[POKER V2 NEXT HAND] not_started reason=need_more_players")
+
+# ── Next hand countdown helper ─────────────────────────────────────────────────
+def _start_next_hand_countdown(bot: BaseBot) -> None:
+    """Cancel any old countdown and start a fresh 10s hand countdown."""
+    old = _T.get("countdown_task")
+    if old and not old.done():
+        old.cancel()
+    _T["phase"]          = "between_hands"
+    _T["countdown_task"] = asyncio.create_task(_start_hand_countdown(bot, 10))
 
 # ── Hand countdown ─────────────────────────────────────────────────────────────
 async def _start_hand_countdown(bot: BaseBot, delay: int = 10) -> None:
@@ -731,9 +747,9 @@ async def _start_hand(bot: BaseBot) -> None:
             return
 
         if delivery_failed:
-            await _chat(bot, "Cards sent. If you did not receive cards, type !hand.")
+            await _chat(bot, "🃏 Cards sent. If you did not receive cards, type !hand.")
         else:
-            await _chat(bot, "Cards sent.")
+            await _chat(bot, "🃏 Cards sent.")
 
         # Post blinds after card delivery
         def _post_blind(uname: str, amount: int) -> int:
@@ -754,7 +770,7 @@ async def _start_hand(bot: BaseBot) -> None:
 
         # Announce hand with SB/BB/Pot
         blind_msg = (
-            f"Poker hand #{_T['hand_number']}.\n"
+            f"♠️ Poker hand #{_T['hand_number']}.\n"
             f"SB: @{sb_user} {actual_sb:,} coins\n"
             f"BB: @{bb_user} {actual_bb:,} coins\n"
             f"Pot: {_T['pot']:,} coins"
@@ -762,7 +778,7 @@ async def _start_hand(bot: BaseBot) -> None:
         await _chat(bot, blind_msg)
 
         # Announce first turn and start timer
-        await _chat(bot, f"@{first_actor}'s turn. {secs}s")
+        await _chat(bot, f"⏳ @{first_actor}'s turn. {secs}s")
         print(f"[POKER V2 START] turn_announced=true")
         print(f"[POKER V2 OPEN] first_actor=@{first_actor} phase=preflop ready=true")
         _cancel_turn_task()
@@ -830,7 +846,7 @@ async def _action_guard(bot: BaseBot, user: User) -> bool:
 
     p = _T["players"][username]
     if p["status"] == "folded":
-        await _w(bot, user.id, "You have already folded.")
+        await _w(bot, user.id, "🏳️ You have already folded.")
         return False
     if p["status"] == "allin":
         await _w(bot, user.id, "You are all-in.")
@@ -890,12 +906,12 @@ async def _cmd_join(bot: BaseBot, user: User, args: list) -> None:
     _T["players"][username] = _new_player(user.id, username, amount)
     _T["seats"].append(username)
     cnt = len(_T["seats"])
-    await _chat(bot, f"@{user.username} joined poker with {amount:,} coins. Players: {cnt}/6")
+    await _chat(bot, f"✅ @{user.username} joined poker with {amount:,} coins. Players: {cnt}/6")
     print(f"[POKER V2] join user={user.username} amount={amount}")
 
     if cnt >= 2 and _T["phase"] == "waiting":
         _T["phase"] = "countdown"
-        await _chat(bot, "Starting first hand in 10s.")
+        await _chat(bot, "♠️ Starting first hand in 10s.")
         _T["countdown_task"] = asyncio.create_task(_start_hand_countdown(bot, 10))
 
 # ── !leave ─────────────────────────────────────────────────────────────────────
@@ -911,11 +927,11 @@ async def _cmd_leave(bot: BaseBot, user: User) -> None:
     if phase in ("preflop", "flop", "turn", "river"):
         if p["status"] == "allin":
             p["remove_after_hand"] = True
-            await _chat(bot, f"@{user.username} is all-in and will leave after showdown.")
+            await _chat(bot, f"🚪 @{user.username} is all-in and will leave after showdown.")
         elif p["status"] == "active":
             p["status"]            = "folded"
             p["remove_after_hand"] = True
-            await _chat(bot, f"@{user.username} left during the hand and folded.")
+            await _chat(bot, f"🚪 @{user.username} left during the hand and folded.")
             await _resolve(bot)
         else:
             p["remove_after_hand"] = True
@@ -926,14 +942,14 @@ async def _cmd_leave(bot: BaseBot, user: User) -> None:
         del _T["players"][username]
         if stack > 0:
             _credit(user.id, stack)
-            await _chat(bot, f"@{user.username} left table. Cashed out {stack:,} coins.")
+            await _chat(bot, f"👋 @{user.username} left table. Cashed out {stack:,} coins.")
         else:
-            await _chat(bot, f"@{user.username} left table.")
+            await _chat(bot, f"👋 @{user.username} left table.")
 
         if len(_T["seats"]) < 2 and _T["phase"] in ("countdown", "between_hands"):
             _cancel_countdown_task()
             _T["phase"] = "waiting"
-            await _chat(bot, "Waiting for one more player. Use !join 5000.")
+            await _chat(bot, "♠️ Waiting for 1 more player. Use !join 5000.")
 
 # ── !check ─────────────────────────────────────────────────────────────────────
 async def _cmd_check(bot: BaseBot, user: User) -> None:
@@ -946,7 +962,7 @@ async def _cmd_check(bot: BaseBot, user: User) -> None:
         await _w(bot, user.id, f"Cannot check. Call {owe:,} coins, raise, or fold.")
         return
     p["acted"] = True
-    await _chat(bot, f"@{user.username} checks.")
+    await _chat(bot, f"✅ @{user.username} checked.")
     print(f"[POKER V2] action user={user.username} action=check")
     await _resolve(bot)
 
@@ -969,12 +985,10 @@ async def _cmd_call(bot: BaseBot, user: User) -> None:
 
     if p["stack"] == 0:
         p["status"] = "allin"
-        await _chat(bot,
-            f"@{user.username} calls {call_amt:,} — all-in! Pot: {_T['pot']:,} coins")
+        await _chat(bot, f"🔥 @{user.username} called {call_amt:,} — all-in!")
     else:
         p["acted"] = True
-        await _chat(bot,
-            f"@{user.username} calls {call_amt:,}. Pot: {_T['pot']:,} coins")
+        await _chat(bot, f"💰 @{user.username} called {call_amt:,} coins.")
 
     print(f"[POKER V2] action user={user.username} action=call amount={call_amt}")
     await _resolve(bot)
@@ -1016,8 +1030,7 @@ async def _cmd_raise(bot: BaseBot, user: User, args: list) -> None:
         if u != username and _T["players"][u]["status"] == "active":
             _T["players"][u]["acted"] = False
 
-    await _chat(bot,
-        f"@{user.username} raises to {total_raise:,}. Pot: {_T['pot']:,} coins")
+    await _chat(bot, f"📈 @{user.username} raised to {total_raise:,} coins.")
     print(f"[POKER V2] action user={user.username} action=raise amount={total_raise}")
     await _resolve(bot)
 
@@ -1029,7 +1042,7 @@ async def _cmd_fold(bot: BaseBot, user: User) -> None:
     p        = _T["players"][username]
     p["status"] = "folded"
     p["acted"]  = True
-    await _chat(bot, f"@{user.username} folds.")
+    await _chat(bot, f"🏳️ @{user.username} folded.")
     print(f"[POKER V2] action user={user.username} action=fold")
     await _resolve(bot)
 
@@ -1057,8 +1070,7 @@ async def _cmd_allin(bot: BaseBot, user: User) -> None:
             if u != username and _T["players"][u]["status"] == "active":
                 _T["players"][u]["acted"] = False
 
-    await _chat(bot,
-        f"@{user.username} goes all-in for {amt:,}! Pot: {_T['pot']:,} coins")
+    await _chat(bot, f"🔥 @{user.username} is all-in for {amt:,} coins!")
     print(f"[POKER V2] action user={user.username} action=allin amount={amt}")
     await _resolve(bot)
 
@@ -1072,7 +1084,7 @@ async def _cmd_hand(bot: BaseBot, user: User) -> None:
     p     = _T["players"][username]
     cards = p.get("cards", [])
     if len(cards) == 2:
-        msg  = f"Your cards: {_fcs(cards)}"
+        msg  = f"🃏 Your cards: {_fcs(cards)}"
         board = _T.get("board", [])
         msg += f"\nBoard: {_board_str()}" if board else "\nBoard: —"
         msg += f"\nPot: {_T['pot']:,} coins"
