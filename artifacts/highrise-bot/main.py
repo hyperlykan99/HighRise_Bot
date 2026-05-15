@@ -3962,6 +3962,36 @@ class HangoutBot(BaseBot):
             elif cmd == "stafftools":
                 await handle_stafftools(self, user)
 
+            # ── Luxe Ticket admin (moved here — in STAFF_CMDS, outer elif is dead) ─
+            elif cmd == "addtickets":
+                await handle_addtickets(self, user, args)
+            elif cmd == "removetickets":
+                await handle_removetickets(self, user, args)
+            elif cmd == "settickets":
+                await handle_settickets(self, user, args)
+            elif cmd == "sendtickets":
+                await handle_sendtickets(self, user, args)
+            elif cmd == "ticketbalance":
+                await handle_ticketbalance(self, user, args)
+            elif cmd == "ticketlogs":
+                await handle_ticketlogs(self, user, args)
+            elif cmd == "ticketadmin":
+                await handle_ticketadmin(self, user)
+
+            # ── Tip / conversion audit ────────────────────────────────────────────
+            elif cmd == "tipaudit":
+                print(f"[TIP AUDIT CMD] bot={BOT_MODE} cmd=tipaudit "
+                      f"user={user.username} args={args}")
+                await handle_tipaudit(self, user, args)
+            elif cmd == "tipauditdetails":
+                print(f"[TIP AUDIT CMD] bot={BOT_MODE} cmd=tipauditdetails "
+                      f"user={user.username} args={args}")
+                await handle_tipauditdetails(self, user, args)
+            elif cmd == "conversionlogs":
+                print(f"[TIP AUDIT CMD] bot={BOT_MODE} cmd=conversionlogs "
+                      f"user={user.username} args={args}")
+                await handle_conversionlogs(self, user, args)
+
             else:
                 await handle_admin_command(self, user, cmd, args)
             return
@@ -5002,38 +5032,8 @@ class HangoutBot(BaseBot):
         elif cmd == "vipadmin":
             await handle_vipadmin(self, user, args)
 
-        elif cmd == "addtickets":
-            await handle_addtickets(self, user, args)
-
-        elif cmd == "removetickets":
-            await handle_removetickets(self, user, args)
-
-        elif cmd == "settickets":
-            await handle_settickets(self, user, args)
-
-        elif cmd == "sendtickets":
-            await handle_sendtickets(self, user, args)
-
-        elif cmd == "ticketbalance":
-            await handle_ticketbalance(self, user, args)
-
-        elif cmd == "ticketlogs":
-            await handle_ticketlogs(self, user, args)
-
-        elif cmd == "ticketadmin":
-            await handle_ticketadmin(self, user)
-
         elif cmd == "ticketrate":
             await handle_ticketrate(self, user)
-
-        elif cmd == "tipaudit":
-            await handle_tipaudit(self, user, args)
-
-        elif cmd == "tipauditdetails":
-            await handle_tipauditdetails(self, user, args)
-
-        elif cmd == "conversionlogs":
-            await handle_conversionlogs(self, user, args)
 
         elif cmd == "donate":
             await handle_donate(self, user)

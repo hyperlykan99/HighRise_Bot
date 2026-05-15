@@ -1,0 +1,188 @@
+Fix Tip Audit and Conversion Logs silent response.
+
+Current issue:
+!commandtest !tipaudit shows:
+route=YES | handler=YES | owner=BankingBot | banker_handles=true
+
+!commandtest !conversionlogs shows:
+route=YES | handler=YES | owner=BankingBot | banker_handles=true
+
+But when I type:
+!tipaudit @4ktreymarion
+!conversionlogs @4ktreymarion
+
+No bot replies.
+
+Goal:
+Make BankingBot actually respond to:
+!tipaudit @user
+!tipaudit last
+!tipaudit failed
+!tipauditdetails [id]
+!conversionlogs @user
+!conversionlogs last
+
+Do not change:
+- jail system
+- blackjack
+- poker
+- coinpack prices
+- tip reward math
+- workflows
+
+Part 1 — Find runtime route
+
+Search main.py for command routing:
+tipaudit
+tipauditdetails
+conversionlogs
+
+Confirm these commands are not only in command registry.
+They must have real runtime branches in on_chat.
+
+Add or fix:
+
+elif cmd == "tipaudit":
+    await handle_tipaudit(self, user, args)
+    return
+
+elif cmd == "tipauditdetails":
+    await handle_tipauditdetails(self, user, args)
+    return
+
+elif cmd == "conversionlogs":
+    await handle_conversionlogs(self, user, args)
+    return
+
+Part 2 — Import handlers
+
+Find where tip audit handlers are defined.
+
+Possible files:
+- modules/tip_audit.py
+- modules/tips.py
+- modules/luxe_admin.py
+- modules/luxe.py
+
+Import them in main.py:
+
+from modules.tip_audit import (
+    handle_tipaudit,
+    handle_tipauditdetails,
+    handle_conversionlogs,
+)
+
+If the file does not exist, create modules/tip_audit.py.
+
+Part 3 — Make handlers always reply
+
+Important:
+These commands must never be silent.
+
+If user has no logs, reply:
+🧾 No tip audit logs found for @username.
+
+If conversion logs are empty, reply:
+🪙 No conversion logs found for @username.
+
+If database table missing, reply:
+⚠️ Tip audit table is missing. Run DB migration/restart bot.
+
+If target user not found, reply:
+⚠️ Player not found in database. They may need to join the room first.
+
+If any exception happens:
+- print full console error
+- whisper the owner:
+⚠️ Tip audit failed. Check console logs.
+
+Part 4 — BankingBot ownership
+
+Preferred:
+BankingBot handles these commands.
+
+But if BankingBot does not respond within routing system, allow ChillTopiaMC fallback.
+
+Simple safe rule:
+If cmd in {"tipaudit", "tipauditdetails", "conversionlogs"}:
+- BankingBot can handle
+- ChillTopiaMC can also handle ONLY if bot_mode == host and banker bot is not processing
+- Prevent duplicate replies with a 3-second command cooldown per user+cmd
+
+Do not make both bots reply.
+
+Part 5 — Add debug logs
+
+When command is received:
+
+print:
+[TIP AUDIT CMD] bot=BankingBot mode=banker cmd=tipaudit user=4ktreyMarion args=[...]
+[TIP AUDIT CMD] querying user=4ktreyMarion
+[TIP AUDIT CMD] rows_found=3
+[TIP AUDIT CMD] reply_sent=true
+
+If skipped because wrong bot:
+[TIP AUDIT CMD] skipped bot=ChillTopiaMC reason=owned_by_banker
+
+If error:
+[TIP AUDIT CMD ERROR] ...
+
+Part 6 — Database check
+
+Confirm tables exist:
+tip_audit_logs
+luxe_conversion_logs
+
+If missing, create them in init_db() and make sure init_db runs before bots start.
+
+Part 7 — Tests
+
+Run:
+python -m py_compile main.py
+python -m py_compile modules/tip_audit.py
+python -m py_compile database.py
+
+Restart bots.
+
+Test in game:
+
+!commandtest !tipaudit
+Expected:
+route=YES handler=YES
+
+!tipaudit @4ktreymarion
+Expected:
+Either shows logs or:
+🧾 No tip audit logs found for @4ktreymarion.
+
+!conversionlogs @4ktreymarion
+Expected:
+Either shows logs or:
+🪙 No conversion logs found for @4ktreymarion.
+
+Then tip 1g to BankingBot.
+Run:
+!tipaudit @4ktreymarion
+
+Expected:
+Shows:
+1g → +1🎫 to BankingBot ✅
+
+Then buy coins:
+!buyluxe 10
+Run:
+!conversionlogs @4ktreymarion
+
+Expected:
+Shows:
+smallcoins: -100🎫 +1,000🪙 ✅
+
+Final report:
+1. Files changed
+2. Runtime routes added
+3. Handler import fixed
+4. Empty-log reply test
+5. Tip audit after tip test
+6. Conversion log after buy test
+7. Bot duplicate reply test
+8. Bot stability result
