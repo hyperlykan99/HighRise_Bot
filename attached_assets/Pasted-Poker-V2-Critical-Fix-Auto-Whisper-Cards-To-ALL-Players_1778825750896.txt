@@ -1,0 +1,337 @@
+Poker V2 Critical Fix — Auto Whisper Cards To ALL Players Before Action
+
+Current live issue:
+Poker V2 starts and posts blinds correctly.
+
+Example:
+Poker hand #1
+SB: @ashquinn_ 50 coins
+BB: @4ktreymarion 100 coins
+Pot: 150 coins
+
+But @4ktreymarion does NOT receive automatic card whisper.
+Cards only show if player manually uses !hand / !ph.
+
+This means:
+- cards exist in memory or DB
+- !hand works
+- automatic deal whisper is broken or not being called for all players
+- only focusing on “first actor” is not enough
+
+Goal:
+Every active player must receive their private cards automatically after the hand is dealt.
+
+Do not modify:
+- blackjack
+- jail
+- Luxe Tickets
+- tips
+- workflows
+- old poker.py unless disabling conflicts
+- other games
+
+==================================================
+PART 1 — Mandatory Card Delivery To ALL Players
+==================================================
+
+When a Poker V2 hand starts:
+
+1. Deal 2 cards to every active player.
+2. Store cards in memory:
+   player["cards"] = [card1, card2]
+3. Validate every active player has exactly 2 cards.
+4. Whisper cards to EVERY active player.
+5. Track delivery result per player.
+6. Then post blinds / open action.
+
+Important:
+Do not only whisper the first actor.
+Do not only whisper current turn player.
+All active players must receive:
+
+Your cards: A♠ K♦
+
+For 2 players:
+- SB receives cards
+- BB receives cards
+
+==================================================
+PART 2 — Use !hand Logic For Auto Whisper
+==================================================
+
+Find the code that makes !hand work.
+
+Use that exact same card source for automatic whispers.
+
+Priority:
+1. In-memory player["cards"]
+2. same lookup used by !hand
+3. DB fallback only if memory missing
+
+Do not create a separate card lookup for auto whispers.
+
+Create helper:
+
+get_v2_player_cards(user_id, username)
+
+It should return same cards that !hand shows.
+
+Then both these must use the same helper:
+- !hand
+- automatic card whisper
+
+==================================================
+PART 3 — Reliable Live User ID
+==================================================
+
+Automatic whisper must use live room user id when possible.
+
+Create helper:
+
+resolve_live_user_id(bot, username, stored_user_id)
+
+Behavior:
+1. Check current room users cache by username.
+2. If found, use live user.id.
+3. Else use stored_user_id.
+4. Else fail.
+
+Log:
+[POKER V2 USER] username=4ktreymarion live_found=true
+[POKER V2 USER] username=4ktreymarion using_stored=true
+
+Use this for automatic card whispers.
+
+==================================================
+PART 4 — Card Whisper Function
+==================================================
+
+Create one function:
+
+async def whisper_v2_cards(bot, player, reason):
+    cards = get_v2_player_cards(player["user_id"], player["username"])
+    live_id = resolve_live_user_id(bot, player["username"], player["user_id"])
+
+    if no cards:
+        log failure cards_missing
+        return False
+
+    if no live_id:
+        log failure live_user_missing
+        return False
+
+    send whisper:
+    Your cards: A♠ K♦
+
+    retry once after 1 second if whisper fails.
+
+    return True/False
+
+Use it for:
+- hand start card delivery to all players
+- first actor turn reminder
+- every new turn reminder
+- !hand
+
+==================================================
+PART 5 — Hand Start Sequence
+==================================================
+
+Use this exact order:
+
+1. phase = dealing
+2. first_turn_ready = False
+3. shuffle deck
+4. deal 2 cards to every active player
+5. save cards in memory
+6. validate cards
+7. whisper cards to every active player
+8. post blinds
+9. announce hand/blinds/pot
+10. wait 2 seconds
+11. select first actor
+12. whisper first actor turn reminder:
+   Your turn.
+   Your cards: A♠ K♦
+   Pot: 150 coins
+   Call: 50 coins
+13. public:
+   @FirstActor's turn. 30s
+14. phase = preflop
+15. first_turn_ready = True
+16. start timer
+
+Important:
+Card whispers happen BEFORE public blinds or before action opens.
+Action must not open until at least card delivery attempts are complete.
+
+==================================================
+PART 6 — Do Not Freeze If Whisper Fails
+==================================================
+
+If one player’s auto whisper fails:
+- log it
+- privately tell them if possible:
+  Could not auto-send your cards. Use !hand.
+- continue game only after delivery attempt is completed
+
+Do not get stuck at:
+Dealer is preparing the hand.
+
+If all card whispers fail:
+- cancel hand
+- refund blinds
+- phase = waiting
+- public:
+  Poker hand cancelled. Could not deliver cards.
+
+If only one player fails:
+- continue but tell them to use !hand
+- !hand must work
+
+==================================================
+PART 7 — Clear Player Feedback
+==================================================
+
+At hand start, after card delivery attempts:
+
+If all delivered:
+Cards sent. Starting hand.
+
+If some failed:
+Cards sent to most players. If you did not receive cards, type !hand.
+
+Keep it short.
+
+Do NOT reveal cards publicly.
+
+==================================================
+PART 8 — Fix Wrong Action Before Turn
+==================================================
+
+In screenshot:
+@4ktreymarion typed !call before @ashquinn_ turn.
+
+Correct response:
+It is @ashquinn_'s turn.
+
+Do not process the call.
+Do not move game forward.
+
+If first_turn_ready is false:
+Dealer is preparing the hand. Please wait.
+
+==================================================
+PART 9 — Logs Required
+==================================================
+
+Add these logs:
+
+[POKER V2 DEAL] hand=1 players=2
+[POKER V2 DEAL] user=@ashquinn_ cards_saved=true
+[POKER V2 DEAL] user=@4ktreymarion cards_saved=true
+
+[POKER V2 CARD SEND] start players=2
+[POKER V2 CARD SEND] user=@ashquinn_ live_id=true cards=true whisper=true
+[POKER V2 CARD SEND] user=@4ktreymarion live_id=true cards=true whisper=true
+[POKER V2 CARD SEND] complete success=2 failed=0
+
+[POKER V2 FIRST TURN] user=@ashquinn_ whisper=true public=true
+[POKER V2 READY] phase=preflop first_turn_ready=true
+
+If failure:
+[POKER V2 CARD SEND] user=@4ktreymarion failed reason=...
+
+==================================================
+PART 10 — Debug Command
+==================================================
+
+Add owner command:
+
+!poker debugcards
+
+Reply with no private card values:
+
+Poker card debug:
+Hand: 1
+@ashquinn_: cards=yes, whisper=success
+@4ktreymarion: cards=yes, whisper=failed/live_user_missing
+
+Do not reveal card values.
+
+Also add:
+
+!poker resendcards
+
+Owner only.
+Resends cards to all active players.
+
+Reply:
+Cards resent to 2 player(s).
+
+==================================================
+PART 11 — Tests
+==================================================
+
+Compile:
+python -m py_compile main.py
+python -m py_compile modules/poker_v2.py
+
+Restart bots.
+
+Test 1:
+Player 1:
+!join 5000
+
+Player 2:
+!join 5000
+
+Expected BEFORE first turn:
+Both players receive:
+Your cards: [two cards]
+
+Expected public:
+Poker hand #1.
+SB...
+BB...
+Pot...
+
+Then:
+@FirstActor's turn. 30s
+
+Test 2:
+BB player checks !hand:
+Expected:
+Same cards as automatic whisper.
+
+Test 3:
+Owner:
+!poker debugcards
+
+Expected:
+Both players cards=yes.
+Both have whisper status shown.
+
+Test 4:
+Owner:
+!poker resendcards
+
+Expected:
+Both players receive card whisper again.
+
+Test 5:
+Wrong player acts:
+If it is @ashquinn_'s turn and @4ktreymarion types !call:
+Expected:
+It is @ashquinn_'s turn.
+
+Final report:
+1. Auto card delivery to all players fixed
+2. !hand and auto whisper use same card source
+3. live user id resolver result
+4. 4ktreymarion card whisper result
+5. ashquinn card whisper result
+6. debugcards result
+7. resendcards result
+8. wrong-turn test result
+9. bot stability result

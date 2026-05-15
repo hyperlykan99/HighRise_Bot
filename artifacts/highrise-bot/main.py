@@ -5487,6 +5487,8 @@ class HangoutBot(BaseBot):
             sub = args[1].lower() if len(args) > 1 else ""
             if not sub:
                 await handle_poker_v2(self, user, "poker", args)
+            elif sub in ("debugcards", "resendcards"):
+                await handle_poker_v2(self, user, sub, args)
             else:
                 await handle_poker(self, user, args)
 

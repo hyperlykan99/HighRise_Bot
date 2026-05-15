@@ -99,6 +99,8 @@ _T: dict = {
     "first_turn_ready":     False,
     "turn_seconds":         30,
     "dealing_started_at":   0.0,
+    "room_id_cache":        {},   # username_lower → user_id, refreshed each hand
+    "card_delivery_log":    {},   # username → {cards, whisper, live_id}
 }
 
 def _new_player(user_id: str, username: str, stack: int) -> dict:
@@ -130,6 +132,54 @@ async def _w(bot: BaseBot, uid: str, msg: str) -> bool:
     except Exception as e:
         print(f"[POKER V2] whisper_err uid={uid} err={str(e)[:80]}")
         return False
+
+# ── Card delivery helpers ───────────────────────────────────────────────────────
+
+async def _fetch_room_user_ids(bot: BaseBot) -> dict:
+    """Fetch current room users. Returns {username_lower: user_id}."""
+    result: dict = {}
+    try:
+        resp = await bot.highrise.get_room_users()
+        if hasattr(resp, "content"):
+            for ru, _ in resp.content:
+                result[ru.username.lower()] = ru.id
+    except Exception as e:
+        print(f"[POKER V2 USER] fetch_room_err={str(e)[:60]}")
+    return result
+
+def _get_v2_player_cards(username: str) -> list:
+    """In-memory cards for player. Source of truth."""
+    p = _T["players"].get(username)
+    return p["cards"] if p and p.get("cards") else []
+
+def _resolve_live_user_id(username: str, stored_uid: str) -> str:
+    """Returns live room user.id from cache, else stored_uid."""
+    live = _T["room_id_cache"].get(username.lower())
+    if live:
+        print(f"[POKER V2 USER] username={username} live_found=true")
+        return live
+    print(f"[POKER V2 USER] username={username} using_stored=true")
+    return stored_uid
+
+async def _whisper_v2_cards(bot: BaseBot, player: dict, reason: str = "deal") -> bool:
+    """Unified card whisper with one retry. Returns True if delivered."""
+    username = player["username"]
+    cards    = _get_v2_player_cards(username)
+    if not cards:
+        print(f"[POKER V2 CARD SEND] user=@{username} failed reason=cards_missing")
+        return False
+    live_id  = _resolve_live_user_id(username, player["user_id"])
+    live_ok  = live_id in _T["room_id_cache"].values()
+    cstr     = _fcs(cards)
+    ok       = await _w(bot, live_id, f"Your cards: {cstr}")
+    if not ok:
+        await asyncio.sleep(1)
+        ok = await _w(bot, live_id, f"Your cards: {cstr}")
+    print(
+        f"[POKER V2 CARD SEND] user=@{username} "
+        f"live_id={str(live_ok).lower()} cards=true whisper={str(ok).lower()}"
+    )
+    return ok
 
 # ── Task management ────────────────────────────────────────────────────────────
 def _cancel_turn_task() -> None:
@@ -594,7 +644,8 @@ async def _start_hand(bot: BaseBot) -> None:
     sb      = _T["small_blind"]
     bb      = _T["big_blind"]
 
-    # Reset player hand state
+    # ── Steps 3-6: Reset, shuffle, deal, validate ────────────────────────────
+    _T["card_delivery_log"] = {}
     for u in seated:
         p = _T["players"][u]
         p["cards"]             = []
@@ -603,7 +654,6 @@ async def _start_hand(bot: BaseBot) -> None:
         p["status"]            = "active"
         p["acted"]             = False
 
-    # Shuffle deck and deal 2 cards each
     deck = _make_deck()
     random.shuffle(deck)
     _T["deck"]  = deck
@@ -611,17 +661,47 @@ async def _start_hand(bot: BaseBot) -> None:
     _T["pot"]   = 0
     _T["current_bet"] = 0
 
+    print(f"[POKER V2 DEAL] hand={_T['hand_number']} players={len(seated)}")
     for u in seated:
         _T["players"][u]["cards"] = [deck.pop(), deck.pop()]
+        print(f"[POKER V2 DEAL] user=@{u} cards_saved=true")
 
-    # Validate deal
     for u in seated:
         if len(_T["players"][u]["cards"]) != 2:
             await _chat(bot, "Poker hand cancelled. Card deal error.")
             _T["phase"] = "waiting"
             return
 
-    # Post blinds
+    # ── Step 7: Whisper cards to ALL players (before blinds) ─────────────────
+    _T["room_id_cache"] = await _fetch_room_user_ids(bot)
+    print(f"[POKER V2 CARD SEND] start players={len(seated)}")
+    n_success = 0
+    for u in seated:
+        p  = _T["players"][u]
+        ok = await _whisper_v2_cards(bot, p, "deal")
+        _T["card_delivery_log"][u] = {
+            "cards":   bool(p["cards"]),
+            "whisper": ok,
+            "live_id": u in _T["room_id_cache"],
+        }
+        if ok:
+            n_success += 1
+        else:
+            try:
+                live_uid = _resolve_live_user_id(u, p["user_id"])
+                await bot.highrise.send_whisper(
+                    live_uid, "Could not auto-send your cards. Use !hand.")
+            except Exception:
+                pass
+    print(f"[POKER V2 CARD SEND] complete success={n_success} failed={len(seated)-n_success}")
+
+    if n_success == 0:
+        await _chat(bot, "Poker hand cancelled. Could not deliver cards.")
+        _T["phase"]   = "waiting"
+        _T["hand_id"] = None
+        return
+
+    # ── Steps 8-9: Post blinds and announce ──────────────────────────────────
     def _post_blind(uname: str, amount: int) -> int:
         p      = _T["players"][uname]
         actual = min(amount, p["stack"])
@@ -633,11 +713,10 @@ async def _start_hand(bot: BaseBot) -> None:
             p["status"] = "allin"
         return actual
 
-    actual_sb       = _post_blind(sb_user, sb)
-    actual_bb       = _post_blind(bb_user, bb)
+    actual_sb         = _post_blind(sb_user, sb)
+    actual_bb         = _post_blind(bb_user, bb)
     _T["current_bet"] = actual_bb
 
-    # Announce blinds publicly
     blind_msg = (
         f"Poker hand #{_T['hand_number']}.\n"
         f"SB: @{sb_user} {actual_sb:,} coins\n"
@@ -645,19 +724,16 @@ async def _start_hand(bot: BaseBot) -> None:
         f"Pot: {_T['pot']:,} coins"
     )
     await _chat(bot, blind_msg)
-    await asyncio.sleep(3)
-
     print(f"[POKER V2] blinds posted sb={sb_user}:{actual_sb} bb={bb_user}:{actual_bb} pot={_T['pot']}")
 
-    # Whisper cards to every player
-    print("[POKER V2] whisper all players start")
-    for u in seated:
-        p    = _T["players"][u]
-        cstr = _fcs(p["cards"])
-        sent = await _w(bot, p["user_id"], f"Your cards: {cstr}")
-        print(f"[POKER V2] whisper user=@{u} ok={str(sent).lower()}")
+    if n_success < len(seated):
+        await _chat(bot, "Cards sent to most players. If you did not receive cards, type !hand.")
+    else:
+        await _chat(bot, "Cards sent. Starting hand.")
 
-    # First actor preflop: UTG (left of BB); heads-up: SB acts first
+    # ── Steps 10-16: Wait, select first actor, open turn ─────────────────────
+    await asyncio.sleep(2)
+
     if n == 2:
         first_preflop_idx = sb_idx
     else:
@@ -668,36 +744,40 @@ async def _start_hand(bot: BaseBot) -> None:
     print(f"[POKER V2] first actor=@{first_actor}")
     await _open_first_turn(bot, first_actor, first_p)
 
-# ── Open first turn (non-blocking, open even if whisper fails) ─────────────────
+# ── Open first turn (never stays in dealing) ───────────────────────────────────
 async def _open_first_turn(bot: BaseBot, first_actor: str, first_p: dict) -> None:
-    """Whisper first actor's cards, then open preflop. Never stays in dealing."""
-    owe = max(0, _T["current_bet"] - first_p["current_bet"])
-    cstr = _fcs(first_p["cards"])
+    """Whisper first actor turn reminder, then open preflop. Always advances phase."""
+    # Ensure room cache is populated (force-open paths may skip hand start)
+    if not _T.get("room_id_cache"):
+        _T["room_id_cache"] = await _fetch_room_user_ids(bot)
+
+    live_uid = _resolve_live_user_id(first_actor, first_p["user_id"])
+    owe  = max(0, _T["current_bet"] - first_p["current_bet"])
+    cstr = _fcs(first_p["cards"]) if first_p.get("cards") else "?"
     pot  = _T["pot"]
     if owe > 0:
         gate_msg = (
-            f"Your cards: {cstr}\n"
             f"Your turn.\n"
+            f"Your cards: {cstr}\n"
             f"Pot: {pot:,} coins\n"
             f"Call: {owe:,} coins"
         )
     else:
         gate_msg = (
-            f"Your cards: {cstr}\n"
             f"Your turn.\n"
-            f"Pot: {pot:,} coins"
+            f"Your cards: {cstr}\n"
+            f"Pot: {pot:,} coins\n"
+            f"!check, !raise, !fold, !allin"
         )
 
-    gate_ok = await _w(bot, first_p["user_id"], gate_msg)
-    print(f"[POKER V2] first whisper ok={str(gate_ok).lower()}")
+    gate_ok = await _w(bot, live_uid, gate_msg)
+    print(f"[POKER V2 FIRST TURN] user=@{first_actor} whisper={str(gate_ok).lower()}")
 
     if not gate_ok:
         print("[POKER V2] first card whisper failed, opening turn anyway")
         try:
             await bot.highrise.send_whisper(
-                first_p["user_id"],
-                "Could not auto-send your cards. Type !hand to view them."
-            )
+                live_uid, "Could not auto-send your cards. Type !hand to view them.")
         except Exception:
             pass
 
@@ -708,7 +788,8 @@ async def _open_first_turn(bot: BaseBot, first_actor: str, first_p: dict) -> Non
     _cancel_turn_task()
     _T["turn_timer_task"] = asyncio.create_task(_turn_timeout(bot, first_actor))
     await _chat(bot, f"@{first_actor}'s turn. {secs}s")
-    print(f"[POKER V2] phase=preflop first_turn_ready=true opening turn anyway=true")
+    print(f"[POKER V2 FIRST TURN] user=@{first_actor} public=true")
+    print(f"[POKER V2 READY] phase=preflop first_turn_ready=true")
 
 
 # ── Action guard ───────────────────────────────────────────────────────────────
@@ -1057,6 +1138,43 @@ async def _cmd_table(bot: BaseBot, user: User) -> None:
     else:
         await _w(bot, user.id, "Poker table:\nWaiting for players.\nUse !join 5000.")
 
+# ── !poker debugcards ──────────────────────────────────────────────────────────
+async def _cmd_debugcards(bot: BaseBot, user: User) -> None:
+    if not (is_owner(user.username) or is_admin(user.username)):
+        await _w(bot, user.id, "Owner only.")
+        return
+    log  = _T.get("card_delivery_log", {})
+    hand = _T["hand_number"]
+    if not log:
+        await _w(bot, user.id, f"Poker card debug:\nHand: {hand}\nNo delivery log.")
+        return
+    parts = [f"Poker card debug:\nHand: {hand}"]
+    for uname, info in log.items():
+        c_ok = "yes"     if info.get("cards")   else "no"
+        w_ok = "success" if info.get("whisper")  else "failed"
+        l_ok = "live"    if info.get("live_id")  else "stored"
+        parts.append(f"@{uname}: cards={c_ok}, whisper={w_ok}, id={l_ok}")
+    await _w(bot, user.id, "\n".join(parts)[:249])
+
+# ── !poker resendcards ─────────────────────────────────────────────────────────
+async def _cmd_resendcards(bot: BaseBot, user: User) -> None:
+    if not (is_owner(user.username) or is_admin(user.username)):
+        await _w(bot, user.id, "Owner only.")
+        return
+    phase = _T["phase"]
+    if phase not in ("preflop", "flop", "turn", "river", "dealing"):
+        await _w(bot, user.id, "No active hand to resend cards for.")
+        return
+    _T["room_id_cache"] = await _fetch_room_user_ids(bot)
+    count = 0
+    for u in _T["seats"]:
+        p = _T["players"].get(u)
+        if p and p.get("cards") and p.get("status") not in ("folded", "left"):
+            ok = await _whisper_v2_cards(bot, p, "resend")
+            if ok:
+                count += 1
+    await _w(bot, user.id, f"Cards resent to {count} player(s).")
+
 # ── Main command dispatch ──────────────────────────────────────────────────────
 async def handle_poker_v2(bot: BaseBot, user: User, cmd: str, args: list) -> None:
     """Entry point for all Poker V2 player commands. Called by main.py."""
@@ -1080,12 +1198,14 @@ async def handle_poker_v2(bot: BaseBot, user: User, cmd: str, args: list) -> Non
             ))
         return
 
-    if   cmd == "join":   await _cmd_join(bot, user, args)
-    elif cmd == "check":  await _cmd_check(bot, user)
-    elif cmd == "call":   await _cmd_call(bot, user)
-    elif cmd == "raise":  await _cmd_raise(bot, user, args)
-    elif cmd == "fold":   await _cmd_fold(bot, user)
-    elif cmd == "allin":  await _cmd_allin(bot, user)
-    elif cmd == "hand":   await _cmd_hand(bot, user)
-    elif cmd == "leave":  await _cmd_leave(bot, user)
-    elif cmd == "table":  await _cmd_table(bot, user)
+    if   cmd == "join":        await _cmd_join(bot, user, args)
+    elif cmd == "check":       await _cmd_check(bot, user)
+    elif cmd == "call":        await _cmd_call(bot, user)
+    elif cmd == "raise":       await _cmd_raise(bot, user, args)
+    elif cmd == "fold":        await _cmd_fold(bot, user)
+    elif cmd == "allin":       await _cmd_allin(bot, user)
+    elif cmd == "hand":        await _cmd_hand(bot, user)
+    elif cmd == "leave":       await _cmd_leave(bot, user)
+    elif cmd == "table":       await _cmd_table(bot, user)
+    elif cmd == "debugcards":  await _cmd_debugcards(bot, user)
+    elif cmd == "resendcards": await _cmd_resendcards(bot, user)
