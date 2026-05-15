@@ -1,0 +1,785 @@
+Poker V2 Realism + Admin + AFK Update
+
+Current status:
+Poker V2 core loop works.
+Do not rebuild the whole poker engine.
+Add realism features carefully and preserve the current working gameplay.
+
+Current working features to preserve:
+- Texas Hold’em for 2–6 players
+- cards sent before SB/BB announcement
+- !hand works
+- winner announcement works
+- auto next hand works
+- !leave / !poker leave works
+- !pleave does not trigger ChillTopiaMC unknown command
+- public action messages work
+- turn whisper shows board/hand/rank
+- 10 displays as 10, not T
+- fold/leave does not incorrectly run board
+- AFK currently auto-checks/auto-folds and removes after 3 strikes
+
+Do NOT modify:
+- blackjack
+- jail
+- Luxe Tickets
+- tips
+- mining/fishing
+- workflows
+- bot runner
+- unrelated economy systems
+
+Only modify:
+- modules/poker_v2.py
+- main.py only if needed for poker command routing
+
+==================================================
+PART 1 — Dealer Button In Hand Start
+==================================================
+
+Add Dealer/Button to the public hand start message.
+
+For 2 players:
+- Dealer is also Small Blind.
+
+Message:
+
+♠️ Poker hand #12
+Dealer/SB: @Player1 50 coins
+BB: @Player2 100 coins
+Pot: 150 coins
+
+For 3–6 players:
+
+♠️ Poker hand #12
+Dealer: @Player1
+SB: @Player2 50 coins
+BB: @Player3 100 coins
+Pot: 150 coins
+
+Add log:
+[POKER V2 BUTTON] dealer=@Player sb=@Player bb=@Player players=2
+
+==================================================
+PART 2 — Better Turn Whisper
+==================================================
+
+Update private turn whisper to include:
+- Board
+- Hand
+- Current Rank
+- Pot
+- To Call
+- Stack
+- Actions
+
+Full format:
+
+YOUR TURN:
+Board: A♠ K♦ 7♣
+Hand: A♣ 10♣
+Rank: Pair of Aces
+Pot: 2,500 coins
+To Call: 500 coins
+Stack: 4,500 coins
+
+Actions:
+💰 !call | 📈 !raise 1000 | 🏳️ !fold | 🔥 !allin
+
+If no call required:
+
+YOUR TURN:
+Board: A♠ K♦ 7♣
+Hand: A♣ 10♣
+Rank: Pair of Aces
+Pot: 2,500 coins
+To Call: 0
+Stack: 4,500 coins
+
+Actions:
+✅ !check | 📈 !raise 500 | 🏳️ !fold | 🔥 !allin
+
+If too long, compact it under 249 chars:
+
+YOUR TURN:
+Board: A♠ K♦ 7♣
+Hand: A♣ 10♣
+Rank: Pair of Aces
+Pot: 2,500 | Call: 500 | Stack: 4,500
+💰 !call | 📈 !raise 1000 | 🏳️ !fold | 🔥 !allin
+
+Rules:
+- If To Call > 0, show 💰 !call.
+- If To Call = 0, show ✅ !check.
+- Always show 📈 !raise, 🏳️ !fold, 🔥 !allin.
+- Keep under 249 characters.
+
+==================================================
+PART 3 — Make !call Auto-Check If Nothing To Call
+==================================================
+
+Current issue:
+Players may type !call when To Call = 0.
+
+Fix:
+If player types !call and owe <= 0:
+- treat it exactly like !check
+- set acted = True
+- public:
+✅ @Player checked.
+- call resolver
+
+Do NOT whisper “Nothing to call. Use !check.”
+Do NOT block the action.
+
+This makes gameplay smoother.
+
+Test:
+If current bet is matched and player types !call:
+Expected:
+✅ @Player checked.
+Then the game advances normally.
+
+==================================================
+PART 4 — Realistic Raise Rules
+==================================================
+
+Add realistic Texas Hold’em raise tracking.
+
+Table fields:
+_T["last_raise_amount"] = big_blind
+_T["last_aggressor"] = None
+
+At hand start:
+last_raise_amount = big_blind
+last_aggressor = big_blind player
+
+When a player raises:
+- previous_current_bet = _T["current_bet"]
+- new_total_bet = amount from !raise
+- raise_size = new_total_bet - previous_current_bet
+- valid raise_size must be >= last_raise_amount unless player is all-in
+- update last_raise_amount = raise_size only if full legal raise
+- update last_aggressor = player only if full legal raise
+
+Important:
+!raise amount means total bet amount, not “add this much.”
+
+Example:
+Current bet: 100
+Player types:
+!raise 300
+
+Meaning:
+Player’s total bet becomes 300.
+Raise size is 200.
+
+Minimum next raise:
+If last_raise_amount = 200, next minimum total raise is 500.
+
+Invalid:
+Minimum raise is 500 coins total.
+
+Short all-in:
+If player all-ins for less than minimum raise:
+- allow all-in
+- do NOT update last_raise_amount
+- do NOT reopen action for players who already acted and matched the prior bet
+
+Add logs:
+[POKER V2 RAISE] user=@Player old_bet=100 new_bet=300 raise_size=200 min_raise=100 full_raise=true
+[POKER V2 RAISE] user=@Player short_allin=true reopen_action=false
+
+==================================================
+PART 5 — Sit Out / Sit Back
+==================================================
+
+Add player commands:
+
+!sitout
+!sitback
+
+Player fields:
+player["sitting_out"] = False
+player["sitting_out_next"] = False
+
+!sitout behavior:
+
+If no active hand:
+- player remains seated
+- stack stays at table
+- sitting_out = True
+- player is skipped from future hands
+Message:
+⏸️ @Player is sitting out.
+
+If active hand and player is active:
+- player finishes current hand normally
+- sitting_out_next = True
+Message:
+⏸️ @Player will sit out after this hand.
+
+If active hand and already folded:
+- sitting_out = True
+- sitting_out_next = False
+Message:
+⏸️ @Player is sitting out next hand.
+
+!sitback behavior:
+- sitting_out = False
+- sitting_out_next = False
+- if table is waiting/between hands and 2+ active seated players exist, start countdown
+Message:
+▶️ @Player is back in.
+
+Hand start should only include players who:
+- are seated
+- not sitting_out
+- stack > 0
+
+!table should show:
+Players: 4 seated / 3 active
+Sitting out: @Player
+
+==================================================
+PART 6 — Rebuy / Add Chips
+==================================================
+
+Add player command:
+
+!rebuy amount
+
+Also support:
+!poker rebuy amount
+
+Rules:
+- Player must already be seated.
+- Amount must be positive.
+- Must have enough wallet balance.
+- Deduct from wallet.
+- Add to poker stack.
+
+Allowed:
+- waiting
+- countdown
+- between_hands
+- if player is folded
+- if player is sitting out
+- if player is not active in current hand
+
+Not allowed:
+- while player is active in an active hand
+- while player is all-in in an active hand
+
+Messages:
+💰 @Player added 5,000 coins to their poker stack.
+
+If not allowed:
+⚠️ You cannot rebuy while active in a hand.
+
+If not enough balance:
+⚠️ Not enough coins. Balance: X coins.
+
+==================================================
+PART 7 — Admin Table Settings
+==================================================
+
+Add owner/admin commands:
+
+!poker minbuyin 1000
+!poker maxbuyin 50000
+!poker maxplayers 6
+!poker blinds 50 100
+!poker timer 30
+
+Table fields:
+_T["min_buyin"] = 1000
+_T["max_buyin"] = 50000
+_T["max_players"] = 6
+_T["small_blind"] = existing
+_T["big_blind"] = existing
+_T["turn_seconds"] = existing
+
+Rules:
+- !join amount must respect min/max buy-in.
+- max players must be between 2 and 6.
+- blinds must be positive.
+- big blind must be greater than small blind.
+- timer must be between 10 and 120 seconds.
+
+Messages:
+✅ Poker min buy-in set to 1,000 coins.
+✅ Poker max buy-in set to 50,000 coins.
+✅ Poker max players set to 6.
+✅ Poker blinds set to 50/100.
+✅ Poker turn timer set to 30s.
+
+Update !poker status to show:
+- Phase
+- Players
+- Pot
+- Turn
+- Blinds
+- Timer
+- Min buy-in
+- Max buy-in
+- Max players
+- Paused
+- Cleanup lock
+- Hand ended
+
+==================================================
+PART 8 — Hand History / Last Hand Review
+==================================================
+
+Add hand history.
+
+Store last completed hand:
+
+_T["last_hand"] = {
+    "hand_number": int,
+    "board": [],
+    "pot": int,
+    "reason": "fold_win/showdown/allin_showdown/refund",
+    "winner_lines": [],
+    "players": [
+        {
+            "username": display_name,
+            "cards": cards,
+            "rank": rank_text,
+            "status": status,
+            "amount_won": amount_won
+        }
+    ]
+}
+
+Commands:
+!lasthand
+!poker lasthand
+!poker handlog
+!poker last
+
+Output:
+
+🧾 Last Hand #18
+Board: A♠ K♦ 7♣ 10♥ 2♣
+Pot: 5,000 coins
+Winner: @Player
+
+Player Cards
+@A: A♣ K♣ = Two Pair
+@B: Q♠ Q♦ = Pair of Queens
+
+If no last hand:
+No completed hand history yet.
+
+Keep under 249 chars per message by splitting into chunks.
+
+Do not reveal cards from current active hand, only last completed hand.
+
+==================================================
+PART 9 — Side Pot Display Polish
+==================================================
+
+The side-pot builder already exists. Make side-pot display clearer.
+
+Before showdown payout, if multiple pots exist:
+
+💰 Main Pot: 3,000 coins
+Eligible: @A, @B, @C
+
+💰 Side Pot: 2,000 coins
+Eligible: @B, @C
+
+At payout:
+
+🏆 Main Pot 3,000 coins → @A
+🏆 Side Pot 2,000 coins → @C
+
+If one pot only:
+🏆 @Player wins 5,000 coins.
+
+If split side pot:
+🤝 Side Pot 2,000 split.
+@A receives 1,000.
+@B receives 1,000.
+
+Keep messages short.
+
+==================================================
+PART 10 — AFK Settings
+==================================================
+
+Current AFK behavior:
+- timeout with no call needed = auto-check
+- timeout with call needed = auto-fold
+- 3 strikes = remove after hand
+
+Keep this behavior, but make it configurable.
+
+Add table fields:
+_T["afk_strikes_limit"] = 3
+_T["afk_remove_enabled"] = True
+
+Commands:
+!poker afktime 30
+!poker afkstrikes 3
+!poker afkremove on
+!poker afkremove off
+
+Rules:
+- afktime updates turn_seconds, or if you prefer, keep separate but use it for turn timeout.
+- afkstrikes must be between 1 and 10.
+- afkremove on/off controls whether player is removed after strike limit.
+
+Messages:
+✅ Poker AFK timer set to 30s.
+✅ Poker AFK strikes set to 3.
+✅ AFK removal enabled.
+✅ AFK removal disabled.
+
+If AFK removal disabled:
+- still auto-check/auto-fold
+- still count strikes
+- do not remove from table
+
+If AFK removal enabled and strikes reach limit:
+⏰ @Player removed from poker for AFK.
+
+==================================================
+PART 11 — Admin Safety Commands
+==================================================
+
+Add owner/admin-only commands:
+
+!poker pause
+- Pause auto-starting new hands.
+- Active hand may finish, but no next hand starts.
+Message:
+⏸️ Poker paused. Current hand may finish, but no new hand will start.
+
+!poker resume
+- Resume auto-start.
+- If 2+ eligible seated players and no active hand, start countdown.
+Message:
+▶️ Poker resumed.
+
+!poker close
+- Close poker table safely.
+- If no active hand: cash out all seated players and clear table.
+- If active hand: stop timer, refund current hand contributions to stacks, cash out stacks, clear table.
+Message:
+🛑 Poker table closed. All players cashed out.
+
+!poker refund
+- Refund current active hand only.
+- Return current hand contributions to player stacks.
+- Clear current hand.
+- Keep players seated.
+Message:
+💸 Current hand refunded. Players remain seated.
+
+!poker refund @user
+- Refund/cash out specific player if seated.
+- If active hand and player is in hand, fold/remove safely.
+Message:
+💸 @Player refunded/cashed out.
+
+!poker forcefinish
+- Safely finish active hand.
+- If one eligible player remains, award pot.
+- If 2+ eligible players remain and board is complete, showdown.
+- If 2+ eligible players remain and board incomplete, run board only if valid.
+- Otherwise refund hand.
+Message:
+⚠️ Poker hand force-finished.
+
+!poker status
+- Admin table status summary.
+
+Keep these hidden from normal player help.
+
+==================================================
+PART 12 — Pause Flag
+==================================================
+
+Add:
+_T["paused"] = False
+
+If paused:
+- no new countdown starts
+- !join can still seat players
+- !rebuy works if allowed
+- after a hand ends, do not start next hand
+- show:
+⏸️ Poker is paused.
+
+When resumed:
+- if 2+ eligible players seated and no active hand, start countdown
+
+==================================================
+PART 13 — Table Status Update
+==================================================
+
+!table should show:
+
+Waiting:
+♠️ Poker table
+Waiting for players.
+Use !join 5000.
+
+One player:
+♠️ Poker table
+Waiting for 1 more player.
+Use !join 5000.
+
+Active:
+♠️ Poker table
+Phase: Preflop
+Pot: 150 coins
+Turn: @Player
+Board: —
+Players: 2
+
+Between hands:
+♠️ Poker table
+Next hand soon.
+Players: 2
+
+Paused:
+♠️ Poker table
+Paused.
+Players: 2
+
+If sitout exists:
+Sitting out: @Player
+
+Never show:
+Phase: Finished
+
+==================================================
+PART 14 — Update Normal Help
+==================================================
+
+Normal player help should stay short.
+
+!poker or !phelp:
+
+♠️ Poker Commands
+Join: !join 5000
+Play: !check, !call, !raise 500, !fold, !allin
+Info: !hand, !table
+Leave: !leave
+
+Optional second line if space allows:
+More: !rebuy, !sitout, !sitback
+
+Do not show admin commands in normal help.
+
+==================================================
+PART 15 — Routing
+==================================================
+
+Ensure these route to Poker V2 / ChipSoprano:
+
+!join
+!check
+!call
+!raise
+!fold
+!allin
+!hand
+!leave
+!table
+!sitout
+!sitback
+!rebuy
+!lasthand
+
+Aliases:
+!poker rebuy 5000
+!poker sitout
+!poker sitback
+!poker lasthand
+!poker handlog
+!poker last
+!poker status
+!poker pause
+!poker resume
+!poker close
+!poker refund
+!poker forcefinish
+!poker afktime
+!poker afkstrikes
+!poker afkremove
+!poker minbuyin
+!poker maxbuyin
+!poker maxplayers
+!poker blinds
+!poker timer
+
+Make sure ChillTopiaMC does not answer unknown command for poker commands.
+
+==================================================
+PART 16 — Do Not Break Existing Fixes
+==================================================
+
+Keep:
+- Cards sent before SB/BB announcement.
+- Public turn appears before private whisper.
+- !hand works if player has cards.
+- 10 displays as 10, not T.
+- Fold/leave does not run board.
+- All-in + call does not ask for extra turns.
+- Big Blind check preflop deals flop, then postflop turn starts correctly.
+- Auto next hand still works.
+
+==================================================
+PART 17 — Tests
+==================================================
+
+Run:
+
+python -m py_compile main.py
+python -m py_compile modules/poker_v2.py
+
+Restart bots.
+
+Test 1 — Dealer button:
+2 players join.
+Expected:
+♠️ Poker hand #1
+Dealer/SB: @Player 50 coins
+BB: @Player 100 coins
+Pot: 150 coins
+
+3+ player test:
+Expected:
+Dealer, SB, BB shown correctly.
+
+Test 2 — Turn whisper:
+Expected private:
+YOUR TURN:
+Board: —
+Hand: A♠ 10♦
+Rank: High Card Ace
+Pot: 150 | Call: 50 | Stack: 4,950
+💰 !call | 📈 !raise 200 | 🏳️ !fold | 🔥 !allin
+
+Test 3 — !call auto-check:
+If To Call = 0, player types:
+!call
+
+Expected:
+✅ @Player checked.
+Game continues.
+
+Test 4 — Real raise:
+Current bet 100.
+Player types:
+!raise 300
+
+Expected:
+📈 @Player raised to 300 coins.
+Next minimum raise total calculated correctly.
+
+Test 5 — Sitout:
+!sitout
+
+Expected:
+⏸️ @Player is sitting out.
+Next hand skips player.
+
+Test 6 — Sitback:
+!sitback
+
+Expected:
+▶️ @Player is back in.
+
+Test 7 — Rebuy:
+!rebuy 5000
+
+Expected:
+💰 @Player added 5,000 coins to their poker stack.
+
+Test 8 — Admin settings:
+!poker minbuyin 1000
+!poker maxbuyin 50000
+!poker maxplayers 6
+!poker blinds 50 100
+!poker timer 30
+
+Expected:
+Settings update and affect future joins/hands.
+
+Test 9 — Last hand:
+After a hand ends:
+!lasthand
+
+Expected:
+🧾 Last Hand #...
+Board...
+Winner...
+Player Cards...
+
+Test 10 — Side pot:
+3 players with uneven all-ins.
+Expected:
+Main Pot and Side Pot display correctly.
+
+Test 11 — AFK settings:
+!poker afkstrikes 2
+Let player time out twice.
+
+Expected:
+Player removed after 2 strikes if afkremove on.
+
+Test 12 — AFK remove off:
+!poker afkremove off
+Let player time out.
+
+Expected:
+Auto-check/fold happens but player is not removed.
+
+Test 13 — Pause:
+!poker pause
+
+Expected:
+Current hand may finish.
+No next hand starts.
+
+Test 14 — Resume:
+!poker resume
+
+Expected:
+Countdown starts if enough eligible players.
+
+Test 15 — Close:
+!poker close
+
+Expected:
+All players cashed out and table cleared.
+
+Test 16 — Refund:
+!poker refund
+
+Expected:
+Current hand refunded, players remain seated.
+
+Final report:
+1. Dealer button display added
+2. Pot/Call/Stack turn whisper added
+3. !call auto-check added
+4. Real raise rules added
+5. Sitout/sitback added
+6. Rebuy added
+7. Admin table settings added
+8. Last hand history added
+9. Side pot display polished
+10. AFK settings added
+11. Admin safety commands added
+12. Pause/resume behavior confirmed
+13. Routing confirmed
+14. Existing poker fixes preserved
+15. Py_compile result
+16. Bot stability result

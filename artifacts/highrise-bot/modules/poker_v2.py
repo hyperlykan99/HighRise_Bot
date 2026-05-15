@@ -17,7 +17,7 @@ from typing import Optional
 
 from highrise import BaseBot, User
 import database as db
-from modules.permissions import is_admin, is_owner, can_manage_games
+from modules.permissions import is_admin, is_owner, can_manage_games, is_manager
 from config import BOT_MODE
 
 # ── Bot mode guard ─────────────────────────────────────────────────────────────
@@ -125,18 +125,26 @@ def _readable_rank(hole: list, board: list = []) -> str:
     return f"High Card {_rank_label(kr[0])}"
 
 def _build_turn_whisper(player: dict, board: list, current_bet: int, pot: int) -> str:
-    """Build the full private turn whisper with board, hand, rank, and actions."""
+    """Build the full private turn whisper with board, hand, rank, pot, call, stack, actions."""
     cards     = player.get("cards", [])
     hand_str  = _fcs(cards) if cards else "?"
     board_str = _fcs(board) if board else "—"
     owe       = max(0, current_bet - player.get("current_bet", 0))
+    stack     = player.get("stack", 0)
     try:
         rank_str = _readable_rank(cards, board) if cards else "?"
     except Exception:
         rank_str = "?"
-    call_line = f"💰 !call {owe:,}" if owe > 0 else "✅ !check"
-    actions   = f"{call_line} | 📈 !raise | 🏳️ !fold | 🔥 !allin"
-    msg = f"YOUR TURN:\nBoard: {board_str}\nHand: {hand_str}\nRank: {rank_str}\n{actions}"
+    lr        = _T.get("last_raise_amount") or _T.get("big_blind", 100)
+    min_raise = current_bet + lr
+    call_lbl  = "💰 !call" if owe > 0 else "✅ !check"
+    actions   = f"{call_lbl} | 📈 !raise {min_raise:,} | 🏳️ !fold | 🔥 !allin"
+    msg = (
+        f"YOUR TURN:\nBoard: {board_str}\nHand: {hand_str}\n"
+        f"Rank: {rank_str}\n"
+        f"Pot: {pot:,} | Call: {owe:,} | Stack: {stack:,}\n"
+        f"{actions}"
+    )
     return msg[:249]
 
 # ── Table state ────────────────────────────────────────────────────────────────
@@ -164,6 +172,19 @@ _T: dict = {
     "hand_ended":           False,
     "cleanup_in_progress":  False,
     "paused":               False,
+    # Raise tracking (reset each hand/street)
+    "last_raise_amount":    None,
+    "last_aggressor":       None,
+    # Admin-configurable table settings
+    "min_buyin":            1000,
+    "max_buyin":            50000,
+    "max_players":          6,
+    # AFK settings
+    "afk_strikes_limit":    3,
+    "afk_remove_enabled":   True,
+    # Hand history
+    "last_hand":            None,
+    "last_winner_lines":    [],
 }
 
 def _new_player(user_id: str, username: str, stack: int) -> dict:
@@ -178,6 +199,8 @@ def _new_player(user_id: str, username: str, stack: int) -> dict:
         "acted":             False,
         "afk_strikes":       0,
         "remove_after_hand": False,
+        "sitting_out":       False,
+        "sitting_out_next":  False,
     }
 
 # ── Messenger helpers ──────────────────────────────────────────────────────────
@@ -316,6 +339,13 @@ def _board_str() -> str:
 def _seated() -> list:
     return [u for u in _T["seats"] if _T["players"][u]["status"] != "left"]
 
+def _eligible_to_play() -> list:
+    """Players who can be dealt into the next hand: seated, not sitting out, stack > 0."""
+    return [u for u in _T["seats"]
+            if _T["players"][u]["status"] != "left"
+            and not _T["players"][u].get("sitting_out", False)
+            and _T["players"][u]["stack"] > 0]
+
 def _active_in_hand() -> list:
     return [u for u in _T["seats"] if _T["players"][u]["status"] == "active"]
 
@@ -401,8 +431,10 @@ async def _turn_timeout(bot: BaseBot, username: str) -> None:
         await _chat(bot, f"⏰ @{username} timed out and folded. AFK {p['afk_strikes']}/3.")
     print(f"[POKER V2] timeout user={username} action={action} strikes={p['afk_strikes']}")
 
-    if p["afk_strikes"] >= 3:
-        await _chat(bot, f"@{username} removed from poker for AFK.")
+    afk_limit   = _T.get("afk_strikes_limit", 3)
+    afk_remove  = _T.get("afk_remove_enabled", True)
+    if afk_remove and p["afk_strikes"] >= afk_limit:
+        await _chat(bot, f"⏰ @{username} removed from poker for AFK.")
         p["remove_after_hand"] = True
         print(f"[POKER V2] afk_remove user={username}")
 
@@ -421,7 +453,9 @@ async def _resolve(bot: BaseBot) -> None:
         win_amt = _T["pot"]
         _T["players"][winner]["stack"] += win_amt
         _T["hand_ended"] = True
-        await _chat(bot, f"🏆 @{winner} wins {win_amt:,} coins.\nReason: Everyone else folded.")
+        win_msg = f"🏆 @{winner} wins {win_amt:,} coins.\nReason: Everyone else folded."
+        await _chat(bot, win_msg)
+        _T["last_winner_lines"] = [win_msg]
         print(f"[POKER V2] resolve action=fold_win winner={winner}")
         await _complete_hand(bot, "fold_win")
         return
@@ -487,8 +521,10 @@ async def _advance_street(bot: BaseBot) -> None:
     phase = _T["phase"]
     deck  = _T["deck"]
 
-    # Reset per-street bets
-    _T["current_bet"] = 0
+    # Reset per-street bets and raise tracking
+    _T["current_bet"]       = 0
+    _T["last_raise_amount"] = _T["big_blind"]
+    _T["last_aggressor"]    = None
     for u in _T["seats"]:
         p = _T["players"][u]
         if p["status"] == "active":
@@ -647,26 +683,40 @@ async def _showdown(bot: BaseBot) -> None:
         await _chat(bot, chunk)
     await asyncio.sleep(1)
 
-    # Award each pot
+    # Award each pot — display breakdown if multiple pots
     pots = _build_pots()
-    for pot_info in pots:
-        elig_here = [u for u in pot_info["eligible"] if u in scores]
+    if len(pots) > 1:
+        for pi, pot_info in enumerate(pots):
+            label      = "Main Pot" if pi == 0 else "Side Pot"
+            elig_names = ", ".join(f"@{u}" for u in pot_info["eligible"][:4])
+            await _chat(bot, f"💰 {label}: {pot_info['amount']:,}\nEligible: {elig_names}"[:249])
+        await asyncio.sleep(1)
+    winner_lines: list = []
+    for pi, pot_info in enumerate(pots):
+        pot_label  = ("Main Pot" if pi == 0 else "Side Pot") if len(pots) > 1 else ""
+        elig_here  = [u for u in pot_info["eligible"] if u in scores]
         if not elig_here:
             continue
         best_score = max(scores[u] for u in elig_here)
         winners    = [u for u in elig_here if scores[u] == best_score]
         share      = pot_info["amount"] // len(winners)
         remainder  = pot_info["amount"] % len(winners)
-        for i, w in enumerate(winners):
-            _T["players"][w]["stack"] += share + (remainder if i == 0 else 0)
+        for i2, w in enumerate(winners):
+            _T["players"][w]["stack"] += share + (remainder if i2 == 0 else 0)
         if len(winners) == 1:
-            w = winners[0]
-            await _chat(bot, f"🏆 @{w} wins {pot_info['amount']:,} coins.")
+            w    = winners[0]
+            line = (f"🏆 {pot_label} {pot_info['amount']:,} → @{w}"
+                    if pot_label else f"🏆 @{w} wins {pot_info['amount']:,} coins.")
+            await _chat(bot, line[:249])
+            winner_lines.append(line)
         else:
-            split_lines = ["🤝 Split pot."]
+            parts = [f"🤝 {pot_label} split." if pot_label else "🤝 Split pot."]
             for w in winners:
-                split_lines.append(f"@{w} receives {share:,} coins.")
-            await _chat(bot, "\n".join(split_lines)[:249])
+                parts.append(f"@{w} receives {share:,} coins.")
+            line = "\n".join(parts)
+            await _chat(bot, line[:249])
+            winner_lines.append(line)
+    _T["last_winner_lines"] = winner_lines
 
     print(f"[POKER V2] resolve action=showdown")
     await _complete_hand(bot, "showdown")
@@ -681,6 +731,37 @@ async def _complete_hand(bot: BaseBot, reason: str) -> None:
     _T["hand_ended"]          = True
     print(f"[POKER V2 CLEANUP] start reason={reason}")
     _cancel_all_tasks()
+
+    # Snapshot last hand data before any resets
+    try:
+        board_snap   = list(_T.get("board", []))
+        pot_snap     = _T.get("pot", 0)
+        hand_players = []
+        for u in _T["seats"]:
+            p = _T["players"].get(u)
+            if p and p.get("cards"):
+                try:
+                    rank_str = _readable_rank(p["cards"], board_snap)
+                except Exception:
+                    rank_str = "?"
+                hand_players.append({
+                    "username": p.get("username", u),
+                    "cards":    list(p["cards"]),
+                    "rank":     rank_str,
+                    "status":   p.get("status", ""),
+                    "amount_won": 0,
+                })
+        _T["last_hand"] = {
+            "hand_number":  _T.get("hand_number", 0),
+            "board":        board_snap,
+            "pot":          pot_snap,
+            "reason":       reason,
+            "winner_lines": list(_T.get("last_winner_lines", [])),
+            "players":      hand_players,
+        }
+        _T["last_winner_lines"] = []
+    except Exception as snap_err:
+        print(f"[POKER V2] last_hand snapshot error: {snap_err}")
 
     # Show current stacks before removal
     seated_now = _seated()
@@ -704,6 +785,13 @@ async def _complete_hand(bot: BaseBot, reason: str) -> None:
         _T["seats"].remove(u)
         del _T["players"][u]
 
+    # Apply sitting_out_next → sitting_out for players who requested it
+    for u in _T["seats"]:
+        p = _T["players"].get(u)
+        if p and p.get("sitting_out_next"):
+            p["sitting_out"]      = True
+            p["sitting_out_next"] = False
+
     # Reset hand state (stacks survive to next hand)
     _T["board"]                  = []
     _T["deck"]                   = []
@@ -725,9 +813,9 @@ async def _complete_hand(bot: BaseBot, reason: str) -> None:
     _T["hand_ended"]          = False
     _T["cleanup_in_progress"] = False
 
-    # Start next hand or wait
-    remaining = _seated()
-    print(f"[POKER V2 CLEANUP] remaining={len(remaining)}")
+    # Start next hand (use eligible_to_play, not all seated)
+    remaining = _eligible_to_play()
+    print(f"[POKER V2 CLEANUP] remaining={len(remaining)} seated={len(_seated())}")
     if len(remaining) >= 2:
         if _T.get("paused"):
             _T["phase"] = "waiting"
@@ -739,7 +827,10 @@ async def _complete_hand(bot: BaseBot, reason: str) -> None:
             print(f"[POKER V2 NEXT HAND] countdown_started=true delay=10")
     else:
         _T["phase"] = "waiting"
-        await _chat(bot, "♠️ Waiting for 1 more player. Use !join 5000.")
+        if _seated():
+            await _chat(bot, "♠️ Waiting for more players. Use !join 5000.")
+        else:
+            await _chat(bot, "♠️ Waiting for players. Use !join 5000.")
         print(f"[POKER V2 NEXT HAND] not_started reason=need_more_players")
 
 # ── Next hand countdown helper ─────────────────────────────────────────────────
@@ -759,7 +850,7 @@ async def _start_hand_countdown(bot: BaseBot, delay: int = 10) -> None:
 
 # ── Start hand ─────────────────────────────────────────────────────────────────
 async def _start_hand(bot: BaseBot) -> None:
-    seated = _seated()
+    seated = _eligible_to_play()
     if len(seated) < 2:
         _T["phase"] = "waiting"
         return
@@ -861,19 +952,32 @@ async def _start_hand(bot: BaseBot) -> None:
                 p["status"] = "allin"
             return actual
 
-        actual_sb         = _post_blind(sb_user, sb)
-        actual_bb         = _post_blind(bb_user, bb)
-        _T["current_bet"] = actual_bb
+        actual_sb               = _post_blind(sb_user, sb)
+        actual_bb               = _post_blind(bb_user, bb)
+        _T["current_bet"]       = actual_bb
+        _T["last_raise_amount"] = actual_bb  # BB sets the opening raise size
+        _T["last_aggressor"]    = bb_user
         print(f"[POKER V2 START] blinds_posted=true pot={_T['pot']}")
 
-        # Announce hand with SB/BB/Pot
-        blind_msg = (
-            f"♠️ Poker hand #{_T['hand_number']}.\n"
-            f"SB: @{sb_user} {actual_sb:,} coins\n"
-            f"BB: @{bb_user} {actual_bb:,} coins\n"
-            f"Pot: {_T['pot']:,} coins"
-        )
-        await _chat(bot, blind_msg)
+        # Announce hand with Dealer/SB/BB/Pot
+        dealer_user = seated[dealer_idx]
+        if n == 2:
+            blind_msg = (
+                f"♠️ Poker hand #{_T['hand_number']}\n"
+                f"Dealer/SB: @{sb_user} {actual_sb:,} coins\n"
+                f"BB: @{bb_user} {actual_bb:,} coins\n"
+                f"Pot: {_T['pot']:,} coins"
+            )
+        else:
+            blind_msg = (
+                f"♠️ Poker hand #{_T['hand_number']}\n"
+                f"Dealer: @{dealer_user}\n"
+                f"SB: @{sb_user} {actual_sb:,} coins\n"
+                f"BB: @{bb_user} {actual_bb:,} coins\n"
+                f"Pot: {_T['pot']:,} coins"
+            )
+        print(f"[POKER V2 BUTTON] dealer=@{dealer_user} sb=@{sb_user} bb=@{bb_user} players={n}")
+        await _chat(bot, blind_msg[:249])
 
         # Announce first turn and start timer
         await _chat(bot, f"⏳ @{first_actor}'s turn. {secs}s")
@@ -962,8 +1066,10 @@ async def _action_guard(bot: BaseBot, user: User) -> bool:
 
 # ── !join ──────────────────────────────────────────────────────────────────────
 async def _cmd_join(bot: BaseBot, user: User, args: list) -> None:
-    username  = user.username.lower()
-    min_buyin = 1000
+    username   = user.username.lower()
+    min_buyin  = _T.get("min_buyin", 1000)
+    max_buyin  = _T.get("max_buyin", 50000)
+    max_players = _T.get("max_players", 6)
 
     if username in _T["players"]:
         stack = _T["players"][username]["stack"]
@@ -971,8 +1077,8 @@ async def _cmd_join(bot: BaseBot, user: User, args: list) -> None:
             f"You are already seated with {stack:,} coins. Use !leave to cash out.")
         return
 
-    if len(_T["seats"]) >= 6:
-        await _w(bot, user.id, "Poker table is full. (6/6)")
+    if len(_T["seats"]) >= max_players:
+        await _w(bot, user.id, f"Poker table is full. ({max_players}/{max_players})")
         return
 
     # No amount provided → prompt
@@ -988,8 +1094,10 @@ async def _cmd_join(bot: BaseBot, user: User, args: list) -> None:
         return
 
     if amount < min_buyin:
-        await _w(bot, user.id,
-            f"Minimum poker buy-in is {min_buyin:,} coins. Use !join {min_buyin:,}.")
+        await _w(bot, user.id, f"Minimum buy-in is {min_buyin:,} coins.")
+        return
+    if amount > max_buyin:
+        await _w(bot, user.id, f"Maximum buy-in is {max_buyin:,} coins.")
         return
 
     bal = _get_balance(user.id)
@@ -1004,7 +1112,7 @@ async def _cmd_join(bot: BaseBot, user: User, args: list) -> None:
     _T["players"][username] = _new_player(user.id, username, amount)
     _T["seats"].append(username)
     cnt = len(_T["seats"])
-    await _chat(bot, f"✅ @{user.username} joined poker with {amount:,} coins. Players: {cnt}/6")
+    await _chat(bot, f"✅ @{user.username} joined poker with {amount:,} coins. Players: {cnt}/{max_players}")
     print(f"[POKER V2] join user={user.username} amount={amount}")
 
     if cnt >= 2 and _T["phase"] == "waiting":
@@ -1081,7 +1189,11 @@ async def _cmd_call(bot: BaseBot, user: User) -> None:
     p        = _T["players"][username]
     owe      = _T["current_bet"] - p["current_bet"]
     if owe <= 0:
-        await _w(bot, user.id, "Nothing to call. Use !check.")
+        # Auto-check when nothing is owed
+        p["acted"] = True
+        await _chat(bot, f"✅ @{user.username} checked.")
+        print(f"[POKER V2] action user={user.username} action=call_as_check")
+        await _resolve(bot)
         return
 
     call_amt = min(owe, p["stack"])
@@ -1111,26 +1223,34 @@ async def _cmd_raise(bot: BaseBot, user: User, args: list) -> None:
     try:
         total_raise = int(str(amt_str).replace(",", ""))
     except (ValueError, TypeError):
-        await _w(bot, user.id, "Use: !raise <amount>")
+        await _w(bot, user.id, "Use: !raise <total_bet>")
         return
 
-    min_raise = _T["current_bet"] + _T["big_blind"]
-    if total_raise < min_raise:
-        await _w(bot, user.id, f"Minimum raise is {min_raise:,} coins total.")
+    old_bet        = _T["current_bet"]
+    last_raise_amt = _T.get("last_raise_amount") or _T["big_blind"]
+    min_raise_tot  = old_bet + last_raise_amt
+    max_raise      = p["current_bet"] + p["stack"]  # player's all-in total
+
+    if total_raise < min_raise_tot:
+        await _w(bot, user.id,
+            f"Minimum raise is {min_raise_tot:,} coins. Use !allin for {max_raise:,}.")
         return
 
     need = total_raise - p["current_bet"]
     if need > p["stack"]:
         await _w(bot, user.id,
-            f"Not enough chips. Use !allin ({p['stack']:,} coins).")
+            f"Not enough chips. Use !allin ({max_raise:,} coins total).")
         return
 
+    raise_size             = total_raise - old_bet
     p["stack"]             -= need
     p["total_contributed"] += need
     _T["pot"]              += need
     p["current_bet"]        = total_raise
     _T["current_bet"]       = total_raise
     p["acted"]              = True
+    _T["last_raise_amount"] = raise_size
+    _T["last_aggressor"]    = username
 
     # Reset acted for other active players
     for u in _T["seats"]:
@@ -1138,7 +1258,7 @@ async def _cmd_raise(bot: BaseBot, user: User, args: list) -> None:
             _T["players"][u]["acted"] = False
 
     await _chat(bot, f"📈 @{user.username} raised to {total_raise:,} coins.")
-    print(f"[POKER V2] action user={user.username} action=raise amount={total_raise}")
+    print(f"[POKER V2 RAISE] user=@{user.username} old_bet={old_bet} new_bet={total_raise} raise_size={raise_size} min_raise={last_raise_amt} full_raise=true")
     await _resolve(bot)
 
 # ── !fold ──────────────────────────────────────────────────────────────────────
@@ -1172,10 +1292,21 @@ async def _cmd_allin(bot: BaseBot, user: User) -> None:
     p["status"]             = "allin"
 
     if new_total > _T["current_bet"]:
+        old_bet        = _T["current_bet"]
         _T["current_bet"] = new_total
-        for u in _T["seats"]:
-            if u != username and _T["players"][u]["status"] == "active":
-                _T["players"][u]["acted"] = False
+        raise_size     = new_total - old_bet
+        last_raise_amt = _T.get("last_raise_amount") or _T["big_blind"]
+        if raise_size >= last_raise_amt:
+            # Full all-in raise: update tracking and reopen action
+            _T["last_raise_amount"] = raise_size
+            _T["last_aggressor"]    = username
+            for u in _T["seats"]:
+                if u != username and _T["players"][u]["status"] == "active":
+                    _T["players"][u]["acted"] = False
+            print(f"[POKER V2 RAISE] user=@{user.username} short_allin=false reopen_action=true raise_size={raise_size}")
+        else:
+            # Short all-in: do NOT reopen action for players who already acted
+            print(f"[POKER V2 RAISE] user=@{user.username} short_allin=true reopen_action=false raise_size={raise_size}")
 
     await _chat(bot, f"🔥 @{user.username} is all-in for {amt:,} coins!")
     print(f"[POKER V2] action user={user.username} action=allin amount={amt}")
@@ -1210,41 +1341,50 @@ async def _cmd_hand(bot: BaseBot, user: User) -> None:
 
 # ── !table ─────────────────────────────────────────────────────────────────────
 async def _cmd_table(bot: BaseBot, user: User) -> None:
-    phase  = _T["phase"]
-    cnt    = len(_T["seats"])
-    paused = _T.get("paused", False)
+    phase    = _T["phase"]
+    seated   = _seated()
+    cnt      = len(seated)
+    paused   = _T.get("paused", False)
+    eligible = _eligible_to_play()
+
+    # Sitting-out suffix
+    sout     = [u for u in seated if _T["players"][u].get("sitting_out")]
+    sout_str = ("\nSitting out: " + ", ".join(f"@{u}" for u in sout[:3])) if sout else ""
+
+    # Player count display (show active vs seated when they differ)
+    cnt_str  = f"{cnt}" if len(eligible) == cnt else f"{cnt} seated / {len(eligible)} active"
 
     if paused and phase not in ("preflop", "flop", "turn", "river", "dealing"):
-        await _w(bot, user.id, f"♠️ Poker table\nPaused.\nPlayers: {cnt}")
+        await _w(bot, user.id, (f"♠️ Poker table\nPaused.\nPlayers: {cnt_str}{sout_str}")[:249])
         return
 
     if phase == "waiting":
-        if cnt == 1:
-            await _w(bot, user.id, "♠️ Poker table\nWaiting for 1 more player.\nUse !join 5000.")
-        else:
+        if cnt == 0:
             await _w(bot, user.id, "♠️ Poker table\nWaiting for players.\nUse !join 5000.")
-    elif phase == "countdown":
+        elif cnt == 1:
+            await _w(bot, user.id,
+                (f"♠️ Poker table\nWaiting for 1 more player.\nUse !join 5000.{sout_str}")[:249])
+        else:
+            await _w(bot, user.id,
+                (f"♠️ Poker table\nWaiting for players.\nUse !join 5000.{sout_str}")[:249])
+    elif phase in ("countdown", "between_hands"):
         await _w(bot, user.id,
-            f"♠️ Poker table\nNext hand starting soon.\nPlayers: {cnt}")
+            (f"♠️ Poker table\nNext hand soon.\nPlayers: {cnt_str}{sout_str}")[:249])
     elif phase == "dealing":
         elapsed = time.time() - _T.get("dealing_started_at", 0.0)
         if elapsed > 5:
-            await _w(bot, user.id, f"♠️ Poker table\nOpening first turn now.\nPlayers: {cnt}")
+            await _w(bot, user.id, f"♠️ Poker table\nOpening first turn now.\nPlayers: {cnt_str}")
             await _force_open_first_turn(bot)
             return
-        await _w(bot, user.id,
-            f"♠️ Poker table\nDealing cards...\nPlayers: {cnt}")
+        await _w(bot, user.id, f"♠️ Poker table\nDealing cards...\nPlayers: {cnt_str}")
     elif phase in ("preflop", "flop", "turn", "river"):
         turn = _T["current_turn_username"] or "?"
         pot  = _T["pot"]
         await _w(bot, user.id, (
             f"♠️ Poker table\nPhase: {phase.title()}\n"
             f"Pot: {pot:,} coins\nTurn: @{turn}\n"
-            f"Board: {_board_str()}\nPlayers: {cnt}"
+            f"Board: {_board_str()}\nPlayers: {cnt_str}{sout_str}"
         )[:249])
-    elif phase == "between_hands":
-        await _w(bot, user.id,
-            f"♠️ Poker table\nNext hand soon.\nPlayers: {cnt}")
     else:
         await _w(bot, user.id, "♠️ Poker table\nWaiting for players.\nUse !join 5000.")
 
@@ -1465,20 +1605,252 @@ async def _cmd_status(bot: BaseBot, user: User) -> None:
     if not (is_owner(user.username) or is_admin(user.username) or is_manager(user.username)):
         await _w(bot, user.id, "Owner/admin only.")
         return
-    phase   = _T["phase"]
-    pot     = _T["pot"]
-    turn    = _T["current_turn_username"] or "—"
-    players = len(_T["seats"])
-    paused  = _T.get("paused", False)
-    locked  = _T.get("cleanup_in_progress", False)
-    ended   = _T.get("hand_ended", False)
+    phase  = _T["phase"]
+    pot    = _T["pot"]
+    turn   = _T["current_turn_username"] or "—"
+    seated = len(_T["seats"])
+    paused = _T.get("paused", False)
+    locked = _T.get("cleanup_in_progress", False)
+    ended  = _T.get("hand_ended", False)
+    sb     = _T["small_blind"]
+    bb     = _T["big_blind"]
+    timer  = _T.get("turn_seconds", 30)
+    minb   = _T.get("min_buyin", 1000)
+    maxb   = _T.get("max_buyin", 50000)
+    maxp   = _T.get("max_players", 6)
+    afkl   = _T.get("afk_strikes_limit", 3)
+    afkr   = _T.get("afk_remove_enabled", True)
     msg = (
         f"♠️ Poker Status\n"
-        f"Phase: {phase}\nPlayers: {players}\nPot: {pot:,}\n"
-        f"Turn: @{turn}\nPaused: {paused}\n"
-        f"Cleanup lock: {locked}\nHand ended: {ended}"
+        f"Phase: {phase} | Pot: {pot:,}\n"
+        f"Blinds: {sb}/{bb} | Timer: {timer}s\n"
+        f"Buy-in: {minb:,}–{maxb:,} | Max: {maxp}p\n"
+        f"AFK: {afkl} strikes, remove={afkr}\n"
+        f"Turn: @{turn} | Players: {seated}\n"
+        f"Paused: {paused} | Lock: {locked} | Ended: {ended}"
     )
     await _w(bot, user.id, msg[:249])
+
+# ── !sitout ────────────────────────────────────────────────────────────────────
+async def _cmd_sitout(bot: BaseBot, user: User) -> None:
+    username = user.username.lower()
+    if username not in _T["players"]:
+        await _w(bot, user.id, "You are not at the poker table.")
+        return
+    p     = _T["players"][username]
+    phase = _T["phase"]
+    if phase in ("preflop", "flop", "turn", "river") and p["status"] in ("active", "allin"):
+        p["sitting_out_next"] = True
+        await _chat(bot, f"⏸️ @{user.username} will sit out after this hand.")
+    else:
+        p["sitting_out"]      = True
+        p["sitting_out_next"] = False
+        await _chat(bot, f"⏸️ @{user.username} is sitting out.")
+    print(f"[POKER V2] sitout user={user.username}")
+
+# ── !sitback ───────────────────────────────────────────────────────────────────
+async def _cmd_sitback(bot: BaseBot, user: User) -> None:
+    username = user.username.lower()
+    if username not in _T["players"]:
+        await _w(bot, user.id, "You are not at the poker table.")
+        return
+    p = _T["players"][username]
+    p["sitting_out"]      = False
+    p["sitting_out_next"] = False
+    await _chat(bot, f"▶️ @{user.username} is back in.")
+    print(f"[POKER V2] sitback user={user.username}")
+    # Start hand if now eligible
+    phase = _T["phase"]
+    if len(_eligible_to_play()) >= 2 and phase in ("waiting", "between_hands") and not _T.get("paused"):
+        await _chat(bot, "♠️ Next hand in 10s.")
+        _start_next_hand_countdown(bot)
+
+# ── !rebuy ─────────────────────────────────────────────────────────────────────
+async def _cmd_rebuy(bot: BaseBot, user: User, args: list) -> None:
+    username = user.username.lower()
+    if username not in _T["players"]:
+        await _w(bot, user.id, "You are not at the poker table.")
+        return
+    p     = _T["players"][username]
+    phase = _T["phase"]
+    if phase in ("preflop", "flop", "turn", "river") and p["status"] in ("active", "allin"):
+        await _w(bot, user.id, "⚠️ You cannot rebuy while active in a hand.")
+        return
+    nums = [int(a.replace(",", "")) for a in args if a.replace(",", "").isdigit()]
+    if not nums:
+        await _w(bot, user.id, "Use: !rebuy 5000")
+        return
+    amount = nums[0]
+    if amount <= 0:
+        await _w(bot, user.id, "Amount must be positive.")
+        return
+    bal = _get_balance(user.id)
+    if bal < amount:
+        await _w(bot, user.id, f"⚠️ Not enough coins. Balance: {bal:,} coins.")
+        return
+    if not _deduct(user.id, amount):
+        await _w(bot, user.id, "Could not deduct coins. Please try again.")
+        return
+    p["stack"] += amount
+    await _chat(bot, f"💰 @{user.username} added {amount:,} coins to their poker stack.")
+    print(f"[POKER V2] rebuy user={user.username} amount={amount} new_stack={p['stack']}")
+
+# ── !lasthand ──────────────────────────────────────────────────────────────────
+async def _cmd_lasthand(bot: BaseBot, user: User) -> None:
+    lh = _T.get("last_hand")
+    if not lh:
+        await _w(bot, user.id, "No completed hand history yet.")
+        return
+    hand_num = lh.get("hand_number", "?")
+    board    = _fcs(lh["board"]) if lh.get("board") else "—"
+    pot      = lh.get("pot", 0)
+    winners  = lh.get("winner_lines", [])
+    players  = lh.get("players", [])
+    msg1 = f"🧾 Last Hand #{hand_num}\nBoard: {board}\nPot: {pot:,} coins"
+    if winners:
+        msg1 += "\n" + "\n".join(str(w)[:80] for w in winners[:2])
+    await _w(bot, user.id, msg1[:249])
+    if players:
+        header = "Player Cards"
+        chunk  = header
+        for pl in players:
+            line = f"@{pl['username']}: {_fcs(pl['cards'])} = {pl['rank']}"
+            test = chunk + "\n" + line
+            if len(test) > 249:
+                await _w(bot, user.id, chunk)
+                chunk = header + "\n" + line
+            else:
+                chunk = test
+        if chunk and chunk != header:
+            await _w(bot, user.id, chunk[:249])
+
+# ── Admin: minbuyin ────────────────────────────────────────────────────────────
+async def _cmd_minbuyin(bot: BaseBot, user: User, args: list) -> None:
+    if not (is_owner(user.username) or is_admin(user.username) or is_manager(user.username)):
+        await _w(bot, user.id, "Owner/admin only.")
+        return
+    nums = [int(a.replace(",", "")) for a in args if a.replace(",", "").isdigit()]
+    if not nums:
+        await _w(bot, user.id, "Use: !poker minbuyin 1000")
+        return
+    val = nums[0]
+    if val <= 0:
+        await _w(bot, user.id, "Min buy-in must be positive.")
+        return
+    _T["min_buyin"] = val
+    await _chat(bot, f"✅ Poker min buy-in set to {val:,} coins.")
+
+# ── Admin: maxbuyin ────────────────────────────────────────────────────────────
+async def _cmd_maxbuyin(bot: BaseBot, user: User, args: list) -> None:
+    if not (is_owner(user.username) or is_admin(user.username) or is_manager(user.username)):
+        await _w(bot, user.id, "Owner/admin only.")
+        return
+    nums = [int(a.replace(",", "")) for a in args if a.replace(",", "").isdigit()]
+    if not nums:
+        await _w(bot, user.id, "Use: !poker maxbuyin 50000")
+        return
+    val = nums[0]
+    if val <= 0:
+        await _w(bot, user.id, "Max buy-in must be positive.")
+        return
+    _T["max_buyin"] = val
+    await _chat(bot, f"✅ Poker max buy-in set to {val:,} coins.")
+
+# ── Admin: maxplayers ──────────────────────────────────────────────────────────
+async def _cmd_maxplayers(bot: BaseBot, user: User, args: list) -> None:
+    if not (is_owner(user.username) or is_admin(user.username) or is_manager(user.username)):
+        await _w(bot, user.id, "Owner/admin only.")
+        return
+    nums = [int(a.replace(",", "")) for a in args if a.replace(",", "").isdigit()]
+    if not nums:
+        await _w(bot, user.id, "Use: !poker maxplayers 6")
+        return
+    val = nums[0]
+    if not (2 <= val <= 6):
+        await _w(bot, user.id, "Max players must be between 2 and 6.")
+        return
+    _T["max_players"] = val
+    await _chat(bot, f"✅ Poker max players set to {val}.")
+
+# ── Admin: blinds ──────────────────────────────────────────────────────────────
+async def _cmd_blinds(bot: BaseBot, user: User, args: list) -> None:
+    if not (is_owner(user.username) or is_admin(user.username) or is_manager(user.username)):
+        await _w(bot, user.id, "Owner/admin only.")
+        return
+    nums = [int(a.replace(",", "")) for a in args if a.replace(",", "").isdigit()]
+    if len(nums) < 2:
+        await _w(bot, user.id, "Use: !poker blinds 50 100")
+        return
+    sb, bb = nums[0], nums[1]
+    if sb <= 0 or bb <= sb:
+        await _w(bot, user.id, "Big blind must be greater than small blind.")
+        return
+    _T["small_blind"] = sb
+    _T["big_blind"]   = bb
+    await _chat(bot, f"✅ Poker blinds set to {sb:,}/{bb:,}.")
+
+# ── Admin: timer ───────────────────────────────────────────────────────────────
+async def _cmd_timer_set(bot: BaseBot, user: User, args: list) -> None:
+    if not (is_owner(user.username) or is_admin(user.username) or is_manager(user.username)):
+        await _w(bot, user.id, "Owner/admin only.")
+        return
+    nums = [int(a.replace(",", "")) for a in args if a.replace(",", "").isdigit()]
+    if not nums:
+        await _w(bot, user.id, "Use: !poker timer 30")
+        return
+    val = nums[0]
+    if not (10 <= val <= 120):
+        await _w(bot, user.id, "Timer must be between 10 and 120 seconds.")
+        return
+    _T["turn_seconds"] = val
+    await _chat(bot, f"✅ Poker turn timer set to {val}s.")
+
+# ── Admin: afktime ─────────────────────────────────────────────────────────────
+async def _cmd_afktime(bot: BaseBot, user: User, args: list) -> None:
+    if not (is_owner(user.username) or is_admin(user.username) or is_manager(user.username)):
+        await _w(bot, user.id, "Owner/admin only.")
+        return
+    nums = [int(a.replace(",", "")) for a in args if a.replace(",", "").isdigit()]
+    if not nums:
+        await _w(bot, user.id, "Use: !poker afktime 30")
+        return
+    val = nums[0]
+    if not (10 <= val <= 120):
+        await _w(bot, user.id, "AFK timer must be 10–120 seconds.")
+        return
+    _T["turn_seconds"] = val
+    await _chat(bot, f"✅ Poker AFK timer set to {val}s.")
+
+# ── Admin: afkstrikes ──────────────────────────────────────────────────────────
+async def _cmd_afkstrikes(bot: BaseBot, user: User, args: list) -> None:
+    if not (is_owner(user.username) or is_admin(user.username) or is_manager(user.username)):
+        await _w(bot, user.id, "Owner/admin only.")
+        return
+    nums = [int(a.replace(",", "")) for a in args if a.replace(",", "").isdigit()]
+    if not nums:
+        await _w(bot, user.id, "Use: !poker afkstrikes 3")
+        return
+    val = nums[0]
+    if not (1 <= val <= 10):
+        await _w(bot, user.id, "AFK strikes must be between 1 and 10.")
+        return
+    _T["afk_strikes_limit"] = val
+    await _chat(bot, f"✅ Poker AFK strikes set to {val}.")
+
+# ── Admin: afkremove ───────────────────────────────────────────────────────────
+async def _cmd_afkremove(bot: BaseBot, user: User, args: list) -> None:
+    if not (is_owner(user.username) or is_admin(user.username) or is_manager(user.username)):
+        await _w(bot, user.id, "Owner/admin only.")
+        return
+    raw = next((a.lower() for a in args if a.lower() in ("on","off","yes","no","true","false","1","0")), "")
+    if raw in ("on", "yes", "true", "1"):
+        _T["afk_remove_enabled"] = True
+        await _chat(bot, "✅ AFK removal enabled.")
+    elif raw in ("off", "no", "false", "0"):
+        _T["afk_remove_enabled"] = False
+        await _chat(bot, "✅ AFK removal disabled.")
+    else:
+        await _w(bot, user.id, "Use: !poker afkremove on/off")
 
 # ── Entry point ────────────────────────────────────────────────────────────────
 async def handle_poker_v2(bot: BaseBot, user: User, cmd: str, args: list) -> None:
@@ -1499,7 +1871,8 @@ async def handle_poker_v2(bot: BaseBot, user: User, cmd: str, args: list) -> Non
                 "Join: !join 5000\n"
                 "Play: !check, !call, !raise 500, !fold, !allin\n"
                 "Info: !hand, !table\n"
-                "Leave: !leave"
+                "Leave: !leave\n"
+                "More: !rebuy, !sitout, !sitback"
             ))
         return
 
@@ -1512,12 +1885,24 @@ async def handle_poker_v2(bot: BaseBot, user: User, cmd: str, args: list) -> Non
     elif cmd == "hand":          await _cmd_hand(bot, user)
     elif cmd == "leave":         await _cmd_leave(bot, user)
     elif cmd == "table":         await _cmd_table(bot, user)
+    elif cmd == "sitout":        await _cmd_sitout(bot, user)
+    elif cmd in ("sitback", "sitin"): await _cmd_sitback(bot, user)
+    elif cmd == "rebuy":         await _cmd_rebuy(bot, user, args)
+    elif cmd in ("lasthand", "handlog", "last"): await _cmd_lasthand(bot, user)
     elif cmd == "pause":         await _cmd_pause(bot, user)
     elif cmd == "resume":        await _cmd_resume(bot, user)
     elif cmd == "close":         await _cmd_close(bot, user)
     elif cmd == "refund":        await _cmd_refund(bot, user, args)
     elif cmd == "forcefinish":   await _cmd_forcefinish(bot, user)
     elif cmd in ("status", "pokerstatus"): await _cmd_status(bot, user)
+    elif cmd == "minbuyin":      await _cmd_minbuyin(bot, user, args)
+    elif cmd == "maxbuyin":      await _cmd_maxbuyin(bot, user, args)
+    elif cmd == "maxplayers":    await _cmd_maxplayers(bot, user, args)
+    elif cmd == "blinds":        await _cmd_blinds(bot, user, args)
+    elif cmd == "timer":         await _cmd_timer_set(bot, user, args)
+    elif cmd == "afktime":       await _cmd_afktime(bot, user, args)
+    elif cmd == "afkstrikes":    await _cmd_afkstrikes(bot, user, args)
+    elif cmd == "afkremove":     await _cmd_afkremove(bot, user, args)
     elif cmd in ("debugcards", "debugdeal"): await _cmd_debugcards(bot, user)
     elif cmd == "resendcards":   await _cmd_resendcards(bot, user)
     elif cmd == "resetv2":       await _cmd_resetv2(bot, user)

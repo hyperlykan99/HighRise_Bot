@@ -228,7 +228,7 @@ REGISTRY: dict[str, Cmd] = {
     "bjshoe":           Cmd("blackjack","casino",False,True, False),
 
     # ── Poker ────────────────────────────────────────────────────────────────
-    "poker":            Cmd("poker","casino",False,False,True, aliases=("p","pj","pt","ptable","ph","pleave")),
+    "poker":            Cmd("poker","casino",False,False,True, aliases=("p","pj","pt","ptable","ph","pleave","phelp")),
     "pleave":           Cmd("poker","casino",False,False,True),
     "phand":            Cmd("poker","casino",False,True, False, aliases=("ph",)),
     "pokerstats":       Cmd("poker","casino",False,True, False, aliases=("pstats",)),
@@ -241,8 +241,9 @@ REGISTRY: dict[str, Cmd] = {
     "allin":            Cmd("poker","casino",False,False,True,
                             aliases=("shove","all-in")),
     "sitout":           Cmd("poker","casino",False,False,False),
-    "sitin":            Cmd("poker","casino",False,False,False),
+    "sitback":          Cmd("poker","casino",False,False,False, aliases=("sitin",)),
     "rebuy":            Cmd("poker","casino",False,False,True),
+    "lasthand":         Cmd("poker","casino",False,True, False, aliases=("handlog",)),
     "mystack":          Cmd("poker","casino",False,True, False, aliases=("pstacks","stack")),
     "pcards":           Cmd("poker","casino",False,True, False, aliases=("po","podds")),
     "pplayers":         Cmd("poker","casino",False,True, False, aliases=("pp",)),
