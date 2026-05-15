@@ -1,0 +1,205 @@
+Poker V2 Fix — Make Auto Card Delivery Use Same Logic As !hand
+
+Current GitHub review:
+- modules/poker_v2.py deals cards into memory correctly:
+  player["cards"] = [deck.pop(), deck.pop()]
+- !hand works because it reads from in-memory player["cards"].
+- Auto card whisper fails because _start_hand() uses:
+  asyncio.create_task(_send_card_whisper_best_effort(...))
+- That background task is not awaited, does not retry, does not update card_delivery_log, and does not confirm delivery before turn starts.
+
+Goal:
+Make auto card delivery reliable by using the same memory card source as !hand and awaiting card whispers sequentially before announcing first turn.
+
+Do NOT modify:
+- blackjack
+- jail
+- Luxe Tickets
+- tips
+- workflows
+- old poker.py except route conflicts
+- other games
+
+Part 1 — Replace background card whisper tasks
+
+In modules/poker_v2.py, find _start_hand().
+
+Remove this:
+
+for u in seated:
+    asyncio.create_task(_send_card_whisper_best_effort(bot, _T["players"][u]))
+
+Replace with:
+
+delivery_success = 0
+delivery_failed = []
+
+for u in seated:
+    p = _T["players"][u]
+    ok = await _send_card_whisper_confirmed(bot, p)
+    if ok:
+        delivery_success += 1
+    else:
+        delivery_failed.append(u)
+    await asyncio.sleep(0.7)
+
+Do not announce first turn until this loop finishes.
+
+Part 2 — Create confirmed whisper function
+
+Create:
+
+async def _send_card_whisper_confirmed(bot, player):
+    username = player["username"]
+    cards = player.get("cards", [])
+
+    if len(cards) != 2:
+        _T["card_delivery_log"][username] = {
+            "cards": False,
+            "whisper": False,
+            "reason": "cards_missing"
+        }
+        print(f"[POKER V2 CARD SEND] @{username} failed cards_missing")
+        return False
+
+    msg = f"Your cards: {_fcs(cards)}"
+
+    ok = await _w(bot, player["user_id"], msg)
+
+    if not ok:
+        await asyncio.sleep(1)
+        ok = await _w(bot, player["user_id"], msg)
+
+    _T["card_delivery_log"][username] = {
+        "cards": True,
+        "whisper": bool(ok),
+        "reason": "" if ok else "whisper_failed"
+    }
+
+    print(f"[POKER V2 CARD SEND] @{username} cards=true whisper={ok}")
+    return bool(ok)
+
+Important:
+- Use _w(), the same safe whisper helper.
+- Use player["cards"], the same source as !hand.
+- Retry once.
+- Update _T["card_delivery_log"].
+
+Part 3 — Continue even if some whispers fail
+
+After the delivery loop:
+
+if delivery_success == 0:
+    await _chat(bot, "Poker hand cancelled. Could not send cards.")
+    refund current hand safely
+    phase = "waiting"
+    return
+
+if delivery_failed:
+    await _chat(bot, "Cards sent. If you did not receive cards, type !hand.")
+else:
+    await _chat(bot, "Cards sent.")
+
+Then announce first turn:
+
+await _chat(bot, f"@{first_actor}'s turn. {secs}s")
+
+Part 4 — First actor turn whisper should also be awaited once
+
+After public first turn, send the first actor turn whisper with await instead of background task:
+
+await _send_turn_whisper_confirmed(bot, first_actor, first_p)
+
+Create if needed:
+
+async def _send_turn_whisper_confirmed(bot, username, player):
+    cards = player.get("cards", [])
+    if len(cards) != 2:
+        return False
+    owe = max(0, _T["current_bet"] - player.get("current_bet", 0))
+    if owe > 0:
+        msg = f"Your turn.\nYour cards: {_fcs(cards)}\nPot: {_T['pot']:,} coins\nCall: {owe:,} coins"
+    else:
+        msg = f"Your turn.\nYour cards: {_fcs(cards)}\nPot: {_T['pot']:,} coins"
+    ok = await _w(bot, player["user_id"], msg)
+    if not ok:
+        await asyncio.sleep(1)
+        ok = await _w(bot, player["user_id"], msg)
+    print(f"[POKER V2 TURN WHISPER] @{username} ok={ok}")
+    return bool(ok)
+
+Part 5 — Add visible debug command
+
+Fix !poker debugcards so it shows real delivery status.
+
+Expected:
+Poker card debug:
+Hand: 1
+@ashquinn_: cards=yes whisper=success
+@4ktreymarion: cards=yes whisper=failed
+
+Do not reveal card values.
+
+Part 6 — Keep phase preflop, but wait for delivery attempts
+
+Important:
+Do not go back to stuck “dealing forever.”
+
+Use this sequence:
+
+1. Deal cards in memory.
+2. Post blinds.
+3. Announce hand.
+4. Await card whisper attempts sequentially.
+5. phase = preflop
+6. first_turn_ready = true
+7. Announce first turn.
+8. Start timer.
+
+No background card delivery task for the initial deal.
+
+Part 7 — Test
+
+Run:
+python -m py_compile modules/poker_v2.py
+python -m py_compile main.py
+
+Restart bots.
+
+Test:
+!join 5000
+second player:
+!join 5000
+
+Expected:
+Poker hand #1.
+SB...
+BB...
+Pot...
+
+Then both players should receive:
+Your cards: [two cards]
+
+Then:
+Cards sent.
+@FirstActor's turn. 30s
+
+If someone does not receive cards:
+!hand must still work.
+
+Owner:
+!poker debugcards
+
+Expected:
+Shows cards=yes for both players and whisper success/fail.
+
+Final report:
+1. Removed background auto card tasks from initial deal
+2. Added awaited sequential card delivery
+3. Added retry
+4. Added delivery log
+5. Confirmed !hand and auto whisper use same card source
+6. Player 1 auto whisper result
+7. Player 2 auto whisper result
+8. debugcards result
+9. Bot stability result

@@ -140,42 +140,52 @@ def _get_v2_player_cards(username: str) -> list:
     p = _T["players"].get(username)
     return p["cards"] if p and p.get("cards") else []
 
-async def _send_card_whisper_best_effort(bot: BaseBot, player: dict) -> None:
-    """Best-effort card whisper. Runs as a background task — never blocks gameplay."""
-    try:
-        cards = player.get("cards", [])
-        if len(cards) != 2:
-            return
-        msg = f"Your cards: {_fcs(cards)}"
-        await bot.highrise.send_whisper(player["user_id"], msg[:249])
-        print(f"[POKER V2 CARD] @{player['username']} whisper ok")
-    except Exception as e:
-        print(f"[POKER V2 CARD] @{player['username']} whisper failed: {e!r}")
+async def _send_card_whisper_confirmed(bot: BaseBot, player: dict) -> bool:
+    """Whisper a player their cards with one retry. Updates card_delivery_log. Returns True if delivered."""
+    username = player["username"]
+    cards    = player.get("cards", [])
+    if len(cards) != 2:
+        _T["card_delivery_log"][username] = {"cards": False, "whisper": False, "reason": "cards_missing"}
+        print(f"[POKER V2 CARD SEND] @{username} failed cards_missing")
+        return False
+    msg = f"Your cards: {_fcs(cards)}"
+    ok  = await _w(bot, player["user_id"], msg)
+    if not ok:
+        await asyncio.sleep(1)
+        ok = await _w(bot, player["user_id"], msg)
+    _T["card_delivery_log"][username] = {
+        "cards":   True,
+        "whisper": bool(ok),
+        "reason":  "" if ok else "whisper_failed",
+    }
+    print(f"[POKER V2 CARD SEND] @{username} cards=true whisper={ok}")
+    return bool(ok)
 
-async def _send_turn_whisper_best_effort(bot: BaseBot, username: str, player: dict) -> None:
-    """Best-effort turn reminder whisper. Runs as a background task — never blocks gameplay."""
-    try:
-        owe  = max(0, _T["current_bet"] - player.get("current_bet", 0))
-        cstr = _fcs(player["cards"]) if player.get("cards") else "?"
-        pot  = _T["pot"]
-        if owe > 0:
-            msg = (
-                f"Your turn.\n"
-                f"Your cards: {cstr}\n"
-                f"Pot: {pot:,} coins\n"
-                f"Call: {owe:,} coins"
-            )
-        else:
-            msg = (
-                f"Your turn.\n"
-                f"Your cards: {cstr}\n"
-                f"Pot: {pot:,} coins\n"
-                f"!check, !raise, !fold, !allin"
-            )
-        await bot.highrise.send_whisper(player["user_id"], msg[:249])
-        print(f"[POKER V2 TURN WHISPER] @{username} ok")
-    except Exception as e:
-        print(f"[POKER V2 TURN WHISPER] @{username} failed: {e!r}")
+async def _send_turn_whisper_confirmed(bot: BaseBot, username: str, player: dict) -> bool:
+    """Whisper first actor their turn info with one retry. Returns True if delivered."""
+    cards = player.get("cards", [])
+    if len(cards) != 2:
+        return False
+    owe = max(0, _T["current_bet"] - player.get("current_bet", 0))
+    if owe > 0:
+        msg = (
+            f"Your turn.\n"
+            f"Your cards: {_fcs(cards)}\n"
+            f"Pot: {_T['pot']:,} coins\n"
+            f"Call: {owe:,} coins"
+        )
+    else:
+        msg = (
+            f"Your turn.\n"
+            f"Your cards: {_fcs(cards)}\n"
+            f"Pot: {_T['pot']:,} coins"
+        )
+    ok = await _w(bot, player["user_id"], msg[:249])
+    if not ok:
+        await asyncio.sleep(1)
+        ok = await _w(bot, player["user_id"], msg[:249])
+    print(f"[POKER V2 TURN WHISPER] @{username} ok={ok}")
+    return bool(ok)
 
 async def _whisper_v2_cards(bot: BaseBot, player: dict, reason: str = "deal") -> bool:
     """Single-player card whisper with one retry. Used by resendcards / force-open paths."""
@@ -705,14 +715,7 @@ async def _start_hand(bot: BaseBot) -> None:
     first_actor = seated[first_preflop_idx]
     first_p     = _T["players"][first_actor]
 
-    # Open preflop immediately — no blocking on whispers
     secs = _T.get("turn_seconds", 30)
-    _T["phase"]                 = "preflop"
-    _T["first_turn_ready"]      = True
-    _T["current_turn_username"] = first_actor
-    _cancel_turn_task()
-    _T["turn_timer_task"] = asyncio.create_task(_turn_timeout(bot, first_actor))
-    print(f"[POKER V2 START] first_actor=@{first_actor} phase_set=preflop ready=true")
 
     # Announce hand
     blind_msg = (
@@ -723,17 +726,51 @@ async def _start_hand(bot: BaseBot) -> None:
     )
     await _chat(bot, blind_msg)
 
-    # Fire card whispers in background — do not block
+    # Await card whisper attempts sequentially before opening the hand
+    delivery_success = 0
+    delivery_failed: list = []
     for u in seated:
-        asyncio.create_task(_send_card_whisper_best_effort(bot, _T["players"][u]))
+        p  = _T["players"][u]
+        ok = await _send_card_whisper_confirmed(bot, p)
+        if ok:
+            delivery_success += 1
+        else:
+            delivery_failed.append(u)
+        await asyncio.sleep(0.7)
+
+    if delivery_success == 0:
+        await _chat(bot, "Poker hand cancelled. Could not send cards.")
+        for u in seated:
+            p = _T["players"][u]
+            contributed = p.get("total_contributed", 0)
+            if contributed > 0:
+                _credit(p["user_id"], contributed)
+        _T["phase"]   = "waiting"
+        _T["hand_id"] = None
+        return
+
+    if delivery_failed:
+        await _chat(bot, "Cards sent. If you did not receive cards, type !hand.")
+    else:
+        await _chat(bot, "Cards sent.")
+
+    # Open preflop — phase set after delivery attempts complete
+    _T["phase"]                 = "preflop"
+    _T["first_turn_ready"]      = True
+    _T["current_turn_username"] = first_actor
+    print(f"[POKER V2 START] first_actor=@{first_actor} phase_set=preflop ready=true")
 
     # Announce first turn
     await _chat(bot, f"@{first_actor}'s turn. {secs}s")
     print(f"[POKER V2 START] turn_announced=true")
     print(f"[POKER V2 OPEN] first_actor=@{first_actor} phase=preflop ready=true")
 
-    # Fire turn reminder in background — do not block
-    asyncio.create_task(_send_turn_whisper_best_effort(bot, first_actor, first_p))
+    # Start turn timer
+    _cancel_turn_task()
+    _T["turn_timer_task"] = asyncio.create_task(_turn_timeout(bot, first_actor))
+
+    # Await first actor turn reminder (with one retry)
+    await _send_turn_whisper_confirmed(bot, first_actor, first_p)
 
 # ── Open first turn (force-open path only) ─────────────────────────────────────
 async def _open_first_turn(bot: BaseBot, first_actor: str, first_p: dict) -> None:
