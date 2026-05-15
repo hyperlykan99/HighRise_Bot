@@ -1,0 +1,179 @@
+EMERGENCY DEBUG + HARD FIX — Poker First Turn Gate Stuck
+
+Current live issue:
+Poker now reaches:
+“Dealer is preparing the first turn.”
+
+But it stays stuck there.
+The first player still does not receive automatic cards.
+The hand never opens.
+
+This means the new hard gate exists, but it is failing before:
+first_turn_ready = 1
+
+Goal:
+Find exactly why first actor card whisper fails, then fix it.
+
+Do NOT rebuild other systems.
+Do NOT modify blackjack, jail, Luxe, tips, workflows.
+Only fix poker first-turn gate.
+
+Important live proof:
+- !ph / !hand can show cards manually.
+- Therefore cards exist.
+- Automatic first-turn whisper is failing.
+- The gate must log the exact reason and use the same logic as !hand if needed.
+
+PART 1 — Add visible gate failure message
+
+When first-turn gate fails, do not silently stay stuck.
+
+Public chat:
+⚠️ Poker first-turn gate failed: [reason]. Staff check logs.
+
+Reasons must be one of:
+cards_missing
+live_user_missing
+whisper_failed
+public_turn_failed
+timer_failed
+unknown_error
+
+PART 2 — Add exact console logs
+
+Inside open_first_turn_hard_gate(), print these before every step:
+
+[POKER GATE] start round_id=... first_actor_index=...
+[POKER GATE] players_count=...
+[POKER GATE] first_actor username=... stored_user_id=...
+[POKER GATE] cards_by_user_id found=true/false
+[POKER GATE] cards_by_username found=true/false
+[POKER GATE] cards_by_active_json found=true/false
+[POKER GATE] live_user_lookup username=... found=true/false live_user_id=...
+[POKER GATE] whisper_attempt=1 ok=true/false error=...
+[POKER GATE] whisper_attempt=2 ok=true/false error=...
+[POKER GATE] public_turn ok=true/false error=...
+[POKER GATE] final gate_open=true/false reason=...
+
+PART 3 — Use the exact same card lookup as !ph / !hand
+
+Find the handler that makes !ph or !hand work.
+
+Whatever function/code path it uses to get the player’s cards, reuse that exact same code inside open_first_turn_hard_gate().
+
+Reason:
+Manual !ph works.
+Automatic gate does not.
+So the automatic gate must use the proven !ph card lookup method.
+
+Create helper if needed:
+
+get_player_cards_for_whisper(round_id, username, user_id)
+
+It must try:
+1. same method used by !ph / !hand
+2. poker_hole_cards username lookup
+3. poker_active_players hole_cards_json fallback
+
+PART 4 — Use manual !hand fallback if auto gate fails
+
+If auto first gate cannot resolve live user_id, but player is in room by username:
+
+Use room user list to find them:
+for room_user in current_room_users:
+    if room_user.username.lower() == first_actor.username.lower():
+        live_id = room_user.id
+
+If still missing:
+Use stored user_id.
+
+If both fail:
+gate fails with live_user_missing.
+
+PART 5 — Force first actor card whisper using simple message
+
+Do not send 3 whispers.
+Do not send long message.
+For the first gate, send only one short whisper:
+
+🎯 Your turn. Cards: A♠ K♦
+
+After that succeeds, then public:
+
+⏳ @Player’s turn. 30s
+
+Then set:
+
+phase = preflop
+first_turn_ready = 1
+
+PART 6 — Do not start stuck forever
+
+If gate fails:
+- phase = recovery_required
+- first_turn_ready = 0
+- public message shows reason
+- owner can use recovery command
+
+Do NOT leave phase as “dealing” forever.
+
+!table should show:
+⚠️ Poker hand paused: first-turn card whisper failed.
+
+PART 7 — Add owner retry command
+
+Add:
+
+!poker retrygate
+
+Owner/admin only.
+
+Behavior:
+Retry open_first_turn_hard_gate() for the current hand.
+
+If success:
+✅ Poker first turn opened.
+⏳ @Player’s turn. 30s
+
+If fail:
+⚠️ Retry failed: [reason]
+
+PART 8 — Test sequence
+
+Run:
+python -m py_compile modules/poker.py
+python -m py_compile main.py
+
+Restart bots.
+
+Test:
+!join 5000
+Second player:
+!join 5000
+
+Expected after blinds:
+Console shows all [POKER GATE] logs.
+
+Expected in game:
+First player receives:
+🎯 Your turn. Cards: [cards]
+
+Public:
+⏳ @FirstPlayer’s turn. 30s
+
+If it fails:
+Public must say:
+⚠️ Poker first-turn gate failed: [reason]
+
+Then test:
+!poker retrygate
+
+Final report:
+1. Exact gate failure reason
+2. Whether cards were found by !hand method
+3. Whether live user_id was found
+4. Whisper attempt result
+5. Public turn result
+6. first_turn_ready result
+7. retrygate result
+8. bot stability result

@@ -56,6 +56,7 @@ _next_hand_task: Optional[asyncio.Task] = None
 _close_confirm_codes: dict[str, str] = {}  # code → actor_username (/poker closeforce)
 _action_processing: set[str] = set()       # "round_id:user_id" dedup lock — prevents double-action
 _poker_paused: bool = False                # /pokerpause flag
+_live_user_ids: dict[str, str] = {}       # username.lower() → live user_id (refreshed on every command)
 
 
 # ── Utilities ──────────────────────────────────────────────────────────────────
@@ -105,22 +106,23 @@ def _fmt_private_hand(cards: list, stack: int,
                       hand_num: int = 0, pos: str = "",
                       is_turn: bool = False, owe: int = 0,
                       rank_label: str = "") -> str:
+    """Plain-text card message — NO color markup (whispers reject color tags)."""
     cards_s = _fcs(cards)
     if is_turn:
         if owe > 0:
-            base = (f"{_PK_TURN} | {_PK_HAND}: {cards_s} | "
-                    f"Call {owe:,} 🪙 | {_PK_STACK}: {stack:,} 🪙")
+            base = (f"👉 Your turn | 🃏 Cards: {cards_s} | "
+                    f"Call {owe:,} 🪙 | Stack: {stack:,} 🪙")
         else:
-            base = f"{_PK_TURN} | {_PK_HAND}: {cards_s} | {_PK_STACK}: {stack:,} 🪙"
+            base = f"👉 Your turn | 🃏 Cards: {cards_s} | Stack: {stack:,} 🪙"
         if rank_label and len(base) + len(rank_label) + 3 < 249:
             base += f" | {rank_label}"
     else:
         prefix = f"Hand #{hand_num}" if hand_num else ""
         pos_s  = f" {pos.strip()}" if pos else ""
         if prefix or pos_s:
-            base = f"{_PK_HAND}: {cards_s} | {prefix}{pos_s} | {_PK_STACK}: {stack:,} 🪙"
+            base = f"🃏 Your hand: {cards_s} | {prefix}{pos_s} | Stack: {stack:,} 🪙"
         else:
-            base = f"{_PK_HAND}: {cards_s} | {_PK_STACK}: {stack:,} 🪙"
+            base = f"🃏 Your hand: {cards_s} | Stack: {stack:,} 🪙"
         if rank_label and len(base) + len(rank_label) + 3 < 249:
             base += f" | {rank_label}"
     return base[:249]
@@ -1274,10 +1276,11 @@ async def _deliver_cards_sequential(
             continue
 
         msg = _fmt_private_hand(cards, pr["stack"], hand_num=hand_num)
+        _deal_uid = await resolve_live_user_id(bot, pr["username"], pr["user_id"])
         delivered = False
         fail_reason = ""
         try:
-            await bot.highrise.send_whisper(pr["user_id"], msg[:249])
+            await bot.highrise.send_whisper(_deal_uid or pr["user_id"], msg[:249])
             delivered = True
         except Exception as exc:
             fail_reason = str(exc)[:80]
@@ -1310,8 +1313,10 @@ async def _deliver_cards_sequential(
             else:
                 cards = json.loads(pr.get("hole_cards_json") or "[]")
             msg = _fmt_private_hand(cards, pr["stack"], hand_num=hand_num)
+            _retry_uid = await resolve_live_user_id(bot, pr["username"], pr["user_id"])
+            _rtarget   = _retry_uid or pr["user_id"]
             try:
-                await bot.highrise.send_whisper(pr["user_id"], msg[:249])
+                await bot.highrise.send_whisper(_rtarget, msg[:249])
                 db.record_card_delivery(round_id, pr["username"], True, "", pr["username"])
                 sent_count += 1
                 print(f"[POKER_DEAL] dealing_to={uname} whisper_ok=true attempts=2")
@@ -1319,7 +1324,7 @@ async def _deliver_cards_sequential(
                 still_missing.append(uname)
                 print(f"[POKER_DEAL] dealing_to={uname} whisper_ok=false attempts=2 err={str(exc)[:40]}")
                 try:
-                    await bot.highrise.send_whisper(pr["user_id"], "⚠️ Cards ready. Type !ph to view.")
+                    await bot.highrise.send_whisper(_rtarget, "⚠️ Cards ready. Type !ph to view.")
                 except Exception:
                     pass
         failed = still_missing
@@ -1752,6 +1757,112 @@ async def _advance_street(bot: BaseBot, tbl: dict, players: list[dict]) -> None:
         await finish_poker_hand(bot, "showdown")
 
 
+# ── V2 live-ID helpers ────────────────────────────────────────────────────────
+
+async def resolve_live_user_id(
+    bot: BaseBot,
+    username: str,
+    stored_user_id: str | None = None,
+) -> str | None:
+    """Return the freshest known user_id for *username*.
+
+    Priority: in-memory cache → SDK room API → stored DB value.
+    The cache is populated on every poker command via handle_poker.
+    """
+    key = username.lower()
+    cached = _live_user_ids.get(key)
+    if cached:
+        print(f"[POKER LIVE USER] username={username} live_id_found=true source=cache")
+        return cached
+    # Fallback: fetch live room roster
+    try:
+        resp = await bot.highrise.get_room_users()
+        for _u, _ in resp.content:
+            _live_user_ids[_u.username.lower()] = _u.id
+        live = _live_user_ids.get(key)
+        if live:
+            print(f"[POKER LIVE USER] username={username} live_id_found=true source=room_api")
+            return live
+    except Exception as _rue:
+        print(f"[POKER LIVE USER] username={username} api_err={str(_rue)[:60]}")
+    if stored_user_id:
+        print(f"[POKER LIVE USER] username={username} using_stored_id=true")
+        return stored_user_id
+    print(f"[POKER LIVE USER] username={username} failed=true")
+    return None
+
+
+def load_player_hole_cards(
+    round_id: str,
+    username: str,
+    user_id: str | None = None,
+) -> list[str] | None:
+    """Load a player's 2 hole cards from the best available source.
+
+    Order: poker_hole_cards (normalized username) →
+           poker_active_players.hole_cards_json.
+    Never redeals.  Returns None if cards are genuinely missing.
+    """
+    hc = db.get_hole_cards(round_id, username.lower())
+    if hc and hc.get("card1") and hc.get("card2"):
+        print(f"[POKER CARD LOAD] user=@{username} source=poker_hole_cards found=true")
+        return [hc["card1"], hc["card2"]]
+    pl: dict | None = None
+    if user_id:
+        pl = _get_player(round_id, user_id)
+    if not pl:
+        for _p in _get_players(round_id):
+            if _p["username"].lower() == username.lower():
+                pl = _p
+                break
+    if pl:
+        raw = json.loads(pl.get("hole_cards_json") or "[]")
+        if len(raw) == 2:
+            print(f"[POKER CARD LOAD] user=@{username} source=active_players_json found=true")
+            return raw
+    print(f"[POKER CARD LOAD] user=@{username} found=false")
+    return None
+
+
+async def whisper_player_cards(
+    bot: BaseBot,
+    round_id: str,
+    username: str,
+    stored_user_id: str,
+    reason: str = "deal",
+    hand_num: int = 0,
+) -> tuple[bool, str]:
+    """Resolve live user_id, load cards, and whisper them (retry once).
+
+    Returns (ok, error_reason).
+    """
+    cards = load_player_hole_cards(round_id, username, stored_user_id)
+    if not cards:
+        return False, "cards_missing"
+    live_id = await resolve_live_user_id(bot, username, stored_user_id)
+    if not live_id:
+        return False, "live_user_missing"
+    pl = _get_player(round_id, live_id) or _get_player(round_id, stored_user_id)
+    if not pl:
+        for _p in _get_players(round_id):
+            if _p["username"].lower() == username.lower():
+                pl = _p
+                break
+    stack = pl["stack"] if pl else 0
+    msg   = _fmt_private_hand(cards, stack, hand_num=hand_num)
+    try:
+        await bot.highrise.send_whisper(live_id, msg[:249])
+        return True, ""
+    except Exception:
+        pass
+    await asyncio.sleep(1.0)
+    try:
+        await bot.highrise.send_whisper(live_id, msg[:249])
+        return True, ""
+    except Exception as _e2:
+        return False, str(_e2)[:80]
+
+
 async def open_first_turn_hard_gate(
     bot: BaseBot,
     round_id: str,
@@ -1766,123 +1877,177 @@ async def open_first_turn_hard_gate(
     On failure sets phase=recovery_required and blocks all betting.
     """
     global _turn_task
+    _gate_reason = "unknown_error"
+    try:
+        print(f"[POKER GATE] start round_id={round_id[-8:]} first_actor_index={first_preflop_idx}")
+        print(f"[POKER GATE] players_count={len(players)}")
 
-    await asyncio.sleep(5.0)
+        await asyncio.sleep(5.0)
 
-    # ── Find first active player ──────────────────────────────────────────
-    n = len(players)
-    first_actor_idx: int = -1
-    first_actor: dict | None = None
-    for i in range(n):
-        idx = (first_preflop_idx + i) % n
-        p = players[idx]
-        if p["status"] == "active":
-            first_actor_idx = idx
-            first_actor = p
-            break
+        # ── Find first active player ──────────────────────────────────────
+        n = len(players)
+        first_actor_idx: int = -1
+        first_actor: dict | None = None
+        for i in range(n):
+            idx = (first_preflop_idx + i) % n
+            p = players[idx]
+            if p["status"] == "active":
+                first_actor_idx = idx
+                first_actor = p
+                break
 
-    if first_actor is None:
-        # All players are all-in — skip gate, run to showdown
-        _save_table(phase="preflop", first_turn_ready=1,
-                    current_player_index=first_preflop_idx)
+        if first_actor is None:
+            # All players are all-in — skip gate, run to showdown
+            _save_table(phase="preflop", first_turn_ready=1,
+                        current_player_index=first_preflop_idx)
+            tbl = _get_table()
+            if tbl:
+                await _deal_to_showdown(bot, tbl)
+            return False
+
+        uid   = first_actor["user_id"]
+        uname = first_actor["username"]
+        print(f"[POKER GATE] first_actor username={uname} stored_user_id={uid}")
+
+        # ── Step 1: Load cards — same 3-source path as !hand ─────────────
+        # Source A: poker_hole_cards by normalized username (same as !hand uses)
+        hc = db.get_hole_cards(round_id, uname.lower())
+        cards_from_hc = bool(hc and hc.get("card1") and hc.get("card2"))
+        print(f"[POKER GATE] cards_by_username found={str(cards_from_hc).lower()}")
+        if cards_from_hc:
+            cards = [hc["card1"], hc["card2"]]
+        else:
+            # Source B: active_players.hole_cards_json
+            ap = _get_player(round_id, uid)
+            if not ap:
+                ap = _get_player_by_name(round_id, uname)
+            raw = json.loads(ap.get("hole_cards_json") or "[]") if ap else []
+            cards_from_ap = len(raw) == 2
+            print(f"[POKER GATE] cards_by_active_json found={str(cards_from_ap).lower()}")
+            cards = raw if cards_from_ap else []
+
+        if len(cards) != 2:
+            _gate_reason = "cards_missing"
+            print(f"[POKER GATE] final gate_open=false reason=cards_missing")
+            _save_table(phase="recovery_required", first_turn_ready=0)
+            await _chat(bot,
+                "⚠️ Poker first-turn gate failed: cards_missing. Staff: !poker retrygate")
+            return False
+
+        # ── Step 2: Resolve live user_id ─────────────────────────────────
+        live_uid: str | None = _live_user_ids.get(uname.lower())
+        print(f"[POKER GATE] live_user_lookup username={uname} "
+              f"found={str(bool(live_uid)).lower()} "
+              f"live_user_id={live_uid or 'none'} source=cache")
+
+        if not live_uid:
+            try:
+                resp = await bot.highrise.get_room_users()
+                for _ru, _ in resp.content:
+                    _live_user_ids[_ru.username.lower()] = _ru.id
+                    if _ru.username.lower() == uname.lower():
+                        live_uid = _ru.id
+                print(f"[POKER GATE] live_user_lookup username={uname} "
+                      f"found={str(bool(live_uid)).lower()} "
+                      f"live_user_id={live_uid or 'none'} source=room_api")
+            except Exception as _rue:
+                print(f"[POKER GATE] room_api_err={str(_rue)[:80]}")
+
+        if not live_uid:
+            live_uid = uid  # stored fallback — always succeed
+            print(f"[POKER GATE] live_user_lookup username={uname} "
+                  f"found=true live_user_id={live_uid} source=stored_fallback")
+
+        # ── Step 3: Build PLAIN-TEXT whisper (whispers reject color markup) ──
+        c1 = _fc(cards[0])
+        c2 = _fc(cards[1])
         tbl = _get_table()
-        if tbl:
-            await _deal_to_showdown(bot, tbl)
-        return False
+        if not tbl:
+            _gate_reason = "table_gone"
+            print(f"[POKER GATE] final gate_open=false reason=table_gone")
+            return False
+        owe = max(0, tbl.get("current_bet", 0) - first_actor.get("current_bet", 0))
+        pot = tbl.get("pot", 0)
+        if owe > 0:
+            wh_msg = f"🎯 Your turn. Cards: {c1} {c2} | Pot: {pot:,} 🪙 | Call: {owe:,} 🪙"
+        else:
+            wh_msg = f"🎯 Your turn. Cards: {c1} {c2} | Pot: {pot:,} 🪙 | !check !raise !fold"
 
-    uid   = first_actor["user_id"]
-    uname = first_actor["username"]
-    print(f"[POKER FIRST GATE] start first_actor=@{uname} user_id={uid}")
-
-    # ── Load cards — normalized key first, raw column fallback ───────────
-    hc = db.get_hole_cards(round_id, uname.lower())
-    if hc and hc.get("card1") and hc.get("card2"):
-        cards    = [hc["card1"], hc["card2"]]
-        cards_src = "poker_hole_cards"
-    else:
-        raw      = first_actor.get("hole_cards_json") or "[]"
-        cards    = json.loads(raw)
-        cards_src = "hole_cards_json"
-
-    if len(cards) != 2:
-        print(f"[POKER FIRST GATE] cards_missing user=@{uname}")
-        _save_table(phase="recovery_required", first_turn_ready=0)
-        await _chat(bot,
-            "⚠️ Poker card delivery failed. Hand paused. Staff: !poker recoverystatus")
-        print(f"[POKER FIRST GATE] gate_open=false reason=cards_missing")
-        return False
-
-    print(f"[POKER FIRST GATE] cards_source={cards_src} cards_found=true cards=hidden")
-
-    tbl = _get_table()
-    if not tbl:
-        return False
-    owe   = max(0, tbl.get("current_bet", 0) - first_actor.get("current_bet", 0))
-    pot   = tbl.get("pot", 0)
-    c_str = _fcs(cards)
-    if owe > 0:
-        msg = (f"🎯 Your turn. {_PK_CARDS}: {c_str} | "
-               f"Pot:{pot:,} 🪙 | Call:{owe:,} 🪙")
-    else:
-        msg = (f"🎯 Your turn. {_PK_CARDS}: {c_str} | "
-               f"Pot:{pot:,} 🪙 | !check, !raise or !fold")
-
-    # ── Whisper attempt 1 ─────────────────────────────────────────────────
-    whisper_ok = False
-    try:
-        await bot.highrise.send_whisper(uid, msg[:249])
-        whisper_ok = True
-        print(f"[POKER FIRST GATE] whisper_attempt=1 ok=true")
-    except Exception as _we:
-        print(f"[POKER FIRST GATE] whisper_attempt=1 ok=false err={str(_we)[:60]}")
-
-    # ── Retry (attempt 2) ─────────────────────────────────────────────────
-    if not whisper_ok:
-        await asyncio.sleep(1.0)
+        # ── Step 4: Whisper attempt 1 ─────────────────────────────────────
+        whisper_ok = False
+        _w1_err = ""
         try:
-            await bot.highrise.send_whisper(uid, msg[:249])
+            await bot.highrise.send_whisper(live_uid, wh_msg[:249])
             whisper_ok = True
-            print(f"[POKER FIRST GATE] whisper_attempt=2 ok=true")
-        except Exception as _we2:
-            print(f"[POKER FIRST GATE] whisper_attempt=2 ok=false err={str(_we2)[:60]}")
+            print(f"[POKER GATE] whisper_attempt=1 ok=true")
+        except Exception as _we:
+            _w1_err = str(_we)[:80]
+            print(f"[POKER GATE] whisper_attempt=1 ok=false error={_w1_err}")
 
-    if not whisper_ok:
+        # ── Step 5: Whisper attempt 2 ─────────────────────────────────────
+        if not whisper_ok:
+            await asyncio.sleep(1.5)
+            _w2_err = ""
+            try:
+                await bot.highrise.send_whisper(live_uid, wh_msg[:249])
+                whisper_ok = True
+                print(f"[POKER GATE] whisper_attempt=2 ok=true")
+            except Exception as _we2:
+                _w2_err = str(_we2)[:80]
+                print(f"[POKER GATE] whisper_attempt=2 ok=false error={_w2_err}")
+
+        if not whisper_ok:
+            _gate_reason = "whisper_failed"
+            print(f"[POKER GATE] final gate_open=false reason=whisper_failed")
+            _save_table(phase="recovery_required", first_turn_ready=0)
+            await _chat(bot,
+                "⚠️ Poker first-turn gate failed: whisper_failed. Staff: !poker retrygate")
+            return False
+
+        # ── Step 6: Public turn announcement ──────────────────────────────
+        turn_secs = _s("turn_timer", 20)
+        pub_ok = False
+        _pub_err = ""
+        try:
+            await _chat(bot, f"⏳ @{uname}'s turn. {turn_secs}s")
+            pub_ok = True
+            print(f"[POKER GATE] public_turn ok=true")
+        except Exception as _pe:
+            _pub_err = str(_pe)[:60]
+            print(f"[POKER GATE] public_turn ok=false error={_pub_err}")
+
+        if not pub_ok:
+            _gate_reason = "public_turn_failed"
+            print(f"[POKER GATE] final gate_open=false reason=public_turn_failed")
+            _save_table(phase="recovery_required", first_turn_ready=0)
+            await _chat(bot,
+                "⚠️ Poker first-turn gate failed: public_turn_failed. Staff: !poker retrygate")
+            return False
+
+        # ── Step 7: Open the gate ──────────────────────────────────────────
+        _save_table(
+            phase="preflop",
+            current_player_index=first_actor_idx,
+            first_turn_ready=1,
+        )
+        _cancel_task(_turn_task)
+        _turn_task = asyncio.create_task(
+            _turn_timeout(bot, live_uid, uname, round_id, owe > 0)
+        )
+        print(f"[POKER GATE] final gate_open=true reason=success")
+        print(f"[POKER GATE] phase=preflop first_turn_ready=1")
+        return True
+
+    except Exception as _gate_exc:
+        _gate_reason = f"unknown_error:{str(_gate_exc)[:60]}"
+        print(f"[POKER GATE] final gate_open=false reason={_gate_reason}")
         _save_table(phase="recovery_required", first_turn_ready=0)
-        await _chat(bot,
-            "⚠️ Poker card whisper failed. Hand paused. Staff: !poker recoverystatus")
-        print(f"[POKER FIRST GATE] gate_open=false reason=whisper_failed")
+        try:
+            await _chat(bot,
+                "⚠️ Poker first-turn gate failed: unknown_error. Staff: !poker retrygate")
+        except Exception:
+            pass
         return False
-
-    # ── Public turn announcement ──────────────────────────────────────────
-    turn_secs = _s("turn_timer", 20)
-    pub_ok = False
-    try:
-        await _chat(bot, f"⏳ @{uname}'s turn. {turn_secs}s")
-        pub_ok = True
-        print(f"[POKER FIRST GATE] public_turn ok=true")
-    except Exception as _pe:
-        print(f"[POKER FIRST GATE] public_turn ok=false err={str(_pe)[:60]}")
-
-    if not pub_ok:
-        _save_table(phase="recovery_required", first_turn_ready=0)
-        print(f"[POKER FIRST GATE] gate_open=false reason=public_turn_failed")
-        return False
-
-    # ── Open the gate ─────────────────────────────────────────────────────
-    _save_table(
-        phase="preflop",
-        current_player_index=first_actor_idx,
-        first_turn_ready=1,
-    )
-
-    _cancel_task(_turn_task)
-    _turn_task = asyncio.create_task(
-        _turn_timeout(bot, uid, uname, round_id, owe > 0)
-    )
-
-    print(f"[POKER FIRST GATE] phase=preflop first_turn_ready=1")
-    print(f"[POKER FIRST GATE] gate_open=true")
-    return True
 
 
 async def _start_street_from(bot: BaseBot, phase: str, round_id: str,
@@ -1933,61 +2098,65 @@ async def _prompt_player(bot: BaseBot, tbl: dict, p: dict,
     await _chat(bot, pub[:249])
     print(f"[POKER TURN PUBLIC] current=@{p['username']} timer={turn_secs} sent=true")
 
+    # ── Resolve live user_id — use fresh ID, not stale stored value ──────
+    _prompt_live_uid = await resolve_live_user_id(bot, p["username"], p["user_id"])
+    _prompt_uid = _prompt_live_uid or p["user_id"]
+
     # ── Private whispers (non-fatal: failures silently ignored) ──────────
     try:
         tbl2 = _get_table()
         if tbl2:
             pp = _get_player(tbl2["round_id"], p["user_id"])
+            if pp is None:
+                pp = _get_player_by_name(tbl2["round_id"], p["username"])
             if pp:
-                cards = json.loads(pp["hole_cards_json"] or "[]")
+                cards = load_player_hole_cards(tbl2["round_id"], p["username"], p["user_id"]) or []
                 board = json.loads(tbl2["community_cards_json"] or "[]")
                 if cards:
-                    # Whisper 1: cards + pot + action hint
+                    # Whisper 1: cards + pot + action hint (plain text — no color tags)
                     _cards_str = _fcs(cards)
                     if stack < owe and owe > 0:
-                        hdr = (f"🎯 Your turn. {_PK_CARDS}: {_cards_str} | "
+                        hdr = (f"🎯 Your turn. Cards: {_cards_str} | "
                                f"Pot:{pot:,} 🪙 | Need {owe:,} 🪙 (!allin or !fold)")
                     elif owe > 0:
-                        hdr = (f"🎯 Your turn. {_PK_CARDS}: {_cards_str} | "
+                        hdr = (f"🎯 Your turn. Cards: {_cards_str} | "
                                f"Pot:{pot:,} 🪙 | Call:{owe:,} 🪙")
                     else:
-                        hdr = (f"🎯 Your turn. {_PK_CARDS}: {_cards_str} | "
-                               f"Pot:{pot:,} 🪙 | Use !check, !raise or !fold")
+                        hdr = (f"🎯 Your turn. Cards: {_cards_str} | "
+                               f"Pot:{pot:,} 🪙 | !check, !raise or !fold")
                     _w1_sent = False
                     try:
-                        await bot.highrise.send_whisper(p["user_id"], hdr[:249])
+                        await bot.highrise.send_whisper(_prompt_uid, hdr[:249])
                         _w1_sent = True
                     except Exception:
                         pass
                     print(f"[POKER TURN WHISPER] user=@{p['username']} "
                           f"cards_found=true sent={str(_w1_sent).lower()}")
 
-                    # Whisper 2: cards + board + hand strength
+                    # Whisper 2: cards + board + hand strength (plain text)
                     if board:
                         strength = _hand_strength_label(cards, board)
                         draws    = _detect_draws(cards, board)
                         rank_lbl = strength + (" + " + draws if draws else "")
-                        card_msg = (f"{_PK_CARDS}: {_fcs(cards)} | "
+                        card_msg = (f"Cards: {_fcs(cards)} | "
                                     f"Board: {_fcs(board)} | {rank_lbl}")
                     else:
-                        card_msg = (f"{_PK_CARDS}: {_fcs(cards)} | "
+                        card_msg = (f"Cards: {_fcs(cards)} | "
                                     f"Pre-flop | Pot:{pot:,} 🪙")
                     try:
-                        await bot.highrise.send_whisper(p["user_id"], card_msg[:249])
+                        await bot.highrise.send_whisper(_prompt_uid, card_msg[:249])
                     except Exception:
                         pass
 
-                    # Whisper 3: action buttons
+                    # Whisper 3: action buttons (plain text — no color tags)
                     if stack < owe and owe > 0:
-                        act = f"{_PK_ALLIN} !allin | {_PK_FOLD} !fold"
+                        act = "🔥 !allin | ❌ !fold"
                     elif owe > 0:
-                        act = (f"{_PK_CALL} !call | {_PK_RAISE} !raise | "
-                               f"{_PK_FOLD} !fold | {_PK_ALLIN} !allin")
+                        act = "📞 !call | ⬆️ !raise | ❌ !fold | 🔥 !allin"
                     else:
-                        act = (f"{_PK_CHECK} !check | {_PK_RAISE} !raise | "
-                               f"{_PK_FOLD} !fold | {_PK_ALLIN} !allin")
+                        act = "✅ !check | ⬆️ !raise | ❌ !fold | 🔥 !allin"
                     try:
-                        await bot.highrise.send_whisper(p["user_id"], act[:249])
+                        await bot.highrise.send_whisper(_prompt_uid, act[:249])
                     except Exception:
                         pass
     except Exception:
@@ -1995,7 +2164,7 @@ async def _prompt_player(bot: BaseBot, tbl: dict, p: dict,
 
     round_id   = tbl["round_id"]
     _turn_task = asyncio.create_task(
-        _turn_timeout(bot, p["user_id"], p["username"], round_id, owe > 0)
+        _turn_timeout(bot, _prompt_uid, p["username"], round_id, owe > 0)
     )
 
 
@@ -2724,6 +2893,8 @@ async def handle_poker(bot: BaseBot, user: User, args: list[str]) -> None:
         print(f"[POKER OWNER] bot={_bm} ignored_poker=true")
         return
     print(f"[POKER OWNER] bot={_bm} mode=poker handling=true")
+    # Cache live user_id — prevents stale-ID auto-whisper failures
+    _live_user_ids[user.username.lower()] = user.id
     try:
         await _dispatch(bot, user, args)
     except Exception as exc:
@@ -2847,7 +3018,8 @@ async def _dispatch(bot: BaseBot, user: User, args: list[str]) -> None:
             return
         if phase == "recovery_required":
             await _w(bot, user.id,
-                "♠️ Poker Table\n⚠️ Hand paused. Staff recovery needed.")
+                "♠️ Poker Table\n⚠️ Hand paused: first-turn card whisper failed.\n"
+                "Staff: !poker retrygate")
             return
         if phase == "finished":
             # Auto-repair if safe; otherwise show recovery notice
@@ -2924,13 +3096,9 @@ async def _dispatch(bot: BaseBot, user: User, args: list[str]) -> None:
                     "No active hand yet. Next hand starts soon.")
             return
 
-        # Load cards: poker_hole_cards (normalized-key) first, then fallback
-        hc = db.get_hole_cards(tbl["round_id"], user.username)
-        if hc and hc.get("card1") and hc.get("card2"):
-            cards = [hc["card1"], hc["card2"]]
-        else:
-            cards = json.loads(p["hole_cards_json"] or "[]")
-        if not cards or len(cards) != 2:
+        # Load cards via shared helper (same 3-source path as auto-whisper)
+        cards = load_player_hole_cards(tbl["round_id"], user.username, user.id) or []
+        if len(cards) != 2:
             await _w(bot, user.id,
                 "⚠️ Your cards were not found. Ask staff: !pokerforceresend.")
             print(f"[POKER] /ph: no cards for {user.username} "
@@ -3229,6 +3397,33 @@ async def _dispatch(bot: BaseBot, user: User, args: list[str]) -> None:
         return
 
     # ── cancel ─────────────────────────────────────────────────────────────────
+    if sub == "retrygate":
+        if not (is_admin(user.username) or is_owner(user.username)):
+            await _w(bot, user.id, "⚠️ Admin/owner only.")
+            return
+        tbl = _get_table()
+        if not tbl or not tbl["active"]:
+            await _w(bot, user.id, "⚠️ No active poker hand.")
+            return
+        phase = tbl.get("phase", "")
+        if phase not in ("dealing", "recovery_required"):
+            await _w(bot, user.id,
+                f"⚠️ retrygate only valid during dealing/recovery_required. Phase: {phase}")
+            return
+        players = _get_players(tbl["round_id"])
+        cur_idx = tbl.get("current_player_index", 0)
+        # Reset to dealing so the gate can reopen cleanly
+        _save_table(phase="dealing", first_turn_ready=0)
+        await _w(bot, user.id, "♻️ Retrying first-turn gate...")
+        ok = await open_first_turn_hard_gate(bot, tbl["round_id"], cur_idx, players)
+        if ok:
+            await _w(bot, user.id, "✅ First turn opened.")
+        else:
+            tbl2 = _get_table()
+            reason = tbl2.get("phase", "recovery_required") if tbl2 else "recovery_required"
+            await _w(bot, user.id, f"⚠️ Retry failed. Phase: {reason}. Check logs.")
+        return
+
     if sub == "cancel":
         if not can_manage_games(user.username):
             await _w(bot, user.id, "Managers+ only.")

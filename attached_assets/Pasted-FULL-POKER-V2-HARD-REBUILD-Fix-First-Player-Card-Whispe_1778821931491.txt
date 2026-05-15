@@ -1,0 +1,516 @@
+FULL POKER V2 HARD REBUILD — Fix First Player Card Whisper Forever
+
+Current live proof:
+- Poker starts.
+- Blinds are posted.
+- First player does NOT receive automatic card whisper.
+- First player CAN see cards by typing !ph.
+- Therefore cards are saved correctly.
+- The broken part is automatic card delivery / first-turn whisper.
+- Most likely auto whisper uses stale stored user_id, while !ph uses the live chat user.id.
+
+Goal:
+Rebuild poker hand flow with a hard first-turn gate.
+The first player must receive their cards automatically before the hand can continue.
+
+Do not patch around the old flow again.
+Create a clean Poker V2 sequence.
+
+Do NOT modify:
+- blackjack
+- jail
+- Luxe Tickets
+- tip audit
+- bot runner
+- workflows
+- other economy systems
+
+Keep:
+- wallet balance system
+- poker table stack system
+- ChipSoprano as poker bot
+- existing DB if safe
+- old commands as hidden aliases only
+
+==================================================
+CRITICAL FIX — LIVE USER ID RESOLUTION
+==================================================
+
+Automatic poker whispers must NOT rely only on stored DB user_id.
+
+Create helper:
+
+resolve_live_user_id(bot, username, stored_user_id=None)
+
+Behavior:
+1. Normalize username.
+2. Look through current room users / cached room users.
+3. If username matches live user.username, return live user.id.
+4. If not found, fallback to stored_user_id.
+5. If still missing, return None.
+
+Use this helper for:
+- first player card whisper
+- all turn whispers
+- !hand resend
+- timeout messages
+- leave handling
+
+Reason:
+!ph works because the player sends chat and the bot has the live user.id.
+Automatic first-turn whisper may fail because it uses stale stored user_id.
+
+Add logs:
+
+[POKER LIVE USER] username=AshQuinn_ live_id_found=true
+[POKER LIVE USER] username=AshQuinn_ using_stored_id=true
+[POKER LIVE USER] username=AshQuinn_ failed=true
+
+==================================================
+PART 1 — Poker V2 Command System
+==================================================
+
+Advertise only these commands:
+
+!join [amount]
+!check
+!call
+!raise [amount]
+!fold
+!allin
+!hand
+!leave
+!table
+
+Hidden aliases:
+!p amount -> !join amount
+!ph -> !hand
+!cards -> !hand
+!r amount -> !raise amount
+!poker amount -> !join amount
+!poker leave -> !leave
+!poker hand -> !hand
+!poker table -> !table
+
+Important:
+- ChipSoprano handles poker.
+- ChillTopiaMC must not answer unknown command for !leave, !join, !hand, !table, !check, !call, !raise, !fold, !allin.
+- If ChillTopiaMC receives these, it should ignore them because they are poker-owned.
+
+Poker help:
+♠️ Poker Commands
+Join: !join 5000
+Play: !check | !call | !raise 500 | !fold | !allin
+Info: !hand | !table
+Leave: !leave
+
+==================================================
+PART 2 — New Poker Phases
+==================================================
+
+Use these phases only:
+
+waiting
+countdown
+dealing
+preflop
+flop
+turn
+river
+showdown
+between_hands
+recovery_required
+
+Do not leave player-facing table in:
+finished
+
+If internal finish happens, immediately transition to:
+between_hands or waiting.
+
+==================================================
+PART 3 — First Turn Hard Gate
+==================================================
+
+This is mandatory.
+
+No betting action is allowed until:
+
+1. First actor is selected.
+2. First actor’s cards are found in DB/state.
+3. First actor’s live user_id is resolved.
+4. First actor card whisper succeeds.
+5. Public turn message succeeds.
+6. Turn timer starts.
+
+Add DB/table field or in-memory flag:
+
+first_turn_ready = 0 or 1
+
+When hand starts:
+first_turn_ready = 0
+phase = dealing
+
+If any player types action while first_turn_ready = 0:
+
+⏳ Dealer is preparing the first turn. Please wait.
+
+If first actor whisper fails twice:
+phase = recovery_required
+first_turn_ready = 0
+Do not continue the hand.
+
+Public:
+⚠️ Poker card whisper failed. Hand paused.
+
+==================================================
+PART 4 — Exact Hand Start Sequence
+==================================================
+
+When hand starts:
+
+1. Set phase = dealing.
+2. Set first_turn_ready = 0.
+3. Select active seated players.
+4. Assign dealer, SB, BB.
+5. Shuffle deck.
+6. Deal 2 cards to every active player.
+7. Save cards to DB and player state.
+8. Validate every active player has exactly 2 cards.
+9. Post blinds.
+10. Announce blinds publicly.
+11. Wait 5 seconds.
+12. Send normal card whisper to every active player.
+13. Select first actor.
+14. Resolve first actor live user_id by username.
+15. Whisper first actor cards again using live user_id.
+16. Publicly announce first actor turn.
+17. Set phase = preflop.
+18. Set first_turn_ready = 1.
+19. Start turn timer.
+
+Public blind message:
+🃏 Hand #12
+SB: @Player1 50 🪙 | BB: @Player2 100 🪙
+Pot: 150 🪙
+
+First actor whisper:
+🎯 Your turn. Cards: A♠ K♦
+Pot: 150 🪙
+Call: 50 🪙
+
+Public turn:
+⏳ @FirstPlayer’s turn. 30s
+
+==================================================
+PART 5 — Do Not Use Old First Turn Prompt
+==================================================
+
+For the first preflop actor:
+
+Do NOT use the old _prompt_player() until the hard gate is complete.
+
+Create new function:
+
+async def open_first_turn_hard_gate(bot, round_id, first_actor_index):
+    # load table
+    # load players
+    # find first actor
+    # load cards
+    # resolve live user id
+    # whisper cards
+    # public turn message
+    # set first_turn_ready=1
+    # start timer
+
+Return:
+True if gate opened.
+False if failed.
+
+If False:
+phase = recovery_required
+do not continue.
+
+==================================================
+PART 6 — Reliable Card Loading
+==================================================
+
+Create:
+
+load_player_hole_cards(round_id, username, user_id=None)
+
+Try in this order:
+1. poker_hole_cards by exact user_id if table supports user_id
+2. poker_hole_cards by lower(username)
+3. poker_active_players.hole_cards_json
+4. in-memory hand state
+
+If cards found:
+return [card1, card2]
+
+If missing:
+return None
+
+Do not redeal.
+Do not reshuffle.
+Never create new cards for an existing hand.
+
+Logs:
+[POKER CARD LOAD] user=@Player source=poker_hole_cards found=true
+[POKER CARD LOAD] user=@Player source=active_players_json found=true
+[POKER CARD LOAD] user=@Player found=false
+
+==================================================
+PART 7 — Automatic Card Whisper Function
+==================================================
+
+Create one function for card whisper:
+
+async def whisper_player_cards(bot, round_id, username, stored_user_id, reason):
+    cards = load_player_hole_cards(...)
+    live_id = resolve_live_user_id(bot, username, stored_user_id)
+
+    if no cards:
+        return False, "cards_missing"
+
+    if no live_id:
+        return False, "live_user_missing"
+
+    try whisper once.
+    if fail, wait 1 second and retry.
+    if still fail, return False.
+
+    return True, ""
+
+Use for:
+- normal deal whisper
+- first actor hard gate
+- every turn start
+- !hand
+
+For !hand, use sender user.id directly first, then fallback.
+
+==================================================
+PART 8 — Turn Messages
+==================================================
+
+Public message:
+
+⏳ @Player’s turn. 30s
+
+Private current-player message:
+
+🎯 Your turn. Cards: A♠ K♦
+Pot: 2,500 🪙
+Call: 500 🪙
+
+If no call:
+🎯 Your turn. Cards: A♠ K♦
+Pot: 2,500 🪙
+You can !check, !raise 500, !fold, or !allin.
+
+Do not publicly show:
+- YOUR TURN
+- card info
+- command list
+- pot/call amount
+
+==================================================
+PART 9 — Action Guard
+==================================================
+
+Before processing:
+!check
+!call
+!raise
+!fold
+!allin
+
+Check:
+
+if phase == dealing or first_turn_ready == 0:
+    whisper "⏳ Dealer is preparing the first turn. Please wait."
+    return
+
+if phase == recovery_required:
+    whisper "⚠️ Poker hand is paused due to card delivery issue."
+    return
+
+if user is not current actor:
+    whisper "⏳ It’s @CurrentPlayer’s turn."
+    return
+
+==================================================
+PART 10 — Betting Resolver
+==================================================
+
+After every action, call:
+
+resolve_betting_state(bot)
+
+It decides:
+
+1. If only one non-folded player remains:
+   award pot.
+
+2. If no active player can act:
+   run board to showdown.
+
+3. If all active players matched current bet and acted:
+   advance street.
+
+4. Otherwise:
+   move to next player and whisper their cards.
+
+==================================================
+PART 11 — 2 Player All-In Rule
+==================================================
+
+If two players are playing:
+
+Player A !allin
+Player B !call
+
+And nobody else can act:
+
+Do not wait for a turn.
+Immediately run board:
+
+🔥 All-in called! Running the board...
+🃏 Flop: X X X
+🃏 Turn: X
+🃏 River: X
+👀 Showdown!
+
+Use 1-second delay between flop, turn, river.
+
+==================================================
+PART 12 — AFK Removal
+==================================================
+
+AFK timeout:
+- If can check: auto-check.
+- If must call: auto-fold.
+- Add AFK strike.
+
+AFK strikes:
+1/3 warning
+2/3 warning
+3/3 remove from table
+
+At 3 strikes:
+- if no active hand: cash out and remove
+- if active hand and not all-in: auto-fold and remove after hand
+- if all-in: keep until showdown, then remove/cash out
+
+After AFK fold win, table must clean up and schedule next hand.
+Never stay Phase: Finished.
+
+==================================================
+PART 13 — Post Hand Cleanup
+==================================================
+
+Create one cleanup function:
+
+complete_hand_and_prepare_next(bot, reason)
+
+Always run after:
+- fold win
+- showdown
+- all-in showdown
+- AFK fold win
+- leave fold win
+- forcefinish
+- cancel
+
+It must:
+1. Cancel timers.
+2. Pay winners.
+3. Update table stacks.
+4. Clear active hand rows.
+5. Process leaving_after_hand.
+6. Process afk_remove_after_hand.
+7. Remove busted players.
+8. Count active seated players.
+9. If active >= 2: phase = between_hands and start next hand countdown.
+10. If active < 2: phase = waiting.
+11. Never leave phase = finished.
+
+!table must never show Phase: Finished.
+
+==================================================
+PART 14 — Tests
+==================================================
+
+Compile:
+python -m py_compile main.py
+python -m py_compile modules/poker.py
+
+Restart bots.
+
+Test 1:
+Player 1:
+!join 5000
+
+Player 2:
+!join 5000
+
+Expected:
+Blinds posted.
+Wait 5 seconds.
+First player receives automatic whisper:
+🎯 Your turn. Cards: [two cards]
+
+Public:
+⏳ @FirstPlayer’s turn. 30s
+
+Test 2:
+Do nothing.
+If first whisper fails:
+Expected:
+Hand pauses.
+No action allowed.
+Phase recovery_required.
+
+Test 3:
+First player types:
+!hand
+
+Expected:
+Same two cards.
+
+Test 4:
+Non-current player:
+!call
+
+Expected:
+⏳ It’s @CurrentPlayer’s turn.
+
+Test 5:
+2 player all-in:
+Player 1:
+!allin
+
+Player 2:
+!call
+
+Expected:
+Board runs flop, turn, river, showdown.
+
+Test 6:
+AFK timeout/fold win.
+Expected:
+Winner paid.
+Next hand starts if 2 active players remain.
+No Phase: Finished stuck.
+
+Final report:
+1. Poker V2 hard gate created
+2. Live user ID resolver added
+3. First actor automatic whisper result
+4. Public first turn result
+5. Action blocked before gate result
+6. !hand card match result
+7. 2-player all-in result
+8. AFK cleanup result
+9. No Phase Finished stuck result
+10. Bot stability result
