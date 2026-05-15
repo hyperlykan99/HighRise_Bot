@@ -1,0 +1,245 @@
+Poker V2 Nuclear Fix — Deal Like Blackjack
+
+Current issue:
+Poker V2 keeps getting stuck at:
+“Dealer is dealing cards.”
+
+This means the dealing sequence is blocking and never finishing.
+
+Goal:
+Make Poker V2 deal cards like Blackjack:
+- no long dealing phase
+- no hard gate
+- no card delivery task that blocks the game
+- deal instantly in memory
+- set phase to preflop immediately
+- whisper cards best-effort
+- if whisper fails, player can use !hand
+
+Do NOT modify:
+- blackjack
+- jail
+- Luxe Tickets
+- tips
+- workflows
+- old poker.py except route conflicts
+
+==================================================
+PART 1 — Remove Blocking Dealing Phase
+==================================================
+
+In modules/poker_v2.py:
+
+Remove or bypass anything that can keep the table stuck in:
+phase = "dealing"
+
+Search for and disable:
+- Dealer is dealing cards
+- Dealer is preparing the hand
+- open_first_turn_hard_gate
+- first_turn_ready blocking
+- async card delivery task
+- send cards one by one loop that blocks phase change
+- recovery_required caused by whisper failure
+
+Hard rule:
+Poker V2 must never wait for whispers before opening the hand.
+
+==================================================
+PART 2 — New Simple Start Hand Function
+==================================================
+
+Replace the current hand-start function with this simple flow:
+
+async def start_hand_v2(bot):
+    players = get active seated players
+
+    if len(players) < 2:
+        table["phase"] = "waiting"
+        await chat("Waiting for 1 more player. Use !join 5000.")
+        return
+
+    table["phase"] = "preflop"
+    table["first_turn_ready"] = True
+    table["hand_number"] += 1
+    table["board"] = []
+    table["pot"] = 0
+    table["current_bet"] = 0
+
+    deck = create_deck()
+    random.shuffle(deck)
+    table["deck"] = deck
+
+    for player in players:
+        player["cards"] = [deck.pop(), deck.pop()]
+        player["status"] = "active"
+        player["acted"] = False
+        player["current_bet"] = 0
+        player["total_contributed"] = 0
+
+    post small blind
+    post big blind
+    set pot
+    set current_bet
+    set first actor
+
+    await chat(
+        f"Poker hand #{hand_number}.\n"
+        f"SB: @{sb_username} {small_blind} coins\n"
+        f"BB: @{bb_username} {big_blind} coins\n"
+        f"Pot: {pot} coins"
+    )
+
+    for player in players:
+        asyncio.create_task(send_card_whisper_best_effort(bot, player))
+
+    await chat(f"@{first_actor_username}'s turn. 30s")
+
+    asyncio.create_task(send_turn_whisper_best_effort(bot, first_actor))
+
+    start_turn_timer(first_actor)
+
+Important:
+- Do not await all card whispers.
+- Do not block the hand for whispers.
+- Do not set phase = dealing.
+- Do not set phase = recovery_required because a whisper failed.
+
+==================================================
+PART 3 — Best Effort Card Whisper
+==================================================
+
+Create:
+
+async def send_card_whisper_best_effort(bot, player):
+    try:
+        cards = player["cards"]
+        await bot.highrise.send_whisper(
+            player["user_id"],
+            f"Your cards: {cards[0]} {cards[1]}"
+        )
+        print(f"[POKER V2 CARD] @{player['username']} whisper ok")
+    except Exception as e:
+        print(f"[POKER V2 CARD] @{player['username']} whisper failed: {e!r}")
+
+No retry needed for now.
+Do not block gameplay.
+Do not change phase.
+
+==================================================
+PART 4 — !hand Must Be Main Backup
+==================================================
+
+!hand must read cards from memory.
+
+Use:
+player = table["players"].get(user.id)
+
+If not found by user.id, fallback by lowercase username.
+
+Reply:
+Your cards: A♠ K♦
+Board: —
+Pot: 150 coins
+
+This must work even if auto whisper fails.
+
+==================================================
+PART 5 — Remove first_turn_ready as a blocker
+==================================================
+
+Do not block actions with:
+first_turn_ready == False
+
+For Poker V2, first_turn_ready should always become true immediately after cards are dealt in memory.
+
+Action guard should only check:
+- phase is preflop/flop/turn/river
+- player is active
+- it is player's turn
+
+If phase is not active:
+No active poker hand.
+
+==================================================
+PART 6 — Stop Old Poker Conflicts
+==================================================
+
+Make sure old poker.py is not handling:
+!join
+!check
+!call
+!raise
+!fold
+!allin
+!hand
+!leave
+!table
+
+Only modules/poker_v2.py handles those.
+
+ChillTopiaMC must ignore these commands.
+
+==================================================
+PART 7 — Turn Flow
+==================================================
+
+When public turn starts:
+
+@Player's turn. 30s
+
+Private best-effort whisper:
+Your turn.
+Your cards: A♠ K♦
+Pot: 150 coins
+Call: 50 coins
+
+Do not wait for the private whisper to succeed.
+
+==================================================
+PART 8 — Tests
+==================================================
+
+Run:
+python -m py_compile main.py
+python -m py_compile modules/poker_v2.py
+
+Restart bots.
+
+Test:
+
+Player 1:
+!join 5000
+
+Player 2:
+!join 5000
+
+Expected immediately after countdown:
+Poker hand #1.
+SB...
+BB...
+Pot...
+@FirstPlayer's turn. 30s
+
+No message should get stuck at:
+Dealer is dealing cards.
+Dealer is preparing the hand.
+
+Then both players test:
+!hand
+
+Expected:
+Your cards: [two cards]
+
+If auto whispers arrive, good.
+If not, !hand still works.
+
+Final report:
+1. Removed blocking dealing phase
+2. Removed hard gate blocker
+3. Cards dealt instantly in memory
+4. Phase set to preflop immediately
+5. Auto whispers best-effort only
+6. !hand backup result
+7. First turn public result
+8. Bot stability result
