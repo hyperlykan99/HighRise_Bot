@@ -428,15 +428,22 @@ async def _resolve(bot: BaseBot) -> None:
 
     # No active players can act → run board to showdown
     if not _active_in_hand():
-        print(f"[POKER V2] resolve action=showdown reason=all_allin_or_folded")
+        print(f"[POKER V2] resolve action=run_board reason=all_allin_or_folded")
         await _run_to_showdown(bot)
         return
 
-    # Betting round complete → advance street
+    # Betting round complete
     na = _needs_action()
     if not na:
-        print(f"[POKER V2] resolve action=advance_street phase={_T['phase']}")
-        await _advance_street(bot)
+        # Only advance street when 2+ active players can still bet against each other.
+        # If ≤1 active player remains (others all-in), run the board immediately.
+        active = _active_in_hand()
+        if len(active) < 2:
+            print(f"[POKER V2] resolve action=run_board reason=one_active_vs_allin phase={_T['phase']}")
+            await _run_to_showdown(bot)
+        else:
+            print(f"[POKER V2] resolve action=advance_street phase={_T['phase']}")
+            await _advance_street(bot)
         return
 
     # Find next player in seat order after the current actor
@@ -488,8 +495,9 @@ async def _advance_street(bot: BaseBot) -> None:
             p["current_bet"] = 0
             p["acted"]       = False
 
-    # First to act postflop: first active player left of dealer
-    # Heads-up: dealer=SB at dealer_idx, so (dealer_idx+1)%2 = BB → BB acts first postflop ✓
+    # First to act postflop: first active player left of dealer/button.
+    # 2-player: dealer=SB(idx 0), so idx+1 = BB → BB acts first postflop.
+    # 3+player: first active left of button.
     dealer_idx = _T["dealer_index"]
     seats      = _T["seats"]
     n          = len(seats)
@@ -500,14 +508,15 @@ async def _advance_street(bot: BaseBot) -> None:
             first_u = u
             break
 
+    reason = "bb_first_postflop" if n == 2 else "left_of_button"
+
     if phase == "preflop":
         deck.pop()
         flop = [deck.pop(), deck.pop(), deck.pop()]
         _T["board"].extend(flop)
         _T["phase"] = "flop"
         await _chat(bot, f"♠️ Flop: {_fcs(flop)}\nPot: {_T['pot']:,} coins")
-        reason = "heads_up_bb_first" if n == 2 else "left_of_dealer"
-        print(f"[POKER V2 TURN] street=flop first_actor=@{first_u or '?'} reason={reason}")
+        print(f"[POKER V2 TURN ORDER] players={n} street=flop first=@{first_u or '?'} reason={reason}")
 
     elif phase == "flop":
         deck.pop()
@@ -515,8 +524,7 @@ async def _advance_street(bot: BaseBot) -> None:
         _T["board"].append(turn_c)
         _T["phase"] = "turn"
         await _chat(bot, f"♠️ Turn: {_fc(turn_c)}\nBoard: {_board_str()}")
-        reason = "heads_up_bb_first" if n == 2 else "left_of_dealer"
-        print(f"[POKER V2 TURN] street=turn first_actor=@{first_u or '?'} reason={reason}")
+        print(f"[POKER V2 TURN ORDER] players={n} street=turn first=@{first_u or '?'} reason={reason}")
 
     elif phase == "turn":
         deck.pop()
@@ -524,11 +532,16 @@ async def _advance_street(bot: BaseBot) -> None:
         _T["board"].append(river_c)
         _T["phase"] = "river"
         await _chat(bot, f"♠️ River: {_fc(river_c)}\nBoard: {_board_str()}")
-        reason = "heads_up_bb_first" if n == 2 else "left_of_dealer"
-        print(f"[POKER V2 TURN] street=river first_actor=@{first_u or '?'} reason={reason}")
+        print(f"[POKER V2 TURN ORDER] players={n} street=river first=@{first_u or '?'} reason={reason}")
 
     elif phase == "river":
         await _showdown(bot)
+        return
+
+    # Safety: if no active players remain after the street reset, run board
+    if not _active_in_hand():
+        print(f"[POKER V2] advance_street action=run_board reason=no_active_after_reset phase={_T['phase']}")
+        await _run_to_showdown(bot)
         return
 
     # After dealing the new street, check if anyone needs to act
@@ -556,43 +569,43 @@ async def _run_to_showdown(bot: BaseBot) -> None:
     phase = _T["phase"]
     deck  = _T["deck"]
 
-    await _chat(bot, "🔥 All-in! Running the board...")
+    await _chat(bot, "🔥 All-in called. Running the board...")
     await asyncio.sleep(1)
 
     if phase == "preflop":
         deck.pop()
         flop = [deck.pop(), deck.pop(), deck.pop()]
         _T["board"].extend(flop)
-        await _chat(bot, f"Flop: {_fcs(flop)}")
+        await _chat(bot, f"🃏 Flop: {_fcs(flop)}")
         await asyncio.sleep(1)
         deck.pop()
         turn_c = deck.pop()
         _T["board"].append(turn_c)
-        await _chat(bot, f"Turn: {_fc(turn_c)}")
+        await _chat(bot, f"🃏 Turn: {_fc(turn_c)}")
         await asyncio.sleep(1)
         deck.pop()
         river_c = deck.pop()
         _T["board"].append(river_c)
-        await _chat(bot, f"River: {_fc(river_c)}")
+        await _chat(bot, f"🃏 River: {_fc(river_c)}")
         await asyncio.sleep(1)
 
     elif phase == "flop":
         deck.pop()
         turn_c = deck.pop()
         _T["board"].append(turn_c)
-        await _chat(bot, f"Turn: {_fc(turn_c)}")
+        await _chat(bot, f"🃏 Turn: {_fc(turn_c)}")
         await asyncio.sleep(1)
         deck.pop()
         river_c = deck.pop()
         _T["board"].append(river_c)
-        await _chat(bot, f"River: {_fc(river_c)}")
+        await _chat(bot, f"🃏 River: {_fc(river_c)}")
         await asyncio.sleep(1)
 
     elif phase == "turn":
         deck.pop()
         river_c = deck.pop()
         _T["board"].append(river_c)
-        await _chat(bot, f"River: {_fc(river_c)}")
+        await _chat(bot, f"🃏 River: {_fc(river_c)}")
         await asyncio.sleep(1)
 
     await _showdown(bot)
@@ -613,18 +626,24 @@ async def _showdown(bot: BaseBot) -> None:
         all_cards = p["cards"] + board
         score     = _best_hand(all_cards) if len(all_cards) >= 5 else _score5(all_cards + p["cards"])
         scores[u] = score
-        lines.append(f"@{u}: {_fcs(p['cards'])} — {_hand_name(score)}")
+        try:
+            rank_str = _readable_rank(p["cards"], board)
+        except Exception:
+            rank_str = _hand_name(score)
+        disp = p["username"]
+        lines.append(f"@{disp}: {_fcs(p['cards'])} = {rank_str}")
 
-    # Announce in ≤249-char chunks
-    chunk = ""
+    # Announce in ≤249-char chunks, prefixed with "Player Cards" header each chunk
+    header = "Player Cards"
+    chunk  = header
     for line in lines:
-        test = (chunk + "\n" + line).strip() if chunk else line
+        test = chunk + "\n" + line
         if len(test) > 249:
             await _chat(bot, chunk)
-            chunk = line
+            chunk = header + "\n" + line
         else:
             chunk = test
-    if chunk:
+    if chunk and chunk != header:
         await _chat(bot, chunk)
     await asyncio.sleep(1)
 
@@ -803,6 +822,8 @@ async def _start_hand(bot: BaseBot) -> None:
     _T["first_turn_ready"]      = True
     _T["current_turn_username"] = first_actor
     print(f"[POKER V2 START] first_actor=@{first_actor} phase_set=preflop ready=true")
+    _pf_reason = "button_sb_first" if n == 2 else "left_of_bb"
+    print(f"[POKER V2 TURN ORDER] players={n} street=preflop first=@{first_actor} reason={_pf_reason}")
 
     try:
         # Whisper cards to every player before announcing the hand publicly

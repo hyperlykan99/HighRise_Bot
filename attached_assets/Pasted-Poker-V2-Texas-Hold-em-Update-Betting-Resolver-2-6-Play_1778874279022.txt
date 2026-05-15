@@ -1,0 +1,583 @@
+Poker V2 Texas Hold’em Update — Betting Resolver, 2–6 Player Turn Order, All-In Fix, and Showdown Format
+
+Current status:
+Poker V2 core loop works, but gameplay logic needs fixing.
+
+Observed bugs:
+1. In a 2-player test, after the Big Blind checks, the bot asks Big Blind again without dealing the flop.
+2. When one player goes all-in and the other player calls, the bot still asks for more turns.
+3. Board/showdown should only run when betting is complete or everyone remaining is all-in.
+4. Showdown format needs to show each player’s cards and hand rank clearly.
+5. This is Texas Hold’em for up to 6 players, not heads-up-only poker. The bot must support 2–6 players.
+
+Do NOT modify:
+- blackjack
+- jail
+- Luxe Tickets
+- tips
+- mining/fishing
+- workflows
+- bot runner
+- unrelated economy systems
+
+Only modify:
+- modules/poker_v2.py
+- main.py only if needed for poker command routing
+
+==================================================
+PART 1 — Texas Hold’em Player Count
+==================================================
+
+Poker V2 is Texas Hold’em for 2–6 players.
+
+Rules:
+- Minimum players: 2
+- Maximum players: 6
+- 2-player game is still Texas Hold’em, but uses special 2-player button/blind order.
+- 3–6 players use normal Hold’em order.
+
+Do not call this “heads-up poker mode” in player messages.
+Use normal poker messages.
+
+==================================================
+PART 2 — Correct Dealer / Blind Rules
+==================================================
+
+For 2 players:
+- Dealer/Button is Small Blind.
+- Other player is Big Blind.
+- Preflop: Small Blind acts first.
+- Flop/Turn/River: Big Blind acts first.
+
+For 3–6 players:
+- Player left of Dealer is Small Blind.
+- Next player is Big Blind.
+- Preflop: first active player left of Big Blind acts first.
+- Flop/Turn/River: first active player left of Dealer acts first.
+
+Add helper functions:
+
+get_active_seats()
+get_next_active_after(index)
+get_preflop_first_actor()
+get_postflop_first_actor()
+
+Do not hardcode only 2 players.
+
+Add logs:
+[POKER V2 TURN ORDER] players=2 street=preflop first=@Player reason=button_sb_first
+[POKER V2 TURN ORDER] players=2 street=flop first=@Player reason=bb_first_postflop
+[POKER V2 TURN ORDER] players=4 street=preflop first=@Player reason=left_of_bb
+[POKER V2 TURN ORDER] players=4 street=flop first=@Player reason=left_of_button
+
+==================================================
+PART 3 — Fix Betting Resolver
+==================================================
+
+The resolver must decide the next step after every action:
+- check
+- call
+- raise
+- fold
+- allin
+- timeout auto-check
+- timeout auto-fold
+- leave fold
+
+Create or fix one function:
+
+resolve_betting_state(bot)
+
+Resolver order must be:
+
+1. If hand_ended or cleanup_in_progress:
+   return immediately.
+
+2. Get eligible players:
+   players with status active or allin.
+
+3. Get non-folded players:
+   players with status active or allin.
+
+4. If only one non-folded player remains:
+   award pot immediately.
+   complete_hand(reason="fold_win")
+   return.
+   Do NOT run board.
+   Do NOT showdown.
+
+5. If fewer than 2 eligible players remain:
+   award/cancel safely.
+   complete_hand(reason="not_enough_eligible")
+   return.
+
+6. If nobody can act anymore:
+   - If board has fewer than 5 cards:
+       run remaining board to showdown.
+   - Else:
+       showdown.
+   return.
+
+7. If current betting round is complete:
+   advance to next street.
+   return.
+
+8. Otherwise:
+   move to next player who needs action.
+   return.
+
+==================================================
+PART 4 — Define “Needs Action” Correctly
+==================================================
+
+A player needs action if:
+
+status == active
+AND stack > 0
+AND (
+    acted == False
+    OR current_bet < table.current_bet
+)
+
+A player does NOT need action if:
+- folded
+- allin
+- has matched current_bet and acted
+- has no stack left
+
+Function:
+
+needs_action_players()
+
+Important:
+After Big Blind checks preflop:
+- SB already acted/called
+- BB acted/checks
+- all active players matched current_bet
+- no one needs action
+- therefore advance to flop
+
+Do not ask BB again preflop.
+
+==================================================
+PART 5 — Define “Betting Round Complete”
+==================================================
+
+Betting round is complete when:
+
+For every active player:
+- acted == True
+- current_bet == table.current_bet
+
+All-in players are ignored for “needs action” because they cannot act.
+
+If betting round complete:
+- preflop -> deal flop
+- flop -> deal turn
+- turn -> deal river
+- river -> showdown
+
+==================================================
+PART 6 — Fix Big Blind Check Bug
+==================================================
+
+Bug:
+In a 2-player test, Big Blind checks, then the bot says it is Big Blind’s turn again.
+
+Correct behavior:
+If preflop and Big Blind checks after Small Blind has called:
+1. Public:
+✅ @BigBlind checked.
+2. Deal flop:
+🃏 Flop: A♠ K♦ 7♣
+Pot: 200 coins
+3. Postflop first actor starts:
+⏳ @BigBlind's turn. 30s
+
+Important:
+It is okay for Big Blind to act first again after flop.
+But there must be a flop message between the Big Blind check and the next Big Blind turn.
+
+If bot says Big Blind’s turn twice in a row without flop, that is wrong.
+
+==================================================
+PART 7 — Fix All-In + Call Bug
+==================================================
+
+Bug:
+Player A goes all-in.
+Player B calls.
+Bot still asks for turns.
+
+Correct behavior:
+After all-in is called, if no active player needs action:
+- immediately run remaining board to showdown
+- do not ask anyone for another turn
+
+Example:
+🔥 @PlayerA is all-in for 4,900 coins.
+💰 @PlayerB called 4,900 coins.
+🔥 All-in called. Running the board...
+🃏 Flop: A♠ K♦ 7♣
+🃏 Turn: 10♥
+🃏 River: 2♣
+👀 Showdown
+
+For 3–6 players:
+If Player A all-in and Player B calls, but Player C still needs action:
+- continue to Player C
+- do not run board yet
+
+Only run board when every remaining active player has matched/folded/all-in and nobody needs action.
+
+==================================================
+PART 8 — Board Run Rules
+==================================================
+
+Only run remaining board if:
+- at least 2 eligible players remain
+- nobody needs action
+- at least one player is all-in OR no active player can act
+
+Do NOT run board if:
+- only one player remains
+- everyone else folded
+- hand_ended == True
+- cleanup_in_progress == True
+
+Before run board:
+check len(eligible) >= 2
+
+If not:
+complete_hand(reason="fold_win")
+return
+
+==================================================
+PART 9 — Street Advancement
+==================================================
+
+When advancing street:
+
+Preflop -> Flop:
+- burn one card
+- deal 3 flop cards
+- phase = flop
+- reset current_bet = 0
+- reset each active player current_bet = 0
+- reset acted = False for active players
+- public:
+🃏 Flop: A♠ K♦ 7♣
+Pot: 200 coins
+- set turn to postflop first actor
+
+Flop -> Turn:
+- burn one card
+- deal 1 turn card
+- phase = turn
+- reset bets/acted
+- public:
+🃏 Turn: 10♥
+Board: A♠ K♦ 7♣ 10♥
+- set turn to postflop first actor
+
+Turn -> River:
+- burn one card
+- deal 1 river card
+- phase = river
+- reset bets/acted
+- public:
+🃏 River: 2♣
+Board: A♠ K♦ 7♣ 10♥ 2♣
+- set turn to postflop first actor
+
+River complete -> Showdown.
+
+==================================================
+PART 10 — Public Turn First, Then Private Whisper
+==================================================
+
+When prompting a player:
+
+1. Public first:
+⏳ @Player's turn. 30s
+
+2. Then private turn whisper:
+YOUR TURN:
+Dealer/Board Cards: A♠ K♦ 7♣
+
+Your Hand: A♣ 10♣
+Current Rank: Pair of Aces
+
+Actions:
+✅ !check
+💰 !call
+📈 !raise 500
+🏳️ !fold
+🔥 !allin
+
+If message is too long, use compact format:
+
+YOUR TURN:
+Board: A♠ K♦ 7♣
+Hand: A♣ 10♣
+Rank: Pair of Aces
+
+✅ !check | 📈 !raise 500 | 🏳️ !fold | 🔥 !allin
+
+If call is required, show:
+💰 !call
+
+If no call is required, show:
+✅ !check
+
+Always show:
+📈 !raise 500
+🏳️ !fold
+🔥 !allin
+
+==================================================
+PART 11 — Current Hand Rank In Private Messages
+==================================================
+
+Add current hand ranking to:
+- private turn whisper
+- !hand whisper
+
+Do not reveal ranking publicly except showdown.
+
+Preflop:
+Use only the 2 hole cards.
+
+Examples:
+A♠ A♦ -> Pair of Aces
+K♠ K♦ -> Pair of Kings
+A♠ K♦ -> High Card Ace
+10♠ 9♦ -> High Card 10
+
+Postflop:
+Use hole cards + board to determine best available hand.
+
+Ranks:
+Royal Flush
+Straight Flush
+Four of a Kind
+Full House
+Flush
+Straight
+Three of a Kind
+Two Pair
+Pair
+High Card
+
+Readable examples:
+Pair of Aces
+Two Pair: Aces and Kings
+Three of a Kind: Queens
+Straight to Ace
+Flush: Spades
+Full House: Kings over Tens
+Four of a Kind: Nines
+High Card Ace
+
+==================================================
+PART 12 — Show 10 Instead Of T
+==================================================
+
+Fix card formatting everywhere.
+
+Internal card rank may be T, but player-facing output must show 10.
+
+Examples:
+T♠ -> 10♠
+TH -> 10♥
+TD -> 10♦
+TC -> 10♣
+TS -> 10♠
+
+This applies to:
+- card whisper
+- turn whisper
+- board
+- showdown
+- !hand
+- logs only if player-facing
+
+==================================================
+PART 13 — Showdown Format
+==================================================
+
+Change showdown results to this format.
+
+Message 1:
+👀 Showdown
+Board: A♠ K♦ Q♥ J♣ 10♠
+
+Message 2:
+Player Cards
+@Player1: A♠ K♦ = Pair of Aces
+@Player2: Q♣ Q♥ = Pair of Queens
+
+Message 3:
+🏆 @Player1 wins 5,000 coins.
+
+If more than 2 players, split Player Cards into multiple messages under 249 characters.
+
+Example for 4 players:
+
+Player Cards
+@A: A♠ K♦ = Pair of Aces
+@B: Q♣ Q♥ = Pair of Queens
+
+Player Cards
+@C: 10♣ 9♣ = Straight to King
+@D: 2♠ 2♦ = Pair of Twos
+
+If split pot:
+🤝 Split pot.
+@Player1 receives 2,500 coins.
+@Player2 receives 2,500 coins.
+
+Important:
+Use display usernames.
+Use 10 instead of T.
+Show each player's two private cards and final best rank on the same line.
+
+==================================================
+PART 14 — Public Action Messages With Emojis
+==================================================
+
+After every valid action, send a public message BEFORE resolver.
+
+!check:
+✅ @Player checked.
+
+!call:
+💰 @Player called 50 coins.
+
+!raise 500:
+📈 @Player raised to 500 coins.
+
+!fold:
+🏳️ @Player folded.
+
+!allin:
+🔥 @Player is all-in for 5,000 coins.
+
+Timeout auto-check:
+⏰ @Player timed out and checked. AFK 1/3.
+
+Timeout auto-fold:
+⏰ @Player timed out and folded. AFK 1/3.
+
+Wrong turn:
+Whisper only:
+⏳ It is @CurrentPlayer's turn.
+
+==================================================
+PART 15 — Do Not Break Existing Fixes
+==================================================
+
+Keep these existing working behaviors:
+- Cards sent before SB/BB announcement.
+- !hand works if player has cards.
+- Winner announcement works.
+- Auto next hand works.
+- !leave and !poker leave work.
+- !pleave does not trigger ChillTopiaMC unknown command.
+- Admin pause/resume/close/refund/forcefinish/status stay working if already added.
+
+==================================================
+PART 16 — Tests
+==================================================
+
+Run:
+python -m py_compile main.py
+python -m py_compile modules/poker_v2.py
+
+Restart bots.
+
+Test 1 — 2-player preflop BB check:
+SB calls.
+BB checks.
+
+Expected:
+✅ @BB checked.
+🃏 Flop: [3 cards]
+Pot: X coins
+⏳ @BB's turn. 30s
+
+There must be a flop message before BB acts again.
+
+Test 2 — 2-player all-in call:
+Player A:
+!allin
+
+Player B:
+!call
+
+Expected:
+No more turn prompts.
+🔥 All-in called. Running the board...
+Flop
+Turn
+River
+Showdown
+
+Test 3 — 3-player all-in:
+Player A all-in.
+Player B calls.
+Player C still needs action.
+
+Expected:
+Bot prompts Player C.
+Do not run board until Player C acts.
+
+Test 4 — Fold win:
+Player folds and only one player remains.
+
+Expected:
+🏳️ @Player folded.
+🏆 @Winner wins X coins.
+Reason: Everyone else folded.
+No flop/turn/river/showdown.
+
+Test 5 — Showdown format:
+Expected:
+👀 Showdown
+Board: A♠ K♦ Q♥ J♣ 10♠
+
+Player Cards
+@Player1: A♠ K♦ = Pair of Aces
+@Player2: Q♣ Q♥ = Pair of Queens
+
+🏆 @Player1 wins 5,000 coins.
+
+Test 6 — 10 display:
+Any ten card must display as 10, not T.
+
+Test 7 — Turn whisper:
+Expected:
+YOUR TURN:
+Dealer/Board Cards: —
+Your Hand: A♠ 10♦
+Current Rank: High Card Ace
+Actions:
+...
+
+Test 8 — 6-player compatibility:
+Seat up to 6 players.
+Confirm preflop actor is left of BB.
+Confirm postflop actor is left of Dealer.
+
+Final report:
+1. Betting resolver fixed
+2. Big Blind check bug fixed
+3. All-in + call no-extra-turn bug fixed
+4. 2–6 player Hold’em turn order confirmed
+5. Showdown format updated
+6. Current hand rank in turn whisper added
+7. 10 display fixed
+8. Fold/leave still does not run board
+9. Auto next hand still works
+10. Py_compile result
+11. Bot stability result
