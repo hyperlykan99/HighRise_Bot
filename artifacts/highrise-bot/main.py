@@ -98,7 +98,8 @@ from modules.badge_market import (
     handle_setbadgemarketfee, handle_badgemarketlogs,
     handle_buybadge_cmd, handle_staffbadge,
     handle_emojitest, handle_disableemoji, handle_enableemoji,
-    handle_badges_cmd_router, handle_badge_help,
+    handle_badges_cmd_router, handle_badge_help, handle_badgeadminhelp,
+    handle_badgeshop_categories, handle_badge_search,
     handle_marketsearch, handle_marketfilter,
     handle_marketaudit, handle_marketdebug,
     handle_forcelistingcancel, handle_clearbadgelocks,
@@ -805,9 +806,11 @@ PROFILE_COMMANDS     = {
 GAME_COMMANDS        = {"trivia", "scramble", "riddle", "coinflip"}
 SHOP_COMMANDS        = {
     "shop", "buy", "equip", "myitems", "inventory", "inv", "badgeinfo", "titleinfo",
-    "mybadges", "unequip",
+    "badge", "badges", "badgeshop", "mybadges", "unequip", "unequipbadge",
+    "equipbadge", "buybadge", "sellbadge", "cancelbadge", "badgesearch",
     "badgemarket", "badgelist", "badgebuy", "badgecancel",
     "mybadgelistings", "badgeprices",
+    "badgehelp", "badgeadminhelp",
 }
 ACHIEVEMENT_COMMANDS = {"achievements", "claimachievements"}
 BJ_COMMANDS          = {
@@ -1085,9 +1088,10 @@ ALL_KNOWN_COMMANDS = (
         "setbadgepurchasable", "setbadgetradeable", "setbadgesellable",
         "giveemojibadge", "badgecatalog", "badgeadmin",
         "setbadgemarketfee", "badgemarketlogs",
-        "mybadges", "unequip",
+        "badge", "mybadges", "unequip", "unequipbadge",
+        "badgeshop", "badgesearch", "badgehelp", "badgeadminhelp",
         "badgemarket", "badgelist", "badgebuy", "badgecancel",
-        "mybadgelistings", "badgeprices",
+        "mybadgelistings", "badgeprices", "buybadge", "sellbadge", "cancelbadge",
         # Numbered shop system
         "buyitem", "purchase",
         "confirmbuy", "cancelbuy",
@@ -4183,8 +4187,22 @@ class HangoutBot(BaseBot):
         elif cmd == "profilehelp":
             await handle_profile_help(self, user)
 
-        elif cmd in {"badges", "badgeshop"}:
-            await handle_badges_cmd_router(self, user, args)
+        elif cmd == "badge":
+            await handle_shop_badges(self, user, args)
+
+        elif cmd == "badges":
+            first_arg = args[1].lower().strip() if len(args) > 1 else ""
+            if not first_arg:
+                await handle_shop_badges(self, user, args)
+            else:
+                await handle_badges_cmd_router(self, user, args)
+
+        elif cmd == "badgeshop":
+            first_arg = args[1].lower().strip() if len(args) > 1 else ""
+            if not first_arg:
+                await handle_badgeshop_categories(self, user)
+            else:
+                await handle_badges_cmd_router(self, user, args)
 
         elif cmd == "titles":
             await handle_badges_cmd(self, user, args)
@@ -4263,7 +4281,15 @@ class HangoutBot(BaseBot):
             await handle_myitems(self, user)
 
         elif cmd == "mybadges":
-            await handle_mybadges(self, user)
+            page = int(args[1]) if len(args) > 1 and args[1].isdigit() else 1
+            await handle_mybadges(self, user, page)
+
+        elif cmd == "unequipbadge":
+            await handle_unequip_badge(self, user)
+
+        elif cmd == "badgesearch":
+            query = " ".join(args[1:]).strip() if len(args) > 1 else ""
+            await handle_badge_search(self, user, query)
 
         elif cmd == "badgeinfo":
             await handle_badgeinfo_emoji(self, user, args)
@@ -4997,6 +5023,9 @@ class HangoutBot(BaseBot):
 
         elif cmd in {"badgehelp", "helpbadge", "helpbadges"}:
             await handle_badge_help(self, user)
+
+        elif cmd in {"badgeadminhelp", "badgeadmin_help"}:
+            await handle_badgeadminhelp(self, user)
 
         elif cmd in {"helpmarket", "markethelp"}:
             await handle_market_help(self, user)

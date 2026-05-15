@@ -130,16 +130,32 @@ def _short(val: int) -> str:
 # ---------------------------------------------------------------------------
 
 async def handle_shop_badges(bot: BaseBot, user: User, args: list[str] | None = None) -> None:
-    """Shows the badge category / market menu. Entry point for !badges with no sub-command."""
-    msg = (
-        "🏷️ Badges\n"
-        "Browse: !badges [category]\n"
-        "Search: !badges search [name]\n"
-        "Yours: !mybadges\n"
-        "Market: !badgemarket\n"
-        "Sell: !sellbadge [badge] [price]"
-    )
-    await bot.highrise.send_whisper(user.id, msg[:249])
+    """!badges / !badge — main badge menu (Part 2)."""
+    await bot.highrise.send_whisper(user.id, (
+        "🏷️ Badge Menu\n"
+        "Browse: !badgeshop\n"
+        "Owned: !mybadges\n"
+        "Equip: !equipbadge badge_id\n"
+        "Buy: !buybadge badge_id\n"
+        "Search: !badgesearch crown\n"
+        "Market: !badgemarket"
+    )[:249])
+
+
+async def handle_badgeshop_categories(bot: BaseBot, user: User) -> None:
+    """!badgeshop (no args) — show category list (Part 3)."""
+    await bot.highrise.send_whisper(user.id, (
+        "🏷️ Badge Shop\n"
+        "⭐ stars | ❤️ hearts | 😀 faces\n"
+        "🐾 animals | 🍎 food | ⚽ activities\n"
+        "🏠 room | ♈ zodiac | ✅ symbols\n"
+        "💎 rare | 🌌 epic | 👑 legendary"
+    )[:249])
+    await bot.highrise.send_whisper(user.id, (
+        "Browse: !badgeshop hearts\n"
+        "Search: !badgesearch crown\n"
+        "Buy: !buybadge badge_id"
+    )[:249])
 
 
 # ---------------------------------------------------------------------------
@@ -224,29 +240,49 @@ async def handle_badges_cmd_router(bot: BaseBot, user: User, args: list[str]) ->
 
 async def handle_badgeinfo(bot: BaseBot, user: User, args: list[str]) -> None:
     if len(args) < 2:
-        await bot.highrise.send_whisper(user.id, "Usage: !badgeinfo <badge_id>")
+        await bot.highrise.send_whisper(
+            user.id, "Usage: !badgeinfo badge_id\nTry !badgesearch name first."
+        )
         return
 
     badge_id = args[1].lower().strip()
     row      = db.get_emoji_badge(badge_id)
 
     if row is None:
-        await bot.highrise.send_whisper(user.id, f"Badge '{badge_id}' not found. See !shop badges.")
+        await bot.highrise.send_whisper(
+            user.id, f"⚠️ Badge not found. Try !badgesearch {badge_id[:15]}"
+        )
         return
 
     db.ensure_user(user.id, user.username)
-    owned    = db.owns_emoji_badge(user.username, badge_id)
-    listed   = db.is_badge_listed(user.username, badge_id)
-    purchase = "YES" if row["purchasable"] else "NO"
-    trade    = "YES" if row["tradeable"]   else "NO"
-    status   = " [LISTED]" if listed else (" [OWNED]" if owned else "")
+    owned       = db.owns_emoji_badge(user.username, badge_id)
+    equipped_ids = db.get_equipped_ids(user.id)
+    is_equipped = equipped_ids.get("badge_id") == badge_id
+    listed      = db.is_badge_listed(user.username, badge_id)
 
-    msg = (
-        f"{row['emoji']} {row['name']} ({badge_id}){status}\n"
-        f"Rarity: {row['rarity'].capitalize()}  Price: {row['price']:,}c\n"
-        f"Buy: {purchase}  Trade: {trade}"
-    )
-    await bot.highrise.send_whisper(user.id, msg[:249])
+    status_parts = []
+    if listed:       status_parts.append("LISTED")
+    elif is_equipped: status_parts.append("EQUIPPED")
+    elif owned:      status_parts.append("OWNED")
+    status_tag = f" [{', '.join(status_parts)}]" if status_parts else ""
+
+    lines = [
+        f"{row['emoji']} {row['name']}{status_tag}",
+        f"ID: {badge_id}",
+        f"Rarity: {row['rarity'].capitalize()}",
+        f"Price: {row['price']:,} coins",
+        f"Owned: {'Yes' if owned else 'No'}  Equipped: {'Yes' if is_equipped else 'No'}",
+    ]
+    if not owned and row["purchasable"]:
+        lines.append(f"Buy: !buybadge {badge_id}")
+    elif not row["purchasable"] and not owned:
+        lines.append("Buy: Not available")
+    if owned and not is_equipped and not listed:
+        lines.append(f"Equip: !equipbadge {badge_id}")
+    if row["tradeable"] and row["sellable"] and owned and not listed:
+        lines.append(f"Sell: !sellbadge {badge_id} price")
+
+    await bot.highrise.send_whisper(user.id, "\n".join(lines)[:249])
 
 
 # ---------------------------------------------------------------------------
@@ -269,7 +305,9 @@ async def handle_buy_badge(bot: BaseBot, user: User, badge_id: str) -> None:
 
     if db.owns_emoji_badge(user.username, badge_id):
         await bot.highrise.send_whisper(
-            user.id, f"You already own {row['emoji']} {badge_id}! Use !equip badge {badge_id}."
+            user.id,
+            f"You already own this badge.\n"
+            f"Equip it: !equipbadge {badge_id}"
         )
         return
 
@@ -277,7 +315,10 @@ async def handle_buy_badge(bot: BaseBot, user: User, badge_id: str) -> None:
     balance = db.get_balance(user.id)
     if balance < price:
         await bot.highrise.send_whisper(
-            user.id, f"Need {price:,}c — you have {balance:,}c."
+            user.id,
+            f"⚠️ Not enough coins.\n"
+            f"Price: {price:,} coins\n"
+            f"Your balance: {balance:,} coins"
         )
         return
 
@@ -293,9 +334,10 @@ async def handle_buy_badge(bot: BaseBot, user: User, badge_id: str) -> None:
     new_bal = db.get_balance(user.id)
     await bot.highrise.send_whisper(
         user.id,
-        f"✅ Bought {row['emoji']} {badge_id}! Balance: {new_bal:,}c\n"
-        f"Equip: !equipbadge {badge_id}"
+        f"✅ Bought badge: {row['emoji']} {row['name']} for {row['price']:,} coins.\n"
+        f"Equip it: !equipbadge {badge_id}"
     )
+    print(f"[BADGE] badge_buy user=@{user.username} badge={badge_id} price={row['price']}")
     db.log_badge_market_action(
         "purchased", user.username, "", badge_id, row["emoji"], price, 0, "shop"
     )
@@ -307,29 +349,48 @@ async def handle_buy_badge(bot: BaseBot, user: User, badge_id: str) -> None:
 
 async def handle_equip_badge(bot: BaseBot, user: User, badge_id: str) -> None:
     badge_id = badge_id.lower().strip()
-    row      = db.get_emoji_badge(badge_id)
+
+    if not badge_id:
+        await bot.highrise.send_whisper(user.id, "Usage: !equipbadge badge_id\nSee: !mybadges")
+        return
+
+    row = db.get_emoji_badge(badge_id)
 
     if row is None:
-        await bot.highrise.send_whisper(user.id, f"Badge '{badge_id}' not found.")
+        await bot.highrise.send_whisper(
+            user.id, f"⚠️ Badge not found. Try !badgesearch {badge_id[:15]}"
+        )
         return
 
     db.ensure_user(user.id, user.username)
 
     if not db.owns_emoji_badge(user.username, badge_id):
         await bot.highrise.send_whisper(
-            user.id, f"You don't own {row['emoji']} {badge_id}. Buy: !buy badge {badge_id}."
+            user.id,
+            f"⚠️ You do not own that badge.\n"
+            f"Buy it with: !buybadge {badge_id}"
+        )
+        return
+
+    # Already equipped check
+    equipped_ids = db.get_equipped_ids(user.id)
+    if equipped_ids.get("badge_id") == badge_id:
+        await bot.highrise.send_whisper(
+            user.id, f"✅ That badge is already equipped."
         )
         return
 
     if db.is_badge_listed(user.username, badge_id):
         await bot.highrise.send_whisper(
-            user.id, "That badge is listed on the market. !badgecancel first."
+            user.id, "⚠️ That badge is listed for sale. Use !cancelbadge to remove the listing first."
         )
         return
 
     db.equip_item(user.id, badge_id, "badge", row["emoji"])
-    display = db.get_display_name(user.id, user.username)
-    await bot.highrise.send_whisper(user.id, f"✅ Equipped {row['emoji']}. You appear as: {display}"[:249])
+    await bot.highrise.send_whisper(
+        user.id, f"✅ Equipped badge: {row['emoji']} {row['name']}"
+    )
+    print(f"[BADGE] badge_equip user=@{user.username} badge={badge_id}")
 
 
 # ---------------------------------------------------------------------------
@@ -338,15 +399,21 @@ async def handle_equip_badge(bot: BaseBot, user: User, badge_id: str) -> None:
 
 async def handle_unequip_badge(bot: BaseBot, user: User) -> None:
     db.ensure_user(user.id, user.username)
+    equipped_ids = db.get_equipped_ids(user.id)
+    if not equipped_ids.get("badge_id"):
+        await bot.highrise.send_whisper(user.id, "You do not have a badge equipped.")
+        return
     db.clear_equipped_badge(user.id)
     await bot.highrise.send_whisper(user.id, "✅ Badge unequipped.")
+    print(f"[BADGE] badge_unequip user=@{user.username}")
 
 
 # ---------------------------------------------------------------------------
 # /mybadges
 # ---------------------------------------------------------------------------
 
-async def handle_mybadges(bot: BaseBot, user: User) -> None:
+async def handle_mybadges(bot: BaseBot, user: User, page: int = 1) -> None:
+    """!mybadges [page] — list owned badges, 8 per page, with numbered index (Part 4)."""
     db.ensure_user(user.id, user.username)
     owned = db.get_user_emoji_badges(user.username)
 
@@ -354,41 +421,53 @@ async def handle_mybadges(bot: BaseBot, user: User) -> None:
         await bot.highrise.send_whisper(
             user.id,
             "🏷️ Your Badges\n"
-            "None yet.\n"
-            "Shop: !badges\n"
-            "Market: !badgemarket"
+            "You do not own badges yet.\n"
+            "Browse: !badgeshop"
         )
         return
 
-    equipped = db.get_equipped_ids(user.id)
-    eq_id    = equipped.get("badge_id") or ""
-    eq_badge = next((b for b in owned if b["badge_id"] == eq_id), None)
+    equipped_ids = db.get_equipped_ids(user.id)
+    eq_id        = equipped_ids.get("badge_id") or ""
+    eq_badge     = next((b for b in owned if b["badge_id"] == eq_id), None)
 
-    # Build compact emoji row (★ = equipped, [M] = listed on market)
-    parts = []
-    for b in owned:
-        emoji  = b.get("emoji") or b["badge_id"]
-        marker = "★" if b["badge_id"] == eq_id else ""
-        listed = "[M]" if db.is_badge_listed(user.username, b["badge_id"]) else ""
-        parts.append(f"{emoji}{marker}{listed}")
+    page       = max(1, page)
+    per_page   = 8
+    total      = len(owned)
+    total_pages = max(1, -(-total // per_page))
+    page       = min(page, total_pages)
+    start      = (page - 1) * per_page
+    chunk      = owned[start:start + per_page]
 
-    row = " ".join(parts)
-    if len(row) > 160:
-        row = " ".join(p for p in parts[:10]) + f" +{len(parts)-10}"
+    lines = [f"🏷️ Your Badges ({total}) p{page}/{total_pages}"]
 
-    eq_line = ""
     if eq_badge:
-        eq_name = eq_badge.get("name") or eq_badge["badge_id"]
         eq_emoji = eq_badge.get("emoji") or ""
-        eq_line = f"Equipped: {eq_emoji} {eq_name}\n"
+        eq_name  = eq_badge.get("name")  or eq_id
+        lines.append(f"Equipped: {eq_emoji} {eq_name}")
 
-    msg = (
-        "🏷️ Your Badges\n"
-        f"{eq_line}"
-        f"Owned: {row}\n"
-        "Equip: !equipbadge [badge]\n"
-        "Sell: !sellbadge [badge] [price]"
-    )
+    for i, b in enumerate(chunk, start=start + 1):
+        emoji  = b.get("emoji") or ""
+        name   = b.get("name")  or b["badge_id"]
+        marker = " ★" if b["badge_id"] == eq_id else ""
+        listed = " [M]" if db.is_badge_listed(user.username, b["badge_id"]) else ""
+        lines.append(f"{i}) {b['badge_id']} {emoji} {name}{marker}{listed}")
+
+    if total_pages > 1:
+        nav = []
+        if page > 1:           nav.append(f"!mybadges {page-1}")
+        if page < total_pages: nav.append(f"!mybadges {page+1}")
+        if nav: lines.append("  ".join(nav))
+
+    lines.append("Equip: !equipbadge badge_id")
+    lines.append("Unequip: !unequipbadge")
+
+    msg = "\n".join(lines)
+    if len(msg) > 249:
+        # Trim to header + equipped + 4 items
+        short = lines[:2 + (1 if eq_badge else 0) + 4]
+        if total_pages > 1: short.append(f"!mybadges {min(page+1, total_pages)}")
+        short.append("Equip: !equipbadge badge_id")
+        msg = "\n".join(short)
     await bot.highrise.send_whisper(user.id, msg[:249])
 
 
@@ -422,39 +501,57 @@ async def handle_badge_category(
         return
 
     lines = [f"{label} p{page}/{total_pages}"]
-    for r in rows:
-        bid   = r.get("rowid") or 0
-        owned = db.owns_emoji_badge(user.username, r["badge_id"])
-        tick  = "✅" if owned else ""
-        lines.append(f"B{bid:03d} {r['emoji']}{tick} {r['name']} — {_short(r['price'])}c")
+    for i, r in enumerate(rows, start=1):
+        owned       = db.owns_emoji_badge(user.username, r["badge_id"])
+        eq_ids      = db.get_equipped_ids(user.id)
+        is_equipped = eq_ids.get("badge_id") == r["badge_id"]
+        listed      = db.is_badge_listed(user.username, r["badge_id"])
+        if listed:       tag = " LISTED"
+        elif is_equipped: tag = " EQUIPPED"
+        elif owned:      tag = " OWNED"
+        else:            tag = ""
+        lines.append(f"{i}) {r['badge_id']} {r['emoji']} {r['name']} — {_short(r['price'])}c{tag}")
 
     nav = []
-    if page > 1:             nav.append(f"!badges {category} {page-1}")
-    if page < total_pages:   nav.append(f"!badges {category} {page+1}")
+    if page > 1:             nav.append(f"!badgeshop {category} {page-1}")
+    if page < total_pages:   nav.append(f"!badgeshop {category} {page+1}")
     if nav: lines.append("  ".join(nav))
-    lines.append("Buy: !buybadge <id>")
+    lines.append("Buy: !buybadge badge_id")
+    lines.append("Info: !badgeinfo badge_id")
 
     msg = "\n".join(lines)
     await bot.highrise.send_whisper(user.id, msg[:249])
 
 
 async def handle_badge_search(bot: BaseBot, user: User, query: str) -> None:
-    """!badges search <text> — full-text badge search, whispered."""
-    rows = db.search_emoji_badges(query.strip(), purchasable_only=True, limit=5)
+    """!badgesearch <text> — full-text badge search (Part 9)."""
+    query = query.strip()
+    if not query:
+        await bot.highrise.send_whisper(user.id, "Usage: !badgesearch name\nExample: !badgesearch crown")
+        return
+    rows = db.search_emoji_badges(query, purchasable_only=True, limit=5)
     if not rows:
         await bot.highrise.send_whisper(
             user.id,
-            f"🔎 No badges found: '{query[:20]}'\n"
-            f"Try: fire, crown, heart, dragon, star"
+            f"No badges found for \"{query[:20]}\".\n"
+            f"Try: !badgeshop"
         )
         return
 
-    lines = [f"🔎 Search: {query[:15]}"]
-    for r in rows:
-        bid = r.get("rowid") or 0
-        lines.append(f"B{bid:03d} {r['emoji']} {r['name']} — {_short(r['price'])}c")
-    lines.append("Buy: !buybadge <id>")
+    db.ensure_user(user.id, user.username)
+    lines = [f"🔎 Badge Search: {query[:15]}"]
+    last_id = None
+    for i, r in enumerate(rows, 1):
+        owned   = db.owns_emoji_badge(user.username, r["badge_id"])
+        tag     = " [OWNED]" if owned else ""
+        lines.append(f"{i}) {r['badge_id']} {r['emoji']} {r['name']} — {_short(r['price'])}c{tag}")
+        last_id = r["badge_id"]
+
+    if last_id:
+        lines.append(f"Buy: !buybadge {last_id}")
+        lines.append(f"Info: !badgeinfo {last_id}")
     await bot.highrise.send_whisper(user.id, "\n".join(lines)[:249])
+    print(f"[BADGE] badge_search user=@{user.username} query={query!r} results={len(rows)}")
 
 
 async def handle_badge_available(bot: BaseBot, user: User, page: int = 1) -> None:
@@ -533,28 +630,53 @@ async def handle_badge_sold(bot: BaseBot, user: User, page: int = 1) -> None:
 
 
 async def handle_badge_help(bot: BaseBot, user: User) -> None:
-    """!help badges — badge system help (two messages)."""
-    msg1 = (
-        "🏷️ Badge Help\n"
-        "!badges — badge menu\n"
-        "!badges [category] — browse\n"
-        "!buybadge [id] — buy shop badge\n"
-        "!mybadges — owned badges\n"
-        "!equipbadge [badge] — equip"
-    )
-    msg2 = (
-        "🏷️ Badge Market\n"
-        "!badgemarket — listings\n"
-        "!sellbadge [badge] [price]\n"
-        "!buybadge listing [id]\n"
-        "!cancelbadge [id]\n"
-        "!mylistings"
-    )
-    await bot.highrise.send_whisper(user.id, msg1[:249])
-    await bot.highrise.send_whisper(user.id, msg2[:249])
+    """!badgehelp — player badge commands (Part 12)."""
+    await bot.highrise.send_whisper(user.id, (
+        "🏷️ Badge Commands\n"
+        "Browse: !badgeshop\n"
+        "Owned: !mybadges\n"
+        "Equip: !equipbadge badge_id\n"
+        "Buy: !buybadge badge_id\n"
+        "Search: !badgesearch name\n"
+        "Market: !badgemarket"
+    )[:249])
+    await bot.highrise.send_whisper(user.id, (
+        "🏷️ More Commands\n"
+        "Info: !badgeinfo badge_id\n"
+        "Unequip: !unequipbadge\n"
+        "Sell: !sellbadge badge_id price\n"
+        "Cancel listing: !cancelbadge id\n"
+        "Listings: !mybadgelistings\n"
+        "Trade: !trade @user"
+    )[:249])
+
+
+async def handle_badgeadminhelp(bot: BaseBot, user: User) -> None:
+    """!badgeadminhelp — admin badge commands (Part 12)."""
+    if not _can_manage(user.username):
+        await bot.highrise.send_whisper(user.id, "⚠️ Staff only.")
+        return
+    await bot.highrise.send_whisper(user.id, (
+        "🛠️ Badge Admin\n"
+        "!addbadge id emoji name rarity price\n"
+        "!editbadgeprice id price\n"
+        "!setbadgepurchasable id on/off\n"
+        "!badgecatalog\n"
+        "!giveemojibadge @user emoji name"
+    )[:249])
+    await bot.highrise.send_whisper(user.id, (
+        "🛠️ More Admin\n"
+        "!setbadgetradeable id on/off\n"
+        "!setbadgesellable id on/off\n"
+        "!badgeadmin id\n"
+        "!setbadgemarketfee percent\n"
+        "!badgemarketlogs [@user]\n"
+        "!marketaudit  !clearbadgelocks"
+    )[:249])
 
 
 async def handle_badges_view(bot: BaseBot, user: User, args: list[str]) -> None:
+    """!badges @user — view another player's badge collection (Part 10)."""
     target = args[1].strip().lstrip("@") if len(args) > 1 else user.username
     db.ensure_user(user.id, user.username)
 
@@ -566,17 +688,26 @@ async def handle_badges_view(bot: BaseBot, user: User, args: list[str]) -> None:
 
     owned = db.get_user_emoji_badges(target)
     if not owned:
-        await bot.highrise.send_whisper(user.id, f"@{target} has no emoji badges.")
+        await bot.highrise.send_whisper(user.id, f"@{target} has no badges yet.")
         return
 
-    equipped_row = db.get_profile(None) if False else None
-    emojis = [b.get("emoji") or b["badge_id"] for b in owned]
-    preview = " ".join(emojis)
-    if len(preview) > 180:
-        preview = " ".join(emojis[:12]) + f" +{len(emojis)-12}"
+    # Find equipped badge for this target
+    target_rec    = db.get_user_by_username(target)
+    target_uid    = target_rec["user_id"] if target_rec else None
+    eq_line       = ""
+    if target_uid:
+        eq_ids = db.get_equipped_ids(target_uid)
+        eq_badge_id = eq_ids.get("badge_id")
+        if eq_badge_id:
+            eq_row = db.get_emoji_badge(eq_badge_id)
+            if eq_row:
+                eq_line = f"Equipped: {eq_row['emoji']} {eq_row['name']}\n"
 
     await bot.highrise.send_whisper(
-        user.id, f"@{target}'s badges ({len(owned)}): {preview}"[:249]
+        user.id,
+        f"🏷️ @{target}'s Badges\n"
+        f"{eq_line}"
+        f"Owned: {len(owned)} badges"
     )
 
 
@@ -781,7 +912,7 @@ async def handle_badgelist(bot: BaseBot, user: User, args: list[str]) -> None:
     equipped = db.get_equipped_ids(user.id)
     if equipped.get("badge_id") == badge_id:
         await bot.highrise.send_whisper(
-            user.id, "⚠️ Unequip badge first: !unequip badge"
+            user.id, "⚠️ Unequip badge first: !unequipbadge"
         )
         return
 

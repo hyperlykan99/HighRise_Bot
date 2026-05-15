@@ -1,0 +1,603 @@
+Badge System Remodel — Easy Browse, Equip, Buy, and Help
+
+Current issue:
+Players are having a hard time browsing and equipping badges.
+
+GitHub review:
+modules/badge_market.py already supports:
+- shop badges
+- badge categories
+- search
+- badge info
+- buy badge
+- equip badge
+- unequip badge
+- mybadges
+- player badges
+- badge market
+- badge listings
+- badge prices
+- admin badge commands
+
+Goal:
+Remodel the badge user experience so normal players can easily:
+1. browse badges
+2. view their owned badges
+3. equip a badge
+4. unequip badge
+5. buy badges
+6. search badges
+7. understand badge commands
+
+Do NOT remove existing badge data.
+Do NOT break existing admin badge tools.
+Do NOT modify poker, jail, Luxe Tickets, bank, or unrelated games.
+
+Only modify:
+- modules/badge_market.py
+- help modules if needed
+- main.py only if badge command routing needs cleanup
+- database.py only if safe and needed
+
+==================================================
+PART 1 — Official Simple Badge Commands
+==================================================
+
+Make these the official player commands:
+
+!badges
+!badgeshop
+!mybadges
+!equipbadge [badge_id]
+!unequipbadge
+!badgeinfo [badge_id]
+!buybadge [badge_id]
+!badgesearch [name]
+!badgemarket
+!sellbadge [badge_id] [price]
+!cancelbadge [listing_id]
+
+Keep old commands working as aliases if they already exist, but do not make players remember complicated syntax.
+
+Aliases:
+!badge -> !badges
+!shop badges -> !badgeshop
+!buy badge [id] -> !buybadge [id]
+!equip badge [id] -> !equipbadge [id]
+!unequip badge -> !unequipbadge
+!badges search [name] -> !badgesearch [name]
+!badgelist [id] [price] -> !sellbadge [id] [price]
+!badgecancel [listing_id] -> !cancelbadge [listing_id]
+
+==================================================
+PART 2 — Main Badge Menu
+==================================================
+
+When player types:
+
+!badges
+!badge
+
+Reply with a simple menu:
+
+🏷️ Badge Menu
+Browse: !badgeshop
+Owned: !mybadges
+Equip: !equipbadge badge_id
+Buy: !buybadge badge_id
+Search: !badgesearch crown
+Market: !badgemarket
+
+Keep under 249 characters.
+
+Do not show admin commands here.
+
+==================================================
+PART 3 — Badge Shop / Browse
+==================================================
+
+When player types:
+
+!badgeshop
+
+Show categories clearly:
+
+🏷️ Badge Shop
+Categories:
+⭐ stars | ❤️ hearts | 😀 faces
+🐾 animals | 🍎 food | ⚽ sports
+💎 rare | 🌌 epic | 👑 legendary
+
+Use:
+!badgeshop hearts
+!badgeshop rare
+!badgesearch crown
+
+If player types:
+!badgeshop hearts
+
+Show badges in that category, 5 per page:
+
+❤️ Hearts Badges — Page 1
+1) redheart ❤️ Red Heart — 1,000c
+2) blueheart 💙 Blue Heart — 1,000c
+3) purpleheart 💜 Purple Heart — 1,500c
+
+Buy: !buybadge redheart
+Info: !badgeinfo redheart
+Next: !badgeshop hearts 2
+
+Important:
+- Show badge_id clearly.
+- Show price clearly.
+- Show whether player owns it:
+  OWNED
+  EQUIPPED
+  LISTED
+- Keep under 249 chars by using multiple messages if needed.
+
+==================================================
+PART 4 — My Badges
+==================================================
+
+When player types:
+
+!mybadges
+
+Show owned badges in easy format:
+
+🏷️ Your Badges
+Equipped: ❤️ Red Heart
+
+1) redheart ❤️ Red Heart
+2) crown 👑 Crown
+3) fire 🔥 Fire
+
+Equip: !equipbadge redheart
+Unequip: !unequipbadge
+
+If player owns none:
+You do not own badges yet.
+Browse: !badgeshop
+
+If player has many badges:
+- paginate 8 per page
+- support:
+!mybadges 2
+
+==================================================
+PART 5 — Equip Badge
+==================================================
+
+Command:
+
+!equipbadge [badge_id]
+
+Behavior:
+- player must own badge
+- badge cannot be listed for sale if your system prevents that
+- set badge as equipped
+- show confirmation
+
+Message:
+✅ Equipped badge: ❤️ Red Heart
+
+If not owned:
+⚠️ You do not own that badge.
+Buy it with: !buybadge redheart
+
+If badge not found:
+⚠️ Badge not found. Try !badgesearch red
+
+If already equipped:
+✅ That badge is already equipped.
+
+==================================================
+PART 6 — Unequip Badge
+==================================================
+
+Command:
+
+!unequipbadge
+
+Message:
+✅ Badge unequipped.
+
+If none equipped:
+You do not have a badge equipped.
+
+==================================================
+PART 7 — Badge Info
+==================================================
+
+Command:
+
+!badgeinfo [badge_id]
+
+Message:
+
+❤️ Red Heart
+ID: redheart
+Rarity: Common
+Price: 1,000 coins
+Owned: Yes
+Equipped: No
+Buy: !buybadge redheart
+Equip: !equipbadge redheart
+
+If not purchasable:
+Buy: Not available
+
+If tradeable/sellable:
+Market: Sell with !sellbadge redheart 5000
+
+==================================================
+PART 8 — Buy Badge
+==================================================
+
+Command:
+
+!buybadge [badge_id]
+
+Rules:
+- badge must exist
+- badge must be purchasable
+- player must have enough coins
+- cannot buy duplicate if already owned
+- deduct coins
+- grant badge
+- log purchase
+
+Message:
+✅ Bought badge: ❤️ Red Heart for 1,000 coins.
+Equip it: !equipbadge redheart
+
+If insufficient coins:
+⚠️ Not enough coins.
+Price: 1,000 coins
+Your balance: 500 coins
+
+If already owned:
+You already own this badge.
+Equip it: !equipbadge redheart
+
+==================================================
+PART 9 — Badge Search
+==================================================
+
+Command:
+
+!badgesearch [name]
+
+Example:
+!badgesearch crown
+
+Message:
+🔎 Badge Search: crown
+1) crown 👑 Crown — 10,000c
+2) goldbadge 🏅 Gold Badge — 15,000c
+
+Buy: !buybadge crown
+Info: !badgeinfo crown
+
+If no result:
+No badges found for “crown”.
+Try: !badgeshop
+
+==================================================
+PART 10 — Player Badge View
+==================================================
+
+Command:
+
+!badges @user
+
+Show:
+
+🏷️ @Player's Badges
+Equipped: 👑 Crown
+Owned: 12 badges
+
+If no badges:
+@Player has no badges yet.
+
+Do not show private market/admin details.
+
+==================================================
+PART 11 — Badge Market
+==================================================
+
+Keep existing player market, but simplify commands.
+
+Official commands:
+!badgemarket
+!sellbadge [badge_id] [price]
+!badgebuy [listing_id]
+!cancelbadge [listing_id]
+!mybadgelistings
+!badgeprices [badge_id]
+
+Market message:
+
+🏷️ Badge Market — Page 1
+#12 👑 Crown — 25,000c by @Player
+#13 🔥 Fire — 5,000c by @User
+
+Buy: !badgebuy 12
+Sell: !sellbadge crown 25000
+
+If selling equipped badge:
+Either block it:
+⚠️ Unequip badge before selling.
+or automatically unequip it.
+Preferred: block and ask player to unequip first.
+
+==================================================
+PART 12 — Help Menus
+==================================================
+
+Add:
+
+!badgehelp
+
+Reply:
+
+🏷️ Badge Commands
+Browse: !badgeshop
+Owned: !mybadges
+Equip: !equipbadge badge_id
+Buy: !buybadge badge_id
+Search: !badgesearch name
+Market: !badgemarket
+
+Add admin badge help:
+
+!badgeadminhelp
+
+Owner/admin only.
+
+Reply:
+🛠️ Badge Admin
+!addbadge id emoji name rarity price
+!editbadgeprice id price
+!setbadgepurchasable id on/off
+!badgecatalog
+!giveemojibadge @user emoji name
+
+Keep admin help hidden from normal players.
+
+==================================================
+PART 13 — Routing Cleanup
+==================================================
+
+Make sure these route correctly:
+
+Player:
+!badges
+!badge
+!badgeshop
+!badgehelp
+!mybadges
+!equipbadge
+!unequipbadge
+!badgeinfo
+!buybadge
+!badgesearch
+!badgemarket
+!sellbadge
+!badgebuy
+!cancelbadge
+!mybadgelistings
+!badgeprices
+
+Aliases:
+!shop badges
+!buy badge
+!equip badge
+!unequip badge
+!badges search
+!badgelist
+!badgecancel
+
+Admin:
+!badgeadminhelp
+!addbadge
+!editbadgeprice
+!setbadgepurchasable
+!setbadgetradeable
+!setbadgesellable
+!giveemojibadge
+!badgecatalog
+!badgeadmin
+!setbadgemarketfee
+!badgemarketlogs
+
+Only the correct bot should respond.
+ChillTopiaMC should not say unknown command if another bot owns badge commands.
+
+==================================================
+PART 14 — Better Error Messages
+==================================================
+
+Replace confusing errors with clear replies.
+
+Missing badge id:
+Use: !equipbadge badge_id
+
+Missing buy id:
+Use: !buybadge badge_id
+
+Missing search:
+Use: !badgesearch crown
+
+Missing sell price:
+Use: !sellbadge badge_id price
+
+Invalid page:
+Use: !badgeshop hearts 2
+
+Unknown badge:
+⚠️ Badge not found. Try !badgesearch name.
+
+Not owned:
+⚠️ You do not own that badge.
+
+Already owned:
+You already own this badge.
+
+==================================================
+PART 15 — Optional Quick Equip By Number
+==================================================
+
+If safe, add quick equip from !mybadges list:
+
+!equipbadge 1
+
+Means equip item #1 from the last !mybadges result for that player.
+
+Store temporary per-user browse cache:
+user_id -> list of badge_ids
+
+Also allow:
+
+!buybadge 1
+
+after !badgeshop result, where 1 means the first badge shown.
+
+If this is risky, skip it and keep badge_id only.
+
+==================================================
+PART 16 — Badge Display In Profile / Chat
+==================================================
+
+If your bot displays user profiles or rank cards, make equipped badge show clearly:
+
+@Player 👑
+or
+Badge: 👑 Crown
+
+Do not spam badge on every message unless already intended.
+
+==================================================
+PART 17 — Logging
+==================================================
+
+Log:
+badge_browse
+badge_search
+badge_buy
+badge_equip
+badge_unequip
+badge_sell
+badge_market_buy
+badge_cancel_listing
+admin_badge_create
+admin_badge_edit
+admin_badge_give
+
+If DB logging exists, use it.
+If not, print logs safely.
+
+==================================================
+PART 18 — Compile
+==================================================
+
+Run:
+
+python -m py_compile main.py
+python -m py_compile modules/badge_market.py
+python -m py_compile modules/help_cmds.py
+python -m py_compile modules/admin_cmds.py
+
+Adjust filenames if needed.
+
+==================================================
+PART 19 — Tests
+==================================================
+
+Test 1 — Menu:
+!badges
+
+Expected:
+Simple badge menu.
+
+Test 2 — Shop:
+!badgeshop
+
+Expected:
+Category list.
+
+Test 3 — Category:
+!badgeshop hearts
+
+Expected:
+List badge IDs, names, prices, ownership.
+
+Test 4 — Search:
+!badgesearch crown
+
+Expected:
+Search results with buy/info commands.
+
+Test 5 — Buy:
+!buybadge redheart
+
+Expected:
+Badge bought and balance deducted.
+
+Test 6 — Equip:
+!equipbadge redheart
+
+Expected:
+✅ Equipped badge.
+
+Test 7 — My badges:
+!mybadges
+
+Expected:
+Shows equipped and owned badges.
+
+Test 8 — Unequip:
+!unequipbadge
+
+Expected:
+Badge unequipped.
+
+Test 9 — Market:
+!badgemarket
+!sellbadge redheart 5000
+!badgebuy listing_id
+!cancelbadge listing_id
+
+Expected:
+Market commands work.
+
+Test 10 — Help:
+!badgehelp
+!badgeadminhelp
+
+Expected:
+Player/admin help clean and separated.
+
+Test 11 — Aliases:
+!shop badges
+!buy badge redheart
+!equip badge redheart
+!badges search crown
+
+Expected:
+All work or redirect clearly.
+
+Final report:
+1. Badge menu cleaned
+2. Badge shop browsing simplified
+3. My badges display improved
+4. Equip/unequip flow simplified
+5. Buy flow improved
+6. Search improved
+7. Market commands simplified
+8. Player/admin help cleaned
+9. Routing fixed
+10. Error messages improved
+11. Py_compile result
+12. Bot stability result
