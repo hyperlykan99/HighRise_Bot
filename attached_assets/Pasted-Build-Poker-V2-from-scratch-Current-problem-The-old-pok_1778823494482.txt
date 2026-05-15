@@ -1,0 +1,705 @@
+Build Poker V2 from scratch.
+
+Current problem:
+The old poker system has been patched too many times and still has major bugs:
+- first player does not automatically receive cards
+- first turn gets stuck
+- table gets stuck after AFK/winner
+- too many confusing commands
+- messages are hard to read
+- color coding makes chat confusing
+
+Goal:
+Create a clean new poker system in:
+
+modules/poker_v2.py
+
+Disable old poker routing from modules/poker.py for player commands.
+
+Do NOT delete old poker.py yet.
+Keep it as backup only.
+
+Do NOT modify:
+- blackjack
+- jail
+- Luxe Tickets
+- tip audit
+- mining/fishing
+- workflows
+- bot runner
+- unrelated economy systems
+
+Use ChipSoprano as the poker bot.
+
+==================================================
+PART 1 — Remove Color Coding From Poker Messages
+==================================================
+
+Poker V2 messages must be simple, plain, and easy to read.
+
+Do not use hex color coding.
+Do not use long styled labels.
+Do not use confusing symbols too much.
+
+Good messages:
+
+Poker hand started.
+SB: @Player1 50 coins
+BB: @Player2 100 coins
+Pot: 150 coins
+
+@Player1's turn. 30s
+
+Your cards: A♠ K♦
+Pot: 150 coins
+Call: 50 coins
+
+Avoid messages like:
+- colored hex text
+- huge styled labels
+- “YOUR TURN” public spam
+- command walls in public chat
+
+==================================================
+PART 2 — Player Commands Only
+==================================================
+
+Poker V2 should only advertise and support these player commands:
+
+!join [amount]
+!check
+!call
+!raise [amount]
+!fold
+!allin
+!hand
+!leave
+!table
+
+No other public poker commands.
+
+Disable old advertised commands:
+!p
+!ph
+!cards
+!r
+!poker join
+!poker hand
+!poker call
+!poker fold
+!poker table
+
+Optional:
+Old aliases may reply with:
+“Use !join, !hand, !table, !leave, !check, !call, !raise, !fold, or !allin.”
+
+But do not advertise old commands.
+
+Main help command:
+!poker
+
+Reply:
+Poker commands:
+Join: !join 5000
+Play: !check, !call, !raise 500, !fold, !allin
+Info: !hand, !table
+Leave: !leave
+
+Keep under 249 characters.
+
+==================================================
+PART 3 — Disable Old Poker Routing
+==================================================
+
+Find old poker routing in main.py.
+
+Disable old poker.py handlers for player commands:
+- join poker
+- p
+- ph
+- cards
+- call
+- check
+- raise
+- r
+- fold
+- allin
+- leave
+- table
+- poker table
+- poker leave
+
+Route these commands to modules/poker_v2.py only:
+
+from modules.poker_v2 import handle_poker_v2_command
+
+Then in command router:
+
+if cmd in {
+    "join", "check", "call", "raise", "fold", "allin",
+    "hand", "leave", "table", "poker"
+}:
+    await handle_poker_v2_command(self, user, cmd, args)
+    return
+
+Important:
+Only ChipSoprano should respond.
+ChillTopiaMC should not respond “unknown command” for poker commands.
+
+Add a poker ownership check:
+- If this bot is not ChipSoprano / poker mode, ignore poker commands.
+- If this bot is ChipSoprano, handle poker commands.
+
+==================================================
+PART 4 — Poker V2 Data Model
+==================================================
+
+Use a clean in-memory table as the source of truth during a live hand.
+
+Create:
+
+POKER_V2_TABLE = {
+    "phase": "waiting",
+    "players": {},
+    "seats": [],
+    "dealer_index": 0,
+    "small_blind": 50,
+    "big_blind": 100,
+    "pot": 0,
+    "board": [],
+    "deck": [],
+    "current_bet": 0,
+    "current_turn_user_id": None,
+    "turn_timer_task": None,
+    "countdown_task": None,
+    "hand_id": None,
+    "hand_number": 0,
+    "first_turn_ready": False,
+}
+
+Each player:
+
+{
+    "user_id": "...",
+    "username": "...",
+    "stack": 5000,
+    "cards": [],
+    "current_bet": 0,
+    "total_contributed": 0,
+    "status": "waiting|active|folded|allin|left",
+    "acted": False,
+    "afk_strikes": 0,
+    "remove_after_hand": False,
+}
+
+Use database only for:
+- wallet balance deduction/addition
+- logs
+- optional recovery
+- stats
+
+Do not rely on DB to find cards during live hand.
+Cards must be in memory first.
+
+==================================================
+PART 5 — Join / Leave
+==================================================
+
+!join [amount]
+
+Rules:
+- amount must be positive
+- minimum buy-in can default to 1000
+- player must have enough coins
+- deduct coins from wallet
+- add player to poker table with stack = amount
+- if 2+ players are seated and no hand is active, start 10s countdown
+
+Reply:
+@Player joined poker with 5,000 coins. Players: 2/6
+Starting first hand in 10s.
+
+!leave
+
+If no active hand:
+- cash out full stack to wallet
+- remove from table
+
+Reply:
+@Player left table. Cashed out 5,000 coins.
+
+If active hand and player is not all-in:
+- fold player
+- committed chips stay in pot
+- remaining stack cashes out after hand
+- mark remove_after_hand = True
+
+Reply:
+@Player left during the hand and folded.
+
+If active hand and player is all-in:
+- keep hand alive until showdown
+- mark remove_after_hand = True
+
+Reply:
+@Player is all-in and will leave after showdown.
+
+==================================================
+PART 6 — Hand Start Sequence
+==================================================
+
+This must be strict.
+
+When 2+ players are seated:
+
+1. phase = countdown
+2. wait 10 seconds
+3. phase = dealing
+4. first_turn_ready = False
+5. create hand_id
+6. shuffle deck
+7. choose dealer / SB / BB
+8. deal 2 cards to each active player in memory
+9. validate every active player has exactly 2 cards
+10. post blinds
+11. announce blinds publicly
+12. wait 3 seconds
+13. whisper cards to every active player
+14. select first actor
+15. whisper first actor cards again
+16. public message: @FirstPlayer's turn. 30s
+17. phase = preflop
+18. first_turn_ready = True
+19. start turn timer
+
+Public blinds message:
+Poker hand #1 started.
+SB: @Player1 50 coins
+BB: @Player2 100 coins
+Pot: 150 coins
+
+Private card whisper:
+Your cards: A♠ K♦
+
+First actor private whisper:
+Your cards: A♠ K♦
+Your turn.
+Pot: 150 coins
+Call: 50 coins
+
+Public first turn:
+@Player's turn. 30s
+
+Hard rule:
+If the first actor card whisper fails:
+- cancel the hand
+- refund current hand bets to stacks
+- phase = waiting
+- do not continue
+- public message:
+Poker hand cancelled. Could not deliver cards.
+
+Do not get stuck in “preparing first turn.”
+
+==================================================
+PART 7 — Turn Messages
+==================================================
+
+Public turn message only:
+@Player's turn. 30s
+
+Private current player message:
+Your cards: A♠ K♦
+Pot: 2,500 coins
+Call: 500 coins
+
+If no call needed:
+Your cards: A♠ K♦
+Pot: 2,500 coins
+You can check, raise, fold, or all-in.
+
+If non-current player acts:
+It is @CurrentPlayer's turn.
+
+==================================================
+PART 8 — Player Actions
+==================================================
+
+Before every action:
+- table phase must be preflop/flop/turn/river
+- first_turn_ready must be True
+- player must be in hand
+- player must be active
+- it must be their turn
+
+If not ready:
+Dealer is preparing the hand. Please wait.
+
+If wrong turn:
+It is @CurrentPlayer's turn.
+
+!check:
+Allowed only if player.current_bet == table.current_bet.
+Set acted = True.
+Then resolve betting state.
+
+!call:
+Call amount = table.current_bet - player.current_bet.
+Commit min(call amount, player.stack).
+If stack becomes 0, status = allin.
+Then resolve betting state.
+
+!raise [amount]:
+Amount must be positive.
+Player must have enough stack unless all-in.
+Raise updates table.current_bet.
+Reset acted = False for other active players.
+Then resolve betting state.
+
+!fold:
+status = folded.
+acted = True.
+Then resolve betting state.
+
+!allin:
+Commit all remaining stack.
+If all-in amount raises current bet, update current bet.
+status = allin.
+Then resolve betting state.
+
+==================================================
+PART 9 — Betting Resolver
+==================================================
+
+Create one function:
+
+resolve_betting_state(bot)
+
+After every action, it must decide:
+
+1. If only one non-folded player remains:
+   award pot immediately.
+
+2. If no active player can act:
+   run board to showdown.
+
+3. If every active player has acted and matched current bet:
+   advance to next street.
+
+4. Otherwise:
+   move to next player.
+
+Definitions:
+eligible players = active or allin
+active players = status active and stack > 0
+needs action = active and (acted is False or current_bet < table.current_bet)
+
+==================================================
+PART 10 — Street Advancement
+==================================================
+
+When preflop betting closes:
+- burn one card
+- deal flop 3 cards
+- phase = flop
+- reset current_bet = 0
+- reset player.current_bet = 0
+- reset acted = False for active players
+- first turn postflop starts left of dealer
+- announce:
+Flop: A♠ 8♦ 2♣
+Pot: 2,500 coins
+
+Turn:
+- burn one card
+- deal one card
+- announce:
+Turn: K♥
+Board: A♠ 8♦ 2♣ K♥
+
+River:
+- burn one card
+- deal one card
+- announce:
+River: 5♣
+Board: A♠ 8♦ 2♣ K♥ 5♣
+
+After river betting closes:
+showdown.
+
+==================================================
+PART 11 — Two Player All-In
+==================================================
+
+This must work.
+
+If Player A goes all-in
+and Player B calls
+and no active player needs action:
+
+Immediately run the board.
+
+Do not wait for another turn.
+
+If all-in preflop:
+All-in called. Running the board...
+Flop: A♠ 8♦ 2♣
+Turn: K♥
+River: 5♣
+Showdown.
+
+If all-in on flop:
+All-in called. Running the board...
+Turn: K♥
+River: 5♣
+Showdown.
+
+If all-in on turn:
+All-in called. Running the board...
+River: 5♣
+Showdown.
+
+Use 1 second delay between messages.
+
+==================================================
+PART 12 — Showdown
+==================================================
+
+At showdown:
+- evaluate best Texas Hold’em hand for each eligible player
+- compare hands
+- award pot
+- support split pots if tied
+
+Message:
+Showdown.
+Board: A♠ 8♦ 2♣ K♥ 5♣
+
+@Player1: A♦ K♦ — Two Pair
+@Player2: Q♠ Q♥ — One Pair
+
+@Player1 wins 10,000 coins with Two Pair.
+
+If tie:
+Split pot. @Player1 and @Player2 receive 5,000 coins each.
+
+==================================================
+PART 13 — Side Pots
+==================================================
+
+Implement side pots for all-ins.
+
+At showdown:
+1. Read each player's total_contributed.
+2. Build pot layers.
+3. Each pot can only be won by players eligible for that pot.
+4. Folded players cannot win.
+5. Split ties evenly.
+
+Messages:
+Main pot 3,000 coins won by @Player1.
+Side pot 5,000 coins won by @Player2.
+
+==================================================
+PART 14 — AFK / Timeout
+==================================================
+
+Turn timer default: 30 seconds.
+
+On timeout:
+If player can check:
+- auto-check
+- AFK strike +1
+
+If player must call:
+- auto-fold
+- AFK strike +1
+
+Messages:
+@Player timed out. AFK warning 1/3.
+@Player timed out. AFK warning 2/3.
+@Player removed from poker for AFK.
+
+At 3 AFK strikes:
+- if no active hand: cash out and remove
+- if active hand and not all-in: fold and remove after hand
+- if all-in: keep until showdown, remove after hand
+
+If AFK fold causes one player to remain:
+- award pot
+- cleanup hand
+- start next hand if 2+ players remain
+
+Never get stuck after AFK.
+
+==================================================
+PART 15 — Post-Hand Cleanup
+==================================================
+
+Create:
+
+complete_hand(bot, reason)
+
+Always run after:
+- fold win
+- showdown
+- all-in showdown
+- AFK fold win
+- leave fold win
+- cancel
+
+It must:
+1. cancel turn timer
+2. award pot / settle payouts
+3. move chips into table stacks
+4. remove players marked remove_after_hand
+5. cash out leaving players
+6. remove busted players
+7. clear board/cards/current bet
+8. first_turn_ready = False
+9. if 2+ players remain: phase = between_hands and start next hand in 10s
+10. if fewer than 2: phase = waiting
+
+Never leave table stuck in finished.
+
+Messages:
+@Player wins 150 coins. Everyone else folded.
+Stacks: @A 5,150 | @B 4,950
+Next hand in 10s.
+
+If fewer than 2:
+Waiting for one more player. Use !join 5000.
+
+==================================================
+PART 16 — Table Command
+==================================================
+
+!table:
+
+If waiting:
+Poker table:
+Waiting for players.
+Use !join 5000.
+
+If countdown:
+Poker table:
+Next hand starting soon.
+Players: 2
+
+If dealing:
+Poker table:
+Dealer is preparing the hand.
+Players: 2
+
+If active:
+Poker table:
+Phase: Preflop
+Pot: 150 coins
+Turn: @Player
+Board: —
+Players: 2
+
+If between hands:
+Poker table:
+Next hand soon.
+Players: 2
+
+Never show Phase: Finished.
+
+==================================================
+PART 17 — Hand Command
+==================================================
+
+!hand:
+
+If player has cards:
+Your cards: A♠ K♦
+Board: A♥ 8♣ 2♦
+Pot: 2,500 coins
+
+If hand not active:
+No active hand yet.
+
+If player is not in hand:
+You are not in the current hand.
+
+==================================================
+PART 18 — Logs
+==================================================
+
+Add console logs:
+
+[POKER V2] command user=... cmd=...
+[POKER V2] join user=... amount=...
+[POKER V2] hand_start players=2
+[POKER V2] cards_dealt user=... ok=true
+[POKER V2] whisper user=... ok=true
+[POKER V2] first_actor user=... whisper_ok=true gate_open=true
+[POKER V2] action user=... action=call amount=...
+[POKER V2] resolve needs_action=0 action=showdown
+[POKER V2] complete reason=... next=between_hands
+
+==================================================
+PART 19 — Tests
+==================================================
+
+Run:
+python -m py_compile main.py
+python -m py_compile modules/poker_v2.py
+
+Restart bots.
+
+Test 1:
+!join 5000
+Second player:
+!join 5000
+
+Expected:
+Hand starts.
+Both players receive card whispers.
+First actor receives turn card whisper.
+Public shows:
+@Player's turn. 30s
+
+Test 2:
+First actor does nothing.
+Expected after 30s:
+Auto-check or auto-fold.
+No stuck table.
+
+Test 3:
+Player 1:
+!allin
+Player 2:
+!call
+
+Expected:
+Board runs to showdown.
+
+Test 4:
+!leave before hand.
+Expected:
+Cash out stack.
+
+Test 5:
+!leave during hand.
+Expected:
+Fold or remove after showdown if all-in.
+
+Test 6:
+!table after hand.
+Expected:
+Never shows finished.
+Shows next hand or waiting.
+
+Final report:
+1. modules/poker_v2.py created
+2. old poker routing disabled
+3. short commands active
+4. old color coding removed
+5. first player automatic card whisper result
+6. all-in showdown result
+7. AFK cleanup result
+8. leave/cashout result
+9. no stuck finished state
+10. bot stability result

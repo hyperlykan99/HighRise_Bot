@@ -165,6 +165,7 @@ from modules.poker import (
     handle_pokerresetturn, handle_pokerresethand, handle_pokerresettable,
     handle_poker_user_left,
 )
+from modules.poker_v2 import handle_poker_v2
 from modules.casino_settings     import (
     handle_casinosettings, handle_casinolimits, handle_casinotoggles,
     handle_setbjlimits, handle_setrbjlimits,
@@ -5417,82 +5418,49 @@ class HangoutBot(BaseBot):
         elif cmd == "tipleaderboard":
             await handle_tipleaderboard(self, user, args)
 
-        # ── Poker — short aliases ────────────────────────────────────────────
-        # /p <num>  → poker join
-        elif cmd == "p":
-            if len(args) >= 2 and args[1].isdigit() and int(args[1]) > 0:
-                await handle_poker(self, user, ["poker", "join"] + args[1:])
-            else:
-                await self.highrise.send_whisper(
-                    user.id, "Use !p <buyin> to join poker. E.g. !p 500")
-
-        # /pj <num>  → poker join
-        elif cmd == "pj":
-            if len(args) >= 2 and args[1].isdigit() and int(args[1]) > 0:
-                await handle_poker(self, user, ["poker", "join"] + args[1:])
-            else:
-                await self.highrise.send_whisper(
-                    user.id, "Use !pj <buyin> to join poker. E.g. !pj 500")
-
-        elif cmd == "pt":
-            await handle_poker(self, user, ["poker", "table"])
-
-        elif cmd == "ph":
-            await handle_poker(self, user, ["poker", "hand"])
-
-        elif cmd == "po":
-            await handle_poker(self, user, ["poker", "odds"])
+        # ── Poker V2 — player commands (ChipSoprano only) ────────────────────
+        elif cmd == "join":
+            await handle_poker_v2(self, user, "join", args)
 
         elif cmd in ("check", "ch"):
-            await handle_poker(self, user, ["poker", "check"])
+            await handle_poker_v2(self, user, "check", args)
 
         elif cmd in ("call", "ca"):
-            await handle_poker(self, user, ["poker", "call"])
+            await handle_poker_v2(self, user, "call", args)
 
         elif cmd in ("raise", "r"):
-            if len(args) >= 2 and args[1].isdigit() and int(args[1]) > 0:
-                await handle_poker(self, user, ["poker", "raise"] + args[1:])
-            else:
-                await self.highrise.send_whisper(
-                    user.id, "Use !r <amount> to raise. E.g. !r 200")
+            await handle_poker_v2(self, user, "raise", args)
 
         elif cmd in ("fold", "f"):
-            await handle_poker(self, user, ["poker", "fold"])
+            await handle_poker_v2(self, user, "fold", args)
 
-        elif cmd in ("allin", "shove"):
-            await handle_poker(self, user, ["poker", "allin"])
-
-        elif cmd in ("ptable",):
-            await handle_poker(self, user, ["poker", "table"])
-
-        elif cmd == "join":
-            if len(args) >= 2 and args[1].isdigit() and int(args[1]) > 0:
-                await handle_poker(self, user, ["poker", "join"] + args[1:])
-            else:
-                await self.highrise.send_whisper(
-                    user.id, "Use !join <amount> to join poker. E.g. !join 5000")
-
-        elif cmd == "table":
-            await handle_poker(self, user, ["poker", "table"])
+        elif cmd in ("allin", "shove", "all-in"):
+            await handle_poker_v2(self, user, "allin", args)
 
         elif cmd == "hand":
-            await handle_poker(self, user, ["poker", "hand"])
+            await handle_poker_v2(self, user, "hand", args)
 
         elif cmd == "leave":
-            await handle_poker(self, user, ["poker", "leave"])
+            await handle_poker_v2(self, user, "leave", args)
 
-        elif cmd in ("pcards", "resendcards", "cards"):
-            await handle_poker(self, user, ["poker", "hand"])
+        elif cmd == "table":
+            await handle_poker_v2(self, user, "table", args)
 
-        elif cmd in ("podds",):
-            await handle_poker(self, user, ["poker", "odds"])
+        # ── Poker — deprecated short aliases (redirect) ───────────────────────
+        elif cmd in ("p", "pj", "pt", "ph", "po", "ptable",
+                     "pcards", "resendcards", "cards", "podds",
+                     "pp", "pplayers", "pstacks", "mystack",
+                     "sitout", "sitin", "rebuy"):
+            try:
+                await self.highrise.send_whisper(
+                    user.id,
+                    "Use !join, !hand, !table, !leave, "
+                    "!check, !call, !raise, !fold, or !allin."
+                )
+            except Exception:
+                pass
 
-        elif cmd in ("all-in",):
-            await handle_poker(self, user, ["poker", "allin"])
-
-        elif cmd in ("pp", "pplayers"):
-            await handle_poker(self, user, ["poker", "players"])
-
+        # ── Poker — stats / leaderboard ───────────────────────────────────────
         elif cmd in ("pstats", "pokerstats"):
             await handle_pokerstats(self, user, args)
 
@@ -5503,25 +5471,13 @@ class HangoutBot(BaseBot):
         elif cmd in ("phelp",):
             await handle_pokerhelp(self, user, args)
 
-        # ── Poker — persistent-table shortcuts ───────────────────────────────
-        elif cmd == "sitout":
-            await handle_poker(self, user, ["poker", "sitout"])
-
-        elif cmd == "sitin":
-            await handle_poker(self, user, ["poker", "sitin"])
-
-        elif cmd == "rebuy":
-            await handle_poker(self, user, ["poker", "rebuy"] + args[1:])
-
-        elif cmd in ("pstacks",):
-            await handle_poker(self, user, ["poker", "stacks"])
-
-        elif cmd in ("mystack",):
-            await handle_poker(self, user, ["poker", "mystack"])
-
-        # ── Poker — full commands ────────────────────────────────────────────
+        # ── Poker — !poker command: V2 help (no args) or admin sub-commands ──
         elif cmd == "poker":
-            await handle_poker(self, user, args)
+            sub = args[1].lower() if len(args) > 1 else ""
+            if not sub:
+                await handle_poker_v2(self, user, "poker", args)
+            else:
+                await handle_poker(self, user, args)
 
         elif cmd == "pokerhelp":
             await handle_pokerhelp(self, user, args)
