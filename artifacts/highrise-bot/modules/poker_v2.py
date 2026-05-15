@@ -695,24 +695,7 @@ async def _start_hand(bot: BaseBot) -> None:
 
     print(f"[POKER V2 START] cards_dealt=true")
 
-    # Post blinds
-    def _post_blind(uname: str, amount: int) -> int:
-        p      = _T["players"][uname]
-        actual = min(amount, p["stack"])
-        p["stack"]             -= actual
-        p["current_bet"]        = actual
-        p["total_contributed"]  = actual
-        _T["pot"]              += actual
-        if p["stack"] == 0:
-            p["status"] = "allin"
-        return actual
-
-    actual_sb         = _post_blind(sb_user, sb)
-    actual_bb         = _post_blind(bb_user, bb)
-    _T["current_bet"] = actual_bb
-    print(f"[POKER V2 START] blinds_posted=true pot={_T['pot']}")
-
-    # Select first actor
+    # Select first actor (needs SB/BB positions, no blind deduction yet)
     if n == 2:
         first_preflop_idx = sb_idx
     else:
@@ -722,23 +705,14 @@ async def _start_hand(bot: BaseBot) -> None:
 
     secs = _T.get("turn_seconds", 30)
 
-    # Set preflop phase BEFORE announcing — so !hand works as soon as hand message appears
+    # Set preflop phase before whispers — !hand works from this point
     _T["phase"]                 = "preflop"
     _T["first_turn_ready"]      = True
     _T["current_turn_username"] = first_actor
     print(f"[POKER V2 START] first_actor=@{first_actor} phase_set=preflop ready=true")
 
-    # Announce hand
-    blind_msg = (
-        f"Poker hand #{_T['hand_number']}.\n"
-        f"SB: @{sb_user} {actual_sb:,} coins\n"
-        f"BB: @{bb_user} {actual_bb:,} coins\n"
-        f"Pot: {_T['pot']:,} coins"
-    )
-    await _chat(bot, blind_msg)
-
     try:
-        # Await card whisper attempts sequentially
+        # Whisper cards to every player before announcing the hand publicly
         delivery_success = 0
         delivery_failed: list = []
         for u in seated:
@@ -752,11 +726,6 @@ async def _start_hand(bot: BaseBot) -> None:
 
         if delivery_success == 0:
             await _chat(bot, "Poker hand cancelled. Could not send cards.")
-            for u in seated:
-                p = _T["players"][u]
-                contributed = p.get("total_contributed", 0)
-                if contributed > 0:
-                    _credit(p["user_id"], contributed)
             _T["phase"]   = "waiting"
             _T["hand_id"] = None
             return
@@ -766,6 +735,32 @@ async def _start_hand(bot: BaseBot) -> None:
         else:
             await _chat(bot, "Cards sent.")
 
+        # Post blinds after card delivery
+        def _post_blind(uname: str, amount: int) -> int:
+            p      = _T["players"][uname]
+            actual = min(amount, p["stack"])
+            p["stack"]             -= actual
+            p["current_bet"]        = actual
+            p["total_contributed"]  = actual
+            _T["pot"]              += actual
+            if p["stack"] == 0:
+                p["status"] = "allin"
+            return actual
+
+        actual_sb         = _post_blind(sb_user, sb)
+        actual_bb         = _post_blind(bb_user, bb)
+        _T["current_bet"] = actual_bb
+        print(f"[POKER V2 START] blinds_posted=true pot={_T['pot']}")
+
+        # Announce hand with SB/BB/Pot
+        blind_msg = (
+            f"Poker hand #{_T['hand_number']}.\n"
+            f"SB: @{sb_user} {actual_sb:,} coins\n"
+            f"BB: @{bb_user} {actual_bb:,} coins\n"
+            f"Pot: {_T['pot']:,} coins"
+        )
+        await _chat(bot, blind_msg)
+
         # Announce first turn and start timer
         await _chat(bot, f"@{first_actor}'s turn. {secs}s")
         print(f"[POKER V2 START] turn_announced=true")
@@ -773,7 +768,7 @@ async def _start_hand(bot: BaseBot) -> None:
         _cancel_turn_task()
         _T["turn_timer_task"] = asyncio.create_task(_turn_timeout(bot, first_actor))
 
-        # Await first actor turn reminder (with one retry)
+        # Await first actor turn reminder (with one retry, blinds now posted)
         await _send_turn_whisper_confirmed(bot, first_actor, first_p)
 
     except asyncio.CancelledError:
