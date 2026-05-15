@@ -1,0 +1,191 @@
+Poker V2 Emergency Fix — Do Not Get Stuck At Dealer Preparing Hand
+
+Current live issue:
+Poker V2 starts correctly:
+- players join
+- countdown starts
+- blinds are posted
+
+But then it gets stuck at:
+“Dealer is preparing the hand.”
+
+Players cannot act because first_turn_ready never becomes true.
+
+Goal:
+Remove the stuck hard-gate behavior.
+Cards should be whispered automatically, but the game must still open the first turn even if a whisper fails.
+
+Important:
+Do not get stuck forever.
+Do not leave phase as dealing forever.
+
+Do NOT modify:
+- blackjack
+- jail
+- luxe tickets
+- tips
+- workflows
+- other games
+
+Part 1 — Change first-turn gate behavior
+
+In modules/poker_v2.py, find the first-turn/opening sequence after blinds.
+
+Current broken behavior:
+- if first actor card whisper fails, keep phase as dealing or recovery
+- first_turn_ready stays false
+- table gets stuck
+
+Replace with this behavior:
+
+1. Deal cards in memory.
+2. Save cards.
+3. Post blinds.
+4. Announce blinds.
+5. Wait 3 seconds.
+6. Try to whisper cards to all players.
+7. Try to whisper first actor cards again.
+8. Even if whisper fails, open the first turn anyway.
+9. Set:
+   phase = "preflop"
+   first_turn_ready = True
+10. Publicly announce:
+   @FirstPlayer's turn. 30s
+11. Start turn timer.
+
+Important:
+If whisper fails, print warning and tell the player:
+Could not auto-send your cards. Type !hand to view them.
+
+But do not pause the hand.
+
+Part 2 — Simple first turn function
+
+Create or update:
+
+async def open_first_turn(bot):
+    first = current player
+    ok = await whisper_player_cards(bot, first, reason="first_turn")
+
+    if not ok:
+        await bot.highrise.send_whisper(
+            first["user_id"],
+            "Could not auto-send your cards. Type !hand to view them."
+        )
+        print("[POKER V2] first card whisper failed, opening turn anyway")
+
+    table["phase"] = "preflop"
+    table["first_turn_ready"] = True
+
+    await public_chat(f"@{first['username']}'s turn. 30s")
+    start_turn_timer(first)
+
+Hard rule:
+Never stay in dealing after this function finishes.
+
+Part 3 — Fix action guard
+
+Before !check, !call, !raise, !fold, !allin:
+
+If phase == "dealing":
+    reply:
+    Dealer is still preparing the hand. Please wait.
+
+But phase should not stay dealing longer than 10 seconds.
+
+Add safety:
+If phase == "dealing" for more than 10 seconds:
+    force open first turn
+    phase = "preflop"
+    first_turn_ready = True
+    announce current player turn
+
+Part 4 — Add !hand reliability
+
+!hand must always work if the player is in the active hand.
+
+It should read cards from in-memory player state first:
+
+player["cards"]
+
+Only use DB as fallback.
+
+Reply:
+Your cards: A♠ K♦
+Board: —
+Pot: 150 coins
+
+Part 5 — Add table recovery
+
+If !table sees phase == "dealing" for too long:
+
+Show:
+Poker table:
+Opening first turn now.
+Players: 2
+
+Then trigger force open first turn.
+
+Do not show “Dealer is preparing the hand” forever.
+
+Part 6 — Logs
+
+Add logs:
+
+[POKER V2] blinds posted
+[POKER V2] whisper all players start
+[POKER V2] whisper user=@Player ok=true/false
+[POKER V2] first actor=@Player
+[POKER V2] first whisper ok=true/false
+[POKER V2] opening turn anyway=true
+[POKER V2] phase=preflop first_turn_ready=true
+
+Part 7 — Tests
+
+Run:
+python -m py_compile main.py
+python -m py_compile modules/poker_v2.py
+
+Restart bots.
+
+Test:
+
+Player 1:
+!join 5000
+
+Player 2:
+!join 5000
+
+Expected:
+Poker hand #1 started.
+SB...
+BB...
+Pot...
+
+Then after 3 seconds:
+@FirstPlayer's turn. 30s
+
+Expected:
+No stuck “Dealer is preparing the hand.”
+
+If first player did not get cards automatically:
+They type:
+!hand
+
+Expected:
+Your cards: [two cards]
+
+Then first player can:
+!check
+!call
+!raise
+!fold
+!allin
+
+Final report:
+1. Removed stuck hard-gate behavior
+2. First turn opens even if whisper fails
+3. !hand uses in-memory cards
+4. No dealing phase stuck
+5. First turn test result
+6. Bot stability result
