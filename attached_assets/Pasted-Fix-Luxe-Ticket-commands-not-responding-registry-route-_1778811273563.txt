@@ -1,0 +1,213 @@
+Fix Luxe Ticket commands not responding — registry + route only.
+
+Current issue:
+In-game:
+!commandtest !addtickets
+shows:
+ct: addtickets | owner=UNKNOWN | route=NO | handler=NO | fix=add_to_registry
+
+!ticketadmin and !addtickets still do not reply.
+
+Important:
+modules/luxe_admin.py already exists.
+Do NOT rewrite the Luxe admin file unless absolutely needed.
+The problem is command registry/routing.
+
+Goal:
+Make these commands respond:
+!ticketadmin
+!addtickets @user amount
+!removetickets @user amount
+!settickets @user amount
+!sendtickets @user amount
+!ticketbalance @user
+!ticketlogs @user
+!ticketrate
+
+Part 1 — main.py import
+
+In main.py, add this import near other module imports:
+
+from modules.luxe_admin import (
+    handle_addtickets,
+    handle_removetickets,
+    handle_settickets,
+    handle_sendtickets,
+    handle_ticketbalance,
+    handle_ticketlogs,
+    handle_ticketadmin,
+)
+
+Part 2 — main.py command routing
+
+Find the main on_chat command router where it has lots of:
+
+if cmd == ...
+elif cmd == ...
+
+Add these routes BEFORE the final unknown-command fallback:
+
+elif cmd == "addtickets":
+    await handle_addtickets(self, user, args)
+    return
+
+elif cmd == "removetickets":
+    await handle_removetickets(self, user, args)
+    return
+
+elif cmd == "settickets":
+    await handle_settickets(self, user, args)
+    return
+
+elif cmd == "sendtickets":
+    await handle_sendtickets(self, user, args)
+    return
+
+elif cmd == "ticketbalance":
+    await handle_ticketbalance(self, user, args)
+    return
+
+elif cmd == "ticketlogs":
+    await handle_ticketlogs(self, user, args)
+    return
+
+elif cmd == "ticketadmin":
+    await handle_ticketadmin(self, user)
+    return
+
+elif cmd == "ticketrate":
+    await self.highrise.send_whisper(
+        user.id,
+        "💎 Ticket Rate: 1g = 1 🎫 Luxe Ticket. No bonus. Convert to 🪙 ChillCoins with !buycoins."
+    )
+    return
+
+Part 3 — command registry / cmd_audit.py
+
+In modules/cmd_audit.py, add these to ROUTED_COMMANDS:
+
+"addtickets",
+"removetickets",
+"settickets",
+"sendtickets",
+"ticketbalance",
+"ticketlogs",
+"ticketadmin",
+"ticketrate",
+
+Put them near the Luxe commands section.
+
+Part 4 — command ownership registry
+
+Find any file or table/list used by:
+!commandtest
+command owner
+route owner
+handler checker
+
+Search for:
+- COMMAND_OWNERS
+- COMMAND_REGISTRY
+- CMD_OWNERS
+- owner=UNKNOWN
+- fix=add_to_registry
+- add_to_registry
+- commandtest
+
+Add these commands there too.
+
+Ownership:
+BankingBot preferred:
+- addtickets
+- removetickets
+- settickets
+- sendtickets
+- ticketbalance
+- ticketlogs
+- ticketadmin
+- ticketrate
+
+If owner values use bot mode instead of bot name, use:
+banker
+
+If using module names, use:
+economy or luxe
+
+Permission:
+addtickets = owner
+removetickets = owner
+settickets = owner
+sendtickets = admin
+ticketbalance = admin
+ticketlogs = admin
+ticketadmin = admin
+ticketrate = player
+
+Part 5 — prevent duplicate bot replies
+
+Only BankingBot should handle these if possible.
+ChillTopiaMC should not duplicate.
+
+If BankingBot is offline, ChillTopiaMC can fallback.
+
+Part 6 — compile
+
+Run:
+
+python -m py_compile main.py
+python -m py_compile modules/luxe_admin.py
+python -m py_compile modules/luxe.py
+python -m py_compile modules/cmd_audit.py
+
+Restart bots.
+
+Part 7 — tests
+
+In game:
+
+!commandtest !addtickets
+Expected:
+route=YES
+handler=YES
+owner=BankingBot or banker
+
+!commandtest !ticketadmin
+Expected:
+route=YES
+handler=YES
+
+!ticketadmin
+Expected:
+🎫 Ticket Admin
+!addtickets @user amount
+!removetickets @user amount
+!settickets @user amount
+!sendtickets @user amount
+!ticketbalance @user
+!ticketlogs @user
+
+!addtickets @angelkisses18 100000
+Expected:
+✅ Added 100,000 🎫 Luxe Tickets to @angelkisses18.
+
+!ticketbalance @angelkisses18
+Expected:
+🎫 @angelkisses18 has [balance] Luxe Tickets.
+
+!settickets @angelkisses18 1000
+Expected:
+✅ Set @angelkisses18 Luxe Tickets to 1,000 🎫.
+
+!ticketrate
+Expected:
+💎 Ticket Rate: 1g = 1 🎫 Luxe Ticket. No bonus. Convert to 🪙 ChillCoins with !buycoins.
+
+Final report:
+1. main.py imports added
+2. main.py routes added
+3. cmd_audit.py ROUTED_COMMANDS updated
+4. command ownership registry updated
+5. commandtest addtickets result
+6. commandtest ticketadmin result
+7. in-game addtickets result
+8. bot stability result
