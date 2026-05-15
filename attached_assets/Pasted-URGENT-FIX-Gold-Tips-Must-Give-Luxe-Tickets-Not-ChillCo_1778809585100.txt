@@ -1,0 +1,166 @@
+URGENT FIX — Gold Tips Must Give Luxe Tickets, Not ChillCoins
+
+Current problem:
+When a player tips any bot, the bot still says:
+“@user tipped 10g and received 100 coins!”
+
+This is wrong.
+
+New required rule:
+1 Highrise gold = 1 🎫 Luxe Ticket
+No bonus.
+No ChillCoins from tips.
+
+Examples:
+10g tip = 10 🎫 Luxe Tickets
+100g tip = 100 🎫 Luxe Tickets
+500g tip = 500 🎫 Luxe Tickets
+
+Do NOT give:
+- 100 coins for 10g
+- bonus coins
+- ChillCoins
+- “Tip 100g+ for a bonus”
+
+Remove old message:
+“tipped 10g and received 100 coins!”
+“Tip 100g+ for a bonus!”
+
+Replace with:
+“💎 Thanks @Player! You received 10 🎫 Luxe Tickets for tipping 10g. Want 🪙 ChillCoins too? Use !buycoins or !buycoins [amount].”
+
+If 1g:
+“💎 Thanks @Player! You received 1 🎫 Luxe Ticket for tipping 1g. Want 🪙 ChillCoins too? Use !buycoins or !buycoins [amount].”
+
+Important:
+Only the bot that received the tip should reply.
+Do not let every bot announce the same tip.
+Do not duplicate the message.
+Do not modify jail system.
+Do not modify workflows.
+Do not modify casino games.
+
+Find and update the exact old tip reward code.
+
+Search for these strings:
+- “received 100 coins”
+- “Tip 100g+ for a bonus”
+- “tipped”
+- “received”
+- “coins”
+- “handle_tip”
+- “tip_reaction”
+- “gold_tip”
+- “add_coins”
+- “edit_coins”
+- “add_balance”
+
+Likely files:
+- modules/gold_tips.py
+- modules/vip.py
+- main.py
+- economy.py
+- database.py
+
+Required behavior:
+When tip event comes in:
+1. Read tip amount in gold.
+2. reward_tickets = gold_amount
+3. Add reward_tickets to player’s Luxe Tickets balance.
+4. Do NOT add ChillCoins.
+5. Send one acknowledgement message from the tipped bot.
+
+Use existing Luxe Ticket storage.
+Do not create a separate fake ticket balance.
+
+If existing Luxe functions are:
+- add_luxe_tickets
+- add_tickets
+- add_premium_balance
+- db.add_premium_balance
+Use the real existing function used by !tickets.
+
+If unsure, inspect !tickets handler and use the same storage table.
+
+Add/verify owner commands:
+!addtickets @user amount
+!removetickets @user amount
+!settickets @user amount
+!sendtickets @user amount
+!ticketbalance @user
+!ticketadmin
+
+Owner command behavior:
+!addtickets @AshQuinn_ 100
+✅ Added 100 🎫 Luxe Tickets to @AshQuinn_.
+
+!settickets @AshQuinn_ 500
+✅ Set @AshQuinn_ Luxe Tickets to 500 🎫.
+
+!removetickets @AshQuinn_ 50
+✅ Removed 50 🎫 Luxe Tickets from @AshQuinn_.
+
+!sendtickets @AshQuinn_ 25
+✅ Sent 25 🎫 Luxe Tickets to @AshQuinn_.
+
+!ticketbalance @AshQuinn_
+🎫 @AshQuinn_ has 500 Luxe Tickets.
+
+Permissions:
+Owner only:
+- !addtickets
+- !settickets
+- !removetickets
+
+Owner/admin:
+- !sendtickets
+- !ticketbalance
+- !ticketadmin
+
+Safety:
+- amount must be positive integer
+- no negative Luxe Tickets
+- log admin ticket changes
+- do not expose raw database rows
+
+Testing:
+1. Run compile:
+python -m py_compile main.py
+python -m py_compile modules/gold_tips.py
+python -m py_compile modules/luxe.py
+
+2. Restart bots.
+
+3. Tip 10g to GreatestProspector.
+Expected:
+Player gets exactly +10 🎫 Luxe Tickets.
+Player gets 0 ChillCoins from tip.
+Message says:
+💎 Thanks @Player! You received 10 🎫 Luxe Tickets for tipping 10g. Want 🪙 ChillCoins too? Use !buycoins or !buycoins [amount].
+
+4. Tip 10g to BankingBot.
+Expected:
+Only BankingBot replies.
+Player gets +10 🎫 Luxe Tickets.
+No ChillCoins.
+
+5. Tip 10g to ChillTopiaMC.
+Expected:
+Only ChillTopiaMC replies.
+Player gets +10 🎫 Luxe Tickets.
+No ChillCoins.
+
+6. Test owner commands:
+!addtickets @AshQuinn_ 100
+!ticketbalance @AshQuinn_
+!settickets @AshQuinn_ 500
+!ticketbalance @AshQuinn_
+
+Final report:
+1. Old coin tip reward removed
+2. Old “Tip 100g+ bonus” removed
+3. 1g = 1 🎫 Luxe Ticket confirmed
+4. No ChillCoins added from tips
+5. Tip acknowledgement includes !buycoins option
+6. Owner ticket commands added/tested
+7. Bot stability result

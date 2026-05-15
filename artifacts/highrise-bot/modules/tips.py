@@ -288,48 +288,49 @@ async def process_tip_event(bot: BaseBot, sender: User, receiver: User, tip) -> 
 
         convertible = min(gold, remaining)
 
-        # ── Bonus + coins ─────────────────────────────────────────────────
-        bonus = _bonus_pct(convertible, s)
-        base  = convertible * rate
-        coins = base + round(base * bonus / 100)
-
-        # ── ANNOUNCE IN CHAT FIRST (before any DB write) ──────────────────
-        await _chat(
-            bot,
-            f"💰 @{sender.username} tipped {convertible:,}g and received {coins:,} coins!"
-        )
-        print(f"[TIP] OK: @{sender.username} {convertible}g → {coins:,}c (+{bonus}%)")
-
-        # ── Personal whisper ──────────────────────────────────────────────
-        parts = []
-        if bonus > 0:
-            parts.append(f"+{bonus}% bonus!")
-        else:
-            parts.append("Tip 100g+ for a bonus!")
-        await _whisper(bot, sender.id, "💛 " + " ".join(parts))
-
-        # ── DB writes (each independently wrapped) ────────────────────────
+        # ── Award Luxe Tickets — 1g = 1 ticket, no bonus, no ChillCoins ──
+        luxe_amt = 0
+        _luxe_ok = False
         try:
+            from modules.luxe import (
+                add_luxe_balance    as _alb,
+                log_luxe_transaction as _llt,
+                get_luxe_rate        as _glr,
+            )
             db.ensure_user(sender.id, sender.username)
-        except Exception as e:
-            print(f"[TIP] ensure_user error: {e!r}")
+            luxe_rate = _glr()
+            luxe_amt  = max(1, int(convertible * luxe_rate))
+            _alb(sender.id, sender.username, luxe_amt)
+            _llt(sender.id, sender.username, "gold_tip_reward",
+                 luxe_amt, "luxe", f"{convertible:g}g_fallback")
+            _luxe_ok = True
+            print(f"[TIP REWARD] user={sender.username} gold={convertible:g} "
+                  f"reward={luxe_amt}_luxe_tickets (fallback path)")
+            print(f"[LUXE] add user={sender.username} amount={luxe_amt} "
+                  f"reason=gold_tip_reward_fallback")
+        except Exception as _le:
+            print(f"[TIP] Luxe award error: {_le!r}")
 
-        try:
-            db.ensure_bank_user(sender.id)
-        except Exception as e:
-            print(f"[TIP] ensure_bank_user error: {e!r}")
-
-        try:
-            db.record_tip_conversion(sender.id, sender.username, convertible, bonus, coins)
-        except Exception as e:
-            print(f"[TIP] record_tip_conversion error: {e!r}")
-            record_debug_error(repr(e))
-
-        _safe_log_transaction(sender.username, convertible, coins, bonus, "success", event_hash)
+        _safe_log_transaction(sender.username, convertible, 0, 0, "success_luxe", event_hash)
 
         # ── Log donation for !topdonators leaderboard ─────────────────────────
         _safe_record_donation(sender.id, sender.username, receiver.username,
-                              convertible, coins, event_hash)
+                              convertible, 0, event_hash)
+
+        # ── Whisper acknowledgement ───────────────────────────────────────
+        try:
+            if _luxe_ok and luxe_amt > 0:
+                _lbl = "Luxe Ticket" if luxe_amt == 1 else "Luxe Tickets"
+                _ack = (
+                    f"💎 Thanks @{sender.username}! "
+                    f"You received {luxe_amt:,} 🎫 {_lbl} for tipping {convertible:g} gold.\n"
+                    f"Want 🪙 ChillCoins too? Use !buycoins or !buycoins [amount]."
+                )[:249]
+            else:
+                _ack = "⚠️ Tip received, but Luxe reward failed. Please contact owner."
+            await _whisper(bot, sender.id, _ack)
+        except Exception as _ae:
+            print(f"[TIP] Ack whisper error: {_ae!r}")
 
         # ── Subscribe hint only — no auto-subscribe from tip ─────────────────
         try:
