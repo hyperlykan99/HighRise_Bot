@@ -1,0 +1,358 @@
+Poker V2 Fix — Simulate Dealer Dealing Cards One At A Time
+
+Current issue:
+Automatic card whispers are still unreliable.
+Players can see cards with !hand, but the bot does not consistently auto-whisper cards at hand start.
+
+Goal:
+Make the dealer deal cards one at a time like a real poker table.
+
+Instead of:
+- deal all cards instantly
+- whisper all players quickly
+
+Do this:
+- deal one card to each player
+- small delay
+- deal second card to each player
+- small delay
+- whisper each player their completed hand one by one
+- wait for each whisper before moving to next player
+
+This should avoid skipped/rate-limited whispers.
+
+Do not modify:
+- blackjack
+- jail
+- Luxe Tickets
+- tips
+- workflows
+- old poker.py except disabling conflicts
+- other games
+
+==================================================
+PART 1 — New Dealing Sequence
+==================================================
+
+In modules/poker_v2.py, replace the hand start card dealing with a real sequence.
+
+Required order:
+
+1. phase = "dealing"
+2. first_turn_ready = False
+3. create/shuffle deck
+4. announce:
+Dealer is dealing cards...
+
+5. Deal first card to each player:
+   player["cards"].append(deck.pop())
+   wait 0.4 seconds after each player
+
+6. Deal second card to each player:
+   player["cards"].append(deck.pop())
+   wait 0.4 seconds after each player
+
+7. Validate:
+   every active player has exactly 2 cards
+
+8. Whisper each player one by one:
+   Your cards: A♠ K♦
+
+   wait 0.8 seconds between whispers
+
+9. If a whisper fails:
+   retry once after 1 second
+
+10. After all whisper attempts are completed:
+    post blinds
+    announce SB / BB / pot
+    open first turn
+
+==================================================
+PART 2 — Dealer Public Messages
+==================================================
+
+Use simple public messages:
+
+Dealer is dealing cards...
+
+After all card whisper attempts:
+
+Cards have been dealt.
+SB: @Player1 50 coins
+BB: @Player2 100 coins
+Pot: 150 coins
+
+Then:
+
+@FirstActor's turn. 30s
+
+Do not show private cards publicly.
+
+==================================================
+PART 3 — Card Dealing Helper
+==================================================
+
+Create helper:
+
+async def deal_cards_one_by_one(bot, players, deck):
+    for p in players:
+        p["cards"] = []
+
+    # first card around table
+    for p in players:
+        p["cards"].append(deck.pop())
+        print(f"[POKER V2 DEAL] first card dealt to @{p['username']}")
+        await asyncio.sleep(0.4)
+
+    # second card around table
+    for p in players:
+        p["cards"].append(deck.pop())
+        print(f"[POKER V2 DEAL] second card dealt to @{p['username']}")
+        await asyncio.sleep(0.4)
+
+    # validate
+    for p in players:
+        if len(p["cards"]) != 2:
+            return False
+
+    return True
+
+==================================================
+PART 4 — Card Whisper Helper
+==================================================
+
+Create helper:
+
+async def send_cards_one_by_one(bot, players):
+    success = 0
+    failed = []
+
+    for p in players:
+        cards = p.get("cards", [])
+        if len(cards) != 2:
+            failed.append((p["username"], "cards_missing"))
+            continue
+
+        msg = f"Your cards: {cards[0]} {cards[1]}"
+
+        ok = False
+
+        try:
+            await bot.highrise.send_whisper(p["user_id"], msg[:249])
+            ok = True
+        except Exception as e:
+            print(f"[POKER V2 CARD SEND] first fail @{p['username']}: {e!r}")
+
+        if not ok:
+            await asyncio.sleep(1)
+            try:
+                await bot.highrise.send_whisper(p["user_id"], msg[:249])
+                ok = True
+            except Exception as e:
+                print(f"[POKER V2 CARD SEND] retry fail @{p['username']}: {e!r}")
+
+        if ok:
+            success += 1
+            print(f"[POKER V2 CARD SEND] @{p['username']} ok=true")
+        else:
+            failed.append((p["username"], "whisper_failed"))
+            print(f"[POKER V2 CARD SEND] @{p['username']} ok=false")
+
+        await asyncio.sleep(0.8)
+
+    return success, failed
+
+Important:
+Use player["user_id"] from the live chat join user.
+Do not use old DB user id if avoidable.
+
+==================================================
+PART 5 — Use Live User ID From Join
+==================================================
+
+When player joins with !join:
+
+Store:
+player["user_id"] = user.id
+player["username"] = user.username
+
+For Poker V2, the live hand should use this in-memory user.id for whispers.
+
+Do not overwrite it with old DB user_id.
+
+This is critical.
+
+==================================================
+PART 6 — If Some Whispers Fail
+==================================================
+
+If at least one player receives cards:
+Continue the hand.
+
+For failed players, public message:
+If you did not receive cards, type !hand.
+
+Do not reveal who failed unless owner debug.
+
+If all players fail:
+Cancel hand and refund.
+
+Public:
+Poker hand cancelled. Could not send cards.
+
+==================================================
+PART 7 — !hand Must Use Same Memory Cards
+==================================================
+
+!hand must read from:
+player["cards"]
+
+Reply:
+Your cards: A♠ K♦
+Board: —
+Pot: 150 coins
+
+If player["cards"] missing:
+No cards found for this hand.
+
+==================================================
+PART 8 — First Actor Turn Reminder
+==================================================
+
+After blinds are posted:
+
+Whisper first actor again, one time:
+
+Your turn.
+Your cards: A♠ K♦
+Pot: 150 coins
+Call: 50 coins
+
+If this whisper fails:
+Do not freeze.
+Public:
+@FirstActor's turn. 30s
+
+The first actor can type !hand if needed.
+
+==================================================
+PART 9 — Do Not Get Stuck
+==================================================
+
+No matter what, after dealing + whisper attempts:
+
+If at least one whisper succeeded:
+- phase = preflop
+- first_turn_ready = True
+- announce first turn
+- start timer
+
+Do not stay in:
+dealing
+preparing
+recovery_required
+
+unless all whispers failed or cards are missing for all players.
+
+==================================================
+PART 10 — Debug Command
+==================================================
+
+Add owner command:
+
+!poker debugdeal
+
+Reply:
+Poker deal debug:
+@Player1 cards=yes whisper=success
+@Player2 cards=yes whisper=failed
+Phase: preflop
+Turn: @Player1
+
+Do not reveal card values.
+
+Add:
+!poker resendcards
+
+Owner only.
+Resend each player's cards one by one using the same helper.
+
+==================================================
+PART 11 — Logs
+==================================================
+
+Add these logs:
+
+[POKER V2 DEAL] dealing one by one players=2
+[POKER V2 DEAL] first card dealt to @Player
+[POKER V2 DEAL] second card dealt to @Player
+[POKER V2 CARD SEND] start one_by_one players=2
+[POKER V2 CARD SEND] @Player ok=true
+[POKER V2 CARD SEND] complete success=2 failed=0
+[POKER V2 BLINDS] posted sb=@Player bb=@Player pot=150
+[POKER V2 OPEN] first_actor=@Player phase=preflop ready=true
+
+==================================================
+PART 12 — Tests
+==================================================
+
+Run:
+python -m py_compile main.py
+python -m py_compile modules/poker_v2.py
+
+Restart bots.
+
+Test:
+
+Player 1:
+!join 5000
+
+Player 2:
+!join 5000
+
+Expected sequence:
+
+Public:
+Dealer is dealing cards...
+
+Private:
+Player 1 receives:
+Your cards: [card] [card]
+
+Private:
+Player 2 receives:
+Your cards: [card] [card]
+
+Public:
+Cards have been dealt.
+SB: @Player 50 coins
+BB: @Player 100 coins
+Pot: 150 coins
+
+Public:
+@FirstActor's turn. 30s
+
+If someone did not receive cards:
+They type:
+!hand
+
+Expected:
+Your cards: [card] [card]
+
+Owner:
+!poker debugdeal
+
+Expected:
+Shows cards=yes and whisper status for each player.
+
+Final report:
+1. One-by-one card dealing added
+2. One-by-one card whispers added
+3. Live user_id from !join confirmed
+4. Player 1 auto card whisper result
+5. Player 2 auto card whisper result
+6. First actor turn result
+7. !hand fallback result
+8. No stuck dealing result
+9. Bot stability result
