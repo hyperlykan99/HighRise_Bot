@@ -1,0 +1,311 @@
+Poker V2 Hard Reset — Remove Stuck Preparing Phase Completely
+
+Current live issue:
+Poker V2 still gets stuck at:
+“Dealer is preparing the hand. Please wait.”
+
+This means the dealing/preparing flow still has a blocking task or phase that never completes.
+
+Goal:
+Remove the stuck preparing/dealing gate completely.
+
+Poker should never stay in “dealing” or “preparing” for more than a few seconds.
+If anything fails, force open the turn or cancel/refund safely.
+
+Do NOT modify:
+- blackjack
+- jail
+- Luxe Tickets
+- tips
+- workflows
+- old poker.py except disabling routing conflicts
+- other games
+
+==================================================
+PART 1 — Remove player-facing preparing block
+==================================================
+
+Do not block players with:
+“Dealer is preparing the hand. Please wait.”
+
+Instead:
+
+- Deal cards instantly in memory.
+- Whisper cards one by one.
+- Post blinds.
+- Announce first turn.
+- Set phase = preflop.
+
+If whispers fail, continue anyway and tell players:
+If you did not receive cards, type !hand.
+
+Hard rule:
+The table must never stay in phase = dealing/preparing.
+
+After hand start function finishes, phase must be:
+preflop
+or waiting if cancelled/refunded.
+
+==================================================
+PART 2 — Replace hand start with simple synchronous sequence
+==================================================
+
+In modules/poker_v2.py, replace the current start hand logic with this simple flow:
+
+async def start_hand_v2(bot):
+    table["phase"] = "dealing"
+    table["first_turn_ready"] = False
+
+    active_players = get seated active players
+
+    if len(active_players) < 2:
+        table["phase"] = "waiting"
+        await chat("Waiting for 1 more player. Use !join 5000.")
+        return
+
+    create deck
+    shuffle deck
+    table["board"] = []
+    table["pot"] = 0
+    table["current_bet"] = 0
+    table["hand_number"] += 1
+
+    for each player:
+        player["cards"] = [deck.pop(), deck.pop()]
+        player["current_bet"] = 0
+        player["total_contributed"] = 0
+        player["acted"] = False
+        player["status"] = "active"
+
+    validate all players have 2 cards
+
+    if validation fails:
+        refund hand safely
+        table["phase"] = "waiting"
+        await chat("Poker hand cancelled. Card deal failed.")
+        return
+
+    await chat("Dealer is dealing cards.")
+
+    for each player:
+        try to whisper:
+        Your cards: A♠ K♦
+        wait 0.8 seconds
+
+    await chat("If you did not receive cards, type !hand.")
+
+    post small blind and big blind
+
+    await chat:
+    Poker hand #1.
+    SB: @Player1 50 coins
+    BB: @Player2 100 coins
+    Pot: 150 coins
+
+    determine first actor
+
+    table["current_turn_user_id"] = first_actor["user_id"]
+    table["phase"] = "preflop"
+    table["first_turn_ready"] = True
+
+    whisper first actor:
+    Your turn.
+    Your cards: A♠ K♦
+    Pot: 150 coins
+    Call: 50 coins
+
+    await chat:
+    @FirstActor's turn. 30s
+
+    start turn timer
+
+Important:
+Do NOT call any old gate function.
+Do NOT call any old preparing function.
+Do NOT wait for whisper success before setting phase preflop.
+Do NOT set recovery_required because one whisper failed.
+
+==================================================
+PART 3 — Remove old hard-gate code
+==================================================
+
+Search and disable old code that keeps table stuck:
+
+- open_first_turn_hard_gate
+- first_turn_ready false forever
+- phase == dealing action block that never expires
+- recovery_required from whisper failure
+- “Dealer is preparing the hand. Please wait.” loop
+- any task that waits for all card whispers before opening turn
+
+Replace with:
+If phase == "dealing" and more than 5 seconds passed:
+    force_open_first_turn(bot)
+
+force_open_first_turn must:
+- pick current first actor
+- set phase = "preflop"
+- set first_turn_ready = True
+- announce:
+  @Player's turn. 30s
+- start timer
+
+==================================================
+PART 4 — Action guard change
+==================================================
+
+Before actions:
+!check
+!call
+!raise
+!fold
+!allin
+
+If phase == "dealing":
+    if dealing has lasted less than 5 seconds:
+        whisper "Dealer is dealing. Try again in a moment."
+        return
+    else:
+        force_open_first_turn(bot)
+        continue action check
+
+If first_turn_ready is False but cards exist:
+    force_open_first_turn(bot)
+
+Do not keep blocking forever.
+
+==================================================
+PART 5 — !hand must always work from memory
+==================================================
+
+!hand must only use Poker V2 memory first:
+
+player = table["players"][user.id]
+cards = player["cards"]
+
+Reply:
+Your cards: A♠ K♦
+Board: —
+Pot: 150 coins
+
+Do not depend on DB for active hand cards.
+
+If user.id mismatch, fallback by lower username.
+
+==================================================
+PART 6 — Make join reset old stuck hand safely
+==================================================
+
+If table is stuck in dealing/preparing/recovery and no action for 30 seconds:
+
+When a player types !join, !table, or owner command:
+- reset stuck hand safely
+- keep seated players and stacks
+- phase = waiting
+- if 2+ seated, start countdown again
+
+Owner command:
+!poker resetv2
+
+Reply:
+Poker V2 reset. Seated players kept. Waiting for next hand.
+
+==================================================
+PART 7 — Add clear debug
+==================================================
+
+Add owner command:
+
+!poker v2debug
+
+Reply:
+Poker V2 Debug:
+Phase: preflop/dealing/waiting
+Ready: true/false
+Players: 2
+Turn: @Player
+Cards:
+@A cards=yes
+@B cards=yes
+
+Do not reveal actual card values.
+
+==================================================
+PART 8 — Logs
+==================================================
+
+Print:
+
+[POKER V2 START] begin
+[POKER V2 START] players=2
+[POKER V2 START] cards_dealt=true
+[POKER V2 WHISPER] user=@Player ok=true/false
+[POKER V2 START] blinds_posted=true pot=150
+[POKER V2 START] first_actor=@Player
+[POKER V2 START] phase_set=preflop ready=true
+[POKER V2 START] turn_announced=true
+
+If stuck prevention triggers:
+[POKER V2 FORCE OPEN] reason=dealing_timeout phase=preflop ready=true
+
+==================================================
+PART 9 — Tests
+==================================================
+
+Run:
+python -m py_compile main.py
+python -m py_compile modules/poker_v2.py
+
+Restart bots.
+
+Test:
+
+Player 1:
+!join 5000
+
+Player 2:
+!join 5000
+
+Expected:
+Dealer is dealing cards.
+Your cards whisper sent to both players OR they can type !hand.
+If you did not receive cards, type !hand.
+Poker hand #1.
+SB...
+BB...
+Pot...
+@FirstActor's turn. 30s
+
+Important expected:
+No stuck “Dealer is preparing the hand. Please wait.”
+
+Test action:
+Current player:
+!check / !call
+
+Expected:
+Action works.
+
+Wrong player:
+!call
+
+Expected:
+It is @CurrentPlayer's turn.
+
+Owner:
+!poker v2debug
+
+Expected:
+Phase preflop
+Ready true
+Cards yes for both players
+
+Final report:
+1. Removed preparing hard gate
+2. Disabled old gate functions
+3. Cards dealt in memory
+4. Phase switches to preflop every hand
+5. First turn opens test result
+6. !hand fallback result
+7. No stuck dealing result
+8. Bot stability result
