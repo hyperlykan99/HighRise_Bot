@@ -624,7 +624,7 @@ async def _start_hand(bot: BaseBot) -> None:
     _T["hand_number"]       += 1
     _T["hand_id"]          = f"pkv2_{uuid.uuid4().hex[:10]}"
 
-    print(f"[POKER V2] hand_start players={len(seated)} hand={_T['hand_number']}")
+    print(f"[POKER V2 START] phase=dealing players={len(seated)}")
 
     # Rotate dealer
     n          = len(seated)
@@ -719,12 +719,13 @@ async def _start_hand(bot: BaseBot) -> None:
 
     blind_msg = (
         f"Poker hand #{_T['hand_number']}.\n"
+        f"Cards have been dealt.\n"
         f"SB: @{sb_user} {actual_sb:,} coins\n"
         f"BB: @{bb_user} {actual_bb:,} coins\n"
         f"Pot: {_T['pot']:,} coins"
     )
     await _chat(bot, blind_msg)
-    print(f"[POKER V2] blinds posted sb={sb_user}:{actual_sb} bb={bb_user}:{actual_bb} pot={_T['pot']}")
+    print(f"[POKER V2 BLINDS] sb=@{sb_user} amount={actual_sb} bb=@{bb_user} amount={actual_bb} pot={_T['pot']}")
 
     if n_success < len(seated):
         await _chat(bot, "Cards sent to most players. If you did not receive cards, type !hand.")
@@ -732,7 +733,7 @@ async def _start_hand(bot: BaseBot) -> None:
         await _chat(bot, "Cards sent. Starting hand.")
 
     # ── Steps 10-16: Wait, select first actor, open turn ─────────────────────
-    await asyncio.sleep(2)
+    await asyncio.sleep(1)
 
     if n == 2:
         first_preflop_idx = sb_idx
@@ -741,7 +742,7 @@ async def _start_hand(bot: BaseBot) -> None:
     first_actor = seated[first_preflop_idx]
     first_p     = _T["players"][first_actor]
 
-    print(f"[POKER V2] first actor=@{first_actor}")
+    print(f"[POKER V2 FIRST ACTOR] user=@{first_actor}")
     await _open_first_turn(bot, first_actor, first_p)
 
 # ── Open first turn (never stays in dealing) ───────────────────────────────────
@@ -789,7 +790,7 @@ async def _open_first_turn(bot: BaseBot, first_actor: str, first_p: dict) -> Non
     _T["turn_timer_task"] = asyncio.create_task(_turn_timeout(bot, first_actor))
     await _chat(bot, f"@{first_actor}'s turn. {secs}s")
     print(f"[POKER V2 FIRST TURN] user=@{first_actor} public=true")
-    print(f"[POKER V2 READY] phase=preflop first_turn_ready=true")
+    print(f"[POKER V2 OPEN] phase=preflop first_turn_ready=true")
 
 
 # ── Action guard ───────────────────────────────────────────────────────────────

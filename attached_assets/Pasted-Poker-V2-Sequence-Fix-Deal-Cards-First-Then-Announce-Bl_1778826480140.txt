@@ -1,0 +1,230 @@
+Poker V2 Sequence Fix — Deal Cards First, Then Announce Blinds
+
+Current issue:
+The first player has to call/check before the table continues.
+Players are not reliably seeing cards before betting starts.
+
+Goal:
+Dealer must deal all private cards first, then announce small blind and big blind, then announce whose turn it is.
+
+New required hand-start sequence:
+
+1. Start hand.
+2. Set phase = dealing.
+3. Shuffle deck.
+4. Deal 2 private cards to every active player.
+5. Save cards in memory.
+6. Whisper cards to every active player.
+7. Wait 1 second.
+8. Post small blind and big blind.
+9. Announce blinds and pot publicly.
+10. Select first actor.
+11. Whisper first actor turn reminder.
+12. Publicly announce:
+   @Player's turn. 30s
+13. Set phase = preflop.
+14. Set first_turn_ready = True.
+15. Start turn timer.
+
+Do not open action until steps 1–12 are complete.
+
+Do not modify:
+- blackjack
+- jail
+- Luxe Tickets
+- tips
+- workflows
+- old poker.py except disabling conflicts
+- other games
+
+==================================================
+PART 1 — Deal Cards Before Blinds
+==================================================
+
+In modules/poker_v2.py, update the hand start function.
+
+Current wrong flow:
+- post blinds
+- announce blinds
+- then try card whisper / open action
+
+Replace with:
+
+phase = "dealing"
+first_turn_ready = False
+
+deal cards to all active players
+save player["cards"]
+validate each active player has 2 cards
+
+send card whispers to all active players:
+Your cards: A♠ K♦
+
+Only after card delivery attempts:
+post SB and BB
+update pot
+update current_bet
+
+Then announce:
+Poker hand #1.
+Cards have been dealt.
+SB: @Player1 50 coins
+BB: @Player2 100 coins
+Pot: 150 coins
+
+==================================================
+PART 2 — First Actor After Blinds
+==================================================
+
+After blinds are posted:
+
+For heads-up preflop:
+- Small blind / dealer acts first.
+
+For 3+ players preflop:
+- Player left of big blind acts first.
+
+Set:
+current_turn_user_id = first_actor.user_id
+
+Then whisper first actor:
+
+Your turn.
+Your cards: A♠ K♦
+Pot: 150 coins
+Call: 50 coins
+
+If no call required:
+Your turn.
+Your cards: A♠ K♦
+Pot: 150 coins
+You can check, raise, fold, or all-in.
+
+Then public:
+@FirstActor's turn. 30s
+
+Then:
+phase = "preflop"
+first_turn_ready = True
+start turn timer
+
+==================================================
+PART 3 — Do Not Require First Player To Act To Continue
+==================================================
+
+The table should continue only by normal poker rules.
+
+If first player has to call/check, that is normal only if it is their legal turn.
+
+But the table must not be stuck waiting for a card whisper.
+
+If all card whisper attempts finish:
+- open first turn
+- first player may act normally
+
+If first player does nothing:
+- timer handles AFK
+
+If first player acts:
+- resolver advances table
+
+==================================================
+PART 4 — If Card Whisper Fails
+==================================================
+
+Do not freeze the game.
+
+If one player did not receive auto card whisper:
+- log failure
+- tell them if possible:
+Could not auto-send your cards. Type !hand.
+
+Continue after all delivery attempts are completed.
+
+If all players fail card whisper:
+- cancel hand
+- refund blinds/bets
+- phase = waiting
+- public:
+Poker hand cancelled. Could not deliver cards.
+
+==================================================
+PART 5 — Public Messages Should Be Easy To Read
+==================================================
+
+Use plain messages:
+
+Poker hand #1.
+Cards have been dealt.
+SB: @ashquinn_ 50 coins
+BB: @4ktreyMarion 100 coins
+Pot: 150 coins
+
+@ashquinn_'s turn. 30s
+
+No color codes.
+No command wall.
+No private cards in public.
+
+==================================================
+PART 6 — Logs
+==================================================
+
+Add logs:
+
+[POKER V2 START] phase=dealing players=2
+[POKER V2 DEAL] user=@Player cards_saved=true
+[POKER V2 CARD SEND] user=@Player ok=true/false
+[POKER V2 BLINDS] sb=@Player amount=50 bb=@Player amount=100 pot=150
+[POKER V2 FIRST ACTOR] user=@Player
+[POKER V2 OPEN] phase=preflop first_turn_ready=true
+
+==================================================
+PART 7 — Tests
+==================================================
+
+Run:
+python -m py_compile main.py
+python -m py_compile modules/poker_v2.py
+
+Restart bots.
+
+Test:
+
+Player 1:
+!join 5000
+
+Player 2:
+!join 5000
+
+Expected sequence:
+
+1. Both players receive private whispers:
+Your cards: [two cards]
+
+2. Public:
+Poker hand #1.
+Cards have been dealt.
+SB: @Player 50 coins
+BB: @Player 100 coins
+Pot: 150 coins
+
+3. Public:
+@FirstActor's turn. 30s
+
+4. First actor gets private turn whisper:
+Your turn.
+Your cards: [two cards]
+Pot: 150 coins
+Call: 50 coins
+
+5. If wrong player types !call:
+It is @FirstActor's turn.
+
+Final report:
+1. Cards are dealt before blinds
+2. Both players automatic card whisper result
+3. Blinds announcement result
+4. First actor turn result
+5. Wrong-turn result
+6. Bot stability result
