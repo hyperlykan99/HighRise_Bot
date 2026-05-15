@@ -1,0 +1,140 @@
+Final fix for Luxe Ticket tips and admin command routing.
+
+Current status:
+- modules/tips.py now adds Luxe Tickets, but it still uses get_luxe_rate().
+- It still uses old min_tip_gold and daily_cap_gold logic.
+- modules/luxe_admin.py exists, but !addtickets, !settickets, !ticketbalance, and !ticketadmin may not be routed in main.py.
+
+Goal:
+Make tips exactly:
+1 Highrise gold = 1 🎫 Luxe Ticket
+No bonus.
+No minimum.
+No daily cap.
+No ChillCoins.
+No multiplier/rate.
+
+Part 1 — Fix modules/tips.py
+
+In process_tip_event, after gold is extracted and dedup passes:
+
+Set:
+convertible = int(gold)
+luxe_amt = convertible
+
+Do NOT use:
+get_luxe_rate()
+coins_per_gold
+min_tip_gold
+daily_cap_gold
+_bonus_pct()
+bonus tiers
+daily cap
+coin reward logic
+
+Remove or bypass:
+min_gold = int(s.get("min_tip_gold", 10))
+if gold < min_gold: return
+daily_cap = ...
+daily_used = ...
+remaining = ...
+convertible = min(gold, remaining)
+luxe_rate = _glr()
+luxe_amt = max(1, int(convertible * luxe_rate))
+
+Replace with:
+convertible = int(gold)
+luxe_amt = convertible
+
+Then:
+from modules.luxe import add_luxe_balance, log_luxe_transaction
+new_balance = add_luxe_balance(sender.id, sender.username, luxe_amt)
+log_luxe_transaction(
+    sender.id,
+    sender.username,
+    "gold_tip_reward",
+    luxe_amt,
+    "luxe",
+    f"gold_tip:{convertible}g receiver:{receiver.username} balance_after:{new_balance}"
+)
+
+Record old tip logs with coins=0 only if needed for leaderboard:
+_safe_log_transaction(sender.username, convertible, 0, 0, "success_luxe", event_hash)
+_safe_record_donation(sender.id, sender.username, receiver.username, convertible, 0, event_hash)
+
+Acknowledgement:
+💎 Thanks @Player! You received 10 🎫 Luxe Tickets for tipping 10g. Convert to 🪙 ChillCoins with !buycoins or !buycoins [amount].
+
+If 1g:
+💎 Thanks @Player! You received 1 🎫 Luxe Ticket for tipping 1g. Convert to 🪙 ChillCoins with !buycoins or !buycoins [amount].
+
+No public “received coins” message.
+No “Tip 100g+ bonus” whisper.
+
+Part 2 — Update !tiprate
+
+!tiprate should say:
+💎 Tip Rate: 1g = 1 🎫 Luxe Ticket. No bonus. Convert to 🪙 ChillCoins with !buycoins.
+
+Part 3 — Route Luxe admin commands in main.py
+
+Import from modules.luxe_admin:
+handle_addtickets
+handle_removetickets
+handle_settickets
+handle_sendtickets
+handle_ticketbalance
+handle_ticketlogs
+handle_ticketadmin
+
+Add command routing:
+elif cmd == "addtickets":
+    await handle_addtickets(self, user, args)
+elif cmd == "removetickets":
+    await handle_removetickets(self, user, args)
+elif cmd == "settickets":
+    await handle_settickets(self, user, args)
+elif cmd == "sendtickets":
+    await handle_sendtickets(self, user, args)
+elif cmd == "ticketbalance":
+    await handle_ticketbalance(self, user, args)
+elif cmd == "ticketlogs":
+    await handle_ticketlogs(self, user, args)
+elif cmd == "ticketadmin":
+    await handle_ticketadmin(self, user)
+
+Do not create duplicate handlers.
+Do not route these to old coin admin.
+
+Part 4 — Tests
+
+Run:
+python -m py_compile main.py
+python -m py_compile modules/tips.py
+python -m py_compile modules/luxe.py
+python -m py_compile modules/luxe_admin.py
+
+Restart bots.
+
+Test:
+!ticketadmin
+!addtickets @angelkisses18 1000
+!ticketbalance @angelkisses18
+!settickets @ashquinn_ 1000
+!ticketbalance @ashquinn_
+
+Tip test:
+Before tipping:
+!tickets
+
+Tip 1g:
+Expected +1 🎫 Luxe Ticket.
+
+Tip 10g:
+Expected +10 🎫 Luxe Tickets.
+
+Expected:
+No ChillCoins added.
+No "received coins" message.
+No bonus message.
+No multiplier.
