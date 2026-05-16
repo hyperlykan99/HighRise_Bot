@@ -1588,7 +1588,10 @@ REGISTRY: dict[str, Cmd] = {
     "rarebadges":        Cmd("shopkeeper","shop", True,  True,  False),
     "profilebadge":      Cmd("shopkeeper","shop", True,  True,  False),
     "showbadge":         Cmd("shopkeeper","shop", True,  True,  False),
-    "removewishlist":    Cmd("shopkeeper","shop", True,  False, True),
+    "removewishlist":    Cmd("shopkeeper","shop", True,  False, True,  aliases=("unwishlist",)),
+    "wishlist":          Cmd("shopkeeper","shop", True,  False, True,  aliases=("wishbadge",)),
+    "unequipbadge":      Cmd("shopkeeper","shop", True,  False, True),
+    "unlockbadge":       Cmd("shopkeeper","shop", True,  False, True),
     "setbadgeconfirm":   Cmd("shopkeeper","shop", False, False, True,  perm="manager"),
 
     # ── Notifications / alerts ────────────────────────────────────────────────

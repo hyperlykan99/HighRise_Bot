@@ -42,7 +42,9 @@ _NOTIFY_CMDS = [
 _BADGE_CMDS = [
     "badges", "mybadges", "badgeshop", "buybadge", "equipbadge",
     "profilebadge", "showbadge", "rarebadges",
-    "removewishlist", "setbadgeconfirm", "badgehelp",
+    "wishlist", "wishbadge", "removewishlist", "unwishlist",
+    "unequipbadge", "unlockbadge",
+    "setbadgeconfirm", "badgehelp",
 ]
 _TITLE_CMDS = [
     "titles", "titleshop", "mytitles", "buytitle",

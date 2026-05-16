@@ -1,0 +1,115 @@
+Final Badge Wishlist CommandIssues Cleanup + QA Coverage
+
+Current live status:
+!qatest all is now passing:
+Passed: 69
+Failed: 0
+✅ All checks passed.
+
+But !commandissues still shows:
+Issues: 1 no-route, 5 no-handler
+
+Examples:
+!unequipbadge
+!unlockbadge
+!unwishlist
+!wishbadge
+!wishlist
+
+Goal:
+Make !commandissues clean by fixing the remaining badge/wishlist commands.
+Also update !qatest badges / !qatest all so these commands are included in QA coverage.
+
+Do NOT modify:
+- poker gameplay
+- blackjack gameplay
+- jail gameplay
+- economy/balance logic
+- notification system
+- title system
+
+Only modify:
+- modules/badge_market.py or actual badge module
+- modules/command_registry.py
+- modules/cmd_audit.py only if needed
+- modules/multi_bot.py only if owner/routing needed
+- modules/qa_test.py
+- main.py routing only if needed
+- help text only if needed
+
+==================================================
+PART 1 — Fix Remaining Active CommandIssues
+==================================================
+
+Remaining commands:
+
+!unequipbadge
+!unlockbadge
+!wishlist
+!wishbadge
+!unwishlist
+
+For each command:
+- If it is intended to work, route it to a real handler.
+- If it is not ready, mark it hidden/deprecated and exclude it from active commandissues.
+- Do not leave any active command with no route/no handler.
+
+Expected after fix:
+
+!commandissues
+
+Should show either:
+✅ No active command issues found.
+
+Or:
+Issues: 0 no-route, 0 no-owner, 0 no-handler
+
+==================================================
+PART 2 — Implement Or Alias !unequipbadge
+==================================================
+
+Command:
+!unequipbadge
+
+Expected behavior:
+Unequip the player’s currently equipped badge.
+
+Reply if equipped:
+✅ Badge unequipped.
+
+Reply if no badge equipped:
+⚠️ You do not have an equipped badge.
+
+Rules:
+- Do not delete badge ownership.
+- Only clear equipped badge field.
+- Whisper response if current badge commands whisper.
+
+If the system already has !removebadge or similar:
+Alias !unequipbadge to that existing handler.
+
+Registry:
+owner = BankingBot or Shopkeeper bot, whichever owns badge commands
+module = badge_market / badge system
+handler = YES
+
+==================================================
+PART 3 — Implement Or Hide !unlockbadge
+==================================================
+
+Command:
+!unlockbadge badge_id
+
+Expected behavior if lock system exists:
+Unlock a locked badge so it can be sold/traded/equipped.
+
+Reply:
+🔓 Badge unlocked: badge_id
+
+If badge is not locked:
+⚠️ That badge is not locked.
+
+If player does not own badge:
+❌ You do not own that badge.
+
+If badge locking is not actually
