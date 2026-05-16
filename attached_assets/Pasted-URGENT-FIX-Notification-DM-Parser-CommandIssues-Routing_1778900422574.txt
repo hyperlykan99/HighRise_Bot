@@ -1,0 +1,612 @@
+URGENT FIX — Notification DM Parser + CommandIssues Routing
+
+Current live bugs from screenshots:
+
+1. DM random "." still triggers notification replies.
+Wrong:
+User DMs "."
+Bot replies:
+✅ You are already subscribed.
+or
+✅ Alerts OFF.
+
+Random DMs must be ignored completely.
+
+2. DM !notifysettings is turning alerts ON.
+Wrong:
+User is unsubscribed.
+User DMs !notifysettings.
+Bot replies:
+✅ Alerts ON.
+
+!notifysettings must NEVER subscribe the user. It should only show settings/status.
+
+3. Room !notifysettings is handled by BankingBot.
+Notification commands should be owned by ChillTopiaMC / notification bot, not BankingBot.
+
+4. !commandissues still shows:
+!notifyaudit
+!notifystatus
+
+These must be routed correctly or hidden/deprecated. They should not appear as missing.
+
+Goal:
+Fix notification DM behavior and clean commandissues.
+
+Do NOT modify:
+- poker gameplay
+- blackjack gameplay
+- jail gameplay
+- bank transfer logic except notification side effects
+- badge/title/economy logic except notification routing/help
+
+Only modify:
+- modules/notif_v2.py
+- modules/subscribers.py
+- modules/notifications.py
+- main.py DM/command routing if needed
+- modules/multi_bot.py routing
+- modules/command_registry.py
+- modules/cmd_audit.py
+- modules/help_cmds.py only if needed
+
+==================================================
+PART 1 — DM Parser Must Be Strict
+==================================================
+
+Fix the DM parser so it only replies to valid notification commands.
+
+Direct PM messages that must be ignored with NO reply:
+
+.
+hello
+test
+yo
+ok
+thanks
+random
+?
+
+No fallback response.
+No “Alerts ON.”
+No “Alerts OFF.”
+No “You are already subscribed.”
+No unknown command.
+No help message.
+
+Valid DM commands only:
+
+Subscribe:
+!sub
+!subscribe
+sub
+subscribe
+
+Unsubscribe:
+!unsub
+!unsubscribe
+unsub
+unsubscribe
+stop
+stop alerts
+opt out
+
+Settings:
+!notifysettings
+!alerts
+notifysettings
+alerts
+settings
+
+Edit:
+!notify events on/off
+!notify games on/off
+!notify announcements on/off
+!notify promos on/off
+!notify tips on/off
+
+Also accept without ! in DM:
+notify events on
+notify games off
+notify tips on
+
+Suggested parser:
+
+msg = message.strip()
+lower = msg.lower()
+
+if lower in {"!sub", "sub", "!subscribe", "subscribe"}:
+    subscribe
+
+elif lower in {"!unsub", "unsub", "!unsubscribe", "unsubscribe", "stop", "stop alerts", "opt out"}:
+    unsubscribe
+
+elif lower in {"!notifysettings", "notifysettings", "!alerts", "alerts", "settings"}:
+    show_settings_only
+
+elif lower.startswith("!notify ") or lower.startswith("notify "):
+    edit_category
+
+else:
+    return silently
+
+Important:
+The final else must return silently.
+Do not call subscription status.
+Do not call subscribe.
+Do not call unsubscribe.
+
+==================================================
+PART 2 — !notifysettings Must Not Subscribe
+==================================================
+
+Fix this bug:
+DM !notifysettings currently turns alerts ON.
+
+Correct behavior:
+
+If user is subscribed:
+DM !notifysettings replies:
+
+🔔 Notification Settings
+Status: ON
+Events: ON
+Games: ON
+Announcements: ON
+Promos: ON
+Tips: OFF
+
+Edit:
+!notify events on/off
+!notify games on/off
+!notify promos on/off
+!notify tips on/off
+
+If user is NOT subscribed:
+DM !notifysettings replies:
+
+🔔 Notifications
+Status: OFF
+Use !sub to subscribe.
+
+Rules:
+- Do not set subscribed=true.
+- Do not change source.
+- Do not change manually_unsubscribed.
+- Do not change categories.
+- It is view-only.
+
+==================================================
+PART 3 — DM Category Edits
+==================================================
+
+If subscribed:
+
+DM:
+!notify tips on
+
+Reply:
+✅ Tips alerts ON.
+Settings: !notifysettings
+
+If unsubscribed:
+
+DM:
+!notify tips on
+
+Reply:
+⚠️ Alerts are OFF.
+Use !sub first.
+
+Rules:
+- Do not auto-subscribe from category edits.
+- Do not turn alerts ON unless user sends !sub / !subscribe.
+- Invalid category should say:
+⚠️ Unknown category.
+Use: events, games, announcements, promos, tips.
+
+==================================================
+PART 4 — Room Notification Commands Are DM-Only
+==================================================
+
+Room commands must not manage subscription state.
+
+Room:
+!sub
+!subscribe
+
+Reply/whisper:
+📩 Please DM me !sub to subscribe to alerts.
+Manage alerts in DM with !notifysettings.
+
+Room:
+!unsub
+!unsubscribe
+
+Reply/whisper:
+📩 Please DM me !unsub to unsubscribe from alerts.
+Manage alerts in DM with !notifysettings.
+
+Room:
+!notifysettings
+!alerts
+
+Reply/whisper:
+📩 Notification settings are managed in DM.
+DM me !notifysettings.
+
+Room:
+!notify tips on
+!notify events off
+
+Reply/whisper:
+📩 Please edit notification settings in DM.
+DM me: !notify tips on
+
+Rules:
+- Do not subscribe from room.
+- Do not unsubscribe from room.
+- Do not edit categories from room.
+- Room only instructs user to DM.
+
+==================================================
+PART 5 — Correct Notification Bot Owner
+==================================================
+
+Current bug:
+Room !notifysettings is answered by BankingBot.
+
+Fix routing so these commands are owned by ChillTopiaMC / notification bot:
+
+!sub
+!subscribe
+!unsub
+!unsubscribe
+!alerts
+!notifysettings
+!notify
+!notifyhelp
+!substatus
+!notifications
+!clearnotifications
+!announcement
+!promo
+!eventalert
+!gamealert
+!tipalert
+!notifyadmin
+!subcount
+!subscribers
+!unsubuser
+!notifystatus
+!notifyaudit
+
+Do not let BankingBot answer notification commands unless the project intentionally uses BankingBot for notifications. Based on live behavior, use ChillTopiaMC.
+
+Only one bot should reply.
+
+==================================================
+PART 6 — Remove Inbox Summary Conflict
+==================================================
+
+DM !sub must NOT enable inbox summaries.
+
+If any module replies:
+
+✅ Inbox summaries enabled.
+I'll DM your auto-mining and auto-fishing summaries here.
+
+That module must stop using !sub / !unsub.
+
+Rename inbox summary commands to:
+
+!summarysub
+!summaryunsub
+!summarysettings
+
+or:
+
+!autosummary on
+!autosummary off
+
+After fix:
+DM !sub always means notification alerts only.
+
+==================================================
+PART 7 — No Auto Subscribe
+==================================================
+
+Only DM commands subscribe users:
+
+DM !sub
+DM !subscribe
+DM sub
+DM subscribe
+
+Nothing else can subscribe.
+
+Do NOT subscribe from:
+- room !sub
+- room !notifysettings
+- DM !notifysettings
+- random DM
+- tips
+- bank transfers
+- games
+- events
+- VIP
+- badge/title purchase
+
+If blocked, log:
+[NOTIFY BLOCKED] attempted_auto_subscribe source=SOURCE user=@name
+
+Allowed source values:
+manual_dm
+admin
+migration
+
+Not allowed:
+room_command
+tip_auto
+bank_auto
+dm_fallback
+notifysettings
+
+==================================================
+PART 8 — Fix !notifyaudit and !notifystatus CommandIssues
+==================================================
+
+Current !commandissues still shows:
+!notifyaudit
+!notifystatus
+
+Fix by doing one of these:
+
+Preferred:
+- route both commands to notif_v2
+- owner = ChillTopiaMC / notification bot
+- handler = handle_notifyaudit_admin or matching handler
+- permission = owner/admin if required
+
+Commands:
+!notifyaudit @user
+!notifystatus @user
+
+Expected output:
+🔔 Notify Audit: @User
+Subscribed: YES/NO
+Source: manual_dm/migration/admin
+DM connected: YES/NO
+
+Second message:
+Events: ON/OFF
+Games: ON/OFF
+Announcements: ON/OFF
+Promos: ON/OFF
+Tips: ON/OFF
+Manual unsubscribed: YES/NO
+
+If these commands should be admin-only:
+normal users get:
+⚠️ Staff only.
+
+Do not leave them active missing.
+
+==================================================
+PART 9 — CommandIssues Must Be Clean
+==================================================
+
+Fix command registry/audit so notification commands do not appear as missing/no-owner/no-handler.
+
+Run:
+!commandissues
+!commandissues missing
+!commandissues noowner
+!commandissues nohandler
+!checkcommands all
+
+Expected:
+- no crash
+- no !notifyaudit in missing
+- no !notifystatus in missing
+- no notification command in no-owner
+- no notification command in no-handler
+
+If commands are not implemented:
+mark hidden/deprecated and exclude from active issues.
+
+==================================================
+PART 10 — CommandIssues Safety
+==================================================
+
+Ensure these never crash:
+
+!commandissues
+!commandissues missing
+!commandissues noowner
+!commandissues no-owner
+!commandissues no_handler
+!commandissues nohandler
+!commandissues hidden
+!commandissues deprecated
+!commandissues fake
+
+Invalid category:
+⚠️ Unknown issue type.
+Use: missing, noowner, nohandler, deprecated, hidden
+
+==================================================
+PART 11 — Compile
+==================================================
+
+Run:
+
+python -m py_compile main.py
+python -m py_compile database.py
+python -m py_compile modules/notif_v2.py
+python -m py_compile modules/subscribers.py
+python -m py_compile modules/notifications.py
+python -m py_compile modules/multi_bot.py
+python -m py_compile modules/command_registry.py
+python -m py_compile modules/cmd_audit.py
+python -m py_compile modules/help_cmds.py
+
+Also compile any inbox summary / auto summary module that currently owns !sub.
+
+==================================================
+PART 12 — Live Tests
+==================================================
+
+DM tests:
+
+Test 1:
+DM:
+.
+
+Expected:
+No reply.
+
+Test 2:
+DM:
+hello
+
+Expected:
+No reply.
+
+Test 3:
+DM:
+!unsub
+
+Expected:
+✅ Alerts OFF.
+You are unsubscribed.
+Use !sub to subscribe again.
+
+Test 4:
+DM:
+.
+
+Expected:
+No reply.
+
+Test 5:
+DM:
+!notifysettings
+
+Expected:
+Shows Status OFF.
+Does NOT turn alerts ON.
+
+Test 6:
+DM:
+!notify tips on
+
+Expected:
+⚠️ Alerts are OFF.
+Use !sub first.
+
+Test 7:
+DM:
+!sub
+
+Expected:
+✅ Alerts ON.
+Use !notifysettings to manage.
+Use !unsub to stop.
+
+Test 8:
+DM:
+!sub
+
+Expected:
+✅ You are already subscribed.
+Settings: !notifysettings
+Stop: !unsub
+
+Test 9:
+DM:
+!notifysettings
+
+Expected:
+Shows categories.
+
+Test 10:
+DM:
+!notify tips on
+
+Expected:
+✅ Tips alerts ON.
+Settings: !notifysettings
+
+Room tests:
+
+Test 11:
+Room:
+!sub
+
+Expected:
+📩 Please DM me !sub to subscribe to alerts.
+Should NOT subscribe from room.
+
+Test 12:
+Room:
+!unsub
+
+Expected:
+📩 Please DM me !unsub to unsubscribe from alerts.
+Should NOT unsubscribe from room.
+
+Test 13:
+Room:
+!notifysettings
+
+Expected:
+📩 Notification settings are managed in DM.
+DM me !notifysettings.
+
+Test 14:
+Room:
+!notifyaudit @yourname
+
+Expected:
+Works if owner/admin.
+
+Command audit tests:
+
+Test 15:
+!commandissues
+
+Expected:
+No !notifyaudit or !notifystatus in examples.
+
+Test 16:
+!commandissues missing
+
+Expected:
+No !notifyaudit or !notifystatus.
+
+Test 17:
+!commandtest !notifyaudit
+!commandtest !notifystatus
+!commandtest !notifysettings
+!commandtest !sub
+
+Expected:
+route=YES
+owner=ChillTopiaMC / notification bot
+handler=YES
+
+Final report:
+1. Random DM messages ignored
+2. DM !notifysettings is view-only and does not subscribe
+3. DM !notify category edits work only when subscribed
+4. Room !sub no longer subscribes
+5. Room !unsub no longer unsubscribes
+6. Room notification settings commands redirect to DM
+7. DM !sub no longer conflicts with inbox summaries
+8. Notification commands owned by correct bot
+9. !notifyaudit routed
+10. !notifystatus routed
+11. Commandissues cleaned
+12. Py_compile result
+13. Bot stability result

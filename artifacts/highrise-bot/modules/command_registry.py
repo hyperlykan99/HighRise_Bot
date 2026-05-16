@@ -1306,6 +1306,8 @@ REGISTRY: dict[str, Cmd] = {
     # ── Notification admin ────────────────────────────────────────────────────
     "notify":                Cmd("host",    "help",    True,  True,  False),
     "notifysettings":        Cmd("host",    "help",    True,  True,  False),
+    "notifyaudit":           Cmd("host",    "admin",   False, True,  False, perm="admin"),
+    "notifystatus":          Cmd("host",    "admin",   False, True,  False, perm="admin"),
     "notifystats":           Cmd("host",    "admin",   False, True,  False, perm="manager"),
     "notifyprefs":           Cmd("host",    "admin",   False, True,  False, perm="manager"),
     "notifyuser":            Cmd("host",    "admin",   False, False, True,  perm="admin"),

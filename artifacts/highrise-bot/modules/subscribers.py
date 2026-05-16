@@ -308,8 +308,10 @@ async def process_incoming_dm(
     except Exception:
         pass
 
-    # Deliver any queued pending messages now that we have an active conversation
-    await deliver_pending_subscriber_messages(bot, uname_lower, conversation_id)
+    # Deliver pending subscriber messages — host bot only to prevent duplicates
+    # (all 8 bots receive every DM; only one should deliver queued notifications)
+    if BOT_MODE in ("host", "all"):
+        await deliver_pending_subscriber_messages(bot, uname_lower, conversation_id)
 
     # ── Slash-command routing (B-project) ────────────────────────────────────
     # If the DM looks like a command (starts with /), try to route it.
@@ -346,6 +348,12 @@ async def process_incoming_dm(
             return
 
     # ── Strict DM command parser ──────────────────────────────────────────────
+    # Only the notification-owning bot (host / all mode) handles keyword DMs.
+    # All other bots stay silent — prevents 8 duplicate replies per DM command.
+    if BOT_MODE not in ("host", "all"):
+        print(f"[DM] @{username} DM to {BOT_MODE} bot — notification parsing deferred to host.")
+        return
+
     # Only valid notification commands trigger a reply. Random DMs are silently
     # ignored — no fallback status message, no subscription prompt.
 
