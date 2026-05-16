@@ -1,0 +1,324 @@
+SAFE ECONOMY DISPLAY POLISH ONLY — Balance, Luxe, VIP, BuyCoins Display
+
+Current stable state:
+- Bots are online.
+- !botstatus is clean.
+- !commandissues is clean.
+- !qatest all passes.
+- Menu/help polish should already be done or in progress.
+
+Goal:
+Polish economy display messages only.
+
+Do NOT modify:
+- database structure unless absolutely necessary
+- player balances
+- Luxe Ticket balances
+- VIP prices
+- coin pack prices
+- conversion math
+- poker/casino/mining/fishing logic
+- notification system
+- main.py startup
+- command routing unless a command is missing
+- title/badge ownership logic
+
+Only polish:
+- !bal / !balance display
+- !luxehelp
+- !packs
+- !buycoins help/display
+- !vipstatus display
+- QA economy display checks if safe
+
+==================================================
+PART 1 — Balance Display
+==================================================
+
+Commands:
+!bal
+!balance
+
+Required display if VIP active:
+
+💰 Balance
+🪙 Chill Coins: 985,000
+🎟️ Luxe Tickets: 999,286
+💎 VIP: Active — 56d 14h left
+
+Required display if VIP inactive:
+
+💰 Balance
+🪙 Chill Coins: 985,000
+🎟️ Luxe Tickets: 999,286
+💎 VIP: Inactive
+
+Important:
+The coin line must say exactly:
+
+🪙 Chill Coins: [amount]
+
+Do not show:
+
+Coins: [amount]
+
+Rules:
+- Show full numbers with commas.
+- Do not show shortened summaries like 13.7M.
+- Chill Coins use 🪙.
+- Luxe Tickets use 🎟️.
+- VIP uses 💎.
+- Keep message short.
+- No duplicate balance replies.
+- !bal and !balance must show the same format.
+
+==================================================
+PART 2 — VIP Status Display
+==================================================
+
+Command:
+!vipstatus
+
+Expected if active:
+
+💎 VIP Status
+Status: Active
+Time left: 56d 14h
+Perks: !vipperks
+
+Expected if inactive:
+
+💎 VIP Status
+Status: Inactive
+Buy: !buyvip
+Perks: !vipperks
+
+Rules:
+- If VIP is active, always show remaining time.
+- Do not show confusing raw timestamps.
+- Do not change VIP duration math.
+- Do not change VIP prices.
+
+==================================================
+PART 3 — Luxe Help
+==================================================
+
+Command:
+!luxehelp
+
+Expected:
+
+🎟️ Luxe Help
+Balance: !bal
+Packs: !packs
+Buy coins: !buycoins
+VIP: !vipstatus
+
+Rules:
+- Use 🎟️ for Luxe Tickets.
+- Keep short.
+- Do not mention broken/deprecated commands.
+
+==================================================
+PART 4 — Packs Display
+==================================================
+
+Command:
+!packs
+
+Expected:
+
+📦 Coin Packs
+small — [price] 🎟️ → [coins] 🪙
+medium — [price] 🎟️ → [coins] 🪙
+large — [price] 🎟️ → [coins] 🪙
+
+Buy:
+!buycoins small
+!buycoins medium
+!buycoins large
+
+Rules:
+- Use actual existing pack prices/rewards.
+- Do not invent new prices.
+- Do not change pack values.
+- Use 🎟️ for Luxe Tickets.
+- Use 🪙 for Chill Coins.
+- Keep readable and mobile-friendly.
+
+==================================================
+PART 5 — BuyCoins Display
+==================================================
+
+Command:
+!buycoins
+
+Expected with no args:
+
+🪙 Buy Chill Coins
+View packs: !packs
+Buy: !buycoins pack
+Max buy: !buycoins max
+
+Example:
+!buycoins small
+
+Command:
+!buycoins small / medium / large
+
+Expected:
+- Show what user will spend and receive.
+- Use 🎟️ for Luxe Tickets.
+- Use 🪙 for Chill Coins.
+- If current system already requires confirmation for all buys, keep it.
+- If only max requires confirmation, do not change normal pack behavior unless already designed.
+
+Example successful normal buy display:
+
+✅ Purchase Complete
+Spent: [amount] 🎟️
+Received: [amount] 🪙
+Balance: !bal
+
+Do not change the math.
+
+==================================================
+PART 6 — BuyCoins Max Safety
+==================================================
+
+Command:
+!buycoins max
+
+Must require confirmation.
+
+Expected:
+
+⚠️ Confirm Max Buy
+Spend: [amount] 🎟️
+Receive: [amount] 🪙
+Confirm: !confirmbuycoins
+Cancel: !cancelbuycoins
+
+Rules:
+- Do not instantly spend on !buycoins max.
+- Only spend after !confirmbuycoins.
+- !cancelbuycoins cancels pending max buy.
+- If user has no Luxe Tickets, show helpful message.
+- Pending max buy should be user-specific.
+- Do not let another user confirm someone else’s pending buy.
+
+==================================================
+PART 7 — Confirm / Cancel Display
+==================================================
+
+Command:
+!confirmbuycoins
+
+Expected if pending:
+
+✅ Purchase Complete
+Spent: [amount] 🎟️
+Received: [amount] 🪙
+Balance: !bal
+
+Expected if no pending:
+
+⚠️ No pending coin purchase.
+Use: !buycoins max
+
+Command:
+!cancelbuycoins
+
+Expected if pending:
+
+✅ Coin purchase cancelled.
+
+Expected if no pending:
+
+⚠️ No pending coin purchase.
+
+==================================================
+PART 8 — QA Economy Checks
+==================================================
+
+Update !qatest economy if safe.
+
+Check:
+- !bal handler exists
+- !balance handler exists
+- !luxehelp handler exists
+- !packs handler exists
+- !buycoins handler exists
+- !confirmbuycoins handler exists
+- !cancelbuycoins handler exists
+- !vipstatus handler exists
+- !bal display uses “🪙 Chill Coins:”
+- !balance display uses “🪙 Chill Coins:”
+- Luxe Tickets use 🎟️
+- Chill Coins use 🪙
+- display uses full comma-formatted numbers, not shortened M/K format
+- !buycoins max requires confirmation
+
+Do not make QA run on startup.
+
+==================================================
+PART 9 — Compile
+==================================================
+
+Run:
+
+python -m py_compile main.py
+python -m py_compile economy.py
+python -m py_compile modules/economy.py
+python -m py_compile modules/luxe.py
+python -m py_compile modules/vip.py
+python -m py_compile modules/help_cmds.py
+python -m py_compile modules/qa_test.py
+python -m py_compile modules/command_registry.py
+
+Skip files that do not exist.
+
+==================================================
+PART 10 — Live Tests
+==================================================
+
+After update, run:
+
+!bal
+!balance
+!luxehelp
+!packs
+!buycoins
+!buycoins max
+!cancelbuycoins
+!buycoins max
+!confirmbuycoins
+!vipstatus
+!qatest economy
+!qatest all
+!commandissues
+
+Expected:
+- !bal shows “🪙 Chill Coins: [amount]”
+- !balance shows “🪙 Chill Coins: [amount]”
+- no “Coins:” line
+- no shortened balance numbers
+- Luxe Tickets use 🎟️
+- VIP shows remaining time if active
+- !buycoins max requires confirmation
+- !commandissues clean
+- !qatest all passes
+
+Final report:
+1. !bal / !balance display polished
+2. “Coins:” replaced with “🪙 Chill Coins:”
+3. Luxe Ticket emoji fixed to 🎟️
+4. VIP remaining time display verified
+5. !luxehelp polished
+6. !packs polished
+7. !buycoins max confirmation verified
+8. confirm/cancel display polished
+9. no economy math changed
+10. py_compile result
+11. !commandissues result
+12. !qatest all result

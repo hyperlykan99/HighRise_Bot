@@ -506,9 +506,8 @@ async def handle_vipstatus(bot: BaseBot, user: User, args: list[str]) -> None:
     label   = f" — @{rec['username']}" if target_name.lower() != user.username.lower() else ""
 
     if is_vip:
-        lines = [f"👑 VIP Status{label}", "Status: Active"]
+        lines = [f"💎 VIP Status{label}", "Status: Active"]
         if expires:
-            # Calculate remaining
             try:
                 import datetime as _dt2
                 exp_dt = _dt2.datetime.strptime(expires, "%Y-%m-%d").replace(
@@ -516,21 +515,17 @@ async def handle_vipstatus(bot: BaseBot, user: User, args: list[str]) -> None:
                 delta  = exp_dt - _dt2.datetime.now(_dt2.timezone.utc)
                 if delta.total_seconds() > 0:
                     rem = f"{delta.days}d {int(delta.seconds // 3600)}h"
-                    lines.append(f"Remaining: {rem}")
+                    lines.append(f"Time left: {rem}")
             except Exception:
                 pass
-            lines.append(f"Expires: {expires}")
-        lines.append("Perks: luck, speed, longer auto")
+        lines.append("Perks: !vipperks")
         await _w(bot, user.id, "\n".join(lines)[:249])
     else:
-        price = get_luxe_price("vip")
-        dur   = get_vip_luxe_duration()
         await _w(bot, user.id,
-                 f"👑 VIP Status{label}\n"
+                 f"💎 VIP Status{label}\n"
                  f"Status: Inactive\n"
-                 f"Price: {price:,} 🎫\n"
-                 f"Duration: {dur}d\n"
-                 f"Buy: !buyluxe 1")
+                 f"Buy: !buyvip\n"
+                 f"Perks: !vipperks")
 
 
 async def handle_vips(bot: BaseBot, user: User, args: list[str]) -> None:

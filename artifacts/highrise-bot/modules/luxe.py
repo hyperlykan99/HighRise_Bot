@@ -976,9 +976,13 @@ async def handle_buycoins(bot: "BaseBot", user: "User", args: list[str]) -> None
     _map = {"small": "smallcoins", "medium": "mediumcoins", "large": "largecoins"}
     sizes_legacy = ("small", "medium", "large", "max")
 
-    # No argument — show numbered packs (new) + legacy menu
+    # No argument — show quick help menu
     if len(args) < 2:
-        await handle_buypack(bot, user, args)
+        await _w(bot, user.id,
+                 "🪙 Buy Chill Coins\n"
+                 "View packs: !packs\n"
+                 "Buy: !buycoins small/medium/large\n"
+                 "Max buy: !buycoins max")
         return
 
     raw = args[1].lower().strip()
@@ -1296,26 +1300,17 @@ def set_numbered_pack(pack_id: int, ticket_cost: int, chillcoins: int) -> None:
 
 
 async def handle_buypack(bot: "BaseBot", user: "User", args: list[str]) -> None:
-    """!buypack / !packs / !coinpack — show numbered coin pack menu."""
+    """!buypack / !packs — show coin pack menu."""
     db.ensure_user(user.id, user.username)
-    _ensure_packs_loaded()
-    rows = db.get_all_coin_packs()
-    if not rows:
-        rows = [
-            {"pack_id": k, "ticket_cost": v[0], "chillcoins_amount": v[1], "enabled": 1}
-            for k, v in sorted(_DEFAULT_NUMBERED_PACKS.items())
-        ]
-    enabled = [r for r in rows if r.get("enabled", 1)]
-    if not enabled:
-        await _w(bot, user.id, "⚠️ No coin packs configured. Ask staff.")
-        return
-    lines = ["💰 ChillCoin Packs"]
-    for r in enabled:
-        lines.append(
-            f"{r['pack_id']}) {_fc(r['ticket_cost'])} 🎫 → {_fc(r['chillcoins_amount'])} 🪙"
-        )
-    lines.append("Buy: !buycoins [1/2/3]")
-    await _w(bot, user.id, "\n".join(lines)[:249])
+    s_t, s_c = get_coinpack("smallcoins")
+    m_t, m_c = get_coinpack("mediumcoins")
+    l_t, l_c = get_coinpack("largecoins")
+    await _w(bot, user.id,
+             (f"📦 Coin Packs\n"
+              f"small — {_fc(s_t)} 🎟️ → {_fc(s_c)} 🪙\n"
+              f"medium — {_fc(m_t)} 🎟️ → {_fc(m_c)} 🪙\n"
+              f"large — {_fc(l_t)} 🎟️ → {_fc(l_c)} 🪙\n"
+              f"Buy: !buycoins small/medium/large")[:249])
 
 
 async def handle_setcoinpack(bot: "BaseBot", user: "User", args: list[str]) -> None:
@@ -1447,11 +1442,10 @@ async def handle_luxehelp(bot: "BaseBot", user: "User") -> None:
     """!luxe / !luxehelp — player help for Luxe Tickets."""
     await _w(bot, user.id,
              "🎟️ Luxe Help\n"
-             "Ticket balance: !tickets\n"
-             "Buy coins: !buycoins\n"
+             "Balance: !bal\n"
              "Packs: !packs\n"
-             "VIP: !vip\n"
-             "Status: !vipstatus")
+             "Buy coins: !buycoins\n"
+             "VIP: !vipstatus")
 
 
 async def handle_vipadmin(bot: "BaseBot", user: "User", args: list[str]) -> None:

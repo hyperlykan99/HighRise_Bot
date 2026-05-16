@@ -51,7 +51,8 @@ _TITLE_CMDS = [
     "equiptitle", "titlehelp", "myboosts",
 ]
 _ECONOMY_CMDS = [
-    "bal", "balance", "buycoins", "confirmbuycoins",
+    "bal", "balance", "luxehelp", "packs",
+    "buycoins", "confirmbuycoins",
     "cancelbuycoins", "vipstatus",
 ]
 _POKER_CMDS = ["poker", "pokerhelp", "pokerguide", "pokerstats", "pokeraudit"]
@@ -319,6 +320,45 @@ async def _show_failed(bot: BaseBot, user: User) -> None:
         await _w(bot, user.id, chunk[:249])
 
 
+# ── Economy display checks (pure; no DB writes) ───────────────────────────────
+
+def _economy_display_checks() -> list[tuple[bool, str]]:
+    """Static checks that economy display strings match the spec."""
+    results: list[tuple[bool, str]] = []
+    try:
+        import economy as _econ  # noqa: PLC0415
+        import inspect
+        bal_src = inspect.getsource(_econ.handle_balance)
+        results.append(_check("!bal uses '🪙 Chill Coins:'",
+                               "🪙 Chill Coins:" in bal_src))
+        results.append(_check("!bal uses '🎟️ Luxe Tickets:'",
+                               "🎟️ Luxe Tickets:" in bal_src))
+        results.append(_check("!bal uses '💎 VIP:'",
+                               "💎 VIP:" in bal_src))
+        results.append(_check("!bal no bare 'Coins:' label",
+                               "Coins: {balance" not in bal_src))
+    except Exception as exc:
+        results.append(_fail(f"bal display check error: {exc!r}"[:60]))
+
+    try:
+        from modules.luxe import handle_buypack, _do_buycoins_max  # noqa: PLC0415
+        import inspect
+        packs_src = inspect.getsource(handle_buypack)
+        results.append(_check("!packs uses '📦 Coin Packs'",
+                               "📦 Coin Packs" in packs_src))
+        results.append(_check("!packs uses 🎟️ for tickets",
+                               "🎟️" in packs_src))
+        max_src = inspect.getsource(_do_buycoins_max)
+        results.append(_check("!buycoins max requires confirmation",
+                               "_pending_buycoins" in max_src))
+        results.append(_check("!buycoins max uses ⚠️ confirm header",
+                               "confirmbuycoins" in max_src))
+    except Exception as exc:
+        results.append(_fail(f"packs/max check error: {exc!r}"[:60]))
+
+    return results
+
+
 # ── Main entry point ──────────────────────────────────────────────────────────
 
 async def handle_qatest(bot: BaseBot, user: User, args: list[str]) -> None:
@@ -372,7 +412,7 @@ async def handle_qatest(bot: BaseBot, user: User, args: list[str]) -> None:
         return
 
     if suite == "economy":
-        results = _routing_suite(_ECONOMY_CMDS)
+        results = _routing_suite(_ECONOMY_CMDS) + _economy_display_checks()
         await _deliver_report(bot, user, "economy", results)
         return
 

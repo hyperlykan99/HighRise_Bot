@@ -91,7 +91,7 @@ async def handle_balance(bot: BaseBot, user: User, args: list | None = None):
                 luxe_line = ""
             await bot.highrise.send_whisper(
                 user.id,
-                f"💰 Balance\nCoins: {balance:,}{luxe_line}\n💎 VIP: {vip_str}"
+                f"💰 Balance\n🪙 Chill Coins: {balance:,}{luxe_line}\n💎 VIP: {vip_str}"
             )
             return
 
