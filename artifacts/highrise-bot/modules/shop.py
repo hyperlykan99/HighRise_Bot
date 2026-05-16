@@ -264,11 +264,11 @@ async def handle_shop(bot: BaseBot, user: User, args: list[str]):
         try:
             await bot.highrise.send_whisper(user.id,
                 "🛍️ ChillTopia Shop\n"
-                "!shop badges — emoji badges\n"
-                "!shop titles — titles\n"
-                "!vip — VIP info  !buyvip 1d/7d/30d\n"
-                "Buy: !buy [#] after browsing a category\n"
-                "!myitems — your items  !balance — coins"
+                "🏷️ Titles: !titleshop\n"
+                "🎖️ Badges: !badgeshop\n"
+                "🎟️ Luxe Tickets: !luxe\n"
+                "💎 VIP: !vip\n"
+                "🎒 My Items: !myitems"
             )
         except Exception as exc:
             print(f"[SHOP] /shop help error for {user.username}: {exc}")

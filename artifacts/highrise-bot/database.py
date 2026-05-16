@@ -3693,6 +3693,30 @@ def equip_item(user_id: str, item_id: str, item_type: str, display: str):
     conn.close()
 
 
+def set_equipped_item(user_id: str, item_type: str, display: str, item_id: str) -> None:
+    """Title V2 equip helper — ensures user row exists then equips.
+    Signature: (user_id, item_type, display, item_id)
+    where item_type is 'title' or 'badge'.
+    """
+    try:
+        conn = get_connection()
+        # Ensure user row exists so UPDATE affects a row
+        conn.execute(
+            "INSERT OR IGNORE INTO users (user_id, username) VALUES (?, ?)",
+            (user_id, ""),
+        )
+        display_col = "equipped_badge"    if item_type == "badge" else "equipped_title"
+        id_col      = "equipped_badge_id" if item_type == "badge" else "equipped_title_id"
+        conn.execute(
+            f"UPDATE users SET {display_col} = ?, {id_col} = ? WHERE user_id = ?",
+            (display, item_id, user_id),
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+
 # ---------------------------------------------------------------------------
 # User helpers
 # ---------------------------------------------------------------------------

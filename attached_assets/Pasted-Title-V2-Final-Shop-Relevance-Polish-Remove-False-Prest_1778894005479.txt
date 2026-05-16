@@ -1,0 +1,1070 @@
+Title V2 Final Shop Relevance Polish — Remove False Prestige Titles, Clean Shop, Fix Help, Fix Equip Crash, Command Issues
+
+Current GitHub status:
+modules/title_system.py exists and already has most Title V2 unlockable titles.
+
+Current issue:
+Some buyable shop titles are not relevant or are misleading.
+
+Current buyable shop titles include:
+rookie
+lucky
+grinder
+casino_rat
+high_roller
+millionaire
+elite
+immortal
+vip_player
+chill_elite
+
+Problems:
+1. [Millionaire] is buyable for 100,000 coins.
+   This is wrong. Millionaire should mean the player actually holds 1,000,000 ChillCoins.
+
+2. [High Roller] is buyable for 75,000 coins.
+   This is confusing because High Roller should mean the player actually wagered big in casino games.
+
+3. There are duplicate prestige meanings:
+   high_roller = buyable shop title
+   high_roller_ach = casino achievement title
+
+   millionaire = buyable shop title
+   millionaire_ach = wealth achievement title
+
+4. !equiptitle rookie currently causes:
+   ⚠️ Command error logged. Bot stayed online.
+
+5. Shop/help menus need emoji polish and clear title commands.
+
+6. !checkcommands all shows many command issues:
+   Missing routes / no owner / no handler.
+
+Important:
+There are no real players yet, so it is safe to remove or modify misleading shop titles.
+No need to preserve old Millionaire / High Roller shop ownership unless simple.
+
+Do NOT modify:
+- Poker V2 gameplay
+- blackjack gameplay
+- jail gameplay except help/perk text if safe
+- bank transfer logic
+- notification subscription logic
+- badge market economy unless shared help/routing only
+- unrelated games
+
+Only modify:
+- modules/title_system.py
+- modules/shop.py only for old title alias compatibility
+- main.py command routing
+- modules/command_registry.py
+- modules/cmd_audit.py
+- modules/help_cmds.py
+- modules/admin_cmds.py
+- database.py only if title equip helper/schema needs safe fix
+
+==================================================
+PART 1 — Fix !equiptitle Crash First
+==================================================
+
+Current live bug:
+!buytitle rookie works.
+!buy title lucky works.
+But:
+!equiptitle rookie
+causes:
+⚠️ Command error logged. Bot stayed online.
+
+Fix the real traceback.
+
+Check likely causes:
+- title ownership saved in one table but equip checks another
+- set_equipped_title helper missing or wrong
+- title display uses "display" but helper expects "display_name"
+- title_catalog table missing title row
+- user_titles table missing title ownership
+- db.get_equipped_ids does not support title_id
+- equip command handler wrong function signature
+- title_id number shortcut crashes
+- perks_json parsing crash
+- missing user row
+
+Expected after fix:
+
+!equiptitle rookie
+
+Reply:
+✅ Equipped title: [Rookie]
+Boosts: !myboosts
+
+Then:
+!mytitles
+
+Expected:
+Equipped: [Rookie]
+
+Then:
+!myboosts
+
+Expected:
+Daily Coins: +5
+
+Old alias must work too:
+
+!equip title rookie
+
+Expected:
+✅ Equipped title: [Rookie]
+
+==================================================
+PART 2 — One Title Ownership Logic
+==================================================
+
+Create/repair one ownership function:
+
+player_owns_title(user_id, title_id)
+
+It must check:
+1. user_titles table if Title V2 uses it
+2. legacy old shop item ownership where item_type='title' if it exists
+
+If legacy ownership exists, mirror it into user_titles safely.
+
+Rules:
+- do not duplicate
+- do not delete old data
+- do not crash if legacy table missing
+- ensure user exists before checks
+
+Add log:
+[TITLE V2] ownership_check user=@Player title=rookie owned=True source=user_titles
+
+==================================================
+PART 3 — One Title Equip Logic
+==================================================
+
+Create/repair one equip helper:
+
+set_equipped_title(user_id, username, title_id)
+
+Rules:
+- ensure user exists
+- title exists in TITLE_CATALOG or DB title_catalog
+- player owns title
+- title is active
+- seasonal title is not expired
+- update equipped title safely
+- commit
+- return success/error reason
+
+Do not remove ownership.
+Do not duplicate ownership.
+Do not crash if DB table missing.
+
+If old shop uses:
+db.equip_item(user_id, item_id, item_type)
+
+Then wrap it so both old and new commands use the same final equip logic.
+
+==================================================
+PART 4 — Remove Misleading Shop Titles
+==================================================
+
+Remove these from buyable shop titles:
+
+millionaire
+high_roller
+
+Reason:
+[Millionaire] must be earned by actually holding 1,000,000 ChillCoins.
+[High Roller] must be earned by wagering 1,000,000 ChillCoins lifetime.
+
+Do not show these in !titleshop.
+Do not allow buying these with ChillCoins.
+
+If player tries:
+!buytitle millionaire
+
+Reply:
+⚠️ [Millionaire] is an achievement title.
+Requirement: Hold 1,000,000 ChillCoins.
+Progress: !titleprogress wealth
+
+If player tries:
+!buytitle high_roller
+
+Reply:
+⚠️ [High Roller] is an achievement title.
+Requirement: Wager 1,000,000 ChillCoins in casino games.
+Progress: !titleprogress casino
+
+Because there are no real players yet, old shop ownership can be ignored or migrated if easy.
+Preferred:
+- If old owner exists, keep it but mark source=Legacy.
+- New players cannot buy it.
+
+==================================================
+PART 5 — Keep Achievement Versions
+==================================================
+
+Keep achievement-only titles:
+
+millionaire_ach
+Display: [Millionaire]
+Source: Achievement
+Category: wealth
+Requirement: hold 1,000,000 ChillCoins balance
+Perk: +5% game rewards
+
+high_roller_ach
+Display: [High Roller]
+Source: Achievement
+Category: casino
+Requirement: wager 1,000,000 ChillCoins lifetime
+Perk: +5% casino rewards
+
+Important:
+Do not create duplicate display confusion in menus.
+
+In !titleshop:
+Do not show [Millionaire] or [High Roller].
+
+In !titles wealth:
+Show:
+ID: millionaire_ach [Millionaire]
+Requirement: Hold 1,000,000 ChillCoins
+
+In !titles casino:
+Show:
+ID: high_roller_ach [High Roller]
+Requirement: Wager 1,000,000 ChillCoins
+
+==================================================
+PART 6 — Final Relevant Shop Title List
+==================================================
+
+Final buyable shop titles should be general and relevant.
+
+Use this final shop title catalog:
+
+rookie
+Display: [Rookie]
+Price: 3,000
+Tier: Common
+Source: Shop
+Category: shop
+Buyable: true
+Perk: daily_coins_bonus +5
+Description: +5 daily coins
+
+lucky
+Display: [Lucky]
+Price: 7,500
+Tier: Common
+Source: Shop
+Category: shop
+Buyable: true
+Perk: game_reward_pct +2
+Description: +2% game rewards
+
+grinder
+Display: [Grinder]
+Price: 12,000
+Tier: Rare
+Source: Shop
+Category: shop
+Buyable: true
+Perk: game_reward_pct +3
+Description: +3% game rewards
+
+regular
+Display: [Regular]
+Price: 25,000
+Tier: Rare
+Source: Shop
+Category: shop
+Buyable: true
+Perk: daily_coins_bonus +10
+Description: +10 daily coins
+
+vip_player
+Display: [VIP Player]
+Price: 50,000
+Tier: Epic
+Source: Shop
+Category: shop
+Buyable: true
+Perk: shop_discount_pct +3
+Description: +3% shop discount
+
+casino_regular
+Display: [Casino Regular]
+Price: 75,000
+Tier: Epic
+Source: Shop
+Category: shop
+Buyable: true
+Perk: casino_reward_pct +3
+Description: +3% casino rewards
+
+chill_elite
+Display: [Chill Elite]
+Price: 150,000
+Tier: Legendary
+Source: Shop
+Category: shop
+Buyable: true
+Perk: game_reward_pct +5, daily_coins_bonus +25
+Description: +5% game rewards, +25 daily coins
+
+elite
+Display: [Elite]
+Price: 300,000
+Tier: Legendary
+Source: Shop
+Category: shop
+Buyable: true
+Perk: game_reward_pct +8
+Description: +8% game rewards
+
+immortal
+Display: [Immortal]
+Price: 750,000
+Tier: Mythic
+Source: Shop
+Category: shop
+Buyable: true
+Perk: game_reward_pct +12, daily_coins_bonus +50
+Description: +12% game rewards, +50 daily coins
+
+chilltopia_royalty
+Display: [ChillTopia Royalty]
+Price: 1,500,000
+Tier: Mythic
+Source: Shop
+Category: shop
+Buyable: true
+Perk: game_reward_pct +15, daily_coins_bonus +100
+Description: +15% game rewards, +100 daily coins
+
+==================================================
+PART 7 — Make Sure Game-Specific Titles Are Not Buyable
+==================================================
+
+These must NOT be in !titleshop:
+
+trivia_king
+word_master
+riddle_lord
+
+They must be achievement titles only:
+
+trivia_king
+Display: [Trivia King]
+Requirement: win 100 trivia games
+Category: games
+Perk: trivia_bonus +10
+
+word_master
+Display: [Word Master]
+Requirement: win 100 word scramble games
+Category: games
+Perk: scramble_bonus +10
+
+riddle_lord
+Display: [Riddle Lord]
+Requirement: win 100 riddle games
+Category: games
+Perk: riddle_bonus +10
+
+If player tries:
+!buytitle trivia_king
+
+Reply:
+⚠️ [Trivia King] is earned, not bought.
+Requirement: Win 100 trivia games.
+
+Same for word_master and riddle_lord.
+
+==================================================
+PART 8 — Title Shop Display Polish
+==================================================
+
+!titleshop
+!shop titles
+
+Both should show the same unified Title V2 shop.
+
+Example:
+
+🏷️ Title Shop 1/2
+ID: rookie [Rookie] — 3,000c
+ID: lucky [Lucky] — 7,500c
+ID: grinder [Grinder] — 12,000c
+ID: regular [Regular] — 25,000c
+ID: vip_player [VIP Player] — 50,000c
+
+Buy: !buytitle rookie
+Info: !titleinfo rookie
+Next: !titleshop 2
+
+Rules:
+- only show buyable Shop titles
+- 5 per page
+- show title ID clearly
+- show price clearly
+- show [OWNED] if owned
+- show [EQUIPPED] if equipped
+- do not show Millionaire, High Roller, Trivia King, Word Master, Riddle Lord as buyable
+
+==================================================
+PART 9 — Title Menu With Emojis
+==================================================
+
+!titles
+
+Reply:
+
+🏷️ Title Menu
+🛒 Shop: !titleshop
+🎒 Owned: !mytitles
+📈 Progress: !titleprogress
+⚡ Boosts: !myboosts
+📊 Stats: !mystats
+❓ Help: !titlehelp
+
+Keep under 249 characters.
+
+==================================================
+PART 10 — Title Help With Emojis
+==================================================
+
+!titlehelp
+
+Message 1:
+🏷️ Title Commands
+🛒 Shop: !titleshop
+🎒 Owned: !mytitles
+🌐 All: !alltitles
+ℹ️ Info: !titleinfo rookie
+
+Message 2:
+💰 Buy: !buytitle rookie
+✅ Equip: !equiptitle rookie
+❌ Unequip: !unequiptitle
+📈 Progress: !titleprogress
+
+Message 3:
+⚡ Boosts: !myboosts
+📊 Stats: !mystats
+🏆 Claim: !claimtitles
+🌟 Prestige: !prestige
+
+Message 4:
+🔍 Search: !titlesearch lucky
+🎒 Loadouts: !loadouts
+⭐ Best: !besttitle casino
+🏅 LB: !titlelb
+
+Each message under 249 characters.
+
+==================================================
+PART 11 — Shop Menu Polish
+==================================================
+
+!shop
+!botshop
+
+Reply:
+
+🛍️ ChillTopia Shop
+🏷️ Titles: !titleshop
+🎖️ Badges: !badgeshop
+💰 Coin Packs: !buypack
+🎟️ Luxe Tickets: !luxe
+💎 VIP: !vip
+
+Only show working commands.
+If coin packs are not working, do not show them until routed.
+
+==================================================
+PART 12 — My Titles Display
+==================================================
+
+!mytitles
+
+Expected:
+
+🏷️ Your Titles
+Equipped: [Rookie]
+
+Shop:
+1) rookie [Rookie] [EQUIPPED]
+2) lucky [Lucky]
+
+Achievement:
+3) sea_hunter [Sea Hunter]
+4) millionaire_ach [Millionaire]
+
+Equip: !equiptitle rookie
+Boosts: !myboosts
+
+If none:
+You do not own titles yet.
+Shop: !titleshop
+Progress: !titleprogress
+
+Allow:
+!equiptitle 1
+
+to equip the first title from the last !mytitles list.
+
+==================================================
+PART 13 — Title Info Polish
+==================================================
+
+!titleinfo rookie
+
+Expected:
+
+🏷️ [Rookie]
+ID: rookie
+Source: Shop
+Tier: Common
+Cost: 3,000 coins
+Perk: +5 daily coins
+Buy: !buytitle rookie
+
+If owned:
+Owned: Yes
+Equip: !equiptitle rookie
+
+If equipped:
+Equipped: Yes
+
+!titleinfo millionaire_ach
+
+Expected:
+
+🏷️ [Millionaire]
+ID: millionaire_ach
+Source: Achievement
+Tier: Legendary
+Requirement: Hold 1,000,000 ChillCoins
+Progress: X / 1,000,000
+Perk: +5% game rewards
+
+!titleinfo high_roller_ach
+
+Expected:
+
+🏷️ [High Roller]
+ID: high_roller_ach
+Source: Achievement
+Tier: Epic
+Requirement: Wager 1,000,000 ChillCoins
+Progress: X / 1,000,000
+Perk: +5% casino rewards
+
+==================================================
+PART 14 — Buy Title Safety
+==================================================
+
+!buytitle title_id
+
+Rules:
+- title must exist
+- source must be Shop
+- buyable must be true
+- active must be true
+- player must not already own it
+- player must have enough ChillCoins
+- apply shop discount if applicable
+- deduct ChillCoins once
+- grant title once
+- log purchase
+
+Success:
+✅ Bought title: [Rookie] for 3,000 coins.
+Equip: !equiptitle rookie
+
+Already owned:
+You already own [Rookie].
+Equip: !equiptitle rookie
+
+Not buyable:
+⚠️ This title is earned, not bought.
+Progress: !titleprogress
+
+Not enough:
+⚠️ Not enough ChillCoins.
+Price: 3,000
+Balance: 500
+
+Duplicate safety:
+- if command fires twice, do not deduct twice
+- if ownership already exists, do not deduct again
+
+Old alias:
+!buy title rookie
+
+must call same logic.
+
+==================================================
+PART 15 — Equip Title Safety
+==================================================
+
+!equiptitle title_id
+
+Rules:
+- title must exist
+- player must own title
+- title must be active
+- seasonal title must not be expired
+- equip title
+- perks activate immediately
+- log equip
+
+Success:
+✅ Equipped title: [Rookie]
+Boosts: !myboosts
+
+Already equipped:
+✅ That title is already equipped.
+
+Not owned:
+⚠️ You do not own [Rookie].
+Shop: !titleshop
+Progress: !titleprogress
+
+Expired:
+⚠️ This seasonal title has expired.
+
+Old alias:
+!equip title rookie
+
+must call same logic.
+
+==================================================
+PART 16 — Visible Boosts / Stats / Progress
+==================================================
+
+!myboosts / !perks / !titleperks:
+
+⚡ Your Active Boosts
+Title: [Rookie]
+Badge: none
+
+Daily Coins: +5
+
+If no boosts:
+⚡ Your Active Boosts
+No active boosts yet.
+Equip a title or badge to activate perks.
+
+!mystats:
+
+📊 Your Stats
+Fish Caught: X
+Ores Mined: X
+Casino Hands: X
+Casino Winnings: X
+Gold Tipped: X
+Badges Owned: X
+Titles Owned: X
+
+!titleprogress:
+
+🏆 Title Progress
+Wealth: X / 1,000,000
+Next: [Millionaire]
+
+Casino: X / 1,000,000 wagered
+Next: [High Roller]
+
+Games: X / 100 wins
+Next: [Trivia King]
+
+==================================================
+PART 17 — Keep All Planned Unlockable Titles
+==================================================
+
+Do not remove planned achievement titles.
+
+Keep:
+Fishing:
+new_angler
+skilled_fisher
+sea_hunter
+deep_sea_legend
+ocean_god
+
+Mining:
+stone_miner
+iron_breaker
+crystal_baron
+mine_lord
+core_breaker
+
+Casino:
+card_rookie
+table_regular
+sharp_player
+high_roller_ach
+casino_boss
+jackpot_king
+royal_flush_legend
+blackjack_god
+all_in_demon
+casino_billionaire
+
+Wealth:
+big_spender
+money_maker
+millionaire_ach
+multi_millionaire
+billionaire
+chilltopia_tycoon
+
+Social:
+chill_regular
+chilltopia_citizen
+room_legend
+chilltopia_og
+
+Supporter:
+supporter
+vip_supporter
+whale
+chilltopia_patron
+
+Games:
+game_rookie
+game_addict
+arcade_master
+chilltopia_champion
+trivia_king
+word_master
+riddle_lord
+
+Jail:
+jailbird
+most_wanted
+warden
+escape_artist
+
+Collector:
+badge_collector
+badge_hoarder
+legend_collector
+completionist
+
+Seasonal:
+weekly_poker_king
+weekly_fisher
+weekly_miner
+weekly_whale
+monthly_champion
+
+Secret:
+lucky_devil
+comeback_king
+whale_whisperer
+vault_breaker
+
+Craft/rep compatibility:
+lounge_miner
+master_miner
+starfinder
+
+==================================================
+PART 18 — Command Registry Cleanup
+==================================================
+
+Fix command registry issues.
+
+Run:
+!checkcommands all
+!commandissues
+
+For every title/shop command:
+- active command must have owner
+- active command must have route
+- active command must have handler
+
+No title command should appear as missing/no-owner/no-handler.
+
+Commands to verify:
+!titles
+!titleshop
+!alltitles
+!mytitles
+!titleinfo
+!buytitle
+!equiptitle
+!unequiptitle
+!titlesearch
+!titleprogress
+!claimtitles
+!myboosts
+!perks
+!titleperks
+!mystats
+!prestige
+!titlehelp
+!shop
+!botshop
+!shop titles
+!buy title
+!equip title
+
+If a command is not implemented:
+- hide it
+- mark deprecated
+- or route to a helpful message
+
+Do not show broken commands in help.
+
+==================================================
+PART 19 — Player Help Cleanup
+==================================================
+
+!help
+
+Message:
+
+👋 ChillTopia Help
+🛍️ Shop: !shop
+🎮 Games: !games
+🏦 Bank: !bank
+🏷️ Titles: !titles
+🎖️ Badges: !badges
+🔔 Alerts: !notifysettings
+
+Second message if needed:
+
+Useful:
+!bal
+!daily
+!myboosts
+!mystats
+!titleprogress
+!badgehelp
+
+Do not show staff/admin commands to normal players.
+
+==================================================
+PART 20 — Admin Title Help
+==================================================
+
+!adminhelp
+!staffhelp
+
+Add title admin section:
+
+🏷️ Title Admin
+!givetitle @user title_id
+!settitle @user title_id
+!removetitle @user title_id
+!cleartitle @user
+!titleaudit @user
+
+Second message:
+!addtitle id "Name" tier source price
+!edittitle id field value
+!settitlebuyable id on/off
+!titlelogs @user
+
+Only staff/owner should see this.
+
+==================================================
+PART 21 — Error Logging
+==================================================
+
+Improve command error logs.
+
+Console should print:
+[COMMAND ERROR]
+cmd=!equiptitle
+user=@4ktreyMarion
+args=['rookie']
+owner=BankingBot
+module=title_system
+error=...
+
+Player should get:
+⚠️ Title command error. Please try again or tell the owner.
+
+Do not expose traceback to players.
+
+==================================================
+PART 22 — Commandtest
+==================================================
+
+Make these pass:
+
+!commandtest !equiptitle
+Expected:
+cmd=equiptitle
+owner=BankingBot
+module=title_system
+route=YES
+handler=YES
+
+!commandtest !buytitle
+Expected:
+owner=BankingBot
+module=title_system
+route=YES
+handler=YES
+
+!commandtest !titleshop
+Expected:
+owner=BankingBot
+module=title_system
+route=YES
+handler=YES
+
+!commandtest !shop
+Expected:
+owner=BankingBot
+module=shop
+route=YES
+handler=YES
+
+!commandtest !botshop
+Expected:
+alias_of=!shop
+route=YES
+
+==================================================
+PART 23 — Compile
+==================================================
+
+Run:
+
+python -m py_compile main.py
+python -m py_compile database.py
+python -m py_compile modules/title_system.py
+python -m py_compile modules/shop.py
+python -m py_compile modules/command_registry.py
+python -m py_compile modules/cmd_audit.py
+python -m py_compile modules/help_cmds.py
+python -m py_compile modules/admin_cmds.py
+
+Adjust filenames if needed.
+
+==================================================
+PART 24 — Live Tests
+==================================================
+
+Test 1:
+!titleshop
+
+Expected:
+Shows only relevant shop titles:
+Rookie, Lucky, Grinder, Regular, VIP Player, Casino Regular, Chill Elite, Elite, Immortal, ChillTopia Royalty.
+
+Does NOT show:
+Millionaire, High Roller, Trivia King, Word Master, Riddle Lord.
+
+Test 2:
+!buytitle rookie
+
+Expected:
+✅ Bought title: [Rookie] for 3,000 coins.
+
+Test 3:
+!equiptitle rookie
+
+Expected:
+✅ Equipped title: [Rookie]
+No command error.
+
+Test 4:
+!myboosts
+
+Expected:
+Daily Coins: +5
+
+Test 5:
+!buytitle millionaire
+
+Expected:
+Says Millionaire is achievement-only.
+
+Test 6:
+!buytitle high_roller
+
+Expected:
+Says High Roller is achievement-only.
+
+Test 7:
+!titles wealth
+
+Expected:
+Shows Millionaire achievement.
+
+Test 8:
+!titles casino
+
+Expected:
+Shows High Roller achievement.
+
+Test 9:
+!titles games
+
+Expected:
+Shows Trivia King, Word Master, Riddle Lord as achievement titles.
+
+Test 10:
+!shop titles
+
+Expected:
+Same as !titleshop.
+
+Test 11:
+!buy title lucky
+
+Expected:
+Old alias works.
+
+Test 12:
+!equip title lucky
+
+Expected:
+Old alias works.
+
+Test 13:
+!titlehelp
+
+Expected:
+Shows complete title commands with emojis.
+
+Test 14:
+!shop
+!botshop
+
+Expected:
+Emoji shop menu.
+
+Test 15:
+!checkcommands all
+!commandissues
+
+Expected:
+No missing title/shop commands.
+
+Final report:
+1. Removed misleading buyable Millionaire shop title
+2. Removed misleading buyable High Roller shop title
+3. Added relevant shop titles
+4. Kept Millionaire as wealth achievement
+5. Kept High Roller as casino achievement
+6. Game-specific titles are achievement-only
+7. !equiptitle crash fixed
+8. Old title commands still work
+9. Emoji shop/title help polished
+10. Command registry issues reduced
+11. Py_compile result
+12. Bot stability result

@@ -47,8 +47,8 @@ TITLE_CATALOG: dict[str, dict] = {
         "display": "[Lucky]", "tier": "Common", "source": "Shop",
         "category": "shop", "price": 7_500, "buyable": True,
         "req_type": "", "req_val": 0,
-        "perks": {"casino_reward_pct": 2.0},
-        "description": "+2% casino rewards",
+        "perks": {"game_reward_pct": 2.0},
+        "description": "+2% game rewards",
     },
     "grinder": {
         "display": "[Grinder]", "tier": "Rare", "source": "Shop",
@@ -56,6 +56,13 @@ TITLE_CATALOG: dict[str, dict] = {
         "req_type": "", "req_val": 0,
         "perks": {"game_reward_pct": 3.0},
         "description": "+3% game rewards",
+    },
+    "regular": {
+        "display": "[Regular]", "tier": "Rare", "source": "Shop",
+        "category": "shop", "price": 25_000, "buyable": True,
+        "req_type": "", "req_val": 0,
+        "perks": {"daily_coins_bonus": 10},
+        "description": "+10 daily coins",
     },
     "trivia_king": {
         "display": "[Trivia King]", "tier": "Epic", "source": "Achievement",
@@ -82,39 +89,46 @@ TITLE_CATALOG: dict[str, dict] = {
         "announce": True,
     },
     "casino_rat": {
-        "display": "[Casino Rat]", "tier": "Epic", "source": "Shop",
-        "category": "shop", "price": 35_000, "buyable": True,
+        "display": "[Casino Rat]", "tier": "Rare", "source": "Legacy",
+        "category": "shop", "price": 0, "buyable": False,
         "req_type": "", "req_val": 0,
-        "perks": {"casino_reward_pct": 5.0},
-        "description": "+5% casino rewards",
+        "perks": {"casino_reward_pct": 3.0},
+        "description": "Discontinued shop title",
     },
     "high_roller": {
-        "display": "[High Roller]", "tier": "Epic", "source": "Shop",
-        "category": "shop", "price": 75_000, "buyable": True,
-        "req_type": "", "req_val": 0,
+        "display": "[High Roller]", "tier": "Epic", "source": "Legacy",
+        "category": "casino", "price": 0, "buyable": False,
+        "req_type": "casino_lifetime_wagered", "req_val": 1_000_000,
         "perks": {"casino_reward_pct": 5.0},
-        "description": "+5% casino rewards",
+        "description": "Wager 1M coins in casino games | +5% casino",
     },
     "millionaire": {
-        "display": "[Millionaire]", "tier": "Legendary", "source": "Shop",
-        "category": "shop", "price": 100_000, "buyable": True,
-        "req_type": "", "req_val": 0,
+        "display": "[Millionaire]", "tier": "Legendary", "source": "Legacy",
+        "category": "wealth", "price": 0, "buyable": False,
+        "req_type": "balance_milestone", "req_val": 1_000_000,
         "perks": {"daily_coins_bonus": 25, "game_reward_pct": 3.0},
-        "description": "+25 daily coins, +3% game rewards",
+        "description": "Hold 1M ChillCoins balance | +25 daily, +3% game",
     },
     "elite": {
         "display": "[Elite]", "tier": "Legendary", "source": "Shop",
-        "category": "shop", "price": 250_000, "buyable": True,
+        "category": "shop", "price": 300_000, "buyable": True,
         "req_type": "", "req_val": 0,
-        "perks": {"game_reward_pct": 10.0},
-        "description": "+10% game rewards",
+        "perks": {"game_reward_pct": 8.0},
+        "description": "+8% game rewards",
     },
     "immortal": {
         "display": "[Immortal]", "tier": "Mythic", "source": "Shop",
-        "category": "shop", "price": 500_000, "buyable": True,
+        "category": "shop", "price": 750_000, "buyable": True,
         "req_type": "", "req_val": 0,
-        "perks": {"game_reward_pct": 15.0, "daily_coins_bonus": 50},
-        "description": "+15% game rewards, +50 daily coins",
+        "perks": {"game_reward_pct": 12.0, "daily_coins_bonus": 50},
+        "description": "+12% game rewards, +50 daily coins",
+    },
+    "chilltopia_royalty": {
+        "display": "[ChillTopia Royalty]", "tier": "Mythic", "source": "Shop",
+        "category": "shop", "price": 1_500_000, "buyable": True,
+        "req_type": "", "req_val": 0,
+        "perks": {"game_reward_pct": 15.0, "daily_coins_bonus": 100},
+        "description": "+15% game rewards, +100 daily coins",
     },
     "vip_player": {
         "display": "[VIP Player]", "tier": "Epic", "source": "Shop",
@@ -122,6 +136,13 @@ TITLE_CATALOG: dict[str, dict] = {
         "req_type": "", "req_val": 0,
         "perks": {"shop_discount_pct": 3.0},
         "description": "+3% shop discount",
+    },
+    "casino_regular": {
+        "display": "[Casino Regular]", "tier": "Epic", "source": "Shop",
+        "category": "shop", "price": 75_000, "buyable": True,
+        "req_type": "", "req_val": 0,
+        "perks": {"casino_reward_pct": 3.0},
+        "description": "+3% casino rewards",
     },
     "chill_elite": {
         "display": "[Chill Elite]", "tier": "Legendary", "source": "Shop",
@@ -619,8 +640,11 @@ _CAT_LABELS: dict[str, str] = {
     "legacy": "Legacy",
 }
 
-# Titles moved from Shop to Achievement — old owners keep them as Legacy
-_LEGACY_SHOP_TITLES: frozenset[str] = frozenset({"trivia_king", "word_master", "riddle_lord"})
+# Titles moved from Shop to Achievement/Legacy — old owners keep them as Legacy
+_LEGACY_SHOP_TITLES: frozenset[str] = frozenset({
+    "trivia_king", "word_master", "riddle_lord",
+    "casino_rat", "high_roller", "millionaire",
+})
 
 # Tiers considered "public announce" on unlock
 _ANNOUNCE_TIERS = {"Epic", "Legendary", "Mythic", "Exclusive", "Seasonal"}
@@ -915,12 +939,12 @@ async def handle_titles_menu(bot: BaseBot, user: User, args: list[str]) -> None:
 
     await _w(bot, user.id,
         "🏷️ Title Menu\n"
-        "Shop: !titleshop\n"
-        "Owned: !mytitles\n"
-        "Progress: !titleprogress\n"
-        "Boosts: !myboosts\n"
-        "Stats: !mystats\n"
-        "Help: !titlehelp")
+        "🛒 Shop: !titleshop\n"
+        "🎒 Owned: !mytitles\n"
+        "📈 Progress: !titleprogress\n"
+        "⚡ Boosts: !myboosts\n"
+        "📊 Stats: !mystats\n"
+        "❓ Help: !titlehelp")
 
 
 async def _handle_category_browse(bot: BaseBot, user: User,
@@ -1135,9 +1159,24 @@ async def handle_buytitle(bot: BaseBot, user: User, args: list[str]) -> None:
     if not t:
         await _w(bot, user.id, f"Title '{tid}' not found.")
         return
-    if not t.get("buyable", False) or t.get("source") != "Shop":
-        await _w(bot, user.id,
-            f"⚠️ This title cannot be bought.\nUnlock: !titleprogress")
+    if not t.get("buyable", False) or t.get("source") not in ("Shop",):
+        src = t.get("source", "Achievement")
+        req = t.get("req_type", "")
+        cat = t.get("category", "")
+        if req and req not in ("seasonal", "secret", "craft"):
+            req_desc = t.get("description", "").split("|")[0].strip()
+            await _w(bot, user.id,
+                f"⚠️ {t['display']} is earned, not bought.\n"
+                f"Requirement: {req_desc}\n"
+                f"Progress: !titleprogress {cat}")
+        elif src == "Legacy":
+            await _w(bot, user.id,
+                f"⚠️ {t['display']} is no longer sold in the shop.\n"
+                f"It is now an earned title.")
+        else:
+            await _w(bot, user.id,
+                f"⚠️ {t['display']} cannot be bought.\n"
+                f"Progress: !titleprogress")
         return
     if _user_owns(user.id, tid):
         await _w(bot, user.id,
@@ -1426,23 +1465,28 @@ async def handle_prestige(bot: BaseBot, user: User, args: list[str]) -> None:
 
 
 async def handle_titlehelp(bot: BaseBot, user: User) -> None:
-    """!titlehelp — three message help."""
+    """!titlehelp — four message help with emojis."""
     await _w(bot, user.id,
         "🏷️ Title Commands\n"
-        "Shop: !titleshop\n"
-        "All: !alltitles\n"
-        "Owned: !mytitles\n"
-        "Info: !titleinfo high_roller")
+        "🛒 Shop: !titleshop\n"
+        "🌐 All: !alltitles\n"
+        "🎒 Owned: !mytitles\n"
+        "ℹ️ Info: !titleinfo rookie")
     await _w(bot, user.id,
-        "Buy: !buytitle high_roller\n"
-        "Equip: !equiptitle high_roller\n"
-        "Unequip: !unequiptitle\n"
-        "Progress: !titleprogress")
+        "💰 Buy: !buytitle rookie\n"
+        "✅ Equip: !equiptitle rookie\n"
+        "❌ Unequip: !unequiptitle\n"
+        "📈 Progress: !titleprogress")
     await _w(bot, user.id,
-        "Boosts: !myboosts\n"
-        "Stats: !mystats\n"
-        "Claim: !claimtitles\n"
-        "Prestige: !prestige")
+        "⚡ Boosts: !myboosts\n"
+        "📊 Stats: !mystats\n"
+        "🏆 Claim: !claimtitles\n"
+        "🌟 Prestige: !prestige")
+    await _w(bot, user.id,
+        "🔍 Search: !titlesearch lucky\n"
+        "🎒 Loadouts: !loadouts\n"
+        "⭐ Best: !besttitle casino\n"
+        "🏅 LB: !titlelb")
 
 
 async def handle_loadout(bot: BaseBot, user: User, args: list[str]) -> None:
