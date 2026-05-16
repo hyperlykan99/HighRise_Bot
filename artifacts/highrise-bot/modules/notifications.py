@@ -301,16 +301,16 @@ async def handle_notify(bot: BaseBot, user: User, args: list[str]) -> None:
 # ── /notifyhelp ───────────────────────────────────────────────────────────────
 
 async def handle_notifyhelp(bot: BaseBot, user: User, args: list[str]) -> None:
-    """/notifyhelp — help for notification commands (DM-only system)."""
+    """/notifyhelp — help for notification commands (room + DM)."""
     await _w(bot, user.id,
              "🔔 Notification Help\n"
-             "Subscribe: DM me !sub\n"
-             "Stop: DM me !unsub\n"
-             "Settings: DM me !notifysettings\n"
-             "Edit: DM me !notify events on/off")
+             "Subscribe: !sub\n"
+             "Stop: !unsub\n"
+             "Settings: !notifysettings\n"
+             "Edit: !notify events on/off")
     await _w(bot, user.id,
              "Categories:\nevents, games, announcements,\npromos, tips\n"
-             "\nNote: Notification settings are\nDM-only. Random DMs are ignored.")
+             "Works in room or DM.\nRandom DMs are ignored.")
 
 
 # ── /notifications ────────────────────────────────────────────────────────────

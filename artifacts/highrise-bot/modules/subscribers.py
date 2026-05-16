@@ -399,7 +399,7 @@ async def process_incoming_dm(
         db.ensure_notify_prefs(uname_lower)
         try:
             db.ensure_notification_subscription(user_id, uname_lower)
-            db.set_notification_subscribed(user_id, uname_lower, True, source="manual")
+            db.set_notification_subscribed(user_id, uname_lower, True, source="manual_dm")
             db.insert_notification_action_log("notification_subscribe", user_id, uname_lower)
         except Exception:
             pass
@@ -408,7 +408,7 @@ async def process_incoming_dm(
                  "Use !unsub to stop.")
         await send_dm(bot, conversation_id, reply[:249])
         db.set_subscriber_last_dm(uname_lower)
-        print(f"[NOTIFY] subscribe user=@{username} source=manual channel=dm")
+        print(f"[NOTIFY] subscribe user=@{username} source=manual_dm channel=dm")
         return
 
     # ── Settings view ─────────────────────────────────────────────────────────
@@ -489,15 +489,16 @@ async def process_incoming_dm(
 # ── /subscribe ────────────────────────────────────────────────────────────────
 
 async def handle_subscribe(bot: BaseBot, user: User, args: list[str]) -> None:
-    """!subscribe / !sub — opt in to DM notifications."""
+    """!subscribe / !sub (room) — opt in to notifications; whispers reply."""
     db.ensure_user(user.id, user.username)
     uname = user.username.lower()
 
     existing = db.get_subscriber_by_user_id(user.id) or db.get_subscriber(uname)
     if existing and existing.get("subscribed"):
         await _w(bot, user.id,
-                 "You are already subscribed.\n"
-                 "Use !notifysettings to edit alerts or !unsub to stop.")
+                 "✅ You are already subscribed.\n"
+                 "Settings: !notifysettings\n"
+                 "Stop: !unsub")
         return
 
     db.upsert_subscriber_by_user_id(user.id, uname)
@@ -506,16 +507,19 @@ async def handle_subscribe(bot: BaseBot, user: User, args: list[str]) -> None:
     db.ensure_notify_prefs(uname)
     try:
         db.ensure_notification_subscription(user.id, uname)
-        db.set_notification_subscribed(user.id, uname, True, source="manual")
+        db.set_notification_subscribed(user.id, uname, True, source="manual_room")
         db.insert_notification_action_log("notification_subscribe", user.id, uname)
     except Exception:
         pass
 
-    await _w(bot, user.id,
-             "✅ Alerts ON.\n"
-             "Use !notifysettings to choose alerts.\n"
-             "Use !unsub to stop.")
-    print(f"[NOTIFY] notification_subscribe user=@{user.username} source=manual")
+    # Check whether DM inbox is linked — if not, add a tip to link it
+    sub_row = db.get_subscriber_by_user_id(user.id) or db.get_subscriber(uname)
+    has_dm = bool(sub_row and sub_row.get("conversation_id") and sub_row.get("dm_available"))
+    reply = "✅ Alerts ON.\nUse !notifysettings to manage.\nUse !unsub to stop."
+    if not has_dm:
+        reply = (reply + "\nTip: DM me once to link your inbox.")
+    await _w(bot, user.id, reply[:249])
+    print(f"[NOTIFY] notification_subscribe user=@{user.username} source=manual_room")
 
 
 # ── /unsubscribe ──────────────────────────────────────────────────────────────

@@ -5077,17 +5077,10 @@ class HangoutBot(BaseBot):
             await handle_clearnotifications(self, user, args)
 
         elif cmd in {"notifysettings", "alerts"}:
-            await self.highrise.send_whisper(
-                user.id,
-                "📩 Notification settings are managed in DM.\nDM me !notifysettings."
-            )
+            await handle_notifysettings_v2(self, user)
 
         elif cmd == "notify":
-            cat_hint = " ".join(args[1:3]) if len(args) >= 3 else "[category] on/off"
-            await self.highrise.send_whisper(
-                user.id,
-                f"📩 Please edit notification settings in DM.\nDM me: !notify {cat_hint}"[:249]
-            )
+            await handle_notify_v2(self, user, args)
 
         elif cmd == "notifyhelp":
             await handle_notifyhelp(self, user, args)
@@ -5129,18 +5122,10 @@ class HangoutBot(BaseBot):
             await handle_pendingnotifications(self, user, args)
 
         elif cmd in {"subscribe", "sub"}:
-            await self.highrise.send_whisper(
-                user.id,
-                "📩 Please DM me !sub to subscribe to alerts.\n"
-                "Manage alerts in DM with !notifysettings."
-            )
+            await handle_subscribe(self, user, args)
 
         elif cmd in {"unsubscribe", "unsub"}:
-            await self.highrise.send_whisper(
-                user.id,
-                "📩 Please DM me !unsub to unsubscribe from alerts.\n"
-                "Manage alerts in DM with !notifysettings."
-            )
+            await handle_unsubscribe(self, user, args)
 
         elif cmd == "substatus":
             if args and len(args) >= 2:

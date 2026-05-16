@@ -127,32 +127,41 @@ async def handle_notify_v2(
 ) -> None:
     """
     !notify [category] [on/off] — toggle a notification category.
-    New categories: events, games, announcements, promos, tips.
-    Falls through to old handler for unrecognised categories.
+    Supports args as ["!notify", "cat", "val"] or ["cat", "val"].
+    Unknown categories get a clean error — no fallback to old system.
     """
-    if len(args) < 3:
+    # Resolve category and toggle regardless of whether "notify" is in args[0]
+    if args and args[0].lstrip("!").lower() == "notify":
+        _cat_raw = args[1] if len(args) > 1 else ""
+        _tog_raw = args[2] if len(args) > 2 else ""
+    else:
+        _cat_raw = args[0] if len(args) > 0 else ""
+        _tog_raw = args[1] if len(args) > 1 else ""
+
+    if not _cat_raw or not _tog_raw:
         await _w(bot, user.id,
                  "Usage: !notify [category] on/off\n"
                  "Categories: events games announcements promos tips")
         return
 
-    cat = _resolve_category(args[1])
-    toggle = args[2].lower().strip()
+    cat = _resolve_category(_cat_raw)
+    toggle = _tog_raw.lower().strip()
 
     if cat is None:
-        # Unknown category — let the old handler deal with it
-        from modules.notifications import handle_notify as _old_handle_notify
-        await _old_handle_notify(bot, user, args)
+        await _w(bot, user.id,
+                 "⚠️ Unknown category.\n"
+                 "Use: events, games, announcements, promos, tips.")
         return
 
     if toggle not in ("on", "off"):
         await _w(bot, user.id,
-                 f"Use: !notify {args[1]} on or !notify {args[1]} off")
+                 f"⚠️ Use ON or OFF.\n"
+                 f"Example: !notify {_cat_raw} on")
         return
 
     row = db.get_notification_subscription(user.id)
     if not row or not row.get("subscribed"):
-        await _w(bot, user.id, "⚠️ You are not subscribed. Use !sub first.")
+        await _w(bot, user.id, "⚠️ Alerts are OFF.\nUse !sub first.")
         return
 
     enabled = toggle == "on"
@@ -162,7 +171,7 @@ async def handle_notify_v2(
         category=cat, details=toggle,
     )
     label = _CATEGORY_LABELS[cat]
-    await _w(bot, user.id, f"✅ {label} alerts {toggle.upper()}.")
+    await _w(bot, user.id, f"✅ {label} alerts {toggle.upper()}.\nSettings: !notifysettings")
     print(f"[NOTIFY] settings_change user=@{user.username} cat={cat} val={toggle}")
 
 
