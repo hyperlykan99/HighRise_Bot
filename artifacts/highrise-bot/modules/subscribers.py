@@ -109,7 +109,7 @@ def _is_unsubscribe_request(norm: str) -> bool:
 
 def _is_subscribe_request(norm: str) -> bool:
     """norm must already be lowercased and stripped via _normalize_dm."""
-    return norm == "subscribe" or norm.startswith("subscribe")
+    return norm in ("sub", "subscribe") or norm.startswith("subscribe")
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
