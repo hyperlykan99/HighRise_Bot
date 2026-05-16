@@ -1,0 +1,87 @@
+Fix QA Test Registry Reader — Cmd object has no owner_bot
+
+Current live issue:
+!qatest works and opens the menu.
+!qatest all runs.
+But reports:
+Passed: 18
+Failed: 51
+
+!qatest commands reports:
+Passed: 0
+Failed: 51
+
+Repeated error:
+AttributeError: 'Cmd' object has no attribute 'owner_bot'
+
+Cause:
+modules/qa_test.py is checking command registry entries using entry.owner_bot, but the actual Cmd object in command_registry.py does not have owner_bot.
+
+Goal:
+Fix QA registry checks so they read the real command registry structure safely.
+
+Only modify:
+- modules/qa_test.py
+- modules/command_registry.py only if needed
+- modules/cmd_audit.py only if needed
+
+Do not modify gameplay.
+
+Requirements:
+1. Inspect the actual Cmd definition in modules/command_registry.py.
+2. Update QA helper _check_cmd() to support the real fields.
+3. Do not assume entry.owner_bot exists.
+4. Safely support possible fields:
+   - owner_bot
+   - owner
+   - bot
+   - module
+   - handler
+   - routed
+   - active
+   - hidden
+   - deprecated
+   - perm
+5. If field does not exist, do not crash.
+6. If command is hidden/deprecated, report it as skipped, not failed.
+7. If command is active and has owner/route/handler, pass it.
+8. If command is active but missing route/handler/owner, fail it clearly.
+
+Expected output after fix:
+!qatest commands
+
+Should not show:
+AttributeError: 'Cmd' object has no attribute 'owner_bot'
+
+Instead show real failures like:
+❌ !promo: no handler
+or:
+✅ !sub owner=host module=notifications
+
+Also fix !qatest all and !qatest notify so they do not spam repeated AttributeErrors.
+
+Add helper:
+
+def _safe_get(entry, *names, default=None):
+    for name in names:
+        if hasattr(entry, name):
+            return getattr(entry, name)
+        if isinstance(entry, dict) and name in entry:
+            return entry[name]
+    return default
+
+Use it in _check_cmd().
+
+Final tests:
+python -m py_compile modules/qa_test.py
+python -m py_compile modules/command_registry.py
+
+Live tests:
+!qatest commands
+!qatest notify
+!qatest all
+!qatest failed
+
+Expected:
+No AttributeError.
+QA report shows real pass/fail results.

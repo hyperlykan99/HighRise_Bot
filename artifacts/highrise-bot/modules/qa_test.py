@@ -79,17 +79,30 @@ def _check(label: str, condition: bool) -> tuple[bool, str]:
 
 # ── Registry-based routing check ─────────────────────────────────────────────
 
+def _safe_get(entry, *names, default=None):
+    """Read the first matching attribute or dict key from entry."""
+    for name in names:
+        if hasattr(entry, name):
+            return getattr(entry, name)
+        if isinstance(entry, dict) and name in entry:
+            return entry[name]
+    return default
+
+
 def _check_cmd(cmd: str) -> tuple[bool, str]:
-    """Return pass/fail based on REGISTRY entry presence."""
+    """Return pass/fail based on REGISTRY entry.
+    Cmd fields: owner, cat, fallback, safe, write, perm, aliases.
+    """
     try:
         from modules.command_registry import REGISTRY, alias_map  # noqa: PLC0415
         key   = alias_map.get(cmd, cmd)
         entry = REGISTRY.get(key)
         if entry is None:
             return _fail(f"!{cmd}: no registry entry")
-        if not entry.owner_bot:
+        owner = _safe_get(entry, "owner", "owner_bot", "bot", default="")
+        if not owner:
             return _fail(f"!{cmd}: no owner set")
-        return _ok(f"!{cmd} owner={entry.owner_bot}")
+        return _ok(f"!{cmd} owner={owner}")
     except Exception as exc:
         return _fail(f"!{cmd}: error {exc!r}"[:60])
 
