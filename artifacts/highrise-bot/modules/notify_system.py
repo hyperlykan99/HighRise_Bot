@@ -38,6 +38,10 @@ _CATEGORY_LABELS = {
     "tips":          "💸 Tips",
 }
 
+# ── Exact DM command sets (spec-mandated; nothing else triggers action) ───────
+_DM_SUB_CMDS   = frozenset({"!sub", "!subscribe", "sub", "subscribe"})
+_DM_UNSUB_CMDS = frozenset({"!unsub", "!unsubscribe", "unsub", "unsubscribe"})
+
 # In-memory two-step confirm flag
 _reset_pending: bool = False
 
@@ -79,19 +83,17 @@ async def send_notify_dm(bot: "BaseBot", user_id: str, message: str) -> str:
 
 
 # ── Normalisation helpers (also used by QA tests) ────────────────────────────
-
-def _normalize(content: str) -> str:
-    return content.strip().lower().lstrip("!")
-
+# Spec: raw.strip().lower() is matched against the exact command sets.
+# No prefix stripping — "!sub" and "sub" are BOTH in _DM_SUB_CMDS explicitly.
 
 def _is_sub_command(raw: str) -> bool:
-    n = _normalize(raw)
-    return n in ("sub", "subscribe")
+    """True only if raw (stripped, lowercased) is an exact subscribe command."""
+    return raw.strip().lower() in _DM_SUB_CMDS
 
 
 def _is_unsub_command(raw: str) -> bool:
-    n = _normalize(raw)
-    return n in ("unsub", "unsubscribe", "stop", "opt out", "optout")
+    """True only if raw (stripped, lowercased) is an exact unsubscribe command."""
+    return raw.strip().lower() in _DM_UNSUB_CMDS
 
 
 # ── DM handler — called from subscribers.process_incoming_dm ─────────────────
@@ -107,17 +109,21 @@ async def process_dm_notify(
     Process a DM for notification sub/unsub.
     Returns True if handled (sub/unsub), False if silently ignored.
 
-    Per spec:
-      - !sub / !subscribe / sub / subscribe  → subscribe + save conv_id
-      - !unsub / !unsubscribe / unsub / unsubscribe / stop → unsubscribe
-      - !notifysettings, !notify …, random text → ignored silently (no reply)
+    Per spec — exact matching only:
+      _DM_SUB_CMDS   → subscribe + save conv_id
+      _DM_UNSUB_CMDS → unsubscribe
+      Everything else → [NOTIFY DM IGNORE] log + silent return
 
-    Always updates conversation_id for already-known users.
+    Do NOT call subscribe, settings, status, help, or any fallback handler.
     Only host/all bot should call this.
     """
     uname = username.lower() if username else f"uid_{user_id[:12]}"
+    raw   = content.strip()
+    lower = raw.lower()
 
-    # If user already has a record, refresh their conversation_id
+    print(f"[NOTIFY DM PARSE] user=@{uname} raw={raw[:60]!r}")
+
+    # If user already has a record, refresh their conversation_id (any DM)
     existing = db.get_notify_user(user_id)
     if existing and conversation_id:
         try:
@@ -128,15 +134,20 @@ async def process_dm_notify(
         except Exception:
             pass
 
-    if _is_sub_command(content):
+    # ── Exact-set matching — only these literals trigger an action ────────────
+    if lower in _DM_SUB_CMDS:
+        print(f"[NOTIFY DM PARSE] raw={raw!r} action=subscribe")
         await _dm_subscribe(bot, user_id, uname, conversation_id)
         return True
 
-    if _is_unsub_command(content):
+    if lower in _DM_UNSUB_CMDS:
+        print(f"[NOTIFY DM PARSE] raw={raw!r} action=unsubscribe")
         await _dm_unsubscribe(bot, user_id, uname, conversation_id)
         return True
 
-    print(f"[QA NOTIFY] dm_parse raw={content!r} action=ignore")
+    # Everything else: silent ignore — no reply, no subscribe, no status
+    print(f"[NOTIFY DM IGNORE] user=@{uname} raw={raw[:60]!r} action=ignore")
+    print(f"[NOTIFY BLOCKED] source=dm_fallback reason=random_dm_no_subscribe")
     return False
 
 

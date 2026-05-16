@@ -1,0 +1,159 @@
+HOTFIX — Random DM Still Auto-Subscribes Notification User
+
+Current live bug:
+After notification reset/rebuild, random DMs still trigger subscription.
+
+Screenshot shows user DMs:
+Hello
+.
+Ok
+?
+
+Bot replies:
+Alerts: ON
+To unsubscribe, reply !unsub or !unsubscribe.
+
+This is wrong.
+
+Expected:
+Random DMs must be ignored completely.
+No reply.
+No subscribe.
+No status.
+No help.
+
+Only these DM messages can subscribe:
+!sub
+!subscribe
+sub
+subscribe
+
+Only these DM messages can unsubscribe:
+!unsub
+!unsubscribe
+unsub
+unsubscribe
+
+Everything else in DM must return silently.
+
+Goal:
+Find and remove any fallback logic that subscribes or replies to random DM messages.
+
+Check:
+- modules/notify_system.py
+- modules/subscribers.py
+- modules/notifications.py
+- modules/sub_notif.py
+- main.py on_message / DM routing
+- modules/multi_bot.py DM routing
+- any inbox summary/autosummary module
+- any old process_incoming_dm or handle_dm_message function
+
+Required parser behavior:
+
+raw = message.strip()
+lower = raw.lower()
+
+if lower in {"!sub", "!subscribe", "sub", "subscribe"}:
+    subscribe
+
+elif lower in {"!unsub", "!unsubscribe", "unsub", "unsubscribe"}:
+    unsubscribe
+
+else:
+    log:
+    [NOTIFY DM IGNORE] user=@name raw='Hello'
+    return None silently
+
+Do NOT call:
+- subscribe
+- settings
+- status
+- help
+- old subscribers handler
+- old notifications handler
+- inbox summary handler
+
+Important:
+DM messages like these must be ignored:
+Hello
+hello
+.
+Ok
+ok
+?
+thanks
+test
+!notifysettings
+!notify tips on
+
+Do not save them as subscription consent.
+Do not set subscribed=1.
+Do not reply.
+
+Add strong logs:
+[NOTIFY DM PARSE] raw='!sub' action=subscribe
+[NOTIFY DM PARSE] raw='!unsub' action=unsubscribe
+[NOTIFY DM IGNORE] raw='Hello' action=ignore
+[NOTIFY BLOCKED] source=dm_fallback reason=random_dm_no_subscribe
+
+Also search project-wide for any code that says:
+Alerts: ON
+To unsubscribe, reply !unsub or !unsubscribe.
+
+There should be only one owner of that exact reply: notify_system.py subscribe handler.
+If another module has that reply, remove/delegate it.
+
+Compile:
+python -m py_compile main.py
+python -m py_compile modules/notify_system.py
+python -m py_compile modules/subscribers.py
+python -m py_compile modules/notifications.py
+python -m py_compile modules/sub_notif.py
+python -m py_compile modules/multi_bot.py
+
+Live test after fix:
+1. !notifyresetall
+2. !confirmnotifyresetall
+3. DM bot:
+Hello
+.
+Ok
+?
+
+Expected:
+No reply.
+
+4. Room:
+!notifyaudit @4ktreyMarion
+
+Expected:
+No record or Subscribed: NO
+
+5. DM bot:
+!sub
+
+Expected:
+Alerts: ON
+To unsubscribe, reply !unsub or !unsubscribe.
+
+6. DM bot:
+!unsub
+
+Expected:
+Alerts: OFF
+
+7. DM bot:
+hello
+
+Expected:
+No reply.
+
+Final report:
+1. Random DM auto-subscribe fixed
+2. Old fallback removed
+3. Only exact !sub/!subscribe subscribes
+4. Only exact !unsub/!unsubscribe unsubscribes
+5. Random DMs ignored
+6. No duplicate DM handlers
+7. Py_compile result

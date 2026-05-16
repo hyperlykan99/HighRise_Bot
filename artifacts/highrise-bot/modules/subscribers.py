@@ -280,19 +280,17 @@ async def process_incoming_dm(
             uname_lower = username.lower()
             print(f"[DM] Found subscriber row for unknown user_id — @{username}")
         else:
-            # User has never used the bot in the room; save placeholder by user_id
-            if BOT_MODE in ("host", "all"):
-                norm_early = _normalize_dm(content)
-                if _is_subscribe_request(norm_early):
-                    # Save the conversation_id keyed on user_id as placeholder username
-                    db.upsert_subscriber_by_user_id(user_id, f"uid_{user_id[:12]}", conversation_id)
-                    db.set_subscribed_by_user_id(user_id, True)
-                    db.set_dm_available_by_user_id(user_id, True)
-                    await send_dm(bot, conversation_id,
-                                  "✅ Alerts ON.\n"
-                                  "Use !notifysettings to manage.\n"
-                                  "Use !unsub to stop.")
-                # Unknown DMs from unseen users are ignored silently.
+            # User has never used the bot in the room.
+            # Per spec: ALL DMs from unseen users are silently ignored here.
+            # notify_system.process_dm_notify handles sub/unsub via conversation_id
+            # when called from the known-user path below — NOT here.
+            print(
+                f"[NOTIFY BLOCKED] source=unknown_user"
+                f" user_id={user_id[:12]}"
+                f" raw={content[:40]!r}"
+                f" reason=never_joined_room_no_subscribe"
+            )
+            # Do NOT auto-subscribe. Do NOT reply. Return silently.
             return
 
     else:
