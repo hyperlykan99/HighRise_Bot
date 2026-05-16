@@ -28,7 +28,10 @@ def _can_audit(username: str) -> bool:
 
 
 async def _w(bot: BaseBot, uid: str, msg: str) -> None:
-    await bot.highrise.send_whisper(uid, msg[:249])
+    try:
+        await bot.highrise.send_whisper(uid, msg[:249])
+    except Exception:
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -56,6 +59,10 @@ HIDDEN_CMDS: frozenset[str] = frozenset({
     "dailyadmin",
     "confirmcasinoreset",
     "auditbank", "auditcasino", "auditeconomy",
+    # Not yet implemented — hidden so they don't appear as active issues
+    "pokerhandlog", "pokerlogs", "pokertest", "pokerverify",
+    "returnbots", "setcoinpack", "sitback",
+    "ticketlog", "tiplogs",
 })
 
 # ---------------------------------------------------------------------------
@@ -226,6 +233,12 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     "delivernotifications", "pendingnotifications",
     "subscribe", "unsubscribe", "substatus", "subscribers",
     "subhelp",
+    "announcement", "promo", "eventalert", "gamealert", "tipalert",
+    "subcount", "unsubuser", "notifyadmin", "alerts", "notifyhelp2",
+    "commandissues", "notifyaudit", "notifystatus",
+    # badge market commands routed in main.py
+    "profilebadge", "rarebadges", "showbadge", "wishlist", "wishbadge",
+    "removewishlist", "unwishlist", "unlockbadge", "setbadgeconfirm",
     "bankhelp", "bankerhelp", "casinohelp", "gamehelp",
     "coinhelp", "economydbcheck", "economyrepair", "profilehelp",
     "crashlogs", "missingbots", "commandaudit",
@@ -932,21 +945,40 @@ SILENT_RISK_CMDS: frozenset[str] = frozenset({
 # Pagination helper
 # ---------------------------------------------------------------------------
 
-_PAGE_SIZE = 10
+_PAGE_SIZE = 8
 
 
-def _paginate(title: str, items: list[str], page: int) -> tuple[str, int]:
-    """Return (message, total_pages).  page is 1-indexed."""
-    total = len(items)
+def _cmd_name(item) -> str | None:
+    """Normalize a command record to a bare command name (no ! prefix)."""
+    if isinstance(item, str):
+        return item.lstrip("!/").strip() or None
+    if isinstance(item, dict):
+        for key in ("command", "name", "cmd"):
+            val = item.get(key)
+            if isinstance(val, str) and val.strip():
+                return val.lstrip("!/").strip()
+    return None
+
+
+def _paginate(title: str, items: list, page: int) -> tuple[str, int]:
+    """Return (message, total_pages).  page is 1-indexed.
+    Each command shown on its own line with ! prefix."""
+    safe: list[str] = []
+    for it in items:
+        n = _cmd_name(it)
+        if n:
+            safe.append(n)
+    total = len(safe)
     if total == 0:
         return f"{title}: none.", 1
     total_pages = max(1, (total + _PAGE_SIZE - 1) // _PAGE_SIZE)
     page = max(1, min(page, total_pages))
     start = (page - 1) * _PAGE_SIZE
-    chunk = items[start:start + _PAGE_SIZE]
-    body = ", ".join(f"/{c}" for c in chunk)
-    suffix = f"  (p{page}/{total_pages})" if total_pages > 1 else ""
-    return f"{title}{suffix}: {body}"[:249], total_pages
+    chunk = safe[start:start + _PAGE_SIZE]
+    suffix = f" {page}/{total_pages}" if total_pages > 1 else ""
+    header = f"⚠️ {title}{suffix}"
+    body = header + "\n" + "\n".join(f"!{c}" for c in chunk)
+    return body[:249], total_pages
 
 
 # ---------------------------------------------------------------------------
@@ -1044,99 +1076,123 @@ async def handle_commandissues(
         await _w(bot, user.id, "Staff only.")
         return
 
-    category = args[1].lower() if args and len(args) >= 2 else ""
+    _category_raw = args[1].lower() if args and len(args) >= 2 else ""
+    # Normalise aliases
+    _CAT_ALIASES = {
+        "no-owner":  "noowner",
+        "no_owner":  "noowner",
+        "no-handler": "nohandler",
+        "no_handler": "nohandler",
+    }
+    category = _CAT_ALIASES.get(_category_raw, _category_raw)
+
     page = 1
     if args and len(args) >= 3:
         try:
             page = int(args[2])
-        except ValueError:
-            pass
+        except (ValueError, IndexError):
+            page = 1
+    if page < 1:
+        page = 1
 
     if category and category not in (
         "missing", "noowner", "nohandler", "deprecated", "hidden"
     ):
         await _w(bot, user.id,
-                 "Usage: !commandissues [missing|noowner|nohandler|deprecated|hidden]")
+                 "⚠️ Unknown issue type.\n"
+                 "Use: missing, noowner, nohandler, deprecated, hidden")
         return
 
-    if all_known is None:
-        try:
-            import sys, importlib
-            _main = sys.modules.get("__main__") or importlib.import_module("__main__")
-            all_known = getattr(_main, "ALL_KNOWN_COMMANDS", None) or set()
-        except Exception:
-            all_known = set()
+    try:
+        if all_known is None:
+            try:
+                import sys, importlib
+                _main = sys.modules.get("__main__") or importlib.import_module("__main__")
+                all_known = getattr(_main, "ALL_KNOWN_COMMANDS", None) or set()
+            except Exception:
+                all_known = set()
 
-    hidden = HIDDEN_CMDS & all_known
-    depr   = DEPRECATED_CMDS & all_known
-    active = all_known - hidden - depr
+        hidden = HIDDEN_CMDS & all_known
+        depr   = DEPRECATED_CMDS & all_known
+        active = all_known - hidden - depr
 
-    if not category:
-        # No-arg: combined summary of broken commands
-        try:
-            from modules.multi_bot import _DEFAULT_COMMAND_OWNERS
-            owners_set = set(_DEFAULT_COMMAND_OWNERS.keys())
-        except Exception:
-            owners_set = set()
-        try:
-            from modules.command_registry import get_entry as _reg_get
-            no_handler = sorted(c for c in active if _reg_get(c) is None)
-        except Exception:
-            no_handler = []
-        missing_set = sorted(active - ROUTED_COMMANDS)
-        noowner_set = sorted(active - owners_set)
-        combined = set(missing_set) | set(noowner_set) | set(no_handler)
-        if not combined:
+        if not category:
+            # No-arg: combined summary of broken commands
+            try:
+                from modules.multi_bot import _DEFAULT_COMMAND_OWNERS
+                owners_set = set(_DEFAULT_COMMAND_OWNERS.keys())
+            except Exception:
+                owners_set = set()
+            try:
+                from modules.command_registry import get_entry as _reg_get
+                no_handler = sorted(c for c in active if _reg_get(c) is None)
+            except Exception:
+                no_handler = []
+            missing_set = sorted(active - ROUTED_COMMANDS)
+            noowner_set = sorted(active - owners_set)
+            combined = set(missing_set) | set(noowner_set) | set(no_handler)
+            if not combined:
+                await _w(bot, user.id,
+                         "✅ No command issues.\nRoutes, owners, and handlers are clean.")
+                return
+            parts = []
+            if missing_set:
+                parts.append(f"{len(missing_set)} no-route")
+            if noowner_set:
+                parts.append(f"{len(noowner_set)} no-owner")
+            if no_handler:
+                parts.append(f"{len(no_handler)} no-handler")
             await _w(bot, user.id,
-                     "✅ No command issues.\nRoutes, owners, and handlers are clean.")
+                     (f"⚠️ Issues: {', '.join(parts)}\n"
+                      f"!commandissues missing|noowner|nohandler|deprecated|hidden [pg]")[:249])
+            preview = sorted(combined)[:8]
+            await _w(bot, user.id,
+                     ("Examples: " + ", ".join(f"!{c}" for c in preview))[:249])
             return
-        parts = []
-        if missing_set:
-            parts.append(f"{len(missing_set)} no-route")
-        if noowner_set:
-            parts.append(f"{len(noowner_set)} no-owner")
-        if no_handler:
-            parts.append(f"{len(no_handler)} no-handler")
-        await _w(bot, user.id,
-                 f"⚠️ Issues: {', '.join(parts)}\n"
-                 f"!commandissues missing|noowner|nohandler|deprecated|hidden [pg]"[:249])
-        preview = sorted(combined)[:8]
-        await _w(bot, user.id,
-                 "Examples: " + ", ".join(f"!{c}" for c in preview)[:240])
-        return
-    elif category == "missing":
-        items = sorted(active - ROUTED_COMMANDS)
-        title = "Missing routes"
-    elif category == "nohandler":
-        try:
-            from modules.command_registry import get_entry as _reg_get
-            items = sorted(c for c in active if _reg_get(c) is None)
-        except Exception:
-            items = []
-        title = "No handler (not in registry)"
-    elif category == "noowner":
-        try:
-            from modules.multi_bot import _DEFAULT_COMMAND_OWNERS
-            owners_set = set(_DEFAULT_COMMAND_OWNERS.keys())
-        except Exception:
-            owners_set = set()
-        items = sorted(active - owners_set)
-        title = "No owner"
-    elif category == "deprecated":
-        items = sorted(depr)
-        title = "Deprecated"
-    else:
-        items = sorted(hidden)
-        title = "Hidden"
+        elif category == "missing":
+            items = sorted(active - ROUTED_COMMANDS)
+            title = "Missing routes"
+        elif category == "nohandler":
+            try:
+                from modules.command_registry import get_entry as _reg_get
+                items = sorted(c for c in active if _reg_get(c) is None)
+            except Exception:
+                items = []
+            title = "No handler (not in registry)"
+        elif category == "noowner":
+            try:
+                from modules.multi_bot import _DEFAULT_COMMAND_OWNERS
+                owners_set = set(_DEFAULT_COMMAND_OWNERS.keys())
+            except Exception:
+                owners_set = set()
+            items = sorted(active - owners_set)
+            title = "No owner"
+        elif category == "deprecated":
+            items = sorted(depr)
+            title = "Deprecated"
+        else:
+            items = sorted(hidden)
+            title = "Hidden"
 
-    print(f"[AUDIT] /commandissues {category} p{page} @{user.username}: {len(items)} items")
-    if not items:
-        await _w(bot, user.id, f"{title}: none — all clean.")
-        return
-    msg, total_pages = _paginate(title, items, page)
-    await _w(bot, user.id, msg)
-    if page < total_pages:
-        await _w(bot, user.id, f"More: !commandissues {category} {page + 1}")
+        print(f"[AUDIT] /commandissues {category} p{page} @{user.username}: {len(items)} items")
+        if not items:
+            await _w(bot, user.id, f"✅ {title}: none — all clean.")
+            return
+        msg, total_pages = _paginate(title, items, page)
+        await _w(bot, user.id, msg)
+        if page < total_pages:
+            await _w(bot, user.id, f"More: !commandissues {category} {page + 1}")
+
+    except Exception as _ci_err:
+        print(
+            f"[COMMAND AUDIT ERROR]\n"
+            f"cmd=!commandissues\n"
+            f"category={category}\n"
+            f"page={page}\n"
+            f"user=@{user.username}\n"
+            f"error={_ci_err!r}"
+        )
+        await _w(bot, user.id, "⚠️ Command audit error. Bot stayed online.")
 
 
 # ---------------------------------------------------------------------------

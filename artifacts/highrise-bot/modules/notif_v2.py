@@ -408,3 +408,54 @@ async def handle_notifyadmin_help(bot: "BaseBot", user: "User") -> None:
              "!substatus @user\n"
              "!subcount\n"
              "!unsubuser @user")
+
+
+# ─── Admin audit: !notifyaudit / !notifystatus ────────────────────────────────
+
+async def handle_notifyaudit_admin(
+    bot: "BaseBot", user: "User", args: list[str]
+) -> None:
+    """!notifyaudit @user — full canonical subscription audit (admin)."""
+    if not _is_admin(user.username):
+        await _w(bot, user.id, "⚠️ Staff only.")
+        return
+    if len(args) < 2:
+        await _w(bot, user.id, "Usage: !notifyaudit @user")
+        return
+    target_name = args[1].lstrip("@").strip().lower()
+    rec = db.get_user_by_username(target_name)
+    if not rec:
+        await _w(bot, user.id, f"@{target_name} not found in DB.")
+        return
+    uid = rec["user_id"]
+    row = db.get_notification_subscription(uid)
+    sub_row = db.get_subscriber_by_user_id(uid) or db.get_subscriber(target_name)
+
+    if not row and not sub_row:
+        await _w(bot, user.id, f"@{target_name} has no notification record.")
+        return
+
+    subscribed = bool(row.get("subscribed") if row else (sub_row and sub_row.get("subscribed")))
+    source = (row.get("source", "manual") if row else "unknown")
+    manually_unsub = bool(sub_row and sub_row.get("manually_unsubscribed")) if sub_row else False
+    dm_avail = bool(sub_row and sub_row.get("dm_available")) if sub_row else False
+    conv_id = (sub_row.get("conversation_id") or "") if sub_row else ""
+    has_dm = bool(conv_id and dm_avail)
+
+    await _w(bot, user.id,
+             f"🔔 Notify Audit: @{rec['username']}\n"
+             f"Subscribed: {'YES' if subscribed else 'NO'}\n"
+             f"Source: {source}\n"
+             f"DM connected: {'YES' if has_dm else 'NO'}")
+    if row:
+        await _w(bot, user.id,
+                 f"Events: {_yn(row.get('events', 1))}\n"
+                 f"Games: {_yn(row.get('games', 1))}\n"
+                 f"Announcements: {_yn(row.get('announcements', 1))}\n"
+                 f"Promos: {_yn(row.get('promos', 1))}\n"
+                 f"Tips: {_yn(row.get('tips', 0))}\n"
+                 f"Manual unsubscribed: {'YES' if manually_unsub else 'NO'}")
+    else:
+        await _w(bot, user.id,
+                 f"(No v2 category record)\n"
+                 f"Manual unsubscribed: {'YES' if manually_unsub else 'NO'}")

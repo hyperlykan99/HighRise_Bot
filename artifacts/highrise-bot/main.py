@@ -239,6 +239,7 @@ from modules.notif_v2 import (
     handle_subcount,
     handle_unsubuser,
     handle_notifyadmin_help,
+    handle_notifyaudit_admin,
 )
 from modules.maintenance         import (
     handle_botstatus, handle_dbstats,
@@ -1110,6 +1111,7 @@ ALL_KNOWN_COMMANDS = (
         "pendingnotify", "clearpendingnotify",
         "announcement", "promo", "eventalert", "gamealert", "tipalert",
         "subcount", "unsubuser", "notifyadmin",
+        "notifyaudit", "notifystatus",
         "dailyadmin",
         "rules", "setrules", "automod",
         "announce_subs", "announce_vip", "announce_staff", "dmnotify",
@@ -5109,6 +5111,9 @@ class HangoutBot(BaseBot):
 
         elif cmd == "notifyadmin":
             await handle_notifyadmin_help(self, user)
+
+        elif cmd in {"notifyaudit", "notifystatus"}:
+            await handle_notifyaudit_admin(self, user, args)
 
         elif cmd == "delivernotifications":
             await handle_delivernotifications(self, user, args)

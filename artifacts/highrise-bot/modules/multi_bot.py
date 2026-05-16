@@ -493,6 +493,8 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "notifyadmin": "host", "notifyhelp2": "host", "eventalert": "host", "gamealert": "host",
     "notifysettings": "host", "notifystats": "host", "alerts": "host",
     "announcement": "host", "botshome": "host",
+    "promo": "host", "tipalert": "host", "subcount": "host", "unsubuser": "host",
+    "notifyaudit": "host", "notifystatus": "host",
     "tipleaderboard": "banker", "tiprate": "banker", "tipstats": "banker",
     "tiphelp": "host",
     "setdailycoins": "banker", "settransferfee": "banker",

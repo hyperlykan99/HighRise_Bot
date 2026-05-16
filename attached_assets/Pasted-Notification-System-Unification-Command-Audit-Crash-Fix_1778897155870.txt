@@ -1,0 +1,1011 @@
+Notification System Unification + Command Audit Crash Fix
+
+Current live issue:
+We need to audit the current subscribe/notify system and make sure there is only ONE official notification system.
+
+Also, when owner runs:
+
+!commandissues noowner
+
+the bot crashes or becomes unstable.
+
+Current command audit output shows:
+Issues: 23 no-route, 13 no-owner, 22 no-handler
+
+Missing routes include:
+!pokerhandlog
+!pokerlogs
+!pokertest
+!pokerverify
+!profilebadge
+!promo
+!rarebadges
+!removewishlist
+!returnbots
+!setbadgeconfirm
+!setcoinpack
+!showbadge
+!sitback
+!subcount
+!ticketlog
+!tipalert
+!tiplogs
+!unequipbadge
+!unlockbadge
+!unsubuser
+!unwishlist
+!wishbadge
+!wishlist
+
+No owner includes:
+!pokerhandlog
+!pokerlogs
+!pokertest
+!pokerverify
+!promo
+!returnbots
+!setcoinpack
+!sitback
+!subcount
+!ticketlog
+
+Current GitHub audit:
+There are currently multiple overlapping notification systems:
+
+1. modules/subscribers.py
+- old subscriber DM system
+- handles !subscribe, !unsubscribe, !substatus, !subhelp
+- handles !announce_subs, !announce_vip, !announce_staff
+- handles pending subscriber messages
+- contains old auto_subscribed_from_tip compatibility fields
+
+2. modules/notif_v2.py
+- newer manual-subscribe-only notification system
+- supports categories: events, games, announcements, promos, tips
+- handles !sub, !unsub, !notifysettings, !alerts, !notify category on/off
+- handles !announcement, !promo, !eventalert, !gamealert, !tipalert
+- should become the official system
+
+3. modules/notifications.py
+- older central delivery + preference system
+- has send_notification()
+- has old preference fields: bank_alerts, event_alerts, gold_alerts, vip_alerts, casino_alerts, quest_alerts, shop_alerts, announcement_alerts, staff_alerts, dm_alerts, room_whisper_alerts
+- has pending notifications and old notify commands
+
+Goal:
+1. Unify everything into ONE official manual-subscribe-only notification system.
+2. Make modules/notif_v2.py the official system.
+3. Make subscribers.py only DM compatibility/helper.
+4. Make notifications.py only delivery/helper.
+5. Block all auto-subscribe behavior.
+6. Fix notification command routing.
+7. Fix !commandissues noowner crash.
+8. Route or hide remaining no-owner/missing/no-handler commands.
+9. Make command audit safe, paginated, and never crash.
+
+Do NOT modify:
+- Poker V2 gameplay logic, except help/audit aliases only
+- blackjack gameplay
+- jail gameplay
+- bank transfer logic except notification subscription side effects
+- badge/title systems except help/routing text
+- economy balances except notification side effects
+
+Only modify:
+- modules/notif_v2.py
+- modules/subscribers.py
+- modules/notifications.py
+- modules/cmd_audit.py
+- modules/command_registry.py
+- modules/multi_bot.py
+- modules/help_cmds.py
+- modules/admin_cmds.py
+- main.py routing
+- database.py safe compatibility helpers only
+- modules/badge_market.py only for route registration/help aliases
+- modules/poker_v2.py only for help/audit aliases, not gameplay
+
+==================================================
+PART 1 — One Official Subscription Source
+==================================================
+
+Official notification system:
+modules/notif_v2.py
+
+Official subscription table/state:
+Use one canonical subscription record keyed by user_id.
+
+Required canonical fields:
+user_id
+username
+subscribed
+source
+events
+games
+announcements
+promos
+tips
+conversation_id
+dm_available
+manually_unsubscribed
+created_at
+updated_at
+
+If existing data is split between subscriber_users, notification_subscriptions, notify_prefs, pending_notifications, etc:
+- keep old tables for compatibility
+- read/migrate old records into canonical state
+- do not create duplicate active states
+- do not let old tables override manual unsubscribe
+
+==================================================
+PART 2 — Manual Subscribe Only
+==================================================
+
+Strict rule:
+Only these can subscribe a player:
+
+!sub
+!subscribe
+DM to bot: sub
+DM to bot: subscribe
+
+Do NOT subscribe players from:
+- tipping
+- bank transfer
+- receiving ChillCoins
+- sending ChillCoins
+- entering room
+- daily claim
+- games
+- events
+- VIP
+- badge purchase
+- title purchase
+
+Bank transfer notifications are transactional and may send a DM/whisper if needed, but must not set subscribed=true.
+
+Remove/disable any logic that sets:
+auto_subscribed_from_tip = true
+subscribed=true from tip
+subscribed=true from transfer
+subscribed=true from any non-manual source
+
+Allowed source values:
+manual
+admin
+migration
+
+Not allowed:
+tip_auto
+bank_auto
+event_auto
+
+If any code attempts auto-subscribe:
+Log:
+[NOTIFY BLOCKED] attempted_auto_subscribe source=tip user=@name
+
+==================================================
+PART 3 — Canonical Player Notification Commands
+==================================================
+
+Only these player commands should manage notification subscriptions:
+
+!sub
+!subscribe
+!unsub
+!unsubscribe
+!alerts
+!notifysettings
+!notifyhelp
+!notify events on/off
+!notify games on/off
+!notify announcements on/off
+!notify promos on/off
+!notify tips on/off
+!substatus
+!notifications
+!clearnotifications
+
+Aliases:
+!alerts -> !notifysettings
+!notif -> !notifysettings if existing
+!notifyhelp2 -> hide/deprecate or alias to !notifyhelp
+
+Expected !sub reply:
+✅ Alerts ON.
+Use !notifysettings to choose alerts.
+Use !unsub to stop.
+
+If already subscribed:
+You are already subscribed.
+Settings: !notifysettings
+Stop: !unsub
+
+Expected !unsub reply:
+✅ Alerts OFF.
+You are unsubscribed.
+Use !sub to subscribe again.
+
+Expected !alerts / !notifysettings:
+🔔 Notification Settings
+Status: ON
+Events: ON
+Games: ON
+Announcements: ON
+Promos: ON
+Tips: OFF
+
+Commands:
+!notify events on/off
+!notify games on/off
+!notify promos on/off
+!notify tips on/off
+
+If not subscribed:
+🔔 Notifications
+Status: OFF
+Use !sub to subscribe.
+
+==================================================
+PART 4 — Canonical Admin Notification Commands
+==================================================
+
+Official admin commands:
+
+!announcement message
+!promo message
+!eventalert message
+!gamealert message
+!tipalert message
+!notifyadmin
+!subcount
+!substatus @user
+!unsubuser @user
+!subscribers
+!notifystatus @user
+!notifyaudit @user
+
+Expected:
+!announcement -> announcements category
+!promo -> promos category
+!eventalert -> events category
+!gamealert -> games category
+!tipalert -> tips category
+
+All should use notif_v2 broadcast logic.
+
+Old admin commands:
+!announce_subs
+!announce_vip
+!announce_staff
+!dmnotify
+
+Either:
+- route them into notif_v2 compatibility aliases
+OR
+- mark deprecated/hidden from help
+
+If kept:
+!announce_subs -> !announcement
+!announce_vip -> VIP category only if supported, otherwise deprecated
+!announce_staff -> staff-only category if supported, otherwise deprecated
+!dmnotify -> direct admin DM helper if safe
+
+==================================================
+PART 5 — Old Module Compatibility
+==================================================
+
+modules/subscribers.py:
+- keep process_incoming_dm if it is the only DM event entrypoint
+- route subscribe/unsubscribe/settings to notif_v2 canonical handlers
+- do not keep independent subscription state changes except through canonical helpers
+- do not send duplicate replies
+- do not use old auto_subscribed_from_tip logic
+- old !subhelp should alias to !notifyhelp
+
+modules/notifications.py:
+- keep send_notification() only as a delivery helper if other modules call it
+- update send_notification() to read canonical notif_v2 subscription/category state
+- old handle_notifysettings and handle_notify should delegate to notif_v2
+- old pending notification storage should not conflict with notif_v2
+- if keeping pending_notifications, use same canonical subscription checks
+
+modules/notif_v2.py:
+- becomes official command/logic module
+- all subscription changes go through this module or its database helpers
+
+==================================================
+PART 6 — No Duplicate Replies
+==================================================
+
+For every notification command, only one bot/module should reply.
+
+Commands to check:
+!sub
+!subscribe
+!unsub
+!unsubscribe
+!alerts
+!notifysettings
+!notify events on
+!notifyhelp
+!substatus
+!announcement
+!promo
+!eventalert
+!gamealert
+!tipalert
+
+Expected:
+Only host/notification bot replies.
+BankingBot or other bots should not also reply.
+No unknown command from ChillTopiaMC if another bot owns it.
+
+==================================================
+PART 7 — Notification Categories
+==================================================
+
+Final categories:
+events
+games
+announcements
+promos
+tips
+
+Default after manual subscribe:
+events ON
+games ON
+announcements ON
+promos ON
+tips OFF
+
+Reason:
+Tips can be spammy, so default OFF.
+
+!notify tips on
+turns tips ON.
+
+!notify tips off
+turns tips OFF.
+
+If invalid category:
+⚠️ Unknown category.
+Use: events, games, announcements, promos, tips.
+
+==================================================
+PART 8 — Transactional Bank Messages
+==================================================
+
+Bank/chillcoin transfer notifications are not marketing alerts.
+
+Rules:
+- If player sends ChillCoins to @user, recipient can receive transactional notice if supported.
+- This must not require subscription.
+- This must not subscribe them.
+- This must not change notification preferences.
+- It should not send “Alerts ON.”
+- It should not say “Use notifysettings” unless they manually subscribed.
+
+Example:
+💰 You received 500 ChillCoins from @Player.
+Balance: 1,250
+
+No subscription footer needed.
+
+==================================================
+PART 9 — Tipping / Gold Messages
+==================================================
+
+Tipping must not auto-subscribe.
+
+If player tips:
+- process Luxe Tickets normally
+- do not send “Alerts ON”
+- do not set subscribed=true
+- do not create manual subscription
+- do not DM subscribe confirmation
+
+If user is already subscribed and tips category ON:
+optional tip notification can be sent.
+
+If not subscribed:
+no tip alert.
+
+==================================================
+PART 10 — DM Keyword Handling
+==================================================
+
+DM to bot:
+
+subscribe
+sub
+!sub
+!subscribe
+
+Should subscribe.
+
+unsubscribe
+unsub
+stop
+stop alerts
+opt out
+
+Should unsubscribe.
+
+Unknown DM:
+If subscribed:
+✅ Alerts ON.
+Settings: !notifysettings
+Stop: !unsub
+
+If not subscribed:
+Use !sub to subscribe for alerts.
+
+Do not repeat this message too often. Add cooldown if needed.
+
+==================================================
+PART 11 — Notification Logs
+==================================================
+
+Add logs:
+
+[NOTIFY] subscribe user=@name source=manual channel=room
+[NOTIFY] subscribe user=@name source=manual channel=dm
+[NOTIFY] unsubscribe user=@name source=manual
+[NOTIFY] category_change user=@name category=events value=off
+[NOTIFY] broadcast category=events delivered=X skipped=Y failed=Z
+[NOTIFY] skipped user=@name reason=not_subscribed
+[NOTIFY] transactional_bank_notice user=@name source=bank no_subscription_change
+[NOTIFY BLOCKED] attempted_auto_subscribe source=tip user=@name
+
+==================================================
+PART 12 — Notification Audit Commands
+==================================================
+
+Add or fix:
+
+!notifystatus @user
+!notifyaudit @user
+!subcount
+!subscribers
+
+!notifyaudit @user output:
+🔔 Notify Audit: @User
+Subscribed: YES
+Source: manual
+DM connected: YES
+Events: ON
+Games: ON
+Announcements: ON
+Promos: ON
+Tips: OFF
+Manual unsubscribed: NO
+
+If unsubscribed:
+Subscribed: NO
+Manual unsubscribed: YES/NO
+
+==================================================
+PART 13 — Notification Command Routing
+==================================================
+
+Route these to the official notification owner/module:
+
+!sub
+!subscribe
+!unsub
+!unsubscribe
+!alerts
+!notifysettings
+!notify
+!notifyhelp
+!substatus
+!notifications
+!clearnotifications
+!announcement
+!promo
+!eventalert
+!gamealert
+!tipalert
+!notifyadmin
+!subcount
+!subscribers
+!unsubuser
+!notifystatus
+!notifyaudit
+
+Expected owner:
+host or notification bot, whichever is correct in this project.
+
+Do not route these to multiple systems.
+
+Command registry must show:
+route=YES
+owner=YES
+handler=YES
+
+If old commands are deprecated:
+mark hidden/deprecated and do not count as active missing.
+
+Specifically fix:
+!promo
+!tipalert
+!subcount
+!unsubuser
+!eventalert
+!gamealert
+!notifyadmin
+!notifyhelp2
+!alerts
+!announcement
+
+!notifyhelp2 should either:
+- alias to !notifyhelp
+OR
+- be hidden/deprecated
+
+==================================================
+PART 14 — Fix !commandissues noowner Crash
+==================================================
+
+Current live bug:
+When owner runs:
+
+!commandissues noowner
+
+the bot crashes or becomes unstable.
+
+Fix the real traceback.
+
+Likely causes:
+- noowner list is None instead of []
+- command record missing owner key
+- pagination assumes page arg exists
+- page index out of range
+- command issue item is string in one place and dict in another
+- trying to join non-string command objects
+- message split exceeds 249 chars
+- recursive call or wrong handler signature
+- noowner category name mismatch: noowner vs no-owner vs no_owner
+
+Expected:
+!commandissues noowner
+
+Should reply safely:
+
+⚠️ No Owner Commands 1/2
+!pokerhandlog
+!pokerlogs
+!pokertest
+!pokerverify
+!promo
+!returnbots
+!setcoinpack
+!sitback
+
+More: !commandissues noowner 2
+
+If none:
+✅ No no-owner commands found.
+
+No crash.
+No generic command error.
+Bot stays online.
+
+==================================================
+PART 15 — Safe Command Issues Category Parsing
+==================================================
+
+Support all of these safely:
+
+!commandissues
+!commandissues missing
+!commandissues noowner
+!commandissues no-owner
+!commandissues no_owner
+!commandissues nohandler
+!commandissues no-handler
+!commandissues no_handler
+!commandissues deprecated
+!commandissues hidden
+
+Aliases:
+no-owner -> noowner
+no_owner -> noowner
+no-handler -> nohandler
+no_handler -> nohandler
+
+Invalid category:
+⚠️ Unknown issue type.
+Use: missing, noowner, nohandler, deprecated, hidden
+
+Do not crash.
+
+==================================================
+PART 16 — Safe Pagination
+==================================================
+
+Support:
+
+!commandissues noowner
+!commandissues noowner 1
+!commandissues noowner 2
+!commandissues missing 3
+
+Rules:
+- default page = 1
+- if page is not number, default to 1
+- if page < 1, set to 1
+- if page > total pages, show last page or say no more
+- always keep message under 249 chars
+- list 8–10 commands max per page
+
+Example:
+
+⚠️ Missing Routes 2/3
+!setcoinpack
+!showbadge
+!sitback
+!subcount
+!ticketlog
+!tipalert
+!tiplogs
+!unequipbadge
+
+More: !commandissues missing 3
+
+==================================================
+PART 17 — Normalize Command Issue Data
+==================================================
+
+Before displaying issue lists, normalize every command entry to a string command name.
+
+Handle all possible item types:
+- "command"
+- "!command"
+- {"command": "command"}
+- {"name": "command"}
+- {"cmd": "command"}
+- None
+
+If invalid/None:
+skip safely.
+
+Ensure every command shown starts with !.
+
+Example helper:
+
+def _cmd_name(item):
+    if isinstance(item, str): ...
+    if isinstance(item, dict): ...
+    return None
+
+Do not crash on malformed registry records.
+
+==================================================
+PART 18 — Fix Owner Assignment For Real Commands
+==================================================
+
+For commands that are real, assign correct owner/module/handler.
+
+Notification/admin commands:
+!promo
+!tipalert
+!subcount
+!unsubuser
+
+Owner should be notification/host bot.
+Module should be notif_v2.
+Handler should exist.
+
+Coin pack commands:
+!setcoinpack
+
+Owner should be BankingBot/economy bot.
+If not implemented, mark hidden/deprecated.
+
+Poker audit/helper commands:
+!pokerhandlog
+!pokerlogs
+!pokertest
+!pokerverify
+
+If implemented:
+owner=Poker/ChipSoprano
+module=poker_v2 or poker_audit
+
+If not implemented:
+hide/deprecate. Do not count as active no-owner.
+
+Badge commands:
+!profilebadge
+!rarebadges
+!removewishlist
+!setbadgeconfirm
+!showbadge
+!unequipbadge
+!unlockbadge
+!unwishlist
+!wishbadge
+!wishlist
+
+If implemented:
+owner=BankingBot
+module=badge_market
+
+If not implemented:
+hide/deprecate.
+
+Room/social commands:
+!returnbots
+!sitback
+
+If implemented:
+owner=ChillTopiaMC
+module=room/utility
+
+If not implemented:
+hide/deprecate.
+
+Ticket commands:
+!ticketlog
+!tiplogs
+
+If implemented:
+owner=BankingBot
+module=economy/tips
+
+If not implemented:
+hide/deprecate.
+
+==================================================
+PART 19 — Do Not Count Hidden/Deprecated As Active Issues
+==================================================
+
+If a command is intentionally unused:
+- add to HIDDEN_CMDS or DEPRECATED_CMDS
+- exclude from active missing/noowner/nohandler counts
+- exclude from normal help menus
+
+Command audit should separate:
+
+Active issues:
+Missing:
+NoOwner:
+NoHandler:
+
+Hidden/deprecated:
+Hidden:
+Deprecated:
+
+This way old planned commands do not make the active system look broken.
+
+==================================================
+PART 20 — Better Command Audit Error Logging
+==================================================
+
+If command audit handler fails, console must print:
+
+[COMMAND AUDIT ERROR]
+cmd=!commandissues
+category=noowner
+page=1
+user=@4ktreyMarion
+error=...
+
+Player should get:
+
+⚠️ Command audit error. Bot stayed online.
+
+But after this fix, noowner should not crash.
+
+==================================================
+PART 21 — Commandtest Coverage
+==================================================
+
+Make these tests work:
+
+!commandtest !alerts
+!commandtest !notifysettings
+!commandtest !notify
+!commandtest !notifyhelp
+!commandtest !eventalert
+!commandtest !gamealert
+!commandtest !tipalert
+!commandtest !promo
+!commandtest !subcount
+!commandtest !unsubuser
+!commandtest !notifyadmin
+!commandtest !notifyaudit
+!commandtest !commandissues
+!commandtest !pokerhandlog
+!commandtest !profilebadge
+!commandtest !wishlist
+
+Expected for real commands:
+cmd=!eventalert
+owner=ChillTopiaMC or notification bot
+module=notif_v2
+route=YES
+handler=YES
+
+Expected for hidden/deprecated:
+cmd=!pokerhandlog
+status=hidden/deprecated
+reason=not implemented yet
+
+==================================================
+PART 22 — Compile
+==================================================
+
+Run:
+
+python -m py_compile main.py
+python -m py_compile database.py
+python -m py_compile modules/subscribers.py
+python -m py_compile modules/notif_v2.py
+python -m py_compile modules/notifications.py
+python -m py_compile modules/command_registry.py
+python -m py_compile modules/cmd_audit.py
+python -m py_compile modules/multi_bot.py
+python -m py_compile modules/help_cmds.py
+python -m py_compile modules/admin_cmds.py
+
+Also compile if changed:
+python -m py_compile modules/badge_market.py
+python -m py_compile modules/poker_v2.py
+python -m py_compile modules/shop.py
+
+==================================================
+PART 23 — Live Tests
+==================================================
+
+Notification tests:
+
+Test 1:
+!unsub
+
+Expected:
+✅ Alerts OFF.
+You are unsubscribed.
+
+Test 2:
+Tip the bot or send gold.
+
+Expected:
+No “Alerts ON.”
+No auto-subscribe.
+
+Test 3:
+!sub
+
+Expected:
+✅ Alerts ON.
+Use !notifysettings to choose alerts.
+
+Test 4:
+!notifysettings
+
+Expected:
+Shows categories events/games/announcements/promos/tips.
+
+Test 5:
+!notify tips on
+
+Expected:
+✅ Tips alerts ON.
+
+Test 6:
+!notify fake on
+
+Expected:
+Unknown category message.
+
+Test 7:
+DM bot:
+subscribe
+
+Expected:
+Subscribes manually once.
+
+Test 8:
+DM bot:
+unsubscribe
+
+Expected:
+Unsubscribes.
+
+Test 9:
+!announcement test
+
+Expected:
+Admin only. Sends only to subscribed users with announcements ON.
+
+Test 10:
+!eventalert test
+
+Expected:
+Admin only. Sends only to subscribed users with events ON.
+
+Test 11:
+Bank transfer / ChillCoin receive notice
+
+Expected:
+Recipient notice if supported, but no subscription change.
+
+Test 12:
+!notifyaudit @yourname
+
+Expected:
+Shows canonical subscription state.
+
+Command audit tests:
+
+Test 13:
+!commandissues
+
+Expected:
+Safe summary.
+
+Test 14:
+!commandissues missing
+!commandissues missing 2
+!commandissues missing 3
+
+Expected:
+Paginated, no crash.
+
+Test 15:
+!commandissues noowner
+!commandissues noowner 2
+
+Expected:
+No crash, safe paginated output.
+
+Test 16:
+!commandissues nohandler
+!commandissues deprecated
+!commandissues hidden
+!commandissues fake
+
+Expected:
+No crash. Invalid category gives help message.
+
+Test 17:
+!checkcommands all
+
+Expected:
+Missing/noowner/nohandler reduced.
+
+Test 18:
+!commandtest !alerts
+!commandtest !eventalert
+!commandtest !notifyadmin
+!commandtest !commandissues
+
+Expected:
+route=YES handler=YES or hidden/deprecated clearly.
+
+Final report:
+1. Confirmed one official notification system
+2. notif_v2.py is official
+3. subscribers.py is compatibility/DM helper only
+4. notifications.py is delivery/helper only
+5. Removed/blocked auto-subscribe from tips
+6. Removed/blocked auto-subscribe from bank transfers
+7. Removed/blocked auto-subscribe from games/events/VIP/badges/titles
+8. Old subscriber commands routed to notif_v2
+9. Old notifications delivery reads canonical state
+10. No duplicate replies
+11. Category settings working
+12. Transactional bank messages bypass subscription without changing it
+13. Notification command routing fixed
+14. !commandissues noowner crash fixed
+15. Commandissues category aliases added
+16. Commandissues pagination safe
+17. Malformed command records handled
+18. Real no-owner commands assigned owners
+19. Unused commands hidden/deprecated
+20. Active issue count reduced
+21. Py_compile result
+22. Bot stability result
