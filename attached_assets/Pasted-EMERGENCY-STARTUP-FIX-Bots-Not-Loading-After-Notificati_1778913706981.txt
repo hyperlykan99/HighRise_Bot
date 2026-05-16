@@ -1,0 +1,174 @@
+EMERGENCY STARTUP FIX — Bots Not Loading After Notification Lock Prompt
+
+Current issue:
+After adding the "Lock Notification System" prompt, the bots are not loading into the room.
+
+Important:
+Do NOT rewrite the notification system.
+The notification system was working before this lock prompt.
+Do NOT change:
+- main.py on_message hard gate
+- notify_system.py exact DM parser
+- DM message extraction using messages[0]
+- room-only notification settings
+- DM-only first subscription consent
+
+Goal:
+Fix startup only so bots load again.
+
+==================================================
+PART 1 — Find Startup Crash
+==================================================
+
+Run these first:
+
+python -m py_compile main.py
+python -m py_compile modules/notify_system.py
+python -m py_compile modules/qa_test.py
+python -m py_compile modules/command_registry.py
+python -m py_compile modules/cmd_audit.py
+python main.py
+
+Identify the exact crash:
+- file
+- line number
+- exception type
+- missing import/name/table/column
+
+Fix only that startup crash.
+
+==================================================
+PART 2 — Remove Runtime "Lock" Side Effects
+==================================================
+
+The lock prompt should only add QA/regression notes.
+It must not block startup.
+
+If Replit added any startup-time assertions, hard locks, or import-time checks, remove them.
+
+Remove/disable anything like:
+- assert notification lock
+- raise RuntimeError if notify changed
+- startup regression checker that imports too much
+- QA tests running automatically on startup
+- database reset on startup
+- notification reset on startup
+- command registry lock that blocks bot load
+- feature freeze that prevents boot
+
+QA/regression checks should only run when owner types:
+!qatest notify
+!qatest all
+
+Never run QA automatically during bot startup.
+
+==================================================
+PART 3 — Keep Notification Working Code
+==================================================
+
+Do NOT revert the fixed notification behavior.
+
+Keep:
+1. main.py on_message hard gate
+2. main.py uses get_messages newest message correctly:
+   messages[0]
+3. No messages[-1] for DM content
+4. No reversed history scan for old messages
+5. notify_system.is_valid_notify_dm_command exact parser
+6. Random DMs ignored
+7. DM !sub subscribes
+8. DM !unsub unsubscribes
+
+==================================================
+PART 4 — Safe Startup Rules
+==================================================
+
+Startup should not fail if:
+- notification table already exists
+- notification table is missing and needs migration
+- QA tables are missing
+- command registry lock file missing
+- old subscriber tables missing
+- notify regression metadata missing
+
+Use safe guards:
+try/except with logs, not crash.
+
+Example:
+try:
+    db.ensure_notify_tables()
+except Exception as exc:
+    print(f"[NOTIFY STARTUP WARN] {exc!r}")
+
+Do not raise.
+
+==================================================
+PART 5 — Compile All Critical Files
+==================================================
+
+Run:
+
+python -m py_compile main.py
+python -m py_compile database.py
+python -m py_compile modules/notify_system.py
+python -m py_compile modules/subscribers.py
+python -m py_compile modules/notifications.py
+python -m py_compile modules/notif_v2.py
+python -m py_compile modules/qa_test.py
+python -m py_compile modules/command_registry.py
+python -m py_compile modules/cmd_audit.py
+python -m py_compile modules/multi_bot.py
+
+Skip missing files.
+
+==================================================
+PART 6 — Boot Test
+==================================================
+
+After compile passes:
+Run the bot.
+
+Expected console:
+- no SyntaxError
+- no ImportError
+- no NameError
+- no startup RuntimeError
+- bot connects to Highrise
+- bot joins room
+
+==================================================
+PART 7 — Live Test After Bot Loads
+==================================================
+
+Run in room:
+!botstatus
+!commandissues
+!qatest notify
+
+Expected:
+Bot responds.
+Notification QA passes.
+
+Then DM:
+Hello
+.
+?
+
+Expected:
+No reply.
+
+DM:
+!sub
+
+Expected:
+Alerts: ON
+To unsubscribe, reply !unsub or !unsubscribe.
+
+Final report:
+1. Exact startup crash found
+2. File/line fixed
+3. No notification runtime behavior changed
+4. QA/regression lock does not run on startup
+5. Py_compile result
+6. Bot connection result
+7. Notification smoke test result
