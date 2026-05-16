@@ -256,125 +256,26 @@ async def process_incoming_dm(
     is_new_conversation: bool,
 ) -> None:
     """
-    Called from on_message when the bot receives a DM.
-    Saves conversation_id, handles subscribe/unsubscribe keywords,
-    routes slash-commands to the owning bot handler (B-project),
-    and delivers any pending subscriber messages.
+    DISABLED — DM routing now handled entirely by main.py on_message via
+    modules.notify_system.process_dm_notify with a hard gate.
+
+    This stub is kept to prevent ImportError for any legacy call site.
+    It delegates only exact notify commands and silently drops everything else.
+    It does NOT upsert subscriber rows, deliver pending messages, route
+    slash-commands, send wrong-bot hints, or reply to random DMs.
     """
-    # Late import avoids circular dependency (multi_bot imports from config, not subscribers)
-    from config import BOT_MODE
-    from modules.multi_bot import should_this_bot_handle, _resolve_command_owner  # noqa: PLC0415
-
-    norm = _normalize_dm(content)
-    print(f"[DM] PROCESSING user_id={user_id[:12]}... conv={conversation_id[:12]}...")
-    print(f"[DM] raw={content[:60]!r}  normalized={norm[:60]!r}")
-
-    # Look up user by Highrise user_id
-    user_row = db.get_user_by_username_via_id(user_id)
-    if user_row is None:
-        print(f"[DM] Unknown user_id={user_id[:12]}... — checking subscriber table by user_id.")
-        # Try to find by user_id in subscriber_users directly
-        sub_by_id = db.get_subscriber_by_user_id(user_id)
-        if sub_by_id:
-            username = sub_by_id.get("username", "")
-            uname_lower = username.lower()
-            print(f"[DM] Found subscriber row for unknown user_id — @{username}")
-        else:
-            # User has never used the bot in the room.
-            # Per spec: ALL DMs from unseen users are silently ignored here.
-            # notify_system.process_dm_notify handles sub/unsub via conversation_id
-            # when called from the known-user path below — NOT here.
-            print(
-                f"[NOTIFY BLOCKED] source=unknown_user"
-                f" user_id={user_id[:12]}"
-                f" raw={content[:40]!r}"
-                f" reason=never_joined_room_no_subscribe"
-            )
-            # Do NOT auto-subscribe. Do NOT reply. Return silently.
-            return
-
-    else:
-        username = user_row["username"]
-        uname_lower = username.lower()
-    print(f"[DM] Identified as @{username}")
-
-    # Always save/update conversation_id and mark dm_available (lookup by user_id first)
-    db.upsert_subscriber_by_user_id(user_id, uname_lower, conversation_id)
-    # Also save to dedicated DM conv table (used for auto-session summary delivery)
+    from modules.notify_system import is_valid_notify_dm_command, process_dm_notify  # noqa: PLC0415
+    if not is_valid_notify_dm_command(content):
+        print(f"[OLD SUBSCRIBERS DM DISABLED] raw={content[:60]!r} — dropped silently")
+        return
+    username = ""
     try:
-        db.save_player_dm_conv(user_id, uname_lower, conversation_id, BOT_MODE)
+        _ur = db.get_user_by_username_via_id(user_id)
+        if _ur:
+            username = _ur.get("username", "")
     except Exception:
         pass
-
-    # Deliver pending subscriber messages — host bot only to prevent duplicates
-    # (all 8 bots receive every DM; only one should deliver queued notifications)
-    if BOT_MODE in ("host", "all"):
-        await deliver_pending_subscriber_messages(bot, uname_lower, conversation_id)
-
-    # ── Slash-command routing (B-project) ────────────────────────────────────
-    # If the DM looks like a command (starts with /), try to route it.
-    stripped = content.strip()
-    if stripped.startswith("/"):
-        cmd_word = stripped.split()[0][1:].lower()
-        if should_this_bot_handle(cmd_word):
-            # This bot owns the command — dispatch through on_chat so all
-            # existing handlers (which reply via whisper) respond normally.
-            fake_user = _FakePMUser(user_id, username)
-            print(f"[DM] Routing /{cmd_word} via on_chat for @{username}")
-            try:
-                await bot.on_chat(fake_user, stripped)  # type: ignore[arg-type]
-            except Exception as exc:
-                print(f"[DM] on_chat dispatch error for /{cmd_word}: {exc}")
-                await bot.highrise.send_whisper(
-                    user_id, "❌ Something went wrong handling that command."
-                )
-            return
-        else:
-            # Wrong bot — send a routing hint (with per-user cooldown)
-            owner_mode = _resolve_command_owner(cmd_word)
-            if owner_mode and not _pm_wrong_bot_on_cooldown(user_id):
-                _pm_wrong_bot_mark(user_id)
-                hint = (
-                    f"❌ /{cmd_word} is handled by the {owner_mode} bot. "
-                    "Send it in the room instead!"
-                )
-                await bot.highrise.send_whisper(user_id, hint[:249])
-                print(f"[DM] @{username} sent /{cmd_word} to wrong bot ({BOT_MODE}); "
-                      f"owner={owner_mode}. Sent hint.")
-            elif owner_mode:
-                print(f"[DM] @{username} wrong-bot hint suppressed (cooldown).")
-            return
-
-    # ── Strict DM command parser ──────────────────────────────────────────────
-    # Only the notification-owning bot (host / all mode) handles keyword DMs.
-    # All other bots stay silent — prevents 8 duplicate replies per DM command.
-    if BOT_MODE not in ("host", "all"):
-        print(f"[DM] @{username} DM to {BOT_MODE} bot — notification parsing deferred to host.")
-        return
-
-    # Only valid notification commands trigger a reply. Random DMs are silently
-    # ignored — no fallback status message, no subscription prompt.
-
-    # ── !enabledm / !summarydm — enable inbox auto-session summaries ─────────
-    if norm in ("enabledm", "summarydm", "dm", "!enabledm", "!summarydm", "!dm",
-                "enable dm", "enable summaries", "summary dm"):
-        reply = ("✅ Inbox summaries enabled.\n"
-                 "I'll DM your auto-mining and auto-fishing summaries here.")
-        await send_dm(bot, conversation_id, reply[:249])
-        print(f"[DM] @{username} enabled inbox summaries via !enabledm.")
-        return
-
-    # ── Notification sub/unsub — delegate to notify_system ───────────────────
-    # Per spec: DM settings commands (!notifysettings, !notify cat on/off,
-    # random text) are intentionally ignored — settings are room-only.
-    # Only !sub / !subscribe / !unsub / !unsubscribe are handled here.
-    from modules import notify_system as _ns  # noqa: PLC0415
-    handled = await _ns.process_dm_notify(
-        bot, user_id, username, conversation_id, content
-    )
-    if not handled:
-        print(f"[QA NOTIFY] dm_parse raw={content!r} action=ignore")
-        print(f"[DM] @{username} sent non-command DM — ignoring silently.")
+    await process_dm_notify(bot, user_id, username, conversation_id, content)
 
 
 # ── /subscribe ────────────────────────────────────────────────────────────────

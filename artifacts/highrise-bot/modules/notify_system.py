@@ -42,6 +42,19 @@ _CATEGORY_LABELS = {
 _DM_SUB_CMDS   = frozenset({"!sub", "!subscribe", "sub", "subscribe"})
 _DM_UNSUB_CMDS = frozenset({"!unsub", "!unsubscribe", "unsub", "unsubscribe"})
 
+# Public gate — used by main.py on_message to hard-reject random DMs
+VALID_DM_NOTIFY_COMMANDS: frozenset[str] = _DM_SUB_CMDS | _DM_UNSUB_CMDS
+
+
+def is_valid_notify_dm_command(content: str) -> bool:
+    """
+    Hard gate: returns True ONLY for the exact DM keywords that trigger
+    subscribe or unsubscribe. Everything else must be silently dropped
+    before any other handler runs.
+    """
+    return content.strip().lower() in VALID_DM_NOTIFY_COMMANDS
+
+
 # In-memory two-step confirm flag
 _reset_pending: bool = False
 

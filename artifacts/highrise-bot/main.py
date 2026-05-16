@@ -7635,14 +7635,17 @@ class HangoutBot(BaseBot):
     async def on_message(self, user_id: str, conversation_id: str, is_new_conversation: bool) -> None:
         """
         Fires when the bot receives a Highrise inbox/DM message.
-        Saves the conversation_id and processes subscribe/unsubscribe keywords.
+
+        HARD GATE: only exact notify keywords (!sub/!unsub variants) proceed.
+        Everything else is silently dropped here — before any old handler runs.
 
         NOTE: The MessageEvent carries no message text — we must call get_messages.
         A short sleep avoids a race condition where the new message hasn't been
         indexed on the platform yet when we fetch the history.
         """
         try:
-            print(f"[DM] EVENT RECEIVED user_id={user_id[:12]}... conv={conversation_id[:12]}... new={is_new_conversation}")
+            print(f"[DM] EVENT user_id={user_id[:12]}... conv={conversation_id[:12]}... new={is_new_conversation}")
+
             # Wait briefly so the platform indexes the new message before we fetch
             await asyncio.sleep(0.5)
             resp = await self.highrise.get_messages(conversation_id)
@@ -7663,7 +7666,32 @@ class HangoutBot(BaseBot):
                             break
 
             print(f"[DM] content={content[:60]!r} (fetched {len(messages)} msgs)")
-            await process_incoming_dm(self, user_id, conversation_id, content, is_new_conversation)
+
+            # ── HARD GATE ─────────────────────────────────────────────────────
+            # Only exact notify keywords reach further processing.
+            # Random DMs, commands, settings, chat — all silently dropped here.
+            # This runs BEFORE process_incoming_dm, subscribers, notifications,
+            # or any other handler.
+            from modules.notify_system import is_valid_notify_dm_command, process_dm_notify  # noqa: PLC0415
+            if not is_valid_notify_dm_command(content):
+                print(f"[DM HARD IGNORE] user_id={user_id[:12]} raw={content[:60]!r}")
+                return
+
+            # Safe username lookup — works for first-time users (not in room DB)
+            username = ""
+            try:
+                _ur = db.get_user_by_username_via_id(user_id)
+                if _ur:
+                    username = _ur.get("username", "")
+                else:
+                    _sr = db.get_subscriber_by_user_id(user_id)
+                    if _sr:
+                        username = _sr.get("username", "")
+            except Exception:
+                pass
+
+            await process_dm_notify(self, user_id, username, conversation_id, content)
+
         except Exception as exc:
             print(f"[DM] on_message error: {exc}")
 

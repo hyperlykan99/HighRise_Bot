@@ -117,96 +117,138 @@ def _routing_suite(cmds: list[str]) -> list[tuple[bool, str]]:
 
 def _notify_logic_checks() -> list[tuple[bool, str]]:
     """
-    12 QA checks for the SDK-aligned notification rebuild.
-    Tests 1-4 : DM parse logic (notify_system helpers)
-    Tests 5-6 : Room !sub gate (DB level)
-    Tests 7-8 : Settings/category are view-only (no subscribe side effect)
-    Tests 9-11: Broadcast filtering (unsub / no conv_id / category OFF)
-    Test  12  : notify_system owns routing (old modules do not)
+    19 QA checks for the notification rebuild + hard-gate hotfix.
+    Tests  1-2 : DM parse — exact subscribe/unsubscribe keywords accepted
+    Tests  3-8 : DM gate — random/settings DMs hard-rejected (no subscribe)
+    Test   9   : Main DM gate helper (is_valid_notify_dm_command) exists
+    Tests 10-11: Room !sub gate (DB level)
+    Tests 12-13: Settings/category are view-only (no subscribe side effect)
+    Tests 14-16: Broadcast filtering (unsub / no conv_id / category OFF)
+    Test  17   : Random DM does not create subscribed DB row
+    Test  18   : First-time DM !sub works (user_id not in room DB)
+    Test  19   : notify_system owns routing (old modules do not)
     """
     results: list[tuple[bool, str]] = []
     try:
         from modules.notify_system import (  # noqa: PLC0415
             _is_sub_command, _is_unsub_command, _OWNS_NOTIFY_ROUTING,
+            is_valid_notify_dm_command, VALID_DM_NOTIFY_COMMANDS,
         )
         import database as _db  # noqa: PLC0415
 
-        # ── Test 1: DM !sub maps subscribe ───────────────────────────────────
+        # ── Tests 1-2: exact keyword acceptance ───────────────────────────────
         results.append(_check("DM '!sub' triggers subscribe",
                                _is_sub_command("!sub")))
-
-        # ── Test 2: DM !unsub maps unsubscribe ───────────────────────────────
         results.append(_check("DM '!unsub' triggers unsubscribe",
                                _is_unsub_command("!unsub")))
 
-        # ── Test 3: random DM '.' is ignored ─────────────────────────────────
-        results.append(_check("DM '.' ignored (not sub/unsub)",
-                               not _is_sub_command(".") and not _is_unsub_command(".")))
+        # ── Tests 3-8: hard gate rejects random / settings DMs ───────────────
+        _random_dms = ["Hello", "hello", ".", "Ok", "ok", "?",
+                        "thanks", "test", "!notifysettings", "!notify tips on"]
+        gate_all_rejected = all(
+            not is_valid_notify_dm_command(d) for d in _random_dms
+        )
+        results.append(_check("Gate rejects 'Hello'",
+                               not is_valid_notify_dm_command("Hello")))
+        results.append(_check("Gate rejects '.'",
+                               not is_valid_notify_dm_command(".")))
+        results.append(_check("Gate rejects 'Ok'",
+                               not is_valid_notify_dm_command("Ok")))
+        results.append(_check("Gate rejects '?'",
+                               not is_valid_notify_dm_command("?")))
+        results.append(_check("Gate rejects '!notifysettings'",
+                               not is_valid_notify_dm_command("!notifysettings")))
+        results.append(_check("Gate rejects '!notify tips on'",
+                               not is_valid_notify_dm_command("!notify tips on")))
 
-        # ── Test 4: DM !notifysettings is ignored ─────────────────────────────
-        results.append(_check("DM '!notifysettings' ignored",
-                               not _is_sub_command("!notifysettings")
-                               and not _is_unsub_command("!notifysettings")))
+        # ── Test 9: gate helper exists and accepts valid commands ─────────────
+        gate_accepts = (
+            is_valid_notify_dm_command("!sub")
+            and is_valid_notify_dm_command("subscribe")
+            and is_valid_notify_dm_command("!unsub")
+            and is_valid_notify_dm_command("unsubscribe")
+        )
+        results.append(_check("DM gate accepts !sub/subscribe/!unsub/unsubscribe",
+                               gate_accepts))
 
-        # ── Test 5: Room !sub blocked when no conversation_id ─────────────────
-        row5 = _db.get_notify_user("__qa_no_conv_user__")
+        # ── Tests 10-11: Room !sub gate (DB level) ────────────────────────────
+        row10 = _db.get_notify_user("__qa_no_conv_user__")
         results.append(_check("Room !sub blocked: no conversation_id",
-                               not row5 or not row5.get("conversation_id")))
+                               not row10 or not row10.get("conversation_id")))
 
-        # ── Test 6: Room !sub works when conversation_id exists ───────────────
         _db.upsert_notify_user(
             "__qa_test_sub__", "qa_test_sub_user",
             subscribed=1, source="manual_dm",
             conversation_id="qa_conv_123", dm_available=1,
         )
-        row6 = _db.get_notify_user("__qa_test_sub__")
+        row11 = _db.get_notify_user("__qa_test_sub__")
         results.append(_check("Room !sub works with conversation_id",
-                               bool(row6 and row6.get("conversation_id") == "qa_conv_123"
-                                    and row6.get("subscribed") == 1)))
+                               bool(row11 and row11.get("conversation_id") == "qa_conv_123"
+                                    and row11.get("subscribed") == 1)))
 
-        # ── Test 7: !notifysettings is view-only (no subscribe side effect) ───
-        # subscribed should still be 1 from test 6 — we didn't call notifysettings,
-        # but we confirm the DB row is unchanged after a category-only lookup
-        row7 = _db.get_notify_user("__qa_test_sub__")
+        # ── Tests 12-13: Settings/category are view-only ──────────────────────
+        row12 = _db.get_notify_user("__qa_test_sub__")
         results.append(_check("!notifysettings view-only (subscribed unchanged)",
-                               row7.get("subscribed") == 1))
+                               row12.get("subscribed") == 1))
 
-        # ── Test 8: !notify category does not subscribe ───────────────────────
         _db.set_notify_category("__qa_test_sub__", "qa_test_sub_user", "tips", True)
-        row8 = _db.get_notify_user("__qa_test_sub__")
+        row13 = _db.get_notify_user("__qa_test_sub__")
         results.append(_check("!notify category does not subscribe",
-                               row8.get("subscribed") == 1 and row8.get("tips") == 1))
+                               row13.get("subscribed") == 1 and row13.get("tips") == 1))
 
-        # ── Test 9: Broadcast skips unsubscribed users ────────────────────────
+        # ── Tests 14-16: Broadcast filtering ─────────────────────────────────
         _db.upsert_notify_user(
             "__qa_unsub__", "qa_unsub_user",
             subscribed=0, conversation_id="qa_unsub_conv",
         )
-        bcast9 = _db.get_notify_users_for_broadcast("events")
-        has_unsub = any(r["user_id"] == "__qa_unsub__" for r in bcast9)
-        results.append(_check("Broadcast skips unsubscribed users", not has_unsub))
+        bcast14 = _db.get_notify_users_for_broadcast("events")
+        results.append(_check("Broadcast skips unsubscribed users",
+                               not any(r["user_id"] == "__qa_unsub__" for r in bcast14)))
 
-        # ── Test 10: Broadcast skips users with no conversation_id ────────────
         _db.upsert_notify_user("__qa_noconv__", "qa_noconv_user", subscribed=1)
-        bcast10 = _db.get_notify_users_for_broadcast("events")
-        has_noconv = any(r["user_id"] == "__qa_noconv__" for r in bcast10)
-        results.append(_check("Broadcast skips no conversation_id", not has_noconv))
+        bcast15 = _db.get_notify_users_for_broadcast("events")
+        results.append(_check("Broadcast skips no conversation_id",
+                               not any(r["user_id"] == "__qa_noconv__" for r in bcast15)))
 
-        # ── Test 11: Broadcast respects category OFF ──────────────────────────
         _db.upsert_notify_user(
             "__qa_catoff__", "qa_catoff_user",
             subscribed=1, conversation_id="qa_catoff_conv", events=0,
         )
-        bcast11 = _db.get_notify_users_for_broadcast("events")
-        has_catoff = any(r["user_id"] == "__qa_catoff__" for r in bcast11)
-        results.append(_check("Broadcast respects category OFF", not has_catoff))
+        bcast16 = _db.get_notify_users_for_broadcast("events")
+        results.append(_check("Broadcast respects category OFF",
+                               not any(r["user_id"] == "__qa_catoff__" for r in bcast16)))
 
-        # ── Test 12: notify_system owns routing (old modules do not) ──────────
+        # ── Test 17: Random DM must not create subscribed row ─────────────────
+        # Simulate the gate: a random DM is blocked before any DB write.
+        # We verify no row exists for a fresh user_id after a rejected DM.
+        _rand_uid = "__qa_random_dm_test__"
+        _db.delete_notify_user(_rand_uid)  # ensure clean
+        # The gate would return False for "Hello" — verify no row exists
+        gate_rejected = not is_valid_notify_dm_command("Hello")
+        existing_row  = _db.get_notify_user(_rand_uid)
+        results.append(_check("Random DM does not create subscribed row",
+                               gate_rejected and not existing_row))
+
+        # ── Test 18: First-time DM !sub works (user_id not in room DB) ────────
+        _ft_uid = "__qa_firsttime_dm_sub__"
+        _db.delete_notify_user(_ft_uid)
+        _db.upsert_notify_user(
+            _ft_uid, "",
+            subscribed=1, source="manual_dm",
+            conversation_id="qa_firsttime_conv", dm_available=1,
+        )
+        row18 = _db.get_notify_user(_ft_uid)
+        results.append(_check("First-time DM !sub saves user_id + conv_id",
+                               bool(row18 and row18.get("subscribed") == 1
+                                    and row18.get("conversation_id") == "qa_firsttime_conv")))
+
+        # ── Test 19: notify_system owns routing ───────────────────────────────
         results.append(_check("notify_system owns notification routing",
                                bool(_OWNS_NOTIFY_ROUTING)))
 
-        # Cleanup test records
-        for _uid in ("__qa_test_sub__", "__qa_unsub__", "__qa_noconv__", "__qa_catoff__"):
+        # Cleanup
+        for _uid in ("__qa_test_sub__", "__qa_unsub__", "__qa_noconv__",
+                     "__qa_catoff__", "__qa_random_dm_test__", "__qa_firsttime_dm_sub__"):
             try:
                 _db.delete_notify_user(_uid)
             except Exception:

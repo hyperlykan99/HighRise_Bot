@@ -1,0 +1,334 @@
+GUARANTEED NOTIFICATION FIX — Hard Cut Old DM Subscriber Pipeline
+
+Current live bug:
+Random DM messages still cause:
+
+Alerts: ON
+To unsubscribe, reply !unsub or !unsubscribe.
+
+Screenshot shows user DMs:
+Hello
+.
+Then bot replies Alerts: ON.
+
+Expected:
+Random DMs must get no reply and must not subscribe.
+
+Root cause:
+main.py still imports and uses old modules/subscribers.py process_incoming_dm.
+subscribers.py still performs old subscriber logic before delegating to notify_system.py.
+This means old subscriber/notification code can still auto-subscribe or send old replies.
+
+Highrise SDK rule:
+DMs are received through on_message(user_id, conversation_id, is_new_conversation).
+DM replies use send_message(conversation_id, message, "text").
+The user must DM first so the bot has conversation_id.
+
+Final required architecture:
+DM notification flow must go directly from main.py on_message to modules/notify_system.py.
+Do NOT route DMs through modules/subscribers.py anymore.
+
+==================================================
+PART 1 — Replace DM Entry Point
+==================================================
+
+Find main.py on_message handler.
+
+Current likely behavior:
+await process_incoming_dm(bot, user_id, conversation_id, content, is_new_conversation)
+
+Remove/disable this for notification subscription.
+
+New behavior:
+
+async def on_message(self, user_id, conversation_id, is_new_conversation):
+    content = extract message text from SDK event exactly as currently done
+    raw = content.strip()
+    lower = raw.lower()
+
+    from modules.notify_system import process_dm_notify, is_valid_notify_dm_command
+
+    if lower not in {"!sub", "!subscribe", "sub", "subscribe",
+                     "!unsub", "!unsubscribe", "unsub", "unsubscribe"}:
+        print(f"[DM HARD IGNORE] user_id={user_id[:12]} raw={raw[:60]!r}")
+        return
+
+    # Only exact sub/unsub reaches notify_system.
+    await process_dm_notify(self, user_id, username, conversation_id, raw)
+    return
+
+Important:
+If username is not available from on_message, use username = "" or lookup safely.
+Do not block first-time DM !sub just because user is not in database.
+DM !sub should still subscribe using user_id + conversation_id.
+
+==================================================
+PART 2 — Add A Hard DM Gate Helper
+==================================================
+
+In modules/notify_system.py, add:
+
+VALID_DM_NOTIFY_COMMANDS = {
+    "!sub", "!subscribe", "sub", "subscribe",
+    "!unsub", "!unsubscribe", "unsub", "unsubscribe",
+}
+
+def is_valid_notify_dm_command(content: str) -> bool:
+    return content.strip().lower() in VALID_DM_NOTIFY_COMMANDS
+
+Then main.py must call this BEFORE any old DM handler.
+
+If it returns False:
+return silently immediately.
+
+This must happen before:
+- subscribers.process_incoming_dm
+- deliver_pending_subscriber_messages
+- summary DM handler
+- notifications handler
+- AI handler
+- command routing
+- any fallback
+
+==================================================
+PART 3 — Disable subscribers.py DM Handling
+==================================================
+
+modules/subscribers.py may remain for old admin commands, but its process_incoming_dm must not control notification subscription anymore.
+
+Change process_incoming_dm to either:
+
+Option A:
+Remove it from main.py completely.
+
+Preferred.
+
+Option B:
+Make it a safe wrapper:
+
+async def process_incoming_dm(...):
+    from modules.notify_system import is_valid_notify_dm_command, process_dm_notify
+    if not is_valid_notify_dm_command(content):
+        print(f"[OLD SUBSCRIBERS DM DISABLED] raw={content[:60]!r}")
+        return
+    await process_dm_notify(bot, user_id, username_or_empty, conversation_id, content)
+
+Do not:
+- upsert subscriber rows
+- deliver pending subscriber messages
+- enable summaries
+- route slash commands
+- send wrong-bot hints
+- reply to unknown/random DMs
+- save notification consent from random DMs
+
+==================================================
+PART 4 — Delete Old Subscribe Side Effects
+==================================================
+
+Search project-wide for exact strings:
+
+Alerts: ON
+To unsubscribe, reply !unsub or !unsubscribe.
+
+Alerts: OFF
+
+✅ Alerts ON
+✅ Alerts OFF
+
+Inbox summaries enabled
+
+subscribe
+
+unsubscribe
+
+Any place outside modules/notify_system.py that can reply to DM !sub/!unsub must be removed or delegated.
+
+Allowed:
+modules/notify_system.py only.
+
+Not allowed:
+modules/subscribers.py
+modules/notifications.py
+modules/sub_notif.py
+modules/notif_v2.py
+inbox summary/autosummary modules
+
+==================================================
+PART 5 — Fix Room !sub Routing Too
+==================================================
+
+Room !sub must route to notify_system.handle_room_sub.
+
+It must NOT route to subscribers.handle_subscribe.
+
+Room !unsub must route to notify_system.handle_room_unsub.
+
+It must NOT route to subscribers.handle_unsubscribe.
+
+Expected room behavior after reset:
+
+If no conversation_id:
+!sub
+→ 📩 DM me !sub or !subscribe first to enable alerts.
+
+If conversation_id exists:
+!sub
+→ Alerts: ON
+To unsubscribe, DM me !unsub or !unsubscribe.
+
+==================================================
+PART 6 — Keep Settings Room-Only
+==================================================
+
+Room:
+!notifysettings
+!notify events on/off
+!notify games on/off
+!notify announcements on/off
+!notify promos on/off
+!notify tips on/off
+
+DM:
+!notifysettings
+!notify tips on
+hello
+.
+?
+ok
+
+All ignored silently.
+
+Only DM !sub and DM !unsub reply.
+
+==================================================
+PART 7 — Do Not Require Existing User Row For DM !sub
+==================================================
+
+First-time DM !sub must work even if the user has not used the bot in the room.
+
+In notify_system.process_dm_notify:
+- Do not require db.get_user_by_username_via_id(user_id)
+- If username is missing, store username as user_id or empty-safe placeholder
+- Save user_id + conversation_id
+- subscribed=1
+- source=manual_dm
+
+Reason:
+Highrise DM gives user_id and conversation_id. That is enough to store consent.
+
+==================================================
+PART 8 — Update QA To Catch This Exact Bug
+==================================================
+
+Update !qatest notify:
+
+Test:
+random DM "Hello" must return ignored and must not create subscribed row.
+random DM "." must return ignored and must not create subscribed row.
+random DM "Ok" must return ignored and must not create subscribed row.
+DM "!notifysettings" must return ignored.
+DM "!notify tips on" must return ignored.
+DM "!sub" must subscribe.
+DM "!unsub" must unsubscribe.
+
+Also add QA test:
+main DM gate rejects random messages BEFORE subscribers.py.
+
+Expected:
+!qatest notify Failed: 0
+
+==================================================
+PART 9 — Compile
+==================================================
+
+Run:
+
+python -m py_compile main.py
+python -m py_compile modules/notify_system.py
+python -m py_compile modules/subscribers.py
+python -m py_compile modules/notifications.py
+python -m py_compile modules/sub_notif.py
+python -m py_compile modules/notif_v2.py
+python -m py_compile modules/qa_test.py
+python -m py_compile modules/command_registry.py
+python -m py_compile modules/multi_bot.py
+
+Skip files that do not exist.
+
+==================================================
+PART 10 — Required Live Test
+==================================================
+
+After update, do this exact sequence.
+
+1. In room:
+!notifyresetall
+!confirmnotifyresetall
+
+2. DM bot:
+Hello
+.
+Ok
+?
+!notifysettings
+!notify tips on
+
+Expected:
+No reply at all.
+
+3. In room:
+!notifyaudit @4ktreyMarion
+
+Expected:
+No notification record
+or
+Subscribed: NO
+
+4. DM bot:
+!sub
+
+Expected:
+Alerts: ON
+To unsubscribe, reply !unsub or !unsubscribe.
+
+5. DM bot:
+Hello
+.
+
+Expected:
+No reply.
+
+6. DM bot:
+!unsub
+
+Expected:
+Alerts: OFF
+
+7. DM bot:
+Hello
+.
+
+Expected:
+No reply.
+
+8. In room:
+!qatest notify
+!commandissues
+
+Expected:
+Failed: 0.
+No notification command issues.
+
+Final report:
+1. main.py DM gate added before old handlers
+2. Random DMs hard ignored before subscribers.py
+3. subscribers.py DM processing disabled or delegated only
+4. notify_system.py is the only DM sub/unsub owner
+5. Room !sub routes to notify_system, not subscribers
+6. First-time DM !sub works without room user row
+7. DM !notifysettings ignored
+8. DM !notify category ignored
+9. Random DMs no longer auto-subscribe
+10. Py_compile result
+11. QA notify result
