@@ -2854,3 +2854,38 @@ async def handle_trade_help(bot: BaseBot, user: User) -> None:
         "!tradecancel — cancel"
     )
     await bot.highrise.send_whisper(user.id, msg[:249])
+
+
+# ---------------------------------------------------------------------------
+# Badge perk helpers used by title_system.py
+# ---------------------------------------------------------------------------
+
+def _get_badge_perks(badge_id: str) -> dict:
+    """
+    Return the perk dict for a badge ID.
+    Looks up BADGES catalog; returns {} if not found.
+    """
+    b = BADGES.get(badge_id) if badge_id else None
+    if not b:
+        return {}
+    return b.get("perks", {})
+
+
+def count_legendary_badges(user_id: str) -> int:
+    """
+    Count how many Legendary-or-higher badges a player owns.
+    """
+    try:
+        import database as _db
+        owned = _db.get_owned_items(user_id)
+        count = 0
+        for item in owned:
+            if item.get("item_type") != "badge":
+                continue
+            bid = item.get("item_id", "")
+            b   = BADGES.get(bid, {})
+            if b.get("tier", "").lower() in ("legendary", "mythic", "ultra-rare"):
+                count += 1
+        return count
+    except Exception:
+        return 0

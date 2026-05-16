@@ -1975,3 +1975,50 @@ def on_room_visit(user_id: str, username: str) -> list[str]:
     except Exception:
         pass
     return _check_stat_titles(user_id, username, "room_visit_days")
+
+
+async def handle_edittitleperk(bot: BaseBot, user: User,
+                                args: list[str]) -> None:
+    """!edittitleperk title_id perk_name value — admin: edit a title's perk."""
+    if not _require_admin(bot, user):
+        await _w(bot, user.id, "⚠️ Staff only.")
+        return
+    if len(args) < 4:
+        await _w(bot, user.id,
+            "Usage: !edittitleperk title_id perk_name value\n"
+            "e.g.: !edittitleperk high_roller fishing_coin_pct 15")
+        return
+    tid      = args[1].lower()
+    perk_key = args[2].lower()
+    try:
+        val = float(args[3])
+    except ValueError:
+        await _w(bot, user.id, "Value must be a number.")
+        return
+
+    t = _get_title(tid)
+    if not t:
+        await _w(bot, user.id, f"Title '{tid}' not found.")
+        return
+
+    # Enforce perk caps
+    cap = PERK_CAPS.get(perk_key)
+    if cap is not None:
+        val = min(val, cap)
+
+    # Mutate the in-memory catalog
+    if "perks" not in TITLE_CATALOG[tid]:
+        TITLE_CATALOG[tid]["perks"] = {}
+    TITLE_CATALOG[tid]["perks"][perk_key] = val
+
+    # Persist to DB catalog if upsert is available
+    try:
+        db.edit_catalog_title(tid, f"perk_{perk_key}", val)
+    except Exception:
+        pass
+
+    db.log_title_action("title_perk_edited", user.id, user.username, tid,
+                         details=f"{perk_key}={val}")
+    await _w(bot, user.id,
+        f"✅ Updated perk: {tid} → {perk_key}={val}"
+        + (f" (capped at {cap})" if cap and float(args[3]) > cap else ""))

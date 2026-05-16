@@ -119,7 +119,7 @@ from modules.badge_market import (
     handle_claim_badge,
 )
 from modules.title_system import (
-    handle_titles_menu, handle_titleshop, handle_mytitles,
+    handle_titles_menu, handle_titleshop, handle_alltitles, handle_mytitles,
     handle_titleinfo_v2, handle_buytitle, handle_equiptitle, handle_unequiptitle,
     handle_titlesearch, handle_titleprogress, handle_claimtitles,
     handle_myboosts, handle_mystats, handle_prestige, handle_titlehelp,
@@ -128,8 +128,11 @@ from modules.title_system import (
     handle_givetitle_v2, handle_removetitle_v2, handle_settitle_v2,
     handle_cleartitle_v2, handle_titleaudit, handle_titlelogs,
     handle_titlestats_admin, handle_addtitle, handle_edittitle,
-    handle_settitlebuyable, handle_settitleactive,
+    handle_edittitleperk, handle_settitlebuyable, handle_settitleactive,
     handle_awardseasonaltitle, handle_expiretitles,
+    on_room_visit as title_on_room_visit,
+    on_gold_tip as title_on_gold_tip,
+    on_casino_hand as title_on_casino_hand,
 )
 from modules.numbered_shop import (
     handle_buy_number,
@@ -3920,7 +3923,11 @@ class HangoutBot(BaseBot):
             elif cmd == "awardseasonaltitle":
                 await handle_awardseasonaltitle(self, user, args)
             elif cmd == "expiretitles":
-                await handle_expiretitles(self, user, args)
+                await handle_expiretitles(self, user)
+            elif cmd == "edittitleperk":
+                await handle_edittitleperk(self, user, args)
+            elif cmd == "stats":
+                await handle_titlestats_admin(self, user, args)
             # Badges (legacy shop + emoji system)
             elif cmd == "givebadge":
                 await handle_givebadge_emoji(self, user, args)
@@ -4254,8 +4261,14 @@ class HangoutBot(BaseBot):
             else:
                 await handle_badges_cmd_router(self, user, args)
 
-        elif cmd in ("titles", "titleshop", "alltitles"):
+        elif cmd == "titles":
             await handle_titles_menu(self, user, args)
+
+        elif cmd == "titleshop":
+            await handle_titleshop(self, user, args)
+
+        elif cmd == "alltitles":
+            await handle_alltitles(self, user, args)
 
         elif cmd == "mytitles":
             await handle_mytitles(self, user, args)
@@ -4267,7 +4280,7 @@ class HangoutBot(BaseBot):
             await handle_equiptitle(self, user, args)
 
         elif cmd == "unequiptitle":
-            await handle_unequiptitle(self, user, args)
+            await handle_unequiptitle(self, user)
 
         elif cmd == "titlesearch":
             await handle_titlesearch(self, user, args)
@@ -4276,7 +4289,7 @@ class HangoutBot(BaseBot):
             await handle_titleprogress(self, user, args)
 
         elif cmd == "claimtitles":
-            await handle_claimtitles(self, user, args)
+            await handle_claimtitles(self, user)
 
         elif cmd in ("myboosts", "perks", "titleperks"):
             await handle_myboosts(self, user, args)
@@ -4288,13 +4301,13 @@ class HangoutBot(BaseBot):
             await handle_prestige(self, user, args)
 
         elif cmd == "titlehelp":
-            await handle_titlehelp(self, user, args)
+            await handle_titlehelp(self, user)
 
         elif cmd == "loadout":
             await handle_loadout(self, user, args)
 
         elif cmd == "loadouts":
-            await handle_loadouts(self, user, args)
+            await handle_loadouts(self, user)
 
         elif cmd == "besttitle":
             await handle_besttitle(self, user, args)
@@ -4306,7 +4319,7 @@ class HangoutBot(BaseBot):
             await handle_titlelb(self, user, args)
 
         elif cmd in ("temporarytitles", "seasontitles"):
-            await handle_temporarytitles(self, user, args)
+            await handle_temporarytitles(self, user)
 
         elif cmd == "privacy":
             await handle_privacy(self, user, args)
@@ -4322,6 +4335,9 @@ class HangoutBot(BaseBot):
             sub = args[1].lower() if len(args) > 1 else ""
             if sub == "badges":
                 await handle_badges_cmd_router(self, user, args[1:])
+            elif sub == "titles":
+                # Redirect !shop titles to Title V2 shop
+                await handle_titleshop(self, user, args[1:])
             elif sub in ("next", "prev", "page"):
                 # If the active session is badges, redirect to category browsing
                 session = db.get_shop_session(user.username) if sub in ("next", "prev") else None
@@ -4344,9 +4360,9 @@ class HangoutBot(BaseBot):
             # /buy badge <id>  — direct ID buy (emoji badges)
             if sub == "badge" and len(args) > 2:
                 await handle_buy_badge(self, user, args[2])
-            # /buy title <id>  — direct ID buy (old shop)
+            # /buy title <id>  — redirect to Title V2 system
             elif sub == "title" and len(args) > 2:
-                await handle_buy(self, user, args)
+                await handle_buytitle(self, user, ["buytitle"] + args[2:])
             # /buy <number>  — numbered session buy
             elif sub.isdigit():
                 await handle_buy_number(self, user, args)
@@ -4368,6 +4384,9 @@ class HangoutBot(BaseBot):
                     await handle_equip_badge(self, user, badge_id)
                 else:
                     await self.highrise.send_whisper(user.id, "Usage: !equip badge <id>")
+            elif len(args) > 1 and args[1].lower() == "title":
+                # Redirect !equip title <id> to Title V2 equip
+                await handle_equiptitle(self, user, ["equiptitle"] + args[2:])
             else:
                 await handle_equip(self, user, args)
 
@@ -7364,6 +7383,10 @@ class HangoutBot(BaseBot):
             time_exp_record_join(user.id)
         except Exception as _e:
             print(f"[ON_JOIN ERROR] db/cache for @{user.username}: {_e!r}")
+        try:
+            title_on_room_visit(user.id, user.username.lower())
+        except Exception:
+            pass
         # Update position cache for follow/teleport
         try:
             from highrise.models import Position as _Pos
@@ -7457,6 +7480,10 @@ class HangoutBot(BaseBot):
         if str(tip_type).lower() == 'gold':
             gold_amount = float(getattr(tip, 'amount', 1))
             print(f"  [TIP] Gold tip detected: {gold_amount} gold from @{sender.username}")
+            try:
+                title_on_gold_tip(sender.id, sender.username.lower(), int(gold_amount))
+            except Exception:
+                pass
             asyncio.create_task(handle_incoming_gold_tip(
                 self, sender, receiver.username, gold_amount,
             ))

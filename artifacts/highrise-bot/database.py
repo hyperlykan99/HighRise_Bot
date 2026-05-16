@@ -16045,3 +16045,44 @@ def edit_catalog_title(title_id: str, field: str, value) -> None:
 
 
 
+
+# ---------------------------------------------------------------------------
+# Standalone owned_items helpers (title_system.py uses these)
+# ---------------------------------------------------------------------------
+
+def add_owned_item(user_id: str, username: str,
+                   item_id: str, item_type: str) -> None:
+    """INSERT OR IGNORE an item into owned_items."""
+    try:
+        conn = get_connection()
+        conn.execute(
+            "INSERT OR IGNORE INTO owned_items "
+            "(user_id, item_id, item_type) VALUES (?,?,?)",
+            (user_id, item_id, item_type),
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+
+def remove_owned_item(user_id: str, item_id: str,
+                      item_type: str = "") -> None:
+    """Remove an item from owned_items (optionally filter by type)."""
+    try:
+        conn = get_connection()
+        if item_type:
+            conn.execute(
+                "DELETE FROM owned_items "
+                "WHERE user_id=? AND item_id=? AND item_type=?",
+                (user_id, item_id, item_type),
+            )
+        else:
+            conn.execute(
+                "DELETE FROM owned_items WHERE user_id=? AND item_id=?",
+                (user_id, item_id),
+            )
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
