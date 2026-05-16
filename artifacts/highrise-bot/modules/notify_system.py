@@ -26,7 +26,23 @@ if TYPE_CHECKING:
     from main import BaseBot
     from highrise import User
 
-# QA marker — this module is the sole owner of all notify routing
+# ── Regression lock markers ───────────────────────────────────────────────────
+# These constants are checked by !qatest notify (modules/qa_test.py).
+# Do not remove or rename them.
+#
+# LOCKED BEHAVIORS — must not regress:
+#   1. main.py on_message uses messages[0] (SDK newest-first). Never messages[-1].
+#   2. Hard gate: is_valid_notify_dm_command() fires BEFORE any other DM handler.
+#   3. DM parser: exact frozenset match only — content.strip().lower() in VALID_DM_NOTIFY_COMMANDS.
+#   4. Random DMs ("Hello", ".", "Ok", "?", "!notifysettings", etc.) → no reply, no DB row.
+#   5. DM !sub / subscribe  → _dm_subscribe (sole owner of "Alerts: ON…" reply).
+#   6. DM !unsub / unsubscribe → _dm_unsubscribe (sole owner of "Alerts: OFF" reply).
+#   7. Room !sub requires existing conversation_id; prompts DM first if absent.
+#   8. !notifysettings / !notify cat on/off → room-only; silently ignored in DM.
+#   9. Broadcasts: subscribed=1 + conversation_id set + category=1 required.
+#  10. First-time DM !sub works without a prior room join row.
+#
+# Regression suite: !qatest notify  →  Expected: Failed: 0  (19 checks)
 _OWNS_NOTIFY_ROUTING = True
 
 _VALID_CATEGORIES = ("events", "games", "announcements", "promos", "tips")

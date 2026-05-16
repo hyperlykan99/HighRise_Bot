@@ -74,6 +74,45 @@ DB schema source of truth: `database.py` (`_MIGRATIONS` list + `init_db()`).
 
 Casino games (Blackjack, Realistic Blackjack, Poker), DJ queue, token economy, daily rewards, in-game shop, quests, achievements, events, subscriber DMs, leaderboards, staff management, public player profiles with privacy controls, emoji badge market, mining game (7 rarities: Common/Uncommon/Rare/Epic/Legendary/Mythic/Ultra-Rare/Prismatic/Exotic with 90+ ores, per-ore weight system, weight leaderboards, configurable rare-ore room announcements, `/minepanel` staff dashboard), per-bot personalized welcome whispers (configurable per bot), gold tip migration to BankingBot (coins_per_gold conversion, event log, dedup), Time EXP bot exclusion (`/setallowbotxp`), a comprehensive room utility system, a bot mode/outfit system with multiple personas, and a multi-bot system for distributed command handling and high availability. It also includes a Casino Integrity Checker for verifying game logic and card visibility, plus bulk command testing tools (/commandtestall, /commandtestgroup).
 
+## Notification System Lock
+
+The DM notification pipeline is locked. Do not modify the following without updating the regression suite (`!qatest notify`) and confirming all 19 tests still pass.
+
+### Locked architecture
+
+| Layer | File | Rule |
+|---|---|---|
+| DM entry point | `main.py on_message` | Uses `messages[0]` (SDK newest-first). Never `messages[-1]`, never reversed scan. |
+| Hard gate | `main.py on_message` | `is_valid_notify_dm_command(content)` called **before any other handler**. Non-matching DMs return immediately with `[DM HARD IGNORE]`. |
+| DM parser | `notify_system.py` | Exact frozenset match only: `content.strip().lower() in VALID_DM_NOTIFY_COMMANDS`. No prefix stripping, no startswith, no fuzzy match. |
+| Old DM handler | `subscribers.process_incoming_dm` | Disabled stub — delegates only exact keywords to `notify_system`, drops everything else. No upsert, no pending delivery, no slash routing. |
+| Sole DM reply owner | `notify_system.py` | Only `_dm_subscribe` sends "Alerts: ON…" and only `_dm_unsubscribe` sends "Alerts: OFF". No other module may send these strings via DM. |
+
+### Locked behaviors (must not regress)
+
+1. **Random DMs ignored** — "Hello", ".", "Ok", "?", "!notifysettings", "!notify tips on" and all other non-keyword DMs receive no reply and create no DB row.
+2. **DM `!sub` subscribes** — exact match (after strip+lower) saves `user_id` + `conversation_id`, sets `subscribed=1`, replies "Alerts: ON…".
+3. **DM `!unsub` unsubscribes** — exact match sets `subscribed=0`, replies "Alerts: OFF".
+4. **Room `!sub` requires existing `conversation_id`** — if the user has never DM'd the bot, room `!sub` prompts them to DM first. Subscription is only stored after a DM `!sub`.
+5. **Settings are room-only** — `!notifysettings`, `!notify <cat> on/off` work only from room chat; same commands via DM are silently ignored.
+6. **Broadcasts respect subscribed + category** — `get_notify_users_for_broadcast(cat)` returns only rows where `subscribed=1`, `conversation_id` is set, and `<cat>=1`.
+7. **First-time DM `!sub` works** — user does not need a prior room join row; `user_id` + `conversation_id` alone is sufficient for consent.
+8. **`messages[0]` is always the newest** — the SDK returns newest-first; scanning history for an older user message is explicitly forbidden.
+
+### Regression test command
+
+Run `!qatest notify` in the room (owner/admin only). Expected: **Failed: 0** across all 19 checks.
+
+### Do not modify
+
+- `main.py on_message` hard gate and `messages[0]` extraction
+- `notify_system.VALID_DM_NOTIFY_COMMANDS` / `is_valid_notify_dm_command()`
+- `notify_system._DM_SUB_CMDS` / `_DM_UNSUB_CMDS` frozensets
+- `notify_system.process_dm_notify` exact-match parser
+- `notify_system._dm_subscribe` / `_dm_unsubscribe` (sole reply owners)
+- `notify_system._OWNS_NOTIFY_ROUTING = True` marker
+- The `_notify_logic_checks()` function in `modules/qa_test.py` (19 regression tests)
+
 ## User preferences
 
 - All chat messages must be ≤ 249 characters.

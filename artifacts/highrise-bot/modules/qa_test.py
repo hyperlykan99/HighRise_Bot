@@ -117,16 +117,22 @@ def _routing_suite(cmds: list[str]) -> list[tuple[bool, str]]:
 
 def _notify_logic_checks() -> list[tuple[bool, str]]:
     """
-    19 QA checks for the notification rebuild + hard-gate hotfix.
-    Tests  1-2 : DM parse — exact subscribe/unsubscribe keywords accepted
-    Tests  3-8 : DM gate — random/settings DMs hard-rejected (no subscribe)
-    Test   9   : Main DM gate helper (is_valid_notify_dm_command) exists
-    Tests 10-11: Room !sub gate (DB level)
-    Tests 12-13: Settings/category are view-only (no subscribe side effect)
-    Tests 14-16: Broadcast filtering (unsub / no conv_id / category OFF)
-    Test  17   : Random DM does not create subscribed DB row
-    Test  18   : First-time DM !sub works (user_id not in room DB)
-    Test  19   : notify_system owns routing (old modules do not)
+    REGRESSION SUITE — Notification System Lock (19 checks).
+    All 19 must pass after every change touching DM handling, notify_system,
+    subscribers.py, or main.py on_message. Run via: !qatest notify
+
+    Locked behaviors tested:
+      Tests  1-2 : DM parse — exact subscribe/unsubscribe keywords accepted
+      Tests  3-8 : Hard gate rejects random + settings DMs (no reply, no subscribe)
+      Test   9   : Gate helper exists and accepts all 8 valid keywords
+      Tests 10-11: Room !sub gate (DB level, conversation_id required)
+      Tests 12-13: Settings/category are view-only (no subscribe side effect)
+      Tests 14-16: Broadcast filtering (unsub / no conv_id / category OFF)
+      Test  17   : Random DM does not create a subscribed DB row
+      Test  18   : First-time DM !sub works without a prior room join row
+      Test  19   : notify_system is the sole routing owner
+
+    See also: replit.md "Notification System Lock" section.
     """
     results: list[tuple[bool, str]] = []
     try:
