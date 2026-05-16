@@ -2270,6 +2270,77 @@ def _migrate_db():
             badge_id   TEXT DEFAULT '',
             claimed_at TEXT DEFAULT (datetime('now'))
         )""",
+        # ── Title V2 tables ────────────────────────────────────────────────────
+        """CREATE TABLE IF NOT EXISTS title_catalog (
+            title_id         TEXT PRIMARY KEY,
+            display_name     TEXT DEFAULT '',
+            tier             TEXT DEFAULT 'Common',
+            source           TEXT DEFAULT 'Shop',
+            price            INTEGER DEFAULT 0,
+            buyable          INTEGER DEFAULT 0,
+            active           INTEGER DEFAULT 1,
+            secret           INTEGER DEFAULT 0,
+            requirement_type TEXT DEFAULT '',
+            requirement_value INTEGER DEFAULT 0,
+            category         TEXT DEFAULT '',
+            perks_json       TEXT DEFAULT '{}',
+            created_at       TEXT DEFAULT (datetime('now')),
+            updated_at       TEXT DEFAULT (datetime('now'))
+        )""",
+        """CREATE TABLE IF NOT EXISTS user_titles (
+            user_id     TEXT NOT NULL,
+            username    TEXT DEFAULT '',
+            title_id    TEXT NOT NULL,
+            source      TEXT DEFAULT 'Shop',
+            unlocked_at TEXT DEFAULT (datetime('now')),
+            expires_at  TEXT DEFAULT '',
+            PRIMARY KEY(user_id, title_id)
+        )""",
+        """CREATE TABLE IF NOT EXISTS user_title_stats (
+            user_id                    TEXT PRIMARY KEY,
+            username                   TEXT DEFAULT '',
+            fish_caught                INTEGER DEFAULT 0,
+            ores_mined                 INTEGER DEFAULT 0,
+            casino_hands_played        INTEGER DEFAULT 0,
+            casino_hands_won           INTEGER DEFAULT 0,
+            casino_lifetime_wagered    INTEGER DEFAULT 0,
+            casino_lifetime_won        INTEGER DEFAULT 0,
+            casino_biggest_win         INTEGER DEFAULT 0,
+            blackjack_wins             INTEGER DEFAULT 0,
+            poker_wins                 INTEGER DEFAULT 0,
+            poker_allin_wins           INTEGER DEFAULT 0,
+            poker_royal_flush_wins     INTEGER DEFAULT 0,
+            lifetime_gold_tipped       INTEGER DEFAULT 0,
+            lifetime_chillcoins_earned INTEGER DEFAULT 0,
+            lifetime_chillcoins_spent  INTEGER DEFAULT 0,
+            room_visit_days            INTEGER DEFAULT 0,
+            room_join_count            INTEGER DEFAULT 0,
+            last_visit_date            TEXT DEFAULT '',
+            minigames_played           INTEGER DEFAULT 0,
+            minigames_won              INTEGER DEFAULT 0,
+            times_jailed               INTEGER DEFAULT 0,
+            players_jailed             INTEGER DEFAULT 0,
+            bails_paid                 INTEGER DEFAULT 0
+        )""",
+        """CREATE TABLE IF NOT EXISTS title_logs (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            action          TEXT DEFAULT '',
+            user_id         TEXT DEFAULT '',
+            username        TEXT DEFAULT '',
+            target_user_id  TEXT DEFAULT '',
+            target_username TEXT DEFAULT '',
+            title_id        TEXT DEFAULT '',
+            details         TEXT DEFAULT '',
+            created_at      TEXT DEFAULT (datetime('now'))
+        )""",
+        """CREATE TABLE IF NOT EXISTS title_loadouts (
+            user_id    TEXT NOT NULL,
+            name       TEXT NOT NULL,
+            title_id   TEXT DEFAULT '',
+            badge_id   TEXT DEFAULT '',
+            updated_at TEXT DEFAULT (datetime('now')),
+            PRIMARY KEY(user_id, name)
+        )""",
     ]:
         try:
             conn.execute(sql)
@@ -15609,3 +15680,368 @@ def get_bug_reports_by_type(
         return [dict(r) for r in rows]
     except Exception:
         return []
+
+
+# ---------------------------------------------------------------------------
+# Title V2 DB helpers
+# ---------------------------------------------------------------------------
+
+def add_user_title(user_id: str, username: str, title_id: str,
+                    source: str = "Shop", expires_at: str = "") -> None:
+    """Grant a title to a user (INSERT OR IGNORE)."""
+    try:
+        conn = get_connection()
+        conn.execute(
+            "INSERT OR IGNORE INTO user_titles "
+            "(user_id, username, title_id, source, expires_at) VALUES (?,?,?,?,?)",
+            (user_id, username.lower(), title_id, source, expires_at or ""),
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+
+def remove_user_title(user_id: str, title_id: str) -> None:
+    try:
+        conn = get_connection()
+        conn.execute(
+            "DELETE FROM user_titles WHERE user_id=? AND title_id=?",
+            (user_id, title_id),
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+
+def has_user_title(user_id: str, title_id: str) -> bool:
+    try:
+        conn = get_connection()
+        row  = conn.execute(
+            "SELECT 1 FROM user_titles WHERE user_id=? AND title_id=?",
+            (user_id, title_id),
+        ).fetchone()
+        conn.close()
+        return row is not None
+    except Exception:
+        return False
+
+
+def get_user_title(user_id: str, title_id: str) -> dict | None:
+    try:
+        conn = get_connection()
+        row  = conn.execute(
+            "SELECT * FROM user_titles WHERE user_id=? AND title_id=?",
+            (user_id, title_id),
+        ).fetchone()
+        conn.close()
+        return dict(row) if row else None
+    except Exception:
+        return None
+
+
+def get_user_titles(user_id: str) -> list[dict]:
+    try:
+        conn = get_connection()
+        rows = conn.execute(
+            "SELECT * FROM user_titles WHERE user_id=? ORDER BY unlocked_at ASC",
+            (user_id,),
+        ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+    except Exception:
+        return []
+
+
+def get_active_seasonal_titles() -> list[dict]:
+    """Return all user_titles rows with source=Seasonal that have not expired."""
+    try:
+        conn = get_connection()
+        rows = conn.execute(
+            "SELECT * FROM user_titles WHERE source='Seasonal' "
+            "AND (expires_at='' OR expires_at > datetime('now')) "
+            "ORDER BY unlocked_at DESC",
+        ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+    except Exception:
+        return []
+
+
+def expire_seasonal_titles() -> int:
+    """Remove seasonal titles that have expired. Returns count removed."""
+    try:
+        conn = get_connection()
+        cur  = conn.execute(
+            "DELETE FROM user_titles WHERE source='Seasonal' "
+            "AND expires_at != '' AND expires_at <= datetime('now')",
+        )
+        conn.commit()
+        conn.close()
+        return cur.rowcount
+    except Exception:
+        return 0
+
+
+# ── user_title_stats helpers ──────────────────────────────────────────────
+
+def _ensure_title_stats(conn, user_id: str, username: str) -> None:
+    conn.execute(
+        "INSERT OR IGNORE INTO user_title_stats (user_id, username) VALUES (?,?)",
+        (user_id, username.lower()),
+    )
+
+
+def get_title_stats(user_id: str) -> dict:
+    try:
+        conn = get_connection()
+        row  = conn.execute(
+            "SELECT * FROM user_title_stats WHERE user_id=?",
+            (user_id,),
+        ).fetchone()
+        conn.close()
+        return dict(row) if row else {}
+    except Exception:
+        return {}
+
+
+def increment_title_stat(user_id: str, username: str,
+                          stat: str, amount: int = 1) -> None:
+    _ALLOWED = {
+        "fish_caught", "ores_mined", "casino_hands_played", "casino_hands_won",
+        "casino_lifetime_wagered", "casino_lifetime_won", "casino_biggest_win",
+        "blackjack_wins", "poker_wins", "poker_allin_wins", "poker_royal_flush_wins",
+        "lifetime_gold_tipped", "lifetime_chillcoins_earned",
+        "lifetime_chillcoins_spent", "room_visit_days", "room_join_count",
+        "minigames_played", "minigames_won", "times_jailed", "players_jailed",
+        "bails_paid",
+    }
+    if stat not in _ALLOWED:
+        return
+    try:
+        conn = get_connection()
+        _ensure_title_stats(conn, user_id, username)
+        conn.execute(
+            f"UPDATE user_title_stats SET {stat}={stat}+? WHERE user_id=?",
+            (amount, user_id),
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+
+def set_title_stat(user_id: str, username: str, stat: str, value) -> None:
+    """Set a single stat column (for biggest_win, last_visit_date, etc.)."""
+    _SAFE = {
+        "casino_biggest_win", "last_visit_date",
+        "room_visit_days", "room_join_count",
+    }
+    if stat not in _SAFE:
+        return
+    try:
+        conn = get_connection()
+        _ensure_title_stats(conn, user_id, username)
+        conn.execute(
+            f"UPDATE user_title_stats SET {stat}=? WHERE user_id=?",
+            (value, user_id),
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+
+def get_title_stat_leaderboard(stat: str, limit: int = 10) -> list[dict]:
+    _ALLOWED = {
+        "fish_caught", "ores_mined", "casino_lifetime_won",
+        "lifetime_chillcoins_earned",
+    }
+    if stat not in _ALLOWED:
+        return []
+    try:
+        conn  = get_connection()
+        rows  = conn.execute(
+            f"SELECT username, {stat} as value FROM user_title_stats "
+            f"ORDER BY {stat} DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+    except Exception:
+        return []
+
+
+def get_title_count_leaderboard(limit: int = 10) -> list[dict]:
+    try:
+        conn = get_connection()
+        rows = conn.execute(
+            "SELECT username, COUNT(*) as count FROM user_titles "
+            "GROUP BY user_id ORDER BY count DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+    except Exception:
+        return []
+
+
+# ── title_logs helpers ────────────────────────────────────────────────────
+
+def log_title_action(action: str, user_id: str, username: str,
+                      title_id: str, target_user_id: str = "",
+                      target_username: str = "", details: str = "") -> None:
+    try:
+        conn = get_connection()
+        conn.execute(
+            "INSERT INTO title_logs "
+            "(action, user_id, username, target_user_id, target_username, "
+            "title_id, details) VALUES (?,?,?,?,?,?,?)",
+            (action, user_id, username.lower(), target_user_id or "",
+             (target_username or "").lower(), title_id, details or ""),
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+
+def get_title_logs(user_id: str | None = None, limit: int = 10) -> list[dict]:
+    try:
+        conn = get_connection()
+        if user_id:
+            rows = conn.execute(
+                "SELECT * FROM title_logs "
+                "WHERE user_id=? OR target_user_id=? "
+                "ORDER BY id DESC LIMIT ?",
+                (user_id, user_id, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM title_logs ORDER BY id DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+    except Exception:
+        return []
+
+
+# ── title_loadouts helpers ────────────────────────────────────────────────
+
+def save_title_loadout(user_id: str, name: str,
+                        title_id: str, badge_id: str) -> None:
+    try:
+        conn = get_connection()
+        conn.execute(
+            "INSERT INTO title_loadouts (user_id, name, title_id, badge_id) "
+            "VALUES (?,?,?,?) ON CONFLICT(user_id, name) DO UPDATE SET "
+            "title_id=excluded.title_id, badge_id=excluded.badge_id, "
+            "updated_at=datetime('now')",
+            (user_id, name, title_id, badge_id),
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+
+def get_title_loadout(user_id: str, name: str) -> dict | None:
+    try:
+        conn = get_connection()
+        row  = conn.execute(
+            "SELECT * FROM title_loadouts WHERE user_id=? AND name=?",
+            (user_id, name),
+        ).fetchone()
+        conn.close()
+        return dict(row) if row else None
+    except Exception:
+        return None
+
+
+def get_title_loadouts(user_id: str) -> list[dict]:
+    try:
+        conn = get_connection()
+        rows = conn.execute(
+            "SELECT * FROM title_loadouts WHERE user_id=? ORDER BY name",
+            (user_id,),
+        ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+    except Exception:
+        return []
+
+
+# ── title_catalog helpers ─────────────────────────────────────────────────
+
+def get_catalog_title(title_id: str) -> dict | None:
+    try:
+        conn = get_connection()
+        row  = conn.execute(
+            "SELECT * FROM title_catalog WHERE title_id=?",
+            (title_id,),
+        ).fetchone()
+        conn.close()
+        if not row:
+            return None
+        d = dict(row)
+        try:
+            d["perks"] = __import__("json").loads(d.get("perks_json") or "{}")
+        except Exception:
+            d["perks"] = {}
+        return d
+    except Exception:
+        return None
+
+
+def upsert_catalog_title(title_id: str, display_name: str, tier: str,
+                          source: str, price: int,
+                          buyable: bool = False, active: bool = True,
+                          requirement_type: str = "",
+                          requirement_value: int = 0,
+                          category: str = "",
+                          perks: dict | None = None) -> None:
+    import json as _json
+    perks_json = _json.dumps(perks or {})
+    try:
+        conn = get_connection()
+        conn.execute(
+            "INSERT INTO title_catalog "
+            "(title_id, display_name, tier, source, price, buyable, active, "
+            "requirement_type, requirement_value, category, perks_json) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?) "
+            "ON CONFLICT(title_id) DO UPDATE SET "
+            "display_name=excluded.display_name, tier=excluded.tier, "
+            "source=excluded.source, price=excluded.price, "
+            "buyable=excluded.buyable, active=excluded.active, "
+            "updated_at=datetime('now')",
+            (title_id, display_name, tier, source, price,
+             int(buyable), int(active),
+             requirement_type, requirement_value, category, perks_json),
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+
+def edit_catalog_title(title_id: str, field: str, value) -> None:
+    _SAFE = {"display_name", "tier", "source", "price", "buyable",
+             "active", "requirement_value"}
+    if field not in _SAFE:
+        raise ValueError(f"Field '{field}' cannot be edited via this helper.")
+    try:
+        conn = get_connection()
+        conn.execute(
+            f"UPDATE title_catalog SET {field}=?, updated_at=datetime('now') "
+            f"WHERE title_id=?",
+            (value, title_id),
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        raise RuntimeError(str(e))
+
+
+

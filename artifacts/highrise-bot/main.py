@@ -118,6 +118,19 @@ from modules.badge_market import (
     handle_badge_audit,
     handle_claim_badge,
 )
+from modules.title_system import (
+    handle_titles_menu, handle_titleshop, handle_mytitles,
+    handle_titleinfo_v2, handle_buytitle, handle_equiptitle, handle_unequiptitle,
+    handle_titlesearch, handle_titleprogress, handle_claimtitles,
+    handle_myboosts, handle_mystats, handle_prestige, handle_titlehelp,
+    handle_loadout, handle_loadouts, handle_besttitle, handle_equipbest,
+    handle_titlelb, handle_temporarytitles,
+    handle_givetitle_v2, handle_removetitle_v2, handle_settitle_v2,
+    handle_cleartitle_v2, handle_titleaudit, handle_titlelogs,
+    handle_titlestats_admin, handle_addtitle, handle_edittitle,
+    handle_settitlebuyable, handle_settitleactive,
+    handle_awardseasonaltitle, handle_expiretitles,
+)
 from modules.numbered_shop import (
     handle_buy_number,
     handle_confirmbuy,
@@ -3881,15 +3894,33 @@ class HangoutBot(BaseBot):
                 await handle_setrep(self, user, args)
             elif cmd == "resetrep":
                 await handle_resetrep(self, user, args)
-            # Titles
+            # Titles (V2)
             elif cmd == "givetitle":
-                await handle_givetitle(self, user, args)
+                await handle_givetitle_v2(self, user, args)
             elif cmd == "removetitle":
-                await handle_removetitle(self, user, args)
+                await handle_removetitle_v2(self, user, args)
             elif cmd == "settitle":
-                await handle_settitle(self, user, args)
+                await handle_settitle_v2(self, user, args)
             elif cmd == "cleartitle":
-                await handle_cleartitle(self, user, args)
+                await handle_cleartitle_v2(self, user, args)
+            elif cmd == "titleaudit":
+                await handle_titleaudit(self, user, args)
+            elif cmd == "titlelogs":
+                await handle_titlelogs(self, user, args)
+            elif cmd in ("titlestats", "boosts"):
+                await handle_titlestats_admin(self, user, args)
+            elif cmd == "addtitle":
+                await handle_addtitle(self, user, args)
+            elif cmd == "edittitle":
+                await handle_edittitle(self, user, args)
+            elif cmd == "settitlebuyable":
+                await handle_settitlebuyable(self, user, args)
+            elif cmd == "settitleactive":
+                await handle_settitleactive(self, user, args)
+            elif cmd == "awardseasonaltitle":
+                await handle_awardseasonaltitle(self, user, args)
+            elif cmd == "expiretitles":
+                await handle_expiretitles(self, user, args)
             # Badges (legacy shop + emoji system)
             elif cmd == "givebadge":
                 await handle_givebadge_emoji(self, user, args)
@@ -4223,8 +4254,59 @@ class HangoutBot(BaseBot):
             else:
                 await handle_badges_cmd_router(self, user, args)
 
-        elif cmd == "titles":
-            await handle_badges_cmd(self, user, args)
+        elif cmd in ("titles", "titleshop", "alltitles"):
+            await handle_titles_menu(self, user, args)
+
+        elif cmd == "mytitles":
+            await handle_mytitles(self, user, args)
+
+        elif cmd == "buytitle":
+            await handle_buytitle(self, user, args)
+
+        elif cmd == "equiptitle":
+            await handle_equiptitle(self, user, args)
+
+        elif cmd == "unequiptitle":
+            await handle_unequiptitle(self, user, args)
+
+        elif cmd == "titlesearch":
+            await handle_titlesearch(self, user, args)
+
+        elif cmd == "titleprogress":
+            await handle_titleprogress(self, user, args)
+
+        elif cmd == "claimtitles":
+            await handle_claimtitles(self, user, args)
+
+        elif cmd in ("myboosts", "perks", "titleperks"):
+            await handle_myboosts(self, user, args)
+
+        elif cmd == "mystats":
+            await handle_mystats(self, user, args)
+
+        elif cmd == "prestige":
+            await handle_prestige(self, user, args)
+
+        elif cmd == "titlehelp":
+            await handle_titlehelp(self, user, args)
+
+        elif cmd == "loadout":
+            await handle_loadout(self, user, args)
+
+        elif cmd == "loadouts":
+            await handle_loadouts(self, user, args)
+
+        elif cmd == "besttitle":
+            await handle_besttitle(self, user, args)
+
+        elif cmd == "equipbest":
+            await handle_equipbest(self, user, args)
+
+        elif cmd == "titlelb":
+            await handle_titlelb(self, user, args)
+
+        elif cmd in ("temporarytitles", "seasontitles"):
+            await handle_temporarytitles(self, user, args)
 
         elif cmd == "privacy":
             await handle_privacy(self, user, args)
@@ -4334,7 +4416,7 @@ class HangoutBot(BaseBot):
             await handle_badgeinfo_emoji(self, user, args)
 
         elif cmd == "titleinfo":
-            await handle_titleinfo(self, user, args)
+            await handle_titleinfo_v2(self, user, args)
 
         # ── Numbered shop extras ───────────────────────────────────────────────
         elif cmd in ("confirm", "jailconfirm"):

@@ -409,6 +409,14 @@ async def handle_mine(bot: BaseBot, user: User) -> None:
     _cd_red  = _event_eff.get("cooldown_reduction", 0.0)
     if _cd_red > 0:
         cooldown = max(5, int(cooldown * (1 - _cd_red)))
+    # Title V2 mining cooldown reduction
+    try:
+        from modules.title_system import get_combined_perks as _t2perks_m
+        _t_mcd_pct = _t2perks_m(user.id).get("mining_cooldown_pct", 0.0)
+        if _t_mcd_pct > 0:
+            cooldown = max(5, int(cooldown * (1 - _t_mcd_pct / 100)))
+    except Exception:
+        pass
     secs_ago = _seconds_since(miner["last_mine_at"])
     if user.id not in _auto_mining_active and secs_ago < cooldown:
         wait = int(cooldown - secs_ago)
@@ -510,6 +518,16 @@ async def handle_mine(bot: BaseBot, user: User) -> None:
     if _rarity_cap > 0 and final_val > _rarity_cap:
         _cap_applied = True
         final_val    = _rarity_cap
+    # Title V2 mining coin boost
+    _mine_title_boost_pct = 0.0
+    if final_val > 0:
+        try:
+            from modules.title_system import get_combined_perks as _t2perks_m2
+            _mine_title_boost_pct = _t2perks_m2(user.id).get("mining_coin_pct", 0.0)
+            if _mine_title_boost_pct > 0:
+                final_val = int(final_val * (1 + _mine_title_boost_pct / 100))
+        except Exception:
+            pass
 
     try:
         with _MINE_WRITE_LOCK:
@@ -614,6 +632,27 @@ async def handle_mine(bot: BaseBot, user: User) -> None:
         track_mission(user.id, uname, "mine")
         if item["rarity"] in ANNOUNCE_RARITIES:
             track_mission(user.id, uname, "legendary_find")
+    except Exception:
+        pass
+
+    # Title V2 stat tracking + unlock check
+    try:
+        from modules.title_system import on_ore_mined as _oom
+        _new_t = _oom(user.id, uname, qty)
+        if _new_t:
+            from modules.title_system import TITLE_CATALOG as _TC_m, _ANNOUNCE_TIERS as _AT_m
+            for _ntid in _new_t:
+                _t = _TC_m.get(_ntid)
+                if _t:
+                    await _w(bot, user.id,
+                        f"🏆 Title unlocked: {_t['display']}\n"
+                        f"Equip: !equiptitle {_ntid}")
+                    if _t.get("tier") in _AT_m:
+                        try:
+                            await bot.highrise.chat(
+                                f"🏆 @{uname} unlocked {_t['display']}!"[:249])
+                        except Exception:
+                            pass
     except Exception:
         pass
 

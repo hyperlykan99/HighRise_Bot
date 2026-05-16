@@ -485,6 +485,14 @@ async def handle_fish(bot: BaseBot, user: User) -> None:
     eff      = _get_fishing_event_effects()
     cd_red   = eff.get("fishing_cooldown_reduction", 0.0)
     eff_cd   = max(5.0, cooldown * (1 - cd_red))
+    # Title V2 fishing cooldown reduction
+    try:
+        from modules.title_system import get_combined_perks as _t2perks
+        _t_cd_pct = _t2perks(user.id).get("fishing_cooldown_pct", 0.0)
+        if _t_cd_pct > 0:
+            eff_cd = max(5.0, eff_cd * (1 - _t_cd_pct / 100))
+    except Exception:
+        pass
     secs_ago = _seconds_since(profile.get("last_fish_at"))
     if secs_ago < eff_cd:
         wait = int(eff_cd - secs_ago)
@@ -503,6 +511,16 @@ async def handle_fish(bot: BaseBot, user: User) -> None:
     weight = _roll_weight(fish, rod_name, eff)
     value  = _calc_value(fish, weight, rod_name, eff)
     fxp    = _calc_fxp(fish, rod_name, eff)
+    # Title V2 fishing coin boost
+    _fish_title_boost_pct = 0.0
+    try:
+        from modules.title_system import get_combined_perks as _t2perks
+        _fish_title_boost_pct = _t2perks(user.id).get("fishing_coin_pct", 0.0)
+        if _fish_title_boost_pct > 0:
+            _boosted = int(value * (1 + _fish_title_boost_pct / 100))
+            value = _boosted
+    except Exception:
+        pass
 
     db.save_fish_catch(fish["name"], fish["rarity"], weight,
                        fish["base_value"], value, fxp, user.id, uname)
@@ -564,16 +582,38 @@ async def handle_fish(bot: BaseBot, user: User) -> None:
 
     rlabel = _rarity_label(fish["rarity"])
     nclr   = _name_colored(fish["rarity"], fish["name"])
+    _boost_note = f" [+{_fish_title_boost_pct:.0f}%]" if _fish_title_boost_pct > 0 else ""
     if _sold_now:
         msg = (f"🎣 Fishing\n"
                f"You caught {rlabel} {fish['emoji']} {nclr} | "
-               f"⚖️ {weight}lb | 💰 {_fmt(value)} 🪙 | ⭐ +{fxp} FXP")
+               f"⚖️ {weight}lb | 💰 {_fmt(value)} 🪙{_boost_note} | ⭐ +{fxp} FXP")
     else:
         msg = (f"🎣 Fishing\n"
                f"You caught {rlabel} {fish['emoji']} {nclr} | "
                f"⚖️ {weight}lb | 📦 Saved to bag | ⭐ +{fxp} FXP\n"
                f"Use !sellfish to sell")
     await _w(bot, user.id, msg[:249])
+
+    # Title V2 stat tracking + unlock check
+    try:
+        from modules.title_system import on_fish_caught as _ofc
+        _new_t = _ofc(user.id, uname)
+        if _new_t:
+            from modules.title_system import TITLE_CATALOG as _TC, _ANNOUNCE_TIERS
+            for _ntid in _new_t:
+                _t = _TC.get(_ntid)
+                if _t:
+                    await _w(bot, user.id,
+                        f"🏆 Title unlocked: {_t['display']}\n"
+                        f"Equip: !equiptitle {_ntid}")
+                    if _t.get("tier") in _ANNOUNCE_TIERS:
+                        try:
+                            await bot.highrise.chat(
+                                f"🏆 @{uname} unlocked {_t['display']}!"[:249])
+                        except Exception:
+                            pass
+    except Exception:
+        pass
 
     if leveled:
         await _w(bot, user.id,
