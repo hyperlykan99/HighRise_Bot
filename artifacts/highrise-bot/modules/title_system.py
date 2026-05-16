@@ -58,25 +58,28 @@ TITLE_CATALOG: dict[str, dict] = {
         "description": "+3% game rewards",
     },
     "trivia_king": {
-        "display": "[Trivia King]", "tier": "Rare", "source": "Shop",
-        "category": "shop", "price": 25_000, "buyable": True,
-        "req_type": "", "req_val": 0,
+        "display": "[Trivia King]", "tier": "Epic", "source": "Achievement",
+        "category": "games", "price": 0, "buyable": False,
+        "req_type": "trivia_wins", "req_val": 100,
         "perks": {"trivia_bonus": 10},
-        "description": "+10 trivia coins",
+        "description": "Win 100 trivia games | +10 trivia coins",
+        "announce": True,
     },
     "word_master": {
-        "display": "[Word Master]", "tier": "Rare", "source": "Shop",
-        "category": "shop", "price": 25_000, "buyable": True,
-        "req_type": "", "req_val": 0,
+        "display": "[Word Master]", "tier": "Epic", "source": "Achievement",
+        "category": "games", "price": 0, "buyable": False,
+        "req_type": "scramble_wins", "req_val": 100,
         "perks": {"scramble_bonus": 10},
-        "description": "+10 scramble coins",
+        "description": "Win 100 word scramble games | +10 scramble coins",
+        "announce": True,
     },
     "riddle_lord": {
-        "display": "[Riddle Lord]", "tier": "Rare", "source": "Shop",
-        "category": "shop", "price": 25_000, "buyable": True,
-        "req_type": "", "req_val": 0,
+        "display": "[Riddle Lord]", "tier": "Epic", "source": "Achievement",
+        "category": "games", "price": 0, "buyable": False,
+        "req_type": "riddle_wins", "req_val": 100,
         "perks": {"riddle_bonus": 10},
-        "description": "+10 riddle coins",
+        "description": "Win 100 riddle games | +10 riddle coins",
+        "announce": True,
     },
     "casino_rat": {
         "display": "[Casino Rat]", "tier": "Epic", "source": "Shop",
@@ -112,6 +115,20 @@ TITLE_CATALOG: dict[str, dict] = {
         "req_type": "", "req_val": 0,
         "perks": {"game_reward_pct": 15.0, "daily_coins_bonus": 50},
         "description": "+15% game rewards, +50 daily coins",
+    },
+    "vip_player": {
+        "display": "[VIP Player]", "tier": "Epic", "source": "Shop",
+        "category": "shop", "price": 50_000, "buyable": True,
+        "req_type": "", "req_val": 0,
+        "perks": {"shop_discount_pct": 3.0},
+        "description": "+3% shop discount",
+    },
+    "chill_elite": {
+        "display": "[Chill Elite]", "tier": "Legendary", "source": "Shop",
+        "category": "shop", "price": 150_000, "buyable": True,
+        "req_type": "", "req_val": 0,
+        "perks": {"game_reward_pct": 5.0, "daily_coins_bonus": 25},
+        "description": "+5% game rewards, +25 daily coins",
     },
     # ── Fishing achievement ───────────────────────────────────────────────────
     "new_angler": {
@@ -599,7 +616,11 @@ _CAT_LABELS: dict[str, str] = {
     "casino": "Casino", "wealth": "Wealth", "social": "Social",
     "supporter": "Supporter", "games": "Games", "jail": "Jail",
     "collector": "Collector", "seasonal": "Seasonal", "secret": "Secret",
+    "legacy": "Legacy",
 }
+
+# Titles moved from Shop to Achievement — old owners keep them as Legacy
+_LEGACY_SHOP_TITLES: frozenset[str] = frozenset({"trivia_king", "word_master", "riddle_lord"})
 
 # Tiers considered "public announce" on unlock
 _ANNOUNCE_TIERS = {"Epic", "Legendary", "Mythic", "Exclusive", "Seasonal"}
@@ -679,14 +700,29 @@ def _is_admin(username: str) -> bool:
 # ---------------------------------------------------------------------------
 
 def _mirror_old_titles(user_id: str, username: str) -> None:
-    """Once per call: copy old shop.py owned titles into user_titles table."""
+    """Copy old shop.py owned titles → user_titles.
+    Game-specific titles (trivia_king etc.) get source='Legacy'."""
     try:
         old_owned = db.get_owned_items(user_id)
         for item in old_owned:
-            if item.get("item_type") == "title":
-                tid = item["item_id"]
-                if tid in TITLE_CATALOG:
-                    db.add_user_title(user_id, username, tid, "Shop")
+            if item.get("item_type") != "title":
+                continue
+            tid = item["item_id"]
+            if tid not in TITLE_CATALOG:
+                continue
+            # Determine source: legacy if moved from shop to achievement
+            if tid in _LEGACY_SHOP_TITLES:
+                src = "Legacy"
+            else:
+                src = "Shop"
+            if not db.has_user_title(user_id, tid):
+                db.add_user_title(user_id, username, tid, src)
+            elif tid in _LEGACY_SHOP_TITLES:
+                # Upgrade existing record from Shop → Legacy
+                try:
+                    db.update_user_title_source(user_id, tid, "Legacy")
+                except Exception:
+                    pass
     except Exception:
         pass
 
@@ -976,50 +1012,56 @@ async def handle_alltitles(bot: BaseBot, user: User, args: list[str]) -> None:
 
 
 async def handle_mytitles(bot: BaseBot, user: User, args: list[str]) -> None:
-    """!mytitles [page] — owned titles grouped by source."""
+    """!mytitles — owned titles grouped by source (Shop / Achievement / Legacy / Seasonal)."""
     _mirror_old_titles(user.id, user.username)
-    page = int(args[1]) if len(args) > 1 and args[1].isdigit() else 1
 
-    all_owned: list[tuple[str, str]] = []  # (tid, source)
-    # V2 table
+    # Build full ordered ownership map: tid → source
     v2 = db.get_user_titles(user.id)
-    v2_ids = {r["title_id"] for r in v2}
-    for r in v2:
-        all_owned.append((r["title_id"], r.get("source", "Shop")))
-    # Old owned_items fallback
+    owned_map: dict[str, str] = {r["title_id"]: r.get("source", "Shop") for r in v2}
+    # Fallback: old owned_items not in V2 table
     for item in db.get_owned_items(user.id):
-        if item["item_type"] == "title" and item["item_id"] not in v2_ids:
-            all_owned.append((item["item_id"], "Shop"))
+        if item["item_type"] == "title" and item["item_id"] not in owned_map:
+            tid = item["item_id"]
+            owned_map[tid] = "Legacy" if tid in _LEGACY_SHOP_TITLES else "Shop"
 
-    if not all_owned:
+    if not owned_map:
         await _w(bot, user.id,
             "🏷️ No titles yet.\nShop: !titleshop\nProgress: !titleprogress")
         return
 
     eq_id = _user_equipped_title(user.id)
-    PAGE  = 8
-    total = (len(all_owned) + PAGE - 1) // PAGE
-    page  = max(1, min(page, total))
-    start = (page - 1) * PAGE
-    chunk = all_owned[start:start + PAGE]
 
-    # Cache for number-equip
-    _title_session[user.id] = [tid for tid, _ in all_owned]
+    # Cache all title IDs (numbered equip)
+    all_ids = list(owned_map.keys())
+    _title_session[user.id] = all_ids
 
-    lines = [f"🏷️ Your Titles {page}/{total}"]
-    if page == 1 and eq_id:
-        t = _get_title(eq_id)
-        disp = t["display"] if t else eq_id
-        lines.append(f"Equipped: {disp}")
-    for i, (tid, src) in enumerate(chunk, start + 1):
-        t    = _get_title(tid)
-        disp = t["display"] if t else f"[{tid}]"
-        tag  = " [EQUIPPED]" if tid == eq_id else ""
-        lines.append(f"{i}) {tid} {disp}{tag}")
-    lines.append(f"Equip: !equiptitle <id>  Progress: !titleprogress")
-    if page < total:
-        lines.append(f"Next: !mytitles {page + 1}")
-    await _w(bot, user.id, "\n".join(lines)[:249])
+    # Header whisper
+    t_eq  = _get_title(eq_id) if eq_id else None
+    eq_dsp = t_eq["display"] if t_eq else (eq_id or "None")
+    await _w(bot, user.id,
+        f"🏷️ Your Titles ({len(owned_map)} owned)\nEquipped: {eq_dsp}")
+
+    # Group by source
+    _GROUP_ORDER = ["Shop", "Achievement", "Legacy", "Seasonal", "Admin", "Secret"]
+    groups: dict[str, list[str]] = {g: [] for g in _GROUP_ORDER}
+    for i, (tid, src) in enumerate(owned_map.items(), 1):
+        grp = src if src in groups else "Achievement"
+        t   = _get_title(tid)
+        dsp = t["display"] if t else f"[{tid}]"
+        tag = " [E]" if tid == eq_id else ""
+        groups[grp].append(f"{i}) {tid} {dsp}{tag}")
+
+    for grp_name in _GROUP_ORDER:
+        items = groups[grp_name]
+        if not items:
+            continue
+        header = f"{grp_name}:\n"
+        # Send up to 6 per group (fits in 249 chars)
+        msg = header + "\n".join(items[:6])
+        await _w(bot, user.id, msg[:249])
+
+    await _w(bot, user.id,
+        "Equip: !equiptitle <id|#>  Progress: !titleprogress")
 
 
 async def handle_titleinfo_v2(bot: BaseBot, user: User, args: list[str]) -> None:
@@ -1035,11 +1077,27 @@ async def handle_titleinfo_v2(bot: BaseBot, user: User, args: list[str]) -> None
         return
     owned = _user_owns(user.id, tid)
     eq    = _user_equipped_title(user.id) == tid
+
+    # Determine effective display source (legacy check)
+    owned_src = ""
+    if owned:
+        ut = db.get_user_title(user.id, tid)
+        owned_src = (ut or {}).get("source", "")
+
+    catalog_source = t.get("source", "?")
+    is_legacy = owned and owned_src == "Legacy" and catalog_source == "Achievement"
+
+    disp_source = "Legacy / Achievement" if is_legacy else catalog_source
     lines = [f"🏷️ {t['display']}",
              f"ID: {tid}",
-             f"Source: {t.get('source','?')}  Tier: {t.get('tier','?')}"]
-    if t.get("source") == "Shop":
-        lines.append(f"Cost: {_fmt(t['price'])} ChillCoins")
+             f"Source: {disp_source}  Tier: {t.get('tier','?')}"]
+
+    if is_legacy:
+        lines.append("This title is no longer sold in the shop.")
+
+    if catalog_source == "Shop" and not is_legacy:
+        price = t.get("price", 0)
+        lines.append(f"Cost: {_fmt(price)} ChillCoins")
         if not owned:
             lines.append(f"Buy: !buytitle {tid}")
     else:
@@ -1975,6 +2033,55 @@ def on_room_visit(user_id: str, username: str) -> list[str]:
     except Exception:
         pass
     return _check_stat_titles(user_id, username, "room_visit_days")
+
+
+def on_trivia_win(user_id: str, username: str) -> list[str]:
+    """Call from trivia module when a player wins a trivia game."""
+    db.increment_title_stat(user_id, username, "trivia_wins", 1)
+    db.increment_title_stat(user_id, username, "minigames_won", 1)
+    db.increment_title_stat(user_id, username, "minigames_played", 1)
+    return _check_stat_titles(user_id, username, "trivia_wins")
+
+
+def on_scramble_win(user_id: str, username: str) -> list[str]:
+    """Call from word scramble module when a player wins."""
+    db.increment_title_stat(user_id, username, "scramble_wins", 1)
+    db.increment_title_stat(user_id, username, "minigames_won", 1)
+    db.increment_title_stat(user_id, username, "minigames_played", 1)
+    return _check_stat_titles(user_id, username, "scramble_wins")
+
+
+def on_riddle_win(user_id: str, username: str) -> list[str]:
+    """Call from riddle module when a player wins."""
+    db.increment_title_stat(user_id, username, "riddle_wins", 1)
+    db.increment_title_stat(user_id, username, "minigames_won", 1)
+    db.increment_title_stat(user_id, username, "minigames_played", 1)
+    return _check_stat_titles(user_id, username, "riddle_wins")
+
+
+def seed_title_catalog_startup() -> None:
+    """Seed title_catalog DB table from TITLE_CATALOG dict. Called on startup."""
+    try:
+        seeded = 0
+        for tid, t in TITLE_CATALOG.items():
+            try:
+                db.upsert_catalog_title(
+                    tid,
+                    t.get("display", ""),
+                    t.get("tier", "Common"),
+                    t.get("source", "Shop"),
+                    t.get("price", 0),
+                    buyable=t.get("buyable", False),
+                    active=True,
+                )
+                seeded += 1
+            except Exception:
+                pass
+        print(f"[TITLE V2] catalog_seeded count={seeded}")
+        print("[TITLE V2] legacy_titles_supported=true")
+        print("[TITLE V2] game_titles_removed_from_shop=true")
+    except Exception as e:
+        print(f"[TITLE V2] seed error: {e}")
 
 
 async def handle_edittitleperk(bot: BaseBot, user: User,

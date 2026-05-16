@@ -1326,6 +1326,9 @@ def _migrate_db():
         "reason TEXT DEFAULT '')",
         "ALTER TABLE event_points ADD COLUMN lifetime_event_coins INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE event_points ADD COLUMN updated_at TEXT",
+        "ALTER TABLE user_title_stats ADD COLUMN trivia_wins  INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE user_title_stats ADD COLUMN scramble_wins INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE user_title_stats ADD COLUMN riddle_wins  INTEGER NOT NULL DEFAULT 0",
         "CREATE TABLE IF NOT EXISTS bot_settings ("
         "key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '')",
         # Emoji Badge Market tables
@@ -15815,7 +15818,7 @@ def increment_title_stat(user_id: str, username: str,
         "lifetime_gold_tipped", "lifetime_chillcoins_earned",
         "lifetime_chillcoins_spent", "room_visit_days", "room_join_count",
         "minigames_played", "minigames_won", "times_jailed", "players_jailed",
-        "bails_paid",
+        "bails_paid", "trivia_wins", "scramble_wins", "riddle_wins",
     }
     if stat not in _ALLOWED:
         return
@@ -15888,6 +15891,20 @@ def get_title_count_leaderboard(limit: int = 10) -> list[dict]:
 
 
 # ── title_logs helpers ────────────────────────────────────────────────────
+
+def update_user_title_source(user_id: str, title_id: str, source: str) -> None:
+    """Update source field in user_titles for a specific title (e.g. Shop → Legacy)."""
+    try:
+        conn = get_connection()
+        conn.execute(
+            "UPDATE user_titles SET source=? WHERE user_id=? AND title_id=?",
+            (source, user_id, title_id),
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
 
 def log_title_action(action: str, user_id: str, username: str,
                       title_id: str, target_user_id: str = "",

@@ -1,0 +1,1350 @@
+Title V2 Final Polish — Unify Old/New Titles, Fix Shop Titles, Move Game-Specific Titles to Achievements, Clean Commands, Perks, Stats, Logs
+
+Current issue:
+The title system is split/confusing.
+
+GitHub currently has the old title shop in modules/shop.py:
+!shop titles
+!buy title title_id
+!equip title title_id
+!myitems
+!titleinfo title_id
+
+Old shop titles include:
+rookie
+lucky
+grinder
+trivia_king
+word_master
+riddle_lord
+casino_rat
+high_roller
+millionaire
+elite
+immortal
+
+Problem:
+trivia_king, word_master, and riddle_lord are buyable shop titles even if players never played those games.
+That is confusing. Game-specific titles should be earned, not bought.
+
+Goal:
+Finalize Title V2 so there is ONE unified title system:
+- old title commands still work
+- new title commands work
+- shop titles are general buyable titles
+- game-specific titles become achievement titles
+- perks/stats/boosts are visible
+- owner/admin can give/set/remove titles
+- title shop bought with ChillCoins works correctly
+- no duplicate ownership systems
+- clean help/menu/routing
+
+Do NOT modify:
+- Poker V2 gameplay
+- badge market except shared badge/title display or boost helper if needed
+- jail except applying title perks if safe
+- Luxe Tickets except supporter title bonus if safe
+- bank transfer notifications
+- notification subscription system
+- unrelated games
+
+Only modify:
+- modules/shop.py if title shop remains there
+- OR modules/title_system.py if cleaner
+- database.py only with safe CREATE TABLE IF NOT EXISTS migrations
+- main.py only for routing
+- help_cmds.py only for title/global help
+- fishing/mining/casino/daily/game modules only for stats/perk integration
+
+==================================================
+PART 1 — One Source Of Truth
+==================================================
+
+Create or finish one unified Title V2 system.
+
+Important:
+Do NOT keep two separate title systems where old shop titles and new Title V2 titles cannot see each other.
+
+There must be one final ownership check used by all title commands:
+- !buytitle
+- !equiptitle
+- !mytitles
+- !titleinfo
+- old !buy title
+- old !equip title
+- old !shop titles
+
+If old ownership table stores:
+item_type = title
+item_id = rookie
+
+Then Title V2 must mirror or read that ownership.
+
+Preferred:
+- Keep old data for backward compatibility.
+- Create user_titles table for Title V2.
+- On first title command or startup, mirror old owned title items into user_titles if missing.
+- Do not duplicate.
+- Do not delete old data.
+
+==================================================
+PART 2 — Backward Compatibility
+==================================================
+
+These old commands must still work:
+
+!shop titles
+!buy title rookie
+!equip title rookie
+!myitems
+!titleinfo rookie
+
+But internally they should route to the unified Title V2 handlers:
+
+!shop titles -> !titleshop
+!buy title rookie -> !buytitle rookie
+!equip title rookie -> !equiptitle rookie
+!myitems -> show badge + title summary
+!titleinfo rookie -> Title V2 title info
+
+Expected:
+If player bought rookie using old command:
+!mytitles must show rookie.
+!equiptitle rookie must work.
+
+If player bought title using new command:
+!equip title rookie must also work.
+
+==================================================
+PART 3 — Official Player Commands
+==================================================
+
+Add/clean these player commands:
+
+!titles
+!titleshop
+!alltitles
+!mytitles
+!titleinfo title_id
+!buytitle title_id
+!equiptitle title_id
+!unequiptitle
+!titlesearch name
+!titleprogress
+!titleprogress fishing
+!titleprogress mining
+!titleprogress casino
+!titleprogress games
+!titleprogress wealth
+!claimtitles
+!myboosts
+!perks
+!titleperks
+!mystats
+!prestige
+!titlehelp
+!loadout save fishing
+!loadout equip fishing
+!loadouts
+!besttitle fishing
+!equipbest fishing
+!titlelb
+!titlelb fishing
+!temporarytitles
+!seasontitles
+
+Only one bot should respond.
+ChillTopiaMC must not say unknown command for title commands.
+
+==================================================
+PART 4 — Official Admin Commands
+==================================================
+
+Owner/admin commands:
+
+!givetitle @user title_id
+!removetitle @user title_id
+!settitle @user title_id
+!cleartitle @user
+!titleaudit @user
+!titlelogs @user
+!titlelogs last
+!titlestats @user
+!stats @user
+!boosts @user
+
+Title editor commands:
+!addtitle title_id "Display Name" tier source price
+!edittitle title_id field value
+!edittitleperk title_id perk_name value
+!settitlebuyable title_id on/off
+!settitleactive title_id on/off
+
+Seasonal commands:
+!awardseasonaltitle @user title_id 7d
+!expiretitles
+
+If normal player uses admin command:
+⚠️ Staff only.
+
+==================================================
+PART 5 — Title Menu / Help
+==================================================
+
+!titles:
+
+🏷️ Title Menu
+Shop: !titleshop
+Owned: !mytitles
+Progress: !titleprogress
+Boosts: !myboosts
+Stats: !mystats
+Help: !titlehelp
+
+!titlehelp message 1:
+🏷️ Title Commands
+Shop: !titleshop
+All: !alltitles
+Owned: !mytitles
+Info: !titleinfo high_roller
+
+!titlehelp message 2:
+Buy: !buytitle high_roller
+Equip: !equiptitle high_roller
+Unequip: !unequiptitle
+Progress: !titleprogress
+
+!titlehelp message 3:
+Boosts: !myboosts
+Stats: !mystats
+Claim: !claimtitles
+Prestige: !prestige
+
+Keep each message under 249 characters.
+
+==================================================
+PART 6 — Fix Shop Titles
+==================================================
+
+Shop titles must be general titles only.
+
+Remove these from buyable shop titles:
+trivia_king
+word_master
+riddle_lord
+
+They should NOT be buyable because players should not be able to buy:
+[Trivia King]
+[Word Master]
+[Riddle Lord]
+without playing those games.
+
+Move them to achievement titles instead.
+
+Final buyable shop titles:
+
+rookie
+[Rookie]
+Cost: 3,000
+Tier: Common
+Source: Shop
+Perk: +5 daily coins
+
+lucky
+[Lucky]
+Cost: 7,500
+Tier: Common
+Source: Shop
+Perk: +2% casino rewards
+
+grinder
+[Grinder]
+Cost: 12,000
+Tier: Rare
+Source: Shop
+Perk: +3% game rewards
+
+casino_rat
+[Casino Rat]
+Cost: 35,000
+Tier: Epic
+Source: Shop
+Perk: +5% casino rewards
+
+high_roller
+[High Roller]
+Cost: 75,000
+Tier: Epic
+Source: Shop
+Perk: +5% casino rewards
+
+millionaire
+[Millionaire]
+Cost: 100,000
+Tier: Legendary
+Source: Shop
+Perk: +25 daily coins, +3% game rewards
+
+elite
+[Elite]
+Cost: 250,000
+Tier: Legendary
+Source: Shop
+Perk: +10% game rewards
+
+immortal
+[Immortal]
+Cost: 500,000
+Tier: Mythic
+Source: Shop
+Perk: +15% game rewards, +50 daily coins
+
+Optional replacement shop titles:
+vip_player
+[VIP Player]
+Cost: 50,000
+Tier: Epic
+Source: Shop
+Perk: +3% shop discount
+
+chill_elite
+[Chill Elite]
+Cost: 150,000
+Tier: Legendary
+Source: Shop
+Perk: +5% game rewards, +25 daily coins
+
+Do not duplicate display names if already existing.
+
+==================================================
+PART 7 — Move Game-Specific Titles To Achievements
+==================================================
+
+Move these to achievement category:
+
+trivia_king
+[Trivia King]
+Requirement: win 100 trivia games
+Tier: Epic Achievement
+Source: Achievement
+Category: games
+Perk: +10 trivia coins
+
+word_master
+[Word Master]
+Requirement: win 100 word scramble games
+Tier: Epic Achievement
+Source: Achievement
+Category: games
+Perk: +10 scramble coins
+
+riddle_lord
+[Riddle Lord]
+Requirement: win 100 riddle games
+Tier: Epic Achievement
+Source: Achievement
+Category: games
+Perk: +10 riddle coins
+
+If any player already bought these from the old shop:
+- Do not delete from their inventory.
+- Keep ownership.
+- Mark source as legacy_shop or achievement_grandfathered.
+- They can keep/equip it.
+- New players cannot buy them from !titleshop.
+- They should appear under Achievement or Legacy in !mytitles.
+
+Optional note in !titleinfo:
+Source: Legacy / Achievement
+This title is no longer sold in the shop.
+
+==================================================
+PART 8 — Title Shop Display
+==================================================
+
+!titleshop:
+
+🏷️ Title Shop 1/2
+ID: rookie [Rookie] — 3,000c
+ID: lucky [Lucky] — 7,500c
+ID: grinder [Grinder] — 12,000c
+
+Buy: !buytitle rookie
+Info: !titleinfo rookie
+Next: !titleshop 2
+
+Rules:
+- show only buyable Shop titles
+- 5 per page
+- show ID clearly
+- show [OWNED]
+- show [EQUIPPED]
+- show price
+- do NOT show achievement-only titles here
+- do NOT show trivia_king, word_master, riddle_lord here unless owned as legacy, but even then do not offer Buy
+
+If old command:
+!shop titles
+
+It should show the same as !titleshop.
+
+==================================================
+PART 9 — Buy Title With ChillCoins
+==================================================
+
+!buytitle title_id
+
+Rules:
+- title must exist
+- source must be Shop
+- buyable = true
+- active = true
+- player must not already own it
+- player must have enough ChillCoins
+- apply shop discount if equipped perk/event supports it
+- deduct ChillCoins once
+- grant title once
+- log purchase
+
+Success:
+✅ Bought title: [High Roller] for 75,000 coins.
+Equip: !equiptitle high_roller
+
+Already owned:
+You already own [High Roller].
+Equip: !equiptitle high_roller
+
+Not buyable:
+⚠️ This title cannot be bought.
+Unlock: !titleprogress
+
+Not enough:
+⚠️ Not enough ChillCoins.
+Price: 75,000
+Balance: 20,000
+
+Duplicate safety:
+- prevent double purchase if command fires twice
+- do not deduct coins twice
+- do not grant duplicate title
+
+Old alias:
+!buy title high_roller
+
+must call the same logic.
+
+==================================================
+PART 10 — Equip / Unequip Title
+==================================================
+
+!equiptitle title_id
+
+Rules:
+- title must exist
+- player must own title
+- title must be active
+- seasonal title must not be expired
+- equip title
+- perks activate immediately
+- log equip
+
+Success:
+✅ Equipped title: [High Roller]
+Boosts: !myboosts
+
+Already equipped:
+✅ That title is already equipped.
+
+Not owned:
+⚠️ You do not own that title.
+Shop: !titleshop
+Progress: !titleprogress
+
+Expired:
+⚠️ This seasonal title has expired.
+
+!equiptitle 3:
+Equips item #3 from last !mytitles cache.
+
+!unequiptitle:
+✅ Title unequipped.
+
+Old alias:
+!equip title high_roller
+
+must call the same logic.
+
+==================================================
+PART 11 — Title Sources / Tiers
+==================================================
+
+Every title must have:
+
+title_id
+display_name
+tier
+source
+category
+price
+buyable
+active
+secret
+requirement_type
+requirement_value
+perks
+expires_at optional
+
+Sources:
+Shop
+Achievement
+Legacy
+Event
+Admin
+Seasonal
+Secret
+
+Tiers:
+Common
+Rare
+Epic
+Legendary
+Mythic
+Exclusive
+Event
+Admin
+Achievement
+Secret
+Seasonal
+Legacy
+
+==================================================
+PART 12 — Achievement Categories
+==================================================
+
+Title categories:
+
+shop
+games
+fishing
+mining
+casino
+wealth
+social
+supporter
+jail
+collector
+seasonal
+secret
+legacy
+
+Browsing:
+
+!titles shop
+!titles games
+!titles fishing
+!titles mining
+!titles casino
+!titles wealth
+!titles social
+!titles supporter
+!titles jail
+!titles collector
+!titles seasonal
+!titles secret
+!titles legacy
+
+Locked display:
+
+🔒 [Ocean God]
+ID: ocean_god
+Requirement: Catch 1,000,000 fish
+Progress: 25,430 / 1,000,000
+
+Secret locked display:
+
+🔒 [???]
+Requirement: Hidden
+
+==================================================
+PART 13 — Fishing Achievement Titles
+==================================================
+
+new_angler
+[New Angler]
+Requirement: catch 100 fish
+Tier: Common Achievement
+Category: fishing
+Perk: +2% fishing coins
+
+skilled_fisher
+[Skilled Fisher]
+Requirement: catch 1,000 fish
+Tier: Rare Achievement
+Category: fishing
+Perk: +3% fishing coins, +1% rare fish chance
+
+sea_hunter
+[Sea Hunter]
+Requirement: catch 10,000 fish
+Tier: Epic Achievement
+Category: fishing
+Perk: +5% fishing coins, +2% rare fish chance
+
+deep_sea_legend
+[Deep Sea Legend]
+Requirement: catch 100,000 fish
+Tier: Legendary Achievement
+Category: fishing
+Perk: +10% fishing coins, +5% rare fish chance
+
+ocean_god
+[Ocean God]
+Requirement: catch 1,000,000 fish
+Tier: Mythic Achievement
+Category: fishing
+Perk: +15% fishing coins, +8% rare fish chance, -10% fishing cooldown
+
+==================================================
+PART 14 — Mining Achievement Titles
+==================================================
+
+stone_miner
+[Stone Miner]
+Requirement: mine 1,000 ores
+Tier: Common Achievement
+Category: mining
+Perk: +2% mining coins
+
+iron_breaker
+[Iron Breaker]
+Requirement: mine 10,000 ores
+Tier: Rare Achievement
+Category: mining
+Perk: +5% mining coins
+
+crystal_baron
+[Crystal Baron]
+Requirement: mine 100,000 ores
+Tier: Epic Achievement
+Category: mining
+Perk: +10% mining coins, +3% rare ore chance
+
+mine_lord
+[Mine Lord]
+Requirement: mine 500,000 ores
+Tier: Legendary Achievement
+Category: mining
+Perk: +12% mining coins, +5% rare ore chance
+
+core_breaker
+[Core Breaker]
+Requirement: mine 1,000,000 ores
+Tier: Mythic Achievement
+Category: mining
+Perk: +15% mining coins, +8% rare ore chance, -10% mining cooldown
+
+==================================================
+PART 15 — Casino Achievement Titles
+==================================================
+
+card_rookie
+[Card Rookie]
+Requirement: play 25 casino hands
+Tier: Common Achievement
+Category: casino
+Perk: +1% casino rewards
+
+table_regular
+[Table Regular]
+Requirement: play 100 casino hands
+Tier: Rare Achievement
+Category: casino
+Perk: +2% casino rewards
+
+sharp_player
+[Sharp Player]
+Requirement: win 100 casino hands
+Tier: Epic Achievement
+Category: casino
+Perk: +3% casino rewards
+
+high_roller_ach
+[High Roller]
+Requirement: wager 1,000,000 ChillCoins lifetime
+Tier: Epic Achievement
+Category: casino
+Perk: +5% casino rewards
+
+casino_boss
+[Casino Boss]
+Requirement: win 5,000,000 ChillCoins lifetime from casino games
+Tier: Legendary Achievement
+Category: casino
+Perk: +7% casino rewards
+
+jackpot_king
+[Jackpot King]
+Requirement: win one casino pot/hand worth 1,000,000+ ChillCoins
+Tier: Legendary Achievement
+Category: casino
+Perk: +5% casino rewards, +3% daily coins
+
+royal_flush_legend
+[Royal Flush Legend]
+Requirement: win poker with a royal flush
+Tier: Mythic Achievement
+Category: casino
+Perk: +10% poker rewards
+
+blackjack_god
+[Blackjack God]
+Requirement: win 500 blackjack hands
+Tier: Mythic Achievement
+Category: casino
+Perk: +8% blackjack rewards
+
+all_in_demon
+[All-In Demon]
+Requirement: win 100 all-in poker hands
+Tier: Mythic Achievement
+Category: casino
+Perk: +10% poker rewards, +5% casino XP
+
+casino_billionaire
+[Casino Billionaire]
+Requirement: win 1,000,000,000 ChillCoins lifetime from casino games
+Tier: Mythic Casino
+Category: casino
+Perk: +15% casino rewards, +100 daily coins, +5% shop discount
+
+Track:
+casino_hands_played
+casino_hands_won
+casino_lifetime_wagered
+casino_lifetime_won
+casino_biggest_win
+blackjack_wins
+poker_wins
+poker_allin_wins
+poker_royal_flush_wins
+
+==================================================
+PART 16 — Wealth Titles
+==================================================
+
+big_spender
+[Big Spender]
+Requirement: spend 100,000 ChillCoins lifetime
+Tier: Rare Wealth
+Category: wealth
+Perk: +2% shop discount
+
+money_maker
+[Money Maker]
+Requirement: earn 500,000 ChillCoins lifetime
+Tier: Epic Wealth
+Category: wealth
+Perk: +3% daily coins
+
+millionaire_ach
+[Millionaire]
+Requirement: hold 1,000,000 ChillCoins balance
+Tier: Legendary Wealth
+Category: wealth
+Perk: +5% game rewards
+
+multi_millionaire
+[Multi-Millionaire]
+Requirement: hold 10,000,000 ChillCoins balance
+Tier: Legendary Wealth
+Category: wealth
+Perk: +8% game rewards, +5% shop discount
+
+billionaire
+[Billionaire]
+Requirement: hold 1,000,000,000 ChillCoins balance
+Tier: Mythic Wealth
+Category: wealth
+Perk: +15% game rewards, +10% shop discount, +100 daily coins
+
+chilltopia_tycoon
+[ChillTopia Tycoon]
+Requirement: earn 5,000,000,000 ChillCoins lifetime
+Tier: Mythic Wealth
+Category: wealth
+Perk: +20% game rewards, +15% shop discount, +150 daily coins
+
+Achievement-only, not buyable.
+
+==================================================
+PART 17 — Social / Supporter / Jail / Collector Titles
+==================================================
+
+Social:
+chill_regular — [Chill Regular] — visit 7 days — +5 daily coins
+chilltopia_citizen — [ChillTopia Citizen] — visit 30 days — +25 daily coins
+room_legend — [Room Legend] — visit 100 days — +50 daily coins
+chilltopia_og — [ChillTopia OG] — visit 365 days — +100 daily coins
+
+Supporter:
+supporter — [Supporter] — tip 1,000 gold lifetime — +2% Luxe Ticket bonus
+vip_supporter — [VIP Supporter] — tip 10,000 gold lifetime — +5% Luxe Ticket bonus
+whale — [Whale] — tip 100,000 gold lifetime — +8% Luxe Ticket bonus
+chilltopia_patron — [ChillTopia Patron] — tip 1,000,000 gold lifetime — +10% Luxe Ticket bonus
+
+Base tipping rule stays:
+1 HR gold = 1 Luxe Ticket
+Supporter bonus only applies if equipped.
+
+Jail:
+jailbird — [Jailbird] — jailed 10 times — -5% bail cost
+most_wanted — [Most Wanted] — jail 100 players — +5% jail reward
+warden — [Warden] — jail 1,000 players — +10% jail reward
+escape_artist — [Escape Artist] — bail out 100 times — -10% bail cost
+
+Collector:
+badge_collector — [Badge Collector] — own 10 badges — +2% shop discount
+badge_hoarder — [Badge Hoarder] — own 50 badges — +5% shop discount
+legend_collector — [Legend Collector] — own 10 legendary/mythic badges — +8% shop discount
+completionist — [Completionist] — own 100 badges + 25 titles — +10% shop discount, +50 daily coins
+
+==================================================
+PART 18 — Seasonal / Secret Titles
+==================================================
+
+Seasonal titles:
+weekly_poker_king
+weekly_fisher
+weekly_miner
+weekly_whale
+monthly_champion
+
+Commands:
+!temporarytitles
+!seasontitles
+!awardseasonaltitle @user weekly_fisher 7d
+!expiretitles
+
+Secret titles:
+lucky_devil
+comeback_king
+whale_whisperer
+vault_breaker
+
+Locked secret display:
+🔒 [???]
+Requirement: Hidden
+
+==================================================
+PART 19 — Perk Keys And Caps
+==================================================
+
+Use standardized perk keys:
+
+daily_coins_bonus
+daily_xp_bonus
+game_reward_pct
+casino_reward_pct
+poker_reward_pct
+blackjack_reward_pct
+fishing_coin_pct
+fishing_rare_pct
+fishing_cooldown_pct
+mining_coin_pct
+mining_rare_pct
+mining_cooldown_pct
+shop_discount_pct
+luxe_ticket_bonus_pct
+bail_discount_pct
+jail_reward_pct
+trivia_bonus
+scramble_bonus
+riddle_bonus
+
+Only equipped title perks apply.
+Owned titles do not activate perks.
+
+Apply caps:
+game_reward_pct max 20
+casino_reward_pct max 15
+poker_reward_pct max 15
+blackjack_reward_pct max 15
+fishing_coin_pct max 20
+mining_coin_pct max 20
+fishing_rare_pct max 10
+mining_rare_pct max 10
+fishing_cooldown_pct max 20
+mining_cooldown_pct max 20
+daily_coins_bonus max 250
+shop_discount_pct max 15
+luxe_ticket_bonus_pct max 10
+bail_discount_pct max 15
+jail_reward_pct max 15
+
+Never allow negative rewards.
+Never allow cooldown to become 0.
+
+==================================================
+PART 20 — Visible Boosts / Stats / Progress
+==================================================
+
+!myboosts / !perks / !titleperks:
+
+⚡ Your Active Boosts
+Title: [Ocean God]
+Badge: 👑 Crown
+
+Fishing Coins: +15%
+Fishing Rare: +8%
+Fishing Cooldown: -10%
+Daily Coins: +100
+Game Rewards: +5%
+Shop Discount: +3%
+
+!mystats:
+
+📊 Your Stats
+Fish Caught: 25,430
+Ores Mined: 11,200
+Casino Hands: 340
+Casino Winnings: 250,000
+Gold Tipped: 1,500
+Badges Owned: 12
+Titles Owned: 4
+
+!titleprogress:
+
+🏆 Title Progress
+Fishing: 25,430 / 100,000
+Next: [Deep Sea Legend]
+
+Mining: 11,200 / 100,000
+Next: [Crystal Baron]
+
+Casino: 340 / 500 hands
+Next: [Sharp Player]
+
+==================================================
+PART 21 — My Titles Display
+==================================================
+
+!mytitles:
+
+🏷️ Your Titles
+Equipped: [High Roller]
+
+Shop:
+1) high_roller [High Roller]
+2) millionaire [Millionaire]
+
+Achievement:
+3) sea_hunter [Sea Hunter]
+4) trivia_king [Trivia King]
+
+Legacy:
+5) word_master [Word Master]
+
+Equip: !equiptitle high_roller
+Progress: !titleprogress
+
+If many titles:
+paginate 8 per page.
+
+Allow:
+!equiptitle 3
+to equip the third title from last !mytitles cache.
+
+==================================================
+PART 22 — Title Info
+==================================================
+
+!titleinfo high_roller:
+
+🏷️ [High Roller]
+ID: high_roller
+Source: Shop
+Tier: Epic
+Cost: 75,000 ChillCoins
+Perks: +5% casino rewards
+Buy: !buytitle high_roller
+
+!titleinfo trivia_king:
+
+🏷️ [Trivia King]
+ID: trivia_king
+Source: Achievement
+Tier: Epic
+Requirement: Win 100 trivia games
+Progress: 25 / 100
+Perks: +10 trivia coins
+
+If owned as old legacy:
+Source: Legacy / Achievement
+This title is no longer sold in the shop.
+
+==================================================
+PART 23 — Claim Missed Titles
+==================================================
+
+!claimtitles:
+- scan all stats
+- unlock all qualified titles
+- no duplicates
+- public announce only big titles
+
+Output:
+🏆 You unlocked 2 titles:
+[Sea Hunter]
+[Iron Breaker]
+
+If none:
+No new titles to claim.
+Check progress: !titleprogress
+
+==================================================
+PART 24 — Apply Perks In Reward Modules
+==================================================
+
+Fishing:
+🎣 @Player [Ocean God] caught Golden Tuna!
+Base: 1,000 coins
+Boost: +15%
+Earned: 1,150 coins
+
+Mining:
+⛏️ @Player [Core Breaker] mined Diamond Ore!
+Base: 2,000 coins
+Boost: +15%
+Earned: 2,300 coins
+
+Casino:
+🎰 @Player [Casino Boss] won 10,000 coins!
+Boost: +7%
+Total: 10,700 coins
+
+Daily:
+🎁 Daily claimed!
+Base: 500 coins
+Title Bonus: +100 coins
+Total: 600 coins
+
+Keep under 249 characters.
+
+==================================================
+PART 25 — Admin Force Title Tools
+==================================================
+
+!givetitle @user title_id
+- gives title
+- does not auto-equip
+
+Admin message:
+✅ Gave title [Ocean God] to @User.
+They can equip: !equiptitle ocean_god
+
+Player whisper:
+🏷️ You received title: [Ocean God].
+Equip: !equiptitle ocean_god
+
+!settitle @user title_id
+- gives title if missing
+- equips immediately
+
+!cleartitle @user
+- unequips current title
+
+!removetitle @user title_id
+- removes title
+- unequips first if equipped
+
+==================================================
+PART 26 — Loadouts / Best Title / Prestige
+==================================================
+
+Loadouts:
+!loadout save fishing
+!loadout save mining
+!loadout save casino
+!loadout save daily
+!loadout save general
+!loadout equip fishing
+!loadouts
+
+Saves equipped title + badge.
+
+Best title:
+!besttitle fishing
+!besttitle mining
+!besttitle casino
+!besttitle daily
+!besttitle shop
+
+!equipbest fishing
+Equips best owned title for that category.
+
+Prestige:
+!prestige
+!prestige @user
+
+Output:
+🌟 @Player Prestige
+Equipped: [Ocean God]
+Mythic Titles: 2
+Badges Owned: 35
+Casino Winnings: 8,500,000
+Fish Caught: 1,000,000
+Ores Mined: 500,000
+
+==================================================
+PART 27 — Logs / Audit
+==================================================
+
+Log:
+title_bought
+title_equipped
+title_unequipped
+title_unlocked
+title_admin_given
+title_admin_removed
+title_admin_set
+title_expired
+title_claimed
+title_progress_checked
+legacy_title_mirrored
+
+Commands:
+!titlelogs @user
+!titlelogs last
+!titleaudit @user
+
+Audit shows:
+owned titles
+equipped title
+active boosts
+stats
+recent logs
+seasonal expiry
+legacy titles
+
+==================================================
+PART 28 — Database
+==================================================
+
+Use safe migrations only.
+
+Create if missing:
+
+title_catalog
+user_titles
+user_title_stats
+title_logs
+title_loadouts
+
+Do not drop old data.
+
+If old owned item table already has titles:
+mirror old owned title items into user_titles when needed.
+
+Suggested user_titles:
+user_id TEXT
+username TEXT
+title_id TEXT
+source TEXT
+unlocked_at TEXT DEFAULT datetime('now')
+expires_at TEXT DEFAULT ''
+PRIMARY KEY(user_id, title_id)
+
+Suggested title_catalog:
+title_id TEXT PRIMARY KEY
+display_name TEXT
+tier TEXT
+source TEXT
+category TEXT
+price INTEGER DEFAULT 0
+buyable INTEGER DEFAULT 0
+active INTEGER DEFAULT 1
+secret INTEGER DEFAULT 0
+requirement_type TEXT DEFAULT ''
+requirement_value INTEGER DEFAULT 0
+perks_json TEXT DEFAULT '{}'
+created_at TEXT DEFAULT datetime('now')
+updated_at TEXT DEFAULT datetime('now')
+
+==================================================
+PART 29 — Startup / Migration
+==================================================
+
+On startup or first title command:
+
+1. Seed title_catalog with all final shop/achievement/event/seasonal/secret titles if missing.
+2. Seed old shop TITLES into title_catalog as Shop or Legacy as appropriate.
+3. Convert trivia_king, word_master, riddle_lord to Achievement/Legacy, not buyable Shop.
+4. Mirror old owned title items into user_titles.
+5. Do not duplicate.
+6. Do not delete old shop data.
+
+Print:
+[TITLE V2] catalog_seeded count=X
+[TITLE V2] legacy_titles_supported=true
+[TITLE V2] game_titles_removed_from_shop=true
+
+==================================================
+PART 30 — Routing / Commandtest
+==================================================
+
+Register all Title V2 commands.
+
+Expected owner:
+BankingBot or economy/shop bot, whichever owns shop commands.
+
+Do not let ChillTopiaMC return unknown command for title commands.
+
+Commandtest if available:
+
+!commandtest !titleshop
+owner=BankingBot
+module=title_system
+route=YES
+
+!commandtest !buytitle
+owner=BankingBot
+module=title_system
+route=YES
+
+!commandtest !equiptitle
+owner=BankingBot
+module=title_system
+route=YES
+
+!commandtest !givetitle
+owner=BankingBot
+module=title_system
+admin=YES
+
+==================================================
+PART 31 — Compile
+==================================================
+
+Run:
+
+python -m py_compile main.py
+python -m py_compile database.py
+python -m py_compile modules/shop.py
+
+If created:
+python -m py_compile modules/title_system.py
+
+Also compile changed modules:
+python -m py_compile modules/fishing.py
+python -m py_compile modules/mining.py
+python -m py_compile modules/help_cmds.py
+
+==================================================
+PART 32 — Tests
+==================================================
+
+Test 1 — Old shop title command:
+!shop titles
+
+Expected:
+Shows new unified Title V2 shop.
+Does not show trivia_king, word_master, riddle_lord as buyable.
+
+Test 2 — New shop title command:
+!titleshop
+
+Expected:
+Same shop as !shop titles.
+
+Test 3 — Buy title:
+!buytitle rookie
+
+Expected:
+Deducts ChillCoins once.
+Grants title once.
+Shows:
+✅ Bought title: [Rookie]...
+
+Test 4 — Old buy alias:
+!buy title lucky
+
+Expected:
+Same unified buy flow.
+
+Test 5 — Equip new:
+!equiptitle rookie
+
+Expected:
+Equips title.
+
+Test 6 — Equip old alias:
+!equip title rookie
+
+Expected:
+Same unified equip flow.
+
+Test 7 — My titles:
+!mytitles
+
+Expected:
+Shows old and new owned titles together.
+
+Test 8 — Game-specific titles:
+!titleshop
+
+Expected:
+No buyable Trivia King / Word Master / Riddle Lord.
+
+!titles games
+
+Expected:
+Shows Trivia King / Word Master / Riddle Lord as achievement titles with requirements.
+
+Test 9 — Legacy ownership:
+If player previously bought trivia_king:
+!mytitles should still show it under Legacy or Achievement.
+!equiptitle trivia_king should still work.
+
+Test 10 — Title info:
+!titleinfo trivia_king
+
+Expected:
+Shows achievement requirement and says no longer sold in shop if legacy.
+
+Test 11 — Progress:
+!titleprogress games
+
+Expected:
+Shows trivia/word/riddle progress.
+
+Test 12 — Boosts:
+!myboosts
+
+Expected:
+Shows active equipped title perks.
+
+Test 13 — Admin:
+!givetitle @user ocean_god
+!settitle @user ocean_god
+!titleaudit @user
+
+Expected:
+Works for owner/admin only.
+
+Test 14 — Routing:
+ChillTopiaMC does not say unknown command for any title command.
+
+Final report:
+1. Old and new title systems unified
+2. Old commands preserved
+3. New Title V2 commands working
+4. Shop titles are general only
+5. Trivia King / Word Master / Riddle Lord moved to achievement/legacy
+6. Old owned titles mirrored into Title V2
+7. Buy/equip/check ownership uses one logic
+8. Perks visible in !myboosts
+9. Stats/progress visible
+10. Admin title tools working
+11. Routing confirmed
+12. Py_compile result
+13. Bot stability result

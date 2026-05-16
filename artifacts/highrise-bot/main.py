@@ -133,6 +133,10 @@ from modules.title_system import (
     on_room_visit as title_on_room_visit,
     on_gold_tip as title_on_gold_tip,
     on_casino_hand as title_on_casino_hand,
+    on_trivia_win as title_on_trivia_win,
+    on_scramble_win as title_on_scramble_win,
+    on_riddle_win as title_on_riddle_win,
+    seed_title_catalog_startup,
 )
 from modules.numbered_shop import (
     handle_buy_number,
@@ -3284,6 +3288,11 @@ class HangoutBot(BaseBot):
             _safe_task(startup_autofish_recovery(self), "startup_autofish_recovery")
         else:
             print(f"[AUTOFISH] Recovery skipped — not fisher bot ({BOT_MODE}).")
+        # Seed Title V2 catalog from TITLE_CATALOG dict (idempotent, fast)
+        try:
+            seed_title_catalog_startup()
+        except Exception as _tse:
+            print(f"[TITLE V2] seed error: {_tse!r}")
         # Big announce reactor
         _safe_task(startup_big_announce_reactor(self), "startup_big_announce_reactor")
         # First-find announcer — host/all bots
