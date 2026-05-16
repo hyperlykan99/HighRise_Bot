@@ -289,12 +289,10 @@ async def process_incoming_dm(
                     db.set_subscribed_by_user_id(user_id, True)
                     db.set_dm_available_by_user_id(user_id, True)
                     await send_dm(bot, conversation_id,
-                                  "✅ Subscribed.\n"
-                                  "Outside-room alerts are connected.\n"
-                                  "Use !notif to manage categories.")
-                else:
-                    await send_dm(bot, conversation_id,
-                                  "👋 Hi! Reply 'subscribe' for outside-room notifications.")
+                                  "✅ Alerts ON.\n"
+                                  "Use !notifysettings to manage.\n"
+                                  "Use !unsub to stop.")
+                # Unknown DMs from unseen users are ignored silently.
             return
 
     else:
@@ -347,7 +345,9 @@ async def process_incoming_dm(
                 print(f"[DM] @{username} wrong-bot hint suppressed (cooldown).")
             return
 
-    # ── Keyword routing ───────────────────────────────────────────────────────
+    # ── Strict DM command parser ──────────────────────────────────────────────
+    # Only valid notification commands trigger a reply. Random DMs are silently
+    # ignored — no fallback status message, no subscription prompt.
 
     # ── !enabledm / !summarydm — enable inbox auto-session summaries ─────────
     if norm in ("enabledm", "summarydm", "dm", "!enabledm", "!summarydm", "!dm",
@@ -358,6 +358,7 @@ async def process_incoming_dm(
         print(f"[DM] @{username} enabled inbox summaries via !enabledm.")
         return
 
+    # ── Unsubscribe ───────────────────────────────────────────────────────────
     if _is_unsubscribe_request(norm):
         db.set_subscribed(uname_lower, False)
         db.set_subscriber_manually_unsubscribed(uname_lower, True)
@@ -369,17 +370,18 @@ async def process_incoming_dm(
         reply = ("✅ Alerts OFF.\n"
                  "You are unsubscribed.\n"
                  "Use !sub to subscribe again.")
-        await send_dm(bot, conversation_id, reply)
+        await send_dm(bot, conversation_id, reply[:249])
         db.set_subscriber_last_dm(uname_lower)
-        print(f"[NOTIFY] notification_unsubscribe user=@{username} via DM (keyword: {norm!r})")
+        print(f"[NOTIFY] unsubscribe user=@{username} source=manual channel=dm")
         return
 
+    # ── Subscribe ─────────────────────────────────────────────────────────────
     if _is_subscribe_request(norm):
         existing_sub = db.get_subscriber_by_user_id(user_id) or db.get_subscriber(uname_lower)
         if existing_sub and existing_sub.get("subscribed"):
-            reply = ("You are already subscribed.\n"
-                     "Use !notifysettings to manage.\n"
-                     "Use !unsub to stop.")
+            reply = ("✅ You are already subscribed.\n"
+                     "Settings: !notifysettings\n"
+                     "Stop: !unsub")
             await send_dm(bot, conversation_id, reply[:249])
             print(f"[DM] @{username} already subscribed — duplicate !sub suppressed.")
             return
@@ -394,30 +396,86 @@ async def process_incoming_dm(
         except Exception:
             pass
         reply = ("✅ Alerts ON.\n"
-                 "Use !notifysettings to choose alerts.\n"
+                 "Use !notifysettings to manage.\n"
                  "Use !unsub to stop.")
         await send_dm(bot, conversation_id, reply[:249])
         db.set_subscriber_last_dm(uname_lower)
-        print(f"[NOTIFY] notification_subscribe user=@{username} source=manual")
+        print(f"[NOTIFY] subscribe user=@{username} source=manual channel=dm")
         return
 
-    # Unknown non-command message.
-    # Only EmceeBot (host/all mode) sends generic alert-status replies.
-    # Dedicated bots stay silent on unknown DMs to avoid confusion.
-    if BOT_MODE not in ("host", "all"):
-        print(f"[DM] @{username} sent non-command DM to {BOT_MODE} bot — ignoring.")
+    # ── Settings view ─────────────────────────────────────────────────────────
+    if norm in ("!notifysettings", "notifysettings", "!alerts", "alerts", "settings"):
+        row = db.get_notification_subscription(user_id)
+        if not row or not row.get("subscribed"):
+            reply = ("🔔 Notifications\n"
+                     "Status: OFF\n"
+                     "Use !sub to subscribe.")
+        else:
+            def _yn_dm(val: int | bool) -> str:
+                return "ON" if val else "OFF"
+            reply = (f"🔔 Notification Settings\n"
+                     f"Status: ON\n"
+                     f"Events: {_yn_dm(row.get('events', 1))}\n"
+                     f"Games: {_yn_dm(row.get('games', 1))}\n"
+                     f"Announcements: {_yn_dm(row.get('announcements', 1))}\n"
+                     f"Promos: {_yn_dm(row.get('promos', 1))}\n"
+                     f"Tips: {_yn_dm(row.get('tips', 0))}")
+        await send_dm(bot, conversation_id, reply[:249])
+        print(f"[DM] @{username} viewed notification settings via DM.")
         return
 
-    sub = db.get_subscriber(uname_lower)
-    is_subscribed = bool(sub and sub.get("subscribed"))
+    # ── Category edit: notify [category] on/off ───────────────────────────────
+    if norm.startswith("!notify ") or norm.startswith("notify "):
+        parts = norm.lstrip("!").split()
+        if len(parts) < 3:
+            await send_dm(bot, conversation_id,
+                          "Usage: !notify [category] on/off\n"
+                          "Categories: events games announcements promos tips")
+            return
+        raw_cat = parts[1].strip()
+        toggle = parts[2].strip().lower()
+        try:
+            from modules.notif_v2 import _resolve_category, _CATEGORY_LABELS
+            cat = _resolve_category(raw_cat)
+            label = _CATEGORY_LABELS.get(cat, raw_cat.capitalize()) if cat else raw_cat.capitalize()
+        except Exception:
+            _VALID = ("events", "games", "announcements", "promos", "tips")
+            cat = raw_cat if raw_cat in _VALID else None
+            label = raw_cat.capitalize()
+        if cat is None:
+            await send_dm(bot, conversation_id,
+                          "⚠️ Unknown category.\n"
+                          "Use: events, games, announcements, promos, tips.")
+            return
+        if toggle not in ("on", "off"):
+            await send_dm(bot, conversation_id,
+                          "⚠️ Use ON or OFF.\n"
+                          f"Example: !notify {raw_cat} on")
+            return
+        row = db.get_notification_subscription(user_id)
+        if not row or not row.get("subscribed"):
+            await send_dm(bot, conversation_id,
+                          "⚠️ Alerts are OFF.\n"
+                          "Use !sub first.")
+            return
+        enabled = toggle == "on"
+        try:
+            db.set_notification_category(user_id, uname_lower, cat, enabled)
+            db.insert_notification_action_log(
+                "notification_settings_change", user_id, uname_lower,
+                category=cat, details=toggle,
+            )
+        except Exception as _e:
+            print(f"[DM] category edit error for @{username}: {_e!r}")
+        reply = (f"✅ {label} alerts {toggle.upper()}.\n"
+                 "Settings: !notifysettings")
+        await send_dm(bot, conversation_id, reply[:249])
+        print(f"[NOTIFY] category_change user=@{username} category={cat} value={toggle} channel=dm")
+        return
 
-    if is_subscribed:
-        reply = "✅ Alerts ON.\nUse !notifysettings to manage.\nUse !unsub to stop."
-    else:
-        reply = "Use !sub to subscribe for alerts.\nUse !unsub to unsubscribe."
-
-    await send_dm(bot, conversation_id, reply)
-    print(f"[DM] @{username} sent unknown msg (subscribed={is_subscribed}). Replied with status.")
+    # ── Everything else: silent ───────────────────────────────────────────────
+    # Unknown DMs are intentionally ignored — no fallback reply.
+    print(f"[DM] @{username} sent non-command DM — ignoring silently.")
 
 
 # ── /subscribe ────────────────────────────────────────────────────────────────

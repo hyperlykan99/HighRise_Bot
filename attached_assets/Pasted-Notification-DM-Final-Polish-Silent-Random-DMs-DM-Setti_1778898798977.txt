@@ -1,0 +1,655 @@
+Notification DM Final Polish — Silent Random DMs, DM Settings Editing, One Manual Subscribe System
+
+Current live behavior:
+1. In direct PM, !sub and !subscribe correctly turn alerts ON.
+2. But after subscribing, random DM messages like "." can still trigger subscription/status replies.
+3. Users should be able to edit notification options directly in PM.
+4. Random DMs must be ignored completely.
+5. There should still be only one official notification system: modules/notif_v2.py.
+
+Goal:
+Make notification DMs behave like a clean command-only system:
+- Only valid notification commands trigger replies.
+- Random DM messages are ignored.
+- Users can subscribe/unsubscribe in DM.
+- Users can view/edit notification settings in DM.
+- Room notification commands still work.
+- No auto-subscribe from tips, bank transfers, games, events, VIP, badges, or titles.
+- No duplicate replies from old subscriber/notification modules.
+
+Do NOT modify:
+- Poker gameplay
+- blackjack gameplay
+- jail gameplay
+- bank transfer logic except notification subscription side effects
+- badge/title/economy logic except notification routing/help if needed
+
+Only modify:
+- modules/notif_v2.py
+- modules/subscribers.py
+- modules/notifications.py
+- main.py DM routing if needed
+- modules/multi_bot.py routing if needed
+- modules/command_registry.py only if notification commands need route cleanup
+- modules/cmd_audit.py only if notification command audit needs route cleanup
+- help text only if needed
+
+==================================================
+PART 1 — Official Notification System
+==================================================
+
+Official notification system:
+modules/notif_v2.py
+
+modules/subscribers.py:
+- should only act as a DM compatibility entrypoint if needed
+- it must delegate all subscribe/unsubscribe/settings changes to notif_v2
+- it must not keep independent subscription state
+- it must not send duplicate replies
+- it must not respond to random DMs
+
+modules/notifications.py:
+- should only act as delivery/helper if needed
+- it must read canonical notif_v2 subscription state
+- it must not manage separate subscription state
+- it must not auto-subscribe users
+
+==================================================
+PART 2 — DM Must Be Silent Unless Valid Command
+==================================================
+
+In direct PM, ignore all random messages.
+
+These should do NOTHING and send NO reply:
+
+.
+hello
+test
+yo
+random message
+thanks
+ok
+?
+
+Do not send:
+- Alerts ON
+- Use !notifysettings
+- subscription help
+- unknown command
+- any fallback subscription/status message
+
+Only valid notification commands should trigger a reply.
+
+==================================================
+PART 3 — Valid DM Subscribe Commands
+==================================================
+
+These DM messages should turn alerts ON:
+
+!sub
+!subscribe
+sub
+subscribe
+
+Expected first-time reply:
+
+✅ Alerts ON.
+Use !notifysettings to manage.
+Use !unsub to stop.
+
+If already subscribed:
+
+✅ You are already subscribed.
+Settings: !notifysettings
+Stop: !unsub
+
+Rules:
+- source must be manual
+- channel should be dm
+- set subscribed=true
+- set manually_unsubscribed=false
+- set DM connected/conversation_id if available
+- do not duplicate records
+- do not reply twice
+
+Log:
+[NOTIFY] subscribe user=@name source=manual channel=dm
+
+==================================================
+PART 4 — Valid DM Unsubscribe Commands
+==================================================
+
+These DM messages should turn alerts OFF:
+
+!unsub
+!unsubscribe
+unsub
+unsubscribe
+stop
+stop alerts
+opt out
+
+Expected reply:
+
+✅ Alerts OFF.
+You are unsubscribed.
+Use !sub to subscribe again.
+
+Rules:
+- set subscribed=false
+- set manually_unsubscribed=true
+- keep user/category record for future reuse
+- do not delete preferences unless necessary
+- do not reply twice
+
+Log:
+[NOTIFY] unsubscribe user=@name source=manual channel=dm
+
+==================================================
+PART 5 — DM Settings View Commands
+==================================================
+
+These DM messages should show notification settings:
+
+!notifysettings
+!alerts
+notifysettings
+alerts
+settings
+
+Expected if subscribed:
+
+🔔 Notification Settings
+Status: ON
+Events: ON
+Games: ON
+Announcements: ON
+Promos: ON
+Tips: OFF
+
+Edit:
+!notify events on/off
+!notify games on/off
+!notify promos on/off
+!notify tips on/off
+
+Expected if not subscribed:
+
+🔔 Notifications
+Status: OFF
+Use !sub to subscribe.
+
+Rules:
+- show same canonical state used by room commands
+- do not auto-subscribe when viewing settings
+
+==================================================
+PART 6 — DM Category Edit Commands
+==================================================
+
+Users should be able to edit settings directly in PM.
+
+Valid DM commands:
+
+!notify events on
+!notify events off
+!notify games on
+!notify games off
+!notify announcements on
+!notify announcements off
+!notify promos on
+!notify promos off
+!notify tips on
+!notify tips off
+
+Also accept without ! in DM:
+
+notify events on
+notify events off
+notify games on
+notify games off
+notify announcements on
+notify announcements off
+notify promos on
+notify promos off
+notify tips on
+notify tips off
+
+Valid categories:
+events
+games
+announcements
+promos
+tips
+
+Valid values:
+on
+off
+
+Expected if subscribed:
+
+✅ Tips alerts ON.
+Settings: !notifysettings
+
+or:
+
+✅ Promos alerts OFF.
+Settings: !notifysettings
+
+Expected if not subscribed:
+
+⚠️ Alerts are OFF.
+Use !sub first.
+
+Expected invalid category:
+
+⚠️ Unknown category.
+Use: events, games, announcements, promos, tips.
+
+Expected invalid value:
+
+⚠️ Use ON or OFF.
+Example: !notify events on
+
+Rules:
+- do not auto-subscribe when editing category
+- if alerts are OFF, tell user to !sub first
+- do not reply twice
+- update canonical notif_v2 state only
+
+Log:
+[NOTIFY] category_change user=@name category=tips value=on channel=dm
+
+==================================================
+PART 7 — Room Commands Still Work
+==================================================
+
+Room commands should still work normally:
+
+!sub
+!subscribe
+!unsub
+!unsubscribe
+!alerts
+!notifysettings
+!notify events on/off
+!notify games on/off
+!notify announcements on/off
+!notify promos on/off
+!notify tips on/off
+
+Room behavior should match DM behavior, except room commands may whisper replies if that is current style.
+
+Room random messages should not matter.
+
+==================================================
+PART 8 — No Auto Subscribe
+==================================================
+
+Strict rule:
+Only these can subscribe a user:
+
+!sub
+!subscribe
+sub
+subscribe
+
+Do NOT subscribe players from:
+- tipping
+- bank transfer
+- receiving ChillCoins
+- sending ChillCoins
+- entering room
+- daily claim
+- games
+- events
+- VIP
+- badge purchase
+- title purchase
+- random DM message
+
+If any code attempts auto-subscribe:
+Block it and log:
+
+[NOTIFY BLOCKED] attempted_auto_subscribe source=tip user=@name
+
+Allowed source values:
+manual
+admin
+migration
+
+Not allowed:
+tip_auto
+bank_auto
+event_auto
+dm_fallback
+unknown_dm
+
+==================================================
+PART 9 — Transactional Bank Messages
+==================================================
+
+Bank/chillcoin transfer notices must stay transactional.
+
+Rules:
+- They may notify recipient if supported.
+- They do not require subscription.
+- They must not subscribe the user.
+- They must not change notification settings.
+- They must not say “Alerts ON.”
+- They must not say “Use notifysettings” unless part of an actual notification command response.
+
+Example:
+
+💰 You received 500 ChillCoins from @Player.
+Balance: 1,250
+
+No subscription footer.
+
+==================================================
+PART 10 — Tipping / Gold Messages
+==================================================
+
+Tipping must not auto-subscribe.
+
+If user tips:
+- process Luxe Tickets normally
+- do not send “Alerts ON”
+- do not set subscribed=true
+- do not DM subscribe confirmation
+- do not reply with notification settings
+
+If user is already subscribed and tips category ON:
+optional tip notification can be sent.
+
+If not subscribed:
+no tip alert.
+
+==================================================
+PART 11 — No Duplicate Replies
+==================================================
+
+For every notification command, only one module should reply.
+
+Commands to check:
+
+!sub
+!subscribe
+!unsub
+!unsubscribe
+!alerts
+!notifysettings
+!notify events on
+!notify tips on
+!notifyhelp
+!substatus
+
+Expected:
+- only notif_v2/subscriber entrypoint reply
+- no duplicate message
+- no unknown command
+- no old subscribers.py response plus notif_v2 response
+
+==================================================
+PART 12 — DM Parser Rules
+==================================================
+
+Implement a strict DM parser.
+
+Suggested logic:
+
+msg = message.strip()
+lower = msg.lower()
+
+If lower in {"!sub", "sub", "!subscribe", "subscribe"}:
+    handle_subscribe_dm()
+
+elif lower in {"!unsub", "unsub", "!unsubscribe", "unsubscribe", "stop", "stop alerts", "opt out"}:
+    handle_unsubscribe_dm()
+
+elif lower in {"!notifysettings", "notifysettings", "!alerts", "alerts", "settings"}:
+    handle_settings_dm()
+
+elif lower starts with "!notify " or lower starts with "notify ":
+    parse category/value and handle category edit
+
+else:
+    return silently
+
+Do not send fallback message for unknown DM.
+
+==================================================
+PART 13 — Notification Help
+==================================================
+
+!notifyhelp should explain both room and DM use:
+
+🔔 Notification Help
+Subscribe: !sub
+Stop: !unsub
+Settings: !notifysettings
+Edit: !notify events on/off
+
+Second message:
+
+Categories:
+events, games, announcements, promos, tips
+
+DM works too.
+Random DMs are ignored.
+
+Keep messages under 249 characters.
+
+==================================================
+PART 14 — Notification Audit
+==================================================
+
+Keep/fix:
+
+!notifyaudit @user
+!notifystatus @user
+
+Expected:
+
+🔔 Notify Audit: @User
+Subscribed: YES
+Source: manual
+DM connected: YES
+
+Second message:
+Events: ON
+Games: ON
+Announcements: ON
+Promos: ON
+Tips: OFF
+Manual unsubscribed: NO
+
+Make sure audit reflects DM setting changes.
+
+==================================================
+PART 15 — Command Routing
+==================================================
+
+Make sure these route to one official notification owner/module:
+
+!sub
+!subscribe
+!unsub
+!unsubscribe
+!alerts
+!notifysettings
+!notify
+!notifyhelp
+!substatus
+!notifications
+!clearnotifications
+!announcement
+!promo
+!eventalert
+!gamealert
+!tipalert
+!notifyadmin
+!subcount
+!subscribers
+!unsubuser
+!notifystatus
+!notifyaudit
+
+Expected:
+route=YES
+owner=YES
+handler=YES
+
+No duplicates.
+
+==================================================
+PART 16 — Compile
+==================================================
+
+Run:
+
+python -m py_compile main.py
+python -m py_compile database.py
+python -m py_compile modules/notif_v2.py
+python -m py_compile modules/subscribers.py
+python -m py_compile modules/notifications.py
+python -m py_compile modules/multi_bot.py
+python -m py_compile modules/command_registry.py
+python -m py_compile modules/cmd_audit.py
+python -m py_compile modules/help_cmds.py
+
+Adjust filenames if needed.
+
+==================================================
+PART 17 — Live Tests
+==================================================
+
+DM Tests:
+
+Test 1:
+DM bot:
+.
+
+Expected:
+No reply.
+
+Test 2:
+DM bot:
+hello
+
+Expected:
+No reply.
+
+Test 3:
+DM bot:
+!sub
+
+Expected:
+✅ Alerts ON.
+Use !notifysettings to manage.
+Use !unsub to stop.
+
+Test 4:
+DM bot:
+!subscribe
+
+Expected if already subscribed:
+✅ You are already subscribed.
+Settings: !notifysettings
+Stop: !unsub
+
+Test 5:
+DM bot:
+!notifysettings
+
+Expected:
+Shows current settings.
+
+Test 6:
+DM bot:
+!notify tips on
+
+Expected:
+✅ Tips alerts ON.
+Settings: !notifysettings
+
+Test 7:
+DM bot:
+!notify promos off
+
+Expected:
+✅ Promos alerts OFF.
+Settings: !notifysettings
+
+Test 8:
+DM bot:
+!unsub
+
+Expected:
+✅ Alerts OFF.
+You are unsubscribed.
+Use !sub to subscribe again.
+
+Test 9:
+DM bot:
+!notify tips on
+
+Expected:
+⚠️ Alerts are OFF.
+Use !sub first.
+
+Test 10:
+DM bot:
+random text after unsub
+
+Expected:
+No reply.
+
+Room Tests:
+
+Test 11:
+Room:
+!sub
+!notifysettings
+!notify games off
+!notifyaudit @yourname
+
+Expected:
+Works and audit reflects changes.
+
+Test 12:
+Tip the bot.
+
+Expected:
+No auto-subscribe message.
+
+Test 13:
+Bank transfer.
+
+Expected:
+Transactional notice only, no subscription change.
+
+Test 14:
+!commandtest !notify
+!commandtest !notifysettings
+!commandtest !notifyaudit
+
+Expected:
+route=YES handler=YES.
+
+Final report:
+1. DM random messages ignored
+2. DM !sub / !subscribe works
+3. DM duplicate subscribe handled
+4. DM !unsub / !unsubscribe works
+5. DM !notifysettings works
+6. DM !notify category on/off works
+7. Random DMs do not trigger fallback/status replies
+8. No auto-subscribe from tips/bank/games/events/VIP/badges/titles
+9. Transactional bank notices do not change subscription
+10. One official notification system confirmed
+11. No duplicate notification replies
+12. Notification audit reflects DM changes
+13. Command routing confirmed
+14. Py_compile result
+15. Bot stability result

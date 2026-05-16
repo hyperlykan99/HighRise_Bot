@@ -301,20 +301,16 @@ async def handle_notify(bot: BaseBot, user: User, args: list[str]) -> None:
 # ── /notifyhelp ───────────────────────────────────────────────────────────────
 
 async def handle_notifyhelp(bot: BaseBot, user: User, args: list[str]) -> None:
-    """/notifyhelp — help for notification preference commands."""
-    page = args[1].strip() if len(args) > 1 else "1"
-    if page == "2":
-        await _w(bot, user.id,
-                 "Types:\nbank events gold vip\n"
-                 "casino quests shop\nannouncements staff\ndm whisper all")
-    else:
-        await _w(bot, user.id,
-                 "🔔 Notify\n"
-                 "!notifysettings\n"
-                 "!notify bank on|off\n"
-                 "!notify events on|off\n"
-                 "!notify gold on|off\n"
-                 "!notify all on|off")
+    """/notifyhelp — help for notification commands (room + DM)."""
+    await _w(bot, user.id,
+             "🔔 Notification Help\n"
+             "Subscribe: !sub\n"
+             "Stop: !unsub\n"
+             "Settings: !notifysettings\n"
+             "Edit: !notify events on/off")
+    await _w(bot, user.id,
+             "Categories:\nevents, games, announcements,\npromos, tips\n"
+             "DM works too.\nRandom DMs are ignored.")
 
 
 # ── /notifications ────────────────────────────────────────────────────────────
