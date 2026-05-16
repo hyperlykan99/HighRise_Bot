@@ -236,6 +236,7 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     "announcement", "promo", "eventalert", "gamealert", "tipalert",
     "subcount", "unsubuser", "notifyadmin", "alerts", "notifyhelp2",
     "commandissues", "notifyaudit", "notifystatus",
+    "qatest",
     # badge market commands routed in main.py
     "profilebadge", "rarebadges", "showbadge", "wishlist", "wishbadge",
     "removewishlist", "unwishlist", "unlockbadge", "setbadgeconfirm",

@@ -1574,6 +1574,11 @@ REGISTRY: dict[str, Cmd] = {
     "badgelogs":         Cmd("shopkeeper","shop", False, True,  False, perm="staff"),
     "claimbadge":        Cmd("shopkeeper","shop", True,  False, True),
     "commonbadges":      Cmd("shopkeeper","shop", True,  True,  False),
+    "rarebadges":        Cmd("shopkeeper","shop", True,  True,  False),
+    "profilebadge":      Cmd("shopkeeper","shop", True,  True,  False),
+    "showbadge":         Cmd("shopkeeper","shop", True,  True,  False),
+    "removewishlist":    Cmd("shopkeeper","shop", True,  False, True),
+    "setbadgeconfirm":   Cmd("shopkeeper","shop", False, False, True,  perm="manager"),
 
     # ── Notifications / alerts ────────────────────────────────────────────────
     "alerts":            Cmd("host",      "help",      True,  True,  False),
@@ -1601,6 +1606,10 @@ REGISTRY: dict[str, Cmd] = {
     "mywishlist":       Cmd("shopkeeper", "shop",      True,  True,  False),
     "eventalert":       Cmd("host",       "help",      True,  True,  False),
     "gamealert":        Cmd("host",       "help",      True,  True,  False),
+    "promo":            Cmd("host",       "admin",     False, False, True,  perm="manager"),
+    "tipalert":         Cmd("host",       "admin",     False, False, True,  perm="manager"),
+    "subcount":         Cmd("host",       "admin",     False, True,  False, perm="staff"),
+    "unsubuser":        Cmd("host",       "admin",     False, False, True,  perm="admin"),
     "notifyadmin":      Cmd("host",       "help",      False, True,  False),
     "notifyhelp2":      Cmd("host",       "help",      True,  True,  False),
     "luxehelp":         Cmd("banker",     "economy",   True,  True,  False),
@@ -1612,6 +1621,7 @@ REGISTRY: dict[str, Cmd] = {
     "confirmbuycoins":  Cmd("banker",     "economy",   False, False, True),
     "cancelbuycoins":   Cmd("banker",     "economy",   False, False, True),
     "boostaudit":       Cmd("host",       "admin",     False, True,  False),
+    "qatest":           Cmd("host",       "admin",     False, True,  False, perm="admin"),
 
 }
 

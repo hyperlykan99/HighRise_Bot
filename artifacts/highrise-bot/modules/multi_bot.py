@@ -495,6 +495,7 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "announcement": "host", "botshome": "host",
     "promo": "host", "tipalert": "host", "subcount": "host", "unsubuser": "host",
     "notifyaudit": "host", "notifystatus": "host",
+    "qatest": "host",
     "tipleaderboard": "banker", "tiprate": "banker", "tipstats": "banker",
     "tiphelp": "host",
     "setdailycoins": "banker", "settransferfee": "banker",

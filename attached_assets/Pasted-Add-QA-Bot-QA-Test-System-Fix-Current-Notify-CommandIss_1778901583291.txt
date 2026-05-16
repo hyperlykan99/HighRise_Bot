@@ -1,0 +1,666 @@
+Add QA Bot / QA Test System + Fix Current Notify/CommandIssues Bugs
+
+Current live issues from screenshots:
+
+1. DM !sub is wrong.
+User DMs:
+!sub
+
+Bot replies:
+✅ Alerts OFF.
+You are unsubscribed.
+Use !sub to subscribe again.
+
+This is incorrect.
+
+Expected:
+DM !sub should turn alerts ON.
+
+Correct reply:
+✅ Alerts ON.
+Use !notifysettings to manage.
+Use !unsub to stop.
+
+If already subscribed:
+✅ You are already subscribed.
+Settings: !notifysettings
+Stop: !unsub
+
+2. !commandissues still shows:
+Issues: 1 no-route, 14 no-handler
+
+Examples include:
+!profilebadge
+!promo
+!rarebadges
+!removewishlist
+!setbadgeconfirm
+!showbadge
+!subcount
+!tipalert
+
+These should be routed to working handlers or hidden/deprecated.
+
+3. Need a QA bot / QA test module so owner can test systems automatically after updates.
+
+Goal:
+Add an owner-only QA test system that can test commands, notification behavior, economy, titles, badges, command routing, and system stability without risking real player data.
+
+Do NOT modify:
+- poker gameplay logic
+- blackjack gameplay logic
+- jail gameplay logic
+- player balances except temporary test user transactions with rollback
+- badge/title/economy rules except safe test helpers
+
+Only modify:
+- main.py routing
+- modules/qa_test.py new module
+- modules/command_registry.py
+- modules/cmd_audit.py
+- modules/multi_bot.py
+- modules/notif_v2.py
+- modules/subscribers.py
+- modules/notifications.py
+- modules/badge_market.py only for missing route aliases if needed
+- help/admin help if needed
+- database.py only for safe QA snapshot/rollback helpers
+
+==================================================
+PART 1 — Add Owner-Only QA Commands
+==================================================
+
+Add new module:
+
+modules/qa_test.py
+
+Add commands:
+
+!qatest
+!qatest all
+!qatest commands
+!qatest notify
+!qatest economy
+!qatest titles
+!qatest badges
+!qatest poker
+!qatest help
+!qatest quick
+
+Owner/admin only.
+
+Normal users:
+⚠️ Owner only.
+
+Default:
+!qatest
+should show menu:
+
+🧪 QA Test Menu
+!qatest quick
+!qatest commands
+!qatest notify
+!qatest economy
+!qatest titles
+!qatest badges
+!qatest all
+
+==================================================
+PART 2 — QA Test Design
+==================================================
+
+QA tests should not depend on real players losing money.
+
+Use safe test user:
+
+username: QA_TestUser
+user_id: qa_test_user
+
+Or use the owner as test user only when explicitly safe.
+
+Preferred:
+- create/get fake QA user in database
+- snapshot their balance/inventory/subscription state
+- run tests
+- rollback to original state
+
+Add helper:
+qa_snapshot_user(user_id)
+qa_restore_user(snapshot)
+
+If full rollback is hard:
+Use fake QA user only and clearly report:
+No real player balances touched.
+
+==================================================
+PART 3 — QA Result Format
+==================================================
+
+All QA commands should return a short report.
+
+Example:
+
+🧪 QA Test Started: notify
+
+Then:
+
+🧪 QA Notify Report
+Passed: 8
+Failed: 2
+
+✅ DM !sub handler exists
+✅ !notifysettings does not subscribe
+❌ !sub returned Alerts OFF
+❌ !tipalert has no handler
+
+Details:
+!qatest notify details
+
+Keep each message under 249 characters.
+Split long reports into multiple whispers.
+
+==================================================
+PART 4 — QA Command Routing Tests
+==================================================
+
+!qatest commands should test:
+
+- command exists
+- owner exists
+- route exists
+- handler exists
+- hidden/deprecated commands are not counted as active issues
+
+Test these commands:
+
+Notification:
+!sub
+!subscribe
+!unsub
+!unsubscribe
+!notifysettings
+!alerts
+!notify
+!notifyhelp
+!promo
+!tipalert
+!eventalert
+!gamealert
+!announcement
+!subcount
+!notifyaudit
+!notifystatus
+
+Badge:
+!profilebadge
+!rarebadges
+!removewishlist
+!setbadgeconfirm
+!showbadge
+!badgehelp
+!badges
+!mybadges
+
+Title:
+!titles
+!titleshop
+!mytitles
+!buytitle
+!equiptitle
+!titlehelp
+!myboosts
+
+Economy:
+!bal
+!balance
+!buycoins
+!confirmbuycoins
+!cancelbuycoins
+!vipstatus
+
+Command audit:
+!commandissues
+!commandissues missing
+!commandissues noowner
+!commandissues nohandler
+!checkcommands all
+
+Expected:
+No command in this list should be active missing/no-owner/no-handler.
+
+If not implemented:
+mark hidden/deprecated.
+
+==================================================
+PART 5 — QA Notify Tests
+==================================================
+
+!qatest notify should test notification logic without sending spam.
+
+Check direct functions/helpers where possible.
+
+Tests:
+
+1. !sub should map to subscribe, not unsubscribe.
+Expected state:
+subscribed=True
+
+2. !unsub should map to unsubscribe.
+Expected state:
+subscribed=False
+
+3. !notifysettings must be view-only.
+Expected:
+does not change subscribed state
+
+4. !notify tips on while unsubscribed:
+Expected:
+does not subscribe
+returns warning
+
+5. !notify tips on while subscribed:
+Expected:
+tips=True
+
+6. Random DM ".":
+Expected:
+ignored / no reply
+
+7. Random DM "hello":
+Expected:
+ignored / no reply
+
+8. Room !sub:
+Expected:
+subscribes and replies by whisper OR follows final design if room allowed.
+Use the current final design:
+Room commands can manage settings by whisper.
+
+9. No auto-subscribe source:
+tips, bank, daily, events should not set subscription.
+
+10. Broadcast commands:
+!promo
+!tipalert
+!eventalert
+!gamealert
+!announcement
+should have owner/route/handler.
+
+Important current bug to catch:
+DM !sub must NOT return Alerts OFF.
+
+If QA detects this:
+❌ DM !sub mapped to unsubscribe/status. Fix route/parser.
+
+==================================================
+PART 6 — Fix Current DM !sub Bug
+==================================================
+
+Current screenshot shows:
+DM !sub replies:
+✅ Alerts OFF.
+You are unsubscribed.
+Use !sub to subscribe again.
+
+Fix this immediately.
+
+Find where !sub is being treated as unsubscribe or where fallback state reply is returning OFF.
+
+Check:
+- _is_subscribe_request()
+- _is_unsubscribe_request()
+- _normalize_dm()
+- process_incoming_dm()
+- slash-command DM routing
+- command aliases in multi_bot.py
+- command_registry.py aliases
+
+Required behavior:
+
+DM:
+!sub
+sub
+!subscribe
+subscribe
+
+must call subscribe handler only.
+
+DM:
+!unsub
+unsub
+!unsubscribe
+unsubscribe
+stop
+stop alerts
+opt out
+
+must call unsubscribe handler only.
+
+Add logs:
+
+[QA NOTIFY] dm_parse raw='!sub' action=subscribe
+[QA NOTIFY] dm_parse raw='!unsub' action=unsubscribe
+[QA NOTIFY] dm_parse raw='.' action=ignore
+
+==================================================
+PART 7 — Fix !notifysettings View-Only
+==================================================
+
+!notifysettings must never subscribe or unsubscribe.
+
+DM and room:
+!notifysettings
+
+Expected:
+Shows current settings.
+
+If unsubscribed:
+🔔 Notifications
+Status: OFF
+Use !sub to subscribe.
+
+If subscribed:
+🔔 Notification Settings
+Status: ON
+Events: ON
+Games: ON
+Announcements: ON
+Promos: ON
+Tips: OFF
+
+No state change.
+
+QA should compare subscription state before/after.
+
+==================================================
+PART 8 — Fix Remaining CommandIssues
+==================================================
+
+Current !commandissues examples include:
+
+!profilebadge
+!promo
+!rarebadges
+!removewishlist
+!setbadgeconfirm
+!showbadge
+!subcount
+!tipalert
+
+For each command:
+- if implemented, add owner/route/handler
+- if not implemented, hide/deprecate
+- do not leave active with no handler
+
+Suggested routing:
+
+!promo -> notif_v2.handle_promo
+!tipalert -> notif_v2.handle_tipalert
+!subcount -> notif_v2.handle_subcount
+
+Badge commands:
+!profilebadge -> badge profile handler or alias !badgeprofile
+!rarebadges -> alias !badgeshop rare or !allbadges rare
+!removewishlist -> wishlist remove handler or hide
+!setbadgeconfirm -> admin badge confirm handler or hide
+!showbadge -> badge profile/showcase handler or hide
+
+After fix:
+!commandissues
+should not show these as active no-handler.
+
+==================================================
+PART 9 — QA Economy Tests
+==================================================
+
+!qatest economy should test:
+
+!bal handler exists
+!balance handler exists
+!buycoins handler exists
+!confirmbuycoins handler exists
+!cancelbuycoins handler exists
+!vipstatus handler exists
+
+Safe logic tests:
+- !bal does not crash
+- Luxe Tickets use 🎟️
+- Balance shows full numbers only
+- VIP shows time left if active
+- !buycoins max creates pending confirmation, does not spend immediately
+- !confirmbuycoins requires pending confirmation
+- !cancelbuycoins clears pending confirmation
+
+Do not spend real owner tickets.
+
+Use QA fake user or mocked calculation.
+
+==================================================
+PART 10 — QA Title Tests
+==================================================
+
+!qatest titles should test:
+
+- title shop loads
+- !buytitle rookie works on QA user or simulated
+- !equiptitle rookie works
+- !mytitles works
+- !myboosts shows title boost
+- buyable titles exclude Millionaire and High Roller
+- achievement titles exist for Millionaire and High Roller
+
+Rollback QA user after test.
+
+==================================================
+PART 11 — QA Badge Tests
+==================================================
+
+!qatest badges should test:
+
+- !badges works
+- !mybadges works
+- !badgeshop works
+- !buybadge works safely with QA user
+- !equipbadge works
+- badge market commands have route/handler
+- buyer/seller coin movement is protected
+- cannot buy own listing
+- invalid badge ID gives helpful error
+
+Rollback QA user after test.
+
+==================================================
+PART 12 — QA Poker Tests
+==================================================
+
+!qatest poker should not run a real full poker game unless safe.
+
+Test:
+- poker commands are routed
+- !pokerguide works or hidden
+- !pokerhelp works
+- poker admin/audit commands are routed or hidden
+- no poker command appears in commandissues
+
+Optional simulation:
+- create fake table state in memory only
+- verify heads-up turn order helper
+- verify hand evaluator
+- verify showdown formatting
+
+Do not affect live poker table.
+
+==================================================
+PART 13 — QA Help Tests
+==================================================
+
+!qatest help should check:
+- !help only shows working commands
+- !shop only shows working commands
+- !notifyhelp matches current design
+- !badgehelp does not show broken badge commands
+- !titlehelp does not show broken title commands
+- !adminhelp only shows working admin commands
+
+==================================================
+PART 14 — QA All
+==================================================
+
+!qatest all should run:
+
+1. commands
+2. notify
+3. economy
+4. titles
+5. badges
+6. help
+7. poker light test
+
+Output final:
+
+🧪 QA All Report
+Passed: X
+Failed: Y
+Warnings: Z
+
+Top failures:
+1. !sub returned Alerts OFF
+2. !tipalert no handler
+3. !profilebadge no handler
+
+Use:
+!qatest failed
+for details
+
+Add optional:
+!qatest last
+shows last QA report.
+
+==================================================
+PART 15 — QA Logs
+==================================================
+
+Add console logs:
+
+[QA] started suite=notify by=@Owner
+[QA PASS] notify dm_subscribe
+[QA FAIL] notify dm_subscribe expected=Alerts ON got=Alerts OFF
+[QA] finished suite=notify passed=8 failed=1
+
+Store last QA result in memory:
+LAST_QA_REPORT
+
+Optional database table:
+qa_test_logs
+
+==================================================
+PART 16 — Command Registry
+==================================================
+
+Register:
+
+!qatest
+!qatestall if needed alias
+!qacheck if needed alias
+
+Owner:
+ChillTopiaMC / host bot
+
+Permission:
+owner/admin only
+
+Do not show QA commands to normal players except maybe admin help.
+
+Add to !adminhelp:
+
+🧪 QA
+!qatest quick
+!qatest all
+!qatest commands
+!qatest notify
+
+==================================================
+PART 17 — Compile
+==================================================
+
+Run:
+
+python -m py_compile main.py
+python -m py_compile database.py
+python -m py_compile modules/qa_test.py
+python -m py_compile modules/notif_v2.py
+python -m py_compile modules/subscribers.py
+python -m py_compile modules/notifications.py
+python -m py_compile modules/command_registry.py
+python -m py_compile modules/cmd_audit.py
+python -m py_compile modules/multi_bot.py
+python -m py_compile modules/help_cmds.py
+python -m py_compile modules/badge_market.py
+python -m py_compile modules/title_system.py
+
+Adjust filenames if needed.
+
+==================================================
+PART 18 — Live Tests After Update
+==================================================
+
+Manual tests:
+
+1. DM:
+!sub
+
+Expected:
+✅ Alerts ON.
+Not Alerts OFF.
+
+2. DM:
+.
+
+Expected:
+No reply.
+
+3. DM:
+!notifysettings
+
+Expected:
+Shows settings only. Does not change subscription.
+
+4. Room:
+!commandissues
+
+Expected:
+No !promo, !tipalert, !subcount, !profilebadge, !showbadge in active no-handler list.
+
+5. Room:
+!qatest notify
+
+Expected:
+QA report with pass/fail.
+
+6. Room:
+!qatest commands
+
+Expected:
+Command routing report.
+
+7. Room:
+!qatest all
+
+Expected:
+Full QA report.
+
+Final report:
+1. QA test module added
+2. !qatest commands added
+3. !qatest notify added
+4. !qatest economy added
+5. !qatest titles added
+6. !qatest badges added
+7. !qatest poker/help added
+8. DM !sub bug fixed
+9. !notifysettings view-only confirmed
+10. Random DM ignored confirmed
+11. Remaining commandissues fixed or hidden
+12. Py_compile result
+13. Bot stability result

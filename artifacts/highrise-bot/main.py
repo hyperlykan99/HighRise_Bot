@@ -241,6 +241,7 @@ from modules.notif_v2 import (
     handle_notifyadmin_help,
     handle_notifyaudit_admin,
 )
+from modules.qa_test import handle_qatest
 from modules.maintenance         import (
     handle_botstatus, handle_dbstats,
     handle_maintenance, handle_reloadsettings, handle_cleanup,
@@ -5114,6 +5115,9 @@ class HangoutBot(BaseBot):
 
         elif cmd in {"notifyaudit", "notifystatus"}:
             await handle_notifyaudit_admin(self, user, args)
+
+        elif cmd == "qatest":
+            await handle_qatest(self, user, args)
 
         elif cmd == "delivernotifications":
             await handle_delivernotifications(self, user, args)

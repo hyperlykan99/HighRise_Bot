@@ -368,6 +368,7 @@ async def process_incoming_dm(
 
     # ── Unsubscribe ───────────────────────────────────────────────────────────
     if _is_unsubscribe_request(norm):
+        print(f"[QA NOTIFY] dm_parse raw={content!r} action=unsubscribe")
         db.set_subscribed(uname_lower, False)
         db.set_subscriber_manually_unsubscribed(uname_lower, True)
         try:
@@ -385,6 +386,7 @@ async def process_incoming_dm(
 
     # ── Subscribe ─────────────────────────────────────────────────────────────
     if _is_subscribe_request(norm):
+        print(f"[QA NOTIFY] dm_parse raw={content!r} action=subscribe")
         existing_sub = db.get_subscriber_by_user_id(user_id) or db.get_subscriber(uname_lower)
         if existing_sub and existing_sub.get("subscribed"):
             reply = ("✅ You are already subscribed.\n"
@@ -483,6 +485,7 @@ async def process_incoming_dm(
 
     # ── Everything else: silent ───────────────────────────────────────────────
     # Unknown DMs are intentionally ignored — no fallback reply.
+    print(f"[QA NOTIFY] dm_parse raw={content!r} action=ignore")
     print(f"[DM] @{username} sent non-command DM — ignoring silently.")
 
 
