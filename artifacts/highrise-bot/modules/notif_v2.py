@@ -107,13 +107,13 @@ async def handle_notifysettings_v2(bot: "BaseBot", user: "User") -> None:
     await _w(bot, user.id,
              f"🔔 Notification Settings\n"
              f"Status: ON\n"
-             f"Events: {_yn(row.get('events', 1))}\n"
-             f"Games: {_yn(row.get('games', 1))}\n"
-             f"Announcements: {_yn(row.get('announcements', 1))}\n"
-             f"Promos: {_yn(row.get('promos', 1))}\n"
-             f"Tips: {_yn(row.get('tips', 0))}")
+             f"🎉 Events: {_yn(row.get('events', 1))}\n"
+             f"🎮 Games: {_yn(row.get('games', 1))}\n"
+             f"📢 Announcements: {_yn(row.get('announcements', 1))}\n"
+             f"🏷️ Promos: {_yn(row.get('promos', 1))}\n"
+             f"💸 Tips: {_yn(row.get('tips', 0))}")
     await _w(bot, user.id,
-             "Commands:\n"
+             "Edit:\n"
              "!notify events on/off\n"
              "!notify games on/off\n"
              "!notify promos on/off\n"
@@ -180,16 +180,17 @@ async def handle_notify_v2(
 async def handle_notifyhelp_player(bot: "BaseBot", user: "User") -> None:
     """Player notification help."""
     await _w(bot, user.id,
-             "🔔 Notifications\n"
-             "DM bot: !sub\n"
+             "🔔 Notification Help\n"
+             "Subscribe: !sub\n"
              "Stop: !unsub\n"
-             "Settings: !notifysettings")
+             "Settings: !notifysettings\n"
+             "Edit: !notify events on/off")
     await _w(bot, user.id,
-             "!notify events on/off\n"
-             "!notify games on/off\n"
-             "!notify announcements on/off\n"
-             "!notify promos on/off\n"
-             "!notify tips on/off")
+             "📢 Categories\n"
+             "events, games, announcements,\n"
+             "promos, tips\n"
+             "Works in room or DM.\n"
+             "Random DMs are ignored.")
 
 
 # ─── Broadcast engine ────────────────────────────────────────────────────────

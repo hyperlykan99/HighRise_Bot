@@ -717,30 +717,21 @@ async def handle_badge_sold(bot: BaseBot, user: User, page: int = 1) -> None:
 
 
 async def handle_badge_help(bot: BaseBot, user: User) -> None:
-    """!badgehelp — player badge commands (Part 12)."""
+    """!badgehelp — player badge commands."""
     await bot.highrise.send_whisper(user.id, (
-        "🏷️ Badge Commands\n"
-        "Browse: !badgeshop\n"
-        "All: !allbadges\n"
-        "Search: !badgesearch crown\n"
-        "Info: !badgeinfo crown"
+        "🎖️ Badge Help\n"
+        "Browse: !badges\n"
+        "My badges: !mybadges\n"
+        "Buy: !buybadge badge_id\n"
+        "Equip: !equipbadge badge_id\n"
+        "Unequip: !unequipbadge"
     )[:249])
     await bot.highrise.send_whisper(user.id, (
-        "Owned: !mybadges\n"
-        "Equip: !equipbadge crown\n"
-        "Profile: !badgeprofile\n"
-        "Show: !showbadge"
-    )[:249])
-    await bot.highrise.send_whisper(user.id, (
-        "Market: !badgemarket\n"
-        "Buy: !badgebuy 1\n"
-        "Sell: !sellbadge crown 20000\n"
-        "Wishlist: !wishlist crown"
-    )[:249])
-    await bot.highrise.send_whisper(user.id, (
-        "Gift: !giftbadge @user crown\n"
-        "Lock: !lockbadge crown\n"
-        "Starter: !claimbadge"
+        "💫 Wishlist\n"
+        "View: !wishlist\n"
+        "Add: !wishbadge badge_id\n"
+        "Remove: !unwishlist badge_id\n"
+        "Market: !badgemarket"
     )[:249])
 
 

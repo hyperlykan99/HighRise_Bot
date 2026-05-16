@@ -2344,6 +2344,24 @@ def _migrate_db():
             updated_at TEXT DEFAULT (datetime('now')),
             PRIMARY KEY(user_id, name)
         )""",
+        # ── Canonical notification users (SDK-aligned, DM-first) ──────────────
+        """CREATE TABLE IF NOT EXISTS notification_users (
+            user_id             TEXT PRIMARY KEY,
+            username            TEXT NOT NULL DEFAULT '',
+            subscribed          INTEGER NOT NULL DEFAULT 0,
+            source              TEXT NOT NULL DEFAULT 'manual',
+            events              INTEGER NOT NULL DEFAULT 1,
+            games               INTEGER NOT NULL DEFAULT 1,
+            announcements       INTEGER NOT NULL DEFAULT 1,
+            promos              INTEGER NOT NULL DEFAULT 1,
+            tips                INTEGER NOT NULL DEFAULT 0,
+            conversation_id     TEXT,
+            dm_available        INTEGER NOT NULL DEFAULT 0,
+            manual_unsubscribed INTEGER NOT NULL DEFAULT 0,
+            created_at          TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at          TEXT NOT NULL DEFAULT (datetime('now'))
+        )""",
+        "CREATE INDEX IF NOT EXISTS idx_nu_subscribed ON notification_users(subscribed)",
     ]:
         try:
             conn.execute(sql)
@@ -16127,3 +16145,198 @@ def remove_owned_item(user_id: str, item_id: str,
         conn.close()
     except Exception:
         pass
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# notification_users helpers — canonical notification system (SDK-aligned)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+_NOTIFY_USER_COLS = frozenset({
+    "subscribed", "source", "events", "games", "announcements",
+    "promos", "tips", "conversation_id", "dm_available", "manual_unsubscribed",
+})
+
+_NOTIFY_SAFE_SOURCES = frozenset({
+    "manual_dm", "manual_room_resubscribe", "manual", "admin", "",
+})
+
+
+def get_notify_user(user_id: str) -> dict:
+    """Return notification_users row for user_id, or empty dict. Never raises."""
+    try:
+        conn = get_connection()
+        row = conn.execute(
+            "SELECT * FROM notification_users WHERE user_id=?", (user_id,)
+        ).fetchone()
+        conn.close()
+        return dict(row) if row else {}
+    except Exception as e:
+        print(f"[NOTIFY] get_notify_user error: {e!r}")
+        return {}
+
+
+def upsert_notify_user(user_id: str, username: str, **kwargs) -> None:
+    """
+    Upsert into notification_users with any subset of valid columns.
+    Anti-auto-subscribe guard: source must be in _NOTIFY_SAFE_SOURCES.
+    Never raises.
+    """
+    update_cols = {k: v for k, v in kwargs.items() if k in _NOTIFY_USER_COLS}
+    source = str(update_cols.get("source", ""))
+    if source and source not in _NOTIFY_SAFE_SOURCES:
+        print(
+            f"[NOTIFY BLOCKED] source={source!r} user={username}"
+            " reason=auto_subscribe_disabled"
+        )
+        return
+    try:
+        conn = get_connection()
+        if update_cols:
+            cols = list(update_cols.keys())
+            vals = list(update_cols.values())
+            col_clause = ", ".join(cols)
+            ph_clause   = ", ".join("?" * len(cols))
+            set_clause  = ", ".join(f"{c}=excluded.{c}" for c in cols)
+            conn.execute(
+                f"""INSERT INTO notification_users
+                   (user_id, username, {col_clause}, updated_at)
+                   VALUES (?, ?, {ph_clause}, datetime('now'))
+                   ON CONFLICT(user_id) DO UPDATE SET
+                     username=excluded.username,
+                     updated_at=excluded.updated_at,
+                     {set_clause}""",
+                [user_id, username.lower()] + vals,
+            )
+        else:
+            conn.execute(
+                """INSERT OR IGNORE INTO notification_users
+                   (user_id, username, updated_at)
+                   VALUES (?, ?, datetime('now'))""",
+                (user_id, username.lower()),
+            )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[NOTIFY] upsert_notify_user error: {e!r}")
+
+
+def set_notify_category(
+    user_id: str, username: str, category: str, enabled: bool
+) -> None:
+    """Enable/disable a specific notification category. Never raises."""
+    if category not in ("events", "games", "announcements", "promos", "tips"):
+        print(f"[NOTIFY] set_notify_category: invalid category {category!r}")
+        return
+    try:
+        conn = get_connection()
+        conn.execute(
+            f"""INSERT INTO notification_users
+               (user_id, username, {category}, updated_at)
+               VALUES (?, ?, ?, datetime('now'))
+               ON CONFLICT(user_id) DO UPDATE SET
+                 {category}=excluded.{category},
+                 updated_at=excluded.updated_at""",
+            (user_id, username.lower(), 1 if enabled else 0),
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[NOTIFY] set_notify_category error: {e!r}")
+
+
+def get_notify_users_for_broadcast(category: str) -> list:
+    """
+    Return notification_users rows where:
+      subscribed=1, category=1, conversation_id IS NOT NULL AND != ''.
+    Used by broadcast commands.
+    """
+    if category not in ("events", "games", "announcements", "promos", "tips"):
+        return []
+    try:
+        conn = get_connection()
+        rows = conn.execute(
+            f"""SELECT * FROM notification_users
+               WHERE subscribed=1 AND {category}=1
+                 AND conversation_id IS NOT NULL
+                 AND conversation_id != ''""",
+        ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+    except Exception as e:
+        print(f"[NOTIFY] get_notify_users_for_broadcast error: {e!r}")
+        return []
+
+
+def get_notify_user_counts() -> dict:
+    """Return aggregate subscriber counts (total + per category). Never raises."""
+    try:
+        conn = get_connection()
+        total = conn.execute(
+            "SELECT COUNT(*) FROM notification_users WHERE subscribed=1"
+        ).fetchone()[0]
+        counts: dict = {"total": total}
+        for cat in ("events", "games", "announcements", "promos", "tips"):
+            counts[cat] = conn.execute(
+                f"SELECT COUNT(*) FROM notification_users"
+                f" WHERE subscribed=1 AND {cat}=1"
+            ).fetchone()[0]
+        conn.close()
+        return counts
+    except Exception as e:
+        print(f"[NOTIFY] get_notify_user_counts error: {e!r}")
+        return {"total": 0}
+
+
+def get_all_notify_users() -> list:
+    """Return all notification_users rows ordered newest first. Never raises."""
+    try:
+        conn = get_connection()
+        rows = conn.execute(
+            "SELECT * FROM notification_users ORDER BY updated_at DESC"
+        ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+    except Exception as e:
+        print(f"[NOTIFY] get_all_notify_users error: {e!r}")
+        return []
+
+
+def delete_notify_user(user_id: str) -> None:
+    """Delete one user's notification_users record. Never raises."""
+    try:
+        conn = get_connection()
+        conn.execute(
+            "DELETE FROM notification_users WHERE user_id=?", (user_id,)
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[NOTIFY] delete_notify_user error: {e!r}")
+
+
+def clear_notify_table(table_name: str) -> bool:
+    """
+    DELETE all rows from a known notification-related table.
+    Only clears tables in the safe allowlist. Returns True on success.
+    """
+    _SAFE = frozenset({
+        "notification_users",
+        "subscriber_users",
+        "notification_subscriptions",
+        "notification_action_logs",
+        "notification_logs",
+        "pending_notifications",
+        "subscriber_notification_logs",
+    })
+    if table_name not in _SAFE:
+        print(f"[NOTIFY] clear_notify_table BLOCKED: unknown table={table_name!r}")
+        return False
+    try:
+        conn = get_connection()
+        conn.execute(f"DELETE FROM {table_name}")
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"[NOTIFY] clear_notify_table({table_name}) error: {e!r}")
+        return False

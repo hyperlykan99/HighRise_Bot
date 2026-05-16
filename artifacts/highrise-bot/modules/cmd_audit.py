@@ -236,7 +236,8 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     "announcement", "promo", "eventalert", "gamealert", "tipalert",
     "subcount", "unsubuser", "notifyadmin", "alerts", "notifyhelp2",
     "commandissues", "notifyaudit", "notifystatus",
-    "qatest",
+    "notifyreset", "notifyresetall", "confirmnotifyresetall",
+    "qatest", "settings", "usersettings",
     # badge market commands routed in main.py
     "profilebadge", "rarebadges", "showbadge", "wishlist", "wishbadge",
     "removewishlist", "unwishlist", "unlockbadge", "unequipbadge", "setbadgeconfirm",
@@ -1134,21 +1135,22 @@ async def handle_commandissues(
             combined = set(missing_set) | set(noowner_set) | set(no_handler)
             if not combined:
                 await _w(bot, user.id,
-                         "✅ No command issues.\nRoutes, owners, and handlers are clean.")
+                         "✅ Command Audit Clean\n"
+                         "No active command issues found.")
                 return
-            parts = []
-            if missing_set:
-                parts.append(f"{len(missing_set)} no-route")
-            if noowner_set:
-                parts.append(f"{len(noowner_set)} no-owner")
-            if no_handler:
-                parts.append(f"{len(no_handler)} no-handler")
             await _w(bot, user.id,
-                     (f"⚠️ Issues: {', '.join(parts)}\n"
-                      f"!commandissues missing|noowner|nohandler|deprecated|hidden [pg]")[:249])
-            preview = sorted(combined)[:8]
+                     (f"⚠️ Command Issues\n"
+                      f"No route: {len(missing_set)}\n"
+                      f"No owner: {len(noowner_set)}\n"
+                      f"No handler: {len(no_handler)}")[:249])
+            preview = sorted(combined)[:5]
             await _w(bot, user.id,
-                     ("Examples: " + ", ".join(f"!{c}" for c in preview))[:249])
+                     ("Examples:\n" + "\n".join(f"!{c}" for c in preview))[:249])
+            await _w(bot, user.id,
+                     "Details:\n"
+                     "!commandissues missing\n"
+                     "!commandissues nohandler\n"
+                     "!commandissues noowner")
             return
         elif category == "missing":
             items = sorted(active - ROUTED_COMMANDS)

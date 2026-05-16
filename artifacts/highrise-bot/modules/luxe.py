@@ -1446,12 +1446,12 @@ async def _do_purchase_numbered_pack(
 async def handle_luxehelp(bot: "BaseBot", user: "User") -> None:
     """!luxe / !luxehelp — player help for Luxe Tickets."""
     await _w(bot, user.id,
-             "🎟️ Luxe Tickets\n"
-             "!tickets — check balance\n"
-             "!sendtickets @user 100\n"
-             "!buypack — view 🪙 packs\n"
-             "!buycoins 1/2/3 — buy a pack\n"
-             "!luxeshop — full shop")
+             "🎟️ Luxe Help\n"
+             "Ticket balance: !tickets\n"
+             "Buy coins: !buycoins\n"
+             "Packs: !packs\n"
+             "VIP: !vip\n"
+             "Status: !vipstatus")
 
 
 async def handle_vipadmin(bot: "BaseBot", user: "User", args: list[str]) -> None:

@@ -1,0 +1,715 @@
+Final UI Polish — Menus, Shop, Help, Settings, Emojis, Consistent Formatting
+
+Current status:
+Core command routing is now mostly clean.
+Now polish all player-facing menus, help pages, shop pages, settings pages, and admin/staff help.
+
+Goal:
+Make every menu easy to read, consistent, short, emoji-friendly, and mobile-friendly for Highrise chat.
+
+Do NOT modify gameplay logic.
+Do NOT modify economy math.
+Do NOT modify poker/blackjack rules.
+Do NOT modify player balances.
+This is a display/help/menu polish update only.
+
+Only modify:
+- modules/help_cmds.py
+- modules/shop.py
+- modules/notif_v2.py help/settings text only
+- modules/badge_market.py menu/help text only
+- modules/title_system.py menu/help text only
+- modules/luxe.py help/menu text only
+- modules/cmd_audit.py display text only
+- modules/qa_test.py display text only
+- modules/admin_cmds.py help text only
+- main.py only if command aliases/help routing are needed
+
+==================================================
+PART 1 — Global Menu Style Rules
+==================================================
+
+All menus must be:
+
+- clean
+- short
+- emoji-friendly
+- easy to read on mobile
+- under Highrise message limit
+- split into multiple whispers if needed
+- no giant walls of text
+- no broken/unused commands shown
+- no duplicate commands
+- no outdated aliases
+- no commands that show “unknown command”
+
+Use this style:
+
+Title line:
+🎮 Games
+🛍️ Shop
+🎖️ Badges
+🏷️ Titles
+🔔 Notifications
+💰 Economy
+🧪 QA Tools
+
+Command lines:
+💰 Balance: !bal
+🎁 Daily: !daily
+🎖️ Badges: !badges
+🏷️ Titles: !titles
+🔔 Alerts: !notifysettings
+
+Avoid long paragraphs.
+
+==================================================
+PART 2 — Main !help
+==================================================
+
+Polish !help.
+
+Expected:
+
+👋 ChillTopia Help
+💰 Balance: !bal
+🎁 Daily: !daily
+🛍️ Shop: !shop
+🎮 Games: !games
+🏦 Bank: !bank
+
+Second message:
+
+🎖️ Badges: !badgehelp
+🏷️ Titles: !titlehelp
+🔔 Alerts: !notifyhelp
+📖 Guide: !guide
+🆘 More: !help 2
+
+If !help 2 exists:
+
+🆘 More Help
+🎰 Casino: !casinohelp
+🃏 Poker: !pokerhelp
+🎣 Fishing: !fishhelp
+⛏️ Mining: !minehelp
+🧪 QA: owner only
+
+Rules:
+- Show only working commands.
+- Do not show deprecated/hidden commands.
+- Keep under message limit.
+
+==================================================
+PART 3 — Shop Menu
+==================================================
+
+Polish !shop / !botshop.
+
+Expected:
+
+🛍️ ChillTopia Shop
+🏷️ Titles: !titleshop
+🎖️ Badges: !badgeshop
+🎟️ Luxe: !luxehelp
+💎 VIP: !vip
+💰 Coins: !buycoins
+
+Second message if needed:
+
+🛒 Quick Buy
+🏷️ !buytitle title_id
+🎖️ !buybadge badge_id
+🎟️ !buycoins pack
+📦 Packs: !packs
+
+Rules:
+- Do not show broken commands.
+- Use 🎟️ for Luxe Tickets.
+- Use 💰 for ChillCoins/coins.
+- Use 💎 for VIP.
+
+==================================================
+PART 4 — Economy / Balance Help
+==================================================
+
+Polish economy help pages.
+
+Commands:
+!bal
+!balance
+!bank
+!economyhelp
+!luxehelp
+!buycoins
+!packs
+!vip
+!vipstatus
+
+Expected !luxehelp:
+
+🎟️ Luxe Help
+Balance: !bal
+Buy coins: !buycoins
+Packs: !packs
+VIP: !vip
+Status: !vipstatus
+
+Expected !buycoins help:
+
+💰 Buy Coins
+View packs: !packs
+Buy pack: !buycoins small
+Max buy: !buycoins max
+Confirm: !confirmbuycoins
+Cancel: !cancelbuycoins
+
+Rules:
+- Luxe Tickets always use 🎟️.
+- Coins always use 💰.
+- Balance display should stay full numbers only.
+- No 13.7M summary on !bal.
+
+==================================================
+PART 5 — Notification Help / Settings
+==================================================
+
+Polish notification commands.
+
+Commands:
+!notifyhelp
+!notifysettings
+!alerts
+!sub
+!unsub
+!notify events on/off
+
+Expected !notifyhelp:
+
+🔔 Notification Help
+Subscribe: !sub
+Stop: !unsub
+Settings: !notifysettings
+Edit: !notify events on/off
+
+Second message:
+
+📢 Categories
+events, games, announcements,
+promos, tips
+
+Works in room or DM.
+Random DMs are ignored.
+
+Expected !notifysettings subscribed:
+
+🔔 Notification Settings
+Status: ON
+🎉 Events: ON
+🎮 Games: ON
+📢 Announcements: ON
+🏷️ Promos: ON
+💸 Tips: OFF
+
+Second message:
+
+Edit:
+!notify events on/off
+!notify games on/off
+!notify promos on/off
+!notify tips on/off
+
+Expected unsubscribed:
+
+🔔 Notifications
+Status: OFF
+Use !sub to subscribe.
+
+Rules:
+- Do not auto-subscribe from settings.
+- Room replies should whisper.
+- DM replies should DM.
+
+==================================================
+PART 6 — Badge Help / Badge Shop
+==================================================
+
+Polish badge menus.
+
+Commands:
+!badgehelp
+!badges
+!badgeshop
+!mybadges
+!buybadge
+!equipbadge
+!unequipbadge
+!wishlist
+!wishbadge
+!unwishlist
+!badgemarket
+
+Expected !badgehelp:
+
+🎖️ Badge Help
+Browse: !badges
+My badges: !mybadges
+Buy: !buybadge badge_id
+Equip: !equipbadge badge_id
+Unequip: !unequipbadge
+
+Second message:
+
+💫 Wishlist
+View: !wishlist
+Add: !wishbadge badge_id
+Remove: !unwishlist badge_id
+Market: !badgemarket
+
+Expected !badges / !badgeshop:
+
+🎖️ Badge Shop p1/#
+1) 🐂 taurus — 1,500 coins
+2) 👑 crown — 100,000 coins
+3) 💎 diamond — 1,000,000 coins
+
+Buy:
+!buybadge badge_id
+
+Rules:
+- Show badge IDs clearly.
+- Make commands simple.
+- If paginated, show next command:
+Next: !badges 2
+- Do not show commands that are hidden/deprecated.
+
+==================================================
+PART 7 — Title Help / Title Shop
+==================================================
+
+Polish title menus.
+
+Commands:
+!titlehelp
+!titles
+!titleshop
+!mytitles
+!buytitle
+!equiptitle
+!unequiptitle
+!titleinfo
+!titleprogress
+!claimtitles
+!myboosts
+!perks
+
+Expected !titlehelp:
+
+🏷️ Title Help
+Shop: !titleshop
+My titles: !mytitles
+Buy: !buytitle title_id
+Equip: !equiptitle title_id
+Unequip: !unequiptitle
+
+Second message:
+
+📈 Progress
+Claim: !claimtitles
+Progress: !titleprogress
+Perks: !myboosts
+Info: !titleinfo title_id
+
+Expected !titleshop:
+
+🏷️ Title Shop p1/#
+1) rookie — 3,000 coins
+2) lucky — 7,000 coins
+3) elite — 25,000 coins
+
+Buy:
+!buytitle title_id
+
+Rules:
+- Shop titles should feel relevant.
+- Achievement titles should not appear as buyable.
+- Show perk/boost if short:
+rookie — 3,000 coins | daily +5
+- No confusing titles like Millionaire for 100k if it should be achievement-only.
+
+==================================================
+PART 8 — My Boosts / Perks Menu
+==================================================
+
+Polish:
+
+!myboosts
+!perks
+!titleperks
+
+Expected:
+
+⚡ Active Boosts
+🏷️ Title: [Rookie]
+🎖️ Badge: none
+🎉 Event: Mining Haste
+💎 VIP: Active — 12d 4h
+
+Second message:
+
+Boosts:
+🎁 Daily Coins: +5
+⛏️ Mining Cooldown: -25%
+💰 Game Rewards: +2%
+
+If no boosts:
+
+⚡ Active Boosts
+No active boosts.
+Equip a title or badge to activate perks.
+
+==================================================
+PART 9 — Games Menu
+==================================================
+
+Polish !games.
+
+Expected:
+
+🎮 Games
+🧠 Trivia: !trivia
+🔤 Scramble: !scramble
+❓ Riddle: !riddle
+🎰 Casino: !casino
+🃏 Poker: !poker
+
+Second message:
+
+🎣 Fishing: !fish
+⛏️ Mining: !mine
+🏆 Leaderboards: !leaderboard
+📖 Game help: !gamehelp
+
+Rules:
+- Only show games that exist.
+- Do not show commands that are hidden/deprecated.
+
+==================================================
+PART 10 — Poker / Casino Help Polish
+==================================================
+
+Polish poker/casino help only.
+Do not change gameplay.
+
+Expected !pokerhelp:
+
+🃏 Poker Help
+Join: !poker join amount
+Leave: !poker leave
+Check/Call: !call
+Bet: !bet amount
+Fold: !fold
+
+Second message:
+
+📖 More
+Table: !poker table
+Stats: !pokerstats
+Guide: !pokerguide
+
+Expected !casinohelp:
+
+🎰 Casino Help
+Blackjack: !bj amount
+Slots: !slots amount
+Roulette: !roulette amount
+Poker: !poker
+
+Rules:
+- Use real command names from the current system.
+- Do not show aliases that are not routed.
+
+==================================================
+PART 11 — Fishing / Mining Help Polish
+==================================================
+
+Polish fishing/mining menus if present.
+
+Expected !fishhelp:
+
+🎣 Fishing Help
+Fish: !fish
+Stats: !fishstats
+Shop: !fishshop
+Leaderboard: !fishlb
+
+Expected !minehelp:
+
+⛏️ Mining Help
+Mine: !mine
+Stats: !minestats
+Shop: !mineshop
+Leaderboard: !minelb
+
+Rules:
+- Only show commands that exist.
+- If some are not implemented, do not show them.
+
+==================================================
+PART 12 — Admin / Staff Help Polish
+==================================================
+
+Polish admin/staff help.
+
+Expected !adminhelp:
+
+🛡️ Admin Help
+📢 Alerts: !notifyadmin
+🧪 QA: !qatest
+🧾 Commands: !commandissues
+📊 Bot: !botstatus
+
+Second message:
+
+🎖️ Badges: !badgeadminhelp
+🏷️ Titles: !titleadminhelp
+🃏 Poker: !pokeradminhelp
+💰 Economy: !economyadminhelp
+
+Rules:
+- Owner-only/admin commands should not be shown to normal users.
+- Staff-only commands should be labeled.
+- Hide commands that are not implemented.
+
+==================================================
+PART 13 — QA Menu Polish
+==================================================
+
+Polish !qatest output.
+
+Expected !qatest:
+
+🧪 QA Test Menu
+⚡ Quick: !qatest quick
+🧾 Commands: !qatest commands
+🔔 Notify: !qatest notify
+💰 Economy: !qatest economy
+🏷️ Titles: !qatest titles
+
+Second message:
+
+🎖️ Badges: !qatest badges
+🃏 Poker: !qatest poker
+📖 Help: !qatest help
+✅ All: !qatest all
+❌ Failed: !qatest failed
+
+Expected report:
+
+🧪 QA All Report
+✅ Passed: 69
+❌ Failed: 0
+
+If passed all:
+✅ All checks passed.
+
+If failures:
+❌ Top Failures
+1) !command — reason
+2) !command — reason
+More: !qatest failed
+
+==================================================
+PART 14 — Command Issues Display Polish
+==================================================
+
+Polish !commandissues.
+
+Expected no issues:
+
+✅ Command Audit Clean
+No active command issues found.
+
+Expected issues:
+
+⚠️ Command Issues
+No route: 1
+No owner: 0
+No handler: 0
+
+Second message:
+
+Examples:
+!unequipbadge
+
+Details:
+!commandissues missing
+!commandissues nohandler
+!commandissues noowner
+
+Rules:
+- Make counts readable.
+- Do not show huge walls.
+- Use pagination.
+- Keep aliases:
+noowner, no-owner, no_owner
+nohandler, no-handler, no_handler
+
+==================================================
+PART 15 — Settings Menus
+==================================================
+
+Polish all settings pages:
+
+!settings
+!usersettings
+!notifysettings
+!profilesettings if exists
+
+Expected general !settings:
+
+⚙️ Settings
+🔔 Notifications: !notifysettings
+🎖️ Badge: !mybadges
+🏷️ Title: !mytitles
+⚡ Boosts: !myboosts
+
+If no general settings command exists, add a simple one.
+
+Rules:
+- Do not make it too long.
+- Link to working commands.
+
+==================================================
+PART 16 — Consistent Emoji Map
+==================================================
+
+Use consistent emojis:
+
+💰 Coins / money
+🎟️ Luxe Tickets
+💎 VIP
+🎁 Daily
+🛍️ Shop
+🎖️ Badges
+🏷️ Titles
+🔔 Notifications
+🎮 Games
+🎰 Casino
+🃏 Poker
+🎣 Fishing
+⛏️ Mining
+🛡️ Admin
+🧪 QA
+⚙️ Settings
+✅ Success
+⚠️ Warning
+❌ Error
+📖 Guide
+📢 Announcement
+🏆 Leaderboard
+📈 Progress
+💫 Wishlist
+
+Do not overuse emojis. Keep each line readable.
+
+==================================================
+PART 17 — Help/Menu Validation
+==================================================
+
+Every command shown in a help/menu must be valid.
+
+Before final report:
+- scan help strings manually or programmatically
+- compare commands shown in help with command registry
+- remove broken commands from help
+- add missing registry if command truly exists
+
+Add to QA:
+!qatest help should check common menu commands:
+!help
+!shop
+!badgehelp
+!titlehelp
+!notifyhelp
+!adminhelp
+!games
+!settings
+
+If a menu mentions a command that is not registered, QA should warn.
+
+==================================================
+PART 18 — Compile
+==================================================
+
+Run:
+
+python -m py_compile main.py
+python -m py_compile modules/help_cmds.py
+python -m py_compile modules/shop.py
+python -m py_compile modules/notif_v2.py
+python -m py_compile modules/badge_market.py
+python -m py_compile modules/title_system.py
+python -m py_compile modules/qa_test.py
+python -m py_compile modules/cmd_audit.py
+python -m py_compile modules/command_registry.py
+python -m py_compile modules/admin_cmds.py
+
+Adjust filenames if needed.
+
+==================================================
+PART 19 — Live Tests
+==================================================
+
+Run:
+
+!help
+!help 2
+!shop
+!games
+!settings
+!notifyhelp
+!notifysettings
+!badgehelp
+!badges
+!mybadges
+!wishlist
+!titlehelp
+!titleshop
+!mytitles
+!myboosts
+!luxehelp
+!vipstatus
+!adminhelp
+!qatest
+!qatest help
+!qatest all
+!commandissues
+
+Expected:
+- Menus are clean and emoji-polished.
+- No broken commands shown.
+- No giant walls of text.
+- No duplicate messages.
+- All messages fit Highrise limits.
+- !qatest all passes.
+- !commandissues is clean or only shows real hidden/deprecated details.
+
+Final report:
+1. !help polished
+2. !shop polished
+3. !games polished
+4. !settings added/polished
+5. Notification help/settings polished
+6. Badge help/shop/wishlist polished
+7. Title help/shop/progress polished
+8. Boost/perks display polished
+9. Economy/Luxe/VIP help polished
+10. Poker/Casino help polished
+11. Admin help polished
+12. QA menu/report polished
+13. Commandissues display polished
+14. Help commands validated against registry
+15. Py_compile result
+16. QA result
+17. Bot stability result

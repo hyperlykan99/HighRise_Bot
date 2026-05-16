@@ -309,8 +309,11 @@ async def handle_notifyhelp(bot: BaseBot, user: User, args: list[str]) -> None:
              "Settings: !notifysettings\n"
              "Edit: !notify events on/off")
     await _w(bot, user.id,
-             "Categories:\nevents, games, announcements,\npromos, tips\n"
-             "Works in room or DM.\nRandom DMs are ignored.")
+             "📢 Categories\n"
+             "events, games, announcements,\n"
+             "promos, tips\n"
+             "Works in room or DM.\n"
+             "Random DMs are ignored.")
 
 
 # ── /notifications ────────────────────────────────────────────────────────────

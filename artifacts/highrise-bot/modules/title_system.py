@@ -1631,28 +1631,20 @@ async def handle_prestige(bot: BaseBot, user: User, args: list[str]) -> None:
 
 
 async def handle_titlehelp(bot: BaseBot, user: User) -> None:
-    """!titlehelp — four message help with emojis."""
+    """!titlehelp — two message title help."""
     await _w(bot, user.id,
-        "🏷️ Title Commands\n"
-        "🛒 Shop: !titleshop\n"
-        "🌐 All: !alltitles\n"
-        "🎒 Owned: !mytitles\n"
-        "ℹ️ Info: !titleinfo rookie")
+        "🏷️ Title Help\n"
+        "Shop: !titleshop\n"
+        "My titles: !mytitles\n"
+        "Buy: !buytitle title_id\n"
+        "Equip: !equiptitle title_id\n"
+        "Unequip: !unequiptitle")
     await _w(bot, user.id,
-        "💰 Buy: !buytitle rookie\n"
-        "✅ Equip: !equiptitle rookie\n"
-        "❌ Unequip: !unequiptitle\n"
-        "📈 Progress: !titleprogress")
-    await _w(bot, user.id,
-        "⚡ Boosts: !myboosts\n"
-        "📊 Stats: !mystats\n"
-        "🏆 Claim: !claimtitles\n"
-        "🌟 Prestige: !prestige")
-    await _w(bot, user.id,
-        "🔍 Search: !titlesearch lucky\n"
-        "🎒 Loadouts: !loadouts\n"
-        "⭐ Best: !besttitle casino\n"
-        "🏅 LB: !titlelb")
+        "📈 Progress\n"
+        "Claim: !claimtitles\n"
+        "Progress: !titleprogress\n"
+        "Perks: !myboosts\n"
+        "Info: !titleinfo title_id")
 
 
 async def handle_loadout(bot: BaseBot, user: User, args: list[str]) -> None:

@@ -241,6 +241,7 @@ from modules.notif_v2 import (
     handle_notifyadmin_help,
     handle_notifyaudit_admin,
 )
+import modules.notify_system as _ns
 from modules.qa_test import handle_qatest
 from modules.maintenance         import (
     handle_botstatus, handle_dbstats,
@@ -1521,18 +1522,20 @@ ADMIN_ONLY_CMDS    = ADMIN_ONLY_CMDS | TIP_AUDIT_COMMANDS
 # ---------------------------------------------------------------------------
 
 HELP_TEXT = (
-    "📘 ChillTopia Help\n"
-    "New: !start, !guide\n"
-    "Progress: !today, !missions\n"
-    "Earn: !mine, !fish\n"
-    "Play: !bjhelp, !help games"
+    "👋 ChillTopia Help\n"
+    "💰 Balance: !bal\n"
+    "🎁 Daily: !daily\n"
+    "🛍️ Shop: !shop\n"
+    "🎮 Games: !games\n"
+    "🏦 Bank: !bank"
 )
 
 HELP_TEXT_2 = (
-    "Shops: !shop, !luxeshop\n"
-    "Profile: !profile, !flex\n"
-    "Events: !events, !season\n"
-    "Use !commands for all."
+    "🎖️ Badges: !badgehelp\n"
+    "🏷️ Titles: !titlehelp\n"
+    "🔔 Alerts: !notifyhelp\n"
+    "📖 Guide: !guide\n"
+    "🆘 More: !help 2"
 )
 
 _HELP_CATEGORIES: dict[str, str] = {
@@ -1705,11 +1708,11 @@ _HELP_CATEGORIES: dict[str, str] = {
     ),
     "notifications": (
         "🔔 Notifications\n"
-        "!subscribe — receive alerts\n"
-        "!notif — check settings\n"
-        "!notifon events — event alerts ON\n"
-        "!notifoff events — event alerts OFF\n"
-        "!substatus  !unsubscribe"
+        "!sub — subscribe\n"
+        "!unsub — stop alerts\n"
+        "!notifysettings — view settings\n"
+        "!notify events on/off\n"
+        "Works in room or DM."
     ),
     "teleports": (
         "🌀 Teleports\n"
@@ -1742,6 +1745,21 @@ _HELP_CATEGORIES: dict[str, str] = {
         "!bjhelp — full BJ help\n"
         "!poker join  !call  !fold\n"
         "!pokerhelp — full poker help"
+    ),
+    "2": (
+        "🆘 More Help\n"
+        "🎰 Casino: !casinohelp\n"
+        "🃏 Poker: !pokerhelp\n"
+        "🎣 Fishing: !fishhelp\n"
+        "⛏️ Mining: !minehelp\n"
+        "🧪 QA: !qatest (owner only)"
+    ),
+    "settings": (
+        "⚙️ Settings\n"
+        "🔔 Notifications: !notifysettings\n"
+        "🎖️ Badge: !mybadges\n"
+        "🏷️ Title: !mytitles\n"
+        "⚡ Boosts: !myboosts"
     ),
 }
 
@@ -1922,30 +1940,19 @@ BANK_HELP = BANK_HELP_PAGES[0]
 
 SHOP_HELP_PAGES = [
     (
-        "🛒 Shop\n"
-        "!shop badges — emoji badge shop\n"
-        "!shop titles — title shop\n"
-        "!buy [#] — buy shown item by number\n"
-        "!shop next — next page\n"
-        "!shop prev — previous page\n"
-        "!buy badge [id] — buy by ID"
+        "🛍️ ChillTopia Shop\n"
+        "🏷️ Titles: !titleshop\n"
+        "🎖️ Badges: !badgeshop\n"
+        "🎟️ Luxe: !luxehelp\n"
+        "💎 VIP: !vip\n"
+        "💰 Coins: !buycoins"
     ),
     (
-        "🛒 Shop 2\n"
-        "!mybadges — your emoji badges\n"
-        "!myitems — all owned items\n"
-        "!equip badge [id] — wear a badge\n"
-        "!equip title [id] — wear a title\n"
-        "!vipstatus — check VIP"
-    ),
-    (
-        "🏷️ Badge Market\n"
-        "!badgemarket — player listings\n"
-        "!badgebuy [#] — buy by number\n"
-        "!badgelist [id] [price] — sell your badge\n"
-        "!badgecancel [id] — cancel listing\n"
-        "!mybadgelistings — your listings\n"
-        "!badgeprices [id] — recent prices"
+        "🛒 Quick Buy\n"
+        "🏷️ !buytitle title_id\n"
+        "🎖️ !buybadge badge_id\n"
+        "🎟️ !buycoins pack\n"
+        "📦 Packs: !packs"
     ),
 ]
 SHOP_HELP = SHOP_HELP_PAGES[0]
@@ -2689,14 +2696,20 @@ async def _handle_bankerhelp(bot, user, _args):
 
 async def _handle_howtoplay(bot, user, _args=None):
     """How-to-play / game guide — whispered to caller."""
-    lines = [
-        "🎮 Games: Blackjack → !bjoin [bet]  Poker → !poker join",
-        "🃏 Blackjack: !bh hit  !bs stand  !bd double  !bsp split  !bjhelp",
-        "♠️ Poker: !call  !raise [amount]  !fold  !check  !pokerhelp",
-        "💰 Economy: !daily  !balance  !shop  !mine  !fish  !help",
-    ]
-    for line in lines:
-        await bot.highrise.send_whisper(user.id, line[:249])
+    await bot.highrise.send_whisper(user.id, (
+        "🎮 Games\n"
+        "🧠 Trivia: !trivia\n"
+        "🔤 Scramble: !scramble\n"
+        "❓ Riddle: !riddle\n"
+        "🎰 Casino: !casinohelp\n"
+        "🃏 Poker: !poker join"
+    )[:249])
+    await bot.highrise.send_whisper(user.id, (
+        "🎣 Fishing: !fish\n"
+        "⛏️ Mining: !mine\n"
+        "🏆 Leaderboards: !leaderboard\n"
+        "📖 Game help: !gamehelp"
+    )[:249])
 
 
 async def _handle_economydbcheck(bot, user):
@@ -4138,7 +4151,7 @@ class HangoutBot(BaseBot):
             "level", "balance", "bal", "b", "coins", "coin", "money", "myitems", "inventory", "inv",
             "myreports", "report", "bug",
             "botstatus", "maintenance",
-            "rules", "warnings", "vipstatus",
+            "rules", "warnings", "vipstatus", "settings", "usersettings",
             # Room utility exempt
             "roomhelp", "teleporthelp", "emotehelp", "alerthelp", "welcomehelp",
             "socialhelp", "botmodehelp", "spawns",
@@ -4308,6 +4321,15 @@ class HangoutBot(BaseBot):
 
         elif cmd in ("myboosts", "perks", "titleperks"):
             await handle_myboosts(self, user, args)
+
+        elif cmd in ("settings", "usersettings"):
+            await self.highrise.send_whisper(user.id, (
+                "⚙️ Settings\n"
+                "🔔 Notifications: !notifysettings\n"
+                "🎖️ Badge: !mybadges\n"
+                "🏷️ Title: !mytitles\n"
+                "⚡ Boosts: !myboosts"
+            )[:249])
 
         elif cmd == "boostaudit":
             await handle_boostaudit(self, user, args)
@@ -5078,43 +5100,49 @@ class HangoutBot(BaseBot):
             await handle_clearnotifications(self, user, args)
 
         elif cmd in {"notifysettings", "alerts"}:
-            await handle_notifysettings_v2(self, user)
+            await _ns.handle_notifysettings(self, user)
 
         elif cmd == "notify":
-            await handle_notify_v2(self, user, args)
+            await _ns.handle_notify_category(self, user, args)
 
-        elif cmd == "notifyhelp":
-            await handle_notifyhelp(self, user, args)
-
-        elif cmd == "notifyhelp2":
-            await handle_notifyhelp_player(self, user)
+        elif cmd in {"notifyhelp", "notifyhelp2"}:
+            await _ns.handle_notifyhelp(self, user, args)
 
         elif cmd == "announcement":
-            await handle_announcement(self, user, args)
+            await _ns.handle_announcement(self, user, args)
 
         elif cmd == "promo":
-            await handle_promo(self, user, args)
+            await _ns.handle_promo(self, user, args)
 
         elif cmd == "eventalert":
-            await handle_eventalert(self, user, args)
+            await _ns.handle_eventalert(self, user, args)
 
         elif cmd == "gamealert":
-            await handle_gamealert(self, user, args)
+            await _ns.handle_gamealert(self, user, args)
 
         elif cmd == "tipalert":
-            await handle_tipalert(self, user, args)
+            await _ns.handle_tipalert(self, user, args)
 
         elif cmd == "subcount":
-            await handle_subcount(self, user)
+            await _ns.handle_subcount(self, user)
 
         elif cmd == "unsubuser":
-            await handle_unsubuser(self, user, args)
+            await _ns.handle_unsubuser(self, user, args)
 
         elif cmd == "notifyadmin":
-            await handle_notifyadmin_help(self, user)
+            await _ns.handle_notifyhelp(self, user, args)
 
         elif cmd in {"notifyaudit", "notifystatus"}:
-            await handle_notifyaudit_admin(self, user, args)
+            await _ns.handle_notifyaudit(self, user, args)
+
+        elif cmd == "notifyreset":
+            await _ns.handle_notifyreset(self, user, args)
+
+        elif cmd == "notifyresetall":
+            await _ns.handle_notifyresetall(self, user)
+
+        elif cmd == "confirmnotifyresetall":
+            await _ns.handle_confirmnotifyresetall(self, user)
 
         elif cmd == "qatest":
             await handle_qatest(self, user, args)
@@ -5126,10 +5154,10 @@ class HangoutBot(BaseBot):
             await handle_pendingnotifications(self, user, args)
 
         elif cmd in {"subscribe", "sub"}:
-            await handle_subscribe(self, user, args)
+            await _ns.handle_room_sub(self, user)
 
         elif cmd in {"unsubscribe", "unsub"}:
-            await handle_unsubscribe(self, user, args)
+            await _ns.handle_room_unsub(self, user)
 
         elif cmd == "substatus":
             if args and len(args) >= 2:
@@ -5138,7 +5166,7 @@ class HangoutBot(BaseBot):
                 await handle_substatus(self, user, args)
 
         elif cmd == "subscribers":
-            await handle_subscribers(self, user, args)
+            await _ns.handle_subscribers(self, user, args)
 
         elif cmd == "forcesub":
             await handle_forcesub(self, user, args)

@@ -1,0 +1,741 @@
+HIGHRISE SDK-ALIGNED NOTIFICATION REBUILD — DM Consent + Room Settings Only
+
+Current issue:
+The notify/subscribe system has too many bugs and old conflicting modules.
+
+New final design based on Highrise SDK behavior:
+- Highrise bots can only DM users through an existing conversation_id.
+- A conversation_id exists only after the user messages the bot.
+- Therefore, the first/main subscription flow must start in DM.
+- Room chat can manage settings only after the user has an existing notification record.
+- Random DMs must be ignored.
+- Old notify/subscribe modules must stop fighting each other.
+
+Official behavior:
+DM = consent ON/OFF only.
+Room = notification settings management.
+Broadcasts = send only to subscribed users with category ON.
+
+Do NOT wipe unrelated systems:
+- player balances
+- Luxe Tickets
+- badges
+- titles
+- poker
+- blackjack
+- jail
+- mining/fishing stats
+- casino stats
+- bank history
+- user accounts
+
+Only reset/replace notification data and notification modules.
+
+==================================================
+PART 1 — Highrise SDK Rules To Follow
+==================================================
+
+Highrise SDK DM behavior:
+- Bot receives DMs through on_message(user_id, conversation_id, is_new_conversation).
+- Bot sends DM/inbox messages using send_message(conversation_id, message, type, room_id).
+- send_message only works with an existing conversation_id.
+- Therefore, the user must DM the bot first before the bot can reliably send future inbox alerts.
+
+Required design:
+- First-time subscribe must happen by DM.
+- Room !sub cannot fully subscribe a new user unless conversation_id already exists.
+- Save conversation_id when user DMs !sub or !subscribe.
+- Use conversation_id for future alert delivery.
+- If conversation_id is missing, do not pretend inbox delivery is available.
+
+==================================================
+PART 2 — New Official Notification Module
+==================================================
+
+Create one official module:
+
+modules/notify_system.py
+
+This module owns all notification logic.
+
+Old modules:
+- modules/subscribers.py
+- modules/notifications.py
+- modules/sub_notif.py
+- modules/notif_v2.py
+
+must either:
+- delegate to notify_system.py
+OR
+- be removed from routing
+OR
+- become safe compatibility wrappers only.
+
+Old modules must NOT:
+- manage subscription state
+- reply to !sub / !unsub separately
+- auto-subscribe users
+- respond to random DMs
+- handle !notifysettings independently
+- create duplicate replies
+
+==================================================
+PART 3 — Clear Notification Data Only
+==================================================
+
+Reset notification/subscription data only.
+
+Clear these tables if present:
+- notification_subscriptions
+- notification_users
+- notification_action_log
+- notification_logs
+- notification_pending
+- subscriber_users
+- notify_prefs
+- pending_notifications
+- pending_subscriber_messages
+- subscriber_messages
+- sub_notif tables
+
+Do NOT clear unrelated data.
+
+Add logs:
+
+[NOTIFY RESET] starting notification-only reset
+[NOTIFY RESET] cleared table=notification_users
+[NOTIFY RESET] cleared table=subscriber_users
+[NOTIFY RESET] complete
+
+After reset:
+No user should be subscribed until they DM !sub or !subscribe.
+
+==================================================
+PART 4 — New Canonical Table
+==================================================
+
+Create one clean table:
+
+notification_users
+
+Fields:
+user_id TEXT PRIMARY KEY
+username TEXT
+subscribed INTEGER DEFAULT 0
+source TEXT
+events INTEGER DEFAULT 1
+games INTEGER DEFAULT 1
+announcements INTEGER DEFAULT 1
+promos INTEGER DEFAULT 1
+tips INTEGER DEFAULT 0
+conversation_id TEXT
+dm_available INTEGER DEFAULT 0
+manual_unsubscribed INTEGER DEFAULT 0
+created_at TEXT
+updated_at TEXT
+
+Create optional table:
+
+notification_logs
+
+Fields:
+id INTEGER PRIMARY KEY AUTOINCREMENT
+user_id TEXT
+username TEXT
+action TEXT
+category TEXT
+source TEXT
+details TEXT
+created_at TEXT
+
+==================================================
+PART 5 — DM Behavior
+==================================================
+
+DM is for subscription consent only.
+
+Valid DM subscribe commands:
+!sub
+!subscribe
+sub
+subscribe
+
+When user DMs !sub or !subscribe:
+- save user_id
+- save username if available
+- save conversation_id
+- set dm_available=1
+- set subscribed=1
+- set source=manual_dm
+- set manual_unsubscribed=0
+- keep default categories:
+  events ON
+  games ON
+  announcements ON
+  promos ON
+  tips OFF
+
+Reply exactly:
+
+Alerts: ON
+To unsubscribe, reply !unsub or !unsubscribe.
+
+Valid DM unsubscribe commands:
+!unsub
+!unsubscribe
+unsub
+unsubscribe
+
+When user DMs !unsub or !unsubscribe:
+- set subscribed=0
+- set manual_unsubscribed=1
+- keep conversation_id saved
+- keep category settings saved
+- user receives no future broadcast DMs until resubscribe
+
+Reply exactly:
+
+Alerts: OFF
+
+Random DMs must be ignored completely:
+.
+hello
+ok
+test
+?
+thanks
+!notifysettings
+!notify tips on
+anything else
+
+No reply.
+No help message.
+No unknown command.
+No settings message.
+No fallback status message.
+
+==================================================
+PART 6 — Room !sub Behavior
+==================================================
+
+Room !sub / !subscribe should only work if the bot already has conversation_id or prior notification record.
+
+Case A — no conversation_id and no notification record:
+Room:
+!sub
+
+Whisper:
+📩 DM me !sub or !subscribe first to enable alerts.
+
+Do NOT subscribe.
+Do NOT create active subscription.
+
+Case B — conversation_id exists or user had notification record before:
+Room:
+!sub
+
+Set subscribed=1.
+Source:
+manual_room_resubscribe
+
+Whisper:
+Alerts: ON
+To unsubscribe, DM me !unsub or !unsubscribe.
+
+Reason:
+Room can re-enable alerts only after DM consent exists.
+
+==================================================
+PART 7 — Room !unsub Behavior
+==================================================
+
+Room:
+!unsub
+!unsubscribe
+
+If notification record exists:
+- set subscribed=0
+- set manual_unsubscribed=1
+
+Whisper:
+Alerts: OFF
+
+If no record:
+Whisper:
+You are not subscribed.
+
+Important:
+After unsubscribe, do not send broadcasts to this user.
+
+==================================================
+PART 8 — Settings Are Room-Only
+==================================================
+
+Users can only view/edit notification category settings inside room chat.
+
+Room commands:
+!notifysettings
+!alerts
+!notify events on/off
+!notify games on/off
+!notify announcements on/off
+!notify promos on/off
+!notify tips on/off
+
+DM versions of these commands should be ignored.
+
+Room !notifysettings:
+
+If no record or subscribed=0:
+
+🔔 Notifications
+Status: OFF
+DM me !sub to subscribe.
+
+If subscribed=1:
+
+🔔 Notification Settings
+Status: ON
+🎉 Events: ON
+🎮 Games: ON
+📢 Announcements: ON
+🏷️ Promos: ON
+💸 Tips: OFF
+
+Second whisper:
+Edit:
+!notify events on/off
+!notify games on/off
+!notify promos on/off
+!notify tips on/off
+
+Important:
+!notifysettings must never subscribe the user.
+
+==================================================
+PART 9 — Room Category Editing
+==================================================
+
+Room:
+!notify category on/off
+
+Valid categories:
+events
+games
+announcements
+promos
+tips
+
+If no record or subscribed=0:
+Whisper:
+⚠️ Alerts are OFF.
+DM me !sub first.
+
+If subscribed=1:
+Update category.
+
+Reply:
+✅ Tips alerts ON.
+Settings: !notifysettings
+
+or:
+✅ Promos alerts OFF.
+Settings: !notifysettings
+
+Invalid category:
+⚠️ Unknown category.
+Use: events, games, announcements, promos, tips.
+
+Invalid value:
+⚠️ Use ON or OFF.
+Example: !notify events on
+
+Category edits must not subscribe user.
+
+==================================================
+PART 10 — Broadcast Commands
+==================================================
+
+Admin/staff commands:
+!announcement message
+!promo message
+!eventalert message
+!gamealert message
+!tipalert message
+
+Categories:
+!announcement -> announcements
+!promo -> promos
+!eventalert -> events
+!gamealert -> games
+!tipalert -> tips
+
+Delivery rules:
+- subscribed must be 1
+- matching category must be ON
+- conversation_id must exist for DM delivery
+- if conversation_id missing, skip and log
+- do not auto-create conversation
+- do not auto-subscribe
+- do not send to unsubscribed users
+
+Admin reply:
+📤 Broadcast complete
+Delivered: X
+Skipped: X
+Failed: X
+
+Logs:
+[NOTIFY BROADCAST] category=promos delivered=X skipped=Y failed=Z
+[NOTIFY SKIP] user=@name reason=unsubscribed
+[NOTIFY SKIP] user=@name reason=no_conversation_id
+[NOTIFY SKIP] user=@name reason=category_off
+
+==================================================
+PART 11 — No Auto Subscribe
+==================================================
+
+Only these can subscribe:
+DM !sub
+DM !subscribe
+DM sub
+DM subscribe
+Room !sub only if conversation_id/prior record exists
+
+Do NOT subscribe from:
+- random DM
+- room !notifysettings
+- room !notify category on/off
+- DM !notifysettings
+- DM !notify category on/off
+- bank transfer
+- receiving ChillCoins
+- sending ChillCoins
+- tips/gold
+- daily
+- games
+- events
+- VIP
+- badges
+- titles
+- room entry
+
+If anything tries:
+[NOTIFY BLOCKED] source=SOURCE user=@name reason=auto_subscribe_disabled
+
+==================================================
+PART 12 — Transactional Messages Separate
+==================================================
+
+Bank/tip/reward receipts are separate from notification subscriptions.
+
+They may send receipts through their own logic, but must not:
+- subscribe user
+- change notification settings
+- create active notification record
+- say Alerts ON
+- say Use notifysettings
+
+Example:
+💰 You received 500 ChillCoins from @Player.
+Balance: 1,250
+
+No notification footer.
+
+==================================================
+PART 13 — Admin / Audit Commands
+==================================================
+
+Commands:
+!notifyaudit @user
+!notifystatus @user
+!subcount
+!subscribers
+!unsubuser @user
+!notifyreset @user
+!notifyresetall
+!confirmnotifyresetall
+
+!notifyaudit output:
+
+🔔 Notify Audit: @User
+Subscribed: YES/NO
+Source: manual_dm/manual_room_resubscribe/admin
+DM connected: YES/NO
+
+Second message:
+Events: ON/OFF
+Games: ON/OFF
+Announcements: ON/OFF
+Promos: ON/OFF
+Tips: ON/OFF
+Manual unsubscribed: YES/NO
+
+!subcount:
+
+🔔 Subscribers
+Total ON: X
+Events: X
+Games: X
+Announcements: X
+Promos: X
+Tips: X
+
+!notifyreset @user:
+Deletes only that user’s notification record.
+
+!notifyresetall:
+Owner only.
+First call asks confirmation.
+
+Reply:
+⚠️ This clears notification data only.
+Type !confirmnotifyresetall to confirm.
+
+!confirmnotifyresetall:
+Clears notification tables only.
+
+Reply:
+♻️ All notification subscription data cleared.
+
+==================================================
+PART 14 — Command Routing
+==================================================
+
+All notification commands route to notify_system.py only.
+
+Commands:
+!sub
+!subscribe
+!unsub
+!unsubscribe
+!alerts
+!notifysettings
+!notify
+!notifyhelp
+!announcement
+!promo
+!eventalert
+!gamealert
+!tipalert
+!notifyaudit
+!notifystatus
+!subcount
+!subscribers
+!unsubuser
+!notifyreset
+!notifyresetall
+!confirmnotifyresetall
+
+Owner:
+ChillTopiaMC / host bot
+
+No BankingBot notification replies.
+No old subscriber replies.
+No duplicate replies.
+
+==================================================
+PART 15 — SDK-Safe DM Sending
+==================================================
+
+Implement helper:
+
+async def send_notify_dm(bot, user_id, message):
+    row = get_notification_user(user_id)
+    if not row or not row["conversation_id"]:
+        return "no_conversation_id"
+    if not row["subscribed"]:
+        return "unsubscribed"
+    try:
+        await bot.highrise.send_message(row["conversation_id"], message[:249], "text")
+        return "sent"
+    except Exception as exc:
+        log failure
+        return "failed"
+
+Do not use send_whisper for inbox delivery.
+Use send_whisper only for room command replies.
+
+==================================================
+PART 16 — DM Handler
+==================================================
+
+Use on_message DM handler.
+
+When bot receives DM:
+- identify user_id
+- save conversation_id only if valid subscription command OR if existing user is already known
+- if message is !sub/!subscribe/sub/subscribe:
+  subscribe and reply Alerts ON
+- if message is !unsub/!unsubscribe/unsub/unsubscribe:
+  unsubscribe and reply Alerts OFF
+- else:
+  ignore silently
+
+Host bot only should process DM notification commands.
+
+==================================================
+PART 17 — Help Text
+==================================================
+
+!notifyhelp in room:
+
+🔔 Notification Help
+Start: DM me !sub
+Stop: DM me !unsub
+Settings: !notifysettings
+Edit: !notify events on/off
+
+Second whisper:
+📢 Categories
+events, games, announcements,
+promos, tips
+
+Note:
+DM is only for subscribe/unsubscribe.
+Settings are edited in room.
+
+==================================================
+PART 18 — QA Coverage
+==================================================
+
+Update !qatest notify.
+
+Required tests:
+1. DM !sub maps subscribe
+2. DM !unsub maps unsubscribe
+3. random DM "." ignored
+4. DM !notifysettings ignored
+5. Room !sub fails if no conversation_id
+6. Room !sub works if conversation_id exists
+7. Room !notifysettings is view-only
+8. Room !notify category does not subscribe
+9. Broadcast skips unsubscribed users
+10. Broadcast skips no conversation_id
+11. Broadcast respects category OFF
+12. No old module owns notification commands
+
+Expected:
+!qatest notify
+Failed: 0
+
+==================================================
+PART 19 — Clean Test Sequence
+==================================================
+
+After update:
+
+1. Owner:
+!notifyresetall
+!confirmnotifyresetall
+
+2. Room:
+!notifysettings
+
+Expected:
+🔔 Notifications
+Status: OFF
+DM me !sub to subscribe.
+
+3. Room:
+!sub
+
+Expected:
+📩 DM me !sub or !subscribe first to enable alerts.
+
+4. DM bot:
+hello
+
+Expected:
+No reply.
+
+5. DM bot:
+!notifysettings
+
+Expected:
+No reply.
+
+6. DM bot:
+!sub
+
+Expected:
+Alerts: ON
+To unsubscribe, reply !unsub or !unsubscribe.
+
+7. Room:
+!notifysettings
+
+Expected:
+Status ON, categories shown.
+
+8. Room:
+!notify tips on
+
+Expected:
+✅ Tips alerts ON.
+
+9. Owner:
+!notifyaudit @yourname
+
+Expected:
+Subscribed YES
+Source manual_dm
+DM connected YES
+Tips ON
+
+10. DM bot:
+!unsub
+
+Expected:
+Alerts: OFF
+
+11. Owner:
+!announcement test after unsub
+
+Expected:
+User does not receive DM.
+
+12. QA:
+!qatest notify
+!commandissues
+
+Expected:
+Failed 0.
+No notification issues.
+
+==================================================
+PART 20 — Compile
+==================================================
+
+Run:
+
+python -m py_compile main.py
+python -m py_compile database.py
+python -m py_compile modules/notify_system.py
+python -m py_compile modules/subscribers.py
+python -m py_compile modules/notifications.py
+python -m py_compile modules/sub_notif.py
+python -m py_compile modules/command_registry.py
+python -m py_compile modules/cmd_audit.py
+python -m py_compile modules/multi_bot.py
+python -m py_compile modules/qa_test.py
+python -m py_compile modules/help_cmds.py
+
+Skip files that do not exist.
+
+Final report:
+1. Old notify/subscribe modules disabled or delegated
+2. Notification data cleared safely
+3. New notify_system.py implemented
+4. DM first subscription flow implemented
+5. Room !sub blocked until conversation_id exists
+6. DM random messages ignored
+7. Settings are room-only
+8. Broadcast delivery uses conversation_id
+9. No auto-subscribe from other systems
+10. Transactional messages separated
+11. Admin reset/audit tools added
+12. QA notify updated
+13. Commandissues clean
+14. Py_compile result
+15. Bot stability result
