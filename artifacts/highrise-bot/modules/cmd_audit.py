@@ -239,7 +239,7 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     "qatest",
     # badge market commands routed in main.py
     "profilebadge", "rarebadges", "showbadge", "wishlist", "wishbadge",
-    "removewishlist", "unwishlist", "unlockbadge", "setbadgeconfirm",
+    "removewishlist", "unwishlist", "unlockbadge", "unequipbadge", "setbadgeconfirm",
     "bankhelp", "bankerhelp", "casinohelp", "gamehelp",
     "coinhelp", "economydbcheck", "economyrepair", "profilehelp",
     "crashlogs", "missingbots", "commandaudit",
