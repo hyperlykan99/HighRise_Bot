@@ -80,6 +80,7 @@ from modules.luxe import (
     handle_autoconvert, handle_economydefaults,
     handle_buypack, handle_setcoinpack, handle_coinpackadmin,
     handle_luxehelp,
+    handle_confirmbuycoins, handle_cancelbuycoins,
 )
 from modules.shop         import (
     handle_shop, handle_buy, handle_equip, handle_myitems,
@@ -122,7 +123,7 @@ from modules.title_system import (
     handle_titles_menu, handle_titleshop, handle_alltitles, handle_mytitles,
     handle_titleinfo_v2, handle_buytitle, handle_equiptitle, handle_unequiptitle,
     handle_titlesearch, handle_titleprogress, handle_claimtitles,
-    handle_myboosts, handle_mystats, handle_prestige, handle_titlehelp,
+    handle_myboosts, handle_boostaudit, handle_mystats, handle_prestige, handle_titlehelp,
     handle_loadout, handle_loadouts, handle_besttitle, handle_equipbest,
     handle_titlelb, handle_temporarytitles,
     handle_givetitle_v2, handle_removetitle_v2, handle_settitle_v2,
@@ -1362,6 +1363,8 @@ LUXE_COMMANDS: frozenset[str] = frozenset({
     "ticketlog",
     "ticketrate",
     "luxehelp",
+    "confirmbuycoins", "cancelbuycoins",
+    "boostaudit",
     "use",
     # Luxe auto time
     "autotime", "minetime", "fishtime",
@@ -4303,6 +4306,9 @@ class HangoutBot(BaseBot):
         elif cmd in ("myboosts", "perks", "titleperks"):
             await handle_myboosts(self, user, args)
 
+        elif cmd == "boostaudit":
+            await handle_boostaudit(self, user, args)
+
         elif cmd == "mystats":
             await handle_mystats(self, user, args)
 
@@ -5337,6 +5343,12 @@ class HangoutBot(BaseBot):
 
         elif cmd in {"luxehelp"}:
             await handle_luxehelp(self, user)
+
+        elif cmd == "confirmbuycoins":
+            await handle_confirmbuycoins(self, user)
+
+        elif cmd == "cancelbuycoins":
+            await handle_cancelbuycoins(self, user)
 
         elif cmd == "ticketlog":
             await handle_ticketlog_self(self, user)

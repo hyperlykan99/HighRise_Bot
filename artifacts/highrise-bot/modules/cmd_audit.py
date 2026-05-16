@@ -683,6 +683,13 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     "buypack", "packs", "buychillcoins", "coinpack", "coinpackadmin",
     # ── Event points shorthand ──────────────────────────────────────────────────
     "ep",
+    "epicbadges", "legendarybadges", "mythicbadges",
+    "flexbadge", "giftbadge", "lockbadge", "lockedbadges", "mywishlist",
+    "eventalert", "gamealert", "notifyadmin", "notifyhelp2",
+    "luxehelp",
+    "handlog", "lasthand", "pokeraudit", "pokereconomy", "pokerguide",
+    "confirmbuycoins", "cancelbuycoins",
+    "boostaudit",
 })
 
 # ---------------------------------------------------------------------------

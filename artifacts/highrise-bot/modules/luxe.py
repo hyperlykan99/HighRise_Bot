@@ -631,19 +631,25 @@ async def handle_buyticket(bot: "BaseBot", user: "User", args: list[str]) -> Non
 # !buycoins (legacy) — keep working
 # ---------------------------------------------------------------------------
 
+# In-memory pending buycoins confirmations {user_id: {total_cost, total_coins, pack_summary, expires, source}}
+_pending_buycoins: dict[str, dict] = {}
+
+
 async def _do_buycoins_max(
     bot: "BaseBot",
     user: "User",
     _silent: bool = False,
     _whisper_prefix: str = "",
 ) -> None:
-    """Buy the best combination of coin packs using all available Luxe Tickets."""
+    """Buy the best combination of coin packs using all available Luxe Tickets.
+    Always goes through a confirmation step."""
+    import time as _time
     db.ensure_user(user.id, user.username)
     bal = get_luxe_balance(user.id)
     if bal <= 0:
         if not _silent:
             await _w(bot, user.id,
-                     "⚠️ No 🎫 to spend.\n"
+                     "⚠️ No 🎟️ to spend.\n"
                      "Tip the bot to earn Luxe Tickets!")
         return
 
@@ -664,35 +670,116 @@ async def _do_buycoins_max(
             remaining -= cost
             total_cost  += cost
             total_coins += earned
-            parts.append(f"{qty}x{lbl} ({cost:,}🎫={earned:,}🪙)")
+            parts.append(f"{qty}x{lbl}")
 
     if total_cost == 0:
         min_t = min((t for t in [cs_t, cm_t, cl_t] if t > 0), default=50)
         if not _silent:
             await _w(bot, user.id,
-                     f"⚠️ Not enough 🎫. You have {_fc(bal)} 🎫.\n"
-                     f"Minimum: {min_t:,} 🎫 for a pack.")
+                     f"⚠️ Not enough 🎟️. You have {_fc(bal)} 🎟️.\n"
+                     f"Minimum: {min_t:,} 🎟️ for a pack.")
+        return
+
+    pack_summary = ", ".join(parts)
+    _pending_buycoins[user.id] = {
+        "total_cost":   total_cost,
+        "total_coins":  total_coins,
+        "pack_summary": pack_summary,
+        "expires":      _time.time() + 120,
+        "source":       "max",
+    }
+    await _w(bot, user.id,
+             (f"🛒 Buycoins Preview\n"
+              f"Spend: {total_cost:,} 🎟️\n"
+              f"Receive: {total_coins:,} 🪙\n"
+              f"Packs: {pack_summary}\n"
+              f"!confirmbuycoins or !cancelbuycoins")[:249])
+
+
+# ---------------------------------------------------------------------------
+# !confirmbuycoins / !cancelbuycoins
+# ---------------------------------------------------------------------------
+
+async def handle_confirmbuycoins(bot: "BaseBot", user: "User") -> None:
+    """!confirmbuycoins — execute a pending buycoins max or large-pack purchase."""
+    import time as _time
+    db.ensure_user(user.id, user.username)
+    pending = _pending_buycoins.get(user.id)
+    if not pending:
+        await _w(bot, user.id,
+                 "⚠️ No pending purchase.\n"
+                 "Use !buycoins max or !buycoins 1/2/3 first.")
+        return
+    if _time.time() > pending["expires"]:
+        _pending_buycoins.pop(user.id, None)
+        await _w(bot, user.id, "⏱️ Confirmation timed out (2 min). Please retry.")
+        return
+
+    total_cost   = pending["total_cost"]
+    total_coins  = pending["total_coins"]
+    pack_summary = pending["pack_summary"]
+    pack_id      = pending.get("pack_id")
+
+    bal = get_luxe_balance(user.id)
+    if bal < total_cost:
+        _pending_buycoins.pop(user.id, None)
+        await _w(bot, user.id,
+                 f"⚠️ Balance changed. Need {total_cost:,} 🎟️, have {bal:,}.")
         return
 
     if not deduct_luxe_balance(user.id, user.username, total_cost):
+        _pending_buycoins.pop(user.id, None)
         await _w(bot, user.id, "⚠️ Transaction failed. Try again.")
         return
 
+    _pending_buycoins.pop(user.id, None)
     db.add_balance(user.id, total_coins)
-    log_luxe_transaction(user.id, user.username, "buycoins_max",
-                         total_cost, "luxe", f"+{total_coins} coins")
-    # Build clean pack summary: "large x2, small x1"
-    # parts entries are like "3xLarge (...)"
-    pack_summary = ", ".join(
-        f"{p.split('x')[1].split(' ')[0].lower()} x{p.split('x')[0]}"
-        for p in parts
-    )
-    prefix = _whisper_prefix
+
+    item_key = f"coin_pack_{pack_id}" if pack_id is not None else "buycoins_max"
+    reason   = (f"pack{pack_id}:{total_coins}coins" if pack_id is not None
+                else f"+{total_coins} coins")
+    log_luxe_transaction(user.id, user.username, item_key, total_cost, "luxe", reason)
+    try:
+        lux_after   = get_luxe_balance(user.id)
+        coins_after = db.get_balance(user.id)
+        db.log_luxe_conversion(
+            user_id=user.id,
+            username=user.username.lower(),
+            item_key=item_key,
+            tickets_spent=total_cost,
+            coins_awarded=total_coins,
+            luxe_balance_before=lux_after + total_cost,
+            luxe_balance_after=lux_after,
+            coins_balance_before=coins_after - total_coins,
+            coins_balance_after=coins_after,
+            status="success",
+        )
+    except Exception as _ce:
+        print(f"[COINPACK] log error: {_ce!r}")
+    try:
+        lux_after = get_luxe_balance(user.id)
+        db.insert_luxe_ticket_log(
+            "coinpack_confirm", user.id, user.username,
+            amount=total_cost, balance_after=lux_after,
+            reason=reason,
+        )
+    except Exception:
+        pass
+    print(f"[BUYCOINS] confirmed user={user.username} spent={total_cost} coins={total_coins}")
     await _w(bot, user.id,
-             (f"{prefix}✅ Converted\n"
-              f"Spent: {total_cost:,} 🎫\n"
+             (f"✅ Confirmed!\n"
+              f"Spent: {total_cost:,} 🎟️\n"
               f"Received: {total_coins:,} 🪙\n"
               f"Packs: {pack_summary}")[:249])
+
+
+async def handle_cancelbuycoins(bot: "BaseBot", user: "User") -> None:
+    """!cancelbuycoins — cancel a pending buycoins purchase."""
+    if user.id in _pending_buycoins:
+        _pending_buycoins.pop(user.id)
+        await _w(bot, user.id, "❌ Purchase cancelled.")
+    else:
+        await _w(bot, user.id, "⚠️ No pending purchase to cancel.")
 
 
 # ---------------------------------------------------------------------------
@@ -1296,9 +1383,26 @@ async def _do_purchase_numbered_pack(
     bal = get_luxe_balance(user.id)
     if bal < cost:
         await _w(bot, user.id,
-                 f"⚠️ Not enough 🎫.\n"
-                 f"Pack {pack_id} costs: {_fc(cost)} 🎫\n"
-                 f"You have: {_fc(bal)} 🎫")
+                 f"⚠️ Not enough 🎟️.\n"
+                 f"Pack {pack_id} costs: {_fc(cost)} 🎟️\n"
+                 f"You have: {_fc(bal)} 🎟️")
+        return
+    # Large-purchase confirmation threshold (>100k tickets OR >50% of balance)
+    if cost > 100_000 or (bal > 0 and cost > bal * 0.5):
+        import time as _time
+        _pending_buycoins[user.id] = {
+            "total_cost":   cost,
+            "total_coins":  coins,
+            "pack_summary": f"pack {pack_id} ({_fc(coins)} 🪙)",
+            "expires":      _time.time() + 120,
+            "source":       "pack",
+            "pack_id":      pack_id,
+        }
+        await _w(bot, user.id,
+                 (f"🛒 Confirm Pack {pack_id}\n"
+                  f"Spend: {_fc(cost)} 🎟️\n"
+                  f"Receive: {_fc(coins)} 🪙\n"
+                  f"Type !confirmbuycoins or !cancelbuycoins")[:249])
         return
     if not deduct_luxe_balance(user.id, user.username, cost):
         await _w(bot, user.id, "⚠️ Transaction failed. Try again.")

@@ -1589,6 +1589,28 @@ REGISTRY: dict[str, Cmd] = {
     # ── Event points shorthand ────────────────────────────────────────────────
     "ep":                Cmd("eventhost", "events",    True,  True,  False),
 
+    "epicbadges":       Cmd("shopkeeper", "shop",      True,  True,  False),
+    "legendarybadges":  Cmd("shopkeeper", "shop",      True,  True,  False),
+    "mythicbadges":     Cmd("shopkeeper", "shop",      True,  True,  False),
+    "flexbadge":        Cmd("shopkeeper", "shop",      True,  True,  False),
+    "giftbadge":        Cmd("shopkeeper", "shop",      True,  False, True),
+    "lockbadge":        Cmd("shopkeeper", "shop",      False, True,  False),
+    "lockedbadges":     Cmd("shopkeeper", "shop",      True,  True,  False),
+    "mywishlist":       Cmd("shopkeeper", "shop",      True,  True,  False),
+    "eventalert":       Cmd("host",       "help",      True,  True,  False),
+    "gamealert":        Cmd("host",       "help",      True,  True,  False),
+    "notifyadmin":      Cmd("host",       "help",      False, True,  False),
+    "notifyhelp2":      Cmd("host",       "help",      True,  True,  False),
+    "luxehelp":         Cmd("banker",     "economy",   True,  True,  False),
+    "handlog":          Cmd("poker",      "casino",    True,  True,  False),
+    "lasthand":         Cmd("poker",      "casino",    True,  True,  False),
+    "pokeraudit":       Cmd("poker",      "casino",    False, True,  False),
+    "pokereconomy":     Cmd("poker",      "casino",    False, True,  False),
+    "pokerguide":       Cmd("poker",      "casino",    True,  True,  False),
+    "confirmbuycoins":  Cmd("banker",     "economy",   False, False, True),
+    "cancelbuycoins":   Cmd("banker",     "economy",   False, False, True),
+    "boostaudit":       Cmd("host",       "admin",     False, True,  False),
+
 }
 
 # ---------------------------------------------------------------------------

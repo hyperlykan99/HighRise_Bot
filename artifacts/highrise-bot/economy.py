@@ -71,15 +71,27 @@ async def handle_balance(bot: BaseBot, user: User, args: list | None = None):
         if not raw_target:
             balance = db.get_balance(user.id)
             is_vip  = db.owns_item(user.id, "vip")
-            vip_str = "Active 💎" if is_vip else "Inactive"
+            # VIP status with time remaining
+            try:
+                from modules.vip import _calc_vip_remaining as _cvr
+                vip_exp = db.get_room_setting(f"vip_expires_{user.id}", "")
+                if is_vip:
+                    rem = _cvr(vip_exp)
+                    vip_str = (f"Active — {rem} left"
+                               if rem and rem != "Expired" else "Active")
+                else:
+                    vip_str = "Inactive"
+            except Exception:
+                vip_str = "Active" if is_vip else "Inactive"
+            # Luxe balance — plain number, ticket icon only (no coin suffix)
             try:
                 from modules.luxe import get_luxe_balance as _glb
-                luxe_line = f"\n🎫 Luxe Tickets: {fmt_coins(_glb(user.id))}"
+                luxe_line = f"\n🎟️ Luxe Tickets: {_glb(user.id):,}"
             except Exception:
                 luxe_line = ""
             await bot.highrise.send_whisper(
                 user.id,
-                f"💰 Balance\n🪙 Coins: {fmt_coins(balance)}{luxe_line}\nVIP: {vip_str}"
+                f"💰 Balance\nCoins: {balance:,}{luxe_line}\n💎 VIP: {vip_str}"
             )
             return
 
@@ -104,7 +116,7 @@ async def handle_balance(bot: BaseBot, user: User, args: list | None = None):
                 return
 
         balance = db.get_balance(t_id)
-        await bot.highrise.send_whisper(user.id, f"💰 @{t_name}: {fmt_coins(balance)}")
+        await bot.highrise.send_whisper(user.id, f"💰 @{t_name}: {balance:,} coins")
     except Exception as e:
         print(f"[BALANCE] ERROR user={user.username} args={args} error={e}")
         try:
@@ -162,6 +174,13 @@ async def handle_daily(bot: BaseBot, user: User):
     benefits     = get_player_benefits(user.id)
     bonus_coins  = benefits["daily_coins_bonus"]
     bonus_xp     = benefits["daily_xp_bonus"]
+    # V2 title/badge/VIP/event daily perks (separate from old shop TITLES system)
+    try:
+        from modules.title_system import get_active_boosts as _gab
+        _v2p = _gab(user.id)["perks"]
+        bonus_coins += int(_v2p.get("daily_coins_bonus", 0))
+    except Exception:
+        pass
     base_daily   = db.get_economy_settings()["daily_coins"]
     _day         = min(new_streak, 7)
     streak_bonus  = _STREAK_COIN_BONUS.get(_day, (_day - 1) * 25)
@@ -199,9 +218,10 @@ async def handle_daily(bot: BaseBot, user: User):
         extra_txt += " 🎁 Streak Chest!"
     s_label = "day" if new_streak == 1 else "days"
     print(f"[DAILY] @{user.username} claimed {actual_coins} coins streak={new_streak}")
+    boost_note = f"\n(+{bonus_coins:,} boost)" if bonus_coins > 0 else ""
     await bot.highrise.send_whisper(user.id,
         (f"🎁 Daily Reward Claimed!\n"
-         f"Reward: {actual_coins:,} 🪙{extra_txt}\n"
+         f"Reward: {actual_coins:,} 🪙{extra_txt}{boost_note}\n"
          f"Streak: {new_streak} {s_label}\n"
          f"Next claim: tomorrow")[:249]
     )

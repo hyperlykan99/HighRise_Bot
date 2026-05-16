@@ -1,0 +1,962 @@
+Final Economy + Boost + Command Registry Cleanup
+
+Current live issues:
+1. !bal / !balance is too long.
+2. Balance shows both full number and short summary like:
+   Coins: 13,696,716 / 13.7M
+   Remove the summary for !bal / !balance.
+3. Luxe Tickets are showing the ChillCoin icon. Use ticket icon.
+4. VIP only says Active, but does not show how long VIP has left.
+5. !buycoins max spends a huge amount immediately. It needs confirmation.
+6. Need to confirm title + badge + event + VIP boosts are stacked and applied everywhere.
+7. !checkcommands all still shows command registry issues:
+   Known 1121
+   Active 1059
+   Routed 1018
+   Missing 41
+   NoOwner 23
+8. Latest missing examples include:
+   !epicbadges
+   !eventalert
+   !flexbadge
+   !gamealert
+   !giftbadge
+   !handlog
+   !lasthand
+   !legendarybadges
+   !lockbadge
+   !lockedbadges
+   !luxehelp
+   !mythicbadges
+   !mywishlist
+   !notifyadmin
+   !notifyhelp2
+   !pokeraudit
+   !pokereconomy
+   !pokerguide
+   !pok
+
+Important:
+The last Replit agent commit registered some commands, but registration is not enough.
+Every active command must have a real owner, route, and handler.
+If a command is not implemented, hide/deprecate it and remove it from active help/check output.
+
+Do NOT modify:
+- Poker V2 gameplay logic, except help/audit aliases only
+- Blackjack gameplay
+- Jail gameplay
+- Bank transfer logic
+- Notification subscription logic except help/routing aliases
+- Badge economy except command routing/help aliases
+- Title economy except boost helper/routing/help
+
+Only modify:
+- main.py
+- database.py only if safe helpers are needed
+- modules/bank.py or actual balance module
+- modules/buycoins.py or actual coin conversion module
+- modules/vip.py if separate
+- modules/title_system.py boost helper if needed
+- modules/shop.py
+- modules/help_cmds.py
+- modules/admin_cmds.py
+- modules/command_registry.py
+- modules/cmd_audit.py
+- modules/multi_bot.py
+- modules/badge_market.py only for route registration/help aliases
+- modules/notifications.py only for help/admin route aliases
+- modules/poker_v2.py only for help/audit aliases, not gameplay
+
+==================================================
+PART 1 — Clean !bal / !balance Display
+==================================================
+
+Commands:
+!bal
+!balance
+
+Current bad example:
+💰 Balance
+Coins: 13,696,716 / 13.7M
+Luxe Tickets: 36 with ChillCoin icon
+VIP: Active
+
+Change to:
+
+💰 Balance
+Coins: 13,696,716
+🎟️ Luxe Tickets: 36
+💎 VIP: Active — 12d 4h left
+
+Rules:
+- Show full numbers only.
+- Do not show short summaries like 13.7M.
+- Luxe Tickets must use 🎟️.
+- ChillCoins/coins can use 💰.
+- VIP must show status and time remaining if active.
+- Keep message short and readable.
+
+If VIP inactive:
+💎 VIP: Inactive
+
+If VIP expired:
+💎 VIP: Expired
+
+If VIP active but less than one day:
+💎 VIP: Active — 5h 20m left
+
+If VIP active multiple days:
+💎 VIP: Active — 12d 4h left
+
+==================================================
+PART 2 — Fix Luxe Ticket Icon Everywhere
+==================================================
+
+Luxe Tickets must never use the ChillCoin icon.
+
+Correct:
+🎟️ Luxe Tickets: 36
+
+Wrong:
+🪙 Luxe Tickets
+coin emoji for Luxe Tickets
+ChillCoin icon for Luxe Tickets
+
+Use:
+💰 Coins: 13,696,716
+🎟️ Luxe Tickets: 36
+💎 VIP: Active — X left
+
+Apply this to:
+!bal
+!balance
+!luxe
+!luxehelp
+!buycoins
+!buycoins max
+!confirmbuycoins
+!cancelbuycoins
+coin pack messages
+VIP messages
+shop messages that mention tickets
+
+==================================================
+PART 3 — Add / Fix !vipstatus
+==================================================
+
+Add command:
+!vipstatus
+
+Reply if active:
+
+💎 VIP Status
+Status: Active
+Time left: 12d 4h
+Expires: May 28, 2026
+
+If exact expiration date is hard:
+Show at least:
+Time left: 12d 4h
+
+Reply if inactive:
+
+💎 VIP Status
+Status: Inactive
+Get VIP: !vip
+
+Also make:
+!vip
+show current VIP status and how to get VIP.
+
+==================================================
+PART 4 — !buycoins max Confirmation
+==================================================
+
+Current issue:
+!buycoins max instantly converted:
+Spent: 977,700 🎟️
+Received: 12,705,750 coins
+Packs: large x195, medium x5, small x2
+
+This is dangerous.
+
+New behavior:
+If player types:
+!buycoins max
+
+Do NOT convert immediately.
+
+Instead reply:
+
+⚠️ Confirm Max Coin Purchase
+Spend: 977,700 🎟️
+Receive: 12,705,750 coins
+Packs: large x195, medium x5, small x2
+
+Type: !confirmbuycoins
+Cancel: !cancelbuycoins
+
+Store pending confirmation for 60 seconds:
+
+pending_buycoins[user_id] = {
+  spend_tickets,
+  receive_coins,
+  packs,
+  created_at,
+  expires_at
+}
+
+!confirmbuycoins:
+- re-check pending exists
+- re-check pending is not expired
+- re-check player still has enough Luxe Tickets
+- re-check pack calculation
+- deduct Luxe Tickets
+- add ChillCoins
+- log transaction
+- clear pending confirmation
+
+!cancelbuycoins:
+✅ Coin purchase cancelled.
+
+If expired:
+⚠️ Confirmation expired. Use !buycoins max again.
+
+==================================================
+PART 5 — Confirmation For Large Manual BuyCoins
+==================================================
+
+Also require confirmation for any buycoins purchase above a safe threshold.
+
+Threshold:
+- spends 100,000+ Luxe Tickets
+OR
+- spends more than 50% of player’s Luxe Tickets
+
+Examples:
+!buycoins large 200
+!buycoins 100000
+
+If above threshold:
+Do not convert immediately.
+Show confirmation message.
+
+For smaller purchases:
+Process normally.
+
+==================================================
+PART 6 — BuyCoins Output Polish
+==================================================
+
+After confirmed purchase, show:
+
+✅ Converted 🎟️ Luxe Tickets
+Spent: 977,700
+Received: 12,705,750 coins
+
+Packs:
+Large x195
+Medium x5
+Small x2
+
+Balance:
+Coins: 13,696,716
+🎟️ Luxe Tickets: 36
+
+Rules:
+- Do not use ChillCoin icon for Luxe Tickets.
+- Do not show short summary like 13.7M.
+- Use full numbers.
+- Keep messages under 249 chars if Highrise limit requires splitting.
+
+==================================================
+PART 7 — Shared Boost Stack Helper
+==================================================
+
+Create or fix one shared helper:
+
+get_active_boosts(user_id)
+
+It must stack:
+
+1. Equipped title perks
+2. Equipped badge perks
+3. Active event perks
+4. VIP perks if applicable
+
+Final formula:
+equipped title + equipped badge + active event + VIP = final boosts
+
+Rules:
+- Only equipped title applies.
+- Only equipped badge applies.
+- Owned but unequipped titles/badges do not apply.
+- Event boosts apply only while active.
+- VIP boosts apply only while VIP active.
+- Apply caps after stacking.
+- Return final boost values and boost sources.
+
+Return normalized keys:
+daily_coins_bonus
+daily_xp_bonus
+game_reward_pct
+casino_reward_pct
+poker_reward_pct
+blackjack_reward_pct
+fishing_coin_pct
+fishing_rare_pct
+fishing_cooldown_pct
+mining_coin_pct
+mining_rare_pct
+mining_cooldown_pct
+shop_discount_pct
+luxe_ticket_bonus_pct
+bail_discount_pct
+jail_reward_pct
+trivia_bonus
+scramble_bonus
+riddle_bonus
+
+==================================================
+PART 8 — Boost Caps
+==================================================
+
+Apply caps after all stacking:
+
+game_reward_pct max 20
+casino_reward_pct max 15
+poker_reward_pct max 15
+blackjack_reward_pct max 15
+fishing_coin_pct max 20
+mining_coin_pct max 20
+fishing_rare_pct max 10
+mining_rare_pct max 10
+fishing_cooldown_pct max 20
+mining_cooldown_pct max 20
+daily_coins_bonus max 250
+shop_discount_pct max 15
+luxe_ticket_bonus_pct max 10
+bail_discount_pct max 15
+jail_reward_pct max 15
+
+Never allow rewards below 0.
+Never allow cooldown to become 0.
+
+==================================================
+PART 9 — Show Boost Sources
+==================================================
+
+Update:
+!myboosts
+!perks
+!titleperks
+
+Output:
+
+⚡ Active Boosts
+Title: [Rookie]
+Badge: none
+Event: Mining Haste
+VIP: Active — 12d 4h left
+
+Daily Coins: +5
+Game Rewards: +2%
+Mining Cooldown: -25%
+
+If no boosts:
+
+⚡ Active Boosts
+No active boosts.
+Equip a title or badge to activate perks.
+
+Rules:
+- Show sources clearly.
+- Show title, badge, event, VIP.
+- Do not show inactive/zero boosts unless useful.
+
+==================================================
+PART 10 — Apply Boosts Everywhere
+==================================================
+
+Use get_active_boosts(user_id) in:
+
+Daily:
+- daily_coins_bonus
+- daily_xp_bonus
+
+Mini-games:
+- game_reward_pct
+- trivia_bonus
+- scramble_bonus
+- riddle_bonus
+
+Casino:
+- casino_reward_pct
+- poker_reward_pct
+- blackjack_reward_pct
+
+Fishing:
+- fishing_coin_pct
+- fishing_rare_pct
+- fishing_cooldown_pct
+
+Mining:
+- mining_coin_pct
+- mining_rare_pct
+- mining_cooldown_pct
+
+Shop:
+- shop_discount_pct
+
+Luxe Tickets:
+- luxe_ticket_bonus_pct
+
+Jail:
+- bail_discount_pct
+- jail_reward_pct
+
+If a module cannot apply boosts yet, add console log:
+[BOOST TODO] module=fishing reason=not wired
+
+But preferred:
+Wire all existing modules now.
+
+==================================================
+PART 11 — Show Boost Math In Reward Messages
+==================================================
+
+Daily:
+🎁 Daily claimed
+Base: 500
+Boost: +5
+Total: 505 coins
+
+Fishing:
+🎣 Caught Golden Tuna
+Base: 1,000
+Boost: +15%
+Earned: 1,150 coins
+
+Mining:
+⛏️ Mined Diamond Ore
+Base: 2,000
+Boost: +15%
+Earned: 2,300 coins
+
+Casino:
+🎰 Won 10,000 coins
+Boost: +7%
+Total: 10,700 coins
+
+Keep messages under 249 chars.
+
+==================================================
+PART 12 — Owner Boost Debug Command
+==================================================
+
+Add owner/admin command:
+
+!boostaudit @user
+
+Output:
+
+🧪 Boost Audit: @User
+Title: [Rookie] → daily +5
+Badge: 👑 Crown → shop +3%
+Event: Mining Haste → mining cooldown -25%
+VIP: Active → VIP perks
+
+Final:
+Daily Coins: +5
+Mining Cooldown: -25%
+Shop Discount: +3%
+
+This helps confirm stacks are being applied.
+
+==================================================
+PART 13 — Command Registry Cleanup Rules
+==================================================
+
+Every active command must have:
+
+1. command name
+2. owner bot
+3. module
+4. handler function
+5. permission level
+6. visible/hidden/deprecated flag
+
+If active command has no route, no owner, or no handler:
+- fix it
+OR
+- mark it hidden/deprecated
+OR
+- remove it from active command list
+
+Do not show broken commands in:
+!help
+!shop
+!titlehelp
+!badgehelp
+!adminhelp
+!checkcommands active
+
+Target after fix:
+Missing: 0-5 max
+NoOwner: 0
+NoHandler: 0-5 max
+
+==================================================
+PART 14 — Fix Remaining Missing Commands
+==================================================
+
+Current missing list includes:
+
+!epicbadges
+!eventalert
+!flexbadge
+!gamealert
+!giftbadge
+!handlog
+!lasthand
+!legendarybadges
+!lockbadge
+!lockedbadges
+!luxehelp
+!mythicbadges
+!mywishlist
+!notifyadmin
+!notifyhelp2
+!pokeraudit
+!pokereconomy
+!pokerguide
+!pok
+
+For each, either route to a real handler or hide/deprecate.
+
+Do not leave them active missing.
+
+==================================================
+PART 15 — Badge Command Routing
+==================================================
+
+Route these to badge module if implemented:
+
+!epicbadges
+!legendarybadges
+!mythicbadges
+!flexbadge
+!giftbadge
+!lockbadge
+!lockedbadges
+!mywishlist
+
+Expected behavior:
+
+!epicbadges
+→ alias to !badgeshop epic or !allbadges epic
+
+!legendarybadges
+→ alias to !badgeshop legendary or !allbadges legendary
+
+!mythicbadges
+→ alias to !badgeshop mythic or !allbadges mythic
+
+!flexbadge badge_id
+→ show/equip/showcase badge if implemented
+If not implemented, alias to !badgeprofile
+
+!giftbadge @user badge_id
+→ gift badge if implemented
+If not safe, hide/deprecate until implemented
+
+!lockbadge badge_id
+→ lock badge from selling/trading if implemented
+If not safe, hide/deprecate
+
+!lockedbadges
+→ list locked badges if implemented
+If not safe, hide/deprecate
+
+!mywishlist
+→ alias to !badgewishlist
+
+If command is shown in help, it must work.
+
+==================================================
+PART 16 — Notification Command Routing
+==================================================
+
+Route these or hide them:
+
+!eventalert
+!gamealert
+!notifyadmin
+!notifyhelp2
+
+Expected:
+
+!eventalert
+→ alias to notification settings for event alerts
+
+!gamealert
+→ alias to notification settings for game alerts
+
+!notifyadmin
+→ staff/admin notification admin panel
+
+!notifyhelp2
+→ second notification help page or hide/deprecate
+
+If not implemented, hide/deprecate and remove from help.
+
+Player notification help should show:
+
+🔔 Notifications
+Subscribe: DM bot !sub
+Unsubscribe: !unsub
+Settings: !notifysettings
+Alerts: !alerts
+
+==================================================
+PART 17 — Poker Help/Audit Aliases
+==================================================
+
+Route or hide:
+
+!handlog
+!lasthand
+!pokeraudit
+!pokereconomy
+!pokerguide
+!pok
+
+Expected:
+
+!pokerguide
+→ poker help/guide. No gameplay changes.
+
+!pok
+→ alias to !poker or !pokerguide if !poker base command is not used.
+
+!lasthand
+→ show last poker hand summary if already stored.
+If not stored, reply:
+No poker hand history yet.
+
+!handlog
+→ admin/staff hand log if implemented.
+If not implemented, hide/deprecate.
+
+!pokeraudit
+→ owner/admin audit if implemented.
+If not implemented, hide/deprecate.
+
+!pokereconomy
+→ owner/admin poker economy stats if implemented.
+If not implemented, hide/deprecate.
+
+Do not change Poker V2 gameplay.
+
+==================================================
+PART 18 — Luxe Help Routing
+==================================================
+
+Fix:
+
+!luxehelp
+
+Expected:
+
+🎟️ Luxe Help
+Balance: !bal
+Buy coins: !buycoins
+Coin packs: !buypack
+VIP: !vip
+Status: !vipstatus
+
+Use 🎟️ for Luxe Tickets.
+Do not use ChillCoin icon for tickets.
+
+If !luxehelp is not needed, alias it to !luxe.
+
+==================================================
+PART 19 — Shop / Help Menu Cleanup
+==================================================
+
+!shop and !botshop:
+
+🛍️ ChillTopia Shop
+🏷️ Titles: !titleshop
+🎖️ Badges: !badgeshop
+🎟️ Luxe: !luxehelp
+💰 Buy Coins: !buycoins
+💎 VIP: !vip
+
+Only show commands that work.
+
+!help:
+
+👋 ChillTopia Help
+🛍️ Shop: !shop
+🎮 Games: !games
+🏦 Bank: !bank
+🏷️ Titles: !titles
+🎖️ Badges: !badges
+🔔 Alerts: !notifysettings
+
+Useful:
+!bal
+!daily
+!myboosts
+!mystats
+!titleprogress
+!badgehelp
+
+Do not show broken commands.
+
+==================================================
+PART 20 — Title Commands Must Still Work
+==================================================
+
+Make sure these still work:
+
+!titles
+!titleshop
+!alltitles
+!mytitles
+!titleinfo
+!buytitle
+!equiptitle
+!unequiptitle
+!titlesearch
+!titleprogress
+!claimtitles
+!myboosts
+!perks
+!titleperks
+!mystats
+!prestige
+!titlehelp
+!shop titles
+!buy title
+!equip title
+
+Expected:
+owner=BankingBot
+module=title_system
+route=YES
+handler=YES
+
+==================================================
+PART 21 — Command Issues Output Polish
+==================================================
+
+Make !commandissues readable.
+
+Support:
+
+!commandissues
+!commandissues missing
+!commandissues noowner
+!commandissues nohandler
+!commandissues deprecated
+!commandissues hidden
+
+Output:
+
+⚠️ Command Issues
+Missing route: 5
+No owner: 0
+No handler: 2
+Hidden: 62
+
+Use:
+!commandissues missing
+
+Detailed list:
+
+Missing 1/2:
+!giftbadge
+!handlog
+!pokeraudit
+Next: !commandissues missing 2
+
+Keep each message under 249 chars.
+
+==================================================
+PART 22 — Commandtest Coverage
+==================================================
+
+Make these tests work:
+
+!commandtest !bal
+!commandtest !buycoins
+!commandtest !confirmbuycoins
+!commandtest !cancelbuycoins
+!commandtest !vipstatus
+!commandtest !myboosts
+!commandtest !boostaudit
+!commandtest !luxehelp
+!commandtest !epicbadges
+!commandtest !legendarybadges
+!commandtest !mythicbadges
+!commandtest !mywishlist
+!commandtest !eventalert
+!commandtest !gamealert
+!commandtest !notifyadmin
+!commandtest !pokerguide
+!commandtest !pok
+!commandtest !lasthand
+
+Expected for real commands:
+cmd=!luxehelp
+owner=BankingBot
+module=economy
+route=YES
+handler=YES
+
+Expected for hidden/deprecated:
+cmd=!handlog
+status=hidden/deprecated
+reason=not implemented yet
+
+==================================================
+PART 23 — Compile
+==================================================
+
+Run:
+
+python -m py_compile main.py
+python -m py_compile database.py
+python -m py_compile modules/command_registry.py
+python -m py_compile modules/cmd_audit.py
+python -m py_compile modules/help_cmds.py
+python -m py_compile modules/admin_cmds.py
+python -m py_compile modules/shop.py
+python -m py_compile modules/title_system.py
+python -m py_compile modules/badge_market.py
+
+Also compile if present:
+python -m py_compile modules/bank.py
+python -m py_compile modules/buycoins.py
+python -m py_compile modules/vip.py
+python -m py_compile modules/notifications.py
+python -m py_compile modules/poker_v2.py
+
+Adjust filenames to actual project.
+
+==================================================
+PART 24 — Live Tests
+==================================================
+
+Test 1:
+!bal
+
+Expected:
+💰 Balance
+Coins: full number only
+🎟️ Luxe Tickets: number
+💎 VIP: Active — time left
+
+Test 2:
+!balance
+
+Expected:
+same as !bal
+
+Test 3:
+!vipstatus
+
+Expected:
+Shows VIP time remaining.
+
+Test 4:
+!buycoins max
+
+Expected:
+asks confirmation, does not spend yet.
+
+Test 5:
+!confirmbuycoins
+
+Expected:
+converts after re-checking.
+
+Test 6:
+!cancelbuycoins
+
+Expected:
+cancels pending purchase.
+
+Test 7:
+!myboosts
+
+Expected:
+shows title/badge/event/VIP sources.
+
+Test 8:
+!boostaudit @yourname
+
+Expected:
+shows source-by-source stack.
+
+Test 9:
+!luxehelp
+
+Expected:
+uses 🎟️ and shows working commands.
+
+Test 10:
+!shop
+!botshop
+
+Expected:
+clean emoji shop menu, only working commands.
+
+Test 11:
+!commandissues
+
+Expected:
+much fewer issues.
+
+Test 12:
+!checkcommands all
+
+Expected:
+Missing and NoOwner reduced.
+
+Test 13:
+!commandissues missing
+
+Expected:
+readable paginated list.
+
+Test 14:
+!commandtest !luxehelp
+!commandtest !pokerguide
+!commandtest !mywishlist
+
+Expected:
+route/handler shown or hidden/deprecated clearly.
+
+Final report:
+1. !bal / !balance simplified
+2. Full numbers shown only
+3. Luxe Ticket icon fixed
+4. VIP time-left shown
+5. !vipstatus added/fixed
+6. !buycoins max confirmation added
+7. Large buycoins confirmation added
+8. Buycoins output cleaned
+9. Shared boost stack helper added/fixed
+10. Title/badge/event/VIP boosts stack with caps
+11. Boosts applied to rewards
+12. !myboosts shows sources
+13. !boostaudit added
+14. Remaining command registry issues reduced
+15. Missing commands routed or hidden/deprecated
+16. Help menus only show working commands
+17. Commandtest coverage added
+18. Py_compile result
+19. Bot stability result

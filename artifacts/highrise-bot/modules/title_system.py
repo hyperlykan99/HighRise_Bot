@@ -673,6 +673,31 @@ PERK_CAPS: dict[str, float] = {
     "riddle_bonus":          50.0,
 }
 
+# VIP perk values awarded to active VIP holders (stacked in get_combined_perks)
+_VIP_BOOSTS: dict[str, float] = {
+    "mining_cooldown_pct":   5.0,
+    "fishing_cooldown_pct":  5.0,
+}
+
+# Active room/mining event -> perk-dict mapping used by get_active_boosts
+_EVENT_PERK_MAP: dict[str, dict[str, float]] = {
+    "lucky_rush":             {"mining_rare_pct": 5.0, "fishing_rare_pct": 5.0},
+    "heavy_ore_rush":         {"mining_coin_pct": 8.0},
+    "ore_value_surge":        {"mining_coin_pct": 15.0},
+    "double_mxp":             {"mining_coin_pct": 5.0},
+    "mining_haste":           {"mining_cooldown_pct": 10.0},
+    "legendary_rush":         {"mining_rare_pct": 8.0},
+    "prismatic_hunt":         {"mining_rare_pct": 10.0},
+    "exotic_hunt":            {"mining_rare_pct": 10.0},
+    "admins_mining_blessing": {"mining_coin_pct": 15.0, "mining_rare_pct": 10.0,
+                               "mining_cooldown_pct": 10.0},
+    "ultimate_mining_rush":   {"mining_coin_pct": 15.0, "mining_rare_pct": 10.0,
+                               "mining_cooldown_pct": 10.0},
+    "casino_night":           {"casino_reward_pct": 5.0},
+    "trivia_rush":            {"trivia_bonus": 10.0},
+    "collection_hunt":        {"mining_rare_pct": 5.0, "fishing_rare_pct": 5.0},
+}
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -777,7 +802,7 @@ def get_title_v2_perks(user_id: str) -> dict:
 
 
 def get_combined_perks(user_id: str) -> dict:
-    """Return capped combined perks: equipped title + equipped badge."""
+    """Return capped combined perks: equipped title + equipped badge + active VIP."""
     perks: dict[str, float] = {}
     try:
         t_perks = get_title_v2_perks(user_id)
@@ -793,6 +818,18 @@ def get_combined_perks(user_id: str) -> dict:
         except Exception:
             pass
 
+        # VIP perks (small cooldown reduction for active VIP holders)
+        try:
+            if db.owns_item(user_id, "vip"):
+                vip_exp = db.get_room_setting(f"vip_expires_{user_id}", "")
+                from modules.vip import _calc_vip_remaining as _cvr
+                rem = _cvr(vip_exp) if vip_exp else ""
+                if rem and rem != "Expired":
+                    for k, v in _VIP_BOOSTS.items():
+                        perks[k] = perks.get(k, 0.0) + v
+        except Exception:
+            pass
+
     except Exception:
         pass
 
@@ -801,6 +838,98 @@ def get_combined_perks(user_id: str) -> dict:
         if k in perks:
             perks[k] = min(perks[k], cap)
     return perks
+
+
+def get_active_boosts(user_id: str) -> dict:
+    """Return {'perks': dict, 'sources': dict} stacking title+badge+event+VIP.
+
+    sources keys: title (display|None), badge (id|None), event (name|None), vip (rem|None).
+    """
+    perks: dict[str, float] = {}
+    sources: dict[str, str | None] = {
+        "title": None, "badge": None, "event": None, "vip": None,
+    }
+
+    # Title perks
+    try:
+        eq  = db.get_equipped_ids(user_id)
+        tid = eq.get("title_id") or ""
+        t_perks = get_title_v2_perks(user_id)
+        if t_perks and tid:
+            t = TITLE_CATALOG.get(tid)
+            sources["title"] = t.get("display", tid) if t else tid
+        for k, v in t_perks.items():
+            perks[k] = perks.get(k, 0.0) + v
+    except Exception:
+        pass
+
+    # Badge perks
+    try:
+        from modules.badge_market import _get_badge_perks as _gbp
+        b_perks = _gbp(user_id)
+        if b_perks:
+            eq2 = db.get_equipped_ids(user_id)
+            sources["badge"] = eq2.get("badge_id") or None
+        for k, v in b_perks.items():
+            perks[k] = perks.get(k, 0.0) + v
+    except Exception:
+        pass
+
+    # Room event perks
+    try:
+        gen_ev = db.get_active_event()
+        if gen_ev:
+            eid  = gen_ev.get("event_id", "")
+            ev_p = _EVENT_PERK_MAP.get(eid, {})
+            if ev_p:
+                try:
+                    from modules.events import EVENTS as _EVS
+                    ename = _EVS.get(eid, {}).get("name", eid)
+                except Exception:
+                    ename = eid
+                sources["event"] = ename
+                for k, v in ev_p.items():
+                    perks[k] = perks.get(k, 0.0) + v
+    except Exception:
+        pass
+
+    # Mining event perks
+    try:
+        mine_ev = db.get_active_mining_event()
+        if mine_ev:
+            eid  = mine_ev.get("event_id", "")
+            ev_p = _EVENT_PERK_MAP.get(eid, {})
+            if ev_p:
+                if not sources["event"]:
+                    try:
+                        from modules.events import EVENTS as _EVS2
+                        sources["event"] = _EVS2.get(eid, {}).get("name", eid)
+                    except Exception:
+                        sources["event"] = eid
+                for k, v in ev_p.items():
+                    perks[k] = perks.get(k, 0.0) + v
+    except Exception:
+        pass
+
+    # VIP perks
+    try:
+        if db.owns_item(user_id, "vip"):
+            vip_exp = db.get_room_setting(f"vip_expires_{user_id}", "")
+            from modules.vip import _calc_vip_remaining as _cvr
+            rem = _cvr(vip_exp) if vip_exp else ""
+            if rem and rem != "Expired":
+                sources["vip"] = rem
+                for k, v in _VIP_BOOSTS.items():
+                    perks[k] = perks.get(k, 0.0) + v
+    except Exception:
+        pass
+
+    # Apply caps
+    for k, cap in PERK_CAPS.items():
+        if k in perks:
+            perks[k] = min(perks[k], cap)
+
+    return {"perks": perks, "sources": sources}
 
 
 # ---------------------------------------------------------------------------
@@ -1363,7 +1492,7 @@ async def handle_claimtitles(bot: BaseBot, user: User) -> None:
 
 async def handle_myboosts(bot: BaseBot, user: User,
                            args: list[str] | None = None) -> None:
-    """!myboosts / !perks / !titleperks — show active boosts."""
+    """!myboosts / !perks / !titleperks — show active boosts from all sources."""
     target_user = user
     if args and len(args) > 1 and args[1].startswith("@") and _is_admin(user.username):
         uname = args[1].lstrip("@").lower()
@@ -1376,36 +1505,73 @@ async def handle_myboosts(bot: BaseBot, user: User,
             username = uname
         target_user = _FakeUser()
 
-    perks = get_combined_perks(target_user.id)
-    eq    = db.get_equipped_ids(target_user.id)
-    tid   = eq.get("title_id") or ""
-    bid   = eq.get("badge_id") or ""
-    t_disp = _get_title(tid)["display"] if (tid and _get_title(tid)) else "None"
-    lines = [f"⚡ {'Your' if target_user.id == user.id else '@'+target_user.username} Active Boosts",
-             f"Title: {t_disp}"]
-    if bid:
-        lines.append(f"Badge ID: {bid}")
+    result  = get_active_boosts(target_user.id)
+    perks   = result["perks"]
+    sources = result["sources"]
 
-    has_boost = False
-    perk_lines = []
+    you    = "Your" if target_user.id == user.id else f"@{target_user.username}"
+    lines  = [f"⚡ {you} Active Boosts",
+              f"Title: {sources['title'] or 'None'}"]
+    if sources["badge"]:
+        lines.append(f"Badge: {sources['badge']}")
+    if sources["event"]:
+        lines.append(f"Event: {sources['event']}")
+    if sources["vip"]:
+        lines.append(f"💎 VIP: {sources['vip']} left")
+
+    perk_lines: list[str] = []
     for k, v in perks.items():
-        if v == 0:
+        if not v:
             continue
-        has_boost = True
-        if k == "fishing_cooldown_pct":
-            perk_lines.append(f"Fishing Cooldown: -{v:.0f}%")
-        elif k == "mining_cooldown_pct":
-            perk_lines.append(f"Mining Cooldown: -{v:.0f}%")
+        if k in ("fishing_cooldown_pct", "mining_cooldown_pct"):
+            perk_lines.append(f"{k.replace('_pct','').replace('_',' ').title()}: -{v:.0f}%")
         elif "pct" in k:
             perk_lines.append(f"{k.replace('_pct','').replace('_',' ').title()}: +{v:.0f}%")
         else:
             perk_lines.append(f"{k.replace('_',' ').title()}: +{int(v)}")
 
-    if has_boost:
-        lines.extend(perk_lines[:8])
+    if perk_lines:
+        lines.extend(perk_lines[:7])
     else:
-        lines.append("No active boosts yet.")
-        lines.append("Equip a title or badge to activate perks.")
+        lines.append("No active boosts.")
+        lines.append("Equip a title or badge!")
+    await _w(bot, user.id, "\n".join(lines)[:249])
+
+
+async def handle_boostaudit(bot: BaseBot, user: User,
+                             args: list[str] | None = None) -> None:
+    """!boostaudit [@user] — staff: full boost stack breakdown."""
+    if not _is_admin(user.username):
+        await _w(bot, user.id, "🔒 Admin only.")
+        return
+    target_id   = user.id
+    target_name = user.username
+    if args and len(args) > 1:
+        uname = args[1].lstrip("@").lower()
+        uid   = db.get_user_id_by_username(uname) or ""
+        if not uid:
+            await _w(bot, user.id, f"User @{uname} not found.")
+            return
+        target_id, target_name = uid, uname
+
+    result  = get_active_boosts(target_id)
+    perks   = result["perks"]
+    sources = result["sources"]
+
+    lines = [f"🔍 Boost Audit: @{target_name}",
+             f"Title: {sources['title'] or 'none'}",
+             f"Badge: {sources['badge'] or 'none'}",
+             f"Event: {sources['event'] or 'none'}",
+             f"VIP: {sources['vip'] or 'inactive'}"]
+    active = {k: v for k, v in perks.items() if v}
+    if active:
+        psum = ", ".join(
+            f"{k}={'−' if 'cooldown' in k else '+'}{v:.0f}"
+            for k, v in list(active.items())[:5]
+        )
+        lines.append(f"Perks: {psum}")
+    else:
+        lines.append("Perks: none")
     await _w(bot, user.id, "\n".join(lines)[:249])
 
 

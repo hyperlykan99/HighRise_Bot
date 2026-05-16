@@ -182,6 +182,8 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "pp": "poker", "pplayers": "poker", "pstats": "poker",
     "plb": "poker", "pleaderboard": "poker", "pokerlb": "poker",
     "pokerhelp": "poker", "pokerstats": "poker", "pokerstatus": "poker",
+    "handlog": "poker", "lasthand": "poker", "pokerguide": "poker",
+    "pokeraudit": "poker", "pokereconomy": "poker",
     "sitout": "poker", "sitin": "poker", "rebuy": "poker",
     "pstacks": "poker", "mystack": "poker", "stack": "poker",
     "pokerhistory": "poker", "pokerdebug": "poker",
@@ -343,6 +345,7 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     # ── Luxe Ticket admin ───────────────────────────────────────────────────
     "addtickets": "banker", "removetickets": "banker", "settickets": "banker",
     "sendtickets": "banker", "ticketbalance": "banker", "ticketlogs": "banker",
+    "luxehelp": "banker", "confirmbuycoins": "banker", "cancelbuycoins": "banker",
     "ticketadmin": "banker", "ticketrate": "banker",
     # ── Tip / conversion audit ──────────────────────────────────────────────
     "tipaudit": "banker", "tipauditdetails": "banker", "conversionlogs": "banker",
@@ -485,8 +488,9 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     # security — mod-only
     "moderators": "host", "profileprivacy": "host", "replog": "security",
     # banker — notify / tips / economy settings
-    "casinodash": "host", "economysettings": "banker",
+    "casinodash": "host", "boostaudit": "host", "economysettings": "banker",
     "notify": "host", "notifyhelp": "host", "notifyprefs": "host",
+    "notifyadmin": "host", "notifyhelp2": "host", "eventalert": "host", "gamealert": "host",
     "notifysettings": "host", "notifystats": "host", "alerts": "host",
     "announcement": "host", "botshome": "host",
     "tipleaderboard": "banker", "tiprate": "banker", "tipstats": "banker",
