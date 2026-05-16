@@ -1,0 +1,133 @@
+CRITICAL HOTFIX — on_message Reads Wrong DM Message Order
+
+Current live bug:
+Random DMs still trigger Alerts ON/OFF after hard gate was added.
+
+GitHub shows hard gate exists in main.py, but it is reading the wrong DM message.
+
+Root cause:
+Highrise SDK get_messages(conversation_id) returns messages newest-to-oldest.
+The current main.py code incorrectly assumes messages are oldest-first and uses messages[-1].
+That can read an old !sub or !unsub from conversation history, so random messages like Hello, ".", or "?" trigger old subscription commands.
+
+Fix:
+In main.py on_message, change message extraction to use messages[0] as the newest message.
+
+Current wrong logic:
+last_msg = messages[-1]
+if getattr(last_msg, "sender_id", None) == user_id:
+    content = getattr(last_msg, "content", "").strip()
+else:
+    for msg in reversed(messages):
+        if getattr(msg, "sender_id", None) == user_id:
+            content = getattr(msg, "content", "").strip()
+            break
+
+Replace with SDK-correct logic:
+newest_msg = messages[0]
+content = getattr(newest_msg, "content", "").strip()
+sender_id = getattr(newest_msg, "sender_id", None)
+
+if sender_id and sender_id != user_id:
+    print(f"[DM HARD IGNORE] newest message not from triggering user sender={sender_id} user={user_id}")
+    return
+
+Do NOT scan old history for a user message.
+Do NOT use messages[-1].
+Do NOT use reversed(messages).
+Do NOT fall back to older messages.
+
+Reason:
+Scanning older messages can find old !sub/!unsub and falsely process them.
+
+Expected on_message logic:
+
+resp = await self.highrise.get_messages(conversation_id)
+messages = getattr(resp, "messages", []) or []
+
+if not messages:
+    print("[DM HARD IGNORE] no messages returned")
+    return
+
+newest_msg = messages[0]  # SDK returns newest-first
+content = getattr(newest_msg, "content", "").strip()
+sender_id = getattr(newest_msg, "sender_id", None)
+
+print(f"[DM] newest_content={content[:60]!r}")
+
+if sender_id and sender_id != user_id:
+    print("[DM HARD IGNORE] newest message not from triggering user")
+    return
+
+from modules.notify_system import is_valid_notify_dm_command, process_dm_notify
+
+if not is_valid_notify_dm_command(content):
+    print(f"[DM HARD IGNORE] user_id={user_id[:12]} raw={content[:60]!r}")
+    return
+
+await process_dm_notify(self, user_id, username, conversation_id, content)
+
+Also update comments:
+Replace:
+"Messages are oldest-first; the last entry is the one that triggered"
+
+With:
+"Highrise get_messages returns newest-first; messages[0] is the newest message."
+
+Do not change notification behavior otherwise.
+
+Compile:
+python -m py_compile main.py
+python -m py_compile modules/notify_system.py
+python -m py_compile modules/subscribers.py
+python -m py_compile modules/qa_test.py
+
+Live test after restart:
+1. In room:
+!notifyresetall
+!confirmnotifyresetall
+
+2. DM:
+Hello
+.
+Ok
+?
+
+Expected:
+No reply.
+
+3. DM:
+!sub
+
+Expected:
+Alerts: ON
+To unsubscribe, reply !unsub or !unsubscribe.
+
+4. DM:
+Hello
+.
+?
+
+Expected:
+No reply.
+
+5. DM:
+!unsub
+
+Expected:
+Alerts: OFF.
+
+6. DM:
+Hello
+.
+?
+
+Expected:
+No reply.
+
+Final report:
+1. main.py now uses messages[0]
+2. removed messages[-1]
+3. removed reversed history scan
+4. random DMs no longer read old !sub/!unsub
+5. py_compile result

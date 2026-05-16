@@ -7651,21 +7651,23 @@ class HangoutBot(BaseBot):
             resp = await self.highrise.get_messages(conversation_id)
             messages = getattr(resp, "messages", []) or []
 
-            content = ""
-            if messages:
-                # Messages are oldest-first; the last entry is the one that triggered
-                # this event. Prefer it directly — fall back to sender_id scan if needed.
-                last_msg = messages[-1]
-                if getattr(last_msg, "sender_id", None) == user_id:
-                    content = getattr(last_msg, "content", "").strip()
-                else:
-                    # Race or ordering issue — scan newest-first for this user's message
-                    for msg in reversed(messages):
-                        if getattr(msg, "sender_id", None) == user_id:
-                            content = getattr(msg, "content", "").strip()
-                            break
+            if not messages:
+                print("[DM HARD IGNORE] no messages returned")
+                return
 
-            print(f"[DM] content={content[:60]!r} (fetched {len(messages)} msgs)")
+            # Highrise get_messages returns newest-first; messages[0] is the newest.
+            # Do NOT use messages[-1] or scan reversed history — that can pick up
+            # an old !sub/!unsub and falsely re-process it on any random DM.
+            newest_msg = messages[0]
+            content    = getattr(newest_msg, "content", "").strip()
+            sender_id  = getattr(newest_msg, "sender_id", None)
+
+            print(f"[DM] newest_content={content[:60]!r} sender={str(sender_id)[:12]}")
+
+            if sender_id and sender_id != user_id:
+                print(f"[DM HARD IGNORE] newest message not from triggering user"
+                      f" sender={str(sender_id)[:12]} user={user_id[:12]}")
+                return
 
             # ── HARD GATE ─────────────────────────────────────────────────────
             # Only exact notify keywords reach further processing.
