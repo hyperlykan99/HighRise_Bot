@@ -642,7 +642,8 @@ async def handle_botstatus(bot, user, args: list[str] | None = None) -> None:
     """/botstatus — bot online status + maintenance state."""
     lines = ["🤖 Bot Status"]
 
-    # Show per-bot heartbeat status
+    _HIDDEN_MODES = {"main", "all", ""}
+
     try:
         instances = db.get_all_bot_instances_status()
         maint_rows = db.get_all_maintenance_states()
@@ -651,14 +652,29 @@ async def handle_botstatus(bot, user, args: list[str] | None = None) -> None:
         global_maint = any(r["enabled"] for r in maint_rows
                            if r.get("scope") == "global")
 
+        # Deduplicate by bot_mode, keeping the row with the newest last_seen_at.
+        # Also hides internal sentinel modes (main, all) from the display.
+        seen: dict[str, dict] = {}
         for inst in instances:
-            uname  = inst.get("bot_username", "?")
+            mode = (inst.get("bot_mode") or "").lower().strip()
+            if mode in _HIDDEN_MODES:
+                continue
+            prev = seen.get(mode)
+            if prev is None:
+                seen[mode] = inst
+            else:
+                new_ts = inst.get("last_seen_at") or ""
+                old_ts = prev.get("last_seen_at") or ""
+                if new_ts > old_ts:
+                    seen[mode] = inst
+
+        for mode in sorted(seen):
+            inst = seen[mode]
             status = inst.get("status", "offline")
-            in_maint = maint_map.get(uname.lower(), False)
+            in_maint = maint_map.get(mode, False)
             if in_maint:
                 status_str = "MAINTENANCE"
             elif status == "online":
-                # Validate freshness (90s threshold)
                 last_seen = inst.get("last_seen_at", "")
                 try:
                     ls = datetime.fromisoformat(last_seen)
@@ -670,7 +686,7 @@ async def handle_botstatus(bot, user, args: list[str] | None = None) -> None:
                     status_str = "ONLINE"
             else:
                 status_str = "OFFLINE"
-            lines.append(f"{uname}: {status_str}")
+            lines.append(f"{mode}: {status_str}")
 
         lines.append("")
         lines.append(f"Global Maintenance: {'ON' if global_maint else 'OFF'}")
