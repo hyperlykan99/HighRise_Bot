@@ -1505,7 +1505,7 @@ OWNER_ONLY_CMDS  = OWNER_ONLY_CMDS | {
 TIP_AUDIT_COMMANDS: frozenset[str] = frozenset({
     "tipaudit", "tipauditdetails", "conversionlogs",
 })
-ALL_KNOWN_COMMANDS = ALL_KNOWN_COMMANDS | TIP_AUDIT_COMMANDS
+ALL_KNOWN_COMMANDS = ALL_KNOWN_COMMANDS | TIP_AUDIT_COMMANDS | {"ep"}
 STAFF_CMDS         = STAFF_CMDS   | TIP_AUDIT_COMMANDS
 ADMIN_ONLY_CMDS    = ADMIN_ONLY_CMDS | TIP_AUDIT_COMMANDS
 
@@ -4758,7 +4758,7 @@ class HangoutBot(BaseBot):
         elif cmd in ("setnextae", "setnextautoevent"):
             await handle_setnextae(self, user, args)
 
-        elif cmd == "eventpoints":
+        elif cmd in {"eventpoints", "ep"}:
             await handle_eventpoints(self, user, args)
 
         elif cmd == "eventshop":

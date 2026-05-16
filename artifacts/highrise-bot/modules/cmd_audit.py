@@ -669,6 +669,20 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     "economymonitor", "luxemonitor", "retentionmonitor",
     "eventmonitor", "casinomonitor", "bjmonitor", "pokermonitor",
     "errordash", "hotfix", "hotfixlog", "launchlocks", "snapshot",
+    # ── Badge market: extended commands (routed, previously missing from set) ──
+    "allbadges", "badge", "badgesearch", "badgeprofile", "badgestatus",
+    "badgewishlist", "badgeadminhelp", "badgeaudit", "badgelogs",
+    "claimbadge", "commonbadges",
+    # ── Notification / alert ────────────────────────────────────────────────────
+    "alerts",
+    # ── Announcement ───────────────────────────────────────────────────────────
+    "announcement",
+    # ── Shop / home navigation ──────────────────────────────────────────────────
+    "botshome",
+    # ── Coin pack / buy commands ────────────────────────────────────────────────
+    "buypack", "packs", "buychillcoins", "coinpack", "coinpackadmin",
+    # ── Event points shorthand ──────────────────────────────────────────────────
+    "ep",
 })
 
 # ---------------------------------------------------------------------------

@@ -1,0 +1,514 @@
+Command Registry Final Cleanup — Fix Missing Routes, Owners, Handlers, and Hide Broken Commands
+
+Current live issue:
+!checkcommands all still shows:
+Known 1120
+Active 1058
+Missing 60
+NoOwner 32
+NoHandler 56
+
+!commandissues shows missing examples:
+!alerts
+!allbadges
+!announcement
+!badge
+!badgeadminhelp
+!badgeaudit
+!badgelogs
+!badgeprofile
+!badgesearch
+!badgestatus
+!badgewishlist
+!botshome
+!buychillcoins
+!buypack
+!claimbadge
+!coinpack
+!coinpackadmin
+!commonbadges
+!ep
+
+Goal:
+Clean the command registry so active commands are real, routed, owned, and handled.
+If a command is not implemented, hide/deprecate/remove it from active help and command audit.
+
+Do NOT modify:
+- poker gameplay
+- blackjack gameplay
+- jail gameplay
+- bank logic
+- notification logic except command routing/help
+- badge economy except command routing/help
+- title economy except command routing/help
+
+Only modify:
+- main.py
+- modules/command_registry.py
+- modules/cmd_audit.py
+- modules/help_cmds.py
+- modules/admin_cmds.py
+- modules/shop.py
+- modules/title_system.py
+- modules/badge_market.py only for route registration/help aliases
+- notification module only for !alerts route if needed
+- coin pack module only if command exists
+
+==================================================
+PART 1 — Fix Command Registry Rules
+==================================================
+
+Every active command must have:
+
+1. command name
+2. owner bot
+3. module
+4. handler function
+5. permission level
+6. visible/hidden/deprecated flag
+
+If any active command has no route, no owner, or no handler:
+- either fix it
+- or mark it hidden/deprecated
+- or remove it from active command list
+
+Do not show broken commands in:
+!help
+!shop
+!titlehelp
+!badgehelp
+!adminhelp
+!checkcommands active
+
+==================================================
+PART 2 — Fix Missing Badge Commands
+==================================================
+
+These should route to badge_market if implemented:
+
+!allbadges
+!badge
+!badgeadminhelp
+!badgeaudit
+!badgelogs
+!badgeprofile
+!badgesearch
+!badgestatus
+!badgewishlist
+!claimbadge
+!commonbadges
+
+Expected routing:
+owner=BankingBot
+module=badge_market
+route=YES
+handler=YES
+
+Aliases:
+!badge -> !badges
+!badgestatus -> !badgeprofile
+!badgewishlist -> !mywishlist or !badgewishlist
+!commonbadges -> !badgeshop common
+!allbadges -> badge all list
+!claimbadge -> starter badge claim
+
+If any of these are not implemented:
+- hide them
+- remove them from active registry
+- do not advertise them in help
+
+==================================================
+PART 3 — Fix Missing Alert Commands
+==================================================
+
+!alerts should route to notification settings/help.
+
+Expected:
+!alerts
+
+Reply:
+🔔 Alerts
+Subscribe: DM me !sub
+Settings: !notifysettings
+Stop: !unsub
+
+Route:
+owner=ChillTopiaMC or notification bot
+module=notifications
+handler=alerts/help
+
+If notification module does not exist:
+route !alerts to !notifysettings or hide it.
+
+==================================================
+PART 4 — Fix Missing Announcement Command
+==================================================
+
+!announcement should be an admin alias.
+
+Route:
+!announcement message -> !announce message
+
+Rules:
+- owner/admin only
+- normal players get:
+⚠️ Staff only.
+
+If announcements are not active:
+hide !announcement.
+
+==================================================
+PART 5 — Fix Shop / Coin Pack Commands
+==================================================
+
+These are missing:
+!botshome
+!buychillcoins
+!buypack
+!coinpack
+!coinpackadmin
+
+Decide exact behavior:
+
+!botshome:
+Alias to !shop or !help
+
+!buypack:
+Show coin pack menu if coin packs exist.
+If not active, hide it from help.
+
+!coinpack:
+Alias to !buypack
+
+!buychillcoins:
+Alias to !buypack
+
+!coinpackadmin:
+Owner/admin only.
+If no coin pack admin module exists, hide it.
+
+Player-facing shop menu should only show commands that work.
+
+!shop should show:
+
+🛍️ ChillTopia Shop
+🏷️ Titles: !titleshop
+🎖️ Badges: !badgeshop
+💰 Packs: !buypack
+🎟️ Luxe: !luxe
+❓ Help: !shophelp
+
+If !buypack is not working, remove it from this menu.
+
+==================================================
+PART 6 — Fix !ep
+==================================================
+
+!ep is missing.
+
+If !ep means event points:
+Route to event points command.
+
+Reply:
+🎟️ Event Points
+Balance: X
+Shop: !eventshop
+
+If event points do not exist:
+mark !ep hidden/deprecated.
+
+Do not leave !ep active with no handler.
+
+==================================================
+PART 7 — Title Commands Must Not Be Missing
+==================================================
+
+Make sure all title commands route correctly:
+
+!titles
+!titleshop
+!alltitles
+!mytitles
+!titleinfo
+!buytitle
+!equiptitle
+!unequiptitle
+!titlesearch
+!titleprogress
+!claimtitles
+!myboosts
+!perks
+!titleperks
+!mystats
+!prestige
+!titlehelp
+!shop titles
+!buy title
+!equip title
+
+Expected:
+owner=BankingBot
+module=title_system
+route=YES
+handler=YES
+
+If old aliases are multi-word commands, register them properly:
+- !shop titles
+- !buy title
+- !equip title
+
+Do not let them fall through to unknown command.
+
+==================================================
+PART 8 — Fix !equiptitle Command Error
+==================================================
+
+Current live bug:
+!equiptitle rookie gives:
+⚠️ Command error logged. Bot stayed online.
+
+Fix traceback.
+
+Expected:
+!equiptitle rookie
+
+Reply:
+✅ Equipped title: [Rookie]
+Boosts: !myboosts
+
+Also:
+!equip title rookie
+
+Reply:
+✅ Equipped title: [Rookie]
+
+No generic command error.
+
+==================================================
+PART 9 — Improve !commandissues Output
+==================================================
+
+Current output is hard to read.
+
+Make !commandissues support:
+
+!commandissues
+!commandissues missing
+!commandissues noowner
+!commandissues nohandler
+!commandissues deprecated
+!commandissues hidden
+
+Output format:
+
+⚠️ Command Issues
+Missing route: 12
+No owner: 0
+No handler: 4
+Hidden: 62
+
+Use:
+!commandissues missing
+
+For detailed list, paginate:
+
+Missing 1/3:
+!alerts
+!allbadges
+!badgeprofile
+Next: !commandissues missing 2
+
+Keep each message under 249 characters.
+
+==================================================
+PART 10 — Fix !checkcommands all Summary
+==================================================
+
+After cleanup, target:
+
+Known: X
+Active: X
+Routed: X
+Missing: 0-5 max
+NoOwner: 0
+NoHandler: 0-5 max
+
+If commands are intentionally inactive, they should be hidden/deprecated, not counted as active missing.
+
+==================================================
+PART 11 — Player Help Should Only Show Working Commands
+==================================================
+
+!help should show:
+
+👋 ChillTopia Help
+🛍️ Shop: !shop
+🎮 Games: !games
+🏦 Bank: !bank
+🏷️ Titles: !titles
+🎖️ Badges: !badges
+🔔 Alerts: !notifysettings
+
+Useful:
+!bal
+!daily
+!myboosts
+!mystats
+!titleprogress
+!badgehelp
+
+Do not show:
+- broken commands
+- admin commands
+- hidden commands
+- deprecated commands
+
+==================================================
+PART 12 — Admin Help Should Show Real Admin Commands
+==================================================
+
+!adminhelp / !staffhelp should only show working admin commands.
+
+Include:
+
+🏷️ Title Admin
+!givetitle @user title_id
+!settitle @user title_id
+!removetitle @user title_id
+!titleaudit @user
+
+🎖️ Badge Admin
+!badgeadminhelp
+!badgeaudit @user
+!badgelogs @user
+
+If !badgeadminhelp is not implemented, implement it or remove it from admin help.
+
+==================================================
+PART 13 — Add Commandtest For Missing Examples
+==================================================
+
+Make these tests work:
+
+!commandtest !badge
+!commandtest !allbadges
+!commandtest !badgeprofile
+!commandtest !badgesearch
+!commandtest !alerts
+!commandtest !announcement
+!commandtest !botshome
+!commandtest !buypack
+!commandtest !claimbadge
+!commandtest !commonbadges
+!commandtest !equiptitle
+!commandtest !titleshop
+
+Expected output:
+cmd=!badge
+owner=BankingBot
+module=badge_market
+route=YES
+handler=YES
+alias_of=!badges
+
+If hidden/deprecated:
+cmd=!ep
+status=hidden/deprecated
+reason=not implemented
+
+==================================================
+PART 14 — Compile
+==================================================
+
+Run:
+
+python -m py_compile main.py
+python -m py_compile database.py
+python -m py_compile modules/command_registry.py
+python -m py_compile modules/cmd_audit.py
+python -m py_compile modules/help_cmds.py
+python -m py_compile modules/admin_cmds.py
+python -m py_compile modules/shop.py
+python -m py_compile modules/title_system.py
+python -m py_compile modules/badge_market.py
+
+Also compile notification/coin pack modules if changed.
+
+==================================================
+PART 15 — Live Tests
+==================================================
+
+Test 1:
+!commandissues
+
+Expected:
+No large missing/no-owner/no-handler list.
+
+Test 2:
+!commandissues missing
+
+Expected:
+Paginated readable list or no missing active commands.
+
+Test 3:
+!checkcommands all
+
+Expected:
+Missing and no-handler counts greatly reduced.
+
+Test 4:
+!commandtest !equiptitle
+
+Expected:
+route=YES handler=YES.
+
+Test 5:
+!equiptitle rookie
+
+Expected:
+✅ Equipped title: [Rookie]
+
+Test 6:
+!shop
+
+Expected:
+Emoji shop menu with only working commands.
+
+Test 7:
+!titlehelp
+
+Expected:
+Shows all title commands with emojis.
+
+Test 8:
+!badgehelp
+
+Expected:
+Shows badge commands and all listed commands work.
+
+Test 9:
+!alerts
+
+Expected:
+Routes to notification help/settings.
+
+Test 10:
+!botshome
+
+Expected:
+Routes to !shop or !help.
+
+Final report:
+1. Command registry cleaned
+2. Missing route count reduced
+3. No-owner count reduced
+4. No-handler count reduced
+5. Broken commands hidden/deprecated
+6. Title commands routed
+7. Badge commands routed
+8. Shop commands routed
+9. Alert command routed
+10. !equiptitle error fixed
+11. Help menus only show working commands
+12. Py_compile result
+13. Bot stability result

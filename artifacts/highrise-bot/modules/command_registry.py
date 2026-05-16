@@ -1560,6 +1560,35 @@ REGISTRY: dict[str, Cmd] = {
     "analyticsdash":   Cmd("host", "analytics", False, False, False, perm="admin",
                            aliases=("analyticshelp",)),
 
+    # ── Badge market: extended commands (previously unregistered) ──────────────
+    "allbadges":         Cmd("shopkeeper","shop", True,  True,  False),
+    "badge":             Cmd("shopkeeper","shop", True,  True,  False),
+    "badgesearch":       Cmd("shopkeeper","shop", True,  True,  False),
+    "badgeprofile":      Cmd("shopkeeper","shop", True,  True,  False),
+    "badgestatus":       Cmd("shopkeeper","shop", True,  True,  False),
+    "badgewishlist":     Cmd("shopkeeper","shop", True,  True,  False),
+    "badgeadminhelp":    Cmd("shopkeeper","shop", False, True,  False, perm="manager"),
+    "badgeaudit":        Cmd("shopkeeper","shop", False, True,  False, perm="admin"),
+    "badgelogs":         Cmd("shopkeeper","shop", False, True,  False, perm="staff"),
+    "claimbadge":        Cmd("shopkeeper","shop", True,  False, True),
+    "commonbadges":      Cmd("shopkeeper","shop", True,  True,  False),
+
+    # ── Notifications / alerts ────────────────────────────────────────────────
+    "alerts":            Cmd("host",      "help",      True,  True,  False),
+    "announcement":      Cmd("host",      "room_admin",False, False, True,  perm="manager"),
+    "botshome":          Cmd("host",      "help",      True,  True,  False),
+
+    # ── Coin pack / buy commands ──────────────────────────────────────────────
+    "buycoins":          Cmd("banker",    "economy",   False, False, True),
+    "buypack":           Cmd("banker",    "economy",   False, False, True),
+    "packs":             Cmd("banker",    "economy",   False, True,  False),
+    "buychillcoins":     Cmd("banker",    "economy",   False, False, True),
+    "coinpack":          Cmd("banker",    "economy",   False, False, True),
+    "coinpackadmin":     Cmd("banker",    "economy",   False, True,  False, perm="admin"),
+
+    # ── Event points shorthand ────────────────────────────────────────────────
+    "ep":                Cmd("eventhost", "events",    True,  True,  False),
+
 }
 
 # ---------------------------------------------------------------------------
