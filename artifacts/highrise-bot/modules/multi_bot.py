@@ -630,6 +630,8 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "djhistory": "dj",
     "toprequests": "dj",
     "upnext": "dj",
+    "songinfo": "dj", "recent": "dj",
+    "myrequests": "dj", "cancelrequest": "dj", "requeststatus": "dj",
     "djstats": "dj",
     "favorite": "dj",
     "favorites": "dj",

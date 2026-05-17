@@ -1202,6 +1202,77 @@ def _get_dj_reports(limit: int = 10) -> list[dict]:
         return []
 
 
+def _get_songinfo(queue_pos: int) -> dict | None:
+    """
+    Return song info at queue_pos (0=now playing, 1-N=pending queue).
+    Includes title, username, duration, youtube_url, priority, dedication, status.
+    """
+    try:
+        conn = db.get_connection()
+        if queue_pos == 0:
+            row = conn.execute(
+                "SELECT title, username, duration, youtube_url, priority, dedication, status "
+                "FROM dj_requests WHERE status='playing' LIMIT 1"
+            ).fetchone()
+        else:
+            rows = conn.execute(
+                "SELECT title, username, duration, youtube_url, priority, dedication, status "
+                "FROM dj_requests WHERE status='pending' "
+                "ORDER BY priority DESC, requested_at ASC"
+            ).fetchall()
+            row = rows[queue_pos - 1] if rows and 1 <= queue_pos <= len(rows) else None
+        conn.close()
+        return dict(row) if row else None
+    except Exception:
+        return None
+
+
+def _get_myrequests(user_id: str) -> list[dict]:
+    """Return user's current pending/playing songs in queue priority order."""
+    try:
+        conn = db.get_connection()
+        rows = conn.execute(
+            "SELECT title, duration, priority, status "
+            "FROM dj_requests WHERE user_id=? AND status IN ('pending','playing') "
+            "ORDER BY priority DESC, requested_at ASC",
+            (user_id,),
+        ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+    except Exception:
+        return []
+
+
+def _cancel_request(
+    queue_pos: int, user_id: str, admin: bool = False,
+) -> tuple[str, int] | str:
+    """
+    Cancel the pending song at queue_pos.
+    Returns (title, priority) on success; 'nopos'/'notowner'/'error' otherwise.
+    """
+    try:
+        conn = db.get_connection()
+        rows = conn.execute(
+            "SELECT id, user_id, title, priority FROM dj_requests WHERE status='pending' "
+            "ORDER BY priority DESC, requested_at ASC"
+        ).fetchall()
+        if not rows or queue_pos < 1 or queue_pos > len(rows):
+            conn.close()
+            return "nopos"
+        row = rows[queue_pos - 1]
+        if not admin and row["user_id"] != user_id:
+            conn.close()
+            return "notowner"
+        conn.execute(
+            "UPDATE dj_requests SET status='cancelled' WHERE id=?", (row["id"],)
+        )
+        conn.commit()
+        conn.close()
+        return (row["title"][:40], int(row["priority"]))
+    except Exception:
+        return "error"
+
+
 # ---------------------------------------------------------------------------
 # Central playback advance  (timer · repeat · autoplay · announce · personality)
 # ---------------------------------------------------------------------------
@@ -2330,6 +2401,117 @@ async def handle_dj_leaderboard(bot: "BaseBot", user: "User") -> None:
     await _w(bot, user.id, "\n".join(lines)[:249])
 
 
+async def handle_dj_songinfo(
+    bot: "BaseBot", user: "User", args: list[str],
+) -> None:
+    """!songinfo <#>  —  title, requester, duration, link (0=now playing, 1-N=queue)."""
+    if len(args) < 2 or not args[1].isdigit():
+        await _w(bot, user.id,
+                 "🎵 Usage: !songinfo <#>\n"
+                 "Use 0 for now playing, or #1-N from !queue.")
+        return
+    pos  = int(args[1])
+    info = _get_songinfo(pos)
+    if info is None:
+        label = "now playing" if pos == 0 else f"#{pos}"
+        await _w(bot, user.id,
+                 f"🎵 No song at {label}. Use !np or !queue to check.")
+        return
+    ptype = info.get("priority", 0)
+    badge = " [VIP]" if ptype == 2 else (" [⭐]" if ptype == 1 else "")
+    dur   = f" [{info['duration']}]" if info.get("duration") else ""
+    ded   = f"\n♥ {info['dedication'][:50]}" if info.get("dedication") else ""
+    url   = f"\n🔗 {info['youtube_url'][:90]}" if info.get("youtube_url") else ""
+    slot  = "▶️ NOW" if info.get("status") == "playing" else f"#{pos}"
+    await _w(
+        bot, user.id,
+        (f"🎵 {slot}{badge}: {info['title'][:45]}{dur}\n"
+         f"By @{info['username'][:20]}{ded}{url}")[:249],
+    )
+
+
+async def handle_dj_recent(bot: "BaseBot", user: "User") -> None:
+    """!recent  —  last 5 played or skipped songs (public)."""
+    rows = _get_history(5)
+    if not rows:
+        await _w(bot, user.id,
+                 "🕐 No history yet — be the first with !request <song>!")
+        return
+    lines = ["🕐 Recently Played:"]
+    for r in rows:
+        tag = "⏭" if r["status"] == "skipped" else "✅"
+        dur = f" [{r['duration']}]" if r.get("duration") else ""
+        lines.append(f"{tag} {r['title'][:38]}{dur} @{r['username'][:12]}")
+    await _w(bot, user.id, "\n".join(lines)[:249])
+
+
+async def handle_dj_myrequests(bot: "BaseBot", user: "User") -> None:
+    """!myrequests  —  your currently queued songs (public)."""
+    reqs = _get_myrequests(user.id)
+    if not reqs:
+        await _w(bot, user.id,
+                 "🎵 You have no songs in the queue.\n"
+                 "Use !request <song> to add one!")
+        return
+    lines = [f"🎵 Your requests ({len(reqs)}):"]
+    for r in reqs:
+        ptype = r.get("priority", 0)
+        badge = " [VIP]" if ptype == 2 else (" [⭐]" if ptype == 1 else "")
+        dur   = f" [{r['duration']}]" if r.get("duration") else ""
+        tag   = "▶️" if r["status"] == "playing" else "🎵"
+        lines.append(f"{tag}{badge} {r['title'][:40]}{dur}")
+    await _w(bot, user.id, "\n".join(lines)[:249])
+
+
+async def handle_dj_cancelrequest(
+    bot: "BaseBot", user: "User", args: list[str],
+) -> None:
+    """!cancelrequest <#>  —  cancel your own pending song at queue position # (public)."""
+    if len(args) < 2 or not args[1].isdigit():
+        await _w(bot, user.id,
+                 "Usage: !cancelrequest <queue#>\n"
+                 "Check !myrequests or !queue for your position.")
+        return
+    pos    = int(args[1])
+    result = _cancel_request(pos, user.id, admin=is_admin(user.username))
+    if result == "nopos":
+        await _w(bot, user.id,
+                 f"🎵 No pending song at #{pos}. Check !queue for positions.")
+    elif result == "notowner":
+        await _w(bot, user.id,
+                 "🎵 That's not your song! You can only cancel your own requests.")
+    elif result == "error":
+        await _w(bot, user.id, "⚠️ Could not cancel that song. Try again.")
+    else:
+        title, priority = result
+        msg = f"✅ Cancelled: {title}"
+        if priority == 1:
+            refund = _dj_priority_price()
+            db.adjust_balance(user.id, refund)
+            _log_dj_economy(user.id, user.username, "refund", refund, title)
+            msg += f"\n💰 Priority refund: {refund} coins added back."
+        await _w(bot, user.id, msg[:249])
+
+
+async def handle_dj_requeststatus(bot: "BaseBot", user: "User") -> None:
+    """!requeststatus  —  your cooldown, pending count, lock status (public)."""
+    locked   = _dj_locked()
+    total_q  = _total_active()
+    qmax     = _queue_max()
+    cooldown = _cooldown()
+    secs_ago = _user_cooldown_secs(user.id)
+    wait     = max(0, cooldown - secs_ago)
+    pending  = _user_pending_count(user.id)
+    umax     = _user_max()
+    price    = _dj_priority_price()
+
+    lock_ln = "🔒 Requests PAUSED" if locked else "🔓 Requests open"
+    cd_ln   = f"⏳ Cooldown: {wait}s left" if wait > 0 else "✅ Ready to request"
+    q_ln    = f"📋 Queue: {total_q}/{qmax} | Yours: {pending}/{umax}"
+    p_ln    = f"💰 Priority: {price} coins | ⭐ VIP: free (subscribers)"
+    await _w(bot, user.id, f"{lock_ln}\n{cd_ln}\n{q_ln}\n{p_ln}"[:249])
+
+
 async def handle_dj_djban(
     bot: "BaseBot", user: "User", args: list[str],
 ) -> None:
@@ -2575,14 +2757,15 @@ async def handle_dj_shoutout(
 
 
 async def handle_dj_help(bot: "BaseBot", user: "User") -> None:
-    """!djhelp  —  list all DJ commands."""
+    """!djhelp  —  grouped help for all DJ commands."""
     await _w(
         bot, user.id,
         "🎵 DJ Commands:\n"
-        "!request/!req/!sr/!song | !pick <1-5>\n"
-        "!np | !upnext | !queue | !priorityqueue\n"
-        "💰 !djprice | !priorityrequest | !tipdj\n"
-        "⭐ !viprequest (VIP) | !djleaderboard\n"
-        "💌 !dedicate <#> <msg> | !djreport <#> <why>\n"
-        "Admin: !djban | !songban | !moveup <#> | !bump <#>"
+        "Search: !request <song> → !pick <1-5>\n"
+        "Info: !np !queue !recent !songinfo <#>\n"
+        "Mine: !myrequests !cancelrequest <#>\n"
+        "Status: !requeststatus !radiostatus !radio\n"
+        "💰 !priorityrequest | ⭐ !viprequest\n"
+        "!tipdj !dedicate <#> !djleaderboard\n"
+        "Admin: !djban !songban !moveup !bump"
     )
