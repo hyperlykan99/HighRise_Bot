@@ -174,6 +174,35 @@ def _collect_bots() -> list[_BotSpec]:
             deduped.append(spec)
     specs = deduped
 
+    # ── Staged rollout filter ─────────────────────────────────────────────────
+    # Set BOTS_ENABLED=<comma-separated modes or ids> to start only a subset.
+    #
+    # Examples:
+    #   BOTS_ENABLED=main,dj      — ChillTopiaMC (main/host) + DJ_DUDU only
+    #   BOTS_ENABLED=host,dj      — same (use "host" if main auto-demoted)
+    #   BOTS_ENABLED=main,dj,miner,banker  — staged 4-bot rollout
+    #   (unset)                   — all configured bots start (default)
+    #
+    # "main" is a special alias that always matches the primary bot (index 0)
+    # regardless of whether it was auto-demoted to host mode.
+    _enabled_raw = os.environ.get("BOTS_ENABLED", "").strip()
+    if _enabled_raw:
+        _allowed = {m.strip().lower() for m in _enabled_raw.split(",") if m.strip()}
+        _include_primary = "main" in _allowed
+        filtered: list[_BotSpec] = []
+        for i, s in enumerate(specs):
+            keep = (i == 0 and _include_primary) or bool(
+                {s.bot_id.lower(), s.bot_mode.lower()} & _allowed
+            )
+            if keep:
+                filtered.append(s)
+            else:
+                print(f"[RUNNER] BOTS_ENABLED: skipping {s.label} (mode={s.bot_mode})")
+        specs = filtered
+        print(f"[RUNNER] BOTS_ENABLED={_enabled_raw!r} — {len(specs)} bot(s) will start")
+        if not specs:
+            print("[RUNNER] WARN: BOTS_ENABLED excluded all bots — check its value.")
+
     return specs
 
 
