@@ -342,8 +342,8 @@ def _sftp_step(
 # Optional AzuraCast API post-upload step
 # ─────────────────────────────────────────────────────────────────────────────
 
-_API_WAIT_SECS   = 7   # seconds to wait after SFTP before first rescan attempt
-_API_RETRY_COUNT = 3   # how many times to search for the file if not indexed yet
+_API_WAIT_SECS   = 10  # seconds to wait after SFTP before first rescan attempt
+_API_RETRY_COUNT = 5   # how many times to search for the file if not indexed yet
 _API_RETRY_DELAY = 5   # seconds between search retries
 
 def _azura_api_cfg() -> "dict | None":
@@ -366,14 +366,17 @@ def _azura_post_upload(filename: str) -> None:
 
     Steps
     ─────
-    1. Wait _API_WAIT_SECS for AzuraCast to notice the new file.
+    1. Wait _API_WAIT_SECS (10 s) for AzuraCast to notice the new file.
     2. POST /api/station/{id}/files/batch  {"do":"rescan"}  — tell AzuraCast
        to index the Requests folder.
     3. GET  /api/station/{id}/files?searchPhrase={filename}  — look for the
-       media record.  Retry up to _API_RETRY_COUNT times (_API_RETRY_DELAY s
-       apart) if the file isn't indexed yet.
-    4. POST /api/station/{id}/files/batch  {"do":"queue","files":[file_id]}
-       — add the confirmed file to the immediate playback queue.
+       media record.  Retry up to _API_RETRY_COUNT (5) times (_API_RETRY_DELAY s
+       apart) if the file isn't indexed yet.  Does NOT fail on first miss.
+    4. POST /api/station/{id}/files/batch  {"do":"playlist","playlist":id}
+       — add the confirmed file to the Requests playlist (if AZURA_PLAYLIST_ID
+       is set).
+    5. POST /api/station/{id}/request/{unique_id}
+       — submit the song to the AzuraCast request queue.
 
     All HTTP responses are logged in full.  Every error is non-fatal; this
     function never raises.  Skipped silently when AZURA_BASE_URL / AZURA_API_KEY
@@ -414,8 +417,9 @@ def _azura_post_upload(filename: str) -> None:
         except Exception as exc:
             print(f"[YT_API] Rescan request error (non-fatal): {exc}")
 
-        # ── 3. Search + retry ────────────────────────────────────────────────
-        file_id: "int | None" = None
+        # ── 3. Search + retry (up to _API_RETRY_COUNT attempts) ─────────────
+        file_id:   "int | None" = None
+        unique_id: "str | None" = None
         for attempt in range(1, _API_RETRY_COUNT + 1):
             try:
                 resp = req_lib.get(
@@ -433,10 +437,16 @@ def _azura_post_upload(filename: str) -> None:
                     rows = data if isinstance(data, list) else data.get("rows", [])
                     for row in rows:
                         if os.path.basename(row.get("path", "")) == filename:
-                            file_id = row.get("id")
+                            file_id   = row.get("id")
+                            unique_id = (
+                                row.get("unique_id")
+                                or row.get("song_unique_id")
+                                or (row.get("song") or {}).get("id")
+                                or ""
+                            )
                             print(
-                                f"[YT_API] File found in media library"
-                                f" — id={file_id}  path={row.get('path')}"
+                                f"[YT_API] File found — id={file_id}"
+                                f"  unique_id={unique_id}  path={row.get('path')}"
                             )
                             break
             except Exception as exc:
@@ -451,21 +461,36 @@ def _azura_post_upload(filename: str) -> None:
         if file_id is None:
             print(
                 f"[YT_API] '{filename}' not found after {_API_RETRY_COUNT} attempts"
-                f" — skipping queue step"
+                f" — skipping playlist/request steps"
             )
             return
 
-        # ── 4. Queue ─────────────────────────────────────────────────────────
-        try:
-            resp = req_lib.post(
-                batch_url,
-                json={"do": "queue", "files": [file_id]},
-                headers=headers,
-                timeout=15,
-            )
-            print(f"[YT_API] Queue → HTTP {resp.status_code}: {resp.text[:300]}")
-        except Exception as exc:
-            print(f"[YT_API] Queue request error (non-fatal): {exc}")
+        # ── 4. Add to Requests playlist ──────────────────────────────────────
+        playlist_id = (os.environ.get("AZURA_PLAYLIST_ID") or "").strip()
+        if playlist_id:
+            try:
+                resp = req_lib.post(
+                    batch_url,
+                    json={"do": "playlist", "playlist": playlist_id, "files": [file_id]},
+                    headers=headers,
+                    timeout=15,
+                )
+                print(f"[YT_API] Playlist add → HTTP {resp.status_code}: {resp.text[:300]}")
+            except Exception as exc:
+                print(f"[YT_API] Playlist add error (non-fatal): {exc}")
+        else:
+            print("[YT_API] AZURA_PLAYLIST_ID not set — skipping playlist add step")
+
+        # ── 5. Submit to request queue ───────────────────────────────────────
+        if unique_id:
+            request_url = f"{base}/api/station/{sid}/request/{unique_id}"
+            try:
+                resp = req_lib.post(request_url, headers=headers, timeout=15)
+                print(f"[YT_API] Request queue → HTTP {resp.status_code}: {resp.text[:300]}")
+            except Exception as exc:
+                print(f"[YT_API] Request queue error (non-fatal): {exc}")
+        else:
+            print("[YT_API] unique_id unavailable — skipping request queue step")
 
     except Exception as exc:
         print(f"[YT_API] Unexpected error in post-upload step (non-fatal): {exc}")
