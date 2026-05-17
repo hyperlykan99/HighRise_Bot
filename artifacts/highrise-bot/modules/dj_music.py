@@ -3398,6 +3398,7 @@ async def handle_dj_testall(bot: "BaseBot", user: "User") -> None:
     EXPECTED_TABLES = [
         "dj_requests", "dj_bans", "dj_song_bans",
         "dj_reports", "dj_economy_log", "dj_favorites",
+        "dj_ratings",
     ]
     try:
         _c = db.get_connection()
@@ -3425,6 +3426,8 @@ async def handle_dj_testall(bot: "BaseBot", user: "User") -> None:
         "djcheck", "djhealth", "cancelrequest", "requeststatus", "djtestall",
         "radio", "setradio", "radiostatus", "webplayer", "setwebplayer",
         "recent", "myrequests", "songinfo",
+        "djlimits", "setrequestcooldown", "setmaxuserqueue", "setmaxqueue",
+        "djcleanup",
     ]
     bad_routes = [c for c in _KEY_CMDS if not _sth(c)]
     if bad_routes:
