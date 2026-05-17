@@ -24,6 +24,7 @@ Admin commands:
                          queuemax <1-50>      max queue size          (default 20)
                          cooldown <1-60>      request cooldown in min (default 5)
                          votethreshold <2-10> votes needed to auto-skip (default 3)
+  !djdebug on|off      Toggle search debug whispers (admin only)
 
 Architecture:
   • PlaybackBackend protocol  — plug in IcecastBackend later with zero handler changes
@@ -35,8 +36,13 @@ Architecture:
   • Configurable via db.get_room_setting / db.set_room_setting
   • All DB ops use get_connection() — no module-level connection held open
 
+Search fix: yt-dlp ytsearch prefix MUST be embedded in the query string itself
+  (e.g. "ytsearch5:despacito").  The `default_search` option does NOT trigger
+  YouTube search — it returns a bare URL result instead.
+
 DB table : dj_requests  (migration 3.2M + 3.2N in database.py)
 Settings : room_settings keys  dj_queue_max | dj_cooldown_mins | dj_skipvote_threshold
+                                dj_debug_mode
 """
 from __future__ import annotations
 
@@ -44,6 +50,7 @@ import asyncio
 import re
 import string
 import time
+import traceback
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 import database as db
@@ -150,11 +157,13 @@ def set_playback_backend(backend: PlaybackBackend) -> None:
 _CFG_QUEUE_MAX   = "dj_queue_max"
 _CFG_COOLDOWN    = "dj_cooldown_mins"
 _CFG_VOTE_THRESH = "dj_skipvote_threshold"
+_CFG_DEBUG       = "dj_debug_mode"
 
 _CFG_DEFAULTS: dict[str, str] = {
     _CFG_QUEUE_MAX:   "20",
     _CFG_COOLDOWN:    "5",
     _CFG_VOTE_THRESH: "3",
+    _CFG_DEBUG:       "off",
 }
 
 # Friendly names and valid ranges for !djset
@@ -170,9 +179,11 @@ def _cfg(key: str) -> int:
     return int(db.get_room_setting(key, _CFG_DEFAULTS[key]))
 
 
-def _queue_max()   -> int: return _cfg(_CFG_QUEUE_MAX)
-def _cooldown()    -> int: return _cfg(_CFG_COOLDOWN)
-def _vote_thresh() -> int: return _cfg(_CFG_VOTE_THRESH)
+def _queue_max()    -> int:  return _cfg(_CFG_QUEUE_MAX)
+def _cooldown()     -> int:  return _cfg(_CFG_COOLDOWN)
+def _vote_thresh()  -> int:  return _cfg(_CFG_VOTE_THRESH)
+def _debug_mode()   -> bool:
+    return db.get_room_setting(_CFG_DEBUG, "off").lower() == "on"
 
 
 # ---------------------------------------------------------------------------
@@ -461,45 +472,138 @@ def _total_active() -> int:
 # Search helpers
 # ---------------------------------------------------------------------------
 
+class _SearchError(Exception):
+    """Raised by _yt_search_sync on failure; carries captured yt-dlp log."""
+    def __init__(self, message: str, log_lines: list[str]) -> None:
+        super().__init__(message)
+        self.log_lines = log_lines
+
+
+class _YDLLogger:
+    """
+    Custom yt-dlp logger that captures all output to a list instead of
+    printing to stderr.  Attach via opts["logger"] = _YDLLogger().
+    """
+    def __init__(self) -> None:
+        self.lines: list[str] = []
+
+    def debug(self, msg: str) -> None:
+        # yt-dlp sends both debug and info through debug()
+        if msg.startswith("[debug] "):
+            return          # skip verbose internal debug lines
+        self.lines.append(msg)
+
+    def info(self, msg: str) -> None:
+        self.lines.append(msg)
+
+    def warning(self, msg: str) -> None:
+        self.lines.append(f"[WARN] {msg}")
+
+    def error(self, msg: str) -> None:
+        self.lines.append(f"[ERROR] {msg}")
+
+
 def _yt_search_sync(query: str, max_results: int = 5) -> list[dict]:
-    """Blocking YouTube search via yt-dlp.  Run in executor — do not await."""
+    """
+    Blocking YouTube search via yt-dlp.
+    MUST be called via run_in_executor — never awaited directly.
+
+    Key fix: the ytsearch prefix is embedded in the query string itself
+    ("ytsearch5:query").  The `default_search` YDL option is NOT used because
+    it does not trigger the YouTube search extractor — it returns a bare
+    URL-like result with zero entries instead.
+
+    Raises _SearchError on any failure so callers can whisper debug details.
+    """
     try:
         import yt_dlp  # type: ignore
     except ImportError:
-        return []
+        raise _SearchError("yt-dlp is not installed.", [])
 
-    opts = {
-        "quiet":           True,
-        "no_warnings":     True,
-        "extract_flat":    True,
-        "default_search":  f"ytsearch{max_results}",
-        "skip_download":   True,
-        "ignoreerrors":    True,
+    logger = _YDLLogger()
+    opts: dict[str, Any] = {
+        "quiet":        True,
+        "no_warnings":  True,
+        "extract_flat": True,
+        "skip_download": True,
+        "logger":       logger,
+        # Do NOT set default_search — embed ytsearch prefix in query instead
     }
+
+    prefixed_query = f"ytsearch{max_results}:{query}"
+
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
-            info    = ydl.extract_info(query, download=False) or {}
-            entries = info.get("entries") or []
-            results: list[dict] = []
-            for e in entries[:max_results]:
-                if not e:
-                    continue
-                secs = e.get("duration") or 0
-                m, s = divmod(int(secs), 60)
-                results.append({
-                    "title":    (e.get("title") or "Unknown")[:80],
-                    "url":      f"https://youtu.be/{e.get('id', '')}",
-                    "duration": f"{m}:{s:02d}" if secs else "?:??",
-                    "channel":  (e.get("uploader") or e.get("channel") or "")[:30],
-                })
-            return results
-    except Exception:
-        return []
+            info = ydl.extract_info(prefixed_query, download=False)
+    except Exception as exc:
+        raise _SearchError(
+            f"yt-dlp extract_info raised {type(exc).__name__}: {exc}",
+            logger.lines,
+        ) from exc
+
+    if not info:
+        raise _SearchError(
+            "yt-dlp returned None for query.",
+            logger.lines,
+        )
+
+    # Validate we got a search playlist back, not a bare URL result
+    info_type = info.get("_type", "")
+    entries   = info.get("entries") or []
+    if not entries:
+        detail = (
+            f"_type={info_type!r} "
+            f"keys={list(info.keys())[:8]}"
+        )
+        raise _SearchError(
+            f"yt-dlp returned 0 entries. {detail}",
+            logger.lines,
+        )
+
+    results: list[dict] = []
+    for e in entries[:max_results]:
+        if not e:
+            continue
+        vid_id = e.get("id", "")
+        if not vid_id:
+            continue
+        secs = e.get("duration") or 0
+        m, s = divmod(int(secs), 60)
+        results.append({
+            "title":    (e.get("title") or "Unknown")[:80],
+            "url":      f"https://youtu.be/{vid_id}",
+            "duration": f"{m}:{s:02d}" if secs else "?:??",
+            "channel":  (e.get("uploader") or e.get("channel") or "")[:30],
+        })
+
+    if not results:
+        raise _SearchError(
+            "All entries were empty or missing video IDs.",
+            logger.lines,
+        )
+
+    return results
 
 
-async def _yt_search(query: str, max_results: int = 5) -> list[dict]:
+async def _yt_search(query: str, max_results: int = 5) -> tuple[list[dict], str]:
+    """
+    Async wrapper around _yt_search_sync.
+    Returns (results, error_detail).
+    results is [] and error_detail is non-empty on failure.
+    """
     loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(None, _yt_search_sync, query, max_results)
+    try:
+        results = await loop.run_in_executor(
+            None, _yt_search_sync, query, max_results
+        )
+        return results, ""
+    except _SearchError as exc:
+        log_snippet = "\n".join(exc.log_lines[-8:]) if exc.log_lines else "(no log)"
+        detail = f"{exc}\nyt-dlp log:\n{log_snippet}"
+        return [], detail
+    except Exception as exc:
+        detail = f"Unexpected error: {type(exc).__name__}: {exc}\n{traceback.format_exc()[-400:]}"
+        return [], detail
 
 
 def _store_search(user_id: str, results: list[dict]) -> None:
@@ -607,10 +711,15 @@ async def handle_dj_request(
 
     await _w(bot, user.id, f"🔍 Searching: {query[:60]}…")
 
-    results = await _yt_search(query)
+    results, error_detail = await _yt_search(query)
     if not results:
         await _w(bot, user.id,
                  "⚠️ No results found. Try a different search term.")
+        # Whisper full debug info to admins when debug mode is on
+        if error_detail and (is_admin(user.username) or _debug_mode()):
+            for chunk_start in range(0, min(len(error_detail), 700), 245):
+                await _w(bot, user.id,
+                         f"[DJ DEBUG] {error_detail[chunk_start:chunk_start+245]}")
         return
 
     _store_search(user.id, results)
@@ -885,6 +994,29 @@ async def handle_dj_set(
     await _w(bot, user.id, f"✅ {key_raw} set to {val}.")
 
 
+async def handle_dj_debug(
+    bot: "BaseBot", user: "User", args: list[str],
+) -> None:
+    """!djdebug on|off  —  toggle search debug whispers (admin+)."""
+    if not is_admin(user.username):
+        await _w(bot, user.id, "🔒 Admin only.")
+        return
+
+    if len(args) < 2 or args[1].lower() not in ("on", "off"):
+        current = "ON" if _debug_mode() else "OFF"
+        await _w(bot, user.id,
+                 f"🔧 DJ debug mode is currently {current}.\n"
+                 f"Usage: !djdebug on|off")
+        return
+
+    state = args[1].lower()
+    db.set_room_setting(_CFG_DEBUG, state)
+    label = "ON" if state == "on" else "OFF"
+    await _w(bot, user.id,
+             f"🔧 DJ debug mode: {label}.\n"
+             f"{'Search errors will now be whispered to admins.' if state == 'on' else 'Search errors are now silent to regular users.'}")
+
+
 async def handle_dj_help(bot: "BaseBot", user: "User") -> None:
     """!djhelp  —  list all DJ commands."""
     await _w(
@@ -895,5 +1027,5 @@ async def handle_dj_help(bot: "BaseBot", user: "User") -> None:
         "!queue — see upcoming songs\n"
         "!np — now playing + link\n"
         "!skipvote — vote to skip\n"
-        "Staff: !skip !stopmusic !djconfig !djset"
+        "Staff: !skip !stopmusic !djconfig !djset !djdebug"
     )

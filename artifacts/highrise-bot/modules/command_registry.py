@@ -485,6 +485,7 @@ REGISTRY: dict[str, Cmd] = {
     "djconfig":         Cmd("dj","music",  False,True,  False, perm="manager",
                             aliases=("djsettings",)),
     "djset":            Cmd("dj","music",  False,False, False, perm="admin"),
+    "djdebug":          Cmd("dj","music",  False,False, False, perm="admin"),
     "djhelp":           Cmd("dj","music",  True, True,  False),
 
     # ── EventHost: new event / autogame commands ─────────────────────────────

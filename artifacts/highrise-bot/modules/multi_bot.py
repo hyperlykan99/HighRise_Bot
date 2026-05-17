@@ -619,6 +619,7 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "stopmusic": "dj", "djstop": "dj", "clearqueue": "dj",
     "djconfig": "dj", "djsettings": "dj",
     "djset": "dj",
+    "djdebug": "dj",
     "djhelp": "dj",
     # eventhost — events / autogames (new)
     "adminsblessing": "eventhost", "adminblessing": "eventhost",
