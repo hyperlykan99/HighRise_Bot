@@ -497,14 +497,29 @@ async def handle_staffalerts(
 async def handle_staffalert_test(
     bot: "BaseBot", user: "User", args: list[str],
 ) -> None:
-    """!staffalert test — send a test DM to all eligible staff."""
+    """
+    !staffalert test            — general security-category test
+    !staffalert <cat> test      — category-specific test
+    """
     if not _is_eligible(user.username):
         await _w(bot, user.id, "🔒 Staff only.")
         return
 
-    msg    = "🛡️ Staff Alert Test\nThis is a test staff alert."
-    report = await _send_staff_alert_verbose(bot, "security", msg)
+    # Detect   !staffalert <cat> test
+    sub1 = args[1].lower() if len(args) >= 2 else ""
+    sub2 = args[2].lower() if len(args) >= 3 else ""
 
+    if sub1 in _CATEGORIES and sub2 == "test":
+        category = sub1
+        if category == "reports":
+            msg = "📣 Staff Report Alert Test\nReports category is working."
+        else:
+            msg = f"🛡️ Staff Alert Test\n{_LABEL[category]} category is working."
+    else:
+        category = "security"
+        msg = "🛡️ Staff Alert Test\nThis is a test staff alert."
+
+    report  = await _send_staff_alert_verbose(bot, category, msg)
     sent    = report["sent"]
     no_dm   = report["skipped_no_dm"]
     off_ct  = report["skipped_off"]
@@ -512,8 +527,9 @@ async def handle_staffalert_test(
     failed  = report["failed"]
     skipped = no_dm + off_ct + cat_ct
 
+    label = _LABEL.get(category, category.title())
     summary = (
-        f"🛡️ Staff Alert Test\n"
+        f"🛡️ {label} Alert Test\n"
         f"Delivered: {sent}\n"
         f"Skipped: {skipped}\n"
         f"Failed: {failed}"
@@ -554,23 +570,51 @@ async def handle_staffalertaudit(
     # Resolve conv_id with source info
     conv_id, src = _resolve_conv_id(uid, uname)
     dm_linked = "YES" if conv_id else "NO"
-    conv_info = "YES" if conv_id else "NO"
+
+    # Role detection
+    role_str = _role(uname).title()
+    eligible = _is_eligible(uname)
+
+    # Can receive report alerts?
+    alerts_on  = bool(prefs.get("alerts_on", 1))
+    reports_on = bool(prefs.get("reports", _cat_default(uname, "reports")))
+    can_recv   = eligible and alerts_on and reports_on and bool(conv_id)
+    can_str    = "YES" if can_recv else "NO"
+
+    # Build reason if NO
+    block_reason = ""
+    if not can_recv:
+        if not eligible:
+            block_reason = "not staff/admin/owner"
+        elif not alerts_on:
+            block_reason = "staff alerts OFF"
+        elif not reports_on:
+            block_reason = "reports OFF"
+        else:
+            block_reason = "no DM connected"
 
     lines = [
         f"🛡️ @{uname} Staff Alert Audit",
-        f"User ID: {uid[:16]}…",
         f"Status: {status}",
+        f"Reports: {'ON' if reports_on else 'OFF'}",
         f"DM connected: {dm_linked}",
-        f"Conv ID exists: {conv_info}",
         f"Source: {src}",
+        f"Role detected: {role_str}",
+        f"Can receive report alerts: {can_str}",
     ]
+    if block_reason:
+        lines.append(f"Reason: {block_reason}")
+
+    # Category breakdown
+    cat_lines = []
     for c in _CATEGORIES:
         flag = "ON" if prefs.get(c, 0) else "OFF"
-        lines.append(f"  {_LABEL[c]}: {flag}")
+        cat_lines.append(f"  {_LABEL[c]}: {flag}")
 
-    # Split into two whispers
-    await _w(bot, user.id, "\n".join(lines[:6])[:249])
-    await _w(bot, user.id, "\n".join(lines[6:])[:249])
+    # Whisper 1: header + key fields
+    await _w(bot, user.id, "\n".join(lines)[:249])
+    # Whisper 2: full category breakdown
+    await _w(bot, user.id, "\n".join(cat_lines)[:249])
 
 
 async def handle_staffsubcount(

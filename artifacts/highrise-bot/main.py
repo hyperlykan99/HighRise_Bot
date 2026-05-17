@@ -7120,7 +7120,9 @@ class HangoutBot(BaseBot):
         elif cmd in {"roomalert"}:
             await handle_alert(self, user, args)
         elif cmd == "staffalert":
-            if len(args) >= 2 and args[1].lower() == "test":
+            _sa1 = args[1].lower() if len(args) >= 2 else ""
+            _sa2 = args[2].lower() if len(args) >= 3 else ""
+            if _sa1 == "test" or _sa2 == "test":
                 await handle_staffalert_test(self, user, args)
             else:
                 await handle_staffalert(self, user, args)

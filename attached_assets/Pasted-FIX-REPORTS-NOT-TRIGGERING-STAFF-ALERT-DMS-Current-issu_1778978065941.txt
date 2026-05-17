@@ -1,0 +1,229 @@
+FIX REPORTS NOT TRIGGERING STAFF ALERT DMS
+
+Current issue:
+!staffalert test works or staff alerts are configured, but when a player uses:
+
+!report testing staff alerts
+
+Staff/owner does NOT receive the expected DM:
+
+📣 New Player Report
+From: @4ktreyMarion
+Message: testing staff alerts
+Check: !reports
+
+Goal:
+Connect !report and !bug to the staff alert DM system.
+
+Do NOT modify:
+- notification DM random-message behavior
+- main.py startup
+- on_message hard gate
+- player balances
+- economy math
+- casino/poker/mining/fishing logic
+- badge/title systems
+
+Only fix:
+- report/bug command staff alert hook
+- staff alert delivery for reports category
+- display/logging if needed
+
+==================================================
+PART 1 — Find Report Handler
+==================================================
+
+Find the live handler for:
+
+!report
+!bug
+!feedback if present
+
+Likely files:
+modules/reports.py
+modules/reporting.py
+modules/help_cmds.py
+main.py
+
+When a report is successfully created/saved, call the staff alert system.
+
+Do not send staff alert if report creation failed.
+
+==================================================
+PART 2 — Trigger Staff Alert Category: reports
+==================================================
+
+After saving a report, send/queue staff alert with category:
+
+reports
+
+Message format:
+
+📣 New Player Report
+From: @username
+Message: report text
+Check: !reports
+
+If report type exists:
+
+📣 New Player Report
+From: @username
+Type: Bug/Report
+Message: report text
+Check: !reports
+
+Rules:
+- Send only to staff/admin/owners with staff alerts ON.
+- Category reports must be ON.
+- Staff must have DM connected.
+- DM must be sent by ChillTopiaBot / host only.
+- If current bot is not host, queue it for host.
+- Do not DM normal players.
+- Do not post staff alert publicly.
+
+==================================================
+PART 3 — Delivery Counts / Logs
+==================================================
+
+Add logs:
+
+[REPORT ALERT] created by=@username message='testing staff alerts'
+[STAFF ALERT QUEUE] category=reports target=@staff
+[STAFF ALERT SEND] category=reports target=@staff status=sent
+[STAFF ALERT SKIP] category=reports target=@staff reason=reports_off
+[STAFF ALERT SKIP] category=reports target=@staff reason=no_conversation_id
+[STAFF ALERT SKIP] category=reports target=@staff reason=staff_alerts_off
+
+If possible, after !report reply to player normally:
+
+✅ Report submitted. Thank you.
+
+Do not show staff delivery details to normal player.
+
+==================================================
+PART 4 — Staff Alert Audit Must Help Debug
+==================================================
+
+Make sure:
+
+!staffalertaudit @4ktreyMarion
+
+shows:
+Status: ON/OFF
+Reports: ON/OFF
+DM connected: YES/NO
+Role detected: owner/admin/mod/staff
+Can receive report alerts: YES/NO
+
+If Can receive report alerts is NO, show reason:
+- staff alerts OFF
+- reports OFF
+- no DM connected
+- not staff/admin/owner
+
+==================================================
+PART 5 — Manual Test Command
+==================================================
+
+Make sure this still works:
+
+!staffalert test
+
+But also add/verify:
+
+!staffalert reports test
+
+Expected:
+Sends a report-category test DM only to staff with reports ON.
+
+DM:
+
+📣 Staff Report Alert Test
+Reports category is working.
+
+==================================================
+PART 6 — QA Coverage
+==================================================
+
+Update QA safely.
+
+Add checks:
+- !report handler exists
+- !bug handler exists if command exists
+- reports category exists in staff alerts
+- report handler calls/queues staff alert category reports
+- !staffalert reports test exists or report alert helper exists
+- QA should not run on startup
+
+==================================================
+PART 7 — Compile
+==================================================
+
+Run:
+
+python -m py_compile main.py
+python -m py_compile database.py
+python -m py_compile modules/reports.py
+python -m py_compile modules/qa_test.py
+python -m py_compile modules/notify_system.py
+python -m py_compile modules/command_registry.py
+python -m py_compile modules/multi_bot.py
+
+Skip missing files.
+
+==================================================
+PART 8 — Live Tests
+==================================================
+
+Run:
+
+DM ChillTopiaBot:
+!sub
+
+Room:
+!staffalerts on
+!staffalerts reports on
+!staffalerts settings
+!staffalertaudit @4ktreyMarion
+
+Expected:
+Status ON
+Reports ON
+DM connected YES
+Can receive report alerts YES
+
+Then:
+!staffalert reports test
+
+Expected DM:
+📣 Staff Report Alert Test
+Reports category is working.
+
+Then:
+!report testing staff alerts
+
+Expected player room reply:
+✅ Report submitted. Thank you.
+
+Expected staff DM from ChillTopiaBot:
+📣 New Player Report
+From: @4ktreyMarion
+Message: testing staff alerts
+Check: !reports
+
+Then:
+!reports
+
+Expected:
+Report appears in reports list.
+
+Final report:
+1. Actual file/handler for !report
+2. Report alert hook added
+3. Staff alert category used: reports
+4. !staffalertaudit result
+5. !staffalert reports test result
+6. !report test result
+7. py_compile result
+8. !commandissues result
+9. !qatest all result

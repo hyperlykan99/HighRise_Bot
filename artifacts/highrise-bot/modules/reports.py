@@ -77,15 +77,16 @@ async def handle_report(bot: BaseBot, user: User, args: list[str]) -> None:
         reason            = reason,
     )
     set_user_cooldown("report", user.id)
-    await _w(bot, user.id, f"✅ Report #{report_id} submitted. Staff will review it.")
+    await _w(bot, user.id, "✅ Report submitted. Thank you.")
+    print(f"[REPORT ALERT] created by=@{user.username} message='{reason[:40]}'")
     try:
         from modules.staff_alerts import queue_staff_alert  # noqa: PLC0415
         queue_staff_alert(
             "reports",
             f"📣 New Player Report\n"
             f"From: @{user.username}\n"
-            f"Against: @{target}\n"
-            f"{reason[:80]}\n"
+            f"Type: Report\n"
+            f"Message: {reason[:80]}\n"
             f"Check: !reports",
         )
     except Exception:
@@ -119,14 +120,16 @@ async def handle_bug(bot: BaseBot, user: User, args: list[str]) -> None:
         reason            = reason,
     )
     set_user_cooldown("report", user.id)
-    await _w(bot, user.id, f"🐞 Bug #{report_id} submitted. Thank you!")
+    await _w(bot, user.id, "✅ Bug submitted. Thank you.")
+    print(f"[REPORT ALERT] created by=@{user.username} message='{reason[:40]}'")
     try:
         from modules.staff_alerts import queue_staff_alert  # noqa: PLC0415
         queue_staff_alert(
             "reports",
-            f"📣 New Bug Report\n"
+            f"📣 New Player Report\n"
             f"From: @{user.username}\n"
-            f"{reason[:100]}\n"
+            f"Type: Bug\n"
+            f"Message: {reason[:80]}\n"
             f"Check: !reports",
         )
     except Exception:
