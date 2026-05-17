@@ -428,7 +428,7 @@ def _get_nowplaying() -> dict | None:
     try:
         conn = db.get_connection()
         row  = conn.execute(
-            """SELECT id, username, title, youtube_url, duration, status, priority
+            """SELECT id, username, title, youtube_url, duration, status, priority, dedication
                FROM dj_requests
                WHERE status IN ('playing','pending')
                ORDER BY CASE status WHEN 'playing' THEN 0 ELSE 1 END,
@@ -446,7 +446,7 @@ def _get_queue(limit: int = 5) -> list[dict]:
     try:
         conn = db.get_connection()
         rows = conn.execute(
-            """SELECT id, username, title, youtube_url, duration, priority
+            """SELECT id, username, title, youtube_url, duration, priority, dedication
                FROM dj_requests
                WHERE status = 'pending'
                ORDER BY priority DESC, requested_at ASC LIMIT ?""",
@@ -474,7 +474,7 @@ def _promote_front() -> dict | None:
             return None   # already have a playing row
 
         nxt = conn.execute(
-            """SELECT id, username, title, youtube_url, duration, priority
+            """SELECT id, username, title, youtube_url, duration, priority, dedication
                FROM dj_requests WHERE status='pending'
                ORDER BY priority DESC, requested_at ASC LIMIT 1"""
         ).fetchone()
@@ -522,7 +522,7 @@ def _advance_queue() -> dict | None:
         _skip_votes.pop(current["id"], None)
 
         nxt = conn.execute(
-            """SELECT id, username, title, youtube_url, duration, priority
+            """SELECT id, username, title, youtube_url, duration, priority, dedication
                FROM dj_requests WHERE status='pending'
                ORDER BY priority DESC, requested_at ASC LIMIT 1"""
         ).fetchone()
@@ -921,13 +921,120 @@ def _get_dj_leaderboard() -> dict:
             "WHERE user_id NOT IN ('autoplay') "
             "GROUP BY user_id ORDER BY cnt DESC LIMIT 5"
         ).fetchall()
+        vip_reqs = conn.execute(
+            "SELECT username, COUNT(*) AS cnt FROM dj_economy_log "
+            "WHERE type='vip_request' GROUP BY user_id ORDER BY cnt DESC LIMIT 5"
+        ).fetchall()
         conn.close()
         return {
-            "tippers":    [dict(r) for r in tippers],
-            "requesters": [dict(r) for r in requesters],
+            "tippers":       [dict(r) for r in tippers],
+            "requesters":    [dict(r) for r in requesters],
+            "vip_requesters": [dict(r) for r in vip_reqs],
         }
     except Exception:
-        return {"tippers": [], "requesters": []}
+        return {"tippers": [], "requesters": [], "vip_requesters": []}
+
+
+def _get_priority_queue(limit: int = 12) -> list[dict]:
+    """Full pending queue ordered by priority tier for !priorityqueue."""
+    try:
+        conn = db.get_connection()
+        rows = conn.execute(
+            """SELECT id, user_id, username, title, duration, priority, dedication
+               FROM dj_requests WHERE status='pending'
+               ORDER BY priority DESC, requested_at ASC LIMIT ?""",
+            (limit,),
+        ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+    except Exception:
+        return []
+
+
+def _moveup_request(queue_pos: int) -> str:
+    """Swap sort keys between position queue_pos and queue_pos-1. Returns 'ok'/'noop'/'error'."""
+    try:
+        conn = db.get_connection()
+        rows = conn.execute(
+            "SELECT id, priority, requested_at FROM dj_requests WHERE status='pending' "
+            "ORDER BY priority DESC, requested_at ASC"
+        ).fetchall()
+        if len(rows) < 2 or queue_pos < 2 or queue_pos > len(rows):
+            conn.close()
+            return "noop"
+        above = rows[queue_pos - 2]
+        below = rows[queue_pos - 1]
+        conn.execute(
+            "UPDATE dj_requests SET priority=?, requested_at=? WHERE id=?",
+            (below["priority"], below["requested_at"], above["id"]),
+        )
+        conn.execute(
+            "UPDATE dj_requests SET priority=?, requested_at=? WHERE id=?",
+            (above["priority"], above["requested_at"], below["id"]),
+        )
+        conn.commit()
+        conn.close()
+        return "ok"
+    except Exception:
+        return "error"
+
+
+def _bump_request(queue_pos: int) -> str:
+    """Jump song at queue_pos to the very front of the queue. Returns 'ok'/'already_top'/'noop'/'error'."""
+    try:
+        conn = db.get_connection()
+        rows = conn.execute(
+            "SELECT id, priority, requested_at FROM dj_requests WHERE status='pending' "
+            "ORDER BY priority DESC, requested_at ASC"
+        ).fetchall()
+        if not rows or queue_pos < 1 or queue_pos > len(rows):
+            conn.close()
+            return "noop"
+        if queue_pos == 1:
+            conn.close()
+            return "already_top"
+        target    = rows[queue_pos - 1]
+        top_ts    = rows[0]["requested_at"]
+        top_prio  = rows[0]["priority"]
+        new_prio  = max(target["priority"], top_prio)
+        conn.execute(
+            "UPDATE dj_requests SET priority=?, requested_at=datetime(?, '-10 seconds') WHERE id=?",
+            (new_prio, top_ts, target["id"]),
+        )
+        conn.commit()
+        conn.close()
+        return "ok"
+    except Exception:
+        return "error"
+
+
+def _set_dedication(
+    queue_pos: int, user_id: str, message: str, admin: bool = False,
+) -> str:
+    """
+    Set dedication text on a pending song.
+    Returns song title on success; 'nopos' / 'notowner' / 'error' on failure.
+    """
+    try:
+        conn = db.get_connection()
+        rows = conn.execute(
+            "SELECT id, user_id, title FROM dj_requests WHERE status='pending' "
+            "ORDER BY priority DESC, requested_at ASC"
+        ).fetchall()
+        if not rows or queue_pos < 1 or queue_pos > len(rows):
+            conn.close()
+            return "nopos"
+        row = rows[queue_pos - 1]
+        if not admin and row["user_id"] != user_id:
+            conn.close()
+            return "notowner"
+        clean = message[:120].strip()
+        conn.execute("UPDATE dj_requests SET dedication=? WHERE id=?", (clean, row["id"]))
+        conn.commit()
+        conn.close()
+        return row["title"][:40]
+    except Exception:
+        return "error"
 
 
 # ---------------------------------------------------------------------------
@@ -996,13 +1103,14 @@ async def _play_song(bot: "BaseBot", song: dict) -> None:
         )
 
     ptype = song.get("priority", 0)
-    badge = " [⭐ VIP]" if ptype == 2 else (" [💰 Priority]" if ptype == 1 else "")
+    badge = " [VIP]" if ptype == 2 else (" [⭐]" if ptype == 1 else "")
     dur   = f" [{song['duration']}]" if song.get("duration") else ""
+    ded   = f"\n♥ {song['dedication'][:80]}" if song.get("dedication") else ""
     url   = f"\n{song['youtube_url']}" if song.get("youtube_url") else ""
     await _chat(
         bot,
-        f"🎵 Now Playing{badge}: {song['title'][:55]}{dur}"
-        f"\nRequested by @{song.get('username', '?')[:15]}{url}"
+        f"🎵 Now Playing{badge}: {song['title'][:50]}{dur}"
+        f"\nRequested by @{song.get('username', '?')[:15]}{ded}{url}"
     )
 
     if _dj_personality() and _random.random() < 0.40:
@@ -1218,8 +1326,9 @@ async def handle_dj_queue(bot: "BaseBot", user: "User") -> None:
         for i, r in enumerate(upcoming, 1):
             dur   = f" [{r['duration']}]" if r.get("duration") else ""
             p     = r.get("priority", 0)
-            badge = "⭐" if p == 2 else ("💰" if p == 1 else "")
-            lines.append(f"#{i}{badge} {r['title'][:37]}{dur}")
+            badge = "[VIP]" if p == 2 else ("⭐" if p == 1 else "")
+            ded   = f" ♥{r['dedication'][:12]}" if r.get("dedication") else ""
+            lines.append(f"#{i}{badge} {r['title'][:30]}{dur}{ded}")
 
     await _w(bot, user.id, "\n".join(lines)[:249])
 
@@ -1917,23 +2026,135 @@ async def handle_dj_tipdj(
 
 
 async def handle_dj_leaderboard(bot: "BaseBot", user: "User") -> None:
-    """!djleaderboard  —  top DJ tippers and all-time requesters (public)."""
+    """!djleaderboard  —  top tippers, requesters, VIP requesters (public)."""
     lb = _get_dj_leaderboard()
-    lines: list[str] = ["🏆 DJ Leaderboard:"]
 
-    if lb["tippers"]:
-        lines.append("💝 Top Tippers:")
-        for i, r in enumerate(lb["tippers"], 1):
-            lines.append(f"  {i}. @{r['username'][:15]} — {r['total']} coins")
-    else:
-        lines.append("💝 No tips yet — be first with !tipdj!")
+    def _fmt_tips(entries: list) -> str:
+        if not entries:
+            return "none yet"
+        return " | ".join(f"@{r['username'][:10]} {r['total']}c" for r in entries[:3])
 
-    if lb["requesters"]:
-        lines.append("🎵 Top Requesters:")
-        for i, r in enumerate(lb["requesters"], 1):
-            lines.append(f"  {i}. @{r['username'][:15]} — {r['cnt']} songs")
+    def _fmt_cnt(entries: list) -> str:
+        if not entries:
+            return "none yet"
+        return " | ".join(f"@{r['username'][:10]} {r['cnt']}" for r in entries[:3])
+
+    lines = [
+        "🏆 DJ Leaderboard:",
+        f"💝 Tips: {_fmt_tips(lb['tippers'])}",
+        f"🎵 Requests: {_fmt_cnt(lb['requesters'])}",
+        f"⭐ VIP: {_fmt_cnt(lb['vip_requesters'])}",
+    ]
+    await _w(bot, user.id, "\n".join(lines)[:249])
+
+
+async def handle_dj_priorityqueue(bot: "BaseBot", user: "User") -> None:
+    """!priorityqueue — queue grouped by priority tier (public)."""
+    now   = _get_nowplaying()
+    queue = _get_priority_queue(limit=10)
+
+    if not now and not queue:
+        await _w(bot, user.id, "🎵 Queue is empty! Use !request to add songs.")
+        return
+
+    lines: list[str] = []
+    if now:
+        ptype = now.get("priority", 0)
+        badge = " [VIP]" if ptype == 2 else (" [⭐]" if ptype == 1 else "")
+        dur   = f" [{now['duration']}]" if now.get("duration") else ""
+        lines.append(f"▶️ NOW{badge}: {now['title'][:40]}{dur}")
+
+    cur_tier: str | None = None
+    for pos, r in enumerate(queue, 1):
+        p     = r.get("priority", 0)
+        tier  = "[VIP]" if p == 2 else ("⭐ Priority" if p == 1 else "🎵 Normal")
+        if tier != cur_tier:
+            lines.append(f"{tier}:")
+            cur_tier = tier
+        dur = f" [{r['duration']}]" if r.get("duration") else ""
+        ded = f" ♥{r['dedication'][:10]}" if r.get("dedication") else ""
+        lines.append(f" #{pos} @{r['username'][:10]}: {r['title'][:28]}{dur}{ded}")
 
     await _w(bot, user.id, "\n".join(lines)[:249])
+
+
+async def handle_dj_moveup(
+    bot: "BaseBot", user: "User", args: list[str],
+) -> None:
+    """!moveup <n>  —  move song at position n up one spot (admin)."""
+    if not is_admin(user.username):
+        await _w(bot, user.id, "🔒 Admin only.")
+        return
+    if len(args) < 2 or not args[1].isdigit():
+        await _w(bot, user.id, "Usage: !moveup <queue position>")
+        return
+    pos    = int(args[1])
+    result = _moveup_request(pos)
+    if result == "noop":
+        await _w(bot, user.id, f"🎵 #{pos} is already at the top or invalid position.")
+    elif result == "ok":
+        await _w(bot, user.id, f"✅ Song #{pos} moved up one position.")
+    else:
+        await _w(bot, user.id, "⚠️ Could not move song. Check the queue number.")
+
+
+async def handle_dj_bump(
+    bot: "BaseBot", user: "User", args: list[str],
+) -> None:
+    """!bump <n>  —  jump song at position n to the very front (admin)."""
+    if not is_admin(user.username):
+        await _w(bot, user.id, "🔒 Admin only.")
+        return
+    if len(args) < 2 or not args[1].isdigit():
+        await _w(bot, user.id, "Usage: !bump <queue position>")
+        return
+    pos    = int(args[1])
+    result = _bump_request(pos)
+    if result == "already_top":
+        await _w(bot, user.id, f"🎵 Song #{pos} is already at the front!")
+    elif result == "noop":
+        await _w(bot, user.id, f"🎵 Invalid queue position: #{pos}")
+    elif result == "ok":
+        await _w(bot, user.id, f"✅ Song #{pos} bumped to the front of the queue!")
+    else:
+        await _w(bot, user.id, "⚠️ Could not bump song. Check the queue number.")
+
+
+async def handle_dj_dedicate(
+    bot: "BaseBot", user: "User", args: list[str],
+) -> None:
+    """!dedicate <n> <message>  —  add dedication to your queued song (public)."""
+    if len(args) < 3 or not args[1].isdigit():
+        await _w(bot, user.id,
+                 "💌 Usage: !dedicate <queue number> <message>\n"
+                 "Adds a dedication shown when your song plays!")
+        return
+    pos     = int(args[1])
+    message = " ".join(args[2:]).strip()[:120]
+    result  = _set_dedication(pos, user.id, message, admin=is_admin(user.username))
+    if result == "nopos":
+        await _w(bot, user.id, f"🎵 No song at queue position #{pos}.")
+    elif result == "notowner":
+        await _w(bot, user.id, "💌 You can only dedicate your own songs!")
+    elif result == "error":
+        await _w(bot, user.id, "⚠️ Could not set dedication. Try again.")
+    else:
+        await _w(bot, user.id, f"💌 Dedication set on: {result}\n♥ {message[:80]}")
+
+
+async def handle_dj_shoutout(
+    bot: "BaseBot", user: "User", args: list[str],
+) -> None:
+    """!shoutout <user> <message>  —  room shoutout (manager+)."""
+    if not can_manage_games(user.username):
+        await _w(bot, user.id, "🔒 Manager+ only.")
+        return
+    if len(args) < 3:
+        await _w(bot, user.id, "📣 Usage: !shoutout <user> <message>")
+        return
+    target  = args[1].lstrip("@")[:20]
+    message = " ".join(args[2:])[:150]
+    await _chat(bot, f"📣 Shoutout to @{target}: {message}"[:249])
 
 
 async def handle_dj_help(bot: "BaseBot", user: "User") -> None:
@@ -1942,9 +2163,9 @@ async def handle_dj_help(bot: "BaseBot", user: "User") -> None:
         bot, user.id,
         "🎵 DJ Commands:\n"
         "!request/!req/!sr/!song | !pick <1-5>\n"
-        "!np | !upnext | !queue | !skipvote | !favorite\n"
+        "!np | !upnext | !queue | !priorityqueue\n"
         "💰 !djprice | !priorityrequest | !tipdj\n"
         "⭐ !viprequest (VIP) | !djleaderboard\n"
-        "!favorites | !djstats | !djstatus | !radio\n"
-        "Admin: !djlock !repeat !shuffle !autoplay !setdjprice"
+        "💌 !dedicate <#> <msg> | !shoutout (mgr)\n"
+        "Admin: !moveup <#> | !bump <#> | !setdjprice"
     )

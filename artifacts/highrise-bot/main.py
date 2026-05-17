@@ -436,6 +436,8 @@ from modules.dj_music import (
     handle_dj_djprice, handle_dj_setdjprice,
     handle_dj_priorityrequest, handle_dj_viprequest,
     handle_dj_tipdj, handle_dj_leaderboard,
+    handle_dj_priorityqueue, handle_dj_moveup, handle_dj_bump,
+    handle_dj_dedicate, handle_dj_shoutout,
     handle_dj_help,
 )
 from modules.dm_queue import startup_host_dm_queue_loop
@@ -7216,6 +7218,16 @@ class HangoutBot(BaseBot):
             await handle_dj_tipdj(self, user, args)
         elif cmd in ("djleaderboard", "djtop"):
             await handle_dj_leaderboard(self, user)
+        elif cmd in ("priorityqueue", "pqueue"):
+            await handle_dj_priorityqueue(self, user)
+        elif cmd == "moveup":
+            await handle_dj_moveup(self, user, args)
+        elif cmd == "bump":
+            await handle_dj_bump(self, user, args)
+        elif cmd == "dedicate":
+            await handle_dj_dedicate(self, user, args)
+        elif cmd == "shoutout":
+            await handle_dj_shoutout(self, user, args)
         elif cmd == "djhelp":
             await handle_dj_help(self, user)
 

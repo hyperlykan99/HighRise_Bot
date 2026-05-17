@@ -507,6 +507,11 @@ REGISTRY: dict[str, Cmd] = {
     "viprequest":       Cmd("dj","music",  True, False, False, aliases=("vipreq",)),
     "tipdj":            Cmd("dj","music",  True, False, False),
     "djleaderboard":    Cmd("dj","music",  True, True,  False, aliases=("djtop",)),
+    "priorityqueue":    Cmd("dj","music",  True, True,  False, aliases=("pqueue",)),
+    "moveup":           Cmd("dj","music",  False,False, False, perm="admin"),
+    "bump":             Cmd("dj","music",  False,False, False, perm="admin"),
+    "dedicate":         Cmd("dj","music",  True, False, False),
+    "shoutout":         Cmd("dj","music",  False,False, False, perm="manager"),
     "djhelp":           Cmd("dj","music",  True, True,  False),
 
     # ── EventHost: new event / autogame commands ─────────────────────────────

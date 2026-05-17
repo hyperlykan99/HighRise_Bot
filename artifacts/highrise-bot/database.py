@@ -3156,6 +3156,14 @@ def _migrate_db():
     except Exception:
         pass
 
+    # 3.2R — DJ requests: add dedication text column
+    try:
+        conn.execute(
+            "ALTER TABLE dj_requests ADD COLUMN dedication TEXT NOT NULL DEFAULT ''"
+        )
+    except Exception:
+        pass
+
     # 3.2Q — DJ economy log (tips, priority charges, refunds)
     try:
         conn.execute("""

@@ -641,6 +641,11 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "viprequest": "dj", "vipreq": "dj",
     "tipdj": "dj",
     "djleaderboard": "dj", "djtop": "dj",
+    "priorityqueue": "dj", "pqueue": "dj",
+    "moveup": "dj",
+    "bump": "dj",
+    "dedicate": "dj",
+    "shoutout": "dj",
     "djhelp": "dj",
     # eventhost — events / autogames (new)
     "adminsblessing": "eventhost", "adminblessing": "eventhost",
