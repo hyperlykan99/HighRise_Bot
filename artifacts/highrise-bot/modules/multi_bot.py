@@ -624,6 +624,8 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "djclear": "dj",
     "djremove": "dj",
     "radio": "dj",
+    "setradio": "dj", "radiostatus": "dj",
+    "webplayer": "dj", "setwebplayer": "dj",
     "djstatus": "dj",
     "djhistory": "dj",
     "toprequests": "dj",

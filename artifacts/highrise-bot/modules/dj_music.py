@@ -1788,16 +1788,110 @@ async def handle_dj_remove(
     await _w(bot, user.id, f"✅ Removed #{pos}: {title} (by {by})")
 
 
+# ---------------------------------------------------------------------------
+# Radio / web-player URL helpers
+# ---------------------------------------------------------------------------
+
+def _get_radio_url() -> str:
+    """Radio stream URL: room setting takes priority over RADIO_STREAM_URL env var."""
+    import os
+    return db.get_room_setting("dj_radio_url", "").strip() or \
+           os.environ.get("RADIO_STREAM_URL", "").strip()
+
+
+def _get_webplayer_url() -> str:
+    """Web player URL: room setting takes priority over DJ_WEBPLAYER_URL env var."""
+    import os
+    return db.get_room_setting("dj_webplayer_url", "").strip() or \
+           os.environ.get("DJ_WEBPLAYER_URL", "").strip()
+
+
 async def handle_dj_radio(bot: "BaseBot", user: "User") -> None:
     """!radio  —  show the configured radio stream URL (public)."""
-    import os
-    url = os.environ.get("RADIO_STREAM_URL", "").strip()
+    url = _get_radio_url()
     if url:
         await _w(bot, user.id, f"📻 Radio stream:\n{url[:220]}")
     else:
         await _w(bot, user.id,
-                 "📻 Radio stream not configured yet.\n"
-                 "Ask staff to set up RADIO_STREAM_URL.")
+                 "📻 No radio stream configured.\n"
+                 "An admin can set one with !setradio <url>")
+
+
+async def handle_dj_setradio(
+    bot: "BaseBot", user: "User", args: list[str],
+) -> None:
+    """!setradio <url|clear>  —  set or clear the radio stream URL (admin)."""
+    if not is_admin(user.username):
+        await _w(bot, user.id, "🔒 Admin only.")
+        return
+    if len(args) < 2:
+        await _w(bot, user.id, "Usage: !setradio <url> or !setradio clear")
+        return
+    if args[1].lower() == "clear":
+        db.set_room_setting("dj_radio_url", "")
+        await _w(bot, user.id, "📻 Radio stream URL cleared.")
+        return
+    url = " ".join(args[1:]).strip()[:200]
+    if not url.startswith(("http://", "https://")):
+        await _w(bot, user.id, "📻 URL must start with http:// or https://")
+        return
+    db.set_room_setting("dj_radio_url", url)
+    await _w(bot, user.id, f"📻 Radio stream set:\n{url[:200]}")
+
+
+async def handle_dj_radiostatus(bot: "BaseBot", user: "User") -> None:
+    """!radiostatus  —  stream URL, now playing, queue status (public)."""
+    radio_url = _get_radio_url()
+    web_url   = _get_webplayer_url()
+    now       = _get_nowplaying()
+    lock      = "🔒 locked" if _dj_locked() else "🔓 open"
+    total     = _total_active()
+    qmax      = _queue_max()
+
+    lines: list[str] = ["📻 Radio Status:"]
+    if now:
+        dur = f" [{now['duration']}]" if now.get("duration") else ""
+        lines.append(f"▶️ {now['title'][:45]}{dur}")
+    else:
+        lines.append("▶️ Nothing playing")
+    lines.append(f"📋 Queue: {total}/{qmax} | {lock}")
+    lines.append(f"📻 {radio_url[:80]}" if radio_url else "📻 No stream configured")
+    if web_url:
+        lines.append(f"🌐 {web_url[:80]}")
+    await _w(bot, user.id, "\n".join(lines)[:249])
+
+
+async def handle_dj_webplayer(bot: "BaseBot", user: "User") -> None:
+    """!webplayer  —  show the web player URL (public)."""
+    url = _get_webplayer_url()
+    if url:
+        await _w(bot, user.id, f"🌐 Web Player:\n{url[:220]}")
+    else:
+        await _w(bot, user.id,
+                 "🌐 No web player configured yet.\n"
+                 "An admin can set one with !setwebplayer <url>")
+
+
+async def handle_dj_setwebplayer(
+    bot: "BaseBot", user: "User", args: list[str],
+) -> None:
+    """!setwebplayer <url|clear>  —  set or clear the web player URL (admin)."""
+    if not is_admin(user.username):
+        await _w(bot, user.id, "🔒 Admin only.")
+        return
+    if len(args) < 2:
+        await _w(bot, user.id, "Usage: !setwebplayer <url> or !setwebplayer clear")
+        return
+    if args[1].lower() == "clear":
+        db.set_room_setting("dj_webplayer_url", "")
+        await _w(bot, user.id, "🌐 Web player URL cleared.")
+        return
+    url = " ".join(args[1:]).strip()[:200]
+    if not url.startswith(("http://", "https://")):
+        await _w(bot, user.id, "🌐 URL must start with http:// or https://")
+        return
+    db.set_room_setting("dj_webplayer_url", url)
+    await _w(bot, user.id, f"🌐 Web player set:\n{url[:200]}")
 
 
 async def handle_dj_status(bot: "BaseBot", user: "User") -> None:

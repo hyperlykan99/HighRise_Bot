@@ -441,6 +441,8 @@ from modules.dj_music import (
     handle_dj_djban, handle_dj_djunban, handle_dj_djbanlist,
     handle_dj_songban, handle_dj_songunban, handle_dj_songbanlist,
     handle_dj_djreport, handle_dj_djreports,
+    handle_dj_setradio, handle_dj_radiostatus,
+    handle_dj_webplayer, handle_dj_setwebplayer,
     handle_dj_help,
 )
 from modules.dm_queue import startup_host_dm_queue_loop
@@ -7247,6 +7249,14 @@ class HangoutBot(BaseBot):
             await handle_dj_djreport(self, user, args)
         elif cmd == "djreports":
             await handle_dj_djreports(self, user)
+        elif cmd == "setradio":
+            await handle_dj_setradio(self, user, args)
+        elif cmd == "radiostatus":
+            await handle_dj_radiostatus(self, user)
+        elif cmd == "webplayer":
+            await handle_dj_webplayer(self, user)
+        elif cmd == "setwebplayer":
+            await handle_dj_setwebplayer(self, user, args)
         elif cmd == "djhelp":
             await handle_dj_help(self, user)
 
