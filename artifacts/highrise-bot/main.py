@@ -465,6 +465,8 @@ from modules.yt_request import (
     handle_ytpick,
     has_pending_yt_search,
     handle_clearrequests,
+    handle_requesthistory,
+    handle_requestcleanup,
     startup_yt_cleanup_task,
 )
 from modules.dm_queue import startup_host_dm_queue_loop
@@ -1602,7 +1604,7 @@ DJ_COMMANDS: frozenset[str] = frozenset({
     "setradio", "setwebplayer",
     "radioconfig", "setradiotype", "setradiomount", "setradiometadata",
     "ytrequest", "ytqueue", "ytstatus", "ytnow", "ytcooldown", "setytcooldown",
-    "clearrequests",
+    "clearrequests", "requesthistory", "requestcleanup",
     "setnowpage",
     "djannounce", "announcequeue",
     "djlimits",
@@ -7411,6 +7413,10 @@ class HangoutBot(BaseBot):
             await handle_setytcooldown(self, user, args)
         elif cmd == "clearrequests":
             await handle_clearrequests(self, user, args)
+        elif cmd == "requesthistory":
+            await handle_requesthistory(self, user, args)
+        elif cmd == "requestcleanup":
+            await handle_requestcleanup(self, user, args)
         elif cmd == "webplayer":
             await handle_dj_webplayer(self, user)
         elif cmd == "setwebplayer":

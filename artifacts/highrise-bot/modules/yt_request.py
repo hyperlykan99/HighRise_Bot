@@ -343,6 +343,60 @@ def _db_mark_cleaned(db_id: int) -> None:
         print(f"[YT_REQUEST] DB mark_cleaned error (non-fatal): {exc}")
 
 
+def _db_get_old_pending_cleanup(hours: int = 24) -> list[dict]:
+    """
+    Return done jobs whose azura_file_id is set, cleaned_at is NULL,
+    and started_at is older than `hours` hours ago.
+    Used by !requestcleanup (REQUEST_AUTO_DELETE_HOURS-based sweep).
+    """
+    try:
+        with sqlite3.connect(db.SHARED_DB_PATH) as conn:
+            rows = conn.execute(
+                """SELECT id, title, azura_file_id, azura_song_id
+                     FROM yt_request_jobs
+                    WHERE status        = 'done'
+                      AND azura_file_id != ''
+                      AND cleaned_at   IS NULL
+                      AND started_at   <= datetime('now', ? || ' hours')
+                    ORDER BY id DESC""",
+                (f"-{max(1, hours)}",),
+            ).fetchall()
+        return [
+            {
+                "id":            r[0], "title":         r[1],
+                "azura_file_id": r[2], "azura_song_id": r[3],
+            }
+            for r in rows
+        ]
+    except Exception as exc:
+        print(f"[YT_REQUEST] DB old pending cleanup query error (non-fatal): {exc}")
+    return []
+
+
+def _db_request_history(limit: int = 10) -> list[dict]:
+    """Return the last `limit` yt_request_jobs rows with lifecycle fields."""
+    try:
+        with sqlite3.connect(db.SHARED_DB_PATH) as conn:
+            rows = conn.execute(
+                """SELECT id, username, title, url, status, started_at, cleaned_at
+                     FROM yt_request_jobs
+                    ORDER BY id DESC
+                    LIMIT ?""",
+                (limit,),
+            ).fetchall()
+        return [
+            {
+                "id":         r[0], "username":   r[1], "title":      r[2],
+                "url":        r[3], "status":     r[4], "started_at": r[5],
+                "cleaned_at": r[6],
+            }
+            for r in rows
+        ]
+    except Exception as exc:
+        print(f"[YT_REQUEST] DB request history error (non-fatal): {exc}")
+    return []
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Per-user cooldown tracker
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1346,6 +1400,78 @@ async def handle_clearrequests(bot: "BaseBot", user: "User", _args: list[str]) -
             failed += 1
 
     parts = [f"✅ Deleted {deleted} request file(s)."]
+    if failed:
+        parts.append(f"⚠️ {failed} failed — check logs.")
+    await _w(bot, user.id, " ".join(parts)[:249])
+
+
+async def handle_requesthistory(bot: "BaseBot", user: "User", _args: list[str]) -> None:
+    """!requesthistory — show last 10 song requests with their current status."""
+    rows = _db_request_history(10)
+    if not rows:
+        await _w(bot, user.id, "🎵 No request history yet.")
+        return
+
+    lines = ["🎵 Last 10 requests:"]
+    for r in rows:
+        # Derive display status: cleaned > done > other
+        st = r.get("status") or "?"
+        if r.get("cleaned_at"):
+            st = "cleaned"
+        display = (r["title"] or r["url"] or "?")[:36]
+        uname   = (r["username"] or "?")[:12]
+        lines.append(f"• {display} — {uname} [{st}]")
+
+    await _w(bot, user.id, "\n".join(lines)[:249])
+
+
+async def handle_requestcleanup(bot: "BaseBot", user: "User", _args: list[str]) -> None:
+    """
+    !requestcleanup — delete AzuraCast request files that are older than
+    REQUEST_AUTO_DELETE_HOURS hours (default 24).  Admin only.
+    Never deletes General playlist songs; only files tracked in yt_request_jobs.
+    """
+    from modules.permissions import is_admin
+
+    if not is_admin(user.username):
+        await _w(bot, user.id, "🔒 Admin only.")
+        return
+
+    cfg = _azura_api_cfg()
+    if not cfg:
+        await _w(bot, user.id, "⚠️ AzuraCast API not configured.")
+        return
+
+    try:
+        hours = max(1, int(os.environ.get("REQUEST_AUTO_DELETE_HOURS") or "24"))
+    except (ValueError, TypeError):
+        hours = 24
+
+    pending = _db_get_old_pending_cleanup(hours)
+    if not pending:
+        await _w(
+            bot, user.id,
+            f"✅ No uncleaned request files older than {hours}h found."
+        )
+        return
+
+    await _w(bot, user.id, f"🧹 Cleaning {len(pending)} file(s) older than {hours}h…")
+
+    loop    = asyncio.get_running_loop()
+    deleted = 0
+    failed  = 0
+    for job in pending:
+        fid = (job.get("azura_file_id") or "").strip()
+        if not fid:
+            continue
+        ok = await loop.run_in_executor(None, _azura_delete_file, fid)
+        if ok:
+            _db_mark_cleaned(job["id"])
+            deleted += 1
+        else:
+            failed += 1
+
+    parts = [f"✅ Removed {deleted} request file(s) older than {hours}h."]
     if failed:
         parts.append(f"⚠️ {failed} failed — check logs.")
     await _w(bot, user.id, " ".join(parts)[:249])
