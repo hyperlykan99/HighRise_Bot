@@ -183,6 +183,7 @@ _CFG_REPEAT      = "dj_repeat"
 _CFG_AUTOPLAY    = "dj_autoplay"
 _CFG_PERSONALITY    = "dj_personality"
 _CFG_PRIORITY_PRICE = "dj_priority_price"
+_CFG_ANNOUNCE       = "dj_announce"      # room-chat announcements on/off
 
 _CFG_DEFAULTS: dict[str, str] = {
     _CFG_QUEUE_MAX:      "20",
@@ -195,6 +196,7 @@ _CFG_DEFAULTS: dict[str, str] = {
     _CFG_AUTOPLAY:       "off",
     _CFG_PERSONALITY:    "off",
     _CFG_PRIORITY_PRICE: "100",
+    _CFG_ANNOUNCE:       "on",   # default ON — room announcements enabled
 }
 
 # Friendly names and valid ranges for !djset
@@ -230,6 +232,10 @@ def _dj_priority_price() -> int:
         return max(0, int(db.get_room_setting(_CFG_PRIORITY_PRICE, "100")))
     except (ValueError, TypeError):
         return 100
+
+def _dj_announce() -> bool:
+    """Return True if room-chat DJ announcements are enabled (default on)."""
+    return db.get_room_setting(_CFG_ANNOUNCE, "on").lower() == "on"
 
 
 # ---------------------------------------------------------------------------
@@ -1390,6 +1396,26 @@ def _cancel_request(
 
 
 # ---------------------------------------------------------------------------
+# Announce helpers  (up-next peek · queue milestones)
+# ---------------------------------------------------------------------------
+
+_MILESTONE_SIZES: frozenset[int] = frozenset({5, 10, 15, 20, 25, 30})
+
+
+def _peek_next_pending() -> dict | None:
+    """Return the first pending (not yet playing) song dict, or None."""
+    rows = _get_queue(limit=1)
+    return rows[0] if rows else None
+
+
+def _queue_milestone_msg(total: int) -> str | None:
+    """Return a milestone room-chat message when *total* is a milestone, else None."""
+    if total in _MILESTONE_SIZES:
+        return f"🎧 Queue has {total} songs waiting!"
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Central playback advance  (timer · repeat · autoplay · announce · personality)
 # ---------------------------------------------------------------------------
 
@@ -1459,11 +1485,15 @@ async def _play_song(bot: "BaseBot", song: dict) -> None:
     dur   = f" [{song['duration']}]" if song.get("duration") else ""
     ded   = f"\n♥ {song['dedication'][:80]}" if song.get("dedication") else ""
     url   = f"\n{song['youtube_url']}" if song.get("youtube_url") else ""
-    await _chat(
-        bot,
-        f"🎵 Now Playing{badge}: {song['title'][:50]}{dur}"
-        f"\nRequested by @{song.get('username', '?')[:15]}{ded}{url}"
-    )
+    if _dj_announce():
+        await _chat(
+            bot,
+            f"🎵 Now Playing{badge}: {song['title'][:50]}{dur}"
+            f"\nRequested by @{song.get('username', '?')[:15]}{ded}{url}"
+        )
+        nxt = _peek_next_pending()
+        if nxt:
+            await _chat(bot, f"⏭ Up Next: {nxt['title'][:60]}")
 
     if _dj_personality() and _random.random() < 0.40:
         await asyncio.sleep(1.5)
@@ -1661,11 +1691,16 @@ async def handle_dj_pick(
     if promoted:
         await _play_song(bot, promoted)   # announces + starts timer + fires backend
     else:
-        name = user.username[:15]
+        name    = user.username[:15]
+        total_q = _total_active()
         await _chat(
             bot,
             f"🎵 @{name} added: {pick['title'][:55]}{dur} (#{pos} in queue)"
         )
+        if _dj_announce():
+            ms = _queue_milestone_msg(total_q)
+            if ms:
+                await _chat(bot, ms)
 
 
 async def handle_dj_queue(bot: "BaseBot", user: "User") -> None:
@@ -1830,7 +1865,7 @@ async def handle_dj_config(bot: "BaseBot", user: "User") -> None:
          f"🔒 Lock: {lock} | ⏳ Cooldown: {_cooldown()}s | Queue: {_total_active()}/{_queue_max()}\n"
          f"Per user: {_user_max()} | Skip votes: {_vote_thresh()} | 💰 Priority: {_dj_priority_price()}c\n"
          f"📻 Radio: {radio} | 🌐 Player: {wp} | 📄 Now page: {nowpg}\n"
-         f"🎭 Personality: {'on' if _dj_personality() else 'off'} | 🐛 Debug: {'on' if _debug_mode() else 'off'}")[:249],
+         f"🎭 Personality: {'on' if _dj_personality() else 'off'} | 🐛 Debug: {'on' if _debug_mode() else 'off'} | 📢 Announce: {'on' if _dj_announce() else 'off'}")[:249],
     )
 
 
@@ -2208,6 +2243,47 @@ async def handle_dj_upnext(bot: "BaseBot", user: "User") -> None:
         dur = f" [{r['duration']}]" if r.get("duration") else ""
         lines.append(f"{i}. {r['title'][:44]}{dur} (@{r['username'][:12]})")
     await _w(bot, user.id, "\n".join(lines)[:249])
+
+
+async def handle_dj_announce(
+    bot: "BaseBot", user: "User", args: list[str],
+) -> None:
+    """!djannounce on|off  —  toggle room-chat DJ announcements (admin only)."""
+    if not is_admin(user.username):
+        await _w(bot, user.id, "🔒 Admin only.")
+        return
+    if len(args) < 2 or args[1].lower() not in ("on", "off"):
+        cur = "ON" if _dj_announce() else "OFF"
+        await _w(bot, user.id,
+                 f"📢 Room announcements are {cur}.\nUsage: !djannounce on|off")
+        return
+    state = args[1].lower()
+    db.set_room_setting(_CFG_ANNOUNCE, state)
+    if state == "on":
+        await _w(bot, user.id,
+                 "📢 DJ announcements ON — Now Playing, Up Next, and milestones enabled.")
+    else:
+        await _w(bot, user.id, "📢 DJ announcements OFF — room chat silenced.")
+
+
+async def handle_dj_announcequeue(bot: "BaseBot", user: "User") -> None:
+    """!announcequeue  —  post current queue summary to room chat (admin only)."""
+    if not is_admin(user.username):
+        await _w(bot, user.id, "🔒 Admin only.")
+        return
+    now      = _get_nowplaying()
+    upcoming = _get_queue(limit=4)
+    total    = _total_active()
+    lines: list[str] = []
+    if now:
+        lines.append(f"🎵 Now Playing: {now['title'][:45]}")
+    if upcoming:
+        lines.append(f"⏭ Up Next ({total} queued):")
+        for i, r in enumerate(upcoming, 1):
+            lines.append(f"  {i}. {r['title'][:44]}")
+    else:
+        lines.append("🎧 Queue is empty — use !request <song>!")
+    await _chat(bot, "\n".join(lines)[:249])
 
 
 async def handle_dj_stats(bot: "BaseBot", user: "User") -> None:
@@ -3267,7 +3343,8 @@ async def handle_dj_help(bot: "BaseBot", user: "User") -> None:
          "🌐 !webplayer | !setwebplayer <url>\n"
          "📄 !nowpage | !setnowpage <url>\n"
          "!djstatus | !repeat | !shuffle | !autoplay\n"
-         "!djlock | !stopmusic | !moveup | !bump")[:249],
+         "!djlock | !stopmusic | !moveup | !bump\n"
+         "📢 !djannounce on|off | !announcequeue")[:249],
     )
     # Section 4 — Admin & Diagnostics (admin+)
     await _w(

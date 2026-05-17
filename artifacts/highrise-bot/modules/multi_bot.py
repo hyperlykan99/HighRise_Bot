@@ -627,6 +627,7 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "setradio": "dj", "radiostatus": "dj",
     "webplayer": "dj", "setwebplayer": "dj",
     "nowpage": "dj", "setnowpage": "dj",
+    "djannounce": "dj", "announcequeue": "dj",
     "djstatus": "dj",
     "djhistory": "dj",
     "djcheck": "dj", "djhealth": "dj", "djresetstate": "dj", "djbackup": "dj", "djtestall": "dj",
