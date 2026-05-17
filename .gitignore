@@ -47,3 +47,7 @@ Thumbs.db
 # Replit
 .cache/
 .local/
+
+# SQLite journal files — never commit these
+artifacts/highrise-bot/*.db-shm
+artifacts/highrise-bot/*.db-wal
