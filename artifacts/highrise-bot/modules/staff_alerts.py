@@ -5,10 +5,18 @@ Staff DM alert system. Staff opt in to per-category DM alerts delivered via
 ChillTopiaBot only.
 
 DB table  : staff_alert_users  (created in database._migrate_db)
-Log tags  : [STAFF ALERT]
+Log tags  : [STAFF ALERT SEND] [STAFF ALERT SKIP] [STAFF ALERT QUEUE] [STAFF ALERT ERROR]
+
+Root-cause note
+---------------
+`staff_alert_users` is only populated after a staff member runs !staffalerts.
+Instead of querying that table first, delivery walks notification_users (which
+has conversation_ids) and cross-checks staff_alert_users prefs (falling back to
+role-based defaults when no row exists).
 """
 from __future__ import annotations
 
+import config as _cfg
 from typing import TYPE_CHECKING
 
 import database as db
@@ -33,7 +41,7 @@ _LABEL: dict[str, str] = {
     "qa":        "QA",
 }
 
-# Default ON categories per role
+# Default ON categories per role (used when user has no row in staff_alert_users)
 _ROLE_DEFAULTS: dict[str, frozenset[str]] = {
     "owner": frozenset(_CATEGORIES),
     "admin": frozenset(
@@ -43,10 +51,16 @@ _ROLE_DEFAULTS: dict[str, frozenset[str]] = {
     "staff": frozenset(("reports", "events")),
 }
 
+_IS_HOST: bool = _cfg.BOT_MODE in ("host", "all")
+
+
+# ---------------------------------------------------------------------------
+# Role / eligibility helpers
+# ---------------------------------------------------------------------------
 
 def _role(username: str) -> str:
-    if is_owner(username):    return "owner"
-    if is_admin(username):    return "admin"
+    if is_owner(username):     return "owner"
+    if is_admin(username):     return "admin"
     if can_moderate(username): return "mod"
     return "staff"
 
@@ -55,12 +69,44 @@ def _is_eligible(username: str) -> bool:
     return is_owner(username) or is_admin(username) or can_moderate(username)
 
 
+def _cat_default(username: str, category: str) -> bool:
+    """Role-based default for a category when no prefs row exists."""
+    role = _role(username)
+    return category in _ROLE_DEFAULTS.get(role, frozenset())
+
+
 # ---------------------------------------------------------------------------
 # DB helpers
 # ---------------------------------------------------------------------------
 
+def _get_prefs_ro(user_id: str, username: str) -> dict:
+    """
+    Return prefs from staff_alert_users if row exists, else return in-memory
+    role-based defaults. Does NOT insert a row.
+    """
+    try:
+        conn = db.get_connection()
+        row  = conn.execute(
+            "SELECT * FROM staff_alert_users WHERE user_id=?", (user_id,)
+        ).fetchone()
+        conn.close()
+        if row:
+            return dict(row)
+    except Exception:
+        pass
+
+    role     = _role(username)
+    defaults = _ROLE_DEFAULTS.get(role, frozenset())
+    return {
+        "user_id":   user_id,
+        "username":  username.lower(),
+        "alerts_on": 1,
+        **{c: (1 if c in defaults else 0) for c in _CATEGORIES},
+    }
+
+
 def _get_prefs(user_id: str, username: str) -> dict:
-    """Return prefs row, inserting role-based defaults if first call."""
+    """Return prefs, inserting role-based defaults if this is the first call."""
     try:
         conn = db.get_connection()
         row  = conn.execute(
@@ -87,7 +133,7 @@ def _get_prefs(user_id: str, username: str) -> dict:
             (
                 user_id, username.lower(),
                 cats["security"], cats["reports"], cats["economy"],
-                cats["casino"], cats["bothealth"], cats["events"], cats["qa"],
+                cats["casino"],   cats["bothealth"], cats["events"], cats["qa"],
             ),
         )
         conn.commit()
@@ -137,68 +183,243 @@ def _set_global(user_id: str, username: str, on: bool) -> None:
         pass
 
 
-def _get_subscribed_rows(category: str) -> list[dict]:
+# ---------------------------------------------------------------------------
+# Conv-id resolution  (Part 5 — ordered lookup)
+# ---------------------------------------------------------------------------
+
+def _resolve_conv_id(user_id: str, username: str) -> tuple[str, str]:
+    """
+    Resolve DM conversation_id for a user. Returns (conv_id, source_table).
+    Lookup order:
+      1. notification_users (primary — set by !sub DM flow)
+      2. player_dm_conversations (fallback secondary table)
+    """
+    try:
+        nr = db.get_notify_user(user_id)
+        if nr and nr.get("conversation_id"):
+            return nr["conversation_id"], "notification_users"
+    except Exception:
+        pass
+
+    try:
+        pr = db.get_player_dm_conv(user_id)
+        if pr and pr.get("conversation_id"):
+            return pr["conversation_id"], "player_dm_conversations"
+    except Exception:
+        pass
+
+    return "", "none"
+
+
+# ---------------------------------------------------------------------------
+# Eligible recipient scan
+# ---------------------------------------------------------------------------
+
+def _eligible_recipients(category: str) -> list[dict]:
+    """
+    Walk all notification_users who have conversation_id + subscribed=1.
+    For each:
+      • Must be staff-eligible (is_admin / is_owner / can_moderate)
+      • Must have alerts_on (from prefs or role default)
+      • Must have the category enabled (from prefs or role default)
+    Returns list of dicts with keys: user_id, username, conv_id, source, prefs.
+    """
     if category not in _CATEGORIES:
         return []
+
     try:
         conn = db.get_connection()
         rows = conn.execute(
-            f"""SELECT user_id, username FROM staff_alert_users
-                WHERE alerts_on=1 AND {category}=1""",
+            """SELECT user_id, username, conversation_id
+               FROM notification_users
+               WHERE subscribed=1
+                 AND conversation_id IS NOT NULL
+                 AND conversation_id != ''""",
         ).fetchall()
         conn.close()
-        return [dict(r) for r in rows]
     except Exception:
         return []
+
+    out: list[dict] = []
+    for row in rows:
+        uid    = row["user_id"]
+        uname  = (row["username"] or "").lower()
+        conv   = row["conversation_id"] or ""
+
+        if not uname or not _is_eligible(uname):
+            continue
+
+        prefs = _get_prefs_ro(uid, uname)
+
+        # Master switch — explicit row takes precedence; default is ON
+        if not prefs.get("alerts_on", 1):
+            continue
+
+        # Category switch — explicit row takes precedence; use role default
+        cat_val = prefs.get(category)
+        if cat_val is None:
+            cat_val = 1 if _cat_default(uname, category) else 0
+        if not cat_val:
+            continue
+
+        # Try fallback conv_id sources if notification_users one is empty
+        src = "notification_users"
+        if not conv:
+            conv, src = _resolve_conv_id(uid, uname)
+
+        out.append({
+            "user_id":  uid,
+            "username": uname,
+            "conv_id":  conv,
+            "source":   src,
+            "prefs":    prefs,
+        })
+
+    return out
 
 
 # ---------------------------------------------------------------------------
 # Send helpers
 # ---------------------------------------------------------------------------
 
-async def send_staff_alert(bot: "BaseBot", category: str, message: str) -> int:
+async def send_staff_alert(
+    bot: "BaseBot", category: str, message: str
+) -> int:
     """
-    DM all staff subscribed to *category*. Sends directly (host bot context).
+    DM staff subscribed to *category*. Host bot only — non-host bots are
+    re-routed to queue_staff_alert() automatically.
     Returns count of DMs sent.
     """
+    if not _IS_HOST:
+        print(f"[STAFF ALERT QUEUE] type={category} (non-host bot — queuing)")
+        queue_staff_alert(category, message)
+        return 0
+
     if category not in _CATEGORIES:
         return 0
 
-    rows = _get_subscribed_rows(category)
+    recipients = _eligible_recipients(category)
     sent = 0
-    for row in rows:
-        uid   = row["user_id"]
-        uname = row["username"]
-        nr    = db.get_notify_user(uid)
-        if not nr:
-            continue
-        conv_id = nr.get("conversation_id", "")
+
+    for rec in recipients:
+        uname   = rec["username"]
+        conv_id = rec["conv_id"]
+
         if not conv_id:
+            print(f"[STAFF ALERT SKIP] target=@{uname} reason=no_conversation_id")
             continue
+
         try:
             await bot.highrise.send_message(conv_id, message[:249], "text")
+            print(f"[STAFF ALERT SEND] host=YES target=@{uname} status=sent")
             sent += 1
-            print(f"[STAFF ALERT] category={category} user=@{uname} status=sent")
         except Exception as exc:
-            print(f"[STAFF ALERT] DM failed user=@{uname}: {exc!r}")
+            print(f"[STAFF ALERT ERROR] target=@{uname} error={exc!r}")
+
     return sent
+
+
+async def _send_staff_alert_verbose(
+    bot: "BaseBot", category: str, message: str
+) -> dict:
+    """
+    Same as send_staff_alert but returns a detailed delivery report dict:
+    { sent, skipped_no_dm, skipped_off, skipped_cat, failed }
+    Used by !staffalert test for a rich room reply.
+    """
+    if not _IS_HOST:
+        print(f"[STAFF ALERT QUEUE] type=test (non-host bot — queuing)")
+        queue_staff_alert(category, message)
+        return {"sent": 0, "skipped_no_dm": 0, "skipped_off": 0,
+                "skipped_cat": 0, "failed": 0, "queued": True}
+
+    if category not in _CATEGORIES:
+        return {"sent": 0, "skipped_no_dm": 0, "skipped_off": 0,
+                "skipped_cat": 0, "failed": 0}
+
+    # Walk eligible recipients (already filtered for alerts_on + cat)
+    recipients = _eligible_recipients(category)
+    sent = failed = no_dm = 0
+
+    for rec in recipients:
+        uname   = rec["username"]
+        conv_id = rec["conv_id"]
+
+        if not conv_id:
+            print(f"[STAFF ALERT SKIP] target=@{uname} reason=no_conversation_id")
+            no_dm += 1
+            continue
+
+        try:
+            await bot.highrise.send_message(conv_id, message[:249], "text")
+            print(f"[STAFF ALERT SEND] host=YES target=@{uname} status=sent")
+            sent += 1
+        except Exception as exc:
+            print(f"[STAFF ALERT ERROR] target=@{uname} error={exc!r}")
+            failed += 1
+
+    return {
+        "sent":          sent,
+        "skipped_no_dm": no_dm,
+        "skipped_off":   0,
+        "skipped_cat":   0,
+        "failed":        failed,
+    }
 
 
 def queue_staff_alert(category: str, message: str) -> None:
     """
-    Queue a staff alert for host bot delivery (use from non-async or non-host
-    bot contexts). Only queues if the category is valid.
+    Queue a staff alert for host bot delivery.
+    Walks eligible recipients same as send_staff_alert, inserts one queue row
+    per recipient. Host bot processes via process_host_dm_queue().
     """
     if category not in _CATEGORIES:
         return
-    from modules.dm_queue import queue_host_dm  # noqa: PLC0415
 
-    rows = _get_subscribed_rows(category)
+    try:
+        from modules.dm_queue import queue_host_dm  # noqa: PLC0415
+    except Exception:
+        return
+
+    # Walk notification_users for eligible staff (same logic as send_staff_alert)
+    try:
+        conn = db.get_connection()
+        rows = conn.execute(
+            """SELECT user_id, username, conversation_id
+               FROM notification_users
+               WHERE subscribed=1
+                 AND conversation_id IS NOT NULL
+                 AND conversation_id != ''""",
+        ).fetchall()
+        conn.close()
+    except Exception:
+        return
+
+    queued = 0
     for row in rows:
-        queue_host_dm(
-            row["user_id"], row["username"],
-            "staff_alert", category, message,
-        )
+        uid   = row["user_id"]
+        uname = (row["username"] or "").lower()
+        conv  = row["conversation_id"] or ""
+
+        if not uname or not _is_eligible(uname):
+            continue
+
+        prefs = _get_prefs_ro(uid, uname)
+
+        if not prefs.get("alerts_on", 1):
+            continue
+
+        cat_val = prefs.get(category)
+        if cat_val is None:
+            cat_val = 1 if _cat_default(uname, category) else 0
+        if not cat_val:
+            continue
+
+        queue_host_dm(uid, uname, "staff_alert", category, message, conv)
+        print(f"[STAFF ALERT QUEUE] type={category} target=@{uname}")
+        queued += 1
+
+    print(f"[STAFF ALERT QUEUE] category={category} queued={queued}")
 
 
 # ---------------------------------------------------------------------------
@@ -248,59 +469,108 @@ async def handle_staffalerts(
                  f"🛡️ {_LABEL[sub]} alerts: {'ON' if on else 'OFF'}")
         return
 
-    # Settings display
-    nr = db.get_notify_user(user.id)
-    if not nr or not nr.get("conversation_id"):
-        await _w(bot, user.id,
-                 "⚠️ No DM linked.\nDM ChillTopiaBot !sub first.")
-        return
-
+    # Settings display (show even if DM not connected — just indicate at bottom)
     prefs  = _get_prefs(user.id, user.username)
     status = "ON" if prefs.get("alerts_on", 1) else "OFF"
-    lines  = [f"🛡️ Staff Alerts: {status}"]
+
+    # Check DM connection
+    conv_id, _ = _resolve_conv_id(user.id, user.username)
+    dm_status  = "Connected" if conv_id else "Not connected"
+
+    lines = [
+        f"🛡️ Staff Alerts",
+        f"Status: {status}",
+    ]
     for c in _CATEGORIES:
         flag = "ON" if prefs.get(c, 0) else "OFF"
-        lines.append(f"  {_LABEL[c]}: {flag}")
-    # Split across two whispers to stay ≤249 chars each
-    await _w(bot, user.id, "\n".join(lines[:5])[:249])
-    if len(lines) > 5:
-        await _w(bot, user.id, "\n".join(lines[5:])[:249])
+        lines.append(f"{_LABEL[c]}: {flag}")
+    lines.append(f"DM: {dm_status}")
+
+    # Two whispers to stay ≤249 chars each
+    await _w(bot, user.id, "\n".join(lines[:6])[:249])
+    await _w(bot, user.id, "\n".join(lines[6:])[:249])
+
+    if not conv_id:
+        await _w(bot, user.id, "DM ChillTopiaBot !sub first.")
 
 
 async def handle_staffalert_test(
     bot: "BaseBot", user: "User", args: list[str],
 ) -> None:
-    """!staffalert test — send a test DM to all subscribed staff."""
+    """!staffalert test — send a test DM to all eligible staff."""
     if not _is_eligible(user.username):
         await _w(bot, user.id, "🔒 Staff only.")
         return
-    msg   = f"🛡️ Staff Alert Test\nSent by: @{user.username}"
-    count = await send_staff_alert(bot, "security", msg)
-    await _w(bot, user.id, f"✅ Test alert sent to {count} staff.")
+
+    msg    = "🛡️ Staff Alert Test\nThis is a test staff alert."
+    report = await _send_staff_alert_verbose(bot, "security", msg)
+
+    sent    = report["sent"]
+    no_dm   = report["skipped_no_dm"]
+    off_ct  = report["skipped_off"]
+    cat_ct  = report["skipped_cat"]
+    failed  = report["failed"]
+    skipped = no_dm + off_ct + cat_ct
+
+    summary = (
+        f"🛡️ Staff Alert Test\n"
+        f"Delivered: {sent}\n"
+        f"Skipped: {skipped}\n"
+        f"Failed: {failed}"
+    )
+    await _w(bot, user.id, summary[:249])
+
+    if skipped:
+        reasons: list[str] = []
+        if no_dm:  reasons.append(f"No DM linked: {no_dm}")
+        if off_ct: reasons.append(f"Alerts off: {off_ct}")
+        if cat_ct: reasons.append(f"Category off: {cat_ct}")
+        await _w(bot, user.id, "\n".join(reasons)[:249])
+
+    if report.get("queued"):
+        await _w(bot, user.id,
+                 "⚠️ Non-host bot — test queued for ChillTopiaBot.")
 
 
 async def handle_staffalertaudit(
     bot: "BaseBot", user: "User", args: list[str],
 ) -> None:
-    """!staffalertaudit [@user] — show alert prefs for a staff member."""
+    """!staffalertaudit [@user] — show alert prefs + DM link info."""
     if not is_admin(user.username) and not is_owner(user.username):
         await _w(bot, user.id, "🔒 Admin only.")
         return
+
     target = args[1].lstrip("@").strip() if len(args) >= 2 else user.username
     rec    = db.get_user_by_username(target)
     if not rec:
         await _w(bot, user.id, f"@{target} not found.")
         return
 
-    prefs  = _get_prefs(rec["user_id"], rec["username"])
+    uid    = rec["user_id"]
+    uname  = rec["username"]
+    prefs  = _get_prefs(uid, uname)
     status = "ON" if prefs.get("alerts_on", 1) else "OFF"
-    lines  = [f"🛡️ @{rec['username']} Alerts: {status}"]
+
+    # Resolve conv_id with source info
+    conv_id, src = _resolve_conv_id(uid, uname)
+    dm_linked = "YES" if conv_id else "NO"
+    conv_info = "YES" if conv_id else "NO"
+
+    lines = [
+        f"🛡️ @{uname} Staff Alert Audit",
+        f"User ID: {uid[:16]}…",
+        f"Status: {status}",
+        f"DM connected: {dm_linked}",
+        f"Conv ID exists: {conv_info}",
+        f"Source: {src}",
+    ]
     for c in _CATEGORIES:
         flag = "ON" if prefs.get(c, 0) else "OFF"
         lines.append(f"  {_LABEL[c]}: {flag}")
-    await _w(bot, user.id, "\n".join(lines[:5])[:249])
-    if len(lines) > 5:
-        await _w(bot, user.id, "\n".join(lines[5:])[:249])
+
+    # Split into two whispers
+    await _w(bot, user.id, "\n".join(lines[:6])[:249])
+    await _w(bot, user.id, "\n".join(lines[6:])[:249])
 
 
 async def handle_staffsubcount(

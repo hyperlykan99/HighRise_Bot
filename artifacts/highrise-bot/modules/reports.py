@@ -82,10 +82,11 @@ async def handle_report(bot: BaseBot, user: User, args: list[str]) -> None:
         from modules.staff_alerts import queue_staff_alert  # noqa: PLC0415
         queue_staff_alert(
             "reports",
-            f"🚨 Report #{report_id}\n"
+            f"📣 New Player Report\n"
             f"From: @{user.username}\n"
             f"Against: @{target}\n"
-            f"Reason: {reason[:80]}",
+            f"{reason[:80]}\n"
+            f"Check: !reports",
         )
     except Exception:
         pass
@@ -123,9 +124,10 @@ async def handle_bug(bot: BaseBot, user: User, args: list[str]) -> None:
         from modules.staff_alerts import queue_staff_alert  # noqa: PLC0415
         queue_staff_alert(
             "reports",
-            f"🐞 Bug #{report_id}\n"
+            f"📣 New Bug Report\n"
             f"From: @{user.username}\n"
-            f"Details: {reason[:100]}",
+            f"{reason[:100]}\n"
+            f"Check: !reports",
         )
     except Exception:
         pass

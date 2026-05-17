@@ -1,0 +1,257 @@
+FIX STAFF ALERTS NOT SENDING TO DM
+
+Current issue:
+Staff alerts are not going to direct messages.
+
+Expected:
+When staff/owner has DM linked with ChillTopiaBot and staff alerts ON, staff alerts should be delivered by DM from ChillTopiaBot only.
+
+Do NOT modify:
+- notification random DM behavior
+- main.py startup
+- on_message hard gate
+- player balances
+- economy math
+- games
+- badge/title systems
+
+Goal:
+Fix staff alert DM delivery only.
+
+==================================================
+PART 1 — Verify DM Link Source
+==================================================
+
+Staff alert delivery must use the same saved DM conversation_id used by notification system.
+
+If user DMs ChillTopiaBot:
+!sub
+
+Then staff alert audit should show:
+DM connected: YES
+
+Fix !staffalertaudit @user to show:
+- user_id
+- username
+- staff alert status ON/OFF
+- DM connected YES/NO
+- conversation_id exists YES/NO
+- source table used for conversation_id
+
+If conversation_id exists in notification_users, staff alerts must be able to use it.
+
+==================================================
+PART 2 — Host-Only DM Sending
+==================================================
+
+All staff alert DMs must be sent by ChillTopiaBot / host bot only.
+
+If a non-host bot triggers staff alert:
+- queue it
+- do not send directly
+
+Add logs:
+
+[STAFF ALERT QUEUE] type=test target=@user
+[STAFF ALERT SEND] host=YES target=@user status=sent
+[STAFF ALERT SKIP] target=@user reason=no_conversation_id
+[STAFF ALERT SKIP] target=@user reason=staff_alerts_off
+[STAFF ALERT SKIP] target=@user reason=category_off
+[STAFF ALERT ERROR] target=@user error=...
+
+==================================================
+PART 3 — Fix !staffalert test
+==================================================
+
+Command:
+!staffalert test
+
+Expected:
+Send a DM to all staff users who:
+- are staff/admin/owner
+- have staff alerts ON
+- have the test category enabled OR any staff alert status ON
+- have conversation_id saved
+
+DM should be:
+
+🛡️ Staff Alert Test
+This is a test staff alert.
+
+Room reply to command runner:
+
+🛡️ Staff Alert Test
+Delivered: X
+Skipped: X
+Failed: X
+
+If skipped, show top reason:
+No DM linked: X
+Alerts off: X
+Category off: X
+
+==================================================
+PART 4 — Staff Alert Categories
+==================================================
+
+Make sure these categories are saved and checked:
+
+security
+reports
+economy
+casino
+bothealth
+events
+qa
+
+!staffalerts on should set master enabled ON.
+
+!staffalerts reports on should set reports ON.
+
+!staffalerts settings should show:
+
+🛡️ Staff Alerts
+Status: ON
+Security: ON/OFF
+Reports: ON/OFF
+Economy: ON/OFF
+Casino: ON/OFF
+Bot Health: ON/OFF
+Events: ON/OFF
+QA: ON/OFF
+DM: Connected/Not connected
+
+If DM not connected, show:
+DM ChillTopiaBot !sub first.
+
+==================================================
+PART 5 — Use Existing Notification Conversation ID
+==================================================
+
+Do not create a second unrelated DM system if not needed.
+
+When sending staff alert, lookup conversation_id in this order:
+
+1. notification_users by user_id
+2. saved player DM conversation table if it exists
+3. staff_alert_users conversation_id if it exists
+
+If none found:
+skip with reason no_conversation_id.
+
+Do not crash.
+
+==================================================
+PART 6 — Report Alert Test
+==================================================
+
+When someone uses:
+!report test message
+or
+!bug test message
+
+Staff with reports ON should receive DM:
+
+📣 New Player Report
+From: @player
+Message: test message
+Check: !reports
+
+Sent by ChillTopiaBot only.
+
+==================================================
+PART 7 — QA Alert Test
+==================================================
+
+Do not DM staff when !qatest all passes.
+
+Only send QA staff alert if !qatest all fails.
+
+Owners with QA ON should get:
+
+🧪 QA Alert
+!qatest all failed.
+Failed: X
+Runner: @name
+Check: !qatest failed
+
+==================================================
+PART 8 — Compile
+==================================================
+
+Run:
+
+python -m py_compile main.py
+python -m py_compile database.py
+python -m py_compile modules/notify_system.py
+python -m py_compile modules/qa_test.py
+python -m py_compile modules/reports.py
+python -m py_compile modules/command_registry.py
+python -m py_compile modules/multi_bot.py
+
+Skip files that do not exist.
+
+==================================================
+PART 9 — Live Test
+==================================================
+
+1. DM ChillTopiaBot:
+!sub
+
+Expected:
+Alerts: ON
+
+2. Room:
+!staffalerts on
+!staffalerts reports on
+!staffalerts qa on
+!staffalerts settings
+
+Expected:
+Status ON
+Reports ON
+QA ON
+DM Connected
+
+3. Room:
+!staffalertaudit @4ktreyMarion
+
+Expected:
+DM connected YES
+Status ON
+
+4. Room:
+!staffalert test
+
+Expected:
+DM from ChillTopiaBot:
+🛡️ Staff Alert Test
+This is a test staff alert.
+
+Room reply:
+Delivered: 1 or more
+Skipped: shown if any
+Failed: 0
+
+5. Room:
+!report testing staff alerts
+
+Expected:
+Staff receives DM from ChillTopiaBot.
+
+6. Room:
+!qatest all
+
+Expected:
+If passes, no staff alert DM.
+If fails, QA alert DM goes only to owner/admin with QA ON.
+
+Final report:
+1. Why staff alerts were not DMing
+2. Which conversation_id source is used
+3. !staffalertaudit result
+4. !staffalert test delivery result
+5. !report alert delivery result
+6. py_compile result
+7. !commandissues result
+8. !qatest all result

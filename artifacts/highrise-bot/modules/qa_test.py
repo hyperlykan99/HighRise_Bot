@@ -296,9 +296,11 @@ async def _deliver_report(
             from modules.staff_alerts import queue_staff_alert  # noqa: PLC0415
             queue_staff_alert(
                 "qa",
-                f"🧪 QA {suite.title()} FAILED\n"
-                f"Passed: {passed}  Failed: {failed}\n"
-                f"{failures[0][:100]}",
+                f"🧪 QA Alert\n"
+                f"!qatest {suite} failed.\n"
+                f"Failed: {failed}\n"
+                f"Runner: @{user.username}\n"
+                f"Check: !qatest failed",
             )
         except Exception:
             pass
