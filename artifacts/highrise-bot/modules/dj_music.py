@@ -1706,13 +1706,14 @@ async def handle_dj_config(bot: "BaseBot", user: "User") -> None:
 
     radio = "✅ set" if _get_radio_url() else "not set"
     wp    = "✅ set" if _get_webplayer_url() else "not set"
+    nowpg = "✅ set" if _get_nowpage_url() else "not set"
     lock  = "ON" if _dj_locked() else "off"
     await _w(
         bot, user.id,
         (f"⚙️ DJ Config:\n"
          f"🔒 Lock: {lock} | ⏳ Cooldown: {_cooldown()}s | Queue: {_total_active()}/{_queue_max()}\n"
          f"Per user: {_user_max()} | Skip votes: {_vote_thresh()} | 💰 Priority: {_dj_priority_price()}c\n"
-         f"📻 Radio: {radio} | 🌐 Player: {wp}\n"
+         f"📻 Radio: {radio} | 🌐 Player: {wp} | 📄 Now page: {nowpg}\n"
          f"🎭 Personality: {'on' if _dj_personality() else 'off'} | 🐛 Debug: {'on' if _debug_mode() else 'off'}")[:249],
     )
 
@@ -1873,6 +1874,11 @@ def _get_webplayer_url() -> str:
            os.environ.get("DJ_WEBPLAYER_URL", "").strip()
 
 
+def _get_nowpage_url() -> str:
+    """Now-playing page URL: admin-set only, stored in room settings."""
+    return db.get_room_setting("dj_nowpage_url", "").strip()
+
+
 async def handle_dj_radio(bot: "BaseBot", user: "User") -> None:
     """!radio  —  show the configured radio stream URL (public)."""
     url = _get_radio_url()
@@ -1915,6 +1921,7 @@ async def handle_dj_radiostatus(bot: "BaseBot", user: "User") -> None:
     total     = _total_active()
     qmax      = _queue_max()
 
+    nowpage_url = _get_nowpage_url()
     lines: list[str] = ["📻 Radio Status:"]
     if now:
         dur = f" [{now['duration']}]" if now.get("duration") else ""
@@ -1925,6 +1932,8 @@ async def handle_dj_radiostatus(bot: "BaseBot", user: "User") -> None:
     lines.append(f"📻 {radio_url[:80]}" if radio_url else "📻 No stream configured")
     if web_url:
         lines.append(f"🌐 {web_url[:80]}")
+    if nowpage_url:
+        lines.append(f"📄 {nowpage_url[:80]}")
     await _w(bot, user.id, "\n".join(lines)[:249])
 
 
@@ -1959,6 +1968,39 @@ async def handle_dj_setwebplayer(
         return
     db.set_room_setting("dj_webplayer_url", url)
     await _w(bot, user.id, f"🌐 Web player set:\n{url[:200]}")
+
+
+async def handle_dj_nowpage(bot: "BaseBot", user: "User") -> None:
+    """!nowpage  —  show the now-playing page URL if configured (public)."""
+    url = _get_nowpage_url()
+    if url:
+        await _w(bot, user.id, f"📄 Now Playing page:\n{url[:220]}")
+    else:
+        await _w(bot, user.id,
+                 "📄 No now-playing page configured yet.\n"
+                 "An admin can set one with !setnowpage <url>")
+
+
+async def handle_dj_setnowpage(
+    bot: "BaseBot", user: "User", args: list[str],
+) -> None:
+    """!setnowpage <url|clear>  —  set or clear the now-playing page URL (admin)."""
+    if not is_admin(user.username):
+        await _w(bot, user.id, "🔒 Admin only.")
+        return
+    if len(args) < 2:
+        await _w(bot, user.id, "Usage: !setnowpage <url> or !setnowpage clear")
+        return
+    if args[1].lower() == "clear":
+        db.set_room_setting("dj_nowpage_url", "")
+        await _w(bot, user.id, "📄 Now-playing page URL cleared.")
+        return
+    url = " ".join(args[1:]).strip()[:200]
+    if not url.startswith(("http://", "https://")):
+        await _w(bot, user.id, "📄 URL must start with http:// or https://")
+        return
+    db.set_room_setting("dj_nowpage_url", url)
+    await _w(bot, user.id, f"📄 Now-playing page set:\n{url[:200]}")
 
 
 async def handle_dj_status(bot: "BaseBot", user: "User") -> None:
@@ -2777,13 +2819,14 @@ async def handle_dj_check(bot: "BaseBot", user: "User") -> None:
     lock   = "on" if _dj_locked() else "off"
     radio  = "set" if _get_radio_url() else "not set"
     wp     = "set" if _get_webplayer_url() else "not set"
+    nowpg  = "set" if _get_nowpage_url() else "not set"
 
     await _w(
         bot, user.id,
         (f"🔧 DJ Check:\n"
          f"{db_ok} | {yt_ok} | Backend: {bk}\n"
          f"Now: {np_str} | Queue: {_total_active()} | Timer: {timer}\n"
-         f"🔒 Lock: {lock} | 📻 Radio: {radio} | 🌐 Player: {wp}")[:249],
+         f"🔒 Lock: {lock} | 📻 Radio: {radio} | 🌐 Player: {wp} | 📄 Page: {nowpg}")[:249],
     )
 
 
@@ -3008,10 +3051,9 @@ async def handle_dj_help(bot: "BaseBot", user: "User") -> None:
         ("🎵 DJ Help 3/4 — Radio & Controls:\n"
          "📻 !radio | !setradio <url> | !radiostatus\n"
          "🌐 !webplayer | !setwebplayer <url>\n"
+         "📄 !nowpage | !setnowpage <url>\n"
          "!djstatus | !repeat | !shuffle | !autoplay\n"
-         "!djlock | !stopmusic | !moveup | !bump\n"
-         "!shoutout <user> <msg>\n"
-         "!djset <key> <val> | !djdebug on|off")[:249],
+         "!djlock | !stopmusic | !moveup | !bump")[:249],
     )
     # Section 4 — Admin & Diagnostics (admin+)
     await _w(
@@ -3019,7 +3061,7 @@ async def handle_dj_help(bot: "BaseBot", user: "User") -> None:
         ("🎵 DJ Help 4/4 — Admin & Diagnostics:\n"
          "!djclear | !djremove <#> | !djconfig\n"
          "!djcheck | !djhealth | !djresetstate\n"
-         "!djbackup | !djtestall\n"
+         "!djbackup | !djtestall | !shoutout\n"
          "!djban | !djunban | !djbanlist\n"
          "!songban | !songunban | !songbanlist\n"
          "!djreports")[:249],

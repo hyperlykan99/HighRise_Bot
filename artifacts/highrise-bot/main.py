@@ -443,6 +443,7 @@ from modules.dj_music import (
     handle_dj_djreport, handle_dj_djreports,
     handle_dj_setradio, handle_dj_radiostatus,
     handle_dj_webplayer, handle_dj_setwebplayer,
+    handle_dj_nowpage, handle_dj_setnowpage,
     handle_dj_songinfo, handle_dj_recent, handle_dj_myrequests,
     handle_dj_cancelrequest, handle_dj_requeststatus,
     handle_dj_check, handle_dj_health, handle_dj_resetstate, handle_dj_backup,
@@ -1578,8 +1579,10 @@ DJ_COMMANDS: frozenset[str] = frozenset({
     "djreport",
     "dedicate",
     "djhelp",
+    "nowpage",
     # Staff / admin
     "setradio", "setwebplayer",
+    "setnowpage",
     "djlock", "djclear", "djremove",
     "stopmusic", "djstop", "clearqueue",
     "djconfig", "djsettings",
@@ -7329,6 +7332,10 @@ class HangoutBot(BaseBot):
             await handle_dj_webplayer(self, user)
         elif cmd == "setwebplayer":
             await handle_dj_setwebplayer(self, user, args)
+        elif cmd == "nowpage":
+            await handle_dj_nowpage(self, user)
+        elif cmd == "setnowpage":
+            await handle_dj_setnowpage(self, user, args)
         elif cmd == "songinfo":
             await handle_dj_songinfo(self, user, args)
         elif cmd == "recent":
