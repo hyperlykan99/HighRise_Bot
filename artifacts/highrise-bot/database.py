@@ -3271,6 +3271,41 @@ def _migrate_db():
         except Exception:
             pass  # column already exists
 
+    # 3.2Z — request payment tracking + ban tables
+    for _col in (
+        "ALTER TABLE yt_request_jobs ADD COLUMN coins_charged  INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE yt_request_jobs ADD COLUMN payment_type   TEXT    NOT NULL DEFAULT 'free'",
+        "ALTER TABLE yt_request_jobs ADD COLUMN priority       INTEGER NOT NULL DEFAULT 0",
+    ):
+        try:
+            conn.execute(_col)
+        except Exception:
+            pass  # column already exists
+
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS request_blocked_tracks (
+                id        INTEGER PRIMARY KEY AUTOINCREMENT,
+                pattern   TEXT    NOT NULL UNIQUE,
+                added_by  TEXT    NOT NULL DEFAULT '',
+                added_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+            )
+        """)
+    except Exception:
+        pass
+
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS request_blocked_requesters (
+                id        INTEGER PRIMARY KEY AUTOINCREMENT,
+                username  TEXT    NOT NULL UNIQUE COLLATE NOCASE,
+                added_by  TEXT    NOT NULL DEFAULT '',
+                added_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+            )
+        """)
+    except Exception:
+        pass
+
     conn.commit()
     conn.close()
 

@@ -472,6 +472,14 @@ from modules.yt_request import (
     handle_now as handle_yt_now,
     handle_skip as handle_yt_skip,
     startup_yt_cleanup_task,
+    handle_setrequestcost,
+    handle_setprioritycost,
+    handle_bantrack,
+    handle_unbantrack,
+    handle_banrequester,
+    handle_unbanrequester,
+    handle_queueadmin,
+    on_request_user_left,
 )
 from modules.dm_queue import startup_host_dm_queue_loop
 from modules.autosummary import (
@@ -1611,6 +1619,10 @@ DJ_COMMANDS: frozenset[str] = frozenset({
     "radioconfig", "setradiotype", "setradiomount", "setradiometadata",
     "ytrequest", "ytqueue", "ytstatus", "ytnow", "ytcooldown", "setytcooldown",
     "clearrequests", "requesthistory", "requestcleanup", "playedrequests",
+    "setrequestcost", "setprioritycost",
+    "bantrack", "unbantrack",
+    "banrequester", "unbanrequester",
+    "queueadmin",
     "setnowpage",
     "djannounce", "announcequeue",
     "djlimits",
@@ -7425,6 +7437,20 @@ class HangoutBot(BaseBot):
             await handle_requestcleanup(self, user, args)
         elif cmd == "playedrequests":
             await handle_playedrequests(self, user, args)
+        elif cmd == "setrequestcost":
+            await handle_setrequestcost(self, user, args)
+        elif cmd == "setprioritycost":
+            await handle_setprioritycost(self, user, args)
+        elif cmd == "bantrack":
+            await handle_bantrack(self, user, args)
+        elif cmd == "unbantrack":
+            await handle_unbantrack(self, user, args)
+        elif cmd == "banrequester":
+            await handle_banrequester(self, user, args)
+        elif cmd == "unbanrequester":
+            await handle_unbanrequester(self, user, args)
+        elif cmd == "queueadmin":
+            await handle_queueadmin(self, user, args)
         elif cmd == "webplayer":
             await handle_dj_webplayer(self, user)
         elif cmd == "setwebplayer":
@@ -7947,6 +7973,10 @@ class HangoutBot(BaseBot):
             await handle_poker_user_left(self, user)
         except Exception as _pe:
             print(f"[ON_LEAVE POKER] @{user.username}: {_pe!r}")
+        try:
+            await on_request_user_left(self, user.id, user.username)
+        except Exception as _dj_leave:
+            print(f"[ON_LEAVE DJ] @{user.username}: {_dj_leave!r}")
 
     async def on_reaction(self, user: User, reaction: str, receiver: User) -> None:
         """

@@ -48,7 +48,7 @@ from typing import TYPE_CHECKING, Callable
 
 import config as _config
 import database as db
-from modules.permissions import is_admin, is_owner
+from modules.permissions import is_admin, is_owner, is_manager
 
 # DB file path — config.DB_PATH reads SHARED_DB_PATH env var (default highrise_hangout.db)
 _DB_PATH: str = _config.DB_PATH
@@ -96,6 +96,79 @@ def _cooldown_secs() -> int:
         return max(30, int(db.get_room_setting("yt_request_cooldown", str(_DEFAULT_COOLDOWN))))
     except Exception:
         return _DEFAULT_COOLDOWN
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Payment + VIP + presence settings helpers
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _request_cost() -> int:
+    """Chill coins charged to non-VIP users per request (0 = free for all)."""
+    try:
+        return max(0, int(db.get_room_setting("request_cost_coins", "500")))
+    except Exception:
+        return 500
+
+def _priority_cost_tickets() -> int:
+    """Luxe tickets for priority queue slot (0 = disabled)."""
+    try:
+        return max(0, int(db.get_room_setting("request_priority_cost_tickets", "100")))
+    except Exception:
+        return 100
+
+def _vip_free_requests() -> bool:
+    return db.get_room_setting("vip_free_requests", "true").lower() == "true"
+
+def _vip_priority() -> bool:
+    return db.get_room_setting("vip_priority", "true").lower() == "true"
+
+def _skip_if_requester_leaves() -> bool:
+    return db.get_room_setting("skip_if_requester_leaves", "true").lower() == "true"
+
+def _refund_if_leaves() -> bool:
+    return db.get_room_setting("refund_if_requester_leaves", "true").lower() == "true"
+
+def _admin_ignore_leave() -> bool:
+    return db.get_room_setting("admin_requests_ignore_leave", "true").lower() == "true"
+
+def _is_vip(user_id: str) -> bool:
+    try:
+        return bool(db.owns_item(user_id, "vip"))
+    except Exception:
+        return False
+
+def _charge_coins(user_id: str, amount: int) -> bool:
+    """Deduct coins from user. Returns True if successful (had enough)."""
+    if amount <= 0:
+        return True
+    try:
+        bal = db.get_balance(user_id)
+        if bal < amount:
+            return False
+        db.adjust_balance(user_id, -amount)
+        return True
+    except Exception as exc:
+        print(f"[YT_PAY] charge error for {user_id}: {exc}")
+        return False
+
+def _refund_coins(user_id: str, amount: int) -> None:
+    """Refund coins to user (non-fatal)."""
+    if amount <= 0:
+        return
+    try:
+        db.adjust_balance(user_id, amount)
+    except Exception as exc:
+        print(f"[YT_PAY] refund error for {user_id}: {exc}")
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Requester presence tracking
+# ─────────────────────────────────────────────────────────────────────────────
+
+_presence_lock = threading.Lock()
+_active_presence: dict[str, dict] = {}
+# user_id → {db_id, job_id, coins_charged, payment_type, username}
+
+# Set by nowplaying cycle the moment a request starts; cleared when it ends
+_currently_playing_db_id: int = 0
 
 _REQUIRED_SFTP_VARS = ("AZURA_SFTP_HOST", "AZURA_SFTP_USER", "AZURA_SFTP_PASS")
 _DEFAULT_SFTP_PATH  = "Requests"
@@ -165,22 +238,27 @@ _jobs_lock = threading.Lock()
 _jobs: dict[int, dict] = {}
 _next_job_id = 1
 
-def _new_job(user_id: str, username: str, url: str) -> dict:
+def _new_job(user_id: str, username: str, url: str,
+             coins_charged: int = 0, payment_type: str = "free",
+             priority: int = 0) -> dict:
     global _next_job_id
     with _jobs_lock:
         jid = _next_job_id
         _next_job_id += 1
         job: dict = {
-            "id":          jid,
-            "db_id":       0,      # filled after DB insert below
-            "user_id":     user_id,
-            "username":    username,
-            "url":         url,
-            "status":      "pending",    # pending | downloading | uploading | done | error
-            "title":       "",
-            "error":       "",
-            "started_at":  time.time(),
-            "finished_at": None,
+            "id":            jid,
+            "db_id":         0,
+            "user_id":       user_id,
+            "username":      username,
+            "url":           url,
+            "status":        "pending",
+            "title":         "",
+            "error":         "",
+            "started_at":    time.time(),
+            "finished_at":   None,
+            "coins_charged": coins_charged,
+            "payment_type":  payment_type,
+            "priority":      priority,
         }
         _jobs[jid] = job
     # Persist outside the lock (non-fatal if DB is unavailable)
@@ -208,10 +286,14 @@ def _db_insert_job(job: dict) -> int:
         with sqlite3.connect(_DB_PATH) as conn:
             cur = conn.execute(
                 """INSERT INTO yt_request_jobs
-                       (user_id, username, url, title, status, started_at)
-                   VALUES (?, ?, ?, ?, ?, datetime('now'))""",
+                       (user_id, username, url, title, status, started_at,
+                        coins_charged, payment_type, priority)
+                   VALUES (?, ?, ?, ?, ?, datetime('now'), ?, ?, ?)""",
                 (job["user_id"], job["username"], job["url"],
-                 job["title"], job["status"]),
+                 job["title"], job["status"],
+                 job.get("coins_charged", 0),
+                 job.get("payment_type", "free"),
+                 job.get("priority", 0)),
             )
             conn.commit()
             return cur.lastrowid or 0
@@ -226,7 +308,8 @@ def _db_update_job(db_id: int, **kwargs: object) -> None:
         return
     allowed = {"title", "status", "error", "finished_at", "filename",
                "azura_file_id", "azura_song_id",
-               "video_id", "yt_uploader"}
+               "video_id", "yt_uploader",
+               "coins_charged", "payment_type", "priority"}
     fields  = {k: v for k, v in kwargs.items() if k in allowed}
     if not fields:
         return
@@ -269,6 +352,139 @@ def _db_check_dedup(url: str, window_secs: int) -> "dict | None":
     except Exception as exc:
         print(f"[YT_REQUEST] DB dedup check error (non-fatal): {exc}")
     return None
+
+
+def _extract_video_id_from_url(url: str) -> str:
+    """Extract the 11-char YouTube video ID from a URL (no network call)."""
+    m = re.search(r"(?:v=|youtu\.be/|shorts/)([a-zA-Z0-9_\-]{11})", url)
+    return m.group(1) if m else ""
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Ban list helpers  (blocked tracks + blocked requesters)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _db_ban_track(pattern: str, added_by: str) -> None:
+    p = pattern.strip()
+    if not p:
+        return
+    try:
+        with sqlite3.connect(_DB_PATH) as conn:
+            conn.execute(
+                """INSERT OR REPLACE INTO request_blocked_tracks
+                   (pattern, added_by, added_at) VALUES (?, ?, datetime('now'))""",
+                (p, added_by),
+            )
+            conn.commit()
+    except Exception as exc:
+        print(f"[YT_BAN] ban_track error: {exc}")
+
+def _db_unban_track(pattern: str) -> bool:
+    try:
+        with sqlite3.connect(_DB_PATH) as conn:
+            cur = conn.execute(
+                "DELETE FROM request_blocked_tracks WHERE LOWER(pattern) = LOWER(?)",
+                (pattern.strip(),),
+            )
+            conn.commit()
+        return cur.rowcount > 0
+    except Exception:
+        return False
+
+def _db_ban_requester(username: str, added_by: str) -> None:
+    if not username.strip():
+        return
+    try:
+        with sqlite3.connect(_DB_PATH) as conn:
+            conn.execute(
+                """INSERT OR REPLACE INTO request_blocked_requesters
+                   (username, added_by, added_at) VALUES (LOWER(?), ?, datetime('now'))""",
+                (username, added_by),
+            )
+            conn.commit()
+    except Exception as exc:
+        print(f"[YT_BAN] ban_requester error: {exc}")
+
+def _db_unban_requester(username: str) -> bool:
+    try:
+        with sqlite3.connect(_DB_PATH) as conn:
+            cur = conn.execute(
+                "DELETE FROM request_blocked_requesters WHERE username = LOWER(?)",
+                (username,),
+            )
+            conn.commit()
+        return cur.rowcount > 0
+    except Exception:
+        return False
+
+def _is_banned_requester(username: str) -> bool:
+    try:
+        with sqlite3.connect(_DB_PATH) as conn:
+            row = conn.execute(
+                "SELECT 1 FROM request_blocked_requesters WHERE username = LOWER(?)",
+                (username,),
+            ).fetchone()
+        return row is not None
+    except Exception:
+        return False
+
+def _is_banned_track_by_id(video_id: str) -> bool:
+    """Fast check: is this exact video_id in the ban list?"""
+    if not video_id:
+        return False
+    try:
+        with sqlite3.connect(_DB_PATH) as conn:
+            row = conn.execute(
+                "SELECT 1 FROM request_blocked_tracks WHERE LOWER(pattern) = LOWER(?)",
+                (video_id,),
+            ).fetchone()
+        return row is not None
+    except Exception:
+        return False
+
+def _is_banned_track(video_id: str, title: str) -> "str | None":
+    """Return the matching ban pattern if video_id OR title keyword matches, else None."""
+    if not video_id and not title:
+        return None
+    try:
+        with sqlite3.connect(_DB_PATH) as conn:
+            rows = conn.execute(
+                "SELECT pattern FROM request_blocked_tracks"
+            ).fetchall()
+        vid_lc   = video_id.lower().strip()
+        title_lc = title.lower().strip()
+        for (pat,) in rows:
+            p = pat.strip().lower()
+            if not p:
+                continue
+            if vid_lc and p == vid_lc:
+                return pat
+            if title_lc and p in title_lc:
+                return pat
+    except Exception:
+        pass
+    return None
+
+def _db_list_bans() -> dict:
+    try:
+        with sqlite3.connect(_DB_PATH) as conn:
+            tracks = [r[0] for r in conn.execute(
+                "SELECT pattern FROM request_blocked_tracks ORDER BY id"
+            ).fetchall()]
+            requesters = [r[0] for r in conn.execute(
+                "SELECT username FROM request_blocked_requesters ORDER BY id"
+            ).fetchall()]
+        return {"tracks": tracks, "requesters": requesters}
+    except Exception:
+        return {"tracks": [], "requesters": []}
+
+def _queue_position() -> int:
+    """Number of active jobs already in pipeline (queue depth before a new job)."""
+    with _jobs_lock:
+        return sum(
+            1 for j in _jobs.values()
+            if j["status"] in ("pending", "downloading", "uploading")
+        )
 
 
 def _db_recent_jobs(limit: int = 10) -> list[dict]:
@@ -951,7 +1167,6 @@ async def _run_job(bot: "BaseBot", job: dict) -> None:
     try:
         # ── Step 1: Download + convert ──────────────────────────────────────
         _update_job(jid, status="downloading")
-        await _w(bot, uid, "⬇️ Downloading & converting audio… (~30–60s)")
 
         info, mp3_path = await loop.run_in_executor(
             None, _download_step, job["url"], tmpdir
@@ -976,9 +1191,28 @@ async def _run_job(bot: "BaseBot", job: dict) -> None:
             f" uploader={yt_uploader[:30]!r}"
         )
 
+        # ── Check title-based track ban (video_id ban checked at request time) ─
+        ban_pat = _is_banned_track(video_id, title)
+        if ban_pat:
+            print(f"[YT_BAN] Job #{jid} rejected — banned pattern: {ban_pat!r}")
+            coins_c = job.get("coins_charged", 0)
+            if coins_c > 0:
+                _refund_coins(uid, coins_c)
+            with _presence_lock:
+                _p = _active_presence.get(uid)
+                if _p and _p.get("job_id") == jid:
+                    _active_presence.pop(uid, None)
+            _update_job(jid, status="error", error="banned_track", finished_at=time.time())
+            await _w(
+                bot, uid,
+                "🚫 That song is not allowed in this room. Your coins have been refunded."
+                if coins_c > 0 else
+                "🚫 That song is not allowed in this room."
+            )
+            return
+
         # ── Step 2: SFTP upload (fire-and-forget after put completes) ────────
         _update_job(jid, status="uploading")
-        await _w(bot, uid, f"📤 Uploading to AzuraCast…\n🎵 {title}")
         print(f"[YT_REQUEST] Job #{jid} — SFTP upload starting: {title[:80]}")
 
         # asyncio.Event is set by the upload thread the moment sftp.put()
@@ -1018,7 +1252,7 @@ async def _run_job(bot: "BaseBot", job: dict) -> None:
         # ── Done: whisper success immediately after put() ────────────────────
         _update_job(jid, status="done", finished_at=time.time())
         print(f"[YT_REQUEST] Job #{jid} — success in {upload_secs:.1f}s: {title[:80]}")
-        await _w(bot, uid, f"✅ Added to Requests playlist!\n🎵 {title}")
+        await _w(bot, uid, f"✅ Added to queue: {title[:80]}")
         # Room-wide announcement
         try:
             uname = job.get("username") or uid
@@ -1032,9 +1266,19 @@ async def _run_job(bot: "BaseBot", job: dict) -> None:
         err = str(exc)[:120]
         _update_job(jid, status="error", error=err, finished_at=time.time())
         print(f"[YT_REQUEST] Job #{jid} — FAILED: {exc}")
-        await _w(bot, uid, f"❌ YT Request failed:\n{err}")
+        coins_c = job.get("coins_charged", 0)
+        if coins_c > 0:
+            _refund_coins(uid, coins_c)
+            await _w(bot, uid, "❌ Could not process your request. Your coins have been refunded.")
+        else:
+            await _w(bot, uid, "❌ Could not process your request.")
 
     finally:
+        # Clear presence tracking (job done or failed)
+        with _presence_lock:
+            _pres = _active_presence.get(uid)
+            if _pres and _pres.get("job_id") == jid:
+                _active_presence.pop(uid, None)
         # Temp dir removed here; upload thread may still be running ssh.close()
         # but it holds no reference to tmpdir, so this is safe.
         shutil.rmtree(tmpdir, ignore_errors=True)
@@ -1204,114 +1448,177 @@ async def handle_now(bot: "BaseBot", user: "User", _args: list[str]) -> None:
 
 
 async def handle_skip(bot: "BaseBot", user: "User", _args: list[str]) -> None:
-    """!skip — skip the current song on ChillTopia Radio (admin+)."""
-    if not is_admin(user.username):
-        await _w(bot, user.id, "🔒 Admin only.")
+    """!skip — skip current song. Admins always; VIP members if vip_priority enabled."""
+    _is_adm     = is_admin(user.username)
+    _is_vip_usr = not _is_adm and _is_vip(user.id) and _vip_priority()
+    if not _is_adm and not _is_vip_usr:
+        await _w(bot, user.id, "🔒 Admins and VIP members only.")
         return
 
     if _azura_api_cfg() is None:
-        await _w(bot, user.id, "📻 AzuraCast API not configured.")
+        await _w(bot, user.id, "📻 Radio API not configured.")
         return
 
-    await _w(bot, user.id, "⏭ Skipping…")
+    # Refund the currently-playing paid request (if applicable)
+    playing_db_id = _currently_playing_db_id
+    if playing_db_id and _refund_if_leaves():
+        try:
+            with sqlite3.connect(_DB_PATH) as _rc:
+                row = _rc.execute(
+                    "SELECT user_id, coins_charged FROM yt_request_jobs WHERE id=?",
+                    (playing_db_id,),
+                ).fetchone()
+            if row and row[0] and int(row[1] or 0) > 0:
+                _refund_coins(row[0], int(row[1]))
+                print(f"[YT_SKIP] Refunded {row[1]} coins to {row[0]} on skip.")
+        except Exception as _re:
+            print(f"[YT_SKIP] Refund check error (non-fatal): {_re}")
+
     loop = asyncio.get_running_loop()
     ok = await loop.run_in_executor(None, _azura_skip_song)
     if ok:
-        await _w(bot, user.id, "✅ Song skipped.")
+        await _w(bot, user.id, "⏭ Song skipped.")
+        try:
+            await bot.highrise.chat("⏭ Song skipped.")
+        except Exception:
+            pass
     else:
-        await _w(bot, user.id, "❌ Skip failed — check AzuraCast API logs.")
+        await _w(bot, user.id, "❌ Skip failed — please try again.")
 
 
 async def handle_ytrequest(bot: "BaseBot", user: "User", args: list[str]) -> None:
     """!ytrequest <youtube_url> — download and add to AzuraCast Requests playlist."""
 
-    # SFTP readiness check
+    # ── SFTP readiness check ─────────────────────────────────────────────────
     missing = _sftp_missing_vars()
     if missing:
-        missing_str = ", ".join(missing)
-        print(f"[YT_REQUEST] !ytrequest blocked — missing env vars: {missing_str}")
-        await _w(
-            bot, user.id,
-            f"📻 YT Requests not configured.\n"
-            f"Missing secret(s): {missing_str}"
-        )
+        print(f"[YT_REQUEST] blocked — missing env vars: {', '.join(missing)}")
+        await _w(bot, user.id, "📻 Radio requests are not available right now.")
         return
 
-    # Usage hint
+    # ── Usage hint ───────────────────────────────────────────────────────────
     if len(args) < 2:
-        cd = _cooldown_secs()
+        cd   = _cooldown_secs()
+        cost = _request_cost()
+        cost_str = f"Cost: {cost} chill coins" if cost > 0 else "Free for everyone"
         await _w(
             bot, user.id,
-            f"🎵 Usage: !ytrequest <youtube_url>\n"
-            f"Adds audio to the AzuraCast Requests playlist.\n"
-            f"Cooldown: {cd}s per user."
+            f"🎵 !play <song name or YouTube URL>\n"
+            f"Cooldown: {cd}s | {cost_str}"
         )
         return
 
     url = args[1].strip().split("&list=")[0]   # strip playlist suffix
 
-    # Validate URL
+    # ── Validate URL ─────────────────────────────────────────────────────────
     if not _is_youtube_url(url):
-        await _w(
-            bot, user.id,
-            "⚠️ Invalid YouTube URL.\n"
-            "Supported: youtube.com/watch?v=... | youtu.be/... | youtube.com/shorts/..."
-        )
+        await _w(bot, user.id, "⚠️ Invalid URL. Try: !play <song name> to search.")
         return
 
-    # Duplicate check — same URL successfully uploaded in last 24 h
+    # ── Banned requester check ───────────────────────────────────────────────
+    if _is_banned_requester(user.username):
+        await _w(bot, user.id, "🚫 You are not allowed to make song requests.")
+        return
+
+    # ── Fast video ID ban check (no network) ─────────────────────────────────
+    vid_id = _extract_video_id_from_url(url)
+    if vid_id and _is_banned_track_by_id(vid_id):
+        await _w(bot, user.id, "🚫 That song is not allowed in this room.")
+        return
+
+    # ── Duplicate check (same URL in last 24 h) ──────────────────────────────
     _owner_flag = is_owner(user.username)
     if not _owner_flag:
         _dup = _db_check_dedup(url, _DEDUP_WINDOW_SECS)
         if _dup:
-            t = (_dup["title"] or url)[:60]
-            await _w(
-                bot, user.id,
-                f"⚠️ Already added recently:\n{t}\nTry a different song."
-            )
+            t   = (_dup["title"] or "")[:50]
+            msg = "⚠️ That song was already played recently."
+            if t:
+                msg += f"\n🎵 {t}"
+            msg += "\nTry a different song."
+            await _w(bot, user.id, msg)
             return
 
-    # Per-user cooldown — owners bypass entirely, admins get 30 s flat
+    # ── Per-user cooldown ─────────────────────────────────────────────────────
     _owner = _owner_flag
     _admin = not _owner and is_admin(user.username)
-    if _owner:
-        cd = 0
-    elif _admin:
-        cd = 30
-    else:
-        cd = _cooldown_secs()
+    cd = 0 if _owner else (30 if _admin else _cooldown_secs())
 
     if cd > 0:
-        last    = _cooldowns.get(user.id, 0.0)
-        elapsed = time.time() - last
+        elapsed = time.time() - _cooldowns.get(user.id, 0.0)
         if elapsed < cd:
             remaining = int(cd - elapsed)
-            role_hint = "admin" if _admin else "user"
-            await _w(bot, user.id, f"⏳ Cooldown ({role_hint}): {remaining}s remaining.")
+            await _w(bot, user.id, f"⏳ Please wait {remaining}s before your next request.")
             return
 
-    # Queue capacity check
+    # ── Queue capacity check ──────────────────────────────────────────────────
     with _jobs_lock:
         active_count = sum(
             1 for j in _jobs.values()
             if j["status"] in ("pending", "downloading", "uploading")
         )
     if active_count >= _MAX_ACTIVE_JOBS:
-        await _w(
-            bot, user.id,
-            f"📋 Request queue full ({_MAX_ACTIVE_JOBS} active). Try again in a moment."
-        )
+        await _w(bot, user.id, "📋 Queue is full right now. Try again in a few minutes.")
         return
 
-    # Record cooldown and create job
-    _cooldowns[user.id] = time.time()
-    job = _new_job(user.id, user.username, url)
+    # ── Payment logic ─────────────────────────────────────────────────────────
+    vip             = not _owner and not _admin and _is_vip(user.id)
+    coins_to_charge = 0
+    payment_type    = "free"
+    priority        = 0
 
-    await _w(
-        bot, user.id,
-        f"✅ YT Request received! (Job #{job['id']})\n"
-        f"URL: {url[:100]}"
+    if _owner or _admin:
+        payment_type = "admin"
+        priority     = 1
+    elif vip and _vip_free_requests():
+        payment_type = "vip_free"
+        priority     = 1 if _vip_priority() else 0
+    else:
+        cost = _request_cost()
+        if cost > 0:
+            bal = db.get_balance(user.id)
+            if bal < cost:
+                await _w(
+                    bot, user.id,
+                    f"💰 You need {cost} chill coins to request a song.\n"
+                    f"Your balance: {bal} coins.\n"
+                    f"Earn coins by playing games or mining!"
+                )
+                return
+            coins_to_charge = cost
+            payment_type    = "coins"
+
+    if coins_to_charge > 0 and not _charge_coins(user.id, coins_to_charge):
+        await _w(bot, user.id, f"💰 Not enough coins. You need {coins_to_charge} chill coins.")
+        return
+
+    # ── Create job + track presence ───────────────────────────────────────────
+    _cooldowns[user.id] = time.time()
+    pos = _queue_position()
+    job = _new_job(
+        user.id, user.username, url,
+        coins_charged=coins_to_charge,
+        payment_type=payment_type,
+        priority=priority,
     )
+
+    with _presence_lock:
+        _active_presence[user.id] = {
+            "db_id":         job["db_id"],
+            "job_id":        job["id"],
+            "coins_charged": coins_to_charge,
+            "payment_type":  payment_type,
+            "username":      user.username,
+        }
+
+    # ── User-friendly confirmation ─────────────────────────────────────────────
+    pos_str = f"⏳ Position: #{pos + 1} in queue" if pos > 0 else "⏳ You're next!"
+    pay_str = ""
+    if coins_to_charge > 0:
+        pay_str = f"\n💰 {coins_to_charge} coins charged."
+    elif payment_type == "vip_free":
+        pay_str = "\n⭐ VIP request — enjoy!"
+    await _w(bot, user.id, f"🎵 Request received!\n{pos_str}{pay_str}"[:249])
 
     asyncio.create_task(_run_job(bot, job))
 
@@ -1710,6 +2017,7 @@ async def _run_nowplaying_cycle(prev_song_id_ref: list[str]) -> None:
         whose files have not been deleted yet.  This catches songs that played
         while the bot was offline or before the now-playing loop was tracking them.
     """
+    global _currently_playing_db_id
     loop = asyncio.get_running_loop()
 
     pending = _db_get_pending_cleanup()
@@ -1786,6 +2094,7 @@ async def _run_nowplaying_cycle(prev_song_id_ref: list[str]) -> None:
     if matched_job and track_key and track_key not in _seen_playing:
         _seen_playing[track_key] = matched_job["id"]
         _db_mark_played(matched_job["id"])
+        _currently_playing_db_id = matched_job["id"]
         print(
             f"[YT_NOWPLAY] ▶ Request started playing: "
             f"{(matched_job.get('title') or '?')[:60]}"
@@ -1795,6 +2104,8 @@ async def _run_nowplaying_cycle(prev_song_id_ref: list[str]) -> None:
     prev_id = prev_song_id_ref[0]
     if prev_id and prev_id != current_song_id and prev_id in _seen_playing:
         job_id    = _seen_playing.pop(prev_id)
+        if _currently_playing_db_id == job_id:
+            _currently_playing_db_id = 0
         job_match = next((j for j in pending if j["id"] == job_id), None)
         if job_match and _auto_delete_enabled():
             fid       = (job_match.get("azura_file_id") or "").strip()
@@ -1956,6 +2267,212 @@ async def _cleanup_loop() -> None:
             break
         except Exception as exc:
             print(f"[YT_CLEANUP] Loop error (non-fatal): {exc}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Requester presence protection — called from main.py on_user_leave
+# ─────────────────────────────────────────────────────────────────────────────
+
+async def on_request_user_left(bot: "BaseBot", user_id: str, username: str) -> None:
+    """
+    Called when a user leaves the room.
+    • Cancels their pending/in-progress request and refunds coins if applicable.
+    • Skips the currently-playing song if it belongs to them and refunds if applicable.
+    """
+    with _presence_lock:
+        info = _active_presence.pop(user_id, None)
+    if not info:
+        return
+
+    db_id    = info.get("db_id", 0)
+    job_id   = info.get("job_id", 0)
+    coins    = info.get("coins_charged", 0)
+    pay_type = info.get("payment_type", "free")
+
+    # Admin requests: keep running unless setting says otherwise
+    if pay_type == "admin" and _admin_ignore_leave():
+        with _presence_lock:
+            _active_presence[user_id] = info  # restore
+        return
+
+    if not _skip_if_requester_leaves():
+        return
+
+    # ── Cancel pending/downloading/uploading job ─────────────────────────────
+    was_pending = False
+    with _jobs_lock:
+        for j in _jobs.values():
+            if (j.get("db_id") == db_id or j["id"] == job_id) and \
+               j["status"] in ("pending", "downloading", "uploading"):
+                j["status"] = "cancelled"
+                was_pending = True
+                break
+
+    if was_pending:
+        if coins > 0 and _refund_if_leaves():
+            _refund_coins(user_id, coins)
+            print(f"[YT_PRESENCE] @{username} left — request cancelled + {coins} coins refunded.")
+        else:
+            print(f"[YT_PRESENCE] @{username} left — request cancelled.")
+        try:
+            await bot.highrise.chat(
+                f"📻 @{username}'s request was removed (left the room)."[:249]
+            )
+        except Exception:
+            pass
+        return
+
+    # ── Their song is currently playing — skip it ────────────────────────────
+    if not db_id or db_id != _currently_playing_db_id:
+        return
+
+    loop = asyncio.get_running_loop()
+    ok   = await loop.run_in_executor(None, _azura_skip_song)
+    if ok:
+        if coins > 0 and _refund_if_leaves():
+            _refund_coins(user_id, coins)
+            print(f"[YT_PRESENCE] @{username} left mid-play — skipped + {coins} coins refunded.")
+        else:
+            print(f"[YT_PRESENCE] @{username} left mid-play — skipped.")
+        try:
+            await bot.highrise.chat("⏭ Skipping — requester left the room.")
+        except Exception:
+            pass
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Admin command handlers — request system settings
+# ─────────────────────────────────────────────────────────────────────────────
+
+async def handle_setrequestcost(bot: "BaseBot", user: "User", args: list[str]) -> None:
+    """!setrequestcost <coins> — set coin cost per request (0 = free for all)."""
+    if not is_manager(user.username):
+        await _w(bot, user.id, "🔒 Manager only.")
+        return
+    if len(args) < 2 or not args[1].isdigit():
+        cost = _request_cost()
+        await _w(bot, user.id, f"💰 Current request cost: {cost} coins.\nUsage: !setrequestcost <coins>")
+        return
+    val = max(0, int(args[1]))
+    db.set_room_setting("request_cost_coins", str(val))
+    if val > 0:
+        await _w(bot, user.id, f"✅ Request cost set to {val} coins per request.")
+    else:
+        await _w(bot, user.id, "✅ Requests are now free for everyone.")
+
+
+async def handle_setprioritycost(bot: "BaseBot", user: "User", args: list[str]) -> None:
+    """!setprioritycost <tickets> — set luxe ticket cost for priority queue (0 = disabled)."""
+    if not is_manager(user.username):
+        await _w(bot, user.id, "🔒 Manager only.")
+        return
+    if len(args) < 2 or not args[1].isdigit():
+        cost = _priority_cost_tickets()
+        await _w(bot, user.id, f"🎟 Current priority cost: {cost} luxe tickets.\nUsage: !setprioritycost <tickets>")
+        return
+    val = max(0, int(args[1]))
+    db.set_room_setting("request_priority_cost_tickets", str(val))
+    if val > 0:
+        await _w(bot, user.id, f"✅ Priority cost set to {val} luxe tickets.")
+    else:
+        await _w(bot, user.id, "✅ Priority queue via luxe tickets disabled.")
+
+
+async def handle_bantrack(bot: "BaseBot", user: "User", args: list[str]) -> None:
+    """!bantrack <video_id or keyword> — block a video ID or title keyword from requests."""
+    if not is_admin(user.username):
+        await _w(bot, user.id, "🔒 Admin only.")
+        return
+    if len(args) < 2:
+        await _w(bot, user.id, "Usage: !bantrack <YouTube video ID or title keyword>")
+        return
+    pattern = " ".join(args[1:]).strip()
+    _db_ban_track(pattern, user.username)
+    await _w(bot, user.id, f"🚫 Track banned: {pattern[:80]}")
+
+
+async def handle_unbantrack(bot: "BaseBot", user: "User", args: list[str]) -> None:
+    """!unbantrack [pattern] — remove a track/keyword ban, or list all bans."""
+    if not is_admin(user.username):
+        await _w(bot, user.id, "🔒 Admin only.")
+        return
+    if len(args) < 2:
+        bans   = _db_list_bans()
+        tracks = bans["tracks"]
+        if not tracks:
+            await _w(bot, user.id, "📋 No banned tracks.")
+        else:
+            lines = ["🚫 Banned tracks:"] + [f"  {i+1}. {t[:50]}" for i, t in enumerate(tracks[:15])]
+            await _w(bot, user.id, "\n".join(lines)[:249])
+        return
+    pattern = " ".join(args[1:]).strip()
+    ok = _db_unban_track(pattern)
+    if ok:
+        await _w(bot, user.id, f"✅ Track unbanned: {pattern[:80]}")
+    else:
+        await _w(bot, user.id, f"⚠️ No ban found matching: {pattern[:80]}")
+
+
+async def handle_banrequester(bot: "BaseBot", user: "User", args: list[str]) -> None:
+    """!banrequester <username> — prevent a user from making requests."""
+    if not is_admin(user.username):
+        await _w(bot, user.id, "🔒 Admin only.")
+        return
+    if len(args) < 2:
+        await _w(bot, user.id, "Usage: !banrequester <username>")
+        return
+    target = args[1].lstrip("@").strip().lower()
+    if not target:
+        await _w(bot, user.id, "⚠️ Please provide a username.")
+        return
+    _db_ban_requester(target, user.username)
+    await _w(bot, user.id, f"🚫 @{target} banned from requests.")
+
+
+async def handle_unbanrequester(bot: "BaseBot", user: "User", args: list[str]) -> None:
+    """!unbanrequester [username] — allow a user to request again, or list all bans."""
+    if not is_admin(user.username):
+        await _w(bot, user.id, "🔒 Admin only.")
+        return
+    if len(args) < 2:
+        bans       = _db_list_bans()
+        requesters = bans["requesters"]
+        if not requesters:
+            await _w(bot, user.id, "📋 No banned requesters.")
+        else:
+            lines = ["🚫 Banned requesters:"] + [f"  {i+1}. @{r}" for i, r in enumerate(requesters[:15])]
+            await _w(bot, user.id, "\n".join(lines)[:249])
+        return
+    target = args[1].lstrip("@").strip().lower()
+    ok = _db_unban_requester(target)
+    if ok:
+        await _w(bot, user.id, f"✅ @{target} can make requests again.")
+    else:
+        await _w(bot, user.id, f"⚠️ @{target} is not in the ban list.")
+
+
+async def handle_queueadmin(bot: "BaseBot", user: "User", args: list[str]) -> None:
+    """!queueadmin — show request system config overview (admin+)."""
+    if not is_admin(user.username):
+        await _w(bot, user.id, "🔒 Admin only.")
+        return
+
+    cost     = _request_cost()
+    pri_cost = _priority_cost_tickets()
+    vip_free = _vip_free_requests()
+    vip_pri  = _vip_priority()
+    skip_lv  = _skip_if_requester_leaves()
+    refund_l = _refund_if_leaves()
+    bans     = _db_list_bans()
+
+    lines = [
+        "📻 Request System",
+        f"Cost: {cost} coins | Priority: {pri_cost} tickets",
+        f"VIP free: {'on' if vip_free else 'off'} | VIP priority: {'on' if vip_pri else 'off'}",
+        f"Skip if leave: {'on' if skip_lv else 'off'} | Refund: {'on' if refund_l else 'off'}",
+        f"Banned tracks: {len(bans['tracks'])} | Requesters: {len(bans['requesters'])}",
+    ]
+    await _w(bot, user.id, "\n".join(lines)[:249])
 
 
 async def startup_yt_cleanup_task(_bot: "BaseBot") -> None:

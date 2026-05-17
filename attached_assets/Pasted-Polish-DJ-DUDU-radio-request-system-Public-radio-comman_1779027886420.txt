@@ -1,0 +1,114 @@
+Polish DJ_DUDU radio request system.
+
+Public radio commands:
+!play <song name or YouTube URL>
+!skip
+!now
+
+Only DJ_DUDU / BOT_MODE=dj handles radio commands.
+ChillTopiaMC must never answer radio commands.
+
+Request flow:
+1. !play handles both YouTube URL and song search.
+2. If URL: validate and queue directly.
+3. If search text: show top 5 YouTube results.
+4. Use hidden helper !pick <number> for selection only.
+5. After approval, tell player:
+   ✅ Added to queue: <title>
+   ⏳ Position: #<number>
+6. Do NOT show players:
+   - downloading
+   - converting
+   - uploading
+   - SFTP
+   - API
+   - technical errors
+
+Payment:
+1. Non-VIP players pay 500 chill coins per request.
+2. VIP players can request free or discounted depending on setting.
+3. Priority queue is for:
+   - VIP players
+   - users paying 100 luxe tickets
+   - admins
+4. Charge only after request is approved.
+5. Refund if download/upload/queue fails.
+6. Refund if request is removed before playing.
+
+Queue rules:
+1. Max song length: 10 minutes.
+2. Reject livestreams.
+3. Reject playlists.
+4. Reject duplicate video IDs recently requested.
+5. Add cooldown per user.
+6. Add blocked words/title filter.
+7. Store requester, title, uploader, duration, URL, video ID, filename, payment type, status, priority.
+
+Requester presence protection:
+1. Track if requester is still in room.
+2. If requester leaves while request is pending:
+   - remove request from queue
+   - delete uploaded file if already uploaded
+   - refund payment
+3. If requester leaves while their song is playing:
+   - skip song immediately
+   - delete/remove file from Requests folder
+   - refund payment
+4. Whisper/announce quietly:
+   Request skipped because requester left the room.
+5. Admin-requested songs should not be skipped if admin leaves unless enabled.
+
+Settings:
+REQUEST_COST_CHILL_COINS=500
+PRIORITY_COST_LUXE_TICKETS=100
+VIP_FREE_REQUESTS=true
+VIP_PRIORITY=true
+MAX_REQUEST_DURATION_SECONDS=600
+SKIP_REQUEST_IF_REQUESTER_LEAVES=true
+REFUND_IF_REQUESTER_LEAVES=true
+ADMIN_REQUESTS_IGNORE_LEAVE_CHECK=true
+REQUEST_AUTO_DELETE_AFTER_PLAY=true
+REQUEST_AUTO_DELETE_HOURS=24
+
+Cleanup:
+1. Poll AzuraCast Now Playing API every 10 seconds.
+2. When a tracked DJ_DUDU request starts playing, mark it playing.
+3. When it stops playing, mark it played.
+4. Delete or move the MP3 out of Requests folder.
+5. Remove from Requests playlist if needed.
+6. Never delete General playlist songs.
+7. Only delete files uploaded by DJ_DUDU.
+
+Admin/private commands:
+!clearrequests
+!requestcleanup
+!requesthistory
+!setrequestcost <coins>
+!setprioritycost <tickets>
+!setcooldown <seconds>
+!bantrack <video_id or title>
+!unbantrack <video_id or title>
+!banrequester <username>
+!unbanrequester <username>
+!queueadmin
+
+!skip:
+- Public users can use skip vote if enabled.
+- Admins/VIP can force skip if allowed.
+- If skipped request was paid and did not finish, refund depending on setting.
+
+!now design:
+🎧 ChillTopia Radio
+▶ Now Playing: <real YouTube title>
+👤 Requested by: <user or AutoDJ>
+⏱ <elapsed> / <duration>
+▰▰▰▱▱▱▱▱▱▱
+📻 DJ_DUDU is live
+
+Important:
+- Never display uploaded filenames to users.
+- Use real YouTube title from database/metadata.
+- Keep working AzuraCast SFTP upload path:
+  Requests/<filename>.mp3
+- Keep current working upload/playlist flow.
+- Do not break existing successful !play/ytrequest behavior.
