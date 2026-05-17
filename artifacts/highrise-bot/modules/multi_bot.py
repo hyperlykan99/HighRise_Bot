@@ -624,6 +624,9 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "djclear": "dj",
     "djremove": "dj",
     "radio": "dj",
+    "djstatus": "dj",
+    "djhistory": "dj",
+    "toprequests": "dj",
     "djhelp": "dj",
     # eventhost — events / autogames (new)
     "adminsblessing": "eventhost", "adminblessing": "eventhost",

@@ -1182,15 +1182,91 @@ async def handle_dj_radio(bot: "BaseBot", user: "User") -> None:
                  "Ask staff to set up RADIO_STREAM_URL.")
 
 
+async def handle_dj_status(bot: "BaseBot", user: "User") -> None:
+    """!djstatus  —  lock state, queue size, and now playing (public)."""
+    lock   = "🔒 LOCKED" if _dj_locked() else "🔓 open"
+    total  = _total_active()
+    qmax   = _queue_max()
+    now    = _get_nowplaying()
+    if now:
+        dur = f" [{now['duration']}]" if now.get("duration") else ""
+        np  = f"▶️ {now['title'][:50]}{dur}\n   by @{now['username'][:15]}"
+    else:
+        np = "▶️ Nothing playing"
+    await _w(
+        bot, user.id,
+        f"🎵 DJ Status:\n"
+        f"Requests: {lock} | Queue: {total}/{qmax}\n"
+        f"{np}"
+    )
+
+
+def _get_history(limit: int = 5) -> list[dict]:
+    """Return last `limit` completed songs (played or skipped), newest first."""
+    try:
+        conn = db.get_connection()
+        rows = conn.execute(
+            "SELECT title, username, status FROM dj_requests "
+            "WHERE status IN ('played','skipped') "
+            "ORDER BY requested_at DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+    except Exception:
+        return []
+
+
+async def handle_dj_history(bot: "BaseBot", user: "User") -> None:
+    """!djhistory  —  last 5 played/skipped songs (public)."""
+    rows = _get_history(5)
+    if not rows:
+        await _w(bot, user.id,
+                 "🎵 No play history yet. Request a song with !request!")
+        return
+    lines = ["🎵 Recent plays:"]
+    for i, r in enumerate(rows, 1):
+        tag = "⏭" if r["status"] == "skipped" else "✅"
+        lines.append(f"{i}. {tag} {r['title'][:45]} (@{r['username'][:12]})")
+    await _w(bot, user.id, "\n".join(lines)[:249])
+
+
+def _get_top_requests(limit: int = 5) -> list[dict]:
+    """Return top `limit` most-requested songs by distinct title (all time)."""
+    try:
+        conn = db.get_connection()
+        rows = conn.execute(
+            "SELECT title, COUNT(*) AS cnt FROM dj_requests "
+            "GROUP BY lower(title) ORDER BY cnt DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+    except Exception:
+        return []
+
+
+async def handle_dj_toprequests(bot: "BaseBot", user: "User") -> None:
+    """!toprequests  —  most requested songs all time (public)."""
+    rows = _get_top_requests(5)
+    if not rows:
+        await _w(bot, user.id,
+                 "🎵 No requests yet. Be the first with !request <song>!")
+        return
+    lines = ["🏆 Top requests:"]
+    for i, r in enumerate(rows, 1):
+        lines.append(f"{i}. {r['title'][:48]} x{r['cnt']}")
+    await _w(bot, user.id, "\n".join(lines)[:249])
+
+
 async def handle_dj_help(bot: "BaseBot", user: "User") -> None:
     """!djhelp  —  list all DJ commands."""
     await _w(
         bot, user.id,
         "🎵 DJ Commands:\n"
         "!request / !req / !sr / !song <song>\n"
-        "!pick <1-5> — confirm result\n"
-        "!queue — upcoming songs | !np — now playing\n"
-        "!skipvote — vote to skip | !radio — stream link\n"
+        "!pick <1-5> | !queue | !np | !skipvote\n"
+        "!djstatus | !djhistory | !toprequests | !radio\n"
         "Staff: !skip !stopmusic !djconfig\n"
         "Admin: !djlock !djclear !djremove !djset !djdebug"
     )

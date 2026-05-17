@@ -490,6 +490,9 @@ REGISTRY: dict[str, Cmd] = {
     "djclear":          Cmd("dj","music",  False,False, False, perm="admin"),
     "djremove":         Cmd("dj","music",  False,False, True,  perm="admin"),
     "radio":            Cmd("dj","music",  True, True,  False),
+    "djstatus":         Cmd("dj","music",  True, True,  False),
+    "djhistory":        Cmd("dj","music",  True, True,  False),
+    "toprequests":      Cmd("dj","music",  True, True,  False),
     "djhelp":           Cmd("dj","music",  True, True,  False),
 
     # ── EventHost: new event / autogame commands ─────────────────────────────
