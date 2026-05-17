@@ -617,6 +617,59 @@ async def handle_staffalertaudit(
     await _w(bot, user.id, "\n".join(cat_lines)[:249])
 
 
+async def handle_reportalertdebug(
+    bot: "BaseBot", user: "User", args: list[str],
+) -> None:
+    """!reportalertdebug [@user] — owner debug: can this user receive report alerts?"""
+    if not is_owner(user.username):
+        await _w(bot, user.id, "🔒 Owner only.")
+        return
+
+    target = args[1].lstrip("@").strip() if len(args) >= 2 else user.username
+    rec    = db.get_user_by_username(target)
+    if not rec:
+        await _w(bot, user.id, f"@{target} not found.")
+        return
+
+    uid    = rec["user_id"]
+    uname  = rec["username"]
+    prefs  = _get_prefs_ro(uid, uname)
+
+    eligible   = _is_eligible(uname)
+    role_str   = _role(uname).title()
+    alerts_on  = bool(prefs.get("alerts_on", 1))
+    reports_on = bool(prefs.get("reports", _cat_default(uname, "reports")))
+    conv_id, src = _resolve_conv_id(uid, uname)
+    dm_ok      = bool(conv_id)
+    can_recv   = eligible and alerts_on and reports_on and dm_ok
+
+    if not can_recv:
+        if not eligible:
+            reason = "not staff/admin/owner"
+        elif not alerts_on:
+            reason = "staff alerts OFF"
+        elif not reports_on:
+            reason = "reports OFF"
+        else:
+            reason = "no DM connected"
+    else:
+        reason = ""
+
+    lines = [
+        f"🔍 Report Alert Debug: @{uname}",
+        f"Is staff/admin/owner: {'YES' if eligible else 'NO'}",
+        f"Staff alerts status: {'ON' if alerts_on else 'OFF'}",
+        f"Reports category: {'ON' if reports_on else 'OFF'}",
+        f"DM connected: {'YES' if dm_ok else 'NO'}",
+        f"Source: {src}",
+        f"Can receive report alerts: {'YES' if can_recv else 'NO'}",
+    ]
+    if reason:
+        lines.append(f"Reason: {reason}")
+
+    await _w(bot, user.id, "\n".join(lines)[:249])
+
+
 async def handle_staffsubcount(
     bot: "BaseBot", user: "User",
 ) -> None:

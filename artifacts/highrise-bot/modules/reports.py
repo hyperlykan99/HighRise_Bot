@@ -78,14 +78,15 @@ async def handle_report(bot: BaseBot, user: User, args: list[str]) -> None:
     )
     set_user_cooldown("report", user.id)
     await _w(bot, user.id, "✅ Report submitted. Thank you.")
-    print(f"[REPORT ALERT] created by=@{user.username} message='{reason[:40]}'")
+    print(f"[REPORT HANDLER HIT] user=@{user.username} message='{reason[:40]}'")
+    print(f"[REPORT ALERT TRIGGERED] from=@{user.username} text='{reason[:40]}'")
     try:
-        from modules.staff_alerts import queue_staff_alert  # noqa: PLC0415
-        queue_staff_alert(
+        from modules.staff_alerts import send_staff_alert  # noqa: PLC0415
+        await send_staff_alert(
+            bot,
             "reports",
             f"📣 New Player Report\n"
             f"From: @{user.username}\n"
-            f"Type: Report\n"
             f"Message: {reason[:80]}\n"
             f"Check: !reports",
         )
@@ -121,10 +122,12 @@ async def handle_bug(bot: BaseBot, user: User, args: list[str]) -> None:
     )
     set_user_cooldown("report", user.id)
     await _w(bot, user.id, "✅ Bug submitted. Thank you.")
-    print(f"[REPORT ALERT] created by=@{user.username} message='{reason[:40]}'")
+    print(f"[REPORT HANDLER HIT] user=@{user.username} message='{reason[:40]}'")
+    print(f"[REPORT ALERT TRIGGERED] from=@{user.username} text='{reason[:40]}'")
     try:
-        from modules.staff_alerts import queue_staff_alert  # noqa: PLC0415
-        queue_staff_alert(
+        from modules.staff_alerts import send_staff_alert  # noqa: PLC0415
+        await send_staff_alert(
+            bot,
             "reports",
             f"📣 New Player Report\n"
             f"From: @{user.username}\n"

@@ -128,6 +128,24 @@ async def process_host_dm_queue(bot: "BaseBot", limit: int = 20) -> None:
         await asyncio.sleep(0.4)
 
 
+async def startup_host_dm_queue_loop(bot: "BaseBot") -> None:
+    """
+    Host bot only — drain host_dm_queue every 10 s.
+    Started once in on_start under should_this_bot_run_module("host").
+    """
+    if not _IS_HOST:
+        print("[DM BLOCKED] startup_host_dm_queue_loop skipped — not host bot")
+        return
+    print("[DM HOST QUEUE] Loop started — draining every 10s")
+    await asyncio.sleep(8)
+    while True:
+        try:
+            await process_host_dm_queue(bot)
+        except Exception as exc:
+            print(f"[DM HOST QUEUE] loop error: {exc!r}")
+        await asyncio.sleep(10)
+
+
 def _mark_queue_row(row_id: int, status: str, error: str = "") -> None:
     try:
         conn = db.get_connection()

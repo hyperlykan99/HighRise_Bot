@@ -419,7 +419,9 @@ from modules.reports import (
 from modules.staff_alerts import (
     handle_staffalerts, handle_staffalert_test,
     handle_staffalertaudit, handle_staffsubcount,
+    handle_reportalertdebug,
 )
+from modules.dm_queue import startup_host_dm_queue_loop
 from modules.autosummary import (
     handle_autosummary, handle_minesummary, handle_fishsummary,
 )
@@ -3346,6 +3348,7 @@ class HangoutBot(BaseBot):
         # Rotating announcements loop — host bot only
         if should_this_bot_run_module("host"):
             _safe_task(rotating_announcement_loop(self), "rotating_announcement_loop")
+            _safe_task(startup_host_dm_queue_loop(self), "startup_host_dm_queue_loop")
         else:
             print(f"[ANNOUNCE] Rotating loop skipped — not host bot ({BOT_MODE}).")
         # Background automation loops (idempotent — safe on reconnect)
@@ -5769,6 +5772,9 @@ class HangoutBot(BaseBot):
 
         elif cmd == "reportwatch":
             await handle_reportwatch(self, user, args)
+
+        elif cmd == "reportalertdebug":
+            await handle_reportalertdebug(self, user, args)
 
         # ── Reputation commands ───────────────────────────────────────────────
         elif cmd == "rep":
