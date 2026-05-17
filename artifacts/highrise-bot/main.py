@@ -427,7 +427,8 @@ from modules.dj_music import (
     handle_dj_request, handle_dj_pick, handle_dj_queue,
     handle_dj_nowplaying, handle_dj_skip, handle_dj_skipvote,
     handle_dj_stopmusic, handle_dj_config, handle_dj_set,
-    handle_dj_debug, handle_dj_help,
+    handle_dj_debug, handle_dj_lock, handle_dj_clear,
+    handle_dj_remove, handle_dj_radio, handle_dj_help,
 )
 from modules.dm_queue import startup_host_dm_queue_loop
 from modules.autosummary import (
@@ -7165,6 +7166,14 @@ class HangoutBot(BaseBot):
             await handle_dj_set(self, user, args)
         elif cmd == "djdebug":
             await handle_dj_debug(self, user, args)
+        elif cmd == "djlock":
+            await handle_dj_lock(self, user, args)
+        elif cmd == "djclear":
+            await handle_dj_clear(self, user)
+        elif cmd == "djremove":
+            await handle_dj_remove(self, user, args)
+        elif cmd == "radio":
+            await handle_dj_radio(self, user)
         elif cmd == "djhelp":
             await handle_dj_help(self, user)
 

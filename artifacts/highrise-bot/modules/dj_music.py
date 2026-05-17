@@ -8,10 +8,12 @@ All commands are owned exclusively by the dj bot.
 
 Public commands:
   !request <song>      Search YouTube, whisper top 5 results
-  !pick <1-5>          Confirm a search result → add to queue
+    aliases: !req !sr !song !requesy
+  !pick <1-5>          Confirm a search result → add to queue (dj bot only)
   !queue / !djqueue    Show next 5 pending songs
   !np / !nowplaying    Show currently featured song + link
   !skipvote            Vote to skip current song
+  !radio               Show configured radio stream URL
   !djhelp              Show all DJ commands
 
 Manager commands:
@@ -20,11 +22,15 @@ Manager commands:
   !djconfig            Show current DJ settings
 
 Admin commands:
+  !djlock on|off       Block/allow new song requests from players
+  !djclear             Wipe the entire queue (pending + playing)
+  !djremove <#>        Remove a specific pending queue entry by position
   !djset <key> <val>   Change a DJ setting:
-                         queuemax <1-50>      max queue size          (default 20)
-                         cooldown <1-60>      request cooldown in min (default 5)
-                         votethreshold <2-10> votes needed to auto-skip (default 3)
-  !djdebug on|off      Toggle search debug whispers (admin only)
+                         queuemax <1-50>       max queue size          (default 20)
+                         cooldown <5-3600>     request cooldown in sec (default 30)
+                         usermax <1-10>        max pending per user    (default 2)
+                         votethreshold <2-10>  votes needed to auto-skip (default 3)
+  !djdebug on|off      Toggle search debug whispers
 
 Architecture:
   • PlaybackBackend protocol  — plug in IcecastBackend later with zero handler changes
@@ -33,6 +39,9 @@ Architecture:
   • status state machine:     pending → playing → played | skipped
   • Search TTL (3 min)        — stale !pick calls are rejected cleanly
   • Duplicate guard           — exact URL match + normalised-title match block re-requests
+  • Per-user limit            — max 2 pending/playing songs per player (configurable)
+  • Request cooldown          — 30 sec between requests per player (configurable)
+  • Queue lock                — !djlock on prevents new requests; admins bypass
   • Configurable via db.get_room_setting / db.set_room_setting
   • All DB ops use get_connection() — no module-level connection held open
 
@@ -41,8 +50,8 @@ Search fix: yt-dlp ytsearch prefix MUST be embedded in the query string itself
   YouTube search — it returns a bare URL result instead.
 
 DB table : dj_requests  (migration 3.2M + 3.2N in database.py)
-Settings : room_settings keys  dj_queue_max | dj_cooldown_mins | dj_skipvote_threshold
-                                dj_debug_mode
+Settings : room_settings keys  dj_queue_max | dj_cooldown_secs | dj_user_max
+                                dj_skipvote_threshold | dj_debug_mode | dj_lock
 """
 from __future__ import annotations
 
@@ -164,23 +173,28 @@ def set_playback_backend(backend: PlaybackBackend) -> None:
 # ---------------------------------------------------------------------------
 
 _CFG_QUEUE_MAX   = "dj_queue_max"
-_CFG_COOLDOWN    = "dj_cooldown_mins"
+_CFG_COOLDOWN    = "dj_cooldown_secs"   # unit: seconds (was dj_cooldown_mins)
+_CFG_USER_MAX    = "dj_user_max"
 _CFG_VOTE_THRESH = "dj_skipvote_threshold"
 _CFG_DEBUG       = "dj_debug_mode"
+_CFG_LOCK        = "dj_lock"
 
 _CFG_DEFAULTS: dict[str, str] = {
     _CFG_QUEUE_MAX:   "20",
-    _CFG_COOLDOWN:    "5",
+    _CFG_COOLDOWN:    "30",   # 30 seconds between requests per user
+    _CFG_USER_MAX:    "2",    # max 2 pending songs per user
     _CFG_VOTE_THRESH: "3",
     _CFG_DEBUG:       "off",
+    _CFG_LOCK:        "off",
 }
 
 # Friendly names and valid ranges for !djset
 _CFG_META: dict[str, tuple[str, int, int]] = {
     # key → (setting_key, min_val, max_val)
-    "queuemax":      (_CFG_QUEUE_MAX,   1,  50),
-    "cooldown":      (_CFG_COOLDOWN,    1,  60),
-    "votethreshold": (_CFG_VOTE_THRESH, 2,  10),
+    "queuemax":      (_CFG_QUEUE_MAX,   1,   50),
+    "cooldown":      (_CFG_COOLDOWN,    5, 3600),   # 5 sec – 60 min
+    "usermax":       (_CFG_USER_MAX,    1,   10),
+    "votethreshold": (_CFG_VOTE_THRESH, 2,   10),
 }
 
 
@@ -190,9 +204,12 @@ def _cfg(key: str) -> int:
 
 def _queue_max()    -> int:  return _cfg(_CFG_QUEUE_MAX)
 def _cooldown()     -> int:  return _cfg(_CFG_COOLDOWN)
+def _user_max()     -> int:  return _cfg(_CFG_USER_MAX)
 def _vote_thresh()  -> int:  return _cfg(_CFG_VOTE_THRESH)
 def _debug_mode()   -> bool:
     return db.get_room_setting(_CFG_DEBUG, "off").lower() == "on"
+def _dj_locked()    -> bool:
+    return db.get_room_setting(_CFG_LOCK, "off").lower() == "on"
 
 
 # ---------------------------------------------------------------------------
@@ -249,27 +266,65 @@ def _pending_count() -> int:
         return 0
 
 
-def _user_cooldown_mins(user_id: str) -> int:
+def _user_pending_count(user_id: str) -> int:
+    """Number of songs this user currently has pending or playing in the queue."""
+    try:
+        conn = db.get_connection()
+        row  = conn.execute(
+            "SELECT COUNT(*) AS n FROM dj_requests "
+            "WHERE user_id=? AND status IN ('pending','playing')",
+            (user_id,),
+        ).fetchone()
+        conn.close()
+        return int(row["n"]) if row else 0
+    except Exception:
+        return 0
+
+
+def _user_cooldown_secs(user_id: str) -> int:
     """
     Minutes since user's most recent request that is still pending/playing.
-    Returns 999 if no recent request exists (i.e. cooldown has cleared).
+    Returns 9999 if the user has never requested (cooldown is cleared).
     """
     try:
         conn = db.get_connection()
         row  = conn.execute(
             """SELECT (CAST(strftime('%s','now') AS INTEGER)
-                       - CAST(strftime('%s', requested_at) AS INTEGER)) / 60 AS mins_ago
+                       - CAST(strftime('%s', requested_at) AS INTEGER)) AS secs_ago
                FROM dj_requests
-               WHERE user_id = ? AND status IN ('pending','playing')
+               WHERE user_id = ?
                ORDER BY requested_at DESC LIMIT 1""",
             (user_id,),
         ).fetchone()
         conn.close()
-        if row and row["mins_ago"] is not None:
-            return int(row["mins_ago"])
+        if row and row["secs_ago"] is not None:
+            return int(row["secs_ago"])
     except Exception:
         pass
-    return 999
+    return 9999
+
+
+def _remove_request_by_pos(pos: int) -> dict | None:
+    """
+    Remove the nth pending request (1-based, ordered oldest-first).
+    Returns the removed row dict {id, title, username} or None if out of range.
+    """
+    try:
+        conn = db.get_connection()
+        rows = conn.execute(
+            "SELECT id, title, username FROM dj_requests "
+            "WHERE status='pending' ORDER BY requested_at ASC",
+        ).fetchall()
+        if pos < 1 or pos > len(rows):
+            conn.close()
+            return None
+        target = rows[pos - 1]
+        conn.execute("DELETE FROM dj_requests WHERE id=?", (target["id"],))
+        conn.commit()
+        conn.close()
+        return dict(target)
+    except Exception:
+        return None
 
 
 def _is_duplicate(youtube_url: str, title: str) -> dict | None:
@@ -704,15 +759,29 @@ async def handle_dj_request(
         await _w(bot, user.id, "🎵 Please include a song title.")
         return
 
-    # Rate-limit check
-    mins_ago = _user_cooldown_mins(user.id)
-    cooldown = _cooldown()
-    if mins_ago < cooldown:
-        wait = cooldown - mins_ago
-        await _w(bot, user.id, f"⏳ You can request again in {wait}m.")
+    # Queue lock — admins bypass
+    if _dj_locked() and not is_admin(user.username):
+        await _w(bot, user.id,
+                 "🔒 Song requests are paused. Check back soon!")
         return
 
-    # Queue cap check
+    # Per-user pending limit — admins bypass
+    umax = _user_max()
+    if not is_admin(user.username) and _user_pending_count(user.id) >= umax:
+        await _w(bot, user.id,
+                 f"🎵 You already have {umax} song(s) in the queue.\n"
+                 f"Wait for them to play before requesting more.")
+        return
+
+    # Per-user cooldown — admins bypass
+    secs_ago = _user_cooldown_secs(user.id)
+    cooldown = _cooldown()
+    if not is_admin(user.username) and secs_ago < cooldown:
+        wait = cooldown - secs_ago
+        await _w(bot, user.id, f"⏳ You can request again in {wait}s.")
+        return
+
+    # Global queue cap check
     if _total_active() >= _queue_max():
         await _w(bot, user.id,
                  f"🚫 Queue is full ({_queue_max()} songs). Try again soon!")
@@ -954,17 +1023,19 @@ async def handle_dj_config(bot: "BaseBot", user: "User") -> None:
         return
 
     qmax  = _queue_max()
+    umax  = _user_max()
     cd    = _cooldown()
     vt    = _vote_thresh()
     total = _total_active()
+    lock  = "ON" if _dj_locked() else "off"
     bk    = type(_backend).__name__
 
     await _w(
         bot, user.id,
-        f"🎛️ DJ Settings:\n"
-        f"Queue: {total}/{qmax} | Cooldown: {cd}m | SkipVotes: {vt}\n"
-        f"Backend: {bk}\n"
-        f"Change with: !djset <queuemax|cooldown|votethreshold> <val>"
+        f"🎛️ DJ Config:\n"
+        f"Queue: {total}/{qmax} | PerUser: {umax} | Cooldown: {cd}s\n"
+        f"SkipVotes: {vt} | Lock: {lock} | Backend: {bk}\n"
+        f"!djset <queuemax|cooldown|usermax|votethreshold> <val>"
     )
 
 
@@ -1031,15 +1102,95 @@ async def handle_dj_debug(
              f"{'Search errors will now be whispered to admins.' if state == 'on' else 'Search errors are now silent to regular users.'}")
 
 
+async def handle_dj_lock(
+    bot: "BaseBot", user: "User", args: list[str],
+) -> None:
+    """!djlock on|off  —  block/allow new song requests (admin+)."""
+    if not is_admin(user.username):
+        await _w(bot, user.id, "🔒 Admin only.")
+        return
+
+    if len(args) < 2 or args[1].lower() not in ("on", "off"):
+        current = "ON" if _dj_locked() else "OFF"
+        await _w(bot, user.id,
+                 f"🔒 Request lock is currently {current}.\n"
+                 f"Usage: !djlock on|off")
+        return
+
+    state = args[1].lower()
+    db.set_room_setting(_CFG_LOCK, state)
+    if state == "on":
+        await _w(bot, user.id, "🔒 Queue locked. New requests are paused.")
+        await _chat(bot, "🔒 Song requests are paused for now.")
+    else:
+        await _w(bot, user.id, "🔓 Queue unlocked. Requests are open again.")
+        await _chat(bot, "🎵 Song requests are open! Use !request <song>.")
+
+
+async def handle_dj_clear(bot: "BaseBot", user: "User") -> None:
+    """!djclear  —  wipe entire queue, pending + playing (admin+)."""
+    if not is_admin(user.username):
+        await _w(bot, user.id, "🔒 Admin only.")
+        return
+
+    cleared = _clear_queue()
+    if cleared == 0:
+        await _w(bot, user.id, "🎵 Queue was already empty.")
+        return
+
+    await _backend.stop()
+    await _w(bot, user.id, f"🗑️ Queue wiped. {cleared} song(s) removed.")
+    await _chat(bot, f"🗑️ DJ queue wiped by staff. ({cleared} removed)")
+
+
+async def handle_dj_remove(
+    bot: "BaseBot", user: "User", args: list[str],
+) -> None:
+    """!djremove <#>  —  remove a specific pending queue entry (admin+)."""
+    if not is_admin(user.username):
+        await _w(bot, user.id, "🔒 Admin only.")
+        return
+
+    if len(args) < 2 or not args[1].isdigit():
+        await _w(bot, user.id,
+                 "🎵 Usage: !djremove <position>\n"
+                 "Use !queue to see positions.")
+        return
+
+    pos = int(args[1])
+    removed = _remove_request_by_pos(pos)
+    if removed is None:
+        await _w(bot, user.id,
+                 f"⚠️ No pending song at position {pos}.\n"
+                 f"Use !queue to see the current list.")
+        return
+
+    title = removed["title"][:50]
+    by    = removed.get("username", "?")
+    await _w(bot, user.id, f"✅ Removed #{pos}: {title} (by {by})")
+
+
+async def handle_dj_radio(bot: "BaseBot", user: "User") -> None:
+    """!radio  —  show the configured radio stream URL (public)."""
+    import os
+    url = os.environ.get("RADIO_STREAM_URL", "").strip()
+    if url:
+        await _w(bot, user.id, f"📻 Radio stream:\n{url[:220]}")
+    else:
+        await _w(bot, user.id,
+                 "📻 Radio stream not configured yet.\n"
+                 "Ask staff to set up RADIO_STREAM_URL.")
+
+
 async def handle_dj_help(bot: "BaseBot", user: "User") -> None:
     """!djhelp  —  list all DJ commands."""
     await _w(
         bot, user.id,
         "🎵 DJ Commands:\n"
-        "!request <song> — search YouTube\n"
+        "!request / !req / !sr / !song <song>\n"
         "!pick <1-5> — confirm result\n"
-        "!queue — see upcoming songs\n"
-        "!np — now playing + link\n"
-        "!skipvote — vote to skip\n"
-        "Staff: !skip !stopmusic !djconfig !djset !djdebug"
+        "!queue — upcoming songs | !np — now playing\n"
+        "!skipvote — vote to skip | !radio — stream link\n"
+        "Staff: !skip !stopmusic !djconfig\n"
+        "Admin: !djlock !djclear !djremove !djset !djdebug"
     )

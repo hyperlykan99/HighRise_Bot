@@ -486,6 +486,10 @@ REGISTRY: dict[str, Cmd] = {
                             aliases=("djsettings",)),
     "djset":            Cmd("dj","music",  False,False, False, perm="admin"),
     "djdebug":          Cmd("dj","music",  False,False, False, perm="admin"),
+    "djlock":           Cmd("dj","music",  False,False, False, perm="admin"),
+    "djclear":          Cmd("dj","music",  False,False, False, perm="admin"),
+    "djremove":         Cmd("dj","music",  False,False, True,  perm="admin"),
+    "radio":            Cmd("dj","music",  True, True,  False),
     "djhelp":           Cmd("dj","music",  True, True,  False),
 
     # ── EventHost: new event / autogame commands ─────────────────────────────
