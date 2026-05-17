@@ -610,7 +610,7 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     # dj — emote info
     "emoteinfo": "dj",
     # dj — music / song-request queue
-    "request": "dj", "sr": "dj",
+    "request": "dj", "sr": "dj", "req": "dj", "song": "dj", "requesy": "dj",
     "pick": "dj", "djpick": "dj",
     "queue": "dj", "djqueue": "dj",
     "nowplaying": "dj", "np": "dj",

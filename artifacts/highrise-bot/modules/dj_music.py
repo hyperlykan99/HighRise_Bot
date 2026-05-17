@@ -59,6 +59,15 @@ from modules.permissions import can_manage_games, is_admin
 if TYPE_CHECKING:
     from highrise import BaseBot, User
 
+# Guard: all handlers are safe to import from any bot process, but !pick
+# silently exits unless this process is running as the dj bot.
+try:
+    from config import BOT_MODE as _DJ_BOT_MODE
+except Exception:
+    _DJ_BOT_MODE = ""
+
+_IS_DJ_BOT: bool = (_DJ_BOT_MODE == "dj")
+
 
 # ---------------------------------------------------------------------------
 # Playback abstraction layer
@@ -733,7 +742,12 @@ async def handle_dj_request(
 async def handle_dj_pick(
     bot: "BaseBot", user: "User", args: list[str],
 ) -> None:
-    """!pick <1-5>  —  confirm a search result and add it to the queue."""
+    """!pick <1-5>  —  confirm a search result and add it to the queue.
+    Only handled when BOT_MODE=dj (DJ_DUDU). Other bots silently ignore it.
+    """
+    if not _IS_DJ_BOT:
+        return
+
     results = _peek_search(user.id)
     if results is None:
         await _w(bot, user.id,

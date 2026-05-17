@@ -473,7 +473,7 @@ REGISTRY: dict[str, Cmd] = {
     "emoteinfo":        Cmd("dj","social", True, True, False),
 
     # ── DJ: music / song-request queue ───────────────────────────────────────
-    "request":          Cmd("dj","music",  True, False, True,  aliases=("sr",)),
+    "request":          Cmd("dj","music",  True, False, True,  aliases=("sr","req","song","requesy")),
     "pick":             Cmd("dj","music",  True, False, True,  aliases=("djpick",)),
     "queue":            Cmd("dj","music",  True, True,  False, aliases=("djqueue",)),
     "nowplaying":       Cmd("dj","music",  True, True,  False, aliases=("np",)),

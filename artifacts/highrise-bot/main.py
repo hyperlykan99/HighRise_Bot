@@ -7145,7 +7145,7 @@ class HangoutBot(BaseBot):
             await handle_followstatus(self, user)
 
         # ── DJ Music ──────────────────────────────────────────────────────────
-        elif cmd in ("request", "sr"):
+        elif cmd in ("request", "sr", "req", "song", "requesy"):
             await handle_dj_request(self, user, args)
         elif cmd in ("pick", "djpick"):
             await handle_dj_pick(self, user, args)
