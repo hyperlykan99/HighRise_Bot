@@ -1242,6 +1242,7 @@ REGISTRY: dict[str, Cmd] = {
     "staffalertaudit":       Cmd("host",    "room_admin",False,True,  False, perm="admin"),
     "staffsubcount":         Cmd("host",    "room_admin",False,True,  False, perm="admin"),
     "reportalertdebug":      Cmd("host",    "room_admin",False,True,  False, perm="owner"),
+    "economyalertdebug":     Cmd("host",    "room_admin",False,True,  False, perm="owner"),
     "testgamealert":         Cmd("host",    "room_admin",False,True,  False, perm="owner"),
     "testeventalert":        Cmd("host",    "room_admin",False,True,  False, perm="owner"),
     "vipalert":              Cmd("host",    "room_admin",False,False, True,  perm="staff"),

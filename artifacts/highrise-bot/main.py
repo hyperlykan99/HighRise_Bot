@@ -419,6 +419,7 @@ from modules.reports import (
 from modules.staff_alerts import (
     handle_staffalerts, handle_staffalert_test,
     handle_staffalertaudit, handle_staffsubcount,
+    handle_economyalertdebug,
     handle_reportalertdebug,
 )
 from modules.dm_queue import startup_host_dm_queue_loop
@@ -3504,6 +3505,9 @@ class HangoutBot(BaseBot):
         # ── Early owner-only routes (bypass STAFF_CMDS block) ────────────────
         if cmd == "previewannounce":
             await handle_previewannounce(self, user, args)
+            return
+        elif cmd == "economyalertdebug":
+            await handle_economyalertdebug(self, user, args)
             return
         elif cmd == "testgamealert":
             await handle_testgamealert(self, user, args)

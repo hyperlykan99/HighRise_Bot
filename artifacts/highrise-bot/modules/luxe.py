@@ -275,6 +275,21 @@ async def _deliver_vip(bot: "BaseBot", user: "User") -> None:
              f"Remaining: {rem_days}d\n"
              f"Expires: {new_exp_str}")
 
+    try:
+        print(f"[ECONOMY ALERT TRIGGER] type=vip_purchase "
+              f"user=@{user.username} action={action} duration={duration_days}d")
+        from modules.staff_alerts import queue_staff_alert  # noqa: PLC0415
+        _alert_msg = (
+            f"💰 Economy Alert\n"
+            f"VIP Purchase\n"
+            f"User: @{user.username}\n"
+            f"Package: VIP {duration_days}d ({action})\n"
+            f"Cost: {price:,} 🎫"
+        )[:249]
+        queue_staff_alert("economy", _alert_msg)
+    except Exception:
+        pass
+
 
 async def _deliver_auto_time(
     bot: "BaseBot", user: "User", item_key: str
@@ -771,6 +786,22 @@ async def handle_confirmbuycoins(bot: "BaseBot", user: "User") -> None:
               f"Spent: {total_cost:,} 🎟️\n"
               f"Received: {total_coins:,} 🪙\n"
               f"Packs: {pack_summary}")[:249])
+
+    try:
+        print(f"[ECONOMY ALERT TRIGGER] type=luxe_conversion "
+              f"user=@{user.username} spent={total_cost} coins={total_coins}")
+        from modules.staff_alerts import queue_staff_alert  # noqa: PLC0415
+        _alert_msg = (
+            f"💰 Economy Alert\n"
+            f"Luxe conversion\n"
+            f"User: @{user.username}\n"
+            f"Spent: {total_cost:,} 🎟️\n"
+            f"Received: {total_coins:,} 🪙\n"
+            f"Review: !ledger @{user.username}"
+        )[:249]
+        queue_staff_alert("economy", _alert_msg)
+    except Exception:
+        pass
 
 
 async def handle_cancelbuycoins(bot: "BaseBot", user: "User") -> None:

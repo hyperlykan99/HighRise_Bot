@@ -576,10 +576,13 @@ async def handle_staffalertaudit(
     eligible = _is_eligible(uname)
 
     # Can receive report alerts?
-    alerts_on  = bool(prefs.get("alerts_on", 1))
-    reports_on = bool(prefs.get("reports", _cat_default(uname, "reports")))
-    can_recv   = eligible and alerts_on and reports_on and bool(conv_id)
-    can_str    = "YES" if can_recv else "NO"
+    alerts_on   = bool(prefs.get("alerts_on", 1))
+    reports_on  = bool(prefs.get("reports",  _cat_default(uname, "reports")))
+    economy_on  = bool(prefs.get("economy",  _cat_default(uname, "economy")))
+    can_recv    = eligible and alerts_on and reports_on and bool(conv_id)
+    can_econ    = eligible and alerts_on and economy_on and bool(conv_id)
+    can_str     = "YES" if can_recv else "NO"
+    can_econ_str = "YES" if can_econ else "NO"
 
     # Build reason if NO
     block_reason = ""
@@ -597,10 +600,12 @@ async def handle_staffalertaudit(
         f"🛡️ @{uname} Staff Alert Audit",
         f"Status: {status}",
         f"Reports: {'ON' if reports_on else 'OFF'}",
+        f"Economy: {'ON' if economy_on else 'OFF'}",
         f"DM connected: {dm_linked}",
         f"Source: {src}",
         f"Role detected: {role_str}",
         f"Can receive report alerts: {can_str}",
+        f"Can receive economy alerts: {can_econ_str}",
     ]
     if block_reason:
         lines.append(f"Reason: {block_reason}")
@@ -608,13 +613,64 @@ async def handle_staffalertaudit(
     # Category breakdown
     cat_lines = []
     for c in _CATEGORIES:
-        flag = "ON" if prefs.get(c, 0) else "OFF"
+        flag = "ON" if prefs.get(c, _cat_default(uname, c)) else "OFF"
         cat_lines.append(f"  {_LABEL[c]}: {flag}")
 
     # Whisper 1: header + key fields
     await _w(bot, user.id, "\n".join(lines)[:249])
     # Whisper 2: full category breakdown
     await _w(bot, user.id, "\n".join(cat_lines)[:249])
+
+
+async def handle_economyalertdebug(
+    bot: "BaseBot", user: "User", args: list[str],
+) -> None:
+    """!economyalertdebug [@user] — owner debug: can this user receive economy alerts?"""
+    if not is_owner(user.username):
+        await _w(bot, user.id, "🔒 Owner only.")
+        return
+
+    target = args[1].lstrip("@").strip() if len(args) >= 2 else user.username
+    rec    = db.get_user_by_username(target)
+    if not rec:
+        await _w(bot, user.id, f"@{target} not found.")
+        return
+
+    uid    = rec["user_id"]
+    uname  = rec["username"]
+    prefs  = _get_prefs(uid, uname)
+    conv_id, src = _resolve_conv_id(uid, uname)
+
+    role_str   = _role(uname).title()
+    eligible   = _is_eligible(uname)
+    alerts_on  = bool(prefs.get("alerts_on", 1))
+    economy_on = bool(prefs.get("economy", _cat_default(uname, "economy")))
+    dm_linked  = "YES" if conv_id else "NO"
+    can_recv   = eligible and alerts_on and economy_on and bool(conv_id)
+
+    block_reason = ""
+    if not can_recv:
+        if not eligible:
+            block_reason = "not staff/admin/owner"
+        elif not alerts_on:
+            block_reason = "staff alerts OFF"
+        elif not economy_on:
+            block_reason = "economy category OFF"
+        else:
+            block_reason = "no DM connected"
+
+    lines = [
+        f"💰 Economy Alert Debug: @{uname}",
+        f"Staff role: {role_str}",
+        f"Staff alerts: {'ON' if alerts_on else 'OFF'}",
+        f"Economy category: {'ON' if economy_on else 'OFF'}",
+        f"DM connected: {dm_linked}",
+        f"Can receive economy alerts: {'YES' if can_recv else 'NO'}",
+    ]
+    if block_reason:
+        lines.append(f"Reason: {block_reason}")
+
+    await _w(bot, user.id, "\n".join(lines)[:249])
 
 
 async def handle_reportalertdebug(

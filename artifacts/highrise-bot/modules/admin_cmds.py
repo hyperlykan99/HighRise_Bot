@@ -62,6 +62,24 @@ async def handle_setcoins(bot: BaseBot, user: User, args: list[str]) -> None:
                         "setcoins", str(old), str(amount))
     await _w(bot, user.id,
              f"✅ Set @{target['username']} balance: {fmt_coins(amount)}.")
+
+    try:
+        action_word = args[0].lstrip("!").lower() if args else "setcoins"
+        print(f"[ECONOMY ALERT TRIGGER] type=admin_coin_change "
+              f"admin=@{user.username} target=@{target['username']} amount={amount}")
+        from modules.staff_alerts import queue_staff_alert  # noqa: PLC0415
+        _alert_msg = (
+            f"💰 Economy Alert\n"
+            f"Admin coin change\n"
+            f"Admin: @{user.username}\n"
+            f"Target: @{target['username']}\n"
+            f"Action: {action_word}\n"
+            f"Amount: {amount:,} 🪙\n"
+            f"Review: !ledger @{target['username']}"
+        )[:249]
+        queue_staff_alert("economy", _alert_msg)
+    except Exception:
+        pass
     try:
         await bot.highrise.send_whisper(
             target["user_id"],

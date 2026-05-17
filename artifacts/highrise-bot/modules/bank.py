@@ -303,6 +303,25 @@ async def handle_send(bot: BaseBot, user: User, args: list[str]):
     recv_display   = db.get_display_name(receiver["user_id"], receiver["username"])
     sender_display = db.get_display_name(user.id, user.username)
 
+    # ── Economy alert for large transfers ────────────────────────────────────
+    try:
+        _threshold = int(db.get_room_setting("economy_alert_send_threshold", 10000))
+        if amount >= _threshold:
+            print(f"[ECONOMY ALERT TRIGGER] type=large_transfer "
+                  f"from=@{user.username} to=@{receiver['username']} amount={amount}")
+            from modules.staff_alerts import queue_staff_alert  # noqa: PLC0415
+            _alert_msg = (
+                f"💰 Economy Alert\n"
+                f"Large transfer detected\n"
+                f"From: @{user.username}\n"
+                f"To: @{receiver['username']}\n"
+                f"Amount: {amount:,} 🪙\n"
+                f"Review: !ledger @{user.username}"
+            )[:249]
+            queue_staff_alert("economy", _alert_msg)
+    except Exception:
+        pass
+
     # ── Notify sender ────────────────────────────────────────────────────────
     if fee > 0:
         await _w(bot, user.id, f"✅ Sent {amount_received:,}c to {recv_display}. Fee: {fee}c.")
