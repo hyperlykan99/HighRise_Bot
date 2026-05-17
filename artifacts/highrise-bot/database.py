@@ -3108,6 +3108,22 @@ def _migrate_db():
     except Exception:
         pass
 
+    # 3.2M — DJ song request queue
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS dj_requests (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id      TEXT    NOT NULL DEFAULT '',
+                username     TEXT    NOT NULL DEFAULT '',
+                title        TEXT    NOT NULL DEFAULT '',
+                requested_at TEXT    NOT NULL DEFAULT (datetime('now')),
+                status       TEXT    NOT NULL DEFAULT 'pending',
+                played_at    TEXT    DEFAULT NULL
+            )
+        """)
+    except Exception:
+        pass
+
     conn.commit()
     conn.close()
 

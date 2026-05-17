@@ -472,6 +472,15 @@ REGISTRY: dict[str, Cmd] = {
     # ── DJ: emote info (new) ─────────────────────────────────────────────────
     "emoteinfo":        Cmd("dj","social", True, True, False),
 
+    # ── DJ: music / song-request queue ───────────────────────────────────────
+    "request":          Cmd("dj","music",  True, False, True, aliases=("sr",)),
+    "queue":            Cmd("dj","music",  True, True,  False, aliases=("djqueue",)),
+    "nowplaying":       Cmd("dj","music",  True, True,  False, aliases=("np",)),
+    "skip":             Cmd("dj","music",  False,False, True,  perm="manager",
+                            aliases=("djskip",)),
+    "stopmusic":        Cmd("dj","music",  False,False, True,  perm="manager",
+                            aliases=("djstop","clearqueue")),
+
     # ── EventHost: new event / autogame commands ─────────────────────────────
     "adminsblessing":   Cmd("eventhost","events", False, False, True,  perm="manager",
                             aliases=("adminblessing",)),

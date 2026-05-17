@@ -609,6 +609,12 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "fixcommandregistry": "host",
     # dj — emote info
     "emoteinfo": "dj",
+    # dj — music / song-request queue
+    "request": "dj", "sr": "dj",
+    "queue": "dj", "djqueue": "dj",
+    "nowplaying": "dj", "np": "dj",
+    "skip": "dj", "djskip": "dj",
+    "stopmusic": "dj", "djstop": "dj", "clearqueue": "dj",
     # eventhost — events / autogames (new)
     "adminsblessing": "eventhost", "adminblessing": "eventhost",
     "eventresume": "eventhost",

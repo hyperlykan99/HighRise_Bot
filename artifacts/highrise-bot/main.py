@@ -423,6 +423,10 @@ from modules.staff_alerts import (
     handle_playermodnotice,
     handle_reportalertdebug,
 )
+from modules.dj_music import (
+    handle_dj_request, handle_dj_queue, handle_dj_nowplaying,
+    handle_dj_skip, handle_dj_stopmusic,
+)
 from modules.dm_queue import startup_host_dm_queue_loop
 from modules.autosummary import (
     handle_autosummary, handle_minesummary, handle_fishsummary,
@@ -7137,6 +7141,18 @@ class HangoutBot(BaseBot):
             await handle_stopfollow(self, user)
         elif cmd == "followstatus":
             await handle_followstatus(self, user)
+
+        # ── DJ Music ──────────────────────────────────────────────────────────
+        elif cmd in ("request", "sr"):
+            await handle_dj_request(self, user, args)
+        elif cmd in ("queue", "djqueue"):
+            await handle_dj_queue(self, user)
+        elif cmd in ("nowplaying", "np"):
+            await handle_dj_nowplaying(self, user)
+        elif cmd in ("skip", "djskip"):
+            await handle_dj_skip(self, user)
+        elif cmd in ("stopmusic", "djstop", "clearqueue"):
+            await handle_dj_stopmusic(self, user)
 
         # ── Alerts ────────────────────────────────────────────────────────────
         elif cmd == "alert":
