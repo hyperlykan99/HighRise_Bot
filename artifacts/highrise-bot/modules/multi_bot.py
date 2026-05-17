@@ -1410,6 +1410,12 @@ def should_this_bot_handle(cmd: str) -> bool:
             return not _is_mode_online("host")
         if owner_mode not in ("all",) and _is_mode_online(owner_mode):
             return False    # dedicated bot is live — stay silent
+        # Hard-owner modes run on separate Highrise accounts — all mode must
+        # never cover them, even when their heartbeat is absent.  This prevents
+        # dj/banker/miner/etc. commands from falling to the all-mode bot and
+        # triggering handle_unknown_command during startup windows or outages.
+        if owner_mode in _HARD_OWNER_MODES:
+            return False
         # Never fall back for game-module commands in multi-bot setups
         if owner_mode in _GAME_MODULE_MODES and _has_any_game_bot_registered():
             return False
