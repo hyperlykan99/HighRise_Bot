@@ -464,6 +464,8 @@ from modules.yt_request import (
     handle_request as handle_yt_request_search,
     handle_ytpick,
     has_pending_yt_search,
+    handle_clearrequests,
+    startup_yt_cleanup_task,
 )
 from modules.dm_queue import startup_host_dm_queue_loop
 from modules.autosummary import (
@@ -1600,6 +1602,7 @@ DJ_COMMANDS: frozenset[str] = frozenset({
     "setradio", "setwebplayer",
     "radioconfig", "setradiotype", "setradiomount", "setradiometadata",
     "ytrequest", "ytqueue", "ytstatus", "ytnow", "ytcooldown", "setytcooldown",
+    "clearrequests",
     "setnowpage",
     "djannounce", "announcequeue",
     "djlimits",
@@ -3473,6 +3476,11 @@ class HangoutBot(BaseBot):
             _safe_task(startup_host_dm_queue_loop(self), "startup_host_dm_queue_loop")
         else:
             print(f"[ANNOUNCE] Rotating loop skipped — not host bot ({BOT_MODE}).")
+        # AzuraCast request cleanup poll — DJ bot only
+        if should_this_bot_run_module("yt_request"):
+            _safe_task(startup_yt_cleanup_task(self), "startup_yt_cleanup_task")
+        else:
+            print(f"[YT_CLEANUP] Cleanup loop skipped — not DJ bot ({BOT_MODE}).")
         # Background automation loops (idempotent — safe on reconnect)
         try:
             start_auto_game_loop(self)
@@ -7401,6 +7409,8 @@ class HangoutBot(BaseBot):
             await handle_ytcooldown(self, user, args)
         elif cmd == "setytcooldown":
             await handle_setytcooldown(self, user, args)
+        elif cmd == "clearrequests":
+            await handle_clearrequests(self, user, args)
         elif cmd == "webplayer":
             await handle_dj_webplayer(self, user)
         elif cmd == "setwebplayer":

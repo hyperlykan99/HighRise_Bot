@@ -220,7 +220,8 @@ def _db_update_job(db_id: int, **kwargs: object) -> None:
     """Update a yt_request_jobs row by DB id (non-fatal on error)."""
     if not db_id:
         return
-    allowed = {"title", "status", "error", "finished_at"}
+    allowed = {"title", "status", "error", "finished_at", "filename",
+               "azura_file_id", "azura_song_id"}
     fields  = {k: v for k, v in kwargs.items() if k in allowed}
     if not fields:
         return
@@ -288,6 +289,58 @@ def _db_recent_jobs(limit: int = 10) -> list[dict]:
     except Exception as exc:
         print(f"[YT_REQUEST] DB recent jobs error (non-fatal): {exc}")
     return []
+
+
+def _db_update_azura_ids(db_id: int, file_id: str, song_id: str) -> None:
+    """Persist AzuraCast file_id and song unique_id to the job record."""
+    if not db_id:
+        return
+    try:
+        with sqlite3.connect(db.SHARED_DB_PATH) as conn:
+            conn.execute(
+                "UPDATE yt_request_jobs SET azura_file_id=?, azura_song_id=? WHERE id=?",
+                (str(file_id), song_id, db_id),
+            )
+            conn.commit()
+    except Exception as exc:
+        print(f"[YT_REQUEST] DB azura_ids update error (non-fatal): {exc}")
+
+
+def _db_get_pending_cleanup() -> list[dict]:
+    """Return done jobs that have an azura_file_id but have not been cleaned yet."""
+    try:
+        with sqlite3.connect(db.SHARED_DB_PATH) as conn:
+            rows = conn.execute(
+                """SELECT id, title, azura_file_id, azura_song_id
+                     FROM yt_request_jobs
+                    WHERE status        = 'done'
+                      AND azura_file_id != ''
+                      AND cleaned_at   IS NULL
+                    ORDER BY id DESC""",
+            ).fetchall()
+        return [
+            {
+                "id":            r[0], "title":         r[1],
+                "azura_file_id": r[2], "azura_song_id": r[3],
+            }
+            for r in rows
+        ]
+    except Exception as exc:
+        print(f"[YT_REQUEST] DB pending cleanup query error (non-fatal): {exc}")
+    return []
+
+
+def _db_mark_cleaned(db_id: int) -> None:
+    """Set cleaned_at = now on a job record to mark it as removed from AzuraCast."""
+    try:
+        with sqlite3.connect(db.SHARED_DB_PATH) as conn:
+            conn.execute(
+                "UPDATE yt_request_jobs SET cleaned_at = datetime('now') WHERE id = ?",
+                (db_id,),
+            )
+            conn.commit()
+    except Exception as exc:
+        print(f"[YT_REQUEST] DB mark_cleaned error (non-fatal): {exc}")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -561,7 +614,7 @@ def _azura_api_cfg() -> "dict | None":
         "folder":     media_dir,
     }
 
-def _azura_post_upload(filename: str) -> None:
+def _azura_post_upload(filename: str, db_id: int = 0) -> None:
     """
     Blocking post-SFTP API step.  Called from the upload daemon thread AFTER
     sftp.put() has returned and the success whisper has already been sent.
@@ -650,6 +703,8 @@ def _azura_post_upload(filename: str) -> None:
                                 f"[YT_API] File found — id={file_id}"
                                 f"  unique_id={unique_id}  path={row.get('path')}"
                             )
+                            # Persist IDs immediately for cleanup tracking
+                            _db_update_azura_ids(db_id, str(file_id), unique_id or "")
                             break
             except Exception as exc:
                 print(f"[YT_API] Search attempt {attempt} error: {exc}")
@@ -723,8 +778,9 @@ async def _run_job(bot: "BaseBot", job: dict) -> None:
         info, mp3_path = await loop.run_in_executor(
             None, _download_step, job["url"], tmpdir
         )
-        title = (info.get("title") or "Unknown")[:160]
-        _update_job(jid, title=title)
+        title       = (info.get("title") or "Unknown")[:160]
+        yt_filename = os.path.basename(mp3_path)
+        _update_job(jid, title=title, filename=yt_filename)
 
         # ── Step 2: SFTP upload (fire-and-forget after put completes) ────────
         _update_job(jid, status="uploading")
@@ -745,7 +801,7 @@ async def _run_job(bot: "BaseBot", job: dict) -> None:
                 _sftp_step(mp3_path, _on_put_done)
                 # on_put_done() already fired → success whispered to user.
                 # Now run API post-processing in this same background thread.
-                _azura_post_upload(os.path.basename(mp3_path))
+                _azura_post_upload(os.path.basename(mp3_path), jid)
             except Exception as exc:
                 # Only reached if _sftp_step raised BEFORE on_put_done() was called.
                 upload_exc[0] = exc
@@ -1098,3 +1154,198 @@ async def handle_ytpick(bot: "BaseBot", user: "User", args: list[str]) -> None:
         f"🎵 Picked: {chosen['title'][:80]} [{chosen['duration']}]\nStarting upload…"
     )
     await handle_ytrequest(bot, user, [args[0], url])
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# AzuraCast cleanup — blocking helpers + background poll task
+# ─────────────────────────────────────────────────────────────────────────────
+
+_CLEANUP_POLL_SECS = 90  # how often to check AzuraCast play history
+
+
+def _auto_delete_enabled() -> bool:
+    """Return True unless REQUEST_AUTO_DELETE_AFTER_PLAY is explicitly falsy."""
+    val = (os.environ.get("REQUEST_AUTO_DELETE_AFTER_PLAY") or "true").strip().lower()
+    return val in ("1", "true", "yes")
+
+
+def _azura_fetch_history(rows: int = 150) -> list[dict]:
+    """
+    Blocking: GET /api/station/{id}/history — return recently-played song dicts.
+    Each dict has a 'song' sub-dict with an 'id' field (the unique_id we store).
+    """
+    import requests as req_lib
+
+    cfg = _azura_api_cfg()
+    if cfg is None:
+        return []
+    try:
+        resp = req_lib.get(
+            f"{cfg['base_url']}/api/station/{cfg['station_id']}/history",
+            params={"rows": rows},
+            headers={
+                "X-API-Key": cfg["api_key"],
+                "Accept":    "application/json",
+            },
+            timeout=15,
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            # History can be {"rows": [...]} or a bare list
+            return data if isinstance(data, list) else data.get("rows", [])
+        print(f"[YT_CLEANUP] History fetch HTTP {resp.status_code}: {resp.text[:200]}")
+    except Exception as exc:
+        print(f"[YT_CLEANUP] History fetch error: {exc}")
+    return []
+
+
+def _azura_delete_file(file_id: str) -> bool:
+    """
+    Blocking: DELETE /api/station/{id}/file/{file_id}
+    Returns True if AzuraCast acknowledged the deletion (HTTP 200 or 204).
+    Only touches files in the Requests folder (file_id was set only for those).
+    """
+    import requests as req_lib
+
+    cfg = _azura_api_cfg()
+    if cfg is None or not file_id:
+        return False
+    try:
+        resp = req_lib.delete(
+            f"{cfg['base_url']}/api/station/{cfg['station_id']}/file/{file_id}",
+            headers={
+                "X-API-Key":    cfg["api_key"],
+                "Content-Type": "application/json",
+                "Accept":       "application/json",
+            },
+            timeout=15,
+        )
+        print(
+            f"[YT_CLEANUP] DELETE file/{file_id}"
+            f" → HTTP {resp.status_code}: {resp.text[:200]}"
+        )
+        return resp.status_code in (200, 204)
+    except Exception as exc:
+        print(f"[YT_CLEANUP] Delete file/{file_id} error: {exc}")
+    return False
+
+
+async def _run_cleanup() -> None:
+    """
+    One cleanup cycle: fetch recent AzuraCast history, match against our
+    tracked request files (by azura_song_id), delete any that have played,
+    and mark them cleaned in the DB.
+    """
+    loop = asyncio.get_running_loop()
+
+    pending = _db_get_pending_cleanup()
+    if not pending:
+        return  # nothing to watch
+
+    history = await loop.run_in_executor(None, _azura_fetch_history, 150)
+    if not history:
+        return
+
+    # Build set of song unique_ids that appear in the recent history
+    played_ids: set[str] = set()
+    for entry in history:
+        if not isinstance(entry, dict):
+            continue
+        song = entry.get("song") or {}
+        sid  = (song.get("id") or "").strip()
+        if sid:
+            played_ids.add(sid)
+
+    cleaned = 0
+    for job in pending:
+        azura_song_id = (job.get("azura_song_id") or "").strip()
+        azura_file_id = (job.get("azura_file_id") or "").strip()
+        if not azura_song_id or azura_song_id not in played_ids:
+            continue
+        # Song appeared in history → it played → delete from AzuraCast
+        ok = await loop.run_in_executor(None, _azura_delete_file, azura_file_id)
+        if ok:
+            _db_mark_cleaned(job["id"])
+            cleaned += 1
+            print(f"[YT_CLEANUP] Auto-deleted after play: {job['title'][:60]}")
+
+    if cleaned:
+        print(f"[YT_CLEANUP] {cleaned} played request file(s) removed this cycle.")
+
+
+async def _cleanup_loop() -> None:
+    """Infinite loop: wait _CLEANUP_POLL_SECS then run one cleanup cycle."""
+    print(f"[YT_CLEANUP] Poll loop started (interval={_CLEANUP_POLL_SECS}s).")
+    while True:
+        try:
+            await asyncio.sleep(_CLEANUP_POLL_SECS)
+            await _run_cleanup()
+        except asyncio.CancelledError:
+            print("[YT_CLEANUP] Poll loop cancelled.")
+            break
+        except Exception as exc:
+            print(f"[YT_CLEANUP] Loop error (non-fatal): {exc}")
+
+
+async def startup_yt_cleanup_task(_bot: "BaseBot") -> None:
+    """
+    Start the AzuraCast played-song auto-cleanup background loop.
+    Called from on_start() — DJ bot only, guarded by should_this_bot_run_module.
+    Skipped silently if REQUEST_AUTO_DELETE_AFTER_PLAY=false or AzuraCast
+    API is not configured.
+    """
+    if not _auto_delete_enabled():
+        print("[YT_CLEANUP] REQUEST_AUTO_DELETE_AFTER_PLAY=false — cleanup disabled.")
+        return
+    if not _azura_api_cfg():
+        print("[YT_CLEANUP] AzuraCast API not configured — cleanup disabled.")
+        return
+    asyncio.create_task(_cleanup_loop())
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# !clearrequests — admin manual cleanup
+# ─────────────────────────────────────────────────────────────────────────────
+
+async def handle_clearrequests(bot: "BaseBot", user: "User", _args: list[str]) -> None:
+    """
+    !clearrequests — delete all tracked Requests MP3s from AzuraCast
+    that have not yet been cleaned up (regardless of whether they played).
+    Admin only.  Does NOT touch General playlist songs.
+    """
+    from modules.permissions import is_admin
+
+    if not is_admin(user.username):
+        await _w(bot, user.id, "🔒 Admin only.")
+        return
+
+    cfg = _azura_api_cfg()
+    if not cfg:
+        await _w(bot, user.id, "⚠️ AzuraCast API not configured.")
+        return
+
+    pending = _db_get_pending_cleanup()
+    if not pending:
+        await _w(bot, user.id, "✅ No pending request files to clean up.")
+        return
+
+    await _w(bot, user.id, f"🧹 Clearing {len(pending)} request file(s) from AzuraCast…")
+
+    loop    = asyncio.get_running_loop()
+    deleted = 0
+    failed  = 0
+    for job in pending:
+        fid = (job.get("azura_file_id") or "").strip()
+        if not fid:
+            continue
+        ok = await loop.run_in_executor(None, _azura_delete_file, fid)
+        if ok:
+            _db_mark_cleaned(job["id"])
+            deleted += 1
+        else:
+            failed += 1
+
+    parts = [f"✅ Deleted {deleted} request file(s)."]
+    if failed:
+        parts.append(f"⚠️ {failed} failed — check logs.")
+    await _w(bot, user.id, " ".join(parts)[:249])

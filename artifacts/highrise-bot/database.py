@@ -3255,6 +3255,19 @@ def _migrate_db():
     except Exception:
         pass
 
+    # 3.2X — YT Request cleanup tracking (filename, AzuraCast IDs, lifecycle)
+    for _col in (
+        "ALTER TABLE yt_request_jobs ADD COLUMN filename       TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE yt_request_jobs ADD COLUMN azura_file_id  TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE yt_request_jobs ADD COLUMN azura_song_id  TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE yt_request_jobs ADD COLUMN played_at      TEXT",
+        "ALTER TABLE yt_request_jobs ADD COLUMN cleaned_at     TEXT",
+    ):
+        try:
+            conn.execute(_col)
+        except Exception:
+            pass  # column already exists
+
     conn.commit()
     conn.close()
 
