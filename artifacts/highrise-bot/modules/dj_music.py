@@ -185,6 +185,11 @@ _CFG_PERSONALITY    = "dj_personality"
 _CFG_PRIORITY_PRICE = "dj_priority_price"
 _CFG_ANNOUNCE       = "dj_announce"      # room-chat announcements on/off
 
+# Radio infrastructure settings
+_CFG_RADIO_TYPE     = "dj_radio_type"      # icecast | azuracast | external
+_CFG_RADIO_MOUNT    = "dj_radio_mount"     # e.g. /live, /stream
+_CFG_RADIO_METADATA = "dj_radio_metadata"  # on | off — push metadata to provider
+
 _CFG_DEFAULTS: dict[str, str] = {
     _CFG_QUEUE_MAX:      "20",
     _CFG_COOLDOWN:       "30",   # 30 seconds between requests per user
@@ -2075,6 +2080,67 @@ def _get_nowpage_url() -> str:
     return db.get_room_setting("dj_nowpage_url", "").strip()
 
 
+def _get_radio_type() -> str:
+    """Radio provider type: icecast | azuracast | external (default)."""
+    val = db.get_room_setting(_CFG_RADIO_TYPE, "external").strip().lower()
+    return val if val in ("icecast", "azuracast", "external") else "external"
+
+
+def _get_radio_mount() -> str:
+    """Icecast/AzuraCast mount point, e.g. /live."""
+    return db.get_room_setting(_CFG_RADIO_MOUNT, "").strip()
+
+
+def _get_radio_metadata_enabled() -> bool:
+    """True if metadata push to provider is enabled."""
+    return db.get_room_setting(_CFG_RADIO_METADATA, "off").strip().lower() == "on"
+
+
+async def update_radio_metadata(title: str, artist: str, requester: str) -> None:
+    """Push now-playing metadata to the configured radio provider.
+    No audio is streamed, downloaded, or ripped — metadata only.
+
+    Icecast:  HTTP GET /admin/metadata (Basic Auth, env: ICECAST_HOST/ADMIN/PASS)
+    AzuraCast: placeholder — env: AZURACAST_HOST/API_KEY/STATION
+    External:  no-op (third-party handles its own metadata)
+    """
+    if not _get_radio_metadata_enabled():
+        return
+    import os
+    import aiohttp  # already a project dependency via highrise-bot-sdk
+    rtype = _get_radio_type()
+    song_str = f"{artist} - {title}".strip(" -") if artist else title
+
+    if rtype == "icecast":
+        host   = os.environ.get("ICECAST_HOST", "").strip()
+        user_  = os.environ.get("ICECAST_ADMIN_USER", "admin").strip()
+        passwd = os.environ.get("ICECAST_ADMIN_PASS", "").strip()
+        mount  = _get_radio_mount() or "/live"
+        if not host or not passwd:
+            return  # not yet configured
+        url = f"{host.rstrip('/')}/admin/metadata"
+        params = {"mount": mount, "mode": "updinfo", "charset": "utf-8", "song": song_str}
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    url, params=params,
+                    auth=aiohttp.BasicAuth(user_, passwd),
+                    timeout=aiohttp.ClientTimeout(total=5),
+                ) as _resp:
+                    pass  # fire-and-forget; errors are silently swallowed here
+        except Exception:
+            pass  # never crash the bot over a metadata push
+
+    elif rtype == "azuracast":
+        # AzuraCast metadata push — configure when Azuracast is deployed.
+        # Required env vars: AZURACAST_HOST, AZURACAST_API_KEY, AZURACAST_STATION
+        # Endpoint: POST {AZURACAST_HOST}/api/station/{AZURACAST_STATION}/nowplaying
+        # (Placeholder — no audio is touched here)
+        pass
+
+    # external: third-party manages its own metadata; nothing to push.
+
+
 async def handle_dj_radio(bot: "BaseBot", user: "User") -> None:
     """!radio  —  show the configured radio stream URL (public)."""
     url = _get_radio_url()
@@ -2106,6 +2172,100 @@ async def handle_dj_setradio(
         return
     db.set_room_setting("dj_radio_url", url)
     await _w(bot, user.id, f"📻 Radio stream set:\n{url[:200]}")
+
+
+async def handle_dj_radioconfig(bot: "BaseBot", user: "User") -> None:
+    """!radioconfig  —  show full radio infrastructure config (manager+)."""
+    if not can_manage_games(user.username):
+        await _w(bot, user.id, "🔒 Manager only.")
+        return
+    import os
+    rtype  = _get_radio_type()
+    mount  = _get_radio_mount() or "(not set)"
+    meta   = "ON" if _get_radio_metadata_enabled() else "off"
+    url    = _get_radio_url() or "(not set)"
+
+    # env-var readiness hints (values hidden, only presence shown)
+    if rtype == "icecast":
+        host_ok = "✅" if os.environ.get("ICECAST_HOST") else "❌"
+        pass_ok = "✅" if os.environ.get("ICECAST_ADMIN_PASS") else "❌"
+        env_hint = f"ICECAST_HOST {host_ok} | ICECAST_ADMIN_PASS {pass_ok}"
+    elif rtype == "azuracast":
+        host_ok = "✅" if os.environ.get("AZURACAST_HOST") else "❌"
+        key_ok  = "✅" if os.environ.get("AZURACAST_API_KEY") else "❌"
+        env_hint = f"AZURACAST_HOST {host_ok} | AZURACAST_API_KEY {key_ok}"
+    else:
+        env_hint = "External provider — no env vars needed"
+
+    await _w(
+        bot, user.id,
+        (f"📻 Radio Infrastructure:\n"
+         f"Type: {rtype} | Mount: {mount}\n"
+         f"Metadata push: {meta}\n"
+         f"Stream URL: {url[:80]}\n"
+         f"Env: {env_hint}")[:249],
+    )
+
+
+async def handle_dj_setradiotype(
+    bot: "BaseBot", user: "User", args: list[str],
+) -> None:
+    """!setradiotype icecast|azuracast|external  —  set radio provider type (admin)."""
+    if not is_admin(user.username):
+        await _w(bot, user.id, "🔒 Admin only.")
+        return
+    valid = ("icecast", "azuracast", "external")
+    if len(args) < 2 or args[1].lower() not in valid:
+        current = _get_radio_type()
+        await _w(bot, user.id,
+                 f"📻 Usage: !setradiotype icecast|azuracast|external\n"
+                 f"Current: {current}")
+        return
+    rtype = args[1].lower()
+    db.set_room_setting(_CFG_RADIO_TYPE, rtype)
+    await _w(bot, user.id, f"📻 Radio type set to: {rtype}\nUse !radioconfig to view full setup.")
+
+
+async def handle_dj_setradiomount(
+    bot: "BaseBot", user: "User", args: list[str],
+) -> None:
+    """!setradiomount <mount>  —  set Icecast/AzuraCast mount point (admin)."""
+    if not is_admin(user.username):
+        await _w(bot, user.id, "🔒 Admin only.")
+        return
+    if len(args) < 2:
+        current = _get_radio_mount() or "(not set)"
+        await _w(bot, user.id,
+                 f"📻 Usage: !setradiomount <mount>\n"
+                 f"Example: !setradiomount /live\n"
+                 f"Current: {current}")
+        return
+    mount = args[1].strip()
+    if not mount.startswith("/"):
+        await _w(bot, user.id, "📻 Mount must start with / (e.g. /live, /stream).")
+        return
+    db.set_room_setting(_CFG_RADIO_MOUNT, mount[:80])
+    await _w(bot, user.id, f"📻 Radio mount set to: {mount}")
+
+
+async def handle_dj_setradiometadata(
+    bot: "BaseBot", user: "User", args: list[str],
+) -> None:
+    """!setradiometadata on|off  —  toggle metadata push to provider (admin)."""
+    if not is_admin(user.username):
+        await _w(bot, user.id, "🔒 Admin only.")
+        return
+    if len(args) < 2 or args[1].lower() not in ("on", "off"):
+        current = "ON" if _get_radio_metadata_enabled() else "OFF"
+        await _w(bot, user.id,
+                 f"📻 Usage: !setradiometadata on|off\n"
+                 f"Current: {current}\n"
+                 f"When ON, song title is pushed to the radio provider on each play.")
+        return
+    state = args[1].lower()
+    db.set_room_setting(_CFG_RADIO_METADATA, state)
+    label = "ON" if state == "on" else "OFF"
+    await _w(bot, user.id, f"📻 Radio metadata push: {label}.")
 
 
 async def handle_dj_radiostatus(bot: "BaseBot", user: "User") -> None:
@@ -3497,12 +3657,12 @@ async def handle_dj_help(bot: "BaseBot", user: "User") -> None:
     await _w(
         bot, user.id,
         ("🎵 DJ Help 3/4 — Radio & Controls:\n"
-         "📻 !radio | !setradio <url> | !radiostatus\n"
-         "🌐 !webplayer | !setwebplayer <url>\n"
-         "📄 !nowpage | !setnowpage <url>\n"
+         "📻 !radio | !setradio <url> | !radioconfig\n"
+         "⚙️ !setradiotype | !setradiomount | !setradiometadata\n"
+         "🌐 !webplayer | !setwebplayer | !radiostatus\n"
+         "📄 !nowpage | !setnowpage\n"
          "!djstatus | !repeat | !shuffle | !autoplay\n"
-         "!djlock | !stopmusic | !moveup | !bump\n"
-         "📢 !djannounce on|off | !announcequeue")[:249],
+         "!djlock | !stopmusic | !djannounce")[:249],
     )
     # Section 4 — Admin & Diagnostics (admin+)
     await _w(

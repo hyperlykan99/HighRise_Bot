@@ -42,6 +42,11 @@ interface DjStatus {
   radio_url: string | null;
   queue_open: boolean;
   updated_at: string;
+  radio_type: "icecast" | "azuracast" | "external";
+  radio_mount: string | null;
+  radio_metadata_enabled: boolean;
+  listener_count: number | null;
+  stream_live: boolean | null;
 }
 
 function truncate(s: string, max: number): string {
@@ -266,6 +271,100 @@ function QueueCard({ queue, queueOpen }: { queue: QueueEntry[]; queueOpen: boole
   );
 }
 
+/* ── Radio info card ── */
+function RadioInfoCard({
+  radioType, radioMount, radioMetadataEnabled, listenerCount, streamLive, radioUrl,
+}: {
+  radioType: DjStatus["radio_type"];
+  radioMount: string | null;
+  radioMetadataEnabled: boolean;
+  listenerCount: number | null;
+  streamLive: boolean | null;
+  radioUrl: string | null;
+}) {
+  const typeLabels: Record<string, string> = {
+    icecast: "Icecast",
+    azuracast: "AzuraCast",
+    external: "External",
+  };
+  const typeColors: Record<string, string> = {
+    icecast: "var(--cyan)",
+    azuracast: "var(--purple-h)",
+    external: "var(--text-2)",
+  };
+  const label = typeLabels[radioType] ?? "External";
+  const color = typeColors[radioType] ?? "var(--text-2)";
+
+  return (
+    <div className="card card-radio-info">
+      <div className="card-header">
+        <span className="icon">📻</span>
+        <span className="card-title">Radio Infrastructure</span>
+        <span className="radio-type-badge" style={{ color }}>
+          {label}
+        </span>
+      </div>
+      <div className="radio-info-grid">
+        <div className="radio-info-item">
+          <span className="radio-info-label">Stream URL</span>
+          <span className="radio-info-value">
+            {radioUrl ? (
+              <a href={radioUrl} target="_blank" rel="noopener noreferrer" className="radio-url-link">
+                {truncate(radioUrl, 50)}
+              </a>
+            ) : (
+              <span className="radio-info-dim">Not configured</span>
+            )}
+          </span>
+        </div>
+        <div className="radio-info-item">
+          <span className="radio-info-label">Mount</span>
+          <span className="radio-info-value">
+            {radioMount ? (
+              <code className="radio-mount">{radioMount}</code>
+            ) : (
+              <span className="radio-info-dim">—</span>
+            )}
+          </span>
+        </div>
+        <div className="radio-info-item">
+          <span className="radio-info-label">Live</span>
+          <span className="radio-info-value">
+            {streamLive === null ? (
+              <span className="radio-status-dot radio-status-unknown" title="Status unknown — requires live provider" />
+            ) : streamLive ? (
+              <span className="radio-status-dot radio-status-live" title="Live" />
+            ) : (
+              <span className="radio-status-dot radio-status-offline" title="Offline" />
+            )}
+            <span className="radio-info-dim" style={{ marginLeft: "0.4rem" }}>
+              {streamLive === null ? "Unknown" : streamLive ? "Live" : "Offline"}
+            </span>
+          </span>
+        </div>
+        <div className="radio-info-item">
+          <span className="radio-info-label">Listeners</span>
+          <span className="radio-info-value">
+            {listenerCount === null ? (
+              <span className="radio-info-dim">—</span>
+            ) : (
+              <span style={{ color: "var(--cyan)", fontWeight: 600 }}>{listenerCount}</span>
+            )}
+          </span>
+        </div>
+        <div className="radio-info-item">
+          <span className="radio-info-label">Metadata push</span>
+          <span className="radio-info-value">
+            <span style={{ color: radioMetadataEnabled ? "var(--green)" : "var(--text-3)" }}>
+              {radioMetadataEnabled ? "Enabled" : "Disabled"}
+            </span>
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ── Recent songs ── */
 function RecentStrip({ recent }: { recent: RecentEntry[] }) {
   if (recent.length === 0) return null;
@@ -382,6 +481,16 @@ export default function App() {
 
             {/* Recent strip */}
             <RecentStrip recent={status.recent} />
+
+            {/* Radio infrastructure */}
+            <RadioInfoCard
+              radioType={status.radio_type}
+              radioMount={status.radio_mount}
+              radioMetadataEnabled={status.radio_metadata_enabled}
+              listenerCount={status.listener_count}
+              streamLive={status.stream_live}
+              radioUrl={status.radio_url}
+            />
           </>
         )}
       </main>

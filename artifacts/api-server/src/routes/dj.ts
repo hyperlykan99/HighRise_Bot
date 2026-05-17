@@ -98,6 +98,14 @@ router.get("/dj/status", (_req, res) => {
     const radioUrl = getSetting(db, "dj_radio_url").trim() || null;
     const queueLocked = getSetting(db, "dj_queue_locked") === "1";
 
+    // Radio infrastructure fields
+    const rawRadioType = getSetting(db, "dj_radio_type", "external").trim().toLowerCase();
+    const radioType = ["icecast", "azuracast", "external"].includes(rawRadioType)
+      ? rawRadioType
+      : "external";
+    const radioMount = getSetting(db, "dj_radio_mount").trim() || null;
+    const radioMetadataEnabled = getSetting(db, "dj_radio_metadata", "off").trim().toLowerCase() === "on";
+
     res.json({
       now_playing: nowPlaying ?? null,
       queue: queueRows.map((r, i) => ({ ...r, pos: i + 1 })),
@@ -111,6 +119,12 @@ router.get("/dj/status", (_req, res) => {
       radio_url: radioUrl,
       queue_open: !queueLocked,
       updated_at: new Date().toISOString(),
+      // Radio infrastructure (Part 1 — metadata/config only, no audio streaming)
+      radio_type: radioType,
+      radio_mount: radioMount,
+      radio_metadata_enabled: radioMetadataEnabled,
+      listener_count: null,   // placeholder — requires live Icecast/AzuraCast API
+      stream_live: null,      // placeholder — requires live provider health check
     });
   } catch (err) {
     logger.error({ err }, "DJ status read failed");
