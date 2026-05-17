@@ -113,18 +113,26 @@ def _sftp_ready() -> bool:
     return len(_sftp_missing_vars()) == 0
 
 def _log_sftp_env() -> None:
-    """Log SFTP env var presence at startup (never logs values)."""
-    for var in _REQUIRED_SFTP_VARS:
+    """Log SFTP config at startup. Host is printed as-is; credentials show length only."""
+    # AZURA_SFTP_HOST — print actual value so the operator can verify the target
+    host = (os.environ.get("AZURA_SFTP_HOST") or "").strip()
+    port = (os.environ.get("AZURA_SFTP_PORT") or "22").strip()
+    if host:
+        print(f"[YT_REQUEST] AZURA_SFTP_HOST = {host}:{port}")
+    else:
+        print("[YT_REQUEST] AZURA_SFTP_HOST: NOT SET  ← required, YT requests disabled")
+
+    # Credentials — length only, never value
+    for var in ("AZURA_SFTP_USER", "AZURA_SFTP_PASS"):
         raw = os.environ.get(var)
         if raw and raw.strip():
             print(f"[YT_REQUEST] {var}: SET (len={len(raw.strip())})")
         else:
             status = "EMPTY" if raw is not None else "NOT SET"
-            print(f"[YT_REQUEST] {var}: {status}  ← required, YT requests will be disabled")
-    for var in _OPTIONAL_SFTP_VARS:
-        raw = os.environ.get(var)
-        val_hint = f"SET (len={len(raw.strip())})" if raw and raw.strip() else "not set (using default)"
-        print(f"[YT_REQUEST] {var}: {val_hint}")
+            print(f"[YT_REQUEST] {var}: {status}  ← required, YT requests disabled")
+
+    folder = (os.environ.get("AZURA_REQUESTS_FOLDER") or "").strip()
+    print(f"[YT_REQUEST] AZURA_REQUESTS_FOLDER = {folder or '(default: Requests)'}")
 
 # Log SFTP config readiness once at import (visible in workflow console)
 _log_sftp_env()
