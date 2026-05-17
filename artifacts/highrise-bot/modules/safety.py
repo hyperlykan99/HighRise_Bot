@@ -300,11 +300,37 @@ async def handle_softban(bot, user, args: list[str]) -> None:
     rsn  = reason[:60]
     await _w(bot, user.id,
              f"🚫 Economy Restricted\n@{name} for {minutes}m\nReason: {rsn}")
+
+    # Security staff alert
+    try:
+        print(f"[SECURITY ALERT TRIGGER] action=softban target=@{target['username']} by=@{user.username}")
+        from modules.staff_alerts import queue_staff_alert  # noqa: PLC0415
+        _salert = (
+            f"🚨 Security Alert\n"
+            f"Action: Softban\n"
+            f"User: @{target['username']}\n"
+            f"Duration: {minutes}m\n"
+            f"By: @{user.username}\n"
+            f"Reason: {rsn}"
+        )[:249]
+        queue_staff_alert("security", _salert)
+    except Exception:
+        pass
+
+    # Player notice — whisper + host DM
     try:
         await _w(bot, target["user_id"],
-                 f"🚫 Your economy access is restricted for {minutes}m.\n"
-                 f"Reason: {rsn}\n"
-                 f"You can still use !help and !bug.")
+                 f"🚫 Softban Notice\n"
+                 f"You were restricted in ChillTopia.\n"
+                 f"Duration: {minutes}m\nReason: {rsn}\nBy: @{user.username}")
+    except Exception:
+        pass
+    try:
+        from modules.staff_alerts import send_player_mod_notice  # noqa: PLC0415
+        await send_player_mod_notice(
+            bot, target["user_id"], target["username"],
+            "softban", rsn, user.username, duration=f"{minutes}m",
+        )
     except Exception:
         pass
 

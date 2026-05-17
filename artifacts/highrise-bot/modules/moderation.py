@@ -102,12 +102,40 @@ async def handle_mute(bot: BaseBot, user: User, args: list[str]) -> None:
     )
     name = target["username"][:15]
     rsn  = reason_str or "muted by staff"
+    dur  = f"{minutes}m"
     await _w(bot, user.id,
-             f"🔇 Muted\n@{name} for {minutes}m\nReason: {rsn[:60]}")
+             f"🔇 Muted\n@{name} for {dur}\nReason: {rsn[:60]}")
+
+    # Security staff alert
+    try:
+        print(f"[SECURITY ALERT TRIGGER] action=mute target=@{target['username']} by=@{user.username}")
+        from modules.staff_alerts import queue_staff_alert  # noqa: PLC0415
+        _salert = (
+            f"🚨 Security Alert\n"
+            f"Action: Muted\n"
+            f"User: @{target['username']}\n"
+            f"Duration: {dur}\n"
+            f"By: @{user.username}\n"
+            f"Reason: {rsn[:60]}"
+        )[:249]
+        queue_staff_alert("security", _salert)
+    except Exception:
+        pass
+
+    # Player notice — whisper + host DM
     try:
         await _w(bot, target["user_id"],
-                 f"🔇 Your bot commands are muted for {minutes}m.\n"
-                 f"Reason: {rsn[:60]}")
+                 f"🔇 Mute Notice\n"
+                 f"You were muted in ChillTopia.\n"
+                 f"Duration: {dur}\nReason: {rsn[:60]}\nBy: @{user.username}")
+    except Exception:
+        pass
+    try:
+        from modules.staff_alerts import send_player_mod_notice  # noqa: PLC0415
+        await send_player_mod_notice(
+            bot, target["user_id"], target["username"],
+            "mute", rsn[:60], user.username, duration=dur,
+        )
     except Exception:
         pass
 
@@ -289,10 +317,36 @@ async def handle_warn(bot: BaseBot, user: User, args: list[str]) -> None:
     rsn  = reason[:60]
     await _w(bot, user.id,
              f"⚠️ Warning Added\n@{name} ({total} total)\nReason: {rsn}")
+
+    # Security staff alert
+    try:
+        print(f"[SECURITY ALERT TRIGGER] action=warn target=@{target['username']} by=@{user.username}")
+        from modules.staff_alerts import queue_staff_alert  # noqa: PLC0415
+        _salert = (
+            f"🚨 Security Alert\n"
+            f"Action: Warning\n"
+            f"User: @{target['username']}\n"
+            f"By: @{user.username}\n"
+            f"Reason: {rsn}"
+        )[:249]
+        queue_staff_alert("security", _salert)
+    except Exception:
+        pass
+
+    # Player notice — whisper immediately; host also queues a formatted DM
     try:
         await _w(bot, target["user_id"],
-                 f"⚠️ You received a warning.\nReason: {rsn}\n"
-                 f"Use !rules to review room rules.")
+                 f"⚠️ Warning Notice\n"
+                 f"You were warned in ChillTopia.\n"
+                 f"Reason: {rsn}\nBy: @{user.username}")
+    except Exception:
+        pass
+    try:
+        from modules.staff_alerts import send_player_mod_notice  # noqa: PLC0415
+        await send_player_mod_notice(
+            bot, target["user_id"], target["username"],
+            "warn", rsn, user.username,
+        )
     except Exception:
         pass
 

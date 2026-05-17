@@ -1,0 +1,476 @@
+FIX SECURITY STAFF ALERTS + PLAYER WARNING NOTICES
+
+Current issue:
+Security staff alerts are not sending to direct messages.
+
+New requirement:
+When a player gets warned/muted/softbanned/banned, the affected player should also receive a notice.
+
+Expected:
+1. Staff/security team receives a security alert DM from ChillTopiaBot only.
+2. The affected player receives their own warning/moderation notice.
+3. Normal subscribers do not receive moderation notices.
+4. Random DM behavior remains unchanged.
+
+Do NOT modify:
+- notification random DM behavior
+- DM !sub / !unsub behavior
+- on_message gate
+- startup
+- economy
+- games
+- mining/fishing
+- badge/title systems
+- database destructive reset
+
+Only fix:
+- security staff alert category delivery
+- security/moderation command hooks
+- affected-player warning/moderation notices
+- security alert debug/audit if needed
+
+==================================================
+PART 1 — Manual Security Alert Test
+==================================================
+
+Command:
+!staffalert security test
+
+Expected DM from ChillTopiaBot:
+
+🚨 Security Alert Test
+Security category is working.
+
+Room reply to runner:
+
+🚨 Security Alert Test
+Delivered: X
+Skipped: X
+Failed: X
+
+If skipped, show reason counts:
+No DM linked: X
+Staff alerts off: X
+Security off: X
+Not staff: X
+
+Important:
+!staffalert security test must use the SAME staff alert helper as real security events.
+
+==================================================
+PART 2 — Staff Alert Audit Debug
+==================================================
+
+Update:
+
+!staffalertaudit @user
+
+Show:
+
+🛡️ Staff Alert Audit: @user
+Role: owner/admin/mod/staff/none
+Status: ON/OFF
+Security: ON/OFF
+DM connected: YES/NO
+Can receive security alerts: YES/NO
+Reason: ...
+
+If Can receive security alerts is NO, show exact reason:
+- no DM connected
+- staff alerts OFF
+- security OFF
+- not staff/admin/owner
+
+==================================================
+PART 3 — Security Alert Debug Command
+==================================================
+
+Add owner command:
+
+!securityalertdebug @user
+
+Output:
+
+🚨 Security Alert Debug: @user
+Role: owner/admin/mod/staff/none
+Staff alerts: ON/OFF
+Security: ON/OFF
+DM connected: YES/NO
+Can receive security alerts: YES/NO
+Reason: ...
+
+==================================================
+PART 4 — Find Security / Moderation Handlers
+==================================================
+
+Find live handlers for security/mod commands:
+
+!warn
+!mute
+!unmute
+!softban
+!ban
+!kick
+!blacklist
+!whitelist
+spam detection
+abuse detection
+security logs
+
+Likely files:
+modules/security.py
+modules/moderation.py
+modules/admin_cmds.py
+modules/qol_cmds.py
+main.py
+
+After a security action succeeds:
+1. send/queue staff alert category: security
+2. send affected-player moderation notice
+
+Do not send security alert or player notice if the action failed.
+
+==================================================
+PART 5 — Staff Security Alert Message Format
+==================================================
+
+For warn:
+
+🚨 Security Alert
+Action: Warning
+User: @target
+By: @staff
+Reason: reason text
+
+For mute:
+
+🚨 Security Alert
+Action: Muted
+User: @target
+Duration: 10m
+By: @staff
+Reason: reason text
+
+For softban/ban:
+
+🚨 Security Alert
+Action: Softban/Ban
+User: @target
+By: @staff
+Reason: reason text
+
+For spam detection:
+
+🚨 Security Alert
+User: @target
+Reason: spam detected
+Action: warning/mute
+
+==================================================
+PART 6 — Affected Player Warning / Moderation Notice
+==================================================
+
+When a player gets warned, muted, softbanned, or banned, the affected player should also be notified.
+
+This is separate from staff security alerts.
+
+Expected:
+- Staff/security team gets staff alert DM through ChillTopiaBot.
+- The warned/muted player gets their own warning notice.
+- Do not send the player's warning notice to all staff as a player alert.
+- Do not broadcast private warning details publicly unless the command already does that.
+
+Warning DM if player has conversation_id:
+
+⚠️ Warning Notice
+You were warned in ChillTopia.
+Reason: testing security alert
+By: @4ktreyMarion
+
+Warning fallback room whisper if no DM conversation_id:
+
+⚠️ You were warned.
+Reason: testing security alert
+
+Mute DM:
+
+🔇 Mute Notice
+You were muted in ChillTopia.
+Duration: 10m
+Reason: spam
+By: @4ktreyMarion
+
+Softban DM:
+
+🚫 Softban Notice
+You were restricted in ChillTopia.
+Reason: rule violation
+By: @4ktreyMarion
+
+Ban DM:
+
+🚫 Ban Notice
+You were banned from ChillTopia.
+Reason: rule violation
+By: @4ktreyMarion
+
+==================================================
+PART 7 — Player Notice Delivery Rules
+==================================================
+
+- Player notice must come from ChillTopiaBot if sent by DM.
+- If DM is unavailable, use private room whisper to the affected player if possible.
+- Do not require the player to be subscribed to alerts.
+- This is a moderation notice, not a promo/event/game notification.
+- Do not send to unsubscribed broadcast users as an alert.
+- Do not send duplicate notices.
+- Do not crash if DM fails.
+- Do not reveal staff-only internal notes unless there is a separate public reason.
+- If current bot is not ChillTopiaBot/host, queue the target notice for host.
+- If the target is offline and no DM conversation_id exists, log skipped safely.
+
+Logs:
+
+[PLAYER MOD NOTICE] action=warn target=@user delivery=dm
+[PLAYER MOD NOTICE] action=warn target=@user delivery=whisper
+[PLAYER MOD NOTICE SKIP] action=warn target=@user reason=no_dm_no_room_target
+[PLAYER MOD NOTICE ERROR] action=warn target=@user error=...
+
+==================================================
+PART 8 — Host-Only DM Rule
+==================================================
+
+All security alert DMs and player moderation DMs must come from ChillTopiaBot / host bot only.
+
+If a non-host bot triggers security alert:
+- queue it for host
+- do not DM directly
+
+Logs:
+
+[SECURITY ALERT TRIGGER] action=warn target=@user by=@staff
+[STAFF ALERT QUEUE] category=security target=@staff
+[STAFF ALERT SEND] category=security target=@staff status=sent
+[STAFF ALERT SKIP] category=security target=@staff reason=no_conversation_id
+[STAFF ALERT SKIP] category=security target=@staff reason=security_off
+[STAFF ALERT SKIP] category=security target=@staff reason=staffalerts_off
+
+==================================================
+PART 9 — Security Action Flow
+==================================================
+
+When staff runs:
+
+!warn @player reason
+
+Expected:
+1. Warning action succeeds.
+2. Target player receives warning notice.
+3. Staff with security alerts ON receive staff security alert DM.
+4. Staff command runner receives confirmation.
+
+Example runner confirmation:
+
+✅ Warning sent to @player.
+Staff security alert delivered: X
+Player notice: sent
+
+Example target DM:
+
+⚠️ Warning Notice
+You were warned in ChillTopia.
+Reason: reason
+By: @staff
+
+Example staff DM:
+
+🚨 Security Alert
+Action: Warning
+User: @player
+By: @staff
+Reason: reason
+
+For mute:
+
+!mute @player 10m reason
+
+Expected:
+1. Mute action succeeds.
+2. Target player receives mute notice with duration.
+3. Staff with security alerts ON receive staff security alert DM.
+4. Runner receives confirmation.
+
+==================================================
+PART 10 — Manual Security Category Test
+==================================================
+
+Add/verify:
+
+!staffalert security test
+
+This must send only the staff security test DM, not a player warning notice.
+
+Expected staff DM:
+
+🚨 Security Alert Test
+Security category is working.
+
+==================================================
+PART 11 — Optional Player Notice Test Command
+==================================================
+
+Add owner-only test command if safe:
+
+!playermodnotice test @user warn
+
+Expected:
+Target user receives:
+
+⚠️ Warning Notice
+You were warned in ChillTopia.
+Reason: test notice
+By: @4ktreyMarion
+
+Rules:
+- Does not actually warn/mute/ban the player.
+- Only tests delivery.
+- Owner/admin only.
+
+==================================================
+PART 12 — QA Coverage
+==================================================
+
+Update QA safely.
+
+Add checks:
+- staff alert category security exists
+- !staffalert security test exists
+- !securityalertdebug exists
+- security alerts use category security
+- security alerts use host-only DM delivery
+- warn/mute/softban hook exists if those commands exist
+- warn action sends target player notice
+- mute action sends target player notice if mute exists
+- target notice does not require player subscription
+- target notice uses ChillTopiaBot DM if DM connected
+- target notice falls back to whisper if no DM connected
+- staff alert still uses security category
+- no duplicate player notices
+
+Do not run QA on startup.
+
+==================================================
+PART 13 — Compile
+==================================================
+
+Run:
+
+python -m py_compile main.py
+python -m py_compile database.py
+python -m py_compile modules/security.py
+python -m py_compile modules/moderation.py
+python -m py_compile modules/admin_cmds.py
+python -m py_compile modules/notify_system.py
+python -m py_compile modules/qa_test.py
+python -m py_compile modules/command_registry.py
+python -m py_compile modules/multi_bot.py
+
+Skip missing files.
+
+==================================================
+PART 14 — Live Tests
+==================================================
+
+Setup:
+
+DM ChillTopiaBot:
+!sub
+
+Room:
+!staffalerts on
+!staffalerts security on
+!staffalertaudit @4ktreyMarion
+!securityalertdebug @4ktreyMarion
+
+Expected:
+Security ON
+DM connected YES
+Can receive security alerts YES
+
+Manual security alert test:
+
+!staffalert security test
+
+Expected DM from ChillTopiaBot:
+🚨 Security Alert Test
+Security category is working.
+
+Real warning action test if command exists:
+
+!warn @testuser testing security alert
+
+Expected staff DM:
+🚨 Security Alert
+Action: Warning
+User: @testuser
+By: @4ktreyMarion
+Reason: testing security alert
+
+Expected target player DM or whisper:
+⚠️ Warning Notice
+You were warned in ChillTopia.
+Reason: testing security alert
+By: @4ktreyMarion
+
+Real mute action test if command exists:
+
+!mute @testuser 1m testing mute alert
+
+Expected staff DM:
+🚨 Security Alert
+Action: Muted
+User: @testuser
+Duration: 1m
+By: @4ktreyMarion
+Reason: testing mute alert
+
+Expected target player DM or whisper:
+🔇 Mute Notice
+You were muted in ChillTopia.
+Duration: 1m
+Reason: testing mute alert
+By: @4ktreyMarion
+
+Optional player notice test if added:
+
+!playermodnotice test @testuser warn
+
+Expected:
+Target receives test warning notice.
+No real warning record is applied.
+
+Final checks:
+
+!commandissues
+!qatest all
+
+Expected:
+Commandissues clean.
+QA all passes.
+
+==================================================
+PART 15 — Final Report
+==================================================
+
+Final report must include:
+1. Why security alerts were not DMing
+2. !staffalert security test result
+3. !securityalertdebug result
+4. Real warning command hook result
+5. Real mute command hook result if available
+6. Affected-player notice delivery result
+7. Host-only DM confirmed
+8. No player subscription required for moderation notice
+9. py_compile result
+10. !commandissues result
+11. !qatest all result

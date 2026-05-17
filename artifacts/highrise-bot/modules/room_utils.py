@@ -1572,6 +1572,19 @@ async def handle_kick(bot: BaseBot, user: User, args: list[str]) -> None:
         _kicked_disp = db.get_display_name(target_user.id, target_user.username)
         await _w(bot, user.id, f"✅ @{target_user.username} kicked.")
         await bot.highrise.chat(f"🚫 {_kicked_disp} was kicked."[:249])
+        try:
+            print(f"[SECURITY ALERT TRIGGER] action=kick target=@{target_user.username} by=@{user.username}")
+            from modules.staff_alerts import queue_staff_alert  # noqa: PLC0415
+            _salert = (
+                f"🚨 Security Alert\n"
+                f"Action: Kick\n"
+                f"User: @{target_user.username}\n"
+                f"By: @{user.username}\n"
+                f"Reason: {reason[:80]}"
+            )[:249]
+            queue_staff_alert("security", _salert)
+        except Exception:
+            pass
     except Exception:
         await _w(bot, user.id, "Kick not supported by current API.")
 
@@ -1600,6 +1613,19 @@ async def handle_ban(bot: BaseBot, user: User, args: list[str]) -> None:
     db.log_room_action(user.username, target_name, "ban", reason)
     suffix = "" if api_ok else " (bot-level only)"
     await _w(bot, user.id, f"⛔ @{target_name} banned{suffix}.")
+    try:
+        print(f"[SECURITY ALERT TRIGGER] action=ban target=@{target_name} by=@{user.username}")
+        from modules.staff_alerts import queue_staff_alert  # noqa: PLC0415
+        _salert = (
+            f"🚨 Security Alert\n"
+            f"Action: Ban\n"
+            f"User: @{target_name}\n"
+            f"By: @{user.username}\n"
+            f"Reason: {reason[:80]}"
+        )[:249]
+        queue_staff_alert("security", _salert)
+    except Exception:
+        pass
 
 
 async def handle_tempban(bot: BaseBot, user: User, args: list[str]) -> None:

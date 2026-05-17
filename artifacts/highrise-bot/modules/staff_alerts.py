@@ -575,16 +575,19 @@ async def handle_staffalertaudit(
     role_str = _role(uname).title()
     eligible = _is_eligible(uname)
 
-    # Can receive report alerts?
-    alerts_on   = bool(prefs.get("alerts_on", 1))
-    reports_on  = bool(prefs.get("reports",  _cat_default(uname, "reports")))
-    economy_on  = bool(prefs.get("economy",  _cat_default(uname, "economy")))
-    can_recv    = eligible and alerts_on and reports_on and bool(conv_id)
-    can_econ    = eligible and alerts_on and economy_on and bool(conv_id)
-    can_str     = "YES" if can_recv else "NO"
+    # Can receive alerts per category?
+    alerts_on    = bool(prefs.get("alerts_on",  1))
+    reports_on   = bool(prefs.get("reports",    _cat_default(uname, "reports")))
+    economy_on   = bool(prefs.get("economy",    _cat_default(uname, "economy")))
+    security_on  = bool(prefs.get("security",   _cat_default(uname, "security")))
+    can_recv     = eligible and alerts_on and reports_on  and bool(conv_id)
+    can_econ     = eligible and alerts_on and economy_on  and bool(conv_id)
+    can_sec      = eligible and alerts_on and security_on and bool(conv_id)
+    can_str      = "YES" if can_recv else "NO"
     can_econ_str = "YES" if can_econ else "NO"
+    can_sec_str  = "YES" if can_sec  else "NO"
 
-    # Build reason if NO
+    # Build reason if NO (reports as primary)
     block_reason = ""
     if not can_recv:
         if not eligible:
@@ -600,11 +603,13 @@ async def handle_staffalertaudit(
         f"🛡️ @{uname} Staff Alert Audit",
         f"Status: {status}",
         f"Reports: {'ON' if reports_on else 'OFF'}",
+        f"Security: {'ON' if security_on else 'OFF'}",
         f"Economy: {'ON' if economy_on else 'OFF'}",
         f"DM connected: {dm_linked}",
         f"Source: {src}",
         f"Role detected: {role_str}",
         f"Can receive report alerts: {can_str}",
+        f"Can receive security alerts: {can_sec_str}",
         f"Can receive economy alerts: {can_econ_str}",
     ]
     if block_reason:
@@ -620,6 +625,160 @@ async def handle_staffalertaudit(
     await _w(bot, user.id, "\n".join(lines)[:249])
     # Whisper 2: full category breakdown
     await _w(bot, user.id, "\n".join(cat_lines)[:249])
+
+
+async def send_player_mod_notice(
+    bot: "BaseBot",
+    target_uid: str,
+    target_uname: str,
+    action: str,
+    reason: str,
+    by_uname: str,
+    duration: str = "",
+) -> str:
+    """
+    Queue a formatted moderation notice DM to the affected player via host bot.
+    Does NOT require the player to be subscribed.
+    Falls back gracefully if no conversation_id exists (whisper was already sent
+    by the handler).
+    Returns: "dm_queued" | "skip"
+    """
+    _ACTION_FMT: dict[str, tuple[str, str]] = {
+        "warn":    ("⚠️ Warning Notice",  "warned in ChillTopia"),
+        "mute":    ("🔇 Mute Notice",     "muted in ChillTopia"),
+        "softban": ("🚫 Softban Notice",  "restricted in ChillTopia"),
+        "ban":     ("🚫 Ban Notice",      "banned from ChillTopia"),
+        "kick":    ("🚫 Kick Notice",     "removed from ChillTopia"),
+    }
+    title, desc = _ACTION_FMT.get(action, ("⚠️ Notice", "actioned in ChillTopia"))
+
+    parts = [title, f"You were {desc}."]
+    if duration:
+        parts.append(f"Duration: {duration}")
+    parts.append(f"Reason: {reason[:80]}")
+    parts.append(f"By: @{by_uname}")
+    dm_msg = "\n".join(parts)[:249]
+
+    # Resolve conversation_id — no subscription required
+    conv_id = ""
+    try:
+        conn = db.get_connection()
+        row = conn.execute(
+            "SELECT conversation_id FROM notification_users "
+            "WHERE user_id=? AND conversation_id IS NOT NULL AND conversation_id!=''",
+            (target_uid,),
+        ).fetchone()
+        conn.close()
+        if row:
+            conv_id = row["conversation_id"]
+    except Exception:
+        pass
+
+    if conv_id:
+        try:
+            from modules.dm_queue import queue_host_dm  # noqa: PLC0415
+            queue_host_dm(target_uid, target_uname, "mod_notice", "security", dm_msg, conv_id)
+            print(f"[PLAYER MOD NOTICE] action={action} target=@{target_uname} delivery=dm")
+            return "dm_queued"
+        except Exception as exc:
+            print(f"[PLAYER MOD NOTICE ERROR] action={action} target=@{target_uname} error={exc!r}")
+
+    print(f"[PLAYER MOD NOTICE SKIP] action={action} target=@{target_uname} reason=no_dm_no_room_target")
+    return "skip"
+
+
+async def handle_securityalertdebug(
+    bot: "BaseBot", user: "User", args: list[str],
+) -> None:
+    """!securityalertdebug [@user] — owner debug: can this user receive security alerts?"""
+    if not is_owner(user.username):
+        await _w(bot, user.id, "🔒 Owner only.")
+        return
+
+    target = args[1].lstrip("@").strip() if len(args) >= 2 else user.username
+    rec    = db.get_user_by_username(target)
+    if not rec:
+        await _w(bot, user.id, f"@{target} not found.")
+        return
+
+    uid      = rec["user_id"]
+    uname    = rec["username"]
+    prefs    = _get_prefs(uid, uname)
+    conv_id, _ = _resolve_conv_id(uid, uname)
+
+    role_str    = _role(uname).title()
+    eligible    = _is_eligible(uname)
+    alerts_on   = bool(prefs.get("alerts_on", 1))
+    security_on = bool(prefs.get("security", _cat_default(uname, "security")))
+    dm_linked   = "YES" if conv_id else "NO"
+    can_recv    = eligible and alerts_on and security_on and bool(conv_id)
+
+    block_reason = ""
+    if not can_recv:
+        if not eligible:
+            block_reason = "not staff/admin/owner"
+        elif not alerts_on:
+            block_reason = "staff alerts OFF"
+        elif not security_on:
+            block_reason = "security category OFF"
+        else:
+            block_reason = "no DM connected"
+
+    lines = [
+        f"🚨 Security Alert Debug: @{uname}",
+        f"Role: {role_str}",
+        f"Staff alerts: {'ON' if alerts_on else 'OFF'}",
+        f"Security: {'ON' if security_on else 'OFF'}",
+        f"DM connected: {dm_linked}",
+        f"Can receive security alerts: {'YES' if can_recv else 'NO'}",
+    ]
+    if block_reason:
+        lines.append(f"Reason: {block_reason}")
+
+    await _w(bot, user.id, "\n".join(lines)[:249])
+
+
+async def handle_playermodnotice(
+    bot: "BaseBot", user: "User", args: list[str],
+) -> None:
+    """
+    !playermodnotice test @user <action>
+    Owner-only: test moderation notice delivery to a player.
+    Does NOT warn/mute/ban the player — delivery test only.
+    """
+    if not is_owner(user.username):
+        await _w(bot, user.id, "🔒 Owner only.")
+        return
+
+    # Usage: !playermodnotice test @user warn
+    if len(args) < 4 or args[1].lower() != "test":
+        await _w(bot, user.id,
+                 "Usage: !playermodnotice test @user <warn|mute|softban|ban>")
+        return
+
+    target_name = args[2].lstrip("@").strip()
+    action      = args[3].lower()
+
+    if action not in ("warn", "mute", "softban", "ban", "kick"):
+        await _w(bot, user.id, "Action: warn | mute | softban | ban | kick")
+        return
+
+    rec = db.get_user_by_username(target_name)
+    if not rec:
+        await _w(bot, user.id, f"@{target_name} not found.")
+        return
+
+    result = await send_player_mod_notice(
+        bot,
+        rec["user_id"], rec["username"],
+        action,
+        "test notice",
+        user.username,
+        duration="1m" if action == "mute" else "",
+    )
+    await _w(bot, user.id,
+             f"✅ Test mod notice sent to @{rec['username']}\n"
+             f"Action: {action}\nDelivery: {result}")
 
 
 async def handle_economyalertdebug(

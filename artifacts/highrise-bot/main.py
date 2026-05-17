@@ -419,7 +419,8 @@ from modules.reports import (
 from modules.staff_alerts import (
     handle_staffalerts, handle_staffalert_test,
     handle_staffalertaudit, handle_staffsubcount,
-    handle_economyalertdebug,
+    handle_economyalertdebug, handle_securityalertdebug,
+    handle_playermodnotice,
     handle_reportalertdebug,
 )
 from modules.dm_queue import startup_host_dm_queue_loop
@@ -3508,6 +3509,12 @@ class HangoutBot(BaseBot):
             return
         elif cmd == "economyalertdebug":
             await handle_economyalertdebug(self, user, args)
+            return
+        elif cmd == "securityalertdebug":
+            await handle_securityalertdebug(self, user, args)
+            return
+        elif cmd == "playermodnotice":
+            await handle_playermodnotice(self, user, args)
             return
         elif cmd == "testgamealert":
             await handle_testgamealert(self, user, args)
