@@ -3262,6 +3262,9 @@ def _migrate_db():
         "ALTER TABLE yt_request_jobs ADD COLUMN azura_song_id  TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE yt_request_jobs ADD COLUMN played_at      TEXT",
         "ALTER TABLE yt_request_jobs ADD COLUMN cleaned_at     TEXT",
+        # 3.2Y — store YouTube video_id and uploader for title cross-reference
+        "ALTER TABLE yt_request_jobs ADD COLUMN video_id       TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE yt_request_jobs ADD COLUMN yt_uploader    TEXT NOT NULL DEFAULT ''",
     ):
         try:
             conn.execute(_col)

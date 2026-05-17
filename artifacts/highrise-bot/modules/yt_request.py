@@ -225,7 +225,8 @@ def _db_update_job(db_id: int, **kwargs: object) -> None:
     if not db_id:
         return
     allowed = {"title", "status", "error", "finished_at", "filename",
-               "azura_file_id", "azura_song_id"}
+               "azura_file_id", "azura_song_id",
+               "video_id", "yt_uploader"}
     fields  = {k: v for k, v in kwargs.items() if k in allowed}
     if not fields:
         return
@@ -315,7 +316,7 @@ def _db_get_pending_cleanup() -> list[dict]:
     try:
         with sqlite3.connect(_DB_PATH) as conn:
             rows = conn.execute(
-                """SELECT id, title, azura_file_id, azura_song_id
+                """SELECT id, title, azura_file_id, azura_song_id, filename, video_id
                      FROM yt_request_jobs
                     WHERE status        IN ('done', 'played')
                       AND azura_file_id != ''
@@ -326,6 +327,7 @@ def _db_get_pending_cleanup() -> list[dict]:
             {
                 "id":            r[0], "title":         r[1],
                 "azura_file_id": r[2], "azura_song_id": r[3],
+                "filename":      r[4], "video_id":      r[5],
             }
             for r in rows
         ]
@@ -430,6 +432,61 @@ def _db_lookup_by_azura_song_id(song_id: str) -> "str | None":
         return row[0] if row else None
     except Exception:
         return None
+
+
+def _db_lookup_for_now(song_id: str, np_title: str) -> "dict | None":
+    """
+    Return {username, title} for the job that matches the currently playing song.
+
+    Three strategies (tried in order):
+      1. azura_song_id exact match          — works after ID3 tags are set
+      2. stored YouTube title == np_title   — works after first-time tag embed
+      3. np_title == filename stem          — catches old no-tag uploads (filename shown)
+
+    Returns None when the song is not one of our tracked requests.
+    """
+    try:
+        with sqlite3.connect(_DB_PATH) as conn:
+            # Strategy 1: AzuraCast song-hash matches stored unique_id
+            if song_id:
+                row = conn.execute(
+                    """SELECT username, title FROM yt_request_jobs
+                        WHERE azura_song_id = ?
+                        ORDER BY id DESC LIMIT 1""",
+                    (song_id,),
+                ).fetchone()
+                if row:
+                    return {"username": row[0], "title": row[1]}
+
+            if not np_title:
+                return None
+
+            # Strategy 2: AzuraCast title (from ID3 tag) matches stored YouTube title
+            row = conn.execute(
+                """SELECT username, title FROM yt_request_jobs
+                    WHERE title = ?
+                      AND status IN ('done', 'played', 'playing')
+                    ORDER BY id DESC LIMIT 1""",
+                (np_title,),
+            ).fetchone()
+            if row:
+                return {"username": row[0], "title": row[1]}
+
+            # Strategy 3: AzuraCast shows raw filename (no tags) — match against stored filename
+            # e.g. np_title = "KFMYX1TibeQ" → filename = "KFMYX1TibeQ.mp3"
+            row = conn.execute(
+                """SELECT username, title FROM yt_request_jobs
+                    WHERE filename = ? || '.mp3'
+                      AND status IN ('done', 'played', 'playing')
+                    ORDER BY id DESC LIMIT 1""",
+                (np_title,),
+            ).fetchone()
+            if row:
+                return {"username": row[0], "title": row[1]}
+
+    except Exception as exc:
+        print(f"[YT_REQUEST] _db_lookup_for_now error (non-fatal): {exc}")
+    return None
 
 
 def _db_request_history(limit: int = 10) -> list[dict]:
@@ -562,11 +619,19 @@ def _download_step(url: str, tmpdir: str) -> tuple[dict, str]:
         "noplaylist":  True,
         "quiet":       True,
         "no_warnings": True,
-        "postprocessors": [{
-            "key":              "FFmpegExtractAudio",
-            "preferredcodec":   "mp3",
-            "preferredquality": "192",
-        }],
+        "postprocessors": [
+            {
+                "key":              "FFmpegExtractAudio",
+                "preferredcodec":   "mp3",
+                "preferredquality": "192",
+            },
+            # Embed ID3 tags (title, artist/uploader) so AzuraCast
+            # displays the real YouTube title instead of the filename.
+            {
+                "key":          "FFmpegMetadata",
+                "add_metadata": True,
+            },
+        ],
     }
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=True)
@@ -891,9 +956,25 @@ async def _run_job(bot: "BaseBot", job: dict) -> None:
         info, mp3_path = await loop.run_in_executor(
             None, _download_step, job["url"], tmpdir
         )
-        title       = (info.get("title") or "Unknown")[:160]
-        yt_filename = os.path.basename(mp3_path)
-        _update_job(jid, title=title, filename=yt_filename)
+        title        = (info.get("title") or "Unknown")[:160]
+        yt_filename  = os.path.basename(mp3_path)
+        video_id     = (info.get("id") or "")[:32]
+        yt_uploader  = (
+            info.get("uploader") or info.get("channel") or ""
+        )[:100]
+        _update_job(
+            jid,
+            title=title,
+            filename=yt_filename,
+            video_id=video_id,
+            yt_uploader=yt_uploader,
+        )
+        print(
+            f"[YT_REQUEST] Job #{jid} downloaded:"
+            f" title={title[:60]!r}"
+            f" video_id={video_id}"
+            f" uploader={yt_uploader[:30]!r}"
+        )
 
         # ── Step 2: SFTP upload (fire-and-forget after put completes) ────────
         _update_job(jid, status="uploading")
@@ -1081,19 +1162,30 @@ async def handle_now(bot: "BaseBot", user: "User", _args: list[str]) -> None:
 
     np_obj   = np_data.get("now_playing") or {}
     song     = np_obj.get("song") or {}
-    raw_title  = (song.get("title") or "Unknown Track").strip()
-    raw_artist = (song.get("artist") or "").strip()
-    if raw_artist and raw_artist.lower() not in raw_title.lower():
-        display = f"{raw_artist} — {raw_title}"
+    song_id  = (song.get("id") or "").strip()
+    np_title = (song.get("title") or "").strip()
+
+    # Cross-reference DB: get real YouTube title and requester.
+    # Handles cases where AzuraCast shows the filename instead of real title
+    # (e.g. "KFMYX1TibeQ") because ID3 tags were missing on the uploaded file.
+    db_job = _db_lookup_for_now(song_id, np_title)
+    if db_job:
+        real_title = (db_job.get("title") or np_title or "Unknown Track").strip()
+        requester  = (db_job.get("username") or "").strip()
     else:
-        display = raw_title
+        real_title = np_title or "Unknown Track"
+        requester  = ""
+
+    raw_artist = (song.get("artist") or "").strip()
+    if raw_artist and raw_artist.lower() not in real_title.lower():
+        display = f"{raw_artist} — {real_title}"
+    else:
+        display = real_title
     display = display[:48]
 
     elapsed  = int(np_obj.get("elapsed")  or 0)
     duration = int(np_obj.get("duration") or 0)
-    song_id  = (song.get("id") or "").strip()
 
-    requester = _db_lookup_by_azura_song_id(song_id)
     req_line  = f"👤 Requested by: @{requester[:20]}" if requester else "👤 AutoDJ"
 
     elapsed_str  = _fmt_secs(elapsed)
@@ -1441,7 +1533,7 @@ async def handle_ytpick(bot: "BaseBot", user: "User", args: list[str]) -> None:
 # AzuraCast cleanup — blocking helpers + background poll task
 # ─────────────────────────────────────────────────────────────────────────────
 
-_NOWPLAYING_POLL_SECS = 15   # how often to poll the Now Playing API
+_NOWPLAYING_POLL_SECS = 10   # how often to poll the Now Playing API
 _HISTORY_POLL_SECS   = 90   # how often to run the history fallback sweep
 
 # {azura_song_id: db_job_id} for requests currently being tracked in now-playing.
@@ -1540,6 +1632,64 @@ def _azura_delete_file(file_id: str) -> bool:
     return False
 
 
+def _azura_sftp_delete(filename: str) -> bool:
+    """
+    Blocking SFTP delete fallback.
+    Connects and removes Requests/<filename> directly via SFTP.
+    Called when the AzuraCast API delete fails or azura_file_id is empty.
+    Treats FileNotFoundError as success (file already gone).
+    Returns True on success or if file was already absent.
+    """
+    import paramiko
+
+    if not filename:
+        return False
+
+    cfg         = _sftp_cfg()
+    remote_path = f"{cfg['folder'].rstrip('/')}/{filename}"
+    print(f"[YT_CLEANUP] SFTP delete fallback → {remote_path}")
+
+    ssh  = paramiko.SSHClient()
+    sftp = None
+    ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    try:
+        ssh.connect(
+            hostname=cfg["host"],
+            port=cfg["port"],
+            username=cfg["user"],
+            password=cfg["passwd"],
+            timeout=30,
+            banner_timeout=30,
+            auth_timeout=30,
+            look_for_keys=False,
+            allow_agent=False,
+        )
+        sftp = ssh.open_sftp()
+        sftp.remove(remote_path)
+        print(f"[YT_CLEANUP] ✓ SFTP deleted: {remote_path}")
+        return True
+    except IOError as exc:
+        # paramiko raises IOError (errno 2) for "no such file"
+        if getattr(exc, "errno", None) == 2 or "No such file" in str(exc):
+            print(f"[YT_CLEANUP] SFTP: file already gone — {remote_path}")
+            return True  # treat as success
+        print(f"[YT_CLEANUP] SFTP delete IOError: {exc}")
+        return False
+    except Exception as exc:
+        print(f"[YT_CLEANUP] SFTP delete failed: {exc}")
+        return False
+    finally:
+        try:
+            if sftp:
+                sftp.close()
+        except Exception:
+            pass
+        try:
+            ssh.close()
+        except Exception:
+            pass
+
+
 async def _run_nowplaying_cycle(prev_song_id_ref: list[str]) -> None:
     """
     One 15-second poll cycle:
@@ -1563,48 +1713,116 @@ async def _run_nowplaying_cycle(prev_song_id_ref: list[str]) -> None:
     loop = asyncio.get_running_loop()
 
     pending = _db_get_pending_cleanup()
-    # keyed by azura_song_id for O(1) lookup
-    pending_by_sid: dict[str, dict] = {
-        (j.get("azura_song_id") or "").strip(): j
-        for j in pending
-        if (j.get("azura_song_id") or "").strip()
-    }
+
+    # ── Build three lookup maps for multi-strategy matching ──────────────────
+    pending_by_sid:      dict[str, dict] = {}  # azura_song_id     → job
+    pending_by_vid:      dict[str, dict] = {}  # video_id          → job
+    pending_by_title:    dict[str, dict] = {}  # lower-cased title → job
+    pending_by_filename: dict[str, dict] = {}  # filename stem     → job
+
+    for j in pending:
+        sid = (j.get("azura_song_id") or "").strip()
+        if sid:
+            pending_by_sid[sid] = j
+
+        vid = (j.get("video_id") or "").strip()
+        if vid:
+            pending_by_vid[vid] = j
+
+        t = (j.get("title") or "").strip()
+        if t:
+            pending_by_title[t.lower()] = j
+
+        fn = (j.get("filename") or "").strip()
+        stem = fn[:-4] if fn.lower().endswith(".mp3") else fn
+        if stem:
+            pending_by_filename[stem.lower()] = j
 
     # ── Phase 1 + 2: Now Playing ─────────────────────────────────────────────
     np_data = await loop.run_in_executor(None, _azura_fetch_nowplaying)
     current_song_id = ""
+    matched_job: "dict | None" = None
+
     if np_data:
-        np_obj = np_data.get("now_playing") or {}
-        song   = np_obj.get("song") or {}
+        np_obj      = np_data.get("now_playing") or {}
+        song        = np_obj.get("song") or {}
         current_song_id = (song.get("id") or "").strip()
+        np_title    = (song.get("title") or "").strip()
+        np_title_lc = np_title.lower()
 
-    # Phase 1: new request song just started playing
-    if current_song_id and current_song_id in pending_by_sid:
-        if current_song_id not in _seen_playing:
-            job = pending_by_sid[current_song_id]
-            _seen_playing[current_song_id] = job["id"]
-            _db_mark_played(job["id"])
-            print(
-                f"[YT_NOWPLAY] Now playing (marked played): "
-                f"{(job.get('title') or '?')[:60]}"
-            )
+        # Strategy 1: azura_song_id exact match (primary — reliable once ID3 tags set)
+        if current_song_id and current_song_id in pending_by_sid:
+            matched_job = pending_by_sid[current_song_id]
 
-    # Phase 2: previous request song has finished → delete it now
+        # Strategy 2: video_id appears inside AzuraCast's song hash or title
+        if matched_job is None:
+            for vid, j in pending_by_vid.items():
+                if vid and (vid in current_song_id or vid.lower() in np_title_lc):
+                    matched_job = j
+                    print(f"[YT_NOWPLAY] Matched by video_id: {vid}")
+                    break
+
+        # Strategy 3: stored YouTube title matches what AzuraCast reports
+        if matched_job is None and np_title_lc:
+            if np_title_lc in pending_by_title:
+                matched_job = pending_by_title[np_title_lc]
+                print(f"[YT_NOWPLAY] Matched by title: {np_title[:50]}")
+            else:
+                for stored_t, j in pending_by_title.items():
+                    if stored_t and stored_t in np_title_lc:
+                        matched_job = j
+                        print(f"[YT_NOWPLAY] Matched by partial title: {stored_t[:50]}")
+                        break
+
+        # Strategy 4: AzuraCast showing raw filename (no ID3 tags on old upload)
+        if matched_job is None and np_title_lc:
+            if np_title_lc in pending_by_filename:
+                matched_job = pending_by_filename[np_title_lc]
+                print(f"[YT_NOWPLAY] Matched by filename stem: {np_title}")
+
+    # Phase 1: request song just started playing — mark played + track
+    # Use current_song_id as the tracking key (AzuraCast's stable per-song ID)
+    track_key = current_song_id or ""
+    if matched_job and track_key and track_key not in _seen_playing:
+        _seen_playing[track_key] = matched_job["id"]
+        _db_mark_played(matched_job["id"])
+        print(
+            f"[YT_NOWPLAY] ▶ Request started playing: "
+            f"{(matched_job.get('title') or '?')[:60]}"
+        )
+
+    # Phase 2: previous request song finished → delete the file now
     prev_id = prev_song_id_ref[0]
     if prev_id and prev_id != current_song_id and prev_id in _seen_playing:
-        job_id = _seen_playing.pop(prev_id)
-        # Re-fetch in case pending list changed since last cycle
+        job_id    = _seen_playing.pop(prev_id)
         job_match = next((j for j in pending if j["id"] == job_id), None)
         if job_match and _auto_delete_enabled():
-            fid = (job_match.get("azura_file_id") or "").strip()
+            fid       = (job_match.get("azura_file_id") or "").strip()
+            fn        = (job_match.get("filename")      or "").strip()
+            title_log = (job_match.get("title") or "?")[:60]
+
+            ok = False
+            # Primary: AzuraCast API delete (uses stored numeric file_id)
             if fid:
                 ok = await loop.run_in_executor(None, _azura_delete_file, fid)
                 if ok:
-                    _db_mark_cleaned(job_match["id"])
-                    print(
-                        f"[YT_NOWPLAY] Deleted after play: "
-                        f"{(job_match.get('title') or '?')[:60]}"
-                    )
+                    print(f"[YT_CLEANUP] ✓ API deleted after play: {title_log}")
+                else:
+                    print(f"[YT_CLEANUP] API delete failed for file_id={fid}, trying SFTP…")
+
+            # Fallback: direct SFTP delete by filename
+            if not ok and fn:
+                ok = await loop.run_in_executor(None, _azura_sftp_delete, fn)
+                if ok:
+                    print(f"[YT_CLEANUP] ✓ SFTP deleted after play: {title_log}")
+
+            if ok:
+                _db_mark_cleaned(job_match["id"])
+            else:
+                print(
+                    f"[YT_CLEANUP] ✗ Cleanup failed: {title_log}"
+                    f" (file_id={fid!r}, filename={fn!r})"
+                )
 
     prev_song_id_ref[0] = current_song_id
 
@@ -1626,27 +1844,79 @@ async def _run_history_fallback() -> None:
     if not history:
         return
 
-    played_ids: set[str] = set()
+    # Collect all song identifiers that appear in recent history
+    played_sids:    set[str] = set()   # azura song hashes
+    played_titles:  set[str] = set()   # lower-cased titles
+    played_texts:   set[str] = set()   # lower-cased "Artist - Title" strings
+
     for entry in history:
         if not isinstance(entry, dict):
             continue
-        sid = ((entry.get("song") or {}).get("id") or "").strip()
+        s = entry.get("song") or {}
+        sid = (s.get("id") or "").strip()
         if sid:
-            played_ids.add(sid)
+            played_sids.add(sid)
+        t = (s.get("title") or "").strip().lower()
+        if t:
+            played_titles.add(t)
+        tx = (s.get("text") or "").strip().lower()
+        if tx:
+            played_texts.add(tx)
 
     cleaned = 0
     for job in pending:
         azura_song_id = (job.get("azura_song_id") or "").strip()
         azura_file_id = (job.get("azura_file_id") or "").strip()
-        if not azura_song_id or azura_song_id not in played_ids:
+        fn            = (job.get("filename")      or "").strip()
+        stored_title  = (job.get("title")         or "").strip().lower()
+        video_id      = (job.get("video_id")      or "").strip()
+        title_log     = (job.get("title") or "?")[:60]
+
+        # Check whether this job appears in history (any strategy)
+        in_history = False
+        if azura_song_id and azura_song_id in played_sids:
+            in_history = True
+        elif stored_title and stored_title in played_titles:
+            in_history = True
+            print(f"[YT_CLEANUP] History match by title: {title_log}")
+        elif stored_title:
+            for tx in played_texts:
+                if stored_title in tx:
+                    in_history = True
+                    print(f"[YT_CLEANUP] History match by text: {title_log}")
+                    break
+        if not in_history and video_id:
+            for sid in played_sids:
+                if video_id in sid:
+                    in_history = True
+                    print(f"[YT_CLEANUP] History match by video_id: {video_id}")
+                    break
+
+        if not in_history:
             continue
-        ok = await loop.run_in_executor(None, _azura_delete_file, azura_file_id)
+
+        ok = False
+        # Primary: AzuraCast API delete
+        if azura_file_id:
+            ok = await loop.run_in_executor(None, _azura_delete_file, azura_file_id)
+            if ok:
+                print(f"[YT_CLEANUP] ✓ History-fallback API deleted: {title_log}")
+            else:
+                print(f"[YT_CLEANUP] History-fallback API delete failed — trying SFTP…")
+
+        # Fallback: SFTP delete by filename
+        if not ok and fn:
+            ok = await loop.run_in_executor(None, _azura_sftp_delete, fn)
+            if ok:
+                print(f"[YT_CLEANUP] ✓ History-fallback SFTP deleted: {title_log}")
+
         if ok:
             _db_mark_played(job["id"])
             _db_mark_cleaned(job["id"])
             _seen_playing.pop(azura_song_id, None)
             cleaned += 1
-            print(f"[YT_CLEANUP] History-fallback deleted: {(job.get('title') or '?')[:60]}")
+        else:
+            print(f"[YT_CLEANUP] ✗ History-fallback cleanup failed: {title_log}")
 
     if cleaned:
         print(f"[YT_CLEANUP] {cleaned} request file(s) removed via history fallback.")
@@ -1654,11 +1924,12 @@ async def _run_history_fallback() -> None:
 
 async def _cleanup_loop() -> None:
     """
-    Infinite loop: poll AzuraCast Now Playing every 15 s.
-    Runs a history-based fallback sweep every ~90 s (every 6 now-playing cycles).
+    Infinite loop: poll AzuraCast Now Playing every 10 s.
+    Runs a history-based fallback sweep every ~90 s (every 9 now-playing cycles).
 
-    • Now-playing path (15 s): marks requests as played the instant they start,
+    • Now-playing path (10 s): marks requests as played the instant they start,
       then deletes the file the moment the song transitions — prevents ALL replays.
+      Tries API delete first, falls back to SFTP delete if that fails.
     • History fallback (90 s): safety net for songs that played while the bot
       was offline or before azura_song_id was recorded.
     """
