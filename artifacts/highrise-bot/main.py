@@ -480,7 +480,13 @@ from modules.yt_request import (
     handle_unbanrequester,
     handle_queueadmin,
     on_request_user_left,
+    handle_radio_queue,
+    handle_radio_remove,
+    handle_radio_clearqueue,
+    handle_radio_voteskip,
+    handle_radiohelp,
 )
+from modules.radio_vibe import handle_vibe
 from modules.dm_queue import startup_host_dm_queue_loop
 from modules.autosummary import (
     handle_autosummary, handle_minesummary, handle_fishsummary,
@@ -7295,7 +7301,10 @@ class HangoutBot(BaseBot):
                 await handle_ytpick(self, user, args)
             else:
                 await handle_dj_pick(self, user, args)
-        elif cmd in ("queue", "djqueue"):
+        elif cmd in ("queue", "q"):
+            # !queue / !q → AzuraCast request queue (public)
+            await handle_radio_queue(self, user, args)
+        elif cmd == "djqueue":
             await handle_dj_queue(self, user)
         elif cmd in ("now", "nowplaying", "np"):
             # !now / aliases → AzuraCast now-playing with player-style display
@@ -7305,8 +7314,11 @@ class HangoutBot(BaseBot):
             await handle_yt_skip(self, user, args)
         elif cmd == "skipvote":
             await handle_dj_skipvote(self, user)
-        elif cmd in ("stopmusic", "djstop", "clearqueue"):
+        elif cmd in ("stopmusic", "djstop"):
             await handle_dj_stopmusic(self, user)
+        elif cmd == "clearqueue":
+            # !clearqueue → cancel all pending AzuraCast radio requests (admin+)
+            await handle_radio_clearqueue(self, user, args)
         elif cmd in ("djconfig", "djsettings"):
             await handle_dj_config(self, user)
         elif cmd == "djset":
@@ -7451,6 +7463,14 @@ class HangoutBot(BaseBot):
             await handle_unbanrequester(self, user, args)
         elif cmd == "queueadmin":
             await handle_queueadmin(self, user, args)
+        elif cmd == "remove":
+            await handle_radio_remove(self, user, args)
+        elif cmd == "voteskip":
+            await handle_radio_voteskip(self, user, args)
+        elif cmd == "vibe":
+            await handle_vibe(self, user, args)
+        elif cmd == "radiohelp":
+            await handle_radiohelp(self, user, args)
         elif cmd == "webplayer":
             await handle_dj_webplayer(self, user)
         elif cmd == "setwebplayer":

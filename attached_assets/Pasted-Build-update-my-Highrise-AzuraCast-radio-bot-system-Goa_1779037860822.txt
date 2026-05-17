@@ -1,0 +1,163 @@
+Build/update my Highrise AzuraCast radio bot system.
+
+Goal:
+I have one AzuraCast station with 3 playlists/folders:
+1. default = Chill music
+2. Party Remixes = party vibe music
+3. Requests = player requested songs
+
+I want the bot to control vibe switching, song requests, DJ announcements, queue saving, and cleanup.
+
+Core logic:
+- Chill mode: enable/play default playlist, disable Party Remixes, keep Requests enabled.
+- Party mode: enable/play Party Remixes, disable default, keep Requests enabled.
+- Requests always have highest priority.
+- When a request is added, it should play immediately if possible.
+- Playlist weight alone is not enough, so after adding a request, call AzuraCast skip current song.
+- If skip fails, retry 2–3 times and verify using AzuraCast Now Playing API.
+- If skip still fails, tell the room the request is queued and will play next.
+
+Commands:
+- !vibe chill
+- !vibe party
+- !vibe status
+- !request <song name or YouTube URL>
+- !queue
+- !q
+- !skip
+- !nowplaying
+- !remove <queue number>
+- !clearqueue
+- !history
+- !voteskip
+- !help radio
+
+Permissions:
+- Staff/host-only commands:
+  - !vibe chill
+  - !vibe party
+  - !skip
+  - !remove
+  - !clearqueue
+- Public commands:
+  - !request
+  - !queue
+  - !q
+  - !nowplaying
+  - !history
+  - !voteskip
+  - !help radio
+
+Request flow:
+1. Player uses !request <song>.
+2. Bot searches YouTube or accepts YouTube URL.
+3. Bot downloads/extracts audio as MP3.
+4. Bot saves the file into the AzuraCast Requests media folder.
+5. Bot adds/assigns the song to the AzuraCast Requests playlist.
+6. Bot saves request info to persistent queue storage.
+7. Bot calls AzuraCast skip current song.
+8. Bot verifies the Now Playing API changed to the requested song.
+9. DJbot announces the new song when it starts.
+10. When the requested song finishes, mark it as played, remove it from the Requests playlist, and delete or archive the MP3 file.
+
+Persistent queue:
+- Queue must survive bot restart/crash.
+- Store queue in database or JSON file.
+- Each queue item should include:
+  - queue number
+  - song title
+  - artist if available
+  - YouTube URL/video ID
+  - requester username/user ID
+  - local file path
+  - AzuraCast media ID if available
+  - playlist ID
+  - status: pending, playing, played, failed
+  - requested timestamp
+  - started timestamp
+  - finished timestamp
+- On bot startup, reload unfinished pending/playing requests.
+- If a playing request was interrupted by a crash, verify with AzuraCast Now Playing API and recover safely.
+
+DJ announcements:
+- Bot must announce every new track at the start of the track.
+- This applies to all songs from default/Chill, Party Remixes, and Requests.
+- Use AzuraCast Now Playing API polling every 5 seconds.
+- Save last announced track ID/title so the bot does not repeat announcements.
+- Announce differently depending on source:
+  - Chill/default:
+    “🎶 Chill vibes now playing: Artist - Title”
+  - Party Remixes:
+    “🔥 Party mode now playing: Artist - Title”
+  - Requests:
+    “🎧 Request playing: Artist - Title | Requested by @username”
+- If requester is unknown, just announce as normal request track.
+
+Queue commands:
+- !queue and !q must do the same thing.
+- Show currently playing request and upcoming pending requests.
+- Show queue numbers for removal.
+- !remove <queue number> removes a pending request from queue, Requests playlist, and file storage.
+- !clearqueue clears all pending requests, removes them from Requests playlist, and deletes/archives files.
+- !history shows the last 5–10 played songs.
+
+Protection/anti-abuse:
+- Add request cooldown per user, default 3–5 minutes.
+- Add max queue length, default 10 songs.
+- Add max song duration, default 8 minutes.
+- Prevent duplicate songs already in queue or currently playing.
+- Block failed downloads.
+- Sanitize filenames.
+- Handle invalid YouTube links/searches.
+- Prevent chat spam from announcements and errors.
+
+Vote skip:
+- !voteskip lets regular users vote to skip the current song.
+- Require a configurable number of unique votes, default 3.
+- Reset votes after song changes.
+- Staff can use !skip instantly without vote.
+
+AzuraCast integration:
+- Use environment variables for:
+  - AZURACAST_BASE_URL
+  - AZURACAST_API_KEY
+  - AZURACAST_STATION_ID
+  - AZURACAST_PLAYLIST_CHILL_ID
+  - AZURACAST_PLAYLIST_PARTY_ID
+  - AZURACAST_PLAYLIST_REQUESTS_ID
+  - AZURACAST_REQUESTS_MEDIA_PATH
+- Use AzuraCast API for:
+  - Now Playing
+  - skip current song
+  - playlist enable/disable
+  - add media to Requests playlist if available
+  - remove media from Requests playlist after played if available
+- Add error handling and logs for all AzuraCast API calls.
+
+Vibe behavior:
+- current_vibe should be saved persistently as “chill” or “party”.
+- If current_vibe = chill, default playlist should be active and Party Remixes inactive.
+- If current_vibe = party, Party Remixes should be active and default inactive.
+- Requests should stay active in both modes.
+- When Requests queue becomes empty, AzuraCast should return to the saved current_vibe.
+
+Reliability:
+- If skip fails, retry 2–3 times with small delays.
+- After each skip attempt, check Now Playing API.
+- Do not assume skip worked.
+- If AzuraCast API fails, bot should not crash.
+- Bot should log errors and continue running.
+- Bot should not announce the same track repeatedly.
+- Bot should not lose queue data after restart.
+
+Deliverables:
+- Update the existing bot code.
+- Keep code modular:
+  - azuracast_api module
+  - request_queue module
+  - radio_commands module
+  - dj_announcer module
+  - config/env module
+- Add clear comments.
+- Add setup instructions for required environment variables.
+- Do not remove existing bot features unless required.

@@ -1143,6 +1143,12 @@ def _azura_post_upload(filename: str, db_id: int = 0) -> None:
         else:
             print("[YT_API] unique_id unavailable — skipping request queue step")
 
+        # ── 6. Auto-skip current song to promote new request immediately ──────
+        # Disabled by setting env AZURA_AUTO_SKIP_ON_REQUEST=false
+        if (os.environ.get("AZURA_AUTO_SKIP_ON_REQUEST", "true").lower() != "false"):
+            print("[YT_API] Auto-skipping current song to promote new request…")
+            _azura_skip_with_retry(max_attempts=3, delay=2.0)
+
     except Exception as exc:
         print(f"[YT_API] Unexpected error in post-upload step (non-fatal): {exc}")
 
@@ -1329,6 +1335,67 @@ def _azura_skip_song() -> bool:
     return False
 
 
+def _azura_skip_with_retry(max_attempts: int = 3, delay: float = 2.0) -> bool:
+    """
+    Skip current AzuraCast song with retry + verification.
+
+    1. Snapshot the current song ID from the Now Playing API.
+    2. POST backend/skip.
+    3. Wait `delay` seconds, then re-fetch Now Playing.
+    4. If the song ID changed — verified success.  If not, retry up to
+       `max_attempts` times.
+    5. If unverified after all attempts, return False (caller decides what to tell room).
+
+    Never raises; always returns bool.
+    """
+    import requests as req_lib
+    import time as _time
+
+    cfg = _azura_api_cfg()
+    if cfg is None:
+        return False
+
+    headers  = {"X-API-Key": cfg["api_key"], "Accept": "application/json"}
+    skip_url = f"{cfg['base_url']}/api/station/{cfg['station_id']}/backend/skip"
+
+    # Snapshot song ID before skip
+    id_before = ""
+    np_before = _azura_fetch_nowplaying()
+    if np_before:
+        id_before = (
+            (np_before.get("now_playing") or {}).get("song", {}).get("id", "")
+        ) or ""
+
+    for attempt in range(1, max_attempts + 1):
+        try:
+            resp = req_lib.post(skip_url, headers=headers, timeout=10)
+            print(
+                f"[YT_SKIP] Attempt {attempt}/{max_attempts}"
+                f" → HTTP {resp.status_code}: {resp.text[:200]}"
+            )
+            if resp.status_code in (200, 204):
+                if not id_before:
+                    return True  # can't verify; treat accepted as success
+                _time.sleep(delay)
+                np_after = _azura_fetch_nowplaying()
+                if np_after:
+                    id_after = (
+                        (np_after.get("now_playing") or {}).get("song", {}).get("id", "")
+                    ) or ""
+                    if id_after and id_after != id_before:
+                        print(f"[YT_SKIP] ✓ Verified song changed on attempt {attempt}.")
+                        return True
+                    print(f"[YT_SKIP] Song unchanged after attempt {attempt}.")
+        except Exception as exc:
+            print(f"[YT_SKIP] Skip attempt {attempt} error: {exc}")
+
+        if attempt < max_attempts:
+            _time.sleep(delay)
+
+    print(f"[YT_SKIP] Skip unconfirmed after {max_attempts} attempts.")
+    return False
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Public radio command handlers  (!play  !now  !skip)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1475,7 +1542,7 @@ async def handle_skip(bot: "BaseBot", user: "User", _args: list[str]) -> None:
             print(f"[YT_SKIP] Refund check error (non-fatal): {_re}")
 
     loop = asyncio.get_running_loop()
-    ok = await loop.run_in_executor(None, _azura_skip_song)
+    ok = await loop.run_in_executor(None, _azura_skip_with_retry)
     if ok:
         await _w(bot, user.id, "⏭ Song skipped.")
         try:
@@ -1483,7 +1550,11 @@ async def handle_skip(bot: "BaseBot", user: "User", _args: list[str]) -> None:
         except Exception:
             pass
     else:
-        await _w(bot, user.id, "❌ Skip failed — please try again.")
+        await _w(
+            bot, user.id,
+            "⚠️ Skip sent but song may not have changed yet. "
+            "Request is queued and will play next.",
+        )
 
 
 async def handle_ytrequest(bot: "BaseBot", user: "User", args: list[str]) -> None:
@@ -1846,6 +1917,9 @@ _HISTORY_POLL_SECS   = 90   # how often to run the history fallback sweep
 # {azura_song_id: db_job_id} for requests currently being tracked in now-playing.
 # Module-level so it persists across loop iterations; mutated in-place (no global needed).
 _seen_playing: dict[str, int] = {}
+_seen_announced:   set[str]       = set()  # AzuraCast song IDs already announced
+_radio_skip_votes: dict[str, set] = {}     # song_id → set of voter user_ids
+_radio_vote_lock   = threading.Lock()      # guards _radio_skip_votes
 
 
 def _auto_delete_enabled() -> bool:
@@ -1997,7 +2071,10 @@ def _azura_sftp_delete(filename: str) -> bool:
             pass
 
 
-async def _run_nowplaying_cycle(prev_song_id_ref: list[str]) -> None:
+async def _run_nowplaying_cycle(
+    prev_song_id_ref: list[str],
+    bot_inst: "BaseBot | None" = None,
+) -> None:
     """
     One 15-second poll cycle:
 
@@ -2099,6 +2176,44 @@ async def _run_nowplaying_cycle(prev_song_id_ref: list[str]) -> None:
             f"[YT_NOWPLAY] ▶ Request started playing: "
             f"{(matched_job.get('title') or '?')[:60]}"
         )
+
+    # ── Announce every new track once (chill / party / request) ──────────────
+    if current_song_id and current_song_id not in _seen_announced and bot_inst and np_data:
+        _seen_announced.add(current_song_id)
+        if len(_seen_announced) > 500:
+            _seen_announced.clear()
+            _seen_announced.add(current_song_id)
+
+        np_song   = (np_data.get("now_playing") or {}).get("song", {})
+        np_artist = (np_song.get("artist") or "").strip()
+        if np_artist and np_artist.lower() not in np_title.lower():
+            song_text = f"{np_artist} — {np_title}"
+        else:
+            song_text = np_title or "Unknown"
+
+        if matched_job:
+            uname    = (matched_job.get("username") or "?")[:20]
+            announce = f"🎧 Request: {song_text[:80]} | Requested by @{uname}"
+        else:
+            try:
+                from modules.radio_vibe import get_current_vibe as _gcv
+                _vibe = _gcv()
+            except Exception:
+                _vibe = "chill"
+            if _vibe == "party":
+                announce = f"🔥 Party mode: {song_text[:120]}"
+            else:
+                announce = f"🎶 Chill vibes: {song_text[:120]}"
+
+        try:
+            await bot_inst.highrise.chat(announce[:249])
+        except Exception as _ae:
+            print(f"[YT_ANNOUNCE] Chat error (non-fatal): {_ae}")
+
+    # ── Reset radio vote-skip state on song change ────────────────────────────
+    if current_song_id and current_song_id != prev_song_id_ref[0]:
+        with _radio_vote_lock:
+            _radio_skip_votes.clear()
 
     # Phase 2: previous request song finished → delete the file now
     prev_id = prev_song_id_ref[0]
@@ -2233,7 +2348,7 @@ async def _run_history_fallback() -> None:
         print(f"[YT_CLEANUP] {cleaned} request file(s) removed via history fallback.")
 
 
-async def _cleanup_loop() -> None:
+async def _cleanup_loop(bot_inst: "BaseBot | None" = None) -> None:
     """
     Infinite loop: poll AzuraCast Now Playing every 10 s.
     Runs a history-based fallback sweep every ~90 s (every 9 now-playing cycles).
@@ -2243,6 +2358,7 @@ async def _cleanup_loop() -> None:
       Tries API delete first, falls back to SFTP delete if that fails.
     • History fallback (90 s): safety net for songs that played while the bot
       was offline or before azura_song_id was recorded.
+    • bot_inst is forwarded to _run_nowplaying_cycle for room announcements.
     """
     print(
         f"[YT_CLEANUP] Poll loop started"
@@ -2256,7 +2372,7 @@ async def _cleanup_loop() -> None:
     while True:
         try:
             await asyncio.sleep(_NOWPLAYING_POLL_SECS)
-            await _run_nowplaying_cycle(prev_song_id_ref)
+            await _run_nowplaying_cycle(prev_song_id_ref, bot_inst=bot_inst)
             cycle += 1
             if cycle >= history_cycles:
                 cycle = 0
@@ -2488,7 +2604,7 @@ async def startup_yt_cleanup_task(_bot: "BaseBot") -> None:
     if not _azura_api_cfg():
         print("[YT_CLEANUP] AzuraCast API not configured — cleanup disabled.")
         return
-    asyncio.create_task(_cleanup_loop())
+    asyncio.create_task(_cleanup_loop(bot_inst=_bot))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2626,3 +2742,253 @@ async def handle_playedrequests(bot: "BaseBot", user: "User", _args: list[str]) 
         lines.append(f"• {title} — @{uname}{status}")
 
     await _w(bot, user.id, "\n".join(lines)[:249])
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Radio vote-skip threshold helper
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _radio_voteskip_threshold() -> int:
+    """Return required votes to skip the current radio song (default 3, min 2)."""
+    try:
+        return max(2, int(db.get_room_setting("radio_voteskip_threshold", "3")))
+    except Exception:
+        return 3
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# !queue / !q  —  public radio request queue display
+# ─────────────────────────────────────────────────────────────────────────────
+
+async def handle_radio_queue(bot: "BaseBot", user: "User", _args: list[str]) -> None:
+    """!queue / !q — show the current AzuraCast request queue (public)."""
+    with _jobs_lock:
+        all_jobs = sorted(_jobs.values(), key=lambda j: j.get("id", 0))
+
+    pending = [j for j in all_jobs if j["status"] in ("pending", "downloading", "uploading")]
+    cp_id   = _currently_playing_db_id
+
+    if not cp_id and not pending:
+        await _w(bot, user.id, "🎵 No song requests in the queue right now.")
+        return
+
+    lines = ["📋 Request Queue:"]
+
+    if cp_id:
+        playing = next((j for j in all_jobs if j.get("id") == cp_id), None)
+        if playing:
+            t = (playing.get("title") or "?")[:40]
+            u = (playing.get("username") or "?")[:12]
+            lines.append(f"▶ Playing: {t} — @{u}")
+
+    for i, j in enumerate(pending[:5], 1):
+        t = (j.get("title") or "downloading…")[:35]
+        u = (j.get("username") or "?")[:12]
+        lines.append(f"  {i}. {t} — @{u}")
+
+    if len(pending) > 5:
+        lines.append(f"  … +{len(pending) - 5} more pending")
+
+    await _w(bot, user.id, "\n".join(lines)[:249])
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# !remove <#>  —  cancel a pending request by queue position (admin+)
+# ─────────────────────────────────────────────────────────────────────────────
+
+async def handle_radio_remove(bot: "BaseBot", user: "User", args: list[str]) -> None:
+    """!remove <#> — cancel a pending radio request by queue position (admin+)."""
+    if not is_admin(user.username):
+        await _w(bot, user.id, "🔒 Admin only. Use !queue to see positions.")
+        return
+
+    with _jobs_lock:
+        pending = sorted(
+            [j for j in _jobs.values() if j["status"] in ("pending", "downloading", "uploading")],
+            key=lambda j: j.get("id", 0),
+        )
+
+    if len(args) < 2 or not args[1].isdigit():
+        if not pending:
+            await _w(bot, user.id, "📋 No pending requests to remove.")
+        else:
+            lines = ["📋 Pending (use !remove <#>):"]
+            for i, j in enumerate(pending, 1):
+                t = (j.get("title") or "in progress")[:30]
+                u = (j.get("username") or "?")[:12]
+                lines.append(f"  {i}. {t} — @{u}")
+            await _w(bot, user.id, "\n".join(lines)[:249])
+        return
+
+    idx = int(args[1]) - 1
+    if idx < 0 or idx >= len(pending):
+        await _w(bot, user.id, f"⚠️ No request #{args[1]}. Use !queue to see the list.")
+        return
+
+    job   = pending[idx]
+    jid   = job["id"]
+    title = (job.get("title") or "?")[:40]
+    uid   = job.get("user_id", "")
+    coins = job.get("coins_charged", 0)
+
+    # Mark cancelled in memory + DB
+    with _jobs_lock:
+        if jid in _jobs:
+            _jobs[jid]["status"] = "cancelled"
+    _update_job(jid, status="error", error="Removed by admin")
+
+    # Remove from presence tracking
+    with _presence_lock:
+        _active_presence.pop(uid, None)
+
+    # Refund if paid
+    note = ""
+    if coins > 0 and uid:
+        _refund_coins(uid, coins)
+        note = f" ({coins} coins refunded)"
+
+    # Best-effort file cleanup
+    fid = (job.get("azura_file_id") or "").strip()
+    fn  = (job.get("filename")      or "").strip()
+    if fid or fn:
+        loop = asyncio.get_running_loop()
+        if fid:
+            loop.run_in_executor(None, _azura_delete_file, fid)
+        elif fn:
+            loop.run_in_executor(None, _azura_sftp_delete, fn)
+
+    await _w(bot, user.id, f"✅ Removed: {title}{note}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# !clearqueue  —  cancel all pending radio requests (admin+)
+# ─────────────────────────────────────────────────────────────────────────────
+
+async def handle_radio_clearqueue(bot: "BaseBot", user: "User", _args: list[str]) -> None:
+    """!clearqueue — cancel all pending radio requests and clean up files (admin+)."""
+    if not is_admin(user.username):
+        await _w(bot, user.id, "🔒 Admin only.")
+        return
+
+    with _jobs_lock:
+        pending = [
+            j for j in _jobs.values()
+            if j["status"] in ("pending", "downloading", "uploading")
+        ]
+        for j in pending:
+            j["status"] = "cancelled"
+
+    if not pending:
+        await _w(bot, user.id, "✅ No pending requests to clear.")
+        return
+
+    await _w(bot, user.id, f"🧹 Clearing {len(pending)} pending request(s)…")
+
+    loop     = asyncio.get_running_loop()
+    refunded = 0
+    for j in pending:
+        jid   = j["id"]
+        uid   = j.get("user_id", "")
+        coins = j.get("coins_charged", 0)
+
+        _update_job(jid, status="error", error="Cleared by admin")
+
+        if coins > 0 and uid:
+            _refund_coins(uid, coins)
+            refunded += coins
+
+        fid = (j.get("azura_file_id") or "").strip()
+        fn  = (j.get("filename")      or "").strip()
+        if fid:
+            await loop.run_in_executor(None, _azura_delete_file, fid)
+        elif fn:
+            await loop.run_in_executor(None, _azura_sftp_delete, fn)
+
+    # Clear presence for affected users
+    uids = {j.get("user_id", "") for j in pending if j.get("user_id")}
+    with _presence_lock:
+        for uid in uids:
+            _active_presence.pop(uid, None)
+
+    note = f" | {refunded} coins refunded" if refunded else ""
+    await _w(bot, user.id, f"✅ Cleared {len(pending)} request(s){note}.")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# !voteskip  —  vote to skip the currently playing radio song (public)
+# ─────────────────────────────────────────────────────────────────────────────
+
+async def handle_radio_voteskip(bot: "BaseBot", user: "User", _args: list[str]) -> None:
+    """!voteskip — vote to skip the currently playing radio song (public)."""
+    loop = asyncio.get_running_loop()
+    try:
+        np_data = await loop.run_in_executor(None, _azura_fetch_nowplaying)
+    except Exception:
+        np_data = None
+
+    current_sid = ""
+    if np_data:
+        current_sid = (
+            (np_data.get("now_playing") or {}).get("song", {}).get("id", "")
+        ) or ""
+
+    if not current_sid:
+        await _w(bot, user.id, "🎵 Nothing is playing right now.")
+        return
+
+    thresh = _radio_voteskip_threshold()
+
+    with _radio_vote_lock:
+        if current_sid not in _radio_skip_votes:
+            _radio_skip_votes[current_sid] = set()
+
+        if user.id in _radio_skip_votes[current_sid]:
+            cur  = len(_radio_skip_votes[current_sid])
+            need = thresh - cur
+            await _w(bot, user.id, f"👎 Already voted. {need} more vote(s) needed to skip.")
+            return
+
+        _radio_skip_votes[current_sid].add(user.id)
+        votes = len(_radio_skip_votes[current_sid])
+
+    if votes >= thresh:
+        s     = (np_data.get("now_playing") or {}).get("song", {})
+        art   = (s.get("artist") or "").strip()
+        ttl   = (s.get("title")  or "").strip()
+        label = (f"{art} — {ttl}" if art else ttl)[:60] or "current song"
+        try:
+            await bot.highrise.chat(
+                f"👎 Vote skip passed ({votes}/{thresh})! Skipping: {label}"[:249]
+            )
+        except Exception:
+            pass
+        await loop.run_in_executor(None, _azura_skip_with_retry)
+        with _radio_vote_lock:
+            _radio_skip_votes.pop(current_sid, None)
+    else:
+        remaining = thresh - votes
+        try:
+            await bot.highrise.chat(
+                f"👎 @{user.username[:15]} voted to skip. {remaining} more vote(s) needed."[:249]
+            )
+        except Exception:
+            pass
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# !radiohelp  —  show all radio commands (public)
+# ─────────────────────────────────────────────────────────────────────────────
+
+async def handle_radiohelp(bot: "BaseBot", user: "User", _args: list[str]) -> None:
+    """!radiohelp — show all AzuraCast radio commands (public)."""
+    cost     = _request_cost()
+    cost_str = f"{cost} coins" if cost else "free"
+    thresh   = _radio_voteskip_threshold()
+    await _w(
+        bot, user.id,
+        (f"📻 Radio Commands:\n"
+         f"🎵 !play <song/URL> ({cost_str}) | !queue (!q) | !nowplaying\n"
+         f"👎 !voteskip ({thresh} votes needed) | !history\n"
+         f"🎛️ !vibe chill|party|status\n"
+         f"🔒 Staff: !skip | !remove <#> | !clearqueue | !vibe <mode>")[:249],
+    )
