@@ -461,6 +461,9 @@ from modules.dj_music import (
 from modules.yt_request import (
     handle_ytrequest, handle_ytqueue, handle_ytstatus,
     handle_ytnow, handle_ytcooldown, handle_setytcooldown,
+    handle_request as handle_yt_request_search,
+    handle_ytpick,
+    has_pending_yt_search,
 )
 from modules.dm_queue import startup_host_dm_queue_loop
 from modules.autosummary import (
@@ -7255,10 +7258,19 @@ class HangoutBot(BaseBot):
             await handle_followstatus(self, user)
 
         # ── DJ Music ──────────────────────────────────────────────────────────
-        elif cmd in ("request", "sr", "req", "song", "requesy"):
+        elif cmd == "request":
+            # !request <song name> → YouTube search → AzuraCast SFTP upload flow
+            await handle_yt_request_search(self, user, args)
+        elif cmd in ("sr", "req", "song", "requesy"):
+            # Short aliases still route to the in-room DJ queue
             await handle_dj_request(self, user, args)
         elif cmd in ("pick", "djpick"):
-            await handle_dj_pick(self, user, args)
+            # If user has a pending YT search, pick routes to AzuraCast upload.
+            # Otherwise fall through to in-room DJ queue pick as before.
+            if has_pending_yt_search(user.id):
+                await handle_ytpick(self, user, args)
+            else:
+                await handle_dj_pick(self, user, args)
         elif cmd in ("queue", "djqueue"):
             await handle_dj_queue(self, user)
         elif cmd in ("nowplaying", "np"):

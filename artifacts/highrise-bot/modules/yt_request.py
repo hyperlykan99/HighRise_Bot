@@ -297,6 +297,57 @@ def _db_recent_jobs(limit: int = 10) -> list[dict]:
 _cooldowns: dict[str, float] = {}   # user_id → last_request_timestamp
 
 # ─────────────────────────────────────────────────────────────────────────────
+# YouTube search — pending results for !request / !pick flow
+# ─────────────────────────────────────────────────────────────────────────────
+
+_yt_pending:      dict[str, list[dict]] = {}  # user_id → search results
+_yt_pending_lock: threading.Lock        = threading.Lock()
+
+
+def has_pending_yt_search(user_id: str) -> bool:
+    """True if the user has results from a !request search waiting for !pick."""
+    with _yt_pending_lock:
+        return user_id in _yt_pending
+
+
+def _yt_search_sync(query: str, max_results: int = 5) -> list[dict]:
+    """
+    Blocking YouTube search via yt-dlp (run in executor).
+    Returns up to max_results dicts: {url, title, duration, duration_secs}.
+    Uses 'ytsearch<n>:query' URL form — the only reliable way to trigger
+    yt-dlp's YouTube search (default_search option is unreliable).
+    """
+    import yt_dlp  # already installed globally
+
+    prefixed = f"ytsearch{max_results}:{query}"
+    opts: dict = {
+        "quiet":        True,
+        "no_warnings":  True,
+        "extract_flat": True,   # metadata only, no full fetch per video
+    }
+    results: list[dict] = []
+    with yt_dlp.YoutubeDL(opts) as ydl:
+        info = ydl.extract_info(prefixed, download=False)
+
+    if not isinstance(info, dict) or not info.get("entries"):
+        return results
+
+    for entry in info["entries"][:max_results]:
+        if not entry:
+            continue
+        vid_id  = entry.get("id") or ""
+        dur_s   = int(entry.get("duration") or 0)
+        mins, s = divmod(dur_s, 60)
+        results.append({
+            "url":           f"https://www.youtube.com/watch?v={vid_id}",
+            "title":         (entry.get("title") or "(unknown)")[:80],
+            "duration":      f"{mins}:{s:02d}",
+            "duration_secs": dur_s,
+        })
+    return results
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Blocking download step  (run in thread executor — must not touch event loop)
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -943,3 +994,107 @@ async def handle_setytcooldown(bot: "BaseBot", user: "User", args: list[str]) ->
         return
     db.set_room_setting("yt_request_cooldown", str(secs))
     await _w(bot, user.id, f"✅ YT Request cooldown set to {secs}s.")
+
+
+async def handle_request(bot: "BaseBot", user: "User", args: list[str]) -> None:
+    """!request <song name>  — search YouTube, show top 5 for AzuraCast upload.
+    If a YouTube URL is given instead, delegates directly to handle_ytrequest.
+    """
+    # SFTP must be ready — no point searching if we can't upload
+    if _sftp_missing_vars():
+        await _w(bot, user.id, "📻 YT Requests not configured (missing SFTP secrets).")
+        return
+
+    if len(args) < 2:
+        await _w(
+            bot, user.id,
+            "🎵 !request <song name> — search YouTube\n"
+            "Then !pick <1-5> to upload to radio.\n"
+            "Or: !ytrequest <url> to add directly."
+        )
+        return
+
+    query = " ".join(args[1:]).strip()[:120]
+    if not query:
+        await _w(bot, user.id, "🎵 Please include a song name.")
+        return
+
+    # If it's a YouTube URL, skip search and go straight to upload
+    clean_url = query.split("&list=")[0]
+    if _is_youtube_url(clean_url):
+        await handle_ytrequest(bot, user, [args[0], clean_url])
+        return
+
+    await _w(bot, user.id, f"🔍 Searching YouTube: {query[:60]}…")
+
+    loop = asyncio.get_running_loop()
+    try:
+        results = await loop.run_in_executor(None, _yt_search_sync, query, 5)
+    except Exception as exc:
+        await _w(bot, user.id, f"❌ Search error: {str(exc)[:80]}")
+        return
+
+    if not results:
+        await _w(bot, user.id, "❌ No results found. Try a different search.")
+        return
+
+    with _yt_pending_lock:
+        _yt_pending[user.id] = results
+
+    max_min = _MAX_DURATION_SECS // 60
+    lines   = [f"🎵 Results — reply !pick <1-5>:"]
+    for i, r in enumerate(results, 1):
+        flag = " ⚠️long" if r["duration_secs"] > _MAX_DURATION_SECS else ""
+        lines.append(f"{i}. {r['title'][:44]} [{r['duration']}]{flag}")
+    lines.append(f"(Max {max_min}m per track)")
+
+    await _w(bot, user.id, "\n".join(lines)[:249])
+
+
+async def handle_ytpick(bot: "BaseBot", user: "User", args: list[str]) -> None:
+    """!pick <1-5>  — upload the selected search result to AzuraCast via SFTP.
+    Only runs when the user has a pending !request search. Otherwise the main.py
+    routing falls through to handle_dj_pick (in-room DJ queue).
+    """
+    with _yt_pending_lock:
+        results = _yt_pending.get(user.id)
+
+    if not results:
+        await _w(
+            bot, user.id,
+            "🎵 No pending search. Use !request <song name> first."
+        )
+        return
+
+    if len(args) < 2 or not args[1].isdigit():
+        await _w(bot, user.id, f"Usage: !pick <1–{len(results)}>")
+        return
+
+    num = int(args[1])
+    if not (1 <= num <= len(results)):
+        await _w(bot, user.id, f"⚠️ Pick a number between 1 and {len(results)}.")
+        return
+
+    chosen = results[num - 1]
+    url    = chosen["url"]
+
+    # Reject too-long tracks before even starting the download
+    if chosen["duration_secs"] > _MAX_DURATION_SECS:
+        max_min = _MAX_DURATION_SECS // 60
+        await _w(
+            bot, user.id,
+            f"❌ Track too long: {chosen['title'][:50]} [{chosen['duration']}]\n"
+            f"Max {max_min} min. Pick another result or !request a shorter song."
+        )
+        return
+
+    # Consume the pending search (one-shot)
+    with _yt_pending_lock:
+        _yt_pending.pop(user.id, None)
+
+    # Whisper what was picked, then let handle_ytrequest do all validation + upload
+    await _w(
+        bot, user.id,
+        f"🎵 Picked: {chosen['title'][:80]} [{chosen['duration']}]\nStarting upload…"
+    )
+    await handle_ytrequest(bot, user, [args[0], url])
