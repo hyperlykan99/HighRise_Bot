@@ -279,6 +279,7 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "social": "dj", "blocksocial": "dj", "unblocksocial": "dj",
     # ── dj music / song request system ───────────────────────────────────────
     # Player-facing
+    "play": "dj", "now": "dj",
     "request": "dj", "sr": "dj", "req": "dj", "song": "dj", "requesy": "dj",
     "pick": "dj", "djpick": "dj",
     "queue": "dj", "djqueue": "dj",
@@ -664,6 +665,7 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     # dj — emote info
     "emoteinfo": "dj",
     # dj — music / song-request queue
+    "play": "dj", "now": "dj",
     "request": "dj", "sr": "dj", "req": "dj", "song": "dj", "requesy": "dj",
     "pick": "dj", "djpick": "dj",
     "queue": "dj", "djqueue": "dj",

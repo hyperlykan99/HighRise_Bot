@@ -468,6 +468,9 @@ from modules.yt_request import (
     handle_requesthistory,
     handle_requestcleanup,
     handle_playedrequests,
+    handle_play as handle_yt_play,
+    handle_now as handle_yt_now,
+    handle_skip as handle_yt_skip,
     startup_yt_cleanup_task,
 )
 from modules.dm_queue import startup_host_dm_queue_loop
@@ -1578,6 +1581,8 @@ ADMIN_ONLY_CMDS    = ADMIN_ONLY_CMDS | TIP_AUDIT_COMMANDS
 # ── DJ Music commands (owned by DJ_DUDU, BOT_MODE=dj) ────────────────────────
 DJ_COMMANDS: frozenset[str] = frozenset({
     # Player-facing (public)
+    "play",
+    "now",
     "request", "sr", "req", "song", "requesy",
     "pick", "djpick",
     "queue", "djqueue",
@@ -7269,25 +7274,23 @@ class HangoutBot(BaseBot):
             await handle_followstatus(self, user)
 
         # ── DJ Music ──────────────────────────────────────────────────────────
-        elif cmd == "request":
-            # !request <song name> → YouTube search → AzuraCast SFTP upload flow
-            await handle_yt_request_search(self, user, args)
-        elif cmd in ("sr", "req", "song", "requesy"):
-            # Short aliases still route to the in-room DJ queue
-            await handle_dj_request(self, user, args)
+        elif cmd in ("play", "request", "sr", "req", "song", "requesy"):
+            # !play / aliases → YouTube URL direct-upload or search → AzuraCast
+            await handle_yt_play(self, user, args)
         elif cmd in ("pick", "djpick"):
-            # If user has a pending YT search, pick routes to AzuraCast upload.
-            # Otherwise fall through to in-room DJ queue pick as before.
+            # !pick <1-5> — completes a pending !play search result selection
             if has_pending_yt_search(user.id):
                 await handle_ytpick(self, user, args)
             else:
                 await handle_dj_pick(self, user, args)
         elif cmd in ("queue", "djqueue"):
             await handle_dj_queue(self, user)
-        elif cmd in ("nowplaying", "np"):
-            await handle_dj_nowplaying(self, user)
+        elif cmd in ("now", "nowplaying", "np"):
+            # !now / aliases → AzuraCast now-playing with player-style display
+            await handle_yt_now(self, user, args)
         elif cmd in ("skip", "djskip"):
-            await handle_dj_skip(self, user)
+            # !skip → AzuraCast backend skip (admin+)
+            await handle_yt_skip(self, user, args)
         elif cmd == "skipvote":
             await handle_dj_skipvote(self, user)
         elif cmd in ("stopmusic", "djstop", "clearqueue"):
@@ -7401,13 +7404,15 @@ class HangoutBot(BaseBot):
         elif cmd == "setradiometadata":
             await handle_dj_setradiometadata(self, user, args)
         elif cmd == "ytrequest":
-            await handle_ytrequest(self, user, args)
+            # !ytrequest is now an alias for !play (handles URL or search)
+            await handle_yt_play(self, user, args)
         elif cmd == "ytqueue":
             await handle_ytqueue(self, user, args)
         elif cmd == "ytstatus":
             await handle_ytstatus(self, user, args)
         elif cmd == "ytnow":
-            await handle_ytnow(self, user, args)
+            # !ytnow is now an alias for !now
+            await handle_yt_now(self, user, args)
         elif cmd == "ytcooldown":
             await handle_ytcooldown(self, user, args)
         elif cmd == "setytcooldown":

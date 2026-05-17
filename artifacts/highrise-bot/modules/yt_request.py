@@ -417,6 +417,21 @@ def _db_get_old_pending_cleanup(hours: int = 24) -> list[dict]:
     return []
 
 
+def _db_lookup_by_azura_song_id(song_id: str) -> "str | None":
+    """Return the requester username for a job matching azura_song_id, or None."""
+    if not song_id:
+        return None
+    try:
+        with sqlite3.connect(_DB_PATH) as conn:
+            row = conn.execute(
+                "SELECT username FROM yt_request_jobs WHERE azura_song_id=? LIMIT 1",
+                (song_id,),
+            ).fetchone()
+        return row[0] if row else None
+    except Exception:
+        return None
+
+
 def _db_request_history(limit: int = 10) -> list[dict]:
     """Return the last `limit` yt_request_jobs rows with lifecycle fields."""
     try:
@@ -946,6 +961,174 @@ async def _run_job(bot: "BaseBot", job: dict) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 # Command handlers
 # ─────────────────────────────────────────────────────────────────────────────
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Formatting helpers for !now display
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _fmt_secs(secs: int) -> str:
+    """Format seconds → M:SS (e.g. 184 → '3:04')."""
+    m, s = divmod(max(0, int(secs)), 60)
+    return f"{m}:{s:02d}"
+
+
+def _progress_bar(elapsed: int, total: int, cells: int = 10) -> str:
+    """Unicode block progress bar, e.g. '▰▰▰▱▱▱▱▱▱▱'."""
+    if total <= 0:
+        return "▱" * cells
+    filled = round(cells * min(elapsed, total) / total)
+    return "▰" * filled + "▱" * (cells - filled)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# AzuraCast skip helper
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _azura_skip_song() -> bool:
+    """Blocking: POST /api/station/{id}/backend/skip. Returns True on success."""
+    import requests as req_lib
+
+    cfg = _azura_api_cfg()
+    if cfg is None:
+        return False
+    try:
+        resp = req_lib.post(
+            f"{cfg['base_url']}/api/station/{cfg['station_id']}/backend/skip",
+            headers={"X-API-Key": cfg["api_key"], "Accept": "application/json"},
+            timeout=10,
+        )
+        print(f"[YT_SKIP] Skip → HTTP {resp.status_code}: {resp.text[:200]}")
+        return resp.status_code in (200, 204)
+    except Exception as exc:
+        print(f"[YT_SKIP] Skip error: {exc}")
+    return False
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Public radio command handlers  (!play  !now  !skip)
+# ─────────────────────────────────────────────────────────────────────────────
+
+async def handle_play(bot: "BaseBot", user: "User", args: list[str]) -> None:
+    """!play <song name or YouTube URL> — request a song for ChillTopia Radio.
+
+    • URL  → directly queues the song for SFTP upload.
+    • Text → searches YouTube and shows top 5; user picks with !pick <1-5>.
+    Aliases: !request !sr !song !req !ytrequest
+    """
+    if _sftp_missing_vars():
+        await _w(bot, user.id, "📻 YT Requests not configured (missing SFTP secrets).")
+        return
+
+    if len(args) < 2:
+        cd = _cooldown_secs()
+        await _w(
+            bot, user.id,
+            f"🎵 !play <song name or YouTube URL>\n"
+            f"Search: !play despacito\n"
+            f"Direct: !play youtu.be/...\n"
+            f"Cooldown: {cd}s"
+        )
+        return
+
+    query = " ".join(args[1:]).strip()[:120]
+    if not query:
+        await _w(bot, user.id, "🎵 Please include a song name or YouTube URL.")
+        return
+
+    # YouTube URL → skip search, go straight to upload
+    clean_url = query.split("&list=")[0]
+    if _is_youtube_url(clean_url):
+        await handle_ytrequest(bot, user, [args[0], clean_url])
+        return
+
+    # Text search → show top 5 results
+    await _w(bot, user.id, f"🔍 Searching: {query[:60]}…")
+
+    loop = asyncio.get_running_loop()
+    try:
+        results = await loop.run_in_executor(None, _yt_search_sync, query, 5)
+    except Exception as exc:
+        await _w(bot, user.id, f"❌ Search error: {str(exc)[:80]}")
+        return
+
+    if not results:
+        await _w(bot, user.id, "❌ No results found. Try a different search.")
+        return
+
+    with _yt_pending_lock:
+        _yt_pending[user.id] = results
+
+    max_min = _MAX_DURATION_SECS // 60
+    lines = ["🎵 Top results — reply !pick <1-5>:"]
+    for i, r in enumerate(results, 1):
+        flag = " ⚠️" if r["duration_secs"] > _MAX_DURATION_SECS else ""
+        lines.append(f"{i}. {r['title'][:44]} [{r['duration']}]{flag}")
+    lines.append(f"(Max {max_min}m per track)")
+    await _w(bot, user.id, "\n".join(lines)[:249])
+
+
+async def handle_now(bot: "BaseBot", user: "User", _args: list[str]) -> None:
+    """!now / !np / !nowplaying — show what's currently playing on ChillTopia Radio."""
+    loop = asyncio.get_running_loop()
+    np_data = await loop.run_in_executor(None, _azura_fetch_nowplaying)
+
+    if not np_data:
+        if _azura_api_cfg() is None:
+            await _w(bot, user.id, "📻 AzuraCast not configured.")
+        else:
+            await _w(bot, user.id, "📻 Radio is offline or unreachable right now.")
+        return
+
+    np_obj   = np_data.get("now_playing") or {}
+    song     = np_obj.get("song") or {}
+    raw_title  = (song.get("title") or "Unknown Track").strip()
+    raw_artist = (song.get("artist") or "").strip()
+    if raw_artist and raw_artist.lower() not in raw_title.lower():
+        display = f"{raw_artist} — {raw_title}"
+    else:
+        display = raw_title
+    display = display[:48]
+
+    elapsed  = int(np_obj.get("elapsed")  or 0)
+    duration = int(np_obj.get("duration") or 0)
+    song_id  = (song.get("id") or "").strip()
+
+    requester = _db_lookup_by_azura_song_id(song_id)
+    req_line  = f"👤 Requested by: @{requester[:20]}" if requester else "👤 AutoDJ"
+
+    elapsed_str  = _fmt_secs(elapsed)
+    duration_str = _fmt_secs(duration) if duration > 0 else "--:--"
+    bar          = _progress_bar(elapsed, duration)
+
+    msg = (
+        "🎧 ChillTopia Radio\n"
+        f"▶ Now Playing: {display}\n"
+        f"{req_line}\n"
+        f"⏱ {elapsed_str} / {duration_str}\n"
+        f"{bar}\n"
+        "📻 DJ_DUDU is live"
+    )
+    await _w(bot, user.id, msg[:249])
+
+
+async def handle_skip(bot: "BaseBot", user: "User", _args: list[str]) -> None:
+    """!skip — skip the current song on ChillTopia Radio (admin+)."""
+    if not is_admin(user.username):
+        await _w(bot, user.id, "🔒 Admin only.")
+        return
+
+    if _azura_api_cfg() is None:
+        await _w(bot, user.id, "📻 AzuraCast API not configured.")
+        return
+
+    await _w(bot, user.id, "⏭ Skipping…")
+    loop = asyncio.get_running_loop()
+    ok = await loop.run_in_executor(None, _azura_skip_song)
+    if ok:
+        await _w(bot, user.id, "✅ Song skipped.")
+    else:
+        await _w(bot, user.id, "❌ Skip failed — check AzuraCast API logs.")
+
 
 async def handle_ytrequest(bot: "BaseBot", user: "User", args: list[str]) -> None:
     """!ytrequest <youtube_url> — download and add to AzuraCast Requests playlist."""
