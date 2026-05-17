@@ -30,6 +30,7 @@ import asyncio
 import time
 from difflib import get_close_matches
 
+import config as _cfg
 import database as db
 from modules.permissions import can_manage_economy, is_owner
 
@@ -56,6 +57,43 @@ async def _w(bot, uid: str, msg: str) -> None:
         await bot.highrise.send_whisper(uid, str(msg)[:249])
     except Exception:
         pass
+
+
+async def _ff_broadcast_events(bot, dm_msg: str) -> None:
+    """
+    DM all events-subscribed users about a First Find event.
+    Only runs when this is the host / all bot (ChillTopiaBot).
+    Category: events — never games, promos, or announcements.
+    """
+    if _cfg.BOT_MODE not in ("host", "all"):
+        return
+    try:
+        rows = db.get_notify_users_for_broadcast("events")
+    except Exception as exc:
+        print(f"[FIRSTFIND] events broadcast DB error: {exc!r}")
+        return
+
+    sent = skipped = 0
+    for row in rows:
+        if not row.get("subscribed"):
+            skipped += 1
+            continue
+        if not row.get("events", 1):
+            skipped += 1
+            continue
+        conv_id = row.get("conversation_id", "")
+        if not conv_id:
+            skipped += 1
+            continue
+        try:
+            await bot.highrise.send_message(conv_id, dm_msg[:249], "text")
+            sent += 1
+        except Exception as exc:
+            print(f"[FIRSTFIND] events DM failed: {exc!r}")
+            skipped += 1
+        await asyncio.sleep(0.6)
+
+    print(f"[FIRSTFIND] events broadcast sent={sent} skipped={skipped}")
 
 
 def _strip_cmd(args: list[str]) -> list[str]:
@@ -207,10 +245,18 @@ async def startup_firstfind_announcer(bot) -> None:
             # Drain pending announcements
             rows = db.get_pending_firstfind_for_emcee(limit=3)
             for row in rows:
+                emcee_msg = row["emcee_msg"]
                 try:
-                    await bot.highrise.chat(row["emcee_msg"][:249])
+                    await bot.highrise.chat(emcee_msg[:249])
                 except Exception:
                     pass
+                # DM all events subscribers (category=events, not games)
+                asyncio.create_task(
+                    _ff_broadcast_events(
+                        bot,
+                        f"🎉 Event Alert\n{emcee_msg}"[:249],
+                    )
+                )
                 try:
                     db.mark_firstfind_emcee_done(row["id"])
                 except Exception:
@@ -234,6 +280,13 @@ async def startup_firstfind_announcer(bot) -> None:
                         await bot.highrise.chat(exp_msg[:249])
                     except Exception:
                         pass
+                    # DM events subscribers about race expiry
+                    asyncio.create_task(
+                        _ff_broadcast_events(
+                            bot,
+                            f"🎉 Event Alert\n{exp_msg}"[:249],
+                        )
+                    )
                     print(f"[RACE] Race {race['id']} expired — {winners}/{total} winners.")
 
         except Exception as exc:
