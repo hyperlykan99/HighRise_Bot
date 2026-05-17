@@ -207,16 +207,32 @@ def _download_step(url: str, tmpdir: str) -> tuple[dict, str]:
     raise FileNotFoundError("mp3 file not found after yt-dlp conversion")
 
 
+_SFTP_CONNECT_TIMEOUT  = 30   # seconds — TCP connect + SSH handshake + auth
+_SFTP_TRANSFER_TIMEOUT = 180  # seconds — per-channel socket timeout for file transfer
+
 def _sftp_step(mp3_path: str) -> None:
     """
     Upload mp3_path to AzuraCast via SFTP.
-    Raises on connection/upload failure.
+
+    Timeouts:
+      - TCP connect / SSH auth : _SFTP_CONNECT_TIMEOUT  (30 s)
+      - File transfer channel  : _SFTP_TRANSFER_TIMEOUT (180 s)
+
+    Progress is logged to stdout at every 25 % milestone and on completion.
+    Raises on any failure; caller is responsible for cleanup.
     """
     import paramiko  # installed at bot startup
 
-    cfg = _sftp_cfg()
+    cfg             = _sftp_cfg()
     remote_filename = os.path.basename(mp3_path)
-    remote_path = f"{cfg['folder'].rstrip('/')}/{remote_filename}"
+    remote_path     = f"{cfg['folder'].rstrip('/')}/{remote_filename}"
+    file_size       = os.path.getsize(mp3_path)
+
+    print(
+        f"[YT_SFTP] Connecting → {cfg['host']}:{cfg['port']}"
+        f" user={cfg['user']}"
+        f" file={remote_filename} ({file_size:,} bytes)"
+    )
 
     ssh = paramiko.SSHClient()
     ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
@@ -226,15 +242,50 @@ def _sftp_step(mp3_path: str) -> None:
             port=cfg["port"],
             username=cfg["user"],
             password=cfg["passwd"],
-            timeout=30,
+            timeout=_SFTP_CONNECT_TIMEOUT,
+            banner_timeout=_SFTP_CONNECT_TIMEOUT,
+            auth_timeout=_SFTP_CONNECT_TIMEOUT,
             look_for_keys=False,
             allow_agent=False,
         )
+        print(f"[YT_SFTP] Connected. Opening SFTP channel…")
+
         sftp = ssh.open_sftp()
+        # Extend the per-channel socket timeout so large files don't stall out
+        sftp.get_channel().settimeout(_SFTP_TRANSFER_TIMEOUT)
+
+        _milestone = [0]   # tracks last logged % milestone (closure)
+
+        def _progress(transferred: int, total: int) -> None:
+            if not total:
+                return
+            pct = int(transferred * 100 / total)
+            next_milestone = ((_milestone[0] // 25) + 1) * 25
+            if pct >= next_milestone <= 100:
+                _milestone[0] = next_milestone
+                print(
+                    f"[YT_SFTP] Upload {next_milestone}%"
+                    f" ({transferred:,} / {total:,} bytes)"
+                )
+
         try:
-            sftp.put(mp3_path, remote_path)
+            print(f"[YT_SFTP] Uploading → {remote_path} (timeout={_SFTP_TRANSFER_TIMEOUT}s)")
+            sftp.put(mp3_path, remote_path, callback=_progress)
+            print(f"[YT_SFTP] Upload complete ✓ → {remote_path} ({file_size:,} bytes)")
+        except Exception as upload_exc:
+            print(f"[YT_SFTP] Upload failed: {upload_exc}")
+            raise
         finally:
             sftp.close()
+    except paramiko.AuthenticationException as auth_exc:
+        print(f"[YT_SFTP] Auth failed — check AZURA_SFTP_USER / AZURA_SFTP_PASS: {auth_exc}")
+        raise
+    except (TimeoutError, paramiko.ssh_exception.NoValidConnectionsError) as conn_exc:
+        print(f"[YT_SFTP] Connection failed — check AZURA_SFTP_HOST / AZURA_SFTP_PORT: {conn_exc}")
+        raise
+    except Exception as exc:
+        print(f"[YT_SFTP] Unexpected error: {exc}")
+        raise
     finally:
         ssh.close()
 
@@ -266,12 +317,16 @@ async def _run_job(bot: "BaseBot", job: dict) -> None:
 
         # ── Step 2: SFTP upload ─────────────────────────────────────────────
         _update_job(jid, status="uploading")
-        await _w(bot, uid, f"📤 Uploading to AzuraCast…\n🎵 {title}")
+        await _w(bot, uid, f"📤 Uploading to AzuraCast… (up to {_SFTP_TRANSFER_TIMEOUT}s)\n🎵 {title}")
+        print(f"[YT_REQUEST] Job #{jid} — starting SFTP upload for: {title[:80]}")
 
+        upload_start = time.time()
         await loop.run_in_executor(None, _sftp_step, mp3_path)
+        upload_secs = time.time() - upload_start
 
         # ── Done ────────────────────────────────────────────────────────────
         _update_job(jid, status="done", finished_at=time.time())
+        print(f"[YT_REQUEST] Job #{jid} — done in {upload_secs:.1f}s upload: {title[:80]}")
         await _w(
             bot, uid,
             f"✅ Added to Requests playlist!\n🎵 {title}"
@@ -280,6 +335,7 @@ async def _run_job(bot: "BaseBot", job: dict) -> None:
     except Exception as exc:
         err = str(exc)[:120]
         _update_job(jid, status="error", error=err, finished_at=time.time())
+        print(f"[YT_REQUEST] Job #{jid} — FAILED: {exc}")
         await _w(bot, uid, f"❌ YT Request failed:\n{err}")
 
     finally:
