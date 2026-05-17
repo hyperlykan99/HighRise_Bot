@@ -2936,6 +2936,7 @@ async def handle_dj_testall(bot: "BaseBot", user: "User") -> None:
         "priorityrequest", "viprequest", "djban", "songban",
         "djcheck", "djhealth", "cancelrequest", "requeststatus", "djtestall",
         "radio", "setradio", "radiostatus", "webplayer", "setwebplayer",
+        "recent", "myrequests", "songinfo",
     ]
     bad_routes = [c for c in _KEY_CMDS if not _sth(c)]
     if bad_routes:
