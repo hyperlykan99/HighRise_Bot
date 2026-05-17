@@ -129,8 +129,16 @@ def _log_sftp_env() -> None:
             print(f"[YT_REQUEST] {var}: {status}  ← required, YT requests disabled")
     folder = (os.environ.get("AZURA_REQUESTS_FOLDER") or "").strip()
     print(f"[YT_REQUEST] AZURA_REQUESTS_FOLDER = {folder or '(default: Requests)'}")
+    # API post-upload step (optional)
+    base_url = (os.environ.get("AZURA_BASE_URL") or "").strip()
+    api_key  = (os.environ.get("AZURA_API_KEY") or "").strip()
+    sid      = (os.environ.get("AZURA_STATION_ID") or "1").strip()
+    if base_url and api_key:
+        print(f"[YT_REQUEST] Post-upload API: ENABLED → {base_url}  station={sid}")
+    else:
+        print("[YT_REQUEST] Post-upload API: DISABLED (AZURA_BASE_URL / AZURA_API_KEY not set)")
 
-# Log SFTP config readiness once at import (visible in workflow console)
+# Log SFTP + API config once at import (visible in workflow console)
 _log_sftp_env()
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -331,6 +339,138 @@ def _sftp_step(
         raise
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Optional AzuraCast API post-upload step
+# ─────────────────────────────────────────────────────────────────────────────
+
+_API_WAIT_SECS   = 7   # seconds to wait after SFTP before first rescan attempt
+_API_RETRY_COUNT = 3   # how many times to search for the file if not indexed yet
+_API_RETRY_DELAY = 5   # seconds between search retries
+
+def _azura_api_cfg() -> "dict | None":
+    """Return API config dict if AZURA_BASE_URL + AZURA_API_KEY are both set, else None."""
+    base_url = (os.environ.get("AZURA_BASE_URL") or "").rstrip("/").strip()
+    api_key  = (os.environ.get("AZURA_API_KEY") or "").strip()
+    if not base_url or not api_key:
+        return None
+    return {
+        "base_url":   base_url,
+        "api_key":    api_key,
+        "station_id": (os.environ.get("AZURA_STATION_ID") or "1").strip(),
+        "folder":     (os.environ.get("AZURA_REQUESTS_FOLDER") or "Requests").strip(),
+    }
+
+def _azura_post_upload(filename: str) -> None:
+    """
+    Blocking post-SFTP API step.  Called from the upload daemon thread AFTER
+    sftp.put() has returned and the success whisper has already been sent.
+
+    Steps
+    ─────
+    1. Wait _API_WAIT_SECS for AzuraCast to notice the new file.
+    2. POST /api/station/{id}/files/batch  {"do":"rescan"}  — tell AzuraCast
+       to index the Requests folder.
+    3. GET  /api/station/{id}/files?searchPhrase={filename}  — look for the
+       media record.  Retry up to _API_RETRY_COUNT times (_API_RETRY_DELAY s
+       apart) if the file isn't indexed yet.
+    4. POST /api/station/{id}/files/batch  {"do":"queue","files":[file_id]}
+       — add the confirmed file to the immediate playback queue.
+
+    All HTTP responses are logged in full.  Every error is non-fatal; this
+    function never raises.  Skipped silently when AZURA_BASE_URL / AZURA_API_KEY
+    are not set.
+    """
+    import requests as req_lib
+
+    cfg = _azura_api_cfg()
+    if cfg is None:
+        print("[YT_API] AZURA_BASE_URL / AZURA_API_KEY not configured — skipping post-upload step")
+        return
+
+    base      = cfg["base_url"]
+    sid       = cfg["station_id"]
+    folder    = cfg["folder"]
+    headers   = {
+        "X-API-Key":    cfg["api_key"],
+        "Content-Type": "application/json",
+        "Accept":       "application/json",
+    }
+    batch_url  = f"{base}/api/station/{sid}/files/batch"
+    search_url = f"{base}/api/station/{sid}/files"
+
+    try:
+        # ── 1. Wait ──────────────────────────────────────────────────────────
+        print(f"[YT_API] Waiting {_API_WAIT_SECS}s for AzuraCast to notice new file…")
+        time.sleep(_API_WAIT_SECS)
+
+        # ── 2. Rescan ────────────────────────────────────────────────────────
+        try:
+            resp = req_lib.post(
+                batch_url,
+                json={"do": "rescan", "currentDirectory": folder},
+                headers=headers,
+                timeout=30,
+            )
+            print(f"[YT_API] Rescan → HTTP {resp.status_code}: {resp.text[:300]}")
+        except Exception as exc:
+            print(f"[YT_API] Rescan request error (non-fatal): {exc}")
+
+        # ── 3. Search + retry ────────────────────────────────────────────────
+        file_id: "int | None" = None
+        for attempt in range(1, _API_RETRY_COUNT + 1):
+            try:
+                resp = req_lib.get(
+                    search_url,
+                    params={"searchPhrase": filename},
+                    headers=headers,
+                    timeout=15,
+                )
+                print(
+                    f"[YT_API] Search {attempt}/{_API_RETRY_COUNT}"
+                    f" → HTTP {resp.status_code}: {resp.text[:400]}"
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    rows = data if isinstance(data, list) else data.get("rows", [])
+                    for row in rows:
+                        if os.path.basename(row.get("path", "")) == filename:
+                            file_id = row.get("id")
+                            print(
+                                f"[YT_API] File found in media library"
+                                f" — id={file_id}  path={row.get('path')}"
+                            )
+                            break
+            except Exception as exc:
+                print(f"[YT_API] Search attempt {attempt} error: {exc}")
+
+            if file_id is not None:
+                break
+            if attempt < _API_RETRY_COUNT:
+                print(f"[YT_API] Not indexed yet — waiting {_API_RETRY_DELAY}s before retry…")
+                time.sleep(_API_RETRY_DELAY)
+
+        if file_id is None:
+            print(
+                f"[YT_API] '{filename}' not found after {_API_RETRY_COUNT} attempts"
+                f" — skipping queue step"
+            )
+            return
+
+        # ── 4. Queue ─────────────────────────────────────────────────────────
+        try:
+            resp = req_lib.post(
+                batch_url,
+                json={"do": "queue", "files": [file_id]},
+                headers=headers,
+                timeout=15,
+            )
+            print(f"[YT_API] Queue → HTTP {resp.status_code}: {resp.text[:300]}")
+        except Exception as exc:
+            print(f"[YT_API] Queue request error (non-fatal): {exc}")
+
+    except Exception as exc:
+        print(f"[YT_API] Unexpected error in post-upload step (non-fatal): {exc}")
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Async pipeline orchestrator
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -376,7 +516,11 @@ async def _run_job(bot: "BaseBot", job: dict) -> None:
         def _upload_thread() -> None:
             try:
                 _sftp_step(mp3_path, _on_put_done)
+                # on_put_done() already fired → success whispered to user.
+                # Now run API post-processing in this same background thread.
+                _azura_post_upload(os.path.basename(mp3_path))
             except Exception as exc:
+                # Only reached if _sftp_step raised BEFORE on_put_done() was called.
                 upload_exc[0] = exc
                 loop.call_soon_threadsafe(upload_done.set)
 
@@ -545,12 +689,15 @@ async def handle_ytstatus(bot: "BaseBot", user: "User", _args: list[str]) -> Non
         errors = sum(1 for j in _jobs.values() if j["status"] == "error")
 
     sftp_ok   = "✅" if ready else "❌ missing vars"
-    host_disp = cfg["host"][:40] if cfg["host"] else "(not set)"
+    host_disp = cfg["host"][:30] if cfg["host"] else "(not set)"
+    api_cfg   = _azura_api_cfg()
+    api_disp  = "✅ " + (api_cfg["base_url"][:25] if api_cfg else "") if api_cfg else "⬜ disabled"
 
     await _w(
         bot, user.id,
         (f"📻 YT Request System:\n"
          f"SFTP: {sftp_ok} | {host_disp}:{cfg['port']}\n"
-         f"Folder: {cfg['folder']} | Cooldown: {cd}s\n"
-         f"Active: {active} | Done: {done} | Errors: {errors} | Total: {total}")[:249],
+         f"API: {api_disp}\n"
+         f"Folder: {cfg['folder']} | CD: {cd}s\n"
+         f"Active: {active} | Done: {done} | Err: {errors} | Total: {total}")[:249],
     )
