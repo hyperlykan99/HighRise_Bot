@@ -1560,9 +1560,9 @@ async def handle_dj_favorites(bot: "BaseBot", user: "User") -> None:
 async def handle_dj_repeat(
     bot: "BaseBot", user: "User", args: list[str],
 ) -> None:
-    """!repeat on|off  —  loop the current song when it ends (manager+)."""
-    if not can_manage_games(user.username):
-        await _w(bot, user.id, "🔒 Manager only.")
+    """!repeat on|off  —  loop the current song when it ends (admin+)."""
+    if not is_admin(user.username):
+        await _w(bot, user.id, "🔒 Admin only.")
         return
     if len(args) < 2 or args[1].lower() not in ("on", "off"):
         cur = "ON" if _dj_repeat() else "OFF"
@@ -1578,9 +1578,9 @@ async def handle_dj_repeat(
 
 
 async def handle_dj_shuffle(bot: "BaseBot", user: "User") -> None:
-    """!shuffle  —  randomise the pending queue order (manager+)."""
-    if not can_manage_games(user.username):
-        await _w(bot, user.id, "🔒 Manager only.")
+    """!shuffle  —  randomise the pending queue order (admin+)."""
+    if not is_admin(user.username):
+        await _w(bot, user.id, "🔒 Admin only.")
         return
     try:
         conn = db.get_connection()
