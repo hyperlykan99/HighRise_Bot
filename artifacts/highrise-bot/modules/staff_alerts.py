@@ -31,6 +31,9 @@ _CATEGORIES: tuple[str, ...] = (
     "security", "reports", "economy", "casino", "bothealth", "events", "qa",
 )
 
+# Categories that are permanently disabled — no DMs, no toggles, no tests.
+_DISABLED_CATEGORIES: frozenset[str] = frozenset({"casino"})
+
 _LABEL: dict[str, str] = {
     "security":  "Security",
     "reports":   "Reports",
@@ -41,12 +44,11 @@ _LABEL: dict[str, str] = {
     "qa":        "QA",
 }
 
-# Default ON categories per role (used when user has no row in staff_alert_users)
+# Default ON categories per role (used when user has no row in staff_alert_users).
+# Casino is excluded from all roles — it is disabled globally.
 _ROLE_DEFAULTS: dict[str, frozenset[str]] = {
-    "owner": frozenset(_CATEGORIES),
-    "admin": frozenset(
-        ("security", "reports", "economy", "casino", "bothealth", "events")
-    ),
+    "owner": frozenset(("security", "reports", "economy", "bothealth", "events", "qa")),
+    "admin": frozenset(("security", "reports", "economy", "bothealth", "events")),
     "mod":   frozenset(("security", "reports", "events")),
     "staff": frozenset(("reports", "events")),
 }
@@ -295,7 +297,7 @@ async def send_staff_alert(
         queue_staff_alert(category, message)
         return 0
 
-    if category not in _CATEGORIES:
+    if category not in _CATEGORIES or category in _DISABLED_CATEGORIES:
         return 0
 
     recipients = _eligible_recipients(category)
@@ -333,7 +335,7 @@ async def _send_staff_alert_verbose(
         return {"sent": 0, "skipped_no_dm": 0, "skipped_off": 0,
                 "skipped_cat": 0, "failed": 0, "queued": True}
 
-    if category not in _CATEGORIES:
+    if category not in _CATEGORIES or category in _DISABLED_CATEGORIES:
         return {"sent": 0, "skipped_no_dm": 0, "skipped_off": 0,
                 "skipped_cat": 0, "failed": 0}
 
@@ -374,6 +376,8 @@ def queue_staff_alert(category: str, message: str) -> None:
     per recipient. Host bot processes via process_host_dm_queue().
     """
     if category not in _CATEGORIES:
+        return
+    if category in _DISABLED_CATEGORIES:
         return
 
     try:
@@ -482,8 +486,11 @@ async def handle_staffalerts(
         f"Status: {status}",
     ]
     for c in _CATEGORIES:
-        flag = "ON" if prefs.get(c, 0) else "OFF"
-        lines.append(f"{_LABEL[c]}: {flag}")
+        if c in _DISABLED_CATEGORIES:
+            lines.append(f"{_LABEL[c]}: OFF (disabled)")
+        else:
+            flag = "ON" if prefs.get(c, 0) else "OFF"
+            lines.append(f"{_LABEL[c]}: {flag}")
     lines.append(f"DM: {dm_status}")
 
     # Two whispers to stay ≤249 chars each
@@ -511,6 +518,9 @@ async def handle_staffalert_test(
 
     if sub1 in _CATEGORIES and sub2 == "test":
         category = sub1
+        if category in _DISABLED_CATEGORIES:
+            await _w(bot, user.id, f"⚠️ {_LABEL[category]} alerts are disabled.")
+            return
         if category == "reports":
             msg = "📣 Staff Report Alert Test\nReports category is working."
         else:
