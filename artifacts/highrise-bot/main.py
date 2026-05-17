@@ -438,6 +438,9 @@ from modules.dj_music import (
     handle_dj_tipdj, handle_dj_leaderboard,
     handle_dj_priorityqueue, handle_dj_moveup, handle_dj_bump,
     handle_dj_dedicate, handle_dj_shoutout,
+    handle_dj_djban, handle_dj_djunban, handle_dj_djbanlist,
+    handle_dj_songban, handle_dj_songunban, handle_dj_songbanlist,
+    handle_dj_djreport, handle_dj_djreports,
     handle_dj_help,
 )
 from modules.dm_queue import startup_host_dm_queue_loop
@@ -7228,6 +7231,22 @@ class HangoutBot(BaseBot):
             await handle_dj_dedicate(self, user, args)
         elif cmd == "shoutout":
             await handle_dj_shoutout(self, user, args)
+        elif cmd == "djban":
+            await handle_dj_djban(self, user, args)
+        elif cmd == "djunban":
+            await handle_dj_djunban(self, user, args)
+        elif cmd == "djbanlist":
+            await handle_dj_djbanlist(self, user)
+        elif cmd == "songban":
+            await handle_dj_songban(self, user, args)
+        elif cmd == "songunban":
+            await handle_dj_songunban(self, user, args)
+        elif cmd == "songbanlist":
+            await handle_dj_songbanlist(self, user)
+        elif cmd == "djreport":
+            await handle_dj_djreport(self, user, args)
+        elif cmd == "djreports":
+            await handle_dj_djreports(self, user)
         elif cmd == "djhelp":
             await handle_dj_help(self, user)
 

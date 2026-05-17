@@ -512,6 +512,14 @@ REGISTRY: dict[str, Cmd] = {
     "bump":             Cmd("dj","music",  False,False, False, perm="admin"),
     "dedicate":         Cmd("dj","music",  True, False, False),
     "shoutout":         Cmd("dj","music",  False,False, False, perm="manager"),
+    "djban":            Cmd("dj","music",  False,False, False, perm="admin"),
+    "djunban":          Cmd("dj","music",  False,False, False, perm="admin"),
+    "djbanlist":        Cmd("dj","music",  False,True,  False, perm="admin"),
+    "songban":          Cmd("dj","music",  False,False, False, perm="admin"),
+    "songunban":        Cmd("dj","music",  False,False, False, perm="admin"),
+    "songbanlist":      Cmd("dj","music",  False,True,  False, perm="admin"),
+    "djreport":         Cmd("dj","music",  True, False, False),
+    "djreports":        Cmd("dj","music",  False,False, False, perm="admin"),
     "djhelp":           Cmd("dj","music",  True, True,  False),
 
     # ── EventHost: new event / autogame commands ─────────────────────────────

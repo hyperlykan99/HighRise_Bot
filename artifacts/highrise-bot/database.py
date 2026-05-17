@@ -3180,6 +3180,47 @@ def _migrate_db():
     except Exception:
         pass
 
+    # 3.2S — DJ bans: users blocked from requesting songs
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS dj_bans (
+                username   TEXT PRIMARY KEY,
+                user_id    TEXT NOT NULL DEFAULT '',
+                banned_by  TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+        """)
+    except Exception:
+        pass
+
+    # 3.2T — DJ song bans: keyword blacklist for song titles
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS dj_song_bans (
+                keyword    TEXT PRIMARY KEY,
+                banned_by  TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+        """)
+    except Exception:
+        pass
+
+    # 3.2U — DJ reports: user-submitted song/request reports
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS dj_reports (
+                id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                song_title          TEXT NOT NULL DEFAULT '',
+                requester_username  TEXT NOT NULL DEFAULT '',
+                reporter_id         TEXT NOT NULL DEFAULT '',
+                reporter_username   TEXT NOT NULL DEFAULT '',
+                reason              TEXT NOT NULL DEFAULT '',
+                created_at          TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+        """)
+    except Exception:
+        pass
+
     conn.commit()
     conn.close()
 

@@ -1038,6 +1038,171 @@ def _set_dedication(
 
 
 # ---------------------------------------------------------------------------
+# DJ moderation helpers  (bans · keyword blocks · reports)
+# ---------------------------------------------------------------------------
+
+def _is_dj_banned(user_id: str, username: str = "") -> bool:
+    """Return True if the user is on the DJ request ban list (by username or user_id)."""
+    try:
+        conn = db.get_connection()
+        row  = conn.execute(
+            "SELECT 1 FROM dj_bans "
+            "WHERE username=lower(?) OR (user_id=? AND user_id != '') LIMIT 1",
+            (username, user_id),
+        ).fetchone()
+        conn.close()
+        return row is not None
+    except Exception:
+        return False
+
+
+def _dj_ban_user(username: str, by_username: str) -> None:
+    """Ban a user from DJ requests by username."""
+    try:
+        conn = db.get_connection()
+        conn.execute(
+            "INSERT OR REPLACE INTO dj_bans (username, user_id, banned_by, created_at) "
+            "VALUES (lower(?), '', lower(?), datetime('now'))",
+            (username, by_username),
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+
+def _dj_unban_user(username: str) -> bool:
+    """Remove ban by username. Returns True if a row was deleted."""
+    try:
+        conn = db.get_connection()
+        cur  = conn.execute("DELETE FROM dj_bans WHERE username=lower(?)", (username,))
+        changed = cur.rowcount > 0
+        conn.commit()
+        conn.close()
+        return changed
+    except Exception:
+        return False
+
+
+def _get_dj_banlist() -> list[dict]:
+    try:
+        conn = db.get_connection()
+        rows = conn.execute(
+            "SELECT username, banned_by, created_at FROM dj_bans ORDER BY created_at DESC LIMIT 20"
+        ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+    except Exception:
+        return []
+
+
+def _is_keyword_banned(title: str) -> str | None:
+    """Return the first matching banned keyword found in title, or None."""
+    try:
+        conn = db.get_connection()
+        rows = conn.execute("SELECT keyword FROM dj_song_bans").fetchall()
+        conn.close()
+        title_lower = title.lower()
+        for row in rows:
+            if row["keyword"] in title_lower:
+                return row["keyword"]
+        return None
+    except Exception:
+        return None
+
+
+def _ban_keyword(keyword: str, by_username: str) -> None:
+    try:
+        conn = db.get_connection()
+        conn.execute(
+            "INSERT OR IGNORE INTO dj_song_bans (keyword, banned_by, created_at) "
+            "VALUES (lower(?), lower(?), datetime('now'))",
+            (keyword, by_username),
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+
+def _unban_keyword(keyword: str) -> bool:
+    try:
+        conn = db.get_connection()
+        cur  = conn.execute("DELETE FROM dj_song_bans WHERE keyword=lower(?)", (keyword,))
+        changed = cur.rowcount > 0
+        conn.commit()
+        conn.close()
+        return changed
+    except Exception:
+        return False
+
+
+def _get_songban_list() -> list[dict]:
+    try:
+        conn = db.get_connection()
+        rows = conn.execute(
+            "SELECT keyword, banned_by, created_at FROM dj_song_bans "
+            "ORDER BY created_at DESC LIMIT 20"
+        ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+    except Exception:
+        return []
+
+
+def _add_dj_report(
+    queue_pos: int,
+    reporter_id: str,
+    reporter_username: str,
+    reason: str,
+) -> str:
+    """
+    Report the song at queue_pos (0 = now playing, 1-N = pending queue).
+    Returns the song title on success; 'nopos' / 'error' on failure.
+    """
+    try:
+        conn = db.get_connection()
+        if queue_pos == 0:
+            row = conn.execute(
+                "SELECT id, username, title FROM dj_requests WHERE status='playing' LIMIT 1"
+            ).fetchone()
+        else:
+            rows = conn.execute(
+                "SELECT id, username, title FROM dj_requests WHERE status='pending' "
+                "ORDER BY priority DESC, requested_at ASC"
+            ).fetchall()
+            row = rows[queue_pos - 1] if rows and 1 <= queue_pos <= len(rows) else None
+        if row is None:
+            conn.close()
+            return "nopos"
+        conn.execute(
+            """INSERT INTO dj_reports
+               (song_title, requester_username, reporter_id, reporter_username, reason, created_at)
+               VALUES (?, ?, ?, lower(?), ?, datetime('now'))""",
+            (row["title"], row["username"], reporter_id, reporter_username, reason[:200]),
+        )
+        conn.commit()
+        conn.close()
+        return row["title"][:40]
+    except Exception:
+        return "error"
+
+
+def _get_dj_reports(limit: int = 10) -> list[dict]:
+    try:
+        conn = db.get_connection()
+        rows = conn.execute(
+            """SELECT song_title, requester_username, reporter_username, reason, created_at
+               FROM dj_reports ORDER BY created_at DESC LIMIT ?""",
+            (limit,),
+        ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+    except Exception:
+        return []
+
+
+# ---------------------------------------------------------------------------
 # Central playback advance  (timer · repeat · autoplay · announce · personality)
 # ---------------------------------------------------------------------------
 
@@ -1157,6 +1322,11 @@ async def handle_dj_request(
         await _w(bot, user.id, "🎵 Please include a song title.")
         return
 
+    # DJ ban check — admins bypass
+    if not is_admin(user.username) and _is_dj_banned(user.id, user.username):
+        await _w(bot, user.id, "🚫 You are banned from DJ requests.")
+        return
+
     # Queue lock — admins bypass
     if _dj_locked() and not is_admin(user.username):
         await _w(bot, user.id,
@@ -1245,6 +1415,14 @@ async def handle_dj_pick(
         return
 
     pick = results[choice - 1]
+
+    # Keyword ban check — admins bypass
+    if not is_admin(user.username):
+        kw = _is_keyword_banned(pick["title"])
+        if kw:
+            await _w(bot, user.id,
+                     "🚫 That song is blocked. Pick another result or !request a different song.")
+            return
 
     # Duplicate guard
     dupe = _is_duplicate(pick["url"], pick["title"])
@@ -1890,6 +2068,11 @@ async def handle_dj_priorityrequest(
     if not _IS_DJ_BOT:
         return
 
+    # DJ ban check — admins bypass
+    if not is_admin(user.username) and _is_dj_banned(user.id, user.username):
+        await _w(bot, user.id, "🚫 You are banned from DJ requests.")
+        return
+
     price = _dj_priority_price()
     if len(args) < 2:
         await _w(bot, user.id,
@@ -1952,6 +2135,11 @@ async def handle_dj_viprequest(
 ) -> None:
     """!viprequest <song>  —  VIP subscriber priority request (free)."""
     if not _IS_DJ_BOT:
+        return
+
+    # DJ ban check — admins bypass
+    if not is_admin(user.username) and _is_dj_banned(user.id, user.username):
+        await _w(bot, user.id, "🚫 You are banned from DJ requests.")
         return
 
     if not _dj_is_vip(user.id):
@@ -2045,6 +2233,141 @@ async def handle_dj_leaderboard(bot: "BaseBot", user: "User") -> None:
         f"🎵 Requests: {_fmt_cnt(lb['requesters'])}",
         f"⭐ VIP: {_fmt_cnt(lb['vip_requesters'])}",
     ]
+    await _w(bot, user.id, "\n".join(lines)[:249])
+
+
+async def handle_dj_djban(
+    bot: "BaseBot", user: "User", args: list[str],
+) -> None:
+    """!djban <user>  —  block user from making song requests (admin)."""
+    if not is_admin(user.username):
+        await _w(bot, user.id, "🔒 Admin only.")
+        return
+    if len(args) < 2:
+        await _w(bot, user.id, "Usage: !djban <username>")
+        return
+    target = args[1].lstrip("@")[:40]
+    _dj_ban_user(target, user.username)
+    await _w(bot, user.id, f"🚫 @{target} banned from DJ requests.")
+
+
+async def handle_dj_djunban(
+    bot: "BaseBot", user: "User", args: list[str],
+) -> None:
+    """!djunban <user>  —  unblock user from making song requests (admin)."""
+    if not is_admin(user.username):
+        await _w(bot, user.id, "🔒 Admin only.")
+        return
+    if len(args) < 2:
+        await _w(bot, user.id, "Usage: !djunban <username>")
+        return
+    target  = args[1].lstrip("@")[:40]
+    removed = _dj_unban_user(target)
+    if removed:
+        await _w(bot, user.id, f"✅ @{target} removed from DJ ban list.")
+    else:
+        await _w(bot, user.id, f"🎵 @{target} was not on the ban list.")
+
+
+async def handle_dj_djbanlist(bot: "BaseBot", user: "User") -> None:
+    """!djbanlist  —  show banned users (admin)."""
+    if not is_admin(user.username):
+        await _w(bot, user.id, "🔒 Admin only.")
+        return
+    bans = _get_dj_banlist()
+    if not bans:
+        await _w(bot, user.id, "🚫 DJ ban list is empty.")
+        return
+    lines = ["🚫 DJ Ban List:"]
+    for r in bans[:10]:
+        lines.append(f"@{r['username']} (by @{r['banned_by']})")
+    await _w(bot, user.id, "\n".join(lines)[:249])
+
+
+async def handle_dj_songban(
+    bot: "BaseBot", user: "User", args: list[str],
+) -> None:
+    """!songban <keyword>  —  block songs containing keyword (admin)."""
+    if not is_admin(user.username):
+        await _w(bot, user.id, "🔒 Admin only.")
+        return
+    if len(args) < 2:
+        await _w(bot, user.id, "Usage: !songban <keyword>")
+        return
+    keyword = " ".join(args[1:]).strip()[:60]
+    _ban_keyword(keyword, user.username)
+    await _w(bot, user.id, f"🚫 Songs containing '{keyword}' are now blocked.")
+
+
+async def handle_dj_songunban(
+    bot: "BaseBot", user: "User", args: list[str],
+) -> None:
+    """!songunban <keyword>  —  unblock song keyword (admin)."""
+    if not is_admin(user.username):
+        await _w(bot, user.id, "🔒 Admin only.")
+        return
+    if len(args) < 2:
+        await _w(bot, user.id, "Usage: !songunban <keyword>")
+        return
+    keyword = " ".join(args[1:]).strip()[:60]
+    removed = _unban_keyword(keyword)
+    if removed:
+        await _w(bot, user.id, f"✅ Keyword '{keyword}' removed from block list.")
+    else:
+        await _w(bot, user.id, f"🎵 Keyword '{keyword}' was not on the block list.")
+
+
+async def handle_dj_songbanlist(bot: "BaseBot", user: "User") -> None:
+    """!songbanlist  —  show blocked song keywords (admin)."""
+    if not is_admin(user.username):
+        await _w(bot, user.id, "🔒 Admin only.")
+        return
+    bans = _get_songban_list()
+    if not bans:
+        await _w(bot, user.id, "🚫 Song keyword block list is empty.")
+        return
+    lines = ["🚫 Blocked Keywords:"]
+    for r in bans[:10]:
+        lines.append(f"'{r['keyword']}' (by @{r['banned_by']})")
+    await _w(bot, user.id, "\n".join(lines)[:249])
+
+
+async def handle_dj_djreport(
+    bot: "BaseBot", user: "User", args: list[str],
+) -> None:
+    """!djreport <#> <reason>  —  report a bad song (0=now playing, 1-N=queue)."""
+    if len(args) < 3 or not args[1].isdigit():
+        await _w(bot, user.id,
+                 "🚩 Usage: !djreport <#> <reason>\n"
+                 "Use 0 for now-playing, or #1-N from !queue.")
+        return
+    pos    = int(args[1])
+    reason = " ".join(args[2:]).strip()[:200]
+    result = _add_dj_report(pos, user.id, user.username, reason)
+    if result == "nopos":
+        await _w(bot, user.id, f"🚩 No song at #{pos}. Use !queue to see positions.")
+    elif result == "error":
+        await _w(bot, user.id, "⚠️ Could not submit report. Try again.")
+    else:
+        await _w(bot, user.id, f"🚩 Report submitted for: {result}\nAdmins will review it.")
+
+
+async def handle_dj_djreports(bot: "BaseBot", user: "User") -> None:
+    """!djreports  —  show recent song reports (admin)."""
+    if not is_admin(user.username):
+        await _w(bot, user.id, "🔒 Admin only.")
+        return
+    reports = _get_dj_reports(limit=8)
+    if not reports:
+        await _w(bot, user.id, "🚩 No reports yet.")
+        return
+    lines = ["🚩 Recent Reports:"]
+    for r in reports:
+        dt    = r["created_at"][:10]
+        lines.append(
+            f"{dt} @{r['reporter_username']}: {r['song_title'][:25]}"
+            f" — {r['reason'][:40]}"
+        )
     await _w(bot, user.id, "\n".join(lines)[:249])
 
 
@@ -2166,6 +2489,6 @@ async def handle_dj_help(bot: "BaseBot", user: "User") -> None:
         "!np | !upnext | !queue | !priorityqueue\n"
         "💰 !djprice | !priorityrequest | !tipdj\n"
         "⭐ !viprequest (VIP) | !djleaderboard\n"
-        "💌 !dedicate <#> <msg> | !shoutout (mgr)\n"
-        "Admin: !moveup <#> | !bump <#> | !setdjprice"
+        "💌 !dedicate <#> <msg> | !djreport <#> <why>\n"
+        "Admin: !djban | !songban | !moveup <#> | !bump <#>"
     )

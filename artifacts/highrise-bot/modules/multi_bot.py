@@ -646,6 +646,9 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "bump": "dj",
     "dedicate": "dj",
     "shoutout": "dj",
+    "djban": "dj", "djunban": "dj", "djbanlist": "dj",
+    "songban": "dj", "songunban": "dj", "songbanlist": "dj",
+    "djreport": "dj", "djreports": "dj",
     "djhelp": "dj",
     # eventhost — events / autogames (new)
     "adminsblessing": "eventhost", "adminblessing": "eventhost",
