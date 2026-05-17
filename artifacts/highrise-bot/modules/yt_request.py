@@ -1,38 +1,38 @@
 """
 modules/yt_request.py
 ---------------------
-!ytrequest <youtube_url>
-    Download YouTube audio, convert to mp3 via ffmpeg, and upload via SFTP
-    to the AzuraCast Requests folder so AzuraCast adds it to the playlist.
-
-    No audio is streamed or re-broadcast by the bot itself.
-    AzuraCast's own playback engine serves the file to listeners.
-
-!ytqueue   (admin+) — show active/pending jobs and recent results
-!ytstatus  (admin+) — show SFTP config readiness and session stats
+!ytrequest <url>  — download YouTube audio → SFTP → AzuraCast Requests playlist
+!ytnow            — show the latest successfully requested song (public)
+!ytqueue          — show pending/recent jobs from DB (admin+)
+!ytstatus         — SFTP + API config readiness and session stats (admin+)
+!ytcooldown       — show cooldown / length-limit settings (admin+)
+!setytcooldown <s>— set per-user cooldown in seconds (admin+)
 
 BOT_MODE = dj only.  DJ_DUDU is the sole owner of these commands.
 
-Per-user cooldown: configurable via room_setting yt_request_cooldown
-                   (default 300 s).  Set with !djset ytcooldown <secs>.
-                   Minimum enforced: 30 s.
-
-Required env vars:
-    AZURA_SFTP_HOST            hostname or IP of AzuraCast SFTP
-    AZURA_SFTP_USER            SFTP username
-    AZURA_SFTP_PASS            SFTP password
-
-Optional env vars:
-    AZURA_SFTP_PORT            SFTP port (default: 22)
-    AZURA_REQUESTS_FOLDER      remote subfolder (default: Requests)
+Validation per request:
+    • Must be a single YouTube video URL (no playlists)
+    • Livestreams are rejected
+    • Videos longer than _MAX_DURATION_SECS (10 min) are rejected
+    • Same URL blocked for _DEDUP_WINDOW_SECS (24 h) after a successful upload
+    • Per-user cooldown: owner=0 s, admin=30 s, user=configurable (default 300 s)
 
 Pipeline per request:
-    1. Validate YouTube URL
-    2. Check per-user cooldown
-    3. yt-dlp download + ffmpeg mp3 conversion  (temp dir, deleted after)
-    4. paramiko SFTP put → AZURA_REQUESTS_FOLDER/<id>.mp3
-    5. Status whispers at each step; error whisper on failure
-    6. Temp files cleaned up whether or not the upload succeeds
+    1. Pre-flight: fetch metadata via yt-dlp (no download) → validate
+    2. Download best-audio + ffmpeg → mp3 in tmpdir
+    3. paramiko SFTP put → Requests/<id>.mp3
+    4. Room chat announcement: 🎵 Added to radio: <title> — requested by @<user>
+    5. AzuraCast API: rescan → search → playlist-add → request-queue
+    6. All jobs logged to yt_request_jobs DB table (persistent history)
+    7. Temp files cleaned up whether or not the upload succeeds
+
+Required env vars:
+    AZURA_SFTP_HOST   AZURA_SFTP_USER   AZURA_SFTP_PASS
+
+Optional env vars:
+    AZURA_SFTP_PORT (default 22)   AZURA_SFTP_PATH (default "Requests")
+    AZURA_BASE_URL   AZURA_API_KEY   AZURA_STATION_ID (default "1")
+    AZURA_MEDIA_DIR  AZURA_PLAYLIST_ID
 """
 from __future__ import annotations
 
@@ -40,6 +40,7 @@ import asyncio
 import os
 import re
 import shutil
+import sqlite3
 import tempfile
 import threading
 import time
@@ -81,8 +82,10 @@ def _is_youtube_url(url: str) -> bool:
 # Config helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
-_DEFAULT_COOLDOWN = 300   # seconds
-_MAX_ACTIVE_JOBS  = 5     # refuse new jobs when full
+_DEFAULT_COOLDOWN  = 300   # seconds
+_MAX_ACTIVE_JOBS   = 5     # refuse new jobs when full
+_MAX_DURATION_SECS = 600   # 10 minutes — reject longer videos
+_DEDUP_WINDOW_SECS = 86400 # 24 hours  — block re-requests of same URL
 
 def _cooldown_secs() -> int:
     try:
@@ -165,6 +168,7 @@ def _new_job(user_id: str, username: str, url: str) -> dict:
         _next_job_id += 1
         job: dict = {
             "id":          jid,
+            "db_id":       0,      # filled after DB insert below
             "user_id":     user_id,
             "username":    username,
             "url":         url,
@@ -175,12 +179,116 @@ def _new_job(user_id: str, username: str, url: str) -> dict:
             "finished_at": None,
         }
         _jobs[jid] = job
-    return job
+    # Persist outside the lock (non-fatal if DB is unavailable)
+    db_id = _db_insert_job(job)
+    with _jobs_lock:
+        _jobs[jid]["db_id"] = db_id
+    return _jobs[jid]
 
 def _update_job(jid: int, **kwargs: object) -> None:
+    db_id = 0
     with _jobs_lock:
         if jid in _jobs:
             _jobs[jid].update(kwargs)
+            db_id = _jobs[jid].get("db_id", 0)
+    if db_id:
+        _db_update_job(db_id, **kwargs)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# DB persistence helpers  (non-fatal — errors are logged and swallowed)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _db_insert_job(job: dict) -> int:
+    """Insert a pending job into yt_request_jobs. Returns new DB row id (0 on error)."""
+    try:
+        with sqlite3.connect(db.SHARED_DB_PATH) as conn:
+            cur = conn.execute(
+                """INSERT INTO yt_request_jobs
+                       (user_id, username, url, title, status, started_at)
+                   VALUES (?, ?, ?, ?, ?, datetime('now'))""",
+                (job["user_id"], job["username"], job["url"],
+                 job["title"], job["status"]),
+            )
+            conn.commit()
+            return cur.lastrowid or 0
+    except Exception as exc:
+        print(f"[YT_REQUEST] DB insert error (non-fatal): {exc}")
+        return 0
+
+
+def _db_update_job(db_id: int, **kwargs: object) -> None:
+    """Update a yt_request_jobs row by DB id (non-fatal on error)."""
+    if not db_id:
+        return
+    allowed = {"title", "status", "error", "finished_at"}
+    fields  = {k: v for k, v in kwargs.items() if k in allowed}
+    if not fields:
+        return
+    # Convert epoch float to ISO string for finished_at
+    if "finished_at" in fields and isinstance(fields["finished_at"], float):
+        import datetime as _dt
+        fields["finished_at"] = _dt.datetime.utcfromtimestamp(
+            fields["finished_at"]
+        ).strftime("%Y-%m-%dT%H:%M:%S")
+    set_clause = ", ".join(f"{k} = ?" for k in fields)
+    values     = list(fields.values()) + [db_id]
+    try:
+        with sqlite3.connect(db.SHARED_DB_PATH) as conn:
+            conn.execute(
+                f"UPDATE yt_request_jobs SET {set_clause} WHERE id = ?",
+                values,
+            )
+            conn.commit()
+    except Exception as exc:
+        print(f"[YT_REQUEST] DB update error (non-fatal): {exc}")
+
+
+def _db_check_dedup(url: str, window_secs: int) -> "dict | None":
+    """Return the most recent done job for this URL within window_secs, or None."""
+    try:
+        with sqlite3.connect(db.SHARED_DB_PATH) as conn:
+            row = conn.execute(
+                """SELECT title, username, finished_at
+                     FROM yt_request_jobs
+                    WHERE url     = ?
+                      AND status  = 'done'
+                      AND finished_at IS NOT NULL
+                      AND finished_at >= datetime('now', ? || ' seconds')
+                    ORDER BY finished_at DESC
+                    LIMIT 1""",
+                (url, f"-{window_secs}"),
+            ).fetchone()
+        if row:
+            return {"title": row[0], "username": row[1], "finished_at": row[2]}
+    except Exception as exc:
+        print(f"[YT_REQUEST] DB dedup check error (non-fatal): {exc}")
+    return None
+
+
+def _db_recent_jobs(limit: int = 10) -> list[dict]:
+    """Return the most recent yt_request_jobs rows from DB, newest first."""
+    try:
+        with sqlite3.connect(db.SHARED_DB_PATH) as conn:
+            rows = conn.execute(
+                """SELECT id, username, url, title, status, error,
+                          started_at, finished_at
+                     FROM yt_request_jobs
+                    ORDER BY id DESC
+                    LIMIT ?""",
+                (limit,),
+            ).fetchall()
+        return [
+            {
+                "id":          r[0], "username":    r[1], "url":         r[2],
+                "title":       r[3], "status":      r[4], "error":       r[5],
+                "started_at":  r[6], "finished_at": r[7],
+            }
+            for r in rows
+        ]
+    except Exception as exc:
+        print(f"[YT_REQUEST] DB recent jobs error (non-fatal): {exc}")
+    return []
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Per-user cooldown tracker
@@ -194,13 +302,43 @@ _cooldowns: dict[str, float] = {}   # user_id → last_request_timestamp
 
 def _download_step(url: str, tmpdir: str) -> tuple[dict, str]:
     """
-    Download best-audio from YouTube and convert to mp3 via ffmpeg.
-    Returns (info_dict, local_mp3_path).
-    Raises on any failure.
+    Pre-flight validate then download best-audio from YouTube → mp3 via ffmpeg.
+    Returns (info_dict, local_mp3_path).  Raises ValueError for policy rejects.
     No audio is streamed — file lands in tmpdir only.
     """
     import yt_dlp  # already installed globally
 
+    # ── 1. Pre-flight: fetch metadata WITHOUT downloading ────────────────────
+    _pre_opts: dict = {
+        "quiet":       True,
+        "no_warnings": True,
+        "noplaylist":  True,
+    }
+    with yt_dlp.YoutubeDL(_pre_opts) as ydl:
+        pre = ydl.extract_info(url, download=False)
+
+    # Unwrap single-entry playlist wrapper
+    if isinstance(pre, dict) and pre.get("entries"):
+        if pre.get("_type") in ("playlist", "multi_video"):
+            raise ValueError(
+                "Playlists not supported. Link a single video."
+            )
+        pre = pre["entries"][0]
+
+    # Reject livestreams (duration is None/0 for active streams)
+    if pre.get("is_live") or (pre.get("was_live") and not pre.get("duration")):
+        raise ValueError("Livestreams are not supported.")
+
+    # Reject videos that exceed the length limit
+    duration = pre.get("duration") or 0
+    if duration > _MAX_DURATION_SECS:
+        mins, secs = divmod(int(duration), 60)
+        max_min = _MAX_DURATION_SECS // 60
+        raise ValueError(
+            f"Video too long ({mins}m{secs:02d}s). Max allowed: {max_min} min."
+        )
+
+    # ── 2. Download + convert ────────────────────────────────────────────────
     ydl_opts: dict = {
         "format":      "bestaudio/best",
         "outtmpl":     os.path.join(tmpdir, "%(id)s.%(ext)s"),
@@ -216,7 +354,7 @@ def _download_step(url: str, tmpdir: str) -> tuple[dict, str]:
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=True)
 
-    # Unwrap playlist wrapper (shouldn't happen with noplaylist=True, but be safe)
+    # Unwrap playlist wrapper (safety — noplaylist=True should prevent this)
     if isinstance(info, dict) and info.get("entries"):
         info = info["entries"][0]
 
@@ -580,6 +718,13 @@ async def _run_job(bot: "BaseBot", job: dict) -> None:
         _update_job(jid, status="done", finished_at=time.time())
         print(f"[YT_REQUEST] Job #{jid} — success in {upload_secs:.1f}s: {title[:80]}")
         await _w(bot, uid, f"✅ Added to Requests playlist!\n🎵 {title}")
+        # Room-wide announcement
+        try:
+            uname = job.get("username") or uid
+            announce = f"🎵 Added to radio: {title[:80]} — requested by @{uname}"
+            await bot.highrise.chat(announce[:249])
+        except Exception as _ann_exc:
+            print(f"[YT_REQUEST] Room announce error (non-fatal): {_ann_exc}")
         # Background thread is still closing the SSH connection — that's fine.
 
     except Exception as exc:
@@ -634,8 +779,20 @@ async def handle_ytrequest(bot: "BaseBot", user: "User", args: list[str]) -> Non
         )
         return
 
+    # Duplicate check — same URL successfully uploaded in last 24 h
+    _owner_flag = is_owner(user.username)
+    if not _owner_flag:
+        _dup = _db_check_dedup(url, _DEDUP_WINDOW_SECS)
+        if _dup:
+            t = (_dup["title"] or url)[:60]
+            await _w(
+                bot, user.id,
+                f"⚠️ Already added recently:\n{t}\nTry a different song."
+            )
+            return
+
     # Per-user cooldown — owners bypass entirely, admins get 30 s flat
-    _owner = is_owner(user.username)
+    _owner = _owner_flag
     _admin = not _owner and is_admin(user.username)
     if _owner:
         cd = 0
@@ -680,16 +837,14 @@ async def handle_ytrequest(bot: "BaseBot", user: "User", args: list[str]) -> Non
 
 
 async def handle_ytqueue(bot: "BaseBot", user: "User", _args: list[str]) -> None:
-    """!ytqueue — show active and recent YT request jobs (admin+)."""
+    """!ytqueue — show recent YT request jobs from DB (admin+)."""
     if not is_admin(user.username):
         await _w(bot, user.id, "🔒 Admin only.")
         return
 
-    with _jobs_lock:
-        snap = sorted(_jobs.values(), key=lambda j: j["started_at"], reverse=True)[:8]
-
-    if not snap:
-        await _w(bot, user.id, "📋 YT Request queue: no jobs this session.")
+    rows = _db_recent_jobs(limit=8)
+    if not rows:
+        await _w(bot, user.id, "📋 YT Requests: no jobs logged yet.")
         return
 
     _STATUS_ICON = {
@@ -700,12 +855,11 @@ async def handle_ytqueue(bot: "BaseBot", user: "User", _args: list[str]) -> None
         "error":       "❌",
     }
     lines = ["📋 YT Requests (newest first):"]
-    for j in snap:
-        age   = int(time.time() - j["started_at"])
+    for j in rows:
         icon  = _STATUS_ICON.get(j["status"], "?")
-        title = f" — {j['title'][:28]}" if j["title"] else ""
-        err   = f" [{j['error'][:20]}]" if j["status"] == "error" else ""
-        lines.append(f"{icon} #{j['id']} @{j['username']}{title}{err} ({age}s)")
+        title = f" — {j['title'][:25]}" if j["title"] else ""
+        err   = f" [{j['error'][:18]}]" if j["status"] == "error" and j["error"] else ""
+        lines.append(f"{icon} #{j['id']} @{j['username']}{title}{err}")
 
     await _w(bot, user.id, "\n".join(lines)[:249])
 
@@ -739,3 +893,53 @@ async def handle_ytstatus(bot: "BaseBot", user: "User", _args: list[str]) -> Non
          f"Folder: {cfg['folder']} | CD: {cd}s\n"
          f"Active: {active} | Done: {done} | Err: {errors} | Total: {total}")[:249],
     )
+
+
+async def handle_ytnow(bot: "BaseBot", user: "User", _args: list[str]) -> None:
+    """!ytnow — show the latest successfully requested song (public)."""
+    rows = _db_recent_jobs(limit=20)
+    done = [r for r in rows if r["status"] == "done"]
+    if not done:
+        await _w(bot, user.id, "🎵 No songs added to radio via YT Request yet.")
+        return
+    j     = done[0]
+    title = (j["title"] or "(unknown)")[:100]
+    when  = (j["finished_at"] or j["started_at"] or "")[:16].replace("T", " ")
+    await _w(
+        bot, user.id,
+        f"🎵 Latest YT Request:\n{title}\nBy @{j['username']} | {when} UTC"[:249],
+    )
+
+
+async def handle_ytcooldown(bot: "BaseBot", user: "User", _args: list[str]) -> None:
+    """!ytcooldown — show YT request cooldown and limit settings (admin+)."""
+    if not is_admin(user.username):
+        await _w(bot, user.id, "🔒 Admin only.")
+        return
+    cd      = _cooldown_secs()
+    max_min = _MAX_DURATION_SECS // 60
+    dedup_h = _DEDUP_WINDOW_SECS // 3600
+    await _w(
+        bot, user.id,
+        (f"⏳ YT Request Settings:\n"
+         f"Cooldown: {cd}s | admin: 30s | owner: 0s\n"
+         f"Max length: {max_min}m | Dedup window: {dedup_h}h\n"
+         f"Change: !setytcooldown <seconds>")[:249],
+    )
+
+
+async def handle_setytcooldown(bot: "BaseBot", user: "User", args: list[str]) -> None:
+    """!setytcooldown <seconds> — set per-user YT request cooldown (admin+)."""
+    if not is_admin(user.username):
+        await _w(bot, user.id, "🔒 Admin only.")
+        return
+    if len(args) < 2:
+        await _w(bot, user.id, "Usage: !setytcooldown <seconds>  (30–3600)")
+        return
+    try:
+        secs = max(30, min(3600, int(args[1])))
+    except ValueError:
+        await _w(bot, user.id, "⚠️ Invalid value. Must be a number (30–3600).")
+        return
+    db.set_room_setting("yt_request_cooldown", str(secs))
+    await _w(bot, user.id, f"✅ YT Request cooldown set to {secs}s.")
