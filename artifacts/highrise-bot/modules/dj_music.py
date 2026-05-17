@@ -64,7 +64,7 @@ import traceback
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 import database as db
-from modules.permissions import can_manage_games, is_admin
+from modules.permissions import can_manage_games, is_admin, is_owner
 
 if TYPE_CHECKING:
     from highrise import BaseBot, User
@@ -1699,25 +1699,21 @@ async def handle_dj_stopmusic(bot: "BaseBot", user: "User") -> None:
 
 
 async def handle_dj_config(bot: "BaseBot", user: "User") -> None:
-    """!djconfig  —  show current DJ settings (manager+)."""
+    """!djconfig  —  show all DJ configuration settings (manager+)."""
     if not can_manage_games(user.username):
         await _w(bot, user.id, "🔒 Manager only.")
         return
 
-    qmax  = _queue_max()
-    umax  = _user_max()
-    cd    = _cooldown()
-    vt    = _vote_thresh()
-    total = _total_active()
+    radio = "✅ set" if _get_radio_url() else "not set"
+    wp    = "✅ set" if _get_webplayer_url() else "not set"
     lock  = "ON" if _dj_locked() else "off"
-    bk    = type(_backend).__name__
-
     await _w(
         bot, user.id,
-        f"🎛️ DJ Config:\n"
-        f"Queue: {total}/{qmax} | PerUser: {umax} | Cooldown: {cd}s\n"
-        f"SkipVotes: {vt} | Lock: {lock} | Backend: {bk}\n"
-        f"!djset <queuemax|cooldown|usermax|votethreshold> <val>"
+        (f"⚙️ DJ Config:\n"
+         f"🔒 Lock: {lock} | ⏳ Cooldown: {_cooldown()}s | Queue: {_total_active()}/{_queue_max()}\n"
+         f"Per user: {_user_max()} | Skip votes: {_vote_thresh()} | 💰 Priority: {_dj_priority_price()}c\n"
+         f"📻 Radio: {radio} | 🌐 Player: {wp}\n"
+         f"🎭 Personality: {'on' if _dj_personality() else 'off'} | 🐛 Debug: {'on' if _debug_mode() else 'off'}")[:249],
     )
 
 
@@ -2754,6 +2750,151 @@ async def handle_dj_shoutout(
     target  = args[1].lstrip("@")[:20]
     message = " ".join(args[2:])[:150]
     await _chat(bot, f"📣 Shoutout to @{target}: {message}"[:249])
+
+
+async def handle_dj_check(bot: "BaseBot", user: "User") -> None:
+    """!djcheck  —  full DJ system diagnostics (admin+)."""
+    if not is_admin(user.username):
+        await _w(bot, user.id, "🔒 Admin+ only.")
+        return
+
+    import os
+
+    # DB check
+    db_ok = "✅ DB"
+    try:
+        _c = db.get_connection()
+        _c.execute("SELECT 1 FROM dj_requests LIMIT 1")
+        _c.close()
+    except Exception:
+        db_ok = "❌ DB"
+
+    yt_ok  = "✅ YT key" if os.environ.get("YOUTUBE_API_KEY") else "⚠️ no YT key"
+    bk     = type(_backend).__name__
+    np     = _get_nowplaying()
+    np_str = f"▶️ {np['title'][:22]}" if np else "— idle"
+    timer  = "running" if (_playback_task and not _playback_task.done()) else "idle"
+    lock   = "on" if _dj_locked() else "off"
+    radio  = "set" if _get_radio_url() else "not set"
+    wp     = "set" if _get_webplayer_url() else "not set"
+
+    await _w(
+        bot, user.id,
+        (f"🔧 DJ Check:\n"
+         f"{db_ok} | {yt_ok} | Backend: {bk}\n"
+         f"Now: {np_str} | Queue: {_total_active()} | Timer: {timer}\n"
+         f"🔒 Lock: {lock} | 📻 Radio: {radio} | 🌐 Player: {wp}")[:249],
+    )
+
+
+async def handle_dj_health(bot: "BaseBot", user: "User") -> None:
+    """!djhealth  —  queue DB state, search sessions, timer status (manager+)."""
+    if not can_manage_games(user.username):
+        await _w(bot, user.id, "🔒 Manager+ only.")
+        return
+
+    try:
+        _c = db.get_connection()
+        pending = _c.execute(
+            "SELECT COUNT(*) AS n FROM dj_requests WHERE status='pending'"
+        ).fetchone()["n"]
+        playing = _c.execute(
+            "SELECT COUNT(*) AS n FROM dj_requests WHERE status='playing'"
+        ).fetchone()["n"]
+        played = _c.execute(
+            "SELECT COUNT(*) AS n FROM dj_requests WHERE status IN ('played','skipped','cancelled')"
+        ).fetchone()["n"]
+        _c.close()
+    except Exception:
+        pending = playing = played = -1
+
+    searches    = len(_search_request_type)
+    vote_sess   = len(_skip_votes)
+    timer_state = "running" if (_playback_task and not _playback_task.done()) else "idle"
+    since_str   = ""
+    if _playing_since > 0:
+        elapsed = int(time.time() - _playing_since)
+        since_str = f" | Since: {elapsed}s"
+
+    await _w(
+        bot, user.id,
+        (f"💚 DJ Health:\n"
+         f"📋 Pending: {pending} | ▶️ Playing: {playing} | ✅ Played: {played}\n"
+         f"🔍 Searches: {searches} | Skip votes: {vote_sess}\n"
+         f"⏱ Timer: {timer_state}{since_str}")[:249],
+    )
+
+
+async def handle_dj_resetstate(bot: "BaseBot", user: "User") -> None:
+    """!djresetstate  —  clear in-memory search/timer/vote state (owner only)."""
+    global _playback_task, _playing_since, _repeat_song
+
+    if not is_owner(user.username):
+        await _w(bot, user.id, "🔒 Owner only.")
+        return
+
+    search_cnt = len(_search_request_type)
+    vote_cnt   = len(_skip_votes)
+    timer_was  = _playback_task and not _playback_task.done()
+
+    _search_request_type.clear()
+    _skip_votes.clear()
+
+    if _playback_task and not _playback_task.done():
+        _playback_task.cancel()
+    _playback_task = None
+    _playing_since = 0.0
+    _repeat_song   = None
+
+    timer_msg = "cancelled" if timer_was else "was idle"
+    await _w(
+        bot, user.id,
+        (f"♻️ DJ state reset:\n"
+         f"Searches: {search_cnt} cleared | Votes: {vote_cnt} cleared\n"
+         f"Timer: {timer_msg} | Repeat: cleared\n"
+         f"History and settings untouched.")[:249],
+    )
+
+
+async def handle_dj_backup(bot: "BaseBot", user: "User") -> None:
+    """!djbackup  —  whisper DJ settings + queue + history summary (owner only)."""
+    if not is_owner(user.username):
+        await _w(bot, user.id, "🔒 Owner only.")
+        return
+
+    # — Whisper 1: Settings —
+    radio = "set" if _get_radio_url() else "not set"
+    wp    = "set" if _get_webplayer_url() else "not set"
+    lock  = "ON" if _dj_locked() else "off"
+    await _w(
+        bot, user.id,
+        (f"📦 DJ Backup — Settings:\n"
+         f"Lock: {lock} | Cooldown: {_cooldown()}s | Queue max: {_queue_max()}\n"
+         f"Per user: {_user_max()} | Priority: {_dj_priority_price()}c | Skip votes: {_vote_thresh()}\n"
+         f"Radio: {radio} | WebPlayer: {wp}")[:249],
+    )
+
+    # — Whisper 2: Pending queue —
+    queue = _get_queue(limit=5)
+    if queue:
+        lines = [f"📋 Pending queue ({_total_active()} songs):"]
+        for i, r in enumerate(queue, 1):
+            dur = f" [{r['duration']}]" if r.get("duration") else ""
+            lines.append(f"{i}. {r['title'][:38]}{dur} @{r['username'][:12]}")
+        await _w(bot, user.id, "\n".join(lines)[:249])
+    else:
+        await _w(bot, user.id, "📋 Queue is empty.")
+
+    # — Whisper 3: Recent history —
+    history = _get_history(5)
+    if history:
+        lines = ["🕐 Recent history:"]
+        for r in history:
+            tag = "⏭" if r["status"] == "skipped" else "✅"
+            lines.append(f"{tag} {r['title'][:40]} @{r['username'][:12]}")
+        await _w(bot, user.id, "\n".join(lines)[:249])
+    else:
+        await _w(bot, user.id, "🕐 No play history yet.")
 
 
 async def handle_dj_help(bot: "BaseBot", user: "User") -> None:

@@ -445,6 +445,7 @@ from modules.dj_music import (
     handle_dj_webplayer, handle_dj_setwebplayer,
     handle_dj_songinfo, handle_dj_recent, handle_dj_myrequests,
     handle_dj_cancelrequest, handle_dj_requeststatus,
+    handle_dj_check, handle_dj_health, handle_dj_resetstate, handle_dj_backup,
     handle_dj_help,
 )
 from modules.dm_queue import startup_host_dm_queue_loop
@@ -7269,6 +7270,14 @@ class HangoutBot(BaseBot):
             await handle_dj_cancelrequest(self, user, args)
         elif cmd == "requeststatus":
             await handle_dj_requeststatus(self, user)
+        elif cmd == "djcheck":
+            await handle_dj_check(self, user)
+        elif cmd == "djhealth":
+            await handle_dj_health(self, user)
+        elif cmd == "djresetstate":
+            await handle_dj_resetstate(self, user)
+        elif cmd == "djbackup":
+            await handle_dj_backup(self, user)
         elif cmd == "djhelp":
             await handle_dj_help(self, user)
 
