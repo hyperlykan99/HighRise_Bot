@@ -88,18 +88,46 @@ def _cooldown_secs() -> int:
     except Exception:
         return _DEFAULT_COOLDOWN
 
+_REQUIRED_SFTP_VARS = ("AZURA_SFTP_HOST", "AZURA_SFTP_USER", "AZURA_SFTP_PASS")
+_OPTIONAL_SFTP_VARS = ("AZURA_SFTP_PORT", "AZURA_REQUESTS_FOLDER")
+
 def _sftp_cfg() -> dict:
     return {
-        "host":   os.environ.get("AZURA_SFTP_HOST", "").strip(),
-        "port":   int(os.environ.get("AZURA_SFTP_PORT", "22") or "22"),
-        "user":   os.environ.get("AZURA_SFTP_USER", "").strip(),
-        "passwd": os.environ.get("AZURA_SFTP_PASS", "").strip(),
-        "folder": os.environ.get("AZURA_REQUESTS_FOLDER", "Requests").strip(),
+        "host":   (os.environ.get("AZURA_SFTP_HOST") or "").strip(),
+        "port":   int((os.environ.get("AZURA_SFTP_PORT") or "22").strip() or "22"),
+        "user":   (os.environ.get("AZURA_SFTP_USER") or "").strip(),
+        "passwd": (os.environ.get("AZURA_SFTP_PASS") or "").strip(),
+        "folder": (os.environ.get("AZURA_REQUESTS_FOLDER") or "Requests").strip(),
     }
 
+def _sftp_missing_vars() -> list[str]:
+    """Return list of required SFTP env var names that are unset or empty."""
+    missing = []
+    for var in _REQUIRED_SFTP_VARS:
+        raw = os.environ.get(var)
+        if not raw or not raw.strip():
+            missing.append(var)
+    return missing
+
 def _sftp_ready() -> bool:
-    cfg = _sftp_cfg()
-    return bool(cfg["host"] and cfg["user"] and cfg["passwd"])
+    return len(_sftp_missing_vars()) == 0
+
+def _log_sftp_env() -> None:
+    """Log SFTP env var presence at startup (never logs values)."""
+    for var in _REQUIRED_SFTP_VARS:
+        raw = os.environ.get(var)
+        if raw and raw.strip():
+            print(f"[YT_REQUEST] {var}: SET (len={len(raw.strip())})")
+        else:
+            status = "EMPTY" if raw is not None else "NOT SET"
+            print(f"[YT_REQUEST] {var}: {status}  ← required, YT requests will be disabled")
+    for var in _OPTIONAL_SFTP_VARS:
+        raw = os.environ.get(var)
+        val_hint = f"SET (len={len(raw.strip())})" if raw and raw.strip() else "not set (using default)"
+        print(f"[YT_REQUEST] {var}: {val_hint}")
+
+# Log SFTP config readiness once at import (visible in workflow console)
+_log_sftp_env()
 
 # ─────────────────────────────────────────────────────────────────────────────
 # In-memory job tracker
@@ -265,11 +293,14 @@ async def handle_ytrequest(bot: "BaseBot", user: "User", args: list[str]) -> Non
     """!ytrequest <youtube_url> — download and add to AzuraCast Requests playlist."""
 
     # SFTP readiness check
-    if not _sftp_ready():
+    missing = _sftp_missing_vars()
+    if missing:
+        missing_str = ", ".join(missing)
+        print(f"[YT_REQUEST] !ytrequest blocked — missing env vars: {missing_str}")
         await _w(
             bot, user.id,
-            "📻 YT Requests not set up yet.\n"
-            "Admin: add AZURA_SFTP_HOST / AZURA_SFTP_USER / AZURA_SFTP_PASS env vars."
+            f"📻 YT Requests not configured.\n"
+            f"Missing secret(s): {missing_str}"
         )
         return
 
