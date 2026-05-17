@@ -290,3 +290,143 @@ def add_file_to_playlist(file_id: "int | str", playlist_id: str) -> bool:
     except Exception as exc:
         print(f"{_LOG} playlist_add error: {exc}")
     return False
+
+
+# ─── Verified-skip helpers ────────────────────────────────────────────────────
+
+def fetch_queue() -> list:
+    """
+    GET /api/station/{id}/queue
+    Returns the list of upcoming scheduled tracks (includes pending requests).
+    Returns empty list on error or when API is not configured.
+    """
+    import requests as req_lib
+    cfg = azura_api_cfg()
+    if not cfg:
+        return []
+    try:
+        resp = req_lib.get(
+            f"{cfg['base_url']}/api/station/{cfg['station_id']}/queue",
+            headers=_headers(cfg),
+            timeout=10,
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            return data if isinstance(data, list) else []
+        print(f"{_LOG} fetch_queue HTTP {resp.status_code}")
+    except Exception as exc:
+        print(f"{_LOG} fetch_queue error: {exc}")
+    return []
+
+
+def wait_for_song_in_queue(
+    unique_id: str,
+    max_wait: int = 30,
+    poll_secs: float = 3.0,
+) -> bool:
+    """
+    Poll GET /api/station/{id}/queue (and nowplaying as a fallback) until
+    `unique_id` appears or `max_wait` seconds elapse.
+
+    The AzuraCast request queue processor is asynchronous — this gives it time
+    to schedule the freshly submitted request before we call skip.
+
+    Returns True if the song is confirmed queued (or already playing).
+    Returns False on timeout (caller should still attempt the skip anyway).
+    """
+    if not unique_id:
+        return False
+
+    deadline = time.time() + max_wait
+    attempt  = 0
+    while time.time() < deadline:
+        attempt += 1
+
+        # Strategy 1: check the upcoming queue
+        for item in fetch_queue():
+            song     = item.get("song") or {}
+            item_uid = (
+                song.get("unique_id")
+                or song.get("id")
+                or item.get("song_id")
+                or ""
+            )
+            if item_uid and item_uid == unique_id:
+                print(f"{_LOG} wait_for_queue: {unique_id!r} found in queue (attempt {attempt})")
+                return True
+
+        # Strategy 2: maybe it's already playing (very fast queue)
+        np = fetch_nowplaying()
+        if np:
+            playing_uid = (
+                ((np.get("now_playing") or {}).get("song") or {}).get("id") or ""
+            ).strip()
+            if playing_uid == unique_id:
+                print(f"{_LOG} wait_for_queue: {unique_id!r} is already playing!")
+                return True
+
+        remaining = deadline - time.time()
+        print(
+            f"{_LOG} wait_for_queue attempt {attempt}: {unique_id!r} not yet in queue, "
+            f"{max(remaining, 0):.0f}s left"
+        )
+        if remaining > 0:
+            time.sleep(min(poll_secs, remaining))
+
+    print(f"{_LOG} wait_for_queue timeout: {unique_id!r} not seen in {max_wait}s")
+    return False
+
+
+def skip_and_verify_request(
+    unique_id: str,
+    max_retries: int = 3,
+    post_skip_wait: float = 6.0,
+) -> bool:
+    """
+    Ensure the requested song starts playing by:
+      1. Re-submitting the song to AzuraCast's request queue (idempotent).
+      2. Waiting 2 s for the queue to register.
+      3. Posting a skip.
+      4. Waiting `post_skip_wait` s for the new track to settle.
+      5. Checking nowplaying.song.id == unique_id.
+    Retries up to `max_retries` times when the wrong track is playing.
+    Returns True if the request is confirmed playing, False if all retries fail.
+    """
+    if not unique_id:
+        return False
+
+    for attempt in range(1, max_retries + 1):
+        print(
+            f"{_LOG} skip_and_verify attempt {attempt}/{max_retries} "
+            f"uid={unique_id!r}"
+        )
+
+        # Re-submit to place it at top of request queue
+        submit_request(unique_id)
+        time.sleep(2.0)
+
+        # Skip current song
+        skip_current(max_attempts=1, delay=0)
+
+        # Wait for next track to start and stabilise
+        time.sleep(post_skip_wait)
+
+        # Verify
+        np = fetch_nowplaying()
+        if np:
+            playing_id = (
+                ((np.get("now_playing") or {}).get("song") or {}).get("id") or ""
+            ).strip()
+            if playing_id == unique_id:
+                print(f"{_LOG} skip_and_verify ✓ confirmed playing (attempt {attempt})")
+                return True
+            print(
+                f"{_LOG} skip_and_verify attempt {attempt}: "
+                f"playing={playing_id!r}, expected={unique_id!r}"
+            )
+
+        if attempt < max_retries:
+            time.sleep(2.0)
+
+    print(f"{_LOG} skip_and_verify: could not confirm {unique_id!r} after {max_retries} attempts")
+    return False

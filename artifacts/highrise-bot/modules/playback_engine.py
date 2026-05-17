@@ -45,12 +45,13 @@ POLL_INTERVAL = 5       # seconds between AzuraCast nowplaying polls
 _STATE_NS     = "playback_"
 
 # ─── Module-level state ───────────────────────────────────────────────────────
-_lock               = threading.Lock()
-_started:     bool  = False
-_mode:        str   = "vibe"    # "vibe" | "requests"
-_cur_song_id: str   = ""        # AzuraCast song.id currently playing
-_cur_req_id:  int   = 0         # yt_request_jobs.id of the active request (0 = none)
-_last_ann_id: str   = ""        # song.id last announced (dedup)
+_lock                   = threading.Lock()
+_started:         bool  = False
+_mode:            str   = "vibe"    # "vibe" | "requests"
+_cur_song_id:     str   = ""        # AzuraCast song.id currently playing
+_cur_req_id:      int   = 0         # yt_request_jobs.id of the active request (0 = none)
+_last_ann_id:     str   = ""        # song.id last announced (dedup)
+_skip_task_active: bool = False     # True while a _verified_skip_task is running
 
 _ACT = ("pending", "downloading", "uploading", "done", "queued", "playing")
 _ACT_PH = ",".join("?" * len(_ACT))   # SQL placeholders for IN clause
@@ -79,6 +80,21 @@ def _save(key: str, value: str) -> None:
 
 
 # ─── DB job queries ───────────────────────────────────────────────────────────
+
+def _db_find_oldest_queued() -> "dict | None":
+    """The oldest request with status='queued' that hasn't started playing yet."""
+    try:
+        with db.db_conn() as conn:
+            row = conn.execute(
+                f"SELECT {_SEL} FROM yt_request_jobs "
+                "WHERE status='queued' AND played_at IS NULL "
+                "ORDER BY id ASC LIMIT 1",
+            ).fetchone()
+            return _jrow(row) if row else None
+    except Exception as exc:
+        print(f"{_LOG} _db_find_oldest_queued: {exc}")
+        return None
+
 
 def _db_find_new_done() -> list:
     """
@@ -251,14 +267,12 @@ async def _apply_vibe_playlists() -> None:
 
 
 async def _switch_to_requests(bot: "BaseBot") -> None:
+    """Enable Requests playlist only. Does NOT skip — skip is handled by _verified_skip_task."""
     global _mode
     with _lock:
         _mode = "requests"
     await _apply_requests_playlists()
-    if cs.auto_skip_on_request():
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(None, azura.skip_current)
-    print(f"{_LOG} Switched → REQUESTS")
+    print(f"{_LOG} Switched → REQUESTS (skip handled by verified-skip task)")
 
 
 async def _switch_to_vibe(bot: "BaseBot") -> None:
@@ -325,6 +339,72 @@ async def _on_new_track(bot: "BaseBot", song: dict) -> None:
         print(f"{_LOG} Now playing VIBE: {title!r}")
 
 
+# ─── Verified-skip background task ───────────────────────────────────────────
+
+async def _verified_skip_task(bot: "BaseBot", job_id: int, unique_id: str) -> None:
+    """
+    Background asyncio task — does NOT block the poll loop.
+
+    Flow
+    ────
+    1. Poll AzuraCast's upcoming queue (GET /api/station/{id}/queue) until the
+       request appears or 30 s pass.  This gives AzuraCast time to register the
+       just-submitted request before we skip.
+    2. If the request is already playing (poll loop beat us) → bail out.
+    3. Call azura.skip_and_verify_request() which:
+         a. Re-submits the song to the request queue (idempotent, ensures it's at top).
+         b. Waits 2 s.
+         c. Posts a skip.
+         d. Waits 6 s then checks nowplaying.song.id.
+         e. Retries up to 3 times on mismatch.
+    4. Announcements are intentionally left to the normal poll-loop song-change
+       detection — we never announce here.
+    """
+    global _skip_task_active
+    _skip_task_active = True
+    try:
+        loop = asyncio.get_running_loop()
+        print(f"{_LOG} Verified-skip task started: job={job_id} uid={unique_id!r}")
+
+        # Early exit: poll loop may have already detected this request as playing
+        job = _db_get_job(job_id)
+        if job and job.get("status") == "playing":
+            print(f"{_LOG} Job {job_id} already playing — skip task done early")
+            return
+
+        # Step 1: Wait for AzuraCast to register the request in its upcoming queue
+        print(f"{_LOG} Waiting for {unique_id!r} in AzuraCast queue (max 30 s)…")
+        in_queue = await loop.run_in_executor(
+            None, azura.wait_for_song_in_queue, unique_id, 30, 3.0
+        )
+
+        # Re-check: poll loop may have caught it while we waited
+        job = _db_get_job(job_id)
+        if job and job.get("status") == "playing":
+            print(f"{_LOG} Job {job_id} started playing during queue wait — skip task done")
+            return
+
+        if not in_queue:
+            print(f"{_LOG} Queue wait timed out — attempting skip anyway (will retry on mismatch)")
+
+        # Step 2: Skip and verify (retries internally; re-submits before each skip)
+        ok = await loop.run_in_executor(
+            None, azura.skip_and_verify_request, unique_id, 3, 6.0
+        )
+
+        if ok:
+            print(f"{_LOG} Verified-skip task ✓: {unique_id!r} confirmed playing")
+        else:
+            print(f"{_LOG} Verified-skip task: could not confirm {unique_id!r} — poll loop will handle announcement when it starts")
+
+    except Exception as exc:
+        import traceback
+        print(f"{_LOG} Verified-skip task error: {exc}")
+        traceback.print_exc()
+    finally:
+        _skip_task_active = False
+
+
 # ─── Main poll loop ───────────────────────────────────────────────────────────
 
 async def _poll_loop(bot: "BaseBot") -> None:
@@ -338,16 +418,40 @@ async def _poll_loop(bot: "BaseBot") -> None:
             await asyncio.sleep(POLL_INTERVAL)
 
             # ── Detect newly uploaded requests (status='done' + azura_file_id) ─
-            for j in _db_find_new_done():
+            new_done = _db_find_new_done()
+            for j in new_done:
                 _db_set_status(j["id"], "queued")
                 print(f"{_LOG} Request promoted to queued: {j.get('title','?')!r}")
 
             # ── Switch to REQUESTS mode if queue has items and we're in vibe mode ─
             with _lock:
-                cur_mode = _mode
+                cur_mode        = _mode
+                skip_task_busy  = _skip_task_active
             if cur_mode != "requests" and _db_count_active() > 0:
                 print(f"{_LOG} Pending requests detected — switching to REQUESTS mode")
-                await _switch_to_requests(bot)
+                await _switch_to_requests(bot)  # playlists only, no skip
+
+            # ── Fire verified-skip task for newly-queued requests ─────────────
+            # Triggered only when new 'done' jobs were just promoted AND
+            # auto-skip is on AND no skip task is already running.
+            if new_done and cs.auto_skip_on_request() and not skip_task_busy:
+                next_job = _db_find_oldest_queued()
+                if next_job:
+                    uid = (next_job.get("azura_song_id") or "").strip()
+                    if uid:
+                        print(
+                            f"{_LOG} Firing verified-skip task for "
+                            f"{next_job.get('title','?')!r} uid={uid!r}"
+                        )
+                        asyncio.create_task(
+                            _verified_skip_task(bot, next_job["id"], uid)
+                        )
+                    else:
+                        # No unique_id — fall back to simple unverified skip
+                        loop_ref = asyncio.get_running_loop()
+                        asyncio.create_task(
+                            loop_ref.run_in_executor(None, azura.skip_current)
+                        )
 
             # ── Fetch nowplaying from AzuraCast ──────────────────────────────
             np = await loop.run_in_executor(None, azura.fetch_nowplaying)
