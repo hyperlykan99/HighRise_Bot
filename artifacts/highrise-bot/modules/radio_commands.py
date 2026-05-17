@@ -29,6 +29,7 @@ Startup:
 """
 from __future__ import annotations
 import asyncio
+import functools
 import re
 import threading
 import time
@@ -636,3 +637,43 @@ async def startup_radio(bot: "BaseBot") -> None:
     from modules.media_cleanup import start as _start_cleanup
     print(f"{_LOG} Starting radio / playback engine…")
     await _start_cleanup(bot)
+
+
+# ─── Safety guard ─────────────────────────────────────────────────────────────
+# Wraps every public-facing command handler so that unexpected exceptions are
+# caught locally, logged, and whispered to the user.  This is defence-in-depth:
+# the on_chat outer try/except already protects the bot, but this ensures the
+# user gets a friendly error message and the stack trace is always printed.
+
+def _safe(fn):
+    """Decorator: catch any exception in a radio handler, log it, reply to user."""
+    @functools.wraps(fn)
+    async def _wrapper(bot: "BaseBot", user: "object", *args, **kwargs):
+        try:
+            return await fn(bot, user, *args, **kwargs)
+        except Exception as exc:
+            import traceback
+            print(f"{_LOG} {fn.__name__} non-fatal error: {exc}")
+            traceback.print_exc()
+            try:
+                uid = getattr(user, "id", None) or (user[0] if user else "")
+                await bot.highrise.send_whisper(
+                    uid, "❌ Radio error — please try again."
+                )
+            except Exception:
+                pass
+    return _wrapper
+
+
+handle_request       = _safe(handle_request)
+handle_pick          = _safe(handle_pick)
+handle_queue         = _safe(handle_queue)
+handle_nowplaying    = _safe(handle_nowplaying)
+handle_skip          = _safe(handle_skip)
+handle_remove        = _safe(handle_remove)
+handle_clearqueue    = _safe(handle_clearqueue)
+handle_history       = _safe(handle_history)
+handle_voteskip      = _safe(handle_voteskip)
+handle_vibe          = _safe(handle_vibe)
+handle_setrequestprice = _safe(handle_setrequestprice)
+handle_radiohelp     = _safe(handle_radiohelp)
