@@ -91,14 +91,21 @@ def _cooldown_secs() -> int:
         return _DEFAULT_COOLDOWN
 
 _REQUIRED_SFTP_VARS = ("AZURA_SFTP_HOST", "AZURA_SFTP_USER", "AZURA_SFTP_PASS")
+_DEFAULT_SFTP_PATH  = "/stations/chilltopia/media"
 
 def _sftp_cfg() -> dict:
+    # AZURA_SFTP_PATH — absolute remote directory on the AzuraCast server.
+    # If unset, defaults to _DEFAULT_SFTP_PATH.
+    # Note: AZURA_REQUESTS_FOLDER is intentionally NOT used here — it was the
+    # old combined env var; use AZURA_SFTP_PATH for the upload path and
+    # AZURA_MEDIA_DIR for the API rescan directory.
+    sftp_path = (os.environ.get("AZURA_SFTP_PATH") or _DEFAULT_SFTP_PATH).strip()
     return {
         "host":   (os.environ.get("AZURA_SFTP_HOST") or "").strip(),
         "port":   int((os.environ.get("AZURA_SFTP_PORT") or "22").strip() or "22"),
         "user":   (os.environ.get("AZURA_SFTP_USER") or "").strip(),
         "passwd": (os.environ.get("AZURA_SFTP_PASS") or "").strip(),
-        "folder": (os.environ.get("AZURA_REQUESTS_FOLDER") or "Requests").strip(),
+        "folder": sftp_path,
     }
 
 def _sftp_missing_vars() -> list[str]:
@@ -127,14 +134,16 @@ def _log_sftp_env() -> None:
         else:
             status = "EMPTY" if raw is not None else "NOT SET"
             print(f"[YT_REQUEST] {var}: {status}  ← required, YT requests disabled")
-    folder = (os.environ.get("AZURA_REQUESTS_FOLDER") or "").strip()
-    print(f"[YT_REQUEST] AZURA_REQUESTS_FOLDER = {folder or '(default: Requests)'}")
+    sftp_path = (os.environ.get("AZURA_SFTP_PATH") or _DEFAULT_SFTP_PATH).strip()
+    print(f"[YT_REQUEST] SFTP upload path = {sftp_path}")
     # API post-upload step (optional)
-    base_url = (os.environ.get("AZURA_BASE_URL") or "").strip()
-    api_key  = (os.environ.get("AZURA_API_KEY") or "").strip()
-    sid      = (os.environ.get("AZURA_STATION_ID") or "1").strip()
+    base_url  = (os.environ.get("AZURA_BASE_URL") or "").strip()
+    api_key   = (os.environ.get("AZURA_API_KEY") or "").strip()
+    sid       = (os.environ.get("AZURA_STATION_ID") or "1").strip()
+    media_dir = (os.environ.get("AZURA_MEDIA_DIR") or "").strip()
     if base_url and api_key:
-        print(f"[YT_REQUEST] Post-upload API: ENABLED → {base_url}  station={sid}")
+        dir_disp = media_dir or "(root — full rescan)"
+        print(f"[YT_REQUEST] Post-upload API: ENABLED → {base_url}  station={sid}  media_dir={dir_disp}")
     else:
         print("[YT_REQUEST] Post-upload API: DISABLED (AZURA_BASE_URL / AZURA_API_KEY not set)")
 
@@ -352,11 +361,15 @@ def _azura_api_cfg() -> "dict | None":
     api_key  = (os.environ.get("AZURA_API_KEY") or "").strip()
     if not base_url or not api_key:
         return None
+    # AZURA_MEDIA_DIR — currentDirectory sent to the AzuraCast rescan API.
+    # This is a path relative to the station's media library root (NOT the
+    # SFTP filesystem path).  Leave empty ("") to rescan the entire library.
+    media_dir = (os.environ.get("AZURA_MEDIA_DIR") or "").strip()
     return {
         "base_url":   base_url,
         "api_key":    api_key,
         "station_id": (os.environ.get("AZURA_STATION_ID") or "1").strip(),
-        "folder":     (os.environ.get("AZURA_REQUESTS_FOLDER") or "Requests").strip(),
+        "folder":     media_dir,
     }
 
 def _azura_post_upload(filename: str) -> None:
