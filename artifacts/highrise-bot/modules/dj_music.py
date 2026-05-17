@@ -852,6 +852,122 @@ def _add_favorite(
         return False
 
 
+def _remove_favorite(user_id: str, title: str) -> bool:
+    """Delete one favorite row. Returns True if a row was removed."""
+    try:
+        conn = db.get_connection()
+        cur = conn.execute(
+            "DELETE FROM dj_favorites WHERE user_id=? AND lower(title)=lower(?)",
+            (user_id, title),
+        )
+        conn.commit()
+        conn.close()
+        return cur.rowcount > 0
+    except Exception:
+        return False
+
+
+def _rate_song(user_id: str, username: str, title: str, rating: str) -> str:
+    """
+    Upsert a like or dislike for a song.
+    Returns 'added' | 'changed' | 'same' | 'error'.
+    """
+    key = title.lower()[:150]
+    try:
+        conn = db.get_connection()
+        existing = conn.execute(
+            "SELECT rating FROM dj_ratings WHERE user_id=? AND song_key=?",
+            (user_id, key),
+        ).fetchone()
+        if existing:
+            if existing["rating"] == rating:
+                conn.close()
+                return "same"
+            conn.execute(
+                "UPDATE dj_ratings SET rating=?, username=?, rated_at=datetime('now') "
+                "WHERE user_id=? AND song_key=?",
+                (rating, username.lower(), user_id, key),
+            )
+            conn.commit()
+            conn.close()
+            return "changed"
+        conn.execute(
+            "INSERT INTO dj_ratings (user_id, username, song_key, rating) "
+            "VALUES (?, ?, ?, ?)",
+            (user_id, username.lower(), key, rating),
+        )
+        conn.commit()
+        conn.close()
+        return "added"
+    except Exception:
+        return "error"
+
+
+def _get_song_ratings(title: str) -> dict:
+    """Return {'likes': int, 'dislikes': int} for a song title."""
+    key = title.lower()[:150]
+    try:
+        conn = db.get_connection()
+        rows = conn.execute(
+            "SELECT rating, COUNT(*) AS cnt FROM dj_ratings "
+            "WHERE song_key=? GROUP BY rating",
+            (key,),
+        ).fetchall()
+        conn.close()
+        result: dict = {"likes": 0, "dislikes": 0}
+        for r in rows:
+            if r["rating"] == "like":
+                result["likes"] = r["cnt"]
+            elif r["rating"] == "dislike":
+                result["dislikes"] = r["cnt"]
+        return result
+    except Exception:
+        return {"likes": 0, "dislikes": 0}
+
+
+def _get_user_rating(user_id: str, title: str) -> str | None:
+    """Return 'like', 'dislike', or None for the user's vote on this song."""
+    key = title.lower()[:150]
+    try:
+        conn = db.get_connection()
+        row = conn.execute(
+            "SELECT rating FROM dj_ratings WHERE user_id=? AND song_key=?",
+            (user_id, key),
+        ).fetchone()
+        conn.close()
+        return row["rating"] if row else None
+    except Exception:
+        return None
+
+
+def _set_auto_dedication(user_id: str, message: str) -> str:
+    """
+    Set dedication on the user's own oldest pending song (auto-detected).
+    Returns song title on success; 'none' if no pending song; 'error' on failure.
+    """
+    try:
+        conn = db.get_connection()
+        row = conn.execute(
+            "SELECT id, title FROM dj_requests "
+            "WHERE status='pending' AND user_id=? "
+            "ORDER BY priority DESC, requested_at ASC LIMIT 1",
+            (user_id,),
+        ).fetchone()
+        if not row:
+            conn.close()
+            return "none"
+        clean = message[:120].strip()
+        conn.execute(
+            "UPDATE dj_requests SET dedication=? WHERE id=?",
+            (clean, row["id"]),
+        )
+        conn.commit()
+        conn.close()
+        return row["title"][:40]
+    except Exception:
+        return "error"
+
+
 def _get_djstats() -> dict:
     """Return aggregate stats: total requests, most active requester, uptime."""
     try:
@@ -2139,6 +2255,84 @@ async def handle_dj_favorites(bot: "BaseBot", user: "User") -> None:
     await _w(bot, user.id, "\n".join(lines)[:249])
 
 
+async def handle_dj_unfavorite(bot: "BaseBot", user: "User") -> None:
+    """!unfavorite  —  remove the current song from your favorites (public)."""
+    now = _get_nowplaying()
+    if not now:
+        await _w(bot, user.id,
+                 "🎵 Nothing is playing right now.\n"
+                 "Request a song with !request <song>!")
+        return
+    removed = _remove_favorite(user.id, now["title"])
+    if removed:
+        await _w(bot, user.id, f"💔 Removed from favorites: {now['title'][:55]}")
+    else:
+        await _w(bot, user.id,
+                 f"⭐ {now['title'][:50]}\nis not in your favorites.")
+
+
+async def handle_dj_like(bot: "BaseBot", user: "User") -> None:
+    """!like  —  like the currently playing song (public)."""
+    now = _get_nowplaying()
+    if not now:
+        await _w(bot, user.id,
+                 "🎵 Nothing is playing right now.\n"
+                 "Request a song with !request <song>!")
+        return
+    result  = _rate_song(user.id, user.username, now["title"], "like")
+    ratings = _get_song_ratings(now["title"])
+    score   = f"👍 {ratings['likes']} | 👎 {ratings['dislikes']}"
+    title40 = now["title"][:48]
+    if result == "same":
+        await _w(bot, user.id, f"👍 Already liked: {title40}\n{score}")
+    elif result == "changed":
+        await _w(bot, user.id, f"👍 Changed to like: {title40}\n{score}")
+    elif result == "added":
+        await _w(bot, user.id, f"👍 Liked: {now['title'][:58]}\n{score}")
+    else:
+        await _w(bot, user.id, "⚠️ Could not save rating. Try again.")
+
+
+async def handle_dj_dislike(bot: "BaseBot", user: "User") -> None:
+    """!dislike  —  dislike the currently playing song (public)."""
+    now = _get_nowplaying()
+    if not now:
+        await _w(bot, user.id,
+                 "🎵 Nothing is playing right now.\n"
+                 "Request a song with !request <song>!")
+        return
+    result  = _rate_song(user.id, user.username, now["title"], "dislike")
+    ratings = _get_song_ratings(now["title"])
+    score   = f"👍 {ratings['likes']} | 👎 {ratings['dislikes']}"
+    title44 = now["title"][:44]
+    if result == "same":
+        await _w(bot, user.id, f"👎 Already disliked: {title44}\n{score}")
+    elif result == "changed":
+        await _w(bot, user.id, f"👎 Changed to dislike: {title44}\n{score}")
+    elif result == "added":
+        await _w(bot, user.id, f"👎 Disliked: {now['title'][:55]}\n{score}")
+    else:
+        await _w(bot, user.id, "⚠️ Could not save rating. Try again.")
+
+
+async def handle_dj_songrating(bot: "BaseBot", user: "User") -> None:
+    """!songrating  —  show likes/dislikes for the current song (public)."""
+    now = _get_nowplaying()
+    if not now:
+        await _w(bot, user.id,
+                 "🎵 Nothing is playing right now.\n"
+                 "Request a song with !request <song>!")
+        return
+    ratings = _get_song_ratings(now["title"])
+    my_vote = _get_user_rating(user.id, now["title"])
+    my_str  = f" (you: {'👍' if my_vote == 'like' else '👎'})" if my_vote else ""
+    await _w(
+        bot, user.id,
+        (f"⭐ {now['title'][:55]}\n"
+         f"👍 {ratings['likes']} | 👎 {ratings['dislikes']}{my_str}")[:249],
+    )
+
+
 async def handle_dj_repeat(
     bot: "BaseBot", user: "User", args: list[str],
 ) -> None:
@@ -2760,19 +2954,39 @@ async def handle_dj_bump(
 async def handle_dj_dedicate(
     bot: "BaseBot", user: "User", args: list[str],
 ) -> None:
-    """!dedicate <n> <message>  —  add dedication to your queued song (public)."""
-    if len(args) < 3 or not args[1].isdigit():
+    """
+    !dedicate <message>          — dedication on your next queued song (auto)
+    !dedicate <queue#> <message> — dedication by queue position (admin: any slot)
+    """
+    if len(args) < 2:
         await _w(bot, user.id,
-                 "💌 Usage: !dedicate <queue number> <message>\n"
-                 "Adds a dedication shown when your song plays!")
+                 "💌 Usage: !dedicate <message>\n"
+                 "Or by position: !dedicate <#> <msg>\n"
+                 "Shown when your song plays!")
         return
-    pos     = int(args[1])
-    message = " ".join(args[2:]).strip()[:120]
-    result  = _set_dedication(pos, user.id, message, admin=is_admin(user.username))
-    if result == "nopos":
-        await _w(bot, user.id, f"🎵 No song at queue position #{pos}.")
-    elif result == "notowner":
-        await _w(bot, user.id, "💌 You can only dedicate your own songs!")
+
+    # If first arg is a digit, use positional behaviour (backward-compat)
+    if args[1].isdigit() and len(args) >= 3:
+        pos     = int(args[1])
+        message = " ".join(args[2:]).strip()[:120]
+        result  = _set_dedication(pos, user.id, message, admin=is_admin(user.username))
+        if result == "nopos":
+            await _w(bot, user.id, f"🎵 No song at queue position #{pos}.")
+        elif result == "notowner":
+            await _w(bot, user.id, "💌 You can only dedicate your own songs!")
+        elif result == "error":
+            await _w(bot, user.id, "⚠️ Could not set dedication. Try again.")
+        else:
+            await _w(bot, user.id, f"💌 Dedication set on: {result}\n♥ {message[:80]}")
+        return
+
+    # Auto-detect the user's own next pending song
+    message = " ".join(args[1:]).strip()[:120]
+    result  = _set_auto_dedication(user.id, message)
+    if result == "none":
+        await _w(bot, user.id,
+                 "💌 You have no songs in the queue right now.\n"
+                 "Request one with !request <song>!")
     elif result == "error":
         await _w(bot, user.id, "⚠️ Could not set dedication. Try again.")
     else:
@@ -3041,9 +3255,9 @@ async def handle_dj_help(bot: "BaseBot", user: "User") -> None:
          "💰 !priorityrequest | !djprice | !setdjprice\n"
          "⭐ !viprequest (subscribers free)\n"
          "!tipdj <amt> | !djleaderboard | !djstats\n"
-         "!priorityqueue | !djvibes\n"
-         "!dedicate <#> <msg> | !djreport <#>\n"
-         "!favorite | !favorites")[:249],
+         "!priorityqueue | !djvibes | !djreport <#>\n"
+         "!dedicate <msg> | !favorite | !unfavorite\n"
+         "!favorites | !like | !dislike | !songrating")[:249],
     )
     # Section 3 — Radio & Controls (public/admin mix)
     await _w(

@@ -444,6 +444,8 @@ from modules.dj_music import (
     handle_dj_setradio, handle_dj_radiostatus,
     handle_dj_webplayer, handle_dj_setwebplayer,
     handle_dj_nowpage, handle_dj_setnowpage,
+    handle_dj_unfavorite,
+    handle_dj_like, handle_dj_dislike, handle_dj_songrating,
     handle_dj_songinfo, handle_dj_recent, handle_dj_myrequests,
     handle_dj_cancelrequest, handle_dj_requeststatus,
     handle_dj_check, handle_dj_health, handle_dj_resetstate, handle_dj_backup,
@@ -1573,7 +1575,8 @@ DJ_COMMANDS: frozenset[str] = frozenset({
     "djstats", "djprice",
     "djleaderboard", "djtop",
     "priorityqueue", "pqueue",
-    "favorite", "favorites",
+    "favorite", "unfavorite", "favorites",
+    "like", "dislike", "songrating",
     "tipdj",
     "djvibes",
     "djreport",
@@ -7278,6 +7281,14 @@ class HangoutBot(BaseBot):
             await handle_dj_favorite(self, user)
         elif cmd == "favorites":
             await handle_dj_favorites(self, user)
+        elif cmd == "unfavorite":
+            await handle_dj_unfavorite(self, user)
+        elif cmd == "like":
+            await handle_dj_like(self, user)
+        elif cmd == "dislike":
+            await handle_dj_dislike(self, user)
+        elif cmd == "songrating":
+            await handle_dj_songrating(self, user)
         elif cmd == "repeat":
             await handle_dj_repeat(self, user, args)
         elif cmd == "shuffle":

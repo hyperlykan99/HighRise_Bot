@@ -3221,6 +3221,22 @@ def _migrate_db():
     except Exception:
         pass
 
+    # 3.2V — DJ song ratings (per-user like/dislike per song)
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS dj_ratings (
+                id        INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id   TEXT NOT NULL DEFAULT '',
+                username  TEXT NOT NULL DEFAULT '',
+                song_key  TEXT NOT NULL DEFAULT '',
+                rating    TEXT NOT NULL DEFAULT '',
+                rated_at  TEXT NOT NULL DEFAULT (datetime('now')),
+                UNIQUE(user_id, song_key)
+            )
+        """)
+    except Exception:
+        pass
+
     conn.commit()
     conn.close()
 
