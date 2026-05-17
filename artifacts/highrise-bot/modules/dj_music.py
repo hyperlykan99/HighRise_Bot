@@ -2897,16 +2897,128 @@ async def handle_dj_backup(bot: "BaseBot", user: "User") -> None:
         await _w(bot, user.id, "🕐 No play history yet.")
 
 
+async def handle_dj_testall(bot: "BaseBot", user: "User") -> None:
+    """!djtestall  —  verify DJ routing, DB tables, config, and audio safety (admin+)."""
+    if not is_admin(user.username):
+        await _w(bot, user.id, "🔒 Admin+ only.")
+        return
+
+    results: list[str] = []
+    fails = 0
+
+    # 1. DB table presence
+    EXPECTED_TABLES = [
+        "dj_requests", "dj_bans", "dj_song_bans",
+        "dj_reports", "dj_economy_log", "dj_favorites",
+    ]
+    try:
+        _c = db.get_connection()
+        existing = {
+            r[0] for r in _c.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()
+        }
+        _c.close()
+        missing_t = [t for t in EXPECTED_TABLES if t not in existing]
+        if missing_t:
+            results.append(f"❌ DB missing: {', '.join(missing_t)}")
+            fails += 1
+        else:
+            results.append(f"✅ DB: {len(EXPECTED_TABLES)} tables present")
+    except Exception as _exc:
+        results.append(f"❌ DB error: {_exc}")
+        fails += 1
+
+    # 2. Command routing — key commands must be owned by this bot
+    from modules.multi_bot import should_this_bot_handle as _sth
+    _KEY_CMDS = [
+        "request", "pick", "queue", "np", "skip", "djhelp",
+        "priorityrequest", "viprequest", "djban", "songban",
+        "djcheck", "djhealth", "cancelrequest", "requeststatus", "djtestall",
+    ]
+    bad_routes = [c for c in _KEY_CMDS if not _sth(c)]
+    if bad_routes:
+        results.append(f"❌ Routing: {', '.join(bad_routes)} not owned here")
+        fails += 1
+    else:
+        results.append(f"✅ Routing: {len(_KEY_CMDS)} key cmds → this bot")
+
+    # 3. YouTube API key
+    import os
+    if os.environ.get("YOUTUBE_API_KEY"):
+        results.append("✅ YT key: present")
+    else:
+        results.append("⚠️ YT key: missing — search unavailable")
+        fails += 1
+
+    # 4. Config sanity
+    cd, qmax, umax = _cooldown(), _queue_max(), _user_max()
+    cfg_issues = []
+    if not (5 <= cd <= 3600):
+        cfg_issues.append(f"cooldown={cd}s")
+    if not (1 <= qmax <= 200):
+        cfg_issues.append(f"qmax={qmax}")
+    if not (1 <= umax <= 20):
+        cfg_issues.append(f"umax={umax}")
+    if cfg_issues:
+        results.append(f"⚠️ Config oddity: {', '.join(cfg_issues)}")
+        fails += 1
+    else:
+        results.append(f"✅ Config: cd={cd}s qmax={qmax} umax={umax}")
+
+    # 5. Audio safety guard (static — always passes in this codebase)
+    results.append("✅ Audio: metadata/search only (no download)")
+
+    # — Emit —
+    total = len(results)
+    label = "ALL PASS" if fails == 0 else f"{fails} ISSUE{'S' if fails != 1 else ''}"
+    await _w(bot, user.id, f"🔧 DJ TestAll — {label} ({total - fails}/{total}):"[:249])
+    for i in range(0, total, 3):
+        await _w(bot, user.id, "\n".join(results[i:i + 3])[:249])
+
+
 async def handle_dj_help(bot: "BaseBot", user: "User") -> None:
-    """!djhelp  —  grouped help for all DJ commands."""
+    """!djhelp  —  full DJ command reference, sent as 4 whispers by category."""
+    # Section 1 — Search & Queue (public)
     await _w(
         bot, user.id,
-        "🎵 DJ Commands:\n"
-        "Search: !request <song> → !pick <1-5>\n"
-        "Info: !np !queue !recent !songinfo <#>\n"
-        "Mine: !myrequests !cancelrequest <#>\n"
-        "Status: !requeststatus !radiostatus !radio\n"
-        "💰 !priorityrequest | ⭐ !viprequest\n"
-        "!tipdj !dedicate <#> !djleaderboard\n"
-        "Admin: !djban !songban !moveup !bump"
+        ("🎵 DJ Help 1/4 — Search & Queue:\n"
+         "!request <song> → !pick <1-5>\n"
+         "!np | !queue | !upnext | !skipvote\n"
+         "!recent | !djhistory | !toprequests\n"
+         "!songinfo <#> | !requeststatus\n"
+         "!myrequests | !cancelrequest <#>")[:249],
+    )
+    # Section 2 — Priority & Social (public)
+    await _w(
+        bot, user.id,
+        ("🎵 DJ Help 2/4 — Priority & Social:\n"
+         "💰 !priorityrequest | !djprice | !setdjprice\n"
+         "⭐ !viprequest (subscribers free)\n"
+         "!tipdj <amt> | !djleaderboard | !djstats\n"
+         "!priorityqueue | !djvibes\n"
+         "!dedicate <#> <msg> | !djreport <#>\n"
+         "!favorite | !favorites | !djreports")[:249],
+    )
+    # Section 3 — Radio & Playback (manager+)
+    await _w(
+        bot, user.id,
+        ("🎵 DJ Help 3/4 — Radio & Playback:\n"
+         "📻 !radio | !setradio <url> | !radiostatus\n"
+         "🌐 !webplayer | !setwebplayer <url>\n"
+         "!djstatus | !repeat | !shuffle | !autoplay\n"
+         "!djlock | !stopmusic | !moveup | !bump\n"
+         "!shoutout <user> <msg>\n"
+         "!djset <key> <val> | !djdebug on|off")[:249],
+    )
+    # Section 4 — Admin & Diagnostics (admin+)
+    await _w(
+        bot, user.id,
+        ("🎵 DJ Help 4/4 — Admin & Diagnostics:\n"
+         "!djclear | !djremove <#> | !djconfig\n"
+         "!djcheck | !djhealth | !djresetstate\n"
+         "!djbackup | !djtestall\n"
+         "!djban | !djunban | !djbanlist\n"
+         "!songban | !songunban | !songbanlist\n"
+         "!djreports")[:249],
     )

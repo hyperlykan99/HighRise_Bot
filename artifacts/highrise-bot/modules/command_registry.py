@@ -488,6 +488,7 @@ REGISTRY: dict[str, Cmd] = {
     "djhealth":         Cmd("dj","music",  False,False, False, perm="manager"),
     "djresetstate":     Cmd("dj","music",  False,False, False, perm="owner"),
     "djbackup":         Cmd("dj","music",  False,False, False, perm="owner"),
+    "djtestall":        Cmd("dj","music",  False,False, False, perm="admin"),
     "djset":            Cmd("dj","music",  False,False, False, perm="admin"),
     "djdebug":          Cmd("dj","music",  False,False, False, perm="admin"),
     "djlock":           Cmd("dj","music",  False,False, False, perm="admin"),
