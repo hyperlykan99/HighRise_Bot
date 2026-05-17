@@ -168,6 +168,56 @@ def _get_routing(category: str, rarity: str) -> str:
 # Public announce functions (called from mining.py / fishing.py)
 # ---------------------------------------------------------------------------
 
+def _trigger_game_alert_dm(
+    category: str,
+    rarity: str,
+    username: str,
+    item_name: str,
+    emoji: str = "💎",
+) -> None:
+    """
+    Queue a 'games' category DM for all subscribed users when a prismatic or
+    exotic item is found/caught. The host DM queue loop delivers within 10s.
+    Only fires for prismatic/exotic — lower rarities are skipped.
+    """
+    if rarity not in ("prismatic", "exotic"):
+        return
+
+    rarity_label = "Prismatic" if rarity == "prismatic" else "Exotic"
+    verb         = "mined"   if category == "mining"  else "caught"
+    icon         = "⛏️"      if category == "mining"  else "🎣"
+
+    dm_msg = (
+        f"🎮 Game Alert\n"
+        f"{icon} @{username} {verb} a {rarity_label} {item_name}! {emoji}"
+    )[:249]
+
+    print(f"[GAME ALERT TRIGGER] type={category} rarity={rarity} user=@{username}")
+
+    try:
+        rows = db.get_notify_users_for_broadcast("games")
+    except Exception:
+        return
+
+    try:
+        from modules.dm_queue import queue_host_dm  # noqa: PLC0415
+    except Exception:
+        return
+
+    queued = 0
+    for row in rows:
+        uid     = row.get("user_id", "")
+        uname   = row.get("username", "")
+        conv_id = row.get("conversation_id", "")
+        if not conv_id:
+            print(f"[HOST ALERT SKIP] reason=no_conversation_id user=@{uname}")
+            continue
+        queue_host_dm(uid, uname, "game_alert", "games", dm_msg, conv_id)
+        queued += 1
+
+    print(f"[HOST ALERT QUEUE] category=games source={category} queued={queued}")
+
+
 async def send_big_mine_announce(bot, rarity: str, username: str,
                                   item_name: str, item_emoji: str = "💎",
                                   extra: str = "",
@@ -206,6 +256,9 @@ async def send_big_mine_announce(bot, rarity: str, username: str,
             )
         except Exception:
             pass
+
+    # Queue DM game alert for prismatic/exotic (subscribers with games ON)
+    _trigger_game_alert_dm("mining", rarity, username, item_name, item_emoji)
 
 
 async def send_big_fish_announce(bot, rarity: str, username: str,
@@ -246,6 +299,9 @@ async def send_big_fish_announce(bot, rarity: str, username: str,
             )
         except Exception:
             pass
+
+    # Queue DM game alert for prismatic/exotic (subscribers with games ON)
+    _trigger_game_alert_dm("fishing", rarity, username, fish_name, fish_emoji)
 
 
 # ---------------------------------------------------------------------------
@@ -339,6 +395,109 @@ async def _poll_react(bot, bot_mode: str, friendly: str) -> None:
 # ---------------------------------------------------------------------------
 # Command handlers
 # ---------------------------------------------------------------------------
+
+async def handle_testgamealert(bot, user, args: list[str]) -> None:
+    """
+    !testgamealert <fish|mine> <prismatic|exotic>
+    Owner-only: simulate a rare catch room announcement + DM game alert.
+    No inventory, reward, or stat changes.
+    """
+    if not is_owner(user.username):
+        await bot.highrise.send_whisper(user.id, "🔒 Owner only.")
+        return
+    if len(args) < 3:
+        await bot.highrise.send_whisper(
+            user.id,
+            "Usage:\n"
+            "!testgamealert fish prismatic\n"
+            "!testgamealert mine exotic",
+        )
+        return
+
+    cat_arg = args[1].lower()
+    rar_arg = args[2].lower()
+
+    if cat_arg in ("fish", "fishing"):
+        category   = "fishing"
+        item       = "Prismatic Test Fish" if rar_arg == "prismatic" else "Exotic Test Fish"
+        item_emoji = "🌈" if rar_arg == "prismatic" else "🔥"
+    elif cat_arg in ("mine", "mining"):
+        category   = "mining"
+        item       = "Prismatic Test Ore" if rar_arg == "prismatic" else "Exotic Test Ore"
+        item_emoji = "🌈" if rar_arg == "prismatic" else "🔥"
+    else:
+        await bot.highrise.send_whisper(user.id, "⚠️ Use: fish or mine")
+        return
+
+    if rar_arg not in ("prismatic", "exotic"):
+        await bot.highrise.send_whisper(user.id, "⚠️ Use: prismatic or exotic")
+        return
+
+    verb  = "caught" if category == "fishing" else "mined"
+    hdr   = _RARITY_HEADERS.get((category, rar_arg), "🎮 Game Announcement")
+    room_msg = f"{hdr}\n{item_emoji} @{user.username} {verb} {item}! (TEST)"
+    try:
+        await bot.highrise.chat(_safe_clip(room_msg, 220))
+    except Exception:
+        pass
+
+    _trigger_game_alert_dm(category, rar_arg, user.username, item, item_emoji)
+
+    await bot.highrise.send_whisper(
+        user.id,
+        f"🎮 Test alert fired!\n"
+        f"Category: games / {category}\n"
+        f"Rarity: {rar_arg}\n"
+        f"Check DMs from ChillTopiaBot.",
+    )
+
+
+async def handle_testeventalert(bot, user, args: list[str]) -> None:
+    """
+    !testeventalert firstfind
+    Owner-only: simulate a First Find room announcement + DM events alert.
+    No reward, race, or stat changes.
+    """
+    if not is_owner(user.username):
+        await bot.highrise.send_whisper(user.id, "🔒 Owner only.")
+        return
+    if len(args) < 2 or args[1].lower() not in ("firstfind", "first_find", "ff"):
+        await bot.highrise.send_whisper(
+            user.id, "Usage: !testeventalert firstfind"
+        )
+        return
+
+    room_msg = (
+        f"🏆 First Find Winner (TEST)\n"
+        f"@{user.username} found the first Prismatic test item!\n"
+        f"Reward: 5 gold"
+    )
+    try:
+        await bot.highrise.chat(room_msg[:249])
+    except Exception:
+        pass
+
+    dm_msg = (
+        f"🎉 Event Alert\n"
+        f"🏆 First Find Winner: @{user.username}\n"
+        f"Reward: 5 gold (test)"
+    )[:249]
+
+    try:
+        import asyncio as _aio
+        from modules.first_find import _ff_broadcast_events  # noqa: PLC0415
+        _aio.create_task(_ff_broadcast_events(bot, dm_msg))
+        print(f"[EVENT ALERT TRIGGER] type=first_find user=@{user.username}")
+    except Exception as exc:
+        print(f"[TEST EVENT ALERT] error: {exc!r}")
+
+    await bot.highrise.send_whisper(
+        user.id,
+        f"🎉 Test event alert fired!\n"
+        f"Category: events\n"
+        f"Check DMs from ChillTopiaBot.",
+    )
+
 
 async def handle_setbigannounce(bot, user, args: list[str]) -> None:
     """/setbigannounce <mining|fishing> <rarity> <mode>"""

@@ -1,0 +1,369 @@
+FIX RARE MINE/FISH CATCHES NOT NOTIFYING GAMES ALERTS
+
+Current issue:
+Players subscribed to Games alerts are NOT receiving DMs when rare mining/fishing catches happen.
+
+Expected:
+Prismatic/exotic fishing and mining finds should trigger game alerts.
+First Find winner/reward should trigger event alerts.
+
+Do NOT modify:
+- notification random DM behavior
+- main.py startup
+- on_message / DM parser
+- mining/fishing drop rates
+- mining/fishing reward math
+- player balances
+- economy math
+- badge/title systems
+- casino/poker logic
+
+Only fix:
+- rare catch/drop announcement hooks
+- game/event alert routing
+- host-only DM delivery
+
+==================================================
+PART 1 — Category Rules
+==================================================
+
+Use these categories:
+
+GAMES category:
+- prismatic fishing catch
+- exotic fishing catch
+- prismatic mining drop
+- exotic mining drop
+- rare game milestone if already supported
+
+EVENTS category:
+- First Find started
+- First Find winner
+- First Find reward paid
+- First Find pending reward notice if applicable
+
+Do NOT send First Find as games.
+Do NOT send prismatic/exotic catches as promos or announcements.
+
+==================================================
+PART 2 — Find Fishing Rare Catch Handler
+==================================================
+
+Find where fishing catches are resolved.
+
+Likely files:
+modules/fishing.py
+modules/fish.py
+modules/auto_fishing.py
+
+Search for:
+prismatic
+exotic
+rarity
+catch
+fish caught
+auto fish
+autofish
+
+When a player catches prismatic or exotic fish, trigger:
+
+Room message example:
+
+🎮 Game Announcement
+🎣 @Player caught a Prismatic Moon Koi!
+
+DM game alert example:
+
+🎮 Game Alert
+🎣 @Player caught a Prismatic Moon Koi!
+
+Rules:
+- Send DM only to subscribed users with games ON and DM connected.
+- DM must come from ChillTopiaBot / host only.
+- If fishing bot is not host, queue alert for host.
+- Do not send duplicate DMs.
+- Do not notify for common/uncommon/rare unless already intended.
+- Only prismatic/exotic.
+
+==================================================
+PART 3 — Find Mining Rare Drop Handler
+==================================================
+
+Find where mining drops are resolved.
+
+Likely files:
+modules/mining.py
+modules/mine.py
+modules/auto_mining.py
+
+Search for:
+prismatic
+exotic
+rarity
+ore
+mined
+auto mine
+automine
+
+When a player mines prismatic or exotic ore/item, trigger:
+
+Room message example:
+
+🎮 Game Announcement
+⛏️ @Player mined an Exotic Crystal Core!
+
+DM game alert example:
+
+🎮 Game Alert
+⛏️ @Player mined an Exotic Crystal Core!
+
+Rules:
+- Send DM only to subscribed users with games ON and DM connected.
+- DM must come from ChillTopiaBot / host only.
+- If mining bot is not host, queue alert for host.
+- Do not send duplicate DMs.
+- Do not notify for common/uncommon/rare unless already intended.
+- Only prismatic/exotic.
+
+==================================================
+PART 4 — Find First Find Handler
+==================================================
+
+Find First Find module.
+
+Likely file:
+modules/first_find.py
+
+Search for:
+first_find
+firstfind
+winner
+reward
+pending reward
+paypendingfirstfind
+setfirstfind
+
+First Find alerts should use EVENTS category.
+
+Room message example:
+
+🏆 First Find Winner
+@Player found the first Prismatic ore!
+Reward: 5 gold
+
+DM event alert example:
+
+🎉 Event Alert
+🏆 First Find Winner: @Player
+Reward: 5 gold
+
+Rules:
+- Category must be events.
+- Send DM only to subscribed users with events ON and DM connected.
+- DM must come from ChillTopiaBot / host only.
+- Do not change First Find reward math.
+- Do not change payout logic.
+- Do not duplicate messages.
+
+==================================================
+PART 5 — Use Existing Broadcast/Notify Helper
+==================================================
+
+Do not create a second notification system.
+
+Use the existing helper for category broadcasts if available.
+
+Look for functions like:
+send_category_alert
+broadcast_notification
+send_notify_broadcast
+queue_host_dm
+queue_game_alert
+queue_host_notification
+handle_gamealert
+handle_eventalert
+
+Preferred helper design:
+
+await send_category_alert(
+    bot=bot,
+    category="games",
+    message="🎮 Game Alert\n🎣 @Player caught a Prismatic Moon Koi!",
+    room_message="🎮 Game Announcement\n🎣 @Player caught a Prismatic Moon Koi!",
+)
+
+For First Find:
+
+await send_category_alert(
+    bot=bot,
+    category="events",
+    message="🎉 Event Alert\n🏆 First Find Winner: @Player\nReward: 5 gold",
+    room_message="🏆 First Find Winner\n@Player found the first Prismatic ore!\nReward: 5 gold",
+)
+
+If current bot is not ChillTopiaBot/host:
+- queue it for host
+- do not send DM directly
+
+Add logs:
+[GAME ALERT TRIGGER] type=fishing rarity=prismatic user=@player
+[GAME ALERT TRIGGER] type=mining rarity=exotic user=@player
+[EVENT ALERT TRIGGER] type=first_find user=@player
+[HOST ALERT QUEUE] category=games source=fishing
+[HOST ALERT SEND] category=games delivered=X skipped=Y failed=Z
+[HOST ALERT SKIP] reason=games_off
+[HOST ALERT SKIP] reason=no_conversation_id
+
+==================================================
+PART 6 — Avoid Duplicate Alerts
+==================================================
+
+Do not send duplicate alerts for:
+- same catch
+- same auto-fish result
+- same auto-mine result
+- same First Find winner
+
+If both manual fishing and auto-fishing use the same catch resolver, hook once in the shared resolver.
+
+If manual and auto have separate paths, hook both but use a duplicate guard if needed:
+event_key = user_id + item_name + timestamp/session_id
+
+==================================================
+PART 7 — Test Command
+==================================================
+
+Add owner-only test commands if safe:
+
+!testgamealert fish prismatic
+!testgamealert mine exotic
+!testeventalert firstfind
+
+Expected:
+They should simulate the alert without changing player inventory, rewards, or stats.
+
+Examples:
+
+!testgamealert fish prismatic
+
+Room:
+🎮 Game Announcement
+🎣 @TestPlayer caught a Prismatic Test Fish!
+
+DM to subscribers with Games ON:
+🎮 Game Alert
+🎣 @TestPlayer caught a Prismatic Test Fish!
+
+!testeventalert firstfind
+
+Room:
+🏆 First Find Winner
+@TestPlayer found the first Prismatic test item!
+Reward: 5 gold
+
+DM to subscribers with Events ON:
+🎉 Event Alert
+🏆 First Find Winner: @TestPlayer
+Reward: 5 gold
+
+==================================================
+PART 8 — QA Checks
+==================================================
+
+Update QA safely.
+
+Add checks:
+- fishing prismatic/exotic alert hook exists
+- mining prismatic/exotic alert hook exists
+- First Find uses events category
+- prismatic/exotic uses games category
+- game alerts use host-only DM delivery
+- no duplicate DM sender
+- !testgamealert command exists if added
+- !testeventalert command exists if added
+
+Do not run QA on startup.
+
+==================================================
+PART 9 — Compile
+==================================================
+
+Run:
+
+python -m py_compile main.py
+python -m py_compile database.py
+python -m py_compile modules/fishing.py
+python -m py_compile modules/mining.py
+python -m py_compile modules/first_find.py
+python -m py_compile modules/notify_system.py
+python -m py_compile modules/qa_test.py
+python -m py_compile modules/command_registry.py
+python -m py_compile modules/multi_bot.py
+
+Skip files that do not exist.
+
+==================================================
+PART 10 — Live Tests
+==================================================
+
+Before testing, make sure your account is subscribed:
+
+DM ChillTopiaBot:
+!sub
+
+Room:
+!notify games on
+!notify events on
+!notifysettings
+
+Expected:
+Games ON
+Events ON
+DM connected YES
+
+Test game alert command if added:
+!testgamealert fish prismatic
+!testgamealert mine exotic
+
+Expected:
+- Room game announcement appears
+- DM from ChillTopiaBot arrives
+- Category is games
+
+Test First Find event alert if added:
+!testeventalert firstfind
+
+Expected:
+- Room First Find announcement appears
+- DM from ChillTopiaBot arrives
+- Category is events
+
+Test real gameplay:
+- catch prismatic/exotic fish if possible
+- mine prismatic/exotic ore if possible
+- complete First Find if possible
+
+Expected:
+Prismatic/exotic catches trigger Games alerts.
+First Find winner/reward triggers Events alerts.
+
+Final checks:
+!commandissues
+!qatest all
+
+Expected:
+Commandissues clean.
+QA all passes.
+
+Final report:
+1. Fishing rare alert hook file/function
+2. Mining rare alert hook file/function
+3. First Find alert hook file/function
+4. Prismatic/exotic category = games
+5. First Find category = events
+6. Host-only DM delivery confirmed
+7. Test command result
+8. Real or simulated alert result
+9. Py_compile result
+10. !commandissues result
+11. !qatest all result

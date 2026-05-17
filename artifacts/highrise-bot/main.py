@@ -688,6 +688,7 @@ from modules.big_announce import (
     handle_setbotbigreact, handle_bigannounce_help,
     handle_previewannounce,
     startup_big_announce_reactor,
+    handle_testgamealert, handle_testeventalert,
 )
 from modules.control_panel import (
     handle_control, handle_ownerpanel, handle_managerpanel,
@@ -3503,6 +3504,12 @@ class HangoutBot(BaseBot):
         # ── Early owner-only routes (bypass STAFF_CMDS block) ────────────────
         if cmd == "previewannounce":
             await handle_previewannounce(self, user, args)
+            return
+        elif cmd == "testgamealert":
+            await handle_testgamealert(self, user, args)
+            return
+        elif cmd == "testeventalert":
+            await handle_testeventalert(self, user, args)
             return
 
         # ── Jail teleport escape block ────────────────────────────────────────

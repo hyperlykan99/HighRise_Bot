@@ -1,0 +1,368 @@
+FIX ECONOMY ACTIONS NOT TRIGGERING STAFF ALERT DMS
+
+Current issue:
+Staff economy alerts are not being sent when economy actions happen.
+
+Expected:
+If staff/owner has:
+!staffalerts on
+!staffalerts economy on
+DM connected YES
+
+Then important economy actions should send staff economy alert DMs from ChillTopiaBot only.
+
+Do NOT modify:
+- notification random DM behavior
+- main.py startup
+- on_message / DM parser
+- player balance math
+- coin transfer math
+- Luxe Ticket math
+- VIP math
+- casino/poker/mining/fishing logic
+- badge/title systems
+
+Only fix:
+- economy event hooks
+- staff economy alert delivery
+- economy alert debug/audit display if needed
+
+==================================================
+PART 1 — Verify Manual Economy Alert
+==================================================
+
+Make sure this works first:
+
+!staffalert economy test
+
+Expected DM from ChillTopiaBot:
+
+💰 Economy Alert Test
+Economy category is working.
+
+If this does not work, fix staff alert economy category delivery first.
+
+==================================================
+PART 2 — Find Actual Economy Handlers
+==================================================
+
+Find the live handlers for:
+
+!send
+!tip
+!addcoins
+!removecoins
+!setcoins
+!editcoins
+!buycoins
+!confirmbuycoins
+!buyvip
+!givegold / gold tip if present
+failed transactions if logged
+
+Likely files:
+economy.py
+modules/economy.py
+modules/banking.py
+modules/luxe.py
+modules/vip.py
+modules/admin_cmds.py
+main.py
+
+Add staff economy alert hooks AFTER the economy action succeeds.
+
+Do not send economy alert if the transaction failed or was cancelled.
+
+==================================================
+PART 3 — Economy Alert Triggers
+==================================================
+
+Trigger staff economy alerts for:
+
+1. Large player transfer
+Example:
+!send @player 100000
+
+Threshold:
+Use existing threshold if one exists.
+If none exists, default to 100,000 Chill Coins.
+
+DM:
+
+💰 Economy Alert
+Large transfer detected
+From: @sender
+To: @receiver
+Amount: 100,000 🪙
+Review: !ledger @sender
+
+2. Admin coin add/remove/set/edit
+
+DM:
+
+💰 Economy Alert
+Admin coin change
+Admin: @admin
+Target: @player
+Action: addcoins
+Amount: 10,000 🪙
+Review: !ledger @player
+
+3. Large Luxe conversion / buycoins max
+
+When !confirmbuycoins succeeds after !buycoins max:
+
+💰 Economy Alert
+Large Luxe conversion
+User: @player
+Spent: 999 🎟️
+Received: 999,000 🪙
+Review: !ledger @player
+
+Only alert if above threshold or if max buy.
+
+4. VIP purchase
+
+DM:
+
+💰 Economy Alert
+VIP Purchase
+User: @player
+Package: [package/duration]
+Cost: [amount] 🎟️/🪙
+
+5. Failed or suspicious transaction if already detected
+
+DM:
+
+💰 Economy Alert
+Transaction failed
+User: @player
+Reason: insufficient funds / validation error
+
+Do not invent suspicious detection if it does not exist yet.
+Only hook existing failure points.
+
+==================================================
+PART 4 — Use Staff Alert Category: economy
+==================================================
+
+All economy alerts must use category:
+
+economy
+
+Send only to staff/admin/owners who:
+- have staffalerts ON
+- have economy ON
+- have DM connected
+- have permission to receive staff alerts
+
+Do not send to normal players.
+Do not send publicly.
+Do not send through BankerBot DM.
+All DMs must come from ChillTopiaBot / host only.
+
+If current bot is not ChillTopiaBot/host:
+- queue alert for host
+- do not DM directly
+
+Logs:
+
+[ECONOMY ALERT TRIGGER] type=large_transfer from=@sender to=@receiver amount=100000
+[ECONOMY ALERT TRIGGER] type=admin_coin_change admin=@admin target=@player amount=10000
+[STAFF ALERT QUEUE] category=economy target=@staff
+[STAFF ALERT SEND] category=economy target=@staff status=sent
+[STAFF ALERT SKIP] category=economy target=@staff reason=economy_off
+[STAFF ALERT SKIP] category=economy target=@staff reason=no_conversation_id
+[STAFF ALERT SKIP] category=economy target=@staff reason=staffalerts_off
+
+==================================================
+PART 5 — Debug Command
+==================================================
+
+Add or verify owner command:
+
+!economyalertdebug @user
+
+Output:
+
+💰 Economy Alert Debug: @User
+Staff role: owner/admin/mod/staff/none
+Staff alerts: ON/OFF
+Economy category: ON/OFF
+DM connected: YES/NO
+Can receive economy alerts: YES/NO
+Reason: ...
+
+Also make sure:
+
+!staffalertaudit @user
+
+shows:
+Economy: ON/OFF
+Can receive economy alerts: YES/NO
+
+==================================================
+PART 6 — Manual Economy Alert Test
+==================================================
+
+Add or verify:
+
+!staffalert economy test
+
+This must use the SAME helper that real economy actions use.
+
+Expected DM:
+
+💰 Economy Alert Test
+Economy category is working.
+
+If this works but real !send does not, then !send is not calling the economy alert helper.
+
+==================================================
+PART 7 — Do Not Spam
+==================================================
+
+Do not send economy alerts for every tiny transaction unless admin configured it.
+
+Suggested default:
+- alert for player transfers >= 100,000 🪙
+- alert for all admin coin edits
+- alert for !buycoins max confirmation if large
+- alert for VIP purchases
+- alert for failed/suspicious transactions if already tracked
+
+No alert for:
+- !daily
+- small game rewards
+- small normal transfers
+- normal mining/fishing rewards
+- normal casino payouts unless casino alert category handles big wins separately
+
+==================================================
+PART 8 — QA Coverage
+==================================================
+
+Update QA safely.
+
+Add checks:
+- economy staff alert category exists
+- !staffalert economy test works
+- !economyalertdebug exists
+- !send large transfer hook exists
+- admin coin edit hook exists
+- buycoins max confirm hook exists if buycoins exists
+- economy alerts use category economy
+- economy alerts use host-only DM delivery
+
+Do not run QA on startup.
+
+==================================================
+PART 9 — Compile
+==================================================
+
+Run:
+
+python -m py_compile main.py
+python -m py_compile database.py
+python -m py_compile economy.py
+python -m py_compile modules/economy.py
+python -m py_compile modules/banking.py
+python -m py_compile modules/luxe.py
+python -m py_compile modules/vip.py
+python -m py_compile modules/admin_cmds.py
+python -m py_compile modules/notify_system.py
+python -m py_compile modules/qa_test.py
+python -m py_compile modules/command_registry.py
+python -m py_compile modules/multi_bot.py
+
+Skip missing files.
+
+==================================================
+PART 10 — Live Tests
+==================================================
+
+Setup:
+
+DM ChillTopiaBot:
+!sub
+
+Room:
+!staffalerts on
+!staffalerts economy on
+!staffalerts settings
+!staffalertaudit @4ktreyMarion
+!economyalertdebug @4ktreyMarion
+
+Expected:
+Staff alerts ON
+Economy ON
+DM connected YES
+Can receive economy alerts YES
+
+Manual test:
+
+!staffalert economy test
+
+Expected DM from ChillTopiaBot:
+💰 Economy Alert Test
+Economy category is working.
+
+Large transfer test:
+Use an alt/test user if available.
+
+!send @testuser 100000
+
+Expected:
+If transfer succeeds, staff with economy ON receives DM:
+
+💰 Economy Alert
+Large transfer detected
+From: @4ktreyMarion
+To: @testuser
+Amount: 100,000 🪙
+Review: !ledger @4ktreyMarion
+
+Admin coin edit test if safe:
+
+!addcoins @testuser 1000
+
+Expected staff DM:
+
+💰 Economy Alert
+Admin coin change
+Admin: @4ktreyMarion
+Target: @testuser
+Action: addcoins
+Amount: 1,000 🪙
+
+Buycoins max test if safe:
+
+!buycoins max
+!confirmbuycoins
+
+Expected:
+If purchase succeeds and is large/max, economy alert DM is sent.
+
+Final checks:
+
+!commandissues
+!qatest all
+
+Expected:
+Commandissues clean.
+QA all passes.
+
+Final report:
+1. Manual economy staff alert result
+2. Actual !send handler file/function
+3. Actual admin coin edit handler file/function
+4. Actual buycoins confirm handler file/function
+5. Economy hooks added
+6. Threshold used for large transfer
+7. !economyalertdebug result
+8. Large transfer test result
+9. Admin coin edit test result
+10. py_compile result
+11. !commandissues result
+12. !qatest all result
