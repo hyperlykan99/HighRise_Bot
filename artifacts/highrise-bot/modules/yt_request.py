@@ -44,7 +44,7 @@ import time
 from typing import TYPE_CHECKING, Callable
 
 import database as db
-from modules.permissions import is_admin
+from modules.permissions import is_admin, is_owner
 
 if TYPE_CHECKING:
     from highrise import BaseBot, User
@@ -461,14 +461,24 @@ async def handle_ytrequest(bot: "BaseBot", user: "User", args: list[str]) -> Non
         )
         return
 
-    # Per-user cooldown
-    cd       = _cooldown_secs()
-    last     = _cooldowns.get(user.id, 0.0)
-    elapsed  = time.time() - last
-    if elapsed < cd:
-        remaining = int(cd - elapsed)
-        await _w(bot, user.id, f"⏳ Cooldown: {remaining}s before your next YT request.")
-        return
+    # Per-user cooldown — owners bypass entirely, admins get 30 s flat
+    _owner = is_owner(user.username)
+    _admin = not _owner and is_admin(user.username)
+    if _owner:
+        cd = 0
+    elif _admin:
+        cd = 30
+    else:
+        cd = _cooldown_secs()
+
+    if cd > 0:
+        last    = _cooldowns.get(user.id, 0.0)
+        elapsed = time.time() - last
+        if elapsed < cd:
+            remaining = int(cd - elapsed)
+            role_hint = "admin" if _admin else "user"
+            await _w(bot, user.id, f"⏳ Cooldown ({role_hint}): {remaining}s remaining.")
+            return
 
     # Queue capacity check
     with _jobs_lock:
