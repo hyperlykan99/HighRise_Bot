@@ -41,7 +41,7 @@ import shutil
 import tempfile
 import threading
 import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 
 import database as db
 from modules.permissions import is_admin
@@ -210,26 +210,38 @@ def _download_step(url: str, tmpdir: str) -> tuple[dict, str]:
 _SFTP_CONNECT_TIMEOUT  = 30   # seconds — TCP connect + SSH handshake + auth
 _SFTP_TRANSFER_TIMEOUT = 180  # seconds — per-channel socket timeout for file transfer
 
-def _sftp_step(mp3_path: str) -> None:
+def _sftp_step(
+    mp3_path: str,
+    on_put_done: Callable[[], None],
+) -> None:
     """
-    Upload mp3_path to AzuraCast via SFTP.
+    Blocking SFTP upload.  Runs inside a daemon thread started by _run_job.
 
-    Success is declared the moment sftp.put() returns without raising —
-    the bytes are on the server at that point.  sftp.close() / ssh.close()
-    are best-effort cleanup; they must never block or propagate a failure.
+    Design contract
+    ───────────────
+    • on_put_done() is called the INSTANT sftp.put() returns without raising.
+      The caller uses this to signal the async layer and whisper success
+      immediately — before this function does any cleanup.
+    • on_put_done() is NOT called if upload fails; the exception propagates
+      normally and the thread wrapper signals the error instead.
+    • sftp.close() / ssh.close() happen after on_put_done() in the same thread
+      and are fully fire-and-forget: they are wrapped in try/except and can
+      never propagate an exception or block the bot.
 
-    Timeouts:
-      - TCP connect / SSH handshake / auth : _SFTP_CONNECT_TIMEOUT  (30 s)
-      - sftp.put() file transfer channel  : _SFTP_TRANSFER_TIMEOUT (180 s)
-      - post-upload close (best-effort)   : 5 s  (shortened before cleanup)
+    Timeouts
+    ────────
+    • TCP connect + SSH handshake + auth : _SFTP_CONNECT_TIMEOUT  (30 s)
+    • sftp.put() transfer channel        : _SFTP_TRANSFER_TIMEOUT (180 s)
+    • post-upload cleanup close          : 5 s  (channel timeout shortened)
 
-    Log lines emitted:
-      [YT_SFTP] Connecting …
+    Log lines (always in order for a successful upload)
+    ────────────────────────────────────────────────────
+      [YT_SFTP] Connecting → …
       [YT_SFTP] SFTP connected
-      [YT_SFTP] Upload started → <remote_path>
-      [YT_SFTP] Upload 25/50/75/100% …
+      [YT_SFTP] Upload started → <path>
+      [YT_SFTP] Upload 25 / 50 / 75 / 100 % …
       [YT_SFTP] Upload finished ✓ — <N> bytes
-      [YT_SFTP] Connection closed
+      [YT_SFTP] SFTP closed
     """
     import paramiko
 
@@ -262,54 +274,66 @@ def _sftp_step(mp3_path: str) -> None:
                 look_for_keys=False,
                 allow_agent=False,
             )
-        except paramiko.AuthenticationException as auth_exc:
-            print(f"[YT_SFTP] Auth failed — check AZURA_SFTP_USER / AZURA_SFTP_PASS: {auth_exc}")
+        except paramiko.AuthenticationException as exc:
+            print(f"[YT_SFTP] Auth failed — check AZURA_SFTP_USER / AZURA_SFTP_PASS: {exc}")
             raise
-        except Exception as conn_exc:
-            print(f"[YT_SFTP] Connection failed — check AZURA_SFTP_HOST / AZURA_SFTP_PORT: {conn_exc}")
+        except Exception as exc:
+            print(f"[YT_SFTP] Connection failed — check AZURA_SFTP_HOST / AZURA_SFTP_PORT: {exc}")
             raise
 
         print("[YT_SFTP] SFTP connected")
 
-        # ── 2. Open SFTP channel with extended transfer timeout ──────────────
+        # ── 2. Open channel; set transfer timeout ────────────────────────────
         sftp = ssh.open_sftp()
         sftp.get_channel().settimeout(_SFTP_TRANSFER_TIMEOUT)
 
-        # ── 3. Upload — progress logged at every 25 % milestone ─────────────
+        # ── 3. Upload with 25 % progress milestones ──────────────────────────
         _milestone = [0]
 
         def _progress(transferred: int, total: int) -> None:
             if not total:
                 return
-            pct           = int(transferred * 100 / total)
-            next_mark     = ((_milestone[0] // 25) + 1) * 25
+            pct       = int(transferred * 100 / total)
+            next_mark = ((_milestone[0] // 25) + 1) * 25
             if pct >= next_mark <= 100:
                 _milestone[0] = next_mark
-                print(
-                    f"[YT_SFTP] Upload {next_mark}%"
-                    f" ({transferred:,} / {total:,} bytes)"
-                )
+                print(f"[YT_SFTP] Upload {next_mark}% ({transferred:,} / {total:,} bytes)")
 
-        print(f"[YT_SFTP] Upload started → {remote_path} (timeout={_SFTP_TRANSFER_TIMEOUT}s)")
+        print(f"[YT_SFTP] Upload started → {remote_path}")
         sftp.put(mp3_path, remote_path, callback=_progress)
 
-        # ── 4. sftp.put() returned — file is on the server.  SUCCESS. ────────
-        print(f"[YT_SFTP] Upload finished ✓ — {file_size:,} bytes → {remote_path}")
+        # ── 4. PUT RETURNED — file is on the server ───────────────────────────
+        #    Signal success to the async layer RIGHT NOW before any cleanup.
+        print(f"[YT_SFTP] Upload finished ✓ — {file_size:,} bytes")
+        on_put_done()
 
-    finally:
-        # ── 5. Best-effort cleanup — shorten timeout so close never blocks ───
-        # We do NOT raise from here; the upload result is already decided above.
+        # ── 5. Cleanup (fire-and-forget; never raises) ────────────────────────
+        #    Shorten channel timeout so close() doesn't wait long for ACK.
+        try:
+            sftp.get_channel().settimeout(5)
+            sftp.close()
+        except Exception as exc:
+            print(f"[YT_SFTP] sftp.close() warning (ignored): {exc}")
+        try:
+            ssh.close()
+            print("[YT_SFTP] SFTP closed")
+        except Exception as exc:
+            print(f"[YT_SFTP] ssh.close() warning (ignored): {exc}")
+
+    except Exception:
+        # Upload failed before on_put_done() was called.
+        # Best-effort cleanup, then re-raise so the thread wrapper can signal error.
         if sftp is not None:
             try:
                 sftp.get_channel().settimeout(5)
                 sftp.close()
-            except Exception as close_exc:
-                print(f"[YT_SFTP] sftp.close() warning (ignored): {close_exc}")
+            except Exception:
+                pass
         try:
             ssh.close()
-            print("[YT_SFTP] Connection closed")
-        except Exception as ssh_close_exc:
-            print(f"[YT_SFTP] ssh.close() warning (ignored): {ssh_close_exc}")
+        except Exception:
+            pass
+        raise
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Async pipeline orchestrator
@@ -317,14 +341,18 @@ def _sftp_step(mp3_path: str) -> None:
 
 async def _run_job(bot: "BaseBot", job: dict) -> None:
     """
-    Orchestrate the full pipeline for one job, sending status whispers at each
-    step.  Runs download and upload in the thread executor so the event loop is
-    never blocked.
+    Orchestrate the full pipeline for one job.
+
+    Download step   — run_in_executor (blocks until audio file is ready).
+    Upload step     — daemon thread + asyncio.Event so the bot whispers
+                      success the instant sftp.put() returns; cleanup of the
+                      SSH connection happens in the background without ever
+                      blocking the event loop or delaying the success whisper.
     """
-    jid     = job["id"]
-    uid     = job["user_id"]
-    tmpdir  = tempfile.mkdtemp(prefix="ytr_")
-    loop    = asyncio.get_running_loop()
+    jid    = job["id"]
+    uid    = job["user_id"]
+    tmpdir = tempfile.mkdtemp(prefix="ytr_")
+    loop   = asyncio.get_running_loop()
 
     try:
         # ── Step 1: Download + convert ──────────────────────────────────────
@@ -337,22 +365,49 @@ async def _run_job(bot: "BaseBot", job: dict) -> None:
         title = (info.get("title") or "Unknown")[:160]
         _update_job(jid, title=title)
 
-        # ── Step 2: SFTP upload ─────────────────────────────────────────────
+        # ── Step 2: SFTP upload (fire-and-forget after put completes) ────────
         _update_job(jid, status="uploading")
-        await _w(bot, uid, f"📤 Uploading to AzuraCast… (up to {_SFTP_TRANSFER_TIMEOUT}s)\n🎵 {title}")
-        print(f"[YT_REQUEST] Job #{jid} — starting SFTP upload for: {title[:80]}")
+        await _w(bot, uid, f"📤 Uploading to AzuraCast…\n🎵 {title}")
+        print(f"[YT_REQUEST] Job #{jid} — SFTP upload starting: {title[:80]}")
 
+        # asyncio.Event signalled by the upload thread the moment sftp.put()
+        # returns.  _run_job unblocks HERE and whispers success immediately;
+        # the thread keeps running to close the connection in the background.
+        upload_done: asyncio.Event        = asyncio.Event()
+        upload_exc:  list[BaseException | None] = [None]
+
+        def _on_put_done() -> None:
+            """Called by _sftp_step from the upload thread after put() succeeds."""
+            loop.call_soon_threadsafe(upload_done.set)
+
+        def _upload_thread() -> None:
+            try:
+                _sftp_step(mp3_path, _on_put_done)
+            except Exception as exc:
+                # Upload failed; store error and unblock the waiter.
+                upload_exc[0] = exc
+                loop.call_soon_threadsafe(upload_done.set)
+
+        t = threading.Thread(
+            target=_upload_thread,
+            daemon=True,
+            name=f"ytr_upload_{jid}",
+        )
         upload_start = time.time()
-        await loop.run_in_executor(None, _sftp_step, mp3_path)
+        t.start()
+
+        # Wait only until sftp.put() finishes — NOT until ssh.close() finishes.
+        await upload_done.wait()
         upload_secs = time.time() - upload_start
 
-        # ── Done ────────────────────────────────────────────────────────────
+        if upload_exc[0] is not None:
+            raise upload_exc[0]
+
+        # ── Done: whisper success immediately after put() ────────────────────
         _update_job(jid, status="done", finished_at=time.time())
-        print(f"[YT_REQUEST] Job #{jid} — done in {upload_secs:.1f}s upload: {title[:80]}")
-        await _w(
-            bot, uid,
-            f"✅ Added to Requests playlist!\n🎵 {title}"
-        )
+        print(f"[YT_REQUEST] Job #{jid} — success in {upload_secs:.1f}s: {title[:80]}")
+        await _w(bot, uid, f"✅ Added to Requests playlist!\n🎵 {title}")
+        # Background thread is still closing the SSH connection — that's fine.
 
     except Exception as exc:
         err = str(exc)[:120]
@@ -361,6 +416,8 @@ async def _run_job(bot: "BaseBot", job: dict) -> None:
         await _w(bot, uid, f"❌ YT Request failed:\n{err}")
 
     finally:
+        # Temp dir removed here; upload thread may still be running ssh.close()
+        # but it holds no reference to tmpdir so this is safe.
         shutil.rmtree(tmpdir, ignore_errors=True)
 
 # ─────────────────────────────────────────────────────────────────────────────
