@@ -247,7 +247,7 @@ def _dj_announce() -> bool:
 _pending_searches:    dict[str, tuple[float, list[dict]]] = {}
 _search_request_type: dict[str, str] = {}   # "normal" | "priority" | "vip"
 
-_SEARCH_TTL: int = 180   # seconds
+_SEARCH_TTL: int = 120   # seconds — !pick sessions expire after 2 minutes
 
 # user_ids who have voted to skip the current playing row
 # keyed to the current playing row id so votes reset automatically on advance
@@ -258,6 +258,14 @@ _bot_start_time:  float = time.time()   # epoch when this bot process started
 _playing_since:   float = 0.0           # epoch when current song began playing
 _playback_task:   "asyncio.Task[None] | None" = None  # auto-advance timer
 _repeat_song:     dict | None = None    # copy of currently playing row for !repeat
+
+# Per-user like/dislike rate-limit  (in-memory — resets on restart)
+_like_cooldowns:  dict[str, float] = {}  # { user_id: last_rating_epoch }
+_LIKE_CD_SECS:    int              = 30  # seconds between ratings per user
+
+# Milestone announce spam guard (in-memory — resets on restart)
+_last_milestone_ts:     float = 0.0  # epoch of last milestone room-chat
+_ANNOUNCE_MILESTONE_CD: int   = 60   # min seconds between milestone announces
 
 # DJ personality hype lines (used when dj_personality=on, ~40% chance per song)
 _HYPE_LINES: list[str] = [
@@ -719,6 +727,15 @@ async def _yt_search(query: str, max_results: int = 5) -> tuple[list[dict], str]
 def _store_search(
     user_id: str, results: list[dict], req_type: str = "normal",
 ) -> None:
+    if user_id in _pending_searches:
+        old_ts, _ = _pending_searches[user_id]
+        age = time.monotonic() - old_ts
+        if age < _SEARCH_TTL:
+            print(
+                f"[DJ] search session overwrite uid={user_id} "
+                f"(previous session was {age:.0f}s old — still active)",
+                flush=True,
+            )
     _pending_searches[user_id]    = (time.monotonic(), results)
     _search_request_type[user_id] = req_type
 
@@ -1396,7 +1413,7 @@ def _cancel_request(
 
 
 # ---------------------------------------------------------------------------
-# Announce helpers  (up-next peek · queue milestones)
+# Announce helpers  (up-next peek · milestones · spam guards · like rate-limit)
 # ---------------------------------------------------------------------------
 
 _MILESTONE_SIZES: frozenset[int] = frozenset({5, 10, 15, 20, 25, 30})
@@ -1413,6 +1430,36 @@ def _queue_milestone_msg(total: int) -> str | None:
     if total in _MILESTONE_SIZES:
         return f"🎧 Queue has {total} songs waiting!"
     return None
+
+
+async def _maybe_announce_milestone(bot: "BaseBot", total: int) -> None:
+    """Fire a milestone room-chat only if it hits a threshold and cooldown allows."""
+    global _last_milestone_ts
+    ms = _queue_milestone_msg(total)
+    if not ms:
+        return
+    now_ts = time.time()
+    if now_ts - _last_milestone_ts < _ANNOUNCE_MILESTONE_CD:
+        print(
+            f"[DJ] milestone announce suppressed by spam guard "
+            f"({now_ts - _last_milestone_ts:.0f}s since last): {ms}",
+            flush=True,
+        )
+        return
+    _last_milestone_ts = now_ts
+    await _chat(bot, ms)
+
+
+def _check_like_cooldown(user_id: str) -> int:
+    """Return remaining like/dislike cooldown in seconds (0 = clear to rate)."""
+    last = _like_cooldowns.get(user_id, 0.0)
+    remaining = _LIKE_CD_SECS - (time.time() - last)
+    return max(0, int(remaining))
+
+
+def _set_like_cooldown(user_id: str) -> None:
+    """Record that this user just rated a song."""
+    _like_cooldowns[user_id] = time.time()
 
 
 # ---------------------------------------------------------------------------
@@ -1698,9 +1745,7 @@ async def handle_dj_pick(
             f"🎵 @{name} added: {pick['title'][:55]}{dur} (#{pos} in queue)"
         )
         if _dj_announce():
-            ms = _queue_milestone_msg(total_q)
-            if ms:
-                await _chat(bot, ms)
+            await _maybe_announce_milestone(bot, total_q)
 
 
 async def handle_dj_queue(bot: "BaseBot", user: "User") -> None:
@@ -2286,6 +2331,104 @@ async def handle_dj_announcequeue(bot: "BaseBot", user: "User") -> None:
     await _chat(bot, "\n".join(lines)[:249])
 
 
+async def handle_dj_limits(bot: "BaseBot", user: "User") -> None:
+    """!djlimits  —  show current queue limits and cooldowns (public)."""
+    await _w(
+        bot, user.id,
+        (f"🛡️ DJ Limits:\n"
+         f"⏳ Request cooldown: {_cooldown()}s | Per-user max: {_user_max()} songs\n"
+         f"📋 Queue max: {_queue_max()} | 🔍 Search expires: {_SEARCH_TTL}s\n"
+         f"💬 Rating cooldown: {_LIKE_CD_SECS}s per user\n"
+         f"Admin: !setrequestcooldown | !setmaxqueue | !setmaxuserqueue")[:249],
+    )
+
+
+async def handle_dj_setrequestcooldown(
+    bot: "BaseBot", user: "User", args: list[str],
+) -> None:
+    """!setrequestcooldown <secs>  —  set per-user request cooldown (admin)."""
+    if not is_admin(user.username):
+        await _w(bot, user.id, "🔒 Admin only.")
+        return
+    if len(args) < 2 or not args[1].isdigit():
+        await _w(bot, user.id,
+                 f"⏳ Usage: !setrequestcooldown <seconds>\n"
+                 f"Current: {_cooldown()}s  (range: 5–3600)")
+        return
+    val = int(args[1])
+    if not (5 <= val <= 3600):
+        await _w(bot, user.id, "⚠️ Cooldown must be between 5 and 3600 seconds.")
+        return
+    db.set_room_setting(_CFG_COOLDOWN, str(val))
+    await _w(bot, user.id, f"⏳ Request cooldown set to {val}s.")
+
+
+async def handle_dj_setmaxuserqueue(
+    bot: "BaseBot", user: "User", args: list[str],
+) -> None:
+    """!setmaxuserqueue <n>  —  set max pending songs per user (admin)."""
+    if not is_admin(user.username):
+        await _w(bot, user.id, "🔒 Admin only.")
+        return
+    if len(args) < 2 or not args[1].isdigit():
+        await _w(bot, user.id,
+                 f"🎵 Usage: !setmaxuserqueue <number>\n"
+                 f"Current: {_user_max()}  (range: 1–10)")
+        return
+    val = int(args[1])
+    if not (1 <= val <= 10):
+        await _w(bot, user.id, "⚠️ User max must be between 1 and 10.")
+        return
+    db.set_room_setting(_CFG_USER_MAX, str(val))
+    await _w(bot, user.id, f"🎵 Max songs per user set to {val}.")
+
+
+async def handle_dj_setmaxqueue(
+    bot: "BaseBot", user: "User", args: list[str],
+) -> None:
+    """!setmaxqueue <n>  —  set global queue max size (admin)."""
+    if not is_admin(user.username):
+        await _w(bot, user.id, "🔒 Admin only.")
+        return
+    if len(args) < 2 or not args[1].isdigit():
+        await _w(bot, user.id,
+                 f"📋 Usage: !setmaxqueue <number>\n"
+                 f"Current: {_queue_max()}  (range: 1–50)")
+        return
+    val = int(args[1])
+    if not (1 <= val <= 50):
+        await _w(bot, user.id, "⚠️ Queue max must be between 1 and 50.")
+        return
+    db.set_room_setting(_CFG_QUEUE_MAX, str(val))
+    await _w(bot, user.id, f"📋 Queue max set to {val}.")
+
+
+async def handle_dj_cleanup(bot: "BaseBot", user: "User") -> None:
+    """!djcleanup  —  purge expired pending search sessions (admin)."""
+    if not is_admin(user.username):
+        await _w(bot, user.id, "🔒 Admin only.")
+        return
+    now = time.monotonic()
+    expired = [
+        uid for uid, (ts, _) in list(_pending_searches.items())
+        if now - ts >= _SEARCH_TTL
+    ]
+    for uid in expired:
+        _pending_searches.pop(uid, None)
+        _search_request_type.pop(uid, None)
+    active = len(_pending_searches)
+    print(
+        f"[DJ] djcleanup: removed {len(expired)} expired session(s), "
+        f"{active} still active",
+        flush=True,
+    )
+    await _w(
+        bot, user.id,
+        f"🧹 Cleanup: {len(expired)} expired session(s) removed.\n"
+        f"Active searches: {active}"
+    )
+
+
 async def handle_dj_stats(bot: "BaseBot", user: "User") -> None:
     """!djstats  —  aggregate DJ statistics (public)."""
     s = _get_djstats()
@@ -2355,6 +2498,12 @@ async def handle_dj_like(bot: "BaseBot", user: "User") -> None:
                  "🎵 Nothing is playing right now.\n"
                  "Request a song with !request <song>!")
         return
+    wait = _check_like_cooldown(user.id)
+    if wait > 0:
+        print(f"[DJ] like spam blocked: user={user.username} wait={wait}s", flush=True)
+        await _w(bot, user.id, f"⏳ Wait {wait}s before rating again.")
+        return
+    _set_like_cooldown(user.id)
     result  = _rate_song(user.id, user.username, now["title"], "like")
     ratings = _get_song_ratings(now["title"])
     score   = f"👍 {ratings['likes']} | 👎 {ratings['dislikes']}"
@@ -2377,6 +2526,12 @@ async def handle_dj_dislike(bot: "BaseBot", user: "User") -> None:
                  "🎵 Nothing is playing right now.\n"
                  "Request a song with !request <song>!")
         return
+    wait = _check_like_cooldown(user.id)
+    if wait > 0:
+        print(f"[DJ] dislike spam blocked: user={user.username} wait={wait}s", flush=True)
+        await _w(bot, user.id, f"⏳ Wait {wait}s before rating again.")
+        return
+    _set_like_cooldown(user.id)
     result  = _rate_song(user.id, user.username, now["title"], "dislike")
     ratings = _get_song_ratings(now["title"])
     score   = f"👍 {ratings['likes']} | 👎 {ratings['dislikes']}"
@@ -3322,7 +3477,7 @@ async def handle_dj_help(bot: "BaseBot", user: "User") -> None:
          "!np | !queue | !upnext | !skipvote\n"
          "!recent | !djhistory | !toprequests\n"
          "!songinfo <#> | !requeststatus\n"
-         "!myrequests | !cancelrequest <#>")[:249],
+         "!myrequests | !cancelrequest <#> | !djlimits")[:249],
     )
     # Section 2 — Priority & Social (public)
     await _w(
@@ -3352,8 +3507,9 @@ async def handle_dj_help(bot: "BaseBot", user: "User") -> None:
         ("🎵 DJ Help 4/4 — Admin & Diagnostics:\n"
          "!djclear | !djremove <#> | !djconfig\n"
          "!djcheck | !djhealth | !djresetstate\n"
-         "!djbackup | !djtestall | !shoutout\n"
+         "!djbackup | !djtestall\n"
          "!djban | !djunban | !djbanlist\n"
          "!songban | !songunban | !songbanlist\n"
-         "!djreports")[:249],
+         "!djreports | !djcleanup\n"
+         "!setrequestcooldown | !setmaxqueue | !setmaxuserqueue")[:249],
     )

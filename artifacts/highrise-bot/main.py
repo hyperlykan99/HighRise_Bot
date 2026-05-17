@@ -447,6 +447,9 @@ from modules.dj_music import (
     handle_dj_unfavorite,
     handle_dj_like, handle_dj_dislike, handle_dj_songrating,
     handle_dj_announce, handle_dj_announcequeue,
+    handle_dj_limits,
+    handle_dj_setrequestcooldown, handle_dj_setmaxuserqueue, handle_dj_setmaxqueue,
+    handle_dj_cleanup,
     handle_dj_songinfo, handle_dj_recent, handle_dj_myrequests,
     handle_dj_cancelrequest, handle_dj_requeststatus,
     handle_dj_check, handle_dj_health, handle_dj_resetstate, handle_dj_backup,
@@ -1588,6 +1591,9 @@ DJ_COMMANDS: frozenset[str] = frozenset({
     "setradio", "setwebplayer",
     "setnowpage",
     "djannounce", "announcequeue",
+    "djlimits",
+    "setrequestcooldown", "setmaxuserqueue", "setmaxqueue",
+    "djcleanup",
     "djlock", "djclear", "djremove",
     "stopmusic", "djstop", "clearqueue",
     "djconfig", "djsettings",
@@ -7265,6 +7271,16 @@ class HangoutBot(BaseBot):
             await handle_dj_announce(self, user, args)
         elif cmd == "announcequeue":
             await handle_dj_announcequeue(self, user)
+        elif cmd == "djlimits":
+            await handle_dj_limits(self, user)
+        elif cmd == "setrequestcooldown":
+            await handle_dj_setrequestcooldown(self, user, args)
+        elif cmd == "setmaxuserqueue":
+            await handle_dj_setmaxuserqueue(self, user, args)
+        elif cmd == "setmaxqueue":
+            await handle_dj_setmaxqueue(self, user, args)
+        elif cmd == "djcleanup":
+            await handle_dj_cleanup(self, user)
         elif cmd == "djlock":
             await handle_dj_lock(self, user, args)
         elif cmd == "djclear":
