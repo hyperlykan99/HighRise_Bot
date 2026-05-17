@@ -78,6 +78,17 @@ async def handle_report(bot: BaseBot, user: User, args: list[str]) -> None:
     )
     set_user_cooldown("report", user.id)
     await _w(bot, user.id, f"✅ Report #{report_id} submitted. Staff will review it.")
+    try:
+        from modules.staff_alerts import queue_staff_alert  # noqa: PLC0415
+        queue_staff_alert(
+            "reports",
+            f"🚨 Report #{report_id}\n"
+            f"From: @{user.username}\n"
+            f"Against: @{target}\n"
+            f"Reason: {reason[:80]}",
+        )
+    except Exception:
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -108,6 +119,16 @@ async def handle_bug(bot: BaseBot, user: User, args: list[str]) -> None:
     )
     set_user_cooldown("report", user.id)
     await _w(bot, user.id, f"🐞 Bug #{report_id} submitted. Thank you!")
+    try:
+        from modules.staff_alerts import queue_staff_alert  # noqa: PLC0415
+        queue_staff_alert(
+            "reports",
+            f"🐞 Bug #{report_id}\n"
+            f"From: @{user.username}\n"
+            f"Details: {reason[:100]}",
+        )
+    except Exception:
+        pass
 
 
 # ---------------------------------------------------------------------------

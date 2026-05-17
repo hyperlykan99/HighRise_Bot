@@ -3055,6 +3055,59 @@ def _migrate_db():
     except Exception:
         pass
 
+    # 3.2J — Host DM queue (any bot enqueues; only host/all bot sends)
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS host_dm_queue (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id         TEXT NOT NULL DEFAULT '',
+                username        TEXT NOT NULL DEFAULT '',
+                conversation_id TEXT NOT NULL DEFAULT '',
+                dm_type         TEXT NOT NULL DEFAULT 'direct',
+                category        TEXT NOT NULL DEFAULT '',
+                message         TEXT NOT NULL DEFAULT '',
+                status          TEXT NOT NULL DEFAULT 'pending',
+                error           TEXT NOT NULL DEFAULT '',
+                created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+                sent_at         TEXT NOT NULL DEFAULT ''
+            )
+        """)
+    except Exception:
+        pass
+
+    # 3.2K — Staff alert user preferences (per-category DM opt-in)
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS staff_alert_users (
+                user_id    TEXT PRIMARY KEY NOT NULL DEFAULT '',
+                username   TEXT NOT NULL DEFAULT '',
+                alerts_on  INTEGER NOT NULL DEFAULT 1,
+                security   INTEGER NOT NULL DEFAULT 1,
+                reports    INTEGER NOT NULL DEFAULT 1,
+                economy    INTEGER NOT NULL DEFAULT 0,
+                casino     INTEGER NOT NULL DEFAULT 0,
+                bothealth  INTEGER NOT NULL DEFAULT 0,
+                events     INTEGER NOT NULL DEFAULT 1,
+                qa         INTEGER NOT NULL DEFAULT 0,
+                updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+        """)
+    except Exception:
+        pass
+
+    # 3.2L — Auto session summary opt-in settings per user
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS auto_summary_settings (
+                user_id    TEXT PRIMARY KEY NOT NULL DEFAULT '',
+                username   TEXT NOT NULL DEFAULT '',
+                enabled    INTEGER NOT NULL DEFAULT 1,
+                updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+        """)
+    except Exception:
+        pass
+
     conn.commit()
     conn.close()
 

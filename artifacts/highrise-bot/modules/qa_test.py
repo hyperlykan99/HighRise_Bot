@@ -292,6 +292,16 @@ async def _deliver_report(
         if len(failures) > 5:
             chunk += f"\n…+{len(failures) - 5} more — use !qatest failed"
         await _w(bot, user.id, chunk[:249])
+        try:
+            from modules.staff_alerts import queue_staff_alert  # noqa: PLC0415
+            queue_staff_alert(
+                "qa",
+                f"🧪 QA {suite.title()} FAILED\n"
+                f"Passed: {passed}  Failed: {failed}\n"
+                f"{failures[0][:100]}",
+            )
+        except Exception:
+            pass
     else:
         await _w(bot, user.id, "✅ All checks passed.")
 

@@ -416,6 +416,13 @@ from modules.reports import (
     handle_report, handle_bug, handle_myreports,
     handle_reports, handle_reportinfo, handle_closereport, handle_reportwatch,
 )
+from modules.staff_alerts import (
+    handle_staffalerts, handle_staffalert_test,
+    handle_staffalertaudit, handle_staffsubcount,
+)
+from modules.autosummary import (
+    handle_autosummary, handle_minesummary, handle_fishsummary,
+)
 from modules.moderation import (
     handle_mute, handle_unmute, handle_mutes,
     handle_mutestatus, handle_forceunmute,
@@ -6298,6 +6305,8 @@ class HangoutBot(BaseBot):
 
         elif cmd == "lastfishsummary":
             await handle_lastfishsummary(self, user, args)
+        elif cmd == "fishsummary":
+            await handle_fishsummary(self, user, args)
 
         elif cmd in {"fishautosell", "autosellfish"}:
             await handle_fishautosell(self, user, args)
@@ -6493,6 +6502,10 @@ class HangoutBot(BaseBot):
 
         elif cmd == "lastminesummary":
             await handle_lastminesummary(self, user, args)
+        elif cmd == "minesummary":
+            await handle_minesummary(self, user, args)
+        elif cmd == "autosummary":
+            await handle_autosummary(self, user, args)
 
         elif cmd in {"topcollectors", "topore", "toporecollectors"}:
             if cmd == "topore":
@@ -7108,6 +7121,12 @@ class HangoutBot(BaseBot):
             await handle_alert(self, user, args)
         elif cmd == "staffalert":
             await handle_staffalert(self, user, args)
+        elif cmd == "staffalerts":
+            await handle_staffalerts(self, user, args)
+        elif cmd == "staffalertaudit":
+            await handle_staffalertaudit(self, user, args)
+        elif cmd == "staffsubcount":
+            await handle_staffsubcount(self, user)
         elif cmd == "vipalert":
             await handle_vipalert(self, user, args)
         elif cmd == "clearalerts":

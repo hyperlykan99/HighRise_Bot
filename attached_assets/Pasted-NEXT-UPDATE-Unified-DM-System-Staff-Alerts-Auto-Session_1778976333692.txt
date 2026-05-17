@@ -1,0 +1,846 @@
+NEXT UPDATE — Unified DM System + Staff Alerts + Auto Session Summaries + Game Announcements
+
+Current stable state:
+- Bots are online.
+- !botstatus is clean.
+- !commandissues is clean.
+- !qatest all passes.
+- Notification system had previous issues, so be careful.
+
+Goal:
+Create a clean unified direct-message design where ONLY ChillTopiaBot sends DMs.
+Add staff alert categories.
+Add auto-mine / auto-fish session summaries.
+Allow useful help/guide commands in DM.
+Route prismatic/exotic/first-find shouts to game announcements.
+
+Do NOT modify:
+- main.py startup unless needed for DM routing only
+- Highrise room join logic
+- casino payout math
+- poker gameplay logic
+- mining/fishing drop math
+- player balances
+- badge/title ownership
+- notification subscription math
+- database destructive reset
+
+Important:
+Do not rebuild the whole notification system again.
+Do not wipe notification data.
+Do not wipe player data.
+This update is routing/display/DM ownership only.
+
+==================================================
+PART 1 — One DM Sender Rule
+==================================================
+
+All direct messages must come from ChillTopiaBot / host bot only.
+
+This includes:
+
+- !sub / !unsub DM replies
+- broadcast announcements
+- event/game/promo/tip alerts
+- help/guide DM replies
+- auto-mine summaries
+- auto-fish summaries
+- requested summaries
+- staff alerts
+- report alerts
+- bot health alerts
+- QA failure alerts
+
+Other bots must NOT send direct messages.
+
+Examples:
+MinerBot may handle mining.
+FisherBot may handle fishing.
+PokerBot may handle poker.
+BankerBot may handle economy.
+But ChillTopiaBot is the only DM sender.
+
+If another bot needs to send a DM:
+- save/queue the message for ChillTopiaBot
+OR
+- call a shared DM queue helper that only ChillTopiaBot processes
+
+Do not let multiple bots DM the same player.
+
+Add logs:
+[DM ROUTE] queued_for_host user=@name type=auto_fish_summary
+[DM HOST SEND] user=@name type=auto_fish_summary status=sent
+[DM BLOCKED] bot=fisher reason=host_only_dm
+
+==================================================
+PART 2 — DM Queue Table / Helper
+==================================================
+
+Add a safe queued DM system if one does not exist.
+
+Suggested table:
+
+host_dm_queue
+
+Fields:
+id INTEGER PRIMARY KEY AUTOINCREMENT
+user_id TEXT
+username TEXT
+conversation_id TEXT
+dm_type TEXT
+category TEXT
+message TEXT
+status TEXT DEFAULT 'pending'
+created_at TEXT
+sent_at TEXT
+error TEXT
+
+Allowed statuses:
+pending
+sent
+skipped
+failed
+
+Helper functions:
+queue_host_dm(user_id, username, dm_type, category, message)
+process_host_dm_queue(bot)
+send_host_dm(bot, user_id, message, dm_type)
+
+Rules:
+- Only ChillTopiaBot / host processes this queue.
+- Other bots can insert queue rows but cannot send DMs directly.
+- If no conversation_id exists, mark skipped or pending_no_conversation.
+- Do not crash if DM fails.
+- Keep messages under Highrise message limit.
+- Do not spam: one summary per completed auto session.
+
+==================================================
+PART 3 — DM Command Behavior
+==================================================
+
+DMs should support useful commands, but random DMs must stay silent.
+
+Allowed DM commands:
+
+Notification consent:
+!sub
+!subscribe
+!unsub
+!unsubscribe
+
+Help/guide commands:
+!help
+!guide
+!shop
+!games
+!badgehelp
+!titlehelp
+!minehelp
+!fishhelp
+!pokerhelp
+!casinohelp
+!luxehelp
+!vipstatus
+
+Personal summary commands:
+!autosummary
+!minesummary
+!fishsummary
+
+Staff/admin commands if permitted:
+!staffhelp
+!adminhelp
+!botstatus
+!commandissues
+!qatest quick
+!qatest all
+!qatest failed
+
+Ignored in DM:
+hello
+.
+ok
+?
+thanks
+test
+random text
+!notifysettings
+!notify events on
+!notify tips off
+
+Important:
+- Random DMs still get no reply.
+- DM notification settings stay room-only.
+- !notifysettings in DM should be ignored.
+- !notify category on/off in DM should be ignored.
+- Do not break the existing !sub / !unsub exact-command behavior.
+
+==================================================
+PART 4 — DM Help Replies
+==================================================
+
+When a user DMs help commands, ChillTopiaBot should reply in DM.
+
+Examples:
+
+DM:
+!help
+
+Reply:
+
+👋 ChillTopia Help
+💰 Balance: !bal
+🎁 Daily: !daily
+🛍️ Shop: !shop
+🎮 Games: !games
+⚙️ Settings: room only
+
+Second DM if needed:
+
+🎖️ Badges: !badgehelp
+🏷️ Titles: !titlehelp
+📖 Guide: !guide
+🔔 Alerts: DM !sub / !unsub
+
+DM:
+!guide
+
+Reply:
+
+📖 ChillTopia Guide
+Start: !daily
+Balance: !bal
+Games: !games
+Shop: !shop
+Badges: !badgehelp
+Titles: !titlehelp
+
+DM:
+!shop
+
+Reply:
+
+🛍️ ChillTopia Shop
+🏷️ Titles: !titleshop
+🎖️ Badges: !badgeshop
+🎟️ Luxe: !luxehelp
+💎 VIP: !vipstatus
+
+Rules:
+- Use same clean menu style as room menus.
+- Do not call room whisper methods for DM help.
+- Use ChillTopiaBot DM only.
+- Permission-check staff/admin commands.
+
+==================================================
+PART 5 — Auto-Mine / Auto-Fish Session Summary DMs
+==================================================
+
+When a player's auto-mine or auto-fish session ends, send a personal DM summary through ChillTopiaBot only.
+
+This is NOT the same as announcement/promo subscription.
+This is a personal session receipt.
+
+A player can receive auto summaries if:
+- conversation_id exists
+- auto summary DMs are ON
+
+Add setting commands in room and DM if safe:
+
+!autosummary
+!autosummary on
+!autosummary off
+!minesummary
+!fishsummary
+
+Expected:
+!autosummary shows last auto session.
+!autosummary on enables personal session DM summaries.
+!autosummary off disables personal session DM summaries.
+
+Default:
+If user has DM linked and uses auto-mine/auto-fish, auto summary can be ON by default.
+If user turns it OFF, respect it.
+
+Auto-mine complete DM:
+
+⛏️ Auto-Mine Complete
+Duration: 30m
+Mined: 124 times
+Ores: 89
+Rare finds: 3
+Coins earned: 12,450 🪙
+XP earned: 340
+
+Check: !mineinv
+
+Auto-fish complete DM:
+
+🎣 Auto-Fish Complete
+Duration: 30m
+Catches: 97
+Fish kept: 82
+Rare catches: 2
+Coins earned: 9,800 🪙
+XP earned: 290
+
+Check: !fishinv
+
+Requested summary:
+
+📊 Last Auto Session
+Type: Fishing
+Duration: 30m
+Catches: 97
+Rare catches: 2
+Coins earned: 9,800 🪙
+XP earned: 290
+Ended: 5m ago
+
+Rules:
+- Do not change mining/fishing reward math.
+- Do not change auto session timing.
+- Only summarize data already tracked.
+- If some stats are unavailable, show available stats only.
+- Do not crash if no previous session exists.
+
+If no summary exists:
+
+📊 Auto Summary
+No completed auto session found yet.
+
+==================================================
+PART 6 — Staff Alerts System
+==================================================
+
+Add staff alert categories separate from normal player alerts.
+
+Player alerts remain:
+announcements
+promos
+events
+games
+tips
+
+Staff alerts:
+security
+reports
+economy
+casino
+bothealth
+events
+qa
+
+Commands:
+
+!staffalerts
+!staffalerts on
+!staffalerts off
+!staffalerts settings
+!staffalerts security on/off
+!staffalerts reports on/off
+!staffalerts economy on/off
+!staffalerts casino on/off
+!staffalerts bothealth on/off
+!staffalerts events on/off
+!staffalerts qa on/off
+
+Owner/admin tools:
+
+!staffalert test
+!staffalert message
+!staffalertaudit @staff
+!staffsubcount
+
+Permissions:
+- Staff alerts are only for staff/mod/admin/owner.
+- Normal players cannot enable staff alerts.
+- Permission-check every staff alert command.
+
+Default categories:
+
+Owners:
+security ON
+reports ON
+economy ON
+casino ON
+bothealth ON
+events ON
+qa ON
+
+Admins:
+security ON
+reports ON
+economy ON
+casino ON
+bothealth ON
+events ON
+qa OFF
+
+Mods:
+security ON
+reports ON
+economy OFF
+casino OFF
+bothealth OFF
+events ON
+qa OFF
+
+Staff:
+reports ON
+events ON
+everything else OFF
+
+Rules:
+- Staff alerts go by DM through ChillTopiaBot only.
+- Do not send staff alerts from MinerBot/FisherBot/PokerBot directly.
+- If staff has no DM conversation ID, show instruction when they run !staffalerts:
+  DM ChillTopiaBot !sub first to link DM.
+
+==================================================
+PART 7 — Staff Alert Examples
+==================================================
+
+Security alert:
+
+🚨 Security Alert
+User: @player
+Reason: spam detected
+Action: muted 10m
+
+Report alert:
+
+📣 New Report
+From: @player
+Type: Bug
+Message: poker froze
+Review: !reports
+
+Economy alert:
+
+💰 Economy Alert
+Large transfer detected
+@player sent 1,000,000 🪙 to @other
+Review: !ledger @player
+
+Casino alert:
+
+🎰 Casino Alert
+Big win: @player won 500,000 🪙
+Game: Blackjack
+
+Bot health alert:
+
+🤖 Bot Health
+Poker bot is STALE.
+Check: !botstatus
+
+Event alert:
+
+🎉 Event Alert
+Mining Rush started.
+Duration: 30m
+
+QA alert:
+
+🧪 QA Alert
+!qatest all failed.
+Failed: 3
+Runner: @staff
+Check: !qatest failed
+
+==================================================
+PART 8 — QA Alert Behavior
+==================================================
+
+Do NOT alert all staff every time someone runs !qatest.
+
+Correct behavior:
+
+If staff runs:
+!qatest quick
+!qatest notify
+!qatest economy
+!qatest all
+
+And it passes:
+- only the runner gets the result
+- no staff alert
+
+If !qatest all fails:
+- runner gets full result
+- owners get QA alert if staffalerts qa ON
+- admins may get QA alert only if they enabled qa ON
+- mods/staff do not receive QA alerts by default
+
+Example QA failure staff alert:
+
+🧪 QA Alert
+!qatest all failed.
+Failed: 3
+Runner: @staffname
+Check: !qatest failed
+
+Rules:
+- No spam for successful QA.
+- No alert loops.
+- Do not run QA automatically on startup.
+
+==================================================
+PART 9 — Player Reports / Bug Alerts
+==================================================
+
+When a player uses:
+!report
+!bug
+!feedback if applicable
+
+Send staff alert to staff with reports ON.
+
+Example:
+
+📣 New Player Report
+From: @player
+Type: Bug
+Message: blackjack froze
+Check: !reports
+
+Rules:
+- Do not expose staff-only tools to players.
+- Do not DM all normal subscribers.
+- Staff alert only.
+
+==================================================
+PART 10 — Game Announcements For Rare Finds
+==================================================
+
+Prismatic, exotic, and first-find rewards should go to game announcements.
+
+These are public/game category announcements, not random DMs.
+
+Triggers:
+- prismatic fishing catch
+- exotic fishing catch
+- prismatic mining drop
+- exotic mining drop
+- first-find winner
+- first-find reward payout
+- optional: jackpot/big win if already supported
+
+Expected room announcements:
+
+🎮 Game Announcement
+🎣 @Player caught a Prismatic Moon Koi!
+
+🎮 Game Announcement
+⛏️ @Player mined an Exotic Crystal Core!
+
+🏆 First Find Winner
+@Player found the first Prismatic ore!
+Reward: 5 gold
+
+Rules:
+- Send to room/game announcement channel using existing announcement style if available.
+- Category should be games.
+- If subscribed players have Games alerts ON, they may receive game alert DM through ChillTopiaBot only.
+- Do not use promo/announcement category for these.
+- Do not spam common/rare finds.
+- Only prismatic/exotic/first-find level events.
+
+==================================================
+PART 11 — Game Alert Notification Routing
+==================================================
+
+If game announcements are also sent as subscribed DM alerts:
+
+Required:
+Subscribed: YES
+Games: ON
+DM connected: YES
+= receive DM from ChillTopiaBot
+
+Do not send if:
+Subscribed: NO
+Games: OFF
+No conversation ID
+
+DM format:
+
+🎮 Game Alert
+🎣 @Player caught a Prismatic Moon Koi!
+
+or:
+
+🎮 Game Alert
+🏆 First Find Winner: @Player
+Reward: 5 gold
+
+Rules:
+- DM comes only from ChillTopiaBot.
+- Room announcement can come from the game bot if that is current behavior, but DM must be host-only.
+- Avoid duplicate DMs.
+
+==================================================
+PART 12 — Announcement / Promo / Event / Game / Tip Delivery
+==================================================
+
+Keep existing player categories:
+
+announcements
+promos
+events
+games
+tips
+
+Expected:
+!announcement sends to subscribed players with announcements ON.
+!promo sends to subscribed players with promos ON.
+!eventalert sends to subscribed players with events ON.
+!gamealert sends to subscribed players with games ON.
+!tipalert sends to subscribed players with tips ON.
+
+All DMs must come from ChillTopiaBot only.
+
+Do not change DM consent rules:
+- DM !sub subscribes
+- DM !unsub unsubscribes
+- random DMs ignored
+- room !notifysettings manages settings
+- DM !notifysettings ignored
+
+==================================================
+PART 13 — Data Safety
+==================================================
+
+Do not wipe existing notification or player data.
+
+If adding new tables:
+- use CREATE TABLE IF NOT EXISTS
+- use safe migrations
+- do not crash if columns already exist
+- do not run destructive resets
+
+Suggested new tables:
+host_dm_queue
+staff_alert_users
+auto_summary_settings
+auto_session_summaries
+
+Do not change existing table names unless necessary.
+
+==================================================
+PART 14 — Help Menus
+==================================================
+
+Add/update help text:
+
+!notifyhelp should mention:
+
+🔔 Player Alerts
+Start: DM !sub
+Stop: DM !unsub
+Settings: !notifysettings
+Edit: !notify games on/off
+
+!staffalerts should show:
+
+🛡️ Staff Alerts
+Status: ON/OFF
+Security: ON/OFF
+Reports: ON/OFF
+Economy: ON/OFF
+Casino: ON/OFF
+Bot Health: ON/OFF
+Events: ON/OFF
+QA: ON/OFF
+
+Edit:
+!staffalerts reports on/off
+!staffalerts bothealth on/off
+
+!autosummary should show:
+
+📊 Auto Summary
+Status: ON/OFF
+Last: !autosummary
+Mining: !minesummary
+Fishing: !fishsummary
+
+==================================================
+PART 15 — QA Coverage
+==================================================
+
+Update QA safely.
+
+Add checks:
+- Only host/ChillTopiaBot sends DMs
+- random DM still ignored
+- DM !sub still works
+- DM !unsub still works
+- DM !help returns help
+- DM !guide returns guide
+- DM !notifysettings ignored
+- !staffalerts command exists
+- staff alert categories exist
+- QA alert only fires on failed QA, not passed QA
+- !autosummary command exists
+- !minesummary command exists
+- !fishsummary command exists
+- game announcement category for prismatic/exotic/first-find exists
+- !announcement still maps to announcements
+- !gamealert still maps to games
+
+Do not run QA on startup.
+
+==================================================
+PART 16 — Compile
+==================================================
+
+Run:
+
+python -m py_compile main.py
+python -m py_compile database.py
+python -m py_compile modules/notify_system.py
+python -m py_compile modules/subscribers.py
+python -m py_compile modules/notifications.py
+python -m py_compile modules/notif_v2.py
+python -m py_compile modules/qa_test.py
+python -m py_compile modules/command_registry.py
+python -m py_compile modules/multi_bot.py
+python -m py_compile modules/reports.py
+python -m py_compile modules/fishing.py
+python -m py_compile modules/mining.py
+python -m py_compile modules/first_find.py
+python -m py_compile modules/help_cmds.py
+python -m py_compile modules/qol_cmds.py
+
+Skip files that do not exist.
+
+==================================================
+PART 17 — Live Tests
+==================================================
+
+Test DM silence:
+
+DM ChillTopiaBot:
+hello
+.
+ok
+?
+
+Expected:
+No reply.
+
+Test DM help:
+
+DM ChillTopiaBot:
+!help
+!guide
+!shop
+!games
+
+Expected:
+DM help replies from ChillTopiaBot only.
+
+Test notification consent:
+
+DM ChillTopiaBot:
+!sub
+
+Expected:
+Alerts: ON
+To unsubscribe, reply !unsub or !unsubscribe.
+
+Room:
+!notify games on
+!notify announcements on
+!notifysettings
+
+Expected:
+Games ON
+Announcements ON
+
+Test announcement:
+
+Room owner:
+!announcement test announcement
+
+Expected:
+Subscribed players with announcements ON receive DM from ChillTopiaBot.
+
+Test game alert:
+
+Room owner:
+!gamealert test game alert
+
+Expected:
+Subscribed players with games ON receive DM from ChillTopiaBot.
+
+Test unsub:
+
+DM ChillTopiaBot:
+!unsub
+
+Expected:
+Alerts: OFF
+
+Then:
+!announcement should not DM unsubscribed user.
+
+Test auto summary commands:
+
+!autosummary
+!autosummary on
+!autosummary off
+!minesummary
+!fishsummary
+
+Expected:
+Commands respond without crash.
+
+Test staff alerts:
+
+As owner/admin:
+!staffalerts
+!staffalerts reports on
+!staffalert test
+!staffalertaudit @staff
+!staffsubcount
+
+Expected:
+Only permitted staff can use them.
+DMs sent by ChillTopiaBot only.
+
+Test QA:
+
+!qatest all
+!commandissues
+
+Expected:
+!qatest all passes.
+!commandissues clean.
+
+==================================================
+PART 18 — Final Report
+==================================================
+
+Final report must include:
+1. Host-only DM routing implemented
+2. DM queue/helper added or reused
+3. Random DM silence preserved
+4. DM help commands added
+5. DM !notifysettings remains ignored
+6. Auto-mine summary DM added
+7. Auto-fish summary DM added
+8. !autosummary / !minesummary / !fishsummary added
+9. Staff alerts added
+10. QA alert only on failure
+11. Reports route to staff alerts
+12. Prismatic/exotic catches route to game announcements
+13. First-find reward shout routes to game announcements
+14. All DMs come from ChillTopiaBot only
+15. No economy/game math changed
+16. No player data wiped
+17. Py_compile result
+18. !commandissues result
+19. !qatest all result

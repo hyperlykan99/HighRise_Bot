@@ -41,16 +41,19 @@ _CATEGORY_LABELS = {
 # ── Exact DM command sets (spec-mandated; nothing else triggers action) ───────
 _DM_SUB_CMDS   = frozenset({"!sub", "!subscribe", "sub", "subscribe"})
 _DM_UNSUB_CMDS = frozenset({"!unsub", "!unsubscribe", "unsub", "unsubscribe"})
+_DM_HELP_CMDS  = frozenset({"!help", "help", "!notifyhelp", "notifyhelp",
+                             "?", "!?", "hi", "hello"})
 
 # Public gate — used by main.py on_message to hard-reject random DMs
-VALID_DM_NOTIFY_COMMANDS: frozenset[str] = _DM_SUB_CMDS | _DM_UNSUB_CMDS
+VALID_DM_NOTIFY_COMMANDS: frozenset[str] = (
+    _DM_SUB_CMDS | _DM_UNSUB_CMDS | _DM_HELP_CMDS
+)
 
 
 def is_valid_notify_dm_command(content: str) -> bool:
     """
-    Hard gate: returns True ONLY for the exact DM keywords that trigger
-    subscribe or unsubscribe. Everything else must be silently dropped
-    before any other handler runs.
+    Hard gate: returns True for sub/unsub keywords and DM help commands.
+    Everything else must be silently dropped before any other handler runs.
     """
     return content.strip().lower() in VALID_DM_NOTIFY_COMMANDS
 
@@ -156,6 +159,12 @@ async def process_dm_notify(
     if lower in _DM_UNSUB_CMDS:
         print(f"[NOTIFY DM PARSE] raw={raw!r} action=unsubscribe")
         await _dm_unsubscribe(bot, user_id, uname, conversation_id)
+        return True
+
+    # Help commands — send onboarding reply, do NOT subscribe
+    if lower in _DM_HELP_CMDS:
+        print(f"[NOTIFY DM PARSE] raw={raw!r} action=help_reply")
+        await _dm_help_reply(bot, user_id, uname, conversation_id)
         return True
 
     # Everything else: silent ignore — no reply, no subscribe, no status
@@ -331,16 +340,45 @@ async def handle_notify_category(
 
 # ── Room — !notifyhelp ────────────────────────────────────────────────────────
 
+async def _dm_help_reply(
+    bot: "BaseBot",
+    user_id: str,
+    uname: str,
+    conversation_id: str,
+) -> None:
+    """Send onboarding help to a user who DM'd a help keyword."""
+    if not conversation_id:
+        return
+    try:
+        await bot.highrise.send_message(
+            conversation_id,
+            "🔔 ChillTopiaBot Notifications\n"
+            "Subscribe: DM !sub\n"
+            "Unsubscribe: DM !unsub\n"
+            "Settings: !notifysettings in room\n"
+            "Edit: !notify games on/off in room",
+            "text",
+        )
+        await bot.highrise.send_message(
+            conversation_id,
+            "📢 Categories: events, games,\n"
+            "announcements, promos, tips",
+            "text",
+        )
+    except Exception as exc:
+        print(f"[NOTIFY] _dm_help_reply failed user=@{uname}: {exc!r}")
+
+
 async def handle_notifyhelp(
     bot: "BaseBot", user: "User", args: list[str] | None = None
 ) -> None:
     """Room !notifyhelp."""
     await _w(bot, user.id,
              "🔔 Notification Help\n"
-             "Start: DM me !sub\n"
-             "Stop: DM me !unsub\n"
+             "Start: DM ChillTopiaBot !sub\n"
+             "Stop: DM ChillTopiaBot !unsub\n"
              "Settings: !notifysettings\n"
-             "Edit: !notify events on/off")
+             "Edit: !notify games on/off")
     await _w(bot, user.id,
              "📢 Categories\n"
              "events, games, announcements,\n"
