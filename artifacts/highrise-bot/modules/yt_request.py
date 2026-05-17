@@ -214,14 +214,24 @@ def _sftp_step(mp3_path: str) -> None:
     """
     Upload mp3_path to AzuraCast via SFTP.
 
-    Timeouts:
-      - TCP connect / SSH auth : _SFTP_CONNECT_TIMEOUT  (30 s)
-      - File transfer channel  : _SFTP_TRANSFER_TIMEOUT (180 s)
+    Success is declared the moment sftp.put() returns without raising —
+    the bytes are on the server at that point.  sftp.close() / ssh.close()
+    are best-effort cleanup; they must never block or propagate a failure.
 
-    Progress is logged to stdout at every 25 % milestone and on completion.
-    Raises on any failure; caller is responsible for cleanup.
+    Timeouts:
+      - TCP connect / SSH handshake / auth : _SFTP_CONNECT_TIMEOUT  (30 s)
+      - sftp.put() file transfer channel  : _SFTP_TRANSFER_TIMEOUT (180 s)
+      - post-upload close (best-effort)   : 5 s  (shortened before cleanup)
+
+    Log lines emitted:
+      [YT_SFTP] Connecting …
+      [YT_SFTP] SFTP connected
+      [YT_SFTP] Upload started → <remote_path>
+      [YT_SFTP] Upload 25/50/75/100% …
+      [YT_SFTP] Upload finished ✓ — <N> bytes
+      [YT_SFTP] Connection closed
     """
-    import paramiko  # installed at bot startup
+    import paramiko
 
     cfg             = _sftp_cfg()
     remote_filename = os.path.basename(mp3_path)
@@ -234,60 +244,72 @@ def _sftp_step(mp3_path: str) -> None:
         f" file={remote_filename} ({file_size:,} bytes)"
     )
 
-    ssh = paramiko.SSHClient()
+    ssh  = paramiko.SSHClient()
+    sftp = None
     ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    try:
-        ssh.connect(
-            hostname=cfg["host"],
-            port=cfg["port"],
-            username=cfg["user"],
-            password=cfg["passwd"],
-            timeout=_SFTP_CONNECT_TIMEOUT,
-            banner_timeout=_SFTP_CONNECT_TIMEOUT,
-            auth_timeout=_SFTP_CONNECT_TIMEOUT,
-            look_for_keys=False,
-            allow_agent=False,
-        )
-        print(f"[YT_SFTP] Connected. Opening SFTP channel…")
 
+    try:
+        # ── 1. Connect + authenticate ────────────────────────────────────────
+        try:
+            ssh.connect(
+                hostname=cfg["host"],
+                port=cfg["port"],
+                username=cfg["user"],
+                password=cfg["passwd"],
+                timeout=_SFTP_CONNECT_TIMEOUT,
+                banner_timeout=_SFTP_CONNECT_TIMEOUT,
+                auth_timeout=_SFTP_CONNECT_TIMEOUT,
+                look_for_keys=False,
+                allow_agent=False,
+            )
+        except paramiko.AuthenticationException as auth_exc:
+            print(f"[YT_SFTP] Auth failed — check AZURA_SFTP_USER / AZURA_SFTP_PASS: {auth_exc}")
+            raise
+        except Exception as conn_exc:
+            print(f"[YT_SFTP] Connection failed — check AZURA_SFTP_HOST / AZURA_SFTP_PORT: {conn_exc}")
+            raise
+
+        print("[YT_SFTP] SFTP connected")
+
+        # ── 2. Open SFTP channel with extended transfer timeout ──────────────
         sftp = ssh.open_sftp()
-        # Extend the per-channel socket timeout so large files don't stall out
         sftp.get_channel().settimeout(_SFTP_TRANSFER_TIMEOUT)
 
-        _milestone = [0]   # tracks last logged % milestone (closure)
+        # ── 3. Upload — progress logged at every 25 % milestone ─────────────
+        _milestone = [0]
 
         def _progress(transferred: int, total: int) -> None:
             if not total:
                 return
-            pct = int(transferred * 100 / total)
-            next_milestone = ((_milestone[0] // 25) + 1) * 25
-            if pct >= next_milestone <= 100:
-                _milestone[0] = next_milestone
+            pct           = int(transferred * 100 / total)
+            next_mark     = ((_milestone[0] // 25) + 1) * 25
+            if pct >= next_mark <= 100:
+                _milestone[0] = next_mark
                 print(
-                    f"[YT_SFTP] Upload {next_milestone}%"
+                    f"[YT_SFTP] Upload {next_mark}%"
                     f" ({transferred:,} / {total:,} bytes)"
                 )
 
-        try:
-            print(f"[YT_SFTP] Uploading → {remote_path} (timeout={_SFTP_TRANSFER_TIMEOUT}s)")
-            sftp.put(mp3_path, remote_path, callback=_progress)
-            print(f"[YT_SFTP] Upload complete ✓ → {remote_path} ({file_size:,} bytes)")
-        except Exception as upload_exc:
-            print(f"[YT_SFTP] Upload failed: {upload_exc}")
-            raise
-        finally:
-            sftp.close()
-    except paramiko.AuthenticationException as auth_exc:
-        print(f"[YT_SFTP] Auth failed — check AZURA_SFTP_USER / AZURA_SFTP_PASS: {auth_exc}")
-        raise
-    except (TimeoutError, paramiko.ssh_exception.NoValidConnectionsError) as conn_exc:
-        print(f"[YT_SFTP] Connection failed — check AZURA_SFTP_HOST / AZURA_SFTP_PORT: {conn_exc}")
-        raise
-    except Exception as exc:
-        print(f"[YT_SFTP] Unexpected error: {exc}")
-        raise
+        print(f"[YT_SFTP] Upload started → {remote_path} (timeout={_SFTP_TRANSFER_TIMEOUT}s)")
+        sftp.put(mp3_path, remote_path, callback=_progress)
+
+        # ── 4. sftp.put() returned — file is on the server.  SUCCESS. ────────
+        print(f"[YT_SFTP] Upload finished ✓ — {file_size:,} bytes → {remote_path}")
+
     finally:
-        ssh.close()
+        # ── 5. Best-effort cleanup — shorten timeout so close never blocks ───
+        # We do NOT raise from here; the upload result is already decided above.
+        if sftp is not None:
+            try:
+                sftp.get_channel().settimeout(5)
+                sftp.close()
+            except Exception as close_exc:
+                print(f"[YT_SFTP] sftp.close() warning (ignored): {close_exc}")
+        try:
+            ssh.close()
+            print("[YT_SFTP] Connection closed")
+        except Exception as ssh_close_exc:
+            print(f"[YT_SFTP] ssh.close() warning (ignored): {ssh_close_exc}")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Async pipeline orchestrator
