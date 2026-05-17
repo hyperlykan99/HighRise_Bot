@@ -44,8 +44,6 @@ import threading
 import time
 from typing import TYPE_CHECKING
 
-import aiohttp
-
 import database as db
 from modules.permissions import is_admin, is_owner
 
@@ -212,30 +210,32 @@ def _download_step(url: str, tmpdir: str) -> tuple[dict, str]:
     raise FileNotFoundError("mp3 file not found after yt-dlp conversion")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Async API upload step
+# Blocking API upload step  (run in thread executor — must not touch event loop)
 # ─────────────────────────────────────────────────────────────────────────────
 
-_API_UPLOAD_TIMEOUT = aiohttp.ClientTimeout(
-    total=300,        # 5 min max for the full upload
-    connect=30,       # 30 s to establish connection
-    sock_connect=30,
-    sock_read=180,    # 3 min for read chunks
-)
-
-async def _api_upload_step(mp3_path: str, jid: int) -> None:
+def _api_upload_blocking(mp3_path: str, jid: int) -> None:
     """
-    Async multipart POST to AzuraCast /api/station/{id}/files.
+    Blocking multipart POST to AzuraCast /api/station/{id}/files.
 
-    Log lines (in order for a successful upload):
-      [YT_API] Uploading → {url}  file={filename} ({size} bytes)
-      [YT_API] Upload finished ✓ — HTTP {status}
-      [YT_API] Upload failed — HTTP {status}: {body}   (on non-2xx)
+    Uses the `requests` library so Python builds the raw multipart boundary
+    itself — no extra per-part Content-Type headers that confuse AzuraCast.
+
+    The full HTTP status code and response body are always printed to the
+    console so failures can be diagnosed without guessing.
+
+    Log lines (in order):
+      [YT_API] Uploading → {endpoint}  file={name} ({size} bytes)  path={remote}
+      [YT_API] Response HTTP {code}: {body}
+      [YT_API] Upload finished ✓ — {size} bytes → {remote}    (on 200/201)
+      [YT_API] Upload FAILED — HTTP {code}: {body}             (on non-2xx, then raises)
     """
-    cfg        = _api_cfg()
-    filename   = os.path.basename(mp3_path)
+    import requests as req_lib  # installed via requirements.txt
+
+    cfg         = _api_cfg()
+    filename    = os.path.basename(mp3_path)
     remote_path = f"{cfg['folder'].rstrip('/')}/{filename}"
-    file_size  = os.path.getsize(mp3_path)
-    endpoint   = f"{cfg['base_url']}/api/station/{cfg['station_id']}/files"
+    file_size   = os.path.getsize(mp3_path)
+    endpoint    = f"{cfg['base_url']}/api/station/{cfg['station_id']}/files"
 
     print(
         f"[YT_API] Uploading → {endpoint}"
@@ -243,33 +243,26 @@ async def _api_upload_step(mp3_path: str, jid: int) -> None:
         f"  path={remote_path}"
     )
 
-    headers = {"X-API-Key": cfg["api_key"]}
-
     with open(mp3_path, "rb") as fh:
-        form = aiohttp.FormData()
-        form.add_field(
-            "file",
-            fh,
-            filename=filename,
-            content_type="audio/mpeg",
+        resp = req_lib.post(
+            endpoint,
+            files={"file": (filename, fh, "audio/mpeg")},
+            data={"path": remote_path},
+            headers={"X-API-Key": cfg["api_key"]},
+            timeout=300,
         )
-        form.add_field("path", remote_path)
 
-        async with aiohttp.ClientSession(timeout=_API_UPLOAD_TIMEOUT) as session:
-            async with session.post(endpoint, data=form, headers=headers) as resp:
-                body = await resp.text()
-                if resp.status in (200, 201):
-                    print(
-                        f"[YT_API] Upload finished ✓ — HTTP {resp.status}"
-                        f"  {file_size:,} bytes → {remote_path}"
-                    )
-                else:
-                    print(
-                        f"[YT_API] Upload failed — HTTP {resp.status}: {body[:200]}"
-                    )
-                    raise RuntimeError(
-                        f"AzuraCast API returned HTTP {resp.status}: {body[:120]}"
-                    )
+    # Always log the full response so failures are diagnosable
+    body_preview = resp.text[:500]
+    print(f"[YT_API] Response HTTP {resp.status_code}: {body_preview}")
+
+    if resp.status_code in (200, 201):
+        print(f"[YT_API] Upload finished ✓ — {file_size:,} bytes → {remote_path}")
+    else:
+        print(f"[YT_API] Upload FAILED — HTTP {resp.status_code}: {body_preview}")
+        raise RuntimeError(
+            f"AzuraCast API HTTP {resp.status_code}: {resp.text[:120]}"
+        )
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Async pipeline orchestrator
@@ -298,13 +291,13 @@ async def _run_job(bot: "BaseBot", job: dict) -> None:
         title = (info.get("title") or "Unknown")[:160]
         _update_job(jid, title=title)
 
-        # ── Step 2: API upload ───────────────────────────────────────────────
+        # ── Step 2: API upload (blocking requests call via executor) ────────────
         _update_job(jid, status="uploading")
         await _w(bot, uid, f"📤 Uploading to AzuraCast…\n🎵 {title}")
         print(f"[YT_REQUEST] Job #{jid} — API upload starting: {title[:80]}")
 
         upload_start = time.time()
-        await _api_upload_step(mp3_path, jid)
+        await loop.run_in_executor(None, _api_upload_blocking, mp3_path, jid)
         upload_secs  = time.time() - upload_start
 
         # ── Done ─────────────────────────────────────────────────────────────
