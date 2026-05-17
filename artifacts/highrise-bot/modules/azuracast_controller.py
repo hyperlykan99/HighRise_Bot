@@ -321,8 +321,9 @@ def fetch_queue() -> list:
 
 def wait_for_song_in_queue(
     unique_id: str,
-    max_wait: int = 30,
-    poll_secs: float = 3.0,
+    max_wait: float = 20.0,
+    poll_secs: float = 2.5,
+    stop_flag: "threading.Event | None" = None,
 ) -> bool:
     """
     Poll GET /api/station/{id}/queue (and nowplaying as a fallback) until
@@ -331,15 +332,25 @@ def wait_for_song_in_queue(
     The AzuraCast request queue processor is asynchronous — this gives it time
     to schedule the freshly submitted request before we call skip.
 
+    stop_flag — threading.Event set by the playback engine when the bot is
+                shutting down. The function exits immediately when it is set,
+                preventing long delays during subprocess shutdown.
+
     Returns True if the song is confirmed queued (or already playing).
     Returns False on timeout (caller should still attempt the skip anyway).
     """
+    import threading as _threading
     if not unique_id:
         return False
 
     deadline = time.time() + max_wait
     attempt  = 0
     while time.time() < deadline:
+        # Abort immediately if the bot is shutting down
+        if stop_flag and stop_flag.is_set():
+            print(f"{_LOG} wait_for_queue: stop flag set — exiting early")
+            return False
+
         attempt += 1
 
         # Strategy 1: check the upcoming queue
@@ -370,17 +381,25 @@ def wait_for_song_in_queue(
             f"{_LOG} wait_for_queue attempt {attempt}: {unique_id!r} not yet in queue, "
             f"{max(remaining, 0):.0f}s left"
         )
-        if remaining > 0:
-            time.sleep(min(poll_secs, remaining))
+        if remaining <= 0:
+            break
 
-    print(f"{_LOG} wait_for_queue timeout: {unique_id!r} not seen in {max_wait}s")
+        # Sleep in 0.5 s chunks so stop_flag is checked frequently
+        sleep_until = time.time() + min(poll_secs, remaining)
+        while time.time() < sleep_until:
+            if stop_flag and stop_flag.is_set():
+                return False
+            time.sleep(0.5)
+
+    print(f"{_LOG} wait_for_queue timeout: {unique_id!r} not seen in {max_wait:.0f}s")
     return False
 
 
 def skip_and_verify_request(
     unique_id: str,
     max_retries: int = 3,
-    post_skip_wait: float = 6.0,
+    post_skip_wait: float = 5.0,
+    stop_flag: "threading.Event | None" = None,
 ) -> bool:
     """
     Ensure the requested song starts playing by:
@@ -390,12 +409,33 @@ def skip_and_verify_request(
       4. Waiting `post_skip_wait` s for the new track to settle.
       5. Checking nowplaying.song.id == unique_id.
     Retries up to `max_retries` times when the wrong track is playing.
+
+    stop_flag — threading.Event set by the playback engine on bot shutdown.
+                All sleeps are broken into 0.5 s chunks so the function exits
+                quickly rather than delaying subprocess shutdown.
+
     Returns True if the request is confirmed playing, False if all retries fail.
     """
+    import threading as _threading
+
+    def _interruptible_sleep(seconds: float) -> bool:
+        """Sleep for `seconds`, returning False immediately if stop_flag is set."""
+        end = time.time() + seconds
+        while time.time() < end:
+            if stop_flag and stop_flag.is_set():
+                return False
+            time.sleep(min(0.5, end - time.time()))
+        return True
+
     if not unique_id:
         return False
 
     for attempt in range(1, max_retries + 1):
+        # Abort if bot is shutting down
+        if stop_flag and stop_flag.is_set():
+            print(f"{_LOG} skip_and_verify: stop flag set — exiting early")
+            return False
+
         print(
             f"{_LOG} skip_and_verify attempt {attempt}/{max_retries} "
             f"uid={unique_id!r}"
@@ -403,13 +443,15 @@ def skip_and_verify_request(
 
         # Re-submit to place it at top of request queue
         submit_request(unique_id)
-        time.sleep(2.0)
+        if not _interruptible_sleep(2.0):
+            return False
 
         # Skip current song
         skip_current(max_attempts=1, delay=0)
 
-        # Wait for next track to start and stabilise
-        time.sleep(post_skip_wait)
+        # Wait for next track to start and stabilise (short chunked sleep)
+        if not _interruptible_sleep(post_skip_wait):
+            return False
 
         # Verify
         np = fetch_nowplaying()
@@ -426,7 +468,8 @@ def skip_and_verify_request(
             )
 
         if attempt < max_retries:
-            time.sleep(2.0)
+            if not _interruptible_sleep(2.0):
+                return False
 
     print(f"{_LOG} skip_and_verify: could not confirm {unique_id!r} after {max_retries} attempts")
     return False

@@ -3412,6 +3412,16 @@ class HangoutBot(BaseBot):
         _join_type = "first_connect" if bot_state.RESTART_COUNT == 1 else f"reconnect #{bot_state.RESTART_COUNT - 1}"
         print(f"[ROOM JOIN SUCCESS] bot={BOT_MODE} room={config.ROOM_ID} type={_join_type} @ {_now_ts}")
         _install_task_exception_handler()
+        # Health-check: log when this subprocess exits (disconnect / crash / kick)
+        # atexit fires on both normal and exception exits (not SIGKILL).
+        # bot.py's [PROCESS EXIT] / [WATCHDOG] lines follow immediately after.
+        if bot_state.RESTART_COUNT == 1:
+            import atexit as _atexit
+            _atexit.register(
+                lambda: print(
+                    f"[BOT DISCONNECTED] mode={BOT_MODE} id={config.BOT_ID} — subprocess exiting"
+                )
+            )
         # Install unhandled-exception hooks once on first connect only
         if bot_state.RESTART_COUNT == 1:
             import sys as _sys, traceback as _etb

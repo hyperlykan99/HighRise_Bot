@@ -46,6 +46,7 @@ _STATE_NS     = "playback_"
 
 # ─── Module-level state ───────────────────────────────────────────────────────
 _lock                   = threading.Lock()
+_stop_flag              = threading.Event()    # Set on shutdown; executor threads check this
 _started:         bool  = False
 _mode:            str   = "vibe"    # "vibe" | "requests"
 _cur_song_id:     str   = ""        # AzuraCast song.id currently playing
@@ -299,9 +300,11 @@ async def _on_request_finished(bot: "BaseBot", db_id: int) -> None:
         fn  = (job.get("filename")      or "").strip()
         loop = asyncio.get_running_loop()
         if fid:
-            asyncio.create_task(loop.run_in_executor(None, azura.delete_media_file, fid))
+            # Fire-and-forget: run_in_executor returns a Future tracked by the
+            # thread pool — do NOT wrap in create_task (Future ≠ coroutine).
+            loop.run_in_executor(None, azura.delete_media_file, fid)
         elif fn:
-            asyncio.create_task(loop.run_in_executor(None, azura.sftp_delete_file, fn))
+            loop.run_in_executor(None, azura.sftp_delete_file, fn)
 
     remaining = _db_count_active()
     print(f"{_LOG} Remaining in queue: {remaining}")
@@ -372,10 +375,12 @@ async def _verified_skip_task(bot: "BaseBot", job_id: int, unique_id: str) -> No
             print(f"{_LOG} Job {job_id} already playing — skip task done early")
             return
 
-        # Step 1: Wait for AzuraCast to register the request in its upcoming queue
-        print(f"{_LOG} Waiting for {unique_id!r} in AzuraCast queue (max 30 s)…")
+        # Step 1: Wait for AzuraCast to register the request in its upcoming queue.
+        # max_wait reduced to 20 s (was 30) so this task exits quickly on disconnect.
+        # _stop_flag is passed so the blocking thread can abort early if the bot shuts down.
+        print(f"{_LOG} Waiting for {unique_id!r} in AzuraCast queue (max 20 s)…")
         in_queue = await loop.run_in_executor(
-            None, azura.wait_for_song_in_queue, unique_id, 30, 3.0
+            None, azura.wait_for_song_in_queue, unique_id, 20, 2.5, _stop_flag
         )
 
         # Re-check: poll loop may have caught it while we waited
@@ -385,21 +390,26 @@ async def _verified_skip_task(bot: "BaseBot", job_id: int, unique_id: str) -> No
             return
 
         if not in_queue:
-            print(f"{_LOG} Queue wait timed out — attempting skip anyway (will retry on mismatch)")
+            print(f"{_LOG} Queue wait timed out — attempting skip anyway")
 
-        # Step 2: Skip and verify (retries internally; re-submits before each skip)
+        # Step 2: Skip and verify (retries internally; re-submits before each skip).
+        # post_skip_wait reduced to 5 s (was 6) for faster exit on disconnect.
         ok = await loop.run_in_executor(
-            None, azura.skip_and_verify_request, unique_id, 3, 6.0
+            None, azura.skip_and_verify_request, unique_id, 3, 5.0, _stop_flag
         )
 
         if ok:
             print(f"{_LOG} Verified-skip task ✓: {unique_id!r} confirmed playing")
         else:
-            print(f"{_LOG} Verified-skip task: could not confirm {unique_id!r} — poll loop will handle announcement when it starts")
+            print(f"{_LOG} Verified-skip task: could not confirm {unique_id!r} — poll loop handles announcement")
 
+    except asyncio.CancelledError:
+        _stop_flag.set()
+        print(f"{_LOG} Verified-skip task cancelled — stop flag set")
+        raise
     except Exception as exc:
         import traceback
-        print(f"{_LOG} Verified-skip task error: {exc}")
+        print(f"{_LOG} Verified-skip task error (non-fatal): {exc}")
         traceback.print_exc()
     finally:
         _skip_task_active = False
@@ -447,11 +457,9 @@ async def _poll_loop(bot: "BaseBot") -> None:
                             _verified_skip_task(bot, next_job["id"], uid)
                         )
                     else:
-                        # No unique_id — fall back to simple unverified skip
-                        loop_ref = asyncio.get_running_loop()
-                        asyncio.create_task(
-                            loop_ref.run_in_executor(None, azura.skip_current)
-                        )
+                        # No unique_id — fall back to simple unverified skip.
+                        # run_in_executor returns a Future; do NOT wrap in create_task.
+                        loop.run_in_executor(None, azura.skip_current)
 
             # ── Fetch nowplaying from AzuraCast ──────────────────────────────
             np = await loop.run_in_executor(None, azura.fetch_nowplaying)
@@ -483,7 +491,9 @@ async def _poll_loop(bot: "BaseBot") -> None:
             await _on_new_track(bot, song)
 
         except asyncio.CancelledError:
-            print(f"{_LOG} Poll loop cancelled")
+            # Bot is disconnecting/restarting — signal all executor threads to stop early
+            _stop_flag.set()
+            print(f"{_LOG} Poll loop cancelled — stop flag set, bot disconnecting")
             return
         except Exception as exc:
             import traceback
@@ -520,40 +530,72 @@ async def apply_vibe_change(bot: "BaseBot") -> None:
 
 async def startup_playback_engine(bot: "BaseBot") -> None:
     """
-    Entry point for the DJ bot's on_start.
-    Restores playlist state from DB, recovers any in-flight requests,
-    then starts the polling loop.
-    """
-    global _started, _mode, _cur_req_id
+    Entry point called from on_start (via startup_radio → media_cleanup.start).
 
+    Returns IMMEDIATELY — no HTTP calls happen here.  All I/O is deferred to
+    _startup_init_task which runs as a background asyncio task.  This ensures
+    the Highrise WebSocket event loop is never delayed by AzuraCast HTTP calls
+    at startup time, and the bot can always respond to Highrise traffic.
+    """
+    global _started
     if _started:
         print(f"{_LOG} Already started — skipping duplicate call")
         return
     _started = True
+    _stop_flag.clear()   # Reset flag in case this is a reconnect cycle
+    print(f"{_LOG} Playback engine scheduled ✓ (init deferred)")
+    asyncio.create_task(_startup_init_task(bot))
 
-    print(f"{_LOG} Starting playback engine…")
 
-    playing_now = _db_find_playing()
-    in_flight   = _db_count_active()
+async def _startup_init_task(bot: "BaseBot") -> None:
+    """
+    Deferred startup — runs as a background asyncio task after on_start returns.
 
-    if playing_now:
-        with _lock:
-            _cur_req_id = playing_now["id"]
-            _mode       = "requests"
-        print(f"{_LOG} Recovery: request was playing db_id={playing_now['id']!r}")
-        await _apply_requests_playlists()
+    Waits 2 s for the Highrise WebSocket to fully settle, applies the correct
+    AzuraCast playlist configuration, then launches the persistent poll loop.
+    Failures here are non-fatal: the poll loop still starts so the engine is
+    at least partially operational even if AzuraCast is temporarily unreachable.
+    """
+    global _mode, _cur_req_id
+    try:
+        await asyncio.sleep(2)   # Let the WebSocket connection settle before HTTP calls
 
-    elif in_flight > 0:
-        with _lock:
-            _mode = "requests"
-        print(f"{_LOG} Recovery: {in_flight} request(s) in queue — enabling REQUESTS playlists")
-        await _apply_requests_playlists()
+        playing_now = _db_find_playing()
+        in_flight   = _db_count_active()
 
-    else:
-        with _lock:
-            _mode = "vibe"
-        print(f"{_LOG} No queued requests — applying VIBE/{cs.vibe().upper()} playlists")
-        await _apply_vibe_playlists()
+        if playing_now:
+            with _lock:
+                _cur_req_id = playing_now["id"]
+                _mode       = "requests"
+            print(f"{_LOG} Recovery: request was playing db_id={playing_now['id']!r}")
+            await _apply_requests_playlists()
 
-    asyncio.create_task(_poll_loop(bot))
-    print(f"{_LOG} Playback engine ready ✓")
+        elif in_flight > 0:
+            with _lock:
+                _mode = "requests"
+            print(f"{_LOG} Recovery: {in_flight} request(s) in queue — REQUESTS mode")
+            await _apply_requests_playlists()
+
+        else:
+            with _lock:
+                _mode = "vibe"
+            print(f"{_LOG} No queued requests — applying VIBE/{cs.vibe().upper()} playlists")
+            await _apply_vibe_playlists()
+
+        asyncio.create_task(_poll_loop(bot))
+        print(f"{_LOG} Playback engine ready ✓")
+
+    except asyncio.CancelledError:
+        print(f"{_LOG} Startup init task cancelled (bot disconnecting before init completed)")
+        raise
+
+    except Exception as exc:
+        import traceback
+        print(f"{_LOG} Startup init error (non-fatal): {exc}")
+        traceback.print_exc()
+        # Start the poll loop anyway — it may self-correct once AzuraCast is reachable
+        try:
+            asyncio.create_task(_poll_loop(bot))
+            print(f"{_LOG} Poll loop started despite init error")
+        except Exception as _pe:
+            print(f"{_LOG} Could not start poll loop: {_pe}")
