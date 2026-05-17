@@ -3673,6 +3673,6 @@ async def handle_dj_help(bot: "BaseBot", user: "User") -> None:
          "!djbackup | !djtestall\n"
          "!djban | !djunban | !djbanlist\n"
          "!songban | !songunban | !songbanlist\n"
-         "!djreports | !djcleanup\n"
-         "!setrequestcooldown | !setmaxqueue | !setmaxuserqueue")[:249],
+         "!setrequestcooldown | !setmaxqueue | !setmaxuserqueue\n"
+         "🎵 !ytrequest <url> | !ytqueue | !ytstatus")[:249],
     )

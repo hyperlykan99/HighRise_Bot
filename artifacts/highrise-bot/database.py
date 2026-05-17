@@ -3237,6 +3237,24 @@ def _migrate_db():
     except Exception:
         pass
 
+    # 3.2W — YT Request job log (persistent history for !ytqueue)
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS yt_request_jobs (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id     TEXT NOT NULL DEFAULT '',
+                username    TEXT NOT NULL DEFAULT '',
+                url         TEXT NOT NULL DEFAULT '',
+                title       TEXT NOT NULL DEFAULT '',
+                status      TEXT NOT NULL DEFAULT 'pending',
+                error       TEXT NOT NULL DEFAULT '',
+                started_at  TEXT NOT NULL DEFAULT (datetime('now')),
+                finished_at TEXT
+            )
+        """)
+    except Exception:
+        pass
+
     conn.commit()
     conn.close()
 
