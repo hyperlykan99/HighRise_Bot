@@ -430,6 +430,9 @@ from modules.dj_music import (
     handle_dj_debug, handle_dj_lock, handle_dj_clear,
     handle_dj_remove, handle_dj_radio,
     handle_dj_status, handle_dj_history, handle_dj_toprequests,
+    handle_dj_upnext, handle_dj_stats,
+    handle_dj_favorite, handle_dj_favorites,
+    handle_dj_repeat, handle_dj_shuffle, handle_dj_autoplay, handle_dj_vibes,
     handle_dj_help,
 )
 from modules.dm_queue import startup_host_dm_queue_loop
@@ -7182,6 +7185,22 @@ class HangoutBot(BaseBot):
             await handle_dj_history(self, user)
         elif cmd == "toprequests":
             await handle_dj_toprequests(self, user)
+        elif cmd == "upnext":
+            await handle_dj_upnext(self, user)
+        elif cmd == "djstats":
+            await handle_dj_stats(self, user)
+        elif cmd == "favorite":
+            await handle_dj_favorite(self, user)
+        elif cmd == "favorites":
+            await handle_dj_favorites(self, user)
+        elif cmd == "repeat":
+            await handle_dj_repeat(self, user, args)
+        elif cmd == "shuffle":
+            await handle_dj_shuffle(self, user)
+        elif cmd == "autoplay":
+            await handle_dj_autoplay(self, user, args)
+        elif cmd == "djvibes":
+            await handle_dj_vibes(self, user, args)
         elif cmd == "djhelp":
             await handle_dj_help(self, user)
 

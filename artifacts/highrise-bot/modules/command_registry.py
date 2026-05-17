@@ -493,6 +493,14 @@ REGISTRY: dict[str, Cmd] = {
     "djstatus":         Cmd("dj","music",  True, True,  False),
     "djhistory":        Cmd("dj","music",  True, True,  False),
     "toprequests":      Cmd("dj","music",  True, True,  False),
+    "upnext":           Cmd("dj","music",  True, True,  False),
+    "djstats":          Cmd("dj","music",  True, True,  False),
+    "favorite":         Cmd("dj","music",  True, False, False),
+    "favorites":        Cmd("dj","music",  True, True,  False),
+    "repeat":           Cmd("dj","music",  False,False, False, perm="manager"),
+    "shuffle":          Cmd("dj","music",  False,False, False, perm="manager"),
+    "autoplay":         Cmd("dj","music",  False,False, False, perm="admin"),
+    "djvibes":          Cmd("dj","music",  False,False, False, perm="admin"),
     "djhelp":           Cmd("dj","music",  True, True,  False),
 
     # ── EventHost: new event / autogame commands ─────────────────────────────

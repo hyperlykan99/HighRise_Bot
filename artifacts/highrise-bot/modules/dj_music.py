@@ -56,6 +56,7 @@ Settings : room_settings keys  dj_queue_max | dj_cooldown_secs | dj_user_max
 from __future__ import annotations
 
 import asyncio
+import random as _random
 import re
 import string
 import time
@@ -178,6 +179,9 @@ _CFG_USER_MAX    = "dj_user_max"
 _CFG_VOTE_THRESH = "dj_skipvote_threshold"
 _CFG_DEBUG       = "dj_debug_mode"
 _CFG_LOCK        = "dj_lock"
+_CFG_REPEAT      = "dj_repeat"
+_CFG_AUTOPLAY    = "dj_autoplay"
+_CFG_PERSONALITY = "dj_personality"
 
 _CFG_DEFAULTS: dict[str, str] = {
     _CFG_QUEUE_MAX:   "20",
@@ -186,6 +190,9 @@ _CFG_DEFAULTS: dict[str, str] = {
     _CFG_VOTE_THRESH: "3",
     _CFG_DEBUG:       "off",
     _CFG_LOCK:        "off",
+    _CFG_REPEAT:      "off",
+    _CFG_AUTOPLAY:    "off",
+    _CFG_PERSONALITY: "off",
 }
 
 # Friendly names and valid ranges for !djset
@@ -208,8 +215,14 @@ def _user_max()     -> int:  return _cfg(_CFG_USER_MAX)
 def _vote_thresh()  -> int:  return _cfg(_CFG_VOTE_THRESH)
 def _debug_mode()   -> bool:
     return db.get_room_setting(_CFG_DEBUG, "off").lower() == "on"
-def _dj_locked()    -> bool:
-    return db.get_room_setting(_CFG_LOCK, "off").lower() == "on"
+def _dj_locked()      -> bool:
+    return db.get_room_setting(_CFG_LOCK,        "off").lower() == "on"
+def _dj_repeat()      -> bool:
+    return db.get_room_setting(_CFG_REPEAT,      "off").lower() == "on"
+def _dj_autoplay()    -> bool:
+    return db.get_room_setting(_CFG_AUTOPLAY,    "off").lower() == "on"
+def _dj_personality() -> bool:
+    return db.get_room_setting(_CFG_PERSONALITY, "off").lower() == "on"
 
 
 # ---------------------------------------------------------------------------
@@ -225,6 +238,25 @@ _SEARCH_TTL: int = 180   # seconds
 # user_ids who have voted to skip the current playing row
 # keyed to the current playing row id so votes reset automatically on advance
 _skip_votes: dict[int, set[str]] = {}   # { row_id: {user_id, ...} }
+
+# Playback timer state — intentionally volatile (resets on restart)
+_bot_start_time:  float = time.time()   # epoch when this bot process started
+_playing_since:   float = 0.0           # epoch when current song began playing
+_playback_task:   "asyncio.Task[None] | None" = None  # auto-advance timer
+_repeat_song:     dict | None = None    # copy of currently playing row for !repeat
+
+# DJ personality hype lines (used when dj_personality=on, ~40% chance per song)
+_HYPE_LINES: list[str] = [
+    "🔥 That's what I'm talking about! Let's gooo!",
+    "🎶 DJ DUDU keeping the vibes alive all night!",
+    "💃 Hands up! DJ DUDU is in the house!",
+    "🎧 Certified banger — DJ DUDU approved!",
+    "✨ The queue never stops. Neither does DJ DUDU!",
+    "🔊 Turn it up! DJ DUDU bringing the heat!",
+    "🎤 Feelin' this one? Use !request <song> to add yours!",
+    "🎵 Good taste! DJ DUDU salutes you!",
+    "🕺 Keep those requests coming — DJ DUDU is ready!",
+]
 
 
 # ---------------------------------------------------------------------------
@@ -718,26 +750,217 @@ async def _chat(bot: "BaseBot", msg: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Internal: advance + announce
+# Duration / formatting helpers
+# ---------------------------------------------------------------------------
+
+def _parse_duration(s: str) -> int:
+    """Parse "M:SS" or "H:MM:SS" → total seconds. Returns 0 on failure."""
+    if not s or not isinstance(s, str):
+        return 0
+    try:
+        parts = [int(p) for p in s.strip().split(":")]
+        if len(parts) == 2:
+            return parts[0] * 60 + parts[1]
+        elif len(parts) == 3:
+            return parts[0] * 3600 + parts[1] * 60 + parts[2]
+    except (ValueError, AttributeError):
+        pass
+    return 0
+
+
+def _fmt_secs(secs: int) -> str:
+    """Format seconds as M:SS."""
+    secs = max(0, int(secs))
+    return f"{secs // 60}:{secs % 60:02d}"
+
+
+# ---------------------------------------------------------------------------
+# Playback DB helpers (repeat / favorites / stats)
+# ---------------------------------------------------------------------------
+
+def _requeue_front(song: dict) -> None:
+    """Re-insert `song` at the front of the pending queue for !repeat mode."""
+    try:
+        conn = db.get_connection()
+        conn.execute(
+            "INSERT INTO dj_requests "
+            "(user_id, username, title, youtube_url, duration, status, requested_at) "
+            "VALUES (?, ?, ?, ?, ?, 'pending', datetime('now', '-7200 seconds'))",
+            (song.get("user_id", ""), song.get("username", ""),
+             song.get("title", ""), song.get("youtube_url", ""),
+             song.get("duration", "")),
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+
+def _get_user_favorites(user_id: str, limit: int = 5) -> list[dict]:
+    try:
+        conn = db.get_connection()
+        rows = conn.execute(
+            "SELECT title, youtube_url FROM dj_favorites "
+            "WHERE user_id=? ORDER BY favorited_at DESC LIMIT ?",
+            (user_id, limit),
+        ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+    except Exception:
+        return []
+
+
+def _add_favorite(
+    user_id: str, username: str, title: str, youtube_url: str,
+) -> bool:
+    """Insert into dj_favorites if not already there. Returns True if added."""
+    try:
+        conn = db.get_connection()
+        existing = conn.execute(
+            "SELECT id FROM dj_favorites WHERE user_id=? AND lower(title)=lower(?)",
+            (user_id, title),
+        ).fetchone()
+        if existing:
+            conn.close()
+            return False
+        conn.execute(
+            "INSERT INTO dj_favorites (user_id, username, title, youtube_url) "
+            "VALUES (?, ?, ?, ?)",
+            (user_id, username.lower(), title, youtube_url),
+        )
+        conn.commit()
+        conn.close()
+        return True
+    except Exception:
+        return False
+
+
+def _get_djstats() -> dict:
+    """Return aggregate stats: total requests, most active requester, uptime."""
+    try:
+        conn = db.get_connection()
+        total = conn.execute(
+            "SELECT COUNT(*) AS n FROM dj_requests"
+        ).fetchone()["n"]
+        top_row = conn.execute(
+            "SELECT username, COUNT(*) AS cnt FROM dj_requests "
+            "WHERE user_id != 'autoplay' "
+            "GROUP BY user_id ORDER BY cnt DESC LIMIT 1"
+        ).fetchone()
+        conn.close()
+        top_name = top_row["username"] if top_row else "—"
+        top_cnt  = top_row["cnt"]      if top_row else 0
+        uptime_secs = int(time.time() - _bot_start_time)
+        h, rem = divmod(uptime_secs, 3600)
+        uptime_str = f"{h}h {rem // 60}m" if h else f"{rem // 60}m"
+        return {
+            "total":    total,
+            "top_name": top_name,
+            "top_cnt":  top_cnt,
+            "uptime":   uptime_str,
+            "queue":    _total_active(),
+        }
+    except Exception:
+        return {"total": 0, "top_name": "—", "top_cnt": 0,
+                "uptime": "?", "queue": 0}
+
+
+# ---------------------------------------------------------------------------
+# Central playback advance  (timer · repeat · autoplay · announce · personality)
 # ---------------------------------------------------------------------------
 
 async def _do_advance(bot: "BaseBot") -> None:
     """
-    Advance the queue, fire backend.play(), post room announcement.
-    Called by !skip, !skipvote (auto-skip), and future auto-advance hook.
+    Central queue advance: cancel timer → handle repeat → advance DB →
+    announce + start new timer.  Called by !skip, !skipvote, playback timer.
     """
+    global _playback_task, _playing_since, _repeat_song
+
+    if _playback_task and not _playback_task.done():
+        _playback_task.cancel()
+    _playback_task = None
+
+    # Repeat: re-insert the current song at the front before advancing
+    if _dj_repeat() and _repeat_song:
+        _requeue_front(_repeat_song)
+
     nxt = _advance_queue()
+
+    # Autoplay: when queue is empty, search for a related track
+    if nxt is None and _dj_autoplay():
+        nxt = await _autoplay_search()   # adds to DB; returns dict or None
+        if nxt:
+            promoted = _promote_front()
+            if promoted:
+                nxt = promoted
+            await _chat(bot, f"🤖 Autoplay: {nxt['title'][:60]}")
+
     if nxt:
-        await _backend.play(nxt.get("youtube_url", ""), nxt["title"])
-        url_part = f"\n{nxt['youtube_url']}" if nxt.get("youtube_url") else ""
-        await _chat(
-            bot,
-            f"⏭️ Now playing: {nxt['title'][:55]}"
-            f" (@{nxt['username'][:15]}){url_part}"
-        )
+        await _play_song(bot, nxt)
     else:
+        _playing_since = 0.0
+        _repeat_song   = None
         await _backend.stop()
         await _chat(bot, "🎵 Queue finished. Use !request <song> to add more!")
+
+
+async def _playback_timer(bot: "BaseBot", duration_secs: int) -> None:
+    """Sleep for the song's duration, then auto-advance to the next song."""
+    try:
+        await asyncio.sleep(duration_secs)
+        await _do_advance(bot)
+    except asyncio.CancelledError:
+        pass   # cancelled by skip / stop / clear
+
+
+async def _play_song(bot: "BaseBot", song: dict) -> None:
+    """
+    Set playing state, start auto-advance timer, post room announcement,
+    optionally fire a personality hype line, then call backend.play().
+    Single point where a song 'starts'.
+    """
+    global _playing_since, _repeat_song, _playback_task
+
+    _playing_since = time.time()
+    _repeat_song   = dict(song)
+
+    dur_secs = _parse_duration(song.get("duration", ""))
+    if dur_secs > 0:
+        _playback_task = asyncio.get_event_loop().create_task(
+            _playback_timer(bot, dur_secs)
+        )
+
+    dur = f" [{song['duration']}]" if song.get("duration") else ""
+    url = f"\n{song['youtube_url']}" if song.get("youtube_url") else ""
+    await _chat(
+        bot,
+        f"🎵 Now Playing: {song['title'][:60]}{dur}"
+        f"\nRequested by @{song.get('username', '?')[:15]}{url}"
+    )
+
+    if _dj_personality() and _random.random() < 0.40:
+        await asyncio.sleep(1.5)
+        await _chat(bot, _random.choice(_HYPE_LINES))
+
+    await _backend.play(song.get("youtube_url", ""), song["title"])
+
+
+async def _autoplay_search() -> dict | None:
+    """Search for a related song based on play history. Returns song dict or None."""
+    history = _get_history(3)
+    seed    = history[0]["title"] if history else "top pop hits"
+    results, _ = await _yt_search(seed)
+    if not results:
+        return None
+    recent_low = {r["title"].lower() for r in history}
+    pick = next(
+        (r for r in results if r["title"].lower() not in recent_low),
+        results[0],
+    )
+    pos = _add_request(
+        "autoplay", "autoplay", pick["title"], pick["url"], pick["duration"]
+    )
+    return pick if pos > 0 else None
 
 
 # ---------------------------------------------------------------------------
@@ -864,24 +1087,18 @@ async def handle_dj_pick(
         await _w(bot, user.id, "⚠️ Could not add your request. Try again.")
         return
 
-    # If this is the first song, promote it to 'playing' and fire backend
+    # If this is the first song, promote it to 'playing' and start the timer
     promoted = _promote_front()
-    if promoted:
-        await _backend.play(promoted.get("youtube_url", ""), promoted["title"])
 
     dur = f" [{pick['duration']}]" if pick["duration"] else ""
     url = f"\n{pick['url']}" if pick["url"] else ""
     await _w(bot, user.id,
              f"✅ Added #{pos}: {pick['title'][:50]}{dur}{url}"[:249])
 
-    name = user.username[:15]
     if promoted:
-        await _chat(
-            bot,
-            f"🎵 @{name} requested: {pick['title'][:50]}{dur}\n"
-            f"▶️ Now playing!{url}"[:249]
-        )
+        await _play_song(bot, promoted)   # announces + starts timer + fires backend
     else:
+        name = user.username[:15]
         await _chat(
             bot,
             f"🎵 @{name} added: {pick['title'][:55]}{dur} (#{pos} in queue)"
@@ -916,16 +1133,24 @@ async def handle_dj_queue(bot: "BaseBot", user: "User") -> None:
 
 
 async def handle_dj_nowplaying(bot: "BaseBot", user: "User") -> None:
-    """!nowplaying / !np  —  show current song + link + skip vote status."""
+    """!nowplaying / !np  —  show current song + progress + link + skip votes."""
     now = _get_nowplaying()
     if not now:
         await _w(bot, user.id,
                  "🎵 Nothing playing. Use !request <song> to add one!")
         return
 
-    dur   = f" [{now['duration']}]" if now.get("duration") else ""
-    url   = f"\n🔗 {now['youtube_url']}" if now.get("youtube_url") else ""
-    votes = len(_skip_votes.get(now["id"], set()))
+    # Progress bar — only when we have _playing_since + a parseable duration
+    progress_str = ""
+    if _playing_since > 0 and now.get("status") == "playing" and now.get("duration"):
+        elapsed   = int(time.time() - _playing_since)
+        total_sec = _parse_duration(now["duration"])
+        if total_sec > 0:
+            elapsed      = min(elapsed, total_sec)
+            progress_str = f"\n[{_fmt_secs(elapsed)} / {now['duration']}]"
+
+    url    = f"\n🔗 {now['youtube_url']}" if now.get("youtube_url") else ""
+    votes  = len(_skip_votes.get(now["id"], set()))
     thresh = _vote_thresh()
     vote_str = (
         f"\n👎 Skip votes: {votes}/{thresh} (use !skipvote)"
@@ -939,10 +1164,10 @@ async def handle_dj_nowplaying(bot: "BaseBot", user: "User") -> None:
         nxt_str = f"\nUp next: {n['title'][:40]}{nd} (@{n['username'][:12]})"
 
     msg = (
-        f"▶️ Now Playing{dur}:\n"
+        f"▶️ Now Playing:\n"
         f"{now['title'][:60]}\n"
         f"Requested by @{now['username'][:15]}"
-        f"{url}{vote_str}{nxt_str}"
+        f"{progress_str}{url}{vote_str}{nxt_str}"
     )
     await _w(bot, user.id, msg[:249])
 
@@ -1002,11 +1227,18 @@ async def handle_dj_skipvote(bot: "BaseBot", user: "User") -> None:
 
 async def handle_dj_stopmusic(bot: "BaseBot", user: "User") -> None:
     """!stopmusic  —  clear all pending + playing entries (manager+)."""
+    global _playback_task, _playing_since, _repeat_song
     if not can_manage_games(user.username):
         await _w(bot, user.id, "🔒 Manager only.")
         return
 
     cleared = _clear_queue()
+    if _playback_task and not _playback_task.done():
+        _playback_task.cancel()
+    _playback_task = None
+    _playing_since = 0.0
+    _repeat_song   = None
+
     if cleared == 0:
         await _w(bot, user.id, "🎵 Queue was already empty.")
         return
@@ -1129,11 +1361,18 @@ async def handle_dj_lock(
 
 async def handle_dj_clear(bot: "BaseBot", user: "User") -> None:
     """!djclear  —  wipe entire queue, pending + playing (admin+)."""
+    global _playback_task, _playing_since, _repeat_song
     if not is_admin(user.username):
         await _w(bot, user.id, "🔒 Admin only.")
         return
 
     cleared = _clear_queue()
+    if _playback_task and not _playback_task.done():
+        _playback_task.cancel()
+    _playback_task = None
+    _playing_since = 0.0
+    _repeat_song   = None
+
     if cleared == 0:
         await _w(bot, user.id, "🎵 Queue was already empty.")
         return
@@ -1259,14 +1498,167 @@ async def handle_dj_toprequests(bot: "BaseBot", user: "User") -> None:
     await _w(bot, user.id, "\n".join(lines)[:249])
 
 
+async def handle_dj_upnext(bot: "BaseBot", user: "User") -> None:
+    """!upnext  —  show next 3 queued songs (public)."""
+    upcoming = _get_queue(limit=3)
+    if not upcoming:
+        await _w(bot, user.id,
+                 "🎵 Nothing queued. Use !request <song> to be first!")
+        return
+    lines = ["🎵 Up Next:"]
+    for i, r in enumerate(upcoming, 1):
+        dur = f" [{r['duration']}]" if r.get("duration") else ""
+        lines.append(f"{i}. {r['title'][:44]}{dur} (@{r['username'][:12]})")
+    await _w(bot, user.id, "\n".join(lines)[:249])
+
+
+async def handle_dj_stats(bot: "BaseBot", user: "User") -> None:
+    """!djstats  —  aggregate DJ statistics (public)."""
+    s = _get_djstats()
+    await _w(
+        bot, user.id,
+        f"📊 DJ Stats:\n"
+        f"Total requests: {s['total']}\n"
+        f"Top requester: @{s['top_name']} ({s['top_cnt']} songs)\n"
+        f"Queue: {s['queue']}/{_queue_max()} | Uptime: {s['uptime']}"
+    )
+
+
+async def handle_dj_favorite(bot: "BaseBot", user: "User") -> None:
+    """!favorite  —  save the currently playing song to favorites (public)."""
+    now = _get_nowplaying()
+    if not now:
+        await _w(bot, user.id,
+                 "🎵 Nothing is playing right now.\n"
+                 "Request a song with !request <song>!")
+        return
+    added = _add_favorite(
+        user.id, user.username,
+        now["title"], now.get("youtube_url", ""),
+    )
+    if added:
+        await _w(bot, user.id, f"⭐ Favorited: {now['title'][:55]}")
+    else:
+        await _w(bot, user.id,
+                 f"⭐ Already in your favorites: {now['title'][:50]}")
+
+
+async def handle_dj_favorites(bot: "BaseBot", user: "User") -> None:
+    """!favorites  —  list your saved songs (public)."""
+    rows = _get_user_favorites(user.id, limit=5)
+    if not rows:
+        await _w(bot, user.id,
+                 "⭐ No favorites yet!\n"
+                 "Use !favorite while a song is playing to save it.")
+        return
+    lines = ["⭐ Your favorites:"]
+    for i, r in enumerate(rows, 1):
+        lines.append(f"{i}. {r['title'][:52]}")
+    await _w(bot, user.id, "\n".join(lines)[:249])
+
+
+async def handle_dj_repeat(
+    bot: "BaseBot", user: "User", args: list[str],
+) -> None:
+    """!repeat on|off  —  loop the current song when it ends (manager+)."""
+    if not can_manage_games(user.username):
+        await _w(bot, user.id, "🔒 Manager only.")
+        return
+    if len(args) < 2 or args[1].lower() not in ("on", "off"):
+        cur = "ON" if _dj_repeat() else "OFF"
+        await _w(bot, user.id,
+                 f"🔁 Repeat is currently {cur}.\nUsage: !repeat on|off")
+        return
+    state = args[1].lower()
+    db.set_room_setting(_CFG_REPEAT, state)
+    if state == "on":
+        await _w(bot, user.id, "🔁 Repeat ON — current song will loop.")
+    else:
+        await _w(bot, user.id, "🔁 Repeat OFF.")
+
+
+async def handle_dj_shuffle(bot: "BaseBot", user: "User") -> None:
+    """!shuffle  —  randomise the pending queue order (manager+)."""
+    if not can_manage_games(user.username):
+        await _w(bot, user.id, "🔒 Manager only.")
+        return
+    try:
+        conn = db.get_connection()
+        rows = conn.execute(
+            "SELECT id FROM dj_requests WHERE status='pending' "
+            "ORDER BY requested_at ASC"
+        ).fetchall()
+        if len(rows) < 2:
+            conn.close()
+            await _w(bot, user.id,
+                     "🔀 Need at least 2 pending songs to shuffle.")
+            return
+        ids = [r["id"] for r in rows]
+        _random.shuffle(ids)
+        for i, rid in enumerate(ids):
+            conn.execute(
+                "UPDATE dj_requests SET requested_at=datetime('now',?) WHERE id=?",
+                (f"-{len(ids) - i} seconds", rid),
+            )
+        conn.commit()
+        conn.close()
+    except Exception:
+        await _w(bot, user.id, "⚠️ Shuffle failed. Try again.")
+        return
+    await _w(bot, user.id, f"🔀 Shuffled {len(rows)} songs!")
+    await _chat(bot, f"🔀 Queue shuffled! ({len(rows)} songs)")
+
+
+async def handle_dj_autoplay(
+    bot: "BaseBot", user: "User", args: list[str],
+) -> None:
+    """!autoplay on|off  —  auto-search related songs when queue empties (admin+)."""
+    if not is_admin(user.username):
+        await _w(bot, user.id, "🔒 Admin only.")
+        return
+    if len(args) < 2 or args[1].lower() not in ("on", "off"):
+        cur = "ON" if _dj_autoplay() else "OFF"
+        await _w(bot, user.id,
+                 f"🤖 Autoplay is currently {cur}.\nUsage: !autoplay on|off")
+        return
+    state = args[1].lower()
+    db.set_room_setting(_CFG_AUTOPLAY, state)
+    if state == "on":
+        await _w(bot, user.id,
+                 "🤖 Autoplay ON — I'll queue related songs when the queue empties.")
+    else:
+        await _w(bot, user.id, "🤖 Autoplay OFF.")
+
+
+async def handle_dj_vibes(
+    bot: "BaseBot", user: "User", args: list[str],
+) -> None:
+    """!djvibes on|off  —  toggle DJ personality hype lines between songs (admin+)."""
+    if not is_admin(user.username):
+        await _w(bot, user.id, "🔒 Admin only.")
+        return
+    if len(args) < 2 or args[1].lower() not in ("on", "off"):
+        cur = "ON" if _dj_personality() else "OFF"
+        await _w(bot, user.id,
+                 f"🎤 DJ vibes are currently {cur}.\nUsage: !djvibes on|off")
+        return
+    state = args[1].lower()
+    db.set_room_setting(_CFG_PERSONALITY, state)
+    if state == "on":
+        await _w(bot, user.id, "🎤 DJ vibes ON — hype lines between songs!")
+        await _chat(bot, "🎤 DJ DUDU vibes mode activated! Let's gooo! 🔥")
+    else:
+        await _w(bot, user.id, "🎤 DJ vibes OFF.")
+
+
 async def handle_dj_help(bot: "BaseBot", user: "User") -> None:
     """!djhelp  —  list all DJ commands."""
     await _w(
         bot, user.id,
         "🎵 DJ Commands:\n"
-        "!request / !req / !sr / !song <song>\n"
-        "!pick <1-5> | !queue | !np | !skipvote\n"
-        "!djstatus | !djhistory | !toprequests | !radio\n"
-        "Staff: !skip !stopmusic !djconfig\n"
-        "Admin: !djlock !djclear !djremove !djset !djdebug"
+        "!request/!req/!sr/!song | !pick <1-5>\n"
+        "!np | !upnext | !queue | !skipvote | !favorite\n"
+        "!favorites | !djstats | !djstatus | !radio\n"
+        "Staff: !skip !repeat !shuffle !stopmusic !djconfig\n"
+        "Admin: !djlock !djclear !djremove !autoplay !djvibes"
     )

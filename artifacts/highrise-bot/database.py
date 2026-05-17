@@ -3133,6 +3133,21 @@ def _migrate_db():
         except Exception:
             pass
 
+    # 3.2O — DJ favorites table
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS dj_favorites (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id      TEXT NOT NULL DEFAULT '',
+                username     TEXT NOT NULL DEFAULT '',
+                title        TEXT NOT NULL DEFAULT '',
+                youtube_url  TEXT NOT NULL DEFAULT '',
+                favorited_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+        """)
+    except Exception:
+        pass
+
     conn.commit()
     conn.close()
 
