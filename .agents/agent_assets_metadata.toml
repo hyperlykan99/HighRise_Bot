@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "MfH7iTw3W3_1nKNkc2aq5"
+uri = "file://artifacts/highrise-bot/DJ_DUDU_DEPLOYMENT.md"
+type = "text"
+title = "DJ_DUDU Deployment Checklist"
