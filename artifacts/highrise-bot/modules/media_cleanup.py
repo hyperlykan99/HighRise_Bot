@@ -1,12 +1,17 @@
 """
 modules/media_cleanup.py
 ------------------------
-AzuraCast file lifecycle manager.
+AzuraCast file lifecycle manager and playback engine startup.
 
-Wraps the yt_request cleanup loop to provide a named, discoverable startup
-entry point.  The cleanup loop itself runs inside yt_request so it can access
-the in-memory job state directly — future work can migrate the loop here once
-the state layer is fully extracted.
+Calls two background tasks:
+  1. playback_engine.startup_playback_engine(bot)
+       — bot-controlled playlist switching, song detection, track announcements,
+         and immediate post-play file deletion.
+  2. startup_yt_cleanup_task(bot) from yt_request
+       — legacy safety-net that catches any stale request files the primary
+         engine may have missed (e.g. if the bot was offline during playback).
+
+Both tasks are idempotent on reconnect.
 """
 from __future__ import annotations
 from typing import TYPE_CHECKING
@@ -17,9 +22,11 @@ if TYPE_CHECKING:
 
 async def start(bot: "BaseBot") -> None:
     """
-    Start the AzuraCast media cleanup + now-playing announcement loop.
-    Call once from on_start for the DJ bot — idempotent (yt_request guards
-    against double-start internally).
+    Entry point for the DJ bot's on_start.
+    Starts the primary playback engine and the legacy cleanup safety-net.
     """
-    from modules.yt_request import startup_yt_cleanup_task
+    from modules.playback_engine import startup_playback_engine
+    from modules.yt_request      import startup_yt_cleanup_task
+
+    await startup_playback_engine(bot)
     await startup_yt_cleanup_task(bot)

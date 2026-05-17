@@ -39,6 +39,7 @@ import modules.config_store         as cs
 import modules.dj_announcer         as ann
 import modules.payment_service      as ps
 import modules.request_queue        as rq
+import modules.playback_engine      as engine
 from modules.permissions import is_admin, is_owner
 
 if TYPE_CHECKING:
@@ -549,19 +550,12 @@ async def handle_vibe(bot: "BaseBot", user: "User", args: list) -> None:
         await _w(bot, user.id, "📻 AzuraCast API not configured (AZURA_BASE_URL / AZURA_API_KEY).")
         return
 
-    if not cs.chill_playlist_id() or not cs.party_playlist_id():
-        await _w(bot, user.id, "⚠️ Playlist IDs not set. Configure AZURA_PLAYLIST_CHILL_ID & AZURA_PLAYLIST_PARTY_ID.")
-        return
-
-    loop                   = asyncio.get_running_loop()
-    chill_ok, party_ok     = await loop.run_in_executor(None, azura.apply_vibe, sub)
     cs.set_vibe(sub)
+    await engine.apply_vibe_change(bot)
     await ann.announce_vibe_changed(bot, sub)
-
-    if not chill_ok or not party_ok:
-        await _w(bot, user.id, f"⚠️ Vibe set to {sub.upper()} but one playlist toggle failed — check API.")
-    else:
-        await _w(bot, user.id, f"✅ Vibe switched to {sub.upper()}.")
+    mode = engine.get_playlist_mode()
+    note = " (request queue active — vibe takes effect when queue clears)" if mode == "requests" else ""
+    await _w(bot, user.id, f"✅ Vibe set to {sub.upper()}.{note}")
 
 
 # ─── !setrequestprice ─────────────────────────────────────────────────────────
@@ -612,8 +606,8 @@ async def handle_radiohelp(bot: "BaseBot", user: "User", _args: list) -> None:
 async def startup_radio(bot: "BaseBot") -> None:
     """
     Called from on_start for the DJ bot.
-    Starts the AzuraCast media-cleanup / now-playing announcement loop.
+    Starts the bot-controlled playback engine + legacy file cleanup safety-net.
     """
     from modules.media_cleanup import start as _start_cleanup
-    print(f"{_LOG} Starting radio cleanup loop…")
+    print(f"{_LOG} Starting radio / playback engine…")
     await _start_cleanup(bot)
