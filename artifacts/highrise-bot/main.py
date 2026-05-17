@@ -424,8 +424,9 @@ from modules.staff_alerts import (
     handle_reportalertdebug,
 )
 from modules.dj_music import (
-    handle_dj_request, handle_dj_queue, handle_dj_nowplaying,
-    handle_dj_skip, handle_dj_stopmusic,
+    handle_dj_request, handle_dj_pick, handle_dj_queue,
+    handle_dj_nowplaying, handle_dj_skip, handle_dj_skipvote,
+    handle_dj_stopmusic,
 )
 from modules.dm_queue import startup_host_dm_queue_loop
 from modules.autosummary import (
@@ -7145,12 +7146,16 @@ class HangoutBot(BaseBot):
         # ── DJ Music ──────────────────────────────────────────────────────────
         elif cmd in ("request", "sr"):
             await handle_dj_request(self, user, args)
+        elif cmd in ("pick", "djpick"):
+            await handle_dj_pick(self, user, args)
         elif cmd in ("queue", "djqueue"):
             await handle_dj_queue(self, user)
         elif cmd in ("nowplaying", "np"):
             await handle_dj_nowplaying(self, user)
         elif cmd in ("skip", "djskip"):
             await handle_dj_skip(self, user)
+        elif cmd == "skipvote":
+            await handle_dj_skipvote(self, user)
         elif cmd in ("stopmusic", "djstop", "clearqueue"):
             await handle_dj_stopmusic(self, user)
 

@@ -611,9 +611,11 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "emoteinfo": "dj",
     # dj — music / song-request queue
     "request": "dj", "sr": "dj",
+    "pick": "dj", "djpick": "dj",
     "queue": "dj", "djqueue": "dj",
     "nowplaying": "dj", "np": "dj",
     "skip": "dj", "djskip": "dj",
+    "skipvote": "dj",
     "stopmusic": "dj", "djstop": "dj", "clearqueue": "dj",
     # eventhost — events / autogames (new)
     "adminsblessing": "eventhost", "adminblessing": "eventhost",

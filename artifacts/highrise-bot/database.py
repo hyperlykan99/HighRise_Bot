@@ -3124,6 +3124,15 @@ def _migrate_db():
     except Exception:
         pass
 
+    # 3.2N — DJ requests: add youtube_url and duration columns
+    for _col, _dflt in (("youtube_url", "''"), ("duration", "''")):
+        try:
+            conn.execute(
+                f"ALTER TABLE dj_requests ADD COLUMN {_col} TEXT NOT NULL DEFAULT {_dflt}"
+            )
+        except Exception:
+            pass
+
     conn.commit()
     conn.close()
 

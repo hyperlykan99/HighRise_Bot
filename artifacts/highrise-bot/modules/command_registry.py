@@ -474,10 +474,12 @@ REGISTRY: dict[str, Cmd] = {
 
     # ── DJ: music / song-request queue ───────────────────────────────────────
     "request":          Cmd("dj","music",  True, False, True, aliases=("sr",)),
+    "pick":             Cmd("dj","music",  True, False, True, aliases=("djpick",)),
     "queue":            Cmd("dj","music",  True, True,  False, aliases=("djqueue",)),
     "nowplaying":       Cmd("dj","music",  True, True,  False, aliases=("np",)),
     "skip":             Cmd("dj","music",  False,False, True,  perm="manager",
                             aliases=("djskip",)),
+    "skipvote":         Cmd("dj","music",  True, False, True),
     "stopmusic":        Cmd("dj","music",  False,False, True,  perm="manager",
                             aliases=("djstop","clearqueue")),
 
