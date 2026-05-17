@@ -91,7 +91,7 @@ def _cooldown_secs() -> int:
         return _DEFAULT_COOLDOWN
 
 _REQUIRED_SFTP_VARS = ("AZURA_SFTP_HOST", "AZURA_SFTP_USER", "AZURA_SFTP_PASS")
-_DEFAULT_SFTP_PATH  = "/stations/chilltopia/media/Requests"
+_DEFAULT_SFTP_PATH  = "Requests"
 
 def _sftp_cfg() -> dict:
     # AZURA_SFTP_PATH — absolute remote directory on the AzuraCast server.
